@@ -17,7 +17,7 @@ For each item, decide whether to **delete** it (it stays in git history), **rest
 | `TODO` | 2022-02 | Old to-do list |
 | `test/` | 2020–23 | vasm syntax experiments and `makebin*.py`; most don't assemble |
 | `plan-for-wendy2-merge-sort-demo.md` | 2026-05 | Plan for `wendy2_merge_sort.s`, which has been implemented |
-| `assembler2/webserver/`, `assembler2/tests/` | 2026-03/07 | 6502 HTTP demo and its test. They need the emulator socket API, which was never ported (tag `archive/install-hexdump`), and use stage `23/` paths |
+| `assembler2/webserver/`, `assembler2/tests/` | 2026-03/07 | 6502 HTTP demo and its test. They need the emulator socket API, which was never ported (branch and tag `archive/claude/install-hexdump-5CahY`), and use stage `23/` paths |
 | `assembler2/terminal_demo/` | 2026-02 | ANSI terminal demo; uses stage `23/` paths |
 | `assembler2/webapp/` | 2026-03 | Python "hello world" server; not 6502-related |
 | `assembler2/gogen.sh` | 2026-02 | Watch mode for `emulator.c`, which no longer exists |
@@ -25,7 +25,7 @@ For each item, decide whether to **delete** it (it stays in git history), **rest
 | `assembler2/check_ascii.sh` | 2026-02 | Scans the old `22/` and `23/` stages |
 | `assembler2/REVIEW` | 2026-02 | Review of asm22 (before the renumber) |
 | `assembler2/archive/` | 2026-02 | Earlier plan documents |
-| `assembler2/UNIFIED_PARSING_ANALYSIS.md` | 2026-07 | Analysis for the `asm-unified-parsing` refactor, which was never ported to stage 17 (tag `archive/asm-unified-parsing`) |
+| `assembler2/UNIFIED_PARSING_ANALYSIS.md` | 2026-07 | Analysis for the `asm-unified-parsing` refactor, which was never ported to stage 17 (branch and tag `archive/asm-unified-parsing`) |
 
 ## Michael Arduino directory cleanup (2026-09-24)
 
@@ -45,7 +45,7 @@ The merge accepted michael_keyboard_wip's 2023 deletions of these files. They we
 
 ## Unmerged branch work (`unmerged/`)
 
-Commits that exist only on branches that were never merged, exported with `git format-patch` so they can be read here. The branches themselves are kept as `archive/*` tags at go-live.
+Commits that exist only on branches that were never merged, exported with `git format-patch` so they can be read here. The branches themselves are kept in this repository as `archive/…` branches (and `archive/…` tags).
 
 | Item | What it is |
 |---|---|

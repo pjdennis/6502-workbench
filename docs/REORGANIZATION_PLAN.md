@@ -1,6 +1,6 @@
 # Repository reorganization plan
 
-Status: **trial complete, awaiting go-live.** Phases 0–4 are done on branch `claude/repo-org-restructure-plan-e0got9`. `main`, the other branches and the tags haven't been touched yet; the go-live steps are in [§6](#6-go-live-checklist-not-yet-run). Analysis date: 2026-09-24. See the [progress log](#5-progress-log).
+Status: **done (2026-09-24).** The reorganized history was pushed to a new repository, `pjdennis/6502-workbench`, instead of rewriting `pjdennis/6502-experiments` in place. See [§6](#6-go-live-checklist-not-yet-run).
 
 ## 1. Current state
 
@@ -341,6 +341,15 @@ Each step is a pure-rename commit followed by a path-fix commit. All suites pass
 - **Milestone tags are not created yet.** They are listed in `tools/reorg/milestones.txt`, and `go_live.sh` creates them.
 
 ## 6. Go-live checklist (not yet run)
+
+> **Outcome.** The in-place go-live below could not run from the reorganization session, because its git proxy only allowed pushes to that session's own branch. Instead, on 2026-09-24:
+> - the owner created an empty repository, `pjdennis/6502-workbench`;
+> - `main` there was set to the reorganized tip (`1c8d506`, full history);
+> - the three unmerged branches were pushed as `archive/asm-unified-parsing`, `archive/claude/install-hexdump-5CahY` and `archive/claude/prog8-assembler-gap-analysis-pJ7nG`. All 2,603 commits of every old branch are in the new repository.
+>
+> Tags could not be pushed from that session either. `tools/reorg/create_tags.sh` creates the 16 milestone tags, an `archive/<branch>` tag for each of the 18 old branch tips (`tools/reorg/archive-tips.txt`) and `reorg/before`/`reorg/after`. It replaces `go_live.sh`, which is in history.
+>
+> `pjdennis/6502-experiments` is left unchanged; archiving it on GitHub is the owner's call.
 
 Only these steps change shared state. They need the owner's go-ahead.
 

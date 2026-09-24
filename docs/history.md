@@ -2,7 +2,7 @@
 
 The repository has a single, unbroken git history, from `d297d44` ("initial", 2020-07-20) to today. Nothing has been rewritten. Every commit below still exists with its original hash, and checking one out gives the files, paths and scripts of that time.
 
-> **Tags.** The milestone names below become annotated tags when the 2026 reorganization goes live (see `docs/REORGANIZATION_PLAN.md`). Until then, use the commit hash.
+> **Tags.** The milestone names below are annotated tags, listed in `tools/reorg/milestones.txt` and created by `tools/reorg/create_tags.sh --apply`. If `git tag` shows none, run that script, or use the commit hashes, which work either way.
 
 ## Building an older era
 
@@ -44,7 +44,7 @@ Then build it the way that era did, using the table below.
 | 2026-05-31 | Prog8 work begins (`p8c` walking skeleton); BBC BASIC IV analysis | `2cf87c2`, `0231e2c` | `make -C assembler2 prog8-test` |
 | 2026-06-07 | **p1 self-hosts** on banked Wendy 2 (byte-identical to host p8c) | `fb90b8e` (`prog8/self-hosts`) | `P1_WENDY_SELFHOST=1 make -C assembler2 p1-test` (~18 min) |
 | 2026-09-23 | PLD cfg `$18` restored to upper ROM | `17e4a78` (`wendy2c/pld-cfg18-rom`) | `make -C assembler2 test` |
-| 2026-09-24 | **Reorganization**: `michael_keyboard_wip` merged, new layout, CI | `reorg/before` … `reorg/after` | `make`, `tools/check_all.sh` (see the root README) |
+| 2026-09-24 | **Reorganization**: `michael_keyboard_wip` merged, new layout, CI; moved to the new repository `pjdennis/6502-workbench` | `reorg/before` … `reorg/after` | `make`, `tools/check_all.sh` (see the root README) |
 
 ## By area
 

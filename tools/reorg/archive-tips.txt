@@ -1,0 +1,22 @@
+# archive/<branch>: the tip of every branch of pjdennis/6502-experiments when it was
+# reorganized into pjdennis/6502-workbench (2026-09-24). <tag> <commit> <message>
+archive/asm-unified-parsing 2e82f2e4a1986c9bbe939b8b927f8335d01322c8 Tip of branch asm-unified-parsing in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/assembler2-tracking d4010623878447725202b3cded24e1899f4ec3c1 Tip of branch assembler2-tracking in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/assembler-v17-tests-copt83 4d41bd4f943b51d5cbb4f9a79345960aebf7c8d9 Tip of branch claude/assembler-v17-tests-copt83 in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/bbc-basic-four-analysis-JBZDp b60b74f4d92be32076bdcef631959a87451e8f94 Tip of branch claude/bbc-basic-four-analysis-JBZDp in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/editor-branch-merge-e7x682 4777ff12e391ea8b28aa23c1c41d57162f4b2469 Tip of branch claude/editor-branch-merge-e7x682 in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/hdl-code-pld-uh33sg 17e4a783fe12950cec5a18df3c5587e687d11af5 Tip of branch claude/hdl-code-pld-uh33sg in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/install-hexdump-5CahY 9b974e81b2de1cd113aa333f26728fe3eb88f41f Tip of branch claude/install-hexdump-5CahY in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/pld-hardware-memory-map-3hslxb dd0cf45d773c9c48bd5ae6d01630d10ffbf210bf Tip of branch claude/pld-hardware-memory-map-3hslxb in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/prog8-assembler-gap-analysis-pJ7nG 97c20c1b16a53c5fca9ecba88facccf23f8dd013 Tip of branch claude/prog8-assembler-gap-analysis-pJ7nG in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/prog8-bootstrap-continue-6Pzo0 fb90b8e07e546ce3b4303476519da0d6fb54dcad Tip of branch claude/prog8-bootstrap-continue-6Pzo0 in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/review-stack-optimization-RvSu5 b57f2c576aeb15ca51180bf47a132b12b18442b9 Tip of branch claude/review-stack-optimization-RvSu5 in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/review-wendy2-plan-MOfnA 1c987ae8a79b1e4e7e3792763f9d1cf7cea6fbe0 Tip of branch claude/review-wendy2-plan-MOfnA in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/setup-editor-assembler2-5cnH6 b2b18f948567c0657e814b39df43000d1a0d2be4 Tip of branch claude/setup-editor-assembler2-5cnH6 in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/claude/sync-text-editor-branch-AUWPA dc05a26ca2d0c5c98d82c82c08797ba806451df6 Tip of branch claude/sync-text-editor-branch-AUWPA in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/main 9c3b88e73fade2e69e1115cbf11c5b8d5251f48f Tip of branch main in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/michael_keyboard_wip 27bbc44b018e5303d6176bb2142e348bc61b22b7 Tip of branch michael_keyboard_wip in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/text-editor 67b054732d5c80dae177bb835d466ec6b504b6ef Tip of branch text-editor in pjdennis/6502-experiments before the 2026-09 reorganization
+archive/wendy2-emulator 5d07c1aadf590e3ccc1ac126eb2929e6fc567f74 Tip of branch wendy2-emulator in pjdennis/6502-experiments before the 2026-09 reorganization
+reorg/before dd0cf45d773c9c48bd5ae6d01630d10ffbf210bf State before the 2026-09 reorganization (tip of claude/pld-hardware-memory-map-3hslxb)
+reorg/after 1c8d5069d668c07f4334d1afb28188aacca99224 The 2026-09 reorganization, as first pushed to pjdennis/6502-workbench

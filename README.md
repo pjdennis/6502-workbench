@@ -1,6 +1,8 @@
-# 6502 experiments
+# 6502 workbench
 
 Homebrew 6502 single-board computers and the software written for them: board firmware and peripheral drivers, self-hosting assemblers, a vi-like editor, a Prog8 compiler that compiles itself on the target, and a board-accurate emulator. It has grown since 2020. [`docs/history.md`](docs/history.md) tells the story and shows how to build each era.
+
+This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 with its full history. Every commit of every old branch is here: `main` plus three `archive/…` branches for work that was never merged. The `archive/<branch>` tags record where each old branch pointed.
 
 ## Map
 
