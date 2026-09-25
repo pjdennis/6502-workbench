@@ -20,7 +20,7 @@
   .macro add8iTo16usingA,address,value
   clc
   lda \address
-  adc #(\value)
+  adc #\value
   sta \address
   bcc .\@
   inc \address+1

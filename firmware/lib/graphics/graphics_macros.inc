@@ -15,19 +15,19 @@
 
 
   .macro gd_send_command_immediate,value
-  lda #(\value)
+  lda #\value
   jsr gd_send_command
   .endm
 
 
   .macro gd_send_data_immediate,value
-  lda #(\value)
+  lda #\value
   jsr gd_send_data
   .endm
 
 
   .macro gd_send_x2,value
-  lda #(\value)
+  lda #\value
 ; jsr gd_send_data
   sta PORTB
   lda #GD_E

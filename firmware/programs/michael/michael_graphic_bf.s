@@ -53,11 +53,11 @@ bf_codeEnd                = $7f00
 
 
 CT_COMMANDS:
-  ct_entry "hello",      doHello
-  ct_entry "sierpinski", doSierpinski
-  ct_entry "golden",     doGolden
-  ct_entry "fibonacci",  doFibonacci
-  ct_entry "life",       doLife
+  ct_entry doHello,      "hello"
+  ct_entry doSierpinski, "sierpinski"
+  ct_entry doGolden,     "golden"
+  ct_entry doFibonacci,  "fibonacci"
+  ct_entry doLife,       "life"
   .byte 0
 
  

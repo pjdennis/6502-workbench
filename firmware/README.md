@@ -1,6 +1,6 @@
 # Firmware
 
-6502 assembly for the real boards, assembled with **vasm 1.9f** (`vasm6502_oldstyle`).
+6502 assembly for the real boards, assembled with **vasm** (`vasm6502_oldstyle`). vasm 1.9f and 2.0 through 2.0f all produce byte-identical binaries. `firmware/manifest.txt` records the version CI uses, 2.0e.
 
 ```
 firmware/
@@ -42,14 +42,15 @@ For hardware, use the scripts in [`tools/upload/`](../tools/upload/). They assem
 
 Because includes are resolved by name, **file names must be unique across the include directories**. `firmware/vasm` uses `vasm6502_oldstyle` from `PATH`, or `$VASM` if set.
 
-### Why vasm 1.9f
+### Writing code that assembles the same on every vasm
 
-Two changes in newer vasm break this code:
+vasm 2.0 changed three things that older code relied on. The code was ported in 2026-09, with every binary unchanged. `tools/tests/test_vasm_portability.py` keeps these rules enforced:
 
-- **vasm 2.0 and later reject `lda #(>X)`.** The Michael graphics macros use it, so `graphics_macros.inc` and 8 programs fail to assemble.
-- **vasm 2.0d and later no longer add a NUL after `.ascii` strings.** Some older programs rely on the terminator; `4bit_hello.s` assembles but prints garbage.
+- **Use `.asciiz`, not `.ascii`.** vasm 1.9f NUL-terminated `.ascii` strings, and 2.0d+ doesn't. For an unterminated string, use `.byte`.
+- **Don't write a byte selector inside parentheses.** vasm 2.0+ rejects `lda #(>X)`. Macros take immediate arguments as `lda #\value`, so callers can pass `>X` or `<X`.
+- **Make a quoted string the last macro argument.** vasm 2.0+ doesn't split arguments after a quoted string: in `m "s", x`, the first parameter receives `"s", x`. For example, `ct_entry doHello, "hello"`.
 
-Porting to current vasm is future work.
+Commits from before the port need vasm 1.9f; see `docs/history.md`.
 
 ## Regression check
 

@@ -33,4 +33,4 @@ busy_loop:
 
 
 message:
-  .ascii "Hello from ram!"
+  .asciiz "Hello from ram!"

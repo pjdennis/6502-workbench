@@ -38,7 +38,7 @@ BANK_TEST_CHAR_FIXED   = $2000
 
 
 test_message:
-  .ascii "Ambidextrous"
+  .asciiz "Ambidextrous"
 
 
 reset:

@@ -14,7 +14,7 @@ tools/check_all.sh        # all suites: firmware asm1 asm2 emulator prog8 (~3.5 
 tools/check_all.sh asm2   # one suite
 ```
 
-- vasm must be **1.9f** (`vasm6502_oldstyle` on PATH). Newer versions reject parts of the firmware. Always assemble firmware through `firmware/vasm`, which adds the include path (`firmware/include-dirs`).
+- vasm: `vasm6502_oldstyle` on PATH. 1.9f and 2.0–2.0f give identical binaries; the manifest and CI use **2.0e**. Keep firmware portable: `.asciiz` not `.ascii`, no `#(>X)` / `#(\value)` in macros, quoted strings last in macro calls (see `firmware/README.md`; enforced by `tools/tests/test_vasm_portability.py`). Always assemble firmware through `firmware/vasm`, which adds the include path (`firmware/include-dirs`).
 - `firmware/manifest.txt` holds the hash of every firmware binary. Refresh it after an intended output change: `python3 tools/firmware_manifest.py update --include-list firmware/include-dirs`.
 - Slow opt-in tests are not in `check_all`: `make harte`, `P1_WENDY_SELFHOST=1`, `MERGE_SORT_FULL_N=1`, `make -C toolchain/prog8 wendy2-test`.
 

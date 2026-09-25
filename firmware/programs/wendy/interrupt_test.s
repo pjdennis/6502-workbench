@@ -88,7 +88,7 @@ busy_loop:
 
 
 message:
-  .ascii "Count: "
+  .asciiz "Count: "
 
 
 ; Interrupt handler - switch memory banks and routines

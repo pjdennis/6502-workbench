@@ -15,7 +15,7 @@ cd ../6502-2021
 
 Then build it the way that era did, using the table below.
 
-**Before 2026-09, everything lived at the repository root.** Programs were assembled with `vasm6502_oldstyle` from the root (usually a `./vasm6502_oldstyle` binary or symlink there) and uploaded with the `compile_and_upload*.sh` / `transfer*.py` scripts of that commit. Use **vasm 1.9f**. vasm 2.0+ rejects some of the code, and 2.0d+ changes `.ascii` (see `firmware/README.md`).
+**Before 2026-09, everything lived at the repository root.** Programs were assembled with `vasm6502_oldstyle` from the root (usually a `./vasm6502_oldstyle` binary or symlink there) and uploaded with the `compile_and_upload*.sh` / `transfer*.py` scripts of that commit. Use **vasm 1.9f** for commits before the 2026-09 vasm 2.0 port. vasm 2.0+ rejects some of that older code, and 2.0d+ changes `.ascii` (see `firmware/README.md`).
 
 ## Timeline
 

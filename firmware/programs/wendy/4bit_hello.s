@@ -69,7 +69,7 @@ busy_loop:
 
 
 message:
-  .ascii "Hello from ram!"
+  .asciiz "Hello from ram!"
 
 
 ; Interrupt handler - switch memory banks and routines

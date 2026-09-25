@@ -9,10 +9,9 @@ on:
   workflow_dispatch:
 
 env:
-  # Pinned to vasm 1.9f: vasm 2.0+ rejects `lda #(>X)` (Michael graphics
-  # macros) and 2.0d+ no longer NUL-terminates `.ascii`, which the code relies
-  # on. The firmware manifest records the version and `check` fails if it differs.
-  VASM_URL: http://phoenix.owl.de/tags/vasm1_9f.tar.gz
+  # The firmware assembles identically on vasm 1.9f through 2.0f; pin the version
+  # recorded in firmware/manifest.txt (check fails if they differ).
+  VASM_URL: http://phoenix.owl.de/tags/vasm2_0e.tar.gz
   PROG8C_URL: https://github.com/irmen/prog8/releases/download/v12.1.1/prog8c-12.1.1-all.jar
   PROG8C: /tmp/prog8c.jar
 

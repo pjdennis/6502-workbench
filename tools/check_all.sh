@@ -4,7 +4,8 @@
 #
 #   tools/check_all.sh [firmware|asm1|asm2|emulator|prog8]...   (default: all)
 #
-# Needs on PATH: vasm6502_oldstyle (1.9f -- see .github/workflows/ci.yml), gcc, g++, make, python3, hexdump.
+# Needs on PATH: vasm6502_oldstyle (the version recorded in firmware/manifest.txt -- see
+# .github/workflows/ci.yml), gcc, g++, make, python3, hexdump.
 # The emulator suite also uses Python playwright; the prog8 suite uses 64tass and
 # java + $PROG8C (default /tmp/prog8c.jar). Those tests SKIP when the tool is missing.
 # The slow opt-in suites (Harte, P1_WENDY_SELFHOST, MERGE_SORT_FULL_N) are not run.

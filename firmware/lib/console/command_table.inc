@@ -10,7 +10,9 @@ CT_COMMAND_FUNCTION_PTR = CT_ZERO_PAGE_BASE + $04 ; 2 bytes
 CT_ZERO_PAGE_STOP       = CT_ZERO_PAGE_BASE + $06
 
 
-  .macro ct_entry,command,address
+  ; The name comes last: vasm 2.0+ does not split macro arguments after a
+  ; quoted string. The table layout is still name, then address.
+  .macro ct_entry,address,command
   .asciiz \command
   .word \address
   .endm

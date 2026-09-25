@@ -23,7 +23,7 @@ This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 wi
 
 Prerequisites:
 - `gcc`, `make` and `python3`
-- **vasm 1.9f** (`vasm6502_oldstyle`, built from <http://phoenix.owl.de/tags/vasm1_9f.tar.gz>), on `PATH`. Newer vasm releases reject some of the firmware; see `firmware/README.md`.
+- **vasm** (`vasm6502_oldstyle`, CPU=6502 SYNTAX=oldstyle), on `PATH`. 1.9f to 2.0f all work; CI uses 2.0e from <http://phoenix.owl.de/tags/vasm2_0e.tar.gz>. See `firmware/README.md`.
 - Optional: `hexdump`, `64tass`, Java with prog8c 12.1.1, and Python `playwright`. Tests that need a missing tool are skipped.
 
 ```bash
