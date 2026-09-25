@@ -272,6 +272,7 @@ uint8_t read6502(uint16_t address) {
                 start_time.tv_nsec += 1000000000L;
             }
             if (got == 1) return ch;
+            if (got == 0) con_eof_flag = 1;
             return 0;
         } else {
             int b = fgetc(input_file_ptr);
@@ -292,11 +293,10 @@ uint8_t read6502(uint16_t address) {
             fprintf(stderr, "Error: con_ready not available in terminal mode, use serial_read\n");
             emulation_exit(1);
         }
-        if (console_mode) {
-            return con_byte_ready() ? 0xFF : 0x00;
-        } else {
-            return con_eof_flag ? 0x00 : 0xFF;
-        }
+        // $FF = byte ready, $00 = none yet, $01 = end of input
+        if (con_eof_flag) return 0x01;
+        if (console_mode) return con_byte_ready() ? 0xFF : 0x00;
+        return 0xFF;
     } else if (address == port_serial_ready) {        // serial_ready
         if (serial_baud > 0)
             serial_tx_drain();  // drain TX so DSR responses can be injected

@@ -22,9 +22,11 @@ write     = $F024 ; writs char in A to file with handle in X; Y preserved
 ; Console I/O ports
 con_read  = $F027 ; Read one byte from console (blocking); returns in A
 con_flush = $F02A ; Flush stdout
-con_ready = $F02D ; Non-blocking poll: A=$FF if byte ready, A=$00 if not
+con_ready = $F02D ; Non-blocking poll: A=$FF if byte ready, A=$00 if not yet,
+                  ; A=CON_EOF once input has ended
 term_rows = $F030 ; Returns terminal height in A
 term_cols = $F033 ; Returns terminal width in A
+CON_EOF   = $01   ; con_ready result: end of input
 
 ; Serial I/O ports
 serial_read  = $F036 ; Read one byte from serial (non blocking); returns in A.

@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "emulator"))
@@ -259,6 +260,51 @@ class EditorTestRunner:
                     f"  Expected: {expected_content!r}\n"
                     f"  Actual:   {saved!r}")
                 return
+
+        self._pass(name)
+
+    def run_test_console_live(self, name: str, initial_content: str,
+                              keys: bytes, expected_content: str,
+                              idle_seconds: float = 0.5):
+        """Run the console-mode editor on a live stdin pipe.
+
+        The editor must keep running while no key is pending, then process
+        keys, and exit once stdin reaches end of input.
+        """
+        edit_file = self.tmpdir / "test.txt"
+        edit_file.write_text(initial_content)
+        cmd = [str(self.emulator), str(self.editor_bin), "--no-dump",
+               "--load", "0400", "--console", str(edit_file)]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(idle_seconds)
+            if proc.poll() is not None:
+                self._fail(name, f"Exited with code {proc.returncode} "
+                                 f"while waiting for a key")
+                return
+            proc.stdin.write(keys)
+            proc.stdin.close()
+            exit_code = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._fail(name, "Timed out after end of input")
+            return
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+
+        if exit_code != 0:
+            self._fail(name, f"Expected exit code 0, got {exit_code}")
+            return
+        saved = edit_file.read_text()
+        if saved != expected_content:
+            self._fail(name,
+                f"Content mismatch:\n"
+                f"  Expected: {expected_content!r}\n"
+                f"  Actual:   {saved!r}")
+            return
 
         self._pass(name)
 
@@ -1749,6 +1795,23 @@ class EditorTestRunner:
             "Hello\n",
             b"x:wq\r",
             expected_content="ello\n"
+        )
+
+        # Interactive console: "no key pending yet" must not be read as
+        # end of input (editor-fast.sh used to quit right after drawing)
+        self.run_test_console_live(
+            "Console mode waits while no key is pending",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n"
+        )
+
+        # Console stdin reaching end of input without :q exits the editor
+        self.run_test_console_live(
+            "Console mode exits at end of input",
+            "Hello\n",
+            b"x",
+            expected_content="Hello\n"
         )
 
         self._group("New file creation:", leading_blank=True)

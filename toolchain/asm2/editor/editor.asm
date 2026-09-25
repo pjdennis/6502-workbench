@@ -175,11 +175,11 @@ main_loop:
   CMP #$FF
   BEQ .key_available
 
-  ; No input - check for EOF in file mode
+  ; No input - exit if input has ended (console build only)
   .ifndef terminal_mode
   JSR io_ready
-  CMP #$FF
-  BNE .editor_exit
+  CMP #CON_EOF
+  BEQ .editor_exit
   .endif
   JSR background_work
   JMP main_loop
@@ -195,12 +195,12 @@ main_loop:
   ; Read a key
   JSR get_key
 
-  ; In file mode, check if input is exhausted (EOF)
+  ; Exit if the read hit end of input (console build only)
   .ifndef terminal_mode
   PHA
   JSR io_ready
-  CMP #$FF
-  BEQ .not_eof
+  CMP #CON_EOF
+  BNE .not_eof
   PLA
   JMP .editor_exit
 .not_eof:
