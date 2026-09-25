@@ -16,6 +16,8 @@ Supported sequences:
     ESC[r           - Reset scroll region to full screen
     ESC[{n}S        - Scroll up n lines (content moves up, blanks at bottom)
     ESC[{n}T        - Scroll down n lines (content moves down, blanks at top)
+    ESC[{n}@        - Insert n blank characters at cursor (ICH)
+    ESC[{n}P        - Delete n characters at cursor (DCH)
 
 Deferred auto-wrap (opt-in via deferred_wrap=True):
     Matches real VT100/xterm behavior where writing to the last column
@@ -157,6 +159,22 @@ class AnsiScreen:
             self.buffer.insert(self.scroll_top, [' '] * self.cols)
             self.attrs.insert(self.scroll_top, [0] * self.cols)
 
+    def _shift_chars(self, n, insert):
+        """ICH/DCH: insert or delete n cells at the cursor within its row.
+        Cells pushed past the right margin are lost; freed cells are blank
+        with normal attributes. The cursor does not move. Like scrolling,
+        this is not counted as a content write in frame tracking."""
+        self._pending_wrap = False
+        row, col = self.cursor_row, self.cursor_col
+        if not (0 <= row < self.rows and 0 <= col < self.cols):
+            return
+        n = min(max(n, 1), self.cols - col)
+        for line, blank in ((self.buffer[row], ' '), (self.attrs[row], 0)):
+            if insert:
+                line[col:] = [blank] * n + line[col:self.cols - n]
+            else:
+                line[col:] = line[col + n:] + [blank] * n
+
     def _snapshot(self):
         """Capture current buffer and cursor as a frame."""
         self.frame_buffer = [row[:] for row in self.buffer]
@@ -261,6 +279,12 @@ class AnsiScreen:
             # Scroll down
             n = int(params) if params else 1
             self._scroll_region_down(n)
+        elif final == '@':
+            # ICH - Insert blank characters
+            self._shift_chars(int(params) if params else 1, insert=True)
+        elif final == 'P':
+            # DCH - Delete characters
+            self._shift_chars(int(params) if params else 1, insert=False)
 
     def get_frame_count(self) -> int:
         """Number of rendered frames (cursor-show events)."""
@@ -504,5 +528,64 @@ if __name__ == "__main__":
     s13.process("\x1b[r")     # reset
     assert s13.scroll_top == 0
     assert s13.scroll_bottom == 2
+
+    def row0(screen):
+        return ''.join(screen.buffer[0])
+
+    # ICH: insert blanks at cursor, shift the rest right, cursor stays
+    s14 = AnsiScreen(3, 10)
+    s14.process("ABCDEF\x1b[1;3H\x1b[2@")
+    assert row0(s14) == "AB  CDEF  ", f"got {row0(s14)!r}"
+    assert (s14.cursor_row, s14.cursor_col) == (0, 2)
+
+    # ICH with no count inserts one blank
+    s15 = AnsiScreen(3, 10)
+    s15.process("ABC\x1b[1;2H\x1b[@")
+    assert row0(s15) == "A BC      ", f"got {row0(s15)!r}"
+
+    # ICH drops characters shifted past the right margin; count is clamped
+    s16 = AnsiScreen(3, 5)
+    s16.process("ABCDE\x1b[1;2H\x1b[2@")
+    assert row0(s16) == "A  BC", f"got {row0(s16)!r}"
+    s16.process("\x1b[99@")
+    assert row0(s16) == "A    ", f"got {row0(s16)!r}"
+
+    # ICH shifts attributes with characters; inserted blanks are normal
+    s17 = AnsiScreen(3, 10)
+    s17.process("A\x1b[7mB\x1b[1;1H\x1b[1@")
+    assert s17.attrs[0][:3] == [0, 0, AnsiScreen.ATTR_REVERSE], f"got {s17.attrs[0][:3]}"
+
+    # DCH: delete at cursor, shift the rest left, blanks at the right
+    s18 = AnsiScreen(3, 10)
+    s18.process("ABCDEF\x1b[1;2H\x1b[2P")
+    assert row0(s18) == "ADEF      ", f"got {row0(s18)!r}"
+    assert (s18.cursor_row, s18.cursor_col) == (0, 1)
+
+    # DCH with no count deletes one; count is clamped to the row
+    s19 = AnsiScreen(3, 10)
+    s19.process("ABCDEF\x1b[1;1H\x1b[P")
+    assert row0(s19) == "BCDEF     ", f"got {row0(s19)!r}"
+    s19.process("\x1b[1;3H\x1b[99P")
+    assert row0(s19) == "BC        ", f"got {row0(s19)!r}"
+
+    # DCH shifts attributes with characters; blanks at the right are normal
+    s20 = AnsiScreen(3, 5)
+    s20.process("A\x1b[7mBCDE\x1b[0m\x1b[1;1H\x1b[1P")
+    assert s20.attrs[0] == [AnsiScreen.ATTR_REVERSE] * 4 + [0], f"got {s20.attrs[0]}"
+
+    # ICH and DCH cancel a pending deferred wrap
+    s21 = AnsiScreen(3, 5, deferred_wrap=True)
+    s21.process("ABCDE\x1b[1@X")
+    assert row0(s21) == "ABCDX", f"got {row0(s21)!r}"
+    s22 = AnsiScreen(3, 5, deferred_wrap=True)
+    s22.process("ABCDE\x1b[1PX")
+    assert row0(s22) == "ABCDX", f"got {row0(s22)!r}"
+
+    # Shifted cells are not counted as written in frame tracking
+    s23 = AnsiScreen(3, 10)
+    s23.process("ABCDEF\x1b[?25h")
+    s23.process("\x1b[1;2H\x1b[2@\x1b[1;4H\x1b[1P\x1b[?25h")
+    assert s23.was_content_redrawn(1) == False
+    assert s23.get_min_col(1, 0) == -1
 
     print("All self-tests passed.")
