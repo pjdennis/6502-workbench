@@ -389,8 +389,10 @@ insert_batch:
   ADC BUF_TEMP               ; + fwd_actual = total_delete
   STA NORMAL_TEMP            ; stash total_delete (ins_nl is 0 here)
   LDA BUF_DELTA              ; insert_len
+  STA SHIFT_WRITE            ; ICH/DCH hint: new cells at RENDER_FROM_COL16
   SEC
   SBC NORMAL_TEMP            ; - total_delete = net
+  STA SHIFT_NET              ; ICH/DCH hint: net cell shift
   BEQ .fast_done
   BCS .fast_inc              ; net > 0
 

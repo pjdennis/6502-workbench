@@ -99,6 +99,16 @@ ansi_reset_scroll_region:
   LDA #<ansi_seq_reset_sr
   JMP ansi_seq_a
 
+; Insert A blank chars at the cursor (ICH): ESC[n@. Clobbers A, X, Y
+ansi_insert_chars:
+  LDX #'@'
+  BNE ansi_count_seq     ; Always taken
+
+; Delete A chars at the cursor (DCH): ESC[nP. Clobbers A, X, Y
+ansi_delete_chars:
+  LDX #'P'
+  BNE ansi_count_seq     ; Always taken
+
 ; Scroll up by A lines (content moves up, blanks at bottom of region)
 ; Emits ESC[nS. Input: A = count
 ; Clobbers A, X, Y

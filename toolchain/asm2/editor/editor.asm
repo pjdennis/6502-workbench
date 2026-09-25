@@ -158,6 +158,7 @@ main_loop:
   ; Default: full line render. Handlers may set a partial column.
   LDA #$FF
   STA_LH16 RENDER_FROM_COL16
+  STA SHIFT_WRITE            ; No ICH/DCH hint
   LDA #0
   STA INSERT_LINE_COUNT
 

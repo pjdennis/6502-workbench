@@ -151,7 +151,7 @@ same commit; refactors in their own commits).
    - `render_line_chars_from`: add a stop column so it can write exactly
      n cells.
 
-5. **Single-row lines: insert mode, `x`, `X`.** Add `SHIFT_NET` /
+5. **Single-row lines: insert mode, `x`, `X`.** *Done.* Add `SHIFT_NET` /
    `SHIFT_WRITE`, set them from `insert_batch`'s fast path and from the
    `x` / `X` handlers, and use the per-row step in
    `render_line_from_change` when `SHIFT_NET != 0`. Failing tests first

@@ -611,6 +611,10 @@ render_line_chars:
   LDA #0
   STA RENDER_COL
 render_line_chars_from:
+  LDA SCREEN_COLS
+  STA RENDER_STOP
+; Entry with RENDER_COL and RENDER_STOP (exclusive) set by the caller
+render_line_chars_to:
   LDY RENDER_COL
 .loop:
   LDA (BUF_PTR16),Y
@@ -642,7 +646,7 @@ render_line_chars_from:
   INY
   INC RENDER_COL
   LDA RENDER_COL
-  CMP SCREEN_COLS
+  CMP RENDER_STOP
   BCC .loop
 .done:
   RTS

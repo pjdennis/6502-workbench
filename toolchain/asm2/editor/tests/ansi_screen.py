@@ -162,12 +162,15 @@ class AnsiScreen:
     def _shift_chars(self, n, insert):
         """ICH/DCH: insert or delete n cells at the cursor within its row.
         Cells pushed past the right margin are lost; freed cells are blank
-        with normal attributes. The cursor does not move. Like scrolling,
-        this is not counted as a content write in frame tracking."""
+        with normal attributes. The cursor does not move. The row counts as
+        touched (its content changed), but no cells count as written, so
+        min/max column tracking measures only what was actually sent."""
         self._pending_wrap = False
         row, col = self.cursor_row, self.cursor_col
         if not (0 <= row < self.rows and 0 <= col < self.cols):
             return
+        if row < self.rows - 1:
+            self.content_touched.add(row)
         n = min(max(n, 1), self.cols - col)
         for line, blank in ((self.buffer[row], ' '), (self.attrs[row], 0)):
             if insert:
@@ -581,11 +584,13 @@ if __name__ == "__main__":
     s22.process("ABCDE\x1b[1PX")
     assert row0(s22) == "ABCDX", f"got {row0(s22)!r}"
 
-    # Shifted cells are not counted as written in frame tracking
+    # A shifted row counts as touched, but its cells are not counted as
+    # written in frame tracking
     s23 = AnsiScreen(3, 10)
     s23.process("ABCDEF\x1b[?25h")
     s23.process("\x1b[1;2H\x1b[2@\x1b[1;4H\x1b[1P\x1b[?25h")
-    assert s23.was_content_redrawn(1) == False
+    assert s23.was_content_redrawn(1) == True
+    assert s23.content_rows_touched(1) == {0}
     assert s23.get_min_col(1, 0) == -1
 
     print("All self-tests passed.")

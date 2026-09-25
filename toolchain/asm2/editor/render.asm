@@ -43,6 +43,11 @@ DELETE_SCREEN_ROWS: .byte ; Pre-computed screen rows for line-delete scroll (0=u
 RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
 INSERT_LINE_COUNT:  .byte ; Override line count for line-insert scroll (0=use file delta)
 CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line occupies after the edit
+SHIFT_NET:      .byte   ; ICH/DCH hint: cells inserted (+) / deleted (-) at RENDER_FROM_COL16
+SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16; $FF = no hint
+RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
+ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
+ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
 
   .code
 
@@ -390,6 +395,19 @@ render_line_from_change:
   ADC #1
   CMP SCREEN_ROWS
   BCS .done                    ; change row is at or below the status bar
+  ; ICH/DCH hint: shift single-row lines instead of rewriting them
+  LDA SHIFT_WRITE
+  CMP #$FF
+  BEQ .no_shift
+  LDA CUR_LINE_ROWS
+  CMP #1
+  BNE .no_shift
+  LDA PREV_LINE_ROWS
+  CMP #1
+  BNE .no_shift
+  JSR shift_change_row
+  BCC .done
+.no_shift:
   LDA WRAP_REM
   BEQ .full_rows
   JSR render_partial_first_row
@@ -398,6 +416,96 @@ render_line_from_change:
   JSR set_render_line_to_cursor
   JMP render_limited_loop
 .done:
+  RTS
+
+; Draw the change row using the SHIFT_NET/SHIFT_WRITE hint: shift the
+; old text with ICH/DCH and write only the new cells, when that is
+; cheaper than rewriting the rest of the row.
+; Input: RENDER_ROW/RENDER_WRAP = the change row, WRAP_REM = change col
+; Returns: C=0 if the row was drawn, C=1 to draw it the usual way
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_COL, RENDER_STOP, DIV_INPUT16
+shift_change_row:
+  ; ROW_END = min(cols, len - row_start); row_start = from_col - WRAP_REM
+  JSR get_current_line_len
+  SEC
+  SBC RENDER_FROM_COL16
+  STA DIV_INPUT16
+  TXA
+  SBC RENDER_FROM_COL16 + 1
+  STA DIV_INPUT16 + 1
+  LDA WRAP_REM
+  CLC
+  ADCA16 DIV_INPUT16, DIV_INPUT16
+  LDA DIV_INPUT16 + 1
+  BNE .row_full
+  LDA DIV_INPUT16
+  CMP SCREEN_COLS
+  BCC .row_end_ok
+.row_full:
+  LDA SCREEN_COLS
+.row_end_ok:
+  STA ROW_END
+  ; ROW_WEND = min(ROW_END, WRAP_REM + SHIFT_WRITE): end of the new cells
+  LDA WRAP_REM
+  CLC
+  ADC SHIFT_WRITE
+  BCS .wend_clip
+  CMP ROW_END
+  BCC .wend_ok
+.wend_clip:
+  LDA ROW_END
+.wend_ok:
+  STA ROW_WEND
+  ; X = old text after the new cells that a rewrite would resend
+  LDA ROW_END
+  SEC
+  SBC ROW_WEND
+  TAX
+  LDA SHIFT_NET
+  BMI .delete
+  BEQ .write_new               ; net 0: only the new cells change
+  CPX #0
+  BEQ .write_new               ; nothing after the new cells
+  CPX #5
+  BCC .write_rest              ; short tail: resending beats ICH
+  JSR move_to_partial_pos
+  LDA SHIFT_NET
+  JSR ansi_insert_chars
+  JMP .write_cells
+.write_rest:
+  LDA ROW_END
+  STA ROW_WEND
+.write_new:
+  JSR move_to_partial_pos
+.write_cells:
+  ; Write cells [WRAP_REM, ROW_WEND) of the row
+  LDA ROW_WEND
+  CMP WRAP_REM
+  BEQ .drawn                   ; nothing to write
+  JSR get_current_line_ptr
+  LDX RENDER_WRAP
+  JSR buf_ptr_advance_x
+  LDA WRAP_REM
+  STA RENDER_COL
+  LDA ROW_WEND
+  STA RENDER_STOP
+  JSR render_line_chars_to
+.drawn:
+  CLC
+  RTS
+.delete:
+  ; Rewriting costs the tail plus ESC[K; DCH costs about 4 bytes
+  CPX #2
+  BCC .decline
+  JSR move_to_partial_pos
+  LDA SHIFT_NET
+  EOR #$FF
+  CLC
+  ADC #1                       ; |net|
+  JSR ansi_delete_chars
+  JMP .write_cells
+.decline:
+  SEC
   RTS
 
 ; Advance BUF_PTR16 by SCREEN_COLS (one wrap row)

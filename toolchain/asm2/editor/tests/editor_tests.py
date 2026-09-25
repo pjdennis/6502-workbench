@@ -3724,6 +3724,60 @@ class EditorTestRunner:
             expect_cursor=(0, 39),
         )
 
+        self._group("ICH/DCH shifting (single-row line):", leading_blank=True)
+
+        # Each case: (name, keys, edit frame, row 0 text, (min, max) cols
+        # written on row 0 in that frame, raw bytes the frame must contain).
+        # "Hello World": 5l puts the cursor on the space (col 5).
+        shift_cases = [
+            ("type one char mid-line", b"5liX\x1b:q!\r", 4,
+             "HelloX World", (5, 5), "\x1b[1;6H\x1b[1@X"),
+            ("type-ahead batch shifts once", b"5liABC\x1b:q!\r", 4,
+             "HelloABC World", (5, 7), "\x1b[1;6H\x1b[3@ABC"),
+            ("insert BS mid-line", b"6li\x7f\x1b:q!\r", 4,
+             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+            ("insert DEL mid-line", b"5li\x1b[3~\x1b:q!\r", 4,
+             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+            ("mixed batch nets one shift", b"5liABC\x7f\x1b:q!\r", 4,
+             "HelloAB World", (5, 6), "\x1b[1;6H\x1b[2@AB"),
+            ("type + DEL overwrites only", b"5liX\x1b[3~\x1b:q!\r", 4,
+             "HelloXWorld", (5, 5), None),
+            ("append at end writes only the new char", b"AX\x1b:q!\r", 2,
+             "Hello WorldX", (11, 11), None),
+            ("x mid-line", b"5lx:q!\r", 3,
+             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+            ("3x mid-line", b"5l3x:q!\r", 4,
+             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+            ("batched xxx shifts once", b"5lxxx:q!\r", 3,
+             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+            ("normal-mode Delete", b"5l\x1b[3~:q!\r", 3,
+             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+            ("X mid-line", b"6lX:q!\r", 3,
+             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+            ("3X mid-line", b"8l3X:q!\r", 4,
+             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+        ]
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, keys, frame, text, (lo, hi), raw in shift_cases:
+                self.run_test_screen(
+                    "Shift: " + name + suffix,
+                    "Hello World\n",
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, [(0, text)])],
+                    expect_min_col=[(frame, 0, lo)],
+                    expect_max_col=[(frame, 0, hi)],
+                )
+            self.run_test_screen(
+                "Shift: x on the last char blanks it" + suffix,
+                "Hello World\n",
+                b"$x:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(2, [(0, "Hello Worl")])],
+            )
+
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
         # 45-char line, cursor at end (col 44). Batch delete 6 -> 39 left.
@@ -13169,7 +13223,8 @@ class EditorTestRunner:
             expect_max_col=[(2, 0, 1)]
         )
 
-        # Normal x: delete at col 3, partial render from col 3
+        # Normal x: delete at col 3 touches nothing before col 3; the rest
+        # of the row is shifted with DCH, so no cells are resent at all
         # lll=move to col 3, x=delete char
         # Frame 0=initial, 1=lll move, 2=x delete
         self.run_test_screen(
@@ -13178,8 +13233,8 @@ class EditorTestRunner:
             b"lllx:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            # Frame 2 is the delete; first affected col is 3
-            expect_min_col=[(2, 0, 3)]
+            expect_ansi_contains="\x1b[1;4H\x1b[1P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Insert at end of line: only render from cursor position

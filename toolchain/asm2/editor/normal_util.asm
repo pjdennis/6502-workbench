@@ -683,6 +683,7 @@ bcd_start:
   LDX BUF_TEMP16
   JSR compute_char_range_forward
   BCS .done
+  JSR set_shift_delete
   LDA #OP_DELETE
   JSR apply_char_operator
   JMP .finish
@@ -692,6 +693,7 @@ bcd_start:
   LDX BUF_TEMP16
   JSR compute_char_range_forward
   BCS .done
+  JSR set_shift_delete
   ; Yank 1 char at cursor + range - 1 (x) or at cursor (X)
   PUSH16 BUF_LEN16              ; Save full range
   JSR yank_clear
@@ -724,3 +726,13 @@ bcd_start:
   JSR clamp_cursor_col
 .done:
   JMP clear_count
+
+; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor
+; Clobbers: A
+set_shift_delete:
+  LDA #0
+  STA SHIFT_WRITE
+  SEC
+  SBC BUF_LEN16
+  STA SHIFT_NET
+  RTS
