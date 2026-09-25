@@ -3834,6 +3834,87 @@ class EditorTestRunner:
                 expect_reverse_at=[(1, 0, True), (0, 39, False)],
             )
 
+        self._group("ICH/DCH shifting (row count changes):", leading_blank=True)
+
+        d79 = ("0123456789" * 8)[:79]              # rows [0,40) [40,79)
+        d81 = ("0123456789" * 9)[:81]              # rows [0,40) [40,80) [80,81)
+        grown = d79[:5] + "AB" + d79[5:]           # 81 chars: 3 rows
+        shrunk = d81[:5] + d81[6:]                 # 80 chars: 2 rows
+        d159 = ("0123456789" * 16)[:159]           # 4 rows on 40 cols
+        grown159 = d159[:5] + "AB" + d159[5:]      # 161 chars: 5 rows
+        d300 = "0123456789" * 30                   # 8 rows
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            # The rows below scroll down intact; the new row is written
+            # with exactly the one carried char
+            self.run_test_screen(
+                "Shift: insert that adds a row" + suffix,
+                d79 + "\nNEXT\nLAST\n",
+                b"5liAB\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(4, [(0, grown[:40]),
+                                            (1, grown[40:80]),
+                                            (2, grown[80:]),
+                                            (3, "NEXT"), (4, "LAST")])],
+                expect_min_col=[(4, 0, 5), (4, 1, 0), (4, 2, 0),
+                                (4, 3, -1), (4, 4, -1)],
+                expect_max_col=[(4, 0, 6), (4, 1, 1), (4, 2, 0)],
+            )
+            # The rows below scroll up intact; the shifted rows write only
+            # the cell pulled up from the row below
+            for how, keys, frame in (("x", b"5lx:q!\r", 3),
+                                     ("insert BS", b"6li\x7f\x1b:q!\r", 4)):
+                self.run_test_screen(
+                    "Shift: " + how + " that removes a row" + suffix,
+                    d81 + "\nNEXT\nLAST\n",
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_lines_at_frame=[(frame, [(0, shrunk[:40]),
+                                                    (1, shrunk[40:]),
+                                                    (2, "NEXT"),
+                                                    (3, "LAST")])],
+                    expect_min_col=[(frame, 0, 39), (frame, 1, 39),
+                                    (frame, 2, -1), (frame, 3, -1)],
+                    expect_max_col=[(frame, 0, 39), (frame, 1, 39)],
+                )
+            # Line longer than the screen: shifting stops at the status bar
+            self.run_test_screen(
+                "Shift: line running past the bottom" + suffix,
+                d159 + "\n",
+                b"5liAB\x1b:q!\r",
+                rows=4, cols=40,
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(4, [(0, grown159[:40]),
+                                            (1, grown159[40:80]),
+                                            (2, grown159[80:120])])],
+                expect_status_at_frame=[(4, "INSERT")],
+                expect_max_col=[(4, 0, 6), (4, 1, 1), (4, 2, 1)],
+            )
+            # First row above the viewport: still a full repaint
+            self.run_test_screen(
+                "Shift: line starting above the viewport" + suffix,
+                d300 + "\n",
+                b"$x:q!\r",
+                rows=5, cols=40,
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(2, [(0, d300[160:200]),
+                                            (1, d300[200:240]),
+                                            (2, d300[240:280]),
+                                            (3, d300[280:299])])],
+            )
+            # Typing past the end of a line that exactly filled its row
+            self.run_test_screen(
+                "Shift: typing past a full row at end of line" + suffix,
+                "a" * 39 + "\nNEXT\nLAST\n",
+                b"AXY\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(2, [(0, "a" * 39 + "X"), (1, "Y"),
+                                            (2, "NEXT"), (3, "LAST")])],
+                expect_cursor_at_frame=[(2, (1, 1))],
+                expect_min_col=[(2, 0, 39), (2, 1, 0), (2, 2, -1)],
+                expect_max_col=[(2, 0, 39), (2, 1, 0)],
+            )
+
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
         # 45-char line, cursor at end (col 44). Batch delete 6 -> 39 left.

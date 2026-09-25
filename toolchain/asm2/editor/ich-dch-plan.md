@@ -174,7 +174,7 @@ same commit; refactors in their own commits).
    writes only the carried cells (e.g. row 1 writes only `0..net-1`); a
    tab or unprintable carried across a row boundary keeps reverse video.
 
-7. **Row count changes.** Tests: insert that pushes the line onto a new
+7. **Row count changes.** *Done.* Tests: insert that pushes the line onto a new
    row (rows below scroll down intact; the new row holds exactly the
    carried chars); `x` / BS that removes a row (rows below scroll up
    intact); a line running past the bottom of the screen (nothing written

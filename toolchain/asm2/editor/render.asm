@@ -398,13 +398,11 @@ render_line_from_change:
   ADC #1
   CMP SCREEN_ROWS
   BCS .done                    ; change row is at or below the status bar
-  ; ICH/DCH hint: shift the line's rows instead of rewriting them
+  ; ICH/DCH hint: shift the line's rows instead of rewriting them (rows
+  ; opened by the caller's scroll are blank and just get written)
   LDA SHIFT_WRITE
   CMP #$FF
   BEQ .no_shift
-  LDA CUR_LINE_ROWS
-  CMP PREV_LINE_ROWS
-  BNE .no_shift
   JMP render_line_shift
 .no_shift:
   LDA WRAP_REM
