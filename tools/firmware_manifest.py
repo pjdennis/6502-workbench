@@ -9,6 +9,10 @@ of each output -- or FAIL if it does not assemble.
   firmware_manifest.py update   # (re)write the manifest from the current tree
   firmware_manifest.py check    # rebuild and compare; exit 1 on any difference
 
+The manifest also records the vasm version. check only warns if the vasm on
+PATH differs but every hash still matches (vasm 1.9f and 2.0-2.0f all give
+identical binaries); if hashes differ too, it names the version as a suspect.
+
 Each source is assembled from its own directory, as the upload scripts do,
 so relative .include paths resolve the same way. --include adds -I dirs.
 """
@@ -142,10 +146,13 @@ def main(argv=None):
         print(f'no manifest at {args.manifest}; run "update" first')
         return 1
     problems = compare(read_manifest(args.manifest), actual)
+    # Matching hashes are the real test, so a different vasm only fails the
+    # check if it also changes the output; either way it is reported
     recorded, current = read_assembler(args.manifest), vasm_version()
     if recorded != current:
-        problems.insert(0, f'assembler differs: manifest has "{recorded}", PATH has "{current}"'
-                           ' -- hashes are only comparable with the same vasm')
+        note = f'assembler differs: manifest has "{recorded}", PATH has "{current}"'
+        print(f'{note} -- which may explain the differences below' if problems
+              else f'warning: {note} -- all hashes match')
     for p in problems:
         print(p)
     print(f'{len(actual)} sources checked, {len(problems)} differences')

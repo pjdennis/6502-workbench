@@ -106,15 +106,32 @@ class FirmwareManifestTest(unittest.TestCase):
         result = self.tool('check')
         self.assertNotEqual(result.returncode, 0)
 
-    def test_check_fails_when_assembler_version_differs(self):
-        self.tool('update')
+    def record_other_assembler(self):
         with open(self.manifest) as f:
             text = f.read()
         with open(self.manifest, 'w') as f:
             f.write(text.replace('# assembler: vasm', '# assembler: OTHER vasm'))
+
+    def test_check_passes_with_a_warning_when_only_the_assembler_differs(self):
+        # Matching hashes are the real test: another vasm that produces the
+        # same bytes passes, but the difference is still reported
+        self.tool('update')
+        self.record_other_assembler()
+        result = self.tool('check')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('warning: assembler differs', result.stdout)
+        self.assertIn('OTHER vasm', result.stdout)
+        self.assertIn('0 differences', result.stdout)
+
+    def test_check_blames_the_assembler_when_output_also_changes(self):
+        self.tool('update')
+        self.record_other_assembler()
+        self.write('lib.inc', 'VALUE = $43\n')
         result = self.tool('check')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('assembler', result.stdout)
+        self.assertIn('good.s', result.stdout)
+        self.assertIn('assembler differs', result.stdout)
+        self.assertIn('may explain', result.stdout)
 
     def test_default_excludes_skip_non_firmware_dirs(self):
         for d in ('attic', 'emulator', 'toolchain'):
