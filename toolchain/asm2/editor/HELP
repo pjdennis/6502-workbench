@@ -66,6 +66,8 @@ All editing commands are blocked in read-only mode.
   O              Open new line above, enter insert mode
   x, Delete      Delete character at cursor (accepts count)
                  Yanks deleted characters (character yank)
+  X              Delete character before cursor (accepts count)
+                 Stops at column 0; yanks deleted characters
   D              Delete from cursor to end of line
                  Yanks deleted characters (character yank)
   d$             Delete from cursor to end of line (accepts count)
@@ -123,7 +125,7 @@ All editing commands are blocked in read-only mode.
   u              Undo last edit / redo (toggles between undo and redo)
                  Single-level: undoes the most recent operation, then
                  pressing u again redoes it. A new edit replaces the
-                 undo history. Supports undo of: dd, x, D, dw, db, de,
+                 undo history. Supports undo of: dd, x, X, D, dw, db, de,
                  d$, d0, cw, cb, ce, cc, s, C, S, J, o, O, p, P, r, ~,
                  >>, <<, :[range]> and :[range]<
                  Rapidly typed (batched) keys execute together but undo

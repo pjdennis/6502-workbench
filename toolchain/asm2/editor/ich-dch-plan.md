@@ -131,13 +131,13 @@ same commit; refactors in their own commits).
    shift, freed cells come out unhighlighted, and an ICH/DCH alone does not
    make the overlay emit anything new.
 
-3. **`X` command (feature, existing render).** Delete `count` characters
+3. **`X` command (feature, existing render).** *Done.* Delete `count` characters
    before the cursor, clamped at column 0; the cursor moves left by the
    deleted count; yanks as a character yank and records undo like `x`;
    no-op at column 0; blocked in read-only mode. Build it on the `x` path
    (compute the backward range, move the cursor, then the shared
    yank/delete code), with batching of pending `X` keys like `x`. Update
-   `HELP` and `COMPARISON_WITH_VI.md`. Tests first: content, cursor, count,
+   `HELP` and the editor `README.md` command table. Tests first: content, cursor, count,
    count past column 0, column 0 no-op, `p` after `X`, `u` after `X`,
    read-only.
 

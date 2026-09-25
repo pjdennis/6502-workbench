@@ -171,6 +171,7 @@ project's 6502 emulator in console/ANSI mode.
 | `o` | Open line below |
 | `O` | Open line above |
 | `x` / Delete | Delete character at cursor (with count, yanks) |
+| `X` | Delete character before cursor (with count, yanks) |
 | `D` | Delete to end of line (yanks) |
 | `dd` | Delete line (with count, yanks) |
 | `dw` | Delete word forward (with count, yanks) |

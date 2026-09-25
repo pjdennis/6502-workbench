@@ -13,6 +13,7 @@ NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
 SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
 BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
 BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none)
+DEL_BACK:          .byte ; $FF when batched_char_delete serves X (last press deleted the range's first char)
 
   .code
 
@@ -659,13 +660,22 @@ apply_char_operator:
 .change:
   JMP enter_insert_mode_render
 
-; --- Shared batched character delete (for x command) ---
+; --- Shared batched character delete (for x and X commands) ---
 
-; Batched character delete for x
+; Batched character delete for x (batched_char_delete) and X
+; (batched_char_delete_back, cursor already moved to the range start).
+; When batched, the register gets what the last key press deleted: the
+; range's last char for x, its first char for X.
 ; Input: BUF_TEMP16 = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
 ;        LINE_LEN16 = line length (from check_cursor_in_line)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
+batched_char_delete_back:
+  LDA #$FF
+  BNE bcd_start             ; Always taken
 batched_char_delete:
+  LDA #0
+bcd_start:
+  STA DEL_BACK
   LDA BATCH_EXTRA
   BNE .batched
 
@@ -678,20 +688,25 @@ batched_char_delete:
   JMP .finish
 
 .batched:
-  ; --- Batched: compute full range, yank last char, delete all ---
+  ; --- Batched: compute full range, yank last-deleted char, delete all ---
   LDX BUF_TEMP16
   JSR compute_char_range_forward
   BCS .done
-  ; Yank 1 char at cursor + range - 1
+  ; Yank 1 char at cursor + range - 1 (x) or at cursor (X)
   PUSH16 BUF_LEN16              ; Save full range
   JSR yank_clear
   SEC
   SBCI16 BUF_LEN16, 1, BUF_LEN16
+  LDA DEL_BACK
+  BEQ .yank_offset_ok
+  LDA #0
+  STA_LH16 BUF_LEN16
+.yank_offset_ok:
   CLC
-  ADC16 CURSOR_COL16, BUF_LEN16, BUF_LEN16  ; BUF_LEN16 = col of last char
+  ADC16 CURSOR_COL16, BUF_LEN16, BUF_LEN16  ; BUF_LEN16 = col of yanked char
   PUSH16 CURSOR_COL16
-  CP16 BUF_LEN16, CURSOR_COL16  ; Move cursor to last char
-  JSR get_cursor_buf_ptr         ; BUF_PTR16 = address of last char
+  CP16 BUF_LEN16, CURSOR_COL16  ; Move cursor to yanked char
+  JSR get_cursor_buf_ptr         ; BUF_PTR16 = address of yanked char
   CP16 BUF_PTR16, BUF_SRC16
   LDA #1
   STA BUF_LEN16

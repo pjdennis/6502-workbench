@@ -1880,6 +1880,14 @@ class EditorTestRunner:
                 expect_unmodified=True
             )
 
+            # Read-only mode: X is blocked
+            self.run_test_small_buffer(
+                "Read-only mode blocks X",
+                large_content,
+                b"x$X:q\r",   # 'x' dismisses warning, X ignored, :q quits
+                expect_unmodified=True
+            )
+
             # Read-only mode: i key is blocked (no insert mode)
             self.run_test_small_buffer(
                 "Read-only mode blocks i",
@@ -3622,6 +3630,98 @@ class EditorTestRunner:
                     (2, "~"),
                 ]),
             ]
+        )
+
+        self._group("X (delete before cursor):", leading_blank=True)
+
+        self.run_test(
+            "X deletes the char before the cursor",
+            "ABCDEF\n",
+            b"llX:wq\r",
+            expected_content="ACDEF\n"
+        )
+
+        self.run_test(
+            "X at column 0 does nothing",
+            "ABC\n",
+            b"X:wq\r",
+            expected_content="ABC\n"
+        )
+
+        self.run_test(
+            "3X deletes three chars before the cursor",
+            "ABCDEF\n",
+            b"$3X:wq\r",
+            expected_content="ABF\n"
+        )
+
+        self.run_test(
+            "3X stops at column 0",
+            "ABCDEF\n",
+            b"ll3X:wq\r",
+            expected_content="CDEF\n"
+        )
+
+        self.run_test(
+            "Batch XXX mid-line",
+            "ABCDEF\n",
+            b"$XXX:wq\r",
+            expected_content="ABF\n"
+        )
+
+        self.run_test(
+            "Batch XX stops at column 0",
+            "ABC\n",
+            b"lXX:wq\r",
+            expected_content="BC\n"
+        )
+
+        # The char that was under the cursor stays under it
+        self.run_test_screen(
+            "X moves the cursor left with the text",
+            "ABCDEF\n",
+            b"$2X",
+            expect_lines=[(0, "ABCF")],
+            expect_cursor=(0, 3),
+        )
+
+        self.run_test(
+            "2X yanks the deleted chars",
+            "ABCDEF\n",
+            b"$2Xp:wq\r",
+            expected_content="ABCFDE\n"
+        )
+
+        # Like batched x: the register holds what the last X deleted
+        self.run_test(
+            "Batch XX yanks the last deleted char",
+            "ABCDEF\n",
+            b"$XXp:wq\r",
+            expected_content="ABCFD\n"
+        )
+
+        self.run_test(
+            "X then u restores the text",
+            "ABCDEF\n",
+            b"$2Xu:wq\r",
+            expected_content="ABCDEF\n"
+        )
+
+        # Batched keys undo as if typed one at a time: XX deletes E then
+        # D, so u brings back only the D
+        self.run_test(
+            "Batch XX then u restores the last deleted char",
+            "ABCDEF\n",
+            b"$XXu:wq\r",
+            expected_content="ABCDF\n"
+        )
+
+        self.run_test_screen(
+            "X on wrapped line keeps the cursor on its char",
+            "A" * 39 + "BC\n",
+            b"$X",
+            expect_lines=[(0, "A" * 39 + "C")],
+            expect_cursor=(0, 39),
         )
 
         # Same bug in insert mode: batch backspace on a wrapped line should

@@ -147,6 +147,7 @@ normal_movement_keys:
 normal_editing_keys:
   .byte 'x'         .word normal_delete_char
   .byte KEY_DEL     .word normal_delete_char
+  .byte 'X'         .word normal_delete_char_back
   .byte 'D'         .word normal_delete_to_eol
   .byte 'i'         .word normal_enter_insert
   .byte 'a'         .word normal_enter_insert_after
@@ -207,6 +208,31 @@ normal_delete_char:
   STX BUF_TEMP16
   CP16 CURSOR_COL16, RENDER_FROM_COL16
   JMP batched_char_delete
+.done:
+  JMP clear_count
+
+; X: delete count chars before the cursor (clamped at column 0); the
+; cursor moves left with the text
+normal_delete_char_back:
+  TST16 CURSOR_COL16
+  BEQ .done
+
+  ; Normalize batching: count + pending X keys, capped at 255
+  JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
+  STX BUF_TEMP16
+  LDA #0
+  STA BUF_TEMP16 + 1
+  ; Clamp to the chars before the cursor
+  CMP16 CURSOR_COL16, BUF_TEMP16
+  BCS .count_ok
+  CP16 CURSOR_COL16, BUF_TEMP16
+.count_ok:
+  ; Move to the range start and delete forward from there
+  SEC
+  SBC16 CURSOR_COL16, BUF_TEMP16, CURSOR_COL16
+  JSR check_cursor_in_line   ; LINE_LEN16 (cursor is now inside the line)
+  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JMP batched_char_delete_back
 .done:
   JMP clear_count
 
