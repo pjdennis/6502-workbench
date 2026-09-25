@@ -3778,6 +3778,62 @@ class EditorTestRunner:
                 expect_lines_at_frame=[(2, [(0, "Hello Worl")])],
             )
 
+        self._group("ICH/DCH shifting (wrapped line):", leading_blank=True)
+
+        # 100-char line on a 40-col screen: rows hold [0,40) [40,80) [80,100)
+        digits = "0123456789" * 10
+        ins = digits[:5] + "AB" + digits[5:]       # "AB" typed at col 5
+        dele = digits[:5] + digits[6:]             # col 5 deleted
+        rows_of = lambda t: [(r, t[r * 40:(r + 1) * 40]) for r in range(3)]
+        wrap_cases = [
+            # Every row gets its own ICH; later rows write only the 2
+            # chars carried over from the row above
+            ("insert on a 3-row line", b"5liAB\x1b:q!\r", 4, ins,
+             [(0, 5, 6), (1, 0, 1), (2, 0, 1)],
+             "\x1b[1;6H\x1b[2@AB\x1b[2;1H\x1b[2@" + ins[40:42]
+             + "\x1b[3;1H\x1b[2@" + ins[80:82]),
+            # Every row gets its own DCH; full rows write only their last
+            # cell, pulled up from the row below; the last row writes none
+            ("insert BS on a 3-row line", b"6li\x7f\x1b:q!\r", 4, dele,
+             [(0, 39, 39), (1, 39, 39), (2, -1, -1)],
+             "\x1b[1;6H\x1b[1P\x1b[1;40H" + dele[39]
+             + "\x1b[2;1H\x1b[1P\x1b[2;40H" + dele[79]
+             + "\x1b[3;1H\x1b[1P"),
+            ("x on a 3-row line", b"5lx:q!\r", 3, dele,
+             [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+            ("X on a 3-row line", b"6lX:q!\r", 3, dele,
+             [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+        ]
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, keys, frame, text, cols, raw in wrap_cases:
+                self.run_test_screen(
+                    "Shift: " + name + suffix,
+                    digits + "\n",
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, rows_of(text))],
+                    expect_min_col=[(frame, r, lo) for r, lo, _ in cols],
+                    expect_max_col=[(frame, r, hi) for r, _, hi in cols],
+                )
+
+            # A tab (reverse '>') carried across a row boundary keeps its
+            # reverse video: it moves from (0,39) to (1,0) and is rewritten
+            tabbed = "a" * 39 + "\t" + "b" * 40 + "c" * 10
+            self.run_test_screen(
+                "Shift: carried tab keeps reverse video" + suffix,
+                tabbed + "\n",
+                b"iX\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(2, [(0, "X" + "a" * 39),
+                                            (1, ">" + "b" * 39),
+                                            (2, "b" + "c" * 10)])],
+                expect_min_col=[(2, 1, 0)],
+                expect_max_col=[(2, 1, 0)],
+                expect_reverse_at=[(1, 0, True), (0, 39, False)],
+            )
+
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
         # 45-char line, cursor at end (col 44). Batch delete 6 -> 39 left.

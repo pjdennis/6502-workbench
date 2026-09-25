@@ -48,6 +48,9 @@ SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16
 RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
 ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
 ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
+ROW_WEND_COST:  .byte   ; shift: byte cost of the DCH route for the row
+SHIFT_REM16:    .word   ; shift: line length from the current row's start
+SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
 
   .code
 
@@ -395,18 +398,14 @@ render_line_from_change:
   ADC #1
   CMP SCREEN_ROWS
   BCS .done                    ; change row is at or below the status bar
-  ; ICH/DCH hint: shift single-row lines instead of rewriting them
+  ; ICH/DCH hint: shift the line's rows instead of rewriting them
   LDA SHIFT_WRITE
   CMP #$FF
   BEQ .no_shift
   LDA CUR_LINE_ROWS
-  CMP #1
+  CMP PREV_LINE_ROWS
   BNE .no_shift
-  LDA PREV_LINE_ROWS
-  CMP #1
-  BNE .no_shift
-  JSR shift_change_row
-  BCC .done
+  JMP render_line_shift
 .no_shift:
   LDA WRAP_REM
   BEQ .full_rows
@@ -418,44 +417,103 @@ render_line_from_change:
 .done:
   RTS
 
-; Draw the change row using the SHIFT_NET/SHIFT_WRITE hint: shift the
-; old text with ICH/DCH and write only the new cells, when that is
-; cheaper than rewriting the rest of the row.
-; Input: RENDER_ROW/RENDER_WRAP = the change row, WRAP_REM = change col
-; Returns: C=0 if the row was drawn, C=1 to draw it the usual way
-; Clobbers: A, X, Y, BUF_PTR16, RENDER_COL, RENDER_STOP, DIV_INPUT16
-shift_change_row:
-  ; ROW_END = min(cols, len - row_start); row_start = from_col - WRAP_REM
+; Draw the cursor line from its change row using the SHIFT_NET /
+; SHIFT_WRITE hint: each row's old text is shifted with ICH/DCH and only
+; the new cells (and cells carried across a row boundary) are written,
+; wherever that is cheaper than resending the row.
+; Input: RENDER_ROW/RENDER_WRAP = change row, WRAP_REM = change col,
+;        SCROLL_DELTA = rows from the change row to the line's last row
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/STOP, SCROLL_DELTA,
+;           WRAP_REM, SHIFT_REM16, SHIFT_IEND16
+render_line_shift:
+  ; SHIFT_REM16 = line length from the row start (row start = c0 - WRAP_REM)
   JSR get_current_line_len
   SEC
   SBC RENDER_FROM_COL16
-  STA DIV_INPUT16
+  STA SHIFT_REM16
   TXA
   SBC RENDER_FROM_COL16 + 1
-  STA DIV_INPUT16 + 1
+  STA SHIFT_REM16 + 1
   LDA WRAP_REM
   CLC
-  ADCA16 DIV_INPUT16, DIV_INPUT16
-  LDA DIV_INPUT16 + 1
+  ADCA16 SHIFT_REM16, SHIFT_REM16
+  ; SHIFT_IEND16 = end of the new cells, from the row start
+  LDA WRAP_REM
+  STA SHIFT_IEND16
+  LDA #0
+  STA SHIFT_IEND16 + 1
+  LDA SHIFT_WRITE
+  CLC
+  ADCA16 SHIFT_IEND16, SHIFT_IEND16
+.row:
+  JSR shift_row
+  DEC SCROLL_DELTA
+  BEQ .done
+  INC RENDER_ROW
+  LDA RENDER_ROW
+  CLC
+  ADC #1
+  CMP SCREEN_ROWS
+  BCS .done                    ; reached the status bar
+  INC RENDER_WRAP
+  LDA #0
+  STA WRAP_REM                 ; later rows change from column 0
+  SEC
+  SBC16_8 SHIFT_REM16, SCREEN_COLS, SHIFT_REM16
+  SEC
+  SBC16_8 SHIFT_IEND16, SCREEN_COLS, SHIFT_IEND16
+  JMP .row
+.done:
+  RTS
+
+; Draw one row of the shifted line: RENDER_ROW/RENDER_WRAP, changed from
+; column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative to its start
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_COL, RENDER_STOP
+shift_row:
+  JSR get_current_line_ptr
+  LDX RENDER_WRAP
+  JSR buf_ptr_advance_x        ; BUF_PTR16 = row start
+  ; ROW_END = min(cols, SHIFT_REM16): end of the row's new content
+  LDA SHIFT_REM16 + 1
   BNE .row_full
-  LDA DIV_INPUT16
+  LDA SHIFT_REM16
   CMP SCREEN_COLS
   BCC .row_end_ok
 .row_full:
   LDA SCREEN_COLS
 .row_end_ok:
   STA ROW_END
-  ; ROW_WEND = min(ROW_END, WRAP_REM + SHIFT_WRITE): end of the new cells
-  LDA WRAP_REM
+  ; ROW_WEND = SHIFT_IEND16 clamped to 0..255: end of the new cells
+  LDA SHIFT_IEND16 + 1
+  BMI .iend_neg
+  BEQ .iend_low
+  LDA #$FF
+  BNE .iend_ok                 ; Always taken
+.iend_neg:
+  LDA #0
+  BEQ .iend_ok                 ; Always taken
+.iend_low:
+  LDA SHIFT_IEND16
+.iend_ok:
+  STA ROW_WEND
+  ; Inserting: the first net cells from WRAP_REM are carried in too
+  LDA SHIFT_NET
+  BMI .clip
+  BEQ .clip
   CLC
-  ADC SHIFT_WRITE
-  BCS .wend_clip
+  ADC WRAP_REM
+  BCS .clip_max
+  CMP ROW_WEND
+  BCC .clip
+.clip_max:
+  STA ROW_WEND
+.clip:
+  LDA ROW_WEND
   CMP ROW_END
   BCC .wend_ok
-.wend_clip:
   LDA ROW_END
-.wend_ok:
   STA ROW_WEND
+.wend_ok:
   ; X = old text after the new cells that a rewrite would resend
   LDA ROW_END
   SEC
@@ -471,41 +529,100 @@ shift_change_row:
   JSR move_to_partial_pos
   LDA SHIFT_NET
   JSR ansi_insert_chars
-  JMP .write_cells
+  JMP write_row_cells
 .write_rest:
   LDA ROW_END
   STA ROW_WEND
 .write_new:
   JSR move_to_partial_pos
-.write_cells:
-  ; Write cells [WRAP_REM, ROW_WEND) of the row
-  LDA ROW_WEND
-  CMP WRAP_REM
-  BEQ .drawn                   ; nothing to write
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-  LDA WRAP_REM
-  STA RENDER_COL
-  LDA ROW_WEND
-  STA RENDER_STOP
-  JSR render_line_chars_to
-.drawn:
-  CLC
-  RTS
+  JMP write_row_cells
+
 .delete:
-  ; Rewriting costs the tail plus ESC[K; DCH costs about 4 bytes
-  CPX #2
-  BCC .decline
+  ; DCH d at WRAP_REM, then the cells [TS, ROW_END) pulled up from the
+  ; next row, TS = max(ROW_WEND, cols - d). Compare byte costs:
+  ;   DCH:     4 + (tail ? 6 + tail : 0)
+  ;   rewrite: X + (ROW_END < cols ? 3 : 0)
+  LDA SCREEN_COLS
+  CLC
+  ADC SHIFT_NET                ; cols - d
+  BCC .ts_wend                 ; d > cols: no row has a tail start past 0
+  CMP ROW_WEND
+  BCS .ts_ok
+.ts_wend:
+  LDA ROW_WEND
+.ts_ok:
+  STA RENDER_STOP              ; TS (stashed until the tail is written)
+  LDA ROW_END
+  SEC
+  SBC RENDER_STOP
+  BCS .tail_len
+  LDA #0                       ; ROW_END < TS: no tail
+.tail_len:
+  TAY                          ; Y = tail cells
+  BEQ .dch_cost_base
+  CLC
+  ADC #6                       ; tail cursor move
+.dch_cost_base:
+  CLC
+  ADC #4                       ; ESC[nP
+  STA ROW_WEND_COST
+  TXA
+  LDX ROW_END
+  CPX SCREEN_COLS
+  BCS .rw_cost_ok
+  CLC
+  ADC #3                       ; ESC[K
+.rw_cost_ok:
+  CMP ROW_WEND_COST
+  BEQ .rewrite
+  BCC .rewrite
+  ; --- DCH ---
+  TYA
+  PHA                          ; tail cells
+  LDA RENDER_STOP
+  PHA                          ; TS
   JSR move_to_partial_pos
   LDA SHIFT_NET
   EOR #$FF
   CLC
-  ADC #1                       ; |net|
+  ADC #1                       ; d
   JSR ansi_delete_chars
-  JMP .write_cells
-.decline:
-  SEC
+  JSR write_row_cells          ; the new cells, from the cursor at WRAP_REM
+  PLA
+  STA WRAP_REM                 ; tail start (row done with WRAP_REM)
+  PLA
+  BEQ .dch_done
+  LDA ROW_END
+  STA ROW_WEND
+  JSR move_to_partial_pos
+  JMP write_row_cells
+.dch_done:
+  RTS
+.rewrite:
+  ; Resend the row from WRAP_REM, clearing the rest if it is not full
+  LDA ROW_END
+  STA ROW_WEND
+  JSR move_to_partial_pos
+  JSR write_row_cells
+  LDA ROW_END
+  CMP SCREEN_COLS
+  BCS .dch_done
+  JMP ansi_clear_line
+
+; Write cells [WRAP_REM, ROW_WEND) of the row at BUF_PTR16 from the
+; current cursor position (nothing if the range is empty)
+; Clobbers: A, Y, RENDER_COL, RENDER_STOP
+write_row_cells:
+  LDA ROW_WEND
+  CMP WRAP_REM
+  BEQ .none
+  BCC .none
+  LDA WRAP_REM
+  STA RENDER_COL
+  LDA ROW_WEND
+  STA RENDER_STOP
+  JMP render_line_chars_to
+.none:
   RTS
 
 ; Advance BUF_PTR16 by SCREEN_COLS (one wrap row)

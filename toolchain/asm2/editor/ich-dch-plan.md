@@ -169,7 +169,7 @@ same commit; refactors in their own commits).
    - `X`, `3X`: one DCH at `col - n`, nothing written;
    - `x` on the last char: the cell ends up blank.
 
-6. **Wrapped lines, row count unchanged.** Tests: insert, BS, `x` and `X`
+6. **Wrapped lines, row count unchanged.** *Done.* Tests: insert, BS, `x` and `X`
    in row 0 of a 3-row line; each later row gets its own ICH/DCH and
    writes only the carried cells (e.g. row 1 writes only `0..net-1`); a
    tab or unprintable carried across a row boundary keeps reverse video.
