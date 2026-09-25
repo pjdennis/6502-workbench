@@ -182,7 +182,7 @@ same commit; refactors in their own commits).
    repaint); line length an exact multiple of the width with the cursor at
    the end (the `PREV_LINE_FULL` edge in insert mode).
 
-8. **`D` lock-in tests.** Assert that `D` mid-line writes no text cells
+8. **`D` lock-in tests.** *Done.* Assert that `D` mid-line writes no text cells
    (only `ESC[K` on the cursor row), and that `D` on a wrapped line clears
    the remainder and scrolls the rows below up without rewriting them. No
    code change expected; if a test fails, fix the render rather than the

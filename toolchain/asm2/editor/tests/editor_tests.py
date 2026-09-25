@@ -3915,6 +3915,33 @@ class EditorTestRunner:
                 expect_max_col=[(2, 0, 39), (2, 1, 0)],
             )
 
+        self._group("D stays minimal:", leading_blank=True)
+
+        # Nothing is left to the right of the cursor to shift: D only
+        # clears from the cursor, and on a wrapped line the rows below
+        # scroll up instead of being rewritten
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            self.run_test_screen(
+                "D mid-line only clears from the cursor" + suffix,
+                "Hello World\nNEXT\n",
+                b"5lD:q!\r",
+                deferred_wrap=deferred,
+                expect_ansi_contains="\x1b[?25l\x1b[1;6H\x1b[K\x1b[10;1H",
+                expect_lines_at_frame=[(3, [(0, "Hello"), (1, "NEXT")])],
+                expect_min_col=[(3, 0, 5), (3, 1, -1)],
+            )
+            self.run_test_screen(
+                "D on a wrapped line scrolls the rows below up" + suffix,
+                "0123456789" * 10 + "\nNEXT\nLAST\n",
+                b"5lD:q!\r",
+                deferred_wrap=deferred,
+                expect_ansi_contains="\x1b[2;9r\x1b[2S\x1b[r\x1b[1;6H\x1b[K",
+                expect_lines_at_frame=[(3, [(0, "01234"), (1, "NEXT"),
+                                            (2, "LAST")])],
+                expect_min_col=[(3, 0, 5), (3, 1, -1), (3, 2, -1)],
+            )
+
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
         # 45-char line, cursor at end (col 44). Batch delete 6 -> 39 left.
