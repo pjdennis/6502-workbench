@@ -1,4 +1,4 @@
-/* GENERATED FROM ../hardware/wendy2/22V10-wendy2c.pld by pld_to_c.py -- DO NOT EDIT.
+/* GENERATED FROM hardware/wendy2/22V10-wendy2c.pld by pld_to_c.py -- DO NOT EDIT.
  *
  * Each function evaluates one combinational output of the PLD
  * directly from the addr+config bits. Re-run pld_to_c.py to
