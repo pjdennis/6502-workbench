@@ -48,7 +48,7 @@ SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16
 RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
 ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
 ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
-ROW_WEND_COST:  .byte   ; shift: byte cost of the DCH route for the row
+SHIFT_DCH_COST: .byte   ; shift: byte cost of the DCH route for the row
 SHIFT_REM16:    .word   ; shift: line length from the current row's start
 SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
 
@@ -563,7 +563,7 @@ shift_row:
 .dch_cost_base:
   CLC
   ADC #4                       ; ESC[nP
-  STA ROW_WEND_COST
+  STA SHIFT_DCH_COST
   TXA
   LDX ROW_END
   CPX SCREEN_COLS
@@ -571,7 +571,7 @@ shift_row:
   CLC
   ADC #3                       ; ESC[K
 .rw_cost_ok:
-  CMP ROW_WEND_COST
+  CMP SHIFT_DCH_COST
   BEQ .rewrite
   BCC .rewrite
   ; --- DCH ---

@@ -74,6 +74,22 @@ so the terminal cursor tracks the buffer position. On hitting the wrap
 boundary or an unprintable char, the rest of the line is repainted from
 that column only.
 
+### ICH/DCH shifting for in-line edits
+
+Insert-mode typing, BS and DEL (including whole type-ahead batches) and
+normal-mode `x` / `X` hand the render a hint: `SHIFT_NET` (cells inserted
+or deleted at `RENDER_FROM_COL16`) and `SHIFT_WRITE` (new cells written
+there). `render_line_shift` then shifts each row of the line with ICH
+(`ESC[n@`) or DCH (`ESC[nP`) and writes only the new cells plus the cells
+carried across a row boundary, instead of resending everything after the
+edit point. A batch shifts once per row. Each row compares byte costs and
+resends instead when that is cheaper (short tails, large deletes). Rows
+opened or closed by a row-count change are handled by the existing scroll
+paths first. See `ich-dch-plan.md`.
+
+Typing two characters at column 5 of a 3-row line on a 40-column screen
+goes from about 115 bytes of row content to about 30.
+
 ## Future Work
 
 ### Step 4: Gap buffer

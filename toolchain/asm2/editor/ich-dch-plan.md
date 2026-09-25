@@ -105,7 +105,9 @@ same commit; refactors in their own commits).
    per-cell attributes shift with the characters, pending wrap is
    cancelled, and shifted cells are not counted as written, so
    `expect_min_col` / `expect_max_col` keep measuring what was actually
-   sent. Interpreter self-tests first.
+   sent. (Step 5 settled one detail: a row changed by ICH/DCH does count as
+   touched, so frame-level "content redrawn" checks still see the change.)
+   Interpreter self-tests first.
 
 2. **Emulator `console.c` ICH/DCH, including `--show-repaints`.** *Done.* Same
    semantics as step 1 in the C screen model, so redraw after
@@ -141,7 +143,7 @@ same commit; refactors in their own commits).
    count past column 0, column 0 no-op, `p` after `X`, `u` after `X`,
    read-only.
 
-4. **Refactor (no behaviour change, all existing tests pass unchanged).**
+4. **Refactor (no behaviour change, all existing tests pass unchanged).** *Done.*
    - `terminal.asm`: merge `ansi_scroll_up` / `ansi_scroll_down` into one
      `ESC[` + count + final-byte emitter; add `ansi_insert_chars` and
      `ansi_delete_chars` on it.
@@ -188,7 +190,7 @@ same commit; refactors in their own commits).
    code change expected; if a test fails, fix the render rather than the
    test.
 
-9. **Cost check and cleanup.** Tests where rewriting is cheaper, so no
+9. **Cost check and cleanup.** *Done.* Tests where rewriting is cheaper, so no
    ICH/DCH is emitted (short tail, large `|net|`). Remove duplication; add
    a "Completed" entry to `PERFORMANCE.md`.
 

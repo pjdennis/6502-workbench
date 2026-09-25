@@ -3915,6 +3915,43 @@ class EditorTestRunner:
                 expect_max_col=[(2, 0, 39), (2, 1, 0)],
             )
 
+        self._group("ICH/DCH only when cheaper:", leading_blank=True)
+
+        digits = "0123456789" * 10
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            # Two chars after the insert point: resending "Xld" beats ESC[1@
+            self.run_test_screen(
+                "Shift: short tail after insert is resent" + suffix,
+                "Hello World\n",
+                b"9liX\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(4, [(0, "Hello WorXld")])],
+                expect_min_col=[(4, 0, 9)],
+                expect_max_col=[(4, 0, 11)],
+            )
+            # One char after the delete point: "d" + ESC[K beats ESC[1P
+            self.run_test_screen(
+                "Shift: short tail after delete is resent" + suffix,
+                "Hello World\n",
+                b"9lx:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(3, [(0, "Hello Word")])],
+                expect_min_col=[(3, 0, 9)],
+                expect_max_col=[(3, 0, 39)],
+            )
+            # Deleting 30 of row 0's last 35 chars: the 30 cells DCH would
+            # have to pull up cost more than resending the row
+            self.run_test_screen(
+                "Shift: large delete resends the row" + suffix,
+                digits + "\n",
+                b"5l30x:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, (digits[:5] + digits[35:])[:40])])],
+                expect_min_col=[(5, 0, 5)],
+                expect_max_col=[(5, 0, 39)],
+            )
+
         self._group("D stays minimal:", leading_blank=True)
 
         # Nothing is left to the right of the cursor to shift: D only
