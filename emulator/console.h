@@ -12,6 +12,9 @@ extern int cursor_row, cursor_col;
 extern unsigned char current_attr;
 extern int scroll_top, scroll_bot;
 extern int show_repaints;
+extern struct timespec *repaint_time;     // --show-repaints: last paint time per cell
+extern unsigned char *repaint_count;      // repaints within the highlight window
+extern unsigned char *repaint_displayed;  // highlight level currently on screen
 
 // Serial state (non-static for I/O port access)
 #define SERIAL_BUF_SIZE 256
@@ -30,6 +33,7 @@ void console_clear_screen(int mode);
 void console_scroll_region_up(int top, int bot, int lines);
 void console_scroll_region_down(int top, int bot, int lines);
 void console_scroll_up(int lines);
+void console_shift_chars(int n, int insert);
 void console_put_char(unsigned char ch);
 void console_handle_byte(unsigned char ch);
 void console_handle_csi(unsigned char final);

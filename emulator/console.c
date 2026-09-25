@@ -32,9 +32,9 @@ unsigned char current_attr = 0;
 int scroll_top = 0;
 int scroll_bot = -1;
 int show_repaints = 0;
-static struct timespec *repaint_time = NULL;
-static unsigned char *repaint_count = NULL;
-static unsigned char *repaint_displayed = NULL;
+struct timespec *repaint_time = NULL;
+unsigned char *repaint_count = NULL;
+unsigned char *repaint_displayed = NULL;
 static const unsigned char rainbow_colors[7] = {196, 208, 226, 46, 51, 21, 201};
 
 // Serial state
@@ -254,6 +254,39 @@ void console_scroll_region_down(int top, int bot, int lines) {
         memset(repaint_time + top * screen_cols, 0, clear * sizeof(struct timespec));
         memset(repaint_count + top * screen_cols, 0, clear);
         memset(repaint_displayed + top * screen_cols, 0, clear);
+    }
+}
+
+// Shift one row's slice of a per-cell array for ICH/DCH: move the cells
+// from col onward by n (right if insert, else left) and zero-fill the
+// freed cells. elem = bytes per cell.
+static void shift_row_cells(void *base, size_t elem, int row, int col, int n, int insert, int fill) {
+    unsigned char *line = (unsigned char *)base + (size_t)row * screen_cols * elem;
+    size_t keep = (size_t)(screen_cols - col - n) * elem;
+    size_t gap = (size_t)n * elem;
+    if (insert) {
+        memmove(line + (col + n) * elem, line + col * elem, keep);
+        memset(line + col * elem, fill, gap);
+    } else {
+        memmove(line + col * elem, line + (col + n) * elem, keep);
+        memset(line + (screen_cols - n) * elem, fill, gap);
+    }
+}
+
+// ICH (insert) / DCH (delete) n cells at the cursor within its row.
+// Highlight state moves with the cells but is never stamped: shifting is
+// not painting. Freed cells are blank, normal and unhighlighted.
+void console_shift_chars(int n, int insert) {
+    if (!screen_cells || cursor_row < 0 || cursor_row >= screen_rows) return;
+    if (cursor_col < 0 || cursor_col >= screen_cols) return;
+    if (n < 1) n = 1;
+    if (n > screen_cols - cursor_col) n = screen_cols - cursor_col;
+    shift_row_cells(screen_cells, 1, cursor_row, cursor_col, n, insert, ' ');
+    shift_row_cells(screen_attr, 1, cursor_row, cursor_col, n, insert, 0);
+    if (repaint_time) {
+        shift_row_cells(repaint_time, sizeof(struct timespec), cursor_row, cursor_col, n, insert, 0);
+        shift_row_cells(repaint_count, 1, cursor_row, cursor_col, n, insert, 0);
+        shift_row_cells(repaint_displayed, 1, cursor_row, cursor_col, n, insert, 0);
     }
 }
 
@@ -526,6 +559,14 @@ void console_handle_csi(unsigned char final) {
             int n = params[0] ? params[0] : 1;
             int ebot = (scroll_bot >= 0 && scroll_bot < screen_rows) ? scroll_bot : screen_rows - 1;
             console_scroll_region_down(scroll_top, ebot, n);
+            break;
+        }
+        case '@': { // ICH - Insert Characters
+            console_shift_chars(params[0], 1);
+            break;
+        }
+        case 'P': { // DCH - Delete Characters
+            console_shift_chars(params[0], 0);
             break;
         }
         case 'm': { // SGR

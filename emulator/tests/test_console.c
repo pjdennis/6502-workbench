@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // Stubs for external dependencies used by console.c
 uint64_t clockticks6502 = 0;
@@ -13,10 +14,14 @@ FILE *serial_output_file = NULL;
 
 int con_byte_ready(void) { return 0; }
 
-// Helper: reset console to fresh state with given dimensions
-static void console_init_test(int rows, int cols) {
+// Helper: reset console to fresh state with given dimensions,
+// optionally with --show-repaints tracking enabled
+static void console_init_test_mode(int rows, int cols, int repaints) {
     if (screen_cells) { free(screen_cells); screen_cells = NULL; }
     if (screen_attr) { free(screen_attr); screen_attr = NULL; }
+    free(repaint_time); repaint_time = NULL;
+    free(repaint_count); repaint_count = NULL;
+    free(repaint_displayed); repaint_displayed = NULL;
     screen_rows = 0;
     screen_cols = 0;
     cursor_row = 0;
@@ -24,9 +29,13 @@ static void console_init_test(int rows, int cols) {
     current_attr = 0;
     scroll_top = 0;
     scroll_bot = -1;
-    show_repaints = 0;
+    show_repaints = repaints;
     serial_reset();
     console_resize(rows, cols);
+}
+
+static void console_init_test(int rows, int cols) {
+    console_init_test_mode(rows, cols, 0);
 }
 
 // Helper: get character at (row, col)
@@ -409,6 +418,162 @@ TEST csi_scroll_down(void) {
     PASS();
 }
 
+TEST csi_ich_inserts_blanks(void) {
+    console_init_test(3, 8);
+    feed_string("ABCDEF\x1b[1;3H\x1b[2@");
+    ASSERT_EQ(0, memcmp(screen_cells, "AB  CDEF", 8));
+    ASSERT_EQ(cursor_row, 0);
+    ASSERT_EQ(cursor_col, 2);
+    PASS();
+}
+
+TEST csi_ich_default_and_clamped_count(void) {
+    console_init_test(3, 5);
+    feed_string("ABCDE\x1b[1;2H\x1b[@");
+    ASSERT_EQ(0, memcmp(screen_cells, "A BCD", 5));
+    feed_string("\x1b[0@");      // zero count means 1
+    ASSERT_EQ(0, memcmp(screen_cells, "A  BC", 5));
+    feed_string("\x1b[99@");     // clamped to the rest of the row
+    ASSERT_EQ(0, memcmp(screen_cells, "A    ", 5));
+    ASSERT_EQ(cell_at(1, 0), ' '); // next row untouched
+    PASS();
+}
+
+TEST csi_ich_shifts_attributes(void) {
+    console_init_test(3, 5);
+    feed_string("A\x1b[7mB\x1b[1;1H\x1b[1@");
+    ASSERT_EQ(attr_at(0, 0), 0);  // inserted blank is normal
+    ASSERT_EQ(attr_at(0, 1), 0);  // 'A'
+    ASSERT_EQ(attr_at(0, 2), 1);  // 'B' kept reverse
+    PASS();
+}
+
+TEST csi_dch_deletes_chars(void) {
+    console_init_test(3, 8);
+    feed_string("ABCDEF\x1b[1;2H\x1b[2P");
+    ASSERT_EQ(0, memcmp(screen_cells, "ADEF    ", 8));
+    ASSERT_EQ(cursor_col, 1);
+    feed_string("\x1b[P");       // default count 1
+    ASSERT_EQ(0, memcmp(screen_cells, "AEF     ", 8));
+    feed_string("\x1b[99P");     // clamped
+    ASSERT_EQ(0, memcmp(screen_cells, "A       ", 8));
+    PASS();
+}
+
+TEST csi_dch_shifts_attributes(void) {
+    console_init_test(3, 5);
+    feed_string("A\x1b[7mBCDE\x1b[0m\x1b[1;1H\x1b[1P");
+    for (int c = 0; c < 4; c++) ASSERT_EQ(attr_at(0, c), 1);
+    ASSERT_EQ(attr_at(0, 4), 0);  // freed cell is normal
+    PASS();
+}
+
+// Run repaint_overlay_update and capture what it writes to stdout
+static size_t overlay_output(struct timespec *now, char *out, size_t cap) {
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    int p[2];
+    if (pipe(p) != 0) return 0;
+    dup2(p[1], STDOUT_FILENO);
+    repaint_overlay_update(now);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    close(p[1]);
+    size_t len = 0;
+    ssize_t n;
+    while (len < cap - 1 && (n = read(p[0], out + len, cap - 1 - len)) > 0)
+        len += (size_t)n;
+    close(p[0]);
+    out[len] = '\0';
+    return len;
+}
+
+static int highlighted(int r, int c) {
+    return repaint_time[r * screen_cols + c].tv_sec != 0;
+}
+
+// Paint "ABCDEF" on row 0 and let the overlay show its highlight
+static void paint_and_show(struct timespec *now) {
+    char buf[4096];
+    feed_string("ABCDEF");
+    clock_gettime(CLOCK_MONOTONIC, now);
+    overlay_output(now, buf, sizeof(buf));
+}
+
+TEST repaint_ich_moves_highlight_without_painting(void) {
+    console_init_test_mode(3, 10, 1);
+    struct timespec now;
+    paint_and_show(&now);
+    feed_string("\x1b[1;2H\x1b[2@");
+    // Highlight travels with its character; inserted blanks are unlit
+    ASSERT(highlighted(0, 0));
+    ASSERT(!highlighted(0, 1));
+    ASSERT(!highlighted(0, 2));
+    for (int c = 3; c < 8; c++) ASSERT(highlighted(0, c));
+    ASSERT(!highlighted(0, 8));
+    ASSERT_EQ(repaint_displayed[1], 0);
+    ASSERT_EQ(repaint_displayed[3], 1);
+    // The shift alone gives the overlay nothing new to draw
+    char buf[4096];
+    ASSERT_EQ(overlay_output(&now, buf, sizeof(buf)), 0);
+    PASS();
+}
+
+TEST repaint_dch_moves_highlight_without_painting(void) {
+    console_init_test_mode(3, 10, 1);
+    struct timespec now;
+    paint_and_show(&now);
+    feed_string("\x1b[1;2H\x1b[2P");
+    ASSERT_EQ(0, memcmp(screen_cells, "ADEF      ", 10));
+    for (int c = 0; c < 4; c++) ASSERT(highlighted(0, c));
+    for (int c = 4; c < 10; c++) ASSERT(!highlighted(0, c));
+    ASSERT_EQ(repaint_displayed[3], 1);
+    ASSERT_EQ(repaint_displayed[9], 0);
+    char buf[4096];
+    ASSERT_EQ(overlay_output(&now, buf, sizeof(buf)), 0);
+    PASS();
+}
+
+TEST repaint_shift_of_unpainted_cells_stays_unlit(void) {
+    console_init_test_mode(3, 10, 1);
+    fill_cells("ABCDEF");        // present but never painted
+    feed_string("\x1b[1;1H\x1b[3@\x1b[1;2H\x1b[1P");
+    for (int c = 0; c < 10; c++) ASSERT(!highlighted(0, c));
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    char buf[4096];
+    ASSERT_EQ(overlay_output(&now, buf, sizeof(buf)), 0);
+    PASS();
+}
+
+TEST repaint_write_into_freed_cell_starts_fresh(void) {
+    console_init_test_mode(3, 10, 1);
+    struct timespec now;
+    paint_and_show(&now);
+    // Painting into the blank ICH made is a first paint, not a repaint
+    // of the 'A' that used to be there
+    feed_string("\x1b[1;1H\x1b[1@X");
+    ASSERT_EQ(repaint_count[0], 0);
+    ASSERT_EQ(repaint_count[1], 0);   // shifted 'A' was not bumped
+    PASS();
+}
+
+TEST repaint_shifted_highlight_fades_in_new_place(void) {
+    console_init_test_mode(3, 10, 1);
+    struct timespec now;
+    paint_and_show(&now);
+    feed_string("\x1b[1;2H\x1b[2@");
+    struct timespec later = now;
+    later.tv_sec += 3;
+    char buf[4096];
+    overlay_output(&later, buf, sizeof(buf));
+    // The fade redraws the moved text where it now is
+    ASSERT(strstr(buf, "\x1b[1;4H") != NULL);
+    ASSERT(strstr(buf, "BCDEF") != NULL);
+    for (int c = 0; c < 10; c++) ASSERT_EQ(repaint_displayed[c], 0);
+    PASS();
+}
+
 TEST csi_dsr_injects_response(void) {
     console_init_test(10, 10);
     cursor_row = 4;
@@ -507,6 +672,16 @@ SUITE(console_suite) {
     RUN_TEST(csi_scroll_region);
     RUN_TEST(csi_scroll_up);
     RUN_TEST(csi_scroll_down);
+    RUN_TEST(csi_ich_inserts_blanks);
+    RUN_TEST(csi_ich_default_and_clamped_count);
+    RUN_TEST(csi_ich_shifts_attributes);
+    RUN_TEST(csi_dch_deletes_chars);
+    RUN_TEST(csi_dch_shifts_attributes);
+    RUN_TEST(repaint_ich_moves_highlight_without_painting);
+    RUN_TEST(repaint_dch_moves_highlight_without_painting);
+    RUN_TEST(repaint_shift_of_unpainted_cells_stays_unlit);
+    RUN_TEST(repaint_write_into_freed_cell_starts_fresh);
+    RUN_TEST(repaint_shifted_highlight_fades_in_new_place);
     RUN_TEST(csi_dsr_injects_response);
     RUN_TEST(csi_private_sequence_ignored);
     RUN_TEST(serial_reset_clears_state);

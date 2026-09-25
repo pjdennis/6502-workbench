@@ -107,7 +107,7 @@ same commit; refactors in their own commits).
    `expect_min_col` / `expect_max_col` keep measuring what was actually
    sent. Interpreter self-tests first.
 
-2. **Emulator `console.c` ICH/DCH, including `--show-repaints`.** Same
+2. **Emulator `console.c` ICH/DCH, including `--show-repaints`.** *Done.* Same
    semantics as step 1 in the C screen model, so redraw after
    suspend/resume stays correct. Highlighting rule: **shifting is not
    painting.** Only characters actually written light up, which is what
