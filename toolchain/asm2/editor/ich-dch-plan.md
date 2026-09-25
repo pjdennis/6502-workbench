@@ -24,10 +24,16 @@ and later, xterm-alikes, Windows Terminal, PuTTY, minicom all support them).
 - **Buffer bytes map 1:1 to screen cells.** Tab renders as a reverse `>`,
   unprintables as a reverse `?` (`render_line_chars`, `render_scroll.asm`),
   so a buffer shift of `net` bytes is a screen shift of `net` cells.
-- **No interpreter understands ICH/DCH yet.** Neither
-  `tests/ansi_screen.py` nor the emulator's screen model
-  (`emulator/console.c`, used for redraw after Ctrl-Z/`fg` and for
-  `--show-repaints`) handles `@` or `P`.
+- **Interpreter support.** `tests/ansi_screen.py` handles `@` and `P`
+  (step 1, done). The emulator's screen model (`emulator/console.c`) does
+  not yet. It drives both redraw after Ctrl-Z/`fg` and the
+  `--show-repaints` highlighting: the real terminal gets the editor's bytes
+  directly, while the model tracks cells plus per-cell highlight state
+  (`repaint_time`, `repaint_count`, `repaint_displayed`), and
+  `repaint_overlay_update` re-sends cells from the model with a background
+  color as highlights turn on and fade. A model that ignores ICH/DCH would
+  put stale characters on screen and leave shifted highlights that never
+  fade.
 - **`X` is not implemented**; only `x` / Delete are bound (`normal.asm`).
 - **`D` is already near-minimal.** It sets `RENDER_FROM_COL16` to the
   cursor, so the partial render writes nothing and emits `ESC[K`; if the
@@ -94,16 +100,36 @@ chars; row 2 likewise. About 30 bytes instead of about 115.
 Red, green, commit each step (tests and the code that passes them in the
 same commit; refactors in their own commits).
 
-1. **`AnsiScreen` ICH/DCH** (`tests/ansi_screen.py`). Handle `@` and `P`:
+1. **`AnsiScreen` ICH/DCH** (`tests/ansi_screen.py`). *Done.* Handle `@` and `P`:
    missing count means 1, the count is clamped to the rest of the row,
    per-cell attributes shift with the characters, pending wrap is
    cancelled, and shifted cells are not counted as written, so
    `expect_min_col` / `expect_max_col` keep measuring what was actually
    sent. Interpreter self-tests first.
 
-2. **Emulator `console.c` ICH/DCH.** Same semantics in the C screen model;
-   tests in `emulator/tests/test_console.c` first. Without this, redraw
-   after suspend/resume in terminal mode would be wrong.
+2. **Emulator `console.c` ICH/DCH, including `--show-repaints`.** Same
+   semantics as step 1 in the C screen model, so redraw after
+   suspend/resume stays correct. Highlighting rule: **shifting is not
+   painting.** Only characters actually written light up, which is what
+   makes the savings visible (typing one char mid-line lights one cell,
+   not the rest of the line). Concretely, following the pattern of
+   `console_scroll_region_up` / `down`:
+   - shift `screen_cells`, `screen_attr` and all three highlight arrays
+     together within the row, so an existing highlight travels with its
+     character (a real terminal moves cell colors with ICH/DCH too) and
+     fades out where it now is;
+   - do not stamp or bump `repaint_time` / `repaint_count` for shifted
+     cells;
+   - zero the highlight state of freed cells (ICH blanks, DCH blanks at the
+     right), matching the terminal, which shows them with no background
+     because the overlay always resets colors after drawing.
+
+   Tests in `emulator/tests/test_console.c` first: cell and attribute
+   shifting (count defaults, clamping, dropped cells); with repaint
+   tracking enabled, a shifted cell keeps its own highlight state at its
+   new column, a cell that was never written stays unhighlighted after a
+   shift, freed cells come out unhighlighted, and an ICH/DCH alone does not
+   make the overlay emit anything new.
 
 3. **`X` command (feature, existing render).** Delete `count` characters
    before the cursor, clamped at column 0; the cursor moves left by the
