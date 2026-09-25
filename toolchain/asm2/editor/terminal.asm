@@ -103,22 +103,24 @@ ansi_reset_scroll_region:
 ; Emits ESC[nS. Input: A = count
 ; Clobbers A, X, Y
 ansi_scroll_up:
-  PHA
-  JSR ansi_csi
-  PLA
-  JSR write_byte_dec
-  LDA #'S'
-  JMP io_write
+  LDX #'S'
+  BNE ansi_count_seq     ; Always taken
 
 ; Scroll down by A lines (content moves down, blanks at top of region)
 ; Emits ESC[nT. Input: A = count
 ; Clobbers A, X, Y
 ansi_scroll_down:
+  LDX #'T'
+  ; fall through
+
+; Shared ESC[<count><final> emitter; A = count, X = final character
+; Clobbers A, X, Y
+ansi_count_seq:
   PHA
   JSR ansi_csi
   PLA
-  JSR write_byte_dec
-  LDA #'T'
+  JSR write_byte_dec     ; preserves X
+  TXA
   JMP io_write
 
 ; ANSI sequence string constants

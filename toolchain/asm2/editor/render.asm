@@ -42,6 +42,7 @@ RENDER_LIMIT:   .byte   ; Max rows to render (0=unlimited)
 DELETE_SCREEN_ROWS: .byte ; Pre-computed screen rows for line-delete scroll (0=use file delta)
 RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
 INSERT_LINE_COUNT:  .byte ; Override line count for line-insert scroll (0=use file delta)
+CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line occupies after the edit
 
   .code
 
@@ -303,190 +304,34 @@ print_separator:
   JMP write_string
 
 ; Redraw current line's wrap rows plus status bar (for single-line edits)
-; If row count unchanged: renders just the line's rows + status bar.
-; If row count changed: renders from line's first row to bottom of screen.
+; If the line's row count changed, the rows below it are scrolled first to
+; open or close the difference, so only the line itself (and any rows
+; exposed at the bottom) are drawn.
 render_current_line_and_status:
   ; Compute cursor's wrap row from CURSOR_COL16
   CP16 CURSOR_COL16, DIV_INPUT16
   JSR div_mod_screen_cols_16
   STX WRAP_QUOT
-
-  ; Get current line row count
   JSR get_current_line_len
   JSR line_screen_rows
-  ; A = current row count
-
-  CMP PREV_LINE_ROWS
-  BEQ .same_row_count
-  JMP .rows_changed
-
-.same_row_count:
-  ; --- Same row count: render just the line's rows ---
-  TAX                          ; X = row count (loop counter)
+  STA CUR_LINE_ROWS
+  ; First screen row of the line; above the viewport -> full repaint
   LDA CURSOR_ROW
   SEC
   SBC WRAP_QUOT
-  BPL .row_visible             ; first row on screen
-  JMP .do_full                 ; first row above visible area
+  BPL .row_visible
+  JMP render_screen
 .row_visible:
   STA RENDER_ROW
-
-  STX RENDER_WRAP              ; save loop counter (LDAX16 clobbers X)
   JSR ansi_cursor_hide
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP              ; restore loop counter
-
-  ; Position cursor for first row only
-  LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCC .not_at_status           ; not at status bar
-  JMP .wrap_done               ; at status bar row, stop
-.not_at_status:
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  STX RENDER_WRAP              ; save loop counter
-  JSR ansi_move_cursor
-
-  ; --- Partial render check ---
-  JSR check_from_col           ; X=from_wrap, A=WRAP_REM=from_col
-  BCS .wrap_loop               ; $FFFF → render all rows normally
-
-  ; Skip from_wrap wrap rows
-  CPX #0
-  BEQ .partial_same_row
-.partial_skip_loop:
-  JSR buf_add_cols
-  INC RENDER_ROW
-  LDY RENDER_WRAP
-  DEY
-  STY RENDER_WRAP
-  BEQ .wrap_done               ; no more rows to render
-  DEX
-  BNE .partial_skip_loop
-
-.partial_same_row:
-  ; Reposition cursor at (RENDER_ROW+1, from_col+1)
-  JSR move_to_partial_pos
-
-  ; Render from from_col
-  LDA WRAP_REM
-  STA RENDER_COL
-  JSR render_line_chars_from
-  JMP .check_clear
-
-.wrap_loop:
-  JSR render_line_chars
-.check_clear:
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BCS .no_clear            ; row full, skip clear for deferred-wrap terminals
-  JSR ansi_clear_line
-.no_clear:
-  ; Advance BUF_PTR16 by SCREEN_COLS for next wrap row
-  JSR buf_add_cols
-  INC RENDER_ROW
-  LDX RENDER_WRAP              ; restore loop counter
-  DEX
-  BEQ .wrap_done
-  STX RENDER_WRAP              ; save for next iteration
-  ; Check if next row is the status bar
-  LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .wrap_done
-  JMP .wrap_loop
-
-.wrap_done:
-  JMP render_finish
-
-.rows_changed:
-  ; A = current rows, PREV_LINE_ROWS = old rows
-  STA SCROLL_DELTA              ; temp: current_rows
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  BPL .rc_row_ok
-  JMP .do_full
-.rc_row_ok:
-  STA RENDER_ROW                ; first_row (0-based)
-  LDA SCROLL_DELTA              ; current_rows
+  LDA CUR_LINE_ROWS
   CMP PREV_LINE_ROWS
-  BCC .rc_rows_decreased         ; rows decreased: scroll up
-  JMP .rc_render_from_row        ; rows increased or equal: scroll down
-.rc_rows_decreased:
-
-  ; --- Rows decreased: scroll UP ---
-  STA DELETE_SCREEN_ROWS        ; current_rows (for scroll region skip)
-  LDA PREV_LINE_ROWS
-  SEC
-  SBC SCROLL_DELTA              ; displacement = old - new
-  STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  ; Scroll region: past cursor line to status bar - 1
-  LDA RENDER_ROW
-  CLC
-  ADC DELETE_SCREEN_ROWS
-  CLC
-  ADC #1                        ; 1-based
-  LDX #0                        ; scroll up
-  JSR scroll_region_from_a
-  ; Check if cursor line rendering can be skipped/reduced
-  JSR check_from_col           ; X = change_wrap_row, A = WRAP_REM = from_col
-  BCS .rc_render_all_cursor    ; $FFFF = unknown change, render all
-  CPX DELETE_SCREEN_ROWS       ; compare with current_rows
-  BCS .rc_skip_cursor          ; change >= current: skip cursor rendering
-  ; Partial: render from change_wrap_row
-  STX RENDER_WRAP
-  LDA SCROLL_DELTA
-  PHA                          ; save displacement for bottom rows
-  LDA DELETE_SCREEN_ROWS
-  SEC
-  SBC RENDER_WRAP              ; current_rows - change_wrap_row
-  STA SCROLL_DELTA
-  LDA RENDER_WRAP
-  CLC
-  ADC RENDER_ROW
-  STA RENDER_ROW               ; advance to change_wrap_row screen row
-  ; Check for partial first row
-  LDA WRAP_REM
-  BEQ .rc_full_rows            ; from_col=0: render full rows
-  ; --- Partial first row ---
-  JSR render_partial_first_row
-  DEC SCROLL_DELTA
-.rc_full_rows:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-  JSR set_render_line_to_cursor
-  JSR render_limited_loop
-  PLA
-  STA SCROLL_DELTA             ; restore displacement
-  JMP .rc_bottom_rows
-.rc_skip_cursor:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-  JMP .rc_bottom_rows
-.rc_render_all_cursor:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-  JSR setup_render_at_cursor
-  JSR render_limited_loop
-.rc_bottom_rows:
-  ; Render bottom exposed rows
-  JMP render_bottom_rows_guarded
-
-.rc_render_from_row:
-  ; --- Rows increased: scroll DOWN ---
-  ; displacement = current_rows - PREV_LINE_ROWS
-  LDA SCROLL_DELTA              ; current_rows (saved at .rows_changed entry)
+  BEQ .same_rows
+  BCC .rows_decreased
+  ; --- Rows increased: scroll the rows below the old line end down ---
   SEC
   SBC PREV_LINE_ROWS
   STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  ; Scroll region: past old line end to status bar - 1
   LDA RENDER_ROW
   CLC
   ADC PREV_LINE_ROWS
@@ -494,41 +339,66 @@ render_current_line_and_status:
   ADC #1                        ; 1-based
   LDX #$FF                      ; scroll down
   JSR scroll_region_from_a
-  ; Check if old wrap rows can be skipped
-  JSR check_from_col           ; X = change_wrap_row, A = WRAP_REM = from_col
-  BCS .ri_all_rows             ; $FFFF = unknown change, render all
-  STX RENDER_WRAP
-  ; SCROLL_DELTA = current_rows - change_wrap_row
-  LDA SCROLL_DELTA             ; displacement
-  CLC
-  ADC PREV_LINE_ROWS           ; = current_rows
+.same_rows:
+  JSR render_line_from_change
+  JMP render_finish
+
+.rows_decreased:
+  ; --- Rows decreased: scroll the rows below the new line end up ---
+  LDA PREV_LINE_ROWS
   SEC
-  SBC RENDER_WRAP              ; - change_wrap_row
+  SBC CUR_LINE_ROWS
   STA SCROLL_DELTA
-  ; RENDER_ROW += change_wrap_row
-  LDA RENDER_WRAP
+  PHA                           ; displacement, for the exposed bottom rows
+  LDA RENDER_ROW
+  CLC
+  ADC CUR_LINE_ROWS
+  CLC
+  ADC #1                        ; 1-based
+  LDX #0                        ; scroll up
+  JSR scroll_region_from_a
+  JSR render_line_from_change
+  PLA
+  STA SCROLL_DELTA
+  LDA #0
+  STA DELETE_SCREEN_ROWS        ; reset for next frame
+  JMP render_bottom_rows_guarded
+
+; Draw the cursor line from its change point (RENDER_FROM_COL16; $FFFF =
+; whole line) to its last row, stopping at the status bar.
+; Input: RENDER_ROW = the line's first screen row, CUR_LINE_ROWS = its rows
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/LIMIT/LINE16,
+;           SCROLL_DELTA, WRAP_REM, DIV_INPUT16
+render_line_from_change:
+  JSR check_from_col           ; X = change wrap row, A = WRAP_REM = from col
+  BCC .have_change
+  LDX #0
+  STX WRAP_REM
+.have_change:
+  CPX CUR_LINE_ROWS
+  BCS .done                    ; change is past the line's last row
+  STX RENDER_WRAP
+  LDA CUR_LINE_ROWS
+  SEC
+  SBC RENDER_WRAP
+  STA SCROLL_DELTA             ; rows left to draw
+  TXA
   CLC
   ADC RENDER_ROW
   STA RENDER_ROW
-  ; Check for partial first row
+  CLC
+  ADC #1
+  CMP SCREEN_ROWS
+  BCS .done                    ; change row is at or below the status bar
   LDA WRAP_REM
-  BEQ .ri_full_rows            ; from_col=0: render full rows
-  ; --- Partial first row ---
+  BEQ .full_rows
   JSR render_partial_first_row
   DEC SCROLL_DELTA
-.ri_full_rows:
+.full_rows:
   JSR set_render_line_to_cursor
-  JMP render_limited_rows
-.ri_all_rows:
-  LDA SCROLL_DELTA
-  CLC
-  ADC PREV_LINE_ROWS           ; = current_rows
-  STA SCROLL_DELTA
-  JSR setup_render_at_cursor
-  JMP render_limited_rows
-
-.do_full:
-  JMP render_screen
+  JMP render_limited_loop
+.done:
+  RTS
 
 ; Advance BUF_PTR16 by SCREEN_COLS (one wrap row)
 ; Clobbers A. Preserves X, Y
