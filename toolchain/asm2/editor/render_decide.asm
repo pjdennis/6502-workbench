@@ -324,7 +324,7 @@ render_decide:
   BEQ .enter_no_disp
   BCC .enter_no_disp         ; safety: can't be negative
   STA SCROLL_DELTA
-  JMP .walk_done
+  BNE .walk_done             ; Always taken (A > 0)
 .enter_no_disp:
   JMP .ins_full
 .do_walk:

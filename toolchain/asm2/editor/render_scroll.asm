@@ -352,8 +352,8 @@ find_line_at_render_row:
   LDA #0
   STA RENDER_WRAP           ; subsequent lines start at wrap 0
   LDA RENDER_LIMIT
-  BEQ .found
-  JMP .walk
+  BNE .walk
+  BEQ .found                 ; Always taken
 .within_line:
   ; Target is within this line: wrap = base_wrap + remaining
   LDA RENDER_WRAP
