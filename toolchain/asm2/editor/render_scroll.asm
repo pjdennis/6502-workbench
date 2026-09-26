@@ -16,22 +16,14 @@
 ; cursor line ($06/$08) and the exposed bottom rows are drawn.
 render_line_delete_scroll:
   JSR ansi_cursor_hide
-  JSR set_first_row          ; first_row (0-based)
-  BCS .first_row_ok
-  ; The line starts above the view (it is the view's top line): lines
-  ; deleted from its first row scroll from the top row
-  LDX DELETE_SCREEN_ROWS
-  BNE .first_row_ok          ; (the rows kept reach into the view)
-  TXA
-.first_row_ok:
+  LDA DELETE_SCREEN_ROWS     ; below the cursor line's kept rows
   LDX INSERT_LINE_COUNT
   INX
   CPX #2
-  BCS .to_one_based          ; 1-254: pure newline join
-  ADC DELETE_SCREEN_ROWS     ; C=0: skip the cursor line's rows
-.to_one_based:
-  CLC
-  ADC #1                     ; 1-based
+  BCC .scroll_start
+  LDA #0                     ; 1-254: pure newline join, from first_row
+.scroll_start:
+  JSR row_below_rows         ; (the top row if above the view)
   JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
 
   LDA RENDER_FLAG
@@ -77,19 +69,16 @@ render_line_insert_scroll:
   ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
   ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the rows the
   ;            cursor line keeps)
-  LDA CURSOR_ROW
+  LDA WRAP_QUOT              ; $03/$0A: first_row + the cursor's wrap row
   LDX RENDER_FLAG
   CPX #RF_UNJOIN
   BEQ .scroll_skip_cursor_ins
   CPX #RF_SPLIT
-  BNE .to_one_based
+  BNE .scroll_start
 .scroll_skip_cursor_ins:
-  JSR set_first_row
-  CLC
-  ADC PREV_LINE_ROWS     ; past end of cursor line (0-based)
-.to_one_based:
-  CLC
-  ADC #1           ; Convert to 1-based
+  LDA PREV_LINE_ROWS
+.scroll_start:
+  JSR row_below_rows
   LDX #'T'               ; scroll down
   JSR scroll_region_from_a
 

@@ -19987,24 +19987,26 @@ class EditorTestRunner:
         # its last or the status bar: the stop row, first row + rows, must
         # not wrap in 8 bits for a line running far past the screen.  10x20
         # screen; six short lines put the long line at row 6.
+        alpha = lambda n: "".join(chr(97 + i % 26) for i in range(n))
+        abc = alpha(100)
         six = "".join(f"line {i}\n" for i in range(6))
         six_rows = [(i, f"line {i}") for i in range(6)]
         self.run_test_screen(
             "Undo x on a 253-row line below the top",
-            six + az[:5050] + "\nafter\n",
+            six + alpha(5050) + "\nafter\n",
             b"7Gxu:q!\r",
             rows=10, cols=20,
-            expect_lines=six_rows + [(6, az[:20]), (7, az[20:40]),
-                                     (8, az[40:60])],
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
             expect_cursor=(6, 0),
         )
         self.run_test_screen(
             "Undo x on the second row of a 253-row line below the top",
-            six + az[:5050] + "\nafter\n",
+            six + alpha(5050) + "\nafter\n",
             b"7G25lxu:q!\r",
             rows=10, cols=20,
-            expect_lines=six_rows + [(6, az[:20]), (7, az[20:40]),
-                                     (8, az[40:60])],
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
             expect_cursor=(7, 5),
         )
         # J that keeps the line's 250 rows (10x40): the joined line is
@@ -20017,7 +20019,7 @@ class EditorTestRunner:
             expect_cursor=(7, 2),
         )
         # A 255-row terminal: row 252 + the line's 8 rows passes 255
-        alpha300 = az[:300]
+        alpha300 = alpha(300)
         self.run_test_screen(
             "Undo D on a line at row 252 of a 255-row terminal",
             "".join(f"line {i}\n" for i in range(252)) + alpha300
@@ -20051,6 +20053,71 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+1}") for i in range(3)]
                          + [(i, "Line 3") for i in range(3, 9)],
             expect_cursor=(3, 0),
+        )
+        # The scroll region below a line whose rows changed starts at
+        # first row + rows + 1: for a line running far past the screen
+        # that sum must not wrap to a small row and scroll the rows above
+        # it (nothing below such a line is on screen)
+        self.run_test_screen(
+            "Insert growing a 250-row line below the top",
+            six + alpha(5000) + "\nafter\n",
+            b"7GiZ\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "Z" + abc[:19]), (7, abc[19:39]),
+                                     (8, abc[39:59])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "x shrinking a 251-row line below the top",
+            six + alpha(5001) + "\nafter\n",
+            b"7Gx:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[1:21]), (7, abc[21:41]),
+                                     (8, abc[41:61])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "J into a 253-row line below the top",
+            six + "x\n" + alpha(5050) + "\nafter\n",
+            b"7GJ:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "x " + abc[:18]), (7, abc[18:38]),
+                                     (8, abc[38:58])],
+            expect_cursor=(6, 1),
+        )
+        # J growing a line from 250 rows to 251 (the space fills a row)
+        self.run_test_screen(
+            "J growing a line to 251 rows below the top",
+            six + "x" * 20 + "\n" + alpha(4980) + "\nafter\n",
+            b"7GJ:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "x" * 20), (7, " " + abc[:19]),
+                                     (8, abc[19:39])],
+            expect_cursor=(7, 0),
+        )
+        # Undo of J restores a 250-row line and the 1-row line after it
+        # (the J had saved a row); the cursor is back on the line's first
+        # row, at row 6
+        self.run_test_screen(
+            "Undo of J on a 250-row line below the top",
+            six + alpha(4990) + "\n" + "q" * 5 + "\nafter\n",
+            b"7GJ06k6ju:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
+            expect_cursor=(6, 0),
+        )
+        # D leaves 1 row of a 20-row line at row 2: the 19 rows lost are
+        # more than the 7 rows below, which are all drawn
+        post = "".join(f"post {i}\n" for i in range(10))
+        self.run_test_screen(
+            "D on a line taller than the screen redraws the lines below",
+            "line 0\nline 1\n" + alpha(400) + "\n" + post,
+            b"3G5lD:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "line 0"), (1, "line 1"), (2, abc[:5])]
+                         + [(3 + i, f"post {i}") for i in range(6)],
+            expect_cursor=(2, 4),
         )
         # An Enter at the first column of the view's top row, in a line
         # that starts above the view, leaves all of the line's first part

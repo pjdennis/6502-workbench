@@ -80,6 +80,30 @@ set_first_row:
   STA RENDER_ROW
   RTS
 
+; A = the 1-based screen row below the cursor line's first A rows:
+; first_row + A + 1, worked out from the cursor row, as first_row is
+; negative when the line starts above the view.  $FF when that is past
+; row 254 (nothing below them is on screen: a scroll from there does
+; nothing), 1 (the top row) when it is above the view.  Clobbers A
+row_below_rows:
+  SEC
+  SBC WRAP_QUOT                ; the rows from the cursor's
+  BCC .above                   ; (they end above the cursor's row)
+  SEC
+  ADC CURSOR_ROW
+  BCC .done
+  LDA #$FF                     ; past row 255
+.done:
+  RTS
+.above:
+  SEC
+  ADC CURSOR_ROW               ; C=0: above row 0 (1-based)
+  BEQ .top
+  BCS .done
+.top:
+  LDA #1
+  RTS
+
 ; Set RENDER_ROW to the cursor line's first screen row, then point
 ; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Returns C=0 if
 ; the line starts above the view.  Clobbers A
@@ -233,10 +257,10 @@ render_current_line_and_status:
   JSR cursor_line_first_row
   BCS render_rows_resized
   JMP render_screen
-; Entry: RENDER_ROW = first row of a block (cursor line, $0B range, or a
-; J undo's cursor line and restored lines) that changed from
-; PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its change point
-; (RENDER_FROM_COL16) after scrolling the rows below it
+; Entry: RENDER_ROW = first_row (set_first_row), the first row of a block
+; (cursor line, $0B range, or a J undo's cursor line and restored lines)
+; that changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its
+; change point (RENDER_FROM_COL16) after scrolling the rows below it
 render_rows_resized:
   JSR ansi_cursor_hide
   LDA CUR_LINE_ROWS
@@ -246,9 +270,8 @@ render_rows_resized:
   ; --- Rows increased: scroll the rows below the old line end down ---
   SBC PREV_LINE_ROWS            ; C=1 from the compare
   STA SCROLL_DELTA
-  LDA RENDER_ROW
-  SEC                           ; +1: 1-based
-  ADC PREV_LINE_ROWS
+  LDA PREV_LINE_ROWS
+  JSR row_below_rows
   LDX #'T'                      ; scroll down
   JSR scroll_region_from_a
   BCS .same_rows
@@ -267,9 +290,8 @@ render_rows_resized:
   SEC
   SBC CUR_LINE_ROWS
   STA SCROLL_DELTA
-  LDA RENDER_ROW
-  SEC                           ; +1: 1-based
-  ADC CUR_LINE_ROWS
+  LDA CUR_LINE_ROWS
+  JSR row_below_rows
   JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
   JSR render_line_keep_delta
   JMP render_bottom_rows

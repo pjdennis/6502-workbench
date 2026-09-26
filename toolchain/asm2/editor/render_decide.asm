@@ -184,9 +184,8 @@ render_decide:
   ; (equal: .j_really_no_scroll repaints just the line)
   JSR ansi_cursor_hide
   ; Scroll region start = first_row + old_total + 1 (1-based)
-  JSR set_first_row
-  SEC                       ; +1: 1-based
-  ADC SCROLL_DELTA          ; + old_total (still in SCROLL_DELTA)
+  LDA SCROLL_DELTA          ; old_total
+  JSR row_below_rows
   STA ANSI_ROW
   ; Displacement = new_total - old_total
   LDA DELETE_SCREEN_ROWS
