@@ -223,8 +223,7 @@ render_enter_split:
 .draw:
   ; Draw from row F + q (q = the first changed column's row; the top row
   ; if that is above the view) to the last new row, F + CUR_LINE_ROWS - 1
-  CP16 RENDER_FROM_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16   ; X = q
+  JSR check_from_col           ; X = q (the column is never $FFFF)
   STX RENDER_COL
   LDA RENDER_WRAP
   SEC
