@@ -293,8 +293,7 @@ normal_enter_insert_after:
   JMP enter_insert_mode
 
 normal_enter_insert_eol:
-  JSR get_current_line_len
-  STAX16 CURSOR_COL16
+  JSR insert_end             ; col = len
   JMP enter_insert_mode
 
 normal_open_below:
