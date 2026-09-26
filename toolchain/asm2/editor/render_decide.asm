@@ -289,7 +289,9 @@ render_decide:
   BEQ .enter_no_disp
   BCC .enter_no_disp         ; shrank (BS/Del in the batch)
   STA SCROLL_DELTA
-  BNE .no_disp_adjust        ; Always taken (A > 0)
+  ; No clamp: the region scrolls from the old line, and the rows below it
+  ; always have room for the growth, as the cursor line is on screen
+  BNE .insert_scroll         ; Always taken (A > 0)
 .enter_no_disp:
   JMP .ins_full
 .do_walk:
@@ -344,6 +346,7 @@ render_decide:
   LDA SCROLL_DELTA
   BEQ .ins_full
   JSR clamp_delta_avail
+.insert_scroll:
   JMP render_line_insert_scroll
 .ins_full:
   JMP .full

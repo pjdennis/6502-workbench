@@ -19182,6 +19182,35 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # Enter batches that grow the text by more rows than remain below
+        # the new cursor row: the scroll starts at the old line, so it must
+        # not be clamped against the new cursor row
+        self.run_test_screen(
+            "Batched Enters at start of line near the bottom: screen",
+            "abc\n",
+            b"i\r\r\r\r\r\x1b:q!\r",
+            expect_lines=[(0, ""), (4, ""), (5, "abc"), (6, "~")],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Batched Enters mid-line ending on last content row: screen",
+            "L0\nL1\nL2\nL3\nL4\nhello world\nL6\nL7\nL8\n",
+            b"5j5li\r\r\r\x1b:q!\r",
+            expect_lines=[
+                (4, "L4"), (5, "hello"), (6, ""), (7, ""), (8, " world"),
+            ],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Pasted lines ending near the bottom: screen",
+            "".join(f"line {i}\n" for i in range(1, 20)),
+            b"5Goa\rb\rc\r\x1b:q!\r",
+            expect_lines=[
+                (4, "line 5"), (5, "a"), (6, "b"), (7, "c"), (8, ""),
+            ],
+            expect_cursor=(8, 0),
+        )
+
         # dd on last wrapped line when VIEW_TOP needs adjusting.
         # 5 rows (4 content + 1 status), 10 cols.
         # Lines: "A\nB\n" + "C"*15 (wraps to 2 rows) = 4 screen rows.
