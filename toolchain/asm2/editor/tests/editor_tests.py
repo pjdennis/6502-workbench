@@ -3125,6 +3125,17 @@ class EditorTestRunner:
             deferred_wrap=True
         )
 
+        # A screen over 255 columns is used as 255 wide (the emulator caps
+        # its byte-wide size ports), not as 300 mod 256 = 44
+        self.run_test_screen(
+            "Screen 8x300 is used as 255 columns",
+            "A" * 100 + "\nsecond\n",
+            b"$:q!\r",
+            rows=8, cols=300,
+            expect_cursor=(0, 99),
+            expect_lines=[(0, "A" * 100), (1, "second"), (2, "~")]
+        )
+
         # ============================================================
         # Line wrapping tests
         # ============================================================
@@ -11841,6 +11852,33 @@ class EditorTestRunner:
                 rows=24, cols=80,
                 expect_lines=[(0, "Hello")],
                 expect_status_contains="/t "
+            )
+
+            # Terminal size detection: sizes over 255 are capped at 255,
+            # not taken mod 256 (256 would be 0 and 300 would be 44)
+            self.run_test_terminal_screen(
+                "Terminal size 10x256 (width capped at 255)",
+                "Hello\n",
+                b":q!\r",
+                rows=10, cols=256,
+                expect_lines=[(0, "Hello")],
+                expect_status_contains="/t "
+            )
+            self.run_test_terminal_screen(
+                "Terminal size 8x300 (width capped at 255)",
+                "A" * 100 + "\nsecond\n",
+                b"$:q!\r",
+                rows=8, cols=300,
+                expect_cursor=(0, 99),
+                expect_lines=[(0, "A" * 100), (1, "second"), (2, "~")]
+            )
+            self.run_test_terminal_screen(
+                "Terminal size 256x40 (height capped at 255)",
+                "Hello\n",
+                b":q!\r",
+                rows=256, cols=40,
+                expect_cursor=(0, 0),
+                expect_lines=[(0, "Hello"), (1, "~"), (253, "~"), (255, "")]
             )
 
             # Terminal size with baud rate

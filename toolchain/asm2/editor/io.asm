@@ -59,12 +59,14 @@ io_ready:
   RTS
 
 ; Query terminal size via DSR (Device Status Report)
-; Sends ESC[999;999H to move cursor to bottom-right (clamped by terminal)
+; Sends ESC[255;255H to move cursor to bottom-right (clamped by terminal)
 ; Then sends ESC[6n to query cursor position
 ; Parses response ESC[{rows};{cols}R
 ; Stores results in SCREEN_ROWS (and TEXT_ROWS = SCREEN_ROWS - 1) and SCREEN_COLS
+; Asking for 255 (not 999) caps each value at 255, which fits the 8-bit
+; parser: a bigger terminal gets 255 rows or cols, not its size mod 256
 query_terminal_size:
-  ; Send ESC[999;999H (move cursor to max position, clamped by terminal)
+  ; Send ESC[255;255H (move cursor to max position, clamped by terminal)
   ; followed by ESC[6n (request cursor position)
   ; Clobbers X, Y, STR_PTR16 via write_string_ax
   LDA #<dsr_query_str
@@ -110,9 +112,9 @@ parse_dsr_value:
   LDA DSR_VALUE
   RTS
 
-; DSR query: ESC[999;999H ESC[6n (no escape decoding in .byte strings,
+; DSR query: ESC[255;255H ESC[6n (no escape decoding in .byte strings,
 ; so ESC is a raw $1B byte; explicit $00 terminator required)
 dsr_query_str:
-  .byte $1B, "[999;999H", $1B, "[6n", $00
+  .byte $1B, "[255;255H", $1B, "[6n", $00
 
   .endif

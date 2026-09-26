@@ -24,8 +24,8 @@ con_read  = $F027 ; Read one byte from console (blocking); returns in A
 con_flush = $F02A ; Flush stdout
 con_ready = $F02D ; Non-blocking poll: A=$FF if byte ready, A=$00 if not yet,
                   ; A=CON_EOF once input has ended
-term_rows = $F030 ; Returns terminal height in A
-term_cols = $F033 ; Returns terminal width in A
+term_rows = $F030 ; Returns terminal height in A (255 if taller)
+term_cols = $F033 ; Returns terminal width in A (255 if wider)
 CON_EOF   = $01   ; con_ready result: end of input
 
 ; Serial I/O ports

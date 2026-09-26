@@ -307,6 +307,11 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   both in reverse video.
 - Rows are drawn left to right; a wrapped line's continuation rows rely on
   the terminal's auto-wrap (no cursor move after a full-width row).
+- The screen is at most 255 rows by 255 columns: a bigger terminal is used
+  as 255 (the terminal build asks for the cursor at 255;255 and reads back
+  where it went; the emulator caps the console build's size ports). On a
+  terminal wider than 255 columns, lines longer than 255 characters still
+  display wrongly, since the terminal does not wrap them at column 255.
 - Status bar shows: filename, `[RO]`, `[+]`, mode, count/pending, line,col,
   total lines.
 - `input.asm` normalizes backspace and parses ESC sequences to high-bit key

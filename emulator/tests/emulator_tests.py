@@ -409,6 +409,15 @@ class EmulatorTestRunner:
         else:
             self._fail(name, f"expected 2 bytes, got {output!r}")
 
+    def test_term_size_capped(self):
+        """Sizes over 255 read as 255 on the byte-wide ports, not mod 256."""
+        name = "Term size over 255 capped"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.term_size_bin,
+                                               rows=300, cols=256)
+        self._assert_eq(name, output, bytes([255, 255]))
+
     # ---- Stdin read (read_b) tests ----
 
     def test_stdin_read(self):
@@ -638,6 +647,7 @@ class EmulatorTestRunner:
             self.test_term_size_default()
             self.test_term_rows_override()
             self.test_term_cols_override()
+            self.test_term_size_capped()
 
         print("\n--- Stdin read ---")
         self.test_stdin_read()

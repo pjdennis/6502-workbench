@@ -396,14 +396,14 @@ uint8_t read6502(uint16_t address) {
             pace_in++;
             return b;
         }
-    } else if (address == port_term_rows) {           // term_rows
+    } else if (address == port_term_rows) {           // term_rows (a byte: capped at 255)
         int rows, cols;
         get_terminal_size(&rows, &cols);
-        return (uint8_t)rows;
-    } else if (address == port_term_cols) {           // term_cols
+        return rows > 255 ? 255 : (uint8_t)rows;
+    } else if (address == port_term_cols) {           // term_cols (a byte: capped at 255)
         int rows, cols;
         get_terminal_size(&rows, &cols);
-        return (uint8_t)cols;
+        return cols > 255 ? 255 : (uint8_t)cols;
     } else if (address == port_con_ready) {           // con_ready
         if (terminal_mode) {
             restore_terminal();
