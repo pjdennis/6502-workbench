@@ -58,6 +58,12 @@ class FakeSerial:
   def close(self):
     self.closed = True
 
+  def __enter__(self):
+    return self
+
+  def __exit__(self, *exc):
+    self.close()
+
 
 class FakeDevices:
   """Present devices, each with an identity that changes when it is replugged."""

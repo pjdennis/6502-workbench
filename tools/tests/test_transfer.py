@@ -161,6 +161,30 @@ class ArgumentsTest(TransferTestCase):
       transfer.main(['--baudrate=115200'], socket_path=self.socket, start_daemon=self.fail_to_start)
 
 
+class DirectTest(TransferTestCase):
+  """--direct, with the port-opening functions replaced by fakes."""
+
+  def setUp(self):
+    super().setUp()
+    self.devices.plug()
+    patches = [mock.patch.object(serial_daemon, 'find_usb_serial_port', lambda port: DEVICE),
+               mock.patch.object(serial_daemon, 'open_serial', self.devices.open_serial),
+               mock.patch.object(serial_daemon, 'transmit', mock.Mock(wraps=serial_daemon.transmit))]
+    for patch in patches:
+      patch.start()
+      self.addCleanup(patch.stop)
+
+  def test_sends_without_the_daemon(self):
+    self.assertEqual(self.upload('--direct'), (0, ''))
+    self.assertEqual(self.devices.writes(), [build_frame(PROGRAM)])
+    self.assertTrue(self.devices.opened[0].closed)
+
+  def test_always_waits_before_closing_the_port(self):
+    # closing the port straight after writing can lose data
+    self.upload('--direct', '--noreset')
+    self.assertTrue(serial_daemon.transmit.call_args.kwargs['wait'])
+
+
 @unittest.skipUnless(HAVE_PYSERIAL, 'pyserial not installed')
 class RealPortTest(TransferTestCase):
   """A pseudo-terminal in place of a USB serial port."""
