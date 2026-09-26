@@ -327,7 +327,7 @@ render_rows:
 ; Input: RENDER_ROW = target screen row
 ; Output: RENDER_LINE16 = file line at that row
 ;         RENDER_WRAP = wrap row offset within the line
-; Clobbers: A, X
+; Clobbers: A, X, Y, BUF_PTR16, DIV_INPUT16, RENDER_LIMIT
 find_line_at_render_row:
   CP16 VIEW_TOP16, RENDER_LINE16
   LDA VIEW_TOP_WRAP
@@ -470,7 +470,7 @@ div_mod_screen_cols_16:
 
 ; Walk step for the scroll-delta walks: add the screen rows of the line
 ; at RENDER_LINE16 to SCROLL_DELTA, then advance RENDER_LINE16.
-; Clobbers A, X
+; Clobbers A, X, Y, BUF_PTR16, DIV_INPUT16
 render_line_rows_step:
   JSR render_line_rows
   CLC
@@ -480,13 +480,14 @@ render_line_rows_step:
   RTS
 
 ; Screen rows of the line at RENDER_LINE16
-; Returns: A = rows. Clobbers X
+; Returns: A = rows. Clobbers X, Y, BUF_PTR16, DIV_INPUT16
 render_line_rows:
   LDAX16 RENDER_LINE16
   JMP get_len_rows
 
 ; Screen rows of the line at FILE_LINE16
-; Returns: A = rows. Clobbers X
+; Returns: A = rows. Clobbers X, Y, BUF_PTR16, DIV_INPUT16
+; get_len_rows: the same for line number A/X (low/high)
 file_line_rows:
   LDAX16 FILE_LINE16
   ; fall through
@@ -497,7 +498,7 @@ get_len_rows:
 ; Compute number of screen rows a line occupies
 ; Input: A/X = 16-bit line length (A=low, X=high)
 ; Returns: A = number of screen rows (1 for empty/short, ceil(len/SCREEN_COLS) for longer)
-; Clobbers: X
+; Clobbers: X, DIV_INPUT16
 line_screen_rows:
   STA DIV_INPUT16
   STX DIV_INPUT16 + 1
