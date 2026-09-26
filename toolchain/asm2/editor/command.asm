@@ -106,7 +106,7 @@ range_goto:
   ; :NNN goto (BUF_SRC16 = 0-based line). Command mode was entered through
   ; clear_count, so the extra clear_count here changes nothing.
   CP16 BUF_SRC16, FILE_LINE16
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 
 range_mark_err:
   LDA #<str_mark_not_set
@@ -389,7 +389,7 @@ range_do_delete:
   JSR yank_delete_current_lines
   BCS range_yank_full
   JSR set_modified
-  JSR clamp_cursor_col
+  JSR first_nonblank
 
   ; Show "N lines deleted"
   LDA #<str_lines_deleted

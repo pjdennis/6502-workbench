@@ -28,26 +28,26 @@ normal_move_up:
 normal_page_down:
   JSR page_setup
   JSR scroll_view_down
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 
 normal_page_up:
   JSR page_setup
   JSR scroll_view_up
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 
 ; Ctrl-D: half-page down
-; Scroll down by half a screen (or count lines). Column preserved.
+; Scroll down by half a screen (or count lines)
 normal_half_page_down:
   JSR half_page_setup
   JSR scroll_view_down
-  JMP clamp_and_clear_count
+  JMP first_nonblank_clear
 
 ; Ctrl-U: half-page up
-; Scroll up by half a screen (or count lines). Column preserved.
+; Scroll up by half a screen (or count lines)
 normal_half_page_up:
   JSR half_page_setup
   JSR scroll_view_up
-  JMP clamp_and_clear_count
+  JMP first_nonblank_clear
 
 ; Page scroll setup: BUF_DELTA = batched count (repeats),
 ; BUF_TEMP = page size = content rows (TEXT_ROWS)
@@ -179,14 +179,14 @@ normal_goto_last:
   JSR clamp_file_line
   LDA #0
   STA VIEW_TOP_WRAP
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 
 ; gg: go to top of file
 ; (ensure_cursor_visible then scrolls the view to the top)
 do_gg:
   LDA #0
   STA_LH16 FILE_LINE16
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 
 ; --- Yank ---
 
@@ -264,7 +264,7 @@ do_mark_goto:
   BCS .mark_not_set
   STAX16 FILE_LINE16
   JSR clamp_file_line        ; A stale mark must not point past EOF
-  JMP zero_col_clamp_clear
+  JMP first_nonblank_clear
 .mark_not_set:
   JSR range_mark_err         ; "Mark not set"
   JMP clear_count

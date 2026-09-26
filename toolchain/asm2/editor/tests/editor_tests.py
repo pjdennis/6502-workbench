@@ -1646,6 +1646,10 @@ class EditorTestRunner:
              [b"3l", b"x", b"x", b"x", b"x", b"x"]),
             ("Batch equiv: ~ past the line end", "abc\nxyz\n",
              [b"l", b"~", b"~", b"~"]),
+            ("Batch equiv: dd dd from the line end", "abcdef\n\n  xyz\nq\n",
+             [b"$", b"d", b"d", b"d", b"d", b"x"]),
+            ("Batch equiv: Ctrl-D Ctrl-D", "abcdef\n" + "\n" * 4 + "abcdef\n" * 11,
+             [b"$", b"\x04", b"\x04", b"x"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -2958,21 +2962,21 @@ class EditorTestRunner:
             ]
         )
 
-        # Ctrl-D column preserved
+        # Ctrl-D puts the cursor on the first non-blank (as vi and vim do;
+        # the column was kept)
         self.run_test_screen(
-            "Ctrl-D: column preserved",
+            "Ctrl-D: cursor to the first non-blank",
             make_lines(30),
             b"$" + CTRL_D + b":q!\r",
-            expect_cursor=(0, 5),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+5}") for i in range(9)]
         )
 
-        # Ctrl-D column clamped to shorter line
         self.run_test_screen(
-            "Ctrl-D: column clamped",
+            "Ctrl-D: cursor to the first non-blank of a shorter line",
             "ABCDEFGHIJ\n" + "XY\n" * 12,
             b"$" + CTRL_D + b":q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 0),
             expect_lines=[(i, "XY") for i in range(9)]
         )
 
@@ -3014,12 +3018,13 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+1}") for i in range(9)]
         )
 
-        # Ctrl-U column preserved
+        # Ctrl-U puts the cursor on the first non-blank (as vi and vim do;
+        # the column was kept)
         self.run_test_screen(
-            "Ctrl-U: column preserved",
+            "Ctrl-U: cursor to the first non-blank",
             make_lines(30),
             CTRL_F + b"lll" + CTRL_U + b":q!\r",
-            expect_cursor=(0, 3),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+6}") for i in range(9)]
         )
 
@@ -7468,6 +7473,51 @@ class EditorTestRunner:
             b"999G:q!\r",
             cols=80,
             expect_status_contains="COMMAND - 10,"
+        )
+
+        # ============================================================
+        # First non-blank: as in vi, and vim with its default
+        # 'startofline', the commands that go to another line (G, gg, :N,
+        # 'a, Ctrl-F/B/D/U) or delete whole lines (dd, :d) leave the cursor
+        # on the line's first non-blank char
+        # ============================================================
+        self._group("First non-blank after line commands:", leading_blank=True)
+
+        ind = "".join(f"  line {i:02d}\n" for i in range(30))
+        for what, keys, status in (
+            ("dd", b"$dd", " 1,3 "),
+            ("3dd", b"j$3dd", " 2,3 "),
+            ("G", b"$G", " 30,3 "),
+            ("5G", b"$5G", " 5,3 "),
+            ("gg", b"j$gg", " 1,3 "),
+            (":5", b"$:5\r", " 5,3 "),
+            ("'a", b"4jmagg$'a", " 5,3 "),
+            ("Ctrl-F", b"$\x06", " 10,3 "),
+            ("Ctrl-B", b"G$\x02", " 21,3 "),
+            ("Ctrl-D", b"$\x04", " 5,3 "),
+            ("Ctrl-U", b"8j$\x15", " 5,3 "),
+            (":2,3d", b"$:2,3d\r\x1b", " 2,3 "),
+        ):
+            self.run_test_screen(
+                f"{what} puts the cursor on the first non-blank",
+                ind, keys + b":q!\r", cols=80,
+                expect_status_contains=status
+            )
+
+        # Typed ahead, dd and Ctrl-D land where one at a time would: on the
+        # first non-blank of the line they end on
+        self.run_test(
+            "batched dddd lands on the first non-blank",
+            "abcdef\n\nxyz\n",
+            b"$ddddx:wq\r",
+            expected_content="yz\n"
+        )
+
+        self.run_test(
+            "batched Ctrl-D Ctrl-D lands on the first non-blank",
+            ind,
+            b"$\x04\x04x:wq\r",
+            expected_content=ind.replace("  line 08", "  ine 08")
         )
 
         # ============================================================
@@ -12914,34 +12964,36 @@ class EditorTestRunner:
             expect_content_rows=[(2, {6, 7, 8})]
         )
 
-        # dd with the cursor on a wrap row: the scroll already moved the
-        # next line (and all below) into place, so only the two exposed
-        # bottom rows are drawn.  Frames: 0=initial, 1=jj, 2=$, 3=dd.
+        # dd with the cursor on a wrap row (dd goes to the first non-blank,
+        # past 42 spaces here): the scroll already moved the next line (and
+        # all below) into place, so only the two exposed bottom rows are
+        # drawn.  Frames: 0=initial, 1=jj, 2=$, 3=dd.
         self.run_test_screen(
             "Scroll opt: dd with the cursor on a wrap row draws only the "
             "exposed rows",
-            "".join(f"{i:02d} " + "abcdefghij" * 6 + "\n" for i in range(20)),
+            "".join(" " * 42 + f"{i:02d} " + "abcdefghij" * 2 + "\n"
+                    for i in range(20)),
             b"jj$dd:q!\r",
             rows=10, cols=40,
-            expect_lines=[(4, "03 " + "abcdefghij" * 3 + "abcdefg"),
-                          (5, "hij" + "abcdefghij" * 2),
-                          (6, "04 " + "abcdefghij" * 3 + "abcdefg"),
-                          (8, "05 " + "abcdefghij" * 3 + "abcdefg")],
-            expect_cursor=(5, 22),
+            expect_lines=[(4, ""), (5, "  03 " + "abcdefghij" * 2),
+                          (6, ""), (7, "  04 " + "abcdefghij" * 2), (8, "")],
+            expect_cursor=(5, 2),
             expect_content_rows=[(3, {7, 8})]
         )
-        # dd with the cursor on the next line's third row (col 45 at 20
-        # cols) when the deleted rows outnumber the rows below the cursor:
-        # the scroll still covers every deleted row from the line's first
-        # row (row 5), not only those below the cursor row
+        # dd with the cursor on the next line's third row (its first
+        # non-blank, col 45 at 20 cols) when the deleted rows outnumber the
+        # rows below the cursor: the scroll still covers every deleted row
+        # from the line's first row (row 5), not only those below the
+        # cursor row
         self.run_test_screen(
             "Scroll opt: dd with the cursor on a wrap row scrolls every "
             "deleted row",
-            "r0\nr1\nr2\nr3\nr4\n" + "D" * 50 + "\n" + "N" * 70 + "\nz\n",
-            b"5j45ldd:q!\r",
+            "r0\nr1\nr2\nr3\nr4\n" + "D" * 50 + "\n" + " " * 45 + "N" * 25
+            + "\nz\n",
+            b"5jdd:q!\r",
             rows=10, cols=20,
-            expect_lines=[(4, "r4"), (5, "N" * 20), (6, "N" * 20),
-                          (7, "N" * 20), (8, "N" * 10)],
+            expect_lines=[(4, "r4"), (5, ""), (6, ""),
+                          (7, " " * 5 + "N" * 15), (8, "N" * 10)],
             expect_cursor=(7, 5),
         )
 
@@ -14586,12 +14638,12 @@ class EditorTestRunner:
         )
 
         # dd when replacement line wraps and cursor has WRAP_QUOT > 0.
-        # Line 0: 25 chars (2 rows at 20 cols). Line 1: also 25 chars.
-        # $ moves to col 24. dd deletes line 0. Replacement wraps.
-        # clamp_cursor_col keeps col 24, WRAP_QUOT=1.
+        # Line 0: 25 chars (2 rows at 20 cols). Line 1: also 25 chars,
+        # its first non-blank at col 24. dd deletes line 0 and goes there.
+        # Replacement wraps, WRAP_QUOT=1.
         # Bug: row 0 shows stale deleted content instead of replacement row 0.
         dd_wrap_replace = ("1234567890123456789012345\n"
-                           "abcdefghijklmnopqrstuvwxy\n"
+                           + " " * 24 + "y\n"
                            + ''.join(f"Short {i}\n" for i in range(3, 12)))
         self.run_test_screen(
             "Scroll opt: dd with wrapped replacement WRAP_QUOT>0",
@@ -14599,8 +14651,8 @@ class EditorTestRunner:
             b"$dd:q!\r",
             rows=10, cols=20,
             expect_lines=[
-                (0, "abcdefghijklmnopqrst"),
-                (1, "uvwxy"),
+                (0, ""),
+                (1, "    y"),
                 (2, "Short 3"), (3, "Short 4"),
                 (4, "Short 5"), (5, "Short 6"),
                 (6, "Short 7"), (7, "Short 8"),
@@ -18383,8 +18435,9 @@ class EditorTestRunner:
         self.run_test_screen(
             "ddpu cursor at original position",
             "AB\nCD\nEF\n",
+            b"dd" +
             b"l" +              # cursor at col 1
-            b"ddpu:q!\r",
+            b"pu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -18448,8 +18501,9 @@ class EditorTestRunner:
         self.run_test_screen(
             "jddPu cursor at original position",
             "AB\nCD\nEF\n",
+            b"jdd" +
             b"l" +              # cursor at col 1
-            b"jddPu:q!\r",
+            b"Pu:q!\r",
             expect_cursor=(1, 1),
         )
 
@@ -21198,16 +21252,20 @@ class EditorTestRunner:
         upper = "".join(chr(ord("A") + i % 26) for i in range(400))
         rest = "".join(f"line {i}\n" for i in range(2, 12))
         joined = "a" * 50 + " " + "b" * 29 + " " + "C" * 40
+        # (dd goes to the first non-blank: the spaces before it keep the
+        # line's start above the view)
         for name, content, keys, expect, cursor, rows, cols in (
-                ("dd", alpha + "\n" + upper + "\n" + rest, b"$dd",
+                ("dd", alpha + "\n" + " " * 160 + upper[160:] + "\n" + rest,
+                 b"$dd",
                  [(r, upper[(4 + r) * 40:(5 + r) * 40]) for r in range(6)]
-                 + [(6, "line 2"), (7, "line 3"), (8, "line 4")], (5, 39),
+                 + [(6, "line 2"), (7, "line 3"), (8, "line 4")], (0, 0),
                  10, 40),
-                ("dd on a narrow screen", "line 0 " + "y" * 90 + "\nline 1 "
-                 + "y" * 50 + "\nline 2 " + "y" * 37 + "\n", b"$xdd",
+                ("dd on a narrow screen", "line 0 " + "y" * 90 + "\n"
+                 + " " * 16 + "y" * 41 + "\nline 2 " + "y" * 37 + "\n",
+                 b"$xdd",
                  [(r, "y" * 8) for r in range(5)]
                  + [(5, "y"), (6, "line 2 y")]
-                 + [(r, "y" * 8) for r in range(7, 11)], (5, 0), 12, 8),
+                 + [(r, "y" * 8) for r in range(7, 11)], (0, 0), 12, 8),
                 ("J that grows the line", "a" * 50 + " " + "b" * 29 + "\n"
                  + "C" * 40 + "\n" + "".join(f"l{i}\n" for i in range(2, 30)),
                  b"9Gkkkkkkkb" + b"J",

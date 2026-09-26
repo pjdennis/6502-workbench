@@ -25,8 +25,8 @@ insert_keys:
   .byte KEY_RIGHT   .word insert_right
   .byte KEY_HOME    .word normal_line_start   ; Col 0 (no count in insert mode)
   .byte KEY_END     .word insert_end
-  .byte KEY_PGDN    .word normal_page_down    ; These land on col 0, so need
-  .byte KEY_PGUP    .word normal_page_up      ; no insert-mode clamp
+  .byte KEY_PGDN    .word normal_page_down    ; These land on the first
+  .byte KEY_PGUP    .word normal_page_up      ; non-blank: no insert clamp
   .byte $06         .word normal_page_down    ; Ctrl-F
   .byte $02         .word normal_page_up      ; Ctrl-B
   .byte KEY_WORD_FWD  .word insert_word_fwd

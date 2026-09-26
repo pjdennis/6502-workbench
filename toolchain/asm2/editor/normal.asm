@@ -84,7 +84,7 @@ normal_movement_keys:
   .byte 'e'         .word normal_word_end
   .byte KEY_WORD_FWD  .word normal_word_forward
   .byte KEY_WORD_BACK .word normal_word_backward
-  .byte '^'         .word normal_first_nonblank
+  .byte '^'         .word first_nonblank_clear
   .byte ':'         .word normal_enter_command
   .byte 0           ; End sentinel
 
@@ -244,9 +244,10 @@ do_dd:
 
 .dd_done:
   ; Scroll the deleted rows up: the next line moves into the cursor row,
-  ; or (at EOF) the cursor moved up onto the unchanged line above them
+  ; or (at EOF) the cursor moved up onto the unchanged line above them.
+  ; The cursor goes to that line's first non-blank
   JSR set_modified
-  JSR clamp_cursor_col
+  JSR first_nonblank
   JMP finish_delete_scroll
 
 .yank_overflow:

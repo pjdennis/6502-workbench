@@ -363,10 +363,17 @@ range_start_ptr:
   TAX
   RTS
 
-; --- ^ command: move to first non-blank character ---
-; An empty or all-space line leaves the cursor at col 0 (its first byte, or
-; the first non-space, is the newline)
-normal_first_nonblank:
+; --- ^, and the tail of the commands that go to another line (G, gg,
+; :N, 'a, Ctrl-F/B/D/U): the cursor to the first non-blank char, as in
+; vi and in vim with its default 'startofline', then clear the count ---
+first_nonblank_clear:
+  JSR first_nonblank
+  JMP clear_count
+
+; Cursor to the first non-blank char of its line.  An empty or all-space
+; line leaves it at col 0 (its first byte, or the first non-space, is the
+; newline).  Clobbers A, X, Y, BUF_PTR16
+first_nonblank:
   LDA #0
   STA_LH16 CURSOR_COL16
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
@@ -382,7 +389,7 @@ normal_first_nonblank:
   BEQ .done               ; Empty or all-space line: col 0
   STY CURSOR_COL16        ; First non-blank at offset Y
 .done:
-  JMP clear_count
+  RTS
 
 ; --- Shared small helpers ---
 

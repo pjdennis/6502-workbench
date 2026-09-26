@@ -1,9 +1,9 @@
  Commands that differ from vi
 
-  'a (mark jump) - Goes to column 0, not the first non-blank character as vi does. The HELP currently says "cursor goes
-  to column 0" which is accurate to the implementation, but users familiar with vi might expect first-non-blank behavior.
-
   Ctrl-F/Ctrl-B - Moves by SCREEN_ROWS-1 (no overlap). Vi moves by SCREEN_ROWS-2, keeping 2 lines of context overlap.
+
+  p and P of lines, and u of a line delete - Put the cursor at column 0 of the first line put back. Vi puts it on the
+  line's first non-blank character, as the editor does after dd, G and the other line moves.
 
   r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
   nothing if there aren't enough characters, as the editor does for 5r<Enter>.
