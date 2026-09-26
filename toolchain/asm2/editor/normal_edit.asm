@@ -383,22 +383,18 @@ echo_defer:
 .done:
   RTS
 
-; Toggle alpha case in A.  Carry set if A was alpha (and toggled).
+; Toggle alpha case in A.  Carry clear if A was alpha (and toggled),
+; set if not (A unchanged).  Preserves X, Y.
 toggle_alpha:
-  CMP #'A'
-  BCC .no
-  CMP #$5B
-  BCC .yes
-  CMP #'a'
-  BCC .no
-  CMP #$7B
-  BCS .no
-.yes:
-  EOR #$20
+  PHA
+  ORA #$20                   ; Fold case: alpha iff now 'a'..'z'
   SEC
-  RTS
-.no:
-  CLC
+  SBC #'a'
+  CMP #'z' - 'a' + 1         ; C = 0: alpha
+  PLA
+  BCS .done
+  EOR #$20
+.done:
   RTS
 
 ; --- Toggle case (~) ---
@@ -427,7 +423,7 @@ normal_toggle_case:
   STA SHIFT_MODE             ; last-char-toggled flag
   LDA (BUF_PTR16),Y
   JSR toggle_alpha
-  BCC .tilde_echo            ; not alpha: echo as-is
+  BCS .tilde_echo            ; not alpha: echo as-is
   STA (BUF_PTR16),Y
   LDA #$FF
   STA SHIFT_MODE

@@ -508,7 +508,7 @@ undo_tilde_span:
 .loop:
   LDA (BUF_PTR16),Y
   JSR toggle_alpha
-  BCC .next
+  BCS .next                  ; not alpha
   STA (BUF_PTR16),Y
 .next:
   INY
