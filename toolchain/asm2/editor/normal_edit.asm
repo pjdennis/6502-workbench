@@ -89,45 +89,29 @@ paste_done:
 ; For non-empty lines, inserts after cursor char; for empty lines, inserts at line start
 ; Handles newlines in yanked content via find_line_for_ptr
 char_paste_below:
-  ; paste_prologue's UNDO_COL16 copy is a dead store here: both branches
-  ; below overwrite UNDO_COL16 before any read
-  JSR paste_prologue
-  ; Compute insertion column for undo: cursor+1 (non-empty) or 0 (empty)
+  JSR paste_prologue         ; UNDO_COL16 = cursor column (0 on an empty line)
+  ; Insertion column for undo: cursor + 1 (non-empty line) or 0 (empty)
   JSR get_line_len_z
-  BEQ .cpb_empty
-  CLC
-  ADCI16 CURSOR_COL16, 1, UNDO_COL16
-  JMP .cpb_paste
-.cpb_empty:
-  LDA #0
-  STA_LH16 UNDO_COL16
+  BEQ .cpb_paste
+  INC16 UNDO_COL16
 .cpb_paste:
   JSR do_char_paste_below
-  BCS .cpb_done
+  BCS paste_done
   LDA #UNDO_CHAR_PASTE_BELOW
   STA UNDO_TYPE
   ; Batching must not widen undo: record only the last pasted copy,
-  ; which starts (N-1)*yank_size bytes past the insertion column.
+  ; which ends at the cursor (UNDO_COL16 = cursor + 1 - yank size)
   LDA BATCH_EXTRA
-  BEQ .cpb_done
+  BEQ paste_done
   JSR yank_has_newline
   BCS .cpb_no_undo           ; multi-line char yank: column math invalid
-  JSR yank_get_size          ; BUF_LEN16 = single copy size
-  DEC16 UNDO_PASTE_COUNT16
-.cpb_col_adj:
-  TST16 UNDO_PASTE_COUNT16
-  BEQ .cpb_col_done
-  CLC
-  ADC16 UNDO_COL16, BUF_LEN16, UNDO_COL16
-  DEC16 UNDO_PASTE_COUNT16
-  JMP .cpb_col_adj
-.cpb_col_done:
-  SET16 $0001, UNDO_PASTE_COUNT16
-  JMP .cpb_done
+  SEC
+  SBC16 CURSOR_COL16, YANK_SIZE16, UNDO_COL16
+  INC16 UNDO_COL16
+  JMP paste_undo_one
 .cpb_no_undo:
-  JSR undo_clear
-.cpb_done:
-  JMP clear_count
+  JSR undo_clear             ; A = UNDO_NONE = 0
+  BEQ paste_done             ; Always
 
 ; Core char paste below: paste BUF_TEMP16 copies after cursor
 ; Returns carry set = failed/empty, carry clear = success
