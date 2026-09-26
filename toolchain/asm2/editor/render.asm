@@ -128,78 +128,9 @@ render_from_first_row:
 ; Expects ansi_cursor_hide already called
 ; Renders remaining text rows, status bar, positions cursor, shows cursor
 render_from_row:
-.row_loop:
-  ; Position cursor at start of this row
-  LDA RENDER_ROW
-  CLC
-  ADC #1           ; ANSI rows are 1-based
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
-.row_no_cursor:
-
-  ; Check if this is the status line row (last row)
-  LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .row_done    ; At or past last row = done with text
-
-  ; Check if line exists
-  CMP16 RENDER_LINE16, LINE_COUNT16
-  BCS .past_eof
-
-  ; Get line pointer
-  LDAX16 RENDER_LINE16
-  JSR buf_get_line_ptr
-
-  ; Advance BUF_PTR16 by RENDER_WRAP * SCREEN_COLS
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-
-  JSR render_line_chars
-
-  ; Check if the line has more wrap rows
-  ; After render_line_chars, if it printed exactly SCREEN_COLS chars
-  ; (RENDER_COL == SCREEN_COLS), check if there are more chars to wrap
-  ; Note: must check before ansi_clear_line which clobbers Y
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BNE .line_done
-  ; Check if next char is newline (line boundary at exact multiple)
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .line_ended
-  ; More wrap rows remain (row is full, no clear needed)
-  INC RENDER_WRAP
-  INC RENDER_ROW
-  JMP .row_no_cursor
-
-.line_done:
-  ; Row not full (RENDER_COL < SCREEN_COLS) - clear remainder
-  JSR ansi_clear_line
-
-.line_ended:
-  ; Line ended (newline or fewer than SCREEN_COLS chars)
-  ; Advance to next file line
-  INC RENDER_ROW
-  INC16 RENDER_LINE16
-  LDA #0
-  STA RENDER_WRAP
-  JMP .row_loop
-
-.past_eof:
-  ; Draw tilde for lines past end of file
-  LDA #'~'
-  JSR io_write
-  JSR ansi_clear_line
-
-  INC RENDER_ROW
-  JMP .row_loop
-
-.row_done:
-  ; Status line, cursor, show, flush
+  LDA #$FF
+  STA RENDER_LIMIT             ; no row limit: stop at the status bar
+  JSR render_rows
   JMP render_finish
 
 ; Render just the status line (last row)

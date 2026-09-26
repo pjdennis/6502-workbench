@@ -308,74 +308,69 @@ render_limited_loop:
   LDA RENDER_ROW
   CLC
   ADC SCROLL_DELTA
-  STA RENDER_LIMIT         ; Stop at this row
-
-.limited_loop:
-  ; Check if we've rendered enough rows
-  LDA RENDER_ROW
-  CMP RENDER_LIMIT
-  BCS .limited_done
-
-  ; Check if we've hit the status bar
-  LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .limited_done
-
-  ; Position cursor at start of this row
-  LDA RENDER_ROW
-  CLC
-  ADC #1              ; ANSI 1-based
+  STA RENDER_LIMIT             ; stop at this row
+; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP up to (not
+; including) row RENDER_LIMIT or the status bar.  A wrapped line's
+; continuation rows are reached by the terminal's auto-wrap (the row
+; before was written full width), so only a line's first row (and the
+; first row drawn) positions the cursor.
+render_rows:
+.row_loop:
+  JSR .row_check               ; A = RENDER_ROW + 1 (ANSI row)
+  BCS .done
   STA ANSI_ROW
   LDA #1
   STA ANSI_COL
   JSR ansi_move_cursor
-
+.row:
   ; Check if line exists
   CMP16 RENDER_LINE16, LINE_COUNT16
-  BCS .limited_past_eof
-
-  ; Get line pointer
+  BCS .past_eof
+  ; Line pointer advanced by RENDER_WRAP * SCREEN_COLS
   LDAX16 RENDER_LINE16
   JSR buf_get_line_ptr
-
-  ; Advance BUF_PTR16 by RENDER_WRAP * SCREEN_COLS
   LDX RENDER_WRAP
   JSR buf_ptr_advance_x
-
   JSR render_line_chars
-
-  ; Check if line has more wrap rows
+  ; A full row may continue on the next wrap row (unless at a newline)
   LDA RENDER_COL
   CMP SCREEN_COLS
-  BNE .limited_line_done
+  BNE .line_done
   LDA (BUF_PTR16),Y
   CMP #'\n'
-  BEQ .limited_line_ended
-  ; More wrap rows
+  BEQ .line_ended
   INC RENDER_WRAP
   INC RENDER_ROW
-  JMP .limited_loop
+  JSR .row_check
+  BCC .row                     ; the terminal has wrapped to the next row
+.done:
+  RTS
 
-.limited_line_done:
+.line_done:
   JSR ansi_clear_line
-
-.limited_line_ended:
-  INC RENDER_ROW
+.line_ended:
   INC16 RENDER_LINE16
   LDA #0
   STA RENDER_WRAP
-  JMP .limited_loop
+.next_row:
+  INC RENDER_ROW
+  JMP .row_loop
 
-.limited_past_eof:
+.past_eof:
   LDA #'~'
   JSR io_write
   JSR ansi_clear_line
-  INC RENDER_ROW
-  JMP .limited_loop
+  JMP .next_row
 
-.limited_done:
+; C=1 if RENDER_ROW reached RENDER_LIMIT or the status bar, else C=0
+; with A = RENDER_ROW + 1
+.row_check:
+  LDA RENDER_ROW
+  CMP RENDER_LIMIT
+  BCS .check_done
+  ADC #1                       ; C=0
+  CMP SCREEN_ROWS
+.check_done:
   RTS
 
 ; Walk from VIEW_TOP16 forward to find which file line corresponds
