@@ -108,7 +108,7 @@ NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
 SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
 BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
 BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none);
-                         ; valid only in the handler that set it (insert mode borrows it)
+                         ; main_loop zeroes it for every key (insert mode borrows it)
 
 ; --- word.asm ---
 WORD_CLASS:    .byte     ; Character class of current char

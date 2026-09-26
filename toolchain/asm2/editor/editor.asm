@@ -145,6 +145,7 @@ main_loop:
   STA RENDER_FLAG
   STA INSERT_LINE_COUNT
   STA DELETE_SCREEN_ROWS     ; 0 = no pre-computed screen rows
+  STA BATCH_EXTRA            ; No typed-ahead keys or pairs taken yet
 
   ; If entering command mode, handle it specially (it does own I/O)
   LDA MODE

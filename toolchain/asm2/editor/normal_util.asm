@@ -313,7 +313,6 @@ clear_count:
   LDA #0
   STA_LH16 COUNT16
   STA BATCH_RESTORE_KEY
-  STA BATCH_EXTRA
   RTS
 
 ; Move cursor to col 0, clamp, then clear count (shared terminal tail)
@@ -366,8 +365,7 @@ count_accumulate_digit:
 ; Output: X = total = count's low byte + pending keys (255 if the sum
 ;         carries; a count of 256 or more is taken mod 256, 0 = 256 for
 ;         the movement helpers)
-;         BATCH_EXTRA = pending key count (cleared later by clear_count;
-;         callers that skip clear_count must not let it leak)
+;         BATCH_EXTRA = pending key count
 ; Clobbers: A
 get_batched_count:
   JSR get_count

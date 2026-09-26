@@ -385,8 +385,7 @@ undo_char_paste_undo:
 
 ; --- Char paste redo (handles both BELOW and ABOVE) ---
 undo_char_paste_redo:
-  LDA #0
-  STA BATCH_EXTRA
+  ; The paste runs with no typed-ahead extras (main_loop zeroed BATCH_EXTRA)
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR paste_restore_pos        ; X = UNDO_TYPE
   CPX #UNDO_CHAR_PASTE_ABOVE
