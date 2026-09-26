@@ -197,7 +197,7 @@ normal_delete_char_back:
 ; When batched (BATCH_EXTRA > 0): yank only the last line, then delete
 ; all N lines in a single operation (one shift, one rebuild).
 do_dd:
-  JSR get_count              ; BUF_TEMP16 = count (16-bit)
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
 
   ; Pre-compute screen rows of lines being deleted (before deletion)
   JSR compute_delete_rows_temp16

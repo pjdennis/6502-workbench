@@ -6571,6 +6571,51 @@ class EditorTestRunner:
             expected_content="\n"
         )
 
+        # A count larger than the lines left deletes to the end of the file;
+        # the delete-scroll must count only those lines' rows, so the rows
+        # below the last line show '~'
+        tilde_rows = lambda first: [(r, "~") for r in range(first, 9)]
+        self.run_test_screen(
+            "5dd with 2 lines left: rows below show ~",
+            "a\nb\nc\nd\n",
+            b"jj5dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b")] + tilde_rows(2),
+            expect_cursor=(1, 0),
+        )
+        self.run_test_screen(
+            "4dd with 3 lines left: rows below show ~",
+            "".join(f"line {i}\n" for i in range(30)),
+            b"G2k4dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "line 26")] + tilde_rows(6),
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "9dd of wrapped lines: rows below show ~",
+            "x" * 50 + "\n" + "y" * 50 + "\n",
+            b"9dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "9cc on whole buffer: rows below show ~",
+            "a\nb\nc\n",
+            b"9cc\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "9S on whole buffer: rows below show ~",
+            "a\nb\nc\n",
+            b"9S\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+
         # ============================================================
         # D (delete to end of line)
         # ============================================================

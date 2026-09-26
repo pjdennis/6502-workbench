@@ -686,7 +686,7 @@ do_replace_char:
 ; --- Change line (cc, and S, which dispatches here too) ---
 ; Yank line(s), delete, insert newline, enter insert at col 0.
 do_cc:
-  JSR get_count
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
   ; Pre-compute screen rows for displacement-based scroll
   JSR compute_delete_rows_temp16
   JSR yank_delete_current_lines
