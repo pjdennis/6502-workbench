@@ -456,17 +456,18 @@ undo_compute_paste_lines:
 .done:
   RTS
 
-; CURSOR_COL16 = max(UNDO_COL16 - 1, 0)
-; (the cursor position just before a char paste-below)
-set_col_before_paste:
-  TST16 UNDO_COL16
-  BEQ .zero
-  SEC
-  SBCI16 UNDO_COL16, 1, CURSOR_COL16
-  RTS
-.zero:
-  LDA #0
-  STA_LH16 CURSOR_COL16
+; Cursor back where a char paste was typed: UNDO_LINE16, and UNDO_COL16
+; for P or one column left of it (clamped at column 0) for p
+; Returns X = UNDO_TYPE
+paste_restore_pos:
+  JSR undo_restore_line_col  ; A = UNDO_COL16 high byte
+  LDX UNDO_TYPE
+  CPX #UNDO_CHAR_PASTE_BELOW
+  BNE .done
+  ORA UNDO_COL16
+  BEQ .done                  ; Column 0 stays
+  JMP dec_cursor_col
+.done:
   RTS
 
 ; --- Char paste undo (handles both BELOW and ABOVE) ---
@@ -478,17 +479,7 @@ undo_char_paste_undo:
   JSR yank_paste_setup         ; BUF_LEN16 = total paste size
   BCS .undo_cp_fail
   JSR delete_at_cursor         ; Deletes BUF_LEN16 bytes, handles marks
-  ; Restore cursor
-  JSR undo_restore_line
-  LDA UNDO_TYPE
-  CMP #UNDO_CHAR_PASTE_ABOVE
-  BEQ .undo_cp_above
-  ; BELOW: pre-paste col = max(insertion_col - 1, 0)
-  JSR set_col_before_paste
-  JMP .undo_cp_flags
-.undo_cp_above:
-  JSR undo_restore_col
-.undo_cp_flags:
+  JSR paste_restore_pos
   JSR clamp_cursor_col
   JSR undo_set_done_flags
   ; Keep RENDER_FLAG from delete_at_cursor if > 1 (multi-line scroll)
@@ -498,19 +489,15 @@ undo_char_paste_undo:
 
 ; --- Char paste redo (handles both BELOW and ABOVE) ---
 undo_char_paste_redo:
-  JSR undo_restore_line
   LDA #0
   STA BATCH_EXTRA
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
-  LDA UNDO_TYPE
-  CMP #UNDO_CHAR_PASTE_ABOVE
+  JSR paste_restore_pos        ; X = UNDO_TYPE
+  CPX #UNDO_CHAR_PASTE_ABOVE
   BEQ .redo_cpa
-  ; BELOW: cursor = max(insertion_col - 1, 0)
-  JSR set_col_before_paste
   JSR do_char_paste_below
   JMP undo_finish_not_redo
 .redo_cpa:
-  JSR undo_restore_col
   JSR do_char_paste_above
   ; Fall through into undo_finish_not_redo
 
