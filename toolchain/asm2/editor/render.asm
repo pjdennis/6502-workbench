@@ -82,12 +82,9 @@ render_init:
 ; Handles line wrapping: one file line can span multiple screen rows
 render_screen:
   JSR ansi_cursor_hide
-
   LDA #0
   STA RENDER_ROW
-  CP16 VIEW_TOP16, RENDER_LINE16
-  LDA VIEW_TOP_WRAP
-  STA RENDER_WRAP
+  JSR find_line_at_render_row  ; row 0: VIEW_TOP16 / VIEW_TOP_WRAP
   JMP render_from_row
 
 ; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16)

@@ -496,16 +496,10 @@ render_scroll_down:
   LDX #'T'                     ; scroll down
   JSR scroll_region_from_a
 
-  ; Render newly exposed top rows.
-  ; RENDER_ROW = 0, RENDER_LINE16 = VIEW_TOP16, RENDER_WRAP = VIEW_TOP_WRAP
+  ; Render the newly exposed top SCROLL_DELTA rows (row 0 = the view top)
   LDA #0
   STA RENDER_ROW
-  LDA VIEW_TOP_WRAP
-  STA RENDER_WRAP
-  LDA SCROLL_DELTA
-  STA RENDER_LIMIT
-  CP16 VIEW_TOP16, RENDER_LINE16
-  JMP render_limited_rows
+  JMP find_and_render
 
 ; Clamp SCROLL_DELTA to the rows available below the cursor
 ; (available = TEXT_ROWS - CURSOR_ROW).  Clobbers A
