@@ -105,8 +105,9 @@ project's 6502 emulator in console/ANSI mode.
      VIEW_TOP_WRAP, line count, buf end), `get_key` reads the key (decoded
      by `read_key`), and it is dispatched to `normal_handle_key` or
      `insert_handle_key`.
-   - `CMD_QUIT` exits.  A pending two-key combo (`dd`, `dw`, `gg`, ...)
-     whose next key has already arrived is processed without a render.
+   - `CMD_QUIT` exits.  (The first key of a two-key combo (`dd`, `dw`,
+     `gg`, ...) handles its second key at once if it has already arrived,
+     so the pending key gets no frame of its own.)
    - `ensure_cursor_visible` moves the viewport if needed, then
      `render_decide` compares post-handler state against the snapshot and
      the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):

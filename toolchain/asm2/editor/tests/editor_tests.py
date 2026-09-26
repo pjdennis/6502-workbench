@@ -6846,6 +6846,72 @@ class EditorTestRunner:
             expected_content="world\n"
         )
 
+        # A typed-ahead pair whose last first key has no partner yet (a
+        # partial pair) leaves that key pending: the edit before it must
+        # still be painted, and so must the command it then starts
+        self.run_test_screen(
+            "dddw partial pair paints the dd and the dw",
+            make_lines(5),
+            b"dddw:q!\r",
+            expect_lines=[(0, "2"), (1, "Line 3"), (2, "Line 4"),
+                          (3, "Line 5"), (4, "~")],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "ddd ESC partial pair paints the dd",
+            "A\nB\nC\n",
+            b"ddd\x1b:q!\r",
+            expect_lines=[(0, "B"), (1, "C"), (2, "~")],
+        )
+        self.run_test_screen(
+            "dwd ESC partial pair paints the dw",
+            "one two\nthree\n",
+            b"dwd\x1b:q!\r",
+            expect_lines=[(0, "two"), (1, "three")],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "5ldwd ESC partial pair paints the dw",
+            "line 1 aaa bbb\nline 2\n",
+            b"5ldwd\x1b:q!\r",
+            expect_lines=[(0, "line aaa bbb"), (1, "line 2")],
+            expect_cursor=(0, 5),
+        )
+        # d0 after a db repaints from column 0, not from the column the db
+        # repainted from
+        self.run_test_screen(
+            "$dbd0 partial pair paints the db and the d0",
+            "abc def ghi\n",
+            b"$dbd0:q!\r",
+            expect_lines=[(0, "i"), (1, "~")],
+            expect_cursor=(0, 0),
+        )
+        # The de on the empty line the dw left changes nothing
+        self.run_test_screen(
+            "dwde partial pair paints the dw when the de does nothing",
+            "X\nb\n",
+            b"dwde:q!\r",
+            expect_lines=[(0, ""), (1, "b"), (2, "~")],
+            expect_cursor=(0, 0),
+        )
+        # The d$ shortens the line the dw left from two rows to one
+        self.run_test_screen(
+            "$dwd$ partial pair paints the dw and the d$",
+            "a" * 38 + " bb c\nxy\n",
+            b"$dwd$:q!\r",
+            expect_lines=[(0, "a" * 38 + " b"), (1, "b"), (2, "xy"),
+                          (3, "~")],
+            expect_cursor=(1, 0),
+        )
+        # The same after two dw run as one burst
+        self.run_test_screen(
+            "$dwdwd$ partial pair paints the dw burst and the d$",
+            "a" * 39 + " bc\nxy\n",
+            b"$dwdwd$:q!\r",
+            expect_lines=[(0, "a" * 39), (1, "xy"), (2, "~")],
+            expect_cursor=(0, 38),
+        )
+
         # Batched dd yank: only last line should be in yank buffer
         self.run_test(
             "dddd+p yanks only last deleted line",
@@ -11365,6 +11431,16 @@ class EditorTestRunner:
                 b"Aabc\x1bOxyz\x1b:wq\r",
                 expect_lines=[(0, "xyz"), (1, "firstabc")],
                 expected_content="xyz\nfirstabc\n",
+                emu_args=BAUD_ARGS
+            )
+
+            # Keys queue up behind a slow link: a partial pair (dddw)
+            # still paints the dd
+            self.run_test_terminal_screen(
+                "Terminal baud: dddw partial pair paints the dd",
+                make_lines(5),
+                b"dddw:q!\r",
+                expect_lines=[(0, "2"), (1, "Line 3"), (4, "~")],
                 emu_args=BAUD_ARGS
             )
 

@@ -80,6 +80,10 @@ dispatch_fetch_jump:
 ;        BUF_TEMP = key code to match
 ; Output: C = 0 if valid first key (LAST_KEY set), C = 1 if not
 ; Respects READONLY: skips entries with flags bit 1 set
+; A second key that is already typed is handled at once, so the pending
+; first key gets no frame of its own (dw, dd, gg, ra...).  Only a first
+; key that has changed nothing yet is batched this way: the first key of
+; a partial pair, left pending after its command, waits for a render
 check_combo_first_key:
   STA DISPATCH_PTR16
   STX DISPATCH_PTR16 + 1
@@ -105,6 +109,11 @@ check_combo_first_key:
 .found:
   LDA BUF_TEMP
   STA LAST_KEY
+  JSR key_peek
+  BCC .pending               ; No second key yet
+  JSR get_key
+  JSR normal_handle_key      ; LAST_KEY set: dispatches the pair
+.pending:
   CLC
   RTS
 ; No match (dispatch_key, dispatch_pending_key, check_combo_first_key)

@@ -200,18 +200,6 @@ main_loop:
   LDA CMD_QUIT
   BNE .editor_exit
 
-  ; Batch pending combo keys: when the first key of a two-key combo has
-  ; been received and another key is already available, process it
-  ; immediately without rendering.  This eliminates the intermediate
-  ; status-bar frame for rapid combos like dw, yw, dd, gg, ra, etc.
-  LDA MODE
-  BNE .render              ; Only batch in normal mode
-  LDA LAST_KEY
-  BEQ .render              ; No pending combo key
-  JSR key_peek
-  BCS .key_available       ; Process next key without rendering
-
-.render:
   ; Ensure cursor is on screen (may scroll viewport)
   JSR ensure_cursor_visible
 
