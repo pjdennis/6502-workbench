@@ -12020,6 +12020,17 @@ class EditorTestRunner:
             expect_lines=[(0, ""), (1, "~"), (2, "~"), (3, "~"), (4, "~")],
             expect_cursor=(0, 0),
         )
+        # A dd leaving one line scrolls it up: only the exposed row is drawn
+        self.run_test_screen(
+            "Scroll opt: dd leaving one line scrolls it up",
+            "abc\ndef\n",
+            b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "def"), (1, "~"), (8, "~")],
+            expect_cursor=(0, 0),
+            expect_scroll_rows=[(1, set(range(9)))],
+            expect_content_rows=[(1, {8})]
+        )
         # The same for counted and batched dd, cc and its redo, a counted D
         # (a char delete that joins lines), and de/ce over short or empty
         # lines, at several screen sizes; and a J or cc leaving a one-row
@@ -14309,6 +14320,20 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_content_rows=[(4, {8})]
         )
+        # With one line left the undo still only scrolls it back up: the
+        # whole region is drawn only when a delete empties the buffer.
+        # Frames: 0=initial, 1=O or yy, 2=ESC or P, 3=u
+        for keys in (b"O\x1bu", b"yyPu"):
+            self.run_test_screen(
+                f"Minimal repaint: {keys!r} on the only line scrolls it back",
+                "abc\n",
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=[(0, "abc"), (1, "~"), (8, "~")],
+                expect_cursor=(0, 0),
+                expect_scroll_rows=[(3, set(range(9)))],
+                expect_content_rows=[(3, {8})]
+            )
 
         # O redo: re-opens blank line above. Insert scroll.
         # Only the new blank line row needs content write.

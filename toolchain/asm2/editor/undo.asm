@@ -16,19 +16,26 @@ undo_record_char_delete:
   LDA #UNDO_CHAR
   BNE undo_rec_set           ; Always (UNDO_CHAR != 0)
 
-; Record a line-delete for undo
-; Call after yank succeeds, before delete, with BUF_TEMP16 = the line
-; count (at most the lines left).
-; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores),
-; UNDO_EMPTY_LINE bit 7 = the delete empties the buffer
-undo_record_line_delete:
-  ; The count reaches LINE_COUNT16 only from line 0: every line goes, and
-  ; buf_delete_lines leaves a synthetic empty line that undo must remove
+; C = 1 if deleting BUF_TEMP16 lines (at most the lines left) from
+; FILE_LINE16 empties the buffer: the count reaches LINE_COUNT16 only
+; from line 0.  buf_delete_lines then leaves a synthetic empty line.
+; Clobbers A
+count_is_every_line:
   LDA BUF_TEMP16
   CMP LINE_COUNT16
   LDA BUF_TEMP16 + 1
   SBC LINE_COUNT16 + 1
-  ROR UNDO_EMPTY_LINE        ; Bit 7 = C = count >= LINE_COUNT16
+  RTS
+
+; Record a line-delete for undo
+; Call after yank succeeds, before delete, with BUF_TEMP16 = the line
+; count (at most the lines left).
+; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores),
+; UNDO_EMPTY_LINE bit 7 = the delete empties the buffer (undo must
+; remove the synthetic empty line)
+undo_record_line_delete:
+  JSR count_is_every_line
+  ROR UNDO_EMPTY_LINE        ; Bit 7 = C
   LDA #UNDO_LINE
 undo_rec_set:
   STA UNDO_TYPE
@@ -537,10 +544,15 @@ undo_delete_lines_scroll:
 
 ; Pre-compute the line-delete scroll of the BUF_TEMP16 lines at
 ; FILE_LINE16, before they are deleted: SCROLL_DELTA = their screen rows
-; ($FF when over 255 lines or rows), which render_decide uses as is for
-; RF_DEL (clamped to the scroll region), and DELETE_SCREEN_ROWS =
-; FILE_LINE16's low byte, the first removed line, for finish_delete_scroll
+; ($FF when over 255 lines or rows, or when they are every line: the
+; empty line left behind does not move up from below, so the whole
+; region is drawn), which render_decide uses as is for RF_DEL (clamped
+; to the scroll region), and DELETE_SCREEN_ROWS = FILE_LINE16's low
+; byte, the first removed line, for finish_delete_scroll
 precompute_delete_scroll:
+  LDX #$FF
+  JSR count_is_every_line
+  BCS .rows
   JSR compute_delete_rows_temp16
   LDX DELETE_SCREEN_ROWS
   BNE .rows
@@ -559,19 +571,7 @@ precompute_delete_scroll:
 finish_delete_scroll:
   LDA DELETE_SCREEN_ROWS     ; first removed line (low byte)
   EOR FILE_LINE16
-  BNE .above
-  ; A = 0: the region starts at the cursor line.  A delete that emptied
-  ; the buffer left an empty line there, which did not move up from
-  ; below: with one line left, draw every row of the region
-  LDX LINE_COUNT16 + 1
-  BNE .set
-  LDX LINE_COUNT16
-  DEX
-  BNE .set
-  DEX
-  STX SCROLL_DELTA           ; $FF
-  BNE .set                   ; Always
-.above:
+  BEQ .set                   ; A = 0: the region starts at the cursor line
   JSR file_line_rows
 .set:
   STA DELETE_SCREEN_ROWS
