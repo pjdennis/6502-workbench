@@ -25,6 +25,11 @@ yank_clear:
   STA YANK_TYPE
   RTS
 
+; Replace the yank buffer with the lines from FILE_LINE16, as below
+yank_current_lines:
+  LDAX16 FILE_LINE16
+  ; fall through
+
 ; Replace the yank buffer with N contiguous lines (YANK_TYPE = YANK_LINE)
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines (16-bit)
 ; Clamps count to available lines. Uses mem_copy_down for page-optimized copy.

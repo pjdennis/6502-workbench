@@ -201,8 +201,7 @@ do_yy:
   BEQ .do_yank
   JSR set_buf_temp16_one
 .do_yank:
-  LDAX16 FILE_LINE16
-  JSR yank_add_lines
+  JSR yank_current_lines
   BCS .overflow
   JMP clear_count            ; Done - don't set MODIFIED
 

@@ -416,8 +416,7 @@ batch_pending_pairs_upto:
 ; On success: lines deleted, FILE_LINE16 clamped, YANK_LINES16 set
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 yank_delete_current_lines:
-  LDAX16 FILE_LINE16
-  JSR yank_add_lines
+  JSR yank_current_lines
   BCS ydcl_done              ; C = 1: overflow
 ; Record undo, then delete BUF_TEMP16 lines at FILE_LINE16; returns C = 0
 undo_delete_current_lines:
