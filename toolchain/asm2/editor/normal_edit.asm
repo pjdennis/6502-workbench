@@ -277,8 +277,9 @@ interleaved_fill:
 ; stops at the wrap-row boundary or on an unprintable char; the rest of
 ; the line is then repainted via a partial line render from that column.
 
-; Record the span start for undo and compute the direct-echo budget
-; (columns left in the cursor's wrap row).  Clobbers A, X.
+; Start a new r/~ undo record at the cursor (it replaces the previous
+; one) and compute the direct-echo budget (columns left in the cursor's
+; wrap row).  Clobbers A, X.
 echo_span_setup:
   JSR undo_record_pos
   CP16 CURSOR_COL16, DIV_INPUT16
@@ -287,8 +288,8 @@ echo_span_setup:
   SEC
   ADC SCREEN_COLS            ; SCREEN_COLS - A
   STA BUF_DELTA              ; BUF_DELTA = echo budget (0 = deferred)
-  LDA #0
-  STA UNDO_SPAN_LEN        ; span length
+  JSR undo_clear             ; A = 0
+  STA UNDO_SPAN_LEN          ; span length
   RTS
 
 ; Echo the char at (BUF_PTR16),Y if the budget allows and it is
@@ -335,8 +336,10 @@ toggle_alpha:
 TILDE_LAST_COL16 = UNDO_PASTE_COUNT16 ; column of the last visited char
 TILDE_TOGGLED    = SHIFT_MODE         ; nonzero: that char was toggled
 
+; On an empty line ~ fails and leaves the previous undo intact.
 normal_toggle_case:
-  JSR undo_clear
+  JSR check_cursor_in_line
+  BCS .tilde_end
   ; Batched pending keys merge execution, but undo must behave as if
   ; the keys ran separately: it covers only the last ~ keystroke.
   JSR get_batched_count      ; X = count + pending, BATCH_EXTRA = pending
@@ -410,9 +413,10 @@ normal_toggle_case:
 ; then covers the last J's join).  The count's joins, at most the lines
 ; below, must fit the undo record: that is checked first, before any
 ; other work and before the typed-ahead J's are taken, which then run
-; one at a time (the first dismisses the message), as when typed singly
+; one at a time (the first dismisses the message), as when typed singly.
+; A J with nothing to join, or too much, fails and leaves the previous
+; undo intact: the record is written only once the join is sure
 normal_join_lines:
-  JSR undo_clear
   JSR get_count_x            ; X = count (256 or more: 255, over the limit)
   DEX
   BNE .joins
@@ -451,6 +455,13 @@ normal_join_lines:
   ADC NORMAL_TEMP            ; (at most JOIN_UNDO_MAX + BATCH_MAX)
   TAX
   JSR .clamp_joins
+  CPX NORMAL_TEMP
+  BNE .joins_set
+  ; No typed-ahead J joined a line: they all failed, as when typed
+  ; singly, so the count's join stays the one to undo
+  LDA #0
+  STA BATCH_EXTRA
+.joins_set:
   STX NORMAL_TEMP            ; NORMAL_TEMP = number of joins to do
 
   ; Pre-compute old_total screen rows for displacement-based scroll
@@ -595,7 +606,9 @@ do_replace_char:
   CMP #KEY_TAB
   BNE .replace_no_undo
 .replace_key_ok:
-  JSR undo_clear
+  ; On an empty line r fails and leaves the previous undo intact
+  JSR check_cursor_in_line
+  BCS .replace_no_undo
   JSR echo_span_setup
   ; Count, capped at 255 (replacement span is recorded in one page)
   JSR get_count_x
@@ -624,9 +637,7 @@ do_replace_char:
   JMP .replace_loop
 
 .replace_done:
-  ; Finalize undo record
-  LDA UNDO_SPAN_LEN
-  BEQ .replace_no_undo
+  ; Finalize undo record (the span holds a char at least)
   LDA #UNDO_REPLACE
   STA UNDO_TYPE
   LDA BUF_TEMP

@@ -1656,6 +1656,12 @@ class EditorTestRunner:
              [b"G", b"$", b"k", b"k", b"x"]),
             ("Batch equiv: insert Down Down", ".\n\nm\n",
              [b"a", b"\x1b[B", b"\x1b[B", b"8", b"\x1b"]),
+            ("Batch equiv: J J on two lines", "a\nb\nc\n",
+             [b"j", b"J", b"J"]),
+            ("Batch equiv: 3J J on three lines", "a\nb\nc\n",
+             [b"3J", b"J"]),
+            ("Batch equiv: 2J J J", "a\nb\nc\nd\ne\n",
+             [b"2J", b"J", b"J"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -17739,6 +17745,57 @@ class EditorTestRunner:
             "abc\ndef\n",
             b"3~ju:wq\r",
             expected_content="abc\ndef\n"
+        )
+
+        # --- Failed commands leave the previous undo intact ---
+        # J with no line to join or too many, and r or ~ on an empty line,
+        # fail as in vi and vim: u still undoes the edit before them, at its
+        # recorded place.
+
+        self.run_test(
+            "J on last line keeps previous undo",
+            "abc\nd\n",
+            b"$xjJu:wq\r",
+            expected_content="abc\nd\n"
+        )
+
+        # Typed separately, the second J fails on the (new) last line, so u
+        # undoes the first J, exactly as after a batched JJ
+        self.run_test(
+            "J then failed J: u undoes the join",
+            "a\nb\n",
+            b"J\x1bJu:wq\r",
+            expected_content="a\nb\n"
+        )
+
+        # Batched after a count, the trailing J fails on the new last line:
+        # u undoes all of 3J's joins, as with 3J and J typed apart
+        self.run_test(
+            "3JJ batched, J fails: u undoes the 3J",
+            "a\nb\nc\n",
+            b"3JJu:wq\r",
+            expected_content="a\nb\nc\n"
+        )
+
+        self.run_test(
+            "Too many lines to join keeps previous undo",
+            "abc\n" + "\n" * 130,
+            b"x130J\x1bu:wq\r",          # ESC dismisses the message
+            expected_content="abc\n" + "\n" * 130
+        )
+
+        self.run_test(
+            "r on empty line keeps previous undo",
+            "abc\n\nd\n",
+            b"2rZjrYku:wq\r",
+            expected_content="abc\n\nd\n"
+        )
+
+        self.run_test(
+            "~ on empty line keeps previous undo",
+            "abc\n\nd\n",
+            b"$xj~ku:wq\r",
+            expected_content="abc\n\nd\n"
         )
 
         # dd then dd then undo: first dd stays, second dd undone
