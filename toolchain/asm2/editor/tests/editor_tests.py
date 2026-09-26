@@ -150,40 +150,31 @@ class EditorTestRunner:
         self.failed = 0
         self.skipped = 0
 
-    def _assemble_editor(self, output_bin, extra_args=None):
-        """Assemble the editor with optional extra assembler arguments."""
-        if not self.emulator.exists():
-            print(f"Error: Emulator not found at {self.emulator}")
-            return False
-        if not self.assembler.exists():
-            print(f"Error: Assembler not found at {self.assembler}")
-            return False
-
+    def _assemble(self, name, source, output_bin, extra_args=()):
+        """Test that source assembles into output_bin (extra_args go to the
+        assembler, e.g. define:terminal_mode). Returns True if it did."""
         output_bin.parent.mkdir(exist_ok=True)
-        cmd = [str(self.emulator), str(self.assembler),
-               "--no-dump", str(self.editor_asm), str(output_bin)]
-        if extra_args:
-            cmd.extend(extra_args)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            [str(self.emulator), str(self.assembler), "--no-dump",
+             str(source), str(output_bin), *extra_args],
+            capture_output=True, text=True, cwd=self.base_dir)
         if result.returncode != 0:
-            print(f"Error: Failed to assemble editor ({output_bin.name}):")
-            print(result.stderr)
+            self._fail(name, (result.stdout + result.stderr).strip()[-200:])
             return False
+        self._pass(name)
         return True
 
-    def build_editor(self):
-        """Assemble the editor."""
-        return self._assemble_editor(self.editor_bin)
-
-    def build_small_buffer_editor(self):
-        """Assemble the editor with small buffer (256 bytes for testing)."""
-        return self._assemble_editor(self.editor_small_bin,
-                                     ["define:small_buffer"])
-
-    def build_terminal_editor(self):
-        """Assemble the editor with terminal_mode defined."""
-        return self._assemble_editor(self.editor_terminal_bin,
-                                     ["define:terminal_mode"])
+    def build_editors(self):
+        """Assemble the three editor builds: the main one, the small-buffer
+        one (256-byte text buffer) and the terminal one.
+        Returns (main_built, small_built, terminal_built)."""
+        return tuple(
+            self._assemble(f"Editor assembles: {out.name}", self.editor_asm,
+                           out, args)
+            for out, args in ((self.editor_bin, ()),
+                              (self.editor_small_bin, ["define:small_buffer"]),
+                              (self.editor_terminal_bin,
+                               ["define:terminal_mode"])))
 
     def create_stable_copy(self):
         """Create stable copies of editor binaries after successful tests."""
@@ -1395,16 +1386,9 @@ class EditorTestRunner:
     def run_demo_build_checks(self):
         """The standalone demos (hello.asm, clock.asm) must still assemble."""
         for demo in ("hello", "clock"):
-            name = f"Demo assembles: {demo}.asm"
-            out = self.tmpdir / f"{demo}.out"
-            result = subprocess.run(
-                [str(self.emulator), str(self.assembler), "--no-dump",
-                 str(self.editor_asm.parent / f"{demo}.asm"), str(out)],
-                capture_output=True, text=True, cwd=self.base_dir)
-            if result.returncode != 0:
-                self._fail(name, (result.stdout + result.stderr).strip()[-200:])
-            else:
-                self._pass(name)
+            self._assemble(f"Demo assembles: {demo}.asm",
+                           self.editor_asm.parent / f"{demo}.asm",
+                           self.tmpdir / f"{demo}.out")
 
     def run_batch_equiv_tests(self):
         """Key sequences whose batched and one-at-a-time runs must agree."""
@@ -1445,12 +1429,17 @@ class EditorTestRunner:
             ['EXIT 1'])
 
         # Build every binary before the first test, so that a test anywhere
-        # in the suite runs the current source, never an earlier run's build
-        if not self.build_editor():
-            return
-        small_built = self.build_small_buffer_editor()
-        terminal_built = self.build_terminal_editor()
+        # in the suite runs the current source, never an earlier run's build.
+        # A build that fails is a failed test: without the main build no
+        # editor test runs, and the other two skip their own sections
+        self._group("Builds:", leading_blank=True)
+        main_built, small_built, terminal_built = self.build_editors()
+        if main_built:
+            self._run_editor_tests(small_built, terminal_built)
+        self._finish()
 
+    def _run_editor_tests(self, small_built, terminal_built):
+        """Run the tests of the built editor (every test after the builds)."""
         self._run_server_editor_tests(terminal_built)
 
         self._group("Self-editability:")
@@ -17927,6 +17916,8 @@ class EditorTestRunner:
                     leading_blank=True)
         self.run_batch_equiv_tests()
 
+    def _finish(self):
+        """Print the results, keep stable copies if every test passed."""
         print()
         print("=" * 60)
         total = self.passed + self.failed + self.skipped
