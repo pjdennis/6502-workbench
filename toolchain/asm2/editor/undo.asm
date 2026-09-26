@@ -363,21 +363,17 @@ undo_paste_undo:
   JSR clamp_cursor_col
   ; Set flags
   JSR undo_set_done_flags
-  ; Paste-below undo: cursor row unchanged, skip it in scroll region ($07)
-  ; Paste-above undo: cursor row changes, include it ($02)
-  LDA UNDO_TYPE
-  CMP #UNDO_LINE_PASTE_BELOW
-  BNE .undo_paste_above_flag
-  ; Pre-compute cursor line screen rows for skip-scroll
+  ; Delete-scroll ($07) that skips the cursor row: paste-below undo
+  ; keeps the cursor line (skip its screen rows); after paste-above
+  ; undo the scroll fills the cursor row (skip none)
+  LDA #0
+  LDX UNDO_TYPE
+  CPX #UNDO_LINE_PASTE_BELOW
+  BNE .skip_rows
   LDAX16 UNDO_LINE16
   JSR buf_get_line_len
-  JSR line_screen_rows
-  STA DELETE_SCREEN_ROWS
-  LDA #$07
-  JMP set_render_clear_count
-.undo_paste_above_flag:
-  ; Cursor row filled by scroll (original line pulled up), skip repaint
-  LDA #0
+  JSR line_screen_rows       ; A = cursor line screen rows
+.skip_rows:
   STA DELETE_SCREEN_ROWS
   LDA #$07
   JMP set_render_clear_count
@@ -395,19 +391,16 @@ undo_paste_redo:
 .redo_line_paste_above:
   JSR yank_paste_above_n
 .redo_line_paste_done:
-  BCS .redo_fail
-  JSR paste_adjust_marks
-  ; Set flags
+  BCS undo_paste_fail
+  JSR paste_adjust_marks     ; Also sets MODIFIED
   LDA #0
   STA UNDO_IS_REDO
-  LDA #$FF
-  STA MODIFIED
   ; INSERT_LINE_COUNT = total pasted lines (in BUF_TEMP16 from paste_adjust_marks)
   LDA BUF_TEMP16
   STA INSERT_LINE_COUNT
   LDA #$03
   STA RENDER_FLAG
-.redo_fail:
+undo_paste_fail:
   JMP clear_count
 
 ; Compute BUF_TEMP16 = YANK_LINES16 * UNDO_PASTE_COUNT16 (16-bit, count >= 1)
@@ -440,15 +433,13 @@ undo_char_paste_undo:
   CP16 UNDO_COL16, RENDER_FROM_COL16
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR yank_paste_setup         ; BUF_LEN16 = total paste size
-  BCS .undo_cp_fail
+  BCS undo_paste_fail
   JSR delete_at_cursor         ; Deletes BUF_LEN16 bytes, handles marks
   JSR paste_restore_pos
   JSR clamp_cursor_col
   JSR undo_set_done_flags
   ; Keep RENDER_FLAG from delete_at_cursor if > 1 (multi-line scroll)
   JMP undo_keep_render_flag
-.undo_cp_fail:
-  JMP clear_count
 
 ; --- Char paste redo (handles both BELOW and ABOVE) ---
 undo_char_paste_redo:
