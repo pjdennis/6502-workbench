@@ -8545,6 +8545,29 @@ class EditorTestRunner:
             expected_content="  aaa\n\n  bbb\n",
         )
 
+        # The shift cores total the shift in COUNT16: a command-mode
+        # shift must leave no count behind for the next normal command
+        eight = "a\nb\nc\nd\ne\nf\ng\nh\n"
+        for keys, content, expected in [
+            (b":1,3>\rdd", eight, "  b\n  c\nd\ne\nf\ng\nh\n"),
+            (b":1,3<\rdd", "  a\n  b\n  c\nd\ne\nf\ng\nh\n",
+             "b\nc\nd\ne\nf\ng\nh\n"),
+            (b":>\rx", "abc\ndef\n", "  bc\ndef\n"),
+            (b":<\rx", "  abc\ndef\n", "bc\ndef\n"),
+        ]:
+            self.run_test(
+                f"{keys!r} leaves no count behind",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+        self.run_test_screen(
+            ":1,3> then j moves one line",
+            eight,
+            b":1,3>\rj:q!\r",
+            expect_cursor=(1, 2),
+        )
+
         # Single-position :5d works (bonus from single-position support)
         self.run_test(
             ":5d deletes line 5 (single-position command)",

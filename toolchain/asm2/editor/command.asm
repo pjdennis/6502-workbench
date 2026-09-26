@@ -418,7 +418,8 @@ range_shift_setup:
   JMP shift_setup_tail
 
 range_shift_finish:
-  JSR clamp_cursor_col         ; Clamp (unindent may shorten line)
+  JSR clamp_and_clear_count    ; Unindent may shorten the line; the cores
+                               ; total the shift in COUNT16
   CP16 UNDO_RANGE_LINES16, TO_DECIMAL_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
