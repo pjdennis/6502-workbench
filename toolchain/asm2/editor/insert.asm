@@ -202,7 +202,8 @@ insert_handle_key:
 .skip_bs_precompute:
 
   ; Step 6: Scan forward from the cursor (BUF_SRC16; compute_delete_screen_rows
-  ; leaves it alone), consuming fwd bytes
+  ; leaves it alone), consuming fwd bytes.  The buffer always ends in '\n',
+  ; where the scan stops, so it needs no BUF_END16 test of its own
   LDA #0
   STA BUF_TEMP              ; fwd_actual = 0
   STA LINE_LEN16 + 1        ; fwd_nl = 0
@@ -210,9 +211,6 @@ insert_handle_key:
 .fwd_scan:
   LDA BUF_TEMP16 + 1        ; remaining fwd
   BEQ .fwd_done
-
-  CMP16 BUF_SRC16, BUF_END16
-  BCS .fwd_done
 
   LDY #0
   LDA (BUF_SRC16),Y

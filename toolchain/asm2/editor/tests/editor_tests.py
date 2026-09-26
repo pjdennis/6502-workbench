@@ -3944,6 +3944,15 @@ class EditorTestRunner:
             expected_content="A\n"
         )
 
+        # The forward scan relies on the final newline; a cw over trailing
+        # whitespace once deleted it, and DEL then ran past the buffer end
+        self.run_test(
+            "DEL after cw on trailing whitespace keeps final newline",
+            "foo   \n",
+            b"4lcwX" + DEL * 2 + b"\x1b:wq\r",
+            expected_content="foo X\n"
+        )
+
         # Mixed render optimization: DEL+typing in single batch
         DEL = b"\x1b[3~"
         self.run_test_screen(
