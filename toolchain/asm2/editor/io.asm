@@ -19,10 +19,7 @@ io_ready = con_ready
 ; Terminal mode: serial I/O with spin loops
 
   .zeropage
-SERIAL_BYTE:     .byte    ; Byte buffered by io_ready
-SERIAL_HAS_BYTE: .byte    ; $FF if SERIAL_BYTE valid
 DSR_VALUE:       .byte    ; Temp for parsing DSR decimal values
-DSR_TERM:        .byte    ; Terminator char for parse_dsr_value
 
   .code
 
@@ -38,35 +35,24 @@ io_flush:
   RTS
 
 ; Read one byte from serial input (blocking)
-; Returns byte in A
+; Returns byte in A. Preserves X, Y
+; A byte seen by io_ready waits in input.asm's pushback, which
+; input_read_byte checks before calling here.
 io_read:
-  LDA SERIAL_HAS_BYTE
-  BNE .from_buffer
-.spin:
   JSR serial_read
-  BCS .spin
-  RTS
-.from_buffer:
-  LDA #$00
-  STA SERIAL_HAS_BYTE
-  LDA SERIAL_BYTE
+  BCS io_read
   RTS
 
 ; Non-blocking check if input byte is available
-; Returns: A=$FF if ready, A=$00 if not
-; Preserves X, Y
+; Returns: A=$FF if ready (the byte is handed to input_unread),
+; A=$00 if not. Only called with no pushback pending. Preserves X, Y
 io_ready:
-  LDA SERIAL_HAS_BYTE
-  BNE .ready
   JSR serial_read
   BCS .not_ready
-  STA SERIAL_BYTE
-  LDA #$FF
-  STA SERIAL_HAS_BYTE
-.ready:
-  LDA #$FF
-  RTS
+  JMP input_unread        ; Returns A=$FF
 .not_ready:
+  BIT DSR_VALUE           ; 5-cycle pad (zp read + NOP): read_key's ESC
+  NOP                     ; wait counts these polls; keep its length
   LDA #$00
   RTS
 
@@ -83,55 +69,41 @@ query_terminal_size:
   JSR write_string
 
   ; Read response: ESC[{rows};{cols}R
-  ; Skip ESC
-  JSR io_read
-  ; Skip [
-  JSR io_read
-
-  ; Parse rows (decimal digits until ';')
-  LDA #';'
-  JSR parse_dsr_value
-  LDA DSR_VALUE
+  JSR io_read             ; Skip ESC
+  JSR io_read             ; Skip [
+  JSR parse_dsr_value     ; Rows (digits up to ';')
   STA SCREEN_ROWS
-
-  ; Parse cols (decimal digits until 'R')
-  LDA #'R'
-  JSR parse_dsr_value
-  LDA DSR_VALUE
+  JSR parse_dsr_value     ; Cols (digits up to 'R')
   STA SCREEN_COLS
 
   ; Move cursor back to home position (emits ESC[H)
   JMP ansi_cursor_home
 
-; Parse decimal digits from serial input until terminator char
-; Input: A = terminator character
-; Output: DSR_VALUE = parsed decimal value
-; Clobbers: A
+; Parse decimal digits from serial input up to and including the first
+; non-digit (the ';' or 'R' of a DSR reply)
+; Output: A = parsed value (mod 256)
 parse_dsr_value:
-  STA DSR_TERM
   LDA #0
+.next:
   STA DSR_VALUE
-.loop:
   JSR io_read
-  CMP DSR_TERM
-  BEQ .done
-  SEC
-  SBC #'0'
+  EOR #'0'                ; '0'-'9' -> 0-9, any other byte -> >= 10
+  CMP #10
+  BCS .done
   PHA
   LDA DSR_VALUE
-  ASL        ; *2
-  STA DSR_VALUE
-  ASL        ; *4
-  ASL        ; *8
+  ASL
+  ASL
   CLC
-  ADC DSR_VALUE  ; *10
+  ADC DSR_VALUE           ; *5
+  ASL                     ; *10
   STA DSR_VALUE
   PLA
   CLC
   ADC DSR_VALUE
-  STA DSR_VALUE
-  JMP .loop
+  JMP .next
 .done:
+  LDA DSR_VALUE
   RTS
 
 ; DSR query: ESC[999;999H ESC[6n (no escape decoding in .byte strings,
