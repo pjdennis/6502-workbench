@@ -453,17 +453,6 @@ undo_span_setup:
   JSR undo_restore_pos_from
   JMP get_cursor_buf_ptr
 
-; Common finishes: set the undone/redone flags, then a single-line
-; partial repaint from the span start
-undo_span_undone:
-  JSR undo_set_done_flags
-  JMP undo_span_finish
-undo_span_redone:
-  JSR undo_set_redone_flags
-undo_span_finish:
-  LDA #RF_LINE
-  JMP set_render_clear_count
-
 ; --- Toggle case undo/redo: self-inverse, re-toggle the span ---
 undo_tilde_span:
   JSR undo_span_setup
@@ -504,7 +493,14 @@ undo_replace_undo:
   INX
   CPX UNDO_SPAN_LEN
   BNE .loop
-  JMP undo_span_undone
+  ; fall through
+
+; Common finishes of ~ and r: set the undone/redone flags, then a
+; single-line partial repaint from the span start (unless the handler
+; set a flag of its own)
+undo_span_undone:
+  JSR undo_set_done_flags
+  JMP undo_keep_render_flag
 
 ; --- Replace char redo: re-write the replacement char ---
 undo_replace_redo:
@@ -521,7 +517,10 @@ undo_replace_redo:
   DEY
   TYA                        ; A = span length - 1
   ADDA16 CURSOR_COL16
-  JMP undo_span_redone
+  ; fall through
+undo_span_redone:
+  JSR undo_set_redone_flags
+  JMP undo_keep_render_flag
 
 ; --- Restore helpers: copy the undo record back into cursor state ---
 ; Restore FILE_LINE16 and CURSOR_COL16, and repaint the line from the
