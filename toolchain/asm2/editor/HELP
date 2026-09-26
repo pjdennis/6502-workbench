@@ -127,7 +127,8 @@ All editing commands are blocked in read-only mode.
                  Single-level: undoes the most recent operation, then
                  pressing u again redoes it. A new edit replaces the
                  undo history. Supports undo of: dd, x, X, D, dw, db, de,
-                 d$, d0, J, p, P, r, ~, >>, <<, :[range]> and :[range]<.
+                 d$, d0, J, p, P, r, ~, >>, <<, :[range]d, :[range]>
+                 and :[range]<.
                  o, O, cw, cb, ce, cc, s, C and S can be undone only when
                  ESC follows with no text typed: text typed in insert mode
                  is not undoable and clears the undo history.

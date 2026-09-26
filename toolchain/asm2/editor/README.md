@@ -228,7 +228,7 @@ project's 6502 emulator in console/ANSI mode.
 | `yb` | Yank word backward (with count, character yank) |
 | `p` | Paste below/after cursor (with count) |
 | `P` | Paste above/before cursor (with count) |
-| `u` | Undo last edit / redo (single-level toggle; covers deletes, joins, pastes, `r`, `~`, `>>`, `<<`, range shifts; `o`/`O` and the change commands only when ESC follows with no text typed, because leaving insert mode after typing clears the undo record) |
+| `u` | Undo last edit / redo (single-level toggle; covers deletes, joins, pastes, `r`, `~`, `>>`, `<<`, range deletes and shifts; `o`/`O` and the change commands only when ESC follows with no text typed, because leaving insert mode after typing clears the undo record) |
 
 ### Normal mode — marks
 

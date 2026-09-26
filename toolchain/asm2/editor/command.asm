@@ -380,19 +380,13 @@ range_yank_full:                 ; (the yank buffer is unchanged)
   JMP show_message_ax
 
   ; --- Range delete ---
+  ; Same as dd with the cursor moved to the range start: yanks the lines,
+  ; records undo, adjusts marks, deletes and clamps FILE_LINE16. A yank
+  ; that does not fit changes nothing but leaves the cursor there.
 range_do_delete:
-  ; Yank lines first (so user can paste them back)
-  ; Save first line (yank_add_lines clobbers BUF_SRC16)
-  PUSH16 BUF_SRC16
-  LDAX16 BUF_SRC16
-  JSR yank_add_lines
-  POP16 BUF_SRC16          ; PLA preserves carry on 6502
+  CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
+  JSR yank_delete_current_lines
   BCS range_yank_full
-
-  ; Adjust marks, delete the lines and clamp, as dd does (no undo record)
-  CP16 BUF_SRC16, FILE_LINE16  ; Cursor to the first deleted line
-  CP16 YANK_LINES16, BUF_TEMP16
-  JSR delete_current_lines
   JSR set_modified
   JSR clamp_cursor_col
 

@@ -57,7 +57,7 @@ This is simpler but effective. No per-line dirty tracking, no character-level in
 
 **Vi**: Multi-level undo with five undo types (`UNDCHANGE`, `UNDMOVE`, `UNDALL`, `UNDNONE`, `UNDPUT`). Saves original lines between `dol` and `unddol` in the temp file. Visual mode adds single-line undo (`vutmp` buffer) and the `U` command (full line restore). The `FIXUNDO` macro controls recording granularity.
 
-**Our editor**: Single-level undo/redo: `u` undoes the most recent operation and toggles to redo on repeat. Covers delete/change/substitute/join/open/paste plus `r`, `~`, `>>`, `<<`, and range shift commands. Deleted content is restored from the yank buffer, so a later yank ends undo of a delete or paste (vi's undo is independent of yanks); small per-operation state (replaced chars, per-line indent widths, join offsets) lives in a shared 256-byte undo data page.
+**Our editor**: Single-level undo/redo: `u` undoes the most recent operation and toggles to redo on repeat. Covers delete/change/substitute/join/open/paste plus `r`, `~`, `>>`, `<<`, and range delete and shift commands. Deleted content is restored from the yank buffer, so a later yank ends undo of a delete or paste (vi's undo is independent of yanks); small per-operation state (replaced chars, per-line indent widths, join offsets) lives in a shared 256-byte undo data page.
 
 ---
 

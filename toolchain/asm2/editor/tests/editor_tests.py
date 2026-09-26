@@ -8310,6 +8310,26 @@ class EditorTestRunner:
             expect_cursor=(0, 0),  # cursor at first deleted line (now line 1)
         )
 
+        # :d is undoable like dd: u restores the range, u again redoes it.
+        # It must never replay the previous command's undo record on the
+        # shifted lines (3>> then :1,3d then u used to write past the text).
+        for keys, content, expected in [
+            (b":2,3d\ru", "one\ntwo\nthree\nfour\n", "one\ntwo\nthree\nfour\n"),
+            (b":2,3d\ruu", "one\ntwo\nthree\nfour\n", "one\nfour\n"),
+            (b":3,4d\ru", "one\ntwo\nthree\nfour\n", "one\ntwo\nthree\nfour\n"),
+            (b":1,2d\ru", "one\ntwo\n", "one\ntwo\n"),
+            (b"jx:1d\ru", "abc\ndef\nghi\n", "abc\nef\nghi\n"),
+            (b"jdd:1,2d\ru", "one\ntwo\nthree\nfour\n", "one\nthree\nfour\n"),
+            (b"3>>:1,3d\ru", "a\nb\nc\n", "  a\n  b\n  c\n"),
+            (b"jjrZ:1d\ru", "aaa\nbbb\nccc\nddd\n", "aaa\nbbb\nZcc\nddd\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: u undoes the range delete",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
         # Range delete corrupts search buffer (yank buffer overlaps search buffer)
         # YANK_BUF=$E000, SEARCH_BUF=$E020 - yank overwrites search pattern
         # after 32 bytes. Delete enough lines so the yanked content exceeds
