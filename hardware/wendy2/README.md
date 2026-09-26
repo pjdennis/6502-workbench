@@ -17,3 +17,7 @@ Within rev c:
 - The graphic display pins PA1/PA2 are reused for CONTROL_BUTTON/CONTROL_LED, so the graphic display is disabled in `base_config_wendy2c.inc`.
 
 `pin-mappings.txt` records the RAM address-line pin mapping (A15, R15–R18). The per-configuration memory map is documented in [`emulator/README.md`](../../emulator/README.md).
+
+Program the AFT22V10C using:
+
+minipro --no-write-protect --device 'ATF22V10C(UES)' --write 22V10-wendy2c.jed
