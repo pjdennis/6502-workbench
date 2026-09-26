@@ -43,8 +43,7 @@
 ;   10/11 >> <<   first line       cursor column  width        lines
 ;   12 ~          cursor line      span start     span length  -
 ;   13 r          cursor line      span start     span length  replacement
-; Per-type alias names are declared below the fields.  While J runs,
-; COL16 is its batching flag (JOIN_BATCHED); while ~ runs,
+; Per-type alias names are declared below the fields.  While ~ runs,
 ; PASTE_COUNT16 is the last visited column (TILDE_LAST_COL16).
 
 UNDO_NONE = 0

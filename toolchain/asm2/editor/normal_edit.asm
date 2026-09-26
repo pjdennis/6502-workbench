@@ -332,19 +332,14 @@ toggle_alpha:
 
 ; --- Toggle case (~) ---
 ; Scratch while ~ runs (aliases; the record is UNDO_COL16/UNDO_SPAN_LEN)
-TILDE_BATCHED    = BUF_LEN16          ; nonzero: batched ~ keys
 TILDE_LAST_COL16 = UNDO_PASTE_COUNT16 ; column of the last visited char
 TILDE_TOGGLED    = SHIFT_MODE         ; nonzero: that char was toggled
 
 normal_toggle_case:
   JSR undo_clear
-  JSR get_batched_count      ; X = count + pending, BUF_DELTA = count
   ; Batched pending keys merge execution, but undo must behave as if
   ; the keys ran separately: it covers only the last ~ keystroke.
-  TXA
-  SEC
-  SBC BUF_DELTA
-  STA TILDE_BATCHED              ; nonzero = batched
+  JSR get_batched_count      ; X = count + pending, BATCH_EXTRA = pending
   STX NORMAL_TEMP            ; loop counter
   JSR echo_span_setup
 
@@ -386,7 +381,7 @@ normal_toggle_case:
 .tilde_done:
   LDA UNDO_TYPE
   BEQ .tilde_end             ; nothing toggled: undo stays clear
-  LDA TILDE_BATCHED
+  LDA BATCH_EXTRA
   BEQ .tilde_end             ; not batched: span already correct
   ; Batched: undo only the last ~ (one char at the last visited col)
   LDA TILDE_TOGGLED
@@ -401,18 +396,9 @@ normal_toggle_case:
   JMP clear_count
 
 ; --- Join lines (J) ---
-JOIN_BATCHED = UNDO_COL16    ; nonzero: batched J keys (until the join column is recorded)
-
 normal_join_lines:
   JSR undo_clear
-  JSR get_batched_count
-
-  ; Detect batching: BUF_DELTA = count prefix, X = total (count + pending)
-  ; If X > BUF_DELTA, there are pending keys (batching)
-  TXA
-  SEC
-  SBC BUF_DELTA              ; A = pending count
-  STA JOIN_BATCHED             ; Repurpose: nonzero = batching
+  JSR get_batched_count      ; X = count + pending, BATCH_EXTRA = pending
 
   ; Adjust for explicit count: NJ joins N-1 lines
   LDA COUNT16
@@ -446,7 +432,7 @@ normal_join_lines:
 
   ; Compute undo_count: if batching → 1, else → NORMAL_TEMP
   LDA NORMAL_TEMP
-  LDX JOIN_BATCHED           ; batching flag
+  LDX BATCH_EXTRA            ; batching flag
   BEQ .set_undo_count
   LDA #1
 .set_undo_count:
@@ -499,7 +485,7 @@ normal_join_lines:
   SBC BUF_SRC16 + 1
   STA UNDO_DATA_BUF + 1,X
   ; Advance write index only if not batching
-  LDA JOIN_BATCHED             ; batching flag
+  LDA BATCH_EXTRA            ; batching flag
   BNE .skip_advance
   INX
   INX
@@ -515,7 +501,7 @@ normal_join_lines:
 
 .join_finish:
   ; For batched joins, cursor goes to last join point
-  LDA JOIN_BATCHED             ; batching flag
+  LDA BATCH_EXTRA            ; batching flag
   BEQ .cursor_done
   SEC
   SBC16 BUF_PTR16, BUF_SRC16, CURSOR_COL16
