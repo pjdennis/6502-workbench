@@ -174,6 +174,23 @@ void emulation_exit(int code) {
     exit(code);
 }
 
+// Time spent blocked waiting for input is not emulated time: shift the
+// throttle's start time by it, so the CPU does not race to catch up afterwards.
+static void exclude_wait_from_throttle(const struct timespec *before) {
+    struct timespec after;
+    clock_gettime(CLOCK_MONOTONIC, &after);
+    start_time.tv_sec += after.tv_sec - before->tv_sec;
+    start_time.tv_nsec += after.tv_nsec - before->tv_nsec;
+    if (start_time.tv_nsec >= 1000000000L) {
+        start_time.tv_sec++;
+        start_time.tv_nsec -= 1000000000L;
+    }
+    if (start_time.tv_nsec < 0) {
+        start_time.tv_sec--;
+        start_time.tv_nsec += 1000000000L;
+    }
+}
+
 uint8_t read6502(uint16_t address) {
     if (address == port_read_b) {                    // read_b
         if (terminal_mode) {
@@ -257,7 +274,7 @@ uint8_t read6502(uint16_t address) {
             emulation_exit(1);
         }
         if (console_mode) {
-            struct timespec before, after;
+            struct timespec before;
             clock_gettime(CLOCK_MONOTONIC, &before);
             uint8_t ch;
             int got = read(STDIN_FILENO, &ch, 1);
@@ -266,19 +283,7 @@ uint8_t read6502(uint16_t address) {
                 done = 1;
                 return 0;
             }
-            clock_gettime(CLOCK_MONOTONIC, &after);
-            long sec_diff = after.tv_sec - before.tv_sec;
-            long nsec_diff = after.tv_nsec - before.tv_nsec;
-            start_time.tv_sec += sec_diff;
-            start_time.tv_nsec += nsec_diff;
-            if (start_time.tv_nsec >= 1000000000L) {
-                start_time.tv_sec++;
-                start_time.tv_nsec -= 1000000000L;
-            }
-            if (start_time.tv_nsec < 0) {
-                start_time.tv_sec--;
-                start_time.tv_nsec += 1000000000L;
-            }
+            exclude_wait_from_throttle(&before);
             if (got == 1) return ch;
             if (got == 0) con_eof_flag = 1;
             return 0;
@@ -355,7 +360,7 @@ uint8_t read6502(uint16_t address) {
         }
         // No baud rate - direct read
         if (terminal_interactive) {
-            struct timespec before, after;
+            struct timespec before;
             clock_gettime(CLOCK_MONOTONIC, &before);
             uint8_t ch;
             int got = read(STDIN_FILENO, &ch, 1);
@@ -364,19 +369,7 @@ uint8_t read6502(uint16_t address) {
                 done = 1;
                 return 0;
             }
-            clock_gettime(CLOCK_MONOTONIC, &after);
-            long sec_diff = after.tv_sec - before.tv_sec;
-            long nsec_diff = after.tv_nsec - before.tv_nsec;
-            start_time.tv_sec += sec_diff;
-            start_time.tv_nsec += nsec_diff;
-            if (start_time.tv_nsec >= 1000000000L) {
-                start_time.tv_sec++;
-                start_time.tv_nsec -= 1000000000L;
-            }
-            if (start_time.tv_nsec < 0) {
-                start_time.tv_sec--;
-                start_time.tv_nsec += 1000000000L;
-            }
+            exclude_wait_from_throttle(&before);
             if (got == 1) return ch;
             return 0;
         } else if (terminal_mode && serial_input_file) {
