@@ -192,12 +192,10 @@ normal_goto_last:
   JMP zero_col_clamp_clear
 
 ; gg: go to top of file
+; (ensure_cursor_visible then scrolls the view to the top)
 do_gg:
   LDA #0
   STA_LH16 FILE_LINE16
-  STA_LH16 VIEW_TOP16
-  STA CURSOR_ROW
-  STA VIEW_TOP_WRAP
   JMP zero_col_clamp_clear
 
 ; --- Yank ---
