@@ -509,11 +509,6 @@ normal_join_lines:
   LDA NORMAL_TEMP
   JSR compute_delete_rows_join
 
-  ; Join column = current line length (content before is unchanged)
-  JSR get_current_line_len
-  STA RENDER_FROM_COL16
-  STX RENDER_FROM_COL16 + 1
-
   ; Compute undo_count: if batching → 1, else → NORMAL_TEMP
   LDA NORMAL_TEMP
   LDX UNDO_COL16             ; batching flag
@@ -540,9 +535,12 @@ normal_join_lines:
   CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = line start (base for offsets)
 
   JSR find_line_end           ; (BUF_PTR16),Y points to '\n'
-  ; Set cursor to join point (end of original first line)
+  ; Set cursor to join point (end of original first line); the content
+  ; before it is unchanged, so the line repaints from there
   STY CURSOR_COL16
   STX CURSOR_COL16 + 1
+  STY RENDER_FROM_COL16
+  STX RENDER_FROM_COL16 + 1
   ; Advance BUF_PTR16 by Y so BUF_PTR16 points directly to the '\n'
   TYA
   CLC
