@@ -104,6 +104,8 @@ render_from_first_row:
 ; Expects ansi_cursor_hide already called
 ; Renders remaining text rows, status bar, positions cursor, shows cursor
 render_from_row:
+  LDA #0
+  STA RENDER_COL               ; every row from column 0
   LDA #$FF
   STA RENDER_LIMIT             ; no row limit: stop at the status bar
   JSR render_rows
@@ -272,9 +274,11 @@ render_rows_resized:
   STA SCROLL_DELTA
   JMP render_bottom_rows
 
-; Draw the cursor line from its change point (RENDER_FROM_COL16; $FFFF =
-; whole line) to its last row, stopping at the status bar.
-; Input: RENDER_ROW = the line's first screen row, CUR_LINE_ROWS = its rows
+; Draw the cursor line (or a block of lines from it) from its change
+; point (RENDER_FROM_COL16; $FFFF = whole line) to its last row, stopping
+; at the status bar.
+; Input: RENDER_ROW = the line's first screen row, CUR_LINE_ROWS = the
+; rows of the line (block)
 ; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/LIMIT/LINE16,
 ;           SCROLL_DELTA, WRAP_REM, DIV_INPUT16
 render_line_from_change:
@@ -303,13 +307,10 @@ render_line_from_change:
   LDX SHIFT_WRITE
   INX
   BNE render_line_shift        ; $FF = no hint
-  LDA WRAP_REM
-  BEQ .full_rows
-  JSR render_partial_first_row
-  DEC SCROLL_DELTA
-.full_rows:
+  ; Rewrite the rows, the change row from the change column
   JSR set_render_line_to_cursor
-  JMP render_limited_loop
+  LDA WRAP_REM
+  JMP render_limited_from_col
 .done:
   RTS
 
@@ -530,25 +531,3 @@ move_to_partial_pos:
   LDA RENDER_ROW
   LDX WRAP_REM
   JMP ansi_goto0
-
-; Render the partial first wrap row of the cursor line: position the
-; cursor at (RENDER_ROW+1, WRAP_REM+1), render from column WRAP_REM,
-; clear the row remainder, then step RENDER_ROW/RENDER_WRAP past it.
-; Clobbers A, X, Y, BUF_PTR16, RENDER_COL
-render_partial_first_row:
-  JSR move_to_partial_pos
-  ; Get line pointer, advance to wrap row
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-  LDA WRAP_REM
-  STA RENDER_COL
-  JSR render_line_chars_from
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BCS .partial_no_clear
-  JSR ansi_clear_line
-.partial_no_clear:
-  INC RENDER_ROW
-  INC RENDER_WRAP
-  RTS

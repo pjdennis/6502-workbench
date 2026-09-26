@@ -270,23 +270,29 @@ render_finish:
   JMP io_flush
 
 ; Render loop only: renders SCROLL_DELTA rows starting at
-; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, then returns.
+; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, then returns; render_limited_
+; from_col draws the first of them from column A.
 ; Caller must handle status bar, cursor positioning, etc.
 render_limited_loop:
+  LDA #0
+render_limited_from_col:
+  STA RENDER_COL
   LDA RENDER_ROW
   CLC
   ADC SCROLL_DELTA
   STA RENDER_LIMIT             ; stop at this row
 ; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP up to (not
-; including) row RENDER_LIMIT or the status bar.  A wrapped line's
-; continuation rows are reached by the terminal's auto-wrap (the row
-; before was written full width), so only a line's first row (and the
-; first row drawn) positions the cursor.
+; including) row RENDER_LIMIT or the status bar, the first from column
+; RENDER_COL and the rest from column 0.  A wrapped line's continuation
+; rows are reached by the terminal's auto-wrap (the row before was
+; written full width), so only a line's first row (and the first row
+; drawn) positions the cursor.
 render_rows:
 .row_loop:
   JSR .row_check               ; A = RENDER_ROW
   BCS .done
-  JSR ansi_goto_row0
+  LDX RENDER_COL
+  JSR ansi_goto0
 .row:
   ; Check if line exists
   CMP16 RENDER_LINE16, LINE_COUNT16
@@ -296,10 +302,11 @@ render_rows:
   JSR buf_get_line_ptr
   LDX RENDER_WRAP
   JSR buf_ptr_advance_x
-  JSR render_line_chars
+  JSR render_line_chars_from   ; Y = the column after the last char
+  LDA #0
+  STA RENDER_COL               ; the rows after it from column 0
   ; A full row may continue on the next wrap row (unless at a newline)
-  LDA RENDER_COL
-  CMP SCREEN_COLS
+  CPY SCREEN_COLS
   BNE .line_done
   LDA (BUF_PTR16),Y
   CMP #'\n'
@@ -384,13 +391,10 @@ render_cursor_and_status:
   JSR ansi_cursor_hide
   JMP render_finish
 
-; Print line characters from BUF_PTR16 up to SCREEN_COLS or newline
-; Control chars: tab as '>' reverse, others (and bytes >= $80) as '?'
-; reverse.  Returns RENDER_COL = Y = column after the last char printed.
-; Clobbers A, Y.
-render_line_chars:
-  LDA #0
-  STA RENDER_COL
+; Print line characters from BUF_PTR16 + RENDER_COL up to SCREEN_COLS or
+; newline.  Control chars: tab as '>' reverse, others (and bytes >= $80)
+; as '?' reverse.  Returns RENDER_COL = Y = column after the last char
+; printed.  Clobbers A, Y.
 render_line_chars_from:
   LDA SCREEN_COLS
   STA RENDER_STOP

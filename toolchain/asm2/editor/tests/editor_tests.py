@@ -15981,6 +15981,20 @@ class EditorTestRunner:
             expect_cursor=(0, 5),
             expect_min_col=[(3, 0, 5)]
         )
+        # The partial first row fills its row: the next row follows by
+        # the terminal's wrap, with no cursor move
+        for deferred in (False, True):
+            self.run_test_screen(
+                "Undo D on wrapped line: the partial row runs on into the next"
+                + (" (deferred wrap)" if deferred else ""),
+                "A" * 50 + "\nSecond\n",
+                b"lllllDu:q!\r",
+                rows=10, cols=40,
+                deferred_wrap=deferred,
+                expect_lines=[(0, "A" * 40), (1, "A" * 10), (2, "Second")],
+                expect_cursor=(0, 5),
+                expect_ansi_contains="\x1b[1;6H" + "A" * 45 + "\x1b[K",
+            )
 
         # Redo D on wrapped line (rows decrease: 2 → 1):
         # Same as D forward. .rc_rows_decreased path.
