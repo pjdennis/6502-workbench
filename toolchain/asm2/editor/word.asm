@@ -195,13 +195,12 @@ word_end_x:
   ; empty line) it goes on to the next line
   JSR next_class
   BPL .e_skip_ws_test
-  JSR dec_cursor_col      ; Undo the step
 
 .e_next_line:
   ; Move to next line and skip whitespace from its start to the first word
   ; end: like vi, e passes over empty and whitespace-only lines
   JSR advance_next_line
-  BCS .e_done_final       ; No next line
+  BCS .e_last             ; No next line
   JSR get_line_len_z
   JSR dec_cursor_col      ; Col -1: the first step lands on col 0
 
@@ -228,8 +227,13 @@ word_end_x:
   LDX NORMAL_TEMP
   DEX
   BNE .e_loop
-.e_done_final:
   RTS
+
+  ; No word end left: stop on the byte before the last line's newline (its
+  ; last char, or col -1 on an empty line: the newline before it), where
+  ; the cursor started if e could not move
+.e_last:
+  JMP dec_cursor_col
 
 
 ; --- Multi-line range computation routines ---
@@ -307,8 +311,8 @@ compute_multiline_word_range_backward:
 
 ; Compute forward word-end range (multi-line) for de/ye/ce
 ; e is an inclusive motion: range includes the character at the end
-; position, unless e found no word end and stopped on a '\n' (as in vi,
-; the range never takes that line break)
+; position (never the buffer's final '\n': with no word end left, e stops
+; on the byte before it)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
@@ -318,10 +322,6 @@ compute_multiline_word_end_range_forward:
   JSR range_start
   JSR word_end_x                    ; move cursor to end of Nth word
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
-  LDY #0
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ range_end                     ; no word end: exclusive
   INC16 BUF_PTR16                   ; inclusive: include end char
   ; fall through into range_end
 
