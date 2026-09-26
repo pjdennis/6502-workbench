@@ -1,98 +1,115 @@
-import getopt
-import serial
-import serial.tools.list_ports
+"""Sends a binary to a board's serial loader: length, payload and checksum (see upload_frame.py).
+
+Uploads go through serial_daemon.py, which holds the port open so that opening it doesn't reset
+the board; the daemon is started on first use. See tools/README.md.
+
+Usage: transfer.py --baudrate=N [--stopbits=1|2] [--port=DEVICE] [--noreset] [--wait] [--direct] FILE
+       transfer.py --daemon status|stop
+"""
+import argparse
+import os
+import subprocess
 import sys
-import pause
-from datetime import datetime, timedelta
+import time
 
-try:
-  options, args = getopt.getopt(sys.argv[1:], shortopts="", longopts=["noreset", "stopbits=", "port=", "baudrate="])
-except getopt.GetoptError as err:
-  print("Error:", err)  # will print something like "option -a not recognized"
-  sys.exit(2)
+import serial_daemon
+from upload_frame import build_frame
 
-input_file = args[0]
+AUTOSTART_TIMEOUT = 5  # seconds allowed for a newly started daemon to accept connections
 
-noreset  = False
-stopbits = serial.STOPBITS_ONE
-port     = None
-baudrate = None
 
-for option, value in options:
-  if option == "--noreset":
-    noreset = True
-  elif option == "--stopbits":
-    if value == "1":
-      stopbits = serial.STOPBITS_ONE
-    elif value == "2":
-      stopbits = serial.STOPBITS_TWO
-    else:
-      print("Error the --stopbits option value must be 1 or 2")
-      sys.exit(2)
-  elif option == "--port":
-    port = value
-  elif option == "--baudrate":
+class Failure(Exception):
+  pass
+
+
+def parse_args(argv):
+  parser = argparse.ArgumentParser(description="Send a binary to a board's serial loader.")
+  parser.add_argument('file', nargs='?')
+  parser.add_argument('--baudrate', type=int)
+  parser.add_argument('--stopbits', type=int, choices=[1, 2], default=1)
+  parser.add_argument('--port', help='serial device (default: the only USB serial device)')
+  parser.add_argument('--noreset', action='store_true', help="don't pulse DTR to reset the board first")
+  parser.add_argument('--wait', action='store_true', help='return only once the upload has had time to send')
+  parser.add_argument('--direct', action='store_true',
+                      help='open the port here instead of using the daemon (on Linux, opening the port '
+                           'resets the board)')
+  parser.add_argument('--daemon', choices=['status', 'stop'], help='report on or stop the serial daemon')
+  args = parser.parse_args(argv)
+  if args.daemon is None and (args.file is None or args.baudrate is None):
+    parser.error('a file and --baudrate are required')
+  return args
+
+
+def spawn_daemon(socket_path, port):
+  log_path = socket_path + '.log'
+  with open(log_path, 'a') as log:
+    subprocess.Popen([sys.executable, serial_daemon.SCRIPT, '--socket', socket_path] +
+                     (['--port', port] if port else []),
+                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd='/', start_new_session=True)
+  print('Started the serial daemon (log: {})'.format(log_path), file=sys.stderr)
+
+
+def request_starting_daemon(socket_path, header, payload, start_daemon):
+  try:
+    return serial_daemon.request(socket_path, header, payload)
+  except serial_daemon.NotRunning:
+    start_daemon()
+  deadline = time.monotonic() + AUTOSTART_TIMEOUT
+  while True:
     try:
-      baudrate = int(value)
-    except ValueError:
-      print("Error: the --baudrate argument must be a valid integer value")
-      sys.exit(2)
+      return serial_daemon.request(socket_path, header, payload)
+    except serial_daemon.NotRunning:
+      if time.monotonic() > deadline:
+        raise Failure('the serial daemon did not start; see {}.log'.format(socket_path))
+      time.sleep(0.05)
 
-if port is None:
-  usb_ports = [p for p in serial.tools.list_ports.comports() if p.vid is not None]
-  if len(usb_ports) == 0:
-    print("Error: no USB to serial device found; specify --port")
-    sys.exit(2)
-  if len(usb_ports) > 1:
-    print("Error: multiple USB to serial devices found; specify --port. Found:")
-    for p in usb_ports:
-      print("  {} ({})".format(p.device, p.description))
-    sys.exit(2)
-  port = usb_ports[0].device
 
-if baudrate is None:
-  print("Error: the --baudrate argment must be specified")
-  sys.exit(2)
+def daemon_command(command, socket_path):
+  try:
+    response = serial_daemon.request(socket_path, {'op': command})
+  except serial_daemon.NotRunning:
+    print('The serial daemon is not running ({})'.format(socket_path))
+    return
+  if command == 'status':
+    print('The serial daemon is running: pid {pid}, protocol {protocol}, {script}'.format(**response))
+    print('  port: {}; open device: {}'.format(response['configured_port'] or 'auto-detect',
+                                               response['device'] or 'none'))
+  else:
+    deadline = time.monotonic() + AUTOSTART_TIMEOUT
+    while os.path.exists(socket_path) and time.monotonic() < deadline:
+      time.sleep(0.05)
+    print('Stopped the serial daemon')
 
-#BSD checksum as calculated by cksum -o 1
-def bsd_checksum(data):
-  sum = 0
-  for byte in data:
-    sum = (sum >> 1) | (sum << 15)
-    sum = (sum + byte) & 0xffff
-  return sum
 
-with open(input_file, "rb") as binaryfile:
-  source_data = bytearray(binaryfile.read())
+def send_direct(args, frame):
+  with serial_daemon.open_serial(serial_daemon.find_usb_serial_port(args.port)) as ser:
+    # Always wait: closing the port straight after writing can lose data
+    serial_daemon.transmit(ser, frame, not args.noreset, args.baudrate, args.stopbits, wait=True)
 
-source_len = len(source_data)
 
-if(source_len > 0xffff):
-  print("Error: cannot transfer more than 0xffff bytes")
-  sys.exit(1)
+def main(argv, socket_path=None, start_daemon=None):
+  args = parse_args(argv)
+  socket_path = socket_path or serial_daemon.default_socket_path()
+  try:
+    if args.daemon:
+      daemon_command(args.daemon, socket_path)
+      return 0
+    with open(args.file, 'rb') as f:
+      frame = build_frame(f.read())
+    if args.direct:
+      send_direct(args, frame)
+      return 0
+    header = {'protocol': serial_daemon.PROTOCOL, 'op': 'send', 'reset': not args.noreset,
+              'baudrate': args.baudrate, 'stopbits': args.stopbits, 'wait': args.wait, 'port': args.port}
+    response = request_starting_daemon(socket_path, header, frame,
+                                       start_daemon or (lambda: spawn_daemon(socket_path, args.port)))
+    if not response['ok']:
+      raise Failure(response['error'])
+    return 0
+  except (Failure, serial_daemon.NoDevice, OSError, ValueError, EOFError) as e:
+    print('Error: {}'.format(e), file=sys.stderr)
+    return 1
 
-length_bytes = bytearray([source_len & 0xff, (source_len >> 8) & 0xff])
-checksum = bsd_checksum(source_data)
-checksum_bytes = bytearray([checksum & 0xff, (checksum >> 8) & 0xff])
-data = length_bytes + source_data + checksum_bytes
-number_of_bits = len(data) * (1 + 8 + stopbits)
 
-# Duration of send allowing for 2% transfer speed loss
-duration_of_send = timedelta(seconds = number_of_bits / baudrate * 1.02)
-
-with serial.Serial(baudrate=baudrate, stopbits=stopbits) as ser:
-  ser.port = port
-  ser.dtr = False
-  ser.open()
-
-  if (not noreset):
-    ser.dtr=True
-    pause.until(datetime.now() + timedelta(seconds=0.1))
-    ser.dtr=False
-    pause.until(datetime.now() + timedelta(seconds=0.2))
-
-  start_time = datetime.now()
-  ser.write(data)
-  ser.flush()
-  pause.until(start_time + duration_of_send)
-  stop_time = datetime.now()
+if __name__ == '__main__':
+  sys.exit(main(sys.argv[1:]))
