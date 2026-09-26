@@ -75,9 +75,7 @@ query_terminal_size:
   STA SCREEN_ROWS
   JSR parse_dsr_value     ; Cols (digits up to 'R')
   STA SCREEN_COLS
-
-  ; Move cursor back to home position (emits ESC[H)
-  JMP ansi_cursor_home
+  RTS                     ; (the first render positions the cursor)
 
 ; Parse decimal digits from serial input up to and including the first
 ; non-digit (the ';' or 'R' of a DSR reply)
