@@ -8,6 +8,21 @@ WORD_CLASS:    .byte     ; Character class of current char
 
   .code
 
+; Step the cursor right, then classify it as class_in_line does
+next_class:
+  INC16 CURSOR_COL16
+  ; fall through into class_in_line
+
+; Class of the char at the cursor while the cursor is on the line
+; (LINE_LEN16): A = class (see char_class; N clear, Z set for
+; whitespace).  At or past the end of the line: A = $FF (N set).
+; Clobbers: A, X, Y, BUF_PTR16
+class_in_line:
+  CMP16 CURSOR_COL16, LINE_LEN16
+  BCC class_at_cursor
+  LDA #$FF
+  RTS
+
 ; Classify char at cursor -> A = class (see char_class)
 ; Clobbers: A, X, Y (Y = 0), BUF_PTR16
 class_at_cursor:
@@ -65,62 +80,41 @@ normal_word_forward:
 ; Input: X = count of words to move
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
 word_forward_x:
-
 .w_loop:
   STX NORMAL_TEMP         ; Save counter
-
-  ; Get current line length
   JSR get_line_len_z
-  BEQ .w_next_line        ; Empty line -> try next line
-
-  ; If cursor at or past end, go to next line
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .w_next_line
-
-  ; Get class of current char
-  JSR class_at_cursor
+  JSR class_in_line
+  BMI .w_next_line        ; At/past the end (or an empty line): next line
   STA WORD_CLASS
-
-  ; If current char is whitespace, just skip whitespace
-  BEQ .w_skip_ws
+  BEQ .w_skip_ws          ; On whitespace: just skip whitespace
 
   ; Skip chars of same class as current
 .w_skip_same:
-  JSR inc_cursor_col
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .w_at_eol
-  JSR class_at_cursor
+  JSR next_class
+  BMI .w_next_line
   CMP WORD_CLASS
   BEQ .w_skip_same
-
-  ; Class changed - if now whitespace, skip it
-  CMP #0
+  TAX                     ; Z = whitespace (X is reloaded below)
   BNE .w_done_one         ; Non-whitespace non-same class = word start
 
-  ; Skip whitespace
+  ; Skip whitespace; a non-whitespace char is the word start
 .w_skip_ws:
-  JSR inc_cursor_col
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .w_at_eol
-  JSR class_at_cursor
+  JSR next_class
+  BMI .w_next_line
   BEQ .w_skip_ws
-  ; Found non-whitespace = word start
-  JMP .w_done_one
-
-.w_at_eol:
-  ; At end of line - go to next line col 0 (acts like reaching word start)
-.w_next_line:
-  JSR advance_next_line
-  BCS .w_done_final       ; No next line, stay put
 
 .w_done_one:
   LDX NORMAL_TEMP
   DEX
-  BEQ .w_done_final
-  JMP .w_loop
-
+  BNE .w_loop
 .w_done_final:
   RTS
+
+  ; At end of line - go to next line col 0 (acts like reaching word start)
+.w_next_line:
+  JSR advance_next_line
+  BCC .w_done_one
+  RTS                     ; No next line, stay put
 
 ; --- b command: move to start of previous word ---
 ; Accepts count prefix.
@@ -133,7 +127,6 @@ normal_word_backward:
 ; Input: X = count of words to move
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
 word_backward_x:
-
 .b_loop:
   STX NORMAL_TEMP         ; Save counter
 
@@ -145,9 +138,11 @@ word_backward_x:
   TST16 FILE_LINE16
   BEQ .b_done_final       ; Already at first line, col 0
   DEC16 FILE_LINE16
-  JSR get_line_len_z
+  JSR get_line_len_z      ; X = length high byte
   BEQ .b_done_one         ; Prev line is empty, at col 0
-  CP16 LINE_LEN16, CURSOR_COL16  ; Set col = line_len (one past end)
+  LDA LINE_LEN16          ; Set col = line_len (one past end)
+  STA CURSOR_COL16
+  STX CURSOR_COL16 + 1
   ; Fall through to .b_not_bol which DECs then scans backward to word start
 
 .b_not_bol:
@@ -182,9 +177,7 @@ word_backward_x:
 .b_done_one:
   LDX NORMAL_TEMP
   DEX
-  BEQ .b_done_final
-  JMP .b_loop
-
+  BNE .b_loop
 .b_done_final:
   RTS
 
@@ -197,91 +190,56 @@ normal_word_end:
 
 ; Core word-end motion: move cursor to end of Xth word
 ; Input: X = count of words to move
-; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16, BUF_TEMP16
+; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
 word_end_x:
-
 .e_loop:
   STX NORMAL_TEMP         ; Save counter
-
-  ; Get current line length
   JSR get_line_len_z
-  BNE .e_not_empty
-  JMP .e_next_line        ; Empty line -> try next line
-.e_not_empty:
-
-  ; Move right first (e moves past current position)
-  SEC
-  SBCI16 LINE_LEN16, 1, BUF_TEMP16  ; BUF_TEMP16 = max col
-  CMP16 CURSOR_COL16, BUF_TEMP16
-  BCC .e_can_move
-  JMP .e_next_line        ; Already at or past last char
-.e_can_move:
-
-  JSR inc_cursor_col
-
-  ; Skip whitespace
-.e_skip_ws:
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCC .e_ws_in_range
-  JMP .e_next_line        ; At EOL during whitespace skip
-.e_ws_in_range:
-  JSR class_at_cursor
-  BNE .e_found_nonws
-  JSR inc_cursor_col
-  JMP .e_skip_ws
-
-.e_found_nonws:
-  ; Remember class
-  STA WORD_CLASS
-
-  ; Skip forward through same-class chars, stop on last one
-.e_skip_same:
-  ; Check if next char exists and is same class
-  CLC
-  ADCI16 CURSOR_COL16, 1, BUF_PTR16
-  CMP16 BUF_PTR16, LINE_LEN16
-  BCS .e_done_one         ; Next would be past end, current is the end
-  CP16 BUF_PTR16, CURSOR_COL16  ; Advance cursor
-  JSR class_at_cursor
-  CMP WORD_CLASS
-  BEQ .e_skip_same
-  ; Different class - back up one
-  JSR dec_cursor_col
-
-.e_done_one:
-  LDX NORMAL_TEMP
-  DEX
-  BEQ .e_done_final
-  JMP .e_loop
-
-.e_done_final:
-  RTS
+  ; e moves past the cursor first; from the line's last char (or an
+  ; empty line) it goes on to the next line
+  JSR next_class
+  BPL .e_skip_ws_test
+  JSR dec_cursor_col      ; Undo the step
 
 .e_next_line:
   ; Move to next line and find first word end
   JSR advance_next_line
   BCS .e_done_final       ; No next line
-
-  ; Skip whitespace on new line
   JSR get_line_len_z
-  BNE .e_nl_not_empty
-  JMP .e_done_one         ; Empty line counts as done for e
-.e_nl_not_empty:
-
+  JSR class_in_line
 .e_newline_skip_ws:
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCC .e_nl_ws_ok
-  JMP .e_done_one         ; All whitespace line
-.e_nl_ws_ok:
-  JSR class_at_cursor
-  BNE .e_newline_found
-  JSR inc_cursor_col
+  BMI .e_done_one         ; Empty or all-whitespace line counts as done for e
+  BNE .e_found_nonws      ; Found non-whitespace: skip to end of this word
+  JSR next_class
   JMP .e_newline_skip_ws
 
-.e_newline_found:
-  ; Found non-whitespace (class in A); skip to end of this word
-  ; via the shared same-class scan (out of branch range for the BNE above)
-  JMP .e_found_nonws
+  ; Skip whitespace
+.e_skip_ws:
+  JSR next_class
+  BMI .e_next_line        ; At EOL during whitespace skip
+.e_skip_ws_test:
+  BEQ .e_skip_ws
+
+.e_found_nonws:
+  ; Remember class
+  STA WORD_CLASS
+
+  ; Skip forward through same-class chars; the word ends one before the
+  ; first char of another class or the end of the line
+.e_skip_same:
+  JSR next_class
+  BMI .e_back
+  CMP WORD_CLASS
+  BEQ .e_skip_same
+.e_back:
+  JSR dec_cursor_col
+
+.e_done_one:
+  LDX NORMAL_TEMP
+  DEX
+  BNE .e_loop
+.e_done_final:
+  RTS
 
 
 ; --- Multi-line range computation routines ---
