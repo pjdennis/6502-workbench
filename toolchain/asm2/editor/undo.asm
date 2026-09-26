@@ -434,15 +434,13 @@ undo_open_undo:
   LDA #0
   STA DELETE_SCREEN_ROWS     ; Cursor row filled by scroll
   JSR delete_current_lines
-  ; Restore cursor to original position (saved in UNDO_COL16)
+  ; Restore cursor to the original line (saved in UNDO_COL16), col 0
   CP16 UNDO_COL16, FILE_LINE16
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  JSR clamp_cursor_col
   ; Set flags
   JSR undo_set_done_flags
   LDA #$07
-  JMP set_render_clear_count ; Delete scroll, skip cursor repaint
+  STA RENDER_FLAG            ; Delete scroll, skip cursor repaint
+  JMP zero_col_clamp_clear
 
 ; --- Open-line redo: re-insert blank line ---
 undo_open_redo:
