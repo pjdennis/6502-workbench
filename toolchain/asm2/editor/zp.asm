@@ -10,6 +10,7 @@
 ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
 ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
 STR_PTR16:    .word    ; Pointer for write_string
+TEXT_LEFT:    .byte    ; text_putc: 1 + characters still allowed on the status row
 
 ; --- input.asm ---
 PUSHBACK:         .word  ; Pushback stack, top first (PUSHBACK_COUNT deep)

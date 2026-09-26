@@ -199,9 +199,9 @@ command_write_file:
   ; Show confirmation on status line: :"name" written
   JSR command_show_prompt
   LDA #'"'
-  JSR io_write
+  JSR text_putc
   JSR write_fname
-  PRINT_STR str_written
+  PRINT_TEXT str_written
   JMP io_flush
 
 .open_failed:
@@ -298,9 +298,10 @@ command_show_prompt:
 ; Input: A = prompt character
 ; Returns: carry clear on Enter: CMD_BUF null-terminated, X = length
 ;          carry set on ESC, or on backspace with nothing left to delete
-; Only printable characters ($20-$7E) are stored, up to CMD_BUF_LEN.
-; X holds the length throughout: get_key, erase_char, io_write and
-; io_flush preserve it.
+; Only printable characters ($20-$7E) are stored, up to CMD_BUF_LEN and
+; as many as fit the status row after the prompt (SCREEN_COLS - 2).
+; X holds the length throughout: get_key, erase_char and text_flush
+; preserve it.
 ; Clobbers: A, X, Y
 read_line:
   JSR show_prompt
@@ -325,10 +326,12 @@ read_line:
   BCS .loop                ; ...and special keys ($80+)
   CPX #CMD_BUF_LEN
   BCS .loop                ; Buffer full
+  LDY TEXT_LEFT
+  DEY
+  BEQ .loop                ; Status row full
   STA CMD_BUF,X
   INX
-  JSR io_write             ; Echo
-  JSR io_flush
+  JSR text_flush           ; Echo
   JMP .loop
 .enter:
   LDA #0
@@ -354,7 +357,7 @@ show_message_ax:
   PLA
   TAX
   PLA
-  JSR write_string_ax
+  JSR print_string_ax
   JMP flush_get_key
 
 ; --- Range action dispatch table ---
@@ -440,7 +443,7 @@ report_lines_ax:
   PLA
   TAX
   PLA
-  JSR write_string_ax
+  JSR print_string_ax
   JMP io_flush
 
 ; Same, with count taken from YANK_LINES16

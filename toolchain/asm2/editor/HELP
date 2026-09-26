@@ -154,6 +154,9 @@ NORMAL MODE - SEARCH
   N              Repeat last search in the opposite direction (wraps around)
 
   If the pattern is not found, "Pattern not found" is displayed.
+  A pattern can be as long as fits the status row after the prompt
+  (the screen width less 2 characters, at most 172); further keys
+  are ignored.
 
 
 NORMAL MODE - MARKS
@@ -263,8 +266,9 @@ COMMAND-LINE MODE
   past the end of the file mean the last line.
 
   ESC cancels command input. Backspace edits the command;
-  backspacing past the start cancels. A command can be up to 127
-  characters long; further keys are ignored.
+  backspacing past the start cancels. A command can be as long as
+  fits the status row after the ':' (the screen width less 2
+  characters, at most 127); further keys are ignored.
 
 
 YANK BUFFER
@@ -296,7 +300,8 @@ STATUS BAR
   [RO]  = read-only (file was truncated: too large or too many lines)
   [+]   = file has been modified since last save
 
-  The status bar is cut off one column short of the screen width.
+  The status bar and messages are cut off one column short of the
+  screen width.
 
 
 DISPLAY

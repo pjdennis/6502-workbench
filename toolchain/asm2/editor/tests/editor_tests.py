@@ -2701,6 +2701,35 @@ class EditorTestRunner:
             deferred_wrap=True,
             expect_lines=[(0, "line 1"), (8, "line 9"), (9, status[:19])],
         )
+        self.run_test_screen(
+            "Status message clipped to the screen width",
+            lines19,
+            b"x:q\rz:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "ine 1"), (8, "line 9")],
+        )
+        self.run_test_screen(
+            "Command line echo clipped to the screen width",
+            lines19,
+            b":" + b"a" * 45 + b"\x1b:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9")],
+        )
+        self.run_test_screen(
+            "Search echo and not-found message clipped to the screen width",
+            lines19,
+            b"/" + b"zq" * 25 + b"\r\x1b:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9")],
+        )
+        # ':' and '/' take SCREEN_COLS-2 characters, so the input holds
+        # exactly what is shown and backspace stays in step with the screen
+        self.run_test_screen(
+            "Command line ignores keys once the status row is full",
+            lines19,
+            b"x:w" + b"x" * 45 + b"\x08" * 37 + b"\r :q!\r",
+            expected_content="ine 1\n" + lines19[7:],
+        )
 
         self._group("Screen state - scrolling:", leading_blank=True)
 

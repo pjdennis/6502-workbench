@@ -33,8 +33,11 @@
 
   Command line
 
-  Command length - A : command holds at most 127 characters; further keys are ignored. Vim takes a command of any
-  length.
+  : and / input - Limited to what fits the status row after the prompt: the screen width less 2 characters, and at
+  most 127 characters for a : command (172 for a search pattern); further keys are ignored. Vim wraps a longer command
+  line onto more rows and takes any length.
+
+  Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
 
   Range positions past the last line - Are clamped to the last line, so :5d on a 2-line file deletes line 2. Vi
   reports "E16: Invalid range".

@@ -277,12 +277,21 @@ status_build:
 .built:
   RTS
 
-; Text character A: sent, or added to the status bar's text while
-; status_build runs.  Preserves A, Y (and X when sending)
+; Text character A: added to the status bar's text while status_build
+; runs, else sent unless the status row is full.  Text on the row stops
+; one column short of its right edge (TEXT_LEFT, armed by
+; status_line_clear): a character in the bottom-right cell followed by
+; one more would scroll the whole screen.  Preserves A, Y (and X when
+; sending)
 text_putc:
   BIT ST_BUILD
   BMI st_putc
+  DEC TEXT_LEFT
+  BEQ .full
   JMP io_write
+.full:
+  INC TEXT_LEFT
+  RTS
 
 ; Add A to the status bar's text: store it at column ST_COL of
 ; STATUS_SHADOW, noting in ST_FIRST the first column that differs from

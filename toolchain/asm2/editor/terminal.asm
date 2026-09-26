@@ -170,6 +170,8 @@ write_fname:
 status_line_clear:
   LDA #0
   STA ST_LEN                 ; status row overwritten: send all of the status bar
+  LDA SCREEN_COLS
+  STA TEXT_LEFT              ; text_putc: SCREEN_COLS - 1 characters fit
   LDA TEXT_ROWS              ; The status row (0-based)
   JSR ansi_goto_row0
   JMP ansi_clear_line
@@ -182,20 +184,24 @@ show_prompt:
   JSR status_line_clear
   PLA
   ; fall through
-; Write A, then flush output. Preserves X, Y
-write_flush:
-  JSR io_write
+; Print A as text (text_putc: dropped once the status row is full), then
+; flush output.  Preserves X, Y
+text_flush:
+  JSR text_putc
   JMP io_flush
 
-; Erase one character on screen: backspace, space, backspace, flush
+; Erase the last input character on the status row (backspace, space,
+; backspace, flush), giving its column back to text_putc
 ; Clobbers A
 erase_char:
+  INC TEXT_LEFT
   LDA #'\b'
   JSR io_write
   LDA #' '
   JSR io_write
   LDA #'\b'
-  JMP write_flush
+  JSR io_write
+  JMP io_flush
 
 ; Write A (0-255) as decimal digits, no leading zeros (escape sequences)
 ; Clobbers A, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT (X preserved:

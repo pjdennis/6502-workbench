@@ -318,7 +318,9 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   total lines.  It stops one column short of the right edge (a character
   in the bottom-right cell followed by one more would scroll the screen),
   and a frame sends only the part that changed (`status_build` /
-  `status_send`, with the text kept in `STATUS_SHADOW`).
+  `status_send`, with the text kept in `STATUS_SHADOW`).  Messages,
+  prompts and the `:` / `/` echo are cut off the same way (`text_putc`),
+  and the prompts take no more keys than fit.
 - `input.asm` normalizes backspace and parses ESC sequences to high-bit key
   codes (`KEY_UP=$80`, `KEY_DOWN=$81`, etc.).
 - Snapshot-based render optimization minimizes redraw work per keystroke.

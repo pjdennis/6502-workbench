@@ -52,7 +52,10 @@ search_input_handle:
   CMP #$7F
   BCS .read_loop
 
-  ; Add to buffer
+  ; Add to buffer, unless it or the status row is full
+  LDX TEXT_LEFT
+  DEX
+  BEQ .read_loop   ; Status row full
   LDX SEARCH_IDX
   CPX #SEARCH_MAX
   BCS .read_loop   ; Buffer full
@@ -60,8 +63,7 @@ search_input_handle:
   INC SEARCH_IDX
 
   ; Echo character
-  JSR io_write
-  JSR io_flush
+  JSR text_flush
   JMP .read_loop
 
 .backspace:
@@ -190,7 +192,7 @@ search_backward:
 ; Show "Pattern not found: <pattern>" on status line
 search_show_not_found:
   JSR status_line_clear
-  PRINT_STR str_not_found
+  PRINT_TEXT str_not_found
 
   ; Print the pattern
   LDX #0
@@ -198,7 +200,7 @@ search_show_not_found:
   CPX SEARCH_LEN
   BEQ .print_done
   LDA SEARCH_BUF,X
-  JSR io_write
+  JSR text_putc              ; (preserves X)
   INX
   JMP .print_pattern
 .print_done:
