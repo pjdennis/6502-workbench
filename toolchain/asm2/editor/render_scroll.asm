@@ -387,7 +387,9 @@ render_cursor_and_status:
   JMP render_finish
 
 ; Print line characters from BUF_PTR16 up to SCREEN_COLS or newline
-; Control chars: tab as '>' reverse, others as '.' reverse. Clobbers A, Y.
+; Control chars: tab as '>' reverse, others (and bytes >= $80) as '?'
+; reverse.  Returns RENDER_COL = Y = column after the last char printed.
+; Clobbers A, Y.
 render_line_chars:
   LDA #0
   STA RENDER_COL
@@ -405,12 +407,18 @@ render_line_chars_to:
   CMP #' '
   BCC .ctrl
   JSR io_write
-  JMP .next
+.next:
+  INY
+  CPY RENDER_STOP
+  BCC .loop
+.done:
+  STY RENDER_COL
+  RTS
 .ctrl:
   CMP #'\t'
   BNE .unprintable
   LDA #'>'
-  JMP .rev_char
+  BNE .rev_char                ; Always taken
 .unprintable:
   LDA #'?'
 .rev_char:
@@ -423,14 +431,7 @@ render_line_chars_to:
   JSR ansi_normal_video
   PLA
   TAY
-.next:
-  INY
-  INC RENDER_COL
-  LDA RENDER_COL
-  CMP RENDER_STOP
-  BCC .loop
-.done:
-  RTS
+  JMP .next
 
 ; Check RENDER_FROM_COL16 for the partial-render paths.
 ; Returns C=1 if $FFFF (unknown change: render the full line).
@@ -567,7 +568,6 @@ ensure_cursor_visible:
   CP16 CURSOR_COL16, DIV_INPUT16
   JSR div_mod_screen_cols_16
   STX WRAP_QUOT      ; cursor_wrap_row
-  STA WRAP_REM       ; not used here but available
 
   ; Check if cursor is above view
   ; FILE_LINE16 < VIEW_TOP16?
@@ -581,89 +581,58 @@ ensure_cursor_visible:
   BCS .not_above
 
 .scroll_up:
-  ; Scroll up: VIEW_TOP16 = FILE_LINE16, VIEW_TOP_WRAP = cursor_wrap_row
-  CP16 FILE_LINE16, VIEW_TOP16
-  LDA WRAP_QUOT
-  STA VIEW_TOP_WRAP
+  ; Scroll up: the cursor's row becomes the top row
   LDA #0
-  STA CURSOR_ROW
-  RTS
+  BEQ .set_top       ; Always taken
 
 .not_above:
-  ; Walk from (VIEW_TOP16, VIEW_TOP_WRAP) to (FILE_LINE16, cursor_wrap_row)
-  ; summing screen rows to compute CURSOR_ROW
-
-  ; Start with screen_row = 0
+  ; CURSOR_ROW = screen rows of the lines from (VIEW_TOP16, VIEW_TOP_WRAP)
+  ; up to FILE_LINE16, plus the cursor's wrap row.  RENDER_WRAP = rows of
+  ; the current line hidden above the view (VIEW_TOP_WRAP for the top line)
+  CP16 VIEW_TOP16, RENDER_LINE16
+  LDA VIEW_TOP_WRAP
+  STA RENDER_WRAP
   LDA #0
   STA CURSOR_ROW
-
-  ; current_line = VIEW_TOP16
-  CP16 VIEW_TOP16, RENDER_LINE16
-
-  ; If VIEW_TOP16 == FILE_LINE16, just compute cursor_wrap - VIEW_TOP_WRAP
-  CMP16 RENDER_LINE16, FILE_LINE16
-  BNE .walk_top
-
-  ; Same line
-  SEC
-  LDA WRAP_QUOT
-  SBC VIEW_TOP_WRAP
-  STA CURSOR_ROW
-  JMP .check_below
-
-.walk_top:
-  ; Add screen rows for VIEW_TOP16 line (minus VIEW_TOP_WRAP)
-  JSR render_line_rows
-  ; A = total screen rows for this line
-  SEC
-  SBC VIEW_TOP_WRAP
-  STA CURSOR_ROW
-
-  ; Advance to next line
-  INC16 RENDER_LINE16
-
 .walk_loop:
-  ; Are we at FILE_LINE16?
   CMP16 RENDER_LINE16, FILE_LINE16
   BEQ .at_cursor
-
-  ; Add screen rows for this intermediate line
   JSR render_line_rows
+  SEC
+  SBC RENDER_WRAP              ; visible rows of this line
   CLC
   ADC CURSOR_ROW
   BCS .need_scroll_down  ; 8-bit overflow: cursor far below screen
   STA CURSOR_ROW
-
+  LDA #0
+  STA RENDER_WRAP
   INC16 RENDER_LINE16
   JMP .walk_loop
 
 .at_cursor:
   ; Add cursor's wrap row within FILE_LINE16
-  LDA CURSOR_ROW
+  LDA WRAP_QUOT
+  SEC
+  SBC RENDER_WRAP
   CLC
-  ADC WRAP_QUOT
+  ADC CURSOR_ROW
   BCS .need_scroll_down  ; 8-bit overflow
   STA CURSOR_ROW
 
-.check_below:
   ; Check if cursor is below view (CURSOR_ROW >= SCREEN_ROWS - 1)
-  LDA CURSOR_ROW
-  CLC
-  ADC #1
+  ADC #1                 ; C=0
   CMP SCREEN_ROWS
   BCC .visible
 
 .need_scroll_down:
-  ; Cursor is below visible area
-  ; Walk backward from FILE_LINE16 to find correct VIEW_TOP16
-
+  ; Cursor is below visible area: walk back SCREEN_ROWS - 2 rows from
+  ; the cursor's row to find the new VIEW_TOP16 / VIEW_TOP_WRAP
   LDA SCREEN_ROWS
   SEC
-  SBC #2
-  STA CURSOR_ROW      ; Target: cursor at row SCREEN_ROWS - 2
+  SBC #2                 ; Target: cursor at row SCREEN_ROWS - 2
+.set_top:
+  STA CURSOR_ROW
   STA RENDER_ROW      ; Rows to walk back
-
-  ; Start from cursor position
   CP16 FILE_LINE16, VIEW_TOP16
   LDA WRAP_QUOT
   STA VIEW_TOP_WRAP
@@ -671,24 +640,17 @@ ensure_cursor_visible:
 .walk_back:
   LDA RENDER_ROW
   BEQ .visible
-
   ; Can we go back within current line?
   LDA VIEW_TOP_WRAP
-  BEQ .prev_line
-  DEC VIEW_TOP_WRAP
-  DEC RENDER_ROW
-  JMP .walk_back
-
-.prev_line:
+  BNE .back_one_row
   TST16 VIEW_TOP16
   BEQ .at_top
   DEC16 VIEW_TOP16
   LDAX16 VIEW_TOP16
-  JSR buf_get_line_len
-  JSR line_screen_rows
-  SEC
-  SBC #1
-  STA VIEW_TOP_WRAP
+  JSR get_len_rows
+  STA VIEW_TOP_WRAP      ; its last row (decremented below)
+.back_one_row:
+  DEC VIEW_TOP_WRAP
   DEC RENDER_ROW
   JMP .walk_back
 
