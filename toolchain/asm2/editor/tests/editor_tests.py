@@ -4641,6 +4641,31 @@ class EditorTestRunner:
             expect_lines=[(6, "Line 7"), (7, "Li" + "z" * 38), (8, "z")],
             expect_cursor=(8, 0),
         )
+        # A line starting 129 or more rows above the view: its first row,
+        # CURSOR_ROW - WRAP_QUOT, is past -128, and an edit changing a row
+        # above the view must redraw what is on screen, not take the row
+        # as on screen and write to row 0 (row 1 on a terminal)
+        abc26 = "abcdefghijklmnopqrstuvwxyz"
+        long6000 = (abc26 * 231)[:6000]
+        typed = long6000[:5638] + "ABC" + long6000[5641:]
+        self.run_test_screen(
+            "Line starting far above the view: change on the row above",
+            long6000 + "\n",
+            b"$200h158hi\x7f\x7f\x7fABC\x1b:q!\r",
+            expect_lines=[(0, typed[5640:5680]), (1, typed[5680:5720])],
+            expect_cursor=(0, 0),
+        )
+        long3000 = (abc26 * 116)[:3000]
+        typed = long3000[:1787] + "0123456789ABCD" + long3000[1801:]
+        self.run_test_screen(
+            "Line starting far above the view: change two rows above",
+            long3000 + "\n",
+            b"$255h255h255h255h178hi" + b"\x7f" * 14
+            + b"0123456789ABCD\x1b:q!\r",
+            cols=12,
+            expect_lines=[(0, typed[1800:1812]), (1, typed[1812:1824])],
+            expect_cursor=(0, 0),
+        )
 
         self._group("ICH/DCH only when cheaper:", leading_blank=True)
 
@@ -20017,6 +20042,19 @@ class EditorTestRunner:
             b"8GJ:q!\r",
             expect_lines=[(6, "l6"), (7, "l7 " + "x" * 37), (8, "x" * 40)],
             expect_cursor=(7, 2),
+        )
+        # Terminals of more than 128 rows: a line starting on row 128 or
+        # below is on screen too, so an edit there draws only its own row
+        # (frames: 0, 1-4 for 151G, 5 for x)
+        self.run_test_screen(
+            "x on row 150 of a 200-row terminal draws one row",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"151Gx:q!\r",
+            rows=200, cols=40,
+            expect_lines=[(149, "line 149"), (150, "ine 150"),
+                          (151, "line 151")],
+            expect_cursor=(150, 0),
+            expect_content_rows=[(5, {150})],
         )
         # A 255-row terminal: row 252 + the line's 8 rows passes 255
         alpha300 = alpha(300)
