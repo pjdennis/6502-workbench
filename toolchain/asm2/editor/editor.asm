@@ -173,9 +173,8 @@ main_loop:
 .not_command_entry:
 
   ; Poll for input (non-blocking)
-  JSR key_ready
-  CMP #$FF
-  BEQ .key_available
+  JSR key_peek
+  BCS .key_available
 
   ; No input - exit if input has ended (console build only)
   .ifndef terminal_mode
@@ -231,9 +230,8 @@ main_loop:
   BNE .render              ; Only batch in normal mode
   LDA LAST_KEY
   BEQ .render              ; No pending combo key
-  JSR key_ready
-  CMP #$FF
-  BNE .render              ; No key available yet, render normally
+  JSR key_peek
+  BCC .render              ; No key available yet, render normally
   JMP .key_available       ; Process next key without rendering
 
 .render:

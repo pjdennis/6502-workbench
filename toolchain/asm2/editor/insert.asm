@@ -119,10 +119,9 @@ insert_batch:
 .dec_cap:
   DEY                       ; DEY sets Z, no CPY needed
   BEQ .collect_done
-  JSR key_ready
-  CMP #$FF
-  BNE .collect_done
-  JSR get_key
+  JSR key_peek               ; A = next key
+  BCC .collect_done
+  INC HAS_KEY_DECODED        ; Consume it ($FF -> $00)
 
 .collect_key:
   CMP #KEY_ENTER

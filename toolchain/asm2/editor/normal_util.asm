@@ -424,35 +424,25 @@ set_buf_temp16_a:
 batch_pending_pairs:
   LDX #0                   ; X = extra pairs found
 .loop:
-  JSR key_ready
-  CMP #$FF
-  BNE .done                ; No key available, stop
-  JSR get_key
+  JSR key_peek
+  BCC .done                ; No key available, stop
   CMP LAST_KEY
-  BNE .no_first_match      ; First key doesn't match, push back
-  ; First key matches - need second key
-  JSR key_ready
-  CMP #$FF
-  BNE .partial             ; No second key available
-  JSR get_key
+  BNE .done                ; Not a pair start: leave it buffered
+  INC HAS_KEY_DECODED      ; Consume the first key ($FF -> $00)
+  JSR key_peek
+  BCC .partial             ; No second key available
   CMP BUF_TEMP
-  BNE .second_mismatch     ; Second key doesn't match
+  BNE .partial             ; Second key doesn't match: leave it buffered
+  INC HAS_KEY_DECODED      ; Consume the second key
   ; Full pair matched
   INX
   CPX #BATCH_MAX
-  BEQ .done
-  JMP .loop
-.second_mismatch:
-  ; Push back the non-matching second key
-  JSR unget_key
+  BNE .loop
+  BEQ .done                ; Always taken
 .partial:
   ; Save consumed first key for restore after command completes
   LDA LAST_KEY
   STA BATCH_RESTORE_KEY
-  JMP .done
-.no_first_match:
-  ; Push back the non-matching key
-  JSR unget_key
 .done:
   STX BATCH_EXTRA
   ; Add X extra pairs to COUNT16

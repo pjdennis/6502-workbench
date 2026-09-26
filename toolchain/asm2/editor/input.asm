@@ -19,10 +19,11 @@ KEY_TAB   = $09
 
   .zeropage
 
-PUSHBACK:         .byte  ; Pushback byte ($00 = none)
-HAS_PUSHBACK:     .byte  ; $FF if pushback has a byte
+; The HAS_ flags are only ever $00 or $FF: INC clears them
+PUSHBACK:         .byte  ; Pushback byte (valid while HAS_PUSHBACK)
+HAS_PUSHBACK:     .byte  ; $FF if PUSHBACK has a byte, else $00
 KEY_DECODED:      .byte  ; Buffered decoded key
-HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value
+HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value, else $00
 
   .code
 
@@ -31,8 +32,7 @@ HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value
 input_read_byte:
   LDA HAS_PUSHBACK
   BEQ .no_pushback
-  LDA #0
-  STA HAS_PUSHBACK
+  INC HAS_PUSHBACK        ; $FF -> $00
   LDA PUSHBACK
   RTS
 .no_pushback:
@@ -46,38 +46,21 @@ input_unread:
   STA HAS_PUSHBACK
   RTS
 
-; Check if input is available (non-blocking)
-; Returns: A=$FF if ready, A=$00 if not
-input_ready:
-  LDA HAS_PUSHBACK
-  BNE .ready          ; Pushback byte waiting - ready
-  JSR io_ready       ; Non-blocking poll
-  RTS
-.ready:
-  LDA #$FF
-  RTS
-
-; Count pending keys matching BUF_TEMP
+; Count and consume pending keys matching BUF_TEMP
 ; Input: BUF_TEMP = key code to match
 ; Returns: X = count of matching keys (0 to BATCH_MAX)
-; Non-matching key is pushed back
+; A non-matching key stays buffered
 count_pending_key:
   LDX #0
 .loop:
-  JSR key_ready
-  CMP #$FF
-  BNE .done
-  JSR get_key
+  JSR key_peek
+  BCC .done
   CMP BUF_TEMP
-  BEQ .match
-  ; Push back the non-matching key
-  JSR unget_key
-  JMP .done
-.match:
+  BNE .done
+  INC HAS_KEY_DECODED     ; Consume it ($FF -> $00)
   INX
   CPX #BATCH_MAX
-  BEQ .done
-  JMP .loop
+  BNE .loop
 .done:
   RTS
 
@@ -185,16 +168,38 @@ read_key:
 .tilde_tbl:               ; ESC[1~ .. ESC[6~ ($00 = no-op)
   .byte $00, $00, KEY_DEL, $00, KEY_PGUP, KEY_PGDN
 
-; Read one decoded key (with decoded pushback support)
-; Returns key code in A. Preserves X, Y.
+; Check for a decoded key without consuming it (non-blocking)
+; Returns: C=1 and A = key if one is available (it stays buffered;
+;          INC HAS_KEY_DECODED consumes it), C=0 if not. Preserves X, Y.
+key_peek:
+  LDA HAS_KEY_DECODED
+  BNE .have
+  LDA HAS_PUSHBACK
+  BNE .decode
+  JSR io_ready
+  CMP #$FF
+  BNE .none               ; C=0 (A < $FF)
+.decode:
+  JSR decode_key
+.have:
+  LDA KEY_DECODED
+  SEC
+.none:
+  RTS
+
+; Read one decoded key (blocking). Returns key code in A. Preserves X, Y.
 get_key:
   LDA HAS_KEY_DECODED
-  BEQ .no_decoded
-  LDA #0
-  STA HAS_KEY_DECODED
+  BNE .have
+  JSR decode_key
+.have:
+  INC HAS_KEY_DECODED     ; Consume it ($FF -> $00)
   LDA KEY_DECODED
   RTS
-.no_decoded:
+
+; Decode the next key (blocking) into the decoded-key buffer
+; Preserves X, Y
+decode_key:
   TXA
   PHA
   TYA
@@ -206,7 +211,7 @@ get_key:
   PLA
   TAX
   LDA KEY_DECODED
-  RTS
+  ; fall through
 
 ; Push back one decoded key
 ; A = key to push back. Preserves X, Y.
@@ -214,32 +219,4 @@ unget_key:
   STA KEY_DECODED
   LDA #$FF
   STA HAS_KEY_DECODED
-  RTS
-
-; Check if a decoded key is available (non-blocking)
-; Returns: A=$FF if ready, A=$00 if not. Preserves X, Y.
-key_ready:
-  LDA HAS_KEY_DECODED
-  BNE .ready
-  JSR input_ready
-  CMP #$FF
-  BNE .not_ready
-  ; Raw input available - speculatively decode
-  TXA
-  PHA
-  TYA
-  PHA
-  JSR read_key
-  STA KEY_DECODED
-  LDA #$FF
-  STA HAS_KEY_DECODED
-  PLA
-  TAY
-  PLA
-  TAX
-.ready:
-  LDA #$FF
-  RTS
-.not_ready:
-  LDA #0
   RTS
