@@ -58,6 +58,11 @@ undo_handle:
   TXA
   LSR
   BCS .done                  ; Odd extras = even total = noop
+  ; u goes to the recorded line: its repaint takes that line's rows
+  ; before the change, not those of the line u was typed on
+  LDAX16 UNDO_LINE16
+  JSR any_line_rows          ; (1 if gone: a delete that reached the end)
+  STA PREV_LINE_ROWS
   ; Per-type handler dispatch via address table (RTS trick): entries are
   ; handler - 1, indexed by UNDO_TYPE (1..13, 0 is filtered above).
   LDA UNDO_TYPE

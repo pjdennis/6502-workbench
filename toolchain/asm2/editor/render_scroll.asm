@@ -553,10 +553,12 @@ scroll_delta_add:
   RTS
 
 ; Screen rows of the line at RENDER_LINE16 (1 for a line past the end: a
-; '~' row, which the walks below the last line pass through)
+; '~' row, which the walks below the last line pass through); any_line_rows:
+; the same for line number A/X (low/high)
 ; Returns: A = rows. Clobbers X, Y, BUF_PTR16, DIV_INPUT16
 render_line_rows:
   LDAX16 RENDER_LINE16
+any_line_rows:
   CMP LINE_COUNT16
   PHA
   TXA

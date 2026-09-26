@@ -12833,6 +12833,68 @@ class EditorTestRunner:
             expect_scroll_rows=[(3, {4, 5, 6, 7, 8})]
         )
 
+        # Undo/redo from another line: u jumps to the recorded line, so the
+        # repaint must use that line's height, not the height of the line
+        # the cursor was on when u was typed (a 2-row line vs a 1-row one)
+        moved_undo = ("short zero\nline 1\n" + "B" * 60
+                      + "\nline 3\nline 4\nline 5\n")
+        moved_undo_rows = [(1, "line 1"), (2, "B" * 40), (3, "B" * 20),
+                           (4, "line 3"), (5, "line 4"), (6, "line 5"),
+                           (7, "~")]
+        for keys, row0, cursor in [
+                (b"x3Gu", "short zero", (0, 0)),     # undo x, 2-row -> 1-row
+                (b"dw3Gu", "short zero", (0, 0)),    # undo dw
+                (b"~3Gu", "short zero", (0, 0)),     # undo ~
+                (b"rZ3Gu", "short zero", (0, 0)),    # undo r
+                (b"xu3Gu", "hort zero", (0, 0)),     # redo x
+                (b"3G5x1Gu", "short zero", (2, 0)),  # undo x, 1-row -> 2-row
+        ]:
+            self.run_test_screen(
+                f"Undo from another line: {keys.decode()}",
+                moved_undo, keys + b":q!\r",
+                expect_lines=[(0, row0)] + moved_undo_rows,
+                expect_cursor=cursor,
+            )
+        # J undo from another line: the joined line's old height is the
+        # 'old cursor rows' of the displacement, not the height of the
+        # line u was typed on (the 1-row 'one', then the 2-row W line)
+        moved_join = ("one\ntwo\nline 2\n" + "W" * 70
+                      + "\nline 4\nline 5\nline 6\n")
+        moved_join_rows = [(2, "line 2"), (3, "W" * 40), (4, "W" * 30),
+                           (5, "line 4"), (6, "line 5"), (7, "line 6"),
+                           (8, "~")]
+        for keys, cursor in [(b"4GJ1Gu", (3, 0)), (b"J3Gu", (0, 0))]:
+            self.run_test_screen(
+                f"Undo from another line: J undo {keys.decode()}",
+                moved_join, keys + b":q!\r",
+                expect_lines=[(0, "one"), (1, "two")] + moved_join_rows,
+                expect_cursor=cursor,
+            )
+        # ... and from the line below, onto a line that has shrunk
+        self.run_test_screen(
+            "Undo from another line: J undo Jjju",
+            "a" * 30 + "\n" + "b" * 20 + "\n" + "c" * 45
+            + "\nline 3\nline 4\n",
+            b"Jjju:q!\r",
+            expect_lines=[(0, "a" * 30), (1, "b" * 20), (2, "c" * 40),
+                          (3, "c" * 5), (4, "line 3"), (5, "line 4"),
+                          (6, "~")],
+            expect_cursor=(0, 0),
+        )
+        # D on a 1-row line, then a move that scrolls the view to a 2-row
+        # line, then u: the rows below the restored line stay in place
+        self.run_test_screen(
+            "Undo from another line: 4jD4ju",
+            "a\n" + "b" * 40 + "\n" + "c" * 41 + "\n\n" + "e" * 5 + "\n"
+            + "f" * 41 + "\n" + "g" * 84 + "\n" + "h" * 39 + "\n" + "i" * 41
+            + "\n\n" + "k" * 84 + "\nl\n",
+            b"4jD4ju:q!\r",
+            expect_lines=[(0, ""), (1, "e" * 5), (2, "f" * 40), (3, "f"),
+                          (4, "g" * 40), (5, "g" * 40), (6, "gggg"),
+                          (7, "h" * 39), (8, "i" * 40)],
+            expect_cursor=(1, 0),
+        )
+
         # J undo restores wrapped next line: J on "Short" joins with
         # "This is a longer line!" (22 chars, wraps to 2 rows at 20 cols).
         # Result "Short This is a longer line!" (28 chars, 2 rows).
