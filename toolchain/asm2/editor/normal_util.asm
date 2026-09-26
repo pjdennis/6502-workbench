@@ -454,23 +454,22 @@ delete_at_cursor:
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
   ; Scan deleted range for newlines
   CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
+  CP16 BUF_LEN16, BUF_SRC16 ; BUF_SRC16 = bytes left to scan
   LDA #0
   STA NORMAL_TEMP            ; 0 = no newlines found
-  PUSH16 BUF_LEN16           ; Save delete count
+  TAY                        ; Y = 0 for the scan
 .scan_nl:
-  TST16 BUF_LEN16
+  TST16 BUF_SRC16
   BEQ .scan_done
-  LDY #0
   LDA (BUF_DST16),Y
   CMP #'\n'
   BNE .scan_next
   INC NORMAL_TEMP            ; Found newline
 .scan_next:
   INC16 BUF_DST16
-  DEC16 BUF_LEN16
+  DEC16 BUF_SRC16
   JMP .scan_nl
 .scan_done:
-  POP16 BUF_LEN16            ; Restore delete count
   ; Pre-compute old screen rows BEFORE shift (only when newlines found)
   LDA NORMAL_TEMP
   BEQ .no_precompute
