@@ -196,8 +196,8 @@ command_write_file:
   LDA #0
   STA MODIFIED
 
-  ; Show confirmation on status line: :"name" written
-  JSR command_show_prompt
+  ; Show confirmation on status line: "name" written
+  JSR status_line_clear
   LDA #'"'
   JSR text_putc
   JSR write_fname
@@ -290,11 +290,6 @@ parse_range_pos:
   CLC
   RTS
 
-; Show the ':' prompt on the status line
-command_show_prompt:
-  LDA #':'
-  JMP show_prompt
-
 ; Read a line on the status line into CMD_BUF
 ; Input: A = prompt character
 ; Returns: carry clear on Enter: CMD_BUF null-terminated, X = length
@@ -350,11 +345,11 @@ show_buffer_full_msg:
 ; Show status message with string address in A (low) / X (high)
 ; and wait for a keypress
 show_message_ax:
-  ; Keep the address on the stack: command_show_prompt clobbers STR_PTR16
+  ; Keep the address on the stack: status_line_clear clobbers STR_PTR16
   PHA
   TXA
   PHA
-  JSR command_show_prompt
+  JSR status_line_clear
   PLA
   TAX
   PLA
@@ -432,13 +427,13 @@ range_shift_finish:
 ; Report count on the status line: "N <suffix>"
 ; Input: A/X = suffix string, TO_DECIMAL_VALUE16 = count
 report_lines_ax:
-  ; command_show_prompt clobbers STR_PTR16 and TO_DECIMAL state
+  ; status_line_clear clobbers STR_PTR16 and TO_DECIMAL state
   ; (its cursor positioning goes through write_byte_dec/to_decimal)
   PHA
   TXA
   PHA
   PUSH16 TO_DECIMAL_VALUE16
-  JSR command_show_prompt
+  JSR status_line_clear
   POP16 TO_DECIMAL_VALUE16
   JSR print_decimal
   PLA

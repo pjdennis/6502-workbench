@@ -1029,8 +1029,14 @@ class EditorTestRunner:
 
     def run_test_small_buffer(self, name: str, initial_content: str, keys: bytes,
                              expected_content: str = None, expect_exit: int = 0,
-                             expect_unmodified: bool = False):
-        """Run a test using the small buffer editor (256 bytes)."""
+                             expect_unmodified: bool = False,
+                             expect_settled: bool = False):
+        """Run a test using the small buffer editor (256 bytes).
+
+        expect_settled: the output ends with a completed frame (ESC[?25h)
+        before the exit sequence, so nothing (such as a status message)
+        is left over the last frame while the editor waits for a key.
+        """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
 
@@ -1065,6 +1071,13 @@ class EditorTestRunner:
         if expect_unmodified:
             if saved != initial_content:
                 self._fail(name, f"File was modified when it shouldn't have been")
+                return
+
+        if expect_settled:
+            idle = ansi.removesuffix("\x1b[r\x1b[2J\x1b[H")
+            if not idle.endswith("\x1b[?25h"):
+                tail = idle[idle.rfind("\x1b[?25h") + 6:]
+                self._fail(name, f"Output after the last frame: {tail!r}")
                 return
 
         self._pass(name)
@@ -2342,6 +2355,16 @@ class EditorTestRunner:
                 expect_unmodified=True
             )
 
+            # The key that dismisses the startup warning redraws the status
+            # bar (the editor then waits for a key with a finished frame)
+            self.run_test_small_buffer(
+                "Dismissing truncation warning redraws status bar",
+                large_content,
+                b"x",
+                expect_unmodified=True,
+                expect_settled=True
+            )
+
             # Read-only mode: :q exits cleanly
             self.run_test_small_buffer(
                 "Read-only mode allows :q",
@@ -2721,6 +2744,23 @@ class EditorTestRunner:
             cols=20,
             deferred_wrap=True,
             expect_lines=[(0, "line 1"), (8, "line 9"), (9, status[:19])],
+        )
+
+        # Messages and reports are not prefixed with the ':' prompt, as in
+        # vim
+        self.run_test_screen(
+            "Status message has no ':' prefix",
+            "Hello\n",
+            b"x:q\rz:q!\r",
+            expect_ansi_contains="\x1b[KNo write since last change",
+        )
+        self.run_test_screen(
+            ":w and range reports have no ':' prefix",
+            "a\nb\nc\n",
+            b"x:w\r:1,2y\r:q!\r",
+            expect_lines_at_frame=[
+                (3, [(9, f'"{str(self.tmpdir / "t")[:32]}" written')]),
+                (5, [(9, "2 lines yanked")])],
         )
         self.run_test_screen(
             "Status message clipped to the screen width",

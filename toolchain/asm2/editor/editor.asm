@@ -131,6 +131,7 @@ editor_main:
   LDA #<str_truncated
   LDX #>str_truncated
   JSR show_message_ax
+  JSR render_cursor_and_status   ; The dismiss key restores the status bar
 .no_truncation_warning:
 
 ; ============================================================================
