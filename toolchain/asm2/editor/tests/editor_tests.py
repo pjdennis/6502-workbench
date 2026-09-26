@@ -376,6 +376,23 @@ class EditorTestRunner:
 
         self._pass(name)
 
+    def run_test_cycle_cap(self, name: str, initial_content: str,
+                           keys: bytes, cycle_cap: int, rows: int = 10,
+                           cols: int = 40):
+        """Test that the whole run (startup, keys, quit) takes at most
+        cycle_cap 6502 cycles. Set the cap between the old cost and the new
+        one, with a few percent of margin on each side."""
+        edit_file = self.tmpdir / "t"
+        edit_file.write_text(initial_content)
+        exit_code, _ = self.emulator_runner.run(
+            self.editor_bin, keys, self.tmpdir, str(edit_file), rows=rows,
+            cols=cols, emu_args=["--cycle-cap", str(cycle_cap)])
+        if exit_code != 0:
+            self._fail(name, f"Did not finish within {cycle_cap} cycles "
+                             f"(exit code {exit_code})")
+        else:
+            self._pass(name)
+
     def run_editor_small_buffer(self, input_file: str, keys: bytes,
                                tmpdir: Path) -> tuple:
         """Run the small buffer editor with given keystroke sequence.
@@ -6615,6 +6632,13 @@ class EditorTestRunner:
             expect_lines=[(0, "")] + tilde_rows(1),
             expect_cursor=(0, 0),
         )
+
+        # The rows below the last line count one screen row each, so the
+        # repaint walks through them without reading lines that do not
+        # exist: 125,290 cycles before, 94,893 after
+        self.run_test_cycle_cap(
+            "dd: walking the ~ rows below the last line is cheap",
+            "a\nb\nc\n", b"dd:q!\r", 110000, rows=24, cols=80)
 
         # ============================================================
         # D (delete to end of line)

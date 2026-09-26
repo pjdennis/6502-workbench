@@ -479,11 +479,19 @@ render_line_rows_step:
   INC16 RENDER_LINE16
   RTS
 
-; Screen rows of the line at RENDER_LINE16
+; Screen rows of the line at RENDER_LINE16 (1 for a line past the end: a
+; '~' row, which the walks below the last line pass through)
 ; Returns: A = rows. Clobbers X, Y, BUF_PTR16, DIV_INPUT16
 render_line_rows:
   LDAX16 RENDER_LINE16
-  JMP get_len_rows
+  CMP LINE_COUNT16
+  PHA
+  TXA
+  SBC LINE_COUNT16 + 1
+  PLA
+  BCC get_len_rows           ; A line of the buffer
+  LDA #1
+  RTS
 
 ; Screen rows of the line at FILE_LINE16
 ; Returns: A = rows. Clobbers X, Y, BUF_PTR16, DIV_INPUT16
