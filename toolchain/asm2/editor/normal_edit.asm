@@ -350,10 +350,9 @@ echo_span_setup:
   CP16 CURSOR_COL16, UNDO_COL16
   CP16 CURSOR_COL16, DIV_INPUT16
   JSR div_mod_screen_cols_16 ; A = col % SCREEN_COLS
-  STA BUF_DELTA
-  LDA SCREEN_COLS
+  EOR #$FF
   SEC
-  SBC BUF_DELTA
+  ADC SCREEN_COLS            ; SCREEN_COLS - A
   STA BUF_DELTA              ; BUF_DELTA = echo budget (0 = deferred)
   LDA #0
   STA UNDO_JOIN_COUNT        ; span length
