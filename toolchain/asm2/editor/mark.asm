@@ -199,8 +199,7 @@ marks_display:
   PRINT_STR str_no_marks
 
 .marks_wait:
-  JSR io_flush
-  JSR get_key
+  JSR flush_get_key
   LDA #$FF
   STA RENDER_FLAG
   RTS

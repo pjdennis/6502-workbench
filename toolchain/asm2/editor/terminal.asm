@@ -191,6 +191,9 @@ show_prompt:
   PHA
   JSR status_line_clear
   PLA
+  ; fall through
+; Write A, then flush output. Preserves X, Y
+write_flush:
   JSR io_write
   JMP io_flush
 
@@ -202,8 +205,7 @@ erase_char:
   LDA #' '
   JSR io_write
   LDA #'\b'
-  JSR io_write
-  JMP io_flush
+  JMP write_flush
 
 ; Write A (0-255) as decimal digits, no leading zeros
 ; Clobbers A, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT (X preserved)

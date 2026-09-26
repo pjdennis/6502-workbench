@@ -187,6 +187,11 @@ key_peek:
 .none:
   RTS
 
+; Flush output, then wait for a key (get_key)
+flush_get_key:
+  JSR io_flush
+  ; fall through
+
 ; Read one decoded key (blocking). Returns key code in A. Preserves X, Y.
 get_key:
   LDA HAS_KEY_DECODED

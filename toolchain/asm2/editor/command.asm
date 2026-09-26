@@ -350,9 +350,7 @@ show_status_message:
   JSR command_show_prompt
   POP16 STR_PTR16
   JSR write_string
-  JSR io_flush
-  JSR get_key
-  RTS
+  JMP flush_get_key
 
 ; Compare CMD_BUF (starting at offset X) against asciiz string at STR_PTR16
 ; Input: X = starting offset in CMD_BUF, STR_PTR16 = string to match

@@ -382,9 +382,7 @@ search_show_not_found:
   INX
   JMP .print_pattern
 .print_done:
-  JSR io_flush
-  JSR get_key                  ; Wait for keypress
-  RTS
+  JMP flush_get_key            ; Wait for keypress
 
 ; String constants
 str_not_found: .asciiz "Pattern not found: "
