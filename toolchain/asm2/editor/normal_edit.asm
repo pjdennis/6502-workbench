@@ -638,13 +638,11 @@ normal_substitute_char:
   SEC
   SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
   JSR get_count
-  ; Clamp count to available chars
+  ; BUF_LEN16 = min(count, available chars)
   CMP16 BUF_TEMP16, BUF_LEN16
-  BCC .sub_count_ok
-  BEQ .sub_count_ok
-  CP16 BUF_LEN16, BUF_TEMP16
-.sub_count_ok:
+  BCS .sub_count_ok
   CP16 BUF_TEMP16, BUF_LEN16
+.sub_count_ok:
 
 ; Shared s/C tail: change range at cursor
 sub_change_tail:
