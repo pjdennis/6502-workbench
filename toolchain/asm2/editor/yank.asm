@@ -209,10 +209,17 @@ yank_paste_core:
   ; Shift right to make room
   JSR buf_shift_right_16
   BCS paste_full
+  JSR yank_copy_n             ; Fill the gap
+  ; Rebuild lines once
+  JSR buf_rebuild_lines
+  CLC
+  RTS
 
-  ; Copy yank buffer into gap N times using mem_copy_down
-  ; BUF_PTR16 = insertion point (gap start)
-.copy_loop:
+; Copy the yank buffer BUF_TEMP16 (16-bit) times to BUF_PTR16 using
+; mem_copy_down, advancing BUF_PTR16 by YANK_SIZE16 per copy
+; (YANK_SIZE16 = YANK_END16 - YANK_BUF).  Exits with BUF_TEMP16 = 0.
+; Preserves X.  Clobbers A, Y, BUF_SRC16, BUF_DST16
+yank_copy_n:
   ; Check if count is zero
   TST16 BUF_TEMP16
   BEQ .done
@@ -231,12 +238,9 @@ yank_paste_core:
 
   ; Decrement count and loop
   DEC16 BUF_TEMP16
-  JMP .copy_loop
+  JMP yank_copy_n
 
 .done:
-  ; Rebuild lines once
-  JSR buf_rebuild_lines
-  CLC
   RTS
 
 ; Adjust marks after a line paste: UNDO_PASTE_COUNT16 copies of the yank

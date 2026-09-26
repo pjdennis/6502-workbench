@@ -143,9 +143,9 @@ do_char_paste_above:
 ;             shifts the marks from the next line on
 ;   CP_AT:    renders from the insertion column; marks by mark_adjust_col;
 ;             the cursor is left unclamped (the caller restores it)
-;   CP_ABOVE: as CP_AT, but fills with interleaved_fill (single-line: the
-;             cursor ends BATCH_EXTRA chars before the last pasted char,
-;             as separate P keys leave it) or contiguous_fill (multi-line)
+;   CP_ABOVE: as CP_AT, but a single-line yank fills with
+;             interleaved_fill (the cursor ends BATCH_EXTRA chars before
+;             the last pasted char, as separate P keys leave it)
 ; Output: cursor on the last pasted char (single-line yank) or the first
 ; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
 ; MODIFIED set.
@@ -168,13 +168,14 @@ do_char_paste:
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
   LDA NORMAL_TEMP
-  AND #$20
-  BNE .above
+  AND #$A0
+  CMP #$20
+  BEQ .interleaved           ; P of a single-line yank
   JSR yank_paste_core        ; Shift, copy, rebuild ("Buffer full" if no room)
   BCC .placed
 .ret:
   RTS
-.above:
+.interleaved:
   JSR buf_shift_right_16
   BCC .shifted
   JMP paste_full             ; "Buffer full", carry set
@@ -188,13 +189,7 @@ do_char_paste:
   BCS .fill
   DEC BUF_LEN16 + 1
 .fill:
-  BIT NORMAL_TEMP
-  BMI .contiguous
   JSR interleaved_fill
-  JMP .rebuild
-.contiguous:
-  JSR contiguous_fill
-.rebuild:
   JSR buf_rebuild_lines
 .placed:
   JSR set_modified
@@ -244,90 +239,34 @@ do_char_paste:
 ; Writes iterative-correct pattern into gap:
 ;   (C-1) full copies, (E+1) prefixes [0..S-2], (E+1) last bytes [S-1]
 ; Input: BUF_PTR16 = write position (gap start)
-;        BUF_TEMP16 = total count N, BATCH_EXTRA = extras E
-;        YANK_SIZE16 = single yank size S
-;        (8-bit: only the low bytes of N and S are used)
-; Clobbers: A, X, Y
+;        BUF_TEMP16 = total count N (C = N - E), BATCH_EXTRA = extras E
+;        YANK_SIZE16 = single yank size S (16-bit)
+; Clobbers: A, X, Y, BUF_TEMP16, BUF_SRC16, BUF_DST16
 interleaved_fill:
-  ; Phase 1: (C-1) full copies where C = N - E
-  LDA BUF_TEMP16
-  SEC
-  SBC BATCH_EXTRA
-  SBC #1                     ; A = C - 1
-  BEQ .phase2
-  TAX                        ; X = loop counter
+  ; Phase 1: (C-1) full copies (carry clear: N - E - 1)
+  CLC
+  SBC16_8 BUF_TEMP16, BATCH_EXTRA, BUF_TEMP16
+  JSR yank_copy_n            ; (Exits with BUF_TEMP16 = 0)
 
-.full_loop:
-  LDY #0
-.full_byte:
-  LDA YANK_BUF,Y
-  STA (BUF_PTR16),Y
-  INY
-  CPY YANK_SIZE16
-  BNE .full_byte
-  ; Advance write ptr by S
-  TYA
-  ADDA16 BUF_PTR16
-  DEX
-  BNE .full_loop
-
-.phase2:
-  ; (E+1) copies of prefix (first S-1 bytes)
-  DEC YANK_SIZE16            ; Low byte = prefix size S - 1 (restored below)
-  BEQ .phase3                ; S=1, no prefix to write
+  ; Phase 2: (E+1) copies of the prefix: the yank without its last byte,
+  ; which YANK_END16 then points at (restored below)
+  DEC16 YANK_END16
+  DEC16 YANK_SIZE16
   LDX BATCH_EXTRA
-  INX                        ; X = E + 1
+  INX                        ; X = E + 1 (yank_copy_n keeps it)
+  STX BUF_TEMP16             ; BUF_TEMP16 = E + 1
+  JSR yank_copy_n
 
-.prefix_loop:
+  ; Phase 3: (E+1) copies of the last byte yank[S-1]
   LDY #0
-.prefix_byte:
-  LDA YANK_BUF,Y
-  STA (BUF_PTR16),Y
-  INY
-  CPY YANK_SIZE16
-  BNE .prefix_byte
-  ; Advance write ptr by prefix size
-  TYA
-  ADDA16 BUF_PTR16
-  DEX
-  BNE .prefix_loop
-
-.phase3:
-  ; (E+1) copies of last byte yank[S-1]
-  LDY YANK_SIZE16            ; Y = S - 1
-  INC YANK_SIZE16
-  LDA YANK_BUF,Y             ; A = last byte
-  LDX BATCH_EXTRA
-  INX                        ; X = E + 1
-  LDY #0
+  LDA (YANK_END16),Y         ; A = last byte
 .suffix_loop:
   STA (BUF_PTR16),Y
   INY
   DEX
   BNE .suffix_loop
-  RTS
-
-; Contiguous fill: write N copies of yank buffer at BUF_PTR16
-; Input: BUF_PTR16 = write position, BUF_TEMP16 = count N (low byte only)
-; Clobbers: A, X, Y, BUF_SRC16, BUF_DST16
-contiguous_fill:
-  LDX BUF_TEMP16
-.loop:
-  PUSH16 BUF_PTR16           ; Save write position
-  CP16 BUF_PTR16, BUF_DST16  ; BUF_DST16 = write position
-  SET16 YANK_BUF, BUF_SRC16
-  CP16 YANK_END16, BUF_PTR16 ; BUF_PTR16 = end of yank data
-  TXA
-  PHA                        ; Save loop counter
-  JSR mem_copy_down
-  PLA
-  TAX                        ; Restore loop counter
-  POP16 BUF_PTR16            ; Restore write position
-  ; Advance write position by single yank size
-  CLC
-  ADC16 BUF_PTR16, YANK_SIZE16, BUF_PTR16
-  DEX
-  BNE .loop
+  INC16 YANK_END16
+  INC16 YANK_SIZE16
   RTS
 
 ; --- Shared r/~ echo machinery ---

@@ -7123,6 +7123,32 @@ class EditorTestRunner:
             expected_content="B\nA\nA\nC\n"
         )
 
+        # Char P fills its gap with 16-bit counts and sizes (a count of
+        # 257+ or a single-line yank of 256+ bytes left NULs in the text);
+        # x257Px checks that the cursor ends on the last pasted char
+        line300 = ("abcdefghijklmnopqrstuvwxyz" * 12)[:300]
+        long2 = line300 + "\nxy\n"
+        for keys, content, expected in (
+            (b"x257P", "ab\n", "a" * 257 + "b\n"),
+            (b"x257Px", "ab\n", "a" * 256 + "b\n"),
+            (b"x300P", "ab\n", "a" * 300 + "b\n"),
+            (b"yw257P", "ab\ncd\n", "ab" * 258 + "\ncd\n"),
+            (b"l2D257P", "ab\ncd\nef\n", "b\ncd" * 257 + "a\nef\n"),
+            (b"x300Puu", "ab\n", "a" * 300 + "b\n"),
+            (b"y$jP", long2, line300 + "\n" + line300 + "xy\n"),
+            (b"y$j2P", long2, line300 + "\n" + line300 * 2 + "xy\n"),
+            (b"y$jPP", long2, line300 + "\n" + line300[:299] + line300
+             + line300[299:] + "xy\n"),
+            (b"y$j2PP", long2, line300 + "\n" + line300 + line300[:299]
+             + line300 + line300[299:] + "xy\n"),
+        ):
+            self.run_test(
+                f"{keys.decode()!r} char paste above fills the whole gap",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
         # ============================================================
         # Yank/copy (yy) tests
         # ============================================================
