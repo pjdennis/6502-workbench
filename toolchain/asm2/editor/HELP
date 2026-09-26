@@ -211,6 +211,10 @@ INSERT MODE
                     waits that long for the rest of an arrow or other
                     special key, which on a slow link comes later
 
+  When the text buffer is full, a char or Enter that does not fit
+  is refused with "Buffer full", and the next key dismisses the
+  message. Keys typed ahead go in exactly as if typed one at a time.
+
   Arrow keys, Home, End, PgUp, PgDn, Ctrl-F, Ctrl-B all work
   for navigation within insert mode. Ctrl-Right and Ctrl-Left
   move by word. The cursor can be positioned one past the last

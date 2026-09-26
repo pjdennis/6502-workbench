@@ -36,7 +36,9 @@ canonical form:
 - **Other key**: ends the batch and is pushed back (a batch's first key
   that is not an editing key is dispatched through `insert_keys` instead)
 
-Up to `BATCH_MAX` (32) keys are consumed per batch. The on-the-fly
+Up to `BATCH_MAX` (32) keys are consumed per batch, and no more than the
+buffer's free bytes: a batch then always fits, and a char that does not
+fit comes alone and is refused as when typed alone. The on-the-fly
 consolidation means BS can cancel a just-typed character without ever
 touching the buffer (e.g. `type A, BS, type B` → inserts just "B").
 

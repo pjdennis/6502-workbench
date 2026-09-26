@@ -2362,32 +2362,84 @@ class EditorTestRunner:
                 expected_content="B" * 254 + "\n"
             )
 
-            # Buffer full during editing: insert char fails
-            # small_buffer = 256 bytes buffer. File with 250 bytes leaves ~6 free
-            # After loading, type characters until full
-            near_full = "B" * 249 + "\n"  # 250 bytes, ~6 bytes free
+            # Buffer full during editing: typed-ahead keys go in as when
+            # typed one at a time.  The chars that fit go in, the first one
+            # that does not is refused with "Buffer full", and the key after
+            # it dismisses the message ('z' here); ESC then leaves insert
+            # mode, and a second ESC does nothing, so :wq saves
+            near_full = "B" * 249 + "\n"  # 250 bytes: 6 free
             self.run_test_small_buffer(
                 "Buffer full refuses insert char",
                 near_full,
-                # Enter insert mode, type 7 chars (6 succeed, 7th triggers full)
-                # 'z' dismisses "Buffer full" message
-                # ESC back to normal, :q! quits
-                b"iAAAAAA" + b"A" + b"z\x1b:q!\r",
-                expect_unmodified=True
+                b"iAAAAAA" + b"A" + b"z\x1b\x1b:wq\r",
+                expected_content="A" * 6 + near_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full: the key after the refused char dismisses it",
+                near_full,
+                b"iAAAAAAAz\x1b:wq\r",
+                expected_content="A" * 6 + near_full
             )
 
             # Buffer full during editing: newline insert fails
-            # File with 254 bytes leaves ~2 free
-            almost_full = "C" * 253 + "\n"  # 254 bytes, ~2 bytes free
+            almost_full = "C" * 253 + "\n"  # 254 bytes: 2 free
             self.run_test_small_buffer(
                 "Buffer full refuses newline insert",
                 almost_full,
-                # Insert mode, type 'A' (succeeds, 1 byte free),
-                # then Enter (needs 1 byte for newline - should succeed or fail)
-                # Actually with 2 bytes free: 'A' uses 1, Enter uses 1 = exactly full
-                # Try one more char to trigger full
-                b"iAA" + b"z\x1b:q!\r",
-                expect_unmodified=True
+                b"iA\r" + b"\r" + b"z\x1b\x1b:wq\r",
+                expected_content="A\n" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full: the key after a refused Enter dismisses it",
+                almost_full,
+                b"iAA\rz\x1b:wq\r",
+                expected_content="AA" + almost_full
+            )
+
+            # The deletes of typed-ahead keys make room for the chars after
+            # them (here the message takes the first ESC)
+            self.run_test_small_buffer(
+                "Buffer full keeps the chars of a batch that fit",
+                "x" * 254 + "\n",
+                b"iab\x1b\x1b:wq\r",
+                expected_content="a" + "x" * 254 + "\n"
+            )
+            lines27 = "".join("line%04d\n" % i for i in range(27))
+            self.run_test_small_buffer(
+                "Buffer full keeps 13 of 14 batched chars",
+                lines27,
+                b"Aabcdefghijklmn\x1b\x1b:wq\r",
+                expected_content="line0000abcdefghijklm" + lines27[8:]
+            )
+            self.run_test_small_buffer(
+                "Buffer full still applies BS of the batch",
+                near_full,
+                b"Abcdefg\x1bA\x08xy\x1b\x1b:wq\r",
+                expected_content="B" * 249 + "bcdefx\n"
+            )
+            self.run_test_small_buffer(
+                "Buffer full still applies DEL of the batch",
+                near_full,
+                b"Abcdefg\x1b0i\x1b[3~xy\x1b\x1b:wq\r",
+                expected_content="x" + "B" * 248 + "bcdefg\n"
+            )
+            self.run_test_small_buffer(
+                "Buffer full keeps chars that fit before an Enter",
+                almost_full,
+                b"iabc\r\x1b\x1b:wq\r",
+                expected_content="ab" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full keeps the newlines of a batch that fit",
+                almost_full,
+                b"i\r\r\rq\x1b\x1b:wq\r",
+                expected_content="\n\n" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full with no room changes nothing",
+                "B" * 255 + "\n",
+                b"Aab\x1b\x1b:wq\r",
+                expected_content="B" * 255 + "\n"
             )
 
             # Counted paste pre-check: rejects paste that would overflow
@@ -2437,6 +2489,13 @@ class EditorTestRunner:
                         for i in range(capacity // 64))
         self.run_test("File exactly filling the text buffer is editable",
             exact, b"x:wq\r", expected_content=exact[1:])
+        # Typed ahead into the end of an almost full buffer, the keys give
+        # what they give typed one at a time: 'abc' fits, 'd' is refused
+        # and 'e' dismisses the message, 'f' is refused and 'g' dismisses it
+        self.run_test_batch_equiv(
+            "Batch equiv: typing past the end of a full text buffer",
+            exact[3:], [b"G", b"A"] + [bytes([c]) for c in b"abcdefg"]
+            + [b"\x1b"])
 
         self._group("Bounds checking (16-bit overflow):", leading_blank=True)
 

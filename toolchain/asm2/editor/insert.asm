@@ -56,7 +56,8 @@ insert_exit:
 ;   BUF_TEMP16.lo = back count (BS overflow past batch)
 ;   BUF_TEMP16.hi = fwd count (DEL)
 ;   X = BATCH_BUF write index
-;   Y = remaining capacity (counts down from BATCH_MAX)
+;   Y = remaining capacity - 1 (counts down from BUF_DELTA: BATCH_MAX - 1,
+;       or the free bytes - 1 when fewer)
 ;
 ; Execution phase variables:
 ;   BUF_DELTA      = insert_len
@@ -79,7 +80,22 @@ insert_handle_key:
   STX BUF_TEMP16            ; back = 0
   STX BUF_TEMP16 + 1        ; fwd = 0
   STX BATCH_BUF             ; Stays 0 unless a char is typed (even if erased)
-  LDY #BATCH_MAX            ; remaining capacity
+  ; Take no more keys than there are free bytes, so that the batch fits
+  ; (it grows by at most one byte a key): a char that does not fit comes
+  ; alone and is refused as when typed alone, and the keys after it wait
+  ; their turn
+  LDY #BATCH_MAX - $01      ; remaining capacity - 1
+  LDA BUF_END16
+  CMP #<TEXT_LIMIT - BATCH_MAX + $01
+  LDA BUF_END16 + 1
+  SBC #>TEXT_LIMIT - BATCH_MAX + $01
+  BCC .have_cap             ; BATCH_MAX or more bytes free
+  LDA BUF_END16             ; TEXT_LIMIT is page aligned, so free - 1 =
+  EOR #$FF                  ; $FF - BUF_END16.lo: -1 when none (the batch
+  TAY                       ; then takes one key)
+.have_cap:
+  STY BUF_DELTA             ; (for the first-key test)
+  LDA BUF_TEMP
 .collect_key:
   CMP #KEY_ENTER
   BEQ .key_enter
@@ -118,15 +134,15 @@ insert_handle_key:
   ; fall through: consume capacity and fetch next key
 
 .dec_cap:
-  DEY                       ; DEY sets Z, no CPY needed
-  BEQ .collect_done
+  DEY
+  BMI .collect_done         ; (the capacity is at most BATCH_MAX)
   JSR key_peek              ; A = next key
   BCC .collect_done
   INC HAS_KEY_DECODED       ; Consume it ($FF -> $00)
   BEQ .collect_key          ; Always taken (INC gave $00)
 
 .key_other:
-  CPY #BATCH_MAX
+  CPY BUF_DELTA
   BNE .end_batch
   ; The first key is not an editing key: dispatch it (BUF_TEMP = key)
   LDA #<insert_keys
@@ -283,7 +299,7 @@ insert_handle_key:
 .shifted:
   POP16 BUF_PTR16            ; restore delete_start (carry kept)
   BCC .do_copy
-.batch_full:
+.batch_full:                 ; (the buffer only overflows by a lone key)
   JMP show_buffer_full_msg
 
 .net_zero:
