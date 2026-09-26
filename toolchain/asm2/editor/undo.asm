@@ -425,8 +425,6 @@ undo_paste_redo:
   JSR yank_paste_above_n
 .redo_line_paste_done:
   BCS .redo_fail
-  ; paste_adjust_marks needs BUF_TEMP16 = count
-  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR paste_adjust_marks
   ; Set flags
   LDA #0

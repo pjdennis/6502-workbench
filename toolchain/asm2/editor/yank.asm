@@ -240,31 +240,11 @@ yank_paste_core:
   CLC
   RTS
 
-; Adjust marks after paste: total lines = YANK_LINES16 * BUF_TEMP16 (16-bit)
-; Input: BUF_TEMP16 = paste count (16-bit)
-; Sets MODIFIED flag. Clobbers COUNT16.
+; Adjust marks after a line paste: UNDO_PASTE_COUNT16 copies of the yank
+; (every caller has recorded the paste count there) now start at FILE_LINE16
+; Output: BUF_TEMP16 = total pasted lines.  Sets MODIFIED. Clobbers COUNT16.
 paste_adjust_marks:
-  ; COUNT16 = YANK_LINES16 * BUF_TEMP16 (16-bit multiplication)
-  ; Start with YANK_LINES16 as base
-  CP16 YANK_LINES16, COUNT16
-
-  ; Check if paste count is 1
-  CMPI16 BUF_TEMP16, 1
-  BEQ .adjust
-
-  ; Decrement count (already have one copy in COUNT16)
-  DEC16 BUF_TEMP16
-
-.mul:
-  ; COUNT16 += YANK_LINES16
-  CLC
-  ADC16 COUNT16, YANK_LINES16, COUNT16
-  DEC16 BUF_TEMP16
-  TST16 BUF_TEMP16
-  BNE .mul
-
-.adjust:
-  CP16 COUNT16, BUF_TEMP16
+  JSR undo_compute_paste_lines  ; BUF_TEMP16 = YANK_LINES16 * count
   LDAX16 FILE_LINE16
   JSR mark_adjust_insert
   LDA #$FF

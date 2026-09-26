@@ -21,9 +21,7 @@ normal_paste_below:
   JMP char_paste_below
 .line_paste:
   JSR paste_prologue
-  PUSH16 BUF_TEMP16          ; Save paste count for paste_adjust_marks
   JSR yank_paste_below_n
-  POP16 BUF_TEMP16           ; Restore paste count (carry preserved by PLA/STA)
   BCS .paste_below_done
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_BELOW
@@ -57,9 +55,7 @@ normal_paste_above:
   JMP char_paste_above
 .line_paste:
   JSR paste_prologue
-  PUSH16 BUF_TEMP16          ; Save paste count for paste_adjust_marks
   JSR yank_paste_above_n
-  POP16 BUF_TEMP16           ; Restore paste count (carry preserved by PLA/STA)
   BCS .paste_above_done
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_ABOVE
