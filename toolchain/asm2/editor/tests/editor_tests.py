@@ -4748,6 +4748,27 @@ class EditorTestRunner:
                 name, content, keys + b"\x1b:q!\r", cols=cols,
                 expect_lines=lines, expect_cursor=cursor,
             )
+        # Unless it only deleted and typed newlines, the same number: then
+        # the text is as it was and only the cursor moves (or the view)
+        for name, content, keys, lines, cursor, cols, frame, touched in [
+            ("Batch BS-join then Enter, text unchanged: no row redrawn",
+             make_lines(12), b"4Gi\x08\r",
+             [(2, "Line 3"), (3, "Line 4"), (4, "Line 5")], (3, 0), 40,
+             4, set()),
+            ("Batch Enter then Del-join, text unchanged: no row redrawn",
+             "\nabcdefghijklmnopqrstu\nend\n", b"A\r" + DEL,
+             [(0, ""), (1, "abcdefghijklmnopqrst"), (2, "u"), (3, "end"),
+              (4, "~")], (1, 0), 20, 2, set()),
+            ("Batch Del-join then Enter on the bottom row, text unchanged: "
+             "view scrolls", make_lines(12), b"9GA" + DEL + b"\r",
+             [(0, "Line 2"), (7, "Line 9"), (8, "Line 10")], (8, 0), 40,
+             4, {8}),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r", cols=cols,
+                expect_lines=lines, expect_cursor=cursor,
+                expect_content_rows=[(frame, touched)],
+            )
 
         # Batched Enter (2 Enters) - screen shows all lines correctly
         self.run_test_screen(

@@ -460,8 +460,12 @@ insert_handle_key:
 .full_redraw:
   ; The batch joined lines and split them (or joined them both ways): the
   ; lines above the cursor line changed too, which a current-line redraw
-  ; misses when the line count comes out the same.  Rare (mixed type-ahead)
-  LDA #RF_FULL
+  ; misses when the line count comes out the same: full redraw (rare,
+  ; mixed type-ahead).  A pure batch put its newlines back where they
+  ; were, or changed the line count (render_decide then redraws in full
+  ; anyway): RF_AUTO draws only what moved
+  LDA INSERT_LINE_COUNT
+  EOR #$FF                   ; pure ($FF): RF_AUTO, else RF_FULL
 .set_flag:
   JMP .set_render_flag
 
