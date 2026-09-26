@@ -598,14 +598,9 @@ do_replace_char:
   BNE .replace_no_undo
 .replace_key_ok:
   JSR undo_clear
-  JSR get_count
   JSR echo_span_setup
-  ; Count, clamped to 255 (replacement span is recorded in one page)
-  LDX BUF_TEMP16
-  LDA BUF_TEMP16 + 1
-  BEQ .replace_count
-  LDX #$FF
-.replace_count:
+  ; Count, capped at 255 (replacement span is recorded in one page)
+  JSR get_count_x
   STX NORMAL_TEMP            ; loop counter
 
 .replace_loop:

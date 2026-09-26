@@ -360,26 +360,39 @@ count_accumulate_digit:
   RTS
 
 ; Get effective count with pending key batching
-; Gets count prefix, adds pending matching keys
+; Gets the count prefix (capped at 255), adds pending matching keys
 ; Input: BUF_TEMP = key code to match (set by normal_handle_key)
-; Output: X = total = count's low byte + pending keys (255 if the sum
-;         carries; a count of 256 or more is taken mod 256, 0 = 256 for
-;         the movement helpers)
-;         BATCH_EXTRA = pending key count
+; Output: X = total = count + pending keys (1 to 255)
+;         BUF_DELTA = count, BATCH_EXTRA = pending key count
 ; Clobbers: A
 get_batched_count:
-  JSR get_count
-  LDX BUF_TEMP16         ; X = count (low byte only)
+  JSR get_count_x        ; X = count (capped at 255)
   STX BUF_DELTA
+  ; Pending keys join only while the total fits in a byte; from a count
+  ; of 256 - BATCH_MAX on they stay queued and run one at a time
+  LDA #0
+  CPX #256 - BATCH_MAX
+  BCS .no_batch
   JSR count_pending_key  ; X = pending matching keys
-  STX BATCH_EXTRA
   TXA
+.no_batch:
+  STA BATCH_EXTRA
   CLC
   ADC BUF_DELTA          ; Total = count + pending
   TAX
-  BCC .done
+  RTS
+
+; Get the count in X, capped at 255, for the commands that loop on an
+; 8-bit count (BUF_TEMP16's low byte = X)
+; Clobbers: A
+get_count_x:
+  JSR get_count
+  LDX BUF_TEMP16
+  LDA BUF_TEMP16 + 1
+  BEQ .fits
   LDX #$FF
-.done:
+  STX BUF_TEMP16
+.fits:
   RTS
 
 ; Get effective count in BUF_TEMP16, minimum 1

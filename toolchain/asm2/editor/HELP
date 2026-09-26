@@ -188,7 +188,9 @@ NORMAL MODE - COUNT PREFIX
     3de            Delete to end of 3rd word
 
   Digits typed once a count has reached 1000 are ignored, so the
-  largest count is 9999. ESC clears an active count.
+  largest count is 9999. h, l, j, k, w, b, e, x, X, ~, r, J, Ctrl-F,
+  Ctrl-B and the word operators (dw, cw, yw, ...) take a count of at
+  most 255. ESC clears an active count.
   0 alone moves to line start; it does not start a count.
 
 

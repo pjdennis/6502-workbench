@@ -528,7 +528,7 @@ word_op_forward:
   STX JUMP_TARGET16 + 1
   TYA
   PHA                          ; Save operator
-  JSR get_count                ; BUF_TEMP16 = N
+  JSR get_count_x              ; BUF_TEMP16 = N (capped at 255)
   JSR check_cursor_in_line
   BCS word_op_bail
 
@@ -585,7 +585,7 @@ do_db:
 ; OP_CHANGE bails into insert mode at file start or failed range.
 word_op_backward:
   PHA                          ; Save operator
-  JSR get_count                ; BUF_TEMP16 = N
+  JSR get_count_x              ; BUF_TEMP16 = N (capped at 255)
   ; Bail at file start (col 0 AND line 0)
   TST16 CURSOR_COL16
   BNE .ok

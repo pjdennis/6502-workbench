@@ -7353,6 +7353,78 @@ class EditorTestRunner:
             expect_status_contains="COMMAND - 4,"  # After j, count gone
         )
 
+        # Commands that loop on an 8-bit count take a count of 256 or more
+        # as 255, not modulo 256 (300j moved 44 lines, 256x nothing)
+        self.run_test_screen(
+            "300j moves 255 lines (count capped at 255)",
+            make_lines(400),
+            b"300j:q!\r",
+            cols=80,
+            expect_status_contains="COMMAND - 256,"
+        )
+
+        a400 = "a" * 400 + "\n"
+        self.run_test(
+            "256x deletes 255 chars (count capped at 255)",
+            a400,
+            b"256x:wq\r",
+            expected_content="a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300X deletes 255 chars before the cursor",
+            a400,
+            b"$300X:wq\r",
+            expected_content="a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300~ toggles 255 chars",
+            a400,
+            b"300~:wq\r",
+            expected_content="A" * 255 + "a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300r. replaces 255 chars",
+            a400,
+            b"300r.:wq\r",
+            expected_content="." * 255 + "a" * 145 + "\n"
+        )
+
+        words400 = " ".join(f"w{i}" for i in range(400)) + "\n"
+        self.run_test(
+            "300w moves 255 words",
+            words400,
+            b"300wx:wq\r",
+            expected_content=words400.replace(" w255 ", " 255 ")
+        )
+
+        self.run_test(
+            "300dw deletes 255 words",
+            words400,
+            b"300dw:wq\r",
+            expected_content=" ".join(f"w{i}" for i in range(255, 400)) + "\n"
+        )
+
+        # 300J is 254 joins, over the join undo limit: refused (ESC
+        # dismisses the message)
+        self.run_test(
+            "300J is refused (too many lines to join)",
+            make_lines(400),
+            b"300J\x1b:wq\r",
+            expected_content=make_lines(400)
+        )
+
+        # A count near 255 must not drop typed-ahead keys: 250x, then 32 x
+        # one at a time, delete 282 chars
+        self.run_test(
+            "250x + 32 typed-ahead x delete 282 chars",
+            "a" * 300 + "\n",
+            b"250x" + b"x" * 32 + b":wq\r",
+            expected_content="a" * 18 + "\n"
+        )
+
         # ============================================================
         # Count + G navigation tests
         # ============================================================
