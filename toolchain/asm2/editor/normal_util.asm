@@ -282,49 +282,36 @@ clamp_and_clear_count:
 ; Accumulate digit in A ('0'-'9') into COUNT16
 ; COUNT16 = COUNT16 * 10 + digit
 ; If COUNT16 >= 1000, digit is ignored (prevents overflow)
-; Clobbers A
+; Clobbers A, X
 count_accumulate_digit:
-  ; Check if count already >= 1000 ($03E8)
-  PHA                    ; Save digit char
-  LDA COUNT16 + 1
-  CMP #$03
-  BCC .count_has_room
-  BNE .count_at_limit
+  ; Ignore the digit if the count is already >= 1000
+  LDX COUNT16 + 1
+  CPX #>1000
+  BCC .has_room
+  BNE .done
+  LDX COUNT16
+  CPX #<1000
+  BCS .done
+.has_room:
+  AND #$0F                   ; Digit value
+  PHA
+  ; COUNT16 = (COUNT16 * 4 + COUNT16) * 2
   LDA COUNT16
-  CMP #$E8
-  BCC .count_has_room
-.count_at_limit:
-  PLA                    ; Discard digit
-  RTS
-.count_has_room:
-  PLA                    ; Restore digit char
-  SEC
-  SBC #'0'
-  PHA                    ; Save digit
-
-  ; Multiply COUNT16 by 10: COUNT16 * 8 + COUNT16 * 2
-  ; Save original in BUF_LEN16
-  CP16 COUNT16, BUF_LEN16
-
-  ; *2
+  LDX COUNT16 + 1
   ASL16 COUNT16
-  ; *4
   ASL16 COUNT16
-  ; *8
-  ASL16 COUNT16
-
-  ; original * 2
-  ASL16 BUF_LEN16
-
-  ; COUNT16 = COUNT16*8 + original*2
   CLC
-  ADC16 COUNT16, BUF_LEN16, COUNT16
-
+  ADC COUNT16
+  STA COUNT16
+  TXA
+  ADC COUNT16 + 1
+  STA COUNT16 + 1
+  ASL16 COUNT16
   ; Add digit
   PLA
   CLC
   ADCA16 COUNT16, COUNT16
-
+.done:
   RTS
 
 ; Get effective count with pending key batching
