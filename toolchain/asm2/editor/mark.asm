@@ -2,7 +2,9 @@
 ;
 ; Stores line-oriented marks (a-z) as 16-bit line numbers.
 ; Marks are stored in MARK_TBL at $DF20 (52 bytes: 26 entries x 2 bytes).
-; MARK_UNSET ($FFFF) indicates an unset mark.
+; MARK_UNSET ($FFFF) indicates an unset mark. A mark is unset iff its high
+; byte has bit 7 set: set marks are line numbers, which stay far below $8000
+; (LINE_TBL at $D800 runs out long before that).
 
 MARK_TBL   = $D620    ; 26 entries x 2 bytes = 52 bytes
 MARK_UNSET = $FFFF
@@ -21,22 +23,17 @@ mark_init:
   BPL .loop
   RTS
 
-; Calculate the pointer offset for a mark
+; Calculate the table offset for a mark
 ; Input: A - mark name ('a'-'z')
-; Returns: Mark offset in A
-;          Carry set if invalid name, car
-mark_calculate_pointer_offset
-  CMP #'a'
-  BCC .invalid
-  CMP #'z' + 1
-  BCS .invalid
+; Returns: carry clear, A = table offset (0-50)
+;          carry set if invalid name
+mark_calculate_pointer_offset:
   SEC
   SBC #'a'
-  ASL                  ; *2 for 16-bit entries
-  CLC
-  RTS
-.invalid:
-  SEC
+  CMP #26
+  BCS .ret             ; Invalid (names below 'a' wrap above 25)
+  ASL                  ; *2 for 16-bit entries; C = 0 since A < 26
+.ret:
   RTS
 
 ; Set mark: store current FILE_LINE16 at mark position
@@ -44,41 +41,29 @@ mark_calculate_pointer_offset
 ; Returns: carry set if invalid name, carry clear if set
 mark_set:
   JSR mark_calculate_pointer_offset
-  BCS .invalid
+  BCS .ret
   TAX
   LDA FILE_LINE16
   STA MARK_TBL,X
   LDA FILE_LINE16 + 1
   STA MARK_TBL + 1,X
-  CLC
-  RTS
-.invalid:
-  SEC
-  RTS
+.ret:
+  RTS                  ; Carry clear from the offset calculation
 
 ; Get mark: retrieve line number for mark
 ; Input: A = mark name ('a'-'z')
 ; Returns: A = low byte, X = high byte of line number
 ;          carry set if unset or invalid, carry clear if valid
+; Clobbers: Y
 mark_get:
   JSR mark_calculate_pointer_offset
-  BCS .invalid
-  TAX
-  ; Unset iff both bytes are $FF, i.e. (hi AND lo) == $FF
-  LDA MARK_TBL + 1,X
-  AND MARK_TBL,X
-  CMP #$FF
-  BEQ .unset
-  LDA MARK_TBL,X
-  PHA
-  LDA MARK_TBL + 1,X
-  TAX
-  PLA
-  CLC
-  RTS
-.unset:
-.invalid:
-  SEC
+  BCS .ret
+  TAY
+  LDX MARK_TBL + 1,Y
+  CPX #$80             ; Unset iff the high byte has bit 7 set
+  BCS .ret
+  LDA MARK_TBL,Y
+.ret:
   RTS
 
 ; Display all set marks
