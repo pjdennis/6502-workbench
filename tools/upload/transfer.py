@@ -32,7 +32,8 @@ def parse_args(argv):
   parser.add_argument('--wait', action='store_true', help='return only once the upload has had time to send')
   parser.add_argument('--direct', action='store_true',
                       help='open the port here instead of using the daemon (on Linux, opening the port '
-                           'resets the board)')
+                           'resets the board); always waits, since closing the port straight after '
+                           'writing can lose data')
   parser.add_argument('--daemon', choices=['status', 'stop'], help='report on or stop the serial daemon')
   args = parser.parse_args(argv)
   if args.daemon is None and (args.file is None or args.baudrate is None):

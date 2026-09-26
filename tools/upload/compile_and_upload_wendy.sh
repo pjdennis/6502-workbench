@@ -1,5 +1,4 @@
 #!/bin/sh
 # Usage: compile_and_upload_wendy.sh <program.s>   (writes a.out in the current directory)
-HERE="$(cd "$(dirname "$0")" && pwd)"
-
-"$HERE/../../firmware/vasm" -quiet -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc $1 && python3 "$HERE/transfer.py" --noreset --baudrate=115200 a.out
+# Wendy has no DTR reset, so the port is opened directly rather than through the serial daemon.
+exec "$(dirname "$0")/compile_and_upload.sh" --baudrate=115200 --direct --noreset "$@"
