@@ -2181,6 +2181,47 @@ class EditorTestRunner:
                 expected_content="ello\n"
             )
 
+        self._group("Bounds checking (16-bit overflow):", leading_blank=True)
+
+        # ESC dismisses the "Buffer full" message (the message swallows one
+        # key) and is a no-op otherwise, so :wq really saves.
+        # A shift whose new end passes $FFFF is refused: 900 x 60 = 54000
+        # bytes fits 16 bits, but the text buffer's address plus 54000
+        # does not
+        wide = "A" * 59 + "\nx\n"
+        for key in (b"p", b"P"):
+            self.run_test(
+                f"Counted {key.decode()} whose end passes $FFFF is refused",
+                wide, b"yy900" + key + b"\x1b:wq\r", expected_content=wide)
+        # ... and so is a batched >> whose total shift does that (32 pairs
+        # = 64 spaces on each of 1000 lines = 64000 bytes) or wraps 16 bits
+        # (33 pairs = 66 spaces on each line = 66000 bytes, which wraps
+        # to 464)
+        ones = "a\n" * 1000
+        for pairs, what in ((32, "end passes $FFFF"),
+                            (33, "total shift wraps 16 bits")):
+            self.run_test(
+                f"Batched >> whose {what} is refused",
+                ones, b"1000" + b">>" * pairs + b"\x1b:wq\r",
+                expected_content=ones)
+
+        # Paste size = yank size * count must not wrap 16 bits
+        # (66 * 993 = 65538 wraps to 2; 7 * 9999 = 69993 wraps to 4457;
+        # 4096 * 16 = 65536 wraps to 0)
+        wider = "A" * 65 + "\nx\n"
+        for keys, content in ((b"yy993p", wider), (b"yy993P", wider),
+                              (b"0y$993p", "A" + wider),
+                              (b"0y$993P", "A" + wider),
+                              (b"yy9999p", "aaaaaa\nx\n"),
+                              (b"yy16p", "a" * 4095 + "\nx\n")):
+            self.run_test(
+                f"{keys.decode()}: paste size that wraps 16 bits is refused",
+                content, keys + b"\x1b:wq\r", expected_content=content)
+        self.run_test_screen(
+            "yy993p that wraps 16 bits shows Buffer full",
+            wider, b"yy993p\x1b:q!\r",
+            expect_ansi_contains="Buffer full")
+
         # ============================================================
         # Screen state tests (10 rows x 40 cols)
         # 9 content rows (rows 0-8), 1 status bar (row 9)

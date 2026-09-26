@@ -324,17 +324,25 @@ shift_line_width:
 
 ; Per-line bookkeeping for the core loops (Y = this line's width or
 ; removal, kept): remember it for the cursor line's column adjust, add it
-; to COUNT16, step the line index and the line iterator (LINE_LEN16) and
-; count the line off.  Returns Z set when the range is done
-; (BUF_TEMP16 = 0; shift_prologue has returned early for an empty range,
-; so the loops test at the bottom).  Clobbers A.
+; to COUNT16 (a total past 16 bits stays at $FF00 or more, which no
+; buffer shift allows), step the line index and the line iterator
+; (LINE_LEN16) and count the line off.  Returns Z set when the range is
+; done (BUF_TEMP16 = 0; shift_prologue has returned early for an empty
+; range, so the loops test at the bottom).  Clobbers A.
 shift_count_line:
   CMP16 LINE_LEN16, FILE_LINE16
   BNE .not_cursor
   STY NORMAL_TEMP
 .not_cursor:
   TYA
-  ADDA16 COUNT16
+  CLC
+  ADC COUNT16
+  STA COUNT16
+  BCC .counted
+  INC COUNT16 + 1
+  BNE .counted
+  DEC COUNT16 + 1              ; The total passed 16 bits: keep it at $FFxx
+.counted:
   INC SHIFT_LINE_IDX
   INC16 LINE_LEN16
   ; fall through

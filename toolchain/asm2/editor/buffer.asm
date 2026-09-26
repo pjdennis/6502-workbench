@@ -227,12 +227,13 @@ buf_shift_right_16:
   STA BUF_DST16              ; Temp: new end low
   LDA BUF_END16 + 1
   ADC BUF_LEN16 + 1
+  BCS .full             ; The new end passes $FFFF
   CMP #>TEXT_LIMIT
   BCC .has_room
   BNE .full
   LDA BUF_DST16
   BEQ .has_room         ; Exactly at limit is ok
-.full:                  ; C = 1 from the CMP
+.full:                  ; C = 1 from the ADC or the CMP
   RTS
 .has_room:
 

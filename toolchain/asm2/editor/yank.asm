@@ -155,7 +155,8 @@ yank_paste_ret:
 
 ; Compute yank size and total paste size
 ; Input: BUF_TEMP16 = paste count (16-bit, >= 1, preserved)
-; Output: BUF_LEN16 = total size, YANK_SIZE16 = single size
+; Output: BUF_LEN16 = total size ($FFFF if it passes 16 bits, which no
+;         buffer shift allows), YANK_SIZE16 = single size
 ; Returns carry set if yank buffer empty, carry clear if ready
 ; Clobbers A, X, COUNT16, DIV_INPUT16
 yank_paste_setup:
@@ -167,8 +168,8 @@ yank_paste_setup:
   CLC
   RTS
 
-; BUF_LEN16 = (16-bit zero-page value at X) * BUF_TEMP16, low 16 bits
-; (shift and add: one pass per bit of the count).
+; BUF_LEN16 = (16-bit zero-page value at X) * BUF_TEMP16, or $FFFF if
+; that passes 16 bits (shift and add: one pass per bit of the count).
 ; Clobbers A, COUNT16, DIV_INPUT16
 mul_by_count:
   CP16 BUF_TEMP16, COUNT16    ; Multiplier, shifted right
@@ -183,10 +184,16 @@ mul_by_count:
   BCC .next
   CLC
   ADC16 BUF_LEN16, DIV_INPUT16, BUF_LEN16
+  BCS .overflow
 .next:
-  ASL16 DIV_INPUT16
+  ASL16 DIV_INPUT16           ; C = 1: the multiplicand passed 16 bits
   TST16 COUNT16
-  BNE .bit
+  BEQ .done                   ; No count bits left
+  BCC .bit
+.overflow:                    ; The product passes 16 bits
+  LDA #$FF
+  STA_LH16 BUF_LEN16
+.done:
   RTS
 
 ; Show "Buffer full" and return carry set (a paste that did not fit)
