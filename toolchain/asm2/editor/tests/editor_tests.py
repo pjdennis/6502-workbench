@@ -716,7 +716,7 @@ class EditorTestRunner:
                         expect_max_col: list = None,
                         expect_scrolled_at_frame: list = None,
                         expect_scroll_rows: list = None,
-                        deferred_wrap: bool = False):
+                        deferred_wrap: bool = True):
         """Run an editor test and verify screen state via ANSI output.
 
         Args:
@@ -743,6 +743,9 @@ class EditorTestRunner:
                 verify minimum column written on a row in a specific frame
             expect_max_col: list of (frame_idx, row, max_col) tuples -
                 verify maximum column written on a row in a specific frame
+            deferred_wrap: the virtual terminal defers the wrap after the
+                last column, as real terminals do (the default); False
+                wraps at once
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"

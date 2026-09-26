@@ -29,7 +29,7 @@ Supported sequences:
     ESC[{n}P        - Delete n characters at cursor (DCH)
     \b              - Backspace (one column left, stopping at column 1)
 
-Deferred auto-wrap (opt-in via deferred_wrap=True):
+Deferred auto-wrap (the default; deferred_wrap=False wraps at once):
     Matches real VT100/xterm behavior where writing to the last column
     sets a pending-wrap flag instead of immediately advancing the cursor.
     ESC[K in this state clears from the last column, erasing the character.
@@ -51,7 +51,7 @@ def _csi_args(params, *defaults):
 class AnsiScreen:
     ATTR_REVERSE = 0x01
 
-    def __init__(self, rows, cols, deferred_wrap=False):
+    def __init__(self, rows, cols, deferred_wrap=True):
         self.rows = rows
         self.cols = cols
         self.deferred_wrap = deferred_wrap
@@ -451,6 +451,13 @@ if __name__ == "__main__":
     assert s5.is_reverse_at(0, 3) == True, "D should be reverse"
     assert s5.is_reverse_at(0, 4) == False, "E should be normal"
     assert s5.is_reverse_at(0, 5) == False, "F should be normal"
+
+    # Immediate wrap (deferred_wrap=False): the cursor moves to the next
+    # row as soon as the last column is written
+    s5b = AnsiScreen(3, 5, deferred_wrap=False)
+    s5b.process("ABCDEF\x1b[?25h")
+    assert [s5b.get_row_text(r) for r in range(2)] == ["ABCDE", "F"]
+    assert s5b.get_cursor() == (1, 1), s5b.get_cursor()
 
     # Test deferred wrap: writing to last column sets pending wrap
     s6 = AnsiScreen(3, 5, deferred_wrap=True)
