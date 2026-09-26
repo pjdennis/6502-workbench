@@ -296,11 +296,7 @@ undo_join_apply:
 
   ; Mark adjustment: count = UNDO_JOIN_COUNT lines after FILE_LINE16
   LDA UNDO_JOIN_COUNT
-  JSR set_buf_temp16_a
-  CLC
-  ADCI16 FILE_LINE16, 1, BUF_PTR16
-  LDAX16 BUF_PTR16
-  RTS
+  JMP mark_args_next_line
 
 ; --- Line paste undo (types 5/6; char paste types 7/8 dispatch directly) ---
 undo_paste_undo:

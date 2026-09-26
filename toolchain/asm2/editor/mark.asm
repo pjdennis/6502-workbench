@@ -333,6 +333,20 @@ mark_insert_one:
   PLA
   JMP mark_adjust_insert
 
+; Mark-adjust args for lines inserted or deleted after the cursor line:
+; BUF_TEMP16 = A (line count), A/X = FILE_LINE16 + 1
+; Clobbers: A, X, BUF_TEMP16
+mark_args_next_line:
+  JSR set_buf_temp16_a
+  LDX FILE_LINE16 + 1
+  LDA FILE_LINE16
+  CLC
+  ADC #1
+  BCC .done
+  INX
+.done:
+  RTS
+
 ; Adjust marks after lines are deleted
 ; Input: A/X = first deleted line (16-bit low/high)
 ;        BUF_TEMP16 = count of deleted lines (16-bit)

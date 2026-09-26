@@ -366,13 +366,13 @@ insert_handle_key:
   ADC LINE_LEN16 + 1         ; + fwd_nl
   BEQ .no_mark_del
   ; BUF_TEMP16 = count of deleted lines, A/X = first affected line
-  JSR ins_mark_adjust_args
+  JSR mark_args_next_line
   JSR mark_adjust_delete
 .no_mark_del:
   ; --- Mark adjust insert if ins_nl > 0 ---
   LDA NORMAL_TEMP            ; ins_nl
   BEQ .no_mark_ins
-  JSR ins_mark_adjust_args
+  JSR mark_args_next_line
   JSR mark_adjust_insert
 .no_mark_ins:
 
@@ -507,16 +507,3 @@ insert_move_count:
   INX
   RTS
 
-; Compute mark-adjust args for insert_handle_key's newline path:
-; BUF_TEMP16 = A (line count), A/X = FILE_LINE16 + 1
-; Clobbers: A, X, BUF_TEMP16
-ins_mark_adjust_args:
-  JSR set_buf_temp16_a
-  LDX FILE_LINE16 + 1
-  LDA FILE_LINE16
-  CLC
-  ADC #1
-  BCC .done
-  INX
-.done:
-  RTS

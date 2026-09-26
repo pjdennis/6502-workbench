@@ -588,13 +588,7 @@ normal_join_lines:
 
   ; Single mark adjust for all removed lines
   LDA NORMAL_TEMP
-  JSR set_buf_temp16_a
-  LDAX16 FILE_LINE16
-  CLC
-  ADC #1
-  BCC .mark_adj
-  INX
-.mark_adj:
+  JSR mark_args_next_line
   JSR mark_adjust_delete
 
   LDA #$FF
