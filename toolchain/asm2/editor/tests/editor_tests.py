@@ -19348,6 +19348,27 @@ class EditorTestRunner:
             ],
             expect_cursor=(7, 0),
         )
+        # Enter in a line of about 250 rows below the top: the rows below
+        # it start past row 255, so there is nothing to scroll (the 8-bit
+        # scroll start must not wrap back onto the screen)
+        az = "".join(chr(ord("a") + i % 26) for i in range(5000))
+        self.run_test_screen(
+            "Enter in a 250-row line below the top: screen",
+            "".join(f"line {i}\n" for i in range(6)) + az + "\nafter\n",
+            b"7G5li\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "line 0"), (5, "line 5"), (6, "abcde"),
+                          (7, az[5:25]), (8, az[25:45])],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Enter in a 254-row line below the top: screen",
+            "a\n" + "x" * 10160 + "\nend\n",
+            b"j5li\r\x1b:q!\r",
+            expect_lines=[(0, "a"), (1, "xxxxx"), (2, "x" * 40),
+                          (8, "x" * 40)],
+            expect_cursor=(2, 0),
+        )
         # An Enter that keeps the line's height (the split is at a row
         # boundary) draws only the rows from the split on: no scroll and
         # no full redraw.  Frames: 0 initial, 1 j, 2-3 count, 4 l, 5 i,

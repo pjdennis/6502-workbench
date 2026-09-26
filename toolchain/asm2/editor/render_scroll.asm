@@ -163,15 +163,16 @@ render_range_repaint:
 ; began on one line of PREV_LINE_ROWS rows from screen row F and split it
 ; into the fd + 1 lines that end at the cursor line (fd = RENDER_LIMIT).
 ; The rows below the old line scroll down by the growth in rows, then the
-; new lines are drawn from the row of the first column the batch changed
-; (RENDER_FROM_COL16) to their end.  F is kept mod 256: the old line may
-; start above the view (its later rows on screen); then the drawing
-; starts at the top row.  A pure Enter batch at the start of the line
-; (INSERT_LINE_COUNT = $FF) scrolls from F instead, moving the whole line
-; down, and one at its end (1) opens the new empty lines: both are drawn
-; by the scroll alone, unless its region was one row that could not be
-; scrolled (only at the end of the line: the cursor line is then drawn
-; there).  Text that shrank (BS/Del in the batch) or rows over 255 are
+; new lines are drawn from the first cell the batch changed
+; (RENDER_FROM_COL16) to their end.  The rows are worked out from the
+; cursor row, as F is negative when the old line starts above the view
+; (its later rows on screen); the drawing then starts at the top row.  A
+; pure Enter batch at the start of the line (INSERT_LINE_COUNT = $FF)
+; scrolls from F instead, moving the whole line down, and one at its end
+; (1) opens the new empty lines: both are drawn by the scroll alone,
+; unless its region was one row that could not be scrolled (only at the
+; end of the line: the cursor line is then drawn there).  Text that
+; shrank (BS/Del in the batch) or new lines reaching past row 254 are
 ; drawn in full.
 render_enter_split:
   JSR ansi_cursor_hide
@@ -188,32 +189,35 @@ render_enter_split:
   ADC WRAP_QUOT
   BCS .full
   STA RENDER_WRAP
-  ; RENDER_ROW = F
-  EOR #$FF
-  SEC
-  ADC CURSOR_ROW
-  STA RENDER_ROW
   ; CUR_LINE_ROWS = the new lines' rows (those and the cursor line's)
   JSR file_line_rows
   CLC
   ADC DELETE_SCREEN_ROWS
   BCS .full
   STA CUR_LINE_ROWS
+  ; RENDER_ROW = the 1-based row after them = F + CUR_LINE_ROWS + 1
+  SEC
+  SBC RENDER_WRAP              ; (the cursor line's rows from the cursor)
+  SEC
+  ADC CURSOR_ROW
+  BCS .full
+  STA RENDER_ROW
   ; SCROLL_DELTA = the growth
+  LDA CUR_LINE_ROWS
   SEC
   SBC PREV_LINE_ROWS
   BCC .full                    ; shrank
   STA SCROLL_DELTA
   BEQ .draw                    ; the same height: nothing to scroll
-  ; Scroll down from below the old line (from F at the line's start)
-  LDA RENDER_ROW
+  ; Scroll down from below the old line, RENDER_ROW - the growth (from F,
+  ; RENDER_ROW - CUR_LINE_ROWS, at the line's start)
   LDX INSERT_LINE_COUNT
-  BMI .scroll
-  CLC
-  ADC PREV_LINE_ROWS
+  BPL .scroll
+  LDA CUR_LINE_ROWS
 .scroll:
-  CLC
-  ADC #1                       ; 1-based
+  EOR #$FF
+  SEC
+  ADC RENDER_ROW
   LDX #'T'                     ; scroll down
   JSR scroll_region_from_a     ; C=0: not scrolled
   LDX INSERT_LINE_COUNT
@@ -222,8 +226,7 @@ render_enter_split:
   JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
 .draw:
   ; Draw from the first changed cell, row F + q and column WRAP_REM (the
-  ; top row from column 0 if that is above the view), to the last new
-  ; row, F + CUR_LINE_ROWS - 1
+  ; top row from column 0 if that is above the view), to the last new row
   JSR check_from_col           ; X = q (the column is never $FFFF)
   STX RENDER_COL
   LDA RENDER_WRAP
@@ -239,8 +242,6 @@ render_enter_split:
   STA RENDER_COL
   LDA RENDER_ROW
   CLC
-  ADC CUR_LINE_ROWS
-  SEC
   SBC RENDER_COL
   STA SCROLL_DELTA             ; rows from there to the last new row
   LDA RENDER_COL
