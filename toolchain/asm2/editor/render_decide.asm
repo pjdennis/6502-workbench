@@ -42,8 +42,11 @@
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $05   insert-mode Enter      Cursor on the last line of the split, which
 ;                              began at line FILE_LINE16 - delta, of
-;                              PREV_LINE_ROWS rows before the batch.
-;                              INSERT_LINE_COUNT = 1: pure-Enter batch.
+;                              PREV_LINE_ROWS rows before the batch;
+;                              RENDER_FROM_COL16 = the first column it
+;                              changed.  INSERT_LINE_COUNT: pure-Enter
+;                              batch at the line's end 1, at its start
+;                              $FF (see render_enter_split).
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
 ;       join, cc, redo J/cc    DELETE_SCREEN_ROWS = all their rows before the
 ;                              edit (0 = use delta).  Rows shrank: scroll up
@@ -229,71 +232,12 @@ render_decide:
 .delta_ok:
 
   ; Walk lines to compute SCROLL_DELTA (screen rows to scroll).
-  ; RENDER_FLAG=$05: Enter(s), compute displacement from wrapped line split
-  ; RENDER_FLAG=$03/$04: walk inserted lines at FILE_LINE16
+  ; RENDER_FLAG=$05: Enter batch, see render_enter_split
+  ; RENDER_FLAG=$03/$04/$09: walk inserted lines at FILE_LINE16
   LDA RENDER_FLAG
   CMP #RF_ENTER
   BNE .do_walk
-  ; --- Enter displacement: compare old vs new total screen rows ---
-  ; len(line_above), line above = FILE_LINE16 - file_delta
-  LDX FILE_LINE16 + 1
-  LDA FILE_LINE16
-  SEC
-  SBC RENDER_LIMIT           ; file_delta
-  BCS .above_ok
-  DEX
-.above_ok:
-  JSR buf_get_line_len      ; A/X = len(above)
-  STA RENDER_LINE16
-  STX RENDER_LINE16 + 1
-  ; Get len(cursor_line)
-  LDAX16 FILE_LINE16
-  JSR buf_get_line_len      ; A/X = len(cursor)
-  STA SCROLL_DELTA          ; len_cursor_lo (temp)
-  STX DELETE_SCREEN_ROWS    ; len_cursor_hi (temp)
-  ; Detect start/end-of-line optimization for pure Enter batches.
-  ; INSERT_LINE_COUNT is pre-set to $01 by insert.asm for pure Enter batches
-  ; (all bytes are newlines). Mixed batches leave it at $00.
-  ; bit 0 = skip content render, bit 1 = include old cursor row in scroll
-  LDX #$00                   ; middle split: normal render
-  LDA INSERT_LINE_COUNT
-  BEQ .save_enter_type       ; Not pure Enter, always need content render
-  LDX #$03                   ; start of line: skip render + adjust scroll
-  LDA RENDER_LINE16          ; len_above_lo
-  ORA RENDER_LINE16 + 1      ; len_above_hi
-  BEQ .save_enter_type
-  LDX #$01                   ; end of line: skip render only
-  LDA SCROLL_DELTA           ; len_cursor_lo
-  ORA DELETE_SCREEN_ROWS     ; len_cursor_hi
-  BEQ .save_enter_type
-  LDX #$00                   ; middle split
-.save_enter_type:
-  STX INSERT_LINE_COUNT
-  ; rows_above = screen_rows(len_above)
-  LDAX16 RENDER_LINE16
-  JSR line_screen_rows
-  STA RENDER_LINE16         ; repurpose: rows_above
-  ; rows_cursor = screen_rows(len_cursor)
-  LDA SCROLL_DELTA
-  LDX DELETE_SCREEN_ROWS
-  JSR line_screen_rows      ; A = rows_cursor
-  ; new_total = rows_above + rows_cursor + (file_delta - 1) blank lines
-  CLC
-  ADC RENDER_LINE16          ; A = rows_above + rows_cursor
-  CLC
-  ADC RENDER_LIMIT           ; + file_delta
-  ; displacement = new_total - old_total, the line's rows before the
-  ; batch (typed or deleted chars may have changed its length)
-  CLC
-  SBC PREV_LINE_ROWS         ; - 1 - old_total
-  BEQ .enter_no_disp
-  BCC .enter_no_disp         ; shrank (BS/Del in the batch)
-  STA SCROLL_DELTA
-  ; No clamp: the region scrolls from the old line, and the rows below it
-  ; always have room for the growth, as the cursor line is on screen
-  BNE .insert_scroll         ; Always taken (A > 0)
-.enter_no_disp:
-  JMP .ins_full
+  JMP render_enter_split
 .do_walk:
   JSR set_render_line_to_cursor
   ; $04 (J undo) / $09 (line split): the cursor line and the lines after
@@ -346,7 +290,6 @@ render_decide:
   LDA SCROLL_DELTA
   BEQ .ins_full
   JSR clamp_delta_avail
-.insert_scroll:
   JMP render_line_insert_scroll
 .ins_full:
   JMP .full

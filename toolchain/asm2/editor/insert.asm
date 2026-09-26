@@ -306,16 +306,18 @@ insert_handle_key:
   ; Step 10: Decide path based on newline counts
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
-  ORA NORMAL_TEMP            ; ins_nl
   BNE .newlines_path
+  ; No newline deleted: the batch changed its one line from
+  ; RENDER_FROM_COL16 = CURSOR_COL16 - back (first affected col)
+  SEC
+  SBC16_8 CURSOR_COL16, BUF_TEMP16, RENDER_FROM_COL16
+  LDA NORMAL_TEMP            ; ins_nl
+  BNE .newlines_path         ; ... and split it
 
   ; ========================================
   ; Fast path: no newlines at all
   ; ========================================
-  ; RENDER_FROM_COL16 = CURSOR_COL16 - back (first affected col)
   ; CURSOR_COL16 = RENDER_FROM_COL16 + insert_len
-  SEC
-  SBC16_8 CURSOR_COL16, BUF_TEMP16, RENDER_FROM_COL16
   LDA BUF_DELTA              ; insert_len
   STA SHIFT_WRITE            ; ICH/DCH hint: new cells at RENDER_FROM_COL16
   CLC
@@ -392,17 +394,29 @@ insert_handle_key:
   ; Newlines inserted.  Also merged: complex case, current-line redraw
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
+.complex:
   BNE .set_modified_line
-  ; Signal pure Enter batch (all bytes are newlines, no printable chars)
-  ; for start/end-of-line scroll optimization in render
+  ; A pure Enter batch (all bytes are newlines) at the end of the line
+  ; (the cursor line is empty: INSERT_LINE_COUNT = 1) or at its start
+  ; (the first changed column is 0: $FF) is drawn by the scroll alone
   LDA BUF_DELTA              ; insert_len
   CMP NORMAL_TEMP            ; ins_nl
-  BNE .enter_not_pure
-  LDA #$01
-  STA INSERT_LINE_COUNT      ; Flag: pure Enter batch
-.enter_not_pure:
+  BNE .enter_flag
+  LDY #0
+  LDA (BUF_PTR16),Y          ; the char at the cursor (column 0)
+  LDX #1
+  CMP #'\n'
+  BEQ .enter_kind
+  LDA RENDER_FROM_COL16
+  ORA RENDER_FROM_COL16 + 1
+  BNE .enter_flag
+  DEX
+  DEX                        ; $FF
+.enter_kind:
+  STX INSERT_LINE_COUNT
+.enter_flag:
   LDA #RF_ENTER              ; Line-insert above cursor scroll
-  BNE .set_render_flag       ; Always taken
+  BNE .set_flag              ; Always taken
 
   ; Lines merged, none inserted: line-delete scroll ($06)
 .joined:
@@ -411,7 +425,7 @@ insert_handle_key:
   ; --- Backward newlines deleted.  Forward ones too: complex case,
   ; current-line redraw ---
   LDA LINE_LEN16 + 1         ; fwd_nl
-  BNE .set_modified_line
+  BNE .complex               ; (Z = 0: on to .set_modified_line)
   ; Check if cursor line content unchanged (pure empty-line join):
   ; back == back_nl (all deleted bytes are newlines) AND
   ; (cursor at col 0 OR cursor at end of line)
@@ -446,6 +460,7 @@ insert_handle_key:
 .join_flag:
   JSR set_render_from_cursor
   LDA #RF_JOIN               ; Line-delete with displacement-based scroll
+.set_flag:
   JMP .set_render_flag
 
 ; Arrow key and word motion handlers in insert mode, counted with pending

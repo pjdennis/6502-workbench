@@ -19235,6 +19235,148 @@ class EditorTestRunner:
             expect_cursor=(8, 0),
         )
 
+        # Enter splitting a wrapped line whose part after the split still
+        # wraps: every row of the new lines must be drawn, and only the
+        # rows below the old line's end scrolled
+        self.run_test_screen(
+            "Enter in first row of wrapped line: screen",
+            "abcdefghijklmnopqrstuvwxyz" * 2 + "abcdefgh\nnext\n",
+            b"5li\r\x1b:q!\r",
+            expect_lines=[
+                (0, "abcde"),
+                (1, "fghijklmnopqrstuvwxyzabcdefghijklmnopqrs"),
+                (2, "tuvwxyzabcdefgh"),
+                (3, "next"),
+                (4, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+        digits = "0123456789" * 10
+        self.run_test_screen(
+            "Enter in 3-row line, cursor line keeps 3 rows: screen",
+            digits + "\nnext line\n",
+            b"lli\r\x1b:q!\r",
+            expect_lines=[
+                (0, "01"),
+                (1, digits[2:42]),
+                (2, digits[42:82]),
+                (3, digits[82:]),
+                (4, "next line"),
+                (5, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+        # A batch whose cursor line wraps with the cursor on its first row
+        self.run_test_screen(
+            "Batched Enter + text wrapping the cursor line: screen",
+            "abc\nnext\n",
+            b"li\r" + b"z" * 19 + b"\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, "a"),
+                (1, "z" * 19 + "b"),
+                (2, "c"),
+                (3, "next"),
+                (4, "~"),
+            ],
+            expect_cursor=(1, 18),
+        )
+        # A batch whose middle line wraps (narrow screen)
+        self.run_test_screen(
+            "Batched Enter with a wrapping middle line: screen",
+            "line 1\nline 2\nline 3\nline 4\nline 5\n",
+            b"3GA\r" + b"x" * 25 + b"\rz\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (2, "line 3"),
+                (3, "x" * 20),
+                (4, "x" * 5),
+                (5, "z"),
+                (6, "line 4"),
+                (7, "line 5"),
+                (8, "~"),
+            ],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Batched Enters and a wrapping middle line after o: screen",
+            "\n\n",
+            b"o\r\r" + b"x" * 25 + b"\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, ""), (1, ""), (2, ""), (3, "x" * 20), (4, "x" * 5),
+                (5, ""), (6, ""), (7, "~"),
+            ],
+            expect_cursor=(5, 0),
+        )
+        # Enters and a Del splitting a wrapped line after its first char
+        self.run_test_screen(
+            "Batched Enters + Del in a wrapped line: screen",
+            "abcdefghijklmnopqrstu\n",
+            b"a\r\r\r\r\x1b[3~\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, "a"), (1, ""), (2, ""), (3, ""),
+                (4, "cdefghijklmnopqrstu"), (5, "~"),
+            ],
+            expect_cursor=(4, 0),
+        )
+        self.run_test_screen(
+            "cw + Enter, text and Del in a wrapped line: screen",
+            "agj gefggjhabha   aabjciifiej fh djdbifc\n",
+            b"cw\rabc\x1b[3~\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, ""), (1, "abcgefggjhabha   aab"),
+                (2, "jciifiej fh djdbifc"), (3, "~"),
+            ],
+            expect_cursor=(1, 2),
+        )
+        # Enter in a line taller than the screen, which starts above the
+        # view: its rows on screen are still drawn
+        abc = "abcdefghij" * 4
+        self.run_test_screen(
+            "Enter in a line taller than the screen: screen",
+            "abcdefghij" * 48 + "\n"
+            + "".join(f"line {i}\n" for i in range(1, 12)),
+            b"$100hi\r\x1b:q!\r",
+            expect_lines=[
+                (5, abc),
+                (6, "abcdefghijabcdefghi"),
+                (7, "j" + abc[:39]),
+                (8, "j" + abc[:39]),
+            ],
+            expect_cursor=(7, 0),
+        )
+        # An Enter that keeps the line's height (the split is at a row
+        # boundary) draws only the rows from the split on: no scroll and
+        # no full redraw.  Frames: 0 initial, 1 j, 2-3 count, 4 l, 5 i,
+        # 6 Enter
+        self.run_test_screen(
+            "Enter keeping the line's height draws from the split",
+            "x\n" + "a" * 25 + "\nnext\nl3\nl4\n",
+            b"j20li\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(1, "a" * 20), (2, "aaaaa"), (3, "next")],
+            expect_cursor=(2, 0),
+            expect_content_rows=[(6, {2})],
+        )
+        # Text + Enter typed ahead at the end of a wrapped line: drawn from
+        # the row where the batch began, not the line's first row.
+        # Frames: 0 initial, 1 j, 2 A, 3 the batch
+        prose = "The quick brown fox jumps over the lazy dog and keeps on " \
+            "running far away. " * 3
+        self.run_test_screen(
+            "Batched text + Enter at end of wrapped line: drawn rows",
+            "x\n" + prose + "\nnext\n",
+            b"jAfoo\rbar\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(3, prose[160:] + "foo"), (4, "bar"),
+                          (5, "next")],
+            expect_cursor=(4, 2),
+            expect_content_rows=[(3, {3, 4})],
+        )
+
         # dd on last wrapped line when VIEW_TOP needs adjusting.
         # 5 rows (4 content + 1 status), 10 cols.
         # Lines: "A\nB\n" + "C"*15 (wraps to 2 rows) = 4 screen rows.

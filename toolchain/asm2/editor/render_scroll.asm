@@ -80,63 +80,22 @@ render_line_insert_scroll:
   ; Scroll the region from its start row (1-based) to SCREEN_ROWS-1 down:
   ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
   ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the rows the
-;            cursor line keeps)
-  ;   $05: from the old cursor row (CURSOR_ROW - SCROLL_DELTA) + 2, or + 1
-  ;        for a start-of-line Enter batch (INSERT_LINE_COUNT = 3)
-  LDA RENDER_FLAG
-  CMP #RF_ENTER
-  BEQ .scroll_at_enter
-  CMP #RF_UNJOIN
+  ;            cursor line keeps)
+  LDA CURSOR_ROW
+  LDX RENDER_FLAG
+  CPX #RF_UNJOIN
   BEQ .scroll_skip_cursor_ins
-  CMP #RF_SPLIT
-  BNE .scroll_at_cursor
+  CPX #RF_SPLIT
+  BNE .to_one_based
 .scroll_skip_cursor_ins:
   JSR set_first_row
   CLC
   ADC PREV_LINE_ROWS     ; past end of cursor line (0-based)
-  JMP .to_one_based
-.scroll_at_enter:
-  LDA #1
-  CMP INSERT_LINE_COUNT  ; C=0: start-of-line batch (3)
-  LDA CURSOR_ROW
-  SBC SCROLL_DELTA       ; old cursor row (- 1 for start of line)
-  CLC
-  ADC #2
-  JMP .set_scroll_start
-.scroll_at_cursor:
-  LDA CURSOR_ROW
 .to_one_based:
   CLC
   ADC #1           ; Convert to 1-based
-.set_scroll_start:
   LDX #'T'               ; scroll down
   JSR scroll_region_from_a
-
-  ; For Enter ($05): render split line + blank lines + cursor line
-  LDA RENDER_FLAG
-  CMP #RF_ENTER
-  BNE .no_enter_render
-  ; If start/end-of-line Enter, scroll handled everything - just update status
-  LDA INSERT_LINE_COUNT
-  LSR                        ; bit 0
-  BCS .enter_status_only
-  ; Render SCROLL_DELTA + 1 rows starting at old cursor row
-  LDA CURSOR_ROW
-  SEC
-  SBC SCROLL_DELTA
-  STA RENDER_ROW
-  INC SCROLL_DELTA           ; +1 for the split line row
-  JMP find_and_render
-.enter_status_only:
-  ; A one-row region (the last text row) is not scrolled, so it still
-  ; holds the line below: draw the new cursor line there
-  LDA ANSI_ROW
-  CMP ANSI_COL
-  BNE .enter_done
-  JMP render_from_first_row_limited
-.enter_done:
-  JMP render_finish
-.no_enter_render:
 
   ; If INSERT_LINE_COUNT is set, the actual repaint needs more rows than the
   ; scroll (e.g., cc undo: net file delta < inserted line count).
@@ -199,6 +158,95 @@ render_range_repaint:
   JMP render_from_first_row_limited
 .rr_full:
   JMP render_screen
+
+; Enter batch (RENDER_FLAG=$05): the batch deleted no newline, so it
+; began on one line of PREV_LINE_ROWS rows from screen row F and split it
+; into the fd + 1 lines that end at the cursor line (fd = RENDER_LIMIT).
+; The rows below the old line scroll down by the growth in rows, then the
+; new lines are drawn from the row of the first column the batch changed
+; (RENDER_FROM_COL16) to their end.  F is kept mod 256: the old line may
+; start above the view (its later rows on screen); then the drawing
+; starts at the top row.  A pure Enter batch at the start of the line
+; (INSERT_LINE_COUNT = $FF) scrolls from F instead, moving the whole line
+; down, and one at its end (1) opens the new empty lines: both are drawn
+; by the scroll alone, unless its region was one row that could not be
+; scrolled (only at the end of the line: the cursor line is then drawn
+; there).  Text that shrank (BS/Del in the batch) or rows over 255 are
+; drawn in full.
+render_enter_split:
+  JSR ansi_cursor_hide
+  ; RENDER_LINE16 = the first line of the split = FILE_LINE16 - fd
+  SEC
+  SBC16_8 FILE_LINE16, RENDER_LIMIT, RENDER_LINE16
+  ; RENDER_WRAP = CURSOR_ROW - F = WRAP_QUOT + the rows of the fd lines
+  ; above the cursor line
+  LDA RENDER_LIMIT
+  JSR compute_delete_screen_rows
+  LDA DELETE_SCREEN_ROWS
+  BEQ .full                    ; over 255
+  CLC
+  ADC WRAP_QUOT
+  BCS .full
+  STA RENDER_WRAP
+  ; RENDER_ROW = F
+  EOR #$FF
+  SEC
+  ADC CURSOR_ROW
+  STA RENDER_ROW
+  ; CUR_LINE_ROWS = the new lines' rows (those and the cursor line's)
+  JSR file_line_rows
+  CLC
+  ADC DELETE_SCREEN_ROWS
+  BCS .full
+  STA CUR_LINE_ROWS
+  ; SCROLL_DELTA = the growth
+  SEC
+  SBC PREV_LINE_ROWS
+  BCC .full                    ; shrank
+  STA SCROLL_DELTA
+  BEQ .draw                    ; the same height: nothing to scroll
+  ; Scroll down from below the old line (from F at the line's start)
+  LDA RENDER_ROW
+  LDX INSERT_LINE_COUNT
+  BMI .scroll
+  CLC
+  ADC PREV_LINE_ROWS
+.scroll:
+  CLC
+  ADC #1                       ; 1-based
+  LDX #'T'                     ; scroll down
+  JSR scroll_region_from_a     ; C=0: not scrolled
+  LDX INSERT_LINE_COUNT
+  BEQ .draw                    ; not a pure Enter batch at either end
+  BCS render_finish
+  JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
+.draw:
+  ; Draw from row F + q (q = the first changed column's row; the top row
+  ; if that is above the view) to the last new row, F + CUR_LINE_ROWS - 1
+  CP16 RENDER_FROM_COL16, DIV_INPUT16
+  JSR div_mod_screen_cols_16   ; X = q
+  STX RENDER_COL
+  LDA RENDER_WRAP
+  SEC
+  SBC RENDER_COL               ; CURSOR_ROW - (F + q) >= 0
+  EOR #$FF
+  SEC
+  ADC CURSOR_ROW               ; F + q; C=0: above the view
+  BCS .from_row
+  LDA #0
+.from_row:
+  STA RENDER_COL
+  LDA RENDER_ROW
+  CLC
+  ADC CUR_LINE_ROWS
+  SEC
+  SBC RENDER_COL
+  STA SCROLL_DELTA             ; rows from there to the last new row
+  LDA RENDER_COL
+  STA RENDER_ROW
+  JMP find_and_render
+.full:
+  JMP render_from_top
 
 ; === Scroll-region helpers ===
 ; Line-delete scroll: the region [A .. SCREEN_ROWS-1] (A = 1-based first
