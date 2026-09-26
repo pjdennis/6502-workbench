@@ -635,11 +635,8 @@ sub_change_insert:
 
 ; --- Change to EOL (C) ---
 normal_change_to_eol:
-  JSR check_cursor_in_line
+  JSR dollar_range_setup
   BCS sub_change_insert
-
-  JSR get_count
-  JSR compute_dollar_range
   JMP sub_change_tail
 
 ; --- Replace char (r) ---

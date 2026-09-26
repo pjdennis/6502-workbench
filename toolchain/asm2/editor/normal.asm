@@ -195,18 +195,6 @@ normal_delete_char_back:
 .done:
   JMP clear_count
 
-normal_delete_to_eol:
-  JSR check_cursor_in_line
-  BCS .done
-
-  JSR get_count
-  JSR compute_dollar_range
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
-  LDA #OP_DELETE
-  JSR apply_char_operator
-.done:
-  JMP clear_count
-
 ; dd: yank then delete N lines (N = count, min 1)
 ; When batched (BATCH_EXTRA > 0): yank only the last line, then delete
 ; all N lines in a single operation (one shift, one rebuild).

@@ -401,61 +401,68 @@ copy_line_to_nl:
   BNE copy_line_to_nl
   RTS
 
-; --- Dollar motion operations: d$, y$, d0, y0 ---
+; --- Dollar and zero motion operations: D, d$, y$, d0, y0 (C in
+; normal_edit.asm shares dollar_range_setup) ---
 
-; Shared d0/y0 core: apply operator in A from BOL to cursor
-; (BUF_LEN16 = cursor col, cursor moved to col 0)
-zero_col_op:
-  PHA                         ; Save operator (CP16/LDA clobber A)
-  ; BUF_LEN16 = CURSOR_COL16 (bytes from BOL to cursor)
-  CP16 CURSOR_COL16, BUF_LEN16
-  ; Move cursor to col 0 (operation is forward from cursor)
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  PLA
-  JMP apply_char_operator
-
-; d0 handler: delete from BOL to cursor (count ignored)
-do_d_zero:
-  TST16 CURSOR_COL16
-  BEQ .done                   ; Already at col 0, nothing to delete
-  LDA #OP_DELETE
-  JSR zero_col_op
-.done:
-  JMP clear_count
-
-; y0 handler: yank from BOL to cursor (count ignored)
+; y0 / d0: yank / delete from BOL to the cursor (count ignored).  y0
+; leaves the cursor where it was; d0 leaves it at col 0.
 do_y_zero:
-  TST16 CURSOR_COL16
-  BEQ .done                   ; Already at col 0, nothing to yank
-  ; Save cursor col, restore after yank
   PUSH16 CURSOR_COL16
-  LDA #OP_YANK
-  JSR zero_col_op
+  LDX #OP_YANK
+  JSR zero_col_op             ; (ends with clear_count)
   POP16 CURSOR_COL16
+  RTS
+do_d_zero:
+  LDX #OP_DELETE
+zero_col_op:
+  CP16 CURSOR_COL16, BUF_LEN16 ; BUF_LEN16 = bytes from BOL to cursor
+  ORA BUF_LEN16
+  BEQ .done                   ; Already at col 0: nothing to do
+  LDA #0
+  STA_LH16 CURSOR_COL16       ; Operate forward from col 0
+  TXA
+  JSR apply_char_operator
 .done:
   JMP clear_count
 
-; d$ handler: delete from cursor to EOL, with count support
-do_d_dollar:
-  LDA #OP_DELETE
-  BNE dy_dollar_common        ; Always taken (OP_DELETE = 1)
-
-; y$ handler: yank from cursor to EOL, with count support
-do_y_dollar:
-  LDA #OP_YANK
-  ; fall through
-dy_dollar_common:
-  PHA                         ; Save operator
-  JSR get_count
+; Shared $-range setup for D, d$, y$ and C: carry set if the cursor is
+; not on a char (empty line); else carry clear and BUF_LEN16 = bytes
+; from the cursor to the end of the count-th line
+dollar_range_setup:
   JSR check_cursor_in_line
-  BCS .bail
+  BCS .ret
+  JSR get_count
   JSR compute_dollar_range
+  CLC
+.ret:
+  RTS
+
+; y$: yank from the cursor to EOL (count lines)
+do_y_dollar:
+  LDX #OP_YANK
+  BEQ dollar_op               ; Always taken (OP_YANK = 0)
+
+; d$: delete from the cursor to EOL (count lines), repainting the whole
+; line (D below repaints from the cursor)
+do_d_dollar:
+  LDX #OP_DELETE
+  BNE dollar_op               ; Always taken (OP_DELETE = 1)
+
+; D: delete from the cursor to EOL (count lines)
+normal_delete_to_eol:
+  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  LDX #OP_DELETE
+  ; fall through
+
+; Apply operator X to the $ range, if any
+dollar_op:
+  TXA
+  PHA                         ; Save operator
+  JSR dollar_range_setup
   PLA
+  BCS .done                   ; Empty line: nothing to do
   JSR apply_char_operator
-  JMP clear_count
-.bail:
-  PLA
+.done:
   JMP clear_count
 
 ; Compute byte range for $ motion with count
