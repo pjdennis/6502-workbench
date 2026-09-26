@@ -100,9 +100,7 @@ undo_handle:
   JSR undo_restore_line
   JSR set_buf_temp16_one
   ; Check if current line is empty (should be if cc + ESC without typing)
-  JSR get_current_line_len
-  STAX16 LINE_LEN16
-  TST16 LINE_LEN16
+  JSR get_line_len_z
   BNE .undo_line_paste       ; Line has content (shouldn't happen if insert
                              ; exited clean, but be safe)
   ; Delete the blank line (with mark adjustment)
@@ -191,9 +189,7 @@ undo_handle:
   JSR compute_delete_rows_at_cursor
   JSR delete_current_lines
   ; Insert blank line at FILE_LINE16 (like cc does)
-  JSR get_current_line_len
-  STAX16 LINE_LEN16
-  TST16 LINE_LEN16
+  JSR get_line_len_z
   BEQ .redo_cc_done
   JSR get_current_line_ptr
   LDA #'\n'
