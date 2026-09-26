@@ -191,8 +191,7 @@ insert_spaces_core:
   JSR copy_line_to_nl
 
   INC SHIFT_LINE_IDX
-  DEC16 BUF_TEMP16
-  TST16 BUF_TEMP16
+  JSR dec_buf_temp16
   BNE .redist
 
   JSR buf_rebuild_lines
@@ -348,6 +347,10 @@ shift_count_line:
   ADDA16 COUNT16
   INC SHIFT_LINE_IDX
   INC16 LINE_LEN16
+  ; fall through
+
+; BUF_TEMP16 -= 1; Z = 1 if it reached 0.  Clobbers A
+dec_buf_temp16:
   DEC16 BUF_TEMP16
   TST16 BUF_TEMP16
   RTS
@@ -448,7 +451,7 @@ compute_dollar_range:
 
 .multiline:
   ; remaining = count - 1
-  DEC16 BUF_TEMP16
+  JSR dec_buf_temp16
   ; next_line = FILE_LINE16 + 1
   CLC
   ADCI16 FILE_LINE16, 1, COUNT16
@@ -474,8 +477,7 @@ compute_dollar_range:
 
   ; Next line
   INC16 COUNT16
-  DEC16 BUF_TEMP16
-  TST16 BUF_TEMP16
+  JSR dec_buf_temp16
   BNE .add_line
 
 .done:

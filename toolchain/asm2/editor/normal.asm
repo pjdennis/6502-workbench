@@ -210,7 +210,7 @@ do_dd:
   ; Batched: yank last line only, then delete all in one operation
   PUSH16 BUF_TEMP16          ; Save total count
   ; Yank 1 line at FILE_LINE16 + (total - 1)
-  DEC16 BUF_TEMP16
+  JSR dec_buf_temp16
   CLC
   LDA FILE_LINE16
   ADC BUF_TEMP16
