@@ -39,7 +39,7 @@ project's 6502 emulator in console/ANSI mode.
 
 ### Mode handlers
 - `normal.asm`: normal-mode main handler, dispatch tables (movement /
-  editing / pending-combo), count prefix handling, x/X/D/dd, insert entry,
+  editing / pending-combo), count prefix handling, x/X/dd, insert entry,
   o/O.
 - `normal_move.asm`: normal-mode movement commands (h/l/j/k, 0/$, G/gg,
   Ctrl-F/B/D/U, search entry and n/N, mark set/jump, command mode entry)
@@ -48,7 +48,8 @@ project's 6502 emulator in console/ANSI mode.
   lines, substitute, change, replace).
 - `normal_shift.asm`: indent/unindent (`>>`/`<<`) built on shared
   insert/remove-spaces cores (also used by range commands and undo),
-  dollar/word operator commands, line-content helpers.
+  D/d$/y$/d0/y0 and the word operators (dw/db/de, cw/cb/ce),
+  line-content helpers.
 - `normal_util.asm`: shared utilities — generic key dispatcher, cursor/line
   helpers, vertical/horizontal movement and clamping, count prefix system,
   pair batching, line/char yank-and-delete and the x/X batched delete.
@@ -60,8 +61,8 @@ project's 6502 emulator in console/ANSI mode.
 
 ### Feature modules
 - `word.asm`: word motions — character classification
-  (whitespace/word/punctuation), `w`/`b`/`e`/`^`, scan helpers for
-  dw/db/cw/cb.
+  (whitespace/word/punctuation), `w`/`b`/`e`/`^`, and the multi-line
+  range routines of the word operators (dw/db/de, cw/cb/ce, yw/yb/ye).
 - `yank.asm`: 4KB yank/paste buffer ($E000-$EFFF) — line yank and character
   yank types, multi-paste (Np).
 - `search.asm`: forward (`/`) and backward (`?`) literal string search,

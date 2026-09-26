@@ -1,7 +1,9 @@
 ; Normal-mode shift and span operations: >> / << (with the shared
 ; insert/remove space cores used by range commands and undo), plus
-; line-content helpers and dollar/word operator commands.  Split from
-; normal_edit.asm; see that file for paste/join/substitute/replace.
+; line-content helpers, the dollar and zero commands (D, d$, y$, d0, y0;
+; C in normal_edit.asm shares the $ range setup) and the word operators
+; (dw/db/de, cw/cb/ce; yw/yb/ye in normal_move.asm enter here).  Split
+; from normal_edit.asm; see that file for paste/join/substitute/replace.
 
 
 ; --- Indent (>>) and unindent (<<) ---

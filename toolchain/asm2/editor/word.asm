@@ -1,6 +1,7 @@
 ; Word motion support - character classification and word boundary routines
 ;
-; Provides char_class (classify byte) and word motions w, b, e.
+; Provides char_class (classify byte), the word motions w, b, e and ^,
+; and the multi-line word range routines of the word operators.
 
   .zeropage
 
@@ -107,7 +108,6 @@ word_forward_x:
   LDX NORMAL_TEMP
   DEX
   BNE .w_loop
-.w_done_final:
   RTS
 
   ; At end of line - go to next line col 0 (acts like reaching word start)
