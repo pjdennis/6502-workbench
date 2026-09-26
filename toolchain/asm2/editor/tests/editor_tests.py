@@ -19131,6 +19131,57 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # An Enter batch that also typed or deleted characters: the line's
+        # old height is the one before the batch, not one worked out from
+        # the lengths after it (which count the typed chars as old text).
+        # A 39-char line (1 row) with "xyz" typed before two Enters.
+        self.run_test_screen(
+            "Batched text + Enters: old height from before the batch",
+            "0123456789" * 3 + "012345678\n"
+            + "".join(f"l{i}\n" for i in range(2, 10)),
+            b"5lixyz\r\r\x1b:q!\r",
+            expect_lines=[
+                (0, "01234xyz"),
+                (1, ""),
+                (2, "5678901234567890123456789012345678"),
+                (3, "l2"),
+                (4, "l3"),
+            ],
+            expect_cursor=(2, 0),
+        )
+        # Typed text makes the old 1-row line wrap before the split, so it
+        # grows by 2 rows, not 1
+        self.run_test_screen(
+            "Batched text + Enter wrapping the line: screen",
+            "line 1\nline 2\nline 3" + "y" * 30 + "\nline 4\nline 5\n",
+            b"3GAyyyyyy\rz\x1b:q!\r",
+            expect_lines=[
+                (2, "line 3" + "y" * 34),
+                (3, "yy"),
+                (4, "z"),
+                (5, "line 4"),
+                (6, "line 5"),
+                (7, "~"),
+            ],
+            expect_cursor=(4, 0),
+        )
+        # Backspaces in the batch: the 41-char line (2 rows) splits into
+        # two 1-row lines, so its height does not change
+        self.run_test_screen(
+            "Batched BS + Enter keeping the line's height: screen",
+            "0123456789" * 4 + "X\nl2\nl3\nl4\n",
+            b"30li\x08\x08\r\x1b:q!\r",
+            expect_lines=[
+                (0, "0123456789012345678901234567"),
+                (1, "0123456789X"),
+                (2, "l2"),
+                (3, "l3"),
+                (4, "l4"),
+                (5, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+
         # dd on last wrapped line when VIEW_TOP needs adjusting.
         # 5 rows (4 content + 1 status), 10 cols.
         # Lines: "A\nB\n" + "C"*15 (wraps to 2 rows) = 4 screen rows.

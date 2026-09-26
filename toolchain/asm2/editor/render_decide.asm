@@ -41,7 +41,8 @@
 ;                              one block (render_rows_resized).
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $05   insert-mode Enter      Cursor on the last line of the split, which
-;                              began at line FILE_LINE16 - delta.
+;                              began at line FILE_LINE16 - delta, of
+;                              PREV_LINE_ROWS rows before the batch.
 ;                              INSERT_LINE_COUNT = 1: pure-Enter batch.
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
 ;       join, cc, redo J/cc    DELETE_SCREEN_ROWS = all their rows before the
@@ -234,9 +235,6 @@ render_decide:
   CMP #RF_ENTER
   BNE .do_walk
   ; --- Enter displacement: compare old vs new total screen rows ---
-  ; Save file_delta (RENDER_LIMIT will be overwritten with old_total)
-  LDA RENDER_LIMIT
-  PHA
   ; len(line_above), line above = FILE_LINE16 - file_delta
   LDX FILE_LINE16 + 1
   LDA FILE_LINE16
@@ -271,17 +269,6 @@ render_decide:
   LDX #$00                   ; middle split
 .save_enter_type:
   STX INSERT_LINE_COUNT
-  ; old_length = len_above + len_cursor
-  LDA SCROLL_DELTA           ; reload len_cursor_lo
-  CLC
-  ADC RENDER_LINE16
-  TAY
-  LDA DELETE_SCREEN_ROWS
-  ADC RENDER_LINE16 + 1
-  TAX
-  TYA                       ; A/X = old_length
-  JSR line_screen_rows      ; A = old_total
-  STA RENDER_LIMIT          ; save old_total
   ; rows_above = screen_rows(len_above)
   LDAX16 RENDER_LINE16
   JSR line_screen_rows
@@ -293,17 +280,14 @@ render_decide:
   ; new_total = rows_above + rows_cursor + (file_delta - 1) blank lines
   CLC
   ADC RENDER_LINE16          ; A = rows_above + rows_cursor
-  STA SCROLL_DELTA           ; temp save
-  PLA                        ; file_delta
-  SEC
-  SBC #1                     ; file_delta - 1 (blank lines)
   CLC
-  ADC SCROLL_DELTA           ; A = rows_above + rows_cursor + file_delta - 1
-  ; displacement = new_total - old_total
-  SEC
-  SBC RENDER_LIMIT
+  ADC RENDER_LIMIT           ; + file_delta
+  ; displacement = new_total - old_total, the line's rows before the
+  ; batch (typed or deleted chars may have changed its length)
+  CLC
+  SBC PREV_LINE_ROWS         ; - 1 - old_total
   BEQ .enter_no_disp
-  BCC .enter_no_disp         ; safety: can't be negative
+  BCC .enter_no_disp         ; shrank (BS/Del in the batch)
   STA SCROLL_DELTA
   BNE .no_disp_adjust        ; Always taken (A > 0)
 .enter_no_disp:
