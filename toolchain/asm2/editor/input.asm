@@ -119,7 +119,7 @@ read_key:
   ; ESC[N~ (see .tilde_tbl), or ESC[N;5C / ESC[N;5D = Ctrl+Right / Ctrl+Left
   CMP #'1'
   BCC .eat
-  CMP #'7'
+  CMP #'9'
   BCS .eat
   TAX                     ; X = digit (input_read_byte preserves X)
   JSR input_read_byte
@@ -180,8 +180,9 @@ read_key:
 
 .final_tbl:               ; ESC[A .. ESC[H
   .byte KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT, $00, KEY_END, $00, KEY_HOME
-.tilde_tbl:               ; ESC[1~ .. ESC[6~ ($00 = no-op)
-  .byte $00, $00, KEY_DEL, $00, KEY_PGUP, KEY_PGDN
+.tilde_tbl:               ; ESC[1~ .. ESC[8~ ($00 = no-op: 2 is Insert)
+  .byte KEY_HOME, $00, KEY_DEL, KEY_END, KEY_PGUP, KEY_PGDN
+  .byte KEY_HOME, KEY_END ; rxvt's 7 and 8 (1 and 4 elsewhere)
 
 ; Check for a decoded key without consuming it (non-blocking)
 ; Returns: C=1 and A = key if one is available (it stays buffered;

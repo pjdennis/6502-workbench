@@ -11168,6 +11168,21 @@ class EditorTestRunner:
             expect_lines=[(0, "Line 10")],
         )
 
+        # Tilde forms of Home/End: ESC[1~ / ESC[4~ (Linux console, tmux,
+        # screen, PuTTY) and ESC[7~ / ESC[8~ (rxvt)
+        for seq in (b"\x1b[1~", b"\x1b[7~"):
+            self.run_test(f"Home as {seq[1:]!r} in normal mode", "hello\n",
+                          b"$" + seq + b"x:wq\r", expected_content="ello\n")
+            self.run_test(f"Home as {seq[1:]!r} in insert mode", "hello\n",
+                          b"$i" + seq + b"X\x1b:wq\r",
+                          expected_content="Xhello\n")
+        for seq in (b"\x1b[4~", b"\x1b[8~"):
+            self.run_test(f"End as {seq[1:]!r} in normal mode", "hello\n",
+                          seq + b"x:wq\r", expected_content="hell\n")
+            self.run_test(f"End as {seq[1:]!r} in insert mode", "hello\n",
+                          b"i" + seq + b"X\x1b:wq\r",
+                          expected_content="helloX\n")
+
         # SS3 sequences (ESC O <final>) - F1-F4 on some terminals.
         # In normal mode they are no-ops: the x proves the editor is still
         # in normal mode afterwards (without it, ':wq' typed as text would
