@@ -9,16 +9,12 @@ normal_move_left:
 
 normal_move_right:
   JSR get_batched_count
-  ; Hoist line length calculation outside loop (line doesn't change)
-  STX BUF_TEMP           ; Save count
-  JSR get_line_len_z
-  BEQ .right_done        ; Empty line
-  LDX BUF_TEMP           ; Restore count
+  ; Move right X columns (X = 0: 256), then clamp to the last char
+  DEX
+  TXA
   SEC
-  SBCI16 LINE_LEN16, 1, LINE_LEN16  ; LINE_LEN16 = len - 1
-  JSR move_right_x
-.right_done:
-  JMP clear_count
+  ADCA16 CURSOR_COL16, CURSOR_COL16
+  JMP clamp_and_clear_count
 
 normal_move_down:
   JSR get_batched_count
@@ -240,16 +236,9 @@ normal_line_start:
   JMP clear_count
 
 normal_line_end:
-  JSR get_line_len_z
-  BEQ .empty
-  SEC
-  SBCI16 LINE_LEN16, 1, CURSOR_COL16
-  JMP .ecv
-.empty:
-  LDA #0
-  STA_LH16 CURSOR_COL16
-.ecv:
-  JMP clear_count
+  LDA #$FF
+  STA_LH16 CURSOR_COL16      ; Past any line end; clamp to the last char
+  JMP clamp_and_clear_count
 
 normal_goto_last:
   ; If count is set, go to line N (1-based)

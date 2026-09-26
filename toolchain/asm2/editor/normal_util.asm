@@ -179,7 +179,7 @@ move_left_x:
 .done:
   RTS
 
-; Move right X positions, clamped to LINE_LEN16
+; Move right X positions, clamped to LINE_LEN16 (insert-mode Right)
 ; Input: X = count, LINE_LEN16 = max col. Clobbers: A, X
 move_right_x:
   CMP16 CURSOR_COL16, LINE_LEN16
