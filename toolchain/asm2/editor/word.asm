@@ -370,9 +370,9 @@ first_nonblank_clear:
   JSR first_nonblank
   JMP clear_count
 
-; Cursor to the first non-blank char of its line.  An empty or all-space
-; line leaves it at col 0 (its first byte, or the first non-space, is the
-; newline).  Clobbers A, X, Y, BUF_PTR16
+; Cursor to the first non-blank char of its line.  On a line of spaces it
+; goes to the last one, as in vim; on an empty line to col 0 (and past
+; 255 leading spaces, to col 0 too).  Clobbers A, X, Y, BUF_PTR16
 first_nonblank:
   LDA #0
   STA_LH16 CURSOR_COL16
@@ -386,7 +386,11 @@ first_nonblank:
   BNE .scan               ; (256 spaces: Y = 0, lands on col 0 below)
 .not_space:
   CMP #'\n'
-  BEQ .done               ; Empty or all-space line: col 0
+  BNE .found
+  TYA
+  BEQ .done               ; Empty line: col 0
+  DEY                     ; Only spaces: the last one
+.found:
   STY CURSOR_COL16        ; First non-blank at offset Y
 .done:
   RTS

@@ -7510,6 +7510,15 @@ class EditorTestRunner:
                 expect_status_contains=status
             )
 
+        # On a line of blanks the first non-blank is the last blank (vim)
+        for what, content, keys, cursor in (
+            ("G", "x\n   \n", b"G", (1, 2)),
+            ("dd", "x\n    \n", b"dd", (0, 3)),
+        ):
+            self.run_test_screen(
+                f"{what} onto a line of blanks stops on the last blank",
+                content, keys + b":q!\r", expect_cursor=cursor)
+
         # Typed ahead, dd and Ctrl-D land where one at a time would: on the
         # first non-blank of the line they end on
         self.run_test(
@@ -10860,11 +10869,12 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # vim stops on the last space (it went to col 0)
         self.run_test_screen(
-            "^ on all-spaces line stays at col 0",
+            "^ on all-spaces line goes to the last space",
             "   \n",
             b"^:q!\r",
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 2),
         )
 
         self._group("Delete word (dw):", leading_blank=True)
