@@ -5,20 +5,6 @@
 normal_handle_key:
   STA BUF_TEMP
 
-  ; --- Count prefix handling ---
-  ; While a count is being typed (COUNT_ACTIVE, never with a pending
-  ; key), '0'-'9' extend it; any other key ends it and is dispatched
-  LDX COUNT_ACTIVE
-  BEQ .not_counting
-  CMP #'9' + 1
-  BCS .count_done
-  CMP #'0'
-  BCS .digit
-.count_done:
-  LDX #0
-  STX COUNT_ACTIVE
-.not_counting:
-
   ; Pending key: dispatch the pair; ESC or no match clears count and key
   LDX LAST_KEY
   BEQ .no_pending
@@ -32,16 +18,18 @@ normal_handle_key:
   JMP clear_count
 
 .no_pending:
-  ; '1'-'9' start a new count
-  CMP #'9' + 1
+  ; Count prefix: '1'-'9' start or extend a count, '0' extends one.  A
+  ; count is being typed exactly when COUNT16 != 0 with no pending key,
+  ; because every command ends in clear_count
+  EOR #'0'                   ; '0'-'9' -> 0-9, any other key -> 10 or more
+  CMP #10
   BCS .dispatch
-  CMP #'1'
-  BCC .dispatch
-  LDX #$FF
-  STX COUNT_ACTIVE
-  LDX #0
-  STX COUNT16
-  STX COUNT16 + 1
+  TAX
+  BNE .digit                 ; '1'-'9'
+  LDX COUNT16
+  BNE .digit                 ; '0' within a count
+  LDX COUNT16 + 1
+  BEQ .dispatch              ; '0' alone: line start
 .digit:
   JMP count_accumulate_digit
 

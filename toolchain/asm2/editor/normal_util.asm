@@ -296,14 +296,13 @@ set_render_clear_count:
   STA RENDER_FLAG
   ; fall through
 
-; Clear count state: zeroes COUNT16, COUNT_ACTIVE, LAST_KEY
+; Clear count state: zeroes COUNT16, LAST_KEY
 ; If BATCH_RESTORE_KEY is set, restores it to LAST_KEY (for partial pair e.g. dddw)
 clear_count:
   LDA BATCH_RESTORE_KEY
   STA LAST_KEY
   LDA #0
   STA_LH16 COUNT16
-  STA COUNT_ACTIVE
   STA BATCH_RESTORE_KEY
   STA BATCH_EXTRA
   RTS
@@ -319,7 +318,7 @@ clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count
 
-; Accumulate digit in A ('0'-'9') into COUNT16
+; Accumulate the digit value in A (0-9) into COUNT16
 ; COUNT16 = COUNT16 * 10 + digit
 ; If COUNT16 >= 1000, digit is ignored (prevents overflow)
 ; Clobbers A, X
@@ -333,7 +332,6 @@ count_accumulate_digit:
   CPX #<1000
   BCS .done
 .has_room:
-  AND #$0F                   ; Digit value
   PHA
   ; COUNT16 = (COUNT16 * 4 + COUNT16) * 2
   LDA COUNT16
