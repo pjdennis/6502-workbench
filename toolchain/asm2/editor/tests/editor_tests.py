@@ -18237,6 +18237,47 @@ class EditorTestRunner:
             expected_content=expected_128j
         )
 
+        # A typed-ahead J must not lift the limit: one at a time, 131J is
+        # refused and the next J only dismisses the message
+        self.run_test(
+            "131J + typed-ahead J: refused, J dismisses the message",
+            content_130 + "130\n",
+            b"131JJ:wq\r",
+            expected_content=content_130 + "130\n"
+        )
+
+        self.run_test(
+            "131J, ESC, J joins one line",
+            content_130 + "130\n",
+            b"131J\x1bJ:wq\r",
+            expected_content="0 1\n" + content_130[4:] + "130\n"
+        )
+
+        # 1J joins two lines like J (vi and vim: a count below 2 joins two)
+        self.run_test(
+            "1J joins two lines",
+            "a\nb\nc\n",
+            b"1J:wq\r",
+            expected_content="a b\nc\n"
+        )
+
+        # A count past the lines left joins them all (as in vim)
+        self.run_test(
+            "999J on a short file joins every line",
+            "a\nb\nc\n",
+            b"999J:wq\r",
+            expected_content="a b c\n"
+        )
+
+        # A refused count costs no line walk: the limit is checked first
+        # (the whole run took 517,195 cycles, now 437,215)
+        self.run_test_cycle_cap(
+            "999J refused without walking the lines",
+            make_lines(400),
+            b"999J\x1b:q!\r",
+            470000
+        )
+
         # J undo preserves mark below
         # ma on C (line 2), go to line 0, J joins A+B, undo restores,
         # mark should still be on C (line 2)

@@ -11,6 +11,9 @@
   Counts over 255 - h, l, j, k, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a
   count of 256 or more as 255, so 300j moves 255 lines and 300x deletes 255 characters. Vi takes the whole count.
 
+  J with a count over 129 - Is refused with "Too many lines to join", as the joins are kept for undo in one 256-byte
+  page. Vi joins them all.
+
   r with a count over 255 - Replaces 255 characters (r<Enter> too: 300r<Enter> takes 255 characters into the line
   break), as the replaced characters are kept for undo in one 256-byte page. Vi replaces them all.
 
@@ -22,8 +25,6 @@
   gg - Always goes to line 1. In vi, 5gg goes to line 5 (like 5G). The count is completely ignored.
 
   $ - Always goes to end of current line. In vi, 3$ goes to the end of the line 2 below.
-
-  1J - Does nothing. Vi treats a count of 1 like J and joins two lines.
 
   Word commands
 

@@ -406,53 +406,64 @@ normal_toggle_case:
   JMP clear_count
 
 ; --- Join lines (J) ---
+; NJ joins N-1 lines, J and 1J one, and each typed-ahead J one more (undo
+; then covers the last J's join).  The count's joins, at most the lines
+; below, must fit the undo record: that is checked first, before any
+; other work and before the typed-ahead J's are taken, which then run
+; one at a time (the first dismisses the message), as when typed singly
 normal_join_lines:
   JSR undo_clear
-  JSR get_batched_count      ; X = count + pending, BATCH_EXTRA = pending
-
-  ; Adjust for explicit count: NJ joins N-1 lines
-  LDA COUNT16
-  ORA COUNT16 + 1
-  BEQ .join_start
+  JSR get_count_x            ; X = count (256 or more: 255, over the limit)
   DEX
-  BNE .join_start
-  JMP .join_done
+  BNE .joins
+  INX                        ; J and 1J: one join
+.joins:
+  ; The lines below: LINE_COUNT16 - FILE_LINE16 - 1
+  CLC                        ; (the borrow subtracts the 1)
+  SBC16 LINE_COUNT16, FILE_LINE16, BUF_TEMP16
+  JSR .clamp_joins
+  TXA
+  BEQ .join_done             ; The last line: nothing to join
+  CPX #JOIN_UNDO_MAX + 1
+  BCC .join_limit_ok
+  LDA #<str_join_limit
+  LDX #>str_join_limit
+  JSR show_message_ax
+.join_done:
+  JMP clear_count
 
-.join_start:
+; X = min(X, BUF_TEMP16)
+.clamp_joins:
+  LDA BUF_TEMP16 + 1
+  BNE .clamped
+  CPX BUF_TEMP16
+  BCC .clamped
+  LDX BUF_TEMP16
+.clamped:
+  RTS
+
+.join_limit_ok:
+  STX NORMAL_TEMP
+  JSR count_pending_key      ; X = typed-ahead J's (BUF_TEMP = 'J')
+  STX BATCH_EXTRA
+  TXA
+  CLC
+  ADC NORMAL_TEMP            ; (at most JOIN_UNDO_MAX + BATCH_MAX)
+  TAX
+  JSR .clamp_joins
   STX NORMAL_TEMP            ; NORMAL_TEMP = number of joins to do
 
-  ; Clamp to available lines: can join at most LINE_COUNT16 - FILE_LINE16 - 1
-  CLC                        ; (the borrow subtracts the 1)
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_TEMP16 ; BUF_TEMP16 = available joins
-  LDA BUF_TEMP16 + 1
-  BNE .clamp_ok              ; > 255 available, no clamp needed
-  LDA BUF_TEMP16
-  CMP NORMAL_TEMP
-  BCS .clamp_ok
-  STA NORMAL_TEMP
-.clamp_ok:
-  LDA NORMAL_TEMP
-  BNE .join_has_work
-  JMP .join_done
-.join_has_work:
-
   ; Pre-compute old_total screen rows for displacement-based scroll
-  LDA NORMAL_TEMP
+  TXA
   JSR compute_delete_rows_join
 
-  ; Compute undo_count: if batching → 1, else → NORMAL_TEMP
+  ; Undo count: batched, 1 (the last J), else all of the joins
   LDA NORMAL_TEMP
   LDX BATCH_EXTRA            ; batching flag
   BEQ .set_undo_count
   LDA #1
 .set_undo_count:
   STA UNDO_JOIN_COUNT
-
-  ; Limit check: undo_count must fit in UNDO_DATA_BUF
-  CMP #JOIN_UNDO_MAX + 1
-  BCC .join_limit_ok
-  JMP .join_limit_exceeded
-.join_limit_ok:
 
   ; Record undo state
   CP16 FILE_LINE16, UNDO_LINE16
@@ -528,16 +539,7 @@ normal_join_lines:
 
   LDA #RF_JOIN           ; Signal line-delete, skip cursor row scroll
   JSR set_modified_render
-  JSR clamp_cursor_col
-
-.join_done:
-  JMP clear_count
-
-.join_limit_exceeded:
-  LDA #<str_join_limit
-  LDX #>str_join_limit
-  JSR show_message_ax
-  JMP clear_count
+  JMP clamp_and_clear_count
 
 str_join_limit: .asciiz "Too many lines to join"
 

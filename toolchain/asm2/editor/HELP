@@ -116,6 +116,8 @@ All editing commands are blocked in read-only mode.
                  Advances cursor after each toggle
   J              Join current line with next line (accepts count: [N]J)
                  Replaces newline with a space. With count N, joins N lines
+                 (1J joins two). Up to 129 lines join at a time: more is
+                 refused with "Too many lines to join"
   >>             Indent current line by 2 spaces (accepts count: [N]>>)
   <<             Unindent current line by up to 2 spaces (accepts count)
   yy             Yank (copy) current line (accepts count: [N]yy)
