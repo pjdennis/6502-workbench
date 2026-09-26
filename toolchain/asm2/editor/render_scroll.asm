@@ -36,7 +36,7 @@ render_line_delete_scroll:
   CMP #RF_DEL_BELOW
   BEQ .del_bottom_rows       ; $07 (paste-below undo): cursor line unchanged
   CMP #RF_DEL
-  BEQ .dd_cursor_row
+  BEQ .cursor_row
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
   ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
   ; newlines were deleted (cursor line content unchanged).  One row (or
@@ -45,7 +45,17 @@ render_line_delete_scroll:
   BNE .del_bottom_rows
   LDA DELETE_SCREEN_ROWS
   CMP #2
-  BCC .dd_cursor_row
+  BCS .draw_line
+.cursor_row:
+  ; $02: redraw the cursor row (refilled by the scroll, except at EOF
+  ; where the cursor moved up) from the change point, as a one-row line;
+  ; a cursor on a wrap row redraws to the bottom
+  LDA WRAP_QUOT
+  BEQ .one_row
+  JMP render_from_first_row
+.one_row:
+  LDA #1
+.draw_line:
   STA CUR_LINE_ROWS
   LDA SCROLL_DELTA
   PHA                        ; bottom rows (clobbered by the line render)
@@ -54,30 +64,6 @@ render_line_delete_scroll:
   PLA
   STA SCROLL_DELTA
 .del_bottom_rows:
-  JMP render_bottom_rows_guarded
-
-.dd_cursor_row:
-  ; $02: redraw the cursor row (refilled by the scroll, except at EOF
-  ; where the cursor moved up); a cursor on a wrap row redraws to the bottom
-  LDA WRAP_QUOT
-  BEQ .dd_row0
-  JMP render_from_first_row
-.dd_row0:
-  LDA CURSOR_ROW
-  STA RENDER_ROW
-  LDA #0
-  STA RENDER_WRAP
-  ; From column 0, or from RENDER_FROM_COL16's low byte if set: a pair
-  ; typed ahead in the same frame (dw then dd) leaves dw's column
-  LDX RENDER_FROM_COL16
-  TXA
-  AND RENDER_FROM_COL16 + 1
-  CMP #$FF
-  BNE .dd_from_col
-  LDX #0                     ; $FFFF: the whole row
-.dd_from_col:
-  STX WRAP_REM
-  JSR render_partial_first_row
   JMP render_bottom_rows_guarded
 
 ; Scroll for line insertion at cursor.
