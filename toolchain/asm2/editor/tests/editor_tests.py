@@ -11878,8 +11878,9 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            # Frame 2 (dd): cursor row + bottom row touched
-            expect_content_rows=[(2, {3, 8})]
+            # Frame 2 (dd): only the bottom row is touched (the scroll
+            # already moved Line 5 into the cursor row)
+            expect_content_rows=[(2, {8})]
         )
 
         # dd at row 0: entire content area scrolls up, bottom row rendered
@@ -11894,8 +11895,8 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(0, 0),
-            # Frame 1 (dd): cursor row + bottom row touched
-            expect_content_rows=[(1, {0, 8})]
+            # Frame 1 (dd): only the bottom row is touched
+            expect_content_rows=[(1, {8})]
         )
 
         # 3dd: 3 lines deleted, 3 bottom rows need rendering
@@ -11911,8 +11912,39 @@ class EditorTestRunner:
                 (6, "Line 10"), (7, "Line 11"), (8, "Line 12"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 (3dd): cursor row + bottom 3 rows touched
-            expect_content_rows=[(2, {0, 6, 7, 8})]
+            # Frame 2 (3dd): only the bottom 3 rows are touched
+            expect_content_rows=[(2, {6, 7, 8})]
+        )
+
+        # dd with the cursor on a wrap row: the scroll already moved the
+        # next line (and all below) into place, so only the two exposed
+        # bottom rows are drawn.  Frames: 0=initial, 1=jj, 2=$, 3=dd.
+        self.run_test_screen(
+            "Scroll opt: dd with the cursor on a wrap row draws only the "
+            "exposed rows",
+            "".join(f"{i:02d} " + "abcdefghij" * 6 + "\n" for i in range(20)),
+            b"jj$dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(4, "03 " + "abcdefghij" * 3 + "abcdefg"),
+                          (5, "hij" + "abcdefghij" * 2),
+                          (6, "04 " + "abcdefghij" * 3 + "abcdefg"),
+                          (8, "05 " + "abcdefghij" * 3 + "abcdefg")],
+            expect_cursor=(5, 22),
+            expect_content_rows=[(3, {7, 8})]
+        )
+        # dd with the cursor on the next line's third row (col 45 at 20
+        # cols) when the deleted rows outnumber the rows below the cursor:
+        # the scroll still covers every deleted row from the line's first
+        # row (row 5), not only those below the cursor row
+        self.run_test_screen(
+            "Scroll opt: dd with the cursor on a wrap row scrolls every "
+            "deleted row",
+            "r0\nr1\nr2\nr3\nr4\n" + "D" * 50 + "\n" + "N" * 70 + "\nz\n",
+            b"5j45ldd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(4, "r4"), (5, "N" * 20), (6, "N" * 20),
+                          (7, "N" * 20), (8, "N" * 10)],
+            expect_cursor=(7, 5),
         )
 
         # A delete whose rows reach the bottom of the screen exposes every
@@ -11941,16 +11973,18 @@ class EditorTestRunner:
             expect_content_rows=[(2, set(range(9)))],
             expect_scrolled_at_frame=[(2, False)]
         )
+        # dd on the second-last row: the scroll moves Line 9 up into the
+        # cursor row, so only the last row is drawn.
         # Frames: 0=initial, 1=j x7 cursor, 2=dd
         self.run_test_screen(
-            "Scroll opt: dd on the second-last row repaints without scrolling",
+            "Scroll opt: dd on the second-last row draws only the last row",
             make_lines(15),
             b"j" * 7 + b"dd:q!\r",
             rows=10, cols=40,
             expect_lines=[(6, "Line 7"), (7, "Line 9"), (8, "Line 10")],
             expect_cursor=(7, 0),
-            expect_content_rows=[(2, {7, 8})],
-            expect_scrolled_at_frame=[(2, False)]
+            expect_content_rows=[(2, {8})],
+            expect_scroll_rows=[(2, {7, 8})]
         )
         self.run_test_screen(
             "Scroll opt: 2dd on the second-last row repaints the last row",
@@ -13368,8 +13402,8 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"), (8, "Short 9"),
             ],
             expect_cursor=(1, 0),
-            # Frame 2 (dd): cursor row 1 + bottom 2 rows (7, 8)
-            expect_content_rows=[(2, {1, 7, 8})]
+            # Frame 2 (dd): bottom 2 rows (7, 8) only
+            expect_content_rows=[(2, {7, 8})]
         )
 
         # p pasting a wrapped line: SCROLL_DELTA should be 2 (screen rows)

@@ -234,17 +234,11 @@ do_dd:
   BCS .yank_overflow
 
 .dd_done:
+  ; Scroll the deleted rows up: the next line moves into the cursor row,
+  ; or (at EOF) the cursor moved up onto the unchanged line above them
   JSR set_modified
   JSR clamp_cursor_col
-  LDA DELETE_SCREEN_ROWS     ; The first deleted line (low byte)
-  EOR FILE_LINE16
-  BEQ .dd_scroll
-  ; The delete reached EOF and the cursor moved up: scroll the deleted
-  ; rows up below that unchanged line ($07)
   JMP finish_delete_scroll
-.dd_scroll:
-  LDA #RF_DEL                ; Signal line-delete for scroll optimization
-  JMP set_render_clear_count
 
 .yank_overflow:
   JMP show_yank_overflow

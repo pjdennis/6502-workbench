@@ -379,7 +379,7 @@ undo_finish_not_redo:
   STA UNDO_IS_REDO
 undo_keep_render_flag:
   LDA RENDER_FLAG
-  CMP #RF_DEL
+  CMP #RF_LINE + 1
   BCS .done
   LDA #RF_LINE
   STA RENDER_FLAG
@@ -529,7 +529,7 @@ undo_restore_col:
   CP16 UNDO_COL16, CURSOR_COL16
   RTS
 
-; Delete BUF_TEMP16 lines at FILE_LINE16 for the $07 line-delete scroll
+; Delete BUF_TEMP16 lines at FILE_LINE16 for the RF_DEL line-delete scroll
 ; (finish_delete_scroll sets it once the cursor is placed)
 undo_delete_lines_scroll:
   JSR precompute_delete_scroll
@@ -538,7 +538,7 @@ undo_delete_lines_scroll:
 ; Pre-compute the line-delete scroll of the BUF_TEMP16 lines at
 ; FILE_LINE16, before they are deleted: SCROLL_DELTA = their screen rows
 ; ($FF when over 255 lines or rows), which render_decide uses as is for
-; $02 and $07 (clamped to the scroll region), and DELETE_SCREEN_ROWS =
+; RF_DEL (clamped to the scroll region), and DELETE_SCREEN_ROWS =
 ; FILE_LINE16's low byte, the first removed line, for finish_delete_scroll
 precompute_delete_scroll:
   JSR compute_delete_rows_temp16
@@ -551,7 +551,7 @@ precompute_delete_scroll:
   STA DELETE_SCREEN_ROWS
   RTS
 
-; Set the $07 line-delete scroll once the cursor is placed.  The cursor
+; Set the RF_DEL line-delete scroll once the cursor is placed.  The cursor
 ; is on the first removed line's place (the next line moved up into its
 ; rows, so the scroll region starts at the cursor line) or on the line
 ; above it (p/o undo, a delete that reached EOF), whose rows the region
@@ -575,7 +575,7 @@ finish_delete_scroll:
   JSR file_line_rows
 .set:
   STA DELETE_SCREEN_ROWS
-  LDA #RF_DEL_BELOW
+  LDA #RF_DEL
   JMP set_render_clear_count
 
 ; Restore FILE_LINE16 from the undo record, and BUF_TEMP16 = YANK_LINES16

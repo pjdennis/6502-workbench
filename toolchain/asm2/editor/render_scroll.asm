@@ -8,20 +8,17 @@
 
 ; Scroll for line deletion at cursor.
 ; SCROLL_DELTA = screen rows deleted.  The rows below the ones this path
-; redraws scroll up (scroll_up_clamped): from first_row + 1 for $02 (dd:
-; the cursor line moved up into first_row = CURSOR_ROW - WRAP_QUOT, which
-; is redrawn), from first_row for pure newline joins (INSERT_LINE_COUNT
-; 1-254), else from first_row + DELETE_SCREEN_ROWS (the cursor line's
-; rows are kept: $06/$07/$08).  Then the changed cursor line and the
-; exposed bottom rows are drawn.
+; redraws scroll up (scroll_up_clamped): from first_row (= CURSOR_ROW -
+; WRAP_QUOT) for pure newline joins (INSERT_LINE_COUNT 1-254), else from
+; first_row + DELETE_SCREEN_ROWS (the cursor line's rows that are kept:
+; $06/$08, and for $07 those of a cursor line above the deleted lines).
+; Then the changed cursor line ($06/$08) and the exposed bottom rows are
+; drawn.
 render_line_delete_scroll:
   JSR ansi_cursor_hide
   LDA CURSOR_ROW
   SEC
   SBC WRAP_QUOT              ; first_row (0-based)
-  LDX RENDER_FLAG
-  CPX #RF_DEL
-  BEQ .below_first_row       ; C=1
   LDX INSERT_LINE_COUNT
   INX
   CPX #2
@@ -29,27 +26,22 @@ render_line_delete_scroll:
   ADC DELETE_SCREEN_ROWS     ; C=0: skip the cursor line's rows
 .to_one_based:
   CLC
-.below_first_row:
-  ADC #1                     ; 1-based (+ 1 more for $02: C=1)
+  ADC #1                     ; 1-based
   JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
 
   LDA RENDER_FLAG
-  CMP #RF_DEL_BELOW
-  BEQ .del_bottom_rows       ; $07: cursor line unchanged, not redrawn
   CMP #RF_DEL
-  BEQ .cursor_row
+  BEQ .del_bottom_rows       ; $07: the cursor line is not redrawn
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
   ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
   ; newlines were deleted (cursor line content unchanged).  One row (or
-  ; 0: the pre-compute overflowed) is drawn like $02's cursor row.
+  ; 0: the pre-compute overflowed) is drawn as a one-row line from the
+  ; change point; a cursor on a wrap row redraws to the bottom.
   LDA INSERT_LINE_COUNT
   BNE .del_bottom_rows
   LDA DELETE_SCREEN_ROWS
   CMP #2
   BCS .draw_line
-.cursor_row:
-  ; $02: redraw first_row (the region starts below it) from the change
-  ; point, as a one-row line; a cursor on a wrap row redraws to the bottom
   LDA WRAP_QUOT
   BEQ .one_row
   JMP render_from_first_row

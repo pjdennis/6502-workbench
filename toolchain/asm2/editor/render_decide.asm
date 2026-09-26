@@ -30,11 +30,6 @@
 ;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
 ;                              and SHIFT_WRITE), scrolling the rows below by
 ;                              its row change from PREV_LINE_ROWS.
-; $02   dd (not reaching EOF)  Lines deleted from first_row down; the cursor
-;                              line moved up into them.  SCROLL_DELTA = rows
-;                              deleted ($FF: over 255).  Scroll up from
-;                              first_row + 1, redraw first_row (and to the
-;                              bottom if WRAP_QUOT > 0).
 ; $03   o O p P, undo dd,      Delta lines inserted at FILE_LINE16, which
 ;       redo p/P/o/O           starts at CURSOR_ROW: scroll down from there
 ;                              by their rows.  INSERT_LINE_COUNT != 0:
@@ -56,11 +51,14 @@
 ;                              $FF = pure join at line end (no redraw),
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
-; $07   dd reaching EOF, redo  Lines deleted; cursor line unchanged, not
-;       dd, undo p/P/o/O       redrawn.  SCROLL_DELTA = rows deleted ($FF:
-;                              over 255).  DELETE_SCREEN_ROWS = cursor line
-;                              rows above the deleted lines (0 = the
-;                              deleted lines began at first_row).
+; $07   dd and its redo,       Lines deleted from first_row (the next line
+;       undo p/P/o/O           moved up into their rows) or below the
+;                              cursor line (it kept its rows): the cursor
+;                              line is not redrawn.
+;                              SCROLL_DELTA = rows deleted ($FF: over
+;                              255).  DELETE_SCREEN_ROWS = cursor line rows
+;                              above the deleted lines (0 = the deleted
+;                              lines began at first_row).
 ; $08   multi-line x/D         Charwise delete that joined lines:
 ;       (delete_at_cursor)     SCROLL_DELTA = rows lost (0 = full repaint),
 ;                              DELETE_SCREEN_ROWS = the cursor line's new
@@ -74,7 +72,7 @@
 ;                              the cursor line (the first of the range);
 ;                              DELETE_SCREEN_ROWS = their rows before.
 ;                              Needs line count and viewport unchanged.
-; With the line count unchanged, $02-$0A are treated as $01.
+; With the line count unchanged, $03-$0A are treated as $01.
 
 
 ; Capture state snapshot before handler runs
@@ -117,12 +115,11 @@ render_decide:
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
   BEQ .line_count_same
   ; LINE_COUNT16 changed - check for scroll optimizations (range compares):
-  ; $02/$06/$07/$08 delete-scroll, $03/$04/$05/$09 insert-scroll,
+  ; $06/$07/$08 delete-scroll, $03/$04/$05/$09 insert-scroll,
   ; $0A pre-computed insert-scroll, anything else full repaint
   LDA RENDER_FLAG
-  CMP #RF_DEL
-  BCC .full                  ; $00/$01
-  BEQ .line_delete_scroll    ; $02
+  CMP #RF_INS
+  BCC .full                  ; $00-$02
   CMP #RF_JOIN
   BCC .do_line_insert        ; $03/$04/$05
   CMP #RF_SPLIT
@@ -155,12 +152,12 @@ render_decide:
   JMP render_range_repaint
 
 .line_delete_scroll:
-  ; LINE_COUNT16 decreased and RENDER_FLAG=$02/$06/$07/$08 (line delete at cursor).
-  ; $02/$07/$08: SCROLL_DELTA pre-computed by the handler
+  ; LINE_COUNT16 decreased and RENDER_FLAG=$06/$07/$08 (line delete at cursor).
+  ; $07/$08: SCROLL_DELTA pre-computed by the handler
   ; (precompute_delete_scroll, delete_at_cursor)
   LDA RENDER_FLAG
   CMP #RF_JOIN
-  BNE .delete_check          ; $02/$07/$08
+  BNE .delete_check          ; $07/$08
   ; $06: use pre-computed DELETE_SCREEN_ROWS if available, else file delta.
   LDA DELETE_SCREEN_ROWS
   BNE .have_delete_rows

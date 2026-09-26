@@ -12,17 +12,16 @@ MODE_COMMAND = $02
 
 ; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
 ; before each key (contract table in render_decide.asm).  render_decide
-; range-compares them, so the order matters: RF_DEL and
-; RF_JOIN..RF_CHAR_JOIN are line-delete scrolls, RF_INS..RF_ENTER and
-; RF_SPLIT line-insert scrolls.
+; range-compares them, so the order matters: RF_JOIN..RF_CHAR_JOIN are
+; line-delete scrolls, RF_INS..RF_ENTER and RF_SPLIT line-insert scrolls
+; ($02 is unused).
 RF_AUTO       = $00   ; Infer the repaint from the snapshot
 RF_LINE       = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
-RF_DEL        = $02   ; dd: lines deleted from the cursor line's first row
 RF_INS        = $03   ; Lines inserted at the cursor line (o O p P, undo dd)
 RF_UNJOIN     = $04   ; Undo J: lines restored below the cursor line
 RF_ENTER      = $05   ; Insert-mode Enter split the cursor line
 RF_JOIN       = $06   ; Lines joined into the cursor line (J, BS/Del join)
-RF_DEL_BELOW  = $07   ; Lines deleted below an unchanged cursor line
+RF_DEL        = $07   ; Lines deleted (dd, undo p P o O), cursor line not redrawn
 RF_CHAR_JOIN  = $08   ; Multi-line x/D (delete_at_cursor), SCROLL_DELTA set
 RF_SPLIT      = $09   ; Cursor line split (multi-line char paste, undo x/D)
 RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
