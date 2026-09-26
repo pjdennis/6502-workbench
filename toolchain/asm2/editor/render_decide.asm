@@ -10,7 +10,8 @@
 ; RENDER_FLAG contract.  Before each key main_loop sets RENDER_FLAG = 0,
 ; INSERT_LINE_COUNT = 0, DELETE_SCREEN_ROWS = 0, RENDER_FROM_COL16 =
 ; $FFFF (whole line), SHIFT_WRITE = $FF (no ICH/DCH hint) and
-; PREV_LINE_ROWS = the cursor line's rows before the key.  It does not
+; PREV_LINE_ROWS = the cursor line's rows before the key (for u, which
+; goes to the line its record names, that line's).  It does not
 ; reset SCROLL_DELTA, so a flag that reads it needs its producer to set
 ; it.  ensure_cursor_visible sets CURSOR_ROW and WRAP_QUOT just before
 ; render_decide.  first_row = the cursor line's first screen row
@@ -71,8 +72,7 @@
 ;                              DELETE_SCREEN_ROWS = the cursor line's new
 ;                              rows (scroll below them, then redraw them).
 ; $09   multi-line char p/P,   Cursor line split: as $04, PREV_LINE_ROWS =
-;       undo of x/D            its rows before the split (do_char_paste
-;                              measures them).
+;       undo of x/D            its rows before the split.
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $0A   undo Ncc               As $03 with SCROLL_DELTA pre-set (no walk).
 ; $0B   >> << :N,M> <, undo    INSERT_LINE_COUNT lines changed in place from

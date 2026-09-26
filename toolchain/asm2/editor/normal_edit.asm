@@ -155,12 +155,6 @@ do_char_paste:
   STA NORMAL_TEMP
   JSR yank_count_newlines    ; YANK_LINES16 = lines per copy, for the check
   ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
-  BPL .setup
-  ; A multi-line paste splits the line: its rows before the paste, for
-  ; the $09 render (undo and redo may come from another line)
-  JSR file_line_rows
-  STA PREV_LINE_ROWS
-.setup:
   JSR yank_paste_setup       ; BUF_LEN16 = total size, YANK_SIZE16 = single size
   BCS .ret
   ; RENDER_FROM_COL16 = insertion column, minus 1 for p
@@ -678,8 +672,6 @@ do_replace_char:
 ; the line move down, and the cursor goes to the start of the new line.
 ; The render is an Enter batch's ($05), from the first replaced char.
 replace_split:
-  JSR file_line_rows         ; The line's rows before the split (a redo
-  STA PREV_LINE_ROWS         ; may come from another line)
   JSR undo_span_setup        ; Cursor and BUF_PTR16 to the span start
   LDA #'\n'
   JSR replace_extra_len      ; Y = N - 1
