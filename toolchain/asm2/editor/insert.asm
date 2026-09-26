@@ -457,7 +457,10 @@ insert_handle_key:
 .join_signal:
   STA INSERT_LINE_COUNT
 .join_flag:
-  JSR set_render_from_cursor
+  ; The joined line changed from where the batch began, before the text
+  ; it typed
+  LDA BUF_DELTA              ; insert_len
+  JSR set_render_from_before_cursor
   LDA #RF_JOIN               ; Line-delete with displacement-based scroll
 .set_flag:
   JMP .set_render_flag

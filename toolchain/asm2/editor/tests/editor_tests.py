@@ -4834,6 +4834,36 @@ class EditorTestRunner:
             expect_cursor=(0, 4),
         )
 
+        # A join batch that also types text repaints the joined line from
+        # where the text went in, not from the cursor after it
+        for name, keys in [
+            ("BS join + typed text: screen shows the text", b"ji\x08abc"),
+            ("Typed text + DEL join: screen shows the text",
+             b"Aabc" + DEL),
+            ("DEL join + typed text: screen shows the text",
+             b"A" + DEL + b"abc"),
+        ]:
+            self.run_test_screen(
+                name, make_lines(3), keys + b"\x1b:q!\r",
+                expect_lines=[(0, "Line 1abcLine 2"), (1, "Line 3"),
+                              (2, "~")],
+                expect_cursor=(0, 8),
+            )
+        for name, content, keys, lines, cursor in [
+            ("BS join onto a wrapped line + typed text: screen shows the text",
+             "x" * 45 + "\nabc\nend\n", b"ji\x08QR",
+             [(0, "x" * 40), (1, "xxxxxQRabc"), (2, "end"), (3, "~")],
+             (1, 6)),
+            ("BS join + typed text across the wrap: screen shows the text",
+             "x" * 38 + "\nabc\nend\n", b"ji\x08QRS",
+             [(0, "x" * 38 + "QR"), (1, "Sabc"), (2, "end"), (3, "~")],
+             (1, 0)),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
+
         # ============================================================
         # Screen content verification after normal mode editing
         # ============================================================
