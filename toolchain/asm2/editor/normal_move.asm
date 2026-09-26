@@ -372,9 +372,7 @@ do_mark_goto:
   STAX16 FILE_LINE16
   JMP zero_col_clamp_clear
 .mark_not_set:
-  LDA #<str_mark_not_set
-  LDX #>str_mark_not_set
-  JSR show_message_ax
+  JSR range_mark_err         ; "Mark not set"
   JMP clear_count
 
 ; --- Mode switch ---

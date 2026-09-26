@@ -410,9 +410,7 @@ batch_pending_pairs:
 ; Show yank overflow error: show message, clear count
 ; Used when a line yank did not fit (yank_add_lines left the buffer empty)
 show_yank_overflow:
-  LDA #<str_yank_full
-  LDX #>str_yank_full
-  JSR show_message_ax
+  JSR range_yank_full        ; "Yank buffer full"
   JMP clear_count
 
 ; Yank then delete N lines starting at FILE_LINE16
