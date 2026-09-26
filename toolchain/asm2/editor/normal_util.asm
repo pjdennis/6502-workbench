@@ -119,6 +119,12 @@ get_cursor_buf_ptr:
   ADC16 CURSOR_COL16, BUF_PTR16, BUF_PTR16
   RTS
 
+; BUF_SRC16 = BUF_PTR16 = buffer address at the cursor.  Clobbers A, X, Y
+get_cursor_src:
+  JSR get_cursor_buf_ptr
+  CP16 BUF_PTR16, BUF_SRC16
+  RTS
+
 ; Clamp CURSOR_COL16 to the line's last char (0 on an empty line)
 ; Output: LINE_LEN16 = line length.  Clobbers: A, X, Y
 clamp_cursor_col:
@@ -452,8 +458,7 @@ delete_current_lines:
 yank_delete_at_cursor:
   JSR undo_record_char_delete
   PUSH16 BUF_LEN16           ; Save delete count
-  JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  CP16 BUF_PTR16, BUF_SRC16
+  JSR get_cursor_src         ; BUF_SRC16 = cursor position
   JSR yank_add_chars         ; Clobbers BUF_LEN16, BUF_PTR16
   POP16 BUF_LEN16            ; Restore delete count
   ; Fall through to delete_at_cursor
@@ -564,10 +569,8 @@ apply_char_operator:
   CMP #OP_YANK
   BNE .do_delete
   ; Yank only: no delete, no MODIFIED
-  JSR get_cursor_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16
-  JSR yank_add_chars
-  RTS
+  JSR get_cursor_src
+  JMP yank_add_chars
 .do_delete:
   PHA                          ; Save operator on stack
   JSR yank_delete_at_cursor
@@ -628,8 +631,7 @@ bcd_start:
   ADC16 CURSOR_COL16, BUF_LEN16, BUF_LEN16  ; BUF_LEN16 = col of yanked char
   PUSH16 CURSOR_COL16
   CP16 BUF_LEN16, CURSOR_COL16  ; Move cursor to yanked char
-  JSR get_cursor_buf_ptr         ; BUF_PTR16 = address of yanked char
-  CP16 BUF_PTR16, BUF_SRC16
+  JSR get_cursor_src             ; BUF_SRC16 = address of yanked char
   LDA #1
   STA BUF_LEN16
   LDA #0
