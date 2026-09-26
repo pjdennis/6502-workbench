@@ -130,8 +130,7 @@ marks_display:
   ; Stop before the last two rows (the next row would be SCREEN_ROWS-1)
   INC ANSI_ROW
   LDX ANSI_ROW
-  INX
-  CPX SCREEN_ROWS
+  CPX TEXT_ROWS
   BCS .marks_done_display
 
 .marks_next:

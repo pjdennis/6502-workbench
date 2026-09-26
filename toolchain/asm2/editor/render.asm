@@ -330,9 +330,7 @@ render_line_from_change:
   CLC
   ADC RENDER_ROW
   STA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
+  CMP TEXT_ROWS
   BCS .done                    ; change row is at or below the status bar
   ; ICH/DCH hint: shift the line's rows instead of rewriting them (rows
   ; opened by the caller's scroll are blank and just get written)
