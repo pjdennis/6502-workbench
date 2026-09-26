@@ -182,7 +182,7 @@ same commit; refactors in their own commits).
    intact); a line running past the bottom of the screen (nothing written
    into the status row); first row above the viewport (still a full
    repaint); line length an exact multiple of the width with the cursor at
-   the end (the `PREV_LINE_FULL` edge in insert mode).
+   the end (the full-last-row edge in insert mode).
 
 8. **`D` lock-in tests.** *Done.* Assert that `D` mid-line writes no text cells
    (only `ESC[K` on the cursor row), and that `D` on a wrapped line clears

@@ -235,23 +235,13 @@ scroll_region_check:
 ; repaint (status + cursor only) when RENDER_ROW <= CURSOR_ROW (those
 ; rows were already rendered by the caller).
 render_bottom_rows_guarded:
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  SEC
-  SBC SCROLL_DELTA
-  STA RENDER_ROW
+  JSR bottom_row_start
   CMP CURSOR_ROW
   BCC render_finish            ; RENDER_ROW < CURSOR_ROW (safety)
+  BNE find_and_render
   BEQ render_finish            ; RENDER_ROW = CURSOR_ROW (already rendered)
-  ; fall through (recomputes the same RENDER_ROW)
 render_bottom_rows:
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  SEC
-  SBC SCROLL_DELTA
-  STA RENDER_ROW
+  JSR bottom_row_start
 find_and_render:
   JSR find_line_at_render_row
   ; fall through to render_limited_rows
@@ -381,6 +371,16 @@ find_line_at_render_row:
 .found:
   RTS
 
+; RENDER_ROW = A = SCREEN_ROWS - 1 - SCROLL_DELTA: first of the bottom
+; SCROLL_DELTA rows above the status bar
+bottom_row_start:
+  LDA SCREEN_ROWS
+  SEC
+  SBC #1                       ; C=1 (SCREEN_ROWS >= 1)
+  SBC SCROLL_DELTA
+  STA RENDER_ROW
+  RTS
+
 ; Render just the status bar and reposition cursor (no content redraw)
 render_cursor_and_status:
   JSR ansi_cursor_hide
@@ -461,20 +461,17 @@ div_mod_screen_cols_16:
   LDA DIV_INPUT16
   CMP SCREEN_COLS
   BCC .div_done              ; Value < SCREEN_COLS, done
-  LDA DIV_INPUT16            ; Reload low byte for subtraction
 .can_sub:
-  SEC
   LDA DIV_INPUT16
+  SEC
   SBC SCREEN_COLS
   STA DIV_INPUT16
-  LDA DIV_INPUT16 + 1
-  SBC #0
-  STA DIV_INPUT16 + 1
+  BCS .no_borrow
+  DEC DIV_INPUT16 + 1
+.no_borrow:
   INX
-  BEQ .cap_255               ; Quotient wrapped to 0, cap at 255
-  JMP .div_loop
-.cap_255:
-  LDX #$FF
+  BNE .div_loop
+  DEX                        ; Quotient wrapped to 0: cap at 255
   LDA #0                     ; Remainder doesn't matter at cap
 .div_done:
   RTS
@@ -517,16 +514,10 @@ line_screen_rows:
   LDA #1
   RTS
 .not_empty:
-  JSR div_mod_screen_cols_16
-  ; X = quotient, A = remainder
-  STA WRAP_REM
-  TXA              ; A = quotient
-  LDX WRAP_REM
-  CPX #0
-  BEQ .exact
-  CLC
-  ADC #1           ; Add 1 for partial last row
-.exact:
+  JSR div_mod_screen_cols_16   ; X = quotient, A = remainder
+  CMP #1                       ; C=1: partial last row
+  TXA
+  ADC #0
   RTS
 
 ; Pre-compute screen rows of lines for line-delete scroll.

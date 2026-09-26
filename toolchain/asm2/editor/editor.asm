@@ -190,9 +190,6 @@ main_loop:
   JSR get_current_line_len
   JSR line_screen_rows
   STA PREV_LINE_ROWS
-  ; Save whether old line's last row was full (WRAP_REM == 0 after line_screen_rows)
-  LDA WRAP_REM
-  STA PREV_LINE_FULL       ; 0 = last row full, non-zero = not full
   JSR render_snapshot
   ; Read a key
   JSR get_key

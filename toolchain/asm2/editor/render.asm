@@ -32,7 +32,6 @@ WRAP_REM:       .byte   ; Scratch: remainder from CURSOR_COL % SCREEN_COLS
 RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
 DIV_INPUT16:    .word   ; Scratch for 16-bit division
 PREV_LINE_ROWS: .byte   ; Screen rows the current line occupied before the edit
-PREV_LINE_FULL: .byte   ; Non-zero if old line's last row was full (len % cols == 0)
 SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
 SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
 SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
@@ -253,10 +252,7 @@ print_separator:
 ; open or close the difference, so only the line itself (and any rows
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
-  ; Compute cursor's wrap row from CURSOR_COL16
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
-  STX WRAP_QUOT
+  ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
   JSR get_current_line_len
   JSR line_screen_rows
   STA CUR_LINE_ROWS
