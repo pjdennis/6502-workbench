@@ -4,6 +4,9 @@ ANSI virtual terminal emulator for testing editor screen output.
 Processes ANSI escape sequences into a virtual screen buffer with cursor
 tracking. Only handles sequences the editor actually emits.
 
+A missing or 0 numeric parameter takes its default (1, or the last row for
+the bottom of a scroll region), as on real terminals.
+
 Supported sequences:
     ESC[2J          - Clear screen
     ESC[{r};{c}H    - Cursor move (1-based)
@@ -12,19 +15,37 @@ Supported sequences:
     ESC[7m / ESC[0m - Reverse/normal video (tracked per-cell in attrs buffer)
     ESC[?25l        - Cursor hide
     ESC[?25h        - Cursor show (triggers frame snapshot)
-    ESC[{t};{b}r    - Set scroll region (1-based top;bottom)
-    ESC[r           - Reset scroll region to full screen
+    ESC[{t};{b}r    - Set scroll region (1-based top;bottom) and home the
+                      cursor; like a VT100 or xterm, ignore a region of
+                      fewer than two rows
+    ESC[r           - Reset scroll region to full screen and home the cursor
     ESC[{n}S        - Scroll up n lines (content moves up, blanks at bottom)
     ESC[{n}T        - Scroll down n lines (content moves down, blanks at top)
+    ESC[{n}L        - Insert n blank lines at the cursor row (IL)
+    ESC[{n}M        - Delete n lines at the cursor row (DL)
+                      (IL and DL work down to the bottom margin, are ignored
+                      outside the region and move the cursor to column 1)
     ESC[{n}@        - Insert n blank characters at cursor (ICH)
     ESC[{n}P        - Delete n characters at cursor (DCH)
+    \b              - Backspace (one column left, stopping at column 1)
 
 Deferred auto-wrap (opt-in via deferred_wrap=True):
     Matches real VT100/xterm behavior where writing to the last column
     sets a pending-wrap flag instead of immediately advancing the cursor.
     ESC[K in this state clears from the last column, erasing the character.
     Cursor movement commands (ESC[r;cH) cancel the pending wrap.
+    A character written with a wrap pending on the bottom margin of the
+    scroll region scrolls the region up a line, as on a real terminal (so
+    text that overflows the status row scrolls the whole screen).
 """
+
+
+def _csi_args(params, *defaults):
+    """The numeric parameters of a CSI sequence, one per default; a missing
+    or 0 parameter takes its default."""
+    parts = params.split(';')
+    return [(int(parts[i]) if i < len(parts) and parts[i] else 0) or default
+            for i, default in enumerate(defaults)]
 
 
 class AnsiScreen:
@@ -54,7 +75,7 @@ class AnsiScreen:
         self.min_content_col = {}     # row → min column index written this cycle
         self.max_content_col = {}     # row → max column index written this cycle
         self.frame_scrolled = False   # Whether any scroll happened this cycle
-        self.scroll_touched = set()   # Set of row indices affected by scroll operations
+        self.scroll_touched = set()   # Content row indices moved by scroll operations
 
     def _clear_screen(self):
         self.buffer = [[' '] * self.cols for _ in range(self.rows)]
@@ -91,9 +112,10 @@ class AnsiScreen:
         # Deferred wrap: resolve pending wrap before writing next character
         if self.deferred_wrap and self._pending_wrap:
             self.cursor_col = 0
-            self.cursor_row += 1
-            if self.cursor_row >= self.rows:
-                self.cursor_row = self.rows - 1
+            if self.cursor_row == self.scroll_bottom:
+                self._scroll(self.scroll_top, 1, up=True)
+            elif self.cursor_row < self.rows - 1:
+                self.cursor_row += 1
             self._pending_wrap = False
         if self.cursor_row < 0 or self.cursor_row >= self.rows:
             return
@@ -122,42 +144,29 @@ class AnsiScreen:
                 self.cursor_row = self.rows - 1
 
     def _set_scroll_region(self, top, bottom):
-        """Set scroll region (0-based, inclusive)."""
-        self.scroll_top = max(0, min(top, self.rows - 1))
-        self.scroll_bottom = max(0, min(bottom, self.rows - 1))
+        """Set scroll region (0-based, inclusive) and home the cursor, as
+        DECSTBM does; like a VT100 or xterm, ignore a region of fewer than
+        two rows."""
+        bottom = min(bottom, self.rows - 1)
+        if top < bottom:
+            self.scroll_top = top
+            self.scroll_bottom = bottom
+            self._move_cursor(0, 0)
 
-    def _reset_scroll_region(self):
-        """Reset scroll region to full screen."""
-        self.scroll_top = 0
-        self.scroll_bottom = self.rows - 1
-
-    def _scroll_region_up(self, n):
-        """Scroll region up: remove n rows from top, insert blanks at bottom.
-        Does NOT mark rows as content_touched since the terminal hardware
-        performs the scroll - only explicit character writes count."""
+    def _scroll(self, top, n, up):
+        """Scroll rows top..scroll_bottom up by n (content moves up, blanks
+        at the bottom) or down (blanks at the top). Does NOT mark rows as
+        content_touched since the terminal hardware performs the scroll -
+        only explicit character writes count. The content rows it moves
+        (not the status row) go into scroll_touched."""
+        bottom = self.scroll_bottom
         self.frame_scrolled = True
-        self.scroll_touched.update(range(self.scroll_top, self.scroll_bottom + 1))
-        for _ in range(n):
-            if self.scroll_top > self.scroll_bottom:
-                break
-            del self.buffer[self.scroll_top]
-            del self.attrs[self.scroll_top]
-            self.buffer.insert(self.scroll_bottom, [' '] * self.cols)
-            self.attrs.insert(self.scroll_bottom, [0] * self.cols)
-
-    def _scroll_region_down(self, n):
-        """Scroll region down: remove n rows from bottom, insert blanks at top.
-        Does NOT mark rows as content_touched since the terminal hardware
-        performs the scroll - only explicit character writes count."""
-        self.frame_scrolled = True
-        self.scroll_touched.update(range(self.scroll_top, self.scroll_bottom + 1))
-        for _ in range(n):
-            if self.scroll_top > self.scroll_bottom:
-                break
-            del self.buffer[self.scroll_bottom]
-            del self.attrs[self.scroll_bottom]
-            self.buffer.insert(self.scroll_top, [' '] * self.cols)
-            self.attrs.insert(self.scroll_top, [0] * self.cols)
+        self.scroll_touched.update(range(top, min(bottom, self.rows - 2) + 1))
+        n = min(n, bottom + 1 - top)
+        for grid, blank in ((self.buffer, ' '), (self.attrs, 0)):
+            kept = grid[top + n:bottom + 1] if up else grid[top:bottom + 1 - n]
+            blanks = [[blank] * self.cols for _ in range(n)]
+            grid[top:bottom + 1] = kept + blanks if up else blanks + kept
 
     def _shift_chars(self, n, insert):
         """ICH/DCH: insert or delete n cells at the cursor within its row.
@@ -171,7 +180,7 @@ class AnsiScreen:
             return
         if row < self.rows - 1:
             self.content_touched.add(row)
-        n = min(max(n, 1), self.cols - col)
+        n = min(n, self.cols - col)
         for line, blank in ((self.buffer[row], ' '), (self.attrs[row], 0)):
             if insert:
                 line[col:] = [blank] * n + line[col:self.cols - n]
@@ -216,6 +225,9 @@ class AnsiScreen:
                     self.cursor_col = 0
                 elif ch == '\r':
                     self.cursor_col = 0
+                elif ch == '\b':
+                    self._move_cursor(self.cursor_row,
+                                      max(0, self.cursor_col - 1))
                 elif ch >= ' ' and ch <= '~':
                     self._put_char(ch)
             elif state == ESC:
@@ -240,13 +252,8 @@ class AnsiScreen:
                 self._clear_screen()
         elif final == 'H':
             # Cursor position
-            if params == '' or params == ';':
-                self._move_cursor(0, 0)
-            else:
-                parts = params.split(';')
-                row = int(parts[0]) - 1 if parts[0] else 0
-                col = int(parts[1]) - 1 if len(parts) > 1 and parts[1] else 0
-                self._move_cursor(row, col)
+            row, col = _csi_args(params, 1, 1)
+            self._move_cursor(row - 1, col - 1)
         elif final == 'K':
             # Clear to end of line
             self._clear_to_eol()
@@ -266,28 +273,23 @@ class AnsiScreen:
                 self.cursor_visible = True
                 self._snapshot()
         elif final == 'r':
-            # Set/reset scroll region
-            if params == '' or params == ';':
-                self._reset_scroll_region()
-            else:
-                parts = params.split(';')
-                top = int(parts[0]) - 1 if parts[0] else 0
-                bottom = int(parts[1]) - 1 if len(parts) > 1 and parts[1] else self.rows - 1
-                self._set_scroll_region(top, bottom)
-        elif final == 'S':
-            # Scroll up
-            n = int(params) if params else 1
-            self._scroll_region_up(n)
-        elif final == 'T':
-            # Scroll down
-            n = int(params) if params else 1
-            self._scroll_region_down(n)
-        elif final == '@':
-            # ICH - Insert blank characters
-            self._shift_chars(int(params) if params else 1, insert=True)
-        elif final == 'P':
-            # DCH - Delete characters
-            self._shift_chars(int(params) if params else 1, insert=False)
+            # Set/reset scroll region (no parameters: the whole screen)
+            top, bottom = _csi_args(params, 1, self.rows)
+            self._set_scroll_region(top - 1, bottom - 1)
+        elif final in 'ST':
+            # Scroll the region up (S) or down (T)
+            n, = _csi_args(params, 1)
+            self._scroll(self.scroll_top, n, up=final == 'S')
+        elif final in 'LM':
+            # IL / DL - Insert or delete lines at the cursor row
+            n, = _csi_args(params, 1)
+            if self.scroll_top <= self.cursor_row <= self.scroll_bottom:
+                self._scroll(self.cursor_row, n, up=final == 'M')
+                self._move_cursor(self.cursor_row, 0)
+        elif final in '@P':
+            # ICH / DCH - Insert or delete blank characters
+            n, = _csi_args(params, 1)
+            self._shift_chars(n, insert=final == '@')
 
     def get_frame_count(self) -> int:
         """Number of rendered frames (cursor-show events)."""
@@ -312,7 +314,7 @@ class AnsiScreen:
         return self.frames[frame_idx][6]
 
     def scroll_rows_touched(self, frame_idx: int) -> set:
-        """Set of row indices affected by scroll operations during this frame."""
+        """Set of content row indices moved by scroll operations during this frame."""
         if frame_idx < 0 or frame_idx >= len(self.frames):
             return set()
         return self.frames[frame_idx][7]
@@ -479,6 +481,19 @@ if __name__ == "__main__":
     assert s9.buffer[0] == list("ABCDE"), f"row 0: {''.join(s9.buffer[0])!r}"
     assert s9.buffer[1][0] == 'F', f"row 1 col 0: {s9.buffer[1][0]!r}"
 
+    def rows_of(screen):
+        return [screen.get_row_text(r) for r in range(screen.rows)]
+
+    # A wrap pending on the bottom margin scrolls the region up a line; on
+    # the last row below the region nothing scrolls and the cursor goes to
+    # column 0 of the same row
+    s9b = AnsiScreen(3, 5, deferred_wrap=True)
+    s9b.process("\x1b[1;1HAAA\x1b[2;1HBBB\x1b[3;1HCCCCCD\x1b[?25h")
+    assert rows_of(s9b) == ["BBB", "CCCCC", "D"], rows_of(s9b)
+    s9c = AnsiScreen(3, 5, deferred_wrap=True)
+    s9c.process("\x1b[1;2rAAA\x1b[3;1HCCCCCD\x1b[?25h")
+    assert rows_of(s9c) == ["AAA", "", "DCCCC"], rows_of(s9c)
+
     # Test scroll region: set region and scroll up
     s10 = AnsiScreen(5, 10)
     # Fill rows: row0="AAA", row1="BBB", row2="CCC", row3="DDD", row4="EEE"
@@ -525,12 +540,26 @@ if __name__ == "__main__":
 
     # Test reset scroll region (ESC[r with no params)
     s13 = AnsiScreen(3, 10)
-    s13.process("\x1b[2;2r")  # set narrow region
+    s13.process("\x1b[2;3r")  # set narrow region
     assert s13.scroll_top == 1
-    assert s13.scroll_bottom == 1
+    assert s13.scroll_bottom == 2
     s13.process("\x1b[r")     # reset
     assert s13.scroll_top == 0
     assert s13.scroll_bottom == 2
+
+    # A region of fewer than two rows is ignored (it neither sets the region
+    # nor homes the cursor), as on a VT100 or xterm
+    s13b = AnsiScreen(4, 10)
+    s13b.process("\x1b[2;4r\x1b[3;5H\x1b[3;3rA")
+    assert (s13b.scroll_top, s13b.scroll_bottom) == (1, 3)
+    assert s13b.buffer[2][4] == 'A'
+
+    # Setting or resetting the scroll region homes the cursor
+    s13c = AnsiScreen(4, 5)
+    s13c.process("\x1b[3;4H\x1b[2;3rA")
+    assert s13c.buffer[0][0] == 'A'
+    s13c.process("\x1b[3;4H\x1b[rB")
+    assert s13c.buffer[0][:2] == ['B', ' ']
 
     def row0(screen):
         return ''.join(screen.buffer[0])
@@ -592,5 +621,51 @@ if __name__ == "__main__":
     assert s23.was_content_redrawn(1) == True
     assert s23.content_rows_touched(1) == {0}
     assert s23.get_min_col(1, 0) == -1
+
+    # A 0 row or column in a cursor move means 1, as on real terminals
+    s24 = AnsiScreen(3, 10)
+    s24.process("\x1b[0;5HAB\x1b[2;0HCD\x1b[0;0HE\x1b[?25h")
+    assert rows_of(s24) == ["E   AB", "CD", ""], rows_of(s24)
+
+    # Backspace moves one column left, not past column 0, and from a
+    # pending deferred wrap moves left of the last column
+    s25 = AnsiScreen(3, 5)
+    s25.process("AB\bX")
+    assert row0(s25) == "AX   ", f"got {row0(s25)!r}"
+    s25.process("\x1b[1;1H\bY")
+    assert row0(s25) == "YX   ", f"got {row0(s25)!r}"
+    s26 = AnsiScreen(3, 5, deferred_wrap=True)
+    s26.process("ABCDE\bX")
+    assert row0(s26) == "ABCXE", f"got {row0(s26)!r}"
+
+    # IL inserts blank lines at the cursor row down to the bottom margin and
+    # DL deletes lines there; both move the cursor to column 0 and are
+    # ignored outside the margins
+    def lettered(rows):
+        s = AnsiScreen(rows, 5)
+        for r in range(rows):
+            s.process(f"\x1b[{r + 1};1H" + chr(ord('A') + r) * 3)
+        return s
+    s27 = lettered(5)
+    s27.process("\x1b[1;4r\x1b[2;3H\x1b[2L\x1b[?25h")
+    assert rows_of(s27) == ["AAA", "", "", "BBB", "EEE"], rows_of(s27)
+    assert s27.get_cursor() == (1, 0)
+    s28 = lettered(5)
+    s28.process("\x1b[1;4r\x1b[2;3H\x1b[M\x1b[?25h")
+    assert rows_of(s28) == ["AAA", "CCC", "DDD", "", "EEE"], rows_of(s28)
+    assert s28.get_cursor() == (1, 0)
+    s29 = lettered(5)
+    s29.process("\x1b[2;4r\x1b[1;2H\x1b[L\x1b[5;1H\x1b[9M\x1b[?25h")
+    assert rows_of(s29) == ["AAA", "BBB", "CCC", "DDD", "EEE"], rows_of(s29)
+    assert s29.was_scrolled(0) == False
+
+    # Scroll tracking counts content rows only: the status row (the last
+    # row) is never among the rows a scroll moved
+    s30 = lettered(4)
+    s30.process("\x1b[?25h\x1b[S\x1b[?25h\x1b[2;4r\x1b[4;1H\x1b[M\x1b[?25h")
+    assert s30.was_scrolled(1) and s30.scroll_rows_touched(1) == {0, 1, 2}
+    assert s30.scroll_rows_touched(2) == set()
+    s30.process("\x1b[2;4r\x1b[2;1H\x1b[2L\x1b[?25h")
+    assert s30.scroll_rows_touched(3) == {1, 2}
 
     print("All self-tests passed.")
