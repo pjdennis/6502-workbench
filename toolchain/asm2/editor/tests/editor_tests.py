@@ -20119,6 +20119,30 @@ class EditorTestRunner:
                          + [(3 + i, f"post {i}") for i in range(6)],
             expect_cursor=(2, 4),
         )
+        # A line of 255 full rows and a partial one (5,101-5,119 chars at
+        # 20 columns) counts as 255 rows, as longer ones do: its row
+        # count must not wrap to 0, or an edit on it is never drawn
+        long256 = alpha(5110)
+        self.run_test_screen(
+            "x on a 256-row line redraws it",
+            "top\n" + long256 + "\nafter\n",
+            b"jx:wq\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "top")] + [
+                (r, long256[20 * r - 19:20 * r + 1]) for r in range(1, 9)],
+            expect_cursor=(1, 0),
+            expected_content="top\n" + long256[1:] + "\nafter\n",
+        )
+        self.run_test_screen(
+            "Insert on a 256-row line redraws it",
+            "top\n" + long256 + "\nafter\n",
+            b"jiZ\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "top")] + [
+                (r, ("Z" + long256)[20 * r - 20:20 * r])
+                for r in range(1, 9)],
+            expect_cursor=(1, 0),
+        )
         # An Enter at the first column of the view's top row, in a line
         # that starts above the view, leaves all of the line's first part
         # above the view: the view then starts at the new line, whose text

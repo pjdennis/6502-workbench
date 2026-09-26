@@ -581,7 +581,8 @@ get_len_rows:
 
 ; Compute number of screen rows a line occupies
 ; Input: A/X = 16-bit line length (A=low, X=high)
-; Returns: A = number of screen rows (1 for empty/short, ceil(len/SCREEN_COLS) for longer)
+; Returns: A = number of screen rows (1 for empty/short, ceil(len/SCREEN_COLS)
+;          for longer, at most 255)
 ; Clobbers: X, DIV_INPUT16
 line_screen_rows:
   STA DIV_INPUT16
@@ -595,6 +596,9 @@ line_screen_rows:
   CMP #1                       ; C=1: partial last row
   TXA
   ADC #0
+  BCC .done
+  LDA #$FF                     ; 255 full rows and a partial one: 255,
+.done:                         ; as the quotient's cap gives longer ones
   RTS
 
 ; Pre-compute screen rows of lines for line-delete scroll.
