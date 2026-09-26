@@ -50,18 +50,15 @@ do_unindent:
 
 ; Shared >> / << entry setup.
 ; Takes the typed-ahead pairs, computes BUF_DELTA = INDENT_WIDTH * (1 +
-; BATCH_EXTRA) (batched pairs multiply the width), removes the batch
-; extras that batch_pending_pairs added to COUNT16 (for >> the count means
-; lines, not repeats), clamps the line count, and sets the range start to
-; the cursor line.
+; BATCH_EXTRA) (batched pairs multiply the width; the count means lines,
+; not repeats), clamps the line count, and sets the range start to the
+; cursor line.
 shift_normal_setup:
   JSR batch_pending_pairs      ; X = BATCH_EXTRA
   TXA
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
   ADC #INDENT_WIDTH            ; + the key itself (carry clear: BATCH_EXTRA <= BATCH_MAX)
   STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * (1 + extra pairs)
-  SEC
-  SBC16_8 COUNT16, BATCH_EXTRA, COUNT16 ; (subtracting 0 when not batched)
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   CP16 FILE_LINE16, UNDO_LINE16
   ; fall through

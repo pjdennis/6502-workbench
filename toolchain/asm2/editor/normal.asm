@@ -211,8 +211,10 @@ do_dd:
   BEQ .room
   LDX #$FF                   ; 256 or more
 .room:
-  JSR batch_pending_pairs_upto
-  JSR get_count_clamp_lines  ; BUF_TEMP16 = count + pairs, at most the lines left
+  JSR batch_pending_pairs_upto  ; X = pairs taken
+  TXA
+  ADDA16 BUF_TEMP16          ; BUF_TEMP16 = count + pairs (the limit kept it
+                             ; within the lines left)
 
   ; Pre-compute screen rows of lines being deleted (before deletion)
   JSR compute_delete_rows_temp16

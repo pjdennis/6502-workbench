@@ -116,15 +116,12 @@ dispatch_no_match:
 ; been typed one at a time, with a single render afterwards.  For dw, db
 ; and de, whose N presses differ from a count of N (a press stops at a
 ; line end or on an empty line, and u undoes only the last one).
-; Input: Y = the entry's flags index, A = BATCH_EXTRA = extra presses
-;        (> 0), COUNT16 = the typed count + the extra presses
+; The first press takes the typed count, the others none (each press
+; ends in clear_count).
+; Input: Y = the entry's flags index, A = BATCH_EXTRA = extra presses (> 0)
 ; Output: C = 0 (handler called)
 dispatch_replay:
   PHA                        ; Presses left after the next one
-  ; The first press takes the typed count, the others none (each press
-  ; ends in clear_count)
-  SEC
-  SBC16_8 COUNT16, BATCH_EXTRA, COUNT16
   LDA BATCH_RESTORE_KEY      ; A partial pair's first key: pending after
   PHA                        ; the last press
   TYA
@@ -408,12 +405,13 @@ set_buf_temp16_a:
 
 ; Batch pending pairs of LAST_KEY + BUF_TEMP from the input stream
 ; Uses LAST_KEY (first key) and BUF_TEMP (second key) already set by
-; pending_key_dispatch. Adds matched pairs to COUNT16.
+; pending_key_dispatch.  Leaves COUNT16 alone: each caller applies the
+; pairs its own way.
 ; Sets BATCH_RESTORE_KEY if a partial pair was consumed.
 ; batch_pending_pairs_upto: X = most pairs to take (batch_pending_pairs:
 ; BATCH_MAX)
 ; Output: X = BATCH_EXTRA = pairs taken
-; Clobbers: A, BUF_TEMP16.  Preserves Y
+; Clobbers: A.  Preserves Y
 batch_pending_pairs:
   LDX #BATCH_MAX
 batch_pending_pairs_upto:
@@ -441,14 +439,6 @@ batch_pending_pairs_upto:
   STA BATCH_RESTORE_KEY
 .done:
   STX BATCH_EXTRA
-  ; Add X extra pairs to COUNT16 (the original command counts as 1)
-  TXA
-  BEQ .no_add              ; No extra pairs, nothing to do
-  JSR get_count            ; BUF_TEMP16 = max(COUNT16, 1)
-  TXA
-  CLC
-  ADCA16 BUF_TEMP16, COUNT16
-.no_add:
   RTS
 
 ; --- Common yank/delete operations ---
