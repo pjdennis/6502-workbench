@@ -53,8 +53,6 @@ render_line_delete_scroll:
   LDA RENDER_FLAG
   CMP #$07
   BNE .not_skip_cursor
-  LDA #0
-  STA DELETE_SCREEN_ROWS    ; reset for next frame
   JMP .del_bottom_rows      ; skip cursor repaint, just bottom rows
 .not_skip_cursor:
   ; $06 (J) and $08 (charwise delete): check if joined line wraps.
@@ -72,9 +70,6 @@ render_line_delete_scroll:
 .not_pure_join:
   LDA DELETE_SCREEN_ROWS
   STA RENDER_LIMIT
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; reset for next frame
-  LDA RENDER_LIMIT
   CMP #2
   BCS .wrap_path             ; wrapped: multi-row render
   JMP .single_row_render     ; non-wrapped: single row suffices
@@ -121,8 +116,6 @@ render_line_delete_scroll:
   JMP .wrap_partial_done
 
 .skip_join_render:
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; reset for next frame
   JMP .del_bottom_rows
 
 .single_row_render:
@@ -290,11 +283,8 @@ render_range_repaint:
   LDA INSERT_LINE_COUNT
   JSR compute_delete_screen_rows
   LDX DELETE_SCREEN_ROWS       ; X = new rows (0 = overflow)
-  LDA #0
-  STA DELETE_SCREEN_ROWS       ; reset for next frame
-  CPX #0
   BNE .have_new_rows
-  JMP .rr_full_reset           ; overflow: full repaint
+  JMP .rr_full           ; overflow: full repaint
 .have_new_rows:
 
   ; Bounds: first_row + max(old, new) must fit above the status bar,
@@ -372,9 +362,6 @@ render_range_repaint:
   JMP render_limited_rows
 
 .rr_full:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-.rr_full_reset:
   JMP render_screen
 
 ; Scroll the region below the range (rows RENDER_ROW + RENDER_WRAP + 1

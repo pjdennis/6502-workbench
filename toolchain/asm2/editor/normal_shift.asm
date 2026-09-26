@@ -118,8 +118,6 @@ shift_set_render:
   STA RENDER_FLAG              ; range repaint
   RTS
 .full:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   LDA #$FF
   STA RENDER_FLAG
   RTS
@@ -264,8 +262,6 @@ insert_spaces_core:
 
 ; Shared no-op exit: leave MODIFIED/RENDER_FLAG untouched
 shift_noop:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   RTS
 
 ; Remove up to BUF_DELTA leading spaces from each line of a range

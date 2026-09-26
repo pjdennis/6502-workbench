@@ -368,8 +368,6 @@ render_current_line_and_status:
   JSR render_line_from_change
   PLA
   STA SCROLL_DELTA
-  LDA #0
-  STA DELETE_SCREEN_ROWS        ; reset for next frame
   JMP render_bottom_rows_guarded
 
 ; Draw the cursor line from its change point (RENDER_FROM_COL16; $FFFF =

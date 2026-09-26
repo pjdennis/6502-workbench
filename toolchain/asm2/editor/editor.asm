@@ -161,6 +161,7 @@ main_loop:
   STA SHIFT_WRITE            ; No ICH/DCH hint
   LDA #0
   STA INSERT_LINE_COUNT
+  STA DELETE_SCREEN_ROWS     ; 0 = no pre-computed screen rows
 
   ; If entering command mode, handle it specially (it does own I/O)
   LDA MODE

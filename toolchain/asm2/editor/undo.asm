@@ -150,13 +150,9 @@ undo_do_undo:
   SBC #1                         ; Subtract 1 for deleted blank line
   BEQ .undo_cc_full              ; 0 displacement: fall back
   STA SCROLL_DELTA
-  LDA #0
-  STA DELETE_SCREEN_ROWS         ; Reset (not needed for insert-scroll)
   LDA #$0A
   JMP set_render_clear_count     ; Pre-computed insert-scroll
 .undo_cc_full:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   LDA #$FF
   JMP set_render_clear_count     ; Fall back to full repaint
 .undo_line_scroll:

@@ -161,19 +161,13 @@ render_decide:
   JSR scroll_region_check
   LDA DELETE_SCREEN_ROWS     ; new_total (cursor line's screen rows)
   STA SCROLL_DELTA           ; number of rows to render
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; reset for next frame
   JMP render_from_first_row_limited
 .j_really_no_scroll:
   LDA DELETE_SCREEN_ROWS     ; new_total
   STA PREV_LINE_ROWS
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   JMP render_current_line_and_status
 .dd_delete_rows:
   STA SCROLL_DELTA
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; Reset for next frame
 .delete_check:
   LDA SCROLL_DELTA
   BNE .delete_nonzero        ; Delta 0, shouldn't happen
@@ -285,12 +279,8 @@ render_decide:
   BEQ .enter_no_disp
   BCC .enter_no_disp         ; safety: can't be negative
   STA SCROLL_DELTA
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   JMP .walk_done
 .enter_no_disp:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
   JMP .ins_full
 .do_walk:
   JSR set_render_line_to_cursor
