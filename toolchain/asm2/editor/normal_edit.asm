@@ -155,6 +155,12 @@ do_char_paste:
   STA NORMAL_TEMP
   JSR yank_count_newlines    ; YANK_LINES16 = lines per copy, for the check
   ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
+  BPL .setup
+  ; A multi-line paste splits the line: its rows before the paste, for
+  ; the $09 render (undo and redo may come from another line)
+  JSR file_line_rows
+  STA PREV_LINE_ROWS
+.setup:
   JSR yank_paste_setup       ; BUF_LEN16 = total size, YANK_SIZE16 = single size
   BCS .ret
   ; RENDER_FROM_COL16 = insertion column, minus 1 for p
@@ -220,9 +226,7 @@ do_char_paste:
 .by_col:
   JSR mark_adjust_col        ; At the insertion column (the cursor)
 .scroll:
-  ; Line-insert scroll that skips the cursor row
-  JSR file_line_rows
-  STA PREV_LINE_ROWS
+  ; Line-insert scroll below the split line
   LDA #RF_SPLIT
   STA RENDER_FLAG
   LDX BUF_TEMP16

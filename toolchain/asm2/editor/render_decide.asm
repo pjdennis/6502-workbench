@@ -63,9 +63,9 @@
 ;       (delete_at_cursor)     SCROLL_DELTA = rows lost (0 = full repaint),
 ;                              DELETE_SCREEN_ROWS = the cursor line's new
 ;                              rows (scroll below them, then redraw them).
-; $09   multi-line char p/P,   Cursor line split: PREV_LINE_ROWS = its new
-;       undo of x/D            rows (scroll below them), by the rows of the
-;                              delta lines from FILE_LINE16.
+; $09   multi-line char p/P,   Cursor line split: as $04, PREV_LINE_ROWS =
+;       undo of x/D            its rows before the split (do_char_paste
+;                              measures them).
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $0A   undo Ncc               As $03 with SCROLL_DELTA pre-set (no walk).
 ; $0B   >> << :N,M> <, undo    INSERT_LINE_COUNT lines changed in place from
@@ -305,15 +305,16 @@ render_decide:
   BEQ .enter_no_disp
   BCC .enter_no_disp         ; safety: can't be negative
   STA SCROLL_DELTA
-  BNE .walk_done             ; Always taken (A > 0)
+  BNE .no_disp_adjust        ; Always taken (A > 0)
 .enter_no_disp:
   JMP .ins_full
 .do_walk:
   JSR set_render_line_to_cursor
-  ; For $04 (J undo), skip cursor line — only count restored lines
+  ; $04 (J undo) / $09 (line split): the cursor line and the lines after
+  ; it replace one line of PREV_LINE_ROWS rows; walk the lines after it
   LDA RENDER_FLAG
-  CMP #RF_UNJOIN
-  BNE .no_skip_cursor
+  CMP #RF_INS
+  BEQ .no_skip_cursor
   INC16 RENDER_LINE16
 .no_skip_cursor:
   LDA #0
@@ -322,32 +323,34 @@ render_decide:
   JSR render_line_rows_step
   DEC RENDER_LIMIT
   BNE .walk_ins
-.walk_done:
 
-  ; For $04 (J undo), adjust SCROLL_DELTA for cursor line size change
-  ; The cursor line may have changed wrap count (e.g., joined 2-row line
-  ; becomes unwrapped 1-row line after undo), so net displacement differs
-  ; from the raw sum of restored line rows.
+  ; $04/$09: the displacement is the block's rows now (the walked rows
+  ; plus the cursor line's, whose wrap count may have changed) minus
+  ; the old line's
   LDA RENDER_FLAG
-  CMP #RF_UNJOIN
-  BNE .no_disp_adjust
+  CMP #RF_INS
+  BEQ .no_disp_adjust
   JSR file_line_rows         ; A = new cursor line screen rows
   PHA
   CLC
-  ADC SCROLL_DELTA           ; + restored rows: the block's rows now
+  ADC SCROLL_DELTA           ; + the lines after it: the block's rows now
   STA CUR_LINE_ROWS
   SEC
-  SBC PREV_LINE_ROWS         ; - old cursor rows = net displacement
+  SBC PREV_LINE_ROWS         ; - the old line's rows = net displacement
   BEQ .disp_not_positive
   BCC .disp_not_positive
   STA SCROLL_DELTA
+  ; The region scrolls from below min(new cursor line rows, old rows):
+  ; the rows above it are redrawn, and the old line's must all be in it
   PLA
+  CMP PREV_LINE_ROWS
+  BCS .no_disp_adjust
   STA PREV_LINE_ROWS
-  JMP .no_disp_adjust
+  BCC .no_disp_adjust        ; Always taken
 .disp_not_positive:
-  ; The cursor line and the restored lines take no more rows than the
-  ; joined line did: redraw them as one block that shrank from
-  ; PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept them)
+  ; The block takes no more rows than the old line did: redraw it as one
+  ; block that shrank from PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept
+  ; them)
   PLA                        ; (new cursor line rows)
   JSR set_first_row
   JMP render_rows_resized

@@ -79,7 +79,8 @@ render_line_insert_scroll:
 
   ; Scroll the region from its start row (1-based) to SCREEN_ROWS-1 down:
   ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
-  ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the cursor line)
+  ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the rows the
+;            cursor line keeps)
   ;   $05: from the old cursor row (CURSOR_ROW - SCROLL_DELTA) + 2, or + 1
   ;        for a start-of-line Enter batch (INSERT_LINE_COUNT = 3)
   LDA RENDER_FLAG

@@ -13942,6 +13942,74 @@ class EditorTestRunner:
             expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
+        # $09 (a line split into several by a multi-line char paste, or by
+        # undo of a multi-line char delete) with wrapped lines: the rows
+        # below must move by new_total - old_total, where old_total is the
+        # split line's height before the edit.
+        W, X, C = "W" * 40, "X" * 40, "c" * 40
+        wrap_split = "alpha beta\n" + "W" * 45 + " tail\n"
+        for name, content, keys, cursor, lines in [
+            # Joined line (2 rows) -> two 1-row lines: displacement 0
+            ("de undo, joined line wrapped",
+             "a" * 35 + " end\nword rest\nline 2\nline 3\nline 4\n",
+             b"$deu", (0, 38),
+             ["a" * 35 + " end", "word rest", "line 2", "line 3",
+              "line 4", "~"]),
+            # Undo from a 3-row line: old height is the joined line's, not
+            # the line the cursor was on when u was typed
+            ("de undo from another line",
+             "a" * 35 + " end\nword rest\n" + "c" * 85 + "\nline 3\nline 4\n",
+             b"$deju", (0, 38),
+             ["a" * 35 + " end", "word rest", C, C, "ccccc", "line 3",
+              "line 4", "~"]),
+            # 2-row line -> 1 row + 3 rows
+            ("P into wrapped line", wrap_split + "line 2\nline 3\nline 4\n",
+             b"$2ywjP", (1, 9),
+             ["alpha beta", "W" * 9 + "a", W, "WWWWW " + "W" * 34,
+              "WW tail", "line 2", "line 3", "line 4"]),
+            ("p into wrapped line", wrap_split + "line 2\nline 3\nline 4\n",
+             b"$2ywjp", (1, 10),
+             ["alpha beta", "W" * 10 + "a", W, "WWWWW " + "W" * 34,
+              "W tail", "line 2", "line 3", "line 4"]),
+            # First new line (2 rows) taller than the old line (1 row)
+            ("P first new line taller than old line",
+             "ab\n" + "X" * 50 + "\nZ\nline 2\nline 3\n",
+             b"j02yek0P", (0, 0),
+             [X, "X" * 10, "Zab", X, "X" * 10, "Z", "line 2", "line 3"]),
+            # Redo from a 2-row line: old height is the split line's
+            ("P redo from another line",
+             wrap_split + "c" * 45 + "\nline 3\nline 4\n",
+             b"$2ywjPuju", (1, 9),
+             ["alpha beta", "W" * 9 + "a", W, "WWWWW " + "W" * 34,
+              "WW tail", C, "ccccc", "line 3", "line 4"]),
+            ("P redo (1-row lines) from a 3-row line",
+             "alpha beta\nshort tail\n" + "c" * 85 + "\nline 3\nline 4\n",
+             b"$2ywjPuju", (1, 9),
+             ["alpha beta", "short taia", "short l", C, C, "ccccc",
+              "line 3", "line 4", "~"]),
+            # 2-word delete across a 3-row line, then undo
+            ("2dw undo across a wrapped line",
+             "hello w\nfoo " + "x" * 76 + "\n"
+             + "".join(f"l{i}\n" for i in range(2, 20)),
+             b"6l2dwu", (0, 6),
+             ["hello w", "foo " + "x" * 36, "x" * 40, "l2", "l3", "l4",
+              "l5", "l6", "l7"]),
+        ]:
+            self.run_test_screen(
+                "Scroll opt: wrapped split: " + name, content,
+                keys + b":q!\r", rows=10, cols=40,
+                expect_cursor=cursor, expect_lines=list(enumerate(lines)))
+
+        # Narrow screen: the pasted-into line keeps its 2 rows, the line
+        # after the paste must not be blanked
+        self.run_test_screen(
+            "Scroll opt: wrapped split: 2DP on a 2-row line",
+            "a" * 25 + "\nb\nc\nd\ne\n",
+            b"2DP:q!\r", rows=10, cols=20,
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "a" * 20), (1, "aaaaa"), (2, "b"), (3, "c"),
+                          (4, "d"), (5, "e"), (6, "~")])
+
         self._group("Scroll opt: paste-below undo:", leading_blank=True)
 
         # yypu at row 3: paste-below adds line 4, undo removes it.

@@ -64,7 +64,7 @@ WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by
 WRAP_REM:       .byte   ; Scratch: column a partial / ICH-DCH row render starts at
 RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
 DIV_INPUT16:    .word   ; Scratch for 16-bit division
-PREV_LINE_ROWS: .byte   ; Screen rows the cursor line occupied before the key ($09: after; $0B: the range's old rows)
+PREV_LINE_ROWS: .byte   ; Screen rows the cursor line occupied before the key ($09: the split line's; $0B: the range's old rows)
 SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
 SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
 SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
