@@ -163,38 +163,39 @@ yank_paste_ret:
   RTS
 
 ; Compute yank size and total paste size
-; Input: BUF_TEMP16 = paste count (16-bit, preserved)
+; Input: BUF_TEMP16 = paste count (16-bit, >= 1, preserved)
 ; Output: BUF_LEN16 = total size, YANK_SIZE16 = single size
 ; Returns carry set if yank buffer empty, carry clear if ready
+; Clobbers A, X, COUNT16, DIV_INPUT16
 yank_paste_setup:
   JSR yank_get_size           ; BUF_LEN16 = single yank size
-  BCC .has_data
-  RTS                         ; Empty yank, carry already set
-.has_data:
+  BCS yank_paste_ret          ; Empty yank (carry set)
   CP16 BUF_LEN16, YANK_SIZE16 ; YANK_SIZE16 = single size
-
-  ; Check if count is 1
-  CMPI16 BUF_TEMP16, 1
-  BEQ .done                   ; Count is 1, total size already set
-
-  ; Use stack to preserve count while we use it as loop counter
-  PUSH16 BUF_TEMP16           ; Save original count
-
-  ; Decrement for loop (already have one size in BUF_LEN16)
-  SEC
-  SBCI16 BUF_TEMP16, 1, BUF_TEMP16
-
-.calc:
+  LDX #YANK_SIZE16
+  JSR mul_by_count            ; BUF_LEN16 = YANK_SIZE16 * BUF_TEMP16
   CLC
-  ADC16 BUF_LEN16, YANK_SIZE16, BUF_LEN16
-  DEC16 BUF_TEMP16
-  TST16 BUF_TEMP16
-  BNE .calc
+  RTS
 
-  POP16 BUF_TEMP16            ; Restore original count
-
-.done:
+; BUF_LEN16 = (16-bit zero-page value at X) * BUF_TEMP16, low 16 bits
+; (shift and add: one pass per bit of the count).
+; Clobbers A, COUNT16, DIV_INPUT16
+mul_by_count:
+  CP16 BUF_TEMP16, COUNT16    ; Multiplier, shifted right
+  LDA $00,X
+  STA DIV_INPUT16             ; Multiplicand, shifted left
+  LDA $01,X
+  STA DIV_INPUT16 + 1
+  LDA #0
+  STA_LH16 BUF_LEN16
+.bit:
+  LSR16 COUNT16
+  BCC .next
   CLC
+  ADC16 BUF_LEN16, DIV_INPUT16, BUF_LEN16
+.next:
+  ASL16 DIV_INPUT16
+  TST16 COUNT16
+  BNE .bit
   RTS
 
 ; Show "Buffer full" and return carry set (a paste that did not fit)
@@ -242,7 +243,8 @@ yank_paste_core:
 
 ; Adjust marks after a line paste: UNDO_PASTE_COUNT16 copies of the yank
 ; (every caller has recorded the paste count there) now start at FILE_LINE16
-; Output: BUF_TEMP16 = total pasted lines.  Sets MODIFIED. Clobbers COUNT16.
+; Output: BUF_TEMP16 = total pasted lines.  Sets MODIFIED.
+; Clobbers A, X, Y, BUF_LEN16, COUNT16, DIV_INPUT16
 paste_adjust_marks:
   JSR undo_compute_paste_lines  ; BUF_TEMP16 = YANK_LINES16 * count
   LDAX16 FILE_LINE16

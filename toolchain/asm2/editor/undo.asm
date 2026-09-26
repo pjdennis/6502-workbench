@@ -410,21 +410,13 @@ undo_paste_redo:
 .redo_fail:
   JMP clear_count
 
-; Compute BUF_TEMP16 = YANK_LINES16 * UNDO_PASTE_COUNT16 (16-bit)
-; Clobbers: A, COUNT16
+; Compute BUF_TEMP16 = YANK_LINES16 * UNDO_PASTE_COUNT16 (16-bit, count >= 1)
+; Clobbers: A, X, BUF_LEN16, COUNT16, DIV_INPUT16
 undo_compute_paste_lines:
-  CP16 YANK_LINES16, BUF_TEMP16
-  CMPI16 UNDO_PASTE_COUNT16, 1
-  BEQ .done
-  CP16 UNDO_PASTE_COUNT16, COUNT16
-  DEC16 COUNT16
-.mul:
-  CLC
-  ADC16 BUF_TEMP16, YANK_LINES16, BUF_TEMP16
-  DEC16 COUNT16
-  TST16 COUNT16
-  BNE .mul
-.done:
+  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
+  LDX #YANK_LINES16
+  JSR mul_by_count
+  CP16 BUF_LEN16, BUF_TEMP16
   RTS
 
 ; Cursor back where a char paste was typed: UNDO_LINE16, and UNDO_COL16
