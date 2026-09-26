@@ -559,7 +559,19 @@ precompute_delete_scroll:
 finish_delete_scroll:
   LDA DELETE_SCREEN_ROWS     ; first removed line (low byte)
   EOR FILE_LINE16
-  BEQ .set                   ; A = 0: the region starts at the cursor line
+  BNE .above
+  ; A = 0: the region starts at the cursor line.  A delete that emptied
+  ; the buffer left an empty line there, which did not move up from
+  ; below: with one line left, draw every row of the region
+  LDX LINE_COUNT16 + 1
+  BNE .set
+  LDX LINE_COUNT16
+  DEX
+  BNE .set
+  DEX
+  STX SCROLL_DELTA           ; $FF
+  BNE .set                   ; Always
+.above:
   JSR file_line_rows
 .set:
   STA DELETE_SCREEN_ROWS

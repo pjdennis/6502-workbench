@@ -13553,6 +13553,18 @@ class EditorTestRunner:
                          + [(8, "~")],
             expect_cursor=(7, 0),
         )
+        # Redo of a dd of every line: the empty line left behind did not
+        # move up into the cursor row, so it must be drawn
+        for content, keys in (("a\nb\n", b"2ddu u"), ("a\nb\nc\n", b"3ddu u")):
+            self.run_test_screen(
+                f"Scroll opt: redo of {keys[:3]!r} of every line draws the "
+                "empty line",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=[(0, ""), (1, "~"), (2, "~"), (8, "~")],
+                expect_cursor=(0, 0),
+            )
 
         # J on last visible line: joined line is off-screen, only cursor row redrawn.
         # rows=10 → 9 content rows (0-8), status on row 9.
