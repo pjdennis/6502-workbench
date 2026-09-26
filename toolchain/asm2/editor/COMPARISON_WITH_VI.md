@@ -32,7 +32,7 @@
 
 **Our editor**: The line table is a *derived* index rebuilt from the text buffer. Three strategies:
 - **Full rebuild** (`buf_rebuild_lines`): scan entire buffer for newlines — O(file_size). Used when newlines are added/removed.
-- **Incremental adjust** (`buf_adjust_lines_inc/dec`): walk entries after edit point, adjust by +/-1 — O(remaining_lines). Used for single-char edits without newline changes.
+- **Incremental adjust** (`buf_adjust_lines_apply`): walk entries after edit point, adjust by the signed size change — O(remaining_lines). Used for edits within one line (no newline changes).
 
 This is fundamentally different: vi's pointers *are* the canonical representation; our pointers are a cache over the byte buffer.
 

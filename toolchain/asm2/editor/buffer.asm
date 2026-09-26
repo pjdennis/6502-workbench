@@ -419,68 +419,35 @@ cmp_ptr_end:
 .d:
   RTS
 
-; Common setup for buf_adjust_lines_inc/dec
-; Calculates count = LINE_COUNT16 - FILE_LINE16 - 1
-; Computes BUF_PTR16 = LINE_TBL entry for FILE_LINE16 + 1
-; Returns carry set if nothing to do (count <= 0)
-; Clobbers: A
-buf_adjust_lines_setup:
-  ; Calculate number of entries to adjust: LINE_COUNT16 - FILE_LINE16 - 1
-  SEC
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
-
-  ; Subtract 1 (we start from line+1, not line)
-  DEC16 BUF_LEN16
-
-  ; If count <= 0, nothing to adjust
-  LDA BUF_LEN16 + 1
-  BMI .nothing
-  ORA BUF_LEN16
-  BEQ .nothing
-
-  ; Calculate LINE_TBL entry for (FILE_LINE16 + 1)
-  ; Entry address = LINE_TBL + (FILE_LINE16 + 1) * 2
-  CLC
-  ADCI16 FILE_LINE16, $0001, BUF_PTR16
-  ASL16 BUF_PTR16
-  CLC
-  ADCI16 BUF_PTR16, LINE_TBL, BUF_PTR16
-
-  CLC              ; Has work to do
-  RTS
-.nothing:
-  SEC              ; Nothing to do
-  RTS
-
-; Decrement line pointers after current line by BUF_DELTA
-; Input: FILE_LINE16 = current line number, BUF_DELTA = shift amount
-; Clobbers: A, Y
-buf_adjust_lines_dec:
-  LDA #0
-  SEC
-  SBC BUF_DELTA
-  STA BUF_SRC16
-  LDA #$FF
-  STA BUF_SRC16 + 1
-  JMP buf_adjust_lines_apply
-
-; Increment line pointers after current line by BUF_DELTA
-; Input: FILE_LINE16 = current line number, BUF_DELTA = shift amount
-; Clobbers: A, Y
-buf_adjust_lines_inc:
-  LDA BUF_DELTA
-  STA BUF_SRC16
-  LDA #0
-  STA BUF_SRC16 + 1
-  ; Fall through
-
-; Apply 16-bit signed delta in BUF_SRC16 to line pointers after current line
+; Add the 16-bit signed delta in BUF_SRC16 to the line pointers of every
+; line after FILE_LINE16 (single-line edits that add/remove no newlines)
+; Input: FILE_LINE16 < LINE_COUNT16
+; Clobbers: A, X, Y, BUF_PTR16, BUF_LEN16
 buf_adjust_lines_apply:
-  JSR buf_adjust_lines_setup
-  BCS .done
-  LDY BUF_PTR16              ; Y = offset within page
+  ; Count = LINE_COUNT16 - FILE_LINE16 - 1 (CLC: SBC subtracts one more)
+  CLC
+  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
+  ORA BUF_LEN16
+  BEQ .done                  ; Cursor on last line: nothing to adjust
+  ; Entry address = LINE_TBL + (FILE_LINE16 + 1) * 2, split into a
+  ; page-aligned base in BUF_PTR16 and the low byte in Y
+  LDA FILE_LINE16 + 1
+  STA BUF_PTR16 + 1
+  LDA FILE_LINE16
+  SEC
+  ROL                        ; A = low(line * 2 + 1), C = bit 7
+  ROL BUF_PTR16 + 1          ; C = 0 (line < $8000)
+  ADC #1
+  TAY                        ; Y = low(line * 2 + 2)
+  LDA BUF_PTR16 + 1
+  ADC #>LINE_TBL
+  STA BUF_PTR16 + 1
   LDA #0
-  STA BUF_PTR16              ; BUF_PTR16 = page-aligned base
+  STA BUF_PTR16
+  ; Loop count: X = low byte, BUF_LEN16+1 = remaining 256-entry rounds
+  LDX BUF_LEN16
+  BEQ .loop
+  INC BUF_LEN16 + 1
 .loop:
   CLC
   LDA (BUF_PTR16),Y
@@ -491,16 +458,15 @@ buf_adjust_lines_apply:
   ADC BUF_SRC16 + 1
   STA (BUF_PTR16),Y
   INY
-  BEQ .page_cross
-.back:
-  DEC16 BUF_LEN16
-  TST16 BUF_LEN16
+  BNE .same_page
+  INC BUF_PTR16 + 1
+.same_page:
+  DEX
+  BNE .loop
+  DEC BUF_LEN16 + 1
   BNE .loop
 .done:
   RTS
-.page_cross:
-  INC BUF_PTR16 + 1
-  JMP .back
 
 ; Find line number and column for a buffer address
 ; Input: BUF_PTR16 = target buffer address (within TEXT_BUF..BUF_END16)

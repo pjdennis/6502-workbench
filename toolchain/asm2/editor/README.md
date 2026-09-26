@@ -120,7 +120,7 @@ project's 6502 emulator in console/ANSI mode.
   `TEXT_BUF = _code_end + $00FF >> $08 << $08`.
 - **Line table**: `LINE_TBL = $D800`, 16-bit pointers to each line start.
   `LINE_COUNT16` is maintained by `buf_rebuild_lines` (after newline edits)
-  and `buf_adjust_lines_inc/dec` (single-char edits without newlines).
+  and `buf_adjust_lines_apply` (single-line edits without newlines).
   Max 1023 lines (`MAX_LINES = $03FF`).
 - **Buffer limits**: `TEXT_LIMIT` is conditionally defined at compile-time:
   - Normal build: `$D600` (buffer extends from TEXT_BUF up to BATCH_BUF)
@@ -300,7 +300,7 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 - **Page-optimized memory ops**: byte shifting uses inner Y-indexed loops
   processing 256 bytes per page.
 - **Incremental line table updates**: single-char edits without newlines use
-  `buf_adjust_lines_inc/dec` instead of full rebuild.
+  `buf_adjust_lines_apply` instead of full rebuild.
 - **Range repaint**: `>>`/`<<`/range shifts and their undo repaint only the
   affected screen rows; wrap growth/shrink scrolls the region below instead
   of a full repaint. No-op shifts repaint nothing.
@@ -363,8 +363,8 @@ python3 editor/tests/editor_tests.py -q
 ## Tips for LLMs making changes
 
 - Any edit that changes buffer contents must update the line table (full
-  `buf_rebuild_lines` if newlines changed, or `buf_adjust_lines_inc/dec` for
-  single-char edits) and set `MODIFIED`.
+  `buf_rebuild_lines` if newlines changed, or `buf_adjust_lines_apply` for
+  edits within one line) and set `MODIFIED`.
 - Keep the "always newline-terminated buffer" invariant intact.
 - When moving between lines, clamp `CURSOR_COL` to the current line length.
 - Normal-mode edit keys should be gated by `READONLY`.

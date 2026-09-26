@@ -393,19 +393,13 @@ insert_batch:
   SBC NORMAL_TEMP            ; - total_delete = net
   STA SHIFT_NET              ; ICH/DCH hint: net cell shift
   BEQ .fast_done
-  BCS .fast_inc              ; net > 0
-
-  ; net < 0: adjust lines down
-  EOR #$FF
-  CLC
-  ADC #1                     ; |net|
-  STA BUF_DELTA
-  JSR buf_adjust_lines_dec
-  JMP .fast_done
-
-.fast_inc:
-  STA BUF_DELTA
-  JSR buf_adjust_lines_inc
+  ; Adjust the line table by the signed net: the SBC's carry is its
+  ; sign (C=1 net > 0, C=0 net < 0)
+  STA BUF_SRC16
+  LDA #0
+  SBC #0                     ; Sign extend: $00 (C=1) or $FF (C=0)
+  STA BUF_SRC16 + 1
+  JSR buf_adjust_lines_apply
 
 .fast_done:
   JMP .set_modified

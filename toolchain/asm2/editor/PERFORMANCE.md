@@ -5,8 +5,9 @@
 ### Incremental line pointer adjustment
 
 When inserting/deleting a non-newline character, line pointers after the edit
-point shift by +1/-1. `buf_adjust_lines_inc` and `buf_adjust_lines_dec` walk
-LINE_TBL and adjust each pointer, replacing a full `buf_rebuild_lines` scan.
+point shift by the same amount. `buf_adjust_lines_apply` walks LINE_TBL and
+adds that signed delta to each pointer, replacing a full `buf_rebuild_lines`
+scan.
 
 For a 318-line file: ~12K cycles vs ~194K cycles.
 
@@ -41,8 +42,8 @@ Execution computes `net = insert_len - back - fwd` and performs a single
 `buf_shift_right_16` (net > 0) or `buf_shift_left_16` (net < 0), then
 copies `BATCH_BUF` into place. Two post-operation paths:
 
-- **Fast path** (no newlines crossed): incremental `buf_adjust_lines_inc`
-  or `buf_adjust_lines_dec`. O(line_count) pointer walk.
+- **Fast path** (no newlines crossed): incremental `buf_adjust_lines_apply`
+  with the signed net. O(line_count) pointer walk.
 - **Newlines path** (any newline inserted or deleted): full
   `buf_rebuild_lines` + `mark_adjust_delete`/`mark_adjust_insert`.
 
@@ -55,8 +56,8 @@ type → BS → type was 3 separate operations).
 
 In normal mode, `count_pending_key` (in input.asm) checks for additional
 buffered matching keys after x. Pending deletes are counted and executed
-with a single `buf_shift_left` via `buf_delete_chars`, with one
-`buf_adjust_lines_dec` call for the batch.
+with a single `buf_shift_left_16` via `delete_at_cursor`, with one
+`buf_adjust_lines_apply` call for the batch.
 
 ### Indent/unindent range repaint
 
@@ -140,7 +141,7 @@ most line table operations just compare or iterate.
   the gap, but the high-level logic stays the same.
 
 **Incremental line adjustment with gap buffer:** With a gap buffer,
-buf_adjust_lines_inc/dec are no longer needed since insert/delete don't
+buf_adjust_lines_apply is no longer needed since insert/delete don't
 shift the buffer. The line table just needs one new entry (for newline
 insert) or one removed entry (for newline delete), plus the gap position
 bookkeeping.
