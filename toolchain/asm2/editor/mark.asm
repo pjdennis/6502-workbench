@@ -66,24 +66,29 @@ mark_get:
   RTS
 
 ; Display all set marks
-; Clears screen, prints mark/line/text table, waits for keypress
+; Clears screen, prints the mark/line/text table a page at a time (as
+; vim's more-prompt does: when the rows above the last are full and more
+; marks follow, '-- More --' there waits for a key, and q ends the list),
+; then waits for a keypress
 ; Sets RENDER_FLAG = $FF on return (full redraw)
 marks_display:
-  JSR ansi_clear_screen
-  PRINT_STR str_marks_header
-
-  LDA #1
-  STA ANSI_COL           ; Every row starts at column 1
-  LDA #2
-  STA ANSI_ROW           ; First mark row (still 2 at the end = none shown)
   LDA #'a'
   STA BUF_TEMP           ; Mark letter
+  JSR marks_page
 
 .marks_loop:
   LDA BUF_TEMP
   JSR mark_get           ; A/X = line, carry set if unset
   BCS .marks_next
   STAX16 BUF_PTR16       ; 0-based line (survives the output calls below)
+
+  ; The rows above the last are full: '-- More --', then a new page
+  LDX ANSI_ROW
+  CPX SCREEN_ROWS
+  BCC .row_free
+  JSR marks_more
+  BEQ .marks_done        ; q: the list ends here
+.row_free:
 
   ; Print " a" (mark letter)
   JSR ansi_move_cursor
@@ -118,20 +123,18 @@ marks_display:
   LDA (BUF_PTR16),Y
   CMP #'\n'
   BEQ .marks_text_done
+  CMP #$7F               ; Not printable ASCII: a space ($80-$9F are C1
+  BCS .marks_text_space  ; controls to some terminals)
   CMP #' '
   BCS .marks_text_ok
+.marks_text_space:
   LDA #' '
 .marks_text_ok:
   JSR io_write
   INY
   BNE .marks_text        ; Always taken (limit < 256)
 .marks_text_done:
-
-  ; Stop before the last two rows (the next row would be SCREEN_ROWS-1)
   INC ANSI_ROW
-  LDX ANSI_ROW
-  CPX TEXT_ROWS
-  BCS .marks_done_display
 
 .marks_next:
   INC BUF_TEMP
@@ -139,7 +142,6 @@ marks_display:
   CMP #'z' + 1
   BNE .marks_loop
 
-.marks_done_display:
   LDA ANSI_ROW
   CMP #2
   BNE .marks_wait        ; At least one mark shown
@@ -148,8 +150,31 @@ marks_display:
 
 .marks_wait:
   JSR flush_get_key
+.marks_done:
   LDA #RF_FULL
   STA RENDER_FLAG
+  RTS
+
+; Show '-- More --' on the last row and wait for a key.  Returns Z=1 for
+; q (the list ends); any other key starts a new page (Z=0)
+; Clobbers A, X, Y
+marks_more:
+  LDA #<str_more
+  LDX #>str_more
+  JSR show_message_ax    ; (returns the key)
+  EOR #'q'
+  BNE marks_page
+  RTS
+
+; Clear the screen, print the header, and point ANSI_ROW/COL at row 2
+; (Z=0).  Clobbers A, X, Y
+marks_page:
+  JSR ansi_clear_screen
+  PRINT_STR str_marks_header
+  LDX #1
+  STX ANSI_COL           ; Every row starts at column 1
+  INX
+  STX ANSI_ROW           ; First mark row (still 2 at the end = none shown)
   RTS
 
 ; Print TO_DECIMAL_RESULT right-justified in a 7-character field
@@ -176,6 +201,7 @@ write_decimal_rjust:
 
 str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
+str_more:         .asciiz "-- More --"
 
 ; Adjust marks with col-0 line adjustment via CURSOR_COL16
 ; At col 0: line consumed entirely, A/X unchanged

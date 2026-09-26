@@ -274,7 +274,7 @@ project's 6502 emulator in console/ANSI mode.
 | `:wq` | Save and quit |
 | `:q!` | Force quit |
 | `:[N]` | Go to line N (1-based) |
-| `:marks` | Display all set marks |
+| `:marks` | Display all set marks, a screen at a time (`-- More --`; `q` ends the list) |
 | `:[start],[end]d` | Delete range |
 | `:[start],[end]y` | Yank range |
 | `:[start],[end]>` | Indent range |

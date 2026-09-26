@@ -8944,6 +8944,44 @@ class EditorTestRunner:
             expect_ansi_contains="Hello World - this is a long line",
         )
 
+        # :marks lists every mark a page at a time, as vim does: once the
+        # rows above the last are full, '-- More --' there waits for a
+        # key, and the rest follow on a new page; q at '-- More --' ends
+        # the list.  (10x40: marks a-h fill rows 1-8)
+        set_marks = lambda n: b"".join(b"m%cj" % (97 + i) for i in range(n))
+        self.run_test_screen(
+            ":marks shows -- More -- when the marks fill the screen",
+            make_lines(30),
+            set_marks(9) + b":marks\r  :q!\r",
+            expect_ansi_contains=" h      8 Line 8\x1b[10;1H\x1b[K-- More --",
+        )
+        self.run_test_screen(
+            ":marks shows the marks that do not fit after a key",
+            make_lines(30),
+            set_marks(12) + b":marks\r  :q!\r",
+            expect_ansi_contains="\x1b[5;1H l     12 Line 12",
+            expect_cursor=(8, 0),
+            expect_lines=[(8, "Line 13")],
+        )
+        self.run_test_screen(
+            ":marks q at -- More -- ends the list",
+            make_lines(30),
+            set_marks(12) + b":marks\rq:q!\r",
+            expect_ansi_contains="-- More --\x1b[?25l",
+            expect_cursor=(8, 0),
+            expect_lines=[(8, "Line 13")],
+        )
+
+        # Bytes that are not printable ASCII show as spaces: a raw $9B is
+        # CSI to a terminal that takes 8-bit controls
+        self.run_test_screen(
+            ":marks shows non-ASCII bytes as spaces",
+            None,
+            b"ma:marks\r :q!\r",
+            initial_bytes=b"a\x9b2J\xe9\x7fb\tc\n",
+            expect_ansi_contains=" a      1 a 2J  b c",
+        )
+
         # :m shows "Unknown command" (partial match, doesn't match :marks)
         self.run_test_screen(
             ":m shows Unknown command",

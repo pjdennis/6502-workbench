@@ -49,6 +49,12 @@
 
   cc/S - The changed lines count as deleted, so their marks are cleared. Vi keeps them.
 
+  :marks - Lists marks a-z with their line and text; vim also shows the column and its special marks. A long list
+  shows a screen at a time with "-- More --", as in vim, but there q ends the list and any other key shows the next
+  page (vim also takes Enter or j for one more line, b for the previous page and ESC to stop). Each page starts on a
+  cleared screen, where vim scrolls. After the list any key returns; vim asks "Press ENTER or type command to
+  continue" and runs a command key typed there.
+
   Not wrong, but worth noting
 
   ~ - Accepts a count, which matches vim but not traditional vi. This is probably fine — most users expect vim behavior

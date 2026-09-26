@@ -232,7 +232,9 @@ COMMAND-LINE MODE
   :wq            Save and quit
   :q!            Quit without saving
   :[N]           Go to line N (1-based)
-  :marks         Display all set marks with line numbers
+  :marks         Display all set marks with line numbers, a
+                 screen at a time: at "-- More --" a key shows
+                 the next page, q ends the list
 
   Range commands:
 
