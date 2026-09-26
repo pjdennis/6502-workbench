@@ -1420,6 +1420,13 @@ class EditorTestRunner:
             full, b"A\x1b[3~\r\r\x1b\x1bx:wq\r",
             expected_content="L000\n" + full[6:])
 
+    TEXT_LIMIT = 0xD600  # End of the main build's text buffer
+
+    def _text_buf(self):
+        """TEXT_BUF of the main build: the first page boundary after the
+        code, which loads at $0400."""
+        return (0x0400 + self.editor_bin.stat().st_size + 0xFF) & ~0xFF
+
     def run_self_editability_checks(self):
         """Every editor source file must be editable by the editor itself.
 
@@ -1429,12 +1436,9 @@ class EditorTestRunner:
         source file so the editor stays self-hosting as it grows.
         """
         MAX_LINES = 1023
-        TEXT_LIMIT = 0xD600
-        LOAD_ADDR = 0x0400
 
-        code_size = self.editor_bin.stat().st_size
-        text_buf = (LOAD_ADDR + code_size + 0xFF) & ~0xFF
-        capacity = TEXT_LIMIT - text_buf
+        text_buf = self._text_buf()
+        capacity = self.TEXT_LIMIT - text_buf
 
         editor_dir = self.editor_asm.parent
         sources = sorted(editor_dir.glob("*.asm"))
@@ -2241,6 +2245,39 @@ class EditorTestRunner:
                 expect_unmodified=True
             )
 
+            # A file that exactly fills the buffer is not truncated: it
+            # loads editable (no warning to dismiss), so 'x' deletes
+            self.run_test_small_buffer(
+                "File exactly filling buffer is editable",
+                "B" * 255 + "\n",   # 256 bytes = buffer size
+                b"x:wq\r",
+                expected_content="B" * 254 + "\n"
+            )
+            # One more line past a full buffer that ends on a newline is
+            # still truncated
+            self.run_test_small_buffer(
+                "File past full buffer ending on newline is read-only",
+                "B" * 255 + "\nC\n",
+                b"xx:wq\rx:q!\r",
+                expect_unmodified=True
+            )
+            # A full-size file without a trailing newline has no room for
+            # one: its last byte gives way, so it is read-only
+            self.run_test_small_buffer(
+                "Full-size file without newline is read-only",
+                "B" * 256,
+                b"xx:wq\rx:q!\r",
+                expect_unmodified=True
+            )
+            # One byte short without a trailing newline: the appended
+            # newline exactly fills the buffer, so it stays editable
+            self.run_test_small_buffer(
+                "File filling buffer with appended newline is editable",
+                "B" * 255,
+                b"x:wq\r",
+                expected_content="B" * 254 + "\n"
+            )
+
             # Buffer full during editing: insert char fails
             # small_buffer = 256 bytes buffer. File with 250 bytes leaves ~6 free
             # After loading, type characters until full
@@ -2306,6 +2343,16 @@ class EditorTestRunner:
                 b"x:wq\r",
                 expected_content="ello\n"
             )
+
+        self._group("Bounds checking (full text buffer):", leading_blank=True)
+
+        # A file that exactly fills the main build's text buffer (from
+        # TEXT_BUF up to TEXT_LIMIT) loads editable, as in the small build
+        capacity = self.TEXT_LIMIT - self._text_buf()
+        exact = ''.join(f"{i:05d}" + "x" * 58 + "\n"
+                        for i in range(capacity // 64))
+        self.run_test("File exactly filling the text buffer is editable",
+            exact, b"x:wq\r", expected_content=exact[1:])
 
         self._group("Bounds checking (16-bit overflow):", leading_blank=True)
 

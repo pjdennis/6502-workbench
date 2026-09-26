@@ -50,7 +50,10 @@ buf_load_file:
   LDA BUF_END16 + 1
   CMP #>TEXT_LIMIT
   BCC .read_loop
-  ; Buffer full - file was truncated
+  ; Buffer full - the file was truncated if there is more to read
+  LDA FILE_HANDLE
+  JSR read
+  BCS .read_done
   DEC READONLY            ; $00 -> $FF
 .read_done:
   STY BUF_END16           ; Reconstruct full pointer
@@ -63,14 +66,15 @@ buf_load_file:
   LDA #'\n'
   CMP (BUF_PTR16),Y
   BEQ .has_newline
-  ; Need to add a newline
-  BIT READONLY
-  BPL .append                ; Not truncated
-  ; Truncated - overwrite last byte to stay within buffer limit
+  ; Need to add a newline: append it if there is room
+  LDX BUF_END16 + 1          ; BUF_END16 is at the limit only as limit:00
+  CPX #>TEXT_LIMIT
+  BCC .append
+  ; Full - overwrite the last byte instead, so the file is truncated
   STA (BUF_PTR16),Y
-  BMI .has_newline           ; Always (N still from BIT)
+  DEC READONLY               ; Nonzero: read-only
+  BNE .has_newline           ; Always ($FF, or $FE if already truncated)
 .append:
-  ; Not truncated - append trailing newline
   JSR buf_append_nl
 .has_newline:
 
