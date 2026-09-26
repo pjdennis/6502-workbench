@@ -16502,6 +16502,16 @@ class EditorTestRunner:
             expected_content="X" * 33 + "\n"
         )
 
+        # key_peek/get_key preserve Y: insert_batch counts its remaining
+        # BATCH_BUF capacity in Y across them.  A batch longer than
+        # BATCH_MAX must not overrun BATCH_BUF into the mark table.
+        self.run_test(
+            "Insert 40 chars keeps marks intact",
+            "a\nb\nc\nd\n",
+            b"jjmagg" + b"i" + b"X" * 40 + b"\x1b'ax:wq\r",
+            expected_content="X" * 40 + "a\nb\n\nd\n"
+        )
+
         # ~ echo over skipped punctuation: chars must land in the right
         # columns (regression: skipped non-alpha chars used to shift all
         # later direct writes left)

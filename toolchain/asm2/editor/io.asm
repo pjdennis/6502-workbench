@@ -3,6 +3,8 @@
 ; Provides io_write, io_read, io_flush, io_ready that map to either
 ; console I/O (write_b, con_read, con_flush, con_ready) or serial I/O
 ; depending on whether terminal_mode is defined.
+; All four preserve X and Y in both builds (the console routines are
+; emulator stubs that only load or store A); input.asm relies on this.
 
   .ifndef terminal_mode
 

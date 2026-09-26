@@ -67,7 +67,7 @@ count_pending_key:
 ; Read one key, decoding escape sequences
 ; Returns key code in A: KEY_* codes for special keys, bare ESC as KEY_ESC,
 ; $7F normalized to KEY_BS, $00 (no-op) for ignored input
-; Clobbers X
+; Clobbers X; preserves Y (io_read and io_ready preserve X and Y)
 read_key:
   JSR input_read_byte
   CMP #$7F
@@ -198,16 +198,12 @@ get_key:
   RTS
 
 ; Decode the next key (blocking) into the decoded-key buffer
-; Preserves X, Y
+; Preserves X, Y (read_key leaves Y alone)
 decode_key:
   TXA
   PHA
-  TYA
-  PHA
   JSR read_key
   STA KEY_DECODED
-  PLA
-  TAY
   PLA
   TAX
   LDA KEY_DECODED
