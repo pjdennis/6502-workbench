@@ -4760,6 +4760,23 @@ class EditorTestRunner:
             expect_cursor=(3, 0),
         )
 
+        # An Enter batch at the start or end of a line is drawn by the
+        # scroll alone only when it deleted nothing: a char it deleted
+        # must go from the screen too
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines in [
+            ("Batch BS then Enter at end of line: deleted char repainted",
+             "abc\nxyz\n", b"A\x08\r", [(0, "ab"), (1, ""), (2, "xyz")]),
+            ("Batch DEL then Enter at col 0: deleted char repainted",
+             "xyz\n", b"i" + DEL + b"\r", [(0, ""), (1, "yz"), (2, "~")]),
+            ("Batch Enter then DEL at col 0: deleted char repainted",
+             "xyz\n", b"i\r" + DEL, [(0, ""), (1, "yz"), (2, "~")]),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=(1, 0),
+            )
+
         # Enter with chars (a\rb\r) - screen shows all content
         self.run_test_screen(
             "Mixed chars and Enter: screen correct",
@@ -13435,6 +13452,28 @@ class EditorTestRunner:
             # Frame 3 (DEL): cursor row 0 NOT repainted, only bottom row exposed
             expect_content_rows=[(3, {8})]
         )
+
+        # A join leaves the cursor line alone only when the batch deleted
+        # nothing but newlines and typed nothing
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines, cursor in [
+            ("Scroll opt: BS joining empty line + typed text repaints",
+             "abc\n\ndef\n", b"ji\x08x",
+             [(0, "abcx"), (1, "def"), (2, "~")], (0, 3)),
+            ("Scroll opt: BS joining empty lines at col 0 + typed text repaints",
+             "a\n\n\nb\n", b"jji\x08x",
+             [(0, "a"), (1, "x"), (2, "b"), (3, "~")], (1, 0)),
+            ("Scroll opt: BS joining empty line above + DEL char repaints",
+             "\nabc\ndef\n", b"ji\x08" + DEL,
+             [(0, "bc"), (1, "def"), (2, "~")], (0, 0)),
+            ("Scroll opt: DEL char + DEL joining empty line repaints",
+             "eih\n\nnext\n", b"$i" + DEL + DEL,
+             [(0, "ei"), (1, "next"), (2, "~")], (0, 1)),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
 
         # Batched BS at col 0 joining multiple empty lines: display correctness.
         # 3 empty lines above "Hello", 3 BS keys join them all.

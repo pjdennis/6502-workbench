@@ -62,8 +62,7 @@ insert_exit:
 ;   BUF_DELTA      = insert_len
 ;   BUF_TEMP16.lo  = back (clamped to the bytes before the cursor)
 ;   BUF_TEMP       = fwd_actual (the forward scan never takes the buffer's
-;                    final '\n'); back again in the newline path, where the
-;                    mark adjustment clobbers BUF_TEMP16
+;                    final '\n')
 ;   LINE_LEN16.lo  = back_nl
 ;   LINE_LEN16.hi  = fwd_nl
 ;   NORMAL_TEMP    = ins_nl (after BATCH_BUF scan)
@@ -349,10 +348,19 @@ insert_handle_key:
   ; Newlines path: rebuild + mark adjust
   ; ========================================
 .newlines_path:
-  ; The mark adjustment clobbers BUF_TEMP16: keep back in BUF_TEMP
-  ; (fwd_actual is not needed any more)
-  LDA BUF_TEMP16
-  STA BUF_TEMP
+  ; A pure batch typed and deleted only newlines, so the text of its lines
+  ; is as it was: INSERT_LINE_COUNT = $FF (0 from main_loop) for the
+  ; Enter and join repaints that the scroll alone draws
+  LDA BUF_DELTA              ; insert_len
+  CMP NORMAL_TEMP            ; ins_nl (C = 1 if equal)
+  BNE .not_pure
+  LDA BUF_TEMP16             ; back
+  ADC BUF_TEMP               ; + fwd_actual + 1 (C = 0: at most 65)
+  SBC LINE_LEN16             ; - back_nl - 1 (C = 1: back >= back_nl)
+  SBC LINE_LEN16 + 1         ; - fwd_nl = the other chars deleted
+  BNE .not_pure
+  DEC INSERT_LINE_COUNT
+.not_pure:
   ; BUF_LEN16 = cursor_buf_pos = delete_start + insert_len (survives the
   ; rebuild and the mark adjustment)
   LDA BUF_DELTA
@@ -398,24 +406,21 @@ insert_handle_key:
   ORA LINE_LEN16 + 1         ; fwd_nl
 .complex:
   BNE .set_modified_line
-  ; A pure Enter batch (all bytes are newlines) at the end of the line
-  ; (the cursor line is empty: INSERT_LINE_COUNT = 1) or at its start
-  ; (the first changed column is 0: $FF) is drawn by the scroll alone
-  LDA BUF_DELTA              ; insert_len
-  CMP NORMAL_TEMP            ; ins_nl
-  BNE .enter_flag
+  ; A pure Enter batch at the end of the line (the cursor line is empty:
+  ; INSERT_LINE_COUNT = $7F) or at its start (the first changed column
+  ; is 0: $FF) is drawn by the scroll alone; any other keeps 0
+  LDA INSERT_LINE_COUNT
+  BEQ .enter_flag            ; not pure
   LDY #0
   LDA (BUF_PTR16),Y          ; the char at the cursor (column 0)
-  LDX #1
   CMP #'\n'
-  BEQ .enter_kind
+  BEQ .enter_at_end
   LDA RENDER_FROM_COL16
   ORA RENDER_FROM_COL16 + 1
-  BNE .enter_flag
-  DEX
-  DEX                        ; $FF
-.enter_kind:
-  STX INSERT_LINE_COUNT
+  BEQ .enter_flag            ; at the start: $FF
+  INC INSERT_LINE_COUNT      ; mid-line: 0 (and the LSR keeps it)
+.enter_at_end:
+  LSR INSERT_LINE_COUNT
 .enter_flag:
   LDA #RF_ENTER              ; Line-insert above cursor scroll
   BNE .set_flag              ; Always taken
@@ -423,39 +428,30 @@ insert_handle_key:
   ; Lines merged, none inserted: line-delete scroll ($06)
 .joined:
   LDA LINE_LEN16             ; back_nl
-  BEQ .fwd_join
+  BEQ .join_at_eol           ; forward newlines deleted only
   ; --- Backward newlines deleted.  Forward ones too: complex case,
   ; current-line redraw ---
   LDA LINE_LEN16 + 1         ; fwd_nl
   BNE .complex               ; (Z = 0: on to .set_modified_line)
-  ; Check if cursor line content unchanged (pure empty-line join):
-  ; back == back_nl (all deleted bytes are newlines) AND
-  ; (cursor at col 0 OR cursor at end of line)
-  LDA BUF_TEMP               ; back
-  CMP LINE_LEN16             ; back_nl
-  BNE .join_flag
+  ; A pure join leaves the cursor line's text as it was when the cursor
+  ; ends at column 0 (the lines above were empty: INSERT_LINE_COUNT =
+  ; $7F, the rows scroll from the line's first) or at the end of the
+  ; line (the lines below were: $FF, from below it); else 0: redraw it
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
   BNE .join_at_eol
-  ; Cursor at col 0: empty lines above joined; signal with back (non-zero)
-  LDA BUF_TEMP
-  BNE .join_signal           ; Always taken
-
-  ; --- Forward newlines deleted only ---
-.fwd_join:
-  ; Pure join (cursor at end of line = joined lines were empty)?
-  LDA BUF_TEMP               ; back
-  ORA BUF_DELTA              ; insert_len
-  BNE .join_flag
+  LSR INSERT_LINE_COUNT
+  BPL .join_flag             ; Always taken
 .join_at_eol:
+  LDA INSERT_LINE_COUNT
+  BEQ .join_flag             ; not pure
   JSR get_current_line_len   ; A = low, X = high
   CMP CURSOR_COL16
-  BNE .join_flag
+  BNE .join_redraw
   CPX CURSOR_COL16 + 1
-  BNE .join_flag
-  LDA #$FF                   ; Signal: skip cursor row repaint only
-.join_signal:
-  STA INSERT_LINE_COUNT
+  BEQ .join_flag
+.join_redraw:
+  INC INSERT_LINE_COUNT      ; 0
 .join_flag:
   ; The joined line changed from where the batch began, before the text
   ; it typed

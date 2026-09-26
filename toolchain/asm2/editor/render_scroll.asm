@@ -169,7 +169,7 @@ render_range_repaint:
 ; (its later rows on screen); the drawing then starts at the top row.  A
 ; pure Enter batch at the start of the line (INSERT_LINE_COUNT = $FF)
 ; scrolls from F instead, moving the whole line down, and one at its end
-; (1) opens the new empty lines: both are drawn by the scroll alone,
+; ($7F) opens the new empty lines: both are drawn by the scroll alone,
 ; unless its region was one row that could not be scrolled (only at the
 ; end of the line: the cursor line is then drawn there).  Text that
 ; shrank (BS/Del in the batch) or new lines reaching past row 254 are

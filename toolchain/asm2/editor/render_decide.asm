@@ -45,7 +45,7 @@
 ;                              PREV_LINE_ROWS rows before the batch;
 ;                              RENDER_FROM_COL16 = the first column it
 ;                              changed.  INSERT_LINE_COUNT: pure-Enter
-;                              batch at the line's end 1, at its start
+;                              batch at the line's end $7F, at its start
 ;                              $FF (see render_enter_split).
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
 ;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
