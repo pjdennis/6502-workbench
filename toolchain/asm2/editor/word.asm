@@ -21,38 +21,30 @@ class_at_ptr:
   LDA (BUF_PTR16),Y
   ; fall through into char_class
 
-; Classify byte in A -> A = 0 (whitespace), 1 (word: a-zA-Z0-9_), 2 (punct)
+; Classify byte in A -> A = 0 (whitespace: space, tab, newline),
+; 1 (word: a-zA-Z0-9_), 2 (anything else: punctuation); Z set for whitespace
 char_class:
+  CMP #'_'
+  BEQ .word
+  CMP #'0'
+  BCC .below_digits
+  CMP #'9' + 1
+  BCC .word
+  ORA #$20                ; Fold A-Z onto a-z (no other byte lands there)
+  CMP #'a'
+  BCC .punct
+  CMP #'z' + 1
+  BCC .word
+.punct:
+  LDA #2
+  RTS
+.below_digits:
   CMP #' '
   BEQ .whitespace
   CMP #'\t'
   BEQ .whitespace
   CMP #'\n'
-  BEQ .whitespace
-  ; Check a-z
-  CMP #'a'
-  BCC .not_lower
-  CMP #'z' + 1
-  BCC .word
-.not_lower:
-  ; Check A-Z
-  CMP #'A'
-  BCC .not_upper
-  CMP #'Z' + 1
-  BCC .word
-.not_upper:
-  ; Check 0-9
-  CMP #'0'
-  BCC .not_digit
-  CMP #'9' + 1
-  BCC .word
-.not_digit:
-  ; Check underscore
-  CMP #'_'
-  BEQ .word
-  ; Everything else is punctuation
-  LDA #2
-  RTS
+  BNE .punct
 .whitespace:
   LDA #0
   RTS
