@@ -27,44 +27,75 @@ normal_move_up:
   JMP clamp_and_clear_count
 
 normal_page_down:
-  JSR get_batched_count
-  STX BUF_DELTA            ; BUF_DELTA = loop counter
-
-  ; page_size = SCREEN_ROWS - 1 (content rows excluding status bar)
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA BUF_TEMP       ; BUF_TEMP = move amount
-  STA NORMAL_TEMP    ; NORMAL_TEMP = content_rows for view clamp
-
-.page_loop:
+  JSR page_setup
   JSR scroll_view_down
-  DEC BUF_DELTA
-  BNE .page_loop
   JMP zero_col_clamp_clear
 
 normal_page_up:
-  JSR get_batched_count
-  STX BUF_DELTA            ; BUF_DELTA = loop counter
-
-  ; page_size = SCREEN_ROWS - 1
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA BUF_TEMP       ; BUF_TEMP = move amount
-
-.page_loop:
+  JSR page_setup
   JSR scroll_view_up
-  DEC BUF_DELTA
-  BNE .page_loop
   JMP zero_col_clamp_clear
+
+; Ctrl-D: half-page down
+; Scroll down by half a screen (or count lines). Column preserved.
+normal_half_page_down:
+  JSR half_page_setup
+  JSR scroll_view_down
+  JMP clamp_and_clear_count
+
+; Ctrl-U: half-page up
+; Scroll up by half a screen (or count lines). Column preserved.
+normal_half_page_up:
+  JSR half_page_setup
+  JSR scroll_view_up
+  JMP clamp_and_clear_count
+
+; Page scroll setup: BUF_DELTA = batched count (repeats, 0 = 256),
+; BUF_TEMP = page size = content rows (SCREEN_ROWS - 1)
+page_setup:
+  JSR get_batched_count
+  STX BUF_DELTA
+  LDX SCREEN_ROWS
+  DEX
+  STX BUF_TEMP
+  RTS
+
+; Half-page scroll setup: BUF_DELTA = 1 + extra Ctrl-D/U keys in
+; typeahead (BUF_TEMP = key code from dispatch), BUF_TEMP = scroll
+; amount: COUNT16 if set (and remembered), else the sticky value, else
+; half a page
+half_page_setup:
+  JSR count_pending_key
+  INX
+  STX BUF_DELTA
+  LDA COUNT16
+  ORA COUNT16 + 1
+  BNE .use_count
+  ; No count: use sticky if set, else compute default
+  LDA SCROLL_AMOUNT
+  BNE .store
+  ; Default: half_page = (SCREEN_ROWS - 1) / 2
+  LDX SCREEN_ROWS
+  DEX
+  TXA
+  LSR
+  BPL .store                 ; Always
+.use_count:
+  ; Use COUNT16 as scroll amount (cap to 8-bit), save as sticky
+  LDA COUNT16
+  LDX COUNT16 + 1
+  BEQ .save_sticky
+  LDA #$FF
+.save_sticky:
+  STA SCROLL_AMOUNT
+.store:
+  STA BUF_TEMP
+  RTS
 
 ; --- Shared scroll subroutines ---
 
-; Scroll viewport down by BUF_TEMP lines
-; Input: BUF_TEMP = lines to move FILE_LINE and VIEW_TOP
-;        NORMAL_TEMP = content_rows for VIEW_TOP max clamp
-; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP
+; Scroll the viewport down BUF_DELTA times (0 = 256) by BUF_TEMP lines
+; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A, X, Y
 scroll_view_down:
   ; FILE_LINE16 += BUF_TEMP, clamped to the last line
@@ -73,76 +104,58 @@ scroll_view_down:
   JSR add_file_line
 
   ; VIEW_TOP16 += BUF_TEMP
+  LDA BUF_TEMP
   CLC
-  LDA VIEW_TOP16
-  ADC BUF_TEMP
-  STA VIEW_TOP16
-  LDA VIEW_TOP16 + 1
-  ADC #0
-  STA VIEW_TOP16 + 1
+  ADCA16 VIEW_TOP16, VIEW_TOP16
 
-  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - content_rows)
+  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - content_rows), where
+  ; LINE_COUNT - content_rows = LINE_COUNT - SCREEN_ROWS + 1
   SEC
   LDA LINE_COUNT16
-  SBC NORMAL_TEMP
-  TAX                ; X = low byte of max view top
+  SBC SCREEN_ROWS
+  TAX
   LDA LINE_COUNT16 + 1
   SBC #0
-  BCC .view_zero  ; LINE_COUNT < content_rows, set VIEW_TOP=0
-  TAY                ; Y = high byte of max view top
+  BCC .view_zero     ; LINE_COUNT < content_rows, set VIEW_TOP=0
+  TAY                ; Y:X = max view top
+  INX
+  BNE .max_ok
+  INY
+.max_ok:
 
   ; If VIEW_TOP16 > max, clamp it
   CPY VIEW_TOP16 + 1
   BCC .clamp_view
-  BNE .set_file_line
+  BNE .next
   CPX VIEW_TOP16
-  BCS .set_file_line
+  BCS .next
 .clamp_view:
   STX VIEW_TOP16
   STY VIEW_TOP16 + 1
-  JMP .set_file_line
+  BCC .next                ; Always (C = 0 here)
 
 .view_zero:
   LDA #0
   STA_LH16 VIEW_TOP16
+.next:
+  DEC BUF_DELTA
+  BNE scroll_view_down
 
-.set_file_line:
+; Shared scroll tail: the new view top starts at its line's first row
+view_wrap_zero:
   LDA #0
   STA VIEW_TOP_WRAP
   RTS
 
-; Scroll viewport up by BUF_TEMP lines
-; Input: BUF_TEMP = lines to move FILE_LINE and VIEW_TOP
-; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP
-; Clobbers: A, X, Y, BUF_PTR16
+; Scroll the viewport up BUF_DELTA times (0 = 256) by BUF_TEMP lines
+; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
+; Clobbers: A
 scroll_view_up:
-  ; target_line = FILE_LINE16 - BUF_TEMP, clamped to 0
+  ; FILE_LINE16 -= BUF_TEMP, clamped to 0
   SEC
-  LDA FILE_LINE16
-  SBC BUF_TEMP
-  STA BUF_PTR16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA BUF_PTR16 + 1
-  BCS .target_ok
-  ; Underflow - clamp to 0
-  LDA #0
-  STA_LH16 BUF_PTR16
-.target_ok:
+  JSR sub_file_line
 
   ; VIEW_TOP16 -= BUF_TEMP, clamped to 0
-  LDA VIEW_TOP16 + 1
-  BNE .can_sub  ; High byte > 0, definitely >= BUF_TEMP
-  LDA VIEW_TOP16
-  CMP BUF_TEMP
-  BCS .can_sub
-
-  ; VIEW_TOP16 < BUF_TEMP: set VIEW_TOP16 = 0
-  LDA #0
-  STA_LH16 VIEW_TOP16
-  JMP .set_file_line
-
-.can_sub:
   SEC
   LDA VIEW_TOP16
   SBC BUF_TEMP
@@ -150,73 +163,13 @@ scroll_view_up:
   LDA VIEW_TOP16 + 1
   SBC #0
   STA VIEW_TOP16 + 1
-
-.set_file_line:
-  CP16 BUF_PTR16, FILE_LINE16
+  BCS .next
   LDA #0
-  STA VIEW_TOP_WRAP
-  RTS
-
-; Get half-page scroll amount into BUF_TEMP
-; Uses COUNT16 if set (and remembers it), else sticky value, else default.
-get_half_page_amount:
-  LDA COUNT16
-  ORA COUNT16 + 1
-  BNE .use_count
-  ; No count: use sticky if set, else compute default
-  LDA SCROLL_AMOUNT
-  BNE .store
-  ; Default: half_page = (SCREEN_ROWS - 1) / 2
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  LSR
-  JMP .store
-.use_count:
-  ; Use COUNT16 as scroll amount (cap to 8-bit), save as sticky
-  LDA COUNT16 + 1
-  BNE .cap
-  LDA COUNT16
-  JMP .save_sticky
-.cap:
-  LDA #$FF
-.save_sticky:
-  STA SCROLL_AMOUNT
-.store:
-  STA BUF_TEMP
-  RTS
-
-; Ctrl-D: half-page down
-; Scroll down by half a screen (or count lines). Column preserved.
-normal_half_page_down:
-  ; Count extra Ctrl-D keys in typeahead (BUF_TEMP = key code from dispatch)
-  JSR count_pending_key
-  INX
-  STX BUF_DELTA              ; BUF_DELTA = loop counter (1 + extras)
-  JSR get_half_page_amount   ; BUF_TEMP = scroll amount
-  ; NORMAL_TEMP = content_rows = SCREEN_ROWS - 1
-  LDX SCREEN_ROWS
-  DEX
-  STX NORMAL_TEMP
-.loop:
-  JSR scroll_view_down
+  STA_LH16 VIEW_TOP16
+.next:
   DEC BUF_DELTA
-  BNE .loop
-  JMP clamp_and_clear_count
-
-; Ctrl-U: half-page up
-; Scroll up by half a screen (or count lines). Column preserved.
-normal_half_page_up:
-  ; Count extra Ctrl-U keys in typeahead (BUF_TEMP = key code from dispatch)
-  JSR count_pending_key
-  INX
-  STX BUF_DELTA              ; BUF_DELTA = loop counter (1 + extras)
-  JSR get_half_page_amount   ; BUF_TEMP = scroll amount
-.loop:
-  JSR scroll_view_up
-  DEC BUF_DELTA
-  BNE .loop
-  JMP clamp_and_clear_count
+  BNE scroll_view_up
+  BEQ view_wrap_zero       ; Always
 
 normal_line_start:
   LDA #0

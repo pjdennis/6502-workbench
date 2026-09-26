@@ -160,17 +160,26 @@ clamp_file_line:
 .ok:
   RTS
 
-; Move up X lines (clamped to first line)
-; Input: X = number of lines to move
-; Clobbers: A, X
+; Move up X lines (X = 0: 256), clamped to the first line
+; Clobbers: A, X, BUF_TEMP
 move_up_x:
-.loop:
-  TST16 FILE_LINE16
-  BEQ .done
-  DEC16 FILE_LINE16
   DEX
-  BNE .loop
-.done:
+  STX BUF_TEMP
+  CLC                        ; Subtract BUF_TEMP + 1 = X (X = 0: 256)
+  ; fall through
+
+; FILE_LINE16 -= BUF_TEMP + 1 - C, clamped to 0.  Clobbers: A
+sub_file_line:
+  LDA FILE_LINE16
+  SBC BUF_TEMP
+  STA FILE_LINE16
+  LDA FILE_LINE16 + 1
+  SBC #0
+  STA FILE_LINE16 + 1
+  BCS .ok
+  LDA #0
+  STA_LH16 FILE_LINE16
+.ok:
   RTS
 
 ; --- Shared horizontal movement loops ---
