@@ -319,15 +319,21 @@ except ImportError:
   HAVE_PYSERIAL = False
 
 
+def open_pty(testcase):
+  """A pseudo-terminal to stand in for a USB serial port: returns (master fd, slave path)."""
+  master, slave = os.openpty()
+  testcase.addCleanup(os.close, master)
+  path = os.ttyname(slave)
+  os.close(slave)
+  return master, path
+
+
 @unittest.skipUnless(HAVE_PYSERIAL, 'pyserial not installed')
 class RealDaemonTest(unittest.TestCase):
   """The daemon process, holding a pseudo-terminal in place of a USB serial port."""
 
   def setUp(self):
-    self.master, slave = os.openpty()
-    self.addCleanup(os.close, self.master)
-    self.pty = os.ttyname(slave)
-    os.close(slave)
+    self.master, self.pty = open_pty(self)
     self.socket = os.path.join(tempfile.mkdtemp(), 'daemon.sock')
     self.process = self.start()
     self.addCleanup(self.process.wait, 5)

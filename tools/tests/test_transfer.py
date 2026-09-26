@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(HERE, '..', 'upload'))
 
 import serial_daemon  # noqa: E402
 import transfer  # noqa: E402
-from test_serial_daemon import DEVICE, HAVE_PYSERIAL, FakeClock, FakeDevices  # noqa: E402
+from test_serial_daemon import DEVICE, HAVE_PYSERIAL, FakeClock, FakeDevices, open_pty  # noqa: E402
 from upload_frame import build_frame, send_duration  # noqa: E402
 
 PROGRAM = b'\x4c\x00\x50hello'
@@ -167,10 +167,7 @@ class RealPortTest(TransferTestCase):
 
   def setUp(self):
     super().setUp()
-    self.master, slave = os.openpty()
-    self.addCleanup(os.close, self.master)
-    self.pty = os.ttyname(slave)
-    os.close(slave)
+    self.master, self.pty = open_pty(self)
 
   def test_direct_opens_the_port_itself(self):
     self.assertEqual(self.upload('--direct', '--noreset', '--port=' + self.pty), (0, ''))
