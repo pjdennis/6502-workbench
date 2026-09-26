@@ -9799,6 +9799,50 @@ class EditorTestRunner:
             expected_content="fooX baz\n",
         )
 
+        # cw on trailing whitespace changes only that whitespace: like dw,
+        # a w that ends on the next line stops at the end of this one
+        self.run_test(
+            "cw on trailing whitespace keeps next line's first word",
+            "ab \nxy\n",
+            b"$cw\x1b:wq\r",
+            expected_content="ab\nxy\n",
+        )
+
+        self.run_test(
+            "cw on trailing whitespace keeps following blank line",
+            "foo   \n\nbar\n",
+            b"4lcwX\x1b:wq\r",
+            expected_content="foo X\n\nbar\n",
+        )
+
+        self.run_test(
+            "cw on trailing whitespace of last line keeps final newline",
+            "foo   \n",
+            b"4lcwX\x1b:wq\r",
+            expected_content="foo X\n",
+        )
+
+        self.run_test(
+            "cw on whitespace-only last line keeps final newline",
+            "a\n \n",
+            b"jcwxyz\x1b:wq\r",
+            expected_content="a\nxyz\n",
+        )
+
+        self.run_test(
+            "cw on the last whitespace of the buffer stays in bounds",
+            "ab \n",
+            b"$XXcw\x1b:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "2cw from whitespace stops at end of line",
+            "a  b\nc d\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX\nc d\n",
+        )
+
         self.run_test(
             "cw on empty line enters insert mode",
             "\n",

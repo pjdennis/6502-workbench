@@ -261,41 +261,41 @@ compute_multiline_word_range_forward:
   JMP range_end
 
 ; Compute forward cw-semantics word range (multi-line) for cw
-; Like word range but strips trailing whitespace when cursor starts on non-whitespace
+; The dw range, then: from non-whitespace, strip its trailing whitespace
+; (ce semantics); from whitespace, extend it through the word w landed on
+; (none when w stopped at the end of a line: only the whitespace changes)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
 ;           BUF_SRC16, BUF_DST16
 compute_multiline_cw_range_forward:
-  JSR range_start                   ; BUF_PTR16 = cursor address
-  JSR class_at_ptr                  ; class of char under cursor (keeps X)
-  PHA
-  JSR word_forward_x                ; move cursor forward N words
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
-  ; No exclusive-linewise adjustment for cw:
-  ; non-ws path strips trailing ws (handles it); ws path extends past word
-  PLA                               ; original char class
+  JSR compute_multiline_word_range_forward  ; BUF_SRC16..BUF_PTR16
+  LDY #0
+  LDA (BUF_SRC16),Y
+  JSR char_class                    ; class of the char under the cursor
   BEQ .cmcrf_on_ws                  ; cursor was on whitespace: extend past word
   ; Non-whitespace: strip trailing whitespace (ce semantics)
 .cmcrf_strip_loop:
   CMP16 BUF_PTR16, BUF_SRC16       ; would range become 0?
-  BEQ range_end
+  BEQ range_len
   DEC16 BUF_PTR16                   ; back up
   JSR class_at_ptr
   BEQ .cmcrf_strip_loop             ; still whitespace, keep stripping
   INC16 BUF_PTR16                   ; non-ws, include this char
-  JMP range_end
+  JMP range_len
 .cmcrf_on_ws:
-  ; On whitespace: w landed at start of next word, extend past same-class chars
+  ; On whitespace: w landed at start of next word, extend past same-class
+  ; chars; on a '\n' it stopped at the end of the line instead
   JSR class_at_ptr
+  BEQ range_len
   STA WORD_CLASS
 .cmcrf_ws_extend:
   INC16 BUF_PTR16
   JSR class_at_ptr
   CMP WORD_CLASS
   BEQ .cmcrf_ws_extend
-  JMP range_end
+  JMP range_len
 
 ; Compute backward word range (multi-line) for db/yb/cb
 ; Input: X = word count
@@ -326,10 +326,12 @@ compute_multiline_word_end_range_forward:
   ; fall through into range_end
 
 ; Finish a forward range ending at BUF_PTR16: restore the cursor saved by
-; range_start, BUF_LEN16 = BUF_PTR16 - BUF_SRC16; carry set if empty
+; range_start, BUF_LEN16 = BUF_PTR16 - BUF_SRC16; carry set if empty.
+; range_len does only the latter.
 range_end:
   CP16 BUF_DST16, FILE_LINE16
   CP16 BUF_LEN16, CURSOR_COL16
+range_len:
   SEC
   SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
   ; fall through into range_epilogue
