@@ -93,13 +93,19 @@ set_render_line_to_cursor:
   CP16 FILE_LINE16, RENDER_LINE16
   RTS
 
-; Set RENDER_ROW to the cursor line's first screen row, then point
-; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Clobbers A
-setup_first_row:
+; RENDER_ROW = the cursor line's first screen row (CURSOR_ROW - WRAP_QUOT)
+; Returns C=0 if the line starts above the view.  Clobbers A
+set_first_row:
   LDA CURSOR_ROW
   SEC
   SBC WRAP_QUOT
   STA RENDER_ROW
+  RTS
+
+; Set RENDER_ROW to the cursor line's first screen row, then point
+; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Clobbers A
+setup_first_row:
+  JSR set_first_row
   ; fall through
 ; Point RENDER_LINE16 at the cursor line with RENDER_WRAP = 0
 setup_render_at_cursor:

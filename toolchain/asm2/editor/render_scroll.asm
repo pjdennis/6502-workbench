@@ -7,159 +7,77 @@
 
 
 ; Scroll for line deletion at cursor.
-; SCROLL_DELTA = lines deleted. CURSOR_ROW = screen row of deletion.
-; Scrolls rows below cursor up, renders newly exposed bottom rows.
+; SCROLL_DELTA = screen rows deleted.  The region from the deleted rows'
+; first row to SCREEN_ROWS-1 scrolls up; that first row is first_row =
+; CURSOR_ROW - WRAP_QUOT for $02 (dd: the cursor row is refilled) and pure
+; newline joins (INSERT_LINE_COUNT 1-254), else first_row +
+; DELETE_SCREEN_ROWS (the cursor line's rows are kept: $06/$07/$08).
+; Then the changed cursor line and the exposed bottom rows are drawn.
 render_line_delete_scroll:
   JSR ansi_cursor_hide
-
-  ; Set scroll region start (1-based) to SCREEN_ROWS-1 (1-based)
-  ; RENDER_FLAG=$02: from CURSOR_ROW+1 (includes cursor row, for dd)
-  ; RENDER_FLAG=$06/$07/$08: skip cursor line's rows
-  ;   first_row = CURSOR_ROW - WRAP_QUOT
-  ;   scroll_start = first_row + DELETE_SCREEN_ROWS + 1 (1-based)
-  LDA RENDER_FLAG
-  CMP #$06
-  BEQ .scroll_skip_cursor_del
-  CMP #$07
-  BEQ .scroll_skip_cursor_del
-  CMP #$08
-  BNE .scroll_at_cursor_del
-.scroll_skip_cursor_del:
   LDA CURSOR_ROW
   SEC
-  SBC WRAP_QUOT          ; first_row (0-based)
-  ; Pure newline join: include cursor row in scroll (content unchanged)
+  SBC WRAP_QUOT              ; first_row (0-based)
+  LDX RENDER_FLAG
+  CPX #$02
+  BEQ .to_one_based
   LDX INSERT_LINE_COUNT
-  BEQ .add_del_rows         ; 0: normal path
-  CPX #$FF
-  BNE .skip_del_cursor_rows ; 1-254: existing (cursor in scroll region)
-.add_del_rows:               ; 0 or $FF: normal scroll with DELETE_SCREEN_ROWS
-  CLC
-  ADC DELETE_SCREEN_ROWS ; past end of combined line (0-based)
-.skip_del_cursor_rows:
-  JMP .to_one_based
-.scroll_at_cursor_del:
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT     ; first_row (0-based); no-op when WRAP_QUOT=0
+  INX
+  CPX #2
+  BCS .to_one_based          ; 1-254: pure newline join
+  ADC DELETE_SCREEN_ROWS     ; C=0: skip the cursor line's rows
 .to_one_based:
   CLC
-  ADC #1           ; Convert to 1-based
-.set_del_scroll_start:
-  LDX #0                 ; scroll up
+  ADC #1
+  LDX #0                     ; scroll up
   JSR scroll_region_from_a
 
-  ; $07 (paste-below undo): cursor unchanged, skip repaint entirely.
   LDA RENDER_FLAG
   CMP #$07
-  BNE .not_skip_cursor
-  JMP .del_bottom_rows      ; skip cursor repaint, just bottom rows
-.not_skip_cursor:
-  ; $06 (J) and $08 (charwise delete): check if joined line wraps.
-  ; DELETE_SCREEN_ROWS holds new_total (combined line's screen rows).
-  CMP #$06
-  BEQ .check_wrap
-  CMP #$08
-  BEQ .check_wrap
-  JMP .single_row_render
-.check_wrap:
-  ; Pure newline join (BS only deleted newlines): cursor line unchanged, skip render
+  BEQ .del_bottom_rows       ; $07 (paste-below undo): cursor line unchanged
+  CMP #$02
+  BEQ .dd_cursor_row
+  ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
+  ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
+  ; newlines were deleted (cursor line content unchanged).  One row (or
+  ; 0: the pre-compute overflowed) is drawn like $02's cursor row.
   LDA INSERT_LINE_COUNT
-  BEQ .not_pure_join
-  JMP .skip_join_render
-.not_pure_join:
+  BNE .del_bottom_rows
   LDA DELETE_SCREEN_ROWS
-  STA RENDER_LIMIT
   CMP #2
-  BCS .wrap_path             ; wrapped: multi-row render
-  JMP .single_row_render     ; non-wrapped: single row suffices
-.wrap_path:
-  ; Save delete delta for bottom rows
+  BCC .dd_cursor_row
+  STA CUR_LINE_ROWS
   LDA SCROLL_DELTA
-  PHA
-  ; Compute first_row
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  STA RENDER_ROW
-  JSR set_render_line_to_cursor
-  ; Check for partial render
-  JSR check_from_col           ; X = from_wrap, A = WRAP_REM = from_col
-  BCS .wrap_render_all         ; $FFFF: render all
-  CPX RENDER_LIMIT
-  BCS .wrap_partial_done       ; from_wrap >= total: skip cursor render
-  ; Advance RENDER_ROW by from_wrap, set RENDER_WRAP
-  STX RENDER_WRAP
-  TXA
-  CLC
-  ADC RENDER_ROW
-  STA RENDER_ROW
-  ; Render partial first visible wrap row
-  JSR render_partial_first_row
-  ; Remaining rows = RENDER_LIMIT - RENDER_WRAP
-  LDA RENDER_LIMIT
-  SEC
-  SBC RENDER_WRAP
-  BEQ .wrap_partial_done       ; no more rows
-  STA SCROLL_DELTA
-  JSR render_limited_loop
-.wrap_partial_done:
+  PHA                        ; bottom rows (clobbered by the line render)
+  JSR set_first_row
+  JSR render_line_from_change
   PLA
-  STA SCROLL_DELTA             ; restore delete delta
-  JMP .del_bottom_rows
-.wrap_render_all:
-  LDA RENDER_LIMIT
   STA SCROLL_DELTA
+.del_bottom_rows:
+  JMP render_bottom_rows_guarded
+
+.dd_cursor_row:
+  ; $02: redraw the cursor row (refilled by the scroll, except at EOF
+  ; where the cursor moved up); a cursor on a wrap row redraws to the bottom
+  LDA WRAP_QUOT
+  BEQ .dd_row0
+  JMP render_from_first_row
+.dd_row0:
+  LDA CURSOR_ROW
+  STA RENDER_ROW
   LDA #0
   STA RENDER_WRAP
-  JSR render_limited_loop
-  JMP .wrap_partial_done
-
-.skip_join_render:
-  JMP .del_bottom_rows
-
-.single_row_render:
-  ; For $02 when WRAP_QUOT > 0: render all wrap rows from first_row to bottom
-  LDA WRAP_QUOT
-  BEQ .render_cursor_row
-  JMP render_from_first_row
-
-.render_cursor_row:
-  ; Re-render cursor row (content may have changed, e.g., J join, cc change)
-  LDA CURSOR_ROW
-  CLC
-  ADC #1           ; ANSI 1-based
-  STA ANSI_ROW
-  JSR get_current_line_ptr
-  ; Check for partial render
-  LDA RENDER_FROM_COL16 + 1
-  AND RENDER_FROM_COL16
+  ; From column 0, or from RENDER_FROM_COL16's low byte if set: a pair
+  ; typed ahead in the same frame (dw then dd) leaves dw's column
+  LDX RENDER_FROM_COL16
+  TXA
+  AND RENDER_FROM_COL16 + 1
   CMP #$FF
-  BEQ .full_cursor_row
-  ; Partial: position at from_col, render from there
-  LDA RENDER_FROM_COL16
-  CLC
-  ADC #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
-  LDA RENDER_FROM_COL16
-  STA RENDER_COL
-  JSR render_line_chars_from
-  JMP .cursor_check_clear
-.full_cursor_row:
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
-  JSR render_line_chars
-.cursor_check_clear:
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BCS .cursor_no_clear
-  JSR ansi_clear_line
-.cursor_no_clear:
-
-.del_bottom_rows:
-  ; Render the bottom SCROLL_DELTA rows (newly exposed content).
+  BNE .dd_from_col
+  LDX #0                     ; $FFFF: the whole row
+.dd_from_col:
+  STX WRAP_REM
+  JSR render_partial_first_row
   JMP render_bottom_rows_guarded
 
 ; Scroll for line insertion at cursor.
