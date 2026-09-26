@@ -138,7 +138,7 @@ normal_editing_keys:
   .byte KEY_DEL     .word normal_delete_char
   .byte 'X'         .word normal_delete_char_back
   .byte 'D'         .word normal_delete_to_eol
-  .byte 'i'         .word normal_enter_insert
+  .byte 'i'         .word enter_insert_mode
   .byte 'a'         .word normal_enter_insert_after
   .byte 'A'         .word normal_enter_insert_eol
   .byte 'o'         .word normal_open_below
@@ -284,13 +284,9 @@ do_dd:
 .yank_overflow:
   JMP show_yank_overflow
 
-normal_enter_insert:
-  JMP enter_insert_mode
-
 normal_enter_insert_after:
-  JSR get_line_len_z
   ; Increment iff cursor < len (empty line: cursor 0 >= len 0, no move)
-  CMP16 CURSOR_COL16, LINE_LEN16
+  JSR check_cursor_in_line
   BCS .enter
   JSR inc_cursor_col
 .enter:
@@ -304,26 +300,35 @@ normal_enter_insert_eol:
 normal_open_below:
   JSR get_current_line_ptr
   JSR advance_past_line_end
-
-  ; New line is FILE_LINE16+1
-  LDAX16 FILE_LINE16
+  LDX #1
+  BNE open_line_x            ; Always
+normal_open_above:
+  JSR get_current_line_ptr
+  LDX #0
+; Open a blank line at BUF_PTR16 as line FILE_LINE16 + X (X = 1: below
+; the cursor line, X = 0: above it), move the cursor to it and enter
+; insert mode
+open_line_x:
+  STX NORMAL_TEMP
+  TXA
   CLC
-  ADC #1
+  ADC FILE_LINE16
+  LDX FILE_LINE16 + 1
   BCC .open
   INX
 .open:
-  JSR buf_open_line
+  JSR buf_open_line          ; A/X = the new line's number
   BCS open_full
 
-  ; Record undo: opened line at FILE_LINE16+1, restore cursor to FILE_LINE16
+  ; Record undo: u deletes the opened line and returns to this one
   LDA #UNDO_OPEN
   STA UNDO_TYPE
-  CP16 FILE_LINE16, UNDO_COL16   ; Restore cursor to original line
+  CP16 FILE_LINE16, UNDO_COL16   ; Line to restore the cursor to
+  LDA NORMAL_TEMP
+  BEQ .on_new_line               ; O: the new line took this number
   INC16 FILE_LINE16
+.on_new_line:
   CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
-
-; Shared o/O tail: reset undo redo flag, cursor to col 0, enter insert mode
-open_common_finish:
   LDA #0
   STA UNDO_IS_REDO
   STA_LH16 CURSOR_COL16
@@ -333,19 +338,8 @@ open_common_finish:
   STA RENDER_FLAG        ; Signal line-insert for scroll optimization
   JMP enter_insert_mode
 
-; Shared o/O buffer-full handler
+; o/O buffer-full handler
 open_full:
   JSR show_buffer_full_msg
   JMP clear_count
-
-normal_open_above:
-  JSR open_current_line
-  BCS open_full
-
-  ; Record undo: opened line at FILE_LINE16, restore cursor to FILE_LINE16
-  LDA #UNDO_OPEN
-  STA UNDO_TYPE
-  CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
-  CP16 FILE_LINE16, UNDO_COL16   ; Restore cursor to same line
-  JMP open_common_finish
 
