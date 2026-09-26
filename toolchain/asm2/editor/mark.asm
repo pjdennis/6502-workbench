@@ -73,69 +73,41 @@ marks_display:
   JSR ansi_clear_screen
   PRINT_STR str_marks_header
 
-  LDA #0
-  STA BUF_TEMP           ; Mark index (0-25)
-  STA BUF_DELTA          ; Count of marks displayed (init 0 since row 2 != 0)
+  LDA #1
+  STA ANSI_COL           ; Every row starts at column 1
   LDA #2
-  STA ANSI_ROW           ; Start at row 2
+  STA ANSI_ROW           ; First mark row (still 2 at the end = none shown)
+  LDA #'a'
+  STA BUF_TEMP           ; Mark letter
 
 .marks_loop:
   LDA BUF_TEMP
-  ASL
-  TAX
-
-  ; Skip unset marks (both bytes $FF)
-  LDA MARK_TBL + 1,X
-  AND MARK_TBL,X
-  CMP #$FF
-  BNE .marks_set
-  JMP .marks_next        ; (out of BEQ range)
-.marks_set:
-
-  ; Save mark table offset on stack
-  TXA
-  PHA
-
-  ; Position cursor
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+  JSR mark_get           ; A/X = line, carry set if unset
+  BCS .marks_next
+  STAX16 BUF_PTR16       ; 0-based line (survives the output calls below)
 
   ; Print " a" (mark letter)
+  JSR ansi_move_cursor
   LDA #' '
   JSR io_write
   LDA BUF_TEMP
-  CLC
-  ADC #'a'
   JSR io_write
 
-  ; Restore table offset, get line number
-  PLA
-  TAX
-  LDA MARK_TBL,X
-  STA TO_DECIMAL_VALUE16
-  LDA MARK_TBL + 1,X
-  STA TO_DECIMAL_VALUE16 + 1
-
-  ; Save line for text lookup (before INC16 modifies it)
-  PUSH16 TO_DECIMAL_VALUE16
-
-  ; Print right-justified 1-based line number in 6-char field
-  INC16 TO_DECIMAL_VALUE16
+  ; Print the 1-based line number right-justified in a 7-char field,
+  ; then one space
+  CLC
+  ADCI16 BUF_PTR16, $0001, TO_DECIMAL_VALUE16
   JSR to_decimal
   JSR write_decimal_rjust
-
-  ; Print 1 space before text
   LDA #' '
   JSR io_write
 
-  ; Get saved line number, print text
-  POP16 BUF_PTR16
+  ; Print the line text (if the line still exists)
   CMP16 BUF_PTR16, LINE_COUNT16
   BCS .marks_text_done
   LDAX16 BUF_PTR16
   JSR buf_get_line_ptr
-  ; Compute text width limit: SCREEN_COLS - 10 (2 " a" + 6 number + 2 spaces)
+  ; Text width limit: SCREEN_COLS - 10 (" a" + 7-char number + 1 space)
   LDA SCREEN_COLS
   SEC
   SBC #10
@@ -153,34 +125,27 @@ marks_display:
 .marks_text_ok:
   JSR io_write
   INY
-  JMP .marks_text
+  BNE .marks_text        ; Always taken (limit < 256)
 .marks_text_done:
 
+  ; Stop before the last two rows (the next row would be SCREEN_ROWS-1)
   INC ANSI_ROW
-  INC BUF_DELTA
-
-  ; Check screen full
-  LDA ANSI_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
+  LDX ANSI_ROW
+  INX
+  CPX SCREEN_ROWS
   BCS .marks_done_display
 
 .marks_next:
   INC BUF_TEMP
   LDA BUF_TEMP
-  CMP #26
-  BEQ .marks_done_display
-  JMP .marks_loop
+  CMP #'z' + 1
+  BNE .marks_loop
 
 .marks_done_display:
-  LDA BUF_DELTA
-  BNE .marks_wait
-  LDA #2
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+  LDA ANSI_ROW
+  CMP #2
+  BNE .marks_wait        ; At least one mark shown
+  JSR ansi_move_cursor   ; Row 2, column 1
   PRINT_STR str_no_marks
 
 .marks_wait:
@@ -189,7 +154,7 @@ marks_display:
   STA RENDER_FLAG
   RTS
 
-; Print TO_DECIMAL_RESULT right-justified in a 6-character field
+; Print TO_DECIMAL_RESULT right-justified in a 7-character field
 ; Clobbers: A, X, Y
 write_decimal_rjust:
   ; Count digits
@@ -200,7 +165,7 @@ write_decimal_rjust:
   INX
   BNE .count      ; Always taken
 .pad:
-  ; Print (6 - X) spaces
+  ; Print (7 - X) spaces
   LDA #' '
 .pad_loop:
   CPX #6 + 1
@@ -209,8 +174,7 @@ write_decimal_rjust:
   INX
   BNE .pad_loop   ; Always taken
 .print:
-  JSR print_decimal_result
-  RTS
+  JMP print_decimal_result
 
 str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
