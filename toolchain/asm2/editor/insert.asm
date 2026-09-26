@@ -23,7 +23,7 @@ insert_keys:
   .byte KEY_DOWN    .word insert_down
   .byte KEY_LEFT    .word insert_left
   .byte KEY_RIGHT   .word insert_right
-  .byte KEY_HOME    .word insert_home
+  .byte KEY_HOME    .word normal_line_start   ; Col 0 (no count in insert mode)
   .byte KEY_END     .word insert_end
   .byte KEY_PGDN    .word normal_page_down    ; These land on col 0, so need
   .byte KEY_PGUP    .word normal_page_up      ; no insert-mode clamp
@@ -489,11 +489,6 @@ clamp_cursor_col_insert:
   BCC set_cursor_col_ax      ; len < col
 .ok:
   RTS
-
-insert_home:
-  LDA #0
-  TAX
-  BEQ set_cursor_col_ax      ; Always taken
 
 insert_end:
   JSR get_current_line_len   ; A/X = len
