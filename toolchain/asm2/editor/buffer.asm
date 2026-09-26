@@ -398,10 +398,13 @@ buf_rebuild_lines:
   BCS .scan_done
 
 .add_line:
-  ; Advance line table pointer
-  CLC
-  ADCI16 BUF_DST16, $0002, BUF_DST16
-
+  ; Advance line table pointer (LINE_TBL is even, so the low byte wraps
+  ; to 0 exactly at a page end)
+  INC BUF_DST16
+  INC BUF_DST16
+  BNE .store
+  INC BUF_DST16 + 1
+.store:
   ; Store line start pointer
   JSR store_line_entry
 
