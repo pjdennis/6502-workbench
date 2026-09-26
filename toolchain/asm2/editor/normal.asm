@@ -329,13 +329,8 @@ open_line_x:
   INC16 FILE_LINE16
 .on_new_line:
   CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
-  LDA #0
-  STA UNDO_IS_REDO
-  STA_LH16 CURSOR_COL16
-  LDA #$FF
-  STA MODIFIED
-  LDA #$03
-  STA RENDER_FLAG        ; Signal line-insert for scroll optimization
+  LDA #$03                       ; Signal line-insert for scroll optimization
+  JSR undo_opened_finish
   JMP enter_insert_mode
 
 ; o/O buffer-full handler

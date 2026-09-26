@@ -193,13 +193,9 @@ undo_handle:
   BEQ .redo_cc_done
   JSR open_current_line      ; Marks adjusted as the original cc did
 .redo_cc_done:
-  LDA #0
-  STA UNDO_IS_REDO
-  STA_LH16 CURSOR_COL16
-  LDA #$FF
-  STA MODIFIED
-  LDA #$06
-  JMP set_render_clear_count ; displacement-based scroll
+  LDA #$06                   ; displacement-based scroll
+  JSR undo_opened_finish
+  JMP clear_count
 
 .redo_line:
   ; Restore FILE_LINE16
@@ -465,13 +461,8 @@ undo_open_redo:
   BCS .redo_open_fail
   ; Set cursor on opened line
   JSR undo_restore_line
-  LDA #0
-  STA UNDO_IS_REDO
-  STA_LH16 CURSOR_COL16
-  LDA #$FF
-  STA MODIFIED
-  LDA #$03
-  STA RENDER_FLAG            ; Insert scroll
+  LDA #$03                   ; Insert scroll
+  JSR undo_opened_finish
 .redo_open_fail:
   JMP clear_count
 
@@ -596,6 +587,14 @@ undo_restore_col:
 undo_restore_line:
   CP16 UNDO_LINE16, FILE_LINE16
   RTS
+
+; Finish a (re)opened blank line: RENDER_FLAG = A, cursor to column 0,
+; then mark the operation redone (shared by o/O, their redo and cc redo)
+undo_opened_finish:
+  STA RENDER_FLAG
+  LDA #0
+  STA_LH16 CURSOR_COL16
+  ; fall through
 
 ; Mark the operation redone: next 'u' undoes, buffer is modified
 undo_set_redone_flags:
