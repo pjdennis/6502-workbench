@@ -279,9 +279,8 @@ render_range_repaint:
   ; RENDER_WRAP = old rows (temp), then compute the range's new rows
   LDA DELETE_SCREEN_ROWS
   STA RENDER_WRAP
-  JSR set_render_line_to_cursor
   LDA INSERT_LINE_COUNT
-  JSR compute_delete_screen_rows
+  JSR compute_delete_rows_at_cursor
   LDX DELETE_SCREEN_ROWS       ; X = new rows (0 = overflow)
   BNE .have_new_rows
   JMP .rr_full           ; overflow: full repaint
@@ -736,9 +735,24 @@ line_screen_rows:
   RTS
 
 ; Pre-compute screen rows of lines for line-delete scroll.
-; Input: A = number of lines to walk, RENDER_LINE16 = starting file line
+; Entries: _temp16 walks BUF_TEMP16 lines from the cursor line (0 rows if
+; > 255); _join walks the cursor line plus the A lines after it; _at_cursor
+; walks A lines from the cursor line; the base entry walks A lines from
+; RENDER_LINE16.
 ; Output: DELETE_SCREEN_ROWS set (0 on overflow = fall back to file delta)
 ; Clobbers: A, X, Y, RENDER_LIMIT, RENDER_LINE16, BUF_PTR16, DIV_INPUT16
+compute_delete_rows_temp16:
+  LDA BUF_TEMP16
+  LDX BUF_TEMP16 + 1
+  BNE cdsr_overflow            ; > 255 lines
+  BEQ compute_delete_rows_at_cursor  ; Always taken
+compute_delete_rows_join:
+  CLC
+  ADC #1                       ; + the cursor line
+compute_delete_rows_at_cursor:
+  TAX
+  JSR set_render_line_to_cursor
+  TXA
 compute_delete_screen_rows:
   STA RENDER_LIMIT
   LDA #0
@@ -754,6 +768,7 @@ compute_delete_screen_rows:
   BNE .loop
   RTS
 .overflow:
+cdsr_overflow:
   LDA #0
   STA DELETE_SCREEN_ROWS     ; Signal fall back to file delta
   RTS

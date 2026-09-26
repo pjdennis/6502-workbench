@@ -574,11 +574,8 @@ normal_join_lines:
 .join_has_work:
 
   ; Pre-compute old_total screen rows for displacement-based scroll
-  JSR set_render_line_to_cursor
   LDA NORMAL_TEMP
-  CLC
-  ADC #1           ; +1 for cursor line
-  JSR compute_delete_screen_rows
+  JSR compute_delete_rows_join
 
   ; Join column = current line length (content before is unchanged)
   JSR get_current_line_len
@@ -787,16 +784,7 @@ do_cc:
   JSR get_count
 cc_have_count:
   ; Pre-compute screen rows for displacement-based scroll
-  LDA BUF_TEMP16 + 1
-  BNE .cc_skip_precompute    ; Count > 255, skip
-  JSR set_render_line_to_cursor
-  LDA BUF_TEMP16
-  JSR compute_delete_screen_rows
-  JMP .cc_after_precompute
-.cc_skip_precompute:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-.cc_after_precompute:
+  JSR compute_delete_rows_temp16
   JSR yank_delete_current_lines
   BCS .cc_overflow
   ; Check if current line is already empty (from buf_delete_lines empty handling)

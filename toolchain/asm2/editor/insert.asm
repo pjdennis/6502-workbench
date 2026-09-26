@@ -467,11 +467,8 @@ insert_batch:
   PLA
   PLA
   ; Pre-compute screen rows for fwd_nl join scroll optimization
-  JSR set_render_line_to_cursor
   LDA LINE_LEN16 + 1         ; fwd_nl
-  CLC
-  ADC #1                     ; + cursor line
-  JSR compute_delete_screen_rows
+  JSR compute_delete_rows_join
   ; Check if pure join (cursor at end of line = joined lines were empty)
   LDA BUF_TEMP16             ; back
   ORA BUF_DELTA              ; insert_len
