@@ -158,8 +158,7 @@ search_forward:
   BCC .found
 
   ; Not found
-  JSR search_show_not_found
-  RTS
+  JMP search_show_not_found
 
 .found:
   JMP search_move_to_match
@@ -222,8 +221,7 @@ search_backward:
   BCC .found
 
   ; Not found
-  JSR search_show_not_found
-  RTS
+  JMP search_show_not_found
 
 .found:
   JMP search_move_to_match
@@ -254,7 +252,7 @@ search_setup_line:
 ; Search for pattern starting from column SEARCH_COL
 ; BUF_PTR16 must already point to line start (call search_setup_line first)
 ; Returns carry clear = found (SEARCH_COL set), carry set = not found
-; Uses BUF_TEMP to save pattern index during inner loop
+; Clobbers: A, X, Y
 search_match_from:
   ; Outer loop: try each starting position in the line
   LDY SEARCH_COL             ; Y = start position in line
@@ -271,7 +269,6 @@ search_match_from:
   BEQ .found_in_line         ; Matched entire pattern
 
   ; Compute line offset: Y = SEARCH_COL + X
-  STX BUF_TEMP               ; Save pattern index
   TXA
   CLC
   ADC SEARCH_COL
@@ -283,8 +280,7 @@ search_match_from:
   CMP #'\n'
   BEQ .not_found_here        ; Hit end of line during match
 
-  ; Compare with pattern char
-  LDX BUF_TEMP               ; Restore pattern index
+  ; Compare with pattern char (X still = pattern index)
   CMP SEARCH_BUF,X
   BNE .not_found_here
 
