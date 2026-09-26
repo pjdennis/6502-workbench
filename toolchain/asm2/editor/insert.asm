@@ -193,21 +193,15 @@ insert_handle_key:
 .no_back_scan:
 
   ; Pre-compute screen rows for BS join scroll optimization
-  LDA LINE_LEN16            ; back_nl
+  LDX LINE_LEN16            ; back_nl
   BEQ .skip_bs_precompute   ; No newlines deleted
   PUSH16 BUF_PTR16          ; Save delete_start
   ; first_line = FILE_LINE16 - back_nl
-  LDA FILE_LINE16
   SEC
-  SBC LINE_LEN16
-  STA RENDER_LINE16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA RENDER_LINE16 + 1
+  SBC16_8 FILE_LINE16, LINE_LEN16, RENDER_LINE16
   ; count = back_nl + 1
-  LDA LINE_LEN16
-  CLC
-  ADC #1
+  INX
+  TXA
   JSR compute_delete_screen_rows
   POP16 BUF_PTR16           ; Restore delete_start
 .skip_bs_precompute:
@@ -293,175 +287,115 @@ insert_handle_key:
   JMP show_buffer_full_msg
 
 .do_copy:
-  ; Steps 8+10: Copy BATCH_BUF to buffer and scan for newlines in one pass
-  LDA #0
-  STA NORMAL_TEMP            ; ins_nl = 0
-  STA BATCH_EXTRA            ; last_nl_pos = 0
-  LDA BUF_DELTA
-  BEQ .copy_scan_done
+  ; Steps 8+10: Copy BATCH_BUF to buffer and count its newlines in one pass
   LDY #0
-.copy_scan:
+  STY NORMAL_TEMP            ; ins_nl = 0
+  STY BATCH_EXTRA            ; last_nl_pos = 0 (normal mode reads BATCH_EXTRA
+                             ; too: see do_yy)
+.copy_loop:
+  CPY BUF_DELTA
+  BEQ .copy_done
   LDA BATCH_BUF,Y
   STA (BUF_PTR16),Y          ; copy
-  CMP #'\n'
-  BNE .not_nl
-  INC NORMAL_TEMP            ; ins_nl++
-  TYA
-  CLC
-  ADC #1
-  STA BATCH_EXTRA            ; last_nl_pos = Y + 1
-.not_nl:
   INY
-  CPY BUF_DELTA
-  BNE .copy_scan
-.copy_scan_done:
+  CMP #'\n'
+  BNE .copy_loop
+  INC NORMAL_TEMP            ; ins_nl++
+  STY BATCH_EXTRA            ; last_nl_pos = index + 1
+  BNE .copy_loop             ; Always taken (ins_nl > 0)
+.copy_done:
 
   ; Step 11: Decide path based on newline counts
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
   ORA NORMAL_TEMP            ; ins_nl
-  BEQ .fast_path
-  JMP .newlines_path
+  BNE .newlines_path
 
   ; ========================================
   ; Fast path: no newlines at all
   ; ========================================
-.fast_path:
-  ; CURSOR_COL16 = CURSOR_COL16 - back + insert_len
-  JSR adjust_cursor_col_ins
-
-  ; RENDER_FROM_COL16 = CURSOR_COL16 - insert_len (first affected col)
+  ; RENDER_FROM_COL16 = CURSOR_COL16 - back (first affected col)
+  ; CURSOR_COL16 = RENDER_FROM_COL16 + insert_len
   SEC
-  SBC16_8 CURSOR_COL16, BUF_DELTA, RENDER_FROM_COL16
-
+  SBC16_8 CURSOR_COL16, BUF_TEMP16, RENDER_FROM_COL16
   LDA BUF_DELTA              ; insert_len
   STA SHIFT_WRITE            ; ICH/DCH hint: new cells at RENDER_FROM_COL16
+  CLC
+  ADCA16 RENDER_FROM_COL16, CURSOR_COL16
 
   ; Line table adjustment: add the signed net (SHIFT_NET) to the pointers
   ; of the following lines
   LDX #0
   LDA SHIFT_NET
-  BEQ .fast_done
+  BEQ .set_modified_line
   BPL .net_positive
   DEX                        ; sign-extend
 .net_positive:
   STA BUF_SRC16
   STX BUF_SRC16 + 1
   JSR buf_adjust_lines_apply
-
-.fast_done:
-  JMP .set_modified
+.set_modified_line:
+  LDA #$01                   ; Current-line redraw
+.set_render_flag:
+  STA RENDER_FLAG            ; (0 on entry: main_loop clears it)
+  LDA #$FF
+  STA MODIFIED
+  STA INSERT_CHANGED
+  RTS
 
   ; ========================================
   ; Newlines path: rebuild + mark adjust
   ; ========================================
 .newlines_path:
-  ; Save cursor_buf_pos = BUF_PTR16 + insert_len
+  ; The mark adjustment clobbers BUF_TEMP16: keep back in BUF_TEMP
+  ; (fwd_actual is not needed any more)
+  LDA BUF_TEMP16
+  STA BUF_TEMP
+  ; BUF_LEN16 = cursor_buf_pos = delete_start + insert_len (survives the
+  ; rebuild and the mark adjustment)
   LDA BUF_DELTA
   CLC
-  ADC BUF_PTR16
-  STA BUF_SRC16
-  LDA #0
-  ADC BUF_PTR16 + 1
-  STA BUF_SRC16 + 1
-  PUSH16 BUF_SRC16          ; stack: cursor_buf_pos
-
-  ; Save back for cursor computation in fwd-only case
-  LDA BUF_TEMP16
-  PHA                        ; stack: back, cursor_buf_pos
+  ADCA16 BUF_PTR16, BUF_LEN16
 
   JSR buf_rebuild_lines
+
+  ; FILE_LINE16 = first merged line (the line holding delete_start)
+  SEC
+  SBC16_8 FILE_LINE16, LINE_LEN16, FILE_LINE16
 
   ; --- Mark adjust delete if back_nl + fwd_nl > 0 ---
   LDA LINE_LEN16             ; back_nl
   CLC
   ADC LINE_LEN16 + 1         ; + fwd_nl
   BEQ .no_mark_del
-
   ; BUF_TEMP16 = count of deleted lines, A/X = first affected line
   JSR ins_mark_adjust_args
   JSR mark_adjust_delete
-
 .no_mark_del:
   ; --- Mark adjust insert if ins_nl > 0 ---
   LDA NORMAL_TEMP            ; ins_nl
   BEQ .no_mark_ins
-
   JSR ins_mark_adjust_args
   JSR mark_adjust_insert
-
 .no_mark_ins:
-  ; --- Update FILE_LINE16 and CURSOR_COL16 ---
-  ; Decide sub-case
-  LDA NORMAL_TEMP            ; ins_nl
-  BNE .case_ins_nl
-  LDA LINE_LEN16             ; back_nl
-  BNE .jmp_case_back_nl
 
-  ; --- Case: fwd_nl only (no back/insert newlines) ---
-  ; FILE_LINE16 unchanged
-  ; CURSOR_COL16 = CURSOR_COL16 - back + insert_len
-  PLA                        ; back
-  STA BUF_TEMP16             ; temp (mark counts fully consumed above)
-  JSR adjust_cursor_col_ins
-  ; Clean up cursor_buf_pos from stack
-  PLA
-  PLA
-  ; Pre-compute screen rows for fwd_nl join scroll optimization
-  LDA LINE_LEN16 + 1         ; fwd_nl
-  JSR compute_delete_rows_join
-  ; Check if pure join (cursor at end of line = joined lines were empty)
-  LDA BUF_TEMP16             ; back
-  ORA BUF_DELTA              ; insert_len
-  BNE .fwd_not_pure
-  JSR get_current_line_len    ; A = low, X = high
-  CMP CURSOR_COL16
-  BNE .fwd_not_pure
-  CPX CURSOR_COL16 + 1
-  BNE .fwd_not_pure
-  LDA #$FF
-  STA INSERT_LINE_COUNT       ; Signal: skip cursor row repaint only
-.fwd_not_pure:
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
-  ; Pure fwd_nl join (no back_nl, no ins_nl) -> scroll optimization
-  LDA #$06
-  STA RENDER_FLAG            ; Line-delete with displacement-based scroll
-  JMP .set_modified
-
-.jmp_case_back_nl:
-  JMP .case_back_nl
-
-.case_ins_nl:
-  ; --- Case: newlines inserted ---
-  ; FILE_LINE16 = FILE_LINE16 - back_nl + ins_nl
-  SEC
-  LDA FILE_LINE16
-  SBC LINE_LEN16             ; - back_nl
-  STA FILE_LINE16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA FILE_LINE16 + 1
+  ; --- Cursor: FILE_LINE16 += ins_nl, CURSOR_COL16 = cursor_buf_pos -
+  ; start of that line (the line after the last inserted newline, else
+  ; the first merged line) ---
   LDA NORMAL_TEMP            ; ins_nl
   CLC
   ADCA16 FILE_LINE16, FILE_LINE16
-
-  ; CURSOR_COL16 = insert_len - last_nl_pos
+  JSR get_current_line_ptr
   SEC
-  LDA BUF_DELTA
-  SBC BATCH_EXTRA            ; last_nl_pos
-  STA CURSOR_COL16
-  LDA #0
-  STA CURSOR_COL16 + 1
+  SBC16 BUF_LEN16, BUF_PTR16, CURSOR_COL16
 
-  ; Clean up stack: back + cursor_buf_pos
-  PLA
-  PLA
-  PLA
-
-  ; Check for pure insert (no back_nl, no fwd_nl) -> scroll optimization
+  ; --- Render hints ---
+  LDA NORMAL_TEMP            ; ins_nl
+  BEQ .joined
+  ; Newlines inserted.  Also merged: complex case, current-line redraw
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
-  BNE .set_modified           ; Complex case, fall back to current-line redraw
+  BNE .set_modified_line
   ; Signal pure Enter batch (all bytes are newlines, no printable chars)
   ; for start/end-of-line scroll optimization in render
   LDA BUF_DELTA              ; insert_len
@@ -470,74 +404,52 @@ insert_handle_key:
   LDA #$01
   STA INSERT_LINE_COUNT      ; Flag: pure Enter batch
 .enter_not_pure:
-  LDA #$05
-  STA RENDER_FLAG            ; Signal line-insert above cursor for scroll optimization
-  JMP .set_modified
+  LDA #$05                   ; Line-insert above cursor scroll
+  BNE .set_render_flag       ; Always taken
 
-.case_back_nl:
-  ; --- Case: backward newlines deleted, none inserted ---
-  ; FILE_LINE16 -= back_nl
-  SEC
-  LDA FILE_LINE16
-  SBC LINE_LEN16
-  STA FILE_LINE16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA FILE_LINE16 + 1
-
-  ; CURSOR_COL16 = cursor_buf_pos - LINE_TBL[new FILE_LINE16]
-  JSR get_current_line_ptr       ; BUF_PTR16 = start of current line
-
-  ; Pop back
-  PLA
-  STA BUF_TEMP               ; save back for pure-join check
-  ; Pop cursor_buf_pos -> BUF_SRC16
-  POP16 BUF_SRC16
-  ; CURSOR_COL16 = cursor_buf_pos - line_start
-  SEC
-  SBC16 BUF_SRC16, BUF_PTR16, CURSOR_COL16
-
-  ; Check for pure line join (no fwd_nl) -> scroll optimization
+  ; Lines merged, none inserted: line-delete scroll ($06)
+.joined:
+  LDA LINE_LEN16             ; back_nl
+  BEQ .fwd_join
+  ; --- Backward newlines deleted.  Forward ones too: complex case,
+  ; current-line redraw ---
   LDA LINE_LEN16 + 1         ; fwd_nl
-  BNE .set_modified           ; Complex case, fall back to current-line redraw
+  BNE .set_modified_line
   ; Check if cursor line content unchanged (pure empty-line join):
   ; back == back_nl (all deleted bytes are newlines) AND
   ; (cursor at col 0 OR cursor at end of line)
   LDA BUF_TEMP               ; back
   CMP LINE_LEN16             ; back_nl
-  BNE .bs_not_pure
+  BNE .join_flag
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
-  BEQ .bs_pure_at_start      ; Cursor at col 0: empty lines above joined
-  ; Check if cursor at end of line (empty line below joined)
-  JSR get_current_line_len    ; A = low, X = high
-  CMP CURSOR_COL16
-  BNE .bs_not_pure
-  CPX CURSOR_COL16 + 1
-  BNE .bs_not_pure
-  ; Cursor moved up: use $FF to keep normal scroll calculation
-  LDA #$FF
-  STA INSERT_LINE_COUNT
-  JMP .bs_not_pure
-.bs_pure_at_start:
-  LDA BUF_TEMP               ; reload (non-zero)
-  STA INSERT_LINE_COUNT       ; Signal pure empty-line join to render
-.bs_not_pure:
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
-  LDA #$06
-  STA RENDER_FLAG            ; Line-delete with displacement-based scroll
-  JMP .set_modified
+  BNE .join_at_eol
+  ; Cursor at col 0: empty lines above joined; signal with back (non-zero)
+  LDA BUF_TEMP
+  BNE .join_signal           ; Always taken
 
-.set_modified:
-  LDA #$FF
-  STA MODIFIED
-  STA INSERT_CHANGED
-  LDA RENDER_FLAG
-  BNE .skip_flag             ; Already set by caller (e.g., scroll optimization)
-  LDA #$01
-  STA RENDER_FLAG            ; Force at least current-line redraw
-.skip_flag:
-  RTS
+  ; --- Forward newlines deleted only ---
+.fwd_join:
+  ; Pre-compute screen rows for fwd_nl join scroll optimization
+  LDA LINE_LEN16 + 1         ; fwd_nl (+ the cursor line)
+  JSR compute_delete_rows_join
+  ; Pure join (cursor at end of line = joined lines were empty)?
+  LDA BUF_TEMP               ; back
+  ORA BUF_DELTA              ; insert_len
+  BNE .join_flag
+.join_at_eol:
+  JSR get_current_line_len   ; A = low, X = high
+  CMP CURSOR_COL16
+  BNE .join_flag
+  CPX CURSOR_COL16 + 1
+  BNE .join_flag
+  LDA #$FF                   ; Signal: skip cursor row repaint only
+.join_signal:
+  STA INSERT_LINE_COUNT
+.join_flag:
+  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  LDA #$06                   ; Line-delete with displacement-based scroll
+  JMP .set_render_flag
 
 ; Arrow key handlers in insert mode
 ; These implement simple line movement without the normal mode clamping
@@ -621,34 +533,16 @@ ins_len_cmp_col:
   CMP16 LINE_LEN16, CURSOR_COL16
   RTS
 
-; CURSOR_COL16 = CURSOR_COL16 - back (BUF_TEMP16 low) + insert_len (BUF_DELTA)
-; Clobbers: A
-adjust_cursor_col_ins:
-  SEC
-  LDA CURSOR_COL16
-  SBC BUF_TEMP16
-  STA CURSOR_COL16
-  LDA CURSOR_COL16 + 1
-  SBC #0
-  STA CURSOR_COL16 + 1
-  LDA BUF_DELTA
-  CLC
-  ADCA16 CURSOR_COL16, CURSOR_COL16
-  RTS
-
-; Compute mark-adjust args for insert_batch's newline path:
-; BUF_TEMP16 = A (line count), A/X = FILE_LINE16 + 1 - back_nl (LINE_LEN16)
-; Clobbers: A, X, BUF_DST16, BUF_TEMP16
+; Compute mark-adjust args for insert_handle_key's newline path:
+; BUF_TEMP16 = A (line count), A/X = FILE_LINE16 + 1
+; Clobbers: A, X, BUF_TEMP16
 ins_mark_adjust_args:
   JSR set_buf_temp16_a
-  ; first_line = FILE_LINE16 - back_nl + 1 (identical mod 2^16 to +1 first)
-  SEC
+  LDX FILE_LINE16 + 1
   LDA FILE_LINE16
-  SBC LINE_LEN16             ; - back_nl
-  STA BUF_DST16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA BUF_DST16 + 1
-  INC16 BUF_DST16
-  LDAX16 BUF_DST16
+  CLC
+  ADC #1
+  BCC .done
+  INX
+.done:
   RTS
