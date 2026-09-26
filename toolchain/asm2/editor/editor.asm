@@ -78,16 +78,17 @@ editor_main:
   LDA #>TEXT_LIMIT
   STA BUF_LIMIT
 
-  ; Get filename from argv
+  ; Filename: first argument, or "[No Name]" if none
+  LDX #>str_untitled      ; argc preserves X
   JSR argc
   CMP #1
-  BCC .no_file
-  ; Get first argument (the input filename)
+  LDA #<str_untitled
+  BCC .have_name
   LDA #0
-  JSR argv
-  ; A;X = pointer to filename string, copy to FNAME_BUF and set FNAME_PTR16
+  JSR argv                ; A;X = first argument
+.have_name:
+  ; Copy the name to FNAME_BUF and set FNAME_PTR16
   STAX16 BUF_PTR16
-.set_fname:
   LDY #0
 .copy_fname:
   LDA (BUF_PTR16),Y
@@ -104,9 +105,7 @@ editor_main:
   CMP #0
   BEQ .new_file
 
-  ; File exists - load it
-  STA FILE_HANDLE
-  LDA FILE_HANDLE
+  ; File exists - load it (buf_load_file saves the handle in FILE_HANDLE)
   JSR buf_load_file
   PHP                  ; Save carry (truncation flag)
   LDA FILE_HANDLE
@@ -116,13 +115,7 @@ editor_main:
   ; File was truncated - set read-only mode
   LDA #$FF
   STA READONLY
-  JMP .init_display
-
-.no_file:
-  ; No file specified - use default name and empty buffer
-  ; (FNAME_PTR16 is set at .fname_copied after the copy)
-  SET16 str_untitled, BUF_PTR16
-  JMP .set_fname
+  BNE .init_display       ; Always taken
 
 .new_file:
   ; File doesn't exist or no file specified - start with empty buffer
@@ -152,14 +145,13 @@ editor_main:
 ; Main loop
 ; ============================================================================
 main_loop:
-  ; Default: no render. Snapshot detection infers render level.
-  LDA #0
-  STA RENDER_FLAG
   ; Default: full line render. Handlers may set a partial column.
   LDA #$FF
   STA_LH16 RENDER_FROM_COL16
   STA SHIFT_WRITE            ; No ICH/DCH hint
+  ; Default: no render. Snapshot detection infers render level.
   LDA #0
+  STA RENDER_FLAG
   STA INSERT_LINE_COUNT
   STA DELETE_SCREEN_ROWS     ; 0 = no pre-computed screen rows
 
@@ -182,7 +174,6 @@ main_loop:
   CMP #CON_EOF
   BEQ .editor_exit
   .endif
-  JSR background_work
   JMP main_loop
 
 .key_available:
@@ -194,19 +185,16 @@ main_loop:
 
   ; Exit if the read hit end of input (console build only)
   .ifndef terminal_mode
-  PHA
-  JSR io_ready
+  TAX
+  JSR io_ready             ; preserves X
   CMP #CON_EOF
-  BNE .not_eof
-  PLA
-  JMP .editor_exit
-.not_eof:
-  PLA
+  BEQ .editor_exit
+  TXA
   .endif
 
   ; Dispatch based on mode
   LDX MODE
-  CPX #MODE_INSERT
+  DEX                      ; MODE_INSERT = 1
   BEQ .insert_mode
 
   ; Normal mode
@@ -215,7 +203,6 @@ main_loop:
 
 .insert_mode:
   JSR insert_handle_key
-  JMP .after_key
 
 .after_key:
   ; Check if we should quit
@@ -231,8 +218,7 @@ main_loop:
   LDA LAST_KEY
   BEQ .render              ; No pending combo key
   JSR key_peek
-  BCC .render              ; No key available yet, render normally
-  JMP .key_available       ; Process next key without rendering
+  BCS .key_available       ; Process next key without rendering
 
 .render:
   ; Ensure cursor is on screen (may scroll viewport)
@@ -249,15 +235,7 @@ main_loop:
   JSR ansi_clear_screen
   JSR io_flush
   LDA #0
-  JSR exit
-
-; ============================================================================
-; Background work
-; ============================================================================
-
-; Called when no input is available - hook for background tasks
-background_work:
-  RTS
+  JMP exit                 ; Does not return
 
 ; ============================================================================
 ; Data
