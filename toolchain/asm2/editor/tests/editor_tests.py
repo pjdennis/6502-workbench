@@ -20578,6 +20578,157 @@ class EditorTestRunner:
         )
 
         # ================================================================
+        # Edit plus viewport scroll: the scroll paths must also repaint
+        # the edited line, not just the rows the scroll exposes.
+        # ================================================================
+        twenty = "".join(f"line {i}\n" for i in range(20))
+        RIGHT = b"\x1b[C"
+
+        # Typing the 40th char of the last visible line moves the cursor
+        # to the next (off-screen) wrap row: the view scrolls by 1 and the
+        # typed char must still appear.  The right arrow unbatches the last
+        # 'x'.
+        self.run_test_screen(
+            "Scroll opt: typing that scrolls the view shows the typed char",
+            twenty,
+            b"9GA" + b"x" * 33 + RIGHT + b"x\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "line 7"), (7, "line 8" + "x" * 34),
+                          (8, "line 9")],
+            expect_cursor=(7, 39),
+        )
+
+        # Batched insert that crosses the edge of the last visible row.
+        self.run_test_screen(
+            "Scroll opt: batched typing that scrolls the view",
+            twenty,
+            b"9GA" + b"x" * 20 + b"\x1bA" + b"y" * 20 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(7, "line 8" + "x" * 20 + "y" * 14),
+                          (8, "y" * 6)],
+            expect_cursor=(8, 5),
+        )
+
+        # Typing past the end of the bottom row of the last line
+        self.run_test_screen(
+            "Scroll opt: typing past the last line's bottom row shows it",
+            "".join(f"l{i}\n" for i in range(30)) + "a" * 39 + "\n",
+            b"GAx\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "l29"), (7, "a" * 39 + "x"), (8, "~")],
+            expect_cursor=(7, 39),
+        )
+
+        # Pasting a word that pushes the cursor two wrap rows down.
+        self.run_test_screen(
+            "Scroll opt: p that scrolls the view repaints the line",
+            "".join(f"line {i}\n" for i in range(8)) + "abcdefghij" * 5
+            + "\n" + "".join(f"line {i}\n" for i in range(9, 20)),
+            b"9G0yw36lp:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "line 7"),
+                          (6, "abcdefghijabcdefghijabcdefghijabcdefgabc"),
+                          (7, "defghijabcdefghijabcdefghijabcdefghijabc"),
+                          (8, "defghijhijabcdefghij")],
+            expect_cursor=(8, 6),
+        )
+
+        # A paste that grows the cursor line past the bottom of the screen
+        # from its first row: the view moves down within the line
+        self.run_test_screen(
+            "Scroll opt: 100p growing the line past the screen repaints it",
+            "abcd\ncd\n",
+            b"yw100p:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "dabc" * 10) for i in range(8)]
+                         + [(8, "dbcd")],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 100P growing the line past the screen repaints it",
+            "abcd\ncd\n",
+            b"yw100P:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "abcd" * 10) for i in range(9)],
+            expect_cursor=(8, 39),
+        )
+        # The line below grows past the bottom: it rides along with the
+        # scroll, redrawn from its first row
+        self.run_test_screen(
+            "Scroll opt: y$jP of 200 chars scrolls and repaints the line",
+            "q" * 200 + "\nxy\n",
+            b"y$jP:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "q" * 40) for i in range(9)],
+            expect_cursor=(8, 39),
+        )
+
+        # Undo of x on a 3-row line whose first row is scrolled off: the
+        # view scrolls down 1 and the line's other rows must shift too.
+        self.run_test_screen(
+            "Scroll opt: undo that scrolls the view up repaints the line",
+            "a" * 104 + "\n" + "".join(f"line {i}\n" for i in range(1, 12)),
+            b"5lx8Gu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "a" * 40), (2, "a" * 24),
+                          (3, "line 1"), (8, "line 6")],
+            expect_cursor=(0, 5),
+        )
+        # The same from a line of another height, on a narrow screen
+        self.run_test_screen(
+            "Scroll opt: undo from a taller line that scrolls the view up",
+            "0123456789abcdefghijABCDEFGHIJ\n" + "x" * 72 + "\n",
+            b"x$ju:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "0123456789"), (1, "abcdefghij"),
+                          (2, "ABCDEFGHIJ"), (3, "x" * 10)],
+            expect_cursor=(0, 0),
+        )
+
+        # cc on a 3-row line shown from its third row: the line shrinks to
+        # 1 row and VIEW_TOP_WRAP drops 2 -> 0 (the wrap_changed path).
+        self.run_test_screen(
+            "Scroll opt: cc that changes VIEW_TOP_WRAP repaints correctly",
+            "a" * 84 + " " + "Q" * 15 + "\n" + "b" * 60 + "\n"
+            + "".join(f"line {i}\n" for i in range(2, 20)),
+            b"8Gkkkkkkbcc\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, ""), (1, "b" * 40), (2, "b" * 20),
+                          (3, "line 2"), (8, "line 7")],
+            expect_cursor=(0, 0),
+        )
+
+        # Counted ~ past the last visible row: the direct echo stops at
+        # the row edge and defers the rest (RENDER_FLAG=$01, BUF_END16
+        # unchanged); the cursor lands off-screen and the view scrolls 2.
+        self.run_test_screen(
+            "Scroll opt: counted ~ that scrolls the view repaints the rest",
+            "".join(f"line {i}\n" for i in range(8)) + "abcdefghij" * 12
+            + "\n" + "".join(f"t{i}\n" for i in range(5)),
+            b"9G0106~:q!\r",
+            rows=12, cols=30,
+            expect_lines=[(6, "line 7"),
+                          (7, "ABCDEFGHIJ" * 3), (8, "ABCDEFGHIJ" * 3),
+                          (9, "ABCDEFGHIJ" * 3),
+                          (10, "ABCDEFGHIJABCDEFghijabcdefghij")],
+            expect_cursor=(10, 16),
+        )
+
+        # BS that moves the cursor above the view top (VIEW_TOP_WRAP 1 ->
+        # 0): the view scrolls down 1 and the edited rows must be redrawn.
+        self.run_test_screen(
+            "Scroll opt: BS that scrolls the view down repaints the line",
+            "0123456789" * 8 + "\n" + "a" * 45 + "\n"
+            + "".join(f"line{i}\n" for i in range(2, 20)),
+            b"7j6kA\x1b[A" + b"\x08" * 6 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "0123456789" * 3 + "012345678" + "5"),
+                          (1, "6789" + "0123456789" * 3),
+                          (2, "a" * 40), (3, "a" * 5), (4, "line2")],
+            expect_cursor=(0, 38),
+        )
+
+        # ================================================================
         # Indent/unindent render optimization
         # ================================================================
         # >> and << currently force full repaint. Only the affected rows

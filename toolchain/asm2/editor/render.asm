@@ -65,6 +65,12 @@ set_render_line_to_cursor:
   CP16 FILE_LINE16, RENDER_LINE16
   RTS
 
+; CUR_LINE_ROWS = the cursor line's screen rows, then set_first_row.
+; Clobbers A, X, Y, BUF_PTR16, DIV_INPUT16
+cursor_line_first_row:
+  JSR file_line_rows
+  STA CUR_LINE_ROWS
+  ; fall through
 ; RENDER_ROW = the cursor line's first screen row (CURSOR_ROW - WRAP_QUOT)
 ; Returns C=0 if the line starts above the view.  Clobbers A
 set_first_row:
@@ -223,10 +229,8 @@ print_separator:
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
   ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
-  JSR file_line_rows
-  STA CUR_LINE_ROWS
   ; First screen row of the line; above the viewport -> full repaint
-  JSR set_first_row
+  JSR cursor_line_first_row
   BCS render_rows_resized
   JMP render_screen
 ; Entry: RENDER_ROW = first row of a block (cursor line, $0B range, or a

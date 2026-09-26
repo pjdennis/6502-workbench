@@ -112,9 +112,11 @@ project's 6502 emulator in console/ANSI mode.
      `render_decide` compares post-handler state against the snapshot and
      the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):
      - `RENDER_FLAG` = `$FF` → full screen redraw.
-     - Viewport moved → scroll the text area and draw only the exposed
-       rows (all of them for a move that fills it); full redraw if the
-       line count changed or `RENDER_FLAG` is `$0B`.
+     - Viewport moved → scroll the text area and draw the exposed rows
+       (all of them for a move that fills it), and the cursor line from
+       its change point if the key also edited it; full redraw if the
+       line count changed, `RENDER_FLAG` is `$0B`, or the edited line
+       starts above the view or changed height above the status bar.
      - Line count changed → scroll the rows below the edit for the line
        insert/delete flags (`$02`–`$0A`), else full redraw.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows
