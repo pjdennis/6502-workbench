@@ -19,18 +19,18 @@
 
 insert_keys:
   .byte KEY_ESC     .word insert_exit
-  .byte KEY_UP      .word insert_counted_move
-  .byte KEY_DOWN    .word insert_counted_move
-  .byte KEY_LEFT    .word insert_counted_move
-  .byte KEY_RIGHT   .word insert_counted_move
+  .byte KEY_UP      .word insert_up
+  .byte KEY_DOWN    .word insert_down
+  .byte KEY_LEFT    .word insert_left
+  .byte KEY_RIGHT   .word insert_right
   .byte KEY_HOME    .word insert_home
   .byte KEY_END     .word insert_end
-  .byte KEY_PGDN    .word insert_page_down
-  .byte KEY_PGUP    .word insert_page_up
-  .byte $06         .word insert_page_down    ; Ctrl-F
-  .byte $02         .word insert_page_up      ; Ctrl-B
-  .byte KEY_WORD_FWD  .word insert_counted_move
-  .byte KEY_WORD_BACK .word insert_counted_move
+  .byte KEY_PGDN    .word normal_page_down    ; These land on col 0, so need
+  .byte KEY_PGUP    .word normal_page_up      ; no insert-mode clamp
+  .byte $06         .word normal_page_down    ; Ctrl-F
+  .byte $02         .word normal_page_up      ; Ctrl-B
+  .byte KEY_WORD_FWD  .word insert_word_fwd
+  .byte KEY_WORD_BACK .word insert_word_back
   .byte 0           ; End sentinel
 
 ; Exit insert mode, return to normal mode
@@ -42,11 +42,8 @@ insert_exit:
   LDA #MODE_NORMAL
   STA MODE
   ; Move cursor back one per vi convention (unless at column 0)
-  TST16 CURSOR_COL16
-  BEQ .done
-  JSR dec_cursor_col
-.done:
-  RTS
+  LDX #1
+  JMP move_left_x
 
 ; ============================================================================
 ; Unified batch handler for insert-mode editing
@@ -451,86 +448,63 @@ insert_handle_key:
   LDA #$06                   ; Line-delete with displacement-based scroll
   JMP .set_render_flag
 
-; Arrow key handlers in insert mode
-; These implement simple line movement without the normal mode clamping
-; that would clamp to len-1 instead of len (one past last char for insert)
+; Arrow key and word motion handlers in insert mode, counted with pending
+; repeats of the same key.  In insert mode the cursor may sit one past the
+; last char (col = len), so they clamp to len, not len - 1 as normal mode
+; does.  Word motions already stay within 0..len, so need no clamp.
+insert_word_fwd:
+  JSR insert_move_count
+  JMP word_forward_x
 
-; Consolidated insert mode movement handler
-; BUF_TEMP = key code (set by insert_handle_key before dispatch)
-insert_counted_move:
-  ; BUF_TEMP already set by insert_handle_key
-  JSR count_pending_key    ; X = pending matching keys
-  INX                      ; +1 for current key
-  LDA BUF_TEMP
-  CMP #KEY_UP
-  BEQ .up
-  CMP #KEY_DOWN
-  BEQ .down
-  CMP #KEY_LEFT
-  BEQ .left
-  CMP #KEY_RIGHT
-  BEQ .right
-  CMP #KEY_WORD_FWD
-  BEQ .word_fwd
-  ; Must be KEY_WORD_BACK
-  JSR word_backward_x
-  JMP clamp_cursor_col_insert
-.up:
+insert_word_back:
+  JSR insert_move_count
+  JMP word_backward_x
+
+insert_left:
+  JSR insert_move_count
+  JMP move_left_x
+
+insert_right:
+  JSR get_line_len_z         ; LINE_LEN16 = max col (line doesn't change)
+  JSR insert_move_count
+  JMP move_right_x
+
+insert_up:
+  JSR insert_move_count
   JSR move_up_x
   JMP clamp_cursor_col_insert
-.down:
+
+insert_down:
+  JSR insert_move_count
   JSR move_down_x
-  JMP clamp_cursor_col_insert
-.left:
-  JMP move_left_x           ; No clamp needed
-.right:
-  ; Hoist line length calculation (line doesn't change)
-  STX BUF_DELTA
-  JSR get_line_len_z
-  LDX BUF_DELTA
-  JMP move_right_x
-.word_fwd:
-  JSR word_forward_x
-  JMP clamp_cursor_col_insert
-
-insert_page_down:
-  JSR normal_page_down
-  JMP clamp_cursor_col_insert
-
-insert_page_up:
-  JSR normal_page_up
-  JMP clamp_cursor_col_insert
-
-insert_home:
-  TST16 CURSOR_COL16
-  BEQ .done            ; Already at column 0
-  LDA #0
-  STA_LH16 CURSOR_COL16
-.done:
-  RTS
-
-insert_end:
-  JSR ins_len_cmp_col
-  BCC .done            ; Cursor past end: leave (clamp handles elsewhere)
-  ; At end the copy rewrites CURSOR_COL16 with its own value (no-op)
-  CP16 LINE_LEN16, CURSOR_COL16
-.done:
-  RTS
+  ; fall through
 
 ; Clamp cursor for insert mode (can be one past end of line content)
 clamp_cursor_col_insert:
-  JSR ins_len_cmp_col
-  BCS .ok
-  CP16 LINE_LEN16, CURSOR_COL16
+  JSR get_current_line_len   ; A/X = len
+  CPX CURSOR_COL16 + 1
+  BCC set_cursor_col_ax      ; len < col
+  BNE .ok
+  CMP CURSOR_COL16
+  BCC set_cursor_col_ax      ; len < col
 .ok:
   RTS
 
-; Get current line length into LINE_LEN16 and compare with CURSOR_COL16
-; Output: flags as after CMP16 LINE_LEN16, CURSOR_COL16
-ins_len_cmp_col:
-  JSR get_current_line_len
-  STAX16 LINE_LEN16
-  CMP16 LINE_LEN16, CURSOR_COL16
+insert_home:
+  LDA #0
+  TAX
+  BEQ set_cursor_col_ax      ; Always taken
+
+insert_end:
+  JSR get_current_line_len   ; A/X = len
+set_cursor_col_ax:
+  STAX16 CURSOR_COL16
+  RTS
+
+; X = 1 + pending repeats of the key in BUF_TEMP (set by insert_handle_key)
+insert_move_count:
+  JSR count_pending_key
+  INX
   RTS
 
 ; Compute mark-adjust args for insert_handle_key's newline path:
