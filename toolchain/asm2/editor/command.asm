@@ -129,8 +129,9 @@ show_readonly_msg:
   JMP show_message_ax
 
 cmd_parse_bare_shift:
-  CP16 FILE_LINE16, BUF_SRC16
-  CP16 FILE_LINE16, BUF_LEN16
+  LDAX16 FILE_LINE16      ; Start = end = current line
+  STAX16 BUF_SRC16
+  STAX16 BUF_LEN16
   LDA BUF_TEMP            ; '>' or '<'
   BNE range_dispatch      ; Always taken
 
