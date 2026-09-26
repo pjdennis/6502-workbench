@@ -713,7 +713,7 @@ do_cc:
   LDA #UNDO_CC
   STA UNDO_TYPE
   LDA #$06
-  JMP .cc_set_render
+  BNE .cc_set_render         ; Always
 
 .cc_already_empty:
   ; No blank inserted - next line was already empty.
@@ -721,11 +721,9 @@ do_cc:
   ; because displacement=0 would cause $06 to skip the scroll.
   LDA #$02
 .cc_set_render:
-  STA RENDER_FLAG
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  LDA #$FF
-  STA MODIFIED
+  ; RENDER_FLAG = A, cursor to col 0, modified (UNDO_IS_REDO is already
+  ; 0 from the line-delete record)
+  JSR undo_opened_finish
   JMP enter_insert_mode
 
 .cc_overflow:
