@@ -47,6 +47,7 @@ int serial_rx_count(void);
 int serial_tx_count(void);
 void serial_rx_fill(void);
 uint64_t serial_rx_next_arrival(void);
+void serial_pace_start(const unsigned char *mask, long len);
 void serial_tx_drain(void);
 void serial_tx_flush(void);
 

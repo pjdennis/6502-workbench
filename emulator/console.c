@@ -47,6 +47,12 @@ uint8_t serial_tx_buf[SERIAL_BUF_SIZE];
 int serial_tx_head = 0;
 int serial_tx_tail = 0;
 static uint64_t serial_tx_next_drain_at = 0;
+// Test pacing (serial_pace_start): mask byte per input byte, next index to
+// fill, and whether input is held until the program is idle
+static const unsigned char *serial_pace_mask = NULL;
+static long serial_pace_len = 0;
+static long serial_fill_index = 0;
+static int serial_pace_hold = 0;
 char serial_inject_buf[32];
 int serial_inject_pos = 0;
 int serial_inject_len = 0;
@@ -351,6 +357,28 @@ void serial_reset() {
     serial_tx_next_drain_at = 0;
     serial_inject_pos = 0;
     serial_inject_len = 0;
+    serial_pace_mask = NULL;
+    serial_pace_len = 0;
+    serial_fill_index = 0;
+    serial_pace_hold = 0;
+}
+
+// Test pacing (--pace-mask in terminal mode), one mask byte per input byte.
+// Before the first byte, and after each byte whose mask byte is not '0',
+// input is held until the program is idle: it asks for input with the RX
+// FIFO empty, nothing injected and all its output sent, like a user who
+// waits for the screen before typing. The next byte then arrives one
+// byte-time later.
+void serial_pace_start(const unsigned char *mask, long len) {
+    serial_pace_mask = mask;
+    serial_pace_len = len;
+    serial_fill_index = 0;
+    serial_pace_hold = 1;
+}
+
+static int serial_program_idle(void) {
+    return serial_rx_count() == 0 && serial_tx_count() == 0
+        && serial_inject_pos >= serial_inject_len;
 }
 
 int serial_rx_count() {
@@ -365,6 +393,12 @@ int serial_tx_count() {
 // Characters arrive from the "wire" at baud rate intervals and queue in the
 // hardware FIFO. The CPU can then read them out as fast as it wants.
 void serial_rx_fill() {
+    if (serial_pace_hold) {
+        if (!serial_program_idle()) return;
+        serial_pace_hold = 0;   // idle: the next key starts on the wire now
+        serial_rx_next_fill_at = clockticks6502 + serial_cycles_per_byte;
+        return;
+    }
     int filled = 0;
     while (clockticks6502 >= serial_rx_next_fill_at &&
            serial_rx_count() < SERIAL_BUF_SIZE - 1) {
@@ -385,6 +419,11 @@ void serial_rx_fill() {
         serial_rx_head = (serial_rx_head + 1) % SERIAL_BUF_SIZE;
         serial_rx_next_fill_at += serial_cycles_per_byte;
         filled = 1;
+        long i = serial_fill_index++;
+        if (serial_pace_mask && i < serial_pace_len && serial_pace_mask[i] != '0') {
+            serial_pace_hold = 1;
+            break;
+        }
     }
     // Prevent credit accumulation: when no input was available and the CPU
     // has been running (e.g. idle-polling), advance the fill timestamp so
@@ -411,6 +450,14 @@ uint64_t serial_rx_next_arrival() {
         }
     }
     if (!pending) return UINT64_MAX;
+    if (serial_pace_hold) {
+        // Held until the program is idle, which is once its output has gone;
+        // the poll then releases the hold (the byte comes a byte-time later)
+        int tx = serial_tx_count();
+        uint64_t idle_at = tx == 0 ? clockticks6502
+            : serial_tx_next_drain_at + (uint64_t)(tx - 1) * serial_cycles_per_byte;
+        return idle_at > clockticks6502 ? idle_at : clockticks6502;
+    }
     return serial_rx_next_fill_at > clockticks6502 ? serial_rx_next_fill_at
                                                    : clockticks6502;
 }

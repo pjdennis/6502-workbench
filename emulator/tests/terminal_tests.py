@@ -251,6 +251,19 @@ class TerminalTestRunner:
             extra_args=["--cpu-mhz", "1", "--baud", "9600"]
         )
 
+        # --pace-mask in terminal mode: input is held until the program is
+        # idle, and each hold must release (the run completes)
+        with tempfile.TemporaryDirectory() as mask_dir:
+            mask_file = Path(mask_dir) / "mask.bin"
+            mask_file.write_bytes(b"111")
+            self.run_test(
+                "Echo with paced input",
+                input_bytes=b"Hi\x04",
+                expected_output=b"Hi",
+                extra_args=["--cpu-mhz", "1", "--baud", "300",
+                            "--pace-mask", str(mask_file)]
+            )
+
         # --cpu-mhz alone doesn't break existing tests
         self.run_test(
             "cpu-mhz without baud",

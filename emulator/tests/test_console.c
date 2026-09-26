@@ -717,6 +717,85 @@ TEST next_arrival_interactive_waits_for_host_input(void) {
     PASS();
 }
 
+// Test pacing (--pace-mask in terminal mode): before the first byte, and
+// after each byte whose mask byte is not '0', input is held until the
+// program is idle - it asks for input with the RX FIFO empty, nothing
+// injected, and all its output sent. The next byte then arrives one
+// byte-time later.
+
+static const unsigned char pace_mask_10[] = "10";
+
+static void pace_setup(void) {
+    serial_reset();
+    serial_cycles_per_byte = 100;
+    serial_input_file = tmpfile();
+    fputs("AB", serial_input_file);
+    rewind(serial_input_file);
+    serial_pace_start(pace_mask_10, 2);
+    clockticks6502 = 0;
+}
+
+static void pace_teardown(void) {
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    serial_reset();
+}
+
+TEST pace_holds_the_first_byte_until_an_idle_poll(void) {
+    pace_setup();
+    ASSERT_EQ(0, serial_rx_next_arrival());  // released at the next poll
+    serial_rx_fill();                        // idle poll: releases the hold
+    ASSERT_EQ(0, serial_rx_count());
+    ASSERT_EQ(100, serial_rx_next_arrival());
+    clockticks6502 = 100;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('A', serial_rx_buf[serial_rx_tail]);
+    pace_teardown();
+    PASS();
+}
+
+TEST pace_holds_after_a_marked_byte_until_read(void) {
+    pace_setup();
+    serial_rx_fill();
+    clockticks6502 = 100;
+    serial_rx_fill();                        // 'A' (marked) arrives
+    clockticks6502 = 1000;
+    serial_rx_fill();                        // 'B' is held while 'A' is unread
+    ASSERT_EQ(1, serial_rx_count());
+    serial_rx_tail = serial_rx_head;         // the program reads 'A'
+    serial_rx_fill();                        // idle poll: releases the hold
+    ASSERT_EQ(0, serial_rx_count());
+    clockticks6502 = 1100;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('B', serial_rx_buf[serial_rx_tail]);
+    pace_teardown();
+    PASS();
+}
+
+TEST pace_holds_while_output_is_being_sent(void) {
+    pace_setup();
+    serial_tx_buf[0] = 'x';                  // two bytes of output queued
+    serial_tx_buf[1] = 'y';
+    serial_tx_head = 2;
+    serial_tx_drain();                       // 'x' goes at once, 'y' at 100
+    ASSERT_EQ(1, serial_tx_count());
+    ASSERT_EQ(100, serial_rx_next_arrival()); // idle once 'y' has gone
+    serial_rx_fill();                        // not idle: output pending
+    ASSERT_EQ(0, serial_rx_count());
+    clockticks6502 = 100;
+    serial_tx_drain();
+    serial_rx_fill();                        // idle now: released
+    ASSERT_EQ(200, serial_rx_next_arrival());
+    clockticks6502 = 200;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    pace_teardown();
+    PASS();
+}
+
 SUITE(console_suite) {
     RUN_TEST(resize_allocates_correct_size);
     RUN_TEST(resize_rejects_invalid);
@@ -772,6 +851,9 @@ SUITE(console_suite) {
     RUN_TEST(next_arrival_one_byte_time_after_the_last);
     RUN_TEST(next_arrival_now_once_the_slot_has_passed);
     RUN_TEST(next_arrival_interactive_waits_for_host_input);
+    RUN_TEST(pace_holds_the_first_byte_until_an_idle_poll);
+    RUN_TEST(pace_holds_after_a_marked_byte_until_read);
+    RUN_TEST(pace_holds_while_output_is_being_sent);
 }
 
 GREATEST_MAIN_DEFS();

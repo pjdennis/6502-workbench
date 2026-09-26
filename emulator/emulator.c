@@ -651,6 +651,9 @@ int main(int argc, char **argv) {
         double effective_cpu_mhz = cpu_mhz > 0.0 ? cpu_mhz : target_mhz;
         serial_cycles_per_byte = (uint64_t)(effective_cpu_mhz * 10000000.0 / serial_baud);
     }
+    // --pace-mask: in terminal mode the serial model holds input until the
+    // program is idle (console.c); in --input mode read6502 paces con_ready
+    if (terminal_mode && pace_mask) serial_pace_start(pace_mask, pace_mask_len);
 
     if (terminal_mode && !input_specified && !output_specified) {
         terminal_interactive = 1;
