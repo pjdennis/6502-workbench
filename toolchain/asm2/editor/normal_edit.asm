@@ -491,16 +491,13 @@ normal_join_lines:
   STX NORMAL_TEMP            ; NORMAL_TEMP = number of joins to do
 
   ; Clamp to available lines: can join at most LINE_COUNT16 - FILE_LINE16 - 1
-  SEC
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_TEMP16
-  DEC16 BUF_TEMP16           ; BUF_TEMP16 = available joins
+  CLC                        ; (the borrow subtracts the 1)
+  SBC16 LINE_COUNT16, FILE_LINE16, BUF_TEMP16 ; BUF_TEMP16 = available joins
   LDA BUF_TEMP16 + 1
   BNE .clamp_ok              ; > 255 available, no clamp needed
-  LDA NORMAL_TEMP
-  CMP BUF_TEMP16
-  BCC .clamp_ok
-  BEQ .clamp_ok
   LDA BUF_TEMP16
+  CMP NORMAL_TEMP
+  BCS .clamp_ok
   STA NORMAL_TEMP
 .clamp_ok:
   LDA NORMAL_TEMP
@@ -518,12 +515,10 @@ normal_join_lines:
   STX RENDER_FROM_COL16 + 1
 
   ; Compute undo_count: if batching → 1, else → NORMAL_TEMP
-  LDA UNDO_COL16             ; batching flag
-  BEQ .no_batch
-  LDA #1
-  JMP .set_undo_count
-.no_batch:
   LDA NORMAL_TEMP
+  LDX UNDO_COL16             ; batching flag
+  BEQ .set_undo_count
+  LDA #1
 .set_undo_count:
   STA UNDO_JOIN_COUNT
 
