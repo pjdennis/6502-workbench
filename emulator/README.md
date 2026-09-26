@@ -53,6 +53,7 @@ Common options (the full list is in `--help`):
 | `--dump` / `--no-dump` | memory dump on exit |
 | `--console` / `--terminal` | full-screen UI modes (mutually exclusive) |
 | `--mhz` / `--cpu-mhz` / `--baud` | wall-clock pacing + serial timing |
+| `--pace-mask` / `--pace-log` / `--pace-polls` | test hook (`--input` mode): after reading an input byte whose mask byte is not `0`, `con_ready` reports not-ready for N polls (default 2000), so the next key arrives only after the program went idle; the log gets `<input read> <output written>` as each pause ends |
 | `--rows N` / `--cols N` | terminal-size overrides |
 
 ## wendy2c demo

@@ -287,7 +287,46 @@ TEST cli_lcd_trace_requires_wendy2c(void) {
     PASS();
 }
 
+TEST cli_pace_options_parsed(void) {
+    char *argv[] = {"emulator", "prog.bin",
+                    "--pace-mask", "m.bin", "--pace-log", "log.txt",
+                    "--pace-polls", "500", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_STR_EQ("m.bin", opts.pace_mask_filename);
+    ASSERT_STR_EQ("log.txt", opts.pace_log_filename);
+    ASSERT_EQ_FMT(500, opts.pace_polls, "%d");
+    PASS();
+}
+
+TEST cli_pace_defaults(void) {
+    char *argv[] = {"emulator", "prog.bin", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT(opts.pace_mask_filename == NULL);
+    ASSERT(opts.pace_log_filename == NULL);
+    ASSERT_EQ_FMT(2000, opts.pace_polls, "%d");
+    PASS();
+}
+
+TEST cli_pace_polls_must_be_positive(void) {
+    char *argv[] = {"emulator", "prog.bin", "--pace-polls", "0", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--pace-polls value must be positive") != NULL);
+    PASS();
+}
+
 SUITE(cli_suite) {
+    RUN_TEST(cli_pace_options_parsed);
+    RUN_TEST(cli_pace_defaults);
+    RUN_TEST(cli_pace_polls_must_be_positive);
     RUN_TEST(cli_empty_argv_errors);
     RUN_TEST(cli_server_first_arg_dispatches);
     RUN_TEST(cli_code_file_only);

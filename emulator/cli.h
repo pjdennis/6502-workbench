@@ -41,6 +41,14 @@ struct emu_opts {
     double target_mhz;                  /* --mhz N */
     double cpu_mhz;                     /* --cpu-mhz N */
     int serial_baud;                    /* --baud N */
+    const char *pace_mask_filename;     /* --pace-mask PATH (standard --input mode): one byte per
+                                         * input byte; after the program reads input byte i and
+                                         * mask[i] != '0', con_ready reports "not ready" for
+                                         * pace_polls polls, so the next byte arrives only after
+                                         * the program has gone idle. NULL = no pacing. */
+    const char *pace_log_filename;      /* --pace-log PATH: each time such a pause elapses, append
+                                         * "<input bytes read> <output bytes written>\n". */
+    int pace_polls;                     /* --pace-polls N; default 2000 */
     int arg_base;                       /* index in argv where positional args begin */
     int server_main_dispatch;           /* 1 if argv[1] == "--server" */
     int machine;                        /* --machine; MACHINE_NMOS_DEFAULT or MACHINE_WENDY2C */

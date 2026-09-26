@@ -26,6 +26,9 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->target_mhz = 0.0;
     opts->cpu_mhz = 0.0;
     opts->serial_baud = 0;
+    opts->pace_mask_filename = NULL;
+    opts->pace_log_filename = NULL;
+    opts->pace_polls = 2000;
     opts->arg_base = 0;
     opts->server_main_dispatch = 0;
     opts->machine = MACHINE_NMOS_DEFAULT;
@@ -72,6 +75,11 @@ void emu_opts_usage(FILE *fp) {
 "                         board. Applies to both --live and non-live runs.\n"
 "  --cpu-mhz <speed>      assumed CPU MHz for --baud timing\n"
 "  --baud <rate>          serial-port baud rate (requires --mhz or --cpu-mhz)\n"
+"  --pace-mask <path>     test hook (--input mode): one byte per input byte; after\n"
+"                         a byte whose mask byte is not '0' is read, con_ready\n"
+"                         reports not-ready for --pace-polls polls (no type-ahead)\n"
+"  --pace-log <path>      append \"<input read> <output written>\" as each pause ends\n"
+"  --pace-polls N         polls per pause (default 2000)\n"
 "  --rows N               override terminal rows\n"
 "  --cols N               override terminal cols\n"
 "  --machine <name>       'nmos-default' (default) or 'wendy2c'\n"
@@ -161,6 +169,21 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             opts->load_address = strtol(argv[i + 1], NULL, 16);
             if (opts->load_address < 0 || opts->load_address > 0xffff) {
                 fprintf(stderr, "error: --load value must be between 0 and ffff\n");
+                return 1;
+            }
+            i += 2;
+        } else if (strcmp(argv[i], "--pace-mask") == 0) {
+            if (take_str_value(argc, argv, &i, "--pace-mask", &opts->pace_mask_filename)) return 1;
+        } else if (strcmp(argv[i], "--pace-log") == 0) {
+            if (take_str_value(argc, argv, &i, "--pace-log", &opts->pace_log_filename)) return 1;
+        } else if (strcmp(argv[i], "--pace-polls") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --pace-polls requires a value\n");
+                return 1;
+            }
+            opts->pace_polls = (int)strtol(argv[i + 1], NULL, 10);
+            if (opts->pace_polls <= 0) {
+                fprintf(stderr, "error: --pace-polls value must be positive\n");
                 return 1;
             }
             i += 2;

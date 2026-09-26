@@ -47,6 +47,14 @@ FILE* stderr_capture_file = NULL;
 double target_mhz = 0.0;
 double cpu_mhz = 0.0;
 int serial_baud = 0;
+/* --pace-mask/--pace-log/--pace-polls: unbatched key delivery for tests
+ * (standard --input mode only; see cli.h) */
+static unsigned char *pace_mask = NULL;
+static long pace_mask_len = 0;
+static long pace_in = 0;          /* input bytes read so far */
+static int pace_polls = 2000;
+static int pace_remaining = 0;    /* con_ready polls left in the current pause */
+static FILE *pace_log = NULL;
 int override_rows = 0;
 int override_cols = 0;
 struct timespec start_time;
@@ -277,6 +285,9 @@ uint8_t read6502(uint16_t address) {
         } else {
             int b = fgetc(input_file_ptr);
             if (b == EOF) { con_eof_flag = 1; return 0; }
+            if (pace_mask && pace_in < pace_mask_len && pace_mask[pace_in] != '0')
+                pace_remaining = pace_polls;
+            pace_in++;
             return b;
         }
     } else if (address == port_term_rows) {           // term_rows
@@ -296,6 +307,14 @@ uint8_t read6502(uint16_t address) {
         // $FF = byte ready, $00 = none yet, $01 = end of input
         if (con_eof_flag) return 0x01;
         if (console_mode) return con_byte_ready() ? 0xFF : 0x00;
+        if (pace_remaining > 0) {
+            if (--pace_remaining == 0 && pace_log) {
+                fflush(output_file_ptr);
+                fprintf(pace_log, "%ld %ld\n", pace_in, ftell(output_file_ptr));
+                fflush(pace_log);
+            }
+            return 0x00;
+        }
         return 0xFF;
     } else if (address == port_serial_ready) {        // serial_ready
         if (serial_baud > 0)
@@ -513,6 +532,31 @@ int main(int argc, char **argv) {
     target_mhz = opts.target_mhz;
     cpu_mhz = opts.cpu_mhz;
     serial_baud = opts.serial_baud;
+    pace_polls = opts.pace_polls;
+    if (opts.pace_mask_filename) {
+        FILE *f = fopen(opts.pace_mask_filename, "rb");
+        if (!f) {
+            fprintf(stderr, "could not open pace mask file: %s\n", opts.pace_mask_filename);
+            return 1;
+        }
+        fseek(f, 0, SEEK_END);
+        pace_mask_len = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        pace_mask = malloc(pace_mask_len + 1);
+        if (!pace_mask || fread(pace_mask, 1, pace_mask_len, f) != (size_t)pace_mask_len) {
+            fprintf(stderr, "could not read pace mask file: %s\n", opts.pace_mask_filename);
+            fclose(f);
+            return 1;
+        }
+        fclose(f);
+    }
+    if (opts.pace_log_filename) {
+        pace_log = fopen(opts.pace_log_filename, "w");
+        if (!pace_log) {
+            fprintf(stderr, "could not open pace log file: %s\n", opts.pace_log_filename);
+            return 1;
+        }
+    }
 
     if (serial_baud > 0) {
         double effective_cpu_mhz = cpu_mhz > 0.0 ? cpu_mhz : target_mhz;
