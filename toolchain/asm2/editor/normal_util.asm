@@ -563,10 +563,19 @@ set_modified:
   STA MODIFIED
   RTS
 
-; Partial line repaint from the cursor: RENDER_FROM_COL16 = CURSOR_COL16
-; Clobbers A
+; Partial line repaint from the cursor: RENDER_FROM_COL16 = CURSOR_COL16,
+; or from A columns before it (_before_cursor, A <= CURSOR_COL16).
+; Clobbers A; preserves X, Y
 set_render_from_cursor:
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  LDA #0
+set_render_from_before_cursor:
+  EOR #$FF
+  SEC
+  ADC CURSOR_COL16           ; CURSOR_COL16 - A: + (255 - A) + 1
+  STA RENDER_FROM_COL16
+  LDA CURSOR_COL16 + 1
+  ADC #$FF                   ; - 1 unless the low byte carried
+  STA RENDER_FROM_COL16 + 1
 char_op_ret:
   RTS
 

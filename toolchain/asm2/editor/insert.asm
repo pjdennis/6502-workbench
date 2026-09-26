@@ -311,8 +311,8 @@ insert_handle_key:
   BNE .newlines_path
   ; No newline deleted: the batch changed its one line from
   ; RENDER_FROM_COL16 = CURSOR_COL16 - back (first affected col)
-  SEC
-  SBC16_8 CURSOR_COL16, BUF_TEMP16, RENDER_FROM_COL16
+  LDA BUF_TEMP16             ; back
+  JSR set_render_from_before_cursor
   LDA NORMAL_TEMP            ; ins_nl
   BNE .newlines_path         ; ... and split it
 
