@@ -86,45 +86,31 @@ render_line_delete_scroll:
 render_line_insert_scroll:
   JSR ansi_cursor_hide
 
-  ; Set scroll region start (1-based) to SCREEN_ROWS-1 (1-based)
-  ; RENDER_FLAG=$03: from CURSOR_ROW+1 (includes cursor row)
-  ; RENDER_FLAG=$05: from old cursor row+1 = CURSOR_ROW-SCROLL_DELTA+2
-  ; RENDER_FLAG=$04/$09: skip cursor line rows
-  ;   first_row = CURSOR_ROW - WRAP_QUOT
-  ;   scroll_start = first_row + PREV_LINE_ROWS + 1 (1-based)
+  ; Scroll the region from its start row (1-based) to SCREEN_ROWS-1 down:
+  ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
+  ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the cursor line)
+  ;   $05: from the old cursor row (CURSOR_ROW - SCROLL_DELTA) + 2, or + 1
+  ;        for a start-of-line Enter batch (INSERT_LINE_COUNT = 3)
   LDA RENDER_FLAG
+  CMP #$05
+  BEQ .scroll_at_enter
   CMP #$04
   BEQ .scroll_skip_cursor_ins
   CMP #$09
-  BEQ .scroll_skip_cursor_ins
-  CMP #$05
-  BEQ .scroll_at_enter
   BNE .scroll_at_cursor
 .scroll_skip_cursor_ins:
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT          ; first_row (0-based)
+  JSR set_first_row
   CLC
   ADC PREV_LINE_ROWS     ; past end of cursor line (0-based)
   JMP .to_one_based
 .scroll_at_enter:
-  ; For start-of-line Enter (bit 1 set): include old cursor row in scroll
-  ; scroll_start = CURSOR_ROW + 1 - SCROLL_DELTA (1-based)
-  ; Otherwise: scroll_start = CURSOR_ROW + 2 - SCROLL_DELTA (1-based)
-  LDA INSERT_LINE_COUNT
-  AND #$02
-  BNE .enter_start_scroll
+  LDA #1
+  CMP INSERT_LINE_COUNT  ; C=0: start-of-line batch (3)
   LDA CURSOR_ROW
-  SEC
-  SBC SCROLL_DELTA
+  SBC SCROLL_DELTA       ; old cursor row (- 1 for start of line)
   CLC
   ADC #2
   JMP .set_scroll_start
-.enter_start_scroll:
-  LDA CURSOR_ROW
-  SEC
-  SBC SCROLL_DELTA
-  JMP .to_one_based
 .scroll_at_cursor:
   LDA CURSOR_ROW
 .to_one_based:
@@ -140,8 +126,8 @@ render_line_insert_scroll:
   BNE .no_enter_render
   ; If start/end-of-line Enter, scroll handled everything - just update status
   LDA INSERT_LINE_COUNT
-  AND #$01
-  BNE .enter_status_only
+  LSR                        ; bit 0
+  BCS .enter_status_only
   ; Render SCROLL_DELTA + 1 rows starting at old cursor row
   LDA CURSOR_ROW
   SEC
