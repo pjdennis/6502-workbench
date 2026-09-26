@@ -23,7 +23,7 @@
 
   dw on an empty line - Does nothing. Vi deletes the empty line.
 
-  cw on whitespace - Changes the whitespace and the following word. Vi changes only the whitespace.
+  cw on whitespace - Changes the whitespace and the word after it on the same line. Vi changes only the whitespace.
 
   Command line
 
