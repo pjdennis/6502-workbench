@@ -160,12 +160,12 @@ write_string:
 .done:
   RTS
 
-; Write filename from (FNAME_PTR16), up to 32 chars
+; Write the filename (FNAME_BUF), up to 32 chars
 ; Clobbers A, Y
 write_fname:
   LDY #0
 .loop:
-  LDA (FNAME_PTR16),Y
+  LDA FNAME_BUF,Y
   BEQ .done
   JSR io_write
   INY

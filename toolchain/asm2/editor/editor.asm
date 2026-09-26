@@ -75,8 +75,6 @@ editor_main:
   LDA #0
   STA CMD_QUIT
   STA READONLY
-  LDA #>TEXT_LIMIT
-  STA BUF_LIMIT
 
   ; Filename: first argument, or "[No Name]" if none
   LDX #>str_untitled      ; argc preserves X
@@ -87,7 +85,7 @@ editor_main:
   LDA #0
   JSR argv                ; A;X = first argument
 .have_name:
-  ; Copy the name to FNAME_BUF and set FNAME_PTR16
+  ; Copy the name to FNAME_BUF
   STAX16 BUF_PTR16
   LDY #0
 .copy_fname:
@@ -97,10 +95,10 @@ editor_main:
   INY
   BNE .copy_fname
 .fname_copied:
-  SET16 FNAME_BUF, FNAME_PTR16
 
   ; Try to open the file for reading (returns 0 if not found)
-  LDAX16 FNAME_PTR16
+  LDA #<FNAME_BUF
+  LDX #>FNAME_BUF
   JSR open
   CMP #0
   BEQ .new_file

@@ -28,7 +28,6 @@ BUF_TEMP:      .byte     ; Temp byte for buffer operations
 BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
 BUF_DELTA:     .byte     ; Shift amount for block moves
 FILE_HANDLE:   .byte     ; File handle for load/save
-BUF_LIMIT:     .byte     ; High byte of buffer limit (default >TEXT_LIMIT)
 
   .code
 
@@ -60,7 +59,7 @@ buf_load_file:
   ; Page boundary (every 256 chars)
   INC BUF_END16 + 1
   LDA BUF_END16 + 1
-  CMP BUF_LIMIT
+  CMP #>TEXT_LIMIT
   BCC .read_loop
   ; Buffer full - file was truncated
   LDA #$FF
@@ -213,7 +212,7 @@ buf_shift_right_16:
   STA BUF_DST16              ; Temp: new end low
   LDA BUF_END16 + 1
   ADC BUF_LEN16 + 1
-  CMP BUF_LIMIT
+  CMP #>TEXT_LIMIT
   BCC .has_room
   BNE .full
   LDA BUF_DST16

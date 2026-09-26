@@ -25,7 +25,6 @@ READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
 RENDER_ROW:     .byte   ; Current row being rendered
 RENDER_LINE16:  .word   ; Current file line being rendered
 RENDER_COL:     .byte   ; Column counter during rendering
-FNAME_PTR16:    .word   ; Pointer to filename string (null-terminated)
 RENDER_FLAG:    .byte   ; Handler's render request ($00 = infer): see the table in render_decide.asm
 VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
 WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by ensure_cursor_visible

@@ -47,7 +47,7 @@
  Reason: 5-7 instructions each; parameterizing variable, boundary, and direction on 6502 costs more than the loop bodies
  ────────────────────────────────────────
  Target: N1/N2 string print
- Reason: Different pointers (STR_PTR16 vs FNAME_PTR16); adding length cap to write_string would slow all callers
+ Reason: Different addressing ((STR_PTR16),Y vs FNAME_BUF,Y); adding length cap to write_string would slow all callers
  ────────────────────────────────────────
  Target: F7/F9 indent/unindent
  Reason: Already share copy_line_to_nl; per-line logic (write spaces vs count/skip spaces) differs too much

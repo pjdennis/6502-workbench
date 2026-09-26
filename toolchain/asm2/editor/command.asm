@@ -297,7 +297,8 @@ parse_range_pos:
 ; Write (save) the file
 command_write_file:
   ; Open file for writing
-  LDAX16 FNAME_PTR16
+  LDA #<FNAME_BUF
+  LDX #>FNAME_BUF
   JSR openout
   STA FILE_HANDLE
 
