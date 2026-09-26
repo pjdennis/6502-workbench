@@ -268,7 +268,7 @@ remove_spaces_core:
 
   ; Advance BUF_PTR16 past leading spaces
   TYA
-  ADDA16 BUF_PTR16
+  JSR ptr_add_a
 
   ; Copy remaining line (including newline) to write ptr
   JSR copy_line_to_nl

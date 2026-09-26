@@ -177,6 +177,12 @@ advance_past_line_end:
   JSR find_line_end
   TYA
   SEC                        ; + 1: step past the newline
+  BCS ptr_adc_a              ; Always taken
+
+; BUF_PTR16 += A (ptr_adc_a: += A + carry).  Clobbers A; preserves X, Y
+ptr_add_a:
+  CLC
+ptr_adc_a:
   ADC BUF_PTR16
   STA BUF_PTR16
   BCC .done

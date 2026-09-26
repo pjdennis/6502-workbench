@@ -258,7 +258,7 @@ insert_handle_key:
   STA BUF_LEN16 + 1
   PUSH16 BUF_PTR16           ; save delete_start
   TXA
-  ADDA16 BUF_PTR16
+  JSR ptr_add_a
   BIT SHIFT_NET
   BMI .shrink                ; |net| <= BATCH_MAX < 128
   JSR buf_shift_right_16     ; carry set = buffer full

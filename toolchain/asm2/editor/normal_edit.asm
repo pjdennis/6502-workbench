@@ -541,7 +541,7 @@ normal_join_lines:
   STX RENDER_FROM_COL16 + 1
   ; Advance BUF_PTR16 by Y so BUF_PTR16 points directly to the '\n'
   TYA
-  ADDA16 BUF_PTR16
+  JSR ptr_add_a
 
   LDX #0                     ; X = undo buffer write index
   LDA NORMAL_TEMP
