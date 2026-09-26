@@ -33,7 +33,8 @@ canonical form:
 - **Printable/Enter**: appended to `BATCH_BUF`
 - **BS**: cancels the last buffered char if any, otherwise increments `back`
 - **DEL**: increments `fwd`
-- **Other key**: pushed back, collection stops
+- **Other key**: ends the batch and is pushed back (a batch's first key
+  that is not an editing key is dispatched through `insert_keys` instead)
 
 Up to `BATCH_MAX` (32) keys are consumed per batch. The on-the-fly
 consolidation means BS can cancel a just-typed character without ever

@@ -1,17 +1,17 @@
 ; Insert mode handler
 ;
 ; In insert mode:
-;   - Printable characters ($20-$7E) are inserted at cursor
-;   - Enter ($0D) inserts newline
-;   - Backspace ($08) deletes char before cursor or joins lines
-;   - Delete ($88) deletes char at cursor or joins lines forward
-;   - ESC ($1B) returns to normal mode
+;   - Printable characters ($20-$7E) and Tab are inserted at the cursor
+;   - Enter ($0D) inserts a newline
+;   - Backspace ($08) deletes the char before the cursor or joins lines
+;   - Delete ($88) deletes the char at the cursor or joins lines forward
+;   - Other keys (ESC, arrows, Home/End, PgUp/PgDn, Ctrl-F/B, Ctrl-arrows)
+;     are dispatched through insert_keys; ESC returns to normal mode
 ;
-; All editing keys (printable, Enter, BS, DEL) are handled by a single
-; unified batch handler (insert_handle_key) that collects mixed keystrokes
-; and consolidates them into: [back N] [insert chars] [fwd N]
-; Then executes with a single buffer shift.  Other keys go through
-; insert_keys.
+; insert_handle_key collects a batch of mixed editing keys (up to
+; BATCH_MAX) and consolidates it on the fly into canonical form
+;   [back N] [insert BATCH_BUF] [fwd N]
+; which it then executes with a single buffer shift.
 
   .code
 
@@ -46,12 +46,8 @@ insert_exit:
   JMP move_left_x
 
 ; ============================================================================
-; Unified batch handler for insert-mode editing
+; Batch handler for insert-mode editing keys
 ; ============================================================================
-;
-; Collects a mixed batch of printable/Enter/BS/DEL keys and consolidates
-; on-the-fly into canonical form: [back N] [insert BATCH_BUF] [fwd N]
-; Then executes with a single buffer shift.
 ;
 ; On entry: A = the key.  A first key that is not an editing key is
 ; dispatched through insert_keys instead.
@@ -64,18 +60,24 @@ insert_exit:
 ;
 ; Execution phase variables:
 ;   BUF_DELTA      = insert_len
-;   BUF_TEMP16.lo  = back
-;   BUF_TEMP       = fwd_actual (after forward scan)
+;   BUF_TEMP16.lo  = back (clamped to the bytes before the cursor)
+;   BUF_TEMP       = fwd_actual (the forward scan never takes the buffer's
+;                    final '\n'); back again in the newline path, where the
+;                    mark adjustment clobbers BUF_TEMP16
 ;   LINE_LEN16.lo  = back_nl
 ;   LINE_LEN16.hi  = fwd_nl
 ;   NORMAL_TEMP    = ins_nl (after BATCH_BUF scan)
-;   BATCH_EXTRA    = last_nl_pos (after BATCH_BUF scan)
-;   BUF_PTR16      = delete_start
+;   BATCH_EXTRA    = last_nl_pos (after BATCH_BUF scan).  BATCH_EXTRA is a
+;                    normal-mode variable and insert_exit does not clear
+;                    it, so do_yy sees the value left here
+;   BUF_PTR16      = delete_start (cursor - back)
 ;   BUF_SRC16      = forward scan pointer
-;   Stack          = cursor_buf_pos (in newline path)
+;   SHIFT_NET      = net = insert_len - back - fwd_actual
+;   BUF_LEN16      = cursor_buf_pos = delete_start + insert_len (in the
+;                    newline path)
 ;
 insert_handle_key:
-  STA BUF_TEMP              ; key code (for dispatch_key / insert_counted_move)
+  STA BUF_TEMP              ; key code (for dispatch_key / insert_move_count)
   ; --- Collection phase ---
   LDX #0                    ; BATCH_BUF write index
   STX BUF_TEMP16            ; back = 0
