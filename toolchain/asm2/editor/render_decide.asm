@@ -96,24 +96,15 @@ render_decide:
   BIT RENDER_FLAG
   BMI .full
 
-  ; Check VIEW_TOP16 changed -> try scroll optimization before full repaint
+  ; The view moved (VIEW_TOP16 or VIEW_TOP_WRAP changed): try a scroll
   CMP16 SNAP_VIEW_TOP16, VIEW_TOP16
-  BEQ .view_same
-  JMP .view_changed
-.view_same:
-
-  ; Check VIEW_TOP_WRAP changed -> try scroll optimization
+  BNE .view_moved
   LDA SNAP_VIEW_TOP_WRAP
   CMP VIEW_TOP_WRAP
-  BEQ .wrap_same
-  ; VIEW_TOP_WRAP changed: require LINE_COUNT unchanged for safety
-  CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
-  BNE .full
-  LDA RENDER_FLAG
-  CMP #RF_RANGE
-  BEQ .full                  ; range repaint + viewport change: full
-  JMP .wrap_changed
-.wrap_same:
+  BEQ .view_same
+.view_moved:
+  JMP .view_changed
+.view_same:
 
   ; Check LINE_COUNT16 changed
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
@@ -295,7 +286,7 @@ render_decide:
   JMP .full
 
 .wrap_changed:
-  ; VIEW_TOP16 same, VIEW_TOP_WRAP different. LINE_COUNT unchanged.
+  ; VIEW_TOP16 same, VIEW_TOP_WRAP different.
   ; Scroll amount = |new_wrap - old_wrap|
   LDA SNAP_VIEW_TOP_WRAP
   CMP VIEW_TOP_WRAP
@@ -328,17 +319,18 @@ render_decide:
   JMP render_screen
 
 .view_changed:
-  ; VIEW_TOP16 changed. Try scroll optimization.
-  ; Requirement: LINE_COUNT16 unchanged (content not structurally modified)
+  ; The view moved.  Try a scroll: the line count must be unchanged
+  ; (content not structurally modified), and a range repaint can't
+  ; combine with it
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
   BNE .ins_full
-  ; Range repaint can't combine with a viewport change: full repaint
   LDA RENDER_FLAG
   CMP #RF_RANGE
   BEQ .ins_full
 
   ; Determine direction: new > old = scrolled down (scroll up on screen)
   CMP16 VIEW_TOP16, SNAP_VIEW_TOP16
+  BEQ .wrap_changed          ; the same line: only VIEW_TOP_WRAP moved
   BCC .scroll_down_detect    ; VIEW_TOP16 < SNAP → scrolled up (screen scrolls down)
 
   ; Scrolled down: walk from (SNAP_VIEW_TOP16, SNAP_VIEW_TOP_WRAP) to
