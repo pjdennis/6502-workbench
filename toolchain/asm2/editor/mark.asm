@@ -151,7 +151,7 @@ marks_display:
 
 .marks_wait:
   JSR flush_get_key
-  LDA #$FF
+  LDA #RF_FULL
   STA RENDER_FLAG
   RTS
 

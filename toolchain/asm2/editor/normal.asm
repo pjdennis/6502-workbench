@@ -233,7 +233,7 @@ do_dd:
 .dd_done:
   LDA #$FF
   STA MODIFIED
-  LDA #$02
+  LDA #RF_DEL
   STA RENDER_FLAG        ; Signal line-delete for scroll optimization
   JMP clamp_and_clear_count
 
@@ -284,7 +284,7 @@ open_line_x:
   INC16 FILE_LINE16
 .on_new_line:
   CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
-  LDA #$03                       ; Signal line-insert for scroll optimization
+  LDA #RF_INS                       ; Signal line-insert for scroll optimization
   JSR undo_opened_finish
   JMP enter_insert_mode
 

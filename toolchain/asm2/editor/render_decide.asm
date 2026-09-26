@@ -24,7 +24,8 @@
 ;   BUF_END16 changed or flag -> $0B range repaint, any other as $01
 ;   nothing                   -> status bar + cursor
 ;
-; Flag  Set by                 Inputs / row assumptions
+; Flag  Set by                 Inputs / row assumptions (names: RF_* in
+;                              render.asm)
 ; $01   in-line edits          Cursor line changed in place: redraw it from
 ;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
 ;                              and SHIFT_WRITE), scrolling the rows below by
@@ -84,9 +85,8 @@ render_snapshot:
   CP16 BUF_END16, SNAP_BUF_END16
   RTS
 
-; Compare post-handler state against snapshot to decide render level
-; Takes the max of handler-set RENDER_FLAG and snapshot-inferred level.
-; Then dispatches to the appropriate render routine.
+; Compare post-handler state against the snapshot and dispatch to the
+; cheapest repaint (see the summary and the RENDER_FLAG contract above)
 render_decide:
   ; If handler already set $FF, skip detection (flags are $00-$0B or $FF)
   BIT RENDER_FLAG
@@ -106,7 +106,7 @@ render_decide:
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
   BNE .full
   LDA RENDER_FLAG
-  CMP #$0B
+  CMP #RF_RANGE
   BEQ .full                  ; range repaint + viewport change: full
   JMP .wrap_changed
 .wrap_same:
@@ -118,15 +118,15 @@ render_decide:
   ; $02/$06/$07/$08 delete-scroll, $03/$04/$05/$09 insert-scroll,
   ; $0A pre-computed insert-scroll, anything else full repaint
   LDA RENDER_FLAG
-  CMP #$02
+  CMP #RF_DEL
   BCC .full                  ; $00/$01
   BEQ .line_delete_scroll    ; $02
-  CMP #$06
+  CMP #RF_JOIN
   BCC .do_line_insert        ; $03/$04/$05
-  CMP #$09
+  CMP #RF_SPLIT
   BCC .line_delete_scroll    ; $06/$07/$08
   BEQ .do_line_insert        ; $09
-  CMP #$0A
+  CMP #RF_INS_PRESET
   BNE .full                  ; $0B and up
   ; $0A: insert-scroll with SCROLL_DELTA/INSERT_LINE_COUNT pre-set by caller
   JMP .no_disp_adjust
@@ -148,7 +148,7 @@ render_decide:
 
 .current_line:
   LDA RENDER_FLAG
-  CMP #$0B
+  CMP #RF_RANGE
   BNE .to_current_line
   JMP render_range_repaint
 
@@ -156,9 +156,9 @@ render_decide:
   ; LINE_COUNT16 decreased and RENDER_FLAG=$02/$06/$07/$08 (line delete at cursor).
   ; $08: SCROLL_DELTA pre-computed by delete_at_cursor, DELETE_SCREEN_ROWS = new cursor rows
   LDA RENDER_FLAG
-  CMP #$08
+  CMP #RF_CHAR_JOIN
   BEQ .delete_check          ; $08: SCROLL_DELTA pre-computed
-  CMP #$07
+  CMP #RF_DEL_BELOW
   BNE .not_07
   ; $07: use SCROLL_DELTA if pre-computed, else file delta
   LDA SCROLL_DELTA
@@ -181,7 +181,7 @@ render_decide:
 .have_delete_rows:
   ; RENDER_FLAG=$06 (J): compute displacement-based delta
   LDX RENDER_FLAG
-  CPX #$06
+  CPX #RF_JOIN
   BNE .dd_delete_rows
   ; --- J path: A = old_total from pre-computation ---
   STA SCROLL_DELTA          ; save old_total temporarily
@@ -250,7 +250,7 @@ render_decide:
   ; RENDER_FLAG=$05: Enter(s), compute displacement from wrapped line split
   ; RENDER_FLAG=$03/$04: walk inserted lines at FILE_LINE16
   LDA RENDER_FLAG
-  CMP #$05
+  CMP #RF_ENTER
   BNE .do_walk
   ; --- Enter displacement: compare old vs new total screen rows ---
   ; Save file_delta (RENDER_LIMIT will be overwritten with old_total)
@@ -331,7 +331,7 @@ render_decide:
   JSR set_render_line_to_cursor
   ; For $04 (J undo), skip cursor line — only count restored lines
   LDA RENDER_FLAG
-  CMP #$04
+  CMP #RF_UNJOIN
   BNE .no_skip_cursor
   INC16 RENDER_LINE16
 .no_skip_cursor:
@@ -348,7 +348,7 @@ render_decide:
   ; becomes unwrapped 1-row line after undo), so net displacement differs
   ; from the raw sum of restored line rows.
   LDA RENDER_FLAG
-  CMP #$04
+  CMP #RF_UNJOIN
   BNE .no_disp_adjust
   JSR file_line_rows         ; A = new cursor line screen rows
   PHA
@@ -460,7 +460,7 @@ render_decide:
   BNE .ins_full
   ; Range repaint can't combine with a viewport change: full repaint
   LDA RENDER_FLAG
-  CMP #$0B
+  CMP #RF_RANGE
   BEQ .ins_full
 
   ; Determine direction: new > old = scrolled down (scroll up on screen)

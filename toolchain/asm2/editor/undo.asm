@@ -133,7 +133,7 @@ undo_handle:
   LDA YANK_LINES16
   CMP #2
   BCS .undo_cc_multi
-  LDA #$01
+  LDA #RF_LINE
   STA RENDER_FLAG            ; Single line repaint
 .undo_line_fail:
   JMP clear_count
@@ -148,13 +148,13 @@ undo_handle:
   SBC #1                         ; Subtract 1 for deleted blank line
   BEQ .undo_cc_full              ; 0 displacement: fall back
   STA SCROLL_DELTA
-  LDA #$0A
+  LDA #RF_INS_PRESET
   JMP set_render_clear_count     ; Pre-computed insert-scroll
 .undo_cc_full:
-  LDA #$FF
+  LDA #RF_FULL
   JMP set_render_clear_count     ; Fall back to full repaint
 .undo_line_scroll:
-  LDA #$03
+  LDA #RF_INS
   JMP set_render_clear_count     ; Signal line-insert for scroll optimization
 
 .undo_char:
@@ -184,7 +184,7 @@ undo_handle:
   BEQ .redo_cc_done
   JSR open_current_line      ; Marks adjusted as the original cc did
 .redo_cc_done:
-  LDA #$06                   ; displacement-based scroll
+  LDA #RF_JOIN                   ; displacement-based scroll
   JSR undo_opened_finish
   JMP clear_count
 
@@ -204,7 +204,7 @@ undo_handle:
   JSR undo_set_redone_flags
   LDA #0
   STA DELETE_SCREEN_ROWS     ; Scroll starts at cursor row (cursor filled by scroll)
-  LDA #$07
+  LDA #RF_DEL_BELOW
   STA RENDER_FLAG            ; Line-delete scroll, skip cursor repaint
   JSR clamp_cursor_col
 .redo_fail:
@@ -216,7 +216,7 @@ undo_handle:
   ; Get yank size for delete count
   JSR yank_get_size          ; BUF_LEN16 = yank size
   BCS .redo_fail
-  JSR delete_at_cursor       ; Delete BUF_LEN16 bytes at cursor (sets RENDER_FLAG=$02 if multi-line)
+  JSR delete_at_cursor       ; Delete BUF_LEN16 bytes at cursor (sets RF_CHAR_JOIN if multi-line)
   ; Restore cursor
   JSR undo_restore_col
   JSR clamp_cursor_col
@@ -237,7 +237,7 @@ undo_join_undo:
   CLC
   ADC #1
   STA INSERT_LINE_COUNT
-  LDA #$04
+  LDA #RF_UNJOIN
   STA RENDER_FLAG            ; Line-insert scroll, skip cursor row
   JMP zero_col_clamp_clear
 
@@ -259,7 +259,7 @@ undo_join_redo:
 
   ; Set flags
   JSR undo_set_redone_flags
-  LDA #$06
+  LDA #RF_JOIN
   STA RENDER_FLAG        ; Line-delete, skip cursor row scroll
   JSR undo_restore_col
   JMP clamp_and_clear_count
@@ -328,7 +328,7 @@ undo_paste_undo:
   JSR line_screen_rows       ; A = cursor line screen rows
 .skip_rows:
   STA DELETE_SCREEN_ROWS
-  LDA #$07
+  LDA #RF_DEL_BELOW
   JMP set_render_clear_count
 
 ; --- Line paste redo (types 5/6) ---
@@ -351,7 +351,7 @@ undo_paste_redo:
   ; INSERT_LINE_COUNT = total pasted lines (in BUF_TEMP16 from paste_adjust_marks)
   LDA BUF_TEMP16
   STA INSERT_LINE_COUNT
-  LDA #$03
+  LDA #RF_INS
   STA RENDER_FLAG
 undo_paste_fail:
   JMP clear_count
@@ -415,9 +415,9 @@ undo_finish_not_redo:
   STA UNDO_IS_REDO
 undo_keep_render_flag:
   LDA RENDER_FLAG
-  CMP #2
+  CMP #RF_DEL
   BCS .done
-  LDA #1
+  LDA #RF_LINE
   STA RENDER_FLAG
 .done:
   JMP clear_count
@@ -434,7 +434,7 @@ undo_open_undo:
   CP16 UNDO_COL16, FILE_LINE16
   ; Set flags
   JSR undo_set_done_flags
-  LDA #$07
+  LDA #RF_DEL_BELOW
   STA RENDER_FLAG            ; Delete scroll, skip cursor repaint
   JMP zero_col_clamp_clear
 
@@ -446,7 +446,7 @@ undo_open_redo:
   BCS .redo_open_fail
   ; Set cursor on opened line
   JSR undo_restore_line
-  LDA #$03                   ; Insert scroll
+  LDA #RF_INS                   ; Insert scroll
   JSR undo_opened_finish
 .redo_open_fail:
   JMP clear_count
@@ -491,7 +491,7 @@ undo_span_undone:
 undo_span_redone:
   JSR undo_set_redone_flags
 undo_span_finish:
-  LDA #1
+  LDA #RF_LINE
   JMP set_render_clear_count
 
 ; --- Toggle case undo/redo: self-inverse, re-toggle the span ---

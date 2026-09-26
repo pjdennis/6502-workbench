@@ -19,7 +19,7 @@ render_line_delete_scroll:
   SEC
   SBC WRAP_QUOT              ; first_row (0-based)
   LDX RENDER_FLAG
-  CPX #$02
+  CPX #RF_DEL
   BEQ .to_one_based
   LDX INSERT_LINE_COUNT
   INX
@@ -33,9 +33,9 @@ render_line_delete_scroll:
   JSR scroll_region_from_a
 
   LDA RENDER_FLAG
-  CMP #$07
+  CMP #RF_DEL_BELOW
   BEQ .del_bottom_rows       ; $07 (paste-below undo): cursor line unchanged
-  CMP #$02
+  CMP #RF_DEL
   BEQ .dd_cursor_row
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
   ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
@@ -92,11 +92,11 @@ render_line_insert_scroll:
   ;   $05: from the old cursor row (CURSOR_ROW - SCROLL_DELTA) + 2, or + 1
   ;        for a start-of-line Enter batch (INSERT_LINE_COUNT = 3)
   LDA RENDER_FLAG
-  CMP #$05
+  CMP #RF_ENTER
   BEQ .scroll_at_enter
-  CMP #$04
+  CMP #RF_UNJOIN
   BEQ .scroll_skip_cursor_ins
-  CMP #$09
+  CMP #RF_SPLIT
   BNE .scroll_at_cursor
 .scroll_skip_cursor_ins:
   JSR set_first_row
@@ -122,7 +122,7 @@ render_line_insert_scroll:
 
   ; For Enter ($05): render split line + blank lines + cursor line
   LDA RENDER_FLAG
-  CMP #$05
+  CMP #RF_ENTER
   BNE .no_enter_render
   ; If start/end-of-line Enter, scroll handled everything - just update status
   LDA INSERT_LINE_COUNT

@@ -322,7 +322,7 @@ insert_handle_key:
   STX BUF_SRC16 + 1
   JSR buf_adjust_lines_apply
 .set_modified_line:
-  LDA #$01                   ; Current-line redraw
+  LDA #RF_LINE                   ; Current-line redraw
 .set_render_flag:
   STA RENDER_FLAG            ; (0 on entry: main_loop clears it)
   LDA #$FF

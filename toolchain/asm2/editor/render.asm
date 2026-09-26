@@ -10,6 +10,25 @@ MODE_NORMAL  = $00
 MODE_INSERT  = $01
 MODE_COMMAND = $02
 
+; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
+; before each key (contract table in render_decide.asm).  render_decide
+; range-compares them, so the order matters: RF_DEL and
+; RF_JOIN..RF_CHAR_JOIN are line-delete scrolls, RF_INS..RF_ENTER and
+; RF_SPLIT line-insert scrolls.
+RF_AUTO       = $00   ; Infer the repaint from the snapshot
+RF_LINE       = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
+RF_DEL        = $02   ; dd/cc: lines deleted from the cursor line's first row
+RF_INS        = $03   ; Lines inserted at the cursor line (o O p P, undo dd)
+RF_UNJOIN     = $04   ; Undo J: lines restored below the cursor line
+RF_ENTER      = $05   ; Insert-mode Enter split the cursor line
+RF_JOIN       = $06   ; Lines joined into the cursor line (J, BS/Del join)
+RF_DEL_BELOW  = $07   ; Lines deleted below an unchanged cursor line
+RF_CHAR_JOIN  = $08   ; Multi-line x/D (delete_at_cursor), SCROLL_DELTA set
+RF_SPLIT      = $09   ; Cursor line split (multi-line char paste, undo x/D)
+RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
+RF_RANGE      = $0B   ; Lines changed in place from the cursor line (>> <<)
+RF_FULL       = $FF   ; Full redraw
+
   .zeropage
 
 CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
@@ -25,7 +44,7 @@ READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
 RENDER_ROW:     .byte   ; Current row being rendered
 RENDER_LINE16:  .word   ; Current file line being rendered
 RENDER_COL:     .byte   ; Column counter during rendering
-RENDER_FLAG:    .byte   ; Handler's render request ($00 = infer): see the table in render_decide.asm
+RENDER_FLAG:    .byte   ; Handler's render request: RF_* (above; contract table in render_decide.asm)
 VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
 WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by ensure_cursor_visible
 WRAP_REM:       .byte   ; Scratch: column a partial / ICH-DCH row render starts at

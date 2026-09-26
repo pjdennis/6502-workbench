@@ -45,7 +45,7 @@ normal_paste_below:
   ADC16 UNDO_LINE16, BUF_TEMP16, UNDO_LINE16
   JMP paste_undo_one              ; RENDER_FLAG stays 0 → full repaint
 .paste_below_scroll:
-  LDA #$03                   ; Signal line-insert for scroll optimization
+  LDA #RF_INS                   ; Signal line-insert for scroll optimization
   JMP set_render_clear_count
 
 normal_paste_above:
@@ -58,7 +58,7 @@ normal_paste_above:
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_ABOVE
   STA UNDO_TYPE
-  LDA #$03
+  LDA #RF_INS
   STA RENDER_FLAG        ; Signal line-insert for scroll optimization
   ; No cursor adjustment - yank_paste_above_n doesn't change FILE_LINE16
   ; Batching must not widen undo: the last pasted copy sits at the top
@@ -229,7 +229,7 @@ do_char_paste:
   ; Line-insert scroll that skips the cursor row
   JSR file_line_rows
   STA PREV_LINE_ROWS
-  LDA #$09
+  LDA #RF_SPLIT
   STA RENDER_FLAG
   LDX BUF_TEMP16
   INX
@@ -375,7 +375,7 @@ echo_or_defer:
 echo_defer:
   LDA RENDER_FLAG
   BNE .done                  ; already deferring
-  LDA #1
+  LDA #RF_LINE
   STA RENDER_FLAG            ; partial line repaint from this column
   CP16 CURSOR_COL16, RENDER_FROM_COL16
   LDA #0
@@ -593,7 +593,7 @@ normal_join_lines:
 
   LDA #$FF
   STA MODIFIED
-  LDA #$06
+  LDA #RF_JOIN
   STA RENDER_FLAG        ; Signal line-delete, skip cursor row scroll
   JSR clamp_cursor_col
 
@@ -703,14 +703,14 @@ do_cc:
   ; Upgrade the line-delete undo record to cc (u also removes the blank)
   LDA #UNDO_CC
   STA UNDO_TYPE
-  LDA #$06
+  LDA #RF_JOIN
   BNE .cc_set_render         ; Always
 
 .cc_already_empty:
   ; No blank inserted - next line was already empty.
   ; Use $02 (standard delete-scroll) instead of $06 (displacement-based)
   ; because displacement=0 would cause $06 to skip the scroll.
-  LDA #$02
+  LDA #RF_DEL
 .cc_set_render:
   ; RENDER_FLAG = A, cursor to col 0, modified (UNDO_IS_REDO is already
   ; 0 from the line-delete record)

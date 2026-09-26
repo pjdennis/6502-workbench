@@ -553,7 +553,7 @@ delete_at_cursor:
   SEC
   SBC DELETE_SCREEN_ROWS
   STA SCROLL_DELTA            ; pre-computed scroll displacement
-  LDA #$08
+  LDA #RF_CHAR_JOIN
   STA RENDER_FLAG            ; Line-delete, skip cursor row, repaint cursor
 .done:
   LDA #$FF

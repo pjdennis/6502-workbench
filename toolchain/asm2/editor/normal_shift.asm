@@ -122,11 +122,11 @@ shift_set_render:
   BNE .full
   LDA UNDO_PASTE_COUNT16
   STA INSERT_LINE_COUNT        ; range line count for render
-  LDA #$0B
+  LDA #RF_RANGE
   STA RENDER_FLAG              ; range repaint
   RTS
 .full:
-  LDA #$FF
+  LDA #RF_FULL
   STA RENDER_FLAG
   RTS
 
