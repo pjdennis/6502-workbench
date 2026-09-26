@@ -221,11 +221,9 @@ undo_handle:
   LDA DELETE_SCREEN_ROWS
   STA SCROLL_DELTA
   ; Set flags
+  JSR undo_set_redone_flags
   LDA #0
-  STA UNDO_IS_REDO
   STA DELETE_SCREEN_ROWS     ; Scroll starts at cursor row (cursor filled by scroll)
-  LDA #$FF
-  STA MODIFIED
   LDA #$07
   STA RENDER_FLAG            ; Line-delete scroll, skip cursor repaint
   JSR clamp_cursor_col
@@ -280,10 +278,7 @@ undo_join_redo:
   JSR mark_adjust_delete
 
   ; Set flags
-  LDA #0
-  STA UNDO_IS_REDO
-  LDA #$FF
-  STA MODIFIED
+  JSR undo_set_redone_flags
   LDA #$06
   STA RENDER_FLAG        ; Line-delete, skip cursor row scroll
   JSR undo_restore_col
