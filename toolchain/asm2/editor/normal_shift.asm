@@ -417,7 +417,7 @@ do_d_dollar:
 
 ; D: delete from the cursor to EOL (count lines)
 normal_delete_to_eol:
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
   LDX #OP_DELETE
   ; fall through
 
@@ -535,7 +535,7 @@ word_op_forward:
   JSR check_cursor_in_line
   BCS word_op_bail
 
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
 
   ; Check for batched delete (OP_DELETE with BATCH_EXTRA > 0)
   TSX
@@ -623,7 +623,7 @@ word_op_backward:
   LDX BUF_TEMP16
   JSR compute_multiline_word_range_backward
   BCS word_op_bail
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
   JMP word_op_tail             ; Shared success tail (in word_op_forward)
 
 .batched:
@@ -712,7 +712,7 @@ batched_word_delete_bwd:
   LDX BATCH_EXTRA                ; X = N
   JSR compute_multiline_word_range_backward  ; cursor -> S, BUF_LEN16 = full_range
   BCS .done                      ; Nothing to delete
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
 
   ; Yank last word at S: last_word_range = full_range - prefix_range
   PUSH16 BUF_LEN16               ; Save full_range

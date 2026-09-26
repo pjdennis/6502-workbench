@@ -564,6 +564,12 @@ set_modified:
   STA MODIFIED
   RTS
 
+; Partial line repaint from the cursor: RENDER_FROM_COL16 = CURSOR_COL16
+; Clobbers A
+set_render_from_cursor:
+  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  RTS
+
 ; --- Operator dispatch ---
 
 OP_YANK   = 0

@@ -371,7 +371,7 @@ echo_defer:
   BNE .done                  ; already deferring
   LDA #RF_LINE
   STA RENDER_FLAG            ; partial line repaint from this column
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
   LDA #0
   STA BUF_DELTA              ; no more direct echo
 .done:
@@ -623,7 +623,7 @@ normal_substitute_char:
 
 ; Shared s/C tail: change range at cursor
 sub_change_tail:
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  JSR set_render_from_cursor
   LDA #OP_CHANGE
   JMP apply_char_operator
 

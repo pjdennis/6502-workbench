@@ -385,8 +385,7 @@ paste_restore_pos:
 ; --- Char paste undo (handles both BELOW and ABOVE) ---
 undo_char_paste_undo:
   ; Position at insertion point and delete pasted content
-  JSR undo_restore_line_col
-  CP16 UNDO_COL16, RENDER_FROM_COL16
+  JSR undo_restore_pos_from
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR yank_paste_setup         ; BUF_LEN16 = total paste size
   BCS undo_paste_fail
