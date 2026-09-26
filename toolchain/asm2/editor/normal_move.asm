@@ -220,9 +220,8 @@ do_yy:
 
 ; yw: yank N words forward from cursor (character yank, multi-line)
 do_yw:
-  SET16 compute_multiline_word_range_forward, JUMP_TARGET16
-  LDA #OP_YANK
-  JMP word_op_forward
+  LDY #OP_YANK
+  JMP word_w_op
 
 ; yb: yank N words backward from cursor (character yank, multi-line)
 do_yb:
@@ -231,9 +230,8 @@ do_yb:
 
 ; ye: yank from cursor to end of word (inclusive, multi-line)
 do_ye:
-  SET16 compute_multiline_word_end_range_forward, JUMP_TARGET16
-  LDA #OP_YANK
-  JMP word_op_forward
+  LDY #OP_YANK
+  JMP word_end_op
 
 ; --- Search ---
 

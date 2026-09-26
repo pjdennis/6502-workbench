@@ -513,54 +513,52 @@ compute_dollar_range:
   RTS
 
 ; --- Word operations: delete, change ---
-; All word operations are thin wrappers that set up the range function
-; and operator type, then delegate to word_op_forward/word_op_backward.
+; All word operations are thin wrappers: the forward ones pass the range
+; routine in A/X (low/high) and the operator in Y to word_op_forward, the
+; backward ones the operator in A to word_op_backward.  yw, ye and yb
+; (normal_move.asm) enter at word_w_op, word_end_op and word_op_backward.
 
 ; dw: delete N words forward
 do_dw:
-  SET16 compute_multiline_word_range_forward, JUMP_TARGET16
-  LDA #OP_DELETE
-  JMP word_op_forward
-
-; db: delete N words backward
-do_db:
-  LDA #OP_DELETE
-  JMP word_op_backward
+  LDY #OP_DELETE
+word_w_op:
+  LDA #<compute_multiline_word_range_forward
+  LDX #>compute_multiline_word_range_forward
+  BNE word_op_forward         ; Always taken (code starts at $0400)
 
 ; cw: change N words forward (vi cw = ce range)
 do_cw:
-  SET16 compute_multiline_cw_range_forward, JUMP_TARGET16
-  LDA #OP_CHANGE
-  JMP word_op_forward
-
-; cb: change N words backward
-do_cb:
-  LDA #OP_CHANGE
-  JMP word_op_backward
+  LDY #OP_CHANGE
+  LDA #<compute_multiline_cw_range_forward
+  LDX #>compute_multiline_cw_range_forward
+  BNE word_op_forward         ; Always taken (code starts at $0400)
 
 ; de: delete to end of N words forward
 do_de:
-  LDX #OP_DELETE
-  BNE de_ce_common            ; Always taken (OP_DELETE = 1)
+  LDY #OP_DELETE
+  BNE word_end_op             ; Always taken (OP_DELETE = 1)
 
 ; ce: change to end of N words forward
 do_ce:
-  LDX #OP_CHANGE
+  LDY #OP_CHANGE
   ; fall through
-de_ce_common:
-  SET16 compute_multiline_word_end_range_forward, JUMP_TARGET16
-  TXA                         ; A = operator (SET16 clobbers A)
-  JMP word_op_forward
+word_end_op:
+  LDA #<compute_multiline_word_end_range_forward
+  LDX #>compute_multiline_word_end_range_forward
+  ; fall through into word_op_forward
 
 ; --- Shared word operation helpers ---
 
 ; Forward word operation: handles delete, yank, and change for w/e motions.
-; Input: JUMP_TARGET16 = range computation function
-;        A = operator (OP_DELETE, OP_YANK, OP_CHANGE)
+; Input: A/X = range computation function (low/high)
+;        Y = operator (OP_DELETE, OP_YANK, OP_CHANGE)
 ; Handles: get_count, check_cursor_in_line, batch check (OP_DELETE only),
 ;          range computation, apply_char_operator, clamp, clear_count.
 ; OP_CHANGE bails into insert mode on empty line or failed range.
 word_op_forward:
+  STA JUMP_TARGET16
+  STX JUMP_TARGET16 + 1
+  TYA
   PHA                          ; Save operator
   JSR get_count                ; BUF_TEMP16 = N
   JSR check_cursor_in_line
@@ -614,6 +612,16 @@ word_op_bail:
 
 word_op_call_range:
   JMP (JUMP_TARGET16)
+
+; cb: change N words backward
+do_cb:
+  LDA #OP_CHANGE
+  BNE word_op_backward        ; Always taken (OP_CHANGE = 2)
+
+; db: delete N words backward
+do_db:
+  LDA #OP_DELETE
+  ; fall through
 
 ; Backward word operation: handles delete, yank, and change for b motion.
 ; Input: A = operator (OP_DELETE, OP_YANK, OP_CHANGE)
