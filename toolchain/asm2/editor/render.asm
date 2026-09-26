@@ -267,12 +267,18 @@ render_rows_resized:
   SEC                           ; +1: 1-based
   ADC CUR_LINE_ROWS
   JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
+  JSR render_line_keep_delta
+  JMP render_bottom_rows
+
+; render_line_from_change, keeping SCROLL_DELTA (the rows a scroll
+; exposed, drawn after the line)
+render_line_keep_delta:
   LDA SCROLL_DELTA
-  PHA                           ; (clobbered by the line render)
+  PHA
   JSR render_line_from_change
   PLA
   STA SCROLL_DELTA
-  JMP render_bottom_rows
+  RTS
 
 ; Draw the cursor line (or a block of lines from it) from its change
 ; point (RENDER_FROM_COL16; $FFFF = whole line) to its last row, stopping

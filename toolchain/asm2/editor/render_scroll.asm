@@ -63,11 +63,7 @@ render_line_delete_scroll:
   JSR check_from_col
   BCS .from_first_row        ; $FFFF: the whole line
 .draw_change:
-  LDA SCROLL_DELTA
-  PHA                        ; bottom rows (clobbered by the line render)
-  JSR render_line_from_change
-  PLA
-  STA SCROLL_DELTA
+  JSR render_line_keep_delta
 .del_bottom_rows:
   JMP render_bottom_rows
 
