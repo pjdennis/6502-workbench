@@ -253,7 +253,6 @@ do_dd:
   ; Save total count
   PUSH16 BUF_TEMP16
   ; Yank 1 line at FILE_LINE16 + (total - 1)
-  JSR yank_clear
   SEC
   SBCI16 BUF_TEMP16, 1, BUF_TEMP16
   CLC

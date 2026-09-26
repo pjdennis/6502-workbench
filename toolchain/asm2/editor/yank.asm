@@ -31,14 +31,14 @@ yank_clear:
   STA YANK_TYPE
   RTS
 
-; Add N contiguous lines to yank buffer in one bulk copy
+; Replace the yank buffer with N contiguous lines (YANK_TYPE = YANK_LINE)
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines (16-bit)
-; Callers call yank_clear first (YANK_TYPE = YANK_LINE, empty buffer).
 ; Clamps count to available lines. Uses mem_copy_down for page-optimized copy.
-; Returns carry set = yank buffer full, carry clear = success
+; Returns carry set = yank buffer full (it is left empty), carry clear = success
 ; On success: YANK_END16 updated, YANK_LINES16 = BUF_TEMP16 = actual lines copied
 yank_add_lines:
   STAX16 BUF_SRC16           ; BUF_SRC16 = first line number
+  JSR yank_clear             ; Empty line yank (stays empty if too big)
 
   ; Clamp count: BUF_TEMP16 = min(count, LINE_COUNT16 - first_line)
   SEC

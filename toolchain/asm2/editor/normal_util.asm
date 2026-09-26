@@ -468,10 +468,9 @@ batch_pending_pairs:
 
 ; --- Common yank/delete operations ---
 
-; Show yank overflow error: clear yank, show message, clear count
-; Used when yank buffer is too full to complete an operation
+; Show yank overflow error: show message, clear count
+; Used when a line yank did not fit (yank_add_lines left the buffer empty)
 show_yank_overflow:
-  JSR yank_clear
   LDA #<str_yank_full
   LDX #>str_yank_full
   JSR show_message_ax
@@ -483,7 +482,6 @@ show_yank_overflow:
 ; On success: lines deleted, FILE_LINE16 clamped, YANK_LINES16 set
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 yank_delete_current_lines:
-  JSR yank_clear
   LDAX16 FILE_LINE16
   JSR yank_add_lines
   BCS .ydcl_overflow

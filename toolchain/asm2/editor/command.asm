@@ -484,7 +484,6 @@ range_action_keys:
 
   ; --- Range yank ---
 range_do_yank:
-  JSR yank_clear
   LDAX16 BUF_SRC16
   JSR yank_add_lines
   BCS range_yank_full
@@ -494,8 +493,7 @@ range_do_yank:
   LDX #>str_lines_yanked
   JMP report_yank_lines_ax
 
-range_yank_full:
-  JSR yank_clear
+range_yank_full:                 ; (yank_add_lines left the buffer empty)
   LDA #<str_yank_full
   LDX #>str_yank_full
   JMP show_message_ax
@@ -505,7 +503,6 @@ range_do_delete:
   ; Yank lines first (so user can paste them back)
   ; Save first line (yank_add_lines clobbers BUF_SRC16)
   PUSH16 BUF_SRC16
-  JSR yank_clear
   LDAX16 BUF_SRC16
   JSR yank_add_lines
   POP16 BUF_SRC16          ; PLA preserves carry on 6502

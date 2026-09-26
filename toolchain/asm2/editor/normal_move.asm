@@ -293,7 +293,6 @@ do_gg:
 ; have implicit count=1, and the last yy overwrites previous yanks,
 ; so only 1 line should be yanked.
 do_yy:
-  JSR yank_clear
   JSR get_count              ; BUF_TEMP16 = count (16-bit)
   LDA BATCH_EXTRA
   BEQ .do_yank
