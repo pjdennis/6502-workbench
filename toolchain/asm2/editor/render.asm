@@ -426,15 +426,15 @@ shift_row:
   BEQ .clip
   CLC
   ADC WRAP_REM
-  BCS .clip_max
+  BCS .wend_max                ; past 255: past the row end too
   CMP ROW_WEND
   BCC .clip
-.clip_max:
   STA ROW_WEND
 .clip:
   LDA ROW_WEND
   CMP ROW_END
   BCC .wend_ok
+.wend_max:
   LDA ROW_END
   STA ROW_WEND
 .wend_ok:

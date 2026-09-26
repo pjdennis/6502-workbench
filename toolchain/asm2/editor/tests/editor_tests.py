@@ -4533,6 +4533,22 @@ class EditorTestRunner:
                 expect_reverse_at=[(1, 0, True), (0, 39, False)],
             )
 
+            # Over 224 columns the change column plus the inserted cells can
+            # pass 255: 20 chars typed at column 240 of a 250-col row must
+            # still be written, not left as ICH blanks
+            wide = ("abcdefghijklmnopqrstuvwxyz" * 10)[:245]
+            typed = "ABCDEFGHIJKLMNOPQRST"
+            wide_ins = wide[:240] + typed + wide[240:]
+            self.run_test_screen(
+                "Shift: insert near the end of a 250-col row" + suffix,
+                wide + "\nNEXT\n",
+                b"240li" + typed.encode() + b"\x1b:q!\r",
+                rows=6, cols=250,
+                deferred_wrap=deferred,
+                expect_lines=[(0, wide_ins[:250]), (1, wide_ins[250:]),
+                              (2, "NEXT")],
+            )
+
         self._group("ICH/DCH shifting (row count changes):", leading_blank=True)
 
         d79 = ("0123456789" * 8)[:79]              # rows [0,40) [40,79)
