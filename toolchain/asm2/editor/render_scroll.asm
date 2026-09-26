@@ -177,94 +177,33 @@ render_line_insert_scroll:
 ; place starting at FILE_LINE16 (line count unchanged; wrap rows may
 ; differ).  DELETE_SCREEN_ROWS = the range's screen rows before the edit.
 ; The cursor sits on the first line of the range, so the range's first
-; screen row is CURSOR_ROW - WRAP_QUOT.
-; Unchanged row count: repaint just the range's rows.  Grew/shrank
-; (wrap change): scroll the region below and repaint the range plus any
-; newly exposed bottom rows.
+; screen row is CURSOR_ROW - WRAP_QUOT.  The range is then redrawn like a
+; single changed line of PREV_LINE_ROWS -> CUR_LINE_ROWS rows (see
+; render_rows_resized; both are free here: main_loop recomputes
+; PREV_LINE_ROWS every key): the region below scrolls to open/close the
+; difference, and RENDER_FROM_COL16 = $FFFF redraws every row of the
+; range.  A range reaching the status bar repaints to the bottom.
 render_range_repaint:
-  ; first_row = CURSOR_ROW - WRAP_QUOT (bail if line extends above view)
-  LDA WRAP_QUOT
-  CMP CURSOR_ROW
-  BEQ .first_row_ok
-  BCC .first_row_ok
-  JMP .rr_full               ; WRAP_QUOT > CURSOR_ROW: line starts above view
-.first_row_ok:
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  STA RENDER_ROW
-
-  ; RENDER_WRAP = old rows (temp), then compute the range's new rows
+  JSR set_first_row            ; RENDER_ROW = first_row
+  BCC .rr_full                 ; line starts above the view
   LDA DELETE_SCREEN_ROWS
-  STA RENDER_WRAP
+  STA PREV_LINE_ROWS           ; the range's rows before the edit
   LDA INSERT_LINE_COUNT
   JSR compute_delete_rows_at_cursor
-  LDX DELETE_SCREEN_ROWS       ; X = new rows (0 = overflow)
-  BNE .have_new_rows
-  JMP .rr_full           ; overflow: full repaint
-.have_new_rows:
-
-  ; Bounds: first_row + max(old, new) must fit above the status bar,
-  ; else just repaint from first_row to the bottom (no scroll)
-  TXA
-  CMP RENDER_WRAP
+  LDA DELETE_SCREEN_ROWS       ; the range's rows now (0 = overflow)
+  BEQ .rr_full
+  STA CUR_LINE_ROWS
+  ; Bounds: first_row + max(old, new) must fit above the status bar
+  CMP PREV_LINE_ROWS
   BCS .max_is_new
-  LDA RENDER_WRAP
+  LDA PREV_LINE_ROWS
 .max_is_new:
   CLC
   ADC RENDER_ROW
-  BCS .to_bottom_far           ; 8-bit overflow
+  BCS .rr_to_bottom            ; 8-bit overflow
   CMP SCREEN_ROWS
-  BCC .in_bounds
-.to_bottom_far:
-  JMP .rr_to_bottom            ; extends into/past status row
-.in_bounds:
-
-  TXA
-  CMP RENDER_WRAP
-  BEQ .rr_same_rows
-  BCC .rr_shrunk
-
-  ; --- Range grew: scroll rows below the old range down by new-old ---
-  SEC
-  SBC RENDER_WRAP
-  STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  LDX #$FF                     ; scroll down
-  JSR rr_scroll_below
-  ; Repaint all of the range's new rows = old + delta
-  LDA RENDER_WRAP
-  CLC
-  ADC SCROLL_DELTA
-  STA SCROLL_DELTA
-  JMP .rr_render_range
-
-.rr_same_rows:
-  STX SCROLL_DELTA
-  JSR ansi_cursor_hide
-  JMP .rr_render_range
-
-.rr_shrunk:
-  ; --- Range shrank: scroll rows below the new range up by old-new ---
-  LDA RENDER_WRAP              ; A = old
-  STX RENDER_WRAP              ; RENDER_WRAP = new
-  SEC
-  SBC RENDER_WRAP
-  PHA                          ; save old-new for the bottom rows
-  STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  LDX #0                       ; scroll up
-  JSR rr_scroll_below
-  ; Repaint the range's new rows
-  LDA RENDER_WRAP
-  STA SCROLL_DELTA
-  JSR setup_render_at_cursor
-  JSR render_limited_loop
-  ; Repaint the newly exposed bottom rows
-  PLA
-  STA SCROLL_DELTA
-  JMP render_bottom_rows
-
+  BCS .rr_to_bottom
+  JMP render_rows_resized
 .rr_to_bottom:
   ; Repaint everything from first_row to the bottom of the screen
   LDA SCREEN_ROWS
@@ -274,32 +213,9 @@ render_range_repaint:
   SBC RENDER_ROW
   STA SCROLL_DELTA
   JSR ansi_cursor_hide
-.rr_render_range:
-  JSR setup_render_at_cursor
-  JMP render_limited_rows
-
+  JMP render_from_first_row_limited
 .rr_full:
   JMP render_screen
-
-; Scroll the region below the range (rows RENDER_ROW + RENDER_WRAP + 1
-; 1-based through SCREEN_ROWS-1) by SCROLL_DELTA.  X = 0: scroll up,
-; X != 0: scroll down.  Skips silently if the region is empty.
-rr_scroll_below:
-  LDA RENDER_ROW
-  CLC
-  ADC RENDER_WRAP
-  CLC
-  ADC #1
-  STA ANSI_ROW
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA ANSI_COL
-  CMP ANSI_ROW
-  BCC .skip                    ; nothing below the range to shift
-  JMP scroll_region_go
-.skip:
-  RTS
 
 ; === Scroll-region helpers ===
 ; Set scroll region [A .. SCREEN_ROWS-1] (A = 1-based start row) and
