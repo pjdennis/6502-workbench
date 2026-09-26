@@ -420,8 +420,13 @@ class EditorTestRunner:
 
     def run_editor_terminal(self, input_file: str, keys: bytes, tmpdir: Path,
                             rows: int = 10, cols: int = 40,
-                            emu_args: list = None) -> tuple:
+                            emu_args: list = None,
+                            key_groups: list = None) -> tuple:
         """Run the terminal-mode editor with serial I/O.
+
+        key_groups: typed one group at a time, each after the editor has
+        gone idle with its output sent (keys is then ignored); needs a baud
+        model in emu_args.
 
         emu_args: emulator options, e.g. ['--cpu-mhz', '1', '--baud', '9600'].
         With --baud the startup size query only reaches the emulator's
@@ -432,7 +437,13 @@ class EditorTestRunner:
 
         Returns (exit_code, saved_content, ansi_output_bytes).
         """
-        if emu_args and "--baud" in emu_args and "--pace-mask" not in emu_args:
+        if key_groups is not None:
+            keys = b"".join(key_groups)
+            mask_file = tmpdir / "pace_mask.bin"
+            mask_file.write_bytes(b"".join(
+                b"0" * (len(g) - 1) + b"1" for g in key_groups))
+            emu_args = list(emu_args or []) + ["--pace-mask", str(mask_file)]
+        elif emu_args and "--baud" in emu_args:
             keys = b"\x1b[%d;%dR" % (rows, cols) + keys
         exit_code, output = self.emulator_runner.run(
             self.editor_terminal_bin, keys, tmpdir, input_file,
@@ -456,12 +467,17 @@ class EditorTestRunner:
                                  emu_args: list = None,
                                  expect_content_redraws: list = None,
                                  expect_lines_at_frame: list = None,
-                                 expect_row_texts: tuple = None):
+                                 expect_row_texts: tuple = None,
+                                 key_groups: list = None,
+                                 expect_lines_in_some_frame: list = None):
         """Run a terminal-mode editor test and verify screen state.
 
         expect_row_texts: (row, texts) - in every frame the row shows one of
         texts, and each of them shows in some frame (independent of how
         many frames there are).
+        key_groups: see run_editor_terminal.
+        expect_lines_in_some_frame: [(row, text), ...] all shown together in
+        at least one frame.
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
@@ -474,7 +490,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir, rows, cols,
-                emu_args=emu_args
+                emu_args=emu_args, key_groups=key_groups
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -582,6 +598,15 @@ class EditorTestRunner:
                             f"    Frame:\n{screen.dump()}")
                         return
 
+        if expect_lines_in_some_frame is not None:
+            if not any(all(screen.get_row_text_at_frame(i, r) == t
+                           for r, t in expect_lines_in_some_frame)
+                       for i in range(screen.get_frame_count())):
+                self._fail(name,
+                    f"No frame shows {expect_lines_in_some_frame!r}\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+
         if expect_row_texts is not None:
             row_idx, texts = expect_row_texts
             seen = [screen.get_row_text_at_frame(i, row_idx)
@@ -598,19 +623,9 @@ class EditorTestRunner:
                           expected_content: str = None, expect_exit: int = 0,
                           emu_args: list = None, key_groups: list = None):
         """Run a terminal-mode editor test verifying file content.
-
-        key_groups: typed one group at a time, each after the editor has
-        gone idle with its output sent (keys is then ignored); needs a baud
-        model in emu_args.
-        """
+        key_groups: see run_editor_terminal."""
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
-        if key_groups is not None:
-            keys = b"".join(key_groups)
-            mask_file = tmpdir / "pace_mask.bin"
-            mask_file.write_bytes(b"".join(
-                b"0" * (len(g) - 1) + b"1" for g in key_groups))
-            emu_args = list(emu_args or []) + ["--pace-mask", str(mask_file)]
 
         if initial_content is not None:
             edit_file.write_text(initial_content)
@@ -620,7 +635,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir,
-                emu_args=emu_args
+                emu_args=emu_args, key_groups=key_groups
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
