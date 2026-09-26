@@ -160,13 +160,22 @@ normal_delete_char_back:
   JSR get_line_len_z         ; LINE_LEN16 (the range lies inside the line)
   ; Normalize batching: count + pending X keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-; Delete X chars before the cursor (x past the line end enters here)
+; Delete X chars before the cursor, BUF_DELTA of them the count's (x past
+; the line end enters here, with BUF_DELTA = 0)
 delete_char_back_x:
   ; Clamp to the chars before the cursor
   LDA CURSOR_COL16 + 1
   BNE .count_ok
   CPX CURSOR_COL16
   BCC .count_ok
+  ; The presses reach column 0.  When the count alone does, the others
+  ; do nothing, as one at a time: its delete is the last (unbatched)
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP CURSOR_COL16
+  BCC .clamp
+  LDA #0
+  STA BATCH_EXTRA
+.clamp:
   LDX CURSOR_COL16
 .count_ok:
   ; Move to the range start (col -= X) and delete forward from there

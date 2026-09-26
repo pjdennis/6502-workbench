@@ -673,6 +673,7 @@ bcd_start:
   BNE .batched
   ; --- Non-batched: yank+delete the full range (at most 255 chars, so
   ; it always fits the yank buffer), clamp the cursor ---
+.unbatched:
   LDA #OP_DELETE
   JSR apply_char_operator
   JMP .done
@@ -709,22 +710,28 @@ bcd_start:
   JMP clear_count
 
 .x_past_end:
-  ; From column 0 the presses only delete forward (to the line end, and
-  ; past it they do nothing): the forward range stands
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP BUF_LEN16              ; C = 1: it reaches the line end
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
-  BEQ .yank_last
+  BNE .leftward
+  ; From column 0 the presses only delete forward (to the line end, and
+  ; past it they do nothing): the forward range stands, and when the
+  ; count alone empties the line, its delete is the last
+  BCC .yank_last
+  BCS .unbatched
+.leftward:
   ; One at a time, x on the last char leaves the cursor on the new last
   ; char, which the next x deletes: min(count, the range) + the extras
   ; is X of as many from the line end
-  LDA BUF_DELTA              ; The count (get_batched_count)
-  CMP BUF_LEN16
+  LDA BUF_DELTA
   BCC .count_ok
   LDA BUF_LEN16              ; The count stops at the line end
 .count_ok:
   CLC
   ADC BATCH_EXTRA
   TAX                        ; X = the chars to delete (< 256)
+  STY BUF_DELTA              ; (Y = 0) No X count of its own
   CP16 LINE_LEN16, CURSOR_COL16
   JMP delete_char_back_x
 

@@ -8473,6 +8473,45 @@ class EditorTestRunner:
             expected_content="c\n"
         )
 
+        # Typed ahead after a count that already emptied the line (x) or
+        # reached column 0 (X), the presses do nothing, as one at a time:
+        # the count's delete stays the last one, for the register and undo
+        self.run_test(
+            "5x + typed-ahead x: undo restores the whole count",
+            "abc\n",
+            b"5xxu:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test(
+            "5x + typed-ahead x: the register holds the whole count",
+            "abc\n",
+            b"5xxp:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test(
+            "$2X + typed-ahead X: undo restores the whole count",
+            "abc\n",
+            b"$2XXu:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test(
+            "$2X + typed-ahead X: the register holds the whole count",
+            "abc\n",
+            b"$2XXp:wq\r",
+            expected_content="cab\n"
+        )
+
+        # l9x empties the rest of the line, then x deletes 'a': the last
+        self.run_test(
+            "l9x + typed-ahead x: the register gets the last char",
+            "abc\n",
+            b"l9xxp:wq\r",
+            expected_content="a\n"
+        )
+
         self.run_test_screen(
             "batched xxxx past end of line: register and cursor",
             "abcdef\nnext\n",
