@@ -96,9 +96,10 @@ buf_load_file:
 ; newline (so an empty buffer, one empty line, saves as a single newline)
 buf_save_file:
   STA FILE_HANDLE
-  SET16 TEXT_BUF, BUF_PTR16
-
   LDY #0                  ; Y = page offset, set once
+  STY BUF_PTR16           ; BUF_PTR16 = TEXT_BUF (page-aligned)
+  LDA #>TEXT_BUF
+  STA BUF_PTR16 + 1
 .write_loop:
   CPY BUF_END16           ; Fast: compare low bytes
   BNE .do_write
@@ -220,8 +221,7 @@ buf_shift_right_16:
   BNE .full
   LDA BUF_DST16
   BEQ .has_room         ; Exactly at limit is ok
-.full:
-  SEC
+.full:                  ; C = 1 from the CMP
   RTS
 .has_room:
 

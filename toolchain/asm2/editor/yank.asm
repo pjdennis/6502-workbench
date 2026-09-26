@@ -103,8 +103,12 @@ yank_store:
 ; Compute yank buffer size in BUF_LEN16
 ; Returns carry set if yank buffer empty, carry clear if has content
 yank_get_size:
+  LDA YANK_END16             ; YANK_BUF is page-aligned
+  STA BUF_LEN16
   SEC
-  SBCI16 YANK_END16, YANK_BUF, BUF_LEN16
+  LDA YANK_END16 + 1
+  SBC #>YANK_BUF
+  STA BUF_LEN16 + 1
   ; Check if size is zero
   ORA BUF_LEN16
   BEQ .empty
