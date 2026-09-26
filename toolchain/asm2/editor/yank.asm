@@ -53,34 +53,10 @@ yank_add_lines:
   ; count <= available, use count (already in BUF_TEMP16)
   CP16 BUF_TEMP16, BUF_LEN16
 .count_ok:
-  ; Now BUF_TEMP16 = actual line count, BUF_LEN16 = actual line count
+  ; Now BUF_TEMP16 = actual line count
 
-  ; Look up LINE_TBL[first_line] -> start address
   LDAX16 BUF_SRC16
-  JSR buf_get_line_ptr        ; BUF_PTR16 = start of first line
-  PUSH16 BUF_PTR16            ; Save start address on stack
-
-  ; Compute end line number = first_line + actual_count
-  CLC
-  ADC16 BUF_SRC16, BUF_LEN16, BUF_SRC16  ; BUF_SRC16 = end line number
-
-  ; If end line >= LINE_COUNT16, end address = BUF_END16
-  CMP16 BUF_SRC16, LINE_COUNT16
-  BCC .get_end_ptr
-  CP16 BUF_END16, BUF_PTR16  ; BUF_PTR16 = end address = BUF_END16
-  JMP .have_end
-
-.get_end_ptr:
-  LDAX16 BUF_SRC16
-  JSR buf_get_line_ptr        ; BUF_PTR16 = start of end line = our end addr
-
-.have_end:
-  ; BUF_PTR16 = end address
-  POP16 BUF_SRC16            ; BUF_SRC16 = start address
-
-  ; Compute size = BUF_PTR16 - BUF_SRC16
-  SEC
-  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
+  JSR buf_line_span          ; BUF_SRC16..BUF_PTR16 = the lines' bytes
 
   ; Check if YANK_END16 + size <= YANK_LIMIT (full iff end >= LIMIT+1)
   CLC

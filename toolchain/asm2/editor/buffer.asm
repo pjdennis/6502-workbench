@@ -280,44 +280,41 @@ buf_shift_right_16:
   CLC              ; Success
   RTS
 
+; Byte span of BUF_TEMP16 contiguous lines starting at line A/X
+; The span ends at the start of the line after it, or at BUF_END16 when
+; it reaches past the last line.
+; Output: BUF_SRC16 = start, BUF_PTR16 = end, BUF_LEN16 = size in bytes
+; Clobbers A, X, Y, BUF_DST16
+buf_line_span:
+  STA BUF_DST16              ; First line low byte (X = high byte)
+  JSR buf_get_line_ptr       ; Preserves X
+  CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = start of the first line
+  CP16 BUF_END16, BUF_PTR16  ; End = buffer end, unless a line follows
+  ; Y/X = line after the span = first line + count; C = it is past the end
+  CLC
+  LDA BUF_DST16
+  ADC BUF_TEMP16
+  TAY
+  TXA
+  ADC BUF_TEMP16 + 1
+  TAX
+  CPY LINE_COUNT16
+  SBC LINE_COUNT16 + 1
+  BCS .have_end
+  TYA
+  JSR buf_get_line_ptr       ; BUF_PTR16 = start of the line after the span
+.have_end:
+  SEC
+  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
+  RTS
+
 ; Delete N contiguous lines starting at line A/X
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines to delete (16-bit)
 ; Handles end-of-file clamping, empty buffer, rebuilds line table once
 buf_delete_lines:
-  ; Save first line number
-  STAX16 BUF_DST16
-
-  ; Get pointer to start of first line
-  JSR buf_get_line_ptr       ; BUF_PTR16 = start of first line
-  PUSH16 BUF_PTR16           ; Save dest pointer on stack
-
-  ; Calculate line number after last deleted: first + count
-  CLC
-  ADC16 BUF_DST16, BUF_TEMP16, BUF_SRC16  ; BUF_SRC16 = end line number
-
-  ; If end line >= LINE_COUNT16, source = BUF_END16
-  CMP16 BUF_SRC16, LINE_COUNT16
-  BCC .get_end_ptr
-  CP16 BUF_END16, BUF_SRC16
-  JMP .have_source
-
-.get_end_ptr:
-  ; Get pointer to line after last deleted
-  LDAX16 BUF_SRC16
-  JSR buf_get_line_ptr       ; BUF_PTR16 = start of end line
-  CP16 BUF_PTR16, BUF_SRC16
-
-.have_source:
-  ; BUF_SRC16 = source address (data to keep)
-  POP16 BUF_PTR16            ; BUF_PTR16 = dest (start of deleted region)
-
-  ; Calculate shift amount: BUF_LEN16 = BUF_SRC16 - BUF_PTR16
-  SEC
-  SBC16 BUF_SRC16, BUF_PTR16, BUF_LEN16
-
-  ; Shift left by BUF_LEN16 bytes
+  JSR buf_line_span
+  CP16 BUF_SRC16, BUF_PTR16  ; Delete point = start of the span
   JSR buf_shift_left_16
-
   ; If buffer is now empty, add a newline; rebuild line table
   JMP buf_ensure_nonempty_rebuild
 
