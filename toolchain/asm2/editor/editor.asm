@@ -72,10 +72,15 @@ FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
 ; Entry point
 ; ============================================================================
 editor_main:
-  ; Initialize flags
+  ; Clear zero page: every zero-page variable starts at 0, which is the
+  ; initial value of all editor state except what yank_init and
+  ; mark_init set below
   LDA #0
-  STA CMD_QUIT
-  STA READONLY
+  TAX
+.clear_zp:
+  STA $00,X
+  INX
+  BNE .clear_zp
 
   ; Filename: first argument, or "[No Name]" if none
   LDX #>str_untitled      ; argc preserves X
@@ -118,13 +123,10 @@ editor_main:
   JSR buf_init
 
 .init_display:
-  ; Initialize rendering and normal mode state
+  ; Get the screen size; set up the yank buffer and mark table
   JSR render_init
-  JSR normal_init
   JSR yank_init
-  JSR search_init
   JSR mark_init
-  JSR undo_init
 
   ; Draw initial screen
   JSR render_screen

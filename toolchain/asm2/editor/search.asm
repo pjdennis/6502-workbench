@@ -23,13 +23,6 @@ SEARCH_LIMIT_COL: .byte ; Column limit for backward line search
 
   .code
 
-; Initialize search state (call once at startup)
-search_init:
-  LDA #0
-  STA SEARCH_LEN
-  STA SEARCH_DIR
-  RTS
-
 ; Handle '/' search command
 search_handle:
   LDA #'/'

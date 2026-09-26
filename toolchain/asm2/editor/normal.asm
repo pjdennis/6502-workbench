@@ -1,16 +1,5 @@
 ; Normal mode - main handler, dispatch tables, and core editing commands
 
-; Initialize normal mode state
-normal_init:
-  LDA #0
-  STA LAST_KEY
-  STA_LH16 COUNT16
-  STA COUNT_ACTIVE
-  STA BATCH_RESTORE_KEY
-  STA BATCH_EXTRA
-  STA SCROLL_AMOUNT
-  RTS
-
 ; Handle a keystroke in normal mode
 ; Key code in A
 normal_handle_key:

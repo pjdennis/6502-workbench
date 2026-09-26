@@ -2,8 +2,6 @@
 ; live in undo_state.asm (included early so all modules can reference
 ; them without forward references).
 
-; Initialize undo state (call once at startup)
-undo_init:
 ; Clear undo state (called when a new edit supersedes the undo slot)
 undo_clear:
   LDA #UNDO_NONE

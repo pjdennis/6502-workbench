@@ -53,7 +53,9 @@ SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's sta
 
   .code
 
-; Initialize rendering state
+; Initialize rendering state: get the screen size
+; (cursor, view and mode state start at 0 from editor_main's zero-page
+; clear)
 render_init:
   .ifdef terminal_mode
   JSR query_terminal_size
@@ -66,14 +68,6 @@ render_init:
   LDX SCREEN_ROWS
   DEX
   STX TEXT_ROWS
-  LDA #0
-  STA CURSOR_ROW
-  STA_LH16 CURSOR_COL16
-  STA MODE
-  STA MODIFIED
-  STA VIEW_TOP_WRAP
-  STA_LH16 VIEW_TOP16
-  STA_LH16 FILE_LINE16
   RTS
 
 ; Full screen redraw
