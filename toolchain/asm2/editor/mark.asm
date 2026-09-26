@@ -172,7 +172,7 @@ write_decimal_rjust:
   INX
   BNE .pad_loop   ; Always taken
 .print:
-  JMP print_decimal_result
+  JMP write_decimal_result
 
 str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"

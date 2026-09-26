@@ -20,3 +20,10 @@
   LDX #>addr
   JSR write_string_ax
   .endmacro
+
+; PRINT_TEXT addr - The same through text_putc (print_string_ax)
+  .macro PRINT_TEXT addr
+  LDA #<addr
+  LDX #>addr
+  JSR print_string_ax
+  .endmacro

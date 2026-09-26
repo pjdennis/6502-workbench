@@ -19,7 +19,7 @@
 ;   $0100-$01FF   6502 stack
 ;   $0200-$02FF   Filename buffer
 ;   $0300-$037F   Command buffer
-;   $0380-$03FF   (free)
+;   $0380-$03FF   Status bar text (STATUS_SHADOW)
 ;   $0400         Editor code loads here
 ;   TEXT_BUF      Text buffer (page-aligned after code, up to $D5FF)
 ;   $D600-$D61F   Batch insert staging buffer (BATCH_BUF)

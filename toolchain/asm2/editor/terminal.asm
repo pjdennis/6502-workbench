@@ -149,14 +149,14 @@ write_string:
 .done:
   RTS
 
-; Write the filename (FNAME_BUF), up to 32 chars
-; Clobbers A, Y
+; Print the filename (FNAME_BUF), up to 32 chars, through text_putc
+; Clobbers A, X, Y
 write_fname:
   LDY #0
 .loop:
   LDA FNAME_BUF,Y
   BEQ .done
-  JSR io_write
+  JSR text_putc
   INY
   CPY #32
   BCC .loop
@@ -193,19 +193,41 @@ erase_char:
   LDA #'\b'
   JMP write_flush
 
-; Write A (0-255) as decimal digits, no leading zeros
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT (X preserved)
+; Write A (0-255) as decimal digits, no leading zeros (escape sequences)
+; Clobbers A, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT (X preserved:
+; ansi_count_seq relies on it)
 write_byte_dec:
   STA TO_DECIMAL_VALUE16
   LDA #0
   STA TO_DECIMAL_VALUE16 + 1
-  ; fall through
-; Print TO_DECIMAL_VALUE16 in decimal (convert + write)
-; Same clobbers; X preserved (ansi_count_seq relies on it)
-print_decimal:
   JSR to_decimal
   ; fall through
 ; Write an already-converted TO_DECIMAL_RESULT
-print_decimal_result:
+write_decimal_result:
   SET16 TO_DECIMAL_RESULT, STR_PTR16
   JMP write_string
+
+; Print TO_DECIMAL_VALUE16 in decimal as text (through text_putc)
+; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT
+print_decimal:
+  JSR to_decimal
+  LDA #<TO_DECIMAL_RESULT
+  LDX #>TO_DECIMAL_RESULT
+  ; fall through
+; Print the null-terminated text at A (low) / X (high) through text_putc
+print_string_ax:
+  STA STR_PTR16
+  STX STR_PTR16 + 1
+  ; fall through
+; Print the null-terminated text at STR_PTR16 through text_putc (text:
+; write_string sends escape sequences).  Clobbers A, X, Y
+print_string:
+  LDY #0
+.loop:
+  LDA (STR_PTR16),Y
+  BEQ .done
+  JSR text_putc
+  INY
+  BNE .loop
+.done:
+  RTS

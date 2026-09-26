@@ -28,6 +28,8 @@ RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
 RF_RANGE      = $0B   ; Lines changed in place from the cursor line (>> <<)
 RF_FULL       = $FF   ; Full redraw
 
+STATUS_SHADOW = $0380  ; The status bar's text (status_build), 128 bytes
+
 ; (zero-page variables: zp.asm)
 
 ; Initialize rendering state: get the screen size
@@ -141,11 +143,35 @@ render_from_row:
   JSR render_rows
   JMP render_finish
 
-; Render just the status line (last row)
+; Render just the status line (last row): build its text, then send it
 render_status_line:
+  JSR status_build
+  ; fall through
+
+; Send the status text built by status_build: the whole row, in reverse
+; video, cleared to its end
+status_send:
   LDA TEXT_ROWS                ; the status row (0-based)
   JSR ansi_goto_row0
   JSR ansi_reverse_video
+  LDX #0
+.loop:
+  CPX ST_COL
+  BCS .sent
+  LDA STATUS_SHADOW,X
+  JSR io_write                 ; (preserves X)
+  INX
+  BNE .loop                    ; Always taken (ST_COL < 128)
+.sent:
+  JSR ansi_clear_line
+  JMP ansi_normal_video
+
+; Build the status bar's text into STATUS_SHADOW (ST_COL = its length).
+; Sends nothing.  Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+status_build:
+  LDA #0
+  STA ST_COL
+  DEC ST_BUILD                 ; $00 -> $FF: text_putc stores the text
 
   ; Print filename
   JSR write_fname
@@ -153,13 +179,13 @@ render_status_line:
   ; Print read-only indicator
   LDA READONLY
   BEQ .not_readonly
-  PRINT_STR str_ro_indicator
+  PRINT_TEXT str_ro_indicator
 .not_readonly:
 
   ; Print modified flag
   LDA MODIFIED
   BEQ .not_modified
-  PRINT_STR str_mod_indicator
+  PRINT_TEXT str_mod_indicator
 .not_modified:
 
   ; Print separator
@@ -173,7 +199,7 @@ render_status_line:
   STA STR_PTR16
   LDA mode_strings + 1,X
   STA STR_PTR16 + 1
-  JSR write_string
+  JSR print_string
 
   ; Print separator and count (if active) or line/col
   JSR print_separator
@@ -191,7 +217,7 @@ render_status_line:
   LDA LAST_KEY
   BEQ .done_prefix
 .has_key:
-  JSR io_write
+  JSR st_putc
 .done_prefix:
   JSR print_separator
 .no_prefix_display:
@@ -202,7 +228,7 @@ render_status_line:
   JSR print_decimal
 
   LDA #','
-  JSR io_write
+  JSR st_putc
 
   ; Column (1-based, 16-bit)
   CLC
@@ -211,18 +237,32 @@ render_status_line:
 
   ; Print total lines
   LDA #' '
-  JSR io_write
+  JSR st_putc
   LDA #'/'
-  JSR io_write
+  JSR st_putc
 
   CP16 LINE_COUNT16, TO_DECIMAL_VALUE16
   JSR print_decimal
+  INC ST_BUILD                 ; text_putc sends again
+  RTS
 
-  ; Clear rest of status line and restore normal video
-  JSR ansi_clear_line
-  JMP ansi_normal_video
+; Text character A: sent, or added to the status bar's text while
+; status_build runs.  Preserves A, Y (and X when sending)
+text_putc:
+  BIT ST_BUILD
+  BMI st_putc
+  JMP io_write
 
-; Status-bar strings (render_status_line)
+; Add A to the status bar's text: store it at column ST_COL of
+; STATUS_SHADOW.  (The text is at most 81 characters.)  Preserves A, Y.
+; Clobbers X
+st_putc:
+  LDX ST_COL
+  STA STATUS_SHADOW,X
+  INC ST_COL
+  RTS
+
+; Status-bar strings (status_build)
 str_ro_indicator:  .asciiz " [RO]"
 str_mod_indicator: .asciiz " [+]"
 str_separator:     .asciiz " - "
@@ -241,11 +281,11 @@ render_position_cursor:
   JMP ansi_goto0
 
 ; Print the status-line separator " - "
-; Clobbers A, Y
+; Clobbers A, X, Y
 print_separator:
   LDA #<str_separator
   LDX #>str_separator
-  JMP write_string_ax
+  JMP print_string_ax
 
 ; Redraw current line's wrap rows plus status bar (for single-line edits)
 ; If the line's row count changed, the rows below it are scrolled first to

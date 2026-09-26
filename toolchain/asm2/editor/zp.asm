@@ -78,6 +78,8 @@ ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive
 SHIFT_DCH_COST: .byte   ; shift: byte cost of the DCH route for the row
 SHIFT_REM16:    .word   ; shift: line length from the current row's start
 SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
+ST_COL:         .byte   ; status bar: length of the text built (status_build)
+ST_BUILD:       .byte   ; $FF while status_build runs (text_putc stores the text)
 
 ; --- yank.asm ---
 YANK_END16:    .word     ; Points one past last byte in yank buffer
