@@ -9962,6 +9962,23 @@ class EditorTestRunner:
             # Type :ww, BS twice to clear, type q! -> :q!
         )
 
+        # Command-line editing guards (the ':' line reader); x shows where
+        # the cursor ended up
+        five = "abc\ndef\nghi\njkl\nmno\n"
+        on_line1 = "bc\ndef\nghi\njkl\nmno\n"
+        on_line3 = "abc\ndef\nhi\njkl\nmno\n"
+        for name, keys, expected in (
+                (": ESC cancels a typed command", b":3\x1b", on_line1),
+                (": backspace past the prompt cancels", b":3\x7f\x7f", on_line1),
+                (": backspace on a long command line erases",
+                 b":" + b"0" * 200 + b"\x7f" * 199 + b"3\r", on_line3),
+                (": command line stops accepting at 255 chars",
+                 b":" + b"0" * 254 + b"3" + b"99\r", on_line3),
+                (": control and special keys are ignored",
+                 b":\x01\x1b[A3\x1b[C\r", on_line3)):
+            self.run_test(name, five, keys + b"x:wq\r",
+                          expected_content=expected)
+
         # ============================================================
         # Extended key handling (function keys, ctrl+arrows, etc.)
         # ============================================================
