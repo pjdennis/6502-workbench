@@ -338,19 +338,17 @@ show_buffer_full_msg:
   ; fall through
 
 ; Show status message with string address in A (low) / X (high)
+; and wait for a keypress
 show_message_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
-  ; fall through
-
-; Show a status message and wait for keypress
-; STR_PTR16 must be set to the message string before calling
-show_status_message:
-  ; Save message pointer (command_show_prompt clobbers STR_PTR16)
-  PUSH16 STR_PTR16
+  ; Keep the address on the stack: command_show_prompt clobbers STR_PTR16
+  PHA
+  TXA
+  PHA
   JSR command_show_prompt
-  POP16 STR_PTR16
-  JSR write_string
+  PLA
+  TAX
+  PLA
+  JSR write_string_ax
   JMP flush_get_key
 
 ; Compare CMD_BUF (starting at offset X) against asciiz string at STR_PTR16
@@ -578,26 +576,27 @@ range_shift_finish:
 ; Report count on the status line: "N <suffix>"
 ; Input: A/X = suffix string, TO_DECIMAL_VALUE16 = count
 report_lines_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
-report_lines:
   ; command_show_prompt clobbers STR_PTR16 and TO_DECIMAL state
   ; (its cursor positioning goes through write_byte_dec/to_decimal)
-  PUSH16 STR_PTR16
+  PHA
+  TXA
+  PHA
   PUSH16 TO_DECIMAL_VALUE16
   JSR command_show_prompt
   POP16 TO_DECIMAL_VALUE16
   JSR print_decimal
-  POP16 STR_PTR16
-  JSR write_string
+  PLA
+  TAX
+  PLA
+  JSR write_string_ax
   JMP io_flush
 
 ; Same, with count taken from YANK_LINES16
 report_yank_lines_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
+  TAY
   CP16 YANK_LINES16, TO_DECIMAL_VALUE16
-  JMP report_lines
+  TYA
+  JMP report_lines_ax
 
 range_mark_err:
   LDA #<str_mark_not_set

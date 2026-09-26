@@ -234,8 +234,9 @@ render_position_cursor:
 ; Print the status-line separator " - "
 ; Clobbers A, Y
 print_separator:
-  SET16 str_separator, STR_PTR16
-  JMP write_string
+  LDA #<str_separator
+  LDX #>str_separator
+  JMP write_string_ax
 
 ; Redraw current line's wrap rows plus status bar (for single-line edits)
 ; If the line's row count changed, the rows below it are scrolled first to

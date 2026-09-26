@@ -147,6 +147,12 @@ ansi_seq_rev:      .asciiz "7m"
 ansi_seq_norm:     .asciiz "0m"
 ansi_seq_reset_sr: .asciiz "r"
 
+; Write null-terminated string at A (low) / X (high)
+; Clobbers A, Y, STR_PTR16 (X preserved)
+write_string_ax:
+  STA STR_PTR16
+  STX STR_PTR16 + 1
+  ; fall through
 ; Write null-terminated string pointed to by STR_PTR16
 ; Clobbers A, Y
 write_string:

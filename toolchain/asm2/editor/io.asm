@@ -64,9 +64,10 @@ io_ready:
 query_terminal_size:
   ; Send ESC[999;999H (move cursor to max position, clamped by terminal)
   ; followed by ESC[6n (request cursor position)
-  ; Clobbers Y, STR_PTR16 via write_string
-  SET16 dsr_query_str, STR_PTR16
-  JSR write_string
+  ; Clobbers X, Y, STR_PTR16 via write_string_ax
+  LDA #<dsr_query_str
+  LDX #>dsr_query_str
+  JSR write_string_ax
 
   ; Read response: ESC[{rows};{cols}R
   JSR io_read             ; Skip ESC

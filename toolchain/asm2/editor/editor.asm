@@ -39,10 +39,11 @@ FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
   .include editor/io.asm
 
 ; PRINT_STR addr - Print null-terminated string at addr
-; Clobbers A, Y
+; Clobbers A, X, Y, STR_PTR16
   .macro PRINT_STR addr
-  SET16 addr, STR_PTR16
-  JSR write_string
+  LDA #<addr
+  LDX #>addr
+  JSR write_string_ax
   .endmacro
 
   .include 17/to_decimal.asm
