@@ -11849,6 +11849,52 @@ class EditorTestRunner:
             expect_content_rows=[(2, {0, 6, 7, 8})]
         )
 
+        # Undo/redo deletes (RENDER_FLAG $07) leave the cursor row to the
+        # scroll: it must be repainted when the scroll clears it or when a
+        # one-row region is not scrolled at all.
+        self.run_test_screen(
+            "Scroll opt: O undo on the last row repaints it",
+            make_lines(20),
+            b"8jO\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: dd redo on the last row repaints it",
+            make_lines(20),
+            b"8jddu u:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(8)]
+                         + [(8, "Line 10")],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 2-line P undo near the bottom repaints the rows",
+            make_lines(20),
+            b"7j2yyPu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 6dd redo reaching the bottom repaints the rows",
+            make_lines(20),
+            b"jjj6ddu u:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")]
+                         + [(i, f"Line {i + 7}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 5-line p undo on the last row repaints it",
+            make_lines(20),
+            b"8j5yypu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 2}") for i in range(9)],
+            expect_cursor=(7, 0),
+        )
+
         # o at mid-screen: scroll shifts rows below insertion down,
         # only new empty line needs rendering.
         # Frames: 0=initial, 1=jjj cursor, 2=o scroll frame

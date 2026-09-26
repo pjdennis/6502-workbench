@@ -34,7 +34,7 @@ render_line_delete_scroll:
 
   LDA RENDER_FLAG
   CMP #RF_DEL_BELOW
-  BEQ .del_bottom_rows       ; $07 (paste-below undo): cursor line unchanged
+  BEQ .del_below
   CMP #RF_DEL
   BEQ .cursor_row
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
@@ -65,6 +65,12 @@ render_line_delete_scroll:
   STA SCROLL_DELTA
 .del_bottom_rows:
   JMP render_bottom_rows_guarded
+.del_below:
+  ; $07 (undo/redo line deletes): the cursor line is unchanged and not
+  ; redrawn, so the exposed rows are repainted even when they reach the
+  ; cursor row (with DELETE_SCREEN_ROWS = 0 the region starts at the
+  ; cursor line's first row)
+  JMP render_bottom_rows
 
 ; Scroll for line insertion at cursor.
 ; SCROLL_DELTA = lines inserted. CURSOR_ROW = screen row of insertion.
