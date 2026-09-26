@@ -305,19 +305,15 @@ normal_open_below:
   JSR get_current_line_ptr
   JSR advance_past_line_end
 
-  LDA #'\n'
-  JSR buf_insert_char
-  BCS open_full
-  JSR buf_rebuild_lines
-
-  ; Adjust marks: new line inserted at FILE_LINE16+1
+  ; New line is FILE_LINE16+1
   LDAX16 FILE_LINE16
   CLC
   ADC #1
-  BCC .mark_adj
+  BCC .open
   INX
-.mark_adj:
-  JSR mark_insert_one
+.open:
+  JSR buf_open_line
+  BCS open_full
 
   ; Record undo: opened line at FILE_LINE16+1, restore cursor to FILE_LINE16
   LDA #UNDO_OPEN
@@ -343,16 +339,8 @@ open_full:
   JMP clear_count
 
 normal_open_above:
-  JSR get_current_line_ptr
-
-  LDA #'\n'
-  JSR buf_insert_char
+  JSR open_current_line
   BCS open_full
-  JSR buf_rebuild_lines
-
-  ; Adjust marks: new line inserted at FILE_LINE16
-  LDAX16 FILE_LINE16
-  JSR mark_insert_one
 
   ; Record undo: opened line at FILE_LINE16, restore cursor to FILE_LINE16
   LDA #UNDO_OPEN

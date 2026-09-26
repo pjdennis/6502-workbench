@@ -184,23 +184,41 @@ advance_past_line_end:
 .done:
   RTS
 
-; Insert character at position in buffer
-; A = character to insert
-; BUF_PTR16 = position to insert at
-; Shifts all following bytes right by 1
-; Returns carry set = buffer full, carry clear = success
-buf_insert_char:
+; Open a blank line at line FILE_LINE16 (the cursor line moves down)
+open_current_line:
+  LDAX16 FILE_LINE16
+; Open a blank line at line A/X (that line moves down)
+open_line_at:
   PHA
+  JSR buf_get_line_ptr       ; BUF_PTR16 = start of line A/X (X kept)
+  PLA
+; Open a blank line: insert a newline at BUF_PTR16, rebuild the line
+; table and move the marks at/after line A/X (the new line) down one.
+; Returns carry set = buffer full (nothing changed), clear = success
+; Clobbers A, X, Y
+buf_open_line:
+  PHA
+  TXA
+  PHA                        ; Save the new line's number
   LDA #1
   STA BUF_LEN16
   LDA #0
   STA BUF_LEN16 + 1
   JSR buf_shift_right_16
-  PLA
-  BCS .done                  ; Buffer full (carry preserved for caller)
+  BCS .full
+  LDA #'\n'
   LDY #0
   STA (BUF_PTR16),Y
-.done:
+  JSR buf_rebuild_lines
+  PLA
+  TAX
+  PLA
+  JSR mark_insert_one
+  CLC                        ; Success (mark_insert_one leaves carry set)
+  RTS
+.full:
+  PLA
+  PLA                        ; (PLA keeps the carry set)
   RTS
 
 ; Shift buffer right by BUF_LEN16 bytes at BUF_PTR16 (16-bit version)

@@ -729,16 +729,9 @@ cc_have_count:
   JSR get_line_len_z
   BEQ .cc_already_empty
 
-  ; Insert a blank line at FILE_LINE16
-  JSR get_current_line_ptr       ; BUF_PTR16 = start of current line
-  LDA #'\n'
-  JSR buf_insert_char
+  ; Insert a blank line at FILE_LINE16 (marks adjusted)
+  JSR open_current_line
   BCS .cc_buf_full
-  JSR buf_rebuild_lines
-
-  ; Adjust marks for inserted line
-  LDAX16 FILE_LINE16
-  JSR mark_insert_one
   JSR undo_record_cc         ; Upgrade line-delete undo to cc type (blank inserted)
   LDA #$06
   JMP .cc_set_render

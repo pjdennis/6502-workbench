@@ -191,14 +191,7 @@ undo_handle:
   ; Insert blank line at FILE_LINE16 (like cc does)
   JSR get_line_len_z
   BEQ .redo_cc_done
-  JSR get_current_line_ptr
-  LDA #'\n'
-  JSR buf_insert_char
-  BCS .redo_cc_done
-  JSR buf_rebuild_lines
-  ; Adjust marks for inserted blank line (matches original cc behavior)
-  LDAX16 FILE_LINE16
-  JSR mark_insert_one
+  JSR open_current_line      ; Marks adjusted as the original cc did
 .redo_cc_done:
   LDA #0
   STA UNDO_IS_REDO
@@ -466,16 +459,10 @@ undo_open_undo:
 
 ; --- Open-line redo: re-insert blank line ---
 undo_open_redo:
-  ; Insert blank line at UNDO_LINE16
+  ; Insert a blank line at UNDO_LINE16 (on buffer full, nothing moves)
   LDAX16 UNDO_LINE16
-  JSR buf_get_line_ptr
-  LDA #'\n'
-  JSR buf_insert_char
+  JSR open_line_at
   BCS .redo_open_fail
-  JSR buf_rebuild_lines
-  ; Adjust marks
-  LDAX16 UNDO_LINE16
-  JSR mark_insert_one
   ; Set cursor on opened line
   JSR undo_restore_line
   LDA #0
