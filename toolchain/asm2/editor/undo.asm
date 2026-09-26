@@ -262,9 +262,7 @@ undo_join_undo:
   STA INSERT_LINE_COUNT
   LDA #$04
   STA RENDER_FLAG            ; Line-insert scroll, skip cursor row
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  JMP clamp_and_clear_count
+  JMP zero_col_clamp_clear
 
 ; --- Join redo: replace newlines back to spaces ---
 undo_join_redo:
