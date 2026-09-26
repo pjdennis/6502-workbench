@@ -14128,6 +14128,34 @@ class EditorTestRunner:
             expect_content_rows=[(7, {3, 8})]
         )
 
+        # Ncc undo/redo with N > 255: the scroll pre-computation walks the
+        # whole 16-bit count (or falls back), not its low byte (257 would
+        # walk 1 line, 258 2).  :marks + space forces a full redraw between
+        # the steps, so each checks one frame.
+        redraw = b":marks\r "
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
+        for keys, lines, cursor in (
+                (b"257cc\x1bu\x1bu",
+                 [(0, "")] + [(r, f"Line {r + 257}") for r in range(1, 9)],
+                 (0, 0)),
+                (b"jj258cc\x1bu", lines_1_9, (2, 0)),
+                (b"258cc\x1b" + redraw + b"u", lines_1_9, (0, 0)),
+                (b"264cc\x1b" + redraw + b"u", lines_1_9, (0, 0)),
+                (b"jj258cc\x1b" + redraw + b"u" + redraw + b"u",
+                 lines_1_9[:2] + [(2, "")]
+                 + [(r, f"Line {r + 258}") for r in range(3, 9)], (2, 0)),
+                (b"jj256cc\x1b" + redraw + b"u" + redraw + b"u",
+                 lines_1_9[:2] + [(2, "")]
+                 + [(r, f"Line {r + 256}") for r in range(3, 9)], (2, 0))):
+            self.run_test_screen(
+                f"Minimal repaint: {keys!r} over 255 lines repaints the rows",
+                make_lines(400),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
+
         # --- Line-mode paste: operation + undo + redo ---
 
         # Line P operation: yyP at row 3 pastes line above.
