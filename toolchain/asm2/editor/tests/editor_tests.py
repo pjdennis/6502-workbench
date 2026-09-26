@@ -20143,6 +20143,24 @@ class EditorTestRunner:
                 for r in range(1, 9)],
             expect_cursor=(1, 0),
         )
+        # A join whose lines had more than 255 rows (8x12: 'fmt' and a
+        # 255-row line): their row count overflows, and the joined line
+        # is redrawn in full, not scrolled from its first row by the line
+        # count
+        fmt255 = ("".join(f"l{i}\n" for i in range(5)) + "fmt\n"
+                  + alpha(3051) + "\nend\n")
+        l0_4 = [(i, f"l{i}") for i in range(5)]
+        for name, keys, joined, cursor in [
+                ("J", b"6GJ", "fmt " + abc, (5, 3)),
+                ("Redo of J", b"6GJu u", "fmt " + abc, (5, 3)),
+                ("Insert-mode BS", b"7Gi\x08\x1b", "fmt" + abc, (5, 2))]:
+            self.run_test_screen(
+                f"{name} joining a line to a 255-row line below it",
+                fmt255, keys + b":q!\r",
+                rows=8, cols=12,
+                expect_lines=l0_4 + [(5, joined[:12]), (6, joined[12:24])],
+                expect_cursor=cursor,
+            )
         # An Enter at the first column of the view's top row, in a line
         # that starts above the view, leaves all of the line's first part
         # above the view: the view then starts at the new line, whose text

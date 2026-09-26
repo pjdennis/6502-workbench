@@ -51,9 +51,10 @@
 ;                              $FF (see render_enter_split).
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
 ;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
-;       undo r<Enter>          edit (0 = use delta).  Rows shrank: scroll up
-;                              below the line; same: as $01; grew: scroll
-;                              down.  INSERT_LINE_COUNT: 0 = redraw the line,
+;       undo r<Enter>          edit (0 = over 255: full redraw).  Rows
+;                              shrank: scroll up below the line; same: as
+;                              $01; grew: scroll down.
+;                              INSERT_LINE_COUNT: 0 = redraw the line,
 ;                              $FF = pure join at line end (no redraw),
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
@@ -155,20 +156,11 @@ render_decide:
   LDA RENDER_FLAG
   CMP #RF_JOIN
   BNE .delete_check          ; $07/$08
-  ; $06: use pre-computed DELETE_SCREEN_ROWS if available, else file delta.
+  ; $06: DELETE_SCREEN_ROWS = the joined lines' rows before (old_total;
+  ; 0 = over 255: they ran past the bottom row, so all is redrawn)
   LDA DELETE_SCREEN_ROWS
-  BNE .have_delete_rows
-  ; Fall back to file line delta
-  SEC
-  LDA SNAP_LINE_COUNT16
-  SBC LINE_COUNT16
-  STA SCROLL_DELTA
-  LDA SNAP_LINE_COUNT16 + 1
-  SBC LINE_COUNT16 + 1
-  BNE .full                  ; Delta > 255, fall back
-  BEQ .delete_check          ; Always taken
-.have_delete_rows:
-  ; A = old_total from pre-computation: compute displacement-based delta
+  BEQ .full
+  ; Compute the displacement-based delta
   STA SCROLL_DELTA          ; save old_total temporarily
   JSR file_line_rows        ; A = new_total
   STA DELETE_SCREEN_ROWS    ; store new_total for scroll region

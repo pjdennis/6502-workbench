@@ -31,20 +31,17 @@ render_line_delete_scroll:
   BEQ .del_bottom_rows       ; $07: the cursor line is not redrawn
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
   ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
-  ; newlines were deleted (cursor line content unchanged).  One row (or
-  ; 0: the pre-compute overflowed) is drawn as a one-row line from the
-  ; change point; a cursor on a wrap row redraws to the bottom.
+  ; newlines were deleted (cursor line content unchanged).  A one-row
+  ; line with the cursor on a wrap row redraws to the bottom.
   LDA INSERT_LINE_COUNT
   BNE .del_bottom_rows
   LDA DELETE_SCREEN_ROWS
   CMP #2
   BCS .draw_line
-  LDA WRAP_QUOT
-  BEQ .one_row
+  LDX WRAP_QUOT
+  BEQ .draw_line
 .from_first_row:
   JMP render_from_first_row
-.one_row:
-  LDA #1
 .draw_line:
   STA CUR_LINE_ROWS
   JSR set_first_row
