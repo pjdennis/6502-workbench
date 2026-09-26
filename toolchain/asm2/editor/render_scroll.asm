@@ -192,9 +192,7 @@ render_range_repaint:
   JMP render_rows_resized
 .rr_to_bottom:
   ; Repaint everything from first_row to the bottom of the screen
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
+  LDA TEXT_ROWS
   SEC
   SBC RENDER_ROW
   STA SCROLL_DELTA
@@ -212,9 +210,7 @@ scroll_region_from_a:
   STA ANSI_ROW
   ; fall through (entry with ANSI_ROW already set)
 scroll_region_check:
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
+  LDA TEXT_ROWS
   STA ANSI_COL
   CMP ANSI_ROW
   BEQ .skip                    ; single row: nothing to shift
@@ -371,12 +367,11 @@ find_line_at_render_row:
 .found:
   RTS
 
-; RENDER_ROW = A = SCREEN_ROWS - 1 - SCROLL_DELTA: first of the bottom
+; RENDER_ROW = A = TEXT_ROWS - SCROLL_DELTA: first of the bottom
 ; SCROLL_DELTA rows above the status bar
 bottom_row_start:
-  LDA SCREEN_ROWS
+  LDA TEXT_ROWS
   SEC
-  SBC #1                       ; C=1 (SCREEN_ROWS >= 1)
   SBC SCROLL_DELTA
   STA RENDER_ROW
   RTS
@@ -625,11 +620,11 @@ ensure_cursor_visible:
   BCC .visible
 
 .need_scroll_down:
-  ; Cursor is below visible area: walk back SCREEN_ROWS - 2 rows from
+  ; Cursor is below visible area: walk back TEXT_ROWS - 1 rows from
   ; the cursor's row to find the new VIEW_TOP16 / VIEW_TOP_WRAP
-  LDA SCREEN_ROWS
-  SEC
-  SBC #2                 ; Target: cursor at row SCREEN_ROWS - 2
+  LDX TEXT_ROWS
+  DEX
+  TXA                    ; Target: cursor at row TEXT_ROWS - 1
 .set_top:
   STA CURSOR_ROW
   STA RENDER_ROW      ; Rows to walk back

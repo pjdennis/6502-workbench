@@ -538,11 +538,10 @@ render_scroll_down:
   JMP render_limited_rows
 
 ; Clamp SCROLL_DELTA to the rows available below the cursor
-; (available = SCREEN_ROWS - 1 - CURSOR_ROW).  Clobbers A
+; (available = TEXT_ROWS - CURSOR_ROW).  Clobbers A
 clamp_delta_avail:
-  LDA SCREEN_ROWS
+  LDA TEXT_ROWS
   SEC
-  SBC #1              ; SCREEN_ROWS >= 1 always, so C=1 here (no 2nd SEC needed)
   SBC CURSOR_ROW
   CMP SCROLL_DELTA
   BCS .ok                    ; available >= delta, OK

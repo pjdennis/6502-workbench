@@ -17,6 +17,7 @@ CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
 VIEW_TOP16:     .word   ; First visible line number (0-based)
 SCREEN_ROWS:    .byte   ; Terminal height
 SCREEN_COLS:    .byte   ; Terminal width
+TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
 FILE_LINE16:    .word   ; Current file line (0-based)
 MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
 MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
@@ -63,6 +64,9 @@ render_init:
   JSR term_cols
   STA SCREEN_COLS
   .endif
+  LDX SCREEN_ROWS
+  DEX
+  STX TEXT_ROWS
   LDA #0
   STA CURSOR_ROW
   STA_LH16 CURSOR_COL16
@@ -384,9 +388,7 @@ render_line_shift:
   BEQ .done
   INC RENDER_ROW
   LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
+  CMP TEXT_ROWS
   BCS .done                    ; reached the status bar
   INC RENDER_WRAP
   LDA #0
