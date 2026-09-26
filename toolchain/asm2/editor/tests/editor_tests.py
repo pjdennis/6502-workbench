@@ -19983,6 +19983,75 @@ class EditorTestRunner:
                           (8, "x" * 40)],
             expect_cursor=(2, 0),
         )
+        # The row loop draws a line's rows from its first screen row to
+        # its last or the status bar: the stop row, first row + rows, must
+        # not wrap in 8 bits for a line running far past the screen.  10x20
+        # screen; six short lines put the long line at row 6.
+        six = "".join(f"line {i}\n" for i in range(6))
+        six_rows = [(i, f"line {i}") for i in range(6)]
+        self.run_test_screen(
+            "Undo x on a 253-row line below the top",
+            six + az[:5050] + "\nafter\n",
+            b"7Gxu:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, az[:20]), (7, az[20:40]),
+                                     (8, az[40:60])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "Undo x on the second row of a 253-row line below the top",
+            six + az[:5050] + "\nafter\n",
+            b"7G25lxu:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, az[:20]), (7, az[20:40]),
+                                     (8, az[40:60])],
+            expect_cursor=(7, 5),
+        )
+        # J that keeps the line's 250 rows (10x40): the joined line is
+        # drawn from the join point
+        self.run_test_screen(
+            "J into a 250-row line below the top: screen",
+            "".join(f"l{i}\n" for i in range(8)) + "x" * 9960 + "\nend\n",
+            b"8GJ:q!\r",
+            expect_lines=[(6, "l6"), (7, "l7 " + "x" * 37), (8, "x" * 40)],
+            expect_cursor=(7, 2),
+        )
+        # A 255-row terminal: row 252 + the line's 8 rows passes 255
+        alpha300 = az[:300]
+        self.run_test_screen(
+            "Undo D on a line at row 252 of a 255-row terminal",
+            "".join(f"line {i}\n" for i in range(252)) + alpha300
+            + "\nafter\n",
+            b"253GDu:q!\r",
+            rows=255, cols=40,
+            expect_lines=[(251, "line 251"), (252, alpha300[:40]),
+                          (253, alpha300[40:80])],
+            expect_cursor=(252, 0),
+        )
+        # Undo and redo that restore 254-255 lines below row 2 (the
+        # line-insert repaint walks): row 2 + 255 rows passes 255
+        self.run_test_screen(
+            "Undo of 255dd below the top repaints the lines",
+            make_lines(700),
+            b"jj255ddu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
+            expect_cursor=(2, 0),
+        )
+        self.run_test_screen(
+            "Undo of 254cc below the top repaints the lines",
+            make_lines(700),
+            b"jj254cc\x1bu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
+            expect_cursor=(2, 0),
+        )
+        self.run_test_screen(
+            "Redo of 255p below the top repaints the lines",
+            make_lines(700),
+            b"jjyy255pu\x1bu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(3)]
+                         + [(i, "Line 3") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+        )
         # An Enter at the first column of the view's top row, in a line
         # that starts above the view, leaves all of the line's first part
         # above the view: the view then starts at the new line, whose text

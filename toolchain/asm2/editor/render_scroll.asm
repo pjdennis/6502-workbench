@@ -342,6 +342,9 @@ render_limited_from_col:
   LDA RENDER_ROW
   CLC
   ADC SCROLL_DELTA
+  BCC .limit
+  LDA #$FF                     ; past row 255 (a line running past the
+.limit:                        ; screen): stop at the status bar
   STA RENDER_LIMIT             ; stop at this row
 ; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP up to (not
 ; including) row RENDER_LIMIT or the status bar, the first from column
