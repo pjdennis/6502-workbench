@@ -168,9 +168,9 @@ yank_paste_setup:
   CLC
   RTS
 
-; BUF_LEN16 = (16-bit zero-page value at X) * BUF_TEMP16, or $FFFF if
-; that passes 16 bits (shift and add: one pass per bit of the count).
-; Clobbers A, COUNT16, DIV_INPUT16
+; BUF_LEN16 = A/X (low/high) = (16-bit zero-page value at X) *
+; BUF_TEMP16, or $FFFF if that passes 16 bits (shift and add: one pass
+; per bit of the count).  Clobbers COUNT16, DIV_INPUT16
 mul_by_count:
   CP16 BUF_TEMP16, COUNT16    ; Multiplier, shifted right
   LDA $00,X
@@ -194,6 +194,7 @@ mul_by_count:
   LDA #$FF
   STA_LH16 BUF_LEN16
 .done:
+  LDAX16 BUF_LEN16
   RTS
 
 ; Show "Buffer full" and return carry set (a paste that did not fit)

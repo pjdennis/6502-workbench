@@ -364,7 +364,7 @@ undo_compute_paste_lines:
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   LDX #YANK_LINES16
   JSR mul_by_count
-  CP16 BUF_LEN16, BUF_TEMP16
+  STAX16 BUF_TEMP16
   RTS
 
 ; Cursor back where a char paste was typed: UNDO_LINE16, and UNDO_COL16
