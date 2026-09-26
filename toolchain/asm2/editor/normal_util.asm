@@ -33,25 +33,7 @@ dispatch_key:
   INY
   INY
   INY
-  JMP .loop
-
-; Shared dispatch tail: fetch handler at Y+1/Y+2 and call it, return C=0
-; (also used by dispatch_pending_key)
-dispatch_fetch_jump:
-  INY
-  LDA (DISPATCH_PTR16),Y
-  STA JUMP_TARGET16
-  INY
-  LDA (DISPATCH_PTR16),Y
-  STA JUMP_TARGET16 + 1
-  JSR .do_jump
-  CLC
-  RTS
-.do_jump:
-  JMP (JUMP_TARGET16)
-dispatch_no_match:
-  SEC
-  RTS
+  BNE .loop                  ; Always (tables are < 256 bytes)
 
 ; --- Pending key dispatcher ---
 ; Input: A = low byte, X = high byte of dispatch table address
@@ -68,33 +50,44 @@ dispatch_pending_key:
 .loop:
   LDA (DISPATCH_PTR16),Y
   BEQ dispatch_no_match
-  CMP LAST_KEY
-  BNE .next5
   INY
+  CMP LAST_KEY
+  BNE .next
   LDA (DISPATCH_PTR16),Y
-  BEQ .matched
+  BEQ .matched               ; Wildcard second key
   CMP BUF_TEMP
-  BNE .next4
+  BEQ .matched
+.next:
+  INY
+  INY
+  INY
+  INY
+  BNE .loop                  ; Always (tables are < 256 bytes)
 .matched:
   INY
-  LDA (DISPATCH_PTR16),Y
+  LDA (DISPATCH_PTR16),Y     ; Flags
   LSR
-  BCC .no_batch
-  TYA
-  PHA
-  JSR batch_pending_pairs
-  PLA
-  TAY
-.no_batch:
-  JMP dispatch_fetch_jump
-.next5:
+  BCC dispatch_fetch_jump
+  JSR batch_pending_pairs    ; Preserves Y
+  ; fall through
+
+; Shared dispatch tail (dispatch_key, dispatch_pending_key): fetch the
+; handler at Y+1/Y+2 and call it, return C=0
+dispatch_fetch_jump:
   INY
-.next4:
+  LDA (DISPATCH_PTR16),Y
+  STA JUMP_TARGET16
   INY
-  INY
-  INY
-  INY
-  JMP .loop
+  LDA (DISPATCH_PTR16),Y
+  STA JUMP_TARGET16 + 1
+  JSR .do_jump
+  CLC
+  RTS
+.do_jump:
+  JMP (JUMP_TARGET16)
+dispatch_no_match:
+  SEC
+  RTS
 
 ; --- Cursor and line utilities ---
 
@@ -104,13 +97,8 @@ dispatch_pending_key:
 ; Clobbers: A, X
 check_cursor_in_line:
   JSR get_line_len_z
-  ; Empty line needs no separate test: cursor >= 0 = len bails below
+  ; Empty line needs no separate test: cursor >= 0 = len sets carry
   CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .bail
-  CLC
-  RTS
-.bail:
-  SEC
   RTS
 
 get_current_line_len:
@@ -150,16 +138,14 @@ clamp_cursor_col:
 
 ; Move down X lines (clamped to last line)
 ; Input: X = number of lines to move
-; Clobbers: A, X, BUF_TEMP, BUF_PTR16
+; Clobbers: A, X, BUF_PTR16
 move_down_x:
 .loop:
-  STX BUF_TEMP
   CLC
   ADCI16 FILE_LINE16, $0001, BUF_PTR16
   CMP16 BUF_PTR16, LINE_COUNT16
   BCS .done
   INC16 FILE_LINE16
-  LDX BUF_TEMP
   DEX
   BNE .loop
 .done:
@@ -167,14 +153,12 @@ move_down_x:
 
 ; Move up X lines (clamped to first line)
 ; Input: X = number of lines to move
-; Clobbers: A, X, BUF_TEMP
+; Clobbers: A, X
 move_up_x:
 .loop:
-  STX BUF_TEMP
   TST16 FILE_LINE16
   BEQ .done
   DEC16 FILE_LINE16
-  LDX BUF_TEMP
   DEX
   BNE .loop
 .done:
@@ -218,24 +202,21 @@ check_combo_first_key:
 .loop:
   LDA (DISPATCH_PTR16),Y
   BEQ .no_match
+  INY
+  INY                        ; Y -> flags
   CMP BUF_TEMP
   BNE .skip
   ; Key matches - check READONLY + editing flag
   LDA READONLY
   BEQ .found
-  INY
-  INY
   LDA (DISPATCH_PTR16),Y
-  DEY
-  DEY
   AND #$02
   BEQ .found
 .skip:
-  TYA
-  CLC
-  ADC #5
-  TAY
-  JMP .loop
+  INY
+  INY
+  INY
+  BNE .loop                  ; Always (tables are < 256 bytes)
 .found:
   LDA BUF_TEMP
   STA LAST_KEY
@@ -281,12 +262,11 @@ set_render_clear_count:
 ; Clear count state: zeroes COUNT16, COUNT_ACTIVE, LAST_KEY
 ; If BATCH_RESTORE_KEY is set, restores it to LAST_KEY (for partial pair e.g. dddw)
 clear_count:
-  LDA #0
-  STA_LH16 COUNT16
-  STA COUNT_ACTIVE
   LDA BATCH_RESTORE_KEY
   STA LAST_KEY
   LDA #0
+  STA_LH16 COUNT16
+  STA COUNT_ACTIVE
   STA BATCH_RESTORE_KEY
   STA BATCH_EXTRA
   RTS
@@ -366,11 +346,10 @@ get_batched_count:
   TXA
   CLC
   ADC BUF_DELTA          ; Total = count + pending
-  BCS .cap
   TAX
-  RTS
-.cap:
+  BCC .done
   LDX #$FF
+.done:
   RTS
 
 ; Get effective count in BUF_TEMP16, minimum 1
@@ -378,11 +357,9 @@ get_batched_count:
 ; Clobbers: A
 get_count:
   LDA COUNT16
+  STA BUF_TEMP16
   ORA COUNT16 + 1
   BEQ set_buf_temp16_one     ; Zero = no count, return 1
-  ; Copy COUNT16 to BUF_TEMP16
-  LDA COUNT16
-  STA BUF_TEMP16
   LDA COUNT16 + 1
   STA BUF_TEMP16 + 1
   RTS
@@ -405,7 +382,7 @@ set_buf_temp16_a:
 ; Uses LAST_KEY (first key) and BUF_TEMP (second key) already set by
 ; pending_key_dispatch. Adds matched pairs to COUNT16.
 ; Sets BATCH_RESTORE_KEY if a partial pair was consumed.
-; Clobbers: A, X
+; Clobbers: A, X, BUF_TEMP16.  Preserves Y
 batch_pending_pairs:
   LDX #0                   ; X = extra pairs found
 .loop:
@@ -430,24 +407,13 @@ batch_pending_pairs:
   STA BATCH_RESTORE_KEY
 .done:
   STX BATCH_EXTRA
-  ; Add X extra pairs to COUNT16
+  ; Add X extra pairs to COUNT16 (the original command counts as 1)
   TXA
   BEQ .no_add              ; No extra pairs, nothing to do
-  ; Ensure COUNT16 >= 1 (the original command counts as 1)
-  PHA                      ; Save extra count
-  LDA COUNT16
-  ORA COUNT16 + 1
-  BNE .has_count
-  LDA #1
-  STA COUNT16              ; COUNT16 was 0, set to 1
-.has_count:
-  PLA                      ; Restore extra count
+  JSR get_count            ; BUF_TEMP16 = max(COUNT16, 1)
+  TXA
   CLC
-  ADC COUNT16
-  STA COUNT16
-  LDA #0
-  ADC COUNT16 + 1
-  STA COUNT16 + 1
+  ADCA16 BUF_TEMP16, COUNT16
 .no_add:
   RTS
 
@@ -469,14 +435,11 @@ show_yank_overflow:
 yank_delete_current_lines:
   LDAX16 FILE_LINE16
   JSR yank_add_lines
-  BCS .ydcl_overflow
+  BCS .done                  ; C = 1: overflow
   JSR undo_record_line_delete
   JSR delete_current_lines
   CLC
-  RTS
-
-.ydcl_overflow:
-  SEC
+.done:
   RTS
 
 ; Delete N lines starting at FILE_LINE16 without yanking
