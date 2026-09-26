@@ -15272,6 +15272,30 @@ class EditorTestRunner:
             expect_content_rows=[(3, {2, 8})]
         )
 
+        # A DEL join scrolls the rows below by the rows it removed, counted
+        # before the edit: the old cursor line plus the joined line, not the
+        # joined line plus the line that follows it afterwards
+        DEL = b"\x1b[3~"
+        para = "This paragraph line is long enough that it wraps around."
+        for name, content, lines, cursor in [
+            ("Scroll opt: insert DEL join above a wrapped line",
+             "abc\ndef\n" + "x" * 100 + "\nl3\nl4\nl5\n",
+             [(0, "abcdef"), (1, "x" * 40), (2, "x" * 40), (3, "x" * 20),
+              (4, "l3"), (5, "l4"), (6, "l5"), (7, "~")], (0, 2)),
+            ("Scroll opt: insert DEL joining empty line above a wrapped line",
+             f"title\n\n{para}\nend\n",
+             [(0, "title"), (1, para[:40].rstrip()), (2, para[40:]),
+              (3, "end"), (4, "~")], (0, 4)),
+            ("Scroll opt: insert DEL join that wraps, row count unchanged",
+             "a" * 30 + "\n" + "b" * 20 + "\nline three\nline four\n",
+             [(0, "a" * 30 + "b" * 10), (1, "b" * 10), (2, "line three"),
+              (3, "line four"), (4, "~")], (0, 29)),
+        ]:
+            self.run_test_screen(
+                name, content, b"A" + DEL + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
+
         # Typing the first character on the second wrap row should NOT redraw
         # the first row. The first row is already complete (full SCREEN_COLS chars).
         # Only the second row (where the new char appears) needs rendering.

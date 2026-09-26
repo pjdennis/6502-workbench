@@ -184,23 +184,9 @@ insert_handle_key:
   BNE .back_scan            ; Always taken (back_nl <= BATCH_MAX)
 .no_back_scan:
 
-  ; Pre-compute screen rows for BS join scroll optimization
-  LDX LINE_LEN16            ; back_nl
-  BEQ .skip_bs_precompute   ; No newlines deleted
-  PUSH16 BUF_PTR16          ; Save delete_start
-  ; first_line = FILE_LINE16 - back_nl
-  SEC
-  SBC16_8 FILE_LINE16, LINE_LEN16, RENDER_LINE16
-  ; count = back_nl + 1
-  INX
-  TXA
-  JSR compute_delete_screen_rows
-  POP16 BUF_PTR16           ; Restore delete_start
-.skip_bs_precompute:
-
-  ; Step 6: Scan forward from the cursor (BUF_SRC16; compute_delete_screen_rows
-  ; leaves it alone), consuming fwd bytes.  The buffer always ends in '\n',
-  ; where the scan stops, so it needs no BUF_END16 test of its own
+  ; Step 6: Scan forward from the cursor (BUF_SRC16), consuming fwd bytes.
+  ; The buffer always ends in '\n', where the scan stops, so it needs no
+  ; BUF_END16 test of its own
   LDA #0
   STA BUF_TEMP              ; fwd_actual = 0
   STA LINE_LEN16 + 1        ; fwd_nl = 0
@@ -230,6 +216,22 @@ insert_handle_key:
   ; State: BUF_TEMP16.lo=back, BUF_TEMP=fwd_actual, BUF_DELTA=insert_len
   ;        LINE_LEN16.lo=back_nl, LINE_LEN16.hi=fwd_nl
   ;        BUF_PTR16=delete_start
+
+  ; A join's scroll: the screen rows of the lines it joins, before the
+  ; edit (the cursor line, back_nl lines above it and fwd_nl below)
+  LDA LINE_LEN16             ; back_nl
+  CLC
+  ADC LINE_LEN16 + 1         ; + fwd_nl
+  BEQ .no_join_rows
+  TAX
+  PUSH16 BUF_PTR16           ; save delete_start
+  SEC
+  SBC16_8 FILE_LINE16, LINE_LEN16, RENDER_LINE16  ; the first of them
+  INX
+  TXA                        ; count = back_nl + fwd_nl + 1
+  JSR compute_delete_screen_rows
+  POP16 BUF_PTR16            ; restore delete_start
+.no_join_rows:
 
   ; Step 7: Count the newlines in BATCH_BUF
   LDY #0
@@ -441,9 +443,6 @@ insert_handle_key:
 
   ; --- Forward newlines deleted only ---
 .fwd_join:
-  ; Pre-compute screen rows for fwd_nl join scroll optimization
-  LDA LINE_LEN16 + 1         ; fwd_nl (+ the cursor line)
-  JSR compute_delete_rows_join
   ; Pure join (cursor at end of line = joined lines were empty)?
   LDA BUF_TEMP               ; back
   ORA BUF_DELTA              ; insert_len
