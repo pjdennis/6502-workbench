@@ -6,61 +6,46 @@ normal_handle_key:
   STA BUF_TEMP
 
   ; --- Count prefix handling ---
-
-  ; ESC always clears count and pending key
-  CMP #KEY_ESC
-  BNE .not_esc_count
-  LDA COUNT_ACTIVE
-  ORA LAST_KEY
-  BEQ .not_esc_count      ; No active count or pending key, let ESC fall through
-  JSR clear_count
-  RTS
-.not_esc_count:
-
-  ; If COUNT_ACTIVE, check for continued digit input
-  LDA COUNT_ACTIVE
-  BEQ .count_not_active
-
-  ; COUNT_ACTIVE=true: 0-9 continues accumulation
-  LDA BUF_TEMP
+  ; While a count is being typed (COUNT_ACTIVE, never with a pending
+  ; key), '0'-'9' extend it; any other key ends it and is dispatched
+  LDX COUNT_ACTIVE
+  BEQ .not_counting
+  CMP #'9' + 1
+  BCS .count_done
   CMP #'0'
-  BCC .count_done_dispatch
+  BCS .digit
+.count_done:
+  LDX #0
+  STX COUNT_ACTIVE
+.not_counting:
+
+  ; Pending key: dispatch the pair; ESC or no match clears count and key
+  LDX LAST_KEY
+  BEQ .no_pending
+  CMP #KEY_ESC
+  BEQ .clear
+  LDA #<pending_combo_keys
+  LDX #>pending_combo_keys
+  JSR dispatch_pending_key
+  BCC .done
+.clear:
+  JMP clear_count
+
+.no_pending:
+  ; '1'-'9' start a new count
   CMP #'9' + 1
-  BCS .count_done_dispatch
-  ; Accumulate digit into COUNT16
-  JSR count_accumulate_digit
-  RTS
-
-.count_done_dispatch:
-  ; Non-digit with active count: clear COUNT_ACTIVE, fall through to dispatch
-  LDA #0
-  STA COUNT_ACTIVE
-  JMP .dispatch_key
-
-.count_not_active:
-  ; If pending key is set, don't start a new count - dispatch directly
-  LDA LAST_KEY
-  BNE .dispatch_key
-  ; Not counting yet: 1-9 starts a new count
-  LDA BUF_TEMP
+  BCS .dispatch
   CMP #'1'
-  BCC .dispatch_key
-  CMP #'9' + 1
-  BCS .dispatch_key
-  ; Start new count
-  LDA #$FF
-  STA COUNT_ACTIVE
-  LDA #0
-  STA_LH16 COUNT16
-  LDA BUF_TEMP
-  JSR count_accumulate_digit
-  RTS
+  BCC .dispatch
+  LDX #$FF
+  STX COUNT_ACTIVE
+  LDX #0
+  STX COUNT16
+  STX COUNT16 + 1
+.digit:
+  JMP count_accumulate_digit
 
-.dispatch_key:
-  LDA LAST_KEY
-  BEQ .normal_dispatch
-  JMP pending_key_dispatch
-.normal_dispatch:
+.dispatch:
   LDA #<normal_movement_keys
   LDX #>normal_movement_keys
   JSR dispatch_key
@@ -72,30 +57,11 @@ normal_handle_key:
   JSR dispatch_key
   BCC .done
 .skip_editing:
-  LDA #<normal_other_keys
-  LDX #>normal_other_keys
-  JSR dispatch_key
-  BCC .done
   ; Check if key starts a multi-key combo
   LDA #<pending_combo_keys
   LDX #>pending_combo_keys
   JSR check_combo_first_key
-  BCC .done
-  ; Unknown key - clear count and last key, cursor-only update
-  JSR clear_count
-.done:
-  RTS
-
-; --- Pending key dispatch ---
-; Called when LAST_KEY is set and a second key arrives in BUF_TEMP.
-; Uses table-based dispatch via dispatch_pending_key.
-pending_key_dispatch:
-  LDA #<pending_combo_keys
-  LDX #>pending_combo_keys
-  JSR dispatch_pending_key
-  BCC .done
-  ; No match - reset
-  JSR clear_count
+  BCS .clear                 ; Unknown key: clear count and last key
 .done:
   RTS
 
@@ -131,6 +97,7 @@ normal_movement_keys:
   .byte KEY_WORD_FWD  .word normal_word_forward
   .byte KEY_WORD_BACK .word normal_word_backward
   .byte '^'         .word normal_first_nonblank
+  .byte ':'         .word normal_enter_command
   .byte 0           ; End sentinel
 
 normal_editing_keys:
@@ -151,10 +118,6 @@ normal_editing_keys:
   .byte 'C'         .word normal_change_to_eol
   .byte 'S'         .word do_cc              ; S = substitute line = cc
   .byte 'u'         .word undo_handle
-  .byte 0           ; End sentinel
-
-normal_other_keys:
-  .byte ':'         .word normal_enter_command
   .byte 0           ; End sentinel
 
 ; Pending combo key table: 5-byte entries [last_key, second_key, flags, handler]
