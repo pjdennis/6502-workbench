@@ -131,7 +131,7 @@ pending_combo_keys:
   .byte 'm', 0, $00         .word do_mark_set
   .byte '\'', 0, $00        .word do_mark_goto
   .byte 'r', 0, $02         .word do_replace_char
-  .byte 'd', 'd', $03       .word do_dd
+  .byte 'd', 'd', $02       .word do_dd      ; batches its own pairs
   .byte 'g', 'g', $00       .word do_gg
   .byte 'y', 'y', $00       .word do_yy
   .byte 'y', 'w', $00       .word do_yw
@@ -194,10 +194,24 @@ normal_delete_char_back:
   JMP clear_count
 
 ; dd: yank then delete N lines (N = count, min 1)
+; Typed-ahead dd pairs add to N while it stays within the lines left: past
+; the last line each dd deletes the line above (the cursor moves up), so
+; the pairs that do not fit stay queued and run one at a time.
 ; When batched (BATCH_EXTRA > 0): yank only the last line, then delete
 ; all N lines in a single operation (one shift, one rebuild).
 do_dd:
-  JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count, BUF_LEN16 = lines left
+  LDA BUF_LEN16
+  SEC
+  SBC BUF_TEMP16
+  TAX                        ; X = lines left after the count
+  LDA BUF_LEN16 + 1
+  SBC BUF_TEMP16 + 1
+  BEQ .room
+  LDX #$FF                   ; 256 or more
+.room:
+  JSR batch_pending_pairs_upto
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count + pairs, at most the lines left
 
   ; Pre-compute screen rows of lines being deleted (before deletion)
   JSR compute_delete_rows_temp16

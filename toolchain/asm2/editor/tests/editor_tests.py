@@ -6640,6 +6640,36 @@ class EditorTestRunner:
             "dd: walking the ~ rows below the last line is cheap",
             "a\nb\nc\n", b"dd:q!\r", 110000, rows=24, cols=80)
 
+        # Typed-ahead dd pairs past the last line act as if typed one at a
+        # time: each dd there deletes the new last line (the cursor moves up)
+        for name, content, keys, expected in [
+            ("dddd on last line deletes two lines", "a\nb\nc\n",
+             b"Gdddd:wq\r", "a\n"),
+            ("dddddd from second line deletes every line", "L0\nL1\nL2\n",
+             b"jdddddd:wq\r", "\n"),
+            ("dddd on only line", "one\n", b"dddd:wq\r", "\n"),
+            ("2dddd on last line", "aaa\nbbb\nccc\nddd\n", b"G2dddd:wq\r",
+             "aaa\nbbb\n"),
+            ("dddddd on third of four lines", "aaa\nbbb\nccc\nddd\n",
+             b"jjdddddd:wq\r", "aaa\n"),
+            ("dddd on last line after an earlier dd", "a\nb\nc\nd\n",
+             b"dd\x1bGdddd:wq\r", "b\n"),
+            ("dddd on last line then p pastes the last deleted line",
+             "a\nb\nc\n", b"Gddddp:wq\r", "a\nb\n"),
+            ("dddd on last line then u restores the last deleted line",
+             "a\nb\nc\n", b"Gddddu:wq\r", "a\nb\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "dddd on last line: screen and cursor",
+            "a\nb\nc\n",
+            b"Gdddd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "~")],
+            expect_cursor=(0, 0),
+        )
+
         # ============================================================
         # D (delete to end of line)
         # ============================================================
@@ -10777,6 +10807,19 @@ class EditorTestRunner:
                 expect_row_texts=(0, ["", "hello"]),
                 emu_args=BAUD2_ARGS
             )
+
+            # dd pairs typed ahead on the last line arrive together over the
+            # link; past the last line each one deletes the line above
+            for name, args in [("Terminal: dddd on last line", None),
+                               ("Terminal baud: dddd on last line", BAUD2_ARGS)]:
+                self.run_test_terminal_screen(
+                    name,
+                    "a\nb\nc\n",
+                    b"Gdddd:wq\r",
+                    expect_lines=[(0, "a"), (1, "~")],
+                    expected_content="a\n",
+                    emu_args=args
+                )
 
         # ============================================================
         # Scroll region optimization tests

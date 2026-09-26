@@ -367,10 +367,18 @@ set_buf_temp16_a:
 ; Uses LAST_KEY (first key) and BUF_TEMP (second key) already set by
 ; pending_key_dispatch. Adds matched pairs to COUNT16.
 ; Sets BATCH_RESTORE_KEY if a partial pair was consumed.
+; batch_pending_pairs_upto: X = most pairs to take (batch_pending_pairs:
+; BATCH_MAX)
+; Output: BATCH_EXTRA = pairs taken
 ; Clobbers: A, X, BUF_TEMP16.  Preserves Y
 batch_pending_pairs:
+  LDX #BATCH_MAX
+batch_pending_pairs_upto:
+  STX BATCH_EXTRA          ; The limit, until it becomes the pairs taken
   LDX #0                   ; X = extra pairs found
 .loop:
+  CPX BATCH_EXTRA
+  BEQ .done                ; Taken as many as allowed
   JSR key_peek
   BCC .done                ; No key available, stop
   CMP LAST_KEY
@@ -383,9 +391,7 @@ batch_pending_pairs:
   INC HAS_KEY_DECODED      ; Consume the second key
   ; Full pair matched
   INX
-  CPX #BATCH_MAX
-  BNE .loop
-  BEQ .done                ; Always taken
+  BCS .loop                ; Always (C = 1 from the match)
 .partial:
   ; Save consumed first key for restore after command completes
   LDA LAST_KEY
