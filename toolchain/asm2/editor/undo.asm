@@ -299,19 +299,20 @@ undo_join_apply:
   CP16 BUF_PTR16, BUF_SRC16    ; BUF_SRC16 = line start (base for offsets)
 
   LDX #0                       ; X = buffer index
+  LDY #0
   LDA UNDO_JOIN_COUNT
   STA NORMAL_TEMP               ; loop counter
 .loop:
+  ; BUF_PTR16 = line start + recorded offset
+  CLC
   LDA UNDO_DATA_BUF,X
+  ADC BUF_SRC16
   STA BUF_PTR16
-  INX
-  LDA UNDO_DATA_BUF,X
+  LDA UNDO_DATA_BUF + 1,X
+  ADC BUF_SRC16 + 1
   STA BUF_PTR16 + 1
   INX
-  ; BUF_PTR16 = offset; compute address = BUF_SRC16 + offset
-  CLC
-  ADC16 BUF_SRC16, BUF_PTR16, BUF_PTR16
-  LDY #0
+  INX
   LDA BUF_TEMP16               ; The stashed char
   STA (BUF_PTR16),Y
   DEC NORMAL_TEMP
