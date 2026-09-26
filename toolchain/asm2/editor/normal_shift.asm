@@ -13,7 +13,7 @@
 ;
 ; Core input contract:
 ;   UNDO_LINE16  = first line of the range
-;   BUF_TEMP16   = number of lines in the range (>= 1)
+;   BUF_TEMP16   = number of lines in the range (0 = do nothing)
 ;   BUF_DELTA    = space width W (insert per non-empty line / max removal)
 ;   SHIFT_MODE   = insert core only: 0 = constant width W per non-empty
 ;                  line; $FF = per-line widths from UNDO_DATA_BUF (undo)
@@ -75,20 +75,31 @@ shift_normal_setup:
   RTS
 
 ; Common core prologue: clear undo, save range/cursor for undo recording,
-; pre-compute the range's current screen rows for the $0B render path,
-; and set the line iterator (LINE_LEN16) to the range start.
+; zero the per-core accumulators, pre-compute the range's current screen
+; rows for the $0B render path, and set the line iterator (LINE_LEN16) to
+; the range start.  The core loops test at the bottom, so an empty range
+; (BUF_TEMP16 = 0: >> / << after a defect has left the cursor past the
+; last line) returns from the core itself, a no-op as before.
 shift_prologue:
   JSR undo_clear
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   CP16 CURSOR_COL16, UNDO_COL16
   CP16 UNDO_LINE16, LINE_LEN16
   LDA #0
+  STA NORMAL_TEMP              ; Cursor line width/removal (column adjust)
+  STA COUNT16                  ; COUNT16 = total shift/removal
+  STA COUNT16 + 1
+  STA UNDO_JOIN_COUNT          ; Line index for UNDO_DATA_BUF
   STA DELETE_SCREEN_ROWS       ; 0 = no partial repaint (fall back to full)
   LDA BUF_TEMP16 + 1
   BNE .done                    ; > 255 lines: full repaint, no undo
   CP16 UNDO_LINE16, RENDER_LINE16
   LDA BUF_TEMP16
-  JSR compute_delete_screen_rows
+  BEQ .empty
+  JMP compute_delete_screen_rows
+.empty:
+  PLA                          ; Drop the return into the core: return
+  PLA                          ; to the core's caller
 .done:
   RTS
 
@@ -127,75 +138,26 @@ shift_set_render:
 insert_spaces_core:
   JSR shift_prologue
 
-  ; --- Pre-scan: compute per-line widths and total shift ---
-  LDA #0
-  STA NORMAL_TEMP              ; Cursor line width (for column adjust)
-  STA COUNT16                  ; COUNT16 = total shift
-  STA COUNT16 + 1
-  STA UNDO_JOIN_COUNT          ; Line index for UNDO_DATA_BUF
-  PUSH16 BUF_TEMP16            ; Save line count for redistribute
-
+  ; --- Pre-scan: total shift and the cursor line's width ---
 .prescan:
-  TST16 BUF_TEMP16
-  BEQ .prescan_done
-
-  ; A = width for this line
-  LDA SHIFT_MODE
-  BEQ .const_width
-  LDX UNDO_JOIN_COUNT
-  LDA UNDO_DATA_BUF,X
-  JMP .have_width
-.const_width:
   LDAX16 LINE_LEN16
   JSR buf_get_line_ptr
-  LDY #0
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BNE .non_empty
-  LDA #0
-  JMP .record_width
-.non_empty:
-  LDA BUF_DELTA
-.record_width:
-  ; Record width for redistribute/undo (small ranges only)
-  LDX UNDO_PASTE_COUNT16 + 1
-  BNE .have_width
-  LDX UNDO_JOIN_COUNT
-  STA UNDO_DATA_BUF,X
-.have_width:
-  ; Cursor line: remember width for column adjust
+  JSR shift_line_width         ; A = width for this line
   TAY
-  CMP16 LINE_LEN16, FILE_LINE16
-  BNE .not_cursor_line
-  STY NORMAL_TEMP
-.not_cursor_line:
-  ; total shift += width
-  TYA
-  CLC
-  ADCA16 COUNT16, COUNT16
-
-  INC UNDO_JOIN_COUNT
-  INC16 LINE_LEN16
-  DEC16 BUF_TEMP16
-  JMP .prescan
-
-.prescan_done:
-  POP16 BUF_TEMP16             ; Restore line count
+  JSR shift_count_line
+  BNE .prescan
+  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16 ; Line count again for redistribute
 
   ; Nothing to insert (all lines empty): pure no-op
   TST16 COUNT16
-  BNE .has_work
-  JMP shift_noop
-.has_work:
+  BEQ shift_noop
 
   ; Single buffer shift right at first line start
   CP16 COUNT16, BUF_LEN16
   LDAX16 UNDO_LINE16
   JSR buf_get_line_ptr
   JSR buf_shift_right_16
-  BCC .shifted
-  JMP shift_noop               ; Buffer full: nothing changed
-.shifted:
+  BCS shift_noop               ; Buffer full: nothing changed
 
   ; --- Redistribute: write per-line spaces, copy line content down ---
   CP16 BUF_PTR16, JUMP_TARGET16 ; write ptr = first line start
@@ -205,32 +167,12 @@ insert_spaces_core:
   STA UNDO_JOIN_COUNT          ; Reset line index
 
 .redist:
-  TST16 BUF_TEMP16
-  BEQ .redist_done
-
-  ; A = width for this line (recorded widths, or re-derive for big ranges)
-  LDA UNDO_PASTE_COUNT16 + 1
-  BNE .redist_derive
-  LDX UNDO_JOIN_COUNT
-  LDA UNDO_DATA_BUF,X
-  JMP .redist_have_w
-.redist_derive:
-  ; Big constant-mode range: empty line = 0, else BUF_DELTA
-  LDY #0
-  LDA (BUF_PTR16),Y            ; read ptr = line start (pre-shift content)
-  CMP #'\n'
-  BNE .redist_non_empty
-  LDA #0
-  JMP .redist_have_w
-.redist_non_empty:
-  LDA BUF_DELTA
-.redist_have_w:
+  JSR shift_line_width         ; read ptr = line start (pre-shift content)
   TAX
   BEQ .redist_copy             ; Width 0: no spaces
-  LDY #0
 .write_spaces:
   LDA #' '
-  STA (JUMP_TARGET16),Y
+  STA (JUMP_TARGET16),Y        ; (Y = 0 from shift_line_width)
   INY
   DEX
   BNE .write_spaces
@@ -244,9 +186,9 @@ insert_spaces_core:
 
   INC UNDO_JOIN_COUNT
   DEC16 BUF_TEMP16
-  JMP .redist
+  TST16 BUF_TEMP16
+  BNE .redist
 
-.redist_done:
   JSR buf_rebuild_lines
 
   ; Adjust cursor column if the cursor's line was indented
@@ -271,10 +213,6 @@ remove_spaces_core:
   JSR shift_prologue
 
   LDA #0
-  STA NORMAL_TEMP              ; Cursor line spaces removed
-  STA COUNT16                  ; COUNT16 = total removed
-  STA COUNT16 + 1
-  STA UNDO_JOIN_COUNT          ; Line index for UNDO_DATA_BUF
   STA SHIFT_MODE               ; Accumulates recorded (last-op) removals
   ; Removal attributable to earlier ops of a batch (per line)
   LDA BUF_DELTA
@@ -288,9 +226,6 @@ remove_spaces_core:
   CP16 BUF_PTR16, JUMP_TARGET16
 
 .unindent_loop:
-  TST16 BUF_TEMP16
-  BEQ .unindent_done_loop
-
   ; Get line start from LINE_TBL (still valid, no shifts yet)
   LDAX16 LINE_LEN16
   JSR buf_get_line_ptr         ; BUF_PTR16 = line start
@@ -304,7 +239,7 @@ remove_spaces_core:
   CMP #' '
   BNE .have_spaces
   INY
-  JMP .count_spaces
+  BNE .count_spaces            ; Always taken (Y <= BUF_DELTA)
 .have_spaces:
   ; Y = spaces to remove for this line (0..BUF_DELTA)
 
@@ -324,16 +259,7 @@ remove_spaces_core:
   STA SHIFT_MODE               ; nonzero if any last-op removal recorded
 .no_record:
 
-  ; If cursor line, save actual removal in NORMAL_TEMP
-  CMP16 LINE_LEN16, FILE_LINE16
-  BNE .not_cursor
-  STY NORMAL_TEMP
-.not_cursor:
-
-  ; Add Y to total removed
-  TYA
-  CLC
-  ADCA16 COUNT16, COUNT16
+  JSR shift_count_line         ; (keeps Y)
 
   ; Advance BUF_PTR16 past leading spaces
   TYA
@@ -343,17 +269,12 @@ remove_spaces_core:
   ; Copy remaining line (including newline) to write ptr
   JSR copy_line_to_nl
 
-  INC UNDO_JOIN_COUNT
-  INC16 LINE_LEN16
-  DEC16 BUF_TEMP16
-  JMP .unindent_loop
+  TST16 BUF_TEMP16
+  BNE .unindent_loop
 
-.unindent_done_loop:
   ; If nothing was removed, pure no-op (no MODIFIED, no repaint)
   TST16 COUNT16
-  BNE .has_change
-  JMP shift_noop
-.has_change:
+  BEQ shift_noop
 
   ; Single shift left: close the gap after processed range
   CP16 JUMP_TARGET16, BUF_PTR16
@@ -387,6 +308,46 @@ remove_spaces_core:
   JMP shift_finish
 .no_undo:
   JMP shift_set_render
+
+; A = width to insert on the line starting at (BUF_PTR16), line index
+; UNDO_JOIN_COUNT: the recorded width in data mode, else 0 for an empty
+; line and BUF_DELTA otherwise.  Returns Y = 0.  Clobbers X.
+shift_line_width:
+  LDY #0
+  LDA SHIFT_MODE
+  BEQ .const
+  LDX UNDO_JOIN_COUNT
+  LDA UNDO_DATA_BUF,X
+  RTS
+.const:
+  LDA (BUF_PTR16),Y
+  CMP #'\n'
+  BEQ .empty
+  LDA BUF_DELTA
+  RTS
+.empty:
+  TYA
+  RTS
+
+; Per-line bookkeeping for the core loops (Y = this line's width or
+; removal, kept): remember it for the cursor line's column adjust, add it
+; to COUNT16, step the line index and the line iterator (LINE_LEN16) and
+; count the line off.  Returns Z set when the range is done
+; (BUF_TEMP16 = 0; shift_prologue has returned early for an empty range,
+; so the loops test at the bottom).  Clobbers A.
+shift_count_line:
+  CMP16 LINE_LEN16, FILE_LINE16
+  BNE .not_cursor
+  STY NORMAL_TEMP
+.not_cursor:
+  TYA
+  CLC
+  ADCA16 COUNT16, COUNT16
+  INC UNDO_JOIN_COUNT
+  INC16 LINE_LEN16
+  DEC16 BUF_TEMP16
+  TST16 BUF_TEMP16
+  RTS
 
 ; Copy bytes from (BUF_PTR16) to (JUMP_TARGET16) until '\n' is copied.
 ; Advances both pointers past the copied data.
