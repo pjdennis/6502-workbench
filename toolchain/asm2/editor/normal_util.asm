@@ -329,8 +329,7 @@ count_accumulate_digit:
   ASL16 COUNT16
   ; Add digit
   PLA
-  CLC
-  ADCA16 COUNT16, COUNT16
+  ADDA16 COUNT16
 .done:
   RTS
 
@@ -645,8 +644,7 @@ bcd_start:
   LDX BUF_LEN16                 ; x: the last char (range <= 255)
   DEX
   TXA
-  CLC
-  ADCA16 BUF_SRC16, BUF_SRC16
+  ADDA16 BUF_SRC16
 .yank_one:
   LDA #1
   STA BUF_LEN16

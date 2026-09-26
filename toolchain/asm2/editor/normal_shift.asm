@@ -186,8 +186,7 @@ insert_spaces_core:
   BNE .write_spaces
   ; Advance write ptr by width
   TYA
-  CLC
-  ADCA16 JUMP_TARGET16, JUMP_TARGET16
+  ADDA16 JUMP_TARGET16
 
 .redist_copy:
   JSR copy_line_to_nl
@@ -202,8 +201,7 @@ insert_spaces_core:
   ; Adjust cursor column if the cursor's line was indented
   LDA NORMAL_TEMP
   BEQ .no_col_adj
-  CLC
-  ADCA16 CURSOR_COL16, CURSOR_COL16
+  ADDA16 CURSOR_COL16
 .no_col_adj:
 
   ; Record undo: u removes the recorded per-line widths via unindent
@@ -271,8 +269,7 @@ remove_spaces_core:
 
   ; Advance BUF_PTR16 past leading spaces
   TYA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  ADDA16 BUF_PTR16
 
   ; Copy remaining line (including newline) to write ptr
   JSR copy_line_to_nl
@@ -349,8 +346,7 @@ shift_count_line:
   STY NORMAL_TEMP
 .not_cursor:
   TYA
-  CLC
-  ADCA16 COUNT16, COUNT16
+  ADDA16 COUNT16
   INC SHIFT_LINE_IDX
   INC16 LINE_LEN16
   DEC16 BUF_TEMP16
@@ -453,8 +449,7 @@ compute_dollar_range:
 
 .multiline:
   ; remaining = count - 1
-  SEC
-  SBCI16 BUF_TEMP16, 1, BUF_TEMP16
+  DEC16 BUF_TEMP16
   ; next_line = FILE_LINE16 + 1
   CLC
   ADCI16 FILE_LINE16, 1, COUNT16
@@ -465,8 +460,7 @@ compute_dollar_range:
   BCS .done
 
   ; Add 1 for the newline
-  CLC
-  ADCI16 BUF_LEN16, 1, BUF_LEN16
+  INC16 BUF_LEN16
 
   ; Get length of this line
   LDAX16 COUNT16

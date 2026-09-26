@@ -15,8 +15,7 @@ paste_prologue:
   JSR count_pending_key      ; X = pending matching keys
   STX BATCH_EXTRA
   TXA
-  CLC
-  ADCA16 BUF_TEMP16, BUF_TEMP16
+  ADDA16 BUF_TEMP16
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   RTS
 
@@ -35,8 +34,7 @@ normal_paste_below:
   BEQ .paste_below_scroll
   ; Batched paste: cursor adjustment shifts FILE_LINE16 past first pasted
   ; lines, so scroll walk would start at wrong position.
-  CLC
-  ADCA16 FILE_LINE16, FILE_LINE16
+  ADDA16 FILE_LINE16
   ; Batching must not widen undo: record only the last pasted copy.
   ; It occupies YANK_LINES16 lines starting (N-1)*YANK_LINES16 + 1 past
   ; the original cursor line.
@@ -271,8 +269,7 @@ interleaved_fill:
   BNE .full_byte
   ; Advance write ptr by S
   TYA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  ADDA16 BUF_PTR16
   DEX
   BNE .full_loop
 
@@ -293,8 +290,7 @@ interleaved_fill:
   BNE .prefix_byte
   ; Advance write ptr by prefix size
   TYA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  ADDA16 BUF_PTR16
   DEX
   BNE .prefix_loop
 
@@ -546,8 +542,7 @@ normal_join_lines:
   STX RENDER_FROM_COL16 + 1
   ; Advance BUF_PTR16 by Y so BUF_PTR16 points directly to the '\n'
   TYA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  ADDA16 BUF_PTR16
 
   LDX #0                     ; X = undo buffer write index
   LDA NORMAL_TEMP

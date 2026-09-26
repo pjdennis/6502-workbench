@@ -518,8 +518,7 @@ undo_tilde_redo:
   JSR undo_tilde_span
   ; Cursor advances past the span as the original ~ did (clamped)
   TYA                        ; Y = span length (UNDO_SPAN_LEN)
-  CLC
-  ADCA16 CURSOR_COL16, CURSOR_COL16
+  ADDA16 CURSOR_COL16
   JSR clamp_cursor_col
   JMP undo_span_redone
 
@@ -551,8 +550,7 @@ undo_replace_redo:
   ; Cursor lands on the last replaced char, as the original r did
   DEY
   TYA                        ; A = span length - 1
-  CLC
-  ADCA16 CURSOR_COL16, CURSOR_COL16
+  ADDA16 CURSOR_COL16
   JMP undo_span_redone
 
 ; --- Restore helpers: copy the undo record back into cursor state ---

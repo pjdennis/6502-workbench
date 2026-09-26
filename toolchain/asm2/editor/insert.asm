@@ -258,8 +258,7 @@ insert_handle_key:
   STA BUF_LEN16 + 1
   PUSH16 BUF_PTR16           ; save delete_start
   TXA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  ADDA16 BUF_PTR16
   BIT SHIFT_NET
   BMI .shrink                ; |net| <= BATCH_MAX < 128
   JSR buf_shift_right_16     ; carry set = buffer full
@@ -370,8 +369,7 @@ insert_handle_key:
   ; start of that line (the line after the last inserted newline, else
   ; the first merged line) ---
   LDA NORMAL_TEMP            ; ins_nl
-  CLC
-  ADCA16 FILE_LINE16, FILE_LINE16
+  ADDA16 FILE_LINE16
   JSR get_current_line_ptr
   SEC
   SBC16 BUF_LEN16, BUF_PTR16, CURSOR_COL16

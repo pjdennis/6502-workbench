@@ -266,8 +266,7 @@ parse_range_pos:
   CLC
   ADC16 BUF_LEN16, BUF_DST16, BUF_LEN16
   PLA
-  CLC
-  ADCA16 BUF_LEN16, BUF_LEN16
+  ADDA16 BUF_LEN16
   INX
   BNE .digit_loop         ; Always taken (CMD_BUF is null-terminated)
 .digits_done:
@@ -276,8 +275,7 @@ parse_range_pos:
   ; Convert 1-based to 0-based (0 stays at 0 = first line)
   TST16 BUF_LEN16
   BEQ .num_ok
-  SEC
-  SBCI16 BUF_LEN16, $0001, BUF_LEN16
+  DEC16 BUF_LEN16
   ; Clamp to LINE_COUNT16-1
   CMP16 BUF_LEN16, LINE_COUNT16
   BCC .num_ok

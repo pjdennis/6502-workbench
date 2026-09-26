@@ -105,8 +105,7 @@ scroll_view_down:
 
   ; VIEW_TOP16 += BUF_TEMP
   LDA BUF_TEMP
-  CLC
-  ADCA16 VIEW_TOP16, VIEW_TOP16
+  ADDA16 VIEW_TOP16
 
   ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - content_rows), where
   ; LINE_COUNT - content_rows = LINE_COUNT - SCREEN_ROWS + 1
