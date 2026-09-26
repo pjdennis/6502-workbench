@@ -204,6 +204,7 @@ buf_insert_char:
 ; Input: BUF_PTR16 = insert point, BUF_LEN16 = shift amount (16-bit)
 ; Returns carry set = buffer full, carry clear = success
 ; Updates BUF_END16 on success. Does not modify BUF_PTR16.
+; Clobbers A, Y, BUF_SRC16, BUF_DST16
 buf_shift_right_16:
   ; Check if buffer has room for BUF_LEN16 bytes
   CLC
@@ -226,18 +227,49 @@ buf_shift_right_16:
   JSR cmp_ptr_end
   BEQ .shift_done
 
-  ; Set up mem_copy_up parameters:
-  ;   BUF_SRC16 = source start (insert point = BUF_PTR16)
-  ;   BUF_DST16 = destination (insert point + shift amount)
-  ;   BUF_PTR16 = source end (BUF_END16)
-  ; Save BUF_PTR16 (callers need it preserved)
-  PUSH16 BUF_PTR16
-  CP16 BUF_PTR16, BUF_SRC16
+  ; Copy [BUF_PTR16, BUF_END16) up by BUF_LEN16, last byte first.
+  ; BUF_SRC16/BUF_DST16 = page-aligned source/destination bases,
+  ; Y = low byte of the byte being copied
+  SEC
+  LDA BUF_END16
+  SBC #1
+  TAY                        ; Y = low byte of last source byte
+  LDA BUF_END16 + 1
+  SBC #0
+  STA BUF_SRC16 + 1          ; page of last source byte
   CLC
-  ADC16 BUF_SRC16, BUF_LEN16, BUF_DST16
-  CP16 BUF_END16, BUF_PTR16
-  JSR mem_copy_up
-  POP16 BUF_PTR16
+  ADC BUF_LEN16 + 1
+  STA BUF_DST16 + 1
+  LDA BUF_LEN16
+  STA BUF_DST16              ; (BUF_DST16),Y = (BUF_SRC16),Y + BUF_LEN16
+  LDA #0
+  STA BUF_SRC16
+  LDA BUF_SRC16 + 1
+  CMP BUF_PTR16 + 1
+  BEQ .last_page
+  TYA
+  BEQ .byte0                 ; First page holds only byte 0
+.full_page:                  ; Copy Y..1 of this page, then byte 0
+  LDA (BUF_SRC16),Y
+  STA (BUF_DST16),Y
+  DEY
+  BNE .full_page
+.byte0:
+  LDA (BUF_SRC16),Y
+  STA (BUF_DST16),Y
+  DEY                        ; Y = $FF for the previous page
+  DEC BUF_SRC16 + 1
+  DEC BUF_DST16 + 1
+  LDA BUF_SRC16 + 1
+  CMP BUF_PTR16 + 1
+  BNE .full_page
+.last_page:                  ; Insert point's page: copy Y down to it
+  LDA (BUF_SRC16),Y
+  STA (BUF_DST16),Y
+  CPY BUF_PTR16
+  BEQ .shift_done
+  DEY
+  BCS .last_page             ; Always (Y > insert point low byte)
 
 .shift_done:
   ; Update buffer end: add BUF_LEN16

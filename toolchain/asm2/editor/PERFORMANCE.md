@@ -12,10 +12,11 @@ For a 318-line file: ~12K cycles vs ~194K cycles.
 
 ### Page-at-a-time byte shifting
 
-`buf_shift_right_16` and `buf_shift_left_16` use Y-indexed inner loops to process
-up to 256 bytes per page, avoiding per-byte 16-bit pointer manipulation.
+`buf_shift_right_16` and `buf_shift_left_16` (via `mem_copy_down`) use
+Y-indexed inner loops to process up to 256 bytes per page, avoiding per-byte
+16-bit pointer manipulation.
 
-~16-18 cycles/byte vs ~47 cycles/byte.
+~16 cycles/byte vs ~47 cycles/byte.
 
 ### Unified insert-mode batching
 

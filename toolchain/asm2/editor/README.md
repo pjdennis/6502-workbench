@@ -14,8 +14,8 @@ project's 6502 emulator in console/ANSI mode.
 - `buffer.asm`: contiguous text storage with newline delimiters; line pointer
   table (`LINE_TBL`); insert/delete/shift operations; full rebuild and
   incremental line-table adjustment.
-- `buffer_mem.asm`: page-optimized memory copy routines (`mem_copy_up`,
-  `mem_copy_down`).
+- `buffer_mem.asm`: page-optimized forward memory copy (`mem_copy_down`);
+  `buf_shift_right_16` has its own backward (last byte first) copy loop.
 - `undo_state.asm` / `undo.asm`: single-level undo/redo — types, zeropage
   state, and the shared 256-byte undo data page ($D700), plus the
   undo/redo handlers for every undoable operation.
