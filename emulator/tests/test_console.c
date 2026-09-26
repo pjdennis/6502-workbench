@@ -796,6 +796,20 @@ TEST pace_holds_while_output_is_being_sent(void) {
     PASS();
 }
 
+TEST pace_wait_times_out_once_per_hold(void) {
+    pace_setup();
+    ASSERT_EQ(1, serial_pace_wait_times_out());  // the key is not typed yet
+    ASSERT_EQ(0, serial_pace_wait_times_out());  // the next request may release
+    serial_rx_fill();                            // idle poll: released
+    ASSERT_EQ(0, serial_pace_wait_times_out());  // no hold
+    clockticks6502 = 100;
+    serial_rx_fill();                            // 'A' (marked) starts a hold
+    serial_rx_tail = serial_rx_head;
+    ASSERT_EQ(1, serial_pace_wait_times_out());
+    pace_teardown();
+    PASS();
+}
+
 SUITE(console_suite) {
     RUN_TEST(resize_allocates_correct_size);
     RUN_TEST(resize_rejects_invalid);
@@ -854,6 +868,7 @@ SUITE(console_suite) {
     RUN_TEST(pace_holds_the_first_byte_until_an_idle_poll);
     RUN_TEST(pace_holds_after_a_marked_byte_until_read);
     RUN_TEST(pace_holds_while_output_is_being_sent);
+    RUN_TEST(pace_wait_times_out_once_per_hold);
 }
 
 GREATEST_MAIN_DEFS();

@@ -53,6 +53,7 @@ static const unsigned char *serial_pace_mask = NULL;
 static long serial_pace_len = 0;
 static long serial_fill_index = 0;
 static int serial_pace_hold = 0;
+static int serial_pace_waited = 0;   // a wait has timed out during this hold
 char serial_inject_buf[32];
 int serial_inject_pos = 0;
 int serial_inject_len = 0;
@@ -361,6 +362,7 @@ void serial_reset() {
     serial_pace_len = 0;
     serial_fill_index = 0;
     serial_pace_hold = 0;
+    serial_pace_waited = 0;
 }
 
 // Test pacing (--pace-mask in terminal mode), one mask byte per input byte.
@@ -374,6 +376,16 @@ void serial_pace_start(const unsigned char *mask, long len) {
     serial_pace_len = len;
     serial_fill_index = 0;
     serial_pace_hold = 1;
+    serial_pace_waited = 0;
+}
+
+// During a hold the paced key is not typed yet, so the program's first
+// wait_ready times out (returns 1) rather than releasing it; the program's
+// next request for input may then release it, as a poll does.
+int serial_pace_wait_times_out(void) {
+    if (!serial_pace_hold || serial_pace_waited) return 0;
+    serial_pace_waited = 1;
+    return 1;
 }
 
 static int serial_program_idle(void) {
@@ -396,6 +408,7 @@ void serial_rx_fill() {
     if (serial_pace_hold) {
         if (!serial_program_idle()) return;
         serial_pace_hold = 0;   // idle: the next key starts on the wire now
+        serial_pace_waited = 0;
         serial_rx_next_fill_at = clockticks6502 + serial_cycles_per_byte;
         return;
     }
@@ -422,6 +435,7 @@ void serial_rx_fill() {
         long i = serial_fill_index++;
         if (serial_pace_mask && i < serial_pace_len && serial_pace_mask[i] != '0') {
             serial_pace_hold = 1;
+            serial_pace_waited = 0;
             break;
         }
     }

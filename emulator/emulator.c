@@ -248,6 +248,10 @@ static uint8_t serial_wait_ready(unsigned ms) {
     for (;;) {
         serial_tx_drain();
         if (serial_inject_pos < serial_inject_len) return 0xFF;
+        if (serial_rx_count() == 0 && serial_pace_wait_times_out()) {
+            clockticks6502 = deadline;  // paced input: the key is not typed yet
+            return 0x00;
+        }
         serial_rx_fill();
         if (serial_rx_count() > 0) return 0xFF;
         if (clockticks6502 >= deadline || sigint_requested || sigtstp_requested)
@@ -277,9 +281,14 @@ static uint8_t wait_ready(unsigned ms) {
     if (terminal_mode) return serial_wait_ready(ms);
     if (con_eof_flag) return 0x01;
     if (console_mode) return wait_stdin(ms) ? 0xFF : 0x00;
-    // --input: every byte is ready at once. Waiting counts as going idle,
-    // which ends a --pace-mask pause.
-    if (pace_remaining > 0) end_pace_pause();
+    // --input: every byte is ready at once, except in a --pace-mask pause:
+    // the paced key is not typed yet, so the first wait times out and the
+    // program's next request for input ends the pause
+    if (pace_remaining > 1) {
+        pace_remaining = 1;
+        return 0x00;
+    }
+    if (pace_remaining == 1) end_pace_pause();
     return 0xFF;
 }
 

@@ -455,9 +455,10 @@ class EmulatorTestRunner:
         self._assert_eq(name, output, b"\xffA\xffB\xff\x00\x01")
 
     def test_wait_ready_ends_pace_pause(self):
-        """Waiting counts as going idle, so wait_ready ends a --pace-mask
-        pause at once instead of timing out."""
-        name = "wait_ready: ends a --pace-mask pause"
+        """During a --pace-mask pause the paced key is not typed yet: a wait
+        times out, and the program's next request for input ends the pause
+        (the log records the output written by then)."""
+        name = "wait_ready: times out in a --pace-mask pause, which then ends"
         if not self._should_run(name):
             return
         keys = self.tmpdir / "wait_keys.bin"
@@ -472,11 +473,11 @@ class EmulatorTestRunner:
         if result.returncode != 0:
             self._fail(name, f"exit code {result.returncode}")
             return
-        if out.read_bytes() != b"\xffA\xffB\xff\x00\x01":
+        if out.read_bytes() != b"\xffA\x00\xffB\x00\xff\x00\x01":
             self._fail(name, f"output {out.read_bytes()!r}")
             return
         # each pause ends with "<input bytes read> <output bytes written>"
-        self._assert_eq(name, log.read_text().splitlines(), ["1 2", "2 4"])
+        self._assert_eq(name, log.read_text().splitlines(), ["1 3", "2 6"])
 
     def _run_console_wait(self, send):
         """Run wait_ready_exit_test (a 200 ms wait) in --console mode with
