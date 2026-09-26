@@ -414,10 +414,7 @@ range_shift_setup:
   CP16 BUF_SRC16, UNDO_LINE16  ; Range start (BUF_TEMP16 = count already)
   LDA #INDENT_WIDTH
   STA BUF_DELTA
-  STA SHIFT_UNDO_WIDTH
-  LDA #0
-  STA SHIFT_MODE
-  RTS
+  JMP shift_setup_tail
 
 range_shift_finish:
   JSR clamp_cursor_col         ; Clamp (unindent may shorten line)

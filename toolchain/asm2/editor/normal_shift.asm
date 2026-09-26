@@ -57,12 +57,16 @@ shift_normal_setup:
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
   ADC #INDENT_WIDTH            ; + the key itself (carry clear: BATCH_EXTRA <= BATCH_MAX)
   STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * (1 + extra pairs)
-  LDA #INDENT_WIDTH
-  STA SHIFT_UNDO_WIDTH         ; undo = last >> / << only
   SEC
   SBC16_8 COUNT16, BATCH_EXTRA, COUNT16 ; (subtracting 0 when not batched)
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   CP16 FILE_LINE16, UNDO_LINE16
+  ; fall through
+
+; Shared tail (the :range > / < setup jumps here too)
+shift_setup_tail:
+  LDA #INDENT_WIDTH
+  STA SHIFT_UNDO_WIDTH         ; undo = last >> / << only
   LDA #0
   STA SHIFT_MODE
   RTS
