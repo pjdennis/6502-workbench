@@ -3519,7 +3519,7 @@ class EditorTestRunner:
         )
 
         # ============================================================
-        # Mixed-type batch tests (unified insert_batch handler)
+        # Mixed-type batch tests (unified insert-mode batch handler)
         # When mixed editing keys (printable, Enter, BS, DEL) arrive
         # in rapid succession, they should be consolidated into a
         # single buffer operation.
@@ -7441,7 +7441,7 @@ class EditorTestRunner:
         )
 
         # --- Mark adjustment: batched insert mode ---
-        # Verify marks are correctly adjusted by the unified insert_batch
+        # Verify marks are correctly adjusted by the unified insert-mode batch
         # handler regardless of how keystrokes are batched together.
 
         # Batch Enter×2 above mark -> mark shifts by 2

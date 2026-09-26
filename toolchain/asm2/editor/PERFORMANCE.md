@@ -21,9 +21,10 @@ Y-indexed inner loops to process up to 256 bytes per page, avoiding per-byte
 
 ### Unified insert-mode batching
 
-All insert-mode editing keys (printable, Enter, BS, DEL) are handled by a
-single `insert_batch` handler. On each keystroke, it collects pending keys
-from the input buffer and consolidates them on-the-fly into canonical form:
+All insert-mode editing keys (printable, Tab, Enter, BS, DEL) are handled by
+one batch handler, `insert_handle_key`. On each keystroke, it collects
+pending keys from the input buffer and consolidates them on-the-fly into
+canonical form:
 
 ```
 [back N] [insert BATCH_BUF[0..len-1]] [fwd N]
@@ -134,7 +135,7 @@ most line table operations just compare or iterate.
 - `editor/render.asm`: `render_line_chars` reads buffer content that may
   span the gap. Needs to check if current line crosses the gap and
   handle the split.
-- `editor/insert.asm`: `insert_batch` writes to `BATCH_BUF` and copies
+- `editor/insert.asm`: `insert_handle_key` writes to `BATCH_BUF` and copies
   into the buffer, so it needs gap-aware copy. The collection phase is
   unchanged.
 - `editor/normal.asm`: Cursor movement may need to shift bytes across

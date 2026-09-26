@@ -11,7 +11,7 @@ and later, xterm-alikes, Windows Terminal, PuTTY, minicom all support them).
 
 ## Where things stand
 
-- **Batching exists.** `insert_batch` (`insert.asm`) collects up to
+- **Batching exists.** `insert_handle_key` (`insert.asm`) collects up to
   `BATCH_MAX` (32) queued keys and reduces them to
   `[back N] [insert BATCH_BUF] [fwd N]`, then shifts the buffer once. Its
   fast path (no newlines involved) sets `RENDER_FROM_COL16 = c0`, the first
@@ -58,7 +58,7 @@ Callers:
 
 | Handler | c0 | SHIFT_NET | SHIFT_WRITE |
 |---|---|---|---|
-| `insert_batch` fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
+| insert-mode batch fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
 | `x` / Delete (count n, clamped to line) | cursor | `-n` | 0 |
 | `X` (count n, clamped to col) | `col - n` | `-n` | 0 |
 
@@ -154,7 +154,7 @@ same commit; refactors in their own commits).
      n cells.
 
 5. **Single-row lines: insert mode, `x`, `X`.** *Done.* Add `SHIFT_NET` /
-   `SHIFT_WRITE`, set them from `insert_batch`'s fast path and from the
+   `SHIFT_WRITE`, set them from the insert batch's fast path and from the
    `x` / `X` handlers, and use the per-row step in
    `render_line_from_change` when `SHIFT_NET != 0`. Failing tests first
    (10x40 screen, each with and without `deferred_wrap`):

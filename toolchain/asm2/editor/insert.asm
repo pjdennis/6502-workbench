@@ -8,36 +8,12 @@
 ;   - ESC ($1B) returns to normal mode
 ;
 ; All editing keys (printable, Enter, BS, DEL) are handled by a single
-; unified batch handler (insert_batch) that collects mixed keystrokes
+; unified batch handler (insert_handle_key) that collects mixed keystrokes
 ; and consolidates them into: [back N] [insert chars] [fwd N]
-; Then executes with a single buffer shift.
+; Then executes with a single buffer shift.  Other keys go through
+; insert_keys.
 
   .code
-
-; Handle a keystroke in insert mode
-; Key code in A
-insert_handle_key:
-  STA BUF_TEMP
-  ; Route batchable keys directly to insert_batch
-  CMP #KEY_ENTER
-  BEQ .batch
-  CMP #KEY_BS
-  BEQ .batch
-  CMP #KEY_DEL
-  BEQ .batch
-  CMP #KEY_TAB
-  BEQ .batch
-  CMP #' '
-  BCC .dispatch
-  CMP #$7F
-  BCC .batch             ; $20-$7E = printable
-.dispatch:
-  LDA #<insert_keys
-  LDX #>insert_keys
-  JSR dispatch_key
-  RTS
-.batch:
-  JMP insert_batch
 
 ; --- Dispatch table ---
 
@@ -80,7 +56,8 @@ insert_exit:
 ; on-the-fly into canonical form: [back N] [insert BATCH_BUF] [fwd N]
 ; Then executes with a single buffer shift.
 ;
-; On entry: BUF_TEMP = first key (printable, Enter, BS, or DEL)
+; On entry: A = the key.  A first key that is not an editing key is
+; dispatched through insert_keys instead.
 ;
 ; Collection phase variables:
 ;   BUF_TEMP16.lo = back count (BS overflow past batch)
@@ -100,29 +77,13 @@ insert_exit:
 ;   BUF_SRC16      = forward scan pointer
 ;   Stack          = cursor_buf_pos (in newline path)
 ;
-insert_batch:
+insert_handle_key:
+  STA BUF_TEMP              ; key code (for dispatch_key / insert_counted_move)
   ; --- Collection phase ---
-  LDA #0
-  STA BUF_TEMP16           ; back = 0
-  STA BUF_TEMP16 + 1       ; fwd = 0
-  LDX #0                   ; BATCH_BUF write index
-  LDY #BATCH_MAX           ; remaining capacity
-
-  ; Process first key (already in BUF_TEMP)
-  LDA BUF_TEMP
-  JMP .collect_key
-
-.key_del:
-  INC BUF_TEMP16 + 1        ; fwd++
-  ; fall through: consume capacity and fetch next key
-
-.dec_cap:
-  DEY                       ; DEY sets Z, no CPY needed
-  BEQ .collect_done
-  JSR key_peek               ; A = next key
-  BCC .collect_done
-  INC HAS_KEY_DECODED        ; Consume it ($FF -> $00)
-
+  LDX #0                    ; BATCH_BUF write index
+  STX BUF_TEMP16            ; back = 0
+  STX BUF_TEMP16 + 1        ; fwd = 0
+  LDY #BATCH_MAX            ; remaining capacity
 .collect_key:
   CMP #KEY_ENTER
   BEQ .key_enter
@@ -141,22 +102,41 @@ insert_batch:
 .key_printable:
   STA BATCH_BUF,X
   INX
-  JMP .dec_cap
+  BNE .dec_cap              ; Always taken (X <= BATCH_MAX)
 
 .key_enter:
   LDA #'\n'
   BNE .key_printable        ; Always taken ($0A != 0)
 
 .key_bs:
-  CPX #0
+  TXA
   BEQ .key_bs_overflow
   DEX                       ; Cancel last char in batch
-  JMP .dec_cap
+  BPL .dec_cap              ; Always taken (X < BATCH_MAX)
 .key_bs_overflow:
   INC BUF_TEMP16            ; back++
-  JMP .dec_cap
+  BNE .dec_cap              ; Always taken (back <= BATCH_MAX)
+
+.key_del:
+  INC BUF_TEMP16 + 1        ; fwd++
+  ; fall through: consume capacity and fetch next key
+
+.dec_cap:
+  DEY                       ; DEY sets Z, no CPY needed
+  BEQ .collect_done
+  JSR key_peek              ; A = next key
+  BCC .collect_done
+  INC HAS_KEY_DECODED       ; Consume it ($FF -> $00)
+  BEQ .collect_key          ; Always taken (INC gave $00)
 
 .key_other:
+  CPY #BATCH_MAX
+  BNE .end_batch
+  ; The first key is not an editing key: dispatch it (BUF_TEMP = key)
+  LDA #<insert_keys
+  LDX #>insert_keys
+  JMP dispatch_key
+.end_batch:
   JSR unget_key
 
 .collect_done:
