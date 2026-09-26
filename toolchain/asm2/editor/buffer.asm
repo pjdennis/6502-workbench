@@ -121,12 +121,14 @@ buf_save_file:
 ; Returns pointer in BUF_PTR16
 ; Clobbers A, Y
 buf_get_line_ptr:
-  ; Line table index = N * 2
-  STAX16 BUF_PTR16
-  ASL16 BUF_PTR16
-  ; Add LINE_TBL base
-  CLC
-  ADCI16 BUF_PTR16, LINE_TBL, BUF_PTR16
+  ; Entry address = LINE_TBL + N * 2 (LINE_TBL is page-aligned and
+  ; N < $8000, so the ROL leaves C = 0 for the high-byte add)
+  STA BUF_PTR16
+  TXA
+  ASL BUF_PTR16
+  ROL
+  ADC #>LINE_TBL
+  STA BUF_PTR16 + 1
   ; Read the 16-bit pointer from the table
   LDY #0
   LDA (BUF_PTR16),Y
