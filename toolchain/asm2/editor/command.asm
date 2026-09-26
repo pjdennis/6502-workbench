@@ -144,14 +144,7 @@ cmd_parse_m:
 
 cmd_parse_q:
   LDA CMD_BUF + 1
-  BEQ .do_quit        ; Just ":q"
-  CMP #'!'
-  BNE cmd_unknown
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":q!"
-  BEQ cmd_set_quit    ; Always taken
-
-.do_quit:
+  BNE .not_bare       ; Not just ":q"
   ; Check if modified
   LDA MODIFIED
   BEQ cmd_set_quit
@@ -159,6 +152,15 @@ cmd_parse_q:
   LDA #<str_no_write
   LDX #>str_no_write
   JMP show_message_ax
+
+.not_bare:
+  CMP #'!'
+  BNE cmd_unknown
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":q!"
+cmd_set_quit:
+  DEC CMD_QUIT        ; $00 -> $FF: quit
+  RTS
 
 cmd_parse_w:
   LDA READONLY
@@ -169,21 +171,19 @@ cmd_parse_w:
   BNE cmd_unknown
   LDA CMD_BUF + 2
   BNE cmd_unknown     ; Extra chars after ":wq"
-  ; :wq - write and quit
-  JSR command_write_file
+  ; :wq - quit once written (a failed open clears this again)
+  DEC CMD_QUIT
   ; fall through
 
-cmd_set_quit:
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-; Write (save) the file
+; Write (save) the file. If it cannot be opened, show an error and leave
+; MODIFIED set and CMD_QUIT clear (a failed :wq does not quit).
 command_write_file:
   ; Open file for writing
   LDA #<FNAME_BUF
   LDX #>FNAME_BUF
   JSR openout
+  TAX                 ; Handle 0: could not open
+  BEQ .open_failed
 
   ; Write buffer contents (buf_save_file keeps the handle in FILE_HANDLE)
   JSR buf_save_file
@@ -203,6 +203,12 @@ command_write_file:
   JSR write_fname
   PRINT_STR str_written
   JMP io_flush
+
+.open_failed:
+  STA CMD_QUIT        ; A = 0
+  LDA #<str_cant_write
+  LDX #>str_cant_write
+  JMP show_message_ax
 
 ; --- Command parse dispatch table ---
 command_parse_keys:
@@ -457,6 +463,7 @@ str_unknown_cmd: .asciiz "Unknown command"
 str_no_write:    .asciiz "No write since last change (use :q! to override)"
 str_written:     .byte '"'         ; Closing quote after the file name
                  .asciiz " written"
+str_cant_write:  .asciiz "Can't open file for writing"
 str_buffer_full: .asciiz "Buffer full"
 str_readonly:    .asciiz "Read-only (file truncated)"
 str_truncated:   .asciiz "WARNING: File too large - read only"

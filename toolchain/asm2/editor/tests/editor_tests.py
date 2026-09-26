@@ -2016,6 +2016,32 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
+        # A path that cannot be opened for writing (its directory is
+        # missing, which fails even when the tests run as root): :w reports
+        # the error and editing continues. 'x' dismisses each message.
+        self.run_test_new_file(
+            ":w to unwritable path shows error",
+            b"iHello\x1b:w\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="Can't open file for writing"
+        )
+
+        # The failed write leaves the buffer modified, so :q is refused
+        self.run_test_new_file(
+            ":w to unwritable path leaves buffer modified",
+            b"iHello\x1b:w\rx:q\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="No write since last change"
+        )
+
+        # A failed :wq does not quit
+        self.run_test_new_file(
+            ":wq to unwritable path does not quit",
+            b"iHello\x1b:wq\rx:q\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="No write since last change"
+        )
+
         self._group("Bounds checking (small buffer build):", leading_blank=True)
 
         if not small_built:
