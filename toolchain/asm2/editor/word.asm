@@ -312,7 +312,9 @@ compute_multiline_word_range_backward:
   JMP range_epilogue
 
 ; Compute forward word-end range (multi-line) for de/ye/ce
-; e is an inclusive motion: range includes the character at the end position.
+; e is an inclusive motion: range includes the character at the end
+; position, unless e found no word end and stopped on a '\n' (as in vi,
+; the range never takes that line break)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
@@ -322,6 +324,10 @@ compute_multiline_word_end_range_forward:
   JSR range_start
   JSR word_end_x                    ; move cursor to end of Nth word
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
+  LDY #0
+  LDA (BUF_PTR16),Y
+  CMP #'\n'
+  BEQ range_end                     ; no word end: exclusive
   INC16 BUF_PTR16                   ; inclusive: include end char
   ; fall through into range_end
 

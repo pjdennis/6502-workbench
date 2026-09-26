@@ -10222,6 +10222,57 @@ class EditorTestRunner:
             expected_content=" four\n",
         )
 
+        # When e finds no word end it stops on a newline; the inclusive
+        # range must not take that newline (here the buffer's final one)
+        self.run_test(
+            "de over trailing whitespace keeps final newline",
+            "foo   \n",
+            b"llde:wq\r",
+            expected_content="fo\n",
+        )
+
+        self.run_test(
+            "de over trailing whitespace then cc keeps final newline",
+            "foo   \n",
+            b"lldeccZ\x1b:wq\r",
+            expected_content="Z\n",
+        )
+
+        self.run_test(
+            "de on whitespace-only last line keeps final newline",
+            "  \n",
+            b"de:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de before final empty line keeps final newline",
+            "ab\n\n",
+            b"lde:wq\r",
+            expected_content="a\n",
+        )
+
+        self.run_test(
+            "3de past the last word keeps final newline",
+            "a b  \n",
+            b"3de:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de then x at end of buffer stays in bounds",
+            "a \n",
+            b"dex:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de on the last char of the buffer deletes it",
+            "a \n",
+            b"lde:wq\r",
+            expected_content="a\n",
+        )
+
         self._group("Change word end (ce):", leading_blank=True)
 
         self.run_test(
@@ -10282,6 +10333,13 @@ class EditorTestRunner:
             expected_content="x baz\n",
         )
 
+        self.run_test(
+            "ce over trailing whitespace keeps final newline",
+            "foo   \n",
+            b"llceX\x1b:wq\r",
+            expected_content="foX\n",
+        )
+
         self._group("Yank word end (ye):", leading_blank=True)
 
         self.run_test(
@@ -10324,6 +10382,13 @@ class EditorTestRunner:
             "one two three\n",
             b"2ye$p:wq\r",
             expected_content="one two threeone two\n",
+        )
+
+        self.run_test(
+            "ye over trailing whitespace does not yank final newline",
+            "ab  \n",
+            b"lye$p:wq\r",
+            expected_content="ab  b  \n",
         )
 
         self.run_test(
