@@ -249,62 +249,47 @@ word_end_x:
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
-; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
+; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
+;           BUF_SRC16, BUF_DST16
 compute_multiline_word_range_forward:
-  STX NORMAL_TEMP                   ; save word count (X clobbered by get_cursor_buf_ptr)
-  CP16 FILE_LINE16, BUF_DST16      ; save start_line
-  PUSH16 CURSOR_COL16              ; save original cursor
-  PUSH16 FILE_LINE16
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = start_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16        ; save start_buf_ptr (safe across word_forward_x)
-  LDX NORMAL_TEMP                   ; restore word count
+  JSR range_start
   JSR word_forward_x                ; move cursor forward N words
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
   ; Exclusive-linewise check: if different line AND col 0, back up past '\n'
-  CMP16 FILE_LINE16, BUF_DST16
+  CMP16 FILE_LINE16, BUF_DST16      ; BUF_DST16 = start line (range_start)
   BEQ .cmwrf_no_adj                 ; same line, no adjustment
   TST16 CURSOR_COL16
   BNE .cmwrf_no_adj                 ; not at col 0, no adjustment
   DEC16 BUF_PTR16                   ; back up past '\n'
 .cmwrf_no_adj:
-  SEC
-  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
-  POP16 FILE_LINE16                 ; restore cursor
-  POP16 CURSOR_COL16
-  JMP range_epilogue
+  JMP range_end
 
 ; Compute forward cw-semantics word range (multi-line) for cw
 ; Like word range but strips trailing whitespace when cursor starts on non-whitespace
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
-; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
+; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
+;           BUF_SRC16, BUF_DST16
 compute_multiline_cw_range_forward:
-  STX NORMAL_TEMP                   ; save word count (X clobbered by get_cursor_buf_ptr)
-  JSR class_at_cursor               ; get class of char under cursor
-  PHA                               ; save original char class on stack
-  PUSH16 CURSOR_COL16              ; save original cursor
-  PUSH16 FILE_LINE16
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = start_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16        ; save start_buf_ptr
-  LDX NORMAL_TEMP                   ; restore word count
+  JSR range_start                   ; BUF_PTR16 = cursor address
+  JSR class_at_ptr                  ; class of char under cursor (keeps X)
+  PHA
   JSR word_forward_x                ; move cursor forward N words
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
   ; No exclusive-linewise adjustment for cw:
   ; non-ws path strips trailing ws (handles it); ws path extends past word
-  ; Check original char class to determine cw behavior
-  TSX
-  LDA $0105,X                      ; peek at original char class (under 4 bytes of PUSH16s)
-  BEQ .cmcrf_on_ws                 ; cursor was on whitespace: extend past word
+  PLA                               ; original char class
+  BEQ .cmcrf_on_ws                  ; cursor was on whitespace: extend past word
   ; Non-whitespace: strip trailing whitespace (ce semantics)
 .cmcrf_strip_loop:
   CMP16 BUF_PTR16, BUF_SRC16       ; would range become 0?
-  BEQ .cmcrf_strip_done
+  BEQ range_end
   DEC16 BUF_PTR16                   ; back up
   JSR class_at_ptr
   BEQ .cmcrf_strip_loop             ; still whitespace, keep stripping
   INC16 BUF_PTR16                   ; non-ws, include this char
-  JMP .cmcrf_strip_done
+  JMP range_end
 .cmcrf_on_ws:
   ; On whitespace: w landed at start of next word, extend past same-class chars
   JSR class_at_ptr
@@ -314,24 +299,16 @@ compute_multiline_cw_range_forward:
   JSR class_at_ptr
   CMP WORD_CLASS
   BEQ .cmcrf_ws_extend
-.cmcrf_strip_done:
-  SEC
-  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
-  POP16 FILE_LINE16                 ; restore cursor
-  POP16 CURSOR_COL16
-  PLA                               ; clean up char class from stack
-  JMP range_epilogue
+  JMP range_end
 
 ; Compute backward word range (multi-line) for db/yb/cb
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor STAYS at new backward position (start of range)
-; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
+; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
+;           BUF_SRC16
 compute_multiline_word_range_backward:
-  STX NORMAL_TEMP                   ; save word count (X clobbered by get_cursor_buf_ptr)
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = original position (end of range)
-  CP16 BUF_PTR16, BUF_SRC16        ; save end_ptr (safe across word_backward_x)
-  LDX NORMAL_TEMP                   ; restore word count
+  JSR range_start_ptr               ; BUF_SRC16 = original position (end of range)
   JSR word_backward_x               ; move cursor backward N words
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = new position (start of range)
   SEC
@@ -343,21 +320,22 @@ compute_multiline_word_range_backward:
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
-; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16, BUF_TEMP16
+; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
+;           BUF_SRC16, BUF_DST16
 compute_multiline_word_end_range_forward:
-  STX NORMAL_TEMP                   ; save word count (X clobbered by get_cursor_buf_ptr)
-  PUSH16 CURSOR_COL16              ; save original cursor
-  PUSH16 FILE_LINE16
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = start_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16        ; save start_buf_ptr (safe across word_end_x)
-  LDX NORMAL_TEMP                   ; restore word count
+  JSR range_start
   JSR word_end_x                    ; move cursor to end of Nth word
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
   INC16 BUF_PTR16                   ; inclusive: include end char
+  ; fall through into range_end
+
+; Finish a forward range ending at BUF_PTR16: restore the cursor saved by
+; range_start, BUF_LEN16 = BUF_PTR16 - BUF_SRC16; carry set if empty
+range_end:
+  CP16 BUF_DST16, FILE_LINE16
+  CP16 BUF_LEN16, CURSOR_COL16
   SEC
   SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
-  POP16 FILE_LINE16                 ; restore cursor
-  POP16 CURSOR_COL16
   ; fall through into range_epilogue
 
 ; Shared range-computation epilogue: carry clear if BUF_LEN16 != 0
@@ -368,6 +346,23 @@ range_epilogue:
   RTS
 .nothing:
   SEC
+  RTS
+
+; Start a forward range at the cursor: save the cursor for range_end
+; (line -> BUF_DST16, col -> BUF_LEN16; the motions leave both alone),
+; then BUF_SRC16 = BUF_PTR16 = the cursor's buffer address.
+; range_start_ptr does only the latter.  Preserves X (the word count).
+; Clobbers: A, Y
+range_start:
+  CP16 FILE_LINE16, BUF_DST16
+  CP16 CURSOR_COL16, BUF_LEN16
+range_start_ptr:
+  TXA
+  PHA
+  JSR get_cursor_buf_ptr
+  CP16 BUF_PTR16, BUF_SRC16
+  PLA
+  TAX
   RTS
 
 ; --- ^ command: move to first non-blank character ---
