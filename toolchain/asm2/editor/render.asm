@@ -226,9 +226,10 @@ render_current_line_and_status:
   JMP render_screen
 .row_visible:
   STA RENDER_ROW
-; Entry: RENDER_ROW = first row of a block (cursor line or $0B range) that
-; changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its
-; change point (RENDER_FROM_COL16) after scrolling the rows below it
+; Entry: RENDER_ROW = first row of a block (cursor line, $0B range, or a
+; J undo's cursor line and restored lines) that changed from
+; PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its change point
+; (RENDER_FROM_COL16) after scrolling the rows below it
 render_rows_resized:
   JSR ansi_cursor_hide
   LDA CUR_LINE_ROWS

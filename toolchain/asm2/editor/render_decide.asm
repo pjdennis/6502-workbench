@@ -40,8 +40,10 @@
 ;                              by their rows.  INSERT_LINE_COUNT != 0:
 ;                              redraw that many lines, not the scrolled rows.
 ; $04   undo J                 As $03, but the walk starts after the cursor
-;                              line (old rows: PREV_LINE_ROWS) and the net
-;                              row change picks the scroll direction.
+;                              line (old rows: PREV_LINE_ROWS).  If the
+;                              cursor line and the restored lines take no
+;                              more rows than it did, they are redrawn as
+;                              one block (render_rows_resized).
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $05   insert-mode Enter      Cursor on the last line of the split, which
 ;                              began at line FILE_LINE16 - delta.
@@ -350,63 +352,23 @@ render_decide:
   JSR file_line_rows         ; A = new cursor line screen rows
   PHA
   CLC
-  ADC SCROLL_DELTA           ; + restored rows
+  ADC SCROLL_DELTA           ; + restored rows: the block's rows now
+  STA CUR_LINE_ROWS
   SEC
   SBC PREV_LINE_ROWS         ; - old cursor rows = net displacement
-  BEQ .disp_exact_zero
-  BCC .disp_negative          ; underflow -> need scroll UP
+  BEQ .disp_not_positive
+  BCC .disp_not_positive
   STA SCROLL_DELTA
   PLA
   STA PREV_LINE_ROWS
   JMP .no_disp_adjust
-.disp_exact_zero:
-  PLA                        ; new_cursor_rows (discard value)
-  LDA PREV_LINE_ROWS         ; old cursor rows = total rows to render
-  STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  JMP render_from_first_row_limited
-.disp_negative:
-  ; Old cursor line was taller than restored lines + new cursor combined.
-  ; Scroll UP to fill freed rows.
-  ; Stack: new_cursor_rows. SCROLL_DELTA = restored rows. PREV_LINE_ROWS = old cursor rows.
-  PLA                        ; new_cursor_rows
-  STA RENDER_LIMIT           ; temp save
-  ; Reverse delta = PREV_LINE_ROWS - new_cursor_rows - SCROLL_DELTA
-  LDA PREV_LINE_ROWS
-  SEC
-  SBC RENDER_LIMIT
-  SEC
-  SBC SCROLL_DELTA
-  BEQ .ins_full
-  STA SCROLL_DELTA           ; reverse_delta
-  JSR ansi_cursor_hide
-  ; new_content_rows = PREV_LINE_ROWS - reverse_delta
-  ; Scroll region start = first_row + new_content_rows + 1 (1-based)
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  SEC                        ; +1: 1-based
-  ADC PREV_LINE_ROWS
-  SEC
-  SBC SCROLL_DELTA           ; adjust: start after new content, not old
-  LDX #'S'                     ; scroll up
-  JSR scroll_region_from_a
-  BCC .disp_neg_skip_scroll  ; region too small: no scroll happened
-  ; Render new content area from first_row, then bottom exposed rows
-  LDA SCROLL_DELTA
-  PHA                        ; save reverse_delta for bottom rows
-  LDA PREV_LINE_ROWS
-  SEC
-  SBC SCROLL_DELTA           ; new_content_rows
-  STA SCROLL_DELTA
-  JSR setup_first_row
-  JSR render_limited_loop
-  ; Render bottom exposed rows
-  PLA
-  STA SCROLL_DELTA           ; reverse_delta = bottom rows
-  JMP render_bottom_rows
-.disp_neg_skip_scroll:
-  JMP render_from_first_row
+.disp_not_positive:
+  ; The cursor line and the restored lines take no more rows than the
+  ; joined line did: redraw them as one block that shrank from
+  ; PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept them)
+  PLA                        ; (new cursor line rows)
+  JSR set_first_row
+  JMP render_rows_resized
 .no_disp_adjust:
 
   ; Clamp delta to available rows below cursor
