@@ -509,7 +509,8 @@ class EditorTestRunner:
                                  expect_row_texts: tuple = None,
                                  key_groups: list = None,
                                  expect_lines_in_some_frame: list = None,
-                                 binary: Path = None):
+                                 binary: Path = None,
+                                 expect_status_at_frame: list = None):
         """Run a terminal-mode editor test and verify screen state.
 
         expect_row_texts: (row, texts) - in every frame the row shows one of
@@ -518,6 +519,8 @@ class EditorTestRunner:
         key_groups, binary: see run_editor_terminal.
         expect_lines_in_some_frame: [(row, text), ...] all shown together in
         at least one frame.
+        expect_status_at_frame: [(frame_idx, substring), ...] - the status
+        bar contains substring at that frame.
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
@@ -644,6 +647,21 @@ class EditorTestRunner:
                        for i in range(screen.get_frame_count())):
                 self._fail(name,
                     f"No frame shows {expect_lines_in_some_frame!r}\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+
+        for frame_idx, expected_substr in expect_status_at_frame or ():
+            if frame_idx >= screen.get_frame_count():
+                self._fail(name,
+                    f"Expected frame {frame_idx} but only "
+                    f"{screen.get_frame_count()} frames\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+            actual_text = screen.get_row_text_at_frame(frame_idx, rows - 1)
+            if expected_substr not in actual_text:
+                self._fail(name,
+                    f"Frame {frame_idx}: status bar expected substring "
+                    f"{expected_substr!r} in {actual_text!r}\n"
                     f"    Frame:\n{screen.dump()}")
                 return
 
@@ -9017,6 +9035,44 @@ class EditorTestRunner:
             expect_ansi_contains="3 lines deleted",
         )
 
+        # A ':w' or range command's report stays on the status row until
+        # the next key, as in vi: the frame that ends the command leaves
+        # the status bar alone (frame 1 is the ':')
+        three = "line one\nline two\nline three\n"
+        self.run_test_screen(
+            ":w message stays until the next key",
+            three,
+            b"x:w\rj:q!\r",
+            expect_lines_at_frame=[(3, [(0, "ine one")])],
+            expect_status_at_frame=[(3, '" written'), (4, "NORMAL - 2,1 /3")],
+        )
+        self.run_test_screen(
+            ":y message stays until the next key",
+            three,
+            b":1,2y\rj:q!\r",
+            expect_status_at_frame=[(2, "2 lines yanked"),
+                                    (3, "NORMAL - 2,1 /3")],
+            expect_cursor_at_frame=[(2, (0, 0)), (3, (1, 0))],
+        )
+        self.run_test_screen(
+            ":d message stays over the repainted text",
+            three + "line four\n",
+            b":1,2d\rj:q!\r",
+            expect_lines_at_frame=[(2, [(0, "line three"), (1, "line four"),
+                                        (2, "~")])],
+            expect_status_at_frame=[(2, "2 lines deleted"),
+                                    (3, "NORMAL - 2,1 /2")],
+        )
+        self.run_test_screen(
+            ":> message stays over the repainted text",
+            three,
+            b":1,2>\rj:q!\r",
+            expect_lines_at_frame=[(2, [(0, "  line one"),
+                                        (1, "  line two")])],
+            expect_status_at_frame=[(2, "2 lines shifted"),
+                                    (3, "NORMAL - 2,")],
+        )
+
         # Range delete positions cursor at first deleted line
         self.run_test_screen(
             "Range delete positions cursor correctly",
@@ -12098,6 +12154,16 @@ class EditorTestRunner:
                 "Hello\n",
                 b":q!\r",
                 expect_status_contains="COMMAND - 1,"
+            )
+
+            # A range command's report stays until the next key
+            self.run_test_terminal_screen(
+                "Terminal range message stays until the next key",
+                make_lines(5),
+                b":1,3d\rj:q!\r",
+                expect_lines_at_frame=[(2, [(0, "Line 4"), (1, "Line 5")])],
+                expect_status_at_frame=[(2, "3 lines deleted"),
+                                        (3, "NORMAL - 2,")],
             )
 
             # Status bar after cursor movement

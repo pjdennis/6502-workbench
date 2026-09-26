@@ -265,6 +265,10 @@ COMMAND-LINE MODE
   If start > end, the range is automatically swapped. Line numbers
   past the end of the file mean the last line.
 
+  The report of :w ("name" written) or of a range command (N lines
+  deleted, yanked, shifted) stays on the status row until the next
+  key.
+
   ESC cancels command input. Backspace edits the command;
   backspacing past the start cancels. A command can be as long as
   fits the status row after the ':' (the screen width less 2

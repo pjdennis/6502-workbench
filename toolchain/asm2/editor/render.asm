@@ -155,7 +155,7 @@ render_status_line:
 ; ST_LEN = the new length.  Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_send:
   LDX ST_FIRST
-  BMI .done                    ; unchanged
+  BMI status_ret               ; unchanged
   LDA TEXT_ROWS                ; the status row (0-based), column X
   JSR ansi_goto0
   JSR ansi_reverse_video
@@ -173,21 +173,25 @@ status_send:
   JSR ansi_clear_line
 .normal:
   JSR ansi_normal_video
-.done:
   LDA ST_COL
   STA ST_LEN
+status_ret:
   RTS
 
 ; Build the status bar's text into STATUS_SHADOW (see st_putc).  Sends
 ; nothing.  On return ST_COL = its length and ST_FIRST = the first column
 ; to send ($FF = none); ST_LEN = 0 if the row's tail must be cleared.
+; A message held on the status row (STATUS_HOLD) is kept for one frame:
+; the status bar is then left alone (ST_FIRST = $FF, and ST_LEN stays 0).
 ; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_build:
-  LDA #0
-  STA ST_COL
   LDA #$FF
   STA ST_FIRST                 ; no change found yet
+  LSR STATUS_HOLD
+  BCS status_ret               ; a message stays for this frame
   STA ST_BUILD                 ; text_putc stores the text
+  LDA #0
+  STA ST_COL
 
   ; Print filename
   JSR write_fname

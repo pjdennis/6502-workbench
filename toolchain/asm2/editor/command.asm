@@ -201,8 +201,9 @@ command_write_file:
   LDA #'"'
   JSR text_putc
   JSR write_fname
-  PRINT_TEXT str_written
-  JMP io_flush
+  LDA #<str_written
+  LDX #>str_written
+  JMP hold_message_ax
 
 .open_failed:
   STA CMD_QUIT        ; A = 0
@@ -443,8 +444,14 @@ report_lines_ax:
   PLA
   TAX
   PLA
-  JSR print_string_ax
-  JMP io_flush
+  ; fall through
+
+; Print the text at A (low) / X (high) after a message on the status row
+; and keep it there until the next key: the frame that ends the command
+; leaves the status bar alone (status_build)
+hold_message_ax:
+  INC STATUS_HOLD
+  JMP print_string_ax
 
 ; Same, with count taken from YANK_LINES16
 report_yank_lines_ax:

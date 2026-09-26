@@ -82,6 +82,7 @@ SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's sta
 ST_COL:         .byte   ; status bar: length of the text built (status_build)
 ST_LEN:         .byte   ; status bar: length of the text on the row (0 = unknown: clear it)
 ST_FIRST:       .byte   ; status bar: first column to send ($FF = unchanged)
+STATUS_HOLD:    .byte   ; 1: a message stays on the status row for the next frame
 ST_BUILD:       .byte   ; $FF while status_build runs (text_putc stores the text)
 
 ; --- yank.asm ---
