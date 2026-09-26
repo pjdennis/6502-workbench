@@ -229,9 +229,8 @@ check_combo_first_key:
   SEC
   RTS
 
-; Get count and clamp to available lines from FILE_LINE16
-; Output: BUF_TEMP16 = clamped count, LINE_LEN16 = FILE_LINE16 (line counter)
-; Clobbers: A
+; Get count, clamped to the lines from FILE_LINE16 to the end
+; Output: BUF_TEMP16 = clamped count.  Clobbers: A, BUF_LEN16
 get_count_clamp_lines:
   JSR get_count
   SEC
@@ -240,12 +239,12 @@ get_count_clamp_lines:
   BCC .ok
   CP16 BUF_LEN16, BUF_TEMP16
 .ok:
-  CP16 FILE_LINE16, LINE_LEN16
   RTS
 
 ; --- Insert mode entry helpers ---
 
-; Enter insert mode with render flag=1
+; Alias of enter_insert_mode (it sets no render flag); still used by
+; word_op_bail in normal_shift.asm
 enter_insert_mode_render:
   ; fall through
 
@@ -578,10 +577,9 @@ apply_char_operator:
   CMP #OP_CHANGE
   BEQ .change
   ; OP_DELETE: clamp cursor
-  JSR clamp_cursor_col
-  RTS
+  JMP clamp_cursor_col
 .change:
-  JMP enter_insert_mode_render
+  JMP enter_insert_mode
 
 ; --- Shared batched character delete (for x and X commands) ---
 
