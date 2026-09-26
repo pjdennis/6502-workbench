@@ -183,8 +183,7 @@ undo_handle:
 ; --- Redo handlers ---
 .redo_cc:
   ; cc redo: delete lines, insert blank line (reproduces cc effect)
-  JSR undo_restore_line
-  CP16 YANK_LINES16, BUF_TEMP16
+  JSR undo_restore_lines
   ; Pre-compute screen rows for displacement-based scroll
   LDA BUF_TEMP16
   JSR compute_delete_rows_at_cursor
@@ -199,10 +198,8 @@ undo_handle:
   JMP clear_count
 
 .redo_line:
-  ; Restore FILE_LINE16
-  JSR undo_restore_line
-  ; Get yank size to know how many lines to delete
-  CP16 YANK_LINES16, BUF_TEMP16
+  ; Restore FILE_LINE16, and the yank's line count: the lines to delete
+  JSR undo_restore_lines
   ; Pre-compute screen rows for line-delete scroll
   JSR compute_delete_rows_temp16
   JSR delete_current_lines
@@ -574,6 +571,10 @@ undo_restore_col:
   CP16 UNDO_COL16, CURSOR_COL16
   RTS
 
+; Restore FILE_LINE16 from the undo record, and BUF_TEMP16 = YANK_LINES16
+; (the lines a line delete took, for its redo)
+undo_restore_lines:
+  CP16 YANK_LINES16, BUF_TEMP16
 ; Restore FILE_LINE16 from the undo record
 undo_restore_line:
   CP16 UNDO_LINE16, FILE_LINE16
