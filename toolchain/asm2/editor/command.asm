@@ -383,29 +383,10 @@ range_do_delete:
   POP16 BUF_SRC16          ; PLA preserves carry on 6502
   BCS range_yank_full
 
-  ; Adjust marks before deletion (mark_adjust_delete clobbers BUF_SRC16/BUF_DST16)
+  ; Adjust marks, delete the lines and clamp, as dd does (no undo record)
+  CP16 BUF_SRC16, FILE_LINE16  ; Cursor to the first deleted line
   CP16 YANK_LINES16, BUF_TEMP16
-  PUSH16 BUF_SRC16
-  LDAX16 BUF_SRC16
-  JSR mark_adjust_delete
-  POP16 BUF_SRC16
-
-  ; Delete lines (buf_delete_lines clobbers BUF_SRC16)
-  CP16 YANK_LINES16, BUF_TEMP16
-  PUSH16 BUF_SRC16
-  LDAX16 BUF_SRC16
-  JSR buf_delete_lines
-  POP16 BUF_SRC16
-
-  ; Move cursor to first deleted line position
-  CP16 BUF_SRC16, FILE_LINE16
-
-  ; Clamp cursor if past end of file
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .range_del_ok
-  SEC
-  SBCI16 LINE_COUNT16, $0001, FILE_LINE16
-.range_del_ok:
+  JSR delete_current_lines
   LDA #$FF
   STA MODIFIED
   JSR clamp_cursor_col
