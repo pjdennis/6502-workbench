@@ -49,7 +49,7 @@ class EmulatorRunner:
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', extra_args=None):
+            mode='standard', emu_args=None):
         """Run the emulator and return (exit_code, output_bytes).
 
         Args:
@@ -60,7 +60,9 @@ class EmulatorRunner:
             load_addr: load address (default 0x0400)
             rows, cols: terminal size (0 = default)
             mode: 'standard', 'terminal', or 'console'
-            extra_args: additional command-line arguments
+            emu_args: additional emulator options (placed before the file
+                name: the emulator stops reading options at the first
+                argument that is not one)
         """
         keys_file = tmpdir / "keys.bin"
         keys_file.write_bytes(keys)
@@ -84,10 +86,10 @@ class EmulatorRunner:
             cmd.extend(["--cols", str(cols)])
 
         output_file = tmpdir / "output.bin"
-        cmd.extend(["--input", str(keys_file), "--output", str(output_file),
-                     edit_file])
-        if extra_args:
-            cmd.extend(extra_args)
+        cmd.extend(["--input", str(keys_file), "--output", str(output_file)])
+        if emu_args:
+            cmd.extend(emu_args)
+        cmd.append(edit_file)
 
         result = subprocess.run(cmd, capture_output=True, timeout=10)
         output = output_file.read_bytes() if output_file.exists() else b""
@@ -106,16 +108,15 @@ class EditorPersistentEmulator:
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', extra_args=None):
+            mode='standard', emu_args=None):
         """Run the emulator and return (exit_code, output_bytes)."""
-        if mode == 'console':
+        # The server takes no emulator options, and console mode needs a pipe
+        if mode == 'console' or emu_args:
             runner = EmulatorRunner(self.emulator_path)
             return runner.run(binary, keys, tmpdir, edit_file,
-                              load_addr, rows, cols, mode, extra_args)
+                              load_addr, rows, cols, mode, emu_args)
 
         args = [edit_file]
-        if extra_args:
-            args.extend(extra_args)
 
         exit_code, output, _ = self._emu.run(
             binary, args=args, load_addr=load_addr, mode=mode,
@@ -419,14 +420,21 @@ class EditorTestRunner:
 
     def run_editor_terminal(self, input_file: str, keys: bytes, tmpdir: Path,
                             rows: int = 10, cols: int = 40,
-                            extra_args: list = None) -> tuple:
+                            emu_args: list = None) -> tuple:
         """Run the terminal-mode editor with serial I/O.
+
+        emu_args: emulator options, e.g. ['--cpu-mhz', '1', '--baud', '9600'].
+        With --baud the startup size query only reaches the emulator's
+        terminal model after the typed keys have arrived, so the size reply
+        is put ahead of them, as a terminal that answers before anyone types.
 
         Returns (exit_code, saved_content, ansi_output_bytes).
         """
+        if emu_args and "--baud" in emu_args:
+            keys = b"\x1b[%d;%dR" % (rows, cols) + keys
         exit_code, output = self.emulator_runner.run(
             self.editor_terminal_bin, keys, tmpdir, input_file,
-            rows=rows, cols=cols, mode='terminal', extra_args=extra_args)
+            rows=rows, cols=cols, mode='terminal', emu_args=emu_args)
 
         saved = ""
         if Path(input_file).exists():
@@ -443,10 +451,16 @@ class EditorTestRunner:
                                  expect_lines: list = None,
                                  expect_status_contains: str = None,
                                  expected_content: str = None,
-                                 extra_args: list = None,
+                                 emu_args: list = None,
                                  expect_content_redraws: list = None,
-                                 expect_lines_at_frame: list = None):
-        """Run a terminal-mode editor test and verify screen state."""
+                                 expect_lines_at_frame: list = None,
+                                 expect_row_texts: tuple = None):
+        """Run a terminal-mode editor test and verify screen state.
+
+        expect_row_texts: (row, texts) - in every frame the row shows one of
+        texts, and each of them shows in some frame (independent of how
+        many frames there are).
+        """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
 
@@ -458,7 +472,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir, rows, cols,
-                extra_args=extra_args
+                emu_args=emu_args
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -566,11 +580,21 @@ class EditorTestRunner:
                             f"    Frame:\n{screen.dump()}")
                         return
 
+        if expect_row_texts is not None:
+            row_idx, texts = expect_row_texts
+            seen = [screen.get_row_text_at_frame(i, row_idx)
+                    for i in range(screen.get_frame_count())]
+            if any(t not in texts for t in seen) or any(t not in seen for t in texts):
+                self._fail(name,
+                    f"Row {row_idx} across frames: expected only and all of "
+                    f"{list(texts)!r}, got {seen!r}")
+                return
+
         self._pass(name)
 
     def run_test_terminal(self, name: str, initial_content: str, keys: bytes,
                           expected_content: str = None, expect_exit: int = 0,
-                          extra_args: list = None):
+                          emu_args: list = None):
         """Run a terminal-mode editor test verifying file content."""
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
@@ -583,7 +607,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir,
-                extra_args=extra_args
+                emu_args=emu_args
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -10267,7 +10291,7 @@ class EditorTestRunner:
                 rows=10, cols=40,
                 expect_lines=[(0, "Hello")],
                 expect_status_contains="/t ",
-                extra_args=["--cpu-mhz", "1", "--baud", "9600"]
+                emu_args=["--cpu-mhz", "1", "--baud", "9600"]
             )
 
             # --------------------------------------------------------
@@ -10411,7 +10435,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"lll:q!\r",
                 expect_cursor=(0, 3),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Insert with baud rate
@@ -10420,7 +10444,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"iX\x1b:q!\r",
                 expect_lines=[(0, "XHello")],
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Scrolling with baud rate
@@ -10430,7 +10454,7 @@ class EditorTestRunner:
                 b"jjjjjjjjj:q!\r",
                 expect_cursor=(8, 0),
                 expect_lines=[(0, "Line 2"), (8, "Line 10")],
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # --------------------------------------------------------
@@ -10529,7 +10553,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"iABC\x1b:wq\r",
                 expected_content="ABCHello\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Batch delete with baud rate
@@ -10538,7 +10562,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"xx:wq\r",
                 expected_content="llo\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # dd with baud rate
@@ -10547,7 +10571,7 @@ class EditorTestRunner:
                 "Line 1\nLine 2\nLine 3\n",
                 b"dd:wq\r",
                 expected_content="Line 2\nLine 3\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Command mode with baud rate
@@ -10556,7 +10580,7 @@ class EditorTestRunner:
                 "Test\n",
                 b":wq\r",
                 expected_content="Test\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Search mode with baud rate
@@ -10565,7 +10589,7 @@ class EditorTestRunner:
                 "First\nLine 2\nLine 3\n",
                 b"/Line\r:q!\r",
                 expect_cursor=(1, 0),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Backward search
@@ -10574,7 +10598,7 @@ class EditorTestRunner:
                 "alpha\nbeta\ngamma\n",
                 b"jj?alpha\r:q!\r",
                 expect_cursor=(0, 0),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # --------------------------------------------------------
@@ -10587,20 +10611,14 @@ class EditorTestRunner:
             # Insert 5 chars at 2MHz/9600 baud - should batch into fewer
             # frames than 5.  With hardware FIFO buffering, chars accumulate
             # in the RX buffer during rendering and the editor reads them
-            # all in one batch.  Verify only 1 content redraw for the
-            # insert (frame index 1), not 5 separate redraws.
+            # all in one batch: no frame shows a partly typed word.
             self.run_test_terminal_screen(
                 "Terminal baud: insert batching",
                 "\n",
                 b"ihello\x1b:q!\r",
                 expect_lines=[(0, "hello")],
-                expect_lines_at_frame=[
-                    # Frame 1: enter insert mode, no chars yet
-                    (1, [(0, "")]),
-                    # Frame 2: all 5 chars batched in one redraw
-                    (2, [(0, "hello")]),
-                ],
-                extra_args=BAUD2_ARGS
+                expect_row_texts=(0, ["", "hello"]),
+                emu_args=BAUD2_ARGS
             )
 
         # ============================================================
