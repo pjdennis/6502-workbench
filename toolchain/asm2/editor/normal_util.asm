@@ -138,19 +138,26 @@ clamp_cursor_col:
 
 ; --- Shared vertical movement loops ---
 
-; Move down X lines (clamped to last line)
-; Input: X = number of lines to move
-; Clobbers: A, X, BUF_PTR16
+; Move down X lines (X = 0: 256), clamped to the last line
+; Clobbers: A, X
 move_down_x:
-.loop:
-  CLC
-  ADCI16 FILE_LINE16, $0001, BUF_PTR16
-  CMP16 BUF_PTR16, LINE_COUNT16
-  BCS .done
-  INC16 FILE_LINE16
   DEX
-  BNE .loop
-.done:
+  TXA
+  SEC                        ; A + C = X (X = 0: 256)
+  ; fall through
+
+; FILE_LINE16 += A + C, clamped to the last line.  Clobbers: A
+add_file_line:
+  ADCA16 FILE_LINE16, FILE_LINE16
+  ; fall through
+
+; Clamp FILE_LINE16 to the last line.  Clobbers: A
+clamp_file_line:
+  CMP16 FILE_LINE16, LINE_COUNT16
+  BCC .ok
+  SEC
+  SBCI16 LINE_COUNT16, 1, FILE_LINE16
+.ok:
   RTS
 
 ; Move up X lines (clamped to first line)
@@ -440,14 +447,7 @@ delete_current_lines:
 
   LDAX16 FILE_LINE16
   JSR buf_delete_lines
-
-  ; Clamp file line if past end of file
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .dcl_ok
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-.dcl_ok:
-  RTS
+  JMP clamp_file_line        ; Clamp file line if past end of file
 
 ; Yank chars at cursor position then delete them
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16

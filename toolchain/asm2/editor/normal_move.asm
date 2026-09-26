@@ -65,23 +65,12 @@ normal_page_up:
 ; Input: BUF_TEMP = lines to move FILE_LINE and VIEW_TOP
 ;        NORMAL_TEMP = content_rows for VIEW_TOP max clamp
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP
-; Clobbers: A, X, Y, BUF_PTR16
+; Clobbers: A, X, Y
 scroll_view_down:
-  ; target_line = FILE_LINE16 + BUF_TEMP, clamped to LINE_COUNT16 - 1
+  ; FILE_LINE16 += BUF_TEMP, clamped to the last line
+  LDA BUF_TEMP
   CLC
-  LDA FILE_LINE16
-  ADC BUF_TEMP
-  STA BUF_PTR16
-  LDA FILE_LINE16 + 1
-  ADC #0
-  STA BUF_PTR16 + 1
-
-  ; Clamp target to LINE_COUNT16 - 1
-  CMP16 BUF_PTR16, LINE_COUNT16
-  BCC .target_ok
-  SEC
-  SBCI16 LINE_COUNT16, 1, BUF_PTR16
-.target_ok:
+  JSR add_file_line
 
   ; VIEW_TOP16 += BUF_TEMP
   CLC
@@ -118,7 +107,6 @@ scroll_view_down:
   STA_LH16 VIEW_TOP16
 
 .set_file_line:
-  CP16 BUF_PTR16, FILE_LINE16
   LDA #0
   STA VIEW_TOP_WRAP
   RTS
@@ -241,27 +229,11 @@ normal_line_end:
   JMP clamp_and_clear_count
 
 normal_goto_last:
-  ; If count is set, go to line N (1-based)
-  TST16 COUNT16
-  BEQ .goto_end
-
-  ; Convert 1-based count to 0-based file line
+  ; FILE_LINE16 = count - 1 (1-based count; no count: 0 - 1 = $FFFF),
+  ; clamped to the last line
   SEC
   SBCI16 COUNT16, 1, FILE_LINE16
-
-  ; Clamp to last line
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .goto_set
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-  JMP .goto_set
-
-.goto_end:
-  ; No count: go to last line
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-
-.goto_set:
+  JSR clamp_file_line
   LDA #0
   STA VIEW_TOP_WRAP
   JMP zero_col_clamp_clear
