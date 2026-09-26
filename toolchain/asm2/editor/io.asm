@@ -25,8 +25,6 @@ io_ready = con_ready
 
 ; Terminal mode: serial I/O with spin loops
 
-; (zero-page variables: zp.asm)
-
 ; Write byte in A to serial output (blocking spin loop)
 ; A, X, Y preserved (same contract as write_b)
 io_write:
@@ -61,56 +59,54 @@ io_ready:
 ; Query terminal size via DSR (Device Status Report)
 ; Sends ESC[255;255H to move cursor to bottom-right (clamped by terminal)
 ; Then sends ESC[6n to query cursor position
-; Parses response ESC[{rows};{cols}R
-; Stores results in SCREEN_ROWS (and TEXT_ROWS = SCREEN_ROWS - 1) and SCREEN_COLS
-; Asking for 255 (not 999) caps each value at 255, which fits the 8-bit
-; parser: a bigger terminal gets 255 rows or cols, not its size mod 256
+; Parses response ESC[{rows};{cols}R into SCREEN_ROWS and SCREEN_COLS
+; (adjacent in zp.asm, indexed by X), and sets TEXT_ROWS = SCREEN_ROWS - 1
+; Asking for 255 (not 999) caps each value at 255, which fits a byte: a
+; bigger terminal gets 255 rows or cols, not its size mod 256, and no step
+; of value * 10 + digit carries.
+; Each ESC starts the parse again, and it ends only at an 'R' after two
+; runs of digits, so keys typed before the reply arrives are dropped
+; rather than read as the size.
+; Clobbers X, Y, STR_PTR16 via write_string_ax
 query_terminal_size:
-  ; Send ESC[255;255H (move cursor to max position, clamped by terminal)
-  ; followed by ESC[6n (request cursor position)
-  ; Clobbers X, Y, STR_PTR16 via write_string_ax
   LDA #<dsr_query_str
   LDX #>dsr_query_str
   JSR write_string_ax
-
-  ; Read response: ESC[{rows};{cols}R
-  JSR io_read             ; Skip ESC
-  JSR io_read             ; Skip [
-  JSR parse_dsr_value     ; Rows (digits up to ';')
-  STA SCREEN_ROWS
-  TAX
-  DEX
-  STX TEXT_ROWS           ; Text rows above the status bar
-  JSR parse_dsr_value     ; Cols (digits up to 'R')
-  STA SCREEN_COLS
-  RTS                     ; (the first render positions the cursor)
-
-; Parse decimal digits from serial input up to and including the first
-; non-digit (the ';' or 'R' of a DSR reply)
-; Output: A = parsed value (mod 256)
-parse_dsr_value:
+.restart:
+  LDX #0                  ; X = 0: SCREEN_ROWS, 1: SCREEN_COLS
+.next_value:
   LDA #0
-.next:
-  STA DSR_VALUE
-  JSR io_read
+.store:
+  STA SCREEN_ROWS,X
+.read:
+  JSR io_read             ; (preserves X)
   EOR #'0'                ; '0'-'9' -> 0-9, any other byte -> >= 10
   CMP #10
-  BCS .done
-  PHA
-  LDA DSR_VALUE
+  BCS .not_digit
+  PHA                     ; value = value * 10 + digit (C = 0 throughout)
+  LDA SCREEN_ROWS,X
   ASL
   ASL
-  CLC
-  ADC DSR_VALUE           ; *5
+  ADC SCREEN_ROWS,X       ; *5
   ASL                     ; *10
-  STA DSR_VALUE
+  STA SCREEN_ROWS,X
   PLA
-  CLC
-  ADC DSR_VALUE
-  JMP .next
-.done:
-  LDA DSR_VALUE
-  RTS
+  ADC SCREEN_ROWS,X
+  BCC .store              ; (always, for a reply)
+.not_digit:
+  CMP #$2B                ; ESC ($1B EOR '0'): a reply starts
+  BEQ .restart
+  LDY SCREEN_ROWS,X
+  BEQ .read               ; no digits yet: skip '[' and typed-ahead keys
+  INX                     ; ';' ends the rows, 'R' the cols
+  CPX #2
+  BNE .next_value
+  CMP #$62                ; 'R' ($52 EOR '0')?
+  BNE .restart            ; no: typed-ahead keys, not the reply
+  LDX SCREEN_ROWS
+  DEX
+  STX TEXT_ROWS           ; Text rows above the status bar
+  RTS                     ; (the first render positions the cursor)
 
 ; DSR query: ESC[255;255H ESC[6n (no escape decoding in .byte strings,
 ; so ESC is a raw $1B byte; explicit $00 terminator required)

@@ -6,11 +6,6 @@
 
   .zeropage
 
-; --- io.asm ---
-  .ifdef terminal_mode
-DSR_VALUE:       .byte    ; Temp for parsing DSR decimal values
-  .endif
-
 ; --- terminal.asm ---
 ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
 ANSI_COL:     .byte    ; Column for cursor positioning (1-based)

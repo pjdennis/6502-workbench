@@ -11909,6 +11909,22 @@ class EditorTestRunner:
                 expect_status_contains="/t ",
                 binary=no_reply_bin
             )
+            # Keys typed before the reply arrives are dropped, not read as
+            # part of the size (the last two would end a parse that takes
+            # any run of digits before the reply's ESC)
+            for typed_name, typed in [("a letter", b"j"), ("a digit", b"5"),
+                                      ("an arrow key", b"\x1b[A"),
+                                      ("digits and letters", b"5j5j"),
+                                      ("a Ctrl-arrow key", b"\x1b[1;5C")]:
+                self.run_test_terminal_screen(
+                    f"Terminal size with {typed_name} typed before the reply",
+                    "Hello\n",
+                    typed + b"\x1b[10;40R:q!\r",
+                    rows=10, cols=40,
+                    expect_lines=[(0, "Hello"), (8, "~")],
+                    expect_status_contains="/t ",
+                    binary=no_reply_bin
+                )
 
             # Terminal size with baud rate
             self.run_test_terminal_screen(

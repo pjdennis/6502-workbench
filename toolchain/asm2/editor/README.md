@@ -92,7 +92,8 @@ project's 6502 emulator in console/ANSI mode.
    takes the file name from argv (`[No Name]` if none), and loads the file
    via `buf_load_file`; a missing file starts as one empty line.
 2. If the file is truncated, `READONLY` is set.
-3. `render_init` gets the terminal size (a DSR query in the terminal build),
+3. `render_init` gets the terminal size (a DSR query in the terminal build;
+   keys typed before the terminal's reply arrives are dropped),
    `yank_init` and `mark_init` set up their state, and `render_screen` draws
    the first screen.  A truncated file then shows its warning.
 4. Main loop:
