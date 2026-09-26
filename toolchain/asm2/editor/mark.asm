@@ -179,81 +179,6 @@ write_decimal_rjust:
 str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
 
-; Adjust marks based on line range and operation
-; Input: BUF_SRC16 = start_line
-;        BUF_DST16 = end_line (for delete) or start_line (for insert)
-;        BUF_TEMP16 = count (16-bit)
-;        Carry flag: clear = add (insert), set = subtract (delete)
-; Clobbers: A, X, Y
-mark_adjust_range:
-  ; Prepare delta: positive for insert, negative for delete
-  LDA BUF_TEMP16
-  STA MARK_DELTA16
-  LDA BUF_TEMP16 + 1
-  STA MARK_DELTA16 + 1
-  BCC .loop_start      ; Insert: use +count as-is
-
-  ; Delete: negate MARK_DELTA16 (2's complement)
-  SEC
-  LDA #0
-  SBC MARK_DELTA16
-  STA MARK_DELTA16
-  LDA #0
-  SBC MARK_DELTA16 + 1
-  STA MARK_DELTA16 + 1
-
-.loop_start:
-  LDX #0               ; Index into MARK_TBL
-.loop:
-  ; Skip unset marks (both bytes $FF)
-  LDA MARK_TBL + 1,X
-  AND MARK_TBL,X
-  CMP #$FF
-  BEQ .next
-
-  ; Compare mark >= end_line (BUF_DST16)?
-  LDA MARK_TBL + 1,X
-  CMP BUF_DST16 + 1
-  BCC .check_start      ; mark_hi < end_hi -> mark < end
-  BNE .adjust           ; mark_hi > end_hi -> mark >= end
-  LDA MARK_TBL,X
-  CMP BUF_DST16
-  BCS .adjust           ; mark_lo >= end_lo -> mark >= end
-
-.check_start:
-  ; Mark < end_line. Is mark >= start_line (BUF_SRC16)?
-  LDA MARK_TBL + 1,X
-  CMP BUF_SRC16 + 1
-  BCC .next             ; mark_hi < start_hi -> skip
-  BNE .unset            ; mark_hi > start_hi -> in range
-  LDA MARK_TBL,X
-  CMP BUF_SRC16
-  BCC .next             ; mark_lo < start_lo -> skip
-
-.unset:
-  ; Mark in [start, end): unset
-  LDA #$FF
-  STA MARK_TBL,X
-  STA MARK_TBL + 1,X
-  JMP .next
-
-.adjust:
-  ; Mark >= end_line: add MARK_DELTA16 (positive for insert, negative for delete)
-  CLC
-  LDA MARK_TBL,X
-  ADC MARK_DELTA16
-  STA MARK_TBL,X
-  LDA MARK_TBL + 1,X
-  ADC MARK_DELTA16 + 1
-  STA MARK_TBL + 1,X
-
-.next:
-  INX
-  INX
-  CPX #52              ; 26 * 2
-  BNE .loop
-  RTS
-
 ; Adjust marks with col-0 line adjustment via CURSOR_COL16
 ; At col 0: line consumed entirely, A/X unchanged
 ; At col > 0: line partially survives, A/X incremented
@@ -272,15 +197,91 @@ mark_adjust_col:
   INX
 .dispatch:
   PLP
-  BCS mark_adjust_delete
-  JMP mark_adjust_insert
+  BCC mark_adjust_insert
+  ; fall through
+
+; Adjust marks after lines are deleted
+; Input: A/X = first deleted line (16-bit low/high)
+;        BUF_TEMP16 = count of deleted lines (16-bit)
+; Marks on [first_line, first_line+count): unset
+; Marks >= first_line+count: subtract count
+; Clobbers: A, X, Y, BUF_SRC16, BUF_DST16, MARK_DELTA16
+mark_adjust_delete:
+  STAX16 BUF_SRC16
+  CLC
+  ADC16 BUF_SRC16, BUF_TEMP16, BUF_DST16   ; end_line = first + count
+  SEC
+  SBC16 BUF_SRC16, BUF_DST16, MARK_DELTA16 ; delta = -count
+  JMP mark_adjust_range
 
 ; Insert 1 line at A/X, adjust marks
 mark_insert_one:
   PHA
   JSR set_buf_temp16_one
   PLA
-  JMP mark_adjust_insert
+  ; fall through
+
+; Adjust marks after lines are inserted
+; Input: A/X = at_line (16-bit low/high), BUF_TEMP16 = count of inserted lines (16-bit)
+; Marks >= at_line: add count
+; Clobbers: A, X, Y, BUF_SRC16, BUF_DST16, MARK_DELTA16
+mark_adjust_insert:
+  STAX16 BUF_SRC16
+  STAX16 BUF_DST16       ; Empty unset range
+  CP16 BUF_TEMP16, MARK_DELTA16
+  ; fall through
+
+; Adjust marks for a line range
+; Input: BUF_SRC16 = start_line, BUF_DST16 = end_line (exclusive)
+;        MARK_DELTA16 = amount added to marks >= end_line
+; Marks in [start_line, end_line) are unset.
+; Clobbers: A, X
+mark_adjust_range:
+  LDX #0               ; Index into MARK_TBL
+.loop:
+  LDA MARK_TBL + 1,X
+  BMI .next            ; Unset mark
+
+  ; Compare mark >= end_line (BUF_DST16)?
+  CMP BUF_DST16 + 1
+  BCC .check_start      ; mark_hi < end_hi -> mark < end
+  BNE .adjust           ; mark_hi > end_hi -> mark >= end
+  LDA MARK_TBL,X
+  CMP BUF_DST16
+  BCS .adjust           ; mark_lo >= end_lo -> mark >= end
+
+.check_start:
+  ; Mark < end_line. Is mark >= start_line (BUF_SRC16)?
+  LDA MARK_TBL + 1,X
+  CMP BUF_SRC16 + 1
+  BCC .next             ; mark_hi < start_hi -> skip
+  BNE .unset            ; mark_hi > start_hi -> in range
+  LDA MARK_TBL,X
+  CMP BUF_SRC16
+  BCC .next             ; mark_lo < start_lo -> skip
+
+.unset:
+  ; Mark in [start, end): unset (high byte $FF)
+  LDA #$FF
+  STA MARK_TBL + 1,X
+  BNE .next             ; Always taken
+
+.adjust:
+  ; Mark >= end_line: add MARK_DELTA16
+  CLC
+  LDA MARK_TBL,X
+  ADC MARK_DELTA16
+  STA MARK_TBL,X
+  LDA MARK_TBL + 1,X
+  ADC MARK_DELTA16 + 1
+  STA MARK_TBL + 1,X
+
+.next:
+  INX
+  INX
+  CPX #52              ; 26 * 2
+  BNE .loop
+  RTS
 
 ; Mark-adjust args for lines inserted or deleted after the cursor line:
 ; BUF_TEMP16 = A (line count), A/X = FILE_LINE16 + 1
@@ -295,37 +296,3 @@ mark_args_next_line:
   INX
 .done:
   RTS
-
-; Adjust marks after lines are deleted
-; Input: A/X = first deleted line (16-bit low/high)
-;        BUF_TEMP16 = count of deleted lines (16-bit)
-; Marks on [first_line, first_line+count): unset
-; Marks >= first_line+count: subtract count
-; Clobbers: A, X, Y
-mark_adjust_delete:
-  ; Store first_line in BUF_SRC16
-  STAX16 BUF_SRC16
-
-  ; Compute end_line = first_line + count -> BUF_DST16
-  CLC
-  ADC16 BUF_SRC16, BUF_TEMP16, BUF_DST16
-
-  SEC                  ; Set carry for subtract
-  JMP mark_adjust_range
-
-; Adjust marks after lines are inserted
-; Input: A/X = at_line (16-bit low/high), BUF_TEMP16 = count of inserted lines (16-bit)
-; Marks >= at_line: add count
-; Clobbers: A, X, Y
-mark_adjust_insert:
-  ; Store at_line in BUF_SRC16
-  STAX16 BUF_SRC16
-
-  ; Set DST = SRC (empty unset range for insert)
-  LDA BUF_SRC16
-  STA BUF_DST16
-  LDA BUF_SRC16 + 1
-  STA BUF_DST16 + 1
-
-  CLC                  ; Clear carry for add
-  JMP mark_adjust_range
