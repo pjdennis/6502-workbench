@@ -296,7 +296,12 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 
 - Uses ANSI escape sequences via `terminal.asm` helpers (cursor move, clear
   line, reverse video status bar).
-- Long lines wrap across multiple screen rows (vi-style).
+- Long lines wrap across multiple screen rows (vi-style), up to 255 rows
+  per line: wrap rows (`WRAP_QUOT`, `VIEW_TOP_WRAP`, `RENDER_WRAP`) and row
+  counts are bytes, and `div_mod_screen_cols_16` caps its quotient (and
+  `line_screen_rows` its count) at 255.  Text past a line's 255th row
+  (255 x `SCREEN_COLS` characters) is stored and saved but not displayed
+  correctly.
 - Lines past EOF shown as `~` (tilde).
 - Tabs shown as `>`, other control characters and non-ASCII bytes as `?`,
   both in reverse video.

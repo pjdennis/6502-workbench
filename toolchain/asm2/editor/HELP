@@ -299,7 +299,12 @@ STATUS BAR
 DISPLAY
 -------
 
-  Long lines wrap across multiple screen rows.
+  Long lines wrap across multiple screen rows, up to 255 rows per
+  line (255 times the screen width: 10200 characters at 40 columns,
+  20400 at 80). Text past a line's 255th row is kept and saved, but
+  it is not displayed correctly: it can show out of place, and with
+  the cursor there the view and the cursor's place on screen are
+  wrong.
   Lines past end of file are shown as ~ (tilde).
   Non-ASCII bytes (high bit set) are shown as ? in reverse video.
   Tab characters are shown as > in reverse video.

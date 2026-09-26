@@ -125,7 +125,7 @@ Our mark adjustment is actually more robust than vi's.
 | Marks | 26, no auto-adjust | 26, auto-adjusted |
 | Insert batching | No (char-at-a-time) | Yes (up to 32 keys) |
 | Terminal abstraction | Termcap (4 modes) | ANSI only |
-| Line wrapping | Yes | Yes |
+| Line wrapping | Yes | Yes (up to 255 rows per line) |
 | Word motion | w/b/e/W/B/E | w/b/e |
 | Indent/unindent | `>>`, `<<` | `>>`, `<<`, range |
 
