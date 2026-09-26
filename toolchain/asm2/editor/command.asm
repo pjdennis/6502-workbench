@@ -34,18 +34,278 @@ command_parse:
   JSR dispatch_key
   BCC cmd_ret
 
-  ; Range/goto: digit
-  LDA CMD_BUF
-  CMP #'0'
-  BCC .unknown
-  CMP #':'              ; '9'+1
-  BCS .unknown
-  JMP command_parse_range
+  ; Anything else must start with a digit: range or goto
+  LDA BUF_TEMP
+  SEC
+  SBC #'0'
+  CMP #10
+  BCS cmd_unknown
+  ; fall through
 
-.unknown:
+; Parse range or goto command
+; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :NNN (goto)
+command_parse_range:
+  LDX #0
+  JSR parse_range_pos     ; Parse first position -> BUF_LEN16
+  BCS range_mark_err
+  CP16 BUF_LEN16, BUF_SRC16
+
+  ; End (goto), comma (range) or command char
+  LDA CMD_BUF,X
+  BEQ range_goto
+  CMP #','
+  BNE range_dispatch      ; Single position (e.g. :.> or :5d): end = start
+
+  INX                     ; Skip comma
+  JSR parse_range_pos     ; Parse second position -> BUF_LEN16
+  BCS range_mark_err
+  LDA CMD_BUF,X           ; Command char
+  ; fall through
+
+; Run a range command
+; Input: A = command char, BUF_SRC16 = start line, BUF_LEN16 = end line
+; (either order); the action gets BUF_SRC16 = first line, BUF_TEMP16 = count
+range_dispatch:
+  STA BUF_TEMP            ; Command char (dispatch key)
+
+  ; Ensure start <= end (swap if needed)
+  CMP16 BUF_LEN16, BUF_SRC16
+  BCS .range_order_ok
+  LDX #1
+.swap:
+  LDY BUF_SRC16,X
+  LDA BUF_LEN16,X
+  STA BUF_SRC16,X
+  STY BUF_LEN16,X
+  DEX
+  BPL .swap
+.range_order_ok:
+
+  ; count = end - start + 1 (full 16 bits)
+  SEC
+  SBC16 BUF_LEN16, BUF_SRC16, BUF_TEMP16
+  INC16 BUF_TEMP16
+
+  ; Readonly check for editing commands (d, >, <) — yank allowed
+  LDA BUF_TEMP
+  CMP #'y'
+  BEQ .range_dispatch_cmd
+  LDA READONLY
+  BNE show_readonly_msg
+
+.range_dispatch_cmd:
+  LDA #<range_action_keys
+  LDX #>range_action_keys
+  JSR dispatch_key
+  BCS cmd_unknown
+cmd_ret:
+  RTS
+
+range_goto:
+  ; :NNN goto (BUF_SRC16 = 0-based line). Command mode was entered through
+  ; clear_count, so the extra clear_count here changes nothing.
+  CP16 BUF_SRC16, FILE_LINE16
+  JMP zero_col_clamp_clear
+
+range_mark_err:
+  LDA #<str_mark_not_set
+  LDX #>str_mark_not_set
+  JMP show_message_ax
+
+cmd_unknown:
+  LDA #<str_unknown_cmd
+  LDX #>str_unknown_cmd
+  JMP show_message_ax
+
+; Shared read-only rejection message (also used by cmd_parse_w)
+show_readonly_msg:
+  LDA #<str_readonly
+  LDX #>str_readonly
+  JMP show_message_ax
+
+cmd_parse_bare_shift:
+  CP16 FILE_LINE16, BUF_SRC16
+  CP16 FILE_LINE16, BUF_LEN16
+  LDA BUF_TEMP            ; '>' or '<'
+  BNE range_dispatch      ; Always taken
+
+; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
+cmd_parse_m:
+  LDX #4
+.loop:
+  LDA CMD_BUF + 1,X
+  CMP str_marks_tail,X
+  BNE cmd_unknown
+  DEX
+  BPL .loop
+  JMP marks_display
+
+cmd_parse_q:
+  LDA CMD_BUF + 1
+  BEQ .do_quit        ; Just ":q"
+  CMP #'!'
+  BEQ .force_quit
   JMP cmd_unknown
 
-cmd_ret:
+.do_quit:
+  ; Check if modified
+  LDA MODIFIED
+  BEQ .quit_ok
+  ; Show warning
+  LDA #<str_no_write
+  LDX #>str_no_write
+  JMP show_message_ax
+
+.quit_ok:
+  LDA #$FF
+  STA CMD_QUIT
+  RTS
+
+.force_quit:
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":q!"
+  LDA #$FF
+  STA CMD_QUIT
+  RTS
+
+cmd_parse_w:
+  LDA READONLY
+  BEQ .not_readonly
+  JMP show_readonly_msg
+.not_readonly:
+  LDA CMD_BUF + 1
+  BEQ .do_write       ; Just ":w"
+  CMP #'q'
+  BEQ .check_wq
+  JMP cmd_unknown
+
+.check_wq:
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":wq"
+  ; :wq - write and quit
+  JSR command_write_file
+  LDA #$FF
+  STA CMD_QUIT
+  RTS
+
+.do_write:
+  JMP command_write_file
+
+; Write (save) the file
+command_write_file:
+  ; Open file for writing
+  LDA #<FNAME_BUF
+  LDX #>FNAME_BUF
+  JSR openout
+  STA FILE_HANDLE
+
+  ; Write buffer contents
+  LDA FILE_HANDLE
+  JSR buf_save_file
+
+  ; Close file
+  LDA FILE_HANDLE
+  JSR close
+
+  ; Clear modified flag
+  LDA #0
+  STA MODIFIED
+
+  ; Show confirmation on status line
+  JSR command_show_prompt
+  LDA #'"'
+  JSR io_write
+  JSR write_fname
+  LDA #'"'
+  JSR io_write
+  LDA #' '
+  JSR io_write
+
+  ; Print " written"
+  PRINT_STR str_written
+
+  JSR io_flush
+  ; Brief pause to show message - wait for next redraw
+  RTS
+
+
+; --- Command parse dispatch table ---
+command_parse_keys:
+  .byte 'w'    .word cmd_parse_w
+  .byte 'q'    .word cmd_parse_q
+  .byte 'm'    .word cmd_parse_m
+  .byte '\''   .word command_parse_range
+  .byte '.'    .word command_parse_range
+  .byte '>'    .word cmd_parse_bare_shift
+  .byte '<'    .word cmd_parse_bare_shift
+  .byte 0      ; End sentinel
+
+; Parse one range position starting at CMD_BUF[X]
+; Handles: 'x (mark), . (current line), decimal number (1-based)
+; Returns: BUF_LEN16 = 0-based line number, X = updated offset
+;          carry clear = success, carry set = error (mark not set, or
+;          no digits)
+; Clobbers: A, Y, CMD_IDX, BUF_DST16
+parse_range_pos:
+  LDA CMD_BUF,X
+  CMP #'.'
+  BNE .not_dot
+  INX                     ; Skip dot
+  CP16 FILE_LINE16, BUF_LEN16
+  CLC
+  RTS
+.not_dot:
+  CMP #'\''
+  BNE .number
+  INX                     ; Skip quote
+  LDA CMD_BUF,X
+  INX                     ; Skip mark letter
+  ; Save X (CMD_BUF offset), mark_get returns result in A/X
+  STX CMD_IDX
+  JSR mark_get            ; A = low, X = high, carry set if invalid
+  BCS .error
+  STAX16 BUF_LEN16
+  LDX CMD_IDX
+.error:
+  RTS                     ; Carry clear on success
+.number:
+  ; Decimal number: BUF_LEN16 = BUF_LEN16 * 10 + digit (BUF_DST16 = x2)
+  LDA #0
+  STA_LH16 BUF_LEN16
+  STX CMD_IDX             ; Save start offset
+.digit_loop:
+  LDA CMD_BUF,X
+  SEC
+  SBC #'0'
+  CMP #10
+  BCS .digits_done
+  PHA
+  ASL16 BUF_LEN16
+  CP16 BUF_LEN16, BUF_DST16
+  ASL16 BUF_LEN16
+  ASL16 BUF_LEN16
+  CLC
+  ADC16 BUF_LEN16, BUF_DST16, BUF_LEN16
+  PLA
+  CLC
+  ADCA16 BUF_LEN16, BUF_LEN16
+  INX
+  BNE .digit_loop         ; Always taken (CMD_BUF is null-terminated)
+.digits_done:
+  CPX CMD_IDX
+  BEQ .error              ; No digits (carry set by the equal compare)
+  ; Convert 1-based to 0-based (0 stays at 0 = first line)
+  TST16 BUF_LEN16
+  BEQ .num_ok
+  SEC
+  SBCI16 BUF_LEN16, $0001, BUF_LEN16
+  ; Clamp to LINE_COUNT16-1
+  CMP16 BUF_LEN16, LINE_COUNT16
+  BCC .num_ok
+  SEC
+  SBCI16 LINE_COUNT16, $0001, BUF_LEN16
+.num_ok:
+  CLC
   RTS
 
 ; Show the ':' prompt on the status line
@@ -96,214 +356,6 @@ read_line:
 .ret:
   RTS
 
-; --- Command parse dispatch table ---
-command_parse_keys:
-  .byte 'w'    .word cmd_parse_w
-  .byte 'q'    .word cmd_parse_q
-  .byte 'm'    .word cmd_parse_m
-  .byte '\''   .word command_parse_range
-  .byte '.'    .word command_parse_range
-  .byte '>'    .word cmd_parse_bare_shift
-  .byte '<'    .word cmd_parse_bare_shift
-  .byte 0      ; End sentinel
-
-; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
-cmd_parse_m:
-  LDX #4
-.loop:
-  LDA CMD_BUF + 1,X
-  CMP str_marks_tail,X
-  BNE cmd_unknown
-  DEX
-  BPL .loop
-  JMP marks_display
-
-cmd_parse_w:
-  LDA READONLY
-  BEQ .not_readonly
-  JMP show_readonly_msg
-.not_readonly:
-  LDA CMD_BUF + 1
-  BEQ .do_write       ; Just ":w"
-  CMP #'q'
-  BEQ .check_wq
-  JMP cmd_unknown
-
-.check_wq:
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":wq"
-  ; :wq - write and quit
-  JSR command_write_file
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-.do_write:
-  JMP command_write_file
-
-cmd_parse_q:
-  LDA CMD_BUF + 1
-  BEQ .do_quit        ; Just ":q"
-  CMP #'!'
-  BEQ .force_quit
-  JMP cmd_unknown
-
-.do_quit:
-  ; Check if modified
-  LDA MODIFIED
-  BEQ .quit_ok
-  ; Show warning
-  LDA #<str_no_write
-  LDX #>str_no_write
-  JMP show_message_ax
-
-.quit_ok:
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-.force_quit:
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":q!"
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-cmd_parse_bare_shift:
-  CP16 FILE_LINE16, BUF_SRC16
-  CP16 FILE_LINE16, BUF_DST16
-  LDA CMD_BUF
-  JMP range_dispatch
-
-cmd_unknown:
-  LDA #<str_unknown_cmd
-  LDX #>str_unknown_cmd
-  JMP show_message_ax
-
-; Parse decimal number from CMD_BUF starting at offset X
-; Returns: BUF_LEN16 = parsed number, X = updated offset past digits
-;          carry clear = valid number, carry set = no digits found
-; Clobbers: A, BUF_LEN16, BUF_SRC16
-parse_decimal:
-  SET16 $0000, BUF_LEN16
-  STX CMD_IDX              ; Save start offset
-.loop:
-  LDA CMD_BUF,X
-  SEC
-  SBC #'0'
-  BMI .done
-  CMP #10
-  BCS .done
-
-  ; Multiply BUF_LEN16 by 10 and add digit
-  PHA
-  ASL16 BUF_LEN16
-  CP16 BUF_LEN16, BUF_SRC16
-  ASL16 BUF_LEN16
-  ASL16 BUF_LEN16
-  CLC
-  ADC16 BUF_LEN16, BUF_SRC16, BUF_LEN16
-  PLA
-  CLC
-  ADCA16 BUF_LEN16, BUF_LEN16
-
-  INX
-  JMP .loop
-.done:
-  CPX CMD_IDX
-  BEQ .no_digits
-  CLC
-  RTS
-.no_digits:
-  SEC
-  RTS
-
-; Parse one range position starting at CMD_BUF[X]
-; Handles: 'x (mark), . (current line), decimal number (1-based)
-; Returns: BUF_LEN16 = 0-based line number, X = updated offset
-;          carry clear = success, carry set = error
-; Clobbers: A
-parse_range_pos:
-  LDA CMD_BUF,X
-  CMP #'\''
-  BEQ .mark
-  CMP #'.'
-  BEQ .dot
-  ; Try decimal number
-  JSR parse_decimal        ; BUF_LEN16 = number, X = updated offset
-  BCS .error
-  ; Convert 1-based to 0-based (0 stays at 0 = first line)
-  TST16 BUF_LEN16
-  BEQ .num_ok
-  SEC
-  SBCI16 BUF_LEN16, $0001, BUF_LEN16
-  ; Clamp to LINE_COUNT16-1
-  CMP16 BUF_LEN16, LINE_COUNT16
-  BCC .num_ok
-  SEC
-  SBCI16 LINE_COUNT16, $0001, BUF_LEN16
-.num_ok:
-  CLC
-  RTS
-.mark:
-  INX                     ; Skip quote
-  LDA CMD_BUF,X
-  INX                     ; Skip mark letter
-  ; Save X (CMD_BUF offset), mark_get returns result in A/X
-  STX CMD_IDX
-  JSR mark_get            ; A = low, X = high, carry set if invalid
-  BCS .error
-  STA BUF_LEN16
-  STX BUF_LEN16 + 1
-  LDX CMD_IDX
-  CLC
-  RTS
-.dot:
-  INX                     ; Skip dot
-  CP16 FILE_LINE16, BUF_LEN16
-  CLC
-  RTS
-.error:
-  SEC
-  RTS
-
-; Write (save) the file
-command_write_file:
-  ; Open file for writing
-  LDA #<FNAME_BUF
-  LDX #>FNAME_BUF
-  JSR openout
-  STA FILE_HANDLE
-
-  ; Write buffer contents
-  LDA FILE_HANDLE
-  JSR buf_save_file
-
-  ; Close file
-  LDA FILE_HANDLE
-  JSR close
-
-  ; Clear modified flag
-  LDA #0
-  STA MODIFIED
-
-  ; Show confirmation on status line
-  JSR command_show_prompt
-  LDA #'"'
-  JSR io_write
-  JSR write_fname
-  LDA #'"'
-  JSR io_write
-  LDA #' '
-  JSR io_write
-
-  ; Print " written"
-  PRINT_STR str_written
-
-  JSR io_flush
-  ; Brief pause to show message - wait for next redraw
-  RTS
-
 ; Show "Buffer full" status message
 show_buffer_full_msg:
   LDA #<str_buffer_full
@@ -323,106 +375,6 @@ show_message_ax:
   PLA
   JSR write_string_ax
   JMP flush_get_key
-
-; Parse range or goto command
-; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :NNN (goto)
-command_parse_range:
-  LDX #0
-  JSR parse_range_pos     ; Parse first position -> BUF_LEN16
-  BCC .range_first_ok
-  JMP range_mark_err
-.range_first_ok:
-  CP16 BUF_LEN16, BUF_SRC16
-
-  ; Check for comma (range) or end (goto)
-  LDA CMD_BUF,X
-  CMP #','
-  BEQ .range_has_comma
-
-  ; No comma: maybe :NNN goto
-  CMP #0
-  BEQ .range_goto
-
-  ; Single-position + command (e.g. :.> or :5d)
-  CP16 BUF_SRC16, BUF_DST16   ; end = start
-  LDA CMD_BUF,X                ; command char
-  JMP range_dispatch
-
-.range_goto:
-  ; :NNN goto (BUF_SRC16 = 0-based line)
-  CP16 BUF_SRC16, FILE_LINE16
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  JMP clamp_cursor_col
-
-.range_has_comma:
-  INX                     ; Skip comma
-  PUSH16 BUF_SRC16        ; Save first position (parse_decimal clobbers BUF_SRC16)
-  JSR parse_range_pos     ; Parse second position -> BUF_LEN16
-  POP16 BUF_SRC16         ; PLA preserves carry on 6502
-  BCC .range_second_ok
-  JMP range_mark_err
-.range_second_ok:
-  CP16 BUF_LEN16, BUF_DST16
-
-  ; Get command char
-  LDA CMD_BUF,X
-  JMP range_dispatch
-
-range_dispatch:
-  ; A = command char
-  STA CMD_IDX              ; Save command char
-
-  ; Ensure start <= end (swap if needed)
-  CMP16 BUF_SRC16, BUF_DST16
-  BCC .range_order_ok
-  BEQ .range_order_ok
-  ; Swap BUF_SRC16 and BUF_DST16
-  LDA BUF_SRC16
-  PHA
-  LDA BUF_DST16
-  STA BUF_SRC16
-  PLA
-  STA BUF_DST16
-  LDA BUF_SRC16 + 1
-  PHA
-  LDA BUF_DST16 + 1
-  STA BUF_SRC16 + 1
-  PLA
-  STA BUF_DST16 + 1
-.range_order_ok:
-
-  ; count = end - start + 1
-  SEC
-  SBC16 BUF_DST16, BUF_SRC16, BUF_LEN16
-  INC16 BUF_LEN16
-
-  ; Copy full 16-bit count to BUF_TEMP16 (no 255 cap)
-  CP16 BUF_LEN16, BUF_TEMP16
-
-  ; Readonly check for editing commands (d, >, <) — yank allowed
-  LDA CMD_IDX
-  CMP #'y'
-  BEQ .range_dispatch_cmd
-  LDA READONLY
-  BNE show_readonly_msg
-
-.range_dispatch_cmd:
-  LDA CMD_IDX
-  STA BUF_TEMP
-  LDA #<range_action_keys
-  LDX #>range_action_keys
-  JSR dispatch_key
-  BCC .done
-  JMP cmd_unknown
-.done:
-  RTS
-
-; Shared read-only rejection message (also used by cmd_parse_w)
-show_readonly_msg:
-  LDA #<str_readonly
-  LDX #>str_readonly
-  JMP show_message_ax
 
 ; --- Range action dispatch table ---
 range_action_keys:
@@ -544,11 +496,6 @@ report_yank_lines_ax:
   CP16 YANK_LINES16, TO_DECIMAL_VALUE16
   TYA
   JMP report_lines_ax
-
-range_mark_err:
-  LDA #<str_mark_not_set
-  LDX #>str_mark_not_set
-  JMP show_message_ax
 
 str_lines_yanked:  .asciiz " lines yanked"
 str_lines_deleted: .asciiz " lines deleted"
