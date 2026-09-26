@@ -8888,6 +8888,35 @@ class EditorTestRunner:
             expect_cursor=(0, 6),
         )
 
+        # e skips empty and whitespace-only lines (as in vi)
+        self.run_test_screen(
+            "e skips empty line",
+            "foo\n\nbar\n",
+            b"ee:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "e skips whitespace-only line",
+            "foo\n   \nbar\n",
+            b"ee:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "2e counts no word end on blank lines",
+            "a\n \n\t\nb c\n",
+            b"2e:q!\r",
+            expect_cursor=(3, 2),
+        )
+
+        self.run_test_screen(
+            "e with no word end left stops on last line",
+            "ab\n\n\n",
+            b"le:q!\r",
+            expect_cursor=(2, 0),
+        )
+
         self._group("Toggle case (~):", leading_blank=True)
 
         self.run_test(
@@ -10220,6 +10249,20 @@ class EditorTestRunner:
             "one two three four\n",
             b"2dede:wq\r",
             expected_content=" four\n",
+        )
+
+        self.run_test(
+            "de skips empty line to next word end",
+            "foo   \n\nbar\n",
+            b"llde:wq\r",
+            expected_content="fo\n",
+        )
+
+        self.run_test(
+            "de skips whitespace-only line to next word end",
+            "ab\n  \ncd\n",
+            b"lde:wq\r",
+            expected_content="a\n",
         )
 
         # When e finds no word end it stops on a newline; the inclusive

@@ -198,16 +198,12 @@ word_end_x:
   JSR dec_cursor_col      ; Undo the step
 
 .e_next_line:
-  ; Move to next line and find first word end
+  ; Move to next line and skip whitespace from its start to the first word
+  ; end: like vi, e passes over empty and whitespace-only lines
   JSR advance_next_line
   BCS .e_done_final       ; No next line
   JSR get_line_len_z
-  JSR class_in_line
-.e_newline_skip_ws:
-  BMI .e_done_one         ; Empty or all-whitespace line counts as done for e
-  BNE .e_found_nonws      ; Found non-whitespace: skip to end of this word
-  JSR next_class
-  JMP .e_newline_skip_ws
+  JSR dec_cursor_col      ; Col -1: the first step lands on col 0
 
   ; Skip whitespace
 .e_skip_ws:
@@ -216,8 +212,7 @@ word_end_x:
 .e_skip_ws_test:
   BEQ .e_skip_ws
 
-.e_found_nonws:
-  ; Remember class
+  ; Found non-whitespace: remember its class
   STA WORD_CLASS
 
   ; Skip forward through same-class chars; the word ends one before the
@@ -230,7 +225,6 @@ word_end_x:
 .e_back:
   JSR dec_cursor_col
 
-.e_done_one:
   LDX NORMAL_TEMP
   DEX
   BNE .e_loop
