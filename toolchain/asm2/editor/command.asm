@@ -15,11 +15,7 @@
 CMD_BUF     = $0300   ; Command buffer (256 bytes)
 CMD_BUF_LEN = $00FF   ; Max command length
 
-  .zeropage
-CMD_IDX:     .byte     ; Current index into command buffer
-CMD_QUIT:    .byte     ; Set to $FF when editor should quit
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Enter command mode: read a command line and execute it
 command_handle:

@@ -1,0 +1,132 @@
+; Zero-page variables of every editor module, gathered here and
+; included before any code so every zero-page reference is a backward
+; one (asm17 assembles a forward reference as absolute: one more byte
+; and one more cycle).  Grouped by owning module, in include order.
+; (17/to_decimal.asm keeps its own block: the assembler shares it.)
+
+  .zeropage
+
+; --- io.asm ---
+  .ifdef terminal_mode
+DSR_VALUE:       .byte    ; Temp for parsing DSR decimal values
+  .endif
+
+; --- terminal.asm ---
+ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
+ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
+STR_PTR16:    .word    ; Pointer for write_string
+
+; --- input.asm ---
+PUSHBACK:         .byte  ; Pushback byte (valid while HAS_PUSHBACK)
+HAS_PUSHBACK:     .byte  ; $FF if PUSHBACK has a byte, else $00
+KEY_DECODED:      .byte  ; Buffered decoded key
+HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value, else $00
+
+; --- buffer.asm ---
+BUF_END16:     .word     ; Points one past last byte of text
+LINE_COUNT16:  .word     ; Number of lines in buffer (16-bit)
+BUF_PTR16:     .word     ; General-purpose buffer pointer
+BUF_SRC16:     .word     ; Source pointer for block moves
+BUF_DST16:     .word     ; Destination pointer for block moves
+BUF_LEN16:     .word     ; Length/count for block moves
+BUF_TEMP:      .byte     ; Shared scratch byte (load: truncation flag)
+BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
+BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
+FILE_HANDLE:   .byte     ; File handle for load/save
+
+; --- undo_state.asm ---
+UNDO_TYPE:       .byte    ; UNDO_NONE..UNDO_REPLACE (undo_state.asm)
+UNDO_LINE16:     .word    ; Record fields: see the per-type table in undo_state.asm
+UNDO_COL16:      .word
+UNDO_IS_REDO:    .byte    ; 0=undo pending, $FF=redo pending
+INSERT_CHANGED:  .byte    ; Insert mode: nonzero once the buffer changed
+                          ; (leaving insert mode then clears the undo record)
+UNDO_JOIN_COUNT: .byte
+UNDO_PASTE_COUNT16: .word
+
+; --- render.asm ---
+CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
+CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
+VIEW_TOP16:     .word   ; First visible line number (0-based)
+SCREEN_ROWS:    .byte   ; Terminal height
+SCREEN_COLS:    .byte   ; Terminal width
+TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
+FILE_LINE16:    .word   ; Current file line (0-based)
+MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
+MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
+READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
+RENDER_ROW:     .byte   ; Current row being rendered
+RENDER_LINE16:  .word   ; Current file line being rendered
+RENDER_COL:     .byte   ; Column counter during rendering
+RENDER_FLAG:    .byte   ; Handler's render request: RF_* (render.asm; contract table in render_decide.asm)
+VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
+WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by ensure_cursor_visible
+WRAP_REM:       .byte   ; Scratch: column a partial / ICH-DCH row render starts at
+RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
+DIV_INPUT16:    .word   ; Scratch for 16-bit division
+PREV_LINE_ROWS: .byte   ; Screen rows the cursor line occupied before the key ($09: after; $0B: the range's old rows)
+SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
+SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
+SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
+SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
+SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_loop (not reset per key)
+RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
+DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $02/$06/$07/$08/$0B (0 = none; reset per key)
+RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
+INSERT_LINE_COUNT:  .byte ; Per-flag line count / join or Enter kind (see RENDER_FLAG; reset per key)
+CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line (or $0B range) occupies after the edit
+SHIFT_NET:      .byte   ; ICH/DCH hint: cells inserted (+) / deleted (-) at RENDER_FROM_COL16
+SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16; $FF = no hint
+RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
+ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
+ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
+SHIFT_DCH_COST: .byte   ; shift: byte cost of the DCH route for the row
+SHIFT_REM16:    .word   ; shift: line length from the current row's start
+SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
+
+; --- yank.asm ---
+YANK_END16:    .word     ; Points one past last byte in yank buffer
+YANK_LINES16:  .word     ; 16-bit line count for yank buffer
+YANK_SIZE16:   .word     ; Single yank size for paste operations
+YANK_TYPE:     .byte     ; 0=line, 1=char
+
+; --- search.asm ---
+SEARCH_LEN:   .byte     ; Length of current search pattern
+SEARCH_IDX:   .byte     ; Current index during search input
+SEARCH_LINE16: .word    ; Line number being searched
+SEARCH_COL:   .byte     ; Column position of match / start column for search
+SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), $10=backward (?)
+SEARCH_LIMIT_COL: .byte ; Column limit for backward line search
+
+; --- normal_util.asm ---
+LAST_KEY:       .byte  ; Previous key for multi-key commands (dd, gg, yy, m, ')
+LINE_LEN16:     .word  ; Cached length of current line (16-bit)
+DISPATCH_PTR16: .word  ; Pointer into dispatch table during scan
+JUMP_TARGET16:  .word  ; Target for indirect jump
+COUNT16:        .word  ; Accumulated count (0 = no count entered)
+COUNT_ACTIVE:   .byte  ; $FF if digits are being entered, $00 otherwise
+NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
+SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
+BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
+BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none)
+
+; --- word.asm ---
+WORD_CLASS:    .byte     ; Character class of current char
+
+; --- normal_shift.asm ---
+SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
+                        ; also SHIFT_RECORDED (normal_shift.asm) and
+                        ; TILDE_TOGGLED (normal_edit.asm)
+SHIFT_UNDO_WIDTH: .byte ; width of the LAST logical op for undo recording
+                        ; (batched pairs multiply BUF_DELTA, but undo must
+                        ; behave as if the keys ran separately, so undo
+                        ; covers only the final op's contribution)
+
+; --- command.asm ---
+CMD_IDX:     .byte     ; Current index into command buffer
+CMD_QUIT:    .byte     ; Set to $FF when editor should quit
+
+; --- mark.asm ---
+MARK_DELTA16: .word
+
+  .code

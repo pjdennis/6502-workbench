@@ -18,10 +18,7 @@ io_ready = con_ready
 
 ; Terminal mode: serial I/O with spin loops
 
-  .zeropage
-DSR_VALUE:       .byte    ; Temp for parsing DSR decimal values
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Write byte in A to serial output (blocking spin loop)
 ; A, X, Y preserved (same contract as write_b)

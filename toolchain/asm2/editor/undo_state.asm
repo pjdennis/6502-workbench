@@ -62,21 +62,9 @@ UNDO_REPLACE = 13
 UNDO_DATA_BUF = $D700     ; 256 bytes
 JOIN_UNDO_MAX = 128       ; 256 / 2 bytes per entry
 
-  .zeropage
-
-UNDO_TYPE:       .byte    ; UNDO_NONE..UNDO_REPLACE (see above)
-UNDO_LINE16:     .word    ; Record fields: see the per-type table above
-UNDO_COL16:      .word
-UNDO_IS_REDO:    .byte    ; 0=undo pending, $FF=redo pending
-INSERT_CHANGED:  .byte    ; Insert mode: nonzero once the buffer changed
-                          ; (leaving insert mode then clears the undo record)
-UNDO_JOIN_COUNT: .byte
-UNDO_PASTE_COUNT16: .word
-
+; (zero-page variables: zp.asm)
 ; Per-type names for the shared record fields (zero-cost aliases)
 UNDO_SPAN_LEN      = UNDO_JOIN_COUNT     ; ~ r: chars in the span
 UNDO_WIDTH         = UNDO_JOIN_COUNT     ; >> <<: width of the last op
 UNDO_RANGE_LINES16 = UNDO_PASTE_COUNT16  ; >> <<: lines in the range (> 255: not undoable)
 UNDO_REPL_CHAR     = UNDO_PASTE_COUNT16  ; r: the replacement char
-
-  .code

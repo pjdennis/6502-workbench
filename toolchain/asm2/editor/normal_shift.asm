@@ -29,22 +29,12 @@
 ; On no-op (nothing inserted/removed) they leave MODIFIED and RENDER_FLAG
 ; untouched so the frame is a pure cursor/status update.
 
-  .zeropage
-
-SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
-                        ; also SHIFT_RECORDED and TILDE_TOGGLED (below)
-SHIFT_UNDO_WIDTH: .byte ; width of the LAST logical op for undo recording
-                        ; (batched pairs multiply BUF_DELTA, but undo must
-                        ; behave as if the keys ran separately, so undo
-                        ; covers only the final op's contribution)
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Scratch the cores reuse while they run (aliases)
 SHIFT_LINE_IDX   = UNDO_JOIN_COUNT ; line index into UNDO_DATA_BUF (then UNDO_WIDTH)
 SHIFT_RECORDED   = SHIFT_MODE      ; remove core: nonzero once a last-op removal is recorded
 SHIFT_PREV_WIDTH = BUF_LEN16       ; remove core: width taken by the batch's earlier ops
-TILDE_TOGGLED    = SHIFT_MODE      ; ~ (normal_edit.asm): the last visited char was toggled
 
 INDENT_WIDTH = 2
 

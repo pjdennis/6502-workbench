@@ -64,7 +64,7 @@ with a single `buf_shift_left_16` via `delete_at_cursor`, with one
 ### Indent/unindent range repaint
 
 `>>`, `<<`, `:N,M>`, `:N,M<`, and their undo use a dedicated render path
-(`RENDER_FLAG=$0B`): the handler pre-computes the affected range's screen
+(`RENDER_FLAG` = `RF_RANGE`, $0B): the handler pre-computes the affected range's screen
 rows; after the edit only those rows are repainted. If wrapping changed
 the row count, the region below is scrolled by the difference and only
 the range plus newly exposed rows are drawn. No-op shifts (nothing to

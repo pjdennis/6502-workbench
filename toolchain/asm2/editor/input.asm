@@ -17,15 +17,8 @@ KEY_ENTER = $0D
 KEY_BS    = $08
 KEY_TAB   = $09
 
-  .zeropage
-
+; (zero-page variables: zp.asm)
 ; The HAS_ flags are only ever $00 or $FF: INC clears them
-PUSHBACK:         .byte  ; Pushback byte (valid while HAS_PUSHBACK)
-HAS_PUSHBACK:     .byte  ; $FF if PUSHBACK has a byte, else $00
-KEY_DECODED:      .byte  ; Buffered decoded key
-HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value, else $00
-
-  .code
 
 ; Read one byte from input, with pushback support
 ; Returns byte in A. Preserves X, Y (read_key relies on this)

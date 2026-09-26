@@ -73,6 +73,12 @@ project's 6502 emulator in console/ANSI mode.
 ### Shared includes
 - `17/environment.asm`: emulator I/O port definitions (shared with assembler).
 - `17/macros.asm`: 16-bit macros (`SET16`, `LDAX16`, `STAX16`, etc.).
+- `macros.asm`: editor-only macros (`ADDA16`, `PRINT_STR`); `17/macros.asm`
+  is shared with the assembler.
+- `zp.asm`: every editor zero-page variable, grouped by owning module and
+  included before any code, so all zero-page references are backward ones
+  (asm17 assembles a forward reference as absolute: one byte and one
+  cycle more).
 - `17/to_decimal.asm`: decimal number formatting.
 
 ### Standalone demos (not part of the editor)
@@ -133,7 +139,8 @@ project's 6502 emulator in console/ANSI mode.
   buffer and `MAX_LINES` so the editor can edit its own source (guarded by
   the test suite).
 - **Editor state**: `CURSOR_ROW`, `CURSOR_COL16` (16-bit), `VIEW_TOP16`,
-  `FILE_LINE16`, `MODE`, `MODIFIED`, `READONLY` live in zero page.
+  `FILE_LINE16`, `MODE`, `MODIFIED`, `READONLY` live in zero page (all
+  zero-page variables are declared in `zp.asm`).
   `FILE_LINE16` is the authoritative current line number; `CURSOR_ROW` is
   derived from it and `VIEW_TOP16`.
 - **Read-only mode**: set if file load truncates; edit keys are ignored and

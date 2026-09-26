@@ -3,11 +3,7 @@
 ; Provides char_class (classify byte), the word motions w, b, e and ^,
 ; and the multi-line word range routines of the word operators.
 
-  .zeropage
-
-WORD_CLASS:    .byte     ; Character class of current char
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Step the cursor right, then classify it as class_in_line does
 next_class:

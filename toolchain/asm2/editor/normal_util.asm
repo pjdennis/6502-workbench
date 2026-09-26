@@ -1,20 +1,7 @@
-; Normal mode shared utilities - zero-page variables, dispatch, cursor helpers,
+; Normal mode shared utilities - dispatch, cursor helpers,
 ; count prefix system, and common yank/delete operations.
 
-  .zeropage
-
-LAST_KEY:       .byte  ; Previous key for multi-key commands (dd, gg, yy, m, ')
-LINE_LEN16:     .word  ; Cached length of current line (16-bit)
-DISPATCH_PTR16: .word  ; Pointer into dispatch table during scan
-JUMP_TARGET16:  .word  ; Target for indirect jump
-COUNT16:        .word  ; Accumulated count (0 = no count entered)
-COUNT_ACTIVE:   .byte  ; $FF if digits are being entered, $00 otherwise
-NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
-SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
-BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
-BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none)
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; --- Generic key dispatcher ---
 ; Input: A = low byte, X = high byte of dispatch table address

@@ -14,14 +14,7 @@ YANK_LIMIT = $F000
 YANK_LINE = 0
 YANK_CHAR = 1
 
-  .zeropage
-
-YANK_END16:    .word     ; Points one past last byte in yank buffer
-YANK_LINES16:  .word     ; 16-bit line count for yank buffer
-YANK_SIZE16:   .word     ; Single yank size for paste operations
-YANK_TYPE:     .byte     ; 0=line, 1=char
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Initialize yank buffer (call once at startup)
 yank_init:

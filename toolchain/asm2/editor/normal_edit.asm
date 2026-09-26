@@ -395,7 +395,7 @@ toggle_alpha:
 ; Scratch while ~ runs (aliases; the record is UNDO_COL16/UNDO_SPAN_LEN)
 TILDE_BATCHED    = BUF_LEN16          ; nonzero: batched ~ keys
 TILDE_LAST_COL16 = UNDO_PASTE_COUNT16 ; column of the last visited char
-; (TILDE_TOGGLED, in normal_shift.asm: nonzero if that char was toggled)
+TILDE_TOGGLED    = SHIFT_MODE         ; nonzero: that char was toggled
 
 normal_toggle_case:
   JSR undo_clear

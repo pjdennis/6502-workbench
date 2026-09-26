@@ -39,8 +39,9 @@ FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
   .include 17/environment.asm
   .include 17/macros.asm
   .include editor/macros.asm
-  .include editor/io.asm
   .include 17/to_decimal.asm
+  .include editor/zp.asm
+  .include editor/io.asm
   .include editor/terminal.asm
   .include editor/input.asm
   .include editor/buffer_mem.asm

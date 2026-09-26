@@ -10,9 +10,7 @@
 MARK_TBL   = $D620    ; 26 entries x 2 bytes = 52 bytes
 MARK_UNSET = $FFFF
 
-  .zeropage
-MARK_DELTA16: .word
-  .code
+; (zero-page variables: zp.asm)
 
 ; Initialize all 26 marks to MARK_UNSET ($FFFF)
 mark_init:

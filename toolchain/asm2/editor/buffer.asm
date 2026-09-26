@@ -16,20 +16,7 @@ MAX_LINES   = $03FF  ; Last line index LINE_TBL has room for (not checked)
 BATCH_BUF   = $D600  ; Staging buffer for batch insert (32 bytes)
 BATCH_MAX   = 32     ; Maximum batch size
 
-  .zeropage
-
-BUF_END16:     .word     ; Points one past last byte of text
-LINE_COUNT16:  .word     ; Number of lines in buffer (16-bit)
-BUF_PTR16:     .word     ; General-purpose buffer pointer
-BUF_SRC16:     .word     ; Source pointer for block moves
-BUF_DST16:     .word     ; Destination pointer for block moves
-BUF_LEN16:     .word     ; Length/count for block moves
-BUF_TEMP:      .byte     ; Shared scratch byte (load: truncation flag)
-BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
-BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
-FILE_HANDLE:   .byte     ; File handle for load/save
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Initialize empty buffer
 ; Sets up an empty buffer with one empty line

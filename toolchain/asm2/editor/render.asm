@@ -29,48 +29,7 @@ RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
 RF_RANGE      = $0B   ; Lines changed in place from the cursor line (>> <<)
 RF_FULL       = $FF   ; Full redraw
 
-  .zeropage
-
-CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
-CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
-VIEW_TOP16:     .word   ; First visible line number (0-based)
-SCREEN_ROWS:    .byte   ; Terminal height
-SCREEN_COLS:    .byte   ; Terminal width
-TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
-FILE_LINE16:    .word   ; Current file line (0-based)
-MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
-MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
-READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
-RENDER_ROW:     .byte   ; Current row being rendered
-RENDER_LINE16:  .word   ; Current file line being rendered
-RENDER_COL:     .byte   ; Column counter during rendering
-RENDER_FLAG:    .byte   ; Handler's render request: RF_* (above; contract table in render_decide.asm)
-VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
-WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by ensure_cursor_visible
-WRAP_REM:       .byte   ; Scratch: column a partial / ICH-DCH row render starts at
-RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
-DIV_INPUT16:    .word   ; Scratch for 16-bit division
-PREV_LINE_ROWS: .byte   ; Screen rows the cursor line occupied before the key ($09: after; $0B: the range's old rows)
-SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
-SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
-SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
-SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
-SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_loop (not reset per key)
-RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
-DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $02/$06/$07/$08/$0B (0 = none; reset per key)
-RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
-INSERT_LINE_COUNT:  .byte ; Per-flag line count / join or Enter kind (see RENDER_FLAG; reset per key)
-CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line (or $0B range) occupies after the edit
-SHIFT_NET:      .byte   ; ICH/DCH hint: cells inserted (+) / deleted (-) at RENDER_FROM_COL16
-SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16; $FF = no hint
-RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
-ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
-ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
-SHIFT_DCH_COST: .byte   ; shift: byte cost of the DCH route for the row
-SHIFT_REM16:    .word   ; shift: line length from the current row's start
-SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Initialize rendering state: get the screen size
 ; (cursor, view and mode state start at 0 from editor_main's zero-page

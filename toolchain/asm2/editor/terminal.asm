@@ -1,12 +1,7 @@
 ; ANSI terminal output library
 ; All routines write escape sequences via io_write
 
-  .zeropage
-ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
-ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
-STR_PTR16:    .word    ; Pointer for write_string
-
-  .code
+; (zero-page variables: zp.asm)
 
 ; Output ESC[ prefix
 ; Clobbers A
