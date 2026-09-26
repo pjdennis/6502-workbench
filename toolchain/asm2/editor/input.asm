@@ -70,20 +70,19 @@ count_pending_key:
 ; Clobbers X; preserves Y (io_read and io_ready preserve X and Y)
 read_key:
   JSR input_read_byte
+  CMP #KEY_ESC
+  BEQ .esc
   CMP #$7F
-  BCC .ascii
+  BCC .done               ; Other ASCII: the key itself
   BEQ .del_bs
   ; Skip non-ASCII bytes (>= $80): UTF-8 multi-byte sequences
   ; would collide with the KEY_* codes
 .noop:
   LDA #$00         ; Harmless: no dispatch match, not printable (< $20)
+.done:
   RTS
 .del_bs:
   LDA #KEY_BS
-  RTS
-.ascii:
-  CMP #KEY_ESC
-  BEQ .esc
   RTS
 .esc:
   ; Got ESC - spin briefly (255 polls) for the rest of an escape sequence
