@@ -654,12 +654,3 @@ ensure_cursor_visible:
 
 .visible:
   RTS
-
-; === String constants ===
-str_ro_indicator:  .asciiz " [RO]"
-str_mod_indicator: .asciiz " [+]"
-str_separator:     .asciiz " - "
-str_normal:        .asciiz "NORMAL"
-str_insert:        .asciiz "INSERT"
-str_command:       .asciiz "COMMAND"
-mode_strings:      .word str_normal, str_insert, str_command

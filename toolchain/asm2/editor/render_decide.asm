@@ -6,6 +6,72 @@
 ; VIEW_TOP / VIEW_TOP_WRAP move.  Part of the render engine; see
 ; render.asm for the drawing primitives and render_scroll.asm for the
 ; line insert/delete/range scroll paths.
+;
+; RENDER_FLAG contract.  Before each key main_loop sets RENDER_FLAG = 0,
+; INSERT_LINE_COUNT = 0, DELETE_SCREEN_ROWS = 0, RENDER_FROM_COL16 =
+; $FFFF (whole line), SHIFT_WRITE = $FF (no ICH/DCH hint) and
+; PREV_LINE_ROWS = the cursor line's rows before the key.  It does not
+; reset SCROLL_DELTA, so a flag that reads it needs its producer to set
+; it.  ensure_cursor_visible sets CURSOR_ROW and WRAP_QUOT just before
+; render_decide.  first_row = the cursor line's first screen row
+; (CURSOR_ROW - WRAP_QUOT); "delta" = the change in LINE_COUNT16.
+; render_decide:
+;   $FF                       -> full redraw
+;   viewport moved            -> line count unchanged and flag != $0B:
+;                                scroll the text area, draw only the
+;                                exposed rows (flag ignored); else full
+;   line count changed        -> $02-$0A as below, else full
+;   BUF_END16 changed or flag -> $0B range repaint, any other as $01
+;   nothing                   -> status bar + cursor
+;
+; Flag  Set by                 Inputs / row assumptions
+; $01   in-line edits          Cursor line changed in place: redraw it from
+;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
+;                              and SHIFT_WRITE), scrolling the rows below by
+;                              its row change from PREV_LINE_ROWS.
+; $02   dd, cc                 Lines deleted from first_row down; the cursor
+;                              line moved up into them.  DELETE_SCREEN_ROWS =
+;                              rows deleted (0 = use delta).  Scroll up from
+;                              first_row, redraw the cursor row (from
+;                              first_row to the bottom if WRAP_QUOT > 0).
+; $03   o O p P, undo dd,      Delta lines inserted at FILE_LINE16, which
+;       redo p/P/o/O           starts at CURSOR_ROW: scroll down from there
+;                              by their rows.  INSERT_LINE_COUNT != 0:
+;                              redraw that many lines, not the scrolled rows.
+; $04   undo J                 As $03, but the walk starts after the cursor
+;                              line (old rows: PREV_LINE_ROWS) and the net
+;                              row change picks the scroll direction.
+;                              INSERT_LINE_COUNT = lines to redraw.
+; $05   insert-mode Enter      Cursor on the last line of the split, which
+;                              began at line FILE_LINE16 - delta.
+;                              INSERT_LINE_COUNT = 1: pure-Enter batch.
+; $06   J, insert BS/Del       Lines joined into the cursor line.
+;       join, cc, redo J/cc    DELETE_SCREEN_ROWS = all their rows before the
+;                              edit (0 = use delta).  Rows shrank: scroll up
+;                              below the line; same: as $01; grew: scroll
+;                              down.  INSERT_LINE_COUNT: 0 = redraw the line,
+;                              $FF = pure join at line end (no redraw),
+;                              1-254 = pure join at column 0 (scroll from
+;                              first_row, no redraw).
+; $07   redo dd, undo p/P/o/O  Lines deleted; cursor line unchanged, not
+;                              redrawn.  SCROLL_DELTA = rows deleted (0 =
+;                              use delta).  DELETE_SCREEN_ROWS = cursor line
+;                              rows above the deleted lines (0 = the
+;                              deleted lines began at first_row).
+; $08   multi-line x/D         Charwise delete that joined lines:
+;       (delete_at_cursor)     SCROLL_DELTA = rows lost, DELETE_SCREEN_ROWS =
+;                              the cursor line's new rows (scroll below
+;                              them, then redraw them).
+; $09   multi-line char p/P,   Cursor line split: PREV_LINE_ROWS = its new
+;       undo of x/D            rows (scroll below them), by the rows of the
+;                              delta lines from FILE_LINE16.
+;                              INSERT_LINE_COUNT = lines to redraw.
+; $0A   undo Ncc               As $03 with SCROLL_DELTA pre-set (no walk).
+; $0B   >> << :N,M> <, undo    INSERT_LINE_COUNT lines changed in place from
+;                              the cursor line (the first of the range);
+;                              DELETE_SCREEN_ROWS = their rows before.
+;                              Needs line count and viewport unchanged.
+; With the line count unchanged, $02-$0A are treated as $01.
 
 
 ; Capture state snapshot before handler runs
@@ -124,12 +190,13 @@ render_decide:
   LDA SCROLL_DELTA          ; old_total
   SEC
   SBC DELETE_SCREEN_ROWS    ; old_total - new_total
-  BEQ .j_no_scroll
-  BCC .j_no_scroll          ; underflow safety
+  BEQ .j_no_scroll          ; same rows
+  BCC .j_no_scroll          ; new_total > old_total
   STA SCROLL_DELTA
   BNE .delete_check          ; Always taken (A = delta > 0)
 .j_no_scroll:
-  ; new_total > old_total: scroll DOWN to make room for expanded line
+  ; new_total >= old_total: scroll DOWN to make room for an expanded line
+  ; (equal: .j_really_no_scroll repaints just the line)
   JSR ansi_cursor_hide
   ; Scroll region start = first_row + old_total + 1 (1-based)
   LDA CURSOR_ROW
@@ -166,7 +233,8 @@ render_decide:
   JMP render_line_delete_scroll
 
 .line_insert_scroll:
-  ; LINE_COUNT16 increased and RENDER_FLAG=$03 (line insert at cursor).
+  ; LINE_COUNT16 increased and RENDER_FLAG=$03/$04/$05/$09 (line insert;
+  ; $0A skips the walk: it enters at .no_disp_adjust).
   ; Compute file delta = LINE_COUNT16 - SNAP_LINE_COUNT16
   SEC
   LDA LINE_COUNT16

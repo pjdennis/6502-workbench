@@ -19,14 +19,15 @@ project's 6502 emulator in console/ANSI mode.
 - `undo_state.asm` / `undo.asm`: single-level undo/redo — types, zeropage
   state, and the shared 256-byte undo data page ($D700), plus the
   undo/redo handlers for every undoable operation.
-- `render.asm`: core ANSI drawing — full-screen render with line wrapping,
-  status bar, cursor positioning, current-line repaint.
+- `render.asm`: core ANSI drawing — full-screen and current-line repaint
+  (rows below scrolled when the line's row count changes, ICH/DCH row
+  shifting), status bar, cursor positioning.
 - `render_decide.asm`: snapshot-based render decision engine
   (`render_snapshot`/`render_decide`) and viewport scroll-region
   optimization.
 - `render_scroll.asm`: scroll-region repaints for line insert/delete and
-  in-place range changes, limited-row rendering, wrap math, cursor
-  visibility.
+  in-place range changes, the shared row renderer (`render_rows`), wrap
+  math, cursor visibility.
 - `input.asm`: console key reader, escape sequence parsing (arrow keys,
   Home/End/PgUp/PgDn/Delete, Ctrl+Left/Right), pushback, decoded key
   buffering, non-blocking polling, batch key counting.
@@ -81,16 +82,28 @@ project's 6502 emulator in console/ANSI mode.
 2. If the file is truncated, `READONLY` is set and a warning is shown.
 3. `render_init` detects terminal size + initial `render_screen`.
 4. Main loop:
-   - `render_snapshot` captures current state (VIEW_TOP, line count, buf end).
-   - If `MODE == MODE_COMMAND`, run `command_handle` (does its own input).
-   - Otherwise `read_key` and dispatch to `normal_handle_key` or
-     `insert_handle_key`.
-   - `render_decide` compares post-handler state against snapshot:
-     - VIEW_TOP or line count changed → full screen redraw.
-     - BUF_END changed → current line + status bar redraw.
+   - Reset the handler's render inputs (`RENDER_FLAG` = 0, whole-line
+     repaint, no ICH/DCH hint, no pre-computed rows).
+   - If `MODE == MODE_COMMAND`, `render_snapshot` then run `command_handle`
+     (does its own input).
+   - Otherwise wait for a key (the console build exits at end of input),
+     note the cursor line's screen rows (`PREV_LINE_ROWS`), `render_snapshot`
+     (VIEW_TOP, VIEW_TOP_WRAP, line count, buf end), `get_key` and dispatch
+     to `normal_handle_key` or `insert_handle_key`.
+   - `CMD_QUIT` exits.  A pending two-key combo (`dd`, `dw`, `gg`, ...)
+     whose next key has already arrived is processed without a render.
+   - `ensure_cursor_visible` moves the viewport if needed, then
+     `render_decide` compares post-handler state against the snapshot and
+     the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):
+     - `RENDER_FLAG` = `$FF` → full screen redraw.
+     - Viewport moved → scroll the text area and draw only the exposed
+       rows; full redraw if the line count changed, `RENDER_FLAG` is `$0B`
+       or the move is too big.
+     - Line count changed → scroll the rows below the edit for the line
+       insert/delete flags (`$02`–`$0A`), else full redraw.
+     - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows
+       below scrolled if its row count changed), or range redraw (`$0B`).
      - Nothing changed → status bar + cursor repositioning only.
-   - `CMD_QUIT` exits.
-   - EOT (`$04`) exits early for scripted/test mode.
 
 ## Data model & invariants
 
@@ -256,7 +269,10 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   line, reverse video status bar).
 - Long lines wrap across multiple screen rows (vi-style).
 - Lines past EOF shown as `~` (tilde).
-- Non-ASCII bytes shown as `?` in reverse video; control characters as spaces.
+- Tabs shown as `>`, other control characters and non-ASCII bytes as `?`,
+  both in reverse video.
+- Rows are drawn left to right; a wrapped line's continuation rows rely on
+  the terminal's auto-wrap (no cursor move after a full-width row).
 - Status bar shows: filename, `[RO]`, `[+]`, mode, count/pending, line,col,
   total lines.
 - `input.asm` normalizes backspace and parses ESC sequences to high-bit key

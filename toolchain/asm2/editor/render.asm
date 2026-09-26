@@ -26,23 +26,23 @@ RENDER_ROW:     .byte   ; Current row being rendered
 RENDER_LINE16:  .word   ; Current file line being rendered
 RENDER_COL:     .byte   ; Column counter during rendering
 FNAME_PTR16:    .word   ; Pointer to filename string (null-terminated)
-RENDER_FLAG:    .byte   ; $FF=full, $01=current line, $02/$06=line delete, $03/$04/$05=line insert, $0B=range repaint. $00=auto
+RENDER_FLAG:    .byte   ; Handler's render request ($00 = infer): see the table in render_decide.asm
 VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
-WRAP_QUOT:      .byte   ; Scratch: quotient from CURSOR_COL / SCREEN_COLS
-WRAP_REM:       .byte   ; Scratch: remainder from CURSOR_COL % SCREEN_COLS
+WRAP_QUOT:      .byte   ; Cursor's wrap row (CURSOR_COL16 / SCREEN_COLS), set by ensure_cursor_visible
+WRAP_REM:       .byte   ; Scratch: column a partial / ICH-DCH row render starts at
 RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
 DIV_INPUT16:    .word   ; Scratch for 16-bit division
-PREV_LINE_ROWS: .byte   ; Screen rows the current line occupied before the edit
+PREV_LINE_ROWS: .byte   ; Screen rows the cursor line occupied before the key ($09: after; $0B: the range's old rows)
 SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
 SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
 SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
 SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
-SCROLL_DELTA:   .byte   ; Screen rows to scroll (unsigned)
-RENDER_LIMIT:   .byte   ; Max rows to render (0=unlimited)
-DELETE_SCREEN_ROWS: .byte ; Pre-computed screen rows for line-delete scroll (0=use file delta)
+SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_loop (not reset per key)
+RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
+DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $02/$06/$07/$08/$0B (0 = none; reset per key)
 RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
-INSERT_LINE_COUNT:  .byte ; Override line count for line-insert scroll (0=use file delta)
-CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line occupies after the edit
+INSERT_LINE_COUNT:  .byte ; Per-flag line count / join or Enter kind (see RENDER_FLAG; reset per key)
+CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line (or $0B range) occupies after the edit
 SHIFT_NET:      .byte   ; ICH/DCH hint: cells inserted (+) / deleted (-) at RENDER_FROM_COL16
 SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16; $FF = no hint
 RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
@@ -213,6 +213,15 @@ render_status_line:
   ; Clear rest of status line and restore normal video
   JSR ansi_clear_line
   JMP ansi_normal_video
+
+; Status-bar strings (render_status_line)
+str_ro_indicator:  .asciiz " [RO]"
+str_mod_indicator: .asciiz " [+]"
+str_separator:     .asciiz " - "
+str_normal:        .asciiz "NORMAL"
+str_insert:        .asciiz "INSERT"
+str_command:       .asciiz "COMMAND"
+mode_strings:      .word str_normal, str_insert, str_command
 
 ; Position cursor at the editing position (wrap-aware)
 render_position_cursor:
