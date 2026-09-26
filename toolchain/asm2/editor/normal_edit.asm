@@ -9,8 +9,7 @@
 ; Output: BUF_TEMP16 = count + extras, BATCH_EXTRA = extras,
 ;         UNDO_LINE16/UNDO_COL16/UNDO_PASTE_COUNT16 recorded
 paste_prologue:
-  CP16 FILE_LINE16, UNDO_LINE16
-  CP16 CURSOR_COL16, UNDO_COL16
+  JSR undo_record_pos
   JSR get_count              ; BUF_TEMP16 = count
   JSR count_pending_key      ; X = pending matching keys
   STX BATCH_EXTRA
@@ -342,8 +341,7 @@ contiguous_fill:
 ; Record the span start for undo and compute the direct-echo budget
 ; (columns left in the cursor's wrap row).  Clobbers A, X.
 echo_span_setup:
-  CP16 FILE_LINE16, UNDO_LINE16
-  CP16 CURSOR_COL16, UNDO_COL16
+  JSR undo_record_pos
   CP16 CURSOR_COL16, DIV_INPUT16
   JSR div_mod_screen_cols_16 ; A = col % SCREEN_COLS
   EOR #$FF

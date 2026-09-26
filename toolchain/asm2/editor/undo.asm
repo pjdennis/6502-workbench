@@ -13,17 +13,20 @@ undo_clear:
 ; Call at entry of yank_delete_at_cursor (before anything modified).
 ; Saves: type=2, FILE_LINE16, CURSOR_COL16
 undo_record_char_delete:
-  CP16 CURSOR_COL16, UNDO_COL16
   LDA #UNDO_CHAR
   BNE undo_rec_set           ; Always (UNDO_CHAR != 0)
 
 ; Record a line-delete for undo
 ; Call after yank succeeds, before delete.
-; Saves: type=1, FILE_LINE16
+; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores)
 undo_record_line_delete:
   LDA #UNDO_LINE
 undo_rec_set:
   STA UNDO_TYPE
+; Record the cursor position (UNDO_LINE16/UNDO_COL16) and clear the redo
+; flag.  Clobbers A (= 0)
+undo_record_pos:
+  CP16 CURSOR_COL16, UNDO_COL16
   CP16 FILE_LINE16, UNDO_LINE16
   LDA #0
   STA UNDO_IS_REDO
