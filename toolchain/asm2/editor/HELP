@@ -198,7 +198,10 @@ INSERT MODE
                     joins with the previous line
   Delete            Delete character at cursor; at end of line,
                     joins with the next line
-  ESC               Return to normal mode (cursor moves back one)
+  ESC               Return to normal mode (cursor moves back one).
+                    A lone ESC takes effect after 0.1 s: the editor
+                    waits that long for the rest of an arrow or other
+                    special key, which on a slow link comes later
 
   Arrow keys, Home, End, PgUp, PgDn, Ctrl-F, Ctrl-B all work
   for navigation within insert mode. Ctrl-Right and Ctrl-Left

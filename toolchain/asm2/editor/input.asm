@@ -13,6 +13,8 @@ KEY_DEL       = $88
 KEY_WORD_FWD  = $89    ; Ctrl+Right (ESC[1;5C)
 KEY_WORD_BACK = $8A    ; Ctrl+Left  (ESC[1;5D)
 KEY_ESC   = $1B
+ESC_WAIT_MS = $0064   ; 100 ms for the rest of an escape sequence: at 300
+                      ; baud its next byte comes 33 ms after the ESC
 KEY_ENTER = $0D
 KEY_BS    = $08
 KEY_TAB   = $09
@@ -78,16 +80,11 @@ read_key:
   LDA #KEY_BS
   RTS
 .esc:
-  ; Got ESC - spin briefly (255 polls) for the rest of an escape sequence
-  LDX #$FF
-.spin:
-  JSR io_ready            ; preserves X
-  CMP #$FF
-  BEQ .got_more
-  BIT PUSHBACK            ; 3-cycle pad (zp read): keeps each poll as long as the
-                          ; old DEC-counter loop (same ESC timeout)
-  DEX
-  BNE .spin
+  ; Got ESC - wait a while for the rest of an escape sequence
+  LDA #<ESC_WAIT_MS
+  LDX #>ESC_WAIT_MS
+  JSR io_wait             ; N set if another byte came in time
+  BMI .got_more
   LDA #KEY_ESC            ; Nothing followed: bare ESC
   RTS
 

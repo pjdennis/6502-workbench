@@ -2,9 +2,16 @@
 ;
 ; Provides io_write, io_read, io_flush, io_ready that map to either
 ; console I/O (write_b, con_read, con_flush, con_ready) or serial I/O
-; depending on whether terminal_mode is defined.
-; All four preserve X and Y in both builds (the console routines are
+; depending on whether terminal_mode is defined, and io_wait (wait_ready,
+; which waits on whichever input the emulator runs with).
+; All five preserve X and Y in both builds (the console routines are
 ; emulator stubs that only load or store A); input.asm relies on this.
+
+; Wait up to A;X ms for an input byte: A=$FF (N set) if one is ready,
+; $00 if the time passed, CON_EOF at end of console input. In the terminal
+; build it only looks at serial input, so it is only called with no
+; pushback pending (io_ready moves a byte into the pushback).
+io_wait = wait_ready
 
   .ifndef terminal_mode
 
@@ -48,8 +55,6 @@ io_ready:
   BCS .not_ready
   JMP input_unread        ; Returns A=$FF
 .not_ready:
-  BIT DSR_VALUE           ; 5-cycle pad (zp read + NOP): read_key's ESC
-  NOP                     ; wait counts these polls; keep its length
   LDA #$00
   RTS
 

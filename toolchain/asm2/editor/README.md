@@ -29,7 +29,8 @@ project's 6502 emulator in console/ANSI mode.
   in-place range changes, the shared row renderer (`render_rows`), wrap
   math, cursor visibility.
 - `input.asm`: key reader (`read_key`) with escape sequence parsing (arrow
-  keys, Home/End/PgUp/PgDn/Delete, Ctrl+Left/Right), byte pushback, decoded
+  keys, Home/End/PgUp/PgDn/Delete, Ctrl+Left/Right; after an ESC it waits up
+  to 100 ms through `io_wait` for the rest of a sequence), byte pushback, decoded
   key buffering, non-blocking peek (`key_peek`), blocking read (`get_key`),
   batch key counting.
 - `terminal.asm`: ANSI escape sequence output (cursor move/hide/show, clear,

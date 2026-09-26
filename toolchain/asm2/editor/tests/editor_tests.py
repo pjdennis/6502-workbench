@@ -426,11 +426,13 @@ class EditorTestRunner:
         emu_args: emulator options, e.g. ['--cpu-mhz', '1', '--baud', '9600'].
         With --baud the startup size query only reaches the emulator's
         terminal model after the typed keys have arrived, so the size reply
-        is put ahead of them, as a terminal that answers before anyone types.
+        is put ahead of them, as a terminal that answers before anyone types
+        (paced input needs no such reply: it is held until the editor is
+        idle, by which time the terminal has answered).
 
         Returns (exit_code, saved_content, ansi_output_bytes).
         """
-        if emu_args and "--baud" in emu_args:
+        if emu_args and "--baud" in emu_args and "--pace-mask" not in emu_args:
             keys = b"\x1b[%d;%dR" % (rows, cols) + keys
         exit_code, output = self.emulator_runner.run(
             self.editor_terminal_bin, keys, tmpdir, input_file,
@@ -594,10 +596,21 @@ class EditorTestRunner:
 
     def run_test_terminal(self, name: str, initial_content: str, keys: bytes,
                           expected_content: str = None, expect_exit: int = 0,
-                          emu_args: list = None):
-        """Run a terminal-mode editor test verifying file content."""
+                          emu_args: list = None, key_groups: list = None):
+        """Run a terminal-mode editor test verifying file content.
+
+        key_groups: typed one group at a time, each after the editor has
+        gone idle with its output sent (keys is then ignored); needs a baud
+        model in emu_args.
+        """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
+        if key_groups is not None:
+            keys = b"".join(key_groups)
+            mask_file = tmpdir / "pace_mask.bin"
+            mask_file.write_bytes(b"".join(
+                b"0" * (len(g) - 1) + b"1" for g in key_groups))
+            emu_args = list(emu_args or []) + ["--pace-mask", str(mask_file)]
 
         if initial_content is not None:
             edit_file.write_text(initial_content)
@@ -10595,6 +10608,33 @@ class EditorTestRunner:
                 expect_cursor=(0, 0),
                 emu_args=BAUD_ARGS
             )
+
+            # --------------------------------------------------------
+            # Escape sequences on a slow link
+            # --------------------------------------------------------
+            self._group("Terminal mode - escape sequences at 300 baud:",
+                        leading_blank=True)
+
+            # At 300 baud each byte takes 33 ms, so the '[' of an arrow key
+            # arrives 33 ms after its ESC. The ESC wait must be longer than
+            # that, or the ESC is taken as bare and the final byte runs as a
+            # command (Left -> D, Delete -> 3~). Each group is typed once the
+            # screen has settled, so the ESC reaches an idle editor
+            SLOW_ARGS = ["--cpu-mhz", "2", "--baud", "300"]
+            for name, content, groups, expected in (
+                ("Left arrow is one key", "hello world\n",
+                 [b"$", b"\x1b[D", b"x", b":wq\r"], "hello word\n"),
+                ("Delete key is one key", "hello\n",
+                 [b"\x1b[3~", b":wq\r"], "ello\n"),
+                ("Up arrow in insert mode", "one\ntwo\n",
+                 [b"jA", b"\x1b[A", b"X", b"\x1b", b":wq\r"], "oneX\ntwo\n"),
+                ("bare ESC still leaves insert mode", "hello\n",
+                 [b"ihi", b"\x1b", b":wq\r"], "hihello\n"),
+            ):
+                self.run_test_terminal(
+                    f"Terminal 300 baud: {name}", content, None,
+                    expected_content=expected, emu_args=SLOW_ARGS,
+                    key_groups=groups)
 
             # --------------------------------------------------------
             # Baud rate batching tests
