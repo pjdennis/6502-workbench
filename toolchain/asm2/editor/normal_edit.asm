@@ -711,16 +711,10 @@ do_replace_char:
 .replace_no_undo:
   JMP clear_count
 
-; --- Change line (cc) ---
+; --- Change line (cc, and S, which dispatches here too) ---
 ; Yank line(s), delete, insert newline, enter insert at col 0.
-; S = substitute line (alias for cc with count=1)
-normal_substitute_line:
-  JSR get_count
-  JMP cc_have_count
-
 do_cc:
   JSR get_count
-cc_have_count:
   ; Pre-compute screen rows for displacement-based scroll
   JSR compute_delete_rows_temp16
   JSR yank_delete_current_lines

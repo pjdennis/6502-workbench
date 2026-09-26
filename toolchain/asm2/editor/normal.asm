@@ -149,7 +149,7 @@ normal_editing_keys:
   .byte 'J'         .word normal_join_lines
   .byte 's'         .word normal_substitute_char
   .byte 'C'         .word normal_change_to_eol
-  .byte 'S'         .word normal_substitute_line
+  .byte 'S'         .word do_cc              ; S = substitute line = cc
   .byte 'u'         .word undo_handle
   .byte 0           ; End sentinel
 
