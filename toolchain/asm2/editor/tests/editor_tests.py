@@ -4721,6 +4721,34 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # One insert batch that joins lines (BS at col 0, Del at end of line)
+        # and splits them again with the line count unchanged changes the
+        # lines above the cursor too: they must be repainted
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines, cursor, cols in [
+            ("Batch BS-join then Enter: line above repainted",
+             make_lines(12), b"4Gi\x08abc\r",
+             [(2, "Line 3abc"), (3, "Line 4"), (4, "Line 5")], (3, 0), 40),
+            ("Batch Del-join then Enter: line above repainted",
+             make_lines(12), b"4GAab" + DEL + b"\rcd",
+             [(3, "Line 4ab"), (4, "cdLine 5"), (5, "Line 6")], (4, 1), 40),
+            ("Batch Del-join then Enter on the bottom row: line above repainted",
+             make_lines(12), b"9GAab" + DEL + b"\rcd",
+             [(0, "Line 2"), (7, "Line 9ab"), (8, "cdLine 10")], (8, 1), 40),
+            ("Batch 2 BS-joins then 2 Enters: lines above repainted",
+             make_lines(12), b"4Gi" + b"\x08" * 14 + b"\rX\rY",
+             [(0, "Line 1"), (1, ""), (2, "X"), (3, "YLine 4"),
+              (4, "Line 5")], (3, 0), 40),
+            ("Batch Enter then Del-join of a wrapped line: rows below repainted",
+             "\nabcdefghijklmnopqrstu\nend\n", b"A\r" + DEL,
+             [(0, ""), (1, "abcdefghijklmnopqrst"), (2, "u"), (3, "end"),
+              (4, "~")], (1, 0), 20),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r", cols=cols,
+                expect_lines=lines, expect_cursor=cursor,
+            )
+
         # Batched Enter (2 Enters) - screen shows all lines correctly
         self.run_test_screen(
             "Batched Enter: screen shows all new lines",

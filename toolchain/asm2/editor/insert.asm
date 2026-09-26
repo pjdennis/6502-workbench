@@ -401,11 +401,10 @@ insert_handle_key:
   ; --- Render hints ---
   LDA NORMAL_TEMP            ; ins_nl
   BEQ .joined
-  ; Newlines inserted.  Also merged: complex case, current-line redraw
+  ; Newlines inserted.  Also merged: full redraw
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
-.complex:
-  BNE .set_modified_line
+  BNE .full_redraw
   ; A pure Enter batch at the end of the line (the cursor line is empty:
   ; INSERT_LINE_COUNT = $7F) or at its start (the first changed column
   ; is 0: $FF) is drawn by the scroll alone; any other keeps 0
@@ -429,10 +428,9 @@ insert_handle_key:
 .joined:
   LDA LINE_LEN16             ; back_nl
   BEQ .join_at_eol           ; forward newlines deleted only
-  ; --- Backward newlines deleted.  Forward ones too: complex case,
-  ; current-line redraw ---
+  ; --- Backward newlines deleted.  Forward ones too: full redraw ---
   LDA LINE_LEN16 + 1         ; fwd_nl
-  BNE .complex               ; (Z = 0: on to .set_modified_line)
+  BNE .full_redraw
   ; A pure join leaves the cursor line's text as it was when the cursor
   ; ends at column 0 (the lines above were empty: INSERT_LINE_COUNT =
   ; $7F, the rows scroll from the line's first) or at the end of the
@@ -458,6 +456,12 @@ insert_handle_key:
   LDA BUF_DELTA              ; insert_len
   JSR set_render_from_before_cursor
   LDA #RF_JOIN               ; Line-delete with displacement-based scroll
+  BNE .set_flag              ; Always taken
+.full_redraw:
+  ; The batch joined lines and split them (or joined them both ways): the
+  ; lines above the cursor line changed too, which a current-line redraw
+  ; misses when the line count comes out the same.  Rare (mixed type-ahead)
+  LDA #RF_FULL
 .set_flag:
   JMP .set_render_flag
 
