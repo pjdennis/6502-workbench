@@ -42,17 +42,29 @@ ansi_cursor_home:
   LDA #<ansi_seq_home
   JMP ansi_seq_a
 
-; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
-ansi_move_cursor:
-  LDA #'H'
-  BNE ansi_row_col_seq   ; Always taken ('H' != 0)
-
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
 ; Emits ESC[top;bottomr
 ; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
 ansi_set_scroll_region:
   LDA #'r'
+  BNE ansi_row_col_seq   ; Always taken ('r' != 0)
+
+; Move cursor to 0-based row A, column 0 (sets ANSI_ROW/ANSI_COL)
+; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+ansi_goto_row0:
+  LDX #0
+; Move cursor to 0-based row A, 0-based column X
+ansi_goto0:
+  INX
+  STX ANSI_COL
+  TAX
+  INX
+  STX ANSI_ROW
+  ; fall through
+; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
+; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
+ansi_move_cursor:
+  LDA #'H'
   ; fall through
 
 ; Shared ESC[<row>;<col><final> emitter; A = final character.  X is

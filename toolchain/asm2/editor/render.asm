@@ -135,11 +135,8 @@ render_from_row:
 
 ; Render just the status line (last row)
 render_status_line:
-  LDA SCREEN_ROWS
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+  LDA TEXT_ROWS                ; the status row (0-based)
+  JSR ansi_goto_row0
   JSR ansi_reverse_video
 
   ; Print filename
@@ -219,18 +216,12 @@ render_status_line:
 
 ; Position cursor at the editing position (wrap-aware)
 render_position_cursor:
-  LDA CURSOR_ROW
-  CLC
-  ADC #1           ; ANSI 1-based
-  STA ANSI_ROW
-  ; Screen column = CURSOR_COL16 % SCREEN_COLS + 1
+  ; Screen column = CURSOR_COL16 % SCREEN_COLS
   CP16 CURSOR_COL16, DIV_INPUT16
   JSR div_mod_screen_cols_16
-  ; A = remainder (screen col 0-based)
-  CLC
-  ADC #1           ; ANSI 1-based
-  STA ANSI_COL
-  JMP ansi_move_cursor
+  TAX                          ; X = remainder (screen col, 0-based)
+  LDA CURSOR_ROW
+  JMP ansi_goto0
 
 ; Print TO_DECIMAL_VALUE16 in decimal (convert + write)
 ; Clobbers A, Y
@@ -558,14 +549,8 @@ buf_ptr_advance_x:
 ; Clobbers A, X, Y
 move_to_partial_pos:
   LDA RENDER_ROW
-  CLC
-  ADC #1
-  STA ANSI_ROW
-  LDA WRAP_REM
-  CLC
-  ADC #1
-  STA ANSI_COL
-  JMP ansi_move_cursor
+  LDX WRAP_REM
+  JMP ansi_goto0
 
 ; Render the partial first wrap row of the cursor line: position the
 ; cursor at (RENDER_ROW+1, WRAP_REM+1), render from column WRAP_REM,

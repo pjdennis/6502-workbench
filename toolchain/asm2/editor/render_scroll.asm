@@ -268,12 +268,9 @@ render_limited_loop:
 ; first row drawn) positions the cursor.
 render_rows:
 .row_loop:
-  JSR .row_check               ; A = RENDER_ROW + 1 (ANSI row)
+  JSR .row_check               ; A = RENDER_ROW
   BCS .done
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+  JSR ansi_goto_row0
 .row:
   ; Check if line exists
   CMP16 RENDER_LINE16, LINE_COUNT16
@@ -314,14 +311,13 @@ render_rows:
   JSR ansi_clear_line
   JMP .next_row
 
-; C=1 if RENDER_ROW reached RENDER_LIMIT or the status bar, else C=0
-; with A = RENDER_ROW + 1
+; C=1 if RENDER_ROW reached RENDER_LIMIT or the status bar, else C=0;
+; A = RENDER_ROW
 .row_check:
   LDA RENDER_ROW
   CMP RENDER_LIMIT
   BCS .check_done
-  ADC #1                       ; C=0
-  CMP SCREEN_ROWS
+  CMP TEXT_ROWS                ; (RENDER_ROW < RENDER_LIMIT: never 255)
 .check_done:
   RTS
 
