@@ -5506,7 +5506,7 @@ class EditorTestRunner:
             b"3J:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AA BB CC"), (1, "DD")],
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 5),
         )
 
         # cc (change line) - replaces line content
@@ -13119,7 +13119,7 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(6, "Line 7"), (7, "Line 8 Line 9 Line 10"),
                           (8, "Line 11")],
-            expect_cursor=(7, 6),
+            expect_cursor=(7, 13),
         )
         self.run_test_screen(
             "Scroll opt: dd of a wrapped line filling the screen",
@@ -13192,7 +13192,7 @@ class EditorTestRunner:
                          (2, "ba.bba  .aa a .b.bbb"), (3, "ba.ba..b")],
                  (0, 0)),
                 ("3J from the second-last row", second_last + "q\n",
-                 b"jjj3J", 6, 20, [(3, "ccc bb a"), (4, "q")], (3, 3)),
+                 b"jjj3J", 6, 20, [(3, "ccc bb a"), (4, "q")], (3, 6)),
                 ("3cc from the second-last row", second_last + "q\n",
                  b"jjj3ccZ\x1b", 6, 20, [(3, "Z"), (4, "q")], (3, 0)),
                 ("3cc to the end from the second-last row", second_last,
@@ -14193,7 +14193,7 @@ class EditorTestRunner:
                 (5, "Line 8"), (6, "Line 9"), (7, "Line 10"),
                 (8, "Line 11"),
             ],
-            expect_cursor=(3, 6),
+            expect_cursor=(3, 13),
             # Frame 3 (3J): cursor row + bottom 2 rows
             expect_content_rows=[(3, {3, 7, 8})]
         )
@@ -14219,7 +14219,7 @@ class EditorTestRunner:
                 (6, "Short 8"), (7, "Short 9"),
                 (8, "Short 10"),
             ],
-            expect_cursor=(2, 7),
+            expect_cursor=(2, 15),
             # Only cursor line's 2 wrap rows + bottom row exposed by scroll
             expect_content_rows=[(3, {2, 3, 8})]
         )
@@ -14239,7 +14239,7 @@ class EditorTestRunner:
                 (6, "Short 8"), (7, "Short 9"),
                 (8, "Short 10"),
             ],
-            expect_cursor=(2, 7),
+            expect_cursor=(2, 15),
             # Only cursor line's 2 wrap rows + bottom row exposed by scroll
             expect_content_rows=[(6, {2, 3, 8})]
         )
@@ -17221,7 +17221,7 @@ class EditorTestRunner:
             b"3J:q!\r",
             rows=10, cols=5,
             expect_lines=[(0, "AA BB"), (1, " CC"), (2, "End")],
-            expect_cursor=(0, 2),
+            expect_cursor=(1, 0),
             expect_min_col=[(2, 0, 2)]
         )
 
@@ -17238,7 +17238,7 @@ class EditorTestRunner:
             b"3J:q!\r",
             rows=10, cols=5,
             expect_lines=[(0, "AAAAA"), (1, "AA BB"), (2, " CC"), (3, "End")],
-            expect_cursor=(1, 2),
+            expect_cursor=(2, 0),
             expect_min_col=[(2, 1, 2)]
         )
 
@@ -18849,13 +18849,13 @@ class EditorTestRunner:
             expect_lines=[(0, "A" * 10), (1, "AA bar")],
         )
 
-        # [n]J cursor at first join point: 3J on "A\nB\nC\n" -> "A B C\n"
-        # Cursor at col 1 (end of original first line "A").
+        # [n]J cursor at the last join point, as in vim (it was the first):
+        # 3J on "A\nB\nC\n" -> "A B C\n", cursor at col 3 (before "C")
         self.run_test_screen(
-            "3J cursor at first join point",
+            "3J cursor at the last join point",
             "A\nB\nC\n",
             b"3J:q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 3),
             expect_lines=[(0, "A B C")],
         )
 
@@ -20419,7 +20419,7 @@ class EditorTestRunner:
                 (2, "CCCCCC"),
                 (3, "D"),
             ],
-            expect_cursor=(0, 8),
+            expect_cursor=(1, 7),
         )
 
         # cc when deleted line wraps: "This is a long line!" (20 chars at 10 cols = 2 rows).

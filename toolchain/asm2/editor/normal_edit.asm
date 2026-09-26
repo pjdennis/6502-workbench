@@ -488,10 +488,8 @@ normal_join_lines:
   CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = line start (base for offsets)
 
   JSR find_line_end           ; (BUF_PTR16),Y points to '\n'
-  ; Set cursor to join point (end of original first line); the content
-  ; before it is unchanged, so the line repaints from there
-  STY CURSOR_COL16
-  STX CURSOR_COL16 + 1
+  ; The content before the first join point (the end of the first line)
+  ; is unchanged, so the line repaints from there
   STY RENDER_FROM_COL16
   STX RENDER_FROM_COL16 + 1
   ; Advance BUF_PTR16 by Y so BUF_PTR16 points directly to the '\n'
@@ -508,14 +506,17 @@ normal_join_lines:
   LDA (BUF_PTR16),Y
   CMP #'\n'
   BNE .join_next
-  ; Record offset in undo buffer: offset = BUF_PTR16 - BUF_SRC16
+  ; Record offset in undo buffer: offset = BUF_PTR16 - BUF_SRC16, the
+  ; join point, where the cursor goes (the last one, as in vim)
   SEC
   LDA BUF_PTR16
   SBC BUF_SRC16
   STA UNDO_DATA_BUF,X
+  STA CURSOR_COL16
   LDA BUF_PTR16 + 1
   SBC BUF_SRC16 + 1
   STA UNDO_DATA_BUF + 1,X
+  STA CURSOR_COL16 + 1
   ; Advance write index only if not batching
   LDA BATCH_EXTRA            ; batching flag
   BNE .skip_advance
@@ -532,12 +533,6 @@ normal_join_lines:
   JMP .join_loop
 
 .join_finish:
-  ; For batched joins, cursor goes to last join point
-  LDA BATCH_EXTRA            ; batching flag
-  BEQ .cursor_done
-  SEC
-  SBC16 BUF_PTR16, BUF_SRC16, CURSOR_COL16
-.cursor_done:
   ; Save join-point cursor for redo
   CP16 CURSOR_COL16, UNDO_COL16
   ; Single rebuild
