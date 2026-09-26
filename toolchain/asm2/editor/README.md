@@ -163,7 +163,8 @@ project's 6502 emulator in console/ANSI mode.
 | `$0000-$00FF` | 256 B | Zero page variables |
 | `$0100-$01FF` | 256 B | 6502 stack |
 | `$0200-$02FF` | 256 B | Filename buffer (`FNAME_BUF`) |
-| `$0300-$03FF` | 256 B | Command buffer (`CMD_BUF`) |
+| `$0300-$037F` | 128 B | Command buffer (`CMD_BUF`) |
+| `$0380-$03FF` | 128 B | (free) |
 | `$0400+` | Variable | Editor code (loads here) |
 | `TEXT_BUF` | Variable | Text buffer (page-aligned after code, up to `$D5FF`) |
 | `$D600-$D61F` | 32 B | Batch insert staging buffer (`BATCH_BUF`) |

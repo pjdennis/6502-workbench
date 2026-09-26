@@ -263,7 +263,8 @@ COMMAND-LINE MODE
   past the end of the file mean the last line.
 
   ESC cancels command input. Backspace edits the command;
-  backspacing past the start cancels.
+  backspacing past the start cancels. A command can be up to 127
+  characters long; further keys are ignored.
 
 
 YANK BUFFER

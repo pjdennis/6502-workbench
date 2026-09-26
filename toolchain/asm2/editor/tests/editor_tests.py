@@ -11540,7 +11540,8 @@ class EditorTestRunner:
         )
 
         # Command-line editing guards (the ':' line reader); x shows where
-        # the cursor ended up
+        # the cursor ended up.  A command holds up to 127 chars (vim takes
+        # any length); at 200 columns that fits the status row.
         five = "abc\ndef\nghi\njkl\nmno\n"
         on_line1 = "bc\ndef\nghi\njkl\nmno\n"
         on_line3 = "abc\ndef\nhi\njkl\nmno\n"
@@ -11548,13 +11549,13 @@ class EditorTestRunner:
                 (": ESC cancels a typed command", b":3\x1b", on_line1),
                 (": backspace past the prompt cancels", b":3\x7f\x7f", on_line1),
                 (": backspace on a long command line erases",
-                 b":" + b"0" * 200 + b"\x7f" * 199 + b"3\r", on_line3),
-                (": command line stops accepting at 255 chars",
-                 b":" + b"0" * 254 + b"3" + b"99\r", on_line3),
+                 b":" + b"0" * 120 + b"\x7f" * 119 + b"3\r", on_line3),
+                (": command line stops accepting at 127 chars",
+                 b":" + b"0" * 126 + b"3" + b"99\r", on_line3),
                 (": control and special keys are ignored",
                  b":\x01\x1b[A3\x1b[C\r", on_line3)):
-            self.run_test(name, five, keys + b"x:wq\r",
-                          expected_content=expected)
+            self.run_test_screen(name, five, keys + b"x:wq\r", cols=200,
+                                 expected_content=expected)
 
         # ============================================================
         # Extended key handling (function keys, ctrl+arrows, etc.)

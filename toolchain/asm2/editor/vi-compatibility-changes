@@ -33,6 +33,9 @@
 
   Command line
 
+  Command length - A : command holds at most 127 characters; further keys are ignored. Vim takes a command of any
+  length.
+
   Range positions past the last line - Are clamped to the last line, so :5d on a 2-line file deletes line 2. Vi
   reports "E16: Invalid range".
 
