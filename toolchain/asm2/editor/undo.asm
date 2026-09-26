@@ -234,8 +234,7 @@ undo_handle:
 
 .redo_char:
   ; Restore position
-  JSR undo_restore_line_col
-  CP16 UNDO_COL16, RENDER_FROM_COL16
+  JSR undo_restore_pos_from
   ; Get yank size for delete count
   JSR yank_get_size          ; BUF_LEN16 = yank size
   BCS .redo_fail
@@ -520,23 +519,22 @@ undo_shift_step:
   JSR undo_restore_col
   JMP clamp_and_clear_count
 
-; Point BUF_PTR16 at the recorded span and move to the recorded line
+; Move the cursor to the recorded span start (the line repaints from
+; there) and point BUF_PTR16 at it
 undo_span_setup:
-  JSR undo_restore_line
-  LDAX16 UNDO_LINE16
-  JSR buf_get_line_ptr
-  CLC
-  ADC16 BUF_PTR16, UNDO_COL16, BUF_PTR16
-  RTS
+  JSR undo_restore_pos_from
+  JMP get_cursor_buf_ptr
 
-; Common finish: single-line partial repaint from the span start
+; Common finishes: set the undone/redone flags, then a single-line
+; partial repaint from the span start
+undo_span_undone:
+  JSR undo_set_done_flags
+  JMP undo_span_finish
+undo_span_redone:
+  JSR undo_set_redone_flags
 undo_span_finish:
-  LDA #$FF
-  STA MODIFIED
   LDA #1
-  STA RENDER_FLAG
-  CP16 UNDO_COL16, RENDER_FROM_COL16
-  JMP clear_count
+  JMP set_render_clear_count
 
 ; --- Toggle case undo/redo: self-inverse, re-toggle the span ---
 undo_tilde_span:
@@ -556,22 +554,16 @@ undo_tilde_span:
 
 undo_tilde_undo:
   JSR undo_tilde_span
-  JSR undo_restore_col
-  LDA #$FF
-  STA UNDO_IS_REDO
-  JMP undo_span_finish
+  JMP undo_span_undone
 
 undo_tilde_redo:
   JSR undo_tilde_span
   ; Cursor advances past the span as the original ~ did (clamped)
-  JSR undo_restore_col
-  LDA UNDO_JOIN_COUNT
+  TYA                        ; Y = span length (UNDO_JOIN_COUNT)
   CLC
   ADCA16 CURSOR_COL16, CURSOR_COL16
   JSR clamp_cursor_col
-  LDA #0
-  STA UNDO_IS_REDO
-  JMP undo_span_finish
+  JMP undo_span_redone
 
 ; --- Replace char undo: restore the saved originals ---
 undo_replace_undo:
@@ -585,10 +577,7 @@ undo_replace_undo:
   INX
   CPX UNDO_JOIN_COUNT
   BNE .loop
-  JSR undo_restore_col
-  LDA #$FF
-  STA UNDO_IS_REDO
-  JMP undo_span_finish
+  JMP undo_span_undone
 
 ; --- Replace char redo: re-write the replacement char ---
 undo_replace_redo:
@@ -602,17 +591,17 @@ undo_replace_redo:
   DEX
   BNE .loop
   ; Cursor lands on the last replaced char, as the original r did
-  JSR undo_restore_col
-  LDA UNDO_JOIN_COUNT
-  SEC
-  SBC #1
+  DEY
+  TYA                        ; A = span length - 1
   CLC
   ADCA16 CURSOR_COL16, CURSOR_COL16
-  LDA #0
-  STA UNDO_IS_REDO
-  JMP undo_span_finish
+  JMP undo_span_redone
 
 ; --- Restore helpers: copy the undo record back into cursor state ---
+; Restore FILE_LINE16 and CURSOR_COL16, and repaint the line from the
+; recorded column
+undo_restore_pos_from:
+  CP16 UNDO_COL16, RENDER_FROM_COL16
 ; Restore FILE_LINE16 and CURSOR_COL16 from the undo record
 undo_restore_line_col:
   CP16 UNDO_LINE16, FILE_LINE16
@@ -624,6 +613,14 @@ undo_restore_col:
 ; Restore FILE_LINE16 from the undo record
 undo_restore_line:
   CP16 UNDO_LINE16, FILE_LINE16
+  RTS
+
+; Mark the operation redone: next 'u' undoes, buffer is modified
+undo_set_redone_flags:
+  LDA #0
+  STA UNDO_IS_REDO
+  LDA #$FF
+  STA MODIFIED
   RTS
 
 ; Mark the operation undone: next 'u' redoes, buffer is modified
