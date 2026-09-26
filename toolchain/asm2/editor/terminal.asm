@@ -164,18 +164,15 @@ write_fname:
   RTS
 
 ; Move cursor to status line and clear it
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
+; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_line_clear:
-  LDA SCREEN_ROWS
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+  LDA TEXT_ROWS              ; The status row (0-based)
+  JSR ansi_goto_row0
   JMP ansi_clear_line
 
 ; Show prompt character on status line
 ; A = prompt character (e.g. ':', '/')
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
+; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 show_prompt:
   PHA
   JSR status_line_clear

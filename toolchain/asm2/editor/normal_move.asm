@@ -51,12 +51,11 @@ normal_half_page_up:
   JMP clamp_and_clear_count
 
 ; Page scroll setup: BUF_DELTA = batched count (repeats, 0 = 256),
-; BUF_TEMP = page size = content rows (SCREEN_ROWS - 1)
+; BUF_TEMP = page size = content rows (TEXT_ROWS)
 page_setup:
   JSR get_batched_count
   STX BUF_DELTA
-  LDX SCREEN_ROWS
-  DEX
+  LDX TEXT_ROWS
   STX BUF_TEMP
   RTS
 
@@ -74,10 +73,8 @@ half_page_setup:
   ; No count: use sticky if set, else compute default
   LDA SCROLL_AMOUNT
   BNE .store
-  ; Default: half_page = (SCREEN_ROWS - 1) / 2
-  LDX SCREEN_ROWS
-  DEX
-  TXA
+  ; Default: half_page = TEXT_ROWS / 2
+  LDA TEXT_ROWS
   LSR
   BPL .store                 ; Always
 .use_count:

@@ -327,8 +327,7 @@ undo_paste_undo:
   CPX #UNDO_LINE_PASTE_BELOW
   BNE .skip_rows
   LDAX16 UNDO_LINE16
-  JSR buf_get_line_len
-  JSR line_screen_rows       ; A = cursor line screen rows
+  JSR get_len_rows           ; A = cursor line screen rows
 .skip_rows:
   STA DELETE_SCREEN_ROWS
   LDA #RF_DEL_BELOW

@@ -569,7 +569,7 @@ word_op_bail:
   JMP clear_count
 
 .bail_insert:
-  JMP enter_insert_mode_render
+  JMP enter_insert_mode
 
 ; JSR here calls the range routine in JUMP_TARGET16 (word_op_forward and
 ; batched_word_delete_fwd)

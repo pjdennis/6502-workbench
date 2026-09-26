@@ -494,4 +494,3 @@ insert_move_count:
   JSR count_pending_key
   INX
   RTS
-

@@ -245,11 +245,6 @@ get_count_clamp_lines:
 
 ; --- Insert mode entry helpers ---
 
-; Alias of enter_insert_mode (it sets no render flag); still used by
-; word_op_bail in normal_shift.asm
-enter_insert_mode_render:
-  ; fall through
-
 ; Enter insert mode and clear count
 enter_insert_mode:
   LDA #MODE_INSERT
