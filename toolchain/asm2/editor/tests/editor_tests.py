@@ -2701,6 +2701,34 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
+        # Cursor exactly 255 screen rows below the view top: 255+1 must not
+        # wrap to row 0 and count as visible
+        self.run_test_screen(
+            "Jump 255 rows down scrolls the view",
+            make_lines(300),
+            b"255j:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+248}") for i in range(9)]
+        )
+
+        # Same through a wrapped cursor line: 5 rows above + wrap row 250
+        self.run_test_screen(
+            "Wrap row 250 below 5 rows scrolls the view",
+            "a\n" * 5 + "x" * 10010 + "\n",
+            b"5j$:q!\r",
+            expect_cursor=(8, 9),
+            expect_lines=[(i, "x" * 40) for i in range(8)] + [(8, "x" * 10)]
+        )
+
+        # Same within the top line: wrap row 255 with the view at wrap 0
+        self.run_test_screen(
+            "Wrap row 255 of the top line scrolls the view",
+            "x" * 10205 + "\n",
+            b"$:q!\r",
+            expect_cursor=(8, 4),
+            expect_lines=[(i, "x" * 40) for i in range(8)] + [(8, "x" * 5)]
+        )
+
         self._group("Screen state - pagination:", leading_blank=True)
 
         # Ctrl-F from start (30 lines): full window verification
@@ -3022,6 +3050,15 @@ class EditorTestRunner:
             expect_cursor=(8, 39),
             expect_lines=[(i, "b" * 40) for i in range(8)]
                          + [(8, "b" * 39 + "Z")]
+        )
+        # 256G: the walk sums to exactly 255 rows, no 8-bit overflow, so
+        # the below-view check must not let CURSOR_ROW+1 wrap to 0
+        self.run_test_screen(
+            "G: cursor exactly 255 rows below the view scrolls",
+            make_lines(300),
+            b"256G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+248}") for i in range(9)]
         )
         # The view walk stops once the rows passed fill the screen: the
         # run with G on 1,000 lines took 1,355,719 cycles (903,186 without

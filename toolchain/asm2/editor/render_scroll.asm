@@ -721,9 +721,8 @@ ensure_cursor_visible:
   BCS .need_scroll_down  ; 8-bit overflow
   STA CURSOR_ROW
 
-  ; Check if cursor is below view (CURSOR_ROW >= SCREEN_ROWS - 1)
-  ADC #1                 ; C=0
-  CMP SCREEN_ROWS
+  ; Check if cursor is below view (CURSOR_ROW >= TEXT_ROWS)
+  CMP TEXT_ROWS
   BCC .visible
 
 .need_scroll_down:
