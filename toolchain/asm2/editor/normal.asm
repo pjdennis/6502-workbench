@@ -160,7 +160,6 @@ normal_delete_char:
 
   ; Normalize batching: count + pending x keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  JSR set_render_from_cursor
   JMP batched_char_delete
 .done:
   JMP clear_count
@@ -190,7 +189,6 @@ normal_delete_char_back:
   BCS .no_borrow
   DEC CURSOR_COL16 + 1
 .no_borrow:
-  JSR set_render_from_cursor
   JMP batched_char_delete_back
 .done:
   JMP clear_count

@@ -36,17 +36,17 @@ RF_FULL       = $FF   ; Full redraw
 ; clear)
 render_init:
   .ifdef terminal_mode
-  JSR query_terminal_size
+  JMP query_terminal_size    ; (also sets TEXT_ROWS)
   .else
   JSR term_rows
   STA SCREEN_ROWS
+  TAX
+  DEX
+  STX TEXT_ROWS              ; SCREEN_ROWS - 1: text rows above the status bar
   JSR term_cols
   STA SCREEN_COLS
-  .endif
-  LDX SCREEN_ROWS
-  DEX
-  STX TEXT_ROWS
   RTS
+  .endif
 
 ; Full screen redraw
 ; Renders all visible lines plus status bar, positions cursor

@@ -104,20 +104,15 @@ scroll_view_down:
   LDA BUF_TEMP
   ADDA16 VIEW_TOP16
 
-  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - content_rows), where
-  ; LINE_COUNT - content_rows = LINE_COUNT - SCREEN_ROWS + 1
+  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - TEXT_ROWS)
   SEC
   LDA LINE_COUNT16
-  SBC SCREEN_ROWS
+  SBC TEXT_ROWS
   TAX
   LDA LINE_COUNT16 + 1
   SBC #0
-  BCC .view_zero     ; LINE_COUNT < content_rows, set VIEW_TOP=0
+  BCC .view_zero     ; LINE_COUNT < TEXT_ROWS, set VIEW_TOP=0
   TAY                ; Y:X = max view top
-  INX
-  BNE .max_ok
-  INY
-.max_ok:
 
   ; If VIEW_TOP16 > max, clamp it
   CPY VIEW_TOP16 + 1

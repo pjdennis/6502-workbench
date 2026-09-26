@@ -71,6 +71,40 @@ dispatch_fetch_jump:
   RTS
 .do_jump:
   JMP (JUMP_TARGET16)
+
+; Check if key starts a multi-key combo by scanning the combo table
+; Input: A = low byte, X = high byte of combo table address
+;        BUF_TEMP = key code to match
+; Output: C = 0 if valid first key (LAST_KEY set), C = 1 if not
+; Respects READONLY: skips entries with flags bit 1 set
+check_combo_first_key:
+  STA DISPATCH_PTR16
+  STX DISPATCH_PTR16 + 1
+  LDY #0
+.loop:
+  LDA (DISPATCH_PTR16),Y
+  BEQ dispatch_no_match
+  INY
+  INY                        ; Y -> flags
+  CMP BUF_TEMP
+  BNE .skip
+  ; Key matches - check READONLY + editing flag
+  LDA READONLY
+  BEQ .found
+  LDA (DISPATCH_PTR16),Y
+  AND #$02
+  BEQ .found
+.skip:
+  INY
+  INY
+  INY
+  BNE .loop                  ; Always (tables are < 256 bytes)
+.found:
+  LDA BUF_TEMP
+  STA LAST_KEY
+  CLC
+  RTS
+; No match (dispatch_key, dispatch_pending_key, check_combo_first_key)
 dispatch_no_match:
   SEC
   RTS
@@ -194,42 +228,6 @@ move_right_x:
   RTS
 
 ; --- Count prefix helpers ---
-
-; Check if key starts a multi-key combo by scanning the combo table
-; Input: A = low byte, X = high byte of combo table address
-;        BUF_TEMP = key code to match
-; Output: C = 0 if valid first key (LAST_KEY set), C = 1 if not
-; Respects READONLY: skips entries with flags bit 1 set
-check_combo_first_key:
-  STA DISPATCH_PTR16
-  STX DISPATCH_PTR16 + 1
-  LDY #0
-.loop:
-  LDA (DISPATCH_PTR16),Y
-  BEQ .no_match
-  INY
-  INY                        ; Y -> flags
-  CMP BUF_TEMP
-  BNE .skip
-  ; Key matches - check READONLY + editing flag
-  LDA READONLY
-  BEQ .found
-  LDA (DISPATCH_PTR16),Y
-  AND #$02
-  BEQ .found
-.skip:
-  INY
-  INY
-  INY
-  BNE .loop                  ; Always (tables are < 256 bytes)
-.found:
-  LDA BUF_TEMP
-  STA LAST_KEY
-  CLC
-  RTS
-.no_match:
-  SEC
-  RTS
 
 ; Get count, clamped to the lines from FILE_LINE16 to the end
 ; Output: BUF_TEMP16 = clamped count.  Clobbers: A, BUF_LEN16
@@ -616,6 +614,7 @@ batched_char_delete_back:
 batched_char_delete:
   LDY #0
 bcd_start:
+  JSR set_render_from_cursor    ; Repaint from the range start (keeps X, Y)
   JSR compute_char_range_forward
   BCS .done
   JSR set_shift_delete

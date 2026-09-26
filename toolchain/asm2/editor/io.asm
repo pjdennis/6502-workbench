@@ -57,7 +57,7 @@ io_ready:
 ; Sends ESC[999;999H to move cursor to bottom-right (clamped by terminal)
 ; Then sends ESC[6n to query cursor position
 ; Parses response ESC[{rows};{cols}R
-; Stores results in SCREEN_ROWS and SCREEN_COLS
+; Stores results in SCREEN_ROWS (and TEXT_ROWS = SCREEN_ROWS - 1) and SCREEN_COLS
 query_terminal_size:
   ; Send ESC[999;999H (move cursor to max position, clamped by terminal)
   ; followed by ESC[6n (request cursor position)
@@ -71,6 +71,9 @@ query_terminal_size:
   JSR io_read             ; Skip [
   JSR parse_dsr_value     ; Rows (digits up to ';')
   STA SCREEN_ROWS
+  TAX
+  DEX
+  STX TEXT_ROWS           ; Text rows above the status bar
   JSR parse_dsr_value     ; Cols (digits up to 'R')
   STA SCREEN_COLS
   RTS                     ; (the first render positions the cursor)
