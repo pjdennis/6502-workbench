@@ -157,44 +157,15 @@ undo_do_undo:
   JMP set_render_clear_count     ; Signal line-insert for scroll optimization
 
 .undo_char:
-  ; Restore position
+  ; Re-insert the deleted chars (the yank) at the recorded position
   JSR undo_restore_line_col
-  CP16 UNDO_COL16, RENDER_FROM_COL16
-  ; Set up paste: BUF_TEMP16 = 1
   JSR set_buf_temp16_one
-  CP16 LINE_COUNT16, COUNT16 ; Save line count for mark adjustment
-  JSR yank_paste_setup       ; BUF_LEN16 = yank size
+  LDA #CP_AT
+  JSR do_char_paste          ; Marks and scroll flags for a multi-line yank
   BCS .undo_fail
-  JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  JSR yank_paste_core        ; Shift right, copy yank data, rebuild
-  BCS .undo_fail
-  ; Adjust marks if paste added lines
-  SEC
-  SBC16 LINE_COUNT16, COUNT16, BUF_TEMP16
-  TST16 BUF_TEMP16
-  BEQ .undo_char_flags
-  LDAX16 FILE_LINE16
-  CLC
-  JSR mark_adjust_col
-  ; Multi-line: set scroll optimization, skip cursor row in scroll region
-  JSR file_line_rows
-  STA PREV_LINE_ROWS
-  LDA #$09
-  STA RENDER_FLAG
-  ; INSERT_LINE_COUNT = new_lines + 1 (for split cursor line)
-  LDA BUF_TEMP16
-  CLC
-  ADC #1
-  STA INSERT_LINE_COUNT
-  JMP .undo_char_set_flags
-.undo_char_flags:
-  LDA #1
-  STA RENDER_FLAG
-.undo_char_set_flags:
-  ; Restore cursor position (yank_paste_core may have moved things)
-  JSR undo_restore_col
-  ; Set flags
+  JSR undo_restore_col       ; Cursor back to the span start
   JSR undo_set_done_flags
+  JMP undo_keep_render_flag  ; Single-line: current line repaint
 .undo_fail:
   JMP clear_count
 

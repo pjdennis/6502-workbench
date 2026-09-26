@@ -110,9 +110,10 @@ char_paste_below:
   JSR undo_clear             ; A = UNDO_NONE = 0
   BEQ paste_done             ; Always
 
-; Char paste modes (A for do_char_paste): bit 7 set = not p, bit 6 set = P
+; Char paste modes (A for do_char_paste): bit 7 set = not p, bit 6 set = P,
+; bit 5 set = the caller places the cursor itself (no clamp)
 CP_BELOW = $00               ; p
-CP_AT    = $80               ; Undo of a char delete
+CP_AT    = $A0               ; Undo of a char delete
 CP_ABOVE = $C0               ; P
 
 ; Core char paste below (p, and its redo): paste BUF_TEMP16 copies after
@@ -142,12 +143,14 @@ do_char_paste_above:
 ;   CP_BELOW: p.  Renders from one column left of the insertion column
 ;             ($FFFF, the whole line, at column 0); a multi-line paste
 ;             shifts the marks from the next line on
-;   CP_AT:    renders from the insertion column; marks by mark_adjust_col
+;   CP_AT:    renders from the insertion column; marks by mark_adjust_col;
+;             the cursor is left unclamped (the caller restores it)
 ;   CP_ABOVE: as CP_AT, but fills with interleaved_fill (single-line: the
 ;             cursor ends BATCH_EXTRA chars before the last pasted char,
 ;             as separate P keys leave it) or contiguous_fill (multi-line)
 ; Output: cursor on the last pasted char (single-line yank) or the first
-; (multi-line), clamped; NORMAL_TEMP bit 7 = multi-line yank; MODIFIED set.
+; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
+; MODIFIED set.
 ; Returns carry set = failed (empty yank, or buffer full: text unchanged)
 do_char_paste:
   STA NORMAL_TEMP
@@ -163,7 +166,7 @@ do_char_paste:
   SBC #0
   STA RENDER_FROM_COL16 + 1
   JSR yank_has_newline
-  ROR NORMAL_TEMP            ; Bit 7 = multi-line, bit 6 = not p, bit 5 = P
+  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
   LDA NORMAL_TEMP
@@ -232,7 +235,11 @@ do_char_paste:
   INX
   STX INSERT_LINE_COUNT      ; New lines + 1 (the split cursor line)
 .clamp:
+  LDA NORMAL_TEMP
+  AND #$10
+  BNE .done                  ; CP_AT: the caller restores the cursor
   JSR clamp_cursor_col
+.done:
   CLC
   RTS
 
