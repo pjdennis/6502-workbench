@@ -493,7 +493,7 @@ file_line_rows:
   ; fall through
 get_len_rows:
   JSR buf_get_line_len
-  JMP line_screen_rows
+  ; fall through
 
 ; Compute number of screen rows a line occupies
 ; Input: A/X = 16-bit line length (A=low, X=high)
