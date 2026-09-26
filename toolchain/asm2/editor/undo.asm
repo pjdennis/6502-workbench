@@ -529,12 +529,18 @@ undo_restore_col:
   CP16 UNDO_COL16, CURSOR_COL16
   RTS
 
-; Delete BUF_TEMP16 lines at FILE_LINE16 for the $07 line-delete scroll:
-; SCROLL_DELTA = their screen rows ($FF when over 255 lines or rows),
-; which render_decide uses as is (clamped to the scroll region).
-; DELETE_SCREEN_ROWS keeps the first removed line (low byte) for
-; finish_delete_scroll.
+; Delete BUF_TEMP16 lines at FILE_LINE16 for the $07 line-delete scroll
+; (finish_delete_scroll sets it once the cursor is placed)
 undo_delete_lines_scroll:
+  JSR precompute_delete_scroll
+  JMP delete_current_lines
+
+; Pre-compute the line-delete scroll of the BUF_TEMP16 lines at
+; FILE_LINE16, before they are deleted: SCROLL_DELTA = their screen rows
+; ($FF when over 255 lines or rows), which render_decide uses as is for
+; $02 and $07 (clamped to the scroll region), and DELETE_SCREEN_ROWS =
+; FILE_LINE16's low byte, the first removed line, for finish_delete_scroll
+precompute_delete_scroll:
   JSR compute_delete_rows_temp16
   LDX DELETE_SCREEN_ROWS
   BNE .rows
@@ -543,12 +549,12 @@ undo_delete_lines_scroll:
   STX SCROLL_DELTA
   LDA FILE_LINE16
   STA DELETE_SCREEN_ROWS
-  JMP delete_current_lines
+  RTS
 
 ; Set the $07 line-delete scroll once the cursor is placed.  The cursor
 ; is on the first removed line's place (the next line moved up into its
 ; rows, so the scroll region starts at the cursor line) or on the line
-; above it (p/o undo, a redo that reached EOF), whose rows the region
+; above it (p/o undo, a delete that reached EOF), whose rows the region
 ; skips.  The two differ by one line, so their low bytes differ too.
 finish_delete_scroll:
   LDA DELETE_SCREEN_ROWS     ; first removed line (low byte)

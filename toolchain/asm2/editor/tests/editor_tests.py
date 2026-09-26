@@ -13489,8 +13489,47 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
-        # A redo of a dd reaching EOF moves the cursor up onto the line
-        # above the deleted rows, which stays in place
+        # A dd (or its redo) reaching EOF moves the cursor up onto the line
+        # above the deleted rows.  That line keeps its rows (both, when it
+        # wraps); only the deleted rows turn into "~".
+        eof_wrap = "Short 0\nThis is a longer line!\n"  # line 1 wraps at 20
+        eof_wrap_rows = [(0, "Short 0"), (1, "This is a longer lin"),
+                         (2, "e!"), (3, "~"), (4, "~"), (8, "~")]
+        for name, content, keys in (
+                ("dd", eof_wrap + "last\n", b"Gdd"),
+                ("2dd", eof_wrap + "x\ny\n", b"Gk2dd"),
+                ("batched dddd", eof_wrap + "x\ny\n", b"Gkdddd"),
+                ("5dd past EOF", eof_wrap + "x\ny\n", b"Gk5dd"),
+                ("dd redo", eof_wrap + "last\n", b"Gddu u"),
+                ("2dd redo", eof_wrap + "x\ny\n", b"Gk2ddu u")):
+            self.run_test_screen(
+                f"Scroll opt: {name} to EOF keeps the wrapped line above",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=eof_wrap_rows,
+                expect_cursor=(1, 0),
+            )
+        # A deleted last line that runs below the screen: only the rows
+        # under the cursor line (row 8 here) turn into "~"
+        self.run_test_screen(
+            "Scroll opt: dd of a last line running off-screen",
+            "A" * 70 + "\nBBB\n" + "C" * 45 + "\n" + "D" * 70 + "\n",
+            b"G3dd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(4, "BBB"), (5, "C" * 20), (7, "C" * 5),
+                          (8, "~")],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 5dd past EOF repaints the rows below as ~",
+            "".join(f"Short {i}\n" for i in range(5)),
+            b"jjj5dd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(2, "Short 2")] + [(r, "~") for r in range(3, 9)],
+            expect_cursor=(2, 0),
+        )
+        # A redo of a dd reaching EOF: the line above stays in place
         for name, content, keys, lines, cursor in (
                 ("dd redo below a short line", "Short 0\nShort 1\nShort 2\n",
                  b"Gddu u", [(0, "Short 0"), (1, "Short 1"), (2, "~")],

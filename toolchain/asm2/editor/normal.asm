@@ -204,8 +204,8 @@ do_dd:
   ADDA16 BUF_TEMP16          ; BUF_TEMP16 = count + pairs (the limit kept it
                              ; within the lines left)
 
-  ; Pre-compute screen rows of lines being deleted (before deletion)
-  JSR compute_delete_rows_temp16
+  ; Pre-compute the scroll of the lines being deleted (before deletion)
+  JSR precompute_delete_scroll
 
   LDA BATCH_EXTRA
   BEQ .do_yank_delete        ; No batching, standard path
@@ -234,9 +234,17 @@ do_dd:
   BCS .yank_overflow
 
 .dd_done:
-  LDA #RF_DEL            ; Signal line-delete for scroll optimization
-  JSR set_modified_render
-  JMP clamp_and_clear_count
+  JSR set_modified
+  JSR clamp_cursor_col
+  LDA DELETE_SCREEN_ROWS     ; The first deleted line (low byte)
+  EOR FILE_LINE16
+  BEQ .dd_scroll
+  ; The delete reached EOF and the cursor moved up: scroll the deleted
+  ; rows up below that unchanged line ($07)
+  JMP finish_delete_scroll
+.dd_scroll:
+  LDA #RF_DEL                ; Signal line-delete for scroll optimization
+  JMP set_render_clear_count
 
 .yank_overflow:
   JMP show_yank_overflow

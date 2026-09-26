@@ -30,9 +30,9 @@
 ;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
 ;                              and SHIFT_WRITE), scrolling the rows below by
 ;                              its row change from PREV_LINE_ROWS.
-; $02   dd                     Lines deleted from first_row down; the cursor
-;                              line moved up into them.  DELETE_SCREEN_ROWS =
-;                              rows deleted (0 = use delta).  Scroll up from
+; $02   dd (not reaching EOF)  Lines deleted from first_row down; the cursor
+;                              line moved up into them.  SCROLL_DELTA = rows
+;                              deleted ($FF: over 255).  Scroll up from
 ;                              first_row + 1, redraw first_row (and to the
 ;                              bottom if WRAP_QUOT > 0).
 ; $03   o O p P, undo dd,      Delta lines inserted at FILE_LINE16, which
@@ -56,8 +56,8 @@
 ;                              $FF = pure join at line end (no redraw),
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
-; $07   redo dd, undo p/P/o/O  Lines deleted; cursor line unchanged, not
-;                              redrawn.  SCROLL_DELTA = rows deleted ($FF:
+; $07   dd reaching EOF, redo  Lines deleted; cursor line unchanged, not
+;       dd, undo p/P/o/O       redrawn.  SCROLL_DELTA = rows deleted ($FF:
 ;                              over 255).  DELETE_SCREEN_ROWS = cursor line
 ;                              rows above the deleted lines (0 = the
 ;                              deleted lines began at first_row).
@@ -156,12 +156,12 @@ render_decide:
 
 .line_delete_scroll:
   ; LINE_COUNT16 decreased and RENDER_FLAG=$02/$06/$07/$08 (line delete at cursor).
-  ; $07/$08: SCROLL_DELTA pre-computed by the handler (undo_delete_lines_scroll,
-  ; delete_at_cursor)
+  ; $02/$07/$08: SCROLL_DELTA pre-computed by the handler
+  ; (precompute_delete_scroll, delete_at_cursor)
   LDA RENDER_FLAG
-  CMP #RF_DEL_BELOW
-  BCS .delete_check          ; $07/$08
-  ; Use pre-computed DELETE_SCREEN_ROWS if available, else file delta.
+  CMP #RF_JOIN
+  BNE .delete_check          ; $02/$07/$08
+  ; $06: use pre-computed DELETE_SCREEN_ROWS if available, else file delta.
   LDA DELETE_SCREEN_ROWS
   BNE .have_delete_rows
   ; Fall back to file line delta
@@ -174,11 +174,7 @@ render_decide:
   BNE .full                  ; Delta > 255, fall back
   BEQ .delete_check          ; Always taken
 .have_delete_rows:
-  ; RENDER_FLAG=$06 (J): compute displacement-based delta
-  LDX RENDER_FLAG
-  CPX #RF_JOIN
-  BNE .dd_delete_rows
-  ; --- J path: A = old_total from pre-computation ---
+  ; A = old_total from pre-computation: compute displacement-based delta
   STA SCROLL_DELTA          ; save old_total temporarily
   JSR file_line_rows        ; A = new_total
   STA DELETE_SCREEN_ROWS    ; store new_total for scroll region
@@ -217,8 +213,6 @@ render_decide:
   STA PREV_LINE_ROWS
 .to_current_line:
   JMP render_current_line_and_status
-.dd_delete_rows:
-  STA SCROLL_DELTA
 .delete_check:
   LDA SCROLL_DELTA
   BEQ .full                  ; 0 (e.g. $08 over 255 old rows): full repaint
