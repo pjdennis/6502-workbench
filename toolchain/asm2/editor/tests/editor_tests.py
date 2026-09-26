@@ -1642,6 +1642,10 @@ class EditorTestRunner:
              [b"i", b"a", b"\x1b[B", b"b", b"\x1b[C", b"c", b"\x1b"]),
             ("Batch equiv: arrow keys", lines,
              [b"\x1b[B", b"\x1b[B", b"\x1b[C", b"\x1b[A", b"x"]),
+            ("Batch equiv: x past the line end", "abcdef\nxyz\n",
+             [b"3l", b"x", b"x", b"x", b"x", b"x"]),
+            ("Batch equiv: ~ past the line end", "abc\nxyz\n",
+             [b"l", b"~", b"~", b"~"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -8415,6 +8419,68 @@ class EditorTestRunner:
             expected_content="ABED\n"
         )
 
+        # Typed ahead, x presses past the end of the line act as they do one
+        # at a time: the cursor clamps back onto the new last char and the
+        # next x deletes it (the register and undo get the last deleted char)
+        self.run_test(
+            "batched xxx at end of line keeps deleting leftward",
+            "abc\n",
+            b"$xxx:wq\r",
+            expected_content="\n"
+        )
+
+        self.run_test(
+            "batched xxx past end of line from mid-line",
+            "abcde\n",
+            b"3lxxx:wq\r",
+            expected_content="ab\n"
+        )
+
+        self.run_test(
+            "5x + batched x past end of line deletes leftward",
+            "abc\n",
+            b"l5xx:wq\r",
+            expected_content="\n"
+        )
+
+        self.run_test(
+            "batched Del Del at end of line keeps deleting leftward",
+            "abc\n",
+            b"$\x1b[3~\x1b[3~:wq\r",
+            expected_content="a\n"
+        )
+
+        self.run_test(
+            "batched xxx past end of line: undo restores last deleted",
+            "abc\n",
+            b"lxxxu:wq\r",
+            expected_content="a\n"
+        )
+
+        # From column 0 the presses only delete forward: the last one to
+        # delete something took the line's last char
+        self.run_test(
+            "batched 2xxx from column 0: the register gets the last char",
+            "abc\n",
+            b"2xxxp:wq\r",
+            expected_content="c\n"
+        )
+
+        self.run_test(
+            "batched xxxx from column 0: undo restores the last char",
+            "abc\n",
+            b"xxxxu:wq\r",
+            expected_content="c\n"
+        )
+
+        self.run_test_screen(
+            "batched xxxx past end of line: register and cursor",
+            "abcdef\nnext\n",
+            b"$xxxxp:q!\r",
+            expect_cursor=(0, 2),
+            expect_lines=[(0, "abc"), (1, "next")],
+        )
+
         # D on first col yanks entire line content
         self.run_test(
             "D from col 0 yanks whole line",
@@ -9989,12 +10055,51 @@ class EditorTestRunner:
             expected_content="HELlo\n"
         )
 
-        # Batched ~ at end of line stops at last char
+        # Batched ~ past the end of line: the 2 left-over presses toggle the
+        # last char twice more
         self.run_test(
             "~~~~~ batched on 3-char line toggles all",
             "abc\n",
             b"~~~~~:wq\r",
             expected_content="ABC\n"
+        )
+
+        # Typed ahead, each ~ left over at the last char toggles it again, as
+        # it does one key at a time
+        self.run_test(
+            "batched ~~ at end of line toggles the last char twice",
+            "ab\nnext\n",
+            b"$~~:wq\r",
+            expected_content="ab\nnext\n"
+        )
+
+        self.run_test_screen(
+            "batched ~~ at end of line: screen shows the last toggle",
+            "ab\nnext\n",
+            b"$~~:q!\r",
+            expect_cursor=(0, 1),
+            expect_lines=[(0, "ab"), (1, "next")],
+        )
+
+        self.run_test(
+            "batched ~~~~ on 3-char line re-toggles the last char",
+            "abc\n",
+            b"~~~~:wq\r",
+            expected_content="ABc\n"
+        )
+
+        self.run_test(
+            "5~ + batched ~ re-toggles the last char",
+            "abc\n",
+            b"5~~:wq\r",
+            expected_content="ABc\n"
+        )
+
+        self.run_test(
+            "batched ~~ at end of line: undo covers the last ~",
+            "abc\n",
+            b"$~~u:wq\r",
+            expected_content="abC\n"
         )
 
         # Render: batched ~ is single action frame

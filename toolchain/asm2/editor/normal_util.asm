@@ -653,8 +653,10 @@ compute_char_range_forward:
 ; Batched character delete for x (batched_char_delete) and X
 ; (batched_char_delete_back, cursor already moved to the range start).
 ; When batched, the register gets what the last key press deleted: the
-; range's last char for x, its first char for X.
+; range's last char for x, its first char for X.  Batched x presses left
+; over at the line end go on as X from the line end.
 ; Input: X = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
+;        BUF_DELTA = count (x: from get_batched_count)
 ;        LINE_LEN16 = line length (from check_cursor_in_line)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 batched_char_delete_back:
@@ -676,6 +678,11 @@ bcd_start:
   JMP .done
 
 .batched:
+  ; x presses left over at the line end (the range stopped short of X:
+  ; only x's range can) delete leftward from there, as one at a time
+  CPX BUF_LEN16
+  BNE .x_past_end
+.yank_last:
   ; --- Batched: yank only what the last key press deleted (the range's
   ; last char for x, its first char for X), then delete the full range ---
   PUSH16 BUF_LEN16              ; Save full range
@@ -700,6 +707,26 @@ bcd_start:
   JSR clamp_cursor_col
 .done:
   JMP clear_count
+
+.x_past_end:
+  ; From column 0 the presses only delete forward (to the line end, and
+  ; past it they do nothing): the forward range stands
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BEQ .yank_last
+  ; One at a time, x on the last char leaves the cursor on the new last
+  ; char, which the next x deletes: min(count, the range) + the extras
+  ; is X of as many from the line end
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP BUF_LEN16
+  BCC .count_ok
+  LDA BUF_LEN16              ; The count stops at the line end
+.count_ok:
+  CLC
+  ADC BATCH_EXTRA
+  TAX                        ; X = the chars to delete (< 256)
+  CP16 LINE_LEN16, CURSOR_COL16
+  JMP delete_char_back_x
 
 ; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor.
 ; Over 128 chars -n does not fit SHIFT_NET's signed byte: no hint (the

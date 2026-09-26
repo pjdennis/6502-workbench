@@ -145,23 +145,23 @@ pending_combo_keys:
 
 normal_delete_char:
   JSR check_cursor_in_line
-  BCS .done
+  BCS delete_char_done
 
   ; Normalize batching: count + pending x keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
   JMP batched_char_delete
-.done:
-  JMP clear_count
 
 ; X: delete count chars before the cursor (clamped at column 0); the
 ; cursor moves left with the text
 normal_delete_char_back:
   TST16 CURSOR_COL16
-  BEQ .done
+  BEQ delete_char_done
 
   JSR get_line_len_z         ; LINE_LEN16 (the range lies inside the line)
   ; Normalize batching: count + pending X keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
+; Delete X chars before the cursor (x past the line end enters here)
+delete_char_back_x:
   ; Clamp to the chars before the cursor
   LDA CURSOR_COL16 + 1
   BNE .count_ok
@@ -179,7 +179,7 @@ normal_delete_char_back:
   DEC CURSOR_COL16 + 1
 .no_borrow:
   JMP batched_char_delete_back
-.done:
+delete_char_done:
   JMP clear_count
 
 ; dd: yank then delete N lines (N = count, min 1)

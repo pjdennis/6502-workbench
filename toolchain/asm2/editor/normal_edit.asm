@@ -345,8 +345,8 @@ normal_toggle_case:
 
 .tilde_loop:
   JSR check_cursor_in_line
-  BCS .tilde_done
-
+  BCS .tilde_line_end        ; Past the last char
+.tilde_toggle:
   JSR get_cursor_buf_ptr
   LDY #0
   INC UNDO_SPAN_LEN
@@ -366,17 +366,27 @@ normal_toggle_case:
 
 .tilde_echo:
   JSR echo_or_defer
-
-.tilde_advance:
-  SEC
-  SBCI16 LINE_LEN16, 1, BUF_TEMP16
-  CMP16 CURSOR_COL16, BUF_TEMP16
-  BCS .tilde_done            ; at end of line, stop
   JSR inc_cursor_col
-
-.tilde_next:
   DEC NORMAL_TEMP
   BNE .tilde_loop
+
+.tilde_line_end:
+  JSR clamp_cursor_col       ; Back onto the last char
+  ; One at a time, the cursor stays on the last char and each ~ left
+  ; over toggles it again (a count stops at the line end): the parity of
+  ; min(presses left, typed-ahead presses) decides one more toggle
+  LDA NORMAL_TEMP
+  CMP BATCH_EXTRA
+  BCC .left_ok
+  LDA BATCH_EXTRA
+.left_ok:
+  LSR
+  BCC .tilde_done            ; Even: no net change
+  LDA #1
+  STA NORMAL_TEMP            ; One more pass, which ends the loop
+  LSR                        ; A = 0
+  STA BUF_DELTA              ; No direct echo: the char's first echo
+  BEQ .tilde_toggle          ; went out, so the line repaints (always)
 
 .tilde_done:
   LDA UNDO_TYPE
