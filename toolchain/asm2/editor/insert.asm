@@ -78,6 +78,7 @@ insert_handle_key:
   LDX #0                    ; BATCH_BUF write index
   STX BUF_TEMP16            ; back = 0
   STX BUF_TEMP16 + 1        ; fwd = 0
+  STX BATCH_BUF             ; Stays 0 unless a char is typed (even if erased)
   LDY #BATCH_MAX            ; remaining capacity
 .collect_key:
   CMP #KEY_ENTER
@@ -138,14 +139,6 @@ insert_handle_key:
   ; X = insert_len, BUF_TEMP16.lo = back, BUF_TEMP16.hi = fwd
   STX BUF_DELTA
 
-  ; --- Check for no-op ---
-  TXA
-  ORA BUF_TEMP16
-  ORA BUF_TEMP16 + 1
-  BNE .exec_start
-  RTS                       ; Nothing to do
-
-.exec_start:
   ; --- Execution phase ---
 
   ; Step 2: Get cursor buffer position
@@ -266,7 +259,7 @@ insert_handle_key:
   SEC
   SBC BUF_SRC16              ; - total_delete
   STA SHIFT_NET              ; net (also the fast path's ICH/DCH hint)
-  BEQ .do_copy
+  BEQ .net_zero
   ; Shift the tail by |net| at delete_start + min(insert_len, total_delete)
   LDX BUF_SRC16              ; net > 0: grow after the deleted bytes
   BCS .have_len              ; carry set = no borrow = net > 0
@@ -292,6 +285,17 @@ insert_handle_key:
   BCC .do_copy
 .batch_full:
   JMP show_buffer_full_msg
+
+.net_zero:
+  LDA BUF_DELTA              ; insert_len (= total_delete)
+  BNE .do_copy
+  ; Nothing deleted and nothing inserted.  Chars typed and erased again
+  ; changed the buffer twice, as when typed one at a time: mark it
+  ; modified, with nothing to draw (A = 0).  Else (a BS at the buffer
+  ; start, a DEL on the final newline) nothing changed, as in vim
+  CMP BATCH_BUF              ; C = 0 if a char was typed
+  BCC .set_render_flag
+  RTS
 
 .do_copy:
   ; Step 9: Copy BATCH_BUF to the buffer, last byte first

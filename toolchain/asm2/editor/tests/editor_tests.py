@@ -1586,6 +1586,8 @@ class EditorTestRunner:
              [b"i"] + [bytes([c]) for c in b"hello world"] + [b"\x1b"]),
             ("Batch equiv: typing with BS and Enter", "abc\n",
              [b"A"] + [bytes([c]) for c in b"xy\x08z\rnew"] + [b"\x1b"]),
+            ("Batch equiv: typed chars erased by BS", "ab\ncd\n",
+             [b"d", b"d", b"i", b"x", b"y", b"\x08", b"\x08", b"\x1b"]),
             ("Batch equiv: insert-mode arrows", lines,
              [b"i", b"a", b"\x1b[B", b"b", b"\x1b[C", b"c", b"\x1b"]),
             ("Batch equiv: arrow keys", lines,
@@ -1809,6 +1811,56 @@ class EditorTestRunner:
             "Hello\n",
             b"$a\x1b[3~\x1b:wq\r",
             expected_content="Hello\n"
+        )
+
+        # A BS with nothing before the cursor, or a DEL on the final
+        # newline, changes nothing: as in vim, it leaves the file
+        # unmodified and the undo of the last edit in place
+        self.run_test_screen(
+            "No-op BS at buffer start leaves file unmodified",
+            "hello\nworld\n",
+            b"i\x08\x1b:q!\r",
+            expect_status_contains="t - COMMAND - 1,1"
+        )
+        self.run_test_screen(
+            "No-op DEL at buffer end leaves file unmodified",
+            "hello\nworld\n",
+            b"G$a\x1b[3~\x1b:q!\r",
+            expect_status_contains="t - COMMAND - 2,5"
+        )
+        self.run_test(
+            "No-op BS at buffer start keeps undo",
+            "hello\nworld\n",
+            b"jxggi\x08\x1bu:wq\r",
+            expected_content="hello\nworld\n"
+        )
+        self.run_test(
+            "No-op DEL at buffer end keeps undo",
+            "hello\nworld\n",
+            b"xG$a\x1b[3~\x1bu:wq\r",
+            expected_content="hello\nworld\n"
+        )
+
+        # Chars typed and erased again in one batch changed the file twice,
+        # as when typed one at a time: the file is modified and ESC clears
+        # the undo (text typed in insert mode is not undoable)
+        self.run_test_screen(
+            "Typed chars erased in one batch mark the file modified",
+            "ab\n",
+            b"ix\x08\x1b:q!\r",
+            expect_status_contains="t [+] - COMMAND - 1,1"
+        )
+        self.run_test_screen(
+            "Typed chars erased then no-op BS at buffer start mark modified",
+            "ab\n",
+            b"ix\x08\x08\x1b:q!\r",
+            expect_status_contains="t [+] - COMMAND - 1,1"
+        )
+        self.run_test(
+            "Typed chars erased in one batch clear undo as if typed slowly",
+            "ab\ncd\n",
+            b"ddix\x08\x1bu:wq\r",
+            expected_content="cd\n"
         )
 
         # Delete multiple characters (batching)
