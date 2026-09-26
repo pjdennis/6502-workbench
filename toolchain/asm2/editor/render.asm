@@ -143,11 +143,9 @@ render_from_row:
   JSR render_rows
   JMP render_finish
 
-; Render just the status line (last row): build its text, then send the
-; part that differs from what the row shows
-render_status_line:
-  JSR status_build
-  ; fall through
+; The status bar (last row): status_build builds its text, then
+; status_send sends the part that differs from what the row shows
+; (render_finish)
 
 ; Send the status text built by status_build from its first changed
 ; column (nothing if it is unchanged), in reverse video, clearing the
@@ -178,7 +176,7 @@ status_send:
 status_ret:
   RTS
 
-; Build the status bar's text into STATUS_SHADOW (see st_putc).  Sends
+; Build the status bar's text into STATUS_SHADOW (see text_putc).  Sends
 ; nothing.  On return ST_COL = its length and ST_FIRST = the first column
 ; to send ($FF = none); ST_LEN = 0 if the row's tail must be cleared.
 ; A message held on the status row (STATUS_HOLD) is kept for one frame:
@@ -190,6 +188,8 @@ status_build:
   LSR STATUS_HOLD
   BCS status_ret               ; a message stays for this frame
   STA ST_BUILD                 ; text_putc stores the text
+  LDA SCREEN_COLS
+  STA TEXT_LEFT                ; SCREEN_COLS - 1 characters fit
   LDA #0
   STA ST_COL
 
@@ -214,12 +214,10 @@ status_build:
   ; Print mode
   LDA MODE
   ASL
-  TAX
-  LDA mode_strings,X
-  STA STR_PTR16
-  LDA mode_strings + 1,X
-  STA STR_PTR16 + 1
-  JSR print_string
+  TAY
+  LDX mode_strings + 1,Y
+  LDA mode_strings,Y
+  JSR print_string_ax
 
   ; Print separator and count (if active) or line/col
   JSR print_separator
@@ -237,7 +235,7 @@ status_build:
   LDA LAST_KEY
   BEQ .done_prefix
 .has_key:
-  JSR st_putc
+  JSR text_putc
 .done_prefix:
   JSR print_separator
 .no_prefix_display:
@@ -248,7 +246,7 @@ status_build:
   JSR print_decimal
 
   LDA #','
-  JSR st_putc
+  JSR text_putc
 
   ; Column (1-based, 16-bit)
   CLC
@@ -257,22 +255,20 @@ status_build:
 
   ; Print total lines
   LDA #' '
-  JSR st_putc
+  JSR text_putc
   LDA #'/'
-  JSR st_putc
+  JSR text_putc
 
   CP16 LINE_COUNT16, TO_DECIMAL_VALUE16
   JSR print_decimal
   INC ST_BUILD                 ; text_putc sends again
 
-  ; Old text longer, or unknown (ST_LEN = 0): the row is cleared from the
-  ; new text's end (or from its first change)
+  ; Old text longer: the row is cleared from the new text's end (or from
+  ; its first change).  (Old text unknown, ST_LEN = 0: every column
+  ; differs, and status_send clears the row.)
   LDX ST_COL
   CPX ST_LEN
-  BCC .clear
-  LDA ST_LEN
-  BNE .built
-.clear:
+  BCS .built
   LDA #0
   STA ST_LEN
   BIT ST_FIRST
@@ -281,36 +277,28 @@ status_build:
 .built:
   RTS
 
-; Text character A: added to the status bar's text while status_build
-; runs, else sent unless the status row is full.  Text on the row stops
-; one column short of its right edge (TEXT_LEFT, armed by
-; status_line_clear): a character in the bottom-right cell followed by
-; one more would scroll the whole screen.  Preserves A, Y (and X when
-; sending)
+; Text character A on the status row: dropped once the row is full,
+; else added to the status bar's text while status_build runs, or sent.
+; Text on the row stops one column short of its right edge (TEXT_LEFT,
+; armed by status_line_clear and status_build): a character in the
+; bottom-right cell followed by one more would scroll the whole screen.
+; Preserves A, Y (and X when not building)
 text_putc:
-  BIT ST_BUILD
-  BMI st_putc
   DEC TEXT_LEFT
   BEQ .full
+  BIT ST_BUILD
+  BMI .build
   JMP io_write
 .full:
   INC TEXT_LEFT
   RTS
-
-; Add A to the status bar's text: store it at column ST_COL of
-; STATUS_SHADOW, noting in ST_FIRST the first column that differs from
-; the row on screen (the old text, ST_LEN long).  The text stops one
-; column short of the right edge: a character in the bottom-right cell
-; followed by one more would scroll the whole screen.  (It is at most 81
-; characters, so it always fits STATUS_SHADOW.)  Preserves A, Y.
-; Clobbers X
-st_putc:
+  ; Add A to the status bar's text: store it at column ST_COL of
+  ; STATUS_SHADOW, noting in ST_FIRST the first column that differs from
+  ; the row on screen (the old text, ST_LEN long).  (The text is at most
+  ; 81 characters, so it always fits STATUS_SHADOW.)  Clobbers X
+.build:
   LDX ST_COL
-  INX
-  CPX SCREEN_COLS
-  BCS .out                     ; the last column: dropped
-  STX ST_COL
-  DEX
+  INC ST_COL
   BIT ST_FIRST
   BPL .store                   ; a difference was already found
   CPX ST_LEN
@@ -321,7 +309,6 @@ st_putc:
   STX ST_FIRST
 .store:
   STA STATUS_SHADOW,X
-.out:
   RTS
 
 ; Status-bar strings (status_build)

@@ -315,7 +315,9 @@ render_limited_rows_from_col:
   JSR render_limited_from_col
 ; Frame epilogue: status bar, cursor, show, flush (shared tail)
 render_finish:
-  JSR render_status_line
+  JSR status_build
+render_finish_send:
+  JSR status_send
 render_finish_cursor:
   JSR render_position_cursor
   JSR ansi_cursor_show
@@ -329,8 +331,7 @@ render_cursor_and_status:
   LDA ST_FIRST
   BMI render_finish_cursor     ; unchanged
   JSR ansi_cursor_hide
-  JSR status_send
-  JMP render_finish_cursor
+  BEQ render_finish_send       ; Always taken (write_string returns A = 0)
 
 ; Render loop only: renders SCROLL_DELTA rows starting at
 ; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, the first of them from column A,

@@ -202,7 +202,7 @@ search_show_not_found:
   LDA SEARCH_BUF,X
   JSR text_putc              ; (preserves X)
   INX
-  JMP .print_pattern
+  BNE .print_pattern         ; Always taken (SEARCH_LEN <= 172)
 .print_done:
   JMP flush_get_key            ; Wait for keypress
 
