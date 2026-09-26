@@ -66,8 +66,7 @@ command_handle:
 command_keys:
   .byte KEY_ESC     .word cmd_cancel
   .byte KEY_ENTER   .word cmd_execute
-  .byte KEY_BS      .word cmd_backspace
-  .byte $7F         .word cmd_backspace
+  .byte KEY_BS      .word cmd_backspace  ; ($7F arrives as KEY_BS)
   .byte 0           ; End sentinel
 
 cmd_cancel:

@@ -52,9 +52,7 @@ search_input_handle:
   CMP #KEY_ENTER
   BEQ .execute
   CMP #KEY_BS
-  BEQ .backspace
-  CMP #$7F
-  BEQ .backspace
+  BEQ .backspace             ; ($7F arrives as KEY_BS)
 
   ; Printable character?
   CMP #' '
