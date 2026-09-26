@@ -2095,15 +2095,16 @@ class EditorTestRunner:
             )
 
             # Counted paste pre-check: rejects paste that would overflow
-            # small_buffer = 256 bytes. Content ~50 bytes. Yank 2 lines (~20 bytes).
-            # 99p would need ~2000 bytes, way over 256 limit.
-            # File should be unmodified (pre-check rejects before any paste).
-            paste_content = "AAAA\nBBBB\nCCCC\nDDDD\n"  # ~20 bytes
+            # small_buffer = 256 bytes. Content 20 bytes. Yank 2 lines (10 bytes).
+            # 99p would need 990 bytes, way over 256 limit.
+            # File should be unmodified (pre-check rejects before any paste):
+            # ESC dismisses the "Buffer full" message (it swallows a key) so
+            # that :wq saves and the check sees what the paste left.
+            paste_content = "AAAA\nBBBB\nCCCC\nDDDD\n"  # 20 bytes
             self.run_test_small_buffer(
                 "Counted paste pre-check rejects overflow (p)",
                 paste_content,
-                # yy yanks 1 line, 99p would overflow, z dismisses msg
-                b"2yy99pz:q!\r",
+                b"2yy99p\x1b:wq\r",
                 expect_unmodified=True
             )
 
@@ -2111,7 +2112,7 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Counted paste pre-check rejects overflow (P)",
                 paste_content,
-                b"2yy99Pz:q!\r",
+                b"2yy99P\x1b:wq\r",
                 expect_unmodified=True
             )
 
