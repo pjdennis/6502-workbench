@@ -50,12 +50,13 @@ ansi_move_cursor:
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
 ; Emits ESC[top;bottomr
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
 ansi_set_scroll_region:
   LDA #'r'
   ; fall through
 
-; Shared ESC[<row>;<col><final> emitter; A = final character
+; Shared ESC[<row>;<col><final> emitter; A = final character.  X is
+; preserved (io_write and write_byte_dec preserve it)
 ansi_row_col_seq:
   PHA
   JSR ansi_csi
@@ -107,24 +108,11 @@ ansi_insert_chars:
 ; Delete A chars at the cursor (DCH): ESC[nP. Clobbers A, X, Y
 ansi_delete_chars:
   LDX #'P'
-  BNE ansi_count_seq     ; Always taken
-
-; Scroll up by A lines (content moves up, blanks at bottom of region)
-; Emits ESC[nS. Input: A = count
-; Clobbers A, X, Y
-ansi_scroll_up:
-  LDX #'S'
-  BNE ansi_count_seq     ; Always taken
-
-; Scroll down by A lines (content moves down, blanks at top of region)
-; Emits ESC[nT. Input: A = count
-; Clobbers A, X, Y
-ansi_scroll_down:
-  LDX #'T'
   ; fall through
 
 ; Shared ESC[<count><final> emitter; A = count, X = final character
-; Clobbers A, X, Y
+; (@ ICH, P DCH, S scroll up: blanks at the bottom, T scroll down:
+; blanks at the top).  Clobbers A, Y (X preserved)
 ansi_count_seq:
   PHA
   JSR ansi_csi

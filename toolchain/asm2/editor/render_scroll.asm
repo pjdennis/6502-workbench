@@ -29,7 +29,7 @@ render_line_delete_scroll:
 .to_one_based:
   CLC
   ADC #1
-  LDX #0                     ; scroll up
+  LDX #'S'                     ; scroll up
   JSR scroll_region_from_a
 
   LDA RENDER_FLAG
@@ -131,7 +131,7 @@ render_line_insert_scroll:
   CLC
   ADC #1           ; Convert to 1-based
 .set_scroll_start:
-  LDX #$FF               ; scroll down
+  LDX #'T'               ; scroll down
   JSR scroll_region_from_a
 
   ; For Enter ($05): render split line + blank lines + cursor line
@@ -219,48 +219,28 @@ render_range_repaint:
 
 ; === Scroll-region helpers ===
 ; Set scroll region [A .. SCREEN_ROWS-1] (A = 1-based start row) and
-; scroll it by SCROLL_DELTA rows.  X = 0: scroll up, X != 0: scroll down.
-; Guarded entries skip (C=0) if the region is a single row or invalid;
-; C=1 after a scroll.  Clobbers A, X, Y.
+; scroll it by SCROLL_DELTA rows: X = 'S' scrolls up, X = 'T' down.
+; Skips (C=0) if the region is a single row or invalid; C=1 after a
+; scroll.  Clobbers A, Y (X preserved).
 scroll_region_from_a:
   STA ANSI_ROW
-  ; fall through (guarded entry with ANSI_ROW already set)
+  ; fall through (entry with ANSI_ROW already set)
 scroll_region_check:
   LDA SCREEN_ROWS
   SEC
   SBC #1
   STA ANSI_COL
-  ; Guard: skip scroll if region is single row or invalid (no rows to shift)
   CMP ANSI_ROW
-  BCC .skip
-  BEQ .skip
-  BNE scroll_region_go         ; always taken (Z=0 after BEQ not taken)
-.skip:
-  CLC
-  RTS
-; Unguarded entry: A = 1-based start row, X = direction
-scroll_region_set_go:
-  STA ANSI_ROW
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA ANSI_COL
-  ; fall through (region rows already set, X = direction)
-scroll_region_go:
-  TXA
-  PHA                          ; direction (ANSI calls clobber X)
-  JSR ansi_set_scroll_region
-  PLA
-  BNE .down
+  BEQ .skip                    ; single row: nothing to shift
+  BCC .skip                    ; empty region
+  JSR ansi_set_scroll_region   ; preserves X
   LDA SCROLL_DELTA
-  JSR ansi_scroll_up
-  JMP .reset
-.down:
-  LDA SCROLL_DELTA
-  JSR ansi_scroll_down
-.reset:
+  JSR ansi_count_seq           ; ESC[nS / ESC[nT
   JSR ansi_reset_scroll_region
   SEC
+  RTS
+.skip:
+  CLC
   RTS
 
 ; Repaint the newly exposed bottom SCROLL_DELTA rows:

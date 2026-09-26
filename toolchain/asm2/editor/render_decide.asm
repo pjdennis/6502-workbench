@@ -157,7 +157,7 @@ render_decide:
   BEQ .j_really_no_scroll
   STA SCROLL_DELTA
   ; Scroll region end = SCREEN_ROWS - 1; guarded (skip if region too small)
-  LDX #$FF                  ; scroll down
+  LDX #'T'                  ; scroll down
   JSR scroll_region_check
   LDA DELETE_SCREEN_ROWS     ; new_total (cursor line's screen rows)
   STA SCROLL_DELTA           ; number of rows to render
@@ -351,7 +351,7 @@ render_decide:
   SBC SCROLL_DELTA           ; adjust: start after new content, not old
   CLC
   ADC #1
-  LDX #0                     ; scroll up
+  LDX #'S'                     ; scroll up
   JSR scroll_region_from_a
   BCC .disp_neg_skip_scroll  ; region too small: no scroll happened
   ; Render new content area from first_row, then bottom exposed rows
@@ -509,8 +509,8 @@ render_scroll_up:
 
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll up
   LDA #1
-  LDX #0
-  JSR scroll_region_set_go
+  LDX #'S'                     ; scroll up
+  JSR scroll_region_from_a
 
   ; Render newly exposed bottom rows.
   JMP render_bottom_rows
@@ -523,8 +523,8 @@ render_scroll_down:
 
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll down
   LDA #1
-  LDX #$FF
-  JSR scroll_region_set_go
+  LDX #'T'                     ; scroll down
+  JSR scroll_region_from_a
 
   ; Render newly exposed top rows.
   ; RENDER_ROW = 0, RENDER_LINE16 = VIEW_TOP16, RENDER_WRAP = VIEW_TOP_WRAP

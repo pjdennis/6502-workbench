@@ -286,7 +286,7 @@ render_rows_resized:
   ADC PREV_LINE_ROWS
   CLC
   ADC #1                        ; 1-based
-  LDX #$FF                      ; scroll down
+  LDX #'T'                      ; scroll down
   JSR scroll_region_from_a
 .same_rows:
   JSR render_line_from_change
@@ -304,7 +304,7 @@ render_rows_resized:
   ADC CUR_LINE_ROWS
   CLC
   ADC #1                        ; 1-based
-  LDX #0                        ; scroll up
+  LDX #'S'                        ; scroll up
   JSR scroll_region_from_a
   JSR render_line_from_change
   PLA
