@@ -690,12 +690,17 @@ bcd_start:
 .done:
   JMP clear_count
 
-; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor
+; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor.
+; Over 128 chars -n does not fit SHIFT_NET's signed byte: no hint (the
+; line is rewritten)
 ; Clobbers: A
 set_shift_delete:
   LDA #0
-  STA SHIFT_WRITE
   SEC
   SBC BUF_LEN16
+  BPL .done                  ; -n does not fit
   STA SHIFT_NET
+  LDA #0
+  STA SHIFT_WRITE
+.done:
   RTS

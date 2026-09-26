@@ -51,8 +51,9 @@ A handler that wants shifting sets two new zero-page variables alongside
   (`insert_len`; `0` for pure deletes).
 
 `editor.asm`'s main loop resets both each iteration, next to
-`RENDER_FROM_COL16`. Deltas are at most 255 cells: insert batches are
-capped at 32, and `x` counts are capped at 255 by `get_batched_count`.
+`RENDER_FROM_COL16`. Deltas must fit the signed byte: insert batches are
+capped at 32, and `x`/`X` deletes of more than 128 chars set no hint, so
+they take the plain rewrite path.
 
 Callers:
 

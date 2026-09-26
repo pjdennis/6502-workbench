@@ -4703,6 +4703,25 @@ class EditorTestRunner:
                 expect_min_col=[(5, 0, 5)],
                 expect_max_col=[(5, 0, 39)],
             )
+            # Deleting 129-255 chars: -n does not fit a signed byte, so the
+            # delete must not be drawn as an insert; the shortened last row
+            # is cleared (50 cols keep the status bar with a count and a
+            # 3-digit column on one row)
+            d150 = "0123456789" * 15
+            for how, keys, frame, text in (
+                    ("129x", b"129x:q!\r", 4, d150[129:]),
+                    ("batched 120x + 9 x", b"120x" + b"x" * 9 + b":q!\r", 4,
+                     d150[129:]),
+                    ("$130X", b"$130X:q!\r", 5, d150[:19] + d150[149:])):
+                self.run_test_screen(
+                    "Shift: " + how + " clears the shortened row" + suffix,
+                    d150 + "\nNEXT\n",
+                    keys,
+                    cols=50,
+                    deferred_wrap=deferred,
+                    expect_lines_at_frame=[(frame, [(0, text), (1, "NEXT"),
+                                                    (2, "~")])],
+                )
 
         self._group("D stays minimal:", leading_blank=True)
 
