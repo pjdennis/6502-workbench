@@ -176,23 +176,32 @@ static uint8_t line_base(uint8_t row, uint8_t cols) {
     return bases_16x2[row & 1];
 }
 
-int lcd_hd44780_render(struct lcd_hd44780_state *s, char *out_buf) {
-    int dirty = s->dirty;
-    s->dirty = 0;
+void lcd_hd44780_visible_bytes(const struct lcd_hd44780_state *s,
+                               uint8_t *out_buf) {
     int idx = 0;
     for (uint8_t r = 0; r < s->rows; r++) {
         uint8_t base = line_base(r, s->cols);
-        for (uint8_t c = 0; c < s->cols; c++) {
-            uint8_t b = s->ddram[(base + c) % LCD_DDRAM_SIZE];
-            char ch;
-            if (b == 0x06) ch = '~';
-            else if (b == 0x07) ch = '\\';
-            else if (b >= 0x20 && b <= 0x7E) ch = (char)b;
-            else if (b == 0) ch = ' ';
-            else ch = '?';
-            out_buf[idx++] = ch;
-        }
+        for (uint8_t c = 0; c < s->cols; c++)
+            out_buf[idx++] = s->ddram[(base + c) % LCD_DDRAM_SIZE];
     }
-    out_buf[idx] = '\0';
+}
+
+int lcd_hd44780_render(struct lcd_hd44780_state *s, char *out_buf) {
+    int dirty = s->dirty;
+    s->dirty = 0;
+    int n = s->rows * s->cols;
+    uint8_t bytes[LCD_DDRAM_SIZE];
+    lcd_hd44780_visible_bytes(s, bytes);
+    for (int i = 0; i < n; i++) {
+        uint8_t b = bytes[i];
+        char ch;
+        if (b == 0x06) ch = '~';
+        else if (b == 0x07) ch = '\\';
+        else if (b >= 0x20 && b <= 0x7E) ch = (char)b;
+        else if (b == 0) ch = ' ';
+        else ch = '?';
+        out_buf[i] = ch;
+    }
+    out_buf[n] = '\0';
     return dirty;
 }

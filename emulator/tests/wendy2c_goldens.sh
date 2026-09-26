@@ -93,5 +93,6 @@ run_case multitasking multitasking_test_wendy2c.s 150000000 " X "
 # Two cases because run_case matches a single-line substring.
 run_case verification_l1 verification_wendy2c.s 20000000 "|1Y2YY3YYY4YY5YY |"
 run_case verification_l2 verification_wendy2c.s 20000000 "|6YYYYYY7Y OK"
+run_case verification_hex verification_wendy2c.s 20000000 "|31 59 32 59 59 33 59 59 59 34 59 59 35 59 59 20|"
 
 echo "wendy2c_goldens: all PASS"
