@@ -19,7 +19,8 @@
 ;  10 = indent (spaces were added; undo removes them via unindent)
 ;  11 = unindent (spaces were removed; undo re-inserts recorded counts)
 ;  12 = toggle case (~; self-inverse, undo/redo re-toggle the span)
-;  13 = replace char (r; originals in UNDO_DATA_BUF, redo re-writes)
+;  13 = replace char (r; originals in UNDO_DATA_BUF, redo re-writes;
+;       the replacement KEY_ENTER is r<Enter>'s line break)
 ;
 ; Types 1-7 read the yank buffer (the deleted text, the paste size), so
 ; a new yank ends them (yank_store); from UNDO_JOIN up, the types keep

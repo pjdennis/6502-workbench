@@ -1350,6 +1350,18 @@ class EditorTestRunner:
             numbered(1022), b"o\x1buu:wq\r",
             expected_content="L0001\n\n" + numbered(1022)[6:])
 
+        # --- Splitting a line (r<Enter>) ---
+        self.run_test("r<Enter> at the line limit is refused",
+            full, b"lr\r\x1bx:wq\r", expected_content="L001\n" + full[6:])
+        self.run_test_screen("r<Enter> at the line limit shows Buffer full",
+            full, b"lr\r", expect_ansi_contains="Buffer full")
+        self.run_test("r<Enter> below the line limit adds the 1023rd line",
+            numbered(1022), b"llr\r:wq\r",
+            expected_content="L0\n01\n" + numbered(1022)[6:])
+        self.run_test("r<Enter> undo then redo reaches the line limit",
+            numbered(1022), b"llr\ru u:wq\r",
+            expected_content="L0\n01\n" + numbered(1022)[6:])
+
         # --- Pastes ---
         self.run_test("p (line) at the line limit is refused",
             full, b"yypzx:wq\r", expected_content=full_x)
@@ -9442,13 +9454,11 @@ class EditorTestRunner:
             expect_unmodified=True
         )
 
-        # r takes only a key that types text (printable or Tab). Any other
-        # key cancels it like Esc: nothing is stored, the cursor stays and
-        # the next command runs. A stored Ctrl-J would be a newline the
-        # line table misses.
+        # r takes a key that types text (printable or Tab), or Enter or
+        # Ctrl-J (below). Any other key cancels it like Esc: nothing is
+        # stored, the cursor stays and the next command runs.
         for key_name, key in [("Up", b"\x1b[A"), ("Del", b"\x1b[3~"),
-                              ("BS", b"\x7f"), ("Enter", b"\r"),
-                              ("Ctrl-J", b"\n"), ("Ctrl-A", b"\x01"),
+                              ("BS", b"\x7f"), ("Ctrl-A", b"\x01"),
                               ("non-ASCII", b"\xc3")]:
             self.run_test_screen(
                 f"r then {key_name} cancels r",
@@ -9463,6 +9473,78 @@ class EditorTestRunner:
             b"lr\t:wq\r",
             expected_content="a\tc\n"
         )
+
+        # r<Enter> replaces the char with a line break, as in vim, and r
+        # Ctrl-J does the same. With a count, the N chars become one line
+        # break (vim's 5r<CR>). The cursor goes to the start of the new
+        # line, and the spaces on either side of the break stay.
+        for name, content, keys, lines in [
+                ("r<Enter> mid-line splits the line", "abcde\ndef\n",
+                 b"llr\r", ["ab", "de", "def"]),
+                ("r<Enter> on the last char opens an empty line",
+                 "abc\ndef\n", b"$r\r", ["ab", "", "def"]),
+                ("r<Enter> at column 0 leaves an empty line",
+                 "abc\ndef\n", b"r\r", ["", "bc", "def"]),
+                ("3r<Enter> replaces 3 chars with one line break",
+                 "abcdef\nxy\n", b"l3r\r", ["a", "ef", "xy"]),
+                ("2r<Enter> with 2 chars left splits at the end",
+                 "abc\ndef\n", b"l2r\r", ["a", "", "def"]),
+                ("r<Enter> keeps the space after the break",
+                 "ab  cd\n", b"llr\r", ["ab", " cd"]),
+                ("r Ctrl-J splits the line like r<Enter>", "abcde\ndef\n",
+                 b"llr\n", ["ab", "de", "def"]),
+                ("2r Ctrl-J replaces 2 chars with one line break",
+                 "abcde\ndef\n", b"l2r\n", ["a", "de", "def"])]:
+            self.run_test_screen(
+                name, content, keys + b":wq\r",
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=(1, 0),
+                expected_content="\n".join(lines) + "\n"
+            )
+        self.run_test(
+            "r<Enter> keeps the space before the break",
+            "ab  cd\n", b"lllr\r:wq\r", expected_content="ab \ncd\n")
+
+        # vim changes nothing (it beeps) when fewer chars are left than
+        # the count: the cursor stays, the next command runs, and the
+        # last edit can still be undone
+        self.run_test_screen(
+            "3r<Enter> with 2 chars left does nothing",
+            "abc\ndef\n", b"l3r\rx:wq\r",
+            expect_lines=[(0, "ac"), (1, "def")], expect_cursor=(0, 1),
+            expected_content="ac\ndef\n")
+        self.run_test(
+            "r<Enter> on an empty line does nothing",
+            "\nabc\n", b"r\rjx:wq\r", expected_content="\nbc\n")
+        self.run_test(
+            "A refused 5r<Enter> keeps the undo of the edit before",
+            "abc\ndef\n", b"xl5r\ru:wq\r", expected_content="abc\ndef\n")
+        # A count over 255 takes 255 chars into the line break, as r
+        # replaces at most 255 (vi-compatibility-changes); the check for
+        # the chars left uses the whole count, as vim's does
+        self.run_test(
+            "300r<Enter> takes 255 chars into the line break",
+            "x" * 255 + "y" * 50 + "\n", b"300r\r:wq\r",
+            expected_content="\n" + "y" * 50 + "\n")
+        self.run_test(
+            "300r<Enter> undo restores all 255 chars",
+            "x" * 255 + "y" * 50 + "\n", b"300r\ru:wq\r",
+            expected_content="x" * 255 + "y" * 50 + "\n")
+        self.run_test(
+            "300r<Enter> with 280 chars left does nothing",
+            "x" * 280 + "\n", b"300r\rx:wq\r",
+            expected_content="x" * 279 + "\n")
+
+        # The marks on the lines below move down with them; one on the
+        # split line stays on it (as in vim)
+        self.run_test(
+            "r<Enter> moves the marks below it down",
+            "abc\ndef\nghi\n", b"jjmagglr\r'ax:wq\r",
+            expected_content="a\nc\ndef\nhi\n")
+        self.run_test(
+            "r<Enter> leaves a mark on the split line there",
+            "abc\ndef\n", b"malr\r'ax:wq\r",
+            expected_content="\nc\ndef\n")
 
         self._group("Substitute char (s):", leading_blank=True)
 
@@ -16421,6 +16503,41 @@ class EditorTestRunner:
             expected_content="abc\ndef\n"
         )
 
+        # u of r<Enter> joins the line back with the replaced chars, the
+        # cursor on the first of them; u again (redo) splits it again, the
+        # cursor at the start of the new line as r<Enter> left it
+        for name, content, keys, lines, cursor in [
+                ("r<Enter> undo joins the line back", "abcde\ndef\n",
+                 b"llr\ru", ["abcde", "def"], (0, 2)),
+                ("r<Enter> undo then redo", "abcde\ndef\n",
+                 b"llr\ru u", ["ab", "de", "def"], (1, 0)),
+                ("3r<Enter> undo restores the 3 chars", "abcdef\nxy\n",
+                 b"l3r\ru", ["abcdef", "xy"], (0, 1)),
+                ("3r<Enter> undo then redo", "abcdef\nxy\n",
+                 b"l3r\ru u", ["a", "ef", "xy"], (1, 0)),
+                ("r<Enter> on the last char: undo then redo", "abc\ndef\n",
+                 b"$r\ru u", ["ab", "", "def"], (1, 0)),
+                ("r<Enter> undo, redo, undo", "abcde\ndef\n",
+                 b"llr\ru u u", ["abcde", "def"], (0, 2)),
+                ("r<Enter> undo from another line", "abcde\ndef\nghi\n",
+                 b"llr\rjju", ["abcde", "def", "ghi"], (0, 2)),
+                ("r<Enter> redo from another line", "abcde\ndef\nghi\n",
+                 b"llr\rujju", ["ab", "de", "def", "ghi"], (1, 0))]:
+            self.run_test_screen(
+                name, content, keys + b":wq\r",
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=cursor,
+                expected_content="\n".join(lines) + "\n"
+            )
+        self.run_test(
+            "r<Enter> undo moves the marks below back up",
+            "abc\ndef\nghi\n", b"jjmagglr\ru'ax:wq\r",
+            expected_content="abc\ndef\nhi\n")
+        self.run_test(
+            "r<Enter> redo moves the marks below down again",
+            "abc\ndef\nghi\n", b"jjmagglr\ru u'ax:wq\r",
+            expected_content="a\nc\ndef\nhi\n")
+
         # --- Toggle case (~) undo ---
 
         self.run_test(
@@ -18661,6 +18778,86 @@ class EditorTestRunner:
             b"8l4rZ:q!\r",
             rows=10, cols=10,
             expect_lines=[(0, "ABCDEFGHZZ"), (1, "ZZM"), (2, "x")],
+        )
+
+        # r<Enter> splits the line as an Enter in insert mode does: the
+        # rows below scroll down and only the split line's rows are drawn,
+        # from the replaced char.  Frames: 0=initial, 1=jjj, 2=lll,
+        # 3=r<Enter>
+        self.run_test_screen(
+            "Minimal repaint: r<Enter> draws only the split line's rows",
+            make_lines(15), b"jjjlllr\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
+                          (3, "Lin"), (4, " 4"), (5, "Line 5"),
+                          (6, "Line 6"), (7, "Line 7"), (8, "Line 8")],
+            expect_cursor=(4, 0),
+            expect_content_rows=[(3, {3, 4})],
+            expect_scrolled_at_frame=[(3, True)]
+        )
+        # The new line would fall below the screen: the view scrolls up
+        self.run_test_screen(
+            "r<Enter> on the bottom row scrolls the view",
+            make_lines(15), b"8jlllr\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(r, f"Line {r + 2}") for r in range(7)]
+                         + [(7, "Lin"), (8, " 9")],
+            expect_cursor=(8, 0)
+        )
+        # In a wrapped line (10x10), and its undo and redo, also from
+        # another line (whose rows the split line's need not match)
+        split12 = ["ABCDEFGHIJ", "KL", "NO", "x", "y", "~"]
+        joined12 = ["ABCDEFGHIJ", "KLMNO", "x", "y", "~"]
+        for name, content, keys, lines, cursor in [
+                ("r<Enter> in the second row of a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\r", split12, (2, 0)),
+                ("r<Enter> in the first row of a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"3lr\r",
+                 ["ABC", "EFGHIJKLMN", "O", "x", "y", "~"], (1, 0)),
+                ("r<Enter> undo in a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru", joined12, (1, 2)),
+                ("r<Enter> redo in a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru u", split12, (2, 0)),
+                ("r<Enter> undo in a wrapped line from a line below",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\rjju", joined12, (1, 2)),
+                ("r<Enter> redo in a wrapped line from a line below",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\rujju", split12, (2, 0)),
+                ("19r<Enter> shrinks a 3-row line to 2 rows",
+                 "ABCDEFGHIJKLMNOPQRSTUV\nx\n", b"2l19r\r",
+                 ["AB", "V", "x", "~"], (1, 0)),
+                ("19r<Enter> undo grows the line back to 3 rows",
+                 "ABCDEFGHIJKLMNOPQRSTUV\nx\n", b"2l19r\ru",
+                 ["ABCDEFGHIJ", "KLMNOPQRST", "UV", "x", "~"], (0, 2))]:
+            self.run_test_screen(
+                name, content, keys + b":q!\r",
+                rows=10, cols=10,
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=cursor
+            )
+        # A split that leaves the line's first part above the view: the
+        # view starts at the new line.  r<Enter> at the first cell of the
+        # view's top row (row 1 of the 53-char 'w5 ...'), and a redo from
+        # two lines below of an r<Enter> at column 0 of 'w3 ...', whose
+        # rows 1-3 are then at the top of the view (10x10)
+        wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
+                         for i in range(20))
+        self.run_test_screen(
+            "r<Enter> at the view's top row start in a line above the view",
+            wlines, b"6G10ljjjkkkr\r:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(r, "ijabcdefgh") for r in range(4)]
+                         + [(4, "ij"), (5, "w6"), (6, "w7 abcdefg"),
+                            (7, "hij"), (8, "w8 abcdefg")],
+            expect_cursor=(0, 0)
+        )
+        self.run_test_screen(
+            "r<Enter> redo splitting a line that starts above the view",
+            wlines, b"4Gr\rujju:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "3 abcdefgh"), (1, "ijabcdefgh"),
+                          (2, "ijabcdefgh"), (3, "ij"), (4, "w4 abcdefg"),
+                          (5, "hijabcdefg"), (8, "hij")],
+            expect_cursor=(0, 0)
         )
 
         # Batching is a performance optimization and must not change undo

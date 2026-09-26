@@ -583,11 +583,20 @@ normal_change_to_eol:
   JMP sub_change_tail
 
 ; --- Replace char (r) ---
-; The replacement must type text: printable or Tab. Any other key
-; (arrows and other KEY_* codes, Enter, Ctrl-J, BS, $00 for non-ASCII)
-; cancels r like Esc. ($7F never arrives: read_key maps it to KEY_BS.)
+; The replacement must type text: printable or Tab.  Enter and Ctrl-J
+; replace the N chars with one line break instead, as in vim, which also
+; leaves the line alone when fewer than N are left: the loop stores them
+; as KEY_ENTER (a placeholder, never a replacement char), then
+; replace_split makes the break.  Any other key (arrows and other KEY_*
+; codes, BS, $00 for non-ASCII) cancels r like Esc. ($7F never arrives:
+; read_key maps it to KEY_BS.)
 do_replace_char:
   LDA BUF_TEMP
+  CMP #'\n'
+  BEQ .replace_nl            ; Ctrl-J is Enter
+  CMP #KEY_ENTER
+  BEQ .replace_nl
+  TAX                        ; N = a KEY_* code
   BMI .replace_no_undo
   CMP #' '
   BCS .replace_key_ok
@@ -635,10 +644,67 @@ do_replace_char:
   STA UNDO_TYPE
   LDA BUF_TEMP
   STA UNDO_REPL_CHAR     ; replacement char (for redo)
+  CMP #KEY_ENTER
+  BEQ replace_split
 .replace_no_undo:
   ; A count past the line end stepped the cursor one past the last
   ; replaced char: clamp it back onto that char
   JMP clamp_and_clear_count
+
+.replace_nl:
+  LDA #KEY_ENTER
+  STA BUF_TEMP
+  ; The N chars must be in the line, and a line more must fit
+  JSR get_count              ; BUF_TEMP16 = N
+  JSR get_line_len_z
+  SEC
+  LDA LINE_LEN16
+  SBC CURSOR_COL16
+  TAX
+  LDA LINE_LEN16 + 1
+  SBC CURSOR_COL16 + 1       ; A/X = the chars left
+  CPX BUF_TEMP16
+  SBC BUF_TEMP16 + 1
+  BCC .replace_no_undo       ; Fewer than N
+  LDA #1
+  LDX #0
+  JSR check_line_room
+  BCC .replace_key_ok
+  JMP open_full              ; "Buffer full"
+
+; r<Enter> and its redo: the UNDO_SPAN_LEN chars from UNDO_LINE16/
+; UNDO_COL16 become one line break, as vim's 5r<CR> does.  Their last
+; char turns into the break and the ones before it go; the marks below
+; the line move down, and the cursor goes to the start of the new line.
+; The render is an Enter batch's ($05), from the first replaced char.
+replace_split:
+  JSR file_line_rows         ; The line's rows before the split (a redo
+  STA PREV_LINE_ROWS         ; may come from another line)
+  JSR undo_span_setup        ; Cursor and BUF_PTR16 to the span start
+  LDA #'\n'
+  JSR replace_extra_len      ; Y = N - 1
+  STA (BUF_PTR16),Y
+  BEQ .split                 ; N = 1: in place
+  JSR buf_shift_left_16
+.split:
+  JSR buf_rebuild_lines
+  LDA #1
+  JSR mark_args_next_line    ; A/X = the new line
+  STAX16 FILE_LINE16
+  JSR mark_adjust_insert
+  LDA #RF_ENTER
+  JSR undo_opened_finish     ; Column 0, redone, modified
+  JMP clear_count
+
+; BUF_LEN16 = Y = UNDO_SPAN_LEN - 1: the chars r<Enter> removes besides
+; the one that becomes its line break (Z = there are none).  Preserves A
+replace_extra_len:
+  LDX #0
+  STX BUF_LEN16 + 1
+  LDY UNDO_SPAN_LEN
+  DEY
+  STY BUF_LEN16
+  RTS
 
 ; --- Change line (cc, and S, which dispatches here too) ---
 ; Yank line(s), replace them with one empty line, enter insert at col 0.

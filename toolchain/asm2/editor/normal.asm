@@ -291,7 +291,7 @@ open_line_x:
   JSR undo_opened_finish
   JMP enter_insert_mode
 
-; o/O buffer-full handler
+; o/O and r<Enter> buffer-full handler
 open_full:
   JSR show_buffer_full_msg
   JMP clear_count

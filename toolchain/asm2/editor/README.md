@@ -220,7 +220,7 @@ project's 6502 emulator in console/ANSI mode.
 | `C` | Change to end of line (yanks, enters insert) |
 | `s` | Substitute character(s) (with count, yanks, enters insert) |
 | `S` | Substitute line (alias for cc) |
-| `r` | Replace character (with count) |
+| `r` | Replace character (with count; `r<Enter>` splits the line) |
 | `~` | Toggle case (with count, advances cursor) |
 | `J` | Join lines (with count) |
 | `>>` | Indent line by 2 spaces (with count for multi-line) |

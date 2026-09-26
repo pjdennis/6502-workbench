@@ -482,8 +482,22 @@ undo_tilde_redo:
   JMP undo_span_redone
 
 ; --- Replace char undo: restore the saved originals ---
+; For r<Enter> (UNDO_REPL_CHAR = KEY_ENTER) the line break first takes
+; back the room of the chars replace_split removed, so the originals
+; replace it too and join the next line back ($06 render, as J)
 undo_replace_undo:
   JSR undo_span_setup
+  LDA UNDO_REPL_CHAR
+  CMP #KEY_ENTER
+  PHP                        ; Z = r<Enter>
+  BNE .restore
+  LDA #1
+  JSR compute_delete_rows_join  ; The two lines' rows
+  JSR get_cursor_buf_ptr
+  JSR replace_extra_len
+  BEQ .restore
+  JSR buf_shift_right_16     ; (Room: the r<Enter> made it)
+.restore:
   LDX #0
   LDY #0
 .loop:
@@ -493,6 +507,14 @@ undo_replace_undo:
   INX
   CPX UNDO_SPAN_LEN
   BNE .loop
+  PLP
+  BNE undo_span_undone
+  JSR buf_rebuild_lines
+  LDA #1
+  JSR mark_args_next_line
+  JSR mark_adjust_delete     ; The next line's marks go, those below move up
+  LDA #RF_JOIN
+  STA RENDER_FLAG
   ; fall through
 
 ; Common finishes of ~ and r: set the undone/redone flags, then a
@@ -513,6 +535,10 @@ undo_replace_redo:
   INY
   DEX
   BNE .loop
+  CMP #KEY_ENTER
+  BNE .not_split
+  JMP replace_split          ; r<Enter>: split the line again
+.not_split:
   ; Cursor lands on the last replaced char, as the original r did
   DEY
   TYA                        ; A = span length - 1

@@ -40,16 +40,16 @@
 ;                              more rows than it did, they are redrawn as
 ;                              one block (render_rows_resized).
 ;                              INSERT_LINE_COUNT = lines to redraw.
-; $05   insert-mode Enter      Cursor on the last line of the split, which
-;                              began at line FILE_LINE16 - delta, of
+; $05   insert-mode Enter,     Cursor on the last line of the split, which
+;       r<Enter> and its redo  began at line FILE_LINE16 - delta, of
 ;                              PREV_LINE_ROWS rows before the batch;
 ;                              RENDER_FROM_COL16 = the first column it
 ;                              changed.  INSERT_LINE_COUNT: pure-Enter
 ;                              batch at the line's end 1, at its start
 ;                              $FF (see render_enter_split).
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
-;       join, cc, redo J/cc    DELETE_SCREEN_ROWS = all their rows before the
-;                              edit (0 = use delta).  Rows shrank: scroll up
+;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
+;       undo r<Enter>          edit (0 = use delta).  Rows shrank: scroll up
 ;                              below the line; same: as $01; grew: scroll
 ;                              down.  INSERT_LINE_COUNT: 0 = redraw the line,
 ;                              $FF = pure join at line end (no redraw),
