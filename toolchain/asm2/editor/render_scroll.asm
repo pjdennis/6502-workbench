@@ -666,12 +666,26 @@ ensure_cursor_visible:
   ; FILE_LINE16 == VIEW_TOP16: check wrap row
   LDA WRAP_QUOT
   CMP VIEW_TOP_WRAP
-  BCS .not_above
+  BCC .scroll_up
+  BNE .not_above
+  TAX
+  BEQ .not_above     ; the top row is the line's first
+  ; The cursor is on the top row, which may be past the line's last row
+  ; (an insert C or Del can shorten the line under it): as above it
 
 .scroll_up:
-  ; Scroll up: the cursor's row becomes the top row
+  ; Scroll up: the cursor's row becomes the top row.  An insert cursor on
+  ; the virtual row past a line that fills its last row (col = len =
+  ; k * SCREEN_COLS) shows at the start of the next row, as mid-screen:
+  ; the line's last row goes on top and the cursor one row below it
+  JSR file_line_rows
+  SEC
+  SBC #1             ; the line's last row
+  CMP WRAP_QUOT      ; C=0: the cursor is past it
   LDA #0
-  BEQ .set_top       ; Always taken
+  BCS .set_top       ; the top row
+  LDA #1
+  BNE .set_top       ; Always taken
 
 .not_above:
   ; CURSOR_ROW = screen rows of the lines from (VIEW_TOP16, VIEW_TOP_WRAP)

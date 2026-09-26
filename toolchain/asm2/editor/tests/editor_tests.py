@@ -20577,6 +20577,55 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
+        # Insert-mode cursor at col == len == k*cols sits on a virtual row
+        # past the line's last row.  When that line is above the view, the
+        # view top must be its last real row (cursor on the next row, as
+        # mid-screen), not the virtual row: find_line_at_render_row and
+        # ensure_cursor_visible count the virtual row as 0 rows.
+        virt = ("a" * 40 + "\n" + "b" * 45 + "\n"
+                + "".join(f"l{i}\n" for i in range(2, 20)))
+        # Up to line 0 (col 40, above the view), then ESC (col 39).
+        self.run_test_screen(
+            "Scroll opt: insert Up onto a full-width line above the view",
+            virt,
+            b"9jkkkkkkkkA\x1b[A\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "b" * 5),
+                          (3, "l2"), (8, "l7")],
+            expect_cursor=(0, 39),
+        )
+        # ... then Down and type: the cursor row must match the rows drawn.
+        self.run_test_screen(
+            "Scroll opt: insert Up onto a full-width line, Down, type",
+            virt,
+            b"9jkkkkkkkkA\x1b[A\x1b[BX\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "Xbbbbb"),
+                          (3, "l2"), (8, "l7")],
+            expect_cursor=(2, 0),
+        )
+        # C on line 1 makes it exactly 10 wide; Up onto the 10-wide line
+        # 0 above the view, then ESC.
+        self.run_test_screen(
+            "Scroll opt: ESC after insert Up onto a full-width top line",
+            "abcdefghij\nabcdefgh\n    world (\n\n",
+            b":5\ryb\x1b[ACsum\x1b[A\x1b:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "abcdefgsum"),
+                          (2, "    world"), (3, "(")],
+            expect_cursor=(0, 9),
+        )
+        # C on the line's second row, the view's top row, leaves the line
+        # one full row with the insert cursor past it
+        self.run_test_screen(
+            "Scroll opt: insert C at the top row leaving a full-width line",
+            "abcdefghijKLMNO\nl1\nl2\nl3\nl4\nl5\n",
+            b"3j/K\rC\x1b:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "l1"), (2, "l2"), (3, "l3")],
+            expect_cursor=(0, 9),
+        )
+
         # ================================================================
         # Edit plus viewport scroll: the scroll paths must also repaint
         # the edited line, not just the rows the scroll exposes.
