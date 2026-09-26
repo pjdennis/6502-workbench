@@ -119,19 +119,16 @@ get_cursor_buf_ptr:
   ADC16 CURSOR_COL16, BUF_PTR16, BUF_PTR16
   RTS
 
+; Clamp CURSOR_COL16 to the line's last char (0 on an empty line)
+; Output: LINE_LEN16 = line length.  Clobbers: A, X, Y
 clamp_cursor_col:
-  JSR get_line_len_z
-  BEQ .set_zero
-  SEC
-  SBCI16 LINE_LEN16, 1, LINE_LEN16  ; LINE_LEN16 = len - 1
-  CMP16 LINE_LEN16, CURSOR_COL16
-  BCS .ok                ; len-1 >= cursor, cursor is fine
+  JSR check_cursor_in_line
+  BCC .ok                    ; Cursor inside the line
   CP16 LINE_LEN16, CURSOR_COL16
+  ORA CURSOR_COL16           ; A = high byte: Z = empty line (col 0)
+  BEQ .ok
+  JMP dec_cursor_col         ; col = len - 1
 .ok:
-  RTS
-.set_zero:
-  LDA #0
-  STA_LH16 CURSOR_COL16
   RTS
 
 ; --- Shared vertical movement loops ---
