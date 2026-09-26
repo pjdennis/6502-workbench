@@ -607,7 +607,7 @@ compute_char_range_forward:
 ; (batched_char_delete_back, cursor already moved to the range start).
 ; When batched, the register gets what the last key press deleted: the
 ; range's last char for x, its first char for X.
-; Input: BUF_TEMP16 = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
+; Input: X = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
 ;        LINE_LEN16 = line length (from check_cursor_in_line)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 batched_char_delete_back:
@@ -617,45 +617,33 @@ batched_char_delete:
   LDA #0
 bcd_start:
   STA DEL_BACK
-  LDA BATCH_EXTRA
-  BNE .batched
-
-  ; --- Non-batched: compute full range, yank+delete all ---
-  LDX BUF_TEMP16
   JSR compute_char_range_forward
   BCS .done
   JSR set_shift_delete
-  LDA #OP_DELETE
-  JSR apply_char_operator
+  LDA BATCH_EXTRA
+  BNE .batched
+  ; --- Non-batched: yank+delete the full range ---
+  JSR yank_delete_at_cursor
   JMP .finish
 
 .batched:
-  ; --- Batched: compute full range, yank last-deleted char, delete all ---
-  LDX BUF_TEMP16
-  JSR compute_char_range_forward
-  BCS .done
-  JSR set_shift_delete
-  ; Yank 1 char at cursor + range - 1 (x) or at cursor (X)
+  ; --- Batched: yank only what the last key press deleted (the range's
+  ; last char for x, its first char for X), then delete the full range ---
   PUSH16 BUF_LEN16              ; Save full range
-  JSR yank_clear
-  SEC
-  SBCI16 BUF_LEN16, 1, BUF_LEN16
+  JSR get_cursor_src            ; BUF_SRC16 = range start
   LDA DEL_BACK
-  BEQ .yank_offset_ok
-  LDA #0
-  STA_LH16 BUF_LEN16
-.yank_offset_ok:
+  BNE .yank_one                 ; X: the first char
+  LDX BUF_LEN16                 ; x: the last char (range <= 255)
+  DEX
+  TXA
   CLC
-  ADC16 CURSOR_COL16, BUF_LEN16, BUF_LEN16  ; BUF_LEN16 = col of yanked char
-  PUSH16 CURSOR_COL16
-  CP16 BUF_LEN16, CURSOR_COL16  ; Move cursor to yanked char
-  JSR get_cursor_src             ; BUF_SRC16 = address of yanked char
+  ADCA16 BUF_SRC16, BUF_SRC16
+.yank_one:
   LDA #1
   STA BUF_LEN16
   LDA #0
   STA BUF_LEN16 + 1
-  JSR yank_add_chars
-  POP16 CURSOR_COL16             ; Restore original cursor
+  JSR yank_add_chars            ; (resets the yank buffer)
   POP16 BUF_LEN16               ; Restore full range
   ; Record undo before deleting
   JSR undo_record_char_delete

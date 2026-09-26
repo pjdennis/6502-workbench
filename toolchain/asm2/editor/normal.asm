@@ -192,9 +192,8 @@ normal_delete_char:
   JSR check_cursor_in_line
   BCS .done
 
-  ; Normalize batching: count + pending x keys, capped at 255
+  ; Normalize batching: count + pending x keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  STX BUF_TEMP16
   CP16 CURSOR_COL16, RENDER_FROM_COL16
   JMP batched_char_delete
 .done:
@@ -206,20 +205,25 @@ normal_delete_char_back:
   TST16 CURSOR_COL16
   BEQ .done
 
-  ; Normalize batching: count + pending X keys, capped at 255
+  JSR get_line_len_z         ; LINE_LEN16 (the range lies inside the line)
+  ; Normalize batching: count + pending X keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  STX BUF_TEMP16
-  LDA #0
-  STA BUF_TEMP16 + 1
   ; Clamp to the chars before the cursor
-  CMP16 CURSOR_COL16, BUF_TEMP16
-  BCS .count_ok
-  CP16 CURSOR_COL16, BUF_TEMP16
+  LDA CURSOR_COL16 + 1
+  BNE .count_ok
+  CPX CURSOR_COL16
+  BCC .count_ok
+  LDX CURSOR_COL16
 .count_ok:
-  ; Move to the range start and delete forward from there
+  ; Move to the range start (col -= X) and delete forward from there
+  TXA
+  EOR #$FF
   SEC
-  SBC16 CURSOR_COL16, BUF_TEMP16, CURSOR_COL16
-  JSR check_cursor_in_line   ; LINE_LEN16 (cursor is now inside the line)
+  ADC CURSOR_COL16
+  STA CURSOR_COL16
+  BCS .no_borrow
+  DEC CURSOR_COL16 + 1
+.no_borrow:
   CP16 CURSOR_COL16, RENDER_FROM_COL16
   JMP batched_char_delete_back
 .done:
