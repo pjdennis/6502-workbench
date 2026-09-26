@@ -9,8 +9,8 @@ Usually started on demand by transfer.py. Log: the socket path + '.log'.
 Usage: serial_daemon.py [--socket PATH] [--port DEVICE]
 
 Protocol: each message is a JSON header line followed by header['length'] payload bytes.
-Requests carry 'protocol' and 'op' ('send', 'status' or 'stop'); replies carry 'ok' and, on
-failure, 'error'.
+Requests carry 'op' ('send', 'status' or 'stop'), and a send carries 'protocol'; replies carry
+'ok' and, on failure, 'error'. Keep status and stop working unchanged across protocol versions.
 """
 import argparse
 import fcntl
@@ -165,15 +165,16 @@ class Daemon:
     self.port.poll()
 
   def handle(self, header, payload):
-    if header.get('protocol') != PROTOCOL:
-      return error('the serial daemon (pid {}, {}) speaks protocol {}, not {}; run transfer.py --daemon stop '
-                   'and retry'.format(os.getpid(), SCRIPT, PROTOCOL, header.get('protocol')))
     handler = {'send': self.send, 'status': self.status, 'stop': self.stop}.get(header.get('op'))
     if handler is None:
       return error('unknown op {!r}'.format(header.get('op')))
     return handler(header, payload)
 
+  # Only send checks the protocol, so that any client can find and stop any daemon
   def send(self, header, payload):
+    if header.get('protocol') != PROTOCOL:
+      return error('the serial daemon (pid {}, {}) speaks protocol {}, not {}; run transfer.py --daemon stop '
+                   'and retry'.format(os.getpid(), SCRIPT, PROTOCOL, header.get('protocol')))
     port = header.get('port')
     if port is not None and port != self.configured_port:
       return error('the serial daemon is using {}, not {}; run transfer.py --daemon stop to switch'.format(

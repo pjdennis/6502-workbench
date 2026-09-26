@@ -226,9 +226,18 @@ class HotplugTest(DaemonTestCase):
 
 class RequestTest(DaemonTestCase):
   def test_protocol_mismatch(self):
-    response = self.daemon.handle({'protocol': serial_daemon.PROTOCOL + 1, 'op': 'status'}, b'')
+    self.devices.plug()
+    header = dict(send_header(3, reset=True), protocol=serial_daemon.PROTOCOL + 1)
+    response = self.daemon.handle(header, b'abc')
     self.assertFalse(response['ok'])
     self.assertIn('--daemon stop', response['error'])
+    self.assertEqual(self.devices.writes(), [])
+
+  def test_status_and_stop_work_whatever_the_protocol(self):
+    # so a client of any version can find and stop a daemon of any version
+    for op in ('status', 'stop'):
+      self.assertTrue(self.daemon.handle({'protocol': serial_daemon.PROTOCOL + 1, 'op': op}, b'')['ok'])
+      self.assertTrue(self.daemon.handle({'op': op}, b'')['ok'])
 
   def test_unknown_op(self):
     response = self.daemon.handle({'protocol': serial_daemon.PROTOCOL, 'op': 'bogus'}, b'')
