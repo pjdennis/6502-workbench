@@ -269,6 +269,9 @@ YANK BUFFER
     P inserts before cursor.
 
   Each new yank/delete clears the previous yank buffer contents.
+  A yank, delete or change of more than 4KB is refused with
+  "Yank buffer full": the text, the yank buffer and undo stay
+  as they were.
 
 
 STATUS BAR

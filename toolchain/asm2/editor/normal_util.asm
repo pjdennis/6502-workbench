@@ -410,12 +410,6 @@ batch_pending_pairs_upto:
 
 ; --- Common yank/delete operations ---
 
-; Show yank overflow error: show message, clear count
-; Used when a line yank did not fit (the yank buffer is unchanged)
-show_yank_overflow:
-  JSR range_yank_full        ; "Yank buffer full"
-  JMP clear_count
-
 ; Yank then delete N lines starting at FILE_LINE16
 ; Input: BUF_TEMP16 = count of lines (from get_count)
 ; Returns carry set = yank overflow, carry clear = success
@@ -445,14 +439,10 @@ delete_current_lines:
   JSR buf_delete_lines
   JMP clamp_file_line        ; Clamp file line if past end of file
 
-; Yank chars at cursor position then delete them
+; Record undo, then delete chars at the cursor (once they are yanked)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Yanks from cursor, deletes, rebuilds lines, sets MODIFIED
+; Deletes, rebuilds lines, sets MODIFIED
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
-yank_delete_at_cursor:
-  JSR get_cursor_src         ; BUF_SRC16 = cursor position
-  JSR yank_add_chars         ; Preserves BUF_LEN16
-; Record undo, then delete (same input, once the chars are yanked)
 undo_delete_at_cursor:
   JSR undo_record_char_delete
   ; Fall through to delete_at_cursor
@@ -554,6 +544,7 @@ set_modified:
 ; Clobbers A
 set_render_from_cursor:
   CP16 CURSOR_COL16, RENDER_FROM_COL16
+char_op_ret:
   RTS
 
 ; --- Operator dispatch ---
@@ -566,26 +557,35 @@ OP_CHANGE = 2
 ; Input: A = operator (OP_YANK, OP_DELETE, OP_CHANGE)
 ;        BUF_LEN16 = byte count of range
 ;        Cursor at start of range (CURSOR_COL16, FILE_LINE16)
-; OP_YANK:   yank range, done
-; OP_DELETE:  yank range, delete, clamp cursor
-; OP_CHANGE:  yank range, delete, enter insert mode
+; Yanks the range first. If it does not fit the yank buffer, shows "Yank
+; buffer full" and changes nothing else (the yank, the undo record and
+; the mode included), as dd does.
+; OP_YANK:   done
+; OP_DELETE: record undo, delete, clamp cursor
+; OP_CHANGE: record undo, delete, enter insert mode
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
 apply_char_operator:
-  TAY                          ; Z = OP_YANK
-  BNE .do_delete
-  ; Yank only: no delete, no MODIFIED
-  JSR get_cursor_src
-  JMP yank_add_chars
-.do_delete:
-  PHA                          ; Save operator on stack
-  JSR yank_delete_at_cursor
-  PLA                          ; Restore operator
+  PHA                          ; Save operator
+  JSR get_cursor_src           ; BUF_SRC16 = range start
+  JSR yank_add_chars           ; Preserves BUF_LEN16
+  PLA                          ; Restore operator (keeps C; Z = OP_YANK)
+  BCS show_yank_overflow       ; Does not fit: nothing changes
+  BEQ char_op_ret              ; Yank only: no delete, no MODIFIED
+  PHA
+  JSR undo_delete_at_cursor
+  PLA
   CMP #OP_CHANGE
   BEQ .change
   ; OP_DELETE: clamp cursor
   JMP clamp_cursor_col
 .change:
   JMP enter_insert_mode
+
+; Show yank overflow error: show message, clear count
+; Used when a yank did not fit (the yank buffer is unchanged)
+show_yank_overflow:
+  JSR range_yank_full        ; "Yank buffer full"
+  JMP clear_count
 
 ; --- Shared batched character delete (for x and X commands) ---
 
@@ -626,9 +626,11 @@ bcd_start:
   JSR set_shift_delete
   LDA BATCH_EXTRA
   BNE .batched
-  ; --- Non-batched: yank+delete the full range ---
-  JSR yank_delete_at_cursor
-  JMP .finish
+  ; --- Non-batched: yank+delete the full range (at most 255 chars, so
+  ; it always fits the yank buffer), clamp the cursor ---
+  LDA #OP_DELETE
+  JSR apply_char_operator
+  JMP .done
 
 .batched:
   ; --- Batched: yank only what the last key press deleted (the range's
@@ -652,8 +654,6 @@ bcd_start:
   POP16 BUF_LEN16               ; Restore full range
   ; Record undo, delete full range in single operation
   JSR undo_delete_at_cursor
-
-.finish:
   JSR clamp_cursor_col
 .done:
   JMP clear_count

@@ -279,6 +279,8 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 - 4 KB at $E000-$EFFF.
 - Two types: **line yank** (from dd, yy, cc, range commands) and **character
   yank** (from x, D, dw, db, yw, yb, cw, cb, s, C).
+- A yank, delete or change that does not fit is refused with "Yank buffer
+  full": the text, the yank buffer and undo stay as they were.
 - Line paste (`p`/`P`): inserts whole lines below/above.
 - Character paste: inserts inline after/before cursor.
 

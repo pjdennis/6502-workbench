@@ -15135,6 +15135,63 @@ class EditorTestRunner:
             expected_content="\nFoo\n"
         )
 
+        self._group("Char ops larger than the yank buffer:", leading_blank=True)
+
+        # A char range that does not fit the 4 KB yank buffer is refused
+        # with "Yank buffer full", like dd: nothing is deleted, and the
+        # yank and the undo record of the previous change survive. The
+        # key after the refusal (X or ESC) dismisses the message (the
+        # message swallows one key).
+        big = "hello\n" + "a" * 5000 + "\nend\n"
+        for keys in (b"yyjD", b"yyjd$", b"yyjdw", b"yyj5000s", b"yyjC",
+                     b"yyjcw", b"yyj$d0", b"yyj$db"):
+            self.run_test(
+                f"{keys[3:].decode()} over 4 KB refused",
+                big,
+                keys + b"X\x1b:wq\r",
+                expected_content=big
+            )
+        self.run_test(
+            "D over 4 KB keeps the yank",
+            big,
+            b"yyjD\x1bp:wq\r",
+            expected_content=big.replace("\nend", "\nhello\nend")
+        )
+        self.run_test(
+            "D over 4 KB keeps the previous undo",
+            big,
+            b"xjD\x1bu:wq\r",
+            expected_content=big
+        )
+        # A refused C does not enter insert mode: the x after it deletes
+        self.run_test(
+            "C over 4 KB stays in normal mode",
+            big,
+            b"jC\x1bx:wq\r",
+            expected_content=big.replace("a", "", 1)
+        )
+        for keys in (b"jD", b"jy$"):
+            self.run_test_screen(
+                f"{keys[1:].decode()} over 4 KB shows Yank buffer full",
+                big,
+                keys + b"\x1b:q!\r",
+                expect_ansi_contains="Yank buffer full"
+            )
+        # Exactly 4 KB still fits: D deletes and u restores it
+        fits = "hello\n" + "a" * 4096 + "\nend\n"
+        self.run_test(
+            "D of exactly 4 KB deletes",
+            fits,
+            b"jD:wq\r",
+            expected_content="hello\n\nend\n"
+        )
+        self.run_test(
+            "D of exactly 4 KB undoes",
+            fits,
+            b"jDu:wq\r",
+            expected_content=fits
+        )
+
         self._group("Undo change commands (clean insert exit):", leading_blank=True)
 
         # s + ESC without typing + undo
