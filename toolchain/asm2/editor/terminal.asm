@@ -26,15 +26,9 @@ ansi_seq_a:
   JSR ansi_csi
   JMP write_string
 
-; Clear entire screen and move cursor to home position
+; Clear entire screen and move cursor to home position: ESC[2J ESC[H
 ansi_clear_screen:
   LDA #<ansi_seq_clear
-  JSR ansi_seq_a
-  ; fall through to ansi_cursor_home
-
-; Move cursor to position 1,1
-ansi_cursor_home:
-  LDA #<ansi_seq_home
   JMP ansi_seq_a
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
@@ -130,11 +124,10 @@ ansi_count_seq:
 
 ; ANSI sequence string constants
 ; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
-; of these strings (25 bytes) must start on the same 256-byte page. If code
+; of these strings (26 bytes) must start on the same 256-byte page. If code
 ; growth pushes them across a page boundary, escape sequences will be
 ; garbage and the editor test suite will fail loudly - move the block.
-ansi_seq_clear:    .asciiz "2J"
-ansi_seq_home:     .asciiz "H"
+ansi_seq_clear:    .byte "2J", $1B, "[H", $00   ; clear, then home
 ansi_seq_clreol:   .asciiz "K"
 ansi_seq_show:     .asciiz "?25h"
 ansi_seq_hide:     .asciiz "?25l"
