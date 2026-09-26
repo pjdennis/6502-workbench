@@ -12039,6 +12039,16 @@ class EditorTestRunner:
                 f"Scroll opt: {name} repaints the rows below",
                 content, keys + b":q!\r", rows=rows, cols=cols,
                 expect_lines=lines, expect_cursor=cursor)
+        # A counted dd to the end of the file, then a dd of the new last line
+        self.run_test_screen(
+            "Scroll opt: 51dd to the end of the file then dd repaints",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"250G51dd\x1bdd:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(r, f"line {r + 227}") for r in range(21)]
+                         + [(21, "~"), (22, "~")],
+            expect_cursor=(20, 0),
+        )
 
         # Undo/redo deletes (RENDER_FLAG $07) leave the cursor row to the
         # scroll: it must be repainted when the scroll clears it or when a
