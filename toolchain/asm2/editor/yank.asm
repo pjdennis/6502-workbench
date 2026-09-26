@@ -1,7 +1,8 @@
 ; Yank (copy) buffer for cut/copy/paste operations
 ;
-; The yank buffer stores line content for paste operations.
-; Lines are stored contiguously with newline delimiters, like the text buffer.
+; The yank buffer holds the last yanked or deleted text for paste: whole
+; lines (YANK_LINE, newline-terminated like the text buffer) or characters
+; (YANK_CHAR). Every yank replaces its contents.
 ;
 ; Memory layout:
 ;   YANK_BUF  ($E000) - Start of yank buffer

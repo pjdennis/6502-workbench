@@ -2,7 +2,7 @@
 ;
 ; Memory layout:
 ;   TEXT_BUF           - Start of text buffer (page-aligned, past end of code)
-;   LINE_TBL ($D800)   - Line pointer table (16-bit offsets, max 1024 lines)
+;   LINE_TBL ($D800)   - Line pointer table (16-bit pointers, room for 1024)
 ;
 ; The text buffer stores all text contiguously. Lines are delimited by $0A.
 ; The line table stores 16-bit pointers to the start of each line.
@@ -12,7 +12,7 @@
 ; labels, so TEXT_BUF automatically adjusts as the code grows.
 
 LINE_TBL    = $D800  ; Line pointer table (2 bytes per entry)
-MAX_LINES   = $03FF  ; Maximum line count (1023), 0-indexed
+MAX_LINES   = $03FF  ; Last line index LINE_TBL has room for (not checked)
 BATCH_BUF   = $D600  ; Staging buffer for batch insert (32 bytes)
 BATCH_MAX   = 32     ; Maximum batch size
 
@@ -24,9 +24,9 @@ BUF_PTR16:     .word     ; General-purpose buffer pointer
 BUF_SRC16:     .word     ; Source pointer for block moves
 BUF_DST16:     .word     ; Destination pointer for block moves
 BUF_LEN16:     .word     ; Length/count for block moves
-BUF_TEMP:      .byte     ; Temp byte for buffer operations
+BUF_TEMP:      .byte     ; Shared scratch byte (load: truncation flag)
 BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
-BUF_DELTA:     .byte     ; Shift amount for block moves
+BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
 FILE_HANDLE:   .byte     ; File handle for load/save
 
   .code
@@ -92,7 +92,8 @@ buf_load_file:
 
 ; Save buffer to file
 ; File handle in A (already opened for write)
-; Writes all text except the final trailing newline of the last empty line
+; Writes every byte from TEXT_BUF to BUF_END16, including the final
+; newline (so an empty buffer, one empty line, saves as a single newline)
 buf_save_file:
   STA FILE_HANDLE
   SET16 TEXT_BUF, BUF_PTR16
@@ -141,7 +142,7 @@ buf_get_line_ptr:
 
 ; Get length of line N (N in A/X, low/high)
 ; Returns 16-bit length in A (low) / X (high), not counting the newline
-; Clobbers Y
+; Leaves (BUF_PTR16),Y at the newline (BUF_PTR16 = line start + X pages)
 buf_get_line_len:
   JSR buf_get_line_ptr
   JSR find_line_end

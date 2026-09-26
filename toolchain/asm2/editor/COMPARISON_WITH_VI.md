@@ -15,7 +15,7 @@
 
 **Vi**: Uses a **temp-file-backed line array**. Lines are *not* stored in memory — they live in a disk-based temporary file accessed through block-level LRU caching (two 1KB/4KB input buffers + one output buffer). An in-core array of `line` pointers indexes into the temp file. This means vi can edit files far larger than available RAM.
 
-**Our editor**: Uses a **contiguous in-memory byte buffer** with newline delimiters, plus a separate **line pointer table** (`LINE_TBL` at `$C000`, 2 bytes per entry, up to 1023 lines). Text lives entirely in RAM between `TEXT_BUF` and `BUF_END16`.
+**Our editor**: Uses a **contiguous in-memory byte buffer** with newline delimiters, plus a separate **line pointer table** (`LINE_TBL` at `$D800`, 2 bytes per entry, up to 1023 lines). Text lives entirely in RAM between `TEXT_BUF` and `BUF_END16`.
 
 **Implications**:
 - Vi pays disk I/O cost for every line access (`getline()` reads from temp file), mitigated by LRU buffering. Our editor has zero I/O cost — all data is directly addressable.
@@ -95,7 +95,7 @@ This is arguably more sophisticated than vi's approach for the specific constrai
 
 **Vi**: Dynamic allocation via `sbrk()`. Line pointer array grows upward, undo area sits above `dol`, guard checks against `endcore`. The temp file provides virtually unlimited text storage.
 
-**Our editor**: **Static memory map** with fixed regions. Text buffer floats after code (`TEXT_BUF = _code_end` page-aligned). Line table fixed at `$C000`. Yank buffer at `$E000`. Everything has hard limits but zero allocation overhead.
+**Our editor**: **Static memory map** with fixed regions. Text buffer floats after code (`TEXT_BUF = _code_end` page-aligned). Line table fixed at `$D800`. Yank buffer at `$E000`. Everything has hard limits but zero allocation overhead.
 
 ---
 
