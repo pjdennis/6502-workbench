@@ -732,7 +732,9 @@ cc_have_count:
   ; Insert a blank line at FILE_LINE16 (marks adjusted)
   JSR open_current_line
   BCS .cc_buf_full
-  JSR undo_record_cc         ; Upgrade line-delete undo to cc type (blank inserted)
+  ; Upgrade the line-delete undo record to cc (u also removes the blank)
+  LDA #UNDO_CC
+  STA UNDO_TYPE
   LDA #$06
   JMP .cc_set_render
 

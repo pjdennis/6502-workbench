@@ -25,18 +25,9 @@ undo_record_line_delete:
 undo_rec_set:
   STA UNDO_TYPE
   CP16 FILE_LINE16, UNDO_LINE16
-undo_rec_tail:
   LDA #0
   STA UNDO_IS_REDO
   RTS
-
-; Record a cc/S line-delete for undo
-; Like undo_record_line_delete but type=3 (cc inserted blank line to
-; remove); keeps UNDO_LINE16 from the prior line-delete record.
-undo_record_cc:
-  LDA #UNDO_CC
-  STA UNDO_TYPE
-  BNE undo_rec_tail          ; Always (UNDO_CC != 0)
 
 ; Handle 'u' key: dispatch undo or redo based on UNDO_IS_REDO
 ; Batching: consume pending 'u' keys. Since u toggles undo/redo,
