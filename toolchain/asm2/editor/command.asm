@@ -144,52 +144,37 @@ cmd_parse_q:
   LDA CMD_BUF + 1
   BEQ .do_quit        ; Just ":q"
   CMP #'!'
-  BEQ .force_quit
-  JMP cmd_unknown
+  BNE cmd_unknown
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":q!"
+  BEQ cmd_set_quit    ; Always taken
 
 .do_quit:
   ; Check if modified
   LDA MODIFIED
-  BEQ .quit_ok
+  BEQ cmd_set_quit
   ; Show warning
   LDA #<str_no_write
   LDX #>str_no_write
   JMP show_message_ax
 
-.quit_ok:
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-.force_quit:
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":q!"
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
 cmd_parse_w:
   LDA READONLY
-  BEQ .not_readonly
-  JMP show_readonly_msg
-.not_readonly:
+  BNE show_readonly_msg
   LDA CMD_BUF + 1
-  BEQ .do_write       ; Just ":w"
+  BEQ command_write_file  ; Just ":w"
   CMP #'q'
-  BEQ .check_wq
-  JMP cmd_unknown
-
-.check_wq:
+  BNE cmd_unknown
   LDA CMD_BUF + 2
   BNE cmd_unknown     ; Extra chars after ":wq"
   ; :wq - write and quit
   JSR command_write_file
+  ; fall through
+
+cmd_set_quit:
   LDA #$FF
   STA CMD_QUIT
   RTS
-
-.do_write:
-  JMP command_write_file
 
 ; Write (save) the file
 command_write_file:
@@ -197,10 +182,8 @@ command_write_file:
   LDA #<FNAME_BUF
   LDX #>FNAME_BUF
   JSR openout
-  STA FILE_HANDLE
 
-  ; Write buffer contents
-  LDA FILE_HANDLE
+  ; Write buffer contents (buf_save_file keeps the handle in FILE_HANDLE)
   JSR buf_save_file
 
   ; Close file
@@ -211,23 +194,13 @@ command_write_file:
   LDA #0
   STA MODIFIED
 
-  ; Show confirmation on status line
+  ; Show confirmation on status line: :"name" written
   JSR command_show_prompt
   LDA #'"'
   JSR io_write
   JSR write_fname
-  LDA #'"'
-  JSR io_write
-  LDA #' '
-  JSR io_write
-
-  ; Print " written"
   PRINT_STR str_written
-
-  JSR io_flush
-  ; Brief pause to show message - wait for next redraw
-  RTS
-
+  JMP io_flush
 
 ; --- Command parse dispatch table ---
 command_parse_keys:
@@ -505,7 +478,8 @@ str_marks_tail:    .asciiz "arks"
 ; === String constants ===
 str_unknown_cmd: .asciiz "Unknown command"
 str_no_write:    .asciiz "No write since last change (use :q! to override)"
-str_written:     .asciiz "written"
+str_written:     .byte '"'         ; Closing quote after the file name
+                 .asciiz " written"
 str_buffer_full: .asciiz "Buffer full"
 str_readonly:    .asciiz "Read-only (file truncated)"
 str_truncated:   .asciiz "WARNING: File too large - read only"
