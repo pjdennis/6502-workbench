@@ -149,13 +149,17 @@ do_char_paste_above:
 ; Output: cursor on the last pasted char (single-line yank) or the first
 ; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
 ; MODIFIED set.
-; Returns carry set = failed (empty yank, or buffer full: text unchanged)
+; Returns carry set = failed (empty yank, or the text buffer or the line
+; table full: text unchanged)
 do_char_paste:
   STA NORMAL_TEMP
+  JSR yank_count_newlines    ; YANK_LINES16 = lines per copy, for the check
+  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
   JSR yank_paste_setup       ; BUF_LEN16 = total size, YANK_SIZE16 = single size
   BCS .ret
   ; RENDER_FROM_COL16 = insertion column, minus 1 for p
   LDA NORMAL_TEMP
+  ASL
   ASL                        ; C = 1 unless p
   LDA CURSOR_COL16
   SBC #0
@@ -163,8 +167,6 @@ do_char_paste:
   LDA CURSOR_COL16 + 1
   SBC #0
   STA RENDER_FROM_COL16 + 1
-  JSR yank_has_newline
-  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
   LDA NORMAL_TEMP

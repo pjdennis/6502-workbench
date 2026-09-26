@@ -114,7 +114,7 @@ yank_get_size:
 ; Returns carry set = error (empty/full), carry clear = success
 yank_paste_below_n:
   JSR yank_paste_setup
-  BCS yank_paste_ret          ; Empty yank
+  BCS yank_paste_ret          ; Empty yank, or no room for its lines
 
   ; Find insertion point: after current line's newline
   JSR get_current_line_ptr    ; BUF_PTR16 = start of current line
@@ -133,7 +133,7 @@ yank_paste_below_n:
 ; Returns carry set = error (empty/full), carry clear = success
 yank_paste_above_n:
   JSR yank_paste_setup
-  BCS yank_paste_ret          ; Empty yank
+  BCS yank_paste_ret          ; Empty yank, or no room for its lines
 
   ; Insertion point: start of current line
   JSR get_current_line_ptr    ; BUF_PTR16 = start of current line
@@ -153,13 +153,21 @@ yank_paste_finish:
 yank_paste_ret:
   RTS
 
-; Compute yank size and total paste size
+; Check that the line table has room for a paste's new lines (YANK_LINES16
+; per copy), then compute yank size and total paste size
 ; Input: BUF_TEMP16 = paste count (16-bit, >= 1, preserved)
 ; Output: BUF_LEN16 = total size ($FFFF if it passes 16 bits, which no
 ;         buffer shift allows), YANK_SIZE16 = single size
-; Returns carry set if yank buffer empty, carry clear if ready
-; Clobbers A, X, COUNT16, DIV_INPUT16
+; Returns carry set if the lines do not fit ("Buffer full") or the yank
+; buffer is empty, carry clear if ready
+; Clobbers A, X, Y, COUNT16, DIV_INPUT16
 yank_paste_setup:
+  LDX #YANK_LINES16
+  JSR mul_by_count            ; A/X = new lines ($FFFF past 16 bits)
+  JSR check_line_room
+  BCS paste_full
+; Same without the line check (undo of a paste, which deletes it)
+yank_paste_size:
   JSR yank_get_size           ; BUF_LEN16 = single yank size
   BCS yank_paste_ret          ; Empty yank (carry set)
   CP16 BUF_LEN16, YANK_SIZE16 ; YANK_SIZE16 = single size
@@ -254,24 +262,36 @@ paste_adjust_marks:
   JSR mark_adjust_insert
   JMP set_modified
 
-; Check if yank buffer contains a newline character
-; Input: yank buffer contents and YANK_END16 must be stable (not mid-mutation)
-; Output: carry set if newline found, carry clear if not
+; Count the newlines in the yank buffer into YANK_LINES16, the lines each
+; copy of a paste adds (a char paste counts them first; a line yank's
+; line count is its newline count already)
+; Output: carry set if there are any
 ; Clobbers: A, Y, BUF_SRC16
-yank_has_newline:
-  SET16 YANK_BUF, BUF_SRC16
+yank_count_newlines:
   LDY #0
+  STY YANK_LINES16
+  STY YANK_LINES16 + 1
+  STY BUF_SRC16              ; YANK_BUF is page-aligned
+  LDA #>YANK_BUF
+  STA BUF_SRC16 + 1
 .loop:
-  CMP16 BUF_SRC16, YANK_END16
-  BEQ .not_found
+  CPY YANK_END16             ; Fast: compare low bytes
+  BNE .byte
+  LDA BUF_SRC16 + 1          ; Only when low bytes match
+  CMP YANK_END16 + 1
+  BEQ .done
+.byte:
   LDA (BUF_SRC16),Y
   CMP #'\n'
-  BEQ .found
-  INC16 BUF_SRC16
-  JMP .loop
-.not_found:
-  CLC
-  RTS
-.found:
-  SEC
+  BNE .next
+  INC16 YANK_LINES16
+.next:
+  INY
+  BNE .loop                  ; Stay on the same page
+  INC BUF_SRC16 + 1
+  BNE .loop                  ; Always (the yank buffer ends before $FFFF)
+.done:
+  LDA YANK_LINES16
+  ORA YANK_LINES16 + 1
+  CMP #1                     ; C = any newlines
   RTS

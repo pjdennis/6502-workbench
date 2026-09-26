@@ -104,13 +104,11 @@ editor_main:
   CMP #0
   BEQ .new_file
 
-  ; File exists - load it (buf_load_file saves the handle in FILE_HANDLE)
+  ; File exists - load it (buf_load_file saves the handle in FILE_HANDLE;
+  ; a truncated file opens read-only)
   JSR buf_load_file
   LDA FILE_HANDLE
   JSR close
-  ; A truncated file opens read-only
-  LDA BUF_TEMP            ; Truncation flag from buf_load_file ($00/$FF)
-  STA READONLY
   JMP .init_display
 
 .new_file:

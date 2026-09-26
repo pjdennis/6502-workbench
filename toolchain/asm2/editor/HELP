@@ -9,7 +9,8 @@ If the file does not exist, starts with an empty buffer.
 If no filename is given, starts with [No Name].
 Maximum file size: ~40KB. Files exceeding this are truncated and
 opened read-only.
-Maximum lines: 1023.
+Maximum lines: 1023. Longer files are truncated and opened read-only,
+and an edit that would add a 1024th line is refused with "Buffer full".
 
 
 MODES
@@ -280,7 +281,7 @@ STATUS BAR
   The bottom line shows:
     filename  [RO]  [+]  mode  count/pending  line,col  total
 
-  [RO]  = read-only (file was truncated)
+  [RO]  = read-only (file was truncated: too large or too many lines)
   [+]   = file has been modified since last save
 
 

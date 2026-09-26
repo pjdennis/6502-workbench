@@ -236,7 +236,35 @@ insert_handle_key:
   ;        LINE_LEN16.lo=back_nl, LINE_LEN16.hi=fwd_nl
   ;        BUF_PTR16=delete_start
 
-  ; Step 7: net = insert_len - total_delete (total_delete = back + fwd_actual)
+  ; Step 7: Count the newlines in BATCH_BUF
+  LDY #0
+  STY NORMAL_TEMP            ; ins_nl = 0
+  STY BATCH_EXTRA            ; last_nl_pos = 0 (normal mode reads BATCH_EXTRA
+                             ; too: see do_yy)
+.nl_scan:
+  CPY BUF_DELTA
+  BEQ .nl_scanned
+  LDA BATCH_BUF,Y
+  INY
+  CMP #'\n'
+  BNE .nl_scan
+  INC NORMAL_TEMP            ; ins_nl++
+  STY BATCH_EXTRA            ; last_nl_pos = index + 1
+  BNE .nl_scan               ; Always taken (Y > 0)
+.nl_scanned:
+  ; Refuse the batch before changing anything if its net new lines
+  ; (ins_nl - back_nl - fwd_nl) do not fit the line table
+  LDA NORMAL_TEMP            ; ins_nl
+  SEC
+  SBC LINE_LEN16             ; - back_nl
+  SBC LINE_LEN16 + 1         ; - fwd_nl (1 more after a borrow: still < 0)
+  BMI .lines_fit             ; Net fewer lines
+  LDX #0
+  JSR check_line_room
+  BCS .batch_full
+.lines_fit:
+
+  ; Step 8: net = insert_len - total_delete (total_delete = back + fwd_actual)
   LDA BUF_TEMP16             ; back
   CLC
   ADC BUF_TEMP               ; + fwd_actual
@@ -269,29 +297,21 @@ insert_handle_key:
 .shifted:
   POP16 BUF_PTR16            ; restore delete_start (carry kept)
   BCC .do_copy
-  ; Buffer full
+.batch_full:
   JMP show_buffer_full_msg
 
 .do_copy:
-  ; Steps 8+10: Copy BATCH_BUF to buffer and count its newlines in one pass
-  LDY #0
-  STY NORMAL_TEMP            ; ins_nl = 0
-  STY BATCH_EXTRA            ; last_nl_pos = 0 (normal mode reads BATCH_EXTRA
-                             ; too: see do_yy)
-.copy_loop:
-  CPY BUF_DELTA
+  ; Step 9: Copy BATCH_BUF to the buffer, last byte first
+  LDY BUF_DELTA
   BEQ .copy_done
-  LDA BATCH_BUF,Y
-  STA (BUF_PTR16),Y          ; copy
-  INY
-  CMP #'\n'
-  BNE .copy_loop
-  INC NORMAL_TEMP            ; ins_nl++
-  STY BATCH_EXTRA            ; last_nl_pos = index + 1
-  BNE .copy_loop             ; Always taken (ins_nl > 0)
+.copy_loop:
+  LDA BATCH_BUF - $01,Y
+  DEY
+  STA (BUF_PTR16),Y
+  BNE .copy_loop             ; Z from the DEY
 .copy_done:
 
-  ; Step 11: Decide path based on newline counts
+  ; Step 10: Decide path based on newline counts
   LDA LINE_LEN16             ; back_nl
   ORA LINE_LEN16 + 1         ; fwd_nl
   ORA NORMAL_TEMP            ; ins_nl

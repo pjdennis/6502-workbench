@@ -131,7 +131,11 @@ project's 6502 emulator in console/ANSI mode.
 - **Line table**: `LINE_TBL = $D800`, 16-bit pointers to each line start.
   `LINE_COUNT16` is maintained by `buf_rebuild_lines` (after newline edits)
   and `buf_adjust_lines_apply` (single-line edits without newlines).
-  Max 1023 lines (`MAX_LINES = $03FF`).
+  Max 1023 lines (`MAX_LINES = $03FF`; the table has room for 1024 entries,
+  and one stays free).  A longer file loads truncated and read-only
+  (`buf_rebuild_lines` cuts it), and every edit that would add lines
+  past the limit checks first (`check_line_room`) and reports "Buffer
+  full" without changing anything.
 - **Buffer limits**: `TEXT_LIMIT` is conditionally defined at compile-time:
   - Normal build: `$D600` (buffer extends from TEXT_BUF up to BATCH_BUF)
   - Small buffer build (`define:small_buffer`): `TEXT_BUF + $0100` (256 bytes,
@@ -144,8 +148,8 @@ project's 6502 emulator in console/ANSI mode.
   zero-page variables are declared in `zp.asm`).
   `FILE_LINE16` is the authoritative current line number; `CURSOR_ROW` is
   derived from it and `VIEW_TOP16`.
-- **Read-only mode**: set if file load truncates; edit keys are ignored and
-  `:w` / `:wq` are blocked.
+- **Read-only mode**: set if file load truncates (the text buffer or the
+  line table is full); edit keys are ignored and `:w` / `:wq` are blocked.
 
 ## Memory layout
 

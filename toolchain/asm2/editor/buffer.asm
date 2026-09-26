@@ -12,7 +12,8 @@
 ; labels, so TEXT_BUF automatically adjusts as the code grows.
 
 LINE_TBL    = $D800  ; Line pointer table (2 bytes per entry)
-MAX_LINES   = $03FF  ; Last line index LINE_TBL has room for (not checked)
+MAX_LINES   = $03FF  ; Most lines a buffer holds (1023: LINE_TBL has room
+                     ; for 1024 entries, and one stays free)
 BATCH_BUF   = $D600  ; Staging buffer for batch insert (32 bytes)
 BATCH_MAX   = 32     ; Maximum batch size
 
@@ -28,11 +29,11 @@ buf_init:
 ; Load file into buffer
 ; File handle in A (already opened)
 ; On return: buffer contains file contents, line table built
-; BUF_TEMP = $FF if the file was truncated, $00 if fully loaded
+; Sets READONLY (clear on entry) if the file was truncated: it filled the
+; text buffer or, in buf_rebuild_lines, the line table
 buf_load_file:
   STA FILE_HANDLE
   LDA #0
-  STA BUF_TEMP            ; Clear truncation flag
   STA BUF_END16           ; BUF_END16 = TEXT_BUF (page-aligned)
   TAY                     ; Y = page offset, set once
   LDA #>TEXT_BUF
@@ -50,8 +51,7 @@ buf_load_file:
   CMP #>TEXT_LIMIT
   BCC .read_loop
   ; Buffer full - file was truncated
-  LDA #$FF
-  STA BUF_TEMP
+  DEC READONLY            ; $00 -> $FF
 .read_done:
   STY BUF_END16           ; Reconstruct full pointer
   ; Ensure buffer ends with newline
@@ -64,7 +64,7 @@ buf_load_file:
   CMP (BUF_PTR16),Y
   BEQ .has_newline
   ; Need to add a newline
-  BIT BUF_TEMP
+  BIT READONLY
   BPL .append                ; Not truncated
   ; Truncated - overwrite last byte to stay within buffer limit
   STA (BUF_PTR16),Y
@@ -187,7 +187,8 @@ open_line_at:
   PLA
 ; Open a blank line: insert a newline at BUF_PTR16, rebuild the line
 ; table and move the marks at/after line A/X (the new line) down one.
-; Returns carry set = buffer full (nothing changed), clear = success
+; Returns carry set = the text buffer or the line table is full (nothing
+; changed), clear = success
 ; Clobbers A, X, Y
 buf_open_line:
   PHA
@@ -195,8 +196,10 @@ buf_open_line:
   PHA                        ; Save the new line's number
   LDA #1
   STA BUF_LEN16
-  LDA #0
-  STA BUF_LEN16 + 1
+  LDX #0
+  STX BUF_LEN16 + 1
+  JSR check_line_room        ; A/X = 1 more line
+  BCS .full
   JSR buf_shift_right_16
   BCS .full
   LDA #'\n'
@@ -212,6 +215,21 @@ buf_open_line:
 .full:
   PLA
   PLA                        ; (PLA keeps the carry set)
+  RTS
+
+; Returns carry set if A/X (low/high) more lines do not fit the line
+; table (LINE_COUNT16 + A/X > MAX_LINES).  Every edit that adds lines
+; checks this before changing anything.  Clobbers A, Y
+check_line_room:
+  CLC
+  ADC LINE_COUNT16
+  TAY
+  TXA
+  ADC LINE_COUNT16 + 1
+  BCS .done                  ; The total passes $FFFF
+  CPY #<MAX_LINES+$01
+  SBC #>MAX_LINES+$01        ; C = the total passes MAX_LINES
+.done:
   RTS
 
 ; Shift buffer right by BUF_LEN16 bytes at BUF_PTR16 (16-bit version)
@@ -371,7 +389,10 @@ buf_ensure_nonempty_rebuild:
   ; fall through
 
 ; Rebuild line pointer table by scanning for newlines
-; Sets LINE_COUNT16 and fills LINE_TBL
+; Sets LINE_COUNT16 and fills LINE_TBL.  Text past line MAX_LINES is cut
+; off the buffer and READONLY is set, so the table never overflows (a
+; load truncates a longer file like this; edits check first, with
+; check_line_room)
 buf_rebuild_lines:
   SET16 $0000, LINE_COUNT16
   SET16 TEXT_BUF, BUF_PTR16
@@ -398,6 +419,13 @@ buf_rebuild_lines:
   BCS .scan_done
 
 .add_line:
+  ; Stop if the table already holds MAX_LINES lines
+  LDA LINE_COUNT16
+  CMP #<MAX_LINES
+  LDA LINE_COUNT16 + 1
+  SBC #>MAX_LINES
+  BCS .table_full
+
   ; Advance line table pointer (LINE_TBL is even, so the low byte wraps
   ; to 0 exactly at a page end)
   INC BUF_DST16
@@ -410,6 +438,10 @@ buf_rebuild_lines:
 
   JMP .scan_loop
 
+.table_full:
+  ; Cut the buffer at the start of the line that does not fit
+  CP16 BUF_PTR16, BUF_END16
+  DEC READONLY               ; Nonzero: read-only
 .scan_done:
   RTS
 

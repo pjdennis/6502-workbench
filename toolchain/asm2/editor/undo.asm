@@ -113,6 +113,8 @@ undo_handle:
   CPX #0
   BNE .undo_line_paste
   SET16 TEXT_BUF, BUF_END16   ; Remove synthetic newline
+  DEC LINE_COUNT16            ; and its line (1 -> 0), which the paste's
+                              ; line check must not count
 
 .undo_line_paste:
   ; Paste above: reuses existing yank_paste_above_n
@@ -386,7 +388,7 @@ undo_char_paste_undo:
   ; Position at insertion point and delete pasted content
   JSR undo_restore_pos_from
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
-  JSR yank_paste_setup         ; BUF_LEN16 = total paste size
+  JSR yank_paste_size          ; BUF_LEN16 = total paste size
   BCS undo_paste_fail
   JSR delete_at_cursor         ; Deletes BUF_LEN16 bytes, handles marks
   JSR paste_restore_pos

@@ -29,7 +29,7 @@ BUF_PTR16:     .word     ; General-purpose buffer pointer
 BUF_SRC16:     .word     ; Source pointer for block moves
 BUF_DST16:     .word     ; Destination pointer for block moves
 BUF_LEN16:     .word     ; Length/count for block moves
-BUF_TEMP:      .byte     ; Shared scratch byte (load: truncation flag)
+BUF_TEMP:      .byte     ; Shared scratch byte
 BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
 BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
 FILE_HANDLE:   .byte     ; File handle for load/save
@@ -54,7 +54,7 @@ TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
 FILE_LINE16:    .word   ; Current file line (0-based)
 MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
 MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
-READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
+READONLY:       .byte   ; Read-only mode ($00 = no, nonzero = yes)
 RENDER_ROW:     .byte   ; Current row being rendered
 RENDER_LINE16:  .word   ; Current file line being rendered
 RENDER_COL:     .byte   ; Column counter during rendering
@@ -86,7 +86,7 @@ SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's sta
 
 ; --- yank.asm ---
 YANK_END16:    .word     ; Points one past last byte in yank buffer
-YANK_LINES16:  .word     ; 16-bit line count for yank buffer
+YANK_LINES16:  .word     ; Lines a paste adds per copy (the yank's newlines)
 YANK_SIZE16:   .word     ; Single yank size for paste operations
 YANK_TYPE:     .byte     ; 0=line, 1=char
 

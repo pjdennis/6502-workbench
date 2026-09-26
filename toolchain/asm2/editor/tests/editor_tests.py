@@ -1294,6 +1294,132 @@ class EditorTestRunner:
             else:
                 self._pass("Server: screen size output")
 
+    def run_line_limit_tests(self):
+        """A buffer holds at most MAX_LINES (1023) lines: the line table
+        ($D800-$DFFF) has 1024 entries, and one stays free.
+
+        A longer file loads truncated and read-only, like a file that
+        overflows the text buffer; edits that would add a 1024th line are
+        refused with "Buffer full" before anything changes.
+        """
+        self._group("Line limit (1023 lines):", leading_blank=True)
+
+        def numbered(n):
+            return ''.join(f"L{i:04d}\n" for i in range(1, n + 1))
+
+        full = numbered(1023)
+        # After a refused edit, 'z' (or ESC) dismisses the message and 'x'
+        # on line 1 proves the buffer is still editable (not read-only)
+        full_x = "0001\n" + full[6:]
+
+        # --- Loading ---
+        self.run_test("1023-line file loads editable",
+            full, b"Gx:wq\r", expected_content=full[:-6] + "1023\n")
+        self.run_test_screen("1024-line file loads truncated and read-only",
+            numbered(1024), b"xG:q\r", cols=80,
+            expect_ansi_contains="File too large",
+            expect_status_at_frame=[(0, "[RO]")], expect_lines=[(8, "L1023")])
+        # 3073+ lines ran the table into the I/O page at $F000 and crashed
+        self.run_test("3100-line file loads without overrunning the table",
+            "x\n" * 3100, b"x:wq\rx:q\r", expect_unmodified=True)
+        # The newline appended to an unterminated last line makes a 1024th
+        self.run_test("1024th line without a newline is cut off read-only",
+            full + "L1024", b"x:wq\rx:q\r", expect_unmodified=True)
+
+        # --- Opening a line ---
+        self.run_test("o at the line limit is refused",
+            full, b"oz\x1bx:wq\r", expected_content=full_x)
+        self.run_test("O at the line limit is refused",
+            full, b"jOz\x1bkx:wq\r", expected_content=full_x)
+        self.run_test_screen("o at the line limit shows Buffer full",
+            full, b"o", expect_ansi_contains="Buffer full")
+        # cc deletes its line before opening a blank one: no net new line
+        self.run_test("cc at the line limit",
+            full, b"ccX\x1b:wq\r", expected_content="X\n" + full[6:])
+        self.run_test("cc redo at the line limit",
+            full, b"cc\x1buu:wq\r", expected_content="\n" + full[6:])
+        self.run_test("o redo reaches the line limit",
+            numbered(1022), b"o\x1buu:wq\r",
+            expected_content="L0001\n\n" + numbered(1022)[6:])
+
+        # --- Pastes ---
+        self.run_test("p (line) at the line limit is refused",
+            full, b"yypzx:wq\r", expected_content=full_x)
+        self.run_test("P (line) at the line limit is refused",
+            full, b"yyPzx:wq\r", expected_content=full_x)
+        # A multi-line character yank ('ab cd\nL0002') adds a line per copy
+        chars = "ab cd\n" + full[6:]
+        for key in (b"p", b"P"):
+            self.run_test(
+                f"{key.decode()} (char) at the line limit is refused",
+                chars, b"3yw" + key + b"zx:wq\r",
+                expected_content="b cd\n" + full[6:])
+        chars = "ab cd\n" + numbered(1021)[6:]
+        self.run_test("Counted P (char) fills the line table exactly",
+            chars, b"3yw2P:wq\r",
+            expected_content="ab cd\nL0002" * 2 + chars)
+        self.run_test("Counted P (char) one line past the limit is refused",
+            chars, b"3yw3Pzx:wq\r", expected_content=chars[1:])
+        self.run_test("Counted p fills the line table exactly",
+            numbered(1000), b"yy23p:wq\r",
+            expected_content="L0001\n" * 24 + numbered(1000)[6:])
+        self.run_test("Counted p one line past the limit is refused",
+            numbered(1000), b"yy24pzx:wq\r",
+            expected_content="0001\n" + numbered(1000)[6:])
+        self.run_test("Typed-ahead ppp one line past the limit is refused",
+            numbered(1021), b"yypppzx:wq\r",
+            expected_content="0001\n" + numbered(1021)[6:])
+        # Line 1024 on overwrote the yank buffer ($E000) with line pointers,
+        # which the next paste saved as text
+        lines30 = ''.join(f"line {i:02d}\n" for i in range(30))
+        self.run_test("yy1000p is refused and the yank stays intact",
+            lines30, b"yy1000pjp:wq\r",
+            expected_content="line 00\n" + lines30)
+        # 4000 lines fit the text buffer but ran the table into $F000
+        self.run_test("yy4000p on a one-line file is refused",
+            "abcdefg\n", b"yy4000pzx:wq\r", expected_content="bcdefg\n")
+
+        # --- Undo and redo ---
+        # Undo of J restores the lines J joined
+        self.run_test("u of J at the line limit restores all lines",
+            full, b"Ju:wq\r", expected_content=full)
+        # Undo of deleting every line removes the synthetic empty line
+        # first, so re-inserting all 1023 lines must fit (2-byte lines keep
+        # the delete within the 4 KB yank buffer)
+        digits = ''.join(f"{i % 10}\n" for i in range(1023))
+        self.run_test("u of 1023dd at the line limit restores every line",
+            digits, b"1023dduGx:wq\r", expected_content=digits[:-2] + "\n")
+        # u and its redo paste the yank buffer: a bigger yank made since
+        # must not take the file past the limit
+        self.run_test("u of dd after a bigger yank is refused at the limit",
+            full, b"dd5yyu\x1b:wq\r", expected_content=full[6:])
+        self.run_test("Redo of p after a bigger yank is refused at the limit",
+            numbered(1022), b"yypu5yyu\x1b:wq\r",
+            expected_content=numbered(1022))
+
+        # --- Insert mode ---
+        # The refused batch ends at ESC, which the message consumes; the
+        # second ESC leaves insert mode on the '1' of L0001
+        self.run_test("Enter at the line limit is refused",
+            full, b"A\r\x1b\x1bx:wq\r", expected_content="L000\n" + full[6:])
+        self.run_test_screen("Enter at the line limit shows Buffer full",
+            full, b"A\r", expect_ansi_contains="Buffer full")
+        self.run_test("Enter below the line limit adds the 1023rd line",
+            numbered(1022), b"A\r\x1b:wq\r",
+            expected_content="L0001\n\n" + numbered(1022)[6:])
+        # A batch counts the lines it joins (BS at column 0, DEL at the end
+        # of a line) against those it adds: BS then Enter is no net line,
+        # BS then two Enters (or DEL then two) is one
+        self.run_test("Enter after a joining BS fits at the line limit",
+            full, b"ji\x08\r\x1bx:wq\r",
+            expected_content="L0001\n0002\n" + full[12:])
+        self.run_test("Two Enters after a joining BS are refused at the limit",
+            full, b"ji\x08\r\r\x1b\x1bx:wq\r",
+            expected_content="L0001\n0002\n" + full[12:])
+        self.run_test("Two Enters after a joining DEL are refused at the limit",
+            full, b"A\x1b[3~\r\r\x1b\x1bx:wq\r",
+            expected_content="L000\n" + full[6:])
+
     def run_self_editability_checks(self):
         """Every editor source file must be editable by the editor itself.
 
@@ -2221,6 +2347,8 @@ class EditorTestRunner:
             "yy993p that wraps 16 bits shows Buffer full",
             wider, b"yy993p\x1b:q!\r",
             expect_ansi_contains="Buffer full")
+
+        self.run_line_limit_tests()
 
         # ============================================================
         # Screen state tests (10 rows x 40 cols)
