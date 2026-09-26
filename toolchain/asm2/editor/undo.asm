@@ -46,29 +46,26 @@ undo_handle:
   BEQ .done                  ; No undoable operation, no-op
   JSR count_pending_key      ; X = extra u keys in typeahead
   TXA
-  AND #$01
-  BNE .done                  ; Odd extras = even total = noop
-  LDA UNDO_IS_REDO
-  BNE .do_redo
-  JMP undo_do_undo
-.do_redo:
-  JMP undo_do_redo
+  LSR
+  BCS .done                  ; Odd extras = even total = noop
+  ; Per-type handler dispatch via address table (RTS trick): entries are
+  ; handler - 1, indexed by UNDO_TYPE (1..13, 0 is filtered above).
+  LDA UNDO_TYPE
+  ASL                        ; C = 0 (UNDO_TYPE <= 13)
+  BIT UNDO_IS_REDO
+  BPL .index                 ; Undo pending
+  ADC #.redo_table - .table  ; Redo pending: use the redo entries
+.index:
+  TAX
+  LDA .table - 1,X           ; High byte of handler - 1
+  PHA
+  LDA .table - 2,X           ; Low byte
+  PHA
+  RTS                        ; Jump to handler
 .done:
   JMP clear_count
 
-; --- Undo ---
-; Per-type handler dispatch via address table (RTS trick): entries are
-; handler - 1, indexed by UNDO_TYPE (1..13, 0 is filtered by undo_handle).
-undo_do_undo:
-  LDA UNDO_TYPE
-  ASL
-  TAX
-  LDA .undo_table - 1,X      ; High byte of handler - 1
-  PHA
-  LDA .undo_table - 2,X      ; Low byte
-  PHA
-  RTS                        ; Jump to handler
-.undo_table:
+.table:                              ; Undo handlers
   .word .undo_line - 1               ; 1 UNDO_LINE
   .word .undo_char - 1               ; 2 UNDO_CHAR
   .word .undo_cc - 1                 ; 3 UNDO_CC
@@ -82,7 +79,22 @@ undo_do_undo:
   .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
   .word undo_tilde_undo - 1          ; 12 UNDO_TILDE
   .word undo_replace_undo - 1        ; 13 UNDO_REPLACE
+.redo_table:                         ; Redo handlers
+  .word .redo_line - 1               ; 1 UNDO_LINE
+  .word .redo_char - 1               ; 2 UNDO_CHAR
+  .word .redo_cc - 1                 ; 3 UNDO_CC
+  .word undo_join_redo - 1           ; 4 UNDO_JOIN
+  .word undo_paste_redo - 1          ; 5 UNDO_LINE_PASTE_BELOW
+  .word undo_paste_redo - 1          ; 6 UNDO_LINE_PASTE_ABOVE
+  .word undo_char_paste_redo - 1     ; 7 UNDO_CHAR_PASTE_BELOW
+  .word undo_char_paste_redo - 1     ; 8 UNDO_CHAR_PASTE_ABOVE
+  .word undo_open_redo - 1           ; 9 UNDO_OPEN
+  .word undo_shift_step - 1          ; 10 UNDO_INDENT
+  .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
+  .word undo_tilde_redo - 1          ; 12 UNDO_TILDE
+  .word undo_replace_redo - 1        ; 13 UNDO_REPLACE
 
+; --- Undo handlers ---
 .undo_cc:
   ; cc undo: first delete the blank line cc inserted, then paste original lines
   JSR undo_restore_line
@@ -169,31 +181,7 @@ undo_do_undo:
 .undo_fail:
   JMP clear_count
 
-; --- Redo ---
-undo_do_redo:
-  LDA UNDO_TYPE
-  ASL
-  TAX
-  LDA .redo_table - 1,X      ; High byte of handler - 1
-  PHA
-  LDA .redo_table - 2,X      ; Low byte
-  PHA
-  RTS                        ; Jump to handler
-.redo_table:
-  .word .redo_line - 1               ; 1 UNDO_LINE
-  .word .redo_char - 1               ; 2 UNDO_CHAR
-  .word .redo_cc - 1                 ; 3 UNDO_CC
-  .word undo_join_redo - 1           ; 4 UNDO_JOIN
-  .word undo_paste_redo - 1          ; 5 UNDO_LINE_PASTE_BELOW
-  .word undo_paste_redo - 1          ; 6 UNDO_LINE_PASTE_ABOVE
-  .word undo_char_paste_redo - 1     ; 7 UNDO_CHAR_PASTE_BELOW
-  .word undo_char_paste_redo - 1     ; 8 UNDO_CHAR_PASTE_ABOVE
-  .word undo_open_redo - 1           ; 9 UNDO_OPEN
-  .word undo_shift_step - 1          ; 10 UNDO_INDENT
-  .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
-  .word undo_tilde_redo - 1          ; 12 UNDO_TILDE
-  .word undo_replace_redo - 1        ; 13 UNDO_REPLACE
-
+; --- Redo handlers ---
 .redo_cc:
   ; cc redo: delete lines, insert blank line (reproduces cc effect)
   JSR undo_restore_line
