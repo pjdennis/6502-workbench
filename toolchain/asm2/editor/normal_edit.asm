@@ -579,7 +579,17 @@ normal_change_to_eol:
   JMP sub_change_tail
 
 ; --- Replace char (r) ---
+; The replacement must type text: printable or Tab. Any other key
+; (arrows and other KEY_* codes, Enter, Ctrl-J, BS, $00 for non-ASCII)
+; cancels r like Esc. ($7F never arrives: read_key maps it to KEY_BS.)
 do_replace_char:
+  LDA BUF_TEMP
+  BMI .replace_no_undo
+  CMP #' '
+  BCS .replace_key_ok
+  CMP #KEY_TAB
+  BNE .replace_no_undo
+.replace_key_ok:
   JSR undo_clear
   JSR get_count
   JSR echo_span_setup

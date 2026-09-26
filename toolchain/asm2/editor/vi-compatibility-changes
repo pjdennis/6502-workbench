@@ -8,6 +8,9 @@
   r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
   nothing if there aren't enough characters.
 
+  r with Enter - r takes only a printable key or Tab; Enter, Ctrl-J and other keys cancel it. Vi replaces the character
+  with a line break on r<Enter>. (Vi also accepts other control characters literally.)
+
   Missing count support
 
   gg - Always goes to line 1. In vi, 5gg goes to line 5 (like 5G). The count is completely ignored.

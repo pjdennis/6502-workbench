@@ -9105,6 +9105,28 @@ class EditorTestRunner:
             expect_unmodified=True
         )
 
+        # r takes only a key that types text (printable or Tab). Any other
+        # key cancels it like Esc: nothing is stored, the cursor stays and
+        # the next command runs. A stored Ctrl-J would be a newline the
+        # line table misses.
+        for key_name, key in [("Up", b"\x1b[A"), ("Del", b"\x1b[3~"),
+                              ("BS", b"\x7f"), ("Enter", b"\r"),
+                              ("Ctrl-J", b"\n"), ("Ctrl-A", b"\x01"),
+                              ("non-ASCII", b"\xc3")]:
+            self.run_test_screen(
+                f"r then {key_name} cancels r",
+                "abc\ndef\n",
+                b"lr" + key + b"iX\x1b:wq\r",
+                expected_content="aXbc\ndef\n"
+            )
+
+        self.run_test(
+            "r then Tab replaces with Tab",
+            "abc\n",
+            b"lr\t:wq\r",
+            expected_content="a\tc\n"
+        )
+
         self._group("Substitute char (s):", leading_blank=True)
 
         self.run_test(
