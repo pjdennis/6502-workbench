@@ -107,15 +107,12 @@ editor_main:
 
   ; File exists - load it (buf_load_file saves the handle in FILE_HANDLE)
   JSR buf_load_file
-  PHP                  ; Save carry (truncation flag)
   LDA FILE_HANDLE
   JSR close
-  PLP                  ; Restore carry
-  BCC .init_display
-  ; File was truncated - set read-only mode
-  LDA #$FF
+  ; A truncated file opens read-only
+  LDA BUF_TEMP            ; Truncation flag from buf_load_file ($00/$FF)
   STA READONLY
-  BNE .init_display       ; Always taken
+  JMP .init_display
 
 .new_file:
   ; File doesn't exist or no file specified - start with empty buffer

@@ -42,7 +42,7 @@ buf_init:
 ; Load file into buffer
 ; File handle in A (already opened)
 ; On return: buffer contains file contents, line table built
-; Carry set = file was truncated, carry clear = fully loaded
+; BUF_TEMP = $FF if the file was truncated, $00 if fully loaded
 buf_load_file:
   STA FILE_HANDLE
   SET16 TEXT_BUF, BUF_END16
@@ -90,14 +90,7 @@ buf_load_file:
 .has_newline:
 
   ; If buffer is empty (nothing read), add a newline for one empty line
-  JSR buf_ensure_nonempty_rebuild
-  LDA BUF_TEMP
-  BEQ .return_ok
-  SEC                    ; Truncated
-  RTS
-.return_ok:
-  CLC                    ; Not truncated
-  RTS
+  JMP buf_ensure_nonempty_rebuild
 
 ; Save buffer to file
 ; File handle in A (already opened for write)
