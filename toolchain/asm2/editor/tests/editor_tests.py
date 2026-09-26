@@ -1255,6 +1255,20 @@ class EditorTestRunner:
             else:
                 self._pass(name)
 
+    def run_demo_build_checks(self):
+        """The standalone demos (hello.asm, clock.asm) must still assemble."""
+        for demo in ("hello", "clock"):
+            name = f"Demo assembles: {demo}.asm"
+            out = self.tmpdir / f"{demo}.out"
+            result = subprocess.run(
+                [str(self.emulator), str(self.assembler), "--no-dump",
+                 str(self.editor_asm.parent / f"{demo}.asm"), str(out)],
+                capture_output=True, text=True, cwd=self.base_dir)
+            if result.returncode != 0:
+                self._fail(name, (result.stdout + result.stderr).strip()[-200:])
+            else:
+                self._pass(name)
+
     def run_all_tests(self):
         """Run all editor tests."""
         print("=" * 60)
@@ -1281,6 +1295,7 @@ class EditorTestRunner:
 
         self._group("Self-editability:")
         self.run_self_editability_checks()
+        self.run_demo_build_checks()
 
         # End-to-end: the editor edits its own largest source file
         largest = max(self.editor_asm.parent.glob("*.asm"),
