@@ -44,11 +44,12 @@ buf_init:
 ; BUF_TEMP = $FF if the file was truncated, $00 if fully loaded
 buf_load_file:
   STA FILE_HANDLE
-  SET16 TEXT_BUF, BUF_END16
   LDA #0
   STA BUF_TEMP            ; Clear truncation flag
-
-  LDY #0                  ; Y = page offset, set once
+  STA BUF_END16           ; BUF_END16 = TEXT_BUF (page-aligned)
+  TAY                     ; Y = page offset, set once
+  LDA #>TEXT_BUF
+  STA BUF_END16 + 1
 .read_loop:
   LDA FILE_HANDLE
   JSR read                ; preserves X, Y
@@ -72,20 +73,18 @@ buf_load_file:
 
   ; Check if last byte is newline
   LDY #0
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
+  LDA #'\n'
+  CMP (BUF_PTR16),Y
   BEQ .has_newline
   ; Need to add a newline
-  LDA BUF_TEMP
-  BNE .overwrite_last
+  BIT BUF_TEMP
+  BPL .append                ; Not truncated
+  ; Truncated - overwrite last byte to stay within buffer limit
+  STA (BUF_PTR16),Y
+  BMI .has_newline           ; Always (N still from BIT)
+.append:
   ; Not truncated - append trailing newline
   JSR buf_append_nl
-  JMP .has_newline
-.overwrite_last:
-  ; Truncated - overwrite last byte to stay within buffer limit
-  LDA #'\n'
-  LDY #0
-  STA (BUF_PTR16),Y
 .has_newline:
 
   ; If buffer is empty (nothing read), add a newline for one empty line
@@ -113,7 +112,7 @@ buf_save_file:
   BNE .write_loop         ; Stay on same page
   ; Page boundary
   INC BUF_PTR16 + 1
-  JMP .write_loop
+  BNE .write_loop            ; Always (the buffer never reaches page 0)
 .write_done:
   RTS
 
@@ -164,7 +163,7 @@ find_line_end:
   BNE .loop
   INC BUF_PTR16 + 1
   INX
-  JMP .loop
+  BNE .loop                  ; Always (X counts pages, never wraps)
 .done:
   RTS
 
@@ -174,13 +173,13 @@ find_line_end:
 ; Clobbers: A, X, Y
 advance_past_line_end:
   JSR find_line_end
-  INY
-  BNE .no_wrap
-  INC BUF_PTR16 + 1
-.no_wrap:
   TYA
-  CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
+  SEC                        ; + 1: step past the newline
+  ADC BUF_PTR16
+  STA BUF_PTR16
+  BCC .done
+  INC BUF_PTR16 + 1
+.done:
   RTS
 
 ; Insert character at position in buffer
@@ -353,7 +352,10 @@ buf_append_nl:
 ; If the buffer is empty, append a newline (one empty line), then
 ; rebuild the line table (falls through into buf_rebuild_lines)
 buf_ensure_nonempty_rebuild:
-  CMPI16 BUF_END16, TEXT_BUF
+  LDA BUF_END16              ; TEXT_BUF is page-aligned
+  BNE buf_rebuild_lines
+  LDA BUF_END16 + 1
+  CMP #>TEXT_BUF
   BNE buf_rebuild_lines
   JSR buf_append_nl
   ; fall through
