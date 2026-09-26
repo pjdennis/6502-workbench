@@ -143,18 +143,23 @@ render_from_row:
   JSR render_rows
   JMP render_finish
 
-; Render just the status line (last row): build its text, then send it
+; Render just the status line (last row): build its text, then send the
+; part that differs from what the row shows
 render_status_line:
   JSR status_build
   ; fall through
 
-; Send the status text built by status_build: the whole row, in reverse
-; video, cleared to its end
+; Send the status text built by status_build from its first changed
+; column (nothing if it is unchanged), in reverse video, clearing the
+; row's tail when the old text was longer or unknown (ST_LEN = 0).
+; ST_LEN = the new length.  Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_send:
-  LDA TEXT_ROWS                ; the status row (0-based)
-  JSR ansi_goto_row0
+  LDX ST_FIRST
+  BMI .done                    ; unchanged
+  LDA TEXT_ROWS                ; the status row (0-based), column X
+  JSR ansi_goto0
   JSR ansi_reverse_video
-  LDX #0
+  LDX ST_FIRST
 .loop:
   CPX ST_COL
   BCS .sent
@@ -163,15 +168,26 @@ status_send:
   INX
   BNE .loop                    ; Always taken (ST_COL < 128)
 .sent:
+  LDA ST_LEN
+  BNE .normal
   JSR ansi_clear_line
-  JMP ansi_normal_video
+.normal:
+  JSR ansi_normal_video
+.done:
+  LDA ST_COL
+  STA ST_LEN
+  RTS
 
-; Build the status bar's text into STATUS_SHADOW (ST_COL = its length).
-; Sends nothing.  Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Build the status bar's text into STATUS_SHADOW (see st_putc).  Sends
+; nothing.  On return ST_COL = its length and ST_FIRST = the first column
+; to send ($FF = none); ST_LEN = 0 if the row's tail must be cleared.
+; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_build:
   LDA #0
   STA ST_COL
-  DEC ST_BUILD                 ; $00 -> $FF: text_putc stores the text
+  LDA #$FF
+  STA ST_FIRST                 ; no change found yet
+  STA ST_BUILD                 ; text_putc stores the text
 
   ; Print filename
   JSR write_fname
@@ -244,6 +260,21 @@ status_build:
   CP16 LINE_COUNT16, TO_DECIMAL_VALUE16
   JSR print_decimal
   INC ST_BUILD                 ; text_putc sends again
+
+  ; Old text longer, or unknown (ST_LEN = 0): the row is cleared from the
+  ; new text's end (or from its first change)
+  LDX ST_COL
+  CPX ST_LEN
+  BCC .clear
+  LDA ST_LEN
+  BNE .built
+.clear:
+  LDA #0
+  STA ST_LEN
+  BIT ST_FIRST
+  BPL .built
+  STX ST_FIRST
+.built:
   RTS
 
 ; Text character A: sent, or added to the status bar's text while
@@ -254,12 +285,30 @@ text_putc:
   JMP io_write
 
 ; Add A to the status bar's text: store it at column ST_COL of
-; STATUS_SHADOW.  (The text is at most 81 characters.)  Preserves A, Y.
+; STATUS_SHADOW, noting in ST_FIRST the first column that differs from
+; the row on screen (the old text, ST_LEN long).  The text stops one
+; column short of the right edge: a character in the bottom-right cell
+; followed by one more would scroll the whole screen.  (It is at most 81
+; characters, so it always fits STATUS_SHADOW.)  Preserves A, Y.
 ; Clobbers X
 st_putc:
   LDX ST_COL
+  INX
+  CPX SCREEN_COLS
+  BCS .out                     ; the last column: dropped
+  STX ST_COL
+  DEX
+  BIT ST_FIRST
+  BPL .store                   ; a difference was already found
+  CPX ST_LEN
+  BCS .differs                 ; past the old text
+  CMP STATUS_SHADOW,X
+  BEQ .store
+.differs:
+  STX ST_FIRST
+.store:
   STA STATUS_SHADOW,X
-  INC ST_COL
+.out:
   RTS
 
 ; Status-bar strings (status_build)

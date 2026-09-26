@@ -96,6 +96,18 @@ paths first. See `ich-dch-plan.md`.
 Typing two characters at column 5 of a 3-row line on a 40-column screen
 goes from about 115 bytes of row content to about 30.
 
+### Status bar: only what changed
+
+`status_build` builds the status bar's text into `STATUS_SHADOW` ($0380,
+the upper half of the command buffer's page) and compares it with the
+text already on the row; `status_send` then sends it from the first
+column that changed, with `ESC[K` only when the old text was longer or is
+unknown (after a message, a prompt or `:marks`). A cursor move sends just
+the new position: `j` on a 10x40 screen goes from 68 bytes to 41, a key
+that changes nothing (ESC) from 68 to 18. A 44-key editing session sends
+21% fewer bytes at 24x80 (26% at 10x40); a frame whose status bar changes
+costs about 1,900 cycles more.
+
 ## Future Work
 
 ### Step 4: Gap buffer

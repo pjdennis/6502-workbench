@@ -23,6 +23,8 @@ ansi_seq_a:
 
 ; Clear entire screen and move cursor to home position: ESC[2J ESC[H
 ansi_clear_screen:
+  LDA #0
+  STA ST_LEN                 ; status row blank: send all of the status bar
   LDA #<ansi_seq_clear
   JMP ansi_seq_a
 
@@ -166,6 +168,8 @@ write_fname:
 ; Move cursor to status line and clear it
 ; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
 status_line_clear:
+  LDA #0
+  STA ST_LEN                 ; status row overwritten: send all of the status bar
   LDA TEXT_ROWS              ; The status row (0-based)
   JSR ansi_goto_row0
   JMP ansi_clear_line

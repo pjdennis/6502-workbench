@@ -296,6 +296,8 @@ STATUS BAR
   [RO]  = read-only (file was truncated: too large or too many lines)
   [+]   = file has been modified since last save
 
+  The status bar is cut off one column short of the screen width.
+
 
 DISPLAY
 -------

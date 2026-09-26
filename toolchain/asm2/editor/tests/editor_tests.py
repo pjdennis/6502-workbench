@@ -2688,6 +2688,20 @@ class EditorTestRunner:
             expect_ansi_contains="No write since last change"
         )
 
+        # Nothing may be written in the last column of the status row: on a
+        # real terminal (deferred wrap) the next character wraps off the
+        # bottom row and scrolls the whole screen up a line.
+        lines19 = "".join(f"line {i}\n" for i in range(1, 20))
+        status = f"{str(self.tmpdir / 't')[:32]} - COMMAND - 2,1 /19"
+        self.run_test_screen(
+            "Status bar clipped to the screen width",
+            lines19,
+            b"j:q!\r",
+            cols=20,
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9"), (9, status[:19])],
+        )
+
         self._group("Screen state - scrolling:", leading_blank=True)
 
         # 15-line file, 9 j's: full window after line scroll down
@@ -4748,8 +4762,7 @@ class EditorTestRunner:
             )
             # Deleting 129-255 chars: -n does not fit a signed byte, so the
             # delete must not be drawn as an insert; the shortened last row
-            # is cleared (50 cols keep the status bar with a count and a
-            # 3-digit column on one row)
+            # is cleared
             d150 = "0123456789" * 15
             for how, keys, frame, text in (
                     ("129x", b"129x:q!\r", 4, d150[129:]),
@@ -4760,11 +4773,33 @@ class EditorTestRunner:
                     "Shift: " + how + " clears the shortened row" + suffix,
                     d150 + "\nNEXT\n",
                     keys,
-                    cols=50,
                     deferred_wrap=deferred,
                     expect_lines_at_frame=[(frame, [(0, text), (1, "NEXT"),
                                                     (2, "~")])],
                 )
+
+        self._group("Status bar sends only what changed:", leading_blank=True)
+
+        # A cursor move changes only the position: the status bar is sent
+        # from the line number on, in reverse video, and needs no ESC[K
+        self.run_test_screen(
+            "Cursor move sends only the changed status tail",
+            "a\nb\nc\n",
+            b"j:q!\r",
+            expect_ansi_contains="\x1b[7m2,1 /3\x1b[0m",
+            expect_status_at_frame=[(1, " - NORMAL - 2,1 /3")],
+        )
+
+        # A shorter status text clears the rest of the old one: after the
+        # count, 'dd' sends from the count's column and clears the tail
+        self.run_test_screen(
+            "Shorter status text clears the old tail",
+            "ab\n" * 10,
+            b"x9dd:q!\r",
+            expect_ansi_contains="\x1b[7m1,1 /1\x1b[K\x1b[0m",
+            expect_status_at_frame=[(3, " [+] - NORMAL - 1,1 /1")],
+            expect_lines_at_frame=[(3, [(0, "ab"), (1, "~")])],
+        )
 
         self._group("D stays minimal:", leading_blank=True)
 
@@ -4778,7 +4813,7 @@ class EditorTestRunner:
                 "Hello World\nNEXT\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[?25l\x1b[1;6H\x1b[K\x1b[10;1H",
+                expect_ansi_contains="\x1b[?25l\x1b[1;6H\x1b[K\x1b[10;",
                 expect_lines_at_frame=[(3, [(0, "Hello"), (1, "NEXT")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1)],
             )
