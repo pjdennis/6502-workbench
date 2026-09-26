@@ -10193,22 +10193,17 @@ class EditorTestRunner:
             expect_lines=[(0, "Line 10")],
         )
 
-        # SS3 sequences (ESC O <final>) - F1-F4 on some terminals
-        # F1 SS3 (ESC O P) in normal mode - should be consumed
-        self.run_test(
-            "F1 SS3 in normal mode is no-op",
-            "hello\n",
-            b"\x1bOP:wq\r",
-            expected_content="hello\n"
-        )
-
-        # F2 SS3 (ESC O Q) in normal mode - should be consumed
-        self.run_test(
-            "F2 SS3 in normal mode is no-op",
-            "hello\n",
-            b"\x1bOQ:wq\r",
-            expected_content="hello\n"
-        )
+        # SS3 sequences (ESC O <final>) - F1-F4 on some terminals.
+        # In normal mode they are no-ops: the x proves the editor is still
+        # in normal mode afterwards (without it, ':wq' typed as text would
+        # leave the file unwritten and the test would pass vacuously)
+        for fkey, final in ((b"F1", b"P"), (b"F2", b"Q"), (b"F4", b"S")):
+            self.run_test(
+                f"{fkey.decode()} SS3 in normal mode is no-op",
+                "hello\n",
+                b"\x1bO" + final + b"x:wq\r",
+                expected_content="ello\n"
+            )
 
         # F1 SS3 in insert mode - should stay in insert mode
         self.run_test(
