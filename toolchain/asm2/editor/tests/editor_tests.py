@@ -9098,6 +9098,38 @@ class EditorTestRunner:
             expected_content="xxxlo\n"
         )
 
+        # A count past the line end replaces to the end and leaves the
+        # cursor on the last replaced char, not one past it. p then pastes
+        # after that char, not into the next line or past the buffer end.
+        self.run_test_screen(
+            "5rZ past line end: cursor on last replaced char",
+            "abc\ndef\n",
+            b"5rZ:q!\r",
+            expect_lines=[(0, "ZZZ"), (1, "def")],
+            expect_cursor=(0, 2)
+        )
+
+        self.run_test(
+            "x5rzp: p pastes after last replaced char",
+            "abc\ndef\n",
+            b"x5rzp:wq\r",
+            expected_content="zza\ndef\n"
+        )
+
+        self.run_test(
+            "x5rzp on last line: p pastes after last replaced",
+            "abc\n",
+            b"x5rzp:wq\r",
+            expected_content="zza\n"
+        )
+
+        self.run_test(
+            "l5rz then x deletes the last replaced char",
+            "abcd\nxy\n",
+            b"l5rzx:wq\r",
+            expected_content="azz\nxy\n"
+        )
+
         self.run_test(
             "r on empty line does nothing",
             "\n",

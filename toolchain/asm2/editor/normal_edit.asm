@@ -632,7 +632,9 @@ do_replace_char:
   LDA BUF_TEMP
   STA UNDO_REPL_CHAR     ; replacement char (for redo)
 .replace_no_undo:
-  JMP clear_count
+  ; A count past the line end stepped the cursor one past the last
+  ; replaced char: clamp it back onto that char
+  JMP clamp_and_clear_count
 
 ; --- Change line (cc, and S, which dispatches here too) ---
 ; Yank line(s), replace them with one empty line, enter insert at col 0.
