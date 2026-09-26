@@ -301,10 +301,17 @@ class EditorTestRunner:
         self._pass(name)
 
     def run_test_new_file(self, name: str, keys: bytes,
-                          expected_content: str = None, expect_exit: int = 0):
-        """Run an editor test on a file that does not exist yet."""
+                          expected_content: str = None, expect_exit: int = 0,
+                          edit_name: str = "newfile.txt",
+                          expect_ansi_contains: str = None):
+        """Run an editor test on a file that does not exist yet.
+
+        edit_name is relative to the test directory; a name in a missing
+        directory cannot be created, which exercises write failures.
+        expect_ansi_contains: substring to find in the raw ANSI output.
+        """
         tmpdir = self.tmpdir
-        edit_file = tmpdir / "newfile.txt"
+        edit_file = tmpdir / edit_name
         # Ensure file does not exist
         if edit_file.exists():
             edit_file.unlink()
@@ -331,6 +338,12 @@ class EditorTestRunner:
                     f"  Expected: {expected_content!r}\n"
                     f"  Actual:   {saved!r}")
                 return
+
+        if (expect_ansi_contains is not None
+                and expect_ansi_contains not in ansi):
+            self._fail(name,
+                f"Raw ANSI output does not contain {expect_ansi_contains!r}")
+            return
 
         self._pass(name)
 
