@@ -585,6 +585,24 @@ apply_char_operator:
 
 ; --- Shared batched character delete (for x and X commands) ---
 
+; Compute forward character range from cursor
+; Input: X = char count (8-bit), LINE_LEN16 = line length (from check_cursor_in_line)
+; Output: BUF_LEN16 = min(X, available chars on line), carry set if nothing
+; Clobbers: A
+compute_char_range_forward:
+  ; BUF_LEN16 = available = LINE_LEN16 - CURSOR_COL16
+  SEC
+  SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
+  BNE .use_x                 ; Available > 255 > X
+  CPX BUF_LEN16
+  BCS .done                  ; X >= available: keep available
+.use_x:
+  STX BUF_LEN16
+  LDA #0
+  STA BUF_LEN16 + 1
+.done:
+  JMP range_epilogue
+
 ; Batched character delete for x (batched_char_delete) and X
 ; (batched_char_delete_back, cursor already moved to the range start).
 ; When batched, the register gets what the last key press deleted: the

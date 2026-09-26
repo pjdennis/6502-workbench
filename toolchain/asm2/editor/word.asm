@@ -293,25 +293,6 @@ word_end_x:
   JMP .e_found_nonws
 
 
-; Compute forward character range from cursor
-; Input: X = char count (8-bit), LINE_LEN16 = line length (from check_cursor_in_line)
-; Output: BUF_LEN16 = min(X, available chars on line), carry set if nothing
-; Clobbers: A
-compute_char_range_forward:
-  STX BUF_LEN16
-  LDA #0
-  STA BUF_LEN16 + 1
-  ; available = LINE_LEN16 - CURSOR_COL16
-  SEC
-  SBC16 LINE_LEN16, CURSOR_COL16, BUF_DST16
-  CMP16 BUF_LEN16, BUF_DST16
-  BCC .ok
-  BEQ .ok
-  CP16 BUF_DST16, BUF_LEN16     ; Clamp to available
-.ok:
-  JMP range_epilogue
-
-
 ; --- Multi-line range computation routines ---
 
 ; Compute forward word range (multi-line) for dw/yw
