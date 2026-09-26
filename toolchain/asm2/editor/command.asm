@@ -16,91 +16,14 @@ CMD_QUIT:    .byte     ; Set to $FF when editor should quit
 
   .code
 
-; Enter command mode - show prompt and read command
+; Enter command mode: read a command line and execute it
 command_handle:
-  LDA #0
-  STA CMD_IDX
-
-  ; Show ':' prompt on last line
-  JSR command_show_prompt
-
-.read_loop:
-  JSR get_key
-  STA BUF_TEMP
-
-  LDA #<command_keys
-  LDX #>command_keys
-  JSR dispatch_key
-  BCC .check_done
-
-  ; No match - printable character?
-  LDA BUF_TEMP
-  CMP #' '
-  BCC .read_loop
-  CMP #$7F
-  BCS .read_loop
-
-  ; Add to buffer
-  LDX CMD_IDX
-  CPX #CMD_BUF_LEN
-  BCS .read_loop  ; Buffer full
-  STA CMD_BUF,X
-  INC CMD_IDX
-
-  ; Echo character
-  JSR io_write
-  JSR io_flush
-  JMP .read_loop
-
-.check_done:
-  LDA MODE
-  CMP #MODE_COMMAND
-  BNE .done
-  LDA CMD_QUIT
-  BNE .done
-  JMP .read_loop
-.done:
-  RTS
-
-; --- Command input dispatch table ---
-command_keys:
-  .byte KEY_ESC     .word cmd_cancel
-  .byte KEY_ENTER   .word cmd_execute
-  .byte KEY_BS      .word cmd_backspace  ; ($7F arrives as KEY_BS)
-  .byte 0           ; End sentinel
-
-cmd_cancel:
   LDA #MODE_NORMAL
-  STA MODE
-  RTS
-
-cmd_execute:
-  ; Null-terminate the command
-  LDX CMD_IDX
-  LDA #0
-  STA CMD_BUF,X
-
-  ; Parse and execute
-  JSR command_parse
-
-  ; Return to normal mode (unless quitting)
-  LDA CMD_QUIT
-  BNE .stay
-  LDA #MODE_NORMAL
-  STA MODE
-.stay:
-  RTS
-
-cmd_backspace:
-  LDA CMD_IDX
-  BEQ cmd_cancel     ; Nothing to delete, cancel
-  DEC CMD_IDX
-  JMP erase_char
-
-; Show the ':' prompt on the status line
-command_show_prompt:
+  STA MODE                 ; Normal mode afterwards (a quit exits first)
   LDA #':'
-  JMP show_prompt
+  JSR read_line
+  BCS cmd_ret              ; Cancelled
+  ; fall through
 
 ; Parse and execute the command in CMD_BUF
 command_parse:
@@ -109,7 +32,7 @@ command_parse:
   LDA #<command_parse_keys
   LDX #>command_parse_keys
   JSR dispatch_key
-  BCC .done
+  BCC cmd_ret
 
   ; Try named commands (full string match from CMD_BUF[0])
   SET16 str_marks_cmd, STR_PTR16
@@ -131,7 +54,55 @@ command_parse:
 .unknown:
   JMP cmd_unknown
 
-.done:
+cmd_ret:
+  RTS
+
+; Show the ':' prompt on the status line
+command_show_prompt:
+  LDA #':'
+  JMP show_prompt
+
+; Read a line on the status line into CMD_BUF
+; Input: A = prompt character
+; Returns: carry clear on Enter: CMD_BUF null-terminated, X = length
+;          carry set on ESC, or on backspace with nothing left to delete
+; Only printable characters ($20-$7E) are stored, up to CMD_BUF_LEN.
+; X holds the length throughout: get_key, erase_char, io_write and
+; io_flush preserve it.
+; Clobbers: A, X, Y
+read_line:
+  JSR show_prompt
+  LDX #0
+.loop:
+  JSR get_key              ; ($7F arrives as KEY_BS)
+  CMP #KEY_ENTER
+  BEQ .enter
+  CMP #KEY_ESC
+  BEQ .ret                 ; Cancel (carry set by the equal compare)
+  CMP #KEY_BS
+  BNE .char
+  TXA
+  BEQ .ret                 ; Nothing to delete: cancel (carry still set)
+  DEX
+  JSR erase_char
+  JMP .loop
+.char:
+  CMP #' '
+  BCC .loop                ; Ignore control characters...
+  CMP #$7F
+  BCS .loop                ; ...and special keys ($80+)
+  CPX #CMD_BUF_LEN
+  BCS .loop                ; Buffer full
+  STA CMD_BUF,X
+  INX
+  JSR io_write             ; Echo
+  JSR io_flush
+  JMP .loop
+.enter:
+  LDA #0
+  STA CMD_BUF,X            ; Null-terminate
+  CLC
+.ret:
   RTS
 
 ; --- Command parse dispatch table ---
