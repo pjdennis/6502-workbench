@@ -16585,6 +16585,39 @@ class EditorTestRunner:
             expected_content="A\n\nB\n"
         )
 
+        # Only a delete that emptied the buffer leaves a synthetic newline
+        # for undo to remove; a real empty line left as the only line stays
+        for name, content, keys, expected in [
+            ("dd undo of empty last line", "abc\n\n", b"jddu:wq\r", "abc\n\n"),
+            ("dd undo of empty last line then edit", "abc\n\n",
+             b"jdduggx:wq\r", "bc\n\n"),
+            ("dd undo of empty last line then redo", "abc\n\n",
+             b"jddu u:wq\r", "abc\n"),
+            ("dd undo keeps remaining empty line", "abc\n\n", b"ddu:wq\r",
+             "abc\n\n"),
+            ("dd undo of last line after empty line", "\nb\n", b"jddu:wq\r",
+             "\nb\n"),
+            ("dd undo of first of two empty lines", "\n\n", b"ddu:wq\r",
+             "\n\n"),
+            ("2dd undo of empty and last line", "abc\n\ndef\n", b"j2ddu:wq\r",
+             "abc\n\ndef\n"),
+            ("2dd undo keeps remaining empty line", "abc\ndef\n\n",
+             b"2ddu:wq\r", "abc\ndef\n\n"),
+            ("batched dd undo of last line after empty line", "abc\n\ndef\n",
+             b"jddddu:wq\r", "abc\ndef\n"),
+            ("5dd undo of empty lines to end of file",
+             "abc\n\ndef\n\n\nghi\n", b"j5ddu:wq\r", "abc\n\ndef\n\n\nghi\n"),
+            ("dd undo of whole buffer", "abc\n", b"ddu:wq\r", "abc\n"),
+            ("2dd undo of whole buffer", "abc\n\n", b"2ddu:wq\r", "abc\n\n"),
+            ("2dd undo redo undo of whole buffer", "abc\n\n",
+             b"2ddu u u:wq\r", "abc\n\n"),
+            (":d undo of empty last line", "abc\n\n", b":2d\ru:wq\r",
+             "abc\n\n"),
+            (":d undo of whole buffer", "abc\n\n", b":1,2d\ru:wq\r",
+             "abc\n\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
         # BS on only empty line in file: no-op (can't join, can't delete)
         self.run_test_screen(
             "BS on only empty line in file is no-op",

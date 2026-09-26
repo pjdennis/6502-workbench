@@ -31,8 +31,9 @@
 ; The record fields are shared.  What each type keeps in them (UNDO_
 ; prefix dropped, - = unused):
 ;   type          LINE16           COL16          JOIN_COUNT   PASTE_COUNT16
-;   1 dd, 3 cc    first line       -              -            -
+;   1 dd, :d      first line       -              emptied      -
 ;   2 x, d, c     cursor line      cursor column  -            -
+;   3 cc          first line       -              -            -
 ;   4 p lines     line above copy  cursor column  -            copies
 ;   5 P lines     first line       cursor column  -            copies
 ;   6/7 p/P chars cursor line      insert column  -            copies
@@ -68,6 +69,7 @@ JOIN_UNDO_MAX = 128       ; 256 / 2 bytes per entry
 
 ; (zero-page variables: zp.asm)
 ; Per-type names for the shared record fields (zero-cost aliases)
+UNDO_EMPTIED       = UNDO_JOIN_COUNT     ; dd: bit 7 = it emptied the buffer
 UNDO_SPAN_LEN      = UNDO_JOIN_COUNT     ; ~ r: chars in the span
 UNDO_WIDTH         = UNDO_JOIN_COUNT     ; >> <<: width of the last op
 UNDO_RANGE_LINES16 = UNDO_PASTE_COUNT16  ; >> <<: lines in the range (> 255: not undoable)

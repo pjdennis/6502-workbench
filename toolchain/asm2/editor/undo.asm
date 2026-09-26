@@ -17,9 +17,18 @@ undo_record_char_delete:
   BNE undo_rec_set           ; Always (UNDO_CHAR != 0)
 
 ; Record a line-delete for undo
-; Call after yank succeeds, before delete.
-; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores)
+; Call after yank succeeds, before delete, with BUF_TEMP16 = the line
+; count (at most the lines left).
+; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores),
+; UNDO_EMPTIED bit 7 = the delete empties the buffer
 undo_record_line_delete:
+  ; The count reaches LINE_COUNT16 only from line 0: every line goes, and
+  ; buf_delete_lines leaves a synthetic empty line that undo must remove
+  LDA BUF_TEMP16
+  CMP LINE_COUNT16
+  LDA BUF_TEMP16 + 1
+  SBC LINE_COUNT16 + 1
+  ROR UNDO_EMPTIED           ; Bit 7 = C = count >= LINE_COUNT16
   LDA #UNDO_LINE
 undo_rec_set:
   STA UNDO_TYPE
@@ -104,14 +113,10 @@ undo_handle:
 .undo_line:
   ; Restore FILE_LINE16 to saved position
   JSR undo_restore_line
-  ; If file has single empty line (synthetic from dd on all lines), remove it
-  ; so paste doesn't leave an extra blank line
-  CMPI16 LINE_COUNT16, 1
-  BNE .undo_line_paste
-  JSR get_current_line_len    ; A = low, X = high
-  BNE .undo_line_paste
-  CPX #0
-  BNE .undo_line_paste
+  ; If the delete emptied the buffer, remove the synthetic empty line it
+  ; left, so the paste doesn't leave an extra blank line
+  BIT UNDO_EMPTIED
+  BPL .undo_line_paste
   SET16 TEXT_BUF, BUF_END16   ; Remove synthetic newline
   DEC LINE_COUNT16            ; and its line (1 -> 0), which the paste's
                               ; line check must not count
