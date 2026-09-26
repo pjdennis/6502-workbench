@@ -2149,6 +2149,14 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
+        # ...including when it ends in a ':' or '/' prompt or in the
+        # middle of an escape sequence (loops that wait for more input)
+        for where, keys in (("a : prompt", b"x:q"), ("a / prompt", b"/ell"),
+                            ("an escape sequence", b"x\x1b[1")):
+            self.run_test_console_live(
+                f"Console mode exits at end of input in {where}",
+                "Hello\n", keys, expected_content="Hello\n")
+
         self._group("New file creation:", leading_blank=True)
 
         # Edit a non-existent file creates it on save

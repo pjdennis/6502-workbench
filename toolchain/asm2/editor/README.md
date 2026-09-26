@@ -121,7 +121,8 @@ project's 6502 emulator in console/ANSI mode.
        below scrolled if its row count changed), or range redraw (`$0B`).
      - Nothing changed → status bar + cursor repositioning only.
    - Console build: the editor exits when input ends (`con_ready` returns
-     `CON_EOF`), so scripted and test runs need no `:q`.
+     `CON_EOF`): when idle, and in `get_key`, so also in a `:` or `/`
+     prompt. Scripted and test runs need no `:q`.
 
 ## Data model & invariants
 

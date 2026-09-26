@@ -85,14 +85,9 @@ read_key:
   BEQ .esc
   CMP #$7F
   BCC .done               ; Other ASCII: the key itself
-  BEQ .del_bs
   ; Skip non-ASCII bytes (>= $80): UTF-8 multi-byte sequences
   ; would collide with the KEY_* codes
-.noop:
-  LDA #$00         ; Harmless: no dispatch match, not printable (< $20)
-.done:
-  RTS
-.del_bs:
+  BNE .noop
   LDA #KEY_BS
   RTS
 .esc:
@@ -146,13 +141,19 @@ read_key:
 
 ; Unknown CSI sequence: A = last byte read.  CSI final bytes are >= $40
 ; ('@'-'~'); parameter/intermediate bytes are < $40.  Drain through the
-; final byte, then return no-op.
+; final byte, or a $00 (what the console build reads at end of input),
+; then return no-op.
 .eat_loop:
   JSR input_read_byte
 .eat:
+  TAX
+  BEQ .done               ; $00: no-op
   CMP #$40
   BCC .eat_loop
-  BCS .noop               ; Always taken
+.noop:
+  LDA #$00         ; Harmless: no dispatch match, not printable (< $20)
+.done:
+  RTS
 
 .not_csi:
   ; ESC O P..S are F1-F4 (SS3) on some terminals: no-op. Anything else
@@ -209,12 +210,17 @@ flush_get_key:
   ; fall through
 
 ; Read one decoded key (blocking). Returns key code in A. Preserves X, Y.
+; The console build exits instead if the read hit end of input, so no
+; loop that waits for a key (a ':' or '/' prompt) spins forever
 get_key:
   LDA HAS_KEY_DECODED
   BNE .have
   JSR decode_key
 .have:
   INC HAS_KEY_DECODED     ; Consume it ($FF -> $00)
+  .ifndef terminal_mode
+  JSR exit_at_eof
+  .endif
   LDA KEY_DECODED
   RTS
 

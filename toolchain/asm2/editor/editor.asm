@@ -162,9 +162,7 @@ main_loop:
 
   ; No input - exit if input has ended (console build only)
   .ifndef terminal_mode
-  JSR io_ready
-  CMP #CON_EOF
-  BEQ .editor_exit
+  JSR exit_at_eof
   .endif
   JMP main_loop
 
@@ -172,17 +170,8 @@ main_loop:
   JSR file_line_rows
   STA PREV_LINE_ROWS
   JSR render_snapshot
-  ; Read a key
+  ; Read a key (the console build exits if the read hit end of input)
   JSR get_key
-
-  ; Exit if the read hit end of input (console build only)
-  .ifndef terminal_mode
-  TAX
-  JSR io_ready             ; preserves X
-  CMP #CON_EOF
-  BEQ .editor_exit
-  TXA
-  .endif
 
   ; Dispatch based on mode
   LDX MODE
@@ -199,7 +188,7 @@ main_loop:
 .after_key:
   ; Check if we should quit
   LDA CMD_QUIT
-  BNE .editor_exit
+  BNE editor_exit
 
   ; Ensure cursor is on screen (may scroll viewport)
   JSR ensure_cursor_visible
@@ -209,7 +198,16 @@ main_loop:
 
   JMP main_loop
 
-.editor_exit:
+  .ifndef terminal_mode
+; Exit if console input has ended, else return. Preserves X, Y
+exit_at_eof:
+  JSR io_ready
+  CMP #CON_EOF
+  BEQ editor_exit
+  RTS
+  .endif
+
+editor_exit:
   ; Reset scroll region and clear screen before exit
   JSR ansi_reset_scroll_region
   JSR ansi_clear_screen
