@@ -1,10 +1,11 @@
 ; Mark storage and operations
 ;
 ; Stores line-oriented marks (a-z) as 16-bit line numbers.
-; Marks are stored in MARK_TBL at $DF20 (52 bytes: 26 entries x 2 bytes).
-; MARK_UNSET ($FFFF) indicates an unset mark. A mark is unset iff its high
-; byte has bit 7 set: set marks are line numbers, which stay far below $8000
-; (LINE_TBL at $D800 runs out long before that).
+; Marks are stored in MARK_TBL at $D620 (52 bytes: 26 entries x 2 bytes).
+; mark_init sets every entry to MARK_UNSET ($FFFF). A mark is unset iff its
+; high byte has bit 7 set: set marks are line numbers, which stay far below
+; $8000 (LINE_TBL at $D800 runs out long before that), and mark_adjust
+; unsets a mark by storing $FF in its high byte only.
 
 MARK_TBL   = $D620    ; 26 entries x 2 bytes = 52 bytes
 MARK_UNSET = $FFFF
@@ -16,7 +17,7 @@ MARK_DELTA16: .word
 ; Initialize all 26 marks to MARK_UNSET ($FFFF)
 mark_init:
   LDX #51              ; 26*2 - 1
-  LDA #$FF
+  LDA #<MARK_UNSET     ; (both bytes are $FF)
 .loop:
   STA MARK_TBL,X
   DEX

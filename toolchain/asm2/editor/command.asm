@@ -6,6 +6,11 @@
 ;   :wq      - save and quit
 ;   :q!      - quit without saving
 ;   :NNN     - go to line NNN
+;   :marks   - list the set marks
+;   :[range]d / y / > / <  - delete, yank, indent, unindent lines, where
+;              range is one position or two separated by ',' and a
+;              position is NNN, . or 'x (mark); bare :> and :< shift the
+;              current line
 
 CMD_BUF     = $0300   ; Command buffer (256 bytes)
 CMD_BUF_LEN = $00FF   ; Max command length

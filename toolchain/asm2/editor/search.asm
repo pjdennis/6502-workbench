@@ -1,11 +1,12 @@
 ; Search mode handler
 ;
-; Handles '/' command for forward search in the text buffer.
-; Pattern is stored in SEARCH_BUF for reuse with 'n' command.
+; Handles '/' (forward) and '?' (backward) literal search in the text
+; buffer. The pattern is stored in SEARCH_BUF (length SEARCH_LEN) for reuse
+; by 'n' / 'N' and by an empty '/' or '?'.
 ;
 ; Memory layout:
-;   SEARCH_BUF   ($DF54) - Search pattern buffer (after MARK_TBL)
-;   SEARCH_LIMIT ($E000) - One past last byte of search buffer
+;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL)
+;   SEARCH_LIMIT ($D700) - One past last byte of search buffer
 ;   SEARCH_MAX   (172)   - Maximum pattern length (SEARCH_LIMIT - SEARCH_BUF)
 
 SEARCH_BUF   = $D654

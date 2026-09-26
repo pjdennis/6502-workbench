@@ -155,7 +155,8 @@ NORMAL MODE - MARKS
   'a             Jump to mark 'a' (cursor goes to column 0)
 
   Marks are automatically adjusted when lines are inserted or
-  deleted. Marks within a deleted range are cleared.
+  deleted. Marks within a deleted range are cleared (this includes
+  lines replaced with cc or S).
 
 
 NORMAL MODE - COUNT PREFIX
@@ -175,7 +176,8 @@ NORMAL MODE - COUNT PREFIX
     2dw            Delete 2 words forward
     3de            Delete to end of 3rd word
 
-  Counts are capped at 1000. ESC clears an active count.
+  Digits typed once a count has reached 1000 are ignored, so the
+  largest count is 9999. ESC clears an active count.
   0 alone moves to line start; it does not start a count.
 
 
@@ -242,7 +244,8 @@ COMMAND-LINE MODE
     :>             Indent current line
     :5>            Indent line 5
 
-  If start > end, the range is automatically swapped.
+  If start > end, the range is automatically swapped. Line numbers
+  past the end of the file mean the last line.
 
   ESC cancels command input. Backspace edits the command;
   backspacing past the start cancels.
@@ -282,4 +285,4 @@ DISPLAY
   Lines past end of file are shown as ~ (tilde).
   Non-ASCII bytes (high bit set) are shown as ? in reverse video.
   Tab characters are shown as > in reverse video.
-  Other control characters are shown as . in reverse video.
+  Other control characters are shown as ? in reverse video.

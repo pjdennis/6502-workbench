@@ -103,7 +103,7 @@ This is arguably more sophisticated than vi's approach for the specific constrai
 
 **Vi**: 26 named marks stored as `line` pointers (references into temp file). `'a` jumps to the marked line.
 
-**Our editor**: 26 marks stored as 16-bit line numbers at `MARK_TBL` ($DF20). **Auto-adjustment** on bulk operations: marks shift when lines are inserted/deleted, and marks within deleted ranges are cleared. Vi doesn't auto-adjust marks — they become stale if the referenced line is deleted.
+**Our editor**: 26 marks stored as 16-bit line numbers at `MARK_TBL` ($D620). **Auto-adjustment** on bulk operations: marks shift when lines are inserted/deleted, and marks within deleted ranges are cleared. Vi doesn't auto-adjust marks — they become stale if the referenced line is deleted.
 
 Our mark adjustment is actually more robust than vi's.
 
