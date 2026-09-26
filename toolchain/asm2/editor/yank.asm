@@ -197,17 +197,19 @@ yank_paste_setup:
   CLC
   RTS
 
+; Show "Buffer full" and return carry set (a paste that did not fit)
+paste_full:
+  JSR show_buffer_full_msg
+  SEC
+  RTS
+
 ; Shift right, copy yank buffer N times into gap, rebuild lines
 ; Input: BUF_PTR16 = insertion point, BUF_LEN16 = total size, BUF_TEMP16 = count (16-bit)
 ; Returns carry set = buffer full, carry clear = success
 yank_paste_core:
   ; Shift right to make room
   JSR buf_shift_right_16
-  BCC .shift_ok
-  JSR show_buffer_full_msg
-  SEC
-  RTS
-.shift_ok:
+  BCS paste_full
 
   ; Copy yank buffer into gap N times using mem_copy_down
   ; BUF_PTR16 = insertion point (gap start)
