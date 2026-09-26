@@ -181,14 +181,14 @@ render_status_line:
   ORA COUNT16 + 1
   BNE .has_count
   LDA LAST_KEY
-  BNE .has_pending_no_count
-  JMP .no_prefix_display
+  BEQ .no_prefix_display
+  BNE .has_key                  ; Always taken (A = LAST_KEY)
 .has_count:
   CP16 COUNT16, TO_DECIMAL_VALUE16
   JSR print_decimal
-.has_pending_no_count:
   LDA LAST_KEY
   BEQ .done_prefix
+.has_key:
   JSR io_write
 .done_prefix:
   JSR print_separator
@@ -278,14 +278,11 @@ render_rows_resized:
   BEQ .same_rows
   BCC .rows_decreased
   ; --- Rows increased: scroll the rows below the old line end down ---
-  SEC
-  SBC PREV_LINE_ROWS
+  SBC PREV_LINE_ROWS            ; C=1 from the compare
   STA SCROLL_DELTA
   LDA RENDER_ROW
-  CLC
+  SEC                           ; +1: 1-based
   ADC PREV_LINE_ROWS
-  CLC
-  ADC #1                        ; 1-based
   LDX #'T'                      ; scroll down
   JSR scroll_region_from_a
 .same_rows:
@@ -300,10 +297,8 @@ render_rows_resized:
   STA SCROLL_DELTA
   PHA                           ; displacement, for the exposed bottom rows
   LDA RENDER_ROW
-  CLC
+  SEC                           ; +1: 1-based
   ADC CUR_LINE_ROWS
-  CLC
-  ADC #1                        ; 1-based
   LDX #'S'                        ; scroll up
   JSR scroll_region_from_a
   JSR render_line_from_change
@@ -339,11 +334,9 @@ render_line_from_change:
   BCS .done                    ; change row is at or below the status bar
   ; ICH/DCH hint: shift the line's rows instead of rewriting them (rows
   ; opened by the caller's scroll are blank and just get written)
-  LDA SHIFT_WRITE
-  CMP #$FF
-  BEQ .no_shift
-  JMP render_line_shift
-.no_shift:
+  LDX SHIFT_WRITE
+  INX
+  BNE render_line_shift        ; $FF = no hint
   LDA WRAP_REM
   BEQ .full_rows
   JSR render_partial_first_row
@@ -365,23 +358,25 @@ render_line_from_change:
 render_line_shift:
   ; SHIFT_REM16 = line length from the row start (row start = c0 - WRAP_REM)
   JSR get_current_line_len
+  CLC
+  ADC WRAP_REM
+  BCC .no_carry
+  INX
+.no_carry:
   SEC
   SBC RENDER_FROM_COL16
   STA SHIFT_REM16
   TXA
   SBC RENDER_FROM_COL16 + 1
   STA SHIFT_REM16 + 1
-  LDA WRAP_REM
-  CLC
-  ADCA16 SHIFT_REM16, SHIFT_REM16
   ; SHIFT_IEND16 = end of the new cells, from the row start
   LDA WRAP_REM
+  CLC
+  ADC SHIFT_WRITE
   STA SHIFT_IEND16
   LDA #0
+  ROL
   STA SHIFT_IEND16 + 1
-  LDA SHIFT_WRITE
-  CLC
-  ADCA16 SHIFT_IEND16, SHIFT_IEND16
 .row:
   JSR shift_row
   DEC SCROLL_DELTA
@@ -419,16 +414,13 @@ shift_row:
 .row_end_ok:
   STA ROW_END
   ; ROW_WEND = SHIFT_IEND16 clamped to 0..255: end of the new cells
-  LDA SHIFT_IEND16 + 1
-  BMI .iend_neg
-  BEQ .iend_low
-  LDA #$FF
-  BNE .iend_ok                 ; Always taken
-.iend_neg:
-  LDA #0
-  BEQ .iend_ok                 ; Always taken
-.iend_low:
   LDA SHIFT_IEND16
+  LDX SHIFT_IEND16 + 1
+  BEQ .iend_ok
+  TXA
+  ASL                          ; C = sign
+  LDA #$FF
+  ADC #0                       ; $FF if above 255, 0 if negative
 .iend_ok:
   STA ROW_WEND
   ; Inserting: the first net cells from WRAP_REM are carried in too
@@ -457,10 +449,8 @@ shift_row:
   LDA SHIFT_NET
   BMI .delete
   BEQ .write_new               ; net 0: only the new cells change
-  CPX #0
-  BEQ .write_new               ; nothing after the new cells
   CPX #5
-  BCC .write_rest              ; short tail: resending beats ICH
+  BCC .write_rest              ; short (or no) tail: resending beats ICH
   JSR move_to_partial_pos
   LDA SHIFT_NET
   JSR ansi_insert_chars
@@ -517,28 +507,20 @@ shift_row:
   LDA RENDER_STOP
   PHA                          ; TS
   JSR move_to_partial_pos
-  LDA SHIFT_NET
-  EOR #$FF
-  CLC
-  ADC #1                       ; d
+  LDA #0
+  SEC
+  SBC SHIFT_NET                ; d
   JSR ansi_delete_chars
   JSR write_row_cells          ; the new cells, from the cursor at WRAP_REM
   PLA
   STA WRAP_REM                 ; tail start (row done with WRAP_REM)
   PLA
-  BEQ .dch_done
-  LDA ROW_END
-  STA ROW_WEND
-  JSR move_to_partial_pos
-  JMP write_row_cells
+  BNE .write_rest              ; the tail, pulled up from the next row
 .dch_done:
   RTS
 .rewrite:
   ; Resend the row from WRAP_REM, clearing the rest if it is not full
-  LDA ROW_END
-  STA ROW_WEND
-  JSR move_to_partial_pos
-  JSR write_row_cells
+  JSR .write_rest
   LDA ROW_END
   CMP SCREEN_COLS
   BCS .dch_done
@@ -548,28 +530,14 @@ shift_row:
 ; current cursor position (nothing if the range is empty)
 ; Clobbers: A, Y, RENDER_COL, RENDER_STOP
 write_row_cells:
-  LDA ROW_WEND
-  CMP WRAP_REM
-  BEQ .none
-  BCC .none
   LDA WRAP_REM
+  CMP ROW_WEND
+  BCS .none
   STA RENDER_COL
   LDA ROW_WEND
   STA RENDER_STOP
   JMP render_line_chars_to
 .none:
-  RTS
-
-; Advance BUF_PTR16 by SCREEN_COLS (one wrap row)
-; Clobbers A. Preserves X, Y
-buf_add_cols:
-  CLC
-  LDA BUF_PTR16
-  ADC SCREEN_COLS
-  STA BUF_PTR16
-  LDA BUF_PTR16 + 1
-  ADC #0
-  STA BUF_PTR16 + 1
   RTS
 
 ; Advance BUF_PTR16 by X * SCREEN_COLS (X wrap rows; X may be 0)
@@ -578,7 +546,13 @@ buf_ptr_advance_x:
   CPX #0
   BEQ .done
 .loop:
-  JSR buf_add_cols
+  CLC
+  LDA BUF_PTR16
+  ADC SCREEN_COLS
+  STA BUF_PTR16
+  BCC .no_carry
+  INC BUF_PTR16 + 1
+.no_carry:
   DEX
   BNE .loop
 .done:
