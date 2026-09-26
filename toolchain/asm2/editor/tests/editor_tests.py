@@ -13815,6 +13815,80 @@ class EditorTestRunner:
             expect_content_rows=[(4, {8})]
         )
 
+        # Line-delete undos ($07) scroll by the removed lines' own screen
+        # rows, not by a SCROLL_DELTA an earlier frame left behind: 8j8kk
+        # scrolls the view down a row and back, ^D^U, Ggg and ^F^B leave
+        # other values, and batched PP or PPP the rows of every paste
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
+        for keys, lines, cursor in (
+                (b"yy3p8j8kku", lines_1_9, (0, 0)),
+                (b"yy3P\x04\x15u", lines_1_9, (0, 0)),
+                (b"yy3pGggu", lines_1_9, (0, 0)),
+                (b"jO\x1bGggu", lines_1_9, (1, 0)),
+                (b"yyjPPu", lines_1_9[:1] + [(r, f"Line {r}")
+                                             for r in range(1, 9)], (1, 0)),
+                (b"jjjyyPPPu", lines_1_9[:4] + [(4, "Line 4"), (5, "Line 4"),
+                                                (6, "Line 5")], (3, 0)),
+                (b"yy8jPu", lines_1_9, (8, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} scrolls the removed rows",
+                make_lines(30),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
+        wrapped_4 = ("Line 1\nLine 2\nLine 3\n" + "W" * 100 + "\n"
+                     + make_lines(30)[28:])
+        for keys in (b"jjjyyp\x06\x02u", b"jjjyyP\x06\x02u"):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} scrolls the removed wrapped rows",
+                wrapped_4,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines_1_9[:3] + [
+                    (3, "W" * 40), (4, "W" * 40), (5, "W" * 20),
+                    (6, "Line 5"), (7, "Line 6"), (8, "Line 7")],
+                expect_cursor=(3, 0),
+            )
+        wrapped_45 = "".join(f"Line {i} " + "x" * 45 + "\n"
+                             for i in range(1, 31))
+        for keys, cursor in ((b"yy3pu", (0, 0)), (b"jjyypu", (4, 0)),
+                             (b"jj3yyPu", (4, 0)),
+                             (b"yy3p8j8kku", (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} of wrapped lines scrolls their rows",
+                wrapped_45,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=[(r, f"Line {r // 2 + 1} " + "x" * 33
+                               if r % 2 == 0 else "x" * 12)
+                              for r in range(9)],
+                expect_cursor=cursor,
+            )
+        # $07 draws no cursor row: when the removed rows fill the scroll
+        # region, every exposed row is drawn, from the cursor line's first
+        # row when the cursor is back on a wrap row
+        for keys, cursor in ((b"yy9Pu", (0, 0)), (b"jjjyy6Pu", (3, 0)),
+                             (b"yy20pu", (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} redraws a fully scrolled region",
+                make_lines(30),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines_1_9,
+                expect_cursor=cursor,
+            )
+        self.run_test_screen(
+            "Scroll opt: P undo onto a wrap row redraws the region",
+            "A" * 60 + "\n" + make_lines(29),
+            b"$yy5Pu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "A" * 40), (1, "A" * 20)]
+                         + [(r, f"Line {r - 1}") for r in range(2, 9)],
+            expect_cursor=(1, 19),
+        )
+
         self._group("Minimal repaint: undo/redo:", leading_blank=True)
 
         # --- Line-count-changing operations: undo/redo need scroll ---

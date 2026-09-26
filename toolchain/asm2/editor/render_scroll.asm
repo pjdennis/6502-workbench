@@ -524,16 +524,20 @@ line_screen_rows:
 
 ; Pre-compute screen rows of lines for line-delete scroll.
 ; Entries: _temp16 walks BUF_TEMP16 lines from the cursor line (0 rows if
-; > 255); _join walks the cursor line plus the A lines after it; _at_cursor
-; walks A lines from the cursor line; the base entry walks A lines from
-; RENDER_LINE16.
+; > 255), at most SCREEN_ROWS of them: each takes a row, so they already
+; fill any scroll region; _join walks the cursor line plus the A lines
+; after it; _at_cursor walks A lines from the cursor line; the base entry
+; walks A lines from RENDER_LINE16.
 ; Output: DELETE_SCREEN_ROWS set (0 on overflow = fall back to file delta)
 ; Clobbers: A, X, Y, RENDER_LIMIT, RENDER_LINE16, BUF_PTR16, DIV_INPUT16
 compute_delete_rows_temp16:
   LDA BUF_TEMP16
   LDX BUF_TEMP16 + 1
   BNE cdsr_overflow            ; > 255 lines
-  BEQ compute_delete_rows_at_cursor  ; Always taken
+  CMP SCREEN_ROWS
+  BCC compute_delete_rows_at_cursor
+  LDA SCREEN_ROWS
+  BCS compute_delete_rows_at_cursor  ; Always taken
 compute_delete_rows_join:
   CLC
   ADC #1                       ; + the cursor line

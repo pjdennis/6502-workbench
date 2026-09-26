@@ -184,17 +184,9 @@ undo_handle:
 .redo_line:
   ; Restore FILE_LINE16, and the yank's line count: the lines to delete
   JSR undo_restore_lines
-  ; Pre-compute screen rows for line-delete scroll
-  JSR compute_delete_rows_temp16
-  JSR delete_current_lines
-  ; Save pre-computed screen rows as SCROLL_DELTA before clearing
-  ; (accounts for wrapped lines: file delta = 1 line, but screen delta = 2+ rows)
-  LDA DELETE_SCREEN_ROWS
-  STA SCROLL_DELTA
+  JSR undo_delete_lines_scroll
   ; Set flags
   JSR undo_set_redone_flags
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; Scroll starts at cursor row (cursor filled by scroll)
   LDA #RF_DEL_BELOW
   STA RENDER_FLAG            ; Line-delete scroll, skip cursor repaint
   JSR clamp_cursor_col
@@ -301,7 +293,7 @@ undo_paste_undo:
 .undo_line_paste:
   ; BUF_TEMP16 = YANK_LINES16 * UNDO_PASTE_COUNT16
   JSR undo_compute_paste_lines
-  JSR delete_current_lines
+  JSR undo_delete_lines_scroll
   ; Restore cursor
   JSR undo_restore_line_col
   JSR clamp_cursor_col
@@ -415,9 +407,7 @@ undo_open_undo:
   ; Delete the opened line
   JSR undo_restore_line
   JSR set_buf_temp16_one
-  LDA #0
-  STA DELETE_SCREEN_ROWS     ; Cursor row filled by scroll
-  JSR delete_current_lines
+  JSR undo_delete_lines_scroll  ; Cursor row filled by scroll
   ; Restore cursor to the original line (saved in UNDO_COL16), col 0
   CP16 UNDO_COL16, FILE_LINE16
   ; Set flags
@@ -553,6 +543,21 @@ undo_restore_line_col:
 undo_restore_col:
   CP16 UNDO_COL16, CURSOR_COL16
   RTS
+
+; Delete BUF_TEMP16 lines at FILE_LINE16 for the $07 line-delete scroll:
+; SCROLL_DELTA = their screen rows ($FF when over 255 lines or rows),
+; which render_decide uses as is (clamped to the scroll region), and
+; DELETE_SCREEN_ROWS = 0 (the region starts at the cursor line)
+undo_delete_lines_scroll:
+  JSR compute_delete_rows_temp16
+  LDX DELETE_SCREEN_ROWS
+  BNE .rows
+  DEX                        ; $FF
+.rows:
+  STX SCROLL_DELTA
+  LDA #0
+  STA DELETE_SCREEN_ROWS
+  JMP delete_current_lines
 
 ; Restore FILE_LINE16 from the undo record, and BUF_TEMP16 = YANK_LINES16
 ; (the lines a line delete took, for its redo)

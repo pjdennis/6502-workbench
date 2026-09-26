@@ -57,8 +57,8 @@
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
 ; $07   redo dd, undo p/P/o/O  Lines deleted; cursor line unchanged, not
-;                              redrawn.  SCROLL_DELTA = rows deleted (0 =
-;                              use delta).  DELETE_SCREEN_ROWS = cursor line
+;                              redrawn.  SCROLL_DELTA = rows deleted ($FF:
+;                              over 255).  DELETE_SCREEN_ROWS = cursor line
 ;                              rows above the deleted lines (0 = the
 ;                              deleted lines began at first_row).
 ; $08   multi-line x/D         Charwise delete that joined lines:
@@ -156,21 +156,14 @@ render_decide:
 
 .line_delete_scroll:
   ; LINE_COUNT16 decreased and RENDER_FLAG=$02/$06/$07/$08 (line delete at cursor).
-  ; $08: SCROLL_DELTA pre-computed by delete_at_cursor, DELETE_SCREEN_ROWS = new cursor rows
+  ; $07/$08: SCROLL_DELTA pre-computed by the handler (undo_delete_lines_scroll,
+  ; delete_at_cursor)
   LDA RENDER_FLAG
-  CMP #RF_CHAR_JOIN
-  BEQ .delete_check          ; $08: SCROLL_DELTA pre-computed
   CMP #RF_DEL_BELOW
-  BNE .not_07
-  ; $07: use SCROLL_DELTA if pre-computed, else file delta
-  LDA SCROLL_DELTA
-  BNE .delete_check
-  BEQ .file_delta_scroll
-.not_07:
+  BCS .delete_check          ; $07/$08
   ; Use pre-computed DELETE_SCREEN_ROWS if available, else file delta.
   LDA DELETE_SCREEN_ROWS
   BNE .have_delete_rows
-.file_delta_scroll:
   ; Fall back to file line delta
   SEC
   LDA SNAP_LINE_COUNT16
