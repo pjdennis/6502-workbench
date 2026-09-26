@@ -83,12 +83,8 @@ render_decide:
 .current_line:
   LDA RENDER_FLAG
   CMP #$0B
-  BNE .not_range
+  BNE .to_current_line
   JMP render_range_repaint
-.not_range:
-  ORA #$01
-  STA RENDER_FLAG
-  JMP render_current_line_and_status
 
 .line_delete_scroll:
   ; LINE_COUNT16 decreased and RENDER_FLAG=$02/$06/$07/$08 (line delete at cursor).
@@ -157,6 +153,7 @@ render_decide:
 .j_really_no_scroll:
   LDA DELETE_SCREEN_ROWS     ; new_total
   STA PREV_LINE_ROWS
+.to_current_line:
   JMP render_current_line_and_status
 .dd_delete_rows:
   STA SCROLL_DELTA
