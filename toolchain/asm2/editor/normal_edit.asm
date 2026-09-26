@@ -198,8 +198,7 @@ do_char_paste:
 .rebuild:
   JSR buf_rebuild_lines
 .placed:
-  LDA #$FF
-  STA MODIFIED
+  JSR set_modified
   BIT NORMAL_TEMP
   BMI .multiline
   ; Single-line: cursor on the last pasted char
@@ -594,10 +593,8 @@ normal_join_lines:
   JSR mark_args_next_line
   JSR mark_adjust_delete
 
-  LDA #$FF
-  STA MODIFIED
-  LDA #RF_JOIN
-  STA RENDER_FLAG        ; Signal line-delete, skip cursor row scroll
+  LDA #RF_JOIN           ; Signal line-delete, skip cursor row scroll
+  JSR set_modified_render
   JSR clamp_cursor_col
 
 .join_done:

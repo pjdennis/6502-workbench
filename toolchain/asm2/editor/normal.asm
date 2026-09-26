@@ -231,10 +231,8 @@ do_dd:
   BCS .yank_overflow
 
 .dd_done:
-  LDA #$FF
-  STA MODIFIED
-  LDA #RF_DEL
-  STA RENDER_FLAG        ; Signal line-delete for scroll optimization
+  LDA #RF_DEL            ; Signal line-delete for scroll optimization
+  JSR set_modified_render
   JMP clamp_and_clear_count
 
 .yank_overflow:

@@ -125,8 +125,7 @@ shift_finish:
 ; and the cursor sitting on the first line of the range (render derives
 ; the range's screen position from the cursor).
 shift_set_render:
-  LDA #$FF
-  STA MODIFIED
+  JSR set_modified
   LDA DELETE_SCREEN_ROWS
   BEQ .full
   CMP16 FILE_LINE16, UNDO_LINE16

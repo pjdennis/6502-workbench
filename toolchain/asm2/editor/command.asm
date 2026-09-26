@@ -391,8 +391,7 @@ range_do_delete:
   CP16 BUF_SRC16, FILE_LINE16  ; Cursor to the first deleted line
   CP16 YANK_LINES16, BUF_TEMP16
   JSR delete_current_lines
-  LDA #$FF
-  STA MODIFIED
+  JSR set_modified
   JSR clamp_cursor_col
 
   ; Show "N lines deleted"

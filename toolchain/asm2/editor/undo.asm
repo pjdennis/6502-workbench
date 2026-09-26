@@ -583,9 +583,7 @@ undo_opened_finish:
 undo_set_redone_flags:
   LDA #0
   STA UNDO_IS_REDO
-  LDA #$FF
-  STA MODIFIED
-  RTS
+  JMP set_modified
 
 ; Mark the operation undone: next 'u' redoes, buffer is modified
 undo_set_done_flags:

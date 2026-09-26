@@ -249,9 +249,7 @@ paste_adjust_marks:
   JSR undo_compute_paste_lines  ; BUF_TEMP16 = YANK_LINES16 * count
   LDAX16 FILE_LINE16
   JSR mark_adjust_insert
-  LDA #$FF
-  STA MODIFIED
-  RTS
+  JMP set_modified
 
 ; Check if yank buffer contains a newline character
 ; Input: yank buffer contents and YANK_END16 must be stable (not mid-mutation)

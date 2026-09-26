@@ -535,7 +535,7 @@ delete_at_cursor:
   SBC BUF_LEN16 + 1
   STA BUF_SRC16 + 1
   JSR buf_adjust_lines_apply
-  JMP .done
+  JMP set_modified
 .full_rebuild:
   JSR buf_rebuild_lines
   ; Adjust marks for deleted newlines (NORMAL_TEMP = count)
@@ -552,9 +552,14 @@ delete_at_cursor:
   SEC
   SBC DELETE_SCREEN_ROWS
   STA SCROLL_DELTA            ; pre-computed scroll displacement
-  LDA #RF_CHAR_JOIN
-  STA RENDER_FLAG            ; Line-delete, skip cursor row, repaint cursor
-.done:
+  LDA #RF_CHAR_JOIN          ; Line-delete, skip cursor row, repaint cursor
+  ; fall through
+
+; Set RENDER_FLAG from A and mark the buffer modified.  Clobbers A
+set_modified_render:
+  STA RENDER_FLAG
+; Mark the buffer modified.  Clobbers A; preserves X, Y and the carry
+set_modified:
   LDA #$FF
   STA MODIFIED
   RTS
