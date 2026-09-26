@@ -60,9 +60,9 @@
 ;                              rows above the deleted lines (0 = the
 ;                              deleted lines began at first_row).
 ; $08   multi-line x/D         Charwise delete that joined lines:
-;       (delete_at_cursor)     SCROLL_DELTA = rows lost, DELETE_SCREEN_ROWS =
-;                              the cursor line's new rows (scroll below
-;                              them, then redraw them).
+;       (delete_at_cursor)     SCROLL_DELTA = rows lost (0 = full repaint),
+;                              DELETE_SCREEN_ROWS = the cursor line's new
+;                              rows (scroll below them, then redraw them).
 ; $09   multi-line char p/P,   Cursor line split: PREV_LINE_ROWS = its new
 ;       undo of x/D            rows (scroll below them), by the rows of the
 ;                              delta lines from FILE_LINE16.
@@ -226,7 +226,7 @@ render_decide:
   STA SCROLL_DELTA
 .delete_check:
   LDA SCROLL_DELTA
-  BEQ .full                  ; Delta 0, shouldn't happen
+  BEQ .full                  ; 0 (e.g. $08 over 255 old rows): full repaint
 
   ; Clamp delta to available rows below cursor
   JSR clamp_delta_avail

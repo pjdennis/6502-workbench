@@ -441,7 +441,7 @@ delete_current_lines:
 ; Record undo, then delete chars at the cursor (once they are yanked)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
 ; Deletes, rebuilds lines, sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
 undo_delete_at_cursor:
   JSR undo_record_char_delete
   ; Fall through to delete_at_cursor
@@ -449,14 +449,14 @@ undo_delete_at_cursor:
 ; Delete bytes at cursor position (no yank)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
 ; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
 delete_at_cursor:
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  ; Scan deleted range for newlines
+  ; Count the newlines in the deleted range into BUF_TEMP16
   CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
   CP16 BUF_LEN16, BUF_SRC16 ; BUF_SRC16 = bytes left to scan
   LDA #0
-  STA NORMAL_TEMP            ; 0 = no newlines found
+  STA_LH16 BUF_TEMP16
   TAY                        ; Y = 0 for the scan
 .scan_nl:
   TST16 BUF_SRC16
@@ -464,44 +464,29 @@ delete_at_cursor:
   LDA (BUF_DST16),Y
   CMP #'\n'
   BNE .scan_next
-  INC NORMAL_TEMP            ; Found newline
+  INC16 BUF_TEMP16           ; Found newline
 .scan_next:
   INC16 BUF_DST16
   DEC16 BUF_SRC16
   JMP .scan_nl
 .scan_done:
-  ; Pre-compute old screen rows BEFORE shift (only when newlines found)
-  LDA NORMAL_TEMP
+  ; Newlines found: BEFORE the shift, sum the old screen rows of the
+  ; cursor line and the lines joined to it into DELETE_SCREEN_ROWS (0 if
+  ; over 255; over 255 newlines walk 256 lines, so over 255 rows)
+  LDA BUF_TEMP16
+  LDX BUF_TEMP16 + 1
+  BEQ .nl_count
+  LDA #$FF
+.nl_count:
+  TAX
   BEQ .no_precompute
-  ; Walk cursor line + deleted lines to sum old screen rows
-  ; NORMAL_TEMP = number of newlines = number of extra lines
-  JSR set_render_line_to_cursor
-  LDA #0
-  STA SCROLL_DELTA            ; accumulator for old screen rows
-  LDA NORMAL_TEMP
-  STA SCROLL_AMOUNT           ; loop counter (lines after cursor)
-  ; First: cursor line
-  JSR render_line_rows
-  STA SCROLL_DELTA
-  ; Then: each deleted line
-.precomp_walk:
-  LDA SCROLL_AMOUNT
-  BEQ .precomp_done
-  INC16 RENDER_LINE16
-  JSR render_line_rows
-  CLC
-  ADC SCROLL_DELTA
-  STA SCROLL_DELTA
-  DEC SCROLL_AMOUNT
-  JMP .precomp_walk
-.precomp_done:
+  JSR compute_delete_rows_join
 .no_precompute:
   JSR get_cursor_buf_ptr     ; Recompute BUF_PTR16 (scan clobbered BUF_DST16)
   JSR buf_shift_left_16
-  LDA NORMAL_TEMP
+  TST16 BUF_TEMP16
   BNE .full_rebuild
-  ; Incremental: negate BUF_LEN16 into BUF_SRC16
-  LDA #0
+  ; Incremental: negate BUF_LEN16 into BUF_SRC16 (A = 0 here)
   SEC
   SBC BUF_LEN16
   STA BUF_SRC16
@@ -512,19 +497,21 @@ delete_at_cursor:
   JMP set_modified
 .full_rebuild:
   JSR buf_rebuild_lines
-  ; Adjust marks for deleted newlines (NORMAL_TEMP = count)
-  LDA NORMAL_TEMP
-  JSR set_buf_temp16_a
+  ; Adjust marks for the deleted newlines (BUF_TEMP16 = count)
   LDAX16 FILE_LINE16
   SEC
   JSR mark_adjust_col
-  ; Signal line-delete scroll, skip cursor row in scroll region
+  ; Signal line-delete scroll, skip cursor row in scroll region:
+  ; SCROLL_DELTA = old total rows - the cursor line's new rows, or 0 (a
+  ; full repaint) if the old total was over 255
   JSR file_line_rows
+  LDX DELETE_SCREEN_ROWS     ; X = old total screen rows
   STA DELETE_SCREEN_ROWS     ; Cursor line screen rows (new)
-  ; Compute SCROLL_DELTA = old_total - new_cursor_rows
-  LDA SCROLL_DELTA            ; old total screen rows
+  TXA
+  BEQ .set_delta
   SEC
   SBC DELETE_SCREEN_ROWS
+.set_delta:
   STA SCROLL_DELTA            ; pre-computed scroll displacement
   LDA #RF_CHAR_JOIN          ; Line-delete, skip cursor row, repaint cursor
   ; fall through

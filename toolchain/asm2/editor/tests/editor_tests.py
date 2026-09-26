@@ -2787,6 +2787,17 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+9}") for i in range(9)]
         )
 
+        # A char delete across lines keeps the sticky count
+        # 2Ctrl-D (sticky=2, top Line 3); 2D empties line 3 and joins Line 4;
+        # Ctrl-D scrolls 2 more: top is Line 6
+        self.run_test_screen(
+            "Ctrl-D sticky count survives a multi-line D",
+            make_lines(30),
+            b"2" + CTRL_D + b"2D" + CTRL_D + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
+        )
+
         # --- Combined tests ---
 
         # Roundtrip: Ctrl-D then Ctrl-U returns to start
@@ -8625,6 +8636,50 @@ class EditorTestRunner:
                 make_lines(99) +
                 ''.join(f"Line {i}\n" for i in range(356, 401))
             )
+        )
+
+        # Char deletes count the deleted newlines in 16 bits: 257D deletes
+        # 256 newlines, so the line table must be rebuilt (44 lines left)
+        self.run_test_screen(
+            "257D (256 newlines) rebuilds the line table",
+            make_lines(300),
+            b"257D:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "")] + [(i, f"Line {i+257}") for i in range(1, 9)],
+            expect_status_contains="/44"
+        )
+
+        self.run_test(
+            "257D (256 newlines) then jD edits the right line",
+            make_lines(300),
+            b"257DjD:wq\r",
+            expected_content="\n\n" + ''.join(f"Line {i}\n" for i in range(259, 301))
+        )
+
+        # 300D deletes 299 newlines: mark a on Line 350 moves up 299 lines
+        self.run_test(
+            "300D (299 newlines) moves a mark below it up 299 lines",
+            make_lines(400),
+            b"350Gmagg300D'ax:wq\r",
+            expected_content=(
+                "\n" + ''.join(f"Line {i}\n" for i in range(301, 350)) +
+                "ine 350\n" + ''.join(f"Line {i}\n" for i in range(351, 401))
+            )
+        )
+
+        # 130D deletes 130 two-row lines (260 screen rows > 255, 2,860
+        # bytes, which fit the yank buffer): the line-delete scroll must
+        # not use the row total mod 256
+        self.run_test_screen(
+            "130D over more than 255 screen rows repaints correctly",
+            ''.join(f"{i:03d}" + "x" * 18 + "\n" for i in range(300)),
+            b"130D:q!\r",
+            rows=10, cols=20,
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "")] + [
+                row for i in range(4) for row in (
+                    (1 + 2 * i, f"{130 + i:03d}" + "x" * 17),
+                    (2 + 2 * i, "x"))]
         )
 
         self.run_test(
