@@ -451,10 +451,11 @@ class EditorTestRunner:
 
         emu_args: emulator options, e.g. ['--cpu-mhz', '1', '--baud', '9600'].
         With --baud the startup size query only reaches the emulator's
-        terminal model after the typed keys have arrived, so the size reply
-        is put ahead of them, as a terminal that answers before anyone types
-        (paced input needs no such reply: it is held until the editor is
-        idle, by which time the terminal has answered).
+        terminal model after keys already streaming in have arrived, and the
+        size parser would take them for the reply. So the keys are held
+        until the editor is first idle (a --pace-mask of all '0'), by which
+        time the terminal has answered, as for a user who starts typing once
+        the screen is up.
 
         Returns (exit_code, saved_content, ansi_output_bytes).
         """
@@ -465,7 +466,9 @@ class EditorTestRunner:
                 b"0" * (len(g) - 1) + b"1" for g in key_groups))
             emu_args = list(emu_args or []) + ["--pace-mask", str(mask_file)]
         elif emu_args and "--baud" in emu_args:
-            keys = b"\x1b[%d;%dR" % (rows, cols) + keys
+            mask_file = tmpdir / "pace_mask.bin"
+            mask_file.write_bytes(b"0" * len(keys))
+            emu_args = list(emu_args) + ["--pace-mask", str(mask_file)]
         exit_code, output = self.emulator_runner.run(
             self.editor_terminal_bin, keys, tmpdir, input_file,
             rows=rows, cols=cols, mode='terminal', emu_args=emu_args)
@@ -11594,6 +11597,17 @@ class EditorTestRunner:
                 expected_content="Test\n",
                 emu_args=BAUD_ARGS
             )
+
+            # Keys typed ahead while the editor starts: the terminal's one
+            # reply to the startup size query must not land among them
+            # (a second, test-made reply once split the >> pair, and the
+            # :wq that followed never ran)
+            for baud in ("1200", "2400"):
+                self.run_test_terminal(
+                    f"Terminal baud: keys typed ahead at startup ({baud})",
+                    make_lines(20), b">>dd:wq\r",
+                    expected_content=make_lines(20).split("\n", 1)[1],
+                    emu_args=["--cpu-mhz", "1", "--baud", baud])
 
             # Search mode with baud rate
             self.run_test_terminal_screen(
