@@ -322,31 +322,17 @@ buf_delete_lines:
 
 ; Shift buffer left by BUF_LEN16 bytes at BUF_PTR16 (16-bit version)
 ; Input: BUF_PTR16 = delete point, BUF_LEN16 = shift amount (16-bit)
-; Updates BUF_END16 on completion
+; Updates BUF_END16. Leaves BUF_PTR16 = the old BUF_END16.
+; Clobbers A, Y, BUF_SRC16, BUF_DST16
 buf_shift_left_16:
-  ; Compute source start = BUF_PTR16 + BUF_LEN16
+  ; mem_copy_down(src = delete point + BUF_LEN16, end = BUF_END16,
+  ; dst = delete point); it copies nothing if src >= end
   CLC
   ADC16 BUF_PTR16, BUF_LEN16, BUF_SRC16
-
-  ; Check if nothing to move (source >= BUF_END16)
-  LDA BUF_SRC16 + 1
-  CMP BUF_END16 + 1
-  BCC .need_shift
-  BNE .shift_done
-  LDA BUF_SRC16
-  CMP BUF_END16
-  BCS .shift_done
-.need_shift:
-
-  ; Set up mem_copy_down parameters:
-  ;   BUF_SRC16 = source start (already set above)
-  ;   BUF_DST16 = destination (delete point = original BUF_PTR16)
-  ;   BUF_PTR16 = source end (BUF_END16)
   CP16 BUF_PTR16, BUF_DST16
   CP16 BUF_END16, BUF_PTR16
   JSR mem_copy_down
 
-.shift_done:
   ; Update buffer end: subtract BUF_LEN16
   SEC
   SBC16 BUF_END16, BUF_LEN16, BUF_END16

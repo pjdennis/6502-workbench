@@ -3,18 +3,23 @@
 ; Forward copy (safe when dst <= src or non-overlapping)
 ; Input: BUF_SRC16 = source start, BUF_PTR16 = source end (exclusive),
 ;        BUF_DST16 = destination start
+; Copies nothing if BUF_SRC16 >= BUF_PTR16.
 ; Preserves BUF_PTR16. Clobbers A, Y, BUF_SRC16, BUF_DST16
 mem_copy_down:
-  ; Check empty case (SRC >= END)
-  JSR cmp_src_ptr
+  ; Nothing to copy if SRC >= END
+  LDA BUF_SRC16 + 1
+  CMP BUF_PTR16 + 1
+  BNE .cmp_done
+  LDA BUF_SRC16
+  CMP BUF_PTR16
+.cmp_done:
   BCS .done
 
   ; Set up page-aligned source and Y offset
   ; Y = low byte of BUF_SRC16, BUF_SRC16 = page base
   ; Adjust BUF_DST16 so (BUF_DST16),Y gives correct dest address:
   ;   BUF_DST16 = BUF_DST16 - SRC_low_byte
-  LDA BUF_SRC16
-  TAY                      ; Y = source low byte offset
+  LDY BUF_SRC16            ; Y = source low byte offset
   SEC
   LDA BUF_DST16
   SBC BUF_SRC16            ; Subtract source low byte only
@@ -30,17 +35,17 @@ mem_copy_down:
   CMP BUF_PTR16 + 1
   BNE .full_page
 
-  ; Same page: copy Y up to (end low - 1)
+  ; Last (or only) page: copy Y up to (end low - 1)
 .last_page:
   LDA (BUF_SRC16),Y
   STA (BUF_DST16),Y
   INY
   CPY BUF_PTR16
   BNE .last_page
-  JMP .done
+  RTS
 
 .full_page:
-  ; Copy from Y up through $FF on this page
+  ; Copy from Y up through $FF on this page (exits with Y = 0)
   LDA (BUF_SRC16),Y
   STA (BUF_DST16),Y
   INY
@@ -49,29 +54,15 @@ mem_copy_down:
   ; Move to next page
   INC BUF_SRC16 + 1
   INC BUF_DST16 + 1
-  LDY #0
 
   ; Check if this is the last page
   LDA BUF_SRC16 + 1
   CMP BUF_PTR16 + 1
   BNE .full_page
 
-  ; Check if end low byte is 0 (end is at page boundary)
+  ; Last page, unless the end is at its start (page boundary)
   LDA BUF_PTR16
-  BEQ .done
-
-  JMP .last_page
+  BNE .last_page
 
 .done:
-  RTS
-
-; Compare BUF_SRC16 with BUF_PTR16 (CMP16 semantics: C/Z as after CMP)
-; Clobbers: A
-cmp_src_ptr:
-  LDA BUF_SRC16 + 1
-  CMP BUF_PTR16 + 1
-  BNE .d
-  LDA BUF_SRC16
-  CMP BUF_PTR16
-.d:
   RTS
