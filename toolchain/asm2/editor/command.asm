@@ -34,12 +34,6 @@ command_parse:
   JSR dispatch_key
   BCC cmd_ret
 
-  ; Try named commands (full string match from CMD_BUF[0])
-  SET16 str_marks_cmd, STR_PTR16
-  LDX #0
-  JSR cmd_str_match
-  BCC .do_marks
-
   ; Range/goto: digit
   LDA CMD_BUF
   CMP #'0'
@@ -47,9 +41,6 @@ command_parse:
   CMP #':'              ; '9'+1
   BCS .unknown
   JMP command_parse_range
-
-.do_marks:
-  JMP marks_display
 
 .unknown:
   JMP cmd_unknown
@@ -109,11 +100,23 @@ read_line:
 command_parse_keys:
   .byte 'w'    .word cmd_parse_w
   .byte 'q'    .word cmd_parse_q
+  .byte 'm'    .word cmd_parse_m
   .byte '\''   .word command_parse_range
   .byte '.'    .word command_parse_range
   .byte '>'    .word cmd_parse_bare_shift
   .byte '<'    .word cmd_parse_bare_shift
   .byte 0      ; End sentinel
+
+; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
+cmd_parse_m:
+  LDX #4
+.loop:
+  LDA CMD_BUF + 1,X
+  CMP str_marks_tail,X
+  BNE cmd_unknown
+  DEX
+  BPL .loop
+  JMP marks_display
 
 cmd_parse_w:
   LDA READONLY
@@ -320,29 +323,6 @@ show_message_ax:
   PLA
   JSR write_string_ax
   JMP flush_get_key
-
-; Compare CMD_BUF (starting at offset X) against asciiz string at STR_PTR16
-; Input: X = starting offset in CMD_BUF, STR_PTR16 = string to match
-; Returns: carry clear = match, carry set = no match
-; Clobbers: A, X, Y
-cmd_str_match:
-  LDY #0
-.loop:
-  LDA (STR_PTR16),Y
-  BEQ .check_end
-  CMP CMD_BUF,X
-  BNE .no_match
-  INX
-  INY
-  JMP .loop
-.check_end:
-  LDA CMD_BUF,X
-  BNE .no_match
-  CLC
-  RTS
-.no_match:
-  SEC
-  RTS
 
 ; Parse range or goto command
 ; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :NNN (goto)
@@ -573,7 +553,7 @@ range_mark_err:
 str_lines_yanked:  .asciiz " lines yanked"
 str_lines_deleted: .asciiz " lines deleted"
 str_lines_shifted: .asciiz " lines shifted"
-str_marks_cmd:     .asciiz "marks"
+str_marks_tail:    .asciiz "arks"
 
 ; === String constants ===
 str_unknown_cmd: .asciiz "Unknown command"
