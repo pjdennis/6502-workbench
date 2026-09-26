@@ -11849,6 +11849,131 @@ class EditorTestRunner:
             expect_content_rows=[(2, {0, 6, 7, 8})]
         )
 
+        # A delete whose rows reach the bottom of the screen exposes every
+        # row below the cursor: they must all be repainted, and since they
+        # are, scrolling them first would only waste bytes.
+        # Frames: 0=initial, 1=jjj cursor, 2=count '6', 3=6dd
+        self.run_test_screen(
+            "Scroll opt: 6dd reaching the bottom repaints the rows below",
+            make_lines(20),
+            b"jjj6dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")]
+                         + [(i, f"Line {i + 7}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(3, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(3, False)]
+        )
+        # Frames: 0=initial, 1=count '9', 2=9dd
+        self.run_test_screen(
+            "Scroll opt: 9dd at the top repaints the whole screen",
+            make_lines(20),
+            b"9dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 10}") for i in range(9)],
+            expect_cursor=(0, 0),
+            expect_content_rows=[(2, set(range(9)))],
+            expect_scrolled_at_frame=[(2, False)]
+        )
+        # Frames: 0=initial, 1=j x7 cursor, 2=dd
+        self.run_test_screen(
+            "Scroll opt: dd on the second-last row repaints without scrolling",
+            make_lines(15),
+            b"j" * 7 + b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Line 9"), (8, "Line 10")],
+            expect_cursor=(7, 0),
+            expect_content_rows=[(2, {7, 8})],
+            expect_scrolled_at_frame=[(2, False)]
+        )
+        self.run_test_screen(
+            "Scroll opt: 2dd on the second-last row repaints the last row",
+            make_lines(20),
+            b"7j2dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, "Line 10"), (8, "Line 11")],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 3J reaching the bottom repaints the last row",
+            make_lines(20),
+            b"7j3J:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Line 8 Line 9 Line 10"),
+                          (8, "Line 11")],
+            expect_cursor=(7, 6),
+        )
+        self.run_test_screen(
+            "Scroll opt: dd of a wrapped line filling the screen",
+            "A" * 400 + "\n" + make_lines(11),
+            b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 2dd deleting every line draws the tildes",
+            "A" * 80 + "\n" + "B" * 20 + "\n",
+            b"2dd:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, ""), (1, "~"), (2, "~"), (3, "~"), (4, "~")],
+            expect_cursor=(0, 0),
+        )
+        # The same for counted and batched dd, cc and its redo, a counted D
+        # (a char delete that joins lines), and de/ce over short or empty
+        # lines, at several screen sizes; and a J or cc leaving a one-row
+        # region below the cursor line, which is not scrolled at all
+        f03 = "".join(f"{i:03d} abcdefghijklmnopqrstuvwxyz\n"
+                      for i in range(300))
+        row03 = lambda i: f"{i:03d} abcdefghijklmnopqrstuvwxyz"
+        tildes = lambda first, last: [(r, "~") for r in range(first, last)]
+        short9 = "a\nb\nc\nd\ne\nf\ng\nh\ni\nab  ba ba \n"
+        second_last = "ccc\nbb\nbb\nccc\nbb\na\n"
+        for name, content, keys, rows, cols, lines, cursor in (
+                ("32 batched dd", "".join(f"line {i}\n" for i in range(300)),
+                 b"dd" * 32, 24, 80,
+                 [(r, f"line {r + 32}") for r in range(23)], (0, 0)),
+                ("30dd", f03, b"30dd", 24, 80,
+                 [(r, row03(r + 30)) for r in range(23)], (0, 0)),
+                ("100cc", f03, b"100cc\x1b", 24, 80,
+                 [(0, "")] + [(r, row03(r + 99)) for r in range(1, 23)],
+                 (0, 0)),
+                ("10cc", f03, b"10cc\x1b", 10, 40,
+                 [(0, "")] + [(r, row03(r + 9)) for r in range(1, 9)],
+                 (0, 0)),
+                ("3cc redo", "x" * 25 + "\n" + "x" * 74 + "\n", b"3cc\x1bu u",
+                 10, 10, [(0, "")] + tildes(1, 9), (0, 0)),
+                ("8D", make_lines(20), b"jj8D", 10, 40,
+                 [(2, "")] + [(r, f"Line {r + 8}") for r in range(3, 9)],
+                 (2, 0)),
+                ("30D", make_lines(400), b"9G30D", 24, 80,
+                 [(8, "")] + [(r, f"Line {r + 30}") for r in range(9, 23)],
+                 (8, 0)),
+                ("9de", short9, b"9de", 10, 40,
+                 [(0, "  ba ba")] + tildes(1, 9), (0, 0)),
+                ("9ce", short9, b"9ceX\x1b", 10, 40,
+                 [(0, "X  ba ba")] + tildes(1, 9), (0, 0)),
+                ("4ce", "a\nb\nc\nd\nab  ba ba \n", b"4ceX\x1b", 5, 20,
+                 [(0, "X  ba ba")] + tildes(1, 4), (0, 0)),
+                ("de over empty lines", "a \n" + "\n" * 9 + "b c\n", b"de",
+                 10, 40, [(0, " c")] + tildes(1, 9), (0, 0)),
+                ("2de over empty lines", "X\n\n\n\n\nab. b.b.b. . baa ab a"
+                 "   ba  \nba.bba  .aa a .b.bbbba.ba..b  \nababaa\n", b"2de",
+                 5, 20, [(0, " b.b.b. . baa ab a"), (1, " ba"),
+                         (2, "ba.bba  .aa a .b.bbb"), (3, "ba.ba..b")],
+                 (0, 0)),
+                ("3J from the second-last row", second_last + "q\n",
+                 b"jjj3J", 6, 20, [(3, "ccc bb a"), (4, "q")], (3, 3)),
+                ("3cc from the second-last row", second_last + "q\n",
+                 b"jjj3ccZ\x1b", 6, 20, [(3, "Z"), (4, "q")], (3, 0)),
+                ("3cc to the end from the second-last row", second_last,
+                 b"jjj3ccZ\x1b", 6, 20, [(3, "Z"), (4, "~")], (3, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {name} repaints the rows below",
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=lines, expect_cursor=cursor)
+
         # Undo/redo deletes (RENDER_FLAG $07) leave the cursor row to the
         # scroll: it must be repainted when the scroll clears it or when a
         # one-row region is not scrolled at all.
@@ -11893,6 +12018,16 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(i, f"Line {i + 2}") for i in range(9)],
             expect_cursor=(7, 0),
+        )
+        # ... without scrolling them first when they are the whole region
+        # Frames: 0=initial, 1=jjj, 2=count '6', 3=6dd, 4=u, 5=' ', 6=u
+        self.run_test_screen(
+            "Scroll opt: 6dd redo reaching the bottom repaints without a scroll",
+            make_lines(20),
+            b"jjj6ddu u:q!\r",
+            rows=10, cols=40,
+            expect_content_rows=[(6, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(6, False)]
         )
 
         # o at mid-screen: scroll shifts rows below insertion down,

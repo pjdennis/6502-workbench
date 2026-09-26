@@ -33,8 +33,8 @@
 ; $02   dd                     Lines deleted from first_row down; the cursor
 ;                              line moved up into them.  DELETE_SCREEN_ROWS =
 ;                              rows deleted (0 = use delta).  Scroll up from
-;                              first_row, redraw the cursor row (from
-;                              first_row to the bottom if WRAP_QUOT > 0).
+;                              first_row + 1, redraw first_row (and to the
+;                              bottom if WRAP_QUOT > 0).
 ; $03   o O p P, undo dd,      Delta lines inserted at FILE_LINE16, which
 ;       redo p/P/o/O           starts at CURSOR_ROW: scroll down from there
 ;                              by their rows.  INSERT_LINE_COUNT != 0:
@@ -227,10 +227,7 @@ render_decide:
 .delete_check:
   LDA SCROLL_DELTA
   BEQ .full                  ; 0 (e.g. $08 over 255 old rows): full repaint
-
-  ; Clamp delta to available rows below cursor
-  JSR clamp_delta_avail
-  JMP render_line_delete_scroll
+  JMP render_line_delete_scroll  ; (clamps the delta to its scroll region)
 
 .line_insert_scroll:
   ; LINE_COUNT16 increased and RENDER_FLAG=$03/$04/$05/$09 (line insert;
