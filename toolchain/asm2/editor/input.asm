@@ -19,8 +19,6 @@ KEY_TAB   = $09
 
   .zeropage
 
-INPUT_TEMP:       .byte  ; Temp for input processing
-SPIN_COUNT:       .byte  ; Spin loop counter for escape detection
 PUSHBACK:         .byte  ; Pushback byte ($00 = none)
 HAS_PUSHBACK:     .byte  ; $FF if pushback has a byte
 KEY_DECODED:      .byte  ; Buffered decoded key
@@ -29,7 +27,7 @@ HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value
   .code
 
 ; Read one byte from input, with pushback support
-; Returns byte in A
+; Returns byte in A. Preserves X, Y (read_key relies on this)
 input_read_byte:
   LDA HAS_PUSHBACK
   BEQ .no_pushback
@@ -83,185 +81,109 @@ count_pending_key:
 .done:
   RTS
 
-; Read one key from console, handling escape sequences
-; Returns key code in A
-; Arrow keys: KEY_UP ($80), KEY_DOWN ($81), KEY_LEFT ($82), KEY_RIGHT ($83)
-; Bare ESC: $1B
-; Backspace ($7F or $08) normalized to KEY_BS ($08)
-; Clobbers X, Y
+; Read one key, decoding escape sequences
+; Returns key code in A: KEY_* codes for special keys, bare ESC as KEY_ESC,
+; $7F normalized to KEY_BS, $00 (no-op) for ignored input
+; Clobbers X
 read_key:
   JSR input_read_byte
-
+  CMP #$7F
+  BCC .ascii
+  BEQ .del_bs
   ; Skip non-ASCII bytes (>= $80): UTF-8 multi-byte sequences
-  ; would collide with KEY_UP..KEY_DEL codes ($80-$88)
-  CMP #$80
-  BCC .not_high_byte
+  ; would collide with the KEY_* codes
+.noop:
   LDA #$00         ; Harmless: no dispatch match, not printable (< $20)
   RTS
-.not_high_byte:
-
-  ; Normalize backspace: $7F -> $08
-  CMP #$7F
-  BNE .not_del_bs
+.del_bs:
   LDA #KEY_BS
   RTS
-.not_del_bs:
-
-  ; Check for ESC
-  CMP #$1B
-  BNE .not_esc
-  JMP .is_esc
-.not_esc:
-  JMP .done
-.is_esc:
-
-  ; Got ESC - check if more bytes follow (escape sequence)
-  ; Spin loop to wait briefly for next byte
-  LDA #$FF
-  STA SPIN_COUNT
+.ascii:
+  CMP #KEY_ESC
+  BEQ .esc
+  RTS
+.esc:
+  ; Got ESC - spin briefly (255 polls) for the rest of an escape sequence
+  LDX #$FF
 .spin:
-  JSR io_ready
+  JSR io_ready            ; preserves X
   CMP #$FF
   BEQ .got_more
-  DEC SPIN_COUNT
+  BIT PUSHBACK            ; 3-cycle pad (zp read): keeps each poll as long as the
+                          ; old DEC-counter loop (same ESC timeout)
+  DEX
   BNE .spin
-  ; No more bytes - bare ESC
-  LDA #KEY_ESC
+  LDA #KEY_ESC            ; Nothing followed: bare ESC
   RTS
 
 .got_more:
-  ; Read the next byte - should be '['
   JSR input_read_byte
   CMP #'['
-  BEQ .is_csi
-  JMP .not_csi
-.is_csi:
-  ; CSI sequence - read the final byte
+  BNE .not_csi
   JSR input_read_byte
-  STA INPUT_TEMP
-
-  ; Check for arrow keys: A=up, B=down, C=right, D=left (table lookup)
+  ; ESC[A-D arrows, ESC[F End, ESC[H Home (table lookup)
   CMP #'A'
-  BCC .not_arrow
-  CMP #'E'
-  BCS .not_arrow
-  SBC #'A'-1              ; C=0 from failed BCS: yields 0-3
+  BCC .not_letter
+  CMP #'H' + 1
+  BCS .eat                ; Other final byte: unknown, no-op
   TAX
-  LDA .arrow_tbl,X
+  LDA .final_tbl - 'A',X
   RTS
-.arrow_tbl:
-  .byte $80, $81, $83, $82  ; KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT
-                            ; (C -> right, D -> left: non-linear order)
-.not_arrow:
-  CMP #'H'
-  BEQ .key_home
-  CMP #'F'
-  BEQ .key_end
-
-  ; Check for sequences with numeric parameter: ESC[N~
-  ; where N is: 1=Home, 3=Delete, 4=End, 5=PgUp, 6=PgDn
-  CMP #'~'
-  BEQ .not_tilde  ; ~ can't be the char right after [, need a digit first
-
-  ; Could be a digit followed by ~
+.not_letter:
+  ; ESC[N~ (see .tilde_tbl), or ESC[N;5C / ESC[N;5D = Ctrl+Right / Ctrl+Left
   CMP #'1'
-  BCC .unknown_csi
+  BCC .eat
   CMP #'7'
-  BCS .unknown_csi
-  ; It's a digit 1-6, read the next char expecting ~ or ;
-  STA INPUT_TEMP
+  BCS .eat
+  TAX                     ; X = digit (input_read_byte preserves X)
   JSR input_read_byte
   CMP #'~'
-  BEQ .is_tilde
+  BEQ .tilde
   CMP #';'
-  BNE .unknown_eat        ; Not ~ or ; -> consume rest, return $00
-  ; ESC[digit;modifier<final> - read modifier
+  BNE .eat
   JSR input_read_byte
   CMP #'5'                ; Ctrl modifier?
-  BNE .eat_after_semi     ; No -> consume rest, return $00
-  JSR input_read_byte     ; Read final byte
+  BNE .eat
+  JSR input_read_byte
   CMP #'C'
-  BEQ .key_word_fwd
+  BEQ .word_fwd
   CMP #'D'
-  BEQ .key_word_back
-  ; Unknown Ctrl+key final byte - already consumed if >= $40
-  CMP #$40
-  BCS .csi_consumed
-  JSR consume_csi_tail
-  JMP .csi_consumed
-.eat_after_semi:
-  ; Non-Ctrl modifier - consume remaining bytes
-  CMP #$40
-  BCS .csi_consumed
-  JSR consume_csi_tail
-  JMP .csi_consumed
-.is_tilde:
-  LDA INPUT_TEMP
-  CMP #'3'
-  BEQ .key_delete
-  CMP #'5'
-  BEQ .key_pgup
-  CMP #'6'
-  BEQ .key_pgdn
-  ; Unknown Fn key (e.g. Insert) - return no-op
-  LDA #$00
-  RTS
-
-.key_home:
-  LDA #KEY_HOME
-  RTS
-.key_end:
-  LDA #KEY_END
-  RTS
-.key_delete:
-  LDA #KEY_DEL
-  RTS
-.key_pgup:
-  LDA #KEY_PGUP
-  RTS
-.key_pgdn:
-  LDA #KEY_PGDN
-  RTS
-.key_word_fwd:
-  LDA #KEY_WORD_FWD
-  RTS
-.key_word_back:
+  BNE .eat
   LDA #KEY_WORD_BACK
   RTS
-
-.not_tilde:
-.unknown_csi:
-.unknown_eat:
-  ; Unknown CSI sequence - consume remaining bytes and return no-op
-  ; CSI final bytes are >= $40 ('@'-'~'); params/intermediates are < $40
-  CMP #$40
-  BCS .csi_consumed      ; Last byte read was already a final byte
-  JSR consume_csi_tail   ; Drain until final byte
-.csi_consumed:
-  LDA #$00
+.word_fwd:
+  LDA #KEY_WORD_FWD
   RTS
+.tilde:
+  LDA .tilde_tbl - '1',X
+  RTS
+
+; Unknown CSI sequence: A = last byte read.  CSI final bytes are >= $40
+; ('@'-'~'); parameter/intermediate bytes are < $40.  Drain through the
+; final byte, then return no-op.
+.eat_loop:
+  JSR input_read_byte
+.eat:
+  CMP #$40
+  BCC .eat_loop
+  BCS .noop               ; Always taken
+
 .not_csi:
-  ; Check for SS3 sequences: ESC O <final byte> (F1-F4 on some terminals)
+  ; SS3 sequences: ESC O <final byte> (F1-F4 on some terminals)
   CMP #'O'
   BNE .not_ss3
   JSR input_read_byte    ; Read and discard the final byte
-  LDA #$00
-  RTS
+  JMP .noop
 .not_ss3:
   ; Unknown byte after ESC - push it back and return bare ESC
   JSR input_unread
   LDA #KEY_ESC
   RTS
 
-.done:
-  RTS
-
-; Drain remaining bytes of a CSI sequence until final byte (>= $40)
-consume_csi_tail:
-  JSR input_read_byte
-  CMP #$40
-  BCC consume_csi_tail   ; Keep reading param/intermediate bytes (< $40)
-  RTS
+.final_tbl:               ; ESC[A .. ESC[H
+  .byte KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT, $00, KEY_END, $00, KEY_HOME
+.tilde_tbl:               ; ESC[1~ .. ESC[6~ ($00 = no-op)
+  .byte $00, $00, KEY_DEL, $00, KEY_PGUP, KEY_PGDN
 
 ; Read one decoded key (with decoded pushback support)
 ; Returns key code in A. Preserves X, Y.
