@@ -211,6 +211,13 @@ write_byte_dec:
   STA TO_DECIMAL_VALUE16
   LDA #0
   STA TO_DECIMAL_VALUE16 + 1
+  ; fall through
+; Print TO_DECIMAL_VALUE16 in decimal (convert + write)
+; Same clobbers; X preserved (ansi_count_seq relies on it)
+print_decimal:
   JSR to_decimal
+  ; fall through
+; Write an already-converted TO_DECIMAL_RESULT
+print_decimal_result:
   SET16 TO_DECIMAL_RESULT, STR_PTR16
   JMP write_string

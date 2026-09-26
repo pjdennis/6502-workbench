@@ -232,16 +232,6 @@ render_position_cursor:
   LDA CURSOR_ROW
   JMP ansi_goto0
 
-; Print TO_DECIMAL_VALUE16 in decimal (convert + write)
-; Clobbers A, Y
-print_decimal:
-  JSR to_decimal
-  ; fall through
-; Write an already-converted TO_DECIMAL_RESULT
-print_decimal_result:
-  SET16 TO_DECIMAL_RESULT, STR_PTR16
-  JMP write_string
-
 ; Print the status-line separator " - "
 ; Clobbers A, Y
 print_separator:

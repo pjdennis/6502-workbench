@@ -588,8 +588,7 @@ report_lines:
   PUSH16 TO_DECIMAL_VALUE16
   JSR command_show_prompt
   POP16 TO_DECIMAL_VALUE16
-  JSR to_decimal
-  JSR print_decimal_result
+  JSR print_decimal
   POP16 STR_PTR16
   JSR write_string
   JMP io_flush
