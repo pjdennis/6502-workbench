@@ -460,8 +460,8 @@ undo_open_redo:
 ; UNDO_INDENT).  Cursor returns to the recorded position both ways.
 undo_shift_step:
   JSR undo_restore_line_col
-  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
-  LDA UNDO_JOIN_COUNT
+  CP16 UNDO_RANGE_LINES16, BUF_TEMP16
+  LDA UNDO_WIDTH
   STA BUF_DELTA
   STA SHIFT_UNDO_WIDTH
   LDA UNDO_TYPE
@@ -497,7 +497,7 @@ undo_span_finish:
 ; --- Toggle case undo/redo: self-inverse, re-toggle the span ---
 undo_tilde_span:
   JSR undo_span_setup
-  LDX UNDO_JOIN_COUNT
+  LDX UNDO_SPAN_LEN
   LDY #0
 .loop:
   LDA (BUF_PTR16),Y
@@ -517,7 +517,7 @@ undo_tilde_undo:
 undo_tilde_redo:
   JSR undo_tilde_span
   ; Cursor advances past the span as the original ~ did (clamped)
-  TYA                        ; Y = span length (UNDO_JOIN_COUNT)
+  TYA                        ; Y = span length (UNDO_SPAN_LEN)
   CLC
   ADCA16 CURSOR_COL16, CURSOR_COL16
   JSR clamp_cursor_col
@@ -533,15 +533,15 @@ undo_replace_undo:
   STA (BUF_PTR16),Y
   INY
   INX
-  CPX UNDO_JOIN_COUNT
+  CPX UNDO_SPAN_LEN
   BNE .loop
   JMP undo_span_undone
 
 ; --- Replace char redo: re-write the replacement char ---
 undo_replace_redo:
   JSR undo_span_setup
-  LDA UNDO_PASTE_COUNT16     ; replacement char
-  LDX UNDO_JOIN_COUNT
+  LDA UNDO_REPL_CHAR
+  LDX UNDO_SPAN_LEN
   LDY #0
 .loop:
   STA (BUF_PTR16),Y

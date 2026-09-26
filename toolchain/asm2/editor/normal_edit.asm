@@ -1,5 +1,6 @@
 ; Normal mode editing commands - paste, toggle case, join, substitute,
-; change line, indent/unindent, word delete/change
+; replace char, change line (>> <<, word and dollar operators are in
+; normal_shift.asm)
 
 ; --- Paste ---
 
@@ -355,7 +356,7 @@ echo_span_setup:
   ADC SCREEN_COLS            ; SCREEN_COLS - A
   STA BUF_DELTA              ; BUF_DELTA = echo budget (0 = deferred)
   LDA #0
-  STA UNDO_JOIN_COUNT        ; span length
+  STA UNDO_SPAN_LEN        ; span length
   RTS
 
 ; Echo the char at (BUF_PTR16),Y if the budget allows and it is
@@ -398,6 +399,11 @@ toggle_alpha:
   RTS
 
 ; --- Toggle case (~) ---
+; Scratch while ~ runs (aliases; the record is UNDO_COL16/UNDO_SPAN_LEN)
+TILDE_BATCHED    = BUF_LEN16          ; nonzero: batched ~ keys
+TILDE_LAST_COL16 = UNDO_PASTE_COUNT16 ; column of the last visited char
+; (TILDE_TOGGLED, in normal_shift.asm: nonzero if that char was toggled)
+
 normal_toggle_case:
   JSR undo_clear
   JSR get_batched_count      ; X = count + pending, BUF_DELTA = count
@@ -406,7 +412,7 @@ normal_toggle_case:
   TXA
   SEC
   SBC BUF_DELTA
-  STA BUF_LEN16              ; nonzero = batched
+  STA TILDE_BATCHED              ; nonzero = batched
   STX NORMAL_TEMP            ; loop counter
   JSR echo_span_setup
 
@@ -416,17 +422,17 @@ normal_toggle_case:
 
   JSR get_cursor_buf_ptr
   LDY #0
-  INC UNDO_JOIN_COUNT
+  INC UNDO_SPAN_LEN
   ; Track the last visited char for batched undo grouping
-  CP16 CURSOR_COL16, UNDO_PASTE_COUNT16
+  CP16 CURSOR_COL16, TILDE_LAST_COL16
   LDA #0
-  STA SHIFT_MODE             ; last-char-toggled flag
+  STA TILDE_TOGGLED             ; last-char-toggled flag
   LDA (BUF_PTR16),Y
   JSR toggle_alpha
   BCS .tilde_echo            ; not alpha: echo as-is
   STA (BUF_PTR16),Y
   LDA #$FF
-  STA SHIFT_MODE
+  STA TILDE_TOGGLED
   STA MODIFIED
   LDA #UNDO_TILDE
   STA UNDO_TYPE
@@ -448,14 +454,14 @@ normal_toggle_case:
 .tilde_done:
   LDA UNDO_TYPE
   BEQ .tilde_end             ; nothing toggled: undo stays clear
-  LDA BUF_LEN16
+  LDA TILDE_BATCHED
   BEQ .tilde_end             ; not batched: span already correct
   ; Batched: undo only the last ~ (one char at the last visited col)
-  LDA SHIFT_MODE
+  LDA TILDE_TOGGLED
   BEQ .tilde_clear           ; last ~ toggled nothing: nothing to undo
-  CP16 UNDO_PASTE_COUNT16, UNDO_COL16
+  CP16 TILDE_LAST_COL16, UNDO_COL16
   LDA #1
-  STA UNDO_JOIN_COUNT
+  STA UNDO_SPAN_LEN
   JMP .tilde_end
 .tilde_clear:
   JSR undo_clear
@@ -463,6 +469,8 @@ normal_toggle_case:
   JMP clear_count
 
 ; --- Join lines (J) ---
+JOIN_BATCHED = UNDO_COL16    ; nonzero: batched J keys (until the join column is recorded)
+
 normal_join_lines:
   JSR undo_clear
   JSR get_batched_count
@@ -472,7 +480,7 @@ normal_join_lines:
   TXA
   SEC
   SBC BUF_DELTA              ; A = pending count
-  STA UNDO_COL16             ; Repurpose: nonzero = batching
+  STA JOIN_BATCHED             ; Repurpose: nonzero = batching
 
   ; Adjust for explicit count: NJ joins N-1 lines
   LDA COUNT16
@@ -506,7 +514,7 @@ normal_join_lines:
 
   ; Compute undo_count: if batching → 1, else → NORMAL_TEMP
   LDA NORMAL_TEMP
-  LDX UNDO_COL16             ; batching flag
+  LDX JOIN_BATCHED           ; batching flag
   BEQ .set_undo_count
   LDA #1
 .set_undo_count:
@@ -560,7 +568,7 @@ normal_join_lines:
   SBC BUF_SRC16 + 1
   STA UNDO_DATA_BUF + 1,X
   ; Advance write index only if not batching
-  LDA UNDO_COL16             ; batching flag
+  LDA JOIN_BATCHED             ; batching flag
   BNE .skip_advance
   INX
   INX
@@ -576,7 +584,7 @@ normal_join_lines:
 
 .join_finish:
   ; For batched joins, cursor goes to last join point
-  LDA UNDO_COL16             ; batching flag
+  LDA JOIN_BATCHED             ; batching flag
   BEQ .cursor_done
   SEC
   SBC16 BUF_PTR16, BUF_SRC16, CURSOR_COL16
@@ -660,9 +668,9 @@ do_replace_char:
   LDY #0
   ; Save the original char for undo
   LDA (BUF_PTR16),Y
-  LDX UNDO_JOIN_COUNT
+  LDX UNDO_SPAN_LEN
   STA UNDO_DATA_BUF,X
-  INC UNDO_JOIN_COUNT
+  INC UNDO_SPAN_LEN
   ; Store the replacement, echo it or defer
   LDA BUF_TEMP
   STA (BUF_PTR16),Y
@@ -676,12 +684,12 @@ do_replace_char:
 
 .replace_done:
   ; Finalize undo record
-  LDA UNDO_JOIN_COUNT
+  LDA UNDO_SPAN_LEN
   BEQ .replace_no_undo
   LDA #UNDO_REPLACE
   STA UNDO_TYPE
   LDA BUF_TEMP
-  STA UNDO_PASTE_COUNT16     ; replacement char (for redo)
+  STA UNDO_REPL_CHAR     ; replacement char (for redo)
 .replace_no_undo:
   JMP clear_count
 

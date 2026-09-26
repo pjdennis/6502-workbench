@@ -19,21 +19,32 @@
 ;   BUF_DELTA    = space width W (insert per non-empty line / max removal)
 ;   SHIFT_MODE   = insert core only: 0 = constant width W per non-empty
 ;                  line; $FF = per-line widths from UNDO_DATA_BUF (undo)
+;   SHIFT_UNDO_WIDTH = width of the last op (recorded as UNDO_WIDTH)
 ;
-; On change the cores set MODIFIED and render flags ($0B partial repaint
-; when possible, else $FF), and record undo (ranges up to 255 lines).
+; On change the cores set MODIFIED and render flags (RF_RANGE partial
+; repaint when possible, else RF_FULL), and record undo for ranges up to
+; 255 lines: UNDO_COL16 (cursor column), UNDO_RANGE_LINES16, UNDO_WIDTH
+; and the per-line widths in UNDO_DATA_BUF (indexed by SHIFT_LINE_IDX
+; while they run).
 ; On no-op (nothing inserted/removed) they leave MODIFIED and RENDER_FLAG
 ; untouched so the frame is a pure cursor/status update.
 
   .zeropage
 
-SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data)
+SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
+                        ; also SHIFT_RECORDED and TILDE_TOGGLED (below)
 SHIFT_UNDO_WIDTH: .byte ; width of the LAST logical op for undo recording
                         ; (batched pairs multiply BUF_DELTA, but undo must
                         ; behave as if the keys ran separately, so undo
                         ; covers only the final op's contribution)
 
   .code
+
+; Scratch the cores reuse while they run (aliases)
+SHIFT_LINE_IDX   = UNDO_JOIN_COUNT ; line index into UNDO_DATA_BUF (then UNDO_WIDTH)
+SHIFT_RECORDED   = SHIFT_MODE      ; remove core: nonzero once a last-op removal is recorded
+SHIFT_PREV_WIDTH = BUF_LEN16       ; remove core: width taken by the batch's earlier ops
+TILDE_TOGGLED    = SHIFT_MODE      ; ~ (normal_edit.asm): the last visited char was toggled
 
 INDENT_WIDTH = 2
 
@@ -79,14 +90,14 @@ shift_setup_tail:
 ; last line) returns from the core itself, a no-op as before.
 shift_prologue:
   JSR undo_clear
-  CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
+  CP16 BUF_TEMP16, UNDO_RANGE_LINES16
   CP16 CURSOR_COL16, UNDO_COL16
   CP16 UNDO_LINE16, LINE_LEN16
   LDA #0
   STA NORMAL_TEMP              ; Cursor line width/removal (column adjust)
   STA COUNT16                  ; COUNT16 = total shift/removal
   STA COUNT16 + 1
-  STA UNDO_JOIN_COUNT          ; Line index for UNDO_DATA_BUF
+  STA SHIFT_LINE_IDX           ; Line index for UNDO_DATA_BUF
   STA DELETE_SCREEN_ROWS       ; 0 = no partial repaint (fall back to full)
   LDA BUF_TEMP16 + 1
   BNE .done                    ; > 255 lines: full repaint, no undo
@@ -103,11 +114,11 @@ shift_prologue:
 ; Record undo (A = type) unless the range was too big for undo data,
 ; then fall through to the render epilogue.
 shift_finish:
-  LDX UNDO_PASTE_COUNT16 + 1
+  LDX UNDO_RANGE_LINES16 + 1
   BNE shift_set_render         ; Big range: not undoable
   STA UNDO_TYPE
   LDA SHIFT_UNDO_WIDTH
-  STA UNDO_JOIN_COUNT          ; Width of the last logical op (for undo)
+  STA UNDO_WIDTH          ; Width of the last logical op (for undo)
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
 ; render level.  Partial repaint ($0B) requires pre-computed screen rows
@@ -120,7 +131,7 @@ shift_set_render:
   BEQ .full
   CMP16 FILE_LINE16, UNDO_LINE16
   BNE .full
-  LDA UNDO_PASTE_COUNT16
+  LDA UNDO_RANGE_LINES16
   STA INSERT_LINE_COUNT        ; range line count for render
   LDA #RF_RANGE
   STA RENDER_FLAG              ; range repaint
@@ -143,7 +154,7 @@ insert_spaces_core:
   TAY
   JSR shift_count_line
   BNE .prescan
-  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16 ; Line count again for redistribute
+  CP16 UNDO_RANGE_LINES16, BUF_TEMP16 ; Line count again for redistribute
 
   ; Nothing to insert (all lines empty): pure no-op
   TST16 COUNT16
@@ -161,7 +172,7 @@ insert_spaces_core:
   CLC
   ADC16 BUF_PTR16, BUF_LEN16, BUF_PTR16 ; read ptr = start + total shift
   LDA #0
-  STA UNDO_JOIN_COUNT          ; Reset line index
+  STA SHIFT_LINE_IDX          ; Reset line index
 
 .redist:
   JSR shift_line_width         ; read ptr = line start (pre-shift content)
@@ -181,7 +192,7 @@ insert_spaces_core:
 .redist_copy:
   JSR copy_line_to_nl
 
-  INC UNDO_JOIN_COUNT
+  INC SHIFT_LINE_IDX
   DEC16 BUF_TEMP16
   TST16 BUF_TEMP16
   BNE .redist
@@ -210,12 +221,12 @@ remove_spaces_core:
   JSR shift_prologue
 
   LDA #0
-  STA SHIFT_MODE               ; Accumulates recorded (last-op) removals
+  STA SHIFT_RECORDED               ; Accumulates recorded (last-op) removals
   ; Removal attributable to earlier ops of a batch (per line)
   LDA BUF_DELTA
   SEC
   SBC SHIFT_UNDO_WIDTH
-  STA BUF_LEN16                ; BUF_LEN16 = prev-ops width (temp)
+  STA SHIFT_PREV_WIDTH         ; Prev-ops width (per line)
 
   ; Set write ptr = first line start
   LDAX16 UNDO_LINE16
@@ -242,18 +253,18 @@ remove_spaces_core:
 
   ; Record the last logical op's removal (small ranges only):
   ; removed minus what earlier ops of the batch took, floored at 0
-  LDA UNDO_PASTE_COUNT16 + 1
+  LDA UNDO_RANGE_LINES16 + 1
   BNE .no_record
   TYA
   SEC
-  SBC BUF_LEN16                ; minus prev-ops width
+  SBC SHIFT_PREV_WIDTH                ; minus prev-ops width
   BCS .record_ok
   LDA #0
 .record_ok:
-  LDX UNDO_JOIN_COUNT
+  LDX SHIFT_LINE_IDX
   STA UNDO_DATA_BUF,X
-  ORA SHIFT_MODE
-  STA SHIFT_MODE               ; nonzero if any last-op removal recorded
+  ORA SHIFT_RECORDED
+  STA SHIFT_RECORDED               ; nonzero if any last-op removal recorded
 .no_record:
 
   JSR shift_count_line         ; (keeps Y)
@@ -299,7 +310,7 @@ remove_spaces_core:
   ; Record undo: u re-inserts the recorded per-line counts.  If the
   ; last logical op removed nothing (earlier batch ops took it all),
   ; there is nothing to undo -- matches unbatched no-op << behavior.
-  LDA SHIFT_MODE
+  LDA SHIFT_RECORDED
   BEQ .no_undo
   LDA #UNDO_UNINDENT
   JMP shift_finish
@@ -307,13 +318,13 @@ remove_spaces_core:
   JMP shift_set_render
 
 ; A = width to insert on the line starting at (BUF_PTR16), line index
-; UNDO_JOIN_COUNT: the recorded width in data mode, else 0 for an empty
+; SHIFT_LINE_IDX: the recorded width in data mode, else 0 for an empty
 ; line and BUF_DELTA otherwise.  Returns Y = 0.  Clobbers X.
 shift_line_width:
   LDY #0
   LDA SHIFT_MODE
   BEQ .const
-  LDX UNDO_JOIN_COUNT
+  LDX SHIFT_LINE_IDX
   LDA UNDO_DATA_BUF,X
   RTS
 .const:
@@ -340,7 +351,7 @@ shift_count_line:
   TYA
   CLC
   ADCA16 COUNT16, COUNT16
-  INC UNDO_JOIN_COUNT
+  INC SHIFT_LINE_IDX
   INC16 LINE_LEN16
   DEC16 BUF_TEMP16
   TST16 BUF_TEMP16

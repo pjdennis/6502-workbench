@@ -37,8 +37,9 @@
 ;   10/11 >> <<   first line       cursor column  width        lines
 ;   12 ~          cursor line      span start     span length  -
 ;   13 r          cursor line      span start     span length  replacement
-; While J runs, COL16 is its batching flag; while ~ runs, PASTE_COUNT16
-; is the last visited column.
+; Per-type alias names are declared below the fields.  While J runs,
+; COL16 is its batching flag (JOIN_BATCHED); while ~ runs,
+; PASTE_COUNT16 is the last visited column (TILDE_LAST_COL16).
 
 UNDO_NONE = 0
 UNDO_LINE = 1
@@ -71,5 +72,11 @@ INSERT_CHANGED:  .byte    ; Insert mode: nonzero once the buffer changed
                           ; (leaving insert mode then clears the undo record)
 UNDO_JOIN_COUNT: .byte
 UNDO_PASTE_COUNT16: .word
+
+; Per-type names for the shared record fields (zero-cost aliases)
+UNDO_SPAN_LEN      = UNDO_JOIN_COUNT     ; ~ r: chars in the span
+UNDO_WIDTH         = UNDO_JOIN_COUNT     ; >> <<: width of the last op
+UNDO_RANGE_LINES16 = UNDO_PASTE_COUNT16  ; >> <<: lines in the range (> 255: not undoable)
+UNDO_REPL_CHAR     = UNDO_PASTE_COUNT16  ; r: the replacement char
 
   .code
