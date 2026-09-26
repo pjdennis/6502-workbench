@@ -15,6 +15,7 @@ normal_handle_key:
   JSR dispatch_pending_key
   BCC .done
 .clear:
+  ASL CURSWANT_KEEP          ; A key that does nothing keeps the column
   JMP clear_count
 
 .no_pending:
@@ -31,6 +32,7 @@ normal_handle_key:
   LDX COUNT16 + 1
   BEQ .dispatch              ; '0' alone: line start
 .digit:
+  ASL CURSWANT_KEEP          ; A digit keeps the remembered column
   JMP count_accumulate_digit
 
 .dispatch:

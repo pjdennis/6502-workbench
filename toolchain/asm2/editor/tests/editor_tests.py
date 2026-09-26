@@ -1650,6 +1650,12 @@ class EditorTestRunner:
              [b"$", b"d", b"d", b"d", b"d", b"x"]),
             ("Batch equiv: Ctrl-D Ctrl-D", "abcdef\n" + "\n" * 4 + "abcdef\n" * 11,
              [b"$", b"\x04", b"\x04", b"x"]),
+            ("Batch equiv: j j across a short line", "abcdef\nab\nabcdef\n",
+             [b"4l", b"j", b"j", b"x"]),
+            ("Batch equiv: k k across an empty line", "abcdef\n\nabcdef\n",
+             [b"G", b"$", b"k", b"k", b"x"]),
+            ("Batch equiv: insert Down Down", ".\n\nm\n",
+             [b"a", b"\x1b[B", b"\x1b[B", b"8", b"\x1b"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -12765,6 +12771,51 @@ class EditorTestRunner:
             )
 
             # --------------------------------------------------------
+            # The remembered column (vim's curswant), keys one at a time
+            # --------------------------------------------------------
+            self._group("Terminal mode - remembered column, keys one at a "
+                        "time:", leading_blank=True)
+
+            # j, k and the insert-mode arrows go back to the column the
+            # cursor had before a run of them (after $: the end of each
+            # line), as in vi and vim, rather than to the column a shorter
+            # line clamped it to.  Count digits, ESC and a cancelled
+            # operator leave the column remembered; other commands (x, yy)
+            # start over from the cursor's column.
+            PACE_ARGS = ["--cpu-mhz", "2", "--baud", "115200"]
+            short = "abcdef\nab\nabcdef\n"
+            longer = "abcdefgh\nab\nabcdefgh\n"
+            for name, content, groups, expected in (
+                ("j j across a short line", short,
+                 [b"4l", b"j", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("k k across a short line", short,
+                 [b"G", b"4l", b"k", b"k", b"x"], "abcdf\nab\nabcdef\n"),
+                ("$ j j stays at the ends of the lines", short,
+                 [b"$", b"j", b"j", b"x"], "abcdef\nab\nabcde\n"),
+                ("insert Down Down across an empty line", ".\n\nm\n",
+                 [b"a", b"\x1b[B", b"\x1b[B", b"8", b"\x1b"], ".\n\nm8\n"),
+                ("insert Up Up across a short line", short,
+                 [b"G$a", b"\x1b[A", b"\x1b[A", b"X", b"\x1b"],
+                 "abcdefX\nab\nabcdef\n"),
+                ("a count digit keeps it", short,
+                 [b"4l", b"j", b"1", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("ESC keeps it", short,
+                 [b"4l", b"j", b"\x1b", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("d ESC keeps it", longer,
+                 [b"6l", b"j", b"d", b"\x1b", b"j", b"x"],
+                 "abcdefgh\nab\nabcdefh\n"),
+                ("x starts over", longer,
+                 [b"6l", b"j", b"x", b"j", b"x"], "abcdefgh\na\nbcdefgh\n"),
+                ("yy starts over", longer,
+                 [b"6l", b"j", b"y", b"y", b"j", b"x"],
+                 "abcdefgh\nab\nacdefgh\n"),
+            ):
+                self.run_test_terminal(
+                    f"Remembered column, one at a time: {name}", content,
+                    None, expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+
+            # --------------------------------------------------------
             # Escape sequences on a slow link
             # --------------------------------------------------------
             self._group("Terminal mode - escape sequences at 300 baud:",
@@ -19688,6 +19739,30 @@ class EditorTestRunner:
 
         self._group("Batching counting and insert mode edge cases:", leading_blank=True)
 
+        # --- Typed-ahead vertical moves ---
+        # j, k and the insert-mode arrows go to the remembered column, so
+        # typed ahead they land where one at a time would (a count as well)
+        self.run_test(
+            "batched jj keep the column across a short line",
+            "abcdef\nab\nabcdef\n",
+            b"4ljjx:wq\r",
+            expected_content="abcdef\nab\nabcdf\n"
+        )
+
+        self.run_test(
+            "batched $jj stay at the end of each line",
+            "abcdef\nab\nabcdef\n",
+            b"$jjx:wq\r",
+            expected_content="abcdef\nab\nabcde\n"
+        )
+
+        self.run_test(
+            "2j + batched j keep the column",
+            "abcdef\nabcdef\nab\nabcdef\n",
+            b"4l2jjx:wq\r",
+            expected_content="abcdef\nabcdef\nab\nabcdf\n"
+        )
+
         # --- Batch undo behavior ---
 
         # xxxx then undo: batched x's delete all chars, undo pastes back last char
@@ -21487,14 +21562,16 @@ class EditorTestRunner:
             expect_cursor=(0, 39),
         )
         # ... then Down and type: the cursor row must match the rows drawn.
+        # Down goes back to the column A left (col 45, as in vim; it went
+        # to the column Up had clamped it to, col 40)
         self.run_test_screen(
             "Scroll opt: insert Up onto a full-width line, Down, type",
             virt,
             b"9jkkkkkkkkA\x1b[A\x1b[BX\x1b:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "Xbbbbb"),
+            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "bbbbbX"),
                           (3, "l2"), (8, "l7")],
-            expect_cursor=(2, 0),
+            expect_cursor=(2, 5),
         )
         # C on line 1 makes it exactly 10 wide; Up onto the 10-wide line
         # 0 above the view, then ESC.

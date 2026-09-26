@@ -169,6 +169,7 @@ main_loop:
   JMP main_loop
 
 .key_available:
+  LSR CURSWANT_KEEP          ; Vertical moves keep their column one key
   JSR file_line_rows
   STA PREV_LINE_ROWS
   JSR render_snapshot

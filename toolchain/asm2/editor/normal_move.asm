@@ -18,12 +18,12 @@ normal_move_right:
 normal_move_down:
   JSR get_batched_count
   JSR move_down_x
-  JMP clamp_and_clear_count
+  JMP vert_col_clamp
 
 normal_move_up:
   JSR get_batched_count
   JSR move_up_x
-  JMP clamp_and_clear_count
+  JMP vert_col_clamp
 
 normal_page_down:
   JSR page_setup
@@ -166,10 +166,12 @@ normal_line_start:
   STA_LH16 CURSOR_COL16
   JMP clear_count
 
+; $ and End (both modes): remember a column past any line end, so that j
+; and k go to the end of each line too
 normal_line_end:
   LDA #$FF
-  STA_LH16 CURSOR_COL16      ; Past any line end; clamp to the last char
-  JMP clamp_and_clear_count
+  STA_LH16 CURSWANT16
+  JMP vert_keep
 
 normal_goto_last:
   ; FILE_LINE16 = count - 1 (1-based count; no count: 0 - 1 = $FFFF),

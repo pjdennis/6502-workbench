@@ -110,10 +110,13 @@ check_combo_first_key:
   LDA BUF_TEMP
   STA LAST_KEY
   JSR key_peek
-  BCC .pending               ; No second key yet
+  BCS .second                ; The second key is typed already
+  ASL CURSWANT_KEEP          ; A pending first key changes nothing (yet)
+  CLC
+  RTS
+.second:
   JSR get_key
   JSR normal_handle_key      ; LAST_KEY set: dispatches the pair
-.pending:
   CLC
   RTS
 ; No match (dispatch_key, dispatch_pending_key, check_combo_first_key)
@@ -312,6 +315,25 @@ clear_count:
   STA_LH16 COUNT16
   STA BATCH_RESTORE_KEY
   RTS
+
+; Vertical move tail (j, k and Up/Down in both modes): the cursor goes
+; to the remembered column (vim's curswant), clamped to the line for the
+; mode.  A run of vertical keys remembers the column the cursor had at
+; its start, which the previous key tells by leaving CURSWANT_KEEP 0
+; (main_loop halves it for every key; a vertical move sets 2, and a key
+; that changes nothing, a count digit, ESC or a pending first key,
+; doubles it back); $ and End remember one past any line end
+vert_col_clamp:
+  LDA CURSWANT_KEEP
+  BNE vert_keep
+  CP16 CURSOR_COL16, CURSWANT16  ; A new run: remember the column
+vert_keep:
+  LDA #2
+  STA CURSWANT_KEEP
+  CP16 CURSWANT16, CURSOR_COL16
+  LDA MODE
+  BEQ clamp_and_clear_count  ; Normal mode: onto the last char
+  JMP clamp_cursor_col_insert ; Insert mode: up to the line end
 
 ; Move cursor to col 0, clamp, then clear count (shared terminal tail)
 zero_col_clamp_clear:

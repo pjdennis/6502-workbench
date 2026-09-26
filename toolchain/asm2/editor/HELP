@@ -58,6 +58,11 @@ NORMAL MODE - MOVEMENT
   the first non-blank character of the line they go to, as dd and :d
   do on the line after the deleted ones.
 
+  j, k, Up and Down (in insert mode too) remember the column they
+  started from: a shorter line on the way puts the cursor at its end,
+  and the next longer line takes it back to that column. After $ or
+  End they keep to the end of each line.
+
 
 NORMAL MODE - EDITING
 ---------------------

@@ -24,7 +24,7 @@ insert_keys:
   .byte KEY_LEFT    .word insert_left
   .byte KEY_RIGHT   .word insert_right
   .byte KEY_HOME    .word normal_line_start   ; Col 0 (no count in insert mode)
-  .byte KEY_END     .word insert_end
+  .byte KEY_END     .word normal_line_end     ; Col = len (and j/k stick there)
   .byte KEY_PGDN    .word normal_page_down    ; These land on the first
   .byte KEY_PGUP    .word normal_page_up      ; non-blank: no insert clamp
   .byte $06         .word normal_page_down    ; Ctrl-F
@@ -513,12 +513,12 @@ insert_right:
 insert_up:
   JSR insert_move_count
   JSR move_up_x
-  JMP clamp_cursor_col_insert
+  JMP vert_col_clamp
 
 insert_down:
   JSR insert_move_count
   JSR move_down_x
-  ; fall through
+  JMP vert_col_clamp
 
 ; Clamp cursor for insert mode (can be one past end of line content)
 clamp_cursor_col_insert:
