@@ -423,12 +423,12 @@ cmp_ptr_end:
 
 ; Add the 16-bit signed delta in BUF_SRC16 to the line pointers of every
 ; line after FILE_LINE16 (single-line edits that add/remove no newlines)
-; Input: FILE_LINE16 < LINE_COUNT16
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_LEN16
 buf_adjust_lines_apply:
   ; Count = LINE_COUNT16 - FILE_LINE16 - 1 (CLC: SBC subtracts one more)
   CLC
   SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
+  BMI .done                  ; FILE_LINE16 >= LINE_COUNT16: nothing to do
   ORA BUF_LEN16
   BEQ .done                  ; Cursor on last line: nothing to adjust
   ; Entry address = LINE_TBL + (FILE_LINE16 + 1) * 2, split into a
