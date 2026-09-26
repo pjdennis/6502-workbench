@@ -412,12 +412,10 @@ normal_toggle_case:
   SEC
   SBC BUF_DELTA
   STA BUF_LEN16              ; nonzero = batched
-  STX NORMAL_TEMP
+  STX NORMAL_TEMP            ; loop counter
   JSR echo_span_setup
-  LDX NORMAL_TEMP
 
 .tilde_loop:
-  STX NORMAL_TEMP
   JSR check_cursor_in_line
   BCS .tilde_done
 
@@ -449,8 +447,7 @@ normal_toggle_case:
   JSR inc_cursor_col
 
 .tilde_next:
-  LDX NORMAL_TEMP
-  DEX
+  DEC NORMAL_TEMP
   BNE .tilde_loop
 
 .tilde_done:
@@ -671,11 +668,12 @@ do_replace_char:
   ; Count, clamped to 255 (replacement span is recorded in one page)
   LDX BUF_TEMP16
   LDA BUF_TEMP16 + 1
-  BEQ .replace_loop
+  BEQ .replace_count
   LDX #$FF
+.replace_count:
+  STX NORMAL_TEMP            ; loop counter
 
 .replace_loop:
-  STX NORMAL_TEMP
   JSR check_cursor_in_line
   BCS .replace_done
 
@@ -692,8 +690,7 @@ do_replace_char:
   JSR echo_or_defer
   LDA #$FF
   STA MODIFIED
-  LDX NORMAL_TEMP
-  DEX
+  DEC NORMAL_TEMP
   BEQ .replace_done
   JSR inc_cursor_col
   JMP .replace_loop
