@@ -13,7 +13,6 @@ NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
 SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
 BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
 BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none)
-DEL_BACK:          .byte ; $FF when batched_char_delete serves X (last press deleted the range's first char)
 
   .code
 
@@ -565,7 +564,7 @@ OP_CHANGE = 2
 ; OP_CHANGE:  yank range, delete, enter insert mode
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
 apply_char_operator:
-  CMP #OP_YANK
+  TAY                          ; Z = OP_YANK
   BNE .do_delete
   ; Yank only: no delete, no MODIFIED
   JSR get_cursor_src
@@ -609,12 +608,11 @@ compute_char_range_forward:
 ;        LINE_LEN16 = line length (from check_cursor_in_line)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 batched_char_delete_back:
-  LDA #$FF
+  LDY #$FF                  ; Y = DEL_BACK flag (kept until .batched)
   BNE bcd_start             ; Always taken
 batched_char_delete:
-  LDA #0
+  LDY #0
 bcd_start:
-  STA DEL_BACK
   JSR compute_char_range_forward
   BCS .done
   JSR set_shift_delete
@@ -628,8 +626,10 @@ bcd_start:
   ; --- Batched: yank only what the last key press deleted (the range's
   ; last char for x, its first char for X), then delete the full range ---
   PUSH16 BUF_LEN16              ; Save full range
+  TYA
+  PHA                           ; Save the DEL_BACK flag
   JSR get_cursor_src            ; BUF_SRC16 = range start
-  LDA DEL_BACK
+  PLA
   BNE .yank_one                 ; X: the first char
   LDX BUF_LEN16                 ; x: the last char (range <= 255)
   DEX
