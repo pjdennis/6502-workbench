@@ -30,7 +30,7 @@
 ;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
 ;                              and SHIFT_WRITE), scrolling the rows below by
 ;                              its row change from PREV_LINE_ROWS.
-; $02   dd, cc                 Lines deleted from first_row down; the cursor
+; $02   dd                     Lines deleted from first_row down; the cursor
 ;                              line moved up into them.  DELETE_SCREEN_ROWS =
 ;                              rows deleted (0 = use delta).  Scroll up from
 ;                              first_row, redraw the cursor row (from

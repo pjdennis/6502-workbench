@@ -20,7 +20,7 @@ undo_record_char_delete:
 ; Call after yank succeeds, before delete, with BUF_TEMP16 = the line
 ; count (at most the lines left).
 ; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores),
-; UNDO_EMPTIED bit 7 = the delete empties the buffer
+; UNDO_EMPTY_LINE bit 7 = the delete empties the buffer
 undo_record_line_delete:
   ; The count reaches LINE_COUNT16 only from line 0: every line goes, and
   ; buf_delete_lines leaves a synthetic empty line that undo must remove
@@ -28,7 +28,7 @@ undo_record_line_delete:
   CMP LINE_COUNT16
   LDA BUF_TEMP16 + 1
   SBC LINE_COUNT16 + 1
-  ROR UNDO_EMPTIED           ; Bit 7 = C = count >= LINE_COUNT16
+  ROR UNDO_EMPTY_LINE        ; Bit 7 = C = count >= LINE_COUNT16
   LDA #UNDO_LINE
 undo_rec_set:
   STA UNDO_TYPE
@@ -71,7 +71,7 @@ undo_handle:
 .table:                              ; Undo handlers
   .word .undo_line - 1               ; 1 UNDO_LINE
   .word .undo_char - 1               ; 2 UNDO_CHAR
-  .word .undo_cc - 1                 ; 3 UNDO_CC
+  .word .undo_line - 1               ; 3 UNDO_CC
   .word undo_paste_undo - 1          ; 4 UNDO_LINE_PASTE_BELOW
   .word undo_paste_undo - 1          ; 5 UNDO_LINE_PASTE_ABOVE
   .word undo_char_paste_undo - 1     ; 6 UNDO_CHAR_PASTE_BELOW
@@ -98,32 +98,27 @@ undo_handle:
   .word undo_replace_redo - 1        ; 13 UNDO_REPLACE
 
 ; --- Undo handlers ---
-.undo_cc:
-  ; cc undo: first delete the blank line cc inserted, then paste original lines
-  JSR undo_restore_line
-  JSR set_buf_temp16_one
-  ; Check if current line is empty (should be if cc + ESC without typing)
-  JSR get_line_len_z
-  BNE .undo_line_paste       ; Line has content (shouldn't happen if insert
-                             ; exited clean, but be safe)
-  ; Delete the blank line (with mark adjustment)
-  JSR delete_current_lines
-  JMP .undo_line_paste
-
 .undo_line:
-  ; Restore FILE_LINE16 to saved position
+  ; dd, :d and cc: paste the lines back at the recorded line
   JSR undo_restore_line
-  ; If the delete emptied the buffer, remove the synthetic empty line it
-  ; left, so the paste doesn't leave an extra blank line
-  BIT UNDO_EMPTIED
+  JSR set_buf_temp16_one     ; A = 0 (BUF_TEMP16 = 1: one line, one paste)
+  ; cc, and a delete of every line, left one empty line there: remove its
+  ; newline first.  Its line table entry stays, as the paste point; the
+  ; line comes off LINE_COUNT16, which the paste's line check must not
+  ; count.  (Typing in cc's line ends the undo, so it is still empty.)
+  BIT UNDO_EMPTY_LINE
   BPL .undo_line_paste
-  SET16 TEXT_BUF, BUF_END16   ; Remove synthetic newline
-  DEC LINE_COUNT16            ; and its line (1 -> 0), which the paste's
-                              ; line check must not count
+  STA BUF_LEN16 + 1
+  LDX #1
+  STX BUF_LEN16              ; 1 byte
+  LDAX16 FILE_LINE16
+  JSR mark_adjust_delete
+  JSR get_current_line_ptr
+  JSR buf_shift_left_16
+  DEC16 LINE_COUNT16
 
 .undo_line_paste:
   ; Paste above: reuses existing yank_paste_above_n
-  JSR set_buf_temp16_one
   JSR yank_paste_above_n
   BCS .undo_line_fail
   ; Adjust marks for inserted lines
@@ -149,13 +144,12 @@ undo_handle:
   JMP clear_count
 .undo_cc_multi:
   ; Ncc undo: compute SCROLL_DELTA = total_screen_rows(pasted) - 1
-  ; (subtract 1 for the deleted blank line)
-  LDA YANK_LINES16
-  JSR compute_delete_rows_at_cursor  ; Walks YANK_LINES16 lines, sets DELETE_SCREEN_ROWS
+  ; (subtract 1 for the removed empty line)
+  JSR compute_delete_rows_temp16 ; Walks the BUF_TEMP16 = YANK_LINES16 lines
   LDA DELETE_SCREEN_ROWS
   BEQ .undo_cc_full              ; Overflow or 0: fall back to full repaint
   SEC
-  SBC #1                         ; Subtract 1 for deleted blank line
+  SBC #1                         ; Subtract 1 for the removed empty line
   BEQ .undo_cc_full              ; 0 displacement: fall back
   STA SCROLL_DELTA
   LDA #RF_INS_PRESET
@@ -182,19 +176,9 @@ undo_handle:
 
 ; --- Redo handlers ---
 .redo_cc:
-  ; cc redo: delete lines, insert blank line (reproduces cc effect)
+  ; cc redo: replace the lines with one empty line again
   JSR undo_restore_lines
-  ; Pre-compute screen rows for displacement-based scroll
-  LDA BUF_TEMP16
-  JSR compute_delete_rows_at_cursor
-  JSR delete_current_lines
-  ; Insert blank line at FILE_LINE16 (like cc does)
-  JSR get_line_len_z
-  BEQ .redo_cc_done
-  JSR open_current_line      ; Marks adjusted as the original cc did
-.redo_cc_done:
-  LDA #RF_JOIN                   ; displacement-based scroll
-  JSR undo_opened_finish
+  JSR cc_clear_lines
   JMP clear_count
 
 .redo_line:
@@ -581,7 +565,7 @@ undo_restore_line:
   RTS
 
 ; Finish a (re)opened blank line: RENDER_FLAG = A, cursor to column 0,
-; then mark the operation redone (shared by o/O, their redo and cc redo)
+; then mark the operation redone (shared by o/O, cc and their redo)
 undo_opened_finish:
   STA RENDER_FLAG
   LDA #0

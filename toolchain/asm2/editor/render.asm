@@ -17,7 +17,7 @@ MODE_COMMAND = $02
 ; RF_SPLIT line-insert scrolls.
 RF_AUTO       = $00   ; Infer the repaint from the snapshot
 RF_LINE       = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
-RF_DEL        = $02   ; dd/cc: lines deleted from the cursor line's first row
+RF_DEL        = $02   ; dd: lines deleted from the cursor line's first row
 RF_INS        = $03   ; Lines inserted at the cursor line (o O p P, undo dd)
 RF_UNJOIN     = $04   ; Undo J: lines restored below the cursor line
 RF_ENTER      = $05   ; Insert-mode Enter split the cursor line

@@ -1338,6 +1338,11 @@ class EditorTestRunner:
             full, b"ccX\x1b:wq\r", expected_content="X\n" + full[6:])
         self.run_test("cc redo at the line limit",
             full, b"cc\x1buu:wq\r", expected_content="\n" + full[6:])
+        # u of cc takes cc's empty line off the count before pasting back
+        self.run_test("cc undo at the line limit",
+            full, b"cc\x1bux:wq\r", expected_content=full_x)
+        self.run_test("2cc undo then redo at the line limit",
+            full, b"2cc\x1bu u:wq\r", expected_content="\n" + full[12:])
         self.run_test("o redo reaches the line limit",
             numbered(1022), b"o\x1buu:wq\r",
             expected_content="L0001\n\n" + numbered(1022)[6:])
@@ -9202,6 +9207,65 @@ class EditorTestRunner:
             expected_content="X\nccc\n",
         )
 
+        # cc/S replace the lines with one empty line in place: at the end of
+        # the file the new line stays last, and an empty line after the
+        # changed lines is kept
+        for name, content, keys, expected in [
+            ("cc on last line", "a\nb\n", b"Gcc3\x1b:wq\r", "a\n3\n"),
+            ("S on last line", "a\nb\n", b"GS3\x1b:wq\r", "a\n3\n"),
+            ("cc on last line of three", "a\nb\nc\n", b"Gcc\x1b:wq\r",
+             "a\nb\n\n"),
+            ("2cc reaching last line", "a\nb\nc\n", b"j2cc3\x1b:wq\r",
+             "a\n3\n"),
+            ("5cc clamped to last line", "a\nb\nc\nd\n", b"jj5cc3\x1b:wq\r",
+             "a\nb\n3\n"),
+            ("2cc of wrapped lines reaching last line",
+             "top\n" + "A" * 15 + "\n" + "B" * 15 + "\n", b"j2ccX\x1b:wq\r",
+             "top\nX\n"),
+            ("cc keeps following empty line", "a\nb\n\nc\n", b"jcc3\x1b:wq\r",
+             "a\n3\n\nc\n"),
+            ("2cc keeps following empty line", "A\nB\n\nC\n", b"2ccX\x1b:wq\r",
+             "X\n\nC\n"),
+            ("cc keeps empty last line", "X\n\n", b"ccY\x1b:wq\r", "Y\n\n"),
+            ("cc on last line keeps empty line above", "a\n\nb\n",
+             b"Gcc3\x1b:wq\r", "a\n\n3\n"),
+            ("2cc on whole buffer leaves one line", "a\nb\n", b"2cc3\x1b:wq\r",
+             "3\n"),
+            # A mark above the changed lines stays on its line
+            ("cc on last line keeps mark above", "a\nb\n",
+             b"majccZ\x1b'aiY\x1b:wq\r", "Ya\nZ\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "cc on last line: screen and cursor",
+            "a\nb\n",
+            b"Gcc3\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "3"), (2, "~")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "2cc of wrapped lines reaching last line: screen and cursor",
+            "top\n" + "A" * 15 + "\n" + "B" * 15 + "\n",
+            b"j2ccX\x1b:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "top"), (1, "X"), (2, "~"), (3, "~"), (4, "~")],
+            expect_cursor=(1, 0),
+        )
+
+        # cc and its redo replace the lines with one empty line in one
+        # shift and one line-table rebuild, where they deleted the lines
+        # and then opened a line (two of each): on a 36 KB file cc<Esc>
+        # took 4.49M cycles, now 2.26M, and its redo the same
+        big = "".join("line %04d of the file, padded to thirty-six\n" % i
+                      for i in range(830))
+        self.run_test_cycle_cap("cc on a 36 KB file shifts the text once",
+            big, b"cc\x1b:q!\r", 6700000, rows=24, cols=80)
+        self.run_test_cycle_cap("cc redo on a 36 KB file shifts the text once",
+            big, b"cc\x1bu u:q!\r", 13700000, rows=24, cols=80)
+
         self._group("Indent (>>, <<):", leading_blank=True)
 
         self.run_test(
@@ -15549,6 +15613,38 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")],
             expect_cursor=(0, 0),
+        )
+
+        # Undo/redo of cc at the end of the file and next to empty lines
+        for name, content, keys, expected in [
+            ("cc ESC undo on last line", "a\nb\n", b"Gcc\x1bu:wq\r", "a\nb\n"),
+            ("cc ESC undo redo on last line", "a\nb\n", b"Gcc\x1bu u:wq\r",
+             "a\n\n"),
+            ("2cc ESC undo reaching last line", "a\nb\nc\n", b"j2cc\x1bu:wq\r",
+             "a\nb\nc\n"),
+            ("3cc clamped ESC undo", "a\nb\nc\nd\n", b"jj3cc\x1bu:wq\r",
+             "a\nb\nc\nd\n"),
+            ("3cc clamped ESC undo redo", "a\nb\nc\nd\n",
+             b"jj3cc\x1bu u:wq\r", "a\nb\n\n"),
+            ("cc ESC undo redo keeps following empty line", "Hello\n\nWorld\n",
+             b"cc\x1bu u:wq\r", "\n\nWorld\n"),
+            ("cc ESC undo keeps empty last line", "X\n\n", b"cc\x1bu:wq\r",
+             "X\n\n"),
+            ("cc ESC undo redo on only line", "X\n", b"cc\x1bu u:wq\r", "\n"),
+            ("cc ESC undo redo undo on only line", "X\n", b"cc\x1bu u u:wq\r",
+             "X\n"),
+            ("2cc ESC undo redo undo on whole buffer", "a\nb\n",
+             b"2cc\x1bu u u:wq\r", "a\nb\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "cc ESC undo on last line: screen and cursor",
+            "a\nb\n",
+            b"Gcc\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b"), (2, "~")],
+            expect_cursor=(1, 0),
         )
 
         # cc undo preserves mark below (undo must adjust marks when deleting blank)

@@ -181,9 +181,6 @@ ptr_adc_a:
 .done:
   RTS
 
-; Open a blank line at line FILE_LINE16 (the cursor line moves down)
-open_current_line:
-  LDAX16 FILE_LINE16
 ; Open a blank line at line A/X (that line moves down)
 open_line_at:
   PHA
@@ -343,11 +340,20 @@ buf_line_span:
   SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
   RTS
 
+; Replace N contiguous lines starting at line A/X with one empty line
+; (cc/S): as buf_delete_lines, but it keeps the last line's newline, so
+; it never empties the buffer.  Same input as buf_delete_lines
+buf_clear_lines:
+  JSR buf_line_span
+  DEC16 BUF_LEN16            ; Keep the last newline (the span ends in one)
+  BCS buf_delete_span        ; Always (buf_line_span leaves C = 1)
+
 ; Delete N contiguous lines starting at line A/X
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines to delete (16-bit)
 ; Handles end-of-file clamping, empty buffer, rebuilds line table once
 buf_delete_lines:
   JSR buf_line_span
+buf_delete_span:
   CP16 BUF_SRC16, BUF_PTR16  ; Delete point = start of the span
   JSR buf_shift_left_16
   ; If buffer is now empty, add a newline; rebuild line table

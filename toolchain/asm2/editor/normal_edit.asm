@@ -625,40 +625,33 @@ do_replace_char:
   JMP clear_count
 
 ; --- Change line (cc, and S, which dispatches here too) ---
-; Yank line(s), delete, insert newline, enter insert at col 0.
+; Yank line(s), replace them with one empty line, enter insert at col 0.
 do_cc:
   JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
-  ; Pre-compute screen rows for displacement-based scroll
-  JSR compute_delete_rows_temp16
-  JSR yank_delete_current_lines
+  JSR yank_current_lines
   BCS .cc_overflow
-  ; Check if current line is already empty (from buf_delete_lines empty handling)
-  JSR get_line_len_z
-  BEQ .cc_already_empty
-
-  ; Insert a blank line at FILE_LINE16 (marks adjusted)
-  JSR open_current_line
-  BCS .cc_buf_full
-  ; Upgrade the line-delete undo record to cc (u also removes the blank)
+  ; Record undo: u removes the empty line and pastes the lines back
+  SEC
+  ROR UNDO_EMPTY_LINE
   LDA #UNDO_CC
-  STA UNDO_TYPE
-  LDA #RF_JOIN
-  BNE .cc_set_render         ; Always
-
-.cc_already_empty:
-  ; No blank inserted - next line was already empty.
-  ; Use $02 (standard delete-scroll) instead of $06 (displacement-based)
-  ; because displacement=0 would cause $06 to skip the scroll.
-  LDA #RF_DEL
-.cc_set_render:
-  ; RENDER_FLAG = A, cursor to col 0, modified (UNDO_IS_REDO is already
-  ; 0 from the line-delete record)
-  JSR undo_opened_finish
+  JSR undo_rec_set
+  JSR cc_clear_lines
   JMP enter_insert_mode
 
 .cc_overflow:
   JMP show_yank_overflow
 
-.cc_buf_full:
-  JSR show_buffer_full_msg
-  JMP clear_count
+; Replace BUF_TEMP16 lines at FILE_LINE16 with one empty line and put the
+; cursor on it, for a displacement-based scroll (cc/S and their redo).
+; Marks on the lines are unset, marks below them move up N-1 lines.
+; Clobbers A, X, Y
+cc_clear_lines:
+  JSR compute_delete_rows_temp16 ; The lines' rows before
+  LDAX16 FILE_LINE16
+  JSR mark_adjust_delete
+  LDAX16 FILE_LINE16
+  JSR buf_clear_lines
+  LDAX16 FILE_LINE16
+  JSR mark_insert_one
+  LDA #RF_JOIN
+  JMP undo_opened_finish     ; Cursor to col 0, modified
