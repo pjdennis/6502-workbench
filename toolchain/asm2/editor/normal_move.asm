@@ -270,6 +270,7 @@ do_mark_goto:
   JSR mark_get
   BCS .mark_not_set
   STAX16 FILE_LINE16
+  JSR clamp_file_line        ; A stale mark must not point past EOF
   JMP zero_col_clamp_clear
 .mark_not_set:
   JSR range_mark_err         ; "Mark not set"

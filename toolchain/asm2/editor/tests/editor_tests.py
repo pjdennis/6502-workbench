@@ -8682,6 +8682,26 @@ class EditorTestRunner:
                     (2 + 2 * i, "x"))]
         )
 
+        # 'a never goes past the last line: after 300D, mark a (on the last
+        # line) must land on the last line, so x edits it and keeps the
+        # file's final newline
+        self.run_test(
+            "'a to a mark on the last line after 300D stays in the file",
+            make_lines(400),
+            b"Gmagg300D'ax:wq\r",
+            expected_content=(
+                "\n" + ''.join(f"Line {i}\n" for i in range(301, 400)) + "ine 400\n"
+            )
+        )
+
+        # Same for a mark used as a : range address: :'ad deletes the last line
+        self.run_test(
+            ":'ad on a mark on the last line after 300D stays in the file",
+            make_lines(400),
+            b"Gmagg300D:'ad\r:wq\r",
+            expected_content="\n" + ''.join(f"Line {i}\n" for i in range(301, 400))
+        )
+
         self.run_test(
             "Range :100,399d deletes 300 lines",
             make_lines(500),

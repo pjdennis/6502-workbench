@@ -247,8 +247,9 @@ parse_range_pos:
   BCS .error
   STAX16 BUF_LEN16
   LDX CMD_IDX
+  BCC .clamp              ; Always taken: a stale mark must not point past EOF
 .error:
-  RTS                     ; Carry clear on success
+  RTS                     ; Carry set: no such mark, or no digits
 .number:
   ; Decimal number: BUF_LEN16 = BUF_LEN16 * 10 + digit (BUF_DST16 = x2)
   LDA #0
@@ -278,6 +279,7 @@ parse_range_pos:
   TST16 BUF_LEN16
   BEQ .num_ok
   DEC16 BUF_LEN16
+.clamp:
   ; Clamp to LINE_COUNT16-1
   CMP16 BUF_LEN16, LINE_COUNT16
   BCC .num_ok
