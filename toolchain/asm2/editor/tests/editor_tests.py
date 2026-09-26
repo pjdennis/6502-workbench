@@ -19369,6 +19369,22 @@ class EditorTestRunner:
                           (8, "x" * 40)],
             expect_cursor=(2, 0),
         )
+        # An Enter at the first column of the view's top row, in a line
+        # that starts above the view, leaves all of the line's first part
+        # above the view: the view then starts at the new line, whose text
+        # the rows already show (10x10: the view starts at row 1 of the
+        # 53-char 'w5 ...', and the Enter is at its column 10)
+        wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
+                         for i in range(20))
+        self.run_test_screen(
+            "Enter at the view's top row start in a line above the view",
+            wlines, b"6G10ljjjkkki\r\x1b:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(r, "hijabcdefg") for r in range(4)]
+                         + [(4, "hij"), (5, "w6"), (6, "w7 abcdefg"),
+                            (7, "hij"), (8, "w8 abcdefg")],
+            expect_cursor=(0, 0),
+        )
         # An Enter that keeps the line's height (the split is at a row
         # boundary) draws only the rows from the split on: no scroll and
         # no full redraw.  Frames: 0 initial, 1 j, 2-3 count, 4 l, 5 i,

@@ -675,6 +675,16 @@ ensure_cursor_visible:
   JSR render_line_rows
   SEC
   SBC RENDER_WRAP              ; visible rows of this line
+  BEQ .top_gone
+  BCS .visible_rows
+.top_gone:
+  ; The view began past the top line's last row: an Enter at or before
+  ; the view's first cell cut the line short there.  The view starts at
+  ; the next line, whose text the top rows showed
+  INC16 VIEW_TOP16
+  LDA #0
+  STA VIEW_TOP_WRAP
+.visible_rows:
   CLC
   ADC CURSOR_ROW
   BCS .need_scroll_down  ; 8-bit overflow: cursor far below screen
