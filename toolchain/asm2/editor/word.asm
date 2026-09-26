@@ -5,7 +5,6 @@
   .zeropage
 
 WORD_CLASS:    .byte     ; Character class of current char
-WORD_PREV:     .byte     ; Previous character class (for boundary detection)
 
   .code
 
@@ -467,11 +466,12 @@ advance_next_line:
   RTS
 
 ; Get current line length into LINE_LEN16
-; Output: A/X = length, Z flag set if line empty
+; Output: LINE_LEN16 = length, X = its high byte, Z set if the line is
+; empty (A = low | high)
 get_line_len_z:
   JSR get_current_line_len
   STAX16 LINE_LEN16
-  TST16 LINE_LEN16
+  ORA LINE_LEN16 + 1           ; A still holds the low byte
   RTS
 
 ; Increment / decrement CURSOR_COL16 (JSR-able to save macro bytes)
