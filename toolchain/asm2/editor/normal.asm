@@ -122,7 +122,8 @@ normal_editing_keys:
 
 ; Pending combo key table: 5-byte entries [last_key, second_key, flags, handler]
 ;   second_key=0: wildcard (any second key)
-;   flags bit 0: call batch_pending_pairs before handler
+;   flags bit 0: call batch_pending_pairs before handler (dd, >> and <<
+;     take their pairs themselves)
 ;   flags bit 1: editing command (blocked in READONLY mode).  Only
 ;     check_combo_first_key tests it (READONLY accepts a first key if any
 ;     of its entries has bit 1 clear); dispatch_pending_key does not, so
@@ -137,8 +138,8 @@ pending_combo_keys:
   .byte 'y', 'w', $00       .word do_yw
   .byte 'y', 'b', $00       .word do_yb
   .byte 'c', 'c', $02       .word do_cc
-  .byte '>', '>', $03       .word do_indent
-  .byte '<', '<', $03       .word do_unindent
+  .byte '>', '>', $02       .word do_indent
+  .byte '<', '<', $02       .word do_unindent
   .byte 'd', '$', $02       .word do_d_dollar
   .byte 'd', '0', $02       .word do_d_zero
   .byte 'y', '$', $00       .word do_y_dollar

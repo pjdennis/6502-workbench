@@ -369,8 +369,8 @@ set_buf_temp16_a:
 ; Sets BATCH_RESTORE_KEY if a partial pair was consumed.
 ; batch_pending_pairs_upto: X = most pairs to take (batch_pending_pairs:
 ; BATCH_MAX)
-; Output: BATCH_EXTRA = pairs taken
-; Clobbers: A, X, BUF_TEMP16.  Preserves Y
+; Output: X = BATCH_EXTRA = pairs taken
+; Clobbers: A, BUF_TEMP16.  Preserves Y
 batch_pending_pairs:
   LDX #BATCH_MAX
 batch_pending_pairs_upto:
