@@ -209,8 +209,9 @@ scroll_up_clamped:
 
 ; Set scroll region [A .. SCREEN_ROWS-1] (A = 1-based start row) and
 ; scroll it by SCROLL_DELTA rows: X = 'S' scrolls up, X = 'T' down.
-; Skips (C=0) if the region is a single row or invalid; C=1 after a
-; scroll.  Clobbers A, Y (X preserved).
+; Skips (C=0) if the region is a single row (Z=1: that row is left as it
+; was, not blanked) or invalid (Z=0); C=1 after a scroll.  Clobbers A, Y
+; (X preserved).
 scroll_region_from_a:
   STA ANSI_ROW
   ; fall through (entry with ANSI_ROW already set)

@@ -243,6 +243,12 @@ render_rows_resized:
   ADC PREV_LINE_ROWS
   LDX #'T'                      ; scroll down
   JSR scroll_region_from_a
+  BCS .same_rows
+  BNE .same_rows                ; region past the screen: no row opened
+  ; A one-row region (the last content row) is not scrolled, so it still
+  ; holds the next line: rewrite the rows (ESC[K) instead of shifting
+  LDA #$FF
+  STA SHIFT_WRITE
 .same_rows:
   JSR render_line_from_change
   JMP render_finish

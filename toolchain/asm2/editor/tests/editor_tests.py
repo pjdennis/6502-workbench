@@ -4390,6 +4390,34 @@ class EditorTestRunner:
                 expect_min_col=[(2, 0, 39), (2, 1, 0), (2, 2, -1)],
                 expect_max_col=[(2, 0, 39), (2, 1, 0)],
             )
+            # The line grows into the last content row: a one-row region
+            # cannot be scrolled, so the next line's text there must be
+            # cleared, not left after the carried cells
+            d39 = d79[:39]
+            for how, keys, frame, text in (
+                    ("insert mid-line", b"j5liAB\x1b:q!\r", 5,
+                     d39[:5] + "AB" + d39[5:]),
+                    ("append", b"jAXY\x1b:q!\r", 3, d39 + "XY")):
+                self.run_test_screen(
+                    "Shift: " + how + " that adds the last content row"
+                    + suffix,
+                    "TOP\n" + d39 + "\nNEXT\n",
+                    keys,
+                    rows=4, cols=40,
+                    deferred_wrap=deferred,
+                    expect_lines_at_frame=[(frame, [(0, "TOP"),
+                                                    (1, text[:40]),
+                                                    (2, text[40:])])],
+                )
+        # C with text that grows the line into the last content row
+        self.run_test_screen(
+            "Shift: C growing the line into the last content row",
+            make_lines(30),
+            b"7j2lC" + b"z" * 39 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Li" + "z" * 38), (8, "z")],
+            expect_cursor=(8, 0),
+        )
 
         self._group("ICH/DCH only when cheaper:", leading_blank=True)
 
