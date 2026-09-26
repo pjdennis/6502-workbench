@@ -176,6 +176,18 @@ class EditorTestRunner:
                               (self.editor_terminal_bin,
                                ["define:terminal_mode"])))
 
+    def terminal_bin_without_dsr_reply(self):
+        """A copy of the terminal editor whose startup size query ends
+        ESC[5n, not ESC[6n. The emulator's terminal answers ESC[6n ahead of
+        any queued key, but not ESC[5n, so the keys can carry the reply
+        themselves, after keys typed before it."""
+        data = self.editor_terminal_bin.read_bytes()
+        query_end = b"H\x1b[6n\x00"
+        assert data.count(query_end) == 1, "size query not found"
+        path = self.tmpdir / "editor_terminal_no_dsr_reply.out"
+        path.write_bytes(data.replace(query_end, b"H\x1b[5n\x00"))
+        return path
+
     def create_stable_copy(self):
         """Create stable copies of editor binaries after successful tests."""
         self._copy_stable(self.editor_bin, "editor_stable.out")
@@ -442,8 +454,11 @@ class EditorTestRunner:
     def run_editor_terminal(self, input_file: str, keys: bytes, tmpdir: Path,
                             rows: int = 10, cols: int = 40,
                             emu_args: list = None,
-                            key_groups: list = None) -> tuple:
+                            key_groups: list = None,
+                            binary: Path = None) -> tuple:
         """Run the terminal-mode editor with serial I/O.
+
+        binary: another terminal build to run (default editor_terminal.out).
 
         key_groups: typed one group at a time, each after the editor has
         gone idle with its output sent (keys is then ignored); needs a baud
@@ -470,7 +485,7 @@ class EditorTestRunner:
             mask_file.write_bytes(b"0" * len(keys))
             emu_args = list(emu_args) + ["--pace-mask", str(mask_file)]
         exit_code, output = self.emulator_runner.run(
-            self.editor_terminal_bin, keys, tmpdir, input_file,
+            binary or self.editor_terminal_bin, keys, tmpdir, input_file,
             rows=rows, cols=cols, mode='terminal', emu_args=emu_args)
 
         saved = ""
@@ -493,13 +508,14 @@ class EditorTestRunner:
                                  expect_lines_at_frame: list = None,
                                  expect_row_texts: tuple = None,
                                  key_groups: list = None,
-                                 expect_lines_in_some_frame: list = None):
+                                 expect_lines_in_some_frame: list = None,
+                                 binary: Path = None):
         """Run a terminal-mode editor test and verify screen state.
 
         expect_row_texts: (row, texts) - in every frame the row shows one of
         texts, and each of them shows in some frame (independent of how
         many frames there are).
-        key_groups: see run_editor_terminal.
+        key_groups, binary: see run_editor_terminal.
         expect_lines_in_some_frame: [(row, text), ...] all shown together in
         at least one frame.
         """
@@ -514,7 +530,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir, rows, cols,
-                emu_args=emu_args, key_groups=key_groups
+                emu_args=emu_args, key_groups=key_groups, binary=binary
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -11879,6 +11895,19 @@ class EditorTestRunner:
                 rows=256, cols=40,
                 expect_cursor=(0, 0),
                 expect_lines=[(0, "Hello"), (1, "~"), (253, "~"), (255, "")]
+            )
+
+            # A copy of the build whose size query the emulator does not
+            # answer takes the reply from the keys
+            no_reply_bin = self.terminal_bin_without_dsr_reply()
+            self.run_test_terminal_screen(
+                "Terminal size from a reply sent as keys",
+                "Hello\n",
+                b"\x1b[10;40R:q!\r",
+                rows=10, cols=40,
+                expect_lines=[(0, "Hello"), (8, "~")],
+                expect_status_contains="/t ",
+                binary=no_reply_bin
             )
 
             # Terminal size with baud rate
