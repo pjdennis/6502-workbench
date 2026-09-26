@@ -366,31 +366,23 @@ range_start_ptr:
   RTS
 
 ; --- ^ command: move to first non-blank character ---
+; An empty or all-space line leaves the cursor at col 0 (its first byte, or
+; the first non-space, is the newline)
 normal_first_nonblank:
   LDA #0
   STA_LH16 CURSOR_COL16
-
-  JSR get_line_len_z
-  BEQ .done               ; Empty line
-
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
-
   LDY #0
 .scan:
   LDA (BUF_PTR16),Y
   CMP #' '
   BNE .not_space
   INY
-  BNE .scan               ; Continue scanning (up to 255)
-  JMP .done               ; All spaces (unlikely but safe)
+  BNE .scan               ; (256 spaces: Y = 0, lands on col 0 below)
 .not_space:
   CMP #'\n'
-  BEQ .done               ; All spaces before newline
-  ; Found first non-blank at offset Y
-  STY CURSOR_COL16
-  LDA #0
-  STA CURSOR_COL16 + 1
-
+  BEQ .done               ; Empty or all-space line: col 0
+  STY CURSOR_COL16        ; First non-blank at offset Y
 .done:
   JMP clear_count
 
