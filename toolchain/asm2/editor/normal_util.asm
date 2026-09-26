@@ -373,21 +373,6 @@ get_batched_count:
   LDX #$FF
   RTS
 
-; Count extra pending paste keys and add to BUF_TEMP16
-; Prerequisite: get_count already called (BUF_TEMP16 = count)
-; Input: BUF_TEMP = key to match ('p' or 'P', already set by dispatch)
-; Output: BUF_TEMP16 += extras, BATCH_EXTRA = extras count
-; Clobbers: A, X
-count_paste_extras:
-  JSR count_pending_key      ; X = pending matching keys
-  STX BATCH_EXTRA
-  TXA
-  BEQ .done
-  CLC
-  ADCA16 BUF_TEMP16, BUF_TEMP16
-.done:
-  RTS
-
 ; Get effective count in BUF_TEMP16, minimum 1
 ; If COUNT16 is 0, returns 1 (no count means "do once")
 ; Clobbers: A

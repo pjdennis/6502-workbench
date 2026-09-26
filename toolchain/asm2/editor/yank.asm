@@ -204,9 +204,7 @@ yank_paste_core:
   ; Shift right to make room
   JSR buf_shift_right_16
   BCC .shift_ok
-  LDA #<str_buffer_full
-  LDX #>str_buffer_full
-  JSR show_message_ax
+  JSR show_buffer_full_msg
   SEC
   RTS
 .shift_ok:

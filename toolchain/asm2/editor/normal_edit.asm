@@ -3,26 +3,29 @@
 
 ; --- Paste ---
 
-; Shared paste prologue: record undo position, get batched paste count
+; Shared paste prologue: record undo position, get the paste count plus
+; the extra p/P keys already typed ahead (BUF_TEMP = the key, set by dispatch)
 ; Output: BUF_TEMP16 = count + extras, BATCH_EXTRA = extras,
 ;         UNDO_LINE16/UNDO_COL16/UNDO_PASTE_COUNT16 recorded
 paste_prologue:
   CP16 FILE_LINE16, UNDO_LINE16
   CP16 CURSOR_COL16, UNDO_COL16
   JSR get_count              ; BUF_TEMP16 = count
-  JSR count_paste_extras     ; BUF_TEMP16 += extras, BATCH_EXTRA = extras
+  JSR count_pending_key      ; X = pending matching keys
+  STX BATCH_EXTRA
+  TXA
+  CLC
+  ADCA16 BUF_TEMP16, BUF_TEMP16
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   RTS
 
 normal_paste_below:
   JSR undo_clear
   LDA YANK_TYPE
-  BEQ .line_paste
-  JMP char_paste_below
-.line_paste:
+  BNE char_paste_below
   JSR paste_prologue
   JSR yank_paste_below_n
-  BCS .paste_below_done
+  BCS paste_done
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_BELOW
   STA UNDO_TYPE
@@ -40,23 +43,18 @@ normal_paste_below:
   JSR undo_compute_paste_lines    ; BUF_TEMP16 = (N-1) * YANK_LINES16
   CLC
   ADC16 UNDO_LINE16, BUF_TEMP16, UNDO_LINE16
-  SET16 $0001, UNDO_PASTE_COUNT16
-  JMP .paste_below_done           ; RENDER_FLAG stays 0 → full repaint
+  JMP paste_undo_one              ; RENDER_FLAG stays 0 → full repaint
 .paste_below_scroll:
-  LDA #$03
-  STA RENDER_FLAG        ; Signal line-insert for scroll optimization
-.paste_below_done:
-  JMP clear_count
+  LDA #$03                   ; Signal line-insert for scroll optimization
+  JMP set_render_clear_count
 
 normal_paste_above:
   JSR undo_clear
   LDA YANK_TYPE
-  BEQ .line_paste
-  JMP char_paste_above
-.line_paste:
+  BNE char_paste_above
   JSR paste_prologue
   JSR yank_paste_above_n
-  BCS .paste_above_done
+  BCS paste_done
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_ABOVE
   STA UNDO_TYPE
@@ -65,10 +63,26 @@ normal_paste_above:
   ; No cursor adjustment - yank_paste_above_n doesn't change FILE_LINE16
   ; Batching must not widen undo: the last pasted copy sits at the top
   ; of the block (paste-above prepends), i.e. at UNDO_LINE16 already.
+  BNE paste_batched_undo     ; Always (A = $03)
+
+; Character paste above (before cursor)
+; Handles newlines in yanked content via find_line_for_ptr
+; Single-shift interleaved fill for all yank sizes
+char_paste_above:
+  JSR paste_prologue
+  JSR do_char_paste_above
+  BCS paste_done
+  LDA #UNDO_CHAR_PASTE_ABOVE
+  STA UNDO_TYPE
+  ; Batching must not widen undo: the last pasted copy sits first
+  ; (paste-above inserts before the cursor), i.e. at UNDO_COL16 already.
+paste_batched_undo:
   LDA BATCH_EXTRA
-  BEQ .paste_above_done
+  BEQ paste_done
+; Batching must not widen undo: record only the last pasted copy
+paste_undo_one:
   SET16 $0001, UNDO_PASTE_COUNT16
-.paste_above_done:
+paste_done:
   JMP clear_count
 
 ; Character paste below (after cursor)
@@ -170,23 +184,6 @@ do_char_paste_below:
 
 .done:
   RTS
-
-; Character paste above (before cursor)
-; Handles newlines in yanked content via find_line_for_ptr
-; Single-shift interleaved fill for all yank sizes
-char_paste_above:
-  JSR paste_prologue
-  JSR do_char_paste_above
-  BCS .cpa_done
-  LDA #UNDO_CHAR_PASTE_ABOVE
-  STA UNDO_TYPE
-  ; Batching must not widen undo: the last pasted copy sits first
-  ; (paste-above inserts before the cursor), i.e. at UNDO_COL16 already.
-  LDA BATCH_EXTRA
-  BEQ .cpa_done
-  SET16 $0001, UNDO_PASTE_COUNT16
-.cpa_done:
-  JMP clear_count
 
 ; Core char paste above: paste BUF_TEMP16 copies at cursor
 ; Input: BUF_TEMP16 = count, BATCH_EXTRA = extras
