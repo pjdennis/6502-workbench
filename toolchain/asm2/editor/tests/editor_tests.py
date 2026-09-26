@@ -1255,6 +1255,91 @@ class EditorTestRunner:
             else:
                 self._pass(name)
 
+    # --- Batching equivalence ---
+    # README: batching changes only speed.  The emulator's --pace-mask hook
+    # delays chosen keys until the editor has gone idle, so a run can feed
+    # keys one at a time (paced) instead of all at once (batched, as with a
+    # plain --input run), and --pace-log records the output offset at each
+    # idle point.
+
+    def _pacing_supported(self):
+        if not hasattr(self, "_pacing_ok"):
+            r = subprocess.run([str(self.emulator)], capture_output=True,
+                               text=True)
+            self._pacing_ok = "--pace-mask" in r.stdout + r.stderr
+        return self._pacing_ok
+
+    def _run_paced(self, content, groups, paced, rows, cols):
+        """Run the editor on key groups; each group index in `paced` is
+        followed by an idle pause.  Returns ({index: (rows, cursor)} of the
+        screen when the editor went idle after each paced group, saved file).
+        """
+        tmp = self.tmpdir
+        edit_file = tmp / "beq.txt"
+        edit_file.write_text(content)
+        mask = bytearray()
+        ends = {}
+        pos = 0
+        for i, group in enumerate(groups):
+            pos += len(group)
+            mask += b"0" * (len(group) - 1) + (b"1" if i in paced else b"0")
+            if i in paced:
+                ends[i] = pos
+        (tmp / "beq_keys.bin").write_bytes(b"".join(groups))
+        (tmp / "beq_mask.bin").write_bytes(bytes(mask))
+        log, out = tmp / "beq_log.txt", tmp / "beq_out.bin"
+        for f in (log, out):
+            if f.exists():
+                f.unlink()
+        subprocess.run(
+            [str(self.emulator), str(self.editor_bin), "--no-dump",
+             "--load", "0400", "--rows", str(rows), "--cols", str(cols),
+             "--pace-mask", str(tmp / "beq_mask.bin"), "--pace-log", str(log),
+             "--input", str(tmp / "beq_keys.bin"), "--output", str(out),
+             str(edit_file)],
+            capture_output=True, timeout=30)
+        output = out.read_bytes() if out.exists() else b""
+        idle = {}
+        if log.exists():
+            for line in log.read_text().split("\n"):
+                if line.strip():
+                    consumed, written = map(int, line.split())
+                    idle[consumed] = written
+        screens = {}
+        for i, end in ends.items():
+            if end in idle:
+                screen = AnsiScreen(rows, cols)
+                screen.process(output[:idle[end]].decode("latin-1"))
+                screens[i] = ([screen.get_row_text(r) for r in range(rows)],
+                              screen.get_cursor())
+        return screens, edit_file.read_text()
+
+    def run_test_batch_equiv(self, name, content, keys, rows=10, cols=40):
+        """Feeding `keys` (a list of key groups) all at once must give the
+        same screen and file, and the same results for a following u and
+        uu, as feeding them one group at a time."""
+        if not self._pacing_supported():
+            self._skip(name, "emulator has no --pace-mask")
+            return
+        n = len(keys)
+        for extra in ([], [b"\x1b", b"u"], [b"\x1b", b"u", b"u"]):
+            groups = list(keys) + extra + [b"\x1b", b"\x1b", b":wq\r"]
+            last = n + len(extra) - 1
+            after = set(range(n, len(groups)))
+            batched = self._run_paced(content, groups, {n - 1} | after,
+                                      rows, cols)
+            paced = self._run_paced(content, groups, set(range(n)) | after,
+                                    rows, cols)
+            for what, a, b in (
+                    ("screen", batched[0].get(last), paced[0].get(last)),
+                    ("file", batched[1], paced[1])):
+                if a is None or a != b:
+                    suffix = b"".join(extra).decode("latin-1")
+                    self._fail(name, f"after keys{suffix!r}: {what} differs"
+                               f"\n      batched: {a!r}\n      paced:   {b!r}")
+                    return
+        self._pass(name)
+
     def run_demo_build_checks(self):
         """The standalone demos (hello.asm, clock.asm) must still assemble."""
         for demo in ("hello", "clock"):
@@ -1268,6 +1353,25 @@ class EditorTestRunner:
                 self._fail(name, (result.stdout + result.stderr).strip()[-200:])
             else:
                 self._pass(name)
+
+    def run_batch_equiv_tests(self):
+        """Key sequences whose batched and one-at-a-time runs must agree."""
+        lines = "".join(f"line {i:02d} alpha beta gamma\n" for i in range(30))
+        for name, content, keys in (
+            ("Batch equiv: x x x x x", "abcdefgh\nxyz\n", [b"x"] * 5),
+            ("Batch equiv: j scrolling", lines, [b"j"] * 12),
+            ("Batch equiv: k after G", lines, [b"G"] + [b"k"] * 12),
+            ("Batch equiv: dd dd dd", lines, [b"d", b"d"] * 3),
+            ("Batch equiv: typing", "abc\n",
+             [b"i"] + [bytes([c]) for c in b"hello world"] + [b"\x1b"]),
+            ("Batch equiv: typing with BS and Enter", "abc\n",
+             [b"A"] + [bytes([c]) for c in b"xy\x08z\rnew"] + [b"\x1b"]),
+            ("Batch equiv: insert-mode arrows", lines,
+             [b"i", b"a", b"\x1b[B", b"b", b"\x1b[C", b"c", b"\x1b"]),
+            ("Batch equiv: arrow keys", lines,
+             [b"\x1b[B", b"\x1b[B", b"\x1b[C", b"\x1b[A", b"x"]),
+        ):
+            self.run_test_batch_equiv(name, content, keys)
 
     def run_all_tests(self):
         """Run all editor tests."""
@@ -17684,6 +17788,10 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
             expect_content_rows=[(2, {0, 1, 2})]
         )
+
+        self._group("Batching equivalence (paced vs batched):",
+                    leading_blank=True)
+        self.run_batch_equiv_tests()
 
         print()
         print("=" * 60)
