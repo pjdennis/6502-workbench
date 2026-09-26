@@ -1082,7 +1082,7 @@ class EditorTestRunner:
             proc.kill()
             self._fail(name, "Server process timed out")
 
-    def _run_server_editor_tests(self):
+    def _run_server_editor_tests(self, terminal_built):
         """Test server mode with actual editor binary."""
         self._group("Server mode - editor integration:", leading_blank=True)
 
@@ -1183,7 +1183,7 @@ class EditorTestRunner:
                 self._pass("Server: sequential run content")
 
         # Test 3: Terminal mode via server matches subprocess.run
-        if self.editor_terminal_bin.exists():
+        if terminal_built:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir = Path(tmpdir)
                 keys = b":wq\r"
@@ -1444,10 +1444,14 @@ class EditorTestRunner:
             ['RUN', 'QUIT'],
             ['EXIT 1'])
 
+        # Build every binary before the first test, so that a test anywhere
+        # in the suite runs the current source, never an earlier run's build
         if not self.build_editor():
             return
+        small_built = self.build_small_buffer_editor()
+        terminal_built = self.build_terminal_editor()
 
-        self._run_server_editor_tests()
+        self._run_server_editor_tests(terminal_built)
 
         self._group("Self-editability:")
         self.run_self_editability_checks()
@@ -1995,7 +1999,7 @@ class EditorTestRunner:
 
         self._group("Bounds checking (small buffer build):", leading_blank=True)
 
-        if not self.build_small_buffer_editor():
+        if not small_built:
             print("  Skipping bounds checking tests (small buffer build failed)")
         else:
             # Read-only mode: file exceeds buffer, editing keys blocked
@@ -10271,7 +10275,7 @@ class EditorTestRunner:
         # ============================================================
         self._group("Terminal mode:", leading_blank=True)
 
-        if not self.build_terminal_editor():
+        if not terminal_built:
             print("  Skipping terminal mode tests (build failed)")
         else:
             # Basic smoke test: quit exits cleanly
