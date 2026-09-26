@@ -13206,6 +13206,30 @@ class EditorTestRunner:
             expect_cursor=(2, 0),
         )
 
+        # Enter at the end of the second-to-last row: the new empty line is
+        # the last content row, a one-row region that can't be scrolled, so
+        # it must be cleared explicitly (and nothing else drawn).
+        # Frames: 0=initial, 1=count '7' or '6', 2=j, 3=A, 4=Enter
+        self.run_test_screen(
+            "Scroll opt: Enter at end of the second-to-last row clears the last row",
+            make_lines(15),
+            b"7jA\r\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(7, "Line 8"), (8, "")],
+            expect_cursor=(8, 0),
+            expect_content_rows=[(4, {8})]
+        )
+        self.run_test_screen(
+            "Scroll opt: Enter at end of a wrapped line above the last row clears it",
+            make_lines(6) + "x" * 50 + "\n" + make_lines(15),
+            b"6jA\r\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "Line 6"), (6, "x" * 40), (7, "x" * 10),
+                          (8, "")],
+            expect_cursor=(8, 0),
+            expect_content_rows=[(4, {8})]
+        )
+
         # BS at col 0 below a wrapped line: joins with previous (wrapped) line.
         # The cursor ends up on a wrap continuation row. The re-render of the
         # cursor row must not overwrite with wrap row 0 content.

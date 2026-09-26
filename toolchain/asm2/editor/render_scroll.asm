@@ -128,6 +128,13 @@ render_line_insert_scroll:
   INC SCROLL_DELTA           ; +1 for the split line row
   JMP find_and_render
 .enter_status_only:
+  ; A one-row region (the last text row) is not scrolled, so it still
+  ; holds the line below: draw the new cursor line there
+  LDA ANSI_ROW
+  CMP ANSI_COL
+  BNE .enter_done
+  JMP render_from_first_row_limited
+.enter_done:
   JMP render_finish
 .no_enter_render:
 
