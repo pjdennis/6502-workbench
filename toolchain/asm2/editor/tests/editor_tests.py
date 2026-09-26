@@ -19306,6 +19306,36 @@ class EditorTestRunner:
             expect_content_rows=[(1, {2, 3, 4})]
         )
 
+        # Cursor line starting above the view (the view's top line shown
+        # from VIEW_TOP_WRAP > 0): line-count repaints must not draw from
+        # the negative first row CURSOR_ROW - WRAP_QUOT
+        alpha = "".join(chr(ord("a") + i % 26) for i in range(500))
+        upper = "".join(chr(ord("A") + i % 26) for i in range(400))
+        rest = "".join(f"line {i}\n" for i in range(2, 12))
+        joined = "a" * 50 + " " + "b" * 29 + " " + "C" * 40
+        for name, content, keys, expect, cursor, rows, cols in (
+                ("dd", alpha + "\n" + upper + "\n" + rest, b"$dd",
+                 [(r, upper[(4 + r) * 40:(5 + r) * 40]) for r in range(6)]
+                 + [(6, "line 2"), (7, "line 3"), (8, "line 4")], (5, 39),
+                 10, 40),
+                ("dd on a narrow screen", "line 0 " + "y" * 90 + "\nline 1 "
+                 + "y" * 50 + "\nline 2 " + "y" * 37 + "\n", b"$xdd",
+                 [(r, "y" * 8) for r in range(5)]
+                 + [(5, "y"), (6, "line 2 y")]
+                 + [(r, "y" * 8) for r in range(7, 11)], (5, 0), 12, 8),
+                ("J that grows the line", "a" * 50 + " " + "b" * 29 + "\n"
+                 + "C" * 40 + "\n" + "".join(f"l{i}\n" for i in range(2, 30)),
+                 b"9Gkkkkkkkb" + b"J",
+                 [(0, joined[40:80]), (1, joined[80:120]),
+                  (2, joined[120:]), (3, "l2")], (1, 0), 10, 40),
+                ("2d$", alpha + "\nshort one\n" + rest, b"$h2d$",
+                 [(r, alpha[160 + r * 40:200 + r * 40]) for r in range(8)]
+                 + [(8, alpha[480:498])], (8, 17), 10, 40)):
+            self.run_test_screen(
+                "Scroll opt: line starting above the view, " + name,
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=expect, expect_cursor=cursor)
+
         # Large scroll delta that exceeds SCREEN_ROWS should fall back to
         # full repaint. j*50 on a file with many short lines where VIEW_TOP
         # changes dramatically — delta >= SCREEN_ROWS-1.

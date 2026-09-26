@@ -52,6 +52,8 @@ render_init:
 ; Handles line wrapping: one file line can span multiple screen rows
 render_screen:
   JSR ansi_cursor_hide
+; The same with the cursor already hidden
+render_from_top:
   LDA #0
   STA RENDER_ROW
   JSR find_line_at_render_row  ; row 0: VIEW_TOP16 / VIEW_TOP_WRAP
@@ -73,7 +75,8 @@ set_first_row:
   RTS
 
 ; Set RENDER_ROW to the cursor line's first screen row, then point
-; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Clobbers A
+; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Returns C=0 if
+; the line starts above the view.  Clobbers A
 setup_first_row:
   JSR set_first_row
   ; fall through
@@ -85,14 +88,17 @@ setup_render_at_cursor:
   RTS
 
 ; Set up RENDER_ROW/RENDER_LINE16/RENDER_WRAP from cursor first_row,
-; then fall through to render_from_row.
+; then render SCROLL_DELTA rows (_limited) or to the bottom from there;
+; a line starting above the view is drawn from the top row to the bottom.
 ; Expects ansi_cursor_hide already called.
 render_from_first_row_limited:
   JSR setup_first_row
+  BCC render_from_top          ; the line starts above the view
   JMP render_limited_rows
 
 render_from_first_row:
   JSR setup_first_row
+  BCC render_from_top          ; the line starts above the view
 
 ; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP to end of screen
 ; Expects ansi_cursor_hide already called
@@ -218,13 +224,9 @@ render_current_line_and_status:
   JSR file_line_rows
   STA CUR_LINE_ROWS
   ; First screen row of the line; above the viewport -> full repaint
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  BPL .row_visible
+  JSR set_first_row
+  BCS render_rows_resized
   JMP render_screen
-.row_visible:
-  STA RENDER_ROW
 ; Entry: RENDER_ROW = first row of a block (cursor line, $0B range, or a
 ; J undo's cursor line and restored lines) that changed from
 ; PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its change point
