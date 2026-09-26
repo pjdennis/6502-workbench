@@ -253,7 +253,7 @@ normal_find_prev:
   LDA SEARCH_LEN
   BEQ search_find_none
   LDA SEARCH_DIR
-  EOR #1
+  EOR #$10                   ; Flip the direction (0 <-> $10 = '/' EOR '?')
 
 search_find_dir:
   BNE .backward

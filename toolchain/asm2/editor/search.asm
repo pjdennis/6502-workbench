@@ -18,7 +18,7 @@ SEARCH_LEN:   .byte     ; Length of current search pattern
 SEARCH_IDX:   .byte     ; Current index during search input
 SEARCH_LINE16: .word    ; Line number being searched
 SEARCH_COL:   .byte     ; Column position of match / start column for search
-SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), 1=backward (?)
+SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), $10=backward (?)
 SEARCH_LIMIT_COL: .byte ; Column limit for backward line search
 
   .code
@@ -26,7 +26,7 @@ SEARCH_LIMIT_COL: .byte ; Column limit for backward line search
 ; Handle '/' search command
 search_handle:
   LDA #'/'
-  JMP search_input_handle
+  BNE search_input_handle ; Always taken
 
 ; Handle '?' backward search command
 search_backward_handle:
@@ -96,17 +96,12 @@ search_input_handle:
   BEQ .cancel       ; No previous pattern either
 
 .do_search:
-  ; Set direction based on prompt char
+  ; Direction from the prompt char: 0 = forward (/), $10 = backward (?)
   LDA BUF_TEMP
-  CMP #'?'
-  BNE .forward
-  LDA #1
+  EOR #'/'
   STA SEARCH_DIR
-  JMP search_backward
-.forward:
-  LDA #0
-  STA SEARCH_DIR
-  JMP search_forward
+  BNE search_backward
+  ; fall through
 
 ; Search forward from current position
 ; First searches current line from CURSOR_COL+1, then subsequent lines from col 0
@@ -118,50 +113,45 @@ search_forward:
 
   ; Try current line from CURSOR_COL + 1
   LDA CURSOR_COL16 + 1
-  BNE .skip_current          ; CURSOR_COL > 255, skip current line
+  BNE .line_loop             ; CURSOR_COL > 255, skip current line
   LDA CURSOR_COL16
   CLC
   ADC #1
-  BCS .skip_current          ; CURSOR_COL = 255, overflow
+  BCS .line_loop             ; CURSOR_COL = 255, overflow
   STA SEARCH_COL
   JSR search_setup_line
   JSR search_match_from
-  BCC .found
-
-.skip_current:
-  ; Advance to next line
-  CLC
-  ADCI16 FILE_LINE16, $0001, SEARCH_LINE16
+  BCC search_move_to_match
 
 .line_loop:
-  ; Wrap around if past end
+  ; Next line (SEARCH_LINE16 = FILE_LINE16 the first time), wrapping
+  ; around past the end
+  INC16 SEARCH_LINE16
   CMP16 SEARCH_LINE16, LINE_COUNT16
   BCC .no_wrap
-  SET16 $0000, SEARCH_LINE16
+  LDA #0
+  STA_LH16 SEARCH_LINE16
 .no_wrap:
-
-  ; Check if we've wrapped all the way back to start line
-  CMP16 SEARCH_LINE16, FILE_LINE16
-  BEQ .check_current
 
   ; Search this line from col 0
   JSR search_in_line
-  BCC .found
+  BCC search_move_to_match
 
-  ; Next line
-  INC16 SEARCH_LINE16
-  JMP .line_loop
-
-.check_current:
-  ; Wrapped back: search current line from col 0 (catches matches at/before cursor)
-  JSR search_in_line
-  BCC .found
-
-  ; Not found
+  ; Stop once the start line itself has been searched from col 0
+  ; (catches matches at/before the cursor)
+  CMP16 SEARCH_LINE16, FILE_LINE16
+  BNE .line_loop
   JMP search_show_not_found
 
-.found:
-  JMP search_move_to_match
+; Move cursor to search match position
+; SEARCH_LINE16 = line of match, SEARCH_COL = column of match
+search_move_to_match:
+  CP16 SEARCH_LINE16, FILE_LINE16
+  LDA SEARCH_COL
+  STA CURSOR_COL16
+  LDA #0
+  STA CURSOR_COL16 + 1
+  JMP clamp_cursor_col
 
 ; Search backward from current position
 ; First finds rightmost match before CURSOR_COL on current line
@@ -176,65 +166,51 @@ search_backward:
   LDA CURSOR_COL16 + 1
   BNE .search_whole_current  ; CURSOR_COL > 255, search whole line
   LDA CURSOR_COL16
-  BEQ .skip_current          ; CURSOR_COL = 0, nothing before cursor
+  BEQ .line_loop             ; CURSOR_COL = 0, nothing before cursor
   STA SEARCH_COL             ; SEARCH_COL = exclusive upper bound
   JSR search_in_line_last
-  BCC .found
-  JMP .skip_current
+  BCC search_move_to_match
+  BCS .line_loop             ; Always taken
 
 .search_whole_current:
   ; CURSOR_COL > 255, search entire current line for rightmost
   JSR search_in_line_last_all
-  BCC .found
+  BCC search_move_to_match
 
-.skip_current:
-  ; Move to previous line (SEARCH_LINE16 still == FILE_LINE16 here,
-  ; copied at routine entry and untouched since)
-  TST16 FILE_LINE16
-  BEQ .wrap                    ; At line 0, wrap to last line
+.line_loop:
+  ; Previous line (SEARCH_LINE16 = FILE_LINE16 the first time), wrapping
+  ; around from line 0 to the last line
+  TST16 SEARCH_LINE16
+  BNE .no_wrap
+  CP16 LINE_COUNT16, SEARCH_LINE16
+.no_wrap:
   DEC16 SEARCH_LINE16
-
-.loop:
-  ; Check if we've wrapped all the way back to start line
-  CMP16 SEARCH_LINE16, FILE_LINE16
-  BEQ .check_current
 
   ; Search this line for rightmost match
   JSR search_in_line_last_all
-  BCC .found
+  BCC search_move_to_match
 
-  ; Previous line
-  TST16 SEARCH_LINE16
-  BEQ .wrap
-  DEC16 SEARCH_LINE16
-  JMP .loop
+  ; Stop once the start line itself has been searched in full
+  CMP16 SEARCH_LINE16, FILE_LINE16
+  BNE .line_loop
+  ; Not found: fall through
 
-.wrap:
-  ; At line 0, wrap to last line
-  SEC
-  SBCI16 LINE_COUNT16, $0001, SEARCH_LINE16
-  JMP .loop
+; Show "Pattern not found: <pattern>" on status line
+search_show_not_found:
+  JSR status_line_clear
+  PRINT_STR str_not_found
 
-.check_current:
-  ; Wrapped back: search entire current line for rightmost match
-  JSR search_in_line_last_all
-  BCC .found
-
-  ; Not found
-  JMP search_show_not_found
-
-.found:
-  JMP search_move_to_match
-
-; Move cursor to search match position
-; SEARCH_LINE16 = line of match, SEARCH_COL = column of match
-search_move_to_match:
-  CP16 SEARCH_LINE16, FILE_LINE16
-  LDA SEARCH_COL
-  STA CURSOR_COL16
-  LDA #0
-  STA CURSOR_COL16 + 1
-  JMP clamp_cursor_col
+  ; Print the pattern
+  LDX #0
+.print_pattern:
+  CPX SEARCH_LEN
+  BEQ .print_done
+  LDA SEARCH_BUF,X
+  JSR io_write
+  INX
+  JMP .print_pattern
+.print_done:
+  JMP flush_get_key            ; Wait for keypress
 
 ; Search for pattern in line SEARCH_LINE16 starting from column 0
 ; Returns carry clear = found (SEARCH_COL set), carry set = not found
@@ -353,23 +329,6 @@ search_in_line_last:
 .not_found:
   SEC
   RTS
-
-; Show "Pattern not found: <pattern>" on status line
-search_show_not_found:
-  JSR status_line_clear
-  PRINT_STR str_not_found
-
-  ; Print the pattern
-  LDX #0
-.print_pattern:
-  CPX SEARCH_LEN
-  BEQ .print_done
-  LDA SEARCH_BUF,X
-  JSR io_write
-  INX
-  JMP .print_pattern
-.print_done:
-  JMP flush_get_key            ; Wait for keypress
 
 ; String constants
 str_not_found: .asciiz "Pattern not found: "
