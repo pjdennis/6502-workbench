@@ -12,7 +12,8 @@ int terminal_mode = 0;
 FILE *serial_input_file = NULL;
 FILE *serial_output_file = NULL;
 
-int con_byte_ready(void) { return 0; }
+static int fake_con_ready = 0;
+int con_byte_ready(void) { return fake_con_ready; }
 
 // Helper: reset console to fresh state with given dimensions,
 // optionally with --show-repaints tracking enabled
@@ -638,6 +639,84 @@ TEST serial_rx_tx_count(void) {
     PASS();
 }
 
+// serial_rx_next_arrival: the cycle at which the next RX byte can be in the
+// FIFO, or UINT64_MAX when no byte is pending; it consumes nothing.
+
+TEST next_arrival_now_when_fifo_has_a_byte(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    serial_rx_buf[0] = 'X';
+    serial_rx_head = 1;
+    ASSERT_EQ(500, serial_rx_next_arrival());
+    PASS();
+}
+
+TEST next_arrival_none_without_an_input_source(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    PASS();
+}
+
+TEST next_arrival_none_at_end_of_input_file(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    serial_input_file = tmpfile();
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    PASS();
+}
+
+TEST next_arrival_one_byte_time_after_the_last(void) {
+    serial_reset();
+    serial_cycles_per_byte = 1000;
+    serial_input_file = tmpfile();
+    fputs("AB", serial_input_file);
+    rewind(serial_input_file);
+    clockticks6502 = 0;
+    serial_rx_fill();                       // 'A' arrives at once
+    ASSERT_EQ(1, serial_rx_count());
+    serial_rx_tail = serial_rx_head;        // the CPU takes 'A'
+    clockticks6502 = 10;
+    ASSERT_EQ(1000, serial_rx_next_arrival());
+    clockticks6502 = 1000;                  // the query consumed nothing
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('B', serial_rx_buf[serial_rx_tail]);
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    PASS();
+}
+
+TEST next_arrival_now_once_the_slot_has_passed(void) {
+    serial_reset();
+    serial_cycles_per_byte = 1000;
+    serial_input_file = tmpfile();
+    fputs("A", serial_input_file);
+    rewind(serial_input_file);
+    clockticks6502 = 5000;
+    ASSERT_EQ(5000, serial_rx_next_arrival());
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    PASS();
+}
+
+TEST next_arrival_interactive_waits_for_host_input(void) {
+    serial_reset();
+    terminal_interactive = 1;
+    clockticks6502 = 7;
+    fake_con_ready = 0;
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    fake_con_ready = 1;
+    ASSERT_EQ(7, serial_rx_next_arrival());
+    fake_con_ready = 0;
+    terminal_interactive = 0;
+    PASS();
+}
+
 SUITE(console_suite) {
     RUN_TEST(resize_allocates_correct_size);
     RUN_TEST(resize_rejects_invalid);
@@ -687,6 +766,12 @@ SUITE(console_suite) {
     RUN_TEST(serial_reset_clears_state);
     RUN_TEST(serial_inject_stores_bytes);
     RUN_TEST(serial_rx_tx_count);
+    RUN_TEST(next_arrival_now_when_fifo_has_a_byte);
+    RUN_TEST(next_arrival_none_without_an_input_source);
+    RUN_TEST(next_arrival_none_at_end_of_input_file);
+    RUN_TEST(next_arrival_one_byte_time_after_the_last);
+    RUN_TEST(next_arrival_now_once_the_slot_has_passed);
+    RUN_TEST(next_arrival_interactive_waits_for_host_input);
 }
 
 GREATEST_MAIN_DEFS();

@@ -55,6 +55,7 @@ static long pace_in = 0;          /* input bytes read so far */
 static int pace_polls = 2000;
 static int pace_remaining = 0;    /* con_ready polls left in the current pause */
 static FILE *pace_log = NULL;
+static unsigned wait_ms = 0;      /* wait_ready's timeout, set through port_wait_lo/hi */
 int override_rows = 0;
 int override_cols = 0;
 struct timespec start_time;
@@ -191,6 +192,97 @@ static void exclude_wait_from_throttle(const struct timespec *before) {
     }
 }
 
+// A --pace-mask pause ends: log "<input bytes read> <output bytes written>"
+static void end_pace_pause(void) {
+    pace_remaining = 0;
+    if (pace_log) {
+        fflush(output_file_ptr);
+        fprintf(pace_log, "%ld %ld\n", pace_in, ftell(output_file_ptr));
+        fflush(pace_log);
+    }
+}
+
+// Block until stdin is readable or `us` microseconds of wall time pass;
+// returns 1 if stdin became readable
+static int select_stdin(double us) {
+    if (us < 0) us = 0;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    struct timeval tv;
+    tv.tv_sec = (long)(us / 1e6);
+    tv.tv_usec = (long)(us - tv.tv_sec * 1e6);
+    return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
+}
+
+// Wait in wall time for stdin, keeping the time out of the throttle clock
+static int wait_stdin(unsigned ms) {
+    struct timespec before;
+    clock_gettime(CLOCK_MONOTONIC, &before);
+    int ready = select_stdin(ms * 1000.0);
+    exclude_wait_from_throttle(&before);
+    return ready;
+}
+
+static int file_has_byte(FILE *f) {
+    int ch = fgetc(f);
+    if (ch == EOF) return 0;
+    ungetc(ch, f);
+    return 1;
+}
+
+// wait_ready in terminal mode. With a baud rate the wait is in emulated time:
+// the clock jumps to the next modelled arrival or to the deadline instead of
+// spinning, and the throttle (if any) then keeps pace with the wall clock.
+// Only live input with nothing on the way yet waits in wall time, and the
+// emulated clock moves on with it.
+static uint8_t serial_wait_ready(unsigned ms) {
+    if (serial_baud == 0) {
+        if (serial_inject_pos < serial_inject_len) return 0xFF;
+        if (terminal_interactive) return wait_stdin(ms) ? 0xFF : 0x00;
+        // file input is ready now or never
+        return serial_input_file && file_has_byte(serial_input_file) ? 0xFF : 0x00;
+    }
+    double mhz = cpu_mhz > 0.0 ? cpu_mhz : target_mhz;
+    uint64_t deadline = clockticks6502 + (uint64_t)(ms * mhz * 1000.0);
+    for (;;) {
+        serial_tx_drain();
+        if (serial_inject_pos < serial_inject_len) return 0xFF;
+        serial_rx_fill();
+        if (serial_rx_count() > 0) return 0xFF;
+        if (clockticks6502 >= deadline || sigint_requested || sigtstp_requested)
+            return 0x00;
+        uint64_t next = serial_rx_next_arrival();
+        if (next != UINT64_MAX) {
+            clockticks6502 = next < deadline ? next : deadline;
+        } else if (terminal_interactive) {
+            struct timespec before, after;
+            clock_gettime(CLOCK_MONOTONIC, &before);
+            select_stdin((deadline - clockticks6502) / mhz);
+            clock_gettime(CLOCK_MONOTONIC, &after);
+            double waited_us = (after.tv_sec - before.tv_sec) * 1e6
+                             + (after.tv_nsec - before.tv_nsec) / 1e3;
+            uint64_t ticks = (uint64_t)(waited_us * mhz);
+            clockticks6502 = deadline - clockticks6502 > ticks
+                           ? clockticks6502 + ticks : deadline;
+        } else {
+            clockticks6502 = deadline;  // file input has ended: nothing more comes
+        }
+    }
+}
+
+// wait_ready: until an input byte is ready or `ms` milliseconds pass.
+// Returns $FF (ready), $00 (timed out) or $01 (console input has ended).
+static uint8_t wait_ready(unsigned ms) {
+    if (terminal_mode) return serial_wait_ready(ms);
+    if (con_eof_flag) return 0x01;
+    if (console_mode) return wait_stdin(ms) ? 0xFF : 0x00;
+    // --input: every byte is ready at once. Waiting counts as going idle,
+    // which ends a --pace-mask pause.
+    if (pace_remaining > 0) end_pace_pause();
+    return 0xFF;
+}
+
 uint8_t read6502(uint16_t address) {
     if (address == port_read_b) {                    // read_b
         if (terminal_mode) {
@@ -313,14 +405,12 @@ uint8_t read6502(uint16_t address) {
         if (con_eof_flag) return 0x01;
         if (console_mode) return con_byte_ready() ? 0xFF : 0x00;
         if (pace_remaining > 0) {
-            if (--pace_remaining == 0 && pace_log) {
-                fflush(output_file_ptr);
-                fprintf(pace_log, "%ld %ld\n", pace_in, ftell(output_file_ptr));
-                fflush(pace_log);
-            }
+            if (--pace_remaining == 0) end_pace_pause();
             return 0x00;
         }
         return 0xFF;
+    } else if (address == port_wait_ready) {          // wait_ready
+        return wait_ready(wait_ms);
     } else if (address == port_serial_ready) {        // serial_ready
         if (serial_baud > 0)
             serial_tx_drain();  // drain TX so DSR responses can be injected
@@ -439,6 +529,12 @@ void write6502(uint16_t address, uint8_t value) {
 	return;
     } else if (address == port_write) {              // write
         file_write(x, value);
+        return;
+    } else if (address == port_wait_lo) {            // wait_ready timeout, low
+        wait_ms = (wait_ms & 0xFF00) | value;
+        return;
+    } else if (address == port_wait_hi) {            // wait_ready timeout, high
+        wait_ms = (wait_ms & 0x00FF) | (value << 8);
         return;
     } else if (address == port_con_flush) {          // con_flush
         if (terminal_mode) {

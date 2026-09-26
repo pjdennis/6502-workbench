@@ -39,5 +39,12 @@ opendir      = $F03C ; Opens directory with name at A;X. Returns handle in A (0 
                      ; not found); Y preserved. Read entries via read: each entry is
                      ; a metadata byte followed by a null-terminated filename.
                      ; Entries sorted alphabetically.
+wait_ready   = $F03F ; Waits until an input byte is ready (console input, or serial
+                     ; input in terminal mode) or A;X (low;high) milliseconds have
+                     ; passed. Returns A=$FF if a byte is ready, A=$00 if the time
+                     ; passed first, A=CON_EOF once console input has ended.
+                     ; X, Y preserved. With --input every byte is ready at once;
+                     ; with a clock rate (--mhz, --cpu-mhz or --baud) the time is
+                     ; emulated time, otherwise it is real time.
 DIR_ENTRY_DIR      = $01 ; Metadata bit 0: entry is a directory
 DIR_ENTRY_READONLY = $02 ; Metadata bit 1: entry is read-only

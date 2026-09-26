@@ -13,6 +13,7 @@ import argparse
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -429,6 +430,103 @@ class EmulatorTestRunner:
         exit_code, output, _ = self.run_server(binary, keys=b"Hello stdin")
         self._assert_eq(name, output, b"Hello stdin")
 
+    # ---- wait_ready tests ----
+
+    def _build_wait_ready_tests(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        out_dir = tests_dir / "out"
+        self.wait_ready_bin = out_dir / "wait_ready_test.out"
+        self.wait_ready_exit_bin = out_dir / "wait_ready_exit_test.out"
+        return (self._assemble(tests_dir / "wait_ready_test.asm",
+                               self.wait_ready_bin)
+                and self._assemble(tests_dir / "wait_ready_exit_test.asm",
+                                   self.wait_ready_exit_bin))
+
+    def test_wait_ready_input_queued(self):
+        """With --input every byte is ready at once; once a read has hit the
+        end of the input, wait_ready returns CON_EOF. X and Y survive."""
+        name = "wait_ready: ready while input is queued, then end of input"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.wait_ready_bin, keys=b"AB")
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code} (1: X or Y changed)")
+            return
+        self._assert_eq(name, output, b"\xffA\xffB\xff\x00\x01")
+
+    def test_wait_ready_ends_pace_pause(self):
+        """Waiting counts as going idle, so wait_ready ends a --pace-mask
+        pause at once instead of timing out."""
+        name = "wait_ready: ends a --pace-mask pause"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "wait_keys.bin"
+        mask = self.tmpdir / "wait_mask.bin"
+        log = self.tmpdir / "wait_pace.log"
+        out = self.tmpdir / "wait_out.bin"
+        keys.write_bytes(b"AB")
+        mask.write_bytes(b"11")
+        result = self.run_subprocess(self.wait_ready_bin, extra_args=[
+            "--input", str(keys), "--output", str(out),
+            "--pace-mask", str(mask), "--pace-log", str(log)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}")
+            return
+        if out.read_bytes() != b"\xffA\xffB\xff\x00\x01":
+            self._fail(name, f"output {out.read_bytes()!r}")
+            return
+        # each pause ends with "<input bytes read> <output bytes written>"
+        self._assert_eq(name, log.read_text().splitlines(), ["1 2", "2 4"])
+
+    def _run_console_wait(self, send):
+        """Run wait_ready_exit_test (a 200 ms wait) in --console mode with
+        stdin on a pipe that stays open, after writing `send` to it.
+        Returns (exit code, seconds taken); the exit code is None if the
+        program did not finish within 10 s."""
+        cmd = [str(self.emulator), str(self.wait_ready_exit_bin),
+               "--no-dump", "--load", "0400", "--console"]
+        start = time.monotonic()
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        try:
+            if send:
+                proc.stdin.write(send)
+                proc.stdin.flush()
+            code = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            code = None
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdin.close()
+        return code, time.monotonic() - start
+
+    def test_wait_ready_console_timeout(self):
+        """In console mode the wait is real time: with no key it returns
+        $00 once the 200 ms have passed."""
+        name = "wait_ready (console): times out when no key comes"
+        if not self._should_run(name):
+            return
+        code, secs = self._run_console_wait(None)
+        if code is None:
+            self._fail(name, "did not return within 10 s")
+        elif code != 0:
+            self._fail(name, f"expected exit code 0 (timed out), got {code}")
+        elif secs < 0.2:
+            self._fail(name, f"returned after {secs:.3f} s, before the timeout")
+        else:
+            self._pass(name)
+
+    def test_wait_ready_console_key(self):
+        """A key already waiting makes wait_ready return $FF."""
+        name = "wait_ready (console): returns $FF when a key is waiting"
+        if not self._should_run(name):
+            return
+        code, _ = self._run_console_wait(b"x")
+        self._assert_eq(name, code, 255)
+
     # ---- CLI argument validation tests ----
 
     def _cli_test(self, name, args, expect_exit=1, expect_stderr=None):
@@ -542,6 +640,17 @@ class EmulatorTestRunner:
 
         print("\n--- Stdin read ---")
         self.test_stdin_read()
+
+        print("\n--- wait_ready ---")
+        if not self.assembler.exists():
+            self._fail("wait_ready tests", "assembler not built")
+        elif not self._build_wait_ready_tests():
+            self._fail("wait_ready tests", "test programs did not assemble")
+        else:
+            self.test_wait_ready_input_queued()
+            self.test_wait_ready_ends_pace_pause()
+            self.test_wait_ready_console_timeout()
+            self.test_wait_ready_console_key()
 
         print("\n--- CLI argument validation ---")
         self.test_cli_no_args()

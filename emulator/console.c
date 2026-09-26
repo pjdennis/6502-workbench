@@ -394,6 +394,27 @@ void serial_rx_fill() {
     }
 }
 
+// The cycle at which the next RX byte can be in the FIFO: now if one is
+// already there; the next baud slot (or now, if that has passed) when the
+// input source has a byte ready; UINT64_MAX when no byte is on the way.
+// Consumes nothing.
+uint64_t serial_rx_next_arrival() {
+    if (serial_rx_count() > 0) return clockticks6502;
+    int pending = 0;
+    if (terminal_interactive) {
+        pending = con_byte_ready();
+    } else if (serial_input_file) {
+        int ch = fgetc(serial_input_file);
+        if (ch != EOF) {
+            ungetc(ch, serial_input_file);
+            pending = 1;
+        }
+    }
+    if (!pending) return UINT64_MAX;
+    return serial_rx_next_fill_at > clockticks6502 ? serial_rx_next_fill_at
+                                                   : clockticks6502;
+}
+
 // Drain TX buffer to output at baud rate.
 // Bytes leave the FIFO onto the "wire" at baud rate intervals.
 // The CPU can fill the buffer as fast as it wants.

@@ -241,7 +241,7 @@ Decided 2026-09-24:
 Still open:
 
 1. Is `claude/pld-hardware-memory-map-3hslxb` ready to become `main`? The trial branch is built on it, so going live makes it part of `main`.
-2. Install-hexdump socket API: port it or archive it? What it is: 7 TCP calls (create/bind/listen/accept/recv/send/close) that hand 6502 programs real host sockets, one byte per call. Its only user is a demo HTTP server, `webserver.asm`. Porting means ~200 lines of C as a new emulator module, stubs moved to the free addresses after `opendir` ($F03F+), and I/O ports moved out of the argv area ($FE00–$FFDF). It works on `nmos-default` only; real hardware has no equivalent.
+2. Install-hexdump socket API: port it or archive it? What it is: 7 TCP calls (create/bind/listen/accept/recv/send/close) that hand 6502 programs real host sockets, one byte per call. Its only user is a demo HTTP server, `webserver.asm`. Porting means ~200 lines of C as a new emulator module, stubs moved to the free addresses after `wait_ready` ($F042+), and I/O ports moved out of the argv area ($FE00–$FFDF). It works on `nmos-default` only; real hardware has no equivalent.
 3. `asm-unified-parsing` refactor: archive only (recommended; its target, stage 23, is gone) or re-do it on stage 17?
 4. Rename the repository?
 

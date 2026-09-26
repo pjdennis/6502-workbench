@@ -35,6 +35,9 @@
 #define port_eof_b   0xfff9
 #define port_eof     0xfffa
 #define port_opendir 0xfffb
+#define port_wait_lo    0xffe6    // wait_ready: timeout in ms, low byte
+#define port_wait_hi    0xffe7    //             high byte
+#define port_wait_ready 0xffe8    //             read: wait, then the result
 
 // Command-line argv strings are written into RAM (growing up) at load time;
 // programs fetch each arg's address via the argv stub. Parked above the

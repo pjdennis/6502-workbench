@@ -13,6 +13,7 @@
 #define inst_sec 0x38
 #define inst_sta 0x8d
 #define inst_ldx 0xae
+#define inst_stx 0x8e
 #define inst_pha 0x48
 #define inst_pla 0x68
 #define inst_bit 0x2c
@@ -58,6 +59,8 @@ size_t generate_stubs(uint8_t *memory, int terminal_mode) {
     save_address(addr_serial_write);
     emit_byte(inst_jmp);        // f03c     jmp opendir
     save_address(addr_opendir);
+    emit_byte(inst_jmp);        // f03f     jmp wait_ready
+    save_address(addr_wait_ready);
     fill_address(addr_read_b);
     emit_byte(inst_bit);        // read_b:  bit port_eof_b
     emit_address(port_eof_b);
@@ -171,6 +174,14 @@ size_t generate_stubs(uint8_t *memory, int terminal_mode) {
     emit_byte(inst_lda);        // opendir: lda port_opendir
     emit_address(port_opendir);
     emit_byte(inst_rts);        //          rts
+    fill_address(addr_wait_ready);
+    emit_byte(inst_sta);        // wait_ready: sta port_wait_lo
+    emit_address(port_wait_lo);
+    emit_byte(inst_stx);        //             stx port_wait_hi
+    emit_address(port_wait_hi);
+    emit_byte(inst_lda);        //             lda port_wait_ready
+    emit_address(port_wait_ready);
+    emit_byte(inst_rts);        //             rts
 
     return p;
 }
