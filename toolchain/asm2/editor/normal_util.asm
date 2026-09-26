@@ -208,12 +208,11 @@ clamp_cursor_col:
 
 ; --- Shared vertical movement loops ---
 
-; Move down X lines (X = 0: 256), clamped to the last line
-; Clobbers: A, X
+; Move down X lines (X >= 1), clamped to the last line
+; Clobbers: A
 move_down_x:
-  DEX
   TXA
-  SEC                        ; A + C = X (X = 0: 256)
+  CLC
   ; fall through
 
 ; FILE_LINE16 += A + C, clamped to the last line.  Clobbers: A
@@ -230,12 +229,11 @@ clamp_file_line:
 .ok:
   RTS
 
-; Move up X lines (X = 0: 256), clamped to the first line
-; Clobbers: A, X, BUF_TEMP
+; Move up X lines (X >= 1), clamped to the first line
+; Clobbers: A, BUF_TEMP
 move_up_x:
-  DEX
   STX BUF_TEMP
-  CLC                        ; Subtract BUF_TEMP + 1 = X (X = 0: 256)
+  SEC
   ; fall through
 
 ; FILE_LINE16 -= BUF_TEMP + 1 - C, clamped to 0.  Clobbers: A

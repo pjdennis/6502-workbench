@@ -9,10 +9,9 @@ normal_move_left:
 
 normal_move_right:
   JSR get_batched_count
-  ; Move right X columns (X = 0: 256), then clamp to the last char
-  DEX
+  ; Move right X columns, then clamp to the last char
   TXA
-  SEC
+  CLC
   ADCA16 CURSOR_COL16, CURSOR_COL16
   JMP clamp_and_clear_count
 
@@ -50,7 +49,7 @@ normal_half_page_up:
   JSR scroll_view_up
   JMP clamp_and_clear_count
 
-; Page scroll setup: BUF_DELTA = batched count (repeats, 0 = 256),
+; Page scroll setup: BUF_DELTA = batched count (repeats),
 ; BUF_TEMP = page size = content rows (TEXT_ROWS)
 page_setup:
   JSR get_batched_count
@@ -91,7 +90,7 @@ half_page_setup:
 
 ; --- Shared scroll subroutines ---
 
-; Scroll the viewport down BUF_DELTA times (0 = 256) by BUF_TEMP lines
+; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP lines
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A, X, Y
 scroll_view_down:
@@ -138,7 +137,7 @@ view_wrap_zero:
   STA VIEW_TOP_WRAP
   RTS
 
-; Scroll the viewport up BUF_DELTA times (0 = 256) by BUF_TEMP lines
+; Scroll the viewport up BUF_DELTA (>= 1) times by BUF_TEMP lines
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A
 scroll_view_up:
