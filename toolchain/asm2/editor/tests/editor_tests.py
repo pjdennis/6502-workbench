@@ -4790,6 +4790,16 @@ class EditorTestRunner:
             expect_status_at_frame=[(1, " - NORMAL - 2,1 /3")],
         )
 
+        # A key that changes nothing sends only the cursor move and show:
+        # no status text, so no need to hide the cursor
+        self.run_test_screen(
+            "Unchanged status bar sends only the cursor move",
+            "abc\n",
+            b"x\x1b:q!\r",
+            expect_ansi_contains="\x1b[?25h\x1b[1;1H\x1b[?25h",
+            expect_cursor_at_frame=[(2, (0, 0))],
+        )
+
         # A shorter status text clears the rest of the old one: after the
         # count, 'dd' sends from the count's column and clears the tail
         self.run_test_screen(

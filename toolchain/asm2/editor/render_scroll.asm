@@ -316,9 +316,21 @@ render_limited_rows_from_col:
 ; Frame epilogue: status bar, cursor, show, flush (shared tail)
 render_finish:
   JSR render_status_line
+render_finish_cursor:
   JSR render_position_cursor
   JSR ansi_cursor_show
   JMP io_flush
+
+; Render just the status bar and reposition the cursor (no content
+; redraw).  An unchanged status bar sends nothing, so the cursor need not
+; be hidden.
+render_cursor_and_status:
+  JSR status_build
+  LDA ST_FIRST
+  BMI render_finish_cursor     ; unchanged
+  JSR ansi_cursor_hide
+  JSR status_send
+  JMP render_finish_cursor
 
 ; Render loop only: renders SCROLL_DELTA rows starting at
 ; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, the first of them from column A,
@@ -436,11 +448,6 @@ find_line_at_render_row:
   STA RENDER_WRAP
 .found:
   RTS
-
-; Render just the status bar and reposition cursor (no content redraw)
-render_cursor_and_status:
-  JSR ansi_cursor_hide
-  JMP render_finish
 
 ; Print line characters from BUF_PTR16 + RENDER_COL up to SCREEN_COLS or
 ; newline.  Control chars: tab as '>' reverse, others (and bytes >= $80)
