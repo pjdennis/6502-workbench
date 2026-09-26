@@ -255,54 +255,43 @@ insert_handle_key:
   ;        LINE_LEN16.lo=back_nl, LINE_LEN16.hi=fwd_nl
   ;        BUF_PTR16=delete_start
 
-  ; Step 7: Compute net = insert_len - total_delete and shift
-  ; total_delete = back + fwd_actual
+  ; Step 7: net = insert_len - total_delete (total_delete = back + fwd_actual)
   LDA BUF_TEMP16             ; back
   CLC
   ADC BUF_TEMP               ; + fwd_actual
   STA BUF_SRC16              ; total_delete (stash in BUF_SRC16.lo)
-
-  ; net = insert_len - total_delete
   LDA BUF_DELTA              ; insert_len
   SEC
   SBC BUF_SRC16              ; - total_delete
-  BEQ .no_shift
-  BCS .shift_right           ; carry set = no borrow = net > 0
-
-  ; --- net < 0: shift left ---
-  ; |net| = total_delete - insert_len
-  LDA BUF_SRC16              ; total_delete
-  SEC
-  SBC BUF_DELTA              ; - insert_len
+  STA SHIFT_NET              ; net (also the fast path's ICH/DCH hint)
+  BEQ .do_copy
+  ; Shift the tail by |net| at delete_start + min(insert_len, total_delete)
+  LDX BUF_SRC16              ; net > 0: grow after the deleted bytes
+  BCS .have_len              ; carry set = no borrow = net > 0
+  LDX BUF_DELTA              ; net < 0: shrink after the inserted bytes
+  EOR #$FF
+  ADC #1                     ; C = 0 here: A = |net|
+.have_len:
   STA BUF_LEN16
   LDA #0
   STA BUF_LEN16 + 1
-  ; Shift point = delete_start + insert_len
   PUSH16 BUF_PTR16           ; save delete_start
-  LDA BUF_DELTA
+  TXA
   CLC
   ADCA16 BUF_PTR16, BUF_PTR16
+  BIT SHIFT_NET
+  BMI .shrink                ; |net| <= BATCH_MAX < 128
+  JSR buf_shift_right_16     ; carry set = buffer full
+  JMP .shifted
+.shrink:
   JSR buf_shift_left_16
-  POP16 BUF_PTR16            ; restore delete_start
-  JMP .do_copy
-
-.shift_right:
-  ; --- net > 0: A = net ---
-  STA BUF_LEN16
-  LDA #0
-  STA BUF_LEN16 + 1
-  ; Shift point = delete_start + total_delete
-  PUSH16 BUF_PTR16           ; save delete_start
-  LDA BUF_SRC16              ; total_delete
   CLC
-  ADCA16 BUF_PTR16, BUF_PTR16
-  JSR buf_shift_right_16
-  POP16 BUF_PTR16            ; restore delete_start
+.shifted:
+  POP16 BUF_PTR16            ; restore delete_start (carry kept)
   BCC .do_copy
   ; Buffer full
   JMP show_buffer_full_msg
 
-.no_shift:
 .do_copy:
   ; Steps 8+10: Copy BATCH_BUF to buffer and scan for newlines in one pass
   LDA #0
@@ -345,23 +334,19 @@ insert_handle_key:
   SEC
   SBC16_8 CURSOR_COL16, BUF_DELTA, RENDER_FROM_COL16
 
-  ; Line table adjustment: net = insert_len - (back + fwd_actual)
-  LDA BUF_TEMP16             ; back
-  CLC
-  ADC BUF_TEMP               ; + fwd_actual = total_delete
-  STA NORMAL_TEMP            ; stash total_delete (ins_nl is 0 here)
   LDA BUF_DELTA              ; insert_len
   STA SHIFT_WRITE            ; ICH/DCH hint: new cells at RENDER_FROM_COL16
-  SEC
-  SBC NORMAL_TEMP            ; - total_delete = net
-  STA SHIFT_NET              ; ICH/DCH hint: net cell shift
+
+  ; Line table adjustment: add the signed net (SHIFT_NET) to the pointers
+  ; of the following lines
+  LDX #0
+  LDA SHIFT_NET
   BEQ .fast_done
-  ; Adjust the line table by the signed net: the SBC's carry is its
-  ; sign (C=1 net > 0, C=0 net < 0)
+  BPL .net_positive
+  DEX                        ; sign-extend
+.net_positive:
   STA BUF_SRC16
-  LDA #0
-  SBC #0                     ; Sign extend: $00 (C=1) or $FF (C=0)
-  STA BUF_SRC16 + 1
+  STX BUF_SRC16 + 1
   JSR buf_adjust_lines_apply
 
 .fast_done:
