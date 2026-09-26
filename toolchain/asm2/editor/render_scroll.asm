@@ -706,6 +706,8 @@ ensure_cursor_visible:
   ADC CURSOR_ROW
   BCS .need_scroll_down  ; 8-bit overflow: cursor far below screen
   STA CURSOR_ROW
+  CMP TEXT_ROWS
+  BCS .need_scroll_down  ; the rows above the cursor line fill the view
   LDA #0
   STA RENDER_WRAP
   INC16 RENDER_LINE16

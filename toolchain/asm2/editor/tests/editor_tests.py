@@ -3066,6 +3066,11 @@ class EditorTestRunner:
         self.run_test_cycle_cap(
             "G: the view walk stops after a screenful",
             make_lines(1000), b"G:q!\r", 1100000)
+        # So does the walk that finds the cursor's row: 1,030,037 cycles
+        # before, 948,109 after
+        self.run_test_cycle_cap(
+            "G: the cursor row walk stops after a screenful",
+            make_lines(1000), b"G:q!\r", 985000)
 
         # Ggg: full window back at top
         self.run_test_screen(
