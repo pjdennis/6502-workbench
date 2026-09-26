@@ -423,11 +423,13 @@ show_yank_overflow:
 yank_delete_current_lines:
   LDAX16 FILE_LINE16
   JSR yank_add_lines
-  BCS .done                  ; C = 1: overflow
+  BCS ydcl_done              ; C = 1: overflow
+; Record undo, then delete BUF_TEMP16 lines at FILE_LINE16; returns C = 0
+undo_delete_current_lines:
   JSR undo_record_line_delete
   JSR delete_current_lines
   CLC
-.done:
+ydcl_done:
   RTS
 
 ; Delete N lines starting at FILE_LINE16 without yanking

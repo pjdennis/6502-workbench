@@ -254,25 +254,23 @@ do_dd:
   BEQ .do_yank_delete        ; No batching, standard path
 
   ; Batched: yank last line only, then delete all in one operation
-  ; Save total count
-  PUSH16 BUF_TEMP16
+  PUSH16 BUF_TEMP16          ; Save total count
   ; Yank 1 line at FILE_LINE16 + (total - 1)
-  SEC
-  SBCI16 BUF_TEMP16, 1, BUF_TEMP16
+  DEC16 BUF_TEMP16
   CLC
-  ADC16 FILE_LINE16, BUF_TEMP16, BUF_TEMP16
-  ; BUF_TEMP16 = last line number; set count=1 via BUF_LEN16, then swap
-  LDAX16 BUF_TEMP16          ; A/X = last line number
-  PHA                        ; Save A (line number low byte)
-  JSR set_buf_temp16_one     ; BUF_TEMP16 = 1 (count)
-  PLA                        ; Restore A = last line number low byte
+  LDA FILE_LINE16
+  ADC BUF_TEMP16
+  PHA
+  LDA FILE_LINE16 + 1
+  ADC BUF_TEMP16 + 1
+  TAX                        ; X = last line number high byte
+  JSR set_buf_temp16_one     ; BUF_TEMP16 = 1 (count); preserves X
+  PLA                        ; A = last line number low byte
   JSR yank_add_lines
-  ; Restore total count and delete all lines
-  POP16 BUF_TEMP16
+  POP16 BUF_TEMP16           ; Restore total count (PLA keeps carry)
   BCS .yank_overflow
-  JSR undo_record_line_delete
-  JSR delete_current_lines
-  JMP .dd_done
+  JSR undo_delete_current_lines  ; Returns C = 0
+  BCC .dd_done               ; Always
 
 .do_yank_delete:
   JSR yank_delete_current_lines
