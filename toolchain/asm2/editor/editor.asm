@@ -2,10 +2,12 @@
 ; VI - Minimal Vi-like Text Editor for 6502
 ; ============================================================================
 ;
-; A vi-like text editor running on the 6502 emulator in console mode.
+; A vi-like text editor running on the 6502 emulator: console I/O by
+; default, serial I/O to an ANSI terminal with define:terminal_mode.
 ;
-; Usage:
-;   ./emulator.out editor/out/editor.out --load 0400 --console outfile.txt infile.txt
+; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
+;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt
+;   ./editor.sh file.txt        (terminal build)
 ;
 ; Modes:
 ;   Normal:  h/j/k/l movement, x/dd delete, i/a/o/O insert, : command

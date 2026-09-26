@@ -1594,8 +1594,7 @@ class EditorTestRunner:
             expect_content_redraws=[True, False, True, False],
         )
 
-        # :w saves without quitting, then :q quits
-        # Actually, :w then EOT will exit due to EOT handling
+        # :w saves without quitting, then :q! quits
         self.run_test(
             "Write with :w preserves content",
             "Hello\n",

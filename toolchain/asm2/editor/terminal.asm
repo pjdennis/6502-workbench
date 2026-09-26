@@ -18,16 +18,11 @@ ansi_csi:
 
 ; Output ESC[ + sequence string whose LOW address byte is in A.
 ; All ansi_seq_* strings must share one page (see warning at the strings).
-; Clobbers A, Y
+; Clobbers A, Y, STR_PTR16
 ansi_seq_a:
   STA STR_PTR16
   LDA #>ansi_seq_clear
   STA STR_PTR16 + 1
-  ; fall through
-
-; Output ESC[ followed by null-terminated string at STR_PTR16
-; Clobbers A, Y
-ansi_write_seq:
   JSR ansi_csi
   JMP write_string
 
@@ -107,7 +102,7 @@ ansi_normal_video:
   JMP ansi_seq_a
 
 ; Reset scroll region to full screen: ESC[r
-; Clobbers A, Y
+; Clobbers A, Y, STR_PTR16
 ansi_reset_scroll_region:
   LDA #<ansi_seq_reset_sr
   JMP ansi_seq_a
@@ -181,7 +176,7 @@ write_fname:
   RTS
 
 ; Move cursor to status line and clear it
-; Clobbers A, Y
+; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
 status_line_clear:
   LDA SCREEN_ROWS
   STA ANSI_ROW
@@ -192,7 +187,7 @@ status_line_clear:
 
 ; Show prompt character on status line
 ; A = prompt character (e.g. ':', '/')
-; Clobbers A, Y
+; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
 show_prompt:
   PHA
   JSR status_line_clear

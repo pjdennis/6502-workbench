@@ -28,9 +28,10 @@ project's 6502 emulator in console/ANSI mode.
 - `render_scroll.asm`: scroll-region repaints for line insert/delete and
   in-place range changes, the shared row renderer (`render_rows`), wrap
   math, cursor visibility.
-- `input.asm`: console key reader, escape sequence parsing (arrow keys,
-  Home/End/PgUp/PgDn/Delete, Ctrl+Left/Right), pushback, decoded key
-  buffering, non-blocking polling, batch key counting.
+- `input.asm`: key reader (`read_key`) with escape sequence parsing (arrow
+  keys, Home/End/PgUp/PgDn/Delete, Ctrl+Left/Right), byte pushback, decoded
+  key buffering, non-blocking peek (`key_peek`), blocking read (`get_key`),
+  batch key counting.
 - `terminal.asm`: ANSI escape sequence output (cursor move/hide/show, clear,
   reverse/normal video, string output, decimal output).
 - `io.asm`: I/O abstraction layer — console mode (direct aliases) or
@@ -77,19 +78,23 @@ project's 6502 emulator in console/ANSI mode.
 
 ## Control flow
 
-1. `editor_main` (in `editor.asm`) parses argv, opens file if present, and
-   loads buffer via `buf_load_file`.
-2. If the file is truncated, `READONLY` is set and a warning is shown.
-3. `render_init` detects terminal size + initial `render_screen`.
+1. `editor_main` (in `editor.asm`) clears zero page (all state starts at 0),
+   takes the file name from argv (`[No Name]` if none), and loads the file
+   via `buf_load_file`; a missing file starts as one empty line.
+2. If the file is truncated, `READONLY` is set.
+3. `render_init` gets the terminal size (a DSR query in the terminal build),
+   `yank_init` and `mark_init` set up their state, and `render_screen` draws
+   the first screen.  A truncated file then shows its warning.
 4. Main loop:
    - Reset the handler's render inputs (`RENDER_FLAG` = 0, whole-line
      repaint, no ICH/DCH hint, no pre-computed rows).
    - If `MODE == MODE_COMMAND`, `render_snapshot` then run `command_handle`
      (does its own input).
-   - Otherwise wait for a key (the console build exits at end of input),
-     note the cursor line's screen rows (`PREV_LINE_ROWS`), `render_snapshot`
-     (VIEW_TOP, VIEW_TOP_WRAP, line count, buf end), `get_key` and dispatch
-     to `normal_handle_key` or `insert_handle_key`.
+   - Otherwise poll with `key_peek`.  When a key is ready, note the cursor
+     line's screen rows (`PREV_LINE_ROWS`), `render_snapshot` (VIEW_TOP,
+     VIEW_TOP_WRAP, line count, buf end), `get_key` reads the key (decoded
+     by `read_key`), and it is dispatched to `normal_handle_key` or
+     `insert_handle_key`.
    - `CMD_QUIT` exits.  A pending two-key combo (`dd`, `dw`, `gg`, ...)
      whose next key has already arrived is processed without a render.
    - `ensure_cursor_visible` moves the viewport if needed, then
@@ -104,6 +109,8 @@ project's 6502 emulator in console/ANSI mode.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows
        below scrolled if its row count changed), or range redraw (`$0B`).
      - Nothing changed → status bar + cursor repositioning only.
+   - Console build: the editor exits when input ends (`con_ready` returns
+     `CON_EOF`), so scripted and test runs need no `:q`.
 
 ## Data model & invariants
 
@@ -167,6 +174,7 @@ project's 6502 emulator in console/ANSI mode.
 | `gg` | Go to first line |
 | Ctrl-F / PgDn | Page down (with count) |
 | Ctrl-B / PgUp | Page up (with count) |
+| Ctrl-D / Ctrl-U | Half page down / up (a count is remembered) |
 | Ctrl-Right | Word forward |
 | Ctrl-Left | Word backward |
 | `/` | Forward search |
@@ -312,20 +320,23 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 ## Testing
 
 - `editor/tests/editor_tests.py` assembles the editor (using `17/out/asm.out`
-  via the emulator) and runs it under `./emulator.out`, feeding keystroke byte
-  streams and verifying saved file contents and screen state.
+  via the emulator) and runs it under `../../emulator/emulator.out`, feeding
+  keystroke byte streams and verifying saved file contents and screen state.
 - `editor/tests/ansi_screen.py` is a virtual terminal that processes ANSI
   escape sequences into a screen buffer for screen-state assertions.
 - Bounds checking tests build `editor_small.out` with `define:small_buffer` to
   force truncation/read-only scenarios.
-- On success, creates `editor/out/editor_stable.out` for use by `editor.sh`.
+- On success, copies the builds to `editor/out/editor_stable.out` (used by
+  `editor-fast.sh` and `editor-slow-console.sh`) and
+  `editor/out/editor_terminal_stable.out` (used by `editor.sh` and the
+  `editor-terminal-*.sh` scripts).
 
 ### Quick commands
 ```bash
 # Run tests (from toolchain/asm2):
 python3 editor/tests/editor_tests.py -q
 
-# Run editor (console):
+# Run editor (terminal build, 19200 baud, 2 MHz):
 ./editor.sh <file>
 ```
 
@@ -333,18 +344,19 @@ python3 editor/tests/editor_tests.py -q
 
 ```bash
 # Assemble (release):
-./emulator.out 17/out/asm.out editor/editor.asm editor/out/editor.out
+../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor.out
 
 # Assemble (small buffer):
-./emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
+../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
 
 # Assemble (terminal mode):
-./emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
+../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
 
 # Run (console):
-./emulator.out editor/out/editor.out --load 0400 --console <file>
+../../emulator/emulator.out editor/out/editor.out --load 0400 --console <file>
 
-# Shortcut (uses editor_stable.out):
+# Shortcuts: editor.sh runs editor_terminal_stable.out (--terminal
+# --baud 19200 --mhz 2); editor-fast.sh runs editor_stable.out (--console)
 ./editor.sh <file>
 ```
 
