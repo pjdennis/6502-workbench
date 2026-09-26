@@ -52,22 +52,13 @@ do_unindent:
 ; line count, and sets the range start to the cursor line.
 shift_normal_setup:
   LDA BATCH_EXTRA
-  CLC
-  ADC #1                       ; A = repeat count (1 + extra pairs)
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
-  STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * repeat count
+  ADC #INDENT_WIDTH            ; + the key itself (carry clear: BATCH_EXTRA <= BATCH_MAX)
+  STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * (1 + extra pairs)
   LDA #INDENT_WIDTH
   STA SHIFT_UNDO_WIDTH         ; undo = last >> / << only
-  LDA BATCH_EXTRA
-  BEQ .no_count_fix
-  LDA COUNT16
   SEC
-  SBC BATCH_EXTRA
-  STA COUNT16
-  LDA COUNT16 + 1
-  SBC #0
-  STA COUNT16 + 1
-.no_count_fix:
+  SBC16_8 COUNT16, BATCH_EXTRA, COUNT16 ; (subtracting 0 when not batched)
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   CP16 FILE_LINE16, UNDO_LINE16
   LDA #0
@@ -578,6 +569,8 @@ word_op_bail:
 .bail_insert:
   JMP enter_insert_mode_render
 
+; JSR here calls the range routine in JUMP_TARGET16 (word_op_forward and
+; batched_word_delete_fwd)
 word_op_call_range:
   JMP (JUMP_TARGET16)
 
@@ -641,7 +634,7 @@ batched_word_delete_fwd:
 
   ; Compute full N-word range
   LDX BUF_TEMP16
-  JSR .fwd_call_range          ; BUF_LEN16 = full_range, cursor restored
+  JSR word_op_call_range       ; BUF_LEN16 = full_range, cursor restored
   BCS .fwd_bail
 
   ; Save full_range on stack
@@ -653,7 +646,7 @@ batched_word_delete_fwd:
   SEC
   SBC #1
   TAX                           ; X = N-1
-  JSR .fwd_call_range          ; BUF_LEN16 = prefix_range, cursor restored
+  JSR word_op_call_range       ; BUF_LEN16 = prefix_range, cursor restored
 
   ; Yank last word using buffer pointer arithmetic (no cursor movement)
   ; BUF_LEN16 = prefix_range
@@ -684,9 +677,6 @@ batched_word_delete_fwd:
 .fwd_bail:
   PLA                           ; Clean up N
   RTS
-
-.fwd_call_range:
-  JMP (JUMP_TARGET16)
 
 ; Batched word delete backward (for db batched path)
 ; Input: BUF_TEMP16 = N (total word count, >= 2)
