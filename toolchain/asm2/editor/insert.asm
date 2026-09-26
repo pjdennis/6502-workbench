@@ -164,16 +164,12 @@ insert_handle_key:
   BCS .back_ok
   STA BUF_TEMP16            ; back = dist (clamped)
 .back_ok:
+  ; The forward scan (step 6) starts at the cursor
+  CP16 BUF_PTR16, BUF_SRC16
 
   ; Step 4: BUF_PTR16 -= back (delete_start)
   SEC
-  LDA BUF_PTR16
-  SBC BUF_TEMP16
-  STA BUF_PTR16
-  LDA BUF_PTR16 + 1
-  SBC #0
-  STA BUF_PTR16 + 1
-  ; BUF_PTR16 = delete_start
+  SBC16_8 BUF_PTR16, BUF_TEMP16, BUF_PTR16
 
   ; Step 5: Count newlines in backward-deleted region [delete_start, delete_start+back)
   LDY #0
@@ -203,16 +199,8 @@ insert_handle_key:
   POP16 BUF_PTR16           ; Restore delete_start
 .skip_bs_precompute:
 
-  ; Step 6: Scan forward from original cursor, consuming fwd bytes
-  ; Original cursor = delete_start + back = BUF_PTR16 + back
-  CLC
-  LDA BUF_PTR16
-  ADC BUF_TEMP16
-  STA BUF_SRC16
-  LDA BUF_PTR16 + 1
-  ADC #0
-  STA BUF_SRC16 + 1         ; BUF_SRC16 = original cursor pos
-
+  ; Step 6: Scan forward from the cursor (BUF_SRC16; compute_delete_screen_rows
+  ; leaves it alone), consuming fwd bytes
   LDA #0
   STA BUF_TEMP              ; fwd_actual = 0
   STA LINE_LEN16 + 1        ; fwd_nl = 0
