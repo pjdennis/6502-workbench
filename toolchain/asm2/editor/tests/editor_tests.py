@@ -7501,7 +7501,7 @@ class EditorTestRunner:
             expected_content="A\nB\nC\nC\n"
         )
 
-        # Batched yy pairs: only last yy's count matters (implicit 1)
+        # Repeated yy: each yank replaces the last, so only 1 line is kept
         self.run_test(
             "yyyy+p yanks only 1 line (last yy overwrites)",
             "A\nB\nC\n",
@@ -7522,6 +7522,21 @@ class EditorTestRunner:
             "A\nB\nC\n",
             b"2yyp:wq\r",
             expected_content="A\nA\nB\nB\nC\n"
+        )
+
+        # An insert that typed Enter leaves scratch state behind; the next
+        # Nyy still yanks N lines
+        self.run_test(
+            "2yy right after an insert with Enter yanks 2 lines",
+            "a\nb\nc\nd\n",
+            b"ix\r\x1b2yyGp:wq\r",
+            expected_content="x\na\nb\nc\nd\na\nb\n"
+        )
+        self.run_test(
+            "3yy right after an insert with Enter in the text yanks 3 lines",
+            "a\nb\nc\nd\ne\n",
+            b"ofoo\rbar\x1b3yyGp:wq\r",
+            expected_content="a\nfoo\nbar\nb\nc\nd\ne\nbar\nb\nc\n"
         )
 
         # yy+p on line longer than 255 chars (tests page-crossing in newline scan)

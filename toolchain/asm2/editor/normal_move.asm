@@ -191,16 +191,10 @@ do_gg:
 
 ; --- Yank ---
 
-; yy: yank N lines starting at current line
-; yy is not pair-batched, so BATCH_EXTRA is nonzero here only when insert
-; mode left its last-newline position there (insert_exit does not clear
-; it); the count then drops to 1 (e.g. "ofoo<Enter>bar<ESC>3yy" yanks one line)
+; yy: yank N lines starting at current line (not pair-batched: yyyy runs
+; yy twice, and the last yank wins)
 do_yy:
   JSR get_count              ; BUF_TEMP16 = count (16-bit)
-  LDA BATCH_EXTRA
-  BEQ .do_yank
-  JSR set_buf_temp16_one
-.do_yank:
   JSR yank_current_lines
   BCS .overflow
   JMP clear_count            ; Done - don't set MODIFIED

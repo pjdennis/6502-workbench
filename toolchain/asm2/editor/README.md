@@ -314,7 +314,7 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   - Enter in insert mode: batch multiple newline insertions.
   - Join-lines (BS at column 0): batch multiple joins.
   - Movement keys: batch identical keys (e.g., multiple j/k/h/l).
-  - Two-key combos (dd, yy, >>, <<, etc.): count additional pairs.
+  - Two-key combos dd, >> and <<: count additional pairs.
   - dw/db/de pairs: run each press separately (N presses can differ from a
     count of N at line ends), then render once.
 - **Page-optimized memory ops**: byte shifting uses inner Y-indexed loops

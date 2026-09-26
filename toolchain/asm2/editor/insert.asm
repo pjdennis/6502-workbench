@@ -67,9 +67,8 @@ insert_exit:
 ;   LINE_LEN16.lo  = back_nl
 ;   LINE_LEN16.hi  = fwd_nl
 ;   NORMAL_TEMP    = ins_nl (after BATCH_BUF scan)
-;   BATCH_EXTRA    = last_nl_pos (after BATCH_BUF scan).  BATCH_EXTRA is a
-;                    normal-mode variable and insert_exit does not clear
-;                    it, so do_yy sees the value left here
+;   BATCH_EXTRA    = last_nl_pos (after BATCH_BUF scan; BATCH_EXTRA is a
+;                    normal-mode variable, borrowed here)
 ;   BUF_PTR16      = delete_start (cursor - back)
 ;   BUF_SRC16      = forward scan pointer
 ;   SHIFT_NET      = net = insert_len - back - fwd_actual
@@ -237,8 +236,7 @@ insert_handle_key:
   ; Step 7: Count the newlines in BATCH_BUF
   LDY #0
   STY NORMAL_TEMP            ; ins_nl = 0
-  STY BATCH_EXTRA            ; last_nl_pos = 0 (normal mode reads BATCH_EXTRA
-                             ; too: see do_yy)
+  STY BATCH_EXTRA            ; last_nl_pos = 0
 .nl_scan:
   CPY BUF_DELTA
   BEQ .nl_scanned
