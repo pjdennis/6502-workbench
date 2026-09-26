@@ -450,11 +450,11 @@ delete_current_lines:
 ; Yanks from cursor, deletes, rebuilds lines, sets MODIFIED
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
 yank_delete_at_cursor:
-  JSR undo_record_char_delete
-  PUSH16 BUF_LEN16           ; Save delete count
   JSR get_cursor_src         ; BUF_SRC16 = cursor position
-  JSR yank_add_chars         ; Clobbers BUF_LEN16, BUF_PTR16
-  POP16 BUF_LEN16            ; Restore delete count
+  JSR yank_add_chars         ; Preserves BUF_LEN16
+; Record undo, then delete (same input, once the chars are yanked)
+undo_delete_at_cursor:
+  JSR undo_record_char_delete
   ; Fall through to delete_at_cursor
 
 ; Delete bytes at cursor position (no yank)
@@ -650,10 +650,8 @@ bcd_start:
   STA BUF_LEN16 + 1
   JSR yank_add_chars            ; (resets the yank buffer)
   POP16 BUF_LEN16               ; Restore full range
-  ; Record undo before deleting
-  JSR undo_record_char_delete
-  ; Delete full range in single operation
-  JSR delete_at_cursor
+  ; Record undo, delete full range in single operation
+  JSR undo_delete_at_cursor
 
 .finish:
   JSR clamp_cursor_col

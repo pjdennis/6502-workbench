@@ -10,7 +10,7 @@ undo_clear:
   RTS
 
 ; Record a char-delete for undo
-; Call at entry of yank_delete_at_cursor (before anything modified).
+; Call after the yank, before the delete (undo_delete_at_cursor).
 ; Saves: type=2, FILE_LINE16, CURSOR_COL16
 undo_record_char_delete:
   LDA #UNDO_CHAR
