@@ -374,7 +374,7 @@ range_do_yank:
   LDX #>str_lines_yanked
   JMP report_yank_lines_ax
 
-range_yank_full:                 ; (yank_add_lines left the buffer empty)
+range_yank_full:                 ; (the yank buffer is unchanged)
   LDA #<str_yank_full
   LDX #>str_yank_full
   JMP show_message_ax

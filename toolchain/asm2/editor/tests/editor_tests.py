@@ -6882,6 +6882,73 @@ class EditorTestRunner:
             expected_content="A\nB\n"
         )
 
+        # The yank buffer holds exactly 4 KB. ESC dismisses the "Yank
+        # buffer full" message (the message swallows one key) and is a
+        # no-op otherwise.
+        for size, copies in ((4096, 2), (4097, 1)):
+            line = "a" * (size - 1) + "\n"
+            self.run_test(
+                f"yy of {size} bytes " + ("fits" if copies == 2 else "refused"),
+                "x\n" + line,
+                b"jyy\x1bP:wq\r",
+                expected_content="x\n" + line * copies
+            )
+
+        # A yank of 8 KB+ is refused like one of 4-8 KB (the fit check
+        # added the size to the yank buffer's address and wrapped past
+        # $FFFF, so the copy overwrote I/O and zero page)
+        lines_9k = ''.join(f"{i:03d} abcdefghijklmnopqrstuvwxyz\n"
+                           for i in range(300))  # 300 x 31 = 9300 bytes
+        for name, keys in (("yy", b"300yy\x1bp"), ("dd", b"300dd\x1b"),
+                           (":y", b":1,300y\r\x1bp"), (":d", b":1,300d\r\x1b"),
+                           ("cc", b"300ccX\x1b")):
+            self.run_test(
+                f"{name} of 8 KB+ refused: yank buffer full",
+                lines_9k,
+                keys + b":wq\r",
+                expected_content=lines_9k
+            )
+        self.run_test_screen(
+            "yy of 8 KB+ shows Yank buffer full",
+            lines_9k,
+            b"300yy\x1b:q!\r",
+            expect_ansi_contains="Yank buffer full"
+        )
+        line_9k = "hello\n" + "a" * 9000 + "\nend\n"
+        for keys in (b"yyjyw", b"yyjy$"):
+            self.run_test(
+                f"{keys[3:].decode()} of 8 KB+ keeps previous yank",
+                line_9k,
+                keys + b"\x1bp:wq\r",
+                expected_content=line_9k.replace("\nend", "\nhello\nend")
+            )
+        self.run_test(
+            "D of 8 KB+ does not crash",
+            line_9k,
+            b"jD\x1b:q!\r"
+        )
+
+        # A line yank or delete that does not fit (6000 bytes) leaves the
+        # yank buffer as it was: p still pastes the previous yank, and u
+        # still undoes the previous change (x's undo puts back the char
+        # that x yanked)
+        lines_6k = ''.join(f"{i:03d} " + "x" * 55 + "\n" for i in range(100))
+        for name, keys in (("yy", b"100yy"), ("dd", b"100dd"),
+                           ("cc", b"100cc"), (":y", b":1,100y\r"),
+                           (":d", b":1,100d\r")):
+            self.run_test(
+                f"Refused {name} keeps the previous yank",
+                lines_6k,
+                b"yy" + keys + b"\x1bp:wq\r",
+                expected_content=lines_6k[:60] + lines_6k
+            )
+            self.run_test(
+                f"Refused {name} keeps the previous undo",
+                lines_6k,
+                b"x" + keys + b"\x1bu:wq\r",
+                expected_content=lines_6k
+            )
+
         # ============================================================
         # Paste tests (p and P)
         # ============================================================

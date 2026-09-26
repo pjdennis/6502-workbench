@@ -411,7 +411,7 @@ batch_pending_pairs_upto:
 ; --- Common yank/delete operations ---
 
 ; Show yank overflow error: show message, clear count
-; Used when a line yank did not fit (yank_add_lines left the buffer empty)
+; Used when a line yank did not fit (the yank buffer is unchanged)
 show_yank_overflow:
   JSR range_yank_full        ; "Yank buffer full"
   JMP clear_count

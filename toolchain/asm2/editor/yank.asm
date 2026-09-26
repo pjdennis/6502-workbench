@@ -28,11 +28,11 @@ yank_clear:
 ; Replace the yank buffer with N contiguous lines (YANK_TYPE = YANK_LINE)
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines (16-bit)
 ; Clamps count to available lines. Uses mem_copy_down for page-optimized copy.
-; Returns carry set = yank buffer full (it is left empty), carry clear = success
+; Returns carry set = yank buffer full (yank buffer unchanged), carry clear =
+; success
 ; On success: YANK_END16 updated, YANK_LINES16 = BUF_TEMP16 = actual lines copied
 yank_add_lines:
   STAX16 BUF_SRC16           ; BUF_SRC16 = first line number
-  JSR yank_clear             ; Empty line yank (stays empty if too big)
 
   ; Clamp count: BUF_TEMP16 = min(count, LINE_COUNT16 - first_line)
   SEC
@@ -51,42 +51,40 @@ yank_add_lines:
 
   LDAX16 BUF_SRC16
   JSR buf_line_span          ; BUF_SRC16 = start, BUF_LEN16 = size
+  LDY #YANK_LINE
   JSR yank_store
   BCS .ret                   ; Yank buffer full
   CP16 BUF_TEMP16, YANK_LINES16  ; Carry stays clear
 .ret:
   RTS
 
-; Replace the yank buffer with character data
+; Replace the yank buffer with character data (YANK_TYPE = YANK_CHAR)
 ; Input: BUF_SRC16 = source address, BUF_LEN16 = byte count
 ; Returns carry set = buffer full (yank buffer unchanged), carry clear =
-; success (YANK_TYPE = YANK_CHAR)
+; success
 yank_add_chars:
-  JSR yank_store
-  BCS .ret
-  LDA #YANK_CHAR
-  STA YANK_TYPE              ; Carry stays clear
-.ret:
-  RTS
+  LDY #YANK_CHAR
+  ; fall through
 
-; Replace the yank buffer contents with the BUF_LEN16 bytes at BUF_SRC16
-; (YANK_TYPE is left to the caller)
+; Replace the yank buffer with the BUF_LEN16 bytes at BUF_SRC16, of type Y
 ; Returns carry set if they do not fit (nothing changed), carry clear on
 ; success. Sets BUF_PTR16 = BUF_SRC16 + BUF_LEN16, preserves BUF_LEN16.
 ; Clobbers A, Y, BUF_SRC16, BUF_DST16
 yank_store:
-  ; Fits iff YANK_BUF + size <= YANK_LIMIT (full iff end >= LIMIT+1)
-  CLC
-  ADCI16 BUF_LEN16, YANK_BUF, BUF_DST16
-  LDA BUF_DST16
-  CMP #<YANK_LIMIT+$01
-  LDA BUF_DST16 + 1
-  SBC #>YANK_LIMIT+$01
+  ; Fits iff size <= YANK_LIMIT - YANK_BUF (compare the size itself:
+  ; YANK_BUF + size wraps past $FFFF for sizes of 8 KB and more)
+  LDA BUF_LEN16
+  CMP #<YANK_LIMIT-YANK_BUF+$01
+  LDA BUF_LEN16 + 1
+  SBC #>YANK_LIMIT-YANK_BUF+$01
   BCS .ret
-  CP16 BUF_DST16, YANK_END16 ; New end of the yank buffer
+  STY YANK_TYPE
+  ; New end of the yank buffer (carry clear from the check; the sum is at
+  ; most YANK_LIMIT, so it stays clear)
+  ADCI16 BUF_LEN16, YANK_BUF, YANK_END16
 
   ; mem_copy_down(BUF_SRC16, BUF_SRC16 + size, YANK_BUF)
-  ADC16 BUF_SRC16, BUF_LEN16, BUF_PTR16  ; Carry clear from the check
+  ADC16 BUF_SRC16, BUF_LEN16, BUF_PTR16
   SET16 YANK_BUF, BUF_DST16
   JSR mem_copy_down
   CLC
