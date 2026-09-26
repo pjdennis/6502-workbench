@@ -131,6 +131,8 @@ All editing commands are blocked in read-only mode.
                  o, O, cw, cb, ce, cc, s, C and S can be undone only when
                  ESC follows with no text typed: text typed in insert mode
                  is not undoable and clears the undo history.
+                 A yank (yy, yw, y$, :y, ...) ends the undo of a delete
+                 or paste, as their undo restores from the yank buffer.
                  Rapidly typed (batched) keys execute together but undo
                  as if processed one at a time: u undoes the last one.
 

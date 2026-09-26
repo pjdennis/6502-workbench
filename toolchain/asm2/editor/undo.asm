@@ -63,11 +63,11 @@ undo_handle:
   .word .undo_line - 1               ; 1 UNDO_LINE
   .word .undo_char - 1               ; 2 UNDO_CHAR
   .word .undo_cc - 1                 ; 3 UNDO_CC
-  .word undo_join_undo - 1           ; 4 UNDO_JOIN
-  .word undo_paste_undo - 1          ; 5 UNDO_LINE_PASTE_BELOW
-  .word undo_paste_undo - 1          ; 6 UNDO_LINE_PASTE_ABOVE
-  .word undo_char_paste_undo - 1     ; 7 UNDO_CHAR_PASTE_BELOW
-  .word undo_char_paste_undo - 1     ; 8 UNDO_CHAR_PASTE_ABOVE
+  .word undo_paste_undo - 1          ; 4 UNDO_LINE_PASTE_BELOW
+  .word undo_paste_undo - 1          ; 5 UNDO_LINE_PASTE_ABOVE
+  .word undo_char_paste_undo - 1     ; 6 UNDO_CHAR_PASTE_BELOW
+  .word undo_char_paste_undo - 1     ; 7 UNDO_CHAR_PASTE_ABOVE
+  .word undo_join_undo - 1           ; 8 UNDO_JOIN
   .word undo_open_undo - 1           ; 9 UNDO_OPEN
   .word undo_shift_step - 1          ; 10 UNDO_INDENT
   .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
@@ -77,11 +77,11 @@ undo_handle:
   .word .redo_line - 1               ; 1 UNDO_LINE
   .word .redo_char - 1               ; 2 UNDO_CHAR
   .word .redo_cc - 1                 ; 3 UNDO_CC
-  .word undo_join_redo - 1           ; 4 UNDO_JOIN
-  .word undo_paste_redo - 1          ; 5 UNDO_LINE_PASTE_BELOW
-  .word undo_paste_redo - 1          ; 6 UNDO_LINE_PASTE_ABOVE
-  .word undo_char_paste_redo - 1     ; 7 UNDO_CHAR_PASTE_BELOW
-  .word undo_char_paste_redo - 1     ; 8 UNDO_CHAR_PASTE_ABOVE
+  .word undo_paste_redo - 1          ; 4 UNDO_LINE_PASTE_BELOW
+  .word undo_paste_redo - 1          ; 5 UNDO_LINE_PASTE_ABOVE
+  .word undo_char_paste_redo - 1     ; 6 UNDO_CHAR_PASTE_BELOW
+  .word undo_char_paste_redo - 1     ; 7 UNDO_CHAR_PASTE_ABOVE
+  .word undo_join_redo - 1           ; 8 UNDO_JOIN
   .word undo_open_redo - 1           ; 9 UNDO_OPEN
   .word undo_shift_step - 1          ; 10 UNDO_INDENT
   .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
@@ -303,7 +303,7 @@ undo_join_apply:
   LDA UNDO_JOIN_COUNT
   JMP mark_args_next_line
 
-; --- Line paste undo (types 5/6; char paste types 7/8 dispatch directly) ---
+; --- Line paste undo (types 4/5; char paste types 6/7 dispatch directly) ---
 undo_paste_undo:
   ; Line paste undo: set FILE_LINE16 to first pasted line
   JSR undo_restore_line
@@ -335,7 +335,7 @@ undo_paste_undo:
   LDA #RF_DEL_BELOW
   JMP set_render_clear_count
 
-; --- Line paste redo (types 5/6) ---
+; --- Line paste redo (types 4/5) ---
 undo_paste_redo:
   ; Line paste redo: common setup
   JSR undo_restore_line

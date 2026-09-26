@@ -69,6 +69,9 @@ yank_add_chars:
 ; Replace the yank buffer with the BUF_LEN16 bytes at BUF_SRC16, of type Y
 ; Returns carry set if they do not fit (nothing changed), carry clear on
 ; success. Sets BUF_PTR16 = BUF_SRC16 + BUF_LEN16, preserves BUF_LEN16.
+; A new yank also ends an undo that reads the yank buffer (the types
+; below UNDO_JOIN): u would replay it. A delete records its undo after
+; its yank.
 ; Clobbers A, Y, BUF_SRC16, BUF_DST16
 yank_store:
   ; Fits iff size <= YANK_LIMIT - YANK_BUF (compare the size itself:
@@ -87,6 +90,11 @@ yank_store:
   ADC16 BUF_SRC16, BUF_LEN16, BUF_PTR16
   SET16 YANK_BUF, BUF_DST16
   JSR mem_copy_down
+  LDA UNDO_TYPE
+  CMP #UNDO_JOIN
+  BCS .keep_undo             ; The undo keeps its own data
+  JSR undo_clear
+.keep_undo:
   CLC
 .ret:
   RTS

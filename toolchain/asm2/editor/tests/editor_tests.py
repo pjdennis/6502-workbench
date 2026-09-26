@@ -1389,13 +1389,17 @@ class EditorTestRunner:
         digits = ''.join(f"{i % 10}\n" for i in range(1023))
         self.run_test("u of 1023dd at the line limit restores every line",
             digits, b"1023dduGx:wq\r", expected_content=digits[:-2] + "\n")
-        # u and its redo paste the yank buffer: a bigger yank made since
-        # must not take the file past the limit
-        self.run_test("u of dd after a bigger yank is refused at the limit",
+        # u and its redo paste the yank buffer, so a yank made since ends
+        # them and cannot take the file past the limit (u of dd pasted a
+        # char yank as lines, whose newlines the room check did not count,
+        # and reached 1024 lines, read-only)
+        self.run_test("u of dd after a bigger yank stays within the limit",
             full, b"dd5yyu\x1b:wq\r", expected_content=full[6:])
-        self.run_test("Redo of p after a bigger yank is refused at the limit",
+        self.run_test("Redo of p after a bigger yank stays within the limit",
             numbered(1022), b"yypu5yyu\x1b:wq\r",
             expected_content=numbered(1022))
+        self.run_test("u of dd after a char yank stays within the limit",
+            full, b"dd3ywu:wq\r", expected_content=full[6:])
 
         # --- Insert mode ---
         # The refused batch ends at ESC, which the message consumes; the
@@ -15255,6 +15259,38 @@ class EditorTestRunner:
             expect_unmodified=True
         )
 
+        # Delete and paste undo restore from (or size by) the yank buffer,
+        # so a yank-only command ends them: u is then a no-op instead of
+        # replaying the new yank. Undo types that keep their own data
+        # (J, ~, r, >>, o) survive a yank.
+        for keys, content, expected in [
+            (b"xyyu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"ddyyu", "abcdef\nsecond\n", "second\n"),
+            (b"xjywku", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xy$u", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x$ybu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xyeu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x$y0u", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x:2y\ru", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xuyyu", "abcdef\nsecond\n", "abcdef\nsecond\n"),
+            (b"yyp2yyu", "one\ntwo\nthree\n", "one\none\ntwo\nthree\n"),
+            (b"ywPyyu", "one two\nthree\n", "one one two\nthree\n"),
+            # u used to paste the char yank 'a' as a line: 'a\na' with no
+            # final newline, and the o after it never returned
+            (b"Gddywuoo\x1b", "a\nb\n", "a\no\n"),
+            (b"Jyyu", "abc\ndef\n", "abc\ndef\n"),
+            (b"~yyu", "abc\n", "abc\n"),
+            (b"rZyyu", "abc\n", "abc\n"),
+            (b">>yyu", "abc\n", "abc\n"),
+            (b"o\x1byyu", "abc\ndef\n", "abc\ndef\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: u after a yank never replays the yank",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
         self._group("Undo char-delete (x, D, dw, db, de):", leading_blank=True)
 
         # x undo
@@ -15399,12 +15435,13 @@ class EditorTestRunner:
             b"yyjD\x1bp:wq\r",
             expected_content=big.replace("\nend", "\nhello\nend")
         )
-        self.run_test(
-            "D over 4 KB keeps the previous undo",
-            big,
-            b"xjD\x1bu:wq\r",
-            expected_content=big
-        )
+        for keys in (b"xjD", b"xjy$"):
+            self.run_test(
+                f"{keys[2:].decode()} over 4 KB keeps the previous undo",
+                big,
+                keys + b"\x1bu:wq\r",
+                expected_content=big
+            )
         # A refused C does not enter insert mode: the x after it deletes
         self.run_test(
             "C over 4 KB stays in normal mode",

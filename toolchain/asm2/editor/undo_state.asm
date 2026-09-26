@@ -10,16 +10,20 @@
 ;   1 = line-delete (dd, 2dd, etc.)
 ;   2 = char-delete (x, X, D, d$, d0, dw, db, de; s, C, cw, cb, ce)
 ;   3 = cc/S line-delete (like line-delete but cc inserted blank line)
-;   4 = join (J, NJ)
-;   5 = line-paste-below (p with line yank)
-;   6 = line-paste-above (P with line yank)
-;   7 = char-paste-below (p with char yank)
-;   8 = char-paste-above (P with char yank)
+;   4 = line-paste-below (p with line yank)
+;   5 = line-paste-above (P with line yank)
+;   6 = char-paste-below (p with char yank)
+;   7 = char-paste-above (P with char yank)
+;   8 = join (J, NJ)
 ;   9 = open-line (o/O opened blank line(s))
 ;  10 = indent (spaces were added; undo removes them via unindent)
 ;  11 = unindent (spaces were removed; undo re-inserts recorded counts)
 ;  12 = toggle case (~; self-inverse, undo/redo re-toggle the span)
 ;  13 = replace char (r; originals in UNDO_DATA_BUF, redo re-writes)
+;
+; Types 1-7 read the yank buffer (the deleted text, the paste size), so
+; a new yank ends them (yank_store); from UNDO_JOIN up, the types keep
+; their own data and survive a yank.
 ;
 ; Types 10/11 are self-morphing: undoing an indent re-records as an
 ; unindent and vice versa, so repeated 'u' toggles without UNDO_IS_REDO.
@@ -29,10 +33,10 @@
 ;   type          LINE16           COL16          JOIN_COUNT   PASTE_COUNT16
 ;   1 dd, 3 cc    first line       -              -            -
 ;   2 x, d, c     cursor line      cursor column  -            -
-;   4 J           first line       join column    joins        -
-;   5 p lines     line above copy  cursor column  -            copies
-;   6 P lines     first line       cursor column  -            copies
-;   7/8 p/P chars cursor line      insert column  -            copies
+;   4 p lines     line above copy  cursor column  -            copies
+;   5 P lines     first line       cursor column  -            copies
+;   6/7 p/P chars cursor line      insert column  -            copies
+;   8 J           first line       join column    joins        -
 ;   9 o/O         opened line      line to return -            -
 ;   10/11 >> <<   first line       cursor column  width        lines
 ;   12 ~          cursor line      span start     span length  -
@@ -45,11 +49,11 @@ UNDO_NONE = 0
 UNDO_LINE = 1
 UNDO_CHAR = 2
 UNDO_CC   = 3
-UNDO_JOIN = 4
-UNDO_LINE_PASTE_BELOW = 5
-UNDO_LINE_PASTE_ABOVE = 6
-UNDO_CHAR_PASTE_BELOW = 7
-UNDO_CHAR_PASTE_ABOVE = 8
+UNDO_LINE_PASTE_BELOW = 4
+UNDO_LINE_PASTE_ABOVE = 5
+UNDO_CHAR_PASTE_BELOW = 6
+UNDO_CHAR_PASTE_ABOVE = 7
+UNDO_JOIN = 8
 UNDO_OPEN = 9
 UNDO_INDENT = 10
 UNDO_UNINDENT = 11
