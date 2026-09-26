@@ -389,7 +389,7 @@ insert_handle_key:
   LDA #$01
   STA INSERT_LINE_COUNT      ; Flag: pure Enter batch
 .enter_not_pure:
-  LDA #$05                   ; Line-insert above cursor scroll
+  LDA #RF_ENTER              ; Line-insert above cursor scroll
   BNE .set_render_flag       ; Always taken
 
   ; Lines merged, none inserted: line-delete scroll ($06)
@@ -433,7 +433,7 @@ insert_handle_key:
   STA INSERT_LINE_COUNT
 .join_flag:
   CP16 CURSOR_COL16, RENDER_FROM_COL16
-  LDA #$06                   ; Line-delete with displacement-based scroll
+  LDA #RF_JOIN               ; Line-delete with displacement-based scroll
   JMP .set_render_flag
 
 ; Arrow key and word motion handlers in insert mode, counted with pending
