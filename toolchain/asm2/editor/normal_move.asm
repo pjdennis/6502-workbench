@@ -201,9 +201,9 @@ do_gg:
 ; --- Yank ---
 
 ; yy: yank N lines starting at current line
-; When batched (BATCH_EXTRA > 0): cap count to 1. Batched extra pairs
-; have implicit count=1, and the last yy overwrites previous yanks,
-; so only 1 line should be yanked.
+; yy is not pair-batched, so BATCH_EXTRA is nonzero here only when insert
+; mode left its last-newline position there (insert_exit does not clear
+; it); the count then drops to 1 (e.g. "ofoo<Enter>bar<ESC>3yy" yanks one line)
 do_yy:
   JSR get_count              ; BUF_TEMP16 = count (16-bit)
   LDA BATCH_EXTRA

@@ -337,13 +337,15 @@ count_accumulate_digit:
 ; Get effective count with pending key batching
 ; Gets count prefix, adds pending matching keys
 ; Input: BUF_TEMP = key code to match (set by normal_handle_key)
-; Output: X = total count (count + pending), capped at 255
+; Output: X = total = count's low byte + pending keys (255 if the sum
+;         carries; a count of 256 or more is taken mod 256, 0 = 256 for
+;         the movement helpers)
 ;         BATCH_EXTRA = pending key count (cleared later by clear_count;
 ;         callers that skip clear_count must not let it leak)
 ; Clobbers: A
 get_batched_count:
   JSR get_count
-  LDX BUF_TEMP16         ; X = count (low byte, capped at 255)
+  LDX BUF_TEMP16         ; X = count (low byte only)
   STX BUF_DELTA
   JSR count_pending_key  ; X = pending matching keys
   STX BATCH_EXTRA
@@ -599,7 +601,7 @@ compute_char_range_forward:
   ; BUF_LEN16 = available = LINE_LEN16 - CURSOR_COL16
   SEC
   SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
-  BNE .use_x                 ; Available > 255 > X
+  BNE .use_x                 ; Available >= 256 > X
   CPX BUF_LEN16
   BCS .done                  ; X >= available: keep available
 .use_x:

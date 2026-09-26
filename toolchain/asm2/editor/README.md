@@ -38,18 +38,20 @@ project's 6502 emulator in console/ANSI mode.
   `terminal_mode` (serial I/O with spin loops and DSR terminal size query).
 
 ### Mode handlers
-- `normal.asm`: normal-mode main handler, dispatch tables (movement / editing /
-  other / pending-combo), count prefix handling.
-- `normal_move.asm`: normal-mode movement commands (h/l/j/k, 0/$, ^, w/b/e,
-  G/gg, Ctrl-F/B, search entry, mark jump, command mode entry).
+- `normal.asm`: normal-mode main handler, dispatch tables (movement /
+  editing / pending-combo), count prefix handling, x/X/D/dd, insert entry,
+  o/O.
+- `normal_move.asm`: normal-mode movement commands (h/l/j/k, 0/$, G/gg,
+  Ctrl-F/B/D/U, search entry and n/N, mark set/jump, command mode entry)
+  and the yank commands (yy/yw/yb/ye).  `^` and w/b/e are in `word.asm`.
 - `normal_edit.asm`: normal-mode editing commands (paste, toggle case, join
   lines, substitute, change, replace).
 - `normal_shift.asm`: indent/unindent (`>>`/`<<`) built on shared
   insert/remove-spaces cores (also used by range commands and undo),
   dollar/word operator commands, line-content helpers.
 - `normal_util.asm`: shared utilities — generic key dispatcher, cursor/line
-  helpers, vertical/horizontal movement loops, count prefix system, pair
-  batching.
+  helpers, vertical/horizontal movement and clamping, count prefix system,
+  pair batching, line/char yank-and-delete and the x/X batched delete.
 - `insert.asm`: insert-mode handler — printable chars, Enter, Backspace,
   Delete (forward), arrow keys, Home/End, PgUp/PgDn, word motions, batching
   of mixed Enter/BS/printable sequences.
@@ -213,7 +215,7 @@ project's 6502 emulator in console/ANSI mode.
 | `yb` | Yank word backward (with count, character yank) |
 | `p` | Paste below/after cursor (with count) |
 | `P` | Paste above/before cursor (with count) |
-| `u` | Undo last edit / redo (single-level toggle; covers deletes, changes, joins, opens, pastes, `r`, `~`, `>>`, `<<`, range shifts) |
+| `u` | Undo last edit / redo (single-level toggle; covers deletes, joins, pastes, `r`, `~`, `>>`, `<<`, range shifts; `o`/`O` and the change commands only when ESC follows with no text typed, because leaving insert mode after typing clears the undo record) |
 
 ### Normal mode — marks
 
@@ -226,7 +228,7 @@ project's 6502 emulator in console/ANSI mode.
 
 | Key | Action |
 |-----|--------|
-| `1`–`9` | Start count prefix; `0`–`9` continues (capped at 1000) |
+| `1`–`9` | Start count prefix; `0`–`9` continues (a digit is ignored once the count is 1000 or more, so counts reach at most 9999) |
 | `:` | Enter command mode |
 | ESC | Clear count / pending key |
 

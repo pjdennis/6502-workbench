@@ -123,7 +123,10 @@ normal_editing_keys:
 ; Pending combo key table: 5-byte entries [last_key, second_key, flags, handler]
 ;   second_key=0: wildcard (any second key)
 ;   flags bit 0: call batch_pending_pairs before handler
-;   flags bit 1: editing command (blocked in READONLY mode)
+;   flags bit 1: editing command (blocked in READONLY mode).  Only
+;     check_combo_first_key tests it (READONLY accepts a first key if any
+;     of its entries has bit 1 clear); dispatch_pending_key does not, so
+;     all entries that share a first key must agree on bit 1
 pending_combo_keys:
   .byte 'm', 0, $00         .word do_mark_set
   .byte '\'', 0, $00        .word do_mark_goto
