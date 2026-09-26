@@ -239,20 +239,15 @@ scroll_region_check:
   RTS
 
 ; Repaint the newly exposed bottom SCROLL_DELTA rows (none for 0):
-; RENDER_ROW = SCREEN_ROWS - 1 - SCROLL_DELTA, then find the file line
-; there and render to the bottom.  The guarded entry skips the content
-; repaint (status + cursor only) when RENDER_ROW <= CURSOR_ROW (those
-; rows were already rendered by the caller).
-render_bottom_rows_guarded:
-  JSR bottom_row_start
-  CMP CURSOR_ROW
-  BCC render_finish            ; RENDER_ROW < CURSOR_ROW (safety)
-  BNE find_and_render
-  BEQ render_finish            ; RENDER_ROW = CURSOR_ROW (already rendered)
+; RENDER_ROW = TEXT_ROWS - SCROLL_DELTA, then find the file line there
+; and render to the bottom
 render_bottom_rows:
   LDX SCROLL_DELTA
   BEQ render_finish            ; nothing exposed
-  JSR bottom_row_start
+  LDA TEXT_ROWS
+  SEC
+  SBC SCROLL_DELTA
+  STA RENDER_ROW
 find_and_render:
   JSR find_line_at_render_row
   ; fall through to render_limited_rows
@@ -376,15 +371,6 @@ find_line_at_render_row:
   ADC RENDER_LIMIT
   STA RENDER_WRAP
 .found:
-  RTS
-
-; RENDER_ROW = A = TEXT_ROWS - SCROLL_DELTA: first of the bottom
-; SCROLL_DELTA rows above the status bar
-bottom_row_start:
-  LDA TEXT_ROWS
-  SEC
-  SBC SCROLL_DELTA
-  STA RENDER_ROW
   RTS
 
 ; Render just the status bar and reposition cursor (no content redraw)

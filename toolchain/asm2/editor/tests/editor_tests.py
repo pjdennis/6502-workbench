@@ -4455,6 +4455,72 @@ class EditorTestRunner:
                 expect_min_col=[(3, 0, 5), (3, 1, -1), (3, 2, -1)],
             )
 
+        # A line running past the bottom of the screen shrinks: the rows
+        # below its new end must show the following lines, however many
+        # rows it lost.  When they are all exposed, scrolling them first
+        # would only waste bytes.
+        long_line = ("abcdefghijklmnopqrstuvwxyz" * 12)[:300]
+        past_bottom = ("line 0\nline 1\nline 2\n" + long_line + "\n"
+                       + "".join(f"line {i}\n" for i in range(4, 20)))
+        # Frames: 0=initial, 1=count '3', 2=j, 3=count '5', 4=l, 5=D
+        self.run_test_screen(
+            "D on a line running past the bottom repaints the rows below",
+            past_bottom,
+            b"3j5lD:q!\r",
+            expect_lines=[(3, "abcde")]
+                         + [(r, f"line {r}") for r in range(4, 9)],
+            expect_cursor=(3, 4),
+            expect_content_rows=[(5, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(5, False)],
+        )
+        self.run_test_screen(
+            "D leaving one row below the line repaints it",
+            past_bottom,
+            b"3j199lD:q!\r",
+            expect_lines=[(7, long_line[160:199]), (8, "line 4")],
+            expect_cursor=(7, 38),
+        )
+        self.run_test_screen(
+            "D on a line running far past the bottom repaints the rows below",
+            past_bottom,
+            b"3jD:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(3, ""), (4, "line 4")],
+            expect_cursor=(3, 0),
+        )
+        self.run_test_screen(
+            "D on a partly visible last line shows ~ below",
+            "short\n" + "B" * 135 + "\nend\n",
+            b"jD:q!\r",
+            rows=8, cols=12,
+            expect_lines=[(0, "short"), (1, ""), (2, "end"), (3, "~"),
+                          (6, "~")],
+            expect_cursor=(1, 0),
+        )
+        # The same for C, cc, dw and D at 24x80
+        for name, content, keys, rows, cols, lines, cursor in (
+                ("C", past_bottom, b"3j5lC\x1b", 10, 40,
+                 [(3, "abcde")] + [(r, f"line {r}") for r in range(4, 9)],
+                 (3, 4)),
+                ("cc", past_bottom, b"3jcc\x1b", 10, 40,
+                 [(3, "")] + [(r, f"line {r}") for r in range(4, 9)],
+                 (3, 0)),
+                ("dw", "".join(f"line {i}\n" for i in range(6))
+                 + " " * 200 + "abc\n"
+                 + "".join(f"line {i}\n" for i in range(7, 20)),
+                 b"6j0dw", 10, 40, [(6, "abc"), (7, "line 7"), (8, "line 8")],
+                 (6, 0)),
+                ("D at 24x80", "".join(f"line {i}\n" for i in range(20))
+                 + long_line * 2 + "\n"
+                 + "".join(f"line {i}\n" for i in range(21, 40)),
+                 b"20jD", 24, 80, [(20, ""), (21, "line 21"), (22, "line 22")],
+                 (20, 0))):
+            self.run_test_screen(
+                f"{name} on a line running past the bottom repaints the "
+                "rows below",
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=lines, expect_cursor=cursor)
+
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
         # 45-char line, cursor at end (col 44). Batch delete 6 -> 39 left.

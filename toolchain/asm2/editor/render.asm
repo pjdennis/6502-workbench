@@ -253,16 +253,16 @@ render_rows_resized:
   SEC
   SBC CUR_LINE_ROWS
   STA SCROLL_DELTA
-  PHA                           ; displacement, for the exposed bottom rows
   LDA RENDER_ROW
   SEC                           ; +1: 1-based
   ADC CUR_LINE_ROWS
-  LDX #'S'                        ; scroll up
-  JSR scroll_region_from_a
+  JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
+  LDA SCROLL_DELTA
+  PHA                           ; (clobbered by the line render)
   JSR render_line_from_change
   PLA
   STA SCROLL_DELTA
-  JMP render_bottom_rows_guarded
+  JMP render_bottom_rows
 
 ; Draw the cursor line from its change point (RENDER_FROM_COL16; $FFFF =
 ; whole line) to its last row, stopping at the status bar.
