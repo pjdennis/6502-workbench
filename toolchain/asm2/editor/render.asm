@@ -257,8 +257,7 @@ print_separator:
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
   ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
-  JSR get_current_line_len
-  JSR line_screen_rows
+  JSR file_line_rows
   STA CUR_LINE_ROWS
   ; First screen row of the line; above the viewport -> full repaint
   LDA CURSOR_ROW

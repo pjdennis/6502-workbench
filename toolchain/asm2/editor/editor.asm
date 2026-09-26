@@ -187,8 +187,7 @@ main_loop:
   JMP main_loop
 
 .key_available:
-  JSR get_current_line_len
-  JSR line_screen_rows
+  JSR file_line_rows
   STA PREV_LINE_ROWS
   JSR render_snapshot
   ; Read a key
