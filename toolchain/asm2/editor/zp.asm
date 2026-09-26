@@ -17,8 +17,8 @@ ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
 STR_PTR16:    .word    ; Pointer for write_string
 
 ; --- input.asm ---
-PUSHBACK:         .byte  ; Pushback byte (valid while HAS_PUSHBACK)
-HAS_PUSHBACK:     .byte  ; $FF if PUSHBACK has a byte, else $00
+PUSHBACK:         .word  ; Pushback stack, top first (PUSHBACK_COUNT deep)
+PUSHBACK_COUNT:   .byte  ; Bytes pushed back: 0, 1 or 2
 KEY_DECODED:      .byte  ; Buffered decoded key
 HAS_KEY_DECODED:  .byte  ; $FF if KEY_DECODED has a value, else $00
 

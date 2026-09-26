@@ -10241,6 +10241,30 @@ class EditorTestRunner:
             expected_content="Xhello\n"
         )
 
+        # Typed-ahead ESC then O followed by anything but P-S is vi's
+        # <Esc>O (leave insert mode, open a line above), not an SS3 key:
+        # nothing may be swallowed. O and T are the bytes either side of P-S
+        for what, keys, above in (
+            ("text", b"xyz\x1b", "xyz\n"),
+            ("O", b"O\x1b", "O\n"),
+            ("T", b"T\x1b", "T\n"),
+            ("ESC", b"\x1b", "\n"),
+        ):
+            self.run_test(
+                f"Typed-ahead ESC O then {what} opens line above",
+                "first\n",
+                b"Aabc\x1bO" + keys + b":wq\r",
+                expected_content=above + "firstabc\n"
+            )
+
+        # The same from normal mode: the second ESC is a no-op, O opens above
+        self.run_test(
+            "Typed-ahead ESC in normal mode then O opens line above",
+            "first\n",
+            b"Ahello\x1b\x1bOworld\x1b:wq\r",
+            expected_content="world\nfirsthello\n"
+        )
+
         # ============================================================
         # Terminal mode tests
         # ============================================================
@@ -10470,6 +10494,17 @@ class EditorTestRunner:
                 emu_args=BAUD_ARGS
             )
 
+            # ESC and O arrive back to back on the serial link: still
+            # Escape then open a line above
+            self.run_test_terminal_screen(
+                "Terminal baud: typed-ahead ESC O opens line above",
+                "first\n",
+                b"Aabc\x1bOxyz\x1b:wq\r",
+                expect_lines=[(0, "xyz"), (1, "firstabc")],
+                expected_content="xyz\nfirstabc\n",
+                emu_args=BAUD_ARGS
+            )
+
             # Scrolling with baud rate
             self.run_test_terminal_screen(
                 "Terminal baud: scroll down",
@@ -10650,6 +10685,15 @@ class EditorTestRunner:
                     f"Terminal 300 baud: {name}", content, None,
                     expected_content=expected, emu_args=SLOW_ARGS,
                     key_groups=groups)
+
+            # A quick ESC O and then a pause is Escape, open a line above:
+            # the wait for an F1-F4 final byte times out, so the P typed
+            # afterwards is text, not F1
+            self.run_test_terminal(
+                "Terminal 300 baud: ESC O, a pause, then P is text",
+                "first\n", None, expected_content="P\nfirstabc\n",
+                emu_args=SLOW_ARGS,
+                key_groups=[b"Aabc", b"\x1bO", b"P\x1b", b":wq\r"])
 
             # --------------------------------------------------------
             # Baud rate batching tests

@@ -25,21 +25,37 @@ KEY_TAB   = $09
 ; Read one byte from input, with pushback support
 ; Returns byte in A. Preserves X, Y (read_key relies on this)
 input_read_byte:
-  LDA HAS_PUSHBACK
+  LDA PUSHBACK_COUNT
   BEQ .no_pushback
-  INC HAS_PUSHBACK        ; $FF -> $00
-  LDA PUSHBACK
+  DEC PUSHBACK_COUNT
+  LDA PUSHBACK            ; Pop the top...
+  PHA
+  LDA PUSHBACK + 1        ; ...and move the byte below it up
+  STA PUSHBACK
+  PLA
   RTS
 .no_pushback:
   JMP io_read
 
-; Push back one byte into the input stream
-; A = byte to push back
+; Push back one byte into the input stream (at most two deep)
+; A = byte to push back. Returns A=$FF. Preserves X, Y
 input_unread:
+  PHA
+  LDA PUSHBACK
+  STA PUSHBACK + 1
+  PLA
   STA PUSHBACK
+  INC PUSHBACK_COUNT
   LDA #$FF
-  STA HAS_PUSHBACK
   RTS
+
+; Wait up to ESC_WAIT_MS for the next byte of an escape sequence.
+; N set if one came in time. Clobbers X. Only called with no pushback
+; pending: read_key gets an ESC from the pushback only as its last byte.
+wait_esc_byte:
+  LDA #<ESC_WAIT_MS
+  LDX #>ESC_WAIT_MS
+  JMP io_wait
 
 ; Count and consume pending keys matching BUF_TEMP
 ; Input: BUF_TEMP = key code to match
@@ -81,9 +97,7 @@ read_key:
   RTS
 .esc:
   ; Got ESC - wait a while for the rest of an escape sequence
-  LDA #<ESC_WAIT_MS
-  LDX #>ESC_WAIT_MS
-  JSR io_wait             ; N set if another byte came in time
+  JSR wait_esc_byte
   BMI .got_more
   LDA #KEY_ESC            ; Nothing followed: bare ESC
   RTS
@@ -141,13 +155,25 @@ read_key:
   BCS .noop               ; Always taken
 
 .not_csi:
-  ; SS3 sequences: ESC O <final byte> (F1-F4 on some terminals)
+  ; ESC O P..S are F1-F4 (SS3) on some terminals: no-op. Anything else
+  ; after ESC O, or nothing within the wait, is vi's Escape then O typed
+  ; quickly: push back what followed and the O, and return a bare ESC
   CMP #'O'
-  BNE .not_ss3
-  JSR input_read_byte    ; Read and discard the final byte
-  JMP .noop
-.not_ss3:
-  ; Unknown byte after ESC - push it back and return bare ESC
+  BNE .unread_esc
+  JSR wait_esc_byte
+  BPL .esc_then_o         ; Nothing more in time
+  JSR input_read_byte
+  CMP #'P'
+  BCC .esc_then_byte
+  CMP #'S' + 1
+  BCC .noop               ; F1-F4
+.esc_then_byte:
+  JSR input_unread
+.esc_then_o:
+  LDA #'O'
+.unread_esc:
+  ; A byte that does not continue an escape sequence: push it back and
+  ; return a bare ESC
   JSR input_unread
   LDA #KEY_ESC
   RTS
@@ -163,7 +189,7 @@ read_key:
 key_peek:
   LDA HAS_KEY_DECODED
   BNE .have
-  LDA HAS_PUSHBACK
+  LDA PUSHBACK_COUNT
   BNE .decode
   JSR io_ready
   CMP #$FF
