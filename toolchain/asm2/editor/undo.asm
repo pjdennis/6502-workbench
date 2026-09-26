@@ -185,20 +185,16 @@ undo_handle:
   ; Restore FILE_LINE16, and the yank's line count: the lines to delete
   JSR undo_restore_lines
   JSR undo_delete_lines_scroll
-  ; Set flags
   JSR undo_set_redone_flags
-  LDA #RF_DEL_BELOW
-  STA RENDER_FLAG            ; Line-delete scroll, skip cursor repaint
   JSR clamp_cursor_col
-.redo_fail:
-  JMP clear_count
+  JMP finish_delete_scroll   ; (the cursor moved up if they reached EOF)
 
 .redo_char:
   ; Restore position
   JSR undo_restore_pos_from
   ; Get yank size for delete count
   JSR yank_get_size          ; BUF_LEN16 = yank size
-  BCS .redo_fail
+  BCS .undo_fail
   JSR delete_at_cursor       ; Delete BUF_LEN16 bytes at cursor (sets RF_CHAR_JOIN if multi-line)
   ; Restore cursor
   JSR undo_restore_col
@@ -299,19 +295,7 @@ undo_paste_undo:
   JSR clamp_cursor_col
   ; Set flags
   JSR undo_set_done_flags
-  ; Delete-scroll ($07) that skips the cursor row: paste-below undo
-  ; keeps the cursor line (skip its screen rows); after paste-above
-  ; undo the scroll fills the cursor row (skip none)
-  LDA #0
-  LDX UNDO_TYPE
-  CPX #UNDO_LINE_PASTE_BELOW
-  BNE .skip_rows
-  LDAX16 UNDO_LINE16
-  JSR get_len_rows           ; A = cursor line screen rows
-.skip_rows:
-  STA DELETE_SCREEN_ROWS
-  LDA #RF_DEL_BELOW
-  JMP set_render_clear_count
+  JMP finish_delete_scroll
 
 ; --- Line paste redo (types 4/5) ---
 undo_paste_redo:
@@ -407,14 +391,15 @@ undo_open_undo:
   ; Delete the opened line
   JSR undo_restore_line
   JSR set_buf_temp16_one
-  JSR undo_delete_lines_scroll  ; Cursor row filled by scroll
-  ; Restore cursor to the original line (saved in UNDO_COL16), col 0
+  JSR undo_delete_lines_scroll
+  ; Restore cursor to the original line (saved in UNDO_COL16), col 0: the
+  ; opened line's place (O) or the line above it (o)
   CP16 UNDO_COL16, FILE_LINE16
+  LDA #0
+  STA_LH16 CURSOR_COL16
   ; Set flags
   JSR undo_set_done_flags
-  LDA #RF_DEL_BELOW
-  STA RENDER_FLAG            ; Delete scroll, skip cursor repaint
-  JMP zero_col_clamp_clear
+  JMP finish_delete_scroll
 
 ; --- Open-line redo: re-insert blank line ---
 undo_open_redo:
@@ -546,8 +531,9 @@ undo_restore_col:
 
 ; Delete BUF_TEMP16 lines at FILE_LINE16 for the $07 line-delete scroll:
 ; SCROLL_DELTA = their screen rows ($FF when over 255 lines or rows),
-; which render_decide uses as is (clamped to the scroll region), and
-; DELETE_SCREEN_ROWS = 0 (the region starts at the cursor line)
+; which render_decide uses as is (clamped to the scroll region).
+; DELETE_SCREEN_ROWS keeps the first removed line (low byte) for
+; finish_delete_scroll.
 undo_delete_lines_scroll:
   JSR compute_delete_rows_temp16
   LDX DELETE_SCREEN_ROWS
@@ -555,9 +541,24 @@ undo_delete_lines_scroll:
   DEX                        ; $FF
 .rows:
   STX SCROLL_DELTA
-  LDA #0
+  LDA FILE_LINE16
   STA DELETE_SCREEN_ROWS
   JMP delete_current_lines
+
+; Set the $07 line-delete scroll once the cursor is placed.  The cursor
+; is on the first removed line's place (the next line moved up into its
+; rows, so the scroll region starts at the cursor line) or on the line
+; above it (p/o undo, a redo that reached EOF), whose rows the region
+; skips.  The two differ by one line, so their low bytes differ too.
+finish_delete_scroll:
+  LDA DELETE_SCREEN_ROWS     ; first removed line (low byte)
+  EOR FILE_LINE16
+  BEQ .set                   ; A = 0: the region starts at the cursor line
+  JSR file_line_rows
+.set:
+  STA DELETE_SCREEN_ROWS
+  LDA #RF_DEL_BELOW
+  JMP set_render_clear_count
 
 ; Restore FILE_LINE16 from the undo record, and BUF_TEMP16 = YANK_LINES16
 ; (the lines a line delete took, for its redo)

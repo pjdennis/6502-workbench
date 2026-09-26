@@ -13489,6 +13489,32 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # A redo of a dd reaching EOF moves the cursor up onto the line
+        # above the deleted rows, which stays in place
+        for name, content, keys, lines, cursor in (
+                ("dd redo below a short line", "Short 0\nShort 1\nShort 2\n",
+                 b"Gddu u", [(0, "Short 0"), (1, "Short 1"), (2, "~")],
+                 (1, 0)),
+                ("dd redo of an empty last line", "abc\n\n", b"jddu u",
+                 [(0, "abc"), (1, "~")], (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {name} to EOF keeps the line above",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
+        self.run_test_screen(
+            "Scroll opt: 2dd redo at the end of a scrolled file",
+            make_lines(30),
+            b"G2ddu u:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(r, f"Line {r + 22}") for r in range(8)]
+                         + [(8, "~")],
+            expect_cursor=(7, 0),
+        )
+
         # J on last visible line: joined line is off-screen, only cursor row redrawn.
         # rows=10 → 9 content rows (0-8), status on row 9.
         # jjjjjjjj = 8 j's → cursor at row 8 (Line 9). J joins off-screen Line 10.
@@ -14124,16 +14150,58 @@ class EditorTestRunner:
             expect_content_rows=[(4, {0, 1, 2})]
         )
 
-        # o undo: removes opened blank line. Delete scroll.
-        # Cursor row content unchanged (Line 4 stays). Only bottom row 8.
+        # o undo: removes opened blank line. Delete scroll below the
+        # cursor row, whose content is unchanged (Line 4 stays). Only
+        # bottom row 8 is drawn.
         # Frames: 0=initial, 1=jjj, 2=o (insert+scroll), 3=ESC, 4=u
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
         self.run_test_screen(
             "Minimal repaint: o undo",
             make_lines(15),
             b"jjjo\x1bu:q!\r",
             rows=10, cols=40,
+            expect_lines=lines_1_9,
+            expect_cursor=(3, 0),
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})],
             expect_content_rows=[(4, {8})]
         )
+        # The cursor line keeps every row it has (the removed line was
+        # below it)
+        self.run_test_screen(
+            "Minimal repaint: o undo on a wrapped line keeps its rows",
+            "Line 1\nLine 2\nLine 3\n" + "W" * 100 + "\n"
+            + make_lines(15)[28:],
+            b"jjjo\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=lines_1_9[:3] + [
+                (3, "W" * 40), (4, "W" * 40), (5, "W" * 20),
+                (6, "Line 5"), (7, "Line 6"), (8, "Line 7")],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(4, {8})]
+        )
+        for name, content, keys, lines, cursor in (
+                ("on line 1", make_lines(15), b"o\x1bu", lines_1_9, (0, 0)),
+                ("on the only line", "abc\n", b"o\x1bu",
+                 [(0, "abc"), (1, "~")], (0, 0)),
+                ("on the last line", make_lines(5), b"Go\x1bu",
+                 lines_1_9[:5] + [(5, "~")], (4, 0)),
+                ("after 8j8kk", make_lines(30), b"jo\x1b8j8kkku",
+                 lines_1_9, (1, 0)),
+                ("after G gg", make_lines(15), b"jjjo\x1bGggjjju",
+                 lines_1_9, (3, 0)),
+                ("after the view scrolled", make_lines(40), b"20jo\x1bu",
+                 [(r, f"Line {r + 14}") for r in range(9)], (7, 0)),
+                ("then redo", make_lines(15), b"jjjo\x1bu u",
+                 lines_1_9[:4] + [(4, ""), (5, "Line 5"), (8, "Line 8")],
+                 (4, 0))):
+            self.run_test_screen(
+                f"Minimal repaint: o undo {name} keeps the cursor line",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
 
         # o redo: re-opens blank line below. Insert scroll.
         # Only the new blank line row needs content write.
