@@ -2972,6 +2972,64 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+292}") for i in range(9)]
         )
 
+        # View jumps of 255 and 256+ rows: the view walk's 8-bit row sum
+        # must not wrap into a small scroll delta
+        self.run_test_screen(
+            "G: view jump of 255 rows repaints",
+            make_lines(264),
+            b"G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+256}") for i in range(9)]
+        )
+        self.run_test_screen(
+            "G: view jump of 258 rows repaints",
+            make_lines(267),
+            b"G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+259}") for i in range(9)]
+        )
+        self.run_test_screen(
+            "G: view jump of 277 rows at 24x80 repaints",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"G:q!\r", rows=24, cols=80,
+            expect_cursor=(22, 0),
+            expect_lines=[(i, f"line {i+277}") for i in range(23)]
+        )
+        self.run_test_screen(
+            "gg: view jump of 258 rows repaints",
+            make_lines(267),
+            b":259\rGgg:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)]
+        )
+        # 2-row lines: 129 lines = 258 rows between the old and new top
+        two_row = ''.join(f"P{i:03d} " + "y" * 40 + "\n" for i in range(199))
+        self.run_test_screen(
+            "G: view jump of 258 rows over 2-row lines repaints",
+            two_row,
+            b"134G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[row for i in range(4) for row in (
+                (2 * i, f"P{129 + i:03d} " + "y" * 35), (2 * i + 1, "y" * 5))]
+                         + [(8, "P133 " + "y" * 35)]
+        )
+        # 9 rows of the old top line + 246 hidden rows of the new top line:
+        # the final add makes the delta exactly 255
+        self.run_test_screen(
+            "e: view jump of 255 rows into a wrapped line repaints",
+            "a" * 330 + "\n" + "b" * 10199 + "Z\n",
+            b"$e:q!\r",
+            expect_cursor=(8, 39),
+            expect_lines=[(i, "b" * 40) for i in range(8)]
+                         + [(8, "b" * 39 + "Z")]
+        )
+        # The view walk stops once the rows passed fill the screen: the
+        # run with G on 1,000 lines took 1,355,719 cycles (903,186 without
+        # the G)
+        self.run_test_cycle_cap(
+            "G: the view walk stops after a screenful",
+            make_lines(1000), b"G:q!\r", 1100000)
+
         # Ggg: full window back at top
         self.run_test_screen(
             "Ggg: full window at top",
@@ -14344,6 +14402,70 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
             expect_lines=[(0, "a" * 20), (1, "aaaaa"), (2, "b"), (3, "c"),
                           (4, "d"), (5, "e"), (6, "~")])
+
+        self._group("Scroll opt: inserts of 256+ rows:", leading_blank=True)
+
+        # The insert-scroll walks sum the inserted lines' screen rows in
+        # 8 bits: 256 + d rows must not wrap into a d-row scroll/repaint.
+        # A 100-char line is 3 rows at 40 cols: 86 copies = 258 rows.
+        abc = "".join(chr(ord('a') + i % 26) for i in range(100))
+        abc_rows = [abc[:40], abc[40:80], abc[80:]]
+        abc_screen = [(i, abc_rows[i % 3]) for i in range(9)]
+        tail = "".join(f"line {i}\n" for i in range(1, 12))
+        self.run_test_screen(
+            "Scroll opt: 86p of a 3-row line (258 rows) fills the screen",
+            abc + "\n" + tail,
+            b"yy86p:q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=abc_screen
+        )
+        self.run_test_screen(
+            "Scroll opt: 86P of a 3-row line (258 rows) fills the screen",
+            abc + "\n" + tail,
+            b"yy86P:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=abc_screen
+        )
+        # Redo walks the pasted lines twice (scroll, then repaint)
+        self.run_test_screen(
+            "Scroll opt: redo of 86p (258 rows) repaints below the cursor",
+            abc + "\n" + tail,
+            b"yy86pu u:q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=abc_screen
+        )
+        # Charwise paste ($09): 2yw yanks "b\n" + abc; 85 copies make
+        # 85 lines of abc + "b" (3 rows each) below "abb"
+        abcb_rows = [abc[:40], abc[40:80], abc[80:] + "b"]
+        self.run_test_screen(
+            "Scroll opt: 85p of a charwise 2-line yank (256 rows) repaints",
+            "ab\n" + abc + "\n" + tail,
+            b"l2yw85p:q!\r",
+            expect_cursor=(0, 2),
+            expect_lines=[(0, "abb")]
+                         + [(i, abcb_rows[(i - 1) % 3]) for i in range(1, 9)]
+        )
+        # J undo ($04): 81-char lines are 3 rows each.  86J u restores 85
+        # lines (255 rows) below a 3-row cursor line; 87J u restores 258
+        # rows.
+        eighty1 = [("".join(chr(ord('a') + (j + i) % 26) for j in range(81)))
+                   for i in range(100)]
+        self.run_test_screen(
+            "Scroll opt: undo of 86J (255 restored rows) repaints",
+            "\n".join(eighty1) + "\n" + tail,
+            b"86Ju:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, eighty1[i // 3][40 * (i % 3):40 * (i % 3 + 1)])
+                          for i in range(9)]
+        )
+        self.run_test_screen(
+            "Scroll opt: undo of 87J (258 restored rows) repaints",
+            "\n".join(eighty1) + "\n" + tail,
+            b"87Ju:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, eighty1[i // 3][40 * (i % 3):40 * (i % 3 + 1)])
+                          for i in range(9)]
+        )
 
         self._group("Scroll opt: paste-below undo:", leading_blank=True)
 

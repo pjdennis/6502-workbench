@@ -108,8 +108,11 @@ render_line_insert_scroll:
   STA SCROLL_DELTA           ; Recompute as repaint row count
 .walk_repaint:
   JSR render_line_rows_step
+  BCS .repaint_clamp         ; they fill the text rows
   DEC INSERT_LINE_COUNT
   BNE .walk_repaint
+.repaint_clamp:
+  JSR clamp_delta_avail      ; (the rows from the cursor row down)
 
 .ins_repaint_default:
   ; Render SCROLL_DELTA rows at CURSOR_ROW (newly inserted content).
@@ -262,9 +265,13 @@ render_enter_split:
 ; they are all of it: then nothing is sent, as the caller repaints them
 ; all anyway.  The caller then draws its own rows above the region and
 ; ends with render_bottom_rows (which draws nothing for SCROLL_DELTA = 0).
-; In: A, SCROLL_DELTA (>= 1).  Out: SCROLL_DELTA = rows exposed at the
-; bottom.  Clobbers A, X, Y
+; scroll_clamped does the same in the direction X ('S' up, 'T' down:
+; the rows exposed are then at the region's top).
+; In: A, SCROLL_DELTA (>= 1).  Out: SCROLL_DELTA = rows exposed.
+; Clobbers A, X, Y
 scroll_up_clamped:
+  LDX #'S'                     ; scroll up
+scroll_clamped:
   STA ANSI_ROW
   LDA SCREEN_ROWS
   SEC
@@ -272,7 +279,6 @@ scroll_up_clamped:
   BCS .height
   LDA #0                       ; the region starts past the status bar
 .height:
-  LDX #'S'                     ; scroll up
   CMP SCROLL_DELTA
   BCC .all_exposed
   BNE scroll_region_check      ; height > SCROLL_DELTA: scroll
@@ -540,14 +546,25 @@ div_mod_screen_cols_16:
   RTS
 
 ; Walk step for the scroll-delta walks: add the screen rows of the line
-; at RENDER_LINE16 to SCROLL_DELTA, then advance RENDER_LINE16.
+; at RENDER_LINE16 to SCROLL_DELTA (scroll_delta_add), then advance
+; RENDER_LINE16.
 ; Clobbers A, X, Y, BUF_PTR16, DIV_INPUT16
 render_line_rows_step:
   JSR render_line_rows
+  INC16 RENDER_LINE16          ; (keeps A)
+  ; fall through
+; Add A to SCROLL_DELTA, stopping at 255.  Returns C=1 if the sum is
+; TEXT_ROWS or more: the rows fill the text area (a view move that far
+; draws every row, and inserted rows that far fill the rows below the
+; cursor, whatever the rest of the sum).  Clobbers A
+scroll_delta_add:
   CLC
   ADC SCROLL_DELTA
+  BCC .sum
+  LDA #$FF                     ; over 255
+.sum:
   STA SCROLL_DELTA
-  INC16 RENDER_LINE16
+  CMP TEXT_ROWS
   RTS
 
 ; Screen rows of the line at RENDER_LINE16 (1 for a line past the end: a

@@ -113,8 +113,8 @@ project's 6502 emulator in console/ANSI mode.
      the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):
      - `RENDER_FLAG` = `$FF` → full screen redraw.
      - Viewport moved → scroll the text area and draw only the exposed
-       rows; full redraw if the line count changed, `RENDER_FLAG` is `$0B`
-       or the move is too big.
+       rows (all of them for a move that fills it); full redraw if the
+       line count changed or `RENDER_FLAG` is `$0B`.
      - Line count changed → scroll the rows below the edit for the line
        insert/delete flags (`$02`–`$0A`), else full redraw.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows

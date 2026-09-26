@@ -252,9 +252,10 @@ render_decide:
   CMP #RF_INS
   BEQ .no_disp_adjust
   JSR file_line_rows         ; A = new cursor line screen rows
-  PHA
+  TAX
   CLC
   ADC SCROLL_DELTA           ; + the lines after it: the block's rows now
+  BCS .ins_full              ; over 255 rows
   STA CUR_LINE_ROWS
   SEC
   SBC PREV_LINE_ROWS         ; - the old line's rows = net displacement
@@ -263,7 +264,7 @@ render_decide:
   STA SCROLL_DELTA
   ; The region scrolls from below min(new cursor line rows, old rows):
   ; the rows above it are redrawn, and the old line's must all be in it
-  PLA
+  TXA
   CMP PREV_LINE_ROWS
   BCS .no_disp_adjust
   STA PREV_LINE_ROWS
@@ -272,7 +273,6 @@ render_decide:
   ; The block takes no more rows than the old line did: redraw it as one
   ; block that shrank from PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept
   ; them)
-  PLA                        ; (new cursor line rows)
   JSR set_first_row
   JMP render_rows_resized
 .no_disp_adjust:
@@ -284,39 +284,6 @@ render_decide:
   JMP render_line_insert_scroll
 .ins_full:
   JMP .full
-
-.wrap_changed:
-  ; VIEW_TOP16 same, VIEW_TOP_WRAP different.
-  ; Scroll amount = |new_wrap - old_wrap|
-  LDA SNAP_VIEW_TOP_WRAP
-  CMP VIEW_TOP_WRAP
-  BCC .wrap_scrolled_down
-
-  ; old_wrap > new_wrap → viewport moved UP → scroll DOWN (new rows at top)
-  SBC VIEW_TOP_WRAP          ; C=1 from the compare
-  STA SCROLL_DELTA
-  ; Safety check: delta + 1 < SCREEN_ROWS
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .wrap_full
-  JMP render_scroll_down
-
-.wrap_scrolled_down:
-  ; new_wrap > old_wrap → viewport moved DOWN → scroll UP (new rows at bottom)
-  LDA VIEW_TOP_WRAP
-  SEC
-  SBC SNAP_VIEW_TOP_WRAP
-  STA SCROLL_DELTA
-  ; Safety check
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .wrap_full
-  JMP render_scroll_up
-
-.wrap_full:
-  JMP render_screen
 
 .view_changed:
   ; The view moved.  Try a scroll: the line count must be unchanged
@@ -334,7 +301,9 @@ render_decide:
   BCC .scroll_down_detect    ; VIEW_TOP16 < SNAP → scrolled up (screen scrolls down)
 
   ; Scrolled down: walk from (SNAP_VIEW_TOP16, SNAP_VIEW_TOP_WRAP) to
-  ; (VIEW_TOP16, VIEW_TOP_WRAP), summing visible screen rows.
+  ; (VIEW_TOP16, VIEW_TOP_WRAP), summing visible screen rows.  The walk
+  ; stops once they fill the text rows: render_scroll_up/down then draw
+  ; every row.
   CP16 SNAP_VIEW_TOP16, RENDER_LINE16
 
   ; First line: visible rows = screen_rows - SNAP_VIEW_TOP_WRAP
@@ -349,27 +318,13 @@ render_decide:
   CMP16 RENDER_LINE16, VIEW_TOP16
   BEQ .scroll_up_add_wrap
   JSR render_line_rows_step
-  JMP .scroll_up_walk
+  BCC .scroll_up_walk
 
 .scroll_up_add_wrap:
   ; Add hidden rows of new top line (VIEW_TOP_WRAP)
-  LDA SCROLL_DELTA
-  CLC
-  ADC VIEW_TOP_WRAP
-  BCS .scroll_full           ; overflow → full repaint
-  STA SCROLL_DELTA
-
-  ; Check delta < SCREEN_ROWS - 1 (else full repaint is better)
-  LDA SCROLL_DELTA
-  BEQ .scroll_full           ; Delta 0 shouldn't happen, but safety
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .scroll_full           ; Delta >= SCREEN_ROWS-1, full repaint
+  LDA VIEW_TOP_WRAP
+  JSR scroll_delta_add
   JMP render_scroll_up
-
-.scroll_full:
-  JMP render_screen
 
 .scroll_down_detect:
   ; Scrolled up: walk from (VIEW_TOP16, VIEW_TOP_WRAP) to
@@ -387,40 +342,44 @@ render_decide:
   CMP16 RENDER_LINE16, SNAP_VIEW_TOP16
   BEQ .scroll_down_add_wrap
   JSR render_line_rows_step
-  JMP .scroll_down_walk
+  BCC .scroll_down_walk
 
 .scroll_down_add_wrap:
   ; Add hidden rows of old top line (SNAP_VIEW_TOP_WRAP)
-  LDA SCROLL_DELTA
-  CLC
-  ADC SNAP_VIEW_TOP_WRAP
-  BCS .scroll_full           ; overflow → full repaint
-  STA SCROLL_DELTA
-
-  LDA SCROLL_DELTA
-  BEQ .scroll_full
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .scroll_full
+  LDA SNAP_VIEW_TOP_WRAP
+  JSR scroll_delta_add
+.to_scroll_down:
   JMP render_scroll_down
 
+.wrap_changed:
+  ; VIEW_TOP16 same, VIEW_TOP_WRAP different: scroll by the difference
+  LDA SNAP_VIEW_TOP_WRAP
+  SEC
+  SBC VIEW_TOP_WRAP
+  STA SCROLL_DELTA
+  BCS .to_scroll_down        ; old_wrap > new_wrap: the view moved up
+  ; new_wrap > old_wrap: the view moved down
+  EOR #$FF
+  ADC #1                     ; C=0: new_wrap - old_wrap
+  STA SCROLL_DELTA
+  ; fall through
+
 ; Scroll screen up and render newly exposed bottom rows.
-; SCROLL_DELTA = number of rows to scroll.
+; SCROLL_DELTA = number of rows to scroll (1-255): one that fills the
+; text rows sends no scroll and draws them all.
 ; Content moves up, blanks appear at bottom of scroll region.
 render_scroll_up:
   JSR ansi_cursor_hide
 
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll up
   LDA #1
-  LDX #'S'                     ; scroll up
-  JSR scroll_region_from_a
+  JSR scroll_up_clamped        ; SCROLL_DELTA = rows exposed at the bottom
 
   ; Render newly exposed bottom rows.
   JMP render_bottom_rows
 
 ; Scroll screen down and render newly exposed top rows.
-; SCROLL_DELTA = number of rows to scroll.
+; SCROLL_DELTA = number of rows to scroll, as for render_scroll_up.
 ; Content moves down, blanks appear at top of scroll region.
 render_scroll_down:
   JSR ansi_cursor_hide
@@ -428,7 +387,7 @@ render_scroll_down:
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll down
   LDA #1
   LDX #'T'                     ; scroll down
-  JSR scroll_region_from_a
+  JSR scroll_clamped           ; SCROLL_DELTA = rows exposed at the top
 
   ; Render the newly exposed top SCROLL_DELTA rows (row 0 = the view top)
   LDA #0
