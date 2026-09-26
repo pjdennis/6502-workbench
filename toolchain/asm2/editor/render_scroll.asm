@@ -221,8 +221,9 @@ render_enter_split:
   BCS render_finish
   JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
 .draw:
-  ; Draw from row F + q (q = the first changed column's row; the top row
-  ; if that is above the view) to the last new row, F + CUR_LINE_ROWS - 1
+  ; Draw from the first changed cell, row F + q and column WRAP_REM (the
+  ; top row from column 0 if that is above the view), to the last new
+  ; row, F + CUR_LINE_ROWS - 1
   JSR check_from_col           ; X = q (the column is never $FFFF)
   STX RENDER_COL
   LDA RENDER_WRAP
@@ -233,6 +234,7 @@ render_enter_split:
   ADC CURSOR_ROW               ; F + q; C=0: above the view
   BCS .from_row
   LDA #0
+  STA WRAP_REM
 .from_row:
   STA RENDER_COL
   LDA RENDER_ROW
@@ -243,7 +245,9 @@ render_enter_split:
   STA SCROLL_DELTA             ; rows from there to the last new row
   LDA RENDER_COL
   STA RENDER_ROW
-  JMP find_and_render
+  JSR find_line_at_render_row
+  LDA WRAP_REM
+  JMP render_limited_rows_from_col
 .full:
   JMP render_from_top
 
@@ -314,9 +318,12 @@ find_and_render:
   ; fall through to render_limited_rows
 
 ; Render limited rows: renders SCROLL_DELTA rows starting at
-; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, then draws status bar + cursor.
+; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, then draws status bar + cursor;
+; _from_col draws the first of them from column A.
 render_limited_rows:
-  JSR render_limited_loop
+  LDA #0
+render_limited_rows_from_col:
+  JSR render_limited_from_col
 ; Frame epilogue: status bar, cursor, show, flush (shared tail)
 render_finish:
   JSR render_status_line
@@ -325,11 +332,8 @@ render_finish:
   JMP io_flush
 
 ; Render loop only: renders SCROLL_DELTA rows starting at
-; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, then returns; render_limited_
-; from_col draws the first of them from column A.
-; Caller must handle status bar, cursor positioning, etc.
-render_limited_loop:
-  LDA #0
+; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, the first of them from column A,
+; then returns.  Caller must handle status bar, cursor positioning, etc.
 render_limited_from_col:
   STA RENDER_COL
   LDA RENDER_ROW

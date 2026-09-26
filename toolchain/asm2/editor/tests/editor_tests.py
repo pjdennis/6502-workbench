@@ -19377,6 +19377,78 @@ class EditorTestRunner:
             expect_content_rows=[(3, {3, 4})],
         )
 
+        # An Enter batch draws the split line only from its first changed
+        # column: the cells before it (and whole rows before it) are left
+        # as they are.  Frames: 0=initial, 1-3=count and l, 4=i, 5=Enter
+        # batch
+        digits = "0123456789"
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            self.run_test_screen(
+                "Enter mid-line: split line drawn from the split" + suffix,
+                "0123456789ABCDEFGHIJ\nnext\n",
+                b"10li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, "0123456789"),
+                                            (1, "ABCDEFGHIJ"), (2, "next"),
+                                            (3, "~")])],
+                expect_min_col=[(5, 0, 10), (5, 1, 0), (5, 2, -1)],
+            )
+            # Typed text, BS and Enter in one batch: the change starts at
+            # the first backspaced column
+            self.run_test_screen(
+                "Enter batch with BS: split line drawn from the change"
+                + suffix,
+                "0123456789ABCDEFGHIJ\nnext\n",
+                b"10li\x7f\x7f\rxy\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, "01234567"),
+                                            (1, "xyABCDEFGHIJ"),
+                                            (2, "next")])],
+                expect_min_col=[(5, 0, 8), (5, 1, 0), (5, 2, -1)],
+            )
+            # Split in the second row of a wrapped line: the first row is
+            # untouched, the second is drawn from the split column
+            self.run_test_screen(
+                "Enter in second wrap row: first row untouched" + suffix,
+                digits * 6 + "\nnext\n",
+                b"45li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, digits * 4),
+                                            (1, digits[:5]),
+                                            (2, (digits * 2)[5:]),
+                                            (3, "next")])],
+                expect_min_col=[(5, 0, -1), (5, 1, 5), (5, 2, 0),
+                                (5, 3, -1)],
+            )
+            # Split at a row boundary: the split line's rows are unchanged,
+            # only the new line's rows are drawn
+            self.run_test_screen(
+                "Enter at a row boundary: split line untouched" + suffix,
+                digits * 10 + "\nnext\n",
+                b"40li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, digits * 4),
+                                            (1, digits * 4),
+                                            (2, digits * 2), (3, "next")])],
+                expect_min_col=[(5, 0, -1), (5, 1, 0), (5, 2, 0),
+                                (5, 3, -1)],
+            )
+        # Append, Enter and text typed ahead in one batch: the old line is
+        # only cleared from its end, and the rows below it scroll.
+        # Frames: 0=initial, 1-2=jjj moves, 3=A + Enter batch
+        self.run_test_screen(
+            "Enter + text typed ahead at a line's end: drawn from its end",
+            "  LDA #$00 ; clear the accumulator\n" * 12,
+            b"jjjA\r  STA $10\x1b:q!\r",
+            expect_lines_at_frame=[(3, [
+                (2, "  LDA #$00 ; clear the accumulator"),
+                (3, "  LDA #$00 ; clear the accumulator"),
+                (4, "  STA $10"),
+                (5, "  LDA #$00 ; clear the accumulator")])],
+            expect_min_col=[(3, 2, -1), (3, 3, 34), (3, 4, 0), (3, 5, -1)],
+        )
+
         # dd on last wrapped line when VIEW_TOP needs adjusting.
         # 5 rows (4 content + 1 status), 10 cols.
         # Lines: "A\nB\n" + "C"*15 (wraps to 2 rows) = 4 screen rows.
