@@ -89,10 +89,12 @@ run_case led_test     wendy2c_led_test.s        3000000 "LED Flashing..."
 # in the rightmost column of the busy_loop counter.
 run_case multitasking multitasking_test_wendy2c.s 150000000 " X "
 # Memory-map verification against the PLD. Each test prints its number
-# then one Y/N per sub-check; line 2 ends in " OK" only if all pass.
-# Two cases because run_case matches a single-line substring.
-run_case verification_l1 verification_wendy2c.s 20000000 "|1Y2YY3YYY4YY5YY |"
-run_case verification_l2 verification_wendy2c.s 20000000 "|6YYYYYY7Y OK"
-run_case verification_hex verification_wendy2c.s 20000000 "|31 59 32 59 59 33 59 59 59 34 59 59 35 59 59 20|"
+# then its results two to a cell as CGRAM tick/cross glyphs, wrapping
+# onto line 2, which ends in " OK" only if all pass. Matched in the
+# lcd-hex dump since the text frame shows every glyph as '?'. Glyph
+# codes: 01 = tick over blank, 03 = tick over tick. Two cases because
+# run_case matches a single-line substring.
+run_case verification_l1 verification_wendy2c.s 20000000 "|31 03 03 03 03 03 03 03 01 32 03 03 03 03 03 33|"
+run_case verification_l2 verification_wendy2c.s 20000000 "|03 01 34 03 35 03 03 36 03 03 03 37 03 20 4f 4b|"
 
 echo "wendy2c_goldens: all PASS"
