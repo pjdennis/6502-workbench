@@ -5240,6 +5240,27 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # Typed-ahead dw pairs run one press at a time: at the line end the
+        # second dw deletes the space the first left (no line join)
+        self.run_test_screen(
+            "Batched dwdw at line end: screen correct",
+            "foo bar\nbaz qux\n",
+            b"wdwdw:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "foo"), (1, "baz qux")],
+            expect_cursor=(0, 2),
+        )
+
+        # A batched press that joins lines repaints the whole batch
+        self.run_test_screen(
+            "Batched 2dwdw joining lines: screen correct",
+            "one\ntwo three four\nfive\n",
+            b"2dwdw:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "four"), (1, "five"), (2, "~")],
+            expect_cursor=(0, 0),
+        )
+
         # 2dw single-line (no unwrap)
         self.run_test_screen(
             "2dw single-line: screen correct",
@@ -15830,6 +15851,23 @@ class EditorTestRunner:
                 keys + b"\x1b:q!\r",
                 expect_ansi_contains="Yank buffer full"
             )
+        # Typed-ahead dw/de pairs run each press: every press over 4 KB is
+        # refused with its own message (each swallows one key, so two ESCs
+        # dismiss them), nothing is deleted and the yank survives for p
+        big_word = "hello\n" + "a" * 5000 + " b\nend\n"
+        for keys in (b"yyjdwdw", b"yyjdede"):
+            self.run_test(
+                f"typed-ahead {keys[3:].decode()} over 4 KB refused, keeps the yank",
+                big_word,
+                keys + b"\x1b\x1bp:wq\r",
+                expected_content=big_word.replace("\nend", "\nhello\nend")
+            )
+        self.run_test_screen(
+            "typed-ahead dwdw over 4 KB shows Yank buffer full",
+            big_word,
+            b"jdwdw\x1b\x1b:q!\r",
+            expect_ansi_contains="Yank buffer full"
+        )
         # Exactly 4 KB still fits: D deletes and u restores it
         fits = "hello\n" + "a" * 4096 + "\nend\n"
         self.run_test(
@@ -17615,14 +17653,50 @@ class EditorTestRunner:
             expected_content="ABCDE\n"
         )
 
-        # dwdw then undo: batched dw's overwrite undo entry,
-        # so u after batched dwdw has no effect
-        self.run_test(
-            "dwdw then undo: batched dw undo lost",
-            "one two three four\n",
-            b"dwdwu:wq\r",
-            expected_content="three four\n"
-        )
+        # Typed-ahead dw/db/de must act exactly like the same keys typed one
+        # at a time: a dw that reaches the end of a line stops there (the
+        # cursor then clamps back), a dw on an empty line does nothing, and
+        # de from a one-char word skips it. N pairs are not Ndw.
+        for keys, content, expected in [
+            (b"wdwdw", "foo bar\n", "foo\n"),
+            (b"wdwdw", "foo bar\nbaz qux\n", "foo\nbaz qux\n"),
+            (b"dwdw", "aaa\nbbb\n", "\nbbb\n"),
+            (b"$dwdw", "abc def ghi\njkl mno\n", "abc def g\njkl mno\n"),
+            (b"wdede", "foo bar\n", "foo\n"),
+            (b"dede", "aaa\nbbb\n", "\nbbb\n"),
+            (b"dede", "h ikc.i\n", "\n"),
+            (b"jdbdb", "ab cd\n\n", " \n"),
+            (b"dwdwdwu", "..b  \n", "b  \n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r} typed ahead acts like one key at a time",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
+        # Undo after typed-ahead dw/db/de acts as if each ran alone: u
+        # re-inserts only the last word and u u deletes it again. An
+        # earlier undo record (the x on line 2) must not be replayed.
+        x2 = "one two three four five\nsecond line here\n"
+        for keys, content, expected in [
+            (b"dwdwu", "one two three four\n", "two three four\n"),
+            (b"dwdwuu", "one two three four\n", "three four\n"),
+            (b"2dwdwu", "one two three four\n", "three four\n"),
+            (b"jxkwdwdwu", x2, "one three four five\necond line here\n"),
+            (b"$dbdbu", "one two three four\n", "one two three r\n"),
+            (b"$2dbdbu", "one two three four\n", "one two r\n"),
+            (b"j$dbdbu", "one two\nthree\n", "one two\ne\n"),
+            (b"jxk$dbdbu", x2, "one two three four e\necond line here\n"),
+            (b"dedeu", "one two three four\n", " two three four\n"),
+            (b"jxkdedeu", x2, " two three four five\necond line here\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: typed-ahead word delete undoes the last word",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
 
         # Single dw then u: undo works for non-batched dw
         self.run_test(

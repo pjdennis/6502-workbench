@@ -122,8 +122,8 @@ normal_editing_keys:
 
 ; Pending combo key table: 5-byte entries [last_key, second_key, flags, handler]
 ;   second_key=0: wildcard (any second key)
-;   flags bit 0: call batch_pending_pairs before handler (dd, >> and <<
-;     take their pairs themselves)
+;   flags bit 0: run the handler once per typed-ahead pair (dispatch_replay;
+;     dd, >> and << take their pairs themselves)
 ;   flags bit 1: editing command (blocked in READONLY mode).  Only
 ;     check_combo_first_key tests it (READONLY accepts a first key if any
 ;     of its entries has bit 1 clear); dispatch_pending_key does not, so

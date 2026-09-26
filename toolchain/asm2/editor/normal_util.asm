@@ -27,7 +27,8 @@ dispatch_key:
 ; Output: C = 0 if handler was called, C = 1 if no match
 ; Table format: 5-byte entries [last_key, second_key, flags, handler_lo, handler_hi]
 ;   second_key = 0 means wildcard (match any second key)
-;   flags bit 0: call batch_pending_pairs before handler
+;   flags bit 0: take the typed-ahead pairs and run the handler once per
+;     press (dispatch_replay)
 ;   Terminated by 0 byte
 dispatch_pending_key:
   STA DISPATCH_PTR16
@@ -54,7 +55,9 @@ dispatch_pending_key:
   LDA (DISPATCH_PTR16),Y     ; Flags
   LSR
   BCC dispatch_fetch_jump
-  JSR batch_pending_pairs    ; Preserves Y
+  JSR batch_pending_pairs    ; X = pairs taken; preserves Y
+  TXA
+  BNE dispatch_replay
   ; fall through
 
 ; Shared dispatch tail (dispatch_key, dispatch_pending_key): fetch the
@@ -107,6 +110,46 @@ check_combo_first_key:
 ; No match (dispatch_key, dispatch_pending_key, check_combo_first_key)
 dispatch_no_match:
   SEC
+  RTS
+
+; Run the handler once per typed-ahead press, exactly as if the keys had
+; been typed one at a time, with a single render afterwards.  For dw, db
+; and de, whose N presses differ from a count of N (a press stops at a
+; line end or on an empty line, and u undoes only the last one).
+; Input: Y = the entry's flags index, A = BATCH_EXTRA = extra presses
+;        (> 0), COUNT16 = the typed count + the extra presses
+; Output: C = 0 (handler called)
+dispatch_replay:
+  PHA                        ; Presses left after the next one
+  ; The first press takes the typed count, the others none (each press
+  ; ends in clear_count)
+  SEC
+  SBC16_8 COUNT16, BATCH_EXTRA, COUNT16
+  LDA BATCH_RESTORE_KEY      ; A partial pair's first key: pending after
+  PHA                        ; the last press
+  TYA
+  PHA                        ; Flags index
+  LDA #0
+  STA BATCH_RESTORE_KEY
+.press:
+  TSX
+  LDY $0101,X                ; Flags index
+  JSR dispatch_fetch_jump
+  TSX
+  DEC $0103,X
+  BPL .press
+  PLA
+  PLA
+  STA LAST_KEY               ; (clear_count left it 0)
+  PLA
+  ; A press that set a render flag (it joined lines) left scroll hints
+  ; for itself only: repaint everything
+  LDA RENDER_FLAG
+  BEQ .rendered
+  LDA #RF_FULL
+  STA RENDER_FLAG
+.rendered:
+  CLC
   RTS
 
 ; --- Cursor and line utilities ---

@@ -314,6 +314,8 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   - Join-lines (BS at column 0): batch multiple joins.
   - Movement keys: batch identical keys (e.g., multiple j/k/h/l).
   - Two-key combos (dd, yy, >>, <<, etc.): count additional pairs.
+  - dw/db/de pairs: run each press separately (N presses can differ from a
+    count of N at line ends), then render once.
 - **Page-optimized memory ops**: byte shifting uses inner Y-indexed loops
   processing 256 bytes per page.
 - **Incremental line table updates**: single-char edits without newlines use
