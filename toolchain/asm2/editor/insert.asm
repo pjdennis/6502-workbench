@@ -156,18 +156,13 @@ insert_handle_key:
   ; Step 2: Get cursor buffer position
   JSR get_cursor_buf_ptr    ; BUF_PTR16 = cursor position
 
-  ; Step 3: Clamp back to available bytes before cursor
-  ; dist = BUF_PTR16 - TEXT_BUF
-  SEC
-  LDA BUF_PTR16
-  SBC #<TEXT_BUF
-  STA BUF_SRC16             ; dist.lo
+  ; Step 3: Clamp back to available bytes before cursor.  TEXT_BUF is
+  ; page-aligned, so only a cursor in its first page can be fewer than
+  ; back (max 32) bytes from the start, and then dist = BUF_PTR16.lo
   LDA BUF_PTR16 + 1
-  SBC #>TEXT_BUF
-  ; If high byte > 0, back (max 32) fits
+  CMP #>TEXT_BUF
   BNE .back_ok
-  ; High byte = 0: clamp back to min(back, dist.lo)
-  LDA BUF_SRC16
+  LDA BUF_PTR16
   CMP BUF_TEMP16
   BCS .back_ok
   STA BUF_TEMP16            ; back = dist (clamped)
@@ -184,20 +179,17 @@ insert_handle_key:
   ; BUF_PTR16 = delete_start
 
   ; Step 5: Count newlines in backward-deleted region [delete_start, delete_start+back)
-  LDA #0
-  STA LINE_LEN16            ; back_nl = 0
   LDY #0
-  LDA BUF_TEMP16            ; back
-  BEQ .no_back_scan
+  STY LINE_LEN16            ; back_nl = 0
+  LDY BUF_TEMP16            ; back
 .back_scan:
+  DEY
+  BMI .no_back_scan         ; back <= BATCH_MAX < 128
   LDA (BUF_PTR16),Y
   CMP #'\n'
-  BNE .back_not_nl
-  INC LINE_LEN16
-.back_not_nl:
-  INY
-  CPY BUF_TEMP16
   BNE .back_scan
+  INC LINE_LEN16
+  BNE .back_scan            ; Always taken (back_nl <= BATCH_MAX)
 .no_back_scan:
 
   ; Pre-compute screen rows for BS join scroll optimization
@@ -230,15 +222,6 @@ insert_handle_key:
   ADC #0
   STA BUF_SRC16 + 1         ; BUF_SRC16 = original cursor pos
 
-  ; Pre-compute final \n address = BUF_END16 - 1 -> BUF_LEN16 (temp)
-  SEC
-  LDA BUF_END16
-  SBC #1
-  STA BUF_LEN16
-  LDA BUF_END16 + 1
-  SBC #0
-  STA BUF_LEN16 + 1
-
   LDA #0
   STA BUF_TEMP              ; fwd_actual = 0
   STA LINE_LEN16 + 1        ; fwd_nl = 0
@@ -252,20 +235,20 @@ insert_handle_key:
 
   LDY #0
   LDA (BUF_SRC16),Y
+  INC16 BUF_SRC16           ; (preserves A)
   CMP #'\n'
   BNE .fwd_advance
 
-  ; Newline - is it the final one?
-  CMP16 BUF_SRC16, BUF_LEN16
+  ; Newline - is it the final one (the next byte is BUF_END16)?
+  CMP16 BUF_SRC16, BUF_END16
   BCS .fwd_done              ; final \n, stop
 
   INC LINE_LEN16 + 1        ; fwd_nl++
 
 .fwd_advance:
-  INC16 BUF_SRC16
   INC BUF_TEMP               ; fwd_actual++
   DEC BUF_TEMP16 + 1         ; remaining fwd--
-  JMP .fwd_scan
+  BPL .fwd_scan              ; Always taken (remaining fwd >= 0)
 
 .fwd_done:
   ; State: BUF_TEMP16.lo=back, BUF_TEMP=fwd_actual, BUF_DELTA=insert_len
