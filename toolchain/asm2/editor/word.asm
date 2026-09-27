@@ -386,39 +386,43 @@ first_nonblank_clear:
   JSR first_nonblank
   JMP clear_count
 
-; Cursor to the first non-blank char of its line.  On a line of spaces it
-; goes to the last one, as in vim; on an empty line to col 0 (past 255
-; leading spaces, to col 255).  Clobbers A, X, Y, BUF_PTR16
+; Cursor to the first non-blank char of its line (blanks: spaces and
+; tabs).  On a line of blanks it goes to the last one, as in vim; on an
+; empty line to col 0.  Clobbers A, X, Y, BUF_PTR16
 first_nonblank:
   LDA #$FF
-  STA CURSOR_COL16             ; Scan up to col 255
-  LDA #0
-  STA CURSOR_COL16 + 1
-; The same, but not right of the cursor: its column if only spaces lie
+  STA_LH16 CURSOR_COL16        ; No limit: the scan ends on the line
+; The same, but not right of the cursor: its column if only blanks lie
 ; left of it (where vim starts a linewise operator, as >>, on its line)
 nonblank_left:
-  LDA CURSOR_COL16 + 1
-  BNE first_nonblank           ; Past col 255: the first non-blank is left of it
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
+  LDX #0                       ; X/Y = column (high/low)
   LDY #0
 .scan:
   CPY CURSOR_COL16
-  BEQ .done                    ; Only spaces left of the cursor
+  BNE .char
+  CPX CURSOR_COL16 + 1
+  BEQ .done                    ; Only blanks left of the cursor
+.char:
   LDA (BUF_PTR16),Y
-  CMP #' '
-  BNE .not_space
-  INY
-  BNE .scan                    ; Always taken (Y < CURSOR_COL16)
-.not_space:
   CMP #'\n'
+  BEQ .blank_line
+  JSR char_class               ; (keeps X, Y)
   BNE .found
-  TYA
-  BEQ .found                   ; Empty line: col 0
-  DEY                          ; Only spaces: the last one
+  INY
+  BNE .scan
+  INC BUF_PTR16 + 1            ; Next page of the line
+  INX
+  BNE .scan                    ; Always
 .found:
-  STY CURSOR_COL16             ; First non-blank at offset Y
+  STY CURSOR_COL16             ; First non-blank at column X/Y
+  STX CURSOR_COL16 + 1
 .done:
   RTS
+.blank_line:
+  ; Only blanks: the last one (col 0 on an empty line)
+  JSR .found                   ; Col = the line length
+  JMP clamp_cursor_col
 
 ; --- Shared small helpers ---
 

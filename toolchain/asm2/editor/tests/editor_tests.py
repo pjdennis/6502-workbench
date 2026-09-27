@@ -7667,6 +7667,43 @@ class EditorTestRunner:
                 f"{what} onto a line of blanks stops on the last blank",
                 content, keys + b":q!\r", expect_cursor=cursor)
 
+        # Tabs are blanks, and past 255 blanks the first non-blank is still
+        # where they go (vim)
+        self.run_test(
+            "G onto a tab-indented line lands on its first non-blank",
+            "a\n\t\tfoo\n",
+            b"Gx:wq\r",
+            expected_content="a\n\t\too\n"
+        )
+
+        self.run_test(
+            "G onto a line of 300 leading spaces lands on its first non-blank",
+            "a\n" + " " * 300 + "x\n",
+            b"Gx:wq\r",
+            expected_content="a\n" + " " * 300 + "\n"
+        )
+
+        self.run_test(
+            "dd onto a line of 300 leading spaces lands on its first non-blank",
+            "a\n" + " " * 300 + "x\n",
+            b"ddx:wq\r",
+            expected_content=" " * 300 + "\n"
+        )
+
+        self.run_test(
+            "u of >> returns left of the cursor past tabs",
+            "\t\tfoo\n",
+            b"3l>>uiY\x1b:wq\r",
+            expected_content="\t\tYfoo\n"
+        )
+
+        self.run_test(
+            "u of >> returns to a cursor past 255 leading spaces",
+            " " * 300 + "x\n",
+            b"$20h>>uiY\x1b:wq\r",
+            expected_content=" " * 280 + "Y" + " " * 20 + "x\n"
+        )
+
         # Typed ahead, dd and Ctrl-D land where one at a time would: on the
         # first non-blank of the line they end on
         self.run_test(
@@ -11331,6 +11368,28 @@ class EditorTestRunner:
             "   \n",
             b"^:q!\r",
             expect_cursor=(0, 2),
+        )
+
+        # Tabs are blanks too (vim)
+        self.run_test(
+            "^ skips tabs as well as spaces",
+            "\t \tfoo\n",
+            b"$^x:wq\r",
+            expected_content="\t \too\n",
+        )
+
+        self.run_test(
+            "^ on a line of spaces and tabs goes to the last blank",
+            " \t \n",
+            b"$^x:wq\r",
+            expected_content=" \t\n",
+        )
+
+        self.run_test(
+            "^ past 255 leading spaces goes to the first non-blank",
+            " " * 300 + "x\n",
+            b"$^iY\x1b:wq\r",
+            expected_content=" " * 300 + "Yx\n",
         )
 
         self._group("Delete word (dw):", leading_blank=True)
