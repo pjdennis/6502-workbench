@@ -8814,6 +8814,27 @@ class EditorTestRunner:
             self.run_test_screen(name, content, keys + b":q!\r",
                                  expect_cursor=cursor)
 
+        # Matches that overlap are not all found: as in vi and vim (its
+        # default 'cpoptions' c), a line's matches follow each other, each
+        # search going on from the end of the match before, so /abab n n
+        # visits 1, 5, 9 in 'xabababababab', not 1, 3, 5, 7, 9
+        abab, aaaa = "xabababababab\n", "xaaaaab\n"
+        for keys, content, cursor in (
+                (b"/abab\r", abab, (0, 1)), (b"/abab\rn", abab, (0, 5)),
+                (b"/abab\rnn", abab, (0, 9)), (b"/abab\rnnn", abab, (0, 1)),
+                (b"ll/abab\r", abab, (0, 5)), (b"/abab\rN", abab, (0, 9)),
+                (b"$?abab\r", abab, (0, 9)), (b"$?abab\rn", abab, (0, 5)),
+                (b"$?abab\rnn", abab, (0, 1)),
+                (b"/aa\rn", aaaa, (0, 3)), (b"/aa\rnn", aaaa, (0, 1)),
+                (b"$?aa\r", aaaa, (0, 3)), (b"$?aa\rn", aaaa, (0, 1)),
+                (b"j?aa\r", "aaa\nx\n", (0, 0)),
+                (b"?aa\r", "x\naaaaa\n", (1, 2)),
+                (b"?aa\rn", "x\naaaaa\n", (1, 0)),
+                (b"/aa\rn", "x\naaaaa\n", (1, 2))):
+            self.run_test_screen(
+                f"{keys!r} on {content!r}: overlapping matches as in vim",
+                content, keys + b":q!\r", expect_cursor=cursor)
+
         # ============================================================
         # Find-next (n) tests
         # ============================================================

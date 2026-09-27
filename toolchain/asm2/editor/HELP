@@ -171,6 +171,10 @@ NORMAL MODE - SEARCH
   are ignored. ESC, or backspacing past the prompt, cancels the
   search and keeps the previous pattern for n and N.
 
+  As in vi, the matches on a line do not overlap: each search goes
+  on from the end of the match before, so in "abababab" /abab and n
+  find the matches at columns 1 and 5, not 3.
+
 
 NORMAL MODE - MARKS
 -------------------

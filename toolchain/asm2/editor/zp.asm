@@ -95,7 +95,7 @@ YANK_TYPE:     .byte     ; 0=line, 1=char
 SEARCH_LEN:   .byte     ; Length of current search pattern
 SEARCH_LINE16: .word    ; Line number being searched
 SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), $10=backward (?)
-SEARCH_LIMIT16: .word   ; Backward line search: matches must start before this address
+SEARCH_LIMIT16: .word   ; search_line_walk stops at the first match at or after this address
 
 ; --- normal_util.asm ---
 LAST_KEY:       .byte  ; Previous key for multi-key commands (dd, gg, yy, m, ')

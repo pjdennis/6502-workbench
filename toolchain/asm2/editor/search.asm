@@ -63,15 +63,12 @@ search_input_handle:
 search_forward:
   CP16 FILE_LINE16, SEARCH_LINE16
 
-  ; Try the current line after the cursor (nothing follows it on an
-  ; empty line)
-  JSR get_cursor_buf_ptr
-  LDY #0
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .line_loop             ; Empty line
-  INC16 BUF_PTR16
-  JSR search_match_from
+  ; Try the current line: its first match (of those search_line_walk
+  ; steps through) that starts after the cursor
+  JSR get_current_line_ptr
+  SEC
+  ADC16 CURSOR_COL16, BUF_PTR16, SEARCH_LIMIT16 ; The cursor's address + 1
+  JSR search_line_walk
   BCC search_move_to_match
 
 .line_loop:
@@ -113,7 +110,7 @@ search_move_to_match:
 search_backward:
   CP16 FILE_LINE16, SEARCH_LINE16
 
-  ; Try current line: rightmost match that starts before the cursor
+  ; Try current line: the last match that starts before the cursor
   JSR get_cursor_buf_ptr
   CP16 BUF_PTR16, SEARCH_LIMIT16
   JSR search_in_line_last
@@ -194,18 +191,30 @@ search_setup_line:
   LDAX16 SEARCH_LINE16
   JMP buf_get_line_ptr       ; BUF_PTR16 = start of line
 
-; Entry with no upper bound: search the entire line for the rightmost match
+; Entry with no upper bound: search the entire line for its last match
 search_in_line_last_all:
   LDA #$FF
   STA_LH16 SEARCH_LIMIT16
   ; fall through
 
-; Find the rightmost match in line SEARCH_LINE16 that starts before
-; address SEARCH_LIMIT16
+; Find the last match (of those search_line_walk steps through) in line
+; SEARCH_LINE16 that starts before address SEARCH_LIMIT16
 ; Returns carry clear = found (BUF_PTR16 = match), carry set = not found
-; Uses BUF_DST16 as the best match so far (high byte 0 = none: the text
-; never lives in page zero)
 search_in_line_last:
+  JSR search_line_walk
+  CP16 BUF_DST16, BUF_PTR16
+  LDA #0
+  CMP BUF_DST16 + 1          ; Carry clear = a match was saved
+  RTS
+
+; Step through the matches of line SEARCH_LINE16 as vi does, each search
+; going on from the end of the match before (vim's 'cpoptions' c: the
+; matches do not overlap), up to the first one that starts at or after
+; address SEARCH_LIMIT16.
+; Returns carry clear = found (BUF_PTR16 = that match), carry set = none;
+; either way BUF_DST16 = the last match before it (high byte 0 = none:
+; the text never lives in page zero)
+search_line_walk:
   LDA #0
   STA BUF_DST16 + 1
   JSR search_setup_line
@@ -213,14 +222,14 @@ search_in_line_last:
   JSR search_match_from
   BCS .done                  ; No more matches
   CMP16 BUF_PTR16, SEARCH_LIMIT16
-  BCS .done                  ; Match at/past limit
-  CP16 BUF_PTR16, BUF_DST16  ; Best so far
-  INC16 BUF_PTR16
+  BCS .at_limit              ; Match at/past limit
+  CP16 BUF_PTR16, BUF_DST16  ; The last one before the limit so far
+  LDA SEARCH_LEN
+  ADDA16 BUF_PTR16           ; Go on from the end of the match
   JMP .loop
+.at_limit:
+  CLC
 .done:
-  CP16 BUF_DST16, BUF_PTR16
-  LDA #0
-  CMP BUF_DST16 + 1          ; Carry clear = a match was saved
   RTS
 
 ; String constants
