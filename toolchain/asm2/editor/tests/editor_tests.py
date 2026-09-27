@@ -1662,6 +1662,8 @@ class EditorTestRunner:
              [b"3J", b"J"]),
             ("Batch equiv: 2J J J", "a\nb\nc\nd\ne\n",
              [b"2J", b"J", b"J"]),
+            ("Batch equiv: u u after moving", "abc\ndef\nghi\njkl\n",
+             [b"dd", b"j", b"j", b"u", b"u"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -18460,6 +18462,42 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "ello")],
             expect_content_redraws=[True, True, False],
+        )
+
+        # The text is unchanged after uu, but as with u typed twice the
+        # cursor ends where the second step (the redo) leaves it; only the
+        # cursor moves, so there is still no content redraw.
+        # Frames: initial, dd, jj, uu, ':'
+        self.run_test_screen(
+            "uu batched: cursor ends at the redo position",
+            "abc\ndef\nghi\njkl\nmno\n",
+            b"ddjjuu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "def"), (1, "ghi")],
+            expect_cursor=(0, 0),
+            expect_content_redraws=[True, True, False, False, False],
+        )
+
+        # After an undo, uu is redo then undo: the cursor ends at the undo
+        # position.  Frames: initial, j, dd, u, jj, uu, ':'
+        self.run_test_screen(
+            "uu batched after u: cursor ends at the undo position",
+            "abc\ndef\nghi\njkl\nmno\n",
+            b"jddujjuu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(1, "def"), (2, "ghi")],
+            expect_cursor=(1, 0),
+            expect_content_redraws=[True, False, True, True, False, False,
+                                    False],
+        )
+
+        # Each u marks the text changed, as typed one at a time: after :w,
+        # uu leaves it modified, so :q refuses
+        self.run_test_screen(
+            "uu batched after :w leaves the file modified",
+            "abc\ndef\nghi\n",
+            b"dd:w\ruu:q\r:q!\r",
+            expect_ansi_contains="No write since last change",
         )
 
         # uuu batched after J: odd count = one undo, one content redraw

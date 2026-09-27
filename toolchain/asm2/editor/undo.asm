@@ -48,16 +48,28 @@ undo_record_pos:
   STA UNDO_IS_REDO
   RTS
 
-; Handle 'u' key: dispatch undo or redo based on UNDO_IS_REDO
-; Batching: consume pending 'u' keys. Since u toggles undo/redo,
-; odd total = one operation, even total = noop.
+; Handle 'u' key: one undo or redo step (u alternates between them).
+; Batching: consume pending 'u' keys.  An odd total is one step.  An
+; even total leaves the text as it was, but as with the keys typed one
+; at a time the cursor ends where the second step leaves it, and the
+; text counts as changed: run both steps, then draw only the cursor and
+; status (and any view move)
 undo_handle:
-  LDA UNDO_TYPE
-  BEQ .done                  ; No undoable operation, no-op
   JSR count_pending_key      ; X = extra u keys in typeahead
   TXA
-  LSR
-  BCS .done                  ; Odd extras = even total = noop
+  LSR                        ; C = odd extras = even total
+  BCC undo_step
+  JSR undo_step
+  JSR undo_step
+  LDA #0
+  STA RENDER_FLAG            ; The text is as it was: no content repaint
+  STA DELETE_SCREEN_ROWS
+  RTS
+
+; One undo or redo step, per UNDO_IS_REDO (no-op with nothing to undo)
+undo_step:
+  LDA UNDO_TYPE
+  BEQ .done
   ; u goes to the recorded line: its repaint takes that line's rows
   ; before the change, not those of the line u was typed on
   LDAX16 UNDO_LINE16
