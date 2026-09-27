@@ -362,20 +362,47 @@ clear_count:
   STA BATCH_RESTORE_KEY
   RTS
 
+; $ and End (both modes): remember a column past any line end, so that j
+; and k go to the end of each line too
+; A count first goes down count - 1 lines (clamped to the last line), as
+; in vim, where it fails on the last line itself (the column is
+; remembered all the same: vert_moved)
+normal_line_end:
+  LDA #$FF
+  STA_LH16 CURSWANT16
+  JSR get_count
+  JSR dec_buf_temp16
+  BEQ vert_keep              ; No count, or 1: this line
+  JSR move_down16
+  JMP vert_moved
+
 ; Vertical move tail (j, k and Up/Down in both modes): the cursor goes
 ; to the remembered column (vim's curswant), clamped to the line for the
 ; mode.  A run of vertical keys remembers the column the cursor had at
 ; its start, which the previous key tells by leaving CURSWANT_KEEP 0
 ; (main_loop halves it for every key; a vertical move sets 2, and a key
 ; that changes nothing, a count digit, ESC or a pending first key,
-; doubles it back); $ and End remember one past any line end
+; doubles it back); $ and End remember one past any line end.  A move
+; that left the cursor on its line (j or N$ on the last line, k on the
+; first) failed, as in vim, and leaves the column alone: only the
+; remembered column counts
 vert_col_clamp:
   LDA CURSWANT_KEEP
-  BNE vert_keep
+  BNE vert_moved
   CP16 CURSOR_COL16, CURSWANT16  ; A new run: remember the column
+vert_moved:
+  LDX #2
+  STX CURSWANT_KEEP
+  LDA FILE_LINE16
+  CMP SNAP_LINE16
+  BNE vert_to_col
+  LDA FILE_LINE16 + 1
+  CMP SNAP_LINE16 + 1
+  BEQ clear_count                ; The cursor did not move: it failed
 vert_keep:
   LDA #2
   STA CURSWANT_KEEP
+vert_to_col:
   CP16 CURSWANT16, CURSOR_COL16
 ; Clamp the cursor column for the mode (normal: then clear the count)
 clamp_for_mode:

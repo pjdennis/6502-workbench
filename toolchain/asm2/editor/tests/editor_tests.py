@@ -7731,13 +7731,17 @@ class EditorTestRunner:
 
         # N$ goes to the end of the line N - 1 below (vim), past the
         # last line to its end, and j and k then go to line ends as
-        # after $ (on the last line vim's count fails: the editor goes to
-        # the end, as vi-compatibility-changes says)
+        # after $.  On the last line the count fails, as in vim: the
+        # cursor stays, but j and k still go to line ends; and j there
+        # (k on the first line) fails too and leaves the column alone
         uneven = "abcdef\nab\nabcdefgh\nabc\n"
         for keys, cursor in ((b"3$", (2, 7)), (b"2$j", (2, 7)),
                              (b"300$", (3, 2)), (b"3$k", (1, 1)),
                              (b"3$x", (2, 6)), (b"jjj2$k", (2, 7)),
-                             (b"jjjl2$k", (2, 7))):
+                             (b"jjjl2$k", (2, 7)), (b"jjj2$", (3, 0)),
+                             (b"jjjl2$", (3, 1)), (b"jjj2$j", (3, 0)),
+                             (b"jjjl2$5j", (3, 1)), (b"jjj2$kj", (3, 2)),
+                             (b"2$kkk", (0, 5)), (b"k$3k", (0, 5))):
             self.run_test_screen(
                 f"{keys.decode()} on uneven lines",
                 uneven,

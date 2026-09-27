@@ -151,18 +151,6 @@ normal_line_start:
   STA_LH16 CURSOR_COL16
   JMP clear_count
 
-; $ and End (both modes): remember a column past any line end, so that j
-; and k go to the end of each line too
-; A count first goes down count - 1 lines (clamped to the last line), as
-; in vim (where a count fails on the last line)
-normal_line_end:
-  LDA #$FF
-  STA_LH16 CURSWANT16
-  JSR get_count
-  JSR dec_buf_temp16
-  JSR move_down16
-  JMP vert_keep
-
 ; gg: go to line count, as G does (as in vim); no count: the first line
 ; (ensure_cursor_visible then scrolls the view to it)
 do_gg:
