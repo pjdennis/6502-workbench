@@ -95,8 +95,11 @@ paste_undo_one:
   SET16 $0001, UNDO_PASTE_COUNT16
 paste_done:
   JMP clear_count
-; A paste that fails (nothing yanked, the buffer full) keeps the column
+; A paste that fails (nothing yanked, the buffer full) is an empty
+; change, as vim's (it saves undo before it finds the register empty),
+; and keeps the column
 paste_fail:
+  JSR undo_record_empty
   JMP keep_clear_count
 
 normal_paste_below:

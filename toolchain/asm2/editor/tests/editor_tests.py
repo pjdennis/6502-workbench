@@ -8464,6 +8464,18 @@ class EditorTestRunner:
             expected_content="A\nB\n"
         )
 
+        # A p or P with nothing yanked is an empty change, as in vim (it
+        # saves undo before it finds the register empty): u then puts the
+        # cursor back where it was typed, and changes no text
+        for keys, cursor in ((b"~pju", (0, 1)), (b"~Pju", (0, 1)),
+                             (b"l~pju", (0, 2)), (b"l~3Pju", (0, 2))):
+            self.run_test_screen(
+                f"{keys!r}: u of a paste with nothing yanked",
+                "abc\n\n", keys + b":wq\r",
+                expected_content=("A" if keys[0:1] == b"~" else "aB")
+                + ("bc\n\n" if keys[0:1] == b"~" else "c\n\n"),
+                expect_cursor=cursor)
+
         # dd on last line then p
         self.run_test(
             "dd last line + p pastes below",
