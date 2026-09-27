@@ -121,14 +121,15 @@ search_backward:
   BNE .line_loop
   ; Not found: fall through
 
-; Show "Pattern not found: <pattern>" on status line; returns carry
-; clear
+; Show "Pattern not found: <pattern>" on status line, held there until
+; the next key (as show_message_ax); returns carry clear
 search_show_not_found:
   JSR status_line_clear
   PRINT_TEXT str_not_found
 
-  PRINT_TEXT SEARCH_BUF
-  JSR flush_get_key            ; Wait for keypress
+  LDA #<SEARCH_BUF
+  LDX #>SEARCH_BUF
+  JSR hold_message_ax
   CLC
   RTS
 

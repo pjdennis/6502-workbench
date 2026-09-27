@@ -260,8 +260,8 @@ INSERT MODE
                     special key, which on a slow link comes later
 
   When the text buffer is full, a char or Enter that does not fit
-  is refused with "Buffer full", and the next key dismisses the
-  message. Keys typed ahead go in exactly as if typed one at a time.
+  is refused with "Buffer full"; the next key runs as usual. Keys
+  typed ahead go in exactly as if typed one at a time.
 
   Arrow keys, Home, End, PgUp, PgDn, Ctrl-F, Ctrl-B all work
   for navigation within insert mode. Ctrl-Right and Ctrl-Left
@@ -318,9 +318,10 @@ COMMAND-LINE MODE
   past the end of the file mean the last line. A range with no
   command goes to its last line (:1,5 = :5).
 
-  The report of :w ("name" written) or of a range command (N lines
-  deleted, yanked, shifted) stays on the status row until the next
-  key.
+  A message stays on the status row until the next key, which then
+  runs as usual (as in vim): the report of :w ("name" written) or of
+  a range command (N lines deleted, yanked, shifted), and errors such
+  as "Unknown command", "Mark not set" or "Pattern not found".
 
   ESC cancels command input. Backspace edits the command;
   backspacing past the start cancels. A command can be as long as

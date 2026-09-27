@@ -161,7 +161,9 @@ marks_display:
 marks_more:
   LDA #<str_more
   LDX #>str_more
-  JSR show_message_ax    ; (returns the key)
+  JSR show_message_ax
+  LSR STATUS_HOLD        ; (the list ends in a full redraw: no hold)
+  JSR flush_get_key
   EOR #'q'
   BNE marks_page
   RTS

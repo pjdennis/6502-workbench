@@ -322,26 +322,6 @@ read_line:
 .ret:
   RTS
 
-; Show "Buffer full" status message
-show_buffer_full_msg:
-  LDA #<str_buffer_full
-  LDX #>str_buffer_full
-  ; fall through
-
-; Show status message with string address in A (low) / X (high)
-; and wait for a keypress
-show_message_ax:
-  ; Keep the address on the stack: status_line_clear clobbers STR_PTR16
-  PHA
-  TXA
-  PHA
-  JSR status_line_clear
-  PLA
-  TAX
-  PLA
-  JSR print_string_ax
-  JMP flush_get_key
-
 ; --- Range action dispatch table ---
 range_action_keys:
   .byte 'y'   .word range_do_yank
@@ -429,6 +409,23 @@ report_lines_ax:
   JSR status_line_clear
   POP16 TO_DECIMAL_VALUE16
   JSR print_decimal
+  BEQ pop_hold_message        ; Always taken (print_string ends with Z = 1)
+
+; Show "Buffer full" status message
+show_buffer_full_msg:
+  LDA #<str_buffer_full
+  LDX #>str_buffer_full
+  ; fall through
+
+; Show the message at A (low) / X (high) on the status row, held there
+; until the next key, which then runs as usual (as in vim)
+show_message_ax:
+  ; Keep the address on the stack: status_line_clear clobbers STR_PTR16
+  PHA
+  TXA
+  PHA
+  JSR status_line_clear
+pop_hold_message:
   PLA
   TAX
   PLA

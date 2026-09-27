@@ -440,7 +440,7 @@ normal_toggle_case:
 ; then covers the last J's join).  The count's joins, at most the lines
 ; below, must fit the undo record: that is checked first, before any
 ; other work and before the typed-ahead J's are taken, which then run
-; one at a time (the first dismisses the message), as when typed singly.
+; one at a time, as when typed singly.
 ; A J with nothing to join, or too much, fails and leaves the previous
 ; undo intact: the record is written only once the join is sure
 normal_join_lines:

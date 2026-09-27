@@ -1380,8 +1380,8 @@ class EditorTestRunner:
             return ''.join(f"L{i:04d}\n" for i in range(1, n + 1))
 
         full = numbered(1023)
-        # After a refused edit, 'z' (or ESC) dismisses the message and 'x'
-        # on line 1 proves the buffer is still editable (not read-only)
+        # After a refused edit, 'z' (or ESC) does nothing and 'x' on line
+        # 1 proves the buffer is still editable (not read-only)
         full_x = "0001\n" + full[6:]
 
         # --- Loading ---
@@ -1463,7 +1463,7 @@ class EditorTestRunner:
         lines30 = ''.join(f"line {i:02d}\n" for i in range(30))
         self.run_test("yy1000p is refused and the yank stays intact",
             lines30, b"yy1000pjp:wq\r",
-            expected_content="line 00\n" + lines30)
+            expected_content=lines30[:16] + "line 00\n" + lines30[16:])
         # 4000 lines fit the text buffer but ran the table into $F000
         self.run_test("yy4000p on a one-line file is refused",
             "abcdefg\n", b"yy4000pzx:wq\r", expected_content="bcdefg\n")
@@ -2366,7 +2366,8 @@ class EditorTestRunner:
 
         # A path that cannot be opened for writing (its directory is
         # missing, which fails even when the tests run as root): :w reports
-        # the error and editing continues. 'x' dismisses each message.
+        # the error and editing continues: the 'x' after each message
+        # runs (in normal mode, with nothing to delete).
         self.run_test_new_file(
             ":w to unwritable path shows error",
             b"iHello\x1b:w\rx:q!\r",
@@ -2398,20 +2399,20 @@ class EditorTestRunner:
             # Read-only mode: file exceeds buffer, editing keys blocked
             # small_buffer limits buffer to 256 bytes (TEXT_BUF to TEXT_BUF+$FF)
             # File has 300 bytes so it will be truncated
-            # Truncation warning consumes one keypress (the 'x')
-            # Then 'x' should be ignored (readonly), :q exits
+            # The truncation warning stays until the first key; both
+            # 'x' keys are ignored (read-only), :q exits
             large_content = "A" * 299 + "\n"  # 300 bytes > 256
             self.run_test_small_buffer(
                 "Truncated file enters read-only mode",
                 large_content,
-                # 'x' dismissed truncation warning, 'x' ignored (RO), :q quits
+                # both 'x' ignored (RO), :q quits
                 b"xx:q\r",
                 expect_unmodified=True
             )
 
             # Read-only mode: :w is blocked
-            # Truncation warning consumes 'x', then :w shows RO message,
-            # 'x' dismisses that, :q! quits
+            # 'x' ignored (RO), then :w shows the RO message, 'x' ignored,
+            # :q! quits
             self.run_test_small_buffer(
                 "Read-only mode blocks :w",
                 large_content,
@@ -2435,8 +2436,8 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Read-only mode blocks :1,2d",
                 large_multiline,
-                # 'x' dismisses truncation warning, :1,2d shows RO msg,
-                # 'x' dismisses that, :q quits
+                # 'x' ignored (RO), :1,2d shows the RO message, 'x'
+                # ignored, :q quits
                 b"x:1,2d\rx:q\r",
                 expect_unmodified=True,
                 expect_ansi_contains="Read-only (file truncated)",
@@ -2464,10 +2465,11 @@ class EditorTestRunner:
                 expect_ansi_absent="Read-only"
             )
 
-            # The key that dismisses the startup warning redraws the status
-            # bar (the editor then waits for a key with a finished frame)
+            # The startup warning stays until the first key, whose frame
+            # redraws the status bar (the editor then waits for a key with
+            # a finished frame)
             self.run_test_small_buffer(
-                "Dismissing truncation warning redraws status bar",
+                "The key after the truncation warning redraws the status bar",
                 large_content,
                 b"x",
                 expect_unmodified=True,
@@ -2486,7 +2488,7 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Read-only mode blocks X",
                 large_content,
-                b"x$X:q\r",   # 'x' dismisses warning, X ignored, :q quits
+                b"x$X:q\r",   # 'x' and X ignored, :q quits
                 expect_unmodified=True,
                 expect_ansi_absent="No write since last change"
             )
@@ -2496,13 +2498,13 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Read-only mode blocks i",
                 large_content,
-                b"xiQ\x1b:q\r",   # 'x' dismisses warning, :q quits
+                b"xiQ\x1b:q\r",   # 'x' ignored, :q quits
                 expect_unmodified=True,
                 expect_ansi_absent="No write since last change"
             )
 
             # A file that exactly fills the buffer is not truncated: it
-            # loads editable (no warning to dismiss), so 'x' deletes
+            # loads editable (no warning), so 'x' deletes
             self.run_test_small_buffer(
                 "File exactly filling buffer is editable",
                 "B" * 255 + "\n",   # 256 bytes = buffer size
@@ -2536,9 +2538,9 @@ class EditorTestRunner:
 
             # Buffer full during editing: typed-ahead keys go in as when
             # typed one at a time.  The chars that fit go in, the first one
-            # that does not is refused with "Buffer full", and the key after
-            # it dismisses the message ('z' here); ESC then leaves insert
-            # mode, and a second ESC does nothing, so :wq saves
+            # that does not is refused with "Buffer full", and so is each
+            # char after it ('z' here); ESC then leaves insert mode, and a
+            # second ESC does nothing, so :wq saves
             near_full = "B" * 249 + "\n"  # 250 bytes: 6 free
             self.run_test_small_buffer(
                 "Buffer full refuses insert char",
@@ -2547,10 +2549,18 @@ class EditorTestRunner:
                 expected_content="A" * 6 + near_full
             )
             self.run_test_small_buffer(
-                "Buffer full: the key after the refused char dismisses it",
+                "Buffer full: the char after the refused char is refused too",
                 near_full,
                 b"iAAAAAAAz\x1b:wq\r",
                 expected_content="A" * 6 + near_full
+            )
+            # The message does not take the key after it (as in vim): an
+            # ESC typed right after the refused char leaves insert mode
+            self.run_test_small_buffer(
+                "Buffer full: ESC right after the refused char leaves insert",
+                near_full,
+                b"iAAAAAAA\x1bx:wq\r",
+                expected_content="A" * 5 + near_full
             )
 
             # Buffer full during editing: newline insert fails
@@ -2562,14 +2572,14 @@ class EditorTestRunner:
                 expected_content="A\n" + almost_full
             )
             self.run_test_small_buffer(
-                "Buffer full: the key after a refused Enter dismisses it",
+                "Buffer full: the char after a refused Enter is refused too",
                 almost_full,
                 b"iAA\rz\x1b:wq\r",
                 expected_content="AA" + almost_full
             )
 
             # The deletes of typed-ahead keys make room for the chars after
-            # them (here the message takes the first ESC)
+            # them (here the 'b' is refused)
             self.run_test_small_buffer(
                 "Buffer full keeps the chars of a batch that fit",
                 "x" * 254 + "\n",
@@ -2617,9 +2627,9 @@ class EditorTestRunner:
             # Counted paste pre-check: rejects paste that would overflow
             # small_buffer = 256 bytes. Content 20 bytes. Yank 2 lines (10 bytes).
             # 99p would need 990 bytes, way over 256 limit.
-            # File should be unmodified (pre-check rejects before any paste):
-            # ESC dismisses the "Buffer full" message (it swallows a key) so
-            # that :wq saves and the check sees what the paste left.
+            # File should be unmodified (pre-check rejects before any paste);
+            # the ESC after it does nothing, and :wq saves what the paste
+            # left.
             paste_content = "AAAA\nBBBB\nCCCC\nDDDD\n"  # 20 bytes
             self.run_test_small_buffer(
                 "Counted paste pre-check rejects overflow (p)",
@@ -2635,6 +2645,13 @@ class EditorTestRunner:
                 b"2yy99P\x1b:wq\r",
                 expect_unmodified=True
             )
+            # The key after the refused paste runs, as in vim
+            self.run_test_small_buffer(
+                "Buffer full: the key after a refused paste runs",
+                paste_content,
+                b"2yy99px:wq\r",
+                expected_content="AAA\n" + paste_content[5:]
+            )
 
             # Single paste that fits should still work
             self.run_test_small_buffer(
@@ -2645,21 +2662,21 @@ class EditorTestRunner:
             )
 
             # A shift that does not fit says "Buffer full", as p, o and i
-            # do, and changes nothing ('x' only dismisses the message); a
-            # :> that does not fit reports no lines shifted.  255 bytes
-            # leave 1 free: >> needs 2, :1,3> 6
+            # do, and changes nothing: the 'x' after it deletes the first
+            # char, where the cursor stays; a :> that does not fit reports
+            # no lines shifted.  255 bytes leave 1 free: >> needs 2, :1,3> 6
             one_free = "abc\n" * 63 + "ab\n"
             for keys in (b">>x", b">>>>x", b"3>>x", b":1,3>\rx", b":>\rx"):
                 self.run_test_small_buffer(
                     f"{keys!r} at buffer full says Buffer full",
                     one_free, keys + b":wq\r",
-                    expect_unmodified=True,
+                    expected_content=one_free[1:],
                     expect_ansi_contains="Buffer full",
                     expect_ansi_absent="lines shifted")
             # A shift refused at buffer full changes nothing, so u still
-            # undoes the edit before it: x, J and r here (ESC dismisses
-            # the message).  240 bytes leave 16 free: 10>> needs 20, 9>>
-            # (after J) 18
+            # undoes the edit before it: x, J and r here (the ESC after
+            # it does nothing).  240 bytes leave 16 free: 10>> needs 20,
+            # 9>> (after J) 18
             lines240 = "".join("line%02d" % i + "y" * 17 + "\n"
                                for i in range(10))
             for keys in (b"x10>>", b"x:1,10>\r", b"J9>>", b"3rz10>>"):
@@ -2696,16 +2713,16 @@ class EditorTestRunner:
         self.run_test("File exactly filling the text buffer is editable",
             exact, b"x:wq\r", expected_content=exact[1:])
         # A >> that does not fit leaves the cursor where the operator
-        # started (vim: where a failed operator leaves it), and the key
-        # after it only dismisses the message
+        # started (vim: where a failed operator leaves it), and the x
+        # after it deletes the char there
         indented = "  " + exact[2:]
         self.run_test_screen(">> in a full text buffer: cursor at its start",
             indented, b"6l>>x:q!\r", expect_cursor=(0, 2),
             expect_ansi_contains="Buffer full")
         # Typed-ahead >> pairs near a full buffer: the pairs that fit merge,
         # the next one is refused with "Buffer full" and the key after it
-        # dismisses the message, as typed one at a time (4 bytes free: two
-        # >> fit, the third does not; the 'x' is taken by the message)
+        # runs, as typed one at a time (4 bytes free: two >> fit, the
+        # third does not; the 'x' then deletes)
         self.run_test_batch_equiv(
             "Batch equiv: >> pairs past the end of a full text buffer",
             "  " + exact[6:], [b"6l", b">>", b">>", b">>", b"x"])
@@ -2713,8 +2730,8 @@ class EditorTestRunner:
             "Batch equiv: >> pairs into a text buffer one byte short",
             "  " + exact[5:], [b">>", b">>", b"x"])
         # Typed ahead into the end of an almost full buffer, the keys give
-        # what they give typed one at a time: 'abc' fits, 'd' is refused
-        # and 'e' dismisses the message, 'f' is refused and 'g' dismisses it
+        # what they give typed one at a time: 'abc' fits, and 'd' to 'g'
+        # are refused one by one
         self.run_test_batch_equiv(
             "Batch equiv: typing past the end of a full text buffer",
             exact[3:], [b"G", b"A"] + [bytes([c]) for c in b"abcdefg"]
@@ -2722,8 +2739,8 @@ class EditorTestRunner:
 
         self._group("Bounds checking (16-bit overflow):", leading_blank=True)
 
-        # ESC dismisses the "Buffer full" message (the message swallows one
-        # key) and is a no-op otherwise, so :wq really saves.
+        # The ESC after a refused paste does nothing (so :wq saves what
+        # the paste left).
         # A shift whose new end passes $FFFF is refused: 900 x 60 = 54000
         # bytes fits 16 bits, but the text buffer's address plus 54000
         # does not
@@ -2912,7 +2929,7 @@ class EditorTestRunner:
         )
 
         # :q on modified file shows warning message
-        # x modifies, :q\r triggers warning, 'z' dismisses message, :q!\r quits
+        # x modifies, :q\r triggers warning, 'z' does nothing, :q!\r quits
         self.run_test_screen(
             ":q on modified shows warning message",
             "Hello\n",
@@ -4043,8 +4060,8 @@ class EditorTestRunner:
             expect_content_redraws=[True, False]
         )
 
-        # Not found -> cursor-only after dismissal
-        # Space dismisses the "not found" message (consumed inside search handler)
+        # Not found -> the space after the "not found" message (a no-op)
+        # draws only the cursor and the status bar
         self.run_test_screen(
             "Render opt: search not-found is cursor-only",
             "AAA\nBBB\nCCC\n",
@@ -7641,8 +7658,8 @@ class EditorTestRunner:
             expected_content=" ".join(f"w{i}" for i in range(255, 400)) + "\n"
         )
 
-        # 300J is 254 joins, over the join undo limit: refused (ESC
-        # dismisses the message)
+        # 300J is 254 joins, over the join undo limit: refused (the ESC
+        # after it does nothing)
         self.run_test(
             "300J is refused (too many lines to join)",
             make_lines(400),
@@ -8293,9 +8310,8 @@ class EditorTestRunner:
             expected_content="A\nB\n"
         )
 
-        # The yank buffer holds exactly 4 KB. ESC dismisses the "Yank
-        # buffer full" message (the message swallows one key) and is a
-        # no-op otherwise.
+        # The yank buffer holds exactly 4 KB. The ESC after a "Yank
+        # buffer full" message does nothing.
         for size, copies in ((4096, 2), (4097, 1)):
             line = "a" * (size - 1) + "\n"
             self.run_test(
@@ -9013,7 +9029,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "search not found stays at current line",
             "AAA\nBBB\nCCC\n",
-            b"/ZZZ\r :q!\r",  # Space dismisses message
+            b"/ZZZ\r :q!\r",  # (the space does nothing)
             expect_cursor=(0, 0),  # Stays at line 0
         )
 
@@ -9211,12 +9227,15 @@ class EditorTestRunner:
             expect_cursor=(0, 12),
         )
 
-        # With no match, one message (the next key dismisses it)
-        self.run_test(
+        # With no match, one message: the next key's frame draws the
+        # status bar again (a second message would hold the row one frame
+        # more), and the key runs
+        self.run_test_screen(
             "3n with no match says so once",
-            "abc\n",
-            b"/x\r\x1b3n\x1bx:wq\r",
-            expected_content="bc\n",
+            "abc\ndef\n",
+            b"/x\r3nj:q!\r",
+            expect_status_at_frame=[(3, "Pattern not found: x"),
+                                    (4, "NORMAL - 2,1 /2")],
         )
 
         # Find-prev (N) tests
@@ -9310,11 +9329,11 @@ class EditorTestRunner:
             expect_cursor=(3, 0),  # 'b -> line 4
         )
 
-        # 'z with no mark set shows error (keypress dismisses)
+        # 'z with no mark set shows error (the space after it does nothing)
         self.run_test_screen(
             "'z unset mark shows error message",
             make_lines(3),
-            b"'z :q!\r",  # space dismisses the error
+            b"'z :q!\r",
             expect_cursor=(0, 0),  # stays on line 1
         )
 
@@ -9340,8 +9359,8 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd marked line unsets mark",
             make_lines(3),
-            b"madd'a :q!\r",  # space dismisses "Mark not set"
-            expect_cursor=(0, 0),  # stays (error message dismissed)
+            b"madd'a :q!\r",  # "Mark not set"
+            expect_cursor=(0, 0),  # stays
         )
 
         # Set mark on line 3, dd line 1 -> mark shifts to line 2
@@ -9529,7 +9548,7 @@ class EditorTestRunner:
             "de across newline unsets mark on consumed line",
             "AB\nCD\nEF\n",
             b"jmagg$de'a :q!\r",  # mark "CD" (idx1), gg, $->B, de crosses NL
-            expect_cursor=(0, 0),  # mark at idx1 unset (in [1,2)), space dismisses
+            expect_cursor=(0, 0),  # mark at idx1 unset (in [1,2)): "Mark not set"
         )
 
         # db from col0: mark on cursor line shifts correctly
@@ -9640,7 +9659,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":marks with no marks set",
             make_lines(3),
-            b":marks\r :q!\r",  # space dismisses marks display
+            b":marks\r :q!\r",  # space ends the marks display
             expect_cursor=(0, 0),
         )
 
@@ -9713,7 +9732,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":m shows Unknown command",
             make_lines(3),
-            b":m\r :q!\r",  # space dismisses error
+            b":m\r :q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -9721,12 +9740,12 @@ class EditorTestRunner:
         self.run_test_screen(
             ":marksx shows Unknown command",
             make_lines(3),
-            b":marksx\r :q!\r",  # space dismisses error
+            b":marksx\r :q!\r",
             expect_ansi_contains="Unknown command",
         )
 
-        # An empty command line does nothing, as in vim: no message takes
-        # the next key, and the cursor stays put ('x' deletes the 'c')
+        # An empty command line does nothing, as in vim: no message, and
+        # the cursor stays put ('x' deletes the 'c')
         self.run_test(
             "Empty : command does nothing",
             "abcdef\n",
@@ -9774,7 +9793,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range yank unset mark shows error",
             make_lines(3),
-            b":'z,.y\r :q!\r",  # space dismisses error
+            b":'z,.y\r :q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -9837,7 +9856,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range delete unset mark shows error",
             make_lines(3),
-            b":'z,.d\r :q!\r",  # space dismisses error
+            b":'z,.d\r :q!\r",
             expect_ansi_contains="Mark not set",
         )
 
@@ -9886,6 +9905,31 @@ class EditorTestRunner:
             expect_status_at_frame=[(2, "2 lines shifted"),
                                     (3, "NORMAL - 3,")],
         )
+
+        # Every other message ("Mark not set", "Unknown command", "Pattern
+        # not found", "Buffer full", ...) stays the same way, and the key
+        # after it runs as usual, typed ahead or not, as in vim
+        two = "foo\nbar\n"
+        self.run_test_screen(
+            "Mark not set stays until the next key, which runs",
+            two, b"'zj:q!\r",
+            expect_status_at_frame=[(1, "Mark not set"),
+                                    (2, "NORMAL - 2,1 /2")],
+            expect_cursor_at_frame=[(1, (0, 0)), (2, (1, 0))])
+        self.run_test_screen(
+            "Unknown command stays until the next key, which runs",
+            two, b":foo\rx:q!\r",
+            expect_status_at_frame=[(2, "Unknown command"),
+                                    (3, "NORMAL - 1,1 /2")],
+            expect_lines_at_frame=[(3, [(0, "oo")])])
+        self.run_test_screen(
+            "Pattern not found stays until the next key, which runs",
+            two, b"/zz\rj:q!\r",
+            expect_status_at_frame=[(1, "Pattern not found: zz"),
+                                    (2, "NORMAL - 2,1 /2")],
+            expect_cursor_at_frame=[(2, (1, 0))])
+        self.run_test("Keys typed after a message all run",
+            two, b"'zx:foo\rx/zz\rx:wq\r", expected_content="\nbar\n")
 
         # Range delete positions cursor at first deleted line
         self.run_test_screen(
@@ -10038,7 +10082,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":5,xd shows Unknown command",
             make_lines(6),
-            b":5,xd\r :q!\r",  # space dismisses error
+            b":5,xd\r :q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -10046,7 +10090,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":1,'zd shows Mark not set",
             make_lines(3),
-            b":1,'zd\r :q!\r",  # space dismisses error
+            b":1,'zd\r :q!\r",
             expect_ansi_contains="Mark not set",
         )
 
@@ -13630,6 +13674,14 @@ class EditorTestRunner:
                 b":1,3d\rj:q!\r",
                 expect_lines_at_frame=[(2, [(0, "Line 4"), (1, "Line 5")])],
                 expect_status_at_frame=[(2, "3 lines deleted"),
+                                        (3, "NORMAL - 2,")],
+            )
+            # So does an error message, and the key after it runs
+            self.run_test_terminal_screen(
+                "Terminal error message stays until the next key, which runs",
+                make_lines(5),
+                b":foo\rj:q!\r",
+                expect_status_at_frame=[(2, "Unknown command"),
                                         (3, "NORMAL - 2,")],
             )
 
@@ -19028,7 +19080,7 @@ class EditorTestRunner:
         self.run_test(
             "Too many lines to join keeps previous undo",
             "abc\n" + "\n" * 130,
-            b"x130J\x1bu:wq\r",          # ESC dismisses the message
+            b"x130J\x1bu:wq\r",          # (the ESC does nothing)
             expected_content="abc\n" + "\n" * 130
         )
 
@@ -19230,8 +19282,10 @@ class EditorTestRunner:
         # A char range that does not fit the 4 KB yank buffer is refused
         # with "Yank buffer full", like dd: nothing is deleted, and the
         # yank and the undo record of the previous change survive. The
-        # key after the refusal (X or ESC) dismisses the message (the
-        # message swallows one key).
+        # key after the refusal runs (as in vim): the X deletes the char
+        # before the cursor, which stays where the command was typed (at
+        # the end of the line for $d0 and $db, else at column 0, where X
+        # does nothing).
         big = "hello\n" + "a" * 5000 + "\nend\n"
         for keys in (b"yyjD", b"yyjd$", b"yyjdw", b"yyj5000s", b"yyjC",
                      b"yyjcw", b"yyj$d0", b"yyj$db"):
@@ -19239,7 +19293,8 @@ class EditorTestRunner:
                 f"{keys[3:].decode()} over 4 KB refused",
                 big,
                 keys + b"X\x1b:wq\r",
-                expected_content=big
+                expected_content=big.replace("a", "", 1) if keys[3:4] == b"$"
+                else big
             )
         self.run_test(
             "D over 4 KB keeps the yank",
@@ -19269,8 +19324,8 @@ class EditorTestRunner:
                 expect_ansi_contains="Yank buffer full"
             )
         # Typed-ahead dw/de pairs run each press: every press over 4 KB is
-        # refused with its own message (each swallows one key, so two ESCs
-        # dismiss them), nothing is deleted and the yank survives for p
+        # refused with its own message, nothing is deleted and the yank
+        # survives for p
         big_word = "hello\n" + "a" * 5000 + " b\nend\n"
         for keys in (b"yyjdwdw", b"yyjdede"):
             self.run_test(
@@ -19287,7 +19342,7 @@ class EditorTestRunner:
         )
         # A refused command leaves the cursor where it was typed: d0, db,
         # cb and yb too, which measure their range from where the cursor
-        # goes, and :d (the key after the refusal dismisses the message)
+        # goes, and :d
         big_b = "hello\n" + "a" * 5000 + " b\nend\n"
         for content, keys, status in ((big, b"j$d0", " 2,5000 "),
                                       (big_b, b"j$db", " 2,5002 "),
@@ -19546,12 +19601,12 @@ class EditorTestRunner:
         )
 
         # Join limit: 129J on 130-line file exceeds JOIN_UNDO_MAX (128)
-        # Should show error and not modify buffer (keypress dismisses msg)
+        # Should show error and not modify buffer
         content_130 = ''.join(f"{i}\n" for i in range(130))
         self.run_test(
             "129J exceeds limit: no modification",
             content_130,
-            b"130J :wq\r",  # space dismisses error msg
+            b"130J :wq\r",  # (the space does nothing)
             expected_content=content_130,
             expect_unmodified=True
         )
@@ -19567,12 +19622,12 @@ class EditorTestRunner:
         )
 
         # A typed-ahead J must not lift the limit: one at a time, 131J is
-        # refused and the next J only dismisses the message
+        # refused and the next J joins one line, as in vim
         self.run_test(
-            "131J + typed-ahead J: refused, J dismisses the message",
+            "131J + typed-ahead J: refused, then the J joins a line",
             content_130 + "130\n",
             b"131JJ:wq\r",
-            expected_content=content_130 + "130\n"
+            expected_content="0 " + content_130[2:] + "130\n"
         )
 
         self.run_test(
