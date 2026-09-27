@@ -4,12 +4,9 @@
 ; lines (YANK_LINE, newline-terminated like the text buffer) or characters
 ; (YANK_CHAR). Every yank replaces its contents.
 ;
-; Memory layout:
-;   YANK_BUF  ($E000) - Start of yank buffer
-;   YANK_LIMIT ($F000) - End of yank buffer (4KB)
-
-YANK_BUF   = $E000
-YANK_LIMIT = $F000
+; Memory layout (YANK_BUF, YANK_LIMIT: the memory map in editor.asm):
+;   YANK_BUF   - Start of yank buffer (page-aligned)
+;   YANK_LIMIT - End of yank buffer
 
 YANK_LINE = 0
 YANK_CHAR = 1

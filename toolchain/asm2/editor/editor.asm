@@ -30,7 +30,20 @@
 ;   $F000+        Emulator I/O
 ; ============================================================================
 
-FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
+; Memory map: the buffers at fixed addresses (TEXT_BUF floats after the
+; code, see the end of this file)
+FNAME_BUF     = $0200   ; Filename buffer (256 bytes)
+CMD_BUF       = $0300   ; Command buffer (256 bytes)
+TEXT_END      = $D600   ; End of the text buffer's space
+BATCH_BUF     = $D600   ; Batch insert staging buffer (BATCH_MAX bytes)
+MARK_TBL      = $D620   ; Marks a-z: 26 entries x 2 bytes
+SEARCH_BUF    = $D654   ; Search pattern, up to SEARCH_LIMIT
+SEARCH_LIMIT  = $D700
+UNDO_DATA_BUF = $D700   ; Undo data (256 bytes, page-aligned)
+LINE_TBL      = $D800   ; Line pointer table (2 bytes per entry), up to
+LINE_TBL_END  = $E000   ; LINE_TBL_END
+YANK_BUF      = $E000   ; Yank buffer (page-aligned), up to YANK_LIMIT
+YANK_LIMIT    = $F000
 
 * = $0400
 
@@ -232,9 +245,9 @@ str_untitled: .asciiz "[No Name]"
 _code_end:
 TEXT_BUF = _code_end + $00FF >> $08 << $08
 
-; Buffer size: normal build = up to $D600 (BATCH_BUF), small build = 256 bytes
+; Buffer size: normal build = up to TEXT_END, small build = 256 bytes
   .ifndef small_buffer
-TEXT_LIMIT  = $D600  ; End of text buffer space (up to start of BATCH_BUF)
+TEXT_LIMIT  = TEXT_END
   .else
 TEXT_LIMIT  = TEXT_BUF + $0100  ; Small test buffer (256 bytes)
   .endif

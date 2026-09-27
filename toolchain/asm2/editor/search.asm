@@ -4,13 +4,11 @@
 ; buffer. The pattern is stored in SEARCH_BUF (length SEARCH_LEN) for reuse
 ; by 'n' / 'N' and by an empty '/' or '?'.
 ;
-; Memory layout:
-;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL)
-;   SEARCH_LIMIT ($D700) - One past last byte of search buffer
-;   SEARCH_MAX   (172)   - Maximum pattern length (SEARCH_LIMIT - SEARCH_BUF)
+; Memory layout (SEARCH_BUF, SEARCH_LIMIT: the memory map in editor.asm):
+;   SEARCH_BUF   - Search pattern buffer
+;   SEARCH_LIMIT - One past last byte of search buffer
+;   SEARCH_MAX   - Maximum pattern length (SEARCH_LIMIT - SEARCH_BUF)
 
-SEARCH_BUF   = $D654
-SEARCH_LIMIT = $D700
 SEARCH_MAX   = SEARCH_LIMIT - SEARCH_BUF
 
 ; (zero-page variables: zp.asm)
