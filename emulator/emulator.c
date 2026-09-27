@@ -17,6 +17,7 @@
 #include "cli.h"
 #include "emu_run.h"
 #include "emu_wendy2c.h"
+#include "emu_michael.h"
 #include "stubs.h"
 #include "tty_alt_screen.h"
 
@@ -608,6 +609,9 @@ int main(int argc, char **argv) {
 
     if (opts.machine == MACHINE_WENDY2C) {
         return emu_run_wendy2c(&opts);
+    }
+    if (opts.machine == MACHINE_MICHAEL) {
+        return emu_run_michael(&opts);
     }
 
     /* Mirror parsed values into the existing globals/locals so the rest

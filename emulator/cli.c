@@ -85,9 +85,12 @@ void emu_opts_usage(FILE *fp) {
 "  --pace-polls N         polls per pause (default 2000)\n"
 "  --rows N               override terminal rows\n"
 "  --cols N               override terminal cols\n"
-"  --machine <name>       'nmos-default' (default) or 'wendy2c'\n"
-"  --cpu <variant>        'nmos' or '65c02' (wendy2c forces '65c02')\n"
+"  --machine <name>       'nmos-default' (default), 'wendy2c' or 'michael'\n"
+"  --cpu <variant>        'nmos' or '65c02' (wendy2c and michael force '65c02')\n"
 "  --rom <path>           wendy2c: ROM image (else falls back to <code file>)\n"
+"                         michael: ROM image (else a ROM holding only the vectors:\n"
+"                         reset to --load, IRQ to $3F00); <code file> is loaded\n"
+"                         into RAM at --load\n"
 "  --serial-input <path>  wendy2c: bytes pre-queued into the SERIAL_USB chip\n"
 "  --wendy2-prog <path>   wendy2c: preload a RAW program into RAM at --load\n"
 "                         (default $4000), bank $01 mapped, start there --\n"
@@ -115,7 +118,7 @@ void emu_opts_usage(FILE *fp) {
 "                         no cap under --live unless this is given explicitly).\n"
 "                         For wendy2c this is oscillator ticks (~2 per CPU cycle);\n"
 "                         for nmos-default and --server it is CPU cycles.\n"
-"  --lcd-trace PATH       wendy2c (non-live, non-web): append a timestamped LCD frame to\n"
+"  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
 "  --lcd-panel TYPE       wendy2c: which LCD panel to model for the live/web render.\n"
@@ -272,8 +275,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             const char *m = argv[i + 1];
             if (strcmp(m, "nmos-default") == 0) opts->machine = MACHINE_NMOS_DEFAULT;
             else if (strcmp(m, "wendy2c") == 0) opts->machine = MACHINE_WENDY2C;
+            else if (strcmp(m, "michael") == 0) opts->machine = MACHINE_MICHAEL;
             else {
-                fprintf(stderr, "error: --machine value must be 'nmos-default' or 'wendy2c'\n");
+                fprintf(stderr, "error: --machine value must be 'nmos-default', 'wendy2c' or 'michael'\n");
                 return 1;
             }
             i += 2;
@@ -409,8 +413,8 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
-    if (opts->lcd_trace_filename && opts->machine != MACHINE_WENDY2C) {
-        fprintf(stderr, "error: --lcd-trace currently requires --machine wendy2c\n");
+    if (opts->lcd_trace_filename && opts->machine == MACHINE_NMOS_DEFAULT) {
+        fprintf(stderr, "error: --lcd-trace requires --machine wendy2c or michael\n");
         return 1;
     }
     if (opts->lcd_trace_filename && (opts->live || opts->web)) {
@@ -423,14 +427,15 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
-    /* --machine wendy2c defaults --cpu to 65c02. */
-    if (opts->machine == MACHINE_WENDY2C && opts->cpu_variant_opt == CPU_VARIANT_UNSET) {
-        opts->cpu_variant_opt = CPU_65C02;
-    }
-    /* --machine wendy2c + --cpu nmos is invalid (wendy2c is a W65C02S board). */
-    if (opts->machine == MACHINE_WENDY2C && opts->cpu_variant_opt == CPU_NMOS) {
-        fprintf(stderr, "error: --machine wendy2c requires --cpu 65c02\n");
-        return 1;
+    /* The bus-model machines are 65C02 boards: --cpu defaults to 65c02
+     * and nmos is invalid. */
+    if (opts->machine != MACHINE_NMOS_DEFAULT) {
+        if (opts->cpu_variant_opt == CPU_VARIANT_UNSET) opts->cpu_variant_opt = CPU_65C02;
+        if (opts->cpu_variant_opt == CPU_NMOS) {
+            fprintf(stderr, "error: --machine %s requires --cpu 65c02\n",
+                    opts->machine == MACHINE_WENDY2C ? "wendy2c" : "michael");
+            return 1;
+        }
     }
     /* For nmos-default, default --cpu to nmos. */
     if (opts->cpu_variant_opt == CPU_VARIANT_UNSET) {
