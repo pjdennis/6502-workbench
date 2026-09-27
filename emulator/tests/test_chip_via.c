@@ -287,6 +287,74 @@ TEST res_rising_edge_clears_registers_and_irq(void) {
     PASS();
 }
 
+/* CA2 as an independent negative-edge interrupt input (PCR CA2 = %001),
+ * the Michael keyboard board's frame-edge line. */
+TEST ca2_independent_negative_edge_sets_ifr_and_irq(void) {
+    setup();
+    w(VIA_REG_PCR, VIA_PCR_CA2_IND_NEG_E);
+    w(VIA_REG_IER, 0x80 | VIA_INT_CA2);
+    via_6522_set_ca2(&vs, &bus_, 1);
+    ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    via_6522_set_ca2(&vs, &bus_, 0);
+    ASSERT_EQ_FMT((uint8_t)VIA_INT_CA2, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
+    /* Independent: reading or writing ORA leaves the flag alone. */
+    (void)r(VIA_REG_ORA);
+    w(VIA_REG_ORA, 0x00);
+    ASSERT_EQ_FMT((uint8_t)VIA_INT_CA2, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    /* Writing the IFR bit clears it and drops IRQ. */
+    w(VIA_REG_IFR, VIA_INT_CA2);
+    ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
+    PASS();
+}
+
+TEST ca2_rising_edge_ignored_in_negative_edge_mode(void) {
+    setup();
+    w(VIA_REG_PCR, VIA_PCR_CA2_IND_NEG_E);
+    via_6522_set_ca2(&vs, &bus_, 0);
+    via_6522_set_ca2(&vs, &bus_, 1);
+    ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    PASS();
+}
+
+/* PCR CA2 = %000: negative-edge input whose flag an ORA access clears. */
+TEST ca2_negative_edge_flag_cleared_by_ora_access(void) {
+    setup();
+    w(VIA_REG_PCR, 0x00);
+    via_6522_set_ca2(&vs, &bus_, 1);
+    via_6522_set_ca2(&vs, &bus_, 0);
+    ASSERT_EQ_FMT((uint8_t)VIA_INT_CA2, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    (void)r(VIA_REG_ORA);
+    ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_IFR) & VIA_INT_CA2, "%02X");
+    PASS();
+}
+
+static uint8_t portb_driver_value;
+static uint8_t portb_driver(void *ctx) {
+    (void)ctx;
+    return portb_driver_value;
+}
+
+/* An external device (the LCD during a read, the keyboard board's
+ * shift registers) drives the PORTB pins with DDRB=0. */
+TEST portb_input_pins_come_from_external_driver(void) {
+    setup();
+    via_6522_set_portb_input(&vs, portb_driver, NULL);
+    portb_driver_value = 0xA5;
+    ASSERT_EQ_FMT((uint8_t)0xA5, r(VIA_REG_ORB), "%02X");
+    /* Output bits read back the latch; input bits the driver. */
+    w(VIA_REG_DDRB, 0x0F);
+    w(VIA_REG_ORB, 0x03);
+    ASSERT_EQ_FMT((uint8_t)0xA3, r(VIA_REG_ORB), "%02X");
+    ASSERT_EQ_FMT((uint8_t)0xA3, via_6522_portb_pins(&vs), "%02X");
+    /* The driver survives a RES like the PORTA input drive does. */
+    bus_.res = 1;
+    bus_step(&bus_);
+    ASSERT_EQ_FMT((uint8_t)0xA5, r(VIA_REG_ORB), "%02X");
+    PASS();
+}
+
 SUITE(via_6522_suite) {
     RUN_TEST(init_state_is_zero);
     RUN_TEST(porta_input_output_direction);
@@ -298,6 +366,10 @@ SUITE(via_6522_suite) {
     RUN_TEST(cb2_falling_edge_does_not_arm_sr);
     RUN_TEST(sr_shift_total_counts_actual_shifts);
     RUN_TEST(cb2_falling_edge_mid_byte_does_not_rearm_sr);
+    RUN_TEST(ca2_independent_negative_edge_sets_ifr_and_irq);
+    RUN_TEST(ca2_rising_edge_ignored_in_negative_edge_mode);
+    RUN_TEST(ca2_negative_edge_flag_cleared_by_ora_access);
+    RUN_TEST(portb_input_pins_come_from_external_driver);
     RUN_TEST(res_rising_edge_clears_registers_and_irq);
 }
 

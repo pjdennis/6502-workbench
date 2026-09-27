@@ -30,10 +30,12 @@ static void via_clear_ifr(struct via_6522_state *s, struct bus *bus, uint8_t mas
 }
 
 /* PORTB pin value: bits driven by output (DDR=1) come from ORB; bits
- * with DDR=0 read as 0 (pull-downs on PB0..4; PB6/7 are LED/T1 with
- * no pull). PB7 is overridden by T1 squarewave when ACR_T1_OUT set. */
+ * with DDR=0 come from the external driver, else read as 0 (pull-downs
+ * on PB0..4; PB6/7 are LED/T1 with no pull). PB7 is overridden by T1
+ * squarewave when ACR_T1_OUT set. */
 static uint8_t portb_pin_value(const struct via_6522_state *s) {
     uint8_t v = s->orb & s->ddrb;
+    if (s->portb_input) v |= (uint8_t)(s->portb_input(s->portb_input_ctx) & ~s->ddrb);
     if (s->acr & VIA_ACR_T1_OUT) {
         v = (uint8_t)((v & 0x7F) | (s->pb7 ? 0x80 : 0));
     }
@@ -44,6 +46,11 @@ static uint8_t portb_pin_value(const struct via_6522_state *s) {
  * (e.g. the control button) feeding through the DDR=0 channels. */
 static uint8_t porta_pin_value(const struct via_6522_state *s) {
     return (uint8_t)((s->ora & s->ddra) | (s->porta_input & (uint8_t)~s->ddra));
+}
+
+/* An ORA access clears IFR.CA2 unless CA2 is an independent input. */
+static void ora_access(struct via_6522_state *s, struct bus *bus) {
+    if ((s->pcr & 0x0A) == 0x00) via_clear_ifr(s, bus, VIA_INT_CA2);
 }
 
 static bool via_6522_read(struct chip *self, struct bus *bus,
@@ -59,6 +66,8 @@ static bool via_6522_read(struct chip *self, struct bus *bus,
              * upload-and-run code clears CB2 explicitly via IFR write. */
             return true;
         case VIA_REG_ORA:
+            ora_access(s, bus);
+            /* fall through */
         case VIA_REG_ORANH:
             *out = porta_pin_value(s);
             return true;
@@ -109,6 +118,8 @@ static bool via_6522_write(struct chip *self, struct bus *bus,
             update_bank_config(s, bus);
             return true;
         case VIA_REG_ORA:
+            ora_access(s, bus);
+            /* fall through */
         case VIA_REG_ORANH:
             s->ora = data;
             return true;
@@ -171,9 +182,15 @@ static bool via_6522_write(struct chip *self, struct bus *bus,
 static void via_6522_apply_reset(struct via_6522_state *s, struct bus *bus) {
     uint8_t saved_input = s->porta_input;
     uint8_t saved_cb2   = s->cb2_in;
+    uint8_t saved_ca2   = s->ca2_in;
+    uint8_t (*saved_portb_input)(void *) = s->portb_input;
+    void *saved_portb_input_ctx = s->portb_input_ctx;
     memset(s, 0, sizeof(*s));
     s->porta_input = saved_input;
     s->cb2_in      = saved_cb2;
+    s->ca2_in      = saved_ca2;
+    s->portb_input = saved_portb_input;
+    s->portb_input_ctx = saved_portb_input_ctx;
     if (bus) {
         bus->bank_config = 0;   /* (orb & ddrb) = 0 */
         bus->irq         = 0;   /* IFR/IER both cleared */
@@ -279,6 +296,23 @@ void via_6522_set_cb2(struct via_6522_state *s, struct bus *bus, uint8_t bit) {
     }
     /* Positive edges, handshake/pulse modes -- not modeled (not used
      * by the wendy2c upload path). */
+}
+
+void via_6522_set_ca2(struct via_6522_state *s, struct bus *bus, uint8_t level) {
+    uint8_t prev = s->ca2_in;
+    s->ca2_in = level ? 1 : 0;
+    uint8_t mode = s->pcr & VIA_PCR_CA2_MASK;
+    if (mode & 0x08) return;                     /* output modes */
+    int positive = (mode & VIA_PCR_CA2_POS_E) != 0;
+    if (positive ? (!prev && s->ca2_in) : (prev && !s->ca2_in)) {
+        via_set_ifr(s, bus, VIA_INT_CA2);
+    }
+}
+
+void via_6522_set_portb_input(struct via_6522_state *s,
+                              uint8_t (*input)(void *ctx), void *ctx) {
+    s->portb_input = input;
+    s->portb_input_ctx = ctx;
 }
 
 void via_6522_set_cb2_quiet(struct via_6522_state *s, uint8_t bit) {

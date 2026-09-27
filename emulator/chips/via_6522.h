@@ -60,6 +60,15 @@
 #define VIA_PCR_CB2_MASK         0xE0
 #define VIA_PCR_CB2_IND_NEG_E    0x20
 
+/* PCR (CA2 portion) input modes. Bit 1 set = independent (an ORA access
+ * leaves the flag alone); bit 2 set = positive edge; bit 3 set = output
+ * (not modelled). */
+#define VIA_PCR_CA2_MASK         0x0E
+#define VIA_PCR_CA2_NEG_E        0x00
+#define VIA_PCR_CA2_IND_NEG_E    0x02
+#define VIA_PCR_CA2_POS_E        0x04
+#define VIA_PCR_CA2_IND_POS_E    0x06
+
 struct via_6522_state {
     /* Port latches and direction registers. */
     uint8_t orb, ora, ddrb, ddra;
@@ -82,15 +91,22 @@ struct via_6522_state {
                                  * each shift without racing the arm */
     uint8_t cb2_in;             /* current CB2 input level */
     uint8_t prev_cb2;           /* edge detect */
+    uint8_t ca2_in;             /* current CA2 input level */
     uint8_t prev_res;           /* for bus->res rising-edge detect */
 
     /* External pin drive for PORTA input bits (bits with DDRA=0).
      * Read back through porta_pin_value() as
      *   (ora & ddra) | (porta_input & ~ddra).
      * Set/cleared by external chips, e.g. led_buttons.c for the
-     * control button. PORTB inputs aren't modeled (PB0..4 are pulled
-     * down to 0 on the wendy2c). */
+     * control button. */
     uint8_t porta_input;
+
+    /* External drive for PORTB input bits, asked for on every read of
+     * the pins: (orb & ddrb) | (portb_input(ctx) & ~ddrb). NULL means
+     * nothing drives them and they read 0 (PB0..4 are pulled down on
+     * the wendy2c). */
+    uint8_t (*portb_input)(void *ctx);
+    void *portb_input_ctx;
 };
 
 void via_6522_init(struct chip *chip, struct via_6522_state *state);
@@ -108,6 +124,15 @@ void via_6522_set_cb2_quiet(struct via_6522_state *state, uint8_t bit);
  * DDRA=1 are output-driven and the input drive has no effect at the
  * pin until the program flips DDRA. */
 void via_6522_set_porta_input_bit(struct via_6522_state *state, uint8_t bit_mask, int level);
+
+/* External CA2 driver. Edges set IFR.CA2 per the PCR's CA2 input
+ * mode. */
+void via_6522_set_ca2(struct via_6522_state *state, struct bus *bus, uint8_t level);
+
+/* Install the external driver for the PORTB input pins (see
+ * portb_input above). */
+void via_6522_set_portb_input(struct via_6522_state *state,
+                              uint8_t (*input)(void *ctx), void *ctx);
 
 /* Inspectors -- handy for tests and for chips that latch port pins
  * (the LCD watches PORTA + the E line on PORTB bit 5, etc.). */
