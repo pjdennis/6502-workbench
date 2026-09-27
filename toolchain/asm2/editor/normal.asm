@@ -144,14 +144,7 @@ pending_combo_keys:
   .byte 0                   ; End sentinel
 
 ; --- Editing ---
-
-normal_delete_char:
-  JSR check_cursor_in_line
-  BCS delete_char_done
-
-  ; Normalize batching: count + pending x keys
-  JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  JMP batched_char_delete
+; (x and Del: normal_delete_char, normal_util.asm)
 
 ; X: delete count chars before the cursor (clamped at column 0); the
 ; cursor moves left with the text

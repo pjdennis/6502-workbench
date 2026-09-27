@@ -678,12 +678,18 @@ compute_char_range_forward:
 batched_char_delete_back:
   LDY #$FF                  ; Y = DEL_BACK flag (kept until .batched)
   BNE bcd_start             ; Always taken
+
+; x and Del: delete count chars at the cursor, with the typed-ahead x's
+normal_delete_char:
+  JSR check_cursor_in_line
+  BCS bcd_done
+  JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
 batched_char_delete:
   LDY #0
 bcd_start:
   JSR set_render_from_cursor    ; Repaint from the range start (keeps X, Y)
   JSR compute_char_range_forward
-  BCS .done
+  BCS bcd_done
   JSR set_shift_delete
   LDA BATCH_EXTRA
   BNE .batched
@@ -692,7 +698,33 @@ bcd_start:
 .unbatched:
   LDA #OP_DELETE
   JSR apply_char_operator
-  JMP .done
+  JMP clear_count
+
+.x_past_end:
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP BUF_LEN16              ; C = 1: it reaches the line end
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BNE .leftward
+  ; From column 0 the presses only delete forward (to the line end, and
+  ; past it they do nothing): the forward range stands, and when the
+  ; count alone empties the line, its delete is the last
+  BCC .yank_last
+  BCS .unbatched
+.leftward:
+  ; One at a time, x on the last char leaves the cursor on the new last
+  ; char, which the next x deletes: min(count, the range) + the extras
+  ; is X of as many from the line end
+  LDA BUF_DELTA
+  BCC .count_ok
+  LDA BUF_LEN16              ; The count stops at the line end
+.count_ok:
+  CLC
+  ADC BATCH_EXTRA
+  TAX                        ; X = the chars to delete (< 256)
+  STY BUF_DELTA              ; (Y = 0) No X count of its own
+  CP16 LINE_LEN16, CURSOR_COL16
+  JMP delete_char_back_x
 
 .batched:
   ; x presses left over at the line end (the range stopped short of X:
@@ -722,34 +754,8 @@ bcd_start:
   ; Record undo, delete full range in single operation
   JSR undo_delete_at_cursor
   JSR clamp_cursor_col
-.done:
+bcd_done:
   JMP clear_count
-
-.x_past_end:
-  LDA BUF_DELTA              ; The count (get_batched_count)
-  CMP BUF_LEN16              ; C = 1: it reaches the line end
-  LDA CURSOR_COL16
-  ORA CURSOR_COL16 + 1
-  BNE .leftward
-  ; From column 0 the presses only delete forward (to the line end, and
-  ; past it they do nothing): the forward range stands, and when the
-  ; count alone empties the line, its delete is the last
-  BCC .yank_last
-  BCS .unbatched
-.leftward:
-  ; One at a time, x on the last char leaves the cursor on the new last
-  ; char, which the next x deletes: min(count, the range) + the extras
-  ; is X of as many from the line end
-  LDA BUF_DELTA
-  BCC .count_ok
-  LDA BUF_LEN16              ; The count stops at the line end
-.count_ok:
-  CLC
-  ADC BATCH_EXTRA
-  TAX                        ; X = the chars to delete (< 256)
-  STY BUF_DELTA              ; (Y = 0) No X count of its own
-  CP16 LINE_LEN16, CURSOR_COL16
-  JMP delete_char_back_x
 
 ; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor.
 ; Over 128 chars -n does not fit SHIFT_NET's signed byte: no hint (the
