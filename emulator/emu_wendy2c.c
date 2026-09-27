@@ -12,6 +12,7 @@
 #include "bus.h"
 #include "cpu_core.h"
 #include "emu_run.h"
+#include "lcd_report.h"
 #include "serial_link.h"
 #include "tty_alt_screen.h"
 #include "wendy2c_web.h"
@@ -52,38 +53,6 @@ static void wendy2c_cpu_write(uint16_t addr, uint8_t data) {
     active_bus->rwb = 0;
     clock_22v10_refresh_combinational(active_bus);
     bus_write(active_bus, addr, data);
-}
-
-/* ---- LCD trace file (--lcd-trace) ----
- *
- * When the user passes --lcd-trace PATH on a non-live, non-web wendy2c
- * run, we append a frame to PATH each time the LCD changed during a
- * batch. Format (so tests can grep / split by separator):
- *
- *   --- osc=<N> cpu=<N> pc=$<HHHH> ---
- *   |row0|
- *   |row1|
- *   ...
- *
- * Hooking on a "dirty since last render" basis means an LCD that
- * settles between batches captures one frame per stable state, which
- * is what tests want -- not one per character write. */
-static void lcd_trace_emit_if_changed(FILE *fp,
-                                       struct lcd_hd44780_state *lcd,
-                                       const struct bus *b) {
-    if (!fp) return;
-    char lcdbuf[LCD_DDRAM_SIZE + 8];
-    int dirty = lcd_hd44780_render(lcd, lcdbuf);
-    if (!dirty) return;
-    fprintf(fp, "--- osc=%llu cpu=%llu pc=$%04X ---\n",
-            (unsigned long long)b->osc_ticks,
-            (unsigned long long)clockticks6502,
-            pc);
-    int cols = lcd->cols;
-    for (int r = 0; r < lcd->rows; r++) {
-        fprintf(fp, "|%.*s|\n", cols, lcdbuf + r * cols);
-    }
-    fflush(fp);
 }
 
 /* ---- live-mode renderer ---- */
@@ -762,7 +731,7 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
                 }
             }
             if (stp) break;
-            lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
             (void)wendy2c_pace(&t0, osc0, b.osc_ticks, osc_per_us);
         }
     } else {
@@ -782,13 +751,13 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
                 }
             }
             if (stp) break;
-            lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
         }
     }
 
     /* Final LCD frame after STP/cap: ensure trace captures the end state. */
     if (lcd_trace_fp) {
-        lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
+        lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
         fclose(lcd_trace_fp);
         lcd_trace_fp = NULL;
     }
@@ -805,24 +774,7 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
         halted_on_stp ? "(STP)" : "(cycle cap)");
 
     /* Print final LCD frame so the user sees what landed. */
-    char lcd_buf[LCD_DDRAM_SIZE + 8];
-    (void)lcd_hd44780_render(&lcd_state, lcd_buf);
-    int cols = lcd_state.cols;
-    fprintf(stderr, "wendy2c: lcd:\n");
-    for (int r = 0; r < lcd_state.rows; r++) {
-        fprintf(stderr, "  |%.*s|\n", cols, lcd_buf + r * cols);
-    }
-    /* Raw DDRAM bytes too, so CGRAM custom characters (which the text
-     * frame above can only show as '?') are distinguishable. */
-    uint8_t lcd_bytes[LCD_DDRAM_SIZE];
-    lcd_hd44780_visible_bytes(&lcd_state, lcd_bytes);
-    fprintf(stderr, "wendy2c: lcd-hex:\n");
-    for (int r = 0; r < lcd_state.rows; r++) {
-        fprintf(stderr, "  |");
-        for (int c = 0; c < cols; c++)
-            fprintf(stderr, c ? " %02x" : "%02x", lcd_bytes[r * cols + c]);
-        fprintf(stderr, "|\n");
-    }
+    lcd_report_final(stderr, "wendy2c", &lcd_state);
 
     /* Tear down the external hooks before returning so other code (e.g.
      * the test harness or a subsequent run) doesn't dangle on a dead
