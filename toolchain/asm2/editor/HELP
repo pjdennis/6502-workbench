@@ -168,6 +168,9 @@ NORMAL MODE - SEARCH
   n              Repeat last search in the same direction (wraps around)
   N              Repeat last search in the opposite direction (wraps around)
 
+  /, ?, n and N accept a count: 3n goes to the third match, wrapping
+  around as often as it takes.
+
   If the pattern is not found, "Pattern not found" is displayed.
   A pattern can be as long as fits the status row after the prompt
   (the screen width less 2 characters, at most 127); further keys

@@ -221,7 +221,9 @@ do_ye:
 ; --- Search ---
 
 ; n and N: repeat the last search, N the other way (SEARCH_DIR EOR $10:
-; 0 <-> $10 = '/' EOR '?')
+; 0 <-> $10 = '/' EOR '?').  A count finds the Nth match, as in vim
+; (wrapping around as often as it takes); only the first search can find
+; nothing, and then the others are not tried
 normal_find_next:
   LDA #0
   BEQ search_find            ; Always taken
@@ -231,10 +233,18 @@ search_find:
   LDX SEARCH_LEN
   BEQ search_done            ; No pattern yet
   EOR SEARCH_DIR
+  STA BUF_TEMP               ; This search's direction
+  JSR get_count              ; BUF_TEMP16 = count (16-bit)
+.again:
+  LDA BUF_TEMP
   JSR search_dir
+  BCC search_done            ; Not found
+  JSR dec_buf_temp16
+  BNE .again
+search_done:
   JMP clear_count
 
-; / and ?: read a pattern and search
+; / and ?: read a pattern, then search as n does
 normal_search:
   LDA #'/'
   BNE search_prompt          ; Always taken
@@ -242,8 +252,9 @@ normal_search_backward:
   LDA #'?'
 search_prompt:
   JSR search_input_handle
-search_done:
-  JMP clear_count
+  BCS search_done            ; Cancelled
+  LDA #0
+  BEQ search_find            ; Always taken
 
 ; --- Marks ---
 

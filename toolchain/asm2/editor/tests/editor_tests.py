@@ -9039,6 +9039,44 @@ class EditorTestRunner:
             expect_cursor=(4, 0),  # /X->line 2, n->line 4
         )
 
+        # A count finds the Nth match, wrapping around as often as it takes
+        # (vim); counts past 255 too
+        self.run_test_screen(
+            "3n finds the third match",
+            "foo x foo y foo z foo\n",
+            b"/foo\r3n:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "300n takes the whole count",
+            "foo x foo y\n",
+            b"/foo\r300n:q!\r",
+            expect_cursor=(0, 6),
+        )
+
+        self.run_test_screen(
+            "2/ finds the second match",
+            "foo x foo y foo z foo\n",
+            b"2/foo\r:q!\r",
+            expect_cursor=(0, 12),
+        )
+
+        self.run_test_screen(
+            "2? finds the second match backward",
+            "foo x foo y foo z foo\n",
+            b"$2?foo\r:q!\r",
+            expect_cursor=(0, 12),
+        )
+
+        # With no match, one message (the next key dismisses it)
+        self.run_test(
+            "3n with no match says so once",
+            "abc\n",
+            b"/x\r\x1b3n\x1bx:wq\r",
+            expected_content="bc\n",
+        )
+
         # Find-prev (N) tests
         # ============================================================
         self._group("Find-prev (N):", leading_blank=True)
@@ -9075,6 +9113,13 @@ class EditorTestRunner:
             "X\nY\nX\nY\nX\n",
             b"/X\rN:q!\r",
             expect_cursor=(0, 0),  # /X->line 2, N back to line 0
+        )
+
+        self.run_test_screen(
+            "2N finds the second match backward",
+            "foo x foo y foo z foo\n",
+            b"/foo\r2N:q!\r",
+            expect_cursor=(0, 18),
         )
 
         # n then N returns to previous match

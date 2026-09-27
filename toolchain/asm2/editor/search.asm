@@ -15,15 +15,13 @@ SEARCH_BUF   = $D654
 
 ; (zero-page variables: zp.asm)
 
-search_ret:
-  RTS
-
-; Read a pattern at the '/' or '?' prompt (A = the prompt character) and
-; search for it
+; Read a pattern at the '/' or '?' prompt (A = the prompt character):
+; the search pattern (an empty one keeps the previous pattern, if any)
+; and its direction.  Returns carry set if cancelled
 search_input_handle:
   STA BUF_TEMP           ; Save prompt char
   JSR read_line          ; X = length
-  BCS search_ret         ; Cancelled
+  BCS .ret               ; Cancelled
 
   ; Empty input reuses the previous pattern
   TXA
@@ -36,17 +34,15 @@ search_input_handle:
   BPL .copy
 
 .reuse_pattern:
-  ; Check if there's a pattern (always true after a copy)
-  LDA SEARCH_LEN
-  BEQ search_ret         ; No previous pattern either
-
   ; Direction from the prompt char: 0 = forward (/), $10 = backward (?)
   LDA BUF_TEMP
   EOR #'/'
   STA SEARCH_DIR
-  ; fall through
+.ret:
+  RTS                        ; (C = 0 from read_line)
 
-; Search in direction A (0 = forward, $10 = backward; Z set from it)
+; Search in direction A (0 = forward, $10 = backward; Z set from it).
+; Returns carry set if found, clear if not
 search_dir:
   BNE search_backward
   ; fall through
@@ -85,7 +81,8 @@ search_forward:
   JMP search_show_not_found
 
 ; Move the cursor to the match at BUF_PTR16 on line SEARCH_LINE16 (a
-; match always starts inside the line, so no clamp is needed)
+; match always starts inside the line, so no clamp is needed).  Returns
+; carry set (the column is not negative)
 search_move_to_match:
   CP16 SEARCH_LINE16, FILE_LINE16
   CP16 BUF_PTR16, CURSOR_COL16 ; Match address
@@ -124,13 +121,16 @@ search_backward:
   BNE .line_loop
   ; Not found: fall through
 
-; Show "Pattern not found: <pattern>" on status line
+; Show "Pattern not found: <pattern>" on status line; returns carry
+; clear
 search_show_not_found:
   JSR status_line_clear
   PRINT_TEXT str_not_found
 
   PRINT_TEXT SEARCH_BUF
-  JMP flush_get_key            ; Wait for keypress
+  JSR flush_get_key            ; Wait for keypress
+  CLC
+  RTS
 
 ; Start a search on the cursor line: SEARCH_LINE16 = FILE_LINE16 and
 ; SEARCH_LIMIT16 = the cursor's address
