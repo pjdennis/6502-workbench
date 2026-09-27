@@ -1844,6 +1844,7 @@ class EditorTestRunner:
     def run_batch_equiv_tests(self):
         """Key sequences whose batched and one-at-a-time runs must agree."""
         lines = "".join(f"line {i:02d} alpha beta gamma\n" for i in range(30))
+        indented = "".join(f"  line {i:02d}\n" for i in range(30))
         for name, content, keys in (
             ("Batch equiv: x x x x x", "abcdefgh\nxyz\n", [b"x"] * 5),
             ("Batch equiv: j scrolling", lines, [b"j"] * 12),
@@ -1896,6 +1897,10 @@ class EditorTestRunner:
              [b"2J", b"J", b"J"]),
             ("Batch equiv: u u after moving", "abc\ndef\nghi\njkl\n",
              [b"dd", b"j", b"j", b"u", b"u"]),
+            ("Batch equiv: Ctrl-B past the first page", indented,
+             [b"0", b"\x06", b"\x06", b"l", b"\x02", b"\x02", b"\x02", b"x"]),
+            ("Batch equiv: Ctrl-F past the last page", indented,
+             [b"0", b"\x06", b"\x06", b"\x06", b"\x06", b"\x06", b"x"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -3292,13 +3297,22 @@ class EditorTestRunner:
 
         self._group("Screen state - pagination:", leading_blank=True)
 
+        # Ctrl-F and Ctrl-B page as vim does: the last two lines of the
+        # page stay on screen (at the top after Ctrl-F, at the bottom after
+        # Ctrl-B), the cursor goes to the new top line (Ctrl-F) or bottom
+        # line (Ctrl-B), a page that shows the last line puts it on top,
+        # and a page that cannot move leaves the cursor alone (vim beeps)
+        def page_rows(top, n=30):
+            return [(i, f"Line {top + i + 1}" if top + i < n else "~")
+                    for i in range(9)]
+
         # Ctrl-F from start (30 lines): full window verification
         self.run_test_screen(
             "Ctrl-F: full window after page down",
             make_lines(30),
             CTRL_F + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_lines=page_rows(7)
         )
 
         # Two Ctrl-F's: full window verification
@@ -3307,25 +3321,58 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_F + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+19}") for i in range(9)]
+            expect_lines=page_rows(14)
         )
 
-        # Repeated Ctrl-F to end: full window with last line at bottom
+        # Ctrl-F with the last line on the page: it goes on top
         self.run_test_screen(
-            "Ctrl-F to end: full window",
+            "Ctrl-F to end: the last line on top",
             make_lines(30),
             CTRL_F + CTRL_F + CTRL_F + CTRL_F + b":q!\r",
-            expect_cursor=(8, 0),
-            expect_lines=[(i, f"Line {i+22}") for i in range(9)]
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(29)
+        )
+        self.run_test_screen(
+            "Ctrl-F with the last line on the bottom row puts it on top",
+            make_lines(30),
+            b"G" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(29)
         )
 
-        # Ctrl-B from middle: full window after page back
+        # The cursor goes to the new top line wherever it was
+        self.run_test_screen(
+            "Ctrl-F: the cursor goes to the new top line",
+            make_lines(30),
+            b"jjj" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-B from middle: full window after page back, the cursor on
+        # the bottom line
         self.run_test_screen(
             "Ctrl-B: full window after page back",
             make_lines(30),
             CTRL_F + CTRL_F + CTRL_B + b":q!\r",
-            expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-B from the last line on top: no line below it to keep
+        self.run_test_screen(
+            "Ctrl-B from the last line on top",
+            make_lines(30),
+            CTRL_F * 4 + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(20)
+        )
+        self.run_test_screen(
+            "Ctrl-B from the next-to-last line on top",
+            make_lines(30),
+            CTRL_F * 4 + b"k" + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(20)
         )
 
         # Ctrl-B at start: stays at (0,0), full window
@@ -3334,20 +3381,168 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_B + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+1}") for i in range(9)]
+            expect_lines=page_rows(0)
+        )
+        self.run_test_screen(
+            "Ctrl-B with the first line on top leaves the cursor",
+            make_lines(30),
+            b"5jll" + CTRL_B + b":q!\r",
+            expect_cursor=(5, 2),
+            expect_lines=page_rows(0)
         )
 
-        # Ctrl-F with fewer lines than a page: full window
+        # Ctrl-F with fewer lines than a page: the last line goes on top
         self.run_test_screen(
-            "Ctrl-F short file: full window",
+            "Ctrl-F short file: the last line on top",
             make_lines(5),
             CTRL_F + b":q!\r",
-            expect_cursor=(4, 0),
-            expect_lines=[
-                (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
-                (3, "Line 4"), (4, "Line 5"),
-                (5, "~"), (6, "~"), (7, "~"), (8, "~"),
-            ]
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(4, 5)
+        )
+        self.run_test_screen(
+            "Ctrl-F on a one-line file does nothing",
+            "  abc\n",
+            b"$" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 4),
+            expect_lines=[(0, "  abc"), (1, "~")]
+        )
+
+        # A page that cannot move leaves the column alone; a count that
+        # runs out does not go to the first non-blank either (vim's
+        # onepage), but typed-ahead presses each do, as typed one at a time
+        indented30 = "".join(f"  Line {i}\n" for i in range(1, 31))
+        self.run_test_screen(
+            "Ctrl-F with the last line on top leaves the column",
+            indented30,
+            CTRL_F * 4 + b"l" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 3),
+        )
+        for name, keys, cursor in (
+                ("a count past the first page keeps the column",
+                 b"0" + CTRL_F * 2 + b"l3" + CTRL_B, (8, 3)),
+                ("typed-ahead presses past the first page",
+                 b"0" + CTRL_F * 2 + b"l" + CTRL_B * 3, (8, 2)),
+                ("a count past the last page keeps the column",
+                 b"0l5" + CTRL_F, (0, 1)),
+                ("typed-ahead presses past the last page",
+                 b"0" + CTRL_F * 5, (0, 2))):
+            self.run_test_screen(
+                "Ctrl-F/B: " + name,
+                indented30,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+        # ... and the remembered column: after $, k goes to the line end
+        self.run_test_screen(
+            "Ctrl-F/B: a count that runs out keeps the remembered column",
+            "".join(f"  Line {i}" + "x" * (10 if i % 2 == 0 else 0) + "\n"
+                    for i in range(1, 31)),
+            CTRL_F * 2 + b"$3" + CTRL_B + b"k:q!\r",
+            expect_cursor=(7, 17),
+        )
+
+        # On a screen of under 5 text rows vim keeps fewer lines: one on
+        # 4 rows, none on 3 or 2
+        for rows, top, back_cursor in ((6, 3, 4), (5, 3, 3), (4, 3, 2),
+                                       (3, 2, 1)):
+            self.run_test_screen(
+                f"Ctrl-F on {rows - 1} text rows",
+                make_lines(30),
+                CTRL_F + b":q!\r",
+                rows=rows,
+                expect_cursor=(0, 0),
+                expect_lines=[(0, f"Line {top + 1}")]
+            )
+            self.run_test_screen(
+                f"Ctrl-F Ctrl-F Ctrl-B on {rows - 1} text rows",
+                make_lines(30),
+                CTRL_F + CTRL_F + CTRL_B + b":q!\r",
+                rows=rows,
+                expect_cursor=(back_cursor, 0),
+                expect_lines=[(0, f"Line {top + 1}")]
+            )
+
+        # PgDn and PgUp are Ctrl-F and Ctrl-B, in insert mode too
+        self.run_test_screen(
+            "PgDn and PgUp page as Ctrl-F and Ctrl-B",
+            make_lines(30),
+            b"\x1b[6~\x1b[6~\x1b[5~:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(7)
+        )
+        self.run_test_screen(
+            "Insert-mode PgDn goes to the new top line",
+            make_lines(30),
+            b"jjjA\x1b[6~X\x1b:wq\r",
+            expected_content=make_lines(30).replace("Line 8", "XLine 8"),
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)[1:]
+        )
+        # PgUp on the first page moves nothing in insert mode either, so
+        # the typing around it is one stretch for u, as in vim
+        numbered = "".join(f"line {i}\n" for i in range(30))
+        for name, keys, content in (
+                ("leaves the cursor", b"", "line 0xy\n" + numbered[7:]),
+                ("keeps the undo stretch", b"u", numbered)):
+            self.run_test_screen(
+                "Insert-mode PgUp on the first page " + name,
+                numbered,
+                b"Ax\x1b[5~y\x1b" + keys + b":wq\r",
+                expected_content=content,
+            )
+
+        # The page is counted in screen rows: a line cut off at the bottom
+        # is the line below it, and a page back keeps it at the bottom
+        wrapped = (make_lines(7) + "x" * 100 + "\n"
+                   + "".join(f"Line {i}\n" for i in range(9, 31)))
+        self.run_test_screen(
+            "Ctrl-F: a line cut off at the bottom is below the page",
+            wrapped,
+            CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "Line 6"), (2, "x" * 40), (5, "Line 9")]
+        )
+        self.run_test_screen(
+            "Ctrl-F Ctrl-F Ctrl-B over a wrapped line",
+            wrapped,
+            CTRL_F * 2 + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(0, "Line 6"), (8, "Line 12")]
+        )
+
+        # A new bottom line just below a screen of the first lines: vim
+        # keeps them on top and puts the cursor on the line above it
+        for name, content, keys in (
+                ("Ctrl-B to just below the first screen",
+                 make_lines(30), b"\x04\x04"),
+                ("Ctrl-B from the last line on top of 11",
+                 make_lines(11), b"G" + CTRL_F)):
+            self.run_test_screen(
+                name,
+                content,
+                keys + CTRL_B + b":q!\r",
+                expect_cursor=(8, 0),
+                expect_lines=[(0, "Line 1"), (8, "Line 9")]
+            )
+
+        # The page is found from the top of the view, also after a range
+        # shift (whose redraw counts the range's rows in the cursor's)
+        self.run_test_screen(
+            "Ctrl-F after a range shift",
+            make_lines(30),
+            b":1,3>\r" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-D with the last line on screen moves the cursor only, as
+        # in vim: a view past the last full page stays
+        self.run_test_screen(
+            "Ctrl-D with the last line on top: the view stays",
+            make_lines(30),
+            CTRL_F * 4 + b"k\x04:q!\r",
+            expect_cursor=(1, 0),
+            expect_lines=page_rows(28)
         )
 
         self._group("Screen state - half page scroll:", leading_blank=True)
@@ -3491,7 +3686,7 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
         # Ctrl-U at start: no movement
@@ -3510,7 +3705,7 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + b"lll" + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
         # Multiple Ctrl-U from end
@@ -3544,23 +3739,23 @@ class EditorTestRunner:
         )
 
         # Ctrl-D count carries to Ctrl-U
-        # Ctrl-F to line 9; 2Ctrl-D scrolls 2 (sticky=2); Ctrl-U scrolls 2 back
+        # Ctrl-F to line 8; 2Ctrl-D scrolls 2 (sticky=2); Ctrl-U scrolls 2 back
         self.run_test_screen(
             "Ctrl-D count sticky carries to Ctrl-U",
             make_lines(30),
             CTRL_F + b"2" + CTRL_D + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+8}") for i in range(9)]
         )
 
         # Ctrl-U count overrides previous sticky
-        # Ctrl-F to line 9; 2Ctrl-D (sticky=2); 3Ctrl-U overrides (sticky=3)
+        # Ctrl-F to line 8; 2Ctrl-D (sticky=2); 3Ctrl-U overrides (sticky=3)
         self.run_test_screen(
             "Ctrl-U count overrides sticky",
             make_lines(30),
             CTRL_F + b"2" + CTRL_D + b"3" + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+9}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+7}") for i in range(9)]
         )
 
         # A char delete across lines keeps the sticky count
@@ -4162,14 +4357,13 @@ class EditorTestRunner:
             expect_content_redraws=[True, False, False, False]
         )
 
-        # Ctrl-F at bottom of file: cursor-only (view doesn't change)
-        # 5-line file, 10 rows (9 content). All lines fit on screen.
-        # Ctrl-F clamps to last line but view stays the same.
+        # Ctrl-F with the last line on top: cursor-only (the page cannot
+        # move, as in vim)
         CTRL_F = b'\x06'
         CTRL_B = b'\x02'
         self.run_test_screen(
             "Render opt: Ctrl-F at bottom is cursor-only",
-            make_lines(5),
+            make_lines(1),
             CTRL_F + b":q!\r",
             expect_content_redraws=[True, False]
         )
@@ -4218,14 +4412,14 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_U * 2 + b"j:q!\r",
             expect_cursor=(1, 0),
-            expect_lines=[(i, f"Line {i+2}") for i in range(9)],
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
             expect_content_redraws=[True, True, True, False]
         )
 
         # Insert Ctrl-F at bottom: cursor-only
         self.run_test_screen(
             "Render opt: insert Ctrl-F at bottom is cursor-only",
-            make_lines(5),
+            make_lines(1),
             b"i" + CTRL_F + b"\x1b:q!\r",
             expect_content_redraws=[True, False, False, False]
         )
@@ -5571,10 +5765,10 @@ class EditorTestRunner:
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 57),
-                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 377),
+                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 292),
                 ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
-                 (10, 40), 332),
-                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 910)):
+                 (10, 40), 143),
+                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 785)):
             self.run_test_screen(
                 "Repaint bytes: " + name,
                 content,
@@ -7539,33 +7733,33 @@ class EditorTestRunner:
 
         # Render optimization: batch Ctrl-B reduces redraws
         # G scrolls to end (full repaint), then 3 batched Ctrl-B's
-        # produce a single repaint, then j is cursor-only
+        # produce a single repaint, then k is cursor-only
         self.run_test_screen(
             "Render opt: batch Ctrl-B reduces redraws",
             make_lines(30),
-            b"G" + CTRL_B * 3 + b"j:q!\r",
+            b"G" + CTRL_B * 3 + b"k:q!\r",
             expect_content_redraws=[True, True, True, False],
         )
 
         # Batch Ctrl-F correctness: 3 pages down on 30-line file
-        # page_size=9, lines 0->9->18->27, VIEW_TOP clamped to 21
+        # 7 lines a page (2 kept): top line 0 -> 7 -> 14 -> 21
         self.run_test_screen(
             "Batch Ctrl-F moves correct number of pages",
             make_lines(30),
             CTRL_F * 3 + b":q!\r",
-            expect_cursor=(6, 0),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+22}") for i in range(9)]
         )
 
         # Batch Ctrl-B correctness: go to end then 2 pages up
         # G puts cursor on line 29, VIEW_TOP=21.
-        # 2 page-ups: line 29->20->11, VIEW_TOP 21->12->3
+        # 2 page-ups: the bottom line 22 -> 15, VIEW_TOP 21->14->7
         self.run_test_screen(
             "Batch Ctrl-B moves correct number of pages",
             make_lines(30),
             b"G" + CTRL_B * 2 + b":q!\r",
             expect_cursor=(8, 0),
-            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+8}") for i in range(9)]
         )
 
         # Batch PgDn key: same result as batch Ctrl-F
@@ -7582,7 +7776,7 @@ class EditorTestRunner:
             "Count prefix + batch Ctrl-F combines",
             make_lines(30),
             b"2" + CTRL_F * 2 + b":q!\r",
-            expect_cursor=(6, 0),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+22}") for i in range(9)]
         )
 
@@ -8416,8 +8610,8 @@ class EditorTestRunner:
             ("gg", b"j$gg", " 1,3 "),
             (":5", b"$:5\r", " 5,3 "),
             ("'a", b"4jmagg$'a", " 5,3 "),
-            ("Ctrl-F", b"$\x06", " 10,3 "),
-            ("Ctrl-B", b"G$\x02", " 21,3 "),
+            ("Ctrl-F", b"$\x06", " 8,3 "),
+            ("Ctrl-B", b"G$\x02", " 23,3 "),
             ("Ctrl-D", b"$\x04", " 5,3 "),
             ("Ctrl-U", b"8j$\x15", " 5,3 "),
             (":2,3d", b"$:2,3d\r\x1b", " 2,3 "),
@@ -11498,9 +11692,9 @@ class EditorTestRunner:
                     for i in range(60)),
             b"\x06:q!\r",
             rows=24, cols=80,
-            expect_lines=[(0, ">>>line 23 of the text"),
-                          (22, ">>>line 45 of the text")],
-            expect_frame_bytes=[(1, 812)],
+            expect_lines=[(0, ">>>line 21 of the text"),
+                          (22, ">>>line 43 of the text")],
+            expect_frame_bytes=[(1, 696)],
         )
 
         self._group("Word motions (w, b, e):", leading_blank=True)
@@ -14392,7 +14586,7 @@ class EditorTestRunner:
             make_lines(30),
             b"\x1b[6~:q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(0, "Line 10")],
+            expect_lines=[(0, "Line 8")],
         )
 
         # Tilde forms of Home/End: ESC[1~ / ESC[4~ (Linux console, tmux,

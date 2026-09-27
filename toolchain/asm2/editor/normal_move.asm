@@ -27,15 +27,83 @@ normal_move_up:
   JSR move_up16
   JMP vert_col_clamp
 
+; Ctrl-F and PgDn: page forward as vim does.  The top line goes to the
+; line below the page (the first one not shown in full), less the
+; page's last lines kept on screen (page_setup: BUF_TEMP16 of them), and
+; the cursor goes to it; a page that shows the last line puts that line
+; on top.  At least one line on, and with the last line on top the page
+; cannot move (vim beeps: page_fail)
 normal_page_down:
   JSR page_setup
-  JSR scroll_view_down
-  JMP first_nonblank_clear
+.page:
+  LDA TEXT_ROWS
+  JSR find_line_from_top_a   ; The line below the page
+  CP16 RENDER_LINE16, FILE_LINE16
+  JSR clamp_file_line        ; C=1: past the last line, which goes on top
+  BCS .moved
+  JSR move_up16              ; Back over the lines kept
+.moved:
+  CMP16 VIEW_TOP16, FILE_LINE16
+  BCC .on                    ; It moved on
+  CP16 VIEW_TOP16, FILE_LINE16
+  JSR next_line              ; One line on; C=1: the last line is on top
+  BCS page_fail
+.on:
+  LDA #$FF                   ; The cursor line's first row on top
+  JSR page_view
+  DEC BUF_DELTA
+  BNE .page
+  BEQ page_first_nonblank    ; Always taken
 
+; A page that cannot move changes nothing (vim beeps).  The presses
+; before it went to the first non-blank as usual, unless they were the
+; count's: then the column stays, clamped to the line, and so does the
+; remembered column (vim's onepage skips beginline when its count runs
+; out)
+page_fail:
+  LDA BATCH_EXTRA
+  CMP BUF_DELTA              ; C=1: a typed-ahead press failed
+  BCS page_first_nonblank
+  ASL CURSWANT_KEEP
+  JMP clamp_for_mode
+
+; Ctrl-B and PgUp: page back as vim does.  The page's first lines stay
+; on screen at the bottom (BUF_TEMP16 of them, fewer near the end of the
+; file) and the cursor goes to the new bottom line; with the first line
+; on top the page cannot move.  A new bottom line just below a screen of
+; the first lines leaves them on top, with the cursor on the line above
+; it (vim's cursor_correct)
 normal_page_up:
   JSR page_setup
-  JSR scroll_view_up
+.page:
+  TST16 VIEW_TOP16
+  BEQ page_fail
+  CP16 VIEW_TOP16, FILE_LINE16
+  JSR move_down16            ; The last line kept (or the last line)
+.up:
+  JSR dec_file_line          ; The line above it goes to the bottom row
+  LDA #0
+  JSR page_view
+  LDA VIEW_TOP16
+  EOR #1
+  ORA VIEW_TOP16 + 1
+  ORA VIEW_TOP_WRAP
+  BEQ .up                    ; Line 2 on top: vim keeps line 1 there and
+                             ; puts the cursor a line up
+  DEC BUF_DELTA
+  BNE .page
+page_first_nonblank:
   JMP first_nonblank_clear
+
+; Put the cursor line's first row on the top row (A = $FF) or on the
+; bottom row, with the first line on top if it fits there (A = 0):
+; ensure_row_visible scrolls to it from past it or from the first line
+page_view:
+  STA_LH16 VIEW_TOP16
+  LDA #0
+  STA VIEW_TOP_WRAP
+  STA WRAP_QUOT
+  JMP ensure_row_visible
 
 ; Ctrl-D: half-page down
 ; Scroll down by half a screen (or count lines).  On the last line vim
@@ -59,12 +127,19 @@ normal_half_page_up:
 half_page_fail:
   JMP keep_clear_count
 
-; Page scroll setup: BUF_DELTA = batched count (repeats),
-; BUF_TEMP16 = page size = content rows (TEXT_ROWS)
+; Page setup: BUF_DELTA = batched count (the presses), BUF_TEMP16 = the
+; lines a page keeps: 2, as vim, which keeps fewer on a small screen (1
+; on 4 text rows, none on 3 or less: its lines kept and the lines next to
+; them take at most TEXT_ROWS - 2 rows)
 page_setup:
   JSR get_batched_count
   STX BUF_DELTA
-  LDA TEXT_ROWS
+  LDX TEXT_ROWS
+  CPX #4
+  LDA #0
+  ROL                        ; 1 from 4 text rows
+  CPX #5
+  ADC #0                     ; 2 from 5
   JMP set_buf_temp16_a
 
 ; Half-page scroll setup: BUF_DELTA = 1 + extra Ctrl-D/U keys in

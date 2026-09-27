@@ -153,7 +153,7 @@ word_backward_x:
 .b_prev_line:
   TST16 FILE_LINE16
   BEQ .b_done_final       ; Already at first line, col 0
-  DEC16 FILE_LINE16
+  JSR dec_file_line
   JSR get_line_len_z      ; X = length high byte
   BEQ .b_done_one         ; Prev line is empty, at col 0
   LDA LINE_LEN16          ; Set col = line_len (one past end)
@@ -481,14 +481,21 @@ in_indent:
 ; Output: carry set if no next line (cursor unchanged), clear if advanced
 ; Clobbers: A
 advance_next_line:
-  INC16 FILE_LINE16
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .next
-  DEC16 FILE_LINE16       ; No next line (C stays set)
-  RTS
-.next:
+  JSR next_line
+  BCS next_line_ret
   LDA #0
   STA_LH16 CURSOR_COL16
+  RTS
+
+; FILE_LINE16 to the next line, if any: carry set if there is none
+; (FILE_LINE16 unchanged).  dec_file_line: FILE_LINE16 - 1.  Clobbers A
+next_line:
+  INC16 FILE_LINE16
+  CMP16 FILE_LINE16, LINE_COUNT16
+  BCC next_line_ret
+dec_file_line:
+  DEC16 FILE_LINE16       ; (C unchanged)
+next_line_ret:
   RTS
 
 ; Get current line length into LINE_LEN16

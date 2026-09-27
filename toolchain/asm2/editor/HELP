@@ -60,6 +60,13 @@ NORMAL MODE - MOVEMENT
   screen by default. As in vim, Ctrl-D on the last line and Ctrl-U
   on the first do nothing (a count typed with them is not kept).
 
+  Ctrl-F and Ctrl-B page as in vim: two lines of the page stay on
+  the screen (one on a screen of 4 text rows, none on fewer), and
+  the cursor goes to the new top line (Ctrl-F) or bottom line
+  (Ctrl-B). A page that reaches the end puts the last line on top;
+  with the last line on top (Ctrl-F) or the first (Ctrl-B) they do
+  nothing.
+
   G, gg, Ctrl-F, Ctrl-B, Ctrl-D, Ctrl-U, 'a and :N put the cursor on
   the first non-blank character of the line they go to, as dd and :d
   do on the line after the deleted ones.

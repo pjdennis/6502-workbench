@@ -5,9 +5,10 @@ differences below were kept on purpose: each costs code, and so text
 buffer, or reworks a part of the editor that works well as it is. Each
 section says what vim does, what the editor does, and how the editor
 could do what vim does: the data, the routines that change, memory, code
-bytes, CPU and repaint, risks, and the tests to write first. Section 4
-has since been done, and so have the first two subsets of section 5;
-sections 1, 2, 3 and 6, and the rest of 5, are kept for now.
+bytes, CPU and repaint, risks, and the tests to write first. Sections 4
+and 6 have since been done, and so have the first two subsets of section
+5; sections 1, 2 and 3, the rest of 5 and 6's long lines are kept for
+now.
 
 Byte counts marked *measured* come from sandbox prototypes on the tree at
 9d5cfd0 (console build 12,468 bytes, terminal build 12,541), with the
@@ -19,7 +20,9 @@ pass, part B) the console build was 12,720 bytes and the terminal build
 starts, so every item left here costs the terminal build 256 bytes of
 text buffer unless something else shrinks. Section 5's first subsets
 (part C) moved it to $3700: the console build is now 12,941 bytes and
-the terminal build 13,014, 42 bytes below $3700.
+the terminal build 13,014, 42 bytes below $3700. Section 6 moved the
+terminal build's to $3800 (the console build 12,992 bytes, the terminal
+build 13,065).
 
 | # | Difference | Code bytes | Tests that change | State |
 |---|---|---|---|---|
@@ -28,7 +31,7 @@ the terminal build 13,014, 42 bytes below $3700.
 | 3 | No search wrap messages, no E486 | +108 (measured), about 90 with shared text | none | kept for now |
 | 4 | Messages swallowed the next key | -5 (done) | 9 | done |
 | 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
-| 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +117 (a ready patch, measured) | the pagination tests' expected views | kept for now |
+| 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
 
 Item 3 uses the message routine item 4 left (a message held until the
 next key, which then runs), `show_message_ax`.
@@ -374,7 +377,8 @@ it was written, after a summary of what was built.
   cursor moved (the line and column against `SNAP_LINE16` and
   `SNAP_COL16`), and Home and End always do, as vim's `start_arrow`
   calls go; a key that fails (Right at the line end, Up on the first
-  line, Left at column 0) does not, in vim either (it beeps).
+  line, Left at column 0, and since section 6 PgUp with the first line
+  on top) does not, in vim either (it beeps).
 - u deletes the text (`delete_at_cursor`) and puts the cursor at the
   start, clamped, where vim's u and Ctrl-R put it. The text is kept in
   `UNDO_DATA_BUF` for the redo when it is at most 255 bytes; a longer
@@ -623,7 +627,15 @@ undo.
   segments of 255 and 256 bytes: the second is undone once, then u does
   nothing.)
 
-## 6. Ctrl-F and Ctrl-B (kept for now)
+## 6. Ctrl-F and Ctrl-B (done, but for long lines)
+
+Done after part C, from part A's patch: Ctrl-F, Ctrl-B, PgDn and PgUp
+(in insert mode too) page as below, for lines that fit a row exactly as
+vim does (the part-A paging differential against vim 8.2: 0 of 400
+Ctrl-F sessions differ, and of 1,000 mixed page sessions the 25 left
+are two older differences: vim centres the cursor line after a jump of
+more than half a screen (20), and writes an emptied buffer as no bytes
+(5)). What is left is the overlap over long lines (below).
 
 ### What vim does
 
@@ -635,26 +647,41 @@ on the new bottom line; when the page would show the last line, Ctrl-F
 puts it on top, and with the last line on top (Ctrl-F) or the first
 line (Ctrl-B) it beeps and does not move. A count that runs out keeps
 the remembered column where typed-ahead presses go to the first
-non-blank. 30 lines at 10x40: Ctrl-F puts line 8 on top with the
-cursor there.
+non-blank. When the new bottom line would start just below a screen of
+the file's first lines, Ctrl-B leaves them on top and its
+`cursor_correct` puts the cursor on the line above. 30 lines at 10x40:
+Ctrl-F puts line 8 on top with the cursor there.
+
+The lines kept depend on their rows (`get_scroll_overlap`): two when
+the two lines and the longer of the lines next to them (the line below
+them and the line above them) take at most `TEXT_ROWS` - 2 rows, else
+one when that line and the longer of its neighbours do, else none. So
+at 10x40 with lines of three rows vim keeps one line, and none next to
+a line of six or more rows. After Ctrl-B vim shows whole lines from the
+top line down (its view), the new bottom line where they end.
 
 ### What the editor does
 
-`normal_page_down` and `normal_page_up` move the view and the cursor
-`TEXT_ROWS` lines (SCREEN_ROWS - 1, no overlap): the cursor keeps its
-row, the view stops with the last line on the bottom row (or the first
-on top), and the cursor then goes on to the last (or first) line; line
-10 on top in the example. vi-compatibility-changes lists it.
+`normal_page_down` finds the line below the page with
+`find_line_from_top_a` (the line at row `TEXT_ROWS`, walking from the
+top of the view, so a range repaint's `WRAP_QUOT` does not matter),
+backs over the lines kept (`page_setup`: 2, 1 or 0 by `TEXT_ROWS`),
+puts the last line on top when the page reaches it, and moves at least
+one line; `normal_page_up` puts the cursor on the line above the last
+line kept and scrolls its first row to the bottom row through a new
+`ensure_row_visible` entry of `ensure_cursor_visible` (`page_view`),
+with vim's `cursor_correct` case when that leaves line 2 on top. Both
+stop at a page that cannot move (`page_fail`): a press of the count
+keeps the column (and the remembered one), a typed-ahead press goes to
+the first non-blank as the press before it did. `next_line` and
+`dec_file_line` were split out of `advance_next_line` (and used in
+`clamp_file_line` and `word_backward_x`). Measured: +118 bytes (the
+terminal build's `TEXT_BUF` moved to $3800).
 
-### Plan
-
-Part A of the vim-compatibility pass has a ready patch (tests and code,
-the suite green, against vim 145 of 159 page sessions fixed and none
-regressed, the rest being vim's re-centring after long jumps; render
-oracle and typed-ahead checks hold): botline through
-`find_line_at_render_row`, one `page_view` for both keys through a new
-`ensure_row_visible` entry, and `next_line` and `dec_file_line` split out
-of `advance_next_line`. It measured +117 bytes, over what that pass
-allowed for an item, and would move the terminal build's `TEXT_BUF` a
-page; it waits for the maintainer's decision.
-
+Left: the lines kept do not depend on their rows, and Ctrl-B puts the
+new bottom line's first row on the bottom row (the top line may start
+above the view, as after j, k and G). 10x40, 40 lines of 94 chars (3
+rows each): Ctrl-F puts line 2 on top in vim (one line kept), line 1
+here. Doing vim's overlap is a walk over four lines' rows and two sums
+for each page, about 50 to 70 bytes (estimate); vim's whole-line view
+after Ctrl-B is the display difference of j, k and G too.

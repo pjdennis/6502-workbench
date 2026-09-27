@@ -1,12 +1,9 @@
  Commands that differ from vi
 
-  Ctrl-F/Ctrl-B - Move the view and the cursor a page of SCREEN_ROWS-1 lines, with no overlap: the cursor keeps its
-  row, the view stops with the last line on the bottom row (or the first on top), and the cursor then goes on to the
-  last (or first) line. Vim keeps two lines of the page on screen (fewer on a screen of under 6 rows), counts the page
-  in screen rows, puts the cursor on the new top line (Ctrl-F) or bottom line (Ctrl-B), puts the last line on top
-  when the page shows it, and does not move at all when the last line is on top (Ctrl-F) or the first (Ctrl-B); a
-  count that runs out keeps the remembered column there. Doing all that measured about 117 bytes more code (see
-  vim-gaps.md).
+  Ctrl-F/Ctrl-B over long lines - Keep two lines of the page on screen (one on a screen of 4 text rows, none on
+  fewer) however many rows they take. Vim keeps fewer when the lines kept and the longer of the lines next to them
+  take more than TEXT_ROWS - 2 rows, and after Ctrl-B it shows whole lines from the top (its usual view), where the
+  editor puts the new bottom line's first row on the bottom row. Lines that fit a row page as in vim. See vim-gaps.md.
 
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.

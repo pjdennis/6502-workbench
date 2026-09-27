@@ -248,12 +248,12 @@ move_down16:
   ADC16 FILE_LINE16, BUF_TEMP16, FILE_LINE16
   ; fall through
 
-; Clamp FILE_LINE16 to the last line.  Clobbers: A
+; Clamp FILE_LINE16 to the last line: C=1 if it was past it.  Clobbers: A
 clamp_file_line:
   CMP16 FILE_LINE16, LINE_COUNT16
   BCC .ok
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
+  CP16 LINE_COUNT16, FILE_LINE16
+  JMP dec_file_line          ; (C stays set)
 .ok:
   RTS
 

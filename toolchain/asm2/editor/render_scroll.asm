@@ -435,10 +435,10 @@ render_rows:
 ;        ensure_cursor_visible set them for the view
 ; Output: RENDER_LINE16 = file line at that row
 ;         RENDER_WRAP = wrap row offset within the line
+; find_line_from_top_a: the same for row A, always walking from the top
+; of the view (CURSOR_ROW and WRAP_QUOT are not used: Ctrl-F)
 ; Clobbers: A, X, Y, BUF_PTR16, DIV_INPUT16, RENDER_LIMIT
 find_line_at_render_row:
-  LDX #VIEW_TOP16
-  LDY VIEW_TOP_WRAP
   LDA RENDER_FLAG
   CMP #RF_RANGE
   BEQ .from_top
@@ -451,10 +451,13 @@ find_line_at_render_row:
   BCC .from_top
   LDX #FILE_LINE16
   LDY #0
-  BCS .from                ; Always (C = 1: no borrow)
+  BCS find_line_walk       ; Always (C = 1: no borrow)
 .from_top:
   LDA RENDER_ROW
-.from:
+find_line_from_top_a:
+  LDX #VIEW_TOP16
+  LDY VIEW_TOP_WRAP
+find_line_walk:
   STA RENDER_LIMIT         ; remaining rows to skip
   STY RENDER_WRAP
   JSR render_line_from_x   ; RENDER_LINE16 = the line to walk from
@@ -737,6 +740,8 @@ ensure_cursor_visible:
   ; Compute cursor's wrap row: CURSOR_COL16 / SCREEN_COLS
   JSR cursor_col_div
   STX WRAP_QUOT      ; cursor_wrap_row
+; The same for the cursor on its line's row WRAP_QUOT (Ctrl-F, Ctrl-B)
+ensure_row_visible:
 
   ; Check if cursor is above view
   ; FILE_LINE16 < VIEW_TOP16?
