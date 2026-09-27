@@ -6,7 +6,7 @@ Branch: `michael-editor`, from `editor-size-series` with GitHub `main` merged in
 
 ## Progress (2026-09-27)
 
-Phases 1-4 are done: the editor runs on the emulated Michael board (`toolchain/asm2/editor-michael.sh`), and `verify.sh` tests it end to end (`editor/tests/michael_tests.py`). Phase 5: `toolchain/asm2/editor-michael-upload.sh` uploads it to the board in two steps (`tools/upload/upload_michael_big.sh`): the second-stage loader (`firmware/programs/michael/michael_second_stage_loader.s`) through the ROM's loader, then the whole image through it, straight to $0400. Neither trimming nor a change to the ROM was needed. The tests upload the image over the emulated serial line. Confirmed working on the real board on 2026-09-27.
+Phases 1-4 are done: the editor runs on the emulated Michael board (`toolchain/asm2/editor-michael.sh`), and `verify.sh` tests it end to end (`editor/tests/michael_tests.py`). Phase 5: `toolchain/asm2/editor-michael-upload.sh` uploads it to the board in two steps (`tools/upload/upload_michael_big.sh`): the second-stage loader (`firmware/programs/michael/michael_second_stage_loader.s`) through the ROM's loader, then the whole image through it, straight to $0400. Neither trimming nor a change to the ROM was needed. The tests upload the image over the emulated serial line. Confirmed working on the real board on 2026-09-27. (Superseded by the new ROM, `docs/michael-rom-plan.md`: the two-stage upload and the RAM build of the services are gone; they remain in the history.)
 
 Sizes and memory as built:
 - The define:direct_io define:michael editor is 11,807 bytes ($0400-$32DE); the services are 2,406 bytes at $3500.
