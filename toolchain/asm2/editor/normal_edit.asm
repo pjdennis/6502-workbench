@@ -506,6 +506,13 @@ normal_join_lines:
   LDA (BUF_PTR16),Y
   CMP #'\n'
   BNE .join_next
+  ; Undo puts the cursor back where the (last) J was typed: the cursor's
+  ; column before the first join, or for batched J's (whose write index
+  ; stays 0) before the last one, the previous join point
+  TXA
+  BNE .col_saved
+  CP16 CURSOR_COL16, UNDO_JOIN_COL16
+.col_saved:
   ; Record offset in undo buffer: offset = BUF_PTR16 - BUF_SRC16, the
   ; join point, where the cursor goes (the last one, as in vim)
   SEC

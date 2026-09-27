@@ -265,8 +265,10 @@ render_decide:
 .disp_not_positive:
   ; The block takes no more rows than the old line did: redraw it as one
   ; block that shrank from PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept
-  ; them)
+  ; them), unless it starts above the view (J undo can leave the cursor
+  ; on a later row of a long line): then redraw in full
   JSR set_first_row
+  BCC .ins_full
   JMP render_rows_resized
 .no_disp_adjust:
 

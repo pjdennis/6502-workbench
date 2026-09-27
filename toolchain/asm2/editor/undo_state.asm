@@ -38,7 +38,7 @@
 ;   4 p lines     line above copy  cursor column  -            copies
 ;   5 P lines     first line       cursor column  -            copies
 ;   6/7 p/P chars cursor line      insert column  -            copies
-;   8 J           first line       join column    joins        -
+;   8 J           first line       join column    joins        typed column
 ;   9 o/O         opened line      line to return -            -
 ;   10/11 >> <<   first line       cursor column  width        lines
 ;   12 ~          cursor line      span start     span length  -
@@ -75,3 +75,4 @@ UNDO_SPAN_LEN      = UNDO_JOIN_COUNT     ; ~ r: chars in the span
 UNDO_WIDTH         = UNDO_JOIN_COUNT     ; >> <<: width of the last op
 UNDO_RANGE_LINES16 = UNDO_PASTE_COUNT16  ; >> <<: lines in the range (> 255: not undoable)
 UNDO_REPL_CHAR     = UNDO_PASTE_COUNT16  ; r: the replacement char
+UNDO_JOIN_COL16    = UNDO_PASTE_COUNT16  ; J: the column the (last) J was typed at

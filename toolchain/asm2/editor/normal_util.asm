@@ -335,12 +335,6 @@ vert_keep:
   BEQ clamp_and_clear_count  ; Normal mode: onto the last char
   JMP clamp_cursor_col_insert ; Insert mode: up to the line end
 
-; Move cursor to col 0, clamp, then clear count (shared terminal tail)
-zero_col_clamp_clear:
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  ; fall through
-
 ; Clamp cursor column, then clear count state (shared terminal tail)
 clamp_and_clear_count:
   JSR clamp_cursor_col

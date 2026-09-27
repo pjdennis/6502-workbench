@@ -230,7 +230,8 @@ undo_join_undo:
   STA INSERT_LINE_COUNT
   LDA #RF_UNJOIN
   STA RENDER_FLAG            ; Line-insert scroll, skip cursor row
-  JMP zero_col_clamp_clear
+  CP16 UNDO_JOIN_COL16, CURSOR_COL16 ; Where the J was typed
+  JMP clamp_and_clear_count
 
 ; --- Join redo: replace newlines back to spaces ---
 undo_join_redo:

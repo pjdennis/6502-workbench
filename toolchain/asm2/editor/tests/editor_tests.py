@@ -13742,7 +13742,7 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"),
                 (8, "Short 9"),
             ],
-            expect_cursor=(1, 0),
+            expect_cursor=(1, 7),      # where the second J was typed
             expect_scroll_rows=[(3, {3, 4, 5, 6, 7, 8})]
         )
 
@@ -13768,7 +13768,7 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"),
                 (8, "Short 9"),
             ],
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 1),      # where the second J was typed
             expect_scroll_rows=[(2, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
@@ -13796,7 +13796,7 @@ class EditorTestRunner:
                 (5, "Short 5"), (6, "Short 6"),
                 (7, "Short 7"), (8, "Short 8"),
             ],
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 1),      # where the second J was typed
             expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
         )
 
@@ -18406,13 +18406,14 @@ class EditorTestRunner:
             expect_lines=[(0, "A"), (1, "B"), (2, "C"), (3, "D")],
         )
 
-        # JJ batched undo: cursor stays at col 0
+        # JJ batched undo: cursor goes back to where the second J was
+        # typed (the first J's join point), as with J J typed apart
         self.run_test_screen(
             "JJ batched undo: cursor position",
             "A\nB\nC\n",
             b"JJ u:q!\r",
             rows=10, cols=40,
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 1),
         )
 
         self._group("Undo batching (u):", leading_blank=True)
@@ -19110,6 +19111,46 @@ class EditorTestRunner:
             "Hello\nWorld\n",
             b"Ju:q!\r",        # J joins lines, u undoes
             expect_cursor=(0, 0),
+        )
+
+        # u after J puts the cursor back where the J was typed, as in vi
+        self.run_test_screen(
+            "Ju cursor back at the J column",
+            "abc def\nghi\n",
+            b"5lJu:q!\r",
+            expect_lines=[(0, "abc def"), (1, "ghi")],
+            expect_cursor=(0, 5),
+        )
+
+        self.run_test_screen(
+            "3Ju cursor back at the 3J column",
+            "Ab\nB\nC\nD\n",
+            b"l3Ju:q!\r",
+            expect_cursor=(0, 1),
+        )
+
+        # Typed apart, the second J starts at the first J's join point,
+        # so u (which undoes only the second J) puts the cursor back there
+        self.run_test_screen(
+            "J J u cursor back at the second J column",
+            "A\nB\nC\n",
+            b"J\x1bJ u:q!\r",
+            expect_lines=[(0, "A B"), (1, "C")],
+            expect_cursor=(0, 1),
+        )
+
+        # There, on a later row of a line that starts above the view (the
+        # join point of the second of three typed-ahead J's), the lines are
+        # redrawn in full: redrawn as one block from a row above the view,
+        # the row of the restored line break kept the joined text
+        self.run_test_screen(
+            "JJJu cursor on a row of a line starting above the view",
+            "a" * 30 + "\n" + "b" * 60 + "\nccc\n" + "d" * 50 + "\nee\n",
+            b"JJJu:q!\r",
+            rows=5, cols=20,
+            expect_lines=[(0, "a" * 10 + " " + "b" * 9), (1, "b" * 20),
+                          (2, "b" * 20), (3, "b" * 11 + " ccc")],
+            expect_cursor=(3, 11),
         )
 
         # ccu: cursor returns to original line content
