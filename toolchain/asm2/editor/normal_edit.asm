@@ -129,11 +129,12 @@ char_paste_last_copy:
   INC16 UNDO_COL16
   JMP paste_undo_one
 
-; Char paste modes (A for do_char_paste): bit 7 set = not p, bit 6 set = P,
-; bit 5 set = the caller places the cursor itself (no clamp)
+; Char paste modes (A for do_char_paste): bit 7 set = the undo of a char
+; delete (marks by column, no cursor clamp), bit 6 set = not p, bit 5 set
+; = P
 CP_BELOW = $00               ; p
-CP_AT    = $A0               ; Undo of a char delete
-CP_ABOVE = $C0               ; P
+CP_AT    = $C0               ; Undo of a char delete
+CP_ABOVE = $60               ; P
 
 ; Core char paste below (p, and its redo): paste BUF_TEMP16 copies after
 ; the cursor char, or at the cursor (column 0) on an empty line.
@@ -161,12 +162,15 @@ do_char_paste_above:
 ; of the cursor line.  A = mode:
 ;   CP_BELOW: p.  Renders from one column left of the insertion column
 ;             ($FFFF, the whole line, at column 0); a multi-line paste
-;             shifts the marks from the next line on
-;   CP_AT:    renders from the insertion column; marks by mark_adjust_col;
-;             the cursor is left unclamped (the caller restores it)
-;   CP_ABOVE: as CP_AT, but a single-line yank fills with
-;             interleaved_fill (the cursor ends BATCH_EXTRA chars before
-;             the last pasted char, as separate P keys leave it)
+;             shifts the marks from the next line on (those of the cursor
+;             line stay there, as in vim, even at column 0)
+;   CP_ABOVE: P.  Renders from the insertion column; marks as p; a
+;             single-line yank fills with interleaved_fill (the cursor
+;             ends BATCH_EXTRA chars before the last pasted char, as
+;             separate P keys leave it)
+;   CP_AT:    renders from the insertion column; marks by mark_adjust_col,
+;             as the delete it undoes; the cursor is left unclamped (the
+;             caller restores it)
 ; Output: cursor on the last pasted char (single-line yank) or the first
 ; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
 ; MODIFIED set.
@@ -175,11 +179,12 @@ do_char_paste_above:
 do_char_paste:
   STA NORMAL_TEMP
   JSR yank_count_newlines    ; YANK_LINES16 = lines per copy, for the check
-  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = not p, 5 = P, 4 = no clamp
+  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = CP_AT, 5 = not p, 4 = P
   JSR yank_paste_setup       ; BUF_LEN16 = total size, YANK_SIZE16 = single size
   BCS .ret
   ; RENDER_FROM_COL16 = insertion column, minus 1 for p
   LDA NORMAL_TEMP
+  ASL
   ASL
   ASL                        ; C = 1 unless p
   LDA CURSOR_COL16
@@ -191,8 +196,8 @@ do_char_paste:
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
   LDA NORMAL_TEMP
-  AND #$A0
-  CMP #$20
+  AND #$90
+  CMP #$10
   BEQ .interleaved           ; P of a single-line yank
   JSR yank_paste_core        ; Shift, copy, rebuild ("Buffer full" if no room)
   BCC .placed
@@ -230,8 +235,8 @@ do_char_paste:
   LDAX16 FILE_LINE16
   CLC
   BIT NORMAL_TEMP
-  BVS .by_col
-  ; p: from the next line on, even at column 0 of an empty line
+  BVS .by_col                ; CP_AT
+  ; p and P: from the next line on, even at column 0
   ADC #1
   BCC .next_line
   INX
@@ -248,9 +253,8 @@ do_char_paste:
   INX
   STX INSERT_LINE_COUNT      ; New lines + 1 (the split cursor line)
 .clamp:
-  LDA NORMAL_TEMP
-  AND #$10
-  BNE .done                  ; CP_AT: the caller restores the cursor
+  BIT NORMAL_TEMP
+  BVS .done                  ; CP_AT: the caller restores the cursor
   JSR clamp_cursor_col
 .done:
   CLC

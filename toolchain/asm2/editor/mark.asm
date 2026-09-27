@@ -206,6 +206,8 @@ str_more:         .asciiz "-- More --"
 ; Adjust marks with col-0 line adjustment via CURSOR_COL16
 ; At col 0: line consumed entirely, A/X unchanged
 ; At col > 0: line partially survives, A/X incremented
+; A delete that undoes a char paste (UNDO_TYPE a char paste type) always
+; starts at the next line: the paste left the marks of its line there
 ; Carry: set = delete, clear = insert
 ; Input: A/X = base line, BUF_TEMP16 = count
 mark_adjust_col:
@@ -213,7 +215,10 @@ mark_adjust_col:
   LDY CURSOR_COL16
   BNE .col_nz
   LDY CURSOR_COL16 + 1
-  BEQ .dispatch
+  BNE .col_nz
+  LDY UNDO_TYPE
+  CPY #UNDO_CHAR_PASTE_BELOW ; (the types here: none, a char delete, or
+  BCC .dispatch              ; a char paste)
 .col_nz:
   CLC
   ADC #1

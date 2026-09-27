@@ -19157,6 +19157,56 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # A mark on the line a multi-line char p or P goes into stays on
+        # that line, as in vim, even at column 0 (p on an empty line, P
+        # at the line start), and u and its redo leave it there
+        self.run_test_screen(
+            "multiline char p on empty line: undo keeps its mark",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Dj" +           # yank "b\ncd"; line 1 is now empty
+            b"ma" +             # mark the empty line
+            b"pu" +             # paste at col 0, then undo
+            b"gg'a:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char p on empty line leaves its mark there",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Djmap" +        # "b" / "cd": the mark stays on "b"
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cd"), (3, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char p on empty line: redo leaves its mark there",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Djmapu u" +
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cd"), (3, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char P at column 0 leaves the line's mark there",
+            "ab\ncd\nxy\nzz\n",
+            b"l2Djma" +         # yank "b\ncd"; mark "xy" (line 1)
+            b"P" +              # "b" / "cdxy": the mark stays on "b"
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cdxy"), (3, "zz")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char P at column 0: undo keeps the line's mark",
+            "ab\ncd\nxy\nzz\n",
+            b"l2DjmaPu" +
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "xy"), (2, "zz")],
+            expect_cursor=(1, 0),
+        )
+
         self._group("Undo char paste above (P):", leading_blank=True)
 
         # x then P then u: undo removes pasted char (x already committed)
