@@ -56,7 +56,8 @@ class EmulatorRunner:
             binary: path to the 6502 binary
             keys: keystroke bytes
             tmpdir: directory for temp files (keys.bin, output.bin)
-            edit_file: path to the file the editor opens
+            edit_file: path to the file the editor opens (None: no
+                argument)
             load_addr: load address (default 0x0400)
             rows, cols: terminal size (0 = default)
             mode: 'standard', 'terminal', or 'console'
@@ -89,7 +90,8 @@ class EmulatorRunner:
         cmd.extend(["--input", str(keys_file), "--output", str(output_file)])
         if emu_args:
             cmd.extend(emu_args)
-        cmd.append(edit_file)
+        if edit_file is not None:
+            cmd.append(edit_file)
 
         result = subprocess.run(cmd, capture_output=True, timeout=10)
         output = output_file.read_bytes() if output_file.exists() else b""
@@ -116,7 +118,7 @@ class EditorPersistentEmulator:
             return runner.run(binary, keys, tmpdir, edit_file,
                               load_addr, rows, cols, mode, emu_args)
 
-        args = [edit_file]
+        args = [] if edit_file is None else [edit_file]
 
         exit_code, output, _ = self._emu.run(
             binary, args=args, load_addr=load_addr, mode=mode,
@@ -361,10 +363,13 @@ class EditorTestRunner:
 
     def run_test(self, name: str, initial_content: str, keys: bytes,
                  expected_content: str = None, expect_exit: int = 0,
-                 expect_unmodified: bool = False):
-        """Run a single editor test."""
+                 expect_unmodified: bool = False,
+                 edit_name: str = "test.txt"):
+        """Run a single editor test on edit_name (relative to the test
+        directory; missing directories on the way are made)."""
         tmpdir = self.tmpdir
-        edit_file = tmpdir / "test.txt"
+        edit_file = tmpdir / edit_name
+        edit_file.parent.mkdir(parents=True, exist_ok=True)
 
         if initial_content is not None:
             edit_file.write_text(initial_content)
@@ -443,7 +448,7 @@ class EditorTestRunner:
             self.editor_bin, keys, tmpdir, input_file, rows=rows, cols=cols)
 
         saved = ""
-        if Path(input_file).exists():
+        if input_file is not None and Path(input_file).exists():
             try:
                 saved = Path(input_file).read_text()
             except UnicodeDecodeError:
@@ -734,7 +739,8 @@ class EditorTestRunner:
                         expect_max_col: list = None,
                         expect_scrolled_at_frame: list = None,
                         expect_scroll_rows: list = None,
-                        deferred_wrap: bool = True):
+                        deferred_wrap: bool = True,
+                        no_file: bool = False):
         """Run an editor test and verify screen state via ANSI output.
 
         Args:
@@ -764,6 +770,7 @@ class EditorTestRunner:
             deferred_wrap: the virtual terminal defers the wrap after the
                 last column, as real terminals do (the default); False
                 wraps at once
+            no_file: start the editor with no file name argument
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
@@ -777,7 +784,7 @@ class EditorTestRunner:
 
         try:
             exit_code, saved, ansi = self.run_editor_screen(
-                str(edit_file), keys, tmpdir, rows, cols
+                None if no_file else str(edit_file), keys, tmpdir, rows, cols
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -2304,6 +2311,25 @@ class EditorTestRunner:
             self.run_test_console_live(
                 f"Console mode exits at end of input in {where}",
                 "Hello\n", keys, expected_content="Hello\n")
+
+        # The file name comes from the argument, a path in another
+        # directory as well
+        self.run_test(
+            "File in a subdirectory loads and saves",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="sub/dir/test.txt"
+        )
+
+        # With no file name argument the buffer is named "[No Name]"
+        self.run_test_screen(
+            "No file name argument starts as [No Name]",
+            None,
+            b":q!\r",
+            expect_status_contains="[No Name]",
+            no_file=True
+        )
 
         self._group("New file creation:", leading_blank=True)
 
