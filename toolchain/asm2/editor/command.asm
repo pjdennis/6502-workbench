@@ -9,7 +9,7 @@
 ;   :marks   - list the set marks
 ;   :[range]d / y / > / <  - delete, yank, indent, unindent lines, where
 ;              range is one position or two separated by ',' and a
-;              position is NNN, . or 'x (mark); bare :> and :< shift the
+;              position is NNN, . or 'x (mark); with no range, the
 ;              current line
 
 CMD_BUF     = $0300   ; Command buffer (128 bytes)
@@ -36,18 +36,12 @@ command_parse:
   LDX #>command_parse_keys
   JSR dispatch_key
   BCC cmd_ret
-
-  ; Anything else must start with a digit: range or goto
-  LDA BUF_TEMP
-  SEC
-  SBC #'0'
-  CMP #10
-  BCS cmd_unknown
-  ; fall through
+  ; fall through: anything else is a range command or a goto
 
 ; Parse range or goto command
 ; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :5,d  :,5d  :NNN and
-; :N,M (goto)
+; :N,M (goto), and a command with no range (:d :y :> :<), which works on
+; the current line.  A letter that is not a command says so.
 command_parse_range:
   LDX #0
   JSR parse_range_pos     ; Parse first position -> BUF_LEN16
@@ -133,13 +127,6 @@ show_readonly_msg:
   LDX #>str_readonly
   JMP show_message_ax
 
-cmd_parse_bare_shift:
-  LDAX16 FILE_LINE16      ; Start = end = current line
-  STAX16 BUF_SRC16
-  STAX16 BUF_LEN16
-  LDA BUF_TEMP            ; '>' or '<'
-  BNE range_dispatch      ; Always taken
-
 ; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
 cmd_parse_m:
   LDX #4
@@ -224,11 +211,6 @@ command_parse_keys:
   .byte 'w'    .word cmd_parse_w
   .byte 'q'    .word cmd_parse_q
   .byte 'm'    .word cmd_parse_m
-  .byte '\''   .word command_parse_range
-  .byte '.'    .word command_parse_range
-  .byte ','    .word command_parse_range
-  .byte '>'    .word cmd_parse_bare_shift
-  .byte '<'    .word cmd_parse_bare_shift
   .byte 0      ; End sentinel
 
 ; Parse one range position starting at CMD_BUF[X]

@@ -278,7 +278,7 @@ COMMAND-LINE MODE
     :[pos]d            Delete one line at position
     :[pos]>            Indent one line at position
 
-  Bare :> and :< apply to the current line.
+  With no range, :d, :y, :> and :< work on the current line.
 
   Examples:
     :1,5d          Delete lines 1 through 5

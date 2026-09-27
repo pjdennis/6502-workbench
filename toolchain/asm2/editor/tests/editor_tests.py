@@ -9885,6 +9885,21 @@ class EditorTestRunner:
             expected_content="aaa\nbbb\nccc\nddd\n",
         )
 
+        # A command with no range works on the current line, as in vim
+        self.run_test(
+            ":d deletes the current line",
+            "L1\nL2\nL3\n",
+            b"j:d\r:wq\r",
+            expected_content="L1\nL3\n",
+        )
+
+        self.run_test(
+            ":y yanks the current line",
+            "L1\nL2\nL3\n",
+            b"j:y\rGp:wq\r",
+            expected_content="L1\nL2\nL3\nL2\n",
+        )
+
         # Bare :> indents current line
         self.run_test(
             ":> indents current line",
