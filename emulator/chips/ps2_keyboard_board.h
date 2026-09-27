@@ -23,8 +23,9 @@
  * the clock and answers about 1 ms after that: $FA (acknowledge), or
  * $EE to $EE (echo), $FA $AA to $FF (reset), $FA $AB $83 to $F2 (read
  * ID). $ED and $F3 take an argument byte, also acknowledged. Queued
- * bytes (key scan codes) go out once the host has sent a command and
- * then left the keyboard alone for 200 ms (start-up is over), 1 ms apart. */
+ * keys (groups of scan code bytes) go out once the host has sent a
+ * command and then left the keyboard alone for 200 ms (start-up is
+ * over): a key's bytes 1 ms apart, keys key_interval_us apart. */
 
 enum ps2_fault {
     PS2_FAULT_NONE,
@@ -33,10 +34,11 @@ enum ps2_fault {
     PS2_FAULT_RESEND,   /* the keyboard answers every command with $FE */
 };
 
-#define PS2_QUEUE_SIZE 256
+#define PS2_QUEUE_SIZE 16384
+#define PS2_LAST_OF_KEY 0x100    /* queue entry flag: the key's last byte */
 
 struct ps2_byte_queue {
-    uint8_t bytes[PS2_QUEUE_SIZE];
+    uint16_t entries[PS2_QUEUE_SIZE];   /* byte | PS2_LAST_OF_KEY */
     int head, count;
 };
 
@@ -53,6 +55,7 @@ struct ps2_keyboard_board_state {
     int active;
     uint8_t from_host;
     uint8_t frame_byte;
+    uint8_t frame_last_of_key;
     uint64_t frame_start, frame_end;
     uint64_t detector_until;    /* the frame detector holds CA2 low until */
 
@@ -60,6 +63,7 @@ struct ps2_keyboard_board_state {
     struct ps2_byte_queue keys;
     uint64_t next_send;             /* no frame from the keyboard before this */
     uint64_t keys_after;            /* no key frame before this */
+    uint32_t key_interval_us;       /* from one key's last byte to the next key */
     uint8_t awaiting_argument;
     uint32_t commands;              /* command and argument bytes received */
 };
@@ -67,9 +71,9 @@ struct ps2_keyboard_board_state {
 void ps2_keyboard_board_init(struct chip *chip, struct ps2_keyboard_board_state *state,
                              struct via_6522_state *via, uint32_t ticks_per_us);
 
-/* Queue a byte for the keyboard to send (a scan code). Returns -1 if
- * the queue is full. */
-int ps2_board_queue_key_byte(struct ps2_keyboard_board_state *state, uint8_t byte);
+/* Queue a key for the keyboard to send: its n scan code bytes. Returns
+ * -1 if the queue is full. */
+int ps2_board_queue_key(struct ps2_keyboard_board_state *state, const uint8_t *codes, int n);
 
 /* Returns 1 with *value = the byte on PORTB while SOEB is low, else 0. */
 int ps2_board_output(const struct ps2_keyboard_board_state *state, uint8_t *value);

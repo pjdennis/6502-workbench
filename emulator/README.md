@@ -57,6 +57,8 @@ Common options (the full list is in `--help`):
 | `--cpu <variant>` | `nmos` or `65c02` (wendy2c and michael force `65c02`) |
 | `--rom <path>` | wendy2c: ROM image; falls back to the positional code file. michael: ROM image; else only the vectors |
 | `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
+| `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
+| `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
 | `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
 | `--serial-input <path>` | wendy2c: bytes pre-queued into the SERIAL_USB chip |
 | `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins |

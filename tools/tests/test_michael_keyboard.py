@@ -44,8 +44,9 @@ class MichaelKeyboardTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_program(self, name, keys=(), fault=None):
-        """Returns the LCD's 4 lines once the keys have been typed."""
+    def run_program(self, name, keys=(), fault=None, typed=None):
+        """Returns the LCD's 4 lines once the keys have been typed: keys are raw scan code
+        bytes, typed is text the emulator types on the keyboard."""
         binary = os.path.join(self.tmp.name, name + '.bin')
         subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
                         '-ignore-mult-inc', '-esc', '-o', binary,
@@ -53,6 +54,11 @@ class MichaelKeyboardTest(unittest.TestCase):
         options = ['--kbd-scancodes', ','.join(keys)] if keys else []
         if fault:
             options += ['--kbd-fault', fault]
+        if typed is not None:
+            keys_file = os.path.join(self.tmp.name, name + '.keys')
+            with open(keys_file, 'wb') as f:
+                f.write(typed)
+            options += ['--keys', keys_file]
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael',
                                  '--load', base_config_address('PROGRAM_LOAD_ADDRESS'),
                                  '--cycle-cap', '2000000', *options],
@@ -69,6 +75,9 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_keyboard_new_echoes_a_key(self):
         self.assertEqual(self.run_program('michael_keyboard_new', KEY_A)[0], '>a')
+
+    def test_keyboard_new_echoes_typed_text(self):
+        self.assertEqual(self.run_program('michael_keyboard_new', typed=b'Hi there!')[0], '>Hi there!')
 
     def test_show_names_names_a_key(self):
         self.assertEqual(self.run_program('michael_keyboard_show_names', KEY_A)[:2], ['Ready?', 'A?'])

@@ -60,6 +60,7 @@ test_chip_rom|emulator/tests/test_chip_rom.c emulator/chips/rom_28c256.c emulato
 test_chip_ram|emulator/tests/test_chip_ram.c emulator/chips/ram_628128.c emulator/chips/clock_22v10.c emulator/bus.c|
 test_chip_cpu_65c02|emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/emu_wendy2c.c emulator/lcd_report.c emulator/cli.c emulator/cpu_core.c emulator/bus.c emulator/tty_alt_screen.c emulator/wendy2c_web.c emulator/web_json.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c|-Wno-unused-function
 test_chip_via|emulator/tests/test_chip_via.c emulator/chips/via_6522.c emulator/bus.c|
+test_ps2_keys|emulator/tests/test_ps2_keys.c emulator/ps2_keys.c|
 test_chip_lcd|emulator/tests/test_chip_lcd.c emulator/chips/lcd_hd44780.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_serial_usb|emulator/tests/test_chip_serial_usb.c emulator/chips/serial_usb.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_led_buttons|emulator/tests/test_chip_led_buttons.c emulator/chips/led_buttons.c emulator/chips/via_6522.c emulator/bus.c|

@@ -81,6 +81,10 @@ struct emu_opts {
     const char *kbd_scancodes;          /* --kbd-scancodes HEX,HEX,... (michael): bytes the PS/2
                                          * keyboard sends once the host has set it up */
     const char *kbd_fault;              /* --kbd-fault NAME (michael): noedge, noirq, noack or resend */
+    const char *keys_filename;          /* --keys PATH (michael): keys to type, as the bytes a
+                                         * terminal sends (see ps2_keys.h) */
+    int key_interval_ms;                /* --key-interval MS (michael): gap between typed keys;
+                                         * 0 = the keyboard board's default */
     const char *disk_dir;               /* --disk DIR (wendy2c only): host directory backing the
                                          * $F800+ file-I/O OS calls (the simulated SPI "disk").
                                          * NULL = the OS-call port chip is not installed. */

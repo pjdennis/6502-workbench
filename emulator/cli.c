@@ -38,6 +38,8 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->wendy2_prog_filename = NULL;
     opts->kbd_scancodes = NULL;
     opts->kbd_fault = NULL;
+    opts->keys_filename = NULL;
+    opts->key_interval_ms = 0;
     opts->disk_dir = NULL;
     opts->cycle_cap = 200000000ULL;
     opts->cycle_cap_set = 0;
@@ -100,6 +102,10 @@ void emu_opts_usage(FILE *fp) {
 "  --disk <dir>           wendy2c: host dir backing the $F800+ file-I/O OS calls\n"
 "  --kbd-scancodes <list> michael: comma-separated hex bytes the PS/2 keyboard sends\n"
 "                         once the program has set it up (e.g. 1c,f0,1c types 'a')\n"
+"  --keys <path>          michael: type these keys once the program has set up the\n"
+"                         keyboard: text, control codes and ANSI key sequences\n"
+"                         (arrows, Home, End, PgUp, PgDn, Insert, Delete)\n"
+"  --key-interval MS      michael: milliseconds between typed keys (default 20)\n"
 "  --kbd-fault <name>     michael: keyboard board fault -- noedge (CA2 never moves),\n"
 "                         noirq (the VIA's IRQ doesn't reach the CPU), noack (no\n"
 "                         answer to commands) or resend (every answer is $FE)\n"
@@ -296,6 +302,19 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (take_str_value(argc, argv, &i, "--wendy2-prog", &opts->wendy2_prog_filename)) return 1;
         } else if (strcmp(argv[i], "--kbd-scancodes") == 0) {
             if (take_str_value(argc, argv, &i, "--kbd-scancodes", &opts->kbd_scancodes)) return 1;
+        } else if (strcmp(argv[i], "--keys") == 0) {
+            if (take_str_value(argc, argv, &i, "--keys", &opts->keys_filename)) return 1;
+        } else if (strcmp(argv[i], "--key-interval") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --key-interval requires a value\n");
+                return 1;
+            }
+            opts->key_interval_ms = (int)strtol(argv[i + 1], NULL, 10);
+            if (opts->key_interval_ms <= 0) {
+                fprintf(stderr, "error: --key-interval value must be positive\n");
+                return 1;
+            }
+            i += 2;
         } else if (strcmp(argv[i], "--kbd-fault") == 0) {
             if (take_str_value(argc, argv, &i, "--kbd-fault", &opts->kbd_fault)) return 1;
             const char *f = opts->kbd_fault;
@@ -438,8 +457,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
-    if ((opts->kbd_scancodes || opts->kbd_fault) && opts->machine != MACHINE_MICHAEL) {
-        fprintf(stderr, "error: --kbd-scancodes / --kbd-fault require --machine michael\n");
+    if ((opts->kbd_scancodes || opts->kbd_fault || opts->keys_filename || opts->key_interval_ms)
+        && opts->machine != MACHINE_MICHAEL) {
+        fprintf(stderr, "error: --kbd-scancodes / --kbd-fault / --keys / --key-interval require --machine michael\n");
         return 1;
     }
 

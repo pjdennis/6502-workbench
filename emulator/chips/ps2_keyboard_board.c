@@ -14,18 +14,19 @@
 #define REPLY_DELAY_US    1000   /* command received -> first reply frame */
 #define BYTE_GAP_US       1000   /* between frames from the keyboard */
 #define KEY_QUIET_US      200000 /* host quiet before key frames go out */
+#define KEY_INTERVAL_US   20000  /* default gap between keys */
 
-static int queue_put(struct ps2_byte_queue *q, uint8_t byte) {
+static int queue_put(struct ps2_byte_queue *q, uint16_t entry) {
     if (q->count == PS2_QUEUE_SIZE) return -1;
-    q->bytes[(q->head + q->count++) % PS2_QUEUE_SIZE] = byte;
+    q->entries[(q->head + q->count++) % PS2_QUEUE_SIZE] = entry;
     return 0;
 }
 
-static uint8_t queue_take(struct ps2_byte_queue *q) {
-    uint8_t byte = q->bytes[q->head];
+static uint16_t queue_take(struct ps2_byte_queue *q) {
+    uint16_t entry = q->entries[q->head];
     q->head = (q->head + 1) % PS2_QUEUE_SIZE;
     q->count--;
-    return byte;
+    return entry;
 }
 
 /* A pin reads low only when the VIA drives it low; an input floats high. */
@@ -38,10 +39,11 @@ static uint64_t us(const struct ps2_keyboard_board_state *s, uint32_t n) {
 }
 
 static void start_frame(struct ps2_keyboard_board_state *s, uint64_t start,
-                        uint8_t byte, int from_host) {
+                        uint16_t entry, int from_host) {
     s->active = 1;
     s->from_host = (uint8_t)from_host;
-    s->frame_byte = byte;
+    s->frame_byte = (uint8_t)entry;
+    s->frame_last_of_key = (entry & PS2_LAST_OF_KEY) != 0;
     s->frame_start = start;
     s->frame_end = start + us(s, BIT_US * (from_host ? HOST_FRAME_BITS : DEVICE_FRAME_BITS));
 }
@@ -91,7 +93,7 @@ static void ps2_keyboard_board_tick(struct chip *self, struct bus *bus) {
         s->detector_until = now + us(s, DETECT_IDLE_US);
         s->shift_register = s->frame_byte;
         if (s->from_host) receive_command(s, s->frame_byte, now);
-        else              s->next_send = now + us(s, BYTE_GAP_US);
+        else              s->next_send = now + us(s, s->frame_last_of_key ? s->key_interval_us : BYTE_GAP_US);
     }
 
     if (!s->active && !solb_low && now >= s->next_send) {
@@ -116,8 +118,10 @@ int ps2_board_output(const struct ps2_keyboard_board_state *s, uint8_t *value) {
     return 1;
 }
 
-int ps2_board_queue_key_byte(struct ps2_keyboard_board_state *s, uint8_t byte) {
-    return queue_put(&s->keys, byte);
+int ps2_board_queue_key(struct ps2_keyboard_board_state *s, const uint8_t *codes, int n) {
+    if (s->keys.count + n > PS2_QUEUE_SIZE) return -1;
+    for (int i = 0; i < n; i++) queue_put(&s->keys, (uint16_t)(codes[i] | (i == n - 1 ? PS2_LAST_OF_KEY : 0)));
+    return 0;
 }
 
 void ps2_keyboard_board_init(struct chip *chip, struct ps2_keyboard_board_state *state,
@@ -131,6 +135,7 @@ void ps2_keyboard_board_init(struct chip *chip, struct ps2_keyboard_board_state 
     memset(state, 0, sizeof(*state));
     state->via = via;
     state->ticks_per_us = ticks_per_us;
+    state->key_interval_us = KEY_INTERVAL_US;
     state->ca2 = 1;
     via->ca2_in = 1;
     chip->ops = &ops;

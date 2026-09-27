@@ -15,6 +15,7 @@
 #include "chips/lcd_hd44780.h"
 #include "chips/cpu_65c02.h"
 #include "chips/ps2_keyboard_board.h"
+#include "ps2_keys.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
  * (INTERRUPT_VECTOR_TARGET in base_config_v2.inc). */
@@ -72,20 +73,43 @@ static void irq_cut_tick(struct chip *self, struct bus *bus) {
     bus->irq = 0;
 }
 
+/* --kbd-scancodes: the whole list is one key. */
 static int queue_scancodes(struct ps2_keyboard_board_state *kbd, const char *list) {
+    uint8_t codes[PS2_QUEUE_SIZE];
+    int n = 0;
     const char *p = list;
     while (*p) {
         char *end;
         long byte = strtol(p, &end, 16);
-        if (end == p || byte < 0 || byte > 0xFF || (*end && *end != ',')) {
+        if (end == p || byte < 0 || byte > 0xFF || (*end && *end != ',') || n == PS2_QUEUE_SIZE) {
             fprintf(stderr, "michael: bad --kbd-scancodes list: %s\n", list);
             return -1;
         }
-        if (ps2_board_queue_key_byte(kbd, (uint8_t)byte) < 0) {
-            fprintf(stderr, "michael: too many --kbd-scancodes bytes\n");
+        codes[n++] = (uint8_t)byte;
+        p = *end ? end + 1 : end;
+    }
+    return ps2_board_queue_key(kbd, codes, n);
+}
+
+/* --keys: type each key in the file. */
+static int queue_keys_file(struct ps2_keyboard_board_state *kbd, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "michael: could not open --keys %s\n", path);
+        return -1;
+    }
+    static uint8_t text[PS2_QUEUE_SIZE];
+    size_t len = fread(text, 1, sizeof(text), f);
+    fclose(f);
+    for (size_t at = 0; at < len; ) {
+        uint8_t codes[PS2_KEY_MAX_CODES];
+        size_t used;
+        int n = ps2_encode_key(text + at, len - at, &used, codes);
+        at += used;
+        if (n && ps2_board_queue_key(kbd, codes, n) < 0) {
+            fprintf(stderr, "michael: too many keys in %s\n", path);
             return -1;
         }
-        p = *end ? end + 1 : end;
     }
     return 0;
 }
@@ -171,7 +195,9 @@ int emu_run_michael(const struct emu_opts *opts) {
     lcd_hd44780_set_geometry(&lcd_state, 4, 20);
     ps2_keyboard_board_init(&kbd_chip, &kbd_state, &via_state, MICHAEL_TICKS_PER_US);
     kbd_state.fault = board_fault(opts->kbd_fault);
+    if (opts->key_interval_ms) kbd_state.key_interval_us = (uint32_t)opts->key_interval_ms * 1000;
     if (opts->kbd_scancodes && queue_scancodes(&kbd_state, opts->kbd_scancodes) != 0) return 1;
+    if (opts->keys_filename && queue_keys_file(&kbd_state, opts->keys_filename) != 0) return 1;
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));

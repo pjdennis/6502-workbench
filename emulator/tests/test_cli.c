@@ -298,6 +298,17 @@ TEST cli_kbd_options_parsed_for_michael(void) {
     PASS();
 }
 
+TEST cli_keys_and_interval_parsed_for_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael",
+                    "--keys", "k.txt", "--key-interval", "50", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_STR_EQ("k.txt", opts.keys_filename);
+    ASSERT_EQ_FMT(50, opts.key_interval_ms, "%d");
+    PASS();
+}
+
 TEST cli_kbd_options_require_michael(void) {
     char *argv[] = {"emulator", "prog.bin", "--machine", "wendy2c",
                     "--kbd-scancodes", "1c", NULL};
@@ -386,6 +397,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_missing_value_errors);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
     RUN_TEST(cli_kbd_options_parsed_for_michael);
+    RUN_TEST(cli_keys_and_interval_parsed_for_michael);
     RUN_TEST(cli_kbd_options_require_michael);
     RUN_TEST(cli_unknown_kbd_fault_rejected);
 }
