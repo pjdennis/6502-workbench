@@ -251,7 +251,8 @@ parse_range_pos:
 .error:
   RTS                     ; Carry set: no such mark, or no digits
 .number:
-  ; Decimal number: BUF_LEN16 = BUF_LEN16 * 10 + digit (BUF_DST16 = x2)
+  ; Decimal number into BUF_LEN16 (from 6400 on, further digits are
+  ; ignored: it means the last line all the same)
   LDA #0
   STA_LH16 BUF_LEN16
   STX CMD_IDX             ; Save start offset
@@ -261,15 +262,7 @@ parse_range_pos:
   SBC #'0'
   CMP #10
   BCS .digits_done
-  PHA
-  ASL16 BUF_LEN16
-  CP16 BUF_LEN16, BUF_DST16
-  ASL16 BUF_LEN16
-  ASL16 BUF_LEN16
-  CLC
-  ADC16 BUF_LEN16, BUF_DST16, BUF_LEN16
-  PLA
-  ADDA16 BUF_LEN16
+  JSR mul10_add           ; BUF_LEN16 = BUF_LEN16 * 10 + digit
   INX
   BNE .digit_loop         ; Always taken (CMD_BUF is null-terminated)
 .digits_done:

@@ -340,36 +340,34 @@ clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count
 
-; Accumulate the digit value in A (0-9) into COUNT16
-; COUNT16 = COUNT16 * 10 + digit
-; If COUNT16 >= 1000, digit is ignored (prevents overflow)
-; Clobbers A, X
+; Accumulate the digit value in A (0-9) into COUNT16: COUNT16 =
+; COUNT16 * 10 + digit, through mul10_add (so up to 63999)
+; Clobbers A, Y, BUF_LEN16, BUF_DST16
 count_accumulate_digit:
-  ; Ignore the digit if the count is already >= 1000
-  LDX COUNT16 + 1
-  CPX #>1000
-  BCC .has_room
-  BNE .done
-  LDX COUNT16
-  CPX #<1000
+  TAY
+  CP16 COUNT16, BUF_LEN16
+  TYA
+  JSR mul10_add
+  CP16 BUF_LEN16, COUNT16
+  RTS
+
+; BUF_LEN16 = BUF_LEN16 * 10 + A (a digit value, 0-9), unless BUF_LEN16
+; is 6400 or more: then the digit is ignored, so the value stays within
+; 16 bits (at most 63999 before it stops: past every line, and every
+; count, that matters).  Clobbers A, Y, BUF_DST16
+mul10_add:
+  LDY BUF_LEN16 + 1
+  CPY #>6400
   BCS .done
-.has_room:
   PHA
-  ; COUNT16 = (COUNT16 * 4 + COUNT16) * 2
-  LDA COUNT16
-  LDX COUNT16 + 1
-  ASL16 COUNT16
-  ASL16 COUNT16
+  ASL16 BUF_LEN16
+  CP16 BUF_LEN16, BUF_DST16  ; x2
+  ASL16 BUF_LEN16
+  ASL16 BUF_LEN16            ; x8
   CLC
-  ADC COUNT16
-  STA COUNT16
-  TXA
-  ADC COUNT16 + 1
-  STA COUNT16 + 1
-  ASL16 COUNT16
-  ; Add digit
+  ADC16 BUF_LEN16, BUF_DST16, BUF_LEN16
   PLA
-  ADDA16 COUNT16
+  ADDA16 BUF_LEN16
 .done:
   RTS
 

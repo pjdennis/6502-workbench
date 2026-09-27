@@ -7228,16 +7228,17 @@ class EditorTestRunner:
             ]
         )
 
-        # Count ignores digits past 4 digits (>= 1000)
-        # 1000 typed: 4th digit accepted. 5th digit ignored since 1000 >= 1000
+        # A count ignores further digits once it reaches 6400, where the
+        # next one could pass 16 bits (it goes up to 63999; vim takes any
+        # count). 10005 typed: the 5th digit is accepted, the 6th ignored
         self.run_test_screen(
-            "count limited to 4 digits (5th ignored)",
+            "count limited to 5 digits (6th ignored from 6400)",
             "Hello\n",
-            b"10005:q!\r",
+            b"100059:q!\r",
             cols=80,
             expect_status_at_frame=[
-                (4, " - 1000 - "),  # After 4th digit: count=1000
-                (5, " - 1000 - "),  # 5th digit '5' ignored, still 1000
+                (5, " - 10005 - "),  # After 5th digit: count=10005
+                (6, " - 10005 - "),  # 6th digit '9' ignored, still 10005
             ]
         )
 
@@ -9737,6 +9738,39 @@ class EditorTestRunner:
             ":999 clamps to last line",
             make_lines(5),
             b":999\r:q!\r",
+            expect_cursor=(4, 0),
+        )
+
+        # Numbers of 65536 and more must not wrap to small line numbers:
+        # like any number past the last line, they mean the last line
+        # (vim goes there for :N too)
+        self.run_test_screen(
+            ":65537 goes to the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":65537\r:q!\r",
+            expect_cursor=(4, 0),
+        )
+
+        self.run_test(
+            ":1,65537d deletes to the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":1,65537d\r:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            ":65539d deletes the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":65539d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 3\nLine 4\n",
+        )
+
+        # 63999 fits 16 bits; one digit more would not (639999 wraps to
+        # 50175 and 6399999 to 42495): more digits still mean the last line
+        self.run_test_screen(
+            "A long line number goes to the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":63999" + b"9" * 30 + b"\r:q!\r",
             expect_cursor=(4, 0),
         )
 
