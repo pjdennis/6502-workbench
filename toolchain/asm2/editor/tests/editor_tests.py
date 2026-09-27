@@ -5551,7 +5551,7 @@ class EditorTestRunner:
                 ("d$ mid-line", "Hello World\n", b"llld$:q!\r", 2,
                  (10, 40), 56),
                 ("typed text past a full row", "a" * 39 + "\nNEXT\nLAST\n",
-                 b"AXY\x1b:q!\r", 2, (10, 40), 75),
+                 b"AXY\x1b:q!\r", 2, (10, 40), 77),
                 ("dw on a 3-row line", fox, b"4ldw:q!\r", 3,
                  (10, 40), 98),
                 ("db on a 3-row line", fox, b"10ldb:q!\r", 4,
@@ -5570,7 +5570,7 @@ class EditorTestRunner:
                  4, (10, 40), 54),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
-                 (10, 40), 62),
+                 (10, 40), 60),
                 ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 377),
                 ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
                  (10, 40), 332),
@@ -5607,7 +5607,7 @@ class EditorTestRunner:
                      [(0, "x" * 40), (1, "next"), (2, "~")]),
                     ("a wrapped line continues by auto-wrap",
                      "a\n" + "b" * 50 + "\nc\n", b"jyyp:q!\r", 3,
-                     "\x1b[4H" + "b" * 50 + "\x1b[K",
+                     "\x1b[4H\x1b[2L" + "b" * 50 + "\x1b[K",
                      [(0, "a"), (1, "b" * 40), (2, "b" * 10),
                       (3, "b" * 40), (4, "b" * 10), (5, "c")])):
                 self.run_test_screen(
@@ -5670,8 +5670,7 @@ class EditorTestRunner:
 
         # A VT100 or xterm takes a missing parameter as its default: 1 for
         # a move's row and column (ESC[H is home) and for the count of ICH,
-        # DCH and the scrolls, and 0 (normal video) for SGR.  A region
-        # from the top row leaves out its first row the same way
+        # DCH, DL and IL, and 0 (normal video) for SGR
         for name, content, keys, frame, raw, lines in (
                 ("a move to column 1", "Hello\nWorld\n", b"j:q!\r", 1,
                  "\x1b[m\x1b[2H\x1b[?25h", [(1, "World")]),
@@ -5685,11 +5684,11 @@ class EditorTestRunner:
                  "\x1b[P\x1b[10;", [(0, "HelloWorld")]),
                 ("ICH", "Hello World\n", b"5liX\x1b:q!\r", 4,
                  "\x1b[@X\x1b[10;", [(0, "HelloX World")]),
-                ("SU, in a region from the top row", numbered, b"8jlj:q!\r",
-                 4, "\x1b[;9r\x1b[S\x1b[r\x1b[9HL10\x1b[K",
+                ("DL at the top row, then IL", numbered, b"8jlj:q!\r",
+                 4, "\x1b[H\x1b[M\x1b[9H\x1b[LL10\x1b[K",
                  [(0, "L2"), (8, "L10")]),
-                ("SD, in a region from the top row", numbered,
-                 b"8jlj8klk:q!\r", 8, "\x1b[;9r\x1b[T\x1b[r\x1b[HL1\x1b[K",
+                ("DL, then IL at the top row", numbered,
+                 b"8jlj8klk:q!\r", 8, "\x1b[9H\x1b[M\x1b[H\x1b[LL1\x1b[K",
                  [(0, "L1"), (8, "L9")])):
             self.run_test_screen(
                 "Escape sequences: " + name,
@@ -5698,6 +5697,55 @@ class EditorTestRunner:
                 expect_ansi_contains=raw,
                 expect_lines_at_frame=[(frame, lines)],
             )
+
+        self._group("Scrolls move rows with DL and IL:", leading_blank=True)
+
+        # The rows that move (those below an edit, or the text rows for a
+        # view scroll) go with DL (ESC[nM) at the first row that moves and
+        # IL (ESC[nL) where the new rows come in: no scroll region is set,
+        # and the pair keeps the status bar in place.  IL leaves the cursor
+        # at column 1 of the first row it opened, where a frame that draws
+        # from there sends no move; the DL's move is left out when the
+        # cursor is already there
+        numbered24 = "".join(f"L{i}\n" for i in range(1, 40))
+        grows = "TOP\n" + "d" * 39 + "\nNEXT\nLAST\n"
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines, (rows, cols) in (
+                    ("j on the bottom row of 24", numbered24, b"22jlj:q!\r",
+                     5, "\x1b[?25l\x1b[H\x1b[M\x1b[23H\x1b[LL24\x1b[K",
+                     [(0, "L2"), (22, "L24")], (24, 80)),
+                    ("Ctrl-D", numbered, b"\x04:q!\r", 1,
+                     "\x1b[?25l\x1b[4M\x1b[6H\x1b[4LL10\x1b[K\r\nL11",
+                     [(0, "L5"), (5, "L10"), (8, "L13")], (10, 40)),
+                    ("dd from the cursor's row", numbered, b"4jdd:q!\r", 3,
+                     "\x1b[?25l\x1b[M\x1b[9H\x1b[LL10\x1b[K",
+                     [(4, "L6"), (8, "L10")], (10, 40)),
+                    ("o", numbered, b"4jo\x1b:q!\r", 3,
+                     "\x1b[?25l\x1b[9H\x1b[M\x1b[6H\x1b[L",
+                     [(4, "L5"), (5, ""), (6, "L6"), (8, "L8")], (10, 40)),
+                    ("P", numbered, b"4jyyP:q!\r", 4,
+                     "\x1b[?25l\x1b[9H\x1b[M\x1b[5H\x1b[LL5\x1b[K",
+                     [(4, "L5"), (5, "L5"), (8, "L8")], (10, 40)),
+                    ("J draws the line before the rows below move", numbered,
+                     b"3jJ:q!\r", 3,
+                     "\x1b[?25l\x1b[4;3H L5\x1b[K\x1b[5H\x1b[M\x1b[9H\x1b[L"
+                     "L10\x1b[K", [(3, "L4 L5"), (4, "L6"), (8, "L10")],
+                     (10, 40)),
+                    ("a line gaining a row is drawn from its change", grows,
+                     b"jAXY\x1b:q!\r", 3,
+                     "\x1b[?25l\x1b[4H\x1b[M\x1b[3H\x1b[L\x1b[2;40HXY",
+                     [(0, "TOP"), (1, "d" * 39 + "X"), (2, "Y"),
+                      (3, "NEXT")], (5, 40))):
+                self.run_test_screen(
+                    "DL and IL: " + name + suffix,
+                    content,
+                    keys,
+                    rows=rows, cols=cols,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                )
 
         self._group("D stays minimal:", leading_blank=True)
 
@@ -5716,11 +5764,13 @@ class EditorTestRunner:
                 expect_min_col=[(3, 0, 5), (3, 1, -1)],
             )
             self.run_test_screen(
-                "D on a wrapped line scrolls the rows below up" + suffix,
+                "D on a wrapped line draws it, then moves the rows below up"
+                + suffix,
                 "0123456789" * 10 + "\nNEXT\nLAST\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[2;9r\x1b[2S\x1b[r\x1b[;6H\x1b[K",
+                expect_ansi_contains="\x1b[?25l\x1b[K\x1b[2H\x1b[2M\x1b[8H"
+                                     "\x1b[2L~\x1b[K",
                 expect_lines_at_frame=[(3, [(0, "01234"), (1, "NEXT"),
                                             (2, "LAST")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1), (3, 2, -1)],
@@ -10875,7 +10925,7 @@ class EditorTestRunner:
                           (22, "line 25 the quick brown fox jumps over the "
                                "lazy dog xyz")],
             expect_cursor=(3, 0),
-            expect_frame_bytes=[(1, 249)],
+            expect_frame_bytes=[(1, 247)],
         )
 
         # Line numbers are 1-based
@@ -15820,7 +15870,7 @@ class EditorTestRunner:
             expect_lines=[(0, "a" * 40), (1, " " + "b" * 39), (2, "b"),
                           (3, "c"), (4, "d")],
             expect_cursor=(1, 0),
-            expect_frame_bytes=[(1, 113)],
+            expect_frame_bytes=[(1, 115)],
         )
         # Frames: 0 initial, 1 '4', 2 '0', 3 l, 4 r<Enter>, 5 u
         self.run_test_screen(
@@ -15830,7 +15880,7 @@ class EditorTestRunner:
             expect_lines=[(0, "a" * 40), (1, "x" + "b" * 39), (2, "b"),
                           (3, "c"), (4, "d")],
             expect_cursor=(1, 0),
-            expect_frame_bytes=[(5, 98)],
+            expect_frame_bytes=[(5, 100)],
         )
 
         # J undo negative displacement scroll up: undo of the above J.
@@ -21081,18 +21131,19 @@ class EditorTestRunner:
             expect_content_redraws=[True, True, True],
         )
 
-        # J undo scroll region should exclude cursor row
+        # J undo scroll excludes the cursor row
         # When J is undone, cursor row content changes but doesn't need to scroll.
         # Only rows below cursor should scroll down.
-        # For cursor at row 0 with 10 rows: scroll region should be ESC[2;9r
-        # (rows 2-9 in 1-based = rows 1-8 in 0-based), not ESC[1;9r
+        # For cursor at row 0 with 10 rows: the line is inserted at row 2
+        # (1-based: ESC[2H ESC[L, after the DL at the bottom that keeps the
+        # status bar in place), not at row 1
         self.run_test_screen(
             "J undo scroll excludes cursor row",
             "Hello\nWorld\n",
             b"Ju:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello"), (1, "World")],
-            expect_ansi_contains="\x1b[2;9r",
+            expect_ansi_contains="\x1b[9H\x1b[M\x1b[2H\x1b[L",
         )
 
         self._group("Undo line paste below (p):", leading_blank=True)
@@ -24841,7 +24892,7 @@ class EditorTestRunner:
             expect_cursor=(8, 39),
             expect_scrolled_at_frame=[(3, True)],
             expect_content_rows=[(3, {4, 5, 6, 7, 8})],
-            expect_frame_bytes=[(3, 272)],
+            expect_frame_bytes=[(3, 274)],
         )
         # Typing at the end of a line taller than the screen: the char
         # that fills its last row moves the view down a row within the
@@ -24894,7 +24945,7 @@ class EditorTestRunner:
             expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
                           (21, "line 22 " + "abcdefghij" * 4), (22, "")],
             expect_cursor=(22, 0),
-            expect_frame_bytes=[(4, 75)],
+            expect_frame_bytes=[(4, 72)],
         )
         self.run_test_screen(
             "Scroll opt: Enter at the bottom row at 24x80 sends one row",
@@ -24904,7 +24955,7 @@ class EditorTestRunner:
             expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
                           (21, "line 22 " + "abcdefghij" * 4), (22, "")],
             expect_cursor=(22, 0),
-            expect_frame_bytes=[(5, 83)],
+            expect_frame_bytes=[(5, 85)],
         )
 
         # Typed-ahead pp pastes both copies in one frame, after the line
@@ -24922,7 +24973,7 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(3, True)],
             expect_content_rows=[(3, {3, 4, 5})],
             expect_min_col=[(3, 3, 6)],
-            expect_frame_bytes=[(3, 97)],
+            expect_frame_bytes=[(3, 100)],
         )
         self.run_test_screen(
             "Scroll opt: batched ppp at the top",
@@ -25005,7 +25056,7 @@ class EditorTestRunner:
                           (13, "line 11 " + "abcdefghij" * 4),
                           (14, "line 12 " + "abcdefghij" * 4)],
             expect_cursor=(13, 0),
-            expect_frame_bytes=[(5, 187)],
+            expect_frame_bytes=[(5, 190)],
         )
 
         # ================================================================
@@ -25140,6 +25191,27 @@ class EditorTestRunner:
             ],
             expect_cursor=(0, 0),
             expect_scrolled_at_frame=[(1, True)],
+        )
+
+        # >> / << whose row count change leaves one text row below the range:
+        # only that row moves, and the rows above the range stay put
+        self.run_test_screen(
+            "Render opt: >> wrapping into the last text row",
+            "TOP\nMID\n" + "A" * 39 + "\nNEXT\nLAST\n",
+            b"jj>>:q!\r",
+            rows=5, cols=40,
+            expect_lines=[(0, "TOP"), (1, "MID"), (2, "  " + "A" * 38),
+                          (3, "A")],
+            expect_cursor=(2, 2),
+        )
+        self.run_test_screen(
+            "Render opt: << unwrapping above the last text row",
+            "TOP\nMID\n  " + "A" * 39 + "\nNEXT\nLAST\n",
+            b"jj<<:q!\r",
+            rows=5, cols=40,
+            expect_lines=[(0, "TOP"), (1, "MID"), (2, "A" * 39),
+                          (3, "NEXT")],
+            expect_cursor=(2, 0),
         )
 
         # << no-op (no leading spaces): no content redraw needed.

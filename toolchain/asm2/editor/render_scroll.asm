@@ -1,40 +1,128 @@
 ; Line-level scroll repaint paths and render utilities.
 ;
-; Scroll-region repaints for line deletion, line insertion, and in-place
+; Scroll repaints (DL/IL) for line deletion, line insertion, and in-place
 ; range changes (RENDER_FLAG=$0B), plus the limited-row render loop,
 ; row/line mapping, wrap math, and cursor visibility.  Part of the
 ; render engine; see render.asm and render_decide.asm.
 
 
+; === Scroll helpers ===
+; The rows from 1-based row A to the last text row (TEXT_ROWS) move up
+; ('M') or down ('L') by SCROLL_DELTA rows, with DL and IL: no scroll
+; region is set, and the status bar keeps its place (see
+; scroll_region_check).
+; Line-delete scroll: the rows [A .. TEXT_ROWS] lost SCROLL_DELTA rows
+; from their top (screen rows deleted, or a line's lost rows), so the
+; rows below them move up and the bottom rows are exposed.  SCROLL_DELTA
+; is first clamped to their height (0 if A is at or past the status
+; bar): the rows exposed never reach above them.  They move up by that
+; many rows, unless that is all of them: then nothing is sent, as the
+; caller repaints them all anyway.  The caller draws its own rows above
+; A first and ends with render_bottom_rows (which draws nothing for
+; SCROLL_DELTA = 0), so the drawing starts where IL left the cursor.
+; scroll_clamped does the same in the direction X ('M' up, 'L' down:
+; the rows exposed are then at the top, from row A).
+; In: A, SCROLL_DELTA (>= 1).  Out: SCROLL_DELTA = rows exposed.
+; Clobbers A, X, Y
+scroll_up_clamped:
+  LDX #'M'                     ; rows move up
+scroll_clamped:
+  TAY                          ; Y = the first row that moves
+  EOR #$FF
+  SEC
+  ADC SCREEN_ROWS              ; their height
+  BCS .height
+  LDA #0                       ; they start past the status bar
+.height:
+  CMP SCROLL_DELTA
+  BCC .all_exposed
+  BNE scroll_region_check      ; height > SCROLL_DELTA: scroll
+.all_exposed:
+  STA SCROLL_DELTA
+  RTS
+
+; Move the rows [A .. TEXT_ROWS] (A = 1-based) by SCROLL_DELTA rows, or
+; blank them all when it is more: X = 'M' moves them up, X = 'L' down.
+; The rows that go are deleted with DL (ESC[nM) and blank rows inserted
+; with IL (ESC[nL), from the bottom text row R = TEXT_ROWS + 1 - n: up,
+; DL at A (the status bar moves up to R) then IL at R (it moves back);
+; down, DL at R then IL at A.  Each is sent at column 1 of its row,
+; which IL and DL leave the cursor at on any terminal: the cursor is
+; left at the first row opened, where a frame that draws from there sends
+; no move (CUR_VALID).  Skips (C=0) if the rows are a single row (Z=1:
+; that row is left as it was, not blanked) or none (Z=0); C=1 after a
+; scroll.  Clobbers A, X, Y
+scroll_region_from_a:
+  TAY
+  ; fall through (entry with the start row in Y)
+scroll_region_check:
+  CPY TEXT_ROWS
+  BCS .skip                    ; a single row (Z=1): nothing to shift, or
+                               ; none (Z=0)
+  TYA
+  EOR #$FF
+  SEC
+  ADC TEXT_ROWS                ; the rows below row A
+  CMP SCROLL_DELTA
+  BCS .count                   ; SCROLL_DELTA of them move
+  ADC #1                       ; (C=0) fewer: all the rows are blanked
+  .byte $2C                    ; BIT abs: skip the LDA
+.count:
+  LDA SCROLL_DELTA
+  STA SCROLL_N                 ; the count for DL and IL
+  EOR #$FF
+  SEC
+  ADC TEXT_ROWS                ; R - 1 (0-based)
+  DEY                          ; A - 1
+  CPX #'M'
+  BEQ .up
+  STY SCROLL_ROW2              ; down: DL at R, IL at A
+  TAY
+  .byte $2C                    ; BIT abs: skip the STA
+.up:
+  STA SCROLL_ROW2              ; up: DL at A, IL at R
+  LDA #'M'
+  JSR .line_op
+  LDY SCROLL_ROW2
+  LDA #'L'
+  JSR .line_op
+  SEC
+  RTS
+.skip:
+  CLC                          ; (Z kept)
+  RTS
+; ESC[<row>H ESC[<n><A> for 0-based row Y, n = SCROLL_N, A = 'M' or 'L'
+.line_op:
+  PHA
+  TYA
+  JSR ansi_goto_row0
+  PLA
+  TAX
+  LDA SCROLL_N
+  JSR ansi_count_seq
+  INC CUR_VALID                ; the cursor is at column 1 of that row
+  RTS
+
 ; Scroll for line deletion at cursor.
-; SCROLL_DELTA = screen rows deleted.  The rows below the ones this path
-; redraws scroll up (scroll_up_clamped): from first_row (= CURSOR_ROW -
-; WRAP_QUOT) for pure newline joins (INSERT_LINE_COUNT 1-254), else from
-; first_row + DELETE_SCREEN_ROWS (the cursor line's rows that are kept:
-; $06/$08, and for $07 those of a cursor line above the deleted lines),
-; or from the top row if that is above the view.  Then the changed
-; cursor line ($06/$08) and the exposed bottom rows are drawn.
+; SCROLL_DELTA = screen rows deleted.  The changed cursor line ($06/$08)
+; is drawn first, then the rows below the ones it takes move up
+; (scroll_up_clamped): from first_row (= CURSOR_ROW - WRAP_QUOT) for pure
+; newline joins (INSERT_LINE_COUNT 1-254), else from first_row +
+; DELETE_SCREEN_ROWS (the cursor line's rows that are kept: $06/$08, and
+; for $07 those of a cursor line above the deleted lines), or from the
+; top row if that is above the view.  Then the exposed bottom rows are
+; drawn, from where the scroll left the cursor.
 render_line_delete_scroll:
   JSR ansi_cursor_hide
-  LDA DELETE_SCREEN_ROWS     ; below the cursor line's kept rows
-  LDX INSERT_LINE_COUNT
-  INX
-  CPX #2
-  BCC .scroll_start
-  LDA #0                     ; 1-254: pure newline join, from first_row
-.scroll_start:
-  JSR row_below_rows         ; (the top row if above the view)
-  JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
-
   LDA RENDER_FLAG
   CMP #RF_DEL
-  BEQ .del_bottom_rows       ; $07: the cursor line is not redrawn
+  BEQ .scroll                ; $07: the cursor line is not redrawn
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
   ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
   ; newlines were deleted (cursor line content unchanged).  A one-row
   ; line with the cursor on a wrap row redraws to the bottom.
   LDA INSERT_LINE_COUNT
-  BNE .del_bottom_rows
+  BNE .scroll
   LDA DELETE_SCREEN_ROWS
   CMP #2
   BCS .draw_line
@@ -53,7 +141,16 @@ render_line_delete_scroll:
   BCS .from_first_row        ; $FFFF: the whole line
 .draw_change:
   JSR render_line_keep_delta
-.del_bottom_rows:
+.scroll:
+  LDA DELETE_SCREEN_ROWS     ; below the cursor line's kept rows
+  LDX INSERT_LINE_COUNT
+  INX
+  CPX #2
+  BCC .scroll_start
+  LDA #0                     ; 1-254: pure newline join, from first_row
+.scroll_start:
+  JSR row_below_rows         ; (the top row if above the view)
+  JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
   JMP render_bottom_rows
 
 ; Scroll for line insertion at cursor.
@@ -80,7 +177,7 @@ render_line_insert_scroll:
   JMP render_from_top
 .scroll_start:
   JSR row_below_rows
-  LDX #'T'               ; scroll down
+  LDX #'L'               ; scroll down
   JSR scroll_region_from_a
 
   ; If INSERT_LINE_COUNT is set, the actual repaint needs more rows than the
@@ -278,11 +375,11 @@ render_enter_split:
   BNE .pure
   ; Not a pure Enter batch at either end: its rows are drawn, so a
   ; growth that fills the region below sends no scroll
-  LDX #'T'                     ; scroll down
+  LDX #'L'                     ; scroll down
   JSR scroll_clamped
   JMP .draw
 .pure:
-  LDX #'T'                     ; scroll down
+  LDX #'L'                     ; scroll down
   JSR scroll_region_from_a     ; C=0: not scrolled
   BCS render_finish
   JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
@@ -309,62 +406,6 @@ draw_rows_from:
   JSR find_line_at_render_row
   LDA WRAP_REM
   JMP render_limited_rows_from_col
-
-; === Scroll-region helpers ===
-; Line-delete scroll: the region [A .. SCREEN_ROWS-1] (A = 1-based first
-; row) lost SCROLL_DELTA rows from its top (screen rows deleted, or a
-; line's lost rows), so the rows below them move up and the bottom rows
-; are exposed.  SCROLL_DELTA is first clamped to the region's height
-; (0 if A is at or past the status bar): the rows exposed never reach
-; above the region.  The region is scrolled up by that many rows, unless
-; they are all of it: then nothing is sent, as the caller repaints them
-; all anyway.  The caller then draws its own rows above the region and
-; ends with render_bottom_rows (which draws nothing for SCROLL_DELTA = 0).
-; scroll_clamped does the same in the direction X ('S' up, 'T' down:
-; the rows exposed are then at the region's top).
-; In: A, SCROLL_DELTA (>= 1).  Out: SCROLL_DELTA = rows exposed.
-; Clobbers A, X, Y
-scroll_up_clamped:
-  LDX #'S'                     ; scroll up
-scroll_clamped:
-  TAY                          ; Y = the region's first row
-  EOR #$FF
-  SEC
-  ADC SCREEN_ROWS              ; the region's height
-  BCS .height
-  LDA #0                       ; the region starts past the status bar
-.height:
-  CMP SCROLL_DELTA
-  BCC .all_exposed
-  BNE scroll_region_check      ; height > SCROLL_DELTA: scroll
-.all_exposed:
-  STA SCROLL_DELTA
-  RTS
-
-; Set scroll region [A .. SCREEN_ROWS-1] (A = 1-based start row) and
-; scroll it by SCROLL_DELTA rows: X = 'S' scrolls up, X = 'T' down.
-; Skips (C=0) if the region is a single row (Z=1: that row is left as it
-; was, not blanked) or invalid (Z=0); C=1 after a scroll.  Clobbers A, Y
-; (X preserved).
-scroll_region_from_a:
-  TAY
-  ; fall through (entry with the start row in Y)
-scroll_region_check:
-  CPY TEXT_ROWS
-  BCS .skip                    ; a single row (Z=1): nothing to shift, or
-                               ; an empty region (Z=0)
-  STY ANSI_ROW
-  LDA TEXT_ROWS
-  STA ANSI_COL
-  JSR ansi_set_scroll_region   ; preserves X
-  LDA SCROLL_DELTA
-  JSR ansi_count_seq           ; ESC[nS / ESC[nT
-  JSR ansi_reset_scroll_region
-  SEC
-  RTS
-.skip:
-  CLC                          ; (Z kept)
-  RTS
 
 ; Repaint the newly exposed bottom SCROLL_DELTA rows (none for 0):
 ; RENDER_ROW = TEXT_ROWS - SCROLL_DELTA, then find the file line there

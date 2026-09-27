@@ -384,7 +384,7 @@ render_decide:
 ; Scroll screen up and render newly exposed bottom rows.
 ; SCROLL_DELTA = number of rows to scroll (1-255): one that fills the
 ; text rows sends no scroll and draws them all.
-; Content moves up, blanks appear at bottom of scroll region.
+; Content moves up, blank rows appear at the bottom of the text rows.
 ; An edit (CUR_LINE_ROWS != 0) rides along: the text before its first
 ; changed cell is as it was, so every row above that cell's keeps its
 ; place in the scroll, and the rows from the cell (or from the first
@@ -417,7 +417,7 @@ render_scroll_up:
   STA RENDER_ROW
   JSR ansi_cursor_hide
 
-  ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll up
+  ; The text rows move up (the status bar stays)
   LDA #1
   JSR scroll_up_clamped        ; SCROLL_DELTA = rows exposed at the bottom
 
@@ -441,7 +441,7 @@ render_scroll_up:
 
 ; Scroll screen down and render newly exposed top rows.
 ; SCROLL_DELTA = number of rows to scroll, as for render_scroll_up.
-; Content moves down, blanks appear at top of scroll region.
+; Content moves down, blank rows appear at the top.
 ; An edit (CUR_LINE_ROWS != 0) is drawn from its change point after the
 ; scroll (RENDER_ROW = the line's first row; $FF: a full redraw, see
 ; .view_changed)
@@ -452,9 +452,9 @@ render_scroll_down:
 
   JSR ansi_cursor_hide
 
-  ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll down
+  ; The text rows move down (the status bar stays)
   LDA #1
-  LDX #'T'                     ; scroll down
+  LDX #'L'                     ; scroll down
   JSR scroll_clamped           ; SCROLL_DELTA = rows exposed at the top
   JSR render_line_keep_delta   ; the edited line (RENDER_ROW, CUR_LINE_ROWS)
 

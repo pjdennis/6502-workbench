@@ -73,15 +73,6 @@ ansi_seq_a:
   JSR ansi_csi
   JMP write_string
 
-; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
-; Emits ESC[top;bottomr (ESC[;bottomr from the top row: see
-; ansi_row_col_seq), which homes the cursor (as the ESC[r after it does)
-; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
-ansi_set_scroll_region:
-  LSR CUR_VALID
-  LDA #'r'
-  BNE ansi_row_col_seq   ; Always taken ('r' != 0)
-
 ; Move cursor to 0-based row A, column 0 (sets ANSI_ROW/ANSI_COL)
 ; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 ansi_goto_row0:
@@ -118,8 +109,8 @@ ansi_move_cursor:
 
 ; Shared ESC[<row>;<col><final> emitter; A = final character.  A row or
 ; column of 1 is the default, so it is left out: ESC[<row>H for column
-; 1, ESC[;<col>H for row 1, ESC[H for both (a region's bottom row is
-; never 1).  X is preserved (io_write and write_param preserve it)
+; 1, ESC[;<col>H for row 1, ESC[H for both.  X is preserved (io_write
+; and write_param preserve it)
 ansi_row_col_seq:
   PHA
   JSR ansi_csi
@@ -147,8 +138,8 @@ ansi_delete_chars:
   ; fall through
 
 ; Shared ESC[<count><final> emitter; A = count, X = final character
-; (@ ICH, P DCH, S scroll up: blanks at the bottom, T scroll down:
-; blanks at the top).  A count of 1 is the default and is left out.
+; (@ ICH, P DCH, M DL: the rows below move up, L IL: they move down).
+; A count of 1 is the default and is left out.
 ; Clobbers A, Y (X preserved)
 ansi_count_seq:
   PHA
@@ -237,7 +228,7 @@ erase_char:
 ; Write escape-sequence parameter A (0-255) as decimal digits, no
 ; leading zeros, through io_write.  A 1 is left out: a VT100 or xterm
 ; takes a missing parameter as its default, which is 1 for every one the
-; editor sends (but a scroll region's bottom row, which is never 1).
+; editor sends.
 ; Clobbers A, Y, DEC_VALUE16 (X preserved: ansi_count_seq relies on it)
 write_param:
   CMP #1

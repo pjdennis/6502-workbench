@@ -69,7 +69,7 @@ with a single `buf_shift_left_16` via `delete_at_cursor`, with one
 render too: `precompute_delete_scroll` counts the rows of the lines
 before they go and `finish_delete_scroll` sets `RF_DEL`, so the rows
 below scroll up and only the rows that exposes are drawn. `:4,6d` on a
-24x80 screen of 60-char lines sends 314 bytes instead of 1,558.
+24x80 screen of 60-char lines sends 312 bytes instead of 1,558.
 
 ### Indent/unindent range repaint
 
@@ -123,7 +123,7 @@ before the edit's first changed cell is as it was, so `render_scroll_up`
 scrolls the text area up by the rows the view moved (walked over lines
 that did not change) and draws only from that cell (or from the first
 row the scroll exposed, if that comes first) to the bottom: `o` on the
-bottom row of a 24x80 screen of 48-char lines sends 116 bytes instead of
+bottom row of a 24x80 screen of 48-char lines sends 113 bytes instead of
 1,268. The cell is found from the cursor (`rows_to_cursor`,
 `change_cell_row`, shared with the Enter split): in the cursor line at
 `RENDER_FROM_COL16`, or for an Enter batch in the line it split. A first
@@ -138,7 +138,7 @@ one frame after the line the cursor was on, with the cursor on the last:
 the render sees an Enter batch that split that line at its end
 (`RF_ENTER` from its length), so the rows below scroll down and only the
 copies are drawn. `pp` in the middle of a 24x80 screen of 48-char lines
-sends 186 bytes instead of 1,274. With a count (`3pp`) the copies go on
+sends 189 bytes instead of 1,274. With a count (`3pp`) the copies go on
 past the cursor line, and the screen is redrawn.
 
 ### Status bar: only what changed
@@ -152,6 +152,33 @@ the new position: `j` on a 10x40 screen goes from 68 bytes to 41, a key
 that changes nothing (ESC) from 68 to 18. A 44-key editing session sends
 21% fewer bytes at 24x80 (26% at 10x40); a frame whose status bar changes
 costs about 1,900 cycles more.
+
+### Scrolls with DL and IL
+
+The rows that move as a whole (those below an edit that adds or removes
+lines or rows, and the text rows when the view scrolls) go with DL
+(`ESC[nM`) at the first row that moves and IL (`ESC[nL`) where the new
+rows come in (`scroll_region_check`), each at column 1 of its row: up,
+`ESC[<top>H ESC[nM ESC[<bottom-n+1>H ESC[nL`; down, the same with the two
+rows swapped. No scroll region is set, and the status bar keeps its place
+(the DL moves it up and the IL back), so its text on screen stays as
+`status_send` knows it. IL leaves the cursor at column 1 of the first
+row it opened, and `CUR_VALID` records it: the rows a view scroll, `dd`,
+`o` or `p` exposes are drawn with no move of their own, and the paths
+that also draw rows above the ones that move (`J`, a line that lost
+rows) draw those first. The DL's move is left out when the cursor is
+already there (`dd` from column 0). Against the region and SU/SD
+(`ESC[<top>;<bottom>r ESC[nS ESC[r`, then a move), on a 10x40 screen:
+`j` on the bottom row 56 bytes -> 54 (58 -> 55 at 24x80), `k` on the top
+row 52 -> 51, `dd` 68 -> 62, `o` 65 -> 63, `P` 67 -> 65, Ctrl-D 77 -> 73,
+`J` 82 -> 80, `D` on a 3-row line 81 -> 75. A frame that draws from
+above the rows it opened sends 2 bytes more (the pair takes 14 bytes
+where the region took 12): a line that gains a row, an Enter that splits
+a line, an edit that moves the view. A move of the last text row alone
+is still left to its callers, which rewrite that row: cheaper than
+clearing it and moving back. Over the 94 scenarios of the audit's repaint bench
+the bytes go from 31,302 to 31,225, and over about 20,000 random
+sessions (typed ahead and paced, both builds) down 0.14%.
 
 ### The command line runs within the `:` key
 

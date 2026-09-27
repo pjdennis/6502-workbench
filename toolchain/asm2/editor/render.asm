@@ -349,7 +349,8 @@ render_current_line_and_status:
 ; Entry: RENDER_ROW = first_row (set_first_row), the first row of a block
 ; (cursor line, $0B range, or a J undo's cursor line and restored lines)
 ; that changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its
-; change point (RENDER_FROM_COL16) after scrolling the rows below it
+; change point (RENDER_FROM_COL16), and move the rows below it (first if
+; it grew, after it if it shrank)
 render_rows_resized:
   JSR ansi_cursor_hide
   LDA CUR_LINE_ROWS
@@ -361,7 +362,7 @@ render_rows_resized:
   STA SCROLL_DELTA
   LDA PREV_LINE_ROWS
   JSR row_below_rows
-  LDX #'T'                      ; scroll down
+  LDX #'L'                      ; scroll down
   JSR scroll_region_from_a
   BCS .same_rows
   BNE .same_rows                ; region past the screen: no row opened
@@ -374,15 +375,17 @@ render_rows_resized:
   JMP render_finish
 
 .rows_decreased:
-  ; --- Rows decreased: scroll the rows below the new line end up ---
+  ; --- Rows decreased: draw the line, then scroll the rows below its
+  ; new end up (the bottom rows drawn from where the scroll left the
+  ; cursor) ---
   LDA PREV_LINE_ROWS
   SEC
   SBC CUR_LINE_ROWS
   STA SCROLL_DELTA
+  JSR render_line_keep_delta
   LDA CUR_LINE_ROWS
   JSR row_below_rows
   JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
-  JSR render_line_keep_delta
   JMP render_bottom_rows
 
 ; render_line_from_change, keeping SCROLL_DELTA (the rows a scroll

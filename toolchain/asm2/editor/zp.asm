@@ -6,8 +6,8 @@
   .zeropage
 
 ; --- terminal.asm ---
-ANSI_ROW:     .byte    ; Where the last cursor move put the cursor (1-based;
-ANSI_COL:     .byte    ;   a scroll region's top and bottom while one is set)
+ANSI_ROW:     .byte    ; Where the last cursor move put the cursor (1-based)
+ANSI_COL:     .byte
 CUR_VALID:    .byte    ; 1 from a frame's end until the cursor next moves: it
                        ;   is still at ANSI_ROW/ANSI_COL (ansi_goto0)
 STR_PTR16:    .word    ; Pointer for write_string
@@ -74,6 +74,8 @@ SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
 SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
 SNAP_LINE16:    .word   ; The cursor before the key (a refused yank returns it there)
 SNAP_COL16:     .word
+SCROLL_N:       .byte   ; scroll_region_check: the count of its DL and IL
+SCROLL_ROW2:    .byte   ; scroll_region_check: the row of its IL (0-based)
 SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_from_col (not reset per key)
 RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
 DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $06/$07/$08/$0B (0 = none; reset per key)

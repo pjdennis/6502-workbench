@@ -23,9 +23,8 @@ project's 6502 emulator in console/ANSI mode.
   (rows below scrolled when the line's row count changes, ICH/DCH row
   shifting), status bar, cursor positioning.
 - `render_decide.asm`: snapshot-based render decision engine
-  (`render_snapshot`/`render_decide`) and viewport scroll-region
-  optimization.
-- `render_scroll.asm`: scroll-region repaints for line insert/delete and
+  (`render_snapshot`/`render_decide`) and viewport scroll optimization.
+- `render_scroll.asm`: scroll repaints (DL/IL) for line insert/delete and
   in-place range changes, the shared row renderer (`render_rows`), wrap
   math, cursor visibility.
 - `input.asm`: key reader (`read_key`) with escape sequence parsing (arrow
@@ -346,17 +345,27 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 
 The editor needs an ANSI terminal such as xterm (or a serial terminal
 program emulating one) that handles the escape sequences below and behaves
-as a VT100 does by default:
+as a VT102 does by default:
 
 - Escape sequences: cursor position (`ESC[<row>;<col>H`), erase to the end
   of the line (`ESC[K`), clear screen (`ESC[2J`), reverse and normal video
   (`ESC[7m`, `ESC[m`), cursor hide and show (`ESC[?25l`, `ESC[?25h`),
-  scroll region (`ESC[<top>;<bottom>r`, `ESC[r`), scroll up and down
-  (`ESC[<n>S`, `ESC[<n>T`), insert and delete characters (`ESC[<n>@`,
-  `ESC[<n>P`), and in the terminal build the cursor position report
+  insert and delete lines (`ESC[<n>L`, `ESC[<n>M`), insert and delete
+  characters (`ESC[<n>@`, `ESC[<n>P`), the scroll region reset (`ESC[r`,
+  sent at exit), and in the terminal build the cursor position report
   (`ESC[6n`).  A parameter equal to its default is left out, so a missing
   one must take its default: `ESC[H` is row 1, column 1, `ESC[5H` column 1
-  of row 5, `ESC[;9r` a region from row 1 to row 9, `ESC[P` one character.
+  of row 5, `ESC[M` one line, `ESC[P` one character.
+- Insert and delete line (IL, DL): rows that move as a whole (the rows
+  below an edit that adds or removes lines or rows, and the text rows when
+  the view scrolls) are moved with DL at the first row that moves and IL
+  where the new rows come in, each sent at column 1 of its row, with no
+  scroll region set: the status bar keeps its place (it moves up with a DL
+  and back with the IL after it).  IL and DL came with the VT102 (a plain
+  VT100 has neither), and every terminal that emulates a VT102 or later
+  has them: xterm and the terminals that follow it (GNOME Terminal and
+  others built on VTE, Konsole, iTerm2, Windows Terminal), the Linux
+  console, PuTTY, Tera Term, minicom, screen and tmux.
 - Plain CR and LF: CR moves to column 1 of the same row, and LF one row
   down in the same column.  A row the row loop has finished (ended with
   `ESC[K`) is followed by CR LF to reach the next one, so a terminal that

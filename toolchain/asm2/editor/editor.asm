@@ -200,7 +200,7 @@ exit_at_eof:
   .endif
 
 editor_exit:
-  ; Reset scroll region and clear screen before exit
+  ; Reset any scroll region and clear the screen before exit
   JSR ansi_reset_scroll_region
   JSR ansi_clear_screen
   JSR io_flush
