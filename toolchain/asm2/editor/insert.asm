@@ -467,37 +467,43 @@ insert_handle_key:
   LDA #RF_ENTER              ; Line-insert above cursor scroll
   BNE .set_flag              ; Always taken
 
-  ; Lines merged, none inserted: line-delete scroll ($06)
+  ; Lines merged, none inserted: the joined line changed from where the
+  ; batch began, before the text it typed ($06)
 .joined:
+  LDA BUF_DELTA              ; insert_len
+  JSR set_render_from_before_cursor
   LDA LINE_LEN16             ; back_nl
   BEQ .join_at_eol           ; forward newlines deleted only
   ; --- Backward newlines deleted.  Forward ones too: full redraw ---
   LDA LINE_LEN16 + 1         ; fwd_nl
   BNE .full_redraw
   ; A pure join leaves the cursor line's text as it was when the cursor
-  ; ends at column 0 (the lines above were empty: INSERT_LINE_COUNT =
-  ; $7F, the rows scroll from the line's first) or at the end of the
-  ; line (the lines below were: $FF, from below it); else 0: redraw it
+  ; ends at column 0 (the lines above were empty) or at the end of the
+  ; line (the lines below were): it is a dd of those empty lines, a row
+  ; each ($07), from the line's first row or from below it
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
   BNE .join_at_eol
-  LSR INSERT_LINE_COUNT
+  BIT INSERT_LINE_COUNT
+  BMI .pure_join             ; (A = 0: from the line's first row)
   BPL .join_flag             ; Always taken
 .join_at_eol:
   LDA INSERT_LINE_COUNT
   BEQ .join_flag             ; not pure
   JSR get_current_line_len   ; A = low, X = high
   CMP CURSOR_COL16
-  BNE .join_redraw
+  BNE .join_flag
   CPX CURSOR_COL16 + 1
-  BEQ .join_flag
-.join_redraw:
-  INC INSERT_LINE_COUNT      ; 0
+  BNE .join_flag
+  JSR file_line_rows         ; from below the line's rows
+.pure_join:
+  STA DELETE_SCREEN_ROWS
+  LDA LINE_LEN16
+  ORA LINE_LEN16 + 1         ; back_nl or fwd_nl (the other is 0)
+  STA SCROLL_DELTA
+  LDA #RF_DEL
+  BNE .set_flag              ; Always taken
 .join_flag:
-  ; The joined line changed from where the batch began, before the text
-  ; it typed
-  LDA BUF_DELTA              ; insert_len
-  JSR set_render_from_before_cursor
   LDA #RF_JOIN               ; Line-delete with displacement-based scroll
   BNE .set_flag              ; Always taken
 .full_redraw:

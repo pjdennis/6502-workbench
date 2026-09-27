@@ -57,13 +57,10 @@
 ;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
 ;       undo r<Enter>          edit (0 = over 255: full redraw).  Rows
 ;                              shrank: scroll up below the line; same or
-;                              grew: as $01, from those rows.  For a
-;                              shrink, INSERT_LINE_COUNT: 0 = redraw the line,
-;                              $FF = pure join at line end (no redraw),
-;                              1-254 = pure join at column 0 (scroll from
-;                              first_row, no redraw).
+;                              grew: as $01, from those rows.
 ; $07   dd and its redo, :d,   Lines deleted from first_row (the next line
-;       undo p/P/o/O           moved up into their rows) or below the
+;       undo p/P/o/O, a pure   moved up into their rows) or below the
+;       insert BS/Del join
 ;                              cursor line (it kept its rows): the cursor
 ;                              line is not redrawn.
 ;                              SCROLL_DELTA = rows deleted ($FF: over

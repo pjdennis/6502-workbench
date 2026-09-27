@@ -107,8 +107,7 @@ scroll_region_check:
 ; Scroll for line deletion at cursor.
 ; SCROLL_DELTA = screen rows deleted.  The changed cursor line ($06/$08)
 ; is drawn first, then the rows below the ones it takes move up
-; (scroll_up_clamped): from first_row (= CURSOR_ROW - WRAP_QUOT) for pure
-; newline joins (INSERT_LINE_COUNT 1-254), else from first_row +
+; (scroll_up_clamped): from first_row (= CURSOR_ROW - WRAP_QUOT) +
 ; DELETE_SCREEN_ROWS (the cursor line's rows that are kept: $06/$08, and
 ; for $07 those of a cursor line above the deleted lines), or from the
 ; top row if that is above the view.  Then the exposed bottom rows are
@@ -119,11 +118,8 @@ render_line_delete_scroll:
   CMP #RF_DEL
   BEQ .scroll                ; $07: the cursor line is not redrawn
   ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
-  ; (DELETE_SCREEN_ROWS = its rows) from the change point, unless only
-  ; newlines were deleted (cursor line content unchanged).  A one-row
+  ; (DELETE_SCREEN_ROWS = its rows) from the change point.  A one-row
   ; line with the cursor on a wrap row redraws to the bottom.
-  LDA INSERT_LINE_COUNT
-  BNE .scroll
   LDA DELETE_SCREEN_ROWS
   CMP #2
   BCS .draw_line
@@ -144,12 +140,6 @@ render_line_delete_scroll:
   JSR render_line_keep_delta
 .scroll:
   LDA DELETE_SCREEN_ROWS     ; below the cursor line's kept rows
-  LDX INSERT_LINE_COUNT
-  INX
-  CPX #2
-  BCC .scroll_start
-  LDA #0                     ; 1-254: pure newline join, from first_row
-.scroll_start:
   JSR row_below_rows         ; (the top row if above the view)
   JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
   JMP render_bottom_rows
