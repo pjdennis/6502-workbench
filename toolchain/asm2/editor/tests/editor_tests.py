@@ -1603,6 +1603,12 @@ class EditorTestRunner:
             "<< moves the line table entries: << at the top of 36 KB",
             "".join("  " + l + "\n" for l in big.split("\n")[:-1]),
             b"<<:q!\r", 3250000, rows=24, cols=80)
+        # << leaves the lines before its first removal where they are,
+        # where it copied each onto itself: 999<< on a 36 KB file that
+        # removes nothing took 3,738,104 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "<< copies no line before its first removal: 999<< on 36 KB",
+            big, b"999<<:q!\r", 2700000, rows=24, cols=80)
 
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
@@ -11865,6 +11871,12 @@ class EditorTestRunner:
             "  aaa\n  bbb\nccc\nddd\n",
             b"2<<jj0xGx:wq\r",
             expected_content="aaa\nbbb\ncc\ndd\n"
+        )
+        self.run_test(
+            "<< from unindented lines moves the lines from the first removal",
+            "aaa\nbbb\n  ccc\n  ddd\neee\n",
+            b"4<<jjj0xGx:wq\r",
+            expected_content="aaa\nbbb\nccc\ndd\nee\n"
         )
         self.run_test(
             "u of << moves the lines after the range back",

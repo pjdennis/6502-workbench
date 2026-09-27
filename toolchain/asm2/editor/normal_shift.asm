@@ -152,17 +152,25 @@ shift_rewind:
 
 ; BUF_PTR16 = the start of line LINE_LEN16 before the core moved it,
 ; from its line table entry, which then gets the line's new start: the
-; write pointer (JUMP_TARGET16), where the core is about to put it.  The
+; write pointer (JUMP_TARGET16), where the core is about to put it (the
+; line's own start while the core has moved nothing, COUNT16 = 0).  The
 ; line count never changes, so the cores keep the table current line by
 ; line, and move the lines after the range at the end (shift_finish).
 ; Clobbers A, X, Y
 shift_line_start:
   LDAX16 LINE_LEN16
   JSR buf_line_entry           ; BUF_PTR16 = the entry
+  LDA COUNT16
+  ORA COUNT16 + 1
+  TAX                          ; X = 0: nothing moved yet
   LDY #1
 .swap:
   LDA (BUF_PTR16),Y
   PHA                          ; The old start (high byte first)
+  CPX #0
+  BNE .moved
+  STA JUMP_TARGET16,Y          ; The write pointer is at the line
+.moved:
   LDA JUMP_TARGET16,Y
   STA (BUF_PTR16),Y
   DEY
@@ -249,7 +257,6 @@ insert_spaces_core:
   BCS shift_full               ; Buffer full: nothing changed
 
   ; --- Redistribute: write per-line spaces, copy line content down ---
-  CP16 BUF_PTR16, JUMP_TARGET16 ; write ptr = first line start
   JSR shift_rewind             ; The range's lines again, and the total
 
 .redist:
@@ -295,10 +302,6 @@ insert_spaces_core:
 remove_spaces_core:
   JSR shift_prologue
 
-  ; Set write ptr = first line start
-  JSR get_current_line_ptr
-  CP16 BUF_PTR16, JUMP_TARGET16
-
 .unindent_loop:
   JSR shift_line_start         ; BUF_PTR16 = line start
 
@@ -330,6 +333,8 @@ remove_spaces_core:
 .no_record:
 
   JSR shift_count_line         ; (keeps Y)
+  TST16 COUNT16
+  BEQ .next                    ; Nothing removed yet: the line stays put
 
   ; Advance BUF_PTR16 past leading spaces
   TYA
@@ -338,6 +343,7 @@ remove_spaces_core:
   ; Copy remaining line (including newline) to write ptr
   JSR copy_line_to_nl
 
+.next:
   TST16 BUF_TEMP16
   BNE .unindent_loop
 
