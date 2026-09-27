@@ -29,7 +29,8 @@ ansi_clear_screen:
   JMP ansi_seq_a
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
-; Emits ESC[top;bottomr
+; Emits ESC[top;bottomr (ESC[;bottomr from the top row: see
+; ansi_row_col_seq)
 ; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
 ansi_set_scroll_region:
   LDA #'r'
@@ -53,17 +54,23 @@ ansi_move_cursor:
   LDA #'H'
   ; fall through
 
-; Shared ESC[<row>;<col><final> emitter; A = final character.  X is
-; preserved (io_write and write_byte_dec preserve it)
+; Shared ESC[<row>;<col><final> emitter; A = final character.  A row or
+; column of 1 is the default, so it is left out: ESC[<row>H for column
+; 1, ESC[;<col>H for row 1, ESC[H for both (a region's bottom row is
+; never 1).  X is preserved (io_write and write_param preserve it)
 ansi_row_col_seq:
   PHA
   JSR ansi_csi
   LDA ANSI_ROW
-  JSR write_byte_dec
+  JSR write_param
+  LDY ANSI_COL
+  DEY
+  BEQ .final                 ; column 1: no ';1'
   LDA #';'
   JSR io_write
   LDA ANSI_COL
-  JSR write_byte_dec
+  JSR write_param
+.final:
   PLA
   JMP io_write
 
@@ -110,26 +117,27 @@ ansi_delete_chars:
 
 ; Shared ESC[<count><final> emitter; A = count, X = final character
 ; (@ ICH, P DCH, S scroll up: blanks at the bottom, T scroll down:
-; blanks at the top).  Clobbers A, Y (X preserved)
+; blanks at the top).  A count of 1 is the default and is left out.
+; Clobbers A, Y (X preserved)
 ansi_count_seq:
   PHA
   JSR ansi_csi
   PLA
-  JSR write_byte_dec     ; preserves X
+  JSR write_param        ; preserves X
   TXA
   JMP io_write
 
 ; ANSI sequence string constants
 ; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
-; of these strings (26 bytes) must start on the same 256-byte page. If code
+; of these strings (23 bytes) must start on the same 256-byte page. If code
 ; growth pushes them across a page boundary, escape sequences will be
 ; garbage and the editor test suite will fail loudly - move the block.
 ansi_seq_clear:    .byte "2J", $1B, "[H", $00   ; clear, then home
 ansi_seq_clreol:   .asciiz "K"
 ansi_seq_show:     .asciiz "?25h"
 ansi_seq_hide:     .asciiz "?25l"
-ansi_seq_rev:      .asciiz "7m"
-ansi_seq_norm:     .asciiz "0m"
+ansi_seq_rev:      .byte "7"          ; "7m": shares its "m" with ansi_seq_norm
+ansi_seq_norm:     .asciiz "m"        ; ESC[m: SGR's default is 0 (normal)
 ansi_seq_reset_sr: .asciiz "r"
 
 ; Write null-terminated string at A (low) / X (high)
@@ -208,10 +216,14 @@ erase_char:
 ; ones digit is what is left.  Leading zeros are left out, or written as
 ; DEC_PAD (spaces: write_decimal_field)
 
-; Write A (0-255) as decimal digits, no leading zeros (escape sequences,
-; through io_write).  Clobbers A, Y, DEC_VALUE16 (X preserved:
-; ansi_count_seq relies on it)
-write_byte_dec:
+; Write escape-sequence parameter A (0-255) as decimal digits, no
+; leading zeros, through io_write.  A 1 is left out: a VT100 or xterm
+; takes a missing parameter as its default, which is 1 for every one the
+; editor sends (but a scroll region's bottom row, which is never 1).
+; Clobbers A, Y, DEC_VALUE16 (X preserved: ansi_count_seq relies on it)
+write_param:
+  CMP #1
+  BEQ dec_done
   STA DEC_VALUE16
   LDA #0
   STA DEC_VALUE16 + 1
@@ -275,6 +287,7 @@ dec_digits:
   JSR dec_out
   PLA
   TAX
+dec_done:
   RTS
 
 ; Write A through text_putc (DEC_TEXT bit 7 set) or io_write

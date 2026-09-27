@@ -429,7 +429,7 @@ range_shift_finish:
 ; Input: A/X = suffix string, DEC_VALUE16 = count
 report_lines_ax:
   ; status_line_clear clobbers STR_PTR16 and DEC_VALUE16 (its cursor
-  ; positioning goes through write_byte_dec)
+  ; positioning goes through write_param)
   PHA
   TXA
   PHA

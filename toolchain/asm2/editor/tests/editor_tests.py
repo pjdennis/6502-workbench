@@ -739,6 +739,7 @@ class EditorTestRunner:
                         expect_max_col: list = None,
                         expect_scrolled_at_frame: list = None,
                         expect_scroll_rows: list = None,
+                        expect_frame_bytes: list = None,
                         deferred_wrap: bool = True,
                         no_file: bool = False):
         """Run an editor test and verify screen state via ANSI output.
@@ -767,6 +768,9 @@ class EditorTestRunner:
                 verify minimum column written on a row in a specific frame
             expect_max_col: list of (frame_idx, row, max_col) tuples -
                 verify maximum column written on a row in a specific frame
+            expect_frame_bytes: list of (frame_idx, byte_count) tuples -
+                the bytes the editor sent for that frame (after the
+                previous frame's ESC[?25h, up to and including its own)
             deferred_wrap: the virtual terminal defers the wrap after the
                 last column, as real terminals do (the default); False
                 wraps at once
@@ -804,6 +808,20 @@ class EditorTestRunner:
                     f"Raw ANSI output does not contain "
                     f"{expect_ansi_contains!r}")
                 return
+
+        if expect_frame_bytes is not None:
+            sent = ansi.decode('latin-1').split("\x1b[?25h")[:-1]
+            for frame_idx, expected_len in expect_frame_bytes:
+                if frame_idx >= len(sent):
+                    self._fail(name, f"Expected frame {frame_idx} but only "
+                               f"{len(sent)} frames")
+                    return
+                frame = sent[frame_idx] + "\x1b[?25h"
+                if len(frame) != expected_len:
+                    self._fail(name,
+                        f"Frame {frame_idx}: expected {expected_len} bytes, "
+                        f"got {len(frame)}: {frame!r}")
+                    return
 
         # Parse ANSI output through virtual terminal
         screen = AnsiScreen(rows, cols, deferred_wrap=deferred_wrap)
@@ -5024,31 +5042,31 @@ class EditorTestRunner:
         # "Hello World": 5l puts the cursor on the space (col 5).
         shift_cases = [
             ("type one char mid-line", b"5liX\x1b:q!\r", 4,
-             "HelloX World", (5, 5), "\x1b[1;6H\x1b[1@X"),
+             "HelloX World", (5, 5), "\x1b[;6H\x1b[@X"),
             ("type-ahead batch shifts once", b"5liABC\x1b:q!\r", 4,
-             "HelloABC World", (5, 7), "\x1b[1;6H\x1b[3@ABC"),
+             "HelloABC World", (5, 7), "\x1b[;6H\x1b[3@ABC"),
             ("insert BS mid-line", b"6li\x7f\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
             ("insert DEL mid-line", b"5li\x1b[3~\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
             ("mixed batch nets one shift", b"5liABC\x7f\x1b:q!\r", 4,
-             "HelloAB World", (5, 6), "\x1b[1;6H\x1b[2@AB"),
+             "HelloAB World", (5, 6), "\x1b[;6H\x1b[2@AB"),
             ("type + DEL overwrites only", b"5liX\x1b[3~\x1b:q!\r", 4,
              "HelloXWorld", (5, 5), None),
             ("append at end writes only the new char", b"AX\x1b:q!\r", 2,
              "Hello WorldX", (11, 11), None),
             ("x mid-line", b"5lx:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
             ("3x mid-line", b"5l3x:q!\r", 4,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
             ("batched xxx shifts once", b"5lxxx:q!\r", 3,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
             ("normal-mode Delete", b"5l\x1b[3~:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
             ("X mid-line", b"6lX:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
             ("3X mid-line", b"8l3X:q!\r", 4,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5083,15 +5101,15 @@ class EditorTestRunner:
             # chars carried over from the row above
             ("insert on a 3-row line", b"5liAB\x1b:q!\r", 4, ins,
              [(0, 5, 6), (1, 0, 1), (2, 0, 1)],
-             "\x1b[1;6H\x1b[2@AB\x1b[2;1H\x1b[2@" + ins[40:42]
-             + "\x1b[3;1H\x1b[2@" + ins[80:82]),
+             "\x1b[;6H\x1b[2@AB\x1b[2H\x1b[2@" + ins[40:42]
+             + "\x1b[3H\x1b[2@" + ins[80:82]),
             # Every row gets its own DCH; full rows write only their last
             # cell, pulled up from the row below; the last row writes none
             ("insert BS on a 3-row line", b"6li\x7f\x1b:q!\r", 4, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)],
-             "\x1b[1;6H\x1b[1P\x1b[1;40H" + dele[39]
-             + "\x1b[2;1H\x1b[1P\x1b[2;40H" + dele[79]
-             + "\x1b[3;1H\x1b[1P"),
+             "\x1b[;6H\x1b[P\x1b[;40H" + dele[39]
+             + "\x1b[2H\x1b[P\x1b[2;40H" + dele[79]
+             + "\x1b[3H\x1b[P"),
             ("x on a 3-row line", b"5lx:q!\r", 3, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
             ("X on a 3-row line", b"6lX:q!\r", 3, dele,
@@ -5339,7 +5357,7 @@ class EditorTestRunner:
             "Cursor move sends only the changed status tail",
             "a\nb\nc\n",
             b"j:q!\r",
-            expect_ansi_contains="\x1b[7m2,1 /3\x1b[0m",
+            expect_ansi_contains="\x1b[7m2,1 /3\x1b[m",
             expect_status_at_frame=[(1, " - NORMAL - 2,1 /3")],
         )
 
@@ -5349,7 +5367,7 @@ class EditorTestRunner:
             "Unchanged status bar sends only the cursor move",
             "abc\n",
             b"x\x1b:q!\r",
-            expect_ansi_contains="\x1b[?25h\x1b[1;1H\x1b[?25h",
+            expect_ansi_contains="\x1b[?25h\x1b[H\x1b[?25h",
             expect_cursor_at_frame=[(2, (0, 0))],
         )
 
@@ -5359,10 +5377,78 @@ class EditorTestRunner:
             "Shorter status text clears the old tail",
             "ab\n" * 10,
             b"x9dd:q!\r",
-            expect_ansi_contains="\x1b[7m1,1 /1\x1b[K\x1b[0m",
+            expect_ansi_contains="\x1b[7m1,1 /1\x1b[K\x1b[m",
             expect_status_at_frame=[(3, " [+] - NORMAL - 1,1 /1")],
             expect_lines_at_frame=[(3, [(0, "ab"), (1, "~")])],
         )
+
+        self._group("Repaint bytes:", leading_blank=True)
+
+        # What each of these frames sends, in bytes: from the previous
+        # frame's ESC[?25h through its own
+        short = "".join("line %02d the quick brown fox jumps\n" % i
+                        for i in range(60))
+        alnum = "abcdefghijklmnopqrstuvwxyz0123456789"
+        wrapped = "".join("%02d " % i + (alnum * 3)[:91] + "\n"
+                          for i in range(40))
+        numbered = "".join(f"L{i}\n" for i in range(1, 15))
+        for name, content, keys, frame, (rows, cols), sent in (
+                ("x mid-line", "Hello World\n", b"5lx:q!\r", 3,
+                 (10, 40), 61),
+                ("X mid-line", "Hello World\n", b"6lX:q!\r", 3,
+                 (10, 40), 61),
+                ("typed char mid-line", "Hello World\n", b"5liX\x1b:q!\r", 4,
+                 (10, 40), 62),
+                ("insert BS mid-line", "Hello World\n", b"6li\x7f\x1b:q!\r",
+                 4, (10, 40), 61),
+                ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
+                ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
+                 (10, 40), 62),
+                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 396),
+                ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
+                 (10, 40), 339),
+                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 971)):
+            self.run_test_screen(
+                "Repaint bytes: " + name,
+                content,
+                keys,
+                rows=rows, cols=cols,
+                expect_frame_bytes=[(frame, sent)],
+            )
+
+        self._group("Escape sequences leave out a parameter of 1:",
+                    leading_blank=True)
+
+        # A VT100 or xterm takes a missing parameter as its default: 1 for
+        # a move's row and column (ESC[H is home) and for the count of ICH,
+        # DCH and the scrolls, and 0 (normal video) for SGR.  A region
+        # from the top row leaves out its first row the same way
+        for name, content, keys, frame, raw, lines in (
+                ("a move to column 1", "Hello\nWorld\n", b"j:q!\r", 1,
+                 "\x1b[m\x1b[2H\x1b[?25h", [(1, "World")]),
+                ("a move to row 1", "abc\n", b"l:q!\r", 1,
+                 "\x1b[m\x1b[;2H\x1b[?25h", [(0, "abc")]),
+                ("a move home", "Hello\n", b":q!\r", 0,
+                 "\x1b[?25l\x1b[HHello\x1b[K\x1b[2H~", [(0, "Hello")]),
+                ("normal video", "Hello\n", b":q!\r", 0,
+                 "\x1b[K\x1b[m\x1b[H\x1b[?25h", [(1, "~")]),
+                ("DCH", "Hello World\n", b"5lx:q!\r", 3,
+                 "\x1b[P\x1b[10;", [(0, "HelloWorld")]),
+                ("ICH", "Hello World\n", b"5liX\x1b:q!\r", 4,
+                 "\x1b[@X\x1b[10;", [(0, "HelloX World")]),
+                ("SU, in a region from the top row", numbered, b"8jlj:q!\r",
+                 4, "\x1b[;9r\x1b[S\x1b[r\x1b[9HL10\x1b[K",
+                 [(0, "L2"), (8, "L10")]),
+                ("SD, in a region from the top row", numbered,
+                 b"8jlj8klk:q!\r", 8, "\x1b[;9r\x1b[T\x1b[r\x1b[HL1\x1b[K",
+                 [(0, "L1"), (8, "L9")])):
+            self.run_test_screen(
+                "Escape sequences: " + name,
+                content,
+                keys,
+                expect_ansi_contains=raw,
+                expect_lines_at_frame=[(frame, lines)],
+            )
 
         self._group("D stays minimal:", leading_blank=True)
 
@@ -5376,7 +5462,7 @@ class EditorTestRunner:
                 "Hello World\nNEXT\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[?25l\x1b[1;6H\x1b[K\x1b[10;",
+                expect_ansi_contains="\x1b[?25l\x1b[;6H\x1b[K\x1b[10;",
                 expect_lines_at_frame=[(3, [(0, "Hello"), (1, "NEXT")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1)],
             )
@@ -5385,7 +5471,7 @@ class EditorTestRunner:
                 "0123456789" * 10 + "\nNEXT\nLAST\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[2;9r\x1b[2S\x1b[r\x1b[1;6H\x1b[K",
+                expect_ansi_contains="\x1b[2;9r\x1b[2S\x1b[r\x1b[;6H\x1b[K",
                 expect_lines_at_frame=[(3, [(0, "01234"), (1, "NEXT"),
                                             (2, "LAST")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1), (3, 2, -1)],
@@ -9983,13 +10069,13 @@ class EditorTestRunner:
             ":marks shows -- More -- when the marks fill the screen",
             make_lines(30),
             set_marks(9) + b":marks\r  :q!\r",
-            expect_ansi_contains=" h      8 Line 8\x1b[10;1H\x1b[K-- More --",
+            expect_ansi_contains=" h      8 Line 8\x1b[10H\x1b[K-- More --",
         )
         self.run_test_screen(
             ":marks shows the marks that do not fit after a key",
             make_lines(30),
             set_marks(12) + b":marks\r  :q!\r",
-            expect_ansi_contains="\x1b[5;1H l     12 Line 12",
+            expect_ansi_contains="\x1b[5H l     12 Line 12",
             expect_cursor=(8, 0),
             expect_lines=[(8, "Line 13")],
         )
@@ -18275,7 +18361,7 @@ class EditorTestRunner:
             b"lllx:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_ansi_contains="\x1b[1;4H\x1b[1P",
+            expect_ansi_contains="\x1b[;4H\x1b[P",
             expect_min_col=[(2, 0, -1)]
         )
 
@@ -19018,7 +19104,7 @@ class EditorTestRunner:
                 deferred_wrap=deferred,
                 expect_lines=[(0, "A" * 40), (1, "A" * 10), (2, "Second")],
                 expect_cursor=(0, 5),
-                expect_ansi_contains="\x1b[1;6H" + "A" * 45 + "\x1b[K",
+                expect_ansi_contains="\x1b[;6H" + "A" * 45 + "\x1b[K",
             )
 
         # Redo D on wrapped line (rows decrease: 2 → 1):
