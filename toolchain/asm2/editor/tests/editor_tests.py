@@ -11460,6 +11460,31 @@ class EditorTestRunner:
             # A mark above the changed lines stays on its line
             ("cc on last line keeps mark above", "a\nb\n",
              b"majccZ\x1b'aiY\x1b:wq\r", "Ya\nZ\n"),
+            # As in vim, the marks of the first changed line stay on the
+            # line cc makes, those of the others go, and the ones below
+            # move up; u puts them all back (u u: as the cc left them)
+            ("cc keeps the line's mark", "a\nb\nc\nd\ne\n",
+             b"jmaccX\x1bgg'ax:wq\r", "a\n\nc\nd\ne\n"),
+            ("2cc drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2ccX\x1bgg'bx:wq\r", "\nX\nd\ne\n"),
+            ("2cc keeps the first line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2ccX\x1bG'ax:wq\r", "a\n\nd\ne\n"),
+            ("2S drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2SX\x1bG'bx:wq\r", "a\nX\nd\n\n"),
+            ("2cc moves a mark below up", "a\nb\nc\nd\ne\n",
+             b"jjjmckk2cc\x1bgg'cx:wq\r", "a\n\n\ne\n"),
+            ("u of cc puts its line's mark back", "a\nb\nc\nd\ne\n",
+             b"jmacc\x1buG'ax:wq\r", "a\n\nc\nd\ne\n"),
+            ("u of 2cc puts the second line's mark back", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1buG'bx:wq\r", "a\nb\n\nd\ne\n"),
+            ("u of 2cc puts a mark below back", "a\nb\nc\nd\ne\n",
+             b"jjjmckk2cc\x1bugg'cx:wq\r", "a\nb\nc\n\ne\n"),
+            ("redo of 2cc keeps the first line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu uG'ax:wq\r", "a\n\nd\ne\n"),
+            ("redo of 2cc drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu uG'bx:wq\r", "a\n\nd\n\n"),
+            ("u after redo of 2cc puts the marks back", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu u uG'bx:wq\r", "a\nb\n\nd\ne\n"),
         ]:
             self.run_test(name, content, keys, expected_content=expected)
 

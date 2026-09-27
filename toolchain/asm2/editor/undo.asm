@@ -158,6 +158,7 @@ undo_step:
   LDA UNDO_TYPE
   CMP #UNDO_CC
   BNE .undo_line_scroll
+  JSR mark_restore           ; cc: the marks as they were (vim)
   ; cc undo: 1cc has net 0 line change (repaint cursor row only).
   ; Ncc (N>1): displacement may differ from file delta if lines wrap,
   ; so use full repaint for correctness.

@@ -729,11 +729,13 @@ do_cc:
 cc_lines:
   JSR yank_current_lines
   BCS .cc_overflow
-  ; Record undo: u removes the empty line and pastes the lines back
+  ; Record undo: u removes the empty line and pastes the lines back,
+  ; then puts back the marks (mark_save)
   SEC
   ROR UNDO_EMPTY_LINE
   LDA #UNDO_CC
   JSR undo_rec_set
+  JSR mark_save
   JSR cc_clear_lines
   JMP enter_insert_mode
 
@@ -742,16 +744,16 @@ cc_lines:
 
 ; Replace BUF_TEMP16 lines at FILE_LINE16 with one empty line and put the
 ; cursor on it, for a displacement-based scroll (cc/S and their redo).
-; Marks on the lines are unset, marks below them move up N-1 lines.
+; As in vim, the marks of the first line stay on the empty line, those
+; of the others are unset, and the marks below move up N-1 lines.
 ; Clobbers A, X, Y
 cc_clear_lines:
   JSR compute_delete_rows_temp16 ; The lines' rows before
   LDAX16 FILE_LINE16
-  JSR mark_adjust_delete
-  LDAX16 FILE_LINE16
-  JSR buf_clear_lines
-  LDAX16 FILE_LINE16
-  JSR mark_insert_one
+  JSR buf_clear_lines        ; (keeps BUF_TEMP16)
+  JSR dec_buf_temp16
+  JSR next_line_ax
+  JSR mark_adjust_delete     ; The N - 1 lines after the first
   LDA #RF_JOIN
   JMP undo_opened_finish     ; Cursor to col 0, modified
 

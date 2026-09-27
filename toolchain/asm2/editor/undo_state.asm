@@ -64,7 +64,7 @@ UNDO_REPLACE = 13
 ; Shared per-operation undo data (single-level undo, so one page serves
 ; all users): join = 16-bit newline offsets from the line start,
 ; indent/unindent = per-line widths, replace = the original chars, char
-; delete = the marks before it (mark_save).
+; delete and cc = the marks before them (mark_save).
 UNDO_DATA_BUF = $D700     ; 256 bytes
 JOIN_UNDO_MAX = 128       ; 256 / 2 bytes per entry
 

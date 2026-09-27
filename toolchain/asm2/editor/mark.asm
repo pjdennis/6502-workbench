@@ -205,8 +205,8 @@ str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
 str_more:         .asciiz "-- More --"
 
-; Save the marks in UNDO_DATA_BUF (a char delete's undo record: its
-; undo puts them back, mark_restore).  Clobbers A, X
+; Save the marks in UNDO_DATA_BUF (in the undo record of a char delete
+; or of cc: its undo puts them back, mark_restore).  Clobbers A, X
 mark_save:
   LDX #51
 .loop:
