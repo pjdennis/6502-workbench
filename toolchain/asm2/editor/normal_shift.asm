@@ -517,10 +517,9 @@ compute_dollar_range:
   RTS
 
 ; --- Word operations: delete, change ---
-; All word operations are thin wrappers: the forward ones pass the range
-; routine in A/X (low/high) and the operator in Y to word_op_forward, the
-; backward ones the operator in A to word_op_backward.  yw, ye and yb
-; (normal_move.asm) enter at word_w_op, word_end_op and word_op_backward.
+; All word operations are thin wrappers: they pass the range routine in
+; A/X (low/high) and the operator in Y to word_op_forward.  yw, ye and yb
+; (normal_move.asm) enter at word_w_op, word_end_op and word_b_op.
 
 ; dw: delete N words forward
 do_dw:
@@ -535,6 +534,19 @@ do_cw:
   LDY #OP_CHANGE
   LDA #<compute_multiline_cw_range_forward
   LDX #>compute_multiline_cw_range_forward
+  BNE word_op_forward         ; Always taken (code starts at $0400)
+
+; cb: change N words backward
+do_cb:
+  LDY #OP_CHANGE
+  BNE word_b_op               ; Always taken (OP_CHANGE = 2)
+
+; db: delete N words backward
+do_db:
+  LDY #OP_DELETE
+word_b_op:
+  LDA #<compute_multiline_word_range_backward
+  LDX #>compute_multiline_word_range_backward
   BNE word_op_forward         ; Always taken (code starts at $0400)
 
 ; de: delete to end of N words forward
@@ -553,45 +565,39 @@ word_end_op:
 
 ; --- Shared word operation helpers ---
 
-; Forward word operation: handles delete, yank, and change for w/e motions.
+; Word operation: delete, yank or change over the range of a w, b or e
+; motion from the cursor (b's range starts where b goes: the cursor
+; moves there).
 ; Input: A/X = range computation function (low/high)
 ;        Y = operator (OP_DELETE, OP_YANK, OP_CHANGE)
-; Handles: get_count, check_cursor_in_line,
-;          range computation, apply_char_operator, clamp, clear_count.
-; OP_CHANGE bails into insert mode on empty line or failed range.
+; Handles: get_count, range computation, vi's linewise rules (op_lines),
+;          apply_char_operator, clamp, clear_count.  From an empty line
+;          the ranges go on to the next line.
+; OP_CHANGE bails into insert mode on an empty range.
 word_op_forward:
   STA JUMP_TARGET16
   STX JUMP_TARGET16 + 1
   TYA
   PHA                          ; Save operator
-  JSR get_count_x              ; BUF_TEMP16 = N (capped at 255)
-  JSR check_cursor_in_line
-  BCS word_op_bail
-
-  JSR set_render_from_cursor
-  LDX BUF_TEMP16
+  JSR get_count_x              ; X = N (capped at 255)
   JSR word_op_call_range       ; BUF_LEN16 = range
-  BCS word_op_bail
-
-; Shared success tail (word_op_backward jumps here too;
-; stack: return addr + pushed operator in both routines)
-word_op_tail:
   PLA                          ; A = operator
+  JSR op_lines                 ; (linewise: the command ends there)
+  BCS word_op_bail             ; Nothing to operate on
+  JSR set_render_from_cursor   ; Repaint from the range start
+  LDA NORMAL_TEMP              ; A = operator
   CMP #OP_CHANGE
-  PHA                          ; Re-save (A preserved, flags from CMP)
   BEQ word_op_do_change
   ; OP_DELETE or OP_YANK
   JSR apply_char_operator
-  PLA
   JMP clamp_and_clear_count
 
 word_op_do_change:
-  PLA                          ; A = OP_CHANGE
   JMP apply_char_operator      ; Enters insert mode + clear_count
 
-; Shared bail (word_op_backward branches here too)
+; Shared bail: c enters insert mode
 word_op_bail:
-  PLA                          ; Recover operator
+  LDA NORMAL_TEMP
   CMP #OP_CHANGE
   BEQ .bail_insert
   JMP clear_count
@@ -599,37 +605,39 @@ word_op_bail:
 .bail_insert:
   JMP enter_insert_mode
 
+; vi's linewise rules for the char operator in A on the BUF_LEN16 bytes
+; at the cursor: if a w or b operator ended on column 0 of a later line
+; (OP_EXCL_LINE; its range already stops at the end of the line before)
+; and it starts in its line's indentation (only blanks before the
+; cursor), it works on whole lines: those of the range, as yy, dd or cc,
+; and the command ends there.  Otherwise returns carry set if the range
+; is empty.  NORMAL_TEMP = the operator.  Clobbers A, X, Y, BUF_PTR16,
+; BUF_SRC16, BUF_DST16, BUF_TEMP16 (the range's newlines)
+op_lines:
+  STA NORMAL_TEMP
+  JSR count_newlines           ; BUF_TEMP16 = the range's newlines
+  ASL OP_EXCL_LINE             ; C = the exclusive rule applies (clears it)
+  BCC .char
+  JSR in_indent                ; C = 1: only blanks before the cursor
+  BCC .char
+  ; The lines from the cursor's to the range's last
+  INC16 BUF_TEMP16
+  PLA
+  PLA                          ; The command ends here
+  LDX #0
+  STX BATCH_EXTRA              ; (dd: no typed-ahead pairs of its own)
+  LDA NORMAL_TEMP
+  LSR                          ; C = OP_DELETE, A = 1: OP_CHANGE
+  BCS .dd
+  BNE .cc
+  JMP yy_lines
+.dd:
+  JMP dd_lines
+.cc:
+  JMP cc_lines
+.char:
+  JMP range_epilogue           ; C = 1: an empty range
+
 ; JSR here calls the range routine in JUMP_TARGET16 (word_op_forward)
 word_op_call_range:
   JMP (JUMP_TARGET16)
-
-; cb: change N words backward
-do_cb:
-  LDA #OP_CHANGE
-  BNE word_op_backward        ; Always taken (OP_CHANGE = 2)
-
-; db: delete N words backward
-do_db:
-  LDA #OP_DELETE
-  ; fall through
-
-; Backward word operation: handles delete, yank, and change for b motion.
-; Input: A = operator (OP_DELETE, OP_YANK, OP_CHANGE)
-; Uses compute_multiline_word_range_backward directly.
-; Handles: get_count, file-start bail,
-;          range computation, apply_char_operator, clamp, clear_count.
-; OP_CHANGE bails into insert mode at file start or failed range.
-word_op_backward:
-  PHA                          ; Save operator
-  JSR get_count_x              ; BUF_TEMP16 = N (capped at 255)
-  ; Bail at file start (col 0 AND line 0)
-  TST16 CURSOR_COL16
-  BNE .ok
-  TST16 FILE_LINE16
-  BEQ word_op_bail
-.ok:
-  LDX BUF_TEMP16
-  JSR compute_multiline_word_range_backward
-  BCS word_op_bail
-  JSR set_render_from_cursor
-  JMP word_op_tail             ; Shared success tail (in word_op_forward)

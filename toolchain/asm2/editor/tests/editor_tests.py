@@ -5887,15 +5887,16 @@ class EditorTestRunner:
 
         # --- Multi-line char paste (content with newlines) ---
 
-        # db yanks across newline ("foo\n"), p pastes inline after cursor
+        # 2ye yanks "foo\n" (with no second word end, e stops before the
+        # empty last line), p pastes inline after the cursor
         # Result: "barfoo\n\n" - cursor at first pasted char (col 3)
         self.run_test_screen(
             "Multi-line char paste p: screen correct",
-            "foo\nbar\n",
-            b"jdb$p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$p:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, ""), (2, "~"),
+                (0, "barfoo"), (1, ""), (2, "foo"), (3, ""), (4, "~"),
             ],
             expect_cursor=(0, 3),
         )
@@ -5928,11 +5929,12 @@ class EditorTestRunner:
         # Inserts "foo\nfoo\n" after 'r': "barfoo\nfoo\n\n"
         self.run_test_screen(
             "Multi-line char 2p: screen correct",
-            "foo\nbar\n",
-            b"jdb$2p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$2p:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, "foo"), (2, ""), (3, "~"),
+                (0, "barfoo"), (1, "foo"), (2, ""), (3, "foo"), (4, ""),
+                (5, "~"),
             ],
             expect_cursor=(0, 3),
         )
@@ -5942,11 +5944,12 @@ class EditorTestRunner:
         # pastes inside the first copy: "barf" "foo\n" "oo\n" "\n"
         self.run_test_screen(
             "Multi-line char batched pp: screen correct",
-            "foo\nbar\n",
-            b"jdb$pp:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$pp:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barffoo"), (1, "oo"), (2, ""), (3, "~"),
+                (0, "barffoo"), (1, "oo"), (2, ""), (3, "foo"), (4, ""),
+                (5, "~"),
             ],
             expect_cursor=(0, 4),
         )
@@ -6138,13 +6141,14 @@ class EditorTestRunner:
         )
 
         # Batched dbdb crossing line boundary
+        # (the db from column 0 stops before the line break, as in vi)
         self.run_test_screen(
             "Batched dbdb crossing line: screen correct",
             "one two\nthree\n",
             b"j$dbdb:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "one e"), (1, "~")],
-            expect_cursor=(0, 4),
+            expect_lines=[(0, "one"), (1, "e"), (2, "~")],
+            expect_cursor=(0, 3),
         )
 
         # Batched dbdb from BOL
@@ -6153,7 +6157,7 @@ class EditorTestRunner:
             "foo bar\nbaz\n",
             b"jdbdb:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "baz"), (1, "~")],
+            expect_lines=[(0, ""), (1, "baz"), (2, "~")],
             expect_cursor=(0, 0),
         )
 
@@ -6195,7 +6199,7 @@ class EditorTestRunner:
             "foo\nbar\n",
             b"jcbbaz\x1b:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "bazbar"), (1, "~")],
+            expect_lines=[(0, "baz"), (1, "bar"), (2, "~")],
             expect_cursor=(0, 2),
         )
 
@@ -7858,12 +7862,12 @@ class EditorTestRunner:
             expect_lines=[(0, "i"), (1, "~")],
             expect_cursor=(0, 0),
         )
-        # The de on the empty line the dw left changes nothing
+        # The de on the empty last line the dw left changes nothing
         self.run_test_screen(
             "dwde partial pair paints the dw when the de does nothing",
-            "X\nb\n",
+            "X\n",
             b"dwde:q!\r",
-            expect_lines=[(0, ""), (1, "b"), (2, "~")],
+            expect_lines=[(0, ""), (1, "~")],
             expect_cursor=(0, 0),
         )
         # The d$ shortens the line the dw left from two rows to one
@@ -8677,8 +8681,8 @@ class EditorTestRunner:
         # Multi-line paste cursor position: cursor at first pasted char
         self.run_test_screen(
             "p with multi-line yank: cursor at first pasted char",
-            "foo\nbar\n",
-            b"jdb0p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek0p:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -11713,7 +11717,7 @@ class EditorTestRunner:
             "dbdb multi-line batch (crosses line boundary)",
             "one two\nthree\n",
             b"j$dbdb:wq\r",
-            expected_content="one e\n",
+            expected_content="one \ne\n",
         )
 
         self.run_test(
@@ -11950,11 +11954,13 @@ class EditorTestRunner:
         )
 
         # Multi-line cb tests
+        # From column 0, cb stops at the end of the line above, and as it
+        # starts in that line's indentation it changes the whole line (vi)
         self.run_test(
-            "cb from BOL deletes back across line",
+            "cb from BOL changes the line above",
             "foo\nbar\n",
             b"jcbbaz\x1b:wq\r",
-            expected_content="bazbar\n",
+            expected_content="baz\nbar\n",
         )
 
         self._group("Yank word forward (yw):", leading_blank=True)
@@ -12456,6 +12462,151 @@ class EditorTestRunner:
             "foo\nbar baz\n",
             b"2lye$p:wq\r",
             expected_content="fooo\nbar\nbar baz\n",
+        )
+
+        self._group("Operators made linewise (vi):", leading_blank=True)
+
+        # An exclusive motion (w, b) that ends on column 0 of a later line
+        # stops at the end of the line before; if the operator starts in its
+        # line's indentation (only blanks before it), it works on whole
+        # lines.  (w's operator ends on column 0 only from an empty line.)
+
+        self.run_test(
+            "dw on an empty line deletes it",
+            "a\n\nfoo\n",
+            b"jdw:wq\r",
+            expected_content="a\nfoo\n",
+        )
+
+        self.run_test(
+            "2dw through an empty line from a line's start deletes the lines",
+            "foo\n\nbar\n",
+            b"2dw:wq\r",
+            expected_content="bar\n",
+        )
+
+        self.run_test(
+            "2dw through an empty line from mid-line keeps the line break",
+            "x foo\n\nbar\n",
+            b"2l2dw:wq\r",
+            expected_content="x \nbar\n",
+        )
+
+        self.run_test(
+            "dwdw on two empty lines deletes both",
+            "\n\nfoo\n",
+            b"dwdw:wq\r",
+            expected_content="foo\n",
+        )
+
+        self.run_test(
+            "yw on an empty line yanks it as a line",
+            "\nfoo\n",
+            b"ywp:wq\r",
+            expected_content="\n\nfoo\n",
+        )
+
+        self.run_test(
+            "3yw from the indentation through an empty line yanks lines",
+            "  a b\n\nc\n",
+            b"2l3ywGp:wq\r",
+            expected_content="  a b\n\nc\n  a b\n\n",
+        )
+
+        self.run_test(
+            "cw on an empty line yanks it as a line",
+            "\nfoo\n",
+            b"cw\x1bjp:wq\r",
+            expected_content="\nfoo\n\n",
+        )
+
+        self.run_test(
+            "db from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jdb:wq\r",
+            expected_content="x \nbar\n",
+        )
+
+        self.run_test(
+            "db from column 0 after a line's only word deletes that line",
+            "foo\nbar\n",
+            b"jdbp:wq\r",
+            expected_content="bar\nfoo\n",
+        )
+
+        self.run_test(
+            "db from column 0 over the indentation deletes the line",
+            "  foo\nbar\n",
+            b"jdb:wq\r",
+            expected_content="bar\n",
+        )
+
+        self.run_test(
+            "yb from column 0 yanks the line above as a line",
+            "foo\nbar\n",
+            b"jybp:wq\r",
+            expected_content="foo\nfoo\nbar\n",
+        )
+
+        self.run_test(
+            "yb from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jybP:wq\r",
+            expected_content="x foofoo\nbar\n",
+        )
+
+        self.run_test(
+            "cb from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jcbY\x1b:wq\r",
+            expected_content="x Y\nbar\n",
+        )
+
+        # The line above changes in place, from the column b went to
+        self.run_test_screen(
+            "cb from column 0 onto an indented word redraws the changed line",
+            " a\nbar\n",
+            b"jcbY\x1b:q!\r",
+            expect_lines=[(0, "Y"), (1, "bar"), (2, "~")],
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "db from column 0 shortening a wrapped line above redraws its rows",
+            "x " + "a" * 45 + "\nbar\nzz\n",
+            b"jdb:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "x"), (1, "bar"), (2, "zz"), (3, "~")],
+            expect_cursor=(0, 1),
+        )
+
+        self.run_test_screen(
+            "dw on an empty line puts the cursor on the next line's first non-blank",
+            "a\n\n  foo\n",
+            b"jdw:q!\r",
+            expect_cursor=(1, 2),
+        )
+
+        # From an empty line, e and its operators go on to the next word's end
+        self.run_test(
+            "de on an empty line deletes to the next word's end",
+            "\nfoo bar\n",
+            b"de:wq\r",
+            expected_content=" bar\n",
+        )
+
+        self.run_test(
+            "ce on an empty line changes to the next word's end",
+            "\nfoo bar\n",
+            b"ceX\x1b:wq\r",
+            expected_content="X bar\n",
+        )
+
+        self.run_test(
+            "ye on an empty line yanks to the next word's end",
+            "\nfoo bar\n",
+            b"yeP:wq\r",
+            expected_content="\nfoo\nfoo bar\n",
         )
 
         self._group("Delete/yank to BOL (d0, y0):", leading_blank=True)
@@ -19408,28 +19559,28 @@ class EditorTestRunner:
             expected_content="abb\ncd\ncd\n"
         )
 
-        # A char yank that starts with a newline (jjyb: "\n"): P leaves
+        # A char yank that starts with a newline (jye: "\ncd"): P leaves
         # the cursor on the pasted newline, which is past the end of the
         # line, so it steps back a column and the next P goes in there
         self.run_test(
             "P of a yank starting with a newline: PP as P <Esc> P",
             "ab\n\ncd\nef\n",
-            b"jjybgg$PP:wq\r",
-            expected_content="\na\nb\n\ncd\nef\n"
+            b"jyegg$PP:wq\r",
+            expected_content="\ncda\ncdb\n\ncd\nef\n"
         )
 
         self.run_test(
             "P of a yank starting with a newline: 2PP as 2P <Esc> P",
             "ab\n\ncd\nef\n",
-            b"jjybgg$2PP:wq\r",
-            expected_content="\na\n\nb\n\ncd\nef\n"
+            b"jyegg$2PP:wq\r",
+            expected_content="\ncda\ncd\ncdb\n\ncd\nef\n"
         )
 
         self.run_test(
             "P of a yank starting with a newline: PP u keeps the text",
             "ab\n\ncd\nef\n",
-            b"jjybgg$PPu:wq\r",
-            expected_content="a\nb\n\ncd\nef\n"
+            b"jyegg$PPu:wq\r",
+            expected_content="a\ncdb\n\ncd\nef\n"
         )
 
         # Char paste batching: same rule
@@ -20892,17 +21043,17 @@ class EditorTestRunner:
 
         # Typed-ahead dw/db/de must act exactly like the same keys typed one
         # at a time: a dw that reaches the end of a line stops there (the
-        # cursor then clamps back), a dw on an empty line does nothing, and
-        # de from a one-char word skips it. N pairs are not Ndw.
+        # cursor then clamps back), a dw on an empty line deletes it (vi),
+        # and de from a one-char word skips it. N pairs are not Ndw.
         for keys, content, expected in [
             (b"wdwdw", "foo bar\n", "foo\n"),
             (b"wdwdw", "foo bar\nbaz qux\n", "foo\nbaz qux\n"),
-            (b"dwdw", "aaa\nbbb\n", "\nbbb\n"),
+            (b"dwdw", "aaa\nbbb\n", "bbb\n"),
             (b"$dwdw", "abc def ghi\njkl mno\n", "abc def g\njkl mno\n"),
             (b"wdede", "foo bar\n", "foo\n"),
-            (b"dede", "aaa\nbbb\n", "\nbbb\n"),
+            (b"dede", "aaa\nbbb\n", "\n"),
             (b"dede", "h ikc.i\n", "\n"),
-            (b"jdbdb", "ab cd\n\n", " \n"),
+            (b"jdbdb", "ab cd\n\n", " \n\n"),
             (b"dwdwdwu", "..b  \n", "b  \n"),
         ]:
             self.run_test(

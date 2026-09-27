@@ -207,7 +207,11 @@ do_dd:
   TXA
   ADDA16 BUF_TEMP16          ; BUF_TEMP16 = count + pairs (the limit kept it
                              ; within the lines left)
+  ; fall through
 
+; dd of BUF_TEMP16 lines (at most the lines left), BATCH_EXTRA of them
+; typed-ahead pairs; op_lines enters here with none
+dd_lines:
   ; Pre-compute the scroll of the lines being deleted (before deletion)
   JSR precompute_delete_scroll
 

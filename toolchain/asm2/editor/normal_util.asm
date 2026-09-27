@@ -501,21 +501,11 @@ delete_current_lines:
   JSR buf_delete_lines
   JMP clamp_file_line        ; Clamp file line if past end of file
 
-; Record undo, then delete chars at the cursor (once they are yanked)
-; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Deletes, rebuilds lines, sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
-undo_delete_at_cursor:
-  JSR undo_record_char_delete
-  ; Fall through to delete_at_cursor
-
-; Delete bytes at cursor position (no yank)
-; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
-delete_at_cursor:
+; Count the newlines in the BUF_LEN16 bytes at the cursor
+; Output: BUF_TEMP16 = the count, BUF_DST16 = the address after them,
+; Y = 0.  Clobbers A, X, BUF_PTR16, BUF_SRC16
+count_newlines:
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  ; Count the newlines in the deleted range into BUF_TEMP16
   CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
   CP16 BUF_LEN16, BUF_SRC16 ; BUF_SRC16 = bytes left to scan
   LDA #0
@@ -533,6 +523,22 @@ delete_at_cursor:
   DEC16 BUF_SRC16
   JMP .scan_nl
 .scan_done:
+  RTS
+
+; Record undo, then delete chars at the cursor (once they are yanked)
+; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
+; Deletes, rebuilds lines, sets MODIFIED
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
+undo_delete_at_cursor:
+  JSR undo_record_char_delete
+  ; Fall through to delete_at_cursor
+
+; Delete bytes at cursor position (no yank)
+; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
+; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
+delete_at_cursor:
+  JSR count_newlines         ; BUF_TEMP16 = the range's newlines
   ; Newlines found: BEFORE the shift, sum the old screen rows of the
   ; cursor line and the lines joined to it into DELETE_SCREEN_ROWS (0 if
   ; over 255; over 255 newlines walk 256 lines, so over 255 rows)

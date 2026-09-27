@@ -730,6 +730,8 @@ replace_extra_len:
 ; Yank line(s), replace them with one empty line, enter insert at col 0.
 do_cc:
   JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
+; cc of BUF_TEMP16 lines (op_lines enters here)
+cc_lines:
   JSR yank_current_lines
   BCS .cc_overflow
   ; Record undo: u removes the empty line and pastes the lines back

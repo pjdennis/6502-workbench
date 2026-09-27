@@ -206,7 +206,9 @@ word_end_x:
   STX NORMAL_TEMP         ; Save counter
   JSR get_line_len_z
   ; e moves past the cursor first; from the line's last char (or an
-  ; empty line) it goes on to the next line
+  ; empty line) it goes on to the next line.  (From an empty last line
+  ; it goes to col -1: an operator's range there is empty.)
+  BEQ .e_next_line
   JSR next_class
   BPL .e_skip_ws_test
 
@@ -253,7 +255,9 @@ word_end_x:
 ; --- Multi-line range computation routines ---
 
 ; Compute forward word range (multi-line) for dw/yw
-; Applies exclusive-linewise adjustment when motion ends at col 0 of different line
+; The last word stops at the end of its line (the range stops before its
+; line break); from an empty line it ends on column 0 of the next line,
+; and vi's exclusive rule sets OP_EXCL_LINE (see op_lines)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
@@ -265,12 +269,18 @@ compute_multiline_word_range_forward:
   JSR word_forward_x                ; move cursor forward N words
   DEC WORD_OP
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
-  ; Exclusive-linewise check: if different line AND col 0, back up past '\n'
+  ; The last word stopped at the end of its line: back up past the '\n'
   CMP16 FILE_LINE16, BUF_DST16      ; BUF_DST16 = start line (range_start)
   BEQ .cmwrf_no_adj                 ; same line, no adjustment
   TST16 CURSOR_COL16
   BNE .cmwrf_no_adj                 ; not at col 0, no adjustment
   DEC16 BUF_PTR16                   ; back up past '\n'
+  ; From an empty line (LINE_LEN16 = 0) vi's w ends on column 0 of the
+  ; next line (from a word, on the line end): its exclusive rule applies
+  TST16 LINE_LEN16
+  BNE .cmwrf_no_adj
+  SEC
+  ROR OP_EXCL_LINE
 .cmwrf_no_adj:
   JMP range_end
 
@@ -300,18 +310,36 @@ compute_multiline_cw_range_forward:
   JSR range_start                   ; cw of one word there: the char
   JMP word_end_range_end
 
-; Compute backward word range (multi-line) for db/yb/cb
+; Compute backward word range (multi-line) for db/yb/cb.  From column 0
+; the range stops before the line break, and vi's exclusive rule sets
+; OP_EXCL_LINE (see op_lines)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
-; Side effect: cursor STAYS at new backward position (start of range)
+; Side effect: cursor STAYS at new backward position (start of range);
+; PREV_LINE_ROWS = its line's rows
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
 ;           BUF_SRC16
 compute_multiline_word_range_backward:
   JSR range_start_ptr               ; BUF_SRC16 = original position (end of range)
-  JSR word_backward_x               ; move cursor backward N words
-  JSR get_cursor_buf_ptr            ; BUF_PTR16 = new position (start of range)
+  TST16 CURSOR_COL16
+  BNE .cmwrb_col
+  TST16 FILE_LINE16
+  BEQ .cmwrb_col                    ; The file start: b cannot move
+  ; From column 0 (b goes to a line above), vi's exclusive rule: the
+  ; range stops at the end of that line.  An edit there changes that
+  ; line in place (typed-ahead presses then redraw all: dispatch_replay)
   SEC
-  SBC16 BUF_SRC16, BUF_PTR16, BUF_LEN16  ; range = end - start
+  ROR OP_EXCL_LINE
+  LDA #RF_LINE
+  STA RENDER_FLAG
+.cmwrb_col:
+  JSR word_backward_x               ; move cursor backward N words
+  JSR file_line_rows                ; Its line's rows before the edit
+  STA PREV_LINE_ROWS
+  JSR get_cursor_buf_ptr            ; BUF_PTR16 = new position (start of range)
+  LDA #$7F
+  CMP OP_EXCL_LINE                  ; C = 0: the range stops before the
+  SBC16 BUF_SRC16, BUF_PTR16, BUF_LEN16  ; line break (range = end - start)
   JMP range_epilogue
 
 ; Compute forward word-end range (multi-line) for de/ye/ce
@@ -385,6 +413,17 @@ first_nonblank:
 ; The same, but not right of the cursor: its column if only blanks lie
 ; left of it (where vim starts a linewise operator, as >>, on its line)
 nonblank_left:
+  JSR in_indent                ; X/Y = the column
+  STY CURSOR_COL16
+  STX CURSOR_COL16 + 1
+  RTS
+
+; Carry set if only blanks lie left of the cursor (vim's inindent), X/Y
+; = its column; else carry clear and X/Y = the column (high/low) of the
+; line's first non-blank.  From nonblank_left, with the cursor past the
+; end of a line of blanks, it puts the cursor on the last blank (col 0 on
+; an empty line) and returns from nonblank_left.  Clobbers A, BUF_PTR16
+in_indent:
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
   LDX #0                       ; X/Y = column (high/low)
   LDY #0
@@ -405,13 +444,15 @@ nonblank_left:
   INX
   BNE .scan                    ; Always
 .found:
-  STY CURSOR_COL16             ; First non-blank at column X/Y
-  STX CURSOR_COL16 + 1
+  CLC                          ; First non-blank at column X/Y
 .done:
   RTS
 .blank_line:
   ; Only blanks: the last one (col 0 on an empty line)
-  JSR .found                   ; Col = the line length
+  PLA
+  PLA                          ; Return from nonblank_left
+  STY CURSOR_COL16             ; Col = the line length
+  STX CURSOR_COL16 + 1
   JMP clamp_cursor_col
 
 ; --- Shared small helpers ---

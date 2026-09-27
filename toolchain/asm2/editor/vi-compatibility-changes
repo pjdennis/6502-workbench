@@ -35,8 +35,6 @@
   w at the last word of a line - Goes to column 0 of the next line even when that line is indented. Vi goes to the
   first non-blank character. The same boundary is used by dw, so 2dw on "foo" followed by "  bar" leaves "bar".
 
-  dw on an empty line - Does nothing. Vi deletes the empty line.
-
   Command line
 
   : and / input - Limited to what fits the status row after the prompt: the screen width less 2 characters, and at

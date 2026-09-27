@@ -156,6 +156,14 @@ All editing commands are blocked in read-only mode.
                  Rapidly typed (batched) keys execute together but undo
                  as if processed one at a time: u undoes the last one.
 
+  As in vi, dw, yw and cw on an empty line, and db, yb and cb from
+  column 0, stop at the end of the line before (its line break stays),
+  and if they start in their line's indentation (only blanks before
+  the cursor) they work on whole lines, as dd, yy and cc do: dw on an
+  empty line deletes it, and db from the start of a line deletes the
+  line above when it holds one word. de, ce and ye on an empty line
+  go on to the next word's end.
+
 
 NORMAL MODE - SEARCH
 --------------------
@@ -314,7 +322,8 @@ YANK BUFFER
   The yank buffer (4KB) holds either complete lines or character
   data, depending on the last yank/delete operation:
 
-  Line yank (from dd, yy, cc, range commands):
+  Line yank (from dd, yy, cc, range commands, and the word
+  operators when they work on whole lines):
     p/P paste complete lines above or below.
 
   Character yank (from x, D, d$, d0, dw, db, de, yw, yb, ye,

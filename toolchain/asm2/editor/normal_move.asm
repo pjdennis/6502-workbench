@@ -196,6 +196,8 @@ do_gg:
 ; yy twice, and the last yank wins)
 do_yy:
   JSR get_count              ; BUF_TEMP16 = count (16-bit)
+; yy of BUF_TEMP16 lines (op_lines enters here)
+yy_lines:
   JSR yank_current_lines
   BCS .overflow
   JMP clear_count            ; Done - don't set MODIFIED
@@ -210,8 +212,8 @@ do_yw:
 
 ; yb: yank N words backward from cursor (character yank, multi-line)
 do_yb:
-  LDA #OP_YANK
-  JMP word_op_backward
+  LDY #OP_YANK
+  JMP word_b_op
 
 ; ye: yank from cursor to end of word (inclusive, multi-line)
 do_ye:
