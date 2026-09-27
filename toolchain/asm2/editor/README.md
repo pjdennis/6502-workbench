@@ -56,7 +56,8 @@ project's 6502 emulator in console/ANSI mode.
   pair batching, line/char yank-and-delete and the x/X batched delete.
 - `insert.asm`: insert-mode handler — printable chars, Enter, Backspace,
   Delete (forward), arrow keys, Home/End, PgUp/PgDn, word motions, batching
-  of mixed Enter/BS/printable sequences.
+  of mixed Enter/BS/printable sequences, and the undo record of the typing
+  (a segment between cursor moves).
 - `command.asm`: command-line mode — `:w`, `:q`, `:wq`, `:q!`, `:[N]`,
   `:marks`, range commands (`:[start],[end]d/y/>/<`).
 

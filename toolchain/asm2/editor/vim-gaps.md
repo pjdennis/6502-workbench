@@ -6,8 +6,8 @@ buffer, or reworks a part of the editor that works well as it is. Each
 section says what vim does, what the editor does, and how the editor
 could do what vim does: the data, the routines that change, memory, code
 bytes, CPU and repaint, risks, and the tests to write first. Section 4
-has since been done, and section 5 is planned next (its first subsets);
-sections 1, 2, 3 and 6 are kept for now.
+has since been done, and so have the first two subsets of section 5;
+sections 1, 2, 3 and 6, and the rest of 5, are kept for now.
 
 Byte counts marked *measured* come from sandbox prototypes on the tree at
 9d5cfd0 (console build 12,468 bytes, terminal build 12,541), with the
@@ -17,7 +17,9 @@ buffer a page at a time. When this file was added (the vim-compatibility
 pass, part B) the console build was 12,720 bytes and the terminal build
 12,793, 7 bytes below the page boundary at $3600 where its `TEXT_BUF`
 starts, so every item left here costs the terminal build 256 bytes of
-text buffer unless something else shrinks.
+text buffer unless something else shrinks. Section 5's first subsets
+(part C) moved it to $3700: the console build is now 12,941 bytes and
+the terminal build 13,014, 42 bytes below $3700.
 
 | # | Difference | Code bytes | Tests that change | State |
 |---|---|---|---|---|
@@ -25,7 +27,7 @@ text buffer unless something else shrinks.
 | 2 | J keeps the joined line's leading blanks | about +200, 150 to 250 (estimate) | one render test found | kept for now |
 | 3 | No search wrap messages, no E486 | +108 (measured), about 90 with shared text | none | kept for now |
 | 4 | Messages swallowed the next key | -5 (done) | 9 | done |
-| 5 | Insert-mode typing is not undoable | +120 to 160 for the simplest subset, 250 to 300 for all (estimate) | 2 (2 more with the change commands) | planned |
+| 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +117 (a ready patch, measured) | the pagination tests' expected views | kept for now |
 
 Item 3 uses the message routine item 4 left (a message held until the
@@ -347,10 +349,57 @@ its waits, as vim's more-prompt and hit-enter prompt do. It measured 5
 bytes less; nine tests that pinned the swallowed key now expect vim's
 behaviour.
 
-## 5. Undo of insert-mode typing (planned)
+## 5. Undo of insert-mode typing (subsets 1 and 2 done)
 
-Planned next: the last typed segment of i, a, I and A, and o and O
-(subsets 1 and 2 below). The analysis follows as it was written.
+Subsets 1 and 2 below were done in the vim-compatibility pass, part C:
+u takes back the typing of i, a and A (the editor has no I), and of o
+and O with the line they opened, a stretch between cursor moves at a
+time, and u again redoes it. Left: subset 3, a BS or DEL past the
+stretch's edges, and subset 4, the typing after c, s, C, S and cc; both
+still clear the undo, as all typing did before. The analysis follows as
+it was written, after a summary of what was built.
+
+### What was built (part C)
+
+- The record (`UNDO_INSERT`) is as planned: the segment's start
+  (`UNDO_LINE16`, `UNDO_COL16`) and the length of its text before the
+  cursor (`UNDO_INS_LEN16`). `insert_segment` keeps it for each batch
+  that goes in (a refused batch, and one that changes nothing, leave it
+  alone). `INSERT_SEG` (was `INSERT_CHANGED`) is the segment's state: 0
+  none (the next change starts one, `insert_seg_start`), $FF kept, $7F
+  not kept (after a change command, `enter_insert_change`, or a BS or DEL
+  past the edges: its changes clear the undo). `insert_exit` no longer
+  clears the undo.
+- Moves: a key that `insert_keys` dispatches ends the segment when the
+  cursor moved (the line and column against `SNAP_LINE16` and
+  `SNAP_COL16`), and Home and End always do, as vim's `start_arrow`
+  calls go; a key that fails (Right at the line end, Up on the first
+  line, Left at column 0) does not, in vim either (it beeps).
+- u deletes the text (`delete_at_cursor`) and puts the cursor at the
+  start, clamped, where vim's u and Ctrl-R put it. The text is kept in
+  `UNDO_DATA_BUF` for the redo when it is at most 255 bytes; a longer
+  one is undone once and its record ends (vim redoes it), and a
+  typed-ahead uu then draws the undo. The redo puts the text back and
+  draws a split as the undo of a char delete over line breaks does
+  (`RF_SPLIT`).
+- o and O record the segment themselves, and `UNDO_OPEN` is gone. The
+  segment starts at column 0 of the opened line and its line break
+  follows the text (`UNDO_INS_OPEN`: 1 for O, 2 for o), so it is always
+  whole lines: u deletes them as lines (`RF_DEL`, drawn as the undo of o
+  always was) and returns to the line and column o or O was typed at
+  (`UNDO_RET_COL16`), and the redo puts them back as lines (`RF_INS`),
+  with the cursor on the first. For O that is where vim goes; after o
+  vim goes to the line o was typed on, which a line insert cannot draw
+  from (vi-compatibility-changes). Unlike the plan below, o's line break
+  is not before the typing, so a BS at the start of o's line deletes text
+  from before the segment and clears the undo, as a DEL at its end does.
+- Measured: 93 bytes for the record and the undo (`TEXT_BUF` moved to
+  $3700), 21 for the moves, 90 for the redo, 18 for o and O (the
+  `UNDO_OPEN` code it replaced was 53 bytes), 4 less with the segment
+  start shared: 218 bytes. A key typed alone costs 56 cycles more, a
+  typed-ahead batch about 130, a cursor key in insert mode about 56 (86
+  when it fails); the undo of 5 chars about 200 more for the copy, of
+  255 chars about 4,500.
 
 ### What vim does
 
@@ -366,9 +415,14 @@ one `normal!` command do not break at the arrow keys):
 - A cursor move in insert mode (arrow keys, Home, End, PgUp, PgDn,
   Ctrl-Left and Ctrl-Right) starts a new change: each stretch of typing
   between moves is its own undo step, and u takes the last one back
-  first. A move with nothing typed after it adds no step.
-- u puts the cursor where that stretch of typing began, and redo (Ctrl-R)
-  there too.
+  first. A move with nothing typed after it adds no step. A key that
+  cannot move (Right at the line end, Up on line 1, Left at column 0,
+  PgUp at the top) beeps and starts no new change; Home and End always
+  start one.
+- u puts the cursor where that stretch of typing began (in normal mode:
+  on the last char when that is past the line end), and redo (Ctrl-R)
+  there too; after o and O, where o or O was typed (the line o was
+  typed on, the column too).
 - An insert that typed and erased again is still a change: u undoes it
   (nothing to see), and the edit before stays done.
 
@@ -381,7 +435,7 @@ gives 'abc'. `ofoo<CR>bar<Esc>u` gives 'abc'. 'abc', 'def' with
 `wcwfoo`, five BS and `X<Esc>` gives 'abX'; u gives 'abc def' (cursor
 column 4). 'abc' with `x`, `ia<BS><Esc>`, `u` gives 'bc'.
 
-### What the editor does
+### What the editor did before part C
 
 `enter_insert_mode` (normal_util.asm) clears `INSERT_CHANGED`, every
 insert batch that changes the text sets it (`insert_handle_key`), and
@@ -503,7 +557,14 @@ as if the keys were processed one at a time" holds with no extra work.
   it as above; for `UNDO_CC`, whose undo expects one empty line, it can
   end the undo as now. (A new yank already ends these records.)
 
-### Subsets and sizes (estimates, not prototyped)
+### Subsets and sizes (estimates made before part C)
+
+Subsets 1 and 2 measured 218 bytes with the redo in part C (see What was
+built); 3 and 4 are left, at the estimates below. The redo of part C
+keeps the typed text in `UNDO_DATA_BUF`, so subset 3's old bytes need
+room beside it: the page shared (the redo only when both fit), or the
+free $0200 page for one of them. o's segment starts at the opened
+line's column 0, so subset 3 also covers a BS at the start of o's line.
 
 1. The simplest useful subset: segments of i, a and A that only type
    (chars, Tab, Enter, BS over their own text), with undo and redo within
@@ -553,9 +614,14 @@ undo.
 - A segment with Enter and BS typed ahead against the same keys one at a
   time.
 - Later subsets: `ji<BS><BS>X<Esc>u`, `Axy<Del><Del><Esc>u`,
-  `3liXY<Left><BS><BS><Esc>u`, `cwfoo<Esc>u`, then "sX ESC: typing clears
-  undo" and "cc New ESC: typing clears undo", which change; a segment of
-  more than 256 bytes (undone once, then u does nothing).
+  `3liXY<Left><BS><BS><Esc>u`, `o<BS>x<Esc>u`, `ofoo<Del><Esc>u`, and
+  part C's four tests that pin the undo cleared by a BS or DEL past the
+  edges ("Insert undo: BS of text from before the insert clears undo",
+  its DEL test and the two for o), which change with subset 3;
+  `cwfoo<Esc>u`, then "sX ESC: typing clears undo" and "cc New ESC:
+  typing clears undo", which change with subset 4. (Part C tests the
+  segments of 255 and 256 bytes: the second is undone once, then u does
+  nothing.)
 
 ## 6. Ctrl-F and Ctrl-B (kept for now)
 
