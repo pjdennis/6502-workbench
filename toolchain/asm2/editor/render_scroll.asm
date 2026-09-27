@@ -181,6 +181,39 @@ render_range_repaint:
 .rr_full:
   JMP render_screen
 
+; RENDER_WRAP = the rows from the first row of the line RENDER_LIMIT
+; (1 or more) lines above the cursor line to the cursor's row: WRAP_QUOT
+; plus the rows of the lines between (DELETE_SCREEN_ROWS).  C=1 if that
+; is past 255.  Clobbers A, X, Y, RENDER_LIMIT, RENDER_LINE16, BUF_PTR16,
+; DIV_INPUT16
+rows_to_cursor:
+  SEC
+  SBC16_8 FILE_LINE16, RENDER_LIMIT, RENDER_LINE16
+  LDA RENDER_LIMIT
+  JSR compute_delete_screen_rows  ; A = their rows (C=1: over 255)
+  BCS .done
+  ADC WRAP_QUOT
+  STA RENDER_WRAP
+.done:
+  RTS
+
+; A = the screen row of the first changed cell of a line that starts
+; RENDER_WRAP rows above the cursor's row (rows_to_cursor): its row in
+; the line (check_from_col) counted from there, or the cursor's row for
+; a cell at or below it; WRAP_REM = its column.  C=0 if it is above the
+; view.  Clobbers A, X, DIV_INPUT16
+change_cell_row:
+  JSR check_from_col           ; X = its row in the line
+  TXA
+  SEC
+  SBC RENDER_WRAP              ; C=0: above the cursor's row
+  BCS .cursor_row
+  ADC CURSOR_ROW               ; C=1: on screen
+  RTS
+.cursor_row:
+  LDA CURSOR_ROW               ; (C=1)
+  RTS
+
 ; Enter batch (RENDER_FLAG=$05): the batch deleted no newline, so it
 ; began on one line of PREV_LINE_ROWS rows from screen row F and split it
 ; into the fd + 1 lines that end at the cursor line (fd = RENDER_LIMIT).
@@ -198,19 +231,10 @@ render_range_repaint:
 ; drawn in full.
 render_enter_split:
   JSR ansi_cursor_hide
-  ; RENDER_LINE16 = the first line of the split = FILE_LINE16 - fd
-  SEC
-  SBC16_8 FILE_LINE16, RENDER_LIMIT, RENDER_LINE16
   ; RENDER_WRAP = CURSOR_ROW - F = WRAP_QUOT + the rows of the fd lines
   ; above the cursor line
-  LDA RENDER_LIMIT
-  JSR compute_delete_screen_rows
-  LDA DELETE_SCREEN_ROWS
-  BEQ .full                    ; over 255
-  CLC
-  ADC WRAP_QUOT
-  BCS .full
-  STA RENDER_WRAP
+  JSR rows_to_cursor
+  BCS .full                    ; over 255
   ; CUR_LINE_ROWS = the new lines' rows (those and the cursor line's)
   JSR file_line_rows
   CLC
@@ -246,33 +270,29 @@ render_enter_split:
   BEQ .draw                    ; not a pure Enter batch at either end
   BCS render_finish
   JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
+.full:
+  JMP render_from_top
 .draw:
   ; Draw from the first changed cell, row F + q and column WRAP_REM (the
   ; top row from column 0 if that is above the view), to the last new row
-  JSR check_from_col           ; X = q (the column is never $FFFF)
-  STX RENDER_COL
-  LDA RENDER_WRAP
-  SEC
-  SBC RENDER_COL               ; CURSOR_ROW - (F + q) >= 0
-  EOR #$FF
-  SEC
-  ADC CURSOR_ROW               ; F + q; C=0: above the view
-  BCS .from_row
+  JSR change_cell_row          ; (the column is never $FFFF)
+  BCS draw_rows_from
   LDA #0
   STA WRAP_REM
-.from_row:
+  ; fall through
+; Draw from row A, column WRAP_REM, to the row before 1-based row
+; RENDER_ROW, then end the frame
+draw_rows_from:
   STA RENDER_COL
   LDA RENDER_ROW
   CLC
   SBC RENDER_COL
-  STA SCROLL_DELTA             ; rows from there to the last new row
+  STA SCROLL_DELTA             ; rows from there to the last one
   LDA RENDER_COL
   STA RENDER_ROW
   JSR find_line_at_render_row
   LDA WRAP_REM
   JMP render_limited_rows_from_col
-.full:
-  JMP render_from_top
 
 ; === Scroll-region helpers ===
 ; Line-delete scroll: the region [A .. SCREEN_ROWS-1] (A = 1-based first
@@ -730,7 +750,8 @@ line_screen_rows:
 ; fill any scroll region; _join walks the cursor line plus the A lines
 ; after it; _at_cursor walks A lines from the cursor line; the base entry
 ; walks A lines from RENDER_LINE16.
-; Output: DELETE_SCREEN_ROWS set (0 on overflow = fall back to file delta)
+; Output: DELETE_SCREEN_ROWS set (0 on overflow = fall back to file delta);
+; compute_delete_screen_rows also returns it in A, with C=1 on overflow
 ; Clobbers: A, X, Y, RENDER_LIMIT, RENDER_LINE16, BUF_PTR16, DIV_INPUT16
 compute_delete_rows_temp16:
   LDA BUF_TEMP16
