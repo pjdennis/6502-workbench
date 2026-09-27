@@ -49,20 +49,22 @@ INDENT_WIDTH = 2
 
 ; >> and <<: the cursor ends on the first non-blank, as in vim
 do_indent:
+  JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   JSR shift_normal_setup
   JSR insert_spaces_core
   JMP first_nonblank_clear
 
 do_unindent:
+  JSR get_count_clamp_lines
   JSR shift_normal_setup
   JSR remove_spaces_core
   JMP first_nonblank_clear
 
-; Shared >> / << entry setup.
-; Clamps the line count and computes BUF_DELTA = INDENT_WIDTH * (1 +
-; BATCH_EXTRA).  A count means lines and a repeated pair width, so the
-; typed-ahead pairs merge (multiplying the width) only when no count was
-; typed: 3>>>> is 3>> then >>.  The cursor goes where vim starts the
+; Shared >> / << entry setup, after get_count_clamp_lines (which ends
+; the command for a count on the last line).  Computes BUF_DELTA =
+; INDENT_WIDTH * (1 + BATCH_EXTRA).  A count means lines and a repeated
+; pair width, so the typed-ahead pairs merge (multiplying the width)
+; only when no count was typed: 3>>>> is 3>> then >>.  The cursor goes where vim starts the
 ; operator, the column u returns to: over two or more lines the cursor,
 ; on one line the first non-blank if it is further left.  A batch's
 ; later pairs each start on the first non-blank the pair before left
@@ -70,7 +72,6 @@ do_unindent:
 ; buffer (no room for a full batch) the pairs run one at a time, so the
 ; ones that fit go in and the next is refused on its own, as typed singly.
 shift_normal_setup:
-  JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   LDX #0                       ; No pairs taken
   LDA COUNT16
   ORA COUNT16 + 1
@@ -92,12 +93,6 @@ shift_normal_setup:
   LDX BUF_TEMP16
   DEX
   BNE .start                   ; Two or more lines: the cursor column
-  ; One line and a count of 2 or more: on the last line, where vim's
-  ; count fails (its lines below are not there): end the command
-  LDA COUNT16
-  LSR
-  ORA COUNT16 + 1
-  BNE shift_count_fail
   LDA BATCH_EXTRA
   BEQ .one_line
   STA CURSOR_COL16 + 1         ; Batched: the first non-blank
@@ -111,10 +106,6 @@ shift_normal_setup:
 shift_mode_a:
   STA SHIFT_MODE
   RTS
-shift_count_fail:
-  PLA                          ; Drop the return into do_indent/unindent
-  PLA
-  JMP keep_clear_count
 
 ; One INDENT_WIDTH step in constant-width mode (the :range > / < setup,
 ; and undo)

@@ -186,7 +186,7 @@ normal_goto_last:
 ; yy: yank N lines starting at current line (not pair-batched: yyyy runs
 ; yy twice, and the last yank wins)
 do_yy:
-  JSR get_count              ; BUF_TEMP16 = count (16-bit)
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count (16-bit)
 ; yy of BUF_TEMP16 lines (op_lines enters here)
 yy_lines:
   JSR yank_current_lines

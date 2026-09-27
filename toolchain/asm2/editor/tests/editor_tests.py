@@ -8107,8 +8107,8 @@ class EditorTestRunner:
             ("dddddd from second line deletes every line", "L0\nL1\nL2\n",
              b"jdddddd:wq\r", "\n"),
             ("dddd on only line", "one\n", b"dddd:wq\r", "\n"),
-            ("2dddd on last line", "aaa\nbbb\nccc\nddd\n", b"G2dddd:wq\r",
-             "aaa\nbbb\n"),
+            ("2dddd on last line: 2dd fails, dd deletes",
+             "aaa\nbbb\nccc\nddd\n", b"G2dddd:wq\r", "aaa\nbbb\nccc\n"),
             ("dddddd on third of four lines", "aaa\nbbb\nccc\nddd\n",
              b"jjdddddd:wq\r", "aaa\n"),
             ("dddd on last line after an earlier dd", "a\nb\nc\nd\n",
@@ -8302,12 +8302,12 @@ class EditorTestRunner:
             expected_content="A\nB\n"
         )
 
-        # 2dd at end (partial: only 1 line to delete)
+        # 2dd on the last line fails, as in vim (only 1 line to delete)
         self.run_test(
-            "2dd at last line only deletes 1",
+            "2dd on the last line deletes nothing",
             "A\nB\nC\n",
             b"G2dd:wq\r",
-            expected_content="A\nB\n"
+            expected_content="A\nB\nC\n"
         )
 
         # The yank buffer holds exactly 4 KB. The ESC after a "Yank
@@ -8675,12 +8675,12 @@ class EditorTestRunner:
             expected_content="A\nB\nB\nC\n"
         )
 
-        # 2yy clamps at end of file
+        # 2yy on the last line fails, as in vim: nothing is yanked
         self.run_test(
-            "2yy at last line only yanks 1",
+            "2yy on the last line yanks nothing",
             "A\nB\nC\n",
             b"G2yyp:wq\r",
-            expected_content="A\nB\nC\nC\n"
+            expected_content="A\nB\nC\n"
         )
 
         # Repeated yy: each yank replaces the last, so only 1 line is kept
@@ -16024,7 +16024,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: dd of a last line running off-screen",
             "A" * 70 + "\nBBB\n" + "C" * 45 + "\n" + "D" * 70 + "\n",
-            b"G3dd:q!\r",
+            b"Gdd:q!\r",
             rows=10, cols=20,
             expect_lines=[(4, "BBB"), (5, "C" * 20), (7, "C" * 5),
                           (8, "~")],
@@ -16056,11 +16056,11 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: 2dd redo at the end of a scrolled file",
             make_lines(30),
-            b"G2ddu u:q!\r",
+            b"Gk2ddu u:q!\r",
             rows=10, cols=40,
-            expect_lines=[(r, f"Line {r + 22}") for r in range(8)]
-                         + [(8, "~")],
-            expect_cursor=(7, 0),
+            expect_lines=[(r, f"Line {r + 22}") for r in range(7)]
+                         + [(7, "~"), (8, "~")],
+            expect_cursor=(6, 0),
         )
         # Redo of a dd of every line: the empty line left behind did not
         # move up into the cursor row, so it must be drawn
@@ -18969,6 +18969,30 @@ class EditorTestRunner:
                 content,
                 keys + b":wq\r",
                 expected_content=expected,
+            )
+
+        # So do Ndd, Ncc, NS and Nyy (vim moves down count - 1 lines first,
+        # which fails there); from a line above they go to the last line
+        abc = "a\nb\nc\n"
+        for keys, expected in ((b"G2dd", abc), (b"G9dd", abc),
+                               (b"G2ccX\x1b", abc), (b"G2SX\x1b", abc),
+                               (b"yyG2yyP", "a\nb\na\nc\n"),
+                               (b"xG2ddu", abc), (b"G1dd", "a\nb\n"),
+                               (b"j5dd", "a\n"), (b"j5yyP", "a\nb\nc\nb\nc\n"),
+                               (b"j5ccX\x1b", "a\nX\n")):
+            self.run_test(
+                f"{keys!r} with a count on or near the last line",
+                abc,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+        # A refused count keeps the remembered column, as a failed command
+        for keys in (b"2dd", b"2yy", b"2cc", b"2S"):
+            self.run_test_screen(
+                f"{keys!r} refused on the last line keeps the column for k",
+                "abcdef\nabcdef\nab\n",
+                b"$jj" + keys + b"k:q!\r",
+                expect_cursor=(1, 5),
             )
 
         # >> then movement then u: undo applies to the recorded range

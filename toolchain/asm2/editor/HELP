@@ -163,6 +163,10 @@ All editing commands are blocked in read-only mode.
                  Rapidly typed (batched) keys execute together but undo
                  as if processed one at a time: u undoes the last one.
 
+  A count for dd, cc, S, yy, >> and << takes that many lines from
+  the cursor's down, stopping at the last line; on the last line
+  itself a count of 2 or more does nothing, as in vim.
+
   As in vi, dw, yw and cw on an empty line, and db, yb and cb from
   column 0, stop at the end of the line before (its line break stays),
   and if they start in their line's indentation (only blanks before

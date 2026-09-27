@@ -287,8 +287,12 @@ move_right_x:
 
 ; --- Count prefix helpers ---
 
-; Get count, clamped to the lines from FILE_LINE16 to the end
-; Output: BUF_TEMP16 = clamped count.  Clobbers: A, BUF_LEN16
+; Get count, clamped to the lines from FILE_LINE16 to the end, for the
+; line commands (dd, cc, S, yy, >>, <<), which call it first.  On the
+; last line a count of 2 or more fails, as in vim (it moves down count
+; - 1 lines first): the command ends there, as keep_clear_count
+; Output: BUF_TEMP16 = clamped count, BUF_LEN16 = the lines left.
+; Clobbers: A, X
 get_count_clamp_lines:
   JSR get_count
   SEC
@@ -296,6 +300,18 @@ get_count_clamp_lines:
   CMP16 BUF_TEMP16, BUF_LEN16
   BCC .ok
   CP16 BUF_LEN16, BUF_TEMP16
+  LDX BUF_LEN16 + 1
+  BNE .ok
+  LDX BUF_LEN16
+  DEX
+  BNE .ok                    ; Not the last line
+  LDA COUNT16
+  LSR
+  ORA COUNT16 + 1
+  BEQ .ok                    ; No count, or 1
+  PLA                        ; Drop the return into the command
+  PLA
+  JMP keep_clear_count
 .ok:
   RTS
 
