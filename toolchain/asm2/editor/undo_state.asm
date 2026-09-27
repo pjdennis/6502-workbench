@@ -22,7 +22,8 @@
 ;  13 = replace char (r; originals in UNDO_DATA_BUF, redo re-writes;
 ;       the replacement KEY_ENTER is r<Enter>'s line break)
 ;  14 = insert (the text typed in insert mode since it began or since a
-;       cursor move, a segment: u deletes it)
+;       cursor move, a segment: u deletes it, keeping it in UNDO_DATA_BUF
+;       for the redo when it fits)
 ;
 ; Types 1-7 read the yank buffer (the deleted text, the paste size), so
 ; a new yank ends them (yank_store); from UNDO_JOIN up, the types keep
@@ -68,7 +69,8 @@ UNDO_INSERT = 14
 ; Shared per-operation undo data (single-level undo, so one page serves
 ; all users): join = 16-bit newline offsets from the line start,
 ; indent/unindent = per-line widths, replace = the original chars, char
-; delete and cc = the marks before them (mark_save).
+; delete and cc = the marks before them (mark_save), insert = the text
+; an undo took out, for the redo.
 UNDO_DATA_BUF = $D700     ; 256 bytes
 JOIN_UNDO_MAX = 128       ; 256 / 2 bytes per entry
 

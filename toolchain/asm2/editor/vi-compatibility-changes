@@ -11,11 +11,11 @@
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
 
-  u after insert mode - Text typed after i, a or A is undone a stretch between cursor moves at a time, as in vim,
-  but not redone (u again does nothing). Typing after o, O or a change command, and a Backspace or Delete that
-  deletes text from before the typing or after the cursor clear the undo, so u does nothing and the edit before the
-  insert can no longer be undone either. Vim undoes those with the rest of the stretch, and the o, O or change
-  command that began it, as one change. See vim-gaps.md.
+  u after insert mode - Typing after o, O or a change command, and a Backspace or Delete that deletes text from
+  before where the typing began or after the cursor clear the undo, so u does nothing and the edit before the insert
+  can no longer be undone either. Vim undoes those with the rest of the typing (the stretch since the last cursor
+  move, as here), and the o, O or change command that began it, as one change. A stretch of 256 characters or more
+  is undone but not redone (u again does nothing). See vim-gaps.md.
 
   Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
   of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k

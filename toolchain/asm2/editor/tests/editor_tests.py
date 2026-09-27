@@ -19892,11 +19892,49 @@ class EditorTestRunner:
             "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu",
             expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "~")],
             expect_cursor=(1, 2))
-        # The text of a long insert is undone too
+        # u again redoes the typing, the cursor where it began (vim's Ctrl-R)
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ihello", "helloabc\n", (0, 0)),
+                ("abc\n", b"lihello", "ahellobc\n", (0, 1)),
+                ("abc\n", b"Ahello\x1b[D\x1b[DXY", "abchelXYlo\n", (0, 6)),
+                ("abc\n", b"Afoo\rbar", "abcfoo\nbar\n", (0, 3)),
+                ("abc\ndef\n", b"lifoo\rbar", "afoo\nbarbc\ndef\n", (0, 1)),
+                ("abc\n", b"xia\x08", "bc\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert redo: {keys!r} ESC u u on {content!r}",
+                content, keys + b"\x1buu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test(
+            "Insert redo: u u u undoes again",
+            "abc\n", b"ihello\x1buuu:wq\r", expected_content="abc\n")
+        self.run_test(
+            "Insert redo: the marks below move down again",
+            "abc\ndef\n", b"jmakAfoo\rbar\x1buu'ax:wq\r",
+            expected_content="abcfoo\nbar\nef\n")
+        self.run_test_screen(
+            "Insert redo: the screen after typed line breaks come back",
+            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu u",
+            expect_lines=[(0, "abc"), (1, "deffoo"), (2, "bar"), (3, "baz"),
+                          (4, "ghi"), (5, "~")],
+            expect_cursor=(1, 3))
+        # The text of a long insert is undone too; its redo keeps up to 255
+        # chars (u after the undo of more does nothing)
         self.run_test(
             "Insert undo: 300 chars typed",
             "abc\n", b"i" + b"x" * 300 + b"\x1bu:wq\r",
             expected_content="abc\n")
+        self.run_test(
+            "Insert redo: 255 chars typed",
+            "abc\n", b"i" + b"x" * 255 + b"\x1buu:wq\r",
+            expected_content="x" * 255 + "abc\n")
+        self.run_test(
+            "Insert redo: none for 256 chars typed",
+            "abc\n", b"i" + b"x" * 256 + b"\x1buu:wq\r",
+            expected_content="abc\n")
+        self.run_test_screen(
+            "Insert redo: none for 256 chars, typed-ahead uu draws the undo",
+            "abc\n", b"i" + b"x" * 256 + b"\x1buu",
+            expect_lines=[(0, "abc"), (1, "~")], expect_cursor=(0, 0))
         # Typing that deletes text from before where it began (BS) or after
         # the cursor (DEL) is not undoable yet: it clears the undo, as does
         # typing after a change command (vim undoes it: 'cd' in both)
