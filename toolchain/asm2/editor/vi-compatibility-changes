@@ -1,6 +1,11 @@
  Commands that differ from vi
 
-  Ctrl-F/Ctrl-B - Moves by SCREEN_ROWS-1 (no overlap). Vi moves by SCREEN_ROWS-2, keeping 2 lines of context overlap.
+  Ctrl-F/Ctrl-B - Move the view and the cursor a page of SCREEN_ROWS-1 lines, with no overlap: the cursor keeps its
+  row, the view stops with the last line on the bottom row (or the first on top), and the cursor then goes on to the
+  last (or first) line. Vim keeps two lines of the page on screen (fewer on a screen of under 6 rows), counts the page
+  in screen rows, puts the cursor on the new top line (Ctrl-F) or bottom line (Ctrl-B), puts the last line on top
+  when the page shows it, and does not move at all when the last line is on top (Ctrl-F) or the first (Ctrl-B).
+  Doing all that measured about 117 bytes more code.
 
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
@@ -31,6 +36,9 @@
 
   $ with a count on the last line - Goes to the end of the line, as with no count. Vim refuses it (the count's lines
   below are not there) and leaves the cursor where it is.
+
+  dd, cc, S and yy with a count on the last line - Work on the last line. Vim refuses them, as it does N>> and N<<
+  (which fail here too).
 
   Command line
 
