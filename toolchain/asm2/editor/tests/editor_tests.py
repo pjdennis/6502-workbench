@@ -8619,6 +8619,20 @@ class EditorTestRunner:
                 expect_status_contains=f"NORMAL - {line},"
             )
 
+        # So do h, l, Space and Backspace (a step each, stopping where they
+        # cannot go on), as in vim
+        alpha = "".join(chr(97 + i % 26) for i in range(400)) + "\n"
+        numbered = "".join(f"{i:03d}\n" for i in range(200))
+        for name, content, keys, expected in (
+                ("300l", alpha, b"300lx", alpha[:300] + alpha[301:]),
+                ("300h", alpha, b"$300hx", alpha[:99] + alpha[100:]),
+                ("300 Space", numbered, b"300 x",
+                 numbered[:400] + numbered[401:]),
+                ("300 Backspace", numbered, b"G$300\x7fx",
+                 numbered[:397] + numbered[398:])):
+            self.run_test(f"{name} takes the whole count", content,
+                          keys + b":wq\r", expected_content=expected)
+
         # Commands that loop on an 8-bit count take a count of 256 or more
         # as 255, not modulo 256 (256x deleted nothing)
 

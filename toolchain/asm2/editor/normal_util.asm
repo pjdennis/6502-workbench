@@ -305,8 +305,9 @@ move_right_x:
 ; ahead presses) in steps of one column.  Space and Backspace go on over
 ; line ends, as with vim's default 'whichwrap' (b,s): past the last char
 ; Space goes to the start of the next line, and from column 0 Backspace
-; to the last char of the line above, a step each.  NORMAL_TEMP: bit 7
-; = right, bit 6 = over line ends; BUF_TEMP counts the steps
+; to the last char of the line above, a step each.  They take the whole
+; count, as vim.  NORMAL_TEMP: bit 7 = right, bit 6 = over line ends;
+; BUF_TEMP16 counts the steps
 normal_move_left:            ; h, Left
   LDA #$00
   .byte $2C                  ; BIT abs (RAM): skip the next LDA #
@@ -319,8 +320,7 @@ normal_move_right:           ; l, Right
 normal_space:
   LDA #$C0
   STA NORMAL_TEMP
-  JSR get_batched_count      ; X = the steps (at most 255)
-  STX BUF_TEMP
+  JSR get_count_pending16    ; BUF_TEMP16 = the steps
 .step:
   BIT NORMAL_TEMP
   BPL .left
@@ -343,7 +343,7 @@ normal_space:
 .back:
   JSR dec_cursor_col
 .next:
-  DEC BUF_TEMP
+  JSR dec_buf_temp16
   BNE .step
 .done:
   JSR clamp_cursor_col
