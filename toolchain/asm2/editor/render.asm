@@ -336,8 +336,16 @@ print_separator:
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
   ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
-  ; First screen row of the line; above the viewport -> full repaint
+  ; First screen row of the line (C=0: above the view)
   JSR cursor_line_first_row
+  BCS render_rows_resized
+  ; A line that starts above the view is drawn from its change if that
+  ; is on screen: the rows above it keep their place (the rows below
+  ; are worked out from the cursor row, as first_row is negative).
+  ; Else a full repaint
+  LDA WRAP_QUOT
+  STA RENDER_WRAP              ; its first row, from the cursor's
+  JSR change_cell_row          ; C=0: above the view
   BCS render_rows_resized
   JMP render_screen
 ; Entry: RENDER_ROW = first_row (set_first_row), the first row of a block

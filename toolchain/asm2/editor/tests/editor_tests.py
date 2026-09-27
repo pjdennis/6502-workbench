@@ -24694,6 +24694,31 @@ class EditorTestRunner:
             expect_content_rows=[(3, {7, 8})],
             expect_min_col=[(3, 7, 39)],
         )
+        # Edits of a line that starts above the view, the view unmoved:
+        # the rows above the change keep their place.  Frames: 0 init,
+        # 1 G, 2 A, 3 x (fills the last row: the view moves), 4 Right,
+        # 5 x (a new row), 6 Right, 7 x (in the row)
+        self.run_test_screen(
+            "Typing on a line that starts above the view draws the change",
+            "l0\n" + "t" * 399 + "\n",
+            b"GAx" + RIGHT + b"x" + RIGHT + b"x\x1b:q!\r",
+            expect_lines=[(i, "t" * 40) for i in range(7)]
+                         + [(7, "t" * 39 + "x"), (8, "xx")],
+            expect_cursor=(8, 1),
+            expect_content_rows=[(5, {8}), (7, {8})],
+            expect_frame_bytes=[(7, 38)],
+        )
+        # x and its undo there.  Frames: 0 init, 1 G, 2 $, 3 hh, 4 x, 5 u
+        self.run_test_screen(
+            "x on a line that starts above the view draws the change",
+            "l0\n" + "".join("abcdefghij" for _ in range(40)) + "\n",
+            b"G$hhxu:q!\r",
+            expect_lines=[(i, "abcdefghij" * 4) for i in range(8)]
+                         + [(8, "abcdefghij" * 4)],
+            expect_cursor=(8, 37),
+            expect_content_rows=[(4, {8}), (5, {8})],
+        )
+
         # 24x80, 48-char lines: o and Enter at the bottom row
         long48 = "".join(f"line {i:02d} " + "abcdefghij" * 4 + "\n"
                          for i in range(40))
