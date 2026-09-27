@@ -1513,6 +1513,22 @@ class EditorTestRunner:
             full, b"A\x1b[3~\r\r\x1b\x1bx:wq\r",
             expected_content="L000\n" + full[6:])
 
+    def run_cpu_cost_tests(self):
+        """Cycle caps for the line table and line lengths on big buffers
+        and long lines: each run (startup, keys, quit) must finish within
+        the cap, which sits between the old cost and the new one."""
+        self._group("CPU cost (cycle caps):", leading_blank=True)
+
+        big = "".join("line %04d of the file, padded to thirty-six\n" % i
+                      for i in range(830))  # 36,520 bytes
+
+        # The line-table rebuild scans a page at a time (14 cycles a byte,
+        # 45 before): loading 36 KB and a dd at its top rebuild it twice,
+        # 5,615,236 cycles before
+        self.run_test_cycle_cap(
+            "Line table rebuild of 36 KB: load and dd at the top",
+            big, b"dd:q!\r", 3800000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
@@ -2790,6 +2806,7 @@ class EditorTestRunner:
             expect_ansi_contains="Buffer full")
 
         self.run_line_limit_tests()
+        self.run_cpu_cost_tests()
 
         # ============================================================
         # Screen state tests (10 rows x 40 cols)

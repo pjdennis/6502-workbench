@@ -394,72 +394,68 @@ buf_ensure_nonempty_rebuild:
   ; fall through
 
 ; Rebuild line pointer table by scanning for newlines
-; Sets LINE_COUNT16 and fills LINE_TBL.  Text past line MAX_LINES is cut
-; off the buffer and READONLY is set, so the table never overflows (a
-; load truncates a longer file like this; edits check first, with
-; check_line_room)
+; Sets LINE_COUNT16 and fills LINE_TBL, then stores the end of the text
+; in the entry after the last line.  Text past line MAX_LINES is cut off
+; the buffer and READONLY is set, so the table never overflows (a load
+; truncates a longer file like this; edits check first, with
+; check_line_room).  The text ends with a newline, so the end is tested
+; only at line starts.  TEXT_BUF and LINE_TBL are page-aligned: the scan
+; is at (page, Y) with the page in BUF_PTR16 + 1, and the entries are
+; stored through (BUF_DST16,X) with X = 0.
+; Clobbers A, X, Y, BUF_PTR16, BUF_DST16
 buf_rebuild_lines:
-  SET16 $0000, LINE_COUNT16
-  SET16 TEXT_BUF, BUF_PTR16
-  SET16 LINE_TBL, BUF_DST16
-
-  ; First line starts at TEXT_BUF
-  JSR store_line_entry
-
-.scan_loop:
-  ; Check if we've reached the end
-  JSR cmp_ptr_end
-  BCS .scan_done
-
-.scan_byte:
-  LDY #0
-  LDA (BUF_PTR16),Y
-  INC16 BUF_PTR16
-
-  CMP #'\n'
-  BNE .scan_loop
-
-  ; Found a newline - check if there's more text after it
-  JSR cmp_ptr_end
-  BCS .scan_done
-
-.add_line:
-  ; Stop if the table already holds MAX_LINES lines
-  LDA LINE_COUNT16
-  CMP #<MAX_LINES
-  LDA LINE_COUNT16 + 1
-  SBC #>MAX_LINES
-  BCS .table_full
-
-  ; Advance line table pointer (LINE_TBL is even, so the low byte wraps
-  ; to 0 exactly at a page end)
+  LDA #0
+  STA_LH16 LINE_COUNT16
+  STA BUF_PTR16
+  STA BUF_DST16
+  TAX
+  TAY                        ; (page, Y) = TEXT_BUF: line 0's start
+  LDA #>TEXT_BUF
+  STA BUF_PTR16 + 1
+  LDA #>LINE_TBL
+  STA BUF_DST16 + 1
+.entry:
+  ; Store (page, Y) in the next entry
+  TYA
+  STA (BUF_DST16,X)
   INC BUF_DST16
+  LDA BUF_PTR16 + 1
+  STA (BUF_DST16,X)
   INC BUF_DST16
-  BNE .store
+  BNE .stored
   INC BUF_DST16 + 1
-.store:
-  ; Store line start pointer
-  JSR store_line_entry
-
-  JMP .scan_loop
+.stored:
+  ; At BUF_END16 that entry ends the last line (past it only if the text
+  ; lacks its final newline: the scan then found the next one)
+  CPY BUF_END16
+  SBC BUF_END16 + 1          ; C = (page, Y) >= BUF_END16
+  BCS .done
+  ; Otherwise a line starts there, unless the table holds MAX_LINES lines
+  ; already (the entry after them ends a page: MAX_LINES + 1 is even)
+  LDA BUF_DST16 + 1
+  CMP #>LINE_TBL+MAX_LINES+MAX_LINES+$02
+  BCS .table_full
+  INC16 LINE_COUNT16
+.scan:
+  LDA (BUF_PTR16),Y
+  INY
+  BEQ .next_page
+.test:
+  CMP #'\n'
+  BNE .scan
+  BEQ .entry                 ; Always: a line (or the end) follows it
+.next_page:
+  INC BUF_PTR16 + 1
+  BNE .test                  ; Always (the text ends below $FF00)
 
 .table_full:
-  ; Cut the buffer at the start of the line that does not fit
-  CP16 BUF_PTR16, BUF_END16
-  DEC READONLY               ; Nonzero: read-only
-.scan_done:
-  RTS
-
-; Store BUF_PTR16 into the line table entry at BUF_DST16, count the line
-; Clobbers: A, Y (Y = 1)
-store_line_entry:
-  LDY #0
-  LDA BUF_PTR16
-  STA (BUF_DST16),Y
-  INY
+  ; Cut the buffer at the start of the line that does not fit (the entry
+  ; just stored then ends the last line)
+  STY BUF_END16
   LDA BUF_PTR16 + 1
-  STA (BUF_DST16),Y
-  INC16 LINE_COUNT16
+  STA BUF_END16 + 1
+  DEC READONLY               ; Nonzero: read-only
+.done:
   RTS
 
 ; Compare BUF_PTR16 with BUF_END16 (CMP16 semantics: C/Z as after CMP)
