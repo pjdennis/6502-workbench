@@ -13,29 +13,46 @@
 #define INST_SET_CGRAM    0x40
 #define INST_SET_DDRAM    0x80
 
+const struct lcd_hd44780_wiring LCD_WIRING_WENDY2C = {
+    .rs_port = LCD_PORT_A, .rs_bit = 0x01,
+    .rw_port = LCD_PORT_A, .rw_bit = 0x08,
+    .e_port  = LCD_PORT_B, .e_bit  = 0x20,
+    .data_port = LCD_PORT_A, .data_mask = 0xF0,
+};
+
 static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte);
+
+static uint8_t port_pins(const struct lcd_hd44780_state *s, uint8_t port) {
+    return port == LCD_PORT_A ? via_6522_porta_pins(s->via)
+                              : via_6522_portb_pins(s->via);
+}
+
+static uint8_t pin(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bit) {
+    return (port_pins(s, port) & bit) ? 1 : 0;
+}
 
 static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct lcd_hd44780_state *s = (struct lcd_hd44780_state *)self->state;
     if (!s->via) return;
 
-    uint8_t porta = via_6522_porta_pins(s->via);
-    uint8_t portb = via_6522_portb_pins(s->via);
-    uint8_t e = (portb & s->e_bit_b) ? 1 : 0;
+    const struct lcd_hd44780_wiring *w = &s->wiring;
+    uint8_t e = pin(s, w->e_port, w->e_bit);
 
     /* Latch on E falling edge. */
     if (s->prev_e && !e) {
-        uint8_t rs = (porta & s->rs_bit) ? 1 : 0;
-        uint8_t rw = (porta & s->rw_bit) ? 1 : 0;
+        uint8_t rs = pin(s, w->rs_port, w->rs_bit);
+        uint8_t rw = pin(s, w->rw_port, w->rw_bit);
         if (rw) {
             /* Read cycle (busy-flag check) -- we always say not-busy
-             * by leaving PORTA bit 7 as 0; the wendy2c poll loop then
-             * exits on its first iteration. (No data driven back since
-             * we're a tick-only chip.) */
+             * by leaving D7 as 0; the poll loop then exits on its first
+             * iteration. (No data driven back since we're a tick-only
+             * chip.) */
         } else {
-            uint8_t nibble = (porta & s->data_mask) >> 4;
+            /* The value on D7..D0; unwired data lines read as 0. */
+            uint8_t data = port_pins(s, w->data_port) & w->data_mask;
             if (s->four_bit_mode) {
+                uint8_t nibble = data >> 4;
                 if (!s->high_nibble_pending) {
                     s->high_nibble = nibble;
                     s->high_nibble_pending = 1;
@@ -45,12 +62,10 @@ static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
                     execute_byte(s, rs, byte);
                 }
             } else {
-                /* 8-bit mode -- only the upper nibble is on the bus on
-                 * a real wendy2c, but the controller treats it as a
-                 * full byte. Used during the 4-bit init dance: any
+                /* 8-bit mode. With 4-bit wiring only D4..D7 are on the
+                 * bus, which is enough for the init dance: any
                  * function-set with DL=0 puts us in 4-bit mode. */
-                uint8_t byte = (uint8_t)(nibble << 4);
-                execute_byte(s, rs, byte);
+                execute_byte(s, rs, data);
             }
         }
     }
@@ -143,10 +158,7 @@ void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
     memset(state, 0, sizeof(*state));
     state->rows = 2;
     state->cols = 16;
-    state->rs_bit   = 0x01;
-    state->rw_bit   = 0x08;
-    state->data_mask= 0xF0;
-    state->e_bit_b  = 0x20;
+    state->wiring = LCD_WIRING_WENDY2C;
     state->via = via;
     /* HD44780 power-on defaults: entry-mode auto-increment, display
      * off, 8-bit interface, 1-line, 5x8. */
@@ -156,6 +168,11 @@ void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
     chip->ops = &ops;
     chip->name = "lcd_hd44780";
     chip->state = state;
+}
+
+void lcd_hd44780_set_wiring(struct lcd_hd44780_state *state,
+                            const struct lcd_hd44780_wiring *wiring) {
+    state->wiring = *wiring;
 }
 
 void lcd_hd44780_set_geometry(struct lcd_hd44780_state *state,
