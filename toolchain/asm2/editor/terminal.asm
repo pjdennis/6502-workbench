@@ -100,14 +100,12 @@ ansi_goto0:
   BNE .move
   TXA
   SBC ANSI_COL               ; (C = 1: the same row)
-  BEQ .there
+  BEQ ansi_ret               ; already there
   CMP #$FF
   BNE .move
   STX ANSI_COL               ; one column to the left
   LDA #'\b'
   JMP io_write
-.there:
-  RTS
 .move:
   STX ANSI_COL
   STY ANSI_ROW
@@ -172,11 +170,11 @@ write_string:
   LDY #0
 .loop:
   LDA (STR_PTR16),Y
-  BEQ .done
+  BEQ ansi_ret
   JSR io_write
   INY
   BNE .loop
-.done:
+ansi_ret:
   RTS
 
 ; Print the filename (at FNAME_PTR16), up to 32 chars, through text_putc
