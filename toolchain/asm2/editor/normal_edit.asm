@@ -25,6 +25,77 @@ paste_prologue_c:
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   RTS
 
+normal_paste_above:
+  JSR undo_clear
+  LDA YANK_TYPE
+  BNE char_paste_above
+  JSR paste_prologue
+  JSR yank_paste_above_n
+  BCS paste_done
+  JSR paste_adjust_marks
+  LDA #RF_INS
+  STA RENDER_FLAG        ; Signal line-insert for scroll optimization
+  ; No cursor adjustment - yank_paste_above_n doesn't change FILE_LINE16
+  ; Batching must not widen undo: the last pasted copy sits at the top
+  ; of the block (paste-above prepends), where the P before left the
+  ; cursor
+  LDA #UNDO_LINE_PASTE_ABOVE
+  SEC
+  BCS paste_undo_type        ; Always
+
+; Character paste above (before cursor).  Each P leaves the cursor where
+; the next one pastes, on the last pasted char (the first of a multi-line
+; yank), except when that first char is a newline: it lies past the line
+; end, and the cursor steps back a column.  Such P keys run one at a time
+; (C = 1 for a first char up to '\n', so for a tab too, only slower).
+char_paste_above:
+  LDA #'\n'
+  CMP YANK_BUF               ; C = 1: the yank starts with a newline
+  JSR paste_prologue_c
+  JSR do_char_paste_above
+  BCS paste_done
+  ; Batching must not widen undo: a multi-line yank's last copy sits
+  ; first (paste-above inserts before the cursor), at the cursor
+  LDA NORMAL_TEMP
+  ASL                        ; C = multi-line yank
+  LDA #UNDO_CHAR_PASTE_ABOVE
+  BNE paste_undo_type        ; Always
+
+; Character paste below (after cursor)
+; For non-empty lines, inserts after cursor char; for empty lines, inserts at line start
+char_paste_below:
+  JSR yank_count_newlines    ; C = 1: a multi-line yank, no batching
+  JSR paste_prologue_c       ; UNDO_COL16 = cursor column (0 on an empty line)
+  ; Insertion column for undo: cursor + 1 (non-empty line) or 0 (empty)
+  JSR get_line_len_z
+  BEQ .cpb_paste
+  INC16 UNDO_COL16
+.cpb_paste:
+  JSR do_char_paste_below
+  BCS paste_done
+  LDA #UNDO_CHAR_PASTE_BELOW ; (C = 0: only a single-line yank batches p)
+  ; fall through
+
+; Record the paste's undo type (A).  Batching must not widen undo: after
+; typed-ahead keys it takes back only the last key's copy, pasted where
+; the key before left the cursor.  C = 0: a single-line char paste,
+; where each key leaves the cursor on its last pasted char, so the last
+; copy starts at cursor + 1 - yank size
+paste_undo_type:
+  STA UNDO_TYPE
+  LDA BATCH_EXTRA
+  BEQ paste_done
+  JSR undo_record_pos        ; (keeps C)
+  BCS paste_undo_one
+  SEC
+  SBC16 UNDO_COL16, YANK_SIZE16, UNDO_COL16
+  INC16 UNDO_COL16
+; Batching must not widen undo: record only the last pasted copy
+paste_undo_one:
+  SET16 $0001, UNDO_PASTE_COUNT16
+paste_done:
+  JMP clear_count
+
 normal_paste_below:
   JSR undo_clear
   LDA YANK_TYPE
@@ -54,80 +125,6 @@ normal_paste_below:
 .paste_below_scroll:
   LDA #RF_INS                   ; Signal line-insert for scroll optimization
   JMP set_render_clear_count
-
-normal_paste_above:
-  JSR undo_clear
-  LDA YANK_TYPE
-  BNE char_paste_above
-  JSR paste_prologue
-  JSR yank_paste_above_n
-  BCS paste_done
-  JSR paste_adjust_marks
-  LDA #UNDO_LINE_PASTE_ABOVE
-  STA UNDO_TYPE
-  LDA #RF_INS
-  STA RENDER_FLAG        ; Signal line-insert for scroll optimization
-  ; No cursor adjustment - yank_paste_above_n doesn't change FILE_LINE16
-  ; Batching must not widen undo: the last pasted copy sits at the top
-  ; of the block (paste-above prepends), where the P before left the
-  ; cursor
-  BNE paste_batched_undo     ; Always (A = $03)
-
-; Character paste above (before cursor).  Each P leaves the cursor where
-; the next one pastes, on the last pasted char (the first of a multi-line
-; yank), except when that first char is a newline: it lies past the line
-; end, and the cursor steps back a column.  Such P keys run one at a time
-; (C = 1 for a first char up to '\n', so for a tab too, only slower).
-char_paste_above:
-  LDA #'\n'
-  CMP YANK_BUF               ; C = 1: the yank starts with a newline
-  JSR paste_prologue_c
-  JSR do_char_paste_above
-  BCS paste_done
-  LDA #UNDO_CHAR_PASTE_ABOVE
-  STA UNDO_TYPE
-  ; Batching must not widen undo: a multi-line yank's last copy sits
-  ; first (paste-above inserts before the cursor), at the cursor
-  BIT NORMAL_TEMP
-  BPL char_paste_last_copy
-; Batched P: undo takes back the last P's copy, pasted at the cursor
-; (line and column) that the P before it left
-paste_batched_undo:
-  LDA BATCH_EXTRA
-  BEQ paste_done
-  JSR undo_record_pos
-; Batching must not widen undo: record only the last pasted copy
-paste_undo_one:
-  SET16 $0001, UNDO_PASTE_COUNT16
-paste_done:
-  JMP clear_count
-
-; Character paste below (after cursor)
-; For non-empty lines, inserts after cursor char; for empty lines, inserts at line start
-char_paste_below:
-  JSR yank_count_newlines    ; C = 1: a multi-line yank, no batching
-  JSR paste_prologue_c       ; UNDO_COL16 = cursor column (0 on an empty line)
-  ; Insertion column for undo: cursor + 1 (non-empty line) or 0 (empty)
-  JSR get_line_len_z
-  BEQ .cpb_paste
-  INC16 UNDO_COL16
-.cpb_paste:
-  JSR do_char_paste_below
-  BCS paste_done
-  LDA #UNDO_CHAR_PASTE_BELOW
-  STA UNDO_TYPE
-  ; fall through (only a single-line yank batches p)
-
-; Batched single-line char paste (p or P): record only the last copy.
-; Each key leaves the cursor on its last pasted char, so the last copy
-; ends at the cursor: UNDO_COL16 = cursor + 1 - yank size
-char_paste_last_copy:
-  LDA BATCH_EXTRA
-  BEQ paste_done
-  SEC
-  SBC16 CURSOR_COL16, YANK_SIZE16, UNDO_COL16
-  INC16 UNDO_COL16
-  JMP paste_undo_one
 
 ; Char paste modes (A for do_char_paste): bit 7 set = the undo of a char
 ; delete (marks by column, no cursor clamp), bit 6 set = not p, bit 5 set
