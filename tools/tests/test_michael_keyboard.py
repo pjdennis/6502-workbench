@@ -46,7 +46,7 @@ class MichaelKeyboardTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_program(self, name, keys=(), fault=None):
+    def run_program(self, name, keys=(), fault=None, ram=None):
         """Returns the LCD's 4 lines once the keys have been typed."""
         binary = os.path.join(self.tmp.name, name + '.bin')
         subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
@@ -55,6 +55,8 @@ class MichaelKeyboardTest(unittest.TestCase):
         options = ['--keys=' + ','.join(keys)] if keys else []
         if fault:
             options.append('--fault=' + fault)
+        if ram:
+            options.append('--ram=' + ram)
         output = subprocess.run([self.sim, *options, binary,
                                  base_config_address('PROGRAM_LOAD_ADDRESS'),
                                  base_config_address('INTERRUPT_VECTOR_TARGET')],

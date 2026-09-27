@@ -1,4 +1,4 @@
-// Simulates Michael running a keyboard program, for tests: the 65C02 (emulator/cpu_core.c), RAM,
+// Simulates Michael running a program, for tests: the 65C02 (emulator/cpu_core.c), RAM,
 // the VIA, the 20x4 LCD and the PS/2 keyboard board, modelled at the level the keyboard driver
 // (firmware/lib/keyboard/keyboard_driver.inc) sees it:
 // - SOLB (PA3) low pulls the keyboard clock low, which the frame detector passes to CA2 as an edge.
@@ -9,8 +9,16 @@
 //   --fault, which stops start-up, it sends them after the first command.
 // - LCD writes are checked: E must fall with E, RS and RW driven, SOEB high, and Port B driving
 //   the data for a write.
+// - --ram picks how RAM is decoded below the VIA at $6000:
+//     full      (default) RAM at $0000-$5FFF
+//     eater     Ben Eater's decoding: 16K at $0000-$3FFF. The RAM's A14 is grounded and address
+//               A14 drives its OE, so writes to $4000-$7FFF (the VIA's too) also land in
+//               $0000-$3FFF, and reads of $4000-$5FFF see an idle bus (the address's high byte,
+//               the last byte an indirect access fetched)
+//     mirror8k  8K at $0000-$1FFF, repeated up to $5FFF
 // Build: gcc -O2 -I emulator -o michael_keyboard_sim tools/michael_keyboard_sim.c emulator/cpu_core.c
 // Usage: michael_keyboard_sim [--keys=E1,14,...] [--fault=noedge|noirq|noack|resend]
+//                             [--ram=full|eater|mirror8k]
 //                             <program.bin> <load address> <IRQ vector>   (addresses in hex)
 // Prints the LCD's 4 lines, then "bad LCD writes: <count>".
 #include <stdio.h>
@@ -49,6 +57,14 @@ static long now;
 static uint8_t keys[MAX_KEYS];
 static int n_keys, commands;
 static const char *fault = "";
+
+// RAM decoding: address bits kept, and where reads and writes stop reaching RAM
+static const struct { const char *name; uint16_t mask, read_end, write_end; } ram_maps[] = {
+  { "full",     0xffff, VIA_BASE, VIA_BASE },
+  { "eater",    0x3fff, 0x4000,   0x8000   },
+  { "mirror8k", 0x1fff, VIA_BASE, VIA_BASE },
+};
+static int ram_map;
 
 static void schedule(long at, uint8_t data) {
   if (n_events == MAX_EVENTS) { fprintf(stderr, "too many events\n"); exit(2); }
@@ -91,7 +107,9 @@ static void lcd_strobe(uint8_t porta) {
 }
 
 uint8_t read6502(uint16_t address) {
-  if (address < VIA_BASE || address >= 0x8000) return mem[address];
+  if (address >= 0x8000) return mem[address];
+  if (address < ram_maps[ram_map].read_end) return mem[address & ram_maps[ram_map].mask];
+  if (address < VIA_BASE) return address >> 8;
   uint8_t reg = address & 0xf;
   if (reg == IFR) return strcmp(fault, "noedge") ? 0x01 : 0x00;  // CA2
   if (reg == PORTB) {                                     // Output bits read back the latch
@@ -102,8 +120,9 @@ uint8_t read6502(uint16_t address) {
 }
 
 void write6502(uint16_t address, uint8_t value) {
-  if (address < VIA_BASE) { mem[address] = value; return; }
   if (address >= 0x8000) return;
+  if (address < ram_maps[ram_map].write_end) mem[address & ram_maps[ram_map].mask] = value;
+  if (address < VIA_BASE) return;
   uint8_t reg = address & 0xf, old = via[reg];
   if (reg == IER) value = (value & 0x80) ? (old | (value & 0x7f)) : (old & ~value);
   via[reg] = value;
@@ -119,6 +138,10 @@ int main(int argc, char **argv) {
       for (char *p = argv[arg] + 7; *p && n_keys < MAX_KEYS; p += (*p == ',')) keys[n_keys++] = strtol(p, &p, 16);
     } else if (!strncmp(argv[arg], "--fault=", 8)) {
       fault = argv[arg] + 8;
+    } else if (!strncmp(argv[arg], "--ram=", 6)) {
+      int n = sizeof ram_maps / sizeof *ram_maps;
+      for (ram_map = 0; ram_map < n && strcmp(argv[arg] + 6, ram_maps[ram_map].name); ram_map++) {}
+      if (ram_map == n) { fprintf(stderr, "unknown RAM map %s\n", argv[arg] + 6); return 2; }
     } else {
       fprintf(stderr, "unknown option %s\n", argv[arg]); return 2;
     }
