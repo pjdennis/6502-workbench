@@ -518,8 +518,7 @@ undo_insert_redo:
   STA RENDER_FLAG
   BNE .done                  ; Always
 .one_line:
-  CP16 BUF_LEN16, BUF_SRC16  ; The lines below move up by the length
-  JSR buf_adjust_lines_apply
+  JSR buf_adjust_lines_len   ; The lines below move by the length
 .done:
   JSR clamp_cursor_col
   JMP undo_span_redone

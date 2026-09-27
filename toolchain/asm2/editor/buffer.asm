@@ -470,6 +470,12 @@ cmp_ptr_end:
 .d:
   RTS
 
+; Move the lines after FILE_LINE16 by BUF_LEN16, the bytes an insert of
+; no newlines put in it (buf_adjust_lines_apply).  Also clobbers BUF_SRC16
+buf_adjust_lines_len:
+  CP16 BUF_LEN16, BUF_SRC16
+  ; fall through
+
 ; Add the 16-bit signed delta in BUF_SRC16 to the line pointers of every
 ; line after FILE_LINE16 and to the entry after the last line (the end of
 ; the text), for single-line edits that add/remove no newlines

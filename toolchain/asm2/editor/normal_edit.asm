@@ -198,38 +198,41 @@ do_char_paste:
   STA RENDER_FROM_COL16 + 1
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
+  JSR buf_shift_right_16
+  BCC .shifted
+  JMP paste_full             ; "Buffer full", carry set
+.ret:
+  RTS
+.shifted:
   LDA NORMAL_TEMP
   AND #$90
   CMP #$10
   BEQ .interleaved           ; P of a single-line yank
-  JSR yank_paste_core        ; Shift, copy, rebuild ("Buffer full" if no room)
-  BCC .placed
-.ret:
-  RTS
+  JSR yank_copy_n            ; Fill the gap
+  BIT NORMAL_TEMP
+  BPL .placed
+  JSR buf_rebuild_lines      ; A multi-line yank: its lines go in
+  BCS .placed                ; Always (the rebuild returns C = 1)
 .interleaved:
-  JSR buf_shift_right_16
-  BCC .shifted
-  JMP paste_full             ; "Buffer full", carry set
-.shifted:
-  ; The cursor ends BATCH_EXTRA chars early (BUF_LEN16 is only needed for
-  ; the cursor from here on)
-  LDA BUF_LEN16
+  ; The cursor ends BATCH_EXTRA chars early
+  LDA CURSOR_COL16
   SEC
   SBC BATCH_EXTRA
-  STA BUF_LEN16
+  STA CURSOR_COL16
   BCS .fill
-  DEC BUF_LEN16 + 1
+  DEC CURSOR_COL16 + 1
 .fill:
   JSR interleaved_fill
-  JSR buf_rebuild_lines
 .placed:
   JSR set_modified
   BIT NORMAL_TEMP
   BMI .multiline
-  ; Single-line: cursor on the last pasted char
+  ; Single-line: cursor on the last pasted char, and the lines after the
+  ; cursor line move by the total (only its length changed)
   CLC
   ADC16 CURSOR_COL16, BUF_LEN16, CURSOR_COL16
   JSR dec_cursor_col
+  JSR buf_adjust_lines_len
   JMP .clamp
 .multiline:
   ; Marks for the inserted lines (BUF_TEMP16 = their count): from the

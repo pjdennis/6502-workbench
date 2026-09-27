@@ -1618,6 +1618,18 @@ class EditorTestRunner:
             "p counts the yank's newlines once: p of 4,000 chars",
             "a" * 4000 + "\nb\n", b"y$jp:q!\r", 890000, rows=24, cols=80)
 
+        # A char paste of no newlines (p, P, the undo of x, the redo of a
+        # paste) moves the lines after the cursor line by its size, where
+        # it rebuilt the line table from the cursor line on: on a 36 KB
+        # file, u after x at the top took 4,050,114 cycles (the whole
+        # run), P of a word 3,425,138
+        self.run_test_cycle_cap(
+            "A char paste moves the line table entries: u after x on 36 KB",
+            big, b"xu:q!\r", 3750000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "A char paste moves the line table entries: P on 36 KB",
+            big, b"ywP:q!\r", 3150000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
