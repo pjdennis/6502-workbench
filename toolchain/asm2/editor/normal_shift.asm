@@ -469,47 +469,23 @@ dollar_op:
 ; (the count stops at the last line, and on the last line a count of 2
 ; or more ends the command, as in vim): BUF_LEN16 = bytes from the
 ; cursor to the end of the count-th line (from an empty line too, as in
-; vi), carry set if there are none.  Preserves NORMAL_TEMP
+; vi), carry set if there are none: the start of the line after the
+; range (the end of the text after the last line), less its newline,
+; less the cursor's address.  Input: BUF_TEMP16 = count.  Preserves
+; NORMAL_TEMP.  Clobbers A, X, Y, BUF_PTR16, BUF_SRC16
 dollar_range_setup:
-  JSR get_line_len_z
-
-; Compute byte range for $ motion with count, as dollar_range_setup
-; Input: BUF_TEMP16 = count, at most the lines left (get_count_clamp_lines),
-;        LINE_LEN16 = line length
-; Output: BUF_LEN16 = byte count from cursor to end of range
-; For count=1: BUF_LEN16 = LINE_LEN16 - CURSOR_COL16
-; For count>1: adds newline + line_length for each additional line
-compute_dollar_range:
-  JSR chars_left              ; Start with current line remainder
-
-  ; The other lines: remaining = count - 1
-  JSR dec_buf_temp16
-  BEQ .done                   ; count = 1, done
-  ; next_line = FILE_LINE16 + 1
+  JSR get_cursor_src          ; BUF_SRC16 = the cursor's address
   CLC
-  ADCI16 FILE_LINE16, 1, COUNT16
-
-.add_line:
-  ; Add 1 for the newline
-  INC16 BUF_LEN16
-
-  ; Get length of this line
-  LDAX16 COUNT16
-  JSR buf_get_line_len
-  ; A = low byte, X = high byte of line length
-  CLC
-  ADC BUF_LEN16
-  STA BUF_LEN16
-  TXA
-  ADC BUF_LEN16 + 1
-  STA BUF_LEN16 + 1
-
-  ; Next line
-  INC16 COUNT16
-  JSR dec_buf_temp16
-  BNE .add_line
-
-.done:
+  LDA FILE_LINE16
+  ADC BUF_TEMP16
+  TAY
+  LDA FILE_LINE16 + 1
+  ADC BUF_TEMP16 + 1
+  TAX
+  TYA
+  JSR buf_get_line_ptr        ; The line after the range
+  CLC                         ; (The borrow drops the newline)
+  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
   JMP range_epilogue
 
 ; --- Word operations: delete, change ---
