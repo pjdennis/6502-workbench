@@ -196,6 +196,7 @@ project's 6502 emulator in console/ANSI mode.
 |-----|--------|
 | `h` / Left | Move left (with count) |
 | `l` / Right | Move right (with count) |
+| Space / Backspace | Move right / left as `l` and `h`, on over line ends (with count; vim's 'whichwrap' b,s) |
 | `j` / Down | Move down (with count) |
 | `k` / Up | Move up (with count) |
 | `0` / Home | Beginning of line |

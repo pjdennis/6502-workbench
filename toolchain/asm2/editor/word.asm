@@ -151,14 +151,9 @@ word_backward_x:
 
   ; At beginning of line - move to prev line end
 .b_prev_line:
-  TST16 FILE_LINE16
-  BEQ .b_done_final       ; Already at first line, col 0
-  JSR dec_file_line
-  JSR get_line_len_z      ; X = length high byte
+  JSR line_above_end      ; Col = its length (one past its end)
+  BCC .b_done_final       ; Already at first line, col 0
   BEQ .b_done_one         ; Prev line is empty, at col 0
-  LDA LINE_LEN16          ; Set col = line_len (one past end)
-  STA CURSOR_COL16
-  STX CURSOR_COL16 + 1
   ; Fall through to .b_not_bol which DECs then scans backward to word start
 
 .b_not_bol:
@@ -485,6 +480,19 @@ advance_next_line:
   BCS next_line_ret
   LDA #0
   STA_LH16 CURSOR_COL16
+  RTS
+
+; The cursor past the end of the line above (column = its length): C = 0
+; on the first line (nothing moves), else C = 1 and Z = 1 if that line is
+; empty.  Clobbers A, X, Y, BUF_PTR16
+line_above_end:
+  LDA FILE_LINE16
+  ORA FILE_LINE16 + 1
+  CMP #1                  ; C = 0: the first line
+  BCC next_line_ret
+  JSR dec_file_line
+  JSR insert_end          ; A/X = its length (C = 1 from the subtract)
+  ORA CURSOR_COL16 + 1
   RTS
 
 ; FILE_LINE16 to the next line, if any: carry set if there is none

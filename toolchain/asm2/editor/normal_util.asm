@@ -301,6 +301,57 @@ move_right_x:
 .done:
   RTS
 
+; h, l, Left, Right, Space and Backspace: the count (and the typed-
+; ahead presses) in steps of one column.  Space and Backspace go on over
+; line ends, as with vim's default 'whichwrap' (b,s): past the last char
+; Space goes to the start of the next line, and from column 0 Backspace
+; to the last char of the line above, a step each.  NORMAL_TEMP: bit 7
+; = right, bit 6 = over line ends; BUF_TEMP counts the steps
+normal_move_left:            ; h, Left
+  LDA #$00
+  .byte $2C                  ; BIT abs (RAM): skip the next LDA #
+normal_backspace:
+  LDA #$40
+  .byte $2C
+normal_move_right:           ; l, Right
+  LDA #$80
+  .byte $2C
+normal_space:
+  LDA #$C0
+  STA NORMAL_TEMP
+  JSR get_batched_count      ; X = the steps (at most 255)
+  STX BUF_TEMP
+.step:
+  BIT NORMAL_TEMP
+  BPL .left
+  JSR inc_cursor_col
+  JSR check_cursor_in_line   ; C = 1: past the last char
+  BCC .next
+  BIT NORMAL_TEMP
+  BVC .done                  ; l stops (the clamp steps back)
+  JSR advance_next_line      ; Space: the start of the next line
+  BCC .next
+  BCS .done                  ; (none: back onto the last char)
+.left:
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BNE .back
+  BVC .done                  ; h stops at column 0
+  JSR line_above_end
+  BCC .done                  ; Backspace stops at the start of the text
+  BEQ .next                  ; (an empty line: column 0)
+.back:
+  JSR dec_cursor_col
+.next:
+  DEC BUF_TEMP
+  BNE .step
+.done:
+  JSR clamp_cursor_col
+  ; One that could not move (vim beeps) keeps the remembered column
+  JSR cursor_moved
+  BNE clear_count
+  BEQ keep_clear_count       ; Always
+
 ; --- Count prefix helpers ---
 
 ; Get count, clamped to the lines from FILE_LINE16 to the end, for the
@@ -353,12 +404,6 @@ enter_insert_open:
   LDA #MODE_INSERT
   STA MODE
   JMP clear_count
-
-; h and l that could not move (vim beeps) keep the remembered column
-h_l_done:
-  JSR cursor_moved
-  BNE clear_count
-  BEQ keep_clear_count       ; Always
 
 ; End the command that called the routine that jumps here, which has
 ; pushed nothing (a command that fails: drop the return into it), as

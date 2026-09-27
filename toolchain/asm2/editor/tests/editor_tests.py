@@ -1940,6 +1940,12 @@ class EditorTestRunner:
              [b"0", b"\x06", b"\x06", b"l", b"\x02", b"\x02", b"\x02", b"x"]),
             ("Batch equiv: Ctrl-F past the last page", indented,
              [b"0", b"\x06", b"\x06", b"\x06", b"\x06", b"\x06", b"x"]),
+            ("Batch equiv: Space over line ends", "ab\n\ncd\nef\n",
+             [b" "] * 7 + [b"x"]),
+            ("Batch equiv: Backspace over line ends", "ab\n\ncd\nef\n",
+             [b"G", b"$"] + [b"\x7f"] * 8 + [b"x"]),
+            ("Batch equiv: Space and Backspace then j", "abcdef\nab\nabcdef\n",
+             [b"4l", b"j", b" ", b"\x7f", b"\x7f", b"j", b"x"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
 
@@ -7446,6 +7452,49 @@ class EditorTestRunner:
             expected_content="Hello XWorld\n",
         )
 
+        self._group("Space and Backspace (vim's whichwrap b,s):",
+                    leading_blank=True)
+
+        # Space moves right and Backspace left, as l and h, but past the
+        # line end Space goes on to the next line's start, and from column
+        # 0 Backspace to the last char of the line above, a count step
+        # each (an empty line is a step too); at the end and the start of
+        # the text they stop.  Checked against vim 8.2 ($7F is Backspace)
+        BS = b"\x7f"
+        for content, keys, expected, cursor in (
+                ("abc\n", b"0 x", "ac\n", (0, 1)),
+                ("abc\ndef\n", b"$ x", "abc\nef\n", (1, 0)),
+                ("abc\ndef\n", b"j" + BS + b"x", "ab\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"$2 x", "abc\ndf\n", (1, 1)),
+                ("abc\n\ndef\n", b"$  x", "abc\n\nef\n", (2, 0)),
+                ("abc\ndef\n", b"G$ x", "abc\nde\n", (1, 1)),
+                ("abc\ndef\n", b"9 x", "abc\nde\n", (1, 1)),
+                ("abc\ndef\n", BS + b"x", "bc\ndef\n", (0, 0)),
+                ("abc\n\ndef\n", b"jj" + BS + BS + b"x", "ab\n\ndef\n",
+                 (0, 1)),
+                ("abc\ndef\n", b"j05" + BS + b"x", "bc\ndef\n", (0, 0)),
+                ("abc\ndef\n", b"j\x08x", "ab\ndef\n", (0, 1)),
+                # The remembered column starts over where Space leaves the
+                # cursor, as after any move but j and k
+                ("abcdef\nab\nabcdef\n", b"4lj lkx", "abcdef\na\nabcdef\n",
+                 (1, 0)),
+                ("abcdef\nxy\nabcdef\n", b"$ jx", "abcdef\nxy\nbcdef\n",
+                 (2, 0))):
+            self.run_test_screen(
+                f"Space and Backspace: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
+        # One that cannot move keeps the remembered column, as h and l do
+        self.run_test(
+            "Space and Backspace: Space on the last char keeps the column",
+            "abcdef\nab\n", b"$j kx:wq\r", expected_content="abcde\nab\n")
+        # Spaces typed ahead are a step each, as typed one at a time, and
+        # draw one frame
+        self.run_test_screen(
+            "Space and Backspace: typed-ahead Spaces take a step each",
+            "ab\n\ncd\n", b"    x:wq\r", expected_content="ab\n\nc\n",
+            expect_cursor=(2, 0), expect_frame_count=3)
+
         self._group("Batch word motions (w, b, e):", leading_blank=True)
 
         # Batch w: 5 w's on a 7-word line -> single frame
@@ -8237,7 +8286,9 @@ class EditorTestRunner:
                 ("a UTF-8 char", "Hello\n", b"l", b"\xc3\xa9"),
                 ("an unknown escape sequence", "Hello\n", b"l",
                  b"\x1b[15~"),
-                ("Space", "Hello\n", b"l", b" "),
+                ("Space at the end of the text", "Hello\n", b"$", b" "),
+                ("Backspace at the start of the text", "Hello\n", b"",
+                 b"\x7f"),
                 ("h at column 0", "Hello\n", b"", b"h"),
                 ("k on line 1", "Hello\nWorld\n", b"", b"k"),
                 ("j on the last line", "Hello\nWorld\n", b"G", b"j"),

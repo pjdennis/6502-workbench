@@ -28,6 +28,11 @@ NORMAL MODE - MOVEMENT
 
   h, Left        Move cursor left (accepts count)
   l, Right       Move cursor right (accepts count)
+  Space          Move right as l, on past the line end to the start of
+                 the next line, a count step each (vim's default
+                 'whichwrap' b,s)
+  Backspace      Move left as h, on from column 0 to the last
+                 character of the line above (also Ctrl-H)
   j, Down        Move cursor down (accepts count)
   k, Up          Move cursor up (accepts count)
   0, Home        Move to beginning of line
@@ -254,9 +259,9 @@ NORMAL MODE - COUNT PREFIX
     3de            Delete to end of 3rd word
 
   Digits typed once a count has reached 6400 are ignored, so the
-  largest count is 63999. h, l, w, b, e, x, X, ~, r, J, Ctrl-F,
-  Ctrl-B and the word operators (dw, cw, yw, ...) take a count of at
-  most 255. ESC clears an active count.
+  largest count is 63999. h, l, Space, Backspace, w, b, e, x, X, ~, r,
+  J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a
+  count of at most 255. ESC clears an active count.
   0 alone moves to line start; it does not start a count.
 
 

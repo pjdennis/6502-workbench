@@ -15,9 +15,9 @@
   stretch of 256 characters or more is undone but not redone (u again does nothing). The redo of o (u u) puts the
   cursor on the line o opened; vim puts it on the line o was typed on. See vim-gaps.md.
 
-  Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
-  of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k
-  do here too).
+  Counts over 255 - h, l, Space, Backspace, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw,
+  ...) take a count of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the
+  whole count (j and k do here too).
 
   J - Replaces each line break with one space and keeps the joined line's leading blanks: "abc" and "  def" join as
   "abc   def". Vim removes the leading blanks and puts one space in their place, none when the joined line is empty or

@@ -62,6 +62,8 @@ normal_movement_keys:
   .byte KEY_LEFT    .word normal_move_left
   .byte 'l'         .word normal_move_right
   .byte KEY_RIGHT   .word normal_move_right
+  .byte ' '         .word normal_space
+  .byte KEY_BS      .word normal_backspace
   .byte 'j'         .word normal_move_down
   .byte KEY_DOWN    .word normal_move_down
   .byte 'k'         .word normal_move_up
