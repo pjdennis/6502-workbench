@@ -159,10 +159,14 @@ All editing commands are blocked in read-only mode.
                  pressing u again redoes it. A new edit replaces the
                  undo history. Supports undo of: dd, x, X, D, dw, db, de,
                  d$, d0, J, p, P, r, ~, >>, <<, :[range]d, :[range]>
-                 and :[range]<.
-                 o, O, cw, cb, ce, cc, s, C and S can be undone only when
-                 ESC follows with no text typed: text typed in insert mode
-                 is not undoable and clears the undo history.
+                 and :[range]<, and of text typed after i, a or A: u
+                 takes it back and returns to where the typing began
+                 (it cannot be redone). Typing after a cursor move in
+                 insert mode, a Backspace over text from before the
+                 typing, a Delete, and text typed after o, O, cw, cb,
+                 ce, cc, s, C or S are not undoable and clear the undo
+                 history (those commands can be undone when ESC follows
+                 with no text typed).
                  A yank (yy, yw, y$, :y, ...) ends the undo of a delete
                  or paste, as their undo restores from the yank buffer.
                  Rapidly typed (batched) keys execute together but undo

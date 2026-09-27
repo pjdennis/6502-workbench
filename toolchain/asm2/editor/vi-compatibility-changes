@@ -11,10 +11,12 @@
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
 
-  u after insert mode - Text typed in insert mode is not undoable: leaving insert mode after typing clears the undo,
-  so u does nothing, and the edit before the insert can no longer be undone either. Vim undoes what was typed, with
-  the o, O or change command that began it, as one change, and a stretch of typing between cursor moves at a time.
-  See vim-gaps.md.
+  u after insert mode - Text typed after i, a or A is undone back to where the typing began, but not redone (u
+  again does nothing). Typing after a cursor move in insert mode, typing after o, O or a change command, and a
+  Backspace or Delete that deletes text from before the typing or after the cursor clear the undo, so u does nothing
+  and the edit before the insert can no longer be undone either. Vim undoes each stretch of typing between cursor
+  moves as one change, with the o, O or change command that began it, the Backspace and Delete included. See
+  vim-gaps.md.
 
   Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
   of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k

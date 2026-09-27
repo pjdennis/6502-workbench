@@ -1657,6 +1657,13 @@ class EditorTestRunner:
              [b"A"] + [bytes([c]) for c in b"xy\x08z\rnew"] + [b"\x1b"]),
             ("Batch equiv: typed chars erased by BS", "ab\ncd\n",
              [b"d", b"d", b"i", b"x", b"y", b"\x08", b"\x08", b"\x1b"]),
+            ("Batch equiv: typing with Enter and BS, then u", "abc\ndef\n",
+             [b"A"] + [bytes([c]) for c in b"xy\rz\x08\x08w\rq"] + [b"\x1b"]),
+            ("Batch equiv: BS past where the typing began", "ab\ncd\n",
+             [b"j", b"A", b"x", b"\x08", b"\x08", b"\x08", b"y", b"\x1b"]),
+            ("Batch equiv: Left keys after a BS past the start", "abcdef\n",
+             [b"$", b"a", b"\x08", b"\x08", b"x"] + [b"\x1b[D"] * 8
+             + [b"y", b"\x1b"]),
             ("Batch equiv: insert-mode arrows", lines,
              [b"i", b"a", b"\x1b[B", b"b", b"\x1b[C", b"c", b"\x1b"]),
             ("Batch equiv: arrow keys", lines,
@@ -1937,8 +1944,8 @@ class EditorTestRunner:
         )
 
         # Chars typed and erased again in one batch changed the file twice,
-        # as when typed one at a time: the file is modified and ESC clears
-        # the undo (text typed in insert mode is not undoable)
+        # as when typed one at a time: the file is modified, and the empty
+        # change is the one u undoes (as vim's first u)
         self.run_test_screen(
             "Typed chars erased in one batch mark the file modified",
             "ab\n",
@@ -1952,7 +1959,7 @@ class EditorTestRunner:
             expect_status_contains="t [+] - COMMAND - 1,1"
         )
         self.run_test(
-            "Typed chars erased in one batch clear undo as if typed slowly",
+            "Typed chars erased in one batch: u undoes them as if typed slowly",
             "ab\ncd\n",
             b"ddix\x08\x1bu:wq\r",
             expected_content="cd\n"
@@ -19823,6 +19830,54 @@ class EditorTestRunner:
             expected_content="Hello World\n"
         )
 
+        self._group("Undo of insert-mode typing:", leading_blank=True)
+
+        # As in vim, u takes back the text typed in insert mode, and puts
+        # the cursor where the typing began (on the last char when that is
+        # past the line end).  Checked against vim 8.2, typed in a terminal
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ihello", "abc\n", (0, 0)),
+                ("abc\n", b"lihello", "abc\n", (0, 1)),
+                ("abc\n", b"Ahello\x08\x08p", "abc\n", (0, 2)),
+                ("abc\n", b"Afoo\rbar", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"lifoo\rbar", "abc\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"Ax\r\x08y", "abc\ndef\n", (0, 2)),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz", "abc\ndef\n", (0, 2)),
+                # Typed and erased again: an empty change, which u undoes
+                # (the edit before stays done)
+                ("abc\n", b"xia\x08", "bc\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert undo: {keys!r} ESC u on {content!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        # An insert that only moves the cursor changes nothing: u still
+        # undoes the edit before it
+        for moves in (b"\x1b[D\x1b[D", b"\x1b[C\x1b[A\x1b[B\x1b[H\x1b[F"):
+            self.run_test_screen(
+                f"Insert undo: x, then i {moves!r} ESC u undoes the x",
+                "abcdef\n", b"lllxi" + moves + b"\x1bu:wq\r",
+                expected_content="abcdef\n", expect_cursor=(0, 3))
+        # The screen after u of typed line breaks
+        self.run_test_screen(
+            "Insert undo: the screen after u of typed line breaks",
+            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu",
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "~")],
+            expect_cursor=(1, 2))
+        # The text of a long insert is undone too
+        self.run_test(
+            "Insert undo: 300 chars typed",
+            "abc\n", b"i" + b"x" * 300 + b"\x1bu:wq\r",
+            expected_content="abc\n")
+        # Typing that deletes text from before where it began (BS) or after
+        # the cursor (DEL) is not undoable yet: it clears the undo, as does
+        # typing after a change command (vim undoes it: 'cd' in both)
+        self.run_test(
+            "Insert undo: BS of text from before the insert clears undo",
+            "ab\ncd\n", b"ddA\x08x\x1bu:wq\r", expected_content="cx\n")
+        self.run_test(
+            "Insert undo: DEL of text after the cursor clears undo",
+            "ab\ncd\n", b"ddix\x1b[3~\x1bu:wq\r", expected_content="xd\n")
+
         self._group("Undo join (J):", leading_blank=True)
 
         # J undo: restore joined lines
@@ -21192,12 +21247,12 @@ class EditorTestRunner:
             expected_content="ello\n"
         )
 
-        # insert mode typing clears undo stack (dd then iX ESC then u)
+        # u after typing undoes the typing, not the dd before it
         self.run_test(
-            "dd then iX ESC u: typing clears undo",
+            "dd then iX ESC u: u undoes the typing",
             "A\nB\n",
             b"ddiX\x1bu:wq\r",
-            expected_content="XB\n"     # u is no-op, dd undo was cleared by typing
+            expected_content="B\n"
         )
 
         self._group("Redo content and render edge cases:", leading_blank=True)

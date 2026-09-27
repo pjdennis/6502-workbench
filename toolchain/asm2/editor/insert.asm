@@ -33,12 +33,9 @@ insert_keys:
   .byte KEY_WORD_BACK .word insert_word_back
   .byte 0           ; End sentinel
 
-; Exit insert mode, return to normal mode
+; Exit insert mode, return to normal mode (the undo record of the typing
+; stays for u)
 insert_exit:
-  LDA INSERT_CHANGED
-  BEQ .skip_undo_clear
-  JSR undo_clear
-.skip_undo_clear:
   LDA #MODE_NORMAL
   STA MODE
   ; Move cursor back one per vi convention (unless at column 0)
@@ -144,7 +141,12 @@ insert_handle_key:
 .key_other:
   CPY BUF_DELTA
   BNE .end_batch
-  ; The first key is not an editing key: dispatch it (BUF_TEMP = key)
+  ; The first key is not an editing key: dispatch it (BUF_TEMP = key).
+  ; The typing after a move is not kept for undo
+  BIT INSERT_SEG
+  BPL .dispatch
+  LSR INSERT_SEG             ; $FF -> $7F
+.dispatch:
   LDA #<insert_keys
   LDX #>insert_keys
   JMP dispatch_key
@@ -307,13 +309,18 @@ insert_handle_key:
   BNE .do_copy
   ; Nothing deleted and nothing inserted.  Chars typed and erased again
   ; changed the buffer twice, as when typed one at a time: mark it
-  ; modified, with nothing to draw (A = 0).  Else (a BS at the buffer
-  ; start, a DEL on the final newline) nothing changed, as in vim
+  ; modified, with nothing to draw, and keep the empty change for u.
+  ; Else (a BS at the buffer start, a DEL on the final newline) nothing
+  ; changed, as in vim
   CMP BATCH_BUF              ; C = 0 if a char was typed
-  BCC .set_render_flag
+  BCS .no_change
+  JSR insert_segment
+  JMP set_modified
+.no_change:
   RTS
 
 .do_copy:
+  JSR insert_segment         ; The batch goes in: keep it for undo
   ; Step 9: Copy BATCH_BUF to the buffer, last byte first
   LDY BUF_DELTA
   BEQ .copy_done
@@ -361,7 +368,6 @@ insert_handle_key:
   STA RENDER_FLAG            ; (0 on entry: main_loop clears it)
   LDA #$FF
   STA MODIFIED
-  STA INSERT_CHANGED
   RTS
 
   ; ========================================
@@ -488,6 +494,51 @@ insert_handle_key:
   EOR #$FF                   ; pure ($FF): RF_AUTO, else RF_FULL
 .set_flag:
   JMP .set_render_flag
+
+; Keep the undo record of the insert segment (the typing since insert
+; mode began, or since a move) for a batch that goes in.  The record
+; (UNDO_INSERT) is where the segment starts and the length of the text
+; typed there, which ends at the cursor: the cursor moves only by the
+; typing in a segment.  On entry FILE_LINE16/CURSOR_COL16 = the cursor
+; before the batch, BUF_TEMP16.lo = back, BUF_TEMP = fwd_actual,
+; BUF_DELTA = insert_len.  A BS of text from before the segment's start
+; or a DEL of text after the cursor is not kept: it clears the undo, and
+; the rest of the segment's changes too (INSERT_SEG $7F), as the typing
+; after a change command does
+insert_segment:
+  LDA INSERT_SEG
+  BMI .open                  ; $FF: the record is kept
+  BNE .clear                 ; Not kept
+  ; A new segment: it starts at the cursor, with no text yet
+  LDA #UNDO_INSERT
+  STA UNDO_TYPE
+  JSR undo_record_pos        ; A = 0
+  STA_LH16 UNDO_INS_LEN16
+  DEC INSERT_SEG             ; $FF
+.open:
+  LDA BUF_TEMP               ; fwd_actual
+  BNE .not_kept
+  ; len = len - back + insert_len, unless back passes the start
+  LDA UNDO_INS_LEN16
+  SEC
+  SBC BUF_TEMP16             ; - back
+  TAX
+  LDA UNDO_INS_LEN16 + 1
+  SBC #0
+  BCC .not_kept              ; back > len
+  STA UNDO_INS_LEN16 + 1
+  TXA
+  CLC
+  ADC BUF_DELTA              ; + insert_len
+  STA UNDO_INS_LEN16
+  BCC .done
+  INC UNDO_INS_LEN16 + 1
+.done:
+  RTS
+.not_kept:
+  LSR INSERT_SEG             ; $7F
+.clear:
+  JMP undo_clear
 
 ; Arrow key and word motion handlers in insert mode, counted with pending
 ; repeats of the same key.  In insert mode the cursor may sit one past the

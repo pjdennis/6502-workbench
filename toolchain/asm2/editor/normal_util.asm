@@ -322,12 +322,18 @@ lines_left:
 
 ; --- Insert mode entry helpers ---
 
-; Enter insert mode and clear count
+; Enter insert mode after a change command (c, s, C, S, cc) or o/O: the
+; text typed then is not kept for undo (it would join the command's own
+; record), so typing clears the undo
+enter_insert_change:
+  LDA #$7F
+  .byte $2C                  ; BIT abs: skip the LDA #0
+; Enter insert mode and clear count: the first change starts a segment
 enter_insert_mode:
+  LDA #0
+  STA INSERT_SEG
   LDA #MODE_INSERT
   STA MODE
-  LDA #0
-  STA INSERT_CHANGED
   JMP clear_count
 
 ; h and l: X = the count (and the typed-ahead presses), NORMAL_TEMP =
@@ -728,7 +734,7 @@ apply_char_operator:
   ; OP_DELETE: clamp cursor
   JMP clamp_cursor_col
 .change:
-  JMP enter_insert_mode
+  JMP enter_insert_change
 
 ; Show yank overflow error: show message, clear count
 ; Used when a yank did not fit (the yank buffer is unchanged)

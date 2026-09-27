@@ -21,6 +21,8 @@
 ;  12 = toggle case (~; self-inverse, undo/redo re-toggle the span)
 ;  13 = replace char (r; originals in UNDO_DATA_BUF, redo re-writes;
 ;       the replacement KEY_ENTER is r<Enter>'s line break)
+;  14 = insert (the text typed in insert mode since it began or since a
+;       cursor move, a segment: u deletes it)
 ;
 ; Types 1-7 read the yank buffer (the deleted text, the paste size), so
 ; a new yank ends them (yank_store); from UNDO_JOIN up, the types keep
@@ -43,6 +45,7 @@
 ;   10/11 >> <<   first line       cursor column  -            lines
 ;   12 ~          cursor line      span start     span length  -
 ;   13 r          cursor line      span start     span length  replacement
+;   14 insert     segment start    segment start  -            text length
 ; Per-type alias names are declared below the fields.  While ~ runs,
 ; PASTE_COUNT16 is the last visited column (TILDE_LAST_COL16).
 
@@ -60,6 +63,7 @@ UNDO_INDENT = 10
 UNDO_UNINDENT = 11
 UNDO_TILDE = 12
 UNDO_REPLACE = 13
+UNDO_INSERT = 14
 
 ; Shared per-operation undo data (single-level undo, so one page serves
 ; all users): join = 16-bit newline offsets from the line start,
@@ -76,3 +80,4 @@ UNDO_SPAN_LEN      = UNDO_JOIN_COUNT     ; ~ r: chars in the span
 UNDO_RANGE_LINES16 = UNDO_PASTE_COUNT16  ; >> <<: lines in the range (> 255: not undoable)
 UNDO_REPL_CHAR     = UNDO_PASTE_COUNT16  ; r: the replacement char
 UNDO_JOIN_COL16    = UNDO_PASTE_COUNT16  ; J: the column the (last) J was typed at
+UNDO_INS_LEN16     = UNDO_PASTE_COUNT16  ; insert: the segment's text before the cursor

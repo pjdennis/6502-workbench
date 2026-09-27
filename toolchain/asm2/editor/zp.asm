@@ -31,12 +31,13 @@ BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
 FILE_HANDLE:   .byte     ; File handle for load/save
 
 ; --- undo_state.asm ---
-UNDO_TYPE:       .byte    ; UNDO_NONE..UNDO_REPLACE (undo_state.asm)
+UNDO_TYPE:       .byte    ; UNDO_NONE..UNDO_INSERT (undo_state.asm)
 UNDO_LINE16:     .word    ; Record fields: see the per-type table in undo_state.asm
 UNDO_COL16:      .word
 UNDO_IS_REDO:    .byte    ; 0=undo pending, $FF=redo pending
-INSERT_CHANGED:  .byte    ; Insert mode: nonzero once the buffer changed
-                          ; (leaving insert mode then clears the undo record)
+INSERT_SEG:      .byte    ; Insert mode's undo segment: 0 = none (the next change
+                          ; starts one), $FF = its record is kept, other = its
+                          ; changes clear the undo (insert_segment)
 UNDO_JOIN_COUNT: .byte
 UNDO_PASTE_COUNT16: .word
 

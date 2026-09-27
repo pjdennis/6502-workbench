@@ -733,7 +733,7 @@ cc_lines:
   JSR undo_rec_set
   JSR mark_save
   JSR cc_clear_lines
-  JMP enter_insert_mode
+  JMP enter_insert_change
 
 .cc_overflow:
   JMP show_yank_overflow

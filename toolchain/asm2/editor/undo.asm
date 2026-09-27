@@ -71,9 +71,12 @@ undo_handle:
   BCC undo_step
   JSR undo_step
   JSR undo_step
+  LDA UNDO_TYPE
+  BEQ .changed               ; An undo with no redo (it ended the record)
   LDA #0
   STA RENDER_FLAG            ; The text is as it was: no content repaint
   STA DELETE_SCREEN_ROWS
+.changed:
   RTS
 
 ; One undo or redo step, per UNDO_IS_REDO (no-op with nothing to undo)
@@ -86,9 +89,9 @@ undo_step:
   JSR any_line_rows          ; (1 if gone: a delete that reached the end)
   STA PREV_LINE_ROWS
   ; Per-type handler dispatch via address table (RTS trick): entries are
-  ; handler - 1, indexed by UNDO_TYPE (1..13, 0 is filtered above).
+  ; handler - 1, indexed by UNDO_TYPE (1..14, 0 is filtered above).
   LDA UNDO_TYPE
-  ASL                        ; C = 0 (UNDO_TYPE <= 13)
+  ASL                        ; C = 0 (UNDO_TYPE <= 14)
   BIT UNDO_IS_REDO
   BPL .index                 ; Undo pending
   ADC #.redo_table - .table  ; Redo pending: use the redo entries
@@ -116,6 +119,7 @@ undo_step:
   .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
   .word undo_tilde_undo - 1          ; 12 UNDO_TILDE
   .word undo_replace_undo - 1        ; 13 UNDO_REPLACE
+  .word undo_insert_undo - 1         ; 14 UNDO_INSERT
 .redo_table:                         ; Redo handlers
   .word .redo_line - 1               ; 1 UNDO_LINE
   .word .redo_char - 1               ; 2 UNDO_CHAR
@@ -130,6 +134,8 @@ undo_step:
   .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
   .word undo_tilde_redo - 1          ; 12 UNDO_TILDE
   .word undo_replace_redo - 1        ; 13 UNDO_REPLACE
+  .word clear_count - 1              ; 14 UNDO_INSERT (no redo: its undo
+                                     ; ends the record)
 
 ; --- Undo handlers ---
 .undo_line:
@@ -455,6 +461,18 @@ undo_open_redo:
   JSR undo_opened_finish
 .redo_open_fail:
   JMP clear_count
+
+
+; --- Insert undo: delete the text the segment typed ---
+; The cursor goes back where the typing began (clamped), as in vim.  There
+; is no redo: the record ends
+undo_insert_undo:
+  JSR undo_restore_pos_from  ; Cursor to the start (the line repaints from there)
+  CP16 UNDO_INS_LEN16, BUF_LEN16
+  JSR delete_at_cursor       ; (marks, and the scroll of joined lines)
+  JSR clamp_cursor_col
+  JSR undo_clear
+  JMP undo_keep_render_flag
 
 
 ; --- Indent/unindent undo step (self-morphing) ---

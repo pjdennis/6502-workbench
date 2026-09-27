@@ -301,7 +301,7 @@ open_line_x:
   CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
   LDA #RF_INS                       ; Signal line-insert for scroll optimization
   JSR undo_opened_finish
-  JMP enter_insert_mode
+  JMP enter_insert_change
 
 ; o/O and r<Enter> buffer-full handler
 open_full:
