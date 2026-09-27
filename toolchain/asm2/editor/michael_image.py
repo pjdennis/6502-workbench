@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build the editor for Michael: the define:direct_io define:michael build
-and the Michael services (firmware/programs/michael/michael_editor_services.s)
-as one RAM image, to load at LOAD.
+"""Build the editor for Michael: the define:direct_io define:michael build, which runs from
+LOAD on the services of the Michael ROM (firmware/boards/michael/michael_rom.s).
 
     python3 editor/michael_image.py OUT     (from toolchain/asm2)
 
-Needs the emulator and asm17 built, and vasm6502_oldstyle on PATH.
+writes the editor binary, for tools/upload/transfer.py --format=2 (which loads it at $0200 and
+runs it there). Needs the emulator and asm17 built; building the ROM needs vasm6502_oldstyle.
 """
 import re
 import subprocess
@@ -16,13 +16,18 @@ ASM2 = Path(__file__).resolve().parents[1]
 ROOT = ASM2.parents[1]
 EMULATOR = ROOT / "emulator" / "emulator.out"
 ASSEMBLER = ASM2 / "17" / "out" / "asm.out"
-SERVICES = ROOT / "firmware" / "programs" / "michael" / "michael_editor_services.s"
-LAYOUT = ROOT / "firmware" / "boards" / "michael" / "michael_editor_layout.inc"
-LOAD = 0x0400
+ROM_SOURCE = ROOT / "firmware" / "boards" / "michael" / "michael_rom.s"
+MEMORY_MAP = ASM2 / "editor" / "memory_map.asm"
+LOAD = 0x0200
+
+sys.path.insert(0, str(ROOT / "tools" / "upload"))
+import upload_frame  # noqa: E402
 
 
-def layout_address(name):
-    return int(re.search(r'^%s\s*=\s*\$([0-9a-fA-F]+)' % name, LAYOUT.read_text(), re.M).group(1), 16)
+def memory_map_address(name):
+    """An address the define:michael memory map gives name."""
+    michael = MEMORY_MAP.read_text().split(".ifdef michael", 1)[1].split(".else", 1)[0]
+    return int(re.search(r"^%s\s*=\s*\$([0-9A-F]+)" % name, michael, re.M).group(1), 16)
 
 
 def assemble_editor(out, *defines):
@@ -33,19 +38,26 @@ def assemble_editor(out, *defines):
 
 
 def build(out):
-    """Write the image to out (next to it, the parts it is made of)."""
+    """Write the Michael editor to out: its code from LOAD, without the entry point the
+    emulator's builds end with (LOAD holds jmp editor_main)."""
     out = Path(out)
-    editor = assemble_editor(out.with_suffix(".editor"), "define:direct_io", "define:michael")[:-2]
-    services_bin = out.with_suffix(".services")
-    subprocess.run([ROOT / "firmware" / "vasm", "-quiet", "-wdc02", "-wfail", "-Fbin", "-dotdir",
-                    "-ignore-mult-inc", "-esc", "-o", services_bin, SERVICES],
-                   check=True, capture_output=True, cwd=ROOT)
-    services_at = layout_address("MICHAEL_ENV_BASE") + 6
-    if LOAD + len(editor) > services_at:
-        raise SystemExit(f"the editor (${LOAD:04X}-${LOAD + len(editor) - 1:04X}) runs into "
-                         f"the services at ${services_at:04X}")
-    out.write_bytes(editor + bytes(services_at - LOAD - len(editor)) + services_bin.read_bytes())
+    out.write_bytes(assemble_editor(out, "define:direct_io", "define:michael")[:-2])
     return out
+
+
+def build_rom(out):
+    """Assemble the Michael ROM to out."""
+    subprocess.run([ROOT / "firmware" / "vasm", "-quiet", "-wdc02", "-wfail", "-Fbin", "-dotdir",
+                    "-ignore-mult-inc", "-esc", "-o", out, ROM_SOURCE],
+                   check=True, capture_output=True, cwd=ROOT)
+    return Path(out)
+
+
+def write_upload(binary, out):
+    """Write the format 2 upload of binary (loaded at LOAD and run there) to out, as it goes on
+    the wire, e.g. for the emulator's --serial-input."""
+    Path(out).write_bytes(upload_frame.format_2([(LOAD, Path(binary).read_bytes())]))
+    return Path(out)
 
 
 if __name__ == "__main__":

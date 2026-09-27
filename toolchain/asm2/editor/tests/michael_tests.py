@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The editor on Michael, in the emulator's Michael machine: the
-define:direct_io define:michael build with the Michael services
-(firmware/programs/michael/michael_editor_services.s), typed at on the PS/2
-keyboard and shown on the 20x4 LCD.
+define:direct_io define:michael build, uploaded through the Michael ROM's
+loader (firmware/boards/michael/michael_rom.s) over the serial line and
+running on its services, typed at on the PS/2 keyboard and shown on the 20x4
+LCD.
 
 Each test types keys and checks the LCD once they have been handled, that
 the bus stayed clean, and that the stack stayed clear of the buffers below
@@ -28,10 +29,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from ansi_screen import AnsiScreen
 import michael_image
-from michael_image import EMULATOR, LOAD, ROOT
+from michael_image import EMULATOR
 
-sys.path.insert(0, str(ROOT / "tools" / "upload"))
-from upload_frame import build_frame
+CONSOLE_LOAD = 0x0400
 
 ROWS, COLS = 4, 20
 STACK_FLOOR = 0x0154         # the buffers below the stack end here (editor.asm)
@@ -43,7 +43,9 @@ class MichaelEditorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         tmp = Path(cls.tmp.name)
-        cls.image_file = michael_image.build(tmp / "editor_michael.image")
+        cls.editor = michael_image.build(tmp / "editor_michael.bin")
+        cls.rom = michael_image.build_rom(tmp / "michael_rom.bin")
+        cls.upload = michael_image.write_upload(cls.editor, tmp / "editor_michael.upload")
         cls.console_editor = tmp / "editor.out"
         michael_image.assemble_editor(cls.console_editor)
 
@@ -51,20 +53,24 @@ class MichaelEditorTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def image(self):
-        return self.image_file
-
-    def run_michael(self, keys):
-        """Type keys at the editor on Michael; the LCD's rows once they are handled."""
+    def michael(self, keys, *options):
+        """Boot the ROM, upload the editor and type keys; the emulator's report."""
         keys_file = Path(self.tmp.name) / "keys.txt"
         keys_file.write_bytes(keys)
-        cycles = 2000000 + CYCLES_PER_KEY * len(keys)
-        report = subprocess.run([EMULATOR, self.image(), "--machine", "michael", "--load", "%04x" % LOAD,
-                                 "--keys", keys_file, "--cycle-cap", str(cycles)],
+        cycles = 3000000 + CYCLES_PER_KEY * len(keys)
+        report = subprocess.run([EMULATOR, self.rom, "--machine", "michael", "--serial-input", self.upload,
+                                 "--keys", keys_file, "--cycle-cap", str(cycles), *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         self.assertIn("michael: bus: lcd-undriven=0 portb-contention=0", report)
         stack = next(line for line in report if line.startswith("michael: stack: lowest $"))
         self.assertGreaterEqual(int(stack[-4:], 16), STACK_FLOOR, stack)
+        return report
+
+    def run_michael(self, keys):
+        """Type keys at the editor on Michael; the LCD's rows once they are handled."""
+        return self.lcd_rows(self.michael(keys))
+
+    def lcd_rows(self, report):
         lcd = report.index("michael: lcd:")
         return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 1 + ROWS]]
 
@@ -78,7 +84,7 @@ class MichaelEditorTest(unittest.TestCase):
         keys_file = work / "keys.bin"
         keys_file.write_bytes(keys + b"\x00")
         output = work / "output.bin"
-        subprocess.run([EMULATOR, self.console_editor, "--no-dump", "--load", "%04x" % LOAD,
+        subprocess.run([EMULATOR, self.console_editor, "--no-dump", "--load", "%04x" % CONSOLE_LOAD,
                         "--rows", str(ROWS), "--cols", str(COLS), "--input", keys_file,
                         "--output", output],
                        capture_output=True, timeout=10, cwd=work)
@@ -89,60 +95,20 @@ class MichaelEditorTest(unittest.TestCase):
     def assert_same_as_console(self, keys):
         self.assertEqual(self.run_michael(keys), self.run_console(keys))
 
-    def test_environment_matches(self):
-        """editor/michael_environment.asm has 17/environment.asm's vectors."""
-        definition = re.compile(r"^([A-Za-z_]+) *= *(ENV_BASE \+ \$[0-9A-F]+|\$[0-9A-F]+)", re.M)
-        asm2 = Path(michael_image.__file__).parents[1]
-        environment = dict(definition.findall((asm2 / "17" / "environment.asm").read_text()))
-        del environment["ENV_BASE"]
-        michael = dict(definition.findall((asm2 / "editor" / "michael_environment.asm").read_text()))
-        self.assertEqual({k: v for k, v in michael.items() if k != "ENV_BASE"}, environment)
+    def test_code_ends_below_the_text_buffers_end(self):
+        """The text buffer starts on the page after the code and ends at TEXT_END (memory_map.asm)."""
+        end = michael_image.LOAD + len(self.editor.read_bytes())
+        self.assertLessEqual((end + 0xff) & ~0xff, michael_image.memory_map_address("TEXT_END") - 0x100)
 
-    def upload_through_second_stage(self, frame_bytes):
-        """Run the second-stage loader (as the ROM's loader would, from
-        PROGRAM_LOAD_ADDRESS) with frame_bytes on the serial line; the report."""
-        tmp = Path(self.tmp.name)
-        loader = tmp / "second_stage_loader.bin"
-        subprocess.run([ROOT / "firmware" / "vasm", "-quiet", "-wdc02", "-wfail", "-Fbin", "-dotdir",
-                        "-ignore-mult-inc", "-esc", "-o", loader,
-                        ROOT / "firmware" / "programs" / "michael" / "michael_second_stage_loader.s"],
-                       check=True, capture_output=True, cwd=ROOT)
-        frame = tmp / "image.frame"
-        frame.write_bytes(frame_bytes)
-        report = subprocess.run([EMULATOR, loader, "--machine", "michael", "--load", "0900",
-                                 "--serial-input", frame, "--cycle-cap", "20000000"],
-                                check=True, capture_output=True, text=True).stderr.splitlines()
-        self.assertIn("michael: bus: lcd-undriven=0 portb-contention=0", report)
-        return report
-
-    def lcd_rows(self, report):
-        lcd = report.index("michael: lcd:")
-        return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 1 + ROWS]]
-
-    def test_uploads_through_the_second_stage_loader(self):
-        """On the board the image goes up in two uploads: the second-stage
-        loader through the ROM's loader, then the image through it, straight
-        to $0400."""
-        report = self.upload_through_second_stage(build_frame(self.image().read_bytes()))
-        self.assertEqual(self.lcd_rows(report), ["", "~", "~", "[No Name] - NORMAL -"])
-
-    def test_second_stage_loader_stops_on_a_bad_checksum(self):
-        frame = bytearray(build_frame(self.image().read_bytes()))
-        frame[100] ^= 1
-        report = self.upload_through_second_stage(bytes(frame))
-        self.assertTrue(report[0].endswith("(STP)"), report[0])
-        self.assertEqual(self.lcd_rows(report)[0], "Waiting for the")
-
-    def test_second_stage_loader_stops_on_a_program_too_long(self):
-        report = self.upload_through_second_stage(build_frame(bytes(0x3B00)))  # to $3F00
-        self.assertTrue(report[0].endswith("(STP)"), report[0])
+    def test_quitting_goes_back_to_the_loader(self):
+        self.assertEqual(self.run_michael(b":q\r")[:2], ["Michael ROM 3", "Ready."])
 
     def test_live(self):
         """--live draws the LCD in the terminal and types the terminal's keys;
         Ctrl-] quits and restores the terminal."""
         master, slave = pty.openpty()
-        proc = subprocess.Popen([EMULATOR, self.image(), "--machine", "michael",
-                                 "--load", "%04x" % LOAD, "--live"],
+        proc = subprocess.Popen([EMULATOR, self.rom, "--machine", "michael",
+                                 "--serial-input", self.upload, "--live"],
                                 stdin=slave, stdout=slave, stderr=subprocess.DEVNULL)
         os.close(slave)
         seen = b""

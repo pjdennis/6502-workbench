@@ -7,7 +7,7 @@
 ; define:direct_io calls screen services (environment.asm: scr_*) instead
 ; of writing ANSI sequences and reads key codes from con_read, for
 ; machines without an ANSI terminal (the emulator runs it with --direct-io).
-; With define:michael as well it runs on the Michael board with its
+; With define:michael as well it runs on the Michael board, on its ROM's
 ; services (editor/michael_image.py; ./editor-michael.sh in the emulator,
 ; ./editor-michael-upload.sh to the board).
 ;
@@ -36,15 +36,15 @@
 ;   $F000+        Emulator I/O
 ; ============================================================================
 
+  .ifdef michael
+* = $0200                  ; Michael: the ROM's loader uploads from here
+  .else
 * = $0400
+  .endif
 
   JMP editor_main
 
-  .ifdef michael
-  .include editor/michael_environment.asm
-  .else
   .include 17/environment.asm
-  .endif
   .include editor/memory_map.asm
   .include 17/macros.asm
   .include editor/macros.asm

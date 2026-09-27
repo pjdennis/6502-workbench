@@ -2,16 +2,17 @@
 ; code, see the end of this file). TEXT_END, LINE_TBL and YANK_BUF are
 ; page-aligned.
   .ifdef michael
-; Michael: 16 KB of RAM, shared with the services (michael_environment.asm,
-; michael_editor_layout.inc)
+; Michael: 16 KB of RAM from $0200, shared with the ROM's services, which
+; keep $3F00 up to MICHAEL_EDITOR_SPARE (michael_editor_layout.inc)
+  .include ../../firmware/boards/michael/michael_editor_layout.inc
 BATCH_BUF     = $0100   ; Below the stack, which stays above $0154
 MARK_TBL      = $0120
-YANK_BUF      = $0200
-YANK_LIMIT    = $0300
-UNDO_DATA_BUF = $0300
-TEXT_END      = $3400
-LINE_TBL      = $3400
-LINE_TBL_END  = MICHAEL_ENV_BASE + $06
+TEXT_END      = $3A00   ; The text buffer runs from the end of the code
+LINE_TBL      = $3A00
+LINE_TBL_END  = $3C00
+YANK_BUF      = $3C00
+YANK_LIMIT    = $3E00
+UNDO_DATA_BUF = $3E00
 FNAME_BUF     = MICHAEL_EDITOR_SPARE         ; 16 bytes
 CMD_BUF       = MICHAEL_EDITOR_SPARE + $10
 CMD_BUF_END   = MICHAEL_EDITOR_SPARE + $40
