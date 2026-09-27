@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "bus.h"
 #include "cpu_core.h"
@@ -12,12 +14,89 @@
 #include "chips/via_6522.h"
 #include "chips/lcd_hd44780.h"
 #include "chips/cpu_65c02.h"
+#include "chips/ps2_keyboard_board.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
  * (INTERRUPT_VECTOR_TARGET in base_config_v2.inc). */
 #define MICHAEL_IRQ_TARGET 0x3F00
 
+/* Michael's clock: the oscillator runs the CPU at 2 MHz. */
+#define MICHAEL_TICKS_PER_US 2
+
 static struct bus *active_bus = NULL;
+
+/* The devices that drive PORTB when the VIA leaves its pins as inputs. */
+struct portb_drivers {
+    const struct lcd_hd44780_state *lcd;
+    const struct ps2_keyboard_board_state *kbd;
+};
+
+/* Pins driven by more than one device read as the AND of their drives,
+ * as a low driver wins. Undriven pins read 0. */
+static uint8_t portb_input(void *ctx) {
+    const struct portb_drivers *d = ctx;
+    uint8_t lcd = 0xFF, kbd = 0xFF;
+    int lcd_drives = lcd_hd44780_output(d->lcd, &lcd);
+    int kbd_drives = ps2_board_output(d->kbd, &kbd);
+    return (lcd_drives || kbd_drives) ? (uint8_t)(lcd & kbd) : 0x00;
+}
+
+/* Counts spells of more than one device driving the same PORTB pin:
+ * the VIA (pins set as outputs), the LCD (a read cycle) and the
+ * keyboard board (SOEB low). */
+struct bus_check_state {
+    const struct via_6522_state *via;
+    struct portb_drivers drivers;
+    uint32_t contention;
+    uint8_t contending;
+};
+
+static void bus_check_tick(struct chip *self, struct bus *bus) {
+    (void)bus;
+    struct bus_check_state *s = self->state;
+    uint8_t value;
+    int drivers = (s->via->ddrb != 0) + lcd_hd44780_output(s->drivers.lcd, &value)
+                + ps2_board_output(s->drivers.kbd, &value);
+    if (drivers > 1) {
+        if (!s->contending) s->contention++;
+        s->contending = 1;
+    } else {
+        s->contending = 0;
+    }
+}
+
+/* The VIA's IRQ output to the CPU; --kbd-fault noirq cuts it. Ticks
+ * between the VIA and the CPU. */
+static void irq_cut_tick(struct chip *self, struct bus *bus) {
+    (void)self;
+    bus->irq = 0;
+}
+
+static int queue_scancodes(struct ps2_keyboard_board_state *kbd, const char *list) {
+    const char *p = list;
+    while (*p) {
+        char *end;
+        long byte = strtol(p, &end, 16);
+        if (end == p || byte < 0 || byte > 0xFF || (*end && *end != ',')) {
+            fprintf(stderr, "michael: bad --kbd-scancodes list: %s\n", list);
+            return -1;
+        }
+        if (ps2_board_queue_key_byte(kbd, (uint8_t)byte) < 0) {
+            fprintf(stderr, "michael: too many --kbd-scancodes bytes\n");
+            return -1;
+        }
+        p = *end ? end + 1 : end;
+    }
+    return 0;
+}
+
+static enum ps2_fault board_fault(const char *name) {
+    if (!name) return PS2_FAULT_NONE;
+    if (!strcmp(name, "noedge")) return PS2_FAULT_NOEDGE;
+    if (!strcmp(name, "noack"))  return PS2_FAULT_NOACK;
+    if (!strcmp(name, "resend")) return PS2_FAULT_RESEND;
+    return PS2_FAULT_NONE;     /* noirq is the machine's, not the board's */
+}
 
 static uint8_t michael_cpu_read(uint16_t addr) {
     active_bus->addr = addr;
@@ -75,7 +154,13 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct via_6522_state     via_state;
     static struct lcd_hd44780_state  lcd_state;
     static struct cpu_65c02_state    cpu_state;
-    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, cpu_chip;
+    static struct ps2_keyboard_board_state kbd_state;
+    static struct bus_check_state    check_state;
+    static const struct chip_ops check_ops = { .tick = bus_check_tick };
+    static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
+    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, cpu_chip;
+    struct chip check_chip = { &check_ops, "bus_check", &check_state };
+    struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
     glue_michael_init(&glue_chip, &glue_state);
     rom_28c256_init(&rom_chip, &rom_state);
@@ -84,7 +169,16 @@ int emu_run_michael(const struct emu_opts *opts) {
     lcd_hd44780_init(&lcd_chip, &lcd_state, &via_state);
     lcd_hd44780_set_wiring(&lcd_state, &LCD_WIRING_MICHAEL);
     lcd_hd44780_set_geometry(&lcd_state, 4, 20);
+    ps2_keyboard_board_init(&kbd_chip, &kbd_state, &via_state, MICHAEL_TICKS_PER_US);
+    kbd_state.fault = board_fault(opts->kbd_fault);
+    if (opts->kbd_scancodes && queue_scancodes(&kbd_state, opts->kbd_scancodes) != 0) return 1;
     cpu_65c02_init(&cpu_chip, &cpu_state);
+
+    memset(&check_state, 0, sizeof(check_state));
+    check_state.via = &via_state;
+    check_state.drivers.lcd = &lcd_state;
+    check_state.drivers.kbd = &kbd_state;
+    via_6522_set_portb_input(&via_state, portb_input, &check_state.drivers);
 
     uint16_t load = opts->load_address >= 0 ? (uint16_t)opts->load_address : 0x0900;
     if (opts->rom_filename) {
@@ -104,6 +198,9 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &ram_chip);
     bus_add_chip(&b, &via_chip);
     bus_add_chip(&b, &lcd_chip);
+    bus_add_chip(&b, &kbd_chip);
+    bus_add_chip(&b, &check_chip);
+    if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);
 
     if (opts->code_filename && load_program(&b, opts->code_filename, load) != 0) return 1;
@@ -143,6 +240,8 @@ int emu_run_michael(const struct emu_opts *opts) {
             (unsigned long long)clockticks6502, pc,
             cpu_stp_pending() ? "(STP)" : "(cycle cap)");
     lcd_report_final(stderr, "michael", &lcd_state);
+    fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
+            (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
 
     cpu_external_read  = NULL;
     cpu_external_write = NULL;

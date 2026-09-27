@@ -36,6 +36,8 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->rom_filename = NULL;
     opts->serial_input_filename = NULL;
     opts->wendy2_prog_filename = NULL;
+    opts->kbd_scancodes = NULL;
+    opts->kbd_fault = NULL;
     opts->disk_dir = NULL;
     opts->cycle_cap = 200000000ULL;
     opts->cycle_cap_set = 0;
@@ -96,6 +98,11 @@ void emu_opts_usage(FILE *fp) {
 "                         (default $4000), bank $01 mapped, start there --\n"
 "                         skips the slow serial boot for big programs\n"
 "  --disk <dir>           wendy2c: host dir backing the $F800+ file-I/O OS calls\n"
+"  --kbd-scancodes <list> michael: comma-separated hex bytes the PS/2 keyboard sends\n"
+"                         once the program has set it up (e.g. 1c,f0,1c types 'a')\n"
+"  --kbd-fault <name>     michael: keyboard board fault -- noedge (CA2 never moves),\n"
+"                         noirq (the VIA's IRQ doesn't reach the CPU), noack (no\n"
+"                         answer to commands) or resend (every answer is $FE)\n"
 "  --live                 wendy2c: live ANSI render of LCD, LED, button, VIA pin state\n"
 "                         (saves the terminal; q/ESC/Ctrl-C to quit; space toggles button)\n"
 "  --wav <path>           wendy2c: record the PB7 piezo line to a WAV file\n"
@@ -287,6 +294,15 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (take_str_value(argc, argv, &i, "--serial-input", &opts->serial_input_filename)) return 1;
         } else if (strcmp(argv[i], "--wendy2-prog") == 0) {
             if (take_str_value(argc, argv, &i, "--wendy2-prog", &opts->wendy2_prog_filename)) return 1;
+        } else if (strcmp(argv[i], "--kbd-scancodes") == 0) {
+            if (take_str_value(argc, argv, &i, "--kbd-scancodes", &opts->kbd_scancodes)) return 1;
+        } else if (strcmp(argv[i], "--kbd-fault") == 0) {
+            if (take_str_value(argc, argv, &i, "--kbd-fault", &opts->kbd_fault)) return 1;
+            const char *f = opts->kbd_fault;
+            if (strcmp(f, "noedge") && strcmp(f, "noirq") && strcmp(f, "noack") && strcmp(f, "resend")) {
+                fprintf(stderr, "error: --kbd-fault value must be 'noedge', 'noirq', 'noack' or 'resend'\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--disk") == 0) {
             if (take_str_value(argc, argv, &i, "--disk", &opts->disk_dir)) return 1;
         } else if (strcmp(argv[i], "--live") == 0) {
@@ -419,6 +435,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
     }
     if (opts->lcd_trace_filename && (opts->live || opts->web)) {
         fprintf(stderr, "error: --lcd-trace is incompatible with --live and --web\n");
+        return 1;
+    }
+
+    if ((opts->kbd_scancodes || opts->kbd_fault) && opts->machine != MACHINE_MICHAEL) {
+        fprintf(stderr, "error: --kbd-scancodes / --kbd-fault require --machine michael\n");
         return 1;
     }
 

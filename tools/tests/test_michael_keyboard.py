@@ -1,13 +1,14 @@
-"""Michael's keyboard programs, run in tools/michael_keyboard_sim.c.
+"""Michael's keyboard programs, run on the emulator's Michael machine.
 
-The simulator models the VIA, the LCD and the PS/2 keyboard board closely
+The emulator models the VIA, the LCD and the PS/2 keyboard board closely
 enough for the keyboard driver (firmware/lib/keyboard/keyboard_driver.inc):
-the start-up handshake, key frames, and whether each LCD write happens with
-the ports set up for the LCD. Programs are built for the addresses in
-base_config_v2.inc, and the simulated ROM's IRQ vector is set to match.
+the start-up handshake, key frames, and whether the LCD and the keyboard
+board share the bus without fighting over it. Programs are loaded at
+PROGRAM_LOAD_ADDRESS from base_config_v2.inc; the emulator's ROM sends IRQs
+to $3F00, INTERRUPT_VECTOR_TARGET.
 
-Uses firmware/vasm with vasm6502_oldstyle from PATH and gcc (tests skip if
-either is missing).
+Uses firmware/vasm with vasm6502_oldstyle from PATH, and builds the emulator
+with make (tests skip if vasm, gcc or make is missing).
 """
 import os
 import re
@@ -18,7 +19,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
-SIM_SOURCE = os.path.join(ROOT, 'tools', 'michael_keyboard_sim.c')
+EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 BASE_CONFIG = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'base_config_v2.inc')
 PROGRAMS = os.path.join(ROOT, 'firmware', 'programs', 'michael')
 
@@ -31,16 +32,13 @@ def base_config_address(name):
         return re.search(r'^%s\s*=\s*\$([0-9a-fA-F]+)' % name, f.read(), re.M).group(1)
 
 
-@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc'),
-                     'vasm6502_oldstyle and gcc are needed')
+@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc') and shutil.which('make'),
+                     'vasm6502_oldstyle, gcc and make are needed')
 class MichaelKeyboardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.sim = os.path.join(cls.tmp.name, 'michael_keyboard_sim')
-        subprocess.run(['gcc', '-O2', '-I', os.path.join(ROOT, 'emulator'), '-o', cls.sim,
-                        SIM_SOURCE, os.path.join(ROOT, 'emulator', 'cpu_core.c')],
-                       check=True, capture_output=True)
+        subprocess.run(['make', '-s', 'emulator/emulator.out'], cwd=ROOT, check=True, capture_output=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -52,15 +50,16 @@ class MichaelKeyboardTest(unittest.TestCase):
         subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
                         '-ignore-mult-inc', '-esc', '-o', binary,
                         os.path.join(PROGRAMS, name + '.s')], check=True, capture_output=True)
-        options = ['--keys=' + ','.join(keys)] if keys else []
+        options = ['--kbd-scancodes', ','.join(keys)] if keys else []
         if fault:
-            options.append('--fault=' + fault)
-        output = subprocess.run([self.sim, *options, binary,
-                                 base_config_address('PROGRAM_LOAD_ADDRESS'),
-                                 base_config_address('INTERRUPT_VECTOR_TARGET')],
-                                check=True, capture_output=True, text=True).stdout.splitlines()
-        self.assertEqual(output[4], 'bad LCD writes: 0')
-        return [line.rstrip() for line in output[:4]]
+            options += ['--kbd-fault', fault]
+        report = subprocess.run([EMULATOR, binary, '--machine', 'michael',
+                                 '--load', base_config_address('PROGRAM_LOAD_ADDRESS'),
+                                 '--cycle-cap', '2000000', *options],
+                                check=True, capture_output=True, text=True).stderr.splitlines()
+        self.assertIn('michael: bus: lcd-undriven=0 portb-contention=0', report)
+        lcd = report.index('michael: lcd:')
+        return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 5]]
 
     def diag_text(self, keys=(), fault=None):
         """The diagnostic's output as one string, without the IRQ vector it starts with."""

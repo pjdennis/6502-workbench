@@ -78,6 +78,9 @@ struct emu_opts {
                                          * the run loop. Format: a "--- osc=N cpu=N pc=$NNNN ---" header
                                          * line followed by one "|...|"-bracketed row per LCD row. */
     int lcd_panel;                      /* --lcd-panel; LCD_PANEL_* constants. Default = 16x2 5x8. */
+    const char *kbd_scancodes;          /* --kbd-scancodes HEX,HEX,... (michael): bytes the PS/2
+                                         * keyboard sends once the host has set it up */
+    const char *kbd_fault;              /* --kbd-fault NAME (michael): noedge, noirq, noack or resend */
     const char *disk_dir;               /* --disk DIR (wendy2c only): host directory backing the
                                          * $F800+ file-I/O OS calls (the simulated SPI "disk").
                                          * NULL = the OS-call port chip is not installed. */
