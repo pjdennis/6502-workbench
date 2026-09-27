@@ -605,38 +605,61 @@ normal_change_to_eol:
   JMP sub_change_tail
 
 ; --- Replace char (r) ---
-; The replacement must type text: printable or Tab.  Enter and Ctrl-J
-; replace the N chars with one line break instead, as in vim, which also
-; leaves the line alone when fewer than N are left: the loop stores them
-; as KEY_ENTER (a placeholder, never a replacement char), then
-; replace_split makes the break.  Any other key (arrows and other KEY_*
-; codes, BS, $00 for non-ASCII) cancels r like Esc. ($7F never arrives:
-; read_key maps it to KEY_BS.)
+; The replacement is the key typed, a control key too, or the key after
+; Ctrl-V (a Ctrl-V first, as in vim).  Enter and Ctrl-J replace the N
+; chars with one line break instead: the loop stores them as KEY_ENTER (a
+; placeholder, never a replacement char), then replace_split makes the
+; break.  Keys that are no char (arrows and other KEY_* codes, $00 for
+; non-ASCII, BS) cancel r like Esc, and so does a count past the line
+; end: vim leaves the line alone then.  ($7F never arrives: read_key
+; maps it to KEY_BS.)
 do_replace_char:
   LDA BUF_TEMP
+  CMP #$16
+  BNE .typed
+  JSR get_key                ; Ctrl-V: the next key
+  STA BUF_TEMP
+.typed:
   CMP #'\n'
-  BEQ .replace_nl            ; Ctrl-J is Enter
+  BNE .char
+  LDA #KEY_ENTER             ; Ctrl-J is Enter
+  STA BUF_TEMP
+.char:
+  TAX
+  BMI .replace_fail          ; A KEY_* code
+  BEQ .replace_fail          ; $00
+  CMP #KEY_BS
+  BEQ .replace_fail
+  ; The N chars must be in the line (not an empty one)
+  JSR get_count              ; BUF_TEMP16 = N
+  JSR get_line_len_z
+  SEC
+  LDA LINE_LEN16
+  SBC CURSOR_COL16
+  TAX
+  LDA LINE_LEN16 + 1
+  SBC CURSOR_COL16 + 1       ; A/X = the chars left
+  CPX BUF_TEMP16
+  SBC BUF_TEMP16 + 1
+  BCC .replace_fail          ; Fewer than N
+  LDA BUF_TEMP
   CMP #KEY_ENTER
-  BEQ .replace_nl
-  TAX                        ; N = a KEY_* code
-  BMI .replace_no_undo
-  CMP #' '
-  BCS .replace_key_ok
-  CMP #KEY_TAB
-  BNE .replace_no_undo
-.replace_key_ok:
-  ; On an empty line r fails and leaves the previous undo intact
-  JSR check_cursor_in_line
-  BCS .replace_no_undo
+  BNE .replace_start
+  ; r<Enter>: a line more must fit
+  LDA #1
+  LDX #0
+  JSR check_line_room
+  BCC .replace_start
+  JMP open_full              ; "Buffer full"
+.replace_fail:
+  JMP keep_clear_count
+.replace_start:
   JSR echo_span_setup
   ; Count, capped at 255 (replacement span is recorded in one page)
   JSR get_count_x
   STX NORMAL_TEMP            ; loop counter
 
 .replace_loop:
-  JSR check_cursor_in_line
-  BCS .replace_done
-
   JSR get_cursor_buf_ptr
   LDY #0
   ; Save the original char for undo
@@ -663,31 +686,7 @@ do_replace_char:
   STA UNDO_REPL_CHAR     ; replacement char (for redo)
   CMP #KEY_ENTER
   BEQ replace_split
-.replace_no_undo:
-  ; A count past the line end stepped the cursor one past the last
-  ; replaced char: clamp it back onto that char
-  JMP clamp_and_clear_count
-
-.replace_nl:
-  LDA #KEY_ENTER
-  STA BUF_TEMP
-  ; The N chars must be in the line, and a line more must fit
-  JSR get_count              ; BUF_TEMP16 = N
-  JSR get_line_len_z
-  SEC
-  LDA LINE_LEN16
-  SBC CURSOR_COL16
-  TAX
-  LDA LINE_LEN16 + 1
-  SBC CURSOR_COL16 + 1       ; A/X = the chars left
-  CPX BUF_TEMP16
-  SBC BUF_TEMP16 + 1
-  BCC .replace_no_undo       ; Fewer than N
-  LDA #1
-  LDX #0
-  JSR check_line_room
-  BCC .replace_key_ok
-  JMP open_full              ; "Buffer full"
+  JMP clear_count
 
 ; r<Enter> and its redo: the UNDO_SPAN_LEN chars from UNDO_LINE16/
 ; UNDO_COL16 become one line break, as vim's 5r<CR> does.  Their last

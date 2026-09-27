@@ -10,9 +10,6 @@
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
 
-  r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
-  nothing if there aren't enough characters, as the editor does for 5r<Enter>.
-
   Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
   of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k
   do here too).
@@ -29,8 +26,10 @@
   r with a count over 255 - Replaces 255 characters (r<Enter> too: 300r<Enter> takes 255 characters into the line
   break), as the replaced characters are kept for undo in one 256-byte page. Vi replaces them all.
 
-  r with a control key - r takes a printable key or Tab, and Enter or Ctrl-J (a line break, as in vi); other keys cancel
-  it. Vi accepts other control characters literally.
+  r with a control key - r takes a control key as the replacement, as vim does, but Ctrl-H arrives as Backspace and
+  cancels r (vim replaces with it; Backspace cancels there too). After Ctrl-V, Enter and Ctrl-J still make a line
+  break (vim puts a CR or a NUL character), and vim's character codes (Ctrl-V 065, Ctrl-V x41) are not read: the key
+  after Ctrl-V is the replacement.
 
   Command line
 

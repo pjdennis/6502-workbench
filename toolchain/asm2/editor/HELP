@@ -116,11 +116,12 @@ All editing commands are blocked in read-only mode.
   S              Delete current line, open blank line, enter insert mode
                  Same as cc (alias)
   r              Replace character at cursor (accepts count: [N]r)
-                 Waits for next keypress, replaces N characters
-                 (a printable key or Tab). Enter or Ctrl-J replaces the
-                 N characters with one line break, splitting the line,
-                 and does nothing if fewer than N are left. Any other
-                 key cancels
+                 Waits for next keypress, replaces N characters with
+                 it (a control key too, as in vim; after Ctrl-V the key
+                 that follows). Enter or Ctrl-J replaces the N
+                 characters with one line break, splitting the line.
+                 Does nothing if fewer than N are left; keys that are
+                 no character (arrows, Backspace, Esc) cancel
   ~              Toggle case of character at cursor (accepts count)
                  Advances cursor after each toggle
   J              Join current line with next line (accepts count: [N]J)

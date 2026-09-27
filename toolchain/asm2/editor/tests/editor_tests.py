@@ -11162,36 +11162,50 @@ class EditorTestRunner:
             expected_content="xxxlo\n"
         )
 
-        # A count past the line end replaces to the end and leaves the
-        # cursor on the last replaced char, not one past it. p then pastes
-        # after that char, not into the next line or past the buffer end.
+        # A count past the line end does nothing, as in vim (it beeps):
+        # the cursor stays, the next command runs, the yank and the undo
+        # record stay, and so does the remembered column
         self.run_test_screen(
-            "5rZ past line end: cursor on last replaced char",
+            "5rZ past line end changes nothing",
             "abc\ndef\n",
             b"5rZ:q!\r",
-            expect_lines=[(0, "ZZZ"), (1, "def")],
-            expect_cursor=(0, 2)
+            expect_lines=[(0, "abc"), (1, "def")],
+            expect_cursor=(0, 0)
         )
 
         self.run_test(
-            "x5rzp: p pastes after last replaced char",
+            "x5rzp: 5rz fails, p pastes the x",
             "abc\ndef\n",
             b"x5rzp:wq\r",
-            expected_content="zza\ndef\n"
+            expected_content="bac\ndef\n"
         )
 
         self.run_test(
-            "x5rzp on last line: p pastes after last replaced",
+            "x5rzp on last line: 5rz fails, p pastes the x",
             "abc\n",
             b"x5rzp:wq\r",
-            expected_content="zza\n"
+            expected_content="bac\n"
         )
 
         self.run_test(
-            "l5rz then x deletes the last replaced char",
+            "l5rz fails, then x deletes at the cursor",
             "abcd\nxy\n",
             b"l5rzx:wq\r",
-            expected_content="azz\nxy\n"
+            expected_content="acd\nxy\n"
+        )
+
+        self.run_test(
+            "x5rqu: u still undoes the x",
+            "abc\n",
+            b"x5rqu:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test_screen(
+            "5rq that fails keeps the column for k",
+            "abcdef\nab\n",
+            b"$j5rqk:q!\r",
+            expect_cursor=(0, 5)
         )
 
         self.run_test(
@@ -11201,12 +11215,14 @@ class EditorTestRunner:
             expect_unmodified=True
         )
 
-        # r takes a key that types text (printable or Tab), or Enter or
-        # Ctrl-J (below). Any other key cancels it like Esc: nothing is
-        # stored, the cursor stays and the next command runs.
+        # r takes a key that types text (printable or Tab), a control
+        # key as it is (vim), the key after Ctrl-V as it is, or Enter or
+        # Ctrl-J (below). Keys that are no char (arrows, Del, BS, non-
+        # ASCII) cancel it like Esc: nothing is stored, the cursor stays
+        # and the next command runs.
         for key_name, key in [("Up", b"\x1b[A"), ("Del", b"\x1b[3~"),
-                              ("BS", b"\x7f"), ("Ctrl-A", b"\x01"),
-                              ("non-ASCII", b"\xc3")]:
+                              ("BS", b"\x7f"), ("non-ASCII", b"\xc3"),
+                              ("Esc", b"\x1b")]:
             self.run_test_screen(
                 f"r then {key_name} cancels r",
                 "abc\ndef\n",
@@ -11220,6 +11236,20 @@ class EditorTestRunner:
             b"lr\t:wq\r",
             expected_content="a\tc\n"
         )
+
+        for name, keys, expected in (
+                ("Ctrl-A", b"lr\x01", "a\x01c\n"),
+                ("Ctrl-C", b"lr\x03", "a\x03c\n"),
+                ("2 Ctrl-A", b"l2r\x01", "a\x01\x01\n"),
+                ("Ctrl-V a", b"lr\x16a", "aac\n"),
+                ("Ctrl-V Ctrl-A", b"lr\x16\x01", "a\x01c\n"),
+                ("Ctrl-V Esc", b"lr\x16\x1b", "a\x1bc\n"),
+                ("Ctrl-V Ctrl-V", b"lr\x16\x16", "a\x16c\n"),
+                ("Ctrl-A then u", b"lr\x01u", "abc\n"),
+                ("Ctrl-A then iX", b"lr\x01iX\x1b", "aX\x01c\n"),
+                ("3 Ctrl-A past the end", b"l3r\x01", "abc\n")):
+            self.run_test(f"r then {name}", "abc\n", keys + b":wq\r",
+                          expected_content=expected)
 
         # r<Enter> replaces the char with a line break, as in vim, and r
         # Ctrl-J does the same. With a count, the N chars become one line
@@ -21757,13 +21787,12 @@ class EditorTestRunner:
             expected_content="\n"
         )
 
-        # 99r with replacement char: editor clamps count to available chars
-        # (unlike vim which would do nothing when count exceeds available)
+        # 99r with fewer chars left does nothing, as in vim
         self.run_test(
-            "99rx on short line: clamps and replaces all",
+            "99rx on short line does nothing",
             "Hello\n",
             b"99rx:wq\r",
-            expected_content="xxxxx\n"
+            expected_content="Hello\n"
         )
 
         # 2J then J then undo: undo only undoes the last J
