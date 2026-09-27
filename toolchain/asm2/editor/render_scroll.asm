@@ -427,20 +427,43 @@ render_rows:
 .check_done:
   RTS
 
-; Walk from VIEW_TOP16 forward to find which file line corresponds
-; to screen row RENDER_ROW. Sets RENDER_LINE16 and RENDER_WRAP.
+; Walk forward to find which file line corresponds to screen row
+; RENDER_ROW: from the cursor line for a row at or below its first
+; (CURSOR_ROW - WRAP_QUOT, above the view if the line starts there), else
+; from the top of the view (VIEW_TOP16, VIEW_TOP_WRAP).  A range repaint
+; (RF_RANGE) always walks from the top: it may have made WRAP_QUOT count
+; the rows of the range's lines above the cursor's.  Sets RENDER_LINE16
+; and RENDER_WRAP.
 ; Handles wrapped lines (one file line can span multiple screen rows).
-; Input: RENDER_ROW = target screen row
+; Input: RENDER_ROW = target screen row; CURSOR_ROW and WRAP_QUOT as
+;        ensure_cursor_visible set them for the view
 ; Output: RENDER_LINE16 = file line at that row
 ;         RENDER_WRAP = wrap row offset within the line
 ; Clobbers: A, X, Y, BUF_PTR16, DIV_INPUT16, RENDER_LIMIT
 find_line_at_render_row:
-  CP16 VIEW_TOP16, RENDER_LINE16
-  LDA VIEW_TOP_WRAP
-  STA RENDER_WRAP
+  LDX #VIEW_TOP16
+  LDY VIEW_TOP_WRAP
+  LDA RENDER_FLAG
+  CMP #RF_RANGE
+  BEQ .from_top
   LDA RENDER_ROW
-  BEQ .found
+  CLC
+  ADC WRAP_QUOT
+  BCS .from_top
+  SEC
+  SBC CURSOR_ROW           ; the rows below the cursor line's first
+  BCC .from_top
+  LDX #FILE_LINE16
+  LDY #0
+  BCS .from                ; Always (C = 1: no borrow)
+.from_top:
+  LDA RENDER_ROW
+.from:
   STA RENDER_LIMIT         ; remaining rows to skip
+  STY RENDER_WRAP
+  JSR render_line_from_x   ; RENDER_LINE16 = the line to walk from
+  LDA RENDER_LIMIT
+  BEQ .found
 .walk:
   JSR render_line_rows     ; A = total screen rows for this line
   SEC
@@ -455,11 +478,11 @@ find_line_at_render_row:
   ADC RENDER_LIMIT         ; RENDER_LIMIT - visible_rows
   STA RENDER_LIMIT
   INC16 RENDER_LINE16
-  LDA #0
-  STA RENDER_WRAP           ; subsequent lines start at wrap 0
-  LDA RENDER_LIMIT
+  LDX #0
+  STX RENDER_WRAP           ; subsequent lines start at wrap 0
+  TAX                       ; (A = RENDER_LIMIT)
   BNE .walk
-  BEQ .found                 ; Always taken
+  RTS
 .within_line:
   ; Target is within this line: wrap = base_wrap + remaining
   LDA RENDER_WRAP

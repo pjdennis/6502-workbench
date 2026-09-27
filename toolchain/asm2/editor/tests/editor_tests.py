@@ -1638,6 +1638,16 @@ class EditorTestRunner:
             "Search's first-char test: /zzzz and 9 n on 36 KB",
             big, b"/zzzz\r" + b"n" * 9 + b":q!\r", 11850000)
 
+        # The row a scroll exposes at the bottom is found from the cursor
+        # line, where the walk went from the top of the view: 50 j (each
+        # with an Esc, so none are typed ahead) on the bottom row of a
+        # 60-row screen took 6,246,372 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "The row walk starts at the cursor line: 50 j scrolls, 60x80",
+            "".join("Line %d of a thousand line file\n" % i
+                    for i in range(1000)),
+            b"58j" + b"j\x1b" * 50 + b":q!\r", 5950000, rows=60, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

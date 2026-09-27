@@ -69,9 +69,11 @@ set_render_line_to_cursor:
   LDX #FILE_LINE16
   LDA RENDER_FLAG
   EOR #RF_RANGE
-  BNE .copy
+  BNE render_line_from_x
   LDX #UNDO_LINE16
-.copy:
+; RENDER_LINE16 = the 16-bit zero-page value at X.  Clobbers A; preserves
+; the carry
+render_line_from_x:
   LDA $00,X
   STA RENDER_LINE16
   LDA $01,X
