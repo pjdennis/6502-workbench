@@ -157,11 +157,10 @@ yank_paste_above_n:
   ; Cursor stays at same line number
   ; fall through
 
-; Shared paste tail: cursor to col 0 (clamped), carry clear = success
+; Shared paste tail: the cursor to the first non-blank of the (first)
+; line put in, as vim, carry clear = success
 yank_paste_finish:
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  JSR clamp_cursor_col
+  JSR first_nonblank
   CLC
 yank_paste_ret:
   RTS

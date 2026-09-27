@@ -139,6 +139,8 @@ All editing commands are blocked in read-only mode.
   P              Paste before/above cursor (accepts count: [N]P)
                  Line yank: pastes lines above current line
                  Char yank: inserts before cursor position
+                 A line paste leaves the cursor on the first non-blank
+                 character of the first line pasted
   u              Undo last edit / redo (toggles between undo and redo)
                  Single-level: undoes the most recent operation, then
                  pressing u again redoes it. A new edit replaces the

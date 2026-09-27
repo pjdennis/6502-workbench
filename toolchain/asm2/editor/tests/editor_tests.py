@@ -8300,6 +8300,58 @@ class EditorTestRunner:
                 expected_content=expected
             )
 
+        # A line paste, like the line moves, leaves the cursor on the first
+        # non-blank of the (first) line it put in (as vim)
+        self.run_test_screen(
+            "Line p puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$yyp:q!\r",
+            expect_lines=[(0, "  abc"), (1, "  abc"), (2, "x")],
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "Line P puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$yyP:q!\r",
+            expect_lines=[(0, "  abc"), (1, "  abc"), (2, "x")],
+            expect_cursor=(0, 2),
+        )
+
+        self.run_test_screen(
+            "Line 2p puts the cursor on the first non-blank",
+            "x\n  abc\n",
+            b"jyyk2p:q!\r",
+            expect_lines=[(0, "x"), (1, "  abc"), (2, "  abc"), (3, "  abc")],
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "u of dd puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$ddu:q!\r",
+            expect_lines=[(0, "  abc"), (1, "x")],
+            expect_cursor=(0, 2),
+        )
+
+        # A first non-blank past the screen width puts the cursor on a later
+        # row of the pasted line: the line-insert repaint, which scrolls from
+        # the cursor row, must still draw the pasted line from its first row
+        wide = " " * 30 + "a\n"
+        for keys, rows, cursor in (
+            (b"yyp", ["", " " * 10 + "a", "", " " * 10 + "a"], (3, 10)),
+            (b"jyyP", ["", " " * 10 + "a", "", " " * 10 + "a"], (3, 10)),
+            (b"ddu", ["", " " * 10 + "a", "b", "c"], (1, 10)),
+        ):
+            self.run_test_screen(
+                f"{keys.decode()} of a line indented past the screen width",
+                wide + "b\nc\n" if keys != b"jyyP" else wide + wide + "b\n",
+                keys + b":q!\r",
+                rows=5, cols=20,
+                expect_lines=list(enumerate(rows)),
+                expect_cursor=cursor,
+            )
+
         # ============================================================
         # Yank/copy (yy) tests
         # ============================================================

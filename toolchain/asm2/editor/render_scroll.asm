@@ -66,14 +66,18 @@ render_line_insert_scroll:
   ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
   ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the rows the
   ;            cursor line keeps)
-  LDA WRAP_QUOT              ; $03/$0A: first_row + the cursor's wrap row
+  LDA PREV_LINE_ROWS
   LDX RENDER_FLAG
   CPX #RF_UNJOIN
-  BEQ .scroll_skip_cursor_ins
+  BEQ .scroll_start
   CPX #RF_SPLIT
-  BNE .scroll_start
-.scroll_skip_cursor_ins:
-  LDA PREV_LINE_ROWS
+  BEQ .scroll_start
+  ; $03/$0A: the lines go in at the cursor row, which must be the first
+  ; row of the cursor line (A = WRAP_QUOT = 0).  A first non-blank past
+  ; the screen width puts the cursor on a later row: redraw in full
+  LDA WRAP_QUOT
+  BEQ .scroll_start
+  JMP render_from_top
 .scroll_start:
   JSR row_below_rows
   LDX #'T'               ; scroll down

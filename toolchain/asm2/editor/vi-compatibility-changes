@@ -2,8 +2,9 @@
 
   Ctrl-F/Ctrl-B - Moves by SCREEN_ROWS-1 (no overlap). Vi moves by SCREEN_ROWS-2, keeping 2 lines of context overlap.
 
-  p and P of lines, and u of a line delete - Put the cursor at column 0 of the first line put back. Vi puts it on the
-  line's first non-blank character, as the editor does after dd, G and the other line moves.
+  u of a line delete - Puts the cursor on the first non-blank character of the first line put back. Vim does so
+  after :d, and after dd typed on or right of that character; otherwise (dd typed left of it, or 2dd and more) it
+  returns to the column the delete was typed at.
 
   :N,M> and :N,M< - Leave the cursor on the first non-blank of line N, the first line of the range. Vim puts it on
   the first non-blank of line M, the last one.
