@@ -59,7 +59,9 @@ render_from_top:
   LDA #0
   STA RENDER_ROW
   JSR find_line_at_render_row  ; row 0: VIEW_TOP16 / VIEW_TOP_WRAP
-  JMP render_from_row
+  LDA #$FF
+  STA SCROLL_DELTA             ; 255 rows: to the status bar
+  JMP render_limited_rows
 
 ; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16),
 ; or in a range repaint (RF_RANGE) at the range's first line, which the
@@ -133,28 +135,16 @@ setup_render_at_cursor:
   RTS
 
 ; Set up RENDER_ROW/RENDER_LINE16/RENDER_WRAP from cursor first_row,
-; then render SCROLL_DELTA rows (_limited) or to the bottom from there;
+; then render to the bottom (or SCROLL_DELTA rows: _limited) from there;
 ; a line starting above the view is drawn from the top row to the bottom.
 ; Expects ansi_cursor_hide already called.
+render_from_first_row:
+  LDA #$FF
+  STA SCROLL_DELTA             ; 255 rows: to the status bar
 render_from_first_row_limited:
   JSR setup_first_row
   BCC render_from_top          ; the line starts above the view
   JMP render_limited_rows
-
-render_from_first_row:
-  JSR setup_first_row
-  BCC render_from_top          ; the line starts above the view
-
-; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP to end of screen
-; Expects ansi_cursor_hide already called
-; Renders remaining text rows, status bar, positions cursor, shows cursor
-render_from_row:
-  LDA #0
-  STA RENDER_COL               ; every row from column 0
-  LDA #$FF
-  STA RENDER_LIMIT             ; no row limit: stop at the status bar
-  JSR render_rows
-  JMP render_finish
 
 ; The status bar (last row): status_build builds its text, then
 ; status_send sends the part that differs from what the row shows
