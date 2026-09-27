@@ -484,7 +484,7 @@ render_line_shift:
 ; Draw one row of the shifted line: RENDER_ROW, starting at BUF_PTR16,
 ; changed from column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative
 ; to its start
-; Clobbers: A, X, Y, RENDER_COL, RENDER_STOP
+; Clobbers: A, X, Y, RENDER_COL, RENDER_STOP, SCROLL_DELTA (net 0)
 shift_row:
   ; ROW_END = min(cols, SHIFT_REM16): end of the row's new content
   LDA SHIFT_REM16 + 1
@@ -531,13 +531,22 @@ shift_row:
   TAX
   LDA SHIFT_NET
   BMI .delete
-  BEQ .write_new               ; net 0: only the new cells change
+  BEQ .net_zero
   CPX #5
   BCC .write_rest              ; short (or no) tail: resending beats ICH
   JSR move_to_partial_pos
   LDA SHIFT_NET
   JSR ansi_insert_chars
   JMP write_row_cells
+.net_zero:
+  ; Net 0: only the new cells change, and once a row has none, no row
+  ; after it has any: SCROLL_DELTA = 1 makes this the line's last row
+  LDA ROW_WEND
+  CMP WRAP_REM
+  BNE .write_new
+  LDA #1
+  STA SCROLL_DELTA
+  RTS
 .write_rest:
   LDA ROW_END
   STA ROW_WEND

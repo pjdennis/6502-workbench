@@ -5206,6 +5206,16 @@ class EditorTestRunner:
              + "\x1b[3H\x1b[2@" + digits[78:80]),
             ("<< on a 3-row line", b">><<:q!\r", 2, digits,
              [(0, 38, 39), (1, 38, 39), (2, -1, -1)], None),
+            # Net 0: only the new cells change, so the rows after them are
+            # not visited (no cursor moves to them either)
+            ("type + DEL on a 3-row line", b"5liX\x1b[3~\x1b:q!\r", 4,
+             digits[:5] + "X" + digits[6:],
+             [(0, 5, 5), (1, -1, -1), (2, -1, -1)], "\x1b[?25lX\x1b[10;"),
+            ("net-0 batch across a row boundary",
+             b"42la\x7f\x7f\x7f\x7f\x7fABCDE\x1b:q!\r", 5,
+             digits[:38] + "ABCDE" + digits[43:],
+             [(0, 38, 39), (1, 0, 2), (2, -1, -1)],
+             "\x1b[;39HABCDE\x1b[10;"),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5535,6 +5545,8 @@ class EditorTestRunner:
                  (10, 40), 79),
                 ("<< on a 3-row line", "  " + fox, b"<<:q!\r", 1,
                  (10, 40), 91),
+                ("type + DEL on a 3-row line", fox, b"5liX\x1b[3~\x1b:q!\r",
+                 4, (10, 40), 54),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),
