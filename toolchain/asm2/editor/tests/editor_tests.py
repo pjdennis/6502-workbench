@@ -9473,6 +9473,15 @@ class EditorTestRunner:
             expect_ansi_contains="Unknown command",
         )
 
+        # An empty command line does nothing, as in vim: no message takes
+        # the next key, and the cursor stays put ('x' deletes the 'c')
+        self.run_test(
+            "Empty : command does nothing",
+            "abcdef\n",
+            b"ll:\rx:wq\r",
+            expected_content="abdef\n",
+        )
+
         # --- Range yank ---
 
         self._group("Range yank (:'a,.y):", leading_blank=True)
@@ -9739,6 +9748,54 @@ class EditorTestRunner:
             make_lines(5),
             b":999\r:q!\r",
             expect_cursor=(4, 0),
+        )
+
+        # A range with no command goes to its last line (vim), after the
+        # swap of a backwards range
+        self.run_test_screen(
+            ":1,3 goes to line 3",
+            make_lines(5),
+            b":1,3\r:q!\r",
+            expect_cursor=(2, 0),
+        )
+
+        self.run_test_screen(
+            ":3,1 goes to line 3",
+            make_lines(5),
+            b":3,1\r:q!\r",
+            expect_cursor=(2, 0),
+        )
+
+        # An omitted position is the current line (vim): from line 3,
+        # :5,d deletes lines 3-5 and :,4d lines 3-4
+        self.run_test(
+            ":5,d deletes from line 5 to the current line",
+            make_lines(6),
+            b"jj:5,d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 6\n",
+        )
+
+        self.run_test(
+            ":,4d deletes from the current line to line 4",
+            make_lines(6),
+            b"jj:,4d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 5\nLine 6\n",
+        )
+
+        # A bad second position is an unknown command, not a mark error
+        self.run_test_screen(
+            ":5,xd shows Unknown command",
+            make_lines(6),
+            b":5,xd\r :q!\r",  # space dismisses error
+            expect_ansi_contains="Unknown command",
+        )
+
+        # An unset mark in the second position is still a mark error
+        self.run_test_screen(
+            ":1,'zd shows Mark not set",
+            make_lines(3),
+            b":1,'zd\r :q!\r",  # space dismisses error
+            expect_ansi_contains="Mark not set",
         )
 
         # Numbers of 65536 and more must not wrap to small line numbers:

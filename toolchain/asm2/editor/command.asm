@@ -26,9 +26,10 @@ command_handle:
   BCS cmd_ret              ; Cancelled
   ; fall through
 
-; Parse and execute the command in CMD_BUF
+; Parse and execute the command in CMD_BUF (an empty one does nothing)
 command_parse:
   LDA CMD_BUF
+  BEQ cmd_ret
   STA BUF_TEMP
   LDA #<command_parse_keys
   LDX #>command_parse_keys
@@ -44,18 +45,18 @@ command_parse:
   ; fall through
 
 ; Parse range or goto command
-; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :NNN (goto)
+; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :5,d  :,5d  :NNN and
+; :N,M (goto)
 command_parse_range:
   LDX #0
   JSR parse_range_pos     ; Parse first position -> BUF_LEN16
   BCS range_mark_err
   CP16 BUF_LEN16, BUF_SRC16
 
-  ; End (goto), comma (range) or command char
+  ; Comma (range), or the command char (0: none)
   LDA CMD_BUF,X
-  BEQ range_goto
   CMP #','
-  BNE range_dispatch      ; Single position (e.g. :.> or :5d): end = start
+  BNE range_dispatch      ; One position (:5, :.>, :5d): end = start
 
   INX                     ; Skip comma
   JSR parse_range_pos     ; Parse second position -> BUF_LEN16
@@ -63,7 +64,7 @@ command_parse_range:
   LDA CMD_BUF,X           ; Command char
   ; fall through
 
-; Run a range command
+; Run a range command, or with none (A = 0) go to the range's last line
 ; Input: A = command char, BUF_SRC16 = start line, BUF_LEN16 = end line
 ; (either order); the action gets BUF_SRC16 = first line, BUF_TEMP16 = count
 range_dispatch:
@@ -89,6 +90,7 @@ range_dispatch:
 
   ; Readonly check for editing commands (d, >, <) — yank allowed
   LDA BUF_TEMP
+  BEQ range_goto          ; No command
   CMP #'y'
   BEQ .range_dispatch_cmd
   LDA READONLY
@@ -103,9 +105,10 @@ cmd_ret:
   RTS
 
 range_goto:
-  ; :NNN goto (BUF_SRC16 = 0-based line). Command mode was entered through
-  ; clear_count, so the extra clear_count here changes nothing.
-  CP16 BUF_SRC16, FILE_LINE16
+  ; :NNN and :N,M go to the last line of the range, as in vim (BUF_LEN16
+  ; = 0-based line). Command mode was entered through clear_count, so the
+  ; extra clear_count here changes nothing.
+  CP16 BUF_LEN16, FILE_LINE16
   JMP first_nonblank_clear
 
 range_mark_err:
@@ -217,21 +220,23 @@ command_parse_keys:
   .byte 'm'    .word cmd_parse_m
   .byte '\''   .word command_parse_range
   .byte '.'    .word command_parse_range
+  .byte ','    .word command_parse_range
   .byte '>'    .word cmd_parse_bare_shift
   .byte '<'    .word cmd_parse_bare_shift
   .byte 0      ; End sentinel
 
 ; Parse one range position starting at CMD_BUF[X]
-; Handles: 'x (mark), . (current line), decimal number (1-based)
+; Handles: 'x (mark), . (current line), decimal number (1-based); none
+; (any other char) is the current line, as in vim (:5,d = :5,.d)
 ; Returns: BUF_LEN16 = 0-based line number, X = updated offset
-;          carry clear = success, carry set = error (mark not set, or
-;          no digits)
+;          carry clear = success, carry set = error (mark not set)
 ; Clobbers: A, Y, CMD_IDX, BUF_DST16
 parse_range_pos:
   LDA CMD_BUF,X
   CMP #'.'
   BNE .not_dot
   INX                     ; Skip dot
+.cur_line:
   CP16 FILE_LINE16, BUF_LEN16
   CLC
   RTS
@@ -249,7 +254,7 @@ parse_range_pos:
   LDX CMD_IDX
   BCC .clamp              ; Always taken: a stale mark must not point past EOF
 .error:
-  RTS                     ; Carry set: no such mark, or no digits
+  RTS                     ; Carry set: no such mark
 .number:
   ; Decimal number into BUF_LEN16 (from 6400 on, further digits are
   ; ignored: it means the last line all the same)
@@ -267,7 +272,7 @@ parse_range_pos:
   BNE .digit_loop         ; Always taken (CMD_BUF is null-terminated)
 .digits_done:
   CPX CMD_IDX
-  BEQ .error              ; No digits (carry set by the equal compare)
+  BEQ .cur_line           ; No digits: the current line
   ; Convert 1-based to 0-based (0 stays at 0 = first line)
   TST16 BUF_LEN16
   BEQ .num_ok
