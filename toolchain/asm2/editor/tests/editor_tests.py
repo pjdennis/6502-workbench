@@ -1545,6 +1545,15 @@ class EditorTestRunner:
             "Line end from the table: J of a 20,000-char line",
             "a" * 20000 + "\nb\n", b"J:q!\r", 2100000, rows=24, cols=80)
 
+        # A column past 255 divides by the screen width in eight
+        # shift-and-subtract steps, where it subtracted the width up to 255
+        # times: 100 h and Esc at the end of a 30,000-char line took
+        # 8,488,971 cycles, 4,429,568 now
+        self.run_test_cycle_cap(
+            "Wrap row of a far column: h and Esc at col 29,999",
+            "a" * 30000 + "\n", b"$" + b"h\x1b" * 100 + b":q!\r", 5200000,
+            rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

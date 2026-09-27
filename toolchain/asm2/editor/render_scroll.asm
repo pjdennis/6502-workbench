@@ -531,28 +531,45 @@ check_from_col:
 
 ; === Wrap utility functions ===
 
-; Divide 16-bit value in DIV_INPUT16 by SCREEN_COLS using repeated subtraction
-; Returns: X = quotient (capped at 255), A = remainder
-; Clobbers: X
+; Divide the 16-bit value in DIV_INPUT16 by SCREEN_COLS: repeated
+; subtraction below 256 (at most 255 / SCREEN_COLS steps), eight
+; shift-and-subtract steps above
+; Returns: X = quotient (capped at 255), A = remainder (0 when capped)
+; Clobbers DIV_INPUT16
 div_mod_screen_cols_16:
   LDX #0
-.div_loop:
   LDA DIV_INPUT16 + 1
-  BNE .can_sub               ; High byte > 0, definitely >= SCREEN_COLS
+  BNE .long
   LDA DIV_INPUT16
+.sub_loop:
   CMP SCREEN_COLS
-  BCC .div_done              ; Value < SCREEN_COLS, done
-.can_sub:
-  LDA DIV_INPUT16
-  SEC
-  SBC SCREEN_COLS
-  STA DIV_INPUT16
-  BCS .no_borrow
-  DEC DIV_INPUT16 + 1
-.no_borrow:
+  BCC .div_done
+  SBC SCREEN_COLS            ; (C = 1)
   INX
+  BNE .sub_loop              ; Always: the quotient stays below 256
+.long:
+  ; The quotient fits in 8 bits only if the high byte is below SCREEN_COLS
+  CMP SCREEN_COLS
+  BCS .cap_255
+  ; A = the partial remainder; DIV_INPUT16's low byte shifts the dividend
+  ; out and the quotient in
+  LDX #8
+.div_loop:
+  ASL DIV_INPUT16
+  ROL
+  BCS .sub                   ; A nine-bit remainder: past SCREEN_COLS
+  CMP SCREEN_COLS
+  BCC .next
+.sub:
+  SBC SCREEN_COLS            ; (C = 1)
+  INC DIV_INPUT16            ; A quotient bit
+.next:
+  DEX
   BNE .div_loop
-  DEX                        ; Quotient wrapped to 0: cap at 255
+  LDX DIV_INPUT16            ; X = quotient
+  RTS
+.cap_255:
+  LDX #$FF
   LDA #0                     ; Remainder doesn't matter at cap
 .div_done:
   RTS
