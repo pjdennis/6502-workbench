@@ -556,6 +556,22 @@ find_line_at_render_row:
 .found:
   RTS
 
+; Check RENDER_FROM_COL16 for the partial-render paths.
+; Returns C=1 if $FFFF (unknown change: render the full line).
+; Otherwise returns C=0 with X = from_wrap and A = WRAP_REM = from_col.
+; Clobbers DIV_INPUT16
+check_from_col:
+  LDA RENDER_FROM_COL16 + 1
+  AND RENDER_FROM_COL16
+  CMP #$FF
+  BEQ .ffff                    ; $FFFF: CMP left C=1
+  CP16 RENDER_FROM_COL16, DIV_INPUT16
+  JSR div_mod_screen_cols_16   ; X = from_wrap, A = from_col
+  STA WRAP_REM                 ; save from_col
+  CLC                          ; div can exit with C=1 on the cap path
+.ffff:
+  RTS
+
 ; Print line characters from BUF_PTR16 + RENDER_COL up to SCREEN_COLS or
 ; newline.  Control chars: tab as '>' reverse, others (and DEL and bytes
 ; >= $80, which a terminal would not show in one cell) as '?' reverse; a
@@ -616,22 +632,6 @@ render_line_chars_to:
   JSR ansi_normal_video
   LDY RENDER_COL               ; (not 0: a special char was printed)
   BNE .check                   ; Always taken
-
-; Check RENDER_FROM_COL16 for the partial-render paths.
-; Returns C=1 if $FFFF (unknown change: render the full line).
-; Otherwise returns C=0 with X = from_wrap and A = WRAP_REM = from_col.
-; Clobbers DIV_INPUT16
-check_from_col:
-  LDA RENDER_FROM_COL16 + 1
-  AND RENDER_FROM_COL16
-  CMP #$FF
-  BEQ .ffff                    ; $FFFF: CMP left C=1
-  CP16 RENDER_FROM_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16   ; X = from_wrap, A = from_col
-  STA WRAP_REM                 ; save from_col
-  CLC                          ; div can exit with C=1 on the cap path
-.ffff:
-  RTS
 
 ; === Wrap utility functions ===
 
