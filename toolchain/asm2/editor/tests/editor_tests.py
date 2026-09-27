@@ -14280,6 +14280,29 @@ class EditorTestRunner:
                     None, expected_content=expected, emu_args=PACE_ARGS,
                     key_groups=groups + [b"\x1b", b":wq\r"])
 
+            # The undo of insert-mode typing is the same with the keys typed
+            # one at a time and typed ahead (a batch ends at a cursor key,
+            # so it never runs past a stretch of typing): vim's results
+            for name, content, groups, expected in (
+                ("Enter and BS", "abc\ndef\n",
+                 [b"j", b"A"] + [bytes([c]) for c in b"xy\rz\x08\x08w"]
+                 + [b"\x1b", b"u"], "abc\ndef\n"),
+                ("a Left between", "abc\n",
+                 [b"A", b"h", b"i", b"\x1b[D", b"X", b"Y", b"\x1b", b"u"],
+                 "abchi\n"),
+                ("o, Enter, then u u", "abc\n",
+                 [b"o", b"f", b"\r", b"g", b"\x1b", b"u", b"u"],
+                 "abc\nf\ng\n"),
+            ):
+                self.run_test_terminal(
+                    f"Insert undo, one at a time: {name}", content, None,
+                    expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+                self.run_test_terminal(
+                    f"Insert undo, typed ahead: {name}", content,
+                    b"".join(groups) + b"\x1b:wq\r",
+                    expected_content=expected, emu_args=PACE_ARGS)
+
             # --------------------------------------------------------
             # Escape sequences on a slow link
             # --------------------------------------------------------
