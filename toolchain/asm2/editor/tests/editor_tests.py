@@ -9569,13 +9569,34 @@ class EditorTestRunner:
             expect_cursor=(2, 0),  # was idx 4, 2 newlines deleted -> idx 2
         )
 
-        # de across newline: mark on consumed line is unset (col > 0)
-        self.run_test_screen(
-            "de across newline unsets mark on consumed line",
-            "AB\nCD\nEF\n",
-            b"jmagg$de'a :q!\r",  # mark "CD" (idx1), gg, $->B, de crosses NL
-            expect_cursor=(0, 0),  # mark at idx1 unset (in [1,2)): "Mark not set"
-        )
+        # A char delete over line breaks joins the last line it reaches to
+        # the cursor line: as in vim, that line's marks move to the cursor
+        # line, the marks of the lines between are unset, and those of the
+        # cursor line stay (at column 0 too); u puts every mark back
+        for content, keys, expected in (
+                # de from 'B' joins "CD": its mark goes to line 1 ('a x)
+                ("AB\nCD\nEF\n", b"jmagg$deG'ax", "\nEF\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2Dgg'ax", "ab\n\nzz\nqq\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2DuG'ax",
+                 "ab\ncd\ny\nzz\nqq\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2DuuG'ax", "ab\n\nzz\nqq\n"),
+                # 2dw from column 0: line 1's mark stays, line 2's joins it
+                ("ab\ncd ef\nxy\n", b"majmbk2dwG'ax", "f\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwG'bx", "f\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwuG'bx", "ab\nd ef\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwuG'ax", "b\ncd ef\nxy\n"),
+                # u puts back a mark moved after the delete, and moves one
+                # set after it with its line
+                ("ab\ncd ef\nxy\n", b"jmbk2dwmbuG'bx", "ab\nd ef\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"jmbk2dwGmcuG'cx", "ab\ncd ef\ny\n"),
+                # 3dw over a middle line: its mark goes, and u puts it back
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwG'bx", "agh\ny\n"),
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwG'cx", "gh\nxy\n"),
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwuG'bx",
+                 "ab\nd\nef gh\nxy\n")):
+            self.run_test(
+                f"{keys!r}: marks of the lines a char delete joins",
+                content, keys + b":wq\r", expected_content=expected)
 
         # db from col0: mark on cursor line shifts correctly
         # db from (1,0): deletes "AB\n", cursor at (0,0). Col=0 so first_line=0.

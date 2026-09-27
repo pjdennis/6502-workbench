@@ -168,9 +168,9 @@ do_char_paste_above:
 ;             single-line yank fills with interleaved_fill (the cursor
 ;             ends BATCH_EXTRA chars before the last pasted char, as
 ;             separate P keys leave it)
-;   CP_AT:    renders from the insertion column; marks by mark_adjust_col,
-;             as the delete it undoes; the cursor is left unclamped (the
-;             caller restores it)
+;   CP_AT:    renders from the insertion column; marks as p (the undo
+;             then puts back the marks the delete moved: mark_restore);
+;             the cursor is left unclamped (the caller restores it)
 ; Output: cursor on the last pasted char (single-line yank) or the first
 ; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
 ; MODIFIED set.
@@ -229,23 +229,12 @@ do_char_paste:
   JSR dec_cursor_col
   JMP .clamp
 .multiline:
-  ; Marks for the inserted lines (BUF_TEMP16 = their count)
+  ; Marks for the inserted lines (BUF_TEMP16 = their count): from the
+  ; next line on, even at column 0
   SEC
   SBC16 LINE_COUNT16, COUNT16, BUF_TEMP16
-  LDAX16 FILE_LINE16
-  CLC
-  BIT NORMAL_TEMP
-  BVS .by_col                ; CP_AT
-  ; p and P: from the next line on, even at column 0
-  ADC #1
-  BCC .next_line
-  INX
-.next_line:
+  JSR next_line_ax
   JSR mark_adjust_insert
-  JMP .scroll
-.by_col:
-  JSR mark_adjust_col        ; At the insertion column (the cursor)
-.scroll:
   ; Line-insert scroll below the split line
   LDA #RF_SPLIT
   STA RENDER_FLAG

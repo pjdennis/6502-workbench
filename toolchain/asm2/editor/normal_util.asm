@@ -643,8 +643,7 @@ delete_at_cursor:
   JSR buf_rebuild_lines
   ; Adjust marks for the deleted newlines (BUF_TEMP16 = count)
   LDAX16 FILE_LINE16
-  SEC
-  JSR mark_adjust_col
+  JSR mark_adjust_join
   ; Signal line-delete scroll, skip cursor row in scroll region:
   ; SCROLL_DELTA = old total rows - the cursor line's new rows, or 0 (a
   ; full repaint) if the old total was over 255

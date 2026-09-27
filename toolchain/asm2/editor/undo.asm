@@ -11,8 +11,9 @@ undo_clear:
 
 ; Record a char-delete for undo
 ; Call after the yank, before the delete (undo_delete_at_cursor).
-; Saves: type=2, FILE_LINE16, CURSOR_COL16
+; Saves: type=2, FILE_LINE16, CURSOR_COL16, and the marks (mark_save)
 undo_record_char_delete:
+  JSR mark_save
   LDA #UNDO_CHAR
   BNE undo_rec_set           ; Always (UNDO_CHAR != 0)
 
@@ -193,6 +194,7 @@ undo_step:
   LDA #CP_AT
   JSR do_char_paste          ; Marks and scroll flags for a multi-line yank
   BCS .undo_fail
+  JSR mark_restore           ; The marks as they were (vim)
   JSR undo_restore_col       ; Cursor back to the span start
   JSR undo_set_done_flags
   JMP undo_keep_render_flag  ; Single-line: current line repaint

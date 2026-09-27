@@ -205,32 +205,44 @@ str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
 str_more:         .asciiz "-- More --"
 
-; Adjust marks with col-0 line adjustment via CURSOR_COL16
-; At col 0: line consumed entirely, A/X unchanged
-; At col > 0: line partially survives, A/X incremented
-; A delete that undoes a char paste (UNDO_TYPE a char paste type) always
-; starts at the next line: the paste left the marks of its line there
-; Carry: set = delete, clear = insert
-; Input: A/X = base line, BUF_TEMP16 = count
-mark_adjust_col:
-  PHP
-  LDY CURSOR_COL16
-  BNE .col_nz
-  LDY CURSOR_COL16 + 1
-  BNE .col_nz
-  LDY UNDO_TYPE
-  CPY #UNDO_CHAR_PASTE_BELOW ; (the types here: none, a char delete, or
-  BCC .dispatch              ; a char paste)
-.col_nz:
-  CLC
-  ADC #1
-  BCC .dispatch
-  INX
-.dispatch:
-  PLP
-  BCC mark_adjust_insert
-  ; fall through
+; Save the marks in UNDO_DATA_BUF (a char delete's undo record: its
+; undo puts them back, mark_restore).  Clobbers A, X
+mark_save:
+  LDX #51
+.loop:
+  LDA MARK_TBL,X
+  STA UNDO_DATA_BUF,X
+  DEX
+  BPL .loop
+  RTS
 
+; Put back every mark that was set when mark_save saved them, as vim's u
+; does (marks set since then, and unset ones, keep where they are now).
+; Clobbers A, X
+mark_restore:
+  LDX #50
+.loop:
+  LDA UNDO_DATA_BUF + 1,X
+  BMI .next                  ; Unset then
+  STA MARK_TBL + 1,X
+  LDA UNDO_DATA_BUF,X
+  STA MARK_TBL,X
+.next:
+  DEX
+  DEX
+  BPL .loop
+  RTS
+
+; Adjust marks after a char delete took BUF_TEMP16 = n line breaks after
+; line A/X = L, joining lines L to L + n into one, as vim does (it
+; deletes the lines between and joins the last): the marks of line L
+; stay, those of lines L + 1 to L + n - 1 are unset, those of line L + n
+; move to line L and the ones below move up n.  (C = 1: mark_adjust_join,
+; C = 0: mark_adjust_delete.)  Clobbers: A, X, Y, BUF_SRC16, BUF_DST16,
+; MARK_DELTA16
+mark_adjust_join:
+  SEC
+  .byte $24                  ; BIT zp: skip the CLC
 ; Adjust marks after lines are deleted
 ; Input: A/X = first deleted line (16-bit low/high)
 ;        BUF_TEMP16 = count of deleted lines (16-bit)
@@ -238,11 +250,17 @@ mark_adjust_col:
 ; Marks >= first_line+count: subtract count
 ; Clobbers: A, X, Y, BUF_SRC16, BUF_DST16, MARK_DELTA16
 mark_adjust_delete:
+  CLC
+  PHP
   STAX16 BUF_SRC16
   CLC
   ADC16 BUF_SRC16, BUF_TEMP16, BUF_DST16   ; end_line = first + count
   SEC
   SBC16 BUF_SRC16, BUF_DST16, MARK_DELTA16 ; delta = -count
+  PLP
+  BCC .range
+  INC16 BUF_SRC16            ; Join: line L's marks stay
+.range:
   JMP mark_adjust_range
 
 ; Insert 1 line at A/X, adjust marks
@@ -319,6 +337,8 @@ mark_adjust_range:
 ; Clobbers: A, X, BUF_TEMP16
 mark_args_next_line:
   JSR set_buf_temp16_a
+; A/X = FILE_LINE16 + 1.  Clobbers: A, X
+next_line_ax:
   LDX FILE_LINE16 + 1
   LDA FILE_LINE16
   CLC
