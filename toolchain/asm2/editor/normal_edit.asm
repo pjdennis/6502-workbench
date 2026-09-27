@@ -70,8 +70,10 @@ char_paste_above:
   BCS paste_done
   LDA #UNDO_CHAR_PASTE_ABOVE
   STA UNDO_TYPE
-  ; Batching must not widen undo: the last pasted copy sits first
-  ; (paste-above inserts before the cursor), i.e. at UNDO_COL16 already.
+  ; Batching must not widen undo: a multi-line yank's last copy sits
+  ; first (paste-above inserts before the cursor), at UNDO_COL16 already
+  BIT NORMAL_TEMP
+  BPL char_paste_last_copy
 paste_batched_undo:
   LDA BATCH_EXTRA
   BEQ paste_done
@@ -94,19 +96,23 @@ char_paste_below:
   BCS paste_done
   LDA #UNDO_CHAR_PASTE_BELOW
   STA UNDO_TYPE
-  ; Batching must not widen undo: record only the last pasted copy,
-  ; which ends at the cursor (UNDO_COL16 = cursor + 1 - yank size)
+  BIT NORMAL_TEMP
+  BPL char_paste_last_copy
   LDA BATCH_EXTRA
   BEQ paste_done
-  BIT NORMAL_TEMP
-  BMI .cpb_no_undo           ; multi-line char yank: column math invalid
+  JSR undo_clear             ; Batched multi-line p: column math invalid
+  BEQ paste_done             ; Always (A = UNDO_NONE = 0)
+
+; Batched single-line char paste (p or P): record only the last copy.
+; Each key leaves the cursor on its last pasted char, so the last copy
+; ends at the cursor: UNDO_COL16 = cursor + 1 - yank size
+char_paste_last_copy:
+  LDA BATCH_EXTRA
+  BEQ paste_done
   SEC
   SBC16 CURSOR_COL16, YANK_SIZE16, UNDO_COL16
   INC16 UNDO_COL16
   JMP paste_undo_one
-.cpb_no_undo:
-  JSR undo_clear             ; A = UNDO_NONE = 0
-  BEQ paste_done             ; Always
 
 ; Char paste modes (A for do_char_paste): bit 7 set = not p, bit 6 set = P,
 ; bit 5 set = the caller places the cursor itself (no clamp)

@@ -18842,6 +18842,53 @@ class EditorTestRunner:
             expected_content="B\n"
         )
 
+        # A yank of several chars: each P inserts at the cursor, which the
+        # P before left on its last pasted char, so the last P's copy
+        # starts S-1 columns right of where the first P was typed
+        self.run_test(
+            "3x PP u removes the last P's copy",
+            "abcdef\n",
+            b"3xPPu:wq\r",
+            expected_content="abcdef\n"
+        )
+
+        self.run_test(
+            "3x 2PP u removes the last P's copy",
+            "abcdef\n",
+            b"3x2PPu:wq\r",
+            expected_content="abcabcdef\n"
+        )
+
+        self.run_test_screen(
+            "3x PP u cursor where the last P was typed",
+            "abcdef\n",
+            b"3xPPu:q!\r",
+            expect_lines=[(0, "abcdef")],
+            expect_cursor=(0, 2),
+        )
+
+        self.run_test_screen(
+            "3x 2PP u cursor where the last P was typed",
+            "abcdef\n",
+            b"3x2PPu:q!\r",
+            expect_lines=[(0, "abcabcdef")],
+            expect_cursor=(0, 5),
+        )
+
+        self.run_test(
+            "3x PP u u redo re-pastes the last P's copy",
+            "abcdef\n",
+            b"3xPPu u:wq\r",
+            expected_content="ababccdef\n"
+        )
+
+        self.run_test(
+            "3x 2pp u removes the last p's copy",
+            "abcdef\n",
+            b"3x2ppu:wq\r",
+            expected_content="dabcabcef\n"
+        )
+
         # Cursor position after undo: back to pre-paste line+col
         self.run_test_screen(
             "ddpu cursor at original position",
