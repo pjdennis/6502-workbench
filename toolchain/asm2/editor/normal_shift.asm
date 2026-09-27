@@ -416,7 +416,14 @@ do_y_zero:
 zero_col_op:
   CP16 CURSOR_COL16, BUF_LEN16 ; BUF_LEN16 = bytes from BOL to cursor
   ORA BUF_LEN16
-  BEQ .done                   ; Already at col 0: nothing to do
+  BNE .range
+  ; Already at col 0: y0 yanks the empty range, d0 is an empty change,
+  ; as in vim
+  TXA
+  BEQ .range
+  JSR undo_record_empty
+  BEQ .done                   ; Always
+.range:
   LDA #0
   STA_LH16 CURSOR_COL16       ; Operate forward from col 0
   TXA
@@ -447,7 +454,10 @@ dollar_op:
   STX NORMAL_TEMP             ; Save operator
   JSR get_count_clamp_lines   ; (a count on the last line ends it)
   JSR dollar_range_setup
-  BCS .done                   ; Nothing to do
+  BCC .range
+  LDA NORMAL_TEMP
+  BNE .done                   ; Nothing to do (y$ yanks the empty range,
+.range:                       ; as in vim)
   LDA NORMAL_TEMP
   JSR op_lines                ; (linewise: the command ends there)
   LDA NORMAL_TEMP
@@ -571,21 +581,23 @@ word_op_forward:
   JSR word_op_call_range       ; BUF_LEN16 = range
   PLA                          ; A = operator
   JSR op_lines                 ; (linewise: the command ends there)
-  BCS word_op_bail             ; Nothing to operate on
+  BCC .range
+  LDA NORMAL_TEMP
+  BNE word_op_bail             ; Nothing to operate on (a yank takes
+.range:                        ; the empty range, as in vim)
   JSR set_render_from_cursor   ; Repaint from the range start
   LDA NORMAL_TEMP              ; A = operator
   JSR apply_char_operator      ; (c enters insert mode)
   JMP clamp_for_mode
 
-; Shared bail: c enters insert mode
+; Shared bail: c enters insert mode (an empty change)
 word_op_bail:
-  LDA NORMAL_TEMP
   CMP #OP_CHANGE
   BEQ .bail_insert
   JMP clear_count
 
 .bail_insert:
-  JMP enter_insert_mode
+  JMP sub_change_insert
 
 ; JSR here calls the range routine in JUMP_TARGET16 (word_op_forward)
 word_op_call_range:

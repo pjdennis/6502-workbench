@@ -593,8 +593,10 @@ sub_change_tail:
   LDA #OP_CHANGE
   JMP apply_char_operator
 
-; Shared s/C empty-line entry to insert mode
+; Shared s/C empty-line entry to insert mode (cw's too): an empty
+; change, as in vim
 sub_change_insert:
+  JSR undo_record_empty
   JMP enter_insert_mode
 
 ; --- Change to EOL (C) ---

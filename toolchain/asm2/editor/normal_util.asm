@@ -757,10 +757,15 @@ batched_char_delete_back:
   LDY #$FF                  ; Y = DEL_BACK flag (kept until .batched)
   BNE bcd_start             ; Always taken
 
+; x on an empty line: an empty change, as in vim
+x_empty:
+  JSR undo_record_empty
+  BEQ bcd_done               ; Always
+
 ; x and Del: delete count chars at the cursor, with the typed-ahead x's
 normal_delete_char:
   JSR check_cursor_in_line
-  BCS bcd_done
+  BCS x_empty
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
 batched_char_delete:
   LDY #0

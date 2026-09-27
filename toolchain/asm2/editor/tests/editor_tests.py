@@ -12384,11 +12384,13 @@ class EditorTestRunner:
             expected_content="foo   bar   \n",
         )
 
+        # yw on an empty last line yanks the empty range, as in vim: p
+        # after it puts nothing
         self.run_test(
-            "yw on empty line preserves previous yank",
+            "yw on an empty last line yanks nothing",
             "hello\n\n",
             b"yyjyw$p:wq\r",
-            expected_content="hello\n\nhello\n",
+            expected_content="hello\n\n",
         )
 
         self.run_test(
@@ -12789,11 +12791,12 @@ class EditorTestRunner:
             expected_content="foo barbar\n",
         )
 
+        # ye on an empty last line yanks the empty range, as in vim
         self.run_test(
-            "ye on empty line preserves previous yank",
+            "ye on an empty last line yanks nothing",
             "hello\n\n",
             b"yyjye$p:wq\r",
-            expected_content="hello\n\nhello\n",
+            expected_content="hello\n\n",
         )
 
         self.run_test(
@@ -13167,9 +13170,9 @@ class EditorTestRunner:
                           "abc def\n", keys + b":wq\r",
                           expected_content=expected)
 
-        # y0 at col 0 does nothing (no yank)
+        # y0 at col 0 changes nothing (it yanks the empty range, as in vim)
         self.run_test(
-            "y0 at col 0 does nothing",
+            "y0 at col 0 changes nothing",
             "Hello\n",
             b"y0:wq\r",
             expected_content="Hello\n"
@@ -19300,6 +19303,34 @@ class EditorTestRunner:
             b"$xj~ku:wq\r",
             expected_content="abc\n\nd\n"
         )
+
+        # vim records an empty change for x, X and 5x on an empty line
+        # (X and d0 at column 0 of any line), and for s, C and cw left at
+        # once there: u then only puts the cursor back, and the change
+        # before stays done. D, d$ (and ~, r) there record nothing.
+        for keys, expected, cursor in (
+                (b"x", "bc\n\nxy\n", (1, 0)), (b"5x", "bc\n\nxy\n", (1, 0)),
+                (b"X", "bc\n\nxy\n", (1, 0)), (b"d0", "bc\n\nxy\n", (1, 0)),
+                (b"s\x1b", "bc\n\nxy\n", (1, 0)),
+                (b"C\x1b", "bc\n\nxy\n", (1, 0)),
+                (b"D", "abc\n\nxy\n", (0, 0)), (b"d$", "abc\n\nxy\n", (0, 0))):
+            self.run_test_screen(
+                f"x then {keys!r} on an empty line then u",
+                "abc\n\nxy\n", b"xj" + keys + b"u:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test_screen(
+            "x then cw on an empty last line then u",
+            "abc\n\n", b"xjcw\x1bu:wq\r",
+            expected_content="bc\n\n", expect_cursor=(1, 0))
+        for keys in (b"X", b"d0", b"5X"):
+            self.run_test_screen(
+                f"x then {keys!r} at column 0 of a line then u",
+                "abc\nde\nxy\n", b"xj" + keys + b"u:wq\r",
+                expected_content="bc\nde\nxy\n", expect_cursor=(1, 0))
+        # y$ on an empty line and y0 at column 0 yank the empty range
+        for content, keys in (("hello\n\n", b"yyjy$p"), ("hello\nab\n", b"yyjy0p")):
+            self.run_test(f"{keys!r}: the empty yank puts nothing",
+                          content, keys + b":wq\r", expected_content=content)
 
         # dd then dd then undo: first dd stays, second dd undone
         self.run_test(

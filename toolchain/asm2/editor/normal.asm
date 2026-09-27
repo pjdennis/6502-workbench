@@ -183,7 +183,8 @@ delete_char_back_x:
   DEC CURSOR_COL16 + 1
 .no_borrow:
   JMP batched_char_delete_back
-delete_char_done:
+delete_char_done:            ; X at column 0: an empty change (vim)
+  JSR undo_record_empty
   JMP clear_count
 
 ; dd: yank then delete N lines (N = count, min 1)

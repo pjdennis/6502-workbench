@@ -17,6 +17,15 @@ undo_record_char_delete:
   LDA #UNDO_CHAR
   BNE undo_rec_set           ; Always (UNDO_CHAR != 0)
 
+; Record an empty change at the cursor, as vim does for x on an empty
+; line: its undo only puts the cursor back there (a shift of no lines,
+; which undo_shift_step leaves as it is).  Returns A = 0, Z set
+undo_record_empty:
+  LDA #0
+  STA_LH16 UNDO_RANGE_LINES16
+  LDA #UNDO_INDENT
+  BNE undo_rec_set           ; Always
+
 ; C = 1 if deleting BUF_TEMP16 lines (at most the lines left) from
 ; FILE_LINE16 empties the buffer: the count reaches LINE_COUNT16 only
 ; from line 0.  buf_delete_lines then leaves a synthetic empty line.
