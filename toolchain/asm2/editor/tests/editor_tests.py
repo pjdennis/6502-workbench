@@ -5281,12 +5281,15 @@ class EditorTestRunner:
                                             (2, d300[240:280]),
                                             (3, d300[280:299])])],
             )
-            # Typing past the end of a line that exactly filled its row
+            # Typing past the end of a line that exactly filled its row:
+            # the row after the full one follows by the terminal's wrap,
+            # with no cursor move (as in the row loop)
             self.run_test_screen(
                 "Shift: typing past a full row at end of line" + suffix,
                 "a" * 39 + "\nNEXT\nLAST\n",
                 b"AXY\x1b:q!\r",
                 deferred_wrap=deferred,
+                expect_ansi_contains="\x1b[;40HXY\x1b[10;",
                 expect_lines_at_frame=[(2, [(0, "a" * 39 + "X"), (1, "Y"),
                                             (2, "NEXT"), (3, "LAST")])],
                 expect_cursor_at_frame=[(2, (1, 1))],
@@ -5461,6 +5464,8 @@ class EditorTestRunner:
                  (10, 40), 56),
                 ("d$ mid-line", "Hello World\n", b"llld$:q!\r", 2,
                  (10, 40), 56),
+                ("typed text past a full row", "a" * 39 + "\nNEXT\nLAST\n",
+                 b"AXY\x1b:q!\r", 2, (10, 40), 75),
                 ("dw on a 3-row line", fox, b"4ldw:q!\r", 3,
                  (10, 40), 98),
                 ("db on a 3-row line", fox, b"10ldb:q!\r", 4,

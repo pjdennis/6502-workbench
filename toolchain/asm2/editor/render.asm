@@ -458,6 +458,7 @@ render_line_shift:
   LDA #0
   ROL
   STA SHIFT_IEND16 + 1
+  STA RENDER_COL               ; (0 or 1) the first row starts with a move
   JSR get_current_line_ptr
   LDX RENDER_WRAP
 .next_ptr:
@@ -541,6 +542,14 @@ shift_row:
   LDA ROW_END
   STA ROW_WEND
 .write_new:
+  ; The row before written to its end by chars (RENDER_COL = cols): the
+  ; terminal wraps to this row's column 0 by itself, as in render_rows
+  LDA RENDER_COL
+  CMP SCREEN_COLS
+  BNE .move_new
+  LDA WRAP_REM
+  BEQ write_row_cells
+.move_new:
   JSR move_to_partial_pos
   JMP write_row_cells
 
