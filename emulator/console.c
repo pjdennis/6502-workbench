@@ -616,16 +616,11 @@ void console_handle_csi(unsigned char final) {
             break;
         }
         case 'r': { // DECSTBM - Set Top and Bottom Margins
-            if (count >= 2 && params[0] > 0 && params[1] > 0) {
-                scroll_top = params[0] - 1;
-                scroll_bot = params[1] - 1;
-                if (scroll_top < 0) scroll_top = 0;
-                if (scroll_bot >= screen_rows) scroll_bot = screen_rows - 1;
-                if (scroll_top > scroll_bot) {
-                    scroll_top = 0;
-                    scroll_bot = screen_rows - 1;
-                }
-            } else {
+            // A missing or 0 top is row 1, a missing or 0 bottom the last row
+            scroll_top = (params[0] ? params[0] : 1) - 1;
+            scroll_bot = (count > 1 && params[1] ? params[1] : screen_rows) - 1;
+            if (scroll_bot >= screen_rows) scroll_bot = screen_rows - 1;
+            if (scroll_top > scroll_bot) {
                 scroll_top = 0;
                 scroll_bot = screen_rows - 1;
             }

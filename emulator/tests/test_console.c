@@ -401,6 +401,25 @@ TEST csi_scroll_region(void) {
     PASS();
 }
 
+TEST csi_scroll_region_defaults(void) {
+    // A missing or 0 top is row 1 and a missing or 0 bottom the last
+    // row, as on a VT100 or xterm
+    console_init_test(10, 10);
+    feed_string("\x1b[;8r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 7);
+    feed_string("\x1b[3r");
+    ASSERT_EQ(scroll_top, 2);
+    ASSERT_EQ(scroll_bot, 9);
+    feed_string("\x1b[0;5r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 4);
+    feed_string("\x1b[r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 9);
+    PASS();
+}
+
 TEST csi_scroll_up(void) {
     console_init_test(4, 3);
     fill_cells("ABCDEFGHIJKL");
@@ -842,6 +861,7 @@ SUITE(console_suite) {
     RUN_TEST(csi_erase_line);
     RUN_TEST(csi_sgr_reverse);
     RUN_TEST(csi_scroll_region);
+    RUN_TEST(csi_scroll_region_defaults);
     RUN_TEST(csi_scroll_up);
     RUN_TEST(csi_scroll_down);
     RUN_TEST(csi_ich_inserts_blanks);
