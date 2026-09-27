@@ -92,6 +92,12 @@ shift_normal_setup:
   LDX BUF_TEMP16
   DEX
   BNE .start                   ; Two or more lines: the cursor column
+  ; One line and a count of 2 or more: on the last line, where vim's
+  ; count fails (its lines below are not there): end the command
+  LDA COUNT16
+  LSR
+  ORA COUNT16 + 1
+  BNE shift_count_fail
   LDA BATCH_EXTRA
   BEQ .one_line
   STA CURSOR_COL16 + 1         ; Batched: the first non-blank
@@ -105,6 +111,10 @@ shift_normal_setup:
 shift_mode_a:
   STA SHIFT_MODE
   RTS
+shift_count_fail:
+  PLA                          ; Drop the return into do_indent/unindent
+  PLA
+  JMP keep_clear_count
 
 ; One INDENT_WIDTH step in constant-width mode (the :range > / < setup,
 ; and undo)

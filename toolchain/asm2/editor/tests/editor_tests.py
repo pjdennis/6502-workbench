@@ -18860,6 +18860,22 @@ class EditorTestRunner:
                 expected_content=expected,
             )
 
+        # N>> and N<< with N of 2 or more fail on the last line, as in vim
+        # (the count's lines below are not there): nothing changes, and u
+        # still undoes the change before
+        for content, keys, expected in (("abc\n", b"3>>", "abc\n"),
+                                        ("  abc\n", b"2<<", "  abc\n"),
+                                        ("a\nb\n", b"j3>>", "a\nb\n"),
+                                        ("abc\n", b"x3>>u", "abc\n"),
+                                        ("a\nb\nc\n", b"j5>>", "a\n  b\n  c\n"),
+                                        ("abc\n", b"1>>", "  abc\n")):
+            self.run_test(
+                f"{keys!r} on the last line",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+
         # >> then movement then u: undo applies to the recorded range
         self.run_test(
             ">> j u undoes indent from another line",
@@ -22799,12 +22815,20 @@ class EditorTestRunner:
         )
 
         # 3>>>> count + typed-ahead indent.
-        # 3>> indents up to 3 lines (2 spaces), then >> the cursor line (2 more) = 4 spaces.
+        # 3>> indents up to 3 lines (2 spaces), then >> the cursor line (2
+        # more) = 4 spaces; on the last line 3>> fails (vim), and >> alone
+        # shifts
         self.run_test(
             "3>>>> count plus typed-ahead indent",
+            "abc\ndef\n",
+            b"3>>>>:wq\r",
+            expected_content="    abc\n  def\n"
+        )
+        self.run_test(
+            "3>>>> on the last line: only >> shifts",
             "abc\n",
             b"3>>>>:wq\r",
-            expected_content="    abc\n"
+            expected_content="  abc\n"
         )
 
         # ================================================================
