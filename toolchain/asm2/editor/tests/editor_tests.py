@@ -3230,12 +3230,12 @@ class EditorTestRunner:
         )
 
         # A char delete across lines keeps the sticky count
-        # 2Ctrl-D (sticky=2, top Line 3); 2D empties line 3 and joins Line 4;
-        # Ctrl-D scrolls 2 more: top is Line 6
+        # 2Ctrl-D (sticky=2, top Line 3); l2D cuts line 3 to "L" and joins
+        # Line 4; Ctrl-D scrolls 2 more: top is Line 6
         self.run_test_screen(
             "Ctrl-D sticky count survives a multi-line D",
             make_lines(30),
-            b"2" + CTRL_D + b"2D" + CTRL_D + b":q!\r",
+            b"2" + CTRL_D + b"l2D" + CTRL_D + b":q!\r",
             expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+6}") for i in range(9)]
         )
@@ -8118,12 +8118,20 @@ class EditorTestRunner:
             expected_content="He\nFoo\n"
         )
 
-        # 3d$ on 4 lines at col 0: deletes 3 full lines content + newlines
+        # 3d$ on 4 lines at col 0: deletes the 3 lines (vi: a delete over
+        # lines from the indentation that leaves only blanks is linewise)
         self.run_test(
             "3d$ deletes from cursor across 3 lines",
             "ab\ncd\nef\ngh\n",
             b"3d$:wq\r",
-            expected_content="\ngh\n"
+            expected_content="gh\n"
+        )
+
+        self.run_test(
+            "3d$ from column 1 deletes across 3 lines",
+            "ab\ncd\nef\ngh\n",
+            b"l3d$:wq\r",
+            expected_content="a\ngh\n"
         )
 
         # Count exceeds available lines - clamps
@@ -9484,12 +9492,12 @@ class EditorTestRunner:
         )
 
         # Mark below 2d$ range gets adjusted
-        # Set mark on line 2 (ccc), go to line 0, 2d$ deletes "aaa\nbbb"
+        # Set mark on line 2 (ccc), go to line 0, l2d$ deletes "aa\nbbb"
         # ccc was line 2, becomes line 1 after 1 newline removed
         self.run_test_screen(
             "2d$ adjusts mark below range",
             "aaa\nbbb\nccc\nddd\n",
-            b"2jmakk2d$'a:q!\r",
+            b"2jmakkl2d$'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),
         )
@@ -10204,30 +10212,31 @@ class EditorTestRunner:
         )
 
         # Char deletes count the deleted newlines in 16 bits: 257D deletes
-        # 256 newlines, so the line table must be rebuilt (44 lines left)
+        # 256 newlines, so the line table must be rebuilt (44 lines left).
+        # (From column 1: from column 0 the D deletes whole lines, as in vi)
         self.run_test_screen(
             "257D (256 newlines) rebuilds the line table",
             make_lines(300),
-            b"257D:q!\r",
+            b"l257D:q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(0, "")] + [(i, f"Line {i+257}") for i in range(1, 9)],
+            expect_lines=[(0, "L")] + [(i, f"Line {i+257}") for i in range(1, 9)],
             expect_status_contains="/44"
         )
 
         self.run_test(
             "257D (256 newlines) then jD edits the right line",
             make_lines(300),
-            b"257DjD:wq\r",
-            expected_content="\n\n" + ''.join(f"Line {i}\n" for i in range(259, 301))
+            b"l257DjD:wq\r",
+            expected_content="L\n\n" + ''.join(f"Line {i}\n" for i in range(259, 301))
         )
 
         # 300D deletes 299 newlines: mark a on Line 350 moves up 299 lines
         self.run_test(
             "300D (299 newlines) moves a mark below it up 299 lines",
             make_lines(400),
-            b"350Gmagg300D'ax:wq\r",
+            b"350Gmaggl300D'ax:wq\r",
             expected_content=(
-                "\n" + ''.join(f"Line {i}\n" for i in range(301, 350)) +
+                "L\n" + ''.join(f"Line {i}\n" for i in range(301, 350)) +
                 "ine 350\n" + ''.join(f"Line {i}\n" for i in range(351, 401))
             )
         )
@@ -10238,10 +10247,10 @@ class EditorTestRunner:
         self.run_test_screen(
             "130D over more than 255 screen rows repaints correctly",
             ''.join(f"{i:03d}" + "x" * 18 + "\n" for i in range(300)),
-            b"130D:q!\r",
+            b"l130D:q!\r",
             rows=10, cols=20,
             expect_cursor=(0, 0),
-            expect_lines=[(0, "")] + [
+            expect_lines=[(0, "0")] + [
                 row for i in range(4) for row in (
                     (1 + 2 * i, f"{130 + i:03d}" + "x" * 17),
                     (2 + 2 * i, "x"))]
@@ -10253,9 +10262,9 @@ class EditorTestRunner:
         self.run_test(
             "'a to a mark on the last line after 300D stays in the file",
             make_lines(400),
-            b"Gmagg300D'ax:wq\r",
+            b"Gmaggl300D'ax:wq\r",
             expected_content=(
-                "\n" + ''.join(f"Line {i}\n" for i in range(301, 400)) + "ine 400\n"
+                "L\n" + ''.join(f"Line {i}\n" for i in range(301, 400)) + "ine 400\n"
             )
         )
 
@@ -10263,8 +10272,8 @@ class EditorTestRunner:
         self.run_test(
             ":'ad on a mark on the last line after 300D stays in the file",
             make_lines(400),
-            b"Gmagg300D:'ad\r:wq\r",
-            expected_content="\n" + ''.join(f"Line {i}\n" for i in range(301, 400))
+            b"Gmaggl300D:'ad\r:wq\r",
+            expected_content="L\n" + ''.join(f"Line {i}\n" for i in range(301, 400))
         )
 
         self.run_test(
@@ -12606,6 +12615,108 @@ class EditorTestRunner:
             expect_cursor=(1, 2),
         )
 
+        # A delete over lines that leaves only blanks after it on its last
+        # line, and starts in the indentation, deletes whole lines (vi)
+        self.run_test(
+            "2D from the indentation deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"2l2D:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2D from the indentation yanks the lines",
+            "  foo\nbar\nbaz\n",
+            b"2l2Dp:wq\r",
+            expected_content="baz\n  foo\nbar\n",
+        )
+
+        self.run_test(
+            "2d$ from the indentation deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"2l2d$:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2D on an empty line deletes two lines",
+            "abc\n\nxyz\nend\n",
+            b"j2D:wq\r",
+            expected_content="abc\nend\n",
+        )
+
+        self.run_test(
+            "2D from mid-line stays in the line",
+            "  foo\nbar\n",
+            b"3l2D:wq\r",
+            expected_content="  f\n",
+        )
+
+        self.run_test(
+            "2dw to the end of the next line deletes the lines",
+            "foo\nbar\nbaz\n",
+            b"2dw:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2de from the indentation to a line end deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"2l2de:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2de from the indentation into a line stays charwise",
+            "  foo\nbar baz\n",
+            b"2l2de:wq\r",
+            expected_content="   baz\n",
+        )
+
+        self.run_test(
+            "2D on an empty line yanks the lines",
+            "abc\n\nxyz\nend\n",
+            b"j2Dp:wq\r",
+            expected_content="abc\nend\n\nxyz\n",
+        )
+
+        self.run_test(
+            "3D from a line's start to the last line deletes the lines",
+            "abc\nxyz\nq\n",
+            b"j3D:wq\r",
+            expected_content="abc\n",
+        )
+
+        self.run_test(
+            "2dw from the start of the next-to-last line deletes to the end",
+            "  foo\nbar\nbaz\n",
+            b"j2dw:wq\r",
+            expected_content="  foo\n",
+        )
+
+        # C and y$ with a count go on from an empty line too (charwise: the
+        # line rule is for deletes)
+        self.run_test(
+            "2C on an empty line changes to the end of the next line",
+            "\nabc\nx\n",
+            b"2CX\x1b:wq\r",
+            expected_content="X\nx\n",
+        )
+
+        self.run_test(
+            "2y$ on an empty line yanks to the end of the next line",
+            "\nabc\nx\n",
+            b"2y$Gp:wq\r",
+            expected_content="\nabc\nx\nabc\n",
+        )
+
+        self.run_test(
+            "D on an empty line does nothing",
+            "\nabc\n",
+            b"Dx:wq\r",
+            expected_content="\nabc\n",
+        )
+
         # From an empty line, e and its operators go on to the next word's end
         self.run_test(
             "de on an empty line deletes to the next word's end",
@@ -13999,11 +14110,11 @@ class EditorTestRunner:
                  (0, 0)),
                 ("3cc redo", "x" * 25 + "\n" + "x" * 74 + "\n", b"3cc\x1bu u",
                  10, 10, [(0, "")] + tildes(1, 9), (0, 0)),
-                ("8D", make_lines(20), b"jj8D", 10, 40,
-                 [(2, "")] + [(r, f"Line {r + 8}") for r in range(3, 9)],
+                ("8D", make_lines(20), b"jjl8D", 10, 40,
+                 [(2, "L")] + [(r, f"Line {r + 8}") for r in range(3, 9)],
                  (2, 0)),
-                ("30D", make_lines(400), b"9G30D", 24, 80,
-                 [(8, "")] + [(r, f"Line {r + 30}") for r in range(9, 23)],
+                ("30D", make_lines(400), b"9Gl30D", 24, 80,
+                 [(8, "L")] + [(r, f"Line {r + 30}") for r in range(9, 23)],
                  (8, 0)),
                 ("9de", short9, b"9de", 10, 40,
                  [(0, "  ba ba")] + tildes(1, 9), (0, 0)),
@@ -15780,21 +15891,21 @@ class EditorTestRunner:
             expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
-        # 2D at row 3: same as 2d$ from col 0, deletes current+next line content.
-        # Result: empty line 3, "Line 6" on line 4.
-        # Frames: 0=initial, 1=jjj cursor, 2=count '2', 3=D
+        # 2D at row 3 col 1: deletes the rest of the line and the next line.
+        # Result: "L" on line 3, "Line 6" on line 4.
+        # Frames: 0=initial, 1=jjj cursor, 2=l, 3=count '2', 4=D
         self.run_test_screen(
             "Scroll opt: 2D does not scroll cursor row",
             make_lines(15),
-            b"jjj2D:q!\r",
+            b"jjjl2D:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
-                (3, ""), (4, "Line 6"), (5, "Line 7"),
+                (3, "L"), (4, "Line 6"), (5, "Line 7"),
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            expect_scroll_rows=[(3, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
         # Single d$ does NOT trigger scroll (no line count change, auto-detect handles it).
@@ -15862,19 +15973,19 @@ class EditorTestRunner:
         )
 
         # Undo of 2D: same as 2d$ undo, cursor row should not be scrolled.
-        # Frames: 0=initial, 1=jjj, 2=count '2', 3=D (delete scroll), 4=u (insert scroll)
+        # Frames: 0=initial, 1=jjj, 2=l, 3=count '2', 4=D (delete scroll), 5=u (insert scroll)
         self.run_test_screen(
             "Scroll opt: 2D undo does not scroll cursor row",
             make_lines(15),
-            b"jjj2Du:q!\r",
+            b"jjjl2Du:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
                 (3, "Line 4"), (4, "Line 5"), (5, "Line 6"),
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
-            expect_cursor=(3, 0),
-            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
+            expect_cursor=(3, 1),
+            expect_scroll_rows=[(5, {4, 5, 6, 7, 8})]
         )
 
         # Undo of cross-line de: cursor row should not be scrolled.
@@ -15912,58 +16023,59 @@ class EditorTestRunner:
 
         self._group("Scroll opt: charwise paste:", leading_blank=True)
 
-        # Multi-line char paste p: yank with 2D (charwise, multi-line), then paste.
+        # Multi-line char paste p: yank with l2D (charwise, multi-line: from
+        # column 0 a 2D deletes whole lines, as in vi), then paste.
         # Cursor row content changes (line splits) but should NOT be in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D (scroll: charwise delete), 3=p (insert)
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (scroll: charwise delete), 4=p (insert)
         self.run_test_screen(
             "Scroll opt: multi-line char paste p does not scroll cursor row",
             make_lines(15),
-            b"2Dp:q!\r",
-            rows=10, cols=40,
-            expect_scroll_rows=[(3, {1, 2, 3, 4, 5, 6, 7, 8})]
-        )
-
-        # Multi-line char paste P: same yank, P pastes before cursor.
-        # Cursor row should NOT be in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D (scroll), 3=P (insert)
-        self.run_test_screen(
-            "Scroll opt: multi-line char paste P does not scroll cursor row",
-            make_lines(15),
-            b"2DP:q!\r",
-            rows=10, cols=40,
-            expect_scroll_rows=[(3, {1, 2, 3, 4, 5, 6, 7, 8})]
-        )
-
-        # Undo of multi-line char paste p: deletes pasted content, line count decreases.
-        # Undo uses delete_at_cursor which should not scroll cursor row.
-        # Frames: 0=initial, 1=count '2', 2=D (delete scroll), 3=p (insert scroll), 4=u (delete scroll)
-        self.run_test_screen(
-            "Scroll opt: char paste p undo does not scroll cursor row",
-            make_lines(15),
-            b"2Dpu:q!\r",
+            b"l2Dp:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(4, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
+        # Multi-line char paste P: same yank, P pastes before cursor.
+        # Cursor row should NOT be in scroll region.
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (scroll), 4=P (insert)
+        self.run_test_screen(
+            "Scroll opt: multi-line char paste P does not scroll cursor row",
+            make_lines(15),
+            b"l2DP:q!\r",
+            rows=10, cols=40,
+            expect_scroll_rows=[(4, {1, 2, 3, 4, 5, 6, 7, 8})]
+        )
+
+        # Undo of multi-line char paste p: deletes pasted content, line count decreases.
+        # Undo uses delete_at_cursor which should not scroll cursor row.
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (delete scroll), 4=p (insert scroll), 5=u (delete scroll)
+        self.run_test_screen(
+            "Scroll opt: char paste p undo does not scroll cursor row",
+            make_lines(15),
+            b"l2Dpu:q!\r",
+            rows=10, cols=40,
+            expect_scroll_rows=[(5, {1, 2, 3, 4, 5, 6, 7, 8})]
+        )
+
         # Redo of multi-line char paste p: re-inserts content, line count increases.
         # Cursor row should NOT be in scroll region (it'll be repainted).
-        # Frames: ...4=u undo, 5=space noop, 6=u redo
+        # Frames: ...5=u undo, 6=space noop, 7=u redo
         self.run_test_screen(
             "Scroll opt: char paste p redo does not scroll cursor row",
             make_lines(15),
-            b"2Dpu u:q!\r",
+            b"l2Dpu u:q!\r",
             rows=10, cols=40,
-            expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(7, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
         # Redo of multi-line char paste P: same, cursor row not in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D, 3=P, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D, 4=P, 5=u, 6=space, 7=u redo
         self.run_test_screen(
             "Scroll opt: char paste P redo does not scroll cursor row",
             make_lines(15),
-            b"2DPu u:q!\r",
+            b"l2DPu u:q!\r",
             rows=10, cols=40,
-            expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(7, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
         # $09 (a line split into several by a multi-line char paste, or by
@@ -16025,13 +16137,13 @@ class EditorTestRunner:
                 expect_cursor=cursor, expect_lines=list(enumerate(lines)))
 
         # Narrow screen: the pasted-into line keeps its 2 rows, the line
-        # after the paste must not be blanked
+        # after the paste must not be blanked (l2D: a charwise yank)
         self.run_test_screen(
             "Scroll opt: wrapped split: 2DP on a 2-row line",
             "a" * 25 + "\nb\nc\nd\ne\n",
-            b"2DP:q!\r", rows=10, cols=20,
+            b"l2DP:q!\r", rows=10, cols=20,
             expect_cursor=(0, 0),
-            expect_lines=[(0, "a" * 20), (1, "aaaaa"), (2, "b"), (3, "c"),
+            expect_lines=[(0, "a" * 20), (1, "aaaa"), (2, "ba"), (3, "c"),
                           (4, "d"), (5, "e"), (6, "~")])
 
         self._group("Scroll opt: inserts of 256+ rows:", leading_blank=True)

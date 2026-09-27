@@ -425,18 +425,6 @@ zero_col_op:
 .done:
   JMP clear_count
 
-; Shared $-range setup for D, d$, y$ and C: carry set if the cursor is
-; not on a char (empty line); else carry clear and BUF_LEN16 = bytes
-; from the cursor to the end of the count-th line
-dollar_range_setup:
-  JSR check_cursor_in_line
-  BCS .ret
-  JSR get_count
-  JSR compute_dollar_range
-  CLC
-.ret:
-  RTS
-
 ; y$: yank from the cursor to EOL (count lines)
 do_y_dollar:
   LDX #OP_YANK
@@ -454,19 +442,30 @@ normal_delete_to_eol:
   LDX #OP_DELETE
   ; fall through
 
-; Apply operator X to the $ range, if any
+; Apply operator X to the $ range, if any (vi's linewise rule for a
+; delete: op_lines)
 dollar_op:
   TXA
   PHA                         ; Save operator
   JSR dollar_range_setup
   PLA
-  BCS .done                   ; Empty line: nothing to do
+  BCS .done                   ; Nothing to do
+  JSR op_lines                ; (linewise: the command ends there)
+  LDA NORMAL_TEMP
   JSR apply_char_operator
 .done:
   JMP clear_count
 
-; Compute byte range for $ motion with count
-; Input: BUF_TEMP16 = count (from get_count), LINE_LEN16 set by check_cursor_in_line
+; Shared $-range setup for D, d$, y$ and C: BUF_LEN16 = bytes from the
+; cursor to the end of the count-th line (from an empty line too, as in
+; vi), carry set if there are none
+dollar_range_setup:
+  JSR get_line_len_z
+  JSR get_count
+  ; fall through
+
+; Compute byte range for $ motion with count, as dollar_range_setup
+; Input: BUF_TEMP16 = count (from get_count), LINE_LEN16 = line length
 ; Output: BUF_LEN16 = byte count from cursor to end of range
 ; For count=1: BUF_LEN16 = LINE_LEN16 - CURSOR_COL16
 ; For count>1: adds newline + line_length for each additional line
@@ -507,7 +506,7 @@ compute_dollar_range:
   BNE .add_line
 
 .done:
-  RTS
+  JMP range_epilogue
 
 ; --- Word operations: delete, change ---
 ; All word operations are thin wrappers: they pass the range routine in

@@ -162,7 +162,11 @@ All editing commands are blocked in read-only mode.
   the cursor) they work on whole lines, as dd, yy and cc do: dw on an
   empty line deletes it, and db from the start of a line deletes the
   line above when it holds one word. de, ce and ye on an empty line
-  go on to the next word's end.
+  go on to the next word's end. Likewise a delete over lines (dw, de,
+  db, or D and d$ with a count) that starts in the indentation and
+  leaves only blanks after it on its last line deletes whole lines:
+  2D at the start of a line, or on an empty line, deletes it and the
+  next one. C and y$ with a count go on from an empty line too.
 
 
 NORMAL MODE - SEARCH
