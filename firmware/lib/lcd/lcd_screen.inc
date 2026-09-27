@@ -4,9 +4,10 @@
 ; and mark its rows dirty; lcd_screen_flush writes the dirty rows to the LCD
 ; and places the LCD's cursor.
 ;
-; Behaves like the editor's reference terminal (editor/tests/ansi_screen.py)
-; except that a character written past the last column is dropped (no wrap)
-; and reverse video is not shown.
+; Behaves like the editor's reference terminal (editor/tests/ansi_screen.py),
+; which wraps to the next row after the last column, except that on the
+; bottom row a character past the last column is dropped (the editor's
+; status line is longer than 20 columns) and reverse video is not shown.
 ;
 ; Requires:
 ;   LCD_SCREEN        - DISPLAY_WIDTH * DISPLAY_HEIGHT bytes: the characters
@@ -144,9 +145,10 @@ lcd_screen_cursor_cell:
   rts
 
 
-; Write the character in A at the cursor and move right. BS moves left, CR
-; to the first column, LF to the first column of the next row; other
-; control codes, and characters past the last column, are dropped
+; Write the character in A at the cursor and move right, to the next row
+; after the last column but on the bottom row past it (dropping characters
+; written there). BS moves left, CR to the first column, LF to the first
+; column of the next row; other control codes are dropped
 ; On exit A, X, Y are preserved
 lcd_screen_write:
   phy
@@ -182,6 +184,14 @@ lcd_screen_write:
   pha
   sta LCD_SCREEN, Y
   inc LCD_SCREEN_COL
+  lda LCD_SCREEN_COL
+  cmp #DISPLAY_WIDTH
+  bcc .done
+  lda LCD_SCREEN_ROW
+  cmp #DISPLAY_HEIGHT - 1
+  bcs .done                        ; Bottom row: stay past the end
+  inc LCD_SCREEN_ROW
+  stz LCD_SCREEN_COL
 .done:
   pla
   ply

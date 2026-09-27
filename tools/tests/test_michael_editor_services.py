@@ -74,8 +74,8 @@ class MichaelEditorServicesTest(unittest.TestCase):
         self.assertEqual(self.run_program('screen_calls'), [
             'HelloXY world       ',
             '  abcdefghijklmnopqr',
-            '~\\                  ',
-            'status              '])
+            '~\\uvwxyz            ',
+            'status        abcdef'])
 
     def test_scrolling(self):
         self.assertEqual(self.run_program('screen_scroll'), [

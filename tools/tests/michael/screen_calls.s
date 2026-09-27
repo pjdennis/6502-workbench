@@ -1,6 +1,6 @@
 ; Screen calls on the Michael editor services: writes, positioning, clear
-; to end of row, insert and delete, clipping at the last column, '~' and
-; '\', and scrolling a region.
+; to end of row, insert and delete, wrapping past the last column but
+; clipping on the bottom row, and '~' and '\'.
   .include michael_editor_layout.inc
   .include editor_vectors.inc
 
@@ -19,13 +19,15 @@
   jsr scr_insert
   print xy                ; "HelloXY world"
   goto 2, 3
-  print alphabet          ; clipped at column 20
+  print alphabet          ; wraps onto row 3 after column 20
   goto 3, 1
-  print tilde_backslash
+  print tilde_backslash   ; over "st"
   goto 4, 1
   print status
   goto 4, 8
   jsr scr_clear_eol       ; "status "
+  goto 4, 15
+  print alphabet          ; clipped at column 20
   jmp exit
 
 hello:           .asciiz "Hello, world"

@@ -29,6 +29,12 @@ Supported sequences:
     ESC[{n}P        - Delete n characters at cursor (DCH)
     \b              - Backspace (one column left, stopping at column 1)
 
+Clipped bottom row (opt-in via clip_bottom=True):
+    Wraps like the default, except that on the bottom row a character
+    written past the last column is dropped and the cursor stays past it,
+    as on the Michael LCD (firmware/lib/lcd/lcd_screen.inc), where the
+    editor's status line is longer than the row.
+
 Deferred auto-wrap (opt-in via deferred_wrap=True):
     Matches real VT100/xterm behavior where writing to the last column
     sets a pending-wrap flag instead of immediately advancing the cursor.
@@ -51,10 +57,11 @@ def _csi_args(params, *defaults):
 class AnsiScreen:
     ATTR_REVERSE = 0x01
 
-    def __init__(self, rows, cols, deferred_wrap=False):
+    def __init__(self, rows, cols, deferred_wrap=False, clip_bottom=False):
         self.rows = rows
         self.cols = cols
         self.deferred_wrap = deferred_wrap
+        self.clip_bottom = clip_bottom
         self._pending_wrap = False
         self.buffer = [[' '] * cols for _ in range(rows)]
         self.attrs = [[0] * cols for _ in range(rows)]
@@ -137,7 +144,8 @@ class AnsiScreen:
             self.cursor_col = self.cols - 1
             self._pending_wrap = True
         # Immediate wrap: cursor past last column wraps to next row
-        if not self.deferred_wrap and self.cursor_col >= self.cols:
+        clipped = self.clip_bottom and self.cursor_row == self.rows - 1
+        if not self.deferred_wrap and not clipped and self.cursor_col >= self.cols:
             self.cursor_col = 0
             self.cursor_row += 1
             if self.cursor_row >= self.rows:
@@ -435,6 +443,16 @@ if __name__ == "__main__":
     s4.process("\x1b[2;1HWorld\x1b[K\x1b[?25h")
     assert s4.get_frame_count() == 3
     assert s4.was_content_redrawn(2) == True
+
+    # Test a clipped bottom row: other rows wrap, the bottom one drops
+    # characters past its end
+    sc = AnsiScreen(2, 5, clip_bottom=True)
+    sc.process("abcdefg")
+    assert ''.join(sc.buffer[0]) == "abcde", sc.buffer[0]
+    assert ''.join(sc.buffer[1]) == "fg   ", sc.buffer[1]
+    sc.process("\x1b[2;1Hvwxyz12")
+    assert ''.join(sc.buffer[1]) == "vwxyz", sc.buffer[1]
+    assert ''.join(sc.buffer[0]) == "abcde"
 
     # Test reverse video attribute tracking
     s5 = AnsiScreen(3, 10)
