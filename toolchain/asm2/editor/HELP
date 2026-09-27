@@ -64,7 +64,10 @@ NORMAL MODE - MOVEMENT
   j, k, Up and Down (in insert mode too) remember the column they
   started from: a shorter line on the way puts the cursor at its end,
   and the next longer line takes it back to that column. After $ or
-  End they keep to the end of each line.
+  End they keep to the end of each line. As in vim, a command that
+  leaves the cursor and the text as they are (m, :w, :y, a p with
+  nothing yanked, an h or l that cannot move) keeps that column; any
+  other starts over from the cursor's.
 
 
 NORMAL MODE - EDITING

@@ -3,17 +3,18 @@
 ; --- Movement ---
 
 normal_move_left:
-  JSR get_batched_count
+  JSR h_l_setup
   JSR move_left_x
-  JMP clear_count
+  JMP h_l_done
 
 normal_move_right:
-  JSR get_batched_count
+  JSR h_l_setup
   ; Move right X columns, then clamp to the last char
   TXA
   CLC
   ADCA16 CURSOR_COL16, CURSOR_COL16
-  JMP clamp_and_clear_count
+  JSR clamp_cursor_col
+  JMP h_l_done
 
 ; j, k, Down, Up: the whole count, as vim (and the typed-ahead presses)
 normal_move_down:
@@ -265,7 +266,7 @@ search_prompt:
 do_mark_set:
   LDA BUF_TEMP
   JSR mark_set
-  JMP clear_count
+  JMP keep_clear_count
 
 ; Execute mark goto with register letter in BUF_TEMP
 do_mark_goto:
@@ -284,4 +285,4 @@ do_mark_goto:
 normal_enter_command:
   LDA #MODE_COMMAND
   STA MODE
-  JMP clear_count
+  JMP keep_clear_count       ; (first_nonblank starts over: :N, :d, :>)

@@ -298,6 +298,28 @@ enter_insert_mode:
   STA INSERT_CHANGED
   JMP clear_count
 
+; h and l: X = the count (and the typed-ahead presses), NORMAL_TEMP =
+; the column's low byte, which tells h_l_done whether they moved (at
+; most 255 columns)
+h_l_setup:
+  LDA CURSOR_COL16
+  STA NORMAL_TEMP
+  JMP get_batched_count
+
+; h and l that could not move (vim beeps) keep the remembered column
+h_l_done:
+  LDA CURSOR_COL16
+  CMP NORMAL_TEMP
+  BNE clear_count
+  ; fall through
+
+; A command that did nothing (it failed, or it leaves the cursor and the
+; text alone: m, and : commands but those that move the cursor) keeps the
+; remembered column, as vim does, then clears the count state
+keep_clear_count:
+  ASL CURSWANT_KEEP
+  JMP clear_count
+
 ; Set RENDER_FLAG from A, then clear count state
 set_render_clear_count:
   STA RENDER_FLAG

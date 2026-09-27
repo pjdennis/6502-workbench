@@ -31,7 +31,7 @@ normal_paste_above:
   BNE char_paste_above
   JSR paste_prologue
   JSR yank_paste_above_n
-  BCS paste_done
+  BCS paste_fail
   JSR paste_adjust_marks
   LDA #RF_INS
   STA RENDER_FLAG        ; Signal line-insert for scroll optimization
@@ -53,7 +53,7 @@ char_paste_above:
   CMP YANK_BUF               ; C = 1: the yank starts with a newline
   JSR paste_prologue_c
   JSR do_char_paste_above
-  BCS paste_done
+  BCS paste_fail
   ; Batching must not widen undo: a multi-line yank's last copy sits
   ; first (paste-above inserts before the cursor), at the cursor
   LDA NORMAL_TEMP
@@ -72,7 +72,7 @@ char_paste_below:
   INC16 UNDO_COL16
 .cpb_paste:
   JSR do_char_paste_below
-  BCS paste_done
+  BCS paste_fail
   LDA #UNDO_CHAR_PASTE_BELOW ; (C = 0: only a single-line yank batches p)
   ; fall through
 
@@ -95,6 +95,9 @@ paste_undo_one:
   SET16 $0001, UNDO_PASTE_COUNT16
 paste_done:
   JMP clear_count
+; A paste that fails (nothing yanked, the buffer full) keeps the column
+paste_fail:
+  JMP keep_clear_count
 
 normal_paste_below:
   JSR undo_clear
@@ -106,7 +109,7 @@ normal_paste_below:
   CMP #1                     ; C = 1: a multi-line yank, no batching
   JSR paste_prologue_c
   JSR yank_paste_below_n
-  BCS paste_done
+  BCS paste_fail
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_BELOW
   STA UNDO_TYPE
@@ -361,7 +364,7 @@ TILDE_TOGGLED    = SHIFT_MODE         ; nonzero: that char was toggled
 ; On an empty line ~ fails and leaves the previous undo intact.
 normal_toggle_case:
   JSR check_cursor_in_line
-  BCS .tilde_end
+  BCS .tilde_fail            ; An empty line: ~ fails
   ; Batched pending keys merge execution, but undo must behave as if
   ; the keys ran separately: it covers only the last ~ keystroke.
   JSR get_batched_count      ; X = count + pending, BATCH_EXTRA = pending
@@ -429,6 +432,8 @@ normal_toggle_case:
   JSR undo_clear
 .tilde_end:
   JMP clear_count
+.tilde_fail:
+  JMP keep_clear_count
 
 ; --- Join lines (J) ---
 ; NJ joins N-1 lines, J and 1J one, and each typed-ahead J one more (undo

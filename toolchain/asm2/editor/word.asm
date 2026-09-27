@@ -410,8 +410,10 @@ first_nonblank_clear:
 
 ; Cursor to the first non-blank char of its line (blanks: spaces and
 ; tabs).  On a line of blanks it goes to the last one, as in vim; on an
-; empty line to col 0.  Clobbers A, X, Y, BUF_PTR16
+; empty line to col 0.  The remembered column starts over (vim's
+; beginline), after a : command too.  Clobbers A, X, Y, BUF_PTR16
 first_nonblank:
+  LSR CURSWANT_KEEP
   LDA #$FF
   STA_LH16 CURSOR_COL16        ; No limit: the scan ends on the line
 ; The same, but not right of the cursor: its column if only blanks lie
