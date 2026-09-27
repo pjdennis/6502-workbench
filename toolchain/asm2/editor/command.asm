@@ -420,24 +420,24 @@ range_shift_finish:
   SEC
   SBCI16 LINE_LEN16, 1, FILE_LINE16  ; The range's last line
   JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
-  CP16 SHIFT_LINES16, TO_DECIMAL_VALUE16
+  CP16 SHIFT_LINES16, DEC_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
   ; fall through
 
 ; Report count on the status line: "N <suffix>"
-; Input: A/X = suffix string, TO_DECIMAL_VALUE16 = count
+; Input: A/X = suffix string, DEC_VALUE16 = count
 report_lines_ax:
-  ; status_line_clear clobbers STR_PTR16 and TO_DECIMAL state
-  ; (its cursor positioning goes through write_byte_dec/to_decimal)
+  ; status_line_clear clobbers STR_PTR16 and DEC_VALUE16 (its cursor
+  ; positioning goes through write_byte_dec)
   PHA
   TXA
   PHA
-  PUSH16 TO_DECIMAL_VALUE16
+  PUSH16 DEC_VALUE16
   JSR status_line_clear
-  POP16 TO_DECIMAL_VALUE16
+  POP16 DEC_VALUE16
   JSR print_decimal
-  BEQ pop_hold_message        ; Always taken (print_string ends with Z = 1)
+  JMP pop_hold_message
 
 ; Show "Buffer full" status message
 show_buffer_full_msg:
@@ -469,7 +469,7 @@ hold_message_ax:
 ; Same, with count taken from YANK_LINES16
 report_yank_lines_ax:
   TAY
-  CP16 YANK_LINES16, TO_DECIMAL_VALUE16
+  CP16 YANK_LINES16, DEC_VALUE16
   TYA
   JMP report_lines_ax
 

@@ -81,7 +81,6 @@ project's 6502 emulator in console/ANSI mode.
   included before any code, so all zero-page references are backward ones
   (asm17 assembles a forward reference as absolute: one byte and one
   cycle more).
-- `17/to_decimal.asm`: decimal number formatting.
 
 ### Standalone demos (not part of the editor)
 - `clock.asm`: HH:MM:SS clock display demo.

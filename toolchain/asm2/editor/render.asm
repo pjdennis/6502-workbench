@@ -163,7 +163,7 @@ render_from_row:
 ; Send the status text built by status_build from its first changed
 ; column (nothing if it is unchanged), in reverse video, clearing the
 ; row's tail when the old text was longer or unknown (ST_LEN = 0).
-; ST_LEN = the new length.  Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; ST_LEN = the new length.  Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 status_send:
   LDX ST_FIRST
   BMI status_ret               ; unchanged
@@ -194,7 +194,7 @@ status_ret:
 ; to send ($FF = none); ST_LEN = 0 if the row's tail must be cleared.
 ; A message held on the status row (STATUS_HOLD) is kept for one frame:
 ; the status bar is then left alone (ST_FIRST = $FF, and ST_LEN stays 0).
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 status_build:
   LDA #$FF
   STA ST_FIRST                 ; no change found yet
@@ -243,7 +243,7 @@ status_build:
   BEQ .no_prefix_display
   BNE .has_key                  ; Always taken (A = LAST_KEY)
 .has_count:
-  CP16 COUNT16, TO_DECIMAL_VALUE16
+  CP16 COUNT16, DEC_VALUE16
   JSR print_decimal
   LDA LAST_KEY
   BEQ .done_prefix
@@ -255,7 +255,7 @@ status_build:
 
   ; Line number (1-based)
   CLC
-  ADCI16 FILE_LINE16, $0001, TO_DECIMAL_VALUE16
+  ADCI16 FILE_LINE16, $0001, DEC_VALUE16
   JSR print_decimal
 
   LDA #','
@@ -263,7 +263,7 @@ status_build:
 
   ; Column (1-based, 16-bit)
   CLC
-  ADCI16 CURSOR_COL16, $0001, TO_DECIMAL_VALUE16
+  ADCI16 CURSOR_COL16, $0001, DEC_VALUE16
   JSR print_decimal
 
   ; Print total lines
@@ -272,7 +272,7 @@ status_build:
   LDA #'/'
   JSR text_putc
 
-  CP16 LINE_COUNT16, TO_DECIMAL_VALUE16
+  CP16 LINE_COUNT16, DEC_VALUE16
   JSR print_decimal
   INC ST_BUILD                 ; text_putc sends again
 

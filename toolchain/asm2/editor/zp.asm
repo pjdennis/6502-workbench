@@ -2,7 +2,6 @@
 ; included before any code so every zero-page reference is a backward
 ; one (asm17 assembles a forward reference as absolute: one more byte
 ; and one more cycle).  Grouped by owning module, in include order.
-; (17/to_decimal.asm keeps its own block: the assembler shares it.)
 
   .zeropage
 
@@ -10,6 +9,9 @@
 ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
 ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
 STR_PTR16:    .word    ; Pointer for write_string
+DEC_VALUE16:  .word    ; The number write_byte_dec and print_decimal write
+DEC_PAD:      .byte    ; The char a leading zero is written as (0 = none)
+DEC_TEXT:     .byte    ; Bit 7: the digits go through text_putc, not io_write
 TEXT_LEFT:    .byte    ; text_putc: 1 + characters still allowed on the status row
 
 ; --- input.asm ---

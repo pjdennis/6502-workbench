@@ -100,9 +100,11 @@ marks_display:
   ; Print the 1-based line number right-justified in a 7-char field,
   ; then one space
   CLC
-  ADCI16 BUF_PTR16, $0001, TO_DECIMAL_VALUE16
-  JSR to_decimal
-  JSR write_decimal_rjust
+  ADCI16 BUF_PTR16, $0001, DEC_VALUE16
+  LDA #' '
+  JSR io_write
+  JSR io_write               ; (io_write keeps A)
+  JSR write_decimal_field
   LDA #' '
   JSR io_write
 
@@ -178,28 +180,6 @@ marks_page:
   INX
   STX ANSI_ROW           ; First mark row (still 2 at the end = none shown)
   RTS
-
-; Print TO_DECIMAL_RESULT right-justified in a 7-character field
-; Clobbers: A, X, Y
-write_decimal_rjust:
-  ; Count digits
-  LDX #0
-.count:
-  LDA TO_DECIMAL_RESULT,X
-  BEQ .pad
-  INX
-  BNE .count      ; Always taken
-.pad:
-  ; Print (7 - X) spaces
-  LDA #' '
-.pad_loop:
-  CPX #6 + 1
-  BEQ .print
-  JSR io_write
-  INX
-  BNE .pad_loop   ; Always taken
-.print:
-  JMP write_decimal_result
 
 str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"

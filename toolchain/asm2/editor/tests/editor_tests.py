@@ -1656,6 +1656,30 @@ class EditorTestRunner:
             "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
             b"x:q!\r", 3900000, rows=255, cols=40)
 
+        # A decimal number's digits are how many times each power of ten
+        # subtracts from it, where each took 16 shift-and-subtract steps
+        # (every cursor move, count and status bar number): ten Ctrl-F
+        # Ctrl-B at 24x80 took 1,767,434 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Decimal digits by powers of ten: 10 Ctrl-F Ctrl-B, 24x80",
+            "".join("line %d is here\n" % i for i in range(60)),
+            b"\x06\x02" * 10 + b":q!\r", 1300000, rows=24, cols=80)
+        # What it writes: a five-digit column, a four-digit :marks line
+        # number in its field, a two-digit ICH count
+        self.run_test_screen(
+            "Decimal digits: the status bar shows column 30000",
+            "a" * 30000 + "\n", b"$:q!\r", rows=24, cols=80,
+            expect_status_contains="t - COMMAND - 1,30000 /1")
+        self.run_test_screen(
+            "Decimal digits: :marks right-justifies line 1000",
+            "".join("L%d\n" % i for i in range(1023)),
+            b"1000Gma:marks\r :q!\r", rows=24, cols=80,
+            expect_ansi_contains=" a   1000 L999")
+        self.run_test_screen(
+            "Decimal digits: 20 chars typed ahead mid-line insert with ESC[20@",
+            "x" * 100 + "\n", b"10|i" + b"y" * 20 + b"\x1b:q!\r",
+            rows=24, cols=80, expect_ansi_contains="\x1b[20@")
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
@@ -14515,12 +14539,16 @@ class EditorTestRunner:
             # --------------------------------------------------------
             self._group("Terminal mode - baud rate batching:", leading_blank=True)
 
-            BAUD2_ARGS = ["--cpu-mhz", "2", "--baud", "9600"]
+            BAUD2_ARGS = ["--cpu-mhz", "2", "--baud", "38400"]
 
-            # Insert 5 chars at 2MHz/9600 baud - should batch into fewer
+            # Insert 5 chars at 2MHz/38400 baud - should batch into fewer
             # frames than 5.  With hardware FIFO buffering, chars accumulate
             # in the RX buffer during rendering and the editor reads them
-            # all in one batch: no frame shows a partly typed word.
+            # all in one batch: no frame shows a partly typed word.  (The
+            # link must deliver them during the frame i draws: that frame
+            # takes about 5 ms at 2 MHz, where five chars take 1.3 ms at
+            # 38400 baud; at 9600 baud they took 5.2 ms, which only a
+            # slower frame covered.)
             self.run_test_terminal_screen(
                 "Terminal baud: insert batching",
                 "\n",

@@ -30,13 +30,13 @@ ansi_clear_screen:
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
 ; Emits ESC[top;bottomr
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
+; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
 ansi_set_scroll_region:
   LDA #'r'
   BNE ansi_row_col_seq   ; Always taken ('r' != 0)
 
 ; Move cursor to 0-based row A, column 0 (sets ANSI_ROW/ANSI_COL)
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 ansi_goto_row0:
   LDX #0
 ; Move cursor to 0-based row A, 0-based column X
@@ -48,7 +48,7 @@ ansi_goto0:
   STX ANSI_ROW
   ; fall through
 ; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL state (X preserved)
+; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
 ansi_move_cursor:
   LDA #'H'
   ; fall through
@@ -166,7 +166,7 @@ write_fname:
   RTS
 
 ; Move cursor to status line and clear it
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 status_line_clear:
   LDA #0
   STA ST_LEN                 ; status row overwritten: send all of the status bar
@@ -178,7 +178,7 @@ status_line_clear:
 
 ; Show prompt character on status line
 ; A = prompt character (e.g. ':', '/')
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL state
+; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 show_prompt:
   PHA
   JSR status_line_clear
@@ -203,27 +203,91 @@ erase_char:
   JSR io_write
   JMP io_flush
 
-; Write A (0-255) as decimal digits, no leading zeros (escape sequences)
-; Clobbers A, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT (X preserved:
+; Decimal numbers: each digit is how many times its power of ten
+; subtracts from DEC_VALUE16, from 10^4 (10^2 for a byte) down, and the
+; ones digit is what is left.  Leading zeros are left out, or written as
+; DEC_PAD (spaces: write_decimal_field)
+
+; Write A (0-255) as decimal digits, no leading zeros (escape sequences,
+; through io_write).  Clobbers A, Y, DEC_VALUE16 (X preserved:
 ; ansi_count_seq relies on it)
 write_byte_dec:
-  STA TO_DECIMAL_VALUE16
+  STA DEC_VALUE16
   LDA #0
-  STA TO_DECIMAL_VALUE16 + 1
-  JSR to_decimal
-  ; fall through
-; Write an already-converted TO_DECIMAL_RESULT
-write_decimal_result:
-  SET16 TO_DECIMAL_RESULT, STR_PTR16
-  JMP write_string
+  STA DEC_VALUE16 + 1
+  LDY #1                     ; From 10^2 (A < 1000)
+  BNE dec_io                 ; Always (A = 0: no pad)
 
-; Print TO_DECIMAL_VALUE16 in decimal as text (through text_putc)
-; Clobbers A, X, Y, STR_PTR16, TO_DECIMAL_VALUE16/MOD10/RESULT
+; Write DEC_VALUE16 through io_write, right-justified in a 5-char field
+; (:marks).  Same clobbers
+write_decimal_field:
+  LDA #' '                   ; Leading zeros as spaces
+  LDY #3                     ; From 10^4
+dec_io:
+  CLC                        ; Through io_write
+  BCC dec_digits             ; Always
+
+; Print DEC_VALUE16 in decimal as text (through text_putc).
+; Clobbers A, X, Y, DEC_VALUE16
 print_decimal:
-  JSR to_decimal
-  LDA #<TO_DECIMAL_RESULT
-  LDX #>TO_DECIMAL_RESULT
-  ; fall through
+  LDA #0                     ; No pad
+  LDY #3                     ; From 10^4
+  SEC                        ; Through text_putc
+; Write DEC_VALUE16's digits from the power of ten dec_pow[Y], leading
+; zeros as A (0: none), through text_putc if C = 1, else io_write.
+; Preserves X
+dec_digits:
+  STA DEC_PAD
+  ROR DEC_TEXT               ; Bit 7 = C
+  TXA
+  PHA
+.digit:
+  LDX #'0'
+.sub:
+  LDA DEC_VALUE16
+  CMP dec_pow_lo,Y
+  LDA DEC_VALUE16 + 1
+  SBC dec_pow_hi,Y
+  BCC .got
+  STA DEC_VALUE16 + 1
+  LDA DEC_VALUE16
+  SBC dec_pow_lo,Y
+  STA DEC_VALUE16
+  INX
+  BNE .sub                   ; Always
+.got:
+  TXA
+  CPX #'0'
+  BEQ .zero
+  LDX #'0'
+  STX DEC_PAD                ; The digits have begun: zeros are written
+  BNE .out                   ; Always
+.zero:
+  LDA DEC_PAD                ; A leading zero is the pad, if any
+  BEQ .next
+.out:
+  JSR dec_out
+.next:
+  DEY
+  BPL .digit
+  LDA DEC_VALUE16            ; The ones digit, always written
+  ORA #'0'
+  JSR dec_out
+  PLA
+  TAX
+  RTS
+
+; Write A through text_putc (DEC_TEXT bit 7 set) or io_write
+dec_out:
+  BIT DEC_TEXT
+  BMI .text
+  JMP io_write
+.text:
+  JMP text_putc
+
+dec_pow_lo: .byte <10, <100, <1000, <10000
+dec_pow_hi: .byte >10, >100, >1000, >10000
+
 ; Print the null-terminated text at A (low) / X (high) through text_putc
 print_string_ax:
   STA STR_PTR16

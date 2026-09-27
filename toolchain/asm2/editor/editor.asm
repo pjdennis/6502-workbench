@@ -38,7 +38,6 @@
   .include 17/environment.asm
   .include 17/macros.asm
   .include editor/macros.asm
-  .include 17/to_decimal.asm
   .include editor/zp.asm
   .include editor/io.asm
   .include editor/terminal.asm
