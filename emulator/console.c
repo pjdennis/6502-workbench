@@ -616,13 +616,18 @@ void console_handle_csi(unsigned char final) {
             break;
         }
         case 'r': { // DECSTBM - Set Top and Bottom Margins
-            // A missing or 0 top is row 1, a missing or 0 bottom the last row
-            scroll_top = (params[0] ? params[0] : 1) - 1;
-            scroll_bot = (count > 1 && params[1] ? params[1] : screen_rows) - 1;
-            if (scroll_bot >= screen_rows) scroll_bot = screen_rows - 1;
-            if (scroll_top > scroll_bot) {
-                scroll_top = 0;
-                scroll_bot = screen_rows - 1;
+            // A missing or 0 top is row 1, a missing, 0 or too large bottom
+            // the last row.  As on a VT100 or xterm, a region needs two rows
+            // (a top above the bottom: else it is ignored), and setting one
+            // moves the cursor home
+            int top = (params[0] ? params[0] : 1) - 1;
+            int bot = (count > 1 && params[1] ? params[1] : screen_rows) - 1;
+            if (bot >= screen_rows) bot = screen_rows - 1;
+            if (top < bot) {
+                scroll_top = top;
+                scroll_bot = bot;
+                cursor_row = 0;
+                cursor_col = 0;
             }
             break;
         }
@@ -636,6 +641,22 @@ void console_handle_csi(unsigned char final) {
             int n = params[0] ? params[0] : 1;
             int ebot = (scroll_bot >= 0 && scroll_bot < screen_rows) ? scroll_bot : screen_rows - 1;
             console_scroll_region_down(scroll_top, ebot, n);
+            break;
+        }
+        case 'L':   // IL - Insert Lines
+        case 'M': { // DL - Delete Lines
+            // Insert (IL: the rows below move down) or delete (DL: they
+            // move up) n lines at the cursor row, down to the bottom
+            // margin, and move the cursor to column 1.  As on xterm, a
+            // cursor outside the margins does nothing
+            int n = params[0] ? params[0] : 1;
+            int ebot = (scroll_bot >= 0 && scroll_bot < screen_rows) ? scroll_bot : screen_rows - 1;
+            if (cursor_row < scroll_top || cursor_row > ebot) break;
+            if (final == 'L')
+                console_scroll_region_down(cursor_row, ebot, n);
+            else
+                console_scroll_region_up(cursor_row, ebot, n);
+            cursor_col = 0;
             break;
         }
         case '@': { // ICH - Insert Characters

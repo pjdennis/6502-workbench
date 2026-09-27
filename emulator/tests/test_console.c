@@ -438,6 +438,105 @@ TEST csi_scroll_down(void) {
     PASS();
 }
 
+TEST csi_scroll_region_homes_cursor(void) {
+    // DECSTBM moves the cursor home, as on a VT100 or xterm
+    console_init_test(4, 3);
+    feed_string("\x1b[3;2H\x1b[2;3r");
+    ASSERT_EQ(cursor_row, 0);
+    ASSERT_EQ(cursor_col, 0);
+    feed_string("\x1b[3;2H\x1b[r");
+    ASSERT_EQ(cursor_row, 0);
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_scroll_region_needs_two_rows(void) {
+    // A region whose top is not above its bottom is ignored: the margins
+    // and the cursor stay as they were
+    console_init_test(4, 3);
+    feed_string("\x1b[2;3r\x1b[3;2H\x1b[2;2r");
+    ASSERT_EQ(scroll_top, 1);
+    ASSERT_EQ(scroll_bot, 2);
+    ASSERT_EQ(cursor_row, 2);
+    ASSERT_EQ(cursor_col, 1);
+    feed_string("\x1b[3;2r");
+    ASSERT_EQ(scroll_top, 1);
+    ASSERT_EQ(scroll_bot, 2);
+    PASS();
+}
+
+TEST csi_il_inserts_lines_at_cursor(void) {
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;2H\x1b[L");  // insert 1 line at row 2
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), ' ');
+    ASSERT_EQ(cell_at(2, 0), 'D');
+    ASSERT_EQ(cell_at(3, 0), 'G');
+    ASSERT_EQ(cursor_row, 1);  // the cursor goes to column 1
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_dl_deletes_lines_at_cursor(void) {
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;3H\x1b[2M");  // delete 2 lines at row 2
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), 'J');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    ASSERT_EQ(cursor_row, 1);
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_il_dl_count_past_bottom(void) {
+    // A count past the bottom margin blanks the rows from the cursor down
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[3H\x1b[9L");
+    ASSERT_EQ(cell_at(1, 0), 'D');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[4H\x1b[5M");
+    ASSERT_EQ(cell_at(2, 0), 'G');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    PASS();
+}
+
+TEST csi_il_dl_within_scroll_region(void) {
+    // IL and DL move the rows from the cursor down to the bottom margin;
+    // the rows below it stay
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[1;3r\x1b[2H\x1b[M");
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), 'G');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), 'J');
+    feed_string("\x1b[H\x1b[L");
+    ASSERT_EQ(cell_at(0, 0), ' ');
+    ASSERT_EQ(cell_at(1, 0), 'A');
+    ASSERT_EQ(cell_at(2, 0), 'G');
+    ASSERT_EQ(cell_at(3, 0), 'J');
+    PASS();
+}
+
+TEST csi_il_dl_outside_scroll_region_ignored(void) {
+    // With the cursor outside the margins IL and DL do nothing, and the
+    // cursor stays where it is
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;3r\x1b[4;2H\x1b[L\x1b[H\x1b[M");
+    ASSERT_EQ(0, memcmp(screen_cells, "ABCDEFGHIJKL", 12));
+    feed_string("\x1b[4;2H\x1b[L");
+    ASSERT_EQ(cursor_row, 3);
+    ASSERT_EQ(cursor_col, 1);
+    PASS();
+}
+
 TEST csi_ich_inserts_blanks(void) {
     console_init_test(3, 8);
     feed_string("ABCDEF\x1b[1;3H\x1b[2@");
@@ -864,6 +963,13 @@ SUITE(console_suite) {
     RUN_TEST(csi_scroll_region_defaults);
     RUN_TEST(csi_scroll_up);
     RUN_TEST(csi_scroll_down);
+    RUN_TEST(csi_scroll_region_homes_cursor);
+    RUN_TEST(csi_scroll_region_needs_two_rows);
+    RUN_TEST(csi_il_inserts_lines_at_cursor);
+    RUN_TEST(csi_dl_deletes_lines_at_cursor);
+    RUN_TEST(csi_il_dl_count_past_bottom);
+    RUN_TEST(csi_il_dl_within_scroll_region);
+    RUN_TEST(csi_il_dl_outside_scroll_region_ignored);
     RUN_TEST(csi_ich_inserts_blanks);
     RUN_TEST(csi_ich_default_and_clamped_count);
     RUN_TEST(csi_ich_shifts_attributes);
