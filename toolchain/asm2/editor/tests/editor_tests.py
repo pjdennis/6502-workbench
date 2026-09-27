@@ -1030,12 +1030,16 @@ class EditorTestRunner:
     def run_test_small_buffer(self, name: str, initial_content: str, keys: bytes,
                              expected_content: str = None, expect_exit: int = 0,
                              expect_unmodified: bool = False,
-                             expect_settled: bool = False):
+                             expect_settled: bool = False,
+                             expect_ansi_contains: str = None,
+                             expect_ansi_absent: str = None):
         """Run a test using the small buffer editor (256 bytes).
 
         expect_settled: the output ends with a completed frame (ESC[?25h)
         before the exit sequence, so nothing (such as a status message)
         is left over the last frame while the editor waits for a key.
+        expect_ansi_contains / expect_ansi_absent: a substring that must
+        (must not) appear in the raw ANSI output, such as a message.
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
@@ -1079,6 +1083,14 @@ class EditorTestRunner:
                 tail = idle[idle.rfind("\x1b[?25h") + 6:]
                 self._fail(name, f"Output after the last frame: {tail!r}")
                 return
+
+        if expect_ansi_contains is not None and expect_ansi_contains not in ansi:
+            self._fail(name, f"Output does not contain {expect_ansi_contains!r}")
+            return
+
+        if expect_ansi_absent is not None and expect_ansi_absent in ansi:
+            self._fail(name, f"Output contains {expect_ansi_absent!r}")
+            return
 
         self._pass(name)
 
