@@ -502,18 +502,16 @@ normal_join_lines:
   LDA #0
   STA UNDO_IS_REDO
 
+  ; The content before the first join point (the end of the first line)
+  ; is unchanged, so the line repaints from there
+  JSR get_current_line_len
+  STAX16 RENDER_FROM_COL16
   ; Get line start for offset calculations
   JSR get_current_line_ptr        ; BUF_PTR16 = line start
   CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = line start (base for offsets)
-
-  JSR find_line_end           ; (BUF_PTR16),Y points to '\n'
-  ; The content before the first join point (the end of the first line)
-  ; is unchanged, so the line repaints from there
-  STY RENDER_FROM_COL16
-  STX RENDER_FROM_COL16 + 1
-  ; Advance BUF_PTR16 by Y so BUF_PTR16 points directly to the '\n'
-  TYA
-  JSR ptr_add_a
+  ; BUF_PTR16 = the first line's '\n'
+  CLC
+  ADC16 BUF_SRC16, RENDER_FROM_COL16, BUF_PTR16
 
   LDX #0                     ; X = undo buffer write index
   LDA NORMAL_TEMP

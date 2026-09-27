@@ -1529,6 +1529,22 @@ class EditorTestRunner:
             "Line table rebuild of 36 KB: load and dd at the top",
             big, b"dd:q!\r", 3800000, rows=24, cols=80)
 
+        # A line's length is the gap between its entry and the next one
+        # (the entry after the last line holds the end of the text), where
+        # it was a scan for the newline, 14 cycles a char: x on a
+        # 10,000-char line (the whole run) took 1,842,456 cycles, o below
+        # a 30,000-char line (the next line's start) 5,028,077, and J of a
+        # 20,000-char line (its end) 3,196,773
+        self.run_test_cycle_cap(
+            "Line length from the table: x on a 10,000-char line",
+            "a" * 10000 + "\n", b"x:q!\r", 1150000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Next line from the table: o below a 30,000-char line",
+            "a" * 30000 + "\n", b"o\x1b:q!\r", 2900000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Line end from the table: J of a 20,000-char line",
+            "a" * 20000 + "\nb\n", b"J:q!\r", 2100000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

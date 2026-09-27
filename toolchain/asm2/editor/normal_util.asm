@@ -184,6 +184,12 @@ get_current_line_ptr:
   LDAX16 FILE_LINE16
   JMP buf_get_line_ptr
 
+; The same for the line after it (BUF_END16 after the last line).
+; Clobbers A, X, Y
+get_next_line_ptr:
+  JSR next_line_ax
+  JMP buf_get_line_ptr
+
 ; Get buffer pointer at cursor position on current line
 ; Sets BUF_PTR16 to start of FILE_LINE16 + CURSOR_COL16
 ; Clobbers A, X, Y

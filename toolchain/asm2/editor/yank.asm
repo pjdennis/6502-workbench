@@ -129,9 +129,9 @@ yank_paste_below_n:
   JSR yank_paste_setup
   BCS yank_paste_ret          ; Empty yank, or no room for its lines
 
-  ; Find insertion point: after current line's newline
-  JSR get_current_line_ptr    ; BUF_PTR16 = start of current line
-  JSR advance_past_line_end   ; BUF_PTR16 = insertion point (after newline)
+  ; Insertion point: the start of the next line (the end of the text
+  ; after the last line)
+  JSR get_next_line_ptr
 
   JSR yank_paste_core
   BCS yank_paste_ret

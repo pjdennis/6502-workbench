@@ -5,7 +5,9 @@
 ;   LINE_TBL ($D800)   - Line pointer table (16-bit pointers, room for 1024)
 ;
 ; The text buffer stores all text contiguously. Lines are delimited by $0A.
-; The line table stores 16-bit pointers to the start of each line.
+; The line table stores 16-bit pointers to the start of each line, then
+; the end of the text (BUF_END16), so a line's length is the gap to the
+; next entry.
 ; Insertions/deletions shift all text after the edit point.
 ;
 ; TEXT_BUF and TEXT_LIMIT are defined at the end of editor.asm as floating
@@ -13,7 +15,7 @@
 
 LINE_TBL    = $D800  ; Line pointer table (2 bytes per entry)
 MAX_LINES   = $03FF  ; Most lines a buffer holds (1023: LINE_TBL has room
-                     ; for 1024 entries, and one stays free)
+                     ; for 1024 entries, the last for the end of the text)
 BATCH_BUF   = $D600  ; Staging buffer for batch insert (32 bytes)
 BATCH_MAX   = 32     ; Maximum batch size
 
@@ -109,18 +111,12 @@ buf_save_file:
 .write_done:
   RTS
 
-; Get pointer to start of line N (N in A/X, low/high)
+; Get pointer to start of line N (N in A/X, low/high); for N =
+; LINE_COUNT16 the entry after the last line gives BUF_END16
 ; Returns pointer in BUF_PTR16
 ; Clobbers A, Y
 buf_get_line_ptr:
-  ; Entry address = LINE_TBL + N * 2 (LINE_TBL is page-aligned and
-  ; N < $8000, so the ROL leaves C = 0 for the high-byte add)
-  STA BUF_PTR16
-  TXA
-  ASL BUF_PTR16
-  ROL
-  ADC #>LINE_TBL
-  STA BUF_PTR16 + 1
+  JSR buf_line_entry
   ; Read the 16-bit pointer from the table
   LDY #0
   LDA (BUF_PTR16),Y
@@ -132,48 +128,42 @@ buf_get_line_ptr:
   STA BUF_PTR16
   RTS
 
-; Get length of line N (N in A/X, low/high)
-; Returns 16-bit length in A (low) / X (high), not counting the newline
-; Leaves (BUF_PTR16),Y at the newline (BUF_PTR16 = line start + X pages)
+; BUF_PTR16 = the address of line N's LINE_TBL entry (N in A/X): LINE_TBL
+; + N * 2 (LINE_TBL is page-aligned and N < $8000, so the ROL leaves
+; C = 0 for the high-byte add).  Clobbers A
+buf_line_entry:
+  STA BUF_PTR16
+  TXA
+  ASL BUF_PTR16
+  ROL
+  ADC #>LINE_TBL
+  STA BUF_PTR16 + 1
+  RTS
+
+; Get length of line N (N in A/X, low/high, below LINE_COUNT16), not
+; counting the newline: the start of line N + 1 (for the last line, the
+; end of the text in the entry after it) - the start of line N - 1
+; Returns 16-bit length in A (low) / X (high)
+; Clobbers Y, BUF_PTR16
 buf_get_line_len:
-  JSR buf_get_line_ptr
-  JSR find_line_end
-  TYA                        ; A = low byte of length
-  RTS
-
-; Scan (BUF_PTR16) for newline character
-; Input: BUF_PTR16 = scan start
-; Output: (BUF_PTR16),Y points to '\n', X = page crosses
-; Clobbers: A
-find_line_end:
-  LDX #0
+  JSR buf_line_entry
+  LDY #2
+  LDA (BUF_PTR16),Y          ; Start of line N + 1
   LDY #0
-.loop:
+  CLC                        ; (The borrow drops the newline)
+  SBC (BUF_PTR16),Y          ; - start of line N - 1
+  PHA
+  LDY #3
   LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .done
-  INY
-  BNE .loop
-  INC BUF_PTR16 + 1
-  INX
-  BNE .loop                  ; Always (X counts pages, never wraps)
-.done:
+  LDY #1
+  SBC (BUF_PTR16),Y
+  TAX
+  PLA
   RTS
 
-; Scan (BUF_PTR16) for newline, then advance BUF_PTR16 past it
-; Input: BUF_PTR16 = scan start
-; Output: BUF_PTR16 = address after the newline
-; Clobbers: A, X, Y
-advance_past_line_end:
-  JSR find_line_end
-  TYA
-  SEC                        ; + 1: step past the newline
-  BCS ptr_adc_a              ; Always taken
-
-; BUF_PTR16 += A (ptr_adc_a: += A + carry).  Clobbers A; preserves X, Y
+; BUF_PTR16 += A.  Clobbers A; preserves X, Y
 ptr_add_a:
   CLC
-ptr_adc_a:
   ADC BUF_PTR16
   STA BUF_PTR16
   BCC .done
@@ -470,15 +460,16 @@ cmp_ptr_end:
   RTS
 
 ; Add the 16-bit signed delta in BUF_SRC16 to the line pointers of every
-; line after FILE_LINE16 (single-line edits that add/remove no newlines)
+; line after FILE_LINE16 and to the entry after the last line (the end of
+; the text), for single-line edits that add/remove no newlines
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_LEN16
 buf_adjust_lines_apply:
-  ; Count = LINE_COUNT16 - FILE_LINE16 - 1 (CLC: SBC subtracts one more)
-  CLC
+  ; Count = LINE_COUNT16 - FILE_LINE16
+  SEC
   SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
-  BMI .done                  ; FILE_LINE16 >= LINE_COUNT16: nothing to do
+  BMI .done                  ; FILE_LINE16 past the end: nothing to do
   ORA BUF_LEN16
-  BEQ .done                  ; Cursor on last line: nothing to adjust
+  BEQ .done
   ; Entry address = LINE_TBL + (FILE_LINE16 + 1) * 2, split into a
   ; page-aligned base in BUF_PTR16 and the low byte in Y
   LDA FILE_LINE16 + 1

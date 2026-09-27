@@ -134,11 +134,14 @@ project's 6502 emulator in console/ANSI mode.
   newline-delimited.  Always ends with a newline; empty buffer is one newline.
   `TEXT_BUF` floats automatically as code grows:
   `TEXT_BUF = _code_end + $00FF >> $08 << $08`.
-- **Line table**: `LINE_TBL = $D800`, 16-bit pointers to each line start.
-  `LINE_COUNT16` is maintained by `buf_rebuild_lines` (after newline edits)
-  and `buf_adjust_lines_apply` (single-line edits without newlines).
+- **Line table**: `LINE_TBL = $D800`, 16-bit pointers to each line start,
+  then one holding the end of the text (`BUF_END16`): a line's length is
+  the gap between its entry and the next, less the newline, found without
+  a scan (`buf_get_line_len`).  The table and `LINE_COUNT16` are maintained
+  by `buf_rebuild_lines` (after newline edits) and `buf_adjust_lines_apply`
+  (single-line edits without newlines), which both keep the end entry.
   Max 1023 lines (`MAX_LINES = $03FF`; the table has room for 1024 entries,
-  and one stays free).  A longer file loads truncated and read-only
+  the last for the end of the text).  A longer file loads truncated and read-only
   (`buf_rebuild_lines` cuts it), and every edit that would add lines
   past the limit checks first (`check_line_room`) and reports "Buffer
   full" without changing anything.

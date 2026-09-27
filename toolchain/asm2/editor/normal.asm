@@ -268,8 +268,7 @@ normal_enter_insert_eol:
   JMP enter_insert_mode
 
 normal_open_below:
-  JSR get_current_line_ptr
-  JSR advance_past_line_end
+  JSR get_next_line_ptr
   LDX #1
   BNE open_line_x            ; Always
 normal_open_above:
