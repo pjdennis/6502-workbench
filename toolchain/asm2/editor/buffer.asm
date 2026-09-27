@@ -473,33 +473,40 @@ cmp_ptr_end:
 ; Add the 16-bit signed delta in BUF_SRC16 to the line pointers of every
 ; line after FILE_LINE16 and to the entry after the last line (the end of
 ; the text), for single-line edits that add/remove no newlines
-; Clobbers: A, X, Y, BUF_PTR16, BUF_LEN16
+; Clobbers: A, X, Y, BUF_PTR16, BUF_LEN16 + 1
 buf_adjust_lines_apply:
-  ; Count = LINE_COUNT16 - FILE_LINE16
-  SEC
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
-  BMI .done                  ; FILE_LINE16 past the end: nothing to do
-  ORA BUF_LEN16
-  BEQ .done
-  ; Entry address = LINE_TBL + (FILE_LINE16 + 1) * 2, split into a
-  ; page-aligned base in BUF_PTR16 and the low byte in Y
-  LDA FILE_LINE16 + 1
-  STA BUF_PTR16 + 1
-  LDA FILE_LINE16
-  SEC
-  ROL                        ; A = low(line * 2 + 1), C = bit 7
-  ROL BUF_PTR16 + 1          ; C = 0 (line < $8000)
-  ADC #1
-  TAY                        ; Y = low(line * 2 + 2)
+  LDX FILE_LINE16 + 1
+  LDY FILE_LINE16
+  INY
+  TYA
+  BNE buf_adjust_lines_from
+  INX
+  ; fall through
+
+; The same for the entries of lines A/X (low/high) to LINE_COUNT16 (the
+; end of the text): none if A/X is past it
+buf_adjust_lines_from:
+  STA BUF_PTR16
+  STX BUF_PTR16 + 1
+  ; Loop count: A/X - LINE_COUNT16 - 1, the entries negated, counted up
+  ; to 0 in X (low byte) and BUF_LEN16 + 1 (high byte)
+  CLC
+  SBC LINE_COUNT16
+  TAX
+  LDA BUF_PTR16 + 1
+  SBC LINE_COUNT16 + 1
+  STA BUF_LEN16 + 1
+  BCS .done                  ; A/X past LINE_COUNT16: none
+  ; Entry address = LINE_TBL + A/X * 2, split into a page-aligned base
+  ; in BUF_PTR16 and the low byte in Y (C = 0 after the ROL: A/X < $8000)
+  ASL BUF_PTR16
+  ROL BUF_PTR16 + 1
   LDA BUF_PTR16 + 1
   ADC #>LINE_TBL
   STA BUF_PTR16 + 1
+  LDY BUF_PTR16
   LDA #0
   STA BUF_PTR16
-  ; Loop count: X = low byte, BUF_LEN16+1 = remaining 256-entry rounds
-  LDX BUF_LEN16
-  BEQ .loop
-  INC BUF_LEN16 + 1
 .loop:
   CLC
   LDA (BUF_PTR16),Y
@@ -513,9 +520,9 @@ buf_adjust_lines_apply:
   BNE .same_page
   INC BUF_PTR16 + 1
 .same_page:
-  DEX
+  INX
   BNE .loop
-  DEC BUF_LEN16 + 1
+  INC BUF_LEN16 + 1
   BNE .loop
 .done:
   RTS
