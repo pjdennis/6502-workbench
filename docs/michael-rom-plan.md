@@ -9,6 +9,8 @@ The asm2 editor then uploads alone, with about 4 KB of buffers instead of about 
 
 Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 
+**Status (2026-09-27): done.** Phases 1-5 and 7 are complete and the ROM runs on the board (`hardware/michael/michael_rom.bin`). Phase 6 wasn't needed, since programs load at `$2000` again. What was built differs from the plan below in a few places, noted where they come up: upload progress on the LCD, separate keyboard and screen starts, `SVC_IRQ`, the `ROM_FLAGS` byte at `$FC`, and the hand-written `michael_rom.inc`.
+
 ## What the current loader does (firmware/lib/serial/upload_and_run.inc)
 
 - It copies its receive handler to `$3F00`, where the ROM's IRQ vector points, and keeps its variables in `$00-$1F`.
