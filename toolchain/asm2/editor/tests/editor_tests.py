@@ -11701,11 +11701,34 @@ class EditorTestRunner:
             expected_content="XXbar\n",
         )
 
+        # On a blank, cw changes what dw deletes: the blanks up to the next
+        # word (vi and vim; the word after them stays)
         self.run_test(
-            "cw on whitespace deletes ws and next word",
+            "cw on whitespace changes only the whitespace",
             "foo   bar baz\n",
             b"3lcwX\x1b:wq\r",
-            expected_content="fooX baz\n",
+            expected_content="fooXbar baz\n",
+        )
+
+        self.run_test(
+            "cw on a tab changes only the blanks",
+            "foo \tbar\n",
+            b"3lcwX\x1b:wq\r",
+            expected_content="fooXbar\n",
+        )
+
+        self.run_test(
+            "2cw on whitespace changes the blanks and one word",
+            "foo   bar baz qux\n",
+            b"3l2cwX\x1b:wq\r",
+            expected_content="fooXbaz qux\n",
+        )
+
+        self.run_test(
+            "cw on whitespace yanks only the whitespace",
+            "foo   bar baz\n",
+            b"3lcw\x1b$p:wq\r",
+            expected_content="foobar baz   \n",
         )
 
         # cw on trailing whitespace changes only that whitespace: like dw,

@@ -96,6 +96,7 @@ All editing commands are blocked in read-only mode.
                  (accepts count: [N]cc). Yanks deleted lines (line yank)
   cw             Change word: delete to end of word, enter insert mode
                  (accepts count). Yanks deleted characters (character yank)
+                 On a blank, changes the blanks up to the next word (as dw)
   cb             Change backward: delete to word start, enter insert mode
                  (accepts count). Yanks deleted characters (character yank)
   ce             Change to end of word: delete to end of word, enter
