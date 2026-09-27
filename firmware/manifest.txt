@@ -38,6 +38,7 @@ firmware/programs/michael/michael_graphic_prompt_template.s esc=933fffcef297ea2e
 firmware/programs/michael/michael_keyboard-v2-20x4.s esc=FAIL noesc=FAIL
 firmware/programs/michael/michael_keyboard-v2.s esc=FAIL noesc=FAIL
 firmware/programs/michael/michael_keyboard.s esc=FAIL noesc=FAIL
+firmware/programs/michael/michael_keyboard_diag.s esc=deff504a4bef64b52aeb6dd2fac038d8006a895fdce7fd0dcb7d06d71520a1fe noesc=FAIL
 firmware/programs/michael/michael_keyboard_new.s esc=5f275758c89b0f01f651ee1a394f0ba7f7a2347ef72869392233dc10d8354611 noesc=FAIL
 firmware/programs/michael/michael_keyboard_show_names.s esc=f276ea71be99703101e05cfcc39d866e5d17e9916170f17016e39574fa3c0088 noesc=FAIL
 firmware/programs/michael/michael_show_some_text.s esc=5ca238d0536be243d0ec90b2e38789e2905e1da8376fcbb6b27852bf2264b0d8 noesc=FAIL
