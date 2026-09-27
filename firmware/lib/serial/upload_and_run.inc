@@ -317,3 +317,4 @@ forever:
 
 
   .include serial_receive.inc
+  .include serial_receive_interrupt.inc
