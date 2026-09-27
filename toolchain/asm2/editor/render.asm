@@ -449,10 +449,11 @@ render_line_from_change:
 ; Draw the cursor line from its change row using the SHIFT_NET /
 ; SHIFT_WRITE hint: each row's old text is shifted with ICH/DCH and only
 ; the new cells (and cells carried across a row boundary) are written,
-; wherever that is cheaper than resending the row.
+; wherever that is cheaper than resending the row.  The row's start is
+; worked out once and then stepped a row at a time.
 ; Input: RENDER_ROW/RENDER_WRAP = change row, WRAP_REM = change col,
 ;        SCROLL_DELTA = rows from the change row to the line's last row
-; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/STOP, SCROLL_DELTA,
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/COL/STOP, SCROLL_DELTA,
 ;           WRAP_REM, SHIFT_REM16, SHIFT_IEND16
 render_line_shift:
   ; SHIFT_REM16 = line length from the row start (row start = c0 - WRAP_REM)
@@ -476,7 +477,10 @@ render_line_shift:
   LDA #0
   ROL
   STA SHIFT_IEND16 + 1
-.row:
+  JSR get_current_line_ptr
+  LDX RENDER_WRAP
+.next_ptr:
+  JSR buf_ptr_advance_x        ; BUF_PTR16 = the row's start
   JSR shift_row
   DEC SCROLL_DELTA
   BEQ .done
@@ -484,24 +488,22 @@ render_line_shift:
   LDA RENDER_ROW
   CMP TEXT_ROWS
   BCS .done                    ; reached the status bar
-  INC RENDER_WRAP
   LDA #0
   STA WRAP_REM                 ; later rows change from column 0
   SEC
   SBC16_8 SHIFT_REM16, SCREEN_COLS, SHIFT_REM16
   SEC
   SBC16_8 SHIFT_IEND16, SCREEN_COLS, SHIFT_IEND16
-  JMP .row
+  LDX #1
+  BNE .next_ptr                ; Always: the next row starts a row on
 .done:
   RTS
 
-; Draw one row of the shifted line: RENDER_ROW/RENDER_WRAP, changed from
-; column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative to its start
-; Clobbers: A, X, Y, BUF_PTR16, RENDER_COL, RENDER_STOP
+; Draw one row of the shifted line: RENDER_ROW, starting at BUF_PTR16,
+; changed from column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative
+; to its start
+; Clobbers: A, X, Y, RENDER_COL, RENDER_STOP
 shift_row:
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x        ; BUF_PTR16 = row start
   ; ROW_END = min(cols, SHIFT_REM16): end of the row's new content
   LDA SHIFT_REM16 + 1
   BNE .row_full

@@ -1648,6 +1648,14 @@ class EditorTestRunner:
                     for i in range(1000)),
             b"58j" + b"j\x1b" * 50 + b":q!\r", 5950000, rows=60, cols=80)
 
+        # A line's rows shifted with ICH/DCH step their start a row at a
+        # time, where each row worked it out from the line's start: x at
+        # the start of a 254-row line took 4,229,418 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Shifted rows step their start: x on a 254-row line, 255x40",
+            "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
+            b"x:q!\r", 3900000, rows=255, cols=40)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
