@@ -122,14 +122,12 @@ search_backward:
   ; Not found: fall through
 
 ; Show "Pattern not found: <pattern>" on status line, held there until
-; the next key (as show_message_ax); returns carry clear
+; the next key (show_message_ax); returns carry clear
 search_show_not_found:
-  JSR status_line_clear
-  PRINT_TEXT str_not_found
-
-  LDA #<SEARCH_BUF
-  LDX #>SEARCH_BUF
-  JSR hold_message_ax
+  LDA #<str_not_found
+  LDX #>str_not_found
+  JSR show_message_ax
+  PRINT_TEXT SEARCH_BUF
   CLC
   RTS
 

@@ -290,7 +290,7 @@ move_right_x:
 ; Get count, clamped to the lines from FILE_LINE16 to the end, for the
 ; line commands (dd, cc, S, yy, >>, <<), which call it first.  On the
 ; last line a count of 2 or more fails, as in vim (it moves down count
-; - 1 lines first): the command ends there, as keep_clear_count
+; - 1 lines first): the command ends there (end_command)
 ; Output: BUF_TEMP16 = clamped count, BUF_LEN16 = the lines left.
 ; Clobbers: A, X
 get_count_clamp_lines:
@@ -308,10 +308,7 @@ get_count_clamp_lines:
   LDA COUNT16
   LSR
   ORA COUNT16 + 1
-  BEQ .ok                    ; No count, or 1
-  PLA                        ; Drop the return into the command
-  PLA
-  JMP keep_clear_count
+  BNE end_command            ; A count of 2 or more
 .ok:
   RTS
 
@@ -338,7 +335,14 @@ h_l_done:
   LDA CURSOR_COL16
   CMP NORMAL_TEMP
   BNE clear_count
-  ; fall through
+  BEQ keep_clear_count       ; Always
+
+; End the command that called the routine that jumps here, which has
+; pushed nothing (a command that fails: drop the return into it), as
+; keep_clear_count
+end_command:
+  PLA
+  PLA
 
 ; A command that did nothing (it failed, or it leaves the cursor and the
 ; text alone: m, and : commands but those that move the cursor) keeps the

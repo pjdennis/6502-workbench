@@ -351,9 +351,7 @@ compute_multiline_word_range_backward:
   ; and the operator it saved, and end the command there
 .cmwrb_fail:
   PLA
-  PLA
-  PLA
-  JMP keep_clear_count
+  JMP end_command
 
 ; Compute forward word-end range (multi-line) for de/ye/ce
 ; e is an inclusive motion: range includes the character at the end
