@@ -18846,6 +18846,50 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # A count, then typed-ahead p: 3p moves the cursor to the first
+        # pasted line only, so the next p was typed on line 1, not line 3
+        self.run_test_screen(
+            "yy 3pp u cursor on the line the last p was typed on",
+            "L\nx\nZ\n",
+            b"yy3ppu:q!\r",
+            expect_lines=[(0, "L"), (1, "L"), (2, "L"), (3, "L"), (4, "x")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "yy 2ppp u cursor on the line the last p was typed on",
+            "L\nx\nZ\n",
+            b"yy2pppu:q!\r",
+            expect_lines=[(0, "L"), (1, "L"), (2, "L"), (3, "L"), (4, "x")],
+            expect_cursor=(2, 0),
+        )
+
+        # A line paste leaves the cursor at column 0, so the next p or P
+        # is typed there, and u after typed-ahead pp or PP returns there
+        self.run_test_screen(
+            "yy$ pp u cursor at column 0 like p <Esc> p u",
+            "abcdef\nxy\n",
+            b"yy$ppu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "yy$ PP u cursor at column 0 like P <Esc> P u",
+            "abcdef\nxy\n",
+            b"yy$PPu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "xy")],
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "yy$ 2PP u cursor at column 0 like 2P <Esc> P u",
+            "abcdef\nxy\n",
+            b"yy$2PPu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "abcdef"), (3, "xy")],
+            expect_cursor=(0, 0),
+        )
+
         # Multi-line char yank ("b\ncd"): p leaves the cursor on the first
         # pasted char, so the next p pastes inside the copy before
         self.run_test(

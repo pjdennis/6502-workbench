@@ -39,19 +39,17 @@ normal_paste_below:
   JSR paste_adjust_marks
   LDA #UNDO_LINE_PASTE_BELOW
   STA UNDO_TYPE
-  ; Cursor: yank_paste_below_n does INC16 once; add extras for iterative semantics
+  ; Cursor: yank_paste_below_n does INC16 once; add extras for iterative
+  ; semantics (a one-line yank: each typed-ahead p moves down one line)
   LDA BATCH_EXTRA
   BEQ .paste_below_scroll
   ; Batched paste: cursor adjustment shifts FILE_LINE16 past first pasted
   ; lines, so scroll walk would start at wrong position.
   ADDA16 FILE_LINE16
-  ; Batching must not widen undo: record only the last pasted copy.
-  ; It occupies YANK_LINES16 lines starting (N-1)*YANK_LINES16 + 1 past
-  ; the original cursor line.
-  DEC16 UNDO_PASTE_COUNT16
-  JSR undo_compute_paste_lines    ; BUF_TEMP16 = (N-1) * YANK_LINES16
-  CLC
-  ADC16 UNDO_LINE16, BUF_TEMP16, UNDO_LINE16
+  ; Batching must not widen undo: record only the last p, typed on the
+  ; line above the cursor, at the column the p before left it
+  JSR undo_record_pos
+  DEC16 UNDO_LINE16
   JMP paste_undo_one              ; RENDER_FLAG stays 0 → full repaint
 .paste_below_scroll:
   LDA #RF_INS                   ; Signal line-insert for scroll optimization
@@ -71,7 +69,8 @@ normal_paste_above:
   STA RENDER_FLAG        ; Signal line-insert for scroll optimization
   ; No cursor adjustment - yank_paste_above_n doesn't change FILE_LINE16
   ; Batching must not widen undo: the last pasted copy sits at the top
-  ; of the block (paste-above prepends), i.e. at UNDO_LINE16 already.
+  ; of the block (paste-above prepends), where the P before left the
+  ; cursor
   BNE paste_batched_undo     ; Always (A = $03)
 
 ; Character paste above (before cursor)
@@ -82,12 +81,15 @@ char_paste_above:
   LDA #UNDO_CHAR_PASTE_ABOVE
   STA UNDO_TYPE
   ; Batching must not widen undo: a multi-line yank's last copy sits
-  ; first (paste-above inserts before the cursor), at UNDO_COL16 already
+  ; first (paste-above inserts before the cursor), at the cursor
   BIT NORMAL_TEMP
   BPL char_paste_last_copy
+; Batched P: undo takes back the last P's copy, pasted at the cursor
+; (line and column) that the P before it left
 paste_batched_undo:
   LDA BATCH_EXTRA
   BEQ paste_done
+  JSR undo_record_pos
 ; Batching must not widen undo: record only the last pasted copy
 paste_undo_one:
   SET16 $0001, UNDO_PASTE_COUNT16
