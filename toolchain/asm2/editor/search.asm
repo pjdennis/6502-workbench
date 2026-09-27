@@ -63,15 +63,18 @@ search_input_handle:
 search_forward:
   CP16 FILE_LINE16, SEARCH_LINE16
 
-  ; Try current line from CURSOR_COL + 1
+  ; Try current line from CURSOR_COL + 1 (nothing follows the cursor on
+  ; an empty line)
   LDA CURSOR_COL16 + 1
   BNE .line_loop             ; CURSOR_COL > 255, skip current line
-  LDA CURSOR_COL16
-  CLC
-  ADC #1
-  BCS .line_loop             ; CURSOR_COL = 255, overflow
-  STA SEARCH_COL
   JSR search_setup_line
+  LDY CURSOR_COL16
+  LDA (BUF_PTR16),Y
+  CMP #'\n'
+  BEQ .line_loop             ; Empty line
+  INY
+  BEQ .line_loop             ; CURSOR_COL = 255, overflow
+  STY SEARCH_COL
   JSR search_match_from
   BCC search_move_to_match
 

@@ -8796,6 +8796,24 @@ class EditorTestRunner:
             expect_cursor=(0, 0),  # cursor at col 2, wraps to find AA at col 0
         )
 
+        # On an empty line nothing follows the cursor, so / goes straight to
+        # the next line. (It must not scan the next line as if it were the
+        # empty one and "find" the match there, leaving the cursor put.)
+        # All as in vim.
+        for name, content, keys, cursor in (
+                ("/ from an empty line finds the next line",
+                 "\nfoo\n", b"/foo\r", (1, 0)),
+                ("/ from an empty line finds a match past col 0",
+                 "abc\n\nxfoo\nbar\n", b"j/foo\r", (2, 1)),
+                ("n on an empty line moves to a match on the next line",
+                 "foo\n\nfoo\n", b"/foo\rkn", (2, 0)),
+                # After Gdd the empty last line is followed by the deleted
+                # "foo\n" in stale memory past the end of the buffer
+                ("/ from an empty last line ignores bytes past the buffer",
+                 "foo\nabc\n\nfoo\n", b"Gdd/foo\r", (0, 0))):
+            self.run_test_screen(name, content, keys + b":q!\r",
+                                 expect_cursor=cursor)
+
         # ============================================================
         # Find-next (n) tests
         # ============================================================
