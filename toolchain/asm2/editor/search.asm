@@ -1,17 +1,16 @@
 ; Search mode handler
 ;
 ; Handles '/' (forward) and '?' (backward) literal search in the text
-; buffer. The pattern is stored in SEARCH_BUF (length SEARCH_LEN) for reuse
-; by 'n' / 'N' and by an empty '/' or '?'.
+; buffer. The pattern is read into CMD_BUF by read_line (up to 127
+; characters, as a ':' command) and copied to SEARCH_BUF (length
+; SEARCH_LEN) on a non-empty Enter, for reuse by 'n' / 'N' and by an
+; empty '/' or '?': a cancelled search keeps the pattern, as in vim.
 ;
 ; Memory layout:
-;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL)
-;   SEARCH_LIMIT ($D700) - One past last byte of search buffer
-;   SEARCH_MAX   (172)   - Maximum pattern length (SEARCH_LIMIT - SEARCH_BUF)
+;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL; 127 of
+;                          its 172 bytes are used)
 
 SEARCH_BUF   = $D654
-SEARCH_LIMIT = $D700
-SEARCH_MAX   = SEARCH_LIMIT - SEARCH_BUF
 
 ; (zero-page variables: zp.asm)
 
@@ -19,6 +18,8 @@ SEARCH_MAX   = SEARCH_LIMIT - SEARCH_BUF
 search_handle:
   LDA #'/'
   BNE search_input_handle ; Always taken
+search_ret:
+  RTS
 
 ; Handle '?' backward search command
 search_backward_handle:
@@ -29,67 +30,24 @@ search_backward_handle:
 ; A = prompt character ('/' or '?')
 search_input_handle:
   STA BUF_TEMP           ; Save prompt char
-  LDA #0
-  STA SEARCH_IDX
+  JSR read_line          ; X = length
+  BCS search_ret         ; Cancelled
 
-  ; Show prompt on status line
-  LDA BUF_TEMP
-  JSR show_prompt
-
-.read_loop:
-  JSR get_key
-
-  CMP #KEY_ESC
-  BEQ .cancel
-  CMP #KEY_ENTER
-  BEQ .execute
-  CMP #KEY_BS
-  BEQ .backspace             ; ($7F arrives as KEY_BS)
-
-  ; Printable character?
-  CMP #' '
-  BCC .read_loop
-  CMP #$7F
-  BCS .read_loop
-
-  ; Add to buffer, unless it or the status row is full
-  LDX TEXT_LEFT
-  DEX
-  BEQ .read_loop   ; Status row full
-  LDX SEARCH_IDX
-  CPX #SEARCH_MAX
-  BCS .read_loop   ; Buffer full
-  STA SEARCH_BUF,X
-  INC SEARCH_IDX
-
-  ; Echo character
-  JSR text_flush
-  JMP .read_loop
-
-.backspace:
-  LDA SEARCH_IDX
-  BEQ .cancel       ; Nothing to delete, cancel
-  DEC SEARCH_IDX
-  JSR erase_char
-  JMP .read_loop
-
-.cancel:
-  RTS
-
-.execute:
-  ; If empty search, reuse previous pattern
-  LDA SEARCH_IDX
+  ; Empty input reuses the previous pattern
+  TXA
   BEQ .reuse_pattern
-  ; Update search length
-  STA SEARCH_LEN
-  JMP .do_search
+  STX SEARCH_LEN
+.copy:
+  LDA CMD_BUF - 1,X
+  STA SEARCH_BUF - 1,X
+  DEX
+  BNE .copy
 
 .reuse_pattern:
-  ; Check if there's a previous pattern
+  ; Check if there's a pattern (always true after a copy)
   LDA SEARCH_LEN
-  BEQ .cancel       ; No previous pattern either
+  BEQ search_ret         ; No previous pattern either
 
-.do_search:
   ; Direction from the prompt char: 0 = forward (/), $10 = backward (?)
   LDA BUF_TEMP
   EOR #'/'
@@ -202,7 +160,7 @@ search_show_not_found:
   LDA SEARCH_BUF,X
   JSR text_putc              ; (preserves X)
   INX
-  BNE .print_pattern         ; Always taken (SEARCH_LEN <= 172)
+  BNE .print_pattern         ; Always taken (SEARCH_LEN <= 127)
 .print_done:
   JMP flush_get_key            ; Wait for keypress
 

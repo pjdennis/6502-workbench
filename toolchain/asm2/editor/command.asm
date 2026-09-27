@@ -290,7 +290,8 @@ parse_range_pos:
   CLC
   RTS
 
-; Read a line on the status line into CMD_BUF
+; Read a line on the status line into CMD_BUF (the ':' and the '/' '?'
+; prompts)
 ; Input: A = prompt character
 ; Returns: carry clear on Enter: CMD_BUF null-terminated, X = length
 ;          carry set on ESC, or on backspace with nothing left to delete

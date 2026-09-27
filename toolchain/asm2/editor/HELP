@@ -167,8 +167,9 @@ NORMAL MODE - SEARCH
 
   If the pattern is not found, "Pattern not found" is displayed.
   A pattern can be as long as fits the status row after the prompt
-  (the screen width less 2 characters, at most 172); further keys
-  are ignored.
+  (the screen width less 2 characters, at most 127); further keys
+  are ignored. ESC, or backspacing past the prompt, cancels the
+  search and keeps the previous pattern for n and N.
 
 
 NORMAL MODE - MARKS

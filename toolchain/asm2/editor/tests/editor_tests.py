@@ -8734,6 +8734,28 @@ class EditorTestRunner:
             expect_cursor=(0, 0),  # Stays at line 0
         )
 
+        # A cancelled or erased search keeps the saved pattern for n, N and
+        # an empty / or ? (vim)
+        for how, abandon in (("ESC", b"/wx\x1b"),
+                             ("backspace", b"?wx\x7f\x7f\x7f")):
+            for repeat in (b"n", b"N", b"/\r", b"?\r", b"/wx\x7f\x7f\r"):
+                self.run_test_screen(
+                    f"search cancelled by {how} keeps pattern for {repeat!r}",
+                    "hello\nwxllo\nfoo\nhello\n",
+                    b"/hello\r" + abandon + repeat + b":q!\r",
+                    expect_cursor=(0, 0),
+                )
+
+        # A pattern holds up to 127 characters, as a ':' command does: at
+        # 200 columns (where it fits the status row) the Y typed after 127
+        # q's is ignored, so the search finds the q's
+        self.run_test_screen(
+            "/ pattern input stops at 127 chars",
+            "abc\n" + "q" * 127 + "X\n",
+            b"/" + b"q" * 127 + b"Y\r:q!\r", cols=200,
+            expect_cursor=(1, 0),
+        )
+
         # Search from middle of file
         self.run_test_screen(
             "search from middle finds below first",

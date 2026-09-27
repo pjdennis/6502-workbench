@@ -169,7 +169,7 @@ project's 6502 emulator in console/ANSI mode.
 | `TEXT_BUF` | Variable | Text buffer (page-aligned after code, up to `$D5FF`) |
 | `$D600-$D61F` | 32 B | Batch insert staging buffer (`BATCH_BUF`) |
 | `$D620-$D653` | 52 B | Mark table (`MARK_TBL`), 26 marks x 2 bytes |
-| `$D654-$D6FF` | 172 B | Search pattern buffer (`SEARCH_BUF`) |
+| `$D654-$D6FF` | 172 B | Search pattern buffer (`SEARCH_BUF`; a pattern takes up to 127) |
 | `$D700-$D7FF` | 256 B | Undo data page (`UNDO_DATA_BUF`) |
 | `$D800-$DFFF` | 2 KB | Line pointer table (`LINE_TBL`), 2 bytes/entry |
 | `$E000-$EFFF` | 4 KB | Yank buffer (`YANK_BUF`) |

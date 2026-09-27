@@ -93,7 +93,6 @@ YANK_TYPE:     .byte     ; 0=line, 1=char
 
 ; --- search.asm ---
 SEARCH_LEN:   .byte     ; Length of current search pattern
-SEARCH_IDX:   .byte     ; Current index during search input
 SEARCH_LINE16: .word    ; Line number being searched
 SEARCH_COL:   .byte     ; Column position of match / start column for search
 SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), $10=backward (?)
