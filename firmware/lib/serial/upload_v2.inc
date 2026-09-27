@@ -10,7 +10,8 @@
 ; 2x16 panel will do):
 ;
 ;   Block 02 $0A40      the block arriving, and where its next byte will end up ($---- while
-;   Received $1A40      its header is arriving); every byte received so far
+;   Received $1A40      its header is arriving); every byte received so far ("Ready" until the
+;                       first arrives)
 ;
 ; redrawn when the count changes, but at most every UPLOAD_REDRAW_TICKS runs of timer 1 (~0.2 s)
 ; since redrawing nonstop dims the LCD; a stalled upload still shows exactly how far it got. Blocks
@@ -69,6 +70,7 @@ UPLOAD_FIELD       = 10                    ; The column of both rows' hex
 upload_block_label:     .asciiz 'Block '
 upload_address_mark:    .asciiz ' $'
 upload_received_label:  .asciiz 'Received $'
+upload_ready_message:   .asciiz 'Ready'
 upload_no_address:      .asciiz '----'
 upload_loaded_message:  .asciiz 'Loaded.         '
 upload_failed_message:  .asciiz 'Upload failed'
@@ -119,8 +121,8 @@ upload_v2:
   .endif
   lda #UPLOAD_ROW_COUNT
   jsr display_command
-  lda #<upload_received_label
-  ldx #>upload_received_label
+  lda #<upload_ready_message
+  ldx #>upload_ready_message
   jsr display_string
 
   lda #PCR_CB2_IND_NEG_E          ; CB2 independent interrupt negative edge
@@ -224,9 +226,27 @@ upload_show_progress:
   sta UPLOAD_SHOWN
   lda UPLOAD_SEEN + 1
   sta UPLOAD_SHOWN + 1
+  lda UPLOAD_SHOWN                ; Nothing yet: "Ready" stays
+  cmp #<UPLOAD_STREAM
+  bne .count_row
+  lda UPLOAD_SHOWN + 1
+  cmp #>UPLOAD_STREAM
+  bne .count_row
+  rts
 
+.count_row:
+  lda UPLOAD_SHOWN_BLOCK          ; The first time, over "Ready", the label too
+  bne .count_field
+  lda #UPLOAD_ROW_COUNT
+  jsr display_command
+  lda #<upload_received_label
+  ldx #>upload_received_label
+  jsr display_string
+  bra .count
+.count_field:
   lda #UPLOAD_ROW_COUNT + UPLOAD_FIELD
   jsr display_command
+.count:
   sec                             ; Received = UPLOAD_SHOWN - UPLOAD_STREAM
   lda UPLOAD_SHOWN
   sbc #<UPLOAD_STREAM
@@ -236,14 +256,7 @@ upload_show_progress:
   jsr display_hex
   txa
   jsr display_hex
-  lda UPLOAD_SHOWN                ; Nothing yet: leave the first row as it is
-  cmp #<UPLOAD_STREAM
-  bne .block_row
-  lda UPLOAD_SHOWN + 1
-  cmp #>UPLOAD_STREAM
-  beq .done
 
-.block_row:
   lda UPLOAD_BLOCK
   cmp UPLOAD_SHOWN_BLOCK
   beq .address
@@ -295,8 +308,6 @@ upload_show_progress:
   jsr display_hex
   lda TEMP
   jmp display_hex
-.done:
-  rts
 
 
 ; Start a run of timer 1 (clearing its flag)

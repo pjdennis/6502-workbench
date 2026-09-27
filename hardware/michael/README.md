@@ -79,7 +79,7 @@ minipro -p AT28C256 -w hardware/michael/michael_rom.bin
 
 Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
 
-After a reset, the LCD shows "Michael ROM 3" and "Received $0000". The new ROM only understands format 2 uploads:
+After a reset, the LCD shows "Michael ROM 3" and "Ready"; "Received" replaces "Ready" once data arrives. The new ROM only understands format 2 uploads:
 
 - `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to Intel HEX and sends that, so a program loads and starts at its own `.org`. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000` as on the ROMs before this one.
 - `tools/upload/transfer.py --baudrate=57600 --format=2 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it to `$0200`.

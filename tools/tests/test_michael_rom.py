@@ -107,7 +107,7 @@ class MichaelRomLoaderTest(RomTestCase):
                              '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
 
     def test_waiting_screen(self):
-        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 3', 'Received $0000'])
+        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 3', 'Ready'])
 
     def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
         wire = self.upload([Block(0x0200, self.check)])
@@ -259,7 +259,7 @@ class MichaelRomServicesTest(RomTestCase):
         self.assertEqual(self.run_program('chain', b'z')[0], 'zY')
 
     def test_exit_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Received $0000'])
+        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Ready'])
 
 
 @NEEDS

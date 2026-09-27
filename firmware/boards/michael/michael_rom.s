@@ -73,7 +73,7 @@ program_start:
   lda #<rom_message
   ldx #>rom_message
   jsr display_string
-  jmp upload_v2                   ; Shows "Received $0000" under it while it waits
+  jmp upload_v2                   ; Shows "Ready" under it while it waits
 
   .include upload_v2.inc
   .include serial_receive_interrupt.inc   ; Copied to INTERRUPT_ROUTINE by upload_v2
