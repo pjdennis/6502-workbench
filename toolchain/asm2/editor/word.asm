@@ -316,6 +316,7 @@ compute_multiline_cw_range_forward:
 ; OP_EXCL_LINE (see op_lines)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
+; (at the start of the file it ends the command instead: b fails)
 ; Side effect: cursor STAYS at new backward position (start of range);
 ; from column 0, PREV_LINE_ROWS = its line's rows
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
@@ -325,7 +326,7 @@ compute_multiline_word_range_backward:
   TST16 CURSOR_COL16
   BNE .cmwrb_col
   TST16 FILE_LINE16
-  BEQ .cmwrb_col                    ; The file start: b cannot move
+  BEQ .cmwrb_fail                   ; The file start: b cannot move
   ; From column 0 (b goes to a line above), vi's exclusive rule: the
   ; range stops at the end of that line.  An edit there changes that
   ; line in place (typed-ahead presses then redraw all: dispatch_replay)
@@ -345,6 +346,14 @@ compute_multiline_word_range_backward:
   CMP OP_EXCL_LINE                  ; C = 0: the range stops before the
   SBC16 BUF_SRC16, BUF_PTR16, BUF_LEN16  ; line break (range = end - start)
   JMP range_epilogue
+  ; At the file start b fails, and with it the operator, as in vim (cb
+  ; does not go into insert mode): drop the return into word_op_forward
+  ; and the operator it saved, and end the command there
+.cmwrb_fail:
+  PLA
+  PLA
+  PLA
+  JMP keep_clear_count
 
 ; Compute forward word-end range (multi-line) for de/ye/ce
 ; e is an inclusive motion: range includes the character at the end

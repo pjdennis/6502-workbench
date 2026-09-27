@@ -12071,12 +12071,19 @@ class EditorTestRunner:
             expected_content="Xworld\n",
         )
 
-        self.run_test(
-            "cb at col 0 just enters insert mode",
-            "hello\n",
-            b"cbhi \x1b:wq\r",
-            expected_content="hi hello\n",
-        )
+        # At the start of the file b fails, and so does cb, as in vim: no
+        # insert mode, and the keys after it are commands (h, then i)
+        for content, keys, expected in (("hello\n", b"cbhi \x1b", " hello\n"),
+                                        ("hello\n", b"cbX\x1b", "hello\n"),
+                                        ("\nfoo\n", b"cbix\x1b", "x\nfoo\n"),
+                                        ("hello\n", b"2cbix\x1b", "xhello\n"),
+                                        ("hello\n", b"dbix\x1b", "xhello\n")):
+            self.run_test(
+                f"{keys!r} at the start of the file: b fails",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
 
         self.run_test(
             "cb from mid-word deletes back to word start",
