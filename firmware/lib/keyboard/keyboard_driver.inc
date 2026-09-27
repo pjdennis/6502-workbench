@@ -15,7 +15,8 @@
 ;   callback_key_f1      - callback when F1 pressed
 ;   callback_kb_trace    - called at each step of keyboard_send_command, for diagnostics:
 ;                          'a' starting, 'b' clock pulled low, 'c' byte sent to shift register,
-;                          'd' keyboard clocked the byte in, 'e' ACK received.
+;                          'd' keyboard clocked the byte in, 'w' repeatedly while waiting for
+;                          the ACK, 'e' ACK received.
 ;                          On entry A = step, X = command byte. Must preserve X and Y.
 
 ; Calls callback_kb_trace, if defined, with A = step
@@ -775,6 +776,7 @@ parity_mask_ready:               ; Mask is in A
 
   ; Wait for ACK
 .wait_for_ack:
+  kb_trace 'w'
   lda ACK_RECEIVED
   beq .wait_for_ack
   kb_trace 'e'

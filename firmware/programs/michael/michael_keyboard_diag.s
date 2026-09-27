@@ -8,8 +8,7 @@
 ;   c               - byte loaded into the output shift register and clock released
 ;   d               - keyboard clocked the byte in and the CA2 interrupt ran the handler
 ;   space           - keyboard replied with ACK ($FA)
-; Bytes other than ACK received by the time the byte is sent, or while waiting for the ACK,
-; are shown as [xx].
+; Bytes other than ACK received while waiting for the ACK are shown as [xx].
 ; After start-up it shows ">" and then each byte received from the keyboard in hex.
 
   .include base_config_v2.inc
@@ -28,8 +27,6 @@ SIMPLE_BUFFER_READ_PTR   = $09 ; 1 byte
 CONSOLE_CURSOR_POSITION  = $0A ; 1 byte
 
 KB_ZERO_PAGE_BASE        = $0B ; up to KB_ZERO_PAGE_STOP
-
-SHOW_FROM_IRQ            = $15 ; 1 byte - bit 7 set to show received bytes from the handler
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
 CONSOLE_TEXT             = $0300 ; CONSOLE_LENGTH + 1 bytes
@@ -52,7 +49,7 @@ CONSOLE_HEIGHT = DISPLAY_HEIGHT
   .include key_codes.inc
   .include keyboard_typematic.inc
 KB_BUFFER_INITIALIZE    = simple_buffer_initialize
-KB_BUFFER_WRITE         = diag_buffer_write
+KB_BUFFER_WRITE         = simple_buffer_write
 KB_BUFFER_READ          = simple_buffer_read
 KB_NO_INTERRUPT_HANDLER = 1      ; diag_interrupt is copied to the ROM's IRQ vector instead
 callback_kb_trace       = diag_trace
@@ -67,7 +64,6 @@ program_start:
 
   jsr reset_and_enable_display_no_cursor
   jsr console_initialize
-  stz SHOW_FROM_IRQ
 
   ; Show the ROM's IRQ vector and copy the interrupt handler there
   ldx #0
@@ -116,12 +112,12 @@ show_bytes:
 
 
 ; Called by keyboard_send_command at each step
-; On entry A = step ('a' to 'e'), X = command byte
+; On entry A = step ('a' to 'e', or 'w' while waiting for the ACK), X = command byte
 ; On exit  X, Y are preserved
 ;          A is not preserved
 diag_trace:
-  stz SHOW_FROM_IRQ
-  pha
+  cmp #'w'
+  beq .waiting
   cmp #'a'
   beq .start
   cmp #'e'
@@ -129,49 +125,16 @@ diag_trace:
   lda #' '
 .print:
   jsr console_print_character
-  bra .show
+  jmp console_show
 .start:
   txa
   jsr console_print_hex
-.show:
-  jsr console_show
-  pla
-  cmp #'d'
-  bne .done
-  ; Show bytes already received (the reply may arrive while the screen is updated), then
-  ; have the handler show any more while waiting for the ACK
-.show_received:
-  sei
+  jmp console_show
+
+  ; Show any byte other than ACK received while waiting for the ACK
+.waiting:
   jsr KB_BUFFER_READ
-  bcs .none_received
-  cli
-  jsr show_received_byte
-  bra .show_received
-.none_received:
-  dec SHOW_FROM_IRQ
-  cli
-.done:
-  rts
-
-
-; Called from the interrupt handler with each byte received that is not an ACK
-; On entry A = byte received
-; On exit  C clear if the byte was taken
-;          X, Y are preserved
-;          A is not preserved
-diag_buffer_write:
-  bit SHOW_FROM_IRQ
-  bmi show_received_byte
-  jmp simple_buffer_write
-
-
-; On entry A = byte received
-; On exit  C clear
-;          X, Y are preserved
-;          A is not preserved
-show_received_byte:
-  phx
-  phy
+  bcs .done
   pha
   lda #'['
   jsr console_print_character
@@ -180,9 +143,7 @@ show_received_byte:
   lda #']'
   jsr console_print_character
   jsr console_show
-  ply
-  plx
-  clc
+.done:
   rts
 
 
