@@ -377,10 +377,11 @@ undo_compute_paste_lines:
   RTS
 
 ; Cursor back where a char paste was typed: UNDO_LINE16, and UNDO_COL16
-; for P or one column left of it (clamped at column 0) for p
+; for P or one column left of it (clamped at column 0) for p; BUF_TEMP16
+; = the copies it pasted
 ; Returns X = UNDO_TYPE
 paste_restore_pos:
-  JSR undo_restore_line_col  ; A = UNDO_COL16 high byte
+  JSR undo_restore_count     ; A = UNDO_COL16 high byte
   LDX UNDO_TYPE
   CPX #UNDO_CHAR_PASTE_BELOW
   BNE .done
@@ -393,8 +394,7 @@ paste_restore_pos:
 ; --- Char paste undo (handles both BELOW and ABOVE) ---
 undo_char_paste_undo:
   ; Position at insertion point and delete pasted content
-  JSR undo_restore_line_col
-  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
+  JSR undo_restore_count
   JSR yank_paste_size          ; BUF_LEN16 = total paste size
   BCS undo_paste_fail
   JSR delete_at_cursor         ; Deletes BUF_LEN16 bytes, handles marks
@@ -407,7 +407,6 @@ undo_char_paste_undo:
 ; --- Char paste redo (handles both BELOW and ABOVE) ---
 undo_char_paste_redo:
   ; The paste runs with no typed-ahead extras (main_loop zeroed BATCH_EXTRA)
-  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR paste_restore_pos        ; X = UNDO_TYPE
   CPX #UNDO_CHAR_PASTE_ABOVE
   BEQ .redo_cpa
@@ -553,8 +552,7 @@ insert_ret_col:
 ; per-line counts (insert_spaces_core in data mode re-records as
 ; UNDO_INDENT).  Cursor returns to the recorded position both ways.
 undo_shift_step:
-  JSR undo_restore_line_col
-  CP16 UNDO_RANGE_LINES16, BUF_TEMP16
+  JSR undo_restore_count       ; (BUF_TEMP16 = UNDO_RANGE_LINES16)
   JSR shift_unit_setup
   LDA UNDO_TYPE
   CMP #UNDO_UNINDENT
@@ -569,7 +567,8 @@ undo_shift_step:
 ; Move the cursor to the recorded span start (the line repaints from
 ; there) and point BUF_PTR16 at it
 undo_span_setup:
-  JSR undo_restore_pos_from
+  CP16 UNDO_COL16, RENDER_FROM_COL16
+  JSR undo_restore_line_col
   JMP get_cursor_buf_ptr
 
 ; --- Toggle case undo/redo: self-inverse, re-toggle the span ---
@@ -668,10 +667,10 @@ undo_span_redone:
   JMP undo_keep_render_flag
 
 ; --- Restore helpers: copy the undo record back into cursor state ---
-; Restore FILE_LINE16 and CURSOR_COL16, and repaint the line from the
-; recorded column
-undo_restore_pos_from:
-  CP16 UNDO_COL16, RENDER_FROM_COL16
+; BUF_TEMP16 = the record's count (UNDO_PASTE_COUNT16: the copies a char
+; paste made, or UNDO_RANGE_LINES16, the lines of a >> or <<), then:
+undo_restore_count:
+  CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
 ; Restore FILE_LINE16 and CURSOR_COL16 from the undo record
 undo_restore_line_col:
   CP16 UNDO_LINE16, FILE_LINE16
