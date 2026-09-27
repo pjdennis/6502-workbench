@@ -5406,10 +5406,10 @@ class EditorTestRunner:
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),
-                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 393),
+                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 377),
                 ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
-                 (10, 40), 336),
-                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 968)):
+                 (10, 40), 332),
+                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 910)):
             self.run_test_screen(
                 "Repaint bytes: " + name,
                 content,
@@ -5417,6 +5417,42 @@ class EditorTestRunner:
                 rows=rows, cols=cols,
                 expect_frame_bytes=[(frame, sent)],
             )
+
+        self._group("The row loop reaches each row cheaply:",
+                    leading_blank=True)
+
+        # A row after one that ended with ESC[K (a short row, or '~') is
+        # reached with CR LF, a wrapped line's next row by the terminal's
+        # auto-wrap, and a row after one that ended its line exactly full
+        # with a move (terminals differ in where that leaves the cursor).
+        # No LF leaves the last text row: the status bar has its own move
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines in (
+                    ("rows after a short row start with CR LF",
+                     "one\ntwo\n", b":q!\r", 0,
+                     "\x1b[Hone\x1b[K\r\ntwo\x1b[K\r\n~\x1b[K\r\n~",
+                     [(0, "one"), (1, "two"), (2, "~"), (3, "~")]),
+                    ("the last text row is followed by the status row's move",
+                     "one\n", b":q!\r", 0, "\r\n~\x1b[K\x1b[10H\x1b[7m",
+                     [(0, "one"), (8, "~")]),
+                    ("a row ending its line exactly full is followed by a move",
+                     "x" * 40 + "\nnext\n", b":q!\r", 0,
+                     "x" * 40 + "\x1b[2Hnext\x1b[K\r\n~",
+                     [(0, "x" * 40), (1, "next"), (2, "~")]),
+                    ("a wrapped line continues by auto-wrap",
+                     "a\n" + "b" * 50 + "\nc\n", b"jyyp:q!\r", 3,
+                     "\x1b[4H" + "b" * 50 + "\x1b[K",
+                     [(0, "a"), (1, "b" * 40), (2, "b" * 10),
+                      (3, "b" * 40), (4, "b" * 10), (5, "c")])):
+                self.run_test_screen(
+                    "Row loop: " + name + suffix,
+                    content,
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                )
 
         self._group("A frame starts where the last one left the cursor:",
                     leading_blank=True)
@@ -5477,7 +5513,7 @@ class EditorTestRunner:
                 ("a move to row 1", "abc\n", b"l:q!\r", 1,
                  "\x1b[m\x1b[;2H\x1b[?25h", [(0, "abc")]),
                 ("a move home", "Hello\n", b":q!\r", 0,
-                 "\x1b[?25l\x1b[HHello\x1b[K\x1b[2H~", [(0, "Hello")]),
+                 "\x1b[?25l\x1b[HHello\x1b[K", [(0, "Hello")]),
                 ("normal video", "Hello\n", b":q!\r", 0,
                  "\x1b[K\x1b[m\x1b[H\x1b[?25h", [(1, "~")]),
                 ("DCH", "Hello World\n", b"5lx:q!\r", 3,

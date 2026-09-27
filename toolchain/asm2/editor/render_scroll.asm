@@ -374,14 +374,26 @@ render_limited_from_col:
   STA RENDER_LIMIT             ; stop at this row
 ; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP up to (not
 ; including) row RENDER_LIMIT or the status bar, the first from column
-; RENDER_COL and the rest from column 0.  A wrapped line's continuation
-; rows are reached by the terminal's auto-wrap (the row before was
-; written full width), so only a line's first row (and the first row
-; drawn) positions the cursor.
+; RENDER_COL and the rest from column 0.  Only the first row drawn needs
+; a cursor move: a wrapped line's continuation rows are reached by the
+; terminal's auto-wrap (the row before was written full width), and a
+; row after one that ended with ESC[K (a short row, or '~') by CR LF.
+; A row after one that ended its line exactly full gets a move, as
+; terminals differ in where the cursor is then.  No LF leaves the last
+; text row (the loop stops there), so none can scroll the screen.
 render_rows:
+  LDX #0                       ; the first row: a cursor move
 .row_loop:
   JSR .row_check               ; A = RENDER_ROW
   BCS .done
+  DEX
+  BNE .move                    ; X was 0: a cursor move
+  LDA #'\r'                    ; X was 1: CR LF
+  JSR io_write
+  LDA #'\n'
+  JSR io_write
+  BNE .row                     ; Always (A = LF)
+.move:
   LDX RENDER_COL
   JSR ansi_goto0
 .row:
@@ -392,16 +404,15 @@ render_rows:
   LDAX16 RENDER_LINE16
   JSR buf_get_line_ptr
   LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-  JSR render_line_chars_from   ; Y = the column after the last char
-  LDA #0
-  STA RENDER_COL               ; the rows after it from column 0
+  JSR buf_ptr_advance_x        ; (X = 0 after it)
+  JSR render_line_chars_from   ; Y = the column after the last char (X kept)
+  STX RENDER_COL               ; the rows after it from column 0 (X = 0)
   ; A full row may continue on the next wrap row (unless at a newline)
   CPY SCREEN_COLS
   BNE .line_done
   LDA (BUF_PTR16),Y
   CMP #'\n'
-  BEQ .line_ended
+  BEQ .line_ended              ; X = 0: a cursor move to the next row
   INC RENDER_WRAP
   INC RENDER_ROW
   JSR .row_check
@@ -409,21 +420,18 @@ render_rows:
 .done:
   RTS
 
-.line_done:
-  JSR ansi_clear_line
-.line_ended:
-  INC16 RENDER_LINE16
-  LDA #0
-  STA RENDER_WRAP
-.next_row:
-  INC RENDER_ROW
-  JMP .row_loop
-
 .past_eof:
   LDA #'~'
   JSR io_write
-  JSR ansi_clear_line
-  JMP .next_row
+.line_done:
+  JSR ansi_clear_line          ; (X kept)
+  LDX #1                       ; the next row by CR LF
+.line_ended:
+  INC16 RENDER_LINE16          ; (past the end it stays past the end)
+  LDA #0
+  STA RENDER_WRAP
+  INC RENDER_ROW
+  JMP .row_loop
 
 ; C=1 if RENDER_ROW reached RENDER_LIMIT or the status bar, else C=0;
 ; A = RENDER_ROW

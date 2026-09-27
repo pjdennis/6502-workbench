@@ -312,8 +312,15 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 - Lines past EOF shown as `~` (tilde).
 - Tabs shown as `>`, other control characters and non-ASCII bytes as `?`,
   both in reverse video.
-- Rows are drawn left to right; a wrapped line's continuation rows rely on
-  the terminal's auto-wrap (no cursor move after a full-width row).
+- Rows are drawn left to right, and only the first row a frame draws gets
+  a cursor move: the row after one cleared to its end (`ESC[K`) is reached
+  with CR LF, and a wrapped line's continuation rows by the terminal's
+  auto-wrap (see Terminal requirements).  A row after one that ended its
+  line exactly at the right edge gets a move too, as terminals differ in
+  where they leave the cursor then.
+- A frame's first move is left out when the last frame left the cursor
+  there (`CUR_VALID`), or sent as a backspace when it is one column to the
+  left.
 - The screen is at most 255 rows by 255 columns: a bigger terminal is used
   as 255 (the terminal build asks for the cursor at 255;255 and reads back
   where it went; the emulator caps the console build's size ports). On a
@@ -329,6 +336,43 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
 - `input.asm` normalizes backspace and parses ESC sequences to high-bit key
   codes (`KEY_UP=$80`, `KEY_DOWN=$81`, etc.).
 - Snapshot-based render optimization minimizes redraw work per keystroke.
+
+### Terminal requirements
+
+The editor needs an ANSI terminal such as xterm (or a serial terminal
+program emulating one) that handles the escape sequences below and behaves
+as a VT100 does by default:
+
+- Escape sequences: cursor position (`ESC[<row>;<col>H`), erase to the end
+  of the line (`ESC[K`), clear screen (`ESC[2J`), reverse and normal video
+  (`ESC[7m`, `ESC[m`), cursor hide and show (`ESC[?25l`, `ESC[?25h`),
+  scroll region (`ESC[<top>;<bottom>r`, `ESC[r`), scroll up and down
+  (`ESC[<n>S`, `ESC[<n>T`), insert and delete characters (`ESC[<n>@`,
+  `ESC[<n>P`), and in the terminal build the cursor position report
+  (`ESC[6n`).  A parameter equal to its default is left out, so a missing
+  one must take its default: `ESC[H` is row 1, column 1, `ESC[5H` column 1
+  of row 5, `ESC[;9r` a region from row 1 to row 9, `ESC[P` one character.
+- Plain CR and LF: CR moves to column 1 of the same row, and LF one row
+  down in the same column.  A row the row loop has finished (ended with
+  `ESC[K`) is followed by CR LF to reach the next one, so a terminal that
+  adds a LF to each CR it receives draws those rows a row too low and
+  scrolls the screen.  Serial terminal programs have that as an option,
+  off by default, which must stay off: PuTTY's "Implicit LF in every CR",
+  Tera Term's receive new-line "CR+LF" (use "CR"), minicom's "Add
+  linefeed".  Adding a CR to each LF (new-line mode) does no harm: every
+  LF follows a CR.  No LF is sent from the last text row, so none scrolls
+  the screen.
+- Backspace moves the cursor one column left (a frame that starts one
+  column left of the cursor, as X and a backspace in insert mode do, uses
+  it).
+- Auto-wrap: a wrapped line's continuation rows are reached by writing
+  past the right edge, with no cursor move.  Terminals that wrap at once
+  (the emulator's console) and those that wrap only when the next
+  character comes (a VT100, xterm) both work: nothing that moves the
+  cursor comes between a full row and the next character of its line (at
+  most a switch to reverse video, for a control character).  The status
+  bar stops one column short of the right edge, so the bottom-right cell
+  is never written.
 
 ## Performance
 
