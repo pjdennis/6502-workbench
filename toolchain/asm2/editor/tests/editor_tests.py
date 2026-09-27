@@ -19857,6 +19857,35 @@ class EditorTestRunner:
                 f"Insert undo: x, then i {moves!r} ESC u undoes the x",
                 "abcdef\n", b"lllxi" + moves + b"\x1bu:wq\r",
                 expected_content="abcdef\n", expect_cursor=(0, 3))
+        # As in vim, a cursor key that moves the cursor in insert mode starts
+        # a new stretch of typing, and u takes back the last one; Home and
+        # End always do, a key that cannot move (Right at the line end, Up
+        # on the first line, Left at column 0, Ctrl-Right at the end of the
+        # text) does not
+        lines30 = "".join(f"line {i}\n" for i in range(30))
+        for content, keys, expected, cursor in (
+                ("abc\n", b"Ahello\x1b[D\x1b[DXY", "abchello\n", (0, 6)),
+                ("abc\n", b"ihello\x1b[HX", "helloabc\n", (0, 0)),
+                ("abc\ndef\n", b"ihello\x1b[BX", "helloabc\ndef\n", (1, 2)),
+                ("abc\n", b"ix\x1b[Dy", "xabc\n", (0, 0)),
+                ("abc\ndef\n", b"Ax\x1b[B\x1b[Ay", "abcx\ndef\n", (0, 3)),
+                ("abc def\n", b"ix\x1b[1;5Dy", "xabc def\n", (0, 0)),
+                ("abc def\n", b"ix\x1b[1;5Cy", "xabc def\n", (0, 5)),
+                ("abc\n", b"ia\r\x1b[Hb", "a\nabc\n", (1, 0)),
+                ("abc\n", b"Aa\x1b[Fb", "abca\n", (0, 3)),
+                ("abc\n", b"Ax\x1b[Cy", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"Ax\x1b[Ay", "abc\ndef\n", (0, 2)),
+                ("abc\ndef\n", b"jAx\x1b[By", "abc\ndef\n", (1, 2)),
+                ("abc\n", b"ia\r\x1b[Db", "abc\n", (0, 0)),
+                ("abc def\n", b"$ax\x1b[1;5Cy", "abc def\n", (0, 6))):
+            self.run_test_screen(
+                f"Insert undo after a cursor key: {keys!r} ESC u on {content[:8]!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test(
+            "Insert undo after a cursor key: PgDn starts a new stretch",
+            lines30, b"Ax\x1b[6~y\x1bu:wq\r",
+            expected_content=lines30.replace("line 0\n", "line 0x\n", 1))
         # The screen after u of typed line breaks
         self.run_test_screen(
             "Insert undo: the screen after u of typed line breaks",

@@ -43,12 +43,13 @@ UNDO_PASTE_COUNT16: .word
 
 ; --- render.asm ---
 CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
+FILE_LINE16:    .word   ; Current file line (0-based); CURSOR_COL16 follows it, as
+                        ; SNAP_COL16 follows SNAP_LINE16 (insert mode's move test)
 CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
 VIEW_TOP16:     .word   ; First visible line number (0-based)
 SCREEN_ROWS:    .byte   ; Terminal height
 SCREEN_COLS:    .byte   ; Terminal width
 TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
-FILE_LINE16:    .word   ; Current file line (0-based)
 MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
 MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
 READONLY:       .byte   ; Read-only mode ($00 = no, nonzero = yes)

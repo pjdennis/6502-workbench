@@ -142,14 +142,31 @@ insert_handle_key:
   CPY BUF_DELTA
   BNE .end_batch
   ; The first key is not an editing key: dispatch it (BUF_TEMP = key).
-  ; The typing after a move is not kept for undo
-  BIT INSERT_SEG
-  BPL .dispatch
-  LSR INSERT_SEG             ; $FF -> $7F
-.dispatch:
+  ; As in vim, a move ends the undo segment, and the next change starts a
+  ; new one: Home and End always, other keys when the cursor moved (one
+  ; that fails does not)
+  LDA BUF_TEMP
+  AND #$FE
+  EOR #KEY_HOME              ; 0: Home or End
+  PHA
   LDA #<insert_keys
   LDX #>insert_keys
-  JMP dispatch_key
+  JSR dispatch_key
+  PLA
+  BEQ .end_segment           ; (A = 0)
+  LDX #3
+.moved:
+  LDA FILE_LINE16,X          ; The line and column against the cursor
+  EOR SNAP_LINE16,X          ; before the key (SNAP_LINE16/SNAP_COL16)
+  BNE .moved_on
+  DEX
+  BPL .moved
+  RTS
+.moved_on:
+  LDA #0
+.end_segment:
+  STA INSERT_SEG
+  RTS
 .end_batch:
   JSR unget_key
 
