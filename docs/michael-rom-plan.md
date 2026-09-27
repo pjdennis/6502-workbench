@@ -1,7 +1,7 @@
 # Plan: a new Michael ROM
 
 Goal: a new EEPROM for Michael that
-- takes uploads from `$0200` (about 15.2 KB instead of 13.5 KB);
+- takes uploads in a new format (below) that can fill RAM from `$0200` to `$3EFF` (15.25 KB instead of 13.5 KB), in one or more blocks;
 - no longer reverses each byte's bits after an upload, because the uploader sends them already reversed;
 - carries the LCD and keyboard services, at the same entry points as the emulator's environment (`toolchain/asm2/17/environment.asm`, `ENV_BASE = $F000`).
 
@@ -19,17 +19,35 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 
 ## Design
 
-**Bits reversed by the uploader.**
-- `upload_frame.py` gains `reverse_bits(frame)`, and `transfer.py` gains `--reverse-bits`, which sends every byte of the frame reversed.
-- Only `compile_and_upload_michael.sh` passes it.
-- In the loader, `.ifdef UPLOAD_BITS_REVERSED` drops `build_translate` and `translate_data`, and reads the length directly. Only the new Michael ROM sets it. The table's page at `$0200` is then free.
+**Upload format 2** (Michael only; the other boards keep format 1: length, payload, checksum).
+- An upload is a header and one or more blocks, all 2-byte fields little-endian:
 
-**Uploads from `$0200`, with no copy.**
-- With `.ifdef UPLOAD_LENGTH_BELOW` (Michael only), the loader starts its stack at `$01FB` and receives from `$01FE`.
-- The length lands in `$01FE-$01FF`, the payload at `$0200`, where it runs, and the checksum just after it.
-- A frame must end below the handler's page (`$3F00`): a payload of up to 15,614 bytes (`$0200-$3EFD`). A longer one gets "Too long" on the LCD rather than being received.
-- `$0200` is the lowest a program can start: page 0 is zero page, page 1 the stack.
-- The IRQ vector stays at `$3F00`, and the handler still runs from RAM there. Its cycle timing is critical at 57600 baud, so it doesn't change.
+  ```
+  header:  version (1) = 2           start address (2; $FFFF = don't run anything)
+  block:   length (2)   load address (2)   checksum (2)   flags (1)   data (length bytes)
+  flags:   bit 0 = more blocks follow   bit 1 = zero-fill (no data bytes: clear length bytes)
+           other bits 0
+  ```
+- Every control byte comes before the data it describes. The loader stores the whole stream in order from `$01F6`, so the header and the first block's header fill `$01F6-$01FF` and the first block's data lands at `$0200`. One block can fill `$0200-$3EFF`, all of RAM below the receive handler's page, with no copying.
+- **Rules**, which the uploader enforces and the loader checks:
+  - blocks are in ascending address order, don't overlap, and start at `$0200` or above;
+  - a block's data never moves down: its load address is at or above where its data sits in the stream;
+  - every block ends by `$3F00`.
+- **Checksums:** each block's checksum is the BSD sum of the stream from the end of the previous block (or the start of the upload) to the end of its data, less its own two checksum bytes. So it covers the header fields (and, for the first block, the upload's header) as well as the data.
+- **Loader:**
+  - The receive handler is unchanged; it only stores each byte and moves on. The loader's stack starts at `$01F5`, below the stream.
+  - The main loop reads each header as its bytes arrive and checks it: a known version, the reserved flag bits 0, and the addresses within the rules. It checks each block's checksum in place once its data has arrived.
+  - After the last block it moves the blocks up to their load addresses, last block first (each copied from the top down, since source and destination may overlap), then clears the zero-fill blocks.
+  - Then it runs the start address, or with `$FFFF` shows what was loaded.
+  - On any error it stops storing, turns off the receive interrupts and leaves the error on the LCD (bad version, bad block N, checksum N), with the LED lit, until reset.
+- **Uploader** (`tools/upload/upload_frame.py`, `transfer.py`):
+  - Builds format 2 from vasm's Intel HEX output (`-Fihex`), one block per contiguous run, or from a flat binary with a load address.
+  - Merges blocks whose gap is too small for the data not to move down, filling the gap with zeros.
+  - Never sends an empty last block: the last real block carries the end flag.
+  - Sends every byte bit-reversed, because the 6522's shift register takes bits most-significant first. The loader then needs neither the reversal table (freeing `$0200`) nor the pass over the data.
+  - `transfer.py --format=2` turns all this on; only Michael's scripts pass it, once the new ROM is on the board. `upload_frame.py` also writes an upload to a file, for the emulator's `--serial-input`.
+- The IRQ vector stays at `$3F00` and the receive handler still runs from RAM there, since its cycle timing is critical at 57600 baud.
+- The new loader is a new include, `upload_v2.inc`, sharing `serial_receive_timing.inc` and `serial_receive_interrupt.inc` with `upload_and_run.inc`, which is left alone.
 
 **Services in the ROM.**
 - The vector table sits at `$F006-$F068`, the offsets of `17/environment.asm`, so a program built for the emulator's environment calls the same addresses on Michael. The asm2 editor's `define:michael` then needs no vector changes at all, and `editor/michael_environment.asm` goes.
@@ -65,22 +83,23 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 ## Phases (each test-first, in the emulator before the board)
 
 1. **Uploader.**
-   - `reverse_bits` and `--reverse-bits`, with unit tests in `tools/tests` (`test_upload_frame.py`, `test_upload_scripts.py`).
+   - Format 2, the packer, bit reversal and writing an upload to a file, in `upload_frame.py`, with unit tests.
+   - `transfer.py --format=2`.
    - The other boards' scripts are unchanged; the tests check that.
-2. **Loader options.**
-   - `UPLOAD_BITS_REVERSED` and `UPLOAD_LENGTH_BELOW` in `upload_and_run.inc`.
-   - Every existing loader and ROM binary must stay byte-identical (the firmware manifest).
-   - The emulator's Michael machine gets an option to send `--serial-input` bytes reversed, so tests can run the real ROM.
+2. **Loader.**
+   - `upload_v2.inc`, run first as a RAM program in the emulator (loaded with `--load`, the upload fed by `--serial-input`): single and multiple blocks, zero-fill, and each error.
+   - Every existing loader and ROM binary stays byte-identical (the firmware manifest).
 3. **The ROM.**
-   - `michael_rom.s` and a `michael_goldens.sh` case: boot `--rom michael_rom.bin`, upload a program through the serial line, and check the LCD.
-   - A test that the ROM's vector table matches `17/environment.asm`, like the one comparing `michael_environment.asm` today.
+   - `michael_rom.s`: the loader at reset, the services and the vector table.
+   - The Michael machine boots from a ROM image: with `--rom` and no `--load`, nothing goes into RAM.
+   - A `michael_goldens.sh` case boots `michael_rom.bin` and uploads a program over the serial line.
+   - A test that the ROM's vector table matches `17/environment.asm`.
 4. **Editor on the ROM.**
    - The editor's origin and memory map for Michael, and `michael_environment.asm` removed.
    - `michael_tests.py` boots the ROM, uploads the editor over the serial line, and runs the existing scripts, differential tests, live test and stack check against it.
-   - `--load` without `--rom` stays for other tests.
 5. **The new ROM image.** Committed, in the manifest and handed over for programming (below). When you confirm it runs on the board:
    - `base_config_v2.inc` changes to `PROGRAM_LOAD_ADDRESS = $0200`, since the config follows the ROM on the board;
-   - `compile_and_upload_michael.sh` passes `--reverse-bits`.
+   - `compile_and_upload_michael.sh` assembles to Intel HEX and passes `--format=2`.
 6. **Programs with data at `$0200`-`$08FF`.** These would be overwritten by their own code once it loads at `$0200`. Their buffers move to the top of RAM below `$3F00`, as the editor's do:
    - `michael_keyboard_new.s`, `michael_keyboard_show_names.s` and `michael_keyboard_diag.s` (the tests in `tools/tests/test_michael_keyboard.py` cover these three);
    - `michael_graphic_keyboard.s` and `michael_graphic_prompt.s`, `michael_graphic_prompt_template.s`, `michael_graphic_bf.s`.
@@ -118,6 +137,7 @@ This is the same command `tools/upload/compile_and_program.sh` uses. If the chip
 
 - **ROM identity:** a version string at a fixed address, e.g. `$FFE0` "MICHAEL ROM 3". `michael_show_vectors.s` shows it, and a program or upload script can check it.
 - **Faster boot to the loader:** the reset path shows "Ready" straight away. Starting the LCD and keyboard waits until a program asks for them, so the loader's timing and messages stay as they are.
+- **Uploads that don't run:** with start address `$FFFF` the loader only loads. A data upload can then go to one place, followed by a program that uses it.
 - **The editor in ROM, later:** at about 12 KB the editor fits beside the loader and services in the 32 KB EEPROM. It would start from a menu key or a service call, leaving all 15 KB of RAM for text. That only makes sense once the editor changes rarely, since every change means reprogramming the EEPROM. For now it stays an upload.
 - **Service calls for other programs:** with the services in ROM, the keyboard programs (`michael_keyboard_new.s` and the rest) could drop their own copies of the driver and LCD routines and call the ROM. That would make them much smaller. It's optional, and they'd no longer run on the old ROM.
 - **Upload speed:** 57600 baud is about the limit. At 2 MHz a half bit is about 17 cycles, and the handler's timing is already tuned close to it, so 115200 isn't practical without a faster clock.
