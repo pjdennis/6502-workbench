@@ -8,7 +8,8 @@
 ; of writing ANSI sequences and reads key codes from con_read, for
 ; machines without an ANSI terminal (the emulator runs it with --direct-io).
 ; With define:michael as well it runs on the Michael board with its
-; services (editor/michael_image.py; ./editor-michael.sh in the emulator).
+; services (editor/michael_image.py; ./editor-michael.sh in the emulator,
+; ./editor-michael-upload.sh to the board).
 ;
 ; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
 ;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt

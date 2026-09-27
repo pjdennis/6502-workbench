@@ -107,3 +107,70 @@ class UploadScriptTest(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+@unittest.skipUnless(HAVE_VASM, 'vasm6502_oldstyle not on PATH')
+class MichaelBigUploadTest(unittest.TestCase):
+  """upload_michael_big.sh: the second-stage loader through the ROM's loader, then the program
+  through it."""
+
+  def setUp(self):
+    self.dir = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, self.dir)
+    bin_dir = os.path.join(self.dir, 'bin')
+    os.mkdir(bin_dir)
+    stub = os.path.join(bin_dir, 'python3')
+    with open(stub, 'w') as f:
+      # Records each call's arguments, and keeps a copy of the file sent (the last argument)
+      f.write('#!/bin/sh\necho "$@" >> "$STUB_LOG"\nfor sent; do :; done\n'
+              'cp "$sent" "$STUB_LOG.$(wc -l < "$STUB_LOG" | tr -d " ")"\n')
+    os.chmod(stub, 0o755)
+    self.log = os.path.join(self.dir, 'transfer-calls')
+    self.env = dict(os.environ, PATH=bin_dir + os.pathsep + os.environ['PATH'], STUB_LOG=self.log,
+                    MICHAEL_LOADER_START_SECONDS='0')
+    self.program = os.path.join(self.dir, 'program.bin')
+    with open(self.program, 'wb') as f:
+      f.write(b'\xea' * 100)
+
+  def run_script(self, *args):
+    """Returns (exit status, the transfer.py calls' arguments)."""
+    result = subprocess.run([os.path.join(UPLOAD, 'upload_michael_big.sh'), *args],
+                            cwd=self.dir, env=self.env, capture_output=True, text=True)
+    calls = []
+    if os.path.exists(self.log):
+      with open(self.log) as f:
+        for line in f:
+          script, *transfer_args = line.split()
+          self.assertEqual(script, os.path.join(UPLOAD, 'transfer.py'))
+          calls.append(transfer_args)
+    return result.returncode, calls
+
+  def test_sends_the_loader_then_the_program_without_a_reset(self):
+    status, calls = self.run_script(self.program)
+    self.assertEqual(status, 0)
+    self.assertEqual(len(calls), 2)
+    self.assertEqual(calls[0][:-1], ['--baudrate=57600', '--wait'])
+    self.assertEqual(calls[1], ['--baudrate=57600', '--noreset', self.program])
+
+  def test_sends_the_assembled_second_stage_loader_then_the_program(self):
+    self.run_script(self.program)
+    expected = os.path.join(self.dir, 'expected.bin')
+    firmware = os.path.join(UPLOAD, '..', '..', 'firmware')
+    subprocess.run([os.path.join(firmware, 'vasm'), '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
+                    '-ignore-mult-inc', '-esc', '-o', expected,
+                    os.path.join(firmware, 'programs', 'michael', 'michael_second_stage_loader.s')],
+                   check=True)
+    for sent, original in ((self.log + '.1', expected), (self.log + '.2', self.program)):
+      with open(sent, 'rb') as s, open(original, 'rb') as o:
+        self.assertEqual(s.read(), o.read())
+
+  def test_transfer_options_are_passed_to_both(self):
+    status, calls = self.run_script('--port=/dev/ttyUSB1', self.program)
+    self.assertEqual(status, 0)
+    self.assertEqual(calls[0][:-1], ['--baudrate=57600', '--wait', '--port=/dev/ttyUSB1'])
+    self.assertEqual(calls[1], ['--baudrate=57600', '--noreset', '--port=/dev/ttyUSB1', self.program])
+
+  def test_needs_a_program(self):
+    status, calls = self.run_script()
+    self.assertNotEqual(status, 0)
+    self.assertEqual(calls, [])
