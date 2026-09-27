@@ -1591,6 +1591,19 @@ class EditorTestRunner:
             "Word motions step along the line: 255w 255e 255b",
             words, b"255w0255e$255b:q!\r", 1300000, rows=24, cols=80)
 
+        # >> and << keep the line table current as they move the range's
+        # lines, and move the lines after it by the total, where they
+        # rebuilt the table from the range on: on a 36 KB file, >> at the
+        # top took 3,416,416 cycles (the whole run), << on its indented
+        # copy 3,561,642
+        self.run_test_cycle_cap(
+            ">> moves the line table entries: >> at the top of 36 KB",
+            big, b">>:q!\r", 3100000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "<< moves the line table entries: << at the top of 36 KB",
+            "".join("  " + l + "\n" for l in big.split("\n")[:-1]),
+            b"<<:q!\r", 3250000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
@@ -11837,6 +11850,27 @@ class EditorTestRunner:
             " hello\n",
             b"lll<<:q!\r",
             expect_cursor=(0, 0),
+        )
+
+        # The shift cores keep the line table current without rebuilding
+        # it: edits after the shift must land in the moved lines
+        self.run_test(
+            ">> moves the lines after the range",
+            "aaa\nbbb\nccc\nddd\n",
+            b"2>>jj0xGx:wq\r",
+            expected_content="  aaa\n  bbb\ncc\ndd\n"
+        )
+        self.run_test(
+            "<< moves the lines after the range",
+            "  aaa\n  bbb\nccc\nddd\n",
+            b"2<<jj0xGx:wq\r",
+            expected_content="aaa\nbbb\ncc\ndd\n"
+        )
+        self.run_test(
+            "u of << moves the lines after the range back",
+            "  aaa\n  bbb\nccc\n",
+            b"2<<uGx:wq\r",
+            expected_content="  aaa\n  bbb\ncc\n"
         )
 
         # >>>> = two rapid >> combos: indents current line TWICE (4 spaces)

@@ -124,11 +124,7 @@ shift_unit_setup:
 ; last line) returns from the core itself, a no-op as before.
 shift_prologue:
   CP16 BUF_TEMP16, SHIFT_LINES16
-  CP16 FILE_LINE16, LINE_LEN16
-  LDA #0
-  STA COUNT16                  ; COUNT16 = total shift/removal
-  STA COUNT16 + 1
-  STA SHIFT_LINE_IDX           ; Line index for UNDO_DATA_BUF
+  JSR shift_rewind             ; (A = 0)
   STA DELETE_SCREEN_ROWS       ; 0 = no partial repaint (fall back to full)
   LDA BUF_TEMP16 + 1
   BNE .done                    ; > 255 lines: full repaint, no undo
@@ -141,9 +137,54 @@ shift_prologue:
 .done:
   RTS
 
-; Record undo of type A, then the render epilogue
+; Start the core's line loop at the range's first line: the line
+; iterator LINE_LEN16 = FILE_LINE16, the lines left BUF_TEMP16 =
+; SHIFT_LINES16, the line index for UNDO_DATA_BUF and the total shift or
+; removal COUNT16 = 0.  Returns A = 0
+shift_rewind:
+  CP16 SHIFT_LINES16, BUF_TEMP16
+  CP16 FILE_LINE16, LINE_LEN16
+  LDA #0
+  STA COUNT16
+  STA COUNT16 + 1
+  STA SHIFT_LINE_IDX
+  RTS
+
+; BUF_PTR16 = the start of line LINE_LEN16 before the core moved it,
+; from its line table entry, which then gets the line's new start: the
+; write pointer (JUMP_TARGET16), where the core is about to put it.  The
+; line count never changes, so the cores keep the table current line by
+; line, and move the lines after the range at the end (shift_finish).
+; Clobbers A, X, Y
+shift_line_start:
+  LDAX16 LINE_LEN16
+  JSR buf_line_entry           ; BUF_PTR16 = the entry
+  LDY #1
+.swap:
+  LDA (BUF_PTR16),Y
+  PHA                          ; The old start (high byte first)
+  LDA JUMP_TARGET16,Y
+  STA (BUF_PTR16),Y
+  DEY
+  BPL .swap
+  PLA
+  STA BUF_PTR16
+  PLA
+  STA BUF_PTR16 + 1
+  RTS
+
+; Record undo of type A, move the lines after the range with it, then
+; the render epilogue
 shift_finish:
   JSR shift_record
+  ; The line after the range (LINE_LEN16) now starts at the write pointer
+  ; (JUMP_TARGET16): it and the lines after it move by the difference
+  LDAX16 LINE_LEN16
+  JSR buf_get_line_ptr         ; BUF_PTR16 = where it started
+  SEC
+  SBC16 JUMP_TARGET16, BUF_PTR16, BUF_SRC16
+  LDA LINE_LEN16
+  JSR buf_adjust_lines_from    ; (X kept by buf_get_line_ptr)
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
 ; render level.  Partial repaint ($0B) requires pre-computed screen rows
@@ -196,7 +237,6 @@ insert_spaces_core:
   TAY
   JSR shift_count_line
   BNE .prescan
-  CP16 SHIFT_LINES16, BUF_TEMP16 ; Line count again for redistribute
 
   ; Nothing to insert (all lines empty): an empty change
   TST16 COUNT16
@@ -210,12 +250,12 @@ insert_spaces_core:
 
   ; --- Redistribute: write per-line spaces, copy line content down ---
   CP16 BUF_PTR16, JUMP_TARGET16 ; write ptr = first line start
-  CLC
-  ADC16 BUF_PTR16, BUF_LEN16, BUF_PTR16 ; read ptr = start + total shift
-  LDA #0
-  STA SHIFT_LINE_IDX          ; Reset line index
+  JSR shift_rewind             ; The range's lines again, and the total
 
 .redist:
+  JSR shift_line_start         ; The line's start before the shift, ...
+  CLC
+  ADC16 BUF_PTR16, BUF_LEN16, BUF_PTR16 ; ... which moved it by the total
   JSR shift_line_width         ; read ptr = line start (pre-shift content)
   TAX
   BEQ .redist_copy             ; Width 0: no spaces
@@ -225,18 +265,14 @@ insert_spaces_core:
   INY
   DEX
   BNE .write_spaces
+.redist_copy:
+  JSR shift_count_line         ; (keeps Y, the width)
   ; Advance write ptr by width
   TYA
   ADDA16 JUMP_TARGET16
-
-.redist_copy:
   JSR copy_line_to_nl
-
-  INC SHIFT_LINE_IDX
-  JSR dec_buf_temp16
+  TST16 BUF_TEMP16
   BNE .redist
-
-  JSR buf_rebuild_lines
 
   ; A batch's last pair starts on the first non-blank as the earlier
   ; ones left it: moved right by their width if they shifted the line
@@ -264,9 +300,7 @@ remove_spaces_core:
   CP16 BUF_PTR16, JUMP_TARGET16
 
 .unindent_loop:
-  ; Get line start from LINE_TBL (still valid, no shifts yet)
-  LDAX16 LINE_LEN16
-  JSR buf_get_line_ptr         ; BUF_PTR16 = line start
+  JSR shift_line_start         ; BUF_PTR16 = line start
 
   ; Count leading spaces up to BUF_DELTA
   LDY #0
@@ -315,7 +349,6 @@ remove_spaces_core:
   CP16 JUMP_TARGET16, BUF_PTR16
   CP16 COUNT16, BUF_LEN16
   JSR buf_shift_left_16
-  JSR buf_rebuild_lines
 
   ; A batch's last pair starts on the first non-blank as the earlier
   ; ones left it: moved left by what they removed from the line (up to
