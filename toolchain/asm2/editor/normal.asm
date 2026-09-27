@@ -303,12 +303,8 @@ open_line_x:
 .on_new_line:
   LDA #RF_INS                       ; Signal line-insert for scroll optimization
   JSR undo_opened_finish         ; Column 0
-  LDA #UNDO_INSERT
-  STA UNDO_TYPE
-  JSR undo_record_pos            ; The segment's start; A = 0
-  STA_LH16 UNDO_INS_LEN16
-  LDA #$FF                       ; Open: the typing extends it
-  JMP enter_insert_a
+  JSR insert_seg_start
+  JMP enter_insert_open
 
 ; o/O and r<Enter> buffer-full handler
 open_full:

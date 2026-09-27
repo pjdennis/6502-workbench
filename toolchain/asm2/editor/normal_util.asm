@@ -331,9 +331,9 @@ enter_insert_change:
 ; Enter insert mode and clear count: the first change starts a segment
 enter_insert_mode:
   LDA #0
-; With INSERT_SEG = A
-enter_insert_a:
   STA INSERT_SEG
+; (o and O: their segment is started)
+enter_insert_open:
   LDA #MODE_INSERT
   STA MODE
   JMP clear_count

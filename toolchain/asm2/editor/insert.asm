@@ -526,13 +526,8 @@ insert_segment:
   LDA INSERT_SEG
   BMI .open                  ; $FF: the record is kept
   BNE .clear                 ; Not kept
-  ; A new segment: it starts at the cursor, with no text yet
-  LDA #UNDO_INSERT
-  STA UNDO_TYPE
-  JSR undo_record_pos        ; A = 0
-  STA_LH16 UNDO_INS_LEN16
-  STA UNDO_INS_OPEN
-  DEC INSERT_SEG             ; $FF
+  STA UNDO_INS_OPEN          ; A new segment (A = 0: not o or O)
+  JSR insert_seg_start
 .open:
   LDA BUF_TEMP               ; fwd_actual
   BNE .not_kept
@@ -557,6 +552,17 @@ insert_segment:
   LSR INSERT_SEG             ; $7F
 .clear:
   JMP undo_clear
+
+; Start an insert segment at the cursor, with no text yet: its record
+; replaces the one before, and the typing extends it.  Returns A = 0
+insert_seg_start:
+  LDA #$FF
+  STA INSERT_SEG
+  LDA #UNDO_INSERT
+  STA UNDO_TYPE
+  JSR undo_record_pos        ; A = 0
+  STA_LH16 UNDO_INS_LEN16
+  RTS
 
 ; Arrow key and word motion handlers in insert mode, counted with pending
 ; repeats of the same key.  In insert mode the cursor may sit one past the
