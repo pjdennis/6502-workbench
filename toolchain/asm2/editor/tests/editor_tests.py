@@ -15795,8 +15795,42 @@ class EditorTestRunner:
             ],
             expect_cursor=(3, 0),
             expect_scroll_rows=[(2, {4, 5, 6, 7, 8})],
-            # Only cursor line's 3 wrap rows repainted; rows 5-8 handled by scroll
-            expect_content_rows=[(2, {2, 3, 4})]
+            # Only the cursor line's rows from the join (row 3) on are
+            # drawn; its first row keeps its text, rows 5-8 the scroll moved
+            expect_content_rows=[(2, {3, 4})]
+        )
+
+        # A join that keeps the joined lines' row total redraws the line
+        # in place, hiding the cursor once; one that grows it scrolls the
+        # rows below down and draws the line from the join point, as an
+        # in-line edit (its rows above the join keep their text)
+        self.run_test_screen(
+            "J keeping the row total hides the cursor once",
+            "a" * 30 + "\n" + "b" * 35 + "\nc\n",
+            b"J:q!\r",
+            expect_lines=[(0, "a" * 30 + " " + "b" * 9), (1, "b" * 26),
+                          (2, "c")],
+            expect_cursor=(0, 30),
+            expect_frame_bytes=[(1, 100)],
+        )
+        self.run_test_screen(
+            "J that grows the line draws it from the join",
+            "a" * 40 + "\n" + "b" * 40 + "\nc\nd\n",
+            b"J:q!\r",
+            expect_lines=[(0, "a" * 40), (1, " " + "b" * 39), (2, "b"),
+                          (3, "c"), (4, "d")],
+            expect_cursor=(1, 0),
+            expect_frame_bytes=[(1, 113)],
+        )
+        # Frames: 0 initial, 1 '4', 2 '0', 3 l, 4 r<Enter>, 5 u
+        self.run_test_screen(
+            "u of r<Enter> that grows the line draws it from the join",
+            "a" * 40 + "x" + "b" * 40 + "\nc\nd\n",
+            b"40lr\ru:q!\r",
+            expect_lines=[(0, "a" * 40), (1, "x" + "b" * 39), (2, "b"),
+                          (3, "c"), (4, "d")],
+            expect_cursor=(1, 0),
+            expect_frame_bytes=[(5, 98)],
         )
 
         # J undo negative displacement scroll up: undo of the above J.
@@ -15841,8 +15875,9 @@ class EditorTestRunner:
             ],
             expect_cursor=(3, 0),
             expect_scroll_rows=[(5, {4, 5, 6, 7, 8})],
-            # Only cursor line's 3 wrap rows repainted; rows 5-8 handled by scroll
-            expect_content_rows=[(5, {2, 3, 4})]
+            # Only the cursor line's rows from the join (row 3) on are
+            # drawn; its first row keeps its text, rows 5-8 the scroll moved
+            expect_content_rows=[(5, {3, 4})]
         )
 
         # J undo where cursor line stays wrapped: cursor line
@@ -17748,8 +17783,9 @@ class EditorTestRunner:
             ],
             expect_cursor=(1, 0),
             # Frame 4 = redo (frame 3 = space no-op). Cursor line changes
-            # (20→41 chars wrapping to 3 rows). Rows 0-2 = wrapped content.
-            expect_content_rows=[(4, {0, 1, 2})]
+            # (20→41 chars wrapping to 3 rows) from the join: rows 1-2 are
+            # drawn, row 0 keeps its text.
+            expect_content_rows=[(4, {1, 2})]
         )
 
         # o undo: removes opened blank line. Delete scroll below the

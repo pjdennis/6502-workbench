@@ -56,9 +56,9 @@
 ; $06   J, insert BS/Del       Lines joined into the cursor line.
 ;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
 ;       undo r<Enter>          edit (0 = over 255: full redraw).  Rows
-;                              shrank: scroll up below the line; same: as
-;                              $01; grew: scroll down.
-;                              INSERT_LINE_COUNT: 0 = redraw the line,
+;                              shrank: scroll up below the line; same or
+;                              grew: as $01, from those rows.  For a
+;                              shrink, INSERT_LINE_COUNT: 0 = redraw the line,
 ;                              $FF = pure join at line end (no redraw),
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
@@ -170,40 +170,16 @@ render_decide:
   ; 0 = over 255: they ran past the bottom row, so all is redrawn)
   LDA DELETE_SCREEN_ROWS
   BEQ .full
-  ; Compute the displacement-based delta
-  STA SCROLL_DELTA          ; save old_total temporarily
+  STA PREV_LINE_ROWS        ; old_total
   JSR file_line_rows        ; A = new_total
-  STA DELETE_SCREEN_ROWS    ; store new_total for scroll region
-  LDA SCROLL_DELTA          ; old_total
+  STA DELETE_SCREEN_ROWS    ; (the rows the line keeps, for a shrink)
+  LDA PREV_LINE_ROWS
   SEC
   SBC DELETE_SCREEN_ROWS    ; old_total - new_total
-  BEQ .j_no_scroll          ; same rows
-  BCC .j_no_scroll          ; new_total > old_total
+  BEQ .to_current_line      ; The same rows, or more: an in-line edit of
+  BCC .to_current_line      ; old_total rows (the rows below scroll down)
   STA SCROLL_DELTA
   BNE .delete_check          ; Always taken (A = delta > 0)
-.j_no_scroll:
-  ; new_total >= old_total: scroll DOWN to make room for an expanded line
-  ; (equal: .j_really_no_scroll repaints just the line)
-  JSR ansi_cursor_hide
-  ; Scroll region start = first_row + old_total + 1 (1-based)
-  LDA SCROLL_DELTA          ; old_total
-  JSR row_below_rows
-  TAY
-  ; Displacement = new_total - old_total
-  LDA DELETE_SCREEN_ROWS
-  SEC
-  SBC SCROLL_DELTA
-  BEQ .j_really_no_scroll
-  STA SCROLL_DELTA
-  ; Scroll region end = SCREEN_ROWS - 1; guarded (skip if region too small)
-  LDX #'T'                  ; scroll down
-  JSR scroll_region_check   ; (the region's first row in Y)
-  LDA DELETE_SCREEN_ROWS     ; new_total (cursor line's screen rows)
-  STA SCROLL_DELTA           ; number of rows to render
-  JMP render_from_first_row_limited
-.j_really_no_scroll:
-  LDA DELETE_SCREEN_ROWS     ; new_total
-  STA PREV_LINE_ROWS
 .to_current_line:
   JMP render_current_line_and_status
 .delete_check:
