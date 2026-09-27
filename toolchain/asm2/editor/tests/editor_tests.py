@@ -12580,6 +12580,17 @@ class EditorTestRunner:
             expect_cursor=(0, 1),
         )
 
+        # Typed ahead, a db that finds the file start changes nothing: the
+        # line the db before shortened keeps its repaint
+        self.run_test_screen(
+            "typed-ahead dbdb that reaches the file start redraws the rows below",
+            " " * 50 + "x\nline2\nline3\n",
+            b"$dbdb:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "x"), (1, "line2"), (2, "line3"), (3, "~")],
+            expect_cursor=(0, 0),
+        )
+
         self.run_test_screen(
             "dw on an empty line puts the cursor on the next line's first non-blank",
             "a\n\n  foo\n",

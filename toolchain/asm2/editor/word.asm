@@ -316,7 +316,7 @@ compute_multiline_cw_range_forward:
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor STAYS at new backward position (start of range);
-; PREV_LINE_ROWS = its line's rows
+; from column 0, PREV_LINE_ROWS = its line's rows
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
 ;           BUF_SRC16
 compute_multiline_word_range_backward:
@@ -334,8 +334,11 @@ compute_multiline_word_range_backward:
   STA RENDER_FLAG
 .cmwrb_col:
   JSR word_backward_x               ; move cursor backward N words
-  JSR file_line_rows                ; Its line's rows before the edit
+  BIT OP_EXCL_LINE
+  BPL .cmwrb_line                   ; On the line the key started on
+  JSR file_line_rows                ; The line above: its rows before the edit
   STA PREV_LINE_ROWS
+.cmwrb_line:
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = new position (start of range)
   LDA #$7F
   CMP OP_EXCL_LINE                  ; C = 0: the range stops before the
