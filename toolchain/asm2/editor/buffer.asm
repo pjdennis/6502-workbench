@@ -82,42 +82,6 @@ buf_load_file:
 .has_newline:
   JMP buf_rebuild_lines
 
-; Save buffer to file
-; File handle in A (already opened for write)
-; Writes every byte from TEXT_BUF to BUF_END16, including the final
-; newline, but none for a buffer with no lines (EMPTY_BUF, as vim writes
-; it), which is then one line break
-buf_save_file:
-  STA FILE_HANDLE
-  LDY #0                  ; Y = page offset, set once
-  STY BUF_PTR16           ; BUF_PTR16 = TEXT_BUF (page-aligned)
-  LDA #>TEXT_BUF
-  STA BUF_PTR16 + 1
-  BIT EMPTY_BUF
-  BPL .write_loop
-  LDX BUF_END16
-  DEX
-  BNE .write_loop
-  CMP BUF_END16 + 1
-  BEQ .write_done         ; No lines: no bytes
-.write_loop:
-  CPY BUF_END16           ; Fast: compare low bytes
-  BNE .do_write
-  LDA BUF_PTR16 + 1       ; Only when low bytes match
-  CMP BUF_END16 + 1
-  BEQ .write_done
-.do_write:
-  LDA (BUF_PTR16),Y
-  LDX FILE_HANDLE
-  JSR write               ; preserves Y
-  INY
-  BNE .write_loop         ; Stay on same page
-  ; Page boundary
-  INC BUF_PTR16 + 1
-  BNE .write_loop            ; Always (the buffer never reaches page 0)
-.write_done:
-  RTS
-
 ; Get pointer to start of line N (N in A/X, low/high); for N =
 ; LINE_COUNT16 the entry after the last line gives BUF_END16
 ; Returns pointer in BUF_PTR16
@@ -548,4 +512,40 @@ buf_adjust_lines_from:
   INC BUF_LEN16 + 1
   BNE .loop
 .done:
+  RTS
+
+; Save buffer to file
+; File handle in A (already opened for write)
+; Writes every byte from TEXT_BUF to BUF_END16, including the final
+; newline, but none for a buffer with no lines (EMPTY_BUF, as vim writes
+; it), which is then one line break
+buf_save_file:
+  STA FILE_HANDLE
+  LDY #0                  ; Y = page offset, set once
+  STY BUF_PTR16           ; BUF_PTR16 = TEXT_BUF (page-aligned)
+  LDA #>TEXT_BUF
+  STA BUF_PTR16 + 1
+  BIT EMPTY_BUF
+  BPL .write_loop
+  LDX BUF_END16
+  DEX
+  BNE .write_loop
+  CMP BUF_END16 + 1
+  BEQ .write_done         ; No lines: no bytes
+.write_loop:
+  CPY BUF_END16           ; Fast: compare low bytes
+  BNE .do_write
+  LDA BUF_PTR16 + 1       ; Only when low bytes match
+  CMP BUF_END16 + 1
+  BEQ .write_done
+.do_write:
+  LDA (BUF_PTR16),Y
+  LDX FILE_HANDLE
+  JSR write               ; preserves Y
+  INY
+  BNE .write_loop         ; Stay on same page
+  ; Page boundary
+  INC BUF_PTR16 + 1
+  BNE .write_loop            ; Always (the buffer never reaches page 0)
+.write_done:
   RTS
