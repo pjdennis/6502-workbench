@@ -28,12 +28,19 @@ Supported sequences:
     ESC[{n}@        - Insert n blank characters at cursor (ICH)
     ESC[{n}P        - Delete n characters at cursor (DCH)
     \b              - Backspace (one column left, stopping at column 1)
+    \r              - Carriage return (column 1)
+    \n              - Line feed: down a row in the same column; on the
+                      scroll region's bottom margin the region scrolls up
+                      a line instead, and on the last row below the region
+                      the cursor stays (as on a VT100 or xterm, with no
+                      carriage return added)
 
 Deferred auto-wrap (the default; deferred_wrap=False wraps at once):
     Matches real VT100/xterm behavior where writing to the last column
     sets a pending-wrap flag instead of immediately advancing the cursor.
     ESC[K in this state clears from the last column, erasing the character.
-    Cursor movement commands (ESC[r;cH) cancel the pending wrap.
+    Cursor movement commands (ESC[r;cH, CR, LF, BS) cancel the pending
+    wrap.
     A character written with a wrap pending on the bottom margin of the
     scroll region scrolls the region up a line, as on a real terminal (so
     text that overflows the status row scrolls the whole screen).
@@ -221,10 +228,13 @@ class AnsiScreen:
                     state = ESC
                     params = ""
                 elif ch == '\n':
-                    self.cursor_row += 1
-                    self.cursor_col = 0
+                    if self.cursor_row == self.scroll_bottom:
+                        self._scroll(self.scroll_top, 1, up=True)
+                    elif self.cursor_row < self.rows - 1:
+                        self.cursor_row += 1
+                    self._pending_wrap = False
                 elif ch == '\r':
-                    self.cursor_col = 0
+                    self._move_cursor(self.cursor_row, 0)
                 elif ch == '\b':
                     self._move_cursor(self.cursor_row,
                                       max(0, self.cursor_col - 1))
@@ -674,5 +684,31 @@ if __name__ == "__main__":
     assert s30.scroll_rows_touched(2) == set()
     s30.process("\x1b[2;4r\x1b[2;1H\x1b[2L\x1b[?25h")
     assert s30.scroll_rows_touched(3) == {1, 2}
+
+    # CR goes to column 0 and LF down a row in the same column; both
+    # cancel a pending deferred wrap
+    s31 = AnsiScreen(3, 5)
+    s31.process("AB\r\nCD\nE\x1b[?25h")
+    assert rows_of(s31) == ["AB", "CD", "  E"], rows_of(s31)
+    s32 = AnsiScreen(3, 5, deferred_wrap=True)
+    s32.process("ABCDE\r\nF\x1b[?25h")
+    assert rows_of(s32) == ["ABCDE", "F", ""], rows_of(s32)
+    s33 = AnsiScreen(3, 5, deferred_wrap=True)
+    s33.process("ABCDE\nF\x1b[?25h")
+    assert rows_of(s33) == ["ABCDE", "    F", ""], rows_of(s33)
+
+    # LF on the scroll region's bottom margin scrolls the region up; on
+    # the last row below the region the cursor stays
+    s34 = lettered(3)
+    s34.process("\x1b[1;2r\x1b[2;2H\nX\x1b[?25h")
+    assert rows_of(s34) == ["BBB", " X", "CCC"], rows_of(s34)
+    assert s34.scroll_rows_touched(0) == {0, 1}
+    s35 = lettered(3)
+    s35.process("\x1b[1;2r\x1b[3;1H\nX\x1b[?25h")
+    assert rows_of(s35) == ["AAA", "BBB", "XCC"], rows_of(s35)
+    assert s35.was_scrolled(0) == False
+    s36 = lettered(3)
+    s36.process("\x1b[3;1H\nX\x1b[?25h")
+    assert rows_of(s36) == ["BBB", "CCC", "X"], rows_of(s36)
 
     print("All self-tests passed.")
