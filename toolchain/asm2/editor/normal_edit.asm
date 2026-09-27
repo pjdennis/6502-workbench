@@ -523,12 +523,9 @@ normal_join_lines:
 .set_undo_count:
   STA UNDO_JOIN_COUNT
 
-  ; Record undo state
-  CP16 FILE_LINE16, UNDO_LINE16
+  ; Record undo state (the join column goes in UNDO_COL16 at the end)
   LDA #UNDO_JOIN
-  STA UNDO_TYPE
-  LDA #0
-  STA UNDO_IS_REDO
+  JSR undo_rec_set
 
   ; The content before the first join point (the end of the first line)
   ; is unchanged, so the line repaints from there
