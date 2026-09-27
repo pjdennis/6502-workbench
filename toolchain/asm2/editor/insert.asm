@@ -154,18 +154,12 @@ insert_handle_key:
   JSR dispatch_key
   PLA
   BEQ .end_segment           ; (A = 0)
-  LDX #3
-.moved:
-  LDA FILE_LINE16,X          ; The line and column against the cursor
-  EOR SNAP_LINE16,X          ; before the key (SNAP_LINE16/SNAP_COL16)
-  BNE .moved_on
-  DEX
-  BPL .moved
-  RTS
-.moved_on:
+  JSR cursor_moved
+  BEQ .kept
   LDA #0
 .end_segment:
   STA INSERT_SEG
+.kept:
   RTS
 .end_batch:
   JSR unget_key

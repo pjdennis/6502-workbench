@@ -49,7 +49,7 @@ UNDO_RET_COL16:  .word    ; insert of o and O: the column u returns to
 ; --- render.asm ---
 CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
 FILE_LINE16:    .word   ; Current file line (0-based); CURSOR_COL16 follows it, as
-                        ; SNAP_COL16 follows SNAP_LINE16 (insert mode's move test)
+                        ; SNAP_COL16 follows SNAP_LINE16 (cursor_moved)
 CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
 VIEW_TOP16:     .word   ; First visible line number (0-based)
 SCREEN_ROWS:    .byte   ; Terminal height

@@ -3,12 +3,12 @@
 ; --- Movement ---
 
 normal_move_left:
-  JSR h_l_setup
+  JSR get_batched_count
   JSR move_left_x
   JMP h_l_done
 
 normal_move_right:
-  JSR h_l_setup
+  JSR get_batched_count
   ; Move right X columns, then clamp to the last char
   TXA
   CLC

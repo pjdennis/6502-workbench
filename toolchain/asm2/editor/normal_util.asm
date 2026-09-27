@@ -354,18 +354,9 @@ enter_insert_open:
   STA MODE
   JMP clear_count
 
-; h and l: X = the count (and the typed-ahead presses), NORMAL_TEMP =
-; the column's low byte, which tells h_l_done whether they moved (at
-; most 255 columns)
-h_l_setup:
-  LDA CURSOR_COL16
-  STA NORMAL_TEMP
-  JMP get_batched_count
-
 ; h and l that could not move (vim beeps) keep the remembered column
 h_l_done:
-  LDA CURSOR_COL16
-  CMP NORMAL_TEMP
+  JSR cursor_moved
   BNE clear_count
   BEQ keep_clear_count       ; Always
 
@@ -429,11 +420,7 @@ vert_col_clamp:
 vert_moved:
   LDX #2
   STX CURSWANT_KEEP
-  LDA FILE_LINE16
-  CMP SNAP_LINE16
-  BNE vert_to_col
-  LDA FILE_LINE16 + 1
-  CMP SNAP_LINE16 + 1
+  JSR cursor_moved
   BEQ clear_count                ; The cursor did not move: it failed
 vert_keep:
   LDA #2
@@ -450,6 +437,20 @@ clamp_for_mode:
 clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count
+
+; Z = 1 if the cursor is where it was before the key (SNAP_LINE16 and
+; SNAP_COL16): a move that failed left it there.  Clobbers A, X
+cursor_moved:
+  LDX #3
+.loop:
+  LDA FILE_LINE16,X
+  EOR SNAP_LINE16,X
+  BNE .done
+  DEX
+  BPL .loop
+  INX                        ; (X = 0: Z = 1)
+.done:
+  RTS
 
 ; Accumulate the digit value in A (0-9) into COUNT16: COUNT16 =
 ; COUNT16 * 10 + digit, through mul10_add (so up to 63999)
