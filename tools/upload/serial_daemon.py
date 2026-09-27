@@ -2,8 +2,9 @@
 
 On Linux, opening a USB serial port asserts DTR, which resets a board whose reset is wired to DTR
 (the cp210x driver also asserts it when the speed changes from B0). This daemon opens the port once
-and keeps it; transfer.py sends uploads through it over a Unix socket. It reopens the port when the
-adapter is unplugged and plugged back in.
+and keeps it; transfer.py sends uploads through it over a Unix socket. When the adapter is unplugged
+the daemon exits rather than wait for it to come back, so that it never grabs some other device, or
+takes the port from a program that doesn't use the daemon; the next upload starts a new daemon.
 
 Usually started on demand by transfer.py. Log: the socket path + '.log'.
 Usage: serial_daemon.py [--socket PATH] [--port DEVICE]
@@ -27,7 +28,7 @@ import time
 from upload_frame import send_duration
 
 PROTOCOL = 1
-POLL_INTERVAL = 0.5    # seconds between checks for the adapter appearing or disappearing
+POLL_INTERVAL = 0.5    # seconds between checks for the adapter disappearing
 CLIENT_TIMEOUT = 10    # seconds allowed for a client to deliver its request
 RESET_PULSE = 0.1      # seconds DTR is held for a reset
 RESET_SETTLE = 0.2     # seconds allowed for the board to start up after a reset
@@ -38,6 +39,9 @@ SCRIPT = os.path.abspath(__file__)
 REOPENED = ("the serial port has just been opened, which resets the board, so nothing was sent. "
             "The board is now running its ROM loader: do a reset upload (e.g. of the RAM uploader), "
             "or re-run to send to the ROM loader anyway")
+
+DISCONNECTED = ("{} was disconnected, so nothing was sent and the serial daemon has exited. Re-run to start "
+                "a new one (opening the port resets the board)")
 
 log = logging.getLogger('serial_daemon')
 
@@ -107,33 +111,28 @@ def transmit(ser, payload, reset, baudrate, stopbits, wait, clock=time.monotonic
 
 
 class PortHolder:
-  """The serial port, opened when the adapter is present and closed when it goes away. fresh is set
-  when the port is opened (which resets the board) and cleared by the daemon."""
+  """The serial port, opened by the first send. fresh is set when the port is opened (which resets
+  the board) and cleared by the daemon."""
 
   def __init__(self, find_device, open_serial, identify):
     self._find_device, self._open_serial, self._identify = find_device, open_serial, identify
     self.serial = self.device = self._identity = None
     self.fresh = False
-    self._problem = None
 
-  def poll(self):
-    try:
-      self.ensure_open()
-    except (NoDevice, OSError) as e:
-      if str(e) != self._problem:
-        log.info('%s', e)
-      self._problem = str(e)
-
-  def ensure_open(self):
-    if self.serial is not None and self._present():
-      return self.serial
-    self.close()
+  def open(self):
     device = self._find_device()
     identity = self._identify(device)
     self.serial = self._open_serial(device)
-    self.device, self._identity, self.fresh, self._problem = device, identity, True, None
+    self.device, self._identity, self.fresh = device, identity, True
     log.info('opened %s', device)
     return self.serial
+
+  # False once the adapter that was opened has gone, even if another has appeared at the same path
+  def present(self):
+    try:
+      return self._identify(self.device) == self._identity
+    except OSError:
+      return False
 
   def close(self):
     if self.serial is None:
@@ -144,12 +143,6 @@ class PortHolder:
       pass
     log.info('closed %s', self.device)
     self.serial = self.device = self._identity = None
-
-  def _present(self):
-    try:
-      return self._identify(self.device) == self._identity
-    except OSError:
-      return False
 
 
 def error(message):
@@ -162,7 +155,17 @@ class Daemon:
     self.stopping = False
 
   def poll(self):
-    self.port.poll()
+    if self.port.serial is not None and not self.port.present():
+      log.info('%s disconnected', self.port.device)
+      self.stopping = True
+
+  # The port is opened only once: the daemon stops when it is lost or can't be opened
+  def hold_port(self):
+    if self.port.serial is None:
+      return self.port.open()
+    if not self.port.present():
+      raise NoDevice(DISCONNECTED.format(self.port.device))
+    return self.port.serial
 
   def handle(self, header, payload):
     handler = {'send': self.send, 'status': self.status, 'stop': self.stop}.get(header.get('op'))
@@ -180,8 +183,9 @@ class Daemon:
       return error('the serial daemon is using {}, not {}; run transfer.py --daemon stop to switch'.format(
         self.configured_port or 'the auto-detected USB serial port', port))
     try:
-      ser = self.port.ensure_open()
+      ser = self.hold_port()
     except (NoDevice, OSError) as e:
+      self.stopping = True
       return error(str(e))
     if self.port.fresh and not header['reset']:
       self.port.fresh = False
@@ -190,7 +194,7 @@ class Daemon:
       transmit(ser, payload, header['reset'], header['baudrate'], header['stopbits'], header.get('wait'),
                self.clock, self.sleep)
     except (OSError, ValueError) as e:
-      self.port.close()
+      self.stopping = True
       return error('serial port error: {}'.format(e))
     self.port.fresh = False
     log.info('sent %d bytes%s', len(payload), ' after reset' if header['reset'] else '')

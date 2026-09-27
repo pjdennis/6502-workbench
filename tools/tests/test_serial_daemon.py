@@ -171,63 +171,61 @@ class SendTest(DaemonTestCase):
     self.send(bytes(1000), baudrate=57600, stopbits=2, wait=True)
     self.assertAlmostEqual(self.clock.now, start + send_duration(1000, 57600, 2))
 
-  def test_no_device(self):
+  def test_no_device_reports_and_stops(self):
     response = self.send(b'abc', reset=True)
     self.assertFalse(response['ok'])
     self.assertIn('no USB serial device', response['error'])
+    self.assertTrue(self.daemon.stopping)
 
-  def test_write_error_closes_port_and_reports(self):
+  def test_write_error_reports_and_stops(self):
     self.open_and_acknowledge()
     self.devices.opened[0].fail_write = True
     response = self.send(b'abc')
     self.assertFalse(response['ok'])
     self.assertIn('Input/output error', response['error'])
-    self.assertTrue(self.devices.opened[0].closed)
-
-  def test_after_write_error_the_port_is_reopened(self):
-    self.open_and_acknowledge()
-    self.devices.opened[0].fail_write = True
-    self.send(b'abc')
-    self.assertFalse(self.send(b'abc')['ok'])        # reopened: board was reset
-    self.assertEqual(len(self.devices.opened), 2)
-    self.assertEqual(self.send(b'abc'), {'ok': True})
+    self.assertTrue(self.daemon.stopping)
 
 
-class HotplugTest(DaemonTestCase):
-  def test_poll_opens_a_device_when_it_appears(self):
+class DisconnectTest(DaemonTestCase):
+  """The port is opened once: when the adapter goes away the daemon stops rather than wait to open
+  whatever appears next."""
+
+  def test_poll_never_opens_a_device(self):
+    self.devices.plug()
     self.daemon.poll()
     self.assertEqual(self.devices.opened, [])
-    self.devices.plug()
-    self.daemon.poll()
-    self.assertEqual([ser.device for ser in self.devices.opened], [DEVICE])
+    self.assertFalse(self.daemon.stopping)
 
   def test_poll_keeps_an_open_device_open(self):
-    self.devices.plug()
+    self.open_and_acknowledge()
     self.daemon.poll()
     self.daemon.poll()
     self.assertEqual(len(self.devices.opened), 1)
     self.assertFalse(self.devices.opened[0].closed)
+    self.assertFalse(self.daemon.stopping)
 
-  def test_poll_closes_a_vanished_device(self):
+  def test_poll_stops_when_the_device_vanishes(self):
     self.open_and_acknowledge()
     self.devices.unplug()
     self.daemon.poll()
-    self.assertTrue(self.devices.opened[0].closed)
-    self.assertIn('no USB serial device', self.send(b'abc')['error'])
+    self.assertTrue(self.daemon.stopping)
 
-  def test_poll_reopens_a_replugged_device(self):
+  def test_poll_stops_when_the_device_is_replugged(self):
     self.open_and_acknowledge()
     self.devices.plug()                               # same path, new device node
     self.daemon.poll()
-    self.assertTrue(self.devices.opened[0].closed)
-    self.assertEqual(len(self.devices.opened), 2)
-    self.assertIn('reset', self.send(b'abc')['error'])
+    self.assertTrue(self.daemon.stopping)
+    self.assertEqual(len(self.devices.opened), 1)
 
-  def test_send_notices_a_replugged_device_before_poll_does(self):
+  def test_send_that_notices_a_replugged_device_before_poll_does_is_refused_and_stops(self):
     self.open_and_acknowledge()
     self.devices.plug()
-    self.assertIn('reset', self.send(b'abc')['error'])
-    self.assertEqual(len(self.devices.opened), 2)
+    response = self.send(b'abc', reset=True)
+    self.assertFalse(response['ok'])
+    self.assertIn('disconnected', response['error'])
+    self.assertTrue(self.daemon.stopping)
+    self.assertEqual(len(self.devices.opened), 1)
+    self.assertEqual(self.devices.writes(), [])
 
 
 class RequestTest(DaemonTestCase):
@@ -262,8 +260,7 @@ class RequestTest(DaemonTestCase):
     self.assertEqual(self.send(b'abc', reset=True, port=DEVICE), {'ok': True})
 
   def test_status(self):
-    self.devices.plug()
-    self.daemon.poll()
+    self.open_and_acknowledge()
     response = self.daemon.handle({'protocol': serial_daemon.PROTOCOL, 'op': 'status'}, b'')
     self.assertTrue(response['ok'])
     self.assertEqual(response['device'], DEVICE)
@@ -309,6 +306,21 @@ class ServeTest(DaemonTestCase):
       thread.join(5)
     self.assertFalse(thread.is_alive())
     self.assertEqual(self.devices.writes(), [b'abc'])
+    self.assertTrue(self.devices.opened[0].closed)
+    self.assertFalse(os.path.exists(path))
+
+  def test_exits_when_the_device_is_unplugged(self):
+    path = os.path.join(tempfile.mkdtemp(), 'daemon.sock')
+    listener = serial_daemon.bind_listener(path)
+    thread = threading.Thread(target=serial_daemon.serve, args=(listener, self.daemon, 0.01))
+    thread.start()
+    try:
+      self.devices.plug()
+      self.assertEqual(serial_daemon.request(path, send_header(3, reset=True), b'abc'), {'ok': True})
+      self.devices.unplug()
+    finally:
+      thread.join(5)
+    self.assertFalse(thread.is_alive())
     self.assertTrue(self.devices.opened[0].closed)
     self.assertFalse(os.path.exists(path))
 
