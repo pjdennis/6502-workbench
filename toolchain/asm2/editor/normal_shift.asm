@@ -60,15 +60,22 @@ do_unindent:
 ; operator, the column u returns to: over two or more lines the cursor,
 ; on one line the first non-blank if it is further left.  A batch's
 ; later pairs each start on the first non-blank the pair before left
-; (the cores move it as the earlier pairs moved the text).
+; (the cores move it as the earlier pairs moved the text).  Near a full
+; buffer (no room for a full batch) the pairs run one at a time, so the
+; ones that fit go in and the next is refused on its own, as typed singly.
 shift_normal_setup:
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   LDX #0                       ; No pairs taken
   LDA COUNT16
   ORA COUNT16 + 1
-  BNE .counted
+  BNE .single
+  LDA BUF_END16
+  CMP #<TEXT_LIMIT - BATCH_MAX - BATCH_MAX - INDENT_WIDTH
+  LDA BUF_END16 + 1
+  SBC #>TEXT_LIMIT - BATCH_MAX - BATCH_MAX - INDENT_WIDTH
+  BCS .single                  ; Under INDENT_WIDTH * (BATCH_MAX + 1) free
   JSR batch_pending_pairs      ; X = BATCH_EXTRA
-.counted:
+.single:
   TXA
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
   STA SHIFT_PREV_WIDTH         ; The earlier pairs' width (C = 0: BATCH_EXTRA <= BATCH_MAX)

@@ -2608,6 +2608,16 @@ class EditorTestRunner:
         self.run_test_screen(">> in a full text buffer: cursor at its start",
             indented, b"6l>>x:q!\r", expect_cursor=(0, 2),
             expect_ansi_contains="Buffer full")
+        # Typed-ahead >> pairs near a full buffer: the pairs that fit merge,
+        # the next one is refused with "Buffer full" and the key after it
+        # dismisses the message, as typed one at a time (4 bytes free: two
+        # >> fit, the third does not; the 'x' is taken by the message)
+        self.run_test_batch_equiv(
+            "Batch equiv: >> pairs past the end of a full text buffer",
+            "  " + exact[6:], [b"6l", b">>", b">>", b">>", b"x"])
+        self.run_test_batch_equiv(
+            "Batch equiv: >> pairs into a text buffer one byte short",
+            "  " + exact[5:], [b">>", b">>", b"x"])
         # Typed ahead into the end of an almost full buffer, the keys give
         # what they give typed one at a time: 'abc' fits, 'd' is refused
         # and 'e' dismisses the message, 'f' is refused and 'g' dismisses it
