@@ -271,6 +271,8 @@ COMMAND-LINE MODE
     N              Line number (1-based)
     'a             Mark reference
     .              Current line
+  An omitted position is the current line (:5,d = :5,.d and
+  :,5d = :.,5d).
 
   A single position can be used instead of a range:
     :[pos]d            Delete one line at position
@@ -289,7 +291,8 @@ COMMAND-LINE MODE
     :5>            Indent line 5
 
   If start > end, the range is automatically swapped. Line numbers
-  past the end of the file mean the last line.
+  past the end of the file mean the last line. A range with no
+  command goes to its last line (:1,5 = :5).
 
   The report of :w ("name" written) or of a range command (N lines
   deleted, yanked, shifted) stays on the status row until the next
