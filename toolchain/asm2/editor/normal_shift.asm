@@ -33,8 +33,9 @@
 ; while they run).  Undo covers the last >> / <<, one INDENT_WIDTH step:
 ; batched pairs multiply W, but u behaves as if the keys ran separately.
 ; On no-op (nothing inserted/removed) they leave MODIFIED and RENDER_FLAG
-; untouched so the frame is a pure cursor/status update, and end the
-; undo (vim records an empty change).  A shift refused at buffer full
+; untouched so the frame is a pure cursor/status update, and record an
+; empty change, as vim does: u then puts the cursor back where the shift
+; started (its widths are all 0, so the undo and the redo change nothing).  A shift refused at buffer full
 ; leaves the undo record as it was: until the shift has happened the
 ; cores keep their state out of it.
 
@@ -43,7 +44,6 @@
 ; Scratch the cores reuse while they run (aliases)
 SHIFT_LINE_IDX   = BUF_TEMP        ; line index into UNDO_DATA_BUF
 SHIFT_LINES16    = MARK_DELTA16    ; lines in the range (BUF_TEMP16 counts them off)
-SHIFT_RECORDED   = SHIFT_MODE      ; remove core: nonzero once a last-op removal is recorded
 
 INDENT_WIDTH = 2
 
@@ -140,15 +140,9 @@ shift_prologue:
 .done:
   RTS
 
-; Record undo of type A (UNDO_NONE: nothing to undo) unless the range
-; was too big for undo data, then fall through to the render epilogue.
+; Record undo of type A, then the render epilogue
 shift_finish:
-  LDX SHIFT_LINES16 + 1
-  BEQ .record
-  LDA #UNDO_NONE               ; Big range: not undoable
-.record:
-  JSR undo_rec_set             ; Type, cursor position
-  CP16 SHIFT_LINES16, UNDO_RANGE_LINES16
+  JSR shift_record
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
 ; render level.  Partial repaint ($0B) requires pre-computed screen rows
@@ -166,6 +160,17 @@ shift_set_render:
 .full:
   LDA #RF_FULL
   STA RENDER_FLAG
+  RTS
+
+; Record undo of type A unless the range was too big for undo data (then
+; there is nothing to undo)
+shift_record:
+  LDX SHIFT_LINES16 + 1
+  BEQ .record
+  LDA #UNDO_NONE               ; Big range: not undoable
+.record:
+  JSR undo_rec_set             ; Type, cursor position
+  CP16 SHIFT_LINES16, UNDO_RANGE_LINES16
   RTS
 
 ; Buffer full: say so, and end the command there (the core's caller
@@ -192,9 +197,9 @@ insert_spaces_core:
   BNE .prescan
   CP16 SHIFT_LINES16, BUF_TEMP16 ; Line count again for redistribute
 
-  ; Nothing to insert (all lines empty): pure no-op
+  ; Nothing to insert (all lines empty): an empty change
   TST16 COUNT16
-  BEQ shift_noop
+  BEQ .noop
 
   ; Single buffer shift right at first line start
   CP16 COUNT16, BUF_LEN16
@@ -243,19 +248,15 @@ insert_spaces_core:
   ; Record undo: u removes the recorded per-line widths via unindent
   LDA #UNDO_INDENT
   JMP shift_finish
-
-; Shared no-op exit: leave MODIFIED/RENDER_FLAG untouched, end the undo
-shift_noop:
-  JMP undo_clear
+.noop:
+  LDA #UNDO_INDENT
+  JMP shift_record
 
 ; Remove up to BUF_DELTA leading spaces from each line of a range
 ; (see contract above).  Per-line removal counts are recorded to
 ; UNDO_DATA_BUF so undo can restore exactly what was removed.
 remove_spaces_core:
   JSR shift_prologue
-
-  LDA #0
-  STA SHIFT_RECORDED               ; Accumulates recorded (last-op) removals
 
   ; Set write ptr = first line start
   JSR get_current_line_ptr
@@ -291,8 +292,6 @@ remove_spaces_core:
 .record_ok:
   LDX SHIFT_LINE_IDX
   STA UNDO_DATA_BUF,X
-  ORA SHIFT_RECORDED
-  STA SHIFT_RECORDED               ; nonzero if any last-op removal recorded
 .no_record:
 
   JSR shift_count_line         ; (keeps Y)
@@ -307,9 +306,9 @@ remove_spaces_core:
   TST16 BUF_TEMP16
   BNE .unindent_loop
 
-  ; If nothing was removed, pure no-op (no MODIFIED, no repaint)
+  ; If nothing was removed: an empty change (no MODIFIED, no repaint)
   TST16 COUNT16
-  BEQ shift_noop
+  BEQ .noop
 
   ; Single shift left: close the gap after processed range
   CP16 JUMP_TARGET16, BUF_PTR16
@@ -334,14 +333,14 @@ remove_spaces_core:
 .col_ok:
   STA CURSOR_COL16
 
-  ; Record undo: u re-inserts the recorded per-line counts.  If the
-  ; last logical op removed nothing (earlier batch ops took it all),
-  ; there is nothing to undo -- matches unbatched no-op << behavior.
-  LDA SHIFT_RECORDED
-  BEQ .record                  ; UNDO_NONE: the last pair removed nothing
+  ; Record undo: u re-inserts the recorded per-line counts (the last
+  ; logical op's: if earlier batch ops took it all, an empty change, as
+  ; the no-op << the last pair is when typed singly)
   LDA #UNDO_UNINDENT
-.record:
   JMP shift_finish
+.noop:
+  LDA #UNDO_UNINDENT
+  JMP shift_record
 
 ; A = width to insert on the line starting at (BUF_PTR16), line index
 ; SHIFT_LINE_IDX: the recorded width in data mode, else 0 for an empty

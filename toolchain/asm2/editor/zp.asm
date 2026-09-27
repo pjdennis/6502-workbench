@@ -120,8 +120,7 @@ OP_EXCL_LINE:  .byte     ; Bit 7: a w or b operator's range ended on column 0
 
 ; --- normal_shift.asm ---
 SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
-                        ; also SHIFT_RECORDED (normal_shift.asm) and
-                        ; TILDE_TOGGLED (normal_edit.asm)
+                        ; also TILDE_TOGGLED (normal_edit.asm)
 SHIFT_PREV_WIDTH: .byte ; the part of BUF_DELTA a batch's earlier >> / <<
                         ; pairs take (0 unless batched)
 

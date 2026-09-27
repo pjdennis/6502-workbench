@@ -18830,6 +18830,29 @@ class EditorTestRunner:
             expected_content="Hello\nWorld\n"
         )
 
+        # vim records a >> or << that changes nothing as an empty change:
+        # u "undoes" it (the change before stays done) and puts the cursor
+        # back where that shift started
+        for content, keys, expected, cursor in (
+                ("  bb cc\n", b"<<k<<lu", "bb cc\n", (0, 0)),
+                ("  bb cc\n", b"<<k<<luu", "bb cc\n", (0, 0)),
+                ("abc\n\n", b"xj>>u", "bc\n\n", (1, 0)),
+                ("  a\nb\n", b"<<j<<u", "a\nb\n", (1, 0)),
+                ("abc\n\n", b"xj<<ku", "bc\n\n", (1, 0)),
+                ("abc\n  x\n", b"xj:1<\ru", "bc\n  x\n", (0, 0))):
+            self.run_test_screen(
+                f"u after a {keys!r} that shifts nothing: cursor",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+            self.run_test(
+                f"u after a {keys!r} that shifts nothing: text",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+
         # >> then movement then u: undo applies to the recorded range
         self.run_test(
             ">> j u undoes indent from another line",
