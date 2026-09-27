@@ -205,8 +205,7 @@ do_dd:
   LDX #$FF                   ; 256 or more
 .room:
   JSR batch_pending_pairs_upto  ; X = pairs taken
-  TXA
-  ADDA16 BUF_TEMP16          ; BUF_TEMP16 = count + pairs (the limit kept it
+  JSR add_x_temp16           ; BUF_TEMP16 = count + pairs (the limit kept it
                              ; within the lines left)
   ; fall through
 

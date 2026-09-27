@@ -305,7 +305,7 @@ buf_shift_right_16:
 buf_line_span:
   STA BUF_DST16              ; First line low byte (X = high byte)
   JSR buf_get_line_ptr       ; Preserves X
-  CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = start of the first line
+  JSR ptr_to_src             ; BUF_SRC16 = start of the first line
   CP16 BUF_END16, BUF_PTR16  ; End = buffer end, unless a line follows
   ; Y/X = line after the span = first line + count; C = it is past the end
   CLC

@@ -341,8 +341,7 @@ render_finish_send:
 render_finish_cursor:
   ; The cursor to the editing position (wrap-aware): screen column =
   ; CURSOR_COL16 % SCREEN_COLS
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
+  JSR cursor_col_div
   TAX                          ; X = remainder (screen col, 0-based)
   LDA CURSOR_ROW
   JSR ansi_goto0
@@ -571,6 +570,12 @@ check_from_col:
 
 ; === Wrap utility functions ===
 
+; Divide CURSOR_COL16 by SCREEN_COLS (as below): X = the cursor's wrap
+; row, A = its screen column.  Clobbers DIV_INPUT16
+cursor_col_div:
+  CP16 CURSOR_COL16, DIV_INPUT16
+  ; fall through
+
 ; Divide the 16-bit value in DIV_INPUT16 by SCREEN_COLS: repeated
 ; subtraction below 256 (at most 255 / SCREEN_COLS steps), eight
 ; shift-and-subtract steps above
@@ -732,8 +737,7 @@ cdsr_overflow:
 ; Scrolls VIEW_TOP16 if needed (render_decide detects the change)
 ensure_cursor_visible:
   ; Compute cursor's wrap row: CURSOR_COL16 / SCREEN_COLS
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
+  JSR cursor_col_div
   STX WRAP_QUOT      ; cursor_wrap_row
 
   ; Check if cursor is above view

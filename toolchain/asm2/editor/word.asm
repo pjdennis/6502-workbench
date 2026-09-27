@@ -409,8 +409,7 @@ range_start:
 range_start_ptr:
   TXA
   PHA
-  JSR get_cursor_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16
+  JSR get_cursor_src
   PLA
   TAX
   RTS

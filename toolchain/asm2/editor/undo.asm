@@ -294,7 +294,7 @@ undo_join_redo:
 undo_join_apply:
   STA BUF_TEMP16               ; Stash char (BUF_TEMP16 free until epilogue)
   JSR get_current_line_ptr          ; BUF_PTR16 = line start
-  CP16 BUF_PTR16, BUF_SRC16    ; BUF_SRC16 = line start (base for offsets)
+  JSR ptr_to_src               ; BUF_SRC16 = line start (base for offsets)
 
   LDX #0                       ; X = buffer index
   LDY #0

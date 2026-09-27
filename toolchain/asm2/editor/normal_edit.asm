@@ -19,8 +19,7 @@ paste_prologue_c:
   BCS .no_batch
   JSR count_pending_key      ; X = pending matching keys
   STX BATCH_EXTRA
-  TXA
-  ADDA16 BUF_TEMP16
+  JSR add_x_temp16
 .no_batch:
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   RTS
@@ -302,8 +301,7 @@ interleaved_fill:
 ; wrap row).  Clobbers A, X.
 echo_span_setup:
   JSR undo_record_pos
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16 ; A = col % SCREEN_COLS
+  JSR cursor_col_div         ; A = col % SCREEN_COLS
   EOR #$FF
   SEC
   ADC SCREEN_COLS            ; SCREEN_COLS - A
@@ -515,7 +513,7 @@ normal_join_lines:
   STAX16 RENDER_FROM_COL16
   ; Get line start for offset calculations
   JSR get_current_line_ptr        ; BUF_PTR16 = line start
-  CP16 BUF_PTR16, BUF_SRC16  ; BUF_SRC16 = line start (base for offsets)
+  JSR ptr_to_src             ; BUF_SRC16 = line start (base for offsets)
   ; BUF_PTR16 = the first line's '\n'
   CLC
   ADC16 BUF_SRC16, RENDER_FROM_COL16, BUF_PTR16
@@ -598,18 +596,18 @@ sub_change_tail:
   LDA #OP_CHANGE
   JMP apply_char_operator
 
+; --- Change to EOL (C) ---
+normal_change_to_eol:
+  JSR get_count_clamp_lines  ; (a count on the last line ends it)
+  JSR dollar_range_setup
+  BCC sub_change_tail
+  ; fall through: nothing to change on the line
+
 ; Shared s/C empty-line entry to insert mode (cw's too): an empty
 ; change, as in vim
 sub_change_insert:
   JSR undo_record_empty
   JMP enter_insert_mode
-
-; --- Change to EOL (C) ---
-normal_change_to_eol:
-  JSR get_count_clamp_lines  ; (a count on the last line ends it)
-  JSR dollar_range_setup
-  BCS sub_change_insert
-  JMP sub_change_tail
 
 ; --- Replace char (r) ---
 ; The replacement is the key typed, a control key too, or the key after

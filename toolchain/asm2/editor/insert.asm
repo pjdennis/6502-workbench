@@ -191,7 +191,7 @@ insert_handle_key:
   STA BUF_TEMP16            ; back = dist (clamped)
 .back_ok:
   ; The forward scan (step 6) starts at the cursor
-  CP16 BUF_PTR16, BUF_SRC16
+  JSR ptr_to_src
 
   ; Step 4: BUF_PTR16 -= back (delete_start)
   SEC

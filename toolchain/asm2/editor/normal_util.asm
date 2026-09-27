@@ -208,6 +208,8 @@ get_cursor_buf_ptr:
 ; BUF_SRC16 = BUF_PTR16 = buffer address at the cursor.  Clobbers A, X, Y
 get_cursor_src:
   JSR get_cursor_buf_ptr
+; BUF_SRC16 = BUF_PTR16.  Clobbers A (= the high byte)
+ptr_to_src:
   CP16 BUF_PTR16, BUF_SRC16
   RTS
 
@@ -232,6 +234,8 @@ clamp_cursor_col:
 get_count_pending16:
   JSR get_count
   JSR count_pending_key      ; X = the presses
+; BUF_TEMP16 += X; X = A = its new low byte.  Carry undefined
+add_x_temp16:
   TXA
   ADDA16 BUF_TEMP16
   TAX
@@ -289,7 +293,7 @@ move_left_x:
 ; Move right X positions, clamped to LINE_LEN16 (insert-mode Right)
 ; Input: X = count, LINE_LEN16 = max col. Clobbers: A, X
 move_right_x:
-  CMP16 CURSOR_COL16, LINE_LEN16
+  JSR cursor_in_line
   BCS .done
   JSR inc_cursor_col
   DEX
