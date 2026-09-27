@@ -1554,6 +1554,13 @@ class EditorTestRunner:
             "a" * 30000 + "\n", b"$" + b"h\x1b" * 100 + b":q!\r", 5200000,
             rows=24, cols=80)
 
+        # A char delete that ends within the cursor's line has no line
+        # break to count: D on a 4,000-char line no longer scans it (the
+        # whole run took 788,405 cycles, 468,382 now)
+        self.run_test_cycle_cap(
+            "Char delete within a line: D on a 4,000-char line",
+            "a" * 4000 + "\n", b"D:q!\r", 560000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

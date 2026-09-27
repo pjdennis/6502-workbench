@@ -603,15 +603,27 @@ delete_current_lines:
   JMP clamp_file_line        ; Clamp file line if past end of file
 
 ; Count the newlines in the BUF_LEN16 bytes at the cursor
-; Output: BUF_TEMP16 = the count, BUF_DST16 = the address after them,
-; Y = 0.  Clobbers A, X, BUF_PTR16, BUF_SRC16
+; Output: BUF_TEMP16 = the count, BUF_DST16 = the address after them
+; (if there are any), Y = 0.  A range that ends within the cursor's line
+; holds none: it is not scanned.  Clobbers A, X, BUF_PTR16, BUF_SRC16
 count_newlines:
+  JSR get_current_line_len
+  SEC
+  SBC CURSOR_COL16
+  TAY
+  TXA
+  SBC CURSOR_COL16 + 1       ; Y/A = the chars from the cursor to the line end
+  CPY BUF_LEN16
+  SBC BUF_LEN16 + 1
+  PHP                        ; C = they hold the range
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
   CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
   CP16 BUF_LEN16, BUF_SRC16 ; BUF_SRC16 = bytes left to scan
   LDA #0
   STA_LH16 BUF_TEMP16
   TAY                        ; Y = 0 for the scan
+  PLP
+  BCS .scan_done
 .scan_nl:
   TST16 BUF_SRC16
   BEQ .scan_done
