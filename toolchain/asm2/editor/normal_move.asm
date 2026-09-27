@@ -38,18 +38,26 @@ normal_page_up:
   JMP first_nonblank_clear
 
 ; Ctrl-D: half-page down
-; Scroll down by half a screen (or count lines)
+; Scroll down by half a screen (or count lines).  On the last line vim
+; refuses it: the cursor, its column and the scroll amount stay
 normal_half_page_down:
+  JSR lines_left
+  BEQ half_page_fail
   JSR half_page_setup
   JSR scroll_view_down
   JMP first_nonblank_clear
 
 ; Ctrl-U: half-page up
-; Scroll up by half a screen (or count lines)
+; Scroll up by half a screen (or count lines), refused on line 1 (vim)
 normal_half_page_up:
+  LDA FILE_LINE16
+  ORA FILE_LINE16 + 1
+  BEQ half_page_fail
   JSR half_page_setup
   JSR scroll_view_up
   JMP first_nonblank_clear
+half_page_fail:
+  JMP keep_clear_count
 
 ; Page scroll setup: BUF_DELTA = batched count (repeats),
 ; BUF_TEMP16 = page size = content rows (TEXT_ROWS)

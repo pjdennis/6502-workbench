@@ -3137,6 +3137,26 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+9}") for i in range(9)]
         )
 
+        # vim refuses Ctrl-U on line 1 and Ctrl-D on the last line: the
+        # cursor, its column and the remembered column stay, and a count
+        # typed with it is not remembered as the scroll amount
+        l40 = "".join(f"L{i}\n" for i in range(40))
+        def x_at(content, row, col):
+            lines = content.split("\n")
+            lines[row] = lines[row][:col] + lines[row][col + 1:]
+            return "\n".join(lines)
+        for content, keys, cursor in (
+                (l40, b"3" + CTRL_U + CTRL_D, (4, 0)),
+                (l40, b"G3" + CTRL_D + b"gg" + CTRL_D, (4, 0)),
+                ("  abc\n", b"$" + CTRL_U, (0, 4)),
+                ("abc\n  def\n", b"j$" + CTRL_D, (1, 4)),
+                ("  abcdef\nab\n", b"$" + CTRL_U + b"j", (1, 1))):
+            self.run_test(
+                f"{keys!r} refused on the first or last line: x at "
+                f"{cursor}",
+                content, keys + b"x:wq\r",
+                expected_content=x_at(content, *cursor))
+
         # Ctrl-D at end of file: no movement
         self.run_test_screen(
             "Ctrl-D at end: no movement",

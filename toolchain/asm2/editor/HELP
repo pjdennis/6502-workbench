@@ -57,7 +57,8 @@ NORMAL MODE - MOVEMENT
   Ctrl-D and Ctrl-U accept a count that becomes "sticky" - the
   same scroll amount is reused on subsequent Ctrl-D/Ctrl-U presses
   until a new count is given. Without a count, they scroll half a
-  screen by default.
+  screen by default. As in vim, Ctrl-D on the last line and Ctrl-U
+  on the first do nothing (a count typed with them is not kept).
 
   G, gg, Ctrl-F, Ctrl-B, Ctrl-D, Ctrl-U, 'a and :N put the cursor on
   the first non-blank character of the line they go to, as dd and :d

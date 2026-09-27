@@ -295,21 +295,29 @@ move_right_x:
 ; Clobbers: A, X
 get_count_clamp_lines:
   JSR get_count
-  SEC
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
-  CMP16 BUF_TEMP16, BUF_LEN16
-  BCC .ok
-  CP16 BUF_LEN16, BUF_TEMP16
-  LDX BUF_LEN16 + 1
-  BNE .ok
-  LDX BUF_LEN16
-  DEX
-  BNE .ok                    ; Not the last line
+  JSR lines_left
+  BNE .clamp                 ; Not the last line
   LDA COUNT16
   LSR
   ORA COUNT16 + 1
   BNE end_command            ; A count of 2 or more
+.clamp:
+  CMP16 BUF_TEMP16, BUF_LEN16
+  BCC .ok
+  CP16 BUF_LEN16, BUF_TEMP16
 .ok:
+  RTS
+
+; BUF_LEN16 = the lines from the cursor's to the end, Z set if the
+; cursor is on the last line.  Clobbers A, X
+lines_left:
+  SEC
+  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
+  LDX BUF_LEN16 + 1
+  BNE .done
+  LDX BUF_LEN16
+  DEX
+.done:
   RTS
 
 ; --- Insert mode entry helpers ---
