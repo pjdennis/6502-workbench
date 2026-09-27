@@ -2779,6 +2779,31 @@ class EditorTestRunner:
             expect_cursor=(0, 0)
         )
 
+        # As in vim, the cursor starts on the first non-blank of line 1 (on
+        # a line of blanks, the last blank), and j and k keep to its column
+        self.run_test_screen(
+            "Initial cursor on the first non-blank",
+            "  abc\n",
+            b":q!\r",
+            expect_cursor=(0, 2)
+        )
+        self.run_test_screen(
+            "Initial cursor on a line of blanks",
+            "   \nabc\n",
+            b":q!\r",
+            expect_cursor=(0, 2)
+        )
+        for content, keys, expected in (
+                ("  abc\n", b"x", "  bc\n"),
+                ("\tfoo\n", b"x", "\too\n"),
+                ("   abc\nx\n  defgh\n", b"jjx", "   abc\nx\n  dfgh\n")):
+            self.run_test(
+                f"Initial cursor: {content!r} {keys.decode()}",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
         # lll -> cursor at (0,3)
         self.run_test_screen(
             "lll moves cursor to (0,3)",
@@ -12353,7 +12378,7 @@ class EditorTestRunner:
         self.run_test(
             "de on whitespace-only last line keeps final newline",
             "  \n",
-            b"de:wq\r",
+            b"0de:wq\r",
             expected_content="\n",
         )
 
@@ -12594,7 +12619,7 @@ class EditorTestRunner:
         self.run_test(
             "3yw from the indentation through an empty line yanks lines",
             "  a b\n\nc\n",
-            b"2l3ywGp:wq\r",
+            b"02l3ywGp:wq\r",
             expected_content="  a b\n\nc\n  a b\n\n",
         )
 
@@ -12622,7 +12647,7 @@ class EditorTestRunner:
         self.run_test(
             "db from column 0 over the indentation deletes the line",
             "  foo\nbar\n",
-            b"jdb:wq\r",
+            b"0jdb:wq\r",
             expected_content="bar\n",
         )
 
@@ -12651,7 +12676,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "cb from column 0 onto an indented word redraws the changed line",
             " a\nbar\n",
-            b"jcbY\x1b:q!\r",
+            b"0jcbY\x1b:q!\r",
             expect_lines=[(0, "Y"), (1, "bar"), (2, "~")],
             expect_cursor=(0, 0),
         )
@@ -12688,21 +12713,21 @@ class EditorTestRunner:
         self.run_test(
             "2D from the indentation deletes the lines",
             "  foo\nbar\nbaz\n",
-            b"2l2D:wq\r",
+            b"02l2D:wq\r",
             expected_content="baz\n",
         )
 
         self.run_test(
             "2D from the indentation yanks the lines",
             "  foo\nbar\nbaz\n",
-            b"2l2Dp:wq\r",
+            b"02l2Dp:wq\r",
             expected_content="baz\n  foo\nbar\n",
         )
 
         self.run_test(
             "2d$ from the indentation deletes the lines",
             "  foo\nbar\nbaz\n",
-            b"2l2d$:wq\r",
+            b"02l2d$:wq\r",
             expected_content="baz\n",
         )
 
@@ -12716,7 +12741,7 @@ class EditorTestRunner:
         self.run_test(
             "2D from mid-line stays in the line",
             "  foo\nbar\n",
-            b"3l2D:wq\r",
+            b"03l2D:wq\r",
             expected_content="  f\n",
         )
 
@@ -12730,14 +12755,14 @@ class EditorTestRunner:
         self.run_test(
             "2de from the indentation to a line end deletes the lines",
             "  foo\nbar\nbaz\n",
-            b"2l2de:wq\r",
+            b"02l2de:wq\r",
             expected_content="baz\n",
         )
 
         self.run_test(
             "2de from the indentation into a line stays charwise",
             "  foo\nbar baz\n",
-            b"2l2de:wq\r",
+            b"02l2de:wq\r",
             expected_content="   baz\n",
         )
 
@@ -12758,7 +12783,7 @@ class EditorTestRunner:
         self.run_test(
             "2dw from the start of the next-to-last line deletes to the end",
             "  foo\nbar\nbaz\n",
-            b"j2dw:wq\r",
+            b"0j2dw:wq\r",
             expected_content="  foo\n",
         )
 
@@ -18733,7 +18758,7 @@ class EditorTestRunner:
                 (b"2l:2,3>\ru u", "aaa\nbbb\nccc\n", (1, 0))]:
             self.run_test_screen(
                 f"{keys!r} on {content!r}: cursor as in vim",
-                content, keys + b":q!\r", expect_cursor=cursor)
+                content, b"0" + keys + b":q!\r", expect_cursor=cursor)
 
         # << that removes nothing is a no-op and records no undo:
         # u then re-executes nothing (prior undo state was cleared)

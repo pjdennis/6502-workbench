@@ -110,6 +110,8 @@ editor_main:
   JSR render_init
   JSR yank_init
   JSR mark_init
+  ; The cursor starts on the first non-blank of line 1, as in vim
+  JSR first_nonblank
 
   ; Draw initial screen
   JSR render_screen
