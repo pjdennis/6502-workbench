@@ -15806,6 +15806,46 @@ class EditorTestRunner:
             expect_content_rows=[(3, {1, 2})],
         )
 
+        # u of cc on the line at the bottom: the line, drawn whole, gains a
+        # row and reaches the status bar, so every row from its first is
+        # drawn and nothing is scrolled.  Frames: 0=initial, 1=4, 2=G,
+        # 3=cc, 4=Esc, 5=u
+        self.run_test_screen(
+            "Scroll opt: u of cc growing to the status bar sends no scroll",
+            "a\nb\nc\n" + "x" * 30 + "\ne\n",
+            b"4Gcc\x1bu:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "a"), (1, "b"), (2, "c"), (3, "x" * 20),
+                          (4, "x" * 10)],
+            expect_cursor=(3, 0),
+            expect_scrolled_at_frame=[(5, False)],
+        )
+
+        # A range of wrapped lines that grows or shrinks past the status
+        # bar is drawn as any block of lines: from its first row to the
+        # bottom (both wrap models)
+        wide = "".join("L%d " % i + "y" * 36 + "\n" for i in range(12))
+        for dw in (False, True):
+            self.run_test_screen(
+                "Range: >> of wrapped lines growing past the status bar"
+                + (" (deferred wrap)" if dw else ""),
+                wide, b"6G3>>:q!\r", rows=10, cols=40, deferred_wrap=dw,
+                expect_lines=[(4, "L4 " + "y" * 36),
+                              (5, "  L5 " + "y" * 35), (6, "y"),
+                              (7, "  L6 " + "y" * 35), (8, "y")],
+                expect_cursor=(5, 2),
+            )
+            self.run_test_screen(
+                "Range: << of wrapped lines shrinking past the status bar"
+                + (" (deferred wrap)" if dw else ""),
+                "".join("  " + l + "\n" for l in wide.split("\n")[:-1]),
+                b"6G3<<:q!\r", rows=10, cols=40, deferred_wrap=dw,
+                expect_lines=[(0, "  L1 " + "y" * 35), (1, "y"),
+                              (6, "  L4 " + "y" * 35), (7, "y"),
+                              (8, "L5 " + "y" * 36)],
+                expect_cursor=(8, 0),
+            )
+
         # Undo/redo from another line: u jumps to the recorded line, so the
         # repaint must use that line's height, not the height of the line
         # the cursor was on when u was typed (a 2-row line vs a 1-row one)

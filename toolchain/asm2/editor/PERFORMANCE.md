@@ -84,10 +84,10 @@ the line's old rows (`RF_SPLIT`); every join is the joined line in
 place of all their rows (`RF_JOIN`). So the undo of `J` draws from the
 join point and a multi-line `P` from the paste column, and a block
 drawn whole opens its new rows at its first row, where the drawing
-starts. Over about 20,000 random sessions the bytes fall 0.27% (1.2%
-for sessions of joins and their undo); a few near the bottom row send
-up to 24 bytes more, where a block that reaches the status bar still
-moves its rows.
+starts (or, when it gains at most 3 rows and reaches the status bar,
+is drawn with no scroll). A range of `>>` or `<<` is such a block too.
+Over about 20,000 random sessions the bytes fall 0.27% (1.2% for
+sessions of joins and their undo).
 
 ### Indent/unindent range repaint
 

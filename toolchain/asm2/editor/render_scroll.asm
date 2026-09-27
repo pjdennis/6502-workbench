@@ -111,15 +111,14 @@ scroll_region_check:
 ; :N,M> and :N,M< (as in vim): WRAP_QUOT takes the rows of the range's
 ; lines above the cursor's too, so that CURSOR_ROW - WRAP_QUOT is the
 ; range's first screen row, and set_render_line_to_cursor points at the
-; range's first line.  The range is then redrawn like a single changed
-; line of PREV_LINE_ROWS -> CUR_LINE_ROWS rows (see render_rows_resized;
-; both are free here: main_loop recomputes PREV_LINE_ROWS every key):
-; the region below scrolls to open/close the difference, and
-; RENDER_FROM_COL16 = $FFFF redraws every row of the range.  A range
-; reaching the status bar repaints to the bottom.  A range of one line
-; (>> or << of the cursor line, their undo) is drawn as an edit of that
-; line: an ICH/DCH hint at its column 0 for the blanks it gained or lost,
-; the change in the text's length.
+; range's first line.  The range is then redrawn as a block of lines of
+; PREV_LINE_ROWS -> CUR_LINE_ROWS rows (render_block_and_status; both
+; are free here: main_loop recomputes PREV_LINE_ROWS every key): the
+; region below scrolls to open/close the difference, and
+; RENDER_FROM_COL16 = $FFFF redraws every row of the range.  A range of
+; one line (>> or << of the cursor line, their undo) is drawn as an edit
+; of that line: an ICH/DCH hint at its column 0 for the blanks it gained
+; or lost, the change in the text's length.
 render_range_repaint:
   LDA DELETE_SCREEN_ROWS
   STA PREV_LINE_ROWS           ; the range's rows before the edit
@@ -143,39 +142,16 @@ render_range_repaint:
   SBC UNDO_LINE16              ; The range's lines above the cursor's
   BEQ .first_row               ; (fewer than 256)
   JSR compute_delete_rows_at_cursor
-  LDA DELETE_SCREEN_ROWS
-  BEQ .rr_full                 ; Over 255 rows
-  CLC
-  ADC WRAP_QUOT
+  BCS .rr_full                 ; Over 255 rows
+  ADC WRAP_QUOT                ; (C = 0)
   BCS .rr_full
   STA WRAP_QUOT
 .first_row:
-  JSR set_first_row            ; RENDER_ROW = first_row
-  BCC .rr_full                 ; line starts above the view
   LDA INSERT_LINE_COUNT
   JSR compute_delete_rows_at_cursor
-  LDA DELETE_SCREEN_ROWS       ; the range's rows now (0 = overflow)
-  BEQ .rr_full
+  BCS .rr_full                 ; the range's rows now: over 255
   STA CUR_LINE_ROWS
-  ; Bounds: first_row + max(old, new) must fit above the status bar
-  CMP PREV_LINE_ROWS
-  BCS .max_is_new
-  LDA PREV_LINE_ROWS
-.max_is_new:
-  CLC
-  ADC RENDER_ROW
-  BCS .rr_to_bottom            ; 8-bit overflow
-  CMP SCREEN_ROWS
-  BCS .rr_to_bottom
-  JMP render_rows_resized
-.rr_to_bottom:
-  ; Repaint everything from first_row to the bottom of the screen
-  LDA TEXT_ROWS
-  SEC
-  SBC RENDER_ROW
-  STA SCROLL_DELTA
-  JSR ansi_cursor_hide
-  JMP render_from_first_row_limited
+  JMP render_block_and_status
 .rr_full:
   JMP render_screen
 

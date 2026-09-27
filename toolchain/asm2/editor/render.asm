@@ -360,15 +360,25 @@ render_rows_resized:
   BCC .rows_decreased
   ; --- Rows increased: scroll the rows below the old line end down, or
   ; for a block drawn whole ($FFFF) the rows from its first, where the
-  ; drawing then starts ---
+  ; drawing then starts.  One that reaches the status bar has all those
+  ; rows drawn: if it grew by 3 rows or fewer nothing scrolls (the
+  ; scroll costs more than the ESC[K it saves) ---
   SBC PREV_LINE_ROWS            ; C=1 from the compare
   STA SCROLL_DELTA
   LDA RENDER_FROM_COL16 + 1
   AND RENDER_FROM_COL16
   CMP #$FF                      ; C=1: $FFFF
-  LDA #0
-  BCS .open
   LDA PREV_LINE_ROWS
+  BCC .open
+  LDA CUR_LINE_ROWS
+  JSR row_below_rows
+  CMP SCREEN_ROWS
+  BCC .from_first
+  LDA SCROLL_DELTA
+  CMP #4
+  BCC .same_rows                ; (no hint: nothing to shift)
+.from_first:
+  LDA #0
 .open:
   JSR row_below_rows
   LDX #'L'                      ; scroll down
