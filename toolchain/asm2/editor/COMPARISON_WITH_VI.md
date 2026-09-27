@@ -31,7 +31,7 @@
 **Vi**: The line pointer array is the *primary* data structure. Inserting/deleting lines means splicing the array (moving pointers, not text). New line content is appended to the temp file. Cost: O(lines_moved) pointer shuffling, but the text itself isn't touched.
 
 **Our editor**: The line table is a *derived* index rebuilt from the text buffer. Three strategies:
-- **Full rebuild** (`buf_rebuild_lines`): scan entire buffer for newlines — O(file_size). Used when newlines are added/removed.
+- **Rebuild** (`buf_rebuild_lines`): scan the buffer for newlines from the start of the cursor line (the first line an edit changes) to the end — O(text after it). Used when newlines are added/removed.
 - **Incremental adjust** (`buf_adjust_lines_apply`): walk entries after edit point, adjust by the signed size change — O(remaining_lines). Used for edits within one line (no newline changes).
 
 This is fundamentally different: vi's pointers *are* the canonical representation; our pointers are a cache over the byte buffer.

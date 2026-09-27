@@ -410,11 +410,11 @@ insert_handle_key:
   CLC
   ADCA16 BUF_PTR16, BUF_LEN16
 
-  JSR buf_rebuild_lines
-
-  ; FILE_LINE16 = first merged line (the line holding delete_start)
+  ; FILE_LINE16 = first merged line (the line holding delete_start),
+  ; where the line table changes from
   SEC
   SBC16_8 FILE_LINE16, LINE_LEN16, FILE_LINE16
+  JSR buf_rebuild_lines
 
   ; --- Mark adjust delete if back_nl + fwd_nl > 0 ---
   LDA LINE_LEN16             ; back_nl

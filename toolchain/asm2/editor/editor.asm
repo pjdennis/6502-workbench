@@ -75,6 +75,11 @@ editor_main:
   STA $00,X
   INX
   BNE .clear_zp
+  ; Line 0 starts at TEXT_BUF (page-aligned), where the first line table
+  ; rebuild starts (FILE_LINE16 = 0)
+  STA LINE_TBL
+  LDA #>TEXT_BUF
+  STA LINE_TBL + 1
 
   ; Filename: first argument, or "[No Name]" if none.  The argument is
   ; used where it is: the emulator keeps the argument strings in their

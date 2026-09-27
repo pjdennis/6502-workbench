@@ -1528,6 +1528,15 @@ class EditorTestRunner:
         self.run_test_cycle_cap(
             "Line table rebuild of 36 KB: load and dd at the top",
             big, b"dd:q!\r", 3800000, rows=24, cols=80)
+        # It starts at the cursor line, the first an edit changes: dd and
+        # o at the last line took 2,963,074 and 3,088,019 cycles (the
+        # whole run), 2,405,513 and 2,530,471 now
+        self.run_test_cycle_cap(
+            "Line table rebuild from the cursor line: G dd on 36 KB",
+            big, b"Gdd:q!\r", 2650000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Line table rebuild from the cursor line: G o on 36 KB",
+            big, b"GoX\x1b:q!\r", 2780000, rows=24, cols=80)
 
         # A line's length is the gap between its entry and the next one
         # (the entry after the last line holds the end of the text), where

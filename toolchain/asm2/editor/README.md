@@ -138,8 +138,10 @@ project's 6502 emulator in console/ANSI mode.
   then one holding the end of the text (`BUF_END16`): a line's length is
   the gap between its entry and the next, less the newline, found without
   a scan (`buf_get_line_len`).  The table and `LINE_COUNT16` are maintained
-  by `buf_rebuild_lines` (after newline edits) and `buf_adjust_lines_apply`
-  (single-line edits without newlines), which both keep the end entry.
+  by `buf_rebuild_lines` (after newline edits: it scans from the start of
+  the cursor line on, the first line an edit changes) and
+  `buf_adjust_lines_apply` (single-line edits without newlines), which
+  both keep the end entry.
   Max 1023 lines (`MAX_LINES = $03FF`; the table has room for 1024 entries,
   the last for the end of the text).  A longer file loads truncated and read-only
   (`buf_rebuild_lines` cuts it), and every edit that would add lines
@@ -406,9 +408,10 @@ python3 editor/tests/editor_tests.py -q
 
 ## Tips for LLMs making changes
 
-- Any edit that changes buffer contents must update the line table (full
-  `buf_rebuild_lines` if newlines changed, or `buf_adjust_lines_apply` for
-  edits within one line) and set `MODIFIED`.
+- Any edit that changes buffer contents must update the line table
+  (`buf_rebuild_lines` if newlines changed, with `FILE_LINE16` on the first
+  line the edit changed, or `buf_adjust_lines_apply` for edits within one
+  line) and set `MODIFIED`.
 - Keep the "always newline-terminated buffer" invariant intact.
 - When moving between lines, clamp `CURSOR_COL` to the current line length.
 - Normal-mode edit keys should be gated by `READONLY`.

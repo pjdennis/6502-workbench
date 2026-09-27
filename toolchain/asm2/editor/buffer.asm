@@ -383,27 +383,38 @@ buf_ensure_nonempty_rebuild:
   JSR buf_append_nl
   ; fall through
 
-; Rebuild line pointer table by scanning for newlines
-; Sets LINE_COUNT16 and fills LINE_TBL, then stores the end of the text
-; in the entry after the last line.  Text past line MAX_LINES is cut off
-; the buffer and READONLY is set, so the table never overflows (a load
-; truncates a longer file like this; edits check first, with
-; check_line_room).  The text ends with a newline, so the end is tested
-; only at line starts.  TEXT_BUF and LINE_TBL are page-aligned: the scan
-; is at (page, Y) with the page in BUF_PTR16 + 1, and the entries are
-; stored through (BUF_DST16,X) with X = 0.
+; Rebuild line pointer table by scanning for newlines, from the cursor
+; line on: every edit changes the text only from the start of line
+; FILE_LINE16 (at most LINE_COUNT16) on, so the entries up to that
+; line's own still hold (at startup FILE_LINE16 is 0, and editor_main has
+; set line 0's entry).  Sets LINE_COUNT16 and fills LINE_TBL, then
+; stores the end of the text in the entry after the last line.  Text
+; past line MAX_LINES is cut off the buffer and READONLY is set, so the
+; table never overflows (a load truncates a longer file like this; edits
+; check first, with check_line_room).  The text ends with a newline, so
+; the end is tested only at line starts.  TEXT_BUF and LINE_TBL are
+; page-aligned: the scan is at (page, Y) with the page in BUF_PTR16 + 1,
+; and the entries are stored through (BUF_DST16,X) with X = 0.
 ; Clobbers A, X, Y, BUF_PTR16, BUF_DST16
 buf_rebuild_lines:
-  LDA #0
-  STA_LH16 LINE_COUNT16
-  STA BUF_PTR16
+  ; LINE_COUNT16 = the lines before FILE_LINE16, BUF_DST16 = its entry
+  LDA FILE_LINE16
+  STA LINE_COUNT16
+  ASL
   STA BUF_DST16
-  TAX
-  TAY                        ; (page, Y) = TEXT_BUF: line 0's start
-  LDA #>TEXT_BUF
-  STA BUF_PTR16 + 1
-  LDA #>LINE_TBL
+  LDA FILE_LINE16 + 1
+  STA LINE_COUNT16 + 1
+  ROL
+  ADC #>LINE_TBL             ; (C = 0: FILE_LINE16 < $8000)
   STA BUF_DST16 + 1
+  ; (page, Y) = the start of line FILE_LINE16
+  LDX #0
+  STX BUF_PTR16
+  LDY #1
+  LDA (BUF_DST16),Y
+  STA BUF_PTR16 + 1
+  LDA (BUF_DST16,X)
+  TAY
 .entry:
   ; Store (page, Y) in the next entry
   TYA
