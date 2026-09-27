@@ -5095,6 +5095,18 @@ class EditorTestRunner:
              " World", (-1, -1), "\x1b[?25l\x1b[5P"),
             ("u after typing", b"5liAB\x1bu:q!\r", 6,
              "Hello World", (-1, -1), "\x1b[?25l\b\x1b[2P"),
+            # A char paste within the line, and the undo of a char delete,
+            # open their cells with ICH and write just the pasted text
+            ("xp swaps two chars", b"1lxp:q!\r", 4,
+             "Hlelo World", (1, 2), "\x1b[?25l\x1b[@le"),
+            ("P pastes a word", b"ywwP:q!\r", 3,
+             "Hello Hello World", (6, 11), "\x1b[6@Hello "),
+            ("redo of P", b"ywwPu u:q!\r", 6,
+             "Hello Hello World", (6, 11), "\x1b[6@Hello "),
+            ("u after x", b"1lxu:q!\r", 4,
+             "Hello World", (1, 1), "\x1b[@e"),
+            ("u after dw", b"dwu:q!\r", 2,
+             "Hello World", (0, 5), "\x1b[6@Hello "),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5166,6 +5178,19 @@ class EditorTestRunner:
              "\x1b[?25l\x1b[H\x1b[5P\x1b[;36H" + digits[40:45]
              + "\x1b[2H\x1b[5P\x1b[2;36H" + digits[80:85]
              + "\x1b[3H\x1b[5P"),
+            # Every row gets its own ICH; later rows write only the char
+            # carried over from the row above
+            ("u after x on a 3-row line", b"5lxu:q!\r", 4, digits,
+             [(0, 5, 5), (1, 0, 0), (2, 0, 0)],
+             "\x1b[?25l\x1b[@5\x1b[2H\x1b[@" + digits[40]
+             + "\x1b[3H\x1b[@" + digits[80]),
+            ("xp on a 3-row line", b"5lxp:q!\r", 4,
+             digits[:5] + "65" + digits[7:],
+             [(0, 5, 6), (1, 0, 0), (2, 0, 0)],
+             "\x1b[?25l\x1b[@65\x1b[2H\x1b[@" + digits[40]
+             + "\x1b[3H\x1b[@" + digits[80]),
+            ("xP on a 3-row line", b"5lxP:q!\r", 4, digits,
+             [(0, 5, 5), (1, 0, 0), (2, 0, 0)], None),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5314,6 +5339,21 @@ class EditorTestRunner:
                     expect_lines_at_frame=[(frame, [(0, "TOP"),
                                                     (1, text[:40]),
                                                     (2, text[40:])])],
+                )
+            # The same for a char paste and the undo of a char delete
+            d41 = ("0123456789" * 5)[:41]
+            for how, content, keys, text in (
+                    ("P", d39, b"ywj5lP", d39[:5] + "TOP" + d39[5:]),
+                    ("u after 2x", d41, b"j038l2xu", d41)):
+                self.run_test_screen(
+                    "Shift: " + how + " that adds the last content row"
+                    + suffix,
+                    "TOP\n" + content + "\nNEXT\n",
+                    keys + b":q!\r",
+                    rows=4, cols=40,
+                    deferred_wrap=deferred,
+                    expect_lines=[(0, "TOP"), (1, text[:40]),
+                                  (2, text[40:])],
                 )
         # C with text that grows the line into the last content row
         self.run_test_screen(
@@ -5471,6 +5511,10 @@ class EditorTestRunner:
                 ("db on a 3-row line", fox, b"10ldb:q!\r", 4,
                  (10, 40), 103),
                 ("s on a 3-row line", fox, b"4lsZ\x1b:q!\r", 3,
+                 (10, 40), 85),
+                ("u after x on a 3-row line", fox, b"4lxu:q!\r", 4,
+                 (10, 40), 37),
+                ("P on a 3-row line", fox, b"ywwP:q!\r", 3,
                  (10, 40), 85),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
@@ -18783,7 +18827,9 @@ class EditorTestRunner:
         )
 
         # p (char paste below): x at col 0 yanks 'H', lllp pastes after col 3
-        # "ello World" → after p → "elloH World" (H inserted after col 3)
+        # "ello World" → after p → "elloH World" (H inserted after col 3):
+        # the repaint starts at the cursor col 3 (no move) and shifts the
+        # rest (ICH)
         # Frame 0=initial, 1=x, 2=lll, 3=p
         self.run_test_screen(
             "p char paste: partial render from cursor col",
@@ -18791,6 +18837,7 @@ class EditorTestRunner:
             b"xlllp:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloH World")],
+            expect_ansi_contains="\x1b[?25l\x1b[@oH",
             expect_min_col=[(3, 0, 3)]
         )
 
@@ -18812,6 +18859,7 @@ class EditorTestRunner:
             b"xlllpp:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloHH World")],
+            expect_ansi_contains="\x1b[?25l\x1b[2@oHH",
             expect_min_col=[(3, 0, 3)]
         )
 
@@ -19059,6 +19107,7 @@ class EditorTestRunner:
             b"xlllpu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloH World")],
+            expect_ansi_contains="\x1b[?25l\x1b[@oH",
             expect_min_col=[(6, 0, 3)]
         )
 
@@ -19281,7 +19330,8 @@ class EditorTestRunner:
             expect_min_col=[(3, 0, 5)]
         )
         # The partial first row fills its row: the next row follows by
-        # the terminal's wrap, with no cursor move
+        # the terminal's wrap, with no cursor move, and needs no ESC[K
+        # (the undo's ICH hint knows the scroll opened it blank)
         for deferred in (False, True):
             self.run_test_screen(
                 "Undo D on wrapped line: the partial row runs on into the next"
@@ -19292,7 +19342,7 @@ class EditorTestRunner:
                 deferred_wrap=deferred,
                 expect_lines=[(0, "A" * 40), (1, "A" * 10), (2, "Second")],
                 expect_cursor=(0, 5),
-                expect_ansi_contains="\x1b[;6H" + "A" * 45 + "\x1b[K",
+                expect_ansi_contains="\x1b[;6H" + "A" * 45 + "\x1b[10;",
             )
 
         # Redo D on wrapped line (rows decrease: 2 → 1):

@@ -132,27 +132,39 @@ normal_paste_below:
   JMP set_render_clear_count
 
 ; Char paste modes (A for do_char_paste): bit 7 set = the undo of a char
-; delete (marks by column, no cursor clamp), bit 6 set = not p, bit 5 set
-; = P
+; delete (marks by column, no cursor clamp), bit 5 set = P
 CP_BELOW = $00               ; p
-CP_AT    = $C0               ; Undo of a char delete
-CP_ABOVE = $60               ; P
+CP_AT    = $80               ; Undo of a char delete
+CP_ABOVE = $20               ; P
 
 ; Core char paste below (p, and its redo): paste BUF_TEMP16 copies after
-; the cursor char, or at the cursor (column 0) on an empty line.
+; the cursor char, or at the cursor (column 0) on an empty line.  After
+; the cursor char the line repaints from that char, where the frame
+; finds the terminal's cursor: rewriting it costs less than a move (the
+; ICH hint, if any, writes one more cell).
 ; Returns carry set = failed (cursor unchanged), as do_char_paste
 do_char_paste_below:
   JSR get_line_len_z
   BEQ .at_cursor             ; Empty line
   JSR inc_cursor_col         ; Insertion column = cursor + 1
   JSR .at_cursor
-  BCC .done
-  JMP dec_cursor_col         ; Failed: cursor back on its char (C stays set)
+  BCS .failed
+  LDX SHIFT_WRITE
+  INX
+  BEQ .from_cursor           ; ($FF: no hint)
+  STX SHIFT_WRITE
+.from_cursor:
+  LDA RENDER_FROM_COL16
+  BNE .dec
+  DEC RENDER_FROM_COL16 + 1
+.dec:
+  DEC RENDER_FROM_COL16      ; (C = 0: pasted)
+  RTS
+.failed:
+  JMP dec_cursor_col         ; Cursor back on its char (C stays set)
 .at_cursor:
   LDA #CP_BELOW
   BEQ do_char_paste          ; Always
-.done:
-  RTS
 
 ; Core char paste above (P, and its redo): paste BUF_TEMP16 copies at the
 ; cursor.  Input: BATCH_EXTRA = extras (batched P keys)
@@ -161,18 +173,17 @@ do_char_paste_above:
   ; fall through
 
 ; Char paste core: BUF_TEMP16 copies of the char yank at column CURSOR_COL16
-; of the cursor line.  A = mode:
-;   CP_BELOW: p.  Renders from one column left of the insertion column
-;             ($FFFF, the whole line, at column 0); a multi-line paste
-;             shifts the marks from the next line on (those of the cursor
-;             line stay there, as in vim, even at column 0)
-;   CP_ABOVE: P.  Renders from the insertion column; marks as p; a
-;             single-line yank fills with interleaved_fill (the cursor
-;             ends BATCH_EXTRA chars before the last pasted char, as
-;             separate P keys leave it)
-;   CP_AT:    renders from the insertion column; marks as p (the undo
-;             then puts back the marks the delete moved: mark_restore);
-;             the cursor is left unclamped (the caller restores it)
+; of the cursor line, which repaints from there (with an ICH hint when
+; the paste has no newline; p moves the start one left).  A = mode:
+;   CP_BELOW: p.  A multi-line paste shifts the marks from the next line
+;             on (those of the cursor line stay there, as in vim, even at
+;             column 0)
+;   CP_ABOVE: P.  Marks as p; a single-line yank fills with
+;             interleaved_fill (the cursor ends BATCH_EXTRA chars before
+;             the last pasted char, as separate P keys leave it)
+;   CP_AT:    marks as p (the undo then puts back the marks the delete
+;             moved: mark_restore); the cursor is left unclamped (the
+;             caller restores it)
 ; Output: cursor on the last pasted char (single-line yank) or the first
 ; (multi-line), clamped unless CP_AT; NORMAL_TEMP bit 7 = multi-line yank;
 ; MODIFIED set.
@@ -181,20 +192,10 @@ do_char_paste_above:
 do_char_paste:
   STA NORMAL_TEMP
   JSR yank_count_newlines    ; YANK_LINES16 = lines per copy, for the check
-  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = CP_AT, 5 = not p, 4 = P
+  ROR NORMAL_TEMP            ; Bit 7 = multi-line, 6 = CP_AT, 4 = P
   JSR yank_paste_setup       ; BUF_LEN16 = total size, YANK_SIZE16 = single size
   BCS .ret
-  ; RENDER_FROM_COL16 = insertion column, minus 1 for p
-  LDA NORMAL_TEMP
-  ASL
-  ASL
-  ASL                        ; C = 1 unless p
-  LDA CURSOR_COL16
-  SBC #0
-  STA RENDER_FROM_COL16
-  LDA CURSOR_COL16 + 1
-  SBC #0
-  STA RENDER_FROM_COL16 + 1
+  JSR set_render_from_cursor ; The line repaints from the insertion column
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = insertion point
   CP16 LINE_COUNT16, COUNT16 ; Line count before, for mark adjustment
   JSR buf_shift_right_16
@@ -226,8 +227,18 @@ do_char_paste:
   JSR set_modified
   BIT NORMAL_TEMP
   BMI .multiline
-  ; Single-line: cursor on the last pasted char, and the lines after the
-  ; cursor line move by the total (only its length changed)
+  ; Single-line: an ICH hint, n cells written at the insertion column, if
+  ; it fits SHIFT_NET's signed byte (n <= 127; a longer paste takes the
+  ; row rewrite, which costs no more once n passes the row width)
+  LDA BUF_LEN16 + 1
+  BNE .no_hint
+  LDA BUF_LEN16
+  BMI .no_hint
+  STA SHIFT_NET
+  STA SHIFT_WRITE
+.no_hint:
+  ; The cursor on the last pasted char, and the lines after the cursor
+  ; line move by the total (only its length changed)
   CLC
   ADC16 CURSOR_COL16, BUF_LEN16, CURSOR_COL16
   JSR dec_cursor_col
