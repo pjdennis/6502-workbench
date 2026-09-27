@@ -99,7 +99,7 @@ void emu_opts_usage(FILE *fp) {
 "                         michael: ROM image (else a ROM holding only the vectors:\n"
 "                         reset to --load, IRQ to $3F00); <code file> is loaded\n"
 "                         into RAM at --load\n"
-"  --serial-input <path>  wendy2c: bytes pre-queued into the SERIAL_USB chip\n"
+"  --serial-input <path>  wendy2c, michael: bytes pre-queued into the SERIAL_USB chip\n"
 "  --wendy2-prog <path>   wendy2c: preload a RAW program into RAM at --load\n"
 "                         (default $4000), bank $01 mapped, start there --\n"
 "                         skips the slow serial boot for big programs\n"

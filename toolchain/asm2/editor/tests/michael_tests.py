@@ -28,7 +28,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from ansi_screen import AnsiScreen
 import michael_image
-from michael_image import EMULATOR, LOAD
+from michael_image import EMULATOR, LOAD, ROOT
+
+sys.path.insert(0, str(ROOT / "tools" / "upload"))
+from upload_frame import build_frame
 
 ROWS, COLS = 4, 20
 STACK_FLOOR = 0x0154         # the buffers below the stack end here (editor.asm)
@@ -94,6 +97,45 @@ class MichaelEditorTest(unittest.TestCase):
         del environment["ENV_BASE"]
         michael = dict(definition.findall((asm2 / "editor" / "michael_environment.asm").read_text()))
         self.assertEqual({k: v for k, v in michael.items() if k != "ENV_BASE"}, environment)
+
+    def upload_through_second_stage(self, frame_bytes):
+        """Run the second-stage loader (as the ROM's loader would, from
+        PROGRAM_LOAD_ADDRESS) with frame_bytes on the serial line; the report."""
+        tmp = Path(self.tmp.name)
+        loader = tmp / "second_stage_loader.bin"
+        subprocess.run([ROOT / "firmware" / "vasm", "-quiet", "-wdc02", "-wfail", "-Fbin", "-dotdir",
+                        "-ignore-mult-inc", "-esc", "-o", loader,
+                        ROOT / "firmware" / "programs" / "michael" / "michael_second_stage_loader.s"],
+                       check=True, capture_output=True, cwd=ROOT)
+        frame = tmp / "image.frame"
+        frame.write_bytes(frame_bytes)
+        report = subprocess.run([EMULATOR, loader, "--machine", "michael", "--load", "0900",
+                                 "--serial-input", frame, "--cycle-cap", "20000000"],
+                                check=True, capture_output=True, text=True).stderr.splitlines()
+        self.assertIn("michael: bus: lcd-undriven=0 portb-contention=0", report)
+        return report
+
+    def lcd_rows(self, report):
+        lcd = report.index("michael: lcd:")
+        return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 1 + ROWS]]
+
+    def test_uploads_through_the_second_stage_loader(self):
+        """On the board the image goes up in two uploads: the second-stage
+        loader through the ROM's loader, then the image through it, straight
+        to $0400."""
+        report = self.upload_through_second_stage(build_frame(self.image().read_bytes()))
+        self.assertEqual(self.lcd_rows(report), ["", "~", "~", "[No Name] - NORMAL -"])
+
+    def test_second_stage_loader_stops_on_a_bad_checksum(self):
+        frame = bytearray(build_frame(self.image().read_bytes()))
+        frame[100] ^= 1
+        report = self.upload_through_second_stage(bytes(frame))
+        self.assertTrue(report[0].endswith("(STP)"), report[0])
+        self.assertEqual(self.lcd_rows(report)[0], "Waiting for the")
+
+    def test_second_stage_loader_stops_on_a_program_too_long(self):
+        report = self.upload_through_second_stage(build_frame(bytes(0x3B00)))  # to $3F00
+        self.assertTrue(report[0].endswith("(STP)"), report[0])
 
     def test_live(self):
         """--live draws the LCD in the terminal and types the terminal's keys;

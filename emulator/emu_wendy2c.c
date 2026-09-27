@@ -528,18 +528,11 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     bus_add_chip(&b, &cpu_chip);
 
     /* Pre-load any --serial-input bytes into the SERIAL_USB queue. */
-    if (opts->serial_input_filename) {
-        FILE *sf = fopen(opts->serial_input_filename, "rb");
-        if (!sf) {
-            fprintf(stderr, "wendy2c: could not open --serial-input %s\n",
-                    opts->serial_input_filename);
-            return 1;
-        }
-        int byte;
-        while ((byte = fgetc(sf)) != EOF) {
-            if (serial_usb_queue_byte(&ser_state, (uint8_t)byte) < 0) break;
-        }
-        fclose(sf);
+    if (opts->serial_input_filename &&
+        serial_usb_queue_file(&ser_state, opts->serial_input_filename) != 0) {
+        fprintf(stderr, "wendy2c: could not open --serial-input %s\n",
+                opts->serial_input_filename);
+        return 1;
     }
 
     active_bus = &b;

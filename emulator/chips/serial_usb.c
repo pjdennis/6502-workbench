@@ -1,5 +1,7 @@
 #include "serial_usb.h"
 
+#include <stdio.h>
+
 #include <stddef.h>
 #include <string.h>
 
@@ -124,4 +126,15 @@ int serial_usb_queue_count(const struct serial_usb_state *s) {
     int n = s->head - s->tail;
     if (n < 0) n += SERIAL_USB_BUF_SIZE;
     return n;
+}
+
+int serial_usb_queue_file(struct serial_usb_state *s, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    int byte;
+    while ((byte = fgetc(f)) != EOF) {
+        if (serial_usb_queue_byte(s, (uint8_t)byte) < 0) break;
+    }
+    fclose(f);
+    return 0;
 }

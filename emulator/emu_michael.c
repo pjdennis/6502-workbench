@@ -21,6 +21,7 @@
 #include "chips/lcd_hd44780.h"
 #include "chips/cpu_65c02.h"
 #include "chips/ps2_keyboard_board.h"
+#include "chips/serial_usb.h"
 #include "ps2_keys.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
@@ -286,10 +287,11 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct lcd_hd44780_state  lcd_state;
     static struct cpu_65c02_state    cpu_state;
     static struct ps2_keyboard_board_state kbd_state;
+    static struct serial_usb_state   ser_state;
     static struct bus_check_state    check_state;
     static const struct chip_ops check_ops = { .tick = bus_check_tick };
     static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
-    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, cpu_chip;
+    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, cpu_chip;
     struct chip check_chip = { &check_ops, "bus_check", &check_state };
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
@@ -305,6 +307,13 @@ int emu_run_michael(const struct emu_opts *opts) {
     if (opts->key_interval_ms) kbd_state.key_interval_us = (uint32_t)opts->key_interval_ms * 1000;
     if (opts->kbd_scancodes && queue_scancodes(&kbd_state, opts->kbd_scancodes) != 0) return 1;
     if (opts->keys_filename && queue_keys_file(&kbd_state, opts->keys_filename) != 0) return 1;
+    /* The USB serial adapter on CB2, which the loaders receive through */
+    serial_usb_init(&ser_chip, &ser_state, &via_state);
+    if (opts->serial_input_filename &&
+        serial_usb_queue_file(&ser_state, opts->serial_input_filename) != 0) {
+        fprintf(stderr, "michael: could not open --serial-input %s\n", opts->serial_input_filename);
+        return 1;
+    }
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));
@@ -332,6 +341,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &via_chip);
     bus_add_chip(&b, &lcd_chip);
     bus_add_chip(&b, &kbd_chip);
+    bus_add_chip(&b, &ser_chip);
     bus_add_chip(&b, &check_chip);
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);
