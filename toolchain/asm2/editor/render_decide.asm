@@ -47,10 +47,10 @@
 ;                              one block (render_rows_resized).
 ;                              INSERT_LINE_COUNT = lines to redraw.
 ; $05   insert-mode Enter,     Cursor on the last line of the split, which
-;       r<Enter> and its redo  began at line FILE_LINE16 - delta, of
-;                              PREV_LINE_ROWS rows before the batch;
-;                              RENDER_FROM_COL16 = the first column it
-;                              changed.  INSERT_LINE_COUNT: pure-Enter
+;       r<Enter> and its redo, began at line FILE_LINE16 - delta, of
+;       typed-ahead p (copies  PREV_LINE_ROWS rows before the batch;
+;       after the line: split  RENDER_FROM_COL16 = the first column it
+;       at its end)            changed.  INSERT_LINE_COUNT: pure-Enter
 ;                              batch at the line's end $7F, at its start
 ;                              $FF (see render_enter_split).
 ; $06   J, insert BS/Del       Lines joined into the cursor line.

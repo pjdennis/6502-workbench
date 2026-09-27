@@ -119,14 +119,29 @@ normal_paste_below:
   ; semantics (a one-line yank: each typed-ahead p moves down one line)
   LDA BATCH_EXTRA
   BEQ .paste_below_scroll
-  ; Batched paste: cursor adjustment shifts FILE_LINE16 past first pasted
-  ; lines, so scroll walk would start at wrong position.
   ADDA16 FILE_LINE16
   ; Batching must not widen undo: record only the last p, typed on the
   ; line above the cursor, at the column the p before left it
   JSR undo_record_pos
   DEC16 UNDO_LINE16
-  JMP paste_undo_one              ; RENDER_FLAG stays 0 → full repaint
+  ; With no count (the copies are the keys: UNDO_PASTE_COUNT16 = extras
+  ; + 1) they follow the line the cursor was on, and the cursor is on the
+  ; last: drawn as an Enter batch that split that line at its end (with
+  ; a count they go on past the cursor line: RENDER_FLAG stays 0, a full
+  ; repaint)
+  LDA UNDO_PASTE_COUNT16 + 1
+  BNE .undo_one
+  LDX BATCH_EXTRA
+  INX
+  CPX UNDO_PASTE_COUNT16
+  BNE .undo_one
+  LDAX16 SNAP_LINE16
+  JSR buf_get_line_len
+  STAX16 RENDER_FROM_COL16
+  LDA #RF_ENTER
+  STA RENDER_FLAG
+.undo_one:
+  JMP paste_undo_one
 .paste_below_scroll:
   LDA #RF_INS                   ; Signal line-insert for scroll optimization
   JMP set_render_clear_count

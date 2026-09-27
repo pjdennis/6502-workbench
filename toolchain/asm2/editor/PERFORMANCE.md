@@ -121,6 +121,14 @@ bottom row of a 24x80 screen of 48-char lines sends 116 bytes instead of
 `RENDER_FROM_COL16`, or for an Enter batch in the line it split. A first
 change on the top row redraws in full, as nothing keeps its place.
 
+Typed-ahead `p` keys of a line yank (`pp`, `ppp`) paste their copies in
+one frame after the line the cursor was on, with the cursor on the last:
+the render sees an Enter batch that split that line at its end
+(`RF_ENTER` from its length), so the rows below scroll down and only the
+copies are drawn. `pp` in the middle of a 24x80 screen of 48-char lines
+sends 186 bytes instead of 1,274. With a count (`3pp`) the copies go on
+past the cursor line, and the screen is redrawn.
+
 ### Status bar: only what changed
 
 `status_build` builds the status bar's text into `STATUS_SHADOW` ($0380,

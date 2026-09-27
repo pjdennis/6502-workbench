@@ -24743,6 +24743,94 @@ class EditorTestRunner:
             expect_frame_bytes=[(5, 83)],
         )
 
+        # Typed-ahead pp pastes both copies in one frame, after the line
+        # the cursor started on (it ends on the last copy): the rows below
+        # scroll down and only the copies are drawn (after an ESC[K at the
+        # end of that line).  Frames: 0 init, 1 jjj, 2 yy, 3 pp
+        self.run_test_screen(
+            "Scroll opt: batched pp scrolls instead of repainting",
+            make_lines(15),
+            b"jjjyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(4)]
+                         + [(4, "Line 4"), (5, "Line 4")]
+                         + [(i, f"Line {i - 1}") for i in range(6, 9)],
+            expect_cursor=(5, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {3, 4, 5})],
+            expect_min_col=[(3, 3, 6)],
+            expect_frame_bytes=[(3, 97)],
+        )
+        self.run_test_screen(
+            "Scroll opt: batched ppp at the top",
+            make_lines(15),
+            b"yyppp:q!\r",
+            expect_lines=[(i, "Line 1") for i in range(4)]
+                         + [(i, f"Line {i - 2}") for i in range(4, 9)],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(2, {0, 1, 2, 3})],
+            expect_min_col=[(2, 0, 6)],
+        )
+        # A wrapped line: the copies start below its second row
+        self.run_test_screen(
+            "Scroll opt: batched pp of a wrapped line",
+            "Line 1\nLine 2\n" + "w" * 50 + "\n" + make_lines(12)[21:],
+            b"2jyypp:q!\r",
+            expect_lines=[(0, "Line 1"), (1, "Line 2")]
+                         + [(r, "w" * (40 if r % 2 == 0 else 10))
+                            for r in range(2, 8)]
+                         + [(8, "Line 4")],
+            expect_cursor=(6, 0),
+            expect_scrolled_at_frame=[(4, True)],
+            expect_content_rows=[(4, {3, 4, 5, 6, 7})],
+            expect_min_col=[(4, 3, 10)],
+        )
+        # The copies fill the rows below the cursor line
+        self.run_test_screen(
+            "Scroll opt: batched pp filling the rows below",
+            make_lines(15),
+            b"6jyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, "Line 7"), (8, "Line 7")],
+            expect_cursor=(8, 0),
+            expect_content_rows=[(4, {6, 7, 8})],
+        )
+        # On the bottom row the view moves down: the copies are drawn
+        # after the scroll
+        self.run_test_screen(
+            "Scroll opt: batched pp on the bottom row scrolls the view",
+            make_lines(15),
+            b"8jyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 3}") for i in range(7)]
+                         + [(7, "Line 9"), (8, "Line 9")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, True)],
+            expect_content_rows=[(4, {6, 7, 8})],
+        )
+        # With a count the copies go on past the cursor line: 2pp gives
+        # three copies, the cursor on the second
+        self.run_test_screen(
+            "Batched 2pp: three copies, the cursor on the second",
+            make_lines(15),
+            b"jjjyy2pp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(4)]
+                         + [(4, "Line 4"), (5, "Line 4"), (6, "Line 4"),
+                            (7, "Line 5")],
+            expect_cursor=(5, 0),
+        )
+        # 24x80, 48-char lines: pp mid-screen
+        self.run_test_screen(
+            "Scroll opt: batched pp at 24x80 sends only the copies",
+            long48,
+            b"11jyypp:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(11, "line 11 " + "abcdefghij" * 4),
+                          (12, "line 11 " + "abcdefghij" * 4),
+                          (13, "line 11 " + "abcdefghij" * 4),
+                          (14, "line 12 " + "abcdefghij" * 4)],
+            expect_cursor=(13, 0),
+            expect_frame_bytes=[(5, 187)],
+        )
+
         # ================================================================
         # Indent/unindent render optimization
         # ================================================================
