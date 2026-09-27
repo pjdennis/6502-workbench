@@ -2812,6 +2812,32 @@ class EditorTestRunner:
             b":q!\r",
             expect_cursor=(0, 2)
         )
+        # A first non-blank on a later row of a wrapped line: the first
+        # screen puts the cursor on that row (and scrolls it into view), so
+        # a ~ typed first echoes its char there
+        self.run_test_screen(
+            "Initial cursor on a wrapped first non-blank",
+            " " * 20 + "xy\n",
+            b":q!\r",
+            rows=6, cols=20,
+            expect_cursor_at_frame=[(0, (1, 0))]
+        )
+        self.run_test_screen(
+            "Initial cursor: ~ on a wrapped first non-blank",
+            " " * 20 + "xy\n",
+            b"~:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, ""), (1, "Xy")],
+            expect_cursor=(1, 1)
+        )
+        self.run_test_screen(
+            "Initial cursor on a first non-blank past the first screen",
+            " " * 50 + "x\n",
+            b":q!\r",
+            rows=4, cols=10,
+            expect_lines_at_frame=[(0, [(2, "x")])],
+            expect_cursor_at_frame=[(0, (2, 0))]
+        )
         for content, keys, expected in (
                 ("  abc\n", b"x", "  bc\n"),
                 ("\tfoo\n", b"x", "\too\n"),
