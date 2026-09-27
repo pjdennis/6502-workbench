@@ -1443,7 +1443,7 @@ class EditorTestRunner:
         self.run_test("cc undo at the line limit",
             full, b"cc\x1bux:wq\r", expected_content=full_x)
         self.run_test("2cc undo then redo at the line limit",
-            full, b"2cc\x1bu u:wq\r", expected_content="\n" + full[12:])
+            full, b"2cc\x1bu\x1bu:wq\r", expected_content="\n" + full[12:])
         self.run_test("o redo reaches the line limit",
             numbered(1022), b"o\x1buu:wq\r",
             expected_content="L0001\n\n" + numbered(1022)[6:])
@@ -1457,7 +1457,7 @@ class EditorTestRunner:
             numbered(1022), b"llr\r:wq\r",
             expected_content="L0\n01\n" + numbered(1022)[6:])
         self.run_test("r<Enter> undo then redo reaches the line limit",
-            numbered(1022), b"llr\ru u:wq\r",
+            numbered(1022), b"llr\ru\x1bu:wq\r",
             expected_content="L0\n01\n" + numbered(1022)[6:])
 
         # --- Pastes ---
@@ -3273,7 +3273,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Command line ignores keys once the status row is full",
             lines19,
-            b"x:w" + b"x" * 45 + b"\x08" * 37 + b"\r :q!\r",
+            b"x:w" + b"x" * 45 + b"\x08" * 37 + b"\r\x1b:q!\r",
             expected_content="ine 1\n" + lines19[7:],
         )
 
@@ -4592,12 +4592,12 @@ class EditorTestRunner:
             expect_content_redraws=[True, False]
         )
 
-        # Not found -> the space after the "not found" message (a no-op)
+        # Not found -> the ESC after the "not found" message (a no-op)
         # draws only the cursor and the status bar
         self.run_test_screen(
             "Render opt: search not-found is cursor-only",
             "AAA\nBBB\nCCC\n",
-            b"/ZZZ\r :q!\r",
+            b"/ZZZ\r\x1b:q!\r",
             expect_cursor=(0, 0),
             expect_content_redraws=[True, False]
         )
@@ -5375,10 +5375,10 @@ class EditorTestRunner:
             # open their cells with ICH and write just the pasted text
             ("xp swaps two chars", b"1lxp:q!\r", 4,
              "Hlelo World", (1, 2), "\x1b[?25l\x1b[@le"),
-            # (the yank and the space change nothing on the screen: no frame)
+            # (the yank and the ESC change nothing on the screen: no frame)
             ("P pastes a word", b"ywwP:q!\r", 2,
              "Hello Hello World", (6, 11), "\x1b[6@Hello "),
-            ("redo of P", b"ywwPu u:q!\r", 4,
+            ("redo of P", b"ywwPu\x1bu:q!\r", 4,
              "Hello Hello World", (6, 11), "\x1b[6@Hello "),
             ("u after x", b"1lxu:q!\r", 4,
              "Hello World", (1, 1), "\x1b[@e"),
@@ -10024,7 +10024,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "search not found stays at current line",
             "AAA\nBBB\nCCC\n",
-            b"/ZZZ\r :q!\r",  # (the space does nothing)
+            b"/ZZZ\r\x1b:q!\r",  # (the ESC does nothing)
             expect_cursor=(0, 0),  # Stays at line 0
         )
 
@@ -10324,11 +10324,11 @@ class EditorTestRunner:
             expect_cursor=(3, 0),  # 'b -> line 4
         )
 
-        # 'z with no mark set shows error (the space after it does nothing)
+        # 'z with no mark set shows error (the ESC after it does nothing)
         self.run_test_screen(
             "'z unset mark shows error message",
             make_lines(3),
-            b"'z :q!\r",
+            b"'z\x1b:q!\r",
             expect_cursor=(0, 0),  # stays on line 1
         )
 
@@ -10354,7 +10354,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd marked line unsets mark",
             make_lines(3),
-            b"madd'a :q!\r",  # "Mark not set"
+            b"madd'a\x1b:q!\r",  # "Mark not set"
             expect_cursor=(0, 0),  # stays
         )
 
@@ -10362,7 +10362,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd above mark shifts mark down",
             make_lines(5),
-            b"jjmagg dd'a:q!\r",  # gg->line1, dd line1, 'a
+            b"jjmagg\x1bdd'a:q!\r",  # gg->line1, dd line1, 'a
             expect_cursor=(1, 0),  # mark was line 3 (idx 2), now idx 1
         )
 
@@ -10380,7 +10380,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "o above mark shifts mark down",
             make_lines(5),
-            b"jjmagg o\x1b'a:q!\r",  # mark at line3, gg, o+ESC, 'a
+            b"jjmagg\x1bo\x1b'a:q!\r",  # mark at line3, gg, o+ESC, 'a
             expect_cursor=(3, 0),  # was idx 2, now idx 3
         )
 
@@ -10406,7 +10406,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "paste above mark shifts mark down",
             make_lines(5),
-            b"jjmayy gg p'a:q!\r",  # mark line3, yy, gg, p, 'a
+            b"jjmayy\x1bgg\x1bp'a:q!\r",  # mark line3, yy, gg, p, 'a
             expect_cursor=(3, 0),  # was idx 2, paste adds 1 line before -> idx 3
         )
 
@@ -10437,7 +10437,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Enter in insert above mark shifts mark",
             make_lines(5),
-            b"jjmagg A\r\x1b'a:q!\r",  # mark line3, gg, A+Enter+ESC, 'a
+            b"jjmagg\x1bA\r\x1b'a:q!\r",  # mark line3, gg, A+Enter+ESC, 'a
             expect_cursor=(3, 0),  # was idx 2, Enter added line -> idx 3
         )
 
@@ -10460,7 +10460,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Batch Enter×2 above mark shifts mark +2",
             make_lines(5),
-            b"jjjmagg A\r\r\x1b'a:q!\r",  # mark line4, gg, A+Enter+Enter+ESC, 'a
+            b"jjjmagg\x1bA\r\r\x1b'a:q!\r",  # mark line4, gg, A+Enter+Enter+ESC, 'a
             expect_cursor=(5, 0),  # was idx 3, +2 newlines -> idx 5
         )
 
@@ -10479,7 +10479,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "DEL across newline above mark shifts mark",
             make_lines(5),
-            b"jjjjmagg A" + DEL + b"\x1b'a:q!\r",  # mark line5, gg, A(end)+DEL
+            b"jjjjmagg\x1bA" + DEL + b"\x1b'a:q!\r",  # mark line5, gg, A(end)+DEL
             expect_cursor=(3, 0),  # was idx 4, DEL removed 1 newline -> idx 3
         )
 
@@ -10489,7 +10489,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Enter+BS cancel in batch leaves mark unchanged",
             make_lines(5),
-            b"jjmagg i\r\x08\x1b'a:q!\r",  # mark line3, gg, Enter+BS cancel
+            b"jjmagg\x1bi\r\x08\x1b'a:q!\r",  # mark line3, gg, Enter+BS cancel
             expect_cursor=(2, 0),  # mark still at idx 2
         )
 
@@ -10499,7 +10499,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "BS join + Enter re-split preserves mark",
             make_lines(5),
-            b"jjjjmagg ji\x08\r\x1b'a:q!\r",  # mark line5, j->line2, BS+Enter
+            b"jjjjmagg\x1bji\x08\r\x1b'a:q!\r",  # mark line5, j->line2, BS+Enter
             expect_cursor=(4, 0),  # mark still at idx 4
         )
 
@@ -10508,7 +10508,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "DEL+typing across newline shifts mark below",
             make_lines(5),
-            b"jjjmagg A" + DEL + b"XY\x1b'a:q!\r",  # mark line4, gg, A+DEL+XY
+            b"jjjmagg\x1bA" + DEL + b"XY\x1b'a:q!\r",  # mark line4, gg, A+DEL+XY
             expect_cursor=(2, 0),  # was idx 3, -1 newline -> idx 2
         )
 
@@ -10516,7 +10516,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "BS+typing across newline shifts mark below",
             make_lines(5),
-            b"jjjjmagg ji\x08XY\x1b'a:q!\r",  # mark line5, j->line2, BS+XY
+            b"jjjjmagg\x1bji\x08XY\x1b'a:q!\r",  # mark line5, j->line2, BS+XY
             expect_cursor=(3, 0),  # was idx 4, -1 newline -> idx 3
         )
 
@@ -10651,7 +10651,7 @@ class EditorTestRunner:
             "AB\nCD\nEF\n",
             b"jjma" +           # mark "EF" (idx 2)
             b"kdb" +            # db deletes "AB\n" -> mark shifts to 1
-            b"u u" +            # undo then redo: mark should be back at 1
+            b"u\x1bu" +            # undo then redo: mark should be back at 1
             b"'a:q!\r",
             expect_cursor=(1, 0),  # mark shifted down by redo
         )
@@ -10748,7 +10748,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":m shows Unknown command",
             make_lines(3),
-            b":m\r :q!\r",
+            b":m\r\x1b:q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -10756,7 +10756,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":marksx shows Unknown command",
             make_lines(3),
-            b":marksx\r :q!\r",
+            b":marksx\r\x1b:q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -10809,7 +10809,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range yank unset mark shows error",
             make_lines(3),
-            b":'z,.y\r :q!\r",
+            b":'z,.y\r\x1b:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -10872,7 +10872,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range delete unset mark shows error",
             make_lines(3),
-            b":'z,.d\r :q!\r",
+            b":'z,.d\r\x1b:q!\r",
             expect_ansi_contains="Mark not set",
         )
 
@@ -11112,7 +11112,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":5,xd shows Unknown command",
             make_lines(6),
-            b":5,xd\r :q!\r",
+            b":5,xd\r\x1b:q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -11120,7 +11120,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":1,'zd shows Mark not set",
             make_lines(3),
-            b":1,'zd\r :q!\r",
+            b":1,'zd\r\x1b:q!\r",
             expect_ansi_contains="Mark not set",
         )
 
@@ -12612,11 +12612,11 @@ class EditorTestRunner:
             ("u of 2cc puts a mark below back", "a\nb\nc\nd\ne\n",
              b"jjjmckk2cc\x1bugg'cx:wq\r", "a\nb\nc\n\ne\n"),
             ("redo of 2cc keeps the first line's mark", "a\nb\nc\nd\ne\n",
-             b"jmajmbk2cc\x1bu uG'ax:wq\r", "a\n\nd\ne\n"),
+             b"jmajmbk2cc\x1bu\x1buG'ax:wq\r", "a\n\nd\ne\n"),
             ("redo of 2cc drops the second line's mark", "a\nb\nc\nd\ne\n",
-             b"jmajmbk2cc\x1bu uG'bx:wq\r", "a\n\nd\n\n"),
+             b"jmajmbk2cc\x1bu\x1buG'bx:wq\r", "a\n\nd\n\n"),
             ("u after redo of 2cc puts the marks back", "a\nb\nc\nd\ne\n",
-             b"jmajmbk2cc\x1bu u uG'bx:wq\r", "a\nb\n\nd\ne\n"),
+             b"jmajmbk2cc\x1bu\x1bu\x1buG'bx:wq\r", "a\nb\n\nd\ne\n"),
         ]:
             self.run_test(name, content, keys, expected_content=expected)
 
@@ -12647,7 +12647,7 @@ class EditorTestRunner:
         self.run_test_cycle_cap("cc on a 36 KB file shifts the text once",
             big, b"cc\x1b:q!\r", 6700000, rows=24, cols=80)
         self.run_test_cycle_cap("cc redo on a 36 KB file shifts the text once",
-            big, b"cc\x1bu u:q!\r", 13700000, rows=24, cols=80)
+            big, b"cc\x1bu\x1bu:q!\r", 13700000, rows=24, cols=80)
 
         self._group("Indent (>>, <<):", leading_blank=True)
 
@@ -15723,7 +15723,7 @@ class EditorTestRunner:
                 ("10cc", f03, b"10cc\x1b", 10, 40,
                  [(0, "")] + [(r, row03(r + 9)) for r in range(1, 9)],
                  (0, 0)),
-                ("3cc redo", "x" * 25 + "\n" + "x" * 74 + "\n", b"3cc\x1bu u",
+                ("3cc redo", "x" * 25 + "\n" + "x" * 74 + "\n", b"3cc\x1bu\x1bu",
                  10, 10, [(0, "")] + tildes(1, 9), (0, 0)),
                 ("8D", make_lines(20), b"jjl8D", 10, 40,
                  [(2, "L")] + [(r, f"Line {r + 8}") for r in range(3, 9)],
@@ -15779,7 +15779,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: dd redo on the last row repaints it",
             make_lines(20),
-            b"8jddu u:q!\r",
+            b"8jddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(i, f"Line {i + 1}") for i in range(8)]
                          + [(8, "Line 10")],
@@ -15796,7 +15796,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: 6dd redo reaching the bottom repaints the rows",
             make_lines(20),
-            b"jjj6ddu u:q!\r",
+            b"jjj6ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")]
                          + [(i, f"Line {i + 7}") for i in range(3, 9)],
@@ -15815,7 +15815,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: 6dd redo reaching the bottom repaints without a scroll",
             make_lines(20),
-            b"jjj6ddu u:q!\r",
+            b"jjj6ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3, 4, 5, 6, 7, 8})],
             expect_scrolled_at_frame=[(5, False)]
@@ -15916,13 +15916,13 @@ class EditorTestRunner:
         )
 
         # J redo at mid-screen: scroll region should NOT include the cursor row.
-        # Sequence: J, u (undo), space (break u-batching), u (redo).
+        # Sequence: J, u (undo), ESC (break u-batching), u (redo).
         # Frames: 0=initial, 1=jjj cursor, 2=J, 3=u (undo),
         #         4=u (redo)
         self.run_test_screen(
             "Scroll opt: J redo does not scroll cursor row",
             make_lines(15),
-            b"jjjJu u:q!\r",
+            b"jjjJu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -15977,12 +15977,12 @@ class EditorTestRunner:
         )
 
         # J redo on wrapped cursor line: scroll region must skip wrap rows.
-        # Sequence: J, u (undo), space (break u-batching), u (redo).
+        # Sequence: J, u (undo), ESC (break u-batching), u (redo).
         # Frames: 0=initial, 1=jj cursor, 2=J, 3=u (undo), 4=u (redo)
         self.run_test_screen(
             "Scroll opt: J redo on wrapped cursor line scroll region",
             wrap_j_content,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -16388,7 +16388,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: J redo scroll down when line grows",
             j_grow_content,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -16726,13 +16726,13 @@ class EditorTestRunner:
         )
 
         # --- Redo counterparts for all J scroll tests ---
-        # Each uses "Ju u" pattern: J, u (undo), space (break batching), u (redo).
-        # Space is unmapped in normal mode, so cursor stays at col 0.
+        # Each uses "Ju ESC u" pattern: J, u (undo), ESC (break batching), u
+        # (redo).  ESC changes nothing in normal mode, so cursor stays at col 0.
 
         self.run_test_screen(
             "Redo: J joining next wrapped line",
             wrap_j_content,
-            b"jJu u:q!\r",
+            b"jJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -16748,7 +16748,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J result wraps same height no scroll",
             join_becomes_wrap,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -16767,7 +16767,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJ first joined line wrapped",
             wrap_j_content,
-            b"jJJu u:q!\r",
+            b"jJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -16787,7 +16787,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJ second joined line wrapped",
             join_c_wrapped,
-            b"jJJu u:q!\r",
+            b"jJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -16806,7 +16806,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJ result wraps same height no scroll",
             join_3_same_height,
-            b"jjJJu u:q!\r",
+            b"jjJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -16826,7 +16826,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJ result wraps partial height reduction",
             join_jj_partial,
-            b"jjJJu u:q!\r",
+            b"jjJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -16842,7 +16842,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJJ with wrapped line among joined",
             wrap_j_content,
-            b"jJJJu u:q!\r",
+            b"jJJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -16859,7 +16859,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J with following line off screen",
             join_offscreen,
-            b"jjjjjjJu u:q!\r",
+            b"jjjjjjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"),
@@ -16875,7 +16875,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J at EOF no following line",
             join_eof,
-            b"jjjjjjjJu u:q!\r",
+            b"jjjjjjjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"),
@@ -16939,7 +16939,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: 3J wrapping result uses scroll",
             content_3j_wrap,
-            b"jj3Ju u:q!\r",
+            b"jj3Ju\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -17310,7 +17310,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: redo of a line break at the end of a full row",
             "abcdefghijklmnopqrstxyz\nnext\nmore\n",
-            b"20li\r\x1bu u:q!\r",
+            b"20li\r\x1bu\x1bu:q!\r",
             rows=6, cols=20,
             expect_lines=[(0, "abcdefghijklmnopqrst"), (1, "xyz"),
                           (2, "next"), (3, "more"), (4, "~")],
@@ -17490,7 +17490,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: 2cc on wrapped lines correct displacement",
             cc_wrap_content,
-            b"2cc\x1bu u:q!\r",
+            b"2cc\x1bu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, ""),
@@ -17507,7 +17507,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: dd on wrapped line correct displacement",
             wrap_dd_content,
-            b"jddu u:q!\r",
+            b"jddu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 0"), (1, "Short 2"), (2, "Short 3"),
@@ -17528,8 +17528,8 @@ class EditorTestRunner:
                 ("2dd", eof_wrap + "x\ny\n", b"Gk2dd"),
                 ("batched dddd", eof_wrap + "x\ny\n", b"Gkdddd"),
                 ("5dd past EOF", eof_wrap + "x\ny\n", b"Gk5dd"),
-                ("dd redo", eof_wrap + "last\n", b"Gddu u"),
-                ("2dd redo", eof_wrap + "x\ny\n", b"Gk2ddu u")):
+                ("dd redo", eof_wrap + "last\n", b"Gddu\x1bu"),
+                ("2dd redo", eof_wrap + "x\ny\n", b"Gk2ddu\x1bu")):
             self.run_test_screen(
                 f"Scroll opt: {name} to EOF keeps the wrapped line above",
                 content,
@@ -17560,9 +17560,9 @@ class EditorTestRunner:
         # A redo of a dd reaching EOF: the line above stays in place
         for name, content, keys, lines, cursor in (
                 ("dd redo below a short line", "Short 0\nShort 1\nShort 2\n",
-                 b"Gddu u", [(0, "Short 0"), (1, "Short 1"), (2, "~")],
+                 b"Gddu\x1bu", [(0, "Short 0"), (1, "Short 1"), (2, "~")],
                  (1, 0)),
-                ("dd redo of an empty last line", "abc\n\n", b"jddu u",
+                ("dd redo of an empty last line", "abc\n\n", b"jddu\x1bu",
                  [(0, "abc"), (1, "~")], (0, 0))):
             self.run_test_screen(
                 f"Scroll opt: {name} to EOF keeps the line above",
@@ -17575,7 +17575,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: 2dd redo at the end of a scrolled file",
             make_lines(30),
-            b"Gk2ddu u:q!\r",
+            b"Gk2ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(r, f"Line {r + 22}") for r in range(7)]
                          + [(7, "~"), (8, "~")],
@@ -17583,7 +17583,7 @@ class EditorTestRunner:
         )
         # Redo of a dd of every line: the empty line left behind did not
         # move up into the cursor row, so it must be drawn
-        for content, keys in (("a\nb\n", b"2ddu u"), ("a\nb\nc\n", b"3ddu u")):
+        for content, keys in (("a\nb\n", b"2ddu\x1bu"), ("a\nb\nc\n", b"3ddu\x1bu")):
             self.run_test_screen(
                 f"Scroll opt: redo of {keys[:3]!r} of every line draws the "
                 "empty line",
@@ -17675,7 +17675,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: J redo on last visible line minimal repaint",
             make_lines(15),
-            b"j" * 8 + b"Ju u:q!\r",
+            b"j" * 8 + b"Ju\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (7, "Line 8"),
@@ -17830,7 +17830,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: 2d$ redo does not scroll cursor row",
             make_lines(15),
-            b"jjjll2d$u u:q!\r",
+            b"jjjll2d$u\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -17883,7 +17883,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: char paste p redo does not scroll cursor row",
             make_lines(15),
-            b"l2Dpu u:q!\r",
+            b"l2Dpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
@@ -17893,7 +17893,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: char paste P redo does not scroll cursor row",
             make_lines(15),
-            b"l2DPu u:q!\r",
+            b"l2DPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
@@ -17993,7 +17993,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: redo of 86p (258 rows) repaints below the cursor",
             abc + "\n" + tail,
-            b"yy86pu u:q!\r",
+            b"yy86pu\x1bu:q!\r",
             expect_cursor=(3, 0),
             expect_lines=abc_screen
         )
@@ -18159,7 +18159,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: dd redo",
             make_lines(15),
-            b"jjjddu u:q!\r",
+            b"jjjddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -18193,7 +18193,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: 3dd redo",
             make_lines(15),
-            b"jjj3ddu u:q!\r",
+            b"jjj3ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -18225,7 +18225,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: dd at top redo",
             make_lines(15),
-            b"ddu u:q!\r",
+            b"ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 2"), (1, "Line 3"), (2, "Line 4"),
@@ -18260,7 +18260,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: J redo",
             make_lines(15),
-            b"jjjJu u:q!\r",
+            b"jjjJu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(4, {3, 8})]
         )
@@ -18282,7 +18282,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: JJ redo",
             make_lines(15),
-            b"jjjJJu u:q!\r",
+            b"jjjJJu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(4, {3, 8})]
         )
@@ -18310,7 +18310,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: 3J redo",
             make_lines(15),
-            b"jjj3Ju u:q!\r",
+            b"jjj3Ju\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3, 7, 8})]
         )
@@ -18348,7 +18348,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: J redo at screen width",
             j_width_content,
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "12345678901234567890"),
@@ -18358,7 +18358,7 @@ class EditorTestRunner:
                 (6, "S6"), (7, "S7"), (8, "S8"),
             ],
             expect_cursor=(1, 0),
-            # Frame 3 = redo (the space sends no frame). Cursor line changes
+            # Frame 3 = redo (the ESC sends no frame). Cursor line changes
             # (20→41 chars wrapping to 3 rows) from the join: rows 1-2 are
             # drawn, row 0 keeps its text.
             expect_content_rows=[(3, {1, 2})]
@@ -18405,7 +18405,7 @@ class EditorTestRunner:
                  lines_1_9, (3, 0)),
                 ("after the view scrolled", make_lines(40), b"20jo\x1bu",
                  [(r, f"Line {r + 14}") for r in range(9)], (7, 0)),
-                ("then redo", make_lines(15), b"jjjo\x1bu u",
+                ("then redo", make_lines(15), b"jjjo\x1bu\x1bu",
                  lines_1_9[:4] + [(4, ""), (5, "Line 5"), (8, "Line 8")],
                  (4, 0))):
             self.run_test_screen(
@@ -18423,7 +18423,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: o redo",
             make_lines(15),
-            b"jjjo\x1bu u:q!\r",
+            b"jjjo\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, set())]
         )
@@ -18460,7 +18460,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: O redo",
             make_lines(15),
-            b"jjjO\x1bu u:q!\r",
+            b"jjjO\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, set())]
         )
@@ -18488,7 +18488,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: 2cc redo",
             make_lines(15),
-            b"jjj2cc\x1bu u:q!\r",
+            b"jjj2cc\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -18569,7 +18569,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: line P redo",
             make_lines(15),
-            b"jjjyyPu u:q!\r",
+            b"jjjyyPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -18586,7 +18586,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: line p redo",
             make_lines(15),
-            b"jjjyypu u:q!\r",
+            b"jjjyypu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -18651,7 +18651,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: x redo",
             make_lines(15),
-            b"jjjxu u:q!\r",
+            b"jjjxu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
             expect_content_rows=[(4, {3})],
@@ -18687,7 +18687,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: r redo",
             make_lines(15),
-            b"jjjrZu u:q!\r",
+            b"jjjrZu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
             expect_content_rows=[(4, {3})],
@@ -18710,7 +18710,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: ~ redo",
             make_lines(15),
-            b"jjj~u u:q!\r",
+            b"jjj~u\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(4, {3})],
             expect_scrolled_at_frame=[(4, False)]
@@ -18733,7 +18733,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: D redo",
             make_lines(15),
-            b"jjjllDu u:q!\r",
+            b"jjjllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 1),
             expect_content_rows=[(5, {3})],
@@ -18769,7 +18769,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: dw redo",
             make_lines(15),
-            b"jjjdwu u:q!\r",
+            b"jjjdwu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
             expect_content_rows=[(4, {3})],
@@ -18915,7 +18915,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: char p redo",
             make_lines(15),
-            b"jjjxpu u:q!\r",
+            b"jjjxpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 1),
             expect_content_rows=[(5, {3})],
@@ -18939,7 +18939,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: char P redo",
             make_lines(15),
-            b"jjjxPu u:q!\r",
+            b"jjjxPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
             expect_content_rows=[(5, {3})],
@@ -18969,13 +18969,14 @@ class EditorTestRunner:
         )
 
         # 2C undo should not paint the line above the cursor.
-        # Frames: 0=initial, 1-3=j (the spaces, and the count and ESC, which
-        # the status bar cut at 20 columns does not show, send no frame),
+        # Frames: 0=initial, 1-3=j (the ESCs, the count and the ESC after
+        # it, which the status bar cut at 20 columns does not show, send no
+        # frame),
         # 4=C (delete+insert), 5=u
         self.run_test_screen(
             "Minimal repaint: 2C undo does not paint line above",
             'S1\nS2\nS3\nAAAA\nBBBB\nS6\nS7\nS8\nS9\nS10\nS11\n',
-            b"j j j2C\x1bu:q!\r",
+            b"j\x1bj\x1bj2C\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "S1"), (1, "S2"), (2, "S3"),
@@ -19701,7 +19702,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo x: partial render from undo col",
             "Hello World\n",
-            b"lllxu u:q!\r",
+            b"lllxu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
             expect_ansi_contains="\x1b[?25l\x1b[P",
@@ -19724,7 +19725,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo D: partial render from undo col",
             "Hello World\n",
-            b"lllDu u:q!\r",
+            b"lllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hel")],
             expect_min_col=[(4, 0, 3)]
@@ -19746,7 +19747,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo dw: partial render from undo col",
             "Hello World Foo\n",
-            b"wdwu u:q!\r",
+            b"wdwu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
             expect_ansi_contains="\x1b[?25l\x1b[6P",
@@ -19769,7 +19770,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo de: partial render from undo col",
             "Hello World Foo\n",
-            b"wdeu u:q!\r",
+            b"wdeu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
             expect_ansi_contains="\x1b[?25l\x1b[5P",
@@ -19793,7 +19794,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo db: partial render from undo col",
             "Hello World Foo\n",
-            b"wwdbu u:q!\r",
+            b"wwdbu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
             expect_ansi_contains="\x1b[?25l\x1b[6P",
@@ -19816,7 +19817,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo s (no typing): partial render from undo col",
             "Hello World\n",
-            b"llls\x1bu u:q!\r",
+            b"llls\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
             expect_ansi_contains="\x1b[?25l\x1b[P",
@@ -19839,7 +19840,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo C (no typing): partial render from undo col",
             "Hello World\n",
-            b"lllC\x1bu u:q!\r",
+            b"lllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hel")],
             expect_min_col=[(5, 0, 3)]
@@ -19861,7 +19862,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo cw (no typing): partial render from undo col",
             "Hello World Foo\n",
-            b"wcw\x1bu u:q!\r",
+            b"wcw\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
             expect_ansi_contains="\x1b[?25l\x1b[5P",
@@ -19887,7 +19888,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo x on wrapped line: partial render",
             "A" * 50 + "B\nSecond\n",
-            b"$xu u:q!\r",
+            b"$xu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A" * 40), (1, "A" * 10)],
             expect_min_col=[(4, 1, 10)]
@@ -19913,7 +19914,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo p char paste: partial render from cursor col",
             "Hello World\n",
-            b"xlllpu u:q!\r",
+            b"xlllpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloH World")],
             expect_ansi_contains="\x1b[?25l\x1b[@oH",
@@ -19938,7 +19939,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo P char paste: partial render from cursor col",
             "Hello World\n",
-            b"xlllPu u:q!\r",
+            b"xlllPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ellHo World")],
             expect_min_col=[(5, 0, 3)]
@@ -19967,7 +19968,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo same height wrapping: partial from join col",
             "Hello\nWorld\nThird\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=10,
             expect_lines=[(0, "Hello Worl"), (1, "d"), (2, "Third")],
             expect_cursor=(0, 5),
@@ -19983,7 +19984,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo wrapped same height: partial from join col",
             "First longer line!!\nSecond longer line!\nThird!\nEnd\n",
-            b"JJu u:q!\r",
+            b"JJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "First longer line!!"),
@@ -20162,7 +20163,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo D on wrapped line rows decrease: partial from redo col",
             "A" * 50 + "\nSecond\n",
-            b"lllllDu u:q!\r",
+            b"lllllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AAAAA"), (1, "Second")],
             expect_cursor=(0, 4),
@@ -20214,12 +20215,12 @@ class EditorTestRunner:
         )
 
         # Redo J on wrapped result (same total):
-        # Same setup as J wrapped test above. Ju u (undo, break, redo).
+        # Same setup as J wrapped test above. Ju ESC u (undo, break, redo).
         # Frames: 0=initial, 1=J, 2=u(undo), 3=u(redo)
         self.run_test_screen(
             "Redo J on wrapped result: partial from join col",
             "A" * 38 + "\nBB\nThird\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A" * 38 + " B"), (1, "B"), (2, "Third")],
             expect_cursor=(0, 38),
@@ -20244,7 +20245,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo C on wrapped line rows decrease: partial from redo col",
             "A" * 50 + "\nSecond\n",
-            b"lllllC\x1bu u:q!\r",
+            b"lllllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AAAAA"), (1, "Second")],
             expect_cursor=(0, 4),
@@ -20297,7 +20298,7 @@ class EditorTestRunner:
         self.run_test(
             "dd undo then redo",
             "Hello\nWorld\n",
-            b"ddu u:wq\r",
+            b"ddu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -20329,7 +20330,7 @@ class EditorTestRunner:
         self.run_test(
             ">> undo then redo",
             "Hello\nWorld\n",
-            b">>u u:wq\r",
+            b">>u\x1bu:wq\r",
             expected_content="  Hello\nWorld\n"
         )
 
@@ -20344,7 +20345,7 @@ class EditorTestRunner:
         self.run_test(
             "3>> undo redo cycles (u u u)",
             "aaa\n\nccc\nddd\n",
-            b"3>>u u u:wq\r",
+            b"3>>u\x1bu\x1bu:wq\r",
             expected_content="aaa\n\nccc\nddd\n"
         )
 
@@ -20359,7 +20360,7 @@ class EditorTestRunner:
         self.run_test(
             "3<< undo then redo",
             " a\n  b\n    c\n",
-            b"3<<u u:wq\r",
+            b"3<<u\x1bu:wq\r",
             expected_content="a\nb\n  c\n"
         )
 
@@ -20398,7 +20399,7 @@ class EditorTestRunner:
         self.run_test(
             ">>>> batched undo then redo",
             "Hello\n",
-            b">>>>u u:wq\r",
+            b">>>>u\x1bu:wq\r",
             expected_content="    Hello\n"
         )
 
@@ -20459,8 +20460,8 @@ class EditorTestRunner:
                 (b"l>>>>u", "aaa\n", (0, 2)),
                 (b"l>>\x1b>>\x1bu", "aaa\n", (0, 2)),
                 (b">>>>u", "abc def ghi\n", (0, 2)),
-                (b"l>>>>u u", "aaa\n", (0, 2)),
-                (b"l>>\x1b>>\x1bu u", "aaa\n", (0, 2)),
+                (b"l>>>>u\x1bu", "aaa\n", (0, 2)),
+                (b"l>>\x1b>>\x1bu\x1bu", "aaa\n", (0, 2)),
                 (b"l>>>>>>u", "aaa\n", (0, 4)),
                 (b"7l<<<<", "      aaa\n", (0, 2)),
                 (b"7l<<<<u", "      aaa\n", (0, 4)),
@@ -20468,24 +20469,24 @@ class EditorTestRunner:
                 (b"4l<<<<u", "   aaa\n", (0, 1)),
                 (b"4l<<\x1b<<\x1bu", "   aaa\n", (0, 1)),
                 (b"3l<<<<u", "      aaa\n", (0, 4)),
-                (b"3l<<<<u u", "      aaa\n", (0, 4)),
+                (b"3l<<<<u\x1bu", "      aaa\n", (0, 4)),
                 (b"6l>>", "  aaa bbb\n", (0, 4)),
                 (b"l>>", "  aaa bbb\n", (0, 4)),
                 (b"6l>>u", "  aaa bbb\n", (0, 2)),
                 (b"l>>u", "  aaa bbb\n", (0, 1)),
                 (b"7l<<", "      aaa\n", (0, 4)),
-                (b"7l<<u u", "      aaa\n", (0, 6)),
+                (b"7l<<u\x1bu", "      aaa\n", (0, 6)),
                 (b"2l<<", "aaa\n", (0, 0)),
                 (b"l>>", "   \n", (0, 4)),
                 (b"l>>u", "   \n", (0, 1)),
                 (b"2l3>>", "aaa\nbbb\nccc\n", (0, 2)),
                 (b"2l3>>u", "aaa\nbbb\nccc\n", (0, 2)),
-                (b"4l3>>u u", "  aaa\nbbb\nccc\n", (0, 4)),
+                (b"4l3>>u\x1bu", "  aaa\nbbb\nccc\n", (0, 4)),
                 (b"4l:>\r", "  aaa\nbbb\nccc\n", (0, 4)),
                 (b"4l:<\r", "  aaa\nbbb\nccc\n", (0, 0)),
                 (b"4l:<\ru", "  aaa\nbbb\nccc\n", (0, 2)),
                 (b"2l:2,3>\ru", "aaa\nbbb\nccc\n", (1, 0)),
-                (b"2l:2,3>\ru u", "aaa\nbbb\nccc\n", (1, 0))]:
+                (b"2l:2,3>\ru\x1bu", "aaa\nbbb\nccc\n", (1, 0))]:
             self.run_test_screen(
                 f"{keys!r} on {content!r}: cursor as in vim",
                 content, b"0" + keys + b":q!\r", expect_cursor=cursor)
@@ -20582,7 +20583,7 @@ class EditorTestRunner:
         self.run_test(
             "r undo then redo",
             "Hello\n",
-            b"rXu u:wq\r",
+            b"rXu\x1bu:wq\r",
             expected_content="Xello\n"
         )
 
@@ -20596,7 +20597,7 @@ class EditorTestRunner:
         self.run_test(
             "3rX undo redo cycle",
             "Hello\n",
-            b"3rXu u:wq\r",
+            b"3rXu\x1bu:wq\r",
             expected_content="XXXlo\n"
         )
 
@@ -20621,15 +20622,15 @@ class EditorTestRunner:
                 ("r<Enter> undo joins the line back", "abcde\ndef\n",
                  b"llr\ru", ["abcde", "def"], (0, 2)),
                 ("r<Enter> undo then redo", "abcde\ndef\n",
-                 b"llr\ru u", ["ab", "de", "def"], (1, 0)),
+                 b"llr\ru\x1bu", ["ab", "de", "def"], (1, 0)),
                 ("3r<Enter> undo restores the 3 chars", "abcdef\nxy\n",
                  b"l3r\ru", ["abcdef", "xy"], (0, 1)),
                 ("3r<Enter> undo then redo", "abcdef\nxy\n",
-                 b"l3r\ru u", ["a", "ef", "xy"], (1, 0)),
+                 b"l3r\ru\x1bu", ["a", "ef", "xy"], (1, 0)),
                 ("r<Enter> on the last char: undo then redo", "abc\ndef\n",
-                 b"$r\ru u", ["ab", "", "def"], (1, 0)),
+                 b"$r\ru\x1bu", ["ab", "", "def"], (1, 0)),
                 ("r<Enter> undo, redo, undo", "abcde\ndef\n",
-                 b"llr\ru u u", ["abcde", "def"], (0, 2)),
+                 b"llr\ru\x1bu\x1bu", ["abcde", "def"], (0, 2)),
                 ("r<Enter> undo from another line", "abcde\ndef\nghi\n",
                  b"llr\rjju", ["abcde", "def", "ghi"], (0, 2)),
                 ("r<Enter> redo from another line", "abcde\ndef\nghi\n",
@@ -20646,7 +20647,7 @@ class EditorTestRunner:
             expected_content="abc\ndef\nhi\n")
         self.run_test(
             "r<Enter> redo moves the marks below down again",
-            "abc\ndef\nghi\n", b"jjmagglr\ru u'ax:wq\r",
+            "abc\ndef\nghi\n", b"jjmagglr\ru\x1bu'ax:wq\r",
             expected_content="a\nc\ndef\nhi\n")
 
         # --- Toggle case (~) undo ---
@@ -20661,7 +20662,7 @@ class EditorTestRunner:
         self.run_test(
             "~ undo then redo",
             "Hello\n",
-            b"~u u:wq\r",
+            b"~u\x1bu:wq\r",
             expected_content="hello\n"
         )
 
@@ -20829,7 +20830,7 @@ class EditorTestRunner:
         self.run_test(
             "x undo then redo",
             "Hello\n",
-            b"xu u:wq\r",
+            b"xu\x1bu:wq\r",
             expected_content="ello\n"
         )
 
@@ -20885,7 +20886,7 @@ class EditorTestRunner:
         self.run_test(
             "d$ undo then redo",
             "Hello\n",
-            b"lld$u u:wq\r",
+            b"lld$u\x1bu:wq\r",
             expected_content="He\n"
         )
 
@@ -21102,23 +21103,23 @@ class EditorTestRunner:
         # Undo/redo of cc at the end of the file and next to empty lines
         for name, content, keys, expected in [
             ("cc ESC undo on last line", "a\nb\n", b"Gcc\x1bu:wq\r", "a\nb\n"),
-            ("cc ESC undo redo on last line", "a\nb\n", b"Gcc\x1bu u:wq\r",
+            ("cc ESC undo redo on last line", "a\nb\n", b"Gcc\x1bu\x1bu:wq\r",
              "a\n\n"),
             ("2cc ESC undo reaching last line", "a\nb\nc\n", b"j2cc\x1bu:wq\r",
              "a\nb\nc\n"),
             ("3cc clamped ESC undo", "a\nb\nc\nd\n", b"jj3cc\x1bu:wq\r",
              "a\nb\nc\nd\n"),
             ("3cc clamped ESC undo redo", "a\nb\nc\nd\n",
-             b"jj3cc\x1bu u:wq\r", "a\nb\n\n"),
+             b"jj3cc\x1bu\x1bu:wq\r", "a\nb\n\n"),
             ("cc ESC undo redo keeps following empty line", "Hello\n\nWorld\n",
-             b"cc\x1bu u:wq\r", "\n\nWorld\n"),
+             b"cc\x1bu\x1bu:wq\r", "\n\nWorld\n"),
             ("cc ESC undo keeps empty last line", "X\n\n", b"cc\x1bu:wq\r",
              "X\n\n"),
-            ("cc ESC undo redo on only line", "X\n", b"cc\x1bu u:wq\r", "\n"),
-            ("cc ESC undo redo undo on only line", "X\n", b"cc\x1bu u u:wq\r",
+            ("cc ESC undo redo on only line", "X\n", b"cc\x1bu\x1bu:wq\r", "\n"),
+            ("cc ESC undo redo undo on only line", "X\n", b"cc\x1bu\x1bu\x1bu:wq\r",
              "X\n"),
             ("2cc ESC undo redo undo on whole buffer", "a\nb\n",
-             b"2cc\x1bu u u:wq\r", "a\nb\n"),
+             b"2cc\x1bu\x1bu\x1bu:wq\r", "a\nb\n"),
         ]:
             self.run_test(name, content, keys, expected_content=expected)
 
@@ -21144,7 +21145,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "cc redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggcc\x1bu u'a:q!\r",
+            b"jjmaggcc\x1bu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(2, 0),  # mark on "C" = line 2 after redo
         )
@@ -21162,7 +21163,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggddu u'a:q!\r",
+            b"jjmaggddu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),  # mark on "C" = line 1 after redo (A deleted)
         )
@@ -21316,7 +21317,7 @@ class EditorTestRunner:
             expected_content="abcfoo\nbar\nef\n")
         self.run_test_screen(
             "Insert redo: the screen after typed line breaks come back",
-            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu u",
+            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu\x1bu",
             expect_lines=[(0, "abc"), (1, "deffoo"), (2, "bar"), (3, "baz"),
                           (4, "ghi"), (5, "~")],
             expect_cursor=(1, 3))
@@ -21372,7 +21373,7 @@ class EditorTestRunner:
         self.run_test(
             "J undo then redo",
             "Hello\nWorld\n",
-            b"Ju u:wq\r",
+            b"Ju\x1bu:wq\r",
             expected_content="Hello World\n"
         )
 
@@ -21388,7 +21389,7 @@ class EditorTestRunner:
         self.run_test(
             "3J undo then redo",
             "A\nB\nC\nD\n",
-            b"3Ju u:wq\r",
+            b"3Ju\x1bu:wq\r",
             expected_content="A B C\nD\n"
         )
 
@@ -21406,7 +21407,7 @@ class EditorTestRunner:
         self.run_test(
             "JJ batched: undo only undoes last join",
             "A\nB\nC\n",
-            b"JJ u:wq\r",
+            b"JJ\x1bu:wq\r",
             expected_content="A B\nC\n"
         )
 
@@ -21415,7 +21416,7 @@ class EditorTestRunner:
         self.run_test(
             "JJ batched: redo re-joins",
             "A\nB\nC\n",
-            b"JJ u u:wq\r",
+            b"JJ\x1bu\x1bu:wq\r",
             expected_content="A B C\n"
         )
 
@@ -21433,7 +21434,7 @@ class EditorTestRunner:
         self.run_test(
             "129J exceeds limit: no modification",
             content_130,
-            b"130J :wq\r",  # (the space does nothing)
+            b"130J\x1b:wq\r",  # (the ESC does nothing)
             expected_content=content_130,
             expect_unmodified=True
         )
@@ -21506,7 +21507,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggJu u'a:q!\r",
+            b"jjmaggJu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),  # mark on "C" = line 1 after redo (A+B joined)
         )
@@ -21527,7 +21528,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "JJ batched undo: screen correct",
             "A\nB\nC\n",
-            b"JJ u:q!\r",
+            b"JJ\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A B"), (1, "C")],
         )
@@ -21537,7 +21538,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "JJ batched redo: screen correct",
             "A\nB\nC\n",
-            b"JJ u u:q!\r",
+            b"JJ\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A B C"), (1, "~")],
         )
@@ -21565,7 +21566,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "JJ batched undo: cursor position",
             "A\nB\nC\n",
-            b"JJ u:q!\r",
+            b"JJ\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(0, 1),
         )
@@ -21743,7 +21744,7 @@ class EditorTestRunner:
         self.run_test(
             "yyppu u redo re-pastes last copy",
             "A\nB\n",
-            b"yyppu u:wq\r",
+            b"yyppu\x1bu:wq\r",
             expected_content="A\nA\nA\nB\n"
         )
 
@@ -21928,7 +21929,7 @@ class EditorTestRunner:
         self.run_test(
             "3x PP u u redo re-pastes the last P's copy",
             "abcdef\n",
-            b"3xPPu u:wq\r",
+            b"3xPPu\x1bu:wq\r",
             expected_content="ababccdef\n"
         )
 
@@ -21954,7 +21955,7 @@ class EditorTestRunner:
             "ddpu mark preserved",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy p" +         # yank A, paste below line 0 -> C shifts to 3
+            b"ggyy\x1bp" +         # yank A, paste below line 0 -> C shifts to 3
             b"u" +              # undo paste -> C shifts back to 2
             b"'a:q!\r",
             expect_cursor=(2, 0),
@@ -21965,7 +21966,7 @@ class EditorTestRunner:
             "ddpuu mark preserved on redo",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy p" +         # paste -> C at 3
+            b"ggyy\x1bp" +         # paste -> C at 3
             b"uu" +             # undo+redo -> C at 3
             b"'a:q!\r",
             expect_cursor=(3, 0),
@@ -22020,7 +22021,7 @@ class EditorTestRunner:
             "yyPu mark preserved",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy P" +         # paste above line 0 -> C shifts to 3
+            b"ggyy\x1bP" +         # paste above line 0 -> C shifts to 3
             b"u" +              # undo -> C back to 2
             b"'a:q!\r",
             expect_cursor=(2, 0),
@@ -22122,7 +22123,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "multiline char p on empty line: redo leaves its mark there",
             "ab\ncd\n\nxy\nzz\n",
-            b"l2Djmapu u" +
+            b"l2Djmapu\x1bu" +
             b"gg'a:q!\r",
             expect_lines=[(0, "a"), (1, "b"), (2, "cd"), (3, "xy")],
             expect_cursor=(1, 0),
@@ -22532,7 +22533,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J J u cursor back at the second J column",
             "A\nB\nC\n",
-            b"J\x1bJ u:q!\r",
+            b"J\x1bJ\x1bu:q!\r",
             expect_lines=[(0, "A B"), (1, "C")],
             expect_cursor=(0, 1),
         )
@@ -22667,7 +22668,7 @@ class EditorTestRunner:
             ("dd undo of empty last line then edit", "abc\n\n",
              b"jdduggx:wq\r", "bc\n\n"),
             ("dd undo of empty last line then redo", "abc\n\n",
-             b"jddu u:wq\r", "abc\n"),
+             b"jddu\x1bu:wq\r", "abc\n"),
             ("dd undo keeps remaining empty line", "abc\n\n", b"ddu:wq\r",
              "abc\n\n"),
             ("dd undo of last line after empty line", "\nb\n", b"jddu:wq\r",
@@ -22685,7 +22686,7 @@ class EditorTestRunner:
             ("dd undo of whole buffer", "abc\n", b"ddu:wq\r", "abc\n"),
             ("2dd undo of whole buffer", "abc\n\n", b"2ddu:wq\r", "abc\n\n"),
             ("2dd undo redo undo of whole buffer", "abc\n\n",
-             b"2ddu u u:wq\r", "abc\n\n"),
+             b"2ddu\x1bu\x1bu:wq\r", "abc\n\n"),
             (":d undo of empty last line", "abc\n\n", b":2d\ru:wq\r",
              "abc\n\n"),
             (":d undo of whole buffer", "abc\n\n", b":1,2d\ru:wq\r",
@@ -22709,7 +22710,7 @@ class EditorTestRunner:
         self.run_test(
             "undo then edit clears redo stack",
             "AB\nCD\n",
-            b"dduxu u:wq\r",
+            b"dduxu\x1bu:wq\r",
             expected_content="B\nCD\n"   # redo does x again (not dd)
         )
 
@@ -22746,7 +22747,7 @@ class EditorTestRunner:
         self.run_test(
             "2dd redo content",
             "A\nB\nC\nD\n",
-            b"2ddu u:wq\r",
+            b"2ddu\x1bu:wq\r",
             expected_content="C\nD\n"
         )
 
@@ -22754,7 +22755,7 @@ class EditorTestRunner:
         self.run_test(
             "3x redo content",
             "Hello\n",
-            b"3xu u:wq\r",
+            b"3xu\x1bu:wq\r",
             expected_content="lo\n"
         )
 
@@ -22762,7 +22763,7 @@ class EditorTestRunner:
         self.run_test(
             "d0 redo content",
             "Hello\n",
-            b"llld0u u:wq\r",
+            b"llld0u\x1bu:wq\r",
             expected_content="lo\n"
         )
 
@@ -22770,7 +22771,7 @@ class EditorTestRunner:
         self.run_test(
             "db redo content",
             "Hello World\n",
-            b"wdbu u:wq\r",
+            b"wdbu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -22778,7 +22779,7 @@ class EditorTestRunner:
         self.run_test(
             "de redo content",
             "Hello World\n",
-            b"deu u:wq\r",
+            b"deu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -22786,7 +22787,7 @@ class EditorTestRunner:
         self.run_test(
             "2D redo content",
             "Hello\nWorld\nFoo\n",
-            b"ll2Du u:wq\r",
+            b"ll2Du\x1bu:wq\r",
             expected_content="He\nFoo\n"
         )
 
@@ -22794,7 +22795,7 @@ class EditorTestRunner:
         self.run_test(
             "s redo content",
             "Hello\n",
-            b"s\x1bu u:wq\r",
+            b"s\x1bu\x1bu:wq\r",
             expected_content="ello\n"
         )
 
@@ -22802,7 +22803,7 @@ class EditorTestRunner:
         self.run_test(
             "C redo content",
             "Hello\n",
-            b"llC\x1bu u:wq\r",
+            b"llC\x1bu\x1bu:wq\r",
             expected_content="He\n"
         )
 
@@ -22810,7 +22811,7 @@ class EditorTestRunner:
         self.run_test(
             "cw redo content",
             "Hello World\n",
-            b"cw\x1bu u:wq\r",
+            b"cw\x1bu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -22818,7 +22819,7 @@ class EditorTestRunner:
         self.run_test(
             "cb redo content",
             "Hello World\n",
-            b"wcb\x1bu u:wq\r",
+            b"wcb\x1bu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -22826,7 +22827,7 @@ class EditorTestRunner:
         self.run_test(
             "ce redo content",
             "Hello World\n",
-            b"ce\x1bu u:wq\r",
+            b"ce\x1bu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -22834,7 +22835,7 @@ class EditorTestRunner:
         self.run_test(
             "o redo content",
             "Hello\nWorld\n",
-            b"o\x1bu u:wq\r",
+            b"o\x1bu\x1bu:wq\r",
             expected_content="Hello\n\nWorld\n"
         )
 
@@ -22842,7 +22843,7 @@ class EditorTestRunner:
         self.run_test(
             "O redo content",
             "Hello\nWorld\n",
-            b"jO\x1bu u:wq\r",
+            b"jO\x1bu\x1bu:wq\r",
             expected_content="Hello\n\nWorld\n"
         )
 
@@ -22852,7 +22853,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "x redo cursor at x position",
             "Hello\n",
-            b"lxu u:q!\r",
+            b"lxu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -22860,7 +22861,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd redo cursor position",
             "A\nB\nC\n",
-            b"jddu u:q!\r",
+            b"jddu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
@@ -22868,7 +22869,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "D redo cursor position",
             "Hello\n",
-            b"llDu u:q!\r",
+            b"llDu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -22876,7 +22877,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dw redo cursor position",
             "Hello World\n",
-            b"dwu u:q!\r",
+            b"dwu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22884,7 +22885,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "db redo cursor position",
             "Hello World\n",
-            b"edbu u:q!\r",
+            b"edbu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22892,7 +22893,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "de redo cursor position",
             "Hello World\n",
-            b"deu u:q!\r",
+            b"deu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22900,7 +22901,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "d$ redo cursor position",
             "Hello\n",
-            b"lld$u u:q!\r",
+            b"lld$u\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -22908,7 +22909,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "d0 redo cursor position",
             "Hello\n",
-            b"llld0u u:q!\r",
+            b"llld0u\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22916,7 +22917,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "s redo cursor position",
             "Hello\n",
-            b"s\x1bu u:q!\r",
+            b"s\x1bu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22924,7 +22925,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "C redo cursor position",
             "Hello\n",
-            b"llC\x1bu u:q!\r",
+            b"llC\x1bu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -22932,7 +22933,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "cw redo cursor position",
             "Hello World\n",
-            b"cw\x1bu u:q!\r",
+            b"cw\x1bu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -22940,7 +22941,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "o redo cursor position",
             "Hello\nWorld\n",
-            b"o\x1bu u:q!\r",
+            b"o\x1bu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
@@ -22948,7 +22949,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "O redo cursor position",
             "Hello\nWorld\n",
-            b"jO\x1bu u:q!\r",
+            b"jO\x1bu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
@@ -22959,7 +22960,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: d0 undo then redo single row",
             make_lines(15),
-            b"jjjllld0u u:q!\r",
+            b"jjjllld0u\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3})],
             expect_scrolled_at_frame=[(5, False)]
@@ -22970,7 +22971,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: 3x undo then redo single row",
             make_lines(15),
-            b"jjj3xu u:q!\r",
+            b"jjj3xu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3})],
             expect_scrolled_at_frame=[(5, False)]
@@ -22981,7 +22982,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: s undo then redo single row",
             make_lines(15),
-            b"jjjs\x1bu u:q!\r",
+            b"jjjs\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3})],
             expect_scrolled_at_frame=[(5, False)]
@@ -22992,7 +22993,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: C undo then redo single row",
             make_lines(15),
-            b"jjjllC\x1bu u:q!\r",
+            b"jjjllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(6, {3})],
             expect_scrolled_at_frame=[(6, False)]
@@ -23003,7 +23004,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: cw undo then redo single row",
             make_lines(15),
-            b"jjjcw\x1bu u:q!\r",
+            b"jjjcw\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3})],
             expect_scrolled_at_frame=[(5, False)]
@@ -23014,7 +23015,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: cb undo then redo single row",
             make_lines(15),
-            b"jjjwcb\x1bu u:q!\r",
+            b"jjjwcb\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(6, {3})],
             expect_scrolled_at_frame=[(6, False)]
@@ -23025,7 +23026,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo render: ce undo then redo single row",
             make_lines(15),
-            b"jjjce\x1bu u:q!\r",
+            b"jjjce\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(5, {3})],
             expect_scrolled_at_frame=[(5, False)]
@@ -23554,7 +23555,7 @@ class EditorTestRunner:
                 ("r<Enter> undo in a wrapped line",
                  "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru", joined12, (1, 2)),
                 ("r<Enter> redo in a wrapped line",
-                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru u", split12, (2, 0)),
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru\x1bu", split12, (2, 0)),
                 ("r<Enter> undo in a wrapped line from a line below",
                  "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\rjju", joined12, (1, 2)),
                 ("r<Enter> redo in a wrapped line from a line below",
@@ -23610,7 +23611,7 @@ class EditorTestRunner:
         self.run_test(
             "Batched tilde undo then redo",
             "abc\n",
-            b"~~~u u:wq\r",
+            b"~~~u\x1bu:wq\r",
             expected_content="ABC\n"
         )
 
@@ -23835,7 +23836,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo on short lines: screen correct",
             "AAAA\nBBBB\nCCCC\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=10,
             expect_lines=[
                 (0, "AAAA BBBB"),
@@ -24485,7 +24486,7 @@ class EditorTestRunner:
         l0_4 = [(i, f"l{i}") for i in range(5)]
         for name, keys, joined, cursor in [
                 ("J", b"6GJ", "fmt " + abc, (5, 3)),
-                ("Redo of J", b"6GJu u", "fmt " + abc, (5, 3)),
+                ("Redo of J", b"6GJu\x1bu", "fmt " + abc, (5, 3)),
                 ("Insert-mode BS", b"7Gi\x08\x1b", "fmt" + abc, (5, 2))]:
             self.run_test_screen(
                 f"{name} joining a line to a 255-row line below it",
