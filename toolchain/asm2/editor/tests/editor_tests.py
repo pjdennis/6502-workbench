@@ -3140,6 +3140,38 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
+        # Ctrl-D with the last line on screen moves the cursor only, as
+        # in vim: a view past the last full page (after deleting lines at
+        # the end) stays, where it scrolled back up
+        self.run_test_screen(
+            "Ctrl-D with the last line on screen: the view stays",
+            make_lines(30),
+            b"Gkkkk5dd" + CTRL_D + b":q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=[(0, "Line 22"), (3, "Line 25"), (4, "~")]
+        )
+        self.run_test_screen(
+            "Ctrl-D past the last full page moves the cursor only",
+            make_lines(30),
+            b"Gkkkk5dd8k" + CTRL_D + b":q!\r",
+            expect_cursor=(4, 0),
+            expect_lines=[(0, "Line 17"), (8, "Line 25")]
+        )
+        self.run_test_screen(
+            "Batched Ctrl-D past the last full page",
+            make_lines(30),
+            b"Gkkkk5dd8k" + CTRL_D * 2 + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(0, "Line 17"), (8, "Line 25")]
+        )
+        self.run_test_screen(
+            "Ctrl-D when every line fits: the view stays",
+            make_lines(12),
+            b"Gkkk5dd" + CTRL_D + b":q!\r",
+            expect_cursor=(4, 0),
+            expect_lines=[(0, "Line 4"), (4, "Line 8"), (5, "~")]
+        )
+
         # Count prefix sets scroll amount
         self.run_test_screen(
             "Ctrl-D with count: scroll 2 lines",

@@ -90,7 +90,10 @@ half_page_setup:
 
 ; --- Shared scroll subroutines ---
 
-; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP lines
+; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP lines, as
+; vim's Ctrl-D: the view stops where the last line reaches the bottom
+; row (LINE_COUNT - TEXT_ROWS), and a view there or past it stays (the
+; cursor moves on)
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A, X, Y
 scroll_view_down:
@@ -99,34 +102,30 @@ scroll_view_down:
   CLC
   JSR add_file_line
 
-  ; VIEW_TOP16 += BUF_TEMP
-  LDA BUF_TEMP
-  ADDA16 VIEW_TOP16
-
-  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - TEXT_ROWS)
+  ; A:X = the room left: LINE_COUNT - TEXT_ROWS - VIEW_TOP16
   SEC
   LDA LINE_COUNT16
   SBC TEXT_ROWS
   TAX
   LDA LINE_COUNT16 + 1
   SBC #0
-  BCC .view_zero     ; LINE_COUNT < TEXT_ROWS, set VIEW_TOP=0
-  TAY                ; Y:X = max view top
-
-  ; If VIEW_TOP16 > max, clamp it
-  CPY VIEW_TOP16 + 1
-  BCC .clamp_view
-  BNE .next
-  CPX VIEW_TOP16
-  BCS .next
-.clamp_view:
-  STX VIEW_TOP16
-  STY VIEW_TOP16 + 1
-  BCC .next                ; Always (C = 0 here)
-
-.view_zero:
-  LDA #0
-  STA_LH16 VIEW_TOP16
+  BCC .next                  ; Every line fits: the view stays
+  TAY
+  TXA
+  SBC VIEW_TOP16             ; (C=1)
+  TAX
+  TYA
+  SBC VIEW_TOP16 + 1
+  BCC .next                  ; The view is past there: it stays
+  BNE .add                   ; 256 or more
+  CPX BUF_TEMP
+  BCS .add
+  TXA                        ; Less than BUF_TEMP: just that far
+  BCC .add_a                 ; Always taken
+.add:
+  LDA BUF_TEMP
+.add_a:
+  ADDA16 VIEW_TOP16
 .next:
   DEC BUF_DELTA
   BNE scroll_view_down
