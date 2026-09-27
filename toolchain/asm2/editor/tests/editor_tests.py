@@ -2322,6 +2322,26 @@ class EditorTestRunner:
             edit_name="sub/dir/test.txt"
         )
 
+        # A path of 256 bytes or more (vim takes long names; the emulator
+        # passes arguments of up to about 480 bytes) loads and saves that
+        # file, not one with a name cut short or run on into the ':' line
+        self.run_test(
+            "File name over 255 bytes loads and saves the named file",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="/".join(["d" * 60] * 4 + ["test.txt"])
+        )
+
+        pad = 255 - len(str(self.tmpdir)) - len("/e/test.txt")
+        self.run_test(
+            "File name of exactly 256 bytes saves to that file",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="e" * pad + "/e/test.txt"
+        )
+
         # With no file name argument the buffer is named "[No Name]"
         self.run_test_screen(
             "No file name argument starts as [No Name]",

@@ -49,7 +49,7 @@
    clamp to the last line (one clamp shared with G and dd). That form measured smaller than the loops and runs in O(1).
  ────────────────────────────────────────
  Target: N1/N2 string print
- Reason: Different addressing ((STR_PTR16),Y vs FNAME_BUF,Y); adding length cap to write_string would slow all callers
+ Reason: write_fname caps the name at 32 chars (the status bar's text must fit STATUS_SHADOW); adding length cap to write_string would slow all callers
  ────────────────────────────────────────
  Target: F7/F9 indent/unindent
  Reason: Already share copy_line_to_nl; per-line logic (write spaces vs count/skip spaces) differs too much

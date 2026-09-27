@@ -17,7 +17,7 @@
 ; MEMORY LAYOUT
 ;   $0000-$00FF   Zero page variables
 ;   $0100-$01FF   6502 stack
-;   $0200-$02FF   Filename buffer
+;   $0200-$02FF   (unused)
 ;   $0300-$037F   Command buffer
 ;   $0380-$03FF   Status bar text (STATUS_SHADOW)
 ;   $0400         Editor code loads here
@@ -30,8 +30,6 @@
 ;   $E000-$EFFF   Yank buffer (4KB)
 ;   $F000+        Emulator I/O
 ; ============================================================================
-
-FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
 
 * = $0400
 
@@ -78,7 +76,9 @@ editor_main:
   INX
   BNE .clear_zp
 
-  ; Filename: first argument, or "[No Name]" if none
+  ; Filename: first argument, or "[No Name]" if none.  The argument is
+  ; used where it is: the emulator keeps the argument strings in their
+  ; own window ($FE00-$FFDF), so a name can be as long as they allow
   LDX #>str_untitled      ; argc preserves X
   JSR argc
   CMP #1
@@ -87,20 +87,9 @@ editor_main:
   LDA #0
   JSR argv                ; A;X = first argument
 .have_name:
-  ; Copy the name to FNAME_BUF
-  STAX16 BUF_PTR16
-  LDY #0
-.copy_fname:
-  LDA (BUF_PTR16),Y
-  STA FNAME_BUF,Y
-  BEQ .fname_copied
-  INY
-  BNE .copy_fname
-.fname_copied:
+  STAX16 FNAME_PTR16
 
   ; Try to open the file for reading (returns 0 if not found)
-  LDA #<FNAME_BUF
-  LDX #>FNAME_BUF
   JSR open
   CMP #0
   BEQ .new_file

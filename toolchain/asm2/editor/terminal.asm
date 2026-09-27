@@ -151,12 +151,12 @@ write_string:
 .done:
   RTS
 
-; Print the filename (FNAME_BUF), up to 32 chars, through text_putc
+; Print the filename (at FNAME_PTR16), up to 32 chars, through text_putc
 ; Clobbers A, X, Y
 write_fname:
   LDY #0
 .loop:
-  LDA FNAME_BUF,Y
+  LDA (FNAME_PTR16),Y
   BEQ .done
   JSR text_putc
   INY

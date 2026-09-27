@@ -179,8 +179,7 @@ cmd_parse_w:
 ; MODIFIED set and CMD_QUIT clear (a failed :wq does not quit).
 command_write_file:
   ; Open file for writing
-  LDA #<FNAME_BUF
-  LDX #>FNAME_BUF
+  LDAX16 FNAME_PTR16
   JSR openout
   TAX                 ; Handle 0: could not open
   BEQ .open_failed

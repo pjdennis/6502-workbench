@@ -123,6 +123,7 @@ SHIFT_PREV_WIDTH: .byte ; the part of BUF_DELTA a batch's earlier >> / <<
                         ; pairs take (0 unless batched)
 
 ; --- command.asm ---
+FNAME_PTR16: .word     ; The file name: the argument, or "[No Name]"
 CMD_IDX:     .byte     ; Current index into command buffer
 CMD_QUIT:    .byte     ; Set to $FF when editor should quit
 

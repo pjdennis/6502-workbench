@@ -162,7 +162,7 @@ project's 6502 emulator in console/ANSI mode.
 |---------|------|---------|
 | `$0000-$00FF` | 256 B | Zero page variables |
 | `$0100-$01FF` | 256 B | 6502 stack |
-| `$0200-$02FF` | 256 B | Filename buffer (`FNAME_BUF`) |
+| `$0200-$02FF` | 256 B | Unused (`FNAME_PTR16` points at the file name where the emulator keeps it) |
 | `$0300-$037F` | 128 B | Command buffer (`CMD_BUF`) |
 | `$0380-$03FF` | 128 B | Status bar text (`STATUS_SHADOW`) |
 | `$0400+` | Variable | Editor code (loads here) |
