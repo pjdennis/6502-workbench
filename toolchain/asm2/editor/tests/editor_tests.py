@@ -11284,6 +11284,48 @@ class EditorTestRunner:
             ]
         )
 
+        # A run of special cells shares one reverse-video span, closed
+        # before the next normal char and before the row's ESC[K
+        self.run_test_screen(
+            "Run of tabs and control chars shares one reverse span",
+            None,
+            b":q!\r",
+            initial_bytes=b"A\t\t\x01B\x7f\t\x80\n",
+            expect_lines=[(0, "A>>?B?>?")],
+            expect_reverse_at=[(0, 0, False), (0, 1, True), (0, 2, True),
+                               (0, 3, True), (0, 4, False), (0, 5, True),
+                               (0, 6, True), (0, 7, True), (0, 8, False)],
+            expect_ansi_contains="A\x1b[7m>>?\x1b[mB\x1b[7m?>?\x1b[m\x1b[K",
+        )
+
+        # A run crossing a wrap boundary: each row closes its own span
+        for deferred in (False, True):
+            self.run_test_screen(
+                "Reverse span across a wrap boundary"
+                + (" (deferred wrap)" if deferred else ""),
+                None,
+                b":q!\r",
+                initial_bytes=b"a" * 38 + b"\t\t\tb\n",
+                deferred_wrap=deferred,
+                expect_lines=[(0, "a" * 38 + ">>"), (1, ">b")],
+                expect_reverse_at=[(0, 37, False), (0, 38, True),
+                                   (0, 39, True), (1, 0, True),
+                                   (1, 1, False), (1, 2, False)],
+                expect_ansi_contains="a\x1b[7m>>\x1b[m\x1b[7m>\x1b[mb\x1b[K",
+            )
+
+        # Ctrl-F onto tab-indented lines at 24x80: one span per indent
+        self.run_test_screen(
+            "Ctrl-F onto tab-indented lines: one reverse span per indent",
+            "".join("\t" * (2 + i % 2) + f"line {i} of the text\n"
+                    for i in range(60)),
+            b"\x06:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, ">>>line 23 of the text"),
+                          (22, ">>>line 45 of the text")],
+            expect_frame_bytes=[(1, 812)],
+        )
+
         self._group("Word motions (w, b, e):", leading_blank=True)
 
         self.run_test_screen(

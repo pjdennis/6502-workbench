@@ -528,9 +528,10 @@ find_line_at_render_row:
 
 ; Print line characters from BUF_PTR16 + RENDER_COL up to SCREEN_COLS or
 ; newline.  Control chars: tab as '>' reverse, others (and DEL and bytes
-; >= $80, which a terminal would not show in one cell) as '?' reverse.
+; >= $80, which a terminal would not show in one cell) as '?' reverse; a
+; run of them shares one ESC[7m ... ESC[m, which ends in the row.
 ; Returns RENDER_COL = Y = column after the last char printed.
-; Clobbers A, Y.
+; Clobbers A, Y (X kept).
 render_line_chars_from:
   LDA SCREEN_COLS
   STA RENDER_STOP
@@ -540,12 +541,13 @@ render_line_chars_to:
 .loop:
   LDA (BUF_PTR16),Y
   CMP #$7F
-  BCS .unprintable             ; DEL or the high bit
+  BCS .special                 ; DEL or the high bit
   CMP #' '
   BCC .ctrl                    ; a control char or the newline
   JSR io_write
 .next:
   INY
+.check:
   CPY RENDER_STOP
   BCC .loop
 .done:
@@ -554,23 +556,36 @@ render_line_chars_to:
 .ctrl:
   CMP #'\n'
   BEQ .done
+.special:
+  ; A run of special chars in reverse video, up to a normal char, the
+  ; newline or the stop column
+  STY RENDER_COL
+  JSR ansi_reverse_video
+  LDY RENDER_COL
+.rev_loop:
+  LDA (BUF_PTR16),Y
   CMP #'\t'
-  BNE .unprintable
-  LDA #'>'
-  BNE .rev_char                ; Always taken
+  BEQ .tab
+  CMP #$7F
+  BCS .unprintable
+  CMP #' '
+  BCS .rev_end                 ; a normal char
+  CMP #'\n'
+  BEQ .rev_end
 .unprintable:
   LDA #'?'
-.rev_char:
-  STA BUF_TEMP
-  TYA
-  PHA
-  JSR ansi_reverse_video
-  LDA BUF_TEMP
+  .byte $2C                    ; BIT abs ($3EA9, RAM): skip the LDA #'>'
+.tab:
+  LDA #'>'
   JSR io_write
+  INY
+  CPY RENDER_STOP
+  BCC .rev_loop
+.rev_end:
+  STY RENDER_COL
   JSR ansi_normal_video
-  PLA
-  TAY
-  JMP .next
+  LDY RENDER_COL               ; (not 0: a special char was printed)
+  BNE .check                   ; Always taken
 
 ; Check RENDER_FROM_COL16 for the partial-render paths.
 ; Returns C=1 if $FFFF (unknown change: render the full line).
