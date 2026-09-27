@@ -106,6 +106,21 @@ audit's 432 repaint scenarios (dw, db, de, D, d0, s, cw, x, p, P, u,
 `>>`, `<<`... on short and wrapped lines at 10x40 and 24x80) the frames
 went from 62,753 bytes to 37,858.
 
+### Edits that move the view down
+
+An edit on the bottom rows that pushes the cursor below the screen (`o`,
+Enter, `p`, `J` on the bottom row, typing past the end of the last row)
+used to redraw the whole screen when it changed the line count. The text
+before the edit's first changed cell is as it was, so `render_scroll_up`
+scrolls the text area up by the rows the view moved (walked over lines
+that did not change) and draws only from that cell (or from the first
+row the scroll exposed, if that comes first) to the bottom: `o` on the
+bottom row of a 24x80 screen of 48-char lines sends 116 bytes instead of
+1,268. The cell is found from the cursor (`rows_to_cursor`,
+`change_cell_row`, shared with the Enter split): in the cursor line at
+`RENDER_FROM_COL16`, or for an Enter batch in the line it split. A first
+change on the top row redraws in full, as nothing keeps its place.
+
 ### Status bar: only what changed
 
 `status_build` builds the status bar's text into `STATUS_SHADOW` ($0380,

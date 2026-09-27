@@ -114,10 +114,15 @@ project's 6502 emulator in console/ANSI mode.
      the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):
      - `RENDER_FLAG` = `$FF` → full screen redraw.
      - Viewport moved → scroll the text area and draw the exposed rows
-       (all of them for a move that fills it), and the cursor line from
-       its change point if the key also edited it; full redraw if the
-       line count changed, `RENDER_FLAG` is `$0B`, or the edited line
-       starts above the view or changed height above the status bar.
+       (all of them for a move that fills it).  An edit rides along: when
+       the view moved down (an `o`, Enter, `p` or `J` on the bottom row,
+       typing past it) the rows from its first change on are drawn, as
+       the rows above it keep their place in the scroll; when it moved
+       up, the cursor line from its change point.  Full redraw for
+       `RENDER_FLAG` `$0B`, a first change on the top row or above the
+       view, and on a move up for a line count change or an edited line
+       that starts above the view or changed height above the status
+       bar.
      - Line count changed → scroll the rows below the edit for the line
        insert/delete flags (`$02`–`$0A`), else full redraw.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows

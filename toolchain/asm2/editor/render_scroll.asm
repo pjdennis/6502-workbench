@@ -182,16 +182,21 @@ render_range_repaint:
   JMP render_screen
 
 ; RENDER_WRAP = the rows from the first row of the line RENDER_LIMIT
-; (1 or more) lines above the cursor line to the cursor's row: WRAP_QUOT
-; plus the rows of the lines between (DELETE_SCREEN_ROWS).  C=1 if that
-; is past 255.  Clobbers A, X, Y, RENDER_LIMIT, RENDER_LINE16, BUF_PTR16,
-; DIV_INPUT16
+; lines above the cursor line (0: the cursor line) to the cursor's row:
+; WRAP_QUOT plus the rows of the lines between (DELETE_SCREEN_ROWS).
+; C=1 if that is past 255.  Clobbers A, X, Y, RENDER_LIMIT,
+; RENDER_LINE16, BUF_PTR16, DIV_INPUT16
 rows_to_cursor:
+  LDA #0
+  CLC
+  LDX RENDER_LIMIT
+  BEQ .rows
   SEC
   SBC16_8 FILE_LINE16, RENDER_LIMIT, RENDER_LINE16
   LDA RENDER_LIMIT
   JSR compute_delete_screen_rows  ; A = their rows (C=1: over 255)
   BCS .done
+.rows:
   ADC WRAP_QUOT
   STA RENDER_WRAP
 .done:
@@ -199,11 +204,16 @@ rows_to_cursor:
 
 ; A = the screen row of the first changed cell of a line that starts
 ; RENDER_WRAP rows above the cursor's row (rows_to_cursor): its row in
-; the line (check_from_col) counted from there, or the cursor's row for
-; a cell at or below it; WRAP_REM = its column.  C=0 if it is above the
-; view.  Clobbers A, X, DIV_INPUT16
+; the line (check_from_col; $FFFF: the line's first cell) counted from
+; there, or the cursor's row for a cell at or below it (drawing from a
+; cell before the first change is as right); WRAP_REM = its column.
+; C=0 if it is above the view.  Clobbers A, X, DIV_INPUT16
 change_cell_row:
   JSR check_from_col           ; X = its row in the line
+  BCC .have
+  LDX #0
+  STX WRAP_REM
+.have:
   TXA
   SEC
   SBC RENDER_WRAP              ; C=0: above the cursor's row
@@ -281,7 +291,7 @@ render_enter_split:
   STA WRAP_REM
   ; fall through
 ; Draw from row A, column WRAP_REM, to the row before 1-based row
-; RENDER_ROW, then end the frame
+; RENDER_ROW ($FF: to the status bar), then end the frame
 draw_rows_from:
   STA RENDER_COL
   LDA RENDER_ROW

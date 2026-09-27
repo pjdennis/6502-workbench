@@ -24585,6 +24585,140 @@ class EditorTestRunner:
         )
 
         # ================================================================
+        # Line inserts and joins that move the view down (o, Enter, p, J
+        # on the bottom row): the text area scrolls up by the rows the
+        # view moved, and only the rows from the first change on (or the
+        # rows the scroll exposed, if they come first) are drawn, not the
+        # whole screen
+        # ================================================================
+        bottom = [(i, f"Line {i + 2}") for i in range(8)]
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jo\x1b:q!\r",
+            expect_lines=bottom + [(8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {8})],
+        )
+        # The split line is drawn from the Enter's column
+        self.run_test_screen(
+            "Scroll opt: Enter at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jA\r\x1b:q!\r",
+            expect_lines=bottom + [(8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, True)],
+            expect_content_rows=[(4, {7, 8})],
+            expect_min_col=[(4, 7, 6)],
+        )
+        self.run_test_screen(
+            "Scroll opt: p at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jyyp:q!\r",
+            expect_lines=bottom + [(8, "Line 9")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, True)],
+            expect_content_rows=[(4, {8})],
+        )
+        # The top line wraps: the view moves by one of its rows
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row below a wrapped top line",
+            "a" * 50 + "\n" + make_lines(14),
+            b"7jo\x1b:q!\r",
+            expect_lines=[(0, "a" * 10)]
+                         + [(i, f"Line {i}") for i in range(1, 8)]
+                         + [(8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {8})],
+        )
+        # The bottom line's last row was below the screen: the scroll
+        # exposes it, and it is drawn with the new line
+        self.run_test_screen(
+            "Scroll opt: o below a line that ran past the bottom row",
+            make_lines(8) + "b" * 50 + "\n" + make_lines(5),
+            b"8jo\x1b:q!\r",
+            expect_lines=[(i, f"Line {i + 3}") for i in range(6)]
+                         + [(6, "b" * 40), (7, "b" * 10), (8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {7, 8})],
+        )
+        # J whose join point lands on a row below the screen
+        self.run_test_screen(
+            "Scroll opt: J that wraps past the bottom row scrolls the view",
+            make_lines(8) + "x" * 45 + "\n" + "y" * 10 + "\n"
+            + make_lines(5),
+            b"8jJ:q!\r",
+            expect_lines=[(i, f"Line {i + 2}") for i in range(7)]
+                         + [(7, "x" * 40), (8, "xxxxx " + "y" * 10)],
+            expect_cursor=(8, 5),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {8})],
+        )
+        # One insert batch joins the bottom line onto the one above, edits
+        # it and splits twice: the line above changed too
+        self.run_test_screen(
+            "Batch BS-join, text and Enters at the bottom row",
+            make_lines(15),
+            b"8ji\x08x\r\r\x1b:q!\r",
+            expect_lines=[(i, f"Line {i + 2}") for i in range(6)]
+                         + [(6, "Line 8x"), (7, ""), (8, "Line 9")],
+            expect_cursor=(8, 0),
+        )
+        # A paste that grows the bottom line past the screen: the rows the
+        # scroll exposes are drawn once, with the line
+        self.run_test_screen(
+            "Scroll opt: P growing the bottom line draws each row once",
+            "q" * 200 + "\nxy\n",
+            b"y$jP:q!\r",
+            expect_lines=[(i, "q" * 40) for i in range(9)],
+            expect_cursor=(8, 39),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {4, 5, 6, 7, 8})],
+            expect_frame_bytes=[(3, 272)],
+        )
+        # Typing at the end of a line taller than the screen: the char
+        # that fills its last row moves the view down a row within the
+        # line, and only the char and the row below it are drawn.
+        # Frames: 0 init, 1 G, 2 A, 3 x, 4 Right (unbatches), 5 x
+        self.run_test_screen(
+            "Scroll opt: typing at the end of a line taller than the screen",
+            "l0\n" + "t" * 399 + "\n",
+            b"GAx" + RIGHT + b"x\x1b:q!\r",
+            expect_lines=[(i, "t" * 40) for i in range(7)]
+                         + [(7, "t" * 39 + "x"), (8, "x")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {7, 8})],
+            expect_min_col=[(3, 7, 39)],
+        )
+        # 24x80, 48-char lines: o and Enter at the bottom row
+        long48 = "".join(f"line {i:02d} " + "abcdefghij" * 4 + "\n"
+                         for i in range(40))
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row at 24x80 sends one row",
+            long48,
+            b"22jo\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
+                          (21, "line 22 " + "abcdefghij" * 4), (22, "")],
+            expect_cursor=(22, 0),
+            expect_frame_bytes=[(4, 75)],
+        )
+        self.run_test_screen(
+            "Scroll opt: Enter at the bottom row at 24x80 sends one row",
+            long48,
+            b"22jA\r\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
+                          (21, "line 22 " + "abcdefghij" * 4), (22, "")],
+            expect_cursor=(22, 0),
+            expect_frame_bytes=[(5, 83)],
+        )
+
+        # ================================================================
         # Indent/unindent render optimization
         # ================================================================
         # >> and << currently force full repaint. Only the affected rows

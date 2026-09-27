@@ -18,10 +18,13 @@
 ; (CURSOR_ROW - WRAP_QUOT); "delta" = the change in LINE_COUNT16.
 ; render_decide:
 ;   $FF                       -> full redraw
-;   viewport moved            -> line count unchanged and flag != $0B:
-;                                scroll the text area, draw the exposed
-;                                rows and an edit's cursor line from its
-;                                change point (see .view_changed); else
+;   viewport moved            -> flag != $0B: scroll the text area and
+;                                draw the exposed rows; moved down, from
+;                                an edit's first change on (it rides
+;                                along: render_scroll_up), moved up, an
+;                                edit's cursor line from its change point
+;                                if the line count and the rows below it
+;                                are unchanged (see .view_changed); else
 ;                                full
 ;   line count changed        -> $02-$0A as below, else full
 ;   BUF_END16 changed or flag -> $0B range repaint, any other as $01
@@ -288,27 +291,30 @@ render_decide:
   JMP .full
 
 .view_changed:
-  ; The view moved.  Try a scroll: the line count must be unchanged
-  ; (content not structurally modified).  An edit (RENDER_FLAG set or
-  ; BUF_END16 changed) is then in the cursor line, which render_scroll_up
-  ; and _down redraw from its change point after the scroll
-  ; (CUR_LINE_ROWS = its rows, 0 = no edit), if its first row is on
-  ; screen and the rows below it keep their place: it has the rows it
-  ; had, or it reaches the status bar (its cells are then rewritten, as
-  ; its rows moved).  Else, and for a range repaint, redraw in full
+  ; The view moved: scroll the text rows by the rows it moved and draw
+  ; the rows that exposes (render_scroll_up and _down), with an edit
+  ; (RENDER_FLAG set, or the line count or BUF_END16 changed: then
+  ; CUR_LINE_ROWS != 0) drawn after the scroll.  A move up takes an edit
+  ; of the cursor line with the line count unchanged (RENDER_ROW = its
+  ; first row, CUR_LINE_ROWS = its rows) if its first row is on screen
+  ; and the rows below it keep their place: it has the rows it had, or
+  ; it reaches the status bar (its cells are then rewritten, as its rows
+  ; moved); any other edit sets RENDER_ROW = $FF (full redraw).  A
+  ; range repaint, or a line count change with no flag, redraws in full
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
-  BNE .ins_full
+  BNE .count_changed
   CMP16 SNAP_BUF_END16, BUF_END16
   BNE .edited
   LDA RENDER_FLAG
+  STA RENDER_ROW             ; (not $FF)
   STA CUR_LINE_ROWS          ; 0: no edit
   BEQ .scroll_view
 .edited:
   LDA RENDER_FLAG
   CMP #RF_RANGE
   BEQ .ins_full
-  JSR cursor_line_first_row  ; RENDER_ROW = its first row
-  BCC .ins_full              ; the line starts above the view
+  JSR cursor_line_first_row  ; RENDER_ROW = its first row, CUR_LINE_ROWS
+  BCC .down_only             ; the line starts above the view
   LDA CUR_LINE_ROWS
   CMP PREV_LINE_ROWS
   BEQ .scroll_view           ; the same rows
@@ -316,10 +322,18 @@ render_decide:
   ADC RENDER_ROW
   BCS .rewrite
   CMP TEXT_ROWS
-  BCC .ins_full              ; the rows below it would move
+  BCC .down_only             ; the rows below it would move
 .rewrite:
   LDA #$FF
   STA SHIFT_WRITE            ; no ICH/DCH hint
+  BNE .scroll_view           ; Always
+.count_changed:
+  LDA RENDER_FLAG
+  BEQ .ins_full
+.down_only:
+  LDA #$FF
+  STA RENDER_ROW             ; only a move down scrolls
+  STA CUR_LINE_ROWS          ; (an edit)
 .scroll_view:
 
   ; Determine direction: new > old = scrolled down (scroll up on screen)
@@ -395,21 +409,71 @@ render_decide:
 ; SCROLL_DELTA = number of rows to scroll (1-255): one that fills the
 ; text rows sends no scroll and draws them all.
 ; Content moves up, blanks appear at bottom of scroll region.
+; An edit (CUR_LINE_ROWS != 0) rides along: the text before its first
+; changed cell is as it was, so every row above that cell's keeps its
+; place in the scroll, and the rows from the cell (or from the first
+; row exposed, if that comes first) to the bottom are drawn.  A first
+; change on the top row or above the view: full redraw (no row keeps
+; its place)
 render_scroll_up:
+  LDA #$FF                     ; no edit: past every row
+  LDX CUR_LINE_ROWS
+  BEQ .change_row
+  ; The first changed cell is in the cursor line at RENDER_FROM_COL16,
+  ; or for an Enter batch ($05) in the line it split: the lines it added
+  ; (at most 65) lie above the cursor line
+  LDX #0
+  LDA RENDER_FLAG
+  CMP #RF_ENTER
+  BNE .rows
+  LDA LINE_COUNT16
+  SEC
+  SBC SNAP_LINE_COUNT16
+  TAX
+.rows:
+  STX RENDER_LIMIT
+  JSR rows_to_cursor           ; RENDER_WRAP (C=1: past 255)
+  BCS view_full
+  JSR change_cell_row          ; A = its row, WRAP_REM = its column
+  BCC view_full                ; above the view
+  BEQ view_full                ; the top row: no row keeps its place
+.change_row:
+  STA RENDER_ROW
   JSR ansi_cursor_hide
 
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll up
   LDA #1
   JSR scroll_up_clamped        ; SCROLL_DELTA = rows exposed at the bottom
-  JSR render_line_keep_delta   ; the edited line (RENDER_ROW, CUR_LINE_ROWS)
 
-  ; Render newly exposed bottom rows.
-  JMP render_bottom_rows
+  ; Draw from the change, or from the first exposed row (column 0) if
+  ; that comes first, to the bottom
+  LDA TEXT_ROWS
+  SEC
+  SBC SCROLL_DELTA             ; the first row exposed
+  CMP RENDER_ROW
+  BCC .from_exposed
+  BEQ .from_exposed
+  LDA RENDER_ROW
+  BCS .draw                    ; Always
+.from_exposed:
+  LDX #0
+  STX WRAP_REM
+.draw:
+  LDX #$FF
+  STX RENDER_ROW
+  JMP draw_rows_from
 
 ; Scroll screen down and render newly exposed top rows.
 ; SCROLL_DELTA = number of rows to scroll, as for render_scroll_up.
 ; Content moves down, blanks appear at top of scroll region.
+; An edit (CUR_LINE_ROWS != 0) is drawn from its change point after the
+; scroll (RENDER_ROW = the line's first row; $FF: a full redraw, see
+; .view_changed)
 render_scroll_down:
+  LDX RENDER_ROW
+  INX
+  BEQ view_full
+
   JSR ansi_cursor_hide
 
   ; Scroll region rows 1 to SCREEN_ROWS-1 (excludes status bar), scroll down
@@ -422,6 +486,8 @@ render_scroll_down:
   LDA #0
   STA RENDER_ROW
   JMP find_and_render
+view_full:
+  JMP render_screen
 
 ; Clamp SCROLL_DELTA to the rows available below the cursor
 ; (available = TEXT_ROWS - CURSOR_ROW).  Clobbers A
