@@ -462,16 +462,16 @@ in_indent:
 
 ; Move cursor to start of next line, if any
 ; Output: carry set if no next line (cursor unchanged), clear if advanced
-; Clobbers: A, BUF_PTR16
+; Clobbers: A
 advance_next_line:
-  CLC
-  ADCI16 FILE_LINE16, 1, BUF_PTR16
-  CMP16 BUF_PTR16, LINE_COUNT16
-  BCS .no_next            ; No next line
   INC16 FILE_LINE16
+  CMP16 FILE_LINE16, LINE_COUNT16
+  BCC .next
+  DEC16 FILE_LINE16       ; No next line (C stays set)
+  RTS
+.next:
   LDA #0
   STA_LH16 CURSOR_COL16
-.no_next:
   RTS
 
 ; Get current line length into LINE_LEN16

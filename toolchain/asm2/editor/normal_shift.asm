@@ -475,16 +475,9 @@ compute_dollar_range:
   SEC
   SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
 
-  ; Check if count > 1
-  LDA BUF_TEMP16 + 1
-  BNE .multiline              ; count > 255
-  LDA BUF_TEMP16
-  CMP #2
-  BCC .done                   ; count = 1, done
-
-.multiline:
-  ; remaining = count - 1
+  ; The other lines: remaining = count - 1
   JSR dec_buf_temp16
+  BEQ .done                   ; count = 1, done
   ; next_line = FILE_LINE16 + 1
   CLC
   ADCI16 FILE_LINE16, 1, COUNT16
