@@ -580,9 +580,7 @@ normal_substitute_char:
   JSR check_cursor_in_line
   BCS sub_change_insert
 
-  ; available = LINE_LEN16 - CURSOR_COL16
-  SEC
-  SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
+  JSR chars_left             ; BUF_LEN16 = available
   JSR get_count
   ; BUF_LEN16 = min(count, available chars)
   CMP16 BUF_TEMP16, BUF_LEN16
@@ -638,14 +636,8 @@ do_replace_char:
   ; The N chars must be in the line (not an empty one)
   JSR get_count              ; BUF_TEMP16 = N
   JSR get_line_len_z
-  SEC
-  LDA LINE_LEN16
-  SBC CURSOR_COL16
-  TAX
-  LDA LINE_LEN16 + 1
-  SBC CURSOR_COL16 + 1       ; A/X = the chars left
-  CPX BUF_TEMP16
-  SBC BUF_TEMP16 + 1
+  JSR chars_left
+  CMP16 BUF_LEN16, BUF_TEMP16
   BCC .replace_fail          ; Fewer than N
   LDA BUF_TEMP
   CMP #KEY_ENTER

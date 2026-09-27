@@ -480,9 +480,7 @@ dollar_range_setup:
 ; For count=1: BUF_LEN16 = LINE_LEN16 - CURSOR_COL16
 ; For count>1: adds newline + line_length for each additional line
 compute_dollar_range:
-  ; Start with current line remainder
-  SEC
-  SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
+  JSR chars_left              ; Start with current line remainder
 
   ; The other lines: remaining = count - 1
   JSR dec_buf_temp16
