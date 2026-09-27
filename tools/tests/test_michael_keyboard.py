@@ -74,6 +74,10 @@ class MichaelKeyboardTest(unittest.TestCase):
     def test_show_names_names_a_key(self):
         self.assertEqual(self.run_program('michael_keyboard_show_names', KEY_A)[:2], ['Ready?', 'A?'])
 
+    def test_show_names_names_pause(self):
+        self.assertEqual(self.run_program('michael_keyboard_show_names', KEY_PAUSE + KEY_A)[:3],
+                         ['Ready?', 'PAUSE?', 'A?'])
+
     def test_diag_shows_start_up_then_raw_bytes(self):
         self.assertEqual(self.diag_text(KEY_A), 'F4bcd F3bcd 20bcd EDbcd 02bcd >1C F0 1C')
 

@@ -79,6 +79,8 @@ KB_LED_CAPS_LOCK         = %00000100
 
 KB_CODE_BREAK            = $f0
 KB_CODE_EXTENDED         = $e0
+KB_CODE_EXTENDED_PAUSE   = $7e       ; Extended code for Break (Ctrl+Pause). The extended
+                                     ; translation table maps it to KEY_PAUSE.
 KB_CODE_EXTENDED_IGNORE  = $12       ; Part of the print screen codes. Also part of the codes generated
                                      ; by stand-alone navigation keys such as home, when numlock is on.
 KB_META_SHIFT            = %10000000
@@ -555,8 +557,8 @@ keyboard_decode:
   txa                           ; New pause seq index becomes new state
   bra .no_emit
 .pause_emit:
-  lda #0                        ; Emit pause as non-extended make code
-  ldx #KEY_PAUSE
+  lda #KB_META_EXTENDED         ; Emit pause as the extended make code for Break, since
+  ldx #KB_CODE_EXTENDED_PAUSE   ; it is translated from a PS/2 code like any other key
   bra .emit
 ; A = latest byte from keyboard
 .pause_error:
