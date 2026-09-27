@@ -211,8 +211,8 @@ kb_ring_read:
 services_end:
 
   .if services_end > INTERRUPT_ROUTINE
-  .error "The services run into the interrupt page"
+  fail "The services run into the interrupt page"
   .endif
   .if SERVICES_RAM_END > MICHAEL_EDITOR_SPARE
-  .error "The services' RAM runs into the editor's (MICHAEL_EDITOR_SPARE)"
+  fail "The services' RAM runs into the editor's (MICHAEL_EDITOR_SPARE)"
   .endif
