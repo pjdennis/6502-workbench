@@ -19,20 +19,20 @@
 ;   BUF_DELTA    = space width W (insert per non-empty line / max removal)
 ;   SHIFT_MODE   = insert core only: 0 = constant width W per non-empty
 ;                  line; $FF = per-line widths from UNDO_DATA_BUF (undo)
-;   SHIFT_UNDO_WIDTH = width of the last op (recorded as UNDO_WIDTH)
 ;
 ; On change the cores set MODIFIED and render flags (RF_RANGE partial
 ; repaint when possible, else RF_FULL), and record undo for ranges up to
-; 255 lines: UNDO_COL16 (cursor column), UNDO_RANGE_LINES16, UNDO_WIDTH
-; and the per-line widths in UNDO_DATA_BUF (indexed by SHIFT_LINE_IDX
-; while they run).
+; 255 lines: UNDO_COL16 (cursor column), UNDO_RANGE_LINES16 and the
+; per-line widths in UNDO_DATA_BUF (indexed by SHIFT_LINE_IDX while they
+; run).  Undo covers the last >> / <<, one INDENT_WIDTH step: batched
+; pairs multiply W, but u behaves as if the keys ran separately.
 ; On no-op (nothing inserted/removed) they leave MODIFIED and RENDER_FLAG
 ; untouched so the frame is a pure cursor/status update.
 
 ; (zero-page variables: zp.asm)
 
 ; Scratch the cores reuse while they run (aliases)
-SHIFT_LINE_IDX   = UNDO_JOIN_COUNT ; line index into UNDO_DATA_BUF (then UNDO_WIDTH)
+SHIFT_LINE_IDX   = UNDO_JOIN_COUNT ; line index into UNDO_DATA_BUF
 SHIFT_RECORDED   = SHIFT_MODE      ; remove core: nonzero once a last-op removal is recorded
 SHIFT_PREV_WIDTH = BUF_LEN16       ; remove core: width taken by the batch's earlier ops
 
@@ -63,13 +63,17 @@ shift_normal_setup:
   CP16 FILE_LINE16, UNDO_LINE16
   ; fall through
 
-; Shared tail (the :range > / < setup jumps here too)
-shift_setup_tail:
-  LDA #INDENT_WIDTH
-  STA SHIFT_UNDO_WIDTH         ; undo = last >> / << only
+; Shared tail: constant-width mode
+shift_const_mode:
   LDA #0
   STA SHIFT_MODE
   RTS
+
+; One INDENT_WIDTH step in constant-width mode (the :range > / < setup)
+shift_unit_setup:
+  LDA #INDENT_WIDTH
+  STA BUF_DELTA
+  BNE shift_const_mode         ; Always taken
 
 ; Common core prologue: clear undo, save range/cursor for undo recording,
 ; zero the per-core accumulators, pre-compute the range's current screen
@@ -106,8 +110,6 @@ shift_finish:
   LDX UNDO_RANGE_LINES16 + 1
   BNE shift_set_render         ; Big range: not undoable
   STA UNDO_TYPE
-  LDA SHIFT_UNDO_WIDTH
-  STA UNDO_WIDTH          ; Width of the last logical op (for undo)
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
 ; render level.  Partial repaint ($0B) requires pre-computed screen rows
@@ -210,7 +212,7 @@ remove_spaces_core:
   ; Removal attributable to earlier ops of a batch (per line)
   LDA BUF_DELTA
   SEC
-  SBC SHIFT_UNDO_WIDTH
+  SBC #INDENT_WIDTH
   STA SHIFT_PREV_WIDTH         ; Prev-ops width (per line)
 
   ; Set write ptr = first line start

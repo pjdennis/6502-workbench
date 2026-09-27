@@ -412,9 +412,7 @@ range_do_unindent:
 
 range_shift_setup:
   CP16 BUF_SRC16, UNDO_LINE16  ; Range start (BUF_TEMP16 = count already)
-  LDA #INDENT_WIDTH
-  STA BUF_DELTA
-  JMP shift_setup_tail
+  JMP shift_unit_setup
 
 range_shift_finish:
   JSR clamp_and_clear_count    ; Unindent may shorten the line; the cores

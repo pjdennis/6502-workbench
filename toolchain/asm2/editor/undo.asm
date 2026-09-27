@@ -442,16 +442,15 @@ undo_open_redo:
 
 ; --- Indent/unindent undo step (self-morphing) ---
 ; UNDO_INDENT: spaces were added; undo removes them (remove_spaces_core
-; with the recorded width re-records as UNDO_UNINDENT).
+; with the one-step width INDENT_WIDTH re-records as UNDO_UNINDENT).
 ; UNDO_UNINDENT: spaces were removed; undo re-inserts the recorded
 ; per-line counts (insert_spaces_core in data mode re-records as
 ; UNDO_INDENT).  Cursor returns to the recorded position both ways.
 undo_shift_step:
   JSR undo_restore_line_col
   CP16 UNDO_RANGE_LINES16, BUF_TEMP16
-  LDA UNDO_WIDTH
+  LDA #INDENT_WIDTH
   STA BUF_DELTA
-  STA SHIFT_UNDO_WIDTH
   LDA UNDO_TYPE
   CMP #UNDO_UNINDENT
   BEQ .reinsert

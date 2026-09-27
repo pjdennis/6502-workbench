@@ -121,10 +121,6 @@ WORD_CLASS:    .byte     ; Character class of current char
 SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
                         ; also SHIFT_RECORDED (normal_shift.asm) and
                         ; TILDE_TOGGLED (normal_edit.asm)
-SHIFT_UNDO_WIDTH: .byte ; width of the LAST logical op for undo recording
-                        ; (batched pairs multiply BUF_DELTA, but undo must
-                        ; behave as if the keys ran separately, so undo
-                        ; covers only the final op's contribution)
 
 ; --- command.asm ---
 CMD_IDX:     .byte     ; Current index into command buffer
