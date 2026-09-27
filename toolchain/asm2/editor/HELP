@@ -316,7 +316,8 @@ COMMAND-LINE MODE
 
   If start > end, the range is automatically swapped. Line numbers
   past the end of the file mean the last line. A range with no
-  command goes to its last line (:1,5 = :5).
+  command goes to the line of its second position, as in vim
+  (:1,5 = :5 and :5,1 = :1).
 
   A message stays on the status row until the next key, which then
   runs as usual (as in vim): the report of :w ("name" written) or of

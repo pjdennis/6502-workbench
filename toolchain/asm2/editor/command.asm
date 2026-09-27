@@ -59,11 +59,14 @@ command_parse_range:
   LDA CMD_BUF,X           ; Command char
   ; fall through
 
-; Run a range command, or with none (A = 0) go to the range's last line
+; Run a range command, or with none (A = 0) go to the line of the last
+; position, as vim does (without swapping a backwards range)
 ; Input: A = command char, BUF_SRC16 = start line, BUF_LEN16 = end line
 ; (either order); the action gets BUF_SRC16 = first line, BUF_TEMP16 = count
 range_dispatch:
   STA BUF_TEMP            ; Command char (dispatch key)
+  TAX
+  BEQ range_goto          ; No command
 
   ; Ensure start <= end (swap if needed)
   CMP16 BUF_LEN16, BUF_SRC16
@@ -86,7 +89,6 @@ range_dispatch:
   ; Readonly check for the editing commands (d, >, <): yank is allowed,
   ; and any other letter is an unknown command
   LDA BUF_TEMP
-  BEQ range_goto          ; No command
   CMP #'d'
   BEQ .range_edit
   CMP #'>'
@@ -105,9 +107,9 @@ range_dispatch:
   RTS
 
 range_goto:
-  ; :NNN and :N,M go to the last line of the range, as in vim (BUF_LEN16
-  ; = 0-based line). Command mode was entered through clear_count, so the
-  ; extra clear_count here changes nothing.
+  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line). Command mode
+  ; was entered through clear_count, so the extra clear_count here
+  ; changes nothing.
   CP16 BUF_LEN16, FILE_LINE16
   JMP first_nonblank_clear
 

@@ -10046,8 +10046,8 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
-        # A range with no command goes to its last line (vim), after the
-        # swap of a backwards range
+        # A range with no command goes to the line of its last position,
+        # as in vim, which does not swap a backwards range for that
         self.run_test_screen(
             ":1,3 goes to line 3",
             make_lines(5),
@@ -10056,10 +10056,24 @@ class EditorTestRunner:
         )
 
         self.run_test_screen(
-            ":3,1 goes to line 3",
+            ":3,1 goes to line 1",
             make_lines(5),
             b":3,1\r:q!\r",
-            expect_cursor=(2, 0),
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            ":5,2 goes to line 2",
+            make_lines(5),
+            b":5,2\r:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            ":'a,2 goes to line 2 from mark a on line 4",
+            make_lines(5),
+            b"3jmagg:'a,2\r:q!\r",
+            expect_cursor=(1, 0),
         )
 
         # An omitted position is the current line (vim): from line 3,
