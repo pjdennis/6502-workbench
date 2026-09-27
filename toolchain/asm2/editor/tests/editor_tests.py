@@ -2566,6 +2566,24 @@ class EditorTestRunner:
                 expected_content="AAAA\nAAAA\nBBBB\nCCCC\nDDDD\n"
             )
 
+            # A shift that does not fit says "Buffer full", as p, o and i
+            # do, and changes nothing ('x' only dismisses the message); a
+            # :> that does not fit reports no lines shifted.  255 bytes
+            # leave 1 free: >> needs 2, :1,3> 6
+            one_free = "abc\n" * 63 + "ab\n"
+            for keys in (b">>x", b">>>>x", b"3>>x", b":1,3>\rx", b":>\rx"):
+                self.run_test_small_buffer(
+                    f"{keys!r} at buffer full says Buffer full",
+                    one_free, keys + b":wq\r",
+                    expect_unmodified=True,
+                    expect_ansi_contains="Buffer full",
+                    expect_ansi_absent="lines shifted")
+            self.run_test_small_buffer(
+                ":1,3> with room reports lines shifted",
+                paste_content, b":1,3>\r:wq\r",
+                expected_content="  AAAA\n  BBBB\n  CCCC\nDDDD\n",
+                expect_ansi_contains="3 lines shifted")
+
             # Normal editing works with small buffer build
             self.run_test_small_buffer(
                 "Small buffer build normal editing works",
@@ -2583,6 +2601,13 @@ class EditorTestRunner:
                         for i in range(capacity // 64))
         self.run_test("File exactly filling the text buffer is editable",
             exact, b"x:wq\r", expected_content=exact[1:])
+        # A >> that does not fit leaves the cursor where the operator
+        # started (vim: where a failed operator leaves it), and the key
+        # after it only dismisses the message
+        indented = "  " + exact[2:]
+        self.run_test_screen(">> in a full text buffer: cursor at its start",
+            indented, b"6l>>x:q!\r", expect_cursor=(0, 2),
+            expect_ansi_contains="Buffer full")
         # Typed ahead into the end of an almost full buffer, the keys give
         # what they give typed one at a time: 'abc' fits, 'd' is refused
         # and 'e' dismisses the message, 'f' is refused and 'g' dismisses it

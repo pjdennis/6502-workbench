@@ -151,6 +151,15 @@ shift_set_render:
   STA RENDER_FLAG
   RTS
 
+; Buffer full: say so, and end the command there (the core's caller
+; would report or move the cursor), with the cursor where the operator
+; started, as vim leaves it after an operator that fails
+shift_full:
+  JSR show_buffer_full_msg
+  PLA                          ; Drop the return into the core's caller
+  PLA
+  JMP clamp_and_clear_count    ; (undo put the cursor on the line it restores)
+
 ; Insert leading spaces into each line of a range (see contract above).
 ; Constant mode skips empty lines; data mode uses UNDO_DATA_BUF widths.
 insert_spaces_core:
@@ -174,7 +183,7 @@ insert_spaces_core:
   CP16 COUNT16, BUF_LEN16
   JSR get_current_line_ptr
   JSR buf_shift_right_16
-  BCS shift_noop               ; Buffer full: nothing changed
+  BCS shift_full               ; Buffer full: nothing changed
 
   ; --- Redistribute: write per-line spaces, copy line content down ---
   CP16 BUF_PTR16, JUMP_TARGET16 ; write ptr = first line start
