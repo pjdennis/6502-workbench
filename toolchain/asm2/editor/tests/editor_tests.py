@@ -12492,6 +12492,14 @@ class EditorTestRunner:
             expected_content="x \nbar\n",
         )
 
+        # w that runs out of lines on an empty last line ends on its column 0
+        self.run_test(
+            "3dw running out of lines on an empty last line deletes lines",
+            "a\nxxxxxxxx\n\n",
+            b"w3dwp:wq\r",
+            expected_content="a\n\nxxxxxxxx\n",
+        )
+
         self.run_test(
             "dwdw on two empty lines deletes both",
             "\n\nfoo\n",

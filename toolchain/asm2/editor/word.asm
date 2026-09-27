@@ -269,7 +269,8 @@ compute_multiline_word_range_forward:
   JSR word_forward_x                ; move cursor forward N words
   DEC WORD_OP
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
-  ; The last word stopped at the end of its line: back up past the '\n'
+  ; The last word stopped at the end of its line (or w ran out of lines
+  ; on an empty last line): back up past the '\n'
   CMP16 FILE_LINE16, BUF_DST16      ; BUF_DST16 = start line (range_start)
   BEQ .cmwrf_no_adj                 ; same line, no adjustment
   TST16 CURSOR_COL16
@@ -423,9 +424,8 @@ nonblank_left:
 
 ; Carry set if only blanks lie left of the cursor (vim's inindent), X/Y
 ; = its column; else carry clear and X/Y = the column (high/low) of the
-; line's first non-blank.  From nonblank_left, with the cursor past the
-; end of a line of blanks, it puts the cursor on the last blank (col 0 on
-; an empty line) and returns from nonblank_left.  Clobbers A, BUF_PTR16
+; line's first non-blank (on a line of blanks with the cursor past its
+; end, the last blank; col 0 on an empty line).  Clobbers A, BUF_PTR16
 in_indent:
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
   LDX #0                       ; X/Y = column (high/low)
@@ -446,17 +446,19 @@ in_indent:
   INC BUF_PTR16 + 1            ; Next page of the line
   INX
   BNE .scan                    ; Always
+.blank_line:
+  ; Only blanks: the last one (col 0 on an empty line)
+  TYA
+  BNE .last
+  TXA
+  BEQ .found                   ; Empty line: col 0
+  DEX
+.last:
+  DEY
 .found:
   CLC                          ; First non-blank at column X/Y
 .done:
   RTS
-.blank_line:
-  ; Only blanks: the last one (col 0 on an empty line)
-  PLA
-  PLA                          ; Return from nonblank_left
-  STY CURSOR_COL16             ; Col = the line length
-  STX CURSOR_COL16 + 1
-  JMP clamp_cursor_col
 
 ; --- Shared small helpers ---
 

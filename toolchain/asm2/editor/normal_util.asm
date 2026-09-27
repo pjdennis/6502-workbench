@@ -140,6 +140,7 @@ dispatch_replay:
   PHA                        ; Flags index
   LDA #0
   STA BATCH_RESTORE_KEY
+  STA BATCH_EXTRA            ; Each press on its own (dd for a linewise dw)
 .press:
   TSX
   LDY $0101,X                ; Flags index
@@ -331,6 +332,8 @@ vert_keep:
   LDA #2
   STA CURSWANT_KEEP
   CP16 CURSWANT16, CURSOR_COL16
+; Clamp the cursor column for the mode (normal: then clear the count)
+clamp_for_mode:
   LDA MODE
   BEQ clamp_and_clear_count  ; Normal mode: onto the last char
   JMP clamp_cursor_col_insert ; Insert mode: up to the line end

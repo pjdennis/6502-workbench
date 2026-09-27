@@ -579,14 +579,8 @@ word_op_forward:
   BCS word_op_bail             ; Nothing to operate on
   JSR set_render_from_cursor   ; Repaint from the range start
   LDA NORMAL_TEMP              ; A = operator
-  CMP #OP_CHANGE
-  BEQ word_op_do_change
-  ; OP_DELETE or OP_YANK
-  JSR apply_char_operator
-  JMP clamp_and_clear_count
-
-word_op_do_change:
-  JMP apply_char_operator      ; Enters insert mode + clear_count
+  JSR apply_char_operator      ; (c enters insert mode)
+  JMP clamp_for_mode
 
 ; Shared bail: c enters insert mode
 word_op_bail:
@@ -597,39 +591,6 @@ word_op_bail:
 
 .bail_insert:
   JMP enter_insert_mode
-
-; vi's linewise rules for the char operator in A on the BUF_LEN16 bytes
-; at the cursor: if a w or b operator ended on column 0 of a later line
-; (OP_EXCL_LINE; its range already stops at the end of the line before)
-; and it starts in its line's indentation (only blanks before the
-; cursor), it works on whole lines: those of the range, as yy, dd or cc,
-; and the command ends there.  Otherwise returns carry set if the range
-; is empty.  NORMAL_TEMP = the operator.  Clobbers A, X, Y, BUF_PTR16,
-; BUF_SRC16, BUF_DST16, BUF_TEMP16 (the range's newlines)
-op_lines:
-  STA NORMAL_TEMP
-  JSR count_newlines           ; BUF_TEMP16 = the range's newlines
-  ASL OP_EXCL_LINE             ; C = the exclusive rule applies (clears it)
-  BCC .char
-  JSR in_indent                ; C = 1: only blanks before the cursor
-  BCC .char
-  ; The lines from the cursor's to the range's last
-  INC16 BUF_TEMP16
-  PLA
-  PLA                          ; The command ends here
-  LDX #0
-  STX BATCH_EXTRA              ; (dd: no typed-ahead pairs of its own)
-  LDA NORMAL_TEMP
-  LSR                          ; C = OP_DELETE, A = 1: OP_CHANGE
-  BCS .dd
-  BNE .cc
-  JMP yy_lines
-.dd:
-  JMP dd_lines
-.cc:
-  JMP cc_lines
-.char:
-  JMP range_epilogue           ; C = 1: an empty range
 
 ; JSR here calls the range routine in JUMP_TARGET16 (word_op_forward)
 word_op_call_range:
