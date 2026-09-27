@@ -220,35 +220,29 @@ do_ye:
 
 ; --- Search ---
 
-normal_search:
-  JSR search_handle
-  JMP clear_count
-
-normal_search_backward:
-  JSR search_backward_handle
-  JMP clear_count
-
+; n and N: repeat the last search, N the other way (SEARCH_DIR EOR $10:
+; 0 <-> $10 = '/' EOR '?')
 normal_find_next:
-  LDA SEARCH_LEN
-  BEQ search_find_none
-  LDA SEARCH_DIR
-  JMP search_find_dir
-
+  LDA #0
+  BEQ search_find            ; Always taken
 normal_find_prev:
-  LDA SEARCH_LEN
-  BEQ search_find_none
-  LDA SEARCH_DIR
-  EOR #$10                   ; Flip the direction (0 <-> $10 = '/' EOR '?')
-
-search_find_dir:
-  BNE .backward
-  JSR search_forward
-  JMP clear_count
-.backward:
-  JSR search_backward
+  LDA #$10
+search_find:
+  LDX SEARCH_LEN
+  BEQ search_done            ; No pattern yet
+  EOR SEARCH_DIR
+  JSR search_dir
   JMP clear_count
 
-search_find_none:
+; / and ?: read a pattern and search
+normal_search:
+  LDA #'/'
+  BNE search_prompt          ; Always taken
+normal_search_backward:
+  LDA #'?'
+search_prompt:
+  JSR search_input_handle
+search_done:
   JMP clear_count
 
 ; --- Marks ---

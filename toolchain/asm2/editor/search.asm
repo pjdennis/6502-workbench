@@ -14,20 +14,11 @@ SEARCH_BUF   = $D654
 
 ; (zero-page variables: zp.asm)
 
-; Handle '/' search command
-search_handle:
-  LDA #'/'
-  BNE search_input_handle ; Always taken
 search_ret:
   RTS
 
-; Handle '?' backward search command
-search_backward_handle:
-  LDA #'?'
-  ; Fall through
-
-; Unified search input handler
-; A = prompt character ('/' or '?')
+; Read a pattern at the '/' or '?' prompt (A = the prompt character) and
+; search for it
 search_input_handle:
   STA BUF_TEMP           ; Save prompt char
   JSR read_line          ; X = length
@@ -52,6 +43,10 @@ search_input_handle:
   LDA BUF_TEMP
   EOR #'/'
   STA SEARCH_DIR
+  ; fall through
+
+; Search in direction A (0 = forward, $10 = backward; Z set from it)
+search_dir:
   BNE search_backward
   ; fall through
 
