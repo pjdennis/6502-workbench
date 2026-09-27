@@ -107,20 +107,35 @@ render_line_insert_scroll:
   JMP find_and_render
 
 ; Range repaint (RENDER_FLAG=$0B): INSERT_LINE_COUNT lines changed in
-; place starting at FILE_LINE16 (line count unchanged; wrap rows may
+; place starting at UNDO_LINE16 (line count unchanged; wrap rows may
 ; differ).  DELETE_SCREEN_ROWS = the range's screen rows before the edit.
-; The cursor sits on the first line of the range, so the range's first
-; screen row is CURSOR_ROW - WRAP_QUOT.  The range is then redrawn like a
-; single changed line of PREV_LINE_ROWS -> CUR_LINE_ROWS rows (see
-; render_rows_resized; both are free here: main_loop recomputes
-; PREV_LINE_ROWS every key): the region below scrolls to open/close the
-; difference, and RENDER_FROM_COL16 = $FFFF redraws every row of the
-; range.  A range reaching the status bar repaints to the bottom.
+; The cursor sits on the first line of the range, or on its last after
+; :N,M> and :N,M< (as in vim): WRAP_QUOT takes the rows of the range's
+; lines above the cursor's too, so that CURSOR_ROW - WRAP_QUOT is the
+; range's first screen row, and set_render_line_to_cursor points at the
+; range's first line.  The range is then redrawn like a single changed
+; line of PREV_LINE_ROWS -> CUR_LINE_ROWS rows (see render_rows_resized;
+; both are free here: main_loop recomputes PREV_LINE_ROWS every key):
+; the region below scrolls to open/close the difference, and
+; RENDER_FROM_COL16 = $FFFF redraws every row of the range.  A range
+; reaching the status bar repaints to the bottom.
 render_range_repaint:
-  JSR set_first_row            ; RENDER_ROW = first_row
-  BCC .rr_full                 ; line starts above the view
   LDA DELETE_SCREEN_ROWS
   STA PREV_LINE_ROWS           ; the range's rows before the edit
+  SEC
+  LDA FILE_LINE16
+  SBC UNDO_LINE16              ; The range's lines above the cursor's
+  BEQ .first_row               ; (fewer than 256)
+  JSR compute_delete_rows_at_cursor
+  LDA DELETE_SCREEN_ROWS
+  BEQ .rr_full                 ; Over 255 rows
+  CLC
+  ADC WRAP_QUOT
+  BCS .rr_full
+  STA WRAP_QUOT
+.first_row:
+  JSR set_first_row            ; RENDER_ROW = first_row
+  BCC .rr_full                 ; line starts above the view
   LDA INSERT_LINE_COUNT
   JSR compute_delete_rows_at_cursor
   LDA DELETE_SCREEN_ROWS       ; the range's rows now (0 = overflow)
@@ -632,9 +647,9 @@ compute_delete_rows_join:
   CLC
   ADC #1                       ; + the cursor line
 compute_delete_rows_at_cursor:
-  TAX
+  PHA
   JSR set_render_line_to_cursor
-  TXA
+  PLA
 compute_delete_screen_rows:
   STA RENDER_LIMIT
   LDA #0

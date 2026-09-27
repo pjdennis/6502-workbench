@@ -5,9 +5,6 @@
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
 
-  :N,M> and :N,M< - Leave the cursor on the first non-blank of line N, the first line of the range. Vim puts it on
-  the first non-blank of line M, the last one.
-
   r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
   nothing if there aren't enough characters, as the editor does for 5r<Enter>.
 

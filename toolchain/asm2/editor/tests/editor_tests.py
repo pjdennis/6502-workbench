@@ -9882,7 +9882,7 @@ class EditorTestRunner:
             expect_lines_at_frame=[(2, [(0, "  line one"),
                                         (1, "  line two")])],
             expect_status_at_frame=[(2, "2 lines shifted"),
-                                    (3, "NORMAL - 2,")],
+                                    (3, "NORMAL - 3,")],
         )
 
         # Range delete positions cursor at first deleted line
@@ -10180,11 +10180,12 @@ class EditorTestRunner:
 
         # The shift cores total the shift in COUNT16: a command-mode
         # shift must leave no count behind for the next normal command
+        # (dd then deletes one line: the range's last, where the cursor is)
         eight = "a\nb\nc\nd\ne\nf\ng\nh\n"
         for keys, content, expected in [
-            (b":1,3>\rdd", eight, "  b\n  c\nd\ne\nf\ng\nh\n"),
+            (b":1,3>\rdd", eight, "  a\n  b\nd\ne\nf\ng\nh\n"),
             (b":1,3<\rdd", "  a\n  b\n  c\nd\ne\nf\ng\nh\n",
-             "b\nc\nd\ne\nf\ng\nh\n"),
+             "a\nb\nd\ne\nf\ng\nh\n"),
             (b":>\rx", "abc\ndef\n", "  bc\ndef\n"),
             (b":<\rx", "  abc\ndef\n", "bc\ndef\n"),
         ]:
@@ -10198,8 +10199,33 @@ class EditorTestRunner:
             ":1,3> then j moves one line",
             eight,
             b":1,3>\rj:q!\r",
-            expect_cursor=(1, 2),
+            expect_cursor=(3, 0),
         )
+
+        # :N,M> and :N,M< end on the first non-blank of line M, as in vim
+        # (u and its redo go back to line N)
+        abcd = "aaa\nbbb\nccc\nddd\n"
+        for keys, content, cursor, lines in (
+                (b"2l:2,3>\r", abcd, (2, 2),
+                 ["aaa", "  bbb", "  ccc", "ddd"]),
+                (b"2l:2,3<\r", abcd, (2, 0), ["aaa", "bbb", "ccc", "ddd"]),
+                (b"2l:2,3>\ru", abcd, (1, 0), ["aaa", "bbb", "ccc", "ddd"]),
+                (b"2l:2,3>\ruu", abcd, (1, 0),
+                 ["aaa", "  bbb", "  ccc", "ddd"]),
+                (b"2l:1,4>\r", abcd, (3, 2),
+                 ["  aaa", "  bbb", "  ccc", "  ddd"]),
+                (b"G:1,2>\r", abcd, (1, 2), ["  aaa", "  bbb", "ccc", "ddd"]),
+                (b":1,2<\r", "  aaa\n  bbb\nccc\n", (1, 0),
+                 ["aaa", "bbb", "ccc"]),
+                (b":1,2<\ru", "  aaa\n  bbb\nccc\n", (0, 2),
+                 ["  aaa", "  bbb", "ccc"])):
+            self.run_test_screen(
+                f"{keys!r} ends on line M's first non-blank",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+                expect_lines=list(enumerate(lines)),
+            )
 
         # Single-position :5d works (bonus from single-position support)
         self.run_test(
@@ -23492,7 +23518,7 @@ class EditorTestRunner:
                 (0, "  aaa"), (1, "  bbb"), (2, "  ccc"),
                 (3, "ddd"), (4, "eee"),
             ],
-            expect_cursor=(0, 2),
+            expect_cursor=(2, 2),
             expect_content_rows=[(2, {0, 1, 2})]
         )
 
@@ -23506,8 +23532,25 @@ class EditorTestRunner:
                 (0, "aaa"), (1, "bbb"), (2, "ccc"),
                 (3, "ddd"), (4, "eee"),
             ],
-            expect_cursor=(0, 0),
+            expect_cursor=(2, 0),
             expect_content_rows=[(2, {0, 1, 2})]
+        )
+
+        # The range starts above the cursor's line (:N,M> ends on M): its
+        # rows, wrapped ones too, are found from there
+        wr = "x" * 50
+        self.run_test_screen(
+            "Render opt: :2,4> with wrapped lines partial redraw",
+            f"top\n{wr}\nbbb\n{wr}\nzzz\n",
+            b":2,4>\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[
+                (0, "top"), (1, "  " + wr[:38]), (2, wr[38:]),
+                (3, "  bbb"), (4, "  " + wr[:38]), (5, wr[38:]),
+                (6, "zzz"),
+            ],
+            expect_cursor=(4, 2),
+            expect_content_rows=[(2, {1, 2, 3, 4, 5})]
         )
 
         self._group("Batching equivalence (paced vs batched):",

@@ -61,10 +61,21 @@ render_from_top:
   JSR find_line_at_render_row  ; row 0: VIEW_TOP16 / VIEW_TOP_WRAP
   JMP render_from_row
 
-; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16)
-; Clobbers A
+; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16),
+; or in a range repaint (RF_RANGE) at the range's first line, which the
+; shift recorded (UNDO_LINE16: :N,M> and :N,M< leave the cursor on the
+; last).  Clobbers A, X; preserves the carry (setup_first_row)
 set_render_line_to_cursor:
-  CP16 FILE_LINE16, RENDER_LINE16
+  LDX #FILE_LINE16
+  LDA RENDER_FLAG
+  EOR #RF_RANGE
+  BNE .copy
+  LDX #UNDO_LINE16
+.copy:
+  LDA $00,X
+  STA RENDER_LINE16
+  LDA $01,X
+  STA RENDER_LINE16 + 1
   RTS
 
 ; CUR_LINE_ROWS = the cursor line's screen rows, then set_first_row.

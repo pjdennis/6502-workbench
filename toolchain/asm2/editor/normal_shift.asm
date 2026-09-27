@@ -22,6 +22,8 @@
 ;                  (0 unless batched)
 ;   SHIFT_MODE   = insert core only: 0 = constant width W per non-empty
 ;                  line; $FF = per-line widths from UNDO_DATA_BUF (undo)
+; On return LINE_LEN16 = the line after the range (unless the buffer was
+; full: shift_full).
 ;
 ; On change the cores set MODIFIED and render flags (RF_RANGE partial
 ; repaint when possible, else RF_FULL), and record undo for ranges up to

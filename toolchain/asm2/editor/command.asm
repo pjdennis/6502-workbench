@@ -384,8 +384,9 @@ range_do_delete:
   JMP report_yank_lines_ax
 
   ; --- Range indent ---
-  ; The cursor goes to the first non-blank of the range's first line
-  ; (vim starts there, and u returns there) and stays on that line.
+  ; The shift starts on the first non-blank of the range's first line
+  ; (as vim does, and u returns there); the cursor then goes to the first
+  ; non-blank of its last line, as in vim.
 range_do_indent:
   JSR range_shift_setup
   JSR insert_spaces_core
@@ -403,6 +404,8 @@ range_shift_setup:
   JMP shift_unit_setup
 
 range_shift_finish:
+  SEC
+  SBCI16 LINE_LEN16, 1, FILE_LINE16  ; The range's last line
   JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
   CP16 SHIFT_LINES16, TO_DECIMAL_VALUE16
   LDA #<str_lines_shifted
