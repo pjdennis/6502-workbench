@@ -417,7 +417,7 @@ range_shift_setup:
 
 range_shift_finish:
   JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
-  CP16 UNDO_RANGE_LINES16, TO_DECIMAL_VALUE16
+  CP16 SHIFT_LINES16, TO_DECIMAL_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
   ; fall through

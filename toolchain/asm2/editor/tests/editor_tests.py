@@ -2578,6 +2578,22 @@ class EditorTestRunner:
                     expect_unmodified=True,
                     expect_ansi_contains="Buffer full",
                     expect_ansi_absent="lines shifted")
+            # A shift refused at buffer full changes nothing, so u still
+            # undoes the edit before it: x, J and r here (ESC dismisses
+            # the message).  240 bytes leave 16 free: 10>> needs 20, 9>>
+            # (after J) 18
+            lines240 = "".join("line%02d" % i + "y" * 17 + "\n"
+                               for i in range(10))
+            for keys in (b"x10>>", b"x:1,10>\r", b"J9>>", b"3rz10>>"):
+                self.run_test_small_buffer(
+                    f"{keys!r} at buffer full: u undoes the edit before it",
+                    lines240, keys + b"\x1bu:wq\r",
+                    expected_content=lines240)
+            self.run_test_small_buffer(
+                ":1,3< that removes nothing still reports lines shifted",
+                paste_content, b":1,3<\r:wq\r",
+                expected_content=paste_content,
+                expect_ansi_contains="3 lines shifted")
             self.run_test_small_buffer(
                 ":1,3> with room reports lines shifted",
                 paste_content, b":1,3>\r:wq\r",
