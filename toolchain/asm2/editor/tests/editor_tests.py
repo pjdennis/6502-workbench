@@ -9762,6 +9762,30 @@ class EditorTestRunner:
             expected_content="B" * 100 + "ARKER" + "B" * 200 + "\n"
         )
 
+        # Search columns are 16-bit like the rest of the editor: matches at,
+        # across or past column 255 are found (as in vim), and x shows where
+        # the cursor landed
+        a254, a255, a300 = "a" * 254, "a" * 255, "a" * 300
+        for name, content, keys, expected in (
+                ("/ finds a match past col 255",
+                 a300 + "foo\nbar\n", b"j/foo\r", a300 + "oo\nbar\n"),
+                ("? finds a match past col 255",
+                 a300 + "foo\nbar\n", b"j?foo\r", a300 + "oo\nbar\n"),
+                ("/ finds a match that crosses col 255",
+                 a254 + "foo\nbar\n", b"j/foo\r", a254 + "oo\nbar\n"),
+                ("? finds a match that crosses col 255",
+                 a254 + "foo\nbar\n", b"j?foo\r", a254 + "oo\nbar\n"),
+                ("? finds a match at col 255",
+                 a255 + "x\nbar\n", b"j?x\r", a255 + "\nbar\n"),
+                ("n from past col 255 finds a later match on the line",
+                 a300 + "foo" + "a" * 10 + "foo\n", b"/foo\rn",
+                 a300 + "foo" + "a" * 10 + "oo\n"),
+                ("? from past col 255 finds the nearest match before it",
+                 "foo" + a300 + "foo" + "aaaaa\n", b"$?foo\r",
+                 "foo" + a300 + "oo" + "aaaaa\n")):
+            self.run_test(name, content, keys + b"x:wq\r",
+                          expected_content=expected)
+
         # 'o' (open below) on a line >255 chars inserts correctly
         self.run_test(
             "Open below (o) on >255 char line",

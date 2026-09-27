@@ -56,25 +56,21 @@ search_input_handle:
   ; fall through
 
 ; Search forward from current position
-; First searches current line from CURSOR_COL+1, then subsequent lines from col 0
+; First searches current line after the cursor, then subsequent lines from col 0
 ; Wraps around, finally checks current line from col 0
 ; Sets cursor to matching line/col on success
 ; Shows "Pattern not found" on failure
 search_forward:
   CP16 FILE_LINE16, SEARCH_LINE16
 
-  ; Try current line from CURSOR_COL + 1 (nothing follows the cursor on
-  ; an empty line)
-  LDA CURSOR_COL16 + 1
-  BNE .line_loop             ; CURSOR_COL > 255, skip current line
-  JSR search_setup_line
-  LDY CURSOR_COL16
+  ; Try the current line after the cursor (nothing follows it on an
+  ; empty line)
+  JSR get_cursor_buf_ptr
+  LDY #0
   LDA (BUF_PTR16),Y
   CMP #'\n'
   BEQ .line_loop             ; Empty line
-  INY
-  BEQ .line_loop             ; CURSOR_COL = 255, overflow
-  STY SEARCH_COL
+  INC16 BUF_PTR16
   JSR search_match_from
   BCC search_move_to_match
 
@@ -98,18 +94,18 @@ search_forward:
   BNE .line_loop
   JMP search_show_not_found
 
-; Move cursor to search match position
-; SEARCH_LINE16 = line of match, SEARCH_COL = column of match
+; Move the cursor to the match at BUF_PTR16 on line SEARCH_LINE16 (a
+; match always starts inside the line, so no clamp is needed)
 search_move_to_match:
   CP16 SEARCH_LINE16, FILE_LINE16
-  LDA SEARCH_COL
-  STA CURSOR_COL16
-  LDA #0
-  STA CURSOR_COL16 + 1
-  JMP clamp_cursor_col
+  CP16 BUF_PTR16, CURSOR_COL16 ; Match address
+  JSR get_current_line_ptr     ; BUF_PTR16 = line start
+  SEC
+  SBC16 CURSOR_COL16, BUF_PTR16, CURSOR_COL16
+  RTS
 
 ; Search backward from current position
-; First finds rightmost match before CURSOR_COL on current line
+; First finds rightmost match before the cursor on current line
 ; Then searches previous lines (rightmost match per line)
 ; Wraps around, finally checks current line for any rightmost match
 ; Sets cursor to matching line/col on success
@@ -117,19 +113,10 @@ search_move_to_match:
 search_backward:
   CP16 FILE_LINE16, SEARCH_LINE16
 
-  ; Try current line: find rightmost match before CURSOR_COL
-  LDA CURSOR_COL16 + 1
-  BNE .search_whole_current  ; CURSOR_COL > 255, search whole line
-  LDA CURSOR_COL16
-  BEQ .line_loop             ; CURSOR_COL = 0, nothing before cursor
-  STA SEARCH_COL             ; SEARCH_COL = exclusive upper bound
+  ; Try current line: rightmost match that starts before the cursor
+  JSR get_cursor_buf_ptr
+  CP16 BUF_PTR16, SEARCH_LIMIT16
   JSR search_in_line_last
-  BCC search_move_to_match
-  BCS .line_loop             ; Always taken
-
-.search_whole_current:
-  ; CURSOR_COL > 255, search entire current line for rightmost
-  JSR search_in_line_last_all
   BCC search_move_to_match
 
 .line_loop:
@@ -168,121 +155,72 @@ search_show_not_found:
   JMP flush_get_key            ; Wait for keypress
 
 ; Search for pattern in line SEARCH_LINE16 starting from column 0
-; Returns carry clear = found (SEARCH_COL set), carry set = not found
+; Returns carry clear = found (BUF_PTR16 = match), carry set = not found
 search_in_line:
-  LDA #0
-  STA SEARCH_COL
   JSR search_setup_line
-  JMP search_match_from
+  ; fall through
+
+; Find the first match at or after BUF_PTR16 on its line.  Columns are
+; 16-bit: the pointer walks the line, Y indexes the pattern
+; Returns carry clear = found (BUF_PTR16 = match start), carry set = none
+; Clobbers: A, Y
+search_match_from:
+  LDY #0
+  LDA (BUF_PTR16),Y
+  CMP SEARCH_BUF             ; Quick first-char test
+  BEQ .try
+  CMP #'\n'
+  BEQ .none                  ; End of line (carry set)
+.advance:
+  INC BUF_PTR16
+  BNE search_match_from
+  INC BUF_PTR16 + 1
+  BNE search_match_from      ; Always taken
+.try:
+  INY
+  CPY SEARCH_LEN
+  BEQ .hit
+  LDA (BUF_PTR16),Y          ; A '\n' never equals a (printable) pattern
+  CMP SEARCH_BUF,Y           ; char, so the line end fails the compare
+  BEQ .try
+  BNE .advance               ; Always taken
+.hit:
+  CLC
+.none:
+  RTS
 
 ; Set up BUF_PTR16 for line SEARCH_LINE16
 search_setup_line:
   LDAX16 SEARCH_LINE16
   JMP buf_get_line_ptr       ; BUF_PTR16 = start of line
 
-; Search for pattern starting from column SEARCH_COL
-; BUF_PTR16 must already point to line start (call search_setup_line first)
-; Returns carry clear = found (SEARCH_COL set), carry set = not found
-; Clobbers: A, X, Y
-search_match_from:
-  ; Outer loop: try each starting position in the line
-  LDY SEARCH_COL             ; Y = start position in line
-.outer_loop:
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .not_found_in_line     ; Reached end of line
-
-  ; Inner loop: compare pattern starting at position Y
-  STY SEARCH_COL             ; Save potential match start
-  LDX #0                     ; X = pattern index
-.inner_loop:
-  CPX SEARCH_LEN
-  BEQ .found_in_line         ; Matched entire pattern
-
-  ; Compute line offset: Y = SEARCH_COL + X
-  TXA
-  CLC
-  ADC SEARCH_COL
-  BCS .not_found_here        ; Sum > 255, can't index with Y
-  TAY
-
-  ; Check for end of line
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .not_found_here        ; Hit end of line during match
-
-  ; Compare with pattern char (X still = pattern index)
-  CMP SEARCH_BUF,X
-  BNE .not_found_here
-
-  INX                        ; Next pattern char
-  JMP .inner_loop
-
-.not_found_here:
-  LDY SEARCH_COL
-  INY                        ; Try next start position
-  BEQ .not_found_in_line     ; Y wrapped past 255
-  JMP .outer_loop
-
-.found_in_line:
-  ; SEARCH_COL already set to match position
-  CLC
-  RTS
-
-.not_found_in_line:
-  SEC
-  RTS
-
 ; Entry with no upper bound: search the entire line for the rightmost match
 search_in_line_last_all:
-  LDA #0
-  STA SEARCH_COL
+  LDA #$FF
+  STA_LH16 SEARCH_LIMIT16
   ; fall through
 
-; Find the rightmost match in line SEARCH_LINE16
-; Input: SEARCH_COL = exclusive upper bound column (0 = search entire line)
-; Returns carry clear = found (SEARCH_COL set to rightmost match), carry set = not found
-; Uses BUF_DELTA as "best match found" tracker ($FF = none)
+; Find the rightmost match in line SEARCH_LINE16 that starts before
+; address SEARCH_LIMIT16
+; Returns carry clear = found (BUF_PTR16 = match), carry set = not found
+; Uses BUF_DST16 as the best match so far (high byte 0 = none: the text
+; never lives in page zero)
 search_in_line_last:
-  LDA SEARCH_COL
-  STA SEARCH_LIMIT_COL       ; Save limit
-  LDA #$FF
-  STA BUF_DELTA              ; No match found yet
   LDA #0
-  STA SEARCH_COL             ; Start searching from col 0
+  STA BUF_DST16 + 1
   JSR search_setup_line
-
 .loop:
   JSR search_match_from
   BCS .done                  ; No more matches
-
-  ; Check if match is past limit (when limit > 0)
-  LDA SEARCH_LIMIT_COL
-  BEQ .save                  ; 0 = no limit, accept any match
-  LDA SEARCH_COL
-  CMP SEARCH_LIMIT_COL
-  BCS .done                  ; Match at/past limit, stop
-
-.save:
-  ; Save this match position, continue looking
-  LDA SEARCH_COL
-  STA BUF_DELTA
-  CLC
-  ADC #1
-  BCS .done                  ; Can't advance past 255
-  STA SEARCH_COL
+  CMP16 BUF_PTR16, SEARCH_LIMIT16
+  BCS .done                  ; Match at/past limit
+  CP16 BUF_PTR16, BUF_DST16  ; Best so far
+  INC16 BUF_PTR16
   JMP .loop
-
 .done:
-  ; Return best match found
-  LDA BUF_DELTA
-  CMP #$FF
-  BEQ .not_found
-  STA SEARCH_COL
-  CLC
-  RTS
-.not_found:
-  SEC
+  CP16 BUF_DST16, BUF_PTR16
+  LDA #0
+  CMP BUF_DST16 + 1          ; Carry clear = a match was saved
   RTS
 
 ; String constants
