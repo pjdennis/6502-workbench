@@ -186,13 +186,13 @@ project's 6502 emulator in console/ANSI mode.
 | `j` / Down | Move down (with count) |
 | `k` / Up | Move up (with count) |
 | `0` / Home | Beginning of line |
-| `$` / End | End of line |
+| `$` / End | End of line (`[N]$`: of the line N - 1 below) |
 | `^` | First non-blank character |
 | `w` | Forward to next word start (with count) |
 | `b` | Backward to previous word start (with count) |
 | `e` | Forward to end of word (with count) |
 | `G` | Go to last line; `[N]G` goes to line N |
-| `gg` | Go to first line |
+| `gg` | Go to first line; `[N]gg` goes to line N |
 | Ctrl-F / PgDn | Page down (with count) |
 | Ctrl-B / PgUp | Page up (with count) |
 | Ctrl-D / Ctrl-U | Half page down / up (a count is remembered) |

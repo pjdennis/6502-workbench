@@ -163,10 +163,23 @@ normal_line_start:
 
 ; $ and End (both modes): remember a column past any line end, so that j
 ; and k go to the end of each line too
+; A count first goes down count - 1 lines (clamped to the last line), as
+; in vim (where a count fails on the last line)
 normal_line_end:
   LDA #$FF
   STA_LH16 CURSWANT16
+  JSR get_count
+  JSR dec_buf_temp16
+  JSR move_down16
   JMP vert_keep
+
+; gg: go to line count, as G does (as in vim); no count: the first line
+; (ensure_cursor_visible then scrolls the view to it)
+do_gg:
+  TST16 COUNT16
+  BNE normal_goto_last
+  INC COUNT16                ; Line 1
+  ; fall through
 
 normal_goto_last:
   ; FILE_LINE16 = count - 1 (1-based count; no count: 0 - 1 = $FFFF),
@@ -176,13 +189,6 @@ normal_goto_last:
   JSR clamp_file_line
   LDA #0
   STA VIEW_TOP_WRAP
-  JMP first_nonblank_clear
-
-; gg: go to top of file
-; (ensure_cursor_visible then scrolls the view to the top)
-do_gg:
-  LDA #0
-  STA_LH16 FILE_LINE16
   JMP first_nonblank_clear
 
 ; --- Yank ---

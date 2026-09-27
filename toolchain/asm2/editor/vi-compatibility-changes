@@ -31,11 +31,10 @@
   r with a control key - r takes a printable key or Tab, and Enter or Ctrl-J (a line break, as in vi); other keys cancel
   it. Vi accepts other control characters literally.
 
-  Missing count support
+  Counts
 
-  gg - Always goes to line 1. In vi, 5gg goes to line 5 (like 5G). The count is completely ignored.
-
-  $ - Always goes to end of current line. In vi, 3$ goes to the end of the line 2 below.
+  $ with a count on the last line - Goes to the end of the line, as with no count. Vim refuses it (the count's lines
+  below are not there) and leaves the cursor where it is.
 
   Command line
 
