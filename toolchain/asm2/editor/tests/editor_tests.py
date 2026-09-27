@@ -2439,6 +2439,27 @@ class EditorTestRunner:
                 expect_ansi_absent="No write since last change"
             )
 
+            # An unknown range command letter is an unknown command in
+            # read-only mode too, and a range with no command still goes
+            # to its line (only d, > and < are refused)
+            self.run_test_small_buffer(
+                "Read-only mode: an unknown range command says so",
+                large_multiline,
+                b"x:1,3x\rx:q\r",
+                expect_unmodified=True,
+                expect_ansi_contains="Unknown command",
+                expect_ansi_absent="Read-only"
+            )
+
+            self.run_test_small_buffer(
+                "Read-only mode: :1,3 goes to line 3",
+                large_multiline,
+                b"x:1,3\rma:marks\r :q\r",   # mark a lists line 3
+                expect_unmodified=True,
+                expect_ansi_contains=" a      3 Line 3",
+                expect_ansi_absent="Read-only"
+            )
+
             # The key that dismisses the startup warning redraws the status
             # bar (the editor then waits for a key with a finished frame)
             self.run_test_small_buffer(

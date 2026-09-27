@@ -23,8 +23,9 @@ command_handle:
   STA MODE                 ; Normal mode afterwards (a quit exits first)
   LDA #':'
   JSR read_line
-  BCS cmd_ret              ; Cancelled
-  ; fall through
+  BCC command_parse
+cmd_ret:
+  RTS                      ; Cancelled, or done
 
 ; Parse and execute the command in CMD_BUF (an empty one does nothing)
 command_parse:
@@ -88,11 +89,17 @@ range_dispatch:
   SBC16 BUF_LEN16, BUF_SRC16, BUF_TEMP16
   INC16 BUF_TEMP16
 
-  ; Readonly check for editing commands (d, >, <) — yank allowed
+  ; Readonly check for the editing commands (d, >, <): yank is allowed,
+  ; and any other letter is an unknown command
   LDA BUF_TEMP
   BEQ range_goto          ; No command
-  CMP #'y'
-  BEQ .range_dispatch_cmd
+  CMP #'d'
+  BEQ .range_edit
+  CMP #'>'
+  BEQ .range_edit
+  CMP #'<'
+  BNE .range_dispatch_cmd
+.range_edit:
   LDA READONLY
   BNE show_readonly_msg
 
@@ -101,7 +108,6 @@ range_dispatch:
   LDX #>range_action_keys
   JSR dispatch_key
   BCS cmd_unknown
-cmd_ret:
   RTS
 
 range_goto:
