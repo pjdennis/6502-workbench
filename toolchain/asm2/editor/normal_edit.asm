@@ -5,16 +5,23 @@
 ; --- Paste ---
 
 ; Shared paste prologue: record undo position, get the paste count plus
-; the extra p/P keys already typed ahead (BUF_TEMP = the key, set by dispatch)
+; the extra p/P keys already typed ahead (BUF_TEMP = the key, set by
+; dispatch).  paste_prologue_c with C = 1 takes no typed-ahead keys: p of
+; a multi-line yank, where each p pastes inside the copy before (after
+; its first line or char, where that p left the cursor), not after it
 ; Output: BUF_TEMP16 = count + extras, BATCH_EXTRA = extras,
 ;         UNDO_LINE16/UNDO_COL16/UNDO_PASTE_COUNT16 recorded
 paste_prologue:
+  CLC
+paste_prologue_c:
   JSR undo_record_pos
-  JSR get_count              ; BUF_TEMP16 = count
+  JSR get_count              ; BUF_TEMP16 = count (both keep the carry)
+  BCS .no_batch
   JSR count_pending_key      ; X = pending matching keys
   STX BATCH_EXTRA
   TXA
   ADDA16 BUF_TEMP16
+.no_batch:
   CP16 BUF_TEMP16, UNDO_PASTE_COUNT16
   RTS
 
@@ -22,7 +29,11 @@ normal_paste_below:
   JSR undo_clear
   LDA YANK_TYPE
   BNE char_paste_below
-  JSR paste_prologue
+  LDA YANK_LINES16
+  EOR #1
+  ORA YANK_LINES16 + 1
+  CMP #1                     ; C = 1: a multi-line yank, no batching
+  JSR paste_prologue_c
   JSR yank_paste_below_n
   BCS paste_done
   JSR paste_adjust_marks
@@ -86,7 +97,8 @@ paste_done:
 ; Character paste below (after cursor)
 ; For non-empty lines, inserts after cursor char; for empty lines, inserts at line start
 char_paste_below:
-  JSR paste_prologue         ; UNDO_COL16 = cursor column (0 on an empty line)
+  JSR yank_count_newlines    ; C = 1: a multi-line yank, no batching
+  JSR paste_prologue_c       ; UNDO_COL16 = cursor column (0 on an empty line)
   ; Insertion column for undo: cursor + 1 (non-empty line) or 0 (empty)
   JSR get_line_len_z
   BEQ .cpb_paste
@@ -96,12 +108,7 @@ char_paste_below:
   BCS paste_done
   LDA #UNDO_CHAR_PASTE_BELOW
   STA UNDO_TYPE
-  BIT NORMAL_TEMP
-  BPL char_paste_last_copy
-  LDA BATCH_EXTRA
-  BEQ paste_done
-  JSR undo_clear             ; Batched multi-line p: column math invalid
-  BEQ paste_done             ; Always (A = UNDO_NONE = 0)
+  ; fall through (only a single-line yank batches p)
 
 ; Batched single-line char paste (p or P): record only the last copy.
 ; Each key leaves the cursor on its last pasted char, so the last copy

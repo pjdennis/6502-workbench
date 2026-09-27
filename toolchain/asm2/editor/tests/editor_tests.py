@@ -5863,16 +5863,18 @@ class EditorTestRunner:
             expect_cursor=(0, 3),
         )
 
-        # Multi-line char paste with batched pp (same content, same cursor for multiline)
+        # Multi-line char paste with batched pp: as p <Esc> p. The first
+        # p leaves the cursor on the first pasted char, so the second p
+        # pastes inside the first copy: "barf" "foo\n" "oo\n" "\n"
         self.run_test_screen(
             "Multi-line char batched pp: screen correct",
             "foo\nbar\n",
             b"jdb$pp:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, "foo"), (2, ""), (3, "~"),
+                (0, "barffoo"), (1, "oo"), (2, ""), (3, "~"),
             ],
-            expect_cursor=(0, 3),
+            expect_cursor=(0, 4),
         )
 
         # --- Char paste causing line wrapping ---
@@ -18818,6 +18820,46 @@ class EditorTestRunner:
             "a\nb\nc\n",
             b"2yyppu:wq\r",
             expected_content="a\na\nb\nb\nc\n"
+        )
+
+        # Multi-line yank: separate p presses nest (each p pastes below
+        # the first line of the copy before), and typed ahead they must too
+        self.run_test(
+            "2yy pp nests copies like p <Esc> p",
+            "L0\nA\nB\nL3\n",
+            b"2yypp:wq\r",
+            expected_content="L0\nL0\nL0\nA\nA\nA\nB\nL3\n"
+        )
+
+        self.run_test(
+            "2yy 2pp nests like 2p <Esc> p",
+            "L0\nA\nB\nL3\n",
+            b"2yy2pp:wq\r",
+            expected_content="L0\nL0\nL0\nA\nA\nL0\nA\nA\nB\nL3\n"
+        )
+
+        self.run_test_screen(
+            "2yy pp u cursor on the line the last p was typed on",
+            "L0\nA\nB\nL3\n",
+            b"2yyppu:q!\r",
+            expect_lines=[(0, "L0"), (1, "L0"), (2, "A"), (3, "A")],
+            expect_cursor=(1, 0),
+        )
+
+        # Multi-line char yank ("b\ncd"): p leaves the cursor on the first
+        # pasted char, so the next p pastes inside the copy before
+        self.run_test(
+            "Multi-line char pp nests like p <Esc> p",
+            "ab\ncd\n",
+            b"l2y$pp:wq\r",
+            expected_content="abbb\ncd\ncd\ncd\n"
+        )
+
+        self.run_test(
+            "Multi-line char pp u undoes the last p only",
+            "ab\ncd\n",
+            b"l2y$ppu:wq\r",
+            expected_content="abb\ncd\ncd\n"
         )
 
         # Char paste batching: same rule
