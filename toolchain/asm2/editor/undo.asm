@@ -49,11 +49,14 @@ undo_record_line_delete:
   LDA #UNDO_LINE
 undo_rec_set:
   STA UNDO_TYPE
-; Record the cursor position (UNDO_LINE16/UNDO_COL16) and clear the redo
-; flag.  Clobbers A (= 0)
+; Record the cursor position (UNDO_LINE16/UNDO_COL16) and whether the
+; buffer has lines (UNDO_WAS_EMPTY), and clear the redo flag.  Clobbers A
+; (= 0)
 undo_record_pos:
   CP16 CURSOR_COL16, UNDO_COL16
   CP16 FILE_LINE16, UNDO_LINE16
+  LDA EMPTY_BUF
+  STA UNDO_WAS_EMPTY
   LDA #0
   STA UNDO_IS_REDO
   RTS
@@ -730,8 +733,11 @@ undo_set_redone_flags:
   STA UNDO_IS_REDO
   JMP set_modified
 
-; Mark the operation undone: next 'u' redoes, buffer is modified
+; Mark the operation undone: next 'u' redoes, buffer is modified, and it
+; has lines unless it had none before the change (vim)
 undo_set_done_flags:
+  LDA UNDO_WAS_EMPTY
+  STA EMPTY_BUF
   LDA #$FF
   STA UNDO_IS_REDO
   STA MODIFIED

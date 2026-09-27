@@ -329,6 +329,7 @@ insert_handle_key:
   ; changed, as in vim
   CMP BATCH_BUF              ; C = 0 if a char was typed
   BCS .no_change
+  LSR EMPTY_BUF              ; The line is a line of the text now
   JSR insert_segment
   JMP set_modified
 .no_change:
@@ -558,13 +559,16 @@ insert_segment:
   JMP undo_clear
 
 ; Start an insert segment at the cursor, with no text yet: its record
-; replaces the one before, and the typing extends it.  Returns A = 0
+; replaces the one before, and the typing extends it.  It starts once
+; its first change has gone in: whether the buffer had lines before it
+; is in EMPTY_BUF's bit 6 (the change cleared bit 7).  Returns A = 0
 insert_seg_start:
   LDA #$FF
   STA INSERT_SEG
   LDA #UNDO_INSERT
   STA UNDO_TYPE
   JSR undo_record_pos        ; A = 0
+  ASL UNDO_WAS_EMPTY         ; Bit 6: before the change
   STA_LH16 UNDO_INS_LEN16
   RTS
 

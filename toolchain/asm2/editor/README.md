@@ -89,7 +89,9 @@ project's 6502 emulator in console/ANSI mode.
 
 1. `editor_main` (in `editor.asm`) clears zero page (all state starts at 0),
    takes the file name from argv (`[No Name]` if none), and loads the file
-   via `buf_load_file`; a missing file starts as one empty line.
+   via `buf_load_file`; a missing or empty file starts as one empty line,
+   which `EMPTY_BUF` marks as no lines (vim's ML_EMPTY: written as no
+   bytes).
 2. If the file is truncated, `READONLY` is set.
 3. `render_init` gets the terminal size (a DSR query in the terminal build;
    keys typed before the terminal's reply arrives are dropped),
@@ -138,7 +140,8 @@ project's 6502 emulator in console/ANSI mode.
 ## Data model & invariants
 
 - **Text buffer**: `TEXT_BUF` (page-aligned after code), contiguous bytes,
-  newline-delimited.  Always ends with a newline; empty buffer is one newline.
+  newline-delimited.  Always ends with a newline; empty buffer is one newline
+  (with no lines, `EMPTY_BUF`, it is written as no bytes).
   `TEXT_BUF` floats automatically as code grows:
   `TEXT_BUF = _code_end + $00FF >> $08 << $08`.
 - **Line table**: `LINE_TBL = $D800`, 16-bit pointers to each line start,

@@ -6,6 +6,10 @@ A vi-like text editor for the 6502 platform.
 Usage: editor <filename>
 
 If the file does not exist, starts with an empty buffer.
+A buffer with no lines (an empty or new file, or one whose lines
+were all deleted) shows one empty line and is written as an empty
+file, as in vim; typing on that line (or o, or a paste) makes it a
+line of the text, and u of that change empties the buffer again.
 If no filename is given, starts with [No Name].
 Maximum file size: ~40KB. Files exceeding this are truncated and
 opened read-only.

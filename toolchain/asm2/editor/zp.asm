@@ -33,6 +33,9 @@ BUF_TEMP:      .byte     ; Shared scratch byte
 BUF_TEMP16:    .word     ; 16-bit count for line operations (delete, yank, etc.)
 BUF_DELTA:     .byte     ; Shared scratch byte (insert length, loop counts)
 FILE_HANDLE:   .byte     ; File handle for load/save
+EMPTY_BUF:     .byte     ; Bit 7: the buffer has no lines, as vim's (ML_EMPTY): its
+                         ; one empty line is the editor's, written as no bytes;
+                         ; bit 6: it had none before the last growth
 
 ; --- undo_state.asm ---
 UNDO_TYPE:       .byte    ; UNDO_NONE..UNDO_INSERT (undo_state.asm)
@@ -45,6 +48,8 @@ INSERT_SEG:      .byte    ; Insert mode's undo segment: 0 = none (the next chang
 UNDO_JOIN_COUNT: .byte
 UNDO_PASTE_COUNT16: .word
 UNDO_RET_COL16:  .word    ; insert of o and O: the column u returns to
+UNDO_WAS_EMPTY:  .byte    ; Bit 7: the buffer had no lines when the change u
+                          ; undoes began (u empties it again)
 
 ; --- render.asm ---
 CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)

@@ -2411,12 +2411,12 @@ class EditorTestRunner:
             expected_content="One\nTwo\nhree\nFour\n"
         )
 
-        # Delete only line leaves empty file
+        # Delete only line leaves empty file (no lines: no bytes, as vim)
         self.run_test(
-            "Delete only line leaves newline",
+            "Delete only line leaves an empty file",
             "Only\n",
             b"dd:wq\r",
-            expected_content="\n"
+            expected_content=""
         )
 
         # Multiple inserts
@@ -2664,6 +2664,54 @@ class EditorTestRunner:
             edit_name="nodir/newfile.txt",
             expect_ansi_contains="No write since last change"
         )
+
+        self._group("Emptied buffer (no lines, as vim's):", leading_blank=True)
+
+        # A buffer with no lines, an empty (or new) file or one whose lines
+        # were all deleted, is written as no bytes, as vim writes it; its
+        # one empty line is only there for the editor.  A change of the line
+        # (typing, even typed and erased again; o; a paste) makes it a line
+        # of the text, and u of that change empties the buffer again.  All
+        # checked in vim 8.2
+        self.run_test_new_file("Emptied buffer: a new file written at once",
+                               b":wq\r", expected_content="")
+        for content, keys, expected in (
+                ("", b"", ""),
+                ("", b"i\x1b", ""),
+                ("", b"x", ""),
+                (" a\n", b"dd", ""),
+                ("a\nb\n", b":1,2d\r", ""),
+                ("a\nb\n", b"dddd", ""),
+                ("a\nb\n", b"2dd", ""),
+                ("a\nb\n", b"2ddu\x1bu", ""),
+                ("a\n", b"ddu", "a\n"),
+                ("a\n", b"dd>>", ""),
+                ("a\n", b"ddJ", ""),
+                ("a\n", b"ddx", ""),
+                ("a\n", b"ddrx", ""),
+                ("a\n", b"dd~", ""),
+                ("a\n", b"ddS\x1b", ""),
+                ("a\n", b"dd:d\r", ""),
+                ("abc\n", b"cc\x1b", "\n"),
+                ("abc\n", b"x", "bc\n"),
+                ("a\n", b"x", "\n"),
+                ("", b"ia\x08\x1b", "\n"),
+                ("a\n", b"ddi\r\x08\x1b", "\n"),
+                ("", b"o\x1b", "\n\n"),
+                ("", b"yyp", "\n\n"),
+                ("a\n", b"ddyyp", "\n\n"),
+                ("a\n", b"yyddP", "a\n\n"),
+                ("a\n", b"yyddPu", ""),
+                ("", b"ia\x1bu", ""),
+                ("a\n", b"ddia\x1bu", ""),
+                ("a\n", b"ddia\x1bu\x1bu", "a\n"),
+                (" a\n", b"0A\x1bdda\x1b[Aa\x1bu", ""),
+                ("a\n", b"ddia\x08\x1bu", "")):
+            self.run_test(f"Emptied buffer: {keys!r} on {content!r}", content,
+                          keys + b"\x1b:wq\r", expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: typing into an emptied buffer, then u", "a\n",
+            [b"d", b"d", b"i", b"x", b"y", b"\x1b"])
 
         self._group("Bounds checking (small buffer build):", leading_blank=True)
 
@@ -9137,7 +9185,7 @@ class EditorTestRunner:
             "dddd batched at EOF clamps correctly",
             "A\nB\n",
             b"dddd:wq\r",
-            expected_content="\n"
+            expected_content=""
         )
 
         # A count larger than the lines left deletes to the end of the file;
@@ -9198,8 +9246,8 @@ class EditorTestRunner:
             ("dddd on last line deletes two lines", "a\nb\nc\n",
              b"Gdddd:wq\r", "a\n"),
             ("dddddd from second line deletes every line", "L0\nL1\nL2\n",
-             b"jdddddd:wq\r", "\n"),
-            ("dddd on only line", "one\n", b"dddd:wq\r", "\n"),
+             b"jdddddd:wq\r", ""),
+            ("dddd on only line", "one\n", b"dddd:wq\r", ""),
             ("2dddd on last line: 2dd fails, dd deletes",
              "aaa\nbbb\nccc\nddd\n", b"G2dddd:wq\r", "aaa\nbbb\nccc\n"),
             ("dddddd on third of four lines", "aaa\nbbb\nccc\nddd\n",
@@ -9406,7 +9454,7 @@ class EditorTestRunner:
             "dd on single-line file with yank",
             "Only\n",
             b"dd:wq\r",
-            expected_content="\n"
+            expected_content=""
         )
 
         # dd on last line
@@ -10976,12 +11024,12 @@ class EditorTestRunner:
             expected_content="Line 4\nLine 5\n",
         )
 
-        # Range delete of all lines leaves single empty line
+        # Range delete of all lines leaves no lines (written as no bytes)
         self.run_test(
             "Range delete all lines leaves empty",
             make_lines(3),
             b"majj:'a,.d\r:wq\r",  # ma line1, jj->line3, :'a,.d deletes all
-            expected_content="\n",
+            expected_content="",
         )
 
         # Range delete yanks lines first (verify with p)
@@ -23482,7 +23530,7 @@ class EditorTestRunner:
             (b"dwdw", "aaa\nbbb\n", "bbb\n"),
             (b"$dwdw", "abc def ghi\njkl mno\n", "abc def g\njkl mno\n"),
             (b"wdede", "foo bar\n", "foo\n"),
-            (b"dede", "aaa\nbbb\n", "\n"),
+            (b"dede", "aaa\nbbb\n", ""),
             (b"dede", "h ikc.i\n", "\n"),
             (b"jdbdb", "ab cd\n\n", " \n\n"),
             (b"dwdwdwu", "..b  \n", "b  \n"),

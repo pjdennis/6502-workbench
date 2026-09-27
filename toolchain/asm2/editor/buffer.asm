@@ -59,6 +59,7 @@ buf_load_file:
   DEC READONLY            ; $00 -> $FF
 .read_done:
   STY BUF_END16           ; Reconstruct full pointer
+  JSR buf_ensure_nonempty ; An empty file has no lines
   ; Ensure buffer ends with newline
   SEC
   SBCI16 BUF_END16, $0001, BUF_PTR16
@@ -79,20 +80,26 @@ buf_load_file:
 .append:
   JSR buf_append_nl
 .has_newline:
-
-  ; If buffer is empty (nothing read), add a newline for one empty line
-  JMP buf_ensure_nonempty_rebuild
+  JMP buf_rebuild_lines
 
 ; Save buffer to file
 ; File handle in A (already opened for write)
 ; Writes every byte from TEXT_BUF to BUF_END16, including the final
-; newline (so an empty buffer, one empty line, saves as a single newline)
+; newline, but none for a buffer with no lines (EMPTY_BUF, as vim writes
+; it), which is then one line break
 buf_save_file:
   STA FILE_HANDLE
   LDY #0                  ; Y = page offset, set once
   STY BUF_PTR16           ; BUF_PTR16 = TEXT_BUF (page-aligned)
   LDA #>TEXT_BUF
   STA BUF_PTR16 + 1
+  BIT EMPTY_BUF
+  BPL .write_loop
+  LDX BUF_END16
+  DEX
+  BNE .write_loop
+  CMP BUF_END16 + 1
+  BEQ .write_done         ; No lines: no bytes
 .write_loop:
   CPY BUF_END16           ; Fast: compare low bytes
   BNE .do_write
@@ -293,6 +300,7 @@ buf_shift_right_16:
   ; Update buffer end: add BUF_LEN16
   CLC
   ADC16 BUF_END16, BUF_LEN16, BUF_END16
+  LSR EMPTY_BUF    ; A line of the text now (bit 6: it was none)
 
   CLC              ; Success
   RTS
@@ -372,15 +380,24 @@ buf_append_nl:
   INC16 BUF_END16
   RTS
 
-; If the buffer is empty, append a newline (one empty line), then
-; rebuild the line table (falls through into buf_rebuild_lines)
-buf_ensure_nonempty_rebuild:
+; If the buffer is empty, append a newline (one empty line, which
+; EMPTY_BUF marks as no lines of the text: vim's ML_EMPTY).  Clobbers A,
+; Y
+buf_ensure_nonempty:
   LDA BUF_END16              ; TEXT_BUF is page-aligned
-  BNE buf_rebuild_lines
+  BNE .done
   LDA BUF_END16 + 1
   CMP #>TEXT_BUF
-  BNE buf_rebuild_lines
+  BNE .done
   JSR buf_append_nl
+  ROR EMPTY_BUF              ; (C = 1 from the compare)
+.done:
+  RTS
+
+; The same, then rebuild the line table (falls through into
+; buf_rebuild_lines)
+buf_ensure_nonempty_rebuild:
+  JSR buf_ensure_nonempty
   ; fall through
 
 ; Rebuild line pointer table by scanning for newlines, from the cursor
