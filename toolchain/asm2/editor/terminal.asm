@@ -3,6 +3,22 @@
 
 ; (zero-page variables: zp.asm)
 
+; ANSI sequence string constants
+; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
+; of these strings (23 bytes) must start on the same 256-byte page.  They
+; come first in terminal.asm, which starts early in the first code page
+; in both builds (at $0403 after editor.asm's JMP, or after io.asm's
+; serial routines in the terminal build), so code growth does not move
+; them across a page boundary.  If that changes, escape sequences will be
+; garbage and the editor test suite will fail loudly - move the block.
+ansi_seq_clear:    .byte "2J", $1B, "[H", $00   ; clear, then home
+ansi_seq_clreol:   .asciiz "K"
+ansi_seq_show:     .asciiz "?25h"
+ansi_seq_hide:     .asciiz "?25l"
+ansi_seq_rev:      .byte "7"          ; "7m": shares its "m" with ansi_seq_norm
+ansi_seq_norm:     .asciiz "m"        ; ESC[m: SGR's default is 0 (normal)
+ansi_seq_reset_sr: .asciiz "r"
+
 ; Output ESC[ prefix
 ; Clobbers A
 ansi_csi:
@@ -126,19 +142,6 @@ ansi_count_seq:
   JSR write_param        ; preserves X
   TXA
   JMP io_write
-
-; ANSI sequence string constants
-; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
-; of these strings (23 bytes) must start on the same 256-byte page. If code
-; growth pushes them across a page boundary, escape sequences will be
-; garbage and the editor test suite will fail loudly - move the block.
-ansi_seq_clear:    .byte "2J", $1B, "[H", $00   ; clear, then home
-ansi_seq_clreol:   .asciiz "K"
-ansi_seq_show:     .asciiz "?25h"
-ansi_seq_hide:     .asciiz "?25l"
-ansi_seq_rev:      .byte "7"          ; "7m": shares its "m" with ansi_seq_norm
-ansi_seq_norm:     .asciiz "m"        ; ESC[m: SGR's default is 0 (normal)
-ansi_seq_reset_sr: .asciiz "r"
 
 ; Write null-terminated string at A (low) / X (high)
 ; Clobbers A, Y, STR_PTR16 (X preserved)
