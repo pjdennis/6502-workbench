@@ -1630,6 +1630,14 @@ class EditorTestRunner:
             "A char paste moves the line table entries: P on 36 KB",
             big, b"ywP:q!\r", 3150000, rows=24, cols=80)
 
+        # A search compares each char with the pattern's first from zero
+        # page, and its pointer loop no longer reloads Y: a search that
+        # finds nothing in a 36 KB file, then nine n, took 12,391,646
+        # cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Search's first-char test: /zzzz and 9 n on 36 KB",
+            big, b"/zzzz\r" + b"n" * 9 + b":q!\r", 11850000)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

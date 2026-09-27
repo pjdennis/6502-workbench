@@ -32,6 +32,7 @@ search_input_handle:
   STA SEARCH_BUF,X
   DEX
   BPL .copy
+  STA SEARCH_FIRST           ; The first char, the last copied
 
 .reuse_pattern:
   ; Direction from the prompt char: 0 = forward (/), $10 = backward (?)
@@ -152,23 +153,25 @@ search_in_line:
 ; Clobbers: A, Y
 search_match_from:
   LDY #0
-  LDA (BUF_PTR16),Y
-  CMP SEARCH_BUF             ; Quick first-char test
+.scan:
+  LDA (BUF_PTR16),Y          ; (Y = 0 here)
+  CMP SEARCH_FIRST           ; Quick first-char test
   BEQ .try
   CMP #'\n'
   BEQ .none                  ; End of line (carry set)
 .advance:
   INC BUF_PTR16
-  BNE search_match_from
+  BNE .scan
   INC BUF_PTR16 + 1
-  BNE search_match_from      ; Always taken
+  BNE .scan                  ; Always taken
 .try:
   INY
   LDA SEARCH_BUF,Y
   BEQ .hit                   ; The pattern's null terminator
   CMP (BUF_PTR16),Y          ; A '\n' never equals a (printable) pattern
   BEQ .try                   ; char, so the line end fails the compare
-  BNE .advance               ; Always taken
+  LDY #0
+  BEQ .advance               ; Always taken
 .hit:
   CLC
 .none:

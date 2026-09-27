@@ -98,6 +98,7 @@ YANK_TYPE:     .byte     ; 0=line, 1=char
 
 ; --- search.asm ---
 SEARCH_LEN:   .byte     ; Length of current search pattern
+SEARCH_FIRST: .byte     ; Its first char (search_match_from's quick test)
 SEARCH_LINE16: .word    ; Line number being searched
 SEARCH_DIR:   .byte     ; Search direction: 0=forward (/), $10=backward (?)
 SEARCH_LIMIT16: .word   ; search_line_walk stops at the first match at or after this address
