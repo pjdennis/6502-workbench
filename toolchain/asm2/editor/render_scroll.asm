@@ -324,13 +324,28 @@ render_finish_cursor:
 
 ; Render just the status bar and reposition the cursor (no content
 ; redraw).  An unchanged status bar sends nothing, so the cursor need not
-; be hidden.
+; be hidden; and when the cursor is also where the last frame left it,
+; with nothing sent since (CUR_VALID), the key changed nothing on the
+; screen and the frame sends nothing at all, not even ESC[?25h
 render_cursor_and_status:
   JSR status_build
   LDA ST_FIRST
-  BMI render_finish_cursor     ; unchanged
+  BMI .unchanged
   JSR ansi_cursor_hide
   BEQ render_finish_send       ; Always taken (write_string returns A = 0)
+.unchanged:
+  LDA CUR_VALID
+  BEQ render_finish_cursor     ; the cursor moved since
+  JSR cursor_col_div           ; A = the screen column (0-based)
+  TAX
+  INX
+  CPX ANSI_COL
+  BNE render_finish_cursor
+  LDX CURSOR_ROW
+  INX
+  CPX ANSI_ROW
+  BNE render_finish_cursor
+  RTS                          ; (CUR_VALID stays set)
 
 ; Render loop only: renders SCROLL_DELTA rows starting at
 ; RENDER_ROW/RENDER_LINE16/RENDER_WRAP, the first of them from column A,

@@ -171,6 +171,13 @@ that changes nothing (ESC) from 68 to 18. A 44-key editing session sends
 21% fewer bytes at 24x80 (26% at 10x40); a frame whose status bar changes
 costs about 1,900 cycles more.
 
+A key that changes nothing on the screen (ESC, an unmapped key or byte,
+h at column 0, k on line 1, a yank, a mark, a typed-ahead `d` and ESC)
+sends nothing at all: with the status bar unchanged, and the cursor still
+where the last frame left it with nothing sent since (`CUR_VALID`),
+`render_cursor_and_status` leaves out the frame's `ESC[?25h`, the 6
+bytes such a key sent before (about 300 cycles fewer).
+
 ### Scrolls with DL and IL
 
 The rows that move as a whole (those below an edit that adds or removes

@@ -45,7 +45,7 @@ This is fundamentally different: vi's pointers *are* the canonical representatio
 **Our editor**: Uses **snapshot-based render optimization**. Before each command, captures `SNAP_VIEW_TOP16`, `SNAP_LINE_COUNT16`, `SNAP_BUF_END16`. After the command, `render_decide` compares:
 - View top changed -> full redraw
 - Buffer end changed -> redraw current line + status
-- Nothing changed -> reposition cursor only
+- Nothing changed -> reposition cursor only (a key that changed nothing on the screen sends nothing)
 
 This is simpler but effective. No per-line dirty tracking, no character-level insert/delete optimization. Always uses ANSI escape sequences (no termcap abstraction needed).
 

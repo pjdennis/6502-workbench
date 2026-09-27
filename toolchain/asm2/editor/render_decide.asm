@@ -29,7 +29,8 @@
 ;   line count changed        -> RF_INS..RF_DEL as below, else full
 ;   BUF_END16 changed or flag -> RF_RANGE range repaint, any other as
 ;                                RF_LINE
-;   nothing                   -> status bar + cursor
+;   nothing                   -> status bar + cursor (nothing at all when
+;                                neither moved: render_cursor_and_status)
 ;
 ; Flag (render.asm)  Set by   Inputs / row assumptions
 ; $01 RF_LINE   in-line edits  Cursor line changed in place: redraw it from

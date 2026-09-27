@@ -128,7 +128,9 @@ project's 6502 emulator in console/ANSI mode.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows
        below scrolled if its row count changed), or range redraw
        (`RF_RANGE`).
-     - Nothing changed → status bar + cursor repositioning only.
+     - Nothing changed → status bar + cursor repositioning only; a key
+       that changed nothing on the screen (ESC, an unmapped key, h at
+       column 0, a yank) sends nothing at all.
    - Console build: the editor exits when input ends (`con_ready` returns
      `CON_EOF`): when idle, and in `get_key`, so also in a `:` or `/`
      prompt. Scripted and test runs need no `:q`.
