@@ -17,13 +17,6 @@
  * (INTERRUPT_VECTOR_TARGET in base_config_v2.inc). */
 #define MICHAEL_IRQ_TARGET 0x3F00
 
-static const struct lcd_hd44780_wiring LCD_WIRING_MICHAEL = {
-    .rs_port = LCD_PORT_A, .rs_bit = 0x20,
-    .rw_port = LCD_PORT_A, .rw_bit = 0x40,
-    .e_port  = LCD_PORT_A, .e_bit  = 0x80,
-    .data_port = LCD_PORT_B, .data_mask = 0xFF,
-};
-
 static struct bus *active_bus = NULL;
 
 static uint8_t michael_cpu_read(uint16_t addr) {

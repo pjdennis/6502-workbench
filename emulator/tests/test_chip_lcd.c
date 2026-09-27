@@ -240,6 +240,113 @@ TEST cursor_position_5x10_tracks_dd_address(void) {
     PASS();
 }
 
+/* ---- Michael wiring: 8-bit data on PORTB, E/RW/RS on PA7/PA6/PA5 ---- */
+
+#define M_E  0x80
+#define M_RW 0x40
+#define M_RS 0x20
+
+static void setup_michael(void) {
+    setup();
+    lcd_hd44780_set_wiring(&ls, &LCD_WIRING_MICHAEL);
+    bus_write(&bus_, 0xF003, M_E | M_RW | M_RS);  /* DDRA */
+    bus_write(&bus_, 0xF002, 0xFF);               /* DDRB */
+}
+
+/* Strobe E with the given PORTA control bits (RS/RW). */
+static void michael_strobe(uint8_t control) {
+    bus_write(&bus_, 0xF001, control | M_E);
+    bus_step(&bus_);
+    bus_write(&bus_, 0xF001, control);
+    bus_step(&bus_);
+}
+
+static void michael_write(uint8_t byte, uint8_t rs) {
+    bus_write(&bus_, 0xF000, byte);
+    michael_strobe(rs ? M_RS : 0);
+}
+
+static uint8_t lcd_portb(void *ctx) {
+    uint8_t value = 0;
+    lcd_hd44780_output((const struct lcd_hd44780_state *)ctx, &value);
+    return value;
+}
+
+TEST michael_8bit_writes(void) {
+    setup_michael();
+    michael_write(0x38, 0);   /* 8-bit, 2 lines */
+    michael_write(0x0C, 0);
+    michael_write(0x01, 0);
+    michael_write('H', 1);
+    michael_write('i', 1);
+
+    char buf[40];
+    lcd_hd44780_render(&ls, buf);
+    ASSERT_EQ_FMT((char)'H', buf[0], "%c");
+    ASSERT_EQ_FMT((char)'i', buf[1], "%c");
+    ASSERT_EQ_FMT(0u, (unsigned)ls.undriven_strobes, "%u");
+    PASS();
+}
+
+/* With E high and RW high the LCD drives D7..D0: the busy flag (never
+ * busy) and the address counter, or the data at the address counter. */
+TEST michael_read_drives_busy_flag_and_address_then_data(void) {
+    setup_michael();
+    via_6522_set_portb_input(&vs, lcd_portb, &ls);
+    michael_write(0x38, 0);
+    michael_write(0x80 | 0x14, 0);  /* DDRAM $14 (row 3) */
+    michael_write('Q', 1);          /* AC -> $15 */
+    michael_write(0x80 | 0x14, 0);
+
+    bus_write(&bus_, 0xF002, 0x00);                 /* DDRB input */
+    bus_write(&bus_, 0xF001, M_RW | M_E);
+    bus_step(&bus_);
+    uint8_t v = 0;
+    bus_read(&bus_, 0xF000, &v);
+    ASSERT_EQ_FMT(0x14, v, "%02x");                 /* not busy, AC=$14 */
+    bus_write(&bus_, 0xF001, M_RW);
+    bus_step(&bus_);
+
+    bus_write(&bus_, 0xF001, M_RS | M_RW | M_E);    /* data read */
+    bus_step(&bus_);
+    bus_read(&bus_, 0xF000, &v);
+    ASSERT_EQ_FMT('Q', v, "%02x");
+    bus_write(&bus_, 0xF001, M_RS | M_RW);
+    bus_step(&bus_);
+    ASSERT_EQ_FMT(0x15, ls.ac, "%02x");              /* a data read advances AC */
+
+    bus_read(&bus_, 0xF000, &v);                    /* E low: LCD lets go */
+    ASSERT_EQ_FMT(0x00, v, "%02x");
+    ASSERT_EQ_FMT(0u, (unsigned)ls.contention, "%u");
+    PASS();
+}
+
+/* A write strobed while the data pins are VIA inputs latches whatever
+ * the bus floats to: counted as an undriven strobe. */
+TEST michael_write_with_data_pins_as_inputs_is_undriven(void) {
+    setup_michael();
+    bus_write(&bus_, 0xF002, 0x00);
+    michael_write('X', 1);
+    ASSERT_EQ_FMT(1u, (unsigned)ls.undriven_strobes, "%u");
+    PASS();
+}
+
+TEST michael_strobe_with_rs_as_input_is_undriven(void) {
+    setup_michael();
+    bus_write(&bus_, 0xF003, M_E | M_RW);           /* RS not driven */
+    michael_write('X', 1);
+    ASSERT_EQ_FMT(1u, (unsigned)ls.undriven_strobes, "%u");
+    PASS();
+}
+
+/* A read while the VIA drives the data pins: both sides drive the bus. */
+TEST michael_read_against_driven_data_pins_is_contention(void) {
+    setup_michael();
+    michael_strobe(M_RW);
+    ASSERT_EQ_FMT(1u, (unsigned)ls.contention, "%u");
+    PASS();
+}
+
 SUITE(lcd_hd44780_suite) {
     RUN_TEST(init_4bit_then_write_hello);
     RUN_TEST(cgram_slot_6_renders_as_tilde);
@@ -249,6 +356,11 @@ SUITE(lcd_hd44780_suite) {
     RUN_TEST(cgram_5x10_slot_holds_10_byte_glyph);
     RUN_TEST(blink_underline_cursor_state_tracks_display_ctl);
     RUN_TEST(cursor_position_5x10_tracks_dd_address);
+    RUN_TEST(michael_8bit_writes);
+    RUN_TEST(michael_read_drives_busy_flag_and_address_then_data);
+    RUN_TEST(michael_write_with_data_pins_as_inputs_is_undriven);
+    RUN_TEST(michael_strobe_with_rs_as_input_is_undriven);
+    RUN_TEST(michael_read_against_driven_data_pins_is_contention);
 }
 
 GREATEST_MAIN_DEFS();

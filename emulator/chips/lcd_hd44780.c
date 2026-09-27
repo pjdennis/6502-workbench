@@ -20,7 +20,15 @@ const struct lcd_hd44780_wiring LCD_WIRING_WENDY2C = {
     .data_port = LCD_PORT_A, .data_mask = 0xF0,
 };
 
+const struct lcd_hd44780_wiring LCD_WIRING_MICHAEL = {
+    .rs_port = LCD_PORT_A, .rs_bit = 0x20,
+    .rw_port = LCD_PORT_A, .rw_bit = 0x40,
+    .e_port  = LCD_PORT_A, .e_bit  = 0x80,
+    .data_port = LCD_PORT_B, .data_mask = 0xFF,
+};
+
 static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte);
+static void advance_ac(struct lcd_hd44780_state *s);
 
 static uint8_t port_pins(const struct lcd_hd44780_state *s, uint8_t port) {
     return port == LCD_PORT_A ? via_6522_porta_pins(s->via)
@@ -31,6 +39,26 @@ static uint8_t pin(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bit)
     return (port_pins(s, port) & bit) ? 1 : 0;
 }
 
+static uint8_t port_ddr(const struct lcd_hd44780_state *s, uint8_t port) {
+    return port == LCD_PORT_A ? s->via->ddra : s->via->ddrb;
+}
+
+static int driven(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bits) {
+    return (port_ddr(s, port) & bits) == bits;
+}
+
+static uint8_t read_value(const struct lcd_hd44780_state *s, uint8_t rs) {
+    if (!rs) return (uint8_t)(s->ac & 0x7F);   /* busy flag (bit 7) never set */
+    return s->cgram_mode ? s->cgram[s->ac & 0x3F] : s->ddram[s->ac % LCD_DDRAM_SIZE];
+}
+
+int lcd_hd44780_output(const struct lcd_hd44780_state *s, uint8_t *value) {
+    const struct lcd_hd44780_wiring *w = &s->wiring;
+    if (!s->via || !pin(s, w->e_port, w->e_bit) || !pin(s, w->rw_port, w->rw_bit)) return 0;
+    *value = read_value(s, pin(s, w->rs_port, w->rs_bit)) & w->data_mask;
+    return 1;
+}
+
 static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct lcd_hd44780_state *s = (struct lcd_hd44780_state *)self->state;
@@ -39,15 +67,26 @@ static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
     const struct lcd_hd44780_wiring *w = &s->wiring;
     uint8_t e = pin(s, w->e_port, w->e_bit);
 
+    int reading = e && pin(s, w->rw_port, w->rw_bit);
+    if (reading && (port_ddr(s, w->data_port) & w->data_mask)) {
+        if (!s->contending) s->contention++;
+        s->contending = 1;
+    } else {
+        s->contending = 0;
+    }
+
     /* Latch on E falling edge. */
     if (s->prev_e && !e) {
         uint8_t rs = pin(s, w->rs_port, w->rs_bit);
         uint8_t rw = pin(s, w->rw_port, w->rw_bit);
+        if (!driven(s, w->rs_port, w->rs_bit) || !driven(s, w->rw_port, w->rw_bit) ||
+            (!rw && !driven(s, w->data_port, w->data_mask))) {
+            s->undriven_strobes++;
+        }
         if (rw) {
-            /* Read cycle (busy-flag check) -- we always say not-busy
-             * by leaving D7 as 0; the poll loop then exits on its first
-             * iteration. (No data driven back since we're a tick-only
-             * chip.) */
+            /* Read cycle: the data went out through lcd_hd44780_output
+             * while E was high. A data read advances the address. */
+            if (rs) advance_ac(s);
         } else {
             /* The value on D7..D0; unwired data lines read as 0. */
             uint8_t data = port_pins(s, w->data_port) & w->data_mask;

@@ -39,6 +39,8 @@ struct lcd_hd44780_wiring {
 };
 
 extern const struct lcd_hd44780_wiring LCD_WIRING_WENDY2C;
+/* Michael: 8-bit data on PORTB, E/RW/RS on PA7/PA6/PA5. */
+extern const struct lcd_hd44780_wiring LCD_WIRING_MICHAEL;
 
 struct lcd_hd44780_state {
     /* Display memory. */
@@ -76,10 +78,26 @@ struct lcd_hd44780_state {
 
     /* Pin wiring; defaults to LCD_WIRING_WENDY2C. */
     struct lcd_hd44780_wiring wiring;
+
+    /* Bus checks, for boards whose other devices share the LCD's pins.
+     * undriven_strobes: E fell while RS or RW, or for a write a data
+     * pin, was a VIA input, so the LCD latched a floating value.
+     * contention: read cycles (E and RW high) during which a data pin
+     * was also a VIA output, so both drove it. */
+    uint32_t undriven_strobes;
+    uint32_t contention;
+    uint8_t contending;   /* in a counted contention cycle */
 };
 
 void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
                       const struct via_6522_state *via);
+
+/* During a read cycle (E and RW high) the LCD drives its data lines:
+ * returns 1 with *value = the wired D7..D0 (the busy flag, never set,
+ * and the address counter; or with RS high the data at the address
+ * counter). Returns 0 when it isn't driving them. A read in 4-bit mode
+ * gives the byte's high nibble every time. */
+int lcd_hd44780_output(const struct lcd_hd44780_state *state, uint8_t *value);
 
 /* Override the default wendy2c wiring. */
 void lcd_hd44780_set_wiring(struct lcd_hd44780_state *state,
