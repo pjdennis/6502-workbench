@@ -381,15 +381,18 @@ range_yank_full:
 
   ; --- Range delete ---
   ; Same as dd with the cursor moved to the range start: yanks the lines,
-  ; records undo, adjusts marks, deletes and clamps FILE_LINE16. A yank
+  ; records undo, adjusts marks, deletes and clamps FILE_LINE16, and the
+  ; rows below scroll up (RF_DEL, worked out before the lines go). A yank
   ; that does not fit changes nothing (range_yank_full).
 range_do_delete:
   CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
   JSR first_nonblank           ; (where u returns, as in vim)
+  JSR precompute_delete_scroll
   JSR yank_delete_current_lines
   BCS range_yank_full
   JSR set_modified
   JSR first_nonblank
+  JSR finish_delete_scroll
 
   ; Show "N lines deleted"
   LDA #<str_lines_deleted

@@ -10791,6 +10791,72 @@ class EditorTestRunner:
                 l5, b"yy" + keys + b"P:wq\r",
                 expected_content="Line 1\n" + l5)
 
+        # :N,Md on screen scrolls the rows below up as 3dd does: the
+        # line after the range moves into the cursor row and only the
+        # exposed bottom rows are drawn.  Frames: 0 initial, 1 ':',
+        # 2 :4,6d (with its message)
+        self.run_test_screen(
+            ":4,6d scrolls instead of repainting",
+            make_lines(20),
+            b":4,6d\r:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(3)]
+                         + [(i, f"Line {i + 4}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+            expect_scrolled_at_frame=[(2, True)],
+            expect_content_rows=[(2, {6, 7, 8})],
+        )
+        # A range reaching EOF moves the cursor up onto the line above it,
+        # which keeps its rows (both: it wraps at 20 cols)
+        self.run_test_screen(
+            ":N,Md reaching EOF keeps the wrapped line above",
+            "Short 0\nThis is a longer line!\nx\ny\n",
+            b":3,4d\r:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "Short 0"), (1, "This is a longer lin"),
+                          (2, "e!"), (3, "~"), (4, "~")],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(2, {7, 8})],
+        )
+        # The deleted rows outnumber the rows below the cursor: every row
+        # below it is redrawn
+        wide = "".join(f"{i:02d} " + "abcdefghij" * 5 + "abcdefg\n"
+                       for i in range(20))
+        self.run_test_screen(
+            ":4,6d of wrapped lines redraws every row below",
+            wide,
+            b":4,6d\r:q!\r",
+            expect_lines=[(6, "06 " + ("abcdefghij" * 4)[:37]),
+                          (7, ("abcdefghij" * 6)[7:27]),
+                          (8, "07 " + ("abcdefghij" * 4)[:37])],
+            expect_cursor=(6, 0),
+            expect_content_rows=[(2, {6, 7, 8})],
+        )
+        # The range starts on the top line, shown from its fourth row: the
+        # cursor goes above the view, which moves up: a full redraw
+        self.run_test_screen(
+            ":1d of the top line shown from its middle",
+            "a" * 100 + "\n" + "b" * 100 + "\n" + make_lines(10),
+            b"2G$k:1d\r:q!\r",
+            rows=8, cols=20,
+            expect_lines=[(0, "b" * 20), (1, "b" * 20), (2, "b" * 20),
+                          (5, "Line 1"), (6, "Line 2")],
+            expect_cursor=(0, 0),
+        )
+        # 24x80, 60-char lines
+        self.run_test_screen(
+            ":4,6d at 24x80 sends the rows the scroll exposes",
+            "".join(f"line {i:02d} " + "the quick brown fox jumps over "
+                    "the lazy dog xyz\n" for i in range(40)),
+            b":4,6d\r:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(3, "line 06 the quick brown fox jumps over the "
+                              "lazy dog xyz"),
+                          (22, "line 25 the quick brown fox jumps over the "
+                               "lazy dog xyz")],
+            expect_cursor=(3, 0),
+            expect_frame_bytes=[(2, 249)],
+        )
+
         # Line numbers are 1-based
         self.run_test(
             ":2,4d deletes lines 2-4 (1-based)",

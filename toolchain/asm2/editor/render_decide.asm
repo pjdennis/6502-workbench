@@ -62,7 +62,7 @@
 ;                              $FF = pure join at line end (no redraw),
 ;                              1-254 = pure join at column 0 (scroll from
 ;                              first_row, no redraw).
-; $07   dd and its redo,       Lines deleted from first_row (the next line
+; $07   dd and its redo, :d,   Lines deleted from first_row (the next line
 ;       undo p/P/o/O           moved up into their rows) or below the
 ;                              cursor line (it kept its rows): the cursor
 ;                              line is not redrawn.
