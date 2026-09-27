@@ -15821,6 +15821,22 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(5, False)],
         )
 
+        # u of a join whose lines take over 255 rows, the first of them
+        # starting above the view (the J moved it down): the rows below
+        # that count are not known, so the screen is redrawn (it left the
+        # bottom row blank).  Tall screen: 255x10
+        tall_join = "".join(
+            ("%02d" % i + chr(97 + i) * 1000)[:n] + "\n"
+            for i, n in enumerate([129, 252, 64, 512, 21, 256, 43, 40, 511,
+                                   511, 120, 80, 0]))
+        self.run_test_screen(
+            "Scroll opt: u of a join over 255 rows starting above the view",
+            tall_join, b"$53Ju:q!\r", rows=255, cols=10,
+            expect_lines=[(0, "a" * 10), (250, "11" + "l" * 8),
+                          (253, "l" * 10)],
+            expect_cursor=(10, 8),
+        )
+
         # A range of wrapped lines that grows or shrinks past the status
         # bar is drawn as any block of lines: from its first row to the
         # bottom (both wrap models)

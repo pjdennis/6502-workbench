@@ -188,7 +188,9 @@ render_decide:
   BCS .full
   JSR compute_delete_rows_at_cursor  ; A = their rows (C=1: over 255)
   BCC .rows
-  LDA #$FF                   ; over 255: they fill the rows below it
+  JSR set_first_row          ; Over 255: they fill the rows below the
+  BCC .full                  ; block's first if that is on screen, else
+  LDA #$FF                   ; full
 .rows:
   STA CUR_LINE_ROWS
   JMP render_block_and_status
