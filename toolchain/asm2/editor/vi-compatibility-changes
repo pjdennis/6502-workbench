@@ -4,11 +4,17 @@
   row, the view stops with the last line on the bottom row (or the first on top), and the cursor then goes on to the
   last (or first) line. Vim keeps two lines of the page on screen (fewer on a screen of under 6 rows), counts the page
   in screen rows, puts the cursor on the new top line (Ctrl-F) or bottom line (Ctrl-B), puts the last line on top
-  when the page shows it, and does not move at all when the last line is on top (Ctrl-F) or the first (Ctrl-B).
-  Doing all that measured about 117 bytes more code.
+  when the page shows it, and does not move at all when the last line is on top (Ctrl-F) or the first (Ctrl-B); a
+  count that runs out keeps the remembered column there. Doing all that measured about 117 bytes more code (see
+  vim-gaps.md).
 
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
+
+  u after insert mode - Text typed in insert mode is not undoable: leaving insert mode after typing clears the undo,
+  so u does nothing, and the edit before the insert can no longer be undone either. Vim undoes what was typed, with
+  the o, O or change command that began it, as one change, and a stretch of typing between cursor moves at a time.
+  See vim-gaps.md.
 
   Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
   of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k
@@ -17,8 +23,7 @@
   J - Replaces each line break with one space and keeps the joined line's leading blanks: "abc" and "  def" join as
   "abc   def". Vim removes the leading blanks and puts one space in their place, none when the joined line is empty or
   starts with ')' or the line ends in a blank, and two after a '.', '!' or '?' (vim's default 'joinspaces'): "abc def".
-  J changes the text in place and keeps only the join points for undo; removing the blanks would change the text's
-  length and need their bytes kept for undo, about 190 bytes more code.
+  See vim-gaps.md.
 
   J with a count over 129 - Is refused with "Too many lines to join", as the joins are kept for undo in one 256-byte
   page. Vi joins them all.
@@ -37,14 +42,26 @@
   most 127 characters for a : command or a search pattern; further keys are ignored. Vim wraps a longer command
   line onto more rows and takes any length.
 
+  :w with no file name, and :w {file} - Started without a file name, the buffer is called [No Name] and :w writes a
+  file of that name. :w {file}, :wq {file}, :w! and :wq! say "Unknown command". Vim says "E32: No file name", takes
+  the name from :w {file}, writes a copy with :w {file} in a named buffer, and overwrites another file that exists
+  only with ! ("E13"). See vim-gaps.md.
+
   Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
+
+  Search messages - A search that goes on past the end of the file, or past its start, says nothing; vim says "search
+  hit BOTTOM, continuing at TOP" (or "search hit TOP, continuing at BOTTOM"). A pattern that is not found says
+  "Pattern not found: {pattern}", where vim's message starts "E486: ". See vim-gaps.md.
+
+  Blanks in a command line - Blanks before a command letter or in a range (: 5, :1,5 d, :1, 5d) make an unknown
+  command. Vim skips them there (blanks after the letter are taken as vim takes them, below).
 
   Characters after a range command letter - d and y take one register name after it, with blanks or not, which
   changes nothing (there is one register: :1,5d_ still yanks the lines, and any character but a digit is taken, where
-  vim refuses those that name no register, such as '.'), and anything more is "Unknown command". Vim
-  takes letters right after the command letter as part of its name (:1,5da and :2,5yx are "E492: Not an editor
-  command", while :1,5delete and :2,5yank work), a digit there as a count (:1,5d3 deletes lines 5-7), > and < repeated
-  as more shifts (:1,5>>), and says "E488: Trailing characters" for what follows a register name.
+  vim refuses those that name no register, such as '.'), and anything more is "Unknown command". Vim takes letters
+  right after the command letter as part of its name (:1,5da and :2,5yx are "E492: Not an editor command", while
+  :1,5delete and :2,5yank work), a digit there as a count (:1,5d3 deletes lines 5-7), > and < repeated as more shifts
+  (:1,5>>), and says "E488: Trailing characters" for what follows a register name.
 
   Marks
 
