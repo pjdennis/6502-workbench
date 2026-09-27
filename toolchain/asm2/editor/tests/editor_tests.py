@@ -11819,6 +11819,37 @@ class EditorTestRunner:
             expected_content="X baz\n",
         )
 
+        # On a word, cw changes what ce does (vi): e passes over empty lines,
+        # and a count past the last word runs to the end of the text.  On a
+        # word's last char, that char is the first word
+        self.run_test(
+            "2cw across an empty line changes through the next word",
+            "foo\n\nbar baz\n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X baz\n",
+        )
+
+        self.run_test(
+            "2cw from a word's last char across an empty line",
+            "ab\n\ncd ef\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX ef\n",
+        )
+
+        self.run_test(
+            "2cw past the last word changes to the end of the text",
+            "abba \n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X\n",
+        )
+
+        self.run_test(
+            "2cw from a word's last char changes it and the next word",
+            "ab cd ef\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX ef\n",
+        )
+
         self._group("Change word backward (cb):", leading_blank=True)
 
         self.run_test(

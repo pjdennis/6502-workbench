@@ -274,29 +274,31 @@ compute_multiline_word_range_forward:
 .cmwrf_no_adj:
   JMP range_end
 
-; Compute forward cw-semantics word range (multi-line) for cw
-; The dw range, and from non-whitespace without its trailing whitespace
-; (ce semantics; from whitespace cw changes what dw deletes, as in vi)
+; Compute forward cw-semantics word range (multi-line) for cw, as vi:
+; from whitespace the dw range; from a word, ce's range, except that on
+; a word's last char that char is the count's first word (cw there
+; changes just it)
 ; Input: X = word count
 ; Output: BUF_LEN16 = byte count, carry set if nothing to operate on
 ; Side effect: cursor restored to original position
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16,
 ;           BUF_SRC16, BUF_DST16
 compute_multiline_cw_range_forward:
-  JSR compute_multiline_word_range_forward  ; BUF_SRC16..BUF_PTR16
-  LDY #0
-  LDA (BUF_SRC16),Y
-  JSR char_class                    ; class of the char under the cursor
-  BEQ range_len                     ; On whitespace: the dw range
-  ; Non-whitespace: strip trailing whitespace (ce semantics)
-.cmcrf_strip_loop:
-  CMP16 BUF_PTR16, BUF_SRC16       ; would range become 0?
-  BEQ range_len
-  DEC16 BUF_PTR16                   ; back up
-  JSR class_at_ptr
-  BEQ .cmcrf_strip_loop             ; still whitespace, keep stripping
-  INC16 BUF_PTR16                   ; non-ws, include this char
-  JMP range_len
+  STX NORMAL_TEMP
+  JSR class_at_cursor               ; BUF_PTR16 = cursor, Y = 0
+  LDX NORMAL_TEMP
+  TAY
+  BEQ compute_multiline_word_range_forward  ; On whitespace: the dw range
+  STA WORD_CLASS
+  LDY #1
+  LDA (BUF_PTR16),Y
+  JSR char_class                    ; The next char ('\n' at the line end)
+  CMP WORD_CLASS
+  BEQ compute_multiline_word_end_range_forward  ; Inside a word: ce
+  DEX                               ; On its last char: the first word
+  BNE compute_multiline_word_end_range_forward
+  JSR range_start                   ; cw of one word there: the char
+  JMP word_end_range_end
 
 ; Compute backward word range (multi-line) for db/yb/cb
 ; Input: X = word count
@@ -324,6 +326,7 @@ compute_multiline_word_range_backward:
 compute_multiline_word_end_range_forward:
   JSR range_start
   JSR word_end_x                    ; move cursor to end of Nth word
+word_end_range_end:
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
   INC16 BUF_PTR16                   ; inclusive: include end char
   ; fall through into range_end
