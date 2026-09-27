@@ -10194,6 +10194,31 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
+        # After the command letter vim takes blanks and, for d and y, one
+        # register name (the editor has one register, so the name changes
+        # nothing); anything more is an error (vim's E492 or E488; here
+        # "Unknown command"), and so is a digit there (vim's count)
+        l5 = make_lines(5)
+        for keys, expected in ((b":1,3d a\r", "Line 4\nLine 5\n"),
+                               (b":1,3d  a  \r", "Line 4\nLine 5\n"),
+                               (b":1,3d \r", "Line 4\nLine 5\n"),
+                               (b":d a\r", l5[7:]),
+                               (b":2,3y a\rP", l5[7:21] + l5),
+                               (b":1,3> \r", "  " + l5[:7] + "  " + l5[7:14]
+                                + "  " + l5[14:])):
+            self.run_test(f"{keys!r} takes a register name or blanks",
+                          l5, keys + b":wq\r", expected_content=expected)
+        for keys in (b":1,3dfoo\r", b":1,3d a b\r", b":1,3>x\r",
+                     b":1,3> a\r", b":1,3d3\r", b":2,3y 2\r"):
+            self.run_test_screen(
+                f"{keys!r} is an unknown command",
+                l5, keys + b":q!\r",
+                expect_ansi_contains="Unknown command")
+            self.run_test(
+                f"{keys!r} changes nothing",
+                l5, b"yy" + keys + b"P:wq\r",
+                expected_content="Line 1\n" + l5)
+
         # Line numbers are 1-based
         self.run_test(
             ":2,4d deletes lines 2-4 (1-based)",

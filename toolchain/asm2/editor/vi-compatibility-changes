@@ -40,8 +40,12 @@
 
   Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
 
-  Characters after a range command letter - Are ignored: :1,5dfoo deletes lines 1-5 and :2,5yx yanks lines 2-5. Vi
-  reads one character there as a register name and reports "E488: Trailing characters" for the rest.
+  Characters after a range command letter - d and y take one register name after it, with blanks or not, which
+  changes nothing (there is one register: :1,5d_ still yanks the lines, and any character but a digit is taken, where
+  vim refuses those that name no register, such as '.'), and anything more is "Unknown command". Vim
+  takes letters right after the command letter as part of its name (:1,5da and :2,5yx are "E492: Not an editor
+  command", while :1,5delete and :2,5yank work), a digit there as a count (:1,5d3 deletes lines 5-7), > and < repeated
+  as more shifts (:1,5>>), and says "E488: Trailing characters" for what follows a register name.
 
   Marks
 

@@ -310,6 +310,9 @@ COMMAND-LINE MODE
     :[pos]>            Indent one line at position
 
   With no range, :d, :y, :> and :< work on the current line.
+  Blanks may follow the command letter, and after d or y a register
+  name (as in vim: :1,5d a), which changes nothing: there is one
+  register. Anything else there is an unknown command.
 
   Examples:
     :1,5d          Delete lines 1 through 5

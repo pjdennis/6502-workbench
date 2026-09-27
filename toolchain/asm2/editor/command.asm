@@ -66,12 +66,26 @@ command_parse_range:
 
 ; Run a range command, or with none (A = 0) go to the line of the last
 ; position, as vim does (without swapping a backwards range)
-; Input: A = command char, BUF_SRC16 = start line, BUF_LEN16 = end line
-; (either order); the action gets BUF_SRC16 = first line, BUF_TEMP16 = count
+; Input: A = command char, X = its index in CMD_BUF, BUF_SRC16 = start
+; line, BUF_LEN16 = end line (either order); the action gets BUF_SRC16 =
+; first line, BUF_TEMP16 = count
 range_dispatch:
   STA BUF_TEMP            ; Command char (dispatch key)
-  TAX
+  TAY
   BEQ range_goto          ; No command
+  ; After it vim takes blanks and, for y and d, one register name (not a
+  ; digit: vim's count), then blanks; the editor's one register takes
+  ; any name.  Anything else is an unknown command
+  JSR skip_blanks
+  BCC .args_ok
+  CPY #'A'
+  BCC cmd_unknown         ; > and < take no register
+  EOR #'0'
+  CMP #10
+  BCC cmd_unknown         ; A digit
+  JSR skip_blanks
+  BCS cmd_unknown
+.args_ok:
 
   ; Ensure start <= end (swap if needed)
   CMP16 BUF_LEN16, BUF_SRC16
@@ -113,19 +127,6 @@ range_dispatch:
   LDX #>range_action_keys
   JMP dispatch_key
 
-range_goto:
-  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line), past the
-  ; last line to the last line, as in vim. Command mode was entered
-  ; through clear_count, so the extra clear_count here changes nothing.
-  CP16 BUF_LEN16, FILE_LINE16
-  JSR clamp_file_line
-  JMP first_nonblank_clear
-
-range_invalid:
-  LDA #<str_invalid_range
-  LDX #>str_invalid_range
-  JMP show_message_ax
-
 cmd_unknown:
   LDA #<str_unknown_cmd
   LDX #>str_unknown_cmd
@@ -136,6 +137,29 @@ show_readonly_msg:
   LDA #<str_readonly
   LDX #>str_readonly
   JMP show_message_ax
+
+range_invalid:
+  LDA #<str_invalid_range
+  LDX #>str_invalid_range
+  JMP show_message_ax
+
+range_goto:
+  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line), past the
+  ; last line to the last line, as in vim. Command mode was entered
+  ; through clear_count, so the extra clear_count here changes nothing.
+  CP16 BUF_LEN16, FILE_LINE16
+  JSR clamp_file_line
+  JMP first_nonblank_clear
+
+; X = the index of the first non-blank after CMD_BUF[X], A = that char:
+; C = 0 at the end of the command.  Preserves Y
+skip_blanks:
+  INX
+  LDA CMD_BUF,X
+  CMP #' '
+  BEQ skip_blanks
+  CMP #1
+  RTS
 
 ; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
 cmd_parse_m:
