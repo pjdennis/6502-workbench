@@ -5107,6 +5107,15 @@ class EditorTestRunner:
              "Hello World", (1, 1), "\x1b[@e"),
             ("u after dw", b"dwu:q!\r", 2,
              "Hello World", (0, 5), "\x1b[6@Hello "),
+            # >> and << of one line, and their undo, shift it from column 0
+            (">>", b">>:q!\r", 1,
+             "  Hello World", (0, 1), "\x1b[?25l\x1b[2@  "),
+            ("<<", b">><<:q!\r", 2,
+             "Hello World", (-1, -1), "\x1b[?25l\x1b[H\x1b[2P"),
+            ("u after >>", b">>u:q!\r", 2,
+             "Hello World", (-1, -1), "\x1b[?25l\x1b[H\x1b[2P"),
+            ("batched >>>>", b">>>>:q!\r", 1,
+             "    Hello World", (0, 3), "\x1b[?25l\x1b[4@    "),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5191,6 +5200,12 @@ class EditorTestRunner:
              + "\x1b[3H\x1b[@" + digits[80]),
             ("xP on a 3-row line", b"5lxP:q!\r", 4, digits,
              [(0, 5, 5), (1, 0, 0), (2, 0, 0)], None),
+            (">> on a 3-row line", b">>:q!\r", 1, "  " + digits,
+             [(0, 0, 1), (1, 0, 1), (2, 0, 1)],
+             "\x1b[?25l\x1b[2@  \x1b[2H\x1b[2@" + digits[38:40]
+             + "\x1b[3H\x1b[2@" + digits[78:80]),
+            ("<< on a 3-row line", b">><<:q!\r", 2, digits,
+             [(0, 38, 39), (1, 38, 39), (2, -1, -1)], None),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5516,6 +5531,10 @@ class EditorTestRunner:
                  (10, 40), 37),
                 ("P on a 3-row line", fox, b"ywwP:q!\r", 3,
                  (10, 40), 85),
+                (">> on a 3-row line", fox, b">>:q!\r", 1,
+                 (10, 40), 79),
+                ("<< on a 3-row line", "  " + fox, b"<<:q!\r", 1,
+                 (10, 40), 91),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),

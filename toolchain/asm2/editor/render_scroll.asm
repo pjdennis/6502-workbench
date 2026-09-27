@@ -118,10 +118,28 @@ render_line_insert_scroll:
 ; both are free here: main_loop recomputes PREV_LINE_ROWS every key):
 ; the region below scrolls to open/close the difference, and
 ; RENDER_FROM_COL16 = $FFFF redraws every row of the range.  A range
-; reaching the status bar repaints to the bottom.
+; reaching the status bar repaints to the bottom.  A range of one line
+; (>> or << of the cursor line, their undo) is drawn as an edit of that
+; line: an ICH/DCH hint at its column 0 for the blanks it gained or lost,
+; the change in the text's length.
 render_range_repaint:
   LDA DELETE_SCREEN_ROWS
   STA PREV_LINE_ROWS           ; the range's rows before the edit
+  LDX INSERT_LINE_COUNT
+  DEX
+  BNE .range
+  STX RENDER_FROM_COL16
+  STX RENDER_FROM_COL16 + 1
+  LDA BUF_END16
+  SEC
+  SBC SNAP_BUF_END16
+  STA SHIFT_NET
+  BMI .hint                    ; blanks removed: no new cells
+  TAX
+.hint:
+  STX SHIFT_WRITE
+  JMP render_current_line_and_status
+.range:
   SEC
   LDA FILE_LINE16
   SBC UNDO_LINE16              ; The range's lines above the cursor's
