@@ -431,8 +431,10 @@ render_line_from_change:
   LDX SHIFT_WRITE
   INX
   BNE render_line_shift        ; $FF = no hint
-  ; Rewrite the rows, the change row from the change column
-  JSR set_render_line_to_cursor
+  ; Rewrite the rows, the change row from the change column.  The line
+  ; there is found by rows: a change at the end of a block's first line
+  ; that fills its last row starts the next line's first row
+  JSR find_line_at_render_row
   LDA WRAP_REM
   JMP render_limited_from_col
 .done:

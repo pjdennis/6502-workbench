@@ -16866,6 +16866,20 @@ class EditorTestRunner:
             expect_min_col=[(6, 0, 9)],
         )
 
+        # The redo of a line break typed where the line's first row ends
+        # splits it there again: the drawing from that column goes on with
+        # the new line on the row after, not with a row past the split
+        # line's end (which blanked it)
+        self.run_test_screen(
+            "Scroll opt: redo of a line break at the end of a full row",
+            "abcdefghijklmnopqrstxyz\nnext\nmore\n",
+            b"20li\r\x1bu u:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "abcdefghijklmnopqrst"), (1, "xyz"),
+                          (2, "next"), (3, "more"), (4, "~")],
+            expect_cursor=(0, 19),
+        )
+
         # Enter in middle of wrapped line: total screen rows unchanged.
         # Line: "12345678901234567890abc" (23 chars = 2 rows at 20 cols).
         # 10 l's to col 10, i enters insert, iii types 3 chars, Enter splits.
