@@ -1674,6 +1674,19 @@ class EditorTestRunner:
             "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
             b"x:q!\r", 3900000, rows=255, cols=40)
 
+        # A wrapped line's next row starts a row on from the one before,
+        # where each row worked its start out from the line's start: the
+        # startup of a 254-row line at 255x40 took 1,709,584 cycles (the
+        # whole run), and i a Esc at the end of a 30,000-char line at 24x80
+        # 2,262,844
+        self.run_test_cycle_cap(
+            "Wrap rows step their start: startup with a 254-row line, 255x40",
+            "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
+            b":q!\r", 1300000, rows=255, cols=40)
+        self.run_test_cycle_cap(
+            "Wrap rows step their start: ia Esc at col 29,999, 24x80",
+            "a" * 30000 + "\n", b"$ia\x1b:q!\r", 2150000, rows=24, cols=80)
+
         # A decimal number's digits are how many times each power of ten
         # subtracts from it, where each took 16 shift-and-subtract steps
         # (every cursor move, count and status bar number): ten Ctrl-F

@@ -404,6 +404,7 @@ render_rows:
   LDAX16 RENDER_LINE16
   JSR buf_get_line_ptr
   LDX RENDER_WRAP
+.advance:
   JSR buf_ptr_advance_x        ; (X = 0 after it)
   JSR render_line_chars_from   ; Y = the column after the last char (X kept)
   STX RENDER_COL               ; the rows after it from column 0 (X = 0)
@@ -413,10 +414,10 @@ render_rows:
   LDA (BUF_PTR16),Y
   CMP #'\n'
   BEQ .line_ended              ; X = 0: a cursor move to the next row
-  INC RENDER_WRAP
   INC RENDER_ROW
-  JSR .row_check
-  BCC .row                     ; the terminal has wrapped to the next row
+  JSR .row_check               ; (X kept)
+  INX                          ; the next row starts a row on (X = 1)
+  BCC .advance                 ; the terminal has wrapped to the next row
 .done:
   RTS
 
