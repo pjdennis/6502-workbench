@@ -81,7 +81,8 @@ NORMAL MODE - MOVEMENT
   and the next longer line takes it back to that column. After $ or
   End they keep to the end of each line. As in vim, a command that
   leaves the cursor and the text as they are (m, :w, :y, a p with
-  nothing yanked, an h or l that cannot move) keeps that column; any
+  nothing yanked, an h, l, Space or Backspace that cannot move, and
+  in insert mode a Left or Right that cannot) keeps that column; any
   other starts over from the cursor's.
 
 

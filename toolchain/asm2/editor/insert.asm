@@ -19,10 +19,10 @@
 
 insert_keys:
   .byte KEY_ESC     .word insert_exit
-  .byte KEY_UP      .word normal_move_up      ; As k and j (clamped for
-  .byte KEY_DOWN    .word normal_move_down    ; the mode)
-  .byte KEY_LEFT    .word insert_left
-  .byte KEY_RIGHT   .word insert_right
+  .byte KEY_UP      .word normal_move_up      ; As k and j
+  .byte KEY_DOWN    .word normal_move_down
+  .byte KEY_LEFT    .word normal_move_left    ; As h and l (clamped for
+  .byte KEY_RIGHT   .word normal_move_right   ; the mode)
   .byte KEY_HOME    .word normal_line_start   ; Col 0 (no count in insert mode)
   .byte KEY_END     .word normal_line_end     ; Col = len (and j/k stick there)
   .byte KEY_PGDN    .word normal_page_down    ; These land on the first
@@ -564,11 +564,11 @@ insert_seg_start:
   STA_LH16 UNDO_INS_LEN16
   RTS
 
-; Arrow key and word motion handlers in insert mode, counted with pending
-; repeats of the same key.  In insert mode the cursor may sit one past the
-; last char (col = len), so they clamp to len, not len - 1 as normal mode
-; does.  Word motions already stay within 0..len, so need no clamp.  (Up
-; and Down run j and k's code, which clamps for the mode.)
+; Word motion handlers in insert mode, counted with pending repeats of
+; the same key.  Word motions stay within 0..len (in insert mode the
+; cursor may sit one past the last char), so need no clamp.  (The arrow
+; keys run the code of h, l, j and k, whose clamp_cursor_col keeps to
+; the line end in insert mode.)
 insert_word_fwd:
   JSR get_count_pending16
   JMP word_forward_x
@@ -577,30 +577,5 @@ insert_word_back:
   JSR get_count_pending16
   JMP word_backward_x
 
-insert_left:
-  JSR get_count_pending16
-  JMP move_left_x
-
-insert_right:
-  JSR get_line_len_z         ; LINE_LEN16 = max col (line doesn't change)
-  JSR get_count_pending16
-  JMP move_right_x
-
-; Clamp cursor for insert mode (can be one past end of line content)
-clamp_cursor_col_insert:
-  JSR get_current_line_len   ; A/X = len
-  CPX CURSOR_COL16 + 1
-  BCC set_cursor_col_ax      ; len < col
-  BNE .ok
-  CMP CURSOR_COL16
-  BCC set_cursor_col_ax      ; len < col
-.ok:
-  RTS
-
-insert_end:
-  JSR get_current_line_len   ; A/X = len
-set_cursor_col_ax:
-  STAX16 CURSOR_COL16
-  RTS
 
 

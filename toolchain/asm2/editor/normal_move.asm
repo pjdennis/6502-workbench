@@ -52,7 +52,7 @@ page_fail:
   CMP BUF_DELTA              ; C=1: a typed-ahead press failed
   BCS page_first_nonblank
   ASL CURSWANT_KEEP
-  JMP clamp_for_mode
+  JMP clamp_and_clear_count
 
 ; Ctrl-B and PgUp: page back as vim does.  The page's first lines stay
 ; on screen at the bottom (BUF_TEMP16 of them, fewer near the end of the

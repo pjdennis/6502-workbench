@@ -213,9 +213,12 @@ ptr_to_src:
   CP16 BUF_PTR16, BUF_SRC16
   RTS
 
-; Clamp CURSOR_COL16 to the line's last char (0 on an empty line)
-; Output: LINE_LEN16 = line length.  Clobbers: A, X, Y
+; Clamp CURSOR_COL16 to the line's last char (0 on an empty line), or in
+; insert mode to the line end (col = len at most)
+; Output (normal mode): LINE_LEN16 = line length.  Clobbers: A, X, Y
 clamp_cursor_col:
+  LDA MODE
+  BNE clamp_cursor_col_insert
   JSR check_cursor_in_line
   BCC .ok                    ; Cursor inside the line
   CP16 LINE_LEN16, CURSOR_COL16
@@ -223,6 +226,23 @@ clamp_cursor_col:
   BEQ .ok
   JMP dec_cursor_col         ; col = len - 1
 .ok:
+  RTS
+
+; Clamp cursor for insert mode (can be one past end of line content)
+clamp_cursor_col_insert:
+  JSR get_current_line_len   ; A/X = len
+  CPX CURSOR_COL16 + 1
+  BCC set_cursor_col_ax      ; len < col
+  BNE .ok
+  CMP CURSOR_COL16
+  BCC set_cursor_col_ax      ; len < col
+.ok:
+  RTS
+
+insert_end:
+  JSR get_current_line_len   ; A/X = len
+set_cursor_col_ax:
+  STAX16 CURSOR_COL16
   RTS
 
 ; --- Shared vertical movement ---
@@ -290,19 +310,8 @@ move_left_x:
 .done:
   RTS
 
-; Move right X positions, clamped to LINE_LEN16 (insert-mode Right)
-; Input: X = count, LINE_LEN16 = max col. Clobbers: A, X
-move_right_x:
-  JSR cursor_in_line
-  BCS .done
-  JSR inc_cursor_col
-  DEX
-  BNE move_right_x
-.done:
-  RTS
-
-; h, l, Left, Right, Space and Backspace: the count (and the typed-
-; ahead presses) in steps of one column.  Space and Backspace go on over
+; h, l, Left, Right (in insert mode too), Space and Backspace: the count
+; (and the typed-ahead presses) in steps of one column.  Space and Backspace go on over
 ; line ends, as with vim's default 'whichwrap' (b,s): past the last char
 ; Space goes to the start of the next line, and from column 0 Backspace
 ; to the last char of the line above, a step each.  They take the whole
@@ -472,13 +481,10 @@ vert_keep:
   STA CURSWANT_KEEP
 vert_to_col:
   CP16 CURSWANT16, CURSOR_COL16
-; Clamp the cursor column for the mode (normal: then clear the count)
-clamp_for_mode:
-  LDA MODE
-  BEQ clamp_and_clear_count  ; Normal mode: onto the last char
-  JMP clamp_cursor_col_insert ; Insert mode: up to the line end
+  ; fall through
 
-; Clamp cursor column, then clear count state (shared terminal tail)
+; Clamp cursor column (for the mode), then clear count state (shared
+; terminal tail)
 clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count

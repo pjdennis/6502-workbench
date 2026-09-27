@@ -593,7 +593,7 @@ word_op_forward:
 .range:                        ; the empty range, as in vim)
   LDA NORMAL_TEMP              ; A = operator
   JSR apply_char_operator      ; (c enters insert mode)
-  JMP clamp_for_mode
+  JMP clamp_and_clear_count
 
 ; Shared bail: c enters insert mode (an empty change)
 word_op_bail:

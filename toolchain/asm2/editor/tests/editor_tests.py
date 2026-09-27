@@ -1951,6 +1951,10 @@ class EditorTestRunner:
             ("Batch equiv: X X past column 0", "ab\ncd\n", [b"l", b"X", b"X"]),
             ("Batch equiv: 2X X past column 0", "abc\ncd\n",
              [b"$", b"2X", b"X"]),
+            ("Batch equiv: insert Right at the line end, then Up",
+             "abcdef\nab\n",
+             [b"$", b"a", b"\x1b[B", b"\x1b[C", b"\x1b[C", b"\x1b[A", b"x",
+              b"\x1b"]),
             ("Batch equiv: Space over line ends", "ab\n\ncd\nef\n",
              [b" "] * 7 + [b"x"]),
             ("Batch equiv: Backspace over line ends", "ab\n\ncd\nef\n",
@@ -8007,6 +8011,24 @@ class EditorTestRunner:
 
         DOWN = b"\x1b[B"
         UP = b"\x1b[A"
+
+        # A Right at the line end or a Left at column 0 cannot move: it
+        # keeps the column Up and Down aim at, as in vim (checked in vim
+        # 8.2); one that moves starts it over
+        RIGHT = b"\x1b[C"
+        LEFT = b"\x1b[D"
+        for content, keys, expected in (
+                ("abcdef\nab\n", b"$a" + DOWN + RIGHT + UP,
+                 "abcdefx\nab\n"),
+                ("abcdef\n\nabcdef\n", b"$a" + DOWN + LEFT + DOWN,
+                 "abcdef\n\nabcdefx\n"),
+                ("abcdef\nab\nabcdef\n", b"4li" + DOWN + RIGHT + DOWN,
+                 "abcdef\nab\nabcdxef\n"),
+                ("abcdef\nab\nabcdef\n", b"4li" + DOWN + LEFT + DOWN,
+                 "abcdef\nab\naxbcdef\n")):
+            self.run_test(
+                f"Insert mode: {keys!r} keeps or starts over the column",
+                content, keys + b"x\x1b:wq\r", expected_content=expected)
 
         # Moving from longer line to shorter line should clamp to end+1
         # Line 1: "Hello" (5 chars), Line 2: "Hi" (2 chars)
