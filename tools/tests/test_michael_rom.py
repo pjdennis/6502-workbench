@@ -26,6 +26,7 @@ ROM = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.s')
 COMMITTED_ROM = os.path.join(ROOT, 'hardware', 'michael', 'michael_rom.bin')
 TESTS = os.path.join(HERE, 'michael')
 CHECK = os.path.join(TESTS, 'upload_check.s')
+HELLO = os.path.join(ROOT, 'firmware', 'programs', 'michael', 'hello_michael_ram.s')
 VECTORS = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.inc')
 ENVIRONMENT = os.path.join(ROOT, 'toolchain', 'asm2', '17', 'environment.asm')
 
@@ -139,6 +140,12 @@ class MichaelRomLoaderTest(RomTestCase):
         self.assertGreater(len(progress), 2)
         gaps = [b - a for a, b in zip(progress, progress[1:])]
         self.assertGreaterEqual(min(gaps), 340000, gaps)
+
+    def test_a_program_for_the_earlier_roms_as_compile_and_upload_michael_sends_it(self):
+        # Intel HEX, so it loads and starts at its .org: PROGRAM_LOAD_ADDRESS, $2000 as before
+        with open(self.assemble(HELLO, 'ihex')) as f:
+            wire = upload_frame.format_2(upload_frame.read_intel_hex(f.read()))
+        self.assertEqual(self.boot(wire, stops=False)[0], "Hi I'm Michael!")
 
     def test_the_screen_is_cleared_before_the_upload_runs(self):
         self.assertEqual(self.boot(self.upload([Block(0x0200, b'\xdb')]))[:2], ['', ''])  # STP

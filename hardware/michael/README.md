@@ -66,7 +66,7 @@ The EEPROM sketch replaces `a` and `i` with these:
   - `monitor_arduino.py` and `arduino-console.py` show the Arduino's serial output.
   - `asciimatics-*.py`, `try-curses.py` and `with-thread.py` are terminal-UI experiments for that console.
 - `michael-2023-12-04.rom`: a ROM image from 2023-12-04 (committed on michael_keyboard_wip).
-- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 2 (`tools/upload/transfer.py --format=2`) from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006` (`michael_rom_vectors.inc`). See "Programming the ROM" below.
+- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 2 (`tools/upload/transfer.py --format=2`) anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
 
 ## Programming the ROM
 
@@ -79,4 +79,9 @@ minipro -p AT28C256 -w hardware/michael/michael_rom.bin
 
 Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
 
-After a reset, the LCD shows "Michael ROM 3" and "Ready.". The new ROM only understands format 2 uploads, so send programs with `tools/upload/transfer.py --baudrate=57600 --format=2`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it that way.
+After a reset, the LCD shows "Michael ROM 3" and "Received $0000". The new ROM only understands format 2 uploads:
+
+- `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to Intel HEX and sends that, so a program loads and starts at its own `.org`. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000` as on the ROMs before this one.
+- `tools/upload/transfer.py --baudrate=57600 --format=2 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it to `$0200`.
+
+While an upload arrives, the first two rows show the block arriving, where its next byte will end up, and how many bytes have come in. They're redrawn about five times a second, so a stalled upload shows exactly where it stopped. When the upload is complete, the loader clears the screen and runs it. A bad upload leaves "Upload failed" and the reason on the screen, with the LED lit, until reset.

@@ -64,11 +64,19 @@ class UploadScriptTest(unittest.TestCase):
                      (0, ['--baudrate=115200', '--wait', 'a.out']))
 
   def test_michael(self):
-    self.assertEqual(self.run_script('michael', 'prog.s'), (0, ['--baudrate=57600', 'a.out']))
+    # Michael's ROM takes upload format 2, built from Intel HEX: the program's .org is where it loads
+    # and starts
+    self.assertEqual(self.run_script('michael', 'prog.s'),
+                     (0, ['--baudrate=57600', '--format=2', 'a.hex']))
 
   def test_michael_noreset(self):
     self.assertEqual(self.run_script('michael', '--noreset', 'prog.s'),
-                     (0, ['--baudrate=57600', '--noreset', 'a.out']))
+                     (0, ['--baudrate=57600', '--format=2', '--noreset', 'a.hex']))
+
+  def test_michael_assembles_to_intel_hex(self):
+    self.run_script('michael', 'prog.s')
+    with open(os.path.join(self.dir, 'a.hex')) as f:
+      self.assertEqual(f.read().split(), [':01500000EAC5', ':00000001FF'])
 
   def test_wendy_opens_the_port_directly_without_a_reset(self):
     # Wendy has no DTR reset, so doesn't need the daemon; --direct always waits for the data to send

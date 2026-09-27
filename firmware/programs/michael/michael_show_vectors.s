@@ -20,7 +20,7 @@ ROM_START            = $8000
 OP_SEI               = $78
 OP_JMP               = $4c
 
-RAM_TEST_START       = $2000 ; Must be page aligned
+RAM_TEST_START       = $2300 ; Above the program; must be page aligned
 RAM_TEST_END         = $3f00 ; Loader's interrupt handler starts here; must be page aligned
 
   .org PROGRAM_LOAD_ADDRESS
@@ -219,7 +219,11 @@ ram_test_value:
 irq_label:         .asciiz "IRQ   "
 reset_label:       .asciiz "RESET "
 load_label:        .asciiz "LOAD  "
-ram_label:         .asciiz "RAM 2000-3EFF "
+ram_label:         .asciiz "RAM 2300-3EFF "
 not_found_message: .asciiz "not found"
 ok_message:        .asciiz "OK"
 bad_message:       .asciiz "X"
+
+  .if * > RAM_TEST_START
+  fail "The program runs into RAM_TEST_START"
+  .endif

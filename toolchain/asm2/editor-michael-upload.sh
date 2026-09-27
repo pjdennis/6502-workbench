@@ -7,4 +7,4 @@ set -e
 cd "$(dirname "$0")"
 editor="$(mktemp -d)/editor_michael.bin"
 python3 editor/michael_image.py "$editor"
-exec python3 ../../tools/upload/transfer.py --baudrate=57600 --format=2 "$@" "$editor"
+exec python3 ../../tools/upload/transfer.py --baudrate=57600 --format=2 --load-address=0200 "$@" "$editor"

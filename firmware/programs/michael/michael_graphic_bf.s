@@ -32,6 +32,7 @@ bf_putchar               = gc_putchar
 ; $2700-$3eff - bf compiled code ($1800 bytes)
 ; $3f00-$3fff - simple buffer (keyboard)
 
+BF_LOAD_ADDRESS           = $0900 ; The load address the memory map above was made for
 GC_LINE_BUFFER            = $0200
 bf_cells                  = $0400
 bf_code                   = $2700
@@ -40,7 +41,7 @@ SIMPLE_BUFFER             = $3f00
 bf_cellsEnd               = bf_cells + 1024
 bf_codeEnd                = $7f00
 
-  .org PROGRAM_LOAD_ADDRESS      ; Loader loads programs to this address
+  .org BF_LOAD_ADDRESS           ; Loader loads programs to this address
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   ; The initialize_machine routine in this include will set up hardware registers and then

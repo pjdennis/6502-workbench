@@ -1,5 +1,7 @@
   .include base_config_v2.inc
 
+BEEB_LOAD_ADDRESS        = $0900 ; upload_and_run_michael_beeb.s's UPLOAD_TO
+
 INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
 
 
@@ -28,7 +30,7 @@ KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
 GC_LINE_BUFFER           = $0300 ; GD_CHAR_ROWS * GD_CHAR_COLS = 400 bytes including terminating 0
 
 
-  .org PROGRAM_LOAD_ADDRESS      ; Loader loads programs to this address
+  .org BEEB_LOAD_ADDRESS         ; Loader loads programs to this address
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   .include delay_routines.inc    ; Include first since placement on page boundary is necessary

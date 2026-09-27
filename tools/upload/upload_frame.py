@@ -31,6 +31,8 @@ HEADER_LENGTH = 3
 BLOCK_HEADER_LENGTH = 7
 RAM_START = 0x0200          # Michael: from the end of the stack page...
 LIMIT = 0x3f00              # ...to the receive handler's page
+LOAD_ADDRESS = 0x2000       # Where a binary loads unless told: Michael's programs' .org since before
+                            # format 2 (base_config_v2.inc's PROGRAM_LOAD_ADDRESS)
 
 
 # BSD checksum as calculated by cksum -o 1 (sum -r)
@@ -155,8 +157,8 @@ def main(argv):
   parser = argparse.ArgumentParser(description='Write a format 2 upload of a binary or Intel HEX file.')
   parser.add_argument('file')
   parser.add_argument('output')
-  parser.add_argument('--load-address', type=lambda text: int(text, 16), default=RAM_START,
-                      help='where a binary loads, in hex (default 0200)')
+  parser.add_argument('--load-address', type=lambda text: int(text, 16), default=LOAD_ADDRESS,
+                      help='where a binary loads, in hex (default %04x)' % LOAD_ADDRESS)
   parser.add_argument('--start', type=lambda text: int(text, 16),
                       help="where to run it, in hex (default: its lowest address; ffff: don't)")
   args = parser.parse_args(argv)

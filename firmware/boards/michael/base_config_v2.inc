@@ -1,8 +1,10 @@
 CLOCK_FREQ_KHZ          = 2000
 INTERRUPT_VECTOR_TARGET = $3f00 ; Interrupt vector in EEPROM points to this address
                                 ; Prior value: $3f00, BBC BASIC: $0800
-PROGRAM_LOAD_ADDRESS    = $0900 ; EEPROM load code loads to this address
-                                ; Prior value: $2000, BBC BASIC: $0900
+PROGRAM_LOAD_ADDRESS    = $2000 ; Where programs load and start: the ROM's loader (michael_rom.s) takes
+                                ; the address from the upload, so this is the programs' choice, below
+                                ; their data at $0200-$1FFF. Prior values: $0900, $2000; BBC BASIC's
+                                ; loader: $0900
 ; PORTA assignments
 E      = %10000000  ; Display enable
 RW     = %01000000  ; Display read/write

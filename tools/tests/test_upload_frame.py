@@ -165,6 +165,13 @@ class CommandLineTest(unittest.TestCase):
         with open(self.path('out'), 'rb') as f:
             self.assertEqual(f.read(), upload_frame.format_2([(0x3000, b'hi')], start=0xffff))
 
+    def test_a_binary_loads_at_2000_by_default(self):
+        with open(self.path('p.bin'), 'wb') as f:
+            f.write(b'hi')
+        upload_frame.main([self.path('p.bin'), self.path('out')])
+        with open(self.path('out'), 'rb') as f:
+            self.assertEqual(f.read(), upload_frame.format_2([(0x2000, b'hi')]))
+
     def test_intel_hex(self):
         with open(self.path('p.hex'), 'w') as f:
             f.write(':01020000EA13\n:00000001FF\n')

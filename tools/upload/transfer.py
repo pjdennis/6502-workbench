@@ -14,7 +14,7 @@ import sys
 import time
 
 import serial_daemon
-from upload_frame import build_frame, format_2, read_segments
+from upload_frame import LOAD_ADDRESS, build_frame, format_2, read_segments
 
 AUTOSTART_TIMEOUT = 5  # seconds allowed for a newly started daemon to accept connections
 
@@ -38,9 +38,9 @@ def parse_args(argv):
   parser.add_argument('--format', type=int, choices=[1, 2], default=1,
                       help='upload format: 1 (length, payload, checksum) or 2 (Michael: blocks; '
                            'see upload_frame.py)')
-  parser.add_argument('--load-address', type=lambda text: int(text, 16), default=0x0200,
-                      help='format 2: where a binary FILE loads, in hex (default 0200); an Intel HEX '
-                           'FILE (.hex) gives its own addresses')
+  parser.add_argument('--load-address', type=lambda text: int(text, 16), default=LOAD_ADDRESS,
+                      help='format 2: where a binary FILE loads, in hex (default %04x); an Intel HEX '
+                           'FILE (.hex) gives its own addresses' % LOAD_ADDRESS)
   parser.add_argument('--start', type=lambda text: int(text, 16),
                       help='format 2: where to run the upload, in hex (default: its lowest address; '
                            'ffff: don\'t run it)')

@@ -40,6 +40,8 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
   - After the last block it moves the blocks up to their load addresses, last block first (each copied from the top down, since source and destination may overlap), then clears the zero-fill blocks.
   - Then it runs the start address, or with `$FFFF` shows what was loaded.
   - On any error it stops storing, turns off the receive interrupts and leaves the error on the LCD (bad version, bad block N, checksum N), with the LED lit, until reset.
+  - **Progress**, on the first two rows so a 2x16 LCD will do: the block arriving and where its next byte will end up ("Block 02 $0A40", or "$----" while its header arrives), and every byte received so far ("Received $1A40"). The checking and the display take turns (cooperative multitasking), so the display keeps up even when nothing is arriving: a stalled upload shows exactly where it stopped. Redraws are paced by the VIA's timer 1 to at most one every ~0.2 s, since redrawing nonstop dims the LCD.
+  - Before running the upload it clears the LCD.
 - **Uploader** (`tools/upload/upload_frame.py`, `transfer.py`):
   - Builds format 2 from vasm's Intel HEX output (`-Fihex`), one block per contiguous run, or from a flat binary with a load address.
   - Merges blocks whose gap is too small for the data not to move down, filling the gap with zeros.
@@ -59,15 +61,18 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
   - `exit` jumps back to the loader through the reset vector (today it stops the CPU).
 - The code is the `lcd_screen.inc`, `keyboard_keys.inc` and keyboard-driver code the editor runs today, moved into ROM. The only code change is that the "started" flag moves to RAM.
 - **Michael-only vectors after `$F068`**, for other programs:
-  - `services_start`, to start the LCD and keyboard without calling `argc`;
-  - `kbd_get_scancode`, for raw scan codes;
-  - `lcd_command` and `lcd_data`;
-  - `delay_ms`.
-- A new `firmware/boards/michael/michael_rom_vectors.inc` names all the vectors for vasm programs. The editor keeps using `17/environment.asm`.
-- **Services' RAM** stays where it is today (`michael_editor_layout.inc`):
-  - zero page `$F0-$FF`;
-  - `$3F00-$3F8F`: the IRQ slot (the services write a `jmp` to their keyboard handler there when they start), the key ring and the screen copy.
-  - `$3F90-$3FFF` stays free for programs.
+  - `SVC_START`, to start the keyboard and the screen without calling `argc`, or `SVC_KEYBOARD_START` and `SVC_SCREEN_START` to start one alone;
+  - `SVC_LCD_COMMAND` and `SVC_LCD_CHARACTER`, which need no start;
+  - `SVC_DELAY` (A x 100 us);
+  - `SVC_IRQ`, the ROM's interrupt handler, at a fixed place with a generic name so that later services can share it.
+- `firmware/boards/michael/michael_rom.inc` is written by hand and is the source of truth: it names every entry point and the RAM the services use, and the ROM checks that each entry is where it says. The editor keeps using `17/environment.asm`, which has the same offsets.
+- **Services' RAM**, each part's only once that part has started:
+  - the keyboard: zero page `$F0-$F9`, and `$3F04-$3F27` for its ring;
+  - the screen: `$3F28-$3F80` for its copy of the LCD (and `$FA-$FB` while it starts);
+  - `$3F00-$3F03`: the IRQ `jmp` (starting the keyboard points it at `SVC_IRQ`) and which parts have started;
+  - `$FC`, `ROM_FLAGS`: bit 7 set makes the LCD routines leave interrupts on (the loader sets it while receiving and clears it before running a program); the other bits are reserved. A program that uses the ROM's LCD routines must leave it alone.
+  - `$3F81-$3FFF` stays free for programs (the editor's buffers start at `$3F90`).
+- **Interrupts:** a program with its own interrupts, after starting the keyboard, points the `jmp` at `$3F00` at its handler, which ends by restoring the registers and jumping to `SVC_IRQ`.
 - **ROM source:** a new `firmware/boards/michael/michael_rom.s` (loader, services, vector table, reset and IRQ vectors), built into `michael_rom.bin`. The loader and the services share one set of LCD routines. `upload_and_run_eeprom_v2.s` is left alone, since it doesn't match any board.
 
 **The editor on the new ROM.**
@@ -97,14 +102,10 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 4. **Editor on the ROM.**
    - The editor's origin and memory map for Michael, and `michael_environment.asm` removed.
    - `michael_tests.py` boots the ROM, uploads the editor over the serial line, and runs the existing scripts, differential tests, live test and stack check against it.
-5. **The new ROM image.** Committed, in the manifest and handed over for programming (below). When you confirm it runs on the board:
-   - `base_config_v2.inc` changes to `PROGRAM_LOAD_ADDRESS = $0200`, since the config follows the ROM on the board;
-   - `compile_and_upload_michael.sh` assembles to Intel HEX and passes `--format=2`.
-6. **Programs with data at `$0200`-`$08FF`.** These would be overwritten by their own code once it loads at `$0200`. Their buffers move to the top of RAM below `$3F00`, as the editor's do:
-   - `michael_keyboard_new.s`, `michael_keyboard_show_names.s` and `michael_keyboard_diag.s` (the tests in `tools/tests/test_michael_keyboard.py` cover these three);
-   - `michael_graphic_keyboard.s` and `michael_graphic_prompt.s`, `michael_graphic_prompt_template.s`, `michael_graphic_bf.s`.
-
-   The `.org $2000` programs predate the current ROM and are left as they are. BBC BASIC has its own loader and memory map and is also left alone.
+5. **The new ROM image.** Committed, in the manifest and handed over for programming (below). Then:
+   - `base_config_v2.inc` sets `PROGRAM_LOAD_ADDRESS = $2000`, where programs loaded before the `$0900` ROM, so they keep their data at `$0200-$1FFF` and run unchanged. Only programs that want the room, like the editor, load at `$0200`. `michael_graphic_bf.s`, whose memory map is built around `$0900`, keeps that address, as BBC BASIC does;
+   - `compile_and_upload_michael.sh` assembles to Intel HEX and passes `--format=2`, so a program loads and starts at its `.org`; `transfer.py` sends a flat binary to `$2000` unless told otherwise (`editor-michael-upload.sh` passes `--load-address=0200`).
+6. ~~**Programs with data at `$0200`-`$08FF`.**~~ Not needed: with programs at `$2000`, their data stays below them.
 7. **Cleanup of the two-stage upload** (it stays in the history). Remove:
    - `firmware/programs/michael/michael_second_stage_loader.s` and its manifest entry;
    - `tools/upload/upload_michael_big.sh` and its README row;
@@ -128,7 +129,7 @@ minipro -p AT28C256 -r michael-rom-backup.bin
 Then, when I tell you the new image is ready:
 
 ```
-minipro -p AT28C256 -w firmware/boards/michael/michael_rom.bin
+minipro -p AT28C256 -w hardware/michael/michael_rom.bin
 ```
 
 This is the same command `tools/upload/compile_and_program.sh` uses. If the chip's write protection is on, add `--no-write-protect` (as for the Wendy 2 PLD in `hardware/wendy2/README.md`). To go back, write the backup the same way.
@@ -136,7 +137,7 @@ This is the same command `tools/upload/compile_and_program.sh` uses. If the chip
 ## Other suggestions
 
 - **ROM identity:** a version string at a fixed address, e.g. `$FFE0` "MICHAEL ROM 3". `michael_show_vectors.s` shows it, and a program or upload script can check it.
-- **Faster boot to the loader:** the reset path shows "Ready" straight away. Starting the LCD and keyboard waits until a program asks for them, so the loader's timing and messages stay as they are.
+- **Faster boot to the loader:** the reset path shows the waiting screen straight away. Starting the LCD and keyboard waits until a program asks for them, so the loader's timing and messages stay as they are.
 - **Uploads that don't run:** with start address `$FFFF` the loader only loads. A data upload can then go to one place, followed by a program that uses it.
 - **The editor in ROM, later:** at about 12 KB the editor fits beside the loader and services in the 32 KB EEPROM. It would start from a menu key or a service call, leaving all 15 KB of RAM for text. That only makes sense once the editor changes rarely, since every change means reprogramming the EEPROM. For now it stays an upload.
 - **Service calls for other programs:** with the services in ROM, the keyboard programs (`michael_keyboard_new.s` and the rest) could drop their own copies of the driver and LCD routines and call the ROM. That would make them much smaller. It's optional, and they'd no longer run on the old ROM.

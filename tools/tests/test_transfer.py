@@ -104,9 +104,10 @@ class UploadTest(TransferTestCase):
     self.upload('--noreset', '--wait')
     self.assertAlmostEqual(self.clock.now, start + send_duration(len(build_frame(PROGRAM)), 115200, 1))
 
-  def test_format_2_binary_loads_at_0200(self):
+  def test_format_2_binary_loads_at_2000(self):
+    # Where Michael's programs have always loaded, so a flat binary built with .org $2000 runs
     self.assertEqual(self.upload('--format=2'), (0, ''))
-    self.assertEqual(self.devices.writes(), [format_2([(0x0200, PROGRAM)])])
+    self.assertEqual(self.devices.writes(), [format_2([(0x2000, PROGRAM)])])
 
   def test_format_2_load_address_and_start(self):
     self.assertEqual(self.upload('--format=2', '--load-address=3000', '--start=ffff'), (0, ''))
@@ -122,7 +123,7 @@ class UploadTest(TransferTestCase):
   def test_format_2_too_big(self):
     with open(self.program, 'wb') as f:
       f.write(bytes(0x3d01))
-    status, output = self.upload('--format=2')
+    status, output = self.upload('--format=2', '--load-address=0200')
     self.assertEqual(status, 1)
     self.assertEqual(self.devices.writes(), [])
 
