@@ -165,15 +165,21 @@ delete_char_back_x:
   BNE .count_ok
   CPX CURSOR_COL16
   BCC .count_ok
-  ; The presses reach column 0.  When the count alone does, the others
-  ; do nothing, as one at a time: its delete is the last (unbatched)
+  BEQ .count_ok              ; The last press takes the last char
+  LDX CURSOR_COL16
+  LDA BATCH_EXTRA
+  BEQ .count_ok              ; A count past column 0: one press
+  ; Presses are left over at column 0, each an empty change as one at a
+  ; time.  When the count alone reaches it, its delete is the last to
+  ; take chars (unbatched)
   LDA BUF_DELTA              ; The count (get_batched_count)
   CMP CURSOR_COL16
-  BCC .clamp
+  BCC .left_over
   LDA #0
   STA BATCH_EXTRA
-.clamp:
-  LDX CURSOR_COL16
+.left_over:                  ; The delete, then the presses' empty change
+  JSR .count_ok
+  JMP undo_record_empty
 .count_ok:
   ; Move to the range start (col -= X) and delete forward from there
   TXA

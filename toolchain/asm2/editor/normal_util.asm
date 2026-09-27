@@ -898,9 +898,13 @@ bcd_start:
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
   BNE .leftward
-  ; From column 0 the presses only delete forward (to the line end, and
-  ; past it they do nothing): the forward range stands, and when the
-  ; count alone empties the line, its delete is the last
+  ; From column 0 the presses only delete forward, to the line end: the
+  ; forward range stands, and when the count alone empties the line, its
+  ; delete is the last.  The presses left over find the line empty:
+  ; empty changes, as for X
+  JSR .forward
+  JMP undo_record_empty
+.forward:
   BCC .yank_last
   BCS .unbatched
 .leftward:

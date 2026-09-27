@@ -1940,6 +1940,17 @@ class EditorTestRunner:
              [b"0", b"\x06", b"\x06", b"l", b"\x02", b"\x02", b"\x02", b"x"]),
             ("Batch equiv: Ctrl-F past the last page", indented,
              [b"0", b"\x06", b"\x06", b"\x06", b"\x06", b"\x06", b"x"]),
+            # x and X presses left over once the line is empty (or X at
+            # column 0) are empty changes, as typed one at a time: u after
+            # them puts nothing back
+            ("Batch equiv: x x on a one-char line", "a\nb\n", [b"x", b"x"]),
+            ("Batch equiv: 3x x past the line end", "ab\ncd\n",
+             [b"3x", b"x"]),
+            ("Batch equiv: x x x from the last char", "ab\ncd\n",
+             [b"l", b"x", b"x", b"x"]),
+            ("Batch equiv: X X past column 0", "ab\ncd\n", [b"l", b"X", b"X"]),
+            ("Batch equiv: 2X X past column 0", "abc\ncd\n",
+             [b"$", b"2X", b"X"]),
             ("Batch equiv: Space over line ends", "ab\n\ncd\nef\n",
              [b" "] * 7 + [b"x"]),
             ("Batch equiv: Backspace over line ends", "ab\n\ncd\nef\n",
@@ -5239,6 +5250,24 @@ class EditorTestRunner:
         )
 
         self._group("X (delete before cursor):", leading_blank=True)
+
+        # Typed ahead, the x and X presses that find the line empty (or X at
+        # column 0) are empty changes, as one at a time and in vim: u after
+        # them puts nothing back, and the register keeps the last char
+        # deleted
+        for content, keys, expected in (
+                ("a\nb\n", b"xxu", "\nb\n"),
+                ("ab\n", b"lXXu", "b\n"),
+                ("ab\n", b"lxxxu", "\n"),
+                ("ab\n", b"3xxu", "\n"),
+                ("abc\n", b"$XXXu", "c\n"),
+                ("abc\n", b"$2XXu", "c\n"),
+                ("ab\n", b"xxxP", "b\n"),
+                ("ab\n", b"lxxxP", "a\n"),
+                ("abc\n", b"$XXXP", "ac\n")):
+            self.run_test(f"Typed-ahead {keys.decode()!r} past the line's "
+                          f"chars on {content!r}", content, keys + b":wq\r",
+                          expected_content=expected)
 
         self.run_test(
             "X deletes the char before the cursor",
@@ -9986,21 +10015,24 @@ class EditorTestRunner:
             expected_content="c\n"
         )
 
+        # The fourth x finds the line empty: an empty change, which u
+        # undoes (vim)
         self.run_test(
-            "batched xxxx from column 0: undo restores the last char",
+            "batched xxxx from column 0: undo puts nothing back",
             "abc\n",
             b"xxxxu:wq\r",
-            expected_content="c\n"
+            expected_content="\n"
         )
 
         # Typed ahead after a count that already emptied the line (x) or
-        # reached column 0 (X), the presses do nothing, as one at a time:
-        # the count's delete stays the last one, for the register and undo
+        # reached column 0 (X), each press is an empty change, as one at a
+        # time: the count's delete stays the last to take chars, for the
+        # register, and u undoes the empty change
         self.run_test(
-            "5x + typed-ahead x: undo restores the whole count",
+            "5x + typed-ahead x: undo puts nothing back",
             "abc\n",
             b"5xxu:wq\r",
-            expected_content="abc\n"
+            expected_content="\n"
         )
 
         self.run_test(
@@ -10011,10 +10043,10 @@ class EditorTestRunner:
         )
 
         self.run_test(
-            "$2X + typed-ahead X: undo restores the whole count",
+            "$2X + typed-ahead X: undo puts nothing back",
             "abc\n",
             b"$2XXu:wq\r",
-            expected_content="abc\n"
+            expected_content="c\n"
         )
 
         self.run_test(
