@@ -1583,6 +1583,14 @@ class EditorTestRunner:
             "r steps along the line: 255rx ten times",
             "a" * 255 + "\n", b"0255rx" * 10 + b":q!\r", 1100000)
 
+        # w, e and b step the char's address with the cursor, where each
+        # char looked the line up again: 255w, 255e and 255b on a
+        # 2,000-char line of words took 1,709,547 cycles, 1,134,977 now
+        words = " ".join("word%d" % i for i in range(400))[:2000] + "\n"
+        self.run_test_cycle_cap(
+            "Word motions step along the line: 255w 255e 255b",
+            words, b"255w0255e$255b:q!\r", 1300000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

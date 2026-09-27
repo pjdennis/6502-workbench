@@ -5,25 +5,31 @@
 
 ; (zero-page variables: zp.asm)
 
-; Step the cursor right, then classify it as class_in_line does
-next_class:
-  INC16 CURSOR_COL16
-  ; fall through into class_in_line
-
 ; Class of the char at the cursor while the cursor is on the line
 ; (LINE_LEN16): A = class (see char_class; N clear, Z set for
 ; whitespace).  At or past the end of the line: A = $FF (N set).
-; Clobbers: A, X, Y, BUF_PTR16
+; BUF_PTR16 = the cursor's address, which next_class and prev_class
+; then step with it.  Clobbers: A, X, Y
 class_in_line:
+  JSR get_cursor_buf_ptr
+  BCC ptr_class_in_line      ; Always (C = 0 from the address add)
+
+; Step the cursor and BUF_PTR16 (its address) right, then classify it as
+; class_in_line does
+next_class:
+  INC16 BUF_PTR16
+  INC16 CURSOR_COL16
+ptr_class_in_line:
   CMP16 CURSOR_COL16, LINE_LEN16
-  BCC class_at_cursor
+  BCC class_at_ptr
   LDA #$FF
   RTS
 
-; Classify char at cursor -> A = class (see char_class)
-; Clobbers: A, X, Y (Y = 0), BUF_PTR16
-class_at_cursor:
-  JSR get_cursor_buf_ptr
+; Step the cursor and BUF_PTR16 (its address) left, then classify it
+; (A = class, see char_class).  Clobbers: A, Y (Y = 0)
+prev_class:
+  DEC16 BUF_PTR16
+  JSR dec_cursor_col
   ; fall through into class_at_ptr
 
 ; Classify char at BUF_PTR16 -> A = class (see char_class)
@@ -156,18 +162,17 @@ word_backward_x:
   ; Fall through to .b_not_bol which DECs then scans backward to word start
 
 .b_not_bol:
-  ; Move left one to start scanning
-  JSR dec_cursor_col
+  ; Move left one to start scanning (prev_class steps BUF_PTR16 with it)
+  JSR get_cursor_buf_ptr
 
   ; Skip whitespace backward
 .b_skip_ws:
-  JSR class_at_cursor
+  JSR prev_class
   BNE .b_found_nonws
   ; Still whitespace - move left
   TST16 CURSOR_COL16
   BEQ .b_prev_line        ; Only blanks before it: go on to the line above
-  JSR dec_cursor_col
-  JMP .b_skip_ws
+  BNE .b_skip_ws          ; Always
 
 .b_found_nonws:
   ; Remember class of this non-whitespace char
@@ -177,8 +182,7 @@ word_backward_x:
 .b_skip_same:
   TST16 CURSOR_COL16
   BEQ .b_done_one         ; At col 0, this is the word start
-  JSR dec_cursor_col
-  JSR class_at_cursor
+  JSR prev_class
   CMP WORD_CLASS
   BEQ .b_skip_same
   ; Different class - word start is one to the right
@@ -209,6 +213,7 @@ word_end_x:
   ; empty line) it goes on to the next line.  (From an empty last line
   ; it goes to col -1: an operator's range there is empty.)
   BEQ .e_next_line
+  JSR get_cursor_buf_ptr
   JSR next_class
   BPL .e_skip_ws_test
 
@@ -219,6 +224,7 @@ word_end_x:
   BCS .e_last             ; No next line
   JSR get_line_len_z
   JSR dec_cursor_col      ; Col -1: the first step lands on col 0
+  JSR get_cursor_buf_ptr
 
   ; Skip whitespace
 .e_skip_ws:
@@ -296,7 +302,8 @@ compute_multiline_word_range_forward:
 ;           BUF_SRC16, BUF_DST16
 compute_multiline_cw_range_forward:
   STX NORMAL_TEMP
-  JSR class_at_cursor               ; BUF_PTR16 = cursor, Y = 0
+  JSR get_cursor_buf_ptr
+  JSR class_at_ptr                  ; BUF_PTR16 = cursor, Y = 0
   LDX NORMAL_TEMP
   TAY
   BEQ compute_multiline_word_range_forward  ; On whitespace: the dw range
