@@ -26,7 +26,7 @@ ROM = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.s')
 COMMITTED_ROM = os.path.join(ROOT, 'hardware', 'michael', 'michael_rom.bin')
 TESTS = os.path.join(HERE, 'michael')
 CHECK = os.path.join(TESTS, 'upload_check.s')
-VECTORS = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom_vectors.inc')
+VECTORS = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.inc')
 ENVIRONMENT = os.path.join(ROOT, 'toolchain', 'asm2', '17', 'environment.asm')
 
 
@@ -48,24 +48,25 @@ class RomTestCase(unittest.TestCase):
         cls.tmp.cleanup()
 
     @classmethod
-    def assemble(cls, source):
-        binary = os.path.join(cls.tmp.name, os.path.basename(source) + '.bin')
-        subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir', '-ignore-mult-inc',
-                        '-esc', '-I', TESTS, '-o', binary, source], check=True, capture_output=True)
+    def assemble(cls, source, output_format='bin'):
+        binary = os.path.join(cls.tmp.name, os.path.basename(source) + '.' + output_format)
+        subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-F' + output_format, '-dotdir',
+                        '-ignore-mult-inc', '-esc', '-I', TESTS, '-o', binary, source],
+                       check=True, capture_output=True)
         return binary
 
-    def boot(self, wire, typed=None, stops=None):
+    def boot(self, wire, typed=None, stops=None, options=()):
         """The LCD's rows after the ROM boots and receives wire, and has had typed typed; the CPU
         must have stopped if stops (by default, when there is an upload)."""
         upload = os.path.join(self.tmp.name, 'upload')
         with open(upload, 'wb') as f:
             f.write(wire)
-        options = []
+        options = list(options)
         if typed is not None:
             keys = os.path.join(self.tmp.name, 'keys')
             with open(keys, 'wb') as f:
                 f.write(typed)
-            options = ['--keys', keys]
+            options += ['--keys', keys]
         report = subprocess.run([EMULATOR, self.rom, '--machine', 'michael', '--serial-input', upload,
                                  '--cycle-cap', '20000000', *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
@@ -104,8 +105,43 @@ class MichaelRomLoaderTest(RomTestCase):
                              'rebuild it: firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc '
                              '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
 
-    def test_ready_screen(self):
-        self.assertEqual(self.boot(b'')[1], 'Ready.')
+    def test_waiting_screen(self):
+        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 3', 'Received $0000'])
+
+    def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
+        wire = self.upload([Block(0x0200, self.check)])
+        self.assertEqual(self.boot(wire[:10 + 100], stops=False)[:2],
+                         ['Block 01 $0264', 'Received $006E'])
+
+    def test_a_stall_in_a_block_header(self):
+        wire = self.upload([Block(0x0200, self.check), Block(0x3000, b'xy')])
+        cut = 10 + len(self.check) + 3
+        self.assertEqual(self.boot(wire[:cut], stops=False)[:2],
+                         ['Block 02 $----', 'Received $%04X' % cut])
+
+    def test_a_stall_in_the_upload_header(self):
+        self.assertEqual(self.boot(self.upload([Block(0x0200, self.check)])[:2], stops=False)[:2],
+                         ['Block 01 $----', 'Received $0002'])
+
+    def test_progress_redraws_are_paced(self):
+        """Redrawing the LCD nonstop dims it: progress shows at most every ~0.2 s (the trace
+        samples the LCD every 50000 cycles; 6 runs of timer 1 are 393228 cycles)."""
+        trace = os.path.join(self.tmp.name, 'trace')
+        wire = self.upload([Block(0x0200, bytes(0x2000))], start=0xffff)
+        self.boot(wire, options=['--lcd-trace', trace])
+        with open(trace) as f:
+            snapshots = re.findall(r'cpu=(\d+).*\n\|(.*)\|\n\|(.*)\|', f.read())
+        counts = {}  # When each count first showed (a redraw can straddle two snapshots)
+        for cpu, block, count in snapshots:
+            if block.startswith('Block'):
+                counts.setdefault(count, int(cpu))
+        progress = sorted(counts.values())[:-1]  # Not the final count, shown straight away
+        self.assertGreater(len(progress), 2)
+        gaps = [b - a for a, b in zip(progress, progress[1:])]
+        self.assertGreaterEqual(min(gaps), 340000, gaps)
+
+    def test_the_screen_is_cleared_before_the_upload_runs(self):
+        self.assertEqual(self.boot(self.upload([Block(0x0200, b'\xdb')]))[:2], ['', ''])  # STP
 
     def test_one_block_fills_all_of_ram(self):
         data = bytearray(self.check + bytes([0x11]) * (0x3f00 - 0x0200 - len(self.check)))
@@ -126,8 +162,8 @@ class MichaelRomLoaderTest(RomTestCase):
                          self.expected_check({0x3eff: 0x77}))
 
     def test_no_start_address_only_loads(self):
-        self.assertEqual(self.boot(self.upload([Block(0x0200, self.check)], start=0xffff))[:2],
-                         ['Loaded.', ''])
+        wire = self.upload([Block(0x0200, self.check)], start=0xffff)
+        self.assertEqual(self.boot(wire)[:2], ['Loaded.', 'Received $%04X' % len(wire)])
 
     def failure(self, wire):
         rows = self.boot(wire)
@@ -209,8 +245,14 @@ class MichaelRomServicesTest(RomTestCase):
         typed = b'aA\x06\x1b[A\x1b[1;5C\x1b[3~\x1b\r\x08q'
         self.assertEqual(self.run_program('keys', typed)[0], '6141068089881B0D08')
 
+    def test_the_keyboard_alone_leaves_the_screens_ram_be(self):
+        self.assertEqual(self.run_program('kb_only', b'k')[0], 'kY')
+
+    def test_a_programs_interrupt_handler_ahead_of_the_roms(self):
+        self.assertEqual(self.run_program('chain', b'z')[0], 'zY')
+
     def test_exit_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Ready.'])
+        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Received $0000'])
 
 
 @NEEDS

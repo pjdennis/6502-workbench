@@ -1,38 +1,45 @@
 ; The asm2 editor's environment (toolchain/asm2/17/environment.asm, the direct_io build's) on
-; Michael: the 20x4 LCD as the screen and the PS/2 keyboard for input, behind the vector table
-; of michael_rom_vectors.inc. write_b and the scr_* calls draw on a copy of the screen that goes to
-; the LCD when the program waits for a key or flushes (lcd_screen.inc); con_read and con_ready
-; give keys as the editor's key codes (keyboard_keys.inc); term_rows and term_cols are 4 and 20;
-; there are no files or arguments. argc, the editor's first call, starts the services
-; (SVC_START does the same for other programs): the VIA's ports, the LCD and the keyboard. Zero
-; page from $F0 up and the interrupt page up to MICHAEL_EDITOR_SPARE are theirs from then on.
+; Michael, behind the entry points of michael_rom.inc: the 20x4 LCD as the screen and the PS/2
+; keyboard for input. write_b and the scr_* calls draw on a copy of the screen that goes to the
+; LCD when the program waits for a key or flushes (lcd_screen.inc); con_read and con_ready give
+; keys as the editor's key codes (keyboard_keys.inc); term_rows and term_cols are 4 and 20; there
+; are no files or arguments. The keyboard and the screen start separately (SVC_KEYBOARD_START,
+; SVC_SCREEN_START) or together (SVC_START, and argc, the editor's first call), each setting up
+; the VIA's ports if nothing has yet; michael_rom.inc says what RAM each then uses.
 ;
-; Requires, before the include: .org SVC_BASE + $06 (michael_rom_vectors.inc), base_config_v2.inc,
-;   SERVICES_STARTED - 1 byte, 0 until the services start
-;   SERVICES_EXIT    - where exit goes, after showing the screen
+; Requires, before the include: .org SVC_BASE + $06, base_config_v2.inc, and
+;   SERVICES_EXIT - where exit goes, after showing the screen
 
-  .include michael_rom_vectors.inc
-  .include michael_editor_layout.inc
+  .include michael_rom.inc
+
+STARTED_PORTS            = %00000001 ; ROM_STARTED bits
+STARTED_KEYBOARD         = %00000010
+STARTED_SCREEN           = %00000100
 
 ; Zero page
-KB_ZERO_PAGE_BASE        = $f0 ; 10 bytes
-CREATE_CHARACTER_PARAM   = $fa ; 2 bytes (start-up only)
+KB_ZERO_PAGE_BASE        = ROM_ZP_KEYBOARD
+CREATE_CHARACTER_PARAM   = ROM_ZP_SCRATCH
 
-; RAM in the interrupt page, after the jmp to the keyboard's handler
-  .ifndef INTERRUPT_ROUTINE
-INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
-  .endif
-KB_RING                  = INTERRUPT_ROUTINE + $10 ; KB_RING_SIZE bytes
-KB_RING_SIZE             = 32
-LCD_SCREEN               = KB_RING + KB_RING_SIZE  ; 80 bytes
-LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
-KB_RING_READ             = LCD_SCREEN_STATE + 9    ; 1 byte
+; The keyboard's RAM
+KB_RING_READ             = ROM_RAM_KEYBOARD        ; 1 byte
 KB_RING_WRITE            = KB_RING_READ + 1        ; 1 byte
 PENDING_KEY              = KB_RING_WRITE + 1       ; 1 byte
 HAVE_PENDING_KEY         = PENDING_KEY + 1         ; 1 byte: $ff if PENDING_KEY holds a key
-SERVICES_RAM_END         = HAVE_PENDING_KEY + 1
+KB_RING                  = HAVE_PENDING_KEY + 1    ; KB_RING_SIZE bytes
+KB_RING_SIZE             = 32
 
-; The vector table, at the includer's .org SVC_BASE + $06 (michael_rom_vectors.inc)
+; The screen's RAM
+LCD_SCREEN               = ROM_RAM_SCREEN          ; 80 bytes
+LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
+
+  .if KB_RING + KB_RING_SIZE > ROM_RAM_SCREEN
+  fail "The keyboard's RAM runs into the screen's (michael_rom.inc)"
+  .endif
+  .if LCD_SCREEN_STATE + 9 > ROM_RAM_END
+  fail "The screen's RAM runs past ROM_RAM_END (michael_rom.inc)"
+  .endif
+
+; The vector table, at the includer's .org SVC_BASE + $06 (michael_rom.inc)
   .macro vector,address,target
   .if * != \address
   fail "a service vector is out of place"
@@ -52,7 +59,7 @@ SERVICES_RAM_END         = HAVE_PENDING_KEY + 1
   vector SVC_OPENOUT         , services_zero            ; openout: no files
   vector SVC_WRITE           , services_nothing         ; write
   vector SVC_CON_READ        , services_con_read        ; con_read
-  vector SVC_CON_FLUSH       , lcd_screen_flush         ; con_flush
+  vector SVC_CON_FLUSH       , services_show            ; con_flush
   vector SVC_CON_READY       , services_con_ready       ; con_ready
   vector SVC_TERM_ROWS       , services_term_rows       ; term_rows
   vector SVC_TERM_COLS       , services_term_cols       ; term_cols
@@ -77,6 +84,9 @@ SERVICES_RAM_END         = HAVE_PENDING_KEY + 1
   vector SVC_LCD_COMMAND     , display_command          ; LCD command in A
   vector SVC_LCD_CHARACTER   , display_character        ; character in A at the LCD's cursor
   vector SVC_DELAY           , delay_10_thousandths     ; wait A x 100 us
+  vector SVC_KEYBOARD_START  , services_keyboard_start
+  vector SVC_SCREEN_START    , services_screen_start
+  vector SVC_IRQ             , rom_interrupt
 
   .include delay_routines.inc
   .include michael_ports.inc
@@ -113,8 +123,20 @@ services_term_cols:
   rts
 
 services_exit:
-  jsr lcd_screen_flush
+  jsr services_show
   jmp SERVICES_EXIT
+
+; Show the screen on the LCD, if it has started
+; On exit A, X, Y are preserved
+services_show:
+  pha
+  lda ROM_STARTED
+  and #STARTED_SCREEN
+  beq .not_started
+  jsr lcd_screen_flush
+.not_started:
+  pla
+  rts
 
 
 ; argc: no arguments. The first call starts the services
@@ -123,24 +145,42 @@ services_argc:
   lda #0
   rts
 
-; Set up the VIA, the LCD and the keyboard, the first time
+; Start the keyboard and the screen
 ; On exit A is not preserved; X, Y are
 services_start:
-  lda SERVICES_STARTED
+  jsr services_keyboard_start
+  ; fall through
+
+; Start the screen, the first time: the LCD, cleared, and its copy in RAM
+; On exit A is not preserved; X, Y are
+services_screen_start:
+  lda #STARTED_SCREEN
+  jsr services_first_time
   bne .started
-  dec SERVICES_STARTED
   phx
   phy
-  initialize_michael_ports
-  lda #$4c                        ; jmp services_interrupt, where the IRQ vector points
-  sta INTERRUPT_ROUTINE
-  lda #<services_interrupt
-  sta INTERRUPT_ROUTINE + 1
-  lda #>services_interrupt
-  sta INTERRUPT_ROUTINE + 2
   jsr reset_display
   jsr lcd_screen_initialize
   jsr lcd_screen_flush
+  ply
+  plx
+.started:
+  rts
+
+; Start the keyboard, the first time: its handler behind ROM_IRQ_JMP, interrupts enabled
+; On exit A is not preserved; X, Y are
+services_keyboard_start:
+  lda #STARTED_KEYBOARD
+  jsr services_first_time
+  bne .started
+  phx
+  phy
+  lda #$4c                        ; jmp SVC_IRQ, where the IRQ vector points
+  sta ROM_IRQ_JMP
+  lda #<SVC_IRQ
+  sta ROM_IRQ_JMP + 1
+  lda #>SVC_IRQ
+  sta ROM_IRQ_JMP + 2
   stz HAVE_PENDING_KEY
   jsr keyboard_initialize
   ply
@@ -148,8 +188,34 @@ services_start:
 .started:
   rts
 
+; On entry A = the ROM_STARTED bit of the part starting
+; On exit  Z clear if it had already started; else the bit is set, the VIA's ports are set up
+;          if they weren't, and Z is set
+services_first_time:
+  bit ROM_STARTED
+  bne .done
+  tsb ROM_STARTED
+  lda #STARTED_PORTS
+  tsb ROM_STARTED
+  bne .ports_done
+  initialize_michael_ports
+  lda #10                         ; 1 ms: the port setup pulses the keyboard's clock low, and the
+  jsr delay_10_thousandths        ; frame detector holds CA2 low for ~100 us after, so a command
+.ports_done:                      ; sent sooner would never see it fall
+  lda #0                          ; Z set
+.done:
+  rts
 
-services_interrupt:
+; What reset and the loader do before a program runs: nothing started, LCD routines disabling
+; interrupts
+services_reset:
+  stz ROM_STARTED
+  stz ROM_FLAGS
+  rts
+
+
+; The ROM's interrupt handler (SVC_IRQ): each service that uses interrupts checks for its own
+rom_interrupt:
   pha
   jsr handle_keyboard_interrupt
   pla
@@ -170,7 +236,7 @@ services_con_ready:
 .ready:
   rts
 .none:
-  jsr lcd_screen_flush
+  jsr services_show
   lda #0
   rts
 
@@ -179,7 +245,7 @@ services_con_ready:
 services_con_read:
   lda HAVE_PENDING_KEY
   bne .pending
-  jsr lcd_screen_flush
+  jsr services_show
 .wait:
   jsr keys_get
   bcs .wait
@@ -235,7 +301,3 @@ kb_ring_read:
 .done:
   plx
   rts
-
-  .if SERVICES_RAM_END > MICHAEL_EDITOR_SPARE
-  fail "The services' RAM runs into the editor's (MICHAEL_EDITOR_SPARE)"
-  .endif

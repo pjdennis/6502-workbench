@@ -36,6 +36,9 @@ CONSOLE_LOAD = 0x0400
 ROWS, COLS = 4, 20
 STACK_FLOOR = 0x0154         # the buffers below the stack end here (editor.asm)
 CYCLES_PER_KEY = 60000       # 30 ms at 2 MHz: more than the 20 ms between keys
+UPLOAD_AND_START_CYCLES = 6000000  # 3 s: the upload (~1.2 s here, the loader drawing its progress
+                                   # as it goes; ~2 s on the board's 57600 bps line), the keyboard's
+                                   # start-up and its 200 ms before the first key
 
 
 class MichaelEditorTest(unittest.TestCase):
@@ -57,7 +60,7 @@ class MichaelEditorTest(unittest.TestCase):
         """Boot the ROM, upload the editor and type keys; the emulator's report."""
         keys_file = Path(self.tmp.name) / "keys.txt"
         keys_file.write_bytes(keys)
-        cycles = 3000000 + CYCLES_PER_KEY * len(keys)
+        cycles = UPLOAD_AND_START_CYCLES + CYCLES_PER_KEY * len(keys)
         report = subprocess.run([EMULATOR, self.rom, "--machine", "michael", "--serial-input", self.upload,
                                  "--keys", keys_file, "--cycle-cap", str(cycles), *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
@@ -101,7 +104,7 @@ class MichaelEditorTest(unittest.TestCase):
         self.assertLessEqual((end + 0xff) & ~0xff, michael_image.memory_map_address("TEXT_END") - 0x100)
 
     def test_quitting_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_michael(b":q\r")[:2], ["Michael ROM 3", "Ready."])
+        self.assertEqual(self.run_michael(b":q\r")[:2], ["Michael ROM 3", "Received $0000"])
 
     def test_live(self):
         """--live draws the LCD in the terminal and types the terminal's keys;

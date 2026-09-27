@@ -1,6 +1,6 @@
 ; The ROM's service vectors under the asm2 environment's names (toolchain/asm2/17/environment.asm),
 ; for the test programs
-  .include michael_rom_vectors.inc
+  .include michael_rom.inc
 write_b          = SVC_WRITE_B
 exit             = SVC_EXIT
 argc             = SVC_ARGC

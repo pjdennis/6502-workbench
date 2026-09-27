@@ -1,7 +1,17 @@
-; The service entry points of Michael's ROM (michael_services.inc), for vasm programs: the asm2
-; environment's vectors (toolchain/asm2/17/environment.asm, at the same offsets; the editor uses
-; that file) and Michael's own after them. Each is a 3-byte jmp; see michael_services.inc for
-; what they do. SVC_BASE is $F000 unless defined first.
+; Michael's ROM (michael_rom.s) as programs see it: the entry points of its services
+; (michael_services.inc) and the RAM they use. This file is the source of truth: the ROM checks
+; that each entry is where this says.
+;
+; Entry points are 3-byte jmps. The asm2 environment's are at the offsets of
+; toolchain/asm2/17/environment.asm (the editor uses that file); Michael's own follow.
+;
+; RAM: the loader uses nothing that lasts once a program runs. A program that calls the LCD
+; routines (SVC_LCD_*, and the services') must leave ROM_FLAGS alone; one that starts the
+; keyboard or the screen must also leave that part's RAM alone, from the start call on.
+;
+; Interrupts: starting the keyboard puts a jmp to SVC_IRQ at ROM_IRQ_JMP, where the IRQ vector
+; points, and enables interrupts. A program with its own interrupts can, after that, point
+; the jmp at its own handler, which ends by restoring the registers and jumping to SVC_IRQ.
 
   .ifndef SVC_BASE
 SVC_BASE             = $F000
@@ -40,9 +50,27 @@ SVC_SCR_INSERT       = SVC_BASE + $5D
 SVC_SCR_DELETE       = SVC_BASE + $60
 SVC_SCR_SCROLL_UP    = SVC_BASE + $63
 SVC_SCR_SCROLL_DOWN  = SVC_BASE + $66
-; Michael's own
-SVC_START            = SVC_BASE + $69 ; Start the LCD and keyboard (argc does, the first time)
-SVC_LCD_COMMAND      = SVC_BASE + $6C ; Send the LCD command in A
-SVC_LCD_CHARACTER    = SVC_BASE + $6F ; Write the character in A at the LCD's cursor
+; Michael's own. All preserve X and Y
+SVC_START            = SVC_BASE + $69 ; Start the keyboard and the screen (argc does, the first time)
+SVC_LCD_COMMAND      = SVC_BASE + $6C ; Send the LCD command in A (no start needed)
+SVC_LCD_CHARACTER    = SVC_BASE + $6F ; Write the character in A at the LCD's cursor (no start needed)
 SVC_DELAY            = SVC_BASE + $72 ; Wait A times 100 microseconds
-SVC_END              = SVC_BASE + $75
+SVC_KEYBOARD_START   = SVC_BASE + $75 ; Start the keyboard: con_read, con_ready; enables interrupts
+SVC_SCREEN_START     = SVC_BASE + $78 ; Start the screen: write_b, con_flush, scr_*
+SVC_IRQ              = SVC_BASE + $7B ; The ROM's interrupt handler (ends with rti)
+SVC_END              = SVC_BASE + $7E
+
+; Zero page
+ROM_ZP_KEYBOARD      = $F0 ; $F0-$F9: the keyboard's, from SVC_KEYBOARD_START
+ROM_ZP_SCRATCH       = $FA ; $FA-$FB: used while the screen starts (and at reset)
+ROM_FLAGS            = $FC ; Bit 7 set: the LCD routines leave interrupts on (the loader, while
+                           ; receiving); clear: they disable them around each strobe. Other bits
+                           ; reserved. Cleared before a program runs
+; $FD-$FF: free
+
+; RAM, in the interrupt page (the loader's receive handler is there while it uploads)
+ROM_IRQ_JMP          = $3F00 ; 3 bytes: jmp, where the IRQ vector points (from SVC_KEYBOARD_START)
+ROM_STARTED          = $3F03 ; 1 byte: which parts have started (cleared before a program runs)
+ROM_RAM_KEYBOARD     = $3F04 ; The keyboard's, from SVC_KEYBOARD_START...
+ROM_RAM_SCREEN       = $3F28 ; ...the screen's, from SVC_SCREEN_START...
+ROM_RAM_END          = $3F81 ; ...up to here
