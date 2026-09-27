@@ -14,6 +14,12 @@ Branch: `michael-editor`, from `editor-size-series` with GitHub `main` merged in
 
 It reads input through `con_read`, `con_ready` and `wait_ready`, and recognises a lone Esc by a 100 ms timeout. It reads the screen size at run time from `term_rows`/`term_cols`.
 
+Both directions go through narrow layers:
+- Every escape sequence comes from the `ansi_*` routines in `terminal.asm`. The only outside caller that builds a sequence itself is `render_scroll.asm`, for scrolling, through `ansi_count_seq`.
+- All escape decoding is in `read_key` in `input.asm`, which returns the editor's `KEY_*` codes ($80-$8A).
+
+So a `define:direct_io` build can replace ANSI in both directions with direct service calls, leaving the rest of the editor as it is. The editor loses its escape decoder and sequence strings (~250-350 bytes). The services lose the ANSI parser, the key-to-sequence tables and the Esc timer (~550-600 bytes).
+
 At 4 rows by 20 columns the editor wraps text lines itself. The status line (`[No Name] [+] - INSERT - 2,7 /2`, about 31 characters) is longer than 20 characters and relies on the terminal to clip it, so the Michael console clips at column 20 and never wraps. A shorter status line for narrow screens is an optional later editor change.
 
 **Saving.** Nothing in the editor stops `:w` on "[No Name]". On Michael `openout` returns 0, so no editor change is needed.
@@ -25,8 +31,8 @@ At 4 rows by 20 columns the editor wraps text lines itself. The status line (`[N
 | editor (console build) | 12,108 bytes |
 | keyboard driver and tables | ~1,280 bytes (measured) |
 | LCD routines | ~300 bytes (measured) |
-| ANSI and key-translation layer | ~750 bytes (estimate) |
-| total | ~14.4 KB |
+| ANSI and key-translation layer | ~750 bytes (estimate; with `direct_io` a screen API and key translation of ~200 bytes) |
+| total | ~14.4 KB with ANSI; ~13.5 KB with `direct_io` |
 
 That leaves about 0.7-1 KB for all the editor's buffers. Today they are hard-coded at $D600-$EFFF.
 
@@ -72,7 +78,13 @@ Each step is test-first: the test and the code that makes it pass go in the same
   - `17/environment.asm` defines each vector as `ENV_BASE + offset`.
   - The buffer addresses in `buffer.asm`, `yank.asm`, `mark.asm`, `search.asm` and `undo_state.asm` move into one memory-map block in `editor.asm`. `MAX_LINES`, `YANK_LIMIT` and the other limits are derived from it.
   - Check: every build is byte-identical to the stable binaries.
-- **2b.** `define:michael`:
+- **2b.** `define:direct_io`:
+  - New vectors in `17/environment.asm`: `scr_goto` (A=row, X=column, both 0-based), `scr_clear`, `scr_clear_eol`, `scr_cursor` (A=0 hide, else show), `scr_video` (A=0 normal, else reverse), `scr_region` (A=top, X=bottom), `scr_insert` and `scr_delete` (A=count), and `scr_scroll_up`/`scr_scroll_down` (A=count).
+  - The `ansi_*` routines in `terminal.asm` jump to these vectors.
+  - `read_key` in `input.asm` returns `con_read`'s byte, which is already a `KEY_*` code, CR, BS, Esc or a control code. A lone Esc needs no timeout.
+  - Check: the ANSI builds stay byte-identical.
+  - Optional: host-side stubs for the `scr_*` vectors in the nmos-default emulator, so the editor test suite can also run on a `direct_io` build.
+- **2c.** `define:michael` (built together with `direct_io`):
   - Selects the Michael `ENV_BASE`, origin $0900 and the small buffer layout.
   - Adds a build-time check that code and buffers end below the services area.
   - Keeps the page alignment that `TEXT_BUF` and `YANK_BUF` rely on.
@@ -81,26 +93,24 @@ Each step is test-first: the test and the code that makes it pass go in the same
 ### 3. Michael console services (vasm, ROM-ready: no self-modifying code, code and data kept apart)
 - **Screen:**
   - A 20x4 screen copy with dirty-row flags.
-  - An ANSI parser for ESC and CSI with up to two parameters and the `?` prefix, handling `H K J m r @ P S T` and `?25h/l`.
+  - The `scr_*` calls from 2b, plus `write_b` for characters at the cursor.
   - Clip at column 20 and never wrap; reverse video is ignored.
   - `~` and `\` are shown through the custom characters in `extend_character_set.inc`.
   - `con_flush`, and any wait for input, writes the dirty rows and places the LCD cursor.
 - **Keyboard:**
   - An opt-in driver option so `keyboard_get_char` also returns KEY_* codes with the modifier state. Existing programs and firmware hashes stay unchanged.
   - Enter (LF) becomes CR, Backspace becomes $08, Esc becomes $1B, and Ctrl+letter becomes the control code.
-  - Arrows, Home, End, PgUp, PgDn, Delete and Ctrl+Left/Right become the ANSI sequences the editor decodes. Each sequence is queued whole, so the Esc timeout still works.
+  - Arrows, Home, End, PgUp, PgDn, Delete and Ctrl+Left/Right become the editor's `KEY_*` codes ($80-$8A).
 - **Services:**
   - `term_rows`=4, `term_cols`=20, `argc`=0.
   - `open` and `openout` return 0; `close` and `read` are stubs.
   - `exit` jumps to the ROM reset, back to the loader.
-  - `wait_ready` times out using VIA timer T1, polled.
-- **Tests:**
-  - Emulator harness programs check LCD frames for given ANSI input, and the bytes produced for given scan codes.
-  - A differential test replays editor output recorded at 4x20 through the Michael console and compares the LCD with `AnsiScreen(4, 20)`, clipped at column 20.
+- **Tests:** emulator harness programs check LCD frames for given sequences of screen calls, and the key codes produced for given scan codes.
 
 ### 4. End to end in the emulator
 - Load the services and `editor_michael.out` into the Michael machine.
 - Key scripts check LCD frames: insert, Esc, motions, scrolling in the 3-row text area, and `:w` failing.
+- A differential test runs the same key script on the console build (rendered by `AnsiScreen(4, 20)`, clipped at column 20) and on the Michael build, and compares the screens.
 - One test goes through the relocator (below) to check the board's start-up path.
 - Add a `michael` suite to `tools/check_all.sh`, and a launcher for live use.
 
@@ -112,7 +122,7 @@ A small general relocator sits at the start of an upload image:
 
 The editor stays at $0900, so it is uploaded exactly as assembled.
 
-While the code is larger than the 13.8 KB upload window, one script sends two uploads back to back:
+With `direct_io` the code should fit the 13.8 KB upload window, so one upload through the relocator is expected. If it doesn't, one script sends two uploads back to back:
 1. The relocator and the services. The relocator places parts A and B and returns to the loader, which only touches $00-$1F, $0200-$02FF and $3F00.
 2. The editor, sent with `--noreset`.
 
