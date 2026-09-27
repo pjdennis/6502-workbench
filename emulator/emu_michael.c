@@ -4,10 +4,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/select.h>
 
 #include "bus.h"
 #include "cpu_core.h"
+#include "emu_run.h"
 #include "lcd_report.h"
+#include "pace.h"
+#include "tty_alt_screen.h"
 #include "chips/glue_michael.h"
 #include "chips/rom_28c256.h"
 #include "chips/ram_628128.h"
@@ -169,6 +175,107 @@ static int load_program(struct bus *b, const char *path, uint16_t load) {
     return 0;
 }
 
+/* Step up to n oscillator ticks, stopping at the cap or an STP; keep the
+ * lowest stack pointer seen. */
+static void step(struct bus *b, int n, uint64_t cap, uint8_t *lowest_sp) {
+    for (int i = 0; i < n && b->osc_ticks < cap && !cpu_stp_pending(); i++) {
+        bus_step(b);
+        if (sp < *lowest_sp) *lowest_sp = sp;
+    }
+}
+
+/* ---- --live: the LCD in the terminal, the terminal's keys on the keyboard ---- */
+
+#define LIVE_QUIT_KEY   0x1D           /* Ctrl-] */
+#define LIVE_KEY_GAP_NS (10 * 1000000L) /* keys go out once input pauses this long */
+#define LIVE_FRAME_NS   (30 * 1000000L)
+
+static void live_emit(const char *s, size_t n) {
+    if (write(1, s, n) < 0) { /* best-effort */ }
+}
+
+/* The panel in a box, the cell under a showing cursor in reverse video */
+static void live_render(const struct lcd_hd44780_state *lcd) {
+    char buf[1024], text[LCD_DDRAM_SIZE + 8];
+    (void)lcd_hd44780_render((struct lcd_hd44780_state *)lcd, text);
+    int cursor_row = -1, cursor_col = -1;
+    if (lcd->display_on && lcd->cursor_on) lcd_hd44780_cursor(lcd, &cursor_row, &cursor_col);
+    int n = snprintf(buf, sizeof buf,
+                     "\x1b[H\x1b[1mmichael live\x1b[0m  --  Ctrl-] quits\x1b[K\r\n\r\n  +");
+    for (int c = 0; c < lcd->cols; c++) buf[n++] = '-';
+    n += snprintf(buf + n, sizeof buf - n, "+\x1b[K\r\n");
+    for (int r = 0; r < lcd->rows; r++) {
+        n += snprintf(buf + n, sizeof buf - n, "  |");
+        for (int c = 0; c < lcd->cols; c++) {
+            char ch = lcd->display_on ? text[r * lcd->cols + c] : ' ';
+            if (r == cursor_row && c == cursor_col)
+                n += snprintf(buf + n, sizeof buf - n, "\x1b[7m%c\x1b[0m", ch);
+            else
+                buf[n++] = ch;
+        }
+        n += snprintf(buf + n, sizeof buf - n, "|\x1b[K\r\n");
+    }
+    n += snprintf(buf + n, sizeof buf - n, "  +");
+    for (int c = 0; c < lcd->cols; c++) buf[n++] = '-';
+    n += snprintf(buf + n, sizeof buf - n, "+\x1b[K\r\n");
+    live_emit(buf, (size_t)n);
+}
+
+/* Read what the terminal has sent, without waiting. Returns the bytes read. */
+static int live_read(uint8_t *buf, int room) {
+    fd_set fds;
+    struct timeval tv = {0, 0};
+    FD_ZERO(&fds);
+    FD_SET(0, &fds);
+    if (room <= 0 || select(1, &fds, NULL, NULL, &tv) <= 0) return 0;
+    ssize_t n = read(0, buf, (size_t)room);
+    return n > 0 ? (int)n : 0;
+}
+
+/* Type the terminal's bytes on the keyboard, a key at a time */
+static void live_type(struct ps2_keyboard_board_state *kbd, const uint8_t *text, int len) {
+    for (int at = 0; at < len; ) {
+        uint8_t codes[PS2_KEY_MAX_CODES];
+        size_t used;
+        int n = ps2_encode_key(text + at, (size_t)len - at, &used, codes);
+        at += (int)used;
+        if (n) ps2_board_queue_key(kbd, codes, n);
+    }
+}
+
+static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
+                     struct ps2_keyboard_board_state *kbd, uint64_t cap,
+                     double osc_per_us, uint8_t *lowest_sp) {
+    install_tty_cleanup_handlers();
+    tty_alt_screen_enter();
+    live_emit("\x1b[?25l\x1b[2J", 10);
+
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    uint64_t osc0 = b->osc_ticks;
+    long last_render_ns = -LIVE_FRAME_NS, last_input_ns = 0;
+    uint8_t typed[256];
+    int typed_len = 0, quit = 0;
+    while (!quit && !sigint_requested && !cpu_stp_pending() && b->osc_ticks < cap) {
+        step(b, 2000, cap, lowest_sp);
+        long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
+        if (wall_ns - last_render_ns >= LIVE_FRAME_NS) {
+            live_render(lcd);
+            last_render_ns = wall_ns;
+        }
+        int got = live_read(typed + typed_len, (int)sizeof typed - typed_len);
+        for (int i = 0; i < got; i++) if (typed[typed_len + i] == LIVE_QUIT_KEY) quit = 1;
+        if (got) last_input_ns = wall_ns;
+        typed_len += got;
+        if (typed_len && wall_ns - last_input_ns >= LIVE_KEY_GAP_NS) {
+            live_type(kbd, typed, typed_len);
+            typed_len = 0;
+        }
+    }
+    live_render(lcd);
+    tty_alt_screen_leave();
+}
+
 int emu_run_michael(const struct emu_opts *opts) {
     cpu_variant = opts->cpu_variant_opt;
 
@@ -240,28 +347,29 @@ int emu_run_michael(const struct emu_opts *opts) {
     for (int i = 0; i < 8; i++) bus_step(&b);
     b.res = 0;
 
-    FILE *lcd_trace_fp = NULL;
-    if (opts->lcd_trace_filename) {
-        lcd_trace_fp = fopen(opts->lcd_trace_filename, "w");
-        if (!lcd_trace_fp) {
-            fprintf(stderr, "michael: could not open --lcd-trace %s\n", opts->lcd_trace_filename);
-            return 1;
-        }
-    }
-
     uint64_t cap = opts->cycle_cap;
     uint8_t lowest_sp = 0xFF;
-    while (b.osc_ticks < cap && !cpu_stp_pending()) {
-        const int BATCH = 50000;
-        for (int i = 0; i < BATCH && b.osc_ticks < cap && !cpu_stp_pending(); i++) {
-            bus_step(&b);
-            if (sp < lowest_sp) lowest_sp = sp;
+    if (opts->live) {
+        if (!opts->cycle_cap_set) cap = UINT64_MAX;
+        run_live(&b, &lcd_state, &kbd_state, cap,
+                 opts->target_mhz > 0.0 ? opts->target_mhz : MICHAEL_TICKS_PER_US, &lowest_sp);
+    } else {
+        FILE *lcd_trace_fp = NULL;
+        if (opts->lcd_trace_filename) {
+            lcd_trace_fp = fopen(opts->lcd_trace_filename, "w");
+            if (!lcd_trace_fp) {
+                fprintf(stderr, "michael: could not open --lcd-trace %s\n", opts->lcd_trace_filename);
+                return 1;
+            }
         }
-        lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
-    }
-    if (lcd_trace_fp) {
-        lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
-        fclose(lcd_trace_fp);
+        while (b.osc_ticks < cap && !cpu_stp_pending()) {
+            step(&b, 50000, cap, &lowest_sp);
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
+        }
+        if (lcd_trace_fp) {
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
+            fclose(lcd_trace_fp);
+        }
     }
 
     fprintf(stderr, "michael: exit  cpu_cycles=%llu  pc=$%04X  %s\n",

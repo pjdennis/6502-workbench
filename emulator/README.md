@@ -61,7 +61,7 @@ Common options (the full list is in `--help`):
 | `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
 | `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
 | `--serial-input <path>` | wendy2c: bytes pre-queued into the SERIAL_USB chip |
-| `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins |
+| `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins. michael: the LCD, with the terminal's keys typed on the PS/2 keyboard (Ctrl-] quits), paced to 2 MHz or `--mhz` |
 | `--cycle-cap N` | max cycles before forced exit (decimal; default 200000000; no cap under `--live` unless this is given explicitly). For wendy2c this is oscillator ticks (~2 per CPU cycle); for `nmos-default` and `--server` it is CPU cycles. |
 | `--load <hex>` | load address for the positional code file |
 | `--input` / `--output` / `--error-output` | ports `$F006` / `$F009` / `$F00C` |

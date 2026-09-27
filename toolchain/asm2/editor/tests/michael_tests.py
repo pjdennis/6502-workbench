@@ -13,10 +13,14 @@ LCD's).
 Run from toolchain/asm2 (verify.sh does); needs vasm6502_oldstyle on PATH
 and the emulator and asm17 built.
 """
+import os
+import pty
 import re
+import select
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -106,6 +110,44 @@ class MichaelEditorTest(unittest.TestCase):
 
     def assert_same_as_console(self, keys):
         self.assertEqual(self.run_michael(keys), self.run_console(keys))
+
+    def test_live(self):
+        """--live draws the LCD in the terminal and types the terminal's keys;
+        Ctrl-] quits and restores the terminal."""
+        master, slave = pty.openpty()
+        proc = subprocess.Popen([EMULATOR, self.image(), "--machine", "michael",
+                                 "--load", "%04x" % LOAD, "--live"],
+                                stdin=slave, stdout=slave, stderr=subprocess.DEVNULL)
+        os.close(slave)
+        seen = b""
+
+        def read_until(text, timeout=10):
+            """Read until text shows, ignoring video attributes (the cursor)."""
+            nonlocal seen
+            deadline = time.monotonic() + timeout
+            shown = lambda: text in re.sub(rb"\x1b\[[0-9]*m", b"", seen)
+            while not shown() and time.monotonic() < deadline:
+                if select.select([master], [], [], 0.1)[0]:
+                    try:
+                        seen += os.read(master, 65536)
+                    except OSError:
+                        break
+            return shown()
+
+        try:
+            self.assertTrue(read_until(b"[No Name] - NORMAL -"), seen[-500:])
+            os.write(master, b"ihello")
+            time.sleep(0.1)
+            os.write(master, b"\x1b")
+            self.assertTrue(read_until(b"|hello "), seen[-500:])
+            os.write(master, b"\x1d")
+            self.assertEqual(proc.wait(timeout=10), 0)
+            read_until(b"\x1b[?1049l", timeout=1)
+            self.assertIn(b"\x1b[?1049l", seen)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            os.close(master)
 
     def test_starts_with_an_empty_unnamed_file(self):
         self.assertEqual(self.run_michael(b""), ["", "~", "~", "[No Name] - NORMAL -"])

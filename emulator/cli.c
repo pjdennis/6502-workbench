@@ -114,6 +114,8 @@ void emu_opts_usage(FILE *fp) {
 "                         noirq (the VIA's IRQ doesn't reach the CPU), noack (no\n"
 "                         answer to commands) or resend (every answer is $FE)\n"
 "  --live                 wendy2c: live ANSI render of LCD, LED, button, VIA pin state\n"
+"                         michael: the LCD, with the terminal's keys typed on the\n"
+"                         PS/2 keyboard (Ctrl-] quits); paced to 2 MHz or --mhz\n"
 "                         (saves the terminal; q/ESC/Ctrl-C to quit; space toggles button)\n"
 "  --wav <path>           wendy2c: record the PB7 piezo line to a WAV file\n"
 "                         (PCM mono int16 @22050 Hz, high-passed to mimic a small piezo)\n"
@@ -435,8 +437,8 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
-    if (opts->live && opts->machine != MACHINE_WENDY2C) {
-        fprintf(stderr, "error: --live currently requires --machine wendy2c\n");
+    if (opts->live && opts->machine == MACHINE_NMOS_DEFAULT) {
+        fprintf(stderr, "error: --live requires --machine wendy2c or michael\n");
         return 1;
     }
     if (opts->web && opts->machine != MACHINE_WENDY2C) {
