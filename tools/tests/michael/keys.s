@@ -1,8 +1,7 @@
-; Keys on the Michael editor services: each key's code in hex until 'q'.
-  .include michael_editor_layout.inc
-  .include editor_vectors.inc
+; Keys on the Michael ROM's services: each key's code in hex until 'q'.
+  .include rom_vectors.inc
 
-  .org $0400
+  .org $0200
   ldx #$ff
   txs
   jsr argc
@@ -22,7 +21,8 @@
   jsr write_hex_digit
   bra .loop
 .done:
-  jmp exit
+  jsr con_flush           ; Show the screen and stop (exit would go back to the loader)
+  stp
 
 write_hex_digit:
   tax

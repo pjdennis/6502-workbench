@@ -1,10 +1,9 @@
-; Screen calls on the Michael editor services: writes, positioning, clear
+; Screen calls on the Michael ROM's services: writes, positioning, clear
 ; to end of row, insert and delete, wrapping past the last column but
 ; clipping on the bottom row, and '~' and '\'.
-  .include michael_editor_layout.inc
-  .include editor_vectors.inc
+  .include rom_vectors.inc
 
-  .org $0400
+  .org $0200
   ldx #$ff
   txs
   jsr argc                ; starts the services
@@ -28,7 +27,8 @@
   jsr scr_clear_eol       ; "status "
   goto 4, 15
   print alphabet          ; clipped at column 20
-  jmp exit
+  jsr con_flush           ; Show the screen and stop (exit would go back to the loader)
+  stp
 
 hello:           .asciiz "Hello, world"
 xy:              .asciiz "XY"

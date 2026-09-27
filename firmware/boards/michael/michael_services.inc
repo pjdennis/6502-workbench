@@ -16,12 +16,12 @@
 
 ; Zero page
 KB_ZERO_PAGE_BASE        = $f0 ; 10 bytes
-CP_M_DEST_P              = $fa ; 2 bytes (start-up only)
 CREATE_CHARACTER_PARAM   = $fa ; 2 bytes (start-up only)
-CP_M_SRC_P               = $fc ; 2 bytes (start-up only)
 
-; RAM in the interrupt page, after the 6-byte handler copied there
+; RAM in the interrupt page, after the jmp to the keyboard's handler
+  .ifndef INTERRUPT_ROUTINE
 INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
+  .endif
 KB_RING                  = INTERRUPT_ROUTINE + $10 ; KB_RING_SIZE bytes
 KB_RING_SIZE             = 32
 LCD_SCREEN               = KB_RING + KB_RING_SIZE  ; 80 bytes
@@ -30,8 +30,7 @@ KB_RING_READ             = LCD_SCREEN_STATE + 9    ; 1 byte
 KB_RING_WRITE            = KB_RING_READ + 1        ; 1 byte
 PENDING_KEY              = KB_RING_WRITE + 1       ; 1 byte
 HAVE_PENDING_KEY         = PENDING_KEY + 1         ; 1 byte: $ff if PENDING_KEY holds a key
-CP_M_LEN                 = HAVE_PENDING_KEY + 1    ; 2 bytes (start-up only)
-SERVICES_RAM_END         = CP_M_LEN + 2
+SERVICES_RAM_END         = HAVE_PENDING_KEY + 1
 
 ; The vector table, at the includer's .org SVC_BASE + $06 (michael_rom_vectors.inc)
   .macro vector,address,target
@@ -81,15 +80,17 @@ SERVICES_RAM_END         = CP_M_LEN + 2
 
   .include delay_routines.inc
   .include michael_ports.inc
+  .ifndef EXTEND_CHARACTER_SET           ; '~' and '\' as custom characters
 EXTEND_CHARACTER_SET = 1
+  .endif
   .include display_routines.inc
   .include lcd_screen.inc
-  .include copy_memory.inc
   .include key_codes.inc
   .include keyboard_typematic.inc
 KB_BUFFER_INITIALIZE = kb_ring_initialize
 KB_BUFFER_WRITE      = kb_ring_write
 KB_BUFFER_READ       = kb_ring_read
+KB_NO_INTERRUPT_HANDLER = 1                ; The services put a jmp to theirs where the vector points
   .include keyboard_driver.inc
   .include keyboard_keys.inc
 
@@ -131,6 +132,12 @@ services_start:
   phx
   phy
   initialize_michael_ports
+  lda #$4c                        ; jmp services_interrupt, where the IRQ vector points
+  sta INTERRUPT_ROUTINE
+  lda #<services_interrupt
+  sta INTERRUPT_ROUTINE + 1
+  lda #>services_interrupt
+  sta INTERRUPT_ROUTINE + 2
   jsr reset_display
   jsr lcd_screen_initialize
   jsr lcd_screen_flush
@@ -140,6 +147,13 @@ services_start:
   plx
 .started:
   rts
+
+
+services_interrupt:
+  pha
+  jsr handle_keyboard_interrupt
+  pla
+  rti
 
 
 ; con_ready: A = $ff if a key is waiting, else $00 (after showing the

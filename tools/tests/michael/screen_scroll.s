@@ -1,9 +1,8 @@
-; Scrolling on the Michael editor services: a region scrolled up, the whole
+; Scrolling on the Michael ROM's services: a region scrolled up, the whole
 ; screen scrolled down, and a one-row region ignored.
-  .include michael_editor_layout.inc
-  .include editor_vectors.inc
+  .include rom_vectors.inc
 
-  .org $0400
+  .org $0200
   ldx #$ff
   txs
   jsr argc
@@ -31,7 +30,8 @@
   print again             ; row1, again, -, row4
   lda #1
   jsr scr_scroll_down     ; -, row1, again, -
-  jmp exit
+  jsr con_flush           ; Show the screen and stop (exit would go back to the loader)
+  stp
 
 row1:  .asciiz "row1"
 row2:  .asciiz "row2"

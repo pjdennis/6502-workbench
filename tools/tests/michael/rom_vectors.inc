@@ -1,23 +1,23 @@
-; The environment vectors (toolchain/asm2/17/environment.asm) at the
-; Michael services' base, for vasm test programs
-ENV_BASE         = MICHAEL_ENV_BASE
-write_b          = ENV_BASE + $09
-exit             = ENV_BASE + $0f
-argc             = ENV_BASE + $1b
-con_read         = ENV_BASE + $27
-con_flush        = ENV_BASE + $2a
-con_ready        = ENV_BASE + $2d
-scr_goto         = ENV_BASE + $42
-scr_clear        = ENV_BASE + $45
-scr_clear_eol    = ENV_BASE + $48
-scr_cursor_on    = ENV_BASE + $4b
-scr_cursor_off   = ENV_BASE + $4e
-scr_region       = ENV_BASE + $57
-scr_region_reset = ENV_BASE + $5a
-scr_insert       = ENV_BASE + $5d
-scr_delete       = ENV_BASE + $60
-scr_scroll_up    = ENV_BASE + $63
-scr_scroll_down  = ENV_BASE + $66
+; The ROM's service vectors under the asm2 environment's names (toolchain/asm2/17/environment.asm),
+; for the test programs
+  .include michael_rom_vectors.inc
+write_b          = SVC_WRITE_B
+exit             = SVC_EXIT
+argc             = SVC_ARGC
+con_read         = SVC_CON_READ
+con_flush        = SVC_CON_FLUSH
+con_ready        = SVC_CON_READY
+scr_goto         = SVC_SCR_GOTO
+scr_clear        = SVC_SCR_CLEAR
+scr_clear_eol    = SVC_SCR_CLEAR_EOL
+scr_cursor_on    = SVC_SCR_CURSOR_ON
+scr_cursor_off   = SVC_SCR_CURSOR_OFF
+scr_region       = SVC_SCR_REGION
+scr_region_reset = SVC_SCR_REGION_RESET
+scr_insert       = SVC_SCR_INSERT
+scr_delete       = SVC_SCR_DELETE
+scr_scroll_up    = SVC_SCR_SCROLL_UP
+scr_scroll_down  = SVC_SCR_SCROLL_DOWN
 
 TEXT_PTR         = $00 ; 2 bytes
 

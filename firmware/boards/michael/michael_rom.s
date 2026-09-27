@@ -1,6 +1,9 @@
 ; Michael's ROM (32 KB EEPROM at $8000): at reset it receives an upload in format 2
 ; (firmware/lib/serial/upload_v2.inc, tools/upload/upload_frame.py) and runs it. Uploads go
-; from $0200 up to the interrupt page ($3F00, where the IRQ vector points).
+; from $0200 up to the interrupt page ($3F00, where the IRQ vector points). Uploaded programs
+; can call the LCD and keyboard services (michael_services.inc) through the vector table at
+; $F006 (michael_rom_vectors.inc): the asm2 environment's entry points, so the editor's
+; direct_io build runs on it; exit comes back here.
 ;
 ; Build:   firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc
 ;              -o michael_rom.bin firmware/boards/michael/michael_rom.s
@@ -8,6 +11,7 @@
 
   .include base_config_v2.inc
 
+EXTEND_CHARACTER_SET = 1                  ; '~' and '\' as custom characters (the services')
 BPS_HUNDREDS      = 576                   ; 57600 bps
 UPLOAD_RAM_START  = $0200
 INTERRUPT_ROUTINE = INTERRUPT_VECTOR_TARGET
@@ -41,6 +45,7 @@ reset:
   cld
   ldx #$ff
   txs
+  stz SERVICES_STARTED
   jmp initialize_machine          ; Sets up the VIA's ports, then jumps to program_start
 
   .include initialize_machine_v2.inc
@@ -68,6 +73,18 @@ program_start:
 
 nmi:
   rti
+
+; The services, behind the vector table at $F006
+  .include michael_rom_vectors.inc
+SERVICES_STARTED = SERVICES_RAM_END        ; 1 byte, after the services' own RAM
+SERVICES_EXIT    = reset
+
+  .org SVC_BASE + $06
+  .include michael_services.inc
+
+  .if SERVICES_STARTED >= MICHAEL_EDITOR_SPARE
+  fail "The services' RAM runs into the editor's (MICHAEL_EDITOR_SPARE)"
+  .endif
 
   .org $fffa
   .word nmi
