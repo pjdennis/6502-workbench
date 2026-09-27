@@ -2,7 +2,8 @@
 
 ; --- Movement ---
 
-; j, k, Down, Up: the whole count, as vim (and the typed-ahead presses)
+; j, k, Down, Up (in insert mode too): the whole count, as vim (and the
+; typed-ahead presses)
 normal_move_down:
   JSR get_count_pending16
   JSR move_down16

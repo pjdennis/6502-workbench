@@ -19,8 +19,8 @@
 
 insert_keys:
   .byte KEY_ESC     .word insert_exit
-  .byte KEY_UP      .word insert_up
-  .byte KEY_DOWN    .word insert_down
+  .byte KEY_UP      .word normal_move_up      ; As k and j (clamped for
+  .byte KEY_DOWN    .word normal_move_down    ; the mode)
   .byte KEY_LEFT    .word insert_left
   .byte KEY_RIGHT   .word insert_right
   .byte KEY_HOME    .word normal_line_start   ; Col 0 (no count in insert mode)
@@ -567,7 +567,8 @@ insert_seg_start:
 ; Arrow key and word motion handlers in insert mode, counted with pending
 ; repeats of the same key.  In insert mode the cursor may sit one past the
 ; last char (col = len), so they clamp to len, not len - 1 as normal mode
-; does.  Word motions already stay within 0..len, so need no clamp.
+; does.  Word motions already stay within 0..len, so need no clamp.  (Up
+; and Down run j and k's code, which clamps for the mode.)
 insert_word_fwd:
   JSR get_count_pending16
   JMP word_forward_x
@@ -584,16 +585,6 @@ insert_right:
   JSR get_line_len_z         ; LINE_LEN16 = max col (line doesn't change)
   JSR get_count_pending16
   JMP move_right_x
-
-insert_up:
-  JSR get_count_pending16
-  JSR move_up16
-  JMP vert_col_clamp
-
-insert_down:
-  JSR get_count_pending16
-  JSR move_down16
-  JMP vert_col_clamp
 
 ; Clamp cursor for insert mode (can be one past end of line content)
 clamp_cursor_col_insert:
