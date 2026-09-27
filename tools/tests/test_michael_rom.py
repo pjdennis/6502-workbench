@@ -211,3 +211,14 @@ class MichaelRomServicesTest(RomTestCase):
 
     def test_exit_goes_back_to_the_loader(self):
         self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Ready.'])
+
+
+@NEEDS
+class DisplayInterruptsFlagTest(RomTestCase):
+    def test_bit_7_leaves_interrupts_alone(self):
+        binary = self.assemble(os.path.join(TESTS, 'display_flag.s'))
+        report = subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '0400',
+                                 '--cycle-cap', '2000000'],
+                                check=True, capture_output=True, text=True).stderr.splitlines()
+        lcd = report.index('michael: lcd:')
+        self.assertEqual(report[lcd + 1].strip()[1:-1].rstrip(), '10')
