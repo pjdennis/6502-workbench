@@ -65,8 +65,9 @@ io_ready:
 ; bigger terminal gets 255 rows or cols, not its size mod 256, and no step
 ; of value * 10 + digit carries.
 ; Each ESC starts the parse again, and it ends only at an 'R' after two
-; runs of digits, so keys typed before the reply arrives are dropped
-; rather than read as the size.
+; runs of digits split by a ';', so keys typed before the reply arrives
+; are dropped rather than read as the size (unless they end like a reply
+; themselves: ESC[1;2R is xterm's Shift-F3).
 ; Clobbers X, Y, STR_PTR16 via write_string_ax
 query_terminal_size:
   LDA #<dsr_query_str
@@ -98,15 +99,17 @@ query_terminal_size:
   BEQ .restart
   LDY SCREEN_ROWS,X
   BEQ .read               ; no digits yet: skip '[' and typed-ahead keys
-  INX                     ; ';' ends the rows, 'R' the cols
+  CMP .ends,X             ; ';' ends the rows, 'R' the cols
+  BNE .restart            ; else typed-ahead keys, not the reply
+  INX
   CPX #2
   BNE .next_value
-  CMP #$62                ; 'R' ($52 EOR '0')?
-  BNE .restart            ; no: typed-ahead keys, not the reply
   LDX SCREEN_ROWS
   DEX
   STX TEXT_ROWS           ; Text rows above the status bar
   RTS                     ; (the first render positions the cursor)
+.ends:
+  .byte $0B, $62          ; ';' and 'R' (EOR '0')
 
 ; DSR query: ESC[255;255H ESC[6n (no escape decoding in .byte strings,
 ; so ESC is a raw $1B byte; explicit $00 terminator required)

@@ -15006,7 +15006,13 @@ class EditorTestRunner:
             for typed_name, typed in [("a letter", b"j"), ("a digit", b"5"),
                                       ("an arrow key", b"\x1b[A"),
                                       ("digits and letters", b"5j5j"),
-                                      ("a Ctrl-arrow key", b"\x1b[1;5C")]:
+                                      ("a Ctrl-arrow key", b"\x1b[1;5C"),
+                                      # Runs of digits split by a char other
+                                      # than ';', ending in R
+                                      ("two Deletes and x12R",
+                                       b"\x1b[3~\x1b[3~x12R"),
+                                      ("digits, a letter, digits and R",
+                                       b"5x12R")]:
                 self.run_test_terminal_screen(
                     f"Terminal size with {typed_name} typed before the reply",
                     "Hello\n",
