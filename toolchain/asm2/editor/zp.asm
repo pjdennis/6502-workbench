@@ -55,7 +55,7 @@ VIEW_TOP16:     .word   ; First visible line number (0-based)
 SCREEN_ROWS:    .byte   ; Terminal height
 SCREEN_COLS:    .byte   ; Terminal width
 TEXT_ROWS:      .byte   ; SCREEN_ROWS - 1: text rows above the status bar
-MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
+MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT
 MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
 READONLY:       .byte   ; Read-only mode ($00 = no, nonzero = yes)
 RENDER_ROW:     .byte   ; Current row being rendered

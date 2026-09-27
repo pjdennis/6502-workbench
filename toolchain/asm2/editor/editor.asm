@@ -147,15 +147,6 @@ main_loop:
   STA DELETE_SCREEN_ROWS     ; 0 = no pre-computed screen rows
   STA BATCH_EXTRA            ; No typed-ahead keys or pairs taken yet
 
-  ; If entering command mode, handle it specially (it does own I/O)
-  LDA MODE
-  CMP #MODE_COMMAND
-  BNE .not_command_entry
-  JSR render_snapshot
-  JSR command_handle
-  JMP .after_key
-.not_command_entry:
-
   ; Poll for input (non-blocking)
   JSR key_peek
   BCS .key_available

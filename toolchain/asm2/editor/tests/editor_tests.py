@@ -1700,7 +1700,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Decimal digits: the status bar shows column 30000",
             "a" * 30000 + "\n", b"$:q!\r", rows=24, cols=80,
-            expect_status_contains="t - COMMAND - 1,30000 /1")
+            expect_status_contains="t - NORMAL - 1,30000 /1")
         self.run_test_screen(
             "Decimal digits: :marks right-justifies line 1000",
             "".join("L%d\n" % i for i in range(1023)),
@@ -2124,13 +2124,13 @@ class EditorTestRunner:
             "No-op BS at buffer start leaves file unmodified",
             "hello\nworld\n",
             b"i\x08\x1b:q!\r",
-            expect_status_contains="t - COMMAND - 1,1"
+            expect_status_contains="t - NORMAL - 1,1"
         )
         self.run_test_screen(
             "No-op DEL at buffer end leaves file unmodified",
             "hello\nworld\n",
             b"G$a\x1b[3~\x1b:q!\r",
-            expect_status_contains="t - COMMAND - 2,5"
+            expect_status_contains="t - NORMAL - 2,5"
         )
         self.run_test(
             "No-op BS at buffer start keeps undo",
@@ -2152,13 +2152,13 @@ class EditorTestRunner:
             "Typed chars erased in one batch mark the file modified",
             "ab\n",
             b"ix\x08\x1b:q!\r",
-            expect_status_contains="t [+] - COMMAND - 1,1"
+            expect_status_contains="t [+] - NORMAL - 1,1"
         )
         self.run_test_screen(
             "Typed chars erased then no-op BS at buffer start mark modified",
             "ab\n",
             b"ix\x08\x08\x1b:q!\r",
-            expect_status_contains="t [+] - COMMAND - 1,1"
+            expect_status_contains="t [+] - NORMAL - 1,1"
         )
         self.run_test(
             "Typed chars erased in one batch: u undoes them as if typed slowly",
@@ -3147,13 +3147,13 @@ class EditorTestRunner:
             ]
         )
 
-        # Status bar shows line,col position (1-based)
-        # Note: :q! enters command mode, so we check COMMAND mode status
+        # Status bar shows line,col position (1-based); the last frame is the
+        # one before :q! (the ':' key's frame is the command's)
         self.run_test_screen(
             "Status bar shows position at start",
             "Hello\n",
             b":q!\r",
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         # Status bar after moving cursor
@@ -3161,7 +3161,7 @@ class EditorTestRunner:
             "Status bar shows line 2 after j",
             "Hello\nWorld\n",
             b"jlll:q!\r",
-            expect_status_contains="COMMAND - 2,"
+            expect_status_contains="NORMAL - 2,"
         )
 
         # :q on modified file shows warning message
@@ -3177,7 +3177,7 @@ class EditorTestRunner:
         # real terminal (deferred wrap) the next character wraps off the
         # bottom row and scrolls the whole screen up a line.
         lines19 = "".join(f"line {i}\n" for i in range(1, 20))
-        status = f"{str(self.tmpdir / 't')[:32]} - COMMAND - 2,1 /19"
+        status = f"{str(self.tmpdir / 't')[:32]} - NORMAL - 2,1 /19"
         self.run_test_screen(
             "Status bar clipped to the screen width",
             lines19,
@@ -3200,8 +3200,8 @@ class EditorTestRunner:
             "a\nb\nc\n",
             b"x:w\r:1,2y\r:q!\r",
             expect_lines_at_frame=[
-                (3, [(9, f'"{str(self.tmpdir / "t")[:32]}" written')]),
-                (5, [(9, "2 lines yanked")])],
+                (2, [(9, f'"{str(self.tmpdir / "t")[:32]}" written')]),
+                (3, [(9, "2 lines yanked")])],
         )
         self.run_test_screen(
             "Status message clipped to the screen width",
@@ -3971,7 +3971,7 @@ class EditorTestRunner:
             "Render opt: lll is cursor-only",
             "Hello\n",
             b"lll:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # h at col 0: cursor-only (no movement, no repaint)
@@ -4044,7 +4044,7 @@ class EditorTestRunner:
             "Render opt: 0 is cursor-only",
             "Hello\n",
             b"lll0:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # $ (line end): cursor-only
@@ -4084,7 +4084,28 @@ class EditorTestRunner:
             "Render opt: command cancel is cursor-only",
             "Hello\n",
             b":\x1b:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
+        )
+
+        # ':' sends no frame of its own (a status bar the prompt would
+        # erase at once): the key's frame is the prompt and then the
+        # command's result, here the status bar the prompt took (whole:
+        # the file name's length counts)
+        name_len = len(str(self.tmpdir / "t")[:32])
+        self.run_test_screen(
+            "Command cancel sends the prompt and the status bar only",
+            "Hello\n",
+            b":\x1b:q!\r",
+            expect_frame_bytes=[(1, 57 + name_len)],
+            expect_status_at_frame=[(1, "t - NORMAL - 1,1 /1")],
+        )
+        self.run_test_screen(
+            "Command entry sends no status-only frame",
+            "L1\nL2\nL3\nL4\nL5\n",
+            b"j:4\r:q!\r",
+            expect_frame_bytes=[(2, 59 + name_len)],
+            expect_cursor_at_frame=[(2, (3, 0))],
+            expect_status_at_frame=[(2, "NORMAL - 4,1 /5")],
         )
 
         # Insert HOME at col 0: cursor-only (already at start)
@@ -4357,12 +4378,12 @@ class EditorTestRunner:
         )
 
         # r replaces char: single-row redraw
-        # Frame 0: init(T), Frame 1: r+X batched replaces(T), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: r+X batched replaces(T)
         self.run_test_screen(
             "Render opt: r replaces with single-row redraw",
             "Hello\n",
             b"rX:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -4507,7 +4528,7 @@ class EditorTestRunner:
             "Render opt: r in wrapped line",
             "A" * 60 + "\nSecond\n",
             b"rX:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -6900,7 +6921,7 @@ class EditorTestRunner:
             make_lines(10),
             b"jjjjj:q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Batch KEY_DOWN arrow keys
@@ -6910,7 +6931,7 @@ class EditorTestRunner:
             make_lines(10),
             DOWN * 5 + b":q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Batch j with scrolling: verify screen content
@@ -6929,7 +6950,7 @@ class EditorTestRunner:
             make_lines(10),
             b"3jjj:q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Render optimization: batch j reduces redraws
@@ -6959,7 +6980,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5jkkk:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Batch KEY_UP arrow keys
@@ -6969,7 +6990,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j" + UP * 3 + b":q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Batch k with scrolling: scroll up from bottom
@@ -7134,7 +7155,7 @@ class EditorTestRunner:
             "Batch dw is single action frame",
             "Hello World\n",
             b"dw:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # yw: y+w batched into single frame
@@ -7152,16 +7173,16 @@ class EditorTestRunner:
             "Batch dd is single action frame",
             "Hello\nWorld\n",
             b"dd:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # gg: g+g batched into single frame (cursor-only, no content redraw)
-        # init(T), G(F cursor-only), g+g batched(F cursor-only), :q!(F)
+        # init(T), G(F cursor-only), g+g batched(F cursor-only)
         self.run_test_screen(
             "Batch gg is single action frame",
             make_lines(5),
             b"Ggg:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ra: r+a batched into single frame
@@ -7169,7 +7190,7 @@ class EditorTestRunner:
             "Batch ra is single action frame",
             "Hello\n",
             b"ra:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # de: d+e batched into single frame
@@ -7177,7 +7198,7 @@ class EditorTestRunner:
             "Batch de is single action frame",
             "Hello World\n",
             b"de:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # ye: y+e batched into single frame
@@ -7193,7 +7214,7 @@ class EditorTestRunner:
             "Batch cw is single action frame",
             "Hello World\n",
             b"cw\x1b:q!\r",
-            expect_content_redraws=[True, True, False, False]
+            expect_content_redraws=[True, True, False]
         )
 
         # >>: >+> batched into single frame
@@ -7201,7 +7222,7 @@ class EditorTestRunner:
             "Batch >> is single action frame",
             "Hello\nWorld\n",
             b">>:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # <<: <+< batched into single frame
@@ -7209,7 +7230,7 @@ class EditorTestRunner:
             "Batch << is single action frame",
             "  Hello\n  World\n",
             b"<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # dwdw: both dw pairs batched via pair batching + combo batching
@@ -7219,7 +7240,7 @@ class EditorTestRunner:
             "Batch dwdw is single action frame",
             "one two three four\n",
             b"dwdw:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # 3dw: count digit gets own frame, then d+w batched
@@ -7228,7 +7249,7 @@ class EditorTestRunner:
             "Count prefix + batch dw",
             "one two three four five\n",
             b"3dw:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # ============================================================
@@ -7245,7 +7266,7 @@ class EditorTestRunner:
             "Batch line pp is single action frame",
             "A\nB\nC\n",
             b"ddpp:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Line paste pp correctness: two copies pasted
@@ -7269,7 +7290,7 @@ class EditorTestRunner:
             "Batch line PP is single action frame",
             "A\nB\nC\n",
             b"ddPP:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Char paste pp: yank a char with x, paste twice with pp
@@ -7279,7 +7300,7 @@ class EditorTestRunner:
             "Batch char pp is single action frame",
             "Hello\n",
             b"xpp:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Char paste pp correctness
@@ -7321,7 +7342,7 @@ class EditorTestRunner:
             "Batch char PP is single action frame",
             "Hello\n",
             b"xPP:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Count + batch: 2p then extra p should paste 3 total
@@ -7738,7 +7759,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5ji" + UP * 3 + b"\x1b:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # --- Snapshot detection baseline tests ---
@@ -7751,7 +7772,7 @@ class EditorTestRunner:
             "Render opt: ra triggers current row redraw",
             "Hello\nWorld\n",
             b"ra:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -7770,7 +7791,7 @@ class EditorTestRunner:
             "Render opt: 2>> triggers full redraw",
             "Hello\nWorld\nThird\n",
             b"2>>:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # dd triggers full content redraw
@@ -7779,7 +7800,7 @@ class EditorTestRunner:
             "Render opt: dd triggers full redraw",
             "Hello\nWorld\n",
             b"dd:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # x triggers content redraw on current row
@@ -7906,7 +7927,7 @@ class EditorTestRunner:
             make_lines(3),
             b"dd:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # After 3dd completes, pending key and count are cleared
@@ -7915,7 +7936,7 @@ class EditorTestRunner:
             make_lines(5),
             b"3dd:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # 3d: count frame still shows (count digits not batched)
@@ -7946,7 +7967,7 @@ class EditorTestRunner:
             make_lines(3),
             b"d\x1b:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # ESC after 3d clears everything
@@ -7955,7 +7976,7 @@ class EditorTestRunner:
             make_lines(5),
             b"3d\x1b:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # After ma, pending key clears (m+a batched when keys available)
@@ -7964,7 +7985,7 @@ class EditorTestRunner:
             make_lines(3),
             b"ma:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # After 'a with mark set, pending key clears ('+a batched)
@@ -7973,7 +7994,7 @@ class EditorTestRunner:
             make_lines(3),
             b"ma'a:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # Invalid second key after pending key resets state completely
@@ -8066,7 +8087,7 @@ class EditorTestRunner:
             make_lines(10),
             b"3j:q!\r",
             expect_cursor=(3, 0),
-            expect_status_contains="COMMAND - 4,"
+            expect_status_contains="NORMAL - 4,"
         )
 
         # 5l moves right 5 columns
@@ -8091,7 +8112,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j3k:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Count exceeding bounds clamps
@@ -8100,7 +8121,7 @@ class EditorTestRunner:
             make_lines(5),
             b"99j:q!\r",
             expect_cursor=(4, 0),
-            expect_status_contains="COMMAND - 5,"
+            expect_status_contains="NORMAL - 5,"
         )
 
         self.run_test_screen(
@@ -8108,7 +8129,7 @@ class EditorTestRunner:
             make_lines(5),
             b"3j99k:q!\r",
             expect_cursor=(0, 0),
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         self.run_test_screen(
@@ -8134,7 +8155,7 @@ class EditorTestRunner:
             expect_status_at_frame=[
                 (1, " - 3 - "),   # '3' shows count
             ],
-            expect_status_contains="COMMAND - 4,"  # After j, count gone
+            expect_status_contains="NORMAL - 4,"  # After j, count gone
         )
 
         # j, k, Down and Up take the whole count, as vim does (the cursor
@@ -8147,7 +8168,7 @@ class EditorTestRunner:
                 make_lines(400),
                 keys + b":q!\r",
                 cols=80,
-                expect_status_contains=f"COMMAND - {line},"
+                expect_status_contains=f"NORMAL - {line},"
             )
 
         # Commands that loop on an 8-bit count take a count of 256 or more
@@ -8226,7 +8247,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5G:q!\r",
             expect_cursor=(4, 0),
-            expect_status_contains="COMMAND - 5,"
+            expect_status_contains="NORMAL - 5,"
         )
 
         # G without count = last line
@@ -8235,7 +8256,7 @@ class EditorTestRunner:
             make_lines(10),
             b"G:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 10,"
+            expect_status_contains="NORMAL - 10,"
         )
 
         # 1G goes to first line
@@ -8244,7 +8265,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j1G:q!\r",
             expect_cursor=(0, 0),
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         # 999G clamps to last line
@@ -8253,7 +8274,7 @@ class EditorTestRunner:
             make_lines(10),
             b"999G:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 10,"
+            expect_status_contains="NORMAL - 10,"
         )
 
         # A count takes gg to that line, as G (vim); no count: line 1
@@ -10468,40 +10489,40 @@ class EditorTestRunner:
 
         # A ':w' or range command's report stays on the status row until
         # the next key, as in vi: the frame that ends the command leaves
-        # the status bar alone (frame 1 is the ':')
+        # the status bar alone
         three = "line one\nline two\nline three\n"
         self.run_test_screen(
             ":w message stays until the next key",
             three,
             b"x:w\rj:q!\r",
-            expect_lines_at_frame=[(3, [(0, "ine one")])],
-            expect_status_at_frame=[(3, '" written'), (4, "NORMAL - 2,1 /3")],
+            expect_lines_at_frame=[(2, [(0, "ine one")])],
+            expect_status_at_frame=[(2, '" written'), (3, "NORMAL - 2,1 /3")],
         )
         self.run_test_screen(
             ":y message stays until the next key",
             three,
             b":1,2y\rj:q!\r",
-            expect_status_at_frame=[(2, "2 lines yanked"),
-                                    (3, "NORMAL - 2,1 /3")],
-            expect_cursor_at_frame=[(2, (0, 0)), (3, (1, 0))],
+            expect_status_at_frame=[(1, "2 lines yanked"),
+                                    (2, "NORMAL - 2,1 /3")],
+            expect_cursor_at_frame=[(1, (0, 0)), (2, (1, 0))],
         )
         self.run_test_screen(
             ":d message stays over the repainted text",
             three + "line four\n",
             b":1,2d\rj:q!\r",
-            expect_lines_at_frame=[(2, [(0, "line three"), (1, "line four"),
+            expect_lines_at_frame=[(1, [(0, "line three"), (1, "line four"),
                                         (2, "~")])],
-            expect_status_at_frame=[(2, "2 lines deleted"),
-                                    (3, "NORMAL - 2,1 /2")],
+            expect_status_at_frame=[(1, "2 lines deleted"),
+                                    (2, "NORMAL - 2,1 /2")],
         )
         self.run_test_screen(
             ":> message stays over the repainted text",
             three,
             b":1,2>\rj:q!\r",
-            expect_lines_at_frame=[(2, [(0, "  line one"),
+            expect_lines_at_frame=[(1, [(0, "  line one"),
                                         (1, "  line two")])],
-            expect_status_at_frame=[(2, "2 lines shifted"),
-                                    (3, "NORMAL - 3,")],
+            expect_status_at_frame=[(1, "2 lines shifted"),
+                                    (2, "NORMAL - 3,")],
         )
 
         # Every other message ("Mark not set", "Unknown command", "Pattern
@@ -10517,9 +10538,9 @@ class EditorTestRunner:
         self.run_test_screen(
             "Unknown command stays until the next key, which runs",
             two, b":foo\rx:q!\r",
-            expect_status_at_frame=[(2, "Unknown command"),
-                                    (3, "NORMAL - 1,1 /2")],
-            expect_lines_at_frame=[(3, [(0, "oo")])])
+            expect_status_at_frame=[(1, "Unknown command"),
+                                    (2, "NORMAL - 1,1 /2")],
+            expect_lines_at_frame=[(2, [(0, "oo")])])
         self.run_test_screen(
             "Pattern not found stays until the next key, which runs",
             two, b"/zz\rj:q!\r",
@@ -10793,8 +10814,8 @@ class EditorTestRunner:
 
         # :N,Md on screen scrolls the rows below up as 3dd does: the
         # line after the range moves into the cursor row and only the
-        # exposed bottom rows are drawn.  Frames: 0 initial, 1 ':',
-        # 2 :4,6d (with its message)
+        # exposed bottom rows are drawn.  Frames: 0 initial, 1 :4,6d (with
+        # its message)
         self.run_test_screen(
             ":4,6d scrolls instead of repainting",
             make_lines(20),
@@ -10802,8 +10823,8 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i + 1}") for i in range(3)]
                          + [(i, f"Line {i + 4}") for i in range(3, 9)],
             expect_cursor=(3, 0),
-            expect_scrolled_at_frame=[(2, True)],
-            expect_content_rows=[(2, {6, 7, 8})],
+            expect_scrolled_at_frame=[(1, True)],
+            expect_content_rows=[(1, {6, 7, 8})],
         )
         # A range reaching EOF moves the cursor up onto the line above it,
         # which keeps its rows (both: it wraps at 20 cols)
@@ -10815,7 +10836,7 @@ class EditorTestRunner:
             expect_lines=[(0, "Short 0"), (1, "This is a longer lin"),
                           (2, "e!"), (3, "~"), (4, "~")],
             expect_cursor=(1, 0),
-            expect_content_rows=[(2, {7, 8})],
+            expect_content_rows=[(1, {7, 8})],
         )
         # The deleted rows outnumber the rows below the cursor: every row
         # below it is redrawn
@@ -10829,7 +10850,7 @@ class EditorTestRunner:
                           (7, ("abcdefghij" * 6)[7:27]),
                           (8, "07 " + ("abcdefghij" * 4)[:37])],
             expect_cursor=(6, 0),
-            expect_content_rows=[(2, {6, 7, 8})],
+            expect_content_rows=[(1, {6, 7, 8})],
         )
         # The range starts on the top line, shown from its fourth row: the
         # cursor goes above the view, which moves up: a full redraw
@@ -10854,7 +10875,7 @@ class EditorTestRunner:
                           (22, "line 25 the quick brown fox jumps over the "
                                "lazy dog xyz")],
             expect_cursor=(3, 0),
-            expect_frame_bytes=[(2, 249)],
+            expect_frame_bytes=[(1, 249)],
         )
 
         # Line numbers are 1-based
@@ -11756,7 +11777,7 @@ class EditorTestRunner:
             "Batch ~~~ is single action frame",
             "hello\n",
             b"~~~:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("Join lines (J):", leading_blank=True)
@@ -11827,7 +11848,7 @@ class EditorTestRunner:
             "Batch JJ is single action frame",
             "aaa\nbbb\nccc\n",
             b"JJ:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("Replace char (r):", leading_blank=True)
@@ -12460,20 +12481,20 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
-        # Render: >>>> batched into single action frame (3 frames: init, action, quit)
+        # Render: >>>> batched into single action frame (2 frames: init, action)
         self.run_test_screen(
             "Render: >>>> is single action frame",
             "aaa\nbbb\nccc\n",
             b">>>>:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
-        # Render: <<<< batched into single action frame (3 frames: init, action, quit)
+        # Render: <<<< batched into single action frame (2 frames: init, action)
         self.run_test_screen(
             "Render: <<<< is single action frame",
             "  aaa\n  bbb\n  ccc\n",
             b"<<<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("First non-blank (^):", leading_blank=True)
@@ -14552,12 +14573,21 @@ class EditorTestRunner:
                 expect_status_contains="/t "
             )
 
-            # Status bar shows mode (COMMAND after :)
+            # Status bar shows the mode (':' draws no frame of its own)
             self.run_test_terminal_screen(
-                "Terminal status bar shows COMMAND",
+                "Terminal status bar shows NORMAL",
                 "Hello\n",
                 b":q!\r",
-                expect_status_contains="COMMAND - 1,"
+                expect_status_contains="NORMAL - 1,"
+            )
+
+            # ':' sends no frame of its own: frame 1 is the command's
+            self.run_test_terminal_screen(
+                "Terminal command entry sends no status-only frame",
+                "L1\nL2\nL3\nL4\nL5\n",
+                b":1,2d\r:q!\r",
+                expect_lines_at_frame=[(1, [(0, "L3"), (2, "L5")])],
+                expect_status_at_frame=[(1, "2 lines deleted")],
             )
 
             # A range command's report stays until the next key
@@ -14565,17 +14595,17 @@ class EditorTestRunner:
                 "Terminal range message stays until the next key",
                 make_lines(5),
                 b":1,3d\rj:q!\r",
-                expect_lines_at_frame=[(2, [(0, "Line 4"), (1, "Line 5")])],
-                expect_status_at_frame=[(2, "3 lines deleted"),
-                                        (3, "NORMAL - 2,")],
+                expect_lines_at_frame=[(1, [(0, "Line 4"), (1, "Line 5")])],
+                expect_status_at_frame=[(1, "3 lines deleted"),
+                                        (2, "NORMAL - 2,")],
             )
             # So does an error message, and the key after it runs
             self.run_test_terminal_screen(
                 "Terminal error message stays until the next key, which runs",
                 make_lines(5),
                 b":foo\rj:q!\r",
-                expect_status_at_frame=[(2, "Unknown command"),
-                                        (3, "NORMAL - 2,")],
+                expect_status_at_frame=[(1, "Unknown command"),
+                                        (2, "NORMAL - 2,")],
             )
 
             # Status bar after cursor movement
@@ -14583,7 +14613,7 @@ class EditorTestRunner:
                 "Terminal status bar after j",
                 "Hello\nWorld\n",
                 b"jlll:q!\r",
-                expect_status_contains="COMMAND - 2,"
+                expect_status_contains="NORMAL - 2,"
             )
 
             # Scrolling down past screen bottom
@@ -14618,7 +14648,7 @@ class EditorTestRunner:
                 "Terminal ESC returns to normal mode",
                 "Hello\n",
                 b"i\x1b:q!\r",
-                expect_status_contains="COMMAND"
+                expect_status_contains="NORMAL"
             )
 
             # --------------------------------------------------------
@@ -20980,7 +21010,7 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "def"), (1, "ghi")],
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, True, False, False, False],
+            expect_content_redraws=[True, True, False, False],
         )
 
         # After an undo, uu is redo then undo: the cursor ends at the undo
@@ -20992,8 +21022,7 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(1, "def"), (2, "ghi")],
             expect_cursor=(1, 0),
-            expect_content_redraws=[True, False, True, True, False, False,
-                                    False],
+            expect_content_redraws=[True, False, True, True, False, False],
         )
 
         # Each u marks the text changed, as typed one at a time: after :w,
@@ -22413,105 +22442,105 @@ class EditorTestRunner:
         # --- Cursor-only operations (no content redraw) ---
 
         # ^ (first non-blank) is a movement: cursor-only
-        # Frame 0: init(T), Frame 1: ^(F), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: ^(F)
         self.run_test_screen(
             "Render opt: ^ is cursor-only",
             "   hello\n",
             b"^:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # n (next search match) without scroll: cursor-only
         # /AAA finds at line 2, n wraps to line 0 (still visible)
-        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: n(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: n(F)
         self.run_test_screen(
             "Render opt: n no-scroll is cursor-only (edge)",
             "AAA\nBBB\nAAA\n",
             b"/AAA\rn:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ? (reverse search) without scroll: cursor-only
         # jj moves to line 2, ?AAA finds on line 0 (still visible)
-        # Frame 0: init(T), Frame 1: jj(F), Frame 2: ?AAA\r(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: jj(F), Frame 2: ?AAA\r(F)
         self.run_test_screen(
             "Render opt: ? no-scroll is cursor-only",
             "AAA\nBBB\nAAA\n",
             b"jj?AAA\r:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # N (find prev) without scroll: cursor-only
         # /AAA finds at line 2. N goes backward to line 0 (still visible).
-        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: N(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: N(F)
         self.run_test_screen(
             "Render opt: N no-scroll is cursor-only",
             "AAA\nBBB\nAAA\n",
             b"/AAA\rN:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # N (find prev) with scroll: triggers repaint
         # AAA at line 0 and line 11. /AAA finds line 11 (scrolls down).
         # N from line 11 searches backward to line 0 (scrolls up).
         # Frame 0: init(T), Frame 1: /AAA\r scrolls(T),
-        # Frame 2: N scrolls(T), Frame 3: :q!(F)
+        # Frame 2: N scrolls(T)
         self.run_test_screen(
             "Render opt: N with scroll triggers repaint",
             "AAA\n" + ''.join(f"X{i}\n" for i in range(2, 12))
             + "AAA\nY13\nY14\nY15\n",
             b"/AAA\rN:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # y$ (yank to end) is cursor-only (yank doesn't modify content)
-        # Frame 0: init(T), Frame 1: y$(F), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: y$(F)
         self.run_test_screen(
             "Render opt: y$ is cursor-only",
             "Hello World\n",
             b"y$:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # y0 (yank to start) is cursor-only
-        # Frame 0: init(T), Frame 1: lll(F), Frame 2: y0(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: lll(F), Frame 2: y0(F)
         self.run_test_screen(
             "Render opt: y0 is cursor-only",
             "Hello\n",
             b"llly0:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # yw (yank word) is cursor-only
-        # Frame 0: init(T), Frame 1: yw(F), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: yw(F)
         self.run_test_screen(
             "Render opt: yw is cursor-only",
             "Hello World\n",
             b"yw:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # yb (yank word back) is cursor-only
         # w moves to "World", yb yanks back
-        # Frame 0: init(T), Frame 1: w(F), Frame 2: yb(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: w(F), Frame 2: yb(F)
         self.run_test_screen(
             "Render opt: yb is cursor-only",
             "Hello World\n",
             b"wyb:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ye (yank to end of word) is cursor-only
-        # Frame 0: init(T), Frame 1: ye(F), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: ye(F)
         self.run_test_screen(
             "Render opt: ye is cursor-only",
             "Hello World\n",
             b"ye:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # --- Indent operations render ---
@@ -22519,12 +22548,12 @@ class EditorTestRunner:
         # << (unindent) triggers full content redraw (all rows touched)
         # This is a render optimization gap - ideally only row 0 would be
         # redrawn, but the current implementation repaints all content rows.
-        # Frame 0: init(T), Frame 1: <<(T full redraw), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: <<(T full redraw)
         self.run_test_screen(
             "Render opt: << triggers content redraw",
             "  Hello\nWorld\n",
             b"<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # --- Scroll-triggering operations ---
@@ -22532,92 +22561,89 @@ class EditorTestRunner:
         # w causing scroll (word forward past viewport bottom)
         # Single-word lines so w crosses line boundaries and scrolls.
         # j*8 moves to last visible line (row 8), w crosses to next line (scroll).
-        # Frame 0: init(T), Frame 1: j*8 batched(F), Frame 2: w scrolls(T),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: j*8 batched(F), Frame 2: w scrolls(T)
         self.run_test_screen(
             "Render opt: w with scroll triggers repaint",
             ''.join(f"W{i}\n" for i in range(1, 16)),
             b"jjjjjjjjw:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # b causing scroll (word back past viewport top)
         # G scrolls to bottom, then batched b's scroll back past top.
-        # Frame 0: init(T), Frame 1: G(T scroll), Frame 2: b*20 batched(T scroll),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T scroll), Frame 2: b*20 batched(T scroll)
         self.run_test_screen(
             "Render opt: b with scroll triggers repaint",
             make_lines(15),
             b"G" + b"b" * 20 + b":q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # e causing scroll (end of word past viewport bottom)
         # Single-word lines. j*8 to last visible row, $ to end, e to next word end.
         # Frame 0: init(T), Frame 1: j*8(F), Frame 2: $(F),
-        # Frame 3: e scrolls(T), Frame 4: :q!(F)
+        # Frame 3: e scrolls(T)
         self.run_test_screen(
             "Render opt: e with scroll triggers repaint",
             ''.join(f"W{i}\n" for i in range(1, 16)),
             b"jjjjjjjj$e:q!\r",
-            expect_content_redraws=[True, False, False, True, False]
+            expect_content_redraws=[True, False, False, True]
         )
 
         # G (go to last line) with scroll
         # 15-line file, 10 rows. G goes to last line, must scroll.
-        # Frame 0: init(T), Frame 1: G scrolls(T), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: G scrolls(T)
         self.run_test_screen(
             "Render opt: G with scroll triggers repaint",
             make_lines(15),
             b"G:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # gg (go to first line) with scroll (from scrolled position)
         # G scrolls to bottom, gg scrolls back to top.
-        # Frame 0: init(T), Frame 1: G(T), Frame 2: gg(T), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T), Frame 2: gg(T)
         self.run_test_screen(
             "Render opt: gg with scroll triggers repaint",
             make_lines(15),
             b"Ggg:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Mark goto with scroll (ma, scroll down, then 'a)
         # ma sets mark at line 1, G scrolls to bottom, 'a goes back to top.
         # Frame 0: init(T), Frame 1: ma(F), Frame 2: G(T),
-        # Frame 3: 'a scrolls(T), Frame 4: :q!(F)
+        # Frame 3: 'a scrolls(T)
         self.run_test_screen(
             "Render opt: mark goto with scroll triggers repaint",
             make_lines(15),
             b"ma" + b"G" + b"'a:q!\r",
-            expect_content_redraws=[True, False, True, True, False]
+            expect_content_redraws=[True, False, True, True]
         )
 
         # n (next match) with scroll
         # AAA appears at line 0 and line 11 (off-screen on 9 content rows).
         # /AAA finds line 11 (scrolls). n wraps back to line 0 (scrolls).
         # Frame 0: init(T), Frame 1: /AAA\r scrolls(T),
-        # Frame 2: n wraps to line 0 scrolls(T), Frame 3: :q!(F)
+        # Frame 2: n wraps to line 0 scrolls(T)
         self.run_test_screen(
             "Render opt: n with scroll triggers repaint",
             "AAA\n" + ''.join(f"X{i}\n" for i in range(2, 12))
             + "AAA\nY13\nY14\nY15\n",
             b"/AAA\rn:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # ? (reverse search) with scroll
         # G scrolls to bottom. ?Line 2\r searches backward, finds "Line 2"
         # near top, scrolls back.
-        # Frame 0: init(T), Frame 1: G(T), Frame 2: ?Line 2\r scrolls(T),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T), Frame 2: ?Line 2\r scrolls(T)
         self.run_test_screen(
             "Render opt: ? with scroll triggers repaint",
             make_lines(15),
             b"G?Line 2\r:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # --- Insert mode render ---
@@ -22625,13 +22651,13 @@ class EditorTestRunner:
         # DEL (delete key) joining lines in insert mode - needs repaint
         # At end of line 1, DEL joins line 2 onto line 1.
         # Frame 0: init(T), Frame 1: A enter insert(F), Frame 2: DEL join(T),
-        # Frame 3: ESC(F), Frame 4: :q!(F)
+        # Frame 3: ESC(F)
         DEL = b"\x1b[3~"
         self.run_test_screen(
             "Render opt: DEL joining lines in insert mode repaints",
             "Hello\nWorld\n",
             b"A" + DEL + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, True, False, False]
+            expect_content_redraws=[True, False, True, False]
         )
 
         self._group("Batching counting and insert mode edge cases:", leading_blank=True)
@@ -25052,7 +25078,7 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "Hello"), (1, "World")],
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
         # >> all empty lines in range: nothing changes, no content redraw.
@@ -25063,7 +25089,7 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, ""), (1, ""), (2, "Third")],
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # 2>>>> is 2>> then >> (a count means lines, so the pairs do not
@@ -25081,8 +25107,8 @@ class EditorTestRunner:
         )
 
         # :1,3> range indent: only rows 0-2 redrawn.
-        # Frames: 0=initial, 1=':' entry (status only), 2=command completes
-        # and renders the partial repaint.
+        # Frames: 0=initial, 1=the command (':' sends no frame of its own)
+        # with its partial repaint.
         self.run_test_screen(
             "Render opt: :1,3> range partial redraw",
             "aaa\nbbb\nccc\nddd\neee\n",
@@ -25093,7 +25119,7 @@ class EditorTestRunner:
                 (3, "ddd"), (4, "eee"),
             ],
             expect_cursor=(2, 2),
-            expect_content_rows=[(2, {0, 1, 2})]
+            expect_content_rows=[(1, {0, 1, 2})]
         )
 
         # :1,3< range unindent: only rows 0-2 redrawn.
@@ -25107,7 +25133,7 @@ class EditorTestRunner:
                 (3, "ddd"), (4, "eee"),
             ],
             expect_cursor=(2, 0),
-            expect_content_rows=[(2, {0, 1, 2})]
+            expect_content_rows=[(1, {0, 1, 2})]
         )
 
         # The range starts above the cursor's line (:N,M> ends on M): its
@@ -25124,7 +25150,7 @@ class EditorTestRunner:
                 (6, "zzz"),
             ],
             expect_cursor=(4, 2),
-            expect_content_rows=[(2, {1, 2, 3, 4, 5})]
+            expect_content_rows=[(1, {1, 2, 3, 4, 5})]
         )
 
         self._group("Batching equivalence (paced vs batched):",

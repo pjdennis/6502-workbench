@@ -264,10 +264,3 @@ do_mark_goto:
 .mark_not_set:
   JSR range_mark_err         ; "Mark not set"
   JMP clear_count
-
-; --- Mode switch ---
-
-normal_enter_command:
-  LDA #MODE_COMMAND
-  STA MODE
-  JMP keep_clear_count       ; (first_nonblank starts over: :N, :d, :>)

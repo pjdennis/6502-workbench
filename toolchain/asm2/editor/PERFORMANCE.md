@@ -153,6 +153,14 @@ that changes nothing (ESC) from 68 to 18. A 44-key editing session sends
 21% fewer bytes at 24x80 (26% at 10x40); a frame whose status bar changes
 costs about 1,900 cycles more.
 
+### The command line runs within the `:` key
+
+`:` reads its command line at the prompt within the key, as `/` and `?`
+do, so the key's one frame shows what the command did. A frame for the
+`:` alone would draw a status bar that the prompt erases at once: each
+ex command now sends 45-49 bytes and 4,300-7,600 cycles less (`:5` on a
+10x40 screen 108 bytes -> 61).
+
 ## Future Work
 
 ### Step 4: Gap buffer

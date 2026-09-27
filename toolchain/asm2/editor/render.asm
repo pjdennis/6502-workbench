@@ -8,7 +8,6 @@
 ; Mode constants
 MODE_NORMAL  = $00
 MODE_INSERT  = $01
-MODE_COMMAND = $02
 
 ; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
 ; before each key (contract table in render_decide.asm).  render_decide
@@ -320,8 +319,7 @@ str_mod_indicator: .asciiz " [+]"
 str_separator:     .asciiz " - "
 str_normal:        .asciiz "NORMAL"
 str_insert:        .asciiz "INSERT"
-str_command:       .asciiz "COMMAND"
-mode_strings:      .word str_normal, str_insert, str_command
+mode_strings:      .word str_normal, str_insert
 
 ; Print the status-line separator " - "
 ; Clobbers A, X, Y

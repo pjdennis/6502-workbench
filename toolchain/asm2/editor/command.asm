@@ -17,10 +17,12 @@ CMD_BUF_LEN = $007F   ; Max command length
 
 ; (zero-page variables: zp.asm)
 
-; Enter command mode: read a command line and execute it
-command_handle:
-  LDA #MODE_NORMAL
-  STA MODE                 ; Normal mode afterwards (a quit exits first)
+; ':' in normal mode: read a command line and execute it, all within the
+; key, whose frame then shows the result (a frame for the ':' alone would
+; be erased by the prompt at once).  The key keeps the remembered column,
+; as a command that does nothing (first_nonblank starts over: :N, :d, :>)
+normal_enter_command:
+  JSR keep_clear_count
   LDA #':'
   JSR read_line
   BCC command_parse

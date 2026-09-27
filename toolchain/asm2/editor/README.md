@@ -99,13 +99,13 @@ project's 6502 emulator in console/ANSI mode.
 4. Main loop:
    - Reset the handler's render inputs (`RENDER_FLAG` = 0, whole-line
      repaint, no ICH/DCH hint, no pre-computed rows).
-   - If `MODE == MODE_COMMAND`, `render_snapshot` then run `command_handle`
-     (does its own input).
-   - Otherwise poll with `key_peek`.  When a key is ready, note the cursor
+   - Poll with `key_peek`.  When a key is ready, note the cursor
      line's screen rows (`PREV_LINE_ROWS`), `render_snapshot` (VIEW_TOP,
      VIEW_TOP_WRAP, line count, buf end), `get_key` reads the key (decoded
      by `read_key`), and it is dispatched to `normal_handle_key` or
-     `insert_handle_key`.
+     `insert_handle_key`.  `:`, `/` and `?` read their line at a prompt on
+     the status row within the key (`read_line`), so the key's frame shows
+     what the command did.
    - `CMD_QUIT` exits.  (The first key of a two-key combo (`dd`, `dw`,
      `gg`, ...) handles its second key at once if it has already arrived,
      so the pending key gets no frame of its own.)
