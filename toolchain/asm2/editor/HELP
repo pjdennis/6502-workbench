@@ -292,10 +292,11 @@ INSERT MODE
   is refused with "Buffer full"; the next key runs as usual. Keys
   typed ahead go in exactly as if typed one at a time.
 
-  Arrow keys, Home, End, PgUp, PgDn, Ctrl-F, Ctrl-B all work
-  for navigation within insert mode. Ctrl-Right and Ctrl-Left
-  move by word. The cursor can be positioned one past the last
-  character (for appending).
+  Arrow keys, Home, End, PgUp and PgDn all work for navigation
+  within insert mode. Ctrl-Right and Ctrl-Left move by word. The
+  cursor can be positioned one past the last character (for
+  appending). Ctrl-F and Ctrl-B are typed into the text, as in vim
+  (shown as a reverse ?); other control keys are ignored.
 
 
 COMMAND-LINE MODE

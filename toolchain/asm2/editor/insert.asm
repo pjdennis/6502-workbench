@@ -5,8 +5,9 @@
 ;   - Enter ($0D) inserts a newline
 ;   - Backspace ($08) deletes the char before the cursor or joins lines
 ;   - Delete ($88) deletes the char at the cursor or joins lines forward
-;   - Other keys (ESC, arrows, Home/End, PgUp/PgDn, Ctrl-F/B, Ctrl-arrows)
-;     are dispatched through insert_keys; ESC returns to normal mode
+;   - Ctrl-F and Ctrl-B are inserted as chars, as in vim
+;   - Other keys (ESC, arrows, Home/End, PgUp/PgDn, Ctrl-arrows) are
+;     dispatched through insert_keys; ESC returns to normal mode
 ;
 ; insert_handle_key collects a batch of mixed editing keys (up to
 ; BATCH_MAX) and consolidates it on the fly into canonical form
@@ -27,8 +28,6 @@ insert_keys:
   .byte KEY_END     .word normal_line_end     ; Col = len (and j/k stick there)
   .byte KEY_PGDN    .word normal_page_down    ; These land on the first
   .byte KEY_PGUP    .word normal_page_up      ; non-blank: no insert clamp
-  .byte $06         .word normal_page_down    ; Ctrl-F
-  .byte $02         .word normal_page_up      ; Ctrl-B
   .byte KEY_WORD_FWD  .word insert_word_fwd
   .byte KEY_WORD_BACK .word insert_word_back
   .byte 0           ; End sentinel
@@ -101,6 +100,11 @@ insert_handle_key:
   CMP #KEY_DEL
   BEQ .key_del
   CMP #KEY_TAB
+  BEQ .key_printable
+  ; Ctrl-F and Ctrl-B go in as chars, as in vim (PgDn and PgUp page)
+  CMP #$06
+  BEQ .key_printable
+  CMP #$02
   BEQ .key_printable
   ; Check printable ($20-$7E)
   CMP #' '

@@ -4490,20 +4490,20 @@ class EditorTestRunner:
             expect_content_redraws=[True, True, True, False]
         )
 
-        # Insert Ctrl-F at bottom: nothing changes, no frame
+        # Insert PgDn at bottom: nothing changes, no frame
         self.run_test_screen(
-            "Render opt: insert Ctrl-F at bottom is cursor-only",
+            "Render opt: insert PgDn at bottom is cursor-only",
             make_lines(1),
-            b"i" + CTRL_F + b"\x1b:q!\r",
+            b"i\x1b[6~\x1b:q!\r",
             expect_content_redraws=[True, False, False],
             expect_frame_count=3
         )
 
-        # Insert Ctrl-B at top: nothing changes, no frame
+        # Insert PgUp at top: nothing changes, no frame
         self.run_test_screen(
-            "Render opt: insert Ctrl-B at top is cursor-only",
+            "Render opt: insert PgUp at top is cursor-only",
             make_lines(5),
-            b"i" + CTRL_B + b"\x1b:q!\r",
+            b"i\x1b[5~\x1b:q!\r",
             expect_content_redraws=[True, False, False],
             expect_frame_count=3
         )
@@ -7931,6 +7931,22 @@ class EditorTestRunner:
 
         HOME = b"\x1b[H"
         END = b"\x1b[F"
+
+        # Ctrl-F and Ctrl-B are typed into the text in insert mode, as vim
+        # does (only PgDn and PgUp page there): 30 lines with ix Ctrl-F y
+        # ESC give 'x', ^F, 'y' before 'Line 1' (checked in vim 8.2)
+        for key, name in ((b"\x06", "Ctrl-F"), (b"\x02", "Ctrl-B")):
+            self.run_test(
+                f"Insert mode: {name} is typed as a char, as in vim",
+                make_lines(30), b"ix" + key + b"y\x1b:wq\r",
+                expected_content="x" + key.decode() + "y" + make_lines(30))
+        self.run_test_screen(
+            "Insert mode: Ctrl-F typed ahead goes in with the chars",
+            make_lines(30), b"Gix\x06\x02y\x1bu:wq\r",
+            expected_content=make_lines(30), expect_cursor=(8, 0))
+        self.run_test_batch_equiv(
+            "Batch equiv: Ctrl-F and Ctrl-B in insert mode", make_lines(30),
+            [b"i", b"x", b"\x06", b"y", b"\x02", b"\x1b"])
 
         # Home key moves cursor to beginning of line
         # Start on "Hello World", move right 5 times, enter insert, Home, type X

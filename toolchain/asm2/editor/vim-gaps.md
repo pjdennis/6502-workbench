@@ -630,12 +630,14 @@ undo.
 ## 6. Ctrl-F and Ctrl-B (done, but for long lines)
 
 Done after part C, from part A's patch: Ctrl-F, Ctrl-B, PgDn and PgUp
-(in insert mode too) page as below, for lines that fit a row exactly as
-vim does (the part-A paging differential against vim 8.2: 0 of 400
-Ctrl-F sessions differ, and of 1,000 mixed page sessions the 25 left
-are two older differences: vim centres the cursor line after a jump of
-more than half a screen (20), and writes an emptied buffer as no bytes
-(5)). What is left is the overlap over long lines (below).
+(PgDn and PgUp in insert mode too, where vim types Ctrl-F and Ctrl-B
+into the text, as the editor does since leftovers batch A) page as
+below, for lines that fit a row exactly as vim does (the part-A paging
+differential against vim 8.2: 0 of 400 Ctrl-F sessions differ, and of
+1,000 mixed page sessions the 25 left are two older differences: vim
+centres the cursor line after a jump of more than half a screen (20),
+and writes an emptied buffer as no bytes (5)). What is left is the
+overlap over long lines (below).
 
 ### What vim does
 
