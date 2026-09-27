@@ -610,6 +610,7 @@ sub_change_insert:
 
 ; --- Change to EOL (C) ---
 normal_change_to_eol:
+  JSR get_count_clamp_lines  ; (a count on the last line ends it)
   JSR dollar_range_setup
   BCS sub_change_insert
   JMP sub_change_tail

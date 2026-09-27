@@ -8254,6 +8254,28 @@ class EditorTestRunner:
             expected_content="He\n"
         )
 
+        # On the last line a count of 2 or more fails, as in vim (the $
+        # motion goes down count - 1 lines first): D, d$, y$ and C do
+        # nothing (C does not enter insert mode), the yank and the undo
+        # record stay, and so does the remembered column
+        for content, keys, expected in (
+                ("abc\n", b"l2D", "abc\n"),
+                ("abc\nxyz\n", b"jl2d$", "abc\nxyz\n"),
+                ("abc\nxyz\n", b"j2CX\x1b", "abc\nxyz\n"),
+                ("abc\nxyz\n", b"yyG2y$P", "abc\nabc\nxyz\n"),
+                ("abc\nxyz\n", b"xG2Du", "abc\nxyz\n"),
+                ("abc\nxyz\nq\n", b"jl5D", "abc\nx\n")):
+            self.run_test(f"{keys!r} with a count on or near the last line",
+                          content, keys + b":wq\r",
+                          expected_content=expected)
+        for keys in (b"2D", b"2d$", b"2y$", b"2C"):
+            self.run_test_screen(
+                f"{keys!r} refused on the last line keeps the column for k",
+                "abcdef\nabcdef\nab\n",
+                b"$jj" + keys + b"k:q!\r",
+                expect_cursor=(1, 5),
+            )
+
         # 2D then p: charwise paste of deleted content
         # 2D at col 2 deletes "llo\nWorld", cursor clamps to col 1 ('e')
         # p pastes "llo\nWorld" after 'e', restoring original
@@ -17919,15 +17941,15 @@ class EditorTestRunner:
             expect_min_col=[(2, 1, 18)]
         )
 
-        # Batched 2D (D batched with pending D key)
-        # 2D from col 3 should delete to EOL (same as D with count)
+        # 2D on the last line fails, as in vim: nothing changes, and the
+        # frame draws no text
         self.run_test_screen(
-            "2D batched: partial render from cursor col",
+            "2D on the last line: nothing changes or redraws",
             "Hello World\n",
             b"lll2D:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "Hel")],
-            expect_min_col=[(3, 0, 3)]
+            expect_lines=[(0, "Hello World")],
+            expect_content_redraws=[True, False, False, False]
         )
 
         # C: change to EOL from col 3

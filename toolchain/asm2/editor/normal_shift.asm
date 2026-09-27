@@ -447,27 +447,28 @@ normal_delete_to_eol:
 ; Apply operator X to the $ range, if any (vi's linewise rule for a
 ; delete: op_lines)
 dollar_op:
-  TXA
-  PHA                         ; Save operator
+  STX NORMAL_TEMP             ; Save operator
+  JSR get_count_clamp_lines   ; (a count on the last line ends it)
   JSR dollar_range_setup
-  PLA
   BCS .done                   ; Nothing to do
+  LDA NORMAL_TEMP
   JSR op_lines                ; (linewise: the command ends there)
   LDA NORMAL_TEMP
   JSR apply_char_operator
 .done:
   JMP clear_count
 
-; Shared $-range setup for D, d$, y$ and C: BUF_LEN16 = bytes from the
+; Shared $-range setup for D, d$, y$ and C, after get_count_clamp_lines
+; (the count stops at the last line, and on the last line a count of 2
+; or more ends the command, as in vim): BUF_LEN16 = bytes from the
 ; cursor to the end of the count-th line (from an empty line too, as in
-; vi), carry set if there are none
+; vi), carry set if there are none.  Preserves NORMAL_TEMP
 dollar_range_setup:
   JSR get_line_len_z
-  JSR get_count
-  ; fall through
 
 ; Compute byte range for $ motion with count, as dollar_range_setup
-; Input: BUF_TEMP16 = count (from get_count), LINE_LEN16 = line length
+; Input: BUF_TEMP16 = count, at most the lines left (get_count_clamp_lines),
+;        LINE_LEN16 = line length
 ; Output: BUF_LEN16 = byte count from cursor to end of range
 ; For count=1: BUF_LEN16 = LINE_LEN16 - CURSOR_COL16
 ; For count>1: adds newline + line_length for each additional line
@@ -484,10 +485,6 @@ compute_dollar_range:
   ADCI16 FILE_LINE16, 1, COUNT16
 
 .add_line:
-  ; Check bounds: if next_line >= LINE_COUNT16, stop
-  CMP16 COUNT16, LINE_COUNT16
-  BCS .done
-
   ; Add 1 for the newline
   INC16 BUF_LEN16
 
