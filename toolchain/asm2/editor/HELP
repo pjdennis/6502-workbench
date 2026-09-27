@@ -142,7 +142,8 @@ All editing commands are blocked in read-only mode.
                  Character yank. Does not modify the file
   y$             Yank from cursor to end of line (accepts count)
                  Character yank. Does not modify the file
-  y0             Yank from beginning of line to cursor
+  y0             Yank from beginning of line to cursor (the cursor
+                 goes to the beginning of the line, as in vim)
                  Character yank. Cursor does not move
   p              Paste after/below cursor (accepts count: [N]p)
                  Line yank: pastes lines below current line

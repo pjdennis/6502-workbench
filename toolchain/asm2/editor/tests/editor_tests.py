@@ -13156,6 +13156,17 @@ class EditorTestRunner:
             expected_content="HelHello\n"
         )
 
+        # y0 leaves the cursor on column 0, where the yanked text starts,
+        # as in vim
+        self.run_test_screen(
+            "y0 leaves the cursor on column 0",
+            "abc def\n", b"$y0:q!\r", expect_cursor=(0, 0))
+        for keys, expected in ((b"$y0p", "aabc debc def\n"),
+                               (b"wy0P", "abc abc def\n")):
+            self.run_test(f"{keys!r}: the paste goes at column 0",
+                          "abc def\n", keys + b":wq\r",
+                          expected_content=expected)
+
         # y0 at col 0 does nothing (no yank)
         self.run_test(
             "y0 at col 0 does nothing",

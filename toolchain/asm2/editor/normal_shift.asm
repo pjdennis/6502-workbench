@@ -406,16 +406,13 @@ copy_line_to_nl:
 ; --- Dollar and zero motion operations: D, d$, y$, d0, y0 (C in
 ; normal_edit.asm shares dollar_range_setup) ---
 
-; y0 / d0: yank / delete from BOL to the cursor (count ignored).  y0
-; leaves the cursor where it was; d0 leaves it at col 0.
-do_y_zero:
-  PUSH16 CURSOR_COL16
-  LDX #OP_YANK
-  JSR zero_col_op             ; (ends with clear_count)
-  POP16 CURSOR_COL16
-  RTS
+; y0 / d0: yank / delete from BOL to the cursor (count ignored).  The
+; cursor goes to col 0, where the range starts, as in vim
 do_d_zero:
   LDX #OP_DELETE
+  BNE zero_col_op             ; Always
+do_y_zero:
+  LDX #OP_YANK
 zero_col_op:
   CP16 CURSOR_COL16, BUF_LEN16 ; BUF_LEN16 = bytes from BOL to cursor
   ORA BUF_LEN16
