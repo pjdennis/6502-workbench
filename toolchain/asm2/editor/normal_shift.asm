@@ -402,6 +402,19 @@ shift_line_width:
   TYA
   RTS
 
+; Copy bytes from (BUF_PTR16) to (JUMP_TARGET16) until '\n' is copied.
+; Advances both pointers past the copied data.
+; Clobbers: A, Y
+copy_line_to_nl:
+  LDY #0
+  LDA (BUF_PTR16),Y
+  STA (JUMP_TARGET16),Y
+  INC16 BUF_PTR16
+  INC16 JUMP_TARGET16
+  CMP #'\n'
+  BNE copy_line_to_nl
+  RTS
+
 ; Per-line bookkeeping for the core loops (Y = this line's width or
 ; removal, kept): remember it in NORMAL_TEMP for the column adjust (only
 ; a batch uses it, and a batch is on one line, the cursor's), add it to
@@ -427,19 +440,6 @@ shift_count_line:
 dec_buf_temp16:
   DEC16 BUF_TEMP16
   TST16 BUF_TEMP16
-  RTS
-
-; Copy bytes from (BUF_PTR16) to (JUMP_TARGET16) until '\n' is copied.
-; Advances both pointers past the copied data.
-; Clobbers: A, Y
-copy_line_to_nl:
-  LDY #0
-  LDA (BUF_PTR16),Y
-  STA (JUMP_TARGET16),Y
-  INC16 BUF_PTR16
-  INC16 JUMP_TARGET16
-  CMP #'\n'
-  BNE copy_line_to_nl
   RTS
 
 ; --- Dollar and zero motion operations: D, d$, y$, d0, y0 (C in
