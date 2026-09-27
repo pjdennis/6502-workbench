@@ -358,8 +358,10 @@ COMMAND-LINE MODE
   (:1,5 = :5 and :5,1 = :1), and past the last line to the last.
 
   A message stays on the status row until the next key, which then
-  runs as usual (as in vim): the report of :w ("name" written) or of
-  a range command (N lines deleted, yanked, shifted), and errors such
+  runs as usual (as in vim): the report of :w ("name" written), the
+  report of a command that deletes, yanks or shifts more than 2 lines
+  ("3 fewer lines", "3 lines yanked", "3 lines shifted": dd, yy, >>,
+  <<, :d, :y, :> and :<, as vim's default 'report'), and errors such
   as "Unknown command", "Mark not set" or "Pattern not found".
 
   ESC cancels command input. Backspace edits the command;

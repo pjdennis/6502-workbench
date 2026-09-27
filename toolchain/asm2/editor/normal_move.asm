@@ -247,10 +247,15 @@ do_yy:
   JSR get_count_clamp_lines  ; BUF_TEMP16 = count (16-bit)
 ; yy of BUF_TEMP16 lines (op_lines enters here)
 yy_lines:
-  JSR yank_current_lines
+  LDAX16 FILE_LINE16
+; Yank BUF_TEMP16 lines from line A/X (yy, :y) and report more than 2
+yank_lines:
+  JSR yank_add_lines
   BCS .overflow
-  JMP clear_count            ; Done - don't set MODIFIED
-
+  JSR clear_count            ; Done - don't set MODIFIED
+  LDA #<str_lines_yanked
+  LDX #>str_lines_yanked
+  JMP report_yank_lines_ax
 .overflow:
   JMP show_yank_overflow
 

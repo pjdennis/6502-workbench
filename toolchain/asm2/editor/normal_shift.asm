@@ -47,18 +47,21 @@ SHIFT_LINES16    = MARK_DELTA16    ; lines in the range (BUF_TEMP16 counts them 
 
 INDENT_WIDTH = 2
 
-; >> and <<: the cursor ends on the first non-blank, as in vim
+; >> and <<: the cursor ends on the first non-blank, as in vim, and a
+; shift of more than 2 lines is reported (as :> and :<)
 do_indent:
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   JSR shift_normal_setup
   JSR insert_spaces_core
-  JMP first_nonblank_clear
+  JMP shift_nonblank_report
 
 do_unindent:
   JSR get_count_clamp_lines
   JSR shift_normal_setup
   JSR remove_spaces_core
-  JMP first_nonblank_clear
+shift_nonblank_report:
+  JSR first_nonblank_clear
+  JMP shift_report
 
 ; Shared >> / << entry setup, after get_count_clamp_lines (which ends
 ; the command for a count on the last line).  Computes BUF_DELTA =

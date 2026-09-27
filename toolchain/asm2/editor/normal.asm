@@ -257,7 +257,16 @@ dd_lines:
   ; The cursor goes to that line's first non-blank
   JSR set_modified
   JSR first_nonblank
-  JMP finish_delete_scroll
+  JSR finish_delete_scroll
+  ; More than 2 lines are reported, but for typed-ahead pairs, the last
+  ; of which deletes one
+  LDA BATCH_EXTRA
+  BNE .ret
+  LDA #<str_fewer_lines
+  LDX #>str_fewer_lines
+  JMP report_yank_lines_ax
+.ret:
+  RTS
 
 .yank_overflow:
   JMP show_yank_overflow

@@ -3311,10 +3311,10 @@ class EditorTestRunner:
         self.run_test_screen(
             ":w and range reports have no ':' prefix",
             "a\nb\nc\n",
-            b"x:w\r:1,2y\r:q!\r",
+            b"x:w\r:1,3y\r:q!\r",
             expect_lines_at_frame=[
                 (2, [(9, f'"{str(self.tmpdir / "t")[:32]}" written')]),
-                (3, [(9, "2 lines yanked")])],
+                (3, [(9, "3 lines yanked")])],
         )
         self.run_test_screen(
             "Status message clipped to the screen width",
@@ -5859,15 +5859,16 @@ class EditorTestRunner:
             expect_cursor_at_frame=[(2, (0, 0))],
         )
 
-        # A shorter status text clears the rest of the old one: after the
-        # count, 'dd' sends from the count's column and clears the tail
+        # A shorter status text clears the rest of the old one: typed-ahead
+        # dd pairs (which report nothing) take 10 lines to 1, and the frame
+        # clears the tail of '/10' after '/1'
         self.run_test_screen(
             "Shorter status text clears the old tail",
             "ab\n" * 10,
-            b"x9dd:q!\r",
-            expect_ansi_contains="\x1b[7m1,1 /1\x1b[K\x1b[m",
-            expect_status_at_frame=[(3, " [+] - NORMAL - 1,1 /1")],
-            expect_lines_at_frame=[(3, [(0, "ab"), (1, "~")])],
+            b"x" + b"dd" * 9 + b":q!\r",
+            expect_ansi_contains="\x1b[7m\x1b[K\x1b[m",
+            expect_status_at_frame=[(2, " [+] - NORMAL - 1,1 /1")],
+            expect_lines_at_frame=[(2, [(0, "ab"), (1, "~")])],
         )
 
         self._group("Repaint bytes:", leading_blank=True)
@@ -8489,11 +8490,12 @@ class EditorTestRunner:
             expect_status_contains="NORMAL - 1,",
         )
 
-        # After 3dd completes, pending key and count are cleared
+        # After 3dd completes, pending key and count are cleared (the key
+        # after its report shows the status bar)
         self.run_test_screen(
             "3dd clears pending key from status",
             make_lines(5),
-            b"3dd:q!\r",
+            b"3dd\x1b:q!\r",
             cols=80,
             expect_status_contains="NORMAL - 1,",
         )
@@ -8897,7 +8899,7 @@ class EditorTestRunner:
         ind = "".join(f"  line {i:02d}\n" for i in range(30))
         for what, keys, status in (
             ("dd", b"$dd", " 1,3 "),
-            ("3dd", b"j$3dd", " 2,3 "),
+            ("3dd", b"j$3dd\x1b", " 2,3 "),
             ("G", b"$G", " 30,3 "),
             ("5G", b"$5G", " 5,3 "),
             ("gg", b"j$gg", " 1,3 "),
@@ -11059,12 +11061,46 @@ class EditorTestRunner:
             expect_ansi_contains="Mark not set",
         )
 
-        # Shows "N lines deleted" message
+        # A command that changes or yanks more than 2 lines reports it on
+        # the status row, as vim does with its default 'report' (2), in
+        # vim's words for deletes and yanks ("3 fewer lines", "3 lines
+        # yanked"; shifts say "3 lines shifted", vim "3 lines >ed 1 time");
+        # 1 or 2 lines, no report.  dd and yy report too, as in vim, but
+        # not a run of typed-ahead dd pairs, each of which deletes one line
+        five = make_lines(5)
+        for keys, report in ((b":1,3d\r", "3 fewer lines"),
+                             (b":1,2d\r", None),
+                             (b":2d\r", None),
+                             (b":1,3y\r", "3 lines yanked"),
+                             (b":1y\r", None),
+                             (b":1,2y\r", None),
+                             (b":1,3>\r", "3 lines shifted"),
+                             (b":1,2<\r", None),
+                             (b"3dd", "3 fewer lines"),
+                             (b"2dd", None),
+                             (b"dd", None),
+                             (b"3yy", "3 lines yanked"),
+                             (b"2yy", None),
+                             (b"dddddd", None),
+                             (b"3>>", "3 lines shifted"),
+                             (b"2>>", None),
+                             (b">>>>>>", None),
+                             (b"3>>u\x1b3<<", "3 lines shifted"),
+                             (b"j6dw", "3 fewer lines"),
+                             (b"j4dw", None)):
+            self.run_test_screen(
+                f"Report of {keys!r}: {report or 'none'}", five,
+                keys + b":q!\r",
+                expect_status_contains=report or "NORMAL - ")
+        self.run_test_batch_equiv("Batch equiv: 3dd then dd reports once",
+                                  make_lines(8), [b"3dd", b"d", b"d"])
+
+        # Shows "N fewer lines" message
         self.run_test_screen(
-            "Range delete shows lines deleted message",
+            "Range delete shows fewer lines message",
             make_lines(5),
             b"majj:'a,.d\r:q!\r",
-            expect_ansi_contains="3 lines deleted",
+            expect_ansi_contains="3 fewer lines",
         )
 
         # A ':w' or range command's report stays on the status row until
@@ -11081,28 +11117,29 @@ class EditorTestRunner:
         self.run_test_screen(
             ":y message stays until the next key",
             three,
-            b":1,2y\rj:q!\r",
-            expect_status_at_frame=[(1, "2 lines yanked"),
+            b":1,3y\rj:q!\r",
+            expect_status_at_frame=[(1, "3 lines yanked"),
                                     (2, "NORMAL - 2,1 /3")],
             expect_cursor_at_frame=[(1, (0, 0)), (2, (1, 0))],
         )
         self.run_test_screen(
             ":d message stays over the repainted text",
-            three + "line four\n",
-            b":1,2d\rj:q!\r",
-            expect_lines_at_frame=[(1, [(0, "line three"), (1, "line four"),
+            three + "line four\nline five\n",
+            b":1,3d\rj:q!\r",
+            expect_lines_at_frame=[(1, [(0, "line four"), (1, "line five"),
                                         (2, "~")])],
-            expect_status_at_frame=[(1, "2 lines deleted"),
+            expect_status_at_frame=[(1, "3 fewer lines"),
                                     (2, "NORMAL - 2,1 /2")],
         )
         self.run_test_screen(
             ":> message stays over the repainted text",
-            three,
-            b":1,2>\rj:q!\r",
+            three + "line four\n",
+            b":1,3>\rk:q!\r",
             expect_lines_at_frame=[(1, [(0, "  line one"),
-                                        (1, "  line two")])],
-            expect_status_at_frame=[(1, "2 lines shifted"),
-                                    (2, "NORMAL - 3,")],
+                                        (1, "  line two"),
+                                        (2, "  line three")])],
+            expect_status_at_frame=[(1, "3 lines shifted"),
+                                    (2, "NORMAL - 2,")],
         )
 
         # Every other message ("Mark not set", "Unknown command", "Pattern
@@ -11455,7 +11492,7 @@ class EditorTestRunner:
                           (22, "line 25 the quick brown fox jumps over the "
                                "lazy dog xyz")],
             expect_cursor=(3, 0),
-            expect_frame_bytes=[(1, 238)],
+            expect_frame_bytes=[(1, 236)],
         )
 
         # Line numbers are 1-based
@@ -15179,9 +15216,9 @@ class EditorTestRunner:
             self.run_test_terminal_screen(
                 "Terminal command entry sends no status-only frame",
                 "L1\nL2\nL3\nL4\nL5\n",
-                b":1,2d\r:q!\r",
-                expect_lines_at_frame=[(1, [(0, "L3"), (2, "L5")])],
-                expect_status_at_frame=[(1, "2 lines deleted")],
+                b":1,3d\r:q!\r",
+                expect_lines_at_frame=[(1, [(0, "L4"), (1, "L5")])],
+                expect_status_at_frame=[(1, "3 fewer lines")],
             )
 
             # A range command's report stays until the next key
@@ -15190,7 +15227,7 @@ class EditorTestRunner:
                 make_lines(5),
                 b":1,3d\rj:q!\r",
                 expect_lines_at_frame=[(1, [(0, "Line 4"), (1, "Line 5")])],
-                expect_status_at_frame=[(1, "3 lines deleted"),
+                expect_status_at_frame=[(1, "3 fewer lines"),
                                         (2, "NORMAL - 2,")],
             )
             # So does an error message, and the key after it runs

@@ -360,16 +360,10 @@ range_action_keys:
   .byte '<'   .word range_do_unindent
   .byte 0     ; End sentinel
 
-  ; --- Range yank ---
+  ; --- Range yank: as yy, of the range ---
 range_do_yank:
   LDAX16 BUF_SRC16
-  JSR yank_add_lines
-  BCS range_yank_full
-
-  ; Show "N lines yanked"
-  LDA #<str_lines_yanked
-  LDX #>str_lines_yanked
-  JMP report_yank_lines_ax
+  JMP yank_lines
 
 ; A yank that does not fit changes nothing: the yank buffer, the text,
 ; and the cursor, which goes back where the command was typed (d0, db,
@@ -382,24 +376,14 @@ range_yank_full:
   JMP show_message_ax
 
   ; --- Range delete ---
-  ; Same as dd with the cursor moved to the range start: yanks the lines,
-  ; records undo, adjusts marks, deletes and clamps FILE_LINE16, and the
-  ; rows below scroll up (RF_DEL, worked out before the lines go). A yank
-  ; that does not fit changes nothing (range_yank_full).
+  ; dd with the cursor moved to the range start: yanks the lines, records
+  ; undo, adjusts marks, deletes and clamps FILE_LINE16, and the rows
+  ; below scroll up (RF_DEL, worked out before the lines go). A yank that
+  ; does not fit changes nothing (range_yank_full)
 range_do_delete:
   CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
   JSR first_nonblank           ; (where u returns, as in vim)
-  JSR precompute_delete_scroll
-  JSR yank_delete_current_lines
-  BCS range_yank_full
-  JSR set_modified
-  JSR first_nonblank
-  JSR finish_delete_scroll
-
-  ; Show "N lines deleted"
-  LDA #<str_lines_deleted
-  LDX #>str_lines_deleted
-  JMP report_yank_lines_ax
+  JMP dd_lines                 ; (BATCH_EXTRA = 0)
 
   ; --- Range indent ---
   ; The shift starts on the first non-blank of the range's first line
@@ -425,14 +409,23 @@ range_shift_finish:
   SEC
   SBCI16 LINE_LEN16, 1, FILE_LINE16  ; The range's last line
   JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
+; Report a shift of SHIFT_LINES16 lines (>>, <<, :>, :<)
+shift_report:
   CP16 SHIFT_LINES16, DEC_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
   ; fall through
 
-; Report count on the status line: "N <suffix>"
+; Report count on the status line: "N <suffix>", when it is more than 2
+; (vim's default 'report')
 ; Input: A/X = suffix string, DEC_VALUE16 = count
 report_lines_ax:
+  LDY DEC_VALUE16 + 1
+  BNE .report
+  LDY DEC_VALUE16
+  CPY #3
+  BCC .none
+.report:
   ; status_line_clear clobbers STR_PTR16 and DEC_VALUE16 (its cursor
   ; positioning goes through write_param)
   PHA
@@ -443,6 +436,8 @@ report_lines_ax:
   POP16 DEC_VALUE16
   JSR print_decimal
   JMP pop_hold_message
+.none:
+  RTS
 
 ; Show "Buffer full" status message
 show_buffer_full_msg:
@@ -479,7 +474,7 @@ report_yank_lines_ax:
   JMP report_lines_ax
 
 str_lines_yanked:  .asciiz " lines yanked"
-str_lines_deleted: .asciiz " lines deleted"
+str_fewer_lines:   .asciiz " fewer lines"
 str_lines_shifted: .asciiz " lines shifted"
 str_marks_tail:    .asciiz "arks"
 

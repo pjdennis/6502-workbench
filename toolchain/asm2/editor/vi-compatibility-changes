@@ -48,6 +48,13 @@
 
   Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
 
+  Reports - Commands that delete, yank or shift more than 2 lines (dd, yy, >>, <<, :d, :y, :>, :<, and dw or de made
+  linewise) report it as vim does with its default 'report', but a shift says "3 lines shifted" where vim says "3
+  lines >ed 1 time" (or "<ed"). Vim also reports "3 more lines" after p and P, "3 fewer lines" and "3 lines yanked"
+  after a charwise delete or yank over lines (5dw, 5yw), "--No lines in buffer--" when the last line goes, and after
+  u and Ctrl-R always ("1 line less; before #2  0 seconds ago"); the editor says nothing there. A : command that
+  reports nothing leaves the status bar on the status row, where vim leaves the command line typed.
+
   Search messages - A search that goes on past the end of the file, or past its start, says nothing; vim says "search
   hit BOTTOM, continuing at TOP" (or "search hit TOP, continuing at BOTTOM"). A pattern that is not found says
   "Pattern not found: {pattern}", where vim's message starts "E486: ". See vim-gaps.md.
