@@ -13,9 +13,10 @@ A three-machine 6502 emulator:
 - **`michael`** — a board-level model of Michael (v2), the Ben Eater-style
   board: 16 KiB RAM at `$0000`, 6522 VIA at `$6000`, ROM at `$8000`, a
   20x4 HD44780 in 8-bit mode, and the PS/2 keyboard board
-  (`chips/ps2_keyboard_board.c`). The code file is loaded into RAM at
-  `--load` (default `$0900`); without `--rom` the ROM holds only the
-  vectors (reset to the load address, IRQ to `$3F00`). Selected with
+  (`chips/ps2_keyboard_board.c`). With `--load`, the code file is loaded
+  into RAM there, and without `--rom` the ROM holds only the vectors
+  (reset to the load address, IRQ to `$3F00`); without `--load`, the code
+  file is the ROM image. Selected with
   `--machine michael`. At exit it prints the LCD and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once.
@@ -55,7 +56,7 @@ Common options (the full list is in `--help`):
 |---|---|
 | `--machine <name>` | `nmos-default` (default), `wendy2c` or `michael` |
 | `--cpu <variant>` | `nmos` or `65c02` (wendy2c and michael force `65c02`) |
-| `--rom <path>` | wendy2c: ROM image; falls back to the positional code file. michael: ROM image; else only the vectors |
+| `--rom <path>` | wendy2c: ROM image; falls back to the positional code file. michael: ROM image; with `--load` the code file goes into RAM, without it the code file is the ROM |
 | `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
 | `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
 | `--key-interval MS` | michael: milliseconds between typed keys (default 20) |

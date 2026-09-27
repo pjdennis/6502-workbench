@@ -65,4 +65,21 @@ run_case() {
 
 run_case hello hello_michael_ram.s 2000000 "|Hi I'm Michael!     |"
 
+# Boot from a ROM image (no --load): the repo's EEPROM loader shows its ready screen.
+echo "michael_goldens: case rom-boot"
+if ! "$FW/vasm" -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc \
+        -o "$OUT/rom.bin" "$FW/boards/michael/upload_and_run_eeprom_v2.s" >"$OUT/rom.vasm.log" 2>&1; then
+    echo "michael_goldens: vasm failed assembling upload_and_run_eeprom_v2.s"
+    cat "$OUT/rom.vasm.log"
+    exit 1
+fi
+"$EMU" "$OUT/rom.bin" --machine michael --cycle-cap 2000000 \
+    >"$OUT/rom-boot.stdout" 2>"$OUT/rom-boot.stderr" || true
+if ! grep -qF "|57600bps Ready.     |" "$OUT/rom-boot.stderr"; then
+    echo "michael_goldens: FAIL rom-boot -- the loader's ready screen isn't on the LCD"
+    sed 's/^/    /' "$OUT/rom-boot.stderr"
+    exit 1
+fi
+echo "  PASS rom-boot"
+
 echo "michael_goldens: all cases passed"

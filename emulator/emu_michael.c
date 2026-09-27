@@ -322,10 +322,16 @@ int emu_run_michael(const struct emu_opts *opts) {
     check_state.drivers.kbd = &kbd_state;
     via_6522_set_portb_input(&via_state, portb_input, &check_state.drivers);
 
-    uint16_t load = opts->load_address >= 0 ? (uint16_t)opts->load_address : 0x0900;
-    if (opts->rom_filename) {
-        if (rom_28c256_load(&rom_state, opts->rom_filename) != 0) {
-            fprintf(stderr, "michael: could not load ROM image: %s\n", opts->rom_filename);
+    /* With --load the code file goes into RAM, and the ROM is --rom's or
+     * holds only the vectors; without it the code file is the ROM image
+     * (unless --rom names one) and RAM starts empty. */
+    int load_ram = opts->load_address >= 0;
+    uint16_t load = load_ram ? (uint16_t)opts->load_address : 0;
+    const char *rom_path = opts->rom_filename ? opts->rom_filename
+                                              : (load_ram ? NULL : opts->code_filename);
+    if (rom_path) {
+        if (rom_28c256_load(&rom_state, rom_path) != 0) {
+            fprintf(stderr, "michael: could not load ROM image: %s\n", rom_path);
             return 1;
         }
     } else {
@@ -346,7 +352,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);
 
-    if (opts->code_filename && load_program(&b, opts->code_filename, load) != 0) return 1;
+    if (load_ram && load_program(&b, opts->code_filename, load) != 0) return 1;
 
     active_bus = &b;
     cpu_external_read  = michael_cpu_read;
