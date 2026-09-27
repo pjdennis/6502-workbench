@@ -45,8 +45,15 @@ class E2EGoldens(unittest.TestCase):
         self.assertEqual(r.returncode, 0,
                          msg=f"p8c failed:\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         # Emulator prints LCD frame on stderr; we route it through
-        # p8c's stdout. Grab the |...|-wrapped lines as the frame.
-        rows = [ln for ln in r.stdout.splitlines() if ln.startswith("  |") and ln.endswith("|")]
+        # p8c's stdout. Grab the |...|-wrapped lines under "lcd:" as the
+        # frame (the "lcd-hex:" rows after them are the raw bytes).
+        lines = r.stdout.splitlines()
+        start = next((i + 1 for i, ln in enumerate(lines) if ln.endswith(": lcd:")), len(lines))
+        rows = []
+        for ln in lines[start:]:
+            if not (ln.startswith("  |") and ln.endswith("|")):
+                break
+            rows.append(ln)
         actual = "\n".join(rows) + "\n"
         expected = expected_path.read_text()
         self.assertEqual(actual, expected,
