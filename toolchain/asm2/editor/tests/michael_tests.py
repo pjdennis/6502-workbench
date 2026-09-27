@@ -86,6 +86,15 @@ class MichaelEditorTest(unittest.TestCase):
     def assert_same_as_console(self, keys):
         self.assertEqual(self.run_michael(keys), self.run_console(keys))
 
+    def test_environment_matches(self):
+        """editor/michael_environment.asm has 17/environment.asm's vectors."""
+        definition = re.compile(r"^([A-Za-z_]+) *= *(ENV_BASE \+ \$[0-9A-F]+|\$[0-9A-F]+)", re.M)
+        asm2 = Path(michael_image.__file__).parents[1]
+        environment = dict(definition.findall((asm2 / "17" / "environment.asm").read_text()))
+        del environment["ENV_BASE"]
+        michael = dict(definition.findall((asm2 / "editor" / "michael_environment.asm").read_text()))
+        self.assertEqual({k: v for k, v in michael.items() if k != "ENV_BASE"}, environment)
+
     def test_live(self):
         """--live draws the LCD in the terminal and types the terminal's keys;
         Ctrl-] quits and restores the terminal."""

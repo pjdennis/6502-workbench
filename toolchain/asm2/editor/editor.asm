@@ -39,7 +39,11 @@
 
   JMP editor_main
 
+  .ifdef michael
+  .include editor/michael_environment.asm
+  .else
   .include 17/environment.asm
+  .endif
   .include editor/memory_map.asm
   .include 17/macros.asm
   .include editor/macros.asm

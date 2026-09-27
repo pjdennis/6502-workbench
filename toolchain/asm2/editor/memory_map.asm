@@ -2,7 +2,7 @@
 ; code, see the end of this file). TEXT_END, LINE_TBL and YANK_BUF are
 ; page-aligned.
   .ifdef michael
-; Michael: 16 KB of RAM, shared with the services (environment.asm,
+; Michael: 16 KB of RAM, shared with the services (michael_environment.asm,
 ; michael_editor_layout.inc)
 BATCH_BUF     = $0100   ; Below the stack, which stays above $0154
 MARK_TBL      = $0120
