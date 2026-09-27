@@ -48,9 +48,6 @@
 
   Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
 
-  Range positions past the last line - Are clamped to the last line, so :5d on a 2-line file deletes line 2. Vi
-  reports "E16: Invalid range".
-
   Characters after a range command letter - Are ignored: :1,5dfoo deletes lines 1-5 and :2,5yx yanks lines 2-5. Vi
   reads one character there as a register name and reports "E488: Trailing characters" for the rest.
 

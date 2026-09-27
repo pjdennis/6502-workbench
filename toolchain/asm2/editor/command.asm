@@ -27,6 +27,11 @@ command_handle:
 cmd_ret:
   RTS                      ; Cancelled, or done
 
+range_mark_err:
+  LDA #<str_mark_not_set
+  LDX #>str_mark_not_set
+  JMP show_message_ax
+
 ; Parse and execute the command in CMD_BUF (an empty one does nothing)
 command_parse:
   LDA CMD_BUF
@@ -86,36 +91,39 @@ range_dispatch:
   SBC16 BUF_LEN16, BUF_SRC16, BUF_TEMP16
   INC16 BUF_TEMP16
 
-  ; Readonly check for the editing commands (d, >, <): yank is allowed,
-  ; and any other letter is an unknown command
+  ; Any letter but y, d, > and < is an unknown command; the editing
+  ; ones (d, >, <) are refused read-only
   LDA BUF_TEMP
+  CMP #'y'
+  BEQ .range_check
   CMP #'d'
   BEQ .range_edit
   CMP #'>'
   BEQ .range_edit
   CMP #'<'
-  BNE .range_dispatch_cmd
+  BNE cmd_unknown
 .range_edit:
   LDA READONLY
   BNE show_readonly_msg
-
-.range_dispatch_cmd:
+.range_check:
+  ; A range past the last line is invalid, as in vim (E16)
+  CMP16 BUF_LEN16, LINE_COUNT16
+  BCS range_invalid
   LDA #<range_action_keys
   LDX #>range_action_keys
-  JSR dispatch_key
-  BCS cmd_unknown
-  RTS
+  JMP dispatch_key
 
 range_goto:
-  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line). Command mode
-  ; was entered through clear_count, so the extra clear_count here
-  ; changes nothing.
+  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line), past the
+  ; last line to the last line, as in vim. Command mode was entered
+  ; through clear_count, so the extra clear_count here changes nothing.
   CP16 BUF_LEN16, FILE_LINE16
+  JSR clamp_file_line
   JMP first_nonblank_clear
 
-range_mark_err:
-  LDA #<str_mark_not_set
-  LDX #>str_mark_not_set
+range_invalid:
+  LDA #<str_invalid_range
+  LDX #>str_invalid_range
   JMP show_message_ax
 
 cmd_unknown:
@@ -218,7 +226,8 @@ command_parse_keys:
 ; Parse one range position starting at CMD_BUF[X]
 ; Handles: 'x (mark), . (current line), decimal number (1-based); none
 ; (any other char) is the current line, as in vim (:5,d = :5,.d)
-; Returns: BUF_LEN16 = 0-based line number, X = updated offset
+; Returns: BUF_LEN16 = 0-based line number (past the last line for a
+;          number past it), X = updated offset
 ;          carry clear = success, carry set = error (mark not set)
 ; Clobbers: A, Y, CMD_IDX, BUF_DST16
 parse_range_pos:
@@ -242,12 +251,11 @@ parse_range_pos:
   BCS .error
   STAX16 BUF_LEN16
   LDX CMD_IDX
-  BCC .clamp              ; Always taken: a stale mark must not point past EOF
 .error:
   RTS                     ; Carry set: no such mark
 .number:
   ; Decimal number into BUF_LEN16 (from 6400 on, further digits are
-  ; ignored: it means the last line all the same)
+  ; ignored: it is past every line all the same)
   LDA #0
   STA_LH16 BUF_LEN16
   STX CMD_IDX             ; Save start offset
@@ -267,12 +275,6 @@ parse_range_pos:
   TST16 BUF_LEN16
   BEQ .num_ok
   DEC16 BUF_LEN16
-.clamp:
-  ; Clamp to LINE_COUNT16-1
-  CMP16 BUF_LEN16, LINE_COUNT16
-  BCC .num_ok
-  SEC
-  SBCI16 LINE_COUNT16, $0001, BUF_LEN16
 .num_ok:
   CLC
   RTS
@@ -463,3 +465,4 @@ str_readonly:    .asciiz "Read-only (file truncated)"
 str_truncated:   .asciiz "WARNING: File too large - read only"
 str_yank_full:   .asciiz "Yank buffer full"
 str_mark_not_set: .asciiz "Mark not set"
+str_invalid_range: .asciiz "Invalid range"

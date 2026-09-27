@@ -10108,9 +10108,36 @@ class EditorTestRunner:
             expect_ansi_contains="Mark not set",
         )
 
+        # A position past the last line: a command says "Invalid range"
+        # and does nothing, as vim's E16; a goto goes to the last line
+        for keys in (b":6d\r", b":1,99999d\r", b":0,6d\r", b":6,1d\r",
+                     b":7>\r", b":2,6<\r", b"jjma:'a,9d\r"):
+            self.run_test_screen(
+                f"{keys!r} past the last line says Invalid range",
+                make_lines(5), keys + b"x:q!\r",
+                expect_ansi_contains="Invalid range")
+            self.run_test(
+                f"{keys!r} past the last line changes nothing",
+                make_lines(5), keys + b":wq\r",
+                expected_content=make_lines(5))
+        # A refused :y leaves the yank as it was
+        self.run_test(
+            ":2,6y past the last line leaves the yank",
+            make_lines(5), b"yy:2,6y\rp:wq\r",
+            expected_content="Line 1\n" + make_lines(5))
+        # The last line itself is in range
+        self.run_test(
+            ":4,5d deletes to the last line",
+            make_lines(5), b":4,5d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 3\n")
+        self.run_test_screen(
+            ":1,9 goes to the last line",
+            make_lines(5), b":1,9\r:q!\r",
+            expect_cursor=(4, 0))
+
         # Numbers of 65536 and more must not wrap to small line numbers:
-        # like any number past the last line, they mean the last line
-        # (vim goes there for :N too)
+        # like any number past the last line, they go to the last line
+        # (as in vim) and make a command's range invalid
         self.run_test_screen(
             ":65537 goes to the last line (no 16-bit wrap)",
             make_lines(5),
@@ -10119,17 +10146,17 @@ class EditorTestRunner:
         )
 
         self.run_test(
-            ":1,65537d deletes to the last line (no 16-bit wrap)",
+            ":1,65537d is an invalid range (no 16-bit wrap)",
             make_lines(5),
             b":1,65537d\r:wq\r",
-            expected_content="\n",
+            expected_content=make_lines(5),
         )
 
         self.run_test(
-            ":65539d deletes the last line (no 16-bit wrap)",
+            ":65539d is an invalid range (no 16-bit wrap)",
             make_lines(5),
             b":65539d\r:wq\r",
-            expected_content="Line 1\nLine 2\nLine 3\nLine 4\n",
+            expected_content=make_lines(5),
         )
 
         # 63999 fits 16 bits; one digit more would not (639999 wraps to
