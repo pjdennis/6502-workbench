@@ -160,21 +160,21 @@ normal_line_start:
   JMP clear_count
 
 ; gg: go to line count, as G does (as in vim); no count: the first line
-; (ensure_cursor_visible then scrolls the view to it)
 do_gg:
   TST16 COUNT16
   BNE normal_goto_last
   INC COUNT16                ; Line 1
   ; fall through
 
+; G: the view is left to ensure_cursor_visible, which moves it only when
+; the cursor's row is off screen, as for :N and k (a partly shown top
+; line stays)
 normal_goto_last:
   ; FILE_LINE16 = count - 1 (1-based count; no count: 0 - 1 = $FFFF),
   ; clamped to the last line
   SEC
   SBCI16 COUNT16, 1, FILE_LINE16
   JSR clamp_file_line
-  LDA #0
-  STA VIEW_TOP_WRAP
   JMP first_nonblank_clear
 
 ; --- Yank ---

@@ -24170,6 +24170,42 @@ class EditorTestRunner:
             expect_content_rows=[(2, {0})]
         )
 
+        # G to a line already on screen leaves the view alone, partly
+        # shown top line and all, as k and :N do (vim scrolls only for a
+        # line off screen).  Frames: 0 initial, 1 j*4, 2 '3', 3 G
+        self.run_test_screen(
+            "G to a visible line keeps VIEW_TOP_WRAP",
+            vtw_content,
+            b"j" * 4 + b"3G:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "A" * 15), (1, "Short 1"), (2, "Short 2")],
+            expect_cursor=(2, 0),
+            expect_content_redraws=[True, True, False, False],
+        )
+        # The same at 10x40, with its bytes: the cursor move and the new
+        # position, as 3k sends
+        top5 = "a" * 200 + "\n" + "".join(f"L{i}\n" for i in range(1, 61))
+        self.run_test_screen(
+            "G to a visible line sends the cursor move only",
+            top5,
+            b"5j3G:q!\r",
+            expect_lines=[(0, "a" * 40), (3, "a" * 40), (4, "L1"),
+                          (5, "L2")],
+            expect_cursor=(5, 0),
+            expect_frame_bytes=[(4, 40)],
+        )
+        # gg (and 1G) from a partly shown top line: the cursor goes above
+        # the view, which scrolls to show line 1 from its first row
+        self.run_test_screen(
+            "gg from a partial top line shows line 1 from its first row",
+            vtw_content,
+            b"j" * 4 + b"gg:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "A" * 20), (1, "A" * 15), (2, "Short 1")],
+            expect_cursor=(0, 0),
+            expect_content_rows=[(2, {0})],
+        )
+
         # j past bottom where VIEW_TOP changes AND new VIEW_TOP_WRAP > 0.
         # Content: lines 0-1 short, line 2 wraps to 3 rows (55 chars at 20 cols),
         # then short lines. 6-row screen.
