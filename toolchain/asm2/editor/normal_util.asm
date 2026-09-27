@@ -153,6 +153,9 @@ dispatch_replay:
   PLA
   STA LAST_KEY               ; (clear_count left it 0)
   PLA
+  ; A press's ICH/DCH hint describes that press alone: rewrite the line
+  ; from where the last one left RENDER_FROM_COL16 (the leftmost change)
+  STA SHIFT_WRITE            ; (A = the pairs left, $FF: no hint)
   ; A press that set a render flag (it joined lines) left scroll hints
   ; for itself only: repaint everything
   LDA RENDER_FLAG
@@ -652,7 +655,8 @@ undo_delete_at_cursor:
 ; Delete bytes at cursor position (no yank)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
 ; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED;
-; the line repaints from the cursor (RENDER_FROM_COL16)
+; the line repaints from the cursor (RENDER_FROM_COL16), with a DCH hint
+; for a range within the line
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
 delete_at_cursor:
   JSR set_render_from_cursor
@@ -680,6 +684,17 @@ delete_at_cursor:
   LDA #0
   SBC BUF_LEN16 + 1
   STA BUF_SRC16 + 1
+  ; ICH/DCH hint: -n cells at the cursor, if it fits SHIFT_NET's signed
+  ; byte (n <= 128; a longer delete takes the row rewrite, which costs no
+  ; more once n passes the row width)
+  TAX
+  INX
+  BNE .no_hint               ; n > 255
+  LDA BUF_SRC16
+  BPL .no_hint               ; n > 128
+  STA SHIFT_NET
+  STX SHIFT_WRITE            ; 0: no new cells
+.no_hint:
   JSR buf_adjust_lines_apply
   JMP set_modified
 .full_rebuild:
@@ -820,7 +835,6 @@ batched_char_delete:
 bcd_start:
   JSR compute_char_range_forward
   BCS bcd_done
-  JSR set_shift_delete
   LDA BATCH_EXTRA
   BNE .batched
   ; --- Non-batched: yank+delete the full range (at most 255 chars, so
@@ -886,18 +900,3 @@ bcd_start:
   JSR clamp_cursor_col
 bcd_done:
   JMP clear_count
-
-; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor.
-; Over 128 chars -n does not fit SHIFT_NET's signed byte: no hint (the
-; line is rewritten)
-; Clobbers: A
-set_shift_delete:
-  LDA #0
-  SEC
-  SBC BUF_LEN16
-  BPL .done                  ; -n does not fit
-  STA SHIFT_NET
-  LDA #0
-  STA SHIFT_WRITE
-.done:
-  RTS

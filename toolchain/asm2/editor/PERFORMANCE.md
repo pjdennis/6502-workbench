@@ -83,7 +83,9 @@ that column only.
 ### ICH/DCH shifting for in-line edits
 
 Insert-mode typing, BS and DEL (including whole type-ahead batches) and
-normal-mode `x` / `X` hand the render a hint: `SHIFT_NET` (cells inserted
+every delete at the cursor that stays within its line (`x`, `X`, `dw`,
+`db`, `de`, `d0`, `D`, `s`, `cw`... and their redo, the undo of `p` / `P`
+and of typed text) hand the render a hint: `SHIFT_NET` (cells inserted
 or deleted at `RENDER_FROM_COL16`) and `SHIFT_WRITE` (new cells written
 there). `render_line_shift` then shifts each row of the line with ICH
 (`ESC[n@`) or DCH (`ESC[nP`) and writes only the new cells plus the cells
@@ -94,7 +96,8 @@ opened or closed by a row-count change are handled by the existing scroll
 paths first. See `ich-dch-plan.md`.
 
 Typing two characters at column 5 of a 3-row line on a 40-column screen
-goes from about 115 bytes of row content to about 30.
+goes from about 115 bytes of row content to about 30; `dw` near the
+start of such a line takes a 98-byte frame where the rewrite took 146.
 
 ### Status bar: only what changed
 

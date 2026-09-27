@@ -5080,6 +5080,21 @@ class EditorTestRunner:
              "HelloWorld", (-1, -1), "\x1b[?25l\b\x1b[P"),
             ("3X mid-line", b"8l3X:q!\r", 4,
              "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
+            # Every delete at the cursor that stays on its line is a DCH
+            ("dw at line start", b"dw:q!\r", 1,
+             "World", (-1, -1), "\x1b[?25l\x1b[6P"),
+            ("de at line start", b"de:q!\r", 1,
+             " World", (-1, -1), "\x1b[?25l\x1b[5P"),
+            ("db mid-line", b"6ldb:q!\r", 3,
+             "World", (-1, -1), "\x1b[?25l\x1b[H\x1b[6P"),
+            ("d0 mid-line", b"6ld0:q!\r", 3,
+             "World", (-1, -1), "\x1b[?25l\x1b[H\x1b[6P"),
+            ("s mid-line", b"5ls\x1b:q!\r", 3,
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
+            ("cw at line start", b"cw\x1b:q!\r", 1,
+             " World", (-1, -1), "\x1b[?25l\x1b[5P"),
+            ("u after typing", b"5liAB\x1bu:q!\r", 6,
+             "Hello World", (-1, -1), "\x1b[?25l\b\x1b[2P"),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5101,6 +5116,23 @@ class EditorTestRunner:
                 deferred_wrap=deferred,
                 expect_lines_at_frame=[(2, [(0, "Hello Worl")])],
             )
+            # Typed-ahead dw, db and de pairs run one press after another in
+            # one frame (dispatch_replay), and each press's hint describes
+            # that press alone: the frame must draw them all.  Pairs of two
+            # commands get a frame each
+            for keys, text in ((b"wdwdw", "Hello Bar Baz"),
+                               (b"wdede", "Hello  Bar Baz"),
+                               (b"3wdbdb", "Hello Bar Baz"),
+                               (b"wdedw", "Hello Foo Bar Baz"),
+                               (b"wdwde", "Hello  Bar Baz"),
+                               (b"wdbdw", "Foo Bar Baz")):
+                self.run_test_screen(
+                    "Shift: " + keys.decode() + " draws every edit" + suffix,
+                    "Hello World Foo Bar Baz\nNEXT\n",
+                    keys + b":q!\r",
+                    deferred_wrap=deferred,
+                    expect_lines=[(0, text), (1, "NEXT")],
+                )
 
         self._group("ICH/DCH shifting (wrapped line):", leading_blank=True)
 
@@ -5127,6 +5159,13 @@ class EditorTestRunner:
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
             ("X on a 3-row line", b"6lX:q!\r", 3, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+            ("s on a 3-row line", b"5ls\x1b:q!\r", 3, dele,
+             [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+            ("d0 on a 3-row line", b"5ld0:q!\r", 3, digits[5:],
+             [(0, 35, 39), (1, 35, 39), (2, -1, -1)],
+             "\x1b[?25l\x1b[H\x1b[5P\x1b[;36H" + digits[40:45]
+             + "\x1b[2H\x1b[5P\x1b[2;36H" + digits[80:85]
+             + "\x1b[3H\x1b[5P"),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -5352,7 +5391,8 @@ class EditorTestRunner:
                     ("129x", b"129x:q!\r", 4, d150[129:]),
                     ("batched 120x + 9 x", b"120x" + b"x" * 9 + b":q!\r", 4,
                      d150[129:]),
-                    ("$130X", b"$130X:q!\r", 5, d150[:19] + d150[149:])):
+                    ("$130X", b"$130X:q!\r", 5, d150[:19] + d150[149:]),
+                    ("$d0 of 149 chars", b"$d0:q!\r", 2, d150[149:])):
                 self.run_test_screen(
                     "Shift: " + how + " clears the shortened row" + suffix,
                     d150 + "\nNEXT\n",
@@ -5407,6 +5447,7 @@ class EditorTestRunner:
         wrapped = "".join("%02d " % i + (alnum * 3)[:91] + "\n"
                           for i in range(40))
         numbered = "".join(f"L{i}\n" for i in range(1, 15))
+        fox = "the quick brown fox " * 5 + "\nNEXT\n"   # 3 rows at 40
         for name, content, keys, frame, (rows, cols), sent in (
                 ("x mid-line", "Hello World\n", b"5lx:q!\r", 3,
                  (10, 40), 56),
@@ -5420,6 +5461,12 @@ class EditorTestRunner:
                  (10, 40), 56),
                 ("d$ mid-line", "Hello World\n", b"llld$:q!\r", 2,
                  (10, 40), 56),
+                ("dw on a 3-row line", fox, b"4ldw:q!\r", 3,
+                 (10, 40), 98),
+                ("db on a 3-row line", fox, b"10ldb:q!\r", 4,
+                 (10, 40), 103),
+                ("s on a 3-row line", fox, b"4lsZ\x1b:q!\r", 3,
+                 (10, 40), 85),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),
@@ -18599,7 +18646,8 @@ class EditorTestRunner:
             b"llls\x1b:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(2, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # 3s at col 3: substitute 3 chars from col 3
@@ -18609,7 +18657,8 @@ class EditorTestRunner:
             b"lll3s\x1b:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "HelWorld")],
-            expect_min_col=[(3, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[3P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # s on wrapped line, same row count
@@ -18631,7 +18680,8 @@ class EditorTestRunner:
             b"wdw:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched 2dw: partial render from cursor col
@@ -18642,7 +18692,8 @@ class EditorTestRunner:
             b"w2dw:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Bar")],
-            expect_min_col=[(3, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[10P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # dw on wrapped line, cursor on wrap row 1
@@ -18665,7 +18716,8 @@ class EditorTestRunner:
             b"wde:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched dw+dw (dw with pending dw)
@@ -18687,7 +18739,8 @@ class EditorTestRunner:
             b"wwdb:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[;7H\x1b[6P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched 2db: deletes 2 words backward
@@ -18698,7 +18751,8 @@ class EditorTestRunner:
             b"www2db:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Bar")],
-            expect_min_col=[(3, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[;7H\x1b[10P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # Batched db+db (db with pending db)
@@ -18719,7 +18773,8 @@ class EditorTestRunner:
             "A" * 50 + " BB CC\nSecond\n",
             b"$bdb:q!\r",
             rows=10, cols=40,
-            expect_min_col=[(3, 1, 11)]
+            expect_ansi_contains="\x1b[?25l\x1b[2;12H\x1b[3P",
+            expect_min_col=[(3, 1, -1)]
         )
 
         # p (char paste below): x at col 0 yanks 'H', lllp pastes after col 3
@@ -18787,7 +18842,8 @@ class EditorTestRunner:
             b"lllxu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(5, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # D undo: restore from col 3
@@ -18831,7 +18887,8 @@ class EditorTestRunner:
             b"wdwu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # de undo: restore word at col 6
@@ -18853,7 +18910,8 @@ class EditorTestRunner:
             b"wdeu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # db undo: restore word at col 6
@@ -18876,7 +18934,8 @@ class EditorTestRunner:
             b"wwdbu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # s undo (no typing): restore char at col 3
@@ -18898,7 +18957,8 @@ class EditorTestRunner:
             b"llls\x1bu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(6, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(6, 0, -1)]
         )
 
         # C undo (no typing): restore from col 3
@@ -18942,7 +19002,8 @@ class EditorTestRunner:
             b"wcw\x1bu u:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(6, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(6, 0, -1)]
         )
 
         # x undo on wrapped line (same row count)
@@ -18981,7 +19042,8 @@ class EditorTestRunner:
             b"xlllpu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ello World")],
-            expect_min_col=[(4, 0, 4)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # p redo: redo paste (calls do_char_paste_below, RENDER_FROM_COL16=cursor col=3)
@@ -19004,7 +19066,8 @@ class EditorTestRunner:
             b"xlllPu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ello World")],
-            expect_min_col=[(4, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # P redo: redo paste (calls do_char_paste_above, RENDER_FROM_COL16=cursor col=3)

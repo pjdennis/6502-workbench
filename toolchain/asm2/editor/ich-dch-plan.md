@@ -52,19 +52,22 @@ A handler that wants shifting sets two new zero-page variables alongside
 
 `editor.asm`'s main loop resets both each iteration, next to
 `RENDER_FROM_COL16`. Deltas must fit the signed byte: insert batches are
-capped at 32, and `x`/`X` deletes of more than 128 chars set no hint, so
-they take the plain rewrite path.
+capped at 32, and deletes of more than 128 chars set no hint, so they
+take the plain rewrite path.
 
 Callers:
 
 | Handler | c0 | SHIFT_NET | SHIFT_WRITE |
 |---|---|---|---|
 | insert-mode batch fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
-| `x` / Delete (count n, clamped to line) | cursor | `-n` | 0 |
-| `X` (count n, clamped to col) | `col - n` | `-n` | 0 |
+| `delete_at_cursor` within one line: `x`, `X`, Delete, `dw`, `db`, `de`, `d0`, `D`, `d$`, `s`, `C`, `cw`, `cb`, `ce`, the redo of those, the undo of `p` / `P` and of typed text | cursor (the range start) | `-n` | 0 |
 
 Type-ahead needs no extra work: a whole batch becomes one `SHIFT_NET`, so
-each screen row gets at most one ICH/DCH.
+each screen row gets at most one ICH/DCH. The exception is typed-ahead
+`dw`, `db` and `de` pairs, which run one press after another in one frame
+(`dispatch_replay`): each press's hint describes that press alone, so the
+replay drops the hint and the line is rewritten from the last press's
+column, the leftmost change.
 
 ## Screen algorithm
 
@@ -203,7 +206,8 @@ keeping the full screen contents asserted; no blanket rebaselining.
 
 - Batches containing newlines (Enter and line joins) already use the
   scroll paths.
-- `d{motion}` within a line (`dw`, `de`, `db`, `d0`), `s`, character paste
-  and undo/redo of character edits: once `render_line_from_change`
-  exists, each only needs to set `SHIFT_NET` / `SHIFT_WRITE`.
+- `d{motion}` within a line (`dw`, `de`, `db`, `d0`), `s` and the other
+  deletes at the cursor, and their redo: *done* (`delete_at_cursor` sets
+  the hint). Character paste and the undo of a char delete: set
+  `SHIFT_NET` / `SHIFT_WRITE` the same way.
 - Optional VT100 fallback (a `define:no_ich` build that rewrites instead).
