@@ -15,6 +15,12 @@
   Counts over 255 - h, l, j, k, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a
   count of 256 or more as 255, so 300j moves 255 lines and 300x deletes 255 characters. Vi takes the whole count.
 
+  J - Replaces each line break with one space and keeps the joined line's leading blanks: "abc" and "  def" join as
+  "abc   def". Vim removes the leading blanks and puts one space in their place, none when the joined line is empty or
+  starts with ')' or the line ends in a blank, and two after a '.', '!' or '?' (vim's default 'joinspaces'): "abc def".
+  J changes the text in place and keeps only the join points for undo; removing the blanks would change the text's
+  length and need their bytes kept for undo, about 190 bytes more code.
+
   J with a count over 129 - Is refused with "Too many lines to join", as the joins are kept for undo in one 256-byte
   page. Vi joins them all.
 
@@ -29,11 +35,6 @@
   gg - Always goes to line 1. In vi, 5gg goes to line 5 (like 5G). The count is completely ignored.
 
   $ - Always goes to end of current line. In vi, 3$ goes to the end of the line 2 below.
-
-  Word commands
-
-  w at the last word of a line - Goes to column 0 of the next line even when that line is indented. Vi goes to the
-  first non-blank character. The same boundary is used by dw, so 2dw on "foo" followed by "  bar" leaves "bar".
 
   Command line
 

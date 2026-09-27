@@ -47,7 +47,9 @@ NORMAL MODE - MOVEMENT
 
   Word motions cross line boundaries. Words are classified as:
   word characters (a-z, A-Z, 0-9, _), punctuation, or whitespace.
-  A word boundary is a transition between classes.
+  A word boundary is a transition between classes. As in vi, w and
+  b pass over a line's indentation and over lines of blanks (spaces
+  and tabs), and stop on an empty line.
 
   Ctrl-D and Ctrl-U accept a count that becomes "sticky" - the
   same scroll amount is reused on subsequent Ctrl-D/Ctrl-U presses
@@ -116,9 +118,10 @@ All editing commands are blocked in read-only mode.
   ~              Toggle case of character at cursor (accepts count)
                  Advances cursor after each toggle
   J              Join current line with next line (accepts count: [N]J)
-                 Replaces newline with a space. With count N, joins N lines
-                 (1J joins two). Up to 129 lines join at a time: more is
-                 refused with "Too many lines to join"
+                 Replaces newline with a space; the next line's leading
+                 blanks stay (vi removes them). With count N, joins N
+                 lines (1J joins two). Up to 129 lines join at a time:
+                 more is refused with "Too many lines to join"
   >>             Indent current line by 2 spaces (accepts count: [N]>>)
   <<             Unindent current line by up to 2 spaces (accepts count)
                  Both leave the cursor on the first non-blank character
