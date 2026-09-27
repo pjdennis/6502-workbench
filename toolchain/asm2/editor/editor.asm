@@ -33,26 +33,12 @@
 ;   $F000+        Emulator I/O
 ; ============================================================================
 
-; Memory map: the buffers at fixed addresses (TEXT_BUF floats after the
-; code, see the end of this file)
-FNAME_BUF     = $0200   ; Filename buffer (256 bytes)
-CMD_BUF       = $0300   ; Command buffer (256 bytes)
-TEXT_END      = $D600   ; End of the text buffer's space
-BATCH_BUF     = $D600   ; Batch insert staging buffer (BATCH_MAX bytes)
-MARK_TBL      = $D620   ; Marks a-z: 26 entries x 2 bytes
-SEARCH_BUF    = $D654   ; Search pattern, up to SEARCH_LIMIT
-SEARCH_LIMIT  = $D700
-UNDO_DATA_BUF = $D700   ; Undo data (256 bytes, page-aligned)
-LINE_TBL      = $D800   ; Line pointer table (2 bytes per entry), up to
-LINE_TBL_END  = $E000   ; LINE_TBL_END
-YANK_BUF      = $E000   ; Yank buffer (page-aligned), up to YANK_LIMIT
-YANK_LIMIT    = $F000
-
 * = $0400
 
   JMP editor_main
 
   .include 17/environment.asm
+  .include editor/memory_map.asm
   .include 17/macros.asm
   .include editor/macros.asm
   .include 17/to_decimal.asm

@@ -3,8 +3,14 @@
 ; Requires: none (symbols are provided by the runtime environment)
 ; Provides: entry points for I/O, args, and console helpers
 ;
-; The vectors are 3-byte JMP slots at fixed offsets from ENV_BASE.
+; The vectors are 3-byte JMP slots at fixed offsets from ENV_BASE: $F000
+; in the emulator; with define:michael, the Michael services in RAM.
+  .ifdef michael
+  .include ../../firmware/boards/michael/michael_editor_layout.inc
+ENV_BASE  = MICHAEL_ENV_BASE
+  .else
 ENV_BASE  = $F000
+  .endif
 
 ; Provided by environment:
 read_b    = ENV_BASE + $06 ; Returns next char in A; C set when at end; X, Y preserved

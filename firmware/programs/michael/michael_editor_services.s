@@ -213,6 +213,6 @@ services_end:
   .if services_end > INTERRUPT_ROUTINE
   .error "The services run into the interrupt page"
   .endif
-  .if SERVICES_RAM_END > INTERRUPT_ROUTINE + $100
-  .error "The services' RAM runs past the interrupt page"
+  .if SERVICES_RAM_END > MICHAEL_EDITOR_SPARE
+  .error "The services' RAM runs into the editor's (MICHAEL_EDITOR_SPARE)"
   .endif

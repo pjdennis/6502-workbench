@@ -250,10 +250,12 @@ int emu_run_michael(const struct emu_opts *opts) {
     }
 
     uint64_t cap = opts->cycle_cap;
+    uint8_t lowest_sp = 0xFF;
     while (b.osc_ticks < cap && !cpu_stp_pending()) {
         const int BATCH = 50000;
         for (int i = 0; i < BATCH && b.osc_ticks < cap && !cpu_stp_pending(); i++) {
             bus_step(&b);
+            if (sp < lowest_sp) lowest_sp = sp;
         }
         lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
     }
@@ -268,6 +270,9 @@ int emu_run_michael(const struct emu_opts *opts) {
     lcd_report_final(stderr, "michael", &lcd_state);
     fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
             (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
+    /* The lowest the stack pointer went: an address free below it is
+     * room programs can use for data. */
+    fprintf(stderr, "michael: stack: lowest $01%02X\n", lowest_sp);
 
     cpu_external_read  = NULL;
     cpu_external_write = NULL;
