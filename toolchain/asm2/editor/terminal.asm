@@ -27,22 +27,50 @@ ansi_csi:
   LDA #'['
   JMP io_write
 
-; Output ESC[ + sequence string whose LOW address byte is in A.
-; All ansi_seq_* strings must share one page (see warning at the strings).
-; Clobbers A, Y, STR_PTR16
-ansi_seq_a:
-  STA STR_PTR16
-  LDA #>ansi_seq_clear
-  STA STR_PTR16 + 1
-  JSR ansi_csi
-  JMP write_string
+; The sequences made of ESC[ and an ansi_seq_* string.  Each entry
+; loads its string's low address byte and skips the loads of the entries
+; below it: .byte $2C makes the next LDA # a BIT abs, a read of $xxA9
+; with xx that byte (RAM: the strings sit low in their page).  The most
+; used come last.  Clobbers A, Y, STR_PTR16 (X preserved)
 
 ; Clear entire screen and move cursor to home position: ESC[2J ESC[H
 ansi_clear_screen:
   LDA #0
   STA ST_LEN                 ; status row blank: send all of the status bar
   LDA #<ansi_seq_clear
-  JMP ansi_seq_a
+  .byte $2C                  ; BIT abs: skip the next LDA #
+; Reset scroll region to full screen: ESC[r
+ansi_reset_scroll_region:
+  LDA #<ansi_seq_reset_sr
+  .byte $2C
+; Hide cursor
+ansi_cursor_hide:
+  LDA #<ansi_seq_hide
+  .byte $2C
+; Show cursor
+ansi_cursor_show:
+  LDA #<ansi_seq_show
+  .byte $2C
+; Enable reverse video
+ansi_reverse_video:
+  LDA #<ansi_seq_rev
+  .byte $2C
+; Reset to normal video
+ansi_normal_video:
+  LDA #<ansi_seq_norm
+  .byte $2C
+; Clear from cursor to end of current line
+ansi_clear_line:
+  LDA #<ansi_seq_clreol
+  ; fall through
+; Output ESC[ + sequence string whose LOW address byte is in A.
+; All ansi_seq_* strings must share one page (see warning at the strings).
+ansi_seq_a:
+  STA STR_PTR16
+  LDA #>ansi_seq_clear
+  STA STR_PTR16 + 1
+  JSR ansi_csi
+  JMP write_string
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
 ; Emits ESC[top;bottomr (ESC[;bottomr from the top row: see
@@ -90,41 +118,10 @@ ansi_row_col_seq:
   PLA
   JMP io_write
 
-; Clear from cursor to end of current line
-ansi_clear_line:
-  LDA #<ansi_seq_clreol
-  JMP ansi_seq_a
-
-; Show cursor
-ansi_cursor_show:
-  LDA #<ansi_seq_show
-  JMP ansi_seq_a
-
-; Hide cursor
-ansi_cursor_hide:
-  LDA #<ansi_seq_hide
-  JMP ansi_seq_a
-
-; Enable reverse video
-ansi_reverse_video:
-  LDA #<ansi_seq_rev
-  JMP ansi_seq_a
-
-; Reset to normal video
-ansi_normal_video:
-  LDA #<ansi_seq_norm
-  JMP ansi_seq_a
-
-; Reset scroll region to full screen: ESC[r
-; Clobbers A, Y, STR_PTR16
-ansi_reset_scroll_region:
-  LDA #<ansi_seq_reset_sr
-  JMP ansi_seq_a
-
 ; Insert A blank chars at the cursor (ICH): ESC[n@. Clobbers A, X, Y
 ansi_insert_chars:
   LDX #'@'
-  BNE ansi_count_seq     ; Always taken
+  .byte $2C              ; BIT abs ($50A2, RAM): skip the LDX #'P'
 
 ; Delete A chars at the cursor (DCH): ESC[nP. Clobbers A, X, Y
 ansi_delete_chars:
