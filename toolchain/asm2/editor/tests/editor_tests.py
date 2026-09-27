@@ -1669,6 +1669,8 @@ class EditorTestRunner:
              [b"$", b"d", b"d", b"d", b"d", b"x"]),
             ("Batch equiv: 300j j j", "".join(f"l{i}\n" for i in range(400)),
              [b"300j", b"j", b"j", b"x"]),
+            ("Batch equiv: db db, the second over 4 KB",
+             "a" * 5000 + " b c\nend\n", [b"$", b"db", b"db", b"\x1b", b"x"]),
             ("Batch equiv: Ctrl-D Ctrl-D", "abcdef\n" + "\n" * 4 + "abcdef\n" * 11,
              [b"$", b"\x04", b"\x04", b"x"]),
             ("Batch equiv: j j across a short line", "abcdef\nab\nabcdef\n",
@@ -19283,6 +19285,30 @@ class EditorTestRunner:
             b"jdwdw\x1b\x1b:q!\r",
             expect_ansi_contains="Yank buffer full"
         )
+        # A refused command leaves the cursor where it was typed: d0, db,
+        # cb and yb too, which measure their range from where the cursor
+        # goes, and :d (the key after the refusal dismisses the message)
+        big_b = "hello\n" + "a" * 5000 + " b\nend\n"
+        for content, keys, status in ((big, b"j$d0", " 2,5000 "),
+                                      (big_b, b"j$db", " 2,5002 "),
+                                      (big_b, b"j$cb", " 2,5002 "),
+                                      (big_b, b"j$yb", " 2,5002 "),
+                                      (big_b, b"j$dbdb", " 2,5002 ")):
+            self.run_test_screen(
+                f"{keys.decode()} over 4 KB leaves the cursor",
+                content,
+                keys + b"\x1b\x1b:q!\r",
+                expect_status_contains=status,
+            )
+        rows200 = "".join("%03d abcdefghijklmnopqrstuvwxyz\n" % i
+                          for i in range(200))
+        self.run_test_screen(
+            ":20,160d over 4 KB leaves the cursor",
+            rows200,
+            b"10j5l:20,160d\r\x1b:q!\r",
+            expect_status_contains=" 11,6 ",
+        )
+
         # Exactly 4 KB still fits: D deletes and u restores it
         fits = "hello\n" + "a" * 4096 + "\nend\n"
         self.run_test(

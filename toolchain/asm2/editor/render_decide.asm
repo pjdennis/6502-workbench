@@ -83,13 +83,18 @@
 
 
 ; Capture state snapshot before handler runs
-; Saves VIEW_TOP16, VIEW_TOP_WRAP, LINE_COUNT16, BUF_END16
+; Saves VIEW_TOP16, VIEW_TOP_WRAP, LINE_COUNT16, BUF_END16, and the
+; cursor (snapshot_cursor: also before each typed-ahead press
+; dispatch_replay runs)
 render_snapshot:
   CP16 VIEW_TOP16, SNAP_VIEW_TOP16
   LDA VIEW_TOP_WRAP
   STA SNAP_VIEW_TOP_WRAP
   CP16 LINE_COUNT16, SNAP_LINE_COUNT16
   CP16 BUF_END16, SNAP_BUF_END16
+snapshot_cursor:
+  CP16 FILE_LINE16, SNAP_LINE16
+  CP16 CURSOR_COL16, SNAP_COL16
   RTS
 
 ; Compare post-handler state against the snapshot and dispatch to the

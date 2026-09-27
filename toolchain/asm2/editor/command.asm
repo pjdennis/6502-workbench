@@ -361,7 +361,12 @@ range_do_yank:
   LDX #>str_lines_yanked
   JMP report_yank_lines_ax
 
-range_yank_full:                 ; (the yank buffer is unchanged)
+; A yank that does not fit changes nothing: the yank buffer, the text,
+; and the cursor, which goes back where the command was typed (d0, db,
+; cb, yb and :d moved it to the start of their range first)
+range_yank_full:
+  CP16 SNAP_LINE16, FILE_LINE16
+  CP16 SNAP_COL16, CURSOR_COL16
   LDA #<str_yank_full
   LDX #>str_yank_full
   JMP show_message_ax
@@ -369,7 +374,7 @@ range_yank_full:                 ; (the yank buffer is unchanged)
   ; --- Range delete ---
   ; Same as dd with the cursor moved to the range start: yanks the lines,
   ; records undo, adjusts marks, deletes and clamps FILE_LINE16. A yank
-  ; that does not fit changes nothing but leaves the cursor there.
+  ; that does not fit changes nothing (range_yank_full).
 range_do_delete:
   CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
   JSR first_nonblank           ; (where u returns, as in vim)

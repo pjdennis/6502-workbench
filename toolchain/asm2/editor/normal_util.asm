@@ -142,6 +142,7 @@ dispatch_replay:
   STA BATCH_RESTORE_KEY
   STA BATCH_EXTRA            ; Each press on its own (dd for a linewise dw)
 .press:
+  JSR snapshot_cursor        ; Where this press starts (range_yank_full)
   TSX
   LDY $0101,X                ; Flags index
   JSR dispatch_fetch_jump
