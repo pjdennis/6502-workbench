@@ -442,6 +442,39 @@ class EmulatorTestRunner:
                 and self._assemble(tests_dir / "wait_ready_exit_test.asm",
                                    self.wait_ready_exit_bin))
 
+    def _build_direct_io_test(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        self.direct_io_bin = tests_dir / "out" / "direct_io_test.out"
+        return self._assemble(tests_dir / "direct_io_test.asm", self.direct_io_bin)
+
+    DIRECT_IO_EXPECTED = b"\x1b[3;17H\x1b[K\x1b[2@\x80q"
+
+    def test_direct_io_subprocess(self):
+        """--direct-io: screen calls write their ANSI sequences, and ESC[A is
+        read as KEY_UP."""
+        name = "direct-io: screen calls and keys (subprocess)"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "direct_keys.bin"
+        out = self.tmpdir / "direct_out.bin"
+        keys.write_bytes(b"\x1b[Aq")
+        result = self.run_subprocess(self.direct_io_bin, extra_args=[
+            "--direct-io", "--input", str(keys), "--output", str(out)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}: {result.stderr!r}")
+            return
+        self._assert_eq(name, out.read_bytes(), self.DIRECT_IO_EXPECTED)
+
+    def test_direct_io_server(self):
+        name = "direct-io: screen calls and keys (server MODE direct)"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.direct_io_bin, mode='direct', keys=b"\x1b[Aq")
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.DIRECT_IO_EXPECTED)
+
     def test_wait_ready_input_queued(self):
         """With --input every byte is ready at once; once a read has hit the
         end of the input, wait_ready returns CON_EOF. X and Y survive."""
@@ -652,6 +685,15 @@ class EmulatorTestRunner:
             self.test_wait_ready_ends_pace_pause()
             self.test_wait_ready_console_timeout()
             self.test_wait_ready_console_key()
+
+        print("\n--- direct-io ---")
+        if not self.assembler.exists():
+            self._fail("direct-io tests", "assembler not built")
+        elif not self._build_direct_io_test():
+            self._fail("direct-io tests", "test program did not assemble")
+        else:
+            self.test_direct_io_subprocess()
+            self.test_direct_io_server()
 
         print("\n--- CLI argument validation ---")
         self.test_cli_no_args()

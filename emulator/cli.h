@@ -36,6 +36,9 @@ struct emu_opts {
     int output_specified;               /* set when --output given */
     int console_mode;                   /* --console */
     int terminal_mode;                  /* --terminal */
+    int direct_io;                      /* --direct-io (nmos-default, not --terminal): the
+                                         * program calls screen services and reads key codes
+                                         * (direct_io.h) */
     int show_repaints;                  /* --show-repaints */
     int server_mode;                    /* --server seen after argv[1] */
     int override_rows;                  /* --rows N */

@@ -19,6 +19,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->output_specified = 0;
     opts->console_mode = 0;
     opts->terminal_mode = 0;
+    opts->direct_io = 0;
     opts->show_repaints = 0;
     opts->server_mode = 0;
     opts->override_rows = 0;
@@ -69,6 +70,9 @@ void emu_opts_usage(FILE *fp) {
 "  --no-dump              skip the dump-on-exit\n"
 "  --console              full-screen console UI\n"
 "  --terminal             terminal-emulator UI (mutually exclusive with --console)\n"
+"  --direct-io            the program calls the scr_* screen vectors instead of\n"
+"                         writing ANSI, and con_read returns key codes instead of\n"
+"                         escape sequences; the emulator converts both ways\n"
 "  --show-repaints        flash on console/terminal repaints (debug)\n"
 "  --server               long-running server: as argv[1] dispatches into\n"
 "                         server_main; after argv[1] enables one-shot reuse loop\n"
@@ -176,6 +180,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
     while (i < argc && strncmp(argv[i], "--", 2) == 0) {
         if (strcmp(argv[i], "--console") == 0) {
             opts->console_mode = 1;
+            i++;
+        } else if (strcmp(argv[i], "--direct-io") == 0) {
+            opts->direct_io = 1;
             i++;
         } else if (strcmp(argv[i], "--terminal") == 0) {
             opts->terminal_mode = 1;
@@ -414,6 +421,10 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         }
     }
 
+    if (opts->direct_io && (opts->terminal_mode || opts->machine != MACHINE_NMOS_DEFAULT)) {
+        fprintf(stderr, "error: --direct-io requires the nmos-default machine, not --terminal\n");
+        return 1;
+    }
     if (opts->console_mode && opts->terminal_mode) {
         fprintf(stderr, "error: --console and --terminal are mutually exclusive\n");
         return 1;

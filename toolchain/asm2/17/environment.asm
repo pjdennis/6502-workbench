@@ -49,5 +49,27 @@ wait_ready   = ENV_BASE + $3F ; Waits until an input byte is ready (console inpu
                               ; ended (N clear). X, Y preserved. With --input every byte is ready at once;
                               ; with a clock rate (--mhz, --cpu-mhz or --baud) the time is
                               ; emulated time, otherwise it is real time.
+
+; Screen calls, for programs built to call them instead of writing ANSI
+; sequences (the asm2 editor's define:direct_io build; the emulator's
+; --direct-io). Rows and columns are 1-based. All preserve X; they may
+; change A and Y.
+scr_goto         = ENV_BASE + $42 ; Move the cursor to row A, column Y
+scr_clear        = ENV_BASE + $45 ; Clear the screen; cursor to row 1, column 1
+scr_clear_eol    = ENV_BASE + $48 ; Clear from the cursor to the end of its row
+scr_cursor_on    = ENV_BASE + $4B ; Show the cursor
+scr_cursor_off   = ENV_BASE + $4E ; Hide the cursor
+scr_reverse      = ENV_BASE + $51 ; Write reverse video from here on
+scr_normal       = ENV_BASE + $54 ; Write normal video from here on
+scr_region       = ENV_BASE + $57 ; Scroll region rows A to Y
+scr_region_reset = ENV_BASE + $5A ; Scroll region the whole screen
+scr_insert       = ENV_BASE + $5D ; Insert A blanks at the cursor, shifting the row right
+scr_delete       = ENV_BASE + $60 ; Delete A characters at the cursor, shifting the row left
+scr_scroll_up    = ENV_BASE + $63 ; Scroll the region up A rows (blank rows at the bottom)
+scr_scroll_down  = ENV_BASE + $66 ; Scroll the region down A rows (blank rows at the top)
+; With direct_io, con_read returns key codes for special keys: $80 up,
+; $81 down, $82 left, $83 right, $84 Home, $85 End, $86 PgUp, $87 PgDn,
+; $88 Delete, $89 Ctrl+Right, $8A Ctrl+Left, $1B Escape, $08 Backspace.
+
 DIR_ENTRY_DIR      = $01 ; Metadata bit 0: entry is a directory
 DIR_ENTRY_READONLY = $02 ; Metadata bit 1: entry is read-only

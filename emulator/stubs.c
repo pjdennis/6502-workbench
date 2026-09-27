@@ -1,4 +1,5 @@
 #include "stubs.h"
+#include "direct_io.h"
 
 #define save_address(v) uint16_t v = p; p += 2
 #define fill_address(v) memory[v] = p & 0xff; memory[v+1] = p >> 8;
@@ -18,8 +19,9 @@
 #define inst_pla 0x68
 #define inst_bit 0x2c
 #define inst_bmi 0x30
+#define inst_lda_imm 0xa9
 
-size_t generate_stubs(uint8_t *memory, int terminal_mode) {
+size_t generate_stubs(uint8_t *memory, int terminal_mode, int direct_io) {
     size_t p = 0xf006;
     emit_byte(inst_jmp);        // f006     jmp read_b
     save_address(addr_read_b);
@@ -61,6 +63,8 @@ size_t generate_stubs(uint8_t *memory, int terminal_mode) {
     save_address(addr_opendir);
     emit_byte(inst_jmp);        // f03f     jmp wait_ready
     save_address(addr_wait_ready);
+    uint16_t addr_scr = p;      // f042     jmp scr_goto, ... (direct_io only)
+    if (direct_io) p += 3 * SCR_OP_COUNT;
     fill_address(addr_read_b);
     emit_byte(inst_bit);        // read_b:  bit port_eof_b
     emit_address(port_eof_b);
@@ -182,6 +186,18 @@ size_t generate_stubs(uint8_t *memory, int terminal_mode) {
     emit_byte(inst_lda);        //             lda port_wait_ready
     emit_address(port_wait_ready);
     emit_byte(inst_rts);        //             rts
+    for (int op = 0; direct_io && op < SCR_OP_COUNT; op++) {
+        uint16_t vec = (uint16_t)(addr_scr + 3 * op);
+        memory[vec] = inst_jmp;
+        fill_address(vec + 1);
+        emit_byte(inst_sta);    // scr_*:   sta port_scr_a
+        emit_address(port_scr_a);
+        emit_byte(inst_lda_imm);//          lda #op
+        emit_byte(op);
+        emit_byte(inst_sta);    //          sta port_scr_op
+        emit_address(port_scr_op);
+        emit_byte(inst_rts);    //          rts
+    }
 
     return p;
 }
