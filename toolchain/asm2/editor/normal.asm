@@ -130,7 +130,7 @@ pending_combo_keys:
   .byte 'c', 'c', $02       .word do_cc
   .byte '>', '>', $02       .word do_indent
   .byte '<', '<', $02       .word do_unindent
-  .byte 'd', '$', $02       .word do_d_dollar
+  .byte 'd', '$', $02       .word normal_delete_to_eol
   .byte 'd', '0', $02       .word do_d_zero
   .byte 'y', '$', $00       .word do_y_dollar
   .byte 'y', '0', $00       .word do_y_zero

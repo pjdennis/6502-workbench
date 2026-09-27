@@ -5416,6 +5416,10 @@ class EditorTestRunner:
                  (10, 40), 57),
                 ("insert BS mid-line", "Hello World\n", b"6li\x7f\x1b:q!\r",
                  4, (10, 40), 57),
+                ("D mid-line", "Hello World\n", b"lllD:q!\r", 2,
+                 (10, 40), 56),
+                ("d$ mid-line", "Hello World\n", b"llld$:q!\r", 2,
+                 (10, 40), 56),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),
@@ -18532,6 +18536,25 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "A" * 40), (1, "A" * 18)],
             expect_min_col=[(2, 1, 18)]
+        )
+
+        # d$ is D: it repaints from the cursor col too, leaving the rows
+        # before the cursor's alone
+        self.run_test_screen(
+            "d$ delete to EOL: partial render from cursor col",
+            "Hello World\n",
+            b"llld$:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Hel")],
+            expect_min_col=[(2, 0, 3)]
+        )
+        self.run_test_screen(
+            "d$ on wrapped line: partial render from cursor col",
+            "A" * 59 + "\nSecond\n",
+            b"$d$:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "A" * 40), (1, "A" * 18)],
+            expect_min_col=[(2, 0, -1), (2, 1, 18)]
         )
 
         # 2D on the last line fails, as in vim: nothing changes, and the

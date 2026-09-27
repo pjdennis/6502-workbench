@@ -595,7 +595,6 @@ normal_substitute_char:
 
 ; Shared s/C tail: change range at cursor
 sub_change_tail:
-  JSR set_render_from_cursor
   LDA #OP_CHANGE
   JMP apply_char_operator
 

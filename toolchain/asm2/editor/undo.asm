@@ -235,7 +235,7 @@ undo_step:
 
 .redo_char:
   ; Restore position
-  JSR undo_restore_pos_from
+  JSR undo_restore_line_col
   ; Get yank size for delete count
   JSR yank_get_size          ; BUF_LEN16 = yank size
   BCS .undo_fail
@@ -393,7 +393,7 @@ paste_restore_pos:
 ; --- Char paste undo (handles both BELOW and ABOVE) ---
 undo_char_paste_undo:
   ; Position at insertion point and delete pasted content
-  JSR undo_restore_pos_from
+  JSR undo_restore_line_col
   CP16 UNDO_PASTE_COUNT16, BUF_TEMP16
   JSR yank_paste_size          ; BUF_LEN16 = total paste size
   BCS undo_paste_fail

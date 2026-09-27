@@ -651,9 +651,11 @@ undo_delete_at_cursor:
 
 ; Delete bytes at cursor position (no yank)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED
+; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED;
+; the line repaints from the cursor (RENDER_FROM_COL16)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
 delete_at_cursor:
+  JSR set_render_from_cursor
   JSR count_newlines         ; BUF_TEMP16 = the range's newlines
   ; Newlines found: BEFORE the shift, sum the old screen rows of the
   ; cursor line and the lines joined to it into DELETE_SCREEN_ROWS (0 if
@@ -816,7 +818,6 @@ normal_delete_char:
 batched_char_delete:
   LDY #0
 bcd_start:
-  JSR set_render_from_cursor    ; Repaint from the range start (keeps X, Y)
   JSR compute_char_range_forward
   BCS bcd_done
   JSR set_shift_delete

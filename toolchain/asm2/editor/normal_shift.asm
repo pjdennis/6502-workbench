@@ -475,15 +475,8 @@ do_y_dollar:
   LDX #OP_YANK
   BEQ dollar_op               ; Always taken (OP_YANK = 0)
 
-; d$: delete from the cursor to EOL (count lines), repainting the whole
-; line (D below repaints from the cursor)
-do_d_dollar:
-  LDX #OP_DELETE
-  BNE dollar_op               ; Always taken (OP_DELETE = 1)
-
-; D: delete from the cursor to EOL (count lines)
+; D and d$: delete from the cursor to EOL (count lines)
 normal_delete_to_eol:
-  JSR set_render_from_cursor
   LDX #OP_DELETE
   ; fall through
 
@@ -598,7 +591,6 @@ word_op_forward:
   LDA NORMAL_TEMP
   BNE word_op_bail             ; Nothing to operate on (a yank takes
 .range:                        ; the empty range, as in vim)
-  JSR set_render_from_cursor   ; Repaint from the range start
   LDA NORMAL_TEMP              ; A = operator
   JSR apply_char_operator      ; (c enters insert mode)
   JMP clamp_for_mode
