@@ -531,6 +531,7 @@ insert_segment:
   STA UNDO_TYPE
   JSR undo_record_pos        ; A = 0
   STA_LH16 UNDO_INS_LEN16
+  STA UNDO_INS_OPEN
   DEC INSERT_SEG             ; $FF
 .open:
   LDA BUF_TEMP               ; fwd_actual

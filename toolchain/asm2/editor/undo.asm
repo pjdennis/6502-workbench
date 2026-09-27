@@ -89,9 +89,9 @@ undo_step:
   JSR any_line_rows          ; (1 if gone: a delete that reached the end)
   STA PREV_LINE_ROWS
   ; Per-type handler dispatch via address table (RTS trick): entries are
-  ; handler - 1, indexed by UNDO_TYPE (1..14, 0 is filtered above).
+  ; handler - 1, indexed by UNDO_TYPE (1..13, 0 is filtered above).
   LDA UNDO_TYPE
-  ASL                        ; C = 0 (UNDO_TYPE <= 14)
+  ASL                        ; C = 0 (UNDO_TYPE <= 13)
   BIT UNDO_IS_REDO
   BPL .index                 ; Undo pending
   ADC #.redo_table - .table  ; Redo pending: use the redo entries
@@ -114,12 +114,11 @@ undo_step:
   .word undo_char_paste_undo - 1     ; 6 UNDO_CHAR_PASTE_BELOW
   .word undo_char_paste_undo - 1     ; 7 UNDO_CHAR_PASTE_ABOVE
   .word undo_join_undo - 1           ; 8 UNDO_JOIN
-  .word undo_open_undo - 1           ; 9 UNDO_OPEN
-  .word undo_shift_step - 1          ; 10 UNDO_INDENT
-  .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
-  .word undo_tilde_undo - 1          ; 12 UNDO_TILDE
-  .word undo_replace_undo - 1        ; 13 UNDO_REPLACE
-  .word undo_insert_undo - 1         ; 14 UNDO_INSERT
+  .word undo_shift_step - 1          ; 9 UNDO_INDENT
+  .word undo_shift_step - 1          ; 10 UNDO_UNINDENT
+  .word undo_tilde_undo - 1          ; 11 UNDO_TILDE
+  .word undo_replace_undo - 1        ; 12 UNDO_REPLACE
+  .word undo_insert_undo - 1         ; 13 UNDO_INSERT
 .redo_table:                         ; Redo handlers
   .word .redo_line - 1               ; 1 UNDO_LINE
   .word .redo_char - 1               ; 2 UNDO_CHAR
@@ -129,12 +128,11 @@ undo_step:
   .word undo_char_paste_redo - 1     ; 6 UNDO_CHAR_PASTE_BELOW
   .word undo_char_paste_redo - 1     ; 7 UNDO_CHAR_PASTE_ABOVE
   .word undo_join_redo - 1           ; 8 UNDO_JOIN
-  .word undo_open_redo - 1           ; 9 UNDO_OPEN
-  .word undo_shift_step - 1          ; 10 UNDO_INDENT
-  .word undo_shift_step - 1          ; 11 UNDO_UNINDENT
-  .word undo_tilde_redo - 1          ; 12 UNDO_TILDE
-  .word undo_replace_redo - 1        ; 13 UNDO_REPLACE
-  .word undo_insert_redo - 1         ; 14 UNDO_INSERT
+  .word undo_shift_step - 1          ; 9 UNDO_INDENT
+  .word undo_shift_step - 1          ; 10 UNDO_UNINDENT
+  .word undo_tilde_redo - 1          ; 11 UNDO_TILDE
+  .word undo_replace_redo - 1        ; 12 UNDO_REPLACE
+  .word undo_insert_redo - 1         ; 13 UNDO_INSERT
 
 ; --- Undo handlers ---
 .undo_line:
@@ -433,43 +431,18 @@ undo_keep_render_flag:
 .done:
   JMP clear_count
 
-; --- Open-line undo: delete the opened blank line(s) ---
-undo_open_undo:
-  ; Delete the opened line
-  JSR undo_restore_line
-  JSR set_buf_temp16_one
-  JSR undo_delete_lines_scroll
-  ; Restore cursor to the original line (saved in UNDO_COL16), col 0: the
-  ; opened line's place (O) or the line above it (o)
-  CP16 UNDO_COL16, FILE_LINE16
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  ; Set flags
-  JSR undo_set_done_flags
-  JMP finish_delete_scroll
-
-; --- Open-line redo: re-insert blank line ---
-undo_open_redo:
-  ; Insert a blank line at UNDO_LINE16 (on buffer full, nothing moves)
-  LDAX16 UNDO_LINE16
-  JSR open_line_at
-  BCS .redo_open_fail
-  ; Set cursor on opened line
-  JSR undo_restore_line
-  LDA #RF_INS                   ; Insert scroll
-  JSR undo_opened_finish
-.redo_open_fail:
-  JMP clear_count
-
-
 ; --- Insert undo: delete the text the segment typed ---
 ; The text is kept in UNDO_DATA_BUF for the redo when it fits (at most
 ; 255 bytes); else the undo ends the record, and u after it does nothing.
-; Both put the cursor where the typing began (clamped), as vim's u and
-; Ctrl-R do
+; The cursor goes back where the typing began (clamped), as vim's u and
+; Ctrl-R put it.  A segment of o or O is whole lines (the opened line's
+; break ends it): they go and come back as lines, drawn as the undo and
+; redo of a line paste, and u returns to where o or O was typed
 undo_insert_undo:
-  JSR insert_undo_setup      ; Y = its low byte, Z = fits
-  BNE .delete
+  JSR insert_undo_setup      ; Y = the length's low byte, Z = it fits
+  BEQ .save
+  JSR undo_clear             ; Too long: no redo (Z = 1)
+  BEQ .delete                ; Always
 .save:
   DEY
   LDA (BUF_PTR16),Y
@@ -477,14 +450,26 @@ undo_insert_undo:
   TYA
   BNE .save
 .delete:
+  LDA UNDO_INS_OPEN
+  BNE .lines
   JSR delete_at_cursor       ; (marks, and the scroll of joined lines)
   JSR clamp_cursor_col
-  LDA UNDO_INS_LEN16 + 1
-  BNE .no_redo
   JMP undo_span_undone
-.no_redo:
-  JSR undo_clear
-  JMP undo_keep_render_flag
+.lines:
+  JSR count_newlines         ; BUF_TEMP16 = the lines
+  JSR undo_delete_lines_scroll
+  ; The line o or O was typed on: for o the one above
+  LDA UNDO_INS_OPEN
+  LSR                        ; C = 1: O
+  LDA UNDO_LINE16
+  SBC #0
+  STA FILE_LINE16
+  LDA UNDO_LINE16 + 1
+  SBC #0
+  STA FILE_LINE16 + 1
+  JSR insert_ret_col
+  JSR undo_set_done_flags
+  JMP finish_delete_scroll
 
 ; --- Insert redo: put the text back from UNDO_DATA_BUF ---
 ; (It fits: its undo made the room, and nothing has changed since)
@@ -506,16 +491,30 @@ undo_insert_redo:
   BNE .copy
   TXA
   BEQ .one_line
-  ; Line breaks: a split of the cursor line, as the undo of a char delete
-  ; over them (INSERT_LINE_COUNT = the new lines and the cursor line)
-  INX
-  STX INSERT_LINE_COUNT
   PHA
   JSR buf_rebuild_lines
   PLA
+  LDY UNDO_INS_OPEN
+  BNE .lines
+  ; Line breaks: a split of the cursor line, as the undo of a char delete
+  ; over them (INSERT_LINE_COUNT = the new lines and the cursor line)
+  TAX
+  INX
+  STX INSERT_LINE_COUNT
   JSR mark_args_next_line
   JSR mark_adjust_insert     ; The marks below move down
   LDA #RF_SPLIT
+  BNE .flag                  ; Always
+.lines:
+  ; o or O: the lines go in at the cursor line, as o and O draw them
+  ; (the cursor stays on the first, where O was typed; vim returns to the
+  ; line o was typed on)
+  JSR set_buf_temp16_a
+  LDAX16 FILE_LINE16
+  JSR mark_adjust_insert     ; The marks from there move down
+  JSR insert_ret_col
+  LDA #RF_INS
+.flag:
   STA RENDER_FLAG
   BNE .done                  ; Always
 .one_line:
@@ -526,13 +525,26 @@ undo_insert_redo:
   JMP undo_span_redone
 
 ; The cursor to the insert segment's start (the line repaints from
-; there), BUF_PTR16 = its address, BUF_LEN16 = the text's length, Y = its
-; low byte; Z = 1 if it fits UNDO_DATA_BUF
+; there), BUF_PTR16 = its address, BUF_LEN16 = the text's length (and the
+; line break of o or O after it), Y = its low byte; Z = 1 if it fits
+; UNDO_DATA_BUF
 insert_undo_setup:
   JSR undo_span_setup
-  LDY UNDO_INS_LEN16
-  CP16 UNDO_INS_LEN16, BUF_LEN16  ; (Z from its high byte)
+  LDA UNDO_INS_OPEN
+  CMP #1                     ; C = 1: o or O
+  LDA UNDO_INS_LEN16
+  ADC #0
+  STA BUF_LEN16
+  TAY
+  LDA UNDO_INS_LEN16 + 1
+  ADC #0
+  STA BUF_LEN16 + 1
   RTS
+
+; The column u returns to after an insert of o or O (clamped)
+insert_ret_col:
+  CP16 UNDO_RET_COL16, CURSOR_COL16
+  JMP clamp_cursor_col
 
 
 ; --- Indent/unindent undo step (self-morphing) ---

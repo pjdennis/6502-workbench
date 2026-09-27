@@ -290,18 +290,25 @@ open_line_x:
   JSR buf_open_line          ; A/X = the new line's number
   BCS open_full
 
-  ; Record undo: u deletes the opened line and returns to this one
-  LDA #UNDO_OPEN
-  STA UNDO_TYPE
-  CP16 FILE_LINE16, UNDO_COL16   ; Line to restore the cursor to
-  LDA NORMAL_TEMP
+  ; Record the opened line as an insert segment, which the typing on it
+  ; extends: u deletes it with the lines typed there and returns to
+  ; where o or O was typed, as in vim.  Its line break follows the text
+  CP16 CURSOR_COL16, UNDO_RET_COL16
+  LDX NORMAL_TEMP
+  INX
+  STX UNDO_INS_OPEN              ; O: 1, o: 2 (u returns to the line above)
+  DEX
   BEQ .on_new_line               ; O: the new line took this number
   INC16 FILE_LINE16
 .on_new_line:
-  CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
   LDA #RF_INS                       ; Signal line-insert for scroll optimization
-  JSR undo_opened_finish
-  JMP enter_insert_change
+  JSR undo_opened_finish         ; Column 0
+  LDA #UNDO_INSERT
+  STA UNDO_TYPE
+  JSR undo_record_pos            ; The segment's start; A = 0
+  STA_LH16 UNDO_INS_LEN16
+  LDA #$FF                       ; Open: the typing extends it
+  JMP enter_insert_a
 
 ; o/O and r<Enter> buffer-full handler
 open_full:

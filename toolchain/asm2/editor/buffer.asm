@@ -181,11 +181,6 @@ ptr_adc_a:
 .done:
   RTS
 
-; Open a blank line at line A/X (that line moves down)
-open_line_at:
-  PHA
-  JSR buf_get_line_ptr       ; BUF_PTR16 = start of line A/X (X kept)
-  PLA
 ; Open a blank line: insert a newline at BUF_PTR16, rebuild the line
 ; table and move the marks at/after line A/X (the new line) down one.
 ; Returns carry set = the text buffer or the line table is full (nothing

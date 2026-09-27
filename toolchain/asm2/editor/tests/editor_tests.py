@@ -1661,6 +1661,10 @@ class EditorTestRunner:
              [b"A"] + [bytes([c]) for c in b"xy\rz\x08\x08w\rq"] + [b"\x1b"]),
             ("Batch equiv: BS past where the typing began", "ab\ncd\n",
              [b"j", b"A", b"x", b"\x08", b"\x08", b"\x08", b"y", b"\x1b"]),
+            ("Batch equiv: o, typing with Enter and BS", "abc\ndef\n",
+             [b"o"] + [bytes([c]) for c in b"fo\x08o\rba\x08r"] + [b"\x1b"]),
+            ("Batch equiv: O, typing with Enter and BS", "abc\ndef\n",
+             [b"j", b"O"] + [bytes([c]) for c in b"xy\r\x08\x08z"] + [b"\x1b"]),
             ("Batch equiv: Left keys after a BS past the start", "abcdef\n",
              [b"$", b"a", b"\x08", b"\x08", b"x"] + [b"\x1b[D"] * 8
              + [b"y", b"\x1b"]),
@@ -19405,12 +19409,12 @@ class EditorTestRunner:
             expected_content="B\nC\n"
         )
 
-        # dd then insert clears undo
+        # u after o and typing undoes both, not the dd before them
         self.run_test(
-            "dd then oNew ESC u: insert clears undo",
+            "dd then oNew ESC u: u undoes the o and the typing",
             "A\nB\n",
             b"ddoNew\x1bu:wq\r",
-            expected_content="B\nNew\n"
+            expected_content="B\n"
         )
 
         # u with no prior edit is no-op
@@ -19886,6 +19890,48 @@ class EditorTestRunner:
             "Insert undo after a cursor key: PgDn starts a new stretch",
             lines30, b"Ax\x1b[6~y\x1bu:wq\r",
             expected_content=lines30.replace("line 0\n", "line 0x\n", 1))
+        # o and O: u takes back the opened line with the text typed on it,
+        # and returns to where o or O was typed, as in vim
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ofoo", "abc\n", (0, 0)),
+                ("abc\n", b"lofoo", "abc\n", (0, 1)),
+                ("  abc\ndef\n", b"0jlOfoo", "  abc\ndef\n", (1, 1)),
+                ("abc\n", b"llOfoo", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"lofoo\rbar", "abc\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"jlOfoo\rbar", "abc\ndef\n", (1, 1)),
+                ("abc\nxy\n", b"j$o", "abc\nxy\n", (1, 1)),
+                ("abc\nxy\n", b"j$O", "abc\nxy\n", (1, 1)),
+                ("abc\n", b"Ofoo\x1b[Ax", "abc\n", (0, 0)),
+                # A cursor move after o starts a new stretch
+                ("abc\n", b"ofoo\x1b[Dx", "abc\nfoo\n", (1, 2)),
+                ("abc\n", b"o\x1b[Ax", "abc\n\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert undo of o and O: {keys!r} ESC u on {content!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        # u again puts the lines back: after O the cursor returns to the
+        # column O was typed at (vim), after o to the opened line (vim: to
+        # the line o was typed on)
+        for content, keys, expected, cursor in (
+                ("abc\n", b"llOfoo", "foo\nabc\n", (0, 2)),
+                ("abc\ndef\n", b"jlOfoo\rbar", "abc\nfoo\nbar\ndef\n", (1, 1)),
+                ("abc\nxy\n", b"j$O", "abc\n\nxy\n", (1, 0)),
+                ("abc\n", b"ofoo", "abc\nfoo\n", (1, 0))):
+            self.run_test_screen(
+                f"Insert redo of o and O: {keys!r} ESC u u on {content!r}",
+                content, keys + b"\x1buu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        for keys, expected in ((b"u", "abc\nef\n"),
+                               (b"uu", "abc\nfoo\nbar\nef\n")):
+            self.run_test(
+                f"Insert undo of o: the marks below after {keys.decode()}",
+                "abc\ndef\n", b"jmakofoo\rbar\x1b" + keys + b"'ax:wq\r",
+                expected_content=expected)
+        self.run_test_screen(
+            "Insert undo of o: the screen after u of typed lines",
+            "abc\ndef\nghi\n", b"jofoo\rbar\rbaz\x1bu",
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "~")],
+            expect_cursor=(1, 0))
         # The screen after u of typed line breaks
         self.run_test_screen(
             "Insert undo: the screen after u of typed line breaks",
@@ -19944,6 +19990,16 @@ class EditorTestRunner:
         self.run_test(
             "Insert undo: DEL of text after the cursor clears undo",
             "ab\ncd\n", b"ddix\x1b[3~\x1bu:wq\r", expected_content="xd\n")
+        # o's line break is before the typing, so a BS at the start of its
+        # line clears the undo too, and a DEL at its end (vim: 'abc' and
+        # 'abc\ndef')
+        self.run_test(
+            "Insert undo of o: BS at the start of the opened line clears undo",
+            "abc\n", b"o\x08x\x1bu:wq\r", expected_content="abcx\n")
+        self.run_test(
+            "Insert undo of o: DEL at the end of the opened line clears undo",
+            "abc\ndef\n", b"ofoo\x1b[3~\x1bu:wq\r",
+            expected_content="abc\nfoodef\n")
 
         self._group("Undo join (J):", leading_blank=True)
 

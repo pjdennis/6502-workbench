@@ -40,6 +40,7 @@ INSERT_SEG:      .byte    ; Insert mode's undo segment: 0 = none (the next chang
                           ; changes clear the undo (insert_segment)
 UNDO_JOIN_COUNT: .byte
 UNDO_PASTE_COUNT16: .word
+UNDO_RET_COL16:  .word    ; insert of o and O: the column u returns to
 
 ; --- render.asm ---
 CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
