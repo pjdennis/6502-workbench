@@ -183,7 +183,7 @@ render_decide:
   ; Scroll region start = first_row + old_total + 1 (1-based)
   LDA SCROLL_DELTA          ; old_total
   JSR row_below_rows
-  STA ANSI_ROW
+  TAY
   ; Displacement = new_total - old_total
   LDA DELETE_SCREEN_ROWS
   SEC
@@ -192,7 +192,7 @@ render_decide:
   STA SCROLL_DELTA
   ; Scroll region end = SCREEN_ROWS - 1; guarded (skip if region too small)
   LDX #'T'                  ; scroll down
-  JSR scroll_region_check
+  JSR scroll_region_check   ; (the region's first row in Y)
   LDA DELETE_SCREEN_ROWS     ; new_total (cursor line's screen rows)
   STA SCROLL_DELTA           ; number of rows to render
   JMP render_from_first_row_limited

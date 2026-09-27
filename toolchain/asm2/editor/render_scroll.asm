@@ -273,10 +273,10 @@ render_enter_split:
 scroll_up_clamped:
   LDX #'S'                     ; scroll up
 scroll_clamped:
-  STA ANSI_ROW
-  LDA SCREEN_ROWS
+  TAY                          ; Y = the region's first row
+  EOR #$FF
   SEC
-  SBC ANSI_ROW                 ; the region's height
+  ADC SCREEN_ROWS              ; the region's height
   BCS .height
   LDA #0                       ; the region starts past the status bar
 .height:
@@ -293,14 +293,15 @@ scroll_clamped:
 ; was, not blanked) or invalid (Z=0); C=1 after a scroll.  Clobbers A, Y
 ; (X preserved).
 scroll_region_from_a:
-  STA ANSI_ROW
-  ; fall through (entry with ANSI_ROW already set)
+  TAY
+  ; fall through (entry with the start row in Y)
 scroll_region_check:
+  CPY TEXT_ROWS
+  BCS .skip                    ; a single row (Z=1): nothing to shift, or
+                               ; an empty region (Z=0)
+  STY ANSI_ROW
   LDA TEXT_ROWS
   STA ANSI_COL
-  CMP ANSI_ROW
-  BEQ .skip                    ; single row: nothing to shift
-  BCC .skip                    ; empty region
   JSR ansi_set_scroll_region   ; preserves X
   LDA SCROLL_DELTA
   JSR ansi_count_seq           ; ESC[nS / ESC[nT
@@ -308,7 +309,7 @@ scroll_region_check:
   SEC
   RTS
 .skip:
-  CLC
+  CLC                          ; (Z kept)
   RTS
 
 ; Repaint the newly exposed bottom SCROLL_DELTA rows (none for 0):
