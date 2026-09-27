@@ -13,6 +13,7 @@
 #include "cpu_core.h"
 #include "emu_run.h"
 #include "lcd_report.h"
+#include "pace.h"
 #include "serial_link.h"
 #include "tty_alt_screen.h"
 #include "wendy2c_web.h"
@@ -223,32 +224,6 @@ static int live_poll_input(struct led_buttons_state *ledbtn) {
     return flags;
 }
 
-/* Wall-clock pace helper: given a fixed-rate reference (t0, osc0,
- * osc_per_us), sleep enough that emulated osc ticks track wall time.
- * Caller has just stepped a batch; this checks whether the emulator
- * is ahead-of-wall and sleeps if so. Returns the current wall-time
- * delta in nanoseconds (caller may use it for render scheduling). */
-static long wendy2c_pace(const struct timespec *t0,
-                         uint64_t osc0, uint64_t osc_now,
-                         double osc_per_us) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    long wall_ns = (long)(now.tv_sec - t0->tv_sec) * 1000000000L
-                  + (now.tv_nsec - t0->tv_nsec);
-    if (osc_per_us <= 0.0) return wall_ns;
-    double emu_us = (double)(osc_now - osc0) / osc_per_us;
-    long emu_ns = (long)(emu_us * 1000.0);
-    long ahead_ns = emu_ns - wall_ns;
-    if (ahead_ns > 200000L /* 0.2 ms */) {
-        struct timespec ts = { ahead_ns / 1000000000L, ahead_ns % 1000000000L };
-        nanosleep(&ts, NULL);
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        wall_ns = (long)(now.tv_sec - t0->tv_sec) * 1000000000L
-                 + (now.tv_nsec - t0->tv_nsec);
-    }
-    return wall_ns;
-}
-
 /* Poll the link if non-NULL; if it's stalled (TX active + current
  * duration expired + recv buffer empty), select-wait briefly on the
  * client fd so we don't busy-spin. Returns 1 if a stall happened (the
@@ -326,7 +301,7 @@ static int emu_run_wendy2c_live(struct bus *b,
         }
         if (cpu_stp_pending() || cap_hit) break;
 
-        long wall_ns = wendy2c_pace(&t0, osc0, b->osc_ticks, osc_per_us);
+        long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
 
         if (wall_ns - last_render_ns >= FRAME_NS) {
             live_render(b, lcd, via, ledbtn, 0);
@@ -450,7 +425,7 @@ static int emu_run_wendy2c_web(struct bus *b,
         }
         if (cap_hit || cpu_stp_pending()) break;
 
-        long wall_ns = wendy2c_pace(&t0, osc0, b->osc_ticks, osc_per_us);
+        long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
 
         struct wendy2c_web_event evt;
         wendy2c_web_poll(srv, &evt);
@@ -709,11 +684,11 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
             }
             if (stp) break;
             lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
-            (void)wendy2c_pace(&t0, osc0, b.osc_ticks, osc_per_us);
+            (void)emu_pace(&t0, osc0, b.osc_ticks, osc_per_us);
         }
     } else {
         /* Free-running (no throttle): just step. Same link-stall
-         * shape as the throttled path, minus the wendy2c_pace call. */
+         * shape as the throttled path, minus the emu_pace call. */
         while (b.osc_ticks < cap) {
             if (link_step(link, b.osc_ticks, &b, &via_state, 10)) continue;
             const int BATCH = 50000;
