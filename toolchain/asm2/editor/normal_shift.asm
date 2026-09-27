@@ -53,21 +53,27 @@ do_unindent:
   JMP first_nonblank_clear
 
 ; Shared >> / << entry setup.
-; Takes the typed-ahead pairs, computes BUF_DELTA = INDENT_WIDTH * (1 +
-; BATCH_EXTRA) (batched pairs multiply the width; the count means lines,
-; not repeats) and clamps the line count.  The cursor goes where vim
-; starts the operator, the column u returns to: over two or more lines
-; the cursor, on one line the first non-blank if it is further left.  A
-; batch's later pairs each start on the first non-blank the pair before
-; left (the cores move it as the earlier pairs moved the text).
+; Clamps the line count and computes BUF_DELTA = INDENT_WIDTH * (1 +
+; BATCH_EXTRA).  A count means lines and a repeated pair width, so the
+; typed-ahead pairs merge (multiplying the width) only when no count was
+; typed: 3>>>> is 3>> then >>.  The cursor goes where vim starts the
+; operator, the column u returns to: over two or more lines the cursor,
+; on one line the first non-blank if it is further left.  A batch's
+; later pairs each start on the first non-blank the pair before left
+; (the cores move it as the earlier pairs moved the text).
 shift_normal_setup:
+  JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
+  LDX #0                       ; No pairs taken
+  LDA COUNT16
+  ORA COUNT16 + 1
+  BNE .counted
   JSR batch_pending_pairs      ; X = BATCH_EXTRA
+.counted:
   TXA
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
   STA SHIFT_PREV_WIDTH         ; The earlier pairs' width (C = 0: BATCH_EXTRA <= BATCH_MAX)
   ADC #INDENT_WIDTH            ; + the last pair's
   STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * (1 + extra pairs)
-  JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
   LDA BUF_TEMP16 + 1
   BNE .start                   ; (256 lines or more)
   LDX BUF_TEMP16

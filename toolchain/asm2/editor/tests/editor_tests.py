@@ -2628,17 +2628,17 @@ class EditorTestRunner:
             self.run_test(
                 f"Counted {key.decode()} whose end passes $FFFF is refused",
                 wide, b"yy900" + key + b"\x1b:wq\r", expected_content=wide)
-        # ... and so is a batched >> whose total shift does that (32 pairs
-        # = 64 spaces on each of 1000 lines = 64000 bytes) or wraps 16 bits
-        # (33 pairs = 66 spaces on each line = 66000 bytes, which wraps
-        # to 464)
+        # A shift's total cannot do that: typed-ahead >> pairs merge only
+        # without a count (1 line), so 1000>> followed by 31 or 32 more >>
+        # is 1000>> (2 spaces on each of 1000 lines) and then the >>
+        # presses on the cursor line, not 64 or 66 spaces on every line
+        # (64000 bytes, or 66000, which wraps 16 bits)
         ones = "a\n" * 1000
-        for pairs, what in ((32, "end passes $FFFF"),
-                            (33, "total shift wraps 16 bits")):
+        for pairs in (32, 33):
             self.run_test(
-                f"Batched >> whose {what} is refused",
+                f"1000>> then {pairs - 1} typed-ahead >> shift 1000 lines once",
                 ones, b"1000" + b">>" * pairs + b"\x1b:wq\r",
-                expected_content=ones)
+                expected_content=" " * (2 * pairs) + "a\n" + "  a\n" * 999)
 
         # Paste size = yank size * count must not wrap 16 bits
         # (66 * 993 = 65538 wraps to 2; 7 * 9999 = 69993 wraps to 4457;
@@ -17654,14 +17654,34 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
-        # Batched 2>>>> on two lines: undo removes the last 2-space step
-        # from both lines of the range
+        # 2>>>> on two lines is 2>> then >>: undo removes the >> (the
+        # cursor line only), leaving the 2>> on both lines
         self.run_test(
-            "2>>>> batched undo removes last step from range",
+            "2>>>> undo removes the last >>",
             "aaa\nbbb\nccc\n",
             b"2>>>>u:wq\r",
             expected_content="  aaa\n  bbb\nccc\n"
         )
+
+        # A count means lines and a repeated >> / << means width, so a
+        # count followed by typed-ahead pairs acts as the keys one at a
+        # time (the ESC-separated forms): 3>>>> is 3>> then >> (vim)
+        abcd = "a\nb\nc\nd\n"
+        deep = "      a\n      b\n      c\n"
+        for keys, content, expected, cursor in [
+                (b"3>>>>", abcd, "    a\n  b\n  c\nd\n", (0, 4)),
+                (b"3>>\x1b>>", abcd, "    a\n  b\n  c\nd\n", (0, 4)),
+                (b"3>>>>u", abcd, "  a\n  b\n  c\nd\n", (0, 2)),
+                (b"3>>>>uu", abcd, "    a\n  b\n  c\nd\n", (0, 2)),
+                (b"3>>\x1b>>\x1buu", abcd, "    a\n  b\n  c\nd\n", (0, 2)),
+                (b"2>>>>>>", abcd, "      a\n  b\nc\nd\n", (0, 6)),
+                (b"3<<<<", deep, "  a\n    b\n    c\n", (0, 2)),
+                (b"3<<\x1b<<", deep, "  a\n    b\n    c\n", (0, 2)),
+                (b"3<<<<uu", deep, "  a\n    b\n    c\n", (0, 2))]:
+            self.run_test_screen(
+                f"{keys!r} shifts as if unbatched", content,
+                keys + b"\x1b:wq\r", expected_content=expected,
+                expect_cursor=cursor)
 
         # >> and << leave the cursor on the first non-blank, and u (and
         # u again, the redo) put it back where the operator started: the
@@ -21447,10 +21467,10 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
-        # 3>>>> count + batched indent.
-        # 3>> indents up to 3 lines (2 spaces), >> batched repeat (2 more) = 4 spaces.
+        # 3>>>> count + typed-ahead indent.
+        # 3>> indents up to 3 lines (2 spaces), then >> the cursor line (2 more) = 4 spaces.
         self.run_test(
-            "3>>>> count plus batched indent",
+            "3>>>> count plus typed-ahead indent",
             "abc\n",
             b"3>>>>:wq\r",
             expected_content="    abc\n"
@@ -22171,17 +22191,18 @@ class EditorTestRunner:
             expect_content_redraws=[True, False, False, False]
         )
 
-        # 2>>>> batched multi-line: 2 lines, 4 spaces each, rows 0-1 redrawn.
+        # 2>>>> is 2>> then >> (a count means lines, so the pairs do not
+        # merge): rows 0-1 redrawn for the 2>>, then row 0 for the >>.
         self.run_test_screen(
-            "Render opt: 2>>>> batched multi-line partial redraw",
+            "Render opt: 2>>>> multi-line partial redraws",
             "Hello\nWorld\nThird\n",
             b"2>>>>:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "    Hello"), (1, "    World"), (2, "Third"),
+                (0, "    Hello"), (1, "  World"), (2, "Third"),
             ],
             expect_cursor=(0, 4),
-            expect_content_rows=[(2, {0, 1})]
+            expect_content_rows=[(2, {0, 1}), (3, {0})]
         )
 
         # :1,3> range indent: only rows 0-2 redrawn.
