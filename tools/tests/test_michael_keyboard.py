@@ -1,4 +1,4 @@
-"""Michael's keyboard programs, run in tools/michael_keyboard_sim.c.
+"""Michael's keyboard programs and RAM map probe, run in tools/michael_keyboard_sim.c.
 
 The simulator models the VIA, the LCD and the PS/2 keyboard board closely
 enough for the keyboard driver (firmware/lib/keyboard/keyboard_driver.inc):
@@ -94,6 +94,19 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_diag_shows_a_resend_request(self):
         self.assertEqual(self.diag_text(KEY_A, 'resend'), 'F4bcd[FE][1C][F0][1C]')
+
+    def test_ram_map_shows_ben_eaters_16k(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='eater'),
+                         ['RAM map, 1K per char', '0000 RRRRRRRRRRRR', '3000 RRRRwwwwwwww',
+                          '16K RAM $0000-$3FFF'])
+
+    def test_ram_map_shows_24k(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='full')[1:],
+                         ['0000 RRRRRRRRRRRR', '3000 RRRRRRRRRRRR', '24K RAM $0000-$5FFF'])
+
+    def test_ram_map_shows_mirrors(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='mirror8k')[1:],
+                         ['0000 RRRRRRRRmmmm', '3000 mmmmmmmmmmmm', '8K RAM $0000-$1FFF'])
 
 
 if __name__ == '__main__':
