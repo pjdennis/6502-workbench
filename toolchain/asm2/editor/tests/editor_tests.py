@@ -2424,15 +2424,19 @@ class EditorTestRunner:
             )
 
             # Read-only mode: :1,2d is blocked
-            # Multi-line content > 256 bytes to trigger truncation
+            # Multi-line content > 256 bytes to trigger truncation. The
+            # blocked commands below end in :q, which would say "No write
+            # since last change" had they changed the text
             large_multiline = ''.join(f"Line {i}\n" for i in range(1, 50))
             self.run_test_small_buffer(
                 "Read-only mode blocks :1,2d",
                 large_multiline,
                 # 'x' dismisses truncation warning, :1,2d shows RO msg,
-                # 'x' dismisses that, :q! quits
-                b"x:1,2d\rx:q!\r",
-                expect_unmodified=True
+                # 'x' dismisses that, :q quits
+                b"x:1,2d\rx:q\r",
+                expect_unmodified=True,
+                expect_ansi_contains="Read-only (file truncated)",
+                expect_ansi_absent="No write since last change"
             )
 
             # The key that dismisses the startup warning redraws the status
@@ -2458,15 +2462,18 @@ class EditorTestRunner:
                 "Read-only mode blocks X",
                 large_content,
                 b"x$X:q\r",   # 'x' dismisses warning, X ignored, :q quits
-                expect_unmodified=True
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
             )
 
-            # Read-only mode: i key is blocked (no insert mode)
+            # Read-only mode: i key is blocked (no insert mode): the Q
+            # after it is not typed in (in normal mode it does nothing)
             self.run_test_small_buffer(
                 "Read-only mode blocks i",
                 large_content,
-                b"x:q\r",   # 'x' dismisses warning, :q quits
-                expect_unmodified=True
+                b"xiQ\x1b:q\r",   # 'x' dismisses warning, :q quits
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
             )
 
             # A file that exactly fills the buffer is not truncated: it
