@@ -468,7 +468,7 @@ insert_handle_key:
   BNE .set_flag              ; Always taken
 
   ; Lines merged, none inserted: the joined line changed from where the
-  ; batch began, before the text it typed ($06)
+  ; batch began, before the text it typed (RF_JOIN)
 .joined:
   LDA BUF_DELTA              ; insert_len
   JSR set_render_from_before_cursor
@@ -480,7 +480,7 @@ insert_handle_key:
   ; A pure join leaves the cursor line's text as it was when the cursor
   ; ends at column 0 (the lines above were empty) or at the end of the
   ; line (the lines below were): it is a dd of those empty lines, a row
-  ; each ($07), from the line's first row or from below it
+  ; each (RF_DEL), from the line's first row or from below it
   LDA CURSOR_COL16
   ORA CURSOR_COL16 + 1
   BNE .join_at_eol

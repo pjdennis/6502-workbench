@@ -165,40 +165,20 @@ undo_step:
   JSR mark_adjust_insert
   ; Set flags
   JSR undo_set_done_flags
-  LDA YANK_LINES16           ; Actual lines inserted (may differ from net delta)
-  STA INSERT_LINE_COUNT
   LDA UNDO_TYPE
   CMP #UNDO_CC
   BNE .undo_line_scroll
   JSR mark_restore           ; cc: the marks as they were (vim)
-  ; cc undo: 1cc has net 0 line change (repaint cursor row only).
-  ; Ncc (N>1): displacement may differ from file delta if lines wrap,
-  ; so use full repaint for correctness.
-  LDA YANK_LINES16
-  CMP #2
-  BCS .undo_cc_multi
-  LDA #RF_LINE
-  STA RENDER_FLAG            ; Single line repaint
+.undo_line_scroll:
+  ; The lines went in at the cursor line (RF_INS), or in place of the
+  ; empty line left there (RF_SPLIT)
+  LDA UNDO_EMPTY_LINE
+  ASL                        ; C = the empty line went
+  LDA #RF_INS
+  ADC #0
+  JMP set_render_clear_count
 .undo_line_fail:
   JMP clear_count
-.undo_cc_multi:
-  ; Ncc undo: compute SCROLL_DELTA = total_screen_rows(pasted) - 1
-  ; (subtract 1 for the removed empty line)
-  JSR compute_delete_rows_temp16 ; Walks the BUF_TEMP16 = YANK_LINES16 lines
-  LDA DELETE_SCREEN_ROWS
-  BEQ .undo_cc_full              ; Overflow or 0: fall back to full repaint
-  SEC
-  SBC #1                         ; Subtract 1 for the removed empty line
-  BEQ .undo_cc_full              ; 0 displacement: fall back
-  STA SCROLL_DELTA
-  LDA #RF_INS_PRESET
-  JMP set_render_clear_count     ; Pre-computed insert-scroll
-.undo_cc_full:
-  LDA #RF_FULL
-  JMP set_render_clear_count     ; Fall back to full repaint
-.undo_line_scroll:
-  LDA #RF_INS
-  JMP set_render_clear_count     ; Signal line-insert for scroll optimization
 
 .undo_char:
   ; Re-insert the deleted chars (the yank) at the recorded position
@@ -255,13 +235,10 @@ undo_join_undo:
 
   ; Set flags
   JSR undo_set_done_flags
-  ; Repaint cursor line + restored lines (cursor line content also changed)
-  LDA UNDO_JOIN_COUNT
-  CLC
-  ADC #1
-  STA INSERT_LINE_COUNT
-  LDA #RF_UNJOIN
-  STA RENDER_FLAG            ; Line-insert scroll, skip cursor row
+  ; The cursor line split from the first join point on
+  JSR set_render_from_line_end
+  LDA #RF_SPLIT
+  STA RENDER_FLAG
   CP16 UNDO_JOIN_COL16, CURSOR_COL16 ; Where the J was typed
   JMP clamp_and_clear_count
 
@@ -273,9 +250,7 @@ undo_join_redo:
   LDA UNDO_JOIN_COUNT
   JSR compute_delete_rows_join
 
-  JSR get_current_line_len
-  STA RENDER_FROM_COL16
-  STX RENDER_FROM_COL16 + 1
+  JSR set_render_from_line_end
 
   LDA #' '
   JSR undo_join_apply
@@ -359,9 +334,6 @@ undo_paste_redo:
   JSR paste_adjust_marks     ; Also sets MODIFIED
   LDA #0
   STA UNDO_IS_REDO
-  ; INSERT_LINE_COUNT = total pasted lines (in BUF_TEMP16 from paste_adjust_marks)
-  LDA BUF_TEMP16
-  STA INSERT_LINE_COUNT
   LDA #RF_INS
   STA RENDER_FLAG
 undo_paste_fail:
@@ -496,10 +468,7 @@ undo_insert_redo:
   LDY UNDO_INS_OPEN
   BNE .lines
   ; Line breaks: a split of the cursor line, as the undo of a char delete
-  ; over them (INSERT_LINE_COUNT = the new lines and the cursor line)
-  TAX
-  INX
-  STX INSERT_LINE_COUNT
+  ; over them
   JSR mark_args_next_line
   JSR mark_adjust_insert     ; The marks below move down
   LDA #RF_SPLIT
@@ -602,7 +571,7 @@ undo_tilde_redo:
 ; --- Replace char undo: restore the saved originals ---
 ; For r<Enter> (UNDO_REPL_CHAR = KEY_ENTER) the line break first takes
 ; back the room of the chars replace_split removed, so the originals
-; replace it too and join the next line back ($06 render, as J)
+; replace it too and join the next line back (RF_JOIN render, as J)
 undo_replace_undo:
   JSR undo_span_setup
   LDA UNDO_REPL_CHAR

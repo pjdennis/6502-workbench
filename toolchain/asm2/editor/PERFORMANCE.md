@@ -71,10 +71,28 @@ before they go and `finish_delete_scroll` sets `RF_DEL`, so the rows
 below scroll up and only the rows that exposes are drawn. `:4,6d` on a
 24x80 screen of 60-char lines sends 312 bytes instead of 1,558.
 
+### Line inserts, splits and joins as one block
+
+A change that adds or removes lines at the cursor line is drawn as an
+in-line edit of a block of lines (`render_rows_resized`): the rows below
+the block move by its change in rows, and the block is drawn from its
+first changed column. `o`, `O`, `p`, `P` and the undo of `dd` are a
+block of new lines that had no rows before (`RF_INS`); the undo of `J`,
+of `cc` and of a char delete over line breaks, and a char paste of
+several lines, are the cursor line and the lines after it in place of
+the line's old rows (`RF_SPLIT`); every join is the joined line in
+place of all their rows (`RF_JOIN`). So the undo of `J` draws from the
+join point and a multi-line `P` from the paste column, and a block
+drawn whole opens its new rows at its first row, where the drawing
+starts. Over about 20,000 random sessions the bytes fall 0.27% (1.2%
+for sessions of joins and their undo); a few near the bottom row send
+up to 24 bytes more, where a block that reaches the status bar still
+moves its rows.
+
 ### Indent/unindent range repaint
 
 `>>`, `<<`, `:N,M>`, `:N,M<`, and their undo use a dedicated render path
-(`RENDER_FLAG` = `RF_RANGE`, $0B): the handler pre-computes the affected range's screen
+(`RENDER_FLAG` = `RF_RANGE`): the handler pre-computes the affected range's screen
 rows; after the edit only those rows are repainted. If wrapping changed
 the row count, the region below is scrolled by the difference and only
 the range plus newly exposed rows are drawn. No-op shifts (nothing to

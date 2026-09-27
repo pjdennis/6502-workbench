@@ -266,12 +266,9 @@ do_char_paste:
   SBC16 LINE_COUNT16, COUNT16, BUF_TEMP16
   JSR next_line_ax
   JSR mark_adjust_insert
-  ; Line-insert scroll below the split line
+  ; The cursor line split in lines
   LDA #RF_SPLIT
   STA RENDER_FLAG
-  LDX BUF_TEMP16
-  INX
-  STX INSERT_LINE_COUNT      ; New lines + 1 (the split cursor line)
 .clamp:
   BIT NORMAL_TEMP
   BVS .done                  ; CP_AT: the caller restores the cursor
@@ -535,8 +532,7 @@ normal_join_lines:
 
   ; The content before the first join point (the end of the first line)
   ; is unchanged, so the line repaints from there
-  JSR get_current_line_len
-  STAX16 RENDER_FROM_COL16
+  JSR set_render_from_line_end
   ; Get line start for offset calculations
   JSR get_current_line_ptr        ; BUF_PTR16 = line start
   JSR ptr_to_src             ; BUF_SRC16 = line start (base for offsets)
@@ -717,7 +713,7 @@ do_replace_char:
 ; UNDO_COL16 become one line break, as vim's 5r<CR> does.  Their last
 ; char turns into the break and the ones before it go; the marks below
 ; the line move down, and the cursor goes to the start of the new line.
-; The render is an Enter batch's ($05), from the first replaced char.
+; The render is an Enter batch's (RF_ENTER), from the first replaced char.
 replace_split:
   JSR undo_span_setup        ; Cursor and BUF_PTR16 to the span start
   LDA #'\n'

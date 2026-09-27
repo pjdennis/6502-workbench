@@ -18,65 +18,66 @@
 ; (CURSOR_ROW - WRAP_QUOT); "delta" = the change in LINE_COUNT16.
 ; render_decide:
 ;   $FF                       -> full redraw
-;   viewport moved            -> flag != $0B: scroll the text area and
-;                                draw the exposed rows; moved down, from
-;                                an edit's first change on (it rides
+;   viewport moved            -> flag != RF_RANGE: scroll the text area
+;                                and draw the exposed rows; moved down,
+;                                from an edit's first change on (it rides
 ;                                along: render_scroll_up), moved up, an
 ;                                edit's cursor line from its change point
 ;                                if the line count and the rows below it
 ;                                are unchanged (see .view_changed); else
 ;                                full
-;   line count changed        -> $02-$0A as below, else full
-;   BUF_END16 changed or flag -> $0B range repaint, any other as $01
+;   line count changed        -> RF_INS..RF_DEL as below, else full
+;   BUF_END16 changed or flag -> RF_RANGE range repaint, any other as
+;                                RF_LINE
 ;   nothing                   -> status bar + cursor
 ;
-; Flag  Set by                 Inputs / row assumptions (names: RF_* in
-;                              render.asm)
-; $01   in-line edits          Cursor line changed in place: redraw it from
+; Flag (render.asm)  Set by   Inputs / row assumptions
+; $01 RF_LINE   in-line edits  Cursor line changed in place: redraw it from
 ;                              RENDER_FROM_COL16 (ICH/DCH hint in SHIFT_NET
 ;                              and SHIFT_WRITE), scrolling the rows below by
-;                              its row change from PREV_LINE_ROWS.
-; $03   o O p P, undo dd,      Delta lines inserted at FILE_LINE16, which
-;       redo p/P/o/O           starts at CURSOR_ROW: scroll down from there
-;                              by their rows.  INSERT_LINE_COUNT != 0:
-;                              redraw that many lines, not the scrolled rows.
-; $04   undo J                 As $03, but the walk starts after the cursor
-;                              line (old rows: PREV_LINE_ROWS).  If the
-;                              cursor line and the restored lines take no
-;                              more rows than it did, they are redrawn as
-;                              one block (render_rows_resized).
-;                              INSERT_LINE_COUNT = lines to redraw.
-; $05   insert-mode Enter,     Cursor on the last line of the split, which
-;       r<Enter> and its redo, began at line FILE_LINE16 - delta, of
-;       typed-ahead p (copies  PREV_LINE_ROWS rows before the batch;
-;       after the line: split  RENDER_FROM_COL16 = the first column it
-;       at its end)            changed.  INSERT_LINE_COUNT: pure-Enter
-;                              batch at the line's end $7F, at its start
-;                              $FF (see render_enter_split).
-; $06   J, insert BS/Del       Lines joined into the cursor line: as $01,
-;       join, cc, redo J/cc,   with PREV_LINE_ROWS = DELETE_SCREEN_ROWS, all
-;       undo r<Enter>, x/D     their rows before the edit (0 = over 255:
-;       over line breaks       full redraw).
-;       (delete_at_cursor)
-; $07   dd and its redo, :d,   Lines deleted from first_row (the next line
-;       undo p/P/o/O, insert   moved up into their rows) or below the
-;       BS/Del joining only    cursor line (it kept its rows): the cursor
-;       empty lines            line is not redrawn.
-;                              SCROLL_DELTA = rows deleted ($FF: over
-;                              255).  DELETE_SCREEN_ROWS = cursor line rows
+;                              its row change from PREV_LINE_ROWS
+;                              (render_current_line_and_status).
+; $02 RF_INS    o O p P, u of  Delta lines inserted at the cursor line: as
+;               dd, redo of p  RF_LINE for a block of those lines that had
+;               P o O          no rows before (PREV_LINE_ROWS = 0).
+; $03 RF_SPLIT  u of J, char   The cursor line and the delta lines after it
+;               p/P over line  replace the line of PREV_LINE_ROWS rows: as
+;               breaks, u of   RF_LINE for a block of those lines, from
+;               x/D over them, RENDER_FROM_COL16 in the first.
+;               u of cc and of
+;               dd of every
+;               line, redo of
+;               typed breaks
+; $04 RF_ENTER  insert-mode    Cursor on the last line of the split, which
+;               Enter, r<Enter> began at line FILE_LINE16 - delta, of
+;               and its redo,  PREV_LINE_ROWS rows before the batch;
+;               typed-ahead p  RENDER_FROM_COL16 = the first column it
+;               (copies after  changed.  INSERT_LINE_COUNT: pure-Enter
+;               the line: a    batch at the line's end $7F, at its start
+;               split at its   $FF (see render_enter_split).
+;               end)
+; $05 RF_JOIN   J, insert      Lines joined into the cursor line: as
+;               BS/Del join,   RF_LINE, with PREV_LINE_ROWS =
+;               cc, redo J/cc, DELETE_SCREEN_ROWS, all their rows before
+;               u of r<Enter>, the edit (0 = over 255: full redraw).
+;               x/D over line
+;               breaks
+;               (delete_at_cursor)
+; $06 RF_DEL    dd and its     Lines deleted from first_row (the next line
+;               redo, :d, u of moved up into their rows) or below the
+;               p/P/o/O, insert cursor line (it kept its rows): the cursor
+;               BS/Del joining line is not redrawn.
+;               only empty     SCROLL_DELTA = rows deleted ($FF: over
+;               lines          255).  DELETE_SCREEN_ROWS = cursor line rows
 ;                              above the deleted lines (0 = the deleted
 ;                              lines began at first_row).
-; $09   multi-line char p/P,   Cursor line split: as $04, PREV_LINE_ROWS =
-;       undo of x/D            its rows before the split.
-;                              INSERT_LINE_COUNT = lines to redraw.
-; $0A   undo Ncc               As $03 with SCROLL_DELTA pre-set (no walk).
-; $0B   >> << :N,M> <, undo    INSERT_LINE_COUNT lines changed in place from
-;                              the cursor line (the first of the range);
+; $07 RF_RANGE  >> << :N,M> <, INSERT_LINE_COUNT lines changed in place from
+;               their undo     the cursor line (the first of the range);
 ;                              DELETE_SCREEN_ROWS = their rows before.
 ;                              Needs line count and viewport unchanged.
-;                              One line is drawn as $01, with an ICH/DCH
-;                              hint at its column 0.
-; With the line count unchanged, $03-$0A are treated as $01.
+;                              One line is drawn as RF_LINE, with an
+;                              ICH/DCH hint at its column 0.
+; With the line count unchanged, RF_INS..RF_DEL are treated as RF_LINE.
 
 
 ; Capture state snapshot before handler runs
@@ -97,7 +98,7 @@ snapshot_cursor:
 ; Compare post-handler state against the snapshot and dispatch to the
 ; cheapest repaint (see the summary and the RENDER_FLAG contract above)
 render_decide:
-  ; If handler already set $FF, skip detection (flags are $00-$0B or $FF)
+  ; If handler already set $FF, skip detection (flags are $00-$07 or $FF)
   BIT RENDER_FLAG
   BMI .full
 
@@ -114,26 +115,24 @@ render_decide:
   ; Check LINE_COUNT16 changed
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
   BEQ .line_count_same
-  ; LINE_COUNT16 changed - check for scroll optimizations (range compares):
-  ; $06 in-line edit, $07 delete-scroll, $03/$04/$05/$09 insert-scroll,
-  ; $0A pre-computed insert-scroll, anything else full repaint
+  ; LINE_COUNT16 changed: the line insert, join and delete flags draw
+  ; only what moved (range compares), any other redraws in full
   LDA RENDER_FLAG
   CMP #RF_INS
-  BCC .full                  ; $00-$02
+  BCC .full                  ; RF_AUTO, RF_LINE
   CMP #RF_JOIN
-  BCC .do_line_insert        ; $03/$04/$05
-  BEQ .join                  ; $06
-  CMP #RF_SPLIT
-  BCC .line_delete_scroll    ; $07 ($08 unused)
-  BEQ .do_line_insert        ; $09
-  CMP #RF_INS_PRESET
-  BNE .full                  ; $0B and up
-  ; $0A: insert-scroll with SCROLL_DELTA/INSERT_LINE_COUNT pre-set by caller
-  JMP .no_disp_adjust
-.do_line_insert:
-  JMP .line_insert_scroll
-.line_count_same:
+  BCC .line_insert           ; RF_INS, RF_SPLIT, RF_ENTER
+  BEQ .join
+  CMP #RF_DEL
+  BNE .full                  ; RF_RANGE
+  ; RF_DEL: SCROLL_DELTA rows deleted below the cursor line's first
+  ; DELETE_SCREEN_ROWS rows (precompute_delete_scroll): they close up,
+  ; and the cursor line is not redrawn
+  JSR ansi_cursor_hide
+  LDA DELETE_SCREEN_ROWS
+  JMP rows_close_below
 
+.line_count_same:
   ; Check BUF_END16 changed -> current line repaint (at least)
   CMP16 SNAP_BUF_END16, BUF_END16
   BNE .current_line
@@ -143,9 +142,6 @@ render_decide:
   BNE .current_line       ; $01 from handler -> current line
   JMP render_cursor_and_status
 
-.full:
-  JMP render_screen
-
 .current_line:
   LDA RENDER_FLAG
   CMP #RF_RANGE
@@ -153,7 +149,7 @@ render_decide:
   JMP render_range_repaint
 
 .join:
-  ; $06: an in-line edit of the joined lines' rows before
+  ; RF_JOIN: an in-line edit of the joined lines' rows before
   ; (DELETE_SCREEN_ROWS; 0 = over 255: they ran past the bottom row, so
   ; all is redrawn)
   LDA DELETE_SCREEN_ROWS
@@ -161,92 +157,41 @@ render_decide:
   STA PREV_LINE_ROWS
 .to_current_line:
   JMP render_current_line_and_status
-.line_delete_scroll:
-  ; $07: SCROLL_DELTA rows deleted below the cursor line's first
-  ; DELETE_SCREEN_ROWS rows (precompute_delete_scroll): they close up,
-  ; and the cursor line is not redrawn
-  JSR ansi_cursor_hide
-  LDA DELETE_SCREEN_ROWS
-  JMP rows_close_below
+.full:
+  JMP render_screen
 
-.line_insert_scroll:
-  ; LINE_COUNT16 increased and RENDER_FLAG=$03/$04/$05/$09 (line insert;
-  ; $0A skips the walk: it enters at .no_disp_adjust).
-  ; Compute file delta = LINE_COUNT16 - SNAP_LINE_COUNT16
+.line_insert:
+  ; The delta = LINE_COUNT16 - SNAP_LINE_COUNT16 lines came in (over
+  ; 255, or fewer lines: full)
   SEC
   LDA LINE_COUNT16
   SBC SNAP_LINE_COUNT16
-  STA RENDER_LIMIT           ; file_delta (temp)
+  STA RENDER_LIMIT
   LDA LINE_COUNT16 + 1
   SBC SNAP_LINE_COUNT16 + 1
-  BEQ .delta_ok              ; Delta high byte = 0, OK (low byte non-zero:
-  JMP .full                  ; the count changed); delta > 255, fall back
-.delta_ok:
-
-  ; Walk lines to compute SCROLL_DELTA (screen rows to scroll).
-  ; RENDER_FLAG=$05: Enter batch, see render_enter_split
-  ; RENDER_FLAG=$03/$04/$09: walk inserted lines at FILE_LINE16
+  BNE .full
   LDA RENDER_FLAG
   CMP #RF_ENTER
-  BNE .do_walk
+  BNE .block
   JMP render_enter_split
-.do_walk:
-  JSR set_render_line_to_cursor
-  ; $04 (J undo) / $09 (line split): the cursor line and the lines after
-  ; it replace one line of PREV_LINE_ROWS rows; walk the lines after it
-  LDA RENDER_FLAG
-  CMP #RF_INS
-  BEQ .no_skip_cursor
-  INC16 RENDER_LINE16
-.no_skip_cursor:
+.block:
+  ; A block of lines from the cursor line's: RF_INS, the delta lines
+  ; that went in there (none of their rows were there before); RF_SPLIT,
+  ; the cursor line and the delta lines after it, which replace the line
+  ; of PREV_LINE_ROWS rows.  Drawn as one line of their rows
+  LSR                        ; C = RF_SPLIT
   LDA #0
-  STA SCROLL_DELTA
-.walk_ins:
-  JSR render_line_rows_step
-  DEC RENDER_LIMIT
-  BNE .walk_ins
-
-  ; $04/$09: the displacement is the block's rows now (the walked rows
-  ; plus the cursor line's, whose wrap count may have changed) minus
-  ; the old line's
-  LDA RENDER_FLAG
-  CMP #RF_INS
-  BEQ .no_disp_adjust
-  JSR file_line_rows         ; A = new cursor line screen rows
-  TAX
-  CLC
-  ADC SCROLL_DELTA           ; + the lines after it: the block's rows now
-  BCS .ins_full              ; over 255 rows
-  STA CUR_LINE_ROWS
-  SEC
-  SBC PREV_LINE_ROWS         ; - the old line's rows = net displacement
-  BEQ .disp_not_positive
-  BCC .disp_not_positive
-  STA SCROLL_DELTA
-  ; The region scrolls from below min(new cursor line rows, old rows):
-  ; the rows above it are redrawn, and the old line's must all be in it
-  TXA
-  CMP PREV_LINE_ROWS
-  BCS .no_disp_adjust
+  BCS .split
   STA PREV_LINE_ROWS
-  BCC .no_disp_adjust        ; Always taken
-.disp_not_positive:
-  ; The block takes no more rows than the old line did: redraw it as one
-  ; block that shrank from PREV_LINE_ROWS to CUR_LINE_ROWS rows (or kept
-  ; them), unless it starts above the view (J undo can leave the cursor
-  ; on a later row of a long line): then redraw in full
-  JSR set_first_row
-  BCC .ins_full
-  JMP render_rows_resized
-.no_disp_adjust:
-
-  ; Clamp delta to available rows below cursor
-  LDA SCROLL_DELTA
-  BEQ .ins_full
-  JSR clamp_delta_avail
-  JMP render_line_insert_scroll
-.ins_full:
-  JMP .full
+.split:
+  ADC RENDER_LIMIT           ; the block's lines (C=1: 256)
+  BCS .full
+  JSR compute_delete_rows_at_cursor  ; A = their rows (C=1: over 255)
+  BCC .rows
+  LDA #$FF                   ; over 255: they fill the rows below it
+.rows:
+  STA CUR_LINE_ROWS
+  JMP render_block_and_status
 
 .view_changed:
   ; The view moved: scroll the text rows by the rows it moved and draw
@@ -270,7 +215,7 @@ render_decide:
 .edited:
   LDA RENDER_FLAG
   CMP #RF_RANGE
-  BEQ .ins_full
+  BEQ .full
   JSR cursor_line_first_row  ; RENDER_ROW = its first row, CUR_LINE_ROWS
   BCC .down_only             ; the line starts above the view
   LDA CUR_LINE_ROWS
@@ -287,7 +232,7 @@ render_decide:
   BNE .scroll_view           ; Always
 .count_changed:
   LDA RENDER_FLAG
-  BEQ .ins_full
+  BEQ .full
 .down_only:
   LDA #$FF
   STA RENDER_ROW             ; only a move down scrolls
@@ -378,8 +323,8 @@ render_scroll_up:
   LDX CUR_LINE_ROWS
   BEQ .change_row
   ; The first changed cell is in the cursor line at RENDER_FROM_COL16,
-  ; or for an Enter batch ($05) in the line it split: the lines it added
-  ; (at most 65) lie above the cursor line
+  ; or for an Enter batch (RF_ENTER) in the line it split: the lines it
+  ; added (at most 65) lie above the cursor line
   LDX #0
   LDA RENDER_FLAG
   CMP #RF_ENTER
@@ -446,15 +391,3 @@ render_scroll_down:
   JMP find_and_render
 view_full:
   JMP render_screen
-
-; Clamp SCROLL_DELTA to the rows available below the cursor
-; (available = TEXT_ROWS - CURSOR_ROW).  Clobbers A
-clamp_delta_avail:
-  LDA TEXT_ROWS
-  SEC
-  SBC CURSOR_ROW
-  CMP SCROLL_DELTA
-  BCS .ok                    ; available >= delta, OK
-  STA SCROLL_DELTA           ; clamp delta to available
-.ok:
-  RTS

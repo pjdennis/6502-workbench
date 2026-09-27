@@ -721,6 +721,13 @@ set_modified:
   STA MODIFIED
   RTS
 
+; RENDER_FROM_COL16 = the cursor line's length (where a J changes it).
+; Returns it in A/X.  Clobbers Y, BUF_PTR16
+set_render_from_line_end:
+  JSR get_current_line_len
+  STAX16 RENDER_FROM_COL16
+  RTS
+
 ; Partial line repaint from the cursor: RENDER_FROM_COL16 = CURSOR_COL16,
 ; or from A columns before it (_before_cursor, A <= CURSOR_COL16).
 ; Clobbers A; preserves X, Y

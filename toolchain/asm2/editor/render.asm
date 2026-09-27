@@ -11,19 +11,17 @@ MODE_INSERT  = $01
 
 ; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
 ; before each key (contract table in render_decide.asm).  render_decide
-; range-compares them, so the order matters: RF_INS..RF_ENTER and
-; RF_SPLIT are line-insert scrolls ($02 and $08 are unused).
-RF_AUTO       = $00   ; Infer the repaint from the snapshot
-RF_LINE       = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
-RF_INS        = $03   ; Lines inserted at the cursor line (o O p P, undo dd)
-RF_UNJOIN     = $04   ; Undo J: lines restored below the cursor line
-RF_ENTER      = $05   ; Enter (insert mode, r<Enter>, typed-ahead p) split the line
-RF_JOIN       = $06   ; Lines joined into the cursor line (J, BS/Del join, x/D)
-RF_DEL        = $07   ; Lines deleted (dd, :d, undo p P o O), cursor line not redrawn
-RF_SPLIT      = $09   ; Cursor line split (multi-line char paste, undo x/D)
-RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
-RF_RANGE      = $0B   ; Lines changed in place from the cursor line (>> <<)
-RF_FULL       = $FF   ; Full redraw
+; range-compares them, so the order matters: RF_INS..RF_ENTER are line
+; inserts, and RF_INS and RF_SPLIT differ in bit 0 only.
+RF_AUTO  = $00   ; Infer the repaint from the snapshot
+RF_LINE  = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
+RF_INS   = $02   ; Lines inserted at the cursor line (o O p P, undo dd)
+RF_SPLIT = $03   ; Cursor line split (undo J, char paste, undo cc)
+RF_ENTER = $04   ; Enter (insert, r<Enter>, typed-ahead p) split the line
+RF_JOIN  = $05   ; Lines joined into the cursor line (J, BS/Del join, x/D)
+RF_DEL   = $06   ; Lines deleted (dd, :d, undo p P o O), line not redrawn
+RF_RANGE = $07   ; Lines changed in place from the cursor line (>> <<)
+RF_FULL  = $FF   ; Full redraw
 
 STATUS_SHADOW = $0380  ; The status bar's text (status_build), 128 bytes
 
@@ -331,9 +329,14 @@ print_separator:
 ; open or close the difference, so only the line itself (and any rows
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
+  JSR file_line_rows
+  STA CUR_LINE_ROWS
+; The same for a block of lines from the cursor line's, which now take
+; CUR_LINE_ROWS rows (render_decide's line inserts)
+render_block_and_status:
   ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
   ; First screen row of the line (C=0: above the view)
-  JSR cursor_line_first_row
+  JSR set_first_row
   BCS render_rows_resized
   ; A line that starts above the view is drawn from its change if that
   ; is on screen: the rows above it keep their place (the rows below
@@ -345,20 +348,28 @@ render_current_line_and_status:
   BCS render_rows_resized
   JMP render_screen
 ; Entry: RENDER_ROW = first_row (set_first_row), the first row of a block
-; (cursor line, $0B range, or a J undo's cursor line and restored lines)
-; that changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows; draw it from its
-; change point (RENDER_FROM_COL16), and move the rows below it (first if
-; it grew, after it if it shrank)
+; (cursor line, a range, or the lines a split or an insert left at the
+; cursor line) that changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows (0
+; for lines inserted); draw it from its change point (RENDER_FROM_COL16),
+; and move the rows below it (first if it grew, after it if it shrank)
 render_rows_resized:
   JSR ansi_cursor_hide
   LDA CUR_LINE_ROWS
   CMP PREV_LINE_ROWS
   BEQ .same_rows
   BCC .rows_decreased
-  ; --- Rows increased: scroll the rows below the old line end down ---
+  ; --- Rows increased: scroll the rows below the old line end down, or
+  ; for a block drawn whole ($FFFF) the rows from its first, where the
+  ; drawing then starts ---
   SBC PREV_LINE_ROWS            ; C=1 from the compare
   STA SCROLL_DELTA
+  LDA RENDER_FROM_COL16 + 1
+  AND RENDER_FROM_COL16
+  CMP #$FF                      ; C=1: $FFFF
+  LDA #0
+  BCS .open
   LDA PREV_LINE_ROWS
+.open:
   JSR row_below_rows
   LDX #'L'                      ; scroll down
   JSR scroll_region_from_a

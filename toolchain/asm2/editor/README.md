@@ -118,14 +118,16 @@ project's 6502 emulator in console/ANSI mode.
        typing past it) the rows from its first change on are drawn, as
        the rows above it keep their place in the scroll; when it moved
        up, the cursor line from its change point.  Full redraw for
-       `RENDER_FLAG` `$0B`, a first change on the top row or above the
-       view, and on a move up for a line count change or an edited line
-       that starts above the view or changed height above the status
-       bar.
-     - Line count changed → scroll the rows below the edit for the line
-       insert/delete flags (`$02`–`$0A`), else full redraw.
+       `RF_RANGE`, a first change on the top row or above the view, and
+       on a move up for a line count change or an edited line that starts
+       above the view or changed height above the status bar.
+     - Line count changed → for the line insert, join and delete flags
+       (`RF_INS`–`RF_DEL`) the lines that changed are drawn as one block
+       from their first change, with the rows below moved (a delete
+       draws only the rows that come in), else full redraw.
      - BUF_END changed or `RENDER_FLAG` set → current line redraw (rows
-       below scrolled if its row count changed), or range redraw (`$0B`).
+       below scrolled if its row count changed), or range redraw
+       (`RF_RANGE`).
      - Nothing changed → status bar + cursor repositioning only.
    - Console build: the editor exits when input ends (`con_ready` returns
      `CON_EOF`): when idle, and in `get_key`, so also in a `:` or `/`

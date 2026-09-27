@@ -1,7 +1,7 @@
 ; Line-level scroll repaint paths and render utilities.
 ;
 ; Scroll repaints (DL/IL) for line deletion, line insertion, and in-place
-; range changes (RENDER_FLAG=$0B), plus the limited-row render loop,
+; range changes (RF_RANGE), plus the limited-row render loop,
 ; row/line mapping, wrap math, and cursor visibility.  Part of the
 ; render engine; see render.asm and render_decide.asm.
 
@@ -104,57 +104,7 @@ scroll_region_check:
   INC CUR_VALID                ; the cursor is at column 1 of that row
   RTS
 
-; Scroll for line insertion at cursor.
-; SCROLL_DELTA = lines inserted. CURSOR_ROW = screen row of insertion.
-; Scrolls rows from cursor down, renders newly inserted rows at cursor.
-render_line_insert_scroll:
-  JSR ansi_cursor_hide
-
-  ; Scroll the region from its start row (1-based) to SCREEN_ROWS-1 down:
-  ;   $03/$0A: from CURSOR_ROW+1 (includes the cursor row)
-  ;   $04/$09: from first_row + PREV_LINE_ROWS + 1 (skip the rows the
-  ;            cursor line keeps)
-  LDA PREV_LINE_ROWS
-  LDX RENDER_FLAG
-  CPX #RF_UNJOIN
-  BEQ .scroll_start
-  CPX #RF_SPLIT
-  BEQ .scroll_start
-  ; $03/$0A: the lines go in at the cursor row, which must be the first
-  ; row of the cursor line (A = WRAP_QUOT = 0).  A first non-blank past
-  ; the screen width puts the cursor on a later row: redraw in full
-  LDA WRAP_QUOT
-  BEQ .scroll_start
-  JMP render_from_top
-.scroll_start:
-  JSR row_below_rows
-  LDX #'L'               ; scroll down
-  JSR scroll_region_from_a
-
-  ; If INSERT_LINE_COUNT is set, the actual repaint needs more rows than the
-  ; scroll (e.g., cc undo: net file delta < inserted line count).
-  ; Walk INSERT_LINE_COUNT lines to compute repaint screen rows.
-  LDA INSERT_LINE_COUNT
-  BEQ .ins_repaint_default
-
-  JSR set_render_line_to_cursor
-  LDA #0
-  STA SCROLL_DELTA           ; Recompute as repaint row count
-.walk_repaint:
-  JSR render_line_rows_step
-  BCS .repaint_clamp         ; they fill the text rows
-  DEC INSERT_LINE_COUNT
-  BNE .walk_repaint
-.repaint_clamp:
-  JSR clamp_delta_avail      ; (the rows from the cursor row down)
-
-.ins_repaint_default:
-  ; Render SCROLL_DELTA rows at CURSOR_ROW (newly inserted content).
-  LDA CURSOR_ROW
-  STA RENDER_ROW
-  JMP find_and_render
-
-; Range repaint (RENDER_FLAG=$0B): INSERT_LINE_COUNT lines changed in
+; Range repaint (RF_RANGE): INSERT_LINE_COUNT lines changed in
 ; place starting at UNDO_LINE16 (line count unchanged; wrap rows may
 ; differ).  DELETE_SCREEN_ROWS = the range's screen rows before the edit.
 ; The cursor sits on the first line of the range, or on its last after
@@ -272,7 +222,7 @@ change_cell_row:
   LDA CURSOR_ROW               ; (C=1)
   RTS
 
-; Enter batch (RENDER_FLAG=$05): the batch deleted no newline, so it
+; Enter batch (RF_ENTER): the batch deleted no newline, so it
 ; began on one line of PREV_LINE_ROWS rows from screen row F and split it
 ; into the fd + 1 lines that end at the cursor line (fd = RENDER_LIMIT).
 ; The rows below the old line scroll down by the growth in rows, then the

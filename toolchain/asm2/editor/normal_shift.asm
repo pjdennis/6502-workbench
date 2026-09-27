@@ -117,9 +117,9 @@ shift_unit_setup:
   BEQ shift_mode_a             ; Always taken
 
 ; Common core prologue: save the range size, zero the per-core
-; accumulators, pre-compute the range's current screen rows for the $0B
-; render path, and set the line iterator (LINE_LEN16) to the range
-; start.  The core loops test at the bottom, so an empty range
+; accumulators, pre-compute the range's current screen rows for the
+; RF_RANGE render path, and set the line iterator (LINE_LEN16) to the
+; range start.  The core loops test at the bottom, so an empty range
 ; (BUF_TEMP16 = 0: >> / << after a defect has left the cursor past the
 ; last line) returns from the core itself, a no-op as before.
 shift_prologue:
@@ -195,9 +195,9 @@ shift_finish:
   JSR buf_adjust_lines_from    ; (X kept by buf_get_line_ptr)
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
-; render level.  Partial repaint ($0B) requires pre-computed screen rows
-; (render derives the range's screen position from the cursor, which is
-; on its first line).
+; render level.  Partial repaint (RF_RANGE) requires pre-computed screen
+; rows (render derives the range's screen position from the cursor, which
+; is on its first line).
 shift_set_render:
   JSR set_modified
   LDA DELETE_SCREEN_ROWS

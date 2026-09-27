@@ -15706,7 +15706,7 @@ class EditorTestRunner:
         # "123456789012345678901" (21 chars) producing "A 123..." (23 chars)
         # which wraps to 2 rows. Undo restores original 3 lines, cursor line
         # "A" shrinks from 2 wrapped rows to 1 row, so lines below must
-        # scroll down to fill the gap.
+        # scroll down to fill the gap: those below the joined line's 2 rows
         # Frames: 0=initial, 1=J, 2=u (undo)
         self.run_test_screen(
             "Scroll opt: J undo unwraps result scrolls lines below",
@@ -15720,13 +15720,13 @@ class EditorTestRunner:
                 (3, "B"),
             ],
             expect_cursor=(0, 0),
-            expect_scroll_rows=[(2, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
         )
 
         # J undo unwraps at mid-screen: cursor at row 3, J joins "A" with
         # "123456789012345678901" (21 chars) producing wrapped result (2 rows).
         # Before J: A(1) + 123...(2) = 3 rows. After J: 2 rows. Undo: back to 3.
-        # Scroll region should start below cursor row 3, not at cursor.
+        # The rows below the joined line's (rows 3-4) move down.
         # Frames: 0=initial, 1=jjj cursor, 2=J, 3=u (undo)
         undo_unwrap_mid = ("Short 1\nShort 2\nShort 3\n"
                            "A\n123456789012345678901\nB\n"
@@ -15745,7 +15745,65 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(3, 0),
-            expect_scroll_rows=[(3, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(3, {5, 6, 7, 8})]
+        )
+
+        # u of J redraws from the first join point: the text before it is
+        # as it was.  Frames: 0=initial, 1=j, 2=J, 3=u
+        self.run_test_screen(
+            "Scroll opt: J undo draws from the join point",
+            "abc\ndef\nghi\njkl\n",
+            b"jJu:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "jkl"),
+                          (4, "~")],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(3, {1, 2})],
+            expect_min_col=[(3, 1, 3)],
+        )
+
+        # A multi-line char paste redraws the split line from the paste
+        # column, after the rows below have moved down.  Frames: 0=initial,
+        # 1=l, 2=ye, 3=j, 4=j, 5=5l, 6=P
+        self.run_test_screen(
+            "Scroll opt: multi-line char P draws from the paste column",
+            "ab\ncd\n0123456789ABCDEFGHIJ\nzz\n",
+            b"lyejj5lP:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "ab"), (1, "cd"), (2, "012345b"),
+                          (3, "cd6789ABCDEFGHIJ"), (4, "zz"), (5, "~")],
+            expect_cursor=(2, 6),
+            expect_content_rows=[(6, {2, 3})],
+            expect_min_col=[(6, 2, 6)],
+        )
+
+        # P of copies that take over 255 rows: they fill the rows below the
+        # cursor's, which scroll away, and only those are drawn.  Frames:
+        # 0=initial, 1=j, 2=yy, 3=3, 4=0, 5=P
+        self.run_test_screen(
+            "Scroll opt: P of copies over 255 rows scrolls the rows below",
+            "a\n" + "b" * 400 + "\nc\nd\n",
+            b"jyy30P:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b" * 40), (8, "b" * 40)],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(5, {1, 2, 3, 4, 5, 6, 7, 8})],
+        )
+
+        # P of a line whose first non-blank is past the screen width puts
+        # the cursor on the line's second row: the rows below still move
+        # down and only the new line's rows are drawn.  Frames: 0=initial,
+        # 1=j, 2=yy, 3=P
+        self.run_test_screen(
+            "Scroll opt: P of a line starting past the screen width scrolls",
+            "aa\n" + " " * 25 + "x\ncc\ndd\nee\n",
+            b"jyyP:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "aa"), (1, ""), (2, "     x"),
+                          (3, ""), (4, "     x"), (5, "cc"),
+                          (6, "dd"), (7, "ee"), (8, "~")],
+            expect_cursor=(2, 5),
+            expect_content_rows=[(3, {1, 2})],
         )
 
         # Undo/redo from another line: u jumps to the recorded line, so the
@@ -15814,7 +15872,8 @@ class EditorTestRunner:
         # "This is a longer line!" (22 chars, wraps to 2 rows at 20 cols).
         # Result "Short This is a longer line!" (28 chars, 2 rows).
         # Before: 1+2=3 rows, After J: 2 rows (freed 1). Undo: back to 3 rows.
-        # Lines below must scroll down 1 to restore the wrapped line.
+        # Lines below the joined line's rows scroll down 1 to restore the
+        # wrapped line.
         # Frames: 0=initial, 1=j cursor, 2=J, 3=u (undo)
         undo_restore_wrap = ("Short 1\n"
                              "Short\nThis is a longer line!\nMore\n"
@@ -15834,7 +15893,7 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(1, 0),
-            expect_scroll_rows=[(3, {2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(3, {3, 4, 5, 6, 7, 8})]
         )
 
         # J undo same height no scroll: J joins two non-wrapped lines
@@ -15945,8 +16004,9 @@ class EditorTestRunner:
             ],
             expect_cursor=(2, 0),
             expect_scroll_rows=[(3, {4, 5, 6, 7, 8})],
-            # Only cursor line (row 2) + restored line (row 3) + bottom exposed (row 8)
-            expect_content_rows=[(3, {2, 3, 8})]
+            # Only the restored line (row 3: the change starts at the end of
+            # the full row 2) + bottom exposed (row 8)
+            expect_content_rows=[(3, {3, 8})]
         )
 
         # J redo scroll down when line grows: same as J forward, but via
@@ -16044,7 +16104,7 @@ class EditorTestRunner:
                 (8, "Short 9"),
             ],
             expect_cursor=(0, 1),      # where the second J was typed
-            expect_scroll_rows=[(2, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
         )
 
         # JJ undo partially unwraps cursor line: JJ joins A +
@@ -16052,8 +16112,8 @@ class EditorTestRunner:
         # Result: "A BBBBBBBBBBBBBBBBBBB 123456789012345678901" (43 chars,
         # wraps to 3 rows). Undo of last J: "A BBBBBBBBBBBBBBBBBBB" (21 chars,
         # 2 rows) + "123..." (21 chars, 2 rows) = 4 rows vs 3 rows before undo.
-        # Cursor line goes from 3 wrap rows to 2 wrap rows. Scroll region must
-        # skip both remaining cursor wrap rows.
+        # Cursor line goes from 3 wrap rows to 2 wrap rows. The rows below
+        # the joined line's 3 move down.
         # Frames: 0=initial, 1=JJ, 2=u (undo of second J)
         jj_undo_partial = ("A\nBBBBBBBBBBBBBBBBBBB\n123456789012345678901\nC\n"
                            + ''.join(f"Short {i}\n" for i in range(5, 15)))
@@ -16072,7 +16132,7 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(0, 1),      # where the second J was typed
-            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(2, {3, 4, 5, 6, 7, 8})]
         )
 
         # J joining next wrapped line: when B wraps, ALL of B's rows need
@@ -17900,9 +17960,10 @@ class EditorTestRunner:
                 (8, "S9"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 = undo. Cursor line changes (41→20 chars) so row 0
-            # repaint is justified. Row 1 = restored line. Row 8 = scroll fill.
-            expect_content_rows=[(2, {0, 1, 8})]
+            # Frame 2 = undo. The cursor line changes (41→20 chars) from the
+            # join point, the end of its full row 0: row 1 = restored line.
+            # Row 8 = scroll fill.
+            expect_content_rows=[(2, {1, 8})]
         )
 
         # J redo of two lines at screen width.
@@ -19757,8 +19818,8 @@ class EditorTestRunner:
 
         # J on non-wrapped result (total rows decrease):
         # "AAAAA\nBBB\nThird\n" on 40-col. J → "AAAAA BBB" = 9 chars (1 row).
-        # Total before: 3. After: 2. Scroll path (RENDER_FLAG=$06).
-        # RENDER_FROM_COL16 = 5 (join col). render_line_delete_scroll partial.
+        # Total before: 3. After: 2. In-line edit path (RF_JOIN).
+        # RENDER_FROM_COL16 = 5 (join col): render_rows_resized, partial.
         # Frames: 0=initial, 1=J
         self.run_test_screen(
             "J on non-wrapped result total decrease: partial from join col",

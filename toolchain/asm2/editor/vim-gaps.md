@@ -528,7 +528,7 @@ as if the keys were processed one at a time" holds with no extra work.
 - Repaint: a one-line segment repaints its line from the start column
   (`RF_LINE`, with the ICH/DCH hint when the difference is at most 128),
   as the undo of x or p does; one with line breaks takes the paths of the
-  undo of a multi-line char paste or delete (`RF_CHAR_JOIN`, `RF_INS`),
+  undo of a multi-line char paste or delete (`RF_JOIN`, `RF_SPLIT`),
   and a full redraw when it both adds and removes line breaks (rare).
 - CPU: a few dozen cycles per batch for the record, and about 15 per old
   byte copied to the page. u moves the text after the start once, as the
