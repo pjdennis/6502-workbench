@@ -8551,6 +8551,41 @@ class EditorTestRunner:
             expect_cursor=(0, 2),
         )
 
+        # u of a line delete returns to the column the delete was typed at
+        # (vim's operator start), but not right of the first non-blank for
+        # one line (dd, cc, S), where the operator started from there;
+        # :d and typed-ahead dd go to the first non-blank, and the redo
+        # (u again) takes the same column on the line that moves up
+        ind3 = "  abcdef\n  xy\n  last line\n"
+        for keys, cursor in ((b"0ddu", (0, 0)), (b"lddu", (0, 1)),
+                             (b"$ddu", (0, 2)), (b"3lddu", (0, 2)),
+                             (b"$2ddu", (0, 7)), (b"l2ddu", (0, 1)),
+                             (b"0cc\x1bu", (0, 0)), (b"$cc\x1bu", (0, 2)),
+                             (b"lS\x1bu", (0, 1)),
+                             (b"$:2d\ru", (1, 2)), (b"$:1,2d\ru", (0, 2)),
+                             (b"j$ddu", (1, 2)), (b"G$ddu", (2, 2)),
+                             (b"$dddd\x1bu", (0, 2)), (b"0dddd\x1bu", (0, 2)),
+                             (b"$dduu", (0, 2)), (b"0dduu", (0, 0)),
+                             (b"$2dduu", (0, 7)), (b"0ddulu", (0, 0)),
+                             (b"0ddu\x1bju", (0, 0))):
+            self.run_test_screen(
+                f"u of a line delete: {keys!r}",
+                ind3,
+                b"0" + keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+        # A redo that deletes to the last line leaves the cursor on the
+        # line above, at its first non-blank
+        for content, keys, cursor in (("abcdef\n  xy\n", b"G$dduu", (0, 0)),
+                                      ("hello world\n  a\nabcdef\n",
+                                       b"3lj2dduu", (0, 0))):
+            self.run_test_screen(
+                f"Redo of a line delete to the end: {keys!r}",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+
         # A first non-blank past the screen width puts the cursor on a later
         # row of the pasted line: the line-insert repaint, which scrolls from
         # the cursor row, must still draw the pasted line from its first row

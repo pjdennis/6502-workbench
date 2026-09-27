@@ -234,6 +234,8 @@ dd_lines:
   JSR yank_add_lines
   POP16 BUF_TEMP16           ; Restore total count (PLA keeps carry)
   BCS .yank_overflow
+  LDA #$FF                   ; The last dd was typed on its first non-
+  STA CURSOR_COL16 + 1       ; blank (undo_line_col)
   JSR undo_delete_current_lines  ; Returns C = 0
   BCC .dd_done               ; Always
 

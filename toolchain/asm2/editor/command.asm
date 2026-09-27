@@ -372,6 +372,7 @@ range_yank_full:                 ; (the yank buffer is unchanged)
   ; that does not fit changes nothing but leaves the cursor there.
 range_do_delete:
   CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
+  JSR first_nonblank           ; (where u returns, as in vim)
   JSR yank_delete_current_lines
   BCS range_yank_full
   JSR set_modified

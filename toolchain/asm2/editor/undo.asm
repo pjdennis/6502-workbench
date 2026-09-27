@@ -30,7 +30,7 @@ count_is_every_line:
 ; Record a line-delete for undo
 ; Call after yank succeeds, before delete, with BUF_TEMP16 = the line
 ; count (at most the lines left).
-; Saves: type=1, FILE_LINE16 (and CURSOR_COL16, which this type ignores),
+; Saves: type=1, FILE_LINE16 and CURSOR_COL16 (undo_line_col),
 ; UNDO_EMPTY_LINE bit 7 = the delete empties the buffer (undo must
 ; remove the synthetic empty line)
 undo_record_line_delete:
@@ -145,6 +145,7 @@ undo_step:
   ; Paste above: reuses existing yank_paste_above_n
   JSR yank_paste_above_n
   BCS .undo_line_fail
+  JSR undo_line_col
   ; Adjust marks for inserted lines
   CP16 YANK_LINES16, BUF_TEMP16
   LDAX16 FILE_LINE16
@@ -208,7 +209,11 @@ undo_step:
 .redo_line:
   ; Restore FILE_LINE16, and the yank's line count: the lines to delete
   JSR undo_restore_lines
-  JSR undo_delete_lines_scroll
+  JSR undo_line_col          ; (clamped to the line that moves up)
+  JSR undo_delete_lines_scroll  ; C = 1: they reached EOF
+  BCC .redo_line_col
+  JSR first_nonblank         ; On the line above: its first non-blank
+.redo_line_col:
   JSR undo_set_redone_flags
   JSR clamp_cursor_col
   JMP finish_delete_scroll   ; (the cursor moved up if they reached EOF)
@@ -574,8 +579,25 @@ undo_restore_col:
   CP16 UNDO_COL16, CURSOR_COL16
   RTS
 
+; The column u of a line delete (dd, :d, cc) and its redo go to, as in
+; vim: the recorded one, where the delete was typed, but for one line
+; not right of the first non-blank, where vim's operator starts (a
+; typed-ahead dd and :d recorded it past the line end: the first non-
+; blank).  The cursor is on the line put back, or to be deleted again.
+; Clobbers A, X, Y, BUF_PTR16
+undo_line_col:
+  JSR undo_restore_col
+  LDA YANK_LINES16
+  EOR #1
+  ORA YANK_LINES16 + 1
+  BNE .done                  ; Two lines or more
+  JMP nonblank_left
+.done:
+  RTS
+
 ; Delete BUF_TEMP16 lines at FILE_LINE16 for the RF_DEL line-delete scroll
-; (finish_delete_scroll sets it once the cursor is placed)
+; (finish_delete_scroll sets it once the cursor is placed).  Returns C = 1
+; if they reached EOF: the cursor moved up to the line above
 undo_delete_lines_scroll:
   JSR precompute_delete_scroll
   JMP delete_current_lines
