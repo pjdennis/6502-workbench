@@ -18906,6 +18906,30 @@ class EditorTestRunner:
             expected_content="abb\ncd\ncd\n"
         )
 
+        # A char yank that starts with a newline (jjyb: "\n"): P leaves
+        # the cursor on the pasted newline, which is past the end of the
+        # line, so it steps back a column and the next P goes in there
+        self.run_test(
+            "P of a yank starting with a newline: PP as P <Esc> P",
+            "ab\n\ncd\nef\n",
+            b"jjybgg$PP:wq\r",
+            expected_content="\na\nb\n\ncd\nef\n"
+        )
+
+        self.run_test(
+            "P of a yank starting with a newline: 2PP as 2P <Esc> P",
+            "ab\n\ncd\nef\n",
+            b"jjybgg$2PP:wq\r",
+            expected_content="\na\n\nb\n\ncd\nef\n"
+        )
+
+        self.run_test(
+            "P of a yank starting with a newline: PP u keeps the text",
+            "ab\n\ncd\nef\n",
+            b"jjybgg$PPu:wq\r",
+            expected_content="a\nb\n\ncd\nef\n"
+        )
+
         # Char paste batching: same rule
         self.run_test(
             "x pp u removes last batched char paste",

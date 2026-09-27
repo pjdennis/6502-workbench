@@ -73,9 +73,15 @@ normal_paste_above:
   ; cursor
   BNE paste_batched_undo     ; Always (A = $03)
 
-; Character paste above (before cursor)
+; Character paste above (before cursor).  Each P leaves the cursor where
+; the next one pastes, on the last pasted char (the first of a multi-line
+; yank), except when that first char is a newline: it lies past the line
+; end, and the cursor steps back a column.  Such P keys run one at a time
+; (C = 1 for a first char up to '\n', so for a tab too, only slower).
 char_paste_above:
-  JSR paste_prologue
+  LDA #'\n'
+  CMP YANK_BUF               ; C = 1: the yank starts with a newline
+  JSR paste_prologue_c
   JSR do_char_paste_above
   BCS paste_done
   LDA #UNDO_CHAR_PASTE_ABOVE
