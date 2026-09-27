@@ -79,7 +79,7 @@ SCROLL_ROW2:    .byte   ;   rows its IL opened (0-based, from SCROLL_ROW2) are
                         ;   blank until the frame ends (0 = none)
 SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_from_col (not reset per key)
 RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
-DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $06/$07/$08/$0B (0 = none; reset per key)
+DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $06/$07/$0B (0 = none; reset per key)
 RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
 INSERT_LINE_COUNT:  .byte ; Per-flag line count / join or Enter kind (see RENDER_FLAG; reset per key)
 CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line (or $0B range) occupies after the edit

@@ -667,7 +667,8 @@ delete_at_cursor:
   JSR count_newlines         ; BUF_TEMP16 = the range's newlines
   ; Newlines found: BEFORE the shift, sum the old screen rows of the
   ; cursor line and the lines joined to it into DELETE_SCREEN_ROWS (0 if
-  ; over 255; over 255 newlines walk 256 lines, so over 255 rows)
+  ; over 255; over 255 newlines walk 256 lines, so over 255 rows), for
+  ; the join's render (RF_JOIN)
   LDA BUF_TEMP16
   LDX BUF_TEMP16 + 1
   BEQ .nl_count
@@ -706,19 +707,9 @@ delete_at_cursor:
   ; Adjust marks for the deleted newlines (BUF_TEMP16 = count)
   LDAX16 FILE_LINE16
   JSR mark_adjust_join
-  ; Signal line-delete scroll, skip cursor row in scroll region:
-  ; SCROLL_DELTA = old total rows - the cursor line's new rows, or 0 (a
-  ; full repaint) if the old total was over 255
-  JSR file_line_rows
-  LDX DELETE_SCREEN_ROWS     ; X = old total screen rows
-  STA DELETE_SCREEN_ROWS     ; Cursor line screen rows (new)
-  TXA
-  BEQ .set_delta
-  SEC
-  SBC DELETE_SCREEN_ROWS
-.set_delta:
-  STA SCROLL_DELTA            ; pre-computed scroll displacement
-  LDA #RF_CHAR_JOIN          ; Line-delete, skip cursor row, repaint cursor
+  ; The lines joined into the cursor line (DELETE_SCREEN_ROWS = their
+  ; rows before)
+  LDA #RF_JOIN
   ; fall through
 
 ; Set RENDER_FLAG from A and mark the buffer modified.  Clobbers A

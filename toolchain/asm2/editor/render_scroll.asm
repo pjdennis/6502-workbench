@@ -104,46 +104,6 @@ scroll_region_check:
   INC CUR_VALID                ; the cursor is at column 1 of that row
   RTS
 
-; Scroll for line deletion at cursor.
-; SCROLL_DELTA = screen rows deleted.  The changed cursor line ($06/$08)
-; is drawn first, then the rows below the ones it takes move up
-; (scroll_up_clamped): from first_row (= CURSOR_ROW - WRAP_QUOT) +
-; DELETE_SCREEN_ROWS (the cursor line's rows that are kept: $06/$08, and
-; for $07 those of a cursor line above the deleted lines), or from the
-; top row if that is above the view.  Then the exposed bottom rows are
-; drawn, from where the scroll left the cursor.
-render_line_delete_scroll:
-  JSR ansi_cursor_hide
-  LDA RENDER_FLAG
-  CMP #RF_DEL
-  BEQ .scroll                ; $07: the cursor line is not redrawn
-  ; $06 (J) / $08 (charwise delete): redraw the joined cursor line
-  ; (DELETE_SCREEN_ROWS = its rows) from the change point.  A one-row
-  ; line with the cursor on a wrap row redraws to the bottom.
-  LDA DELETE_SCREEN_ROWS
-  CMP #2
-  BCS .draw_line
-  LDX WRAP_QUOT
-  BEQ .draw_line
-.from_first_row:
-  JMP render_from_first_row
-.draw_line:
-  STA CUR_LINE_ROWS
-  JSR set_first_row
-  BCS .draw_change
-  ; The line starts above the view.  A change point is on a visible row
-  ; (at or after the cursor's), but a whole-line change is drawn from
-  ; the top row
-  JSR check_from_col
-  BCS .from_first_row        ; $FFFF: the whole line
-.draw_change:
-  JSR render_line_keep_delta
-.scroll:
-  LDA DELETE_SCREEN_ROWS     ; below the cursor line's kept rows
-  JSR row_below_rows         ; (the top row if above the view)
-  JSR scroll_up_clamped      ; SCROLL_DELTA = rows exposed at the bottom
-  JMP render_bottom_rows
-
 ; Scroll for line insertion at cursor.
 ; SCROLL_DELTA = lines inserted. CURSOR_ROW = screen row of insertion.
 ; Scrolls rows from cursor down, renders newly inserted rows at cursor.

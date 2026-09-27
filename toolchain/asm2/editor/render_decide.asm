@@ -53,24 +53,19 @@
 ;       at its end)            changed.  INSERT_LINE_COUNT: pure-Enter
 ;                              batch at the line's end $7F, at its start
 ;                              $FF (see render_enter_split).
-; $06   J, insert BS/Del       Lines joined into the cursor line.
-;       join, cc, redo J/cc,   DELETE_SCREEN_ROWS = all their rows before the
-;       undo r<Enter>          edit (0 = over 255: full redraw).  Rows
-;                              shrank: scroll up below the line; same or
-;                              grew: as $01, from those rows.
+; $06   J, insert BS/Del       Lines joined into the cursor line: as $01,
+;       join, cc, redo J/cc,   with PREV_LINE_ROWS = DELETE_SCREEN_ROWS, all
+;       undo r<Enter>, x/D     their rows before the edit (0 = over 255:
+;       over line breaks       full redraw).
+;       (delete_at_cursor)
 ; $07   dd and its redo, :d,   Lines deleted from first_row (the next line
-;       undo p/P/o/O, a pure   moved up into their rows) or below the
-;       insert BS/Del join
-;                              cursor line (it kept its rows): the cursor
-;                              line is not redrawn.
+;       undo p/P/o/O, insert   moved up into their rows) or below the
+;       BS/Del joining only    cursor line (it kept its rows): the cursor
+;       empty lines            line is not redrawn.
 ;                              SCROLL_DELTA = rows deleted ($FF: over
 ;                              255).  DELETE_SCREEN_ROWS = cursor line rows
 ;                              above the deleted lines (0 = the deleted
 ;                              lines began at first_row).
-; $08   multi-line x/D         Charwise delete that joined lines:
-;       (delete_at_cursor)     SCROLL_DELTA = rows lost (0 = full repaint),
-;                              DELETE_SCREEN_ROWS = the cursor line's new
-;                              rows (scroll below them, then redraw them).
 ; $09   multi-line char p/P,   Cursor line split: as $04, PREV_LINE_ROWS =
 ;       undo of x/D            its rows before the split.
 ;                              INSERT_LINE_COUNT = lines to redraw.
@@ -120,15 +115,16 @@ render_decide:
   CMP16 SNAP_LINE_COUNT16, LINE_COUNT16
   BEQ .line_count_same
   ; LINE_COUNT16 changed - check for scroll optimizations (range compares):
-  ; $06/$07/$08 delete-scroll, $03/$04/$05/$09 insert-scroll,
+  ; $06 in-line edit, $07 delete-scroll, $03/$04/$05/$09 insert-scroll,
   ; $0A pre-computed insert-scroll, anything else full repaint
   LDA RENDER_FLAG
   CMP #RF_INS
   BCC .full                  ; $00-$02
   CMP #RF_JOIN
   BCC .do_line_insert        ; $03/$04/$05
+  BEQ .join                  ; $06
   CMP #RF_SPLIT
-  BCC .line_delete_scroll    ; $06/$07/$08
+  BCC .line_delete_scroll    ; $07 ($08 unused)
   BEQ .do_line_insert        ; $09
   CMP #RF_INS_PRESET
   BNE .full                  ; $0B and up
@@ -156,33 +152,22 @@ render_decide:
   BNE .to_current_line
   JMP render_range_repaint
 
-.line_delete_scroll:
-  ; LINE_COUNT16 decreased and RENDER_FLAG=$06/$07/$08 (line delete at cursor).
-  ; $07/$08: SCROLL_DELTA pre-computed by the handler
-  ; (precompute_delete_scroll, delete_at_cursor)
-  LDA RENDER_FLAG
-  CMP #RF_JOIN
-  BNE .delete_check          ; $07/$08
-  ; $06: DELETE_SCREEN_ROWS = the joined lines' rows before (old_total;
-  ; 0 = over 255: they ran past the bottom row, so all is redrawn)
+.join:
+  ; $06: an in-line edit of the joined lines' rows before
+  ; (DELETE_SCREEN_ROWS; 0 = over 255: they ran past the bottom row, so
+  ; all is redrawn)
   LDA DELETE_SCREEN_ROWS
   BEQ .full
-  STA PREV_LINE_ROWS        ; old_total
-  JSR file_line_rows        ; A = new_total
-  STA DELETE_SCREEN_ROWS    ; (the rows the line keeps, for a shrink)
-  LDA PREV_LINE_ROWS
-  SEC
-  SBC DELETE_SCREEN_ROWS    ; old_total - new_total
-  BEQ .to_current_line      ; The same rows, or more: an in-line edit of
-  BCC .to_current_line      ; old_total rows (the rows below scroll down)
-  STA SCROLL_DELTA
-  BNE .delete_check          ; Always taken (A = delta > 0)
+  STA PREV_LINE_ROWS
 .to_current_line:
   JMP render_current_line_and_status
-.delete_check:
-  LDA SCROLL_DELTA
-  BEQ .full                  ; 0 (e.g. $08 over 255 old rows): full repaint
-  JMP render_line_delete_scroll  ; (clamps the delta to its scroll region)
+.line_delete_scroll:
+  ; $07: SCROLL_DELTA rows deleted below the cursor line's first
+  ; DELETE_SCREEN_ROWS rows (precompute_delete_scroll): they close up,
+  ; and the cursor line is not redrawn
+  JSR ansi_cursor_hide
+  LDA DELETE_SCREEN_ROWS
+  JMP rows_close_below
 
 .line_insert_scroll:
   ; LINE_COUNT16 increased and RENDER_FLAG=$03/$04/$05/$09 (line insert;

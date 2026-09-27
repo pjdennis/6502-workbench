@@ -239,7 +239,7 @@ undo_step:
   ; Get yank size for delete count
   JSR yank_get_size          ; BUF_LEN16 = yank size
   BCS .undo_fail
-  JSR delete_at_cursor       ; Delete BUF_LEN16 bytes at cursor (sets RF_CHAR_JOIN if multi-line)
+  JSR delete_at_cursor       ; Delete BUF_LEN16 bytes at cursor (sets RF_JOIN if multi-line)
   ; Restore cursor
   JSR undo_restore_col
   JSR clamp_cursor_col

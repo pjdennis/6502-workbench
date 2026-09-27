@@ -16835,6 +16835,37 @@ class EditorTestRunner:
             expect_cursor=(1, 1),
         )
 
+        # A join that leaves the line one row, with the insert cursor on the
+        # row after it (at column 10 of a 10-char line), is drawn as any
+        # line that lost rows: the typed char, then the rows below move up
+        # and the bottom row comes in.  Frames: 0=initial, 1=j, 2=i, 3=BS+j
+        self.run_test_screen(
+            "Scroll opt: BS join ending on the row after the line draws only it",
+            "abcdefghi\n\nzzz\nyyy\nxxx\n",
+            b"ji\x08j\x1b:q!\r",
+            rows=6, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "zzz"), (2, "yyy"),
+                          (3, "xxx"), (4, "~")],
+            expect_cursor=(0, 9),
+            expect_content_rows=[(3, {0, 4})],
+        )
+
+        # u of typed text holding a line break deletes over it, joining the
+        # two lines; when the line takes the rows the two took, only its
+        # text from the change is redrawn.  Frames: 0=initial, 1=9, 2=l,
+        # 3=i, 4=a Enter b, 5=Esc, 6=u
+        self.run_test_screen(
+            "Scroll opt: u of a typed line break keeping the rows draws the line",
+            "XXXXXXXXXYYYYYYYYY\nnext\nmore\n",
+            b"9lia\rb\x1bu:q!\r",
+            rows=6, cols=10,
+            expect_lines=[(0, "XXXXXXXXXY"), (1, "YYYYYYYY"), (2, "next"),
+                          (3, "more"), (4, "~")],
+            expect_cursor=(0, 9),
+            expect_content_rows=[(6, {0, 1})],
+            expect_min_col=[(6, 0, 9)],
+        )
+
         # Enter in middle of wrapped line: total screen rows unchanged.
         # Line: "12345678901234567890abc" (23 chars = 2 rows at 20 cols).
         # 10 l's to col 10, i enters insert, iii types 3 chars, Enter splits.

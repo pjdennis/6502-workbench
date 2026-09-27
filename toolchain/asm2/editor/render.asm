@@ -11,17 +11,15 @@ MODE_INSERT  = $01
 
 ; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
 ; before each key (contract table in render_decide.asm).  render_decide
-; range-compares them, so the order matters: RF_JOIN..RF_CHAR_JOIN are
-; line-delete scrolls, RF_INS..RF_ENTER and RF_SPLIT line-insert scrolls
-; ($02 is unused).
+; range-compares them, so the order matters: RF_INS..RF_ENTER and
+; RF_SPLIT are line-insert scrolls ($02 and $08 are unused).
 RF_AUTO       = $00   ; Infer the repaint from the snapshot
 RF_LINE       = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
 RF_INS        = $03   ; Lines inserted at the cursor line (o O p P, undo dd)
 RF_UNJOIN     = $04   ; Undo J: lines restored below the cursor line
 RF_ENTER      = $05   ; Enter (insert mode, r<Enter>, typed-ahead p) split the line
-RF_JOIN       = $06   ; Lines joined into the cursor line (J, BS/Del join)
+RF_JOIN       = $06   ; Lines joined into the cursor line (J, BS/Del join, x/D)
 RF_DEL        = $07   ; Lines deleted (dd, :d, undo p P o O), cursor line not redrawn
-RF_CHAR_JOIN  = $08   ; Multi-line x/D (delete_at_cursor), SCROLL_DELTA set
 RF_SPLIT      = $09   ; Cursor line split (multi-line char paste, undo x/D)
 RF_INS_PRESET = $0A   ; As RF_INS with SCROLL_DELTA pre-set (undo Ncc)
 RF_RANGE      = $0B   ; Lines changed in place from the cursor line (>> <<)
@@ -384,6 +382,10 @@ render_rows_resized:
   STA SCROLL_DELTA
   JSR render_line_keep_delta
   LDA CUR_LINE_ROWS
+; The rows below the cursor line's first A rows move up by SCROLL_DELTA
+; (from the top row if that is above the view), and the rows that
+; exposes at the bottom are drawn, from where the scroll left the cursor
+rows_close_below:
   JSR row_below_rows
   JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
   JMP render_bottom_rows
