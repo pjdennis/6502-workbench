@@ -114,6 +114,7 @@ CURSWANT_KEEP:     .byte ; Nonzero: the last key was a vertical move, so CURSWAN
 
 ; --- word.asm ---
 WORD_CLASS:    .byte     ; Character class of current char
+WORD_OP:       .byte     ; 1 while an operator runs word_forward_x, else 0
 
 ; --- normal_shift.asm ---
 SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);

@@ -67,13 +67,18 @@ char_class:
 ; --- w command: move to start of next word ---
 ; Accepts count prefix.
 ; Skip current word-class chars, skip whitespace.
-; If at EOL, move to next line col 0.
+; If at EOL, move on to the next line's first word.
 normal_word_forward:
   JSR get_batched_count
   JSR word_forward_x
   JMP clamp_and_clear_count
 
-; Core word-forward motion: move cursor forward X words
+; Core word-forward motion: move cursor forward X words.  From the end of
+; a line it goes on to the next line's first word, over its indentation
+; and over lines of blanks (an empty line counts as a word, as in vi).
+; With WORD_OP = 1 (the operators dw, cw, yw) the last word stops at the
+; end of its line instead: the cursor goes to col 0 of the next line and
+; the range backs up over the '\n'.
 ; Input: X = count of words to move
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
 word_forward_x:
@@ -97,6 +102,7 @@ word_forward_x:
   ; Skip whitespace; a non-whitespace char is the word start
 .w_skip_ws:
   JSR next_class
+.w_ws_test:
   BMI .w_next_line
   BEQ .w_skip_ws
 
@@ -104,13 +110,20 @@ word_forward_x:
   LDX NORMAL_TEMP
   DEX
   BNE .w_loop
+.w_ret:
   RTS
 
-  ; At end of line - go to next line col 0 (acts like reaching word start)
+  ; At end of line: go on to the next line's first word
 .w_next_line:
   JSR advance_next_line
-  BCC .w_done_one
-  RTS                     ; No next line, stay put
+  BCS .w_ret              ; No next line, stay put
+  LDX NORMAL_TEMP
+  CPX WORD_OP
+  BEQ .w_done_one         ; An operator's last word: stop at col 0
+  JSR get_line_len_z
+  BEQ .w_done_one         ; An empty line counts as a word
+  JSR class_in_line
+  BPL .w_ws_test          ; Always (col 0 is on the line): skip indentation
 
 ; --- b command: move to start of previous word ---
 ; Accepts count prefix.
@@ -131,6 +144,7 @@ word_backward_x:
   BNE .b_not_bol
 
   ; At beginning of line - move to prev line end
+.b_prev_line:
   TST16 FILE_LINE16
   BEQ .b_done_final       ; Already at first line, col 0
   DEC16 FILE_LINE16
@@ -151,7 +165,7 @@ word_backward_x:
   BNE .b_found_nonws
   ; Still whitespace - move left
   TST16 CURSOR_COL16
-  BEQ .b_done_one         ; Hit col 0 during whitespace skip
+  BEQ .b_prev_line        ; Only blanks before it: go on to the line above
   JSR dec_cursor_col
   JMP .b_skip_ws
 
@@ -247,7 +261,9 @@ word_end_x:
 ;           BUF_SRC16, BUF_DST16
 compute_multiline_word_range_forward:
   JSR range_start
+  INC WORD_OP                       ; The last word stops at its line end
   JSR word_forward_x                ; move cursor forward N words
+  DEC WORD_OP
   JSR get_cursor_buf_ptr            ; BUF_PTR16 = end_buf_ptr
   ; Exclusive-linewise check: if different line AND col 0, back up past '\n'
   CMP16 FILE_LINE16, BUF_DST16      ; BUF_DST16 = start line (range_start)

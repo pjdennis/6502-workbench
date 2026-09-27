@@ -10345,6 +10345,48 @@ class EditorTestRunner:
         )
 
         self.run_test_screen(
+            "w to an indented line skips its indentation",
+            "foo\n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "w to a tab-indented line skips its indentation",
+            "foo\n \t bar\n",
+            b"w:q!\r",
+            expect_cursor=(1, 3),
+        )
+
+        self.run_test_screen(
+            "w skips whitespace-only lines",
+            "foo\n   \n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "w stops on an empty line after a whitespace-only line",
+            "foo\n  \n\n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(2, 0),
+        )
+
+        self.run_test_screen(
+            "2w counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2w:q!\r",
+            expect_cursor=(1, 6),
+        )
+
+        self.run_test_screen(
+            "w into a whitespace-only last line stops on its last char",
+            "foo\n  \n",
+            b"w:q!\r",
+            expect_cursor=(1, 1),
+        )
+
+        self.run_test_screen(
             "w skips whitespace between words",
             "foo   bar\n",
             b"w:q!\r",
@@ -10399,6 +10441,27 @@ class EditorTestRunner:
             "one two\nthree\n",
             b"jb:q!\r",
             expect_cursor=(0, 4),
+        )
+
+        self.run_test_screen(
+            "b from an indented line's first word goes to previous line",
+            "foo\n  bar\n",
+            b"j^b:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "b skips whitespace-only lines",
+            "foo\n   \n  bar\n",
+            b"jj^b:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "b stops on an empty line before indentation",
+            "foo\n\n  bar\n",
+            b"jj^b:q!\r",
+            expect_cursor=(1, 0),
         )
 
         self.run_test_screen(
@@ -11417,6 +11480,27 @@ class EditorTestRunner:
             expected_content="\nthree four\n",
         )
 
+        self.run_test(
+            "dw at last word keeps an indented next line",
+            "foo\n  bar\n",
+            b"dw:wq\r",
+            expected_content="\n  bar\n",
+        )
+
+        self.run_test(
+            "dw at last word keeps a whitespace-only next line",
+            "foo\n   \n  bar\n",
+            b"dw:wq\r",
+            expected_content="\n   \n  bar\n",
+        )
+
+        self.run_test(
+            "2dw counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2dw:wq\r",
+            expected_content="baz\n",
+        )
+
         self._group("Delete word backward (db):", leading_blank=True)
 
         self.run_test(
@@ -11528,6 +11612,13 @@ class EditorTestRunner:
             expected_content="one e\n",
         )
 
+        self.run_test(
+            "db from an indented line's first word deletes the indentation too",
+            "foo\n  bar\n",
+            b"j^db:wq\r",
+            expected_content="bar\n",
+        )
+
         self._group("Change word (cw):", leading_blank=True)
 
         self.run_test(
@@ -11637,6 +11728,13 @@ class EditorTestRunner:
             "foo\nbar\n",
             b"2cwx\x1b:wq\r",
             expected_content="x\n",
+        )
+
+        self.run_test(
+            "2cw counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X baz\n",
         )
 
         self._group("Change word backward (cb):", leading_blank=True)
@@ -12590,6 +12688,20 @@ class EditorTestRunner:
             "foo\nbar\n",
             b"ji\x1b[1;5DX\x1b:wq\r",
             expected_content="Xfoo\nbar\n"
+        )
+
+        self.run_test(
+            "Ctrl+Right in insert mode skips the next line's indentation",
+            "foo\n  bar\n",
+            b"A\x1b[1;5CX\x1b:wq\r",
+            expected_content="foo\n  Xbar\n"
+        )
+
+        self.run_test(
+            "Ctrl+Left in insert mode from an indented first word crosses lines",
+            "foo\n  bar\n",
+            b"j^i\x1b[1;5DX\x1b:wq\r",
+            expected_content="Xfoo\n  bar\n"
         )
 
         # Batching Ctrl+Right in insert mode
