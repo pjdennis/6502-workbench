@@ -4,6 +4,9 @@
 ;
 ; A vi-like text editor running on the 6502 emulator: console I/O by
 ; default, serial I/O to an ANSI terminal with define:terminal_mode.
+; define:direct_io calls screen services (environment.asm: scr_*) instead
+; of writing ANSI sequences and reads key codes from con_read, for
+; machines without an ANSI terminal (the emulator runs it with --direct-io).
 ;
 ; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
 ;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt

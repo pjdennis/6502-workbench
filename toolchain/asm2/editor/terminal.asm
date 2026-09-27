@@ -1,7 +1,57 @@
 ; ANSI terminal output library
-; All routines write escape sequences via io_write
+; All routines write escape sequences via io_write; with define:direct_io
+; they are screen calls instead (environment.asm: scr_*)
 
 ; (zero-page variables: zp.asm)
+
+  .ifdef direct_io
+
+ansi_clear_screen        = scr_clear
+ansi_clear_line          = scr_clear_eol
+ansi_cursor_show         = scr_cursor_on
+ansi_cursor_hide         = scr_cursor_off
+ansi_reverse_video       = scr_reverse
+ansi_normal_video        = scr_normal
+ansi_reset_scroll_region = scr_region_reset
+ansi_insert_chars        = scr_insert
+ansi_delete_chars        = scr_delete
+
+; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
+; Clobbers A, Y (X preserved)
+ansi_set_scroll_region:
+  LDA ANSI_ROW
+  LDY ANSI_COL
+  JMP scr_region
+
+; Move cursor to 0-based row A, column 0 (sets ANSI_ROW/ANSI_COL)
+; Clobbers A, X, Y
+ansi_goto_row0:
+  LDX #0
+; Move cursor to 0-based row A, 0-based column X
+ansi_goto0:
+  INX
+  STX ANSI_COL
+  TAX
+  INX
+  STX ANSI_ROW
+  ; fall through
+; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
+; Clobbers A, Y (X preserved)
+ansi_move_cursor:
+  LDA ANSI_ROW
+  LDY ANSI_COL
+  JMP scr_goto
+
+; Scroll the region A rows: X = 'S' up (blanks at the bottom), 'T' down
+; (blanks at the top). Clobbers A, Y (X preserved)
+ansi_count_seq:
+  CPX #'S'
+  BNE .down
+  JMP scr_scroll_up
+.down:
+  JMP scr_scroll_down
+
+  .else
 
 ; Output ESC[ prefix
 ; Clobbers A
@@ -129,6 +179,8 @@ ansi_seq_hide:     .asciiz "?25l"
 ansi_seq_rev:      .asciiz "7m"
 ansi_seq_norm:     .asciiz "0m"
 ansi_seq_reset_sr: .asciiz "r"
+
+  .endif
 
 ; Write null-terminated string at A (low) / X (high)
 ; Clobbers A, Y, STR_PTR16 (X preserved)

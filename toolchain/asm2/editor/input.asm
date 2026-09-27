@@ -22,6 +22,7 @@ KEY_TAB   = $09
 ; (zero-page variables: zp.asm)
 ; The HAS_ flags are only ever $00 or $FF: INC clears them
 
+  .ifndef direct_io
 ; Read one byte from input, with pushback support
 ; Returns byte in A. Preserves X, Y (read_key relies on this)
 input_read_byte:
@@ -57,6 +58,8 @@ wait_esc_byte:
   LDX #>ESC_WAIT_MS
   JMP io_wait
 
+  .endif
+
 ; Count and consume pending keys matching BUF_TEMP
 ; Input: BUF_TEMP = key code to match
 ; Returns: X = count of matching keys (0 to BATCH_MAX)
@@ -75,6 +78,10 @@ count_pending_key:
 .done:
   RTS
 
+  .ifdef direct_io
+; Read one key: con_read returns key codes itself (environment.asm)
+read_key = io_read
+  .else
 ; Read one key, decoding escape sequences
 ; Returns key code in A: KEY_* codes for special keys, bare ESC as KEY_ESC,
 ; $7F normalized to KEY_BS, $00 (no-op) for ignored input
@@ -184,6 +191,7 @@ read_key:
 .tilde_tbl:               ; ESC[1~ .. ESC[8~ ($00 = no-op: 2 is Insert)
   .byte KEY_HOME, $00, KEY_DEL, KEY_END, KEY_PGUP, KEY_PGDN
   .byte KEY_HOME, KEY_END ; rxvt's 7 and 8 (1 and 4 elsewhere)
+  .endif
 
 ; Check for a decoded key without consuming it (non-blocking)
 ; Returns: C=1 and A = key if one is available (it stays buffered;
