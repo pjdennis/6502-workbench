@@ -812,6 +812,17 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     for (int r = 0; r < lcd_state.rows; r++) {
         fprintf(stderr, "  |%.*s|\n", cols, lcd_buf + r * cols);
     }
+    /* Raw DDRAM bytes too, so CGRAM custom characters (which the text
+     * frame above can only show as '?') are distinguishable. */
+    uint8_t lcd_bytes[LCD_DDRAM_SIZE];
+    lcd_hd44780_visible_bytes(&lcd_state, lcd_bytes);
+    fprintf(stderr, "wendy2c: lcd-hex:\n");
+    for (int r = 0; r < lcd_state.rows; r++) {
+        fprintf(stderr, "  |");
+        for (int c = 0; c < cols; c++)
+            fprintf(stderr, c ? " %02x" : "%02x", lcd_bytes[r * cols + c]);
+        fprintf(stderr, "|\n");
+    }
 
     /* Tear down the external hooks before returning so other code (e.g.
      * the test harness or a subsequent run) doesn't dangle on a dead
