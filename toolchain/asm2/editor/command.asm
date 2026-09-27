@@ -397,8 +397,8 @@ range_do_delete:
   JMP report_yank_lines_ax
 
   ; --- Range indent ---
-  ; The cores adjust the cursor column when the cursor's line is inside
-  ; the range; the cursor line itself never moves.
+  ; The cursor goes to the first non-blank of the range's first line
+  ; (vim starts there, and u returns there) and stays on that line.
 range_do_indent:
   JSR range_shift_setup
   JSR insert_spaces_core
@@ -411,12 +411,12 @@ range_do_unindent:
   JMP range_shift_finish
 
 range_shift_setup:
-  CP16 BUF_SRC16, UNDO_LINE16  ; Range start (BUF_TEMP16 = count already)
+  CP16 BUF_SRC16, FILE_LINE16  ; Range start (BUF_TEMP16 = count already)
+  JSR first_nonblank
   JMP shift_unit_setup
 
 range_shift_finish:
-  JSR clamp_and_clear_count    ; Unindent may shorten the line; the cores
-                               ; total the shift in COUNT16
+  JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
   CP16 UNDO_RANGE_LINES16, TO_DECIMAL_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted

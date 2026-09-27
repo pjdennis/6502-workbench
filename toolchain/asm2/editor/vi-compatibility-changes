@@ -5,6 +5,9 @@
   p and P of lines, and u of a line delete - Put the cursor at column 0 of the first line put back. Vi puts it on the
   line's first non-blank character, as the editor does after dd, G and the other line moves.
 
+  :N,M> and :N,M< - Leave the cursor on the first non-blank of line N, the first line of the range. Vim puts it on
+  the first non-blank of line M, the last one.
+
   r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
   nothing if there aren't enough characters, as the editor does for 5r<Enter>.
 

@@ -121,6 +121,8 @@ WORD_CLASS:    .byte     ; Character class of current char
 SHIFT_MODE: .byte       ; insert_spaces_core width source (0=const, $FF=data);
                         ; also SHIFT_RECORDED (normal_shift.asm) and
                         ; TILDE_TOGGLED (normal_edit.asm)
+SHIFT_PREV_WIDTH: .byte ; the part of BUF_DELTA a batch's earlier >> / <<
+                        ; pairs take (0 unless batched)
 
 ; --- command.asm ---
 CMD_IDX:     .byte     ; Current index into command buffer

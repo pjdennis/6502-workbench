@@ -10767,18 +10767,20 @@ class EditorTestRunner:
             expected_content="aaa\n\nbbb\n"
         )
 
+        # A << that removes nothing still puts the cursor on the first
+        # non-blank (vim)
         self.run_test_screen(
-            "<< on unindented line does not move cursor",
+            "<< on unindented line goes to the first non-blank",
             "hello\n",
             b"ll<<:q!\r",
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 0),
         )
 
         self.run_test_screen(
-            "<< adjusts cursor by actual spaces removed",
+            "<< removing one space puts the cursor on the first non-blank",
             " hello\n",
             b"lll<<:q!\r",
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 0),
         )
 
         # >>>> = two rapid >> combos: indents current line TWICE (4 spaces)
@@ -10822,20 +10824,21 @@ class EditorTestRunner:
             expected_content="      aaa\nbbb\nccc\nddd\n"
         )
 
-        # >>>> cursor: col 1 + two indents (2+2 spaces) = col 5
+        # >>>> cursor: on the first non-blank after two indents (vim)
         self.run_test_screen(
-            ">>>> cursor col adjusted for double indent",
+            ">>>> cursor on the first non-blank after double indent",
             "aaa\nbbb\nccc\n",
             b"l>>>>:q!\r",
-            expect_cursor=(0, 5),
+            expect_cursor=(0, 4),
         )
 
-        # <<<< cursor: col 3 on "  aaa", first << removes 2 → col 1, second << no-op → col 1
+        # <<<< cursor: the first << removes 2, the second nothing; the
+        # cursor ends on the first non-blank (vim)
         self.run_test_screen(
-            "<<<< cursor col adjusted for double unindent",
+            "<<<< cursor on the first non-blank after double unindent",
             "  aaa\n  bbb\n  ccc\n",
             b"lll<<<<:q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 0),
         )
 
         # Render: >>>> batched into single action frame (3 frames: init, action, quit)
@@ -17622,6 +17625,48 @@ class EditorTestRunner:
             b"2>>>>u:wq\r",
             expected_content="  aaa\n  bbb\nccc\n"
         )
+
+        # >> and << leave the cursor on the first non-blank, and u (and
+        # u again, the redo) put it back where the operator started: the
+        # cursor column, or the first non-blank if that is further left
+        # and the shift covered one line, as in vim.  Typed-ahead pairs,
+        # merged into one shift, must give what the ESC-separated keys
+        # give one at a time.  A range shift starts on its first line's
+        # first non-blank.
+        for keys, content, cursor in [
+                (b"l>>>>u", "aaa\n", (0, 2)),
+                (b"l>>\x1b>>\x1bu", "aaa\n", (0, 2)),
+                (b">>>>u", "abc def ghi\n", (0, 2)),
+                (b"l>>>>u u", "aaa\n", (0, 2)),
+                (b"l>>\x1b>>\x1bu u", "aaa\n", (0, 2)),
+                (b"l>>>>>>u", "aaa\n", (0, 4)),
+                (b"7l<<<<", "      aaa\n", (0, 2)),
+                (b"7l<<<<u", "      aaa\n", (0, 4)),
+                (b"7l<<\x1b<<\x1bu", "      aaa\n", (0, 4)),
+                (b"4l<<<<u", "   aaa\n", (0, 1)),
+                (b"4l<<\x1b<<\x1bu", "   aaa\n", (0, 1)),
+                (b"3l<<<<u", "      aaa\n", (0, 4)),
+                (b"3l<<<<u u", "      aaa\n", (0, 4)),
+                (b"6l>>", "  aaa bbb\n", (0, 4)),
+                (b"l>>", "  aaa bbb\n", (0, 4)),
+                (b"6l>>u", "  aaa bbb\n", (0, 2)),
+                (b"l>>u", "  aaa bbb\n", (0, 1)),
+                (b"7l<<", "      aaa\n", (0, 4)),
+                (b"7l<<u u", "      aaa\n", (0, 6)),
+                (b"2l<<", "aaa\n", (0, 0)),
+                (b"l>>", "   \n", (0, 4)),
+                (b"l>>u", "   \n", (0, 1)),
+                (b"2l3>>", "aaa\nbbb\nccc\n", (0, 2)),
+                (b"2l3>>u", "aaa\nbbb\nccc\n", (0, 2)),
+                (b"4l3>>u u", "  aaa\nbbb\nccc\n", (0, 4)),
+                (b"4l:>\r", "  aaa\nbbb\nccc\n", (0, 4)),
+                (b"4l:<\r", "  aaa\nbbb\nccc\n", (0, 0)),
+                (b"4l:<\ru", "  aaa\nbbb\nccc\n", (0, 2)),
+                (b"2l:2,3>\ru", "aaa\nbbb\nccc\n", (1, 0)),
+                (b"2l:2,3>\ru u", "aaa\nbbb\nccc\n", (1, 0))]:
+            self.run_test_screen(
+                f"{keys!r} on {content!r}: cursor as in vim",
+                content, keys + b":q!\r", expect_cursor=cursor)
 
         # << that removes nothing is a no-op and records no undo:
         # u then re-executes nothing (prior undo state was cleared)

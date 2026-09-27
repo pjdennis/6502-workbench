@@ -371,27 +371,36 @@ first_nonblank_clear:
   JMP clear_count
 
 ; Cursor to the first non-blank char of its line.  On a line of spaces it
-; goes to the last one, as in vim; on an empty line to col 0 (and past
-; 255 leading spaces, to col 0 too).  Clobbers A, X, Y, BUF_PTR16
+; goes to the last one, as in vim; on an empty line to col 0 (past 255
+; leading spaces, to col 255).  Clobbers A, X, Y, BUF_PTR16
 first_nonblank:
+  LDA #$FF
+  STA CURSOR_COL16             ; Scan up to col 255
   LDA #0
-  STA_LH16 CURSOR_COL16
+  STA CURSOR_COL16 + 1
+; The same, but not right of the cursor: its column if only spaces lie
+; left of it (where vim starts a linewise operator, as >>, on its line)
+nonblank_left:
+  LDA CURSOR_COL16 + 1
+  BNE first_nonblank           ; Past col 255: the first non-blank is left of it
   JSR get_current_line_ptr     ; BUF_PTR16 = start of line
   LDY #0
 .scan:
+  CPY CURSOR_COL16
+  BEQ .done                    ; Only spaces left of the cursor
   LDA (BUF_PTR16),Y
   CMP #' '
   BNE .not_space
   INY
-  BNE .scan               ; (256 spaces: Y = 0, lands on col 0 below)
+  BNE .scan                    ; Always taken (Y < CURSOR_COL16)
 .not_space:
   CMP #'\n'
   BNE .found
   TYA
-  BEQ .done               ; Empty line: col 0
-  DEY                     ; Only spaces: the last one
+  BEQ .found                   ; Empty line: col 0
+  DEY                          ; Only spaces: the last one
 .found:
-  STY CURSOR_COL16        ; First non-blank at offset Y
+  STY CURSOR_COL16             ; First non-blank at offset Y
 .done:
   RTS
 

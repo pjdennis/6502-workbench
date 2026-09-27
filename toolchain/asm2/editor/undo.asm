@@ -449,19 +449,15 @@ undo_open_redo:
 undo_shift_step:
   JSR undo_restore_line_col
   CP16 UNDO_RANGE_LINES16, BUF_TEMP16
-  LDA #INDENT_WIDTH
-  STA BUF_DELTA
+  JSR shift_unit_setup
   LDA UNDO_TYPE
   CMP #UNDO_UNINDENT
   BEQ .reinsert
   JSR remove_spaces_core
-  JMP .restore_cursor
+  JMP clamp_and_clear_count
 .reinsert:
-  LDA #$FF
-  STA SHIFT_MODE
+  DEC SHIFT_MODE               ; $FF: the recorded widths
   JSR insert_spaces_core
-.restore_cursor:
-  JSR undo_restore_col
   JMP clamp_and_clear_count
 
 ; Move the cursor to the recorded span start (the line repaints from

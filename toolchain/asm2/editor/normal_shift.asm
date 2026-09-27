@@ -14,18 +14,22 @@
 ; :[range]< commands and by undo/redo of these operations.
 ;
 ; Core input contract:
-;   UNDO_LINE16  = first line of the range
+;   FILE_LINE16  = first line of the range (the cursor is on it)
+;   CURSOR_COL16 = the column u returns to (vim's operator start)
 ;   BUF_TEMP16   = number of lines in the range (0 = do nothing)
 ;   BUF_DELTA    = space width W (insert per non-empty line / max removal)
+;   SHIFT_PREV_WIDTH = the part of W that a batch's earlier pairs take
+;                  (0 unless batched)
 ;   SHIFT_MODE   = insert core only: 0 = constant width W per non-empty
 ;                  line; $FF = per-line widths from UNDO_DATA_BUF (undo)
 ;
 ; On change the cores set MODIFIED and render flags (RF_RANGE partial
 ; repaint when possible, else RF_FULL), and record undo for ranges up to
-; 255 lines: UNDO_COL16 (cursor column), UNDO_RANGE_LINES16 and the
-; per-line widths in UNDO_DATA_BUF (indexed by SHIFT_LINE_IDX while they
-; run).  Undo covers the last >> / <<, one INDENT_WIDTH step: batched
-; pairs multiply W, but u behaves as if the keys ran separately.
+; 255 lines: UNDO_LINE16, UNDO_COL16 (the cursor column, moved as a
+; batch's earlier pairs moved the first non-blank), UNDO_RANGE_LINES16
+; and the per-line widths in UNDO_DATA_BUF (indexed by SHIFT_LINE_IDX
+; while they run).  Undo covers the last >> / <<, one INDENT_WIDTH step:
+; batched pairs multiply W, but u behaves as if the keys ran separately.
 ; On no-op (nothing inserted/removed) they leave MODIFIED and RENDER_FLAG
 ; untouched so the frame is a pure cursor/status update.
 
@@ -34,58 +38,75 @@
 ; Scratch the cores reuse while they run (aliases)
 SHIFT_LINE_IDX   = UNDO_JOIN_COUNT ; line index into UNDO_DATA_BUF
 SHIFT_RECORDED   = SHIFT_MODE      ; remove core: nonzero once a last-op removal is recorded
-SHIFT_PREV_WIDTH = BUF_LEN16       ; remove core: width taken by the batch's earlier ops
 
 INDENT_WIDTH = 2
 
+; >> and <<: the cursor ends on the first non-blank, as in vim
 do_indent:
   JSR shift_normal_setup
   JSR insert_spaces_core
-  JMP clear_count
+  JMP first_nonblank_clear
 
 do_unindent:
   JSR shift_normal_setup
   JSR remove_spaces_core
-  JMP clear_count
+  JMP first_nonblank_clear
 
 ; Shared >> / << entry setup.
 ; Takes the typed-ahead pairs, computes BUF_DELTA = INDENT_WIDTH * (1 +
 ; BATCH_EXTRA) (batched pairs multiply the width; the count means lines,
-; not repeats), clamps the line count, and sets the range start to the
-; cursor line.
+; not repeats) and clamps the line count.  The cursor goes where vim
+; starts the operator, the column u returns to: over two or more lines
+; the cursor, on one line the first non-blank if it is further left.  A
+; batch's later pairs each start on the first non-blank the pair before
+; left (the cores move it as the earlier pairs moved the text).
 shift_normal_setup:
   JSR batch_pending_pairs      ; X = BATCH_EXTRA
   TXA
   ASL                          ; *INDENT_WIDTH (hardcoded: ASL assumes INDENT_WIDTH = 2)
-  ADC #INDENT_WIDTH            ; + the key itself (carry clear: BATCH_EXTRA <= BATCH_MAX)
+  STA SHIFT_PREV_WIDTH         ; The earlier pairs' width (C = 0: BATCH_EXTRA <= BATCH_MAX)
+  ADC #INDENT_WIDTH            ; + the last pair's
   STA BUF_DELTA                ; BUF_DELTA = INDENT_WIDTH * (1 + extra pairs)
   JSR get_count_clamp_lines    ; BUF_TEMP16 = line count
-  CP16 FILE_LINE16, UNDO_LINE16
+  LDA BUF_TEMP16 + 1
+  BNE .start                   ; (256 lines or more)
+  LDX BUF_TEMP16
+  DEX
+  BNE .start                   ; Two or more lines: the cursor column
+  LDA BATCH_EXTRA
+  BEQ .one_line
+  STA CURSOR_COL16 + 1         ; Batched: the first non-blank
+.one_line:
+  JSR nonblank_left
+.start:
+  LDA #0
   ; fall through
 
-; Shared tail: constant-width mode
-shift_const_mode:
-  LDA #0
+; Shared tail: SHIFT_MODE = A
+shift_mode_a:
   STA SHIFT_MODE
   RTS
 
-; One INDENT_WIDTH step in constant-width mode (the :range > / < setup)
+; One INDENT_WIDTH step in constant-width mode (the :range > / < setup,
+; and undo)
 shift_unit_setup:
   LDA #INDENT_WIDTH
   STA BUF_DELTA
-  BNE shift_const_mode         ; Always taken
+  LDA #0
+  STA SHIFT_PREV_WIDTH
+  BEQ shift_mode_a             ; Always taken
 
-; Common core prologue: clear undo, save range/cursor for undo recording,
-; zero the per-core accumulators, pre-compute the range's current screen
-; rows for the $0B render path, and set the line iterator (LINE_LEN16) to
-; the range start.  The core loops test at the bottom, so an empty range
-; (BUF_TEMP16 = 0: >> / << after a defect has left the cursor past the
-; last line) returns from the core itself, a no-op as before.
+; Common core prologue: clear undo, save the range size for undo
+; recording, zero the per-core accumulators, pre-compute the range's
+; current screen rows for the $0B render path, and set the line iterator
+; (LINE_LEN16) to the range start.  The core loops test at the bottom,
+; so an empty range (BUF_TEMP16 = 0: >> / << after a defect has left the
+; cursor past the last line) returns from the core itself, a no-op as
+; before.
 shift_prologue:
   JSR undo_clear
   CP16 BUF_TEMP16, UNDO_RANGE_LINES16
-  CP16 CURSOR_COL16, UNDO_COL16
-  CP16 UNDO_LINE16, LINE_LEN16
+  CP16 FILE_LINE16, LINE_LEN16
   LDA #0
   STA NORMAL_TEMP              ; Cursor line width/removal (column adjust)
   STA COUNT16                  ; COUNT16 = total shift/removal
@@ -94,10 +115,9 @@ shift_prologue:
   STA DELETE_SCREEN_ROWS       ; 0 = no partial repaint (fall back to full)
   LDA BUF_TEMP16 + 1
   BNE .done                    ; > 255 lines: full repaint, no undo
-  CP16 UNDO_LINE16, RENDER_LINE16
   LDA BUF_TEMP16
   BEQ .empty
-  JMP compute_delete_screen_rows
+  JMP compute_delete_rows_at_cursor
 .empty:
   PLA                          ; Drop the return into the core: return
   PLA                          ; to the core's caller
@@ -110,17 +130,17 @@ shift_finish:
   LDX UNDO_RANGE_LINES16 + 1
   BNE shift_set_render         ; Big range: not undoable
   STA UNDO_TYPE
+  CP16 FILE_LINE16, UNDO_LINE16
+  CP16 CURSOR_COL16, UNDO_COL16
 
 ; Common core epilogue for a successful change: set MODIFIED and pick the
 ; render level.  Partial repaint ($0B) requires pre-computed screen rows
-; and the cursor sitting on the first line of the range (render derives
-; the range's screen position from the cursor).
+; (render derives the range's screen position from the cursor, which is
+; on its first line).
 shift_set_render:
   JSR set_modified
   LDA DELETE_SCREEN_ROWS
   BEQ .full
-  CMP16 FILE_LINE16, UNDO_LINE16
-  BNE .full
   LDA UNDO_RANGE_LINES16
   STA INSERT_LINE_COUNT        ; range line count for render
   LDA #RF_RANGE
@@ -152,8 +172,7 @@ insert_spaces_core:
 
   ; Single buffer shift right at first line start
   CP16 COUNT16, BUF_LEN16
-  LDAX16 UNDO_LINE16
-  JSR buf_get_line_ptr
+  JSR get_current_line_ptr
   JSR buf_shift_right_16
   BCS shift_noop               ; Buffer full: nothing changed
 
@@ -187,9 +206,11 @@ insert_spaces_core:
 
   JSR buf_rebuild_lines
 
-  ; Adjust cursor column if the cursor's line was indented
+  ; A batch's last pair starts on the first non-blank as the earlier
+  ; ones left it: moved right by their width if they shifted the line
   LDA NORMAL_TEMP
   BEQ .no_col_adj
+  LDA SHIFT_PREV_WIDTH
   ADDA16 CURSOR_COL16
 .no_col_adj:
 
@@ -209,15 +230,9 @@ remove_spaces_core:
 
   LDA #0
   STA SHIFT_RECORDED               ; Accumulates recorded (last-op) removals
-  ; Removal attributable to earlier ops of a batch (per line)
-  LDA BUF_DELTA
-  SEC
-  SBC #INDENT_WIDTH
-  STA SHIFT_PREV_WIDTH         ; Prev-ops width (per line)
 
   ; Set write ptr = first line start
-  LDAX16 UNDO_LINE16
-  JSR buf_get_line_ptr
+  JSR get_current_line_ptr
   CP16 BUF_PTR16, JUMP_TARGET16
 
 .unindent_loop:
@@ -276,22 +291,22 @@ remove_spaces_core:
   JSR buf_shift_left_16
   JSR buf_rebuild_lines
 
-  ; Cursor adjustment: subtract actual spaces removed, clamp to 0
+  ; A batch's last pair starts on the first non-blank as the earlier
+  ; ones left it: moved left by what they removed from the line (up to
+  ; SHIFT_PREV_WIDTH; a batch starts below col 256, on one line)
+  LDA SHIFT_PREV_WIDTH
+  CMP NORMAL_TEMP
+  BCC .prev_took
   LDA NORMAL_TEMP
-  BEQ .no_cursor_adj
+.prev_took:
+  STA NORMAL_TEMP
   LDA CURSOR_COL16
   SEC
   SBC NORMAL_TEMP
-  STA CURSOR_COL16
-  LDA CURSOR_COL16 + 1
-  SBC #0
-  STA CURSOR_COL16 + 1
   BCS .col_ok
-  LDA #0
-  STA_LH16 CURSOR_COL16
+  LDA #0                       ; (the first non-blank of a line of spaces)
 .col_ok:
-  JSR clamp_cursor_col
-.no_cursor_adj:
+  STA CURSOR_COL16
 
   ; Record undo: u re-inserts the recorded per-line counts.  If the
   ; last logical op removed nothing (earlier batch ops took it all),

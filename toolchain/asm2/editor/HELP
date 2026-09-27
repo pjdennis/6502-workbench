@@ -120,6 +120,7 @@ All editing commands are blocked in read-only mode.
                  refused with "Too many lines to join"
   >>             Indent current line by 2 spaces (accepts count: [N]>>)
   <<             Unindent current line by up to 2 spaces (accepts count)
+                 Both leave the cursor on the first non-blank character
   yy             Yank (copy) current line (accepts count: [N]yy)
                  Does not modify the file
   yw             Yank from cursor to next word boundary (accepts count)
@@ -256,6 +257,8 @@ COMMAND-LINE MODE
   :[start],[end]y    Yank (copy) lines in range
   :[start],[end]>    Indent lines in range by 2 spaces
   :[start],[end]<    Unindent lines in range by up to 2 spaces
+                     (the cursor goes to the first non-blank character
+                     of the range's first line)
 
   Range positions can be:
     N              Line number (1-based)
