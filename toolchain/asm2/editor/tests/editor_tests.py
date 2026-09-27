@@ -1667,6 +1667,8 @@ class EditorTestRunner:
              [b"l", b"~", b"~", b"~"]),
             ("Batch equiv: dd dd from the line end", "abcdef\n\n  xyz\nq\n",
              [b"$", b"d", b"d", b"d", b"d", b"x"]),
+            ("Batch equiv: 300j j j", "".join(f"l{i}\n" for i in range(400)),
+             [b"300j", b"j", b"j", b"x"]),
             ("Batch equiv: Ctrl-D Ctrl-D", "abcdef\n" + "\n" * 4 + "abcdef\n" * 11,
              [b"$", b"\x04", b"\x04", b"x"]),
             ("Batch equiv: j j across a short line", "abcdef\nab\nabcdef\n",
@@ -7552,15 +7554,21 @@ class EditorTestRunner:
             expect_status_contains="COMMAND - 4,"  # After j, count gone
         )
 
+        # j, k, Down and Up take the whole count, as vim does (the cursor
+        # stops at the first or last line)
+        for keys, line in ((b"300j", 301), (b"256j", 257), (b"1000j", 400),
+                           (b"G300k", 100), (b"G999k", 1), (b"300jjj", 303),
+                           (b"300\x1b[B", 301), (b"G300\x1b[A", 100)):
+            self.run_test_screen(
+                f"{keys!r} takes the whole count",
+                make_lines(400),
+                keys + b":q!\r",
+                cols=80,
+                expect_status_contains=f"COMMAND - {line},"
+            )
+
         # Commands that loop on an 8-bit count take a count of 256 or more
-        # as 255, not modulo 256 (300j moved 44 lines, 256x nothing)
-        self.run_test_screen(
-            "300j moves 255 lines (count capped at 255)",
-            make_lines(400),
-            b"300j:q!\r",
-            cols=80,
-            expect_status_contains="COMMAND - 256,"
-        )
+        # as 255, not modulo 256 (256x deleted nothing)
 
         a400 = "a" * 400 + "\n"
         self.run_test(

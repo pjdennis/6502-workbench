@@ -15,14 +15,15 @@ normal_move_right:
   ADCA16 CURSOR_COL16, CURSOR_COL16
   JMP clamp_and_clear_count
 
+; j, k, Down, Up: the whole count, as vim (and the typed-ahead presses)
 normal_move_down:
-  JSR get_batched_count
-  JSR move_down_x
+  JSR get_count_pending16
+  JSR move_down16
   JMP vert_col_clamp
 
 normal_move_up:
-  JSR get_batched_count
-  JSR move_up_x
+  JSR get_count_pending16
+  JSR move_up16
   JMP vert_col_clamp
 
 normal_page_down:
@@ -50,16 +51,15 @@ normal_half_page_up:
   JMP first_nonblank_clear
 
 ; Page scroll setup: BUF_DELTA = batched count (repeats),
-; BUF_TEMP = page size = content rows (TEXT_ROWS)
+; BUF_TEMP16 = page size = content rows (TEXT_ROWS)
 page_setup:
   JSR get_batched_count
   STX BUF_DELTA
-  LDX TEXT_ROWS
-  STX BUF_TEMP
-  RTS
+  LDA TEXT_ROWS
+  JMP set_buf_temp16_a
 
 ; Half-page scroll setup: BUF_DELTA = 1 + extra Ctrl-D/U keys in
-; typeahead (BUF_TEMP = key code from dispatch), BUF_TEMP = scroll
+; typeahead (BUF_TEMP = key code from dispatch), BUF_TEMP16 = scroll
 ; amount: COUNT16 if set (and remembered), else the sticky value, else
 ; half a page
 half_page_setup:
@@ -85,22 +85,19 @@ half_page_setup:
 .save_sticky:
   STA SCROLL_AMOUNT
 .store:
-  STA BUF_TEMP
-  RTS
+  JMP set_buf_temp16_a
 
 ; --- Shared scroll subroutines ---
 
-; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP lines, as
+; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP16 (< 256)
+; lines, as
 ; vim's Ctrl-D: the view stops where the last line reaches the bottom
 ; row (LINE_COUNT - TEXT_ROWS), and a view there or past it stays (the
 ; cursor moves on)
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A, X, Y
 scroll_view_down:
-  ; FILE_LINE16 += BUF_TEMP, clamped to the last line
-  LDA BUF_TEMP
-  CLC
-  JSR add_file_line
+  JSR move_down16
 
   ; A:X = the room left: LINE_COUNT - TEXT_ROWS - VIEW_TOP16
   SEC
@@ -118,12 +115,12 @@ scroll_view_down:
   SBC VIEW_TOP16 + 1
   BCC .next                  ; The view is past there: it stays
   BNE .add                   ; 256 or more
-  CPX BUF_TEMP
+  CPX BUF_TEMP16
   BCS .add
-  TXA                        ; Less than BUF_TEMP: just that far
+  TXA                        ; Less than BUF_TEMP16: just that far
   BCC .add_a                 ; Always taken
 .add:
-  LDA BUF_TEMP
+  LDA BUF_TEMP16
 .add_a:
   ADDA16 VIEW_TOP16
 .next:
@@ -136,18 +133,17 @@ view_wrap_zero:
   STA VIEW_TOP_WRAP
   RTS
 
-; Scroll the viewport up BUF_DELTA (>= 1) times by BUF_TEMP lines
+; Scroll the viewport up BUF_DELTA (>= 1) times by BUF_TEMP16 (< 256)
+; lines
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
 ; Clobbers: A
 scroll_view_up:
-  ; FILE_LINE16 -= BUF_TEMP, clamped to 0
-  SEC
-  JSR sub_file_line
+  JSR move_up16
 
-  ; VIEW_TOP16 -= BUF_TEMP, clamped to 0
+  ; VIEW_TOP16 -= BUF_TEMP16, clamped to 0
   SEC
   LDA VIEW_TOP16
-  SBC BUF_TEMP
+  SBC BUF_TEMP16
   STA VIEW_TOP16
   LDA VIEW_TOP16 + 1
   SBC #0

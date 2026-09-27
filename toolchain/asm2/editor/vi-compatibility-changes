@@ -12,8 +12,9 @@
   r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
   nothing if there aren't enough characters, as the editor does for 5r<Enter>.
 
-  Counts over 255 - h, l, j, k, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a
-  count of 256 or more as 255, so 300j moves 255 lines and 300x deletes 255 characters. Vi takes the whole count.
+  Counts over 255 - h, l, w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count
+  of 256 or more as 255, so 300l moves 255 columns and 300x deletes 255 characters. Vi takes the whole count (j and k
+  do here too).
 
   J - Replaces each line break with one space and keeps the joined line's leading blanks: "abc" and "  def" join as
   "abc   def". Vim removes the leading blanks and puts one space in their place, none when the joined line is empty or

@@ -210,18 +210,25 @@ clamp_cursor_col:
 .ok:
   RTS
 
-; --- Shared vertical movement loops ---
+; --- Shared vertical movement ---
 
-; Move down X lines (X >= 1), clamped to the last line
-; Clobbers: A
-move_down_x:
+; BUF_TEMP16 = the count (1 with none, as in insert mode) plus the
+; typed-ahead presses of the same key (BUF_TEMP): j, k and the insert-
+; mode motions.  X = its low byte (in insert mode, the presses).
+; Clobbers A
+get_count_pending16:
+  JSR get_count
+  JSR count_pending_key      ; X = the presses
   TXA
-  CLC
-  ; fall through
+  ADDA16 BUF_TEMP16
+  TAX
+  RTS
 
-; FILE_LINE16 += A + C, clamped to the last line.  Clobbers: A
-add_file_line:
-  ADCA16 FILE_LINE16, FILE_LINE16
+; Move down BUF_TEMP16 lines, clamped to the last line (the count is at
+; most 64,000, so the sum stays within 16 bits).  Clobbers: A
+move_down16:
+  CLC
+  ADC16 FILE_LINE16, BUF_TEMP16, FILE_LINE16
   ; fall through
 
 ; Clamp FILE_LINE16 to the last line.  Clobbers: A
@@ -233,21 +240,10 @@ clamp_file_line:
 .ok:
   RTS
 
-; Move up X lines (X >= 1), clamped to the first line
-; Clobbers: A, BUF_TEMP
-move_up_x:
-  STX BUF_TEMP
+; Move up BUF_TEMP16 lines, clamped to the first line.  Clobbers: A
+move_up16:
   SEC
-  ; fall through
-
-; FILE_LINE16 -= BUF_TEMP + 1 - C, clamped to 0.  Clobbers: A
-sub_file_line:
-  LDA FILE_LINE16
-  SBC BUF_TEMP
-  STA FILE_LINE16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA FILE_LINE16 + 1
+  SBC16 FILE_LINE16, BUF_TEMP16, FILE_LINE16
   BCS .ok
   LDA #0
   STA_LH16 FILE_LINE16

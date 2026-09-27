@@ -74,7 +74,7 @@ insert_exit:
 ;                    newline path)
 ;
 insert_handle_key:
-  STA BUF_TEMP              ; key code (for dispatch_key / insert_move_count)
+  STA BUF_TEMP              ; key code (for dispatch_key / get_count_pending16)
   ; --- Collection phase ---
   LDX #0                    ; BATCH_BUF write index
   STX BUF_TEMP16            ; back = 0
@@ -494,30 +494,30 @@ insert_handle_key:
 ; last char (col = len), so they clamp to len, not len - 1 as normal mode
 ; does.  Word motions already stay within 0..len, so need no clamp.
 insert_word_fwd:
-  JSR insert_move_count
+  JSR get_count_pending16
   JMP word_forward_x
 
 insert_word_back:
-  JSR insert_move_count
+  JSR get_count_pending16
   JMP word_backward_x
 
 insert_left:
-  JSR insert_move_count
+  JSR get_count_pending16
   JMP move_left_x
 
 insert_right:
   JSR get_line_len_z         ; LINE_LEN16 = max col (line doesn't change)
-  JSR insert_move_count
+  JSR get_count_pending16
   JMP move_right_x
 
 insert_up:
-  JSR insert_move_count
-  JSR move_up_x
+  JSR get_count_pending16
+  JSR move_up16
   JMP vert_col_clamp
 
 insert_down:
-  JSR insert_move_count
-  JSR move_down_x
+  JSR get_count_pending16
+  JSR move_down16
   JMP vert_col_clamp
 
 ; Clamp cursor for insert mode (can be one past end of line content)
@@ -537,8 +537,4 @@ set_cursor_col_ax:
   STAX16 CURSOR_COL16
   RTS
 
-; X = 1 + pending repeats of the key in BUF_TEMP (set by insert_handle_key)
-insert_move_count:
-  JSR count_pending_key
-  INX
-  RTS
+
