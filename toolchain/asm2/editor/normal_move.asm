@@ -137,22 +137,11 @@ view_wrap_zero:
 ; Scroll the viewport up BUF_DELTA (>= 1) times by BUF_TEMP16 (< 256)
 ; lines
 ; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
-; Clobbers: A
+; Clobbers: A, X
 scroll_view_up:
   JSR move_up16
-
-  ; VIEW_TOP16 -= BUF_TEMP16, clamped to 0
-  SEC
-  LDA VIEW_TOP16
-  SBC BUF_TEMP16
-  STA VIEW_TOP16
-  LDA VIEW_TOP16 + 1
-  SBC #0
-  STA VIEW_TOP16 + 1
-  BCS .next
-  LDA #0
-  STA_LH16 VIEW_TOP16
-.next:
+  LDX #VIEW_TOP16
+  JSR sub_count_x              ; VIEW_TOP16 -= BUF_TEMP16, clamped to 0
   DEC BUF_DELTA
   BNE scroll_view_up
   BEQ view_wrap_zero       ; Always

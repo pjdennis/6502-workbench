@@ -241,13 +241,23 @@ clamp_file_line:
 .ok:
   RTS
 
-; Move up BUF_TEMP16 lines, clamped to the first line.  Clobbers: A
+; Move up BUF_TEMP16 lines, clamped to the first line.  Clobbers: A, X
 move_up16:
+  LDX #FILE_LINE16
+; The 16-bit zero-page value at X -= BUF_TEMP16, clamped to 0.
+; Clobbers: A
+sub_count_x:
   SEC
-  SBC16 FILE_LINE16, BUF_TEMP16, FILE_LINE16
+  LDA $00,X
+  SBC BUF_TEMP16
+  STA $00,X
+  LDA $01,X
+  SBC BUF_TEMP16 + 1
+  STA $01,X
   BCS .ok
   LDA #0
-  STA_LH16 FILE_LINE16
+  STA $00,X
+  STA $01,X
 .ok:
   RTS
 
