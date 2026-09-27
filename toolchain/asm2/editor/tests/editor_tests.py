@@ -24850,7 +24850,8 @@ class EditorTestRunner:
             expect_content_rows=[(4, {3, 4, 5, 6, 7})],
             expect_min_col=[(4, 3, 10)],
         )
-        # The copies fill the rows below the cursor line
+        # The copies fill the rows below the cursor line: nothing to
+        # scroll, as every row below is drawn
         self.run_test_screen(
             "Scroll opt: batched pp filling the rows below",
             make_lines(15),
@@ -24858,6 +24859,18 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
                          + [(7, "Line 7"), (8, "Line 7")],
             expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, False)],
+            expect_content_rows=[(4, {6, 7, 8})],
+        )
+        # The same for an Enter batch: two new lines on the row above the
+        # last.  Frames: 0 init, 1 6, 2 j, 3 A, 4 the batch
+        self.run_test_screen(
+            "Scroll opt: Enter batch filling the rows below sends no scroll",
+            make_lines(15),
+            b"6jA\r\rx\x1b:q!\r",
+            expect_lines=[(6, "Line 7"), (7, ""), (8, "x")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, False)],
             expect_content_rows=[(4, {6, 7, 8})],
         )
         # On the bottom row the view moves down: the copies are drawn

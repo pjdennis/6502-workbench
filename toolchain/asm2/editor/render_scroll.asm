@@ -274,10 +274,16 @@ render_enter_split:
   EOR #$FF
   SEC
   ADC RENDER_ROW
+  LDX INSERT_LINE_COUNT
+  BNE .pure
+  ; Not a pure Enter batch at either end: its rows are drawn, so a
+  ; growth that fills the region below sends no scroll
+  LDX #'T'                     ; scroll down
+  JSR scroll_clamped
+  JMP .draw
+.pure:
   LDX #'T'                     ; scroll down
   JSR scroll_region_from_a     ; C=0: not scrolled
-  LDX INSERT_LINE_COUNT
-  BEQ .draw                    ; not a pure Enter batch at either end
   BCS render_finish
   JMP render_from_first_row_limited  ; the one row (SCROLL_DELTA = 1)
 .full:
