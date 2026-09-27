@@ -2,9 +2,10 @@
 ;
 ; Handles '/' (forward) and '?' (backward) literal search in the text
 ; buffer. The pattern is read into CMD_BUF by read_line (up to 127
-; characters, as a ':' command) and copied to SEARCH_BUF (length
-; SEARCH_LEN) on a non-empty Enter, for reuse by 'n' / 'N' and by an
-; empty '/' or '?': a cancelled search keeps the pattern, as in vim.
+; characters, as a ':' command) and copied to SEARCH_BUF (null-terminated;
+; its length in SEARCH_LEN) on a non-empty Enter, for reuse by 'n' / 'N'
+; and by an empty '/' or '?': a cancelled search keeps the pattern, as in
+; vim.
 ;
 ; Memory layout:
 ;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL; 127 of
@@ -29,10 +30,10 @@ search_input_handle:
   BEQ .reuse_pattern
   STX SEARCH_LEN
 .copy:
-  LDA CMD_BUF - 1,X
-  STA SEARCH_BUF - 1,X
+  LDA CMD_BUF,X              ; (from the null terminator down)
+  STA SEARCH_BUF,X
   DEX
-  BNE .copy
+  BPL .copy
 
 .reuse_pattern:
   ; Check if there's a pattern (always true after a copy)
@@ -56,13 +57,10 @@ search_dir:
 ; Sets cursor to matching line/col on success
 ; Shows "Pattern not found" on failure
 search_forward:
-  CP16 FILE_LINE16, SEARCH_LINE16
-
   ; Try the current line: its first match (of those search_line_walk
   ; steps through) that starts after the cursor
-  JSR get_current_line_ptr
-  SEC
-  ADC16 CURSOR_COL16, BUF_PTR16, SEARCH_LIMIT16 ; The cursor's address + 1
+  JSR search_start
+  INC16 SEARCH_LIMIT16         ; The cursor's address + 1
   JSR search_line_walk
   BCC search_move_to_match
 
@@ -103,11 +101,8 @@ search_move_to_match:
 ; Sets cursor to matching line/col on success
 ; Shows "Pattern not found" on failure
 search_backward:
-  CP16 FILE_LINE16, SEARCH_LINE16
-
   ; Try current line: the last match that starts before the cursor
-  JSR get_cursor_buf_ptr
-  CP16 BUF_PTR16, SEARCH_LIMIT16
+  JSR search_start
   JSR search_in_line_last
   BCC search_move_to_match
 
@@ -134,17 +129,16 @@ search_show_not_found:
   JSR status_line_clear
   PRINT_TEXT str_not_found
 
-  ; Print the pattern
-  LDX #0
-.print_pattern:
-  CPX SEARCH_LEN
-  BEQ .print_done
-  LDA SEARCH_BUF,X
-  JSR text_putc              ; (preserves X)
-  INX
-  BNE .print_pattern         ; Always taken (SEARCH_LEN <= 127)
-.print_done:
+  PRINT_TEXT SEARCH_BUF
   JMP flush_get_key            ; Wait for keypress
+
+; Start a search on the cursor line: SEARCH_LINE16 = FILE_LINE16 and
+; SEARCH_LIMIT16 = the cursor's address
+search_start:
+  CP16 FILE_LINE16, SEARCH_LINE16
+  JSR get_cursor_buf_ptr
+  CP16 BUF_PTR16, SEARCH_LIMIT16
+  RTS
 
 ; Search for pattern in line SEARCH_LINE16 starting from column 0
 ; Returns carry clear = found (BUF_PTR16 = match), carry set = not found
@@ -154,7 +148,8 @@ search_in_line:
 
 ; Find the first match at or after BUF_PTR16 on its line.  Columns are
 ; 16-bit: the pointer walks the line, Y indexes the pattern
-; Returns carry clear = found (BUF_PTR16 = match start), carry set = none
+; Returns carry clear = found (BUF_PTR16 = match start, Y = the pattern's
+; length), carry set = none
 ; Clobbers: A, Y
 search_match_from:
   LDY #0
@@ -170,11 +165,10 @@ search_match_from:
   BNE search_match_from      ; Always taken
 .try:
   INY
-  CPY SEARCH_LEN
-  BEQ .hit
-  LDA (BUF_PTR16),Y          ; A '\n' never equals a (printable) pattern
-  CMP SEARCH_BUF,Y           ; char, so the line end fails the compare
-  BEQ .try
+  LDA SEARCH_BUF,Y
+  BEQ .hit                   ; The pattern's null terminator
+  CMP (BUF_PTR16),Y          ; A '\n' never equals a (printable) pattern
+  BEQ .try                   ; char, so the line end fails the compare
   BNE .advance               ; Always taken
 .hit:
   CLC
@@ -219,7 +213,7 @@ search_line_walk:
   CMP16 BUF_PTR16, SEARCH_LIMIT16
   BCS .at_limit              ; Match at/past limit
   CP16 BUF_PTR16, BUF_DST16  ; The last one before the limit so far
-  LDA SEARCH_LEN
+  TYA                        ; The pattern's length
   ADDA16 BUF_PTR16           ; Go on from the end of the match
   JMP .loop
 .at_limit:
