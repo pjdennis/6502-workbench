@@ -74,6 +74,8 @@ yank_add_chars:
 ; Replace the yank buffer with the BUF_LEN16 bytes at BUF_SRC16, of type Y
 ; Returns carry set if they do not fit (nothing changed), carry clear on
 ; success. Sets BUF_PTR16 = BUF_SRC16 + BUF_LEN16, preserves BUF_LEN16.
+; Their newlines are not counted yet (YANK_LINES16 high byte $FF: a line
+; yank sets its count, a char paste counts them, yank_count_newlines).
 ; A new yank also ends an undo that reads the yank buffer (the types
 ; below UNDO_JOIN): u would replay it. A delete records its undo after
 ; its yank.
@@ -87,6 +89,8 @@ yank_store:
   SBC #>YANK_LIMIT-YANK_BUF+$01
   BCS .ret
   STY YANK_TYPE
+  LDA #$FF
+  STA YANK_LINES16 + 1       ; Not counted yet
   ; New end of the yank buffer (carry clear from the check; the sum is at
   ; most YANK_LIMIT, so it stays clear)
   ADCI16 BUF_LEN16, YANK_BUF, YANK_END16
@@ -276,10 +280,13 @@ paste_adjust_marks:
 
 ; Count the newlines in the yank buffer into YANK_LINES16, the lines each
 ; copy of a paste adds (a char paste counts them first; a line yank's
-; line count is its newline count already)
+; line count is its newline count already), unless they have been
+; counted since the last yank: only then is its high byte $FF
 ; Output: carry set if there are any
 ; Clobbers: A, Y, BUF_SRC16
 yank_count_newlines:
+  LDA YANK_LINES16 + 1
+  BPL .done                  ; Counted already
   LDY #0
   STY YANK_LINES16
   STY YANK_LINES16 + 1

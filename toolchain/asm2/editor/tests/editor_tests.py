@@ -1610,6 +1610,14 @@ class EditorTestRunner:
             "<< copies no line before its first removal: 999<< on 36 KB",
             big, b"999<<:q!\r", 2700000, rows=24, cols=80)
 
+        # A char paste counts the yank's newlines once after each yank,
+        # where p counted them twice on every paste (its batching and the
+        # paste): p of a 4,000-char yank took 935,427 cycles (the whole
+        # run)
+        self.run_test_cycle_cap(
+            "p counts the yank's newlines once: p of 4,000 chars",
+            "a" * 4000 + "\nb\n", b"y$jp:q!\r", 890000, rows=24, cols=80)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):
