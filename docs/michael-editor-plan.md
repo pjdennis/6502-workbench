@@ -4,6 +4,21 @@ Goal: run `toolchain/asm2/editor` on Michael (the v2 board), with the 20x4 LCD a
 
 Branch: `michael-editor`, from `editor-size-series` with GitHub `main` merged in.
 
+## Progress (2026-09-27)
+
+Phases 1-4 are done: the editor runs on the emulated Michael board (`toolchain/asm2/editor-michael.sh`), and `verify.sh` tests it end to end (`editor/tests/michael_tests.py`). Phase 5, getting it onto the board, is next.
+
+Sizes and memory as built:
+- The define:direct_io define:michael editor is 11,807 bytes ($0400-$32DE); the services are 2,406 bytes at $3500.
+- Buffers: 256 bytes of text, 127 lines, 256 bytes each for yank and undo; batch and marks sit below the stack, which stays above $0154. The file name, command line (47 characters) and search pattern (47) are in the interrupt page after the services' RAM.
+- Uploading the two takes 14,213 bytes against the loader's 13,824-byte window.
+
+Changes from the plan below:
+- The screen wraps after the last column like the editor's reference terminal, except on the bottom row, where the status line is cut off. The editor needs the wrap: when keys come in faster than it redraws, it writes an inserted run across the end of a row.
+- The editor keeps its $0400 origin; its buffers use $0100-$0153, $0200-$03FF and the spare interrupt-page RAM.
+- The keyboard driver needed no change: the services decode keys with its routines.
+- Found on the way: `initialize_machine_v2.inc` briefly drove PORTB from the VIA and the keyboard board at once at start-up (fixed), and 20x4 LCD rows overlapped in the emulator's DDRAM (fixed).
+
 ## Findings
 
 **Editor I/O.** The console build does all output through `write_b` as ANSI sequences:
@@ -20,7 +35,7 @@ Both directions go through narrow layers:
 
 So a `define:direct_io` build can replace ANSI in both directions with direct service calls, leaving the rest of the editor as it is. The editor loses its escape decoder and sequence strings (~250-350 bytes). The services lose the ANSI parser, the key-to-sequence tables and the Esc timer (~550-600 bytes).
 
-At 4 rows by 20 columns the editor wraps text lines itself. The status line (`[No Name] [+] - INSERT - 2,7 /2`, about 31 characters) is longer than 20 characters and relies on the terminal to clip it, so the Michael console clips at column 20 and never wraps. A shorter status line for narrow screens is an optional later editor change.
+At 4 rows by 20 columns the editor wraps text lines itself. The status line (`[No Name] [+] - INSERT - 2,7 /2`, about 31 characters) is longer than 20 characters and relies on the terminal to clip it, so the Michael console clips the bottom row at column 20. (Later: other rows wrap, see Progress.) A shorter status line for narrow screens is an optional later editor change.
 
 **Saving.** Nothing in the editor stops `:w` on "[No Name]". On Michael `openout` returns 0, so no editor change is needed.
 
