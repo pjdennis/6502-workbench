@@ -180,6 +180,13 @@ clearing it and moving back. Over the 94 scenarios of the audit's repaint bench
 the bytes go from 31,302 to 31,225, and over about 20,000 random
 sessions (typed ahead and paced, both builds) down 0.14%.
 
+The rows IL opens are blank until the frame draws them, so the row loop
+(`render_rows`) ends a short line or `~` there with no `ESC[K`: the
+opened rows are the `SCROLL_N` rows from `SCROLL_ROW2`, which
+`render_finish` resets. That saves 3 bytes per such row: `j` on the
+bottom row 54 -> 51, Ctrl-D 73 -> 61, and `o` opens its empty row with
+no text sent at all (63 -> 60).
+
 ### The command line runs within the `:` key
 
 `:` reads its command line at the prompt within the key, as `/` and `?`

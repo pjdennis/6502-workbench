@@ -74,8 +74,9 @@ SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
 SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
 SNAP_LINE16:    .word   ; The cursor before the key (a refused yank returns it there)
 SNAP_COL16:     .word
-SCROLL_N:       .byte   ; scroll_region_check: the count of its DL and IL
-SCROLL_ROW2:    .byte   ; scroll_region_check: the row of its IL (0-based)
+SCROLL_N:       .byte   ; scroll_region_check: the count of its DL and IL; the
+SCROLL_ROW2:    .byte   ;   rows its IL opened (0-based, from SCROLL_ROW2) are
+                        ;   blank until the frame ends (0 = none)
 SCROLL_DELTA:   .byte   ; Screen rows to scroll; rows to draw for render_limited_from_col (not reset per key)
 RENDER_LIMIT:   .byte   ; render_rows: stop row (exclusive; $FF = the status bar); also a scratch counter
 DELETE_SCREEN_ROWS: .byte ; Pre-computed rows for $06/$07/$08/$0B (0 = none; reset per key)

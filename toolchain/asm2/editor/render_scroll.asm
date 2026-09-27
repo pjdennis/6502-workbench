@@ -69,7 +69,8 @@ scroll_region_check:
   .byte $2C                    ; BIT abs: skip the LDA
 .count:
   LDA SCROLL_DELTA
-  STA SCROLL_N                 ; the count for DL and IL
+  STA SCROLL_N                 ; the count for DL and IL (and the rows
+                               ; IL opens from SCROLL_ROW2: render_rows)
   EOR #$FF
   SEC
   ADC TEXT_ROWS                ; R - 1 (0-based)
@@ -442,7 +443,8 @@ render_finish_cursor:
   JSR ansi_goto0
   INC CUR_VALID                ; the next frame starts with it there
   JSR ansi_cursor_show
-  JMP io_flush
+  STA SCROLL_N                 ; (A = 0) the rows its scroll opened are
+  JMP io_flush                 ; drawn: none is blank now
 
 ; Render just the status bar and reposition the cursor (no content
 ; redraw).  An unchanged status bar sends nothing, so the cursor need not
@@ -471,8 +473,9 @@ render_limited_from_col:
 ; RENDER_COL and the rest from column 0.  Only the first row drawn needs
 ; a cursor move: a wrapped line's continuation rows are reached by the
 ; terminal's auto-wrap (the row before was written full width), and a
-; row after one that ended with ESC[K (a short row, or '~') by CR LF.
-; A row after one that ended its line exactly full gets a move, as
+; row after a short row or '~' by CR LF.  A short row or '~' ends with
+; ESC[K, unless the frame's scroll opened it (IL left it blank).  A
+; row after one that ended its line exactly full gets a move, as
 ; terminals differ in where the cursor is then.  No LF leaves the last
 ; text row (the loop stops there), so none can scroll the screen.
 render_rows:
@@ -519,7 +522,13 @@ render_rows:
   LDA #'~'
   JSR io_write
 .line_done:
+  LDA RENDER_ROW               ; no ESC[K on a row the frame's scroll
+  SEC                          ; opened (SCROLL_N rows from SCROLL_ROW2):
+  SBC SCROLL_ROW2              ; IL left it blank
+  CMP SCROLL_N
+  BCC .blank
   JSR ansi_clear_line          ; (X kept)
+.blank:
   LDX #1                       ; the next row by CR LF
 .line_ended:
   INC16 RENDER_LINE16          ; (past the end it stays past the end)

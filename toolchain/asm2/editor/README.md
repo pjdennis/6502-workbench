@@ -324,7 +324,12 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   where they leave the cursor then.
 - A frame's first move is left out when the last frame left the cursor
   there (`CUR_VALID`), or sent as a backspace when it is one column to the
-  left.
+  left; so is a move to the row an IL or DL of the frame's scroll left
+  the cursor on.
+- Rows that move as a whole (below an edit that adds or removes rows, or
+  all of them when the view scrolls) go with DL and IL (see Terminal
+  requirements).  The rows IL opens are blank, so a short line or `~`
+  drawn there gets no `ESC[K`.
 - The screen is at most 255 rows by 255 columns: a bigger terminal is used
   as 255 (the terminal build asks for the cursor at 255;255 and reads back
   where it went; the emulator caps the console build's size ports). On a
