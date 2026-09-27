@@ -52,8 +52,9 @@ A handler that wants shifting sets two new zero-page variables alongside
 
 `editor.asm`'s main loop resets both each iteration, next to
 `RENDER_FROM_COL16`. Deltas must fit the signed byte: insert batches are
-capped at 32, and deletes of more than 128 chars set no hint, so they
-take the plain rewrite path.
+capped at 32 and shifts of one line at 66, and deletes of more than 128
+chars and pastes of more than 127 set no hint, so they take the plain
+rewrite path.
 
 Callers:
 
@@ -61,6 +62,9 @@ Callers:
 |---|---|---|---|
 | insert-mode batch fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
 | `delete_at_cursor` within one line: `x`, `X`, Delete, `dw`, `db`, `de`, `d0`, `D`, `d$`, `s`, `C`, `cw`, `cb`, `ce`, the redo of those, the undo of `p` / `P` and of typed text | cursor (the range start) | `-n` | 0 |
+| `do_char_paste` with no newline: `P`, the undo of a char delete, the redo of `P` | insertion column | `+n` | `n` |
+| the same for `p` and its redo (`do_char_paste_below`) | cursor (one left of the insertion, where the frame finds the terminal's cursor) | `+n` | `n + 1` |
+| `render_range_repaint` for a range of one line: `>>`, `<<`, `:N>`, `:N<`, their undo and redo | 0 | the change in `BUF_END16`: `+w` / `-w` | `w` / 0 |
 
 Type-ahead needs no extra work: a whole batch becomes one `SHIFT_NET`, so
 each screen row gets at most one ICH/DCH. The exception is typed-ahead
@@ -85,10 +89,15 @@ line's last row that is on screen (never the status row), with
   from the next row, stopping at the new end of the line. On the line's
   last row the blanks DCH leaves on the right are already correct.
 - **`net = 0`:** overwrite `SHIFT_WRITE` cells only (existing partial
-  render, cut short).
+  render, cut short); the first row after them with none ends the line,
+  as no later row changes.
 - **Cost check per row:** use the shift only when it saves more than the
   sequence costs (about 4-6 bytes). Otherwise, or if `|net|` is at least
   what is left of the row, rewrite from `s` as today.
+
+A row after one written to its last column by chars, which itself
+starts with chars at column 0 (no ICH or DCH), needs no cursor move: the
+terminal wraps there, as in `render_rows`.
 
 When the line gains or loses screen rows, the existing scroll logic in
 `render_current_line_and_status` opens or closes rows below the line
@@ -207,7 +216,6 @@ keeping the full screen contents asserted; no blanket rebaselining.
 - Batches containing newlines (Enter and line joins) already use the
   scroll paths.
 - `d{motion}` within a line (`dw`, `de`, `db`, `d0`), `s` and the other
-  deletes at the cursor, and their redo: *done* (`delete_at_cursor` sets
-  the hint). Character paste and the undo of a char delete: set
-  `SHIFT_NET` / `SHIFT_WRITE` the same way.
+  deletes at the cursor, character paste, undo/redo of character edits,
+  and `>>` / `<<` of one line: *done* (the table above).
 - Optional VT100 fallback (a `define:no_ich` build that rewrites instead).

@@ -79,6 +79,8 @@
 ;                              the cursor line (the first of the range);
 ;                              DELETE_SCREEN_ROWS = their rows before.
 ;                              Needs line count and viewport unchanged.
+;                              One line is drawn as $01, with an ICH/DCH
+;                              hint at its column 0.
 ; With the line count unchanged, $03-$0A are treated as $01.
 
 

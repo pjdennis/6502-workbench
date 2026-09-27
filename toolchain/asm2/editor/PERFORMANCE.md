@@ -82,22 +82,29 @@ that column only.
 
 ### ICH/DCH shifting for in-line edits
 
-Insert-mode typing, BS and DEL (including whole type-ahead batches) and
+Insert-mode typing, BS and DEL (including whole type-ahead batches),
 every delete at the cursor that stays within its line (`x`, `X`, `dw`,
 `db`, `de`, `d0`, `D`, `s`, `cw`... and their redo, the undo of `p` / `P`
-and of typed text) hand the render a hint: `SHIFT_NET` (cells inserted
-or deleted at `RENDER_FROM_COL16`) and `SHIFT_WRITE` (new cells written
-there). `render_line_shift` then shifts each row of the line with ICH
+and of typed text), a char paste with no newline (`p`, `P`, their redo,
+the undo of a char delete) and `>>` / `<<` of one line hand the render a
+hint: `SHIFT_NET` (cells inserted or deleted at `RENDER_FROM_COL16`) and
+`SHIFT_WRITE` (new cells written there). `render_line_shift` then shifts each row of the line with ICH
 (`ESC[n@`) or DCH (`ESC[nP`) and writes only the new cells plus the cells
 carried across a row boundary, instead of resending everything after the
 edit point. A batch shifts once per row. Each row compares byte costs and
-resends instead when that is cheaper (short tails, large deletes). Rows
-opened or closed by a row-count change are handled by the existing scroll
-paths first. See `ich-dch-plan.md`.
+resends instead when that is cheaper (short tails, large deletes). A row
+after one written to its end by chars follows by the terminal's wrap, and
+a batch that nets no shift stops after its new cells. Rows opened or
+closed by a row-count change are handled by the existing scroll paths
+first. See `ich-dch-plan.md`.
 
 Typing two characters at column 5 of a 3-row line on a 40-column screen
-goes from about 115 bytes of row content to about 30; `dw` near the
-start of such a line takes a 98-byte frame where the rewrite took 146.
+goes from about 115 bytes of row content to about 30. Near the start of
+such a line, `dw` takes a 98-byte frame where the rewrite took 146, `P`
+of a word 85 (156), u after `x` 37 (116), and `>>` 79 (158). Over the
+audit's 432 repaint scenarios (dw, db, de, D, d0, s, cw, x, p, P, u,
+`>>`, `<<`... on short and wrapped lines at 10x40 and 24x80) the frames
+went from 62,753 bytes to 37,858.
 
 ### Status bar: only what changed
 
