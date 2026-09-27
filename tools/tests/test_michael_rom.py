@@ -23,6 +23,7 @@ from upload_frame import Block  # noqa: E402
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 ROM = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.s')
+COMMITTED_ROM = os.path.join(ROOT, 'hardware', 'michael', 'michael_rom.bin')
 TESTS = os.path.join(HERE, 'michael')
 CHECK = os.path.join(TESTS, 'upload_check.s')
 VECTORS = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom_vectors.inc')
@@ -95,6 +96,13 @@ class MichaelRomLoaderTest(RomTestCase):
 
     def upload(self, blocks, start=0x0200):
         return upload_frame.reverse_bits(upload_frame.build_upload(blocks, start))
+
+    def test_the_committed_image_is_this_build(self):
+        """hardware/michael/michael_rom.bin, what goes on the EEPROM, is michael_rom.s built."""
+        with open(self.rom, 'rb') as built, open(COMMITTED_ROM, 'rb') as committed:
+            self.assertEqual(built.read(), committed.read(),
+                             'rebuild it: firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc '
+                             '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
 
     def test_ready_screen(self):
         self.assertEqual(self.boot(b'')[1], 'Ready.')

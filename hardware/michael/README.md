@@ -66,3 +66,17 @@ The EEPROM sketch replaces `a` and `i` with these:
   - `monitor_arduino.py` and `arduino-console.py` show the Arduino's serial output.
   - `asciimatics-*.py`, `try-curses.py` and `with-thread.py` are terminal-UI experiments for that console.
 - `michael-2023-12-04.rom`: a ROM image from 2023-12-04 (committed on michael_keyboard_wip).
+- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 2 (`tools/upload/transfer.py --format=2`) from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006` (`michael_rom_vectors.inc`). See "Programming the ROM" below.
+
+## Programming the ROM
+
+The EEPROM is an AT28C256. With a TL866-style programmer and `minipro`, keep a copy of what's on it first, then write the new image:
+
+```
+minipro -p AT28C256 -r michael-rom-backup.bin
+minipro -p AT28C256 -w hardware/michael/michael_rom.bin
+```
+
+Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
+
+After a reset, the LCD shows "Michael ROM 3" and "Ready.". The new ROM only understands format 2 uploads, so send programs with `tools/upload/transfer.py --baudrate=57600 --format=2`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it that way.
