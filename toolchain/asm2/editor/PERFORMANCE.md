@@ -63,6 +63,14 @@ buffered matching keys after x. Pending deletes are counted and executed
 with a single `buf_shift_left_16` via `delete_at_cursor`, with one
 `buf_adjust_lines_apply` call for the batch.
 
+### Range deletes scroll as dd does
+
+`:N,Md` (and `:d`) takes dd's path, `yank_delete_current_lines`, and its
+render too: `precompute_delete_scroll` counts the rows of the lines
+before they go and `finish_delete_scroll` sets `RF_DEL`, so the rows
+below scroll up and only the rows that exposes are drawn. `:4,6d` on a
+24x80 screen of 60-char lines sends 314 bytes instead of 1,558.
+
 ### Indent/unindent range repaint
 
 `>>`, `<<`, `:N,M>`, `:N,M<`, and their undo use a dedicated render path
@@ -119,7 +127,11 @@ bottom row of a 24x80 screen of 48-char lines sends 116 bytes instead of
 1,268. The cell is found from the cursor (`rows_to_cursor`,
 `change_cell_row`, shared with the Enter split): in the cursor line at
 `RENDER_FROM_COL16`, or for an Enter batch in the line it split. A first
-change on the top row redraws in full, as nothing keeps its place.
+change on the top row redraws in full, as nothing keeps its place. An
+in-line edit of a line that starts above the view (a line taller than
+the screen) is drawn from its change too, the view moved or not: typing
+40 chars at the end of a 399-char line at 10x40 sends 1,600 bytes
+instead of 15,052.
 
 Typed-ahead `p` keys of a line yank (`pp`, `ppp`) paste their copies in
 one frame after the line the cursor was on, with the cursor on the last:
