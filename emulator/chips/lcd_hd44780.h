@@ -114,6 +114,12 @@ void lcd_hd44780_set_geometry(struct lcd_hd44780_state *state,
  * dirty since the last render (and clears the dirty flag). */
 int lcd_hd44780_render(struct lcd_hd44780_state *state, char *out_buf);
 
+/* The row and column of the address counter on the panel. An address
+ * that isn't on a visible cell (or CGRAM mode) gives the row of its
+ * DDRAM line (0 or 1) and the column clamped to the last one, or (0, 0)
+ * in CGRAM mode. */
+void lcd_hd44780_cursor(const struct lcd_hd44780_state *state, int *row, int *col);
+
 /* Copy the currently-visible DDRAM bytes, unmapped, into a buffer of
  * rows*cols bytes in the same row order as lcd_hd44780_render. */
 void lcd_hd44780_visible_bytes(const struct lcd_hd44780_state *state,

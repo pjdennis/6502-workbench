@@ -369,34 +369,11 @@ static void build_snapshot(struct wendy2c_web_snapshot *snap,
     snap->lcd_cols = lcd->cols;
     int n = lcd->rows * lcd->cols;
     if (n > (int)sizeof(snap->ddram_visible)) n = (int)sizeof(snap->ddram_visible);
-    /* DDRAM layout: line 0 starts at $00; line 1 at $40; line 2 at $10
-     * (16x4) / $14 (20x4); line 3 at $50 / $54. For 2-line mode we
-     * just take $00..(cols-1) and $40..($40+cols-1). */
-    for (int r = 0; r < lcd->rows; r++) {
-        int base;
-        switch (r) {
-            case 0: base = 0x00; break;
-            case 1: base = 0x40; break;
-            case 2: base = (lcd->cols == 20) ? 0x14 : 0x10; break;
-            case 3: base = (lcd->cols == 20) ? 0x54 : 0x50; break;
-            default: base = 0;
-        }
-        for (int c = 0; c < lcd->cols; c++) {
-            snap->ddram_visible[r * lcd->cols + c] =
-                lcd->ddram[(base + c) & 0x7F];
-        }
-    }
+    uint8_t visible[LCD_DDRAM_SIZE];
+    lcd_hd44780_visible_bytes(lcd, visible);
+    memcpy(snap->ddram_visible, visible, (size_t)n);
     memcpy(snap->cgram, lcd->cgram, 64);
-    /* Cursor position derived from address counter; if AC is in CGRAM
-     * mode, the cursor isn't on DDRAM -- park it at (0,0). */
-    if (lcd->cgram_mode) {
-        snap->cursor_row = 0; snap->cursor_col = 0;
-    } else {
-        uint8_t ac = lcd->ac & 0x7F;
-        if (ac >= 0x40) { snap->cursor_row = 1; snap->cursor_col = ac - 0x40; }
-        else            { snap->cursor_row = 0; snap->cursor_col = ac; }
-        if (snap->cursor_col >= lcd->cols) snap->cursor_col = lcd->cols - 1;
-    }
+    lcd_hd44780_cursor(lcd, &snap->cursor_row, &snap->cursor_col);
     snap->cursor_on  = lcd->cursor_on;
     snap->blink_on   = lcd->blink_on;
     snap->display_on = lcd->display_on;

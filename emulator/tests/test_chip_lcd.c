@@ -347,6 +347,55 @@ TEST michael_read_against_driven_data_pins_is_contention(void) {
     PASS();
 }
 
+/* DDRAM is two 40-byte lines at $00-$27 and $40-$67; a 20x4 panel shows
+ * rows 0-3 from $00, $40, $14 and $54. Each row must be its own cells. */
+TEST ddram_20x4_rows_do_not_overlap(void) {
+    setup_michael();
+    lcd_hd44780_set_geometry(&ls, 4, 20);
+    michael_write(0x38, 0);
+    static const uint8_t bases[4] = {0x00, 0x40, 0x14, 0x54};
+    for (int row = 3; row >= 0; row--) {
+        michael_write((uint8_t)(0x80 | bases[row]), 0);
+        for (int col = 0; col < 20; col++) michael_write((uint8_t)('A' + row), 1);
+    }
+
+    char buf[LCD_DDRAM_SIZE + 1];
+    lcd_hd44780_render(&ls, buf);
+    for (int i = 0; i < 80; i++) ASSERT_EQ_FMT((char)('A' + i / 20), buf[i], "%c");
+    PASS();
+}
+
+/* In 2-line mode the address counter runs from the end of line 1 ($27)
+ * to the start of line 2 ($40), and from the end of line 2 ($67) to $00. */
+TEST ddram_address_wraps_between_lines(void) {
+    setup_michael();
+    lcd_hd44780_set_geometry(&ls, 4, 20);
+    michael_write(0x38, 0);
+    michael_write(0x80 | 0x27, 0);
+    michael_write('X', 1);
+    ASSERT_EQ_FMT(0x40, ls.ac, "%02x");
+    michael_write(0x80 | 0x67, 0);
+    michael_write('Y', 1);
+    ASSERT_EQ_FMT(0x00, ls.ac, "%02x");
+    PASS();
+}
+
+TEST cursor_position_on_20x4_rows(void) {
+    setup_michael();
+    lcd_hd44780_set_geometry(&ls, 4, 20);
+    michael_write(0x38, 0);
+    int row, col;
+    michael_write(0x80 | 0x54 | 3, 0);
+    lcd_hd44780_cursor(&ls, &row, &col);
+    ASSERT_EQ_FMT(3, row, "%d");
+    ASSERT_EQ_FMT(3, col, "%d");
+    michael_write(0x80 | 0x14, 0);
+    lcd_hd44780_cursor(&ls, &row, &col);
+    ASSERT_EQ_FMT(2, row, "%d");
+    ASSERT_EQ_FMT(0, col, "%d");
+    PASS();
+}
+
 SUITE(lcd_hd44780_suite) {
     RUN_TEST(init_4bit_then_write_hello);
     RUN_TEST(cgram_slot_6_renders_as_tilde);
@@ -361,6 +410,9 @@ SUITE(lcd_hd44780_suite) {
     RUN_TEST(michael_write_with_data_pins_as_inputs_is_undriven);
     RUN_TEST(michael_strobe_with_rs_as_input_is_undriven);
     RUN_TEST(michael_read_against_driven_data_pins_is_contention);
+    RUN_TEST(ddram_20x4_rows_do_not_overlap);
+    RUN_TEST(ddram_address_wraps_between_lines);
+    RUN_TEST(cursor_position_on_20x4_rows);
 }
 
 GREATEST_MAIN_DEFS();

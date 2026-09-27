@@ -47,9 +47,18 @@ static int driven(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bits)
     return (port_ddr(s, port) & bits) == bits;
 }
 
+/* DDRAM cell for an address. In 2-line mode DDRAM is two 40-byte lines
+ * at $00-$27 and $40-$67; in 1-line mode one 80-byte line at $00-$4F. */
+static int ddram_index(const struct lcd_hd44780_state *s, uint8_t addr) {
+    addr &= 0x7F;
+    if (!s->two_line_mode) return addr % LCD_DDRAM_SIZE;
+    int line = addr >= 0x40;
+    return line * 40 + (addr & 0x3F) % 40;
+}
+
 static uint8_t read_value(const struct lcd_hd44780_state *s, uint8_t rs) {
     if (!rs) return (uint8_t)(s->ac & 0x7F);   /* busy flag (bit 7) never set */
-    return s->cgram_mode ? s->cgram[s->ac & 0x3F] : s->ddram[s->ac % LCD_DDRAM_SIZE];
+    return s->cgram_mode ? s->cgram[s->ac & 0x3F] : s->ddram[ddram_index(s, s->ac)];
 }
 
 int lcd_hd44780_output(const struct lcd_hd44780_state *s, uint8_t *value) {
@@ -112,10 +121,15 @@ static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
 }
 
 static void advance_ac(struct lcd_hd44780_state *s) {
-    if (s->entry_id) {
-        s->ac++;
+    if (s->cgram_mode) {
+        s->ac = (uint8_t)((s->ac + (s->entry_id ? 1 : -1)) & 0x3F);
+    } else if (s->two_line_mode) {
+        /* $27 -> $40 -> ... -> $67 -> $00 (and back when decrementing). */
+        if (s->entry_id) s->ac = s->ac == 0x27 ? 0x40 : s->ac == 0x67 ? 0x00 : (uint8_t)(s->ac + 1);
+        else             s->ac = s->ac == 0x40 ? 0x27 : s->ac == 0x00 ? 0x67 : (uint8_t)(s->ac - 1);
     } else {
-        s->ac = (uint8_t)(s->ac - 1);
+        if (s->entry_id) s->ac = s->ac >= 0x4F ? 0x00 : (uint8_t)(s->ac + 1);
+        else             s->ac = s->ac == 0x00 ? 0x4F : (uint8_t)(s->ac - 1);
     }
 }
 
@@ -125,7 +139,7 @@ static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte) 
         if (s->cgram_mode) {
             s->cgram[s->ac & 0x3F] = byte;
         } else {
-            s->ddram[s->ac % LCD_DDRAM_SIZE] = byte;
+            s->ddram[ddram_index(s, s->ac)] = byte;
         }
         advance_ac(s);
         s->dirty = 1;
@@ -238,8 +252,26 @@ void lcd_hd44780_visible_bytes(const struct lcd_hd44780_state *s,
     for (uint8_t r = 0; r < s->rows; r++) {
         uint8_t base = line_base(r, s->cols);
         for (uint8_t c = 0; c < s->cols; c++)
-            out_buf[idx++] = s->ddram[(base + c) % LCD_DDRAM_SIZE];
+            out_buf[idx++] = s->ddram[ddram_index(s, (uint8_t)(base + c))];
     }
+}
+
+void lcd_hd44780_cursor(const struct lcd_hd44780_state *s, int *row, int *col) {
+    *row = 0;
+    *col = 0;
+    if (s->cgram_mode) return;
+    uint8_t ac = s->ac & 0x7F;
+    for (uint8_t r = 0; r < s->rows; r++) {
+        uint8_t base = line_base(r, s->cols);
+        if (ac >= base && ac < base + s->cols) {
+            *row = r;
+            *col = ac - base;
+            return;
+        }
+    }
+    *row = ac >= 0x40;
+    *col = *row ? ac - 0x40 : ac;
+    if (*col >= s->cols) *col = s->cols - 1;
 }
 
 int lcd_hd44780_render(struct lcd_hd44780_state *s, char *out_buf) {
