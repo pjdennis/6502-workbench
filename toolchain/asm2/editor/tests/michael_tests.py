@@ -25,22 +25,14 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parents[1]))
 from ansi_screen import AnsiScreen
+import michael_image
+from michael_image import EMULATOR, LOAD
 
-ASM2 = Path(__file__).resolve().parents[2]
-ROOT = ASM2.parents[1]
-EMULATOR = ROOT / "emulator" / "emulator.out"
-ASSEMBLER = ASM2 / "17" / "out" / "asm.out"
-SERVICES = ROOT / "firmware" / "programs" / "michael" / "michael_editor_services.s"
-LAYOUT = ROOT / "firmware" / "boards" / "michael" / "michael_editor_layout.inc"
-LOAD = 0x0400
 ROWS, COLS = 4, 20
 STACK_FLOOR = 0x0154         # the buffers below the stack end here (editor.asm)
 CYCLES_PER_KEY = 60000       # 30 ms at 2 MHz: more than the 20 ms between keys
-
-
-def layout_address(name):
-    return int(re.search(r'^%s\s*=\s*\$([0-9a-fA-F]+)' % name, LAYOUT.read_text(), re.M).group(1), 16)
 
 
 class MichaelEditorTest(unittest.TestCase):
@@ -48,33 +40,16 @@ class MichaelEditorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         tmp = Path(cls.tmp.name)
-        cls.editor = cls.assemble_editor(tmp / "editor_michael.out", "define:direct_io", "define:michael")
+        cls.image_file = michael_image.build(tmp / "editor_michael.image")
         cls.console_editor = tmp / "editor.out"
-        cls.assemble_editor(cls.console_editor)
-        services_bin = tmp / "services.bin"
-        subprocess.run([ROOT / "firmware" / "vasm", "-quiet", "-wdc02", "-wfail", "-Fbin", "-dotdir",
-                        "-ignore-mult-inc", "-esc", "-o", services_bin, SERVICES],
-                       check=True, capture_output=True, cwd=ROOT)
-        cls.services = services_bin.read_bytes()
+        michael_image.assemble_editor(cls.console_editor)
 
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    @classmethod
-    def assemble_editor(cls, out, *defines):
-        subprocess.run([EMULATOR, ASSEMBLER, "--no-dump", "editor/editor.asm", out, *defines],
-                       check=True, capture_output=True, cwd=ASM2)
-        return out.read_bytes()
-
     def image(self):
-        """The editor and the services, as one RAM image from LOAD."""
-        services_at = layout_address("MICHAEL_ENV_BASE") + 6
-        editor = self.editor[:-2]        # the last 2 bytes are the entry point
-        self.assertLessEqual(LOAD + len(editor), services_at)
-        path = Path(self.tmp.name) / "image.bin"
-        path.write_bytes(editor + bytes(services_at - LOAD - len(editor)) + self.services)
-        return path
+        return self.image_file
 
     def run_michael(self, keys):
         """Type keys at the editor on Michael; the LCD's rows once they are handled."""
