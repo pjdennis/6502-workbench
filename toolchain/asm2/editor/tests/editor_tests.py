@@ -11233,6 +11233,31 @@ class EditorTestRunner:
             ]
         )
 
+        # DEL ($7F) is a control char too: a terminal does not advance for
+        # a raw DEL, so every later cell of the row would land one column
+        # left
+        self.run_test_screen(
+            "DEL byte displayed as reverse ?",
+            None,
+            b":q!\r",
+            initial_bytes=b"A\x7fB\n",
+            expect_lines=[(0, "A?B")],
+            expect_reverse_at=[
+                (0, 0, False),
+                (0, 1, True),
+                (0, 2, False),
+            ]
+        )
+
+        self.run_test_screen(
+            "x at end of a line with a DEL byte",
+            None,
+            b"$x:q!\r",
+            initial_bytes=b"a\x7fbcdef\n",
+            expect_lines=[(0, "a?bcde")],
+            expect_cursor=(0, 5),
+        )
+
         # Tab inserted via insert mode
         self.run_test_screen(
             "Tab key inserts tab in insert mode",

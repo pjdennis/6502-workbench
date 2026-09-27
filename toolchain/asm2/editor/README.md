@@ -310,8 +310,8 @@ Range positions can be: decimal number (1-based), `'a` (mark), or `.`
   (255 x `SCREEN_COLS` characters) is stored and saved but not displayed
   correctly.
 - Lines past EOF shown as `~` (tilde).
-- Tabs shown as `>`, other control characters and non-ASCII bytes as `?`,
-  both in reverse video.
+- Tabs shown as `>`, other control characters, DEL and non-ASCII bytes as
+  `?`, both in reverse video.
 - Rows are drawn left to right, and only the first row a frame draws gets
   a cursor move: the row after one cleared to its end (`ESC[K`) is reached
   with CR LF, and a wrapped line's continuation rows by the terminal's

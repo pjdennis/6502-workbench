@@ -527,9 +527,10 @@ find_line_at_render_row:
   RTS
 
 ; Print line characters from BUF_PTR16 + RENDER_COL up to SCREEN_COLS or
-; newline.  Control chars: tab as '>' reverse, others (and bytes >= $80)
-; as '?' reverse.  Returns RENDER_COL = Y = column after the last char
-; printed.  Clobbers A, Y.
+; newline.  Control chars: tab as '>' reverse, others (and DEL and bytes
+; >= $80, which a terminal would not show in one cell) as '?' reverse.
+; Returns RENDER_COL = Y = column after the last char printed.
+; Clobbers A, Y.
 render_line_chars_from:
   LDA SCREEN_COLS
   STA RENDER_STOP
@@ -538,11 +539,10 @@ render_line_chars_to:
   LDY RENDER_COL
 .loop:
   LDA (BUF_PTR16),Y
-  BMI .unprintable
-  CMP #'\n'
-  BEQ .done
+  CMP #$7F
+  BCS .unprintable             ; DEL or the high bit
   CMP #' '
-  BCC .ctrl
+  BCC .ctrl                    ; a control char or the newline
   JSR io_write
 .next:
   INY
@@ -552,6 +552,8 @@ render_line_chars_to:
   STY RENDER_COL
   RTS
 .ctrl:
+  CMP #'\n'
+  BEQ .done
   CMP #'\t'
   BNE .unprintable
   LDA #'>'

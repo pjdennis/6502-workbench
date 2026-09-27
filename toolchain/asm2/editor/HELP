@@ -396,4 +396,4 @@ DISPLAY
   Lines past end of file are shown as ~ (tilde).
   Non-ASCII bytes (high bit set) are shown as ? in reverse video.
   Tab characters are shown as > in reverse video.
-  Other control characters are shown as ? in reverse video.
+  Other control characters and DEL are shown as ? in reverse video.
