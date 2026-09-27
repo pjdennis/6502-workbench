@@ -1561,6 +1561,19 @@ class EditorTestRunner:
             "Char delete within a line: D on a 4,000-char line",
             "a" * 4000 + "\n", b"D:q!\r", 560000, rows=24, cols=80)
 
+        # r and ~ look the cursor's char up once and step along the line
+        # with Y, where each char looked the line up again (and ~ its
+        # length): ten 255~ on a 2,000-char line took 2,647,636 cycles
+        # (2,090,296 now), ten 255rx on a 255-char line 1,283,140
+        # (968,250 now)
+        self.run_test_cycle_cap(
+            "~ steps along the line: 255~ ten times",
+            "a" * 2000 + "\n", b"0255~" * 10 + b":q!\r", 2300000,
+            rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "r steps along the line: 255rx ten times",
+            "a" * 255 + "\n", b"0255rx" * 10 + b":q!\r", 1100000)
+
     TEXT_LIMIT = 0xD600  # End of the main build's text buffer
 
     def _text_buf(self):

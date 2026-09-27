@@ -172,6 +172,9 @@ dispatch_replay:
 check_cursor_in_line:
   JSR get_line_len_z
   ; Empty line needs no separate test: cursor >= 0 = len sets carry
+  ; fall through
+; The same test against the LINE_LEN16 already set
+cursor_in_line:
   CMP16 CURSOR_COL16, LINE_LEN16
   RTS
 

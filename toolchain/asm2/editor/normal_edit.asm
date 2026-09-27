@@ -363,12 +363,14 @@ normal_toggle_case:
   STX NORMAL_TEMP            ; loop counter
   JSR echo_span_setup
 
-.tilde_loop:
-  JSR check_cursor_in_line
-  BCS .tilde_line_end        ; Past the last char
-.tilde_toggle:
+.tilde_start:
+  ; (BUF_PTR16),Y = the char at the cursor, which the loop steps with Y
   JSR get_cursor_buf_ptr
   LDY #0
+
+.tilde_loop:
+  JSR cursor_in_line         ; (~ does not change the line's length)
+  BCS .tilde_line_end        ; Past the last char
   INC UNDO_SPAN_LEN
   ; Track the last visited char for batched undo grouping
   CP16 CURSOR_COL16, TILDE_LAST_COL16
@@ -386,7 +388,8 @@ normal_toggle_case:
 
 .tilde_echo:
   JSR echo_or_defer
-  JSR inc_cursor_col
+  INY                        ; (255 presses at most: Y wraps only as
+  JSR inc_cursor_col         ; the count ends)
   DEC NORMAL_TEMP
   BNE .tilde_loop
 
@@ -406,7 +409,7 @@ normal_toggle_case:
   STA NORMAL_TEMP            ; One more pass, which ends the loop
   LSR                        ; A = 0
   STA BUF_DELTA              ; No direct echo: the char's first echo
-  BEQ .tilde_toggle          ; went out, so the line repaints (always)
+  BEQ .tilde_start           ; went out, so the line repaints (always)
 
 .tilde_done:
   LDA UNDO_TYPE
@@ -653,28 +656,28 @@ do_replace_char:
   ; Count, capped at 255 (replacement span is recorded in one page)
   JSR get_count_x
   STX NORMAL_TEMP            ; loop counter
-
-.replace_loop:
+  ; (BUF_PTR16),Y = the char at the cursor, which the loop steps with Y
   JSR get_cursor_buf_ptr
   LDY #0
+
+.replace_loop:
   ; Save the original char for undo
   LDA (BUF_PTR16),Y
-  LDX UNDO_SPAN_LEN
-  STA UNDO_DATA_BUF,X
-  INC UNDO_SPAN_LEN
+  STA UNDO_DATA_BUF,Y
   ; Store the replacement, echo it or defer
   LDA BUF_TEMP
   STA (BUF_PTR16),Y
   JSR echo_or_defer
-  LDA #$FF
-  STA MODIFIED
-  DEC NORMAL_TEMP
+  INY
+  CPY NORMAL_TEMP
   BEQ .replace_done
   JSR inc_cursor_col
   JMP .replace_loop
 
 .replace_done:
-  ; Finalize undo record (the span holds a char at least)
+  STY UNDO_SPAN_LEN          ; (at least one char)
+  JSR set_modified
+  ; Finalize undo record
   LDA #UNDO_REPLACE
   STA UNDO_TYPE
   LDA BUF_TEMP
