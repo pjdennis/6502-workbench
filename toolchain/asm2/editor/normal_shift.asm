@@ -114,7 +114,6 @@ shift_prologue:
   CP16 BUF_TEMP16, UNDO_RANGE_LINES16
   CP16 FILE_LINE16, LINE_LEN16
   LDA #0
-  STA NORMAL_TEMP              ; Cursor line width/removal (column adjust)
   STA COUNT16                  ; COUNT16 = total shift/removal
   STA COUNT16 + 1
   STA SHIFT_LINE_IDX           ; Line index for UNDO_DATA_BUF
@@ -354,25 +353,21 @@ shift_line_width:
   RTS
 
 ; Per-line bookkeeping for the core loops (Y = this line's width or
-; removal, kept): remember it for the cursor line's column adjust, add it
-; to COUNT16 (a total past 16 bits stays at $FF00 or more, which no
-; buffer shift allows), step the line index and the line iterator
-; (LINE_LEN16) and count the line off.  Returns Z set when the range is
-; done (BUF_TEMP16 = 0; shift_prologue has returned early for an empty
-; range, so the loops test at the bottom).  Clobbers A.
+; removal, kept): remember it in NORMAL_TEMP for the column adjust (only
+; a batch uses it, and a batch is on one line, the cursor's), add it to
+; COUNT16 (at most 1023 lines of 2 or one line of 66: no carry out),
+; step the line index and the line iterator (LINE_LEN16) and count the
+; line off.  Returns Z set when the range is done (BUF_TEMP16 = 0;
+; shift_prologue has returned early for an empty range, so the loops
+; test at the bottom).  Clobbers A.
 shift_count_line:
-  CMP16 LINE_LEN16, FILE_LINE16
-  BNE .not_cursor
   STY NORMAL_TEMP
-.not_cursor:
   TYA
   CLC
   ADC COUNT16
   STA COUNT16
   BCC .counted
   INC COUNT16 + 1
-  BNE .counted
-  DEC COUNT16 + 1              ; The total passed 16 bits: keep it at $FFxx
 .counted:
   INC SHIFT_LINE_IDX
   INC16 LINE_LEN16
