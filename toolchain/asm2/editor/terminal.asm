@@ -37,6 +37,7 @@ ansi_csi:
 ansi_clear_screen:
   LDA #0
   STA ST_LEN                 ; status row blank: send all of the status bar
+  STA CUR_VALID              ; the cursor moves home
   LDA #<ansi_seq_clear
   .byte $2C                  ; BIT abs: skip the next LDA #
 ; Reset scroll region to full screen: ESC[r
@@ -74,9 +75,10 @@ ansi_seq_a:
 
 ; Set scroll region: ANSI_ROW = top (1-based), ANSI_COL = bottom (1-based)
 ; Emits ESC[top;bottomr (ESC[;bottomr from the top row: see
-; ansi_row_col_seq)
+; ansi_row_col_seq), which homes the cursor (as the ESC[r after it does)
 ; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
 ansi_set_scroll_region:
+  LSR CUR_VALID
   LDA #'r'
   BNE ansi_row_col_seq   ; Always taken ('r' != 0)
 
@@ -84,13 +86,31 @@ ansi_set_scroll_region:
 ; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 ansi_goto_row0:
   LDX #0
-; Move cursor to 0-based row A, 0-based column X
+; Move cursor to 0-based row A, 0-based column X.  Right after a frame
+; (CUR_VALID = 1) the cursor is still where the frame put it, at
+; ANSI_ROW/ANSI_COL: a move there sends nothing, and one a column to the
+; left a backspace (never in a pending wrap: the frame ended with a move)
 ansi_goto0:
-  INX
+  INX                        ; X = the column, Y = the row (1-based)
+  TAY
+  INY
+  LSR CUR_VALID              ; C = the cursor is at ANSI_ROW/ANSI_COL
+  BCC .move                  ; (no longer after this move)
+  CPY ANSI_ROW
+  BNE .move
+  TXA
+  SBC ANSI_COL               ; (C = 1: the same row)
+  BEQ .there
+  CMP #$FF
+  BNE .move
+  STX ANSI_COL               ; one column to the left
+  LDA #'\b'
+  JMP io_write
+.there:
+  RTS
+.move:
   STX ANSI_COL
-  TAX
-  INX
-  STX ANSI_ROW
+  STY ANSI_ROW
   ; fall through
 ; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
 ; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)

@@ -310,6 +310,7 @@ echo_span_setup:
   STA BUF_DELTA              ; BUF_DELTA = echo budget (0 = deferred)
   JSR undo_clear             ; A = 0
   STA UNDO_SPAN_LEN          ; span length
+  STA CUR_VALID              ; the echo moves the cursor
   RTS
 
 ; Echo the char at (BUF_PTR16),Y if the budget allows and it is

@@ -6,8 +6,10 @@
   .zeropage
 
 ; --- terminal.asm ---
-ANSI_ROW:     .byte    ; Row for cursor positioning (1-based)
-ANSI_COL:     .byte    ; Column for cursor positioning (1-based)
+ANSI_ROW:     .byte    ; Where the last cursor move put the cursor (1-based;
+ANSI_COL:     .byte    ;   a scroll region's top and bottom while one is set)
+CUR_VALID:    .byte    ; 1 from a frame's end until the cursor next moves: it
+                       ;   is still at ANSI_ROW/ANSI_COL (ansi_goto0)
 STR_PTR16:    .word    ; Pointer for write_string
 DEC_VALUE16:  .word    ; The number write_param and print_decimal write
 DEC_PAD:      .byte    ; The char a leading zero is written as (0 = none)

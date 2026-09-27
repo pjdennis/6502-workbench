@@ -5042,29 +5042,29 @@ class EditorTestRunner:
         # "Hello World": 5l puts the cursor on the space (col 5).
         shift_cases = [
             ("type one char mid-line", b"5liX\x1b:q!\r", 4,
-             "HelloX World", (5, 5), "\x1b[;6H\x1b[@X"),
+             "HelloX World", (5, 5), "\x1b[?25l\x1b[@X"),
             ("type-ahead batch shifts once", b"5liABC\x1b:q!\r", 4,
-             "HelloABC World", (5, 7), "\x1b[;6H\x1b[3@ABC"),
+             "HelloABC World", (5, 7), "\x1b[?25l\x1b[3@ABC"),
             ("insert BS mid-line", b"6li\x7f\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\b\x1b[P"),
             ("insert DEL mid-line", b"5li\x1b[3~\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("mixed batch nets one shift", b"5liABC\x7f\x1b:q!\r", 4,
-             "HelloAB World", (5, 6), "\x1b[;6H\x1b[2@AB"),
+             "HelloAB World", (5, 6), "\x1b[?25l\x1b[2@AB"),
             ("type + DEL overwrites only", b"5liX\x1b[3~\x1b:q!\r", 4,
              "HelloXWorld", (5, 5), None),
             ("append at end writes only the new char", b"AX\x1b:q!\r", 2,
              "Hello WorldX", (11, 11), None),
             ("x mid-line", b"5lx:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("3x mid-line", b"5l3x:q!\r", 4,
-             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[?25l\x1b[3P"),
             ("batched xxx shifts once", b"5lxxx:q!\r", 3,
-             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[?25l\x1b[3P"),
             ("normal-mode Delete", b"5l\x1b[3~:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("X mid-line", b"6lX:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[;6H\x1b[P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\b\x1b[P"),
             ("3X mid-line", b"8l3X:q!\r", 4,
              "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
         ]
@@ -5101,13 +5101,13 @@ class EditorTestRunner:
             # chars carried over from the row above
             ("insert on a 3-row line", b"5liAB\x1b:q!\r", 4, ins,
              [(0, 5, 6), (1, 0, 1), (2, 0, 1)],
-             "\x1b[;6H\x1b[2@AB\x1b[2H\x1b[2@" + ins[40:42]
+             "\x1b[?25l\x1b[2@AB\x1b[2H\x1b[2@" + ins[40:42]
              + "\x1b[3H\x1b[2@" + ins[80:82]),
             # Every row gets its own DCH; full rows write only their last
             # cell, pulled up from the row below; the last row writes none
             ("insert BS on a 3-row line", b"6li\x7f\x1b:q!\r", 4, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)],
-             "\x1b[;6H\x1b[P\x1b[;40H" + dele[39]
+             "\x1b[?25l\b\x1b[P\x1b[;40H" + dele[39]
              + "\x1b[2H\x1b[P\x1b[2;40H" + dele[79]
              + "\x1b[3H\x1b[P"),
             ("x on a 3-row line", b"5lx:q!\r", 3, dele,
@@ -5361,13 +5361,15 @@ class EditorTestRunner:
             expect_status_at_frame=[(1, " - NORMAL - 2,1 /3")],
         )
 
-        # A key that changes nothing sends only the cursor move and show:
-        # no status text, so no need to hide the cursor
+        # A key that changes nothing sends only the cursor show: no status
+        # text, so no need to hide the cursor, and the cursor is where the
+        # frame before left it
         self.run_test_screen(
-            "Unchanged status bar sends only the cursor move",
+            "Unchanged status bar sends only the cursor show",
             "abc\n",
             b"x\x1b:q!\r",
-            expect_ansi_contains="\x1b[?25h\x1b[H\x1b[?25h",
+            expect_ansi_contains="\x1b[H\x1b[?25h\x1b[?25h",
+            expect_frame_bytes=[(2, 6)],
             expect_cursor_at_frame=[(2, (0, 0))],
         )
 
@@ -5394,26 +5396,72 @@ class EditorTestRunner:
         numbered = "".join(f"L{i}\n" for i in range(1, 15))
         for name, content, keys, frame, (rows, cols), sent in (
                 ("x mid-line", "Hello World\n", b"5lx:q!\r", 3,
-                 (10, 40), 61),
+                 (10, 40), 56),
                 ("X mid-line", "Hello World\n", b"6lX:q!\r", 3,
-                 (10, 40), 61),
+                 (10, 40), 57),
                 ("typed char mid-line", "Hello World\n", b"5liX\x1b:q!\r", 4,
-                 (10, 40), 62),
+                 (10, 40), 57),
                 ("insert BS mid-line", "Hello World\n", b"6li\x7f\x1b:q!\r",
-                 4, (10, 40), 61),
+                 4, (10, 40), 57),
                 ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
                 ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
                  (10, 40), 62),
-                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 396),
+                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 393),
                 ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
-                 (10, 40), 339),
-                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 971)):
+                 (10, 40), 336),
+                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 968)):
             self.run_test_screen(
                 "Repaint bytes: " + name,
                 content,
                 keys,
                 rows=rows, cols=cols,
                 expect_frame_bytes=[(frame, sent)],
+            )
+
+        self._group("A frame starts where the last one left the cursor:",
+                    leading_blank=True)
+
+        # Every frame ends with the cursor at the edit position, so an edit
+        # there needs no cursor move, and one a column to the left only a
+        # backspace
+        digits = "0123456789" * 10
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines, cursor in (
+                    ("x sends no move", "Hello World\n", b"5lx:q!\r", 3,
+                     "\x1b[?25l\x1b[P", [(0, "HelloWorld")], (0, 5)),
+                    ("typing sends no move", "Hello World\n",
+                     b"5liX\x1b:q!\r", 4, "\x1b[?25l\x1b[@X",
+                     [(0, "HelloX World")], (0, 6)),
+                    ("X backs up with a backspace", "Hello World\n",
+                     b"6lX:q!\r", 3, "\x1b[?25l\b\x1b[P",
+                     [(0, "HelloWorld")], (0, 5)),
+                    ("insert BS backs up with a backspace", "Hello World\n",
+                     b"6li\x7f\x1b:q!\r", 4, "\x1b[?25l\b\x1b[P",
+                     [(0, "HelloWorld")], (0, 5)),
+                    ("typing on a wrap row sends no move", digits + "\n",
+                     b"45liX\x1b:q!\r", 5, "\x1b[?25l\x1b[@X",
+                     [(1, digits[40:45] + "X" + digits[45:79])], (1, 6))):
+                self.run_test_screen(
+                    "First move: " + name + suffix,
+                    content,
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                    expect_cursor_at_frame=[(frame, cursor)],
+                )
+
+            # Echoed chars (~, r) move the cursor after the frame: with the
+            # status bar unchanged, the next frame must still move it back
+            self.run_test_screen(
+                "First move: ~ echoed on the last char moves the cursor back"
+                + suffix,
+                "abc\n",
+                b"$x~:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(3, [(0, "aB")])],
+                expect_cursor_at_frame=[(3, (0, 1))],
             )
 
         self._group("Escape sequences leave out a parameter of 1:",
@@ -5462,7 +5510,7 @@ class EditorTestRunner:
                 "Hello World\nNEXT\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[?25l\x1b[;6H\x1b[K\x1b[10;",
+                expect_ansi_contains="\x1b[?25l\x1b[K\x1b[10;",
                 expect_lines_at_frame=[(3, [(0, "Hello"), (1, "NEXT")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1)],
             )
@@ -18361,7 +18409,7 @@ class EditorTestRunner:
             b"lllx:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_ansi_contains="\x1b[;4H\x1b[P",
+            expect_ansi_contains="\x1b[?25l\x1b[P",
             expect_min_col=[(2, 0, -1)]
         )
 

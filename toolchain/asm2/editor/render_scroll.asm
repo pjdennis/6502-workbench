@@ -339,7 +339,14 @@ render_finish:
 render_finish_send:
   JSR status_send
 render_finish_cursor:
-  JSR render_position_cursor
+  ; The cursor to the editing position (wrap-aware): screen column =
+  ; CURSOR_COL16 % SCREEN_COLS
+  CP16 CURSOR_COL16, DIV_INPUT16
+  JSR div_mod_screen_cols_16
+  TAX                          ; X = remainder (screen col, 0-based)
+  LDA CURSOR_ROW
+  JSR ansi_goto0
+  INC CUR_VALID                ; the next frame starts with it there
   JSR ansi_cursor_show
   JMP io_flush
 

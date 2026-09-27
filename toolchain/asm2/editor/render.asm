@@ -323,15 +323,6 @@ str_insert:        .asciiz "INSERT"
 str_command:       .asciiz "COMMAND"
 mode_strings:      .word str_normal, str_insert, str_command
 
-; Position cursor at the editing position (wrap-aware)
-render_position_cursor:
-  ; Screen column = CURSOR_COL16 % SCREEN_COLS
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
-  TAX                          ; X = remainder (screen col, 0-based)
-  LDA CURSOR_ROW
-  JMP ansi_goto0
-
 ; Print the status-line separator " - "
 ; Clobbers A, X, Y
 print_separator:
