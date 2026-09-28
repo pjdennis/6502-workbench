@@ -318,9 +318,10 @@ render_finish_cursor:
   LDA CURSOR_ROW
   JSR ansi_goto0
   INC CUR_VALID                ; the next frame starts with it there
-  JSR ansi_cursor_show
-  STA SCROLL_N                 ; (A = 0) the rows its scroll opened are
-  JMP io_flush                 ; drawn: none is blank now
+  LDA #0
+  STA SCROLL_N                 ; the rows its scroll opened are drawn:
+  JSR ansi_cursor_show         ; none is blank now
+  JMP io_flush
 
 ; Render just the status bar and reposition the cursor (no content
 ; redraw).  An unchanged status bar sends nothing, so the cursor need not
