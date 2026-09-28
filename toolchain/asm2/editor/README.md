@@ -3,6 +3,11 @@
 A vi-like text editor (~7,500 lines of 6502 assembly) that runs under the
 project's 6502 emulator in console/ANSI mode.
 
+The commands are in `HELP`.  The differences from vim are listed in
+`vi-compatibility-changes`, the larger ones planned, with their costs, in
+`vim-gaps.md`; `known-issues.md` has the defects left and the repaint and
+CPU costs that could come down.
+
 ## Architecture (files + roles)
 
 ### Entry point
