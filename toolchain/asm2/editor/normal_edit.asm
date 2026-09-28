@@ -743,6 +743,8 @@ do_cc:
   JSR get_count_clamp_lines  ; BUF_TEMP16 = count, at most the lines left
 ; cc of BUF_TEMP16 lines (op_lines enters here)
 cc_lines:
+  BIT EMPTY_BUF
+  BMI .cc_no_lines
   JSR yank_current_lines
   BCS .cc_overflow
   ; Record undo: u removes the empty line and pastes the lines back,
@@ -757,6 +759,11 @@ cc_lines:
 
 .cc_overflow:
   JMP show_yank_overflow
+.cc_no_lines:
+  ; No lines (vim's op_delete returns at once): no yank, an empty change,
+  ; and the typing is an insert of its own, as i's
+  JSR undo_record_empty
+  JMP enter_insert_mode
 
 ; Replace BUF_TEMP16 lines at FILE_LINE16 with one empty line and put the
 ; cursor on it, for a displacement-based scroll (cc/S and their redo).

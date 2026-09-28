@@ -2786,6 +2786,23 @@ class EditorTestRunner:
             self.run_test(f"Emptied buffer: {keys!r} changes nothing",
                           "hello\n", keys + b"\x1b:wq\r",
                           expected_content=expected)
+        # cc and S there yank nothing either (vim's op_change runs
+        # op_delete): the register keeps the line dd took.  They go into
+        # insert mode with an empty change, which u undoes with the text
+        # typed after it, and which leaves the buffer unmodified.  Checked
+        # in vim 8.2
+        for keys, expected in (
+                (b"yyddS\x1bP", "hello\n\n"),
+                (b"yyddcc\x1bP", "hello\n\n"),
+                (b"yyddSab\x1bP", "hello\nab\n"),
+                (b"ddS\x1bu", ""),
+                (b"ddSab\x1bu", "")):
+            self.run_test(f"Emptied buffer: {keys!r} yanks nothing",
+                          "hello\n", keys + b"\x1b:wq\r",
+                          expected_content=expected)
+        self.run_test_screen("Emptied buffer: S on an empty file leaves it "
+                             "unmodified", "", b"S\x1b:q!\r",
+                             expect_status_contains="t - NORMAL")
         self.run_test_batch_equiv(
             "Batch equiv: dd, x and dd on an emptied buffer, then u",
             "hello\n", [b"d", b"d", b"x", b"x", b"d", b"d", b"d", b"d"])
