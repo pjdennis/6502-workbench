@@ -6,6 +6,7 @@
 MARK = $a5
 
   .org $0200
+start:
   ldx #$ff
   txs
   ldx #ROM_RAM_END - ROM_RAM_SCREEN - 1

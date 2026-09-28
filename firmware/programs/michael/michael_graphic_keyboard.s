@@ -32,6 +32,7 @@ SIMPLE_BUFFER            = $0200 ; 256 bytes
 LINE_LENGTHS             = $0300 ; GD_CHAR_COLS bytes 
 
   .org PROGRAM_LOAD_ADDRESS      ; Loader loads programs to this address
+start:
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   ; The initialize_machine routine in this include will set up hardware registers and then

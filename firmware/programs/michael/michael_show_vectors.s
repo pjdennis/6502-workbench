@@ -24,6 +24,7 @@ RAM_TEST_START       = $2300 ; Above the program; must be page aligned
 RAM_TEST_END         = $3f00 ; Loader's interrupt handler starts here; must be page aligned
 
   .org PROGRAM_LOAD_ADDRESS
+start:
   jmp initialize_machine
 
   .include initialize_machine_v2.inc

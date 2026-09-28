@@ -42,6 +42,7 @@ bf_cellsEnd               = bf_cells + 1024
 bf_codeEnd                = $7f00
 
   .org BF_LOAD_ADDRESS           ; Loader loads programs to this address
+start:
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   ; The initialize_machine routine in this include will set up hardware registers and then

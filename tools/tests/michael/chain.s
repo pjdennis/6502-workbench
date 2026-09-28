@@ -6,6 +6,7 @@
 COUNT = $10
 
   .org $0200
+start:
   ldx #$ff
   txs
   stz COUNT

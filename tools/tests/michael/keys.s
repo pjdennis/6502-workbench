@@ -2,6 +2,7 @@
   .include rom_vectors.inc
 
   .org $0200
+start:
   ldx #$ff
   txs
   jsr argc

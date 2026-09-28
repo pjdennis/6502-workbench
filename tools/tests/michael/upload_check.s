@@ -9,7 +9,8 @@ SUM                  = $04 ; 2 bytes
 SUM_COUNT            = $06 ; 2 bytes
 
   .org $0200
-  jmp start
+start:
+  jmp check
 
   .include delay_routines.inc
   .include display_routines.inc
@@ -32,7 +33,7 @@ SUM_COUNT            = $06 ; 2 bytes
   jsr show_sum
   .endm
 
-start:
+check:
   ldx #$ff
   txs
   jsr reset_and_enable_display_no_cursor

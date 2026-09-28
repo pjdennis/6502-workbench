@@ -28,6 +28,7 @@ CREATE_CHARACTER_PARAM = $0002
 CHARACTER_PD = 1
 
   .org $2000
+start:
 
 reset:
   ldx #$ff ; Initialize stack

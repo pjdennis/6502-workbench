@@ -8,6 +8,7 @@ DISPLAY_INTERRUPTS_FLAG = $fc
 DISPLAY_STRING_PARAM    = $00 ; 2 bytes
 
   .org $0400
+start:
   jmp initialize_machine
 
   .include delay_routines.inc
