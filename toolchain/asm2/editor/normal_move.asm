@@ -114,12 +114,13 @@ normal_half_page_up:
 half_page_fail:
   JMP keep_clear_count
 
-; Page setup: BUF_DELTA = batched count (the presses), BUF_TEMP16 = the
-; lines a page keeps: 2, as vim, which keeps fewer on a small screen (1
-; on 4 text rows, none on 3 or less: its lines kept and the lines next to
+; Page setup: BUF_DELTA = the presses (the count, or the typed-ahead
+; presses with none: get_count_or_presses), BUF_TEMP16 = the lines a
+; page keeps: 2, as vim, which keeps fewer on a small screen (1 on 4
+; text rows, none on 3 or less: its lines kept and the lines next to
 ; them take at most TEXT_ROWS - 2 rows)
 page_setup:
-  JSR get_batched_count
+  JSR get_count_or_presses
   STX BUF_DELTA
   LDX TEXT_ROWS
   CPX #4

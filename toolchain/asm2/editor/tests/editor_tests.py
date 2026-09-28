@@ -1963,6 +1963,19 @@ class EditorTestRunner:
              [b"4l", b"j", b" ", b"\x7f", b"\x7f", b"j", b"x"]),
         ):
             self.run_test_batch_equiv(name, content, keys)
+        # A count of Ctrl-B that runs out keeps the column, here on a line
+        # taller than the rest of the screen, whose row the view then shows:
+        # a Ctrl-B typed after it pages from that view
+        tall = "l0\n" + "x" * 70 + "\nend\n"
+        for name, keys in (
+                ("2 Ctrl-B running out, then Ctrl-B",
+                 [b"Gk69l", b"2\x02", b"\x02"]),
+                ("3 Ctrl-B running out, then Ctrl-B Ctrl-B",
+                 [b"Gk60l", b"3\x02", b"\x02", b"\x02"]),
+                ("2 Ctrl-F then Ctrl-F at the end", [b"j20l", b"2\x06",
+                                                     b"\x06"])):
+            self.run_test_batch_equiv("Batch equiv: " + name, tall, keys,
+                                      rows=5, cols=20)
 
     def run_all_tests(self):
         """Run all editor tests."""

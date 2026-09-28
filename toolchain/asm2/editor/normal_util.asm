@@ -557,6 +557,16 @@ get_batched_count:
   TAX
   RTS
 
+; The same, but after a typed count the typed-ahead presses stay queued
+; (X = the count, BATCH_EXTRA = 0): Ctrl-F and Ctrl-B, where the count
+; can run out on a line whose column the view then shows, and a press
+; typed after it pages from that view
+get_count_or_presses:
+  LDA COUNT16
+  ORA COUNT16 + 1
+  BEQ get_batched_count
+  ; fall through
+
 ; Get the count in X, capped at 255, for the commands that loop on an
 ; 8-bit count (BUF_TEMP16's low byte = X)
 ; Clobbers: A
