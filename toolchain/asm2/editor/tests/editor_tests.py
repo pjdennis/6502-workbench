@@ -2007,7 +2007,16 @@ class EditorTestRunner:
                  [b"5G", b"A", b"\r", b"\x08"]),
                 ("text, Enters at the bottom row, then BS over them",
                  [b"5G", b"A", b"x", b"\r", b"\r", b"y", b"\x08", b"\x08",
-                  b"\x08", b"z"])):
+                  b"\x08", b"z"]),
+                # A BS at column 0 of the top row joins the line onto the
+                # one above, which the view scrolls up to show; an Enter
+                # after it leaves the view there, also typed ahead (the
+                # batch ends with the joining BS)
+                ("BS joining at the top row, then Enter",
+                 [b"G", b"4k", b"i", b"\x08", b"\r"]),
+                ("chars, BS over them joining at the top row, then text",
+                 [b"G", b"4k", b"i", b"ab", b"\x08", b"\x08", b"\x08",
+                  b"\x08", b"x", b"\r", b"y"])):
             self.run_test_batch_equiv("Batch equiv: " + name, ten,
                                       keys + [b"\x1b"], rows=6, cols=20)
 

@@ -448,6 +448,15 @@ insert_handle_key:
   ; where the line table changes from
   SEC
   SBC16_8 FILE_LINE16, LINE_LEN16, FILE_LINE16
+  ; A line that BS joined from the top row goes on top, as the join typed
+  ; alone moves the view there: the Enters after it start from that view
+  LDA FILE_LINE16
+  CMP VIEW_TOP16
+  LDA FILE_LINE16 + 1
+  SBC VIEW_TOP16 + 1
+  BCS .top_kept
+  CP16 FILE_LINE16, VIEW_TOP16
+.top_kept:
   JSR buf_rebuild_lines
 
   ; --- Mark adjust delete if back_nl + fwd_nl > 0 ---
