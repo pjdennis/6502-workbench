@@ -780,12 +780,12 @@ view_tall:
 ; Put the cursor on screen as vim's update_topline does ('scrolloff' 0,
 ; as vim -u NONE), moving the view as little as it can: the view shows
 ; whole lines from its top line, and the cursor line in full.  A cursor
-; line on or above the top line goes on top; below, the top line moves
-; down from the cursor line's while the lines fit, up to the top line
-; (then the view stays).  A cursor line taller than the text rows counts
-; its rows to the cursor row, and when those do not fit, or it is the
-; top line, it is the top line, shown from the row that keeps the cursor
-; row on screen (view_tall).
+; line on or above the top line goes on top; below it, the new top line
+; walks up from the cursor line while the lines fit, and stops at the
+; top line (then the view stays).  A cursor line taller than the text
+; rows counts its rows to the cursor row, and when those do not fit, or
+; it is the top line, it is the top line, shown from the row that keeps
+; the cursor row on screen (view_tall).
 ; Sets WRAP_QUOT, CURSOR_ROW, VIEW_TOP16 and VIEW_TOP_WRAP (render_decide
 ; detects a move).  Clobbers A, X, Y, RENDER_LINE16, BUF_PTR16,
 ; DIV_INPUT16

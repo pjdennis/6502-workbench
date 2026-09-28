@@ -25,7 +25,10 @@ terminal build's to $3800 (the console build 12,992 bytes, the terminal
 build 13,065). Section 7 was measured after the vim leftovers batch A
 (the console build 13,083 bytes at $3800, the terminal build 13,159);
 that batch ended with the console build at 13,056 bytes ($3700, none
-spare) and the terminal build at 13,132 ($3800).
+spare) and the terminal build at 13,132 ($3800). Sections 8 (its far
+jumps) and 9 were measured in the vim leftovers batch B, which ended
+with the console build at 13,078 bytes ($3800 again, from its first
+change) and the terminal build at 13,154.
 
 | # | Difference | Code bytes | Tests that change | State |
 |---|---|---|---|---|
