@@ -323,7 +323,7 @@ buf_shift_left_16:
   ; dst = delete point); it copies nothing if src >= end
   CLC
   ADC16 BUF_PTR16, BUF_LEN16, BUF_SRC16
-  CP16 BUF_PTR16, BUF_DST16
+  JSR ptr_to_dst
   CP16 BUF_END16, BUF_PTR16
   JSR mem_copy_down
 

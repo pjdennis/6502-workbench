@@ -251,7 +251,7 @@ yank_copy_n:
 
   ; Set up mem_copy_down: src=YANK_BUF, end=YANK_END16, dst=write_pos
   PUSH16 BUF_PTR16            ; Save write position
-  CP16 BUF_PTR16, BUF_DST16   ; BUF_DST16 = write position
+  JSR ptr_to_dst              ; BUF_DST16 = write position
   SET16 YANK_BUF, BUF_SRC16
   CP16 YANK_END16, BUF_PTR16  ; BUF_PTR16 = end of yank data
   JSR mem_copy_down            ; Preserves BUF_PTR16
