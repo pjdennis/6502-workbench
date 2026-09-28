@@ -54,6 +54,12 @@ class Timer2Cycles(unittest.TestCase):
         timeouts, _ = run()
         self.assertEqual(set(intervals(timeouts[1:])), {2000 * 1000 // JIFFY_HZ})
 
+    def test_the_delay_follows_any_clock(self):
+        for clock_khz in 1843, 9720:
+            with self.subTest(clock_khz=clock_khz):
+                timeouts, _ = run(clock_khz)
+                self.assertEqual(set(intervals(timeouts[1:])), {clock_khz * 1000 // JIFFY_HZ})
+
     def test_the_handler_runs_after_varying_delays(self):
         timeouts, reads = run()
         delays = {read - timeout for timeout, read in zip(timeouts, reads)}
