@@ -79,8 +79,10 @@ count_pending_key:
   RTS
 
   .ifdef direct_io
-; Read one key: con_read returns key codes itself (environment.asm)
-read_key = io_read
+; Read one key: con_read returns key codes itself (environment.asm).
+; (Not io_read: io.asm comes later, and asm17 takes a forward symbol in
+; an equate as the wrong value, without an error)
+read_key = con_read
   .else
 ; Read one key, decoding escape sequences
 ; Returns key code in A: KEY_* codes for special keys, bare ESC as KEY_ESC,
