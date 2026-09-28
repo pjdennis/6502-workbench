@@ -8,7 +8,7 @@ could do what vim does: the data, the routines that change, memory, code
 bytes, CPU and repaint, risks, and the tests to write first. Sections 4
 and 6 have since been done, and so have the first two subsets of section
 5 and section 8's whole-line view; sections 1, 2 and 3, the rest of 5,
-6's long lines, 7 and the rest of 8 are kept for now.
+6's long lines, 7, the rest of 8 and 9 are kept for now.
 
 Byte counts marked *measured* come from sandbox prototypes on the tree at
 9d5cfd0 (console build 12,468 bytes, terminal build 12,541), with the
@@ -37,6 +37,7 @@ spare) and the terminal build at 13,132 ($3800).
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
 | 7 | Counts on i, a, A, o and O are ignored | +209 (measured) | none | kept for now |
 | 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); +261 for far jumps (measured); about +30 to 60 for '@' rows (estimate) | 30 view and repaint tests (done); 9 for far jumps | whole lines done; the rest kept for now |
+| 9 | j and k keep a byte column, vim a screen column (Tabs) | +127 (measured) | 2 cycle caps, 1 self-edit size check | kept for now |
 
 Item 3 uses the message routine item 4 left (a message held until the
 next key, which then runs), `show_message_ax`.
@@ -886,3 +887,53 @@ drawn, whatever the row: about 30 to 60 bytes (estimate, not
 prototyped). Tests first: 10x40, lines 0-6 short and a 100-char line 7:
 rows 7 and 8 show '@'; j to line 7 then shows it in full; a scroll that
 exposes the '@' line's rows; the render oracle and the per-frame fuzz.
+
+## 9. j and k over Tabs (kept for now)
+
+### What vim does
+
+The column j and k aim at (w_curswant) is a screen column, taken when a
+run of vertical moves starts: a Tab reaches the next multiple of 8
+('tabstop'), and in normal mode the cursor on a Tab stands on its last
+cell, so that is the column; a control character takes 2 cells (^A), DEL
+2 (^?), and a byte that is not part of a UTF-8 character 4 (<80>; vim
+-u NONE takes the locale's UTF-8). On the new line the cursor goes to
+the char whose cells hold that column, or the last char when the line is
+shorter. Checked in vim 8.2 (each press its own command): ' de', ' abc'
+with 0r<Tab>j ends on (1,3); '\tx', 'abcdefghij' with 0j on (1,7), 0lj
+on (1,8); 'abcdefghij', '\tx' with 5lj on the Tab (1,0) and 9lj on x
+(1,1); 'a\x01bcdef', 'abcdefgh' with 2lj on (1,3).
+
+### What the editor does
+
+It shows each byte in one cell (a Tab as '>' in reverse video), and
+`vert_col_clamp` remembers the byte column (`CURSWANT16`), which is its
+screen column: ' de', ' abc' with 0r<Tab>j ends on (1,0).
+
+### Plan
+
+- When a run starts, `vert_col_clamp` walks the line the cursor was on
+  (`SNAP_LINE16`) to `CURSOR_COL16`, summing widths (a Tab: the column
+  `OR` 7, plus 1), with a Tab under the cursor counting its last cell
+  in normal mode, and keeps that as `CURSWANT16`.
+- `vert_to_col` walks the new line from its start until the next char
+  would pass `CURSWANT16` (or the line ends), and clamps as now.
+- Size, *measured* on a sandbox prototype of the Tab widths only
+  (work/leftovers-b/item4-tab-curswant.patch in the audit's work
+  directory; it matches vim 8.2 in 17 cases with Tabs, those above
+  among them): +127 bytes. Control characters (2), DEL (2) and bytes above
+  $7F (4, which vim gives only to bytes that are not UTF-8) would add
+  about 15 more.
+- CPU: each walk is a step per byte (about 50 cycles), so a j or k at
+  column 30,000 costs about 1.5M cycles, and so does $ (whose
+  `CURSWANT16` of $FFFF walks to the line end, unless it is tested
+  first, about 6 bytes): two cycle-cap tests on a 30,000-char line fail
+  on the prototype, as does the check that the editor can edit
+  normal_util.asm (the source grows past it; the code would go to
+  another file).
+- Repaint: none.
+- It would make j and k move the cursor across columns the editor's own
+  display does not line up (a Tab is one cell here): vim's column only
+  matches vim's screen, so the gain is only in the text reached.
+- Tests first: the cases above (cursor and saved text), $ then j and k
+  over Tabs, and insert-mode Up and Down on a Tab (its first cell).

@@ -4,6 +4,11 @@
   fewer) however many rows they take. Vim keeps fewer when the lines kept and the longer of the lines next to them
   take more than TEXT_ROWS - 2 rows. Lines that fit a row page as in vim. See vim-gaps.md.
 
+  j and k over Tabs - The column j and k keep is a byte column, as the editor shows each byte in one cell (a Tab
+  as '>'). Vim's is a screen column: a Tab reaches the next multiple of 8 (and the cursor on one counts its last cell
+  in normal mode), a control character takes 2 cells (^X) and a byte that is not UTF-8 4 (<80>): ' de' and ' abc'
+  with 0r<Tab>j end on column 3 of ' abc' in vim, on column 0 here. See vim-gaps.md.
+
   Counts on i, a, A, o and O - Are ignored: 3ix<Esc> inserts one x and 3oab<Esc> opens one line. Vim types the text
   count times (after o and O on lines of their own), unless the cursor moved in insert mode, and u takes it all back.
   See vim-gaps.md.
