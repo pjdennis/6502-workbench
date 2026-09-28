@@ -101,6 +101,7 @@ ST_LEN:         .byte   ; status bar: length of the text on the row (0 = unknown
 ST_FIRST:       .byte   ; status bar: first column to send ($FF = unchanged)
 STATUS_HOLD:    .byte   ; 1: a message stays on the status row for the next frame
 ST_BUILD:       .byte   ; $FF while status_build runs (text_putc stores the text)
+VIEW_ROWS:      .byte   ; ensure_cursor_visible: the rows the cursor line needs
 
 ; --- yank.asm ---
 YANK_END16:    .word     ; Points one past last byte in yank buffer

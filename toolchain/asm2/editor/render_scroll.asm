@@ -748,132 +748,108 @@ cdsr_overflow:
   STA DELETE_SCREEN_ROWS     ; Signal fall back to file delta
   RTS
 
-; Ensure cursor is visible on screen (wrap-aware)
-; Updates CURSOR_ROW from FILE_LINE16 and VIEW_TOP16
-; Scrolls VIEW_TOP16 if needed (render_decide detects the change)
+; A cursor line taller than the text rows is the top line, shown from
+; the row that keeps its cursor row on screen, moving as little as it can
+; (vim's skipcol): see ensure_cursor_visible
+view_tall:
+  CMP16 VIEW_TOP16, FILE_LINE16
+  BEQ .same
+  CP16 FILE_LINE16, VIEW_TOP16
+  LDA #0
+  STA VIEW_TOP_WRAP
+.same:
+  LDA WRAP_QUOT
+  SEC
+  SBC VIEW_TOP_WRAP
+  BCC .cursor_on_top         ; Above the view
+  CMP TEXT_ROWS
+  BCC .shown
+  SBC TEXT_ROWS              ; (C = 1)
+  SEC
+  ADC VIEW_TOP_WRAP          ; WRAP_QUOT - TEXT_ROWS + 1: on the bottom row
+  .byte $2C                  ; BIT abs: skip the LDA
+.cursor_on_top:
+  LDA WRAP_QUOT
+  STA VIEW_TOP_WRAP
+.shown:
+  LDA WRAP_QUOT
+  SEC
+  SBC VIEW_TOP_WRAP
+  STA CURSOR_ROW
+  RTS
+
+; Put the cursor on screen as vim's update_topline does ('scrolloff' 0,
+; as vim -u NONE), moving the view as little as it can: the view shows
+; whole lines from its top line, and the cursor line in full.  A cursor
+; line on or above the top line goes on top; below, the top line moves
+; down from the cursor line's while the lines fit, up to the top line
+; (then the view stays).  A cursor line taller than the text rows counts
+; its rows to the cursor row, and when those do not fit, or it is the
+; top line, it is the top line, shown from the row that keeps the cursor
+; row on screen (view_tall).
+; Sets WRAP_QUOT, CURSOR_ROW, VIEW_TOP16 and VIEW_TOP_WRAP (render_decide
+; detects a move).  Clobbers A, X, Y, RENDER_LINE16, BUF_PTR16,
+; DIV_INPUT16
 ensure_cursor_visible:
-  ; Compute cursor's wrap row: CURSOR_COL16 / SCREEN_COLS
   JSR cursor_col_div
-  STX WRAP_QUOT      ; cursor_wrap_row
+  STX WRAP_QUOT
 ; The same for the cursor on its line's row WRAP_QUOT (Ctrl-F, Ctrl-B)
 ensure_row_visible:
-
-  ; Check if cursor is above view
-  ; FILE_LINE16 < VIEW_TOP16?
-  CMP16 FILE_LINE16, VIEW_TOP16
-  BCC .scroll_up
-  BNE .not_above     ; FILE_LINE16 > VIEW_TOP16
-
-  ; FILE_LINE16 == VIEW_TOP16: check wrap row
-  LDA WRAP_QUOT
-  CMP VIEW_TOP_WRAP
-  BCC .scroll_up
-  BNE .not_above
-  TAX
-  BEQ .not_above     ; the top row is the line's first
-  ; The cursor is on the top row, which may be past the line's last row
-  ; (an insert C or Del can shorten the line under it): as above it
-
-.scroll_up:
-  ; Scroll up: the cursor's row becomes the top row.  An insert cursor on
-  ; the virtual row past a line that fills its last row (col = len =
-  ; k * SCREEN_COLS) shows at the start of the next row, as mid-screen:
-  ; the line's last row goes on top and the cursor one row below it
+  ; VIEW_ROWS = the cursor line's rows, or the rows to its cursor row: an
+  ; insert cursor on the row after a line that fills its last row
+  LDX WRAP_QUOT
+  INX
+  STX VIEW_ROWS
   JSR file_line_rows
-  SEC
-  SBC #1             ; the line's last row
-  CMP WRAP_QUOT      ; C=0: the cursor is past it
-  LDA #0
-  BCS .set_top       ; the top row
-  LDA #1
-  BNE .set_top       ; Always taken
-
-.not_above:
-  ; CURSOR_ROW = screen rows of the lines from (VIEW_TOP16, VIEW_TOP_WRAP)
-  ; up to FILE_LINE16, plus the cursor's wrap row.  RENDER_WRAP = rows of
-  ; the current line hidden above the view (VIEW_TOP_WRAP for the top line)
-  CP16 VIEW_TOP16, RENDER_LINE16
-  LDA VIEW_TOP_WRAP
-  STA RENDER_WRAP
-  LDA #0
-  STA CURSOR_ROW
-.walk_loop:
-  CMP16 RENDER_LINE16, FILE_LINE16
-  BEQ .at_cursor
-  JSR render_line_rows
-  SEC
-  SBC RENDER_WRAP              ; visible rows of this line
-  BEQ .top_gone
-  BCS .visible_rows
-.top_gone:
-  ; The view began past the top line's last row: an Enter at or before
-  ; the view's first cell cut the line short there.  The view starts at
-  ; the next line, whose text the top rows showed
-  INC16 VIEW_TOP16
+  CMP VIEW_ROWS
+  BCC .rows
+  STA VIEW_ROWS
+.rows:
+  LDA TEXT_ROWS
+  CMP VIEW_ROWS
+  BCS .fits
+  ; Taller than the text rows: the line from its first row to the cursor
+  ; row, if they fit and the cursor is not on the top line (view_tall)
+  CMP16 VIEW_TOP16, FILE_LINE16
+  BEQ view_tall
+  LDX WRAP_QUOT
+  CPX TEXT_ROWS
+  BCS view_tall
+  INX
+  STX VIEW_ROWS
+.fits:
   LDA #0
   STA VIEW_TOP_WRAP
-.visible_rows:
+  STA CURSOR_ROW             ; The rows above the cursor line
+  CP16 FILE_LINE16, RENDER_LINE16
+  CMP16 VIEW_TOP16, FILE_LINE16
+  BCS .set_top               ; On or above the top line: it goes on top
+.up:
+  ; RENDER_LINE16 = the top line to be: the line above it if that fits
+  ; with the lines below it, until it is the top line
+  CMP16 RENDER_LINE16, VIEW_TOP16
+  BEQ .row                   ; The view stays
+  DEC16 RENDER_LINE16
+  LDAX16 RENDER_LINE16
+  JSR any_line_rows
   CLC
   ADC CURSOR_ROW
-  BCS .need_scroll_down  ; 8-bit overflow: cursor far below screen
-  STA CURSOR_ROW
-  CMP TEXT_ROWS
-  BCS .need_scroll_down  ; the rows above the cursor line fill the view
-  LDA #0
-  STA RENDER_WRAP
+  BCS .undo
+  TAX
+  ADC VIEW_ROWS              ; (C = 0)
+  BCS .undo
+  CMP SCREEN_ROWS
+  BCS .undo                  ; They take more than the text rows
+  STX CURSOR_ROW
+  BCC .up                    ; Always
+.undo:
   INC16 RENDER_LINE16
-  JMP .walk_loop
-
-.at_cursor:
-  ; Add cursor's wrap row within FILE_LINE16
-  LDA WRAP_QUOT
-  SEC
-  SBC RENDER_WRAP
-  CLC
-  ADC CURSOR_ROW
-  BCS .need_scroll_down  ; 8-bit overflow
-  STA CURSOR_ROW
-
-  ; Check if cursor is below view (CURSOR_ROW >= TEXT_ROWS)
-  CMP TEXT_ROWS
-  BCC .visible
-
-.need_scroll_down:
-  ; Cursor is below visible area: walk back TEXT_ROWS - 1 rows from
-  ; the cursor's row to find the new VIEW_TOP16 / VIEW_TOP_WRAP
-  LDX TEXT_ROWS
-  DEX
-  TXA                    ; Target: cursor at row TEXT_ROWS - 1
 .set_top:
-  STA CURSOR_ROW
-  STA RENDER_ROW      ; Rows to walk back
-  CP16 FILE_LINE16, VIEW_TOP16
-  LDA WRAP_QUOT
-  STA VIEW_TOP_WRAP
-
-.walk_back:
-  LDA RENDER_ROW
-  BEQ .visible
-  ; Can we go back within current line?
-  LDA VIEW_TOP_WRAP
-  BNE .back_one_row
-  TST16 VIEW_TOP16
-  BEQ .at_top
-  DEC16 VIEW_TOP16
-  LDAX16 VIEW_TOP16
-  JSR get_len_rows
-  STA VIEW_TOP_WRAP      ; its last row (decremented below)
-.back_one_row:
-  DEC VIEW_TOP_WRAP
-  DEC RENDER_ROW
-  JMP .walk_back
-
-.at_top:
-  ; Hit beginning of file - adjust cursor row
+  CP16 RENDER_LINE16, VIEW_TOP16
+.row:
+  ; CURSOR_ROW = the rows above the cursor line + its cursor row
   LDA CURSOR_ROW
-  SEC
-  SBC RENDER_ROW
+  CLC
+  ADC WRAP_QUOT
   STA CURSOR_ROW
-
-.visible:
   RTS

@@ -2,8 +2,7 @@
 
   Ctrl-F/Ctrl-B over long lines - Keep two lines of the page on screen (one on a screen of 4 text rows, none on
   fewer) however many rows they take. Vim keeps fewer when the lines kept and the longer of the lines next to them
-  take more than TEXT_ROWS - 2 rows, and after Ctrl-B it shows whole lines from the top (its usual view), where the
-  editor puts the new bottom line's first row on the bottom row. Lines that fit a row page as in vim. See vim-gaps.md.
+  take more than TEXT_ROWS - 2 rows. Lines that fit a row page as in vim. See vim-gaps.md.
 
   Counts on i, a, A, o and O - Are ignored: 3ix<Esc> inserts one x and 3oab<Esc> opens one line. Vim types the text
   count times (after o and O on lines of their own), unless the cursor moved in insert mode, and u takes it all back.
@@ -38,6 +37,20 @@
   cancels r (vim replaces with it; Backspace cancels there too). After Ctrl-V, Enter and Ctrl-J still make a line
   break (vim puts a CR or a NUL character), and vim's character codes (Ctrl-V 065, Ctrl-V x41) are not read: the key
   after Ctrl-V is the replacement.
+
+  The view
+
+  Long jumps - A jump that lands above the view or below it (G, gg, :N, a count on j or k, n, N, 'a, u) puts the
+  cursor line on the top or bottom row, whole lines around it. Vim puts it in the middle of the screen when it lands
+  far: at least max(2, TEXT_ROWS / 2 - 1) lines above the top line, or below the view when the lines from the first
+  one not shown in full to it, and as many after it, take more than the screen (scroll_cursor_halfway). See vim-gaps.md.
+
+  A line that does not fit at the bottom - The rows of it that fit are shown. Vim shows a row of '@' in their place
+  (its default 'display'). See vim-gaps.md.
+
+  A line taller than the screen - With the cursor on it, it keeps its place while its rows to the cursor fit below
+  the top line, and is shown from the row that keeps the cursor on screen otherwise. Vim makes it the top line as soon
+  as the cursor is on it.
 
   Command line
 

@@ -110,7 +110,10 @@ project's 6502 emulator in console/ANSI mode.
    - `CMD_QUIT` exits.  (The first key of a two-key combo (`dd`, `dw`,
      `gg`, ...) handles its second key at once if it has already arrived,
      so the pending key gets no frame of its own.)
-   - `ensure_cursor_visible` moves the viewport if needed, then
+   - `ensure_cursor_visible` moves the viewport if needed, as vim's does
+     with 'scrolloff' 0 but for a far jump (the view shows whole lines
+     from its top line and the cursor line in full; only a line taller
+     than the screen starts above the view, `VIEW_TOP_WRAP`), then
      `render_decide` compares post-handler state against the snapshot and
      the handler's `RENDER_FLAG` (contract table in `render_decide.asm`):
      - `RENDER_FLAG` = `$FF` → full screen redraw.

@@ -3990,13 +3990,14 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+1}") for i in range(9)]
         )
-        # 2-row lines: 129 lines = 258 rows between the old and new top
+        # 2-row lines: 129 lines = 258 rows between the old and new top (the
+        # cursor line shown in full at the bottom, with whole lines above it)
         two_row = ''.join(f"P{i:03d} " + "y" * 40 + "\n" for i in range(199))
         self.run_test_screen(
             "G: view jump of 258 rows over 2-row lines repaints",
             two_row,
-            b"134G:q!\r",
-            expect_cursor=(8, 0),
+            b"133G:q!\r",
+            expect_cursor=(6, 0),
             expect_lines=[row for i in range(4) for row in (
                 (2 * i, f"P{129 + i:03d} " + "y" * 35), (2 * i + 1, "y" * 5))]
                          + [(8, "P133 " + "y" * 35)]
@@ -6207,8 +6208,10 @@ class EditorTestRunner:
         # A line running past the bottom of the screen shrinks: the rows
         # below its new end must show the following lines, however many
         # rows it lost.  When they are all exposed, scrolling them first
-        # would only waste bytes.
-        long_line = ("abcdefghijklmnopqrstuvwxyz" * 12)[:300]
+        # would only waste bytes.  (Only a cursor line taller than the
+        # screen runs past the bottom: one that fits is shown in full, as
+        # in vim)
+        long_line = ("abcdefghijklmnopqrstuvwxyz" * 16)[:400]
         past_bottom = ("line 0\nline 1\nline 2\n" + long_line + "\n"
                        + "".join(f"line {i}\n" for i in range(4, 20)))
         # Frames: 0=initial, 1=count '3', 2=j, 3=count '5', 4=l, 5=D
@@ -6255,12 +6258,12 @@ class EditorTestRunner:
                  [(3, "")] + [(r, f"line {r}") for r in range(4, 9)],
                  (3, 0)),
                 ("dw", "".join(f"line {i}\n" for i in range(6))
-                 + " " * 200 + "abc\n"
+                 + " " * 380 + "abc\n"
                  + "".join(f"line {i}\n" for i in range(7, 20)),
                  b"6j0dw", 10, 40, [(6, "abc"), (7, "line 7"), (8, "line 8")],
                  (6, 0)),
                 ("D at 24x80", "".join(f"line {i}\n" for i in range(20))
-                 + long_line * 2 + "\n"
+                 + long_line * 5 + "\n"
                  + "".join(f"line {i}\n" for i in range(21, 40)),
                  b"20jD", 24, 80, [(20, ""), (21, "line 21"), (22, "line 22")],
                  (20, 0))):
@@ -16479,7 +16482,9 @@ class EditorTestRunner:
         # u of a join whose lines take over 255 rows, the first of them
         # starting above the view (the J moved it down): the rows below
         # that count are not known, so the screen is redrawn (it left the
-        # bottom row blank).  Tall screen: 255x10
+        # bottom row blank).  Tall screen: 255x10.  Since the view shows
+        # the cursor line in full, as vim's does, u puts the first line
+        # back on top from its first row
         tall_join = "".join(
             ("%02d" % i + chr(97 + i) * 1000)[:n] + "\n"
             for i, n in enumerate([129, 252, 64, 512, 21, 256, 43, 40, 511,
@@ -16487,9 +16492,9 @@ class EditorTestRunner:
         self.run_test_screen(
             "Scroll opt: u of a join over 255 rows starting above the view",
             tall_join, b"$53Ju:q!\r", rows=255, cols=10,
-            expect_lines=[(0, "a" * 10), (250, "11" + "l" * 8),
+            expect_lines=[(0, "00" + "a" * 8), (252, "11" + "l" * 8),
                           (253, "l" * 10)],
-            expect_cursor=(10, 8),
+            expect_cursor=(12, 8),
         )
 
         # A range of wrapped lines that grows or shrinks past the status
@@ -16511,10 +16516,11 @@ class EditorTestRunner:
                 + (" (deferred wrap)" if dw else ""),
                 "".join("  " + l + "\n" for l in wide.split("\n")[:-1]),
                 b"6G3<<:q!\r", rows=10, cols=40, deferred_wrap=dw,
-                expect_lines=[(0, "  L1 " + "y" * 35), (1, "y"),
-                              (6, "  L4 " + "y" * 35), (7, "y"),
-                              (8, "L5 " + "y" * 36)],
-                expect_cursor=(8, 0),
+                expect_lines=[(0, "  L2 " + "y" * 35), (1, "y"),
+                              (4, "  L4 " + "y" * 35), (5, "y"),
+                              (6, "L5 " + "y" * 36), (7, "L6 " + "y" * 36),
+                              (8, "L7 " + "y" * 36)],
+                expect_cursor=(6, 0),
             )
 
         # Undo/redo from another line: u jumps to the recorded line, so the
@@ -16573,10 +16579,10 @@ class EditorTestRunner:
             + "f" * 41 + "\n" + "g" * 84 + "\n" + "h" * 39 + "\n" + "i" * 41
             + "\n\n" + "k" * 84 + "\nl\n",
             b"4jD4ju:q!\r",
-            expect_lines=[(0, ""), (1, "e" * 5), (2, "f" * 40), (3, "f"),
-                          (4, "g" * 40), (5, "g" * 40), (6, "gggg"),
-                          (7, "h" * 39), (8, "i" * 40)],
-            expect_cursor=(1, 0),
+            expect_lines=[(0, "e" * 5), (1, "f" * 40), (2, "f"),
+                          (3, "g" * 40), (4, "g" * 40), (5, "gggg"),
+                          (6, "h" * 39), (7, "i" * 40), (8, "i")],
+            expect_cursor=(0, 0),
         )
 
         # J undo restores wrapped next line: J on "Short" joins with
@@ -17876,11 +17882,12 @@ class EditorTestRunner:
                 expect_lines=eof_wrap_rows,
                 expect_cursor=(1, 0),
             )
-        # A deleted last line that runs below the screen: only the rows
+        # A deleted last line that runs below the screen (one taller than
+        # it: the cursor on its first row keeps it there): only the rows
         # under the cursor line (row 8 here) turn into "~"
         self.run_test_screen(
             "Scroll opt: dd of a last line running off-screen",
-            "A" * 70 + "\nBBB\n" + "C" * 45 + "\n" + "D" * 70 + "\n",
+            "A" * 70 + "\nBBB\n" + "C" * 45 + "\n" + "D" * 200 + "\n",
             b"Gdd:q!\r",
             rows=10, cols=20,
             expect_lines=[(4, "BBB"), (5, "C" * 20), (7, "C" * 5),
@@ -23910,21 +23917,22 @@ class EditorTestRunner:
                 expect_lines=list(enumerate(lines)),
                 expect_cursor=cursor
             )
-        # A split that leaves the line's first part above the view: the
-        # view starts at the new line.  r<Enter> at the first cell of the
-        # view's top row (row 1 of the 53-char 'w5 ...'), and a redo from
-        # two lines below of an r<Enter> at column 0 of 'w3 ...', whose
-        # rows 1-3 are then at the top of the view (10x10)
+        # A split of the view's top line at a row start: r<Enter> at row 1
+        # of the 53-char 'w5 ...' (which the view shows from its first
+        # row, as vim's does: it never starts a line above the view), and
+        # a redo from two lines below of an r<Enter> at column 0 of
+        # 'w3 ...', whose rows 1-3 are then at the top of the view (10x10)
         wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
                          for i in range(20))
         self.run_test_screen(
             "r<Enter> at the view's top row start in a line above the view",
             wlines, b"6G10ljjjkkkr\r:q!\r",
             rows=10, cols=10,
-            expect_lines=[(r, "ijabcdefgh") for r in range(4)]
-                         + [(4, "ij"), (5, "w6"), (6, "w7 abcdefg"),
-                            (7, "hij"), (8, "w8 abcdefg")],
-            expect_cursor=(0, 0)
+            expect_lines=[(0, "w5 abcdefg")]
+                         + [(r, "ijabcdefgh") for r in range(1, 5)]
+                         + [(5, "ij"), (6, "w6"), (7, "w7 abcdefg"),
+                            (8, "hij")],
+            expect_cursor=(1, 0)
         )
         self.run_test_screen(
             "r<Enter> redo splitting a line that starts above the view",
@@ -24150,21 +24158,21 @@ class EditorTestRunner:
         )
 
         # J at bottom: screen state. j*8 to line 8 = "Short 9", J joins with "X"*20.
-        # "Short 9 " + "X"*20 = 28 chars at 20 cols: wraps to 2 rows.
-        # Row 8: "Short 9 XXXXXXXXXXXX" (20 chars), row 9 would be status bar.
-        # The joined result wraps, possibly needing scroll to stay visible.
+        # "Short 9 " + "X"*20 = 28 chars at 20 cols: wraps to 2 rows, so
+        # the view scrolls a line to show it in full, as vim's does
         self.run_test_screen(
             "J at bottom: screen correct",
             j_bottom_content,
             b"j" * 8 + b"J:q!\r",
             rows=10, cols=20,
             expect_lines=[
-                (0, "Short 1"), (1, "Short 2"),
-                (2, "Short 3"), (3, "Short 4"),
-                (4, "Short 5"), (5, "Short 6"),
-                (6, "Short 7"), (7, "Short 8"),
-                (8, "Short 9 XXXXXXXXXXXX"),
+                (0, "Short 2"), (1, "Short 3"),
+                (2, "Short 4"), (3, "Short 5"),
+                (4, "Short 6"), (5, "Short 7"),
+                (6, "Short 8"), (7, "Short 9 XXXXXXXXXXXX"),
+                (8, "XXXXXXXX"),
             ],
+            expect_cursor=(7, 7),
         )
 
         # J redo on a 3+ row wrapped line.
@@ -24606,7 +24614,8 @@ class EditorTestRunner:
             expect_cursor=(1, 2),
         )
         # Enter in a line taller than the screen, which starts above the
-        # view: its rows on screen are still drawn
+        # view: the new line, which fits, goes on top in full, as vim's
+        # view shows it (the tall line was on top for the cursor on it)
         abc = "abcdefghij" * 4
         self.run_test_screen(
             "Enter in a line taller than the screen: screen",
@@ -24614,12 +24623,12 @@ class EditorTestRunner:
             + "".join(f"line {i}\n" for i in range(1, 12)),
             b"$100hi\r\x1b:q!\r",
             expect_lines=[
-                (5, abc),
-                (6, "abcdefghijabcdefghi"),
-                (7, "j" + abc[:39]),
-                (8, "j" + abc[:39]),
+                (0, "j" + abc[:39]),
+                (1, "j" + abc[:39]),
+                (2, "j" + abc[:20]),
+                (3, "line 1"),
             ],
-            expect_cursor=(7, 0),
+            expect_cursor=(0, 0),
         )
         # Enter in a line of about 250 rows below the top: the rows below
         # it start past row 255, so there is nothing to scroll (the 8-bit
@@ -24690,16 +24699,18 @@ class EditorTestRunner:
             expect_cursor=(150, 0),
             expect_content_rows=[(5, {150})],
         )
-        # A 255-row terminal: row 252 + the line's 8 rows passes 255
-        alpha300 = alpha(300)
+        # A 255-row terminal: row 252 + the line's rows passes 255 (a line
+        # taller than the screen, which stays below the top with the cursor
+        # on its first row; one that fits is shown in full, as in vim)
+        alpha2600 = alpha(2600)
         self.run_test_screen(
             "Undo D on a line at row 252 of a 255-row terminal",
-            "".join(f"line {i}\n" for i in range(252)) + alpha300
+            "".join(f"line {i}\n" for i in range(252)) + alpha2600
             + "\nafter\n",
             b"253GDu:q!\r",
-            rows=255, cols=40,
-            expect_lines=[(251, "line 251"), (252, alpha300[:40]),
-                          (253, alpha300[40:80])],
+            rows=255, cols=10,
+            expect_lines=[(251, "line 251"), (252, alpha2600[:10]),
+                          (253, alpha2600[10:20])],
             expect_cursor=(252, 0),
         )
         # Undo and redo that restore 254-255 lines below row 2 (the
@@ -24833,21 +24844,20 @@ class EditorTestRunner:
                 expect_lines=l0_4 + [(5, joined[:12]), (6, joined[12:24])],
                 expect_cursor=cursor,
             )
-        # An Enter at the first column of the view's top row, in a line
-        # that starts above the view, leaves all of the line's first part
-        # above the view: the view then starts at the new line, whose text
-        # the rows already show (10x10: the view starts at row 1 of the
-        # 53-char 'w5 ...', and the Enter is at its column 10)
+        # An Enter at the first column of a row of the view's top line
+        # (10x10: row 1 of the 53-char 'w5 ...', which the view shows from
+        # its first row, as vim's does; the Enter is at its column 10)
         wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
                          for i in range(20))
         self.run_test_screen(
             "Enter at the view's top row start in a line above the view",
             wlines, b"6G10ljjjkkki\r\x1b:q!\r",
             rows=10, cols=10,
-            expect_lines=[(r, "hijabcdefg") for r in range(4)]
-                         + [(4, "hij"), (5, "w6"), (6, "w7 abcdefg"),
-                            (7, "hij"), (8, "w8 abcdefg")],
-            expect_cursor=(0, 0),
+            expect_lines=[(0, "w5 abcdefg")]
+                         + [(r, "hijabcdefg") for r in range(1, 5)]
+                         + [(5, "hij"), (6, "w6"), (7, "w7 abcdefg"),
+                            (8, "hij")],
+            expect_cursor=(1, 0),
         )
         # An Enter that keeps the line's height (the split is at a row
         # boundary) draws only the rows from the split on: no scroll and
@@ -25086,41 +25096,75 @@ class EditorTestRunner:
         # ================================================================
         # Vertical scroll optimization with VIEW_TOP_WRAP
         # ================================================================
-        # When the first visible line is partially off-screen (VIEW_TOP_WRAP > 0),
-        # the editor should use scroll optimization instead of full repaint.
+        # The view shows whole lines from its top line, as vim's does: a
+        # line that wraps goes off the top whole when the view scrolls past
+        # it, and comes back whole.  Only a line taller than the screen is
+        # shown from a later row (VIEW_TOP_WRAP > 0: see the tall-line tests
+        # below).  The moves scroll the rows (instead of a full repaint).
+
+        # vim's view (checked in vim 8.2, 10x40): G to a last line whose
+        # lines above wrap shows whole lines from the top, '~' below; typing
+        # that wraps the bottom line scrolls a whole line off the top; j to
+        # a line shown only in part scrolls to show it in full
+        self.run_test_screen(
+            "View: G shows whole lines from the top",
+            "".join(("L%d" % i + ("y" * 98 if i in (14, 15) else "")) + "\n"
+                    for i in range(20)),
+            b"G:q!\r",
+            expect_lines=[(0, "L15" + "y" * 37), (3, "L16"), (6, "L19"),
+                          (7, "~")],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "View: typing that wraps the bottom line scrolls a line off",
+            "".join(("L%d" % i + ("a" * 58 if i == 0 else "")) + "\n"
+                    for i in range(20)),
+            b"7jA" + b"x" * 40 + b"\x1b:q!\r",
+            expect_lines=[(0, "L1"), (6, "L7" + "x" * 38), (7, "xx"),
+                          (8, "L8")],
+            expect_cursor=(7, 1),
+        )
+        self.run_test_screen(
+            "View: j to a line shown in part shows it in full",
+            "line 0\nline 1\nline 2\n"
+            + ("abcdefghijklmnopqrstuvwxyz" * 12)[:300] + "\n"
+            + "".join(f"line {i}\n" for i in range(4, 20)),
+            b"3j:q!\r",
+            expect_lines=[(0, "line 2"), (1, "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"),
+                          (8, ("abcdefghijklmnopqrstuvwxyz" * 12)[280:300])],
+            expect_cursor=(1, 0),
+        )
 
         # Setup content: line 0 wraps to 2 rows (35 chars at 20 cols), then short lines.
         # 6-row screen = 5 content rows + status bar.
         # Initial view: row 0-1 = line 0 (wrapped), rows 2-4 = lines 1-3.
-        # j*4 batches: cursor at line 4. Walk-back 4 rows from line 4 lands on
-        # (VIEW_TOP16=0, VIEW_TOP_WRAP=1) — partial wrap of line 0.
-        # Viewport scrolled up by 1 row. New bottom row (row 4) exposed.
+        # j*4 batches: cursor at line 4, which fits with lines 1-3 above it
+        # but not with line 0: the view scrolls up 2 rows, line 0 off whole
+        # (vim 8.2 shows line 1 on top, the cursor on row 3)
         vtw_content = ("A" * 35 + "\n"
                        + ''.join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
-            "Scroll opt: j past bottom wrap increases on same VIEW_TOP",
+            "Scroll opt: j past bottom scrolls the wrapped top line off whole",
             vtw_content,
             b"j" * 4 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 1
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
-            # With scroll optimization: scroll up by 1, only bottom row redrawn
-            expect_content_rows=[(1, {4})]
+            expect_cursor=(3, 0),
+            # With scroll optimization: scroll up by 2, the two bottom rows
+            # redrawn
+            expect_content_rows=[(1, {3, 4})]
         )
 
-        # After VIEW_TOP_WRAP increased (j*4 → VTW=1), k*4 returns cursor to
-        # line 0, col 0 (WRAP_QUOT=0). Since WRAP_QUOT(0) < VIEW_TOP_WRAP(1),
-        # ensure_cursor_visible scrolls up: VIEW_TOP_WRAP goes from 1 back to 0.
-        # Viewport scrolled down by 1. New top row (line 0 wrap 0) exposed.
-        # Frames: 0=initial, 1=j*4 (VTW 0→1), 2=k*4 (VTW 1→0)
+        # k*4 back to line 0: the view scrolls down 2 rows to show it whole
+        # Frames: 0=initial, 1=j*4, 2=k*4
         self.run_test_screen(
-            "Scroll opt: k wrap decreases on same VIEW_TOP",
+            "Scroll opt: k brings the wrapped top line back whole",
             vtw_content,
             b"j" * 4 + b"k" * 4 + b":q!\r",
             rows=6, cols=20,
@@ -25132,21 +25176,21 @@ class EditorTestRunner:
                 (4, "Short 3"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 (k*4): scroll down by 1, only top row redrawn
-            expect_content_rows=[(2, {0})]
+            # Frame 2 (k*4): scroll down by 2, the two top rows redrawn
+            expect_content_rows=[(2, {0, 1})]
         )
 
-        # G to a line already on screen leaves the view alone, partly
-        # shown top line and all, as k and :N do (vim scrolls only for a
-        # line off screen).  Frames: 0 initial, 1 j*4, 2 G (the count, not
-        # shown on the status bar cut at 20 columns, sends no frame)
+        # G to a line already on screen leaves the view alone, as k and :N
+        # do (vim scrolls only for a line not shown in full).  Frames: 0
+        # initial, 1 j*4, 2 G (the count, not shown on the status bar cut
+        # at 20 columns, sends no frame)
         self.run_test_screen(
-            "G to a visible line keeps VIEW_TOP_WRAP",
+            "G to a visible line keeps the view",
             vtw_content,
             b"j" * 4 + b"3G:q!\r",
             rows=6, cols=20,
-            expect_lines=[(0, "A" * 15), (1, "Short 1"), (2, "Short 2")],
-            expect_cursor=(2, 0),
+            expect_lines=[(0, "Short 1"), (1, "Short 2"), (2, "Short 3")],
+            expect_cursor=(1, 0),
             expect_content_redraws=[True, True, False],
             expect_frame_count=3,
         )
@@ -25157,61 +25201,50 @@ class EditorTestRunner:
             "G to a visible line sends the cursor move only",
             top5,
             b"5j3G:q!\r",
-            expect_lines=[(0, "a" * 40), (3, "a" * 40), (4, "L1"),
-                          (5, "L2")],
-            expect_cursor=(5, 0),
+            expect_lines=[(0, "L1"), (1, "L2"), (4, "L5")],
+            expect_cursor=(1, 0),
             expect_frame_bytes=[(4, 40)],
         )
-        # gg (and 1G) from a partly shown top line: the cursor goes above
-        # the view, which scrolls to show line 1 from its first row
+        # gg (and 1G) from a view past line 1: the cursor goes above the
+        # view, which scrolls to show line 1 whole
         self.run_test_screen(
-            "gg from a partial top line shows line 1 from its first row",
+            "gg from a view past a wrapped line 1 shows it whole",
             vtw_content,
             b"j" * 4 + b"gg:q!\r",
             rows=6, cols=20,
             expect_lines=[(0, "A" * 20), (1, "A" * 15), (2, "Short 1")],
             expect_cursor=(0, 0),
-            expect_content_rows=[(2, {0})],
+            expect_content_rows=[(2, {0, 1})],
         )
 
-        # j past bottom where VIEW_TOP changes AND new VIEW_TOP_WRAP > 0.
+        # j past a line that wraps mid-screen: the view moves past it whole.
         # Content: lines 0-1 short, line 2 wraps to 3 rows (55 chars at 20 cols),
         # then short lines. 6-row screen.
-        # j*5: cursor at line 5. Walk-back 4 rows from line 5:
-        #   line 4 (1 row, RR=3), line 3 (1 row, RR=2), line 2 (3 rows, VTW=2, RR=1),
-        #   VTW 2→1, RR=0. Result: VIEW_TOP16=2, VIEW_TOP_WRAP=1.
-        # SNAP: (0,0). Scroll amount: line 0 (1) + line 1 (1) + new_wrap (1) = 3.
-        # Scroll up by 3, render 3 new bottom rows.
+        # j*5: cursor at line 5, which fits with lines 3-4 above it but not
+        # with line 2: line 3 goes on top (vim 8.2 too), the view moving
+        # the 5 rows of lines 0-2, all of the text rows: every row is drawn
         vtw_content2 = ("Short 0\nShort 1\n" + "D" * 55 + "\n"
                         + ''.join(f"Short {i}\n" for i in range(3, 12)))
         self.run_test_screen(
-            "Scroll opt: j past bottom VIEW_TOP changes new wrap nonzero",
+            "Scroll opt: j past a wrapped line moves the view past it whole",
             vtw_content2,
             b"j" * 5 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "D" * 20),    # line 2, wrap row 1
-                (1, "D" * 15),    # line 2, wrap row 2
-                (2, "Short 3"),
-                (3, "Short 4"),
-                (4, "Short 5"),   # cursor
+                (0, "Short 3"),
+                (1, "Short 4"),
+                (2, "Short 5"),   # cursor
+                (3, "Short 6"),
+                (4, "Short 7"),
             ],
-            expect_cursor=(4, 0),
-            # Scroll up by 3, render 3 new bottom rows
-            expect_content_rows=[(1, {2, 3, 4})]
+            expect_cursor=(2, 0),
+            expect_content_rows=[(1, {0, 1, 2, 3, 4})]
         )
 
-        # j with VIEW_TOP change and SNAP_VIEW_TOP_WRAP > 0.
-        # From j*5 state: VIEW_TOP16=2, VTW=1. Use 'l' to break batching,
-        # then j*2 in a new frame.
-        # j*2 from line 5→7. Walk-back from 7, 4 rows:
-        #   line 6 (1), line 5 (1), line 4 (1), line 3 (1) → VTW=0.
-        # Result: VIEW_TOP16=3, VIEW_TOP_WRAP=0. SNAP: (2,1).
-        # Scroll amount: (screen_rows(line 2) - 1) + line 3 visible = (3-1) + 0 = 2.
-        # Wait — walk from (2,1) to (3,0): line 2 contributes 3-1=2 visible rows.
-        # But new_wrap = 0. Total = 2. Scroll up by 2, render 2 bottom rows.
+        # From there, j*2 (after 'l', which breaks the batching) to line 7,
+        # on the bottom row: the view stays, and only the cursor moves
         self.run_test_screen(
-            "Scroll opt: j VIEW_TOP changes with old wrap nonzero",
+            "Scroll opt: j to the bottom row draws no row",
             vtw_content2,
             b"j" * 5 + b"l" + b"j" * 2 + b":q!\r",
             rows=6, cols=20,
@@ -25223,44 +25256,41 @@ class EditorTestRunner:
                 (4, "Short 7"),   # cursor
             ],
             expect_cursor=(4, 1),   # 'l' moved col to 1
-            # Frame 3 (j*2): scroll up by 2, render 2 new bottom rows
-            expect_content_rows=[(3, {3, 4})]
+            expect_content_rows=[(3, set())]
         )
 
-        # VIEW_TOP_WRAP increases by more than 1 in a single step.
+        # A top line of 4 rows goes off whole: the view scrolls 4 rows.
         # Content: line 0 wraps to 4 rows (75 chars at 20 cols), then short lines.
         # 6-row screen: initial shows line 0 wrap 0-3 (4 rows) + Short 1 (1 row).
-        # j*4: cursor at line 4. Walk-back 4 rows from line 4:
-        #   line 3 (1, RR=3), line 2 (1, RR=2), line 1 (1, RR=1),
-        #   line 0 (4 rows, VTW=3, RR=0).
-        # Result: VIEW_TOP16=0, VIEW_TOP_WRAP=3. Wrap changed by 3.
-        # Scroll up by 3, render 3 new bottom rows.
+        # j*4: cursor at line 4, which fits with lines 1-3 above it but not
+        # with line 0 (vim 8.2 shows line 1 on top too): scroll up by 4,
+        # render the 4 new bottom rows
         vtw_multi_wrap = ("A" * 75 + "\n"
                           + ''.join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
-            "Scroll opt: VIEW_TOP_WRAP increases by 3",
+            "Scroll opt: j past a 4-row top line scrolls it off whole",
             vtw_multi_wrap,
             b"j" * 4 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 3
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
-            # Scroll up by 3, render 3 new bottom rows
-            expect_content_rows=[(1, {2, 3, 4})]
+            expect_cursor=(3, 0),
+            expect_content_rows=[(1, {1, 2, 3, 4})]
         )
 
         # Cursor line starting above the view (the view's top line shown
-        # from VIEW_TOP_WRAP > 0): line-count repaints must not draw from
-        # the negative first row CURSOR_ROW - WRAP_QUOT
+        # from VIEW_TOP_WRAP > 0, which only a line taller than the screen
+        # is): line-count repaints must not draw from the negative first
+        # row CURSOR_ROW - WRAP_QUOT
         alpha = "".join(chr(ord("a") + i % 26) for i in range(500))
         upper = "".join(chr(ord("A") + i % 26) for i in range(400))
         rest = "".join(f"line {i}\n" for i in range(2, 12))
-        joined = "a" * 50 + " " + "b" * 29 + " " + "C" * 40
+        joined = "a" * 400 + " bb " + "C" * 40
         # (dd goes to the first non-blank: the spaces before it keep the
         # line's start above the view)
         for name, content, keys, expect, cursor, rows, cols in (
@@ -25270,16 +25300,15 @@ class EditorTestRunner:
                  + [(6, "line 2"), (7, "line 3"), (8, "line 4")], (0, 0),
                  10, 40),
                 ("dd on a narrow screen", "line 0 " + "y" * 90 + "\n"
-                 + " " * 16 + "y" * 41 + "\nline 2 " + "y" * 37 + "\n",
+                 + " " * 16 + "y" * 73 + "\nline 2 " + "y" * 37 + "\n",
                  b"$xdd",
-                 [(r, "y" * 8) for r in range(5)]
-                 + [(5, "y"), (6, "line 2 y")]
-                 + [(r, "y" * 8) for r in range(7, 11)], (0, 0), 12, 8),
-                ("J that grows the line", "a" * 50 + " " + "b" * 29 + "\n"
+                 [(r, "y" * 8) for r in range(9)]
+                 + [(9, "y"), (10, "line 2 y")], (0, 0), 12, 8),
+                ("J that grows the line", "a" * 400 + " bb\n"
                  + "C" * 40 + "\n" + "".join(f"l{i}\n" for i in range(2, 30)),
-                 b"9Gkkkkkkkb" + b"J",
-                 [(0, joined[40:80]), (1, joined[80:120]),
-                  (2, joined[120:]), (3, "l2")], (1, 0), 10, 40),
+                 b"$J",
+                 [(r, joined[(r + 2) * 40:(r + 3) * 40]) for r in range(9)],
+                 (8, 3), 10, 40),
                 ("2d$", alpha + "\nshort one\n" + rest, b"$h2d$",
                  [(r, alpha[160 + r * 40:200 + r * 40]) for r in range(8)]
                  + [(8, alpha[480:498])], (8, 17), 10, 40)):
@@ -25308,33 +25337,32 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
-        # Insert mode: arrow down past bottom with VIEW_TOP_WRAP.
-        # Same content as vtw_content (line 0 wraps to 2 rows).
+        # Insert mode: arrow down past the bottom, as j*4 above: the
+        # wrapped line 0 goes off the top whole.
         # Enter insert mode on line 0 (i), then press down arrow 4 times.
-        # Same walk-back as normal mode: VIEW_TOP_WRAP goes from 0 to 1.
         DOWN = b"\x1b[B"
         self.run_test_screen(
-            "Scroll opt: insert arrow down wrap increases on same VIEW_TOP",
+            "Scroll opt: insert arrow down scrolls the wrapped top line off",
             vtw_content,
             b"i" + DOWN * 4 + b"\x1b:q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 1
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor was here in insert mode
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor was here in insert mode
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),  # cursor at line 4 (col 0, ESC no decrement)
-            # Frame 2 (DOWN*4): scroll up by 1, only bottom row redrawn
-            expect_content_rows=[(2, {4})]
+            expect_cursor=(3, 0),  # cursor at line 4 (col 0, ESC no decrement)
+            # Frame 2 (DOWN*4): scroll up by 2, the two bottom rows redrawn
+            expect_content_rows=[(2, {3, 4})]
         )
 
-        # Insert mode: arrow up past top with VIEW_TOP_WRAP decrease.
-        # Start with j*4 to get VTW=1, then enter insert mode, arrow up 4 times.
+        # Insert mode: arrow up back to line 0, which comes back whole.
+        # Start with j*4, then enter insert mode, arrow up 4 times.
         UP = b"\x1b[A"
         self.run_test_screen(
-            "Scroll opt: insert arrow up wrap decreases on same VIEW_TOP",
+            "Scroll opt: insert arrow up brings the wrapped top line back",
             vtw_content,
             b"j" * 4 + b"i" + UP * 4 + b"\x1b:q!\r",
             rows=6, cols=20,
@@ -25346,8 +25374,8 @@ class EditorTestRunner:
                 (4, "Short 3"),
             ],
             expect_cursor=(0, 0),
-            # Frame 3 (UP*4): scroll down by 1, only top row redrawn
-            expect_content_rows=[(3, {0})]
+            # Frame 3 (UP*4): scroll down by 2, the two top rows redrawn
+            expect_content_rows=[(3, {0, 1})]
         )
 
         # VIEW_TOP_WRAP changes but LINE_COUNT also changed: should fall back
@@ -25365,30 +25393,29 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
-        # Both SNAP_VIEW_TOP_WRAP and VIEW_TOP_WRAP non-zero (wrap_changed path).
-        # Line 0 wraps to 4 rows (75 chars at 20 cols), then short lines.
-        # j*2 batches (frame 1): cursor at line 2. Walk-back 4 rows:
-        #   line 1 (1, RR=3), line 0 (4 rows, VTW=3, RR=2), VTW 3→2 (RR=1),
-        #   VTW 2→1 (RR=0). Result: VIEW_TOP16=0, VTW=1. Wrap changes 0→1.
-        # Then 'l' (frame 2, no viewport change), j (frame 3): cursor at line 3.
-        # Walk-back from 3, 4: line 2 (1,3), line 1 (1,2), line 0 (4, VTW=3, 1),
-        #   VTW 3→2 (0). Result: VIEW_TOP16=0, VTW=2. SNAP_VTW=1, VTW=2.
-        # Both non-zero. Scroll up by 1, render 1 new bottom row.
+        # Both SNAP_VIEW_TOP_WRAP and VIEW_TOP_WRAP non-zero (wrap_changed
+        # path): the view's top line taller than the screen (8 rows at
+        # 6x20), shown from row 3 for the cursor at its end ($), then from
+        # row 2 for the cursor on its row 2 (100h, as vim's skipcol moves
+        # as little as it can): scroll down 1, the top row redrawn.
+        # Frames: 0 initial, 1 $, 2 100h (the count, not shown on the
+        # status bar cut at 20 columns, sends no frame)
+        vtw_tall = ("".join(chr(ord("a") + i // 20) for i in range(150))
+                    + "\n" + "".join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
             "Scroll opt: both old and new VIEW_TOP_WRAP nonzero",
-            vtw_multi_wrap,
-            b"j" * 2 + b"l" + b"j" + b":q!\r",
+            vtw_tall,
+            b"$" + b"100h" + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 20),    # line 0, wrap row 2
-                (1, "A" * 15),    # line 0, wrap row 3
-                (2, "Short 1"),
-                (3, "Short 2"),
-                (4, "Short 3"),   # cursor
+                (0, "c" * 20),    # line 0, wrap row 2 (cursor)
+                (1, "d" * 20),
+                (2, "e" * 20),
+                (3, "f" * 20),
+                (4, "g" * 20),
             ],
-            expect_cursor=(4, 1),  # l moved col to 1
-            # Frame 3 (j): wrap 1→2, scroll up 1, only bottom row redrawn
-            expect_content_rows=[(3, {4})]
+            expect_cursor=(0, 9),
+            expect_content_rows=[(2, {0})]
         )
 
         # Scroll direction verification: j triggers scroll UP (content moves up),
@@ -25411,31 +25438,30 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(1, True), (2, True)],
         )
 
-        # Two-phase: j*4 scroll (VTW 0→1), l (break), j scroll (VIEW_TOP changes).
-        # After j*4: VIEW_TOP (0,1). After l: unchanged. After j: cursor at line 5.
-        # Walk-back from 5: lines 4,3,2,1 → VIEW_TOP16=1, VTW=0.
-        # SNAP: (0,1). After: (1,0). VIEW_TOP changed, old wrap>0.
-        # Walk from (0,1) to (1,0): line 0 visible=2-1=1, new_wrap=0. Total=1.
-        # Scroll up by 1.
+        # Two-phase: from the top line taller than the screen shown from
+        # row 3 ($), l breaks the batching, then j to the next line, which
+        # goes on top whole (the tall line off the view, as in vim): the
+        # view moves the 5 rows of the tall line left on screen, all of
+        # the text rows, so every row is drawn.  Frames: 0 initial, 1 $,
+        # 2 h, 3 j
         self.run_test_screen(
             "Scroll opt: wrap then view change single j",
-            vtw_content,
-            b"j" * 4 + b"l" + b"j" + b":q!\r",
+            vtw_tall,
+            b"$" + b"h" + b"j" + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "Short 1"),
+                (0, "Short 1"),   # cursor
                 (1, "Short 2"),
                 (2, "Short 3"),
                 (3, "Short 4"),
-                (4, "Short 5"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 1),
-            # Frame 3 (j): VIEW_TOP changed with old wrap, scroll up 1
-            expect_content_rows=[(3, {4})]
+            expect_cursor=(0, 6),
+            expect_content_rows=[(3, {0, 1, 2, 3, 4})]
         )
 
-        # Round-trip content verification: j*4 scrolls VTW 0→1, then k*4
-        # scrolls back to VTW 0→0. Verify exact content matches initial state
+        # Round-trip content verification: j*4 scrolls line 0 off, then k*4
+        # scrolls it back. Verify exact content matches initial state
         # using expect_lines_at_frame at both frames.
         self.run_test_screen(
             "Scroll opt: round trip content matches initial",
@@ -25444,11 +25470,11 @@ class EditorTestRunner:
             rows=6, cols=20,
             expect_lines_at_frame=[
                 (1, [
-                    (0, "A" * 15),
-                    (1, "Short 1"),
-                    (2, "Short 2"),
-                    (3, "Short 3"),
-                    (4, "Short 4"),
+                    (0, "Short 1"),
+                    (1, "Short 2"),
+                    (2, "Short 3"),
+                    (3, "Short 4"),
+                    (4, "Short 5"),
                 ]),
                 (2, [
                     (0, "A" * 20),
@@ -25461,21 +25487,21 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
-        # Insert mode: type after VIEW_TOP_WRAP scroll to verify no corruption.
-        # j*4 (VTW 0→1), enter insert, type "X", ESC, verify content.
+        # Insert mode: type after the wrapped line 0 scrolled off, to
+        # verify no corruption: j*4, enter insert, type "X", ESC
         self.run_test_screen(
             "Scroll opt: insert type after wrap scroll preserves content",
             vtw_content,
             b"j" * 4 + b"iX\x1b:q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap 1 (unchanged)
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "XShort 4"),  # cursor on line 4, typed X
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "XShort 4"),  # cursor on line 4, typed X
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
+            expect_cursor=(3, 0),
         )
 
         # Insert-mode cursor at col == len == k*cols sits on a virtual row
@@ -25611,8 +25637,9 @@ class EditorTestRunner:
             "q" * 200 + "\nxy\n",
             b"y$jP:q!\r",
             rows=10, cols=40,
-            expect_lines=[(i, "q" * 40) for i in range(9)],
-            expect_cursor=(8, 39),
+            expect_lines=[(i, "q" * 40) for i in range(5)]
+                         + [(5, "xy"), (6, "~")],
+            expect_cursor=(4, 39),
         )
 
         # Undo of x on a 3-row line whose first row is scrolled off: the
@@ -25717,21 +25744,21 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(3, True)],
             expect_content_rows=[(3, {8})],
         )
-        # The top line wraps: the view moves by one of its rows
+        # The top line wraps: the view moves past it whole (vim's view:
+        # line 1 on top), and the row below the new line is drawn
         self.run_test_screen(
             "Scroll opt: o at the bottom row below a wrapped top line",
             "a" * 50 + "\n" + make_lines(14),
             b"7jo\x1b:q!\r",
-            expect_lines=[(0, "a" * 10)]
-                         + [(i, f"Line {i}") for i in range(1, 8)]
-                         + [(8, "")],
-            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, ""), (8, "Line 8")],
+            expect_cursor=(7, 0),
             expect_scrolled_at_frame=[(3, True)],
-            expect_content_rows=[(3, set())],
+            expect_content_rows=[(3, {8})],
         )
-        # The bottom line's last row was below the screen: the scroll
-        # exposes it, and it is drawn (the new empty line below it is a
-        # row the IL opened)
+        # The bottom line wraps: j to it scrolls the view to show it whole
+        # (vim's view), so o then scrolls a line and draws nothing but the
+        # new empty line, a row the IL opened
         self.run_test_screen(
             "Scroll opt: o below a line that ran past the bottom row",
             make_lines(8) + "b" * 50 + "\n" + make_lines(5),
@@ -25740,9 +25767,11 @@ class EditorTestRunner:
                          + [(6, "b" * 40), (7, "b" * 10), (8, "")],
             expect_cursor=(8, 0),
             expect_scrolled_at_frame=[(3, True)],
-            expect_content_rows=[(3, {7})],
+            expect_content_rows=[(3, set())],
         )
-        # J whose join point lands on a row below the screen
+        # J of a line that wraps on the bottom rows: j to it scrolled the
+        # view to show it whole (vim's view), so the J that keeps its rows
+        # scrolls nothing and draws its second row
         self.run_test_screen(
             "Scroll opt: J that wraps past the bottom row scrolls the view",
             make_lines(8) + "x" * 45 + "\n" + "y" * 10 + "\n"
@@ -25751,7 +25780,7 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i + 2}") for i in range(7)]
                          + [(7, "x" * 40), (8, "xxxxx " + "y" * 10)],
             expect_cursor=(8, 5),
-            expect_scrolled_at_frame=[(3, True)],
+            expect_scrolled_at_frame=[(3, False)],
             expect_content_rows=[(3, {8})],
         )
         # One insert batch joins the bottom line onto the one above, edits
@@ -25764,17 +25793,19 @@ class EditorTestRunner:
                          + [(6, "Line 8x"), (7, ""), (8, "Line 9")],
             expect_cursor=(8, 0),
         )
-        # A paste that grows the bottom line past the screen: the rows the
-        # scroll exposes are drawn once, with the line
+        # A paste that grows the bottom line past the screen: the view
+        # moves the 5-row top line off to show the line whole (vim's view),
+        # and every row is drawn once, the line from the top
         self.run_test_screen(
             "Scroll opt: P growing the bottom line draws each row once",
             "q" * 200 + "\nxy\n",
             b"y$jP:q!\r",
-            expect_lines=[(i, "q" * 40) for i in range(9)],
-            expect_cursor=(8, 39),
-            expect_scrolled_at_frame=[(2, True)],
-            expect_content_rows=[(2, {4, 5, 6, 7, 8})],
-            expect_frame_bytes=[(2, 274)],
+            expect_lines=[(i, "q" * 40) for i in range(5)]
+                         + [(5, "xy"), (6, "~")],
+            expect_cursor=(4, 39),
+            expect_scrolled_at_frame=[(2, False)],
+            expect_content_rows=[(2, {0, 1, 2, 3, 4, 5, 6, 7, 8})],
+            expect_frame_bytes=[(2, 283)],
         )
         # Typing at the end of a line taller than the screen: the char
         # that fills its last row moves the view down a row within the

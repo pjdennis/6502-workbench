@@ -416,6 +416,11 @@ DISPLAY
   it is not displayed correctly: it can show out of place, and with
   the cursor there the view and the cursor's place on screen are
   wrong.
+  The view shows whole lines from its top line and the cursor line in
+  full, moving as little as it can, as vim's does; a line taller than
+  the screen is shown from the row that keeps the cursor on screen.
+  A line that does not fit at the bottom shows the rows that fit (vim
+  shows @ in their place).
   Lines past end of file are shown as ~ (tilde).
   Non-ASCII bytes (high bit set) are shown as ? in reverse video.
   Tab characters are shown as > in reverse video.

@@ -7,8 +7,8 @@ section says what vim does, what the editor does, and how the editor
 could do what vim does: the data, the routines that change, memory, code
 bytes, CPU and repaint, risks, and the tests to write first. Sections 4
 and 6 have since been done, and so have the first two subsets of section
-5; sections 1, 2 and 3, the rest of 5, 6's long lines and 7 are kept for
-now.
+5 and section 8's whole-line view; sections 1, 2 and 3, the rest of 5,
+6's long lines, 7 and the rest of 8 are kept for now.
 
 Byte counts marked *measured* come from sandbox prototypes on the tree at
 9d5cfd0 (console build 12,468 bytes, terminal build 12,541), with the
@@ -36,6 +36,7 @@ spare) and the terminal build at 13,132 ($3800).
 | 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
 | 7 | Counts on i, a, A, o and O are ignored | +209 (measured) | none | kept for now |
+| 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); far jumps and '@' rows: see section 8 | 30 view and repaint tests (done) | whole lines done; the rest kept for now |
 
 Item 3 uses the message routine item 4 left (a message held until the
 next key, which then runs), `show_message_ax`.
@@ -676,7 +677,7 @@ top of the view, so a range repaint's `WRAP_QUOT` does not matter),
 backs over the lines kept (`page_setup`: 2, 1 or 0 by `TEXT_ROWS`),
 puts the last line on top when the page reaches it, and moves at least
 one line; `normal_page_up` puts the cursor on the line above the last
-line kept and scrolls its first row to the bottom row through a new
+line kept and scrolls it to the bottom row through a new
 `ensure_row_visible` entry of `ensure_cursor_visible` (`page_view`),
 with vim's `cursor_correct` case when that leaves line 2 on top. Both
 stop at a page that cannot move (`page_fail`): a press of the count
@@ -686,13 +687,12 @@ the first non-blank as the press before it did. `next_line` and
 `clamp_file_line` and `word_backward_x`). Measured: +118 bytes (the
 terminal build's `TEXT_BUF` moved to $3800).
 
-Left: the lines kept do not depend on their rows, and Ctrl-B puts the
-new bottom line's first row on the bottom row (the top line may start
-above the view, as after j, k and G). 10x40, 40 lines of 94 chars (3
-rows each): Ctrl-F puts line 2 on top in vim (one line kept), line 1
-here. Doing vim's overlap is a walk over four lines' rows and two sums
-for each page, about 50 to 70 bytes (estimate); vim's whole-line view
-after Ctrl-B is the display difference of j, k and G too.
+Left: the lines kept do not depend on their rows. 10x40, 40 lines of
+94 chars (3 rows each): Ctrl-F puts line 2 on top in vim (one line
+kept), line 1 here. Doing vim's overlap is a walk over four lines' rows
+and two sums for each page, about 50 to 70 bytes (estimate). (Since the
+vim leftovers batch B the view after Ctrl-B shows whole lines, the new
+bottom line in full, as vim's does: section 8.)
 
 ## 7. Counts on i, a, A, o and O (kept for now)
 
@@ -776,3 +776,68 @@ break after it), and it ends at the cursor.
   and 3oab) with the cursor, and a typed-ahead 3o with typing against
   the same keys one at a time.
 
+## 8. The view (whole lines done; far jumps and '@' rows kept for now)
+
+### What vim does
+
+vim's view (update_topline, with 'scrolloff' 0 as vim -u NONE sets it;
+defaults.vim sets 5) shows whole lines from its top line, and the
+cursor line in full, a line taller than the window excepted (w_skipcol).
+After each command, checked by typing into vim 8.2 at fixed sizes:
+
+- A cursor line above the top line goes on top, unless it is at least
+  max(2, height / 2 - 1) lines above it: then vim centres it
+  (scroll_cursor_halfway). 10x40 (9 text rows): 1 or 2 lines above go on
+  top, 3 or more to the middle.
+- A cursor line not shown in full below the view goes to the bottom
+  (the top line the first of the lines above it that fit with it),
+  unless the lines from the first line not shown in full (botline) to
+  the cursor line, and as many lines after the cursor line, take more
+  rows than the window (scroll_cursor_bot's `used`): then vim centres it.
+  With one-row lines and room below that is 2d + 1 > height, d the
+  cursor line's distance past botline: 10x40, 14G from the top goes to
+  the bottom row, 15G to the middle (top line 10).
+- scroll_cursor_halfway adds a line below the cursor line whenever the
+  rows below are not more than those above, then a line above while
+  those are fewer, until the rows run out; past the last line it counts
+  '~' rows that take no room, so G can leave '~' rows at the bottom:
+  10x40, 'L0'..'L19' with L14 and L15 of 100 chars, G shows L15 on top
+  and L19 on row 6.
+- A line that does not fit at the bottom is shown as rows of '@' (the
+  default 'display' is ""; defaults.vim sets "truncate").
+- A cursor line taller than the window is the top line, shown from the
+  row that keeps the cursor row on screen, moving as little as it can.
+
+### What the editor does
+
+Since the vim leftovers batch B `ensure_cursor_visible`
+(render_scroll.asm) keeps vim's view but for the far jumps: a cursor
+line on or above the top line goes on top; below it, one walk up from
+the cursor line adds the lines above while they fit (`VIEW_ROWS` for the
+cursor line's own), and stops at the old top line (the view stays) or
+where the next line does not fit (the new top line). A line taller than
+the text rows counts its rows to the cursor row only, so it keeps its
+place while those fit (vim makes it the top line); when they do not, or
+it is the top line, `view_tall` shows it from the row that keeps the
+cursor on screen (vim's skipcol). That replaced the row-based walks,
+10 bytes less; 30 tests that pinned a partly shown top line or a cursor
+line running past the bottom now expect vim's view (the render tests
+among them use a line taller than the screen to keep their case). The
+per-frame differential over the audit's fuzz generators (20,700
+sessions) sends 1.2% more bytes, as whole lines move and the cursor
+line is drawn in full; the render oracle holds.
+
+A line that does not fit at the bottom shows the rows of it that fit.
+
+### Plan for '@' rows (kept)
+
+The row loop that draws a line's rows (render_rows, and the partial
+draws that start at a row within a line) would draw '@' and clear the
+row for each row of a line that starts on the text rows but does not
+end there (never the cursor line, which is shown in full, nor a line
+taller than the screen). The scroll paths expose rows of such a line
+from a row within it, so the test goes where a line's rows start to be
+drawn, whatever the row: about 30 to 60 bytes (estimate, not
+prototyped). Tests first: 10x40, lines 0-6 short and a 100-char line 7:
+rows 7 and 8 show '@'; j to line 7 then shows it in full; a scroll that
+exposes the '@' line's rows; the render oracle and the per-frame fuzz.

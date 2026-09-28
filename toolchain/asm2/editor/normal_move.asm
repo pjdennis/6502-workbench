@@ -70,13 +70,13 @@ normal_page_up:
 page_first_nonblank:
   JMP first_nonblank_clear
 
-; Put the cursor line's first row on the top row (A = $FF) or on the
-; bottom row, with the first line on top if it fits there (A = 0):
-; ensure_row_visible scrolls to it from past it or from the first line
+; Put the cursor line on top (A = $FF), or in full at the bottom, with
+; the first line on top if the lines from it fit (A = 0): its first row
+; (WRAP_QUOT = 0) seen from past it or from the first line
+; (ensure_row_visible)
 page_view:
   STA_LH16 VIEW_TOP16
   LDA #0
-  STA VIEW_TOP_WRAP
   STA WRAP_QUOT
   JMP ensure_row_visible
 
