@@ -25,7 +25,8 @@ MODES
 The editor has three modes:
 
   NORMAL   Default mode for navigation and commands.
-  INSERT   Text entry mode. Entered via i, a, A, o, O, s, S, C, cc, cw, cb, ce.
+  INSERT   Text entry mode. Entered via i, a, A, I, o, O, s, S, C, cc, cw,
+           cb, ce.
   COMMAND  Colon command-line mode. Entered via :.
 
 
@@ -100,18 +101,21 @@ All editing commands are blocked in read-only mode.
   i              Enter insert mode at cursor (accepts count)
   a              Enter insert mode after cursor (accepts count)
   A              Enter insert mode at end of line (accepts count)
+  I              Enter insert mode before the first non-blank character
+                 (past the blanks of a line of blanks, as in vim;
+                 accepts count)
   o              Open new line below, enter insert mode (accepts count)
   O              Open new line above, enter insert mode (accepts count)
-                 With a count N, ESC types the text N times, as in vim
-                 (after o and O each time on a line of its own): 3ix
-                 ESC inserts xxx, 3oab ESC opens three lines ab, and u
-                 takes them all back. A cursor move in insert mode (one
-                 that cannot move does not) drops the count, and so do
-                 a Backspace over text from before the typing and a
-                 Delete (vim types those keys again with the rest).
-                 Copies that do not fit the text buffer or the 1023
-                 lines are refused with "Buffer full", as a paste is:
-                 the text typed stays, once
+                 With a count N (on i, a, A, I, o and O), ESC types the
+                 text N times, as in vim (after o and O each time on a
+                 line of its own): 3ix ESC inserts xxx, 3oab ESC opens
+                 three lines ab, and u takes them all back. A cursor
+                 move in insert mode (one that cannot move does not)
+                 drops the count, and so do a Backspace over text from
+                 before the typing and a Delete (vim types those keys
+                 again with the rest). Copies that do not fit the text
+                 buffer or the 1023 lines are refused with "Buffer
+                 full", as a paste is: the text typed stays, once
   x, Delete      Delete character at cursor (accepts count)
                  Yanks deleted characters (character yank)
   X              Delete character before cursor (accepts count)

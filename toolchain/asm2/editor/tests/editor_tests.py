@@ -2892,6 +2892,13 @@ class EditorTestRunner:
                 expect_unmodified=True,
                 expect_ansi_absent="No write since last change"
             )
+            self.run_test_small_buffer(
+                "Read-only mode blocks I",
+                large_content,
+                b"IQ\x1b:q\r",
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
+            )
 
             # A file that exactly fills the buffer is not truncated: it
             # loads editable (no warning), so 'x' deletes
@@ -21849,6 +21856,32 @@ class EditorTestRunner:
             "abcdef\n", b"9999i" + b"y" * 200 + b"\x1bx:wq\r", cols=80,
             expected_content="y" * 199 + "abcdef\n",
             expect_ansi_contains="Buffer full")
+
+        self._group("I (insert before the first non-blank):",
+                    leading_blank=True)
+
+        # I inserts before the line's first non-blank, past the blanks of
+        # a line of blanks (vim's beginline(BL_WHITE)), with a count as i,
+        # and u returns there.  Checked by typing into vim 8.2
+        for content, keys, expected, cursor in (
+                ("  abc\n", b"$Ix\x1b", "  xabc\n", (0, 2)),
+                ("abc\n", b"$Ix\x1b", "xabc\n", (0, 0)),
+                (" \t abc\n", b"$I-\x1b", " \t -abc\n", (0, 3)),
+                ("   \n", b"Ix\x1b", "   x\n", (0, 3)),
+                ("abc\n\ndef\n", b"jIx\x1b", "abc\nx\ndef\n", (1, 0)),
+                ("", b"Ix\x1b", "x\n", (0, 0)),
+                ("  abc\n", b"3Ix\x1b", "  xxxabc\n", (0, 4)),
+                ("   \n", b"3Ix\x1b", "   xxx\n", (0, 5)),
+                ("\tab\n", b"2Iy\x1b", "\tyyab\n", (0, 2)),
+                ("  abc\n", b"$3Ia\rb\x1b", "  a\nba\nba\nbabc\n", (3, 0)),
+                ("  abc\n  de\n", b"j$Ix\x1b[Ay\x1b", "  aybc\n  xde\n",
+                 (0, 3)),
+                ("  abc\ndef\n", b"0I\x08x\x1b", " xabc\ndef\n", (0, 1)),
+                ("  abc\n", b"$Ixy\x1bu", "  abc\n", (0, 2))):
+            self.run_test_screen(
+                f"I: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
 
         self._group("Undo join (J):", leading_blank=True)
 

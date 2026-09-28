@@ -29,7 +29,8 @@ spare) and the terminal build at 13,132 ($3800). Sections 8 (its far
 jumps) and 9 were measured in the vim leftovers batch B, which ended
 with the console build at 13,078 bytes ($3800 again, from its first
 change) and the terminal build at 13,154. Section 7, done after it, took
-them to 13,212 and 13,288 bytes (both still $3800).
+them to 13,212 and 13,288 bytes, and I (section 7) to 13,224 and 13,300
+(both still $3800).
 
 | # | Difference | Code bytes | Tests that change | State |
 |---|---|---|---|---|
@@ -39,7 +40,7 @@ them to 13,212 and 13,288 bytes (both still $3800).
 | 4 | Messages swallowed the next key | -5 (done) | 9 | done |
 | 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
-| 7 | Counts on i, a, A, o and O are ignored | +209 (measured); +139 (done) | none | done |
+| 7 | Counts on i, a, A, o and O are ignored | +209 (measured); +139 (done), and +12 for I | none | done |
 | 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); +261 for far jumps (measured); about +30 to 60 for '@' rows (estimate) | 30 view and repaint tests (done); 9 for far jumps | whole lines done; the rest kept for now |
 | 9 | j and k keep a byte column, vim a screen column (Tabs) | +127 (measured) | 2 cycle caps, 1 self-edit size check | kept for now |
 
@@ -704,7 +705,11 @@ bottom line in full, as vim's does: section 8.)
 Done in the vim leftovers (insert counts), with leftovers batch A's
 prototype (+209 bytes) reworked to +139. Left: vim's replay of a
 Backspace or Delete past the typing's edges, and the copies past the
-text buffer or the line limit (below).
+text buffer or the line limit (below). I, which the editor did not
+have, came after it (+12 bytes): it goes to the first non-blank, and
+on a line of blanks past them (vim's beginline(BL_WHITE), where ^
+stops on the last blank), then enters insert mode as i does, a count
+too: '  abc' with 3Ix Esc gives '  xxxabc', and '   ' '   xxx'.
 
 ### What vim does
 

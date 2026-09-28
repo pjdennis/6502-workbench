@@ -57,7 +57,7 @@ project's 6502 emulator in console/ANSI mode.
   Delete (forward), arrow keys, Home/End, PgUp/PgDn, word motions, batching
   of mixed Enter/BS/printable sequences, the undo record of the typing
   (a segment between cursor moves), and the copies ESC puts in after a
-  count on `i`, `a`, `A`, `o` or `O`.
+  count on `i`, `a`, `A`, `I`, `o` or `O`.
 - `command.asm`: command-line mode — `:w`, `:q`, `:wq`, `:q!`, `:[N]`,
   `:marks`, range commands (`:[start],[end]d/y/>/<`).
 
@@ -232,6 +232,7 @@ project's 6502 emulator in console/ANSI mode.
 | `i` | Insert at cursor (with count: ESC types the text count times, as vim) |
 | `a` | Insert after cursor (with count) |
 | `A` | Insert at end of line (with count) |
+| `I` | Insert before the first non-blank (with count) |
 | `o` | Open line below (with count: count lines of the text) |
 | `O` | Open line above (with count) |
 | `x` / Delete | Delete character at cursor (with count, yanks) |
