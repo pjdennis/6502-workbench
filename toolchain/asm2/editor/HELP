@@ -11,7 +11,8 @@ were all deleted) shows one empty line and is written as an empty
 file, as in vim; typing on that line (or o, or a paste) makes it a
 line of the text, and u of that change empties the buffer again.
 A delete there (x, X, dd, d0, :d) does nothing, as in vim: no yank
-and no undo step.
+and no undo step.  cc and S yank nothing there either: they start
+insert mode with an empty change, which u undoes with what was typed.
 If no filename is given, starts with [No Name].
 Maximum file size: ~40KB. Files exceeding this are truncated and
 opened read-only.
@@ -25,7 +26,8 @@ MODES
 The editor has three modes:
 
   NORMAL   Default mode for navigation and commands.
-  INSERT   Text entry mode. Entered via i, a, A, o, O, s, S, C, cc, cw, cb, ce.
+  INSERT   Text entry mode. Entered via i, a, A, I, o, O, s, S, C, cc, cw,
+           cb, ce.
   COMMAND  Colon command-line mode. Entered via :.
 
 
@@ -97,11 +99,24 @@ NORMAL MODE - EDITING
 
 All editing commands are blocked in read-only mode.
 
-  i              Enter insert mode at cursor
-  a              Enter insert mode after cursor
-  A              Enter insert mode at end of line
-  o              Open new line below, enter insert mode
-  O              Open new line above, enter insert mode
+  i              Enter insert mode at cursor (accepts count)
+  a              Enter insert mode after cursor (accepts count)
+  A              Enter insert mode at end of line (accepts count)
+  I              Enter insert mode before the first non-blank character
+                 (past the blanks of a line of blanks, as in vim;
+                 accepts count)
+  o              Open new line below, enter insert mode (accepts count)
+  O              Open new line above, enter insert mode (accepts count)
+                 With a count N (on i, a, A, I, o and O), ESC types the
+                 text N times, as in vim (after o and O each time on a
+                 line of its own): 3ix ESC inserts xxx, 3oab ESC opens
+                 three lines ab, and u takes them all back. A cursor
+                 move in insert mode (one that cannot move does not)
+                 drops the count, and so do a Backspace over text from
+                 before the typing and a Delete (vim types those keys
+                 again with the rest). Copies that do not fit the text
+                 buffer or the 1023 lines are refused with "Buffer
+                 full", as a paste is: the text typed stays, once
   x, Delete      Delete character at cursor (accepts count)
                  Yanks deleted characters (character yank)
   X              Delete character before cursor (accepts count)
@@ -265,6 +280,7 @@ NORMAL MODE - COUNT PREFIX
     3J             Join 3 lines (current + 2 below)
     2dw            Delete 2 words forward
     3de            Delete to end of 3rd word
+    3ix ESC        Insert xxx
 
   Digits typed once a count has reached 6400 are ignored, so the
   largest count is 63999. w, b, e, x, X, ~, r, J, Ctrl-F, Ctrl-B and

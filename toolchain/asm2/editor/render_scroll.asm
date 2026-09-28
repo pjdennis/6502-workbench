@@ -211,10 +211,19 @@ change_cell_row:
 ; ($7F) opens the new empty lines: both are drawn by the scroll alone,
 ; unless its region was one row that could not be scrolled (only at the
 ; end of the line: the cursor line is then drawn there).  Text that
-; shrank (BS/Del in the batch) or new lines reaching past row 254 are
-; drawn in full.
+; shrank (BS/Del in the batch), new lines reaching past row 254 and a
+; split of a line above the view's top line (a redo of r<Enter> after a
+; move down: the lines at the top of the view are others now) are drawn
+; in full.
 render_enter_split:
   JSR ansi_cursor_hide
+  ; F above the top line?  (The cursor line is on screen, fewer than 256
+  ; lines from it)
+  LDA FILE_LINE16
+  SEC
+  SBC VIEW_TOP16
+  CMP RENDER_LIMIT
+  BCC .full
   ; RENDER_WRAP = CURSOR_ROW - F = WRAP_QUOT + the rows of the fd lines
   ; above the cursor line
   JSR rows_to_cursor

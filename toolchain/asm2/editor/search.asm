@@ -212,7 +212,7 @@ search_line_walk:
   BCS .done                  ; No more matches
   CMP16 BUF_PTR16, SEARCH_LIMIT16
   BCS .at_limit              ; Match at/past limit
-  CP16 BUF_PTR16, BUF_DST16  ; The last one before the limit so far
+  JSR ptr_to_dst             ; The last one before the limit so far
   TYA                        ; The pattern's length
   ADDA16 BUF_PTR16           ; Go on from the end of the match
   JMP .loop

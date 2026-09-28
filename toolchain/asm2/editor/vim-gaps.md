@@ -5,10 +5,10 @@ differences below were kept on purpose: each costs code, and so text
 buffer, or reworks a part of the editor that works well as it is. Each
 section says what vim does, what the editor does, and how the editor
 could do what vim does: the data, the routines that change, memory, code
-bytes, CPU and repaint, risks, and the tests to write first. Sections 4
-and 6 have since been done, and so have the first two subsets of section
-5 and section 8's whole-line view; sections 1, 2 and 3, the rest of 5,
-6's long lines, 7, the rest of 8 and 9 are kept for now.
+bytes, CPU and repaint, risks, and the tests to write first. Sections 4,
+6 and 7 have since been done, and so have the first two subsets of
+section 5 and section 8's whole-line view; sections 1, 2 and 3, the rest
+of 5, 6's long lines, the rest of 8 and 9 are kept for now.
 
 Byte counts marked *measured* come from sandbox prototypes on the tree at
 9d5cfd0 (console build 12,468 bytes, terminal build 12,541), with the
@@ -28,7 +28,9 @@ that batch ended with the console build at 13,056 bytes ($3700, none
 spare) and the terminal build at 13,132 ($3800). Sections 8 (its far
 jumps) and 9 were measured in the vim leftovers batch B, which ended
 with the console build at 13,078 bytes ($3800 again, from its first
-change) and the terminal build at 13,154.
+change) and the terminal build at 13,154. Section 7, done after it, took
+them to 13,212 and 13,288 bytes, and I (section 7) to 13,224 and 13,300
+(both still $3800).
 
 | # | Difference | Code bytes | Tests that change | State |
 |---|---|---|---|---|
@@ -38,7 +40,7 @@ change) and the terminal build at 13,154.
 | 4 | Messages swallowed the next key | -5 (done) | 9 | done |
 | 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
-| 7 | Counts on i, a, A, o and O are ignored | +209 (measured) | none | kept for now |
+| 7 | Counts on i, a, A, o and O are ignored | +209 (measured); +139 (done), and +12 for I | none | done |
 | 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); +261 for far jumps (measured); about +30 to 60 for '@' rows (estimate) | 30 view and repaint tests (done); 9 for far jumps | whole lines done; the rest kept for now |
 | 9 | j and k keep a byte column, vim a screen column (Tabs) | +127 (measured) | 2 cycle caps, 1 self-edit size check | kept for now |
 
@@ -698,7 +700,16 @@ and two sums for each page, about 50 to 70 bytes (estimate). (Since the
 vim leftovers batch B the view after Ctrl-B shows whole lines, the new
 bottom line in full, as vim's does: section 8.)
 
-## 7. Counts on i, a, A, o and O (kept for now)
+## 7. Counts on i, a, A, o and O (done)
+
+Done in the vim leftovers (insert counts), with leftovers batch A's
+prototype (+209 bytes) reworked to +139. Left: vim's replay of a
+Backspace or Delete past the typing's edges, and the copies past the
+text buffer or the line limit (below). I, which the editor did not
+have, came after it (+12 bytes): it goes to the first non-blank, and
+on a line of blanks past them (vim's beginline(BL_WHITE), where ^
+stops on the last blank), then enters insert mode as i does, a count
+too: '  abc' with 3Ix Esc gives '  xxxabc', and '   ' '   xxx'.
 
 ### What vim does
 
@@ -713,72 +724,83 @@ Checked by typing into vim 8.2 in a terminal:
   'abc', 'ab', 'ab', 'ab' (the cursor on the last 'ab'), `3Oab<Esc>`
   'ab', 'ab', 'ab', 'abc'; `3o<Esc>` opens three empty lines.
 - u takes the typing and its copies back in one step.
-- A cursor move in insert mode (an arrow key that moves, Home, End, the
-  page keys) drops the count (vim's arrow_used): `3ia<Left>b<Esc>` gives
-  'baabc'. A key that fails to move keeps it.
+- A cursor move in insert mode (an arrow key that moves, Home and End
+  even where they cannot, the page keys) drops the count (vim's
+  arrow_used): `3ia<Left>b<Esc>` gives 'baabc'. A key that fails to move
+  keeps it: `3ix<Up>y<Esc>` on the first line gives 'xyxyxyabc'.
 - The copies replay the keys typed, BS and DEL included: `3ixy<BS>z<Esc>`
   gives 'xzxzxzabc', `3A<BS>xy<Esc>` 'abxxxy' (each copy's BS takes the
   char before it), `3ix<Del><Esc>` 'xxx' (each copy's DEL takes a char of
   the text after it).
 - The count of a change command (3s, 3cw, 3cc, 3C) is its own, not a
-  repeat: `3sX<Esc>` on 'abcdef' gives 'Xdef'.
+  repeat: `3sX<Esc>` on 'abcdef' gives 'Xdef', and on an empty line 'X'.
 
 ### What the editor does
 
-The count is cleared on entering insert mode (enter_insert_mode ends in
-clear_count), so `3ix<Esc>` gives 'xabc' and `3oab<Esc>` one line 'ab'.
-
-### Plan
-
-The typing to repeat is the insert segment of part C (section 5) when it
-is all of the insert: its record holds where it starts (`UNDO_LINE16`,
+The typing repeated is the insert segment of part C (section 5) when it
+is all of the typing: its record holds where it starts (`UNDO_LINE16`,
 `UNDO_COL16`) and its length (`UNDO_INS_LEN16`, and o's or O's line
 break after it), and it ends at the cursor.
 
-- A new zero-page word `INS_COUNT16` takes `COUNT16` in
-  enter_insert_open (so for i, a, A, o, O and the change commands), and a
-  move in insert mode clears it where it ends the segment
-  (insert_handle_key's `.end_segment`). A change command's typing keeps
-  no segment (`INSERT_SEG` $7F) until a move, which clears the count, so
-  it never repeats, as in vim.
-- insert_exit calls insert_repeat first, which does nothing unless a
-  segment is kept (`INSERT_SEG` $FF) and the count is 2 or more:
-  - the lines the copies add (the segment's line breaks, count_newlines
-    after insert_undo_setup, times count - 1, mul_by_count) must fit the
-    line table (check_line_room), and the bytes (the segment's length
-    times count - 1) the text buffer (buf_shift_right_16), else "Buffer
-    full" and nothing changes;
-  - the copies go right after the segment (after o's line break), filled
-    by one forward copy from the segment's start (mem_copy_down with the
-    destination a segment's length on: each byte is read again a segment
-    on);
-  - `UNDO_INS_LEN16` grows by the copies, so u takes them back with the
-    typing (and the redo puts them back when the whole fits the 255 bytes
-    of `UNDO_DATA_BUF`);
-  - the cursor goes back where ESC found it (`SNAP_LINE16`,
-    `SNAP_COL16`) and on by the copies: a line for each line break they
-    add, else a column for each byte; then `buf_rebuild_lines` and
-    mark_adjust_insert (RF_FULL), or buf_adjust_lines_len (RF_LINE from
-    the segment's start).
-- Left as vim does otherwise: a BS or DEL past the segment's edges keeps
-  no segment (subset 3 of section 5), so `3A<BS>xy<Esc>` and
-  `3ix<Del><Esc>` type the text once (vim replays their BS and DEL too).
-- Size, *measured* on a sandbox prototype of the above on top of the
-  leftovers batch A (the suite green, and 16 tests of the cases above
-  passing): +209 bytes, 2 more in zero page. Most of it is the two
-  multiplications, the checks and the cursor arithmetic; a loop that
-  re-runs the redo (undo_insert_redo) count - 1 times would be about 90
-  to 110 bytes, but it shifts the text after the cursor once for each
-  copy.
-- CPU and repaint: one shift and one copy of the copies' bytes; a line
-  rebuild when they have line breaks (a full redraw).
-- Risks: the forward copy's overlap (the destination is the source plus
-  the segment's length), the line check before the shift, and the
-  cursor's line when o's line break is part of the segment.
-- Tests first: the cases above (3ix, 3oab, 3Oab, 3aab, 3Aab, 3o, 3O,
-  3ifoo<CR>, 3ixy<BS>z, 3i<Esc>, 3sX, 3ia<Left>b, 3oa<CR>b, u after 3ix
-  and 3oab) with the cursor, and a typed-ahead 3o with typing against
-  the same keys one at a time.
+- `enter_insert_open` keeps the count - 1 in `INS_COUNT16` (the copies;
+  0 for no count or 1), for every way into insert mode: a change
+  command's typing keeps no segment (`INSERT_SEG` $7F), so it never
+  repeats, and s, C and cw on an empty line, an empty change that goes
+  on as i does (`sub_change_insert`), clear the count first. A move in
+  insert mode clears it where it ends the segment
+  (insert_handle_key's `.end_segment`); a BS or DEL past the segment's
+  edges keeps no segment.
+- ESC calls `insert_repeat` first, which does nothing unless the segment
+  is kept and there are copies. They go in at the segment's start: a
+  gap of the copies' bytes (the segment's length times the copies,
+  `mul_by_count`; `buf_shift_right_16`), filled by one forward copy from
+  there (`mem_copy_down` with the destination a segment on: each byte is
+  read again a segment on). The buffer is then as if the copies followed
+  the segment.
+- The lines they add are counted in the copies at the cursor (where ESC
+  found it): `count_newlines_all`, as the line table is stale past the
+  cursor line. After o or O those bytes are the copies turned by one
+  byte, o's line break first, and hold as many. When the lines do not
+  fit the 1023, the copies come out again (`buf_shift_left_16` at the
+  cursor), and "Buffer full" says so, as for copies that do not fit the
+  text buffer or a size past 16 bits (`mul_by_count`'s $FFFF): the
+  typing stays once, and `open_full` clears the count a product past 16
+  bits leaves in `COUNT16`.
+- `UNDO_INS_LEN16` grows by the copies, so u takes them back with the
+  typing (and u u puts them back when the whole fits the 255 bytes of
+  `UNDO_DATA_BUF`, as for typing).
+- The cursor goes on from where ESC found it: a line down for each line
+  break (`buf_rebuild_lines`, the marks below move down, drawn as an
+  Enter's split of the cursor line from the cursor, `RF_ENTER`), else a
+  column on for each byte (`buf_adjust_lines_len`, drawn as a change of
+  the line from the segment's start).
+
+Measured: +139 bytes (with 5 saved first: `add_len_x` and
+`cursor_to_snap` took the place of two sums and a copy of the cursor),
+2 more in zero page. CPU: one shift of the text after the segment and
+one copy of the copies' bytes, then a line table rebuild from the
+cursor line when they have line breaks, else a pass over the line
+table after it: `3ix` at the top of 1,000 lines costs 148,000 cycles
+more than `ix`, `3oab` 250,000 more than `oab`. Entering and leaving
+insert mode costs 121 cycles more.
+
+The tests (checked in vim 8.2) cover i, a, A, o and O with counts, with
+Enter, BS within the typing, moves that drop the count and ones that
+fail, change commands, an empty buffer, u and u u, the marks, the
+screen of a split and of a wrapped line, typed ahead against one at a
+time, and the refusals at the text buffer's end, at the line limit
+and for a size past 16 bits. A differential against vim by typed keys
+(700 sessions of counted i, a, A, o and O with typing, Enter, BS,
+arrows, Home, End and u) has no difference.
+
+Left:
+
+- A BS or DEL past the typing's edges keeps no segment (subset 3 of
+  section 5), so `3A<BS>xy<Esc>` gives 'abxy' and `3ix<Del><Esc>` 'xbc',
+  typed once; vim replays those keys ('abxxxy', 'xxx'). It would take
+  the replay of the keys, not of the text.
+- Copies past the text buffer or the 1023 lines are refused whole, as a
+  paste is; vim puts them all in.
 
 ## 8. The view (whole lines done; far jumps and '@' rows kept for now)
 

@@ -27,10 +27,9 @@ ansi_delete_chars        = scr_delete
 ; ANSI sequence string constants
 ; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
 ; of these strings (23 bytes) must start on the same 256-byte page.  They
-; come first in terminal.asm, which starts early in the first code page
-; in both builds (at $0403 after editor.asm's JMP, or after io.asm's
-; serial routines in the terminal build), so code growth does not move
-; them across a page boundary.  If that changes, escape sequences will be
+; come first in terminal.asm, which starts the code in both builds (at
+; $0403 after editor.asm's JMP), so code growth does not move them across
+; a page boundary.  If that changes, escape sequences will be
 ; garbage and the editor test suite will fail loudly - move the block.
 ansi_seq_clear:    .byte "2J", $1B, "[H", $00   ; clear, then home
 ansi_seq_clreol:   .asciiz "K"

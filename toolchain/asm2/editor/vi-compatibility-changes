@@ -9,12 +9,28 @@
   in normal mode), a control character takes 2 cells (^X) and a byte that is not UTF-8 4 (<80>): ' de' and ' abc'
   with 0r<Tab>j end on column 3 of ' abc' in vim, on column 0 here. See vim-gaps.md.
 
-  Counts on i, a, A, o and O - Are ignored: 3ix<Esc> inserts one x and 3oab<Esc> opens one line. Vim types the text
-  count times (after o and O on lines of their own), unless the cursor moved in insert mode, and u takes it all back.
-  See vim-gaps.md.
+  Counts on i, a, A, o and O - A Backspace over text from before the typing, or a Delete, drops the count: the text
+  goes in once. Vim types those keys again with the rest, each deleting as far as it can: 3A<BS>xy<Esc> on 'abc'
+  gives 'abxxxy' in vim, 'abxy' here, and 3ix<Del><Esc> 'xxx' in vim, 'xbc' here. Copies that do not fit the text
+  buffer or the 1023 lines are refused with "Buffer full", as a paste is, and the text typed stays once; vim puts them
+  all in. See vim-gaps.md.
 
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
+
+  Empty changes - dw on an empty last line changes nothing and is no undo step, so u undoes the change before it:
+  'abc' and '' with xjdwu give 'abc' here and 'bc' in vim, whose dw there is an empty change (de there is none in
+  either). C on an empty line keeps the register ('ab', '' and 'cd' with yyjC<Esc>P put 'ab' above the empty line);
+  vim's C yanks the empty text there, and P then puts nothing.
+
+  J with a count on the last line - Does nothing. Vim joins the lines left when the count runs past the last line,
+  and on the last line that is a join of one line: an undo step that puts the cursor on column 0 ('abc' with ll3J;
+  xl3Ju undoes the 3J there, the x here). J and 2J there change nothing in both.
+
+  :N,M> and :N,M< - End on the first non-blank of line M. Vim ends where it last set an indent: on M's first
+  non-blank when M's indent changed, on column 0 when M is empty, but on the column of the last line that did change
+  when M's did not ('a', '    ', '    hello' and 'bb cc' with :3,4< end on column 2 of 'bb cc' in vim, with the
+  editor's shift of 2 as its shiftwidth, and on column 0 here).
 
   u after insert mode - Typing after a change command (c, s, C, S, cc), and a Backspace or Delete that deletes text
   from before where the typing began (the line break o opened included) or after the cursor clear the undo, so u
@@ -69,6 +85,10 @@
   only with ! ("E13"). See vim-gaps.md.
 
   Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
+
+  The status bar - A file name too long for the screen is cut off at the right, and the line and column after it
+  with it: at 10x20, 'a_rather_long_file_name_here.txt' shows as 'a_rather_long_file_' alone. Vim shortens the name
+  from the left ('<') and keeps the position on screen.
 
   Reports - Commands that delete, yank or shift more than 2 lines (dd, yy, >>, <<, :d, :y, :>, :<, and dw or de made
   linewise) report it as vim does with its default 'report', but a shift says "3 lines shifted" where vim says "3

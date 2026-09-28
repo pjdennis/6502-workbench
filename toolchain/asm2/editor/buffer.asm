@@ -272,8 +272,8 @@ buf_shift_right_16:
 ; Byte span of BUF_TEMP16 contiguous lines starting at line A/X
 ; The span ends at the start of the line after it, or at BUF_END16 when
 ; it reaches past the last line.
-; Output: BUF_SRC16 = start, BUF_PTR16 = end, BUF_LEN16 = size in bytes
-; Clobbers A, X, Y, BUF_DST16
+; Output: BUF_SRC16 = start, BUF_PTR16 = end, BUF_LEN16 = size in bytes,
+; C = 0 (it is never empty).  Clobbers A, X, Y, BUF_DST16
 buf_line_span:
   STA BUF_DST16              ; First line low byte (X = high byte)
   JSR buf_get_line_ptr       ; Preserves X
@@ -293,9 +293,7 @@ buf_line_span:
   TYA
   JSR buf_get_line_ptr       ; BUF_PTR16 = start of the line after the span
 .have_end:
-  SEC
-  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
-  RTS
+  JMP range_len
 
 ; Replace N contiguous lines starting at line A/X with one empty line
 ; (cc/S): as buf_delete_lines, but it keeps the last line's newline, so
@@ -303,7 +301,7 @@ buf_line_span:
 buf_clear_lines:
   JSR buf_line_span
   DEC16 BUF_LEN16            ; Keep the last newline (the span ends in one)
-  BCS buf_delete_span        ; Always (buf_line_span leaves C = 1)
+  BCC buf_delete_span        ; Always (buf_line_span leaves C = 0)
 
 ; Delete N contiguous lines starting at line A/X
 ; Input: A/X = first line number (low/high), BUF_TEMP16 = count of lines to delete (16-bit)
@@ -325,7 +323,7 @@ buf_shift_left_16:
   ; dst = delete point); it copies nothing if src >= end
   CLC
   ADC16 BUF_PTR16, BUF_LEN16, BUF_SRC16
-  CP16 BUF_PTR16, BUF_DST16
+  JSR ptr_to_dst
   CP16 BUF_END16, BUF_PTR16
   JSR mem_copy_down
 

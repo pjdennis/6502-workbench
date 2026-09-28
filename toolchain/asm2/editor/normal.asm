@@ -100,6 +100,7 @@ normal_editing_keys:
   .byte 'i'         .word enter_insert_mode
   .byte 'a'         .word normal_enter_insert_after
   .byte 'A'         .word normal_enter_insert_eol
+  .byte 'I'         .word normal_enter_insert_bol
   .byte 'o'         .word normal_open_below
   .byte 'O'         .word normal_open_above
   .byte 'p'         .word normal_paste_below
@@ -284,6 +285,14 @@ normal_enter_insert_after:
 
 normal_enter_insert_eol:
   JSR insert_end             ; col = len
+  JMP enter_insert_mode
+
+; I: insert before the first non-blank, and past the blanks of a line of
+; blanks (vim's beginline(BL_WHITE)): from the line end, nonblank_left
+; stops at the first non-blank, else stays there
+normal_enter_insert_bol:
+  JSR insert_end
+  JSR nonblank_left
   JMP enter_insert_mode
 
 normal_open_below:
