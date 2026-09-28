@@ -300,6 +300,12 @@ class MichaelRomServicesTest(RomTestCase):
     def test_scrolling(self):
         self.assertEqual(self.run_program('screen_scroll'), ['', 'row1', 'again', ''])
 
+    def test_rows_inserted_and_deleted(self):
+        self.assertEqual(self.run_program('screen_lines'), ['row1', 'new', 'xow3', 'out'])
+
+    def test_rows_inserted_and_deleted_in_a_region(self):
+        self.assertEqual(self.run_program('screen_lines_region'), ['', 'row1', 'end', 'row4'])
+
     def test_keys(self):
         typed = b'aA\x06\x1b[A\x1b[1;5C\x1b[3~\x1b\r\x08q'
         self.assertEqual(self.run_program('keys', typed)[0], '6141068089881B0D08')

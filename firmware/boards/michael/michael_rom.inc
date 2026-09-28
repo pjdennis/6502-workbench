@@ -50,15 +50,18 @@ SVC_SCR_INSERT       = SVC_BASE + $5D
 SVC_SCR_DELETE       = SVC_BASE + $60
 SVC_SCR_SCROLL_UP    = SVC_BASE + $63
 SVC_SCR_SCROLL_DOWN  = SVC_BASE + $66
+SVC_SCR_INSERT_LINES = SVC_BASE + $69
+SVC_SCR_DELETE_LINES = SVC_BASE + $6C
+; (up to $8D: room for more of the environment's; each does nothing)
 ; Michael's own. All preserve X and Y
-SVC_START            = SVC_BASE + $69 ; Start the keyboard and the screen (argc does, the first time)
-SVC_LCD_COMMAND      = SVC_BASE + $6C ; Send the LCD command in A (no start needed)
-SVC_LCD_CHARACTER    = SVC_BASE + $6F ; Write the character in A at the LCD's cursor (no start needed)
-SVC_DELAY            = SVC_BASE + $72 ; Wait A times 100 microseconds
-SVC_KEYBOARD_START   = SVC_BASE + $75 ; Start the keyboard: con_read, con_ready; enables interrupts
-SVC_SCREEN_START     = SVC_BASE + $78 ; Start the screen: write_b, con_flush, scr_*
-SVC_IRQ              = SVC_BASE + $7B ; The ROM's interrupt handler (ends with rti)
-SVC_END              = SVC_BASE + $7E
+SVC_START            = SVC_BASE + $90 ; Start the keyboard and the screen (argc does, the first time)
+SVC_LCD_COMMAND      = SVC_BASE + $93 ; Send the LCD command in A (no start needed)
+SVC_LCD_CHARACTER    = SVC_BASE + $96 ; Write the character in A at the LCD's cursor (no start needed)
+SVC_DELAY            = SVC_BASE + $99 ; Wait A times 100 microseconds
+SVC_KEYBOARD_START   = SVC_BASE + $9C ; Start the keyboard: con_read, con_ready; enables interrupts
+SVC_SCREEN_START     = SVC_BASE + $9F ; Start the screen: write_b, con_flush, scr_*
+SVC_IRQ              = SVC_BASE + $A2 ; The ROM's interrupt handler (ends with rti)
+SVC_END              = SVC_BASE + $A5
 
 ; Zero page
 ROM_ZP_KEYBOARD      = $F0 ; $F0-$F9: the keyboard's, from SVC_KEYBOARD_START

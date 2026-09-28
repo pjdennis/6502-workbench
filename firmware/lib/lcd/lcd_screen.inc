@@ -6,8 +6,8 @@
 ;
 ; Behaves like the editor's reference terminal (editor/tests/ansi_screen.py),
 ; which wraps to the next row after the last column, except that on the
-; bottom row a character past the last column is dropped (the editor's
-; status line is longer than 20 columns) and reverse video is not shown.
+; bottom row a character past the last column is dropped (so the bottom
+; row never scrolls the screen) and reverse video is not shown.
 ;
 ; Requires:
 ;   LCD_SCREEN        - DISPLAY_WIDTH * DISPLAY_HEIGHT bytes: the characters
@@ -228,6 +228,51 @@ lcd_screen_scroll_up:
 lcd_screen_scroll_down:
   jsr lcd_screen_region_span
   bne lcd_screen_shift_right
+  rts
+
+; Insert A blank rows at the cursor's row, it and the rows below it in the
+; region moving down (rows pushed past the region's bottom are lost); the
+; cursor goes to the row's first column. Nothing when the cursor is outside
+; the region
+lcd_screen_insert_lines:
+  ldy LCD_SCREEN_TOP
+  phy
+  jsr lcd_screen_lines_region
+  bcs lcd_screen_lines_done
+  jsr lcd_screen_scroll_down
+  bra lcd_screen_lines_done
+
+; Delete A rows at the cursor's row, the rows below it in the region moving
+; up (blank rows coming in at the region's bottom); the cursor goes to the
+; row's first column. Nothing when the cursor is outside the region
+lcd_screen_delete_lines:
+  ldy LCD_SCREEN_TOP
+  phy
+  jsr lcd_screen_lines_region
+  bcs lcd_screen_lines_done
+  jsr lcd_screen_scroll_up
+lcd_screen_lines_done:
+  ply
+  sty LCD_SCREEN_TOP
+  rts
+
+; Make the region start at the cursor's row, and the cursor go to its first
+; column; C set (and nothing changed) if the cursor is outside the region
+; On exit A is preserved
+lcd_screen_lines_region:
+  ldy LCD_SCREEN_ROW
+  cpy LCD_SCREEN_TOP
+  bcc .outside
+  cpy LCD_SCREEN_BOTTOM
+  beq .inside
+  bcs .outside
+.inside:
+  sty LCD_SCREEN_TOP
+  stz LCD_SCREEN_COL
+  clc
+  rts
+.outside:
+  sec
   rts
 
 

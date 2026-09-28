@@ -38,8 +38,7 @@ Supported sequences:
 Clipped bottom row (opt-in via clip_bottom=True, with deferred_wrap=False):
     Wraps at once, except that on the bottom row a character
     written past the last column is dropped and the cursor stays past it,
-    as on the Michael LCD (firmware/lib/lcd/lcd_screen.inc), where the
-    editor's status line is longer than the row.
+    as on the Michael LCD (firmware/lib/lcd/lcd_screen.inc).
 
 Deferred auto-wrap (the default; deferred_wrap=False wraps at once):
     Matches real VT100/xterm behavior where writing to the last column

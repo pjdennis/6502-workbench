@@ -37,6 +37,8 @@ int direct_io_screen(uint8_t op, uint8_t a, uint8_t y, char *out) {
         case SCR_DELETE:       return count_seq(out, a, 'P');
         case SCR_SCROLL_UP:    return count_seq(out, a, 'S');
         case SCR_SCROLL_DOWN:  return count_seq(out, a, 'T');
+        case SCR_INSERT_LINES: return count_seq(out, a, 'L');
+        case SCR_DELETE_LINES: return count_seq(out, a, 'M');
     }
     return 0;
 }

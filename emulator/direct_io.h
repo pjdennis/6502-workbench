@@ -25,6 +25,8 @@ enum direct_io_screen_op {
     SCR_DELETE,        /* A = count: ESC[nP */
     SCR_SCROLL_UP,     /* A = count: ESC[nS */
     SCR_SCROLL_DOWN,   /* A = count: ESC[nT */
+    SCR_INSERT_LINES,  /* A = count: ESC[nL */
+    SCR_DELETE_LINES,  /* A = count: ESC[nM */
     SCR_OP_COUNT
 };
 

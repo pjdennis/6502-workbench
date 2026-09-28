@@ -80,6 +80,11 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   vector SVC_SCR_DELETE      , lcd_screen_delete        ; scr_delete
   vector SVC_SCR_SCROLL_UP   , lcd_screen_scroll_up     ; scr_scroll_up
   vector SVC_SCR_SCROLL_DOWN , lcd_screen_scroll_down   ; scr_scroll_down
+  vector SVC_SCR_INSERT_LINES, lcd_screen_insert_lines  ; scr_insert_lines
+  vector SVC_SCR_DELETE_LINES, lcd_screen_delete_lines  ; scr_delete_lines
+  .rept (SVC_START - SVC_SCR_DELETE_LINES) / 3 - 1       ; room for more
+  jmp services_nothing
+  .endr
   vector SVC_START           , services_start           ; Michael's own: start the services
   vector SVC_LCD_COMMAND     , display_command          ; LCD command in A
   vector SVC_LCD_CHARACTER   , display_character        ; character in A at the LCD's cursor

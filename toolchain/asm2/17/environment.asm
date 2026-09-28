@@ -76,6 +76,10 @@ scr_insert       = ENV_BASE + $5D ; Insert A blanks at the cursor, shifting the 
 scr_delete       = ENV_BASE + $60 ; Delete A characters at the cursor, shifting the row left
 scr_scroll_up    = ENV_BASE + $63 ; Scroll the region up A rows (blank rows at the bottom)
 scr_scroll_down  = ENV_BASE + $66 ; Scroll the region down A rows (blank rows at the top)
+scr_insert_lines = ENV_BASE + $69 ; Insert A blank rows at the cursor's row, the rows below
+                                  ; moving down within the region; cursor to column 1 (IL)
+scr_delete_lines = ENV_BASE + $6C ; Delete A rows at the cursor's row, the rows below moving
+                                  ; up within the region; cursor to column 1 (DL)
 ; With direct_io, con_read returns key codes for special keys: $80 up,
 ; $81 down, $82 left, $83 right, $84 Home, $85 End, $86 PgUp, $87 PgDn,
 ; $88 Delete, $89 Ctrl+Right, $8A Ctrl+Left, $1B Escape, $08 Backspace.

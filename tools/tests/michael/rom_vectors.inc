@@ -18,6 +18,8 @@ scr_insert       = SVC_SCR_INSERT
 scr_delete       = SVC_SCR_DELETE
 scr_scroll_up    = SVC_SCR_SCROLL_UP
 scr_scroll_down  = SVC_SCR_SCROLL_DOWN
+scr_insert_lines = SVC_SCR_INSERT_LINES
+scr_delete_lines = SVC_SCR_DELETE_LINES
 
 TEXT_PTR         = $00 ; 2 bytes
 

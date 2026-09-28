@@ -132,26 +132,14 @@ ansi_move_cursor:
   LDY ANSI_COL
   JMP scr_goto
 
-; Move A rows at the cursor's row (ANSI_ROW), as DL and IL do: X = 'M'
-; the rows below move up, 'L' they move down.  There are no screen
-; calls for DL and IL, so the rows from the cursor's to the last scroll
-; as a region, and the cursor goes back to column 1 of its row.
-; Clobbers A, Y (X preserved)
+; DL or IL of A rows at the cursor's row: X = 'M' the rows below move
+; up, 'L' they move down.  Clobbers A, Y (X preserved)
 ansi_count_seq:
-  PHA
-  LDA ANSI_ROW
-  LDY SCREEN_ROWS
-  JSR scr_region
-  PLA
   CPX #'M'
-  BNE .down
-  JSR scr_scroll_up
-  JMP .reset
-.down:
-  JSR scr_scroll_down
-.reset:
-  JSR scr_region_reset
-  JMP ansi_move_cursor
+  BNE .insert
+  JMP scr_delete_lines
+.insert:
+  JMP scr_insert_lines
 
   .else
   LDA #'H'

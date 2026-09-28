@@ -49,7 +49,7 @@ TEST wait_ready_stores_timeout_then_reads_result(void) {
 TEST direct_io_screen_vectors_store_a_then_op(void) {
     memset(memory, 0, sizeof memory);
     generate_stubs(memory, 0, 1, 0);
-    for (uint8_t op = 0; op < 13; op++) {
+    for (uint8_t op = 0; op < 15; op++) {
         uint16_t vec = (uint16_t)(0xF042 + op * 3);
         ASSERT_EQ_FMT(0x4C, memory[vec], "%02x");
         uint16_t stub = vector_target(vec);

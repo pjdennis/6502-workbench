@@ -39,6 +39,10 @@ TEST screen_calls_write_the_ansi_sequences(void) {
     CHECK_CALL(screen_is(SCR_SCROLL_UP, 1, 0, "\x1b[S"));
     CHECK_CALL(screen_is(SCR_SCROLL_UP, 2, 0, "\x1b[2S"));
     CHECK_CALL(screen_is(SCR_SCROLL_DOWN, 0, 0, "\x1b[0T"));
+    CHECK_CALL(screen_is(SCR_INSERT_LINES, 1, 0, "\x1b[L"));
+    CHECK_CALL(screen_is(SCR_INSERT_LINES, 3, 0, "\x1b[3L"));
+    CHECK_CALL(screen_is(SCR_DELETE_LINES, 1, 0, "\x1b[M"));
+    CHECK_CALL(screen_is(SCR_DELETE_LINES, 12, 0, "\x1b[12M"));
     PASS();
 }
 
