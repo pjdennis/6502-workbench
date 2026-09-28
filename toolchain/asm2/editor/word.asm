@@ -374,12 +374,13 @@ word_end_range_end:
 
 ; Finish a forward range ending at BUF_PTR16: restore the cursor saved by
 ; range_start, BUF_LEN16 = BUF_PTR16 - BUF_SRC16; carry set if empty.
-; range_len does only the latter.
+; range_len does only the latter, range_len_c takes one less for C = 0.
 range_end:
   CP16 BUF_DST16, FILE_LINE16
   CP16 BUF_LEN16, CURSOR_COL16
 range_len:
   SEC
+range_len_c:
   SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
   ; fall through into range_epilogue
 

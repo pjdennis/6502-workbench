@@ -517,8 +517,7 @@ dollar_range_setup:
   TYA
   JSR buf_get_line_ptr        ; The line after the range
   CLC                         ; (The borrow drops the newline)
-  SBC16 BUF_PTR16, BUF_SRC16, BUF_LEN16
-  JMP range_epilogue
+  JMP range_len_c
 
 ; --- Word operations: delete, change ---
 ; All word operations are thin wrappers: they pass the range routine in
