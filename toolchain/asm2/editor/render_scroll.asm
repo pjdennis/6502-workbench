@@ -750,14 +750,13 @@ cdsr_overflow:
 
 ; A cursor line taller than the text rows is the top line, shown from
 ; the row that keeps its cursor row on screen, moving as little as it can
-; (vim's skipcol): see ensure_cursor_visible
-view_tall:
-  CMP16 VIEW_TOP16, FILE_LINE16
-  BEQ .same
+; (vim's skipcol): see ensure_cursor_visible.  view_tall_move: it goes
+; on top from another line, view_tall: it is the top line
+view_tall_move:
   CP16 FILE_LINE16, VIEW_TOP16
   LDA #0
   STA VIEW_TOP_WRAP
-.same:
+view_tall:
   LDA WRAP_QUOT
   SEC
   SBC VIEW_TOP_WRAP
@@ -814,7 +813,7 @@ ensure_row_visible:
   BEQ view_tall
   LDX WRAP_QUOT
   CPX TEXT_ROWS
-  BCS view_tall
+  BCS view_tall_move
   INX
   STX VIEW_ROWS
 .fits:
