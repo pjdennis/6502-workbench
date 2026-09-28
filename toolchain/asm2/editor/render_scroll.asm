@@ -821,13 +821,13 @@ ensure_row_visible:
   STA VIEW_TOP_WRAP
   STA CURSOR_ROW             ; The rows above the cursor line
   CP16 FILE_LINE16, RENDER_LINE16
-  CMP16 VIEW_TOP16, FILE_LINE16
-  BCS .set_top               ; On or above the top line: it goes on top
 .up:
   ; RENDER_LINE16 = the top line to be: the line above it if that fits
-  ; with the lines below it, until it is the top line
+  ; with the lines below it, until it is the top line (the cursor line
+  ; above the top line goes on top)
   CMP16 RENDER_LINE16, VIEW_TOP16
   BEQ .row                   ; The view stays
+  BCC .set_top
   DEC16 RENDER_LINE16
   LDAX16 RENDER_LINE16
   JSR any_line_rows
