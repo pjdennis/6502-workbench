@@ -150,6 +150,16 @@ evaluates the value again, with every label defined, and stops with error
 43, "Assignment uses a label defined later", if it differs from the stored
 one, rather than let the wrong value through.
 
+"* =" and ".reserve" move the PC in pass 1 too, so one that uses a label
+defined later moves everything after it differently in the two passes.
+Pass 2 compares each global label's address with the one pass 1 stored,
+and both PCs (the code's and the zero page's) at the end with pass 1's,
+and stops with error 44, "Address differs between passes", at the first
+that differs (at a global label, or with no line once the input has
+ended). Local labels are not compared: a shift followed only by local
+labels and then a "* =" that brings both passes back to the same PC goes
+unreported.
+
 
 Macro System
 ------------

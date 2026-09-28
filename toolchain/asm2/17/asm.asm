@@ -74,6 +74,8 @@ PC_SAVE16:       .word        ; Save location for PC when switching sections
 INST_PTR16:      .word        ; Pointer to instruction mode table entry, aliased as MACRO_DEF_PTR16
 MACRO_DEF_PTR16 = INST_PTR16  ; Heap pointer where macro body is being stored, aliased to INST_PTR16
 IS_FWDREF:       .byte        ; $FF if current label is forward ref (pass 1 only)
+PASS_1_PC16:     .word        ; PC16 and PC_SAVE16 at the end of pass 1: pass 2
+PASS_1_PC_SAVE16: .word       ; must end with the same
 MACRO_ENTRY16:   .word        ; Original macro hash entry address (for recursion check)
 
   .ifdef enable_debug
@@ -310,6 +312,8 @@ start:
 
   JSR assemble_code
   JSR finalize_fwdref_list
+  CP16 PC16, PASS_1_PC16
+  CP16 PC_SAVE16, PASS_1_PC_SAVE16
 
   .ifdef enable_debug
   ; Capture forward ref pointer after pass 1
@@ -322,6 +326,18 @@ start:
   JSR init_scope_state    ; Reset so pass 2 uses same scope IDs as pass 1
   JSR open_input
   JSR assemble_code
+
+  ; Pass 2 must end where pass 1 did, in both sections: a * = or .reserve
+  ; that took a label not defined yet in pass 1 moves the rest of the
+  ; code, which a global label after it shows (labels.asm), but there may
+  ; be none
+  CMP16 PC16, PASS_1_PC16
+  BNE .address_differs
+  CMP16 PC_SAVE16, PASS_1_PC_SAVE16
+  BEQ .same_end
+.address_differs:
+  JMP err_address_differs
+.same_end:
 
   .ifdef enable_debug
   ; Verify forward ref pointer matches pass 1

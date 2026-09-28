@@ -178,3 +178,74 @@ INPUT:
  3: late = earlier + $01
  4:   JSR late
 EXPECT_HEX: 20 35 12
+
+---
+NAME: reserve_of_a_later_label
+INPUT:
+ 1: * = $0200
+ 2:   .reserve count
+ 3: after:
+ 4:   JMP after
+ 5: count = $0003
+EXPECT_ERROR: 44
+EXPECT_LINE: 3
+EXPECT_MSG: Address differs between passes
+
+---
+NAME: reserve_of_a_later_label_byte
+INPUT:
+ 1: * = $0200
+ 2:   .reserve <count
+ 3: after:
+ 4:   JMP after
+ 5: count = $0003
+EXPECT_ERROR: 44
+EXPECT_LINE: 3
+EXPECT_MSG: Address differs between passes
+
+---
+NAME: first_origin_of_a_later_label
+INPUT:
+ 1: * = start
+ 2: entry:
+ 3:   JMP entry
+ 4: start = $0300
+EXPECT_ERROR: 44
+EXPECT_LINE: 2
+EXPECT_MSG: Address differs between passes
+
+---
+NAME: reserve_in_zeropage_of_a_later_label
+INPUT:
+ 1: * = $0200
+ 2:   .zeropage
+ 3:   .reserve count
+ 4: var: .byte
+ 5:   .code
+ 6:   LDA var
+ 7: count = $0002
+EXPECT_ERROR: 44
+EXPECT_LINE: 4
+EXPECT_MSG: Address differs between passes
+
+---
+NAME: reserve_of_a_later_label_after_the_last_label
+INPUT:
+ 1: * = $0200
+ 2: entry:
+ 3:   NOP
+ 4:   .reserve count
+ 5:   NOP
+ 6: count = $0002
+EXPECT_ERROR: 44
+EXPECT_MSG: Address differs between passes
+
+---
+NAME: reserve_of_an_earlier_label
+INPUT:
+ 1: * = $0200
+ 2: count = $0002
+ 3:   .reserve count
+ 4: after:
+ 5:   JMP after
+EXPECT_HEX: 00 00 4c 02 02

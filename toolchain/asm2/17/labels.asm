@@ -102,6 +102,8 @@ update_label_scope_from_lookup:
 ;        'Duplicate label' error if label has already been encountered
 ;        'Assignment uses a label defined later' (pass 2) if an assigned
 ;          value differs from pass 1's, which took such a label as 0
+;        'Address differs between passes' (pass 2) if a global label's
+;          address differs from pass 1's
 ;        'Bad hex' error if non-hex characters were encountered
 capture_label:
   CMP #'*'
@@ -132,6 +134,11 @@ capture_label:
   LDA LABEL_TYPE
   BNE .was_local_2          ; If local flag != 0, skip update
   JSR update_label_scope_from_lookup  ; Set LABEL_SCOPE16 for local label lookups
+  ; HT_V16 = the address pass 1 gave the label: the same now, unless a
+  ; * = or .reserve before it took a label not defined yet in pass 1
+  CMP16 HT_V16, PC16
+  BEQ .was_local_2
+  JMP err_address_differs
 .was_local_2:
   JMP .skip_spaces_and_return_processed_flag
 .set_pc:
