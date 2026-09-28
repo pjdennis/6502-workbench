@@ -39,7 +39,10 @@ class UploadScriptTest(unittest.TestCase):
 
   def run_script(self, board, *args):
     """Returns (exit status, transfer.py's arguments or None if it wasn't run)."""
-    result = subprocess.run([os.path.join(UPLOAD, 'compile_and_upload_{}.sh'.format(board)), *args],
+    return self.run_upload_script('compile_and_upload_{}.sh'.format(board), *args)
+
+  def run_upload_script(self, script, *args):
+    result = subprocess.run([os.path.join(UPLOAD, script), *args],
                             cwd=self.dir, env=self.env, capture_output=True, text=True)
     if not os.path.exists(self.log):
       return result.returncode, None
@@ -77,6 +80,19 @@ class UploadScriptTest(unittest.TestCase):
     self.run_script('michael', 'prog.s')
     with open(os.path.join(self.dir, 'a.hex')) as f:
       self.assertEqual(f.read().split(), [':01500000EAC5', ':00000001FF'])
+
+  def test_srec_assembles_to_srecords_with_the_start_address(self):
+    self.write('started.s', '  .org $5000\n  nop\nstart:\n  rts\n')
+    self.assertEqual(self.run_upload_script('compile_and_upload.sh', '--srec', '--baudrate=57600', 'started.s'),
+                     (0, ['--baudrate=57600', 'a.s19']))
+    with open(os.path.join(self.dir, 'a.s19')) as f:
+      self.assertEqual([line for line in f.read().split() if not line.startswith('S0')],
+                       ['S1055000EA6060', 'S9035001AB'])
+
+  def test_srec_needs_a_start_label(self):
+    status, transfer_args = self.run_upload_script('compile_and_upload.sh', '--srec', '--baudrate=57600', 'prog.s')
+    self.assertNotEqual(status, 0)
+    self.assertIsNone(transfer_args)
 
   def test_wendy_opens_the_port_directly_without_a_reset(self):
     # Wendy has no DTR reset, so doesn't need the daemon; --direct always waits for the data to send

@@ -4,7 +4,7 @@ Uploads go through serial_daemon.py, which holds the port open so that opening i
 the board; the daemon is started on first use. See tools/README.md.
 
 Usage: transfer.py --baudrate=N [--stopbits=1|2] [--port=DEVICE] [--noreset] [--wait] [--direct]
-                   [--format=2 [--load-address=HEX] [--start=HEX]] FILE
+                   [--format=2|3 [--load-address=HEX] [--start=HEX]] FILE
        transfer.py --daemon status|stop
 """
 import argparse
@@ -14,7 +14,7 @@ import sys
 import time
 
 import serial_daemon
-from upload_frame import LOAD_ADDRESS, build_frame, format_2, read_segments
+from upload_frame import LOAD_ADDRESS, build_frame, encode
 
 AUTOSTART_TIMEOUT = 5  # seconds allowed for a newly started daemon to accept connections
 
@@ -35,15 +35,16 @@ def parse_args(argv):
                       help='open the port here instead of using the daemon (on Linux, opening the port '
                            'resets the board); always waits, since closing the port straight after '
                            'writing can lose data')
-  parser.add_argument('--format', type=int, choices=[1, 2], default=1,
-                      help='upload format: 1 (length, payload, checksum) or 2 (Michael: blocks; '
+  parser.add_argument('--format', type=int, choices=[1, 2, 3], default=1,
+                      help='upload format: 1 (length, payload, checksum), 2 or 3 (Michael: blocks; '
                            'see upload_frame.py)')
   parser.add_argument('--load-address', type=lambda text: int(text, 16), default=LOAD_ADDRESS,
-                      help='format 2: where a binary FILE loads, in hex (default %04x); an Intel HEX '
-                           'FILE (.hex) gives its own addresses' % LOAD_ADDRESS)
+                      help='formats 2 and 3: where a binary FILE loads, in hex (default %04x); an '
+                           'S-record (.s19, .srec) or Intel HEX (.hex) FILE gives its own addresses'
+                           % LOAD_ADDRESS)
   parser.add_argument('--start', type=lambda text: int(text, 16),
-                      help='format 2: where to run the upload, in hex (default: its lowest address; '
-                           'ffff: don\'t run it)')
+                      help='formats 2 and 3: where to run the upload, in hex (default: the FILE\'s '
+                           'start address if it gives one, else its lowest address; ffff: don\'t run it)')
   parser.add_argument('--daemon', choices=['status', 'stop'], help='report on or stop the serial daemon')
   args = parser.parse_args(argv)
   if args.daemon is None and (args.file is None or args.baudrate is None):
@@ -100,8 +101,8 @@ def send_direct(args, frame):
 
 def read_upload(args):
   """The bytes to send for args.file, in the upload format asked for."""
-  if args.format == 2:
-    return format_2(read_segments(args.file, args.load_address), args.start)
+  if args.format in (2, 3):
+    return encode(args.format, args.file, args.load_address, args.start)
   with open(args.file, 'rb') as f:
     return build_frame(f.read())
 
