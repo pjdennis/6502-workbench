@@ -5,6 +5,10 @@
   take more than TEXT_ROWS - 2 rows, and after Ctrl-B it shows whole lines from the top (its usual view), where the
   editor puts the new bottom line's first row on the bottom row. Lines that fit a row page as in vim. See vim-gaps.md.
 
+  Counts on i, a, A, o and O - Are ignored: 3ix<Esc> inserts one x and 3oab<Esc> opens one line. Vim types the text
+  count times (after o and O on lines of their own), unless the cursor moved in insert mode, and u takes it all back.
+  See vim-gaps.md.
+
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.
 
