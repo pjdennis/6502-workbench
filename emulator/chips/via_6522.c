@@ -137,7 +137,8 @@ static bool via_6522_write(struct chip *self, struct bus *bus,
         case VIA_REG_T1CH:
             s->t1l = (uint16_t)((s->t1l & 0x00FF) | ((uint16_t)data << 8));
             s->t1c = s->t1l;
-            s->t1_running = 1;
+            s->t1_running = s->t1_loaded = s->t1_armed = 1;
+            s->t1_reload = 0;
             via_clear_ifr(s, bus, VIA_INT_T1);
             if (s->acr & VIA_ACR_T1_OUT) s->pb7 = 0;  /* PB7 starts low */
             return true;
@@ -150,7 +151,7 @@ static bool via_6522_write(struct chip *self, struct bus *bus,
             return true;
         case VIA_REG_T2CH:
             s->t2c = (uint16_t)(s->t2l_lo | ((uint16_t)data << 8));
-            s->t2_running = 1;
+            s->t2_running = s->t2_loaded = s->t2_armed = 1;
             via_clear_ifr(s, bus, VIA_INT_T2);
             return true;
         case VIA_REG_SR:
@@ -214,33 +215,52 @@ static void via_6522_tick(struct chip *self, struct bus *bus) {
      * (We do NOT clear cpu_cycle_due here -- the CPU chip ticks
      * after us and consumes it.) */
     if (!bus->cpu_cycle_due) return;
+
+    /* The W65C22 datasheet's timing (figures 2-3, 2-4): a counter
+     * written through T1CH/T2CH holds N for the next cycle, then counts
+     * down; it times out as it rolls over from 0 to $FFFF, setting the
+     * flag N+1.5 cycles after the write (seen on the cycle that reads
+     * $FFFF). T1 then reloads from the latch, so free-run interrupts
+     * come every N+2 cycles; one-shot mode counts on the same way but
+     * sets the flag only once per write. */
     if (s->t1_running) {
-        if (s->t1c == 0) {
-            via_set_ifr(s, bus, VIA_INT_T1);
+        if (s->t1_loaded) {
+            s->t1_loaded = 0;
+        } else if (s->t1_reload) {
+            s->t1c = s->t1l;
+            s->t1_reload = 0;
+        } else if (s->t1c == 0) {
+            s->t1c = 0xFFFF;
+            s->t1_reload = 1;
             if (s->acr & VIA_ACR_T1_CONT) {
-                s->t1c = s->t1l;
+                via_set_ifr(s, bus, VIA_INT_T1);
                 if (s->acr & VIA_ACR_T1_OUT) s->pb7 ^= 1;
-            } else {
-                s->t1_running = 0;
+            } else if (s->t1_armed) {
+                s->t1_armed = 0;
+                via_set_ifr(s, bus, VIA_INT_T1);
+                if (s->acr & VIA_ACR_T1_OUT) s->pb7 = 1;
             }
         } else {
             s->t1c--;
         }
     }
 
-    /* T2: one-shot timer that keeps counting after underflow (per
-     * 6522 datasheet -- "after the timer has reached zero, it will
-     * continue to decrement"). In SR-IN-T2 mode, each underflow also
-     * shifts cb2_in into SR (when sr_bits_remaining > 0) and reloads
-     * T2 from the low-byte latch for the next bit-time. */
+    /* T2 times out like T1 but keeps counting down from $FFFF, setting
+     * the flag once per write to T2CH (datasheet 2.9). In SR-IN-T2 mode
+     * each underflow instead shifts cb2_in into SR (when
+     * sr_bits_remaining > 0) and reloads T2 from the low-byte latch for
+     * the next bit-time -- a simplification of the real shift timing
+     * (the serial drivers follow sr_shift_total, not the cycle count). */
     if (s->t2_running) {
-        if (s->t2c == 0) {
-            via_set_ifr(s, bus, VIA_INT_T2);
-            if ((s->acr & VIA_ACR_SR_MODE) == VIA_ACR_SR_IN_T2) {
-                /* SR-in-T2 mode: T2 free-runs at t2l_lo cadence
-                 * regardless of the shift counter -- the shift counter
-                 * only gates whether each underflow actually shifts a
-                 * bit and fires the SR IRQ. */
+        if (s->t2_loaded) {
+            s->t2_loaded = 0;
+        } else if ((s->acr & VIA_ACR_SR_MODE) == VIA_ACR_SR_IN_T2) {
+            if (s->t2c == 0) {
+                via_set_ifr(s, bus, VIA_INT_T2);
+                /* T2 free-runs at t2l_lo cadence regardless of the
+                 * shift counter -- the shift counter only gates
+                 * whether each underflow actually shifts a bit and
+                 * fires the SR IRQ. */
                 if (s->sr_bits_remaining > 0) {
                     s->sr = (uint8_t)((s->sr << 1) | (s->cb2_in & 1));
                     s->sr_bits_remaining--;
@@ -251,9 +271,13 @@ static void via_6522_tick(struct chip *self, struct bus *bus) {
                 }
                 s->t2c = s->t2l_lo;
             } else {
-                s->t2c = 0xFFFF;  /* plain T2 one-shot: continue counting */
+                s->t2c--;
             }
         } else {
+            if (s->t2c == 0 && s->t2_armed) {
+                s->t2_armed = 0;
+                via_set_ifr(s, bus, VIA_INT_T2);
+            }
             s->t2c--;
         }
     }

@@ -4,7 +4,7 @@ INTERRUPT_ROUTINE       = $3f00
 
 JIFFY_HZ = 500
 
-DELAY = CLOCK_FREQ_KHZ / JIFFY_HZ * 1000
+DELAY = CLOCK_FREQ_KHZ * 1000 / JIFFY_HZ ; Multiply first: vasm works in 32 bits
 
 DISPLAY_STRING_PARAM    = $00 ; 2 bytes
 TO_DECIMAL_PARAM        = $02 ; 9 bytes
