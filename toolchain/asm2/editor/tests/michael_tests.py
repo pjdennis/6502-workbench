@@ -130,7 +130,7 @@ class MichaelEditorTest(unittest.TestCase):
             return shown()
 
         try:
-            self.assertTrue(read_until(b"[No Name] - NORMAL -"), seen[-500:])
+            self.assertTrue(read_until(b"[No Name] - NORMAL"), seen[-500:])
             os.write(master, b"ihello")
             time.sleep(0.1)
             os.write(master, b"\x1b")
@@ -145,13 +145,13 @@ class MichaelEditorTest(unittest.TestCase):
             os.close(master)
 
     def test_starts_with_an_empty_unnamed_file(self):
-        self.assertEqual(self.run_michael(b""), ["", "~", "~", "[No Name] - NORMAL -"])
+        self.assertEqual(self.run_michael(b""), ["", "~", "~", "[No Name] - NORMAL"])
 
     def test_typed_text_shows(self):
         self.assertEqual(self.run_michael(b"ihello\x1b")[0], "hello")
 
     def test_write_fails(self):
-        self.assertEqual(self.run_michael(b"ihi\x1b:w\r")[ROWS - 1], ":Can't open file for")
+        self.assertEqual(self.run_michael(b"ihi\x1b:w\r")[ROWS - 1], "Can't open file for")
 
     def test_same_as_console_typing_past_the_screen(self):
         self.assert_same_as_console(b"ione\rtwo\rthree\rfour\rfive\x1b")
