@@ -28,8 +28,8 @@ insert_keys:
   .byte KEY_END     .word normal_line_end     ; Col = len (and j/k stick there)
   .byte KEY_PGDN    .word normal_page_down    ; These land on the first
   .byte KEY_PGUP    .word normal_page_up      ; non-blank: no insert clamp
-  .byte KEY_WORD_FWD  .word insert_word_fwd
-  .byte KEY_WORD_BACK .word insert_word_back
+  .byte KEY_WORD_FWD  .word normal_word_forward   ; As w and b
+  .byte KEY_WORD_BACK .word normal_word_backward
   .byte 0           ; End sentinel
 
 ; Exit insert mode, return to normal mode (the undo record of the typing
@@ -592,19 +592,4 @@ insert_seg_start:
   ASL UNDO_WAS_EMPTY         ; Bit 6: before the change
   STA_LH16 UNDO_INS_LEN16
   RTS
-
-; Word motion handlers in insert mode, counted with pending repeats of
-; the same key.  Word motions stay within 0..len (in insert mode the
-; cursor may sit one past the last char), so need no clamp.  (The arrow
-; keys run the code of h, l, j and k, whose clamp_cursor_col keeps to
-; the line end in insert mode.)
-insert_word_fwd:
-  JSR get_count_pending16
-  JMP word_forward_x
-
-insert_word_back:
-  JSR get_count_pending16
-  JMP word_backward_x
-
-
 
