@@ -149,6 +149,9 @@ insert_handle_key:
 .key_bs:
   TXA
   BEQ .key_bs_overflow
+  LDA BATCH_BUF - $01,X
+  CMP #'\n'
+  BEQ .bs_after_enter
   DEX                       ; Cancel last char in batch
   BPL .dec_cap              ; Always taken (X < BATCH_MAX)
 .key_bs_overflow:
@@ -190,6 +193,11 @@ insert_handle_key:
   STA INSERT_SEG
 .kept:
   RTS
+.bs_after_enter:
+  ; A BS of an Enter this batch typed: the Enter goes in first, and its
+  ; move of the view stays, as with the keys typed one at a time; the BS
+  ; waits its turn
+  LDA #KEY_BS
 .end_batch:
   JSR unget_key
 

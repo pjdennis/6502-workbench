@@ -1985,6 +1985,18 @@ class EditorTestRunner:
                                                      b"\x06"])):
             self.run_test_batch_equiv("Batch equiv: " + name, tall, keys,
                                       rows=5, cols=20)
+        # An Enter at the bottom row scrolls the view; a BS typed after it
+        # takes the line break back but not the scroll (as in vim), also
+        # typed ahead (the batch ends before that BS)
+        ten = "".join(f"l{i}\n" for i in range(10))
+        for name, keys in (
+                ("Enter at the bottom row, then BS",
+                 [b"5G", b"A", b"\r", b"\x08"]),
+                ("text, Enters at the bottom row, then BS over them",
+                 [b"5G", b"A", b"x", b"\r", b"\r", b"y", b"\x08", b"\x08",
+                  b"\x08", b"z"])):
+            self.run_test_batch_equiv("Batch equiv: " + name, ten,
+                                      keys + [b"\x1b"], rows=6, cols=20)
 
     def run_all_tests(self):
         """Run all editor tests."""
