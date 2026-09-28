@@ -1,6 +1,6 @@
-; Michael's ROM (32 KB EEPROM at $8000): at reset it receives an upload in format 2
-; (firmware/lib/serial/upload_v2.inc, tools/upload/upload_frame.py) and runs it. Uploads go
-; from $0200 up to the interrupt page ($3F00, where the IRQ vector points). Uploaded programs
+; Michael's ROM (32 KB EEPROM at $8000): at reset it receives an upload in format 3
+; (firmware/lib/serial/upload_v3.inc, tools/upload/upload_frame.py) and runs it. Uploads go
+; to zero page, and from $0200 up to the interrupt page ($3F00, where the IRQ vector points). Uploaded programs
 ; can call the LCD and keyboard services (michael_services.inc) through the vector table at
 ; $F006 (michael_rom.inc): the asm2 environment's entry points, so the editor's
 ; direct_io build runs on it; exit comes back here.
@@ -19,29 +19,32 @@ BPS_HUNDREDS      = 576                   ; 57600 bps
 UPLOAD_RAM_START  = $0200
 INTERRUPT_ROUTINE = INTERRUPT_VECTOR_TARGET
 
-; Zero page, the loader's until the upload runs
-DISPLAY_STRING_PARAM = $00 ; 2 bytes
-UPLOAD_P             = $02 ; 2 bytes
-WAITING_FOR_SHIFT    = $04 ; 1 byte
-UPLOAD_POS           = $05 ; 2 bytes
-UPLOAD_TARGET        = $07 ; 2 bytes
-UPLOAD_CHECK_FROM    = $09 ; 2 bytes
-UPLOAD_END           = $0b ; 2 bytes
-UPLOAD_START         = $0d ; 2 bytes
-UPLOAD_FLAGS         = $0f ; 1 byte
-UPLOAD_BLOCK         = $10 ; 1 byte
-CHECKSUM_VALUE       = $11 ; 2 bytes
-TEMP_P               = $13 ; 2 bytes
-UPLOAD_LENGTH        = $15 ; 2 bytes
-UPLOAD_ADDRESS       = $17 ; 2 bytes
-UPLOAD_FROM          = $19 ; 2 bytes
-UPLOAD_STATE         = $1b ; 1 byte
-UPLOAD_SEEN          = $1c ; 2 bytes
-UPLOAD_SHOWN         = $1e ; 2 bytes
-UPLOAD_DATA          = $20 ; 2 bytes
-UPLOAD_SHOWN_BLOCK   = $22 ; 1 byte
-TEMP                 = $23 ; 1 byte
-UPLOAD_TICKS         = $24 ; 1 byte
+; Zero page: the loader's block, each variable after the one before (upload_v3.inc checks them,
+; and stashes the block while placing an upload, so the upload may load it too)
+UPLOAD_ZP_START      = $00
+DISPLAY_STRING_PARAM = UPLOAD_ZP_START            ; 2 bytes
+UPLOAD_P             = DISPLAY_STRING_PARAM + 2   ; 2 bytes
+WAITING_FOR_SHIFT    = UPLOAD_P + 2               ; 1 byte
+UPLOAD_STATE         = WAITING_FOR_SHIFT + 1      ; 1 byte
+UPLOAD_COUNT         = UPLOAD_STATE + 1           ; 1 byte
+UPLOAD_SEEN          = UPLOAD_COUNT + 1           ; 2 bytes
+UPLOAD_SHOWN         = UPLOAD_SEEN + 2            ; 2 bytes
+UPLOAD_SHOWN_ENTRY   = UPLOAD_SHOWN + 2           ; 1 byte
+UPLOAD_TICKS         = UPLOAD_SHOWN_ENTRY + 1     ; 1 byte
+UPLOAD_ENTRY         = UPLOAD_TICKS + 1           ; 1 byte
+UPLOAD_ENTRY_DATA    = UPLOAD_ENTRY + 1           ; 2 bytes
+UPLOAD_ENTRY_NEXT    = UPLOAD_ENTRY_DATA + 2      ; 2 bytes
+UPLOAD_DATA          = UPLOAD_ENTRY_NEXT + 2      ; 2 bytes
+UPLOAD_END           = UPLOAD_DATA + 2            ; 2 bytes
+UPLOAD_SOURCE        = UPLOAD_END + 2             ; 2 bytes
+UPLOAD_FROM          = UPLOAD_SOURCE + 2          ; 2 bytes
+UPLOAD_TO            = UPLOAD_FROM + 2            ; 2 bytes
+UPLOAD_LENGTH        = UPLOAD_TO + 2              ; 2 bytes
+UPLOAD_LIMIT         = UPLOAD_LENGTH + 2          ; 2 bytes
+UPLOAD_FLAGS         = UPLOAD_LIMIT + 2           ; 1 byte
+CHECKSUM_VALUE       = UPLOAD_FLAGS + 1           ; 2 bytes
+TEMP                 = CHECKSUM_VALUE + 2         ; 1 byte
+UPLOAD_ZP_END        = TEMP + 1
 
 UPLOAD_BEFORE_RUN    = services_reset      ; Nothing started, for the upload
 SERVICES_EXIT        = reset
@@ -73,10 +76,9 @@ program_start:
   lda #<rom_message
   ldx #>rom_message
   jsr display_string
-  jmp upload_v2                   ; Shows "Ready" under it while it waits
+  jmp upload_v3                   ; Shows "Ready" under it while it waits
 
-  .include upload_v2.inc
-  .include serial_receive_interrupt.inc   ; Copied to INTERRUPT_ROUTINE by upload_v2
+  .include upload_v3.inc
 
 nmi:
   rti

@@ -67,19 +67,21 @@ class UploadScriptTest(unittest.TestCase):
                      (0, ['--baudrate=115200', '--wait', 'a.out']))
 
   def test_michael(self):
-    # Michael's ROM takes upload format 2, built from Intel HEX: the program's .org is where it loads
-    # and starts
-    self.assertEqual(self.run_script('michael', 'prog.s'),
-                     (0, ['--baudrate=57600', '--format=2', 'a.hex']))
+    # Michael's ROM takes upload format 3, built from S-records: the program loads at its .org and
+    # starts at its start label
+    self.write('started.s', '  .org $5000\n  nop\nstart:\n  rts\n')
+    self.assertEqual(self.run_script('michael', 'started.s'),
+                     (0, ['--baudrate=57600', '--format=3', 'a.s19']))
 
   def test_michael_noreset(self):
-    self.assertEqual(self.run_script('michael', '--noreset', 'prog.s'),
-                     (0, ['--baudrate=57600', '--format=2', '--noreset', 'a.hex']))
+    self.write('started.s', '  .org $5000\nstart:\n  nop\n')
+    self.assertEqual(self.run_script('michael', '--noreset', 'started.s'),
+                     (0, ['--baudrate=57600', '--format=3', '--noreset', 'a.s19']))
 
-  def test_michael_assembles_to_intel_hex(self):
-    self.run_script('michael', 'prog.s')
-    with open(os.path.join(self.dir, 'a.hex')) as f:
-      self.assertEqual(f.read().split(), [':01500000EAC5', ':00000001FF'])
+  def test_michael_needs_a_start_label(self):
+    status, transfer_args = self.run_script('michael', 'prog.s')
+    self.assertNotEqual(status, 0)
+    self.assertIsNone(transfer_args)
 
   def test_srec_assembles_to_srecords_with_the_start_address(self):
     self.write('started.s', '  .org $5000\n  nop\nstart:\n  rts\n')

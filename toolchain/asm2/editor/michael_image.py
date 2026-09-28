@@ -4,7 +4,7 @@ LOAD on the services of the Michael ROM (firmware/boards/michael/michael_rom.s).
 
     python3 editor/michael_image.py OUT     (from toolchain/asm2)
 
-writes the editor binary, for tools/upload/transfer.py --format=2 --load-address=0200 (which
+writes the editor binary, for tools/upload/transfer.py --format=3 --load-address=0200 (which
 loads it at $0200 and runs it there). Needs the emulator and asm17 built; building the ROM needs vasm6502_oldstyle.
 """
 import re
@@ -54,9 +54,9 @@ def build_rom(out):
 
 
 def write_upload(binary, out):
-    """Write the format 2 upload of binary (loaded at LOAD and run there) to out, as it goes on
+    """Write the format 3 upload of binary (loaded at LOAD and run there) to out, as it goes on
     the wire, e.g. for the emulator's --serial-input."""
-    Path(out).write_bytes(upload_frame.format_2([(LOAD, Path(binary).read_bytes())]))
+    Path(out).write_bytes(upload_frame.format_3([(LOAD, Path(binary).read_bytes())], start=LOAD))
     return Path(out)
 
 
