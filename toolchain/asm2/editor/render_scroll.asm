@@ -332,7 +332,7 @@ render_cursor_and_status:
   LDA ST_FIRST
   BMI .unchanged
   JSR ansi_cursor_hide
-  BEQ render_finish_send       ; Always taken (write_string returns A = 0)
+  JMP render_finish_send
 .unchanged:
   LDA CUR_VALID
   BEQ render_finish_cursor     ; the cursor moved since
@@ -380,7 +380,7 @@ render_rows:
   JSR io_write
   LDA #'\n'
   JSR io_write
-  BNE .row                     ; Always (A = LF)
+  JMP .row
 .move:
   LDX RENDER_COL
   JSR ansi_goto0

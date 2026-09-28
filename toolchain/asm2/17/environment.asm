@@ -8,6 +8,10 @@
 ; .ifndef.) Michael's ROM has the same vectors at the same addresses
 ; (firmware/boards/michael/michael_rom.inc), so the editor's define:michael
 ; build uses this file too.
+;
+; A call preserves the registers it says it preserves, and returns only
+; the flags it names: the other flags are undefined on return (the
+; emulator's --strict-api inverts them).
 ENV_BASE  = $F000
 
 ; Provided by environment:
@@ -27,12 +31,13 @@ openout   = ENV_BASE + $21 ; Opens file with name at A;X for writing. Returns ha
 write     = ENV_BASE + $24 ; writs char in A to file with handle in X; Y preserved
 
 ; Console I/O ports
-con_read  = ENV_BASE + $27 ; Read one byte from console (blocking); returns in A
-con_flush = ENV_BASE + $2A ; Flush stdout
+con_read  = ENV_BASE + $27 ; Read one byte from console (blocking); returns in A;
+                           ; X, Y preserved
+con_flush = ENV_BASE + $2A ; Flush stdout; A, X, Y preserved
 con_ready = ENV_BASE + $2D ; Non-blocking poll: A=$FF if byte ready, A=$00 if not yet,
-                           ; A=CON_EOF once input has ended
-term_rows = ENV_BASE + $30 ; Returns terminal height in A (255 if taller)
-term_cols = ENV_BASE + $33 ; Returns terminal width in A (255 if wider)
+                           ; A=CON_EOF once input has ended; X, Y preserved
+term_rows = ENV_BASE + $30 ; Returns terminal height in A (255 if taller); X, Y preserved
+term_cols = ENV_BASE + $33 ; Returns terminal width in A (255 if wider); X, Y preserved
 CON_EOF   = $01   ; con_ready result: end of input
 
 ; Serial I/O ports

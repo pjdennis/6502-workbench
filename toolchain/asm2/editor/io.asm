@@ -4,8 +4,9 @@
 ; console I/O (write_b, con_read, con_flush, con_ready) or serial I/O
 ; depending on whether terminal_mode is defined, and io_wait (wait_ready,
 ; which waits on whichever input the emulator runs with).
-; All five preserve X and Y in both builds (the console routines are
-; emulator stubs that only load or store A); input.asm relies on this.
+; All five preserve X and Y in both builds (environment.asm);
+; input.asm relies on this. Only the flags their calls name are
+; defined on return.
 
 ; Wait up to A;X ms for an input byte: A=$FF (N set) if one is ready,
 ; $00 if the time passed, CON_EOF at end of console input. In the terminal

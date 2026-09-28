@@ -42,8 +42,10 @@ class Colors:
 
 
 class EmulatorRunner:
-    """Wraps emulator invocation via subprocess.run. With direct_io, runs
-    other than terminal ones use the emulator's --direct-io."""
+    """Wraps emulator invocation via subprocess.run. Every run uses the
+    emulator's --strict-api (the editor relies on no more than the calls'
+    contracts); with direct_io, runs other than terminal ones use its
+    --direct-io."""
 
     def __init__(self, emulator_path, direct_io=False):
         self.emulator_path = str(emulator_path)
@@ -51,7 +53,7 @@ class EmulatorRunner:
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', emu_args=None):
+            mode='standard', emu_args=None, strict_api=True):
         """Run the emulator and return (exit_code, output_bytes).
 
         Args:
@@ -66,12 +68,15 @@ class EmulatorRunner:
             emu_args: additional emulator options (placed before the file
                 name: the emulator stops reading options at the first
                 argument that is not one)
+            strict_api: run with --strict-api (default)
         """
         keys_file = tmpdir / "keys.bin"
         keys_file.write_bytes(keys)
 
         cmd = [self.emulator_path, str(binary), "--no-dump",
                "--load", f"{load_addr:04x}"]
+        if strict_api:
+            cmd.append("--strict-api")
         if self.direct_io and mode != 'terminal':
             cmd.append("--direct-io")
 
@@ -115,13 +120,13 @@ class EditorPersistentEmulator:
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', emu_args=None):
+            mode='standard', emu_args=None, strict_api=True):
         """Run the emulator and return (exit_code, output_bytes)."""
         # The server takes no emulator options, and console mode needs a pipe
         if mode == 'console' or emu_args:
             runner = EmulatorRunner(self.emulator_path, self.direct_io)
             return runner.run(binary, keys, tmpdir, edit_file,
-                              load_addr, rows, cols, mode, emu_args)
+                              load_addr, rows, cols, mode, emu_args, strict_api)
 
         args = [] if edit_file is None else [edit_file]
         if self.direct_io and mode == 'standard':
@@ -129,7 +134,8 @@ class EditorPersistentEmulator:
 
         exit_code, output, _ = self._emu.run(
             binary, args=args, load_addr=load_addr, mode=mode,
-            rows=rows, cols=cols, keys=keys, inline_output=True)
+            rows=rows, cols=cols, keys=keys, inline_output=True,
+            strict_api=strict_api)
 
         return exit_code, output or b""
 
@@ -146,8 +152,8 @@ class EditorTestRunner:
         turns their screen calls into the same ANSI output)."""
         self.base_dir = base_dir
         self.direct_io = direct_io
-        self.direct_args = ["--direct-io"] if direct_io else []
-        self.server_mode = ["MODE direct"] if direct_io else []
+        self.direct_args = ["--strict-api", *(["--direct-io"] if direct_io else [])]
+        self.server_mode = ["API strict", *(["MODE direct"] if direct_io else [])]
         self.verbose = verbose
         self.quiet = quiet
         self.emulator = base_dir.parents[1] / "emulator" / "emulator.out"
@@ -427,12 +433,14 @@ class EditorTestRunner:
                            cols: int = 40):
         """Test that the whole run (startup, keys, quit) takes at most
         cycle_cap 6502 cycles. Set the cap between the old cost and the new
-        one, with a few percent of margin on each side."""
+        one, with a few percent of margin on each side.  The cycles are
+        counted on the standard stubs: --strict-api's add their own."""
         edit_file = self.tmpdir / "t"
         edit_file.write_text(initial_content)
         exit_code, _ = self.emulator_runner.run(
             self.editor_bin, keys, self.tmpdir, str(edit_file), rows=rows,
-            cols=cols, emu_args=["--cycle-cap", str(cycle_cap)])
+            cols=cols, emu_args=["--cycle-cap", str(cycle_cap)],
+            strict_api=False)
         if exit_code != 0:
             self._fail(name, f"Did not finish within {cycle_cap} cycles "
                              f"(exit code {exit_code})")
@@ -1343,6 +1351,7 @@ class EditorTestRunner:
                 commands = [
                     f'LOAD 0400',
                     f'MODE terminal',
+                    f'API strict',
                     f'BINARY {self.editor_terminal_bin}',
                     f'ROWS 10',
                     f'COLS 40',
