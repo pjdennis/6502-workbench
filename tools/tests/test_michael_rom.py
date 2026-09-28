@@ -1,6 +1,6 @@
 """The new Michael ROM (firmware/boards/michael/michael_rom.s) on the emulator's Michael machine:
-its format 2 loader (firmware/lib/serial/upload_v2.inc) receiving uploads over the serial line
-(tests/michael/upload_check.s, uploaded with the data, shows what landed where), and its services
+its format 3 loader (firmware/lib/serial/upload_v3.inc) receiving uploads over the serial line
+(tests/michael/upload_check.s and zp_check.s, uploaded with the data, show what landed where), and its services
 (firmware/boards/michael/michael_services.inc), driven by the small programs in tests/michael/.
 
 Uses firmware/vasm with vasm6502_oldstyle from PATH, and builds the emulator with make (tests skip
@@ -116,7 +116,7 @@ class MichaelRomLoaderTest(RomTestCase):
                              '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
 
     def test_waiting_screen(self):
-        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 3', 'Ready'])
+        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 4', 'Ready'])
 
     def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
         wire = self.upload([Block(0x0200, self.check)])
@@ -311,7 +311,7 @@ class MichaelRomServicesTest(RomTestCase):
         self.assertEqual(self.run_program('chain', b'z')[0], 'zY')
 
     def test_exit_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 3', 'Ready'])
+        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 4', 'Ready'])
 
 
 @NEEDS

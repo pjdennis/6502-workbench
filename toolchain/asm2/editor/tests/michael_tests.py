@@ -104,7 +104,7 @@ class MichaelEditorTest(unittest.TestCase):
         self.assertLessEqual((end + 0xff) & ~0xff, michael_image.memory_map_address("TEXT_END") - 0x100)
 
     def test_quitting_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_michael(b":q\r")[:2], ["Michael ROM 3", "Ready"])
+        self.assertEqual(self.run_michael(b":q\r")[:2], ["Michael ROM 4", "Ready"])
 
     def test_live(self):
         """--live draws the LCD in the terminal and types the terminal's keys;

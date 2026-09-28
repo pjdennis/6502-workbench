@@ -2,6 +2,11 @@
 
 Follows `docs/michael-rom-plan.md` (format 2, done). Format 3 replaces format 2 on Michael. The other boards keep format 1.
 
+**Status (2026-09-27): done in the emulator**, phases 1-4. The new ROM image (`hardware/michael/michael_rom.bin`, "Michael ROM 4") is ready for the board. As built:
+- `-exec` needs `start` to be a label: vasm writes 0 for an equate, which the sender reads as no start address. `upload_and_run_ram_v2.s`, whose `.org` is in an include, puts its label in an empty section at its origin.
+- The loader's zero page is `$00-$23`; the stash sits at `$3F4A-$3F6E`.
+- The loader's stack reaches `$01DD` at most, 61 bytes above the table.
+
 Goals:
 - the start address comes from the program's source (a `start` label), sent as S-records;
 - all the metadata comes first, in a small table, instead of a header before each block, which removes the loader's stack bookkeeping;

@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(HERE, '..', 'upload'))
 import serial_daemon  # noqa: E402
 import transfer  # noqa: E402
 from test_serial_daemon import DEVICE, HAVE_PYSERIAL, FakeClock, FakeDevices, open_pty  # noqa: E402
-from upload_frame import build_frame, format_2, format_3, send_duration  # noqa: E402
+from upload_frame import build_frame, format_3, send_duration  # noqa: E402
 
 PROGRAM = b'\x4c\x00\x50hello'
 
@@ -104,21 +104,9 @@ class UploadTest(TransferTestCase):
     self.upload('--noreset', '--wait')
     self.assertAlmostEqual(self.clock.now, start + send_duration(len(build_frame(PROGRAM)), 115200, 1))
 
-  def test_format_2_binary_loads_at_2000(self):
-    # Where Michael's programs have always loaded, so a flat binary built with .org $2000 runs
-    self.assertEqual(self.upload('--format=2'), (0, ''))
-    self.assertEqual(self.devices.writes(), [format_2([(0x2000, PROGRAM)])])
-
-  def test_format_2_load_address_and_start(self):
-    self.assertEqual(self.upload('--format=2', '--load-address=3000', '--start=ffff'), (0, ''))
-    self.assertEqual(self.devices.writes(), [format_2([(0x3000, PROGRAM)], start=0xffff)])
-
-  def test_format_2_intel_hex(self):
-    hex_file = os.path.join(self.dir, 'a.hex')
-    with open(hex_file, 'w') as f:
-      f.write(':01020000EA13\n:033E0000010203B9\n:00000001FF\n')
-    self.assertEqual(self.run_transfer('--baudrate=115200', '--format=2', hex_file), (0, ''))
-    self.assertEqual(self.devices.writes(), [format_2([(0x0200, b'\xea'), (0x3e00, b'\x01\x02\x03')])])
+  def test_format_3_load_address_and_start(self):
+    self.assertEqual(self.upload('--format=3', '--load-address=3000', '--start=ffff'), (0, ''))
+    self.assertEqual(self.devices.writes(), [format_3([(0x3000, PROGRAM)], start=0xffff)])
 
   def test_format_3_binary_loads_at_2000(self):
     self.assertEqual(self.upload('--format=3'), (0, ''))
@@ -138,10 +126,10 @@ class UploadTest(TransferTestCase):
     self.assertEqual(self.run_transfer('--baudrate=115200', '--format=3', '--start=ffff', srec_file), (0, ''))
     self.assertEqual(self.devices.writes(), [format_3([(0x2000, b'\xea\x60')], start=0xffff)])
 
-  def test_format_2_too_big(self):
+  def test_format_3_too_big(self):
     with open(self.program, 'wb') as f:
       f.write(bytes(0x3d01))
-    status, output = self.upload('--format=2', '--load-address=0200')
+    status, output = self.upload('--format=3', '--load-address=0200')
     self.assertEqual(status, 1)
     self.assertEqual(self.devices.writes(), [])
 

@@ -52,104 +52,6 @@ class ReverseBitsTest(unittest.TestCase):
     def test_each_byte_reversed(self):
         self.assertEqual(upload_frame.reverse_bits(b'\x01\x80\x0f\xa5'), b'\x80\x01\xf0\xa5')
 
-
-class ReadIntelHexTest(unittest.TestCase):
-    def test_vasm_output_as_contiguous_runs(self):
-        text = ':01020000EA13\n:033E0000010203B9\n:00000001FF\n'
-        self.assertEqual(upload_frame.read_intel_hex(text), [(0x0200, b'\xea'), (0x3e00, b'\x01\x02\x03')])
-
-    def test_adjacent_records_join(self):
-        text = ':020200000102F9\n:0102020003F8\n:00000001FF\n'
-        self.assertEqual(upload_frame.read_intel_hex(text), [(0x0200, b'\x01\x02\x03')])
-
-    def test_bad_record_checksum(self):
-        with self.assertRaises(ValueError):
-            upload_frame.read_intel_hex(':01020000EA14\n:00000001FF\n')
-
-
-class PackBlocksTest(unittest.TestCase):
-    def test_one_segment_is_one_block(self):
-        self.assertEqual(upload_frame.pack_blocks([(0x0200, b'abc')]), [upload_frame.Block(0x0200, b'abc')])
-
-    def test_segments_far_enough_apart_stay_separate(self):
-        # The second block's data comes 7 header bytes after the first's in the stream: at $0210
-        blocks = upload_frame.pack_blocks([(0x0200, bytes(9)), (0x0210, b'x')])
-        self.assertEqual(blocks, [upload_frame.Block(0x0200, bytes(9)), upload_frame.Block(0x0210, b'x')])
-
-    def test_segments_too_close_merge_filling_the_gap(self):
-        blocks = upload_frame.pack_blocks([(0x0200, bytes(9)), (0x020f, b'x')])
-        self.assertEqual(blocks, [upload_frame.Block(0x0200, bytes(15) + b'x')])
-
-    def test_a_first_block_above_ram_start_moves_up(self):
-        self.assertEqual(upload_frame.pack_blocks([(0x3000, b'x')]), [upload_frame.Block(0x3000, b'x')])
-
-    def test_all_of_ram(self):
-        blocks = upload_frame.pack_blocks([(0x0200, bytes(0x3d00))])
-        self.assertEqual(len(blocks[0].data), 0x3d00)
-
-    def test_past_the_limit(self):
-        with self.assertRaises(ValueError):
-            upload_frame.pack_blocks([(0x0200, bytes(0x3d01))])
-
-    def test_below_ram_start(self):
-        with self.assertRaises(ValueError):
-            upload_frame.pack_blocks([(0x01ff, b'x')])
-
-    def test_overlapping(self):
-        with self.assertRaises(ValueError):
-            upload_frame.pack_blocks([(0x0200, b'abc'), (0x0202, b'x')])
-
-    def test_out_of_order_segments_are_sorted(self):
-        blocks = upload_frame.pack_blocks([(0x3000, b'y'), (0x0200, b'x')])
-        self.assertEqual([b.address for b in blocks], [0x0200, 0x3000])
-
-    def test_nothing_to_upload(self):
-        with self.assertRaises(ValueError):
-            upload_frame.pack_blocks([])
-
-
-class BuildUploadTest(unittest.TestCase):
-    def test_header_then_block_whose_checksum_covers_everything_before_its_data(self):
-        upload = upload_frame.build_upload([upload_frame.Block(0x0200, b'hi')], start=0x0200)
-        covered = b'\x02' + le16(0x0200) + le16(2) + le16(0x0200) + b'\x00' + b'hi'
-        self.assertEqual(upload, b'\x02' + le16(0x0200) + le16(2) + le16(0x0200) +
-                         le16(upload_frame.bsd_checksum(covered)) + b'\x00' + b'hi')
-
-    def test_the_first_block_data_follows_ten_bytes_of_control(self):
-        upload = upload_frame.build_upload([upload_frame.Block(0x0200, b'hi')], start=0x0200)
-        self.assertEqual(upload.index(b'hi'), 0x0200 - 0x01f6)
-
-    def test_every_block_but_the_last_says_more_follow(self):
-        upload = upload_frame.build_upload([upload_frame.Block(0x0200, b'a'), upload_frame.Block(0x0300, b'b')],
-                                           start=0x0200)
-        self.assertEqual(upload[9], upload_frame.MORE)
-        self.assertEqual(upload[17], 0)          # 10 + 1 data byte + 6: the second block's flags
-        second = le16(1) + le16(0x0300) + b'\x00' + b'b'
-        self.assertEqual(upload[15:17], le16(upload_frame.bsd_checksum(second)))
-
-    def test_zero_fill_block_has_no_data(self):
-        upload = upload_frame.build_upload([upload_frame.Block(0x0200, b'a'),
-                                            upload_frame.Block(0x0300, fill=0x100)], start=0xffff)
-        self.assertEqual(upload[1:3], le16(0xffff))
-        self.assertEqual(upload[11:], le16(0x100) + le16(0x0300) +
-                         le16(upload_frame.bsd_checksum(le16(0x100) + le16(0x0300) + b'\x02')) + b'\x02')
-
-
-class Format2Test(unittest.TestCase):
-    def test_packed_built_and_bit_reversed(self):
-        wire = upload_frame.format_2([(0x0200, b'hi')])
-        self.assertEqual(wire, upload_frame.reverse_bits(
-            upload_frame.build_upload([upload_frame.Block(0x0200, b'hi')], start=0x0200)))
-
-    def test_start_defaults_to_the_first_address(self):
-        wire = upload_frame.reverse_bits(upload_frame.format_2([(0x0400, b'x'), (0x0200, b'y')]))
-        self.assertEqual(wire[1:3], le16(0x0200))
-
-    def test_given_start(self):
-        wire = upload_frame.reverse_bits(upload_frame.format_2([(0x0200, b'y')], start=0xffff))
-        self.assertEqual(wire[1:3], le16(0xffff))
-
-
 def srec(kind, address, data=b''):
     """An S-record line: kind 1/9 have 2-byte addresses, 2/8 3-byte, 3/7 4-byte."""
     width = {0: 2, 1: 2, 2: 3, 3: 4, 5: 2, 7: 4, 8: 3, 9: 2}[kind]
@@ -328,42 +230,34 @@ class CommandLineTest(unittest.TestCase):
     def path(self, name):
         return os.path.join(self.dir, name)
 
-    def test_writes_a_format_2_upload_of_a_binary(self):
+    def test_writes_a_format_3_upload_of_a_binary(self):
         with open(self.path('p.bin'), 'wb') as f:
             f.write(b'hi')
         upload_frame.main(['--load-address=3000', '--start=ffff', self.path('p.bin'), self.path('out')])
         with open(self.path('out'), 'rb') as f:
-            self.assertEqual(f.read(), upload_frame.format_2([(0x3000, b'hi')], start=0xffff))
+            self.assertEqual(f.read(), upload_frame.format_3([(0x3000, b'hi')], start=0xffff))
 
     def test_a_binary_loads_at_2000_by_default(self):
         with open(self.path('p.bin'), 'wb') as f:
             f.write(b'hi')
         upload_frame.main([self.path('p.bin'), self.path('out')])
         with open(self.path('out'), 'rb') as f:
-            self.assertEqual(f.read(), upload_frame.format_2([(0x2000, b'hi')]))
+            self.assertEqual(f.read(), upload_frame.format_3([(0x2000, b'hi')]))
 
-    def test_format_3_of_srecords_starts_where_they_say(self):
+    def test_srecords_start_where_they_say(self):
         with open(self.path('p.s19'), 'w') as f:
             f.write(ReadSrecTest.VASM_S19)
-        upload_frame.main(['--format=3', self.path('p.s19'), self.path('out')])
+        upload_frame.main([self.path('p.s19'), self.path('out')])
         with open(self.path('out'), 'rb') as f:
             self.assertEqual(f.read(), upload_frame.format_3([(0x2000, b'\xea\x60'), (0x3000, b'\x01\x02')],
                                                              start=0x2001))
 
-    def test_format_3_start_overrides_the_files(self):
+    def test_start_overrides_the_files(self):
         with open(self.path('p.s19'), 'w') as f:
             f.write(ReadSrecTest.VASM_S19)
-        upload_frame.main(['--format=3', '--start=ffff', self.path('p.s19'), self.path('out')])
+        upload_frame.main(['--start=ffff', self.path('p.s19'), self.path('out')])
         with open(self.path('out'), 'rb') as f:
             self.assertEqual(upload_frame.reverse_bits(f.read())[1:3], le16(0xffff))
-
-    def test_intel_hex(self):
-        with open(self.path('p.hex'), 'w') as f:
-            f.write(':01020000EA13\n:00000001FF\n')
-        upload_frame.main([self.path('p.hex'), self.path('out')])
-        with open(self.path('out'), 'rb') as f:
-            self.assertEqual(f.read(), upload_frame.format_2([(0x0200, b'\xea')]))
-
 
 if __name__ == '__main__':
     unittest.main()
