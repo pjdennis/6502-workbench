@@ -1447,6 +1447,19 @@ class EditorTestRunner:
         self.run_test("o redo reaches the line limit",
             numbered(1022), b"o\x1buu:wq\r",
             expected_content="L0001\n\n" + numbered(1022)[6:])
+        # A count on o or i: copies that would pass the limit are refused
+        # with "Buffer full", as a paste of that many lines is, and the
+        # typing stays once
+        self.run_test("23oab reaches the line limit",
+            numbered(1000), b"23oab\x1b:wq\r",
+            expected_content="L0001\n" + "ab\n" * 23 + numbered(1000)[6:])
+        self.run_test_screen("24oab past the line limit is refused",
+            numbered(1000), b"24oab\x1b:wq\r",
+            expected_content="L0001\nab\n" + numbered(1000)[6:],
+            expect_ansi_contains="Buffer full")
+        self.run_test("24i Enter past the line limit is refused",
+            numbered(1000), b"24i\r\x1b:wq\r",
+            expected_content="\n" + numbered(1000))
 
         # --- Splitting a line (r<Enter>) ---
         self.run_test("r<Enter> at the line limit is refused",
@@ -3000,6 +3013,23 @@ class EditorTestRunner:
                 b"Aab\x1b\x1b:wq\r",
                 expected_content="B" * 255 + "\n"
             )
+            # A count on i or o whose copies do not fit is refused with
+            # "Buffer full", as a paste is: the typing stays once, and the
+            # key after it runs (84 copies of 3 bytes fill the buffer)
+            self.run_test_small_buffer(
+                "Count insert that fills the buffer",
+                "abc\n", b"84ixyz\x1b:wq\r",
+                expected_content="xyz" * 84 + "abc\n")
+            self.run_test_small_buffer(
+                "Count insert past buffer full is refused",
+                "abc\n", b"85ixyz\x1bx:wq\r",
+                expected_content="xyabc\n",
+                expect_ansi_contains="Buffer full")
+            self.run_test_small_buffer(
+                "Count o past buffer full is refused",
+                "abc\n", b"100oab\x1b:wq\r",
+                expected_content="abc\nab\n",
+                expect_ansi_contains="Buffer full")
 
             # Counted paste pre-check: rejects paste that would overflow
             # small_buffer = 256 bytes. Content 20 bytes. Yank 2 lines (10 bytes).
@@ -15733,6 +15763,27 @@ class EditorTestRunner:
                     b"".join(groups) + b"\x1b:wq\r",
                     expected_content=expected, emu_args=PACE_ARGS)
 
+            # Counts on i and o: the same with the keys typed one at a
+            # time and typed ahead (vim's results)
+            for name, content, groups, expected in (
+                ("3o, typing and Enter", "abc\ndef\n",
+                 [b"3", b"o", b"a", b"\r", b"b", b"\x1b"],
+                 "abc\na\nb\na\nb\na\nb\ndef\n"),
+                ("3i, typing and BS, then u", "abc\n",
+                 [b"3", b"i", b"x", b"y", b"\x08", b"z", b"\x1b", b"u"],
+                 "abc\n"),
+                ("3i, a Left drops the count", "abc\n",
+                 [b"3", b"i", b"a", b"\x1b[D", b"b", b"\x1b"], "baabc\n"),
+            ):
+                self.run_test_terminal(
+                    f"Count insert, one at a time: {name}", content, None,
+                    expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+                self.run_test_terminal(
+                    f"Count insert, typed ahead: {name}", content,
+                    b"".join(groups) + b"\x1b:wq\r",
+                    expected_content=expected, emu_args=PACE_ARGS)
+
             # --------------------------------------------------------
             # Escape sequences on a slow link
             # --------------------------------------------------------
@@ -21715,6 +21766,89 @@ class EditorTestRunner:
             "Insert undo of o: DEL at the end of the opened line clears undo",
             "abc\ndef\n", b"ofoo\x1b[3~\x1bu:wq\r",
             expected_content="abc\nfoodef\n")
+
+        self._group("Counts on i, a, A, o and O (vim's insert repeat):",
+                    leading_blank=True)
+
+        # ESC after i, a, A, o or O with a count types the text count - 1
+        # times more (o and O on lines of their own), and u takes it all
+        # back.  A cursor move in insert mode drops the count (vim's
+        # arrow_used: Home and End even where they cannot move), one that
+        # fails keeps it; the count of a change command is its own, s and
+        # cw on an empty line too.  Checked by typing into vim 8.2
+        LEFT, UP, HOME, END = b"\x1b[D", b"\x1b[A", b"\x1b[H", b"\x1b[F"
+        for content, keys, expected, cursor in (
+                ("abc\n", b"3ix\x1b", "xxxabc\n", (0, 2)),
+                ("abc\n", b"3oab\x1b", "abc\nab\nab\nab\n", (3, 1)),
+                ("abc\n", b"3Oab\x1b", "ab\nab\nab\nabc\n", (2, 1)),
+                ("abc\n", b"3aab\x1b", "aabababbc\n", (0, 6)),
+                ("abc\n", b"3Aab\x1b", "abcababab\n", (0, 8)),
+                ("abc\n", b"3o\x1b", "abc\n\n\n\n", (3, 0)),
+                ("abc\n", b"3O\x1b", "\n\n\nabc\n", (2, 0)),
+                ("abc\n", b"3ia" + LEFT + b"b\x1b", "baabc\n", (0, 0)),
+                ("abc\n", b"3i" + LEFT + b"x\x1b", "xxxabc\n", (0, 2)),
+                ("abc\ndef\n", b"3ix" + UP + b"y\x1b", "xyxyxyabc\ndef\n",
+                 (0, 5)),
+                ("abc\n", b"3ix" + END + b"y\x1b", "xabcy\n", (0, 4)),
+                ("abc\n", b"3i" + HOME + b"x\x1b", "xabc\n", (0, 0)),
+                ("abc\n", b"3ifoo\r\x1b", "foo\nfoo\nfoo\nabc\n", (3, 0)),
+                ("abc\n", b"l3i\r\x1b", "a\n\n\nbc\n", (3, 0)),
+                ("abc\n", b"3ixy\x08z\x1b", "xzxzxzabc\n", (0, 5)),
+                ("abc\ndef\n", b"3oa\rb\x1b",
+                 "abc\na\nb\na\nb\na\nb\ndef\n", (6, 0)),
+                ("abc\ndef\n", b"3Oa\rb\x1b",
+                 "a\nb\na\nb\na\nb\nabc\ndef\n", (5, 0)),
+                ("", b"3ix\x1b", "xxx\n", (0, 2)),
+                ("", b"3oab\x1b", "\nab\nab\nab\n", (3, 1)),
+                ("", b"3Oab\x1b", "ab\nab\nab\n\n", (2, 1)),
+                ("abc\n", b"3i\x1b", "abc\n", (0, 0)),
+                ("abc\n", b"3ix\x08\x1b", "abc\n", (0, 0)),
+                ("abcdef\n", b"3sX\x1b", "Xdef\n", (0, 0)),
+                ("\n", b"3sX\x1b", "X\n", (0, 0)),
+                ("\n", b"3cwX\x1b", "X\n", (0, 0)),
+                ("abc\n", b"3ix\x1bu", "abc\n", (0, 0)),
+                ("abc\n", b"3oab\x1bu", "abc\n", (0, 0)),
+                ("abc\n", b"3ix\x1buu", "xxxabc\n", (0, 0)),  # (vim's u Ctrl-R)
+                ("abc\n", b"100ixyz\x1bu", "abc\n", (0, 0)),
+                # The marks below move down with the lines, and u moves
+                # them back; one on the line the count splits stays
+                ("abc\ndef\nghi\n", b"jmak3oab\x1b'ax",
+                 "abc\nab\nab\nab\nef\nghi\n", (4, 0)),
+                ("abc\ndef\nghi\n", b"jmak3oab\x1bu'ax",
+                 "abc\nef\nghi\n", (1, 0)),
+                ("abc\ndef\n", b"mal3ifoo\r\x1b'ax",
+                 "foo\nfoo\nfoo\nbc\ndef\n", (0, 0))):
+            self.run_test_screen(
+                f"Count insert: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
+        # The copies are drawn: a split, and a line that wraps (the second
+        # ESC ends the first one's wait for the rest of a key)
+        self.run_test_screen(
+            "Count insert: 3ifoo Enter draws the split lines",
+            "abc\ndef\n", b"3ifoo\r\x1b\x1b",
+            expect_lines=[(0, "foo"), (1, "foo"), (2, "foo"), (3, "abc"),
+                          (4, "def"), (5, "~")], expect_cursor=(3, 0))
+        wrapped = "abc" + "xy" * 20
+        self.run_test_screen(
+            "Count insert: 20Axy draws the line's new rows",
+            "abc\ndef\n", b"20Axy\x1b\x1b", rows=6, cols=20,
+            expect_lines=[(0, wrapped[:20]), (1, wrapped[20:40]),
+                          (2, wrapped[40:]), (3, "def")], expect_cursor=(2, 2))
+        self.run_test_batch_equiv("Batch equiv: 3o with typing",
+                                  "abc\ndef\n",
+                                  [b"3o", b"a", b"\r", b"b", b"\x1b"])
+        self.run_test_batch_equiv("Batch equiv: 3i with typing and BS",
+                                  "abc\n",
+                                  [b"3", b"i", b"x", b"y", b"\x08", b"z",
+                                   b"\x1b"])
+        # A product past 16 bits is refused ("Buffer full"), and leaves no
+        # count behind: x then deletes one char
+        self.run_test_screen(
+            "Count insert: 9999i of 200 chars is refused, then x",
+            "abcdef\n", b"9999i" + b"y" * 200 + b"\x1bx:wq\r", cols=80,
+            expected_content="y" * 199 + "abcdef\n",
+            expect_ansi_contains="Buffer full")
 
         self._group("Undo join (J):", leading_blank=True)
 

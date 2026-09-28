@@ -494,9 +494,9 @@ undo_insert_redo:
   JMP undo_span_redone
 
 ; The cursor to the insert segment's start (the line repaints from
-; there), BUF_PTR16 = its address, BUF_LEN16 = the text's length (and the
-; line break of o or O after it), Y = its low byte; Z = 1 if it fits
-; UNDO_DATA_BUF
+; there), BUF_PTR16 = its address, BUF_LEN16 = BUF_TEMP16 = the text's
+; length (and the line break of o or O after it), Y = its low byte; Z = 1
+; if it fits UNDO_DATA_BUF
 insert_undo_setup:
   JSR undo_span_setup
   LDA UNDO_INS_OPEN
@@ -504,10 +504,12 @@ insert_undo_setup:
   LDA UNDO_INS_LEN16
   ADC #0
   STA BUF_LEN16
+  STA BUF_TEMP16
   TAY
   LDA UNDO_INS_LEN16 + 1
   ADC #0
   STA BUF_LEN16 + 1
+  STA BUF_TEMP16 + 1
   RTS
 
 ; The column u returns to after an insert of o or O (clamped)

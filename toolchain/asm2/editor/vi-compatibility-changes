@@ -9,9 +9,11 @@
   in normal mode), a control character takes 2 cells (^X) and a byte that is not UTF-8 4 (<80>): ' de' and ' abc'
   with 0r<Tab>j end on column 3 of ' abc' in vim, on column 0 here. See vim-gaps.md.
 
-  Counts on i, a, A, o and O - Are ignored: 3ix<Esc> inserts one x and 3oab<Esc> opens one line. Vim types the text
-  count times (after o and O on lines of their own), unless the cursor moved in insert mode, and u takes it all back.
-  See vim-gaps.md.
+  Counts on i, a, A, o and O - A Backspace over text from before the typing, or a Delete, drops the count: the text
+  goes in once. Vim types those keys again with the rest, each deleting as far as it can: 3A<BS>xy<Esc> on 'abc'
+  gives 'abxxxy' in vim, 'abxy' here, and 3ix<Del><Esc> 'xxx' in vim, 'xbc' here. Copies that do not fit the text
+  buffer or the 1023 lines are refused with "Buffer full", as a paste is, and the text typed stays once; vim puts them
+  all in. See vim-gaps.md.
 
   u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
   the cursor on the second line, at that column if the line is long enough.

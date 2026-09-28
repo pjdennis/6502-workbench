@@ -624,6 +624,7 @@ normal_change_to_eol:
 ; change, as in vim
 sub_change_insert:
   JSR undo_record_empty
+  JSR clear_count            ; (the change's: the typing is not repeated)
   JMP enter_insert_mode
 
 ; --- Replace char (r) ---

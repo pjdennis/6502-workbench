@@ -35,6 +35,7 @@ insert_keys:
 ; Exit insert mode, return to normal mode (the undo record of the typing
 ; stays for u)
 insert_exit:
+  JSR insert_repeat
   LDA #MODE_NORMAL
   STA MODE
   ; Move cursor back one per vi convention (unless at column 0)
@@ -191,6 +192,7 @@ insert_handle_key:
   LDA #0
 .end_segment:
   STA INSERT_SEG
+  STA_LH16 INS_COUNT16       ; A move drops the count (vim's arrow_used)
 .kept:
   RTS
 .bs_after_enter:
@@ -605,6 +607,68 @@ insert_seg_start:
   STA_LH16 UNDO_INS_LEN16
   RTS
 
+; ESC after i, a, A, o or O with a count: the typing goes in count - 1
+; times more, as vim repeats it, and u takes it all back.  The typing
+; repeated is the insert segment when it is all of the typing: a move
+; drops the count (vim's arrow_used), and a BS or DEL past the segment's
+; edges, or typing after a change command, keeps no segment.  Copies
+; that do not fit the text buffer or the line table are refused with
+; "Buffer full", as a paste is, and the typing stays once
+insert_repeat:
+  BIT INSERT_SEG
+  BPL add_len_ret            ; No segment kept
+  LDA INS_COUNT16
+  ORA INS_COUNT16 + 1
+  BEQ add_len_ret            ; No copies
+  ; The copies go in at the segment's start, and a forward copy fills
+  ; them from there: each byte is read again a segment on
+  JSR insert_undo_setup      ; BUF_PTR16 = its start, BUF_TEMP16 = its bytes
+  LDX #INS_COUNT16
+  JSR mul_by_count           ; BUF_LEN16 = the copies' bytes
+  JSR buf_shift_right_16
+  BCS .full
+  JSR ptr_to_src
+  CLC
+  ADC16 BUF_PTR16, BUF_TEMP16, BUF_DST16
+  LDX #BUF_PTR16
+  JSR add_len_x
+  JSR mem_copy_down
+  ; The lines they add must fit, else they come out again: the bytes at
+  ; the cursor, where ESC found it, are the copies (after o or O turned
+  ; by a byte, o's line break first), and without them the buffer is as
+  ; it was
+  JSR cursor_to_snap
+  JSR count_newlines_all     ; BUF_TEMP16 = their line breaks
+  LDAX16 BUF_TEMP16
+  JSR check_line_room
+  BCC .fits
+  JSR buf_shift_left_16
+.full:
+  JSR cursor_to_snap
+  JMP open_full              ; (a product past 16 bits leaves COUNT16 set)
+.fits:
+  ; The record takes them in, and the cursor goes on as far as they are
+  LDX #UNDO_INS_LEN16
+  JSR add_len_x
+  LDA BUF_TEMP16
+  ORA BUF_TEMP16 + 1
+  BEQ .one_line
+  ; A line down for each line break: the cursor line split from the
+  ; cursor (RF_ENTER)
+  JSR buf_rebuild_lines
+  JSR next_line_ax
+  JSR mark_adjust_insert     ; The marks below move down
+  JSR set_render_from_cursor
+  LDA #RF_ENTER
+  STA RENDER_FLAG
+  JMP move_down16
+.one_line:
+  ; Else a column on for each byte, and the lines below move by them:
+  ; the line changed from the segment's start (RF_AUTO: RF_LINE)
+  LDX #CURSOR_COL16
+  JSR add_len_x
+  JMP buf_adjust_lines_len
+
 ; $00,X += BUF_LEN16 (a zero-page word).  Clobbers A
 add_len_x:
   CLC
@@ -614,5 +678,6 @@ add_len_x:
   LDA $01,X
   ADC BUF_LEN16 + 1
   STA $01,X
+add_len_ret:
   RTS
 

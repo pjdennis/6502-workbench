@@ -128,6 +128,8 @@ BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
 BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none);
                          ; main_loop zeroes it for every key
 CURSWANT16:        .word ; The column j/k/Up/Down aim at (vim's curswant; $FFFF: line ends)
+INS_COUNT16:       .word ; The copies of the typing ESC puts in after i, a, A, o or O
+                         ; with a count: the count - 1 (0 once the cursor moved)
 CURSWANT_KEEP:     .byte ; Nonzero: the last key was a vertical move, so CURSWANT16
                          ; holds (it sets 2, main_loop halves it for every key)
 

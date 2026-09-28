@@ -55,8 +55,9 @@ project's 6502 emulator in console/ANSI mode.
   pair batching, line/char yank-and-delete and the x/X batched delete.
 - `insert.asm`: insert-mode handler — printable chars, Enter, Backspace,
   Delete (forward), arrow keys, Home/End, PgUp/PgDn, word motions, batching
-  of mixed Enter/BS/printable sequences, and the undo record of the typing
-  (a segment between cursor moves).
+  of mixed Enter/BS/printable sequences, the undo record of the typing
+  (a segment between cursor moves), and the copies ESC puts in after a
+  count on `i`, `a`, `A`, `o` or `O`.
 - `command.asm`: command-line mode — `:w`, `:q`, `:wq`, `:q!`, `:[N]`,
   `:marks`, range commands (`:[start],[end]d/y/>/<`).
 
@@ -228,11 +229,11 @@ project's 6502 emulator in console/ANSI mode.
 
 | Key | Action |
 |-----|--------|
-| `i` | Insert at cursor |
-| `a` | Insert after cursor |
-| `A` | Insert at end of line |
-| `o` | Open line below |
-| `O` | Open line above |
+| `i` | Insert at cursor (with count: ESC types the text count times, as vim) |
+| `a` | Insert after cursor (with count) |
+| `A` | Insert at end of line (with count) |
+| `o` | Open line below (with count: count lines of the text) |
+| `O` | Open line above (with count) |
 | `x` / Delete | Delete character at cursor (with count, yanks) |
 | `X` | Delete character before cursor (with count, yanks) |
 | `D` | Delete to end of line (yanks) |

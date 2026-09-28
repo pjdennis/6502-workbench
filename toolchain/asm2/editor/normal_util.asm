@@ -397,6 +397,9 @@ enter_insert_mode:
   STA INSERT_SEG
 ; (o and O: their segment is started)
 enter_insert_open:
+  JSR get_count
+  JSR dec_buf_temp16
+  CP16 BUF_TEMP16, INS_COUNT16  ; The copies ESC puts in (insert_repeat)
   LDA #MODE_INSERT
   STA MODE
   JMP clear_count
@@ -686,7 +689,9 @@ delete_current_lines:
 ; Count the newlines in the BUF_LEN16 bytes at the cursor
 ; Output: BUF_TEMP16 = the count, BUF_DST16 = the address after them
 ; (if there are any), Y = 0.  A range that ends within the cursor's line
-; holds none: it is not scanned.  Clobbers A, X, BUF_PTR16, BUF_SRC16
+; holds none: it is not scanned (count_newlines_all scans it, for a line
+; table that is stale past the cursor line).  Clobbers A, X, BUF_PTR16,
+; BUF_SRC16
 count_newlines:
   JSR get_current_line_len
   SEC
@@ -696,6 +701,9 @@ count_newlines:
   SBC CURSOR_COL16 + 1       ; Y/A = the chars from the cursor to the line end
   CPY BUF_LEN16
   SBC BUF_LEN16 + 1
+  .byte $24                  ; BIT zp: skip the CLC
+count_newlines_all:
+  CLC
   PHP                        ; C = they hold the range
   JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
   CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
