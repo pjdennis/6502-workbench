@@ -74,10 +74,14 @@ class ReadSrecTest(unittest.TestCase):
         self.assertEqual(upload_frame.read_srec(self.VASM_S37),
                          ([(0x2000, b'\xea\x60'), (0x3000, b'\x01\x02')], 0x2001))
 
-    def test_a_start_address_of_zero_is_none(self):
-        # What vasm writes without -exec
+    def test_a_start_address_of_zero_is_refused(self):
+        # What vasm writes for -exec=start when start is an equate, not a label (or without -exec)
         text = srec(1, 0x2000, b'\xea') + '\n' + srec(9, 0) + '\n'
-        self.assertEqual(upload_frame.read_srec(text), ([(0x2000, b'\xea')], None))
+        with self.assertRaisesRegex(ValueError, 'label'):
+            upload_frame.read_srec(text)
+
+    def test_no_start_record(self):
+        self.assertEqual(upload_frame.read_srec(srec(1, 0x2000, b'\xea')), ([(0x2000, b'\xea')], None))
 
     def test_adjacent_records_join(self):
         text = '\n'.join([srec(1, 0x2002, b'c'), srec(1, 0x2000, b'ab'), srec(9, 0x2000)])

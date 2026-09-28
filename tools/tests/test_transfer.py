@@ -119,6 +119,15 @@ class UploadTest(TransferTestCase):
     self.assertEqual(self.run_transfer('--baudrate=115200', '--format=3', srec_file), (0, ''))
     self.assertEqual(self.devices.writes(), [format_3([(0x2000, b'\xea\x60'), (0x3000, b'\x01\x02')], start=0x2001)])
 
+  def test_format_3_srecords_starting_at_0_are_refused(self):
+    srec_file = os.path.join(self.dir, 'a.s19')
+    with open(srec_file, 'w') as f:
+      f.write('S1052000EA6090\nS9030000FC\n')
+    status, output = self.run_transfer('--baudrate=115200', '--format=3', srec_file)
+    self.assertEqual(status, 1)
+    self.assertIn('start', output)
+    self.assertEqual(self.devices.writes(), [])
+
   def test_format_3_start_overrides_the_files(self):
     srec_file = os.path.join(self.dir, 'a.s19')
     with open(srec_file, 'w') as f:

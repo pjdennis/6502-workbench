@@ -78,7 +78,9 @@ def join_runs(runs):
 
 def read_srec(text):
   """The data in S-record text (vasm -Fsrec -exec) as sorted (address, bytes) runs, adjacent
-  records joined, and the start address (None if not given: vasm writes 0)."""
+  records joined, and the start address (None if there's no start record). A start address of 0
+  is refused: it's what vasm writes when start is an equate rather than a label (or without
+  -exec), so the program's real entry point would be lost."""
   widths = {1: 2, 2: 3, 3: 4, 7: 4, 8: 3, 9: 2}
   runs = []
   start = None
@@ -98,8 +100,11 @@ def read_srec(text):
     address = int.from_bytes(record[1:1 + width], 'big')
     if kind <= 3:
       runs.append((address, record[1 + width:-1]))
+    elif address == 0:
+      raise ValueError('the start address is 0: make start a label, not an equate '
+                       '(vasm -exec writes 0 for an equate)')
     else:
-      start = address or None
+      start = address
   return join_runs(runs), start
 
 
