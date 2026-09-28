@@ -4,21 +4,39 @@
 
 /* ---- Screen calls -> ANSI ---- */
 
+/* Write parameter n, or nothing for 1 (the default of every parameter
+ * the editor sends but a region's bottom row), as terminal.asm does */
+static int param(char *out, uint8_t n) {
+    return n == 1 ? 0 : sprintf(out, "%u", n);
+}
+
+/* ESC[ <count> <final> */
+static int count_seq(char *out, uint8_t n, char final) {
+    int len = sprintf(out, "\x1b[");
+    len += param(out + len, n);
+    return len + sprintf(out + len, "%c", final);
+}
+
 int direct_io_screen(uint8_t op, uint8_t a, uint8_t y, char *out) {
+    int len;
     switch (op) {
-        case SCR_GOTO:         return sprintf(out, "\x1b[%u;%uH", a, y);
+        case SCR_GOTO:                  /* ESC[<row>;<col>H, no ;1 */
+            len = sprintf(out, "\x1b[");
+            len += param(out + len, a);
+            if (y != 1) len += sprintf(out + len, ";%u", y);
+            return len + sprintf(out + len, "H");
         case SCR_CLEAR:        return sprintf(out, "\x1b[2J\x1b[H");
         case SCR_CLEAR_EOL:    return sprintf(out, "\x1b[K");
         case SCR_CURSOR_ON:    return sprintf(out, "\x1b[?25h");
         case SCR_CURSOR_OFF:   return sprintf(out, "\x1b[?25l");
         case SCR_REVERSE:      return sprintf(out, "\x1b[7m");
-        case SCR_NORMAL:       return sprintf(out, "\x1b[0m");
+        case SCR_NORMAL:       return sprintf(out, "\x1b[m");
         case SCR_REGION:       return sprintf(out, "\x1b[%u;%ur", a, y);
         case SCR_REGION_RESET: return sprintf(out, "\x1b[r");
-        case SCR_INSERT:       return sprintf(out, "\x1b[%u@", a);
-        case SCR_DELETE:       return sprintf(out, "\x1b[%uP", a);
-        case SCR_SCROLL_UP:    return sprintf(out, "\x1b[%uS", a);
-        case SCR_SCROLL_DOWN:  return sprintf(out, "\x1b[%uT", a);
+        case SCR_INSERT:       return count_seq(out, a, '@');
+        case SCR_DELETE:       return count_seq(out, a, 'P');
+        case SCR_SCROLL_UP:    return count_seq(out, a, 'S');
+        case SCR_SCROLL_DOWN:  return count_seq(out, a, 'T');
     }
     return 0;
 }

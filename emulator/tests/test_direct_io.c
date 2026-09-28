@@ -14,21 +14,30 @@ static enum greatest_test_res screen_is(uint8_t op, uint8_t a, uint8_t y, const 
     PASS();
 }
 
+/* The sequences the editor's ANSI builds write (terminal.asm): a
+ * parameter of 1 is left out, as a VT100 or xterm takes 1 when it is
+ * missing, except a region's bottom row (missing: the last row). */
 TEST screen_calls_write_the_ansi_sequences(void) {
     CHECK_CALL(screen_is(SCR_GOTO, 3, 17, "\x1b[3;17H"));
-    CHECK_CALL(screen_is(SCR_GOTO, 1, 1, "\x1b[1;1H"));
+    CHECK_CALL(screen_is(SCR_GOTO, 1, 1, "\x1b[H"));
+    CHECK_CALL(screen_is(SCR_GOTO, 5, 1, "\x1b[5H"));
+    CHECK_CALL(screen_is(SCR_GOTO, 1, 9, "\x1b[;9H"));
     CHECK_CALL(screen_is(SCR_GOTO, 255, 100, "\x1b[255;100H"));
     CHECK_CALL(screen_is(SCR_CLEAR, 0, 0, "\x1b[2J\x1b[H"));
     CHECK_CALL(screen_is(SCR_CLEAR_EOL, 0, 0, "\x1b[K"));
     CHECK_CALL(screen_is(SCR_CURSOR_ON, 0, 0, "\x1b[?25h"));
     CHECK_CALL(screen_is(SCR_CURSOR_OFF, 0, 0, "\x1b[?25l"));
     CHECK_CALL(screen_is(SCR_REVERSE, 0, 0, "\x1b[7m"));
-    CHECK_CALL(screen_is(SCR_NORMAL, 0, 0, "\x1b[0m"));
+    CHECK_CALL(screen_is(SCR_NORMAL, 0, 0, "\x1b[m"));
     CHECK_CALL(screen_is(SCR_REGION, 2, 23, "\x1b[2;23r"));
+    CHECK_CALL(screen_is(SCR_REGION, 1, 1, "\x1b[1;1r"));
     CHECK_CALL(screen_is(SCR_REGION_RESET, 0, 0, "\x1b[r"));
     CHECK_CALL(screen_is(SCR_INSERT, 4, 0, "\x1b[4@"));
+    CHECK_CALL(screen_is(SCR_INSERT, 1, 0, "\x1b[@"));
     CHECK_CALL(screen_is(SCR_DELETE, 10, 0, "\x1b[10P"));
-    CHECK_CALL(screen_is(SCR_SCROLL_UP, 1, 0, "\x1b[1S"));
+    CHECK_CALL(screen_is(SCR_DELETE, 1, 0, "\x1b[P"));
+    CHECK_CALL(screen_is(SCR_SCROLL_UP, 1, 0, "\x1b[S"));
+    CHECK_CALL(screen_is(SCR_SCROLL_UP, 2, 0, "\x1b[2S"));
     CHECK_CALL(screen_is(SCR_SCROLL_DOWN, 0, 0, "\x1b[0T"));
     PASS();
 }

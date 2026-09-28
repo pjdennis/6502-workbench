@@ -12,16 +12,16 @@
 
 /* Screen calls, in vector order from ENV_BASE + $42, 3 bytes apart. */
 enum direct_io_screen_op {
-    SCR_GOTO,          /* A = row, Y = column (1-based): ESC[row;colH */
+    SCR_GOTO,          /* A = row, Y = column (1-based): ESC[row;colH (a 1 left out) */
     SCR_CLEAR,         /* ESC[2J ESC[H */
     SCR_CLEAR_EOL,     /* ESC[K */
     SCR_CURSOR_ON,     /* ESC[?25h */
     SCR_CURSOR_OFF,    /* ESC[?25l */
     SCR_REVERSE,       /* ESC[7m */
-    SCR_NORMAL,        /* ESC[0m */
+    SCR_NORMAL,        /* ESC[m */
     SCR_REGION,        /* A = top, Y = bottom (1-based): ESC[top;bottomr */
     SCR_REGION_RESET,  /* ESC[r */
-    SCR_INSERT,        /* A = count: ESC[n@ */
+    SCR_INSERT,        /* A = count: ESC[n@ (and the rest: a count of 1 left out) */
     SCR_DELETE,        /* A = count: ESC[nP */
     SCR_SCROLL_UP,     /* A = count: ESC[nS */
     SCR_SCROLL_DOWN,   /* A = count: ESC[nT */
