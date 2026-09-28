@@ -408,18 +408,22 @@ range_shift_setup:
 range_shift_finish:
   SEC
   SBCI16 LINE_LEN16, 1, FILE_LINE16  ; The range's last line
+; The cursor to the first non-blank, and the report of a shift of
+; SHIFT_LINES16 lines (>>, <<, :>, :<)
+shift_nonblank_report:
   JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
-; Report a shift of SHIFT_LINES16 lines (>>, <<, :>, :<)
-shift_report:
   CP16 SHIFT_LINES16, DEC_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
   ; fall through
 
 ; Report count on the status line: "N <suffix>", when it is more than 2
-; (vim's default 'report')
+; (vim's default 'report'), but not for typed-ahead presses or pairs (the
+; last of which takes one line: a run of dd, a >> or << pair)
 ; Input: A/X = suffix string, DEC_VALUE16 = count
 report_lines_ax:
+  LDY BATCH_EXTRA
+  BNE .none
   LDY DEC_VALUE16 + 1
   BNE .report
   LDY DEC_VALUE16

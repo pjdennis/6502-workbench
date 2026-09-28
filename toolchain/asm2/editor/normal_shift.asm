@@ -59,9 +59,7 @@ do_unindent:
   JSR get_count_clamp_lines
   JSR shift_normal_setup
   JSR remove_spaces_core
-shift_nonblank_report:
-  JSR first_nonblank_clear
-  JMP shift_report
+  JMP shift_nonblank_report
 
 ; Shared >> / << entry setup, after get_count_clamp_lines (which ends
 ; the command for a count on the last line).  Computes BUF_DELTA =

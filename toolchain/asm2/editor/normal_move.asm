@@ -2,18 +2,6 @@
 
 ; --- Movement ---
 
-; j, k, Down, Up (in insert mode too): the whole count, as vim (and the
-; typed-ahead presses)
-normal_move_down:
-  JSR get_count_pending16
-  JSR move_down16
-  JMP vert_col_clamp
-
-normal_move_up:
-  JSR get_count_pending16
-  JSR move_up16
-  JMP vert_col_clamp
-
 ; Ctrl-F and PgDn: page forward as vim does.  The top line goes to the
 ; line below the page (the first one not shown in full), less the
 ; page's last lines kept on screen (page_setup: BUF_TEMP16 of them), and

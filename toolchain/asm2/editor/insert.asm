@@ -38,8 +38,12 @@ insert_exit:
   LDA #MODE_NORMAL
   STA MODE
   ; Move cursor back one per vi convention (unless at column 0)
-  LDX #1
-  JMP move_left_x
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BEQ .col0
+  JMP dec_cursor_col
+.col0:
+  RTS
 
 ; ============================================================================
 ; Batch handler for insert-mode editing keys

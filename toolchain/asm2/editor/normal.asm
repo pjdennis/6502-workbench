@@ -258,15 +258,9 @@ dd_lines:
   JSR set_modified
   JSR first_nonblank
   JSR finish_delete_scroll
-  ; More than 2 lines are reported, but for typed-ahead pairs, the last
-  ; of which deletes one
-  LDA BATCH_EXTRA
-  BNE .ret
-  LDA #<str_fewer_lines
+  LDA #<str_fewer_lines       ; (not for typed-ahead pairs)
   LDX #>str_fewer_lines
   JMP report_yank_lines_ax
-.ret:
-  RTS
 
 .yank_overflow:
   JMP show_yank_overflow

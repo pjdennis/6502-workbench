@@ -297,19 +297,6 @@ sub_count_x:
 .ok:
   RTS
 
-; --- Shared horizontal movement loops ---
-
-; Move left X positions, clamped to col 0
-; Input: X = count. Clobbers: A, X
-move_left_x:
-  TST16 CURSOR_COL16
-  BEQ .done
-  JSR dec_cursor_col
-  DEX
-  BNE move_left_x
-.done:
-  RTS
-
 ; h, l, Left, Right (in insert mode too), Space and Backspace: the count
 ; (and the typed-ahead presses) in steps of one column.  Space and Backspace go on over
 ; line ends, as with vim's default 'whichwrap' (b,s): past the last char
@@ -456,6 +443,18 @@ normal_line_end:
   BEQ vert_keep              ; No count, or 1: this line
   JSR move_down16
   JMP vert_moved
+
+; j, k, Down, Up (in insert mode too): the whole count, as vim (and the
+; typed-ahead presses)
+normal_move_down:
+  JSR get_count_pending16
+  JSR move_down16
+  JMP vert_col_clamp
+
+normal_move_up:
+  JSR get_count_pending16
+  JSR move_up16
+  ; fall through
 
 ; Vertical move tail (j, k and Up/Down in both modes): the cursor goes
 ; to the remembered column (vim's curswant), clamped to the line for the
