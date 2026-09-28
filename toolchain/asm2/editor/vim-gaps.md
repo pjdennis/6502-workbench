@@ -36,7 +36,7 @@ spare) and the terminal build at 13,132 ($3800).
 | 5 | Insert-mode typing is not undoable | +218 for subsets 1 and 2 with the redo (done); about +50 to 70 and +40 to 60 more for BS and DEL past the edges and the change commands (estimate) | 2 (done); 4 of part C, and 2 with the change commands | subsets 1 and 2 done |
 | 6 | Ctrl-F and Ctrl-B move a page of `TEXT_ROWS` lines | +118 (done); about +50 to 70 more for vim's overlap over long lines (estimate) | 19 pagination, Ctrl-D/U and first non-blank tests' expected views, 4 frame sizes | done, but for long lines |
 | 7 | Counts on i, a, A, o and O are ignored | +209 (measured) | none | kept for now |
-| 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); far jumps and '@' rows: see section 8 | 30 view and repaint tests (done) | whole lines done; the rest kept for now |
+| 8 | The view: whole lines, the cursor line in full; a far jump in the middle; '@' rows | -10 for whole lines (done); +261 for far jumps (measured); about +30 to 60 for '@' rows (estimate) | 30 view and repaint tests (done); 9 for far jumps | whole lines done; the rest kept for now |
 
 Item 3 uses the message routine item 4 left (a message held until the
 next key, which then runs), `show_message_ax`.
@@ -811,7 +811,8 @@ After each command, checked by typing into vim 8.2 at fixed sizes:
 ### What the editor does
 
 Since the vim leftovers batch B `ensure_cursor_visible`
-(render_scroll.asm) keeps vim's view but for the far jumps: a cursor
+(render_scroll.asm) keeps vim's view but for the far jumps, which put
+the cursor line on the top or bottom row as a near one does: a cursor
 line on or above the top line goes on top; below it, one walk up from
 the cursor line adds the lines above while they fit (`VIEW_ROWS` for the
 cursor line's own), and stops at the old top line (the view stays) or
@@ -828,6 +829,50 @@ sessions) sends 1.2% more bytes, as whole lines move and the cursor
 line is drawn in full; the render oracle holds.
 
 A line that does not fit at the bottom shows the rows of it that fit.
+
+### Plan for far jumps (kept for now)
+
+- `ensure_row_visible`, above the top line: X = the lines from the
+  cursor line to it; the middle when X is 256 or more, or X >= 2 and 2X
+  + 3 >= `TEXT_ROWS` (X >= `TEXT_ROWS` / 2 - 1).
+- Below the view, when the walk up from the cursor line stops short of
+  the top line: B, the first line not shown in full, by a walk from the
+  top line; then `view_walk` counting lines (a line after the cursor
+  line, then one before, as vim's scroll_cursor_bot adds them) from the
+  cursor line: vim centres exactly when that walk stops short of B.
+- `view_walk` (the middle): a line after the cursor line whenever the
+  rows after it are not more than those before it, then a line before
+  it while those are fewer, until the rows run out or line 1 is on top;
+  past the last line, lines before it only (vim's '~' rows take no
+  room). The same walk with no lines after the cursor line is the walk
+  to the bottom, and with lines counted instead of rows the test above.
+- Typed-ahead presses move the view as one at a time, where each press
+  moves a line (or grows the cursor line), which never centres: a new
+  `VIEW_NEAR`, zeroed by `main_loop`, is set by `add_x_temp16` (the
+  presses of j, k, h, l, Space, Backspace, the insert-mode arrows, and
+  the p and dd pairs), by an insert-mode batch and by `page_view` (the
+  page keys place the view themselves); it keeps the cursor line on top
+  or at the bottom. After a count the presses run on their own
+  (`get_count_pending16`: 5jjj is 5j, then jj), as the count's jump may
+  centre. A typed-ahead u u sets the view after the first u
+  (`undo_handle` calls `ensure_cursor_visible` between the steps).
+- Size, *measured* on a sandbox prototype of all of the above on the
+  whole-line view (work/leftovers-b/item1-far-jump.patch in the audit's
+  work directory; the suite green but for the 9 tests that pin a top or
+  bottom placement after a far jump): +261 bytes, 3 more in zero page.
+  Sharing `view_walk` with the walk to the bottom (a stop line) would
+  take about 30 bytes off. The top line and the cursor match vim 8.2
+  after each of 900 sessions of j, k, counts, G, gg and paging at 10x40
+  with lines of one row, and of 300 sessions of vertical moves with lines
+  of 3 rows (paging there differs only in Ctrl-F's long-line overlap,
+  section 6); typed ahead against paced (4,600 sessions, 400 of them on
+  files of 20 to 90 lines) shows no mismatch.
+- CPU: a scroll down past the view walks from the top line to B and
+  then the counting walk: a j that scrolls costs about 6,400 cycles
+  more (10x40), G about 6,500 (24x80: 15,800); the audit's bench
+  +63,545 cycles (+0.5%).
+- Repaint: a far jump draws a centred screen, as the scroll or redraw it
+  is now (the per-frame differential: +0.1% bytes).
 
 ### Plan for '@' rows (kept)
 
