@@ -243,6 +243,21 @@ mark_adjust_delete:
 .range:
   JMP mark_adjust_range
 
+; Move the marks of the A (1-255) lines after the cursor line to it,
+; and the ones below up A lines, as vim's J does: a join at a time, each
+; moving the next line's marks up (mark_join_lines_nt: NORMAL_TEMP = A).
+; Clobbers A, X, Y, NORMAL_TEMP, BUF_TEMP16, BUF_SRC16, BUF_DST16,
+; MARK_DELTA16
+mark_join_lines:
+  STA NORMAL_TEMP
+mark_join_lines_nt:
+  JSR set_buf_temp16_one
+  LDAX16 FILE_LINE16
+  JSR mark_adjust_join
+  DEC NORMAL_TEMP
+  BNE mark_join_lines_nt
+  RTS
+
 ; Insert 1 line at A/X, adjust marks
 mark_insert_one:
   PHA

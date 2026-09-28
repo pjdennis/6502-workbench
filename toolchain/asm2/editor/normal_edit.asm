@@ -586,10 +586,8 @@ normal_join_lines:
   ; Single rebuild
   JSR buf_rebuild_lines
 
-  ; Single mark adjust for all removed lines
-  LDA NORMAL_TEMP
-  JSR mark_args_next_line
-  JSR mark_adjust_delete
+  ; The joined lines' marks move to the cursor line, as in vim
+  JSR mark_join_lines_nt
 
   LDA #RF_JOIN           ; Signal line-delete, skip cursor row scroll
   JSR set_modified_render

@@ -10795,6 +10795,29 @@ class EditorTestRunner:
                 f"{keys!r}: marks of the lines a char delete joins",
                 content, keys + b":wq\r", expected_content=expected)
 
+        # J moves the marks of the lines it joins to the line they join, as
+        # vim's do_join does, and the marks below move up (checked in vim
+        # 8.2); its redo moves them again
+        for keys, expected in (
+                (b"jmakJG'ax", " b\nc\nd\n"),
+                (b"jmak3JG'ax", " b c\nd\n"),
+                (b"jmbjmagg3JG'ax", " b c\nd\n"),
+                (b"jmbjmagg3JG'bx", " b c\nd\n"),
+                (b"majmbkJG'ax", " b\nc\nd\n"),
+                (b"majmbkJG'bx", " b\nc\nd\n"),
+                (b"jjmagg2JG'ax", "a b\n\nd\n"),
+                (b"Gmagg3JG'ax", "a b c\n\n"),
+                (b"jmakJJG'ax", " b c\nd\n"),
+                (b"jmbjmaggJJG'bx", " b c\nd\n"),
+                (b"jmakJu\x1buG'ax", " b\nc\nd\n")):
+            self.run_test(f"{keys!r}: J moves the joined lines' marks",
+                          "a\nb\nc\nd\n", keys + b":wq\r",
+                          expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: J J with marks on the joined lines", "a\nb\nc\nd\n",
+            [b"j", b"m", b"b", b"j", b"m", b"a", b"g", b"g", b"J", b"J",
+             b"G", b"'", b"b", b"x", b"'", b"a", b"x"])
+
         # db from col0: mark on cursor line shifts correctly
         # db from (1,0): deletes "AB\n", cursor at (0,0). Col=0 so first_line=0.
         # Mark at idx 1 is in [0,1) -> unset (idx 1 IS the cursor line content)

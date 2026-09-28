@@ -75,8 +75,6 @@
 
   Marks
 
-  J - The marks of the joined lines are unset; vim moves them to the line they join.
-
   u of a line delete or J - Leaves unset the marks of the lines that dd, :d or J removed; vim puts back every mark
   that was set when the change began, as u does here after a char delete (x, d, c, s, C) and after cc and S.
 

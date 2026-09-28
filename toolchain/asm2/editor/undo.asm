@@ -257,7 +257,8 @@ undo_join_redo:
 
   LDA #' '
   JSR undo_join_apply
-  JSR mark_adjust_delete
+  LDA UNDO_JOIN_COUNT
+  JSR mark_join_lines        ; The joined lines' marks move up, as for J
 
   ; Set flags
   JSR undo_set_redone_flags

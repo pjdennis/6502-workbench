@@ -245,7 +245,8 @@ NORMAL MODE - MARKS
 
   Marks are automatically adjusted when lines are inserted or
   deleted. Marks within a deleted range are cleared (this includes
-  lines replaced with cc or S).
+  lines replaced with cc or S); J moves the marks of the lines it
+  joins to the line they join, as vim does.
 
 
 NORMAL MODE - COUNT PREFIX

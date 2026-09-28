@@ -211,7 +211,7 @@ undo of the edit before. HELP and vi-compatibility-changes document it.
   the first join point copies the text down (the write never passes the
   read), putting S spaces where each line break and its blanks were and
   writing each join's record entry, and `buf_shift_left_16` closes what
-  is left of the gap. Then `buf_rebuild_lines`, `mark_adjust_delete` and
+  is left of the gap. Then `buf_rebuild_lines`, `mark_join_lines` and
   the cursor as now, and `RF_JOIN` from the first join point.
 - The undo record, one entry per join: the join point's offset in the
   joined line (2 bytes, as now) and a byte for the blanks removed: bit 7
