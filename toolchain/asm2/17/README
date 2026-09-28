@@ -144,6 +144,12 @@ in the list. When they match, the assembler forces absolute addressing mode
 even if the resolved value would fit in zero page. This ensures pass 2 emits
 the same instruction sizes as pass 1.
 
+An assignment (label = value) is stored in pass 1, so it can only use labels
+defined before it: pass 1 takes a label not defined yet as 0. Pass 2
+evaluates the value again, with every label defined, and stops with error
+43, "Assignment uses a label defined later", if it differs from the stored
+one, rather than let the wrong value through.
+
 
 Macro System
 ------------

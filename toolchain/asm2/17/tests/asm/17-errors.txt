@@ -109,3 +109,72 @@ INPUT:
  2:   .byte 'A', 'B', 'C'
 EXPECT_HEX: 41 42 43
 
+
+---
+NAME: assignment_of_a_later_label
+INPUT:
+ 1: * = $0200
+ 2: early = later
+ 3:   JSR early
+ 4: later = $1234
+EXPECT_ERROR: 43
+EXPECT_LINE: 2
+EXPECT_MSG: Assignment uses a label defined later
+
+---
+NAME: assignment_of_a_later_label_byte
+INPUT:
+ 1: * = $0200
+ 2: early = <later
+ 3:   LDA #early
+ 4: later = $1234
+EXPECT_ERROR: 43
+EXPECT_LINE: 2
+EXPECT_MSG: Assignment uses a label defined later
+
+---
+NAME: assignment_of_a_later_code_label
+INPUT:
+ 1: * = $0200
+ 2: entry = main
+ 3:   JMP entry
+ 4: main:
+ 5:   RTS
+EXPECT_ERROR: 43
+EXPECT_LINE: 2
+EXPECT_MSG: Assignment uses a label defined later
+
+---
+NAME: local_assignment_of_a_later_label
+INPUT:
+ 1: * = $0200
+ 2: start:
+ 3: .early = later
+ 4:   JSR .early
+ 5: later = $1234
+EXPECT_ERROR: 43
+EXPECT_LINE: 3
+EXPECT_MSG: Assignment uses a label defined later
+
+---
+NAME: assignment_of_a_later_label_in_a_macro_argument
+INPUT:
+ 1: * = $0200
+ 2:   .macro ALIAS target
+ 3: aliased = target
+ 4:   .endmacro
+ 5:   ALIAS later
+ 6:   JSR aliased
+ 7: later = $1234
+EXPECT_ERROR: 43
+EXPECT_LINE: 1
+EXPECT_MSG: Assignment uses a label defined later
+
+---
+NAME: assignment_of_an_earlier_label
+INPUT:
+ 1: * = $0200
+ 2: earlier = $1234
+ 3: late = earlier + $01
+ 4:   JSR late
+EXPECT_HEX: 20 35 12
