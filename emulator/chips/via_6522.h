@@ -74,8 +74,13 @@ struct via_6522_state {
 
     /* Internal state. */
     uint8_t pb7;                /* T1 squarewave output state */
-    uint8_t t1_running;         /* fires IFR.T1 then either re-arms (cont) or stops */
-    uint8_t t2_running;         /* one-shot until T2CH write re-arms */
+    uint8_t t1_running;         /* counting since the first write to T1CH */
+    uint8_t t2_running;         /* counting since the first write to T2CH */
+    uint8_t t1_loaded;          /* T1CH/T2CH written this cycle: the counter */
+    uint8_t t2_loaded;          /*   holds for a cycle, then counts down */
+    uint8_t t1_reload;          /* T1 timed out ($FFFF): the latch reloads next */
+    uint8_t t1_armed;           /* a time-out sets the flag (one-shot: once */
+    uint8_t t2_armed;           /*   per write to T1CH/T2CH) */
     uint8_t sr_bits_remaining;  /* shift-in-T2 byte progress */
     uint32_t sr_shift_total;    /* monotonic count of SR shifts so far;
                                  * external chips watch this to observe

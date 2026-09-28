@@ -14,6 +14,7 @@ VASM = os.path.join(ROOT, 'firmware', 'vasm')
 PROGRAM = os.path.join(ROOT, 'firmware', 'programs', 'michael', 'michael_timer2_test2.s')
 BASE_CONFIG = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'base_config_v2.inc')
 TICKS = 1000
+JIFFY_HZ = 500
 
 
 def run(clock_khz=None):
@@ -47,6 +48,11 @@ class Timer2Cycles(unittest.TestCase):
         self.assertGreaterEqual(len(timeouts), TICKS)
         # The first tick comes from the program's own load of T2, the rest from the handler's
         self.assertEqual(len(set(intervals(timeouts[1:]))), 1, sorted(set(intervals(timeouts[1:]))))
+
+    def test_the_ticks_are_the_programs_delay_apart(self):
+        # The W65C22 timing the handler's RESTART_OFFSET was measured against on the board
+        timeouts, _ = run()
+        self.assertEqual(set(intervals(timeouts[1:])), {2000 * 1000 // JIFFY_HZ})
 
     def test_the_handler_runs_after_varying_delays(self):
         timeouts, reads = run()
