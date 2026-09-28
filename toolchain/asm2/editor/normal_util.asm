@@ -488,6 +488,16 @@ clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count
 
+; The cursor back where it was before the key.  Clobbers A, X
+cursor_to_snap:
+  LDX #3
+.loop:
+  LDA SNAP_LINE16,X
+  STA FILE_LINE16,X
+  DEX
+  BPL .loop
+  RTS
+
 ; Z = 1 if the cursor is where it was before the key (SNAP_LINE16 and
 ; SNAP_COL16): a move that failed left it there.  Clobbers A, X
 cursor_moved:

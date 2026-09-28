@@ -262,8 +262,8 @@ insert_spaces_core:
 
 .redist:
   JSR shift_line_start         ; The line's start before the shift, ...
-  CLC
-  ADC16 BUF_PTR16, BUF_LEN16, BUF_PTR16 ; ... which moved it by the total
+  LDX #BUF_PTR16
+  JSR add_len_x                ; ... which moved it by the total
   JSR shift_line_width         ; read ptr = line start (pre-shift content)
   TAX
   BEQ .redist_copy             ; Width 0: no spaces

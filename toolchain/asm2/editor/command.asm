@@ -369,8 +369,7 @@ range_do_yank:
 ; and the cursor, which goes back where the command was typed (d0, db,
 ; cb, yb and :d moved it to the start of their range first)
 range_yank_full:
-  CP16 SNAP_LINE16, FILE_LINE16
-  CP16 SNAP_COL16, CURSOR_COL16
+  JSR cursor_to_snap
   LDA #<str_yank_full
   LDX #>str_yank_full
   JMP show_message_ax

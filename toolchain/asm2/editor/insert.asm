@@ -605,3 +605,14 @@ insert_seg_start:
   STA_LH16 UNDO_INS_LEN16
   RTS
 
+; $00,X += BUF_LEN16 (a zero-page word).  Clobbers A
+add_len_x:
+  CLC
+  LDA $00,X
+  ADC BUF_LEN16
+  STA $00,X
+  LDA $01,X
+  ADC BUF_LEN16 + 1
+  STA $01,X
+  RTS
+

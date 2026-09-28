@@ -254,8 +254,8 @@ do_char_paste:
 .no_hint:
   ; The cursor on the last pasted char, and the lines after the cursor
   ; line move by the total (only its length changed)
-  CLC
-  ADC16 CURSOR_COL16, BUF_LEN16, CURSOR_COL16
+  LDX #CURSOR_COL16
+  JSR add_len_x
   JSR dec_cursor_col
   JSR buf_adjust_lines_len
   JMP .clamp
