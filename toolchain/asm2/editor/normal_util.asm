@@ -3,6 +3,12 @@
 
 ; (zero-page variables: zp.asm)
 
+; BUF_DST16 = BUF_PTR16 (ptr_to_src is below).  Clobbers A (= the high
+; byte)
+ptr_to_dst:
+  CP16 BUF_PTR16, BUF_DST16
+  RTS
+
 ; --- Generic key dispatcher ---
 ; Input: A = low byte, X = high byte of dispatch table address
 ;        BUF_TEMP = key code to match
@@ -211,11 +217,6 @@ get_cursor_src:
 ; BUF_SRC16 = BUF_PTR16.  Clobbers A (= the high byte)
 ptr_to_src:
   CP16 BUF_PTR16, BUF_SRC16
-  RTS
-
-; BUF_DST16 = BUF_PTR16.  Clobbers A (= the high byte)
-ptr_to_dst:
-  CP16 BUF_PTR16, BUF_DST16
   RTS
 
 ; Clamp CURSOR_COL16 to the line's last char (0 on an empty line), or in

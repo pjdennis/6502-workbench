@@ -40,10 +40,13 @@
   .include 17/macros.asm
   .include editor/macros.asm
   .include editor/zp.asm
-  .include editor/io.asm
   .include editor/terminal.asm
   .include editor/input.asm
   .include editor/buffer_mem.asm
+  ; io.asm after those: the terminal build's serial routines there would
+  ; put mem_copy_down's copy loop across a page (the console build's
+  ; io.asm is aliases only)
+  .include editor/io.asm
   .include editor/buffer.asm
   .include editor/undo_state.asm
   .include editor/render.asm

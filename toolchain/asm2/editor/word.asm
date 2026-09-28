@@ -70,15 +70,6 @@ char_class:
   LDA #1
   RTS
 
-; --- w command: move to start of next word ---
-; Accepts count prefix.
-; Skip current word-class chars, skip whitespace.
-; If at EOL, move on to the next line's first word.
-normal_word_forward:
-  JSR get_batched_count
-  JSR word_forward_x
-  JMP clamp_and_clear_count
-
 ; Core word-forward motion: move cursor forward X words.  From the end of
 ; a line it goes on to the next line's first word, over its indentation
 ; and over lines of blanks (an empty line counts as a word, as in vi).
@@ -131,13 +122,6 @@ word_forward_x:
   JSR class_in_line
   BPL .w_ws_test          ; Always (col 0 is on the line): skip indentation
 
-; --- b command: move to start of previous word ---
-; Accepts count prefix.
-normal_word_backward:
-  JSR get_batched_count
-  JSR word_backward_x
-  JMP clamp_and_clear_count
-
 ; Core word-backward motion: move cursor backward X words
 ; Input: X = count of words to move
 ; Clobbers: A, X, Y, NORMAL_TEMP, WORD_CLASS, LINE_LEN16, BUF_PTR16
@@ -189,6 +173,22 @@ word_backward_x:
   BNE .b_loop
 .b_done_final:
   RTS
+
+; --- w command: move to start of next word ---
+; Accepts count prefix.
+; Skip current word-class chars, skip whitespace.
+; If at EOL, move on to the next line's first word.
+normal_word_forward:
+  JSR get_batched_count
+  JSR word_forward_x
+  JMP clamp_and_clear_count
+
+; --- b command: move to start of previous word ---
+; Accepts count prefix.
+normal_word_backward:
+  JSR get_batched_count
+  JSR word_backward_x
+  JMP clamp_and_clear_count
 
 ; --- e command: move to end of current/next word ---
 ; Accepts count prefix.
@@ -410,6 +410,16 @@ range_start_ptr:
   TAX
   RTS
 
+; Move cursor to start of next line, if any
+; Output: carry set if no next line (cursor unchanged), clear if advanced
+; Clobbers: A
+advance_next_line:
+  JSR next_line
+  BCS next_line_ret
+  LDA #0
+  STA_LH16 CURSOR_COL16
+  RTS
+
 ; --- ^, and the tail of the commands that go to another line (G, gg,
 ; :N, 'a, Ctrl-F/B/D/U): the cursor to the first non-blank char, as in
 ; vi and in vim with its default 'startofline', then clear the count ---
@@ -472,16 +482,6 @@ in_indent:
   RTS
 
 ; --- Shared small helpers ---
-
-; Move cursor to start of next line, if any
-; Output: carry set if no next line (cursor unchanged), clear if advanced
-; Clobbers: A
-advance_next_line:
-  JSR next_line
-  BCS next_line_ret
-  LDA #0
-  STA_LH16 CURSOR_COL16
-  RTS
 
 ; The cursor past the end of the line above (column = its length): C = 0
 ; on the first line (nothing moves), else C = 1 and Z = 1 if that line is
