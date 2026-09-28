@@ -1538,9 +1538,18 @@ class EditorTestRunner:
         self.run_test("Two Enters after a joining BS are refused at the limit",
             full, b"ji\x08\r\r\x1b\x1bx:wq\r",
             expected_content="L0001\n0002\n" + full[12:])
-        self.run_test("Two Enters after a joining DEL are refused at the limit",
+        # Typed ahead, the keys before an Enter that does not fit go in and
+        # those after it run on their own, as typed one at a time: after
+        # the joining DEL the first Enter fits, the second is refused
+        self.run_test("Two Enters after a joining DEL: the second is refused",
             full, b"A\x1b[3~\r\r\x1b\x1bx:wq\r",
-            expected_content="L000\n" + full[6:])
+            expected_content="L0001\n0002\n" + full[12:])
+        self.run_test("Typed-ahead chars and Enters stop at the line limit",
+            numbered(1022), b"GAx\ry\rz\x1b\x1b:wq\r",
+            expected_content=numbered(1022)[:-1] + "x\nyz\n")
+        self.run_test_batch_equiv(
+            "Batch equiv: Enter keys past the line limit", numbered(1021),
+            [b"G", b"A", b"x", b"\r", b"y", b"\r", b"\r", b"z", b"\x1b"])
 
     def run_cpu_cost_tests(self):
         """Cycle caps for the line table and line lengths on big buffers

@@ -91,6 +91,21 @@ insert_handle_key:
   TAY                       ; then takes one key)
 .have_cap:
   STY BUF_DELTA             ; (for the first-key test)
+  ; Likewise take no more Enter keys than there are lines left, so that
+  ; the batch never passes the line limit (a BS or DEL that joins lines
+  ; is not counted: the Enters after it wait for the next batch, which
+  ; counts the lines anew): NORMAL_TEMP = the lines left, 127 for 127 or
+  ; more (a batch has fewer keys)
+  LDA LINE_COUNT16 + 1
+  CMP #>MAX_LINES
+  BCC .plenty               ; Fewer than $300 lines
+  LDA LINE_COUNT16
+  EOR #$FF                  ; $3FF - LINE_COUNT16 (<<MAX_LINES is $FF)
+  BPL .have_room
+.plenty:
+  LDA #$7F
+.have_room:
+  STA NORMAL_TEMP
   LDA BUF_TEMP
 .collect_key:
   CMP #KEY_ENTER
@@ -118,6 +133,12 @@ insert_handle_key:
   BNE .dec_cap              ; Always taken (X <= BATCH_MAX)
 
 .key_enter:
+  DEC NORMAL_TEMP           ; The lines left
+  BPL .enter_fits
+  CPY BUF_DELTA
+  BNE .end_batch            ; It waits its turn (A = KEY_ENTER)
+  LDY #0                    ; The first key: alone, refused as when typed
+.enter_fits:                ; alone
   LDA #'\n'
   BNE .key_printable        ; Always taken ($0A != 0)
 
