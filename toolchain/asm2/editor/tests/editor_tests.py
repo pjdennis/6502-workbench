@@ -17731,6 +17731,21 @@ class EditorTestRunner:
             expect_cursor=(0, 19),
         )
 
+        # The redo of r<Enter> after a move that scrolled its line off the
+        # top: the split line is above the view's top line, which is the
+        # new line now (the cursor's), so the rows below it moved too
+        # ('xyz' was left out with the row showing '~').  The split line
+        # fills its row, so its rows and the new line's add up to the rows
+        # it had with the replaced char
+        self.run_test_screen(
+            "Scroll opt: redo of r<Enter> on a line above the view",
+            "abcdefghij\n\nxyz\n",
+            b"Jr\ru u:q!\r",
+            rows=3, cols=10,
+            expect_lines=[(0, ""), (1, "xyz")],
+            expect_cursor=(0, 0),
+        )
+
         # Enter in middle of wrapped line: total screen rows unchanged.
         # Line: "12345678901234567890abc" (23 chars = 2 rows at 20 cols).
         # 10 l's to col 10, i enters insert, iii types 3 chars, Enter splits.
