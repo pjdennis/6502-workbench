@@ -43,6 +43,7 @@ jmp_buf server_abort_jmp;
 int console_mode = 0;
 int terminal_mode = 0;
 int direct_io = 0;                // --direct-io (direct_io.h)
+int strict_api = 0;               // --strict-api (stubs.h)
 static uint8_t scr_a;             // the A argument of the pending screen call
 int terminal_interactive = 0;
 FILE* serial_input_file = NULL;
@@ -658,6 +659,7 @@ int main(int argc, char **argv) {
     console_mode = opts.console_mode;
     terminal_mode = opts.terminal_mode;
     direct_io = opts.direct_io;
+    strict_api = opts.strict_api;
     show_repaints = opts.show_repaints;
     server_mode = opts.server_mode;
     override_rows = opts.override_rows;
@@ -759,7 +761,7 @@ int main(int argc, char **argv) {
       memory[0xfffc] = memory[index - 2];
     }
 
-    size_t p = generate_stubs(memory, terminal_mode, direct_io);
+    size_t p = generate_stubs(memory, terminal_mode, direct_io, strict_api);
 
     if (console_mode) {
         input_file_ptr = stdin;
@@ -998,7 +1000,7 @@ static int server_load_binary(const char *filename, long load_address) {
         memory[0xfffc] = memory[index - 2];
     }
 
-    stubs_end = generate_stubs(memory, terminal_mode, direct_io);
+    stubs_end = generate_stubs(memory, terminal_mode, direct_io, strict_api);
     memcpy(pristine_memory, memory, 0x10000);
     return 0;
 }
@@ -1014,6 +1016,8 @@ static int server_main(uint64_t cycle_cap) {
     int use_inline_stderr = 0;
     char loaded_binary[4096] = "";
     int loaded_terminal_mode = -1;
+    int loaded_direct_io = -1;
+    int loaded_strict_api = -1;
     long loaded_address = -1;
     char *srv_args[256];
     int srv_arg_count = 0;
@@ -1028,10 +1032,12 @@ static int server_main(uint64_t cycle_cap) {
         } else if (strncmp(line, "BINARY ", 7) == 0) {
             strncpy(srv_binary, line + 7, sizeof(srv_binary) - 1);
             srv_binary[sizeof(srv_binary) - 1] = '\0';
-            // Skip reload if same binary, mode, and load address
+            // Skip reload if same binary, mode, stubs, and load address
             if (binary_loaded &&
                 strcmp(srv_binary, loaded_binary) == 0 &&
                 terminal_mode == loaded_terminal_mode &&
+                direct_io == loaded_direct_io &&
+                strict_api == loaded_strict_api &&
                 srv_load_address == loaded_address) {
                 // Already loaded - skip file I/O
             } else if (server_load_binary(srv_binary, srv_load_address) != 0) {
@@ -1043,6 +1049,8 @@ static int server_main(uint64_t cycle_cap) {
                 strncpy(loaded_binary, srv_binary, sizeof(loaded_binary) - 1);
                 loaded_binary[sizeof(loaded_binary) - 1] = '\0';
                 loaded_terminal_mode = terminal_mode;
+                loaded_direct_io = direct_io;
+                loaded_strict_api = strict_api;
                 loaded_address = srv_load_address;
             }
         } else if (strncmp(line, "LOAD ", 5) == 0) {
@@ -1058,6 +1066,8 @@ static int server_main(uint64_t cycle_cap) {
         } else if (strncmp(line, "MODE ", 5) == 0) {
             terminal_mode = strcmp(line + 5, "terminal") == 0 ? 1 : 0;
             direct_io = strcmp(line + 5, "direct") == 0 ? 1 : 0;
+        } else if (strncmp(line, "API ", 4) == 0) {
+            strict_api = strcmp(line + 4, "strict") == 0 ? 1 : 0;
         } else if (strncmp(line, "INPUT ", 6) == 0) {
             strncpy(srv_input, line + 6, sizeof(srv_input) - 1);
             srv_input[sizeof(srv_input) - 1] = '\0';

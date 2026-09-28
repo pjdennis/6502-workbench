@@ -484,6 +484,68 @@ class EmulatorTestRunner:
             return
         self._assert_eq(name, output, self.DIRECT_IO_EXPECTED)
 
+    def _build_strict_api_test(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        self.strict_api_bin = tests_dir / "out" / "strict_api_test.out"
+        return self._assemble(tests_dir / "strict_api_test.asm", self.strict_api_bin)
+
+    # write_b, con_read ('q'), wait_ready (a key ready), scr_cursor_off:
+    # each followed by its N V Z C flags, A, X, Y (strict_api_test.asm).
+    # The flags a call does not name come back inverted: all four for
+    # write_b and con_read, all but N for wait_ready; scr_cursor_off
+    # (whose own flags come from its LDA #$FB) changes A and Y
+    STRICT_API_EXPECTED = (b"w" + bytes([0xC2]) + b"w\x5a\xa5"
+                           + bytes([0xC3]) + b"q\x5a\xa5"
+                           + bytes([0xC2, 0xFF, 0x5A, 0xA5])
+                           + b"\x1b[?25l" + bytes([0x42, 0xFB, 0x5A, 0x5A]))
+
+    def test_strict_api_subprocess(self):
+        """--strict-api: calls keep only what their contract says."""
+        name = "strict-api: flags and registers a call does not name change (subprocess)"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "strict_keys.bin"
+        out = self.tmpdir / "strict_out.bin"
+        keys.write_bytes(b"qr")
+        result = self.run_subprocess(self.strict_api_bin, extra_args=[
+            "--direct-io", "--strict-api", "--input", str(keys), "--output", str(out)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}: {result.stderr!r}")
+            return
+        self._assert_eq(name, out.read_bytes(), self.STRICT_API_EXPECTED)
+
+    def test_strict_api_server(self):
+        name = "strict-api: flags and registers a call does not name change (server)"
+        if not self._should_run(name):
+            return
+        emu = self._get_server()
+        exit_code, output, _ = emu.run(self.strict_api_bin, load_addr=0x0400, mode='direct',
+                                       strict_api=True, keys=b"qr",
+                                       inline_output=True, inline_stderr=True)
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.STRICT_API_EXPECTED)
+
+    # The same program with the standard stubs, which happen to keep more
+    STANDARD_API_EXPECTED = (b"w" + bytes([0x01]) + b"w\x5a\xa5"
+                             + bytes([0x00]) + b"q\x5a\xa5"
+                             + bytes([0x81, 0xFF, 0x5A, 0xA5])
+                             + b"\x1b[?25l" + bytes([0x01, 0x04, 0x5A, 0xA5]))
+
+    def test_standard_api_after_strict_server(self):
+        """The server rebuilds the stubs when a run leaves --strict-api."""
+        name = "strict-api: the server's next standard run has the standard stubs"
+        if not self._should_run(name):
+            return
+        emu = self._get_server()
+        exit_code, output, _ = emu.run(self.strict_api_bin, load_addr=0x0400, mode='direct',
+                                       keys=b"qr", inline_output=True, inline_stderr=True)
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.STANDARD_API_EXPECTED)
+
     def test_wait_ready_input_queued(self):
         """With --input every byte is ready at once; once a read has hit the
         end of the input, wait_ready returns CON_EOF. X and Y survive."""
@@ -704,6 +766,16 @@ class EmulatorTestRunner:
         else:
             self.test_direct_io_subprocess()
             self.test_direct_io_server()
+
+        print("\n--- strict-api ---")
+        if not self.assembler.exists():
+            self._fail("strict-api tests", "assembler not built")
+        elif not self._build_strict_api_test():
+            self._fail("strict-api tests", "test program did not assemble")
+        else:
+            self.test_strict_api_subprocess()
+            self.test_strict_api_server()
+            self.test_standard_api_after_strict_server()
 
         print("\n--- CLI argument validation ---")
         self.test_cli_no_args()

@@ -20,6 +20,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->console_mode = 0;
     opts->terminal_mode = 0;
     opts->direct_io = 0;
+    opts->strict_api = 0;
     opts->show_repaints = 0;
     opts->server_mode = 0;
     opts->override_rows = 0;
@@ -73,6 +74,9 @@ void emu_opts_usage(FILE *fp) {
 "  --direct-io            the program calls the scr_* screen vectors instead of\n"
 "                         writing ANSI, and con_read returns key codes instead of\n"
 "                         escape sequences; the emulator converts both ways\n"
+"  --strict-api           the environment calls keep only what their contracts\n"
+"                         say: flags they do not return come back inverted, and\n"
+"                         the screen calls change A and Y (tests)\n"
 "  --show-repaints        flash on console/terminal repaints (debug)\n"
 "  --server               long-running server: as argv[1] dispatches into\n"
 "                         server_main; after argv[1] enables one-shot reuse loop\n"
@@ -186,6 +190,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             i++;
         } else if (strcmp(argv[i], "--direct-io") == 0) {
             opts->direct_io = 1;
+            i++;
+        } else if (strcmp(argv[i], "--strict-api") == 0) {
+            opts->strict_api = 1;
             i++;
         } else if (strcmp(argv[i], "--terminal") == 0) {
             opts->terminal_mode = 1;

@@ -15,7 +15,7 @@ static uint16_t vector_target(uint16_t vec) {
 
 TEST every_vector_is_a_jmp(void) {
     memset(memory, 0, sizeof memory);
-    generate_stubs(memory, 0, 0);
+    generate_stubs(memory, 0, 0, 0);
     for (uint16_t vec = 0xF006; vec <= 0xF03F; vec += 3) {
         ASSERT_EQ_FMT(0x4C, memory[vec], "%02x");
     }
@@ -25,14 +25,14 @@ TEST every_vector_is_a_jmp(void) {
 TEST stubs_end_below_string_pool(void) {
     // nmos binaries park a read-only string pool from $F0C0 up (stubs.h)
     memset(memory, 0, sizeof memory);
-    ASSERT(generate_stubs(memory, 0, 0) <= 0xF0C0);
-    ASSERT(generate_stubs(memory, 1, 0) <= 0xF0C0);
+    ASSERT(generate_stubs(memory, 0, 0, 0) <= 0xF0C0);
+    ASSERT(generate_stubs(memory, 1, 0, 0) <= 0xF0C0);
     PASS();
 }
 
 TEST wait_ready_stores_timeout_then_reads_result(void) {
     memset(memory, 0, sizeof memory);
-    generate_stubs(memory, 0, 0);
+    generate_stubs(memory, 0, 0, 0);
     uint16_t stub = vector_target(0xF03F);
     const uint8_t expect[] = {
         0x8D, port_wait_lo & 0xFF, port_wait_lo >> 8,        // STA port_wait_lo
@@ -48,7 +48,7 @@ TEST wait_ready_stores_timeout_then_reads_result(void) {
  * $42 on, 3 bytes apart, each storing A and then its op number. */
 TEST direct_io_screen_vectors_store_a_then_op(void) {
     memset(memory, 0, sizeof memory);
-    generate_stubs(memory, 0, 1);
+    generate_stubs(memory, 0, 1, 0);
     for (uint8_t op = 0; op < 13; op++) {
         uint16_t vec = (uint16_t)(0xF042 + op * 3);
         ASSERT_EQ_FMT(0x4C, memory[vec], "%02x");
@@ -70,9 +70,17 @@ TEST direct_io_screen_vectors_store_a_then_op(void) {
 
 TEST standard_stubs_have_no_screen_vectors(void) {
     memset(memory, 0, sizeof memory);
-    generate_stubs(memory, 0, 0);
+    generate_stubs(memory, 0, 0, 0);
     uint16_t read_b_stub = vector_target(0xF006);
     ASSERT_EQ_FMT(0xF042, read_b_stub, "%04x");   /* stubs follow wait_ready */
+    PASS();
+}
+
+/* --strict-api stubs are longer: they still end below the argv strings. */
+TEST strict_stubs_end_below_argv(void) {
+    memset(memory, 0, sizeof memory);
+    ASSERT(generate_stubs(memory, 0, 1, 1) <= ARGV_BASE);
+    ASSERT(generate_stubs(memory, 1, 0, 1) <= ARGV_BASE);
     PASS();
 }
 
@@ -82,6 +90,7 @@ SUITE(stubs_suite) {
     RUN_TEST(wait_ready_stores_timeout_then_reads_result);
     RUN_TEST(direct_io_screen_vectors_store_a_then_op);
     RUN_TEST(standard_stubs_have_no_screen_vectors);
+    RUN_TEST(strict_stubs_end_below_argv);
 }
 
 GREATEST_MAIN_DEFS();

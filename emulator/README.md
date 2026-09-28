@@ -71,6 +71,7 @@ Common options (the full list is in `--help`):
 | `--mhz` / `--cpu-mhz` / `--baud` | wall-clock pacing + serial timing |
 | `--pace-mask` / `--pace-log` / `--pace-polls` | test hook: after reading an input byte whose mask byte is not `0`, `con_ready` reports not-ready for N polls (default 2000), so the next key arrives only after the program went idle (a `wait_ready` in the pause times out, and the program's next request for input ends the pause); the log gets `<input read> <output written>` as each pause ends. In terminal mode the serial input is held before the first byte and after each such byte until the program asks for input with nothing pending and all its output sent, like a user who waits for the screen before typing (the log is not written there) |
 | `--rows N` / `--cols N` | terminal-size overrides |
+| `--strict-api` | test hook: each `$F006` call keeps only what its contract (`toolchain/asm2/17/environment.asm`) says. The flags it does not return come back inverted, and the screen calls change A and Y, so a program that relies on more fails its tests here rather than on a board. The server takes it as `API strict` / `API standard` |
 
 ## wendy2c demo
 

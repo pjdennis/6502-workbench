@@ -305,6 +305,15 @@ TEST cli_direct_io_parsed(void) {
     PASS();
 }
 
+TEST cli_strict_api_parsed(void) {
+    char *argv[] = {"emulator", "prog.bin", "--strict-api", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_EQ_FMT(1, opts.strict_api, "%d");
+    PASS();
+}
+
 TEST cli_direct_io_with_terminal_rejected(void) {
     char *argv[] = {"emulator", "prog.bin", "--direct-io", "--terminal", NULL};
     struct emu_opts opts;
@@ -429,6 +438,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_live_accepted_for_michael);
     RUN_TEST(cli_direct_io_parsed);
     RUN_TEST(cli_direct_io_with_terminal_rejected);
+    RUN_TEST(cli_strict_api_parsed);
     RUN_TEST(cli_kbd_options_parsed_for_michael);
     RUN_TEST(cli_keys_and_interval_parsed_for_michael);
     RUN_TEST(cli_kbd_options_require_michael);

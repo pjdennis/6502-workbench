@@ -39,6 +39,8 @@ struct emu_opts {
     int direct_io;                      /* --direct-io (nmos-default, not --terminal): the
                                          * program calls screen services and reads key codes
                                          * (direct_io.h) */
+    int strict_api;                     /* --strict-api: the environment calls keep only
+                                         * what their contracts say (stubs.h) */
     int show_repaints;                  /* --show-repaints */
     int server_mode;                    /* --server seen after argv[1] */
     int override_rows;                  /* --rows N */
