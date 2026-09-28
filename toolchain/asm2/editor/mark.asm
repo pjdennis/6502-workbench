@@ -218,15 +218,15 @@ mark_restore:
   RTS
 
 ; Adjust marks after a char delete took BUF_TEMP16 = n line breaks after
-; line A/X = L, joining lines L to L + n into one, as vim does (it
+; line L, A/X = L + 1, joining lines L to L + n into one, as vim does (it
 ; deletes the lines between and joins the last): the marks of line L
 ; stay, those of lines L + 1 to L + n - 1 are unset, those of line L + n
-; move to line L and the ones below move up n.  (C = 1: mark_adjust_join,
-; C = 0: mark_adjust_delete.)  Clobbers: A, X, Y, BUF_SRC16, BUF_DST16,
-; MARK_DELTA16
+; move to line L and the ones below move up n.  (mark_adjust_c: C = 0 as
+; mark_adjust_join, C = 1 as mark_adjust_delete.)  Clobbers: A, X, Y,
+; BUF_SRC16, BUF_DST16, MARK_DELTA16
 mark_adjust_join:
-  SEC
-  .byte $24                  ; BIT zp: skip the CLC
+  CLC
+  .byte $24                  ; BIT zp: skip the SEC
 ; Adjust marks after lines are deleted
 ; Input: A/X = first deleted line (16-bit low/high)
 ;        BUF_TEMP16 = count of deleted lines (16-bit)
@@ -234,7 +234,8 @@ mark_adjust_join:
 ; Marks >= first_line+count: subtract count
 ; Clobbers: A, X, Y, BUF_SRC16, BUF_DST16, MARK_DELTA16
 mark_adjust_delete:
-  CLC
+  SEC
+mark_adjust_c:
   PHP
   STAX16 BUF_SRC16
   CLC
@@ -242,8 +243,8 @@ mark_adjust_delete:
   SEC
   SBC16 BUF_SRC16, BUF_DST16, MARK_DELTA16 ; delta = -count
   PLP
-  BCC .range
-  INC16 BUF_SRC16            ; Join: line L's marks stay
+  BCS .range
+  DEC16 BUF_DST16            ; Join: line L + n's marks move to line L
 .range:
   JMP mark_adjust_range
 
@@ -263,8 +264,8 @@ mark_join_lines_nt:
   BNE .join
   JSR mark_save
 .join:
-  JSR set_buf_temp16_one
-  LDAX16 FILE_LINE16
+  LDA #1
+  JSR mark_args_next_line    ; BUF_TEMP16 = 1, A/X = the next line
   JSR mark_adjust_join
   DEC NORMAL_TEMP
   BNE mark_join_lines_nt

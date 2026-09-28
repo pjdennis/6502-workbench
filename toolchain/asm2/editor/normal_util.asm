@@ -765,9 +765,13 @@ delete_at_cursor:
   JMP set_modified
 .full_rebuild:
   JSR buf_rebuild_lines
-  ; Adjust marks for the deleted newlines (BUF_TEMP16 = count)
-  LDAX16 FILE_LINE16
-  JSR mark_adjust_join
+  ; Adjust marks for the deleted newlines (BUF_TEMP16 = count): the last
+  ; line's move to the cursor line, but for the u of typing, which
+  ; deletes the marks of the lines it takes away, as vim's u does
+  JSR next_line_ax
+  LDY UNDO_TYPE
+  CPY #UNDO_INSERT           ; C = 1: the u of typing (the last type)
+  JSR mark_adjust_c
   ; The lines joined into the cursor line (DELETE_SCREEN_ROWS = their
   ; rows before)
   LDA #RF_JOIN

@@ -10845,6 +10845,19 @@ class EditorTestRunner:
                 ("a\nb\nc\nd\n", b"jmbjmaggJJuG'ax", "a b\n\nd\n")):
             self.run_test(f"{keys!r}: u puts back the marks", content,
                           keys + b":wq\r", expected_content=expected)
+        # u of typed line breaks deletes the marks set since on the lines it
+        # takes away, as vim's u does (they do not move to the line the
+        # typing began on, as a char delete's join moves them); the marks
+        # below move back up (checked in vim 8.2)
+        for content, keys, expected in (
+                ("abc\ndef\n", b"Afoo\rbar\x1bmau'ax", "ab\ndef\n"),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz\x1bmau'ax", "ab\ndef\n"),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz\x1bkmau'ax", "ab\ndef\n"),
+                ("abcdef\n", b"3li\r\x1bmau'ax", "abcef\n"),
+                ("abc\ndef\nghi\n", b"jA\r\r\x1bmauG'ax", "abc\ndef\nhi\n"),
+                ("abc\ndef\n", b"jmakAfoo\rbar\x1bugg'ax", "abc\nef\n")):
+            self.run_test(f"{keys!r}: u of typed line breaks and marks",
+                          content, keys + b":wq\r", expected_content=expected)
         self.run_test_batch_equiv(
             "Batch equiv: dd dd dd with marks, then u", "a\nb\nc\nd\ne\n",
             [b"j", b"j", b"m", b"a", b"j", b"m", b"b", b"k", b"k", b"d", b"d",
