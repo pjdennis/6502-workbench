@@ -66,8 +66,9 @@ io_ready:
 ; of value * 10 + digit carries.
 ; Each ESC starts the parse again, and it ends only at an 'R' after two
 ; runs of digits split by a ';', so keys typed before the reply arrives
-; are dropped rather than read as the size (unless they end like a reply
-; themselves: ESC[1;2R is xterm's Shift-F3).
+; are dropped rather than read as the size.  So are those of a reply's
+; shape with one row, which no screen has: xterm's F3 with a modifier
+; (ESC[1;2R is Shift-F3); one with more rows is still taken as the size.
 ; Clobbers X, Y, STR_PTR16 via write_string_ax
 query_terminal_size:
   LDA #<dsr_query_str
@@ -106,6 +107,7 @@ query_terminal_size:
   BNE .next_value
   LDX SCREEN_ROWS
   DEX
+  BEQ .restart            ; One row: a key (xterm's F3), not the reply
   STX TEXT_ROWS           ; Text rows above the status bar
   RTS                     ; (the first render positions the cursor)
 .ends:

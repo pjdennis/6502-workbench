@@ -15270,7 +15270,15 @@ class EditorTestRunner:
                                       ("two Deletes and x12R",
                                        b"\x1b[3~\x1b[3~x12R"),
                                       ("digits, a letter, digits and R",
-                                       b"5x12R")]:
+                                       b"5x12R"),
+                                      # A key shaped like a reply: xterm's
+                                      # F3 with a modifier is ESC[1;<mod>R,
+                                      # one row, which no screen has (the
+                                      # size was 1x2, where ':q!' does not
+                                      # fit the command line)
+                                      ("xterm's Shift-F3", b"\x1b[1;2R"),
+                                      ("xterm's Ctrl-Alt-Shift-F3",
+                                       b"\x1b[1;8R")]:
                 self.run_test_terminal_screen(
                     f"Terminal size with {typed_name} typed before the reply",
                     "Hello\n",
