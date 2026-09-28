@@ -29,6 +29,11 @@ static void w(uint8_t reg, uint8_t val) {
     bus_write(&bus_, (uint16_t)(0xF000 | reg), val);
 }
 
+/* n CPU cycles: the timers count once per cycle. */
+static void tick(int n) {
+    for (int i = 0; i < n; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+}
+
 TEST init_state_is_zero(void) {
     setup();
     ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_ORB), "%02X");
@@ -78,8 +83,11 @@ TEST t1_timed_one_shot_fires_irq(void) {
     w(VIA_REG_T1CL, 0x05);
     w(VIA_REG_T1CH, 0x00);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
-    /* Tick down 6 times; T1 fires when it underflows from 0. */
-    for (int i = 0; i < 6; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    /* T1 fires N+2 = 7 cycles after the write: it holds 5 for a
+     * cycle, counts down to 0 and rolls over to $FFFF. */
+    tick(6);
+    ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
+    tick(1);
     ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
     /* IFR shows T1 set + bit 7 (any-IRQ). */
     uint8_t ifr = r(VIA_REG_IFR);
@@ -89,7 +97,7 @@ TEST t1_timed_one_shot_fires_irq(void) {
     (void)r(VIA_REG_T1CL);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
     /* T1 was one-shot, doesn't auto-rearm. Tick more, no new IRQ. */
-    for (int i = 0; i < 100; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(100);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
     PASS();
 }
@@ -104,11 +112,11 @@ TEST t1_continuous_toggles_pb7(void) {
     w(VIA_REG_T1CH, 0x00);  /* counter = 2, starts */
     /* PB7 starts low. */
     ASSERT_EQ_FMT((uint8_t)0, via_6522_get_pb7(&vs), "%u");
-    /* Tick 3 -> first underflow -> PB7 toggles to 1. */
-    for (int i = 0; i < 3; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    /* N+2 = 4 cycles -> first time-out -> PB7 toggles to 1. */
+    tick(4);
     ASSERT_EQ_FMT((uint8_t)1, via_6522_get_pb7(&vs), "%u");
-    /* Another 3 ticks -> toggles back to 0. */
-    for (int i = 0; i < 3; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    /* Another N+2 cycles -> toggles back to 0. */
+    tick(4);
     ASSERT_EQ_FMT((uint8_t)0, via_6522_get_pb7(&vs), "%u");
     PASS();
 }
@@ -120,7 +128,7 @@ TEST ifr_write_clears_bits(void) {
     w(VIA_REG_T1CL, 1); w(VIA_REG_T1CH, 0);
     w(VIA_REG_T2CL, 1); w(VIA_REG_T2CH, 0);
     /* Tick enough to fire both. */
-    for (int i = 0; i < 4; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(4);
     uint8_t ifr = r(VIA_REG_IFR);
     ASSERT(ifr & VIA_INT_T1);
     ASSERT(ifr & VIA_INT_T2);
@@ -129,6 +137,92 @@ TEST ifr_write_clears_bits(void) {
     ifr = r(VIA_REG_IFR);
     ASSERT(!(ifr & VIA_INT_T1));
     ASSERT(ifr & VIA_INT_T2);
+    PASS();
+}
+
+/* A timer's counter as the CPU reads it, and whether its IRQ was up
+ * just before the read (reading T1CL or T2CL clears the flag). */
+static uint16_t counter(uint8_t low_reg, uint8_t *irq) {
+    *irq = bus_.irq;
+    uint8_t low = r(low_reg);
+    return (uint16_t)(low | (r((uint8_t)(low_reg + 1)) << 8));
+}
+
+/* W65C22 datasheet figure 2-3: the counter holds N on the cycle after
+ * the write to T2C-H, counts down from the next, and interrupts N+1.5
+ * cycles after the write, as it rolls over from 0 to $FFFF; then it
+ * keeps counting down. */
+TEST t2_one_shot_counts_as_in_the_datasheet(void) {
+    setup();
+    w(VIA_REG_IER, 0x80 | VIA_INT_T2);
+    w(VIA_REG_T2CL, 3);
+    w(VIA_REG_T2CH, 0);
+    static const uint16_t expected[] = {3, 2, 1, 0, 0xFFFF, 0xFFFE};
+    for (int i = 0; i < 6; i++) {
+        tick(1);
+        uint8_t irq;
+        ASSERT_EQ_FMT(expected[i], counter(VIA_REG_T2CL, &irq), "%04X");
+        ASSERT_EQ_FMT((uint8_t)(i == 4), irq, "%u");
+    }
+    PASS();
+}
+
+/* Datasheet 2.9: after the time-out the flag logic is off until the
+ * next write to T2C-H, so the counter passing 0 again doesn't set it. */
+TEST t2_interrupts_once_per_load(void) {
+    setup();
+    w(VIA_REG_IER, 0x80 | VIA_INT_T2);
+    w(VIA_REG_T2CL, 3);
+    w(VIA_REG_T2CH, 0);
+    tick(5);
+    ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
+    (void)r(VIA_REG_T2CL);
+    tick(0x10000);
+    ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
+    w(VIA_REG_T2CH, 0);
+    tick(5);
+    ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
+    PASS();
+}
+
+/* Figure 2-3 for T1: as T2 up to the time-out, then the latch reloads
+ * the counter, which counts on without interrupting again. PB7, when
+ * ACR7 enables it, goes low at the write and high at the time-out. */
+TEST t1_one_shot_counts_as_in_the_datasheet(void) {
+    setup();
+    w(VIA_REG_IER, 0x80 | VIA_INT_T1);
+    w(VIA_REG_ACR, VIA_ACR_T1_OUT);
+    w(VIA_REG_DDRB, 0x80);
+    w(VIA_REG_T1CL, 3);
+    w(VIA_REG_T1CH, 0);
+    static const uint16_t expected[] = {3, 2, 1, 0, 0xFFFF, 3, 2, 1, 0, 0xFFFF, 3};
+    for (int i = 0; i < 11; i++) {
+        tick(1);
+        uint8_t irq;
+        ASSERT_EQ_FMT((uint8_t)(i >= 4), via_6522_get_pb7(&vs), "%u");
+        ASSERT_EQ_FMT(expected[i], counter(VIA_REG_T1CL, &irq), "%04X");
+        ASSERT_EQ_FMT((uint8_t)(i == 4), irq, "%u");
+    }
+    PASS();
+}
+
+/* Figure 2-4: in free-run mode T1 interrupts N+1.5 cycles after the
+ * write, then every N+2 cycles. */
+TEST t1_free_run_interrupts_every_n_plus_2_cycles(void) {
+    setup();
+    w(VIA_REG_IER, 0x80 | VIA_INT_T1);
+    w(VIA_REG_ACR, VIA_ACR_T1_CONT);
+    w(VIA_REG_T1CL, 3);
+    w(VIA_REG_T1CH, 0);
+    tick(4);
+    ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
+    for (int i = 0; i < 3; i++) {
+        tick(1);
+        ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
+        (void)r(VIA_REG_T1CL);
+        tick(4);
+        ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
+    }
     PASS();
 }
 
@@ -142,6 +236,7 @@ TEST sr_read_arms_shift_counter(void) {
     w(VIA_REG_ACR, VIA_ACR_SR_IN_T2);
     w(VIA_REG_T2CL, 0x01);
     w(VIA_REG_T2CH, 0x00);
+    tick(1);  /* The counter holds 1 for the cycle after the write */
 
     /* No CB2 edge yet -- reading SR primes the counter from zero. */
     ASSERT_EQ_FMT((uint8_t)0, via_6522_sr_bits_remaining(&vs), "%u");
@@ -151,8 +246,7 @@ TEST sr_read_arms_shift_counter(void) {
     static const uint8_t bits[8] = {1,0,1,0,1,0,1,0};
     for (int i = 0; i < 8; i++) {
         via_6522_set_cb2(&vs, &bus_, bits[i]);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
+        tick(2);
     }
     ASSERT_EQ_FMT((uint8_t)0, via_6522_sr_bits_remaining(&vs), "%u");
     uint8_t sr = r(VIA_REG_SR);
@@ -183,6 +277,7 @@ TEST sr_shift_total_counts_actual_shifts(void) {
     w(VIA_REG_ACR, VIA_ACR_SR_IN_T2);
     w(VIA_REG_T2CL, 0x01);
     w(VIA_REG_T2CH, 0x00);
+    tick(1);  /* The counter holds 1 for the cycle after the write */
 
     ASSERT_EQ_FMT((uint32_t)0, via_6522_sr_shift_total(&vs), "%u");
     /* Arm via SR read. */
@@ -190,12 +285,10 @@ TEST sr_shift_total_counts_actual_shifts(void) {
     /* No shift yet; counter is still 0. */
     ASSERT_EQ_FMT((uint32_t)0, via_6522_sr_shift_total(&vs), "%u");
     /* Two ticks: t2c 1->0 then 0->fire. */
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
+    tick(2);
     ASSERT_EQ_FMT((uint32_t)1, via_6522_sr_shift_total(&vs), "%u");
     /* Another underflow -> another shift. */
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
+    tick(2);
     ASSERT_EQ_FMT((uint32_t)2, via_6522_sr_shift_total(&vs), "%u");
     PASS();
 }
@@ -212,6 +305,7 @@ TEST cb2_falling_edge_mid_byte_does_not_rearm_sr(void) {
     w(VIA_REG_ACR, VIA_ACR_SR_IN_T2);
     w(VIA_REG_T2CL, 0x01);
     w(VIA_REG_T2CH, 0x00);
+    tick(1);  /* The counter holds 1 for the cycle after the write */
 
     via_6522_set_cb2(&vs, &bus_, 1);
     via_6522_set_cb2(&vs, &bus_, 0);
@@ -225,8 +319,7 @@ TEST cb2_falling_edge_mid_byte_does_not_rearm_sr(void) {
     static const uint8_t bits[8] = {1, 1, 1, 0, 0, 1, 0, 1};
     for (int i = 0; i < 8; i++) {
         via_6522_set_cb2(&vs, &bus_, bits[i]);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
+        tick(2);
     }
     /* Check the count BEFORE reading SR (the read itself re-arms the
      * counter). After exactly 8 underflows the counter must be 0. */
@@ -255,7 +348,7 @@ TEST res_rising_edge_clears_registers_and_irq(void) {
 
     /* Run T1 down to underflow so IFR.T1 is set and the IRQ line goes
      * high. (T1 counts on cpu_cycle_due ticks.) */
-    for (int i = 0; i < 200; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(200);
     ASSERT(bus_.irq);
 
     /* Pulse RES high. The VIA detects the rising edge on its next
@@ -294,6 +387,10 @@ SUITE(via_6522_suite) {
     RUN_TEST(t1_timed_one_shot_fires_irq);
     RUN_TEST(t1_continuous_toggles_pb7);
     RUN_TEST(ifr_write_clears_bits);
+    RUN_TEST(t2_one_shot_counts_as_in_the_datasheet);
+    RUN_TEST(t2_interrupts_once_per_load);
+    RUN_TEST(t1_one_shot_counts_as_in_the_datasheet);
+    RUN_TEST(t1_free_run_interrupts_every_n_plus_2_cycles);
     RUN_TEST(sr_read_arms_shift_counter);
     RUN_TEST(cb2_falling_edge_does_not_arm_sr);
     RUN_TEST(sr_shift_total_counts_actual_shifts);

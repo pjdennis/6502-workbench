@@ -230,3 +230,7 @@ mappings, including that all 32 configs are distinct.
   and the (still-open) audio + ST7920 + snapshot phases.
 - `INVESTIGATION-wendy2c.md` — pre-phase-0 notes on the 22V10 PLD
   decode, serial RX timing, RAM bank ordering, and LCD pin map.
+- `NOTES-timing-accuracy.md` — where CPU and VIA cycle timing still
+  differs from the W65C02S / W65C22 (instruction-atomic CPU, free
+  interrupt entry, SR-under-T2 shift rate, unmodelled VIA features)
+  and how to fix each.
