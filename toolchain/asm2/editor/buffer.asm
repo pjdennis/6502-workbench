@@ -2,7 +2,7 @@
 ;
 ; Memory layout:
 ;   TEXT_BUF           - Start of text buffer (page-aligned, past end of code)
-;   LINE_TBL ($D800)   - Line pointer table (16-bit pointers, room for 1024)
+;   LINE_TBL           - Line pointer table (16-bit pointers, up to LINE_TBL_END)
 ;
 ; The text buffer stores all text contiguously. Lines are delimited by $0A.
 ; The line table stores 16-bit pointers to the start of each line, then
@@ -11,12 +11,12 @@
 ; Insertions/deletions shift all text after the edit point.
 ;
 ; TEXT_BUF and TEXT_LIMIT are defined at the end of editor.asm as floating
-; labels, so TEXT_BUF automatically adjusts as the code grows.
+; labels, so TEXT_BUF automatically adjusts as the code grows. The other
+; buffers are in the memory map at the top of editor.asm.
 
-LINE_TBL    = $D800  ; Line pointer table (2 bytes per entry)
-MAX_LINES   = $03FF  ; Most lines a buffer holds (1023: LINE_TBL has room
-                     ; for 1024 entries, the last for the end of the text)
-BATCH_BUF   = $D600  ; Staging buffer for batch insert (32 bytes)
+; Most lines a buffer holds: one fewer than LINE_TBL has entries, the
+; last for the end of the text (evaluates left to right: (end - start) / 2 - 1)
+MAX_LINES   = LINE_TBL_END - LINE_TBL >> 1 - 1
 BATCH_MAX   = 32     ; Maximum batch size
 
 ; (zero-page variables: zp.asm)

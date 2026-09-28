@@ -17,7 +17,9 @@
 #include "cli.h"
 #include "emu_run.h"
 #include "emu_wendy2c.h"
+#include "emu_michael.h"
 #include "stubs.h"
+#include "direct_io.h"
 #include "tty_alt_screen.h"
 
 #define STDIN_FILENO  0
@@ -40,6 +42,8 @@ int server_mode_active = 0;
 jmp_buf server_abort_jmp;
 int console_mode = 0;
 int terminal_mode = 0;
+int direct_io = 0;                // --direct-io (direct_io.h)
+static uint8_t scr_a;             // the A argument of the pending screen call
 int terminal_interactive = 0;
 FILE* serial_input_file = NULL;
 FILE* serial_output_file = NULL;
@@ -292,6 +296,35 @@ static uint8_t wait_ready(unsigned ms) {
     return 0xFF;
 }
 
+// One console input byte: 0 (and con_eof_flag set) at end of input.
+static uint8_t con_read_byte(void) {
+    if (console_mode) {
+        struct timespec before;
+        clock_gettime(CLOCK_MONOTONIC, &before);
+        uint8_t ch;
+        int got = read(STDIN_FILENO, &ch, 1);
+        if (got < 0 && errno == EINTR && sigint_requested) {
+            if (exitcode_set == -1) exitcode_set = 130;
+            done = 1;
+            return 0;
+        }
+        exclude_wait_from_throttle(&before);
+        if (got == 1) return ch;
+        if (got == 0) con_eof_flag = 1;
+        return 0;
+    }
+    int b = fgetc(input_file_ptr);
+    if (b == EOF) { con_eof_flag = 1; return 0; }
+    if (pace_mask && pace_in < pace_mask_len && pace_mask[pace_in] != '0')
+        pace_remaining = pace_polls;
+    pace_in++;
+    return b;
+}
+
+static uint8_t con_wait_ready(uint16_t ms) {
+    return wait_ready(ms);
+}
+
 uint8_t read6502(uint16_t address) {
     if (address == port_read_b) {                    // read_b
         if (terminal_mode) {
@@ -374,28 +407,11 @@ uint8_t read6502(uint16_t address) {
             fprintf(stderr, "Error: con_read not available in terminal mode, use serial_read\n");
             emulation_exit(1);
         }
-        if (console_mode) {
-            struct timespec before;
-            clock_gettime(CLOCK_MONOTONIC, &before);
-            uint8_t ch;
-            int got = read(STDIN_FILENO, &ch, 1);
-            if (got < 0 && errno == EINTR && sigint_requested) {
-                if (exitcode_set == -1) exitcode_set = 130;
-                done = 1;
-                return 0;
-            }
-            exclude_wait_from_throttle(&before);
-            if (got == 1) return ch;
-            if (got == 0) con_eof_flag = 1;
-            return 0;
-        } else {
-            int b = fgetc(input_file_ptr);
-            if (b == EOF) { con_eof_flag = 1; return 0; }
-            if (pace_mask && pace_in < pace_mask_len && pace_mask[pace_in] != '0')
-                pace_remaining = pace_polls;
-            pace_in++;
-            return b;
+        if (direct_io) {
+            static const struct direct_io_input con_input = { con_read_byte, con_wait_ready };
+            return direct_io_read_key(&con_input);
         }
+        return con_read_byte();
     } else if (address == port_term_rows) {           // term_rows (a byte: capped at 255)
         int rows, cols;
         get_terminal_size(&rows, &cols);
@@ -411,6 +427,7 @@ uint8_t read6502(uint16_t address) {
             emulation_exit(1);
         }
         // $FF = byte ready, $00 = none yet, $01 = end of input
+        if (direct_io && direct_io_pending()) return 0xFF;
         if (con_eof_flag) return 0x01;
         if (console_mode) return con_byte_ready() ? 0xFF : 0x00;
         if (pace_remaining > 0) {
@@ -419,6 +436,7 @@ uint8_t read6502(uint16_t address) {
         }
         return 0xFF;
     } else if (address == port_wait_ready) {          // wait_ready
+        if (direct_io && direct_io_pending()) return 0xFF;
         return wait_ready(wait_ms);
     } else if (address == port_serial_ready) {        // serial_ready
         if (serial_baud > 0)
@@ -502,6 +520,18 @@ uint8_t read6502(uint16_t address) {
     return memory[address];
 }
 
+// One console output byte (write_b).
+static void con_write_byte(uint8_t value) {
+    if (console_mode) {
+        unsigned char ch = value;
+        console_handle_byte(ch);
+        if (write(STDOUT_FILENO, &ch, 1) < 0) {
+        }
+    } else {
+        fputc(value, output_file_ptr);
+    }
+}
+
 void write6502(uint16_t address, uint8_t value) {
     if (address == port_write_b) {                   // write_b
         if (terminal_mode) {
@@ -509,14 +539,15 @@ void write6502(uint16_t address, uint8_t value) {
             fprintf(stderr, "Error: write_b not available in terminal mode, use serial_write\n");
             emulation_exit(1);
         }
-        if (console_mode) {
-            unsigned char ch = value;
-            console_handle_byte(ch);
-            if (write(STDOUT_FILENO, &ch, 1) < 0) {
-            }
-        } else {
-            fputc(value, output_file_ptr);
-        }
+        con_write_byte(value);
+        return;
+    } else if (address == port_scr_a) {              // direct-io screen call argument
+        scr_a = value;
+        return;
+    } else if (address == port_scr_op) {             // direct-io screen call
+        char seq[DIRECT_IO_SCREEN_MAX];
+        int n = direct_io_screen(value, scr_a, y, seq);
+        for (int i = 0; i < n; i++) con_write_byte((uint8_t)seq[i]);
         return;
     } else if (address == port_write_d) {            // write_d
         if (stderr_capture_file) {
@@ -609,6 +640,9 @@ int main(int argc, char **argv) {
     if (opts.machine == MACHINE_WENDY2C) {
         return emu_run_wendy2c(&opts);
     }
+    if (opts.machine == MACHINE_MICHAEL) {
+        return emu_run_michael(&opts);
+    }
 
     /* Mirror parsed values into the existing globals/locals so the rest
      * of main() can stay untouched in this phase. */
@@ -623,6 +657,7 @@ int main(int argc, char **argv) {
     int output_specified = opts.output_specified;
     console_mode = opts.console_mode;
     terminal_mode = opts.terminal_mode;
+    direct_io = opts.direct_io;
     show_repaints = opts.show_repaints;
     server_mode = opts.server_mode;
     override_rows = opts.override_rows;
@@ -724,7 +759,7 @@ int main(int argc, char **argv) {
       memory[0xfffc] = memory[index - 2];
     }
 
-    size_t p = generate_stubs(memory, terminal_mode);
+    size_t p = generate_stubs(memory, terminal_mode, direct_io);
 
     if (console_mode) {
         input_file_ptr = stdin;
@@ -963,7 +998,7 @@ static int server_load_binary(const char *filename, long load_address) {
         memory[0xfffc] = memory[index - 2];
     }
 
-    stubs_end = generate_stubs(memory, terminal_mode);
+    stubs_end = generate_stubs(memory, terminal_mode, direct_io);
     memcpy(pristine_memory, memory, 0x10000);
     return 0;
 }
@@ -1022,6 +1057,7 @@ static int server_main(uint64_t cycle_cap) {
             override_cols = (int)strtol(line + 5, NULL, 10);
         } else if (strncmp(line, "MODE ", 5) == 0) {
             terminal_mode = strcmp(line + 5, "terminal") == 0 ? 1 : 0;
+            direct_io = strcmp(line + 5, "direct") == 0 ? 1 : 0;
         } else if (strncmp(line, "INPUT ", 6) == 0) {
             strncpy(srv_input, line + 6, sizeof(srv_input) - 1);
             srv_input[sizeof(srv_input) - 1] = '\0';

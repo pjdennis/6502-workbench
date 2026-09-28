@@ -1,7 +1,28 @@
 ; ANSI terminal output library
-; All routines write escape sequences via io_write
+; All routines write escape sequences via io_write; with define:direct_io
+; they are screen calls instead (environment.asm: scr_*)
 
 ; (zero-page variables: zp.asm)
+
+  .ifdef direct_io
+
+; Clear entire screen and move cursor to home position
+ansi_clear_screen:
+  LDA #0
+  STA ST_LEN                 ; status row blank: send all of the status bar
+  STA CUR_VALID              ; the cursor moves home
+  JMP scr_clear
+
+ansi_clear_line          = scr_clear_eol
+ansi_cursor_show         = scr_cursor_on
+ansi_cursor_hide         = scr_cursor_off
+ansi_reverse_video       = scr_reverse
+ansi_normal_video        = scr_normal
+ansi_reset_scroll_region = scr_region_reset
+ansi_insert_chars        = scr_insert
+ansi_delete_chars        = scr_delete
+
+  .else
 
 ; ANSI sequence string constants
 ; WARNING: ansi_seq_a loads the high byte from ansi_seq_clear only, so ALL
@@ -73,6 +94,8 @@ ansi_seq_a:
   JSR ansi_csi
   JMP write_string
 
+  .endif
+
 ; Move cursor to 0-based row A, column 0 (sets ANSI_ROW/ANSI_COL)
 ; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
 ansi_goto_row0:
@@ -104,6 +127,33 @@ ansi_goto0:
 ; Move cursor to ANSI_ROW, ANSI_COL (both 1-based)
 ; Clobbers A, Y, STR_PTR16, DEC_VALUE16 (X preserved)
 ansi_move_cursor:
+  .ifdef direct_io
+  LDA ANSI_ROW
+  LDY ANSI_COL
+  JMP scr_goto
+
+; Move A rows at the cursor's row (ANSI_ROW), as DL and IL do: X = 'M'
+; the rows below move up, 'L' they move down.  There are no screen
+; calls for DL and IL, so the rows from the cursor's to the last scroll
+; as a region, and the cursor goes back to column 1 of its row.
+; Clobbers A, Y (X preserved)
+ansi_count_seq:
+  PHA
+  LDA ANSI_ROW
+  LDY SCREEN_ROWS
+  JSR scr_region
+  PLA
+  CPX #'M'
+  BNE .down
+  JSR scr_scroll_up
+  JMP .reset
+.down:
+  JSR scr_scroll_down
+.reset:
+  JSR scr_region_reset
+  JMP ansi_move_cursor
+
+  .else
   LDA #'H'
   ; fall through
 
@@ -148,6 +198,8 @@ ansi_count_seq:
   JSR write_param        ; preserves X
   TXA
   JMP io_write
+
+  .endif
 
 ; Write null-terminated string at A (low) / X (high)
 ; Clobbers A, Y, STR_PTR16 (X preserved)

@@ -8,6 +8,7 @@ MULTIPLY_8X8_TEMP        = $04 ; 1 byte
 GD_ZERO_PAGE_BASE        = $05 ; 18 bytes
 
   .org $2000                     ; Loader loads programs to this address
+start:
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   ; The initialize_machine routine in this include will set up hardware registers and then

@@ -1,6 +1,6 @@
 # `emulator/`
 
-A two-machine 6502 emulator:
+A three-machine 6502 emulator:
 
 - **`nmos-default`** — the original direct-memory NMOS 6502 used by the
   assembler bootstrap and the editor. Memory-mapped I/O at
@@ -10,6 +10,16 @@ A two-machine 6502 emulator:
   ROM, 512 KiB banked RAM, 22V10 PLD clock + chip-select decoder, 6522
   VIA, HD44780 LCD, serial-USB bridge, LED + button, all wired to a
   W65C02S core. Selected with `--machine wendy2c`.
+- **`michael`** — a board-level model of Michael (v2), the Ben Eater-style
+  board: 16 KiB RAM at `$0000`, 6522 VIA at `$6000`, ROM at `$8000`, a
+  20x4 HD44780 in 8-bit mode, and the PS/2 keyboard board
+  (`chips/ps2_keyboard_board.c`). With `--load`, the code file is loaded
+  into RAM there, and without `--rom` the ROM holds only the vectors
+  (reset to the load address, IRQ to `$3F00`); without `--load`, the code
+  file is the ROM image. Selected with
+  `--machine michael`. At exit it prints the LCD and a bus check: LCD
+  strobes whose lines weren't driven, and spells of two devices driving
+  PORTB at once.
 
 The default machine is `nmos-default`; nothing about the assembler
 bootstrap chain changed when the wendy2c work landed.
@@ -21,13 +31,15 @@ relative to the current directory):
 
 ```bash
 make                     # build emulator/emulator.out
-make test                # C unit tests + wendy2c golden-LCD tests
+make test                # C unit tests + michael and wendy2c golden-LCD tests
+make michael-goldens     # just the michael end-to-end tests
 make wendy2c-goldens     # just the wendy2c end-to-end tests
 make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 ```
 
 `make test` runs the greatest C suites for every chip module and the
-shell-based `wendy2c_goldens.sh`. The goldens script skips with a
+shell-based `michael_goldens.sh` and `wendy2c_goldens.sh`. The goldens
+scripts skip with a
 warning if `vasm6502_oldstyle` isn't on `PATH`, matching the Harte
 runner so CI without vasm still passes.
 
@@ -42,11 +54,15 @@ Common options (the full list is in `--help`):
 
 | Option | Notes |
 |---|---|
-| `--machine <name>` | `nmos-default` (default) or `wendy2c` |
-| `--cpu <variant>` | `nmos` or `65c02` (wendy2c forces `65c02`) |
-| `--rom <path>` | wendy2c: ROM image; falls back to the positional code file |
-| `--serial-input <path>` | wendy2c: bytes pre-queued into the SERIAL_USB chip |
-| `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins |
+| `--machine <name>` | `nmos-default` (default), `wendy2c` or `michael` |
+| `--cpu <variant>` | `nmos` or `65c02` (wendy2c and michael force `65c02`) |
+| `--rom <path>` | wendy2c: ROM image; falls back to the positional code file. michael: ROM image; with `--load` the code file goes into RAM, without it the code file is the ROM |
+| `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
+| `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
+| `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
+| `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
+| `--serial-input <path>` | wendy2c, michael: bytes pre-queued into the SERIAL_USB chip |
+| `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins. michael: the LCD, with the terminal's keys typed on the PS/2 keyboard (Ctrl-] quits), paced to 2 MHz or `--mhz` |
 | `--cycle-cap N` | max cycles before forced exit (decimal; default 200000000; no cap under `--live` unless this is given explicitly). For wendy2c this is oscillator ticks (~2 per CPU cycle); for `nmos-default` and `--server` it is CPU cycles. |
 | `--load <hex>` | load address for the positional code file |
 | `--input` / `--output` / `--error-output` | ports `$F006` / `$F009` / `$F00C` |

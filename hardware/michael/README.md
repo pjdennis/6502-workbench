@@ -66,3 +66,23 @@ The EEPROM sketch replaces `a` and `i` with these:
   - `monitor_arduino.py` and `arduino-console.py` show the Arduino's serial output.
   - `asciimatics-*.py`, `try-curses.py` and `with-thread.py` are terminal-UI experiments for that console.
 - `michael-2023-12-04.rom`: a ROM image from 2023-12-04 (committed on michael_keyboard_wip).
+- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 3 (`tools/upload/transfer.py --format=3`) to zero page and anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
+
+## Programming the ROM
+
+The EEPROM is an AT28C256. With a TL866-style programmer and `minipro`, keep a copy of what's on it first, then write the new image:
+
+```
+minipro -p AT28C256 -r michael-rom-backup.bin
+minipro -p AT28C256 -w hardware/michael/michael_rom.bin
+```
+
+Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
+
+After a reset, the LCD shows "Michael ROM 4" and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
+
+- `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to S-records and sends them, so a program loads at its `.org` and starts at its `start` label, which every uploaded program needs. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000`.
+- `tools/upload/transfer.py --baudrate=57600 --format=3 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it to `$0200`.
+- An upload can also load zero page. Writing 0 where a program specified nothing is harmless, so the sender merges nearby pieces, with zeros between, to stay within the loader's 32 entries.
+
+While an upload arrives, the first two rows show the entry ("Block") arriving, where its next byte will end up, and how many bytes have come in. They're redrawn about five times a second, so a stalled upload shows exactly where it stopped. When the upload is complete, the loader clears the screen and runs it. A bad upload leaves "Upload failed" and the reason on the screen, with the LED lit, until reset.

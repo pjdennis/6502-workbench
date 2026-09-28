@@ -1,15 +1,14 @@
 ; Mark storage and operations
 ;
 ; Stores line-oriented marks (a-z) as 16-bit line numbers.
-; Marks are stored in MARK_TBL at $D620 (52 bytes: 26 entries x 2 bytes),
-; and the undo record's copy of them (mark_save) in MARK_SAVE, $80 bytes
-; on (mark_adjust_range works on either).
+; Marks are stored in MARK_TBL (52 bytes: 26 entries x 2 bytes; the memory
+; map in editor.asm places it), and the undo record's copy of them
+; (mark_save) in MARK_SAVE, $80 bytes on (mark_adjust_range works on either).
 ; mark_init sets every entry to MARK_UNSET ($FFFF). A mark is unset iff its
 ; high byte has bit 7 set: set marks are line numbers, which stay far below
-; $8000 (LINE_TBL at $D800 runs out long before that), and mark_adjust
+; $8000 (MAX_LINES is far lower), and mark_adjust
 ; unsets a mark by storing $FF in its high byte only.
 
-MARK_TBL   = $D620    ; 26 entries x 2 bytes = 52 bytes
 MARK_SAVE  = MARK_TBL + $80  ; The marks when the change u undoes began
 MARK_UNSET = $FFFF
 

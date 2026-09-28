@@ -4,6 +4,12 @@
 ;
 ; A vi-like text editor running on the 6502 emulator: console I/O by
 ; default, serial I/O to an ANSI terminal with define:terminal_mode.
+; define:direct_io calls screen services (environment.asm: scr_*) instead
+; of writing ANSI sequences and reads key codes from con_read, for
+; machines without an ANSI terminal (the emulator runs it with --direct-io).
+; With define:michael as well it runs on the Michael board, on its ROM's
+; services (editor/michael_image.py; ./editor-michael.sh in the emulator,
+; ./editor-michael-upload.sh to the board).
 ;
 ; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
 ;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt
@@ -32,11 +38,16 @@
 ;   $F000+        Emulator I/O
 ; ============================================================================
 
+  .ifdef michael
+* = $0200                  ; Michael: the ROM's loader uploads from here
+  .else
 * = $0400
+  .endif
 
   JMP editor_main
 
   .include 17/environment.asm
+  .include editor/memory_map.asm
   .include 17/macros.asm
   .include editor/macros.asm
   .include editor/zp.asm
@@ -225,9 +236,9 @@ str_untitled: .asciiz "[No Name]"
 _code_end:
 TEXT_BUF = _code_end + $00FF >> $08 << $08
 
-; Buffer size: normal build = up to $D600 (BATCH_BUF), small build = 256 bytes
+; Buffer size: normal build = up to TEXT_END, small build = 256 bytes
   .ifndef small_buffer
-TEXT_LIMIT  = $D600  ; End of text buffer space (up to start of BATCH_BUF)
+TEXT_LIMIT  = TEXT_END
   .else
 TEXT_LIMIT  = TEXT_BUF + $0100  ; Small test buffer (256 bytes)
   .endif

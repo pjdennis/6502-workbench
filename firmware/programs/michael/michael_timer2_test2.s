@@ -27,6 +27,7 @@ CP_M_SRC_P              = $32 ; 2 bytes
 CP_M_LEN                = $34 ; 2 bytes
 
   .org $2000
+start:
 
   ; Relocate the interrupt handler. The EEPROM has a fixed address, INTERRUPT_ROUTINE
   ; for the interrupt routine so copy the handler there

@@ -287,6 +287,84 @@ TEST cli_lcd_trace_requires_wendy2c(void) {
     PASS();
 }
 
+TEST cli_live_accepted_for_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--live", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_EQ_FMT(1, opts.live, "%d");
+    PASS();
+}
+
+TEST cli_direct_io_parsed(void) {
+    char *argv[] = {"emulator", "prog.bin", "--direct-io", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_EQ_FMT(1, opts.direct_io, "%d");
+    PASS();
+}
+
+TEST cli_direct_io_with_terminal_rejected(void) {
+    char *argv[] = {"emulator", "prog.bin", "--direct-io", "--terminal", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--direct-io requires") != NULL);
+    PASS();
+}
+
+TEST cli_kbd_options_parsed_for_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael",
+                    "--kbd-scancodes", "1c,f0,1c", "--kbd-fault", "noack", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_STR_EQ("1c,f0,1c", opts.kbd_scancodes);
+    ASSERT_STR_EQ("noack", opts.kbd_fault);
+    PASS();
+}
+
+TEST cli_keys_and_interval_parsed_for_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael",
+                    "--keys", "k.txt", "--key-interval", "50", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_STR_EQ("k.txt", opts.keys_filename);
+    ASSERT_EQ_FMT(50, opts.key_interval_ms, "%d");
+    PASS();
+}
+
+TEST cli_kbd_options_require_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "wendy2c",
+                    "--kbd-scancodes", "1c", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "require --machine michael") != NULL);
+    PASS();
+}
+
+TEST cli_unknown_kbd_fault_rejected(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael",
+                    "--kbd-fault", "smoke", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--kbd-fault value must be") != NULL);
+    PASS();
+}
+
 TEST cli_pace_options_parsed(void) {
     char *argv[] = {"emulator", "prog.bin",
                     "--pace-mask", "m.bin", "--pace-log", "log.txt",
@@ -348,6 +426,13 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_default_null);
     RUN_TEST(cli_lcd_trace_missing_value_errors);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
+    RUN_TEST(cli_live_accepted_for_michael);
+    RUN_TEST(cli_direct_io_parsed);
+    RUN_TEST(cli_direct_io_with_terminal_rejected);
+    RUN_TEST(cli_kbd_options_parsed_for_michael);
+    RUN_TEST(cli_keys_and_interval_parsed_for_michael);
+    RUN_TEST(cli_kbd_options_require_michael);
+    RUN_TEST(cli_unknown_kbd_fault_rejected);
 }
 
 GREATEST_MAIN_DEFS();

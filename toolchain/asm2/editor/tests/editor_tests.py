@@ -42,10 +42,12 @@ class Colors:
 
 
 class EmulatorRunner:
-    """Wraps emulator invocation via subprocess.run."""
+    """Wraps emulator invocation via subprocess.run. With direct_io, runs
+    other than terminal ones use the emulator's --direct-io."""
 
-    def __init__(self, emulator_path):
+    def __init__(self, emulator_path, direct_io=False):
         self.emulator_path = str(emulator_path)
+        self.direct_io = direct_io
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
@@ -70,6 +72,8 @@ class EmulatorRunner:
 
         cmd = [self.emulator_path, str(binary), "--no-dump",
                "--load", f"{load_addr:04x}"]
+        if self.direct_io and mode != 'terminal':
+            cmd.append("--direct-io")
 
         if mode == 'console':
             cmd.extend(["--console", edit_file])
@@ -104,8 +108,9 @@ class EmulatorRunner:
 class EditorPersistentEmulator:
     """Adapter wrapping shared PersistentEmulator with editor-specific run() signature."""
 
-    def __init__(self, emulator_path):
+    def __init__(self, emulator_path, direct_io=False):
         self.emulator_path = str(emulator_path)
+        self.direct_io = direct_io
         self._emu = PersistentEmulator(emulator_path)
 
     def run(self, binary, keys, tmpdir, edit_file,
@@ -114,11 +119,13 @@ class EditorPersistentEmulator:
         """Run the emulator and return (exit_code, output_bytes)."""
         # The server takes no emulator options, and console mode needs a pipe
         if mode == 'console' or emu_args:
-            runner = EmulatorRunner(self.emulator_path)
+            runner = EmulatorRunner(self.emulator_path, self.direct_io)
             return runner.run(binary, keys, tmpdir, edit_file,
                               load_addr, rows, cols, mode, emu_args)
 
         args = [] if edit_file is None else [edit_file]
+        if self.direct_io and mode == 'standard':
+            mode = 'direct'
 
         exit_code, output, _ = self._emu.run(
             binary, args=args, load_addr=load_addr, mode=mode,
@@ -132,20 +139,28 @@ class EditorPersistentEmulator:
 
 class EditorTestRunner:
     def __init__(self, base_dir: Path, verbose: bool = False,
-                 quiet: bool = False, use_server: bool = True):
+                 quiet: bool = False, use_server: bool = True,
+                 direct_io: bool = False):
+        """direct_io: test the define:direct_io builds of the console and
+        small-buffer editors, run with the emulator's --direct-io (which
+        turns their screen calls into the same ANSI output)."""
         self.base_dir = base_dir
+        self.direct_io = direct_io
+        self.direct_args = ["--direct-io"] if direct_io else []
+        self.server_mode = ["MODE direct"] if direct_io else []
         self.verbose = verbose
         self.quiet = quiet
         self.emulator = base_dir.parents[1] / "emulator" / "emulator.out"
         self.assembler = base_dir / "17" / "out" / "asm.out"
         self.editor_asm = base_dir / "editor" / "editor.asm"
-        self.editor_bin = base_dir / "editor" / "out" / "editor.out"
-        self.editor_small_bin = base_dir / "editor" / "out" / "editor_small.out"
+        suffix = "_direct" if direct_io else ""
+        self.editor_bin = base_dir / "editor" / "out" / f"editor{suffix}.out"
+        self.editor_small_bin = base_dir / "editor" / "out" / f"editor_small{suffix}.out"
         self.editor_terminal_bin = base_dir / "editor" / "out" / "editor_terminal.out"
         if use_server:
-            self.emulator_runner = EditorPersistentEmulator(self.emulator)
+            self.emulator_runner = EditorPersistentEmulator(self.emulator, direct_io)
         else:
-            self.emulator_runner = EmulatorRunner(self.emulator)
+            self.emulator_runner = EmulatorRunner(self.emulator, direct_io)
         self._tmpdir_obj = tempfile.TemporaryDirectory(prefix='')
         self.tmpdir = Path(self._tmpdir_obj.name)
         self.passed = 0
@@ -170,11 +185,12 @@ class EditorTestRunner:
         """Assemble the three editor builds: the main one, the small-buffer
         one (256-byte text buffer) and the terminal one.
         Returns (main_built, small_built, terminal_built)."""
+        direct = ["define:direct_io"] if self.direct_io else []
         return tuple(
             self._assemble(f"Editor assembles: {out.name}", self.editor_asm,
                            out, args)
-            for out, args in ((self.editor_bin, ()),
-                              (self.editor_small_bin, ["define:small_buffer"]),
+            for out, args in ((self.editor_bin, direct),
+                              (self.editor_small_bin, ["define:small_buffer", *direct]),
                               (self.editor_terminal_bin,
                                ["define:terminal_mode"])))
 
@@ -280,7 +296,7 @@ class EditorTestRunner:
         edit_file = self.tmpdir / "test.txt"
         edit_file.write_text(initial_content)
         cmd = [str(self.emulator), str(self.editor_bin), "--no-dump",
-               "--load", "0400", "--console", str(edit_file)]
+               "--load", "0400", *self.direct_args, "--console", str(edit_file)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
@@ -1226,6 +1242,7 @@ class EditorTestRunner:
             keys_file.write_bytes(keys)
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'INPUT {keys_file}',
@@ -1267,6 +1284,7 @@ class EditorTestRunner:
             keys_file.write_bytes(b"x:wq\r")
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'INPUT {keys_file}',
@@ -1371,6 +1389,7 @@ class EditorTestRunner:
             keys_file.write_bytes(keys)
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'ROWS 5',
@@ -1807,7 +1826,7 @@ class EditorTestRunner:
                 f.unlink()
         subprocess.run(
             [str(self.emulator), str(self.editor_bin), "--no-dump",
-             "--load", "0400", "--rows", str(rows), "--cols", str(cols),
+             "--load", "0400", *self.direct_args, "--rows", str(rows), "--cols", str(cols),
              "--pace-mask", str(tmp / "beq_mask.bin"), "--pace-log", str(log),
              "--input", str(tmp / "beq_keys.bin"), "--output", str(out),
              str(edit_file)],
@@ -26242,8 +26261,8 @@ class EditorTestRunner:
         print(f"Results: {', '.join(parts)} of {total} tests")
         print("=" * 60)
 
-        # Create stable copy only if all tests passed
-        if self.failed == 0:
+        # Create stable copy only if all tests passed (of the usual builds)
+        if self.failed == 0 and not self.direct_io:
             self.create_stable_copy()
 
         self.emulator_runner.close()
@@ -26258,6 +26277,8 @@ def main():
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--no-server", action="store_true",
                         help="Use subprocess.run instead of persistent server")
+    parser.add_argument("--direct-io", action="store_true",
+                        help="Test the define:direct_io builds (emulator --direct-io)")
     args = parser.parse_args()
 
     if args.no_color:
@@ -26268,7 +26289,8 @@ def main():
 
     runner = EditorTestRunner(base_dir, verbose=args.verbose,
                               quiet=args.quiet,
-                              use_server=not args.no_server)
+                              use_server=not args.no_server,
+                              direct_io=args.direct_io)
     runner.run_all_tests()
 
     sys.exit(1 if runner.failed > 0 else 0)

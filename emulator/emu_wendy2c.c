@@ -12,6 +12,8 @@
 #include "bus.h"
 #include "cpu_core.h"
 #include "emu_run.h"
+#include "lcd_report.h"
+#include "pace.h"
 #include "serial_link.h"
 #include "tty_alt_screen.h"
 #include "wendy2c_web.h"
@@ -52,38 +54,6 @@ static void wendy2c_cpu_write(uint16_t addr, uint8_t data) {
     active_bus->rwb = 0;
     clock_22v10_refresh_combinational(active_bus);
     bus_write(active_bus, addr, data);
-}
-
-/* ---- LCD trace file (--lcd-trace) ----
- *
- * When the user passes --lcd-trace PATH on a non-live, non-web wendy2c
- * run, we append a frame to PATH each time the LCD changed during a
- * batch. Format (so tests can grep / split by separator):
- *
- *   --- osc=<N> cpu=<N> pc=$<HHHH> ---
- *   |row0|
- *   |row1|
- *   ...
- *
- * Hooking on a "dirty since last render" basis means an LCD that
- * settles between batches captures one frame per stable state, which
- * is what tests want -- not one per character write. */
-static void lcd_trace_emit_if_changed(FILE *fp,
-                                       struct lcd_hd44780_state *lcd,
-                                       const struct bus *b) {
-    if (!fp) return;
-    char lcdbuf[LCD_DDRAM_SIZE + 8];
-    int dirty = lcd_hd44780_render(lcd, lcdbuf);
-    if (!dirty) return;
-    fprintf(fp, "--- osc=%llu cpu=%llu pc=$%04X ---\n",
-            (unsigned long long)b->osc_ticks,
-            (unsigned long long)clockticks6502,
-            pc);
-    int cols = lcd->cols;
-    for (int r = 0; r < lcd->rows; r++) {
-        fprintf(fp, "|%.*s|\n", cols, lcdbuf + r * cols);
-    }
-    fflush(fp);
 }
 
 /* ---- live-mode renderer ---- */
@@ -254,32 +224,6 @@ static int live_poll_input(struct led_buttons_state *ledbtn) {
     return flags;
 }
 
-/* Wall-clock pace helper: given a fixed-rate reference (t0, osc0,
- * osc_per_us), sleep enough that emulated osc ticks track wall time.
- * Caller has just stepped a batch; this checks whether the emulator
- * is ahead-of-wall and sleeps if so. Returns the current wall-time
- * delta in nanoseconds (caller may use it for render scheduling). */
-static long wendy2c_pace(const struct timespec *t0,
-                         uint64_t osc0, uint64_t osc_now,
-                         double osc_per_us) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    long wall_ns = (long)(now.tv_sec - t0->tv_sec) * 1000000000L
-                  + (now.tv_nsec - t0->tv_nsec);
-    if (osc_per_us <= 0.0) return wall_ns;
-    double emu_us = (double)(osc_now - osc0) / osc_per_us;
-    long emu_ns = (long)(emu_us * 1000.0);
-    long ahead_ns = emu_ns - wall_ns;
-    if (ahead_ns > 200000L /* 0.2 ms */) {
-        struct timespec ts = { ahead_ns / 1000000000L, ahead_ns % 1000000000L };
-        nanosleep(&ts, NULL);
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        wall_ns = (long)(now.tv_sec - t0->tv_sec) * 1000000000L
-                 + (now.tv_nsec - t0->tv_nsec);
-    }
-    return wall_ns;
-}
-
 /* Poll the link if non-NULL; if it's stalled (TX active + current
  * duration expired + recv buffer empty), select-wait briefly on the
  * client fd so we don't busy-spin. Returns 1 if a stall happened (the
@@ -357,7 +301,7 @@ static int emu_run_wendy2c_live(struct bus *b,
         }
         if (cpu_stp_pending() || cap_hit) break;
 
-        long wall_ns = wendy2c_pace(&t0, osc0, b->osc_ticks, osc_per_us);
+        long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
 
         if (wall_ns - last_render_ns >= FRAME_NS) {
             live_render(b, lcd, via, ledbtn, 0);
@@ -400,34 +344,11 @@ static void build_snapshot(struct wendy2c_web_snapshot *snap,
     snap->lcd_cols = lcd->cols;
     int n = lcd->rows * lcd->cols;
     if (n > (int)sizeof(snap->ddram_visible)) n = (int)sizeof(snap->ddram_visible);
-    /* DDRAM layout: line 0 starts at $00; line 1 at $40; line 2 at $10
-     * (16x4) / $14 (20x4); line 3 at $50 / $54. For 2-line mode we
-     * just take $00..(cols-1) and $40..($40+cols-1). */
-    for (int r = 0; r < lcd->rows; r++) {
-        int base;
-        switch (r) {
-            case 0: base = 0x00; break;
-            case 1: base = 0x40; break;
-            case 2: base = (lcd->cols == 20) ? 0x14 : 0x10; break;
-            case 3: base = (lcd->cols == 20) ? 0x54 : 0x50; break;
-            default: base = 0;
-        }
-        for (int c = 0; c < lcd->cols; c++) {
-            snap->ddram_visible[r * lcd->cols + c] =
-                lcd->ddram[(base + c) & 0x7F];
-        }
-    }
+    uint8_t visible[LCD_DDRAM_SIZE];
+    lcd_hd44780_visible_bytes(lcd, visible);
+    memcpy(snap->ddram_visible, visible, (size_t)n);
     memcpy(snap->cgram, lcd->cgram, 64);
-    /* Cursor position derived from address counter; if AC is in CGRAM
-     * mode, the cursor isn't on DDRAM -- park it at (0,0). */
-    if (lcd->cgram_mode) {
-        snap->cursor_row = 0; snap->cursor_col = 0;
-    } else {
-        uint8_t ac = lcd->ac & 0x7F;
-        if (ac >= 0x40) { snap->cursor_row = 1; snap->cursor_col = ac - 0x40; }
-        else            { snap->cursor_row = 0; snap->cursor_col = ac; }
-        if (snap->cursor_col >= lcd->cols) snap->cursor_col = lcd->cols - 1;
-    }
+    lcd_hd44780_cursor(lcd, &snap->cursor_row, &snap->cursor_col);
     snap->cursor_on  = lcd->cursor_on;
     snap->blink_on   = lcd->blink_on;
     snap->display_on = lcd->display_on;
@@ -504,7 +425,7 @@ static int emu_run_wendy2c_web(struct bus *b,
         }
         if (cap_hit || cpu_stp_pending()) break;
 
-        long wall_ns = wendy2c_pace(&t0, osc0, b->osc_ticks, osc_per_us);
+        long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
 
         struct wendy2c_web_event evt;
         wendy2c_web_poll(srv, &evt);
@@ -607,18 +528,11 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     bus_add_chip(&b, &cpu_chip);
 
     /* Pre-load any --serial-input bytes into the SERIAL_USB queue. */
-    if (opts->serial_input_filename) {
-        FILE *sf = fopen(opts->serial_input_filename, "rb");
-        if (!sf) {
-            fprintf(stderr, "wendy2c: could not open --serial-input %s\n",
-                    opts->serial_input_filename);
-            return 1;
-        }
-        int byte;
-        while ((byte = fgetc(sf)) != EOF) {
-            if (serial_usb_queue_byte(&ser_state, (uint8_t)byte) < 0) break;
-        }
-        fclose(sf);
+    if (opts->serial_input_filename &&
+        serial_usb_queue_file(&ser_state, opts->serial_input_filename) != 0) {
+        fprintf(stderr, "wendy2c: could not open --serial-input %s\n",
+                opts->serial_input_filename);
+        return 1;
     }
 
     active_bus = &b;
@@ -762,12 +676,12 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
                 }
             }
             if (stp) break;
-            lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
-            (void)wendy2c_pace(&t0, osc0, b.osc_ticks, osc_per_us);
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
+            (void)emu_pace(&t0, osc0, b.osc_ticks, osc_per_us);
         }
     } else {
         /* Free-running (no throttle): just step. Same link-stall
-         * shape as the throttled path, minus the wendy2c_pace call. */
+         * shape as the throttled path, minus the emu_pace call. */
         while (b.osc_ticks < cap) {
             if (link_step(link, b.osc_ticks, &b, &via_state, 10)) continue;
             const int BATCH = 50000;
@@ -782,13 +696,13 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
                 }
             }
             if (stp) break;
-            lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
+            lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
         }
     }
 
     /* Final LCD frame after STP/cap: ensure trace captures the end state. */
     if (lcd_trace_fp) {
-        lcd_trace_emit_if_changed(lcd_trace_fp, &lcd_state, &b);
+        lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
         fclose(lcd_trace_fp);
         lcd_trace_fp = NULL;
     }
@@ -805,13 +719,7 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
         halted_on_stp ? "(STP)" : "(cycle cap)");
 
     /* Print final LCD frame so the user sees what landed. */
-    char lcd_buf[LCD_DDRAM_SIZE + 8];
-    (void)lcd_hd44780_render(&lcd_state, lcd_buf);
-    int cols = lcd_state.cols;
-    fprintf(stderr, "wendy2c: lcd:\n");
-    for (int r = 0; r < lcd_state.rows; r++) {
-        fprintf(stderr, "  |%.*s|\n", cols, lcd_buf + r * cols);
-    }
+    lcd_report_final(stderr, "wendy2c", &lcd_state);
 
     /* Tear down the external hooks before returning so other code (e.g.
      * the test harness or a subsequent run) doesn't dangle on a dead

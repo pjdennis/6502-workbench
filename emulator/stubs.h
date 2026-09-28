@@ -38,6 +38,8 @@
 #define port_wait_lo    0xffe6    // wait_ready: timeout in ms, low byte
 #define port_wait_hi    0xffe7    //             high byte
 #define port_wait_ready 0xffe8    //             read: wait, then the result
+#define port_scr_a      0xffe9    // direct-io screen call: its A argument
+#define port_scr_op     0xffea    //                        write: do op (Y from the CPU)
 
 // Command-line argv strings are written into RAM (growing up) at load time;
 // programs fetch each arg's address via the argv stub. Parked above the
@@ -45,7 +47,8 @@
 #define ARGV_BASE    0xfe00
 #define ARGV_TOP     0xffe0       // argv strings must stay below this
 
-// Generate I/O stubs at $F006+ in memory, returns address after last stub byte
-size_t generate_stubs(uint8_t *memory, int terminal_mode);
+// Generate I/O stubs at $F006+ in memory, returns address after last stub byte.
+// direct_io adds the screen call vectors after wait_ready (direct_io.h).
+size_t generate_stubs(uint8_t *memory, int terminal_mode, int direct_io);
 
 #endif

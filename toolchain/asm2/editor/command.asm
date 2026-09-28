@@ -12,8 +12,7 @@
 ;              position is NNN, . or 'x (mark); with no range, the
 ;              current line
 
-CMD_BUF     = $0300   ; Command buffer (128 bytes)
-CMD_BUF_LEN = $007F   ; Max command length
+CMD_BUF_LEN = CMD_BUF_END - CMD_BUF - $01  ; Max command length (one byte for the null)
 
 ; (zero-page variables: zp.asm)
 

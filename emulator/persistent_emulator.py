@@ -109,7 +109,7 @@ class PersistentEmulator:
             self._start()
 
         binary_str = str(binary)
-        mode_str = 'terminal' if mode == 'terminal' else 'standard'
+        mode_str = mode if mode in ('terminal', 'direct') else 'standard'
 
         # Send CWD if changed
         if cwd is not None:

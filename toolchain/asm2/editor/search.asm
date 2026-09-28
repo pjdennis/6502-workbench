@@ -7,11 +7,9 @@
 ; and by an empty '/' or '?': a cancelled search keeps the pattern, as in
 ; vim.
 ;
-; Memory layout:
-;   SEARCH_BUF   ($0200) - Search pattern buffer (128 bytes: a pattern
-;                          and its null)
-
-SEARCH_BUF   = $0200
+; Memory layout (SEARCH_BUF: the memory map in editor.asm):
+;   SEARCH_BUF   - Search pattern buffer (a pattern as long as CMD_BUF
+;                  holds, and its null)
 
 ; (zero-page variables: zp.asm)
 

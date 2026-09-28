@@ -58,4 +58,8 @@ int serial_usb_queue_byte(struct serial_usb_state *state, uint8_t byte);
 /* Number of bytes still queued (= length of the RX FIFO). */
 int serial_usb_queue_count(const struct serial_usb_state *state);
 
+/* Queue every byte of the file at path (as much as fits). Returns -1 if
+ * it can't be opened. */
+int serial_usb_queue_file(struct serial_usb_state *state, const char *path);
+
 #endif

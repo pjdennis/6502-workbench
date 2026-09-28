@@ -8,6 +8,7 @@ COUNTER                  = $04 ; 2 bytes
 GD_ZERO_PAGE_BASE        = $06
 
   .org $2000
+start:
   jmp initialize_machine
 
   ; Place code for delay_routines at start of page to ensure no page boundary crossings

@@ -23,7 +23,8 @@ RF_DEL   = $06   ; Lines deleted (dd, :d, undo p P o O), line not redrawn
 RF_RANGE = $07   ; Lines changed in place from the cursor line (>> <<)
 RF_FULL  = $FF   ; Full redraw
 
-STATUS_SHADOW = $0380  ; The status bar's text (status_build), 128 bytes
+; STATUS_SHADOW: the status bar's text (status_build; the memory map in
+; editor.asm)
 
 ; (zero-page variables: zp.asm)
 

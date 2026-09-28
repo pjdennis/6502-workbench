@@ -71,7 +71,7 @@ UNDO_INSERT = 13
 ; indent/unindent = per-line widths, replace = the original chars,
 ; insert = the text an undo took out, for the redo.  (The marks before a
 ; char delete, cc, dd, :d or J are in MARK_SAVE: mark.asm.)
-UNDO_DATA_BUF = $D700     ; 256 bytes
+; UNDO_DATA_BUF: 256 bytes, page-aligned (the memory map in editor.asm)
 JOIN_UNDO_MAX = 128       ; 256 / 2 bytes per entry
 
 ; (zero-page variables: zp.asm)

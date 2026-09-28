@@ -13,6 +13,22 @@
 ;   callback_key_down    - callback when down arrow pressed
 ;   callback_key_esc     - callback when Escape pressed
 ;   callback_key_f1      - callback when F1 pressed
+;   callback_kb_trace    - called at each step of keyboard_send_command, for diagnostics:
+;                          'a' starting, 'b' clock pulled low, 'c' byte sent to shift register,
+;                          'd' keyboard clocked the byte in, 'w' repeatedly while waiting for
+;                          the ACK, 'e' ACK received.
+;                          On entry A = step, X = command byte. Must preserve X and Y.
+
+; Calls callback_kb_trace, if defined, with A = step
+; On exit A, X, Y are preserved
+  .macro kb_trace,step
+  .ifdef callback_kb_trace
+  pha
+  lda #\step
+  jsr callback_kb_trace
+  pla
+  .endif
+  .endm
 
   .ifndef KEYBOARD_RATE_AND_DELAY
 KEYBOARD_RATE_AND_DELAY = KEYBOARD_RATE_30_0_CPS | KEYBOARD_DELAY_0_50_S
@@ -63,6 +79,8 @@ KB_LED_CAPS_LOCK         = %00000100
 
 KB_CODE_BREAK            = $f0
 KB_CODE_EXTENDED         = $e0
+KB_CODE_EXTENDED_PAUSE   = $7e       ; Extended code for Break (Ctrl+Pause). The extended
+                                     ; translation table maps it to KEY_PAUSE.
 KB_CODE_EXTENDED_IGNORE  = $12       ; Part of the print screen codes. Also part of the codes generated
                                      ; by stand-alone navigation keys such as home, when numlock is on.
 KB_META_SHIFT            = %10000000
@@ -539,8 +557,8 @@ keyboard_decode:
   txa                           ; New pause seq index becomes new state
   bra .no_emit
 .pause_emit:
-  lda #0                        ; Emit pause as non-extended make code
-  ldx #KEY_PAUSE
+  lda #KB_META_EXTENDED         ; Emit pause as the extended make code for Break, since
+  ldx #KB_CODE_EXTENDED_PAUSE   ; it is translated from a PS/2 code like any other key
   bra .emit
 ; A = latest byte from keyboard
 .pause_error:
@@ -697,6 +715,7 @@ keyboard_send_command:
   phx
   phy
   tax                            ; Save command byte in X
+  kb_trace 'a'
 .wait_for_not_receiving:
   sei
   lda KEYBOARD_RECEIVING
@@ -713,6 +732,7 @@ keyboard_send_command:
   sta IFR
   cli
   stz PCR
+  kb_trace 'b'
 
   lda #1                         ; 100 microseconds = 0.1 milliseconds = 1 1/10,000 of a second
   jsr delay_10_thousandths
@@ -748,16 +768,20 @@ parity_mask_ready:               ; Mask is in A
   sta PCR
   lda #1
   sta KEYBOARD_RECEIVING
+  kb_trace 'c'
 
   ; Wait for send to complete
 .wait_for_send:
   lda SENDING_TO_KEYBOARD
   bne .wait_for_send
+  kb_trace 'd'
 
   ; Wait for ACK
 .wait_for_ack:
+  kb_trace 'w'
   lda ACK_RECEIVED
   beq .wait_for_ack
+  kb_trace 'e'
 
   ply
   plx
