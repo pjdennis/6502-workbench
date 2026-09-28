@@ -75,7 +75,9 @@ status row (`hold_message_ax`). A read-only (truncated) buffer refuses
 every write with "Read-only (file truncated)".
 
 Since 11401c7 `FNAME_PTR16` points at the name where the emulator keeps
-it (its argument window, $FE00-$FFDF), and the `$0200` page is unused.
+it (its argument window, $FE00-$FFDF), and the `$0280`-`$02FF` half of
+the `$0200` page is unused (the search pattern takes the other half since
+the vim leftovers batch B).
 
 The environment has no call that tests whether a file exists, but `open`
 (17/environment.asm) returns handle 0 when the file cannot be opened for
@@ -89,7 +91,7 @@ say E13 where vim says "E502: is a directory" (`opendir` could tell).
 - Names. An unnamed buffer is one whose `FNAME_PTR16` is `str_untitled`
   (in the code, so its high byte is never `$02` or `$FE`-`$FF`: one
   compare tells). A name that `:w {file}` gives an unnamed buffer is
-  copied from `CMD_BUF` into the `$0200` page (`FNAME_BUF`; `CMD_BUF`
+  copied from `CMD_BUF` into `$0280`-`$02FF` (`FNAME_BUF`; `CMD_BUF`
   holds 127 characters, so a name has at most 125), and `FNAME_PTR16`
   points there. A new zero-page word `W_NAME16` holds the name being
   written: `openout` and the report ('"{file}" written', through
@@ -112,7 +114,7 @@ say E13 where vim says "E502: is a directory" (`opendir` could tell).
   quit and an unknown suffix (`:wqx` must not quit either).
 - A read-only buffer keeps refusing every write, a copy included: its
   text is cut short.
-- Memory: 2 zero-page bytes and the `$0200` page.
+- Memory: 2 zero-page bytes and `$0280`-`$02FF`.
 - Size, *measured* on a sandbox prototype of all of the above (suite
   green, the cases below checked): +136 bytes for `:w {file}`, `:wq
   {file}`, E32 and the startup change (18 of them the message), and +74
@@ -571,7 +573,7 @@ Subsets 1 and 2 measured 218 bytes with the redo in part C (see What was
 built); 3 and 4 are left, at the estimates below. The redo of part C
 keeps the typed text in `UNDO_DATA_BUF`, so subset 3's old bytes need
 room beside it: the page shared (the redo only when both fit), or the
-free $0200 page for one of them. o's segment starts at the opened
+free `$0280`-`$02FF` for one of them. o's segment starts at the opened
 line's column 0, so subset 3 also covers a BS at the start of o's line.
 
 1. The simplest useful subset: segments of i, a and A that only type

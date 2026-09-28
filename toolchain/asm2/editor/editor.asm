@@ -17,14 +17,15 @@
 ; MEMORY LAYOUT
 ;   $0000-$00FF   Zero page variables
 ;   $0100-$01FF   6502 stack
-;   $0200-$02FF   (unused)
+;   $0200-$027F   Search buffer (SEARCH_BUF)
+;   $0280-$02FF   (unused)
 ;   $0300-$037F   Command buffer
 ;   $0380-$03FF   Status bar text (STATUS_SHADOW)
 ;   $0400         Editor code loads here
 ;   TEXT_BUF      Text buffer (page-aligned after code, up to $D5FF)
 ;   $D600-$D61F   Batch insert staging buffer (BATCH_BUF)
 ;   $D620-$D653   Mark table (MARK_TBL)
-;   $D654-$D6FF   Search buffer (SEARCH_BUF)
+;   $D6A0-$D6D3   The marks u puts back (MARK_SAVE)
 ;   $D700-$D7FF   Undo data buffer (UNDO_DATA_BUF)
 ;   $D800-$DFFF   Line pointer table (LINE_TBL)
 ;   $E000-$EFFF   Yank buffer (4KB)

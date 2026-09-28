@@ -149,5 +149,6 @@ CMD_QUIT:    .byte     ; Set to $FF when editor should quit
 
 ; --- mark.asm ---
 MARK_DELTA16: .word
+MARK_BASE:    .byte    ; mark_adjust_range: the table, 0 or $80 (MARK_SAVE)
 
   .code

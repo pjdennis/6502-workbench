@@ -10818,6 +10818,39 @@ class EditorTestRunner:
             [b"j", b"m", b"b", b"j", b"m", b"a", b"g", b"g", b"J", b"J",
              b"G", b"'", b"b", b"x", b"'", b"a", b"x"])
 
+        # u of dd, :d and J puts back the marks as they were when the change
+        # began, as vim's u does (checked in vim 8.2; u u redoes, as vim's
+        # Ctrl-R).  Typed-ahead dd and J pairs are undone a press at a time,
+        # so u puts back the marks as the last press found them
+        for content, keys, expected in (
+                ("a\nb\nc\nd\n", b"jmadduG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jma:2d\ruG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbk2dduG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbk2dduG'bx", "a\nb\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmaddkuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmaddu\x1buG'ax", "a\nc\n\n"),
+                ("a\nb\nc\nd\n", b"jmaddu\x1bu\x1buG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbkdddduG'bx", "a\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbkdddduG'ax", "a\nc\n\n"),
+                ("a\nb\nc\nd\ne\n", b"jjmajmbkkdddddduG'bx", "a\n\ne\n"),
+                ("a\nb\nc\nd\ne\n", b"jjmajmbkkdddddduG'ax", "a\nd\n\n"),
+                ("a\nb\nc\nd\n", b"jjmajmbkkdddddduG'bx", "a\n\n"),
+                ("a\nb\nc\nd\n", b"jmakJuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJjuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJu\x1bu\x1buG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmagg3JuG'ax", "a\nb\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmagg3JuG'bx", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJJuG'ax", " b\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmaggJJuG'bx", " b\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmaggJJuG'ax", "a b\n\nd\n")):
+            self.run_test(f"{keys!r}: u puts back the marks", content,
+                          keys + b":wq\r", expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: dd dd dd with marks, then u", "a\nb\nc\nd\ne\n",
+            [b"j", b"j", b"m", b"a", b"j", b"m", b"b", b"k", b"k", b"d", b"d",
+             b"d", b"d", b"d", b"d", b"u", b"G", b"'", b"b", b"x", b"'", b"a",
+             b"x"])
+
         # db from col0: mark on cursor line shifts correctly
         # db from (1,0): deletes "AB\n", cursor at (0,0). Col=0 so first_line=0.
         # Mark at idx 1 is in [0,1) -> unset (idx 1 IS the cursor line content)

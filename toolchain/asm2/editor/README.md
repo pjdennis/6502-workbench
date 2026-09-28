@@ -178,14 +178,15 @@ project's 6502 emulator in console/ANSI mode.
 |---------|------|---------|
 | `$0000-$00FF` | 256 B | Zero page variables |
 | `$0100-$01FF` | 256 B | 6502 stack |
-| `$0200-$02FF` | 256 B | Unused (`FNAME_PTR16` points at the file name where the emulator keeps it) |
+| `$0200-$027F` | 128 B | Search pattern buffer (`SEARCH_BUF`; a pattern takes up to 127 and its null) |
+| `$0280-$02FF` | 128 B | Unused (`FNAME_PTR16` points at the file name where the emulator keeps it) |
 | `$0300-$037F` | 128 B | Command buffer (`CMD_BUF`) |
 | `$0380-$03FF` | 128 B | Status bar text (`STATUS_SHADOW`) |
 | `$0400+` | Variable | Editor code (loads here) |
 | `TEXT_BUF` | Variable | Text buffer (page-aligned after code, up to `$D5FF`) |
 | `$D600-$D61F` | 32 B | Batch insert staging buffer (`BATCH_BUF`) |
 | `$D620-$D653` | 52 B | Mark table (`MARK_TBL`), 26 marks x 2 bytes |
-| `$D654-$D6FF` | 172 B | Search pattern buffer (`SEARCH_BUF`; a pattern takes up to 127) |
+| `$D6A0-$D6D3` | 52 B | The marks u puts back (`MARK_SAVE`: `mark_save`, `mark_restore`) |
 | `$D700-$D7FF` | 256 B | Undo data page (`UNDO_DATA_BUF`) |
 | `$D800-$DFFF` | 2 KB | Line pointer table (`LINE_TBL`), 2 bytes/entry |
 | `$E000-$EFFF` | 4 KB | Yank buffer (`YANK_BUF`) |

@@ -44,6 +44,7 @@ count_is_every_line:
 ; UNDO_EMPTY_LINE bit 7 = the delete empties the buffer (undo must
 ; remove the synthetic empty line)
 undo_record_line_delete:
+  JSR mark_save              ; u puts back the marks (vim)
   JSR count_is_every_line
   ROR UNDO_EMPTY_LINE        ; Bit 7 = C
   LDA #UNDO_LINE
@@ -168,11 +169,7 @@ undo_step:
   JSR mark_adjust_insert
   ; Set flags
   JSR undo_set_done_flags
-  LDA UNDO_TYPE
-  CMP #UNDO_CC
-  BNE .undo_line_scroll
-  JSR mark_restore           ; cc: the marks as they were (vim)
-.undo_line_scroll:
+  JSR mark_restore           ; The marks as they were (vim)
   ; The lines went in at the cursor line (RF_INS), or in place of the
   ; empty line left there (RF_SPLIT)
   LDA UNDO_EMPTY_LINE
@@ -235,6 +232,7 @@ undo_join_undo:
   LDA #'\n'
   JSR undo_join_apply
   JSR mark_adjust_insert
+  JSR mark_restore           ; The marks as they were (vim)
 
   ; Set flags
   JSR undo_set_done_flags

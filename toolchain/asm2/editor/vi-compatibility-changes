@@ -75,8 +75,11 @@
 
   Marks
 
-  u of a line delete or J - Leaves unset the marks of the lines that dd, :d or J removed; vim puts back every mark
-  that was set when the change began, as u does here after a char delete (x, d, c, s, C) and after cc and S.
+  u of J or of a char delete over line breaks - A mark set after the change on the line it made stays there; vim's u
+  deletes it (u deletes the marks of the lines it replaces, then puts back those that were set when the change began,
+  as u does here). After cc and S it is the other way round: vim keeps such a mark, the editor's u unsets it. The redo
+  (u u) does not put back the marks its undo deleted (set after o, p or typed line breaks on the lines they added);
+  vim's Ctrl-R does.
 
   :marks - Lists marks a-z with their line and text; vim also shows the column and its special marks. A long list
   shows a screen at a time with "-- More --", as in vim, but there q ends the list and any other key shows the next

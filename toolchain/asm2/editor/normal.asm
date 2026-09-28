@@ -245,8 +245,16 @@ dd_lines:
   BCS .yank_overflow
   LDA #$FF                   ; The last dd was typed on its first non-
   STA CURSOR_COL16 + 1       ; blank (undo_line_col)
-  JSR undo_delete_current_lines  ; Returns C = 0
-  BCC .dd_done               ; Always
+  JSR undo_delete_current_lines
+  ; u puts back the marks as the last dd found them: the saved marks
+  ; lose those of the lines the dd's before it took, as those did
+  SEC
+  ROR MARK_BASE              ; $80: the saved marks
+  JSR dec_buf_temp16
+  LDAX16 UNDO_LINE16
+  JSR mark_adjust_delete
+  ASL MARK_BASE              ; 0 again
+  BCS .dd_done               ; Always
 
 .do_yank_delete:
   JSR yank_delete_current_lines

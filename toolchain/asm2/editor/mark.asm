@@ -1,13 +1,16 @@
 ; Mark storage and operations
 ;
 ; Stores line-oriented marks (a-z) as 16-bit line numbers.
-; Marks are stored in MARK_TBL at $D620 (52 bytes: 26 entries x 2 bytes).
+; Marks are stored in MARK_TBL at $D620 (52 bytes: 26 entries x 2 bytes),
+; and the undo record's copy of them (mark_save) in MARK_SAVE, $80 bytes
+; on (mark_adjust_range works on either).
 ; mark_init sets every entry to MARK_UNSET ($FFFF). A mark is unset iff its
 ; high byte has bit 7 set: set marks are line numbers, which stay far below
 ; $8000 (LINE_TBL at $D800 runs out long before that), and mark_adjust
 ; unsets a mark by storing $FF in its high byte only.
 
 MARK_TBL   = $D620    ; 26 entries x 2 bytes = 52 bytes
+MARK_SAVE  = MARK_TBL + $80  ; The marks when the change u undoes began
 MARK_UNSET = $FFFF
 
 ; (zero-page variables: zp.asm)
@@ -185,13 +188,14 @@ str_marks_header: .asciiz "mark line text"
 str_no_marks:     .asciiz "No marks set"
 str_more:         .asciiz "-- More --"
 
-; Save the marks in UNDO_DATA_BUF (in the undo record of a char delete
-; or of cc: its undo puts them back, mark_restore).  Clobbers A, X
+; Save the marks in MARK_SAVE, for the undo record of a change that
+; deletes or joins lines (a char delete, cc, dd, :d, J): its undo puts
+; them back (mark_restore).  Clobbers A, X
 mark_save:
   LDX #51
 .loop:
   LDA MARK_TBL,X
-  STA UNDO_DATA_BUF,X
+  STA MARK_SAVE,X
   DEX
   BPL .loop
   RTS
@@ -202,10 +206,10 @@ mark_save:
 mark_restore:
   LDX #50
 .loop:
-  LDA UNDO_DATA_BUF + 1,X
+  LDA MARK_SAVE + 1,X
   BMI .next                  ; Unset then
   STA MARK_TBL + 1,X
-  LDA UNDO_DATA_BUF,X
+  LDA MARK_SAVE,X
   STA MARK_TBL,X
 .next:
   DEX
@@ -246,11 +250,19 @@ mark_adjust_delete:
 ; Move the marks of the A (1-255) lines after the cursor line to it,
 ; and the ones below up A lines, as vim's J does: a join at a time, each
 ; moving the next line's marks up (mark_join_lines_nt: NORMAL_TEMP = A).
+; The marks before the last UNDO_JOIN_COUNT joins are saved for u.
 ; Clobbers A, X, Y, NORMAL_TEMP, BUF_TEMP16, BUF_SRC16, BUF_DST16,
 ; MARK_DELTA16
 mark_join_lines:
   STA NORMAL_TEMP
 mark_join_lines_nt:
+  ; u puts back the marks as the joins it undoes found them (the last
+  ; UNDO_JOIN_COUNT: typed-ahead J's are undone a press at a time)
+  LDA NORMAL_TEMP
+  CMP UNDO_JOIN_COUNT
+  BNE .join
+  JSR mark_save
+.join:
   JSR set_buf_temp16_one
   LDAX16 FILE_LINE16
   JSR mark_adjust_join
@@ -278,10 +290,12 @@ mark_adjust_insert:
 ; Adjust marks for a line range
 ; Input: BUF_SRC16 = start_line, BUF_DST16 = end_line (exclusive)
 ;        MARK_DELTA16 = amount added to marks >= end_line
+;        MARK_BASE = 0, or $80 (MARK_SAVE - MARK_TBL) for the saved marks
 ; Marks in [start_line, end_line) are unset.
-; Clobbers: A, X
+; Clobbers: A, X, Y
 mark_adjust_range:
-  LDX #0               ; Index into MARK_TBL
+  LDX MARK_BASE        ; Index into MARK_TBL
+  LDY #26
 .loop:
   LDA MARK_TBL + 1,X
   BMI .next            ; Unset mark
@@ -323,7 +337,7 @@ mark_adjust_range:
 .next:
   INX
   INX
-  CPX #52              ; 26 * 2
+  DEY
   BNE .loop
   RTS
 

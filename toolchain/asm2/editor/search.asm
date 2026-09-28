@@ -8,10 +8,10 @@
 ; vim.
 ;
 ; Memory layout:
-;   SEARCH_BUF   ($D654) - Search pattern buffer (after MARK_TBL; 127 of
-;                          its 172 bytes are used)
+;   SEARCH_BUF   ($0200) - Search pattern buffer (128 bytes: a pattern
+;                          and its null)
 
-SEARCH_BUF   = $D654
+SEARCH_BUF   = $0200
 
 ; (zero-page variables: zp.asm)
 
