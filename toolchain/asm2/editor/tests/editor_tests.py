@@ -2734,6 +2734,27 @@ class EditorTestRunner:
         self.run_test_batch_equiv(
             "Batch equiv: typing into an emptied buffer, then u", "a\n",
             [b"d", b"d", b"i", b"x", b"y", b"\x1b"])
+        # A delete on a buffer with no lines does nothing, as vim's op_delete
+        # returns at once there: no yank (the register keeps the line dd
+        # took) and no undo step (u still undoes the dd).  Checked in vim 8.2
+        for keys, expected in (
+                (b"yyddddP", "hello\n\n"),
+                (b"yydd:d\rP", "hello\n\n"),
+                (b"yydd3ddP", "hello\n\n"),
+                (b"ddddu", "hello\n"),
+                (b"dd:d\ru", "hello\n"),
+                (b"ddxu", "hello\n"),
+                (b"dd3xu", "hello\n"),
+                (b"ddxxu", "hello\n"),
+                (b"dd\x1b[3~u", "hello\n"),
+                (b"ddXu", "hello\n"),
+                (b"ddd0u", "hello\n")):
+            self.run_test(f"Emptied buffer: {keys!r} changes nothing",
+                          "hello\n", keys + b"\x1b:wq\r",
+                          expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: dd, x and dd on an emptied buffer, then u",
+            "hello\n", [b"d", b"d", b"x", b"x", b"d", b"d", b"d", b"d"])
 
         self._group("Bounds checking (small buffer build):", leading_blank=True)
 

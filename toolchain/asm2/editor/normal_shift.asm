@@ -461,8 +461,7 @@ zero_col_op:
   ; as in vim
   TXA
   BEQ .range
-  JSR undo_record_empty
-  BEQ .done                   ; Always
+  JMP x_empty
 .range:
   LDA #0
   STA_LH16 CURSOR_COL16       ; Operate forward from col 0

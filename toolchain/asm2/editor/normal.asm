@@ -192,8 +192,7 @@ delete_char_back_x:
 .no_borrow:
   JMP batched_char_delete_back
 delete_char_done:            ; X at column 0: an empty change (vim)
-  JSR undo_record_empty
-  JMP clear_count
+  JMP x_empty
 
 ; dd: yank then delete N lines (N = count, min 1)
 ; Typed-ahead dd pairs add to N while it stays within the lines left: past
@@ -220,6 +219,8 @@ do_dd:
 ; dd of BUF_TEMP16 lines (at most the lines left), BATCH_EXTRA of them
 ; typed-ahead pairs; op_lines enters here with none
 dd_lines:
+  BIT EMPTY_BUF
+  BMI delete_char_done       ; No lines: nothing to delete (no yank)
   ; Pre-compute the scroll of the lines being deleted (before deletion)
   JSR precompute_delete_scroll
 

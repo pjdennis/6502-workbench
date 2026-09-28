@@ -843,6 +843,7 @@ apply_char_operator:
 ; Used when a yank did not fit (the yank buffer is unchanged)
 show_yank_overflow:
   JSR range_yank_full        ; "Yank buffer full"
+x_done:
   JMP clear_count
 
 ; --- Shared batched character delete (for x and X commands) ---
@@ -883,10 +884,14 @@ batched_char_delete_back:
   LDY #$FF                  ; Y = DEL_BACK flag (kept until .batched)
   BNE bcd_start             ; Always taken
 
-; x on an empty line: an empty change, as in vim
+; x on an empty line (and X and d0 on column 0): an empty change, as in
+; vim, but none on a buffer with no lines, where vim's op_delete returns
+; at once (dd and :d end here then too)
 x_empty:
+  BIT EMPTY_BUF
+  BMI x_done
   JSR undo_record_empty
-  BEQ bcd_done               ; Always
+  BEQ x_done                 ; Always
 
 ; x and Del: delete count chars at the cursor, with the typed-ahead x's
 normal_delete_char:
