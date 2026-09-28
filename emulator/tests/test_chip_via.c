@@ -29,6 +29,11 @@ static void w(uint8_t reg, uint8_t val) {
     bus_write(&bus_, (uint16_t)(0xF000 | reg), val);
 }
 
+/* n CPU cycles: the timers count once per cycle. */
+static void tick(int n) {
+    for (int i = 0; i < n; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+}
+
 TEST init_state_is_zero(void) {
     setup();
     ASSERT_EQ_FMT((uint8_t)0, r(VIA_REG_ORB), "%02X");
@@ -79,7 +84,7 @@ TEST t1_timed_one_shot_fires_irq(void) {
     w(VIA_REG_T1CH, 0x00);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
     /* Tick down 6 times; T1 fires when it underflows from 0. */
-    for (int i = 0; i < 6; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(6);
     ASSERT_EQ_FMT((uint8_t)1, bus_.irq, "%u");
     /* IFR shows T1 set + bit 7 (any-IRQ). */
     uint8_t ifr = r(VIA_REG_IFR);
@@ -89,7 +94,7 @@ TEST t1_timed_one_shot_fires_irq(void) {
     (void)r(VIA_REG_T1CL);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
     /* T1 was one-shot, doesn't auto-rearm. Tick more, no new IRQ. */
-    for (int i = 0; i < 100; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(100);
     ASSERT_EQ_FMT((uint8_t)0, bus_.irq, "%u");
     PASS();
 }
@@ -105,10 +110,10 @@ TEST t1_continuous_toggles_pb7(void) {
     /* PB7 starts low. */
     ASSERT_EQ_FMT((uint8_t)0, via_6522_get_pb7(&vs), "%u");
     /* Tick 3 -> first underflow -> PB7 toggles to 1. */
-    for (int i = 0; i < 3; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(3);
     ASSERT_EQ_FMT((uint8_t)1, via_6522_get_pb7(&vs), "%u");
     /* Another 3 ticks -> toggles back to 0. */
-    for (int i = 0; i < 3; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(3);
     ASSERT_EQ_FMT((uint8_t)0, via_6522_get_pb7(&vs), "%u");
     PASS();
 }
@@ -120,7 +125,7 @@ TEST ifr_write_clears_bits(void) {
     w(VIA_REG_T1CL, 1); w(VIA_REG_T1CH, 0);
     w(VIA_REG_T2CL, 1); w(VIA_REG_T2CH, 0);
     /* Tick enough to fire both. */
-    for (int i = 0; i < 4; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(4);
     uint8_t ifr = r(VIA_REG_IFR);
     ASSERT(ifr & VIA_INT_T1);
     ASSERT(ifr & VIA_INT_T2);
@@ -151,8 +156,7 @@ TEST sr_read_arms_shift_counter(void) {
     static const uint8_t bits[8] = {1,0,1,0,1,0,1,0};
     for (int i = 0; i < 8; i++) {
         via_6522_set_cb2(&vs, &bus_, bits[i]);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
+        tick(2);
     }
     ASSERT_EQ_FMT((uint8_t)0, via_6522_sr_bits_remaining(&vs), "%u");
     uint8_t sr = r(VIA_REG_SR);
@@ -190,12 +194,10 @@ TEST sr_shift_total_counts_actual_shifts(void) {
     /* No shift yet; counter is still 0. */
     ASSERT_EQ_FMT((uint32_t)0, via_6522_sr_shift_total(&vs), "%u");
     /* Two ticks: t2c 1->0 then 0->fire. */
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
+    tick(2);
     ASSERT_EQ_FMT((uint32_t)1, via_6522_sr_shift_total(&vs), "%u");
     /* Another underflow -> another shift. */
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
-    bus_.cpu_cycle_due = 1; bus_step(&bus_);
+    tick(2);
     ASSERT_EQ_FMT((uint32_t)2, via_6522_sr_shift_total(&vs), "%u");
     PASS();
 }
@@ -225,8 +227,7 @@ TEST cb2_falling_edge_mid_byte_does_not_rearm_sr(void) {
     static const uint8_t bits[8] = {1, 1, 1, 0, 0, 1, 0, 1};
     for (int i = 0; i < 8; i++) {
         via_6522_set_cb2(&vs, &bus_, bits[i]);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
-        bus_.cpu_cycle_due = 1; bus_step(&bus_);
+        tick(2);
     }
     /* Check the count BEFORE reading SR (the read itself re-arms the
      * counter). After exactly 8 underflows the counter must be 0. */
@@ -255,7 +256,7 @@ TEST res_rising_edge_clears_registers_and_irq(void) {
 
     /* Run T1 down to underflow so IFR.T1 is set and the IRQ line goes
      * high. (T1 counts on cpu_cycle_due ticks.) */
-    for (int i = 0; i < 200; i++) { bus_.cpu_cycle_due = 1; bus_step(&bus_); }
+    tick(200);
     ASSERT(bus_.irq);
 
     /* Pulse RES high. The VIA detects the rising edge on its next
