@@ -8,12 +8,12 @@
 ; of writing ANSI sequences and reads key codes from con_read, for
 ; machines without an ANSI terminal (the emulator runs it with --direct-io).
 ; With define:michael as well it runs on the Michael board, on its ROM's
-; services (editor/michael_image.py; ./editor-michael.sh in the emulator,
-; ./editor-michael-upload.sh to the board).
+; services (editor/michael_image.py; editor/bin/editor-michael.sh in the emulator,
+; editor/bin/editor-michael-upload.sh to the board).
 ;
-; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
-;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt
-;   ./editor.sh file.txt        (terminal build)
+; Usage (from the repository root; edits file.txt in place, :w writes it back):
+;   emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt
+;   editor/bin/editor.sh file.txt        (terminal build)
 ;
 ; Modes:
 ;   Normal:  h/j/k/l movement, x/dd delete, i/a/o/O insert, : command
@@ -46,9 +46,9 @@
 
   JMP editor_main
 
-  .include 17/environment.asm
+  .include asm/17/environment.asm
   .include editor/memory_map.asm
-  .include 17/macros.asm
+  .include asm/17/macros.asm
   .include editor/macros.asm
   .include editor/zp.asm
   .include editor/terminal.asm

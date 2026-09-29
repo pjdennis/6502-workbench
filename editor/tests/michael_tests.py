@@ -11,7 +11,7 @@ it. The differential tests compare the LCD with the console build's ANSI
 output at 20x4 (ansi_screen.AnsiScreen, its bottom row clipped like the
 LCD's).
 
-Run from toolchain/asm2 (verify.sh does); needs vasm6502_oldstyle on PATH
+Run from anywhere (editor/verify.sh does); needs vasm6502_oldstyle on PATH
 and the emulator and asm17 built.
 """
 import os

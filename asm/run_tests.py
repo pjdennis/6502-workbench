@@ -28,7 +28,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "emulator"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "emulator"))
 from persistent_emulator import PersistentEmulator
 
 
@@ -106,7 +106,7 @@ class TestRunner:
         self.python_mode = python_mode
         self.use_server = use_server and not python_mode and int(asm_version) >= 9
         self.asm_version = asm_version
-        self.emulator = base_dir.parents[1] / "emulator" / "emulator.out"
+        self.emulator = base_dir.parent / "emulator" / "emulator.out"
         self.assembler = self._resolve_assembler_binary(base_dir, asm_version)
         self.source_stack_test = base_dir / asm_version / "out" / "source_stack_test.out"
         self.python_asm = base_dir / "pyasm.py"

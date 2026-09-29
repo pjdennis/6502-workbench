@@ -4,7 +4,7 @@
 # format 3, which resets the board first. Options go to transfer.py (e.g. --port=/dev/ttyUSB0).
 # Needs the emulator and asm17 built (tools/build_all.sh).
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../.."
 editor="$(mktemp -d)/editor_michael.bin"
 python3 editor/michael_image.py "$editor"
-exec python3 ../../tools/upload/transfer.py --baudrate=57600 --format=3 --load-address=0200 "$@" "$editor"
+exec python3 tools/upload/transfer.py --baudrate=57600 --format=3 --load-address=0200 "$@" "$editor"

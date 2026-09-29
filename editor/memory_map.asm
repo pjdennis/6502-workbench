@@ -5,7 +5,7 @@
   .ifdef michael
 ; Michael: 16 KB of RAM from $0200, shared with the ROM's services, which
 ; keep $3F00 up to MICHAEL_EDITOR_SPARE (michael_editor_layout.inc)
-  .include ../../firmware/boards/michael/michael_editor_layout.inc
+  .include firmware/boards/michael/michael_editor_layout.inc
 BATCH_BUF     = $0100   ; Below the stack, which stays above $0154
 STATUS_SHADOW = $0120   ; The status bar's text: a row (52 bytes here)
 TEXT_END      = $3900   ; The text buffer runs from the end of the code

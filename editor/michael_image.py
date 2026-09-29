@@ -2,7 +2,7 @@
 """Build the editor for Michael: the define:direct_io define:michael build, which runs from
 LOAD on the services of the Michael ROM (firmware/boards/michael/michael_rom.s).
 
-    python3 editor/michael_image.py OUT     (from toolchain/asm2)
+    python3 editor/michael_image.py OUT     (from the repository root)
 
 writes the editor binary, for tools/upload/transfer.py --format=3 --load-address=0200 (which
 loads it at $0200 and runs it there). Needs the emulator and asm17 built (tools/build_all.sh); building the ROM needs vasm6502_oldstyle.
@@ -12,12 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-ASM2 = Path(__file__).resolve().parents[1]
-ROOT = ASM2.parents[1]
+EDITOR = Path(__file__).resolve().parent
+ROOT = EDITOR.parent
 EMULATOR = ROOT / "emulator" / "emulator.out"
-ASSEMBLER = ASM2 / "17" / "out" / "asm.out"
+ASSEMBLER = ROOT / "asm" / "17" / "out" / "asm.out"
 ROM_SOURCE = ROOT / "firmware" / "boards" / "michael" / "michael_rom.s"
-MEMORY_MAP = ASM2 / "editor" / "memory_map.asm"
+MEMORY_MAP = EDITOR / "memory_map.asm"
 LOAD = 0x0200
 
 sys.path.insert(0, str(ROOT / "tools" / "upload"))
@@ -33,7 +33,7 @@ def memory_map_address(name):
 def assemble_editor(out, *defines):
     """Assemble editor/editor.asm to out with asm17; returns its bytes."""
     subprocess.run([EMULATOR, ASSEMBLER, "--no-dump", "editor/editor.asm", out, *defines],
-                   check=True, capture_output=True, cwd=ASM2)
+                   check=True, capture_output=True, cwd=ROOT)
     return Path(out).read_bytes()
 
 

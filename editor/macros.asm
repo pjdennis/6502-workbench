@@ -1,4 +1,4 @@
-; Editor-local macros (the shared 16-bit macros are in 17/macros.asm,
+; Editor-local macros (the shared 16-bit macros are in asm/17/macros.asm,
 ; which the assembler also uses, so editor-only macros live here)
 
 ; ADDA16 ptr - Add A (unsigned) to the 16-bit value at ptr/ptr + 1

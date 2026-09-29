@@ -1,5 +1,8 @@
 #!/bin/bash
+# The assembler's whole check: builds the chain 00..17 (each stage assembles the next, 17 assembles
+# itself) and runs the in-assembler tests. The editor's tests are in editor/verify.sh.
 
 set -e
+cd "$(dirname "$0")"
 
-./asmtestgen.sh && python3 editor/tests/ansi_screen.py && editor/tests/editor_tests.py -q && editor/tests/editor_tests.py -q --direct-io && editor/tests/michael_tests.py && ../../emulator/tests/terminal_tests.py && ../../emulator/tests/emulator_tests.py
+./asmtestgen.sh

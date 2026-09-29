@@ -18,7 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "emulator"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "emulator"))
 from persistent_emulator import PersistentEmulator
 
 from ansi_screen import AnsiScreen
@@ -156,8 +156,8 @@ class EditorTestRunner:
         self.server_mode = ["API strict", *(["MODE direct"] if direct_io else [])]
         self.verbose = verbose
         self.quiet = quiet
-        self.emulator = base_dir.parents[1] / "emulator" / "emulator.out"
-        self.assembler = base_dir / "17" / "out" / "asm.out"
+        self.emulator = base_dir / "emulator" / "emulator.out"
+        self.assembler = base_dir / "asm" / "17" / "out" / "asm.out"
         self.editor_asm = base_dir / "editor" / "editor.asm"
         suffix = "_direct" if direct_io else ""
         self.editor_bin = base_dir / "editor" / "out" / f"editor{suffix}.out"
@@ -26510,7 +26510,7 @@ def main():
         Colors.disable()
 
     script_dir = Path(__file__).parent.resolve()
-    base_dir = script_dir.parent.parent
+    base_dir = script_dir.parent.parent  # the repository root: the assembler resolves .include from there
 
     runner = EditorTestRunner(base_dir, verbose=args.verbose,
                               quiet=args.quiet,

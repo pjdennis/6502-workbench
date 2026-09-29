@@ -20,7 +20,7 @@ from pathlib import Path
 # Paths relative to project root
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent
-EMULATOR = PROJECT_ROOT.parents[1] / "emulator" / "emulator.out"
+EMULATOR = PROJECT_ROOT.parent / "emulator" / "emulator.out"
 TEST_RUNNER = PROJECT_ROOT / "17" / "out" / "test_runner.out"
 
 

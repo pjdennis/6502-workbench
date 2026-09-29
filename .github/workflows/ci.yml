@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [firmware, asm1, asm2, emulator, prog8]
+        suite: [firmware, asm, editor, emulator, prog8]
     steps:
       - uses: actions/checkout@v5
 
@@ -32,10 +32,6 @@ jobs:
           make -s -C /tmp/vasm CPU=6502 SYNTAX=oldstyle >/dev/null
           sudo install /tmp/vasm/vasm6502_oldstyle /usr/local/bin/
           vasm6502_oldstyle </dev/null 2>/dev/null | head -1
-
-      - name: Install asm1 tools
-        if: matrix.suite == 'asm1'
-        run: command -v hexdump || (sudo apt-get update -q && sudo apt-get install -y -q bsdextrautils)
 
       - name: Install emulator-suite tools (playwright)
         if: matrix.suite == 'emulator'

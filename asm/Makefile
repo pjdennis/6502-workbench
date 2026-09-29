@@ -3,7 +3,7 @@
 all: emu 00/out/asm_c.out
 
 emu:
-	@$(MAKE) -s -C ../.. emulator/emulator.out
+	@$(MAKE) -s -C .. emulator/emulator.out
 
 clean:
 	find . -type d -name "out" -exec rm -rf {} +
