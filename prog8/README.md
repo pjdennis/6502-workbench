@@ -45,11 +45,11 @@ wendy2c, mirroring the asm00..asm17 chain.
     # Run the test suite:
     make -C prog8 prog8-test
 
-    # Compile a .p8 by hand and inspect the .s:
-    python3 -m p8c prog8/examples/hello.p8 -o /tmp/hello.s
+    # Compile a .p8 by hand and inspect the .s (from prog8/, where p8c imports):
+    cd prog8 && python3 -m p8c examples/hello.p8 -o /tmp/hello.s
 
     # Compile + assemble + run on the emulator (prints the LCD frame):
-    python3 -m p8c prog8/examples/hello.p8 --run
+    cd prog8 && python3 -m p8c examples/hello.p8 --run
 
 ## Phase status
 

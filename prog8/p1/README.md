@@ -114,16 +114,14 @@ milestone map P7-M1..M6.
   shifts, comparisons + branches, unary, `@()`, `&`, indexing, calls, and
   the word-expression evaluator.)
 
-`p1.p8` is **generated** by `build_p1.py` (not in the repository), which splices
-stmt.p8's current front-end with the codegen back-end and renders fixed
-assembly text as `out_text("...")` calls over pooled string literals.
-Regenerate after editing the generator:
+`p1.p8` was first **generated** by `build_p1.py`, which spliced stmt.p8's
+front-end with the codegen back-end and rendered fixed assembly text as
+`out_text("...")` calls over pooled string literals. The generator,
+`stmt.p8` and `tests/test_stmt.py` were retired together in `f56d6ced`
+(2026-06-06); since then `p1.p8` is edited directly, although its header
+still says it is generated. The generator is in history:
 
-    python3 p1/build_p1.py
-
-Sourcing the front-end from stmt.p8 keeps the two in lockstep (a parser
-fix in stmt.p8 flows into p1 on the next regenerate); only the back half
-differs (stmt.p8 serializes the AST, p1.p8 emits assembly).
+    git show f56d6ced^:assembler2/prog8/p1/build_p1.py
 
 ## Running
 

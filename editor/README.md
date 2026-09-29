@@ -446,8 +446,8 @@ as a VT102 does by default:
 
 ## Testing
 
-- `editor/tests/editor_tests.py` assembles the editor (using `17/out/asm.out`
-  via the emulator) and runs it under `../../emulator/emulator.out`, feeding
+- `editor/tests/editor_tests.py` assembles the editor (using `asm/17/out/asm.out`
+  via the emulator) and runs it under `emulator/emulator.out`, feeding
   keystroke byte streams and verifying saved file contents and screen state.
 - `editor/tests/ansi_screen.py` is a virtual terminal that processes ANSI
   escape sequences into a screen buffer for screen-state assertions.
