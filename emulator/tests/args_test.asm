@@ -1,7 +1,7 @@
 ; Args test: outputs argc byte, then each argv string separated by newlines
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 PTR16 = $00       ; 16-bit pointer for string traversal
 

@@ -30,7 +30,7 @@ asm() {
 
 # The editor and the emulator's terminal tests run on the assembler; build it once if it is missing.
 need_asm() {
-  [ -x asm/17/out/asm.out ] || (cd asm && ./asmtestgen.sh)
+  [ -f asm/17/out/asm.out ] || (cd asm && ./asmtestgen.sh)
 }
 
 editor() {

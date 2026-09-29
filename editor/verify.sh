@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-[ -x asm/17/out/asm.out ] || { echo "asm17 not built: run tools/build_all.sh asm"; exit 1; }
+[ -f asm/17/out/asm.out ] || { echo "asm17 not built: run tools/build_all.sh asm"; exit 1; }
 
 python3 editor/tests/ansi_screen.py &&
   editor/tests/editor_tests.py -q &&

@@ -4,7 +4,7 @@
 
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 main:
   ; Write "HELLO" to serial

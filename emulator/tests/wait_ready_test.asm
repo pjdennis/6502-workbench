@@ -3,7 +3,7 @@
 ; stops once input has ended. Exit code 0, or 1 if the call changed X or Y.
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 main:
   LDY #$42

@@ -3,7 +3,7 @@
 ; wait_ready result, and each byte it reads, to serial output.
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 main:
   LDA #$E8               ; 1000 ms

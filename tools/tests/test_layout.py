@@ -53,18 +53,20 @@ class LayoutTest(unittest.TestCase):
                         found.append(f'{path}:{n}: {line.strip()[:90]}')
         self.assertEqual(found, [])
 
-    def test_editor_includes_resolve_from_the_root(self):
-        # The assembler resolves .include against its working directory: the root.
-        missing = []
+    def test_includes_with_a_directory_resolve_from_the_root(self):
+        # The assembler resolves .include against its working directory, which is the root for
+        # the editor and the emulator's test programs (bare names go through include dirs).
         sources = glob.glob(os.path.join(ROOT, 'editor', '*.asm'))
         self.assertIn(os.path.join(ROOT, 'editor', 'editor.asm'), sources)
+        sources += glob.glob(os.path.join(ROOT, 'emulator', 'tests', '*.asm'))
+        missing = []
         for path in sources:
             with open(path) as f:
                 for line in f:
                     m = re.match(r'\s*\.include\s+(\S+)', line)
-                    if m and not m.group(1).startswith('out/') \
+                    if m and '/' in m.group(1) and not m.group(1).startswith('out/') \
                             and not os.path.exists(os.path.join(ROOT, m.group(1))):
-                        missing.append(f'{os.path.basename(path)}: {m.group(1)}')
+                        missing.append(f'{os.path.relpath(path, ROOT)}: {m.group(1)}')
         self.assertEqual(missing, [])
 
     def test_editor_launchers_point_at_real_files(self):
