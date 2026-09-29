@@ -89,7 +89,7 @@ class EmulatorTestRunner:
         result = subprocess.run(
             [str(self.emulator), str(self.assembler),
              "--no-dump", str(src), str(dst)],
-            capture_output=True, text=True
+            capture_output=True, text=True, cwd=self.base_dir  # .include paths are root-relative
         )
         if result.returncode != 0:
             print(f"Error: Failed to assemble {src.name}:")

@@ -131,7 +131,7 @@ def run_sigtstp_redraw_test(base_dir, verbose=False):
     result = subprocess.run(
         [str(emulator), str(assembler), "--no-dump",
          str(test_asm), str(test_bin)],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=base_dir  # .include paths are root-relative
     )
     if result.returncode != 0:
         print(f"Error: Failed to assemble test program:")
