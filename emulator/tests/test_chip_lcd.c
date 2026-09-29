@@ -107,6 +107,24 @@ TEST cgram_slot_6_renders_as_tilde(void) {
     PASS();
 }
 
+TEST visible_bytes_are_raw_ddram_in_row_order(void) {
+    setup();
+    send_cmd_8bit(0x2);
+    send_byte(0x28, 0);
+    send_byte(0x80, 0);
+    send_byte(0x03, 1);  /* CGRAM slot 3: render() can only show '?' */
+    send_byte('A', 1);
+    send_byte(0xC0, 0);  /* line 2 */
+    send_byte(0x00, 1);  /* CGRAM slot 0: render() shows ' ' */
+
+    uint8_t bytes[32];
+    lcd_hd44780_visible_bytes(&ls, bytes);
+    ASSERT_EQ_FMT(0x03, bytes[0], "%02x");
+    ASSERT_EQ_FMT('A', bytes[1], "%02x");
+    ASSERT_EQ_FMT(0x00, bytes[16], "%02x");
+    PASS();
+}
+
 TEST line2_address_starts_at_40(void) {
     setup();
     send_cmd_8bit(0x2);
@@ -225,6 +243,7 @@ TEST cursor_position_5x10_tracks_dd_address(void) {
 SUITE(lcd_hd44780_suite) {
     RUN_TEST(init_4bit_then_write_hello);
     RUN_TEST(cgram_slot_6_renders_as_tilde);
+    RUN_TEST(visible_bytes_are_raw_ddram_in_row_order);
     RUN_TEST(line2_address_starts_at_40);
     RUN_TEST(function_set_5x10_mode);
     RUN_TEST(cgram_5x10_slot_holds_10_byte_glyph);

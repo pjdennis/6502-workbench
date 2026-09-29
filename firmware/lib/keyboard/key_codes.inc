@@ -117,8 +117,12 @@ KEY_NUMLOCK      = 10 + MISC_OFFSET
 KEY_CAPSLOCK     = 11 + MISC_OFFSET
 KEY_SCROLLLOCK   = 12 + MISC_OFFSET
 
-KEY_SYSRQ        = 13 + MISC_OFFSET ; Print screen
-KEY_PAUSE        = 14 + MISC_OFFSET
+KEY_SYSRQ        = 13 + MISC_OFFSET ; Print Screen. Alt+Print Screen (SysRq) sends a different
+                                    ; PS/2 code, which also translates to KEY_SYSRQ, with Alt set
+KEY_PAUSE        = 14 + MISC_OFFSET ; Pause. Ctrl+Pause (Break) sends a different PS/2 code,
+                                    ; which also translates to KEY_PAUSE, with Ctrl set. Plain
+                                    ; Pause has no key up event: the keyboard sends its make and
+                                    ; break codes together as soon as the key is pressed
 
 KEY_LEFT         = 15 + MISC_OFFSET
 KEY_RIGHT        = 16 + MISC_OFFSET

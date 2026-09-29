@@ -37,7 +37,7 @@ firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc -o a.out firmwar
 ```
 
 For hardware, use the scripts in [`tools/upload/`](../tools/upload/). They assemble to `a.out` in the current directory and then send it:
-- `compile_and_upload_{wendy,michael,wendy2,wendy2_noreset}.sh <program.s>` send over serial with `transfer.py`. These builds use `-esc`, for programs uploaded to RAM through the board's loader.
+- `compile_and_upload_{wendy,michael,wendy2}.sh [--noreset] <program.s>` send over serial with `transfer.py`. These builds use `-esc`, for programs uploaded to RAM through the board's loader.
 - `compile_and_program.sh <program.s>` burns an AT28C256 EEPROM with `minipro` (no `-esc`).
 
 Because includes are resolved by name, **file names must be unique across the include directories**. `firmware/vasm` uses `vasm6502_oldstyle` from `PATH`, or `$VASM` if set.
