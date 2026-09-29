@@ -4,6 +4,7 @@ Host-side tools. Run them from the repository root unless noted.
 
 | Path | What it does |
 |---|---|
+| `build_all.sh` | Builds the main tools, so the scripts that use them work (e.g. `toolchain/asm2/editor.sh` and `editor-michael-upload.sh`): `emulator`, `asm2` (the chain up to asm17, via `asmtestgen.sh`) and `editor` (its stable builds, written once its tests pass), all or the ones named. About 30 seconds. |
 | `check_all.sh` | Runs every regression suite: `firmware`, `asm1`, `asm2`, `emulator`, `prog8` (all, or the ones named). CI runs the same suites. |
 | `firmware_manifest.py` | Firmware regression check: assembles every program and compares hashes with `firmware/manifest.txt` (see `firmware/README.md`). Tests in `tests/`. |
 | `upload/upload_frame.py [--load-address=HEX] [--start=HEX] FILE OUT` | The upload formats (see its docstring). As a command, writes FILE (binary, or S-records `.s19`) as a format 3 upload, as it goes on the wire, e.g. for the emulator's `--serial-input`. |

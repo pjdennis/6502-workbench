@@ -5,7 +5,7 @@ LOAD on the services of the Michael ROM (firmware/boards/michael/michael_rom.s).
     python3 editor/michael_image.py OUT     (from toolchain/asm2)
 
 writes the editor binary, for tools/upload/transfer.py --format=3 --load-address=0200 (which
-loads it at $0200 and runs it there). Needs the emulator and asm17 built; building the ROM needs vasm6502_oldstyle.
+loads it at $0200 and runs it there). Needs the emulator and asm17 built (tools/build_all.sh); building the ROM needs vasm6502_oldstyle.
 """
 import re
 import subprocess

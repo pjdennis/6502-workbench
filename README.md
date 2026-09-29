@@ -28,6 +28,7 @@ Prerequisites:
 
 ```bash
 make                                   # build the emulator (emulator/emulator.out)
+tools/build_all.sh                     # ...or the emulator, asm2 assembler and editor (about 30 seconds)
 tools/check_all.sh                     # run every test suite (about 3.5 minutes)
 tools/check_all.sh firmware asm2       # ...or just some: firmware asm1 asm2 emulator prog8
 

@@ -10,6 +10,7 @@ Guidance for Claude Code working in this repository. The root `README.md` has th
 
 ```bash
 make                      # emulator (run make and the emulator tests from the repo root)
+tools/build_all.sh        # emulator, asm2 chain (asm17) and the editor's stable builds (~30 s)
 tools/check_all.sh        # all suites: firmware asm1 asm2 emulator prog8 (~3.5 min); CI runs the same
 tools/check_all.sh asm2   # one suite
 ```
