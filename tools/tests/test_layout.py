@@ -35,12 +35,16 @@ class LayoutTest(unittest.TestCase):
             self.assertTrue(os.path.isdir(os.path.join(ROOT, d)), d)
 
     def test_old_areas_are_gone(self):
-        for d in ('toolchain', 'asm/editor', 'asm/legacy'):
-            self.assertFalse(os.path.exists(os.path.join(ROOT, d)), d)
+        # Tracked files only: an old checkout's untracked build output (toolchain/asm2/*/out/)
+        # can linger after pulling.
+        files = subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True,
+                               text=True, check=True).stdout.split('\n')
+        for d in ('toolchain/', 'asm/editor', 'asm/legacy'):
+            self.assertEqual([f for f in files if f.startswith(d)], [], d)
 
     def test_asm_is_only_the_assembler(self):
-        for name in os.listdir(os.path.join(ROOT, 'asm')):
-            self.assertFalse(name.startswith('editor'), name)
+        self.assertEqual([f for f in tracked_files()
+                          if f.startswith('asm/') and 'editor' in f], [])
 
     def test_no_live_file_names_an_old_path(self):
         found = []
@@ -69,19 +73,24 @@ class LayoutTest(unittest.TestCase):
                         missing.append(f'{os.path.relpath(path, ROOT)}: {m.group(1)}')
         self.assertEqual(missing, [])
 
-    def test_editor_launchers_point_at_real_files(self):
+    def test_editor_launchers_run_builds_the_tests_write(self):
+        with open(os.path.join(ROOT, 'editor', 'tests', 'editor_tests.py')) as f:
+            tests = f.read()
         launchers = glob.glob(os.path.join(ROOT, 'editor', 'bin', '*.sh'))
-        self.assertGreaterEqual(len(launchers), 8)
+        self.assertGreaterEqual(len(launchers), 9)
         for path in launchers:
             with open(path) as f:
                 text = f.read()
-            self.assertIn('/../..', text, path)  # they find the repository root from editor/bin
-            if 'michael' in os.path.basename(path):
-                continue  # these build an image or upload it; they run from the root
-            self.assertIn('$ROOT/emulator/emulator.out', text, path)
-            self.assertTrue(os.path.exists(os.path.join(ROOT, 'emulator')), path)
-            for m in re.finditer(r'\$ROOT/(editor/out/\S+\.out)', text):
-                self.assertTrue(m.group(1).startswith('editor/out/'), path)
+            name = os.path.basename(path)
+            if 'michael' in name:  # these build the image themselves, from the root
+                self.assertIn('cd "$(dirname "$0")/../.."', text, name)
+                continue
+            self.assertIn('ROOT="$(cd "$(dirname "$0")/../.." && pwd)"', text, name)
+            self.assertIn('"$ROOT/emulator/emulator.out"', text, name)
+            builds = re.findall(r'"\$ROOT/editor/out/(\w+\.out)"', text)
+            self.assertEqual(len(builds), 1, name)
+            self.assertTrue(f'"{builds[0]}"' in tests,
+                            f'{name} runs {builds[0]}, which editor_tests.py does not write')
 
     def test_check_and_build_scripts_use_the_new_names(self):
         with open(os.path.join(ROOT, 'tools', 'check_all.sh')) as f:
