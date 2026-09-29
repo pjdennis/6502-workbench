@@ -6,10 +6,18 @@ A vi-like text editor for the 6502 platform.
 Usage: editor <filename>
 
 If the file does not exist, starts with an empty buffer.
+A buffer with no lines (an empty or new file, or one whose lines
+were all deleted) shows one empty line and is written as an empty
+file, as in vim; typing on that line (or o, or a paste) makes it a
+line of the text, and u of that change empties the buffer again.
+A delete there (x, X, dd, d0, :d) does nothing, as in vim: no yank
+and no undo step.  cc and S yank nothing there either: they start
+insert mode with an empty change, which u undoes with what was typed.
 If no filename is given, starts with [No Name].
 Maximum file size: ~40KB. Files exceeding this are truncated and
 opened read-only.
-Maximum lines: 1023.
+Maximum lines: 1023. Longer files are truncated and opened read-only,
+and an edit that would add a 1024th line is refused with "Buffer full".
 
 
 MODES
@@ -18,7 +26,8 @@ MODES
 The editor has three modes:
 
   NORMAL   Default mode for navigation and commands.
-  INSERT   Text entry mode. Entered via i, a, A, o, O, s, S, C, cc, cw, cb, ce.
+  INSERT   Text entry mode. Entered via i, a, A, I, o, O, s, S, C, cc, cw,
+           cb, ce.
   COMMAND  Colon command-line mode. Entered via :.
 
 
@@ -27,10 +36,18 @@ NORMAL MODE - MOVEMENT
 
   h, Left        Move cursor left (accepts count)
   l, Right       Move cursor right (accepts count)
+  Space          Move right as l, on past the line end to the start of
+                 the next line, a count step each (vim's default
+                 'whichwrap' b,s)
+  Backspace      Move left as h, on from column 0 to the last
+                 character of the line above (also Ctrl-H)
   j, Down        Move cursor down (accepts count)
   k, Up          Move cursor up (accepts count)
   0, Home        Move to beginning of line
-  $, End         Move to end of line (last character)
+  $, End         Move to end of line (last character); N$ goes to
+                 the end of the line N - 1 below (on the last line
+                 it fails, as j does there and k on the first line:
+                 the cursor stays, as in vim)
   ^              Move to first non-blank character on line
   w              Move to start of next word (accepts count)
   b              Move to start of previous word (accepts count)
@@ -38,7 +55,7 @@ NORMAL MODE - MOVEMENT
   Ctrl-Right     Move to start of next word (same as w)
   Ctrl-Left      Move to start of previous word (same as b)
   G              Go to last line; [N]G goes to line N
-  gg             Go to first line
+  gg             Go to first line; [N]gg goes to line N
   Ctrl-F, PgDn   Scroll forward one screen (accepts count)
   Ctrl-B, PgUp   Scroll backward one screen (accepts count)
   Ctrl-D         Scroll forward half a screen (accepts count)
@@ -46,12 +63,35 @@ NORMAL MODE - MOVEMENT
 
   Word motions cross line boundaries. Words are classified as:
   word characters (a-z, A-Z, 0-9, _), punctuation, or whitespace.
-  A word boundary is a transition between classes.
+  A word boundary is a transition between classes. As in vi, w and
+  b pass over a line's indentation and over lines of blanks (spaces
+  and tabs), and stop on an empty line.
 
   Ctrl-D and Ctrl-U accept a count that becomes "sticky" - the
   same scroll amount is reused on subsequent Ctrl-D/Ctrl-U presses
   until a new count is given. Without a count, they scroll half a
-  screen by default.
+  screen by default. As in vim, Ctrl-D on the last line and Ctrl-U
+  on the first do nothing (a count typed with them is not kept).
+
+  Ctrl-F and Ctrl-B page as in vim: two lines of the page stay on
+  the screen (one on a screen of 4 text rows, none on fewer), and
+  the cursor goes to the new top line (Ctrl-F) or bottom line
+  (Ctrl-B). A page that reaches the end puts the last line on top;
+  with the last line on top (Ctrl-F) or the first (Ctrl-B) they do
+  nothing.
+
+  G, gg, Ctrl-F, Ctrl-B, Ctrl-D, Ctrl-U, 'a and :N put the cursor on
+  the first non-blank character of the line they go to, as dd and :d
+  do on the line after the deleted ones.
+
+  j, k, Up and Down (in insert mode too) remember the column they
+  started from: a shorter line on the way puts the cursor at its end,
+  and the next longer line takes it back to that column. After $ or
+  End they keep to the end of each line. As in vim, a command that
+  leaves the cursor and the text as they are (m, :w, :y, a p with
+  nothing yanked, an h, l, Space or Backspace that cannot move, and
+  in insert mode a Left or Right that cannot) keeps that column; any
+  other starts over from the cursor's.
 
 
 NORMAL MODE - EDITING
@@ -59,11 +99,24 @@ NORMAL MODE - EDITING
 
 All editing commands are blocked in read-only mode.
 
-  i              Enter insert mode at cursor
-  a              Enter insert mode after cursor
-  A              Enter insert mode at end of line
-  o              Open new line below, enter insert mode
-  O              Open new line above, enter insert mode
+  i              Enter insert mode at cursor (accepts count)
+  a              Enter insert mode after cursor (accepts count)
+  A              Enter insert mode at end of line (accepts count)
+  I              Enter insert mode before the first non-blank character
+                 (past the blanks of a line of blanks, as in vim;
+                 accepts count)
+  o              Open new line below, enter insert mode (accepts count)
+  O              Open new line above, enter insert mode (accepts count)
+                 With a count N (on i, a, A, I, o and O), ESC types the
+                 text N times, as in vim (after o and O each time on a
+                 line of its own): 3ix ESC inserts xxx, 3oab ESC opens
+                 three lines ab, and u takes them all back. A cursor
+                 move in insert mode (one that cannot move does not)
+                 drops the count, and so do a Backspace over text from
+                 before the typing and a Delete (vim types those keys
+                 again with the rest). Copies that do not fit the text
+                 buffer or the 1023 lines are refused with "Buffer
+                 full", as a paste is: the text typed stays, once
   x, Delete      Delete character at cursor (accepts count)
                  Yanks deleted characters (character yank)
   X              Delete character before cursor (accepts count)
@@ -86,6 +139,7 @@ All editing commands are blocked in read-only mode.
                  (accepts count: [N]cc). Yanks deleted lines (line yank)
   cw             Change word: delete to end of word, enter insert mode
                  (accepts count). Yanks deleted characters (character yank)
+                 On a blank, changes the blanks up to the next word (as dw)
   cb             Change backward: delete to word start, enter insert mode
                  (accepts count). Yanks deleted characters (character yank)
   ce             Change to end of word: delete to end of word, enter
@@ -97,13 +151,22 @@ All editing commands are blocked in read-only mode.
   S              Delete current line, open blank line, enter insert mode
                  Same as cc (alias)
   r              Replace character at cursor (accepts count: [N]r)
-                 Waits for next keypress, replaces N characters
+                 Waits for next keypress, replaces N characters with
+                 it (a control key too, as in vim; after Ctrl-V the key
+                 that follows). Enter or Ctrl-J replaces the N
+                 characters with one line break, splitting the line.
+                 Does nothing if fewer than N are left; keys that are
+                 no character (arrows, Backspace, Esc) cancel
   ~              Toggle case of character at cursor (accepts count)
                  Advances cursor after each toggle
   J              Join current line with next line (accepts count: [N]J)
-                 Replaces newline with a space. With count N, joins N lines
+                 Replaces newline with a space; the next line's leading
+                 blanks stay (vi removes them). With count N, joins N
+                 lines (1J joins two). Up to 129 lines join at a time:
+                 more is refused with "Too many lines to join"
   >>             Indent current line by 2 spaces (accepts count: [N]>>)
   <<             Unindent current line by up to 2 spaces (accepts count)
+                 Both leave the cursor on the first non-blank character
   yy             Yank (copy) current line (accepts count: [N]yy)
                  Does not modify the file
   yw             Yank from cursor to next word boundary (accepts count)
@@ -114,7 +177,8 @@ All editing commands are blocked in read-only mode.
                  Character yank. Does not modify the file
   y$             Yank from cursor to end of line (accepts count)
                  Character yank. Does not modify the file
-  y0             Yank from beginning of line to cursor
+  y0             Yank from beginning of line to cursor (the cursor
+                 goes to the beginning of the line, as in vim)
                  Character yank. Cursor does not move
   p              Paste after/below cursor (accepts count: [N]p)
                  Line yank: pastes lines below current line
@@ -122,14 +186,44 @@ All editing commands are blocked in read-only mode.
   P              Paste before/above cursor (accepts count: [N]P)
                  Line yank: pastes lines above current line
                  Char yank: inserts before cursor position
+                 A line paste leaves the cursor on the first non-blank
+                 character of the first line pasted
   u              Undo last edit / redo (toggles between undo and redo)
                  Single-level: undoes the most recent operation, then
                  pressing u again redoes it. A new edit replaces the
                  undo history. Supports undo of: dd, x, X, D, dw, db, de,
-                 d$, d0, cw, cb, ce, cc, s, C, S, J, o, O, p, P, r, ~,
-                 >>, <<, :[range]> and :[range]<
+                 d$, d0, J, p, P, r, ~, >>, <<, :[range]d, :[range]>
+                 and :[range]<, and of text typed in insert mode: u
+                 takes back what was typed since insert mode began, or
+                 since the last cursor move in it, with the line o or O
+                 opened for it, and returns to where that typing (or
+                 the o or O) began (256 characters or more cannot be
+                 redone). A Backspace over text from before the typing
+                 (the line break o opened too), a Delete, and text typed
+                 after cw, cb, ce, cc, s, C or S are not undoable and
+                 clear the undo history (those commands can be undone
+                 when ESC follows with no text typed).
+                 A yank (yy, yw, y$, :y, ...) ends the undo of a delete
+                 or paste, as their undo restores from the yank buffer.
                  Rapidly typed (batched) keys execute together but undo
                  as if processed one at a time: u undoes the last one.
+
+  A count for dd, cc, S, yy, >> and << takes that many lines from
+  the cursor's down, and one for D, d$, y$ and C goes to the end of
+  the line count - 1 below, stopping at the last line; on the last
+  line itself a count of 2 or more does nothing, as in vim.
+
+  As in vi, dw, yw and cw on an empty line, and db, yb and cb from
+  column 0, stop at the end of the line before (its line break stays),
+  and if they start in their line's indentation (only blanks before
+  the cursor) they work on whole lines, as dd, yy and cc do: dw on an
+  empty line deletes it, and db from the start of a line deletes the
+  line above when it holds one word. de, ce and ye on an empty line
+  go on to the next word's end. Likewise a delete over lines (dw, de,
+  db, or D and d$ with a count) that starts in the indentation and
+  leaves only blanks after it on its last line deletes whole lines:
+  2D at the start of a line, or on an empty line, deletes it and the
+  next one. C and y$ with a count go on from an empty line too.
 
 
 NORMAL MODE - SEARCH
@@ -143,17 +237,31 @@ NORMAL MODE - SEARCH
   n              Repeat last search in the same direction (wraps around)
   N              Repeat last search in the opposite direction (wraps around)
 
+  /, ?, n and N accept a count: 3n goes to the third match, wrapping
+  around as often as it takes.
+
   If the pattern is not found, "Pattern not found" is displayed.
+  A pattern can be as long as fits the status row after the prompt
+  (the screen width less 2 characters, at most 127); further keys
+  are ignored. ESC, or backspacing past the prompt, cancels the
+  search and keeps the previous pattern for n and N.
+
+  As in vi, the matches on a line do not overlap: each search goes
+  on from the end of the match before, so in "abababab" /abab and n
+  find the matches at columns 1 and 5, not 3.
 
 
 NORMAL MODE - MARKS
 -------------------
 
   ma             Set mark 'a' at current line (a-z available)
-  'a             Jump to mark 'a' (cursor goes to column 0)
+  'a             Jump to mark 'a' (cursor goes to the first
+                 non-blank character)
 
   Marks are automatically adjusted when lines are inserted or
-  deleted. Marks within a deleted range are cleared.
+  deleted. Marks within a deleted range are cleared (this includes
+  lines replaced with cc or S); J moves the marks of the lines it
+  joins to the line they join, as vim does.
 
 
 NORMAL MODE - COUNT PREFIX
@@ -172,8 +280,12 @@ NORMAL MODE - COUNT PREFIX
     3J             Join 3 lines (current + 2 below)
     2dw            Delete 2 words forward
     3de            Delete to end of 3rd word
+    3ix ESC        Insert xxx
 
-  Counts are capped at 1000. ESC clears an active count.
+  Digits typed once a count has reached 6400 are ignored, so the
+  largest count is 63999. w, b, e, x, X, ~, r, J, Ctrl-F, Ctrl-B and
+  the word operators (dw, cw, yw, ...) take a count of at most 255.
+  ESC clears an active count.
   0 alone moves to line start; it does not start a count.
 
 
@@ -194,12 +306,20 @@ INSERT MODE
                     joins with the previous line
   Delete            Delete character at cursor; at end of line,
                     joins with the next line
-  ESC               Return to normal mode (cursor moves back one)
+  ESC               Return to normal mode (cursor moves back one).
+                    A lone ESC takes effect after 0.1 s: the editor
+                    waits that long for the rest of an arrow or other
+                    special key, which on a slow link comes later
 
-  Arrow keys, Home, End, PgUp, PgDn, Ctrl-F, Ctrl-B all work
-  for navigation within insert mode. Ctrl-Right and Ctrl-Left
-  move by word. The cursor can be positioned one past the last
-  character (for appending).
+  When the text buffer is full, a char or Enter that does not fit
+  is refused with "Buffer full"; the next key runs as usual. Keys
+  typed ahead go in exactly as if typed one at a time.
+
+  Arrow keys, Home, End, PgUp and PgDn all work for navigation
+  within insert mode. Ctrl-Right and Ctrl-Left move by word. The
+  cursor can be positioned one past the last character (for
+  appending). Ctrl-F and Ctrl-B are typed into the text, as in vim
+  (shown as a reverse ?); other control keys are ignored.
 
 
 COMMAND-LINE MODE
@@ -210,7 +330,9 @@ COMMAND-LINE MODE
   :wq            Save and quit
   :q!            Quit without saving
   :[N]           Go to line N (1-based)
-  :marks         Display all set marks with line numbers
+  :marks         Display all set marks with line numbers, a
+                 screen at a time: at "-- More --" a key shows
+                 the next page, q ends the list
 
   Range commands:
 
@@ -218,17 +340,25 @@ COMMAND-LINE MODE
   :[start],[end]y    Yank (copy) lines in range
   :[start],[end]>    Indent lines in range by 2 spaces
   :[start],[end]<    Unindent lines in range by up to 2 spaces
+                     (the cursor goes to the first non-blank character
+                     of the range's last line, as in vim; u returns to
+                     its first line)
 
   Range positions can be:
     N              Line number (1-based)
     'a             Mark reference
     .              Current line
+  An omitted position is the current line (:5,d = :5,.d and
+  :,5d = :.,5d).
 
   A single position can be used instead of a range:
     :[pos]d            Delete one line at position
     :[pos]>            Indent one line at position
 
-  Bare :> and :< apply to the current line.
+  With no range, :d, :y, :> and :< work on the current line.
+  Blanks may follow the command letter, and after d or y a register
+  name (as in vim: :1,5d a), which changes nothing: there is one
+  register. Anything else there is an unknown command.
 
   Examples:
     :1,5d          Delete lines 1 through 5
@@ -240,10 +370,23 @@ COMMAND-LINE MODE
     :>             Indent current line
     :5>            Indent line 5
 
-  If start > end, the range is automatically swapped.
+  If start > end, the range is automatically swapped. A position
+  past the last line makes the range invalid: the command says
+  "Invalid range" and does nothing (vim's E16). A range with no
+  command goes to the line of its second position, as in vim
+  (:1,5 = :5 and :5,1 = :1), and past the last line to the last.
+
+  A message stays on the status row until the next key, which then
+  runs as usual (as in vim): the report of :w ("name" written), the
+  report of a command that deletes, yanks or shifts more than 2 lines
+  ("3 fewer lines", "3 lines yanked", "3 lines shifted": dd, yy, >>,
+  <<, :d, :y, :> and :<, as vim's default 'report'), and errors such
+  as "Unknown command", "Mark not set" or "Pattern not found".
 
   ESC cancels command input. Backspace edits the command;
-  backspacing past the start cancels.
+  backspacing past the start cancels. A command can be as long as
+  fits the status row after the ':' (the screen width less 2
+  characters, at most 127); further keys are ignored.
 
 
 YANK BUFFER
@@ -252,7 +395,8 @@ YANK BUFFER
   The yank buffer (4KB) holds either complete lines or character
   data, depending on the last yank/delete operation:
 
-  Line yank (from dd, yy, cc, range commands):
+  Line yank (from dd, yy, cc, range commands, and the word
+  operators when they work on whole lines):
     p/P paste complete lines above or below.
 
   Character yank (from x, D, d$, d0, dw, db, de, yw, yb, ye,
@@ -261,6 +405,9 @@ YANK BUFFER
     P inserts before cursor.
 
   Each new yank/delete clears the previous yank buffer contents.
+  A yank, delete or change of more than 4KB is refused with
+  "Yank buffer full": the text, the yank buffer and undo stay
+  as they were.
 
 
 STATUS BAR
@@ -269,15 +416,28 @@ STATUS BAR
   The bottom line shows:
     filename  [RO]  [+]  mode  count/pending  line,col  total
 
-  [RO]  = read-only (file was truncated)
+  [RO]  = read-only (file was truncated: too large or too many lines)
   [+]   = file has been modified since last save
+
+  The status bar and messages are cut off one column short of the
+  screen width.
 
 
 DISPLAY
 -------
 
-  Long lines wrap across multiple screen rows.
+  Long lines wrap across multiple screen rows, up to 255 rows per
+  line (255 times the screen width: 10200 characters at 40 columns,
+  20400 at 80). Text past a line's 255th row is kept and saved, but
+  it is not displayed correctly: it can show out of place, and with
+  the cursor there the view and the cursor's place on screen are
+  wrong.
+  The view shows whole lines from its top line and the cursor line in
+  full, moving as little as it can, as vim's does; a line taller than
+  the screen is shown from the row that keeps the cursor on screen.
+  A line that does not fit at the bottom shows the rows that fit (vim
+  shows @ in their place).
   Lines past end of file are shown as ~ (tilde).
   Non-ASCII bytes (high bit set) are shown as ? in reverse video.
   Tab characters are shown as > in reverse video.
-  Other control characters are shown as . in reverse video.
+  Other control characters and DEL are shown as ? in reverse video.

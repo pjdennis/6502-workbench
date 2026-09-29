@@ -3,6 +3,7 @@
 DISPLAY_STRING_PARAM = $0000 ; 2 bytes
 
   .org $3000
+start:
   jmp initialize_machine
 
   .include initialize_machine_v2.inc

@@ -13,6 +13,7 @@ class PersistentEmulator:
         self.proc = None
         self.current_binary = None
         self.current_mode = None
+        self.current_api = None
         self.current_load_addr = None
         self.current_cwd = None
         self._start()
@@ -24,6 +25,7 @@ class PersistentEmulator:
             stderr=subprocess.PIPE)
         self.current_binary = None
         self.current_mode = None
+        self.current_api = None
         self.current_load_addr = None
         self.current_cwd = None
         self._stdout_fd = self.proc.stdout.fileno()
@@ -99,8 +101,9 @@ class PersistentEmulator:
 
     def run(self, binary, args=None, load_addr=-1, mode='standard',
             rows=0, cols=0, cwd=None,
-            keys=None, inline_output=False, inline_stderr=False):
-        """Run a binary in the emulator server.
+            keys=None, inline_output=False, inline_stderr=False,
+            strict_api=False):
+        """Run a binary in the emulator server (strict_api: as --strict-api).
 
         Returns (exit_code, output_bytes_or_None, stderr_bytes_or_None).
         """
@@ -109,7 +112,7 @@ class PersistentEmulator:
             self._start()
 
         binary_str = str(binary)
-        mode_str = 'terminal' if mode == 'terminal' else 'standard'
+        mode_str = mode if mode in ('terminal', 'direct') else 'standard'
 
         # Send CWD if changed
         if cwd is not None:
@@ -122,6 +125,12 @@ class PersistentEmulator:
         if mode_str != self.current_mode:
             self._send(f'MODE {mode_str}')
             self.current_mode = mode_str
+            self.current_binary = None
+
+        api_str = 'strict' if strict_api else 'standard'
+        if api_str != self.current_api:
+            self._send(f'API {api_str}')
+            self.current_api = api_str
             self.current_binary = None
 
         if load_addr != self.current_load_addr:

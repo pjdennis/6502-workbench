@@ -39,6 +39,8 @@ class TerminalTestRunner:
         self.test_bin = base_dir / "emulator" / "tests" / "out" / "terminal_test.out"
         self.dsr_test_asm = base_dir / "emulator" / "tests" / "terminal_dsr_test.asm"
         self.dsr_test_bin = base_dir / "emulator" / "tests" / "out" / "terminal_dsr_test.out"
+        self.wait_test_asm = base_dir / "emulator" / "tests" / "wait_ready_serial_test.asm"
+        self.wait_test_bin = base_dir / "emulator" / "tests" / "out" / "wait_ready_serial_test.out"
         self.passed = 0
         self.failed = 0
 
@@ -114,8 +116,9 @@ class TerminalTestRunner:
             self._pass(name)
 
     def run_terminal(self, input_bytes: bytes, tmpdir: Path,
-                     extra_args: list = None) -> tuple:
-        """Run the test program in terminal mode with file I/O.
+                     extra_args: list = None, binary: Path = None) -> tuple:
+        """Run a test program (default: the echo program) in terminal mode
+        with file I/O.
 
         Returns (exit_code, output_bytes).
         """
@@ -123,7 +126,7 @@ class TerminalTestRunner:
         output_file = tmpdir / "output.bin"
         keys_file.write_bytes(input_bytes)
 
-        cmd = [str(self.emulator), str(self.test_bin), "--no-dump",
+        cmd = [str(self.emulator), str(binary or self.test_bin), "--no-dump",
                "--load", "0400", "--terminal", "--input", str(keys_file),
                "--output", str(output_file)]
         if extra_args:
@@ -165,13 +168,15 @@ class TerminalTestRunner:
     def run_test(self, name: str, input_bytes: bytes,
                  expected_output: bytes = None,
                  expect_exit: int = 0,
-                 extra_args: list = None):
+                 extra_args: list = None,
+                 binary: Path = None):
         """Run a terminal test case."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             try:
                 exit_code, output = self.run_terminal(input_bytes, tmpdir,
-                                                      extra_args=extra_args)
+                                                      extra_args=extra_args,
+                                                      binary=binary)
             except subprocess.TimeoutExpired:
                 self._fail(name, "Timed out (infinite loop?)")
                 return
@@ -246,6 +251,19 @@ class TerminalTestRunner:
             extra_args=["--cpu-mhz", "1", "--baud", "9600"]
         )
 
+        # --pace-mask in terminal mode: input is held until the program is
+        # idle, and each hold must release (the run completes)
+        with tempfile.TemporaryDirectory() as mask_dir:
+            mask_file = Path(mask_dir) / "mask.bin"
+            mask_file.write_bytes(b"111")
+            self.run_test(
+                "Echo with paced input",
+                input_bytes=b"Hi\x04",
+                expected_output=b"Hi",
+                extra_args=["--cpu-mhz", "1", "--baud", "300",
+                            "--pace-mask", str(mask_file)]
+            )
+
         # --cpu-mhz alone doesn't break existing tests
         self.run_test(
             "cpu-mhz without baud",
@@ -281,6 +299,39 @@ class TerminalTestRunner:
                 extra_args=["--rows", "10", "--cols", "40",
                             "--cpu-mhz", "1", "--baud", "9600"],
                 expected_output=cmd_prefix + b"\x1b[10;40R"
+            )
+
+        # wait_ready: the program waits up to 1 s for 'A', then 10 ms and
+        # 50 ms for 'B', then 1 s after the input has ended, writing each
+        # result ($FF ready, $00 timed out) and each byte it reads
+        if not self._assemble(self.wait_test_asm, self.wait_test_bin):
+            self._fail("wait_ready tests", "wait_ready_serial_test.asm did not assemble")
+        else:
+            # 300 baud at 1 MHz: 'B' arrives 33 ms after 'A', so the 10 ms
+            # wait times out and the 50 ms wait gets it; waits cost no host
+            # time because emulated time jumps to the next arrival
+            self.run_test(
+                "wait_ready: 300 baud, byte one byte-time away",
+                input_bytes=b"AB",
+                expected_output=b"\xffA\x00\xffB\x00",
+                extra_args=["--cpu-mhz", "1", "--baud", "300"],
+                binary=self.wait_test_bin
+            )
+            # 9600 baud: 'B' is ~1 ms behind 'A', inside the 10 ms wait
+            self.run_test(
+                "wait_ready: 9600 baud, returns when the byte arrives",
+                input_bytes=b"AB",
+                expected_output=b"\xffA\xff\xffB\x00",
+                extra_args=["--cpu-mhz", "1", "--baud", "9600"],
+                binary=self.wait_test_bin
+            )
+            # No baud model: file input is ready at once, and once it has
+            # ended nothing more can arrive, so the last wait ends at once
+            self.run_test(
+                "wait_ready: no baud model, file input",
+                input_bytes=b"AB",
+                expected_output=b"\xffA\xff\xffB\x00",
+                binary=self.wait_test_bin
             )
 
         # Print results

@@ -12,7 +12,8 @@ int terminal_mode = 0;
 FILE *serial_input_file = NULL;
 FILE *serial_output_file = NULL;
 
-int con_byte_ready(void) { return 0; }
+static int fake_con_ready = 0;
+int con_byte_ready(void) { return fake_con_ready; }
 
 // Helper: reset console to fresh state with given dimensions,
 // optionally with --show-repaints tracking enabled
@@ -400,6 +401,25 @@ TEST csi_scroll_region(void) {
     PASS();
 }
 
+TEST csi_scroll_region_defaults(void) {
+    // A missing or 0 top is row 1 and a missing or 0 bottom the last
+    // row, as on a VT100 or xterm
+    console_init_test(10, 10);
+    feed_string("\x1b[;8r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 7);
+    feed_string("\x1b[3r");
+    ASSERT_EQ(scroll_top, 2);
+    ASSERT_EQ(scroll_bot, 9);
+    feed_string("\x1b[0;5r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 4);
+    feed_string("\x1b[r");
+    ASSERT_EQ(scroll_top, 0);
+    ASSERT_EQ(scroll_bot, 9);
+    PASS();
+}
+
 TEST csi_scroll_up(void) {
     console_init_test(4, 3);
     fill_cells("ABCDEFGHIJKL");
@@ -415,6 +435,105 @@ TEST csi_scroll_down(void) {
     feed_string("\x1b[1T");  // scroll down 1
     ASSERT_EQ(cell_at(0, 0), ' ');
     ASSERT_EQ(cell_at(1, 0), 'A');
+    PASS();
+}
+
+TEST csi_scroll_region_homes_cursor(void) {
+    // DECSTBM moves the cursor home, as on a VT100 or xterm
+    console_init_test(4, 3);
+    feed_string("\x1b[3;2H\x1b[2;3r");
+    ASSERT_EQ(cursor_row, 0);
+    ASSERT_EQ(cursor_col, 0);
+    feed_string("\x1b[3;2H\x1b[r");
+    ASSERT_EQ(cursor_row, 0);
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_scroll_region_needs_two_rows(void) {
+    // A region whose top is not above its bottom is ignored: the margins
+    // and the cursor stay as they were
+    console_init_test(4, 3);
+    feed_string("\x1b[2;3r\x1b[3;2H\x1b[2;2r");
+    ASSERT_EQ(scroll_top, 1);
+    ASSERT_EQ(scroll_bot, 2);
+    ASSERT_EQ(cursor_row, 2);
+    ASSERT_EQ(cursor_col, 1);
+    feed_string("\x1b[3;2r");
+    ASSERT_EQ(scroll_top, 1);
+    ASSERT_EQ(scroll_bot, 2);
+    PASS();
+}
+
+TEST csi_il_inserts_lines_at_cursor(void) {
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;2H\x1b[L");  // insert 1 line at row 2
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), ' ');
+    ASSERT_EQ(cell_at(2, 0), 'D');
+    ASSERT_EQ(cell_at(3, 0), 'G');
+    ASSERT_EQ(cursor_row, 1);  // the cursor goes to column 1
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_dl_deletes_lines_at_cursor(void) {
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;3H\x1b[2M");  // delete 2 lines at row 2
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), 'J');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    ASSERT_EQ(cursor_row, 1);
+    ASSERT_EQ(cursor_col, 0);
+    PASS();
+}
+
+TEST csi_il_dl_count_past_bottom(void) {
+    // A count past the bottom margin blanks the rows from the cursor down
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[3H\x1b[9L");
+    ASSERT_EQ(cell_at(1, 0), 'D');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[4H\x1b[5M");
+    ASSERT_EQ(cell_at(2, 0), 'G');
+    ASSERT_EQ(cell_at(3, 0), ' ');
+    PASS();
+}
+
+TEST csi_il_dl_within_scroll_region(void) {
+    // IL and DL move the rows from the cursor down to the bottom margin;
+    // the rows below it stay
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[1;3r\x1b[2H\x1b[M");
+    ASSERT_EQ(cell_at(0, 0), 'A');
+    ASSERT_EQ(cell_at(1, 0), 'G');
+    ASSERT_EQ(cell_at(2, 0), ' ');
+    ASSERT_EQ(cell_at(3, 0), 'J');
+    feed_string("\x1b[H\x1b[L");
+    ASSERT_EQ(cell_at(0, 0), ' ');
+    ASSERT_EQ(cell_at(1, 0), 'A');
+    ASSERT_EQ(cell_at(2, 0), 'G');
+    ASSERT_EQ(cell_at(3, 0), 'J');
+    PASS();
+}
+
+TEST csi_il_dl_outside_scroll_region_ignored(void) {
+    // With the cursor outside the margins IL and DL do nothing, and the
+    // cursor stays where it is
+    console_init_test(4, 3);
+    fill_cells("ABCDEFGHIJKL");
+    feed_string("\x1b[2;3r\x1b[4;2H\x1b[L\x1b[H\x1b[M");
+    ASSERT_EQ(0, memcmp(screen_cells, "ABCDEFGHIJKL", 12));
+    feed_string("\x1b[4;2H\x1b[L");
+    ASSERT_EQ(cursor_row, 3);
+    ASSERT_EQ(cursor_col, 1);
     PASS();
 }
 
@@ -638,6 +757,177 @@ TEST serial_rx_tx_count(void) {
     PASS();
 }
 
+// serial_rx_next_arrival: the cycle at which the next RX byte can be in the
+// FIFO, or UINT64_MAX when no byte is pending; it consumes nothing.
+
+TEST next_arrival_now_when_fifo_has_a_byte(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    serial_rx_buf[0] = 'X';
+    serial_rx_head = 1;
+    ASSERT_EQ(500, serial_rx_next_arrival());
+    PASS();
+}
+
+TEST next_arrival_none_without_an_input_source(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    PASS();
+}
+
+TEST next_arrival_none_at_end_of_input_file(void) {
+    serial_reset();
+    clockticks6502 = 500;
+    serial_input_file = tmpfile();
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    PASS();
+}
+
+TEST next_arrival_one_byte_time_after_the_last(void) {
+    serial_reset();
+    serial_cycles_per_byte = 1000;
+    serial_input_file = tmpfile();
+    fputs("AB", serial_input_file);
+    rewind(serial_input_file);
+    clockticks6502 = 0;
+    serial_rx_fill();                       // 'A' arrives at once
+    ASSERT_EQ(1, serial_rx_count());
+    serial_rx_tail = serial_rx_head;        // the CPU takes 'A'
+    clockticks6502 = 10;
+    ASSERT_EQ(1000, serial_rx_next_arrival());
+    clockticks6502 = 1000;                  // the query consumed nothing
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('B', serial_rx_buf[serial_rx_tail]);
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    PASS();
+}
+
+TEST next_arrival_now_once_the_slot_has_passed(void) {
+    serial_reset();
+    serial_cycles_per_byte = 1000;
+    serial_input_file = tmpfile();
+    fputs("A", serial_input_file);
+    rewind(serial_input_file);
+    clockticks6502 = 5000;
+    ASSERT_EQ(5000, serial_rx_next_arrival());
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    PASS();
+}
+
+TEST next_arrival_interactive_waits_for_host_input(void) {
+    serial_reset();
+    terminal_interactive = 1;
+    clockticks6502 = 7;
+    fake_con_ready = 0;
+    ASSERT(serial_rx_next_arrival() == UINT64_MAX);
+    fake_con_ready = 1;
+    ASSERT_EQ(7, serial_rx_next_arrival());
+    fake_con_ready = 0;
+    terminal_interactive = 0;
+    PASS();
+}
+
+// Test pacing (--pace-mask in terminal mode): before the first byte, and
+// after each byte whose mask byte is not '0', input is held until the
+// program is idle - it asks for input with the RX FIFO empty, nothing
+// injected, and all its output sent. The next byte then arrives one
+// byte-time later.
+
+static const unsigned char pace_mask_10[] = "10";
+
+static void pace_setup(void) {
+    serial_reset();
+    serial_cycles_per_byte = 100;
+    serial_input_file = tmpfile();
+    fputs("AB", serial_input_file);
+    rewind(serial_input_file);
+    serial_pace_start(pace_mask_10, 2);
+    clockticks6502 = 0;
+}
+
+static void pace_teardown(void) {
+    fclose(serial_input_file);
+    serial_input_file = NULL;
+    serial_cycles_per_byte = 0;
+    serial_reset();
+}
+
+TEST pace_holds_the_first_byte_until_an_idle_poll(void) {
+    pace_setup();
+    ASSERT_EQ(0, serial_rx_next_arrival());  // released at the next poll
+    serial_rx_fill();                        // idle poll: releases the hold
+    ASSERT_EQ(0, serial_rx_count());
+    ASSERT_EQ(100, serial_rx_next_arrival());
+    clockticks6502 = 100;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('A', serial_rx_buf[serial_rx_tail]);
+    pace_teardown();
+    PASS();
+}
+
+TEST pace_holds_after_a_marked_byte_until_read(void) {
+    pace_setup();
+    serial_rx_fill();
+    clockticks6502 = 100;
+    serial_rx_fill();                        // 'A' (marked) arrives
+    clockticks6502 = 1000;
+    serial_rx_fill();                        // 'B' is held while 'A' is unread
+    ASSERT_EQ(1, serial_rx_count());
+    serial_rx_tail = serial_rx_head;         // the program reads 'A'
+    serial_rx_fill();                        // idle poll: releases the hold
+    ASSERT_EQ(0, serial_rx_count());
+    clockticks6502 = 1100;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    ASSERT_EQ('B', serial_rx_buf[serial_rx_tail]);
+    pace_teardown();
+    PASS();
+}
+
+TEST pace_holds_while_output_is_being_sent(void) {
+    pace_setup();
+    serial_tx_buf[0] = 'x';                  // two bytes of output queued
+    serial_tx_buf[1] = 'y';
+    serial_tx_head = 2;
+    serial_tx_drain();                       // 'x' goes at once, 'y' at 100
+    ASSERT_EQ(1, serial_tx_count());
+    ASSERT_EQ(100, serial_rx_next_arrival()); // idle once 'y' has gone
+    serial_rx_fill();                        // not idle: output pending
+    ASSERT_EQ(0, serial_rx_count());
+    clockticks6502 = 100;
+    serial_tx_drain();
+    serial_rx_fill();                        // idle now: released
+    ASSERT_EQ(200, serial_rx_next_arrival());
+    clockticks6502 = 200;
+    serial_rx_fill();
+    ASSERT_EQ(1, serial_rx_count());
+    pace_teardown();
+    PASS();
+}
+
+TEST pace_wait_times_out_once_per_hold(void) {
+    pace_setup();
+    ASSERT_EQ(1, serial_pace_wait_times_out());  // the key is not typed yet
+    ASSERT_EQ(0, serial_pace_wait_times_out());  // the next request may release
+    serial_rx_fill();                            // idle poll: released
+    ASSERT_EQ(0, serial_pace_wait_times_out());  // no hold
+    clockticks6502 = 100;
+    serial_rx_fill();                            // 'A' (marked) starts a hold
+    serial_rx_tail = serial_rx_head;
+    ASSERT_EQ(1, serial_pace_wait_times_out());
+    pace_teardown();
+    PASS();
+}
+
 SUITE(console_suite) {
     RUN_TEST(resize_allocates_correct_size);
     RUN_TEST(resize_rejects_invalid);
@@ -670,8 +960,16 @@ SUITE(console_suite) {
     RUN_TEST(csi_erase_line);
     RUN_TEST(csi_sgr_reverse);
     RUN_TEST(csi_scroll_region);
+    RUN_TEST(csi_scroll_region_defaults);
     RUN_TEST(csi_scroll_up);
     RUN_TEST(csi_scroll_down);
+    RUN_TEST(csi_scroll_region_homes_cursor);
+    RUN_TEST(csi_scroll_region_needs_two_rows);
+    RUN_TEST(csi_il_inserts_lines_at_cursor);
+    RUN_TEST(csi_dl_deletes_lines_at_cursor);
+    RUN_TEST(csi_il_dl_count_past_bottom);
+    RUN_TEST(csi_il_dl_within_scroll_region);
+    RUN_TEST(csi_il_dl_outside_scroll_region_ignored);
     RUN_TEST(csi_ich_inserts_blanks);
     RUN_TEST(csi_ich_default_and_clamped_count);
     RUN_TEST(csi_ich_shifts_attributes);
@@ -687,6 +985,16 @@ SUITE(console_suite) {
     RUN_TEST(serial_reset_clears_state);
     RUN_TEST(serial_inject_stores_bytes);
     RUN_TEST(serial_rx_tx_count);
+    RUN_TEST(next_arrival_now_when_fifo_has_a_byte);
+    RUN_TEST(next_arrival_none_without_an_input_source);
+    RUN_TEST(next_arrival_none_at_end_of_input_file);
+    RUN_TEST(next_arrival_one_byte_time_after_the_last);
+    RUN_TEST(next_arrival_now_once_the_slot_has_passed);
+    RUN_TEST(next_arrival_interactive_waits_for_host_input);
+    RUN_TEST(pace_holds_the_first_byte_until_an_idle_poll);
+    RUN_TEST(pace_holds_after_a_marked_byte_until_read);
+    RUN_TEST(pace_holds_while_output_is_being_sent);
+    RUN_TEST(pace_wait_times_out_once_per_hold);
 }
 
 GREATEST_MAIN_DEFS();

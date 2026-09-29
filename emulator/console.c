@@ -47,6 +47,13 @@ uint8_t serial_tx_buf[SERIAL_BUF_SIZE];
 int serial_tx_head = 0;
 int serial_tx_tail = 0;
 static uint64_t serial_tx_next_drain_at = 0;
+// Test pacing (serial_pace_start): mask byte per input byte, next index to
+// fill, and whether input is held until the program is idle
+static const unsigned char *serial_pace_mask = NULL;
+static long serial_pace_len = 0;
+static long serial_fill_index = 0;
+static int serial_pace_hold = 0;
+static int serial_pace_waited = 0;   // a wait has timed out during this hold
 char serial_inject_buf[32];
 int serial_inject_pos = 0;
 int serial_inject_len = 0;
@@ -351,6 +358,39 @@ void serial_reset() {
     serial_tx_next_drain_at = 0;
     serial_inject_pos = 0;
     serial_inject_len = 0;
+    serial_pace_mask = NULL;
+    serial_pace_len = 0;
+    serial_fill_index = 0;
+    serial_pace_hold = 0;
+    serial_pace_waited = 0;
+}
+
+// Test pacing (--pace-mask in terminal mode), one mask byte per input byte.
+// Before the first byte, and after each byte whose mask byte is not '0',
+// input is held until the program is idle: it asks for input with the RX
+// FIFO empty, nothing injected and all its output sent, like a user who
+// waits for the screen before typing. The next byte then arrives one
+// byte-time later.
+void serial_pace_start(const unsigned char *mask, long len) {
+    serial_pace_mask = mask;
+    serial_pace_len = len;
+    serial_fill_index = 0;
+    serial_pace_hold = 1;
+    serial_pace_waited = 0;
+}
+
+// During a hold the paced key is not typed yet, so the program's first
+// wait_ready times out (returns 1) rather than releasing it; the program's
+// next request for input may then release it, as a poll does.
+int serial_pace_wait_times_out(void) {
+    if (!serial_pace_hold || serial_pace_waited) return 0;
+    serial_pace_waited = 1;
+    return 1;
+}
+
+static int serial_program_idle(void) {
+    return serial_rx_count() == 0 && serial_tx_count() == 0
+        && serial_inject_pos >= serial_inject_len;
 }
 
 int serial_rx_count() {
@@ -365,6 +405,13 @@ int serial_tx_count() {
 // Characters arrive from the "wire" at baud rate intervals and queue in the
 // hardware FIFO. The CPU can then read them out as fast as it wants.
 void serial_rx_fill() {
+    if (serial_pace_hold) {
+        if (!serial_program_idle()) return;
+        serial_pace_hold = 0;   // idle: the next key starts on the wire now
+        serial_pace_waited = 0;
+        serial_rx_next_fill_at = clockticks6502 + serial_cycles_per_byte;
+        return;
+    }
     int filled = 0;
     while (clockticks6502 >= serial_rx_next_fill_at &&
            serial_rx_count() < SERIAL_BUF_SIZE - 1) {
@@ -385,6 +432,12 @@ void serial_rx_fill() {
         serial_rx_head = (serial_rx_head + 1) % SERIAL_BUF_SIZE;
         serial_rx_next_fill_at += serial_cycles_per_byte;
         filled = 1;
+        long i = serial_fill_index++;
+        if (serial_pace_mask && i < serial_pace_len && serial_pace_mask[i] != '0') {
+            serial_pace_hold = 1;
+            serial_pace_waited = 0;
+            break;
+        }
     }
     // Prevent credit accumulation: when no input was available and the CPU
     // has been running (e.g. idle-polling), advance the fill timestamp so
@@ -392,6 +445,35 @@ void serial_rx_fill() {
     if (!filled && serial_rx_next_fill_at < clockticks6502) {
         serial_rx_next_fill_at = clockticks6502;
     }
+}
+
+// The cycle at which the next RX byte can be in the FIFO: now if one is
+// already there; the next baud slot (or now, if that has passed) when the
+// input source has a byte ready; UINT64_MAX when no byte is on the way.
+// Consumes nothing.
+uint64_t serial_rx_next_arrival() {
+    if (serial_rx_count() > 0) return clockticks6502;
+    int pending = 0;
+    if (terminal_interactive) {
+        pending = con_byte_ready();
+    } else if (serial_input_file) {
+        int ch = fgetc(serial_input_file);
+        if (ch != EOF) {
+            ungetc(ch, serial_input_file);
+            pending = 1;
+        }
+    }
+    if (!pending) return UINT64_MAX;
+    if (serial_pace_hold) {
+        // Held until the program is idle, which is once its output has gone;
+        // the poll then releases the hold (the byte comes a byte-time later)
+        int tx = serial_tx_count();
+        uint64_t idle_at = tx == 0 ? clockticks6502
+            : serial_tx_next_drain_at + (uint64_t)(tx - 1) * serial_cycles_per_byte;
+        return idle_at > clockticks6502 ? idle_at : clockticks6502;
+    }
+    return serial_rx_next_fill_at > clockticks6502 ? serial_rx_next_fill_at
+                                                   : clockticks6502;
 }
 
 // Drain TX buffer to output at baud rate.
@@ -534,18 +616,18 @@ void console_handle_csi(unsigned char final) {
             break;
         }
         case 'r': { // DECSTBM - Set Top and Bottom Margins
-            if (count >= 2 && params[0] > 0 && params[1] > 0) {
-                scroll_top = params[0] - 1;
-                scroll_bot = params[1] - 1;
-                if (scroll_top < 0) scroll_top = 0;
-                if (scroll_bot >= screen_rows) scroll_bot = screen_rows - 1;
-                if (scroll_top > scroll_bot) {
-                    scroll_top = 0;
-                    scroll_bot = screen_rows - 1;
-                }
-            } else {
-                scroll_top = 0;
-                scroll_bot = screen_rows - 1;
+            // A missing or 0 top is row 1, a missing, 0 or too large bottom
+            // the last row.  As on a VT100 or xterm, a region needs two rows
+            // (a top above the bottom: else it is ignored), and setting one
+            // moves the cursor home
+            int top = (params[0] ? params[0] : 1) - 1;
+            int bot = (count > 1 && params[1] ? params[1] : screen_rows) - 1;
+            if (bot >= screen_rows) bot = screen_rows - 1;
+            if (top < bot) {
+                scroll_top = top;
+                scroll_bot = bot;
+                cursor_row = 0;
+                cursor_col = 0;
             }
             break;
         }
@@ -559,6 +641,22 @@ void console_handle_csi(unsigned char final) {
             int n = params[0] ? params[0] : 1;
             int ebot = (scroll_bot >= 0 && scroll_bot < screen_rows) ? scroll_bot : screen_rows - 1;
             console_scroll_region_down(scroll_top, ebot, n);
+            break;
+        }
+        case 'L':   // IL - Insert Lines
+        case 'M': { // DL - Delete Lines
+            // Insert (IL: the rows below move down) or delete (DL: they
+            // move up) n lines at the cursor row, down to the bottom
+            // margin, and move the cursor to column 1.  As on xterm, a
+            // cursor outside the margins does nothing
+            int n = params[0] ? params[0] : 1;
+            int ebot = (scroll_bot >= 0 && scroll_bot < screen_rows) ? scroll_bot : screen_rows - 1;
+            if (cursor_row < scroll_top || cursor_row > ebot) break;
+            if (final == 'L')
+                console_scroll_region_down(cursor_row, ebot, n);
+            else
+                console_scroll_region_up(cursor_row, ebot, n);
+            cursor_col = 0;
             break;
         }
         case '@': { // ICH - Insert Characters

@@ -1,25 +1,130 @@
  Commands that differ from vi
 
-  'a (mark jump) - Goes to column 0, not the first non-blank character as vi does. The HELP currently says "cursor goes
-  to column 0" which is accurate to the implementation, but users familiar with vi might expect first-non-blank behavior.
+  Ctrl-F/Ctrl-B over long lines - Keep two lines of the page on screen (one on a screen of 4 text rows, none on
+  fewer) however many rows they take. Vim keeps fewer when the lines kept and the longer of the lines next to them
+  take more than TEXT_ROWS - 2 rows. Lines that fit a row page as in vim. See vim-gaps.md.
 
-  / search - A match later on the same line (after the cursor) is not found immediately. The forward search starts from
-  the next line and only finds same-line matches after wrapping all the way around. In vi, /foo finds the next foo even
-  if it's later on the current line.
+  j and k over Tabs - The column j and k keep is a byte column, as the editor shows each byte in one cell (a Tab
+  as '>'). Vim's is a screen column: a Tab reaches the next multiple of 8 (and the cursor on one counts its last cell
+  in normal mode), a control character takes 2 cells (^X) and a byte that is not UTF-8 4 (<80>): ' de' and ' abc'
+  with 0r<Tab>j end on column 3 of ' abc' in vim, on column 0 here. See vim-gaps.md.
 
-  Ctrl-F/Ctrl-B - Moves by SCREEN_ROWS-1 (no overlap). Vi moves by SCREEN_ROWS-2, keeping 2 lines of context overlap.
-  Also doesn't accept a count (vi does).
+  Counts on i, a, A, o and O - A Backspace over text from before the typing, or a Delete, drops the count: the text
+  goes in once. Vim types those keys again with the rest, each deleting as far as it can: 3A<BS>xy<Esc> on 'abc'
+  gives 'abxxxy' in vim, 'abxy' here, and 3ix<Del><Esc> 'xxx' in vim, 'xbc' here. Copies that do not fit the text
+  buffer or the 1023 lines are refused with "Buffer full", as a paste is, and the text typed stays once; vim puts them
+  all in. See vim-gaps.md.
 
-  r with count at end of line - If you do 5ra but only 3 characters remain, the editor replaces those 3. Vi would do
-  nothing if there aren't enough characters.
+  u of 2cc or more (and 2S) - Returns to the column the change was typed at, on the first line put back. Vim puts
+  the cursor on the second line, at that column if the line is long enough.
 
-  Missing count support
+  Empty changes - dw on an empty last line changes nothing and is no undo step, so u undoes the change before it:
+  'abc' and '' with xjdwu give 'abc' here and 'bc' in vim, whose dw there is an empty change (de there is none in
+  either). C on an empty line keeps the register ('ab', '' and 'cd' with yyjC<Esc>P put 'ab' above the empty line);
+  vim's C yanks the empty text there, and P then puts nothing.
 
-  gg - Always goes to line 1. In vi, 5gg goes to line 5 (like 5G). The count is completely ignored.
+  J with a count on the last line - Does nothing. Vim joins the lines left when the count runs past the last line,
+  and on the last line that is a join of one line: an undo step that puts the cursor on column 0 ('abc' with ll3J;
+  xl3Ju undoes the 3J there, the x here). J and 2J there change nothing in both.
 
-  $ - Always goes to end of current line. In vi, 3$ goes to the end of the line 2 below.
+  :N,M> and :N,M< - End on the first non-blank of line M. Vim ends where it last set an indent: on M's first
+  non-blank when M's indent changed, on column 0 when M is empty, but on the column of the last line that did change
+  when M's did not ('a', '    ', '    hello' and 'bb cc' with :3,4< end on column 2 of 'bb cc' in vim, with the
+  editor's shift of 2 as its shiftwidth, and on column 0 here).
 
-  Ctrl-F/Ctrl-B - No count support (vi allows 3Ctrl-F).
+  u after insert mode - Typing after a change command (c, s, C, S, cc), and a Backspace or Delete that deletes text
+  from before where the typing began (the line break o opened included) or after the cursor clear the undo, so u
+  does nothing and the edit before the insert can no longer be undone either. Vim undoes those with the rest of the
+  typing (the stretch since the last cursor move, as here), and the change command that began it, as one change. A
+  stretch of 256 characters or more is undone but not redone (u again does nothing). The redo of o (u u) puts the
+  cursor on the line o opened; vim puts it on the line o was typed on. See vim-gaps.md.
+
+  Counts over 255 - w, b, e, x, X, ~, J, Ctrl-F, Ctrl-B and the word operators (dw, cw, yw, ...) take a count of 256
+  or more as 255, so 300w moves 255 words and 300x deletes 255 characters. Vi takes the whole count (j, k, h, l, Space
+  and Backspace do here too).
+
+  J - Replaces each line break with one space and keeps the joined line's leading blanks: "abc" and "  def" join as
+  "abc   def". Vim removes the leading blanks and puts one space in their place, none when the joined line is empty or
+  starts with ')' or the line ends in a blank, and two after a '.', '!' or '?' (vim's default 'joinspaces'): "abc def".
+  See vim-gaps.md.
+
+  J with a count over 129 - Is refused with "Too many lines to join", as the joins are kept for undo in one 256-byte
+  page. Vi joins them all.
+
+  r with a count over 255 - Replaces 255 characters (r<Enter> too: 300r<Enter> takes 255 characters into the line
+  break), as the replaced characters are kept for undo in one 256-byte page. Vi replaces them all.
+
+  r with a control key - r takes a control key as the replacement, as vim does, but Ctrl-H arrives as Backspace and
+  cancels r (vim replaces with it; Backspace cancels there too). After Ctrl-V, Enter and Ctrl-J still make a line
+  break (vim puts a CR or a NUL character), and vim's character codes (Ctrl-V 065, Ctrl-V x41) are not read: the key
+  after Ctrl-V is the replacement.
+
+  The view
+
+  Long jumps - A jump that lands above the view or below it (G, gg, :N, a count on j or k, n, N, 'a, u) puts the
+  cursor line on the top or bottom row, whole lines around it. Vim puts it in the middle of the screen when it lands
+  far: at least max(2, TEXT_ROWS / 2 - 1) lines above the top line, or below the view when the lines from the first
+  one not shown in full to it, and as many after it, take more than the screen (scroll_cursor_halfway). See vim-gaps.md.
+
+  A line that does not fit at the bottom - The rows of it that fit are shown. Vim shows a row of '@' in their place
+  (its default 'display'). See vim-gaps.md.
+
+  A line taller than the screen - With the cursor on it, it keeps its place while its rows to the cursor fit below
+  the top line, and is shown from the row that keeps the cursor on screen otherwise. Vim makes it the top line as soon
+  as the cursor is on it.
+
+  Command line
+
+  : and / input - Limited to what fits the status row after the prompt: the screen width less 2 characters, and at
+  most 127 characters for a : command or a search pattern; further keys are ignored. Vim wraps a longer command
+  line onto more rows and takes any length.
+
+  :w with no file name, and :w {file} - Started without a file name, the buffer is called [No Name] and :w writes a
+  file of that name. :w {file}, :wq {file}, :w! and :wq! say "Unknown command". Vim says "E32: No file name", takes
+  the name from :w {file}, writes a copy with :w {file} in a named buffer, and overwrites another file that exists
+  only with ! ("E13"). See vim-gaps.md.
+
+  Long messages - Are cut off one column short of the screen width. Vim wraps them onto more rows and waits for Enter.
+
+  The status bar - A file name too long for the screen is cut off at the right, and the line and column after it
+  with it: at 10x20, 'a_rather_long_file_name_here.txt' shows as 'a_rather_long_file_' alone. Vim shortens the name
+  from the left ('<') and keeps the position on screen.
+
+  Reports - Commands that delete, yank or shift more than 2 lines (dd, yy, >>, <<, :d, :y, :>, :<, and dw or de made
+  linewise) report it as vim does with its default 'report', but a shift says "3 lines shifted" where vim says "3
+  lines >ed 1 time" (or "<ed"). Vim also reports "3 more lines" after p and P, "3 fewer lines" and "3 lines yanked"
+  after a charwise delete or yank over lines (5dw, 5yw), "--No lines in buffer--" when the last line goes, and after
+  u and Ctrl-R always ("1 line less; before #2  0 seconds ago"); the editor says nothing there. A : command that
+  reports nothing leaves the status bar on the status row, where vim leaves the command line typed.
+
+  Search messages - A search that goes on past the end of the file, or past its start, says nothing; vim says "search
+  hit BOTTOM, continuing at TOP" (or "search hit TOP, continuing at BOTTOM"). A pattern that is not found says
+  "Pattern not found: {pattern}", where vim's message starts "E486: ". See vim-gaps.md.
+
+  Blanks in a command line - Blanks before a command letter or in a range (: 5, :1,5 d, :1, 5d) make an unknown
+  command. Vim skips them there (blanks after the letter are taken as vim takes them, below).
+
+  Characters after a range command letter - d and y take one register name after it, with blanks or not, which
+  changes nothing (there is one register: :1,5d_ still yanks the lines, and any character but a digit is taken, where
+  vim refuses those that name no register, such as '.'), and anything more is "Unknown command". Vim takes letters
+  right after the command letter as part of its name (:1,5da and :2,5yx are "E492: Not an editor command", while
+  :1,5delete and :2,5yank work), a digit there as a count (:1,5d3 deletes lines 5-7), > and < repeated as more shifts
+  (:1,5>>), and says "E488: Trailing characters" for what follows a register name.
+
+  Marks
+
+  u of J, of a char delete over line breaks or of typed line breaks - A mark set after the change on the line it made
+  (for typing, the line it began on; the marks of the lines typed go, as in vim) stays there; vim's u deletes it (u
+  deletes the marks of the lines it replaces, then puts back those that were set when the change began, as u does
+  here). After cc and S it is the other way round: vim keeps such a mark, the editor's u unsets it. The redo
+  (u u) does not put back the marks its undo deleted (set after o, p or typed line breaks on the lines they added);
+  vim's Ctrl-R does.
+
+  :marks - Lists marks a-z with their line and text; vim also shows the column and its special marks. A long list
+  shows a screen at a time with "-- More --", as in vim, but there q ends the list and any other key shows the next
+  page (vim also takes Enter or j for one more line, b for the previous page and ESC to stop). Each page starts on a
+  cleared screen, where vim scrolls. After the list any key returns; vim asks "Press ENTER or type command to
+  continue" and runs a command key typed there.
 
   Not wrong, but worth noting
 

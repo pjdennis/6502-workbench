@@ -3,7 +3,8 @@
 Uploads go through serial_daemon.py, which holds the port open so that opening it doesn't reset
 the board; the daemon is started on first use. See tools/README.md.
 
-Usage: transfer.py --baudrate=N [--stopbits=1|2] [--port=DEVICE] [--noreset] [--wait] [--direct] FILE
+Usage: transfer.py --baudrate=N [--stopbits=1|2] [--port=DEVICE] [--noreset] [--wait] [--direct]
+                   [--format=3 [--load-address=HEX] [--start=HEX]] FILE
        transfer.py --daemon status|stop
 """
 import argparse
@@ -13,7 +14,7 @@ import sys
 import time
 
 import serial_daemon
-from upload_frame import build_frame
+from upload_frame import LOAD_ADDRESS, build_frame, encode
 
 AUTOSTART_TIMEOUT = 5  # seconds allowed for a newly started daemon to accept connections
 
@@ -34,6 +35,15 @@ def parse_args(argv):
                       help='open the port here instead of using the daemon (on Linux, opening the port '
                            'resets the board); always waits, since closing the port straight after '
                            'writing can lose data')
+  parser.add_argument('--format', type=int, choices=[1, 3], default=1,
+                      help='upload format: 1 (length, payload, checksum) or 3 (Michael: a table of '
+                           'entries, then their data; see upload_frame.py)')
+  parser.add_argument('--load-address', type=lambda text: int(text, 16), default=LOAD_ADDRESS,
+                      help='format 3: where a binary FILE loads, in hex (default %04x); an '
+                           'S-record FILE (.s19, .srec) gives its own addresses' % LOAD_ADDRESS)
+  parser.add_argument('--start', type=lambda text: int(text, 16),
+                      help='format 3: where to run the upload, in hex (default: the FILE\'s '
+                           'start address if it gives one, else its lowest address; ffff: don\'t run it)')
   parser.add_argument('--daemon', choices=['status', 'stop'], help='report on or stop the serial daemon')
   args = parser.parse_args(argv)
   if args.daemon is None and (args.file is None or args.baudrate is None):
@@ -88,6 +98,14 @@ def send_direct(args, frame):
     serial_daemon.transmit(ser, frame, not args.noreset, args.baudrate, args.stopbits, wait=True)
 
 
+def read_upload(args):
+  """The bytes to send for args.file, in the upload format asked for."""
+  if args.format == 3:
+    return encode(args.file, args.load_address, args.start)
+  with open(args.file, 'rb') as f:
+    return build_frame(f.read())
+
+
 def main(argv, socket_path=None, start_daemon=None):
   args = parse_args(argv)
   socket_path = socket_path or serial_daemon.default_socket_path()
@@ -95,8 +113,7 @@ def main(argv, socket_path=None, start_daemon=None):
     if args.daemon:
       daemon_command(args.daemon, socket_path)
       return 0
-    with open(args.file, 'rb') as f:
-      frame = build_frame(f.read())
+    frame = read_upload(args)
     if args.direct:
       send_direct(args, frame)
       return 0

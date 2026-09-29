@@ -8,98 +8,120 @@
 ; Mode constants
 MODE_NORMAL  = $00
 MODE_INSERT  = $01
-MODE_COMMAND = $02
 
-  .zeropage
+; RENDER_FLAG values: the handler's render request, reset to RF_AUTO
+; before each key (contract table in render_decide.asm).  render_decide
+; range-compares them, so the order matters: RF_INS..RF_ENTER are line
+; inserts, and RF_INS and RF_SPLIT differ in bit 0 only.
+RF_AUTO  = $00   ; Infer the repaint from the snapshot
+RF_LINE  = $01   ; Cursor line changed in place (from RENDER_FROM_COL16)
+RF_INS   = $02   ; Lines inserted at the cursor line (o O p P, undo dd)
+RF_SPLIT = $03   ; Cursor line split (undo J, char paste, undo cc)
+RF_ENTER = $04   ; Enter (insert, r<Enter>, typed-ahead p) split the line
+RF_JOIN  = $05   ; Lines joined into the cursor line (J, BS/Del join, x/D)
+RF_DEL   = $06   ; Lines deleted (dd, :d, undo p P o O), line not redrawn
+RF_RANGE = $07   ; Lines changed in place from the cursor line (>> <<)
+RF_FULL  = $FF   ; Full redraw
 
-CURSOR_ROW:     .byte   ; Cursor screen row (0-based, derived from wrap computation)
-CURSOR_COL16:   .word   ; Cursor column (0-based, 16-bit for lines >255 chars)
-VIEW_TOP16:     .word   ; First visible line number (0-based)
-SCREEN_ROWS:    .byte   ; Terminal height
-SCREEN_COLS:    .byte   ; Terminal width
-FILE_LINE16:    .word   ; Current file line (0-based)
-MODE:           .byte   ; Current mode: MODE_NORMAL, MODE_INSERT, MODE_COMMAND
-MODIFIED:       .byte   ; File modified flag ($00 = no, $FF = yes)
-READONLY:       .byte   ; Read-only mode ($00 = no, $FF = yes)
-RENDER_ROW:     .byte   ; Current row being rendered
-RENDER_LINE16:  .word   ; Current file line being rendered
-RENDER_COL:     .byte   ; Column counter during rendering
-FNAME_PTR16:    .word   ; Pointer to filename string (null-terminated)
-RENDER_FLAG:    .byte   ; $FF=full, $01=current line, $02/$06=line delete, $03/$04/$05=line insert, $0B=range repaint. $00=auto
-VIEW_TOP_WRAP:  .byte   ; Wrap row offset for first visible line (0 = start of line)
-WRAP_QUOT:      .byte   ; Scratch: quotient from CURSOR_COL / SCREEN_COLS
-WRAP_REM:       .byte   ; Scratch: remainder from CURSOR_COL % SCREEN_COLS
-RENDER_WRAP:    .byte   ; Current wrap row offset during rendering
-DIV_INPUT16:    .word   ; Scratch for 16-bit division
-PREV_LINE_ROWS: .byte   ; Screen rows the current line occupied before the edit
-PREV_LINE_FULL: .byte   ; Non-zero if old line's last row was full (len % cols == 0)
-SNAP_VIEW_TOP16: .word  ; Snapshot of VIEW_TOP16 before handler
-SNAP_VIEW_TOP_WRAP: .byte ; Snapshot of VIEW_TOP_WRAP before handler
-SNAP_LINE_COUNT16: .word ; Snapshot of LINE_COUNT16 before handler
-SNAP_BUF_END16: .word   ; Snapshot of BUF_END16 before handler
-SCROLL_DELTA:   .byte   ; Screen rows to scroll (unsigned)
-RENDER_LIMIT:   .byte   ; Max rows to render (0=unlimited)
-DELETE_SCREEN_ROWS: .byte ; Pre-computed screen rows for line-delete scroll (0=use file delta)
-RENDER_FROM_COL16: .word  ; First affected line column for partial render ($FFFF = full line)
-INSERT_LINE_COUNT:  .byte ; Override line count for line-insert scroll (0=use file delta)
-CUR_LINE_ROWS:  .byte   ; Screen rows the cursor line occupies after the edit
-SHIFT_NET:      .byte   ; ICH/DCH hint: cells inserted (+) / deleted (-) at RENDER_FROM_COL16
-SHIFT_WRITE:    .byte   ; ICH/DCH hint: new cells written from RENDER_FROM_COL16; $FF = no hint
-RENDER_STOP:    .byte   ; render_line_chars_to: stop column (exclusive)
-ROW_END:        .byte   ; shift: end of the line's content on the row (exclusive)
-ROW_WEND:       .byte   ; shift: end of the cells to write on the row (exclusive)
-SHIFT_DCH_COST: .byte   ; shift: byte cost of the DCH route for the row
-SHIFT_REM16:    .word   ; shift: line length from the current row's start
-SHIFT_IEND16:   .word   ; shift: end of the new cells from the current row's start (signed)
+; STATUS_SHADOW: the status bar's text (status_build; the memory map in
+; editor.asm)
 
-  .code
+; (zero-page variables: zp.asm)
 
-; Initialize rendering state
+; Initialize rendering state: get the screen size
+; (cursor, view and mode state start at 0 from editor_main's zero-page
+; clear)
 render_init:
   .ifdef terminal_mode
-  JSR query_terminal_size
+  JMP query_terminal_size    ; (also sets TEXT_ROWS)
   .else
   JSR term_rows
   STA SCREEN_ROWS
+  TAX
+  DEX
+  STX TEXT_ROWS              ; SCREEN_ROWS - 1: text rows above the status bar
   JSR term_cols
   STA SCREEN_COLS
-  .endif
-  LDA #0
-  STA CURSOR_ROW
-  STA_LH16 CURSOR_COL16
-  STA MODE
-  STA MODIFIED
-  STA VIEW_TOP_WRAP
-  STA_LH16 VIEW_TOP16
-  STA_LH16 FILE_LINE16
   RTS
+  .endif
 
 ; Full screen redraw
 ; Renders all visible lines plus status bar, positions cursor
 ; Handles line wrapping: one file line can span multiple screen rows
 render_screen:
   JSR ansi_cursor_hide
-
+; The same with the cursor already hidden
+render_from_top:
   LDA #0
   STA RENDER_ROW
-  CP16 VIEW_TOP16, RENDER_LINE16
-  LDA VIEW_TOP_WRAP
-  STA RENDER_WRAP
-  JMP render_from_row
+  JSR find_line_at_render_row  ; row 0: VIEW_TOP16 / VIEW_TOP_WRAP
+  LDA #$FF
+  STA SCROLL_DELTA             ; 255 rows: to the status bar
+  JMP render_limited_rows
 
-; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16)
-; Clobbers A
+; Point RENDER_LINE16 at the cursor line (RENDER_LINE16 = FILE_LINE16),
+; or in a range repaint (RF_RANGE) at the range's first line, which the
+; shift recorded (UNDO_LINE16: :N,M> and :N,M< leave the cursor on the
+; last).  Clobbers A, X; preserves the carry (setup_first_row)
 set_render_line_to_cursor:
-  CP16 FILE_LINE16, RENDER_LINE16
+  LDX #FILE_LINE16
+  LDA RENDER_FLAG
+  EOR #RF_RANGE
+  BNE render_line_from_x
+  LDX #UNDO_LINE16
+; RENDER_LINE16 = the 16-bit zero-page value at X.  Clobbers A; preserves
+; the carry
+render_line_from_x:
+  LDA $00,X
+  STA RENDER_LINE16
+  LDA $01,X
+  STA RENDER_LINE16 + 1
   RTS
 
-; Set RENDER_ROW to the cursor line's first screen row, then point
-; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Clobbers A
-setup_first_row:
+; CUR_LINE_ROWS = the cursor line's screen rows, then set_first_row.
+; Clobbers A, X, Y, BUF_PTR16, DIV_INPUT16
+cursor_line_first_row:
+  JSR file_line_rows
+  STA CUR_LINE_ROWS
+  ; fall through
+; RENDER_ROW = the cursor line's first screen row (CURSOR_ROW - WRAP_QUOT)
+; Returns C=0 if the line starts above the view.  Clobbers A
+set_first_row:
   LDA CURSOR_ROW
   SEC
   SBC WRAP_QUOT
   STA RENDER_ROW
+  RTS
+
+; A = the 1-based screen row below the cursor line's first A rows:
+; first_row + A + 1, worked out from the cursor row, as first_row is
+; negative when the line starts above the view.  $FF when that is past
+; row 254 (nothing below them is on screen: a scroll from there does
+; nothing), 1 (the top row) when it is above the view.  Clobbers A
+row_below_rows:
+  SEC
+  SBC WRAP_QUOT                ; the rows from the cursor's
+  BCC .above                   ; (they end above the cursor's row)
+  SEC
+  ADC CURSOR_ROW
+  BCC .done
+  LDA #$FF                     ; past row 255
+.done:
+  RTS
+.above:
+  SEC
+  ADC CURSOR_ROW               ; C=0: above row 0 (1-based)
+  BEQ .top
+  BCS .done
+.top:
+  LDA #1
+  RTS
+
+; Set RENDER_ROW to the cursor line's first screen row, then point
+; RENDER_LINE16 at the cursor line with RENDER_WRAP = 0.  Returns C=0 if
+; the line starts above the view.  Clobbers A
+setup_first_row:
+  JSR set_first_row
   ; fall through
 ; Point RENDER_LINE16 at the cursor line with RENDER_WRAP = 0
 setup_render_at_cursor:
@@ -109,101 +131,66 @@ setup_render_at_cursor:
   RTS
 
 ; Set up RENDER_ROW/RENDER_LINE16/RENDER_WRAP from cursor first_row,
-; then fall through to render_from_row.
+; then render to the bottom (or SCROLL_DELTA rows: _limited) from there;
+; a line starting above the view is drawn from the top row to the bottom.
 ; Expects ansi_cursor_hide already called.
+render_from_first_row:
+  LDA #$FF
+  STA SCROLL_DELTA             ; 255 rows: to the status bar
 render_from_first_row_limited:
   JSR setup_first_row
+  BCC render_from_top          ; the line starts above the view
   JMP render_limited_rows
 
-render_from_first_row:
-  JSR setup_first_row
+; The status bar (last row): status_build builds its text, then
+; status_send sends the part that differs from what the row shows
+; (render_finish)
 
-; Render rows from RENDER_ROW/RENDER_LINE16/RENDER_WRAP to end of screen
-; Expects ansi_cursor_hide already called
-; Renders remaining text rows, status bar, positions cursor, shows cursor
-render_from_row:
-.row_loop:
-  ; Position cursor at start of this row
-  LDA RENDER_ROW
-  CLC
-  ADC #1           ; ANSI rows are 1-based
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
-.row_no_cursor:
-
-  ; Check if this is the status line row (last row)
-  LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
-  BCS .row_done    ; At or past last row = done with text
-
-  ; Check if line exists
-  CMP16 RENDER_LINE16, LINE_COUNT16
-  BCS .past_eof
-
-  ; Get line pointer
-  LDAX16 RENDER_LINE16
-  JSR buf_get_line_ptr
-
-  ; Advance BUF_PTR16 by RENDER_WRAP * SCREEN_COLS
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-
-  JSR render_line_chars
-
-  ; Check if the line has more wrap rows
-  ; After render_line_chars, if it printed exactly SCREEN_COLS chars
-  ; (RENDER_COL == SCREEN_COLS), check if there are more chars to wrap
-  ; Note: must check before ansi_clear_line which clobbers Y
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BNE .line_done
-  ; Check if next char is newline (line boundary at exact multiple)
-  LDA (BUF_PTR16),Y
-  CMP #'\n'
-  BEQ .line_ended
-  ; More wrap rows remain (row is full, no clear needed)
-  INC RENDER_WRAP
-  INC RENDER_ROW
-  JMP .row_no_cursor
-
-.line_done:
-  ; Row not full (RENDER_COL < SCREEN_COLS) - clear remainder
-  JSR ansi_clear_line
-
-.line_ended:
-  ; Line ended (newline or fewer than SCREEN_COLS chars)
-  ; Advance to next file line
-  INC RENDER_ROW
-  INC16 RENDER_LINE16
-  LDA #0
-  STA RENDER_WRAP
-  JMP .row_loop
-
-.past_eof:
-  ; Draw tilde for lines past end of file
-  LDA #'~'
-  JSR io_write
-  JSR ansi_clear_line
-
-  INC RENDER_ROW
-  JMP .row_loop
-
-.row_done:
-  ; Status line, cursor, show, flush
-  JMP render_finish
-
-; Render just the status line (last row)
-render_status_line:
-  LDA SCREEN_ROWS
-  STA ANSI_ROW
-  LDA #1
-  STA ANSI_COL
-  JSR ansi_move_cursor
+; Send the status text built by status_build from its first changed
+; column (nothing if it is unchanged), in reverse video, clearing the
+; row's tail when the old text was longer or unknown (ST_LEN = 0).
+; ST_LEN = the new length.  Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
+status_send:
+  LDX ST_FIRST
+  BMI status_ret               ; unchanged
+  LDA TEXT_ROWS                ; the status row (0-based), column X
+  JSR ansi_goto0
   JSR ansi_reverse_video
+  LDX ST_FIRST
+.loop:
+  CPX ST_COL
+  BCS .sent
+  LDA STATUS_SHADOW,X
+  JSR io_write                 ; (preserves X)
+  INX
+  BNE .loop                    ; Always taken (ST_COL < 128)
+.sent:
+  LDA ST_LEN
+  BNE .normal
+  JSR ansi_clear_line
+.normal:
+  JSR ansi_normal_video
+  LDA ST_COL
+  STA ST_LEN
+status_ret:
+  RTS
+
+; Build the status bar's text into STATUS_SHADOW (see text_putc).  Sends
+; nothing.  On return ST_COL = its length and ST_FIRST = the first column
+; to send ($FF = none); ST_LEN = 0 if the row's tail must be cleared.
+; A message held on the status row (STATUS_HOLD) is kept for one frame:
+; the status bar is then left alone (ST_FIRST = $FF, and ST_LEN stays 0).
+; Clobbers A, X, Y, STR_PTR16, DEC_VALUE16
+status_build:
+  LDA #$FF
+  STA ST_FIRST                 ; no change found yet
+  LSR STATUS_HOLD
+  BCS status_ret               ; a message stays for this frame
+  STA ST_BUILD                 ; text_putc stores the text
+  LDA SCREEN_COLS
+  STA TEXT_LEFT                ; SCREEN_COLS - 1 characters fit
+  LDA #0
+  STA ST_COL
 
   ; Print filename
   JSR write_fname
@@ -211,13 +198,13 @@ render_status_line:
   ; Print read-only indicator
   LDA READONLY
   BEQ .not_readonly
-  PRINT_STR str_ro_indicator
+  PRINT_TEXT str_ro_indicator
 .not_readonly:
 
   ; Print modified flag
   LDA MODIFIED
   BEQ .not_modified
-  PRINT_STR str_mod_indicator
+  PRINT_TEXT str_mod_indicator
 .not_modified:
 
   ; Print separator
@@ -226,12 +213,10 @@ render_status_line:
   ; Print mode
   LDA MODE
   ASL
-  TAX
-  LDA mode_strings,X
-  STA STR_PTR16
-  LDA mode_strings + 1,X
-  STA STR_PTR16 + 1
-  JSR write_string
+  TAY
+  LDX mode_strings + 1,Y
+  LDA mode_strings,Y
+  JSR print_string_ax
 
   ; Print separator and count (if active) or line/col
   JSR print_separator
@@ -241,140 +226,207 @@ render_status_line:
   ORA COUNT16 + 1
   BNE .has_count
   LDA LAST_KEY
-  BNE .has_pending_no_count
-  JMP .no_prefix_display
+  BEQ .no_prefix_display
+  BNE .has_key                  ; Always taken (A = LAST_KEY)
 .has_count:
-  CP16 COUNT16, TO_DECIMAL_VALUE16
+  CP16 COUNT16, DEC_VALUE16
   JSR print_decimal
-.has_pending_no_count:
   LDA LAST_KEY
   BEQ .done_prefix
-  JSR io_write
+.has_key:
+  JSR text_putc
 .done_prefix:
   JSR print_separator
 .no_prefix_display:
 
   ; Line number (1-based)
   CLC
-  ADCI16 FILE_LINE16, $0001, TO_DECIMAL_VALUE16
+  ADCI16 FILE_LINE16, $0001, DEC_VALUE16
   JSR print_decimal
 
   LDA #','
-  JSR io_write
+  JSR text_putc
 
   ; Column (1-based, 16-bit)
   CLC
-  ADCI16 CURSOR_COL16, $0001, TO_DECIMAL_VALUE16
+  ADCI16 CURSOR_COL16, $0001, DEC_VALUE16
   JSR print_decimal
 
   ; Print total lines
   LDA #' '
-  JSR io_write
+  JSR text_putc
   LDA #'/'
-  JSR io_write
+  JSR text_putc
 
-  CP16 LINE_COUNT16, TO_DECIMAL_VALUE16
+  CP16 LINE_COUNT16, DEC_VALUE16
   JSR print_decimal
+  INC ST_BUILD                 ; text_putc sends again
 
-  ; Clear rest of status line and restore normal video
-  JSR ansi_clear_line
-  JMP ansi_normal_video
+  ; Old text longer: the row is cleared from the new text's end (or from
+  ; its first change).  (Old text unknown, ST_LEN = 0: every column
+  ; differs, and status_send clears the row.)
+  LDX ST_COL
+  CPX ST_LEN
+  BCS .built
+  LDA #0
+  STA ST_LEN
+  BIT ST_FIRST
+  BPL .built
+  STX ST_FIRST
+.built:
+  RTS
 
-; Position cursor at the editing position (wrap-aware)
-render_position_cursor:
-  LDA CURSOR_ROW
-  CLC
-  ADC #1           ; ANSI 1-based
-  STA ANSI_ROW
-  ; Screen column = CURSOR_COL16 % SCREEN_COLS + 1
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
-  ; A = remainder (screen col 0-based)
-  CLC
-  ADC #1           ; ANSI 1-based
-  STA ANSI_COL
-  JMP ansi_move_cursor
+; Text character A on the status row: dropped once the row is full,
+; else added to the status bar's text while status_build runs, or sent.
+; Text on the row stops one column short of its right edge (TEXT_LEFT,
+; armed by status_line_clear and status_build): a character in the
+; bottom-right cell followed by one more would scroll the whole screen.
+; Preserves A, Y (and X when not building)
+text_putc:
+  DEC TEXT_LEFT
+  BEQ .full
+  BIT ST_BUILD
+  BMI .build
+  JMP io_write
+.full:
+  INC TEXT_LEFT
+  RTS
+  ; Add A to the status bar's text: store it at column ST_COL of
+  ; STATUS_SHADOW, noting in ST_FIRST the first column that differs from
+  ; the row on screen (the old text, ST_LEN long).  (The text is at most
+  ; 81 characters, so it always fits STATUS_SHADOW.)  Clobbers X
+.build:
+  LDX ST_COL
+  INC ST_COL
+  BIT ST_FIRST
+  BPL .store                   ; a difference was already found
+  CPX ST_LEN
+  BCS .differs                 ; past the old text
+  CMP STATUS_SHADOW,X
+  BEQ .store
+.differs:
+  STX ST_FIRST
+.store:
+  STA STATUS_SHADOW,X
+  RTS
 
-; Print TO_DECIMAL_VALUE16 in decimal (convert + write)
-; Clobbers A, Y
-print_decimal:
-  JSR to_decimal
-  ; fall through
-; Write an already-converted TO_DECIMAL_RESULT
-print_decimal_result:
-  SET16 TO_DECIMAL_RESULT, STR_PTR16
-  JMP write_string
+; Status-bar strings (status_build)
+str_ro_indicator:  .asciiz " [RO]"
+str_mod_indicator: .asciiz " [+]"
+str_separator:     .asciiz " - "
+str_normal:        .asciiz "NORMAL"
+str_insert:        .asciiz "INSERT"
+mode_strings:      .word str_normal, str_insert
 
 ; Print the status-line separator " - "
-; Clobbers A, Y
+; Clobbers A, X, Y
 print_separator:
-  SET16 str_separator, STR_PTR16
-  JMP write_string
+  LDA #<str_separator
+  LDX #>str_separator
+  JMP print_string_ax
 
 ; Redraw current line's wrap rows plus status bar (for single-line edits)
 ; If the line's row count changed, the rows below it are scrolled first to
 ; open or close the difference, so only the line itself (and any rows
 ; exposed at the bottom) are drawn.
 render_current_line_and_status:
-  ; Compute cursor's wrap row from CURSOR_COL16
-  CP16 CURSOR_COL16, DIV_INPUT16
-  JSR div_mod_screen_cols_16
-  STX WRAP_QUOT
-  JSR get_current_line_len
-  JSR line_screen_rows
+  JSR file_line_rows
   STA CUR_LINE_ROWS
-  ; First screen row of the line; above the viewport -> full repaint
-  LDA CURSOR_ROW
-  SEC
-  SBC WRAP_QUOT
-  BPL .row_visible
+; The same for a block of lines from the cursor line's, which now take
+; CUR_LINE_ROWS rows (render_decide's line inserts)
+render_block_and_status:
+  ; WRAP_QUOT = cursor's wrap row (set by ensure_cursor_visible)
+  ; First screen row of the line (C=0: above the view)
+  JSR set_first_row
+  BCS render_rows_resized
+  ; A line that starts above the view is drawn from its change if that
+  ; is on screen: the rows above it keep their place (the rows below
+  ; are worked out from the cursor row, as first_row is negative).
+  ; Else a full repaint
+  LDA WRAP_QUOT
+  STA RENDER_WRAP              ; its first row, from the cursor's
+  JSR change_cell_row          ; C=0: above the view
+  BCS render_rows_resized
   JMP render_screen
-.row_visible:
-  STA RENDER_ROW
+; Entry: RENDER_ROW = first_row (set_first_row), the first row of a block
+; (cursor line, a range, or the lines a split or an insert left at the
+; cursor line) that changed from PREV_LINE_ROWS to CUR_LINE_ROWS rows (0
+; for lines inserted); draw it from its change point (RENDER_FROM_COL16),
+; and move the rows below it (first if it grew, after it if it shrank)
+render_rows_resized:
   JSR ansi_cursor_hide
   LDA CUR_LINE_ROWS
   CMP PREV_LINE_ROWS
   BEQ .same_rows
   BCC .rows_decreased
-  ; --- Rows increased: scroll the rows below the old line end down ---
-  SEC
-  SBC PREV_LINE_ROWS
+  ; --- Rows increased: scroll the rows below the old line end down, or
+  ; for a block drawn whole ($FFFF) the rows from its first, where the
+  ; drawing then starts.  One that reaches the status bar has all those
+  ; rows drawn: if it grew by 3 rows or fewer nothing scrolls (the
+  ; scroll costs more than the ESC[K it saves) ---
+  SBC PREV_LINE_ROWS            ; C=1 from the compare
   STA SCROLL_DELTA
-  LDA RENDER_ROW
-  CLC
-  ADC PREV_LINE_ROWS
-  CLC
-  ADC #1                        ; 1-based
-  LDX #$FF                      ; scroll down
+  LDA RENDER_FROM_COL16 + 1
+  AND RENDER_FROM_COL16
+  CMP #$FF                      ; C=1: $FFFF
+  LDA PREV_LINE_ROWS
+  BCC .open
+  LDA CUR_LINE_ROWS
+  JSR row_below_rows
+  CMP SCREEN_ROWS
+  BCC .from_first
+  LDA SCROLL_DELTA
+  CMP #4
+  BCC .same_rows                ; (no hint: nothing to shift)
+.from_first:
+  LDA #0
+.open:
+  JSR row_below_rows
+  LDX #'L'                      ; scroll down
   JSR scroll_region_from_a
+  BCS .same_rows
+  BNE .same_rows                ; region past the screen: no row opened
+  ; A one-row region (the last content row) is not scrolled, so it still
+  ; holds the next line: rewrite the rows (ESC[K) instead of shifting
+  LDA #$FF
+  STA SHIFT_WRITE
 .same_rows:
   JSR render_line_from_change
   JMP render_finish
 
 .rows_decreased:
-  ; --- Rows decreased: scroll the rows below the new line end up ---
+  ; --- Rows decreased: draw the line, then scroll the rows below its
+  ; new end up (the bottom rows drawn from where the scroll left the
+  ; cursor) ---
   LDA PREV_LINE_ROWS
   SEC
   SBC CUR_LINE_ROWS
   STA SCROLL_DELTA
-  PHA                           ; displacement, for the exposed bottom rows
-  LDA RENDER_ROW
-  CLC
-  ADC CUR_LINE_ROWS
-  CLC
-  ADC #1                        ; 1-based
-  LDX #0                        ; scroll up
-  JSR scroll_region_from_a
+  JSR render_line_keep_delta
+  LDA CUR_LINE_ROWS
+; The rows below the cursor line's first A rows move up by SCROLL_DELTA
+; (from the top row if that is above the view), and the rows that
+; exposes at the bottom are drawn, from where the scroll left the cursor
+rows_close_below:
+  JSR row_below_rows
+  JSR scroll_up_clamped         ; SCROLL_DELTA = rows exposed at the bottom
+  JMP render_bottom_rows
+
+; render_line_from_change, keeping SCROLL_DELTA (the rows a scroll
+; exposed, drawn after the line)
+render_line_keep_delta:
+  LDA SCROLL_DELTA
+  PHA
   JSR render_line_from_change
   PLA
   STA SCROLL_DELTA
-  LDA #0
-  STA DELETE_SCREEN_ROWS        ; reset for next frame
-  JMP render_bottom_rows_guarded
+  RTS
 
-; Draw the cursor line from its change point (RENDER_FROM_COL16; $FFFF =
-; whole line) to its last row, stopping at the status bar.
-; Input: RENDER_ROW = the line's first screen row, CUR_LINE_ROWS = its rows
+; Draw the cursor line (or a block of lines from it) from its change
+; point (RENDER_FROM_COL16; $FFFF = whole line) to its last row, stopping
+; at the status bar.
+; Input: RENDER_ROW = the line's first screen row, CUR_LINE_ROWS = the
+; rows of the line (block)
 ; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/LIMIT/LINE16,
 ;           SCROLL_DELTA, WRAP_REM, DIV_INPUT16
 render_line_from_change:
@@ -394,83 +446,81 @@ render_line_from_change:
   CLC
   ADC RENDER_ROW
   STA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
+  CMP TEXT_ROWS
   BCS .done                    ; change row is at or below the status bar
   ; ICH/DCH hint: shift the line's rows instead of rewriting them (rows
   ; opened by the caller's scroll are blank and just get written)
-  LDA SHIFT_WRITE
-  CMP #$FF
-  BEQ .no_shift
-  JMP render_line_shift
-.no_shift:
+  LDX SHIFT_WRITE
+  INX
+  BNE render_line_shift        ; $FF = no hint
+  ; Rewrite the rows, the change row from the change column.  The line
+  ; there is found by rows: a change at the end of a block's first line
+  ; that fills its last row starts the next line's first row
+  JSR find_line_at_render_row
   LDA WRAP_REM
-  BEQ .full_rows
-  JSR render_partial_first_row
-  DEC SCROLL_DELTA
-.full_rows:
-  JSR set_render_line_to_cursor
-  JMP render_limited_loop
+  JMP render_limited_from_col
 .done:
   RTS
 
 ; Draw the cursor line from its change row using the SHIFT_NET /
 ; SHIFT_WRITE hint: each row's old text is shifted with ICH/DCH and only
 ; the new cells (and cells carried across a row boundary) are written,
-; wherever that is cheaper than resending the row.
+; wherever that is cheaper than resending the row.  The row's start is
+; worked out once and then stepped a row at a time.
 ; Input: RENDER_ROW/RENDER_WRAP = change row, WRAP_REM = change col,
 ;        SCROLL_DELTA = rows from the change row to the line's last row
-; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/WRAP/COL/STOP, SCROLL_DELTA,
+; Clobbers: A, X, Y, BUF_PTR16, RENDER_ROW/COL/STOP, SCROLL_DELTA,
 ;           WRAP_REM, SHIFT_REM16, SHIFT_IEND16
 render_line_shift:
   ; SHIFT_REM16 = line length from the row start (row start = c0 - WRAP_REM)
   JSR get_current_line_len
+  CLC
+  ADC WRAP_REM
+  BCC .no_carry
+  INX
+.no_carry:
   SEC
   SBC RENDER_FROM_COL16
   STA SHIFT_REM16
   TXA
   SBC RENDER_FROM_COL16 + 1
   STA SHIFT_REM16 + 1
-  LDA WRAP_REM
-  CLC
-  ADCA16 SHIFT_REM16, SHIFT_REM16
   ; SHIFT_IEND16 = end of the new cells, from the row start
   LDA WRAP_REM
+  CLC
+  ADC SHIFT_WRITE
   STA SHIFT_IEND16
   LDA #0
+  ROL
   STA SHIFT_IEND16 + 1
-  LDA SHIFT_WRITE
-  CLC
-  ADCA16 SHIFT_IEND16, SHIFT_IEND16
-.row:
+  STA RENDER_COL               ; (0 or 1) the first row starts with a move
+  JSR get_current_line_ptr
+  LDX RENDER_WRAP
+.next_ptr:
+  JSR buf_ptr_advance_x        ; BUF_PTR16 = the row's start
   JSR shift_row
   DEC SCROLL_DELTA
   BEQ .done
   INC RENDER_ROW
   LDA RENDER_ROW
-  CLC
-  ADC #1
-  CMP SCREEN_ROWS
+  CMP TEXT_ROWS
   BCS .done                    ; reached the status bar
-  INC RENDER_WRAP
   LDA #0
   STA WRAP_REM                 ; later rows change from column 0
   SEC
   SBC16_8 SHIFT_REM16, SCREEN_COLS, SHIFT_REM16
   SEC
   SBC16_8 SHIFT_IEND16, SCREEN_COLS, SHIFT_IEND16
-  JMP .row
+  LDX #1
+  BNE .next_ptr                ; Always: the next row starts a row on
 .done:
   RTS
 
-; Draw one row of the shifted line: RENDER_ROW/RENDER_WRAP, changed from
-; column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative to its start
-; Clobbers: A, X, Y, BUF_PTR16, RENDER_COL, RENDER_STOP
+; Draw one row of the shifted line: RENDER_ROW, starting at BUF_PTR16,
+; changed from column WRAP_REM, with SHIFT_REM16/SHIFT_IEND16 relative
+; to its start
+; Clobbers: A, X, Y, RENDER_COL, RENDER_STOP, SCROLL_DELTA (net 0)
 shift_row:
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x        ; BUF_PTR16 = row start
   ; ROW_END = min(cols, SHIFT_REM16): end of the row's new content
   LDA SHIFT_REM16 + 1
   BNE .row_full
@@ -482,16 +532,13 @@ shift_row:
 .row_end_ok:
   STA ROW_END
   ; ROW_WEND = SHIFT_IEND16 clamped to 0..255: end of the new cells
-  LDA SHIFT_IEND16 + 1
-  BMI .iend_neg
-  BEQ .iend_low
-  LDA #$FF
-  BNE .iend_ok                 ; Always taken
-.iend_neg:
-  LDA #0
-  BEQ .iend_ok                 ; Always taken
-.iend_low:
   LDA SHIFT_IEND16
+  LDX SHIFT_IEND16 + 1
+  BEQ .iend_ok
+  TXA
+  ASL                          ; C = sign
+  LDA #$FF
+  ADC #0                       ; $FF if above 255, 0 if negative
 .iend_ok:
   STA ROW_WEND
   ; Inserting: the first net cells from WRAP_REM are carried in too
@@ -500,15 +547,15 @@ shift_row:
   BEQ .clip
   CLC
   ADC WRAP_REM
-  BCS .clip_max
+  BCS .wend_max                ; past 255: past the row end too
   CMP ROW_WEND
   BCC .clip
-.clip_max:
   STA ROW_WEND
 .clip:
   LDA ROW_WEND
   CMP ROW_END
   BCC .wend_ok
+.wend_max:
   LDA ROW_END
   STA ROW_WEND
 .wend_ok:
@@ -519,19 +566,34 @@ shift_row:
   TAX
   LDA SHIFT_NET
   BMI .delete
-  BEQ .write_new               ; net 0: only the new cells change
-  CPX #0
-  BEQ .write_new               ; nothing after the new cells
+  BEQ .net_zero
   CPX #5
-  BCC .write_rest              ; short tail: resending beats ICH
+  BCC .write_rest              ; short (or no) tail: resending beats ICH
   JSR move_to_partial_pos
   LDA SHIFT_NET
   JSR ansi_insert_chars
   JMP write_row_cells
+.net_zero:
+  ; Net 0: only the new cells change, and once a row has none, no row
+  ; after it has any: SCROLL_DELTA = 1 makes this the line's last row
+  LDA ROW_WEND
+  CMP WRAP_REM
+  BNE .write_new
+  LDA #1
+  STA SCROLL_DELTA
+  RTS
 .write_rest:
   LDA ROW_END
   STA ROW_WEND
 .write_new:
+  ; The row before written to its end by chars (RENDER_COL = cols): the
+  ; terminal wraps to this row's column 0 by itself, as in render_rows
+  LDA RENDER_COL
+  CMP SCREEN_COLS
+  BNE .move_new
+  LDA WRAP_REM
+  BEQ write_row_cells
+.move_new:
   JSR move_to_partial_pos
   JMP write_row_cells
 
@@ -580,28 +642,20 @@ shift_row:
   LDA RENDER_STOP
   PHA                          ; TS
   JSR move_to_partial_pos
-  LDA SHIFT_NET
-  EOR #$FF
-  CLC
-  ADC #1                       ; d
+  LDA #0
+  SEC
+  SBC SHIFT_NET                ; d
   JSR ansi_delete_chars
   JSR write_row_cells          ; the new cells, from the cursor at WRAP_REM
   PLA
   STA WRAP_REM                 ; tail start (row done with WRAP_REM)
   PLA
-  BEQ .dch_done
-  LDA ROW_END
-  STA ROW_WEND
-  JSR move_to_partial_pos
-  JMP write_row_cells
+  BNE .write_rest              ; the tail, pulled up from the next row
 .dch_done:
   RTS
 .rewrite:
   ; Resend the row from WRAP_REM, clearing the rest if it is not full
-  LDA ROW_END
-  STA ROW_WEND
-  JSR move_to_partial_pos
-  JSR write_row_cells
+  JSR .write_rest
   LDA ROW_END
   CMP SCREEN_COLS
   BCS .dch_done
@@ -611,28 +665,14 @@ shift_row:
 ; current cursor position (nothing if the range is empty)
 ; Clobbers: A, Y, RENDER_COL, RENDER_STOP
 write_row_cells:
-  LDA ROW_WEND
-  CMP WRAP_REM
-  BEQ .none
-  BCC .none
   LDA WRAP_REM
+  CMP ROW_WEND
+  BCS .none
   STA RENDER_COL
   LDA ROW_WEND
   STA RENDER_STOP
   JMP render_line_chars_to
 .none:
-  RTS
-
-; Advance BUF_PTR16 by SCREEN_COLS (one wrap row)
-; Clobbers A. Preserves X, Y
-buf_add_cols:
-  CLC
-  LDA BUF_PTR16
-  ADC SCREEN_COLS
-  STA BUF_PTR16
-  LDA BUF_PTR16 + 1
-  ADC #0
-  STA BUF_PTR16 + 1
   RTS
 
 ; Advance BUF_PTR16 by X * SCREEN_COLS (X wrap rows; X may be 0)
@@ -641,7 +681,13 @@ buf_ptr_advance_x:
   CPX #0
   BEQ .done
 .loop:
-  JSR buf_add_cols
+  CLC
+  LDA BUF_PTR16
+  ADC SCREEN_COLS
+  STA BUF_PTR16
+  BCC .no_carry
+  INC BUF_PTR16 + 1
+.no_carry:
   DEX
   BNE .loop
 .done:
@@ -651,33 +697,5 @@ buf_ptr_advance_x:
 ; Clobbers A, X, Y
 move_to_partial_pos:
   LDA RENDER_ROW
-  CLC
-  ADC #1
-  STA ANSI_ROW
-  LDA WRAP_REM
-  CLC
-  ADC #1
-  STA ANSI_COL
-  JMP ansi_move_cursor
-
-; Render the partial first wrap row of the cursor line: position the
-; cursor at (RENDER_ROW+1, WRAP_REM+1), render from column WRAP_REM,
-; clear the row remainder, then step RENDER_ROW/RENDER_WRAP past it.
-; Clobbers A, X, Y, BUF_PTR16, RENDER_COL
-render_partial_first_row:
-  JSR move_to_partial_pos
-  ; Get line pointer, advance to wrap row
-  JSR get_current_line_ptr
-  LDX RENDER_WRAP
-  JSR buf_ptr_advance_x
-  LDA WRAP_REM
-  STA RENDER_COL
-  JSR render_line_chars_from
-  LDA RENDER_COL
-  CMP SCREEN_COLS
-  BCS .partial_no_clear
-  JSR ansi_clear_line
-.partial_no_clear:
-  INC RENDER_ROW
-  INC RENDER_WRAP
-  RTS
+  LDX WRAP_REM
+  JMP ansi_goto0

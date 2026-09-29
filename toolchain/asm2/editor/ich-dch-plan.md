@@ -11,7 +11,7 @@ and later, xterm-alikes, Windows Terminal, PuTTY, minicom all support them).
 
 ## Where things stand
 
-- **Batching exists.** `insert_batch` (`insert.asm`) collects up to
+- **Batching exists.** `insert_handle_key` (`insert.asm`) collects up to
   `BATCH_MAX` (32) queued keys and reduces them to
   `[back N] [insert BATCH_BUF] [fwd N]`, then shifts the buffer once. Its
   fast path (no newlines involved) sets `RENDER_FROM_COL16 = c0`, the first
@@ -51,19 +51,27 @@ A handler that wants shifting sets two new zero-page variables alongside
   (`insert_len`; `0` for pure deletes).
 
 `editor.asm`'s main loop resets both each iteration, next to
-`RENDER_FROM_COL16`. Deltas are at most 255 cells: insert batches are
-capped at 32, and `x` counts are capped at 255 by `get_batched_count`.
+`RENDER_FROM_COL16`. Deltas must fit the signed byte: insert batches are
+capped at 32 and shifts of one line at 66, and deletes of more than 128
+chars and pastes of more than 127 set no hint, so they take the plain
+rewrite path.
 
 Callers:
 
 | Handler | c0 | SHIFT_NET | SHIFT_WRITE |
 |---|---|---|---|
-| `insert_batch` fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
-| `x` / Delete (count n, clamped to line) | cursor | `-n` | 0 |
-| `X` (count n, clamped to col) | `col - n` | `-n` | 0 |
+| insert-mode batch fast path | `col - back` | `insert_len - back - fwd` | `insert_len` |
+| `delete_at_cursor` within one line: `x`, `X`, Delete, `dw`, `db`, `de`, `d0`, `D`, `d$`, `s`, `C`, `cw`, `cb`, `ce`, the redo of those, the undo of `p` / `P` and of typed text | cursor (the range start) | `-n` | 0 |
+| `do_char_paste` with no newline: `P`, the undo of a char delete, the redo of `P` | insertion column | `+n` | `n` |
+| the same for `p` and its redo (`do_char_paste_below`) | cursor (one left of the insertion, where the frame finds the terminal's cursor) | `+n` | `n + 1` |
+| `render_range_repaint` for a range of one line: `>>`, `<<`, `:N>`, `:N<`, their undo and redo | 0 | the change in `BUF_END16`: `+w` / `-w` | `w` / 0 |
 
 Type-ahead needs no extra work: a whole batch becomes one `SHIFT_NET`, so
-each screen row gets at most one ICH/DCH.
+each screen row gets at most one ICH/DCH. The exception is typed-ahead
+`dw`, `db` and `de` pairs, which run one press after another in one frame
+(`dispatch_replay`): each press's hint describes that press alone, so the
+replay drops the hint and the line is rewritten from the last press's
+column, the leftmost change.
 
 ## Screen algorithm
 
@@ -81,10 +89,15 @@ line's last row that is on screen (never the status row), with
   from the next row, stopping at the new end of the line. On the line's
   last row the blanks DCH leaves on the right are already correct.
 - **`net = 0`:** overwrite `SHIFT_WRITE` cells only (existing partial
-  render, cut short).
+  render, cut short); the first row after them with none ends the line,
+  as no later row changes.
 - **Cost check per row:** use the shift only when it saves more than the
   sequence costs (about 4-6 bytes). Otherwise, or if `|net|` is at least
   what is left of the row, rewrite from `s` as today.
+
+A row after one written to its last column by chars, which itself
+starts with chars at column 0 (no ICH or DCH), needs no cursor move: the
+terminal wraps there, as in `render_rows`.
 
 When the line gains or loses screen rows, the existing scroll logic in
 `render_current_line_and_status` opens or closes rows below the line
@@ -154,7 +167,7 @@ same commit; refactors in their own commits).
      n cells.
 
 5. **Single-row lines: insert mode, `x`, `X`.** *Done.* Add `SHIFT_NET` /
-   `SHIFT_WRITE`, set them from `insert_batch`'s fast path and from the
+   `SHIFT_WRITE`, set them from the insert batch's fast path and from the
    `x` / `X` handlers, and use the per-row step in
    `render_line_from_change` when `SHIFT_NET != 0`. Failing tests first
    (10x40 screen, each with and without `deferred_wrap`):
@@ -182,7 +195,7 @@ same commit; refactors in their own commits).
    intact); a line running past the bottom of the screen (nothing written
    into the status row); first row above the viewport (still a full
    repaint); line length an exact multiple of the width with the cursor at
-   the end (the `PREV_LINE_FULL` edge in insert mode).
+   the end (the full-last-row edge in insert mode).
 
 8. **`D` lock-in tests.** *Done.* Assert that `D` mid-line writes no text cells
    (only `ESC[K` on the cursor row), and that `D` on a wrapped line clears
@@ -202,7 +215,7 @@ keeping the full screen contents asserted; no blanket rebaselining.
 
 - Batches containing newlines (Enter and line joins) already use the
   scroll paths.
-- `d{motion}` within a line (`dw`, `de`, `db`, `d0`), `s`, character paste
-  and undo/redo of character edits: once `render_line_from_change`
-  exists, each only needs to set `SHIFT_NET` / `SHIFT_WRITE`.
+- `d{motion}` within a line (`dw`, `de`, `db`, `d0`), `s` and the other
+  deletes at the cursor, character paste, undo/redo of character edits,
+  and `>>` / `<<` of one line: *done* (the table above).
 - Optional VT100 fallback (a `define:no_ich` build that rewrites instead).

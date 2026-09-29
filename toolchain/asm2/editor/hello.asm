@@ -6,7 +6,7 @@
 
   JMP main
 
-  .include environment.asm
+  .include 17/environment.asm
 
   .zeropage
 TEMP_VAL:  .byte

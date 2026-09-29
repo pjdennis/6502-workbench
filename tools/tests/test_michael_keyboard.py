@@ -1,13 +1,14 @@
-"""Michael's keyboard programs and RAM map probe, run in tools/michael_keyboard_sim.c.
+"""Michael's keyboard programs and RAM map probe, run on the emulator's Michael machine.
 
-The simulator models the VIA, the LCD and the PS/2 keyboard board closely
+The emulator models the VIA, the LCD and the PS/2 keyboard board closely
 enough for the keyboard driver (firmware/lib/keyboard/keyboard_driver.inc):
-the start-up handshake, key frames, and whether each LCD write happens with
-the ports set up for the LCD. Programs are built for the addresses in
-base_config_v2.inc, and the simulated ROM's IRQ vector is set to match.
+the start-up handshake, key frames, and whether the LCD and the keyboard
+board share the bus without fighting over it. Programs are loaded at
+PROGRAM_LOAD_ADDRESS from base_config_v2.inc; the emulator's ROM sends IRQs
+to $3F00, INTERRUPT_VECTOR_TARGET.
 
-Uses firmware/vasm with vasm6502_oldstyle from PATH and gcc (tests skip if
-either is missing).
+Uses firmware/vasm with vasm6502_oldstyle from PATH, and builds the emulator
+with make (tests skip if vasm, gcc or make is missing).
 """
 import os
 import re
@@ -18,7 +19,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
-SIM_SOURCE = os.path.join(ROOT, 'tools', 'michael_keyboard_sim.c')
+EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 BASE_CONFIG = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'base_config_v2.inc')
 PROGRAMS = os.path.join(ROOT, 'firmware', 'programs', 'michael')
 
@@ -31,38 +32,43 @@ def base_config_address(name):
         return re.search(r'^%s\s*=\s*\$([0-9a-fA-F]+)' % name, f.read(), re.M).group(1)
 
 
-@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc'),
-                     'vasm6502_oldstyle and gcc are needed')
+@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc') and shutil.which('make'),
+                     'vasm6502_oldstyle, gcc and make are needed')
 class MichaelKeyboardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.sim = os.path.join(cls.tmp.name, 'michael_keyboard_sim')
-        subprocess.run(['gcc', '-O2', '-I', os.path.join(ROOT, 'emulator'), '-o', cls.sim,
-                        SIM_SOURCE, os.path.join(ROOT, 'emulator', 'cpu_core.c')],
-                       check=True, capture_output=True)
+        subprocess.run(['make', '-s', 'emulator/emulator.out'], cwd=ROOT, check=True, capture_output=True)
 
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_program(self, name, keys=(), fault=None, ram=None):
-        """Returns the LCD's 4 lines once the keys have been typed."""
+    def run_program(self, name, keys=(), fault=None, typed=None, load=None, ram=None):
+        """Returns the LCD's 4 lines once the keys have been typed: keys are raw scan code
+        bytes, typed is text the emulator types on the keyboard. The program loads at load
+        (hex; default PROGRAM_LOAD_ADDRESS); ram picks the RAM decoding (emulator --ram)."""
         binary = os.path.join(self.tmp.name, name + '.bin')
         subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
                         '-ignore-mult-inc', '-esc', '-o', binary,
                         os.path.join(PROGRAMS, name + '.s')], check=True, capture_output=True)
-        options = ['--keys=' + ','.join(keys)] if keys else []
+        options = ['--kbd-scancodes', ','.join(keys)] if keys else []
         if fault:
-            options.append('--fault=' + fault)
+            options += ['--kbd-fault', fault]
+        if typed is not None:
+            keys_file = os.path.join(self.tmp.name, name + '.keys')
+            with open(keys_file, 'wb') as f:
+                f.write(typed)
+            options += ['--keys', keys_file]
         if ram:
-            options.append('--ram=' + ram)
-        output = subprocess.run([self.sim, *options, binary,
-                                 base_config_address('PROGRAM_LOAD_ADDRESS'),
-                                 base_config_address('INTERRUPT_VECTOR_TARGET')],
-                                check=True, capture_output=True, text=True).stdout.splitlines()
-        self.assertEqual(output[4], 'bad LCD writes: 0')
-        return [line.rstrip() for line in output[:4]]
+            options += ['--ram', ram]
+        report = subprocess.run([EMULATOR, binary, '--machine', 'michael',
+                                 '--load', load or base_config_address('PROGRAM_LOAD_ADDRESS'),
+                                 '--cycle-cap', '2000000', *options],
+                                check=True, capture_output=True, text=True).stderr.splitlines()
+        self.assertIn('michael: bus: lcd-undriven=0 portb-contention=0', report)
+        lcd = report.index('michael: lcd:')
+        return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 5]]
 
     def diag_text(self, keys=(), fault=None):
         """The diagnostic's output as one string, without the IRQ vector it starts with."""
@@ -72,6 +78,9 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_keyboard_new_echoes_a_key(self):
         self.assertEqual(self.run_program('michael_keyboard_new', KEY_A)[0], '>a')
+
+    def test_keyboard_new_echoes_typed_text(self):
+        self.assertEqual(self.run_program('michael_keyboard_new', typed=b'Hi there!')[0], '>Hi there!')
 
     def test_show_names_names_a_key(self):
         self.assertEqual(self.run_program('michael_keyboard_show_names', KEY_A)[:2], ['Ready?', 'A?'])
@@ -95,17 +104,27 @@ class MichaelKeyboardTest(unittest.TestCase):
     def test_diag_shows_a_resend_request(self):
         self.assertEqual(self.diag_text(KEY_A, 'resend'), 'F4bcd[FE][1C][F0][1C]')
 
+    def ram_map(self, ram=None):
+        """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""
+        with open(os.path.join(PROGRAMS, 'michael_ram_map.s')) as f:
+            load = re.search(r'^RAM_MAP_LOAD\s*=\s*\$([0-9a-fA-F]+)', f.read(), re.M).group(1)
+        return self.run_program('michael_ram_map', load=load, ram=ram)
+
+    def test_ram_map_shows_16k_by_default(self):
+        self.assertEqual(self.ram_map()[1:],
+                         ['0000 RRRRRRRRRRRR', '3000 RRRR--------', '16K RAM $0000-$3FFF'])
+
     def test_ram_map_shows_ben_eaters_16k(self):
-        self.assertEqual(self.run_program('michael_ram_map', ram='eater'),
+        self.assertEqual(self.ram_map('eater'),
                          ['RAM map, 1K per char', '0000 RRRRRRRRRRRR', '3000 RRRRwwwwwwww',
                           '16K RAM $0000-$3FFF'])
 
     def test_ram_map_shows_24k(self):
-        self.assertEqual(self.run_program('michael_ram_map', ram='full')[1:],
+        self.assertEqual(self.ram_map('full')[1:],
                          ['0000 RRRRRRRRRRRR', '3000 RRRRRRRRRRRR', '24K RAM $0000-$5FFF'])
 
     def test_ram_map_shows_mirrors(self):
-        self.assertEqual(self.run_program('michael_ram_map', ram='mirror8k')[1:],
+        self.assertEqual(self.ram_map('mirror8k')[1:],
                          ['0000 RRRRRRRRmmmm', '3000 mmmmmmmmmmmm', '8K RAM $0000-$1FFF'])
 
 

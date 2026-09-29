@@ -45,9 +45,11 @@
  ────────────────────────────────────────
  Target: H1-H4 counted movement loops
  Reason: 5-7 instructions each; parameterizing variable, boundary, and direction on 6502 costs more than the loop bodies
+ Update (2026 audit): worth revisiting. Counted j and Ctrl-F need no loop at all: add the count to FILE_LINE16 and
+   clamp to the last line (one clamp shared with G and dd). That form measured smaller than the loops and runs in O(1).
  ────────────────────────────────────────
  Target: N1/N2 string print
- Reason: Different pointers (STR_PTR16 vs FNAME_PTR16); adding length cap to write_string would slow all callers
+ Reason: write_fname caps the name at 32 chars (the status bar's text must fit STATUS_SHADOW); adding length cap to write_string would slow all callers
  ────────────────────────────────────────
  Target: F7/F9 indent/unindent
  Reason: Already share copy_line_to_nl; per-line logic (write spaces vs count/skip spaces) differs too much
@@ -55,6 +57,8 @@
  Target: K1/K3 repeated multiplication
  Reason: 3-4 instruction bodies with different variable widths (16-bit vs 8-bit counter); parameterization exceeds loop
    size
+ Update (2026 audit): worth revisiting. One shared shift-and-add 16x16 multiply replacing the repeated-addition loops
+   measured about 90 bytes smaller, runs in O(bits) instead of O(count), and can report overflow, which the loops miss.
  ────────────────────────────────────────
  Target: G1/G2/G3 dispatch tables
  Reason: Different entry sizes (3 vs 5 bytes) and matching logic (single key vs two-key combo vs existence check)

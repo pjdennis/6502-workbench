@@ -6,303 +6,216 @@
 ;   :wq      - save and quit
 ;   :q!      - quit without saving
 ;   :NNN     - go to line NNN
+;   :marks   - list the set marks
+;   :[range]d / y / > / <  - delete, yank, indent, unindent lines, where
+;              range is one position or two separated by ',' and a
+;              position is NNN, . or 'x (mark); with no range, the
+;              current line
 
-CMD_BUF     = $0300   ; Command buffer (256 bytes)
-CMD_BUF_LEN = $00FF   ; Max command length
+CMD_BUF_LEN = CMD_BUF_END - CMD_BUF - $01  ; Max command length (one byte for the null)
 
-  .zeropage
-CMD_IDX:     .byte     ; Current index into command buffer
-CMD_QUIT:    .byte     ; Set to $FF when editor should quit
+; (zero-page variables: zp.asm)
 
-  .code
-
-; Enter command mode - show prompt and read command
-command_handle:
-  LDA #0
-  STA CMD_IDX
-
-  ; Show ':' prompt on last line
-  JSR command_show_prompt
-
-.read_loop:
-  JSR get_key
-  STA BUF_TEMP
-
-  LDA #<command_keys
-  LDX #>command_keys
-  JSR dispatch_key
-  BCC .check_done
-
-  ; No match - printable character?
-  LDA BUF_TEMP
-  CMP #' '
-  BCC .read_loop
-  CMP #$7F
-  BCS .read_loop
-
-  ; Add to buffer
-  LDX CMD_IDX
-  CPX #CMD_BUF_LEN
-  BCS .read_loop  ; Buffer full
-  STA CMD_BUF,X
-  INC CMD_IDX
-
-  ; Echo character
-  JSR io_write
-  JSR io_flush
-  JMP .read_loop
-
-.check_done:
-  LDA MODE
-  CMP #MODE_COMMAND
-  BNE .done
-  LDA CMD_QUIT
-  BNE .done
-  JMP .read_loop
-.done:
-  RTS
-
-; --- Command input dispatch table ---
-command_keys:
-  .byte KEY_ESC     .word cmd_cancel
-  .byte KEY_ENTER   .word cmd_execute
-  .byte KEY_BS      .word cmd_backspace
-  .byte $7F         .word cmd_backspace
-  .byte 0           ; End sentinel
-
-cmd_cancel:
-  LDA #MODE_NORMAL
-  STA MODE
-  RTS
-
-cmd_execute:
-  ; Null-terminate the command
-  LDX CMD_IDX
-  LDA #0
-  STA CMD_BUF,X
-
-  ; Parse and execute
-  JSR command_parse
-
-  ; Return to normal mode (unless quitting)
-  LDA CMD_QUIT
-  BNE .stay
-  LDA #MODE_NORMAL
-  STA MODE
-.stay:
-  RTS
-
-cmd_backspace:
-  LDA CMD_IDX
-  BEQ cmd_cancel     ; Nothing to delete, cancel
-  DEC CMD_IDX
-  JMP erase_char
-
-; Show the ':' prompt on the status line
-command_show_prompt:
+; ':' in normal mode: read a command line and execute it, all within the
+; key, whose frame then shows the result (a frame for the ':' alone would
+; be erased by the prompt at once).  The key keeps the remembered column,
+; as a command that does nothing (first_nonblank starts over: :N, :d, :>)
+normal_enter_command:
+  JSR keep_clear_count
   LDA #':'
-  JMP show_prompt
+  JSR read_line
+  BCC command_parse
+cmd_ret:
+  RTS                      ; Cancelled, or done
 
-; Parse and execute the command in CMD_BUF
+range_mark_err:
+  LDA #<str_mark_not_set
+  LDX #>str_mark_not_set
+  JMP show_message_ax
+
+; Parse and execute the command in CMD_BUF (an empty one does nothing)
 command_parse:
   LDA CMD_BUF
+  BEQ cmd_ret
   STA BUF_TEMP
   LDA #<command_parse_keys
   LDX #>command_parse_keys
   JSR dispatch_key
-  BCC .done
+  BCC cmd_ret
+  ; fall through: anything else is a range command or a goto
 
-  ; Try named commands (full string match from CMD_BUF[0])
-  SET16 str_marks_cmd, STR_PTR16
+; Parse range or goto command
+; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :5,d  :,5d  :NNN and
+; :N,M (goto), and a command with no range (:d :y :> :<), which works on
+; the current line.  A letter that is not a command says so.
+command_parse_range:
   LDX #0
-  JSR cmd_str_match
-  BCC .do_marks
+  JSR parse_range_pos     ; Parse first position -> BUF_LEN16
+  BCS range_mark_err
+  CP16 BUF_LEN16, BUF_SRC16
 
-  ; Range/goto: digit
-  LDA CMD_BUF
-  CMP #'0'
-  BCC .unknown
-  CMP #':'              ; '9'+1
-  BCS .unknown
-  JMP command_parse_range
+  ; Comma (range), or the command char (0: none)
+  LDA CMD_BUF,X
+  CMP #','
+  BNE range_dispatch      ; One position (:5, :.>, :5d): end = start
 
-.do_marks:
-  JMP marks_display
+  INX                     ; Skip comma
+  JSR parse_range_pos     ; Parse second position -> BUF_LEN16
+  BCS range_mark_err
+  LDA CMD_BUF,X           ; Command char
+  ; fall through
 
-.unknown:
-  JMP cmd_unknown
+; Run a range command, or with none (A = 0) go to the line of the last
+; position, as vim does (without swapping a backwards range)
+; Input: A = command char, X = its index in CMD_BUF, BUF_SRC16 = start
+; line, BUF_LEN16 = end line (either order); the action gets BUF_SRC16 =
+; first line, BUF_TEMP16 = count
+range_dispatch:
+  STA BUF_TEMP            ; Command char (dispatch key)
+  TAY
+  BEQ range_goto          ; No command
+  ; After it vim takes blanks and, for y and d, one register name (not a
+  ; digit: vim's count), then blanks; the editor's one register takes
+  ; any name.  Anything else is an unknown command
+  JSR skip_blanks
+  BCC .args_ok
+  CPY #'A'
+  BCC cmd_unknown         ; > and < take no register
+  EOR #'0'
+  CMP #10
+  BCC cmd_unknown         ; A digit
+  JSR skip_blanks
+  BCS cmd_unknown
+.args_ok:
 
-.done:
-  RTS
+  ; Ensure start <= end (swap if needed)
+  CMP16 BUF_LEN16, BUF_SRC16
+  BCS .range_order_ok
+  LDX #1
+.swap:
+  LDY BUF_SRC16,X
+  LDA BUF_LEN16,X
+  STA BUF_SRC16,X
+  STY BUF_LEN16,X
+  DEX
+  BPL .swap
+.range_order_ok:
 
-; --- Command parse dispatch table ---
-command_parse_keys:
-  .byte 'w'    .word cmd_parse_w
-  .byte 'q'    .word cmd_parse_q
-  .byte '\''   .word command_parse_range
-  .byte '.'    .word command_parse_range
-  .byte '>'    .word cmd_parse_bare_shift
-  .byte '<'    .word cmd_parse_bare_shift
-  .byte 0      ; End sentinel
+  ; count = end - start + 1 (full 16 bits)
+  SEC
+  SBC16 BUF_LEN16, BUF_SRC16, BUF_TEMP16
+  INC16 BUF_TEMP16
 
-cmd_parse_w:
+  ; Any letter but y, d, > and < is an unknown command; the editing
+  ; ones (d, >, <) are refused read-only
+  LDA BUF_TEMP
+  CMP #'y'
+  BEQ .range_check
+  CMP #'d'
+  BEQ .range_edit
+  CMP #'>'
+  BEQ .range_edit
+  CMP #'<'
+  BNE cmd_unknown
+.range_edit:
   LDA READONLY
-  BEQ .not_readonly
-  JMP show_readonly_msg
-.not_readonly:
-  LDA CMD_BUF + 1
-  BEQ .do_write       ; Just ":w"
-  CMP #'q'
-  BEQ .check_wq
-  JMP cmd_unknown
-
-.check_wq:
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":wq"
-  ; :wq - write and quit
-  JSR command_write_file
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-.do_write:
-  JMP command_write_file
-
-cmd_parse_q:
-  LDA CMD_BUF + 1
-  BEQ .do_quit        ; Just ":q"
-  CMP #'!'
-  BEQ .force_quit
-  JMP cmd_unknown
-
-.do_quit:
-  ; Check if modified
-  LDA MODIFIED
-  BEQ .quit_ok
-  ; Show warning
-  LDA #<str_no_write
-  LDX #>str_no_write
-  JMP show_message_ax
-
-.quit_ok:
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-.force_quit:
-  LDA CMD_BUF + 2
-  BNE cmd_unknown     ; Extra chars after ":q!"
-  LDA #$FF
-  STA CMD_QUIT
-  RTS
-
-cmd_parse_bare_shift:
-  CP16 FILE_LINE16, BUF_SRC16
-  CP16 FILE_LINE16, BUF_DST16
-  LDA CMD_BUF
-  JMP range_dispatch
+  BNE show_readonly_msg
+.range_check:
+  ; A range past the last line is invalid, as in vim (E16)
+  CMP16 BUF_LEN16, LINE_COUNT16
+  BCS range_invalid
+  LDA #<range_action_keys
+  LDX #>range_action_keys
+  JMP dispatch_key
 
 cmd_unknown:
   LDA #<str_unknown_cmd
   LDX #>str_unknown_cmd
   JMP show_message_ax
 
-; Parse decimal number from CMD_BUF starting at offset X
-; Returns: BUF_LEN16 = parsed number, X = updated offset past digits
-;          carry clear = valid number, carry set = no digits found
-; Clobbers: A, BUF_LEN16, BUF_SRC16
-parse_decimal:
-  SET16 $0000, BUF_LEN16
-  STX CMD_IDX              ; Save start offset
-.loop:
-  LDA CMD_BUF,X
-  SEC
-  SBC #'0'
-  BMI .done
-  CMP #10
-  BCS .done
+; Shared read-only rejection message (also used by cmd_parse_w)
+show_readonly_msg:
+  LDA #<str_readonly
+  LDX #>str_readonly
+  JMP show_message_ax
 
-  ; Multiply BUF_LEN16 by 10 and add digit
-  PHA
-  ASL16 BUF_LEN16
-  CP16 BUF_LEN16, BUF_SRC16
-  ASL16 BUF_LEN16
-  ASL16 BUF_LEN16
-  CLC
-  ADC16 BUF_LEN16, BUF_SRC16, BUF_LEN16
-  PLA
-  CLC
-  ADCA16 BUF_LEN16, BUF_LEN16
+range_invalid:
+  LDA #<str_invalid_range
+  LDX #>str_invalid_range
+  JMP show_message_ax
 
+range_goto:
+  ; :NNN and :N,M go to line M (BUF_LEN16 = 0-based line), past the
+  ; last line to the last line, as in vim. Command mode was entered
+  ; through clear_count, so the extra clear_count here changes nothing.
+  CP16 BUF_LEN16, FILE_LINE16
+  JSR clamp_file_line
+  JMP first_nonblank_clear
+
+; X = the index of the first non-blank after CMD_BUF[X], A = that char:
+; C = 0 at the end of the command.  Preserves Y
+skip_blanks:
   INX
-  JMP .loop
-.done:
-  CPX CMD_IDX
-  BEQ .no_digits
-  CLC
-  RTS
-.no_digits:
-  SEC
+  LDA CMD_BUF,X
+  CMP #' '
+  BEQ skip_blanks
+  CMP #1
   RTS
 
-; Parse one range position starting at CMD_BUF[X]
-; Handles: 'x (mark), . (current line), decimal number (1-based)
-; Returns: BUF_LEN16 = 0-based line number, X = updated offset
-;          carry clear = success, carry set = error
-; Clobbers: A
-parse_range_pos:
-  LDA CMD_BUF,X
-  CMP #'\''
-  BEQ .mark
-  CMP #'.'
-  BEQ .dot
-  ; Try decimal number
-  JSR parse_decimal        ; BUF_LEN16 = number, X = updated offset
-  BCS .error
-  ; Convert 1-based to 0-based (0 stays at 0 = first line)
-  TST16 BUF_LEN16
-  BEQ .num_ok
-  SEC
-  SBCI16 BUF_LEN16, $0001, BUF_LEN16
-  ; Clamp to LINE_COUNT16-1
-  CMP16 BUF_LEN16, LINE_COUNT16
-  BCC .num_ok
-  SEC
-  SBCI16 LINE_COUNT16, $0001, BUF_LEN16
-.num_ok:
-  CLC
-  RTS
-.mark:
-  INX                     ; Skip quote
-  LDA CMD_BUF,X
-  INX                     ; Skip mark letter
-  ; Save X (CMD_BUF offset), mark_get returns result in A/X
-  STX CMD_IDX
-  JSR mark_get            ; A = low, X = high, carry set if invalid
-  BCS .error
-  STA BUF_LEN16
-  STX BUF_LEN16 + 1
-  LDX CMD_IDX
-  CLC
-  RTS
-.dot:
-  INX                     ; Skip dot
-  CP16 FILE_LINE16, BUF_LEN16
-  CLC
-  RTS
-.error:
-  SEC
+; :marks (the only command starting with 'm'): CMD_BUF+1..+5 must be "arks",0
+cmd_parse_m:
+  LDX #4
+.loop:
+  LDA CMD_BUF + 1,X
+  CMP str_marks_tail,X
+  BNE cmd_unknown
+  DEX
+  BPL .loop
+  JMP marks_display
+
+cmd_parse_q:
+  LDA CMD_BUF + 1
+  BNE .not_bare       ; Not just ":q"
+  ; Check if modified
+  LDA MODIFIED
+  BEQ cmd_set_quit
+  ; Show warning
+  LDA #<str_no_write
+  LDX #>str_no_write
+  JMP show_message_ax
+
+.not_bare:
+  CMP #'!'
+  BNE cmd_unknown
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":q!"
+cmd_set_quit:
+  DEC CMD_QUIT        ; $00 -> $FF: quit
   RTS
 
-; Write (save) the file
+cmd_parse_w:
+  LDA READONLY
+  BNE show_readonly_msg
+  LDA CMD_BUF + 1
+  BEQ command_write_file  ; Just ":w"
+  CMP #'q'
+  BNE cmd_unknown
+  LDA CMD_BUF + 2
+  BNE cmd_unknown     ; Extra chars after ":wq"
+  ; :wq - quit once written (a failed open clears this again)
+  DEC CMD_QUIT
+  ; fall through
+
+; Write (save) the file. If it cannot be opened, show an error and leave
+; MODIFIED set and CMD_QUIT clear (a failed :wq does not quit).
 command_write_file:
   ; Open file for writing
   LDAX16 FNAME_PTR16
   JSR openout
-  STA FILE_HANDLE
+  TAX                 ; Handle 0: could not open
+  BEQ .open_failed
 
-  ; Write buffer contents
-  LDA FILE_HANDLE
+  ; Write buffer contents (buf_save_file keeps the handle in FILE_HANDLE)
   JSR buf_save_file
 
   ; Close file
@@ -313,169 +226,130 @@ command_write_file:
   LDA #0
   STA MODIFIED
 
-  ; Show confirmation on status line
-  JSR command_show_prompt
+  ; Show confirmation on status line: "name" written
+  JSR status_line_clear
   LDA #'"'
-  JSR io_write
+  JSR text_putc
   JSR write_fname
-  LDA #'"'
-  JSR io_write
-  LDA #' '
-  JSR io_write
+  LDA #<str_written
+  LDX #>str_written
+  JMP hold_message_ax
 
-  ; Print " written"
-  PRINT_STR str_written
+.open_failed:
+  STA CMD_QUIT        ; A = 0
+  LDA #<str_cant_write
+  LDX #>str_cant_write
+  JMP show_message_ax
 
-  JSR io_flush
-  ; Brief pause to show message - wait for next redraw
-  RTS
+; --- Command parse dispatch table ---
+command_parse_keys:
+  .byte 'w'    .word cmd_parse_w
+  .byte 'q'    .word cmd_parse_q
+  .byte 'm'    .word cmd_parse_m
+  .byte 0      ; End sentinel
 
-; Show "Buffer full" status message
-show_buffer_full_msg:
-  LDA #<str_buffer_full
-  LDX #>str_buffer_full
-  ; fall through
-
-; Show status message with string address in A (low) / X (high)
-show_message_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
-  ; fall through
-
-; Show a status message and wait for keypress
-; STR_PTR16 must be set to the message string before calling
-show_status_message:
-  ; Save message pointer (command_show_prompt clobbers STR_PTR16)
-  PUSH16 STR_PTR16
-  JSR command_show_prompt
-  POP16 STR_PTR16
-  JSR write_string
-  JSR io_flush
-  JSR get_key
-  RTS
-
-; Compare CMD_BUF (starting at offset X) against asciiz string at STR_PTR16
-; Input: X = starting offset in CMD_BUF, STR_PTR16 = string to match
-; Returns: carry clear = match, carry set = no match
-; Clobbers: A, X, Y
-cmd_str_match:
-  LDY #0
-.loop:
-  LDA (STR_PTR16),Y
-  BEQ .check_end
-  CMP CMD_BUF,X
-  BNE .no_match
-  INX
-  INY
-  JMP .loop
-.check_end:
+; Parse one range position starting at CMD_BUF[X]
+; Handles: 'x (mark), . (current line), decimal number (1-based); none
+; (any other char) is the current line, as in vim (:5,d = :5,.d)
+; Returns: BUF_LEN16 = 0-based line number (past the last line for a
+;          number past it), X = updated offset
+;          carry clear = success, carry set = error (mark not set)
+; Clobbers: A, Y, CMD_IDX, BUF_DST16
+parse_range_pos:
   LDA CMD_BUF,X
-  BNE .no_match
+  CMP #'.'
+  BNE .not_dot
+  INX                     ; Skip dot
+.cur_line:
+  CP16 FILE_LINE16, BUF_LEN16
   CLC
   RTS
-.no_match:
-  SEC
-  RTS
-
-; Parse range or goto command
-; Handles: :'a,.y  :'a,'bd  :1,3d  :1,.y  :.,'ay  :NNN (goto)
-command_parse_range:
-  LDX #0
-  JSR parse_range_pos     ; Parse first position -> BUF_LEN16
-  BCC .range_first_ok
-  JMP range_mark_err
-.range_first_ok:
-  CP16 BUF_LEN16, BUF_SRC16
-
-  ; Check for comma (range) or end (goto)
+.not_dot:
+  CMP #'\''
+  BNE .number
+  INX                     ; Skip quote
   LDA CMD_BUF,X
-  CMP #','
-  BEQ .range_has_comma
-
-  ; No comma: maybe :NNN goto
-  CMP #0
-  BEQ .range_goto
-
-  ; Single-position + command (e.g. :.> or :5d)
-  CP16 BUF_SRC16, BUF_DST16   ; end = start
-  LDA CMD_BUF,X                ; command char
-  JMP range_dispatch
-
-.range_goto:
-  ; :NNN goto (BUF_SRC16 = 0-based line)
-  CP16 BUF_SRC16, FILE_LINE16
+  INX                     ; Skip mark letter
+  ; Save X (CMD_BUF offset), mark_get returns result in A/X
+  STX CMD_IDX
+  JSR mark_get            ; A = low, X = high, carry set if invalid
+  BCS .error
+  STAX16 BUF_LEN16
+  LDX CMD_IDX
+.error:
+  RTS                     ; Carry set: no such mark
+.number:
+  ; Decimal number into BUF_LEN16 (from 6400 on, further digits are
+  ; ignored: it is past every line all the same)
   LDA #0
-  STA_LH16 CURSOR_COL16
-  JMP clamp_cursor_col
-
-.range_has_comma:
-  INX                     ; Skip comma
-  PUSH16 BUF_SRC16        ; Save first position (parse_decimal clobbers BUF_SRC16)
-  JSR parse_range_pos     ; Parse second position -> BUF_LEN16
-  POP16 BUF_SRC16         ; PLA preserves carry on 6502
-  BCC .range_second_ok
-  JMP range_mark_err
-.range_second_ok:
-  CP16 BUF_LEN16, BUF_DST16
-
-  ; Get command char
+  STA_LH16 BUF_LEN16
+  STX CMD_IDX             ; Save start offset
+.digit_loop:
   LDA CMD_BUF,X
-  JMP range_dispatch
-
-range_dispatch:
-  ; A = command char
-  STA CMD_IDX              ; Save command char
-
-  ; Ensure start <= end (swap if needed)
-  CMP16 BUF_SRC16, BUF_DST16
-  BCC .range_order_ok
-  BEQ .range_order_ok
-  ; Swap BUF_SRC16 and BUF_DST16
-  LDA BUF_SRC16
-  PHA
-  LDA BUF_DST16
-  STA BUF_SRC16
-  PLA
-  STA BUF_DST16
-  LDA BUF_SRC16 + 1
-  PHA
-  LDA BUF_DST16 + 1
-  STA BUF_SRC16 + 1
-  PLA
-  STA BUF_DST16 + 1
-.range_order_ok:
-
-  ; count = end - start + 1
   SEC
-  SBC16 BUF_DST16, BUF_SRC16, BUF_LEN16
-  INC16 BUF_LEN16
-
-  ; Copy full 16-bit count to BUF_TEMP16 (no 255 cap)
-  CP16 BUF_LEN16, BUF_TEMP16
-
-  ; Readonly check for editing commands (d, >, <) — yank allowed
-  LDA CMD_IDX
-  CMP #'y'
-  BEQ .range_dispatch_cmd
-  LDA READONLY
-  BNE show_readonly_msg
-
-.range_dispatch_cmd:
-  LDA CMD_IDX
-  STA BUF_TEMP
-  LDA #<range_action_keys
-  LDX #>range_action_keys
-  JSR dispatch_key
-  BCC .done
-  JMP cmd_unknown
-.done:
+  SBC #'0'
+  CMP #10
+  BCS .digits_done
+  JSR mul10_add           ; BUF_LEN16 = BUF_LEN16 * 10 + digit
+  INX
+  BNE .digit_loop         ; Always taken (CMD_BUF is null-terminated)
+.digits_done:
+  CPX CMD_IDX
+  BEQ .cur_line           ; No digits: the current line
+  ; Convert 1-based to 0-based (0 stays at 0 = first line)
+  TST16 BUF_LEN16
+  BEQ .num_ok
+  DEC16 BUF_LEN16
+.num_ok:
+  CLC
   RTS
 
-; Shared read-only rejection message (also used by cmd_parse_w)
-show_readonly_msg:
-  LDA #<str_readonly
-  LDX #>str_readonly
-  JMP show_message_ax
+; Read a line on the status line into CMD_BUF (the ':' and the '/' '?'
+; prompts)
+; Input: A = prompt character
+; Returns: carry clear on Enter: CMD_BUF null-terminated, X = length
+;          carry set on ESC, or on backspace with nothing left to delete
+; Only printable characters ($20-$7E) are stored, up to CMD_BUF_LEN and
+; as many as fit the status row after the prompt (SCREEN_COLS - 2).
+; X holds the length throughout: get_key, erase_char and text_flush
+; preserve it.
+; Clobbers: A, X, Y
+read_line:
+  JSR show_prompt
+  LDX #0
+.loop:
+  JSR get_key              ; ($7F arrives as KEY_BS)
+  CMP #KEY_ENTER
+  BEQ .enter
+  CMP #KEY_ESC
+  BEQ .ret                 ; Cancel (carry set by the equal compare)
+  CMP #KEY_BS
+  BNE .char
+  TXA
+  BEQ .ret                 ; Nothing to delete: cancel (carry still set)
+  DEX
+  JSR erase_char
+  JMP .loop
+.char:
+  CMP #' '
+  BCC .loop                ; Ignore control characters...
+  CMP #$7F
+  BCS .loop                ; ...and special keys ($80+)
+  CPX #CMD_BUF_LEN
+  BCS .loop                ; Buffer full
+  LDY TEXT_LEFT
+  DEY
+  BEQ .loop                ; Status row full
+  STA CMD_BUF,X
+  INX
+  JSR text_flush           ; Echo
+  JMP .loop
+.enter:
+  LDA #0
+  STA CMD_BUF,X            ; Null-terminate
+  CLC
+.ret:
+  RTS
 
 ; --- Range action dispatch table ---
 range_action_keys:
@@ -485,70 +359,34 @@ range_action_keys:
   .byte '<'   .word range_do_unindent
   .byte 0     ; End sentinel
 
-  ; --- Range yank ---
+  ; --- Range yank: as yy, of the range ---
 range_do_yank:
-  JSR yank_clear
   LDAX16 BUF_SRC16
-  JSR yank_add_lines
-  BCS range_yank_full
+  JMP yank_lines
 
-  ; Show "N lines yanked"
-  LDA #<str_lines_yanked
-  LDX #>str_lines_yanked
-  JMP report_yank_lines_ax
-
+; A yank that does not fit changes nothing: the yank buffer, the text,
+; and the cursor, which goes back where the command was typed (d0, db,
+; cb, yb and :d moved it to the start of their range first)
 range_yank_full:
-  JSR yank_clear
+  JSR cursor_to_snap
   LDA #<str_yank_full
   LDX #>str_yank_full
   JMP show_message_ax
 
   ; --- Range delete ---
+  ; dd with the cursor moved to the range start: yanks the lines, records
+  ; undo, adjusts marks, deletes and clamps FILE_LINE16, and the rows
+  ; below scroll up (RF_DEL, worked out before the lines go). A yank that
+  ; does not fit changes nothing (range_yank_full)
 range_do_delete:
-  ; Yank lines first (so user can paste them back)
-  ; Save first line (yank_add_lines clobbers BUF_SRC16)
-  PUSH16 BUF_SRC16
-  JSR yank_clear
-  LDAX16 BUF_SRC16
-  JSR yank_add_lines
-  POP16 BUF_SRC16          ; PLA preserves carry on 6502
-  BCS range_yank_full
-
-  ; Adjust marks before deletion (mark_adjust_delete clobbers BUF_SRC16/BUF_DST16)
-  CP16 YANK_LINES16, BUF_TEMP16
-  PUSH16 BUF_SRC16
-  LDAX16 BUF_SRC16
-  JSR mark_adjust_delete
-  POP16 BUF_SRC16
-
-  ; Delete lines (buf_delete_lines clobbers BUF_SRC16)
-  CP16 YANK_LINES16, BUF_TEMP16
-  PUSH16 BUF_SRC16
-  LDAX16 BUF_SRC16
-  JSR buf_delete_lines
-  POP16 BUF_SRC16
-
-  ; Move cursor to first deleted line position
-  CP16 BUF_SRC16, FILE_LINE16
-
-  ; Clamp cursor if past end of file
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .range_del_ok
-  SEC
-  SBCI16 LINE_COUNT16, $0001, FILE_LINE16
-.range_del_ok:
-  LDA #$FF
-  STA MODIFIED
-  JSR clamp_cursor_col
-
-  ; Show "N lines deleted"
-  LDA #<str_lines_deleted
-  LDX #>str_lines_deleted
-  JMP report_yank_lines_ax
+  CP16 BUF_SRC16, FILE_LINE16  ; BUF_TEMP16 = count already
+  JSR first_nonblank           ; (where u returns, as in vim)
+  JMP dd_lines                 ; (BATCH_EXTRA = 0)
 
   ; --- Range indent ---
-  ; The cores adjust the cursor column when the cursor's line is inside
-  ; the range; the cursor line itself never moves.
+  ; The shift starts on the first non-blank of the range's first line
+  ; (as vim does, and u returns there); the cursor then goes to the first
+  ; non-blank of its last line, as in vim.
 range_do_indent:
   JSR range_shift_setup
   JSR insert_spaces_core
@@ -561,62 +399,96 @@ range_do_unindent:
   JMP range_shift_finish
 
 range_shift_setup:
-  CP16 BUF_SRC16, UNDO_LINE16  ; Range start (BUF_TEMP16 = count already)
-  LDA #INDENT_WIDTH
-  STA BUF_DELTA
-  STA SHIFT_UNDO_WIDTH
-  LDA #0
-  STA SHIFT_MODE
-  RTS
+  CP16 BUF_SRC16, FILE_LINE16  ; Range start (BUF_TEMP16 = count already)
+  JSR first_nonblank
+  JMP shift_unit_setup
 
 range_shift_finish:
-  JSR clamp_cursor_col         ; Clamp (unindent may shorten line)
-  CP16 UNDO_PASTE_COUNT16, TO_DECIMAL_VALUE16
+  SEC
+  SBCI16 LINE_LEN16, 1, FILE_LINE16  ; The range's last line
+; The cursor to the first non-blank, and the report of a shift of
+; SHIFT_LINES16 lines (>>, <<, :>, :<)
+shift_nonblank_report:
+  JSR first_nonblank_clear     ; (the cores total the shift in COUNT16)
+  CP16 SHIFT_LINES16, DEC_VALUE16
   LDA #<str_lines_shifted
   LDX #>str_lines_shifted
   ; fall through
 
-; Report count on the status line: "N <suffix>"
-; Input: A/X = suffix string, TO_DECIMAL_VALUE16 = count
+; Report count on the status line: "N <suffix>", when it is more than 2
+; (vim's default 'report'), but not for typed-ahead presses or pairs (the
+; last of which takes one line: a run of dd, a >> or << pair)
+; Input: A/X = suffix string, DEC_VALUE16 = count
 report_lines_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
-report_lines:
-  ; command_show_prompt clobbers STR_PTR16 and TO_DECIMAL state
-  ; (its cursor positioning goes through write_byte_dec/to_decimal)
-  PUSH16 STR_PTR16
-  PUSH16 TO_DECIMAL_VALUE16
-  JSR command_show_prompt
-  POP16 TO_DECIMAL_VALUE16
-  JSR to_decimal
-  JSR print_decimal_result
-  POP16 STR_PTR16
-  JSR write_string
-  JMP io_flush
+  LDY BATCH_EXTRA
+  BNE .none
+  LDY DEC_VALUE16 + 1
+  BNE .report
+  LDY DEC_VALUE16
+  CPY #3
+  BCC .none
+.report:
+  ; status_line_clear clobbers STR_PTR16 and DEC_VALUE16 (its cursor
+  ; positioning goes through write_param)
+  PHA
+  TXA
+  PHA
+  PUSH16 DEC_VALUE16
+  JSR status_line_clear
+  POP16 DEC_VALUE16
+  JSR print_decimal
+  JMP pop_hold_message
+.none:
+  RTS
+
+; Show "Buffer full" status message
+show_buffer_full_msg:
+  LDA #<str_buffer_full
+  LDX #>str_buffer_full
+  ; fall through
+
+; Show the message at A (low) / X (high) on the status row, held there
+; until the next key, which then runs as usual (as in vim)
+show_message_ax:
+  ; Keep the address on the stack: status_line_clear clobbers STR_PTR16
+  PHA
+  TXA
+  PHA
+  JSR status_line_clear
+pop_hold_message:
+  PLA
+  TAX
+  PLA
+  ; fall through
+
+; Print the text at A (low) / X (high) after a message on the status row
+; and keep it there until the next key: the frame that ends the command
+; leaves the status bar alone (status_build)
+hold_message_ax:
+  INC STATUS_HOLD
+  JMP print_string_ax
 
 ; Same, with count taken from YANK_LINES16
 report_yank_lines_ax:
-  STA STR_PTR16
-  STX STR_PTR16 + 1
-  CP16 YANK_LINES16, TO_DECIMAL_VALUE16
-  JMP report_lines
-
-range_mark_err:
-  LDA #<str_mark_not_set
-  LDX #>str_mark_not_set
-  JMP show_message_ax
+  TAY
+  CP16 YANK_LINES16, DEC_VALUE16
+  TYA
+  JMP report_lines_ax
 
 str_lines_yanked:  .asciiz " lines yanked"
-str_lines_deleted: .asciiz " lines deleted"
+str_fewer_lines:   .asciiz " fewer lines"
 str_lines_shifted: .asciiz " lines shifted"
-str_marks_cmd:     .asciiz "marks"
+str_marks_tail:    .asciiz "arks"
 
 ; === String constants ===
 str_unknown_cmd: .asciiz "Unknown command"
 str_no_write:    .asciiz "No write since last change (use :q! to override)"
-str_written:     .asciiz "written"
+str_written:     .byte '"'         ; Closing quote after the file name
+                 .asciiz " written"
+str_cant_write:  .asciiz "Can't open file for writing"
 str_buffer_full: .asciiz "Buffer full"
 str_readonly:    .asciiz "Read-only (file truncated)"
 str_truncated:   .asciiz "WARNING: File too large - read only"
 str_yank_full:   .asciiz "Yank buffer full"
 str_mark_not_set: .asciiz "Mark not set"
+str_invalid_range: .asciiz "Invalid range"

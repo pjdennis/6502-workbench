@@ -35,6 +35,7 @@ LINE_LENGTHS             = $0300 ; GD_CHAR_COLS bytes
 GDC_CHAR_BUFFER          = $0400 ; GD_CHAR_ROWS * GD_CHAR_COLS bytes
 
   .org $2000                     ; Loader loads programs to this address
+start:
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   ; The initialize_machine routine in this include will set up hardware registers and then

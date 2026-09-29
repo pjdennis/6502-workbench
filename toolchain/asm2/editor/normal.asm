@@ -1,77 +1,41 @@
 ; Normal mode - main handler, dispatch tables, and core editing commands
 
-; Initialize normal mode state
-normal_init:
-  LDA #0
-  STA LAST_KEY
-  STA_LH16 COUNT16
-  STA COUNT_ACTIVE
-  STA BATCH_RESTORE_KEY
-  STA BATCH_EXTRA
-  STA SCROLL_AMOUNT
-  RTS
-
 ; Handle a keystroke in normal mode
 ; Key code in A
 normal_handle_key:
   STA BUF_TEMP
 
-  ; --- Count prefix handling ---
-
-  ; ESC always clears count and pending key
+  ; Pending key: dispatch the pair; ESC or no match clears count and key
+  LDX LAST_KEY
+  BEQ .no_pending
   CMP #KEY_ESC
-  BNE .not_esc_count
-  LDA COUNT_ACTIVE
-  ORA LAST_KEY
-  BEQ .not_esc_count      ; No active count or pending key, let ESC fall through
-  JSR clear_count
-  RTS
-.not_esc_count:
+  BEQ .clear
+  LDA #<pending_combo_keys
+  LDX #>pending_combo_keys
+  JSR dispatch_pending_key
+  BCC .done
+.clear:
+  ASL CURSWANT_KEEP          ; A key that does nothing keeps the column
+  JMP clear_count
 
-  ; If COUNT_ACTIVE, check for continued digit input
-  LDA COUNT_ACTIVE
-  BEQ .count_not_active
+.no_pending:
+  ; Count prefix: '1'-'9' start or extend a count, '0' extends one.  A
+  ; count is being typed exactly when COUNT16 != 0 with no pending key,
+  ; because every command ends in clear_count
+  EOR #'0'                   ; '0'-'9' -> 0-9, any other key -> 10 or more
+  CMP #10
+  BCS .dispatch
+  TAX
+  BNE .digit                 ; '1'-'9'
+  LDX COUNT16
+  BNE .digit                 ; '0' within a count
+  LDX COUNT16 + 1
+  BEQ .dispatch              ; '0' alone: line start
+.digit:
+  ASL CURSWANT_KEEP          ; A digit keeps the remembered column
+  JMP count_accumulate_digit
 
-  ; COUNT_ACTIVE=true: 0-9 continues accumulation
-  LDA BUF_TEMP
-  CMP #'0'
-  BCC .count_done_dispatch
-  CMP #'9' + 1
-  BCS .count_done_dispatch
-  ; Accumulate digit into COUNT16
-  JSR count_accumulate_digit
-  RTS
-
-.count_done_dispatch:
-  ; Non-digit with active count: clear COUNT_ACTIVE, fall through to dispatch
-  LDA #0
-  STA COUNT_ACTIVE
-  JMP .dispatch_key
-
-.count_not_active:
-  ; If pending key is set, don't start a new count - dispatch directly
-  LDA LAST_KEY
-  BNE .dispatch_key
-  ; Not counting yet: 1-9 starts a new count
-  LDA BUF_TEMP
-  CMP #'1'
-  BCC .dispatch_key
-  CMP #'9' + 1
-  BCS .dispatch_key
-  ; Start new count
-  LDA #$FF
-  STA COUNT_ACTIVE
-  LDA #0
-  STA_LH16 COUNT16
-  LDA BUF_TEMP
-  JSR count_accumulate_digit
-  RTS
-
-.dispatch_key:
-  LDA LAST_KEY
-  BEQ .normal_dispatch
-  JMP pending_key_dispatch
-.normal_dispatch:
+.dispatch:
   LDA #<normal_movement_keys
   LDX #>normal_movement_keys
   JSR dispatch_key
@@ -83,30 +47,11 @@ normal_handle_key:
   JSR dispatch_key
   BCC .done
 .skip_editing:
-  LDA #<normal_other_keys
-  LDX #>normal_other_keys
-  JSR dispatch_key
-  BCC .done
   ; Check if key starts a multi-key combo
   LDA #<pending_combo_keys
   LDX #>pending_combo_keys
   JSR check_combo_first_key
-  BCC .done
-  ; Unknown key - clear count and last key, cursor-only update
-  JSR clear_count
-.done:
-  RTS
-
-; --- Pending key dispatch ---
-; Called when LAST_KEY is set and a second key arrives in BUF_TEMP.
-; Uses table-based dispatch via dispatch_pending_key.
-pending_key_dispatch:
-  LDA #<pending_combo_keys
-  LDX #>pending_combo_keys
-  JSR dispatch_pending_key
-  BCC .done
-  ; No match - reset
-  JSR clear_count
+  BCS .clear                 ; Unknown key: clear count and last key
 .done:
   RTS
 
@@ -117,6 +62,8 @@ normal_movement_keys:
   .byte KEY_LEFT    .word normal_move_left
   .byte 'l'         .word normal_move_right
   .byte KEY_RIGHT   .word normal_move_right
+  .byte ' '         .word normal_space
+  .byte KEY_BS      .word normal_backspace
   .byte 'j'         .word normal_move_down
   .byte KEY_DOWN    .word normal_move_down
   .byte 'k'         .word normal_move_up
@@ -141,7 +88,8 @@ normal_movement_keys:
   .byte 'e'         .word normal_word_end
   .byte KEY_WORD_FWD  .word normal_word_forward
   .byte KEY_WORD_BACK .word normal_word_backward
-  .byte '^'         .word normal_first_nonblank
+  .byte '^'         .word first_nonblank_clear
+  .byte ':'         .word normal_enter_command
   .byte 0           ; End sentinel
 
 normal_editing_keys:
@@ -149,9 +97,10 @@ normal_editing_keys:
   .byte KEY_DEL     .word normal_delete_char
   .byte 'X'         .word normal_delete_char_back
   .byte 'D'         .word normal_delete_to_eol
-  .byte 'i'         .word normal_enter_insert
+  .byte 'i'         .word enter_insert_mode
   .byte 'a'         .word normal_enter_insert_after
   .byte 'A'         .word normal_enter_insert_eol
+  .byte 'I'         .word normal_enter_insert_bol
   .byte 'o'         .word normal_open_below
   .byte 'O'         .word normal_open_above
   .byte 'p'         .word normal_paste_below
@@ -160,31 +109,31 @@ normal_editing_keys:
   .byte 'J'         .word normal_join_lines
   .byte 's'         .word normal_substitute_char
   .byte 'C'         .word normal_change_to_eol
-  .byte 'S'         .word normal_substitute_line
+  .byte 'S'         .word do_cc              ; S = substitute line = cc
   .byte 'u'         .word undo_handle
-  .byte 0           ; End sentinel
-
-normal_other_keys:
-  .byte ':'         .word normal_enter_command
   .byte 0           ; End sentinel
 
 ; Pending combo key table: 5-byte entries [last_key, second_key, flags, handler]
 ;   second_key=0: wildcard (any second key)
-;   flags bit 0: call batch_pending_pairs before handler
-;   flags bit 1: editing command (blocked in READONLY mode)
+;   flags bit 0: run the handler once per typed-ahead pair (dispatch_replay;
+;     dd, >> and << take their pairs themselves)
+;   flags bit 1: editing command (blocked in READONLY mode).  Only
+;     check_combo_first_key tests it (READONLY accepts a first key if any
+;     of its entries has bit 1 clear); dispatch_pending_key does not, so
+;     all entries that share a first key must agree on bit 1
 pending_combo_keys:
   .byte 'm', 0, $00         .word do_mark_set
   .byte '\'', 0, $00        .word do_mark_goto
   .byte 'r', 0, $02         .word do_replace_char
-  .byte 'd', 'd', $03       .word do_dd
+  .byte 'd', 'd', $02       .word do_dd      ; batches its own pairs
   .byte 'g', 'g', $00       .word do_gg
   .byte 'y', 'y', $00       .word do_yy
   .byte 'y', 'w', $00       .word do_yw
   .byte 'y', 'b', $00       .word do_yb
   .byte 'c', 'c', $02       .word do_cc
-  .byte '>', '>', $03       .word do_indent
-  .byte '<', '<', $03       .word do_unindent
-  .byte 'd', '$', $02       .word do_d_dollar
+  .byte '>', '>', $02       .word do_indent
+  .byte '<', '<', $02       .word do_unindent
+  .byte 'd', '$', $02       .word normal_delete_to_eol
   .byte 'd', '0', $02       .word do_d_zero
   .byte 'y', '$', $00       .word do_y_dollar
   .byte 'y', '0', $00       .word do_y_zero
@@ -198,187 +147,194 @@ pending_combo_keys:
   .byte 0                   ; End sentinel
 
 ; --- Editing ---
-
-normal_delete_char:
-  JSR check_cursor_in_line
-  BCS .done
-
-  ; Normalize batching: count + pending x keys, capped at 255
-  JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  STX BUF_TEMP16
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
-  JMP batched_char_delete
-.done:
-  JMP clear_count
+; (x and Del: normal_delete_char, normal_util.asm)
 
 ; X: delete count chars before the cursor (clamped at column 0); the
 ; cursor moves left with the text
 normal_delete_char_back:
   TST16 CURSOR_COL16
-  BEQ .done
+  BEQ delete_char_done
 
-  ; Normalize batching: count + pending X keys, capped at 255
+  JSR get_line_len_z         ; LINE_LEN16 (the range lies inside the line)
+  ; Normalize batching: count + pending X keys
   JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
-  STX BUF_TEMP16
-  LDA #0
-  STA BUF_TEMP16 + 1
+; Delete X chars before the cursor, BUF_DELTA of them the count's (x past
+; the line end enters here, with BUF_DELTA = 0)
+delete_char_back_x:
   ; Clamp to the chars before the cursor
-  CMP16 CURSOR_COL16, BUF_TEMP16
-  BCS .count_ok
-  CP16 CURSOR_COL16, BUF_TEMP16
+  LDA CURSOR_COL16 + 1
+  BNE .count_ok
+  CPX CURSOR_COL16
+  BCC .count_ok
+  BEQ .count_ok              ; The last press takes the last char
+  LDX CURSOR_COL16
+  LDA BATCH_EXTRA
+  BEQ .count_ok              ; A count past column 0: one press
+  ; Presses are left over at column 0, each an empty change as one at a
+  ; time.  When the count alone reaches it, its delete is the last to
+  ; take chars (unbatched)
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP CURSOR_COL16
+  BCC .left_over
+  LDA #0
+  STA BATCH_EXTRA
+.left_over:                  ; The delete, then the presses' empty change
+  JSR .count_ok
+  JMP undo_record_empty
 .count_ok:
-  ; Move to the range start and delete forward from there
+  ; Move to the range start (col -= X) and delete forward from there
+  TXA
+  EOR #$FF
   SEC
-  SBC16 CURSOR_COL16, BUF_TEMP16, CURSOR_COL16
-  JSR check_cursor_in_line   ; LINE_LEN16 (cursor is now inside the line)
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
+  ADC CURSOR_COL16
+  STA CURSOR_COL16
+  BCS .no_borrow
+  DEC CURSOR_COL16 + 1
+.no_borrow:
   JMP batched_char_delete_back
-.done:
-  JMP clear_count
-
-normal_delete_to_eol:
-  JSR check_cursor_in_line
-  BCS .done
-
-  JSR get_count
-  JSR compute_dollar_range
-  CP16 CURSOR_COL16, RENDER_FROM_COL16
-  LDA #OP_DELETE
-  JSR apply_char_operator
-.done:
-  JMP clear_count
+delete_char_done:            ; X at column 0: an empty change (vim)
+  JMP x_empty
 
 ; dd: yank then delete N lines (N = count, min 1)
+; Typed-ahead dd pairs add to N while it stays within the lines left: past
+; the last line each dd deletes the line above (the cursor moves up), so
+; the pairs that do not fit stay queued and run one at a time.
 ; When batched (BATCH_EXTRA > 0): yank only the last line, then delete
 ; all N lines in a single operation (one shift, one rebuild).
 do_dd:
-  JSR get_count              ; BUF_TEMP16 = count (16-bit)
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count, BUF_LEN16 = lines left
+  LDA BUF_LEN16
+  SEC
+  SBC BUF_TEMP16
+  TAX                        ; X = lines left after the count
+  LDA BUF_LEN16 + 1
+  SBC BUF_TEMP16 + 1
+  BEQ .room
+  LDX #$FF                   ; 256 or more
+.room:
+  JSR batch_pending_pairs_upto  ; X = pairs taken
+  JSR add_x_temp16           ; BUF_TEMP16 = count + pairs (the limit kept it
+                             ; within the lines left)
+  ; fall through
 
-  ; Pre-compute screen rows of lines being deleted (before deletion)
-  LDA BUF_TEMP16 + 1
-  BNE .dd_skip_precompute    ; Count > 255, skip
-  JSR set_render_line_to_cursor
-  LDA BUF_TEMP16
-  JSR compute_delete_screen_rows
-  JMP .dd_after_precompute
-.dd_skip_precompute:
-  LDA #0
-  STA DELETE_SCREEN_ROWS
-.dd_after_precompute:
+; dd of BUF_TEMP16 lines (at most the lines left), BATCH_EXTRA of them
+; typed-ahead pairs; op_lines enters here with none
+dd_lines:
+  BIT EMPTY_BUF
+  BMI delete_char_done       ; No lines: nothing to delete (no yank)
+  ; Pre-compute the scroll of the lines being deleted (before deletion)
+  JSR precompute_delete_scroll
 
   LDA BATCH_EXTRA
   BEQ .do_yank_delete        ; No batching, standard path
 
   ; Batched: yank last line only, then delete all in one operation
-  ; Save total count
-  PUSH16 BUF_TEMP16
+  PUSH16 BUF_TEMP16          ; Save total count
   ; Yank 1 line at FILE_LINE16 + (total - 1)
-  JSR yank_clear
-  SEC
-  SBCI16 BUF_TEMP16, 1, BUF_TEMP16
+  JSR dec_buf_temp16
   CLC
-  ADC16 FILE_LINE16, BUF_TEMP16, BUF_TEMP16
-  ; BUF_TEMP16 = last line number; set count=1 via BUF_LEN16, then swap
-  LDAX16 BUF_TEMP16          ; A/X = last line number
-  PHA                        ; Save A (line number low byte)
-  JSR set_buf_temp16_one     ; BUF_TEMP16 = 1 (count)
-  PLA                        ; Restore A = last line number low byte
+  LDA FILE_LINE16
+  ADC BUF_TEMP16
+  PHA
+  LDA FILE_LINE16 + 1
+  ADC BUF_TEMP16 + 1
+  TAX                        ; X = last line number high byte
+  JSR set_buf_temp16_one     ; BUF_TEMP16 = 1 (count); preserves X
+  PLA                        ; A = last line number low byte
   JSR yank_add_lines
-  ; Restore total count and delete all lines
-  POP16 BUF_TEMP16
+  POP16 BUF_TEMP16           ; Restore total count (PLA keeps carry)
   BCS .yank_overflow
-  JSR undo_record_line_delete
-  JSR delete_current_lines
-  JMP .dd_done
+  LDA #$FF                   ; The last dd was typed on its first non-
+  STA CURSOR_COL16 + 1       ; blank (undo_line_col)
+  JSR undo_delete_current_lines
+  ; u puts back the marks as the last dd found them: the saved marks
+  ; lose those of the lines the dd's before it took, as those did
+  SEC
+  ROR MARK_BASE              ; $80: the saved marks
+  JSR dec_buf_temp16
+  LDAX16 UNDO_LINE16
+  JSR mark_adjust_delete
+  ASL MARK_BASE              ; 0 again
+  BCS .dd_done               ; Always
 
 .do_yank_delete:
   JSR yank_delete_current_lines
   BCS .yank_overflow
 
 .dd_done:
-  LDA #$FF
-  STA MODIFIED
-  LDA #$02
-  STA RENDER_FLAG        ; Signal line-delete for scroll optimization
-  JMP clamp_and_clear_count
+  ; Scroll the deleted rows up: the next line moves into the cursor row,
+  ; or (at EOF) the cursor moved up onto the unchanged line above them.
+  ; The cursor goes to that line's first non-blank
+  JSR set_modified
+  JSR first_nonblank
+  JSR finish_delete_scroll
+  LDA #<str_fewer_lines       ; (not for typed-ahead pairs)
+  LDX #>str_fewer_lines
+  JMP report_yank_lines_ax
 
 .yank_overflow:
   JMP show_yank_overflow
 
-normal_enter_insert:
-  JMP enter_insert_mode
-
 normal_enter_insert_after:
-  JSR get_line_len_z
   ; Increment iff cursor < len (empty line: cursor 0 >= len 0, no move)
-  CMP16 CURSOR_COL16, LINE_LEN16
+  JSR check_cursor_in_line
   BCS .enter
   JSR inc_cursor_col
 .enter:
   JMP enter_insert_mode
 
 normal_enter_insert_eol:
-  JSR get_current_line_len
-  STAX16 CURSOR_COL16
+  JSR insert_end             ; col = len
+  JMP enter_insert_mode
+
+; I: insert before the first non-blank, and past the blanks of a line of
+; blanks (vim's beginline(BL_WHITE)): from the line end, nonblank_left
+; stops at the first non-blank, else stays there
+normal_enter_insert_bol:
+  JSR insert_end
+  JSR nonblank_left
   JMP enter_insert_mode
 
 normal_open_below:
+  JSR get_next_line_ptr
+  LDX #1
+  BNE open_line_x            ; Always
+normal_open_above:
   JSR get_current_line_ptr
-  JSR advance_past_line_end
-
-  LDA #'\n'
-  JSR buf_insert_char
-  BCS open_full
-  JSR buf_rebuild_lines
-
-  ; Adjust marks: new line inserted at FILE_LINE16+1
-  LDAX16 FILE_LINE16
+  LDX #0
+; Open a blank line at BUF_PTR16 as line FILE_LINE16 + X (X = 1: below
+; the cursor line, X = 0: above it), move the cursor to it and enter
+; insert mode
+open_line_x:
+  STX NORMAL_TEMP
+  TXA
   CLC
-  ADC #1
-  BCC .mark_adj
+  ADC FILE_LINE16
+  LDX FILE_LINE16 + 1
+  BCC .open
   INX
-.mark_adj:
-  JSR mark_insert_one
+.open:
+  JSR buf_open_line          ; A/X = the new line's number
+  BCS open_full
 
-  ; Record undo: opened line at FILE_LINE16+1, restore cursor to FILE_LINE16
-  LDA #UNDO_OPEN
-  STA UNDO_TYPE
-  CP16 FILE_LINE16, UNDO_COL16   ; Restore cursor to original line
+  ; Record the opened line as an insert segment, which the typing on it
+  ; extends: u deletes it with the lines typed there and returns to
+  ; where o or O was typed, as in vim.  Its line break follows the text
+  CP16 CURSOR_COL16, UNDO_RET_COL16
+  LDX NORMAL_TEMP
+  INX
+  STX UNDO_INS_OPEN              ; O: 1, o: 2 (u returns to the line above)
+  DEX
+  BEQ .on_new_line               ; O: the new line took this number
   INC16 FILE_LINE16
-  CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
+.on_new_line:
+  LDA #RF_INS                       ; Signal line-insert for scroll optimization
+  JSR undo_opened_finish         ; Column 0
+  JSR insert_seg_start
+  JMP enter_insert_open
 
-; Shared o/O tail: reset undo redo flag, cursor to col 0, enter insert mode
-open_common_finish:
-  LDA #0
-  STA UNDO_IS_REDO
-  STA_LH16 CURSOR_COL16
-  LDA #$FF
-  STA MODIFIED
-  LDA #$03
-  STA RENDER_FLAG        ; Signal line-insert for scroll optimization
-  JMP enter_insert_mode
-
-; Shared o/O buffer-full handler
+; o/O and r<Enter> buffer-full handler
 open_full:
   JSR show_buffer_full_msg
   JMP clear_count
-
-normal_open_above:
-  JSR get_current_line_ptr
-
-  LDA #'\n'
-  JSR buf_insert_char
-  BCS open_full
-  JSR buf_rebuild_lines
-
-  ; Adjust marks: new line inserted at FILE_LINE16
-  LDAX16 FILE_LINE16
-  JSR mark_insert_one
-
-  ; Record undo: opened line at FILE_LINE16, restore cursor to FILE_LINE16
-  LDA #UNDO_OPEN
-  STA UNDO_TYPE
-  CP16 FILE_LINE16, UNDO_LINE16  ; Opened line position
-  CP16 FILE_LINE16, UNDO_COL16   ; Restore cursor to same line
-  JMP open_common_finish
 

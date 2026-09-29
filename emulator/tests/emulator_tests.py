@@ -13,6 +13,7 @@ import argparse
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -408,6 +409,15 @@ class EmulatorTestRunner:
         else:
             self._fail(name, f"expected 2 bytes, got {output!r}")
 
+    def test_term_size_capped(self):
+        """Sizes over 255 read as 255 on the byte-wide ports, not mod 256."""
+        name = "Term size over 255 capped"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.term_size_bin,
+                                               rows=300, cols=256)
+        self._assert_eq(name, output, bytes([255, 255]))
+
     # ---- Stdin read (read_b) tests ----
 
     def test_stdin_read(self):
@@ -428,6 +438,199 @@ class EmulatorTestRunner:
         binary = self.make_binary(code)
         exit_code, output, _ = self.run_server(binary, keys=b"Hello stdin")
         self._assert_eq(name, output, b"Hello stdin")
+
+    # ---- wait_ready tests ----
+
+    def _build_wait_ready_tests(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        out_dir = tests_dir / "out"
+        self.wait_ready_bin = out_dir / "wait_ready_test.out"
+        self.wait_ready_exit_bin = out_dir / "wait_ready_exit_test.out"
+        return (self._assemble(tests_dir / "wait_ready_test.asm",
+                               self.wait_ready_bin)
+                and self._assemble(tests_dir / "wait_ready_exit_test.asm",
+                                   self.wait_ready_exit_bin))
+
+    def _build_direct_io_test(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        self.direct_io_bin = tests_dir / "out" / "direct_io_test.out"
+        return self._assemble(tests_dir / "direct_io_test.asm", self.direct_io_bin)
+
+    DIRECT_IO_EXPECTED = b"\x1b[3;17H\x1b[K\x1b[2@\x80q"
+
+    def test_direct_io_subprocess(self):
+        """--direct-io: screen calls write their ANSI sequences, and ESC[A is
+        read as KEY_UP."""
+        name = "direct-io: screen calls and keys (subprocess)"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "direct_keys.bin"
+        out = self.tmpdir / "direct_out.bin"
+        keys.write_bytes(b"\x1b[Aq")
+        result = self.run_subprocess(self.direct_io_bin, extra_args=[
+            "--direct-io", "--input", str(keys), "--output", str(out)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}: {result.stderr!r}")
+            return
+        self._assert_eq(name, out.read_bytes(), self.DIRECT_IO_EXPECTED)
+
+    def test_direct_io_server(self):
+        name = "direct-io: screen calls and keys (server MODE direct)"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.direct_io_bin, mode='direct', keys=b"\x1b[Aq")
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.DIRECT_IO_EXPECTED)
+
+    def _build_strict_api_test(self):
+        tests_dir = self.base_dir / "emulator" / "tests"
+        self.strict_api_bin = tests_dir / "out" / "strict_api_test.out"
+        return self._assemble(tests_dir / "strict_api_test.asm", self.strict_api_bin)
+
+    # write_b, con_read ('q'), wait_ready (a key ready), scr_cursor_off:
+    # each followed by its N V Z C flags, A, X, Y (strict_api_test.asm).
+    # The flags a call does not name come back inverted: all four for
+    # write_b and con_read, all but N for wait_ready; scr_cursor_off
+    # (whose own flags come from its LDA #$FB) changes A and Y
+    STRICT_API_EXPECTED = (b"w" + bytes([0xC2]) + b"w\x5a\xa5"
+                           + bytes([0xC3]) + b"q\x5a\xa5"
+                           + bytes([0xC2, 0xFF, 0x5A, 0xA5])
+                           + b"\x1b[?25l" + bytes([0x42, 0xFB, 0x5A, 0x5A]))
+
+    def test_strict_api_subprocess(self):
+        """--strict-api: calls keep only what their contract says."""
+        name = "strict-api: flags and registers a call does not name change (subprocess)"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "strict_keys.bin"
+        out = self.tmpdir / "strict_out.bin"
+        keys.write_bytes(b"qr")
+        result = self.run_subprocess(self.strict_api_bin, extra_args=[
+            "--direct-io", "--strict-api", "--input", str(keys), "--output", str(out)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}: {result.stderr!r}")
+            return
+        self._assert_eq(name, out.read_bytes(), self.STRICT_API_EXPECTED)
+
+    def test_strict_api_server(self):
+        name = "strict-api: flags and registers a call does not name change (server)"
+        if not self._should_run(name):
+            return
+        emu = self._get_server()
+        exit_code, output, _ = emu.run(self.strict_api_bin, load_addr=0x0400, mode='direct',
+                                       strict_api=True, keys=b"qr",
+                                       inline_output=True, inline_stderr=True)
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.STRICT_API_EXPECTED)
+
+    # The same program with the standard stubs, which happen to keep more
+    STANDARD_API_EXPECTED = (b"w" + bytes([0x01]) + b"w\x5a\xa5"
+                             + bytes([0x00]) + b"q\x5a\xa5"
+                             + bytes([0x81, 0xFF, 0x5A, 0xA5])
+                             + b"\x1b[?25l" + bytes([0x01, 0x04, 0x5A, 0xA5]))
+
+    def test_standard_api_after_strict_server(self):
+        """The server rebuilds the stubs when a run leaves --strict-api."""
+        name = "strict-api: the server's next standard run has the standard stubs"
+        if not self._should_run(name):
+            return
+        emu = self._get_server()
+        exit_code, output, _ = emu.run(self.strict_api_bin, load_addr=0x0400, mode='direct',
+                                       keys=b"qr", inline_output=True, inline_stderr=True)
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code}")
+            return
+        self._assert_eq(name, output, self.STANDARD_API_EXPECTED)
+
+    def test_wait_ready_input_queued(self):
+        """With --input every byte is ready at once; once a read has hit the
+        end of the input, wait_ready returns CON_EOF. X and Y survive."""
+        name = "wait_ready: ready while input is queued, then end of input"
+        if not self._should_run(name):
+            return
+        exit_code, output, _ = self.run_server(self.wait_ready_bin, keys=b"AB")
+        if exit_code != 0:
+            self._fail(name, f"exit code {exit_code} (1: X or Y changed)")
+            return
+        self._assert_eq(name, output, b"\xffA\xffB\xff\x00\x01")
+
+    def test_wait_ready_ends_pace_pause(self):
+        """During a --pace-mask pause the paced key is not typed yet: a wait
+        times out, and the program's next request for input ends the pause
+        (the log records the output written by then)."""
+        name = "wait_ready: times out in a --pace-mask pause, which then ends"
+        if not self._should_run(name):
+            return
+        keys = self.tmpdir / "wait_keys.bin"
+        mask = self.tmpdir / "wait_mask.bin"
+        log = self.tmpdir / "wait_pace.log"
+        out = self.tmpdir / "wait_out.bin"
+        keys.write_bytes(b"AB")
+        mask.write_bytes(b"11")
+        result = self.run_subprocess(self.wait_ready_bin, extra_args=[
+            "--input", str(keys), "--output", str(out),
+            "--pace-mask", str(mask), "--pace-log", str(log)])
+        if result.returncode != 0:
+            self._fail(name, f"exit code {result.returncode}")
+            return
+        if out.read_bytes() != b"\xffA\x00\xffB\x00\xff\x00\x01":
+            self._fail(name, f"output {out.read_bytes()!r}")
+            return
+        # each pause ends with "<input bytes read> <output bytes written>"
+        self._assert_eq(name, log.read_text().splitlines(), ["1 3", "2 6"])
+
+    def _run_console_wait(self, send):
+        """Run wait_ready_exit_test (a 200 ms wait) in --console mode with
+        stdin on a pipe that stays open, after writing `send` to it.
+        Returns (exit code, seconds taken); the exit code is None if the
+        program did not finish within 10 s."""
+        cmd = [str(self.emulator), str(self.wait_ready_exit_bin),
+               "--no-dump", "--load", "0400", "--console"]
+        start = time.monotonic()
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        try:
+            if send:
+                proc.stdin.write(send)
+                proc.stdin.flush()
+            code = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            code = None
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdin.close()
+        return code, time.monotonic() - start
+
+    def test_wait_ready_console_timeout(self):
+        """In console mode the wait is real time: with no key it returns
+        $00 once the 200 ms have passed."""
+        name = "wait_ready (console): times out when no key comes"
+        if not self._should_run(name):
+            return
+        code, secs = self._run_console_wait(None)
+        if code is None:
+            self._fail(name, "did not return within 10 s")
+        elif code != 0:
+            self._fail(name, f"expected exit code 0 (timed out), got {code}")
+        elif secs < 0.2:
+            self._fail(name, f"returned after {secs:.3f} s, before the timeout")
+        else:
+            self._pass(name)
+
+    def test_wait_ready_console_key(self):
+        """A key already waiting makes wait_ready return $FF."""
+        name = "wait_ready (console): returns $FF when a key is waiting"
+        if not self._should_run(name):
+            return
+        code, _ = self._run_console_wait(b"x")
+        self._assert_eq(name, code, 255)
 
     # ---- CLI argument validation tests ----
 
@@ -539,9 +742,40 @@ class EmulatorTestRunner:
             self.test_term_size_default()
             self.test_term_rows_override()
             self.test_term_cols_override()
+            self.test_term_size_capped()
 
         print("\n--- Stdin read ---")
         self.test_stdin_read()
+
+        print("\n--- wait_ready ---")
+        if not self.assembler.exists():
+            self._fail("wait_ready tests", "assembler not built")
+        elif not self._build_wait_ready_tests():
+            self._fail("wait_ready tests", "test programs did not assemble")
+        else:
+            self.test_wait_ready_input_queued()
+            self.test_wait_ready_ends_pace_pause()
+            self.test_wait_ready_console_timeout()
+            self.test_wait_ready_console_key()
+
+        print("\n--- direct-io ---")
+        if not self.assembler.exists():
+            self._fail("direct-io tests", "assembler not built")
+        elif not self._build_direct_io_test():
+            self._fail("direct-io tests", "test program did not assemble")
+        else:
+            self.test_direct_io_subprocess()
+            self.test_direct_io_server()
+
+        print("\n--- strict-api ---")
+        if not self.assembler.exists():
+            self._fail("strict-api tests", "assembler not built")
+        elif not self._build_strict_api_test():
+            self._fail("strict-api tests", "test program did not assemble")
+        else:
+            self.test_strict_api_subprocess()
+            self.test_strict_api_server()
+            self.test_standard_api_after_strict_server()
 
         print("\n--- CLI argument validation ---")
         self.test_cli_no_args()

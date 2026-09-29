@@ -15,7 +15,7 @@
 
 **Vi**: Uses a **temp-file-backed line array**. Lines are *not* stored in memory — they live in a disk-based temporary file accessed through block-level LRU caching (two 1KB/4KB input buffers + one output buffer). An in-core array of `line` pointers indexes into the temp file. This means vi can edit files far larger than available RAM.
 
-**Our editor**: Uses a **contiguous in-memory byte buffer** with newline delimiters, plus a separate **line pointer table** (`LINE_TBL` at `$C000`, 2 bytes per entry, up to 1023 lines). Text lives entirely in RAM between `TEXT_BUF` and `BUF_END16`.
+**Our editor**: Uses a **contiguous in-memory byte buffer** with newline delimiters, plus a separate **line pointer table** (`LINE_TBL` at `$D800`, 2 bytes per entry, up to 1023 lines). Text lives entirely in RAM between `TEXT_BUF` and `BUF_END16`.
 
 **Implications**:
 - Vi pays disk I/O cost for every line access (`getline()` reads from temp file), mitigated by LRU buffering. Our editor has zero I/O cost — all data is directly addressable.
@@ -31,8 +31,8 @@
 **Vi**: The line pointer array is the *primary* data structure. Inserting/deleting lines means splicing the array (moving pointers, not text). New line content is appended to the temp file. Cost: O(lines_moved) pointer shuffling, but the text itself isn't touched.
 
 **Our editor**: The line table is a *derived* index rebuilt from the text buffer. Three strategies:
-- **Full rebuild** (`buf_rebuild_lines`): scan entire buffer for newlines — O(file_size). Used when newlines are added/removed.
-- **Incremental adjust** (`buf_adjust_lines_inc/dec`): walk entries after edit point, adjust by +/-1 — O(remaining_lines). Used for single-char edits without newline changes.
+- **Rebuild** (`buf_rebuild_lines`): scan the buffer for newlines from the start of the cursor line (the first line an edit changes) to the end — O(text after it). Used when newlines are added/removed.
+- **Incremental adjust** (`buf_adjust_lines_apply`): walk entries after edit point, adjust by the signed size change — O(remaining_lines). Used for edits within one line (no newline changes).
 
 This is fundamentally different: vi's pointers *are* the canonical representation; our pointers are a cache over the byte buffer.
 
@@ -45,7 +45,7 @@ This is fundamentally different: vi's pointers *are* the canonical representatio
 **Our editor**: Uses **snapshot-based render optimization**. Before each command, captures `SNAP_VIEW_TOP16`, `SNAP_LINE_COUNT16`, `SNAP_BUF_END16`. After the command, `render_decide` compares:
 - View top changed -> full redraw
 - Buffer end changed -> redraw current line + status
-- Nothing changed -> reposition cursor only
+- Nothing changed -> reposition cursor only (a key that changed nothing on the screen sends nothing)
 
 This is simpler but effective. No per-line dirty tracking, no character-level insert/delete optimization. Always uses ANSI escape sequences (no termcap abstraction needed).
 
@@ -57,7 +57,7 @@ This is simpler but effective. No per-line dirty tracking, no character-level in
 
 **Vi**: Multi-level undo with five undo types (`UNDCHANGE`, `UNDMOVE`, `UNDALL`, `UNDNONE`, `UNDPUT`). Saves original lines between `dol` and `unddol` in the temp file. Visual mode adds single-line undo (`vutmp` buffer) and the `U` command (full line restore). The `FIXUNDO` macro controls recording granularity.
 
-**Our editor**: Single-level undo/redo: `u` undoes the most recent operation and toggles to redo on repeat. Covers delete/change/substitute/join/open/paste plus `r`, `~`, `>>`, `<<`, and range shift commands. Deleted content is restored from the yank buffer; small per-operation state (replaced chars, per-line indent widths, join offsets) lives in a shared 256-byte undo data page.
+**Our editor**: Single-level undo/redo: `u` undoes the most recent operation and toggles to redo on repeat. Covers delete/change/substitute/join/open/paste plus `r`, `~`, `>>`, `<<`, range delete and shift commands, and the text typed in insert mode (a stretch between cursor moves at a time, as vim's undo steps). Deleted content is restored from the yank buffer, so a later yank ends undo of a delete or paste (vi's undo is independent of yanks); small per-operation state (replaced chars, per-line indent widths, join offsets, the typed text for the redo) lives in a shared 256-byte undo data page.
 
 ---
 
@@ -95,7 +95,7 @@ This is arguably more sophisticated than vi's approach for the specific constrai
 
 **Vi**: Dynamic allocation via `sbrk()`. Line pointer array grows upward, undo area sits above `dol`, guard checks against `endcore`. The temp file provides virtually unlimited text storage.
 
-**Our editor**: **Static memory map** with fixed regions. Text buffer floats after code (`TEXT_BUF = _code_end` page-aligned). Line table fixed at `$C000`. Yank buffer at `$E000`. Everything has hard limits but zero allocation overhead.
+**Our editor**: **Static memory map** with fixed regions. Text buffer floats after code (`TEXT_BUF = _code_end` page-aligned). Line table fixed at `$D800`. Yank buffer at `$E000`. Everything has hard limits but zero allocation overhead.
 
 ---
 
@@ -103,7 +103,7 @@ This is arguably more sophisticated than vi's approach for the specific constrai
 
 **Vi**: 26 named marks stored as `line` pointers (references into temp file). `'a` jumps to the marked line.
 
-**Our editor**: 26 marks stored as 16-bit line numbers at `MARK_TBL` ($DF20). **Auto-adjustment** on bulk operations: marks shift when lines are inserted/deleted, and marks within deleted ranges are cleared. Vi doesn't auto-adjust marks — they become stale if the referenced line is deleted.
+**Our editor**: 26 marks stored as 16-bit line numbers at `MARK_TBL` ($D620). **Auto-adjustment** on bulk operations: marks shift when lines are inserted/deleted, and marks within deleted ranges are cleared. Vi doesn't auto-adjust marks — they become stale if the referenced line is deleted.
 
 Our mark adjustment is actually more robust than vi's.
 
@@ -125,7 +125,7 @@ Our mark adjustment is actually more robust than vi's.
 | Marks | 26, no auto-adjust | 26, auto-adjusted |
 | Insert batching | No (char-at-a-time) | Yes (up to 32 keys) |
 | Terminal abstraction | Termcap (4 modes) | ANSI only |
-| Line wrapping | Yes | Yes |
+| Line wrapping | Yes | Yes (up to 255 rows per line) |
 | Word motion | w/b/e/W/B/E | w/b/e |
 | Indent/unindent | `>>`, `<<` | `>>`, `<<`, range |
 

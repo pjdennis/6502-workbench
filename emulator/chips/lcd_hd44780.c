@@ -13,29 +13,94 @@
 #define INST_SET_CGRAM    0x40
 #define INST_SET_DDRAM    0x80
 
+const struct lcd_hd44780_wiring LCD_WIRING_WENDY2C = {
+    .rs_port = LCD_PORT_A, .rs_bit = 0x01,
+    .rw_port = LCD_PORT_A, .rw_bit = 0x08,
+    .e_port  = LCD_PORT_B, .e_bit  = 0x20,
+    .data_port = LCD_PORT_A, .data_mask = 0xF0,
+};
+
+const struct lcd_hd44780_wiring LCD_WIRING_MICHAEL = {
+    .rs_port = LCD_PORT_A, .rs_bit = 0x20,
+    .rw_port = LCD_PORT_A, .rw_bit = 0x40,
+    .e_port  = LCD_PORT_A, .e_bit  = 0x80,
+    .data_port = LCD_PORT_B, .data_mask = 0xFF,
+};
+
 static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte);
+static void advance_ac(struct lcd_hd44780_state *s);
+
+static uint8_t port_pins(const struct lcd_hd44780_state *s, uint8_t port) {
+    return port == LCD_PORT_A ? via_6522_porta_pins(s->via)
+                              : via_6522_portb_pins(s->via);
+}
+
+static uint8_t pin(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bit) {
+    return (port_pins(s, port) & bit) ? 1 : 0;
+}
+
+static uint8_t port_ddr(const struct lcd_hd44780_state *s, uint8_t port) {
+    return port == LCD_PORT_A ? s->via->ddra : s->via->ddrb;
+}
+
+static int driven(const struct lcd_hd44780_state *s, uint8_t port, uint8_t bits) {
+    return (port_ddr(s, port) & bits) == bits;
+}
+
+/* DDRAM cell for an address. In 2-line mode DDRAM is two 40-byte lines
+ * at $00-$27 and $40-$67; in 1-line mode one 80-byte line at $00-$4F. */
+static int ddram_index(const struct lcd_hd44780_state *s, uint8_t addr) {
+    addr &= 0x7F;
+    if (!s->two_line_mode) return addr % LCD_DDRAM_SIZE;
+    int line = addr >= 0x40;
+    return line * 40 + (addr & 0x3F) % 40;
+}
+
+static uint8_t read_value(const struct lcd_hd44780_state *s, uint8_t rs) {
+    if (!rs) return (uint8_t)(s->ac & 0x7F);   /* busy flag (bit 7) never set */
+    return s->cgram_mode ? s->cgram[s->ac & 0x3F] : s->ddram[ddram_index(s, s->ac)];
+}
+
+int lcd_hd44780_output(const struct lcd_hd44780_state *s, uint8_t *value) {
+    const struct lcd_hd44780_wiring *w = &s->wiring;
+    if (!s->via || !pin(s, w->e_port, w->e_bit) || !pin(s, w->rw_port, w->rw_bit)) return 0;
+    *value = read_value(s, pin(s, w->rs_port, w->rs_bit)) & w->data_mask;
+    return 1;
+}
 
 static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct lcd_hd44780_state *s = (struct lcd_hd44780_state *)self->state;
     if (!s->via) return;
 
-    uint8_t porta = via_6522_porta_pins(s->via);
-    uint8_t portb = via_6522_portb_pins(s->via);
-    uint8_t e = (portb & s->e_bit_b) ? 1 : 0;
+    const struct lcd_hd44780_wiring *w = &s->wiring;
+    uint8_t e = pin(s, w->e_port, w->e_bit);
+
+    int reading = e && pin(s, w->rw_port, w->rw_bit);
+    if (reading && (port_ddr(s, w->data_port) & w->data_mask)) {
+        if (!s->contending) s->contention++;
+        s->contending = 1;
+    } else {
+        s->contending = 0;
+    }
 
     /* Latch on E falling edge. */
     if (s->prev_e && !e) {
-        uint8_t rs = (porta & s->rs_bit) ? 1 : 0;
-        uint8_t rw = (porta & s->rw_bit) ? 1 : 0;
+        uint8_t rs = pin(s, w->rs_port, w->rs_bit);
+        uint8_t rw = pin(s, w->rw_port, w->rw_bit);
+        if (!driven(s, w->rs_port, w->rs_bit) || !driven(s, w->rw_port, w->rw_bit) ||
+            (!rw && !driven(s, w->data_port, w->data_mask))) {
+            s->undriven_strobes++;
+        }
         if (rw) {
-            /* Read cycle (busy-flag check) -- we always say not-busy
-             * by leaving PORTA bit 7 as 0; the wendy2c poll loop then
-             * exits on its first iteration. (No data driven back since
-             * we're a tick-only chip.) */
+            /* Read cycle: the data went out through lcd_hd44780_output
+             * while E was high. A data read advances the address. */
+            if (rs) advance_ac(s);
         } else {
-            uint8_t nibble = (porta & s->data_mask) >> 4;
+            /* The value on D7..D0; unwired data lines read as 0. */
+            uint8_t data = port_pins(s, w->data_port) & w->data_mask;
             if (s->four_bit_mode) {
+                uint8_t nibble = data >> 4;
                 if (!s->high_nibble_pending) {
                     s->high_nibble = nibble;
                     s->high_nibble_pending = 1;
@@ -45,12 +110,10 @@ static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
                     execute_byte(s, rs, byte);
                 }
             } else {
-                /* 8-bit mode -- only the upper nibble is on the bus on
-                 * a real wendy2c, but the controller treats it as a
-                 * full byte. Used during the 4-bit init dance: any
+                /* 8-bit mode. With 4-bit wiring only D4..D7 are on the
+                 * bus, which is enough for the init dance: any
                  * function-set with DL=0 puts us in 4-bit mode. */
-                uint8_t byte = (uint8_t)(nibble << 4);
-                execute_byte(s, rs, byte);
+                execute_byte(s, rs, data);
             }
         }
     }
@@ -58,10 +121,15 @@ static void lcd_hd44780_tick(struct chip *self, struct bus *bus) {
 }
 
 static void advance_ac(struct lcd_hd44780_state *s) {
-    if (s->entry_id) {
-        s->ac++;
+    if (s->cgram_mode) {
+        s->ac = (uint8_t)((s->ac + (s->entry_id ? 1 : -1)) & 0x3F);
+    } else if (s->two_line_mode) {
+        /* $27 -> $40 -> ... -> $67 -> $00 (and back when decrementing). */
+        if (s->entry_id) s->ac = s->ac == 0x27 ? 0x40 : s->ac == 0x67 ? 0x00 : (uint8_t)(s->ac + 1);
+        else             s->ac = s->ac == 0x40 ? 0x27 : s->ac == 0x00 ? 0x67 : (uint8_t)(s->ac - 1);
     } else {
-        s->ac = (uint8_t)(s->ac - 1);
+        if (s->entry_id) s->ac = s->ac >= 0x4F ? 0x00 : (uint8_t)(s->ac + 1);
+        else             s->ac = s->ac == 0x00 ? 0x4F : (uint8_t)(s->ac - 1);
     }
 }
 
@@ -71,7 +139,7 @@ static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte) 
         if (s->cgram_mode) {
             s->cgram[s->ac & 0x3F] = byte;
         } else {
-            s->ddram[s->ac % LCD_DDRAM_SIZE] = byte;
+            s->ddram[ddram_index(s, s->ac)] = byte;
         }
         advance_ac(s);
         s->dirty = 1;
@@ -112,6 +180,10 @@ static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte) 
     }
 }
 
+void lcd_hd44780_instruction(struct lcd_hd44780_state *s, uint8_t byte) {
+    execute_byte(s, 0, byte);
+}
+
 static void lcd_hd44780_reset(struct chip *self) {
     struct lcd_hd44780_state *s = (struct lcd_hd44780_state *)self->state;
     memset(s->ddram, 0x20, LCD_DDRAM_SIZE);  /* HD44780 starts cleared */
@@ -143,10 +215,7 @@ void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
     memset(state, 0, sizeof(*state));
     state->rows = 2;
     state->cols = 16;
-    state->rs_bit   = 0x01;
-    state->rw_bit   = 0x08;
-    state->data_mask= 0xF0;
-    state->e_bit_b  = 0x20;
+    state->wiring = LCD_WIRING_WENDY2C;
     state->via = via;
     /* HD44780 power-on defaults: entry-mode auto-increment, display
      * off, 8-bit interface, 1-line, 5x8. */
@@ -156,6 +225,11 @@ void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
     chip->ops = &ops;
     chip->name = "lcd_hd44780";
     chip->state = state;
+}
+
+void lcd_hd44780_set_wiring(struct lcd_hd44780_state *state,
+                            const struct lcd_hd44780_wiring *wiring) {
+    state->wiring = *wiring;
 }
 
 void lcd_hd44780_set_geometry(struct lcd_hd44780_state *state,
@@ -182,8 +256,26 @@ void lcd_hd44780_visible_bytes(const struct lcd_hd44780_state *s,
     for (uint8_t r = 0; r < s->rows; r++) {
         uint8_t base = line_base(r, s->cols);
         for (uint8_t c = 0; c < s->cols; c++)
-            out_buf[idx++] = s->ddram[(base + c) % LCD_DDRAM_SIZE];
+            out_buf[idx++] = s->ddram[ddram_index(s, (uint8_t)(base + c))];
     }
+}
+
+void lcd_hd44780_cursor(const struct lcd_hd44780_state *s, int *row, int *col) {
+    *row = 0;
+    *col = 0;
+    if (s->cgram_mode) return;
+    uint8_t ac = s->ac & 0x7F;
+    for (uint8_t r = 0; r < s->rows; r++) {
+        uint8_t base = line_base(r, s->cols);
+        if (ac >= base && ac < base + s->cols) {
+            *row = r;
+            *col = ac - base;
+            return;
+        }
+    }
+    *row = ac >= 0x40;
+    *col = *row ? ac - 0x40 : ac;
+    if (*col >= s->cols) *col = s->cols - 1;
 }
 
 int lcd_hd44780_render(struct lcd_hd44780_state *s, char *out_buf) {

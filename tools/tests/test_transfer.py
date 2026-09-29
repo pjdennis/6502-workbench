@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(HERE, '..', 'upload'))
 import serial_daemon  # noqa: E402
 import transfer  # noqa: E402
 from test_serial_daemon import DEVICE, HAVE_PYSERIAL, FakeClock, FakeDevices, open_pty  # noqa: E402
-from upload_frame import build_frame, send_duration  # noqa: E402
+from upload_frame import build_frame, format_3, send_duration  # noqa: E402
 
 PROGRAM = b'\x4c\x00\x50hello'
 
@@ -103,6 +103,44 @@ class UploadTest(TransferTestCase):
     start = self.clock.now
     self.upload('--noreset', '--wait')
     self.assertAlmostEqual(self.clock.now, start + send_duration(len(build_frame(PROGRAM)), 115200, 1))
+
+  def test_format_3_load_address_and_start(self):
+    self.assertEqual(self.upload('--format=3', '--load-address=3000', '--start=ffff'), (0, ''))
+    self.assertEqual(self.devices.writes(), [format_3([(0x3000, PROGRAM)], start=0xffff)])
+
+  def test_format_3_binary_loads_at_2000(self):
+    self.assertEqual(self.upload('--format=3'), (0, ''))
+    self.assertEqual(self.devices.writes(), [format_3([(0x2000, PROGRAM)])])
+
+  def test_format_3_srecords_give_addresses_and_start(self):
+    srec_file = os.path.join(self.dir, 'a.s19')
+    with open(srec_file, 'w') as f:
+      f.write('S1052000EA6090\nS10530000102C7\nS9032001DB\n')
+    self.assertEqual(self.run_transfer('--baudrate=115200', '--format=3', srec_file), (0, ''))
+    self.assertEqual(self.devices.writes(), [format_3([(0x2000, b'\xea\x60'), (0x3000, b'\x01\x02')], start=0x2001)])
+
+  def test_format_3_srecords_starting_at_0_are_refused(self):
+    srec_file = os.path.join(self.dir, 'a.s19')
+    with open(srec_file, 'w') as f:
+      f.write('S1052000EA6090\nS9030000FC\n')
+    status, output = self.run_transfer('--baudrate=115200', '--format=3', srec_file)
+    self.assertEqual(status, 1)
+    self.assertIn('start', output)
+    self.assertEqual(self.devices.writes(), [])
+
+  def test_format_3_start_overrides_the_files(self):
+    srec_file = os.path.join(self.dir, 'a.s19')
+    with open(srec_file, 'w') as f:
+      f.write('S1052000EA6090\nS9032001DB\n')
+    self.assertEqual(self.run_transfer('--baudrate=115200', '--format=3', '--start=ffff', srec_file), (0, ''))
+    self.assertEqual(self.devices.writes(), [format_3([(0x2000, b'\xea\x60')], start=0xffff)])
+
+  def test_format_3_too_big(self):
+    with open(self.program, 'wb') as f:
+      f.write(bytes(0x3d01))
+    status, output = self.upload('--format=3', '--load-address=0200')
+    self.assertEqual(status, 1)
+    self.assertEqual(self.devices.writes(), [])
 
   def test_port_other_than_the_daemons(self):
     status, output = self.upload('--port=/dev/other')

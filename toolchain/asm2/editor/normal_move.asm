@@ -2,360 +2,304 @@
 
 ; --- Movement ---
 
-normal_move_left:
-  JSR get_batched_count
-  JSR move_left_x
-  JMP clear_count
-
-normal_move_right:
-  JSR get_batched_count
-  ; Hoist line length calculation outside loop (line doesn't change)
-  STX BUF_TEMP           ; Save count
-  JSR get_line_len_z
-  BEQ .right_done        ; Empty line
-  LDX BUF_TEMP           ; Restore count
-  SEC
-  SBCI16 LINE_LEN16, 1, LINE_LEN16  ; LINE_LEN16 = len - 1
-  JSR move_right_x
-.right_done:
-  JMP clear_count
-
-normal_move_down:
-  JSR get_batched_count
-  JSR move_down_x
-  JMP clamp_and_clear_count
-
-normal_move_up:
-  JSR get_batched_count
-  JSR move_up_x
-  JMP clamp_and_clear_count
-
+; Ctrl-F and PgDn: page forward as vim does.  The top line goes to the
+; line below the page (the first one not shown in full), less the
+; page's last lines kept on screen (page_setup: BUF_TEMP16 of them), and
+; the cursor goes to it; a page that shows the last line puts that line
+; on top.  At least one line on, and with the last line on top the page
+; cannot move (vim beeps: page_fail)
 normal_page_down:
-  JSR get_batched_count
-  STX BUF_DELTA            ; BUF_DELTA = loop counter
-
-  ; page_size = SCREEN_ROWS - 1 (content rows excluding status bar)
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA BUF_TEMP       ; BUF_TEMP = move amount
-  STA NORMAL_TEMP    ; NORMAL_TEMP = content_rows for view clamp
-
-.page_loop:
-  JSR scroll_view_down
+  JSR page_setup
+.page:
+  LDA TEXT_ROWS
+  JSR find_line_from_top_a   ; The line below the page
+  CP16 RENDER_LINE16, FILE_LINE16
+  JSR clamp_file_line        ; C=1: past the last line, which goes on top
+  BCS .moved
+  JSR move_up16              ; Back over the lines kept
+.moved:
+  CMP16 VIEW_TOP16, FILE_LINE16
+  BCC .on                    ; It moved on
+  CP16 VIEW_TOP16, FILE_LINE16
+  JSR next_line              ; One line on; C=1: the last line is on top
+  BCS page_fail
+.on:
+  LDA #$FF                   ; The cursor line's first row on top
+  JSR page_view
   DEC BUF_DELTA
-  BNE .page_loop
-  JMP zero_col_clamp_clear
+  BNE .page
+  BEQ page_first_nonblank    ; Always taken
 
+; A page that cannot move changes nothing (vim beeps).  The presses
+; before it went to the first non-blank as usual, unless they were the
+; count's: then the column stays, clamped to the line, and so does the
+; remembered column (vim's onepage skips beginline when its count runs
+; out)
+page_fail:
+  LDA BATCH_EXTRA
+  CMP BUF_DELTA              ; C=1: a typed-ahead press failed
+  BCS page_first_nonblank
+  ASL CURSWANT_KEEP
+  JMP clamp_and_clear_count
+
+; Ctrl-B and PgUp: page back as vim does.  The page's first lines stay
+; on screen at the bottom (BUF_TEMP16 of them, fewer near the end of the
+; file) and the cursor goes to the new bottom line; with the first line
+; on top the page cannot move.  A new bottom line just below a screen of
+; the first lines leaves them on top, with the cursor on the line above
+; it (vim's cursor_correct)
 normal_page_up:
-  JSR get_batched_count
-  STX BUF_DELTA            ; BUF_DELTA = loop counter
-
-  ; page_size = SCREEN_ROWS - 1
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
-  STA BUF_TEMP       ; BUF_TEMP = move amount
-
-.page_loop:
-  JSR scroll_view_up
+  JSR page_setup
+.page:
+  TST16 VIEW_TOP16
+  BEQ page_fail
+  CP16 VIEW_TOP16, FILE_LINE16
+  JSR move_down16            ; The last line kept (or the last line)
+.up:
+  JSR dec_file_line          ; The line above it goes to the bottom row
+  LDA #0
+  JSR page_view
+  LDA VIEW_TOP16
+  EOR #1
+  ORA VIEW_TOP16 + 1
+  ORA VIEW_TOP_WRAP
+  BEQ .up                    ; Line 2 on top: vim keeps line 1 there and
+                             ; puts the cursor a line up
   DEC BUF_DELTA
-  BNE .page_loop
-  JMP zero_col_clamp_clear
+  BNE .page
+page_first_nonblank:
+  JMP first_nonblank_clear
 
-; --- Shared scroll subroutines ---
-
-; Scroll viewport down by BUF_TEMP lines
-; Input: BUF_TEMP = lines to move FILE_LINE and VIEW_TOP
-;        NORMAL_TEMP = content_rows for VIEW_TOP max clamp
-; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP
-; Clobbers: A, X, Y, BUF_PTR16
-scroll_view_down:
-  ; target_line = FILE_LINE16 + BUF_TEMP, clamped to LINE_COUNT16 - 1
-  CLC
-  LDA FILE_LINE16
-  ADC BUF_TEMP
-  STA BUF_PTR16
-  LDA FILE_LINE16 + 1
-  ADC #0
-  STA BUF_PTR16 + 1
-
-  ; Clamp target to LINE_COUNT16 - 1
-  CMP16 BUF_PTR16, LINE_COUNT16
-  BCC .target_ok
-  SEC
-  SBCI16 LINE_COUNT16, 1, BUF_PTR16
-.target_ok:
-
-  ; VIEW_TOP16 += BUF_TEMP
-  CLC
-  LDA VIEW_TOP16
-  ADC BUF_TEMP
-  STA VIEW_TOP16
-  LDA VIEW_TOP16 + 1
-  ADC #0
-  STA VIEW_TOP16 + 1
-
-  ; Clamp VIEW_TOP16 to max(0, LINE_COUNT - content_rows)
-  SEC
-  LDA LINE_COUNT16
-  SBC NORMAL_TEMP
-  TAX                ; X = low byte of max view top
-  LDA LINE_COUNT16 + 1
-  SBC #0
-  BCC .view_zero  ; LINE_COUNT < content_rows, set VIEW_TOP=0
-  TAY                ; Y = high byte of max view top
-
-  ; If VIEW_TOP16 > max, clamp it
-  CPY VIEW_TOP16 + 1
-  BCC .clamp_view
-  BNE .set_file_line
-  CPX VIEW_TOP16
-  BCS .set_file_line
-.clamp_view:
-  STX VIEW_TOP16
-  STY VIEW_TOP16 + 1
-  JMP .set_file_line
-
-.view_zero:
-  LDA #0
+; Put the cursor line on top (A = $FF), or in full at the bottom, with
+; the first line on top if the lines from it fit (A = 0): its first row
+; (WRAP_QUOT = 0) seen from past it or from the first line
+; (ensure_row_visible)
+page_view:
   STA_LH16 VIEW_TOP16
-
-.set_file_line:
-  CP16 BUF_PTR16, FILE_LINE16
   LDA #0
-  STA VIEW_TOP_WRAP
-  RTS
+  STA WRAP_QUOT
+  JMP ensure_row_visible
 
-; Scroll viewport up by BUF_TEMP lines
-; Input: BUF_TEMP = lines to move FILE_LINE and VIEW_TOP
-; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP
-; Clobbers: A, X, Y, BUF_PTR16
-scroll_view_up:
-  ; target_line = FILE_LINE16 - BUF_TEMP, clamped to 0
-  SEC
+; Ctrl-D: half-page down
+; Scroll down by half a screen (or count lines).  On the last line vim
+; refuses it: the cursor, its column and the scroll amount stay
+normal_half_page_down:
+  JSR lines_left
+  BEQ half_page_fail
+  JSR half_page_setup
+  JSR scroll_view_down
+  JMP first_nonblank_clear
+
+; Ctrl-U: half-page up
+; Scroll up by half a screen (or count lines), refused on line 1 (vim)
+normal_half_page_up:
   LDA FILE_LINE16
-  SBC BUF_TEMP
-  STA BUF_PTR16
-  LDA FILE_LINE16 + 1
-  SBC #0
-  STA BUF_PTR16 + 1
-  BCS .target_ok
-  ; Underflow - clamp to 0
+  ORA FILE_LINE16 + 1
+  BEQ half_page_fail
+  JSR half_page_setup
+  JSR scroll_view_up
+  JMP first_nonblank_clear
+half_page_fail:
+  JMP keep_clear_count
+
+; Page setup: BUF_DELTA = the presses (the count, or the typed-ahead
+; presses with none: get_count_or_presses), BUF_TEMP16 = the lines a
+; page keeps: 2, as vim, which keeps fewer on a small screen (1 on 4
+; text rows, none on 3 or less: its lines kept and the lines next to
+; them take at most TEXT_ROWS - 2 rows)
+page_setup:
+  JSR get_count_or_presses
+  STX BUF_DELTA
+  LDX TEXT_ROWS
+  CPX #4
   LDA #0
-  STA_LH16 BUF_PTR16
-.target_ok:
+  ROL                        ; 1 from 4 text rows
+  CPX #5
+  ADC #0                     ; 2 from 5
+  JMP set_buf_temp16_a
 
-  ; VIEW_TOP16 -= BUF_TEMP, clamped to 0
-  LDA VIEW_TOP16 + 1
-  BNE .can_sub  ; High byte > 0, definitely >= BUF_TEMP
-  LDA VIEW_TOP16
-  CMP BUF_TEMP
-  BCS .can_sub
-
-  ; VIEW_TOP16 < BUF_TEMP: set VIEW_TOP16 = 0
-  LDA #0
-  STA_LH16 VIEW_TOP16
-  JMP .set_file_line
-
-.can_sub:
-  SEC
-  LDA VIEW_TOP16
-  SBC BUF_TEMP
-  STA VIEW_TOP16
-  LDA VIEW_TOP16 + 1
-  SBC #0
-  STA VIEW_TOP16 + 1
-
-.set_file_line:
-  CP16 BUF_PTR16, FILE_LINE16
-  LDA #0
-  STA VIEW_TOP_WRAP
-  RTS
-
-; Get half-page scroll amount into BUF_TEMP
-; Uses COUNT16 if set (and remembers it), else sticky value, else default.
-get_half_page_amount:
+; Half-page scroll setup: BUF_DELTA = 1 + extra Ctrl-D/U keys in
+; typeahead (BUF_TEMP = key code from dispatch), BUF_TEMP16 = scroll
+; amount: COUNT16 if set (and remembered), else the sticky value, else
+; half a page
+half_page_setup:
+  JSR count_pending_key
+  INX
+  STX BUF_DELTA
   LDA COUNT16
   ORA COUNT16 + 1
   BNE .use_count
   ; No count: use sticky if set, else compute default
   LDA SCROLL_AMOUNT
   BNE .store
-  ; Default: half_page = (SCREEN_ROWS - 1) / 2
-  LDA SCREEN_ROWS
-  SEC
-  SBC #1
+  ; Default: half_page = TEXT_ROWS / 2
+  LDA TEXT_ROWS
   LSR
-  JMP .store
+  BPL .store                 ; Always
 .use_count:
   ; Use COUNT16 as scroll amount (cap to 8-bit), save as sticky
-  LDA COUNT16 + 1
-  BNE .cap
   LDA COUNT16
-  JMP .save_sticky
-.cap:
+  LDX COUNT16 + 1
+  BEQ .save_sticky
   LDA #$FF
 .save_sticky:
   STA SCROLL_AMOUNT
 .store:
-  STA BUF_TEMP
+  JMP set_buf_temp16_a
+
+; --- Shared scroll subroutines ---
+
+; Scroll the viewport down BUF_DELTA (>= 1) times by BUF_TEMP16 (< 256)
+; lines, as
+; vim's Ctrl-D: the view stops where the last line reaches the bottom
+; row (LINE_COUNT - TEXT_ROWS), and a view there or past it stays (the
+; cursor moves on)
+; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
+; Clobbers: A, X, Y
+scroll_view_down:
+  JSR move_down16
+
+  ; A:X = the room left: LINE_COUNT - TEXT_ROWS - VIEW_TOP16
+  SEC
+  LDA LINE_COUNT16
+  SBC TEXT_ROWS
+  TAX
+  LDA LINE_COUNT16 + 1
+  SBC #0
+  BCC .next                  ; Every line fits: the view stays
+  TAY
+  TXA
+  SBC VIEW_TOP16             ; (C=1)
+  TAX
+  TYA
+  SBC VIEW_TOP16 + 1
+  BCC .next                  ; The view is past there: it stays
+  BNE .add                   ; 256 or more
+  CPX BUF_TEMP16
+  BCS .add
+  TXA                        ; Less than BUF_TEMP16: just that far
+  BCC .add_a                 ; Always taken
+.add:
+  LDA BUF_TEMP16
+.add_a:
+  ADDA16 VIEW_TOP16
+.next:
+  DEC BUF_DELTA
+  BNE scroll_view_down
+
+; Shared scroll tail: the new view top starts at its line's first row
+view_wrap_zero:
+  LDA #0
+  STA VIEW_TOP_WRAP
   RTS
 
-; Ctrl-D: half-page down
-; Scroll down by half a screen (or count lines). Column preserved.
-normal_half_page_down:
-  ; Count extra Ctrl-D keys in typeahead (BUF_TEMP = key code from dispatch)
-  JSR count_pending_key
-  INX
-  STX BUF_DELTA              ; BUF_DELTA = loop counter (1 + extras)
-  JSR get_half_page_amount   ; BUF_TEMP = scroll amount
-  ; NORMAL_TEMP = content_rows = SCREEN_ROWS - 1
-  LDX SCREEN_ROWS
-  DEX
-  STX NORMAL_TEMP
-.loop:
-  JSR scroll_view_down
+; Scroll the viewport up BUF_DELTA (>= 1) times by BUF_TEMP16 (< 256)
+; lines
+; Modifies: FILE_LINE16, VIEW_TOP16, VIEW_TOP_WRAP, BUF_DELTA
+; Clobbers: A, X
+scroll_view_up:
+  JSR move_up16
+  LDX #VIEW_TOP16
+  JSR sub_count_x              ; VIEW_TOP16 -= BUF_TEMP16, clamped to 0
   DEC BUF_DELTA
-  BNE .loop
-  JMP clamp_and_clear_count
-
-; Ctrl-U: half-page up
-; Scroll up by half a screen (or count lines). Column preserved.
-normal_half_page_up:
-  ; Count extra Ctrl-U keys in typeahead (BUF_TEMP = key code from dispatch)
-  JSR count_pending_key
-  INX
-  STX BUF_DELTA              ; BUF_DELTA = loop counter (1 + extras)
-  JSR get_half_page_amount   ; BUF_TEMP = scroll amount
-.loop:
-  JSR scroll_view_up
-  DEC BUF_DELTA
-  BNE .loop
-  JMP clamp_and_clear_count
+  BNE scroll_view_up
+  BEQ view_wrap_zero       ; Always
 
 normal_line_start:
   LDA #0
   STA_LH16 CURSOR_COL16
   JMP clear_count
 
-normal_line_end:
-  JSR get_line_len_z
-  BEQ .empty
-  SEC
-  SBCI16 LINE_LEN16, 1, CURSOR_COL16
-  JMP .ecv
-.empty:
-  LDA #0
-  STA_LH16 CURSOR_COL16
-.ecv:
-  JMP clear_count
-
-normal_goto_last:
-  ; If count is set, go to line N (1-based)
+; gg: go to line count, as G does (as in vim); no count: the first line
+do_gg:
   TST16 COUNT16
-  BEQ .goto_end
+  BNE normal_goto_last
+  INC COUNT16                ; Line 1
+  ; fall through
 
-  ; Convert 1-based count to 0-based file line
+; G: the view is left to ensure_cursor_visible, which moves it only when
+; the cursor's row is off screen, as for :N and k (a partly shown top
+; line stays)
+normal_goto_last:
+  ; FILE_LINE16 = count - 1 (1-based count; no count: 0 - 1 = $FFFF),
+  ; clamped to the last line
   SEC
   SBCI16 COUNT16, 1, FILE_LINE16
-
-  ; Clamp to last line
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .goto_set
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-  JMP .goto_set
-
-.goto_end:
-  ; No count: go to last line
-  SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-
-.goto_set:
-  LDA #0
-  STA VIEW_TOP_WRAP
-  JMP zero_col_clamp_clear
-
-; gg: go to top of file
-do_gg:
-  LDA #0
-  STA_LH16 FILE_LINE16
-  STA_LH16 VIEW_TOP16
-  STA CURSOR_ROW
-  STA VIEW_TOP_WRAP
-  JMP zero_col_clamp_clear
+  JSR clamp_file_line
+  JMP first_nonblank_clear
 
 ; --- Yank ---
 
-; yy: yank N lines starting at current line
-; When batched (BATCH_EXTRA > 0): cap count to 1. Batched extra pairs
-; have implicit count=1, and the last yy overwrites previous yanks,
-; so only 1 line should be yanked.
+; yy: yank N lines starting at current line (not pair-batched: yyyy runs
+; yy twice, and the last yank wins)
 do_yy:
-  JSR yank_clear
-  JSR get_count              ; BUF_TEMP16 = count (16-bit)
-  LDA BATCH_EXTRA
-  BEQ .do_yank
-  JSR set_buf_temp16_one
-.do_yank:
+  JSR get_count_clamp_lines  ; BUF_TEMP16 = count (16-bit)
+; yy of BUF_TEMP16 lines (op_lines enters here)
+yy_lines:
   LDAX16 FILE_LINE16
+; Yank BUF_TEMP16 lines from line A/X (yy, :y) and report more than 2
+yank_lines:
   JSR yank_add_lines
   BCS .overflow
-  JMP clear_count            ; Done - don't set MODIFIED
-
+  JSR clear_count            ; Done - don't set MODIFIED
+  LDA #<str_lines_yanked
+  LDX #>str_lines_yanked
+  JMP report_yank_lines_ax
 .overflow:
   JMP show_yank_overflow
 
 ; yw: yank N words forward from cursor (character yank, multi-line)
 do_yw:
-  SET16 compute_multiline_word_range_forward, JUMP_TARGET16
-  LDA #OP_YANK
-  JMP word_op_forward
+  LDY #OP_YANK
+  JMP word_w_op
 
 ; yb: yank N words backward from cursor (character yank, multi-line)
 do_yb:
-  LDA #OP_YANK
-  JMP word_op_backward
+  LDY #OP_YANK
+  JMP word_b_op
 
 ; ye: yank from cursor to end of word (inclusive, multi-line)
 do_ye:
-  SET16 compute_multiline_word_end_range_forward, JUMP_TARGET16
-  LDA #OP_YANK
-  JMP word_op_forward
+  LDY #OP_YANK
+  JMP word_end_op
 
 ; --- Search ---
 
-normal_search:
-  JSR search_handle
-  JMP clear_count
-
-normal_search_backward:
-  JSR search_backward_handle
-  JMP clear_count
-
+; n and N: repeat the last search, N the other way (SEARCH_DIR EOR $10:
+; 0 <-> $10 = '/' EOR '?').  A count finds the Nth match, as in vim
+; (wrapping around as often as it takes); only the first search can find
+; nothing, and then the others are not tried
 normal_find_next:
-  LDA SEARCH_LEN
-  BEQ search_find_none
-  LDA SEARCH_DIR
-  JMP search_find_dir
-
+  LDA #0
+  BEQ search_find            ; Always taken
 normal_find_prev:
-  LDA SEARCH_LEN
-  BEQ search_find_none
-  LDA SEARCH_DIR
-  EOR #1
+  LDA #$10
+search_find:
+  LDX SEARCH_LEN
+  BEQ search_done            ; No pattern yet
+  EOR SEARCH_DIR
+  STA BUF_TEMP               ; This search's direction
+  JSR get_count              ; BUF_TEMP16 = count (16-bit)
+.again:
+  LDA BUF_TEMP
+  JSR search_dir
+  BCC search_done            ; Not found
+  JSR dec_buf_temp16
+  BNE .again
+search_done:
+  JMP clear_count
 
-search_find_dir:
-  BNE .backward
-  JSR search_forward
-  JMP clear_count
-.backward:
-  JSR search_backward
-  JMP clear_count
-
-search_find_none:
-  JMP clear_count
+; / and ?: read a pattern, then search as n does
+normal_search:
+  LDA #'/'
+  BNE search_prompt          ; Always taken
+normal_search_backward:
+  LDA #'?'
+search_prompt:
+  JSR search_input_handle
+  BCS search_done            ; Cancelled
+  LDA #0
+  BEQ search_find            ; Always taken
 
 ; --- Marks ---
 
@@ -363,7 +307,7 @@ search_find_none:
 do_mark_set:
   LDA BUF_TEMP
   JSR mark_set
-  JMP clear_count
+  JMP keep_clear_count
 
 ; Execute mark goto with register letter in BUF_TEMP
 do_mark_goto:
@@ -371,16 +315,8 @@ do_mark_goto:
   JSR mark_get
   BCS .mark_not_set
   STAX16 FILE_LINE16
-  JMP zero_col_clamp_clear
+  JSR clamp_file_line        ; A stale mark must not point past EOF
+  JMP first_nonblank_clear
 .mark_not_set:
-  LDA #<str_mark_not_set
-  LDX #>str_mark_not_set
-  JSR show_message_ax
-  JMP clear_count
-
-; --- Mode switch ---
-
-normal_enter_command:
-  LDA #MODE_COMMAND
-  STA MODE
+  JSR range_mark_err         ; "Mark not set"
   JMP clear_count

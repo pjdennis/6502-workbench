@@ -23,10 +23,14 @@ CLASS                = $28 ; BLOCKS bytes
 
 BLOCKS               = 24  ; 1K blocks from $0000 up to the VIA
 BLOCKS_PER_LINE      = 12
-CELL_OFFSET          = $ff ; Cells are $00FF, $04FF, $08FF, ...: clear of the variables above,
-                           ; the stack and (checked below) this program
+CELL_OFFSET          = $3ff ; Cells are $03FF, $07FF, $0BFF, ...: clear of the variables above,
+                            ; the stack and (checked below) this program, which loads at the
+                            ; start of a block
+RAM_MAP_LOAD         = $0400 ; Low, not at PROGRAM_LOAD_ADDRESS ($2000), so that it also runs where
+                             ; there is less RAM: 8K repeated puts $2000 on the zero page
 
-  .org PROGRAM_LOAD_ADDRESS
+  .org RAM_MAP_LOAD
+start:
   jmp initialize_machine
 
   .include initialize_machine_v2.inc
@@ -70,7 +74,7 @@ forever:
 ; Fills CLASS with each block's character, leaving RAM as it was found
 ; On exit A, X, Y are not preserved
 probe_ram:
-  lda #CELL_OFFSET
+  lda #<CELL_OFFSET
   sta PROBE_P
   ldx #BLOCKS - 1
 .save:
@@ -129,6 +133,7 @@ probe_ram:
 point_at_cell:
   asl
   asl
+  ora #>CELL_OFFSET
   sta PROBE_P + 1
   rts
 
@@ -227,6 +232,6 @@ ram_from_0000: .asciiz "K RAM $0000-$"
 program_end:
 
   ; The probe would overwrite any of this program that sits on a cell
-  .if (program_end - 1 - CELL_OFFSET) / $400 != (PROGRAM_LOAD_ADDRESS - 1 - CELL_OFFSET) / $400
+  .if (program_end - 1 - CELL_OFFSET) / $400 != (RAM_MAP_LOAD - 1 - CELL_OFFSET) / $400
   .fail "michael_ram_map.s overlaps a probe cell"
   .endif

@@ -26,6 +26,16 @@ TEST machine_wendy2c_default_cpu_65c02(void) {
     PASS();
 }
 
+TEST machine_michael_default_cpu_65c02(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_EQ_FMT(MACHINE_MICHAEL, opts.machine, "%d");
+    ASSERT_EQ_FMT(CPU_65C02, opts.cpu_variant_opt, "%d");
+    PASS();
+}
+
 TEST default_machine_keeps_nmos(void) {
     char *argv[] = {"emulator", "rom.bin", NULL};
     struct emu_opts opts;
@@ -38,6 +48,7 @@ TEST default_machine_keeps_nmos(void) {
 
 SUITE(machine_dispatch_suite) {
     RUN_TEST(machine_wendy2c_default_cpu_65c02);
+    RUN_TEST(machine_michael_default_cpu_65c02);
     RUN_TEST(default_machine_keeps_nmos);
 }
 

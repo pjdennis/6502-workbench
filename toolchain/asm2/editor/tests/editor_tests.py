@@ -42,31 +42,43 @@ class Colors:
 
 
 class EmulatorRunner:
-    """Wraps emulator invocation via subprocess.run."""
+    """Wraps emulator invocation via subprocess.run. Every run uses the
+    emulator's --strict-api (the editor relies on no more than the calls'
+    contracts); with direct_io, runs other than terminal ones use its
+    --direct-io."""
 
-    def __init__(self, emulator_path):
+    def __init__(self, emulator_path, direct_io=False):
         self.emulator_path = str(emulator_path)
+        self.direct_io = direct_io
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', extra_args=None):
+            mode='standard', emu_args=None, strict_api=True):
         """Run the emulator and return (exit_code, output_bytes).
 
         Args:
             binary: path to the 6502 binary
             keys: keystroke bytes
             tmpdir: directory for temp files (keys.bin, output.bin)
-            edit_file: path to the file the editor opens
+            edit_file: path to the file the editor opens (None: no
+                argument)
             load_addr: load address (default 0x0400)
             rows, cols: terminal size (0 = default)
             mode: 'standard', 'terminal', or 'console'
-            extra_args: additional command-line arguments
+            emu_args: additional emulator options (placed before the file
+                name: the emulator stops reading options at the first
+                argument that is not one)
+            strict_api: run with --strict-api (default)
         """
         keys_file = tmpdir / "keys.bin"
         keys_file.write_bytes(keys)
 
         cmd = [self.emulator_path, str(binary), "--no-dump",
                "--load", f"{load_addr:04x}"]
+        if strict_api:
+            cmd.append("--strict-api")
+        if self.direct_io and mode != 'terminal':
+            cmd.append("--direct-io")
 
         if mode == 'console':
             cmd.extend(["--console", edit_file])
@@ -84,10 +96,11 @@ class EmulatorRunner:
             cmd.extend(["--cols", str(cols)])
 
         output_file = tmpdir / "output.bin"
-        cmd.extend(["--input", str(keys_file), "--output", str(output_file),
-                     edit_file])
-        if extra_args:
-            cmd.extend(extra_args)
+        cmd.extend(["--input", str(keys_file), "--output", str(output_file)])
+        if emu_args:
+            cmd.extend(emu_args)
+        if edit_file is not None:
+            cmd.append(edit_file)
 
         result = subprocess.run(cmd, capture_output=True, timeout=10)
         output = output_file.read_bytes() if output_file.exists() else b""
@@ -100,26 +113,29 @@ class EmulatorRunner:
 class EditorPersistentEmulator:
     """Adapter wrapping shared PersistentEmulator with editor-specific run() signature."""
 
-    def __init__(self, emulator_path):
+    def __init__(self, emulator_path, direct_io=False):
         self.emulator_path = str(emulator_path)
+        self.direct_io = direct_io
         self._emu = PersistentEmulator(emulator_path)
 
     def run(self, binary, keys, tmpdir, edit_file,
             load_addr=0x0400, rows=0, cols=0,
-            mode='standard', extra_args=None):
+            mode='standard', emu_args=None, strict_api=True):
         """Run the emulator and return (exit_code, output_bytes)."""
-        if mode == 'console':
-            runner = EmulatorRunner(self.emulator_path)
+        # The server takes no emulator options, and console mode needs a pipe
+        if mode == 'console' or emu_args:
+            runner = EmulatorRunner(self.emulator_path, self.direct_io)
             return runner.run(binary, keys, tmpdir, edit_file,
-                              load_addr, rows, cols, mode, extra_args)
+                              load_addr, rows, cols, mode, emu_args, strict_api)
 
-        args = [edit_file]
-        if extra_args:
-            args.extend(extra_args)
+        args = [] if edit_file is None else [edit_file]
+        if self.direct_io and mode == 'standard':
+            mode = 'direct'
 
         exit_code, output, _ = self._emu.run(
             binary, args=args, load_addr=load_addr, mode=mode,
-            rows=rows, cols=cols, keys=keys, inline_output=True)
+            rows=rows, cols=cols, keys=keys, inline_output=True,
+            strict_api=strict_api)
 
         return exit_code, output or b""
 
@@ -129,60 +145,72 @@ class EditorPersistentEmulator:
 
 class EditorTestRunner:
     def __init__(self, base_dir: Path, verbose: bool = False,
-                 quiet: bool = False, use_server: bool = True):
+                 quiet: bool = False, use_server: bool = True,
+                 direct_io: bool = False):
+        """direct_io: test the define:direct_io builds of the console and
+        small-buffer editors, run with the emulator's --direct-io (which
+        turns their screen calls into the same ANSI output)."""
         self.base_dir = base_dir
+        self.direct_io = direct_io
+        self.direct_args = ["--strict-api", *(["--direct-io"] if direct_io else [])]
+        self.server_mode = ["API strict", *(["MODE direct"] if direct_io else [])]
         self.verbose = verbose
         self.quiet = quiet
         self.emulator = base_dir.parents[1] / "emulator" / "emulator.out"
         self.assembler = base_dir / "17" / "out" / "asm.out"
         self.editor_asm = base_dir / "editor" / "editor.asm"
-        self.editor_bin = base_dir / "editor" / "out" / "editor.out"
-        self.editor_small_bin = base_dir / "editor" / "out" / "editor_small.out"
+        suffix = "_direct" if direct_io else ""
+        self.editor_bin = base_dir / "editor" / "out" / f"editor{suffix}.out"
+        self.editor_small_bin = base_dir / "editor" / "out" / f"editor_small{suffix}.out"
         self.editor_terminal_bin = base_dir / "editor" / "out" / "editor_terminal.out"
         if use_server:
-            self.emulator_runner = EditorPersistentEmulator(self.emulator)
+            self.emulator_runner = EditorPersistentEmulator(self.emulator, direct_io)
         else:
-            self.emulator_runner = EmulatorRunner(self.emulator)
+            self.emulator_runner = EmulatorRunner(self.emulator, direct_io)
         self._tmpdir_obj = tempfile.TemporaryDirectory(prefix='')
         self.tmpdir = Path(self._tmpdir_obj.name)
         self.passed = 0
         self.failed = 0
         self.skipped = 0
 
-    def _assemble_editor(self, output_bin, extra_args=None):
-        """Assemble the editor with optional extra assembler arguments."""
-        if not self.emulator.exists():
-            print(f"Error: Emulator not found at {self.emulator}")
-            return False
-        if not self.assembler.exists():
-            print(f"Error: Assembler not found at {self.assembler}")
-            return False
-
+    def _assemble(self, name, source, output_bin, extra_args=()):
+        """Test that source assembles into output_bin (extra_args go to the
+        assembler, e.g. define:terminal_mode). Returns True if it did."""
         output_bin.parent.mkdir(exist_ok=True)
-        cmd = [str(self.emulator), str(self.assembler),
-               "--no-dump", str(self.editor_asm), str(output_bin)]
-        if extra_args:
-            cmd.extend(extra_args)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            [str(self.emulator), str(self.assembler), "--no-dump",
+             str(source), str(output_bin), *extra_args],
+            capture_output=True, text=True, cwd=self.base_dir)
         if result.returncode != 0:
-            print(f"Error: Failed to assemble editor ({output_bin.name}):")
-            print(result.stderr)
+            self._fail(name, (result.stdout + result.stderr).strip()[-200:])
             return False
+        self._pass(name)
         return True
 
-    def build_editor(self):
-        """Assemble the editor."""
-        return self._assemble_editor(self.editor_bin)
+    def build_editors(self):
+        """Assemble the three editor builds: the main one, the small-buffer
+        one (256-byte text buffer) and the terminal one.
+        Returns (main_built, small_built, terminal_built)."""
+        direct = ["define:direct_io"] if self.direct_io else []
+        return tuple(
+            self._assemble(f"Editor assembles: {out.name}", self.editor_asm,
+                           out, args)
+            for out, args in ((self.editor_bin, direct),
+                              (self.editor_small_bin, ["define:small_buffer", *direct]),
+                              (self.editor_terminal_bin,
+                               ["define:terminal_mode"])))
 
-    def build_small_buffer_editor(self):
-        """Assemble the editor with small buffer (256 bytes for testing)."""
-        return self._assemble_editor(self.editor_small_bin,
-                                     ["define:small_buffer"])
-
-    def build_terminal_editor(self):
-        """Assemble the editor with terminal_mode defined."""
-        return self._assemble_editor(self.editor_terminal_bin,
-                                     ["define:terminal_mode"])
+    def terminal_bin_without_dsr_reply(self):
+        """A copy of the terminal editor whose startup size query ends
+        ESC[5n, not ESC[6n. The emulator's terminal answers ESC[6n ahead of
+        any queued key, but not ESC[5n, so the keys can carry the reply
+        themselves, after keys typed before it."""
+        data = self.editor_terminal_bin.read_bytes()
+        query_end = b"H\x1b[6n\x00"
+        assert data.count(query_end) == 1, "size query not found"
+        path = self.tmpdir / "editor_terminal_no_dsr_reply.out"
+        path.write_bytes(data.replace(query_end, b"H\x1b[5n\x00"))
+        return path
 
     def create_stable_copy(self):
         """Create stable copies of editor binaries after successful tests."""
@@ -274,7 +302,7 @@ class EditorTestRunner:
         edit_file = self.tmpdir / "test.txt"
         edit_file.write_text(initial_content)
         cmd = [str(self.emulator), str(self.editor_bin), "--no-dump",
-               "--load", "0400", "--console", str(edit_file)]
+               "--load", "0400", *self.direct_args, "--console", str(edit_file)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
@@ -309,10 +337,17 @@ class EditorTestRunner:
         self._pass(name)
 
     def run_test_new_file(self, name: str, keys: bytes,
-                          expected_content: str = None, expect_exit: int = 0):
-        """Run an editor test on a file that does not exist yet."""
+                          expected_content: str = None, expect_exit: int = 0,
+                          edit_name: str = "newfile.txt",
+                          expect_ansi_contains: str = None):
+        """Run an editor test on a file that does not exist yet.
+
+        edit_name is relative to the test directory; a name in a missing
+        directory cannot be created, which exercises write failures.
+        expect_ansi_contains: substring to find in the raw ANSI output.
+        """
         tmpdir = self.tmpdir
-        edit_file = tmpdir / "newfile.txt"
+        edit_file = tmpdir / edit_name
         # Ensure file does not exist
         if edit_file.exists():
             edit_file.unlink()
@@ -340,14 +375,23 @@ class EditorTestRunner:
                     f"  Actual:   {saved!r}")
                 return
 
+        if (expect_ansi_contains is not None
+                and expect_ansi_contains not in ansi):
+            self._fail(name,
+                f"Raw ANSI output does not contain {expect_ansi_contains!r}")
+            return
+
         self._pass(name)
 
     def run_test(self, name: str, initial_content: str, keys: bytes,
                  expected_content: str = None, expect_exit: int = 0,
-                 expect_unmodified: bool = False):
-        """Run a single editor test."""
+                 expect_unmodified: bool = False,
+                 edit_name: str = "test.txt"):
+        """Run a single editor test on edit_name (relative to the test
+        directory; missing directories on the way are made)."""
         tmpdir = self.tmpdir
-        edit_file = tmpdir / "test.txt"
+        edit_file = tmpdir / edit_name
+        edit_file.parent.mkdir(parents=True, exist_ok=True)
 
         if initial_content is not None:
             edit_file.write_text(initial_content)
@@ -384,6 +428,25 @@ class EditorTestRunner:
 
         self._pass(name)
 
+    def run_test_cycle_cap(self, name: str, initial_content: str,
+                           keys: bytes, cycle_cap: int, rows: int = 10,
+                           cols: int = 40):
+        """Test that the whole run (startup, keys, quit) takes at most
+        cycle_cap 6502 cycles. Set the cap between the old cost and the new
+        one, with a few percent of margin on each side.  The cycles are
+        counted on the standard stubs: --strict-api's add their own."""
+        edit_file = self.tmpdir / "t"
+        edit_file.write_text(initial_content)
+        exit_code, _ = self.emulator_runner.run(
+            self.editor_bin, keys, self.tmpdir, str(edit_file), rows=rows,
+            cols=cols, emu_args=["--cycle-cap", str(cycle_cap)],
+            strict_api=False)
+        if exit_code != 0:
+            self._fail(name, f"Did not finish within {cycle_cap} cycles "
+                             f"(exit code {exit_code})")
+        else:
+            self._pass(name)
+
     def run_editor_small_buffer(self, input_file: str, keys: bytes,
                                tmpdir: Path) -> tuple:
         """Run the small buffer editor with given keystroke sequence.
@@ -409,7 +472,7 @@ class EditorTestRunner:
             self.editor_bin, keys, tmpdir, input_file, rows=rows, cols=cols)
 
         saved = ""
-        if Path(input_file).exists():
+        if input_file is not None and Path(input_file).exists():
             try:
                 saved = Path(input_file).read_text()
             except UnicodeDecodeError:
@@ -419,14 +482,40 @@ class EditorTestRunner:
 
     def run_editor_terminal(self, input_file: str, keys: bytes, tmpdir: Path,
                             rows: int = 10, cols: int = 40,
-                            extra_args: list = None) -> tuple:
+                            emu_args: list = None,
+                            key_groups: list = None,
+                            binary: Path = None) -> tuple:
         """Run the terminal-mode editor with serial I/O.
+
+        binary: another terminal build to run (default editor_terminal.out).
+
+        key_groups: typed one group at a time, each after the editor has
+        gone idle with its output sent (keys is then ignored); needs a baud
+        model in emu_args.
+
+        emu_args: emulator options, e.g. ['--cpu-mhz', '1', '--baud', '9600'].
+        With --baud the startup size query only reaches the emulator's
+        terminal model after keys already streaming in have arrived, and the
+        size parser would take them for the reply. So the keys are held
+        until the editor is first idle (a --pace-mask of all '0'), by which
+        time the terminal has answered, as for a user who starts typing once
+        the screen is up.
 
         Returns (exit_code, saved_content, ansi_output_bytes).
         """
+        if key_groups is not None:
+            keys = b"".join(key_groups)
+            mask_file = tmpdir / "pace_mask.bin"
+            mask_file.write_bytes(b"".join(
+                b"0" * (len(g) - 1) + b"1" for g in key_groups))
+            emu_args = list(emu_args or []) + ["--pace-mask", str(mask_file)]
+        elif emu_args and "--baud" in emu_args:
+            mask_file = tmpdir / "pace_mask.bin"
+            mask_file.write_bytes(b"0" * len(keys))
+            emu_args = list(emu_args) + ["--pace-mask", str(mask_file)]
         exit_code, output = self.emulator_runner.run(
-            self.editor_terminal_bin, keys, tmpdir, input_file,
-            rows=rows, cols=cols, mode='terminal', extra_args=extra_args)
+            binary or self.editor_terminal_bin, keys, tmpdir, input_file,
+            rows=rows, cols=cols, mode='terminal', emu_args=emu_args)
 
         saved = ""
         if Path(input_file).exists():
@@ -443,10 +532,25 @@ class EditorTestRunner:
                                  expect_lines: list = None,
                                  expect_status_contains: str = None,
                                  expected_content: str = None,
-                                 extra_args: list = None,
+                                 emu_args: list = None,
                                  expect_content_redraws: list = None,
-                                 expect_lines_at_frame: list = None):
-        """Run a terminal-mode editor test and verify screen state."""
+                                 expect_lines_at_frame: list = None,
+                                 expect_row_texts: tuple = None,
+                                 key_groups: list = None,
+                                 expect_lines_in_some_frame: list = None,
+                                 binary: Path = None,
+                                 expect_status_at_frame: list = None):
+        """Run a terminal-mode editor test and verify screen state.
+
+        expect_row_texts: (row, texts) - in every frame the row shows one of
+        texts, and each of them shows in some frame (independent of how
+        many frames there are).
+        key_groups, binary: see run_editor_terminal.
+        expect_lines_in_some_frame: [(row, text), ...] all shown together in
+        at least one frame.
+        expect_status_at_frame: [(frame_idx, substring), ...] - the status
+        bar contains substring at that frame.
+        """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
 
@@ -458,7 +562,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir, rows, cols,
-                extra_args=extra_args
+                emu_args=emu_args, key_groups=key_groups, binary=binary
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -566,12 +670,47 @@ class EditorTestRunner:
                             f"    Frame:\n{screen.dump()}")
                         return
 
+        if expect_lines_in_some_frame is not None:
+            if not any(all(screen.get_row_text_at_frame(i, r) == t
+                           for r, t in expect_lines_in_some_frame)
+                       for i in range(screen.get_frame_count())):
+                self._fail(name,
+                    f"No frame shows {expect_lines_in_some_frame!r}\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+
+        for frame_idx, expected_substr in expect_status_at_frame or ():
+            if frame_idx >= screen.get_frame_count():
+                self._fail(name,
+                    f"Expected frame {frame_idx} but only "
+                    f"{screen.get_frame_count()} frames\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+            actual_text = screen.get_row_text_at_frame(frame_idx, rows - 1)
+            if expected_substr not in actual_text:
+                self._fail(name,
+                    f"Frame {frame_idx}: status bar expected substring "
+                    f"{expected_substr!r} in {actual_text!r}\n"
+                    f"    Frame:\n{screen.dump()}")
+                return
+
+        if expect_row_texts is not None:
+            row_idx, texts = expect_row_texts
+            seen = [screen.get_row_text_at_frame(i, row_idx)
+                    for i in range(screen.get_frame_count())]
+            if any(t not in texts for t in seen) or any(t not in seen for t in texts):
+                self._fail(name,
+                    f"Row {row_idx} across frames: expected only and all of "
+                    f"{list(texts)!r}, got {seen!r}")
+                return
+
         self._pass(name)
 
     def run_test_terminal(self, name: str, initial_content: str, keys: bytes,
                           expected_content: str = None, expect_exit: int = 0,
-                          extra_args: list = None):
-        """Run a terminal-mode editor test verifying file content."""
+                          emu_args: list = None, key_groups: list = None):
+        """Run a terminal-mode editor test verifying file content.
+        key_groups: see run_editor_terminal."""
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
 
@@ -583,7 +722,7 @@ class EditorTestRunner:
         try:
             exit_code, saved, ansi = self.run_editor_terminal(
                 str(edit_file), keys, tmpdir,
-                extra_args=extra_args
+                emu_args=emu_args, key_groups=key_groups
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -624,7 +763,10 @@ class EditorTestRunner:
                         expect_max_col: list = None,
                         expect_scrolled_at_frame: list = None,
                         expect_scroll_rows: list = None,
-                        deferred_wrap: bool = False):
+                        expect_frame_bytes: list = None,
+                        expect_frame_count: int = None,
+                        deferred_wrap: bool = True,
+                        no_file: bool = False):
         """Run an editor test and verify screen state via ANSI output.
 
         Args:
@@ -651,6 +793,15 @@ class EditorTestRunner:
                 verify minimum column written on a row in a specific frame
             expect_max_col: list of (frame_idx, row, max_col) tuples -
                 verify maximum column written on a row in a specific frame
+            expect_frame_bytes: list of (frame_idx, byte_count) tuples -
+                the bytes the editor sent for that frame (after the
+                previous frame's ESC[?25h, up to and including its own)
+            expect_frame_count: the number of frames the editor sent (a
+                key that changes nothing on the screen sends none)
+            deferred_wrap: the virtual terminal defers the wrap after the
+                last column, as real terminals do (the default); False
+                wraps at once
+            no_file: start the editor with no file name argument
         """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "t"
@@ -664,7 +815,7 @@ class EditorTestRunner:
 
         try:
             exit_code, saved, ansi = self.run_editor_screen(
-                str(edit_file), keys, tmpdir, rows, cols
+                None if no_file else str(edit_file), keys, tmpdir, rows, cols
             )
         except subprocess.TimeoutExpired:
             self._fail(name, "Timed out (infinite loop?)")
@@ -684,6 +835,20 @@ class EditorTestRunner:
                     f"Raw ANSI output does not contain "
                     f"{expect_ansi_contains!r}")
                 return
+
+        if expect_frame_bytes is not None:
+            sent = ansi.decode('latin-1').split("\x1b[?25h")[:-1]
+            for frame_idx, expected_len in expect_frame_bytes:
+                if frame_idx >= len(sent):
+                    self._fail(name, f"Expected frame {frame_idx} but only "
+                               f"{len(sent)} frames")
+                    return
+                frame = sent[frame_idx] + "\x1b[?25h"
+                if len(frame) != expected_len:
+                    self._fail(name,
+                        f"Frame {frame_idx}: expected {expected_len} bytes, "
+                        f"got {len(frame)}: {frame!r}")
+                    return
 
         # Parse ANSI output through virtual terminal
         screen = AnsiScreen(rows, cols, deferred_wrap=deferred_wrap)
@@ -732,6 +897,14 @@ class EditorTestRunner:
                     f"  Expected: {expected_content!r}\n"
                     f"  Actual:   {saved!r}")
                 return
+
+        if (expect_frame_count is not None
+                and screen.get_frame_count() != expect_frame_count):
+            self._fail(name,
+                f"Expected {expect_frame_count} frames, got "
+                f"{screen.get_frame_count()}\n"
+                f"    Frame:\n{screen.dump()}")
+            return
 
         if expect_content_redraws is not None:
             actual_count = screen.get_frame_count()
@@ -916,8 +1089,18 @@ class EditorTestRunner:
 
     def run_test_small_buffer(self, name: str, initial_content: str, keys: bytes,
                              expected_content: str = None, expect_exit: int = 0,
-                             expect_unmodified: bool = False):
-        """Run a test using the small buffer editor (256 bytes)."""
+                             expect_unmodified: bool = False,
+                             expect_settled: bool = False,
+                             expect_ansi_contains: str = None,
+                             expect_ansi_absent: str = None):
+        """Run a test using the small buffer editor (256 bytes).
+
+        expect_settled: the output ends with a completed frame (ESC[?25h)
+        before the exit sequence, so nothing (such as a status message)
+        is left over the last frame while the editor waits for a key.
+        expect_ansi_contains / expect_ansi_absent: a substring that must
+        (must not) appear in the raw ANSI output, such as a message.
+        """
         tmpdir = self.tmpdir
         edit_file = tmpdir / "test.txt"
 
@@ -953,6 +1136,21 @@ class EditorTestRunner:
             if saved != initial_content:
                 self._fail(name, f"File was modified when it shouldn't have been")
                 return
+
+        if expect_settled:
+            idle = ansi.removesuffix("\x1b[r\x1b[2J\x1b[H")
+            if not idle.endswith("\x1b[?25h"):
+                tail = idle[idle.rfind("\x1b[?25h") + 6:]
+                self._fail(name, f"Output after the last frame: {tail!r}")
+                return
+
+        if expect_ansi_contains is not None and expect_ansi_contains not in ansi:
+            self._fail(name, f"Output does not contain {expect_ansi_contains!r}")
+            return
+
+        if expect_ansi_absent is not None and expect_ansi_absent in ansi:
+            self._fail(name, f"Output contains {expect_ansi_absent!r}")
+            return
 
         self._pass(name)
 
@@ -1030,7 +1228,7 @@ class EditorTestRunner:
             proc.kill()
             self._fail(name, "Server process timed out")
 
-    def _run_server_editor_tests(self):
+    def _run_server_editor_tests(self, terminal_built):
         """Test server mode with actual editor binary."""
         self._group("Server mode - editor integration:", leading_blank=True)
 
@@ -1052,6 +1250,7 @@ class EditorTestRunner:
             keys_file.write_bytes(keys)
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'INPUT {keys_file}',
@@ -1093,6 +1292,7 @@ class EditorTestRunner:
             keys_file.write_bytes(b"x:wq\r")
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'INPUT {keys_file}',
@@ -1131,7 +1331,7 @@ class EditorTestRunner:
                 self._pass("Server: sequential run content")
 
         # Test 3: Terminal mode via server matches subprocess.run
-        if self.editor_terminal_bin.exists():
+        if terminal_built:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmpdir = Path(tmpdir)
                 keys = b":wq\r"
@@ -1151,6 +1351,7 @@ class EditorTestRunner:
                 commands = [
                     f'LOAD 0400',
                     f'MODE terminal',
+                    f'API strict',
                     f'BINARY {self.editor_terminal_bin}',
                     f'ROWS 10',
                     f'COLS 40',
@@ -1197,6 +1398,7 @@ class EditorTestRunner:
             keys_file.write_bytes(keys)
 
             commands = [
+                *self.server_mode,
                 f'LOAD 0400',
                 f'BINARY {self.editor_bin}',
                 f'ROWS 5',
@@ -1221,6 +1423,362 @@ class EditorTestRunner:
             else:
                 self._pass("Server: screen size output")
 
+    def run_line_limit_tests(self):
+        """A buffer holds at most MAX_LINES (1023) lines: the line table
+        ($D800-$DFFF) has 1024 entries, and one stays free.
+
+        A longer file loads truncated and read-only, like a file that
+        overflows the text buffer; edits that would add a 1024th line are
+        refused with "Buffer full" before anything changes.
+        """
+        self._group("Line limit (1023 lines):", leading_blank=True)
+
+        def numbered(n):
+            return ''.join(f"L{i:04d}\n" for i in range(1, n + 1))
+
+        full = numbered(1023)
+        # After a refused edit, 'z' (or ESC) does nothing and 'x' on line
+        # 1 proves the buffer is still editable (not read-only)
+        full_x = "0001\n" + full[6:]
+
+        # --- Loading ---
+        self.run_test("1023-line file loads editable",
+            full, b"Gx:wq\r", expected_content=full[:-6] + "1023\n")
+        self.run_test_screen("1024-line file loads truncated and read-only",
+            numbered(1024), b"xG:q\r", cols=80,
+            expect_ansi_contains="File too large",
+            expect_status_at_frame=[(0, "[RO]")], expect_lines=[(8, "L1023")])
+        # 3073+ lines ran the table into the I/O page at $F000 and crashed
+        self.run_test("3100-line file loads without overrunning the table",
+            "x\n" * 3100, b"x:wq\rx:q\r", expect_unmodified=True)
+        # The newline appended to an unterminated last line makes a 1024th
+        self.run_test("1024th line without a newline is cut off read-only",
+            full + "L1024", b"x:wq\rx:q\r", expect_unmodified=True)
+
+        # --- Opening a line ---
+        self.run_test("o at the line limit is refused",
+            full, b"oz\x1bx:wq\r", expected_content=full_x)
+        self.run_test("O at the line limit is refused",
+            full, b"jOz\x1bkx:wq\r", expected_content=full_x)
+        self.run_test_screen("o at the line limit shows Buffer full",
+            full, b"o", expect_ansi_contains="Buffer full")
+        # cc deletes its line before opening a blank one: no net new line
+        self.run_test("cc at the line limit",
+            full, b"ccX\x1b:wq\r", expected_content="X\n" + full[6:])
+        self.run_test("cc redo at the line limit",
+            full, b"cc\x1buu:wq\r", expected_content="\n" + full[6:])
+        # u of cc takes cc's empty line off the count before pasting back
+        self.run_test("cc undo at the line limit",
+            full, b"cc\x1bux:wq\r", expected_content=full_x)
+        self.run_test("2cc undo then redo at the line limit",
+            full, b"2cc\x1bu\x1bu:wq\r", expected_content="\n" + full[12:])
+        self.run_test("o redo reaches the line limit",
+            numbered(1022), b"o\x1buu:wq\r",
+            expected_content="L0001\n\n" + numbered(1022)[6:])
+        # A count on o or i: copies that would pass the limit are refused
+        # with "Buffer full", as a paste of that many lines is, and the
+        # typing stays once
+        self.run_test("23oab reaches the line limit",
+            numbered(1000), b"23oab\x1b:wq\r",
+            expected_content="L0001\n" + "ab\n" * 23 + numbered(1000)[6:])
+        self.run_test_screen("24oab past the line limit is refused",
+            numbered(1000), b"24oab\x1b:wq\r",
+            expected_content="L0001\nab\n" + numbered(1000)[6:],
+            expect_ansi_contains="Buffer full")
+        self.run_test("24i Enter past the line limit is refused",
+            numbered(1000), b"24i\r\x1b:wq\r",
+            expected_content="\n" + numbered(1000))
+
+        # --- Splitting a line (r<Enter>) ---
+        self.run_test("r<Enter> at the line limit is refused",
+            full, b"lr\r\x1bx:wq\r", expected_content="L001\n" + full[6:])
+        self.run_test_screen("r<Enter> at the line limit shows Buffer full",
+            full, b"lr\r", expect_ansi_contains="Buffer full")
+        self.run_test("r<Enter> below the line limit adds the 1023rd line",
+            numbered(1022), b"llr\r:wq\r",
+            expected_content="L0\n01\n" + numbered(1022)[6:])
+        self.run_test("r<Enter> undo then redo reaches the line limit",
+            numbered(1022), b"llr\ru\x1bu:wq\r",
+            expected_content="L0\n01\n" + numbered(1022)[6:])
+
+        # --- Pastes ---
+        self.run_test("p (line) at the line limit is refused",
+            full, b"yypzx:wq\r", expected_content=full_x)
+        self.run_test("P (line) at the line limit is refused",
+            full, b"yyPzx:wq\r", expected_content=full_x)
+        # A multi-line character yank ('ab cd\nL0002') adds a line per copy
+        chars = "ab cd\n" + full[6:]
+        for key in (b"p", b"P"):
+            self.run_test(
+                f"{key.decode()} (char) at the line limit is refused",
+                chars, b"3yw" + key + b"zx:wq\r",
+                expected_content="b cd\n" + full[6:])
+        chars = "ab cd\n" + numbered(1021)[6:]
+        self.run_test("Counted P (char) fills the line table exactly",
+            chars, b"3yw2P:wq\r",
+            expected_content="ab cd\nL0002" * 2 + chars)
+        self.run_test("Counted P (char) one line past the limit is refused",
+            chars, b"3yw3Pzx:wq\r", expected_content=chars[1:])
+        self.run_test("Counted p fills the line table exactly",
+            numbered(1000), b"yy23p:wq\r",
+            expected_content="L0001\n" * 24 + numbered(1000)[6:])
+        self.run_test("Counted p one line past the limit is refused",
+            numbered(1000), b"yy24pzx:wq\r",
+            expected_content="0001\n" + numbered(1000)[6:])
+        self.run_test("Typed-ahead ppp one line past the limit is refused",
+            numbered(1021), b"yypppzx:wq\r",
+            expected_content="0001\n" + numbered(1021)[6:])
+        # Line 1024 on overwrote the yank buffer ($E000) with line pointers,
+        # which the next paste saved as text
+        lines30 = ''.join(f"line {i:02d}\n" for i in range(30))
+        self.run_test("yy1000p is refused and the yank stays intact",
+            lines30, b"yy1000pjp:wq\r",
+            expected_content=lines30[:16] + "line 00\n" + lines30[16:])
+        # 4000 lines fit the text buffer but ran the table into $F000
+        self.run_test("yy4000p on a one-line file is refused",
+            "abcdefg\n", b"yy4000pzx:wq\r", expected_content="bcdefg\n")
+
+        # --- Undo and redo ---
+        # Undo of J restores the lines J joined
+        self.run_test("u of J at the line limit restores all lines",
+            full, b"Ju:wq\r", expected_content=full)
+        # Undo of deleting every line removes the synthetic empty line
+        # first, so re-inserting all 1023 lines must fit (2-byte lines keep
+        # the delete within the 4 KB yank buffer)
+        digits = ''.join(f"{i % 10}\n" for i in range(1023))
+        self.run_test("u of 1023dd at the line limit restores every line",
+            digits, b"1023dduGx:wq\r", expected_content=digits[:-2] + "\n")
+        # u and its redo paste the yank buffer, so a yank made since ends
+        # them and cannot take the file past the limit (u of dd pasted a
+        # char yank as lines, whose newlines the room check did not count,
+        # and reached 1024 lines, read-only)
+        self.run_test("u of dd after a bigger yank stays within the limit",
+            full, b"dd5yyu\x1b:wq\r", expected_content=full[6:])
+        self.run_test("Redo of p after a bigger yank stays within the limit",
+            numbered(1022), b"yypu5yyu\x1b:wq\r",
+            expected_content=numbered(1022))
+        self.run_test("u of dd after a char yank stays within the limit",
+            full, b"dd3ywu:wq\r", expected_content=full[6:])
+
+        # --- Insert mode ---
+        # The refused batch ends at ESC, which the message consumes; the
+        # second ESC leaves insert mode on the '1' of L0001
+        self.run_test("Enter at the line limit is refused",
+            full, b"A\r\x1b\x1bx:wq\r", expected_content="L000\n" + full[6:])
+        self.run_test_screen("Enter at the line limit shows Buffer full",
+            full, b"A\r", expect_ansi_contains="Buffer full")
+        self.run_test("Enter below the line limit adds the 1023rd line",
+            numbered(1022), b"A\r\x1b:wq\r",
+            expected_content="L0001\n\n" + numbered(1022)[6:])
+        # A batch counts the lines it joins (BS at column 0, DEL at the end
+        # of a line) against those it adds: BS then Enter is no net line,
+        # BS then two Enters (or DEL then two) is one
+        self.run_test("Enter after a joining BS fits at the line limit",
+            full, b"ji\x08\r\x1bx:wq\r",
+            expected_content="L0001\n0002\n" + full[12:])
+        self.run_test("Two Enters after a joining BS are refused at the limit",
+            full, b"ji\x08\r\r\x1b\x1bx:wq\r",
+            expected_content="L0001\n0002\n" + full[12:])
+        # Typed ahead, the keys before an Enter that does not fit go in and
+        # those after it run on their own, as typed one at a time: after
+        # the joining DEL the first Enter fits, the second is refused
+        self.run_test("Two Enters after a joining DEL: the second is refused",
+            full, b"A\x1b[3~\r\r\x1b\x1bx:wq\r",
+            expected_content="L0001\n0002\n" + full[12:])
+        self.run_test("Typed-ahead chars and Enters stop at the line limit",
+            numbered(1022), b"GAx\ry\rz\x1b\x1b:wq\r",
+            expected_content=numbered(1022)[:-1] + "x\nyz\n")
+        self.run_test_batch_equiv(
+            "Batch equiv: Enter keys past the line limit", numbered(1021),
+            [b"G", b"A", b"x", b"\r", b"y", b"\r", b"\r", b"z", b"\x1b"])
+
+    def run_cpu_cost_tests(self):
+        """Cycle caps for the line table and line lengths on big buffers
+        and long lines: each run (startup, keys, quit) must finish within
+        the cap, which sits between the old cost and the new one."""
+        self._group("CPU cost (cycle caps):", leading_blank=True)
+
+        big = "".join("line %04d of the file, padded to thirty-six\n" % i
+                      for i in range(830))  # 36,520 bytes
+
+        # The line-table rebuild scans a page at a time (14 cycles a byte,
+        # 45 before): loading 36 KB and a dd at its top rebuild it twice,
+        # 5,615,236 cycles before
+        self.run_test_cycle_cap(
+            "Line table rebuild of 36 KB: load and dd at the top",
+            big, b"dd:q!\r", 3800000, rows=24, cols=80)
+        # It starts at the cursor line, the first an edit changes: dd and
+        # o at the last line took 2,963,074 and 3,088,019 cycles (the
+        # whole run), 2,405,513 and 2,530,471 now
+        self.run_test_cycle_cap(
+            "Line table rebuild from the cursor line: G dd on 36 KB",
+            big, b"Gdd:q!\r", 2650000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Line table rebuild from the cursor line: G o on 36 KB",
+            big, b"GoX\x1b:q!\r", 2780000, rows=24, cols=80)
+
+        # A line's length is the gap between its entry and the next one
+        # (the entry after the last line holds the end of the text), where
+        # it was a scan for the newline, 14 cycles a char: x on a
+        # 10,000-char line (the whole run) took 1,842,456 cycles, o below
+        # a 30,000-char line (the next line's start) 5,028,077, and J of a
+        # 20,000-char line (its end) 3,196,773
+        self.run_test_cycle_cap(
+            "Line length from the table: x on a 10,000-char line",
+            "a" * 10000 + "\n", b"x:q!\r", 1150000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Next line from the table: o below a 30,000-char line",
+            "a" * 30000 + "\n", b"o\x1b:q!\r", 2900000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "Line end from the table: J of a 20,000-char line",
+            "a" * 20000 + "\nb\n", b"J:q!\r", 2100000, rows=24, cols=80)
+
+        # A column past 255 divides by the screen width in eight
+        # shift-and-subtract steps, where it subtracted the width up to 255
+        # times: 100 h and Esc at the end of a 30,000-char line took
+        # 8,488,971 cycles, 4,429,568 now
+        self.run_test_cycle_cap(
+            "Wrap row of a far column: h and Esc at col 29,999",
+            "a" * 30000 + "\n", b"$" + b"h\x1b" * 100 + b":q!\r", 5200000,
+            rows=24, cols=80)
+
+        # A char delete that ends within the cursor's line has no line
+        # break to count: D on a 4,000-char line no longer scans it (the
+        # whole run took 788,405 cycles, 468,382 now)
+        self.run_test_cycle_cap(
+            "Char delete within a line: D on a 4,000-char line",
+            "a" * 4000 + "\n", b"D:q!\r", 560000, rows=24, cols=80)
+
+        # r and ~ look the cursor's char up once and step along the line
+        # with Y, where each char looked the line up again (and ~ its
+        # length): ten 255~ on a 2,000-char line took 2,647,636 cycles
+        # (2,090,296 now), ten 255rx on a 255-char line 1,283,140
+        # (968,250 now)
+        self.run_test_cycle_cap(
+            "~ steps along the line: 255~ ten times",
+            "a" * 2000 + "\n", b"0255~" * 10 + b":q!\r", 2300000,
+            rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "r steps along the line: 255rx ten times",
+            "a" * 255 + "\n", b"0255rx" * 10 + b":q!\r", 1100000)
+
+        # w, e and b step the char's address with the cursor, where each
+        # char looked the line up again: 255w, 255e and 255b on a
+        # 2,000-char line of words took 1,709,547 cycles, 1,134,977 now
+        words = " ".join("word%d" % i for i in range(400))[:2000] + "\n"
+        self.run_test_cycle_cap(
+            "Word motions step along the line: 255w 255e 255b",
+            words, b"255w0255e$255b:q!\r", 1300000, rows=24, cols=80)
+
+        # >> and << keep the line table current as they move the range's
+        # lines, and move the lines after it by the total, where they
+        # rebuilt the table from the range on: on a 36 KB file, >> at the
+        # top took 3,416,416 cycles (the whole run), << on its indented
+        # copy 3,561,642
+        self.run_test_cycle_cap(
+            ">> moves the line table entries: >> at the top of 36 KB",
+            big, b">>:q!\r", 3100000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "<< moves the line table entries: << at the top of 36 KB",
+            "".join("  " + l + "\n" for l in big.split("\n")[:-1]),
+            b"<<:q!\r", 3250000, rows=24, cols=80)
+        # << leaves the lines before its first removal where they are,
+        # where it copied each onto itself: 999<< on a 36 KB file that
+        # removes nothing took 3,738,104 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "<< copies no line before its first removal: 999<< on 36 KB",
+            big, b"999<<:q!\r", 2700000, rows=24, cols=80)
+
+        # A char paste counts the yank's newlines once after each yank,
+        # where p counted them twice on every paste (its batching and the
+        # paste): p of a 4,000-char yank took 935,427 cycles (the whole
+        # run)
+        self.run_test_cycle_cap(
+            "p counts the yank's newlines once: p of 4,000 chars",
+            "a" * 4000 + "\nb\n", b"y$jp:q!\r", 890000, rows=24, cols=80)
+
+        # A char paste of no newlines (p, P, the undo of x, the redo of a
+        # paste) moves the lines after the cursor line by its size, where
+        # it rebuilt the line table from the cursor line on: on a 36 KB
+        # file, u after x at the top took 4,050,114 cycles (the whole
+        # run), P of a word 3,425,138
+        self.run_test_cycle_cap(
+            "A char paste moves the line table entries: u after x on 36 KB",
+            big, b"xu:q!\r", 3750000, rows=24, cols=80)
+        self.run_test_cycle_cap(
+            "A char paste moves the line table entries: P on 36 KB",
+            big, b"ywP:q!\r", 3150000, rows=24, cols=80)
+
+        # A search compares each char with the pattern's first from zero
+        # page, and its pointer loop no longer reloads Y: a search that
+        # finds nothing in a 36 KB file, then nine n, took 12,391,646
+        # cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Search's first-char test: /zzzz and 9 n on 36 KB",
+            big, b"/zzzz\r" + b"n" * 9 + b":q!\r", 11850000)
+
+        # The row a scroll exposes at the bottom is found from the cursor
+        # line, where the walk went from the top of the view: 50 j (each
+        # with an Esc, so none are typed ahead) on the bottom row of a
+        # 60-row screen took 6,246,372 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "The row walk starts at the cursor line: 50 j scrolls, 60x80",
+            "".join("Line %d of a thousand line file\n" % i
+                    for i in range(1000)),
+            b"58j" + b"j\x1b" * 50 + b":q!\r", 5950000, rows=60, cols=80)
+
+        # A line's rows shifted with ICH/DCH step their start a row at a
+        # time, where each row worked it out from the line's start: x at
+        # the start of a 254-row line took 4,229,418 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Shifted rows step their start: x on a 254-row line, 255x40",
+            "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
+            b"x:q!\r", 3900000, rows=255, cols=40)
+
+        # A wrapped line's next row starts a row on from the one before,
+        # where each row worked its start out from the line's start: the
+        # startup of a 254-row line at 255x40 took 1,709,584 cycles (the
+        # whole run), and i a Esc at the end of a 30,000-char line at 24x80
+        # 2,262,844
+        self.run_test_cycle_cap(
+            "Wrap rows step their start: startup with a 254-row line, 255x40",
+            "".join(chr(97 + i % 26) for i in range(10150)) + "\n",
+            b":q!\r", 1300000, rows=255, cols=40)
+        self.run_test_cycle_cap(
+            "Wrap rows step their start: ia Esc at col 29,999, 24x80",
+            "a" * 30000 + "\n", b"$ia\x1b:q!\r", 2150000, rows=24, cols=80)
+
+        # A decimal number's digits are how many times each power of ten
+        # subtracts from it, where each took 16 shift-and-subtract steps
+        # (every cursor move, count and status bar number): ten Ctrl-F
+        # Ctrl-B at 24x80 took 1,767,434 cycles (the whole run)
+        self.run_test_cycle_cap(
+            "Decimal digits by powers of ten: 10 Ctrl-F Ctrl-B, 24x80",
+            "".join("line %d is here\n" % i for i in range(60)),
+            b"\x06\x02" * 10 + b":q!\r", 1300000, rows=24, cols=80)
+        # What it writes: a five-digit column, a four-digit :marks line
+        # number in its field, a two-digit ICH count
+        self.run_test_screen(
+            "Decimal digits: the status bar shows column 30000",
+            "a" * 30000 + "\n", b"$:q!\r", rows=24, cols=80,
+            expect_status_contains="t - NORMAL - 1,30000 /1")
+        self.run_test_screen(
+            "Decimal digits: :marks right-justifies line 1000",
+            "".join("L%d\n" % i for i in range(1023)),
+            b"1000Gma:marks\r :q!\r", rows=24, cols=80,
+            expect_ansi_contains=" a   1000 L999")
+        self.run_test_screen(
+            "Decimal digits: 20 chars typed ahead mid-line insert with ESC[20@",
+            "x" * 100 + "\n", b"10|i" + b"y" * 20 + b"\x1b:q!\r",
+            rows=24, cols=80, expect_ansi_contains="\x1b[20@")
+
+    TEXT_LIMIT = 0xD600  # End of the main build's text buffer
+
+    def _text_buf(self):
+        """TEXT_BUF of the main build: the first page boundary after the
+        code, which loads at $0400."""
+        return (0x0400 + self.editor_bin.stat().st_size + 0xFF) & ~0xFF
+
     def run_self_editability_checks(self):
         """Every editor source file must be editable by the editor itself.
 
@@ -1230,12 +1788,9 @@ class EditorTestRunner:
         source file so the editor stays self-hosting as it grows.
         """
         MAX_LINES = 1023
-        TEXT_LIMIT = 0xD600
-        LOAD_ADDR = 0x0400
 
-        code_size = self.editor_bin.stat().st_size
-        text_buf = (LOAD_ADDR + code_size + 0xFF) & ~0xFF
-        capacity = TEXT_LIMIT - text_buf
+        text_buf = self._text_buf()
+        capacity = self.TEXT_LIMIT - text_buf
 
         editor_dir = self.editor_asm.parent
         sources = sorted(editor_dir.glob("*.asm"))
@@ -1254,6 +1809,244 @@ class EditorTestRunner:
                     f"{MAX_LINES}")
             else:
                 self._pass(name)
+
+    # --- Batching equivalence ---
+    # README: batching changes only speed.  The emulator's --pace-mask hook
+    # delays chosen keys until the editor has gone idle, so a run can feed
+    # keys one at a time (paced) instead of all at once (batched, as with a
+    # plain --input run), and --pace-log records the output offset at each
+    # idle point.
+
+    def _pacing_supported(self):
+        if not hasattr(self, "_pacing_ok"):
+            r = subprocess.run([str(self.emulator)], capture_output=True,
+                               text=True)
+            self._pacing_ok = "--pace-mask" in r.stdout + r.stderr
+        return self._pacing_ok
+
+    def _run_paced(self, content, groups, paced, rows, cols):
+        """Run the editor on key groups; each group index in `paced` is
+        followed by an idle pause.  Returns ({index: (rows, cursor)} of the
+        screen when the editor went idle after each paced group, saved file).
+        """
+        tmp = self.tmpdir
+        edit_file = tmp / "beq.txt"
+        edit_file.write_text(content)
+        mask = bytearray()
+        ends = {}
+        pos = 0
+        for i, group in enumerate(groups):
+            pos += len(group)
+            mask += b"0" * (len(group) - 1) + (b"1" if i in paced else b"0")
+            if i in paced:
+                ends[i] = pos
+        (tmp / "beq_keys.bin").write_bytes(b"".join(groups))
+        (tmp / "beq_mask.bin").write_bytes(bytes(mask))
+        log, out = tmp / "beq_log.txt", tmp / "beq_out.bin"
+        for f in (log, out):
+            if f.exists():
+                f.unlink()
+        subprocess.run(
+            [str(self.emulator), str(self.editor_bin), "--no-dump",
+             "--load", "0400", *self.direct_args, "--rows", str(rows), "--cols", str(cols),
+             "--pace-mask", str(tmp / "beq_mask.bin"), "--pace-log", str(log),
+             "--input", str(tmp / "beq_keys.bin"), "--output", str(out),
+             str(edit_file)],
+            capture_output=True, timeout=30)
+        output = out.read_bytes() if out.exists() else b""
+        idle = {}
+        if log.exists():
+            for line in log.read_text().split("\n"):
+                if line.strip():
+                    consumed, written = map(int, line.split())
+                    idle[consumed] = written
+        screens = {}
+        for i, end in ends.items():
+            if end in idle:
+                screen = AnsiScreen(rows, cols)
+                screen.process(output[:idle[end]].decode("latin-1"))
+                screens[i] = ([screen.get_row_text(r) for r in range(rows)],
+                              screen.get_cursor())
+        return screens, edit_file.read_text()
+
+    def run_test_batch_equiv(self, name, content, keys, rows=10, cols=40):
+        """Feeding `keys` (a list of key groups) all at once must give the
+        same screen and file, and the same results for a following u and
+        uu, as feeding them one group at a time."""
+        if not self._pacing_supported():
+            self._skip(name, "emulator has no --pace-mask")
+            return
+        n = len(keys)
+        for extra in ([], [b"\x1b", b"u"], [b"\x1b", b"u", b"u"]):
+            groups = list(keys) + extra + [b"\x1b", b"\x1b", b":wq\r"]
+            last = n + len(extra) - 1
+            after = set(range(n, len(groups)))
+            batched = self._run_paced(content, groups, {n - 1} | after,
+                                      rows, cols)
+            paced = self._run_paced(content, groups, set(range(n)) | after,
+                                    rows, cols)
+            for what, a, b in (
+                    ("screen", batched[0].get(last), paced[0].get(last)),
+                    ("file", batched[1], paced[1])):
+                if a is None or a != b:
+                    suffix = b"".join(extra).decode("latin-1")
+                    self._fail(name, f"after keys{suffix!r}: {what} differs"
+                               f"\n      batched: {a!r}\n      paced:   {b!r}")
+                    return
+        self._pass(name)
+
+    def run_test_sends_nothing(self, name, content, before, key,
+                               after=b"", rows=10, cols=40, terminal=False):
+        """`key`, typed after `before`, changes nothing on the screen, so it
+        sends nothing: the editor's output for before + key + after is the
+        same, byte for byte, as for before + after."""
+        edit_file = self.tmpdir / "t"
+        outs = []
+        for keys in (before + key + after, before + after):
+            edit_file.write_text(content)
+            run = (self.run_editor_terminal if terminal
+                   else self.run_editor_screen)
+            try:
+                _, _, out = run(str(edit_file), keys + b":q!\r",
+                                self.tmpdir, rows, cols)
+            except subprocess.TimeoutExpired:
+                self._fail(name, "Timed out (infinite loop?)")
+                return
+            outs.append(out)
+        if outs[0] != outs[1]:
+            i = next((j for j in range(min(map(len, outs)))
+                      if outs[0][j] != outs[1][j]), min(map(len, outs)))
+            self._fail(name, f"{len(outs[0]) - len(outs[1]):+d} bytes with "
+                       f"the key, from byte {i}:\n"
+                       f"      with:    {outs[0][i:i + 60]!r}\n"
+                       f"      without: {outs[1][i:i + 60]!r}")
+            return
+        self._pass(name)
+
+    def run_demo_build_checks(self):
+        """The standalone demos (hello.asm, clock.asm) must still assemble."""
+        for demo in ("hello", "clock"):
+            self._assemble(f"Demo assembles: {demo}.asm",
+                           self.editor_asm.parent / f"{demo}.asm",
+                           self.tmpdir / f"{demo}.out")
+
+    def run_batch_equiv_tests(self):
+        """Key sequences whose batched and one-at-a-time runs must agree."""
+        lines = "".join(f"line {i:02d} alpha beta gamma\n" for i in range(30))
+        indented = "".join(f"  line {i:02d}\n" for i in range(30))
+        for name, content, keys in (
+            ("Batch equiv: x x x x x", "abcdefgh\nxyz\n", [b"x"] * 5),
+            ("Batch equiv: j scrolling", lines, [b"j"] * 12),
+            ("Batch equiv: k after G", lines, [b"G"] + [b"k"] * 12),
+            ("Batch equiv: dd dd dd", lines, [b"d", b"d"] * 3),
+            ("Batch equiv: typing", "abc\n",
+             [b"i"] + [bytes([c]) for c in b"hello world"] + [b"\x1b"]),
+            ("Batch equiv: typing with BS and Enter", "abc\n",
+             [b"A"] + [bytes([c]) for c in b"xy\x08z\rnew"] + [b"\x1b"]),
+            ("Batch equiv: typed chars erased by BS", "ab\ncd\n",
+             [b"d", b"d", b"i", b"x", b"y", b"\x08", b"\x08", b"\x1b"]),
+            ("Batch equiv: typing with Enter and BS, then u", "abc\ndef\n",
+             [b"A"] + [bytes([c]) for c in b"xy\rz\x08\x08w\rq"] + [b"\x1b"]),
+            ("Batch equiv: BS past where the typing began", "ab\ncd\n",
+             [b"j", b"A", b"x", b"\x08", b"\x08", b"\x08", b"y", b"\x1b"]),
+            ("Batch equiv: o, typing with Enter and BS", "abc\ndef\n",
+             [b"o"] + [bytes([c]) for c in b"fo\x08o\rba\x08r"] + [b"\x1b"]),
+            ("Batch equiv: O, typing with Enter and BS", "abc\ndef\n",
+             [b"j", b"O"] + [bytes([c]) for c in b"xy\r\x08\x08z"] + [b"\x1b"]),
+            ("Batch equiv: Left keys after a BS past the start", "abcdef\n",
+             [b"$", b"a", b"\x08", b"\x08", b"x"] + [b"\x1b[D"] * 8
+             + [b"y", b"\x1b"]),
+            ("Batch equiv: insert-mode arrows", lines,
+             [b"i", b"a", b"\x1b[B", b"b", b"\x1b[C", b"c", b"\x1b"]),
+            ("Batch equiv: arrow keys", lines,
+             [b"\x1b[B", b"\x1b[B", b"\x1b[C", b"\x1b[A", b"x"]),
+            ("Batch equiv: x past the line end", "abcdef\nxyz\n",
+             [b"3l", b"x", b"x", b"x", b"x", b"x"]),
+            ("Batch equiv: ~ past the line end", "abc\nxyz\n",
+             [b"l", b"~", b"~", b"~"]),
+            ("Batch equiv: dd dd from the line end", "abcdef\n\n  xyz\nq\n",
+             [b"$", b"d", b"d", b"d", b"d", b"x"]),
+            ("Batch equiv: 300j j j", "".join(f"l{i}\n" for i in range(400)),
+             [b"300j", b"j", b"j", b"x"]),
+            ("Batch equiv: db db, the second over 4 KB",
+             "a" * 5000 + " b c\nend\n", [b"$", b"db", b"db", b"\x1b", b"x"]),
+            ("Batch equiv: Ctrl-D Ctrl-D", "abcdef\n" + "\n" * 4 + "abcdef\n" * 11,
+             [b"$", b"\x04", b"\x04", b"x"]),
+            ("Batch equiv: j j across a short line", "abcdef\nab\nabcdef\n",
+             [b"4l", b"j", b"j", b"x"]),
+            ("Batch equiv: k k across an empty line", "abcdef\n\nabcdef\n",
+             [b"G", b"$", b"k", b"k", b"x"]),
+            ("Batch equiv: insert Down Down", ".\n\nm\n",
+             [b"a", b"\x1b[B", b"\x1b[B", b"8", b"\x1b"]),
+            ("Batch equiv: J J on two lines", "a\nb\nc\n",
+             [b"j", b"J", b"J"]),
+            ("Batch equiv: 3J J on three lines", "a\nb\nc\n",
+             [b"3J", b"J"]),
+            ("Batch equiv: 2J J J", "a\nb\nc\nd\ne\n",
+             [b"2J", b"J", b"J"]),
+            ("Batch equiv: u u after moving", "abc\ndef\nghi\njkl\n",
+             [b"dd", b"j", b"j", b"u", b"u"]),
+            ("Batch equiv: Ctrl-B past the first page", indented,
+             [b"0", b"\x06", b"\x06", b"l", b"\x02", b"\x02", b"\x02", b"x"]),
+            ("Batch equiv: Ctrl-F past the last page", indented,
+             [b"0", b"\x06", b"\x06", b"\x06", b"\x06", b"\x06", b"x"]),
+            # x and X presses left over once the line is empty (or X at
+            # column 0) are empty changes, as typed one at a time: u after
+            # them puts nothing back
+            ("Batch equiv: x x on a one-char line", "a\nb\n", [b"x", b"x"]),
+            ("Batch equiv: 3x x past the line end", "ab\ncd\n",
+             [b"3x", b"x"]),
+            ("Batch equiv: x x x from the last char", "ab\ncd\n",
+             [b"l", b"x", b"x", b"x"]),
+            ("Batch equiv: X X past column 0", "ab\ncd\n", [b"l", b"X", b"X"]),
+            ("Batch equiv: 2X X past column 0", "abc\ncd\n",
+             [b"$", b"2X", b"X"]),
+            ("Batch equiv: insert Right at the line end, then Up",
+             "abcdef\nab\n",
+             [b"$", b"a", b"\x1b[B", b"\x1b[C", b"\x1b[C", b"\x1b[A", b"x",
+              b"\x1b"]),
+            ("Batch equiv: Space over line ends", "ab\n\ncd\nef\n",
+             [b" "] * 7 + [b"x"]),
+            ("Batch equiv: Backspace over line ends", "ab\n\ncd\nef\n",
+             [b"G", b"$"] + [b"\x7f"] * 8 + [b"x"]),
+            ("Batch equiv: Space and Backspace then j", "abcdef\nab\nabcdef\n",
+             [b"4l", b"j", b" ", b"\x7f", b"\x7f", b"j", b"x"]),
+        ):
+            self.run_test_batch_equiv(name, content, keys)
+        # A count of Ctrl-B that runs out keeps the column, here on a line
+        # taller than the rest of the screen, whose row the view then shows:
+        # a Ctrl-B typed after it pages from that view
+        tall = "l0\n" + "x" * 70 + "\nend\n"
+        for name, keys in (
+                ("2 Ctrl-B running out, then Ctrl-B",
+                 [b"Gk69l", b"2\x02", b"\x02"]),
+                ("3 Ctrl-B running out, then Ctrl-B Ctrl-B",
+                 [b"Gk60l", b"3\x02", b"\x02", b"\x02"]),
+                ("2 Ctrl-F then Ctrl-F at the end", [b"j20l", b"2\x06",
+                                                     b"\x06"])):
+            self.run_test_batch_equiv("Batch equiv: " + name, tall, keys,
+                                      rows=5, cols=20)
+        # An Enter at the bottom row scrolls the view; a BS typed after it
+        # takes the line break back but not the scroll (as in vim), also
+        # typed ahead (the batch ends before that BS)
+        ten = "".join(f"l{i}\n" for i in range(10))
+        for name, keys in (
+                ("Enter at the bottom row, then BS",
+                 [b"5G", b"A", b"\r", b"\x08"]),
+                ("text, Enters at the bottom row, then BS over them",
+                 [b"5G", b"A", b"x", b"\r", b"\r", b"y", b"\x08", b"\x08",
+                  b"\x08", b"z"]),
+                # A BS at column 0 of the top row joins the line onto the
+                # one above, which the view scrolls up to show; an Enter
+                # after it leaves the view there, also typed ahead (the
+                # batch ends with the joining BS)
+                ("BS joining at the top row, then Enter",
+                 [b"G", b"4k", b"i", b"\x08", b"\r"]),
+                ("chars, BS over them joining at the top row, then text",
+                 [b"G", b"4k", b"i", b"ab", b"\x08", b"\x08", b"\x08",
+                  b"\x08", b"x", b"\r", b"y"])):
+            self.run_test_batch_equiv("Batch equiv: " + name, ten,
+                                      keys + [b"\x1b"], rows=6, cols=20)
 
     def run_all_tests(self):
         """Run all editor tests."""
@@ -1274,13 +2067,23 @@ class EditorTestRunner:
             ['RUN', 'QUIT'],
             ['EXIT 1'])
 
-        if not self.build_editor():
-            return
+        # Build every binary before the first test, so that a test anywhere
+        # in the suite runs the current source, never an earlier run's build.
+        # A build that fails is a failed test: without the main build no
+        # editor test runs, and the other two skip their own sections
+        self._group("Builds:", leading_blank=True)
+        main_built, small_built, terminal_built = self.build_editors()
+        if main_built:
+            self._run_editor_tests(small_built, terminal_built)
+        self._finish()
 
-        self._run_server_editor_tests()
+    def _run_editor_tests(self, small_built, terminal_built):
+        """Run the tests of the built editor (every test after the builds)."""
+        self._run_server_editor_tests(terminal_built)
 
         self._group("Self-editability:")
         self.run_self_editability_checks()
+        self.run_demo_build_checks()
 
         # End-to-end: the editor edits its own largest source file
         largest = max(self.editor_asm.parent.glob("*.asm"),
@@ -1463,6 +2266,56 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
+        # A BS with nothing before the cursor, or a DEL on the final
+        # newline, changes nothing: as in vim, it leaves the file
+        # unmodified and the undo of the last edit in place
+        self.run_test_screen(
+            "No-op BS at buffer start leaves file unmodified",
+            "hello\nworld\n",
+            b"i\x08\x1b:q!\r",
+            expect_status_contains="t - NORMAL - 1,1"
+        )
+        self.run_test_screen(
+            "No-op DEL at buffer end leaves file unmodified",
+            "hello\nworld\n",
+            b"G$a\x1b[3~\x1b:q!\r",
+            expect_status_contains="t - NORMAL - 2,5"
+        )
+        self.run_test(
+            "No-op BS at buffer start keeps undo",
+            "hello\nworld\n",
+            b"jxggi\x08\x1bu:wq\r",
+            expected_content="hello\nworld\n"
+        )
+        self.run_test(
+            "No-op DEL at buffer end keeps undo",
+            "hello\nworld\n",
+            b"xG$a\x1b[3~\x1bu:wq\r",
+            expected_content="hello\nworld\n"
+        )
+
+        # Chars typed and erased again in one batch changed the file twice,
+        # as when typed one at a time: the file is modified, and the empty
+        # change is the one u undoes (as vim's first u)
+        self.run_test_screen(
+            "Typed chars erased in one batch mark the file modified",
+            "ab\n",
+            b"ix\x08\x1b:q!\r",
+            expect_status_contains="t [+] - NORMAL - 1,1"
+        )
+        self.run_test_screen(
+            "Typed chars erased then no-op BS at buffer start mark modified",
+            "ab\n",
+            b"ix\x08\x08\x1b:q!\r",
+            expect_status_contains="t [+] - NORMAL - 1,1"
+        )
+        self.run_test(
+            "Typed chars erased in one batch: u undoes them as if typed slowly",
+            "ab\ncd\n",
+            b"ddix\x08\x1bu:wq\r",
+            expected_content="cd\n"
+        )
+
         # Delete multiple characters (batching)
         self.run_test(
             "Delete batches multiple keypresses",
@@ -1594,8 +2447,7 @@ class EditorTestRunner:
             expect_content_redraws=[True, False, True, False],
         )
 
-        # :w saves without quitting, then :q quits
-        # Actually, :w then EOT will exit due to EOT handling
+        # :w saves without quitting, then :q! quits
         self.run_test(
             "Write with :w preserves content",
             "Hello\n",
@@ -1643,12 +2495,12 @@ class EditorTestRunner:
             expected_content="One\nTwo\nhree\nFour\n"
         )
 
-        # Delete only line leaves empty file
+        # Delete only line leaves empty file (no lines: no bytes, as vim)
         self.run_test(
-            "Delete only line leaves newline",
+            "Delete only line leaves an empty file",
             "Only\n",
             b"dd:wq\r",
-            expected_content="\n"
+            expected_content=""
         )
 
         # Multiple inserts
@@ -1814,6 +2666,53 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
+        # ...including when it ends in a ':' or '/' prompt or in the
+        # middle of an escape sequence (loops that wait for more input)
+        for where, keys in (("a : prompt", b"x:q"), ("a / prompt", b"/ell"),
+                            ("an escape sequence", b"x\x1b[1")):
+            self.run_test_console_live(
+                f"Console mode exits at end of input in {where}",
+                "Hello\n", keys, expected_content="Hello\n")
+
+        # The file name comes from the argument, a path in another
+        # directory as well
+        self.run_test(
+            "File in a subdirectory loads and saves",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="sub/dir/test.txt"
+        )
+
+        # A path of 256 bytes or more (vim takes long names; the emulator
+        # passes arguments of up to about 480 bytes) loads and saves that
+        # file, not one with a name cut short or run on into the ':' line
+        self.run_test(
+            "File name over 255 bytes loads and saves the named file",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="/".join(["d" * 60] * 4 + ["test.txt"])
+        )
+
+        pad = 255 - len(str(self.tmpdir)) - len("/e/test.txt")
+        self.run_test(
+            "File name of exactly 256 bytes saves to that file",
+            "Hello\n",
+            b"x:wq\r",
+            expected_content="ello\n",
+            edit_name="e" * pad + "/e/test.txt"
+        )
+
+        # With no file name argument the buffer is named "[No Name]"
+        self.run_test_screen(
+            "No file name argument starts as [No Name]",
+            None,
+            b":q!\r",
+            expect_status_contains="[No Name]",
+            no_file=True
+        )
+
         self._group("New file creation:", leading_blank=True)
 
         # Edit a non-existent file creates it on save
@@ -1823,28 +2722,141 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
+        # A path that cannot be opened for writing (its directory is
+        # missing, which fails even when the tests run as root): :w reports
+        # the error and editing continues: the 'x' after each message
+        # runs (in normal mode, with nothing to delete).
+        self.run_test_new_file(
+            ":w to unwritable path shows error",
+            b"iHello\x1b:w\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="Can't open file for writing"
+        )
+
+        # The failed write leaves the buffer modified, so :q is refused
+        self.run_test_new_file(
+            ":w to unwritable path leaves buffer modified",
+            b"iHello\x1b:w\rx:q\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="No write since last change"
+        )
+
+        # A failed :wq does not quit
+        self.run_test_new_file(
+            ":wq to unwritable path does not quit",
+            b"iHello\x1b:wq\rx:q\rx:q!\r",
+            edit_name="nodir/newfile.txt",
+            expect_ansi_contains="No write since last change"
+        )
+
+        self._group("Emptied buffer (no lines, as vim's):", leading_blank=True)
+
+        # A buffer with no lines, an empty (or new) file or one whose lines
+        # were all deleted, is written as no bytes, as vim writes it; its
+        # one empty line is only there for the editor.  A change of the line
+        # (typing, even typed and erased again; o; a paste) makes it a line
+        # of the text, and u of that change empties the buffer again.  All
+        # checked in vim 8.2
+        self.run_test_new_file("Emptied buffer: a new file written at once",
+                               b":wq\r", expected_content="")
+        for content, keys, expected in (
+                ("", b"", ""),
+                ("", b"i\x1b", ""),
+                ("", b"x", ""),
+                (" a\n", b"dd", ""),
+                ("a\nb\n", b":1,2d\r", ""),
+                ("a\nb\n", b"dddd", ""),
+                ("a\nb\n", b"2dd", ""),
+                ("a\nb\n", b"2ddu\x1bu", ""),
+                ("a\n", b"ddu", "a\n"),
+                ("a\n", b"dd>>", ""),
+                ("a\n", b"ddJ", ""),
+                ("a\n", b"ddx", ""),
+                ("a\n", b"ddrx", ""),
+                ("a\n", b"dd~", ""),
+                ("a\n", b"ddS\x1b", ""),
+                ("a\n", b"dd:d\r", ""),
+                ("abc\n", b"cc\x1b", "\n"),
+                ("abc\n", b"x", "bc\n"),
+                ("a\n", b"x", "\n"),
+                ("", b"ia\x08\x1b", "\n"),
+                ("a\n", b"ddi\r\x08\x1b", "\n"),
+                ("", b"o\x1b", "\n\n"),
+                ("", b"yyp", "\n\n"),
+                ("a\n", b"ddyyp", "\n\n"),
+                ("a\n", b"yyddP", "a\n\n"),
+                ("a\n", b"yyddPu", ""),
+                ("", b"ia\x1bu", ""),
+                ("a\n", b"ddia\x1bu", ""),
+                ("a\n", b"ddia\x1bu\x1bu", "a\n"),
+                (" a\n", b"0A\x1bdda\x1b[Aa\x1bu", ""),
+                ("a\n", b"ddia\x08\x1bu", "")):
+            self.run_test(f"Emptied buffer: {keys!r} on {content!r}", content,
+                          keys + b"\x1b:wq\r", expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: typing into an emptied buffer, then u", "a\n",
+            [b"d", b"d", b"i", b"x", b"y", b"\x1b"])
+        # A delete on a buffer with no lines does nothing, as vim's op_delete
+        # returns at once there: no yank (the register keeps the line dd
+        # took) and no undo step (u still undoes the dd).  Checked in vim 8.2
+        for keys, expected in (
+                (b"yyddddP", "hello\n\n"),
+                (b"yydd:d\rP", "hello\n\n"),
+                (b"yydd3ddP", "hello\n\n"),
+                (b"ddddu", "hello\n"),
+                (b"dd:d\ru", "hello\n"),
+                (b"ddxu", "hello\n"),
+                (b"dd3xu", "hello\n"),
+                (b"ddxxu", "hello\n"),
+                (b"dd\x1b[3~u", "hello\n"),
+                (b"ddXu", "hello\n"),
+                (b"ddd0u", "hello\n")):
+            self.run_test(f"Emptied buffer: {keys!r} changes nothing",
+                          "hello\n", keys + b"\x1b:wq\r",
+                          expected_content=expected)
+        # cc and S there yank nothing either (vim's op_change runs
+        # op_delete): the register keeps the line dd took.  They go into
+        # insert mode with an empty change, which u undoes with the text
+        # typed after it, and which leaves the buffer unmodified.  Checked
+        # in vim 8.2
+        for keys, expected in (
+                (b"yyddS\x1bP", "hello\n\n"),
+                (b"yyddcc\x1bP", "hello\n\n"),
+                (b"yyddSab\x1bP", "hello\nab\n"),
+                (b"ddS\x1bu", ""),
+                (b"ddSab\x1bu", "")):
+            self.run_test(f"Emptied buffer: {keys!r} yanks nothing",
+                          "hello\n", keys + b"\x1b:wq\r",
+                          expected_content=expected)
+        self.run_test_screen("Emptied buffer: S on an empty file leaves it "
+                             "unmodified", "", b"S\x1b:q!\r",
+                             expect_status_contains="t - NORMAL")
+        self.run_test_batch_equiv(
+            "Batch equiv: dd, x and dd on an emptied buffer, then u",
+            "hello\n", [b"d", b"d", b"x", b"x", b"d", b"d", b"d", b"d"])
+
         self._group("Bounds checking (small buffer build):", leading_blank=True)
 
-        if not self.build_small_buffer_editor():
+        if not small_built:
             print("  Skipping bounds checking tests (small buffer build failed)")
         else:
             # Read-only mode: file exceeds buffer, editing keys blocked
             # small_buffer limits buffer to 256 bytes (TEXT_BUF to TEXT_BUF+$FF)
             # File has 300 bytes so it will be truncated
-            # Truncation warning consumes one keypress (the 'x')
-            # Then 'x' should be ignored (readonly), :q exits
+            # The truncation warning stays until the first key; both
+            # 'x' keys are ignored (read-only), :q exits
             large_content = "A" * 299 + "\n"  # 300 bytes > 256
             self.run_test_small_buffer(
                 "Truncated file enters read-only mode",
                 large_content,
-                # 'x' dismissed truncation warning, 'x' ignored (RO), :q quits
+                # both 'x' ignored (RO), :q quits
                 b"xx:q\r",
                 expect_unmodified=True
             )
 
             # Read-only mode: :w is blocked
-            # Truncation warning consumes 'x', then :w shows RO message,
-            # 'x' dismisses that, :q! quits
+            # 'x' ignored (RO), then :w shows the RO message, 'x' ignored,
+            # :q! quits
             self.run_test_small_buffer(
                 "Read-only mode blocks :w",
                 large_content,
@@ -1861,15 +2873,51 @@ class EditorTestRunner:
             )
 
             # Read-only mode: :1,2d is blocked
-            # Multi-line content > 256 bytes to trigger truncation
+            # Multi-line content > 256 bytes to trigger truncation. The
+            # blocked commands below end in :q, which would say "No write
+            # since last change" had they changed the text
             large_multiline = ''.join(f"Line {i}\n" for i in range(1, 50))
             self.run_test_small_buffer(
                 "Read-only mode blocks :1,2d",
                 large_multiline,
-                # 'x' dismisses truncation warning, :1,2d shows RO msg,
-                # 'x' dismisses that, :q! quits
-                b"x:1,2d\rx:q!\r",
-                expect_unmodified=True
+                # 'x' ignored (RO), :1,2d shows the RO message, 'x'
+                # ignored, :q quits
+                b"x:1,2d\rx:q\r",
+                expect_unmodified=True,
+                expect_ansi_contains="Read-only (file truncated)",
+                expect_ansi_absent="No write since last change"
+            )
+
+            # An unknown range command letter is an unknown command in
+            # read-only mode too, and a range with no command still goes
+            # to its line (only d, > and < are refused)
+            self.run_test_small_buffer(
+                "Read-only mode: an unknown range command says so",
+                large_multiline,
+                b"x:1,3x\rx:q\r",
+                expect_unmodified=True,
+                expect_ansi_contains="Unknown command",
+                expect_ansi_absent="Read-only"
+            )
+
+            self.run_test_small_buffer(
+                "Read-only mode: :1,3 goes to line 3",
+                large_multiline,
+                b"x:1,3\rma:marks\r :q\r",   # mark a lists line 3
+                expect_unmodified=True,
+                expect_ansi_contains=" a      3 Line 3",
+                expect_ansi_absent="Read-only"
+            )
+
+            # The startup warning stays until the first key, whose frame
+            # redraws the status bar (the editor then waits for a key with
+            # a finished frame)
+            self.run_test_small_buffer(
+                "The key after the truncation warning redraws the status bar",
+                large_content,
+                b"x",
+                expect_unmodified=True,
+                expect_settled=True
             )
 
             # Read-only mode: :q exits cleanly
@@ -1884,56 +2932,177 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Read-only mode blocks X",
                 large_content,
-                b"x$X:q\r",   # 'x' dismisses warning, X ignored, :q quits
-                expect_unmodified=True
+                b"x$X:q\r",   # 'x' and X ignored, :q quits
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
             )
 
-            # Read-only mode: i key is blocked (no insert mode)
+            # Read-only mode: i key is blocked (no insert mode): the Q
+            # after it is not typed in (in normal mode it does nothing)
             self.run_test_small_buffer(
                 "Read-only mode blocks i",
                 large_content,
-                b"x:q\r",   # 'x' dismisses warning, :q quits
-                expect_unmodified=True
+                b"xiQ\x1b:q\r",   # 'x' ignored, :q quits
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
+            )
+            self.run_test_small_buffer(
+                "Read-only mode blocks I",
+                large_content,
+                b"IQ\x1b:q\r",
+                expect_unmodified=True,
+                expect_ansi_absent="No write since last change"
             )
 
-            # Buffer full during editing: insert char fails
-            # small_buffer = 256 bytes buffer. File with 250 bytes leaves ~6 free
-            # After loading, type characters until full
-            near_full = "B" * 249 + "\n"  # 250 bytes, ~6 bytes free
+            # A file that exactly fills the buffer is not truncated: it
+            # loads editable (no warning), so 'x' deletes
+            self.run_test_small_buffer(
+                "File exactly filling buffer is editable",
+                "B" * 255 + "\n",   # 256 bytes = buffer size
+                b"x:wq\r",
+                expected_content="B" * 254 + "\n"
+            )
+            # One more line past a full buffer that ends on a newline is
+            # still truncated
+            self.run_test_small_buffer(
+                "File past full buffer ending on newline is read-only",
+                "B" * 255 + "\nC\n",
+                b"xx:wq\rx:q!\r",
+                expect_unmodified=True
+            )
+            # A full-size file without a trailing newline has no room for
+            # one: its last byte gives way, so it is read-only
+            self.run_test_small_buffer(
+                "Full-size file without newline is read-only",
+                "B" * 256,
+                b"xx:wq\rx:q!\r",
+                expect_unmodified=True
+            )
+            # One byte short without a trailing newline: the appended
+            # newline exactly fills the buffer, so it stays editable
+            self.run_test_small_buffer(
+                "File filling buffer with appended newline is editable",
+                "B" * 255,
+                b"x:wq\r",
+                expected_content="B" * 254 + "\n"
+            )
+
+            # Buffer full during editing: typed-ahead keys go in as when
+            # typed one at a time.  The chars that fit go in, the first one
+            # that does not is refused with "Buffer full", and so is each
+            # char after it ('z' here); ESC then leaves insert mode, and a
+            # second ESC does nothing, so :wq saves
+            near_full = "B" * 249 + "\n"  # 250 bytes: 6 free
             self.run_test_small_buffer(
                 "Buffer full refuses insert char",
                 near_full,
-                # Enter insert mode, type 7 chars (6 succeed, 7th triggers full)
-                # 'z' dismisses "Buffer full" message
-                # ESC back to normal, :q! quits
-                b"iAAAAAA" + b"A" + b"z\x1b:q!\r",
-                expect_unmodified=True
+                b"iAAAAAA" + b"A" + b"z\x1b\x1b:wq\r",
+                expected_content="A" * 6 + near_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full: the char after the refused char is refused too",
+                near_full,
+                b"iAAAAAAAz\x1b:wq\r",
+                expected_content="A" * 6 + near_full
+            )
+            # The message does not take the key after it (as in vim): an
+            # ESC typed right after the refused char leaves insert mode
+            self.run_test_small_buffer(
+                "Buffer full: ESC right after the refused char leaves insert",
+                near_full,
+                b"iAAAAAAA\x1bx:wq\r",
+                expected_content="A" * 5 + near_full
             )
 
             # Buffer full during editing: newline insert fails
-            # File with 254 bytes leaves ~2 free
-            almost_full = "C" * 253 + "\n"  # 254 bytes, ~2 bytes free
+            almost_full = "C" * 253 + "\n"  # 254 bytes: 2 free
             self.run_test_small_buffer(
                 "Buffer full refuses newline insert",
                 almost_full,
-                # Insert mode, type 'A' (succeeds, 1 byte free),
-                # then Enter (needs 1 byte for newline - should succeed or fail)
-                # Actually with 2 bytes free: 'A' uses 1, Enter uses 1 = exactly full
-                # Try one more char to trigger full
-                b"iAA" + b"z\x1b:q!\r",
-                expect_unmodified=True
+                b"iA\r" + b"\r" + b"z\x1b\x1b:wq\r",
+                expected_content="A\n" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full: the char after a refused Enter is refused too",
+                almost_full,
+                b"iAA\rz\x1b:wq\r",
+                expected_content="AA" + almost_full
             )
 
+            # The deletes of typed-ahead keys make room for the chars after
+            # them (here the 'b' is refused)
+            self.run_test_small_buffer(
+                "Buffer full keeps the chars of a batch that fit",
+                "x" * 254 + "\n",
+                b"iab\x1b\x1b:wq\r",
+                expected_content="a" + "x" * 254 + "\n"
+            )
+            lines27 = "".join("line%04d\n" % i for i in range(27))
+            self.run_test_small_buffer(
+                "Buffer full keeps 13 of 14 batched chars",
+                lines27,
+                b"Aabcdefghijklmn\x1b\x1b:wq\r",
+                expected_content="line0000abcdefghijklm" + lines27[8:]
+            )
+            self.run_test_small_buffer(
+                "Buffer full still applies BS of the batch",
+                near_full,
+                b"Abcdefg\x1bA\x08xy\x1b\x1b:wq\r",
+                expected_content="B" * 249 + "bcdefx\n"
+            )
+            self.run_test_small_buffer(
+                "Buffer full still applies DEL of the batch",
+                near_full,
+                b"Abcdefg\x1b0i\x1b[3~xy\x1b\x1b:wq\r",
+                expected_content="x" + "B" * 248 + "bcdefg\n"
+            )
+            self.run_test_small_buffer(
+                "Buffer full keeps chars that fit before an Enter",
+                almost_full,
+                b"iabc\r\x1b\x1b:wq\r",
+                expected_content="ab" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full keeps the newlines of a batch that fit",
+                almost_full,
+                b"i\r\r\rq\x1b\x1b:wq\r",
+                expected_content="\n\n" + almost_full
+            )
+            self.run_test_small_buffer(
+                "Buffer full with no room changes nothing",
+                "B" * 255 + "\n",
+                b"Aab\x1b\x1b:wq\r",
+                expected_content="B" * 255 + "\n"
+            )
+            # A count on i or o whose copies do not fit is refused with
+            # "Buffer full", as a paste is: the typing stays once, and the
+            # key after it runs (84 copies of 3 bytes fill the buffer)
+            self.run_test_small_buffer(
+                "Count insert that fills the buffer",
+                "abc\n", b"84ixyz\x1b:wq\r",
+                expected_content="xyz" * 84 + "abc\n")
+            self.run_test_small_buffer(
+                "Count insert past buffer full is refused",
+                "abc\n", b"85ixyz\x1bx:wq\r",
+                expected_content="xyabc\n",
+                expect_ansi_contains="Buffer full")
+            self.run_test_small_buffer(
+                "Count o past buffer full is refused",
+                "abc\n", b"100oab\x1b:wq\r",
+                expected_content="abc\nab\n",
+                expect_ansi_contains="Buffer full")
+
             # Counted paste pre-check: rejects paste that would overflow
-            # small_buffer = 256 bytes. Content ~50 bytes. Yank 2 lines (~20 bytes).
-            # 99p would need ~2000 bytes, way over 256 limit.
-            # File should be unmodified (pre-check rejects before any paste).
-            paste_content = "AAAA\nBBBB\nCCCC\nDDDD\n"  # ~20 bytes
+            # small_buffer = 256 bytes. Content 20 bytes. Yank 2 lines (10 bytes).
+            # 99p would need 990 bytes, way over 256 limit.
+            # File should be unmodified (pre-check rejects before any paste);
+            # the ESC after it does nothing, and :wq saves what the paste
+            # left.
+            paste_content = "AAAA\nBBBB\nCCCC\nDDDD\n"  # 20 bytes
             self.run_test_small_buffer(
                 "Counted paste pre-check rejects overflow (p)",
                 paste_content,
-                # yy yanks 1 line, 99p would overflow, z dismisses msg
-                b"2yy99pz:q!\r",
+                b"2yy99p\x1b:wq\r",
                 expect_unmodified=True
             )
 
@@ -1941,8 +3110,15 @@ class EditorTestRunner:
             self.run_test_small_buffer(
                 "Counted paste pre-check rejects overflow (P)",
                 paste_content,
-                b"2yy99Pz:q!\r",
+                b"2yy99P\x1b:wq\r",
                 expect_unmodified=True
+            )
+            # The key after the refused paste runs, as in vim
+            self.run_test_small_buffer(
+                "Buffer full: the key after a refused paste runs",
+                paste_content,
+                b"2yy99px:wq\r",
+                expected_content="AAA\n" + paste_content[5:]
             )
 
             # Single paste that fits should still work
@@ -1953,6 +3129,40 @@ class EditorTestRunner:
                 expected_content="AAAA\nAAAA\nBBBB\nCCCC\nDDDD\n"
             )
 
+            # A shift that does not fit says "Buffer full", as p, o and i
+            # do, and changes nothing: the 'x' after it deletes the first
+            # char, where the cursor stays; a :> that does not fit reports
+            # no lines shifted.  255 bytes leave 1 free: >> needs 2, :1,3> 6
+            one_free = "abc\n" * 63 + "ab\n"
+            for keys in (b">>x", b">>>>x", b"3>>x", b":1,3>\rx", b":>\rx"):
+                self.run_test_small_buffer(
+                    f"{keys!r} at buffer full says Buffer full",
+                    one_free, keys + b":wq\r",
+                    expected_content=one_free[1:],
+                    expect_ansi_contains="Buffer full",
+                    expect_ansi_absent="lines shifted")
+            # A shift refused at buffer full changes nothing, so u still
+            # undoes the edit before it: x, J and r here (the ESC after
+            # it does nothing).  240 bytes leave 16 free: 10>> needs 20,
+            # 9>> (after J) 18
+            lines240 = "".join("line%02d" % i + "y" * 17 + "\n"
+                               for i in range(10))
+            for keys in (b"x10>>", b"x:1,10>\r", b"J9>>", b"3rz10>>"):
+                self.run_test_small_buffer(
+                    f"{keys!r} at buffer full: u undoes the edit before it",
+                    lines240, keys + b"\x1bu:wq\r",
+                    expected_content=lines240)
+            self.run_test_small_buffer(
+                ":1,3< that removes nothing still reports lines shifted",
+                paste_content, b":1,3<\r:wq\r",
+                expected_content=paste_content,
+                expect_ansi_contains="3 lines shifted")
+            self.run_test_small_buffer(
+                ":1,3> with room reports lines shifted",
+                paste_content, b":1,3>\r:wq\r",
+                expected_content="  AAAA\n  BBBB\n  CCCC\nDDDD\n",
+                expect_ansi_contains="3 lines shifted")
+
             # Normal editing works with small buffer build
             self.run_test_small_buffer(
                 "Small buffer build normal editing works",
@@ -1960,6 +3170,84 @@ class EditorTestRunner:
                 b"x:wq\r",
                 expected_content="ello\n"
             )
+
+        self._group("Bounds checking (full text buffer):", leading_blank=True)
+
+        # A file that exactly fills the main build's text buffer (from
+        # TEXT_BUF up to TEXT_LIMIT) loads editable, as in the small build
+        capacity = self.TEXT_LIMIT - self._text_buf()
+        exact = ''.join(f"{i:05d}" + "x" * 58 + "\n"
+                        for i in range(capacity // 64))
+        self.run_test("File exactly filling the text buffer is editable",
+            exact, b"x:wq\r", expected_content=exact[1:])
+        # A >> that does not fit leaves the cursor where the operator
+        # started (vim: where a failed operator leaves it), and the x
+        # after it deletes the char there
+        indented = "  " + exact[2:]
+        self.run_test_screen(">> in a full text buffer: cursor at its start",
+            indented, b"6l>>x:q!\r", expect_cursor=(0, 2),
+            expect_ansi_contains="Buffer full")
+        # Typed-ahead >> pairs near a full buffer: the pairs that fit merge,
+        # the next one is refused with "Buffer full" and the key after it
+        # runs, as typed one at a time (4 bytes free: two >> fit, the
+        # third does not; the 'x' then deletes)
+        self.run_test_batch_equiv(
+            "Batch equiv: >> pairs past the end of a full text buffer",
+            "  " + exact[6:], [b"6l", b">>", b">>", b">>", b"x"])
+        self.run_test_batch_equiv(
+            "Batch equiv: >> pairs into a text buffer one byte short",
+            "  " + exact[5:], [b">>", b">>", b"x"])
+        # Typed ahead into the end of an almost full buffer, the keys give
+        # what they give typed one at a time: 'abc' fits, and 'd' to 'g'
+        # are refused one by one
+        self.run_test_batch_equiv(
+            "Batch equiv: typing past the end of a full text buffer",
+            exact[3:], [b"G", b"A"] + [bytes([c]) for c in b"abcdefg"]
+            + [b"\x1b"])
+
+        self._group("Bounds checking (16-bit overflow):", leading_blank=True)
+
+        # The ESC after a refused paste does nothing (so :wq saves what
+        # the paste left).
+        # A shift whose new end passes $FFFF is refused: 900 x 60 = 54000
+        # bytes fits 16 bits, but the text buffer's address plus 54000
+        # does not
+        wide = "A" * 59 + "\nx\n"
+        for key in (b"p", b"P"):
+            self.run_test(
+                f"Counted {key.decode()} whose end passes $FFFF is refused",
+                wide, b"yy900" + key + b"\x1b:wq\r", expected_content=wide)
+        # A shift's total cannot do that: typed-ahead >> pairs merge only
+        # without a count (1 line), so 1000>> followed by 31 or 32 more >>
+        # is 1000>> (2 spaces on each of 1000 lines) and then the >>
+        # presses on the cursor line, not 64 or 66 spaces on every line
+        # (64000 bytes, or 66000, which wraps 16 bits)
+        ones = "a\n" * 1000
+        for pairs in (32, 33):
+            self.run_test(
+                f"1000>> then {pairs - 1} typed-ahead >> shift 1000 lines once",
+                ones, b"1000" + b">>" * pairs + b"\x1b:wq\r",
+                expected_content=" " * (2 * pairs) + "a\n" + "  a\n" * 999)
+
+        # Paste size = yank size * count must not wrap 16 bits
+        # (66 * 993 = 65538 wraps to 2; 7 * 9999 = 69993 wraps to 4457;
+        # 4096 * 16 = 65536 wraps to 0)
+        wider = "A" * 65 + "\nx\n"
+        for keys, content in ((b"yy993p", wider), (b"yy993P", wider),
+                              (b"0y$993p", "A" + wider),
+                              (b"0y$993P", "A" + wider),
+                              (b"yy9999p", "aaaaaa\nx\n"),
+                              (b"yy16p", "a" * 4095 + "\nx\n")):
+            self.run_test(
+                f"{keys.decode()}: paste size that wraps 16 bits is refused",
+                content, keys + b"\x1b:wq\r", expected_content=content)
+        self.run_test_screen(
+            "yy993p that wraps 16 bits shows Buffer full",
+            wider, b"yy993p\x1b:q!\r",
+            expect_ansi_contains="Buffer full")
+
+        self.run_line_limit_tests()
+        self.run_cpu_cost_tests()
 
         # ============================================================
         # Screen state tests (10 rows x 40 cols)
@@ -1978,6 +3266,57 @@ class EditorTestRunner:
             b":q!\r",
             expect_cursor=(0, 0)
         )
+
+        # As in vim, the cursor starts on the first non-blank of line 1 (on
+        # a line of blanks, the last blank), and j and k keep to its column
+        self.run_test_screen(
+            "Initial cursor on the first non-blank",
+            "  abc\n",
+            b":q!\r",
+            expect_cursor=(0, 2)
+        )
+        self.run_test_screen(
+            "Initial cursor on a line of blanks",
+            "   \nabc\n",
+            b":q!\r",
+            expect_cursor=(0, 2)
+        )
+        # A first non-blank on a later row of a wrapped line: the first
+        # screen puts the cursor on that row (and scrolls it into view), so
+        # a ~ typed first echoes its char there
+        self.run_test_screen(
+            "Initial cursor on a wrapped first non-blank",
+            " " * 20 + "xy\n",
+            b":q!\r",
+            rows=6, cols=20,
+            expect_cursor_at_frame=[(0, (1, 0))]
+        )
+        self.run_test_screen(
+            "Initial cursor: ~ on a wrapped first non-blank",
+            " " * 20 + "xy\n",
+            b"~:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, ""), (1, "Xy")],
+            expect_cursor=(1, 1)
+        )
+        self.run_test_screen(
+            "Initial cursor on a first non-blank past the first screen",
+            " " * 50 + "x\n",
+            b":q!\r",
+            rows=4, cols=10,
+            expect_lines_at_frame=[(0, [(2, "x")])],
+            expect_cursor_at_frame=[(0, (2, 0))]
+        )
+        for content, keys, expected in (
+                ("  abc\n", b"x", "  bc\n"),
+                ("\tfoo\n", b"x", "\too\n"),
+                ("   abc\nx\n  defgh\n", b"jjx", "   abc\nx\n  dfgh\n")):
+            self.run_test(
+                f"Initial cursor: {content!r} {keys.decode()}",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
 
         # lll -> cursor at (0,3)
         self.run_test_screen(
@@ -2067,13 +3406,13 @@ class EditorTestRunner:
             ]
         )
 
-        # Status bar shows line,col position (1-based)
-        # Note: :q! enters command mode, so we check COMMAND mode status
+        # Status bar shows line,col position (1-based); the last frame is the
+        # one before :q! (the ':' key's frame is the command's)
         self.run_test_screen(
             "Status bar shows position at start",
             "Hello\n",
             b":q!\r",
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         # Status bar after moving cursor
@@ -2081,16 +3420,76 @@ class EditorTestRunner:
             "Status bar shows line 2 after j",
             "Hello\nWorld\n",
             b"jlll:q!\r",
-            expect_status_contains="COMMAND - 2,"
+            expect_status_contains="NORMAL - 2,"
         )
 
         # :q on modified file shows warning message
-        # x modifies, :q\r triggers warning, 'z' dismisses message, :q!\r quits
+        # x modifies, :q\r triggers warning, 'z' does nothing, :q!\r quits
         self.run_test_screen(
             ":q on modified shows warning message",
             "Hello\n",
             b"x:q\rz:q!\r",
             expect_ansi_contains="No write since last change"
+        )
+
+        # Nothing may be written in the last column of the status row: on a
+        # real terminal (deferred wrap) the next character wraps off the
+        # bottom row and scrolls the whole screen up a line.
+        lines19 = "".join(f"line {i}\n" for i in range(1, 20))
+        status = f"{str(self.tmpdir / 't')[:32]} - NORMAL - 2,1 /19"
+        self.run_test_screen(
+            "Status bar clipped to the screen width",
+            lines19,
+            b"j:q!\r",
+            cols=20,
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9"), (9, status[:19])],
+        )
+
+        # Messages and reports are not prefixed with the ':' prompt, as in
+        # vim
+        self.run_test_screen(
+            "Status message has no ':' prefix",
+            "Hello\n",
+            b"x:q\rz:q!\r",
+            expect_ansi_contains="\x1b[KNo write since last change",
+        )
+        self.run_test_screen(
+            ":w and range reports have no ':' prefix",
+            "a\nb\nc\n",
+            b"x:w\r:1,3y\r:q!\r",
+            expect_lines_at_frame=[
+                (2, [(9, f'"{str(self.tmpdir / "t")[:32]}" written')]),
+                (3, [(9, "3 lines yanked")])],
+        )
+        self.run_test_screen(
+            "Status message clipped to the screen width",
+            lines19,
+            b"x:q\rz:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "ine 1"), (8, "line 9")],
+        )
+        self.run_test_screen(
+            "Command line echo clipped to the screen width",
+            lines19,
+            b":" + b"a" * 45 + b"\x1b:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9")],
+        )
+        self.run_test_screen(
+            "Search echo and not-found message clipped to the screen width",
+            lines19,
+            b"/" + b"zq" * 25 + b"\r\x1b:q!\r",
+            deferred_wrap=True,
+            expect_lines=[(0, "line 1"), (8, "line 9")],
+        )
+        # ':' and '/' take SCREEN_COLS-2 characters, so the input holds
+        # exactly what is shown and backspace stays in step with the screen
+        self.run_test_screen(
+            "Command line ignores keys once the status row is full",
+            lines19,
+            b"x:w" + b"x" * 45 + b"\x08" * 37 + b"\r\x1b:q!\r",
+            expected_content="ine 1\n" + lines19[7:],
         )
 
         self._group("Screen state - scrolling:", leading_blank=True)
@@ -2122,7 +3521,44 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
+        # Cursor exactly 255 screen rows below the view top: 255+1 must not
+        # wrap to row 0 and count as visible
+        self.run_test_screen(
+            "Jump 255 rows down scrolls the view",
+            make_lines(300),
+            b"255j:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+248}") for i in range(9)]
+        )
+
+        # Same through a wrapped cursor line: 5 rows above + wrap row 250
+        self.run_test_screen(
+            "Wrap row 250 below 5 rows scrolls the view",
+            "a\n" * 5 + "x" * 10010 + "\n",
+            b"5j$:q!\r",
+            expect_cursor=(8, 9),
+            expect_lines=[(i, "x" * 40) for i in range(8)] + [(8, "x" * 10)]
+        )
+
+        # Same within the top line: wrap row 255 with the view at wrap 0
+        self.run_test_screen(
+            "Wrap row 255 of the top line scrolls the view",
+            "x" * 10205 + "\n",
+            b"$:q!\r",
+            expect_cursor=(8, 4),
+            expect_lines=[(i, "x" * 40) for i in range(8)] + [(8, "x" * 5)]
+        )
+
         self._group("Screen state - pagination:", leading_blank=True)
+
+        # Ctrl-F and Ctrl-B page as vim does: the last two lines of the
+        # page stay on screen (at the top after Ctrl-F, at the bottom after
+        # Ctrl-B), the cursor goes to the new top line (Ctrl-F) or bottom
+        # line (Ctrl-B), a page that shows the last line puts it on top,
+        # and a page that cannot move leaves the cursor alone (vim beeps)
+        def page_rows(top, n=30):
+            return [(i, f"Line {top + i + 1}" if top + i < n else "~")
+                    for i in range(9)]
 
         # Ctrl-F from start (30 lines): full window verification
         self.run_test_screen(
@@ -2130,7 +3566,7 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_lines=page_rows(7)
         )
 
         # Two Ctrl-F's: full window verification
@@ -2139,25 +3575,58 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_F + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+19}") for i in range(9)]
+            expect_lines=page_rows(14)
         )
 
-        # Repeated Ctrl-F to end: full window with last line at bottom
+        # Ctrl-F with the last line on the page: it goes on top
         self.run_test_screen(
-            "Ctrl-F to end: full window",
+            "Ctrl-F to end: the last line on top",
             make_lines(30),
             CTRL_F + CTRL_F + CTRL_F + CTRL_F + b":q!\r",
-            expect_cursor=(8, 0),
-            expect_lines=[(i, f"Line {i+22}") for i in range(9)]
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(29)
+        )
+        self.run_test_screen(
+            "Ctrl-F with the last line on the bottom row puts it on top",
+            make_lines(30),
+            b"G" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(29)
         )
 
-        # Ctrl-B from middle: full window after page back
+        # The cursor goes to the new top line wherever it was
+        self.run_test_screen(
+            "Ctrl-F: the cursor goes to the new top line",
+            make_lines(30),
+            b"jjj" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-B from middle: full window after page back, the cursor on
+        # the bottom line
         self.run_test_screen(
             "Ctrl-B: full window after page back",
             make_lines(30),
             CTRL_F + CTRL_F + CTRL_B + b":q!\r",
-            expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-B from the last line on top: no line below it to keep
+        self.run_test_screen(
+            "Ctrl-B from the last line on top",
+            make_lines(30),
+            CTRL_F * 4 + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(20)
+        )
+        self.run_test_screen(
+            "Ctrl-B from the next-to-last line on top",
+            make_lines(30),
+            CTRL_F * 4 + b"k" + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(20)
         )
 
         # Ctrl-B at start: stays at (0,0), full window
@@ -2166,20 +3635,168 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_B + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+1}") for i in range(9)]
+            expect_lines=page_rows(0)
+        )
+        self.run_test_screen(
+            "Ctrl-B with the first line on top leaves the cursor",
+            make_lines(30),
+            b"5jll" + CTRL_B + b":q!\r",
+            expect_cursor=(5, 2),
+            expect_lines=page_rows(0)
         )
 
-        # Ctrl-F with fewer lines than a page: full window
+        # Ctrl-F with fewer lines than a page: the last line goes on top
         self.run_test_screen(
-            "Ctrl-F short file: full window",
+            "Ctrl-F short file: the last line on top",
             make_lines(5),
             CTRL_F + b":q!\r",
-            expect_cursor=(4, 0),
-            expect_lines=[
-                (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
-                (3, "Line 4"), (4, "Line 5"),
-                (5, "~"), (6, "~"), (7, "~"), (8, "~"),
-            ]
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(4, 5)
+        )
+        self.run_test_screen(
+            "Ctrl-F on a one-line file does nothing",
+            "  abc\n",
+            b"$" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 4),
+            expect_lines=[(0, "  abc"), (1, "~")]
+        )
+
+        # A page that cannot move leaves the column alone; a count that
+        # runs out does not go to the first non-blank either (vim's
+        # onepage), but typed-ahead presses each do, as typed one at a time
+        indented30 = "".join(f"  Line {i}\n" for i in range(1, 31))
+        self.run_test_screen(
+            "Ctrl-F with the last line on top leaves the column",
+            indented30,
+            CTRL_F * 4 + b"l" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 3),
+        )
+        for name, keys, cursor in (
+                ("a count past the first page keeps the column",
+                 b"0" + CTRL_F * 2 + b"l3" + CTRL_B, (8, 3)),
+                ("typed-ahead presses past the first page",
+                 b"0" + CTRL_F * 2 + b"l" + CTRL_B * 3, (8, 2)),
+                ("a count past the last page keeps the column",
+                 b"0l5" + CTRL_F, (0, 1)),
+                ("typed-ahead presses past the last page",
+                 b"0" + CTRL_F * 5, (0, 2))):
+            self.run_test_screen(
+                "Ctrl-F/B: " + name,
+                indented30,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+        # ... and the remembered column: after $, k goes to the line end
+        self.run_test_screen(
+            "Ctrl-F/B: a count that runs out keeps the remembered column",
+            "".join(f"  Line {i}" + "x" * (10 if i % 2 == 0 else 0) + "\n"
+                    for i in range(1, 31)),
+            CTRL_F * 2 + b"$3" + CTRL_B + b"k:q!\r",
+            expect_cursor=(7, 17),
+        )
+
+        # On a screen of under 5 text rows vim keeps fewer lines: one on
+        # 4 rows, none on 3 or 2
+        for rows, top, back_cursor in ((6, 3, 4), (5, 3, 3), (4, 3, 2),
+                                       (3, 2, 1)):
+            self.run_test_screen(
+                f"Ctrl-F on {rows - 1} text rows",
+                make_lines(30),
+                CTRL_F + b":q!\r",
+                rows=rows,
+                expect_cursor=(0, 0),
+                expect_lines=[(0, f"Line {top + 1}")]
+            )
+            self.run_test_screen(
+                f"Ctrl-F Ctrl-F Ctrl-B on {rows - 1} text rows",
+                make_lines(30),
+                CTRL_F + CTRL_F + CTRL_B + b":q!\r",
+                rows=rows,
+                expect_cursor=(back_cursor, 0),
+                expect_lines=[(0, f"Line {top + 1}")]
+            )
+
+        # PgDn and PgUp are Ctrl-F and Ctrl-B, in insert mode too
+        self.run_test_screen(
+            "PgDn and PgUp page as Ctrl-F and Ctrl-B",
+            make_lines(30),
+            b"\x1b[6~\x1b[6~\x1b[5~:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=page_rows(7)
+        )
+        self.run_test_screen(
+            "Insert-mode PgDn goes to the new top line",
+            make_lines(30),
+            b"jjjA\x1b[6~X\x1b:wq\r",
+            expected_content=make_lines(30).replace("Line 8", "XLine 8"),
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)[1:]
+        )
+        # PgUp on the first page moves nothing in insert mode either, so
+        # the typing around it is one stretch for u, as in vim
+        numbered = "".join(f"line {i}\n" for i in range(30))
+        for name, keys, content in (
+                ("leaves the cursor", b"", "line 0xy\n" + numbered[7:]),
+                ("keeps the undo stretch", b"u", numbered)):
+            self.run_test_screen(
+                "Insert-mode PgUp on the first page " + name,
+                numbered,
+                b"Ax\x1b[5~y\x1b" + keys + b":wq\r",
+                expected_content=content,
+            )
+
+        # The page is counted in screen rows: a line cut off at the bottom
+        # is the line below it, and a page back keeps it at the bottom
+        wrapped = (make_lines(7) + "x" * 100 + "\n"
+                   + "".join(f"Line {i}\n" for i in range(9, 31)))
+        self.run_test_screen(
+            "Ctrl-F: a line cut off at the bottom is below the page",
+            wrapped,
+            CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "Line 6"), (2, "x" * 40), (5, "Line 9")]
+        )
+        self.run_test_screen(
+            "Ctrl-F Ctrl-F Ctrl-B over a wrapped line",
+            wrapped,
+            CTRL_F * 2 + CTRL_B + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(0, "Line 6"), (8, "Line 12")]
+        )
+
+        # A new bottom line just below a screen of the first lines: vim
+        # keeps them on top and puts the cursor on the line above it
+        for name, content, keys in (
+                ("Ctrl-B to just below the first screen",
+                 make_lines(30), b"\x04\x04"),
+                ("Ctrl-B from the last line on top of 11",
+                 make_lines(11), b"G" + CTRL_F)):
+            self.run_test_screen(
+                name,
+                content,
+                keys + CTRL_B + b":q!\r",
+                expect_cursor=(8, 0),
+                expect_lines=[(0, "Line 1"), (8, "Line 9")]
+            )
+
+        # The page is found from the top of the view, also after a range
+        # shift (whose redraw counts the range's rows in the cursor's)
+        self.run_test_screen(
+            "Ctrl-F after a range shift",
+            make_lines(30),
+            b":1,3>\r" + CTRL_F + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=page_rows(7)
+        )
+
+        # Ctrl-D with the last line on screen moves the cursor only, as
+        # in vim: a view past the last full page stays
+        self.run_test_screen(
+            "Ctrl-D with the last line on top: the view stays",
+            make_lines(30),
+            CTRL_F * 4 + b"k\x04:q!\r",
+            expect_cursor=(1, 0),
+            expect_lines=page_rows(28)
         )
 
         self._group("Screen state - half page scroll:", leading_blank=True)
@@ -2205,6 +3822,26 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+9}") for i in range(9)]
         )
 
+        # vim refuses Ctrl-U on line 1 and Ctrl-D on the last line: the
+        # cursor, its column and the remembered column stay, and a count
+        # typed with it is not remembered as the scroll amount
+        l40 = "".join(f"L{i}\n" for i in range(40))
+        def x_at(content, row, col):
+            lines = content.split("\n")
+            lines[row] = lines[row][:col] + lines[row][col + 1:]
+            return "\n".join(lines)
+        for content, keys, cursor in (
+                (l40, b"3" + CTRL_U + CTRL_D, (4, 0)),
+                (l40, b"G3" + CTRL_D + b"gg" + CTRL_D, (4, 0)),
+                ("  abc\n", b"$" + CTRL_U, (0, 4)),
+                ("abc\n  def\n", b"j$" + CTRL_D, (1, 4)),
+                ("  abcdef\nab\n", b"$" + CTRL_U + b"j", (1, 1))):
+            self.run_test(
+                f"{keys!r} refused on the first or last line: x at "
+                f"{cursor}",
+                content, keys + b"x:wq\r",
+                expected_content=x_at(content, *cursor))
+
         # Ctrl-D at end of file: no movement
         self.run_test_screen(
             "Ctrl-D at end: no movement",
@@ -2227,21 +3864,21 @@ class EditorTestRunner:
             ]
         )
 
-        # Ctrl-D column preserved
+        # Ctrl-D puts the cursor on the first non-blank (as vi and vim do;
+        # the column was kept)
         self.run_test_screen(
-            "Ctrl-D: column preserved",
+            "Ctrl-D: cursor to the first non-blank",
             make_lines(30),
             b"$" + CTRL_D + b":q!\r",
-            expect_cursor=(0, 5),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+5}") for i in range(9)]
         )
 
-        # Ctrl-D column clamped to shorter line
         self.run_test_screen(
-            "Ctrl-D: column clamped",
+            "Ctrl-D: cursor to the first non-blank of a shorter line",
             "ABCDEFGHIJ\n" + "XY\n" * 12,
             b"$" + CTRL_D + b":q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 0),
             expect_lines=[(i, "XY") for i in range(9)]
         )
 
@@ -2252,6 +3889,38 @@ class EditorTestRunner:
             CTRL_D + b":q!\r",
             expect_cursor=(1, 0),
             expect_lines=[(i, f"Line {i+4}") for i in range(9)]
+        )
+
+        # Ctrl-D with the last line on screen moves the cursor only, as
+        # in vim: a view past the last full page (after deleting lines at
+        # the end) stays, where it scrolled back up
+        self.run_test_screen(
+            "Ctrl-D with the last line on screen: the view stays",
+            make_lines(30),
+            b"Gkkkk5dd" + CTRL_D + b":q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=[(0, "Line 22"), (3, "Line 25"), (4, "~")]
+        )
+        self.run_test_screen(
+            "Ctrl-D past the last full page moves the cursor only",
+            make_lines(30),
+            b"Gkkkk5dd8k" + CTRL_D + b":q!\r",
+            expect_cursor=(4, 0),
+            expect_lines=[(0, "Line 17"), (8, "Line 25")]
+        )
+        self.run_test_screen(
+            "Batched Ctrl-D past the last full page",
+            make_lines(30),
+            b"Gkkkk5dd8k" + CTRL_D * 2 + b":q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(0, "Line 17"), (8, "Line 25")]
+        )
+        self.run_test_screen(
+            "Ctrl-D when every line fits: the view stays",
+            make_lines(12),
+            b"Gkkk5dd" + CTRL_D + b":q!\r",
+            expect_cursor=(4, 0),
+            expect_lines=[(0, "Line 4"), (4, "Line 8"), (5, "~")]
         )
 
         # Count prefix sets scroll amount
@@ -2271,7 +3940,7 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
         # Ctrl-U at start: no movement
@@ -2283,13 +3952,14 @@ class EditorTestRunner:
             expect_lines=[(i, f"Line {i+1}") for i in range(9)]
         )
 
-        # Ctrl-U column preserved
+        # Ctrl-U puts the cursor on the first non-blank (as vi and vim do;
+        # the column was kept)
         self.run_test_screen(
-            "Ctrl-U: column preserved",
+            "Ctrl-U: cursor to the first non-blank",
             make_lines(30),
             CTRL_F + b"lll" + CTRL_U + b":q!\r",
-            expect_cursor=(0, 3),
-            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
+            expect_cursor=(0, 0),
+            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
         )
 
         # Multiple Ctrl-U from end
@@ -2323,23 +3993,34 @@ class EditorTestRunner:
         )
 
         # Ctrl-D count carries to Ctrl-U
-        # Ctrl-F to line 9; 2Ctrl-D scrolls 2 (sticky=2); Ctrl-U scrolls 2 back
+        # Ctrl-F to line 8; 2Ctrl-D scrolls 2 (sticky=2); Ctrl-U scrolls 2 back
         self.run_test_screen(
             "Ctrl-D count sticky carries to Ctrl-U",
             make_lines(30),
             CTRL_F + b"2" + CTRL_D + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+10}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+8}") for i in range(9)]
         )
 
         # Ctrl-U count overrides previous sticky
-        # Ctrl-F to line 9; 2Ctrl-D (sticky=2); 3Ctrl-U overrides (sticky=3)
+        # Ctrl-F to line 8; 2Ctrl-D (sticky=2); 3Ctrl-U overrides (sticky=3)
         self.run_test_screen(
             "Ctrl-U count overrides sticky",
             make_lines(30),
             CTRL_F + b"2" + CTRL_D + b"3" + CTRL_U + b":q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(i, f"Line {i+9}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+7}") for i in range(9)]
+        )
+
+        # A char delete across lines keeps the sticky count
+        # 2Ctrl-D (sticky=2, top Line 3); l2D cuts line 3 to "L" and joins
+        # Line 4; Ctrl-D scrolls 2 more: top is Line 6
+        self.run_test_screen(
+            "Ctrl-D sticky count survives a multi-line D",
+            make_lines(30),
+            b"2" + CTRL_D + b"l2D" + CTRL_D + b":q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, f"Line {i+6}") for i in range(9)]
         )
 
         # --- Combined tests ---
@@ -2381,6 +4062,79 @@ class EditorTestRunner:
             expect_cursor=(8, 0),
             expect_lines=[(i, f"Line {i+292}") for i in range(9)]
         )
+
+        # View jumps of 255 and 256+ rows: the view walk's 8-bit row sum
+        # must not wrap into a small scroll delta
+        self.run_test_screen(
+            "G: view jump of 255 rows repaints",
+            make_lines(264),
+            b"G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+256}") for i in range(9)]
+        )
+        self.run_test_screen(
+            "G: view jump of 258 rows repaints",
+            make_lines(267),
+            b"G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+259}") for i in range(9)]
+        )
+        self.run_test_screen(
+            "G: view jump of 277 rows at 24x80 repaints",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"G:q!\r", rows=24, cols=80,
+            expect_cursor=(22, 0),
+            expect_lines=[(i, f"line {i+277}") for i in range(23)]
+        )
+        self.run_test_screen(
+            "gg: view jump of 258 rows repaints",
+            make_lines(267),
+            b":259\rGgg:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)]
+        )
+        # 2-row lines: 129 lines = 258 rows between the old and new top (the
+        # cursor line shown in full at the bottom, with whole lines above it)
+        two_row = ''.join(f"P{i:03d} " + "y" * 40 + "\n" for i in range(199))
+        self.run_test_screen(
+            "G: view jump of 258 rows over 2-row lines repaints",
+            two_row,
+            b"133G:q!\r",
+            expect_cursor=(6, 0),
+            expect_lines=[row for i in range(4) for row in (
+                (2 * i, f"P{129 + i:03d} " + "y" * 35), (2 * i + 1, "y" * 5))]
+                         + [(8, "P133 " + "y" * 35)]
+        )
+        # 9 rows of the old top line + 246 hidden rows of the new top line:
+        # the final add makes the delta exactly 255
+        self.run_test_screen(
+            "e: view jump of 255 rows into a wrapped line repaints",
+            "a" * 330 + "\n" + "b" * 10199 + "Z\n",
+            b"$e:q!\r",
+            expect_cursor=(8, 39),
+            expect_lines=[(i, "b" * 40) for i in range(8)]
+                         + [(8, "b" * 39 + "Z")]
+        )
+        # 256G: the walk sums to exactly 255 rows, no 8-bit overflow, so
+        # the below-view check must not let CURSOR_ROW+1 wrap to 0
+        self.run_test_screen(
+            "G: cursor exactly 255 rows below the view scrolls",
+            make_lines(300),
+            b"256G:q!\r",
+            expect_cursor=(8, 0),
+            expect_lines=[(i, f"Line {i+248}") for i in range(9)]
+        )
+        # The view walk stops once the rows passed fill the screen: the
+        # run with G on 1,000 lines took 1,355,719 cycles (903,186 without
+        # the G)
+        self.run_test_cycle_cap(
+            "G: the view walk stops after a screenful",
+            make_lines(1000), b"G:q!\r", 1100000)
+        # So does the walk that finds the cursor's row: 1,030,037 cycles
+        # before, 948,109 after
+        self.run_test_cycle_cap(
+            "G: the cursor row walk stops after a screenful",
+            make_lines(1000), b"G:q!\r", 985000)
 
         # Ggg: full window back at top
         self.run_test_screen(
@@ -2433,6 +4187,17 @@ class EditorTestRunner:
                 (1, "A" * 20),
             ],
             deferred_wrap=True
+        )
+
+        # A screen over 255 columns is used as 255 wide (the emulator caps
+        # its byte-wide size ports), not as 300 mod 256 = 44
+        self.run_test_screen(
+            "Screen 8x300 is used as 255 columns",
+            "A" * 100 + "\nsecond\n",
+            b"$:q!\r",
+            rows=8, cols=300,
+            expect_cursor=(0, 99),
+            expect_lines=[(0, "A" * 100), (1, "second"), (2, "~")]
         )
 
         # ============================================================
@@ -2567,15 +4332,16 @@ class EditorTestRunner:
 
         # A on wrapped line: cursor must move to end-of-line wrap row
         # 60-char line, 0 goes to col 0 (row 0), then A sets col=60 (row 1, col 20)
-        # Frame sequence: 0=init, 1=0, 2=A
-        # At frame 2: CURSOR_COL=60, must be row 1 col 20
+        # Frame sequence: 0=init, 1=A
+        # At frame 1: CURSOR_COL=60, must be row 1 col 20 (0 at column 0
+        # changes nothing on the screen, so it sends no frame)
         self.run_test_screen(
             "A on wrapped line positions cursor correctly",
             "A" * 60 + "\n",
             b"0AX\x1b:q!\r",
             expect_cursor=(1, 20),
             expect_cursor_at_frame=[
-                (2, (1, 20)),
+                (1, (1, 20)),
             ]
         )
 
@@ -2656,43 +4422,47 @@ class EditorTestRunner:
             "Render opt: lll is cursor-only",
             "Hello\n",
             b"lll:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
-        # h at col 0: cursor-only (no movement, no repaint)
+        # h at col 0: no movement, nothing changes: no frame
         self.run_test_screen(
             "Render opt: h at col 0 is cursor-only",
             "Hello\n",
             b"h:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # l at end-of-line: cursor-only (no movement, no repaint)
+        # l at end-of-line: no movement, nothing changes: no frame
         self.run_test_screen(
             "Render opt: l at EOL is cursor-only",
             "Hello\n",
             b"$l:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False],
+            expect_frame_count=2
         )
 
         LEFT = b"\x1b[D"
         RIGHT = b"\x1b[C"
 
-        # Insert LEFT at col 0: cursor-only
+        # Insert LEFT at col 0: no movement, no frame
         self.run_test_screen(
             "Render opt: insert LEFT at col 0 is cursor-only",
             "Hello\n",
             b"i" + LEFT + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
-        # Insert RIGHT at end-of-line: cursor-only
-        # $=cursor-only, a=cursor-only (enters insert), RIGHT at EOL=cursor-only, ESC=cursor-only
+        # Insert RIGHT at end-of-line: no movement, no frame
+        # $=cursor-only, a=cursor-only (enters insert), RIGHT at EOL=none, ESC=cursor-only
         self.run_test_screen(
             "Render opt: insert RIGHT at EOL is cursor-only",
             "Hello\n",
             b"$a" + RIGHT + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False, False]
+            expect_content_redraws=[True, False, False, False],
+            expect_frame_count=4
         )
 
         # j without scroll: cursor-only
@@ -2729,7 +4499,7 @@ class EditorTestRunner:
             "Render opt: 0 is cursor-only",
             "Hello\n",
             b"lll0:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # $ (line end): cursor-only
@@ -2769,81 +4539,110 @@ class EditorTestRunner:
             "Render opt: command cancel is cursor-only",
             "Hello\n",
             b":\x1b:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False]
         )
 
-        # Insert HOME at col 0: cursor-only (already at start)
-        # i enters insert (F), HOME at col 0 is no-op (F), ESC (F)
+        # ':' sends no frame of its own (a status bar the prompt would
+        # erase at once): the key's frame is the prompt and then the
+        # command's result, here the status bar the prompt took (whole:
+        # the file name's length counts)
+        name_len = len(str(self.tmpdir / "t")[:32])
+        self.run_test_screen(
+            "Command cancel sends the prompt and the status bar only",
+            "Hello\n",
+            b":\x1b:q!\r",
+            expect_frame_bytes=[(1, 57 + name_len)],
+            expect_status_at_frame=[(1, "t - NORMAL - 1,1 /1")],
+        )
+        self.run_test_screen(
+            "Command entry sends no status-only frame",
+            "L1\nL2\nL3\nL4\nL5\n",
+            b"j:4\r:q!\r",
+            expect_frame_bytes=[(2, 59 + name_len)],
+            expect_cursor_at_frame=[(2, (3, 0))],
+            expect_status_at_frame=[(2, "NORMAL - 4,1 /5")],
+        )
+
+        # Insert HOME at col 0: no frame (already at start)
+        # i enters insert (F), HOME at col 0 is a no-op (no frame), ESC (F)
         HOME = b"\x1b[H"
         self.run_test_screen(
             "Render opt: insert HOME at col 0 is cursor-only",
             "Hello\n",
             b"i" + HOME + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
-        # Insert END at end of line: cursor-only (already at end)
-        # $ (F), a enters insert at end (F), END at EOL is no-op (F), ESC (F)
+        # Insert END at end of line: no frame (already at end)
+        # $ (F), a enters insert at end (F), END at EOL is a no-op (no
+        # frame), ESC (F)
         END = b"\x1b[F"
         self.run_test_screen(
             "Render opt: insert END at EOL is cursor-only",
             "Hello\n",
             b"$a" + END + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False, False]
+            expect_content_redraws=[True, False, False, False],
+            expect_frame_count=4
         )
 
-        # k at first line: cursor-only (no movement, no repaint)
+        # k at first line: no movement, nothing changes: no frame
         self.run_test_screen(
             "Render opt: k at first line is cursor-only",
             "Hello\n",
             b"k:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # j at last line: cursor-only (no movement, no repaint)
+        # j at last line: no movement, nothing changes: no frame
         self.run_test_screen(
             "Render opt: j at last line is cursor-only",
             "Hello\n",
             b"j:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # Insert UP at first line: cursor-only
+        # Insert UP at first line: no movement, no frame
         UP = b"\x1b[A"
         self.run_test_screen(
             "Render opt: insert UP at first line is cursor-only",
             "Hello\n",
             b"i" + UP + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
-        # Insert DOWN at last line: cursor-only
+        # Insert DOWN at last line: no movement, no frame
         DOWN = b"\x1b[B"
         self.run_test_screen(
             "Render opt: insert DOWN at last line is cursor-only",
             "Hello\n",
             b"i" + DOWN + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
-        # Ctrl-F at bottom of file: cursor-only (view doesn't change)
-        # 5-line file, 10 rows (9 content). All lines fit on screen.
-        # Ctrl-F clamps to last line but view stays the same.
+        # Ctrl-F with the last line on top: no frame (the page cannot move,
+        # as in vim)
         CTRL_F = b'\x06'
         CTRL_B = b'\x02'
         self.run_test_screen(
             "Render opt: Ctrl-F at bottom is cursor-only",
-            make_lines(5),
+            make_lines(1),
             CTRL_F + b":q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # Ctrl-B at top of file: cursor-only (view doesn't change)
+        # Ctrl-B at top of file: nothing changes, no frame
         self.run_test_screen(
             "Render opt: Ctrl-B at top is cursor-only",
             make_lines(5),
             CTRL_B + b":q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # Ctrl-D scroll then j: Ctrl-D repaints, j is cursor-only
@@ -2882,24 +4681,26 @@ class EditorTestRunner:
             make_lines(30),
             CTRL_F + CTRL_U * 2 + b"j:q!\r",
             expect_cursor=(1, 0),
-            expect_lines=[(i, f"Line {i+2}") for i in range(9)],
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
             expect_content_redraws=[True, True, True, False]
         )
 
-        # Insert Ctrl-F at bottom: cursor-only
+        # Insert PgDn at bottom: nothing changes, no frame
         self.run_test_screen(
-            "Render opt: insert Ctrl-F at bottom is cursor-only",
-            make_lines(5),
-            b"i" + CTRL_F + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            "Render opt: insert PgDn at bottom is cursor-only",
+            make_lines(1),
+            b"i\x1b[6~\x1b:q!\r",
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
-        # Insert Ctrl-B at top: cursor-only
+        # Insert PgUp at top: nothing changes, no frame
         self.run_test_screen(
-            "Render opt: insert Ctrl-B at top is cursor-only",
+            "Render opt: insert PgUp at top is cursor-only",
             make_lines(5),
-            b"i" + CTRL_B + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            b"i\x1b[5~\x1b:q!\r",
+            expect_content_redraws=[True, False, False],
+            expect_frame_count=3
         )
 
         # G at last line (no scroll): cursor-only
@@ -2912,55 +4713,61 @@ class EditorTestRunner:
             expect_content_redraws=[True, False]
         )
 
-        # gg at first line: cursor-only (already at top)
-        # g+g batched into single frame (no pending-key frame)
+        # gg at first line: nothing changes (already at top): no frame
+        # (g+g batched: no pending-key frame)
         self.run_test_screen(
             "Render opt: gg at top is cursor-only",
             "Hello\n",
             b"gg:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # yy: cursor-only (yank doesn't change display)
-        # y+y batched into single frame (no pending-key frame)
+        # yy: the yank changes nothing on the screen: no frame
+        # (y+y batched: no pending-key frame)
         self.run_test_screen(
             "Render opt: yy is cursor-only",
             "Hello\n",
             b"yy:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # Mark goto to current line: cursor-only
-        # m+a batched, '+a batched (no pending-key frames)
+        # Mark set and goto to the current line: nothing changes, no frame
+        # (m+a and '+a batched: no pending-key frames)
         self.run_test_screen(
             "Render opt: mark goto same line is cursor-only",
             "Line 1\nLine 2\n",
             b"ma'a:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # w at end of file: cursor-only (no next word to move to)
+        # w at end of file: no frame (no next word to move to)
         self.run_test_screen(
             "Render opt: w at end of file is cursor-only",
             "Hello\n",
             b"$w:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False],
+            expect_frame_count=2
         )
 
-        # b at start of file: cursor-only (no previous word)
+        # b at start of file: no frame (no previous word)
         self.run_test_screen(
             "Render opt: b at start of file is cursor-only",
             "Hello\n",
             b"b:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # e at end of file: cursor-only (no next word end)
+        # e at end of file: no frame (no next word end)
         self.run_test_screen(
             "Render opt: e at end of file is cursor-only",
             "Hello\n",
             b"$e:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True, False],
+            expect_frame_count=2
         )
 
         # Forward search, match visible, no scroll -> cursor-only
@@ -3001,12 +4808,12 @@ class EditorTestRunner:
             expect_content_redraws=[True, False]
         )
 
-        # Not found -> cursor-only after dismissal
-        # Space dismisses the "not found" message (consumed inside search handler)
+        # Not found -> the ESC after the "not found" message (a no-op)
+        # draws only the cursor and the status bar
         self.run_test_screen(
             "Render opt: search not-found is cursor-only",
             "AAA\nBBB\nCCC\n",
-            b"/ZZZ\r :q!\r",
+            b"/ZZZ\r\x1b:q!\r",
             expect_cursor=(0, 0),
             expect_content_redraws=[True, False]
         )
@@ -3042,12 +4849,12 @@ class EditorTestRunner:
         )
 
         # r replaces char: single-row redraw
-        # Frame 0: init(T), Frame 1: r+X batched replaces(T), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: r+X batched replaces(T)
         self.run_test_screen(
             "Render opt: r replaces with single-row redraw",
             "Hello\n",
             b"rX:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -3192,7 +4999,7 @@ class EditorTestRunner:
             "Render opt: r in wrapped line",
             "A" * 60 + "\nSecond\n",
             b"rX:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -3401,7 +5208,7 @@ class EditorTestRunner:
         )
 
         # ============================================================
-        # Mixed-type batch tests (unified insert_batch handler)
+        # Mixed-type batch tests (unified insert-mode batch handler)
         # When mixed editing keys (printable, Enter, BS, DEL) arrive
         # in rapid succession, they should be consolidated into a
         # single buffer operation.
@@ -3497,6 +5304,15 @@ class EditorTestRunner:
             "A\n",
             b"A" + DEL * 5 + b"\x1b:wq\r",
             expected_content="A\n"
+        )
+
+        # The forward scan relies on the final newline; a cw over trailing
+        # whitespace once deleted it, and DEL then ran past the buffer end
+        self.run_test(
+            "DEL after cw on trailing whitespace keeps final newline",
+            "foo   \n",
+            b"4lcwX" + DEL * 2 + b"\x1b:wq\r",
+            expected_content="foo X\n"
         )
 
         # Mixed render optimization: DEL+typing in single batch
@@ -3634,6 +5450,24 @@ class EditorTestRunner:
 
         self._group("X (delete before cursor):", leading_blank=True)
 
+        # Typed ahead, the x and X presses that find the line empty (or X at
+        # column 0) are empty changes, as one at a time and in vim: u after
+        # them puts nothing back, and the register keeps the last char
+        # deleted
+        for content, keys, expected in (
+                ("a\nb\n", b"xxu", "\nb\n"),
+                ("ab\n", b"lXXu", "b\n"),
+                ("ab\n", b"lxxxu", "\n"),
+                ("ab\n", b"3xxu", "\n"),
+                ("abc\n", b"$XXXu", "c\n"),
+                ("abc\n", b"$2XXu", "c\n"),
+                ("ab\n", b"xxxP", "b\n"),
+                ("ab\n", b"lxxxP", "a\n"),
+                ("abc\n", b"$XXXP", "ac\n")):
+            self.run_test(f"Typed-ahead {keys.decode()!r} past the line's "
+                          f"chars on {content!r}", content, keys + b":wq\r",
+                          expected_content=expected)
+
         self.run_test(
             "X deletes the char before the cursor",
             "ABCDEF\n",
@@ -3731,31 +5565,68 @@ class EditorTestRunner:
         # "Hello World": 5l puts the cursor on the space (col 5).
         shift_cases = [
             ("type one char mid-line", b"5liX\x1b:q!\r", 4,
-             "HelloX World", (5, 5), "\x1b[1;6H\x1b[1@X"),
+             "HelloX World", (5, 5), "\x1b[?25l\x1b[@X"),
             ("type-ahead batch shifts once", b"5liABC\x1b:q!\r", 4,
-             "HelloABC World", (5, 7), "\x1b[1;6H\x1b[3@ABC"),
+             "HelloABC World", (5, 7), "\x1b[?25l\x1b[3@ABC"),
             ("insert BS mid-line", b"6li\x7f\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\b\x1b[P"),
             ("insert DEL mid-line", b"5li\x1b[3~\x1b:q!\r", 4,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("mixed batch nets one shift", b"5liABC\x7f\x1b:q!\r", 4,
-             "HelloAB World", (5, 6), "\x1b[1;6H\x1b[2@AB"),
+             "HelloAB World", (5, 6), "\x1b[?25l\x1b[2@AB"),
             ("type + DEL overwrites only", b"5liX\x1b[3~\x1b:q!\r", 4,
              "HelloXWorld", (5, 5), None),
             ("append at end writes only the new char", b"AX\x1b:q!\r", 2,
              "Hello WorldX", (11, 11), None),
             ("x mid-line", b"5lx:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("3x mid-line", b"5l3x:q!\r", 4,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[?25l\x1b[3P"),
             ("batched xxx shifts once", b"5lxxx:q!\r", 3,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[?25l\x1b[3P"),
             ("normal-mode Delete", b"5l\x1b[3~:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
             ("X mid-line", b"6lX:q!\r", 3,
-             "HelloWorld", (-1, -1), "\x1b[1;6H\x1b[1P"),
+             "HelloWorld", (-1, -1), "\x1b[?25l\b\x1b[P"),
             ("3X mid-line", b"8l3X:q!\r", 4,
-             "Hellorld", (-1, -1), "\x1b[1;6H\x1b[3P"),
+             "Hellorld", (-1, -1), "\x1b[;6H\x1b[3P"),
+            # Every delete at the cursor that stays on its line is a DCH
+            ("dw at line start", b"dw:q!\r", 1,
+             "World", (-1, -1), "\x1b[?25l\x1b[6P"),
+            ("de at line start", b"de:q!\r", 1,
+             " World", (-1, -1), "\x1b[?25l\x1b[5P"),
+            ("db mid-line", b"6ldb:q!\r", 3,
+             "World", (-1, -1), "\x1b[?25l\x1b[H\x1b[6P"),
+            ("d0 mid-line", b"6ld0:q!\r", 3,
+             "World", (-1, -1), "\x1b[?25l\x1b[H\x1b[6P"),
+            ("s mid-line", b"5ls\x1b:q!\r", 3,
+             "HelloWorld", (-1, -1), "\x1b[?25l\x1b[P"),
+            ("cw at line start", b"cw\x1b:q!\r", 1,
+             " World", (-1, -1), "\x1b[?25l\x1b[5P"),
+            ("u after typing", b"5liAB\x1bu:q!\r", 6,
+             "Hello World", (-1, -1), "\x1b[?25l\b\x1b[2P"),
+            # A char paste within the line, and the undo of a char delete,
+            # open their cells with ICH and write just the pasted text
+            ("xp swaps two chars", b"1lxp:q!\r", 4,
+             "Hlelo World", (1, 2), "\x1b[?25l\x1b[@le"),
+            # (the yank and the ESC change nothing on the screen: no frame)
+            ("P pastes a word", b"ywwP:q!\r", 2,
+             "Hello Hello World", (6, 11), "\x1b[6@Hello "),
+            ("redo of P", b"ywwPu\x1bu:q!\r", 4,
+             "Hello Hello World", (6, 11), "\x1b[6@Hello "),
+            ("u after x", b"1lxu:q!\r", 4,
+             "Hello World", (1, 1), "\x1b[@e"),
+            ("u after dw", b"dwu:q!\r", 2,
+             "Hello World", (0, 5), "\x1b[6@Hello "),
+            # >> and << of one line, and their undo, shift it from column 0
+            (">>", b">>:q!\r", 1,
+             "  Hello World", (0, 1), "\x1b[?25l\x1b[2@  "),
+            ("<<", b">><<:q!\r", 2,
+             "Hello World", (-1, -1), "\x1b[?25l\x1b[H\x1b[2P"),
+            ("u after >>", b">>u:q!\r", 2,
+             "Hello World", (-1, -1), "\x1b[?25l\x1b[H\x1b[2P"),
+            ("batched >>>>", b">>>>:q!\r", 1,
+             "    Hello World", (0, 3), "\x1b[?25l\x1b[4@    "),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -3777,6 +5648,23 @@ class EditorTestRunner:
                 deferred_wrap=deferred,
                 expect_lines_at_frame=[(2, [(0, "Hello Worl")])],
             )
+            # Typed-ahead dw, db and de pairs run one press after another in
+            # one frame (dispatch_replay), and each press's hint describes
+            # that press alone: the frame must draw them all.  Pairs of two
+            # commands get a frame each
+            for keys, text in ((b"wdwdw", "Hello Bar Baz"),
+                               (b"wdede", "Hello  Bar Baz"),
+                               (b"3wdbdb", "Hello Bar Baz"),
+                               (b"wdedw", "Hello Foo Bar Baz"),
+                               (b"wdwde", "Hello  Bar Baz"),
+                               (b"wdbdw", "Foo Bar Baz")):
+                self.run_test_screen(
+                    "Shift: " + keys.decode() + " draws every edit" + suffix,
+                    "Hello World Foo Bar Baz\nNEXT\n",
+                    keys + b":q!\r",
+                    deferred_wrap=deferred,
+                    expect_lines=[(0, text), (1, "NEXT")],
+                )
 
         self._group("ICH/DCH shifting (wrapped line):", leading_blank=True)
 
@@ -3790,19 +5678,55 @@ class EditorTestRunner:
             # chars carried over from the row above
             ("insert on a 3-row line", b"5liAB\x1b:q!\r", 4, ins,
              [(0, 5, 6), (1, 0, 1), (2, 0, 1)],
-             "\x1b[1;6H\x1b[2@AB\x1b[2;1H\x1b[2@" + ins[40:42]
-             + "\x1b[3;1H\x1b[2@" + ins[80:82]),
+             "\x1b[?25l\x1b[2@AB\x1b[2H\x1b[2@" + ins[40:42]
+             + "\x1b[3H\x1b[2@" + ins[80:82]),
             # Every row gets its own DCH; full rows write only their last
             # cell, pulled up from the row below; the last row writes none
             ("insert BS on a 3-row line", b"6li\x7f\x1b:q!\r", 4, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)],
-             "\x1b[1;6H\x1b[1P\x1b[1;40H" + dele[39]
-             + "\x1b[2;1H\x1b[1P\x1b[2;40H" + dele[79]
-             + "\x1b[3;1H\x1b[1P"),
+             "\x1b[?25l\b\x1b[P\x1b[;40H" + dele[39]
+             + "\x1b[2H\x1b[P\x1b[2;40H" + dele[79]
+             + "\x1b[3H\x1b[P"),
             ("x on a 3-row line", b"5lx:q!\r", 3, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
             ("X on a 3-row line", b"6lX:q!\r", 3, dele,
              [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+            ("s on a 3-row line", b"5ls\x1b:q!\r", 3, dele,
+             [(0, 39, 39), (1, 39, 39), (2, -1, -1)], None),
+            ("d0 on a 3-row line", b"5ld0:q!\r", 3, digits[5:],
+             [(0, 35, 39), (1, 35, 39), (2, -1, -1)],
+             "\x1b[?25l\x1b[H\x1b[5P\x1b[;36H" + digits[40:45]
+             + "\x1b[2H\x1b[5P\x1b[2;36H" + digits[80:85]
+             + "\x1b[3H\x1b[5P"),
+            # Every row gets its own ICH; later rows write only the char
+            # carried over from the row above
+            ("u after x on a 3-row line", b"5lxu:q!\r", 4, digits,
+             [(0, 5, 5), (1, 0, 0), (2, 0, 0)],
+             "\x1b[?25l\x1b[@5\x1b[2H\x1b[@" + digits[40]
+             + "\x1b[3H\x1b[@" + digits[80]),
+            ("xp on a 3-row line", b"5lxp:q!\r", 4,
+             digits[:5] + "65" + digits[7:],
+             [(0, 5, 6), (1, 0, 0), (2, 0, 0)],
+             "\x1b[?25l\x1b[@65\x1b[2H\x1b[@" + digits[40]
+             + "\x1b[3H\x1b[@" + digits[80]),
+            ("xP on a 3-row line", b"5lxP:q!\r", 4, digits,
+             [(0, 5, 5), (1, 0, 0), (2, 0, 0)], None),
+            (">> on a 3-row line", b">>:q!\r", 1, "  " + digits,
+             [(0, 0, 1), (1, 0, 1), (2, 0, 1)],
+             "\x1b[?25l\x1b[2@  \x1b[2H\x1b[2@" + digits[38:40]
+             + "\x1b[3H\x1b[2@" + digits[78:80]),
+            ("<< on a 3-row line", b">><<:q!\r", 2, digits,
+             [(0, 38, 39), (1, 38, 39), (2, -1, -1)], None),
+            # Net 0: only the new cells change, so the rows after them are
+            # not visited (no cursor moves to them either)
+            ("type + DEL on a 3-row line", b"5liX\x1b[3~\x1b:q!\r", 4,
+             digits[:5] + "X" + digits[6:],
+             [(0, 5, 5), (1, -1, -1), (2, -1, -1)], "\x1b[?25lX\x1b[10;"),
+            ("net-0 batch across a row boundary",
+             b"42la\x7f\x7f\x7f\x7f\x7fABCDE\x1b:q!\r", 5,
+             digits[:38] + "ABCDE" + digits[43:],
+             [(0, 38, 39), (1, 0, 2), (2, -1, -1)],
+             "\x1b[;39HABCDE\x1b[10;"),
         ]
         for deferred in (False, True):
             suffix = " (deferred wrap)" if deferred else ""
@@ -3832,6 +5756,22 @@ class EditorTestRunner:
                 expect_min_col=[(2, 1, 0)],
                 expect_max_col=[(2, 1, 0)],
                 expect_reverse_at=[(1, 0, True), (0, 39, False)],
+            )
+
+            # Over 224 columns the change column plus the inserted cells can
+            # pass 255: 20 chars typed at column 240 of a 250-col row must
+            # still be written, not left as ICH blanks
+            wide = ("abcdefghijklmnopqrstuvwxyz" * 10)[:245]
+            typed = "ABCDEFGHIJKLMNOPQRST"
+            wide_ins = wide[:240] + typed + wide[240:]
+            self.run_test_screen(
+                "Shift: insert near the end of a 250-col row" + suffix,
+                wide + "\nNEXT\n",
+                b"240li" + typed.encode() + b"\x1b:q!\r",
+                rows=6, cols=250,
+                deferred_wrap=deferred,
+                expect_lines=[(0, wide_ins[:250]), (1, wide_ins[250:]),
+                              (2, "NEXT")],
             )
 
         self._group("ICH/DCH shifting (row count changes):", leading_blank=True)
@@ -3902,18 +5842,89 @@ class EditorTestRunner:
                                             (2, d300[240:280]),
                                             (3, d300[280:299])])],
             )
-            # Typing past the end of a line that exactly filled its row
+            # Typing past the end of a line that exactly filled its row:
+            # the row after the full one follows by the terminal's wrap,
+            # with no cursor move (as in the row loop)
             self.run_test_screen(
                 "Shift: typing past a full row at end of line" + suffix,
                 "a" * 39 + "\nNEXT\nLAST\n",
                 b"AXY\x1b:q!\r",
                 deferred_wrap=deferred,
+                expect_ansi_contains="\x1b[;40HXY\x1b[10;",
                 expect_lines_at_frame=[(2, [(0, "a" * 39 + "X"), (1, "Y"),
                                             (2, "NEXT"), (3, "LAST")])],
                 expect_cursor_at_frame=[(2, (1, 1))],
                 expect_min_col=[(2, 0, 39), (2, 1, 0), (2, 2, -1)],
                 expect_max_col=[(2, 0, 39), (2, 1, 0)],
             )
+            # The line grows into the last content row: a one-row region
+            # cannot be scrolled, so the next line's text there must be
+            # cleared, not left after the carried cells
+            d39 = d79[:39]
+            for how, keys, frame, text in (
+                    ("insert mid-line", b"j5liAB\x1b:q!\r", 5,
+                     d39[:5] + "AB" + d39[5:]),
+                    ("append", b"jAXY\x1b:q!\r", 3, d39 + "XY")):
+                self.run_test_screen(
+                    "Shift: " + how + " that adds the last content row"
+                    + suffix,
+                    "TOP\n" + d39 + "\nNEXT\n",
+                    keys,
+                    rows=4, cols=40,
+                    deferred_wrap=deferred,
+                    expect_lines_at_frame=[(frame, [(0, "TOP"),
+                                                    (1, text[:40]),
+                                                    (2, text[40:])])],
+                )
+            # The same for a char paste and the undo of a char delete
+            d41 = ("0123456789" * 5)[:41]
+            for how, content, keys, text in (
+                    ("P", d39, b"ywj5lP", d39[:5] + "TOP" + d39[5:]),
+                    ("u after 2x", d41, b"j038l2xu", d41)):
+                self.run_test_screen(
+                    "Shift: " + how + " that adds the last content row"
+                    + suffix,
+                    "TOP\n" + content + "\nNEXT\n",
+                    keys + b":q!\r",
+                    rows=4, cols=40,
+                    deferred_wrap=deferred,
+                    expect_lines=[(0, "TOP"), (1, text[:40]),
+                                  (2, text[40:])],
+                )
+        # C with text that grows the line into the last content row
+        self.run_test_screen(
+            "Shift: C growing the line into the last content row",
+            make_lines(30),
+            b"7j2lC" + b"z" * 39 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Li" + "z" * 38), (8, "z")],
+            expect_cursor=(8, 0),
+        )
+        # A line starting 129 or more rows above the view: its first row,
+        # CURSOR_ROW - WRAP_QUOT, is past -128, and an edit changing a row
+        # above the view must redraw what is on screen, not take the row
+        # as on screen and write to row 0 (row 1 on a terminal)
+        abc26 = "abcdefghijklmnopqrstuvwxyz"
+        long6000 = (abc26 * 231)[:6000]
+        typed = long6000[:5638] + "ABC" + long6000[5641:]
+        self.run_test_screen(
+            "Line starting far above the view: change on the row above",
+            long6000 + "\n",
+            b"$200h158hi\x7f\x7f\x7fABC\x1b:q!\r",
+            expect_lines=[(0, typed[5640:5680]), (1, typed[5680:5720])],
+            expect_cursor=(0, 0),
+        )
+        long3000 = (abc26 * 116)[:3000]
+        typed = long3000[:1787] + "0123456789ABCD" + long3000[1801:]
+        self.run_test_screen(
+            "Line starting far above the view: change two rows above",
+            long3000 + "\n",
+            b"$255h255h255h255h178hi" + b"\x7f" * 14
+            + b"0123456789ABCD\x1b:q!\r",
+            cols=12,
+            expect_lines=[(0, typed[1800:1812]), (1, typed[1812:1824])],
+            expect_cursor=(0, 0),
+        )
 
         self._group("ICH/DCH only when cheaper:", leading_blank=True)
 
@@ -3951,6 +5962,322 @@ class EditorTestRunner:
                 expect_min_col=[(5, 0, 5)],
                 expect_max_col=[(5, 0, 39)],
             )
+            # Deleting 129-255 chars: -n does not fit a signed byte, so the
+            # delete must not be drawn as an insert; the shortened last row
+            # is cleared
+            d150 = "0123456789" * 15
+            for how, keys, frame, text in (
+                    ("129x", b"129x:q!\r", 4, d150[129:]),
+                    ("batched 120x + 9 x", b"120x" + b"x" * 9 + b":q!\r", 4,
+                     d150[129:]),
+                    ("$130X", b"$130X:q!\r", 5, d150[:19] + d150[149:]),
+                    ("$d0 of 149 chars", b"$d0:q!\r", 2, d150[149:])):
+                self.run_test_screen(
+                    "Shift: " + how + " clears the shortened row" + suffix,
+                    d150 + "\nNEXT\n",
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_lines_at_frame=[(frame, [(0, text), (1, "NEXT"),
+                                                    (2, "~")])],
+                )
+
+        self._group("Status bar sends only what changed:", leading_blank=True)
+
+        # A cursor move changes only the position: the status bar is sent
+        # from the line number on, in reverse video, and needs no ESC[K
+        self.run_test_screen(
+            "Cursor move sends only the changed status tail",
+            "a\nb\nc\n",
+            b"j:q!\r",
+            expect_ansi_contains="\x1b[7m2,1 /3\x1b[m",
+            expect_status_at_frame=[(1, " - NORMAL - 2,1 /3")],
+        )
+
+        # A key that leaves the status bar as it was sends no status text,
+        # so it need not hide the cursor: r of a char into itself echoes it
+        # and moves the cursor back, and that is all it sends.  (A key that
+        # changes nothing at all sends nothing: "A no-op key sends nothing")
+        self.run_test_screen(
+            "Unchanged status bar sends only the cursor move and show",
+            "abc\n",
+            b"xrb:q!\r",
+            expect_ansi_contains="\x1b[H\x1b[?25hb\x1b[H\x1b[?25h",
+            expect_frame_bytes=[(2, 10)],
+            expect_cursor_at_frame=[(2, (0, 0))],
+        )
+
+        # A shorter status text clears the rest of the old one: typed-ahead
+        # dd pairs (which report nothing) take 10 lines to 1, and the frame
+        # clears the tail of '/10' after '/1'
+        self.run_test_screen(
+            "Shorter status text clears the old tail",
+            "ab\n" * 10,
+            b"x" + b"dd" * 9 + b":q!\r",
+            expect_ansi_contains="\x1b[7m\x1b[K\x1b[m",
+            expect_status_at_frame=[(2, " [+] - NORMAL - 1,1 /1")],
+            expect_lines_at_frame=[(2, [(0, "ab"), (1, "~")])],
+        )
+
+        self._group("Repaint bytes:", leading_blank=True)
+
+        # What each of these frames sends, in bytes: from the previous
+        # frame's ESC[?25h through its own
+        short = "".join("line %02d the quick brown fox jumps\n" % i
+                        for i in range(60))
+        alnum = "abcdefghijklmnopqrstuvwxyz0123456789"
+        wrapped = "".join("%02d " % i + (alnum * 3)[:91] + "\n"
+                          for i in range(40))
+        numbered = "".join(f"L{i}\n" for i in range(1, 15))
+        fox = "the quick brown fox " * 5 + "\nNEXT\n"   # 3 rows at 40
+        for name, content, keys, frame, (rows, cols), sent in (
+                ("x mid-line", "Hello World\n", b"5lx:q!\r", 3,
+                 (10, 40), 56),
+                ("X mid-line", "Hello World\n", b"6lX:q!\r", 3,
+                 (10, 40), 57),
+                ("typed char mid-line", "Hello World\n", b"5liX\x1b:q!\r", 4,
+                 (10, 40), 57),
+                ("insert BS mid-line", "Hello World\n", b"6li\x7f\x1b:q!\r",
+                 4, (10, 40), 57),
+                ("D mid-line", "Hello World\n", b"lllD:q!\r", 2,
+                 (10, 40), 56),
+                ("d$ mid-line", "Hello World\n", b"llld$:q!\r", 2,
+                 (10, 40), 56),
+                ("typed text past a full row", "a" * 39 + "\nNEXT\nLAST\n",
+                 b"AXY\x1b:q!\r", 2, (10, 40), 77),
+                ("dw on a 3-row line", fox, b"4ldw:q!\r", 3,
+                 (10, 40), 98),
+                ("db on a 3-row line", fox, b"10ldb:q!\r", 4,
+                 (10, 40), 103),
+                ("s on a 3-row line", fox, b"4lsZ\x1b:q!\r", 3,
+                 (10, 40), 85),
+                ("u after x on a 3-row line", fox, b"4lxu:q!\r", 4,
+                 (10, 40), 37),
+                ("P on a 3-row line", fox, b"ywwP:q!\r", 2,
+                 (10, 40), 85),
+                (">> on a 3-row line", fox, b">>:q!\r", 1,
+                 (10, 40), 79),
+                ("<< on a 3-row line", "  " + fox, b"<<:q!\r", 1,
+                 (10, 40), 91),
+                ("type + DEL on a 3-row line", fox, b"5liX\x1b[3~\x1b:q!\r",
+                 4, (10, 40), 54),
+                ("j", "Hello\nWorld\n", b"j:q!\r", 1, (10, 40), 37),
+                ("j scrolling one line", numbered, b"8jlj:q!\r", 4,
+                 (10, 40), 57),
+                ("Ctrl-F", short, b"\x06:q!\r", 1, (10, 40), 292),
+                ("Ctrl-F on wrapped lines", wrapped, b"\x06:q!\r", 1,
+                 (10, 40), 143),
+                ("Ctrl-F at 24x80", short, b"\x06:q!\r", 1, (24, 80), 785)):
+            self.run_test_screen(
+                "Repaint bytes: " + name,
+                content,
+                keys,
+                rows=rows, cols=cols,
+                expect_frame_bytes=[(frame, sent)],
+            )
+
+        self._group("The row loop reaches each row cheaply:",
+                    leading_blank=True)
+
+        # A row after one that ended with ESC[K (a short row, or '~') is
+        # reached with CR LF, a wrapped line's next row by the terminal's
+        # auto-wrap, and a row after one that ended its line exactly full
+        # with a move (terminals differ in where that leaves the cursor).
+        # No LF leaves the last text row: the status bar has its own move
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines in (
+                    ("rows after a short row start with CR LF",
+                     "one\ntwo\n", b":q!\r", 0,
+                     "\x1b[Hone\x1b[K\r\ntwo\x1b[K\r\n~\x1b[K\r\n~",
+                     [(0, "one"), (1, "two"), (2, "~"), (3, "~")]),
+                    ("the last text row is followed by the status row's move",
+                     "one\n", b":q!\r", 0, "\r\n~\x1b[K\x1b[10H\x1b[7m",
+                     [(0, "one"), (8, "~")]),
+                    ("a row ending its line exactly full is followed by a move",
+                     "x" * 40 + "\nnext\n", b":q!\r", 0,
+                     "x" * 40 + "\x1b[2Hnext\x1b[K\r\n~",
+                     [(0, "x" * 40), (1, "next"), (2, "~")]),
+                    ("a wrapped line continues by auto-wrap",
+                     "a\n" + "b" * 50 + "\nc\n", b"jyyp:q!\r", 2,
+                     "\x1b[4H\x1b[2L" + "b" * 50 + "\x1b[10;",
+                     [(0, "a"), (1, "b" * 40), (2, "b" * 10),
+                      (3, "b" * 40), (4, "b" * 10), (5, "c")])):
+                self.run_test_screen(
+                    "Row loop: " + name + suffix,
+                    content,
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                )
+
+        self._group("A frame starts where the last one left the cursor:",
+                    leading_blank=True)
+
+        # Every frame ends with the cursor at the edit position, so an edit
+        # there needs no cursor move, and one a column to the left only a
+        # backspace
+        digits = "0123456789" * 10
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines, cursor in (
+                    ("x sends no move", "Hello World\n", b"5lx:q!\r", 3,
+                     "\x1b[?25l\x1b[P", [(0, "HelloWorld")], (0, 5)),
+                    ("typing sends no move", "Hello World\n",
+                     b"5liX\x1b:q!\r", 4, "\x1b[?25l\x1b[@X",
+                     [(0, "HelloX World")], (0, 6)),
+                    ("X backs up with a backspace", "Hello World\n",
+                     b"6lX:q!\r", 3, "\x1b[?25l\b\x1b[P",
+                     [(0, "HelloWorld")], (0, 5)),
+                    ("insert BS backs up with a backspace", "Hello World\n",
+                     b"6li\x7f\x1b:q!\r", 4, "\x1b[?25l\b\x1b[P",
+                     [(0, "HelloWorld")], (0, 5)),
+                    ("typing on a wrap row sends no move", digits + "\n",
+                     b"45liX\x1b:q!\r", 5, "\x1b[?25l\x1b[@X",
+                     [(1, digits[40:45] + "X" + digits[45:79])], (1, 6))):
+                self.run_test_screen(
+                    "First move: " + name + suffix,
+                    content,
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                    expect_cursor_at_frame=[(frame, cursor)],
+                )
+
+            # Echoed chars (~, r) move the cursor after the frame: with the
+            # status bar unchanged, the next frame must still move it back
+            self.run_test_screen(
+                "First move: ~ echoed on the last char moves the cursor back"
+                + suffix,
+                "abc\n",
+                b"$x~:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(3, [(0, "aB")])],
+                expect_cursor_at_frame=[(3, (0, 1))],
+            )
+
+        self._group("Escape sequences leave out a parameter of 1:",
+                    leading_blank=True)
+
+        # A VT100 or xterm takes a missing parameter as its default: 1 for
+        # a move's row and column (ESC[H is home) and for the count of ICH,
+        # DCH, DL and IL, and 0 (normal video) for SGR
+        for name, content, keys, frame, raw, lines in (
+                ("a move to column 1", "Hello\nWorld\n", b"j:q!\r", 1,
+                 "\x1b[m\x1b[2H\x1b[?25h", [(1, "World")]),
+                ("a move to row 1", "abc\n", b"l:q!\r", 1,
+                 "\x1b[m\x1b[;2H\x1b[?25h", [(0, "abc")]),
+                ("a move home", "Hello\n", b":q!\r", 0,
+                 "\x1b[?25l\x1b[HHello\x1b[K", [(0, "Hello")]),
+                ("normal video", "Hello\n", b":q!\r", 0,
+                 "\x1b[K\x1b[m\x1b[H\x1b[?25h", [(1, "~")]),
+                ("DCH", "Hello World\n", b"5lx:q!\r", 3,
+                 "\x1b[P\x1b[10;", [(0, "HelloWorld")]),
+                ("ICH", "Hello World\n", b"5liX\x1b:q!\r", 4,
+                 "\x1b[@X\x1b[10;", [(0, "HelloX World")]),
+                ("DL at the top row, then IL", numbered, b"8jlj:q!\r",
+                 4, "\x1b[H\x1b[M\x1b[9H\x1b[LL10\x1b[10;",
+                 [(0, "L2"), (8, "L10")]),
+                ("DL, then IL at the top row", numbered,
+                 b"8jlj8klk:q!\r", 7, "\x1b[9H\x1b[M\x1b[H\x1b[LL1\x1b[10;",
+                 [(0, "L1"), (8, "L9")])):
+            self.run_test_screen(
+                "Escape sequences: " + name,
+                content,
+                keys,
+                expect_ansi_contains=raw,
+                expect_lines_at_frame=[(frame, lines)],
+            )
+
+        self._group("Scrolls move rows with DL and IL:", leading_blank=True)
+
+        # The rows that move (those below an edit, or the text rows for a
+        # view scroll) go with DL (ESC[nM) at the first row that moves and
+        # IL (ESC[nL) where the new rows come in: no scroll region is set,
+        # and the pair keeps the status bar in place.  IL leaves the cursor
+        # at column 1 of the first row it opened, where a frame that draws
+        # from there sends no move; the DL's move is left out when the
+        # cursor is already there
+        numbered24 = "".join(f"L{i}\n" for i in range(1, 40))
+        grows = "TOP\n" + "d" * 39 + "\nNEXT\nLAST\n"
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines, (rows, cols) in (
+                    ("j on the bottom row of 24", numbered24, b"22jlj:q!\r",
+                     5, "\x1b[?25l\x1b[H\x1b[M\x1b[23H\x1b[LL24\x1b[24;",
+                     [(0, "L2"), (22, "L24")], (24, 80)),
+                    ("Ctrl-D", numbered, b"\x04:q!\r", 1,
+                     "\x1b[?25l\x1b[4M\x1b[6H\x1b[4LL10\r\nL11",
+                     [(0, "L5"), (5, "L10"), (8, "L13")], (10, 40)),
+                    ("dd from the cursor's row", numbered, b"4jdd:q!\r", 3,
+                     "\x1b[?25l\x1b[M\x1b[9H\x1b[LL10\x1b[10;",
+                     [(4, "L6"), (8, "L10")], (10, 40)),
+                    ("o", numbered, b"4jo\x1b:q!\r", 3,
+                     "\x1b[?25l\x1b[9H\x1b[M\x1b[6H\x1b[L",
+                     [(4, "L5"), (5, ""), (6, "L6"), (8, "L8")], (10, 40)),
+                    ("P", numbered, b"4jyyP:q!\r", 3,
+                     "\x1b[?25l\x1b[9H\x1b[M\x1b[5H\x1b[LL5\x1b[10;",
+                     [(4, "L5"), (5, "L5"), (8, "L8")], (10, 40)),
+                    ("J draws the line before the rows below move", numbered,
+                     b"3jJ:q!\r", 3,
+                     "\x1b[?25l\x1b[4;3H L5\x1b[K\x1b[5H\x1b[M\x1b[9H\x1b[L"
+                     "L10\x1b[10;", [(3, "L4 L5"), (4, "L6"), (8, "L10")],
+                     (10, 40)),
+                    ("a line gaining a row is drawn from its change", grows,
+                     b"jAXY\x1b:q!\r", 3,
+                     "\x1b[?25l\x1b[4H\x1b[M\x1b[3H\x1b[L\x1b[2;40HXY",
+                     [(0, "TOP"), (1, "d" * 39 + "X"), (2, "Y"),
+                      (3, "NEXT")], (5, 40))):
+                self.run_test_screen(
+                    "DL and IL: " + name + suffix,
+                    content,
+                    keys,
+                    rows=rows, cols=cols,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                )
+
+        self._group("The rows a scroll opens get no ESC[K:", leading_blank=True)
+
+        # IL and DL leave the rows they open blank, so the row loop sends no
+        # ESC[K after a short line or a '~' drawn there; a row drawn above
+        # them, and every row of a later frame, still gets one
+        long10 = "".join(f"L{i}" + "x" * (20 if i == 10 else 0) + "\n"
+                         for i in range(1, 41))
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            for name, content, keys, frame, raw, lines in (
+                    ("j on the bottom row", numbered, b"8jlj:q!\r", 4,
+                     "\x1b[9H\x1b[LL10\x1b[10;", [(0, "L2"), (8, "L10")]),
+                    ("Ctrl-D", numbered, b"\x04:q!\r", 1,
+                     "\x1b[6H\x1b[4LL10\r\nL11\r\nL12\r\nL13\x1b[10;",
+                     [(0, "L5"), (5, "L10"), (8, "L13")]),
+                    ("o", numbered, b"4jo\x1b:q!\r", 3,
+                     "\x1b[6H\x1b[L\x1b[10;", [(5, ""), (6, "L6")]),
+                    ("a '~' row", "L1\nL2\nL3\n", b"dd:q!\r", 1,
+                     "\x1b[9H\x1b[L~\x1b[10;",
+                     [(0, "L2"), (1, "L3"), (2, "~"), (8, "~")]),
+                    ("J, whose line above them keeps its ESC[K", numbered,
+                     b"3jJ:q!\r", 3,
+                     "\x1b[4;3H L5\x1b[K\x1b[5H\x1b[M\x1b[9H\x1b[LL10\x1b[10;",
+                     [(3, "L4 L5"), (4, "L6"), (8, "L10")])):
+                self.run_test_screen(
+                    "Opened rows: " + name + suffix,
+                    content,
+                    keys,
+                    deferred_wrap=deferred,
+                    expect_ansi_contains=raw,
+                    expect_lines_at_frame=[(frame, lines)],
+                )
+            self.run_test_screen(
+                "Opened rows: a later redraw clears them" + suffix,
+                long10,
+                b"8jlj30G:q!\r",
+                deferred_wrap=deferred,
+                expect_lines=[(0, "L22"), (8, "L30")],
+            )
 
         self._group("D stays minimal:", leading_blank=True)
 
@@ -3964,20 +6291,90 @@ class EditorTestRunner:
                 "Hello World\nNEXT\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[?25l\x1b[1;6H\x1b[K\x1b[10;1H",
+                expect_ansi_contains="\x1b[?25l\x1b[K\x1b[10;",
                 expect_lines_at_frame=[(3, [(0, "Hello"), (1, "NEXT")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1)],
             )
             self.run_test_screen(
-                "D on a wrapped line scrolls the rows below up" + suffix,
+                "D on a wrapped line draws it, then moves the rows below up"
+                + suffix,
                 "0123456789" * 10 + "\nNEXT\nLAST\n",
                 b"5lD:q!\r",
                 deferred_wrap=deferred,
-                expect_ansi_contains="\x1b[2;9r\x1b[2S\x1b[r\x1b[1;6H\x1b[K",
+                expect_ansi_contains="\x1b[?25l\x1b[K\x1b[2H\x1b[2M\x1b[8H"
+                                     "\x1b[2L~\r\n~\x1b[10;",
                 expect_lines_at_frame=[(3, [(0, "01234"), (1, "NEXT"),
                                             (2, "LAST")])],
                 expect_min_col=[(3, 0, 5), (3, 1, -1), (3, 2, -1)],
             )
+
+        # A line running past the bottom of the screen shrinks: the rows
+        # below its new end must show the following lines, however many
+        # rows it lost.  When they are all exposed, scrolling them first
+        # would only waste bytes.  (Only a cursor line taller than the
+        # screen runs past the bottom: one that fits is shown in full, as
+        # in vim)
+        long_line = ("abcdefghijklmnopqrstuvwxyz" * 16)[:400]
+        past_bottom = ("line 0\nline 1\nline 2\n" + long_line + "\n"
+                       + "".join(f"line {i}\n" for i in range(4, 20)))
+        # Frames: 0=initial, 1=count '3', 2=j, 3=count '5', 4=l, 5=D
+        self.run_test_screen(
+            "D on a line running past the bottom repaints the rows below",
+            past_bottom,
+            b"3j5lD:q!\r",
+            expect_lines=[(3, "abcde")]
+                         + [(r, f"line {r}") for r in range(4, 9)],
+            expect_cursor=(3, 4),
+            expect_content_rows=[(5, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(5, False)],
+        )
+        self.run_test_screen(
+            "D leaving one row below the line repaints it",
+            past_bottom,
+            b"3j199lD:q!\r",
+            expect_lines=[(7, long_line[160:199]), (8, "line 4")],
+            expect_cursor=(7, 38),
+        )
+        self.run_test_screen(
+            "D on a line running far past the bottom repaints the rows below",
+            past_bottom,
+            b"3jD:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(3, ""), (4, "line 4")],
+            expect_cursor=(3, 0),
+        )
+        self.run_test_screen(
+            "D on a partly visible last line shows ~ below",
+            "short\n" + "B" * 135 + "\nend\n",
+            b"jD:q!\r",
+            rows=8, cols=12,
+            expect_lines=[(0, "short"), (1, ""), (2, "end"), (3, "~"),
+                          (6, "~")],
+            expect_cursor=(1, 0),
+        )
+        # The same for C, cc, dw and D at 24x80
+        for name, content, keys, rows, cols, lines, cursor in (
+                ("C", past_bottom, b"3j5lC\x1b", 10, 40,
+                 [(3, "abcde")] + [(r, f"line {r}") for r in range(4, 9)],
+                 (3, 4)),
+                ("cc", past_bottom, b"3jcc\x1b", 10, 40,
+                 [(3, "")] + [(r, f"line {r}") for r in range(4, 9)],
+                 (3, 0)),
+                ("dw", "".join(f"line {i}\n" for i in range(6))
+                 + " " * 380 + "abc\n"
+                 + "".join(f"line {i}\n" for i in range(7, 20)),
+                 b"6j0dw", 10, 40, [(6, "abc"), (7, "line 7"), (8, "line 8")],
+                 (6, 0)),
+                ("D at 24x80", "".join(f"line {i}\n" for i in range(20))
+                 + long_line * 5 + "\n"
+                 + "".join(f"line {i}\n" for i in range(21, 40)),
+                 b"20jD", 24, 80, [(20, ""), (21, "line 21"), (22, "line 22")],
+                 (20, 0))):
+            self.run_test_screen(
+                f"{name} on a line running past the bottom repaints the "
+                "rows below",
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=lines, expect_cursor=cursor)
 
         # Same bug in insert mode: batch backspace on a wrapped line should
         # clear the stale wrap row when the line unwraps.
@@ -4139,6 +6536,55 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # One insert batch that joins lines (BS at col 0, Del at end of line)
+        # and splits them again with the line count unchanged changes the
+        # lines above the cursor too: they must be repainted
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines, cursor, cols in [
+            ("Batch BS-join then Enter: line above repainted",
+             make_lines(12), b"4Gi\x08abc\r",
+             [(2, "Line 3abc"), (3, "Line 4"), (4, "Line 5")], (3, 0), 40),
+            ("Batch Del-join then Enter: line above repainted",
+             make_lines(12), b"4GAab" + DEL + b"\rcd",
+             [(3, "Line 4ab"), (4, "cdLine 5"), (5, "Line 6")], (4, 1), 40),
+            ("Batch Del-join then Enter on the bottom row: line above repainted",
+             make_lines(12), b"9GAab" + DEL + b"\rcd",
+             [(0, "Line 2"), (7, "Line 9ab"), (8, "cdLine 10")], (8, 1), 40),
+            ("Batch 2 BS-joins then 2 Enters: lines above repainted",
+             make_lines(12), b"4Gi" + b"\x08" * 14 + b"\rX\rY",
+             [(0, "Line 1"), (1, ""), (2, "X"), (3, "YLine 4"),
+              (4, "Line 5")], (3, 0), 40),
+            ("Batch Enter then Del-join of a wrapped line: rows below repainted",
+             "\nabcdefghijklmnopqrstu\nend\n", b"A\r" + DEL,
+             [(0, ""), (1, "abcdefghijklmnopqrst"), (2, "u"), (3, "end"),
+              (4, "~")], (1, 0), 20),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r", cols=cols,
+                expect_lines=lines, expect_cursor=cursor,
+            )
+        # Unless it only deleted and typed newlines, the same number: then
+        # the text is as it was and only the cursor moves (or the view)
+        for name, content, keys, lines, cursor, cols, frame, touched in [
+            ("Batch BS-join then Enter, text unchanged: no row redrawn",
+             make_lines(12), b"4Gi\x08\r",
+             [(2, "Line 3"), (3, "Line 4"), (4, "Line 5")], (3, 0), 40,
+             4, set()),
+            ("Batch Enter then Del-join, text unchanged: no row redrawn",
+             "\nabcdefghijklmnopqrstu\nend\n", b"A\r" + DEL,
+             [(0, ""), (1, "abcdefghijklmnopqrst"), (2, "u"), (3, "end"),
+              (4, "~")], (1, 0), 20, 2, set()),
+            ("Batch Del-join then Enter on the bottom row, text unchanged: "
+             "view scrolls", make_lines(12), b"9GA" + DEL + b"\r",
+             [(0, "Line 2"), (7, "Line 9"), (8, "Line 10")], (8, 0), 40,
+             4, {8}),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r", cols=cols,
+                expect_lines=lines, expect_cursor=cursor,
+                expect_content_rows=[(frame, touched)],
+            )
+
         # Batched Enter (2 Enters) - screen shows all lines correctly
         self.run_test_screen(
             "Batched Enter: screen shows all new lines",
@@ -4177,6 +6623,23 @@ class EditorTestRunner:
             ],
             expect_cursor=(3, 0),
         )
+
+        # An Enter batch at the start or end of a line is drawn by the
+        # scroll alone only when it deleted nothing: a char it deleted
+        # must go from the screen too
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines in [
+            ("Batch BS then Enter at end of line: deleted char repainted",
+             "abc\nxyz\n", b"A\x08\r", [(0, "ab"), (1, ""), (2, "xyz")]),
+            ("Batch DEL then Enter at col 0: deleted char repainted",
+             "xyz\n", b"i" + DEL + b"\r", [(0, ""), (1, "yz"), (2, "~")]),
+            ("Batch Enter then DEL at col 0: deleted char repainted",
+             "xyz\n", b"i\r" + DEL, [(0, ""), (1, "yz"), (2, "~")]),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=(1, 0),
+            )
 
         # Enter with chars (a\rb\r) - screen shows all content
         self.run_test_screen(
@@ -4251,6 +6714,36 @@ class EditorTestRunner:
             ],
             expect_cursor=(0, 4),
         )
+
+        # A join batch that also types text repaints the joined line from
+        # where the text went in, not from the cursor after it
+        for name, keys in [
+            ("BS join + typed text: screen shows the text", b"ji\x08abc"),
+            ("Typed text + DEL join: screen shows the text",
+             b"Aabc" + DEL),
+            ("DEL join + typed text: screen shows the text",
+             b"A" + DEL + b"abc"),
+        ]:
+            self.run_test_screen(
+                name, make_lines(3), keys + b"\x1b:q!\r",
+                expect_lines=[(0, "Line 1abcLine 2"), (1, "Line 3"),
+                              (2, "~")],
+                expect_cursor=(0, 8),
+            )
+        for name, content, keys, lines, cursor in [
+            ("BS join onto a wrapped line + typed text: screen shows the text",
+             "x" * 45 + "\nabc\nend\n", b"ji\x08QR",
+             [(0, "x" * 40), (1, "xxxxxQRabc"), (2, "end"), (3, "~")],
+             (1, 6)),
+            ("BS join + typed text across the wrap: screen shows the text",
+             "x" * 38 + "\nabc\nend\n", b"ji\x08QRS",
+             [(0, "x" * 38 + "QR"), (1, "Sabc"), (2, "end"), (3, "~")],
+             (1, 0)),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
 
         # ============================================================
         # Screen content verification after normal mode editing
@@ -4374,7 +6867,7 @@ class EditorTestRunner:
             b"3J:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AA BB CC"), (1, "DD")],
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 5),
         )
 
         # cc (change line) - replaces line content
@@ -4616,15 +7109,16 @@ class EditorTestRunner:
 
         # --- Multi-line char paste (content with newlines) ---
 
-        # db yanks across newline ("foo\n"), p pastes inline after cursor
+        # 2ye yanks "foo\n" (with no second word end, e stops before the
+        # empty last line), p pastes inline after the cursor
         # Result: "barfoo\n\n" - cursor at first pasted char (col 3)
         self.run_test_screen(
             "Multi-line char paste p: screen correct",
-            "foo\nbar\n",
-            b"jdb$p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$p:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, ""), (2, "~"),
+                (0, "barfoo"), (1, ""), (2, "foo"), (3, ""), (4, "~"),
             ],
             expect_cursor=(0, 3),
         )
@@ -4657,25 +7151,29 @@ class EditorTestRunner:
         # Inserts "foo\nfoo\n" after 'r': "barfoo\nfoo\n\n"
         self.run_test_screen(
             "Multi-line char 2p: screen correct",
-            "foo\nbar\n",
-            b"jdb$2p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$2p:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, "foo"), (2, ""), (3, "~"),
+                (0, "barfoo"), (1, "foo"), (2, ""), (3, "foo"), (4, ""),
+                (5, "~"),
             ],
             expect_cursor=(0, 3),
         )
 
-        # Multi-line char paste with batched pp (same content, same cursor for multiline)
+        # Multi-line char paste with batched pp: as p <Esc> p. The first
+        # p leaves the cursor on the first pasted char, so the second p
+        # pastes inside the first copy: "barf" "foo\n" "oo\n" "\n"
         self.run_test_screen(
             "Multi-line char batched pp: screen correct",
-            "foo\nbar\n",
-            b"jdb$pp:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek$pp:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "barfoo"), (1, "foo"), (2, ""), (3, "~"),
+                (0, "barffoo"), (1, "oo"), (2, ""), (3, "foo"), (4, ""),
+                (5, "~"),
             ],
-            expect_cursor=(0, 3),
+            expect_cursor=(0, 4),
         )
 
         # --- Char paste causing line wrapping ---
@@ -4775,6 +7273,27 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # Typed-ahead dw pairs run one press at a time: at the line end the
+        # second dw deletes the space the first left (no line join)
+        self.run_test_screen(
+            "Batched dwdw at line end: screen correct",
+            "foo bar\nbaz qux\n",
+            b"wdwdw:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "foo"), (1, "baz qux")],
+            expect_cursor=(0, 2),
+        )
+
+        # A batched press that joins lines repaints the whole batch
+        self.run_test_screen(
+            "Batched 2dwdw joining lines: screen correct",
+            "one\ntwo three four\nfive\n",
+            b"2dwdw:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "four"), (1, "five"), (2, "~")],
+            expect_cursor=(0, 0),
+        )
+
         # 2dw single-line (no unwrap)
         self.run_test_screen(
             "2dw single-line: screen correct",
@@ -4844,13 +7363,14 @@ class EditorTestRunner:
         )
 
         # Batched dbdb crossing line boundary
+        # (the db from column 0 stops before the line break, as in vi)
         self.run_test_screen(
             "Batched dbdb crossing line: screen correct",
             "one two\nthree\n",
             b"j$dbdb:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "one e"), (1, "~")],
-            expect_cursor=(0, 4),
+            expect_lines=[(0, "one"), (1, "e"), (2, "~")],
+            expect_cursor=(0, 3),
         )
 
         # Batched dbdb from BOL
@@ -4859,7 +7379,7 @@ class EditorTestRunner:
             "foo bar\nbaz\n",
             b"jdbdb:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "baz"), (1, "~")],
+            expect_lines=[(0, ""), (1, "baz"), (2, "~")],
             expect_cursor=(0, 0),
         )
 
@@ -4901,7 +7421,7 @@ class EditorTestRunner:
             "foo\nbar\n",
             b"jcbbaz\x1b:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "bazbar"), (1, "~")],
+            expect_lines=[(0, "baz"), (1, "bar"), (2, "~")],
             expect_cursor=(0, 2),
         )
 
@@ -4985,7 +7505,7 @@ class EditorTestRunner:
             make_lines(10),
             b"jjjjj:q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Batch KEY_DOWN arrow keys
@@ -4995,7 +7515,7 @@ class EditorTestRunner:
             make_lines(10),
             DOWN * 5 + b":q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Batch j with scrolling: verify screen content
@@ -5014,7 +7534,7 @@ class EditorTestRunner:
             make_lines(10),
             b"3jjj:q!\r",
             expect_cursor=(5, 0),
-            expect_status_contains="COMMAND - 6,"
+            expect_status_contains="NORMAL - 6,"
         )
 
         # Render optimization: batch j reduces redraws
@@ -5044,7 +7564,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5jkkk:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Batch KEY_UP arrow keys
@@ -5054,7 +7574,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j" + UP * 3 + b":q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Batch k with scrolling: scroll up from bottom
@@ -5163,6 +7683,49 @@ class EditorTestRunner:
             expected_content="Hello XWorld\n",
         )
 
+        self._group("Space and Backspace (vim's whichwrap b,s):",
+                    leading_blank=True)
+
+        # Space moves right and Backspace left, as l and h, but past the
+        # line end Space goes on to the next line's start, and from column
+        # 0 Backspace to the last char of the line above, a count step
+        # each (an empty line is a step too); at the end and the start of
+        # the text they stop.  Checked against vim 8.2 ($7F is Backspace)
+        BS = b"\x7f"
+        for content, keys, expected, cursor in (
+                ("abc\n", b"0 x", "ac\n", (0, 1)),
+                ("abc\ndef\n", b"$ x", "abc\nef\n", (1, 0)),
+                ("abc\ndef\n", b"j" + BS + b"x", "ab\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"$2 x", "abc\ndf\n", (1, 1)),
+                ("abc\n\ndef\n", b"$  x", "abc\n\nef\n", (2, 0)),
+                ("abc\ndef\n", b"G$ x", "abc\nde\n", (1, 1)),
+                ("abc\ndef\n", b"9 x", "abc\nde\n", (1, 1)),
+                ("abc\ndef\n", BS + b"x", "bc\ndef\n", (0, 0)),
+                ("abc\n\ndef\n", b"jj" + BS + BS + b"x", "ab\n\ndef\n",
+                 (0, 1)),
+                ("abc\ndef\n", b"j05" + BS + b"x", "bc\ndef\n", (0, 0)),
+                ("abc\ndef\n", b"j\x08x", "ab\ndef\n", (0, 1)),
+                # The remembered column starts over where Space leaves the
+                # cursor, as after any move but j and k
+                ("abcdef\nab\nabcdef\n", b"4lj lkx", "abcdef\na\nabcdef\n",
+                 (1, 0)),
+                ("abcdef\nxy\nabcdef\n", b"$ jx", "abcdef\nxy\nbcdef\n",
+                 (2, 0))):
+            self.run_test_screen(
+                f"Space and Backspace: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
+        # One that cannot move keeps the remembered column, as h and l do
+        self.run_test(
+            "Space and Backspace: Space on the last char keeps the column",
+            "abcdef\nab\n", b"$j kx:wq\r", expected_content="abcde\nab\n")
+        # Spaces typed ahead are a step each, as typed one at a time, and
+        # draw one frame
+        self.run_test_screen(
+            "Space and Backspace: typed-ahead Spaces take a step each",
+            "ab\n\ncd\n", b"    x:wq\r", expected_content="ab\n\nc\n",
+            expect_cursor=(2, 0), expect_frame_count=3)
+
         self._group("Batch word motions (w, b, e):", leading_blank=True)
 
         # Batch w: 5 w's on a 7-word line -> single frame
@@ -5219,17 +7782,18 @@ class EditorTestRunner:
             "Batch dw is single action frame",
             "Hello World\n",
             b"dw:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
-        # yw: y+w batched into single frame
+        # yw: y+w batched into one key, which changes nothing on the screen
         # Without batching: init(T), y-pending(F), yw(F) = 3 frames
-        # With batching: init(T), yw(F) = 2 frames
+        # With batching: init(T) = 1 frame (yw sends none)
         self.run_test_screen(
             "Batch yw is single action frame",
             "Hello World\n",
             b"yw:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # dd: d+d batched into single frame
@@ -5237,16 +7801,16 @@ class EditorTestRunner:
             "Batch dd is single action frame",
             "Hello\nWorld\n",
             b"dd:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # gg: g+g batched into single frame (cursor-only, no content redraw)
-        # init(T), G(F cursor-only), g+g batched(F cursor-only), :q!(F)
+        # init(T), G(F cursor-only), g+g batched(F cursor-only)
         self.run_test_screen(
             "Batch gg is single action frame",
             make_lines(5),
             b"Ggg:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ra: r+a batched into single frame
@@ -5254,7 +7818,7 @@ class EditorTestRunner:
             "Batch ra is single action frame",
             "Hello\n",
             b"ra:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # de: d+e batched into single frame
@@ -5262,15 +7826,16 @@ class EditorTestRunner:
             "Batch de is single action frame",
             "Hello World\n",
             b"de:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
-        # ye: y+e batched into single frame
+        # ye: y+e batched into one key, which sends no frame
         self.run_test_screen(
             "Batch ye is single action frame",
             "Hello World\n",
             b"ye:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # cw: c+w batched into single frame (then insert mode)
@@ -5278,7 +7843,7 @@ class EditorTestRunner:
             "Batch cw is single action frame",
             "Hello World\n",
             b"cw\x1b:q!\r",
-            expect_content_redraws=[True, True, False, False]
+            expect_content_redraws=[True, True, False]
         )
 
         # >>: >+> batched into single frame
@@ -5286,7 +7851,7 @@ class EditorTestRunner:
             "Batch >> is single action frame",
             "Hello\nWorld\n",
             b">>:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # <<: <+< batched into single frame
@@ -5294,7 +7859,7 @@ class EditorTestRunner:
             "Batch << is single action frame",
             "  Hello\n  World\n",
             b"<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # dwdw: both dw pairs batched via pair batching + combo batching
@@ -5304,7 +7869,7 @@ class EditorTestRunner:
             "Batch dwdw is single action frame",
             "one two three four\n",
             b"dwdw:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # 3dw: count digit gets own frame, then d+w batched
@@ -5313,7 +7878,7 @@ class EditorTestRunner:
             "Count prefix + batch dw",
             "one two three four five\n",
             b"3dw:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # ============================================================
@@ -5330,7 +7895,7 @@ class EditorTestRunner:
             "Batch line pp is single action frame",
             "A\nB\nC\n",
             b"ddpp:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Line paste pp correctness: two copies pasted
@@ -5354,7 +7919,7 @@ class EditorTestRunner:
             "Batch line PP is single action frame",
             "A\nB\nC\n",
             b"ddPP:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Char paste pp: yank a char with x, paste twice with pp
@@ -5364,7 +7929,7 @@ class EditorTestRunner:
             "Batch char pp is single action frame",
             "Hello\n",
             b"xpp:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Char paste pp correctness
@@ -5406,7 +7971,7 @@ class EditorTestRunner:
             "Batch char PP is single action frame",
             "Hello\n",
             b"xPP:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Count + batch: 2p then extra p should paste 3 total
@@ -5513,33 +8078,33 @@ class EditorTestRunner:
 
         # Render optimization: batch Ctrl-B reduces redraws
         # G scrolls to end (full repaint), then 3 batched Ctrl-B's
-        # produce a single repaint, then j is cursor-only
+        # produce a single repaint, then k is cursor-only
         self.run_test_screen(
             "Render opt: batch Ctrl-B reduces redraws",
             make_lines(30),
-            b"G" + CTRL_B * 3 + b"j:q!\r",
+            b"G" + CTRL_B * 3 + b"k:q!\r",
             expect_content_redraws=[True, True, True, False],
         )
 
         # Batch Ctrl-F correctness: 3 pages down on 30-line file
-        # page_size=9, lines 0->9->18->27, VIEW_TOP clamped to 21
+        # 7 lines a page (2 kept): top line 0 -> 7 -> 14 -> 21
         self.run_test_screen(
             "Batch Ctrl-F moves correct number of pages",
             make_lines(30),
             CTRL_F * 3 + b":q!\r",
-            expect_cursor=(6, 0),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+22}") for i in range(9)]
         )
 
         # Batch Ctrl-B correctness: go to end then 2 pages up
         # G puts cursor on line 29, VIEW_TOP=21.
-        # 2 page-ups: line 29->20->11, VIEW_TOP 21->12->3
+        # 2 page-ups: the bottom line 22 -> 15, VIEW_TOP 21->14->7
         self.run_test_screen(
             "Batch Ctrl-B moves correct number of pages",
             make_lines(30),
             b"G" + CTRL_B * 2 + b":q!\r",
             expect_cursor=(8, 0),
-            expect_lines=[(i, f"Line {i+4}") for i in range(9)]
+            expect_lines=[(i, f"Line {i+8}") for i in range(9)]
         )
 
         # Batch PgDn key: same result as batch Ctrl-F
@@ -5556,7 +8121,7 @@ class EditorTestRunner:
             "Count prefix + batch Ctrl-F combines",
             make_lines(30),
             b"2" + CTRL_F * 2 + b":q!\r",
-            expect_cursor=(6, 0),
+            expect_cursor=(0, 0),
             expect_lines=[(i, f"Line {i+22}") for i in range(9)]
         )
 
@@ -5564,6 +8129,22 @@ class EditorTestRunner:
 
         HOME = b"\x1b[H"
         END = b"\x1b[F"
+
+        # Ctrl-F and Ctrl-B are typed into the text in insert mode, as vim
+        # does (only PgDn and PgUp page there): 30 lines with ix Ctrl-F y
+        # ESC give 'x', ^F, 'y' before 'Line 1' (checked in vim 8.2)
+        for key, name in ((b"\x06", "Ctrl-F"), (b"\x02", "Ctrl-B")):
+            self.run_test(
+                f"Insert mode: {name} is typed as a char, as in vim",
+                make_lines(30), b"ix" + key + b"y\x1b:wq\r",
+                expected_content="x" + key.decode() + "y" + make_lines(30))
+        self.run_test_screen(
+            "Insert mode: Ctrl-F typed ahead goes in with the chars",
+            make_lines(30), b"Gix\x06\x02y\x1bu:wq\r",
+            expected_content=make_lines(30), expect_cursor=(8, 0))
+        self.run_test_batch_equiv(
+            "Batch equiv: Ctrl-F and Ctrl-B in insert mode", make_lines(30),
+            [b"i", b"x", b"\x06", b"y", b"\x02", b"\x1b"])
 
         # Home key moves cursor to beginning of line
         # Start on "Hello World", move right 5 times, enter insert, Home, type X
@@ -5644,6 +8225,24 @@ class EditorTestRunner:
 
         DOWN = b"\x1b[B"
         UP = b"\x1b[A"
+
+        # A Right at the line end or a Left at column 0 cannot move: it
+        # keeps the column Up and Down aim at, as in vim (checked in vim
+        # 8.2); one that moves starts it over
+        RIGHT = b"\x1b[C"
+        LEFT = b"\x1b[D"
+        for content, keys, expected in (
+                ("abcdef\nab\n", b"$a" + DOWN + RIGHT + UP,
+                 "abcdefx\nab\n"),
+                ("abcdef\n\nabcdef\n", b"$a" + DOWN + LEFT + DOWN,
+                 "abcdef\n\nabcdefx\n"),
+                ("abcdef\nab\nabcdef\n", b"4li" + DOWN + RIGHT + DOWN,
+                 "abcdef\nab\nabcdxef\n"),
+                ("abcdef\nab\nabcdef\n", b"4li" + DOWN + LEFT + DOWN,
+                 "abcdef\nab\naxbcdef\n")):
+            self.run_test(
+                f"Insert mode: {keys!r} keeps or starts over the column",
+                content, keys + b"x\x1b:wq\r", expected_content=expected)
 
         # Moving from longer line to shorter line should clamp to end+1
         # Line 1: "Hello" (5 chars), Line 2: "Hi" (2 chars)
@@ -5823,7 +8422,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5ji" + UP * 3 + b"\x1b:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # --- Snapshot detection baseline tests ---
@@ -5836,7 +8435,7 @@ class EditorTestRunner:
             "Render opt: ra triggers current row redraw",
             "Hello\nWorld\n",
             b"ra:q!\r",
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
             expect_content_rows=[(1, {0})]
         )
 
@@ -5855,7 +8454,7 @@ class EditorTestRunner:
             "Render opt: 2>> triggers full redraw",
             "Hello\nWorld\nThird\n",
             b"2>>:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # dd triggers full content redraw
@@ -5864,7 +8463,7 @@ class EditorTestRunner:
             "Render opt: dd triggers full redraw",
             "Hello\nWorld\n",
             b"dd:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # x triggers content redraw on current row
@@ -5884,20 +8483,21 @@ class EditorTestRunner:
             expect_content_redraws=[True, False]
         )
 
-        # ESC with no pending count does NOT trigger content redraw
+        # ESC with no pending count changes nothing: no frame
         self.run_test_screen(
             "Render opt: ESC no content redraw",
             "Hello\n",
             b"\x1b:q!\r",
-            expect_content_redraws=[True, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
-        # o (open below) triggers full content redraw
+        # o (open below) writes no text row: IL opens the new empty row
         self.run_test_screen(
-            "Render opt: o triggers full redraw",
+            "Render opt: o writes no text row",
             "Hello\nWorld\n",
             b"o\x1b:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ============================================================
@@ -5943,6 +8543,51 @@ class EditorTestRunner:
             ]
         )
 
+        # A key that changes nothing on the screen (the status bar
+        # included) sends nothing, not even a frame's ESC[?25h
+        for name, content, before, key in (
+                ("ESC", "Hello\n", b"l", b"\x1b"),
+                ("an unmapped key", "Hello\n", b"l", b"Q"),
+                ("a UTF-8 char", "Hello\n", b"l", b"\xc3\xa9"),
+                ("an unknown escape sequence", "Hello\n", b"l",
+                 b"\x1b[15~"),
+                ("Space at the end of the text", "Hello\n", b"$", b" "),
+                ("Backspace at the start of the text", "Hello\n", b"",
+                 b"\x7f"),
+                ("h at column 0", "Hello\n", b"", b"h"),
+                ("k on line 1", "Hello\nWorld\n", b"", b"k"),
+                ("j on the last line", "Hello\nWorld\n", b"G", b"j"),
+                ("l on the last char", "Hello\n", b"$", b"l"),
+                ("d then ESC", "Hello\n", b"l", b"d\x1b"),
+                ("u with nothing to undo", "Hello\n", b"l", b"u"),
+                ("insert-mode Left at column 0", "Hello\n", b"i",
+                 b"\x1b[D"),
+                ("a byte of $80 or more in insert mode", "Hello\n", b"i",
+                 b"\x80")):
+            self.run_test_sends_nothing(
+                "A no-op key sends nothing: " + name, content, before, key,
+                after=b"y\x1b" if before == b"i" else b"$")
+
+        # Keys that change nothing in the text but do on the screen still
+        # send their frame: the one after a message clears it, and r or ~
+        # of a char into itself moves the cursor back over the echo
+        self.run_test_screen(
+            "A key after a message clears it",
+            "Hello\n",
+            b":foo\r\x1b:q!\r",
+            expect_status_at_frame=[(1, "Unknown command"),
+                                    (2, "NORMAL - 1,1 /1")],
+        )
+        for name, keys, cursor in (
+                ("rb over b", b"xrb", (0, 0)),
+                ("~ over a last digit", b"x$~", (0, 1))):
+            self.run_test_screen(
+                "A no-change " + name + " moves the cursor back",
+                "ab1\n",
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+
         # 0 as first key goes to line-start (not count)
         self.run_test_screen(
             "0 as first key is line-start not count",
@@ -5962,17 +8607,18 @@ class EditorTestRunner:
             ]
         )
 
-        # Count ignores digits past 4 digits (>= 1000)
-        # 1000 typed: 4th digit accepted. 5th digit ignored since 1000 >= 1000
+        # A count ignores further digits once it reaches 6400, where the
+        # next one could pass 16 bits (it goes up to 63999; vim takes any
+        # count). 10005 typed: the 5th digit is accepted, the 6th ignored
         self.run_test_screen(
-            "count limited to 4 digits (5th ignored)",
+            "count limited to 5 digits (6th ignored from 6400)",
             "Hello\n",
-            b"10005:q!\r",
+            b"100059:q!\r",
             cols=80,
             expect_status_at_frame=[
-                (4, " - 1000 - "),  # After 4th digit: count=1000
-                (5, " - 1000 - "),  # 5th digit '5' ignored, still 1000
-            ]
+                (5, " - 10005 - "),  # After 5th digit: count=10005
+            ],
+            expect_frame_count=6,  # 6th digit '9' ignored: no frame
         )
 
         # ============================================================
@@ -5990,16 +8636,17 @@ class EditorTestRunner:
             make_lines(3),
             b"dd:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
-        # After 3dd completes, pending key and count are cleared
+        # After 3dd completes, pending key and count are cleared (the key
+        # after its report shows the status bar)
         self.run_test_screen(
             "3dd clears pending key from status",
             make_lines(5),
-            b"3dd:q!\r",
+            b"3dd\x1b:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # 3d: count frame still shows (count digits not batched)
@@ -6030,7 +8677,7 @@ class EditorTestRunner:
             make_lines(3),
             b"d\x1b:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # ESC after 3d clears everything
@@ -6039,7 +8686,7 @@ class EditorTestRunner:
             make_lines(5),
             b"3d\x1b:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # After ma, pending key clears (m+a batched when keys available)
@@ -6048,7 +8695,7 @@ class EditorTestRunner:
             make_lines(3),
             b"ma:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # After 'a with mark set, pending key clears ('+a batched)
@@ -6057,22 +8704,24 @@ class EditorTestRunner:
             make_lines(3),
             b"ma'a:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 1,",
+            expect_status_contains="NORMAL - 1,",
         )
 
         # Invalid second key after pending key resets state completely
         # (no re-dispatch, no side effects)
 
         # d then digit: should reset, not start a count
-        # d+1 batched: frame 1 shows reset state (no pending, no count)
+        # d+1 batched: the state is reset as it was (no pending, no count),
+        # so the pair sends no frame
         self.run_test_screen(
             "d1 resets state (no count started)",
             make_lines(3),
             b"d1:q!\r",
             cols=80,
             expect_status_at_frame=[
-                (1, "NORMAL - 1,"),  # After d+1 batched, state fully reset
-            ]
+                (0, "NORMAL - 1,"),
+            ],
+            expect_frame_count=1,
         )
 
         # d then x: should not delete a character
@@ -6092,15 +8741,16 @@ class EditorTestRunner:
         )
 
         # g then digit: should reset, not start a count
-        # g+1 batched: frame 1 shows reset state
+        # g+1 batched: the state is reset as it was, so no frame
         self.run_test_screen(
             "g1 resets state (no count started)",
             make_lines(3),
             b"g1:q!\r",
             cols=80,
             expect_status_at_frame=[
-                (1, "NORMAL - 1,"),
-            ]
+                (0, "NORMAL - 1,"),
+            ],
+            expect_frame_count=1,
         )
 
         # g then x: should not delete a character
@@ -6112,15 +8762,16 @@ class EditorTestRunner:
         )
 
         # y then digit: should reset, not start a count
-        # y+1 batched: frame 1 shows reset state
+        # y+1 batched: the state is reset as it was, so no frame
         self.run_test_screen(
             "y1 resets state (no count started)",
             make_lines(3),
             b"y1:q!\r",
             cols=80,
             expect_status_at_frame=[
-                (1, "NORMAL - 1,"),
-            ]
+                (0, "NORMAL - 1,"),
+            ],
+            expect_frame_count=1,
         )
 
         # y then x: should not delete a character
@@ -6150,7 +8801,7 @@ class EditorTestRunner:
             make_lines(10),
             b"3j:q!\r",
             expect_cursor=(3, 0),
-            expect_status_contains="COMMAND - 4,"
+            expect_status_contains="NORMAL - 4,"
         )
 
         # 5l moves right 5 columns
@@ -6175,7 +8826,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j3k:q!\r",
             expect_cursor=(2, 0),
-            expect_status_contains="COMMAND - 3,"
+            expect_status_contains="NORMAL - 3,"
         )
 
         # Count exceeding bounds clamps
@@ -6184,7 +8835,7 @@ class EditorTestRunner:
             make_lines(5),
             b"99j:q!\r",
             expect_cursor=(4, 0),
-            expect_status_contains="COMMAND - 5,"
+            expect_status_contains="NORMAL - 5,"
         )
 
         self.run_test_screen(
@@ -6192,7 +8843,7 @@ class EditorTestRunner:
             make_lines(5),
             b"3j99k:q!\r",
             expect_cursor=(0, 0),
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         self.run_test_screen(
@@ -6218,7 +8869,99 @@ class EditorTestRunner:
             expect_status_at_frame=[
                 (1, " - 3 - "),   # '3' shows count
             ],
-            expect_status_contains="COMMAND - 4,"  # After j, count gone
+            expect_status_contains="NORMAL - 4,"  # After j, count gone
+        )
+
+        # j, k, Down and Up take the whole count, as vim does (the cursor
+        # stops at the first or last line)
+        for keys, line in ((b"300j", 301), (b"256j", 257), (b"1000j", 400),
+                           (b"G300k", 100), (b"G999k", 1), (b"300jjj", 303),
+                           (b"300\x1b[B", 301), (b"G300\x1b[A", 100)):
+            self.run_test_screen(
+                f"{keys!r} takes the whole count",
+                make_lines(400),
+                keys + b":q!\r",
+                cols=80,
+                expect_status_contains=f"NORMAL - {line},"
+            )
+
+        # So do h, l, Space and Backspace (a step each, stopping where they
+        # cannot go on), as in vim
+        alpha = "".join(chr(97 + i % 26) for i in range(400)) + "\n"
+        numbered = "".join(f"{i:03d}\n" for i in range(200))
+        for name, content, keys, expected in (
+                ("300l", alpha, b"300lx", alpha[:300] + alpha[301:]),
+                ("300h", alpha, b"$300hx", alpha[:99] + alpha[100:]),
+                ("300 Space", numbered, b"300 x",
+                 numbered[:400] + numbered[401:]),
+                ("300 Backspace", numbered, b"G$300\x7fx",
+                 numbered[:397] + numbered[398:])):
+            self.run_test(f"{name} takes the whole count", content,
+                          keys + b":wq\r", expected_content=expected)
+
+        # Commands that loop on an 8-bit count take a count of 256 or more
+        # as 255, not modulo 256 (256x deleted nothing)
+
+        a400 = "a" * 400 + "\n"
+        self.run_test(
+            "256x deletes 255 chars (count capped at 255)",
+            a400,
+            b"256x:wq\r",
+            expected_content="a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300X deletes 255 chars before the cursor",
+            a400,
+            b"$300X:wq\r",
+            expected_content="a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300~ toggles 255 chars",
+            a400,
+            b"300~:wq\r",
+            expected_content="A" * 255 + "a" * 145 + "\n"
+        )
+
+        self.run_test(
+            "300r. replaces 255 chars",
+            a400,
+            b"300r.:wq\r",
+            expected_content="." * 255 + "a" * 145 + "\n"
+        )
+
+        words400 = " ".join(f"w{i}" for i in range(400)) + "\n"
+        self.run_test(
+            "300w moves 255 words",
+            words400,
+            b"300wx:wq\r",
+            expected_content=words400.replace(" w255 ", " 255 ")
+        )
+
+        self.run_test(
+            "300dw deletes 255 words",
+            words400,
+            b"300dw:wq\r",
+            expected_content=" ".join(f"w{i}" for i in range(255, 400)) + "\n"
+        )
+
+        # 300J is 254 joins, over the join undo limit: refused (the ESC
+        # after it does nothing)
+        self.run_test(
+            "300J is refused (too many lines to join)",
+            make_lines(400),
+            b"300J\x1b:wq\r",
+            expected_content=make_lines(400)
+        )
+
+        # A count near 255 must not drop typed-ahead keys: 250x, then 32 x
+        # one at a time, delete 282 chars
+        self.run_test(
+            "250x + 32 typed-ahead x delete 282 chars",
+            "a" * 300 + "\n",
+            b"250x" + b"x" * 32 + b":wq\r",
+            expected_content="a" * 18 + "\n"
         )
 
         # ============================================================
@@ -6232,7 +8975,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5G:q!\r",
             expect_cursor=(4, 0),
-            expect_status_contains="COMMAND - 5,"
+            expect_status_contains="NORMAL - 5,"
         )
 
         # G without count = last line
@@ -6241,7 +8984,7 @@ class EditorTestRunner:
             make_lines(10),
             b"G:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 10,"
+            expect_status_contains="NORMAL - 10,"
         )
 
         # 1G goes to first line
@@ -6250,7 +8993,7 @@ class EditorTestRunner:
             make_lines(10),
             b"5j1G:q!\r",
             expect_cursor=(0, 0),
-            expect_status_contains="COMMAND - 1,"
+            expect_status_contains="NORMAL - 1,"
         )
 
         # 999G clamps to last line
@@ -6259,7 +9002,130 @@ class EditorTestRunner:
             make_lines(10),
             b"999G:q!\r",
             cols=80,
-            expect_status_contains="COMMAND - 10,"
+            expect_status_contains="NORMAL - 10,"
+        )
+
+        # A count takes gg to that line, as G (vim); no count: line 1
+        ind10 = "".join(f"  L{i} xyz\n" for i in range(10))
+        for keys, cursor in ((b"5gg", (4, 2)), (b"99gg", (8, 2)),
+                             (b"G3gg", (1, 2)), (b"5jgg", (0, 2)),
+                             (b"G$5gg", (3, 2))):
+            self.run_test_screen(
+                f"gg with a count: {keys.decode()}",
+                ind10,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+
+        # N$ goes to the end of the line N - 1 below (vim), past the
+        # last line to its end, and j and k then go to line ends as
+        # after $.  On the last line the count fails, as in vim: the
+        # cursor stays, but j and k still go to line ends; and j there
+        # (k on the first line) fails too and leaves the column alone
+        uneven = "abcdef\nab\nabcdefgh\nabc\n"
+        for keys, cursor in ((b"3$", (2, 7)), (b"2$j", (2, 7)),
+                             (b"300$", (3, 2)), (b"3$k", (1, 1)),
+                             (b"3$x", (2, 6)), (b"jjj2$k", (2, 7)),
+                             (b"jjjl2$k", (2, 7)), (b"jjj2$", (3, 0)),
+                             (b"jjjl2$", (3, 1)), (b"jjj2$j", (3, 0)),
+                             (b"jjjl2$5j", (3, 1)), (b"jjj2$kj", (3, 2)),
+                             (b"2$kkk", (0, 5)), (b"k$3k", (0, 5))):
+            self.run_test_screen(
+                f"{keys.decode()} on uneven lines",
+                uneven,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+
+        # ============================================================
+        # First non-blank: as in vi, and vim with its default
+        # 'startofline', the commands that go to another line (G, gg, :N,
+        # 'a, Ctrl-F/B/D/U) or delete whole lines (dd, :d) leave the cursor
+        # on the line's first non-blank char
+        # ============================================================
+        self._group("First non-blank after line commands:", leading_blank=True)
+
+        ind = "".join(f"  line {i:02d}\n" for i in range(30))
+        for what, keys, status in (
+            ("dd", b"$dd", " 1,3 "),
+            ("3dd", b"j$3dd\x1b", " 2,3 "),
+            ("G", b"$G", " 30,3 "),
+            ("5G", b"$5G", " 5,3 "),
+            ("gg", b"j$gg", " 1,3 "),
+            (":5", b"$:5\r", " 5,3 "),
+            ("'a", b"4jmagg$'a", " 5,3 "),
+            ("Ctrl-F", b"$\x06", " 8,3 "),
+            ("Ctrl-B", b"G$\x02", " 23,3 "),
+            ("Ctrl-D", b"$\x04", " 5,3 "),
+            ("Ctrl-U", b"8j$\x15", " 5,3 "),
+            (":2,3d", b"$:2,3d\r\x1b", " 2,3 "),
+        ):
+            self.run_test_screen(
+                f"{what} puts the cursor on the first non-blank",
+                ind, keys + b":q!\r", cols=80,
+                expect_status_contains=status
+            )
+
+        # On a line of blanks the first non-blank is the last blank (vim)
+        for what, content, keys, cursor in (
+            ("G", "x\n   \n", b"G", (1, 2)),
+            ("dd", "x\n    \n", b"dd", (0, 3)),
+        ):
+            self.run_test_screen(
+                f"{what} onto a line of blanks stops on the last blank",
+                content, keys + b":q!\r", expect_cursor=cursor)
+
+        # Tabs are blanks, and past 255 blanks the first non-blank is still
+        # where they go (vim)
+        self.run_test(
+            "G onto a tab-indented line lands on its first non-blank",
+            "a\n\t\tfoo\n",
+            b"Gx:wq\r",
+            expected_content="a\n\t\too\n"
+        )
+
+        self.run_test(
+            "G onto a line of 300 leading spaces lands on its first non-blank",
+            "a\n" + " " * 300 + "x\n",
+            b"Gx:wq\r",
+            expected_content="a\n" + " " * 300 + "\n"
+        )
+
+        self.run_test(
+            "dd onto a line of 300 leading spaces lands on its first non-blank",
+            "a\n" + " " * 300 + "x\n",
+            b"ddx:wq\r",
+            expected_content=" " * 300 + "\n"
+        )
+
+        self.run_test(
+            "u of >> returns left of the cursor past tabs",
+            "\t\tfoo\n",
+            b"3l>>uiY\x1b:wq\r",
+            expected_content="\t\tYfoo\n"
+        )
+
+        self.run_test(
+            "u of >> returns to a cursor past 255 leading spaces",
+            " " * 300 + "x\n",
+            b"$20h>>uiY\x1b:wq\r",
+            expected_content=" " * 280 + "Y" + " " * 20 + "x\n"
+        )
+
+        # Typed ahead, dd and Ctrl-D land where one at a time would: on the
+        # first non-blank of the line they end on
+        self.run_test(
+            "batched dddd lands on the first non-blank",
+            "abcdef\n\nxyz\n",
+            b"$ddddx:wq\r",
+            expected_content="yz\n"
+        )
+
+        self.run_test(
+            "batched Ctrl-D Ctrl-D lands on the first non-blank",
+            ind,
+            b"$\x04\x04x:wq\r",
+            expected_content=ind.replace("  line 08", "  ine 08")
         )
 
         # ============================================================
@@ -6360,6 +9226,72 @@ class EditorTestRunner:
             expected_content="world\n"
         )
 
+        # A typed-ahead pair whose last first key has no partner yet (a
+        # partial pair) leaves that key pending: the edit before it must
+        # still be painted, and so must the command it then starts
+        self.run_test_screen(
+            "dddw partial pair paints the dd and the dw",
+            make_lines(5),
+            b"dddw:q!\r",
+            expect_lines=[(0, "2"), (1, "Line 3"), (2, "Line 4"),
+                          (3, "Line 5"), (4, "~")],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "ddd ESC partial pair paints the dd",
+            "A\nB\nC\n",
+            b"ddd\x1b:q!\r",
+            expect_lines=[(0, "B"), (1, "C"), (2, "~")],
+        )
+        self.run_test_screen(
+            "dwd ESC partial pair paints the dw",
+            "one two\nthree\n",
+            b"dwd\x1b:q!\r",
+            expect_lines=[(0, "two"), (1, "three")],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "5ldwd ESC partial pair paints the dw",
+            "line 1 aaa bbb\nline 2\n",
+            b"5ldwd\x1b:q!\r",
+            expect_lines=[(0, "line aaa bbb"), (1, "line 2")],
+            expect_cursor=(0, 5),
+        )
+        # d0 after a db repaints from column 0, not from the column the db
+        # repainted from
+        self.run_test_screen(
+            "$dbd0 partial pair paints the db and the d0",
+            "abc def ghi\n",
+            b"$dbd0:q!\r",
+            expect_lines=[(0, "i"), (1, "~")],
+            expect_cursor=(0, 0),
+        )
+        # The de on the empty last line the dw left changes nothing
+        self.run_test_screen(
+            "dwde partial pair paints the dw when the de does nothing",
+            "X\n",
+            b"dwde:q!\r",
+            expect_lines=[(0, ""), (1, "~")],
+            expect_cursor=(0, 0),
+        )
+        # The d$ shortens the line the dw left from two rows to one
+        self.run_test_screen(
+            "$dwd$ partial pair paints the dw and the d$",
+            "a" * 38 + " bb c\nxy\n",
+            b"$dwd$:q!\r",
+            expect_lines=[(0, "a" * 38 + " b"), (1, "b"), (2, "xy"),
+                          (3, "~")],
+            expect_cursor=(1, 0),
+        )
+        # The same after two dw run as one burst
+        self.run_test_screen(
+            "$dwdwd$ partial pair paints the dw burst and the d$",
+            "a" * 39 + " bc\nxy\n",
+            b"$dwdwd$:q!\r",
+            expect_lines=[(0, "a" * 39), (1, "xy"), (2, "~")],
+            expect_cursor=(0, 38),
+        )
+
         # Batched dd yank: only last line should be in yank buffer
         self.run_test(
             "dddd+p yanks only last deleted line",
@@ -6404,7 +9336,89 @@ class EditorTestRunner:
             "dddd batched at EOF clamps correctly",
             "A\nB\n",
             b"dddd:wq\r",
-            expected_content="\n"
+            expected_content=""
+        )
+
+        # A count larger than the lines left deletes to the end of the file;
+        # the delete-scroll must count only those lines' rows, so the rows
+        # below the last line show '~'
+        tilde_rows = lambda first: [(r, "~") for r in range(first, 9)]
+        self.run_test_screen(
+            "5dd with 2 lines left: rows below show ~",
+            "a\nb\nc\nd\n",
+            b"jj5dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b")] + tilde_rows(2),
+            expect_cursor=(1, 0),
+        )
+        self.run_test_screen(
+            "4dd with 3 lines left: rows below show ~",
+            "".join(f"line {i}\n" for i in range(30)),
+            b"G2k4dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "line 26")] + tilde_rows(6),
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "9dd of wrapped lines: rows below show ~",
+            "x" * 50 + "\n" + "y" * 50 + "\n",
+            b"9dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "9cc on whole buffer: rows below show ~",
+            "a\nb\nc\n",
+            b"9cc\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "9S on whole buffer: rows below show ~",
+            "a\nb\nc\n",
+            b"9S\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "")] + tilde_rows(1),
+            expect_cursor=(0, 0),
+        )
+
+        # The rows below the last line count one screen row each, so the
+        # repaint walks through them without reading lines that do not
+        # exist: 125,290 cycles before, 94,893 after
+        self.run_test_cycle_cap(
+            "dd: walking the ~ rows below the last line is cheap",
+            "a\nb\nc\n", b"dd:q!\r", 110000, rows=24, cols=80)
+
+        # Typed-ahead dd pairs past the last line act as if typed one at a
+        # time: each dd there deletes the new last line (the cursor moves up)
+        for name, content, keys, expected in [
+            ("dddd on last line deletes two lines", "a\nb\nc\n",
+             b"Gdddd:wq\r", "a\n"),
+            ("dddddd from second line deletes every line", "L0\nL1\nL2\n",
+             b"jdddddd:wq\r", ""),
+            ("dddd on only line", "one\n", b"dddd:wq\r", ""),
+            ("2dddd on last line: 2dd fails, dd deletes",
+             "aaa\nbbb\nccc\nddd\n", b"G2dddd:wq\r", "aaa\nbbb\nccc\n"),
+            ("dddddd on third of four lines", "aaa\nbbb\nccc\nddd\n",
+             b"jjdddddd:wq\r", "aaa\n"),
+            ("dddd on last line after an earlier dd", "a\nb\nc\nd\n",
+             b"dd\x1bGdddd:wq\r", "b\n"),
+            ("dddd on last line then p pastes the last deleted line",
+             "a\nb\nc\n", b"Gddddp:wq\r", "a\nb\n"),
+            ("dddd on last line then u restores the last deleted line",
+             "a\nb\nc\n", b"Gddddu:wq\r", "a\nb\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "dddd on last line: screen and cursor",
+            "a\nb\nc\n",
+            b"Gdddd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "~")],
+            expect_cursor=(0, 0),
         )
 
         # ============================================================
@@ -6508,12 +9522,20 @@ class EditorTestRunner:
             expected_content="He\nFoo\n"
         )
 
-        # 3d$ on 4 lines at col 0: deletes 3 full lines content + newlines
+        # 3d$ on 4 lines at col 0: deletes the 3 lines (vi: a delete over
+        # lines from the indentation that leaves only blanks is linewise)
         self.run_test(
             "3d$ deletes from cursor across 3 lines",
             "ab\ncd\nef\ngh\n",
             b"3d$:wq\r",
-            expected_content="\ngh\n"
+            expected_content="gh\n"
+        )
+
+        self.run_test(
+            "3d$ from column 1 deletes across 3 lines",
+            "ab\ncd\nef\ngh\n",
+            b"l3d$:wq\r",
+            expected_content="a\ngh\n"
         )
 
         # Count exceeds available lines - clamps
@@ -6523,6 +9545,28 @@ class EditorTestRunner:
             b"ll5d$:wq\r",
             expected_content="He\n"
         )
+
+        # On the last line a count of 2 or more fails, as in vim (the $
+        # motion goes down count - 1 lines first): D, d$, y$ and C do
+        # nothing (C does not enter insert mode), the yank and the undo
+        # record stay, and so does the remembered column
+        for content, keys, expected in (
+                ("abc\n", b"l2D", "abc\n"),
+                ("abc\nxyz\n", b"jl2d$", "abc\nxyz\n"),
+                ("abc\nxyz\n", b"j2CX\x1b", "abc\nxyz\n"),
+                ("abc\nxyz\n", b"yyG2y$P", "abc\nabc\nxyz\n"),
+                ("abc\nxyz\n", b"xG2Du", "abc\nxyz\n"),
+                ("abc\nxyz\nq\n", b"jl5D", "abc\nx\n")):
+            self.run_test(f"{keys!r} with a count on or near the last line",
+                          content, keys + b":wq\r",
+                          expected_content=expected)
+        for keys in (b"2D", b"2d$", b"2y$", b"2C"):
+            self.run_test_screen(
+                f"{keys!r} refused on the last line keeps the column for k",
+                "abcdef\nabcdef\nab\n",
+                b"$jj" + keys + b"k:q!\r",
+                expect_cursor=(1, 5),
+            )
 
         # 2D then p: charwise paste of deleted content
         # 2D at col 2 deletes "llo\nWorld", cursor clamps to col 1 ('e')
@@ -6561,7 +9605,7 @@ class EditorTestRunner:
             "dd on single-line file with yank",
             "Only\n",
             b"dd:wq\r",
-            expected_content="\n"
+            expected_content=""
         )
 
         # dd on last line
@@ -6572,13 +9616,79 @@ class EditorTestRunner:
             expected_content="A\nB\n"
         )
 
-        # 2dd at end (partial: only 1 line to delete)
+        # 2dd on the last line fails, as in vim (only 1 line to delete)
         self.run_test(
-            "2dd at last line only deletes 1",
+            "2dd on the last line deletes nothing",
             "A\nB\nC\n",
             b"G2dd:wq\r",
-            expected_content="A\nB\n"
+            expected_content="A\nB\nC\n"
         )
+
+        # The yank buffer holds exactly 4 KB. The ESC after a "Yank
+        # buffer full" message does nothing.
+        for size, copies in ((4096, 2), (4097, 1)):
+            line = "a" * (size - 1) + "\n"
+            self.run_test(
+                f"yy of {size} bytes " + ("fits" if copies == 2 else "refused"),
+                "x\n" + line,
+                b"jyy\x1bP:wq\r",
+                expected_content="x\n" + line * copies
+            )
+
+        # A yank of 8 KB+ is refused like one of 4-8 KB (the fit check
+        # added the size to the yank buffer's address and wrapped past
+        # $FFFF, so the copy overwrote I/O and zero page)
+        lines_9k = ''.join(f"{i:03d} abcdefghijklmnopqrstuvwxyz\n"
+                           for i in range(300))  # 300 x 31 = 9300 bytes
+        for name, keys in (("yy", b"300yy\x1bp"), ("dd", b"300dd\x1b"),
+                           (":y", b":1,300y\r\x1bp"), (":d", b":1,300d\r\x1b"),
+                           ("cc", b"300ccX\x1b")):
+            self.run_test(
+                f"{name} of 8 KB+ refused: yank buffer full",
+                lines_9k,
+                keys + b":wq\r",
+                expected_content=lines_9k
+            )
+        self.run_test_screen(
+            "yy of 8 KB+ shows Yank buffer full",
+            lines_9k,
+            b"300yy\x1b:q!\r",
+            expect_ansi_contains="Yank buffer full"
+        )
+        line_9k = "hello\n" + "a" * 9000 + "\nend\n"
+        for keys in (b"yyjyw", b"yyjy$"):
+            self.run_test(
+                f"{keys[3:].decode()} of 8 KB+ keeps previous yank",
+                line_9k,
+                keys + b"\x1bp:wq\r",
+                expected_content=line_9k.replace("\nend", "\nhello\nend")
+            )
+        self.run_test(
+            "D of 8 KB+ does not crash",
+            line_9k,
+            b"jD\x1b:q!\r"
+        )
+
+        # A line yank or delete that does not fit (6000 bytes) leaves the
+        # yank buffer as it was: p still pastes the previous yank, and u
+        # still undoes the previous change (x's undo puts back the char
+        # that x yanked)
+        lines_6k = ''.join(f"{i:03d} " + "x" * 55 + "\n" for i in range(100))
+        for name, keys in (("yy", b"100yy"), ("dd", b"100dd"),
+                           ("cc", b"100cc"), (":y", b":1,100y\r"),
+                           (":d", b":1,100d\r")):
+            self.run_test(
+                f"Refused {name} keeps the previous yank",
+                lines_6k,
+                b"yy" + keys + b"\x1bp:wq\r",
+                expected_content=lines_6k[:60] + lines_6k
+            )
+            self.run_test(
+                f"Refused {name} keeps the previous undo",
+                lines_6k,
+                b"x" + keys + b"\x1bu:wq\r",
+                expected_content=lines_6k
+            )
 
         # ============================================================
         # Paste tests (p and P)
@@ -6641,6 +9751,18 @@ class EditorTestRunner:
             b"P:wq\r",
             expected_content="A\nB\n"
         )
+
+        # A p or P with nothing yanked is an empty change, as in vim (it
+        # saves undo before it finds the register empty): u then puts the
+        # cursor back where it was typed, and changes no text
+        for keys, cursor in ((b"~pju", (0, 1)), (b"~Pju", (0, 1)),
+                             (b"l~pju", (0, 2)), (b"l~3Pju", (0, 2))):
+            self.run_test_screen(
+                f"{keys!r}: u of a paste with nothing yanked",
+                "abc\n\n", keys + b":wq\r",
+                expected_content=("A" if keys[0:1] == b"~" else "aB")
+                + ("bc\n\n" if keys[0:1] == b"~" else "c\n\n"),
+                expect_cursor=cursor)
 
         # dd on last line then p
         self.run_test(
@@ -6713,6 +9835,119 @@ class EditorTestRunner:
             expected_content="B\nA\nA\nC\n"
         )
 
+        # Char P fills its gap with 16-bit counts and sizes (a count of
+        # 257+ or a single-line yank of 256+ bytes left NULs in the text);
+        # x257Px checks that the cursor ends on the last pasted char
+        line300 = ("abcdefghijklmnopqrstuvwxyz" * 12)[:300]
+        long2 = line300 + "\nxy\n"
+        for keys, content, expected in (
+            (b"x257P", "ab\n", "a" * 257 + "b\n"),
+            (b"x257Px", "ab\n", "a" * 256 + "b\n"),
+            (b"x300P", "ab\n", "a" * 300 + "b\n"),
+            (b"yw257P", "ab\ncd\n", "ab" * 258 + "\ncd\n"),
+            (b"l2D257P", "ab\ncd\nef\n", "b\ncd" * 257 + "a\nef\n"),
+            (b"x300Puu", "ab\n", "a" * 300 + "b\n"),
+            (b"y$jP", long2, line300 + "\n" + line300 + "xy\n"),
+            (b"y$j2P", long2, line300 + "\n" + line300 * 2 + "xy\n"),
+            (b"y$jPP", long2, line300 + "\n" + line300[:299] + line300
+             + line300[299:] + "xy\n"),
+            (b"y$j2PP", long2, line300 + "\n" + line300 + line300[:299]
+             + line300 + line300[299:] + "xy\n"),
+        ):
+            self.run_test(
+                f"{keys.decode()!r} char paste above fills the whole gap",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
+        # A line paste, like the line moves, leaves the cursor on the first
+        # non-blank of the (first) line it put in (as vim)
+        self.run_test_screen(
+            "Line p puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$yyp:q!\r",
+            expect_lines=[(0, "  abc"), (1, "  abc"), (2, "x")],
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "Line P puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$yyP:q!\r",
+            expect_lines=[(0, "  abc"), (1, "  abc"), (2, "x")],
+            expect_cursor=(0, 2),
+        )
+
+        self.run_test_screen(
+            "Line 2p puts the cursor on the first non-blank",
+            "x\n  abc\n",
+            b"jyyk2p:q!\r",
+            expect_lines=[(0, "x"), (1, "  abc"), (2, "  abc"), (3, "  abc")],
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "u of dd puts the cursor on the first non-blank",
+            "  abc\nx\n",
+            b"$ddu:q!\r",
+            expect_lines=[(0, "  abc"), (1, "x")],
+            expect_cursor=(0, 2),
+        )
+
+        # u of a line delete returns to the column the delete was typed at
+        # (vim's operator start), but not right of the first non-blank for
+        # one line (dd, cc, S), where the operator started from there;
+        # :d and typed-ahead dd go to the first non-blank, and the redo
+        # (u again) takes the same column on the line that moves up
+        ind3 = "  abcdef\n  xy\n  last line\n"
+        for keys, cursor in ((b"0ddu", (0, 0)), (b"lddu", (0, 1)),
+                             (b"$ddu", (0, 2)), (b"3lddu", (0, 2)),
+                             (b"$2ddu", (0, 7)), (b"l2ddu", (0, 1)),
+                             (b"0cc\x1bu", (0, 0)), (b"$cc\x1bu", (0, 2)),
+                             (b"lS\x1bu", (0, 1)),
+                             (b"$:2d\ru", (1, 2)), (b"$:1,2d\ru", (0, 2)),
+                             (b"j$ddu", (1, 2)), (b"G$ddu", (2, 2)),
+                             (b"$dddd\x1bu", (0, 2)), (b"0dddd\x1bu", (0, 2)),
+                             (b"$dduu", (0, 2)), (b"0dduu", (0, 0)),
+                             (b"$2dduu", (0, 7)), (b"0ddulu", (0, 0)),
+                             (b"0ddu\x1bju", (0, 0))):
+            self.run_test_screen(
+                f"u of a line delete: {keys!r}",
+                ind3,
+                b"0" + keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+        # A redo that deletes to the last line leaves the cursor on the
+        # line above, at its first non-blank
+        for content, keys, cursor in (("abcdef\n  xy\n", b"G$dduu", (0, 0)),
+                                      ("hello world\n  a\nabcdef\n",
+                                       b"3lj2dduu", (0, 0))):
+            self.run_test_screen(
+                f"Redo of a line delete to the end: {keys!r}",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+
+        # A first non-blank past the screen width puts the cursor on a later
+        # row of the pasted line: the line-insert repaint, which scrolls from
+        # the cursor row, must still draw the pasted line from its first row
+        wide = " " * 30 + "a\n"
+        for keys, rows, cursor in (
+            (b"yyp", ["", " " * 10 + "a", "", " " * 10 + "a"], (3, 10)),
+            (b"jyyP", ["", " " * 10 + "a", "", " " * 10 + "a"], (3, 10)),
+            (b"ddu", ["", " " * 10 + "a", "b", "c"], (1, 10)),
+        ):
+            self.run_test_screen(
+                f"{keys.decode()} of a line indented past the screen width",
+                wide + "b\nc\n" if keys != b"jyyP" else wide + wide + "b\n",
+                keys + b":q!\r",
+                rows=5, cols=20,
+                expect_lines=list(enumerate(rows)),
+                expect_cursor=cursor,
+            )
+
         # ============================================================
         # Yank/copy (yy) tests
         # ============================================================
@@ -6766,15 +10001,15 @@ class EditorTestRunner:
             expected_content="A\nB\nB\nC\n"
         )
 
-        # 2yy clamps at end of file
+        # 2yy on the last line fails, as in vim: nothing is yanked
         self.run_test(
-            "2yy at last line only yanks 1",
+            "2yy on the last line yanks nothing",
             "A\nB\nC\n",
             b"G2yyp:wq\r",
-            expected_content="A\nB\nC\nC\n"
+            expected_content="A\nB\nC\n"
         )
 
-        # Batched yy pairs: only last yy's count matters (implicit 1)
+        # Repeated yy: each yank replaces the last, so only 1 line is kept
         self.run_test(
             "yyyy+p yanks only 1 line (last yy overwrites)",
             "A\nB\nC\n",
@@ -6795,6 +10030,21 @@ class EditorTestRunner:
             "A\nB\nC\n",
             b"2yyp:wq\r",
             expected_content="A\nA\nB\nB\nC\n"
+        )
+
+        # An insert that typed Enter leaves scratch state behind; the next
+        # Nyy still yanks N lines
+        self.run_test(
+            "2yy right after an insert with Enter yanks 2 lines",
+            "a\nb\nc\nd\n",
+            b"ix\r\x1b2yyGp:wq\r",
+            expected_content="x\na\nb\nc\nd\na\nb\n"
+        )
+        self.run_test(
+            "3yy right after an insert with Enter in the text yanks 3 lines",
+            "a\nb\nc\nd\ne\n",
+            b"ofoo\rbar\x1b3yyGp:wq\r",
+            expected_content="a\nfoo\nbar\nb\nc\nd\ne\nbar\nb\nc\n"
         )
 
         # yy+p on line longer than 255 chars (tests page-crossing in newline scan)
@@ -6911,8 +10161,8 @@ class EditorTestRunner:
         # Multi-line paste cursor position: cursor at first pasted char
         self.run_test_screen(
             "p with multi-line yank: cursor at first pasted char",
-            "foo\nbar\n",
-            b"jdb0p:q!\r",
+            "bar\nfoo\n\n",
+            b"j2yek0p:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -6953,6 +10203,110 @@ class EditorTestRunner:
             "ABCDE\n",
             b"llxxp:wq\r",
             expected_content="ABED\n"
+        )
+
+        # Typed ahead, x presses past the end of the line act as they do one
+        # at a time: the cursor clamps back onto the new last char and the
+        # next x deletes it (the register and undo get the last deleted char)
+        self.run_test(
+            "batched xxx at end of line keeps deleting leftward",
+            "abc\n",
+            b"$xxx:wq\r",
+            expected_content="\n"
+        )
+
+        self.run_test(
+            "batched xxx past end of line from mid-line",
+            "abcde\n",
+            b"3lxxx:wq\r",
+            expected_content="ab\n"
+        )
+
+        self.run_test(
+            "5x + batched x past end of line deletes leftward",
+            "abc\n",
+            b"l5xx:wq\r",
+            expected_content="\n"
+        )
+
+        self.run_test(
+            "batched Del Del at end of line keeps deleting leftward",
+            "abc\n",
+            b"$\x1b[3~\x1b[3~:wq\r",
+            expected_content="a\n"
+        )
+
+        self.run_test(
+            "batched xxx past end of line: undo restores last deleted",
+            "abc\n",
+            b"lxxxu:wq\r",
+            expected_content="a\n"
+        )
+
+        # From column 0 the presses only delete forward: the last one to
+        # delete something took the line's last char
+        self.run_test(
+            "batched 2xxx from column 0: the register gets the last char",
+            "abc\n",
+            b"2xxxp:wq\r",
+            expected_content="c\n"
+        )
+
+        # The fourth x finds the line empty: an empty change, which u
+        # undoes (vim)
+        self.run_test(
+            "batched xxxx from column 0: undo puts nothing back",
+            "abc\n",
+            b"xxxxu:wq\r",
+            expected_content="\n"
+        )
+
+        # Typed ahead after a count that already emptied the line (x) or
+        # reached column 0 (X), each press is an empty change, as one at a
+        # time: the count's delete stays the last to take chars, for the
+        # register, and u undoes the empty change
+        self.run_test(
+            "5x + typed-ahead x: undo puts nothing back",
+            "abc\n",
+            b"5xxu:wq\r",
+            expected_content="\n"
+        )
+
+        self.run_test(
+            "5x + typed-ahead x: the register holds the whole count",
+            "abc\n",
+            b"5xxp:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test(
+            "$2X + typed-ahead X: undo puts nothing back",
+            "abc\n",
+            b"$2XXu:wq\r",
+            expected_content="c\n"
+        )
+
+        self.run_test(
+            "$2X + typed-ahead X: the register holds the whole count",
+            "abc\n",
+            b"$2XXp:wq\r",
+            expected_content="cab\n"
+        )
+
+        # l9x empties the rest of the line, then x deletes 'a': the last
+        self.run_test(
+            "l9x + typed-ahead x: the register gets the last char",
+            "abc\n",
+            b"l9xxp:wq\r",
+            expected_content="a\n"
+        )
+
+        self.run_test_screen(
+            "batched xxxx past end of line: register and cursor",
+            "abcdef\nnext\n",
+            b"$xxxxp:q!\r",
+            expect_cursor=(0, 2),
+            expect_lines=[(0, "abc"), (1, "next")],
         )
 
         # D on first col yanks entire line content
@@ -7004,7 +10358,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "search not found stays at current line",
             "AAA\nBBB\nCCC\n",
-            b"/ZZZ\r :q!\r",  # Space dismisses message
+            b"/ZZZ\r\x1b:q!\r",  # (the ESC does nothing)
             expect_cursor=(0, 0),  # Stays at line 0
         )
 
@@ -7031,6 +10385,28 @@ class EditorTestRunner:
             "AAA\nBBB\n",
             b"/BB\x1b:q!\r",
             expect_cursor=(0, 0),  # Stays at line 0
+        )
+
+        # A cancelled or erased search keeps the saved pattern for n, N and
+        # an empty / or ? (vim)
+        for how, abandon in (("ESC", b"/wx\x1b"),
+                             ("backspace", b"?wx\x7f\x7f\x7f")):
+            for repeat in (b"n", b"N", b"/\r", b"?\r", b"/wx\x7f\x7f\r"):
+                self.run_test_screen(
+                    f"search cancelled by {how} keeps pattern for {repeat!r}",
+                    "hello\nwxllo\nfoo\nhello\n",
+                    b"/hello\r" + abandon + repeat + b":q!\r",
+                    expect_cursor=(0, 0),
+                )
+
+        # A pattern holds up to 127 characters, as a ':' command does: at
+        # 200 columns (where it fits the status row) the Y typed after 127
+        # q's is ignored, so the search finds the q's
+        self.run_test_screen(
+            "/ pattern input stops at 127 chars",
+            "abc\n" + "q" * 127 + "X\n",
+            b"/" + b"q" * 127 + b"Y\r:q!\r", cols=200,
+            expect_cursor=(1, 0),
         )
 
         # Search from middle of file
@@ -7073,6 +10449,45 @@ class EditorTestRunner:
             expect_cursor=(0, 0),  # cursor at col 2, wraps to find AA at col 0
         )
 
+        # On an empty line nothing follows the cursor, so / goes straight to
+        # the next line. (It must not scan the next line as if it were the
+        # empty one and "find" the match there, leaving the cursor put.)
+        # All as in vim.
+        for name, content, keys, cursor in (
+                ("/ from an empty line finds the next line",
+                 "\nfoo\n", b"/foo\r", (1, 0)),
+                ("/ from an empty line finds a match past col 0",
+                 "abc\n\nxfoo\nbar\n", b"j/foo\r", (2, 1)),
+                ("n on an empty line moves to a match on the next line",
+                 "foo\n\nfoo\n", b"/foo\rkn", (2, 0)),
+                # After Gdd the empty last line is followed by the deleted
+                # "foo\n" in stale memory past the end of the buffer
+                ("/ from an empty last line ignores bytes past the buffer",
+                 "foo\nabc\n\nfoo\n", b"Gdd/foo\r", (0, 0))):
+            self.run_test_screen(name, content, keys + b":q!\r",
+                                 expect_cursor=cursor)
+
+        # Matches that overlap are not all found: as in vi and vim (its
+        # default 'cpoptions' c), a line's matches follow each other, each
+        # search going on from the end of the match before, so /abab n n
+        # visits 1, 5, 9 in 'xabababababab', not 1, 3, 5, 7, 9
+        abab, aaaa = "xabababababab\n", "xaaaaab\n"
+        for keys, content, cursor in (
+                (b"/abab\r", abab, (0, 1)), (b"/abab\rn", abab, (0, 5)),
+                (b"/abab\rnn", abab, (0, 9)), (b"/abab\rnnn", abab, (0, 1)),
+                (b"ll/abab\r", abab, (0, 5)), (b"/abab\rN", abab, (0, 9)),
+                (b"$?abab\r", abab, (0, 9)), (b"$?abab\rn", abab, (0, 5)),
+                (b"$?abab\rnn", abab, (0, 1)),
+                (b"/aa\rn", aaaa, (0, 3)), (b"/aa\rnn", aaaa, (0, 1)),
+                (b"$?aa\r", aaaa, (0, 3)), (b"$?aa\rn", aaaa, (0, 1)),
+                (b"j?aa\r", "aaa\nx\n", (0, 0)),
+                (b"?aa\r", "x\naaaaa\n", (1, 2)),
+                (b"?aa\rn", "x\naaaaa\n", (1, 0)),
+                (b"/aa\rn", "x\naaaaa\n", (1, 2))):
+            self.run_test_screen(
+                f"{keys!r} on {content!r}: overlapping matches as in vim",
+                content, keys + b":q!\r", expect_cursor=cursor)
+
         # ============================================================
         # Find-next (n) tests
         # ============================================================
@@ -7111,6 +10526,47 @@ class EditorTestRunner:
             expect_cursor=(4, 0),  # /X->line 2, n->line 4
         )
 
+        # A count finds the Nth match, wrapping around as often as it takes
+        # (vim); counts past 255 too
+        self.run_test_screen(
+            "3n finds the third match",
+            "foo x foo y foo z foo\n",
+            b"/foo\r3n:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "300n takes the whole count",
+            "foo x foo y\n",
+            b"/foo\r300n:q!\r",
+            expect_cursor=(0, 6),
+        )
+
+        self.run_test_screen(
+            "2/ finds the second match",
+            "foo x foo y foo z foo\n",
+            b"2/foo\r:q!\r",
+            expect_cursor=(0, 12),
+        )
+
+        self.run_test_screen(
+            "2? finds the second match backward",
+            "foo x foo y foo z foo\n",
+            b"$2?foo\r:q!\r",
+            expect_cursor=(0, 12),
+        )
+
+        # With no match, one message: the next key's frame draws the
+        # status bar again (a second message would hold the row one frame
+        # more), and the key runs
+        self.run_test_screen(
+            "3n with no match says so once",
+            "abc\ndef\n",
+            b"/x\r3nj:q!\r",
+            expect_status_at_frame=[(3, "Pattern not found: x"),
+                                    (4, "NORMAL - 2,1 /2")],
+        )
+
         # Find-prev (N) tests
         # ============================================================
         self._group("Find-prev (N):", leading_blank=True)
@@ -7147,6 +10603,13 @@ class EditorTestRunner:
             "X\nY\nX\nY\nX\n",
             b"/X\rN:q!\r",
             expect_cursor=(0, 0),  # /X->line 2, N back to line 0
+        )
+
+        self.run_test_screen(
+            "2N finds the second match backward",
+            "foo x foo y foo z foo\n",
+            b"/foo\r2N:q!\r",
+            expect_cursor=(0, 18),
         )
 
         # n then N returns to previous match
@@ -7195,11 +10658,11 @@ class EditorTestRunner:
             expect_cursor=(3, 0),  # 'b -> line 4
         )
 
-        # 'z with no mark set shows error (keypress dismisses)
+        # 'z with no mark set shows error (the ESC after it does nothing)
         self.run_test_screen(
             "'z unset mark shows error message",
             make_lines(3),
-            b"'z :q!\r",  # space dismisses the error
+            b"'z\x1b:q!\r",
             expect_cursor=(0, 0),  # stays on line 1
         )
 
@@ -7225,15 +10688,15 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd marked line unsets mark",
             make_lines(3),
-            b"madd'a :q!\r",  # space dismisses "Mark not set"
-            expect_cursor=(0, 0),  # stays (error message dismissed)
+            b"madd'a\x1b:q!\r",  # "Mark not set"
+            expect_cursor=(0, 0),  # stays
         )
 
         # Set mark on line 3, dd line 1 -> mark shifts to line 2
         self.run_test_screen(
             "dd above mark shifts mark down",
             make_lines(5),
-            b"jjmagg dd'a:q!\r",  # gg->line1, dd line1, 'a
+            b"jjmagg\x1bdd'a:q!\r",  # gg->line1, dd line1, 'a
             expect_cursor=(1, 0),  # mark was line 3 (idx 2), now idx 1
         )
 
@@ -7251,7 +10714,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "o above mark shifts mark down",
             make_lines(5),
-            b"jjmagg o\x1b'a:q!\r",  # mark at line3, gg, o+ESC, 'a
+            b"jjmagg\x1bo\x1b'a:q!\r",  # mark at line3, gg, o+ESC, 'a
             expect_cursor=(3, 0),  # was idx 2, now idx 3
         )
 
@@ -7277,7 +10740,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "paste above mark shifts mark down",
             make_lines(5),
-            b"jjmayy gg p'a:q!\r",  # mark line3, yy, gg, p, 'a
+            b"jjmayy\x1bgg\x1bp'a:q!\r",  # mark line3, yy, gg, p, 'a
             expect_cursor=(3, 0),  # was idx 2, paste adds 1 line before -> idx 3
         )
 
@@ -7308,7 +10771,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Enter in insert above mark shifts mark",
             make_lines(5),
-            b"jjmagg A\r\x1b'a:q!\r",  # mark line3, gg, A+Enter+ESC, 'a
+            b"jjmagg\x1bA\r\x1b'a:q!\r",  # mark line3, gg, A+Enter+ESC, 'a
             expect_cursor=(3, 0),  # was idx 2, Enter added line -> idx 3
         )
 
@@ -7323,7 +10786,7 @@ class EditorTestRunner:
         )
 
         # --- Mark adjustment: batched insert mode ---
-        # Verify marks are correctly adjusted by the unified insert_batch
+        # Verify marks are correctly adjusted by the unified insert-mode batch
         # handler regardless of how keystrokes are batched together.
 
         # Batch Enter×2 above mark -> mark shifts by 2
@@ -7331,7 +10794,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Batch Enter×2 above mark shifts mark +2",
             make_lines(5),
-            b"jjjmagg A\r\r\x1b'a:q!\r",  # mark line4, gg, A+Enter+Enter+ESC, 'a
+            b"jjjmagg\x1bA\r\r\x1b'a:q!\r",  # mark line4, gg, A+Enter+Enter+ESC, 'a
             expect_cursor=(5, 0),  # was idx 3, +2 newlines -> idx 5
         )
 
@@ -7350,7 +10813,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "DEL across newline above mark shifts mark",
             make_lines(5),
-            b"jjjjmagg A" + DEL + b"\x1b'a:q!\r",  # mark line5, gg, A(end)+DEL
+            b"jjjjmagg\x1bA" + DEL + b"\x1b'a:q!\r",  # mark line5, gg, A(end)+DEL
             expect_cursor=(3, 0),  # was idx 4, DEL removed 1 newline -> idx 3
         )
 
@@ -7360,7 +10823,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Enter+BS cancel in batch leaves mark unchanged",
             make_lines(5),
-            b"jjmagg i\r\x08\x1b'a:q!\r",  # mark line3, gg, Enter+BS cancel
+            b"jjmagg\x1bi\r\x08\x1b'a:q!\r",  # mark line3, gg, Enter+BS cancel
             expect_cursor=(2, 0),  # mark still at idx 2
         )
 
@@ -7370,7 +10833,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "BS join + Enter re-split preserves mark",
             make_lines(5),
-            b"jjjjmagg ji\x08\r\x1b'a:q!\r",  # mark line5, j->line2, BS+Enter
+            b"jjjjmagg\x1bji\x08\r\x1b'a:q!\r",  # mark line5, j->line2, BS+Enter
             expect_cursor=(4, 0),  # mark still at idx 4
         )
 
@@ -7379,7 +10842,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "DEL+typing across newline shifts mark below",
             make_lines(5),
-            b"jjjmagg A" + DEL + b"XY\x1b'a:q!\r",  # mark line4, gg, A+DEL+XY
+            b"jjjmagg\x1bA" + DEL + b"XY\x1b'a:q!\r",  # mark line4, gg, A+DEL+XY
             expect_cursor=(2, 0),  # was idx 3, -1 newline -> idx 2
         )
 
@@ -7387,7 +10850,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "BS+typing across newline shifts mark below",
             make_lines(5),
-            b"jjjjmagg ji\x08XY\x1b'a:q!\r",  # mark line5, j->line2, BS+XY
+            b"jjjjmagg\x1bji\x08XY\x1b'a:q!\r",  # mark line5, j->line2, BS+XY
             expect_cursor=(3, 0),  # was idx 4, -1 newline -> idx 3
         )
 
@@ -7409,13 +10872,103 @@ class EditorTestRunner:
             expect_cursor=(2, 0),  # was idx 4, 2 newlines deleted -> idx 2
         )
 
-        # de across newline: mark on consumed line is unset (col > 0)
-        self.run_test_screen(
-            "de across newline unsets mark on consumed line",
-            "AB\nCD\nEF\n",
-            b"jmagg$de'a :q!\r",  # mark "CD" (idx1), gg, $->B, de crosses NL
-            expect_cursor=(0, 0),  # mark at idx1 unset (in [1,2)), space dismisses
-        )
+        # A char delete over line breaks joins the last line it reaches to
+        # the cursor line: as in vim, that line's marks move to the cursor
+        # line, the marks of the lines between are unset, and those of the
+        # cursor line stay (at column 0 too); u puts every mark back
+        for content, keys, expected in (
+                # de from 'B' joins "CD": its mark goes to line 1 ('a x)
+                ("AB\nCD\nEF\n", b"jmagg$deG'ax", "\nEF\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2Dgg'ax", "ab\n\nzz\nqq\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2DuG'ax",
+                 "ab\ncd\ny\nzz\nqq\n"),
+                ("ab\ncd\nxy\nzz\nqq\n", b"jjmakl2DuuG'ax", "ab\n\nzz\nqq\n"),
+                # 2dw from column 0: line 1's mark stays, line 2's joins it
+                ("ab\ncd ef\nxy\n", b"majmbk2dwG'ax", "f\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwG'bx", "f\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwuG'bx", "ab\nd ef\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"majmbk2dwuG'ax", "b\ncd ef\nxy\n"),
+                # u puts back a mark moved after the delete, and moves one
+                # set after it with its line
+                ("ab\ncd ef\nxy\n", b"jmbk2dwmbuG'bx", "ab\nd ef\nxy\n"),
+                ("ab\ncd ef\nxy\n", b"jmbk2dwGmcuG'cx", "ab\ncd ef\ny\n"),
+                # 3dw over a middle line: its mark goes, and u puts it back
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwG'bx", "agh\ny\n"),
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwG'cx", "gh\nxy\n"),
+                ("ab\ncd\nef gh\nxy\n", b"jmbjmcggl3dwuG'bx",
+                 "ab\nd\nef gh\nxy\n")):
+            self.run_test(
+                f"{keys!r}: marks of the lines a char delete joins",
+                content, keys + b":wq\r", expected_content=expected)
+
+        # J moves the marks of the lines it joins to the line they join, as
+        # vim's do_join does, and the marks below move up (checked in vim
+        # 8.2); its redo moves them again
+        for keys, expected in (
+                (b"jmakJG'ax", " b\nc\nd\n"),
+                (b"jmak3JG'ax", " b c\nd\n"),
+                (b"jmbjmagg3JG'ax", " b c\nd\n"),
+                (b"jmbjmagg3JG'bx", " b c\nd\n"),
+                (b"majmbkJG'ax", " b\nc\nd\n"),
+                (b"majmbkJG'bx", " b\nc\nd\n"),
+                (b"jjmagg2JG'ax", "a b\n\nd\n"),
+                (b"Gmagg3JG'ax", "a b c\n\n"),
+                (b"jmakJJG'ax", " b c\nd\n"),
+                (b"jmbjmaggJJG'bx", " b c\nd\n"),
+                (b"jmakJu\x1buG'ax", " b\nc\nd\n")):
+            self.run_test(f"{keys!r}: J moves the joined lines' marks",
+                          "a\nb\nc\nd\n", keys + b":wq\r",
+                          expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: J J with marks on the joined lines", "a\nb\nc\nd\n",
+            [b"j", b"m", b"b", b"j", b"m", b"a", b"g", b"g", b"J", b"J",
+             b"G", b"'", b"b", b"x", b"'", b"a", b"x"])
+
+        # u of dd, :d and J puts back the marks as they were when the change
+        # began, as vim's u does (checked in vim 8.2; u u redoes, as vim's
+        # Ctrl-R).  Typed-ahead dd and J pairs are undone a press at a time,
+        # so u puts back the marks as the last press found them
+        for content, keys, expected in (
+                ("a\nb\nc\nd\n", b"jmadduG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jma:2d\ruG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbk2dduG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbk2dduG'bx", "a\nb\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmaddkuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmaddu\x1buG'ax", "a\nc\n\n"),
+                ("a\nb\nc\nd\n", b"jmaddu\x1bu\x1buG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbkdddduG'bx", "a\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmajmbkdddduG'ax", "a\nc\n\n"),
+                ("a\nb\nc\nd\ne\n", b"jjmajmbkkdddddduG'bx", "a\n\ne\n"),
+                ("a\nb\nc\nd\ne\n", b"jjmajmbkkdddddduG'ax", "a\nd\n\n"),
+                ("a\nb\nc\nd\n", b"jjmajmbkkdddddduG'bx", "a\n\n"),
+                ("a\nb\nc\nd\n", b"jmakJuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJjuG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJu\x1bu\x1buG'ax", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmagg3JuG'ax", "a\nb\n\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmagg3JuG'bx", "a\n\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmakJJuG'ax", " b\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmaggJJuG'bx", " b\nc\nd\n"),
+                ("a\nb\nc\nd\n", b"jmbjmaggJJuG'ax", "a b\n\nd\n")):
+            self.run_test(f"{keys!r}: u puts back the marks", content,
+                          keys + b":wq\r", expected_content=expected)
+        # u of typed line breaks deletes the marks set since on the lines it
+        # takes away, as vim's u does (they do not move to the line the
+        # typing began on, as a char delete's join moves them); the marks
+        # below move back up (checked in vim 8.2)
+        for content, keys, expected in (
+                ("abc\ndef\n", b"Afoo\rbar\x1bmau'ax", "ab\ndef\n"),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz\x1bmau'ax", "ab\ndef\n"),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz\x1bkmau'ax", "ab\ndef\n"),
+                ("abcdef\n", b"3li\r\x1bmau'ax", "abcef\n"),
+                ("abc\ndef\nghi\n", b"jA\r\r\x1bmauG'ax", "abc\ndef\nhi\n"),
+                ("abc\ndef\n", b"jmakAfoo\rbar\x1bugg'ax", "abc\nef\n")):
+            self.run_test(f"{keys!r}: u of typed line breaks and marks",
+                          content, keys + b":wq\r", expected_content=expected)
+        self.run_test_batch_equiv(
+            "Batch equiv: dd dd dd with marks, then u", "a\nb\nc\nd\ne\n",
+            [b"j", b"j", b"m", b"a", b"j", b"m", b"b", b"k", b"k", b"d", b"d",
+             b"d", b"d", b"d", b"d", b"u", b"G", b"'", b"b", b"x", b"'", b"a",
+             b"x"])
 
         # db from col0: mark on cursor line shifts correctly
         # db from (1,0): deletes "AB\n", cursor at (0,0). Col=0 so first_line=0.
@@ -7501,18 +11054,18 @@ class EditorTestRunner:
             "AB\nCD\nEF\n",
             b"jjma" +           # mark "EF" (idx 2)
             b"kdb" +            # db deletes "AB\n" -> mark shifts to 1
-            b"u u" +            # undo then redo: mark should be back at 1
+            b"u\x1bu" +            # undo then redo: mark should be back at 1
             b"'a:q!\r",
             expect_cursor=(1, 0),  # mark shifted down by redo
         )
 
         # Mark below 2d$ range gets adjusted
-        # Set mark on line 2 (ccc), go to line 0, 2d$ deletes "aaa\nbbb"
+        # Set mark on line 2 (ccc), go to line 0, l2d$ deletes "aa\nbbb"
         # ccc was line 2, becomes line 1 after 1 newline removed
         self.run_test_screen(
             "2d$ adjusts mark below range",
             "aaa\nbbb\nccc\nddd\n",
-            b"2jmakk2d$'a:q!\r",
+            b"2jmakkl2d$'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),
         )
@@ -7525,7 +11078,7 @@ class EditorTestRunner:
         self.run_test_screen(
             ":marks with no marks set",
             make_lines(3),
-            b":marks\r :q!\r",  # space dismisses marks display
+            b":marks\r :q!\r",  # space ends the marks display
             expect_cursor=(0, 0),
         )
 
@@ -7556,11 +11109,49 @@ class EditorTestRunner:
             expect_ansi_contains="Hello World - this is a long line",
         )
 
+        # :marks lists every mark a page at a time, as vim does: once the
+        # rows above the last are full, '-- More --' there waits for a
+        # key, and the rest follow on a new page; q at '-- More --' ends
+        # the list.  (10x40: marks a-h fill rows 1-8)
+        set_marks = lambda n: b"".join(b"m%cj" % (97 + i) for i in range(n))
+        self.run_test_screen(
+            ":marks shows -- More -- when the marks fill the screen",
+            make_lines(30),
+            set_marks(9) + b":marks\r  :q!\r",
+            expect_ansi_contains=" h      8 Line 8\x1b[10H\x1b[K-- More --",
+        )
+        self.run_test_screen(
+            ":marks shows the marks that do not fit after a key",
+            make_lines(30),
+            set_marks(12) + b":marks\r  :q!\r",
+            expect_ansi_contains="\x1b[5H l     12 Line 12",
+            expect_cursor=(8, 0),
+            expect_lines=[(8, "Line 13")],
+        )
+        self.run_test_screen(
+            ":marks q at -- More -- ends the list",
+            make_lines(30),
+            set_marks(12) + b":marks\rq:q!\r",
+            expect_ansi_contains="-- More --\x1b[?25l",
+            expect_cursor=(8, 0),
+            expect_lines=[(8, "Line 13")],
+        )
+
+        # Bytes that are not printable ASCII show as spaces: a raw $9B is
+        # CSI to a terminal that takes 8-bit controls
+        self.run_test_screen(
+            ":marks shows non-ASCII bytes as spaces",
+            None,
+            b"ma:marks\r :q!\r",
+            initial_bytes=b"a\x9b2J\xe9\x7fb\tc\n",
+            expect_ansi_contains=" a      1 a 2J  b c",
+        )
+
         # :m shows "Unknown command" (partial match, doesn't match :marks)
         self.run_test_screen(
             ":m shows Unknown command",
             make_lines(3),
-            b":m\r :q!\r",  # space dismisses error
+            b":m\r\x1b:q!\r",
             expect_ansi_contains="Unknown command",
         )
 
@@ -7568,8 +11159,17 @@ class EditorTestRunner:
         self.run_test_screen(
             ":marksx shows Unknown command",
             make_lines(3),
-            b":marksx\r :q!\r",  # space dismisses error
+            b":marksx\r\x1b:q!\r",
             expect_ansi_contains="Unknown command",
+        )
+
+        # An empty command line does nothing, as in vim: no message, and
+        # the cursor stays put ('x' deletes the 'c')
+        self.run_test(
+            "Empty : command does nothing",
+            "abcdef\n",
+            b"ll:\rx:wq\r",
+            expected_content="abdef\n",
         )
 
         # --- Range yank ---
@@ -7612,7 +11212,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range yank unset mark shows error",
             make_lines(3),
-            b":'z,.y\r :q!\r",  # space dismisses error
+            b":'z,.y\r\x1b:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -7644,12 +11244,12 @@ class EditorTestRunner:
             expected_content="Line 4\nLine 5\n",
         )
 
-        # Range delete of all lines leaves single empty line
+        # Range delete of all lines leaves no lines (written as no bytes)
         self.run_test(
             "Range delete all lines leaves empty",
             make_lines(3),
             b"majj:'a,.d\r:wq\r",  # ma line1, jj->line3, :'a,.d deletes all
-            expected_content="\n",
+            expected_content="",
         )
 
         # Range delete yanks lines first (verify with p)
@@ -7675,17 +11275,115 @@ class EditorTestRunner:
         self.run_test_screen(
             "Range delete unset mark shows error",
             make_lines(3),
-            b":'z,.d\r :q!\r",  # space dismisses error
+            b":'z,.d\r\x1b:q!\r",
             expect_ansi_contains="Mark not set",
         )
 
-        # Shows "N lines deleted" message
+        # A command that changes or yanks more than 2 lines reports it on
+        # the status row, as vim does with its default 'report' (2), in
+        # vim's words for deletes and yanks ("3 fewer lines", "3 lines
+        # yanked"; shifts say "3 lines shifted", vim "3 lines >ed 1 time");
+        # 1 or 2 lines, no report.  dd and yy report too, as in vim, but
+        # not a run of typed-ahead dd pairs, each of which deletes one line
+        five = make_lines(5)
+        for keys, report in ((b":1,3d\r", "3 fewer lines"),
+                             (b":1,2d\r", None),
+                             (b":2d\r", None),
+                             (b":1,3y\r", "3 lines yanked"),
+                             (b":1y\r", None),
+                             (b":1,2y\r", None),
+                             (b":1,3>\r", "3 lines shifted"),
+                             (b":1,2<\r", None),
+                             (b"3dd", "3 fewer lines"),
+                             (b"2dd", None),
+                             (b"dd", None),
+                             (b"3yy", "3 lines yanked"),
+                             (b"2yy", None),
+                             (b"dddddd", None),
+                             (b"3>>", "3 lines shifted"),
+                             (b"2>>", None),
+                             (b">>>>>>", None),
+                             (b"3>>u\x1b3<<", "3 lines shifted"),
+                             (b"j6dw", "3 fewer lines"),
+                             (b"j4dw", None)):
+            self.run_test_screen(
+                f"Report of {keys!r}: {report or 'none'}", five,
+                keys + b":q!\r",
+                expect_status_contains=report or "NORMAL - ")
+        self.run_test_batch_equiv("Batch equiv: 3dd then dd reports once",
+                                  make_lines(8), [b"3dd", b"d", b"d"])
+
+        # Shows "N fewer lines" message
         self.run_test_screen(
-            "Range delete shows lines deleted message",
+            "Range delete shows fewer lines message",
             make_lines(5),
             b"majj:'a,.d\r:q!\r",
-            expect_ansi_contains="3 lines deleted",
+            expect_ansi_contains="3 fewer lines",
         )
+
+        # A ':w' or range command's report stays on the status row until
+        # the next key, as in vi: the frame that ends the command leaves
+        # the status bar alone
+        three = "line one\nline two\nline three\n"
+        self.run_test_screen(
+            ":w message stays until the next key",
+            three,
+            b"x:w\rj:q!\r",
+            expect_lines_at_frame=[(2, [(0, "ine one")])],
+            expect_status_at_frame=[(2, '" written'), (3, "NORMAL - 2,1 /3")],
+        )
+        self.run_test_screen(
+            ":y message stays until the next key",
+            three,
+            b":1,3y\rj:q!\r",
+            expect_status_at_frame=[(1, "3 lines yanked"),
+                                    (2, "NORMAL - 2,1 /3")],
+            expect_cursor_at_frame=[(1, (0, 0)), (2, (1, 0))],
+        )
+        self.run_test_screen(
+            ":d message stays over the repainted text",
+            three + "line four\nline five\n",
+            b":1,3d\rj:q!\r",
+            expect_lines_at_frame=[(1, [(0, "line four"), (1, "line five"),
+                                        (2, "~")])],
+            expect_status_at_frame=[(1, "3 fewer lines"),
+                                    (2, "NORMAL - 2,1 /2")],
+        )
+        self.run_test_screen(
+            ":> message stays over the repainted text",
+            three + "line four\n",
+            b":1,3>\rk:q!\r",
+            expect_lines_at_frame=[(1, [(0, "  line one"),
+                                        (1, "  line two"),
+                                        (2, "  line three")])],
+            expect_status_at_frame=[(1, "3 lines shifted"),
+                                    (2, "NORMAL - 2,")],
+        )
+
+        # Every other message ("Mark not set", "Unknown command", "Pattern
+        # not found", "Buffer full", ...) stays the same way, and the key
+        # after it runs as usual, typed ahead or not, as in vim
+        two = "foo\nbar\n"
+        self.run_test_screen(
+            "Mark not set stays until the next key, which runs",
+            two, b"'zj:q!\r",
+            expect_status_at_frame=[(1, "Mark not set"),
+                                    (2, "NORMAL - 2,1 /2")],
+            expect_cursor_at_frame=[(1, (0, 0)), (2, (1, 0))])
+        self.run_test_screen(
+            "Unknown command stays until the next key, which runs",
+            two, b":foo\rx:q!\r",
+            expect_status_at_frame=[(1, "Unknown command"),
+                                    (2, "NORMAL - 1,1 /2")],
+            expect_lines_at_frame=[(2, [(0, "oo")])])
+        self.run_test_screen(
+            "Pattern not found stays until the next key, which runs",
+            two, b"/zz\rj:q!\r",
+            expect_status_at_frame=[(1, "Pattern not found: zz"),
+                                    (2, "NORMAL - 2,1 /2")],
+            expect_cursor_at_frame=[(2, (1, 0))])
+        self.run_test("Keys typed after a message all run",
+            two, b"'zx:foo\rx/zz\rx:wq\r", expected_content="\nbar\n")
 
         # Range delete positions cursor at first deleted line
         self.run_test_screen(
@@ -7694,6 +11392,26 @@ class EditorTestRunner:
             b"majj:'a,.d\r:q!\r",  # ma line1, jj->line3, delete 1-3
             expect_cursor=(0, 0),  # cursor at first deleted line (now line 1)
         )
+
+        # :d is undoable like dd: u restores the range, u again redoes it.
+        # It must never replay the previous command's undo record on the
+        # shifted lines (3>> then :1,3d then u used to write past the text).
+        for keys, content, expected in [
+            (b":2,3d\ru", "one\ntwo\nthree\nfour\n", "one\ntwo\nthree\nfour\n"),
+            (b":2,3d\ruu", "one\ntwo\nthree\nfour\n", "one\nfour\n"),
+            (b":3,4d\ru", "one\ntwo\nthree\nfour\n", "one\ntwo\nthree\nfour\n"),
+            (b":1,2d\ru", "one\ntwo\n", "one\ntwo\n"),
+            (b"jx:1d\ru", "abc\ndef\nghi\n", "abc\nef\nghi\n"),
+            (b"jdd:1,2d\ru", "one\ntwo\nthree\nfour\n", "one\nthree\nfour\n"),
+            (b"3>>:1,3d\ru", "a\nb\nc\n", "  a\n  b\n  c\n"),
+            (b"jjrZ:1d\ru", "aaa\nbbb\nccc\nddd\n", "aaa\nbbb\nZcc\nddd\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: u undoes the range delete",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
 
         # Range delete corrupts search buffer (yank buffer overlaps search buffer)
         # YANK_BUF=$E000, SEARCH_BUF=$E020 - yank overwrites search pattern
@@ -7782,6 +11500,219 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
+        # A range with no command goes to the line of its last position,
+        # as in vim, which does not swap a backwards range for that
+        self.run_test_screen(
+            ":1,3 goes to line 3",
+            make_lines(5),
+            b":1,3\r:q!\r",
+            expect_cursor=(2, 0),
+        )
+
+        self.run_test_screen(
+            ":3,1 goes to line 1",
+            make_lines(5),
+            b":3,1\r:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            ":5,2 goes to line 2",
+            make_lines(5),
+            b":5,2\r:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            ":'a,2 goes to line 2 from mark a on line 4",
+            make_lines(5),
+            b"3jmagg:'a,2\r:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        # An omitted position is the current line (vim): from line 3,
+        # :5,d deletes lines 3-5 and :,4d lines 3-4
+        self.run_test(
+            ":5,d deletes from line 5 to the current line",
+            make_lines(6),
+            b"jj:5,d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 6\n",
+        )
+
+        self.run_test(
+            ":,4d deletes from the current line to line 4",
+            make_lines(6),
+            b"jj:,4d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 5\nLine 6\n",
+        )
+
+        # A bad second position is an unknown command, not a mark error
+        self.run_test_screen(
+            ":5,xd shows Unknown command",
+            make_lines(6),
+            b":5,xd\r\x1b:q!\r",
+            expect_ansi_contains="Unknown command",
+        )
+
+        # An unset mark in the second position is still a mark error
+        self.run_test_screen(
+            ":1,'zd shows Mark not set",
+            make_lines(3),
+            b":1,'zd\r\x1b:q!\r",
+            expect_ansi_contains="Mark not set",
+        )
+
+        # A position past the last line: a command says "Invalid range"
+        # and does nothing, as vim's E16; a goto goes to the last line
+        for keys in (b":6d\r", b":1,99999d\r", b":0,6d\r", b":6,1d\r",
+                     b":7>\r", b":2,6<\r", b"jjma:'a,9d\r"):
+            self.run_test_screen(
+                f"{keys!r} past the last line says Invalid range",
+                make_lines(5), keys + b"x:q!\r",
+                expect_ansi_contains="Invalid range")
+            self.run_test(
+                f"{keys!r} past the last line changes nothing",
+                make_lines(5), keys + b":wq\r",
+                expected_content=make_lines(5))
+        # A refused :y leaves the yank as it was
+        self.run_test(
+            ":2,6y past the last line leaves the yank",
+            make_lines(5), b"yy:2,6y\rp:wq\r",
+            expected_content="Line 1\n" + make_lines(5))
+        # The last line itself is in range
+        self.run_test(
+            ":4,5d deletes to the last line",
+            make_lines(5), b":4,5d\r:wq\r",
+            expected_content="Line 1\nLine 2\nLine 3\n")
+        self.run_test_screen(
+            ":1,9 goes to the last line",
+            make_lines(5), b":1,9\r:q!\r",
+            expect_cursor=(4, 0))
+
+        # Numbers of 65536 and more must not wrap to small line numbers:
+        # like any number past the last line, they go to the last line
+        # (as in vim) and make a command's range invalid
+        self.run_test_screen(
+            ":65537 goes to the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":65537\r:q!\r",
+            expect_cursor=(4, 0),
+        )
+
+        self.run_test(
+            ":1,65537d is an invalid range (no 16-bit wrap)",
+            make_lines(5),
+            b":1,65537d\r:wq\r",
+            expected_content=make_lines(5),
+        )
+
+        self.run_test(
+            ":65539d is an invalid range (no 16-bit wrap)",
+            make_lines(5),
+            b":65539d\r:wq\r",
+            expected_content=make_lines(5),
+        )
+
+        # 63999 fits 16 bits; one digit more would not (639999 wraps to
+        # 50175 and 6399999 to 42495): more digits still mean the last line
+        self.run_test_screen(
+            "A long line number goes to the last line (no 16-bit wrap)",
+            make_lines(5),
+            b":63999" + b"9" * 30 + b"\r:q!\r",
+            expect_cursor=(4, 0),
+        )
+
+        # After the command letter vim takes blanks and, for d and y, one
+        # register name (the editor has one register, so the name changes
+        # nothing); anything more is an error (vim's E492 or E488; here
+        # "Unknown command"), and so is a digit there (vim's count)
+        l5 = make_lines(5)
+        for keys, expected in ((b":1,3d a\r", "Line 4\nLine 5\n"),
+                               (b":1,3d  a  \r", "Line 4\nLine 5\n"),
+                               (b":1,3d \r", "Line 4\nLine 5\n"),
+                               (b":d a\r", l5[7:]),
+                               (b":2,3y a\rP", l5[7:21] + l5),
+                               (b":1,3> \r", "  " + l5[:7] + "  " + l5[7:14]
+                                + "  " + l5[14:])):
+            self.run_test(f"{keys!r} takes a register name or blanks",
+                          l5, keys + b":wq\r", expected_content=expected)
+        for keys in (b":1,3dfoo\r", b":1,3d a b\r", b":1,3>x\r",
+                     b":1,3> a\r", b":1,3d3\r", b":2,3y 2\r"):
+            self.run_test_screen(
+                f"{keys!r} is an unknown command",
+                l5, keys + b":q!\r",
+                expect_ansi_contains="Unknown command")
+            self.run_test(
+                f"{keys!r} changes nothing",
+                l5, b"yy" + keys + b"P:wq\r",
+                expected_content="Line 1\n" + l5)
+
+        # :N,Md on screen scrolls the rows below up as 3dd does: the
+        # line after the range moves into the cursor row and only the
+        # exposed bottom rows are drawn.  Frames: 0 initial, 1 :4,6d (with
+        # its message)
+        self.run_test_screen(
+            ":4,6d scrolls instead of repainting",
+            make_lines(20),
+            b":4,6d\r:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(3)]
+                         + [(i, f"Line {i + 4}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+            expect_scrolled_at_frame=[(1, True)],
+            expect_content_rows=[(1, {6, 7, 8})],
+        )
+        # A range reaching EOF moves the cursor up onto the line above it,
+        # which keeps its rows (both: it wraps at 20 cols)
+        self.run_test_screen(
+            ":N,Md reaching EOF keeps the wrapped line above",
+            "Short 0\nThis is a longer line!\nx\ny\n",
+            b":3,4d\r:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "Short 0"), (1, "This is a longer lin"),
+                          (2, "e!"), (3, "~"), (4, "~")],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(1, {7, 8})],
+        )
+        # The deleted rows outnumber the rows below the cursor: every row
+        # below it is redrawn
+        wide = "".join(f"{i:02d} " + "abcdefghij" * 5 + "abcdefg\n"
+                       for i in range(20))
+        self.run_test_screen(
+            ":4,6d of wrapped lines redraws every row below",
+            wide,
+            b":4,6d\r:q!\r",
+            expect_lines=[(6, "06 " + ("abcdefghij" * 4)[:37]),
+                          (7, ("abcdefghij" * 6)[7:27]),
+                          (8, "07 " + ("abcdefghij" * 4)[:37])],
+            expect_cursor=(6, 0),
+            expect_content_rows=[(1, {6, 7, 8})],
+        )
+        # The range starts on the top line, shown from its fourth row: the
+        # cursor goes above the view, which moves up: a full redraw
+        self.run_test_screen(
+            ":1d of the top line shown from its middle",
+            "a" * 100 + "\n" + "b" * 100 + "\n" + make_lines(10),
+            b"2G$k:1d\r:q!\r",
+            rows=8, cols=20,
+            expect_lines=[(0, "b" * 20), (1, "b" * 20), (2, "b" * 20),
+                          (5, "Line 1"), (6, "Line 2")],
+            expect_cursor=(0, 0),
+        )
+        # 24x80, 60-char lines
+        self.run_test_screen(
+            ":4,6d at 24x80 sends the rows the scroll exposes",
+            "".join(f"line {i:02d} " + "the quick brown fox jumps over "
+                    "the lazy dog xyz\n" for i in range(40)),
+            b":4,6d\r:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(3, "line 06 the quick brown fox jumps over the "
+                              "lazy dog xyz"),
+                          (22, "line 25 the quick brown fox jumps over the "
+                               "lazy dog xyz")],
+            expect_cursor=(3, 0),
+            expect_frame_bytes=[(1, 236)],
+        )
+
         # Line numbers are 1-based
         self.run_test(
             ":2,4d deletes lines 2-4 (1-based)",
@@ -7806,6 +11737,21 @@ class EditorTestRunner:
             "  aaa\n  bbb\n  ccc\nddd\n",
             b":1,3<\r:wq\r",
             expected_content="aaa\nbbb\nccc\nddd\n",
+        )
+
+        # A command with no range works on the current line, as in vim
+        self.run_test(
+            ":d deletes the current line",
+            "L1\nL2\nL3\n",
+            b"j:d\r:wq\r",
+            expected_content="L1\nL3\n",
+        )
+
+        self.run_test(
+            ":y yanks the current line",
+            "L1\nL2\nL3\n",
+            b"j:y\rGp:wq\r",
+            expected_content="L1\nL2\nL3\nL2\n",
         )
 
         # Bare :> indents current line
@@ -7864,6 +11810,55 @@ class EditorTestRunner:
             expected_content="  aaa\n\n  bbb\n",
         )
 
+        # The shift cores total the shift in COUNT16: a command-mode
+        # shift must leave no count behind for the next normal command
+        # (dd then deletes one line: the range's last, where the cursor is)
+        eight = "a\nb\nc\nd\ne\nf\ng\nh\n"
+        for keys, content, expected in [
+            (b":1,3>\rdd", eight, "  a\n  b\nd\ne\nf\ng\nh\n"),
+            (b":1,3<\rdd", "  a\n  b\n  c\nd\ne\nf\ng\nh\n",
+             "a\nb\nd\ne\nf\ng\nh\n"),
+            (b":>\rx", "abc\ndef\n", "  bc\ndef\n"),
+            (b":<\rx", "  abc\ndef\n", "bc\ndef\n"),
+        ]:
+            self.run_test(
+                f"{keys!r} leaves no count behind",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+        self.run_test_screen(
+            ":1,3> then j moves one line",
+            eight,
+            b":1,3>\rj:q!\r",
+            expect_cursor=(3, 0),
+        )
+
+        # :N,M> and :N,M< end on the first non-blank of line M, as in vim
+        # (u and its redo go back to line N)
+        abcd = "aaa\nbbb\nccc\nddd\n"
+        for keys, content, cursor, lines in (
+                (b"2l:2,3>\r", abcd, (2, 2),
+                 ["aaa", "  bbb", "  ccc", "ddd"]),
+                (b"2l:2,3<\r", abcd, (2, 0), ["aaa", "bbb", "ccc", "ddd"]),
+                (b"2l:2,3>\ru", abcd, (1, 0), ["aaa", "bbb", "ccc", "ddd"]),
+                (b"2l:2,3>\ruu", abcd, (1, 0),
+                 ["aaa", "  bbb", "  ccc", "ddd"]),
+                (b"2l:1,4>\r", abcd, (3, 2),
+                 ["  aaa", "  bbb", "  ccc", "  ddd"]),
+                (b"G:1,2>\r", abcd, (1, 2), ["  aaa", "  bbb", "ccc", "ddd"]),
+                (b":1,2<\r", "  aaa\n  bbb\nccc\n", (1, 0),
+                 ["aaa", "bbb", "ccc"]),
+                (b":1,2<\ru", "  aaa\n  bbb\nccc\n", (0, 2),
+                 ["  aaa", "  bbb", "ccc"])):
+            self.run_test_screen(
+                f"{keys!r} ends on line M's first non-blank",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+                expect_lines=list(enumerate(lines)),
+            )
+
         # Single-position :5d works (bonus from single-position support)
         self.run_test(
             ":5d deletes line 5 (single-position command)",
@@ -7901,6 +11896,30 @@ class EditorTestRunner:
             b"/MARKER\rx:wq\r",
             expected_content="B" * 100 + "ARKER" + "B" * 200 + "\n"
         )
+
+        # Search columns are 16-bit like the rest of the editor: matches at,
+        # across or past column 255 are found (as in vim), and x shows where
+        # the cursor landed
+        a254, a255, a300 = "a" * 254, "a" * 255, "a" * 300
+        for name, content, keys, expected in (
+                ("/ finds a match past col 255",
+                 a300 + "foo\nbar\n", b"j/foo\r", a300 + "oo\nbar\n"),
+                ("? finds a match past col 255",
+                 a300 + "foo\nbar\n", b"j?foo\r", a300 + "oo\nbar\n"),
+                ("/ finds a match that crosses col 255",
+                 a254 + "foo\nbar\n", b"j/foo\r", a254 + "oo\nbar\n"),
+                ("? finds a match that crosses col 255",
+                 a254 + "foo\nbar\n", b"j?foo\r", a254 + "oo\nbar\n"),
+                ("? finds a match at col 255",
+                 a255 + "x\nbar\n", b"j?x\r", a255 + "\nbar\n"),
+                ("n from past col 255 finds a later match on the line",
+                 a300 + "foo" + "a" * 10 + "foo\n", b"/foo\rn",
+                 a300 + "foo" + "a" * 10 + "oo\n"),
+                ("? from past col 255 finds the nearest match before it",
+                 "foo" + a300 + "foo" + "aaaaa\n", b"$?foo\r",
+                 "foo" + a300 + "oo" + "aaaaa\n")):
+            self.run_test(name, content, keys + b"x:wq\r",
+                          expected_content=expected)
 
         # 'o' (open below) on a line >255 chars inserts correctly
         self.run_test(
@@ -7976,6 +11995,71 @@ class EditorTestRunner:
                 make_lines(99) +
                 ''.join(f"Line {i}\n" for i in range(356, 401))
             )
+        )
+
+        # Char deletes count the deleted newlines in 16 bits: 257D deletes
+        # 256 newlines, so the line table must be rebuilt (44 lines left).
+        # (From column 1: from column 0 the D deletes whole lines, as in vi)
+        self.run_test_screen(
+            "257D (256 newlines) rebuilds the line table",
+            make_lines(300),
+            b"l257D:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "L")] + [(i, f"Line {i+257}") for i in range(1, 9)],
+            expect_status_contains="/44"
+        )
+
+        self.run_test(
+            "257D (256 newlines) then jD edits the right line",
+            make_lines(300),
+            b"l257DjD:wq\r",
+            expected_content="L\n\n" + ''.join(f"Line {i}\n" for i in range(259, 301))
+        )
+
+        # 300D deletes 299 newlines: mark a on Line 350 moves up 299 lines
+        self.run_test(
+            "300D (299 newlines) moves a mark below it up 299 lines",
+            make_lines(400),
+            b"350Gmaggl300D'ax:wq\r",
+            expected_content=(
+                "L\n" + ''.join(f"Line {i}\n" for i in range(301, 350)) +
+                "ine 350\n" + ''.join(f"Line {i}\n" for i in range(351, 401))
+            )
+        )
+
+        # 130D deletes 130 two-row lines (260 screen rows > 255, 2,860
+        # bytes, which fit the yank buffer): the line-delete scroll must
+        # not use the row total mod 256
+        self.run_test_screen(
+            "130D over more than 255 screen rows repaints correctly",
+            ''.join(f"{i:03d}" + "x" * 18 + "\n" for i in range(300)),
+            b"l130D:q!\r",
+            rows=10, cols=20,
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "0")] + [
+                row for i in range(4) for row in (
+                    (1 + 2 * i, f"{130 + i:03d}" + "x" * 17),
+                    (2 + 2 * i, "x"))]
+        )
+
+        # 'a never goes past the last line: after 300D, mark a (on the last
+        # line) must land on the last line, so x edits it and keeps the
+        # file's final newline
+        self.run_test(
+            "'a to a mark on the last line after 300D stays in the file",
+            make_lines(400),
+            b"Gmaggl300D'ax:wq\r",
+            expected_content=(
+                "L\n" + ''.join(f"Line {i}\n" for i in range(301, 400)) + "ine 400\n"
+            )
+        )
+
+        # Same for a mark used as a : range address: :'ad deletes the last line
+        self.run_test(
+            ":'ad on a mark on the last line after 300D stays in the file",
+            make_lines(400),
+            b"Gmaggl300D:'ad\r:wq\r",
+            expected_content="L\n" + ''.join(f"Line {i}\n" for i in range(301, 400))
         )
 
         self.run_test(
@@ -8071,6 +12155,31 @@ class EditorTestRunner:
             ]
         )
 
+        # DEL ($7F) is a control char too: a terminal does not advance for
+        # a raw DEL, so every later cell of the row would land one column
+        # left
+        self.run_test_screen(
+            "DEL byte displayed as reverse ?",
+            None,
+            b":q!\r",
+            initial_bytes=b"A\x7fB\n",
+            expect_lines=[(0, "A?B")],
+            expect_reverse_at=[
+                (0, 0, False),
+                (0, 1, True),
+                (0, 2, False),
+            ]
+        )
+
+        self.run_test_screen(
+            "x at end of a line with a DEL byte",
+            None,
+            b"$x:q!\r",
+            initial_bytes=b"a\x7fbcdef\n",
+            expect_lines=[(0, "a?bcde")],
+            expect_cursor=(0, 5),
+        )
+
         # Tab inserted via insert mode
         self.run_test_screen(
             "Tab key inserts tab in insert mode",
@@ -8095,6 +12204,48 @@ class EditorTestRunner:
                 (0, 1, True),
                 (0, 2, True),
             ]
+        )
+
+        # A run of special cells shares one reverse-video span, closed
+        # before the next normal char and before the row's ESC[K
+        self.run_test_screen(
+            "Run of tabs and control chars shares one reverse span",
+            None,
+            b":q!\r",
+            initial_bytes=b"A\t\t\x01B\x7f\t\x80\n",
+            expect_lines=[(0, "A>>?B?>?")],
+            expect_reverse_at=[(0, 0, False), (0, 1, True), (0, 2, True),
+                               (0, 3, True), (0, 4, False), (0, 5, True),
+                               (0, 6, True), (0, 7, True), (0, 8, False)],
+            expect_ansi_contains="A\x1b[7m>>?\x1b[mB\x1b[7m?>?\x1b[m\x1b[K",
+        )
+
+        # A run crossing a wrap boundary: each row closes its own span
+        for deferred in (False, True):
+            self.run_test_screen(
+                "Reverse span across a wrap boundary"
+                + (" (deferred wrap)" if deferred else ""),
+                None,
+                b":q!\r",
+                initial_bytes=b"a" * 38 + b"\t\t\tb\n",
+                deferred_wrap=deferred,
+                expect_lines=[(0, "a" * 38 + ">>"), (1, ">b")],
+                expect_reverse_at=[(0, 37, False), (0, 38, True),
+                                   (0, 39, True), (1, 0, True),
+                                   (1, 1, False), (1, 2, False)],
+                expect_ansi_contains="a\x1b[7m>>\x1b[m\x1b[7m>\x1b[mb\x1b[K",
+            )
+
+        # Ctrl-F onto tab-indented lines at 24x80: one span per indent
+        self.run_test_screen(
+            "Ctrl-F onto tab-indented lines: one reverse span per indent",
+            "".join("\t" * (2 + i % 2) + f"line {i} of the text\n"
+                    for i in range(60)),
+            b"\x06:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, ">>>line 21 of the text"),
+                          (22, ">>>line 43 of the text")],
+            expect_frame_bytes=[(1, 696)],
         )
 
         self._group("Word motions (w, b, e):", leading_blank=True)
@@ -8139,6 +12290,48 @@ class EditorTestRunner:
             "\nbar\n",
             b"w:q!\r",
             expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "w to an indented line skips its indentation",
+            "foo\n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(1, 2),
+        )
+
+        self.run_test_screen(
+            "w to a tab-indented line skips its indentation",
+            "foo\n \t bar\n",
+            b"w:q!\r",
+            expect_cursor=(1, 3),
+        )
+
+        self.run_test_screen(
+            "w skips whitespace-only lines",
+            "foo\n   \n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "w stops on an empty line after a whitespace-only line",
+            "foo\n  \n\n  bar\n",
+            b"w:q!\r",
+            expect_cursor=(2, 0),
+        )
+
+        self.run_test_screen(
+            "2w counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2w:q!\r",
+            expect_cursor=(1, 6),
+        )
+
+        self.run_test_screen(
+            "w into a whitespace-only last line stops on its last char",
+            "foo\n  \n",
+            b"w:q!\r",
+            expect_cursor=(1, 1),
         )
 
         self.run_test_screen(
@@ -8199,6 +12392,27 @@ class EditorTestRunner:
         )
 
         self.run_test_screen(
+            "b from an indented line's first word goes to previous line",
+            "foo\n  bar\n",
+            b"j^b:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "b skips whitespace-only lines",
+            "foo\n   \n  bar\n",
+            b"jj^b:q!\r",
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "b stops on an empty line before indentation",
+            "foo\n\n  bar\n",
+            b"jj^b:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
             "2b crossing line boundary",
             "hello\nworld\n",
             b"j2b:q!\r",
@@ -8246,6 +12460,35 @@ class EditorTestRunner:
             "one two three\n",
             b"2e:q!\r",
             expect_cursor=(0, 6),
+        )
+
+        # e skips empty and whitespace-only lines (as in vi)
+        self.run_test_screen(
+            "e skips empty line",
+            "foo\n\nbar\n",
+            b"ee:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "e skips whitespace-only line",
+            "foo\n   \nbar\n",
+            b"ee:q!\r",
+            expect_cursor=(2, 2),
+        )
+
+        self.run_test_screen(
+            "2e counts no word end on blank lines",
+            "a\n \n\t\nb c\n",
+            b"2e:q!\r",
+            expect_cursor=(3, 2),
+        )
+
+        self.run_test_screen(
+            "e with no word end left stops on last line",
+            "ab\n\n\n",
+            b"le:q!\r",
+            expect_cursor=(2, 0),
         )
 
         self._group("Toggle case (~):", leading_blank=True)
@@ -8317,7 +12560,8 @@ class EditorTestRunner:
             expected_content="HELlo\n"
         )
 
-        # Batched ~ at end of line stops at last char
+        # Batched ~ past the end of line: the 2 left-over presses toggle the
+        # last char twice more
         self.run_test(
             "~~~~~ batched on 3-char line toggles all",
             "abc\n",
@@ -8325,12 +12569,50 @@ class EditorTestRunner:
             expected_content="ABC\n"
         )
 
+        # Typed ahead, each ~ left over at the last char toggles it again, as
+        # it does one key at a time
+        self.run_test(
+            "batched ~~ at end of line toggles the last char twice",
+            "ab\nnext\n",
+            b"$~~:wq\r",
+            expected_content="ab\nnext\n"
+        )
+
+        self.run_test_screen(
+            "batched ~~ at end of line: screen shows the last toggle",
+            "ab\nnext\n",
+            b"$~~:q!\r",
+            expect_cursor=(0, 1),
+            expect_lines=[(0, "ab"), (1, "next")],
+        )
+
+        self.run_test(
+            "batched ~~~~ on 3-char line re-toggles the last char",
+            "abc\n",
+            b"~~~~:wq\r",
+            expected_content="ABc\n"
+        )
+
+        self.run_test(
+            "5~ + batched ~ re-toggles the last char",
+            "abc\n",
+            b"5~~:wq\r",
+            expected_content="ABc\n"
+        )
+
+        self.run_test(
+            "batched ~~ at end of line: undo covers the last ~",
+            "abc\n",
+            b"$~~u:wq\r",
+            expected_content="abC\n"
+        )
+
         # Render: batched ~ is single action frame
         self.run_test_screen(
             "Batch ~~~ is single action frame",
             "hello\n",
             b"~~~:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("Join lines (J):", leading_blank=True)
@@ -8401,7 +12683,7 @@ class EditorTestRunner:
             "Batch JJ is single action frame",
             "aaa\nbbb\nccc\n",
             b"JJ:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("Replace char (r):", leading_blank=True)
@@ -8420,12 +12702,166 @@ class EditorTestRunner:
             expected_content="xxxlo\n"
         )
 
+        # A count past the line end does nothing, as in vim (it beeps):
+        # the cursor stays, the next command runs, the yank and the undo
+        # record stay, and so does the remembered column
+        self.run_test_screen(
+            "5rZ past line end changes nothing",
+            "abc\ndef\n",
+            b"5rZ:q!\r",
+            expect_lines=[(0, "abc"), (1, "def")],
+            expect_cursor=(0, 0)
+        )
+
+        self.run_test(
+            "x5rzp: 5rz fails, p pastes the x",
+            "abc\ndef\n",
+            b"x5rzp:wq\r",
+            expected_content="bac\ndef\n"
+        )
+
+        self.run_test(
+            "x5rzp on last line: 5rz fails, p pastes the x",
+            "abc\n",
+            b"x5rzp:wq\r",
+            expected_content="bac\n"
+        )
+
+        self.run_test(
+            "l5rz fails, then x deletes at the cursor",
+            "abcd\nxy\n",
+            b"l5rzx:wq\r",
+            expected_content="acd\nxy\n"
+        )
+
+        self.run_test(
+            "x5rqu: u still undoes the x",
+            "abc\n",
+            b"x5rqu:wq\r",
+            expected_content="abc\n"
+        )
+
+        self.run_test_screen(
+            "5rq that fails keeps the column for k",
+            "abcdef\nab\n",
+            b"$j5rqk:q!\r",
+            expect_cursor=(0, 5)
+        )
+
         self.run_test(
             "r on empty line does nothing",
             "\n",
             b"rx:q!\r",
             expect_unmodified=True
         )
+
+        # r takes a key that types text (printable or Tab), a control
+        # key as it is (vim), the key after Ctrl-V as it is, or Enter or
+        # Ctrl-J (below). Keys that are no char (arrows, Del, BS, non-
+        # ASCII) cancel it like Esc: nothing is stored, the cursor stays
+        # and the next command runs.
+        for key_name, key in [("Up", b"\x1b[A"), ("Del", b"\x1b[3~"),
+                              ("BS", b"\x7f"), ("non-ASCII", b"\xc3"),
+                              ("Esc", b"\x1b")]:
+            self.run_test_screen(
+                f"r then {key_name} cancels r",
+                "abc\ndef\n",
+                b"lr" + key + b"iX\x1b:wq\r",
+                expected_content="aXbc\ndef\n"
+            )
+
+        self.run_test(
+            "r then Tab replaces with Tab",
+            "abc\n",
+            b"lr\t:wq\r",
+            expected_content="a\tc\n"
+        )
+
+        for name, keys, expected in (
+                ("Ctrl-A", b"lr\x01", "a\x01c\n"),
+                ("Ctrl-C", b"lr\x03", "a\x03c\n"),
+                ("2 Ctrl-A", b"l2r\x01", "a\x01\x01\n"),
+                ("Ctrl-V a", b"lr\x16a", "aac\n"),
+                ("Ctrl-V Ctrl-A", b"lr\x16\x01", "a\x01c\n"),
+                ("Ctrl-V Esc", b"lr\x16\x1b", "a\x1bc\n"),
+                ("Ctrl-V Ctrl-V", b"lr\x16\x16", "a\x16c\n"),
+                ("Ctrl-A then u", b"lr\x01u", "abc\n"),
+                ("Ctrl-A then iX", b"lr\x01iX\x1b", "aX\x01c\n"),
+                ("3 Ctrl-A past the end", b"l3r\x01", "abc\n")):
+            self.run_test(f"r then {name}", "abc\n", keys + b":wq\r",
+                          expected_content=expected)
+
+        # r<Enter> replaces the char with a line break, as in vim, and r
+        # Ctrl-J does the same. With a count, the N chars become one line
+        # break (vim's 5r<CR>). The cursor goes to the start of the new
+        # line, and the spaces on either side of the break stay.
+        for name, content, keys, lines in [
+                ("r<Enter> mid-line splits the line", "abcde\ndef\n",
+                 b"llr\r", ["ab", "de", "def"]),
+                ("r<Enter> on the last char opens an empty line",
+                 "abc\ndef\n", b"$r\r", ["ab", "", "def"]),
+                ("r<Enter> at column 0 leaves an empty line",
+                 "abc\ndef\n", b"r\r", ["", "bc", "def"]),
+                ("3r<Enter> replaces 3 chars with one line break",
+                 "abcdef\nxy\n", b"l3r\r", ["a", "ef", "xy"]),
+                ("2r<Enter> with 2 chars left splits at the end",
+                 "abc\ndef\n", b"l2r\r", ["a", "", "def"]),
+                ("r<Enter> keeps the space after the break",
+                 "ab  cd\n", b"llr\r", ["ab", " cd"]),
+                ("r Ctrl-J splits the line like r<Enter>", "abcde\ndef\n",
+                 b"llr\n", ["ab", "de", "def"]),
+                ("2r Ctrl-J replaces 2 chars with one line break",
+                 "abcde\ndef\n", b"l2r\n", ["a", "de", "def"])]:
+            self.run_test_screen(
+                name, content, keys + b":wq\r",
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=(1, 0),
+                expected_content="\n".join(lines) + "\n"
+            )
+        self.run_test(
+            "r<Enter> keeps the space before the break",
+            "ab  cd\n", b"lllr\r:wq\r", expected_content="ab \ncd\n")
+
+        # vim changes nothing (it beeps) when fewer chars are left than
+        # the count: the cursor stays, the next command runs, and the
+        # last edit can still be undone
+        self.run_test_screen(
+            "3r<Enter> with 2 chars left does nothing",
+            "abc\ndef\n", b"l3r\rx:wq\r",
+            expect_lines=[(0, "ac"), (1, "def")], expect_cursor=(0, 1),
+            expected_content="ac\ndef\n")
+        self.run_test(
+            "r<Enter> on an empty line does nothing",
+            "\nabc\n", b"r\rjx:wq\r", expected_content="\nbc\n")
+        self.run_test(
+            "A refused 5r<Enter> keeps the undo of the edit before",
+            "abc\ndef\n", b"xl5r\ru:wq\r", expected_content="abc\ndef\n")
+        # A count over 255 takes 255 chars into the line break, as r
+        # replaces at most 255 (vi-compatibility-changes); the check for
+        # the chars left uses the whole count, as vim's does
+        self.run_test(
+            "300r<Enter> takes 255 chars into the line break",
+            "x" * 255 + "y" * 50 + "\n", b"300r\r:wq\r",
+            expected_content="\n" + "y" * 50 + "\n")
+        self.run_test(
+            "300r<Enter> undo restores all 255 chars",
+            "x" * 255 + "y" * 50 + "\n", b"300r\ru:wq\r",
+            expected_content="x" * 255 + "y" * 50 + "\n")
+        self.run_test(
+            "300r<Enter> with 280 chars left does nothing",
+            "x" * 280 + "\n", b"300r\rx:wq\r",
+            expected_content="x" * 279 + "\n")
+
+        # The marks on the lines below move down with them; one on the
+        # split line stays on it (as in vim)
+        self.run_test(
+            "r<Enter> moves the marks below it down",
+            "abc\ndef\nghi\n", b"jjmagglr\r'ax:wq\r",
+            expected_content="a\nc\ndef\nhi\n")
+        self.run_test(
+            "r<Enter> leaves a mark on the split line there",
+            "abc\ndef\n", b"malr\r'ax:wq\r",
+            expected_content="\nc\ndef\n")
 
         self._group("Substitute char (s):", leading_blank=True)
 
@@ -8567,6 +13003,90 @@ class EditorTestRunner:
             expected_content="X\nccc\n",
         )
 
+        # cc/S replace the lines with one empty line in place: at the end of
+        # the file the new line stays last, and an empty line after the
+        # changed lines is kept
+        for name, content, keys, expected in [
+            ("cc on last line", "a\nb\n", b"Gcc3\x1b:wq\r", "a\n3\n"),
+            ("S on last line", "a\nb\n", b"GS3\x1b:wq\r", "a\n3\n"),
+            ("cc on last line of three", "a\nb\nc\n", b"Gcc\x1b:wq\r",
+             "a\nb\n\n"),
+            ("2cc reaching last line", "a\nb\nc\n", b"j2cc3\x1b:wq\r",
+             "a\n3\n"),
+            ("5cc clamped to last line", "a\nb\nc\nd\n", b"jj5cc3\x1b:wq\r",
+             "a\nb\n3\n"),
+            ("2cc of wrapped lines reaching last line",
+             "top\n" + "A" * 15 + "\n" + "B" * 15 + "\n", b"j2ccX\x1b:wq\r",
+             "top\nX\n"),
+            ("cc keeps following empty line", "a\nb\n\nc\n", b"jcc3\x1b:wq\r",
+             "a\n3\n\nc\n"),
+            ("2cc keeps following empty line", "A\nB\n\nC\n", b"2ccX\x1b:wq\r",
+             "X\n\nC\n"),
+            ("cc keeps empty last line", "X\n\n", b"ccY\x1b:wq\r", "Y\n\n"),
+            ("cc on last line keeps empty line above", "a\n\nb\n",
+             b"Gcc3\x1b:wq\r", "a\n\n3\n"),
+            ("2cc on whole buffer leaves one line", "a\nb\n", b"2cc3\x1b:wq\r",
+             "3\n"),
+            # A mark above the changed lines stays on its line
+            ("cc on last line keeps mark above", "a\nb\n",
+             b"majccZ\x1b'aiY\x1b:wq\r", "Ya\nZ\n"),
+            # As in vim, the marks of the first changed line stay on the
+            # line cc makes, those of the others go, and the ones below
+            # move up; u puts them all back (u u: as the cc left them)
+            ("cc keeps the line's mark", "a\nb\nc\nd\ne\n",
+             b"jmaccX\x1bgg'ax:wq\r", "a\n\nc\nd\ne\n"),
+            ("2cc drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2ccX\x1bgg'bx:wq\r", "\nX\nd\ne\n"),
+            ("2cc keeps the first line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2ccX\x1bG'ax:wq\r", "a\n\nd\ne\n"),
+            ("2S drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2SX\x1bG'bx:wq\r", "a\nX\nd\n\n"),
+            ("2cc moves a mark below up", "a\nb\nc\nd\ne\n",
+             b"jjjmckk2cc\x1bgg'cx:wq\r", "a\n\n\ne\n"),
+            ("u of cc puts its line's mark back", "a\nb\nc\nd\ne\n",
+             b"jmacc\x1buG'ax:wq\r", "a\n\nc\nd\ne\n"),
+            ("u of 2cc puts the second line's mark back", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1buG'bx:wq\r", "a\nb\n\nd\ne\n"),
+            ("u of 2cc puts a mark below back", "a\nb\nc\nd\ne\n",
+             b"jjjmckk2cc\x1bugg'cx:wq\r", "a\nb\nc\n\ne\n"),
+            ("redo of 2cc keeps the first line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu\x1buG'ax:wq\r", "a\n\nd\ne\n"),
+            ("redo of 2cc drops the second line's mark", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu\x1buG'bx:wq\r", "a\n\nd\n\n"),
+            ("u after redo of 2cc puts the marks back", "a\nb\nc\nd\ne\n",
+             b"jmajmbk2cc\x1bu\x1bu\x1buG'bx:wq\r", "a\nb\n\nd\ne\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "cc on last line: screen and cursor",
+            "a\nb\n",
+            b"Gcc3\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "3"), (2, "~")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "2cc of wrapped lines reaching last line: screen and cursor",
+            "top\n" + "A" * 15 + "\n" + "B" * 15 + "\n",
+            b"j2ccX\x1b:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "top"), (1, "X"), (2, "~"), (3, "~"), (4, "~")],
+            expect_cursor=(1, 0),
+        )
+
+        # cc and its redo replace the lines with one empty line in one
+        # shift and one line-table rebuild, where they deleted the lines
+        # and then opened a line (two of each): on a 36 KB file cc<Esc>
+        # took 4.49M cycles, now 2.26M, and its redo the same
+        big = "".join("line %04d of the file, padded to thirty-six\n" % i
+                      for i in range(830))
+        self.run_test_cycle_cap("cc on a 36 KB file shifts the text once",
+            big, b"cc\x1b:q!\r", 6700000, rows=24, cols=80)
+        self.run_test_cycle_cap("cc redo on a 36 KB file shifts the text once",
+            big, b"cc\x1bu\x1bu:q!\r", 13700000, rows=24, cols=80)
+
         self._group("Indent (>>, <<):", leading_blank=True)
 
         self.run_test(
@@ -8695,18 +13215,47 @@ class EditorTestRunner:
             expected_content="aaa\n\nbbb\n"
         )
 
+        # A << that removes nothing still puts the cursor on the first
+        # non-blank (vim)
         self.run_test_screen(
-            "<< on unindented line does not move cursor",
+            "<< on unindented line goes to the first non-blank",
             "hello\n",
             b"ll<<:q!\r",
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 0),
         )
 
         self.run_test_screen(
-            "<< adjusts cursor by actual spaces removed",
+            "<< removing one space puts the cursor on the first non-blank",
             " hello\n",
             b"lll<<:q!\r",
-            expect_cursor=(0, 2),
+            expect_cursor=(0, 0),
+        )
+
+        # The shift cores keep the line table current without rebuilding
+        # it: edits after the shift must land in the moved lines
+        self.run_test(
+            ">> moves the lines after the range",
+            "aaa\nbbb\nccc\nddd\n",
+            b"2>>jj0xGx:wq\r",
+            expected_content="  aaa\n  bbb\ncc\ndd\n"
+        )
+        self.run_test(
+            "<< moves the lines after the range",
+            "  aaa\n  bbb\nccc\nddd\n",
+            b"2<<jj0xGx:wq\r",
+            expected_content="aaa\nbbb\ncc\ndd\n"
+        )
+        self.run_test(
+            "<< from unindented lines moves the lines from the first removal",
+            "aaa\nbbb\n  ccc\n  ddd\neee\n",
+            b"4<<jjj0xGx:wq\r",
+            expected_content="aaa\nbbb\nccc\ndd\nee\n"
+        )
+        self.run_test(
+            "u of << moves the lines after the range back",
+            "  aaa\n  bbb\nccc\n",
+            b"2<<uGx:wq\r",
+            expected_content="  aaa\n  bbb\ncc\n"
         )
 
         # >>>> = two rapid >> combos: indents current line TWICE (4 spaces)
@@ -8750,36 +13299,37 @@ class EditorTestRunner:
             expected_content="      aaa\nbbb\nccc\nddd\n"
         )
 
-        # >>>> cursor: col 1 + two indents (2+2 spaces) = col 5
+        # >>>> cursor: on the first non-blank after two indents (vim)
         self.run_test_screen(
-            ">>>> cursor col adjusted for double indent",
+            ">>>> cursor on the first non-blank after double indent",
             "aaa\nbbb\nccc\n",
             b"l>>>>:q!\r",
-            expect_cursor=(0, 5),
+            expect_cursor=(0, 4),
         )
 
-        # <<<< cursor: col 3 on "  aaa", first << removes 2 → col 1, second << no-op → col 1
+        # <<<< cursor: the first << removes 2, the second nothing; the
+        # cursor ends on the first non-blank (vim)
         self.run_test_screen(
-            "<<<< cursor col adjusted for double unindent",
+            "<<<< cursor on the first non-blank after double unindent",
             "  aaa\n  bbb\n  ccc\n",
             b"lll<<<<:q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 0),
         )
 
-        # Render: >>>> batched into single action frame (3 frames: init, action, quit)
+        # Render: >>>> batched into single action frame (2 frames: init, action)
         self.run_test_screen(
             "Render: >>>> is single action frame",
             "aaa\nbbb\nccc\n",
             b">>>>:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
-        # Render: <<<< batched into single action frame (3 frames: init, action, quit)
+        # Render: <<<< batched into single action frame (2 frames: init, action)
         self.run_test_screen(
             "Render: <<<< is single action frame",
             "  aaa\n  bbb\n  ccc\n",
             b"<<<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         self._group("First non-blank (^):", leading_blank=True)
@@ -8805,11 +13355,34 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # vim stops on the last space (it went to col 0)
         self.run_test_screen(
-            "^ on all-spaces line stays at col 0",
+            "^ on all-spaces line goes to the last space",
             "   \n",
             b"^:q!\r",
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 2),
+        )
+
+        # Tabs are blanks too (vim)
+        self.run_test(
+            "^ skips tabs as well as spaces",
+            "\t \tfoo\n",
+            b"$^x:wq\r",
+            expected_content="\t \too\n",
+        )
+
+        self.run_test(
+            "^ on a line of spaces and tabs goes to the last blank",
+            " \t \n",
+            b"$^x:wq\r",
+            expected_content=" \t\n",
+        )
+
+        self.run_test(
+            "^ past 255 leading spaces goes to the first non-blank",
+            " " * 300 + "x\n",
+            b"$^iY\x1b:wq\r",
+            expected_content=" " * 300 + "Yx\n",
         )
 
         self._group("Delete word (dw):", leading_blank=True)
@@ -8959,6 +13532,27 @@ class EditorTestRunner:
             expected_content="\nthree four\n",
         )
 
+        self.run_test(
+            "dw at last word keeps an indented next line",
+            "foo\n  bar\n",
+            b"dw:wq\r",
+            expected_content="\n  bar\n",
+        )
+
+        self.run_test(
+            "dw at last word keeps a whitespace-only next line",
+            "foo\n   \n  bar\n",
+            b"dw:wq\r",
+            expected_content="\n   \n  bar\n",
+        )
+
+        self.run_test(
+            "2dw counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2dw:wq\r",
+            expected_content="baz\n",
+        )
+
         self._group("Delete word backward (db):", leading_blank=True)
 
         self.run_test(
@@ -9067,7 +13661,14 @@ class EditorTestRunner:
             "dbdb multi-line batch (crosses line boundary)",
             "one two\nthree\n",
             b"j$dbdb:wq\r",
-            expected_content="one e\n",
+            expected_content="one \ne\n",
+        )
+
+        self.run_test(
+            "db from an indented line's first word deletes the indentation too",
+            "foo\n  bar\n",
+            b"j^db:wq\r",
+            expected_content="bar\n",
         )
 
         self._group("Change word (cw):", leading_blank=True)
@@ -9093,11 +13694,78 @@ class EditorTestRunner:
             expected_content="XXbar\n",
         )
 
+        # On a blank, cw changes what dw deletes: the blanks up to the next
+        # word (vi and vim; the word after them stays)
         self.run_test(
-            "cw on whitespace deletes ws and next word",
+            "cw on whitespace changes only the whitespace",
             "foo   bar baz\n",
             b"3lcwX\x1b:wq\r",
-            expected_content="fooX baz\n",
+            expected_content="fooXbar baz\n",
+        )
+
+        self.run_test(
+            "cw on a tab changes only the blanks",
+            "foo \tbar\n",
+            b"3lcwX\x1b:wq\r",
+            expected_content="fooXbar\n",
+        )
+
+        self.run_test(
+            "2cw on whitespace changes the blanks and one word",
+            "foo   bar baz qux\n",
+            b"3l2cwX\x1b:wq\r",
+            expected_content="fooXbaz qux\n",
+        )
+
+        self.run_test(
+            "cw on whitespace yanks only the whitespace",
+            "foo   bar baz\n",
+            b"3lcw\x1b$p:wq\r",
+            expected_content="foobar baz   \n",
+        )
+
+        # cw on trailing whitespace changes only that whitespace: like dw,
+        # a w that ends on the next line stops at the end of this one
+        self.run_test(
+            "cw on trailing whitespace keeps next line's first word",
+            "ab \nxy\n",
+            b"$cw\x1b:wq\r",
+            expected_content="ab\nxy\n",
+        )
+
+        self.run_test(
+            "cw on trailing whitespace keeps following blank line",
+            "foo   \n\nbar\n",
+            b"4lcwX\x1b:wq\r",
+            expected_content="foo X\n\nbar\n",
+        )
+
+        self.run_test(
+            "cw on trailing whitespace of last line keeps final newline",
+            "foo   \n",
+            b"4lcwX\x1b:wq\r",
+            expected_content="foo X\n",
+        )
+
+        self.run_test(
+            "cw on whitespace-only last line keeps final newline",
+            "a\n \n",
+            b"jcwxyz\x1b:wq\r",
+            expected_content="a\nxyz\n",
+        )
+
+        self.run_test(
+            "cw on the last whitespace of the buffer stays in bounds",
+            "ab \n",
+            b"$XXcw\x1b:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "2cw from whitespace stops at end of line",
+            "a  b\nc d\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX\nc d\n",
         )
 
         self.run_test(
@@ -9137,6 +13805,44 @@ class EditorTestRunner:
             expected_content="x\n",
         )
 
+        self.run_test(
+            "2cw counts an indented line's first word once",
+            "foo\n  bar baz\n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X baz\n",
+        )
+
+        # On a word, cw changes what ce does (vi): e passes over empty lines,
+        # and a count past the last word runs to the end of the text.  On a
+        # word's last char, that char is the first word
+        self.run_test(
+            "2cw across an empty line changes through the next word",
+            "foo\n\nbar baz\n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X baz\n",
+        )
+
+        self.run_test(
+            "2cw from a word's last char across an empty line",
+            "ab\n\ncd ef\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX ef\n",
+        )
+
+        self.run_test(
+            "2cw past the last word changes to the end of the text",
+            "abba \n",
+            b"2cwX\x1b:wq\r",
+            expected_content="X\n",
+        )
+
+        self.run_test(
+            "2cw from a word's last char changes it and the next word",
+            "ab cd ef\n",
+            b"l2cwX\x1b:wq\r",
+            expected_content="aX ef\n",
+        )
+
         self._group("Change word backward (cb):", leading_blank=True)
 
         self.run_test(
@@ -9146,12 +13852,19 @@ class EditorTestRunner:
             expected_content="Xworld\n",
         )
 
-        self.run_test(
-            "cb at col 0 just enters insert mode",
-            "hello\n",
-            b"cbhi \x1b:wq\r",
-            expected_content="hi hello\n",
-        )
+        # At the start of the file b fails, and so does cb, as in vim: no
+        # insert mode, and the keys after it are commands (h, then i)
+        for content, keys, expected in (("hello\n", b"cbhi \x1b", " hello\n"),
+                                        ("hello\n", b"cbX\x1b", "hello\n"),
+                                        ("\nfoo\n", b"cbix\x1b", "x\nfoo\n"),
+                                        ("hello\n", b"2cbix\x1b", "xhello\n"),
+                                        ("hello\n", b"dbix\x1b", "xhello\n")):
+            self.run_test(
+                f"{keys!r} at the start of the file: b fails",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
 
         self.run_test(
             "cb from mid-word deletes back to word start",
@@ -9192,11 +13905,13 @@ class EditorTestRunner:
         )
 
         # Multi-line cb tests
+        # From column 0, cb stops at the end of the line above, and as it
+        # starts in that line's indentation it changes the whole line (vi)
         self.run_test(
-            "cb from BOL deletes back across line",
+            "cb from BOL changes the line above",
             "foo\nbar\n",
             b"jcbbaz\x1b:wq\r",
-            expected_content="bazbar\n",
+            expected_content="baz\nbar\n",
         )
 
         self._group("Yank word forward (yw):", leading_blank=True)
@@ -9236,11 +13951,13 @@ class EditorTestRunner:
             expected_content="foo   bar   \n",
         )
 
+        # yw on an empty last line yanks the empty range, as in vim: p
+        # after it puts nothing
         self.run_test(
-            "yw on empty line preserves previous yank",
+            "yw on an empty last line yanks nothing",
             "hello\n\n",
             b"yyjyw$p:wq\r",
-            expected_content="hello\n\nhello\n",
+            expected_content="hello\n\n",
         )
 
         self.run_test(
@@ -9479,6 +14196,71 @@ class EditorTestRunner:
             expected_content=" four\n",
         )
 
+        self.run_test(
+            "de skips empty line to next word end",
+            "foo   \n\nbar\n",
+            b"llde:wq\r",
+            expected_content="fo\n",
+        )
+
+        self.run_test(
+            "de skips whitespace-only line to next word end",
+            "ab\n  \ncd\n",
+            b"lde:wq\r",
+            expected_content="a\n",
+        )
+
+        # When e finds no word end it stops on a newline; the inclusive
+        # range must not take that newline (here the buffer's final one)
+        self.run_test(
+            "de over trailing whitespace keeps final newline",
+            "foo   \n",
+            b"llde:wq\r",
+            expected_content="fo\n",
+        )
+
+        self.run_test(
+            "de over trailing whitespace then cc keeps final newline",
+            "foo   \n",
+            b"lldeccZ\x1b:wq\r",
+            expected_content="Z\n",
+        )
+
+        self.run_test(
+            "de on whitespace-only last line keeps final newline",
+            "  \n",
+            b"0de:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de before final empty line keeps final newline",
+            "ab\n\n",
+            b"lde:wq\r",
+            expected_content="a\n",
+        )
+
+        self.run_test(
+            "3de past the last word keeps final newline",
+            "a b  \n",
+            b"3de:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de then x at end of buffer stays in bounds",
+            "a \n",
+            b"dex:wq\r",
+            expected_content="\n",
+        )
+
+        self.run_test(
+            "de on the last char of the buffer deletes it",
+            "a \n",
+            b"lde:wq\r",
+            expected_content="a\n",
+        )
+
         self._group("Change word end (ce):", leading_blank=True)
 
         self.run_test(
@@ -9539,6 +14321,13 @@ class EditorTestRunner:
             expected_content="x baz\n",
         )
 
+        self.run_test(
+            "ce over trailing whitespace keeps final newline",
+            "foo   \n",
+            b"llceX\x1b:wq\r",
+            expected_content="foX\n",
+        )
+
         self._group("Yank word end (ye):", leading_blank=True)
 
         self.run_test(
@@ -9569,11 +14358,12 @@ class EditorTestRunner:
             expected_content="foo barbar\n",
         )
 
+        # ye on an empty last line yanks the empty range, as in vim
         self.run_test(
-            "ye on empty line preserves previous yank",
+            "ye on an empty last line yanks nothing",
             "hello\n\n",
             b"yyjye$p:wq\r",
-            expected_content="hello\n\nhello\n",
+            expected_content="hello\n\n",
         )
 
         self.run_test(
@@ -9581,6 +14371,13 @@ class EditorTestRunner:
             "one two three\n",
             b"2ye$p:wq\r",
             expected_content="one two threeone two\n",
+        )
+
+        self.run_test(
+            "ye over trailing whitespace does not yank final newline",
+            "ab  \n",
+            b"lye$p:wq\r",
+            expected_content="ab  b  \n",
         )
 
         self.run_test(
@@ -9619,6 +14416,272 @@ class EditorTestRunner:
             "foo\nbar baz\n",
             b"2lye$p:wq\r",
             expected_content="fooo\nbar\nbar baz\n",
+        )
+
+        self._group("Operators made linewise (vi):", leading_blank=True)
+
+        # An exclusive motion (w, b) that ends on column 0 of a later line
+        # stops at the end of the line before; if the operator starts in its
+        # line's indentation (only blanks before it), it works on whole
+        # lines.  (w's operator ends on column 0 only from an empty line.)
+
+        self.run_test(
+            "dw on an empty line deletes it",
+            "a\n\nfoo\n",
+            b"jdw:wq\r",
+            expected_content="a\nfoo\n",
+        )
+
+        self.run_test(
+            "2dw through an empty line from a line's start deletes the lines",
+            "foo\n\nbar\n",
+            b"2dw:wq\r",
+            expected_content="bar\n",
+        )
+
+        self.run_test(
+            "2dw through an empty line from mid-line keeps the line break",
+            "x foo\n\nbar\n",
+            b"2l2dw:wq\r",
+            expected_content="x \nbar\n",
+        )
+
+        # w that runs out of lines on an empty last line ends on its column 0
+        self.run_test(
+            "3dw running out of lines on an empty last line deletes lines",
+            "a\nxxxxxxxx\n\n",
+            b"w3dwp:wq\r",
+            expected_content="a\n\nxxxxxxxx\n",
+        )
+
+        self.run_test(
+            "dwdw on two empty lines deletes both",
+            "\n\nfoo\n",
+            b"dwdw:wq\r",
+            expected_content="foo\n",
+        )
+
+        self.run_test(
+            "yw on an empty line yanks it as a line",
+            "\nfoo\n",
+            b"ywp:wq\r",
+            expected_content="\n\nfoo\n",
+        )
+
+        self.run_test(
+            "3yw from the indentation through an empty line yanks lines",
+            "  a b\n\nc\n",
+            b"02l3ywGp:wq\r",
+            expected_content="  a b\n\nc\n  a b\n\n",
+        )
+
+        self.run_test(
+            "cw on an empty line yanks it as a line",
+            "\nfoo\n",
+            b"cw\x1bjp:wq\r",
+            expected_content="\nfoo\n\n",
+        )
+
+        self.run_test(
+            "db from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jdb:wq\r",
+            expected_content="x \nbar\n",
+        )
+
+        self.run_test(
+            "db from column 0 after a line's only word deletes that line",
+            "foo\nbar\n",
+            b"jdbp:wq\r",
+            expected_content="bar\nfoo\n",
+        )
+
+        self.run_test(
+            "db from column 0 over the indentation deletes the line",
+            "  foo\nbar\n",
+            b"0jdb:wq\r",
+            expected_content="bar\n",
+        )
+
+        self.run_test(
+            "yb from column 0 yanks the line above as a line",
+            "foo\nbar\n",
+            b"jybp:wq\r",
+            expected_content="foo\nfoo\nbar\n",
+        )
+
+        self.run_test(
+            "yb from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jybP:wq\r",
+            expected_content="x foofoo\nbar\n",
+        )
+
+        self.run_test(
+            "cb from column 0 keeps the line break",
+            "x foo\nbar\n",
+            b"jcbY\x1b:wq\r",
+            expected_content="x Y\nbar\n",
+        )
+
+        # The line above changes in place, from the column b went to
+        self.run_test_screen(
+            "cb from column 0 onto an indented word redraws the changed line",
+            " a\nbar\n",
+            b"0jcbY\x1b:q!\r",
+            expect_lines=[(0, "Y"), (1, "bar"), (2, "~")],
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "db from column 0 shortening a wrapped line above redraws its rows",
+            "x " + "a" * 45 + "\nbar\nzz\n",
+            b"jdb:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "x"), (1, "bar"), (2, "zz"), (3, "~")],
+            expect_cursor=(0, 1),
+        )
+
+        # Typed ahead, a db that finds the file start changes nothing: the
+        # line the db before shortened keeps its repaint
+        self.run_test_screen(
+            "typed-ahead dbdb that reaches the file start redraws the rows below",
+            " " * 50 + "x\nline2\nline3\n",
+            b"$dbdb:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "x"), (1, "line2"), (2, "line3"), (3, "~")],
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "dw on an empty line puts the cursor on the next line's first non-blank",
+            "a\n\n  foo\n",
+            b"jdw:q!\r",
+            expect_cursor=(1, 2),
+        )
+
+        # A delete over lines that leaves only blanks after it on its last
+        # line, and starts in the indentation, deletes whole lines (vi)
+        self.run_test(
+            "2D from the indentation deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"02l2D:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2D from the indentation yanks the lines",
+            "  foo\nbar\nbaz\n",
+            b"02l2Dp:wq\r",
+            expected_content="baz\n  foo\nbar\n",
+        )
+
+        self.run_test(
+            "2d$ from the indentation deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"02l2d$:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2D on an empty line deletes two lines",
+            "abc\n\nxyz\nend\n",
+            b"j2D:wq\r",
+            expected_content="abc\nend\n",
+        )
+
+        self.run_test(
+            "2D from mid-line stays in the line",
+            "  foo\nbar\n",
+            b"03l2D:wq\r",
+            expected_content="  f\n",
+        )
+
+        self.run_test(
+            "2dw to the end of the next line deletes the lines",
+            "foo\nbar\nbaz\n",
+            b"2dw:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2de from the indentation to a line end deletes the lines",
+            "  foo\nbar\nbaz\n",
+            b"02l2de:wq\r",
+            expected_content="baz\n",
+        )
+
+        self.run_test(
+            "2de from the indentation into a line stays charwise",
+            "  foo\nbar baz\n",
+            b"02l2de:wq\r",
+            expected_content="   baz\n",
+        )
+
+        self.run_test(
+            "2D on an empty line yanks the lines",
+            "abc\n\nxyz\nend\n",
+            b"j2Dp:wq\r",
+            expected_content="abc\nend\n\nxyz\n",
+        )
+
+        self.run_test(
+            "3D from a line's start to the last line deletes the lines",
+            "abc\nxyz\nq\n",
+            b"j3D:wq\r",
+            expected_content="abc\n",
+        )
+
+        self.run_test(
+            "2dw from the start of the next-to-last line deletes to the end",
+            "  foo\nbar\nbaz\n",
+            b"0j2dw:wq\r",
+            expected_content="  foo\n",
+        )
+
+        # C and y$ with a count go on from an empty line too (charwise: the
+        # line rule is for deletes)
+        self.run_test(
+            "2C on an empty line changes to the end of the next line",
+            "\nabc\nx\n",
+            b"2CX\x1b:wq\r",
+            expected_content="X\nx\n",
+        )
+
+        self.run_test(
+            "2y$ on an empty line yanks to the end of the next line",
+            "\nabc\nx\n",
+            b"2y$Gp:wq\r",
+            expected_content="\nabc\nx\nabc\n",
+        )
+
+        self.run_test(
+            "D on an empty line does nothing",
+            "\nabc\n",
+            b"Dx:wq\r",
+            expected_content="\nabc\n",
+        )
+
+        # From an empty line, e and its operators go on to the next word's end
+        self.run_test(
+            "de on an empty line deletes to the next word's end",
+            "\nfoo bar\n",
+            b"de:wq\r",
+            expected_content=" bar\n",
+        )
+
+        self.run_test(
+            "ce on an empty line changes to the next word's end",
+            "\nfoo bar\n",
+            b"ceX\x1b:wq\r",
+            expected_content="X bar\n",
+        )
+
+        self.run_test(
+            "ye on an empty line yanks to the next word's end",
+            "\nfoo bar\n",
+            b"yeP:wq\r",
+            expected_content="\nfoo\nfoo bar\n",
         )
 
         self._group("Delete/yank to BOL (d0, y0):", leading_blank=True)
@@ -9663,9 +14726,20 @@ class EditorTestRunner:
             expected_content="HelHello\n"
         )
 
-        # y0 at col 0 does nothing (no yank)
+        # y0 leaves the cursor on column 0, where the yanked text starts,
+        # as in vim
+        self.run_test_screen(
+            "y0 leaves the cursor on column 0",
+            "abc def\n", b"$y0:q!\r", expect_cursor=(0, 0))
+        for keys, expected in ((b"$y0p", "aabc debc def\n"),
+                               (b"wy0P", "abc abc def\n")):
+            self.run_test(f"{keys!r}: the paste goes at column 0",
+                          "abc def\n", keys + b":wq\r",
+                          expected_content=expected)
+
+        # y0 at col 0 changes nothing (it yanks the empty range, as in vim)
         self.run_test(
-            "y0 at col 0 does nothing",
+            "y0 at col 0 changes nothing",
             "Hello\n",
             b"y0:wq\r",
             expected_content="Hello\n"
@@ -9844,6 +14918,24 @@ class EditorTestRunner:
             # Type :ww, BS twice to clear, type q! -> :q!
         )
 
+        # Command-line editing guards (the ':' line reader); x shows where
+        # the cursor ended up.  A command holds up to 127 chars (vim takes
+        # any length); at 200 columns that fits the status row.
+        five = "abc\ndef\nghi\njkl\nmno\n"
+        on_line1 = "bc\ndef\nghi\njkl\nmno\n"
+        on_line3 = "abc\ndef\nhi\njkl\nmno\n"
+        for name, keys, expected in (
+                (": ESC cancels a typed command", b":3\x1b", on_line1),
+                (": backspace past the prompt cancels", b":3\x7f\x7f", on_line1),
+                (": backspace on a long command line erases",
+                 b":" + b"0" * 120 + b"\x7f" * 119 + b"3\r", on_line3),
+                (": command line stops accepting at 127 chars",
+                 b":" + b"0" * 126 + b"3" + b"99\r", on_line3),
+                (": control and special keys are ignored",
+                 b":\x01\x1b[A3\x1b[C\r", on_line3)):
+            self.run_test_screen(name, five, keys + b"x:wq\r", cols=200,
+                                 expected_content=expected)
+
         # ============================================================
         # Extended key handling (function keys, ctrl+arrows, etc.)
         # ============================================================
@@ -9993,6 +15085,20 @@ class EditorTestRunner:
             expected_content="Xfoo\nbar\n"
         )
 
+        self.run_test(
+            "Ctrl+Right in insert mode skips the next line's indentation",
+            "foo\n  bar\n",
+            b"A\x1b[1;5CX\x1b:wq\r",
+            expected_content="foo\n  Xbar\n"
+        )
+
+        self.run_test(
+            "Ctrl+Left in insert mode from an indented first word crosses lines",
+            "foo\n  bar\n",
+            b"j^i\x1b[1;5DX\x1b:wq\r",
+            expected_content="Xfoo\n  bar\n"
+        )
+
         # Batching Ctrl+Right in insert mode
         self.run_test(
             "Batching 3x Ctrl+Right in insert mode",
@@ -10031,25 +15137,35 @@ class EditorTestRunner:
             make_lines(30),
             b"\x1b[6~:q!\r",
             expect_cursor=(0, 0),
-            expect_lines=[(0, "Line 10")],
+            expect_lines=[(0, "Line 8")],
         )
 
-        # SS3 sequences (ESC O <final>) - F1-F4 on some terminals
-        # F1 SS3 (ESC O P) in normal mode - should be consumed
-        self.run_test(
-            "F1 SS3 in normal mode is no-op",
-            "hello\n",
-            b"\x1bOP:wq\r",
-            expected_content="hello\n"
-        )
+        # Tilde forms of Home/End: ESC[1~ / ESC[4~ (Linux console, tmux,
+        # screen, PuTTY) and ESC[7~ / ESC[8~ (rxvt)
+        for seq in (b"\x1b[1~", b"\x1b[7~"):
+            self.run_test(f"Home as {seq[1:]!r} in normal mode", "hello\n",
+                          b"$" + seq + b"x:wq\r", expected_content="ello\n")
+            self.run_test(f"Home as {seq[1:]!r} in insert mode", "hello\n",
+                          b"$i" + seq + b"X\x1b:wq\r",
+                          expected_content="Xhello\n")
+        for seq in (b"\x1b[4~", b"\x1b[8~"):
+            self.run_test(f"End as {seq[1:]!r} in normal mode", "hello\n",
+                          seq + b"x:wq\r", expected_content="hell\n")
+            self.run_test(f"End as {seq[1:]!r} in insert mode", "hello\n",
+                          b"i" + seq + b"X\x1b:wq\r",
+                          expected_content="helloX\n")
 
-        # F2 SS3 (ESC O Q) in normal mode - should be consumed
-        self.run_test(
-            "F2 SS3 in normal mode is no-op",
-            "hello\n",
-            b"\x1bOQ:wq\r",
-            expected_content="hello\n"
-        )
+        # SS3 sequences (ESC O <final>) - F1-F4 on some terminals.
+        # In normal mode they are no-ops: the x proves the editor is still
+        # in normal mode afterwards (without it, ':wq' typed as text would
+        # leave the file unwritten and the test would pass vacuously)
+        for fkey, final in ((b"F1", b"P"), (b"F2", b"Q"), (b"F4", b"S")):
+            self.run_test(
+                f"{fkey.decode()} SS3 in normal mode is no-op",
+                "hello\n",
+                b"\x1bO" + final + b"x:wq\r",
+                expected_content="ello\n"
+            )
 
         # F1 SS3 in insert mode - should stay in insert mode
         self.run_test(
@@ -10059,12 +15175,36 @@ class EditorTestRunner:
             expected_content="Xhello\n"
         )
 
+        # Typed-ahead ESC then O followed by anything but P-S is vi's
+        # <Esc>O (leave insert mode, open a line above), not an SS3 key:
+        # nothing may be swallowed. O and T are the bytes either side of P-S
+        for what, keys, above in (
+            ("text", b"xyz\x1b", "xyz\n"),
+            ("O", b"O\x1b", "O\n"),
+            ("T", b"T\x1b", "T\n"),
+            ("ESC", b"\x1b", "\n"),
+        ):
+            self.run_test(
+                f"Typed-ahead ESC O then {what} opens line above",
+                "first\n",
+                b"Aabc\x1bO" + keys + b":wq\r",
+                expected_content=above + "firstabc\n"
+            )
+
+        # The same from normal mode: the second ESC is a no-op, O opens above
+        self.run_test(
+            "Typed-ahead ESC in normal mode then O opens line above",
+            "first\n",
+            b"Ahello\x1b\x1bOworld\x1b:wq\r",
+            expected_content="world\nfirsthello\n"
+        )
+
         # ============================================================
         # Terminal mode tests
         # ============================================================
         self._group("Terminal mode:", leading_blank=True)
 
-        if not self.build_terminal_editor():
+        if not terminal_built:
             print("  Skipping terminal mode tests (build failed)")
         else:
             # Basic smoke test: quit exits cleanly
@@ -10124,6 +15264,76 @@ class EditorTestRunner:
                 expect_status_contains="/t "
             )
 
+            # Terminal size detection: sizes over 255 are capped at 255,
+            # not taken mod 256 (256 would be 0 and 300 would be 44)
+            self.run_test_terminal_screen(
+                "Terminal size 10x256 (width capped at 255)",
+                "Hello\n",
+                b":q!\r",
+                rows=10, cols=256,
+                expect_lines=[(0, "Hello")],
+                expect_status_contains="/t "
+            )
+            self.run_test_terminal_screen(
+                "Terminal size 8x300 (width capped at 255)",
+                "A" * 100 + "\nsecond\n",
+                b"$:q!\r",
+                rows=8, cols=300,
+                expect_cursor=(0, 99),
+                expect_lines=[(0, "A" * 100), (1, "second"), (2, "~")]
+            )
+            self.run_test_terminal_screen(
+                "Terminal size 256x40 (height capped at 255)",
+                "Hello\n",
+                b":q!\r",
+                rows=256, cols=40,
+                expect_cursor=(0, 0),
+                expect_lines=[(0, "Hello"), (1, "~"), (253, "~"), (255, "")]
+            )
+
+            # A copy of the build whose size query the emulator does not
+            # answer takes the reply from the keys
+            no_reply_bin = self.terminal_bin_without_dsr_reply()
+            self.run_test_terminal_screen(
+                "Terminal size from a reply sent as keys",
+                "Hello\n",
+                b"\x1b[10;40R:q!\r",
+                rows=10, cols=40,
+                expect_lines=[(0, "Hello"), (8, "~")],
+                expect_status_contains="/t ",
+                binary=no_reply_bin
+            )
+            # Keys typed before the reply arrives are dropped, not read as
+            # part of the size (the last two would end a parse that takes
+            # any run of digits before the reply's ESC)
+            for typed_name, typed in [("a letter", b"j"), ("a digit", b"5"),
+                                      ("an arrow key", b"\x1b[A"),
+                                      ("digits and letters", b"5j5j"),
+                                      ("a Ctrl-arrow key", b"\x1b[1;5C"),
+                                      # Runs of digits split by a char other
+                                      # than ';', ending in R
+                                      ("two Deletes and x12R",
+                                       b"\x1b[3~\x1b[3~x12R"),
+                                      ("digits, a letter, digits and R",
+                                       b"5x12R"),
+                                      # A key shaped like a reply: xterm's
+                                      # F3 with a modifier is ESC[1;<mod>R,
+                                      # one row, which no screen has (the
+                                      # size was 1x2, where ':q!' does not
+                                      # fit the command line)
+                                      ("xterm's Shift-F3", b"\x1b[1;2R"),
+                                      ("xterm's Ctrl-Alt-Shift-F3",
+                                       b"\x1b[1;8R")]:
+                self.run_test_terminal_screen(
+                    f"Terminal size with {typed_name} typed before the reply",
+                    "Hello\n",
+                    typed + b"\x1b[10;40R:q!\r",
+                    rows=10, cols=40,
+                    expect_lines=[(0, "Hello"), (8, "~")],
+                    expect_status_contains="/t ",
+                    binary=no_reply_bin
+                )
+
             # Terminal size with baud rate
             self.run_test_terminal_screen(
                 "Terminal size with baud rate",
@@ -10132,13 +15342,21 @@ class EditorTestRunner:
                 rows=10, cols=40,
                 expect_lines=[(0, "Hello")],
                 expect_status_contains="/t ",
-                extra_args=["--cpu-mhz", "1", "--baud", "9600"]
+                emu_args=["--cpu-mhz", "1", "--baud", "9600"]
             )
 
             # --------------------------------------------------------
             # Screen state tests in terminal mode
             # --------------------------------------------------------
             self._group("Terminal mode - screen state:", leading_blank=True)
+
+            # A key that changes nothing on the screen sends nothing
+            for name, before, key in (("ESC", b"l", b"\x1b"),
+                                      ("h at column 0", b"", b"h"),
+                                      ("an unmapped key", b"l", b"Q")):
+                self.run_test_sends_nothing(
+                    "Terminal no-op key sends nothing: " + name, "Hello\n",
+                    before, key, after=b"$", terminal=True)
 
             # Cursor at (0,0) on open
             self.run_test_terminal_screen(
@@ -10212,12 +15430,39 @@ class EditorTestRunner:
                 expect_status_contains="/t "
             )
 
-            # Status bar shows mode (COMMAND after :)
+            # Status bar shows the mode (':' draws no frame of its own)
             self.run_test_terminal_screen(
-                "Terminal status bar shows COMMAND",
+                "Terminal status bar shows NORMAL",
                 "Hello\n",
                 b":q!\r",
-                expect_status_contains="COMMAND - 1,"
+                expect_status_contains="NORMAL - 1,"
+            )
+
+            # ':' sends no frame of its own: frame 1 is the command's
+            self.run_test_terminal_screen(
+                "Terminal command entry sends no status-only frame",
+                "L1\nL2\nL3\nL4\nL5\n",
+                b":1,3d\r:q!\r",
+                expect_lines_at_frame=[(1, [(0, "L4"), (1, "L5")])],
+                expect_status_at_frame=[(1, "3 fewer lines")],
+            )
+
+            # A range command's report stays until the next key
+            self.run_test_terminal_screen(
+                "Terminal range message stays until the next key",
+                make_lines(5),
+                b":1,3d\rj:q!\r",
+                expect_lines_at_frame=[(1, [(0, "Line 4"), (1, "Line 5")])],
+                expect_status_at_frame=[(1, "3 fewer lines"),
+                                        (2, "NORMAL - 2,")],
+            )
+            # So does an error message, and the key after it runs
+            self.run_test_terminal_screen(
+                "Terminal error message stays until the next key, which runs",
+                make_lines(5),
+                b":foo\rj:q!\r",
+                expect_status_at_frame=[(1, "Unknown command"),
+                                        (2, "NORMAL - 2,")],
             )
 
             # Status bar after cursor movement
@@ -10225,7 +15470,7 @@ class EditorTestRunner:
                 "Terminal status bar after j",
                 "Hello\nWorld\n",
                 b"jlll:q!\r",
-                expect_status_contains="COMMAND - 2,"
+                expect_status_contains="NORMAL - 2,"
             )
 
             # Scrolling down past screen bottom
@@ -10260,7 +15505,7 @@ class EditorTestRunner:
                 "Terminal ESC returns to normal mode",
                 "Hello\n",
                 b"i\x1b:q!\r",
-                expect_status_contains="COMMAND"
+                expect_status_contains="NORMAL"
             )
 
             # --------------------------------------------------------
@@ -10276,7 +15521,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"lll:q!\r",
                 expect_cursor=(0, 3),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Insert with baud rate
@@ -10285,7 +15530,28 @@ class EditorTestRunner:
                 "Hello\n",
                 b"iX\x1b:q!\r",
                 expect_lines=[(0, "XHello")],
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
+            )
+
+            # ESC and O arrive back to back on the serial link: still
+            # Escape then open a line above
+            self.run_test_terminal_screen(
+                "Terminal baud: typed-ahead ESC O opens line above",
+                "first\n",
+                b"Aabc\x1bOxyz\x1b:wq\r",
+                expect_lines=[(0, "xyz"), (1, "firstabc")],
+                expected_content="xyz\nfirstabc\n",
+                emu_args=BAUD_ARGS
+            )
+
+            # Keys queue up behind a slow link: a partial pair (dddw)
+            # still paints the dd
+            self.run_test_terminal_screen(
+                "Terminal baud: dddw partial pair paints the dd",
+                make_lines(5),
+                b"dddw:q!\r",
+                expect_lines=[(0, "2"), (1, "Line 3"), (4, "~")],
+                emu_args=BAUD_ARGS
             )
 
             # Scrolling with baud rate
@@ -10295,7 +15561,7 @@ class EditorTestRunner:
                 b"jjjjjjjjj:q!\r",
                 expect_cursor=(8, 0),
                 expect_lines=[(0, "Line 2"), (8, "Line 10")],
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # --------------------------------------------------------
@@ -10394,7 +15660,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"iABC\x1b:wq\r",
                 expected_content="ABCHello\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Batch delete with baud rate
@@ -10403,7 +15669,7 @@ class EditorTestRunner:
                 "Hello\n",
                 b"xx:wq\r",
                 expected_content="llo\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # dd with baud rate
@@ -10412,7 +15678,7 @@ class EditorTestRunner:
                 "Line 1\nLine 2\nLine 3\n",
                 b"dd:wq\r",
                 expected_content="Line 2\nLine 3\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Command mode with baud rate
@@ -10421,8 +15687,19 @@ class EditorTestRunner:
                 "Test\n",
                 b":wq\r",
                 expected_content="Test\n",
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
+
+            # Keys typed ahead while the editor starts: the terminal's one
+            # reply to the startup size query must not land among them
+            # (a second, test-made reply once split the >> pair, and the
+            # :wq that followed never ran)
+            for baud in ("1200", "2400"):
+                self.run_test_terminal(
+                    f"Terminal baud: keys typed ahead at startup ({baud})",
+                    make_lines(20), b">>dd:wq\r",
+                    expected_content=make_lines(20).split("\n", 1)[1],
+                    emu_args=["--cpu-mhz", "1", "--baud", baud])
 
             # Search mode with baud rate
             self.run_test_terminal_screen(
@@ -10430,7 +15707,7 @@ class EditorTestRunner:
                 "First\nLine 2\nLine 3\n",
                 b"/Line\r:q!\r",
                 expect_cursor=(1, 0),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
 
             # Backward search
@@ -10439,34 +15716,215 @@ class EditorTestRunner:
                 "alpha\nbeta\ngamma\n",
                 b"jj?alpha\r:q!\r",
                 expect_cursor=(0, 0),
-                extra_args=BAUD_ARGS
+                emu_args=BAUD_ARGS
             )
+
+            # --------------------------------------------------------
+            # The remembered column (vim's curswant), keys one at a time
+            # --------------------------------------------------------
+            self._group("Terminal mode - remembered column, keys one at a "
+                        "time:", leading_blank=True)
+
+            # j, k and the insert-mode arrows go back to the column the
+            # cursor had before a run of them (after $: the end of each
+            # line), as in vi and vim, rather than to the column a shorter
+            # line clamped it to.  Count digits, ESC and a cancelled
+            # operator leave the column remembered; other commands (x, yy)
+            # start over from the cursor's column.
+            PACE_ARGS = ["--cpu-mhz", "2", "--baud", "115200"]
+            short = "abcdef\nab\nabcdef\n"
+            longer = "abcdefgh\nab\nabcdefgh\n"
+            for name, content, groups, expected in (
+                ("j j across a short line", short,
+                 [b"4l", b"j", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("k k across a short line", short,
+                 [b"G", b"4l", b"k", b"k", b"x"], "abcdf\nab\nabcdef\n"),
+                ("$ j j stays at the ends of the lines", short,
+                 [b"$", b"j", b"j", b"x"], "abcdef\nab\nabcde\n"),
+                ("insert Down Down across an empty line", ".\n\nm\n",
+                 [b"a", b"\x1b[B", b"\x1b[B", b"8", b"\x1b"], ".\n\nm8\n"),
+                ("insert Up Up across a short line", short,
+                 [b"G$a", b"\x1b[A", b"\x1b[A", b"X", b"\x1b"],
+                 "abcdefX\nab\nabcdef\n"),
+                ("a count digit keeps it", short,
+                 [b"4l", b"j", b"1", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("ESC keeps it", short,
+                 [b"4l", b"j", b"\x1b", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("d ESC keeps it", longer,
+                 [b"6l", b"j", b"d", b"\x1b", b"j", b"x"],
+                 "abcdefgh\nab\nabcdefh\n"),
+                ("x starts over", longer,
+                 [b"6l", b"j", b"x", b"j", b"x"], "abcdefgh\na\nbcdefgh\n"),
+                ("yy starts over", longer,
+                 [b"6l", b"j", b"y", b"y", b"j", b"x"],
+                 "abcdefgh\nab\nacdefgh\n"),
+                # As in vim, a ':' command that leaves the cursor where it
+                # is, m, and a command that fails without moving it keep
+                # it too (vim sets curswant only when the cursor moves or
+                # the text changes); :N, :d and :> start over
+                (":w keeps it", short,
+                 [b"4l", b"j", b":w\r", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                (":1,2y keeps it", short,
+                 [b"4l", b"j", b":1,2y\r", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                (":marks keeps it", short,
+                 [b"4l", b"j", b":marks\r", b" ", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                ("an unknown command keeps it", short,
+                 [b"4l", b"j", b":xyz\r", b"\x1b", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                (": ESC keeps it", short,
+                 [b"4l", b"j", b":", b"\x1b", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                (":2 starts over", short,
+                 [b"4l", b"j", b":2\r", b"j", b"x"], "abcdef\nab\nbcdef\n"),
+                (":2d starts over", short + "abcdef\n",
+                 [b"4l", b"j", b":2d\r", b"\x1b", b"j", b"x"],
+                 "abcdef\nabcdef\nbcdef\n"),
+                (":2> starts over", short,
+                 [b"4l", b"j", b":2>\r", b"j", b"x"],
+                 "abcdef\n  ab\nabdef\n"),
+                ("m keeps it", short,
+                 [b"4l", b"j", b"m", b"a", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                ("p with nothing yanked keeps it", short,
+                 [b"4l", b"j", b"p", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("l at the line end keeps it", short,
+                 [b"4l", b"j", b"l", b"j", b"x"], "abcdef\nab\nabcdf\n"),
+                ("h at column 0 keeps it", "abcdef\n\nabcdef\n",
+                 [b"4l", b"j", b"h", b"j", b"x"], "abcdef\n\nabcdf\n"),
+                ("r ESC keeps it", short,
+                 [b"4l", b"j", b"r", b"\x1b", b"j", b"x"],
+                 "abcdef\nab\nabcdf\n"),
+                ("~ on an empty line keeps it", "abcdef\n\nabcdef\n",
+                 [b"4l", b"j", b"~", b"j", b"x"], "abcdef\n\nabcdf\n"),
+                (">> on an empty line starts over", "abcdef\n\nabcdef\n",
+                 [b"4l", b"j", b">", b">", b"j", b"x"],
+                 "abcdef\n\nbcdef\n"),
+                ("h from column 1 starts over", short,
+                 [b"4l", b"j", b"h", b"j", b"x"], "abcdef\nab\nbcdef\n"),
+            ):
+                self.run_test_terminal(
+                    f"Remembered column, one at a time: {name}", content,
+                    None, expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+
+            # The undo of insert-mode typing is the same with the keys typed
+            # one at a time and typed ahead (a batch ends at a cursor key,
+            # so it never runs past a stretch of typing): vim's results
+            for name, content, groups, expected in (
+                ("Enter and BS", "abc\ndef\n",
+                 [b"j", b"A"] + [bytes([c]) for c in b"xy\rz\x08\x08w"]
+                 + [b"\x1b", b"u"], "abc\ndef\n"),
+                ("a Left between", "abc\n",
+                 [b"A", b"h", b"i", b"\x1b[D", b"X", b"Y", b"\x1b", b"u"],
+                 "abchi\n"),
+                ("o, Enter, then u u", "abc\n",
+                 [b"o", b"f", b"\r", b"g", b"\x1b", b"u", b"u"],
+                 "abc\nf\ng\n"),
+            ):
+                self.run_test_terminal(
+                    f"Insert undo, one at a time: {name}", content, None,
+                    expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+                self.run_test_terminal(
+                    f"Insert undo, typed ahead: {name}", content,
+                    b"".join(groups) + b"\x1b:wq\r",
+                    expected_content=expected, emu_args=PACE_ARGS)
+
+            # Counts on i and o: the same with the keys typed one at a
+            # time and typed ahead (vim's results)
+            for name, content, groups, expected in (
+                ("3o, typing and Enter", "abc\ndef\n",
+                 [b"3", b"o", b"a", b"\r", b"b", b"\x1b"],
+                 "abc\na\nb\na\nb\na\nb\ndef\n"),
+                ("3i, typing and BS, then u", "abc\n",
+                 [b"3", b"i", b"x", b"y", b"\x08", b"z", b"\x1b", b"u"],
+                 "abc\n"),
+                ("3i, a Left drops the count", "abc\n",
+                 [b"3", b"i", b"a", b"\x1b[D", b"b", b"\x1b"], "baabc\n"),
+            ):
+                self.run_test_terminal(
+                    f"Count insert, one at a time: {name}", content, None,
+                    expected_content=expected, emu_args=PACE_ARGS,
+                    key_groups=groups + [b"\x1b", b":wq\r"])
+                self.run_test_terminal(
+                    f"Count insert, typed ahead: {name}", content,
+                    b"".join(groups) + b"\x1b:wq\r",
+                    expected_content=expected, emu_args=PACE_ARGS)
+
+            # --------------------------------------------------------
+            # Escape sequences on a slow link
+            # --------------------------------------------------------
+            self._group("Terminal mode - escape sequences at 300 baud:",
+                        leading_blank=True)
+
+            # At 300 baud each byte takes 33 ms, so the '[' of an arrow key
+            # arrives 33 ms after its ESC. The ESC wait must be longer than
+            # that, or the ESC is taken as bare and the final byte runs as a
+            # command (Left -> D, Delete -> 3~). Each group is typed once the
+            # screen has settled, so the ESC reaches an idle editor
+            SLOW_ARGS = ["--cpu-mhz", "2", "--baud", "300"]
+            for name, content, groups, expected in (
+                ("Left arrow is one key", "hello world\n",
+                 [b"$", b"\x1b[D", b"x", b":wq\r"], "hello word\n"),
+                ("Delete key is one key", "hello\n",
+                 [b"\x1b[3~", b":wq\r"], "ello\n"),
+                ("Up arrow in insert mode", "one\ntwo\n",
+                 [b"jA", b"\x1b[A", b"X", b"\x1b", b":wq\r"], "oneX\ntwo\n"),
+                ("bare ESC still leaves insert mode", "hello\n",
+                 [b"ihi", b"\x1b", b":wq\r"], "hihello\n"),
+            ):
+                self.run_test_terminal(
+                    f"Terminal 300 baud: {name}", content, None,
+                    expected_content=expected, emu_args=SLOW_ARGS,
+                    key_groups=groups)
+
+            # A quick ESC O and then a pause is Escape, open a line above:
+            # the wait for an F1-F4 final byte times out, so the P typed
+            # afterwards is text, not F1
+            self.run_test_terminal(
+                "Terminal 300 baud: ESC O, a pause, then P is text",
+                "first\n", None, expected_content="P\nfirstabc\n",
+                emu_args=SLOW_ARGS,
+                key_groups=[b"Aabc", b"\x1bO", b"P\x1b", b":wq\r"])
 
             # --------------------------------------------------------
             # Baud rate batching tests
             # --------------------------------------------------------
             self._group("Terminal mode - baud rate batching:", leading_blank=True)
 
-            BAUD2_ARGS = ["--cpu-mhz", "2", "--baud", "9600"]
+            BAUD2_ARGS = ["--cpu-mhz", "2", "--baud", "38400"]
 
-            # Insert 5 chars at 2MHz/9600 baud - should batch into fewer
+            # Insert 5 chars at 2MHz/38400 baud - should batch into fewer
             # frames than 5.  With hardware FIFO buffering, chars accumulate
             # in the RX buffer during rendering and the editor reads them
-            # all in one batch.  Verify only 1 content redraw for the
-            # insert (frame index 1), not 5 separate redraws.
+            # all in one batch: no frame shows a partly typed word.  (The
+            # link must deliver them during the frame i draws: that frame
+            # takes about 5 ms at 2 MHz, where five chars take 1.3 ms at
+            # 38400 baud; at 9600 baud they took 5.2 ms, which only a
+            # slower frame covered.)
             self.run_test_terminal_screen(
                 "Terminal baud: insert batching",
                 "\n",
                 b"ihello\x1b:q!\r",
                 expect_lines=[(0, "hello")],
-                expect_lines_at_frame=[
-                    # Frame 1: enter insert mode, no chars yet
-                    (1, [(0, "")]),
-                    # Frame 2: all 5 chars batched in one redraw
-                    (2, [(0, "hello")]),
-                ],
-                extra_args=BAUD2_ARGS
+                expect_row_texts=(0, ["", "hello"]),
+                emu_args=BAUD2_ARGS
             )
+
+            # dd pairs typed ahead on the last line arrive together over the
+            # link; past the last line each one deletes the line above
+            for name, args in [("Terminal: dddd on last line", None),
+                               ("Terminal baud: dddd on last line", BAUD2_ARGS)]:
+                self.run_test_terminal_screen(
+                    name,
+                    "a\nb\nc\n",
+                    b"Gdddd:wq\r",
+                    expect_lines=[(0, "a"), (1, "~")],
+                    expected_content="a\n",
+                    emu_args=args
+                )
 
         # ============================================================
         # Scroll region optimization tests
@@ -10561,8 +16019,9 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            # Frame 2 (dd): cursor row + bottom row touched
-            expect_content_rows=[(2, {3, 8})]
+            # Frame 2 (dd): only the bottom row is touched (the scroll
+            # already moved Line 5 into the cursor row)
+            expect_content_rows=[(2, {8})]
         )
 
         # dd at row 0: entire content area scrolls up, bottom row rendered
@@ -10577,8 +16036,8 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(0, 0),
-            # Frame 1 (dd): cursor row + bottom row touched
-            expect_content_rows=[(1, {0, 8})]
+            # Frame 1 (dd): only the bottom row is touched
+            expect_content_rows=[(1, {8})]
         )
 
         # 3dd: 3 lines deleted, 3 bottom rows need rendering
@@ -10594,8 +16053,245 @@ class EditorTestRunner:
                 (6, "Line 10"), (7, "Line 11"), (8, "Line 12"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 (3dd): cursor row + bottom 3 rows touched
-            expect_content_rows=[(2, {0, 6, 7, 8})]
+            # Frame 2 (3dd): only the bottom 3 rows are touched
+            expect_content_rows=[(2, {6, 7, 8})]
+        )
+
+        # dd with the cursor on a wrap row (dd goes to the first non-blank,
+        # past 42 spaces here): the scroll already moved the next line (and
+        # all below) into place, so only the two exposed bottom rows are
+        # drawn.  Frames: 0=initial, 1=jj, 2=$, 3=dd.
+        self.run_test_screen(
+            "Scroll opt: dd with the cursor on a wrap row draws only the "
+            "exposed rows",
+            "".join(" " * 42 + f"{i:02d} " + "abcdefghij" * 2 + "\n"
+                    for i in range(20)),
+            b"jj$dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(4, ""), (5, "  03 " + "abcdefghij" * 2),
+                          (6, ""), (7, "  04 " + "abcdefghij" * 2), (8, "")],
+            expect_cursor=(5, 2),
+            expect_content_rows=[(3, {7, 8})]
+        )
+        # dd with the cursor on the next line's third row (its first
+        # non-blank, col 45 at 20 cols) when the deleted rows outnumber the
+        # rows below the cursor: the scroll still covers every deleted row
+        # from the line's first row (row 5), not only those below the
+        # cursor row
+        self.run_test_screen(
+            "Scroll opt: dd with the cursor on a wrap row scrolls every "
+            "deleted row",
+            "r0\nr1\nr2\nr3\nr4\n" + "D" * 50 + "\n" + " " * 45 + "N" * 25
+            + "\nz\n",
+            b"5jdd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(4, "r4"), (5, ""), (6, ""),
+                          (7, " " * 5 + "N" * 15), (8, "N" * 10)],
+            expect_cursor=(7, 5),
+        )
+
+        # A delete whose rows reach the bottom of the screen exposes every
+        # row below the cursor: they must all be repainted, and since they
+        # are, scrolling them first would only waste bytes.
+        # Frames: 0=initial, 1=jjj cursor, 2=count '6', 3=6dd
+        self.run_test_screen(
+            "Scroll opt: 6dd reaching the bottom repaints the rows below",
+            make_lines(20),
+            b"jjj6dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")]
+                         + [(i, f"Line {i + 7}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(3, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(3, False)]
+        )
+        # Frames: 0=initial, 1=count '9', 2=9dd
+        self.run_test_screen(
+            "Scroll opt: 9dd at the top repaints the whole screen",
+            make_lines(20),
+            b"9dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 10}") for i in range(9)],
+            expect_cursor=(0, 0),
+            expect_content_rows=[(2, set(range(9)))],
+            expect_scrolled_at_frame=[(2, False)]
+        )
+        # dd on the second-last row: the scroll moves Line 9 up into the
+        # cursor row, so only the last row is drawn.
+        # Frames: 0=initial, 1=j x7 cursor, 2=dd
+        self.run_test_screen(
+            "Scroll opt: dd on the second-last row draws only the last row",
+            make_lines(15),
+            b"j" * 7 + b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Line 9"), (8, "Line 10")],
+            expect_cursor=(7, 0),
+            expect_content_rows=[(2, {8})],
+            expect_scroll_rows=[(2, {7, 8})]
+        )
+        self.run_test_screen(
+            "Scroll opt: 2dd on the second-last row repaints the last row",
+            make_lines(20),
+            b"7j2dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, "Line 10"), (8, "Line 11")],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 3J reaching the bottom repaints the last row",
+            make_lines(20),
+            b"7j3J:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "Line 7"), (7, "Line 8 Line 9 Line 10"),
+                          (8, "Line 11")],
+            expect_cursor=(7, 13),
+        )
+        self.run_test_screen(
+            "Scroll opt: dd of a wrapped line filling the screen",
+            "A" * 400 + "\n" + make_lines(11),
+            b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(0, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 2dd deleting every line draws the tildes",
+            "A" * 80 + "\n" + "B" * 20 + "\n",
+            b"2dd:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, ""), (1, "~"), (2, "~"), (3, "~"), (4, "~")],
+            expect_cursor=(0, 0),
+        )
+        # A dd leaving one line scrolls it up: only the exposed row is drawn
+        self.run_test_screen(
+            "Scroll opt: dd leaving one line scrolls it up",
+            "abc\ndef\n",
+            b"dd:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "def"), (1, "~"), (8, "~")],
+            expect_cursor=(0, 0),
+            expect_scroll_rows=[(1, set(range(9)))],
+            expect_content_rows=[(1, {8})]
+        )
+        # The same for counted and batched dd, cc and its redo, a counted D
+        # (a char delete that joins lines), and de/ce over short or empty
+        # lines, at several screen sizes; and a J or cc leaving a one-row
+        # region below the cursor line, which is not scrolled at all
+        f03 = "".join(f"{i:03d} abcdefghijklmnopqrstuvwxyz\n"
+                      for i in range(300))
+        row03 = lambda i: f"{i:03d} abcdefghijklmnopqrstuvwxyz"
+        tildes = lambda first, last: [(r, "~") for r in range(first, last)]
+        short9 = "a\nb\nc\nd\ne\nf\ng\nh\ni\nab  ba ba \n"
+        second_last = "ccc\nbb\nbb\nccc\nbb\na\n"
+        for name, content, keys, rows, cols, lines, cursor in (
+                ("32 batched dd", "".join(f"line {i}\n" for i in range(300)),
+                 b"dd" * 32, 24, 80,
+                 [(r, f"line {r + 32}") for r in range(23)], (0, 0)),
+                ("30dd", f03, b"30dd", 24, 80,
+                 [(r, row03(r + 30)) for r in range(23)], (0, 0)),
+                ("100cc", f03, b"100cc\x1b", 24, 80,
+                 [(0, "")] + [(r, row03(r + 99)) for r in range(1, 23)],
+                 (0, 0)),
+                ("10cc", f03, b"10cc\x1b", 10, 40,
+                 [(0, "")] + [(r, row03(r + 9)) for r in range(1, 9)],
+                 (0, 0)),
+                ("3cc redo", "x" * 25 + "\n" + "x" * 74 + "\n", b"3cc\x1bu\x1bu",
+                 10, 10, [(0, "")] + tildes(1, 9), (0, 0)),
+                ("8D", make_lines(20), b"jjl8D", 10, 40,
+                 [(2, "L")] + [(r, f"Line {r + 8}") for r in range(3, 9)],
+                 (2, 0)),
+                ("30D", make_lines(400), b"9Gl30D", 24, 80,
+                 [(8, "L")] + [(r, f"Line {r + 30}") for r in range(9, 23)],
+                 (8, 0)),
+                ("9de", short9, b"9de", 10, 40,
+                 [(0, "  ba ba")] + tildes(1, 9), (0, 0)),
+                ("9ce", short9, b"9ceX\x1b", 10, 40,
+                 [(0, "X  ba ba")] + tildes(1, 9), (0, 0)),
+                ("4ce", "a\nb\nc\nd\nab  ba ba \n", b"4ceX\x1b", 5, 20,
+                 [(0, "X  ba ba")] + tildes(1, 4), (0, 0)),
+                ("de over empty lines", "a \n" + "\n" * 9 + "b c\n", b"de",
+                 10, 40, [(0, " c")] + tildes(1, 9), (0, 0)),
+                ("2de over empty lines", "X\n\n\n\n\nab. b.b.b. . baa ab a"
+                 "   ba  \nba.bba  .aa a .b.bbbba.ba..b  \nababaa\n", b"2de",
+                 5, 20, [(0, " b.b.b. . baa ab a"), (1, " ba"),
+                         (2, "ba.bba  .aa a .b.bbb"), (3, "ba.ba..b")],
+                 (0, 0)),
+                ("3J from the second-last row", second_last + "q\n",
+                 b"jjj3J", 6, 20, [(3, "ccc bb a"), (4, "q")], (3, 6)),
+                ("3cc from the second-last row", second_last + "q\n",
+                 b"jjj3ccZ\x1b", 6, 20, [(3, "Z"), (4, "q")], (3, 0)),
+                ("3cc to the end from the second-last row", second_last,
+                 b"jjj3ccZ\x1b", 6, 20, [(3, "Z"), (4, "~")], (3, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {name} repaints the rows below",
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=lines, expect_cursor=cursor)
+        # A counted dd to the end of the file, then a dd of the new last line
+        self.run_test_screen(
+            "Scroll opt: 51dd to the end of the file then dd repaints",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"250G51dd\x1bdd:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(r, f"line {r + 227}") for r in range(21)]
+                         + [(21, "~"), (22, "~")],
+            expect_cursor=(20, 0),
+        )
+
+        # Undo/redo deletes (RENDER_FLAG $07) leave the cursor row to the
+        # scroll: it must be repainted when the scroll clears it or when a
+        # one-row region is not scrolled at all.
+        self.run_test_screen(
+            "Scroll opt: O undo on the last row repaints it",
+            make_lines(20),
+            b"8jO\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: dd redo on the last row repaints it",
+            make_lines(20),
+            b"8jddu\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(8)]
+                         + [(8, "Line 10")],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 2-line P undo near the bottom repaints the rows",
+            make_lines(20),
+            b"7j2yyPu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 1}") for i in range(9)],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 6dd redo reaching the bottom repaints the rows",
+            make_lines(20),
+            b"jjj6ddu\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3")]
+                         + [(i, f"Line {i + 7}") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 5-line p undo on the last row repaints it",
+            make_lines(20),
+            b"8j5yypu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, f"Line {i + 2}") for i in range(9)],
+            expect_cursor=(7, 0),
+        )
+        # ... without scrolling them first when they are the whole region
+        # Frames: 0=initial, 1=jjj, 2=count '6', 3=6dd, 4=u, 5=u
+        self.run_test_screen(
+            "Scroll opt: 6dd redo reaching the bottom repaints without a scroll",
+            make_lines(20),
+            b"jjj6ddu\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_content_rows=[(5, {3, 4, 5, 6, 7, 8})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # o at mid-screen: scroll shifts rows below insertion down,
@@ -10613,8 +16309,9 @@ class EditorTestRunner:
                 (8, "Line 8"),
             ],
             expect_cursor=(4, 0),
-            # Frame 2 (o): only new line row needs rendering (row above unchanged)
-            expect_content_rows=[(2, {4})]
+            # Frame 2 (o): no row is written (the new empty row is the one
+            # IL opened; the row above is unchanged)
+            expect_content_rows=[(2, set())]
         )
 
         # O at mid-screen: scroll shifts cursor row and below down,
@@ -10631,12 +16328,13 @@ class EditorTestRunner:
                 (7, "Line 7"), (8, "Line 8"),
             ],
             expect_cursor=(3, 0),
-            # Frame 2 (O): only new line row needs rendering (row above unchanged)
-            expect_content_rows=[(2, {3})]
+            # Frame 2 (O): no row is written (the new empty row is the one
+            # IL opened; the row above is unchanged)
+            expect_content_rows=[(2, set())]
         )
 
         # p (line paste below) at mid-screen uses scroll
-        # Frames: 0=initial, 1=jjj cursor, 2=yy status, 3=p scroll
+        # Frames: 0=initial, 1=jjj cursor, 2=p scroll
         self.run_test_screen(
             "Scroll opt: p (line paste) uses scroll",
             make_lines(15),
@@ -10649,8 +16347,8 @@ class EditorTestRunner:
                 (8, "Line 8"),
             ],
             expect_cursor=(4, 0),
-            # Frame 3 (p): only pasted row needs rendering (row above unchanged)
-            expect_content_rows=[(3, {4})]
+            # Frame 2 (p): only pasted row needs rendering (row above unchanged)
+            expect_content_rows=[(2, {4})]
         )
 
         # J at mid-screen: join decreases LINE_COUNT16, scroll shifts up.
@@ -10691,13 +16389,13 @@ class EditorTestRunner:
         )
 
         # J redo at mid-screen: scroll region should NOT include the cursor row.
-        # Sequence: J, u (undo), space (break u-batching), u (redo).
-        # Frames: 0=initial, 1=jjj cursor, 2=J, 3=u (undo), 4=space (status),
-        #         5=u (redo)
+        # Sequence: J, u (undo), ESC (break u-batching), u (redo).
+        # Frames: 0=initial, 1=jjj cursor, 2=J, 3=u (undo),
+        #         4=u (redo)
         self.run_test_screen(
             "Scroll opt: J redo does not scroll cursor row",
             make_lines(15),
-            b"jjjJu u:q!\r",
+            b"jjjJu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -10705,8 +16403,8 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 6),
-            # Frame 5 (redo J): scroll region should be rows 4-8, NOT 3-8
-            expect_scroll_rows=[(5, {4, 5, 6, 7, 8})]
+            # Frame 4 (redo J): scroll region should be rows 4-8, NOT 3-8
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
         # J on wrapped cursor line: both wrap rows must show correct content.
@@ -10752,12 +16450,12 @@ class EditorTestRunner:
         )
 
         # J redo on wrapped cursor line: scroll region must skip wrap rows.
-        # Sequence: J, u (undo), space (break u-batching), u (redo).
-        # Frames: 0=initial, 1=jj cursor, 2=J, 3=u (undo), 4=space, 5=u (redo)
+        # Sequence: J, u (undo), ESC (break u-batching), u (redo).
+        # Frames: 0=initial, 1=jj cursor, 2=J, 3=u (undo), 4=u (redo)
         self.run_test_screen(
             "Scroll opt: J redo on wrapped cursor line scroll region",
             wrap_j_content,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -10768,7 +16466,7 @@ class EditorTestRunner:
                 (8, "Short 9"),
             ],
             expect_cursor=(3, 2),
-            expect_scroll_rows=[(5, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
         # J undo on wrapped cursor line: after undo, screen should return
@@ -10796,7 +16494,7 @@ class EditorTestRunner:
         # "123456789012345678901" (21 chars) producing "A 123..." (23 chars)
         # which wraps to 2 rows. Undo restores original 3 lines, cursor line
         # "A" shrinks from 2 wrapped rows to 1 row, so lines below must
-        # scroll down to fill the gap.
+        # scroll down to fill the gap: those below the joined line's 2 rows
         # Frames: 0=initial, 1=J, 2=u (undo)
         self.run_test_screen(
             "Scroll opt: J undo unwraps result scrolls lines below",
@@ -10810,13 +16508,13 @@ class EditorTestRunner:
                 (3, "B"),
             ],
             expect_cursor=(0, 0),
-            expect_scroll_rows=[(2, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
         )
 
         # J undo unwraps at mid-screen: cursor at row 3, J joins "A" with
         # "123456789012345678901" (21 chars) producing wrapped result (2 rows).
         # Before J: A(1) + 123...(2) = 3 rows. After J: 2 rows. Undo: back to 3.
-        # Scroll region should start below cursor row 3, not at cursor.
+        # The rows below the joined line's (rows 3-4) move down.
         # Frames: 0=initial, 1=jjj cursor, 2=J, 3=u (undo)
         undo_unwrap_mid = ("Short 1\nShort 2\nShort 3\n"
                            "A\n123456789012345678901\nB\n"
@@ -10835,14 +16533,196 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(3, 0),
-            expect_scroll_rows=[(3, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(3, {5, 6, 7, 8})]
+        )
+
+        # u of J redraws from the first join point: the text before it is
+        # as it was.  Frames: 0=initial, 1=j, 2=J, 3=u
+        self.run_test_screen(
+            "Scroll opt: J undo draws from the join point",
+            "abc\ndef\nghi\njkl\n",
+            b"jJu:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "jkl"),
+                          (4, "~")],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(3, {1, 2})],
+            expect_min_col=[(3, 1, 3)],
+        )
+
+        # A multi-line char paste redraws the split line from the paste
+        # column, after the rows below have moved down.  Frames: 0=initial,
+        # 1=l, 2=jj, 3=5l, 4=P (ye, and the count, which the status bar
+        # cut at 20 columns does not show, send no frame)
+        self.run_test_screen(
+            "Scroll opt: multi-line char P draws from the paste column",
+            "ab\ncd\n0123456789ABCDEFGHIJ\nzz\n",
+            b"lyejj5lP:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "ab"), (1, "cd"), (2, "012345b"),
+                          (3, "cd6789ABCDEFGHIJ"), (4, "zz"), (5, "~")],
+            expect_cursor=(2, 6),
+            expect_content_rows=[(4, {2, 3})],
+            expect_min_col=[(4, 2, 6)],
+        )
+
+        # P of copies that take over 255 rows: they fill the rows below the
+        # cursor's, which scroll away, and only those are drawn.  Frames:
+        # 0=initial, 1=j, 2=3, 3=0, 4=P
+        self.run_test_screen(
+            "Scroll opt: P of copies over 255 rows scrolls the rows below",
+            "a\n" + "b" * 400 + "\nc\nd\n",
+            b"jyy30P:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b" * 40), (8, "b" * 40)],
+            expect_cursor=(1, 0),
+            expect_content_rows=[(4, {1, 2, 3, 4, 5, 6, 7, 8})],
+        )
+
+        # P of a line whose first non-blank is past the screen width puts
+        # the cursor on the line's second row: the rows below still move
+        # down and only the new line's rows are drawn.  Frames: 0=initial,
+        # 1=j, 2=P
+        self.run_test_screen(
+            "Scroll opt: P of a line starting past the screen width scrolls",
+            "aa\n" + " " * 25 + "x\ncc\ndd\nee\n",
+            b"jyyP:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "aa"), (1, ""), (2, "     x"),
+                          (3, ""), (4, "     x"), (5, "cc"),
+                          (6, "dd"), (7, "ee"), (8, "~")],
+            expect_cursor=(2, 5),
+            expect_content_rows=[(2, {1, 2})],
+        )
+
+        # u of cc on the line at the bottom: the line, drawn whole, gains a
+        # row and reaches the status bar, so every row from its first is
+        # drawn and nothing is scrolled.  Frames: 0=initial, 1=G, 2=cc, 3=u
+        # (the count and ESC, which the status bar cut at 20 columns does
+        # not show, send no frame)
+        self.run_test_screen(
+            "Scroll opt: u of cc growing to the status bar sends no scroll",
+            "a\nb\nc\n" + "x" * 30 + "\ne\n",
+            b"4Gcc\x1bu:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "a"), (1, "b"), (2, "c"), (3, "x" * 20),
+                          (4, "x" * 10)],
+            expect_cursor=(3, 0),
+            expect_scrolled_at_frame=[(3, False)],
+        )
+
+        # u of a join whose lines take over 255 rows, the first of them
+        # starting above the view (the J moved it down): the rows below
+        # that count are not known, so the screen is redrawn (it left the
+        # bottom row blank).  Tall screen: 255x10.  Since the view shows
+        # the cursor line in full, as vim's does, u puts the first line
+        # back on top from its first row
+        tall_join = "".join(
+            ("%02d" % i + chr(97 + i) * 1000)[:n] + "\n"
+            for i, n in enumerate([129, 252, 64, 512, 21, 256, 43, 40, 511,
+                                   511, 120, 80, 0]))
+        self.run_test_screen(
+            "Scroll opt: u of a join over 255 rows starting above the view",
+            tall_join, b"$53Ju:q!\r", rows=255, cols=10,
+            expect_lines=[(0, "00" + "a" * 8), (252, "11" + "l" * 8),
+                          (253, "l" * 10)],
+            expect_cursor=(12, 8),
+        )
+
+        # A range of wrapped lines that grows or shrinks past the status
+        # bar is drawn as any block of lines: from its first row to the
+        # bottom (both wrap models)
+        wide = "".join("L%d " % i + "y" * 36 + "\n" for i in range(12))
+        for dw in (False, True):
+            self.run_test_screen(
+                "Range: >> of wrapped lines growing past the status bar"
+                + (" (deferred wrap)" if dw else ""),
+                wide, b"6G3>>:q!\r", rows=10, cols=40, deferred_wrap=dw,
+                expect_lines=[(4, "L4 " + "y" * 36),
+                              (5, "  L5 " + "y" * 35), (6, "y"),
+                              (7, "  L6 " + "y" * 35), (8, "y")],
+                expect_cursor=(5, 2),
+            )
+            self.run_test_screen(
+                "Range: << of wrapped lines shrinking past the status bar"
+                + (" (deferred wrap)" if dw else ""),
+                "".join("  " + l + "\n" for l in wide.split("\n")[:-1]),
+                b"6G3<<:q!\r", rows=10, cols=40, deferred_wrap=dw,
+                expect_lines=[(0, "  L2 " + "y" * 35), (1, "y"),
+                              (4, "  L4 " + "y" * 35), (5, "y"),
+                              (6, "L5 " + "y" * 36), (7, "L6 " + "y" * 36),
+                              (8, "L7 " + "y" * 36)],
+                expect_cursor=(6, 0),
+            )
+
+        # Undo/redo from another line: u jumps to the recorded line, so the
+        # repaint must use that line's height, not the height of the line
+        # the cursor was on when u was typed (a 2-row line vs a 1-row one)
+        moved_undo = ("short zero\nline 1\n" + "B" * 60
+                      + "\nline 3\nline 4\nline 5\n")
+        moved_undo_rows = [(1, "line 1"), (2, "B" * 40), (3, "B" * 20),
+                           (4, "line 3"), (5, "line 4"), (6, "line 5"),
+                           (7, "~")]
+        for keys, row0, cursor in [
+                (b"x3Gu", "short zero", (0, 0)),     # undo x, 2-row -> 1-row
+                (b"dw3Gu", "short zero", (0, 0)),    # undo dw
+                (b"~3Gu", "short zero", (0, 0)),     # undo ~
+                (b"rZ3Gu", "short zero", (0, 0)),    # undo r
+                (b"xu3Gu", "hort zero", (0, 0)),     # redo x
+                (b"3G5x1Gu", "short zero", (2, 0)),  # undo x, 1-row -> 2-row
+        ]:
+            self.run_test_screen(
+                f"Undo from another line: {keys.decode()}",
+                moved_undo, keys + b":q!\r",
+                expect_lines=[(0, row0)] + moved_undo_rows,
+                expect_cursor=cursor,
+            )
+        # J undo from another line: the joined line's old height is the
+        # 'old cursor rows' of the displacement, not the height of the
+        # line u was typed on (the 1-row 'one', then the 2-row W line)
+        moved_join = ("one\ntwo\nline 2\n" + "W" * 70
+                      + "\nline 4\nline 5\nline 6\n")
+        moved_join_rows = [(2, "line 2"), (3, "W" * 40), (4, "W" * 30),
+                           (5, "line 4"), (6, "line 5"), (7, "line 6"),
+                           (8, "~")]
+        for keys, cursor in [(b"4GJ1Gu", (3, 0)), (b"J3Gu", (0, 0))]:
+            self.run_test_screen(
+                f"Undo from another line: J undo {keys.decode()}",
+                moved_join, keys + b":q!\r",
+                expect_lines=[(0, "one"), (1, "two")] + moved_join_rows,
+                expect_cursor=cursor,
+            )
+        # ... and from the line below, onto a line that has shrunk
+        self.run_test_screen(
+            "Undo from another line: J undo Jjju",
+            "a" * 30 + "\n" + "b" * 20 + "\n" + "c" * 45
+            + "\nline 3\nline 4\n",
+            b"Jjju:q!\r",
+            expect_lines=[(0, "a" * 30), (1, "b" * 20), (2, "c" * 40),
+                          (3, "c" * 5), (4, "line 3"), (5, "line 4"),
+                          (6, "~")],
+            expect_cursor=(0, 0),
+        )
+        # D on a 1-row line, then a move that scrolls the view to a 2-row
+        # line, then u: the rows below the restored line stay in place
+        self.run_test_screen(
+            "Undo from another line: 4jD4ju",
+            "a\n" + "b" * 40 + "\n" + "c" * 41 + "\n\n" + "e" * 5 + "\n"
+            + "f" * 41 + "\n" + "g" * 84 + "\n" + "h" * 39 + "\n" + "i" * 41
+            + "\n\n" + "k" * 84 + "\nl\n",
+            b"4jD4ju:q!\r",
+            expect_lines=[(0, "e" * 5), (1, "f" * 40), (2, "f"),
+                          (3, "g" * 40), (4, "g" * 40), (5, "gggg"),
+                          (6, "h" * 39), (7, "i" * 40), (8, "i")],
+            expect_cursor=(0, 0),
         )
 
         # J undo restores wrapped next line: J on "Short" joins with
         # "This is a longer line!" (22 chars, wraps to 2 rows at 20 cols).
         # Result "Short This is a longer line!" (28 chars, 2 rows).
         # Before: 1+2=3 rows, After J: 2 rows (freed 1). Undo: back to 3 rows.
-        # Lines below must scroll down 1 to restore the wrapped line.
+        # Lines below the joined line's rows scroll down 1 to restore the
+        # wrapped line.
         # Frames: 0=initial, 1=j cursor, 2=J, 3=u (undo)
         undo_restore_wrap = ("Short 1\n"
                              "Short\nThis is a longer line!\nMore\n"
@@ -10862,7 +16742,7 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(1, 0),
-            expect_scroll_rows=[(3, {2, 3, 4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(3, {3, 4, 5, 6, 7, 8})]
         )
 
         # J undo same height no scroll: J joins two non-wrapped lines
@@ -10915,8 +16795,42 @@ class EditorTestRunner:
             ],
             expect_cursor=(3, 0),
             expect_scroll_rows=[(2, {4, 5, 6, 7, 8})],
-            # Only cursor line's 3 wrap rows repainted; rows 5-8 handled by scroll
-            expect_content_rows=[(2, {2, 3, 4})]
+            # Only the cursor line's rows from the join (row 3) on are
+            # drawn; its first row keeps its text, rows 5-8 the scroll moved
+            expect_content_rows=[(2, {3, 4})]
+        )
+
+        # A join that keeps the joined lines' row total redraws the line
+        # in place, hiding the cursor once; one that grows it scrolls the
+        # rows below down and draws the line from the join point, as an
+        # in-line edit (its rows above the join keep their text)
+        self.run_test_screen(
+            "J keeping the row total hides the cursor once",
+            "a" * 30 + "\n" + "b" * 35 + "\nc\n",
+            b"J:q!\r",
+            expect_lines=[(0, "a" * 30 + " " + "b" * 9), (1, "b" * 26),
+                          (2, "c")],
+            expect_cursor=(0, 30),
+            expect_frame_bytes=[(1, 100)],
+        )
+        self.run_test_screen(
+            "J that grows the line draws it from the join",
+            "a" * 40 + "\n" + "b" * 40 + "\nc\nd\n",
+            b"J:q!\r",
+            expect_lines=[(0, "a" * 40), (1, " " + "b" * 39), (2, "b"),
+                          (3, "c"), (4, "d")],
+            expect_cursor=(1, 0),
+            expect_frame_bytes=[(1, 112)],
+        )
+        # Frames: 0 initial, 1 '4', 2 '0', 3 l, 4 r<Enter>, 5 u
+        self.run_test_screen(
+            "u of r<Enter> that grows the line draws it from the join",
+            "a" * 40 + "x" + "b" * 40 + "\nc\nd\n",
+            b"40lr\ru:q!\r",
+            expect_lines=[(0, "a" * 40), (1, "x" + "b" * 39), (2, "b"),
+                          (3, "c"), (4, "d")],
+            expect_cursor=(1, 0),
+            expect_frame_bytes=[(5, 97)],
         )
 
         # J undo negative displacement scroll up: undo of the above J.
@@ -10939,17 +16853,18 @@ class EditorTestRunner:
             ],
             expect_cursor=(2, 0),
             expect_scroll_rows=[(3, {4, 5, 6, 7, 8})],
-            # Only cursor line (row 2) + restored line (row 3) + bottom exposed (row 8)
-            expect_content_rows=[(3, {2, 3, 8})]
+            # Only the restored line (row 3: the change starts at the end of
+            # the full row 2) + bottom exposed (row 8)
+            expect_content_rows=[(3, {3, 8})]
         )
 
         # J redo scroll down when line grows: same as J forward, but via
         # undo then redo (J, u, space, u). Scroll DOWN on redo frame.
-        # Frames: 0=initial, 1=jj cursor, 2=J, 3=u, 4=space (noop), 5=u (redo)
+        # Frames: 0=initial, 1=jj cursor, 2=J, 3=u, 4=u (redo)
         self.run_test_screen(
             "Scroll opt: J redo scroll down when line grows",
             j_grow_content,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -10960,9 +16875,10 @@ class EditorTestRunner:
                 (7, "Short 7"), (8, "Short 8"),
             ],
             expect_cursor=(3, 0),
-            expect_scroll_rows=[(5, {4, 5, 6, 7, 8})],
-            # Only cursor line's 3 wrap rows repainted; rows 5-8 handled by scroll
-            expect_content_rows=[(5, {2, 3, 4})]
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})],
+            # Only the cursor line's rows from the join (row 3) on are
+            # drawn; its first row keeps its text, rows 5-8 the scroll moved
+            expect_content_rows=[(4, {3, 4})]
         )
 
         # J undo where cursor line stays wrapped: cursor line
@@ -11010,7 +16926,7 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"),
                 (8, "Short 9"),
             ],
-            expect_cursor=(1, 0),
+            expect_cursor=(1, 7),      # where the second J was typed
             expect_scroll_rows=[(3, {3, 4, 5, 6, 7, 8})]
         )
 
@@ -11036,8 +16952,8 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"),
                 (8, "Short 9"),
             ],
-            expect_cursor=(0, 0),
-            expect_scroll_rows=[(2, {1, 2, 3, 4, 5, 6, 7, 8})]
+            expect_cursor=(0, 1),      # where the second J was typed
+            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
         )
 
         # JJ undo partially unwraps cursor line: JJ joins A +
@@ -11045,8 +16961,8 @@ class EditorTestRunner:
         # Result: "A BBBBBBBBBBBBBBBBBBB 123456789012345678901" (43 chars,
         # wraps to 3 rows). Undo of last J: "A BBBBBBBBBBBBBBBBBBB" (21 chars,
         # 2 rows) + "123..." (21 chars, 2 rows) = 4 rows vs 3 rows before undo.
-        # Cursor line goes from 3 wrap rows to 2 wrap rows. Scroll region must
-        # skip both remaining cursor wrap rows.
+        # Cursor line goes from 3 wrap rows to 2 wrap rows. The rows below
+        # the joined line's 3 move down.
         # Frames: 0=initial, 1=JJ, 2=u (undo of second J)
         jj_undo_partial = ("A\nBBBBBBBBBBBBBBBBBBB\n123456789012345678901\nC\n"
                            + ''.join(f"Short {i}\n" for i in range(5, 15)))
@@ -11064,8 +16980,8 @@ class EditorTestRunner:
                 (5, "Short 5"), (6, "Short 6"),
                 (7, "Short 7"), (8, "Short 8"),
             ],
-            expect_cursor=(0, 0),
-            expect_scroll_rows=[(2, {2, 3, 4, 5, 6, 7, 8})]
+            expect_cursor=(0, 1),      # where the second J was typed
+            expect_scroll_rows=[(2, {3, 4, 5, 6, 7, 8})]
         )
 
         # J joining next wrapped line: when B wraps, ALL of B's rows need
@@ -11286,13 +17202,13 @@ class EditorTestRunner:
         )
 
         # --- Redo counterparts for all J scroll tests ---
-        # Each uses "Ju u" pattern: J, u (undo), space (break batching), u (redo).
-        # Space is unmapped in normal mode, so cursor stays at col 0.
+        # Each uses "Ju ESC u" pattern: J, u (undo), ESC (break batching), u
+        # (redo).  ESC changes nothing in normal mode, so cursor stays at col 0.
 
         self.run_test_screen(
             "Redo: J joining next wrapped line",
             wrap_j_content,
-            b"jJu u:q!\r",
+            b"jJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -11308,7 +17224,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J result wraps same height no scroll",
             join_becomes_wrap,
-            b"jjJu u:q!\r",
+            b"jjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -11319,15 +17235,15 @@ class EditorTestRunner:
                 (8, "Short 9"),
             ],
             expect_cursor=(2, 19),
-            expect_scroll_rows=[(5, set())],
+            expect_scroll_rows=[(4, set())],
             # No scroll, only cursor line's 2 wrap rows repainted
-            expect_content_rows=[(5, {2, 3})]
+            expect_content_rows=[(4, {2, 3})]
         )
 
         self.run_test_screen(
             "Redo: JJ first joined line wrapped",
             wrap_j_content,
-            b"jJJu u:q!\r",
+            b"jJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -11340,14 +17256,14 @@ class EditorTestRunner:
             expect_cursor=(2, 10),
             # Redo re-joins 1 line (batched JJ records UNDO_JOIN_COUNT=1):
             # wrap row 0 unchanged, partial from col 10 on row 2 + bottom row 8
-            expect_content_rows=[(5, {2, 8})],
-            expect_min_col=[(5, 2, 10)]
+            expect_content_rows=[(4, {2, 8})],
+            expect_min_col=[(4, 2, 10)]
         )
 
         self.run_test_screen(
             "Redo: JJ second joined line wrapped",
             join_c_wrapped,
-            b"jJJu u:q!\r",
+            b"jJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -11360,13 +17276,13 @@ class EditorTestRunner:
             expect_cursor=(1, 11),
             # Redo re-joins 1 line (batched JJ records UNDO_JOIN_COUNT=1):
             # cursor wrap rows (1,2) + 1 bottom exposed row (8)
-            expect_content_rows=[(5, {1, 2, 8})]
+            expect_content_rows=[(4, {1, 2, 8})]
         )
 
         self.run_test_screen(
             "Redo: JJ result wraps same height no scroll",
             join_3_same_height,
-            b"jjJJu u:q!\r",
+            b"jjJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -11377,16 +17293,16 @@ class EditorTestRunner:
                 (7, "Short 8"), (8, "Short 9"),
             ],
             expect_cursor=(3, 19),
-            expect_scroll_rows=[(5, set())],
+            expect_scroll_rows=[(4, set())],
             # No scroll; wrap row 0 unchanged, partial render from col 19 on row 3
-            expect_content_rows=[(5, {3, 4})],
-            expect_min_col=[(5, 3, 19)]
+            expect_content_rows=[(4, {3, 4})],
+            expect_min_col=[(4, 3, 19)]
         )
 
         self.run_test_screen(
             "Redo: JJ result wraps partial height reduction",
             join_jj_partial,
-            b"jjJJu u:q!\r",
+            b"jjJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -11402,7 +17318,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: JJJ with wrapped line among joined",
             wrap_j_content,
-            b"jJJJu u:q!\r",
+            b"jJJJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"),
@@ -11419,7 +17335,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J with following line off screen",
             join_offscreen,
-            b"jjjjjjJu u:q!\r",
+            b"jjjjjjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"),
@@ -11435,7 +17351,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: J at EOF no following line",
             join_eof,
-            b"jjjjjjjJu u:q!\r",
+            b"jjjjjjjJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"),
@@ -11461,7 +17377,7 @@ class EditorTestRunner:
                 (5, "Line 8"), (6, "Line 9"), (7, "Line 10"),
                 (8, "Line 11"),
             ],
-            expect_cursor=(3, 6),
+            expect_cursor=(3, 13),
             # Frame 3 (3J): cursor row + bottom 2 rows
             expect_content_rows=[(3, {3, 7, 8})]
         )
@@ -11470,7 +17386,8 @@ class EditorTestRunner:
         # line (2 rows). Freed 1 row, scroll shifts up by 1.
         # "Short 3" (7) + " " + "Short 4" (7) + " " + "Short 5" (7) = 23 chars,
         # wraps to 2 rows at 20 cols.
-        # Frames: 0=initial, 1='3' count display, 2=jj cursor, 3=J scroll
+        # Frames: 0=initial, 1=jj cursor, 2=3J scroll (the count, not shown
+        # on the status bar cut at 20 columns, sends no frame)
         content_3j_wrap = ("Short 1\nShort 2\n"
                            "Short 3\nShort 4\nShort 5\n"
                            + ''.join(f"Short {i}\n" for i in range(6, 15)))
@@ -11487,17 +17404,18 @@ class EditorTestRunner:
                 (6, "Short 8"), (7, "Short 9"),
                 (8, "Short 10"),
             ],
-            expect_cursor=(2, 7),
+            expect_cursor=(2, 15),
             # Only cursor line's 2 wrap rows + bottom row exposed by scroll
-            expect_content_rows=[(3, {2, 3, 8})]
+            expect_content_rows=[(2, {2, 3, 8})]
         )
 
         # 3J wrapping redo: same result as forward, via undo then redo.
-        # Frames: 0=initial, 1='3' count, 2=jj, 3=J, 4=u, 5=space, 6=u (redo)
+        # Frames: 0=initial, 1=jj, 2=3J (the count, not shown on the status
+        # bar cut at 20 columns, sends no frame), 3=u, 4=u (redo)
         self.run_test_screen(
             "Redo: 3J wrapping result uses scroll",
             content_3j_wrap,
-            b"jj3Ju u:q!\r",
+            b"jj3Ju\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 1"), (1, "Short 2"),
@@ -11507,9 +17425,9 @@ class EditorTestRunner:
                 (6, "Short 8"), (7, "Short 9"),
                 (8, "Short 10"),
             ],
-            expect_cursor=(2, 7),
+            expect_cursor=(2, 15),
             # Only cursor line's 2 wrap rows + bottom row exposed by scroll
-            expect_content_rows=[(6, {2, 3, 8})]
+            expect_content_rows=[(4, {2, 3, 8})]
         )
 
         # 3cc at mid-screen: deletes 3 lines, inserts blank, scroll shifts up.
@@ -11568,8 +17486,9 @@ class EditorTestRunner:
             ],
             expect_cursor=(6, 0),
             # Frame 4 (batched Enter*3): should NOT touch all rows 0-8
-            # Only rows 3-6 should be repainted (split line + 2 blanks + cursor)
-            expect_content_rows=[(4, {3, 4, 5, 6})]
+            # Only rows 3 and 6 are written (split line and cursor line: the
+            # two blank lines are rows IL opened)
+            expect_content_rows=[(4, {3, 6})]
         )
 
         # Enter at start of line: original line scrolls down unchanged.
@@ -11623,6 +17542,30 @@ class EditorTestRunner:
                 (3, "~"),
             ],
             expect_cursor=(2, 0),
+        )
+
+        # Enter at the end of the second-to-last row: the new empty line is
+        # the last content row, a one-row region that can't be scrolled, so
+        # it must be cleared explicitly (and nothing else drawn).
+        # Frames: 0=initial, 1=count '7' or '6', 2=j, 3=A, 4=Enter
+        self.run_test_screen(
+            "Scroll opt: Enter at end of the second-to-last row clears the last row",
+            make_lines(15),
+            b"7jA\r\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(7, "Line 8"), (8, "")],
+            expect_cursor=(8, 0),
+            expect_content_rows=[(4, {8})]
+        )
+        self.run_test_screen(
+            "Scroll opt: Enter at end of a wrapped line above the last row clears it",
+            make_lines(6) + "x" * 50 + "\n" + make_lines(15),
+            b"6jA\r\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "Line 6"), (6, "x" * 40), (7, "x" * 10),
+                          (8, "")],
+            expect_cursor=(8, 0),
+            expect_content_rows=[(4, {8})]
         )
 
         # BS at col 0 below a wrapped line: joins with previous (wrapped) line.
@@ -11719,6 +17662,28 @@ class EditorTestRunner:
             expect_content_rows=[(3, {8})]
         )
 
+        # A join leaves the cursor line alone only when the batch deleted
+        # nothing but newlines and typed nothing
+        DEL = b"\x1b[3~"
+        for name, content, keys, lines, cursor in [
+            ("Scroll opt: BS joining empty line + typed text repaints",
+             "abc\n\ndef\n", b"ji\x08x",
+             [(0, "abcx"), (1, "def"), (2, "~")], (0, 3)),
+            ("Scroll opt: BS joining empty lines at col 0 + typed text repaints",
+             "a\n\n\nb\n", b"jji\x08x",
+             [(0, "a"), (1, "x"), (2, "b"), (3, "~")], (1, 0)),
+            ("Scroll opt: BS joining empty line above + DEL char repaints",
+             "\nabc\ndef\n", b"ji\x08" + DEL,
+             [(0, "bc"), (1, "def"), (2, "~")], (0, 0)),
+            ("Scroll opt: DEL char + DEL joining empty line repaints",
+             "eih\n\nnext\n", b"$i" + DEL + DEL,
+             [(0, "ei"), (1, "next"), (2, "~")], (0, 1)),
+        ]:
+            self.run_test_screen(
+                name, content, keys + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
+
         # Batched BS at col 0 joining multiple empty lines: display correctness.
         # 3 empty lines above "Hello", 3 BS keys join them all.
         # Frames: 0=initial, 1=jjj cursor, 2=i mode switch, 3=BS*3 scroll frame
@@ -11779,6 +17744,68 @@ class EditorTestRunner:
                 (4, "~"),
             ],
             expect_cursor=(1, 1),
+        )
+
+        # A join that leaves the line one row, with the insert cursor on the
+        # row after it (at column 10 of a 10-char line), is drawn as any
+        # line that lost rows: the typed char, then the rows below move up
+        # and the bottom row comes in.  Frames: 0=initial, 1=j, 2=BS+j (i
+        # changes nothing on the status bar cut at 10 columns: no frame)
+        self.run_test_screen(
+            "Scroll opt: BS join ending on the row after the line draws only it",
+            "abcdefghi\n\nzzz\nyyy\nxxx\n",
+            b"ji\x08j\x1b:q!\r",
+            rows=6, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "zzz"), (2, "yyy"),
+                          (3, "xxx"), (4, "~")],
+            expect_cursor=(0, 9),
+            expect_content_rows=[(2, {0, 4})],
+        )
+
+        # u of typed text holding a line break deletes over it, joining the
+        # two lines; when the line takes the rows the two took, only its
+        # text from the change is redrawn.  Frames: 0=initial, 1=l,
+        # 2=a Enter b, 3=Esc, 4=u (9 and i change nothing on the status bar
+        # cut at 10 columns: no frame)
+        self.run_test_screen(
+            "Scroll opt: u of a typed line break keeping the rows draws the line",
+            "XXXXXXXXXYYYYYYYYY\nnext\nmore\n",
+            b"9lia\rb\x1bu:q!\r",
+            rows=6, cols=10,
+            expect_lines=[(0, "XXXXXXXXXY"), (1, "YYYYYYYY"), (2, "next"),
+                          (3, "more"), (4, "~")],
+            expect_cursor=(0, 9),
+            expect_content_rows=[(4, {0, 1})],
+            expect_min_col=[(4, 0, 9)],
+        )
+
+        # The redo of a line break typed where the line's first row ends
+        # splits it there again: the drawing from that column goes on with
+        # the new line on the row after, not with a row past the split
+        # line's end (which blanked it)
+        self.run_test_screen(
+            "Scroll opt: redo of a line break at the end of a full row",
+            "abcdefghijklmnopqrstxyz\nnext\nmore\n",
+            b"20li\r\x1bu\x1bu:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "abcdefghijklmnopqrst"), (1, "xyz"),
+                          (2, "next"), (3, "more"), (4, "~")],
+            expect_cursor=(0, 19),
+        )
+
+        # The redo of r<Enter> after a move that scrolled its line off the
+        # top: the split line is above the view's top line, which is the
+        # new line now (the cursor's), so the rows below it moved too
+        # ('xyz' was left out with the row showing '~').  The split line
+        # fills its row, so its rows and the new line's add up to the rows
+        # it had with the replaced char
+        self.run_test_screen(
+            "Scroll opt: redo of r<Enter> on a line above the view",
+            "abcdefghij\n\nxyz\n",
+            b"Jr\ru u:q!\r",
+            rows=3, cols=10,
+            expect_lines=[(0, ""), (1, "xyz")],
+            expect_cursor=(0, 0),
         )
 
         # Enter in middle of wrapped line: total screen rows unchanged.
@@ -11860,8 +17887,8 @@ class EditorTestRunner:
                 (6, "Short 7"), (7, "Short 8"), (8, "Short 9"),
             ],
             expect_cursor=(1, 0),
-            # Frame 2 (dd): cursor row 1 + bottom 2 rows (7, 8)
-            expect_content_rows=[(2, {1, 7, 8})]
+            # Frame 2 (dd): bottom 2 rows (7, 8) only
+            expect_content_rows=[(2, {7, 8})]
         )
 
         # p pasting a wrapped line: SCROLL_DELTA should be 2 (screen rows)
@@ -11882,8 +17909,8 @@ class EditorTestRunner:
                 (7, "Short 4"), (8, "Short 5"),
             ],
             expect_cursor=(5, 0),
-            # Frame 3 (p): 2 cursor rows (5, 6) — row above unchanged
-            expect_content_rows=[(3, {5, 6})]
+            # Frame 2 (p): 2 cursor rows (5, 6) — row above unchanged
+            expect_content_rows=[(2, {5, 6})]
         )
 
         # pp batched paste of wrapped line: BATCH_EXTRA adjusts FILE_LINE16 past
@@ -11927,12 +17954,12 @@ class EditorTestRunner:
         )
 
         # dd when replacement line wraps and cursor has WRAP_QUOT > 0.
-        # Line 0: 25 chars (2 rows at 20 cols). Line 1: also 25 chars.
-        # $ moves to col 24. dd deletes line 0. Replacement wraps.
-        # clamp_cursor_col keeps col 24, WRAP_QUOT=1.
+        # Line 0: 25 chars (2 rows at 20 cols). Line 1: also 25 chars,
+        # its first non-blank at col 24. dd deletes line 0 and goes there.
+        # Replacement wraps, WRAP_QUOT=1.
         # Bug: row 0 shows stale deleted content instead of replacement row 0.
         dd_wrap_replace = ("1234567890123456789012345\n"
-                           "abcdefghijklmnopqrstuvwxy\n"
+                           + " " * 24 + "y\n"
                            + ''.join(f"Short {i}\n" for i in range(3, 12)))
         self.run_test_screen(
             "Scroll opt: dd with wrapped replacement WRAP_QUOT>0",
@@ -11940,8 +17967,8 @@ class EditorTestRunner:
             b"$dd:q!\r",
             rows=10, cols=20,
             expect_lines=[
-                (0, "abcdefghijklmnopqrst"),
-                (1, "uvwxy"),
+                (0, ""),
+                (1, "    y"),
                 (2, "Short 3"), (3, "Short 4"),
                 (4, "Short 5"), (5, "Short 6"),
                 (6, "Short 7"), (7, "Short 8"),
@@ -11954,7 +17981,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: 2cc on wrapped lines correct displacement",
             cc_wrap_content,
-            b"2cc\x1bu u:q!\r",
+            b"2cc\x1bu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, ""),
@@ -11971,7 +17998,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Redo: dd on wrapped line correct displacement",
             wrap_dd_content,
-            b"jddu u:q!\r",
+            b"jddu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "Short 0"), (1, "Short 2"), (2, "Short 3"),
@@ -11980,6 +18007,84 @@ class EditorTestRunner:
             ],
             expect_cursor=(1, 0),
         )
+
+        # A dd (or its redo) reaching EOF moves the cursor up onto the line
+        # above the deleted rows.  That line keeps its rows (both, when it
+        # wraps); only the deleted rows turn into "~".
+        eof_wrap = "Short 0\nThis is a longer line!\n"  # line 1 wraps at 20
+        eof_wrap_rows = [(0, "Short 0"), (1, "This is a longer lin"),
+                         (2, "e!"), (3, "~"), (4, "~"), (8, "~")]
+        for name, content, keys in (
+                ("dd", eof_wrap + "last\n", b"Gdd"),
+                ("2dd", eof_wrap + "x\ny\n", b"Gk2dd"),
+                ("batched dddd", eof_wrap + "x\ny\n", b"Gkdddd"),
+                ("5dd past EOF", eof_wrap + "x\ny\n", b"Gk5dd"),
+                ("dd redo", eof_wrap + "last\n", b"Gddu\x1bu"),
+                ("2dd redo", eof_wrap + "x\ny\n", b"Gk2ddu\x1bu")):
+            self.run_test_screen(
+                f"Scroll opt: {name} to EOF keeps the wrapped line above",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=eof_wrap_rows,
+                expect_cursor=(1, 0),
+            )
+        # A deleted last line that runs below the screen (one taller than
+        # it: the cursor on its first row keeps it there): only the rows
+        # under the cursor line (row 8 here) turn into "~"
+        self.run_test_screen(
+            "Scroll opt: dd of a last line running off-screen",
+            "A" * 70 + "\nBBB\n" + "C" * 45 + "\n" + "D" * 200 + "\n",
+            b"Gdd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(4, "BBB"), (5, "C" * 20), (7, "C" * 5),
+                          (8, "~")],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 5dd past EOF repaints the rows below as ~",
+            "".join(f"Short {i}\n" for i in range(5)),
+            b"jjj5dd:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(2, "Short 2")] + [(r, "~") for r in range(3, 9)],
+            expect_cursor=(2, 0),
+        )
+        # A redo of a dd reaching EOF: the line above stays in place
+        for name, content, keys, lines, cursor in (
+                ("dd redo below a short line", "Short 0\nShort 1\nShort 2\n",
+                 b"Gddu\x1bu", [(0, "Short 0"), (1, "Short 1"), (2, "~")],
+                 (1, 0)),
+                ("dd redo of an empty last line", "abc\n\n", b"jddu\x1bu",
+                 [(0, "abc"), (1, "~")], (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {name} to EOF keeps the line above",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
+        self.run_test_screen(
+            "Scroll opt: 2dd redo at the end of a scrolled file",
+            make_lines(30),
+            b"Gk2ddu\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(r, f"Line {r + 22}") for r in range(7)]
+                         + [(7, "~"), (8, "~")],
+            expect_cursor=(6, 0),
+        )
+        # Redo of a dd of every line: the empty line left behind did not
+        # move up into the cursor row, so it must be drawn
+        for content, keys in (("a\nb\n", b"2ddu\x1bu"), ("a\nb\nc\n", b"3ddu\x1bu")):
+            self.run_test_screen(
+                f"Scroll opt: redo of {keys[:3]!r} of every line draws the "
+                "empty line",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=20,
+                expect_lines=[(0, ""), (1, "~"), (2, "~"), (8, "~")],
+                expect_cursor=(0, 0),
+            )
 
         # J on last visible line: joined line is off-screen, only cursor row redrawn.
         # rows=10 → 9 content rows (0-8), status on row 9.
@@ -12058,19 +18163,19 @@ class EditorTestRunner:
         )
 
         # J redo on last visible line: same as J, minimal repaint.
-        # Frames: 0=initial, 1=jjjjjjjj cursor, 2=J, 3=u undo, 4=space noop, 5=u redo
+        # Frames: 0=initial, 1=jjjjjjjj cursor, 2=J, 3=u undo, 4=u redo
         self.run_test_screen(
             "Scroll opt: J redo on last visible line minimal repaint",
             make_lines(15),
-            b"j" * 8 + b"Ju u:q!\r",
+            b"j" * 8 + b"Ju\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (7, "Line 8"),
                 (8, "Line 9 Line 10"),
             ],
             expect_cursor=(8, 6),
-            # Frame 5 (redo): only cursor row 8 redrawn
-            expect_content_rows=[(5, {8})]
+            # Frame 4 (redo): only cursor row 8 redrawn
+            expect_content_rows=[(4, {8})]
         )
 
         self._group("Scroll opt: charwise delete:", leading_blank=True)
@@ -12098,21 +18203,21 @@ class EditorTestRunner:
             expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
-        # 2D at row 3: same as 2d$ from col 0, deletes current+next line content.
-        # Result: empty line 3, "Line 6" on line 4.
-        # Frames: 0=initial, 1=jjj cursor, 2=count '2', 3=D
+        # 2D at row 3 col 1: deletes the rest of the line and the next line.
+        # Result: "L" on line 3, "Line 6" on line 4.
+        # Frames: 0=initial, 1=jjj cursor, 2=l, 3=count '2', 4=D
         self.run_test_screen(
             "Scroll opt: 2D does not scroll cursor row",
             make_lines(15),
-            b"jjj2D:q!\r",
+            b"jjjl2D:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
-                (3, ""), (4, "Line 6"), (5, "Line 7"),
+                (3, "L"), (4, "Line 6"), (5, "Line 7"),
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            expect_scroll_rows=[(3, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
         )
 
         # Single d$ does NOT trigger scroll (no line count change, auto-detect handles it).
@@ -12180,19 +18285,19 @@ class EditorTestRunner:
         )
 
         # Undo of 2D: same as 2d$ undo, cursor row should not be scrolled.
-        # Frames: 0=initial, 1=jjj, 2=count '2', 3=D (delete scroll), 4=u (insert scroll)
+        # Frames: 0=initial, 1=jjj, 2=l, 3=count '2', 4=D (delete scroll), 5=u (insert scroll)
         self.run_test_screen(
             "Scroll opt: 2D undo does not scroll cursor row",
             make_lines(15),
-            b"jjj2Du:q!\r",
+            b"jjjl2Du:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
                 (3, "Line 4"), (4, "Line 5"), (5, "Line 6"),
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
-            expect_cursor=(3, 0),
-            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})]
+            expect_cursor=(3, 1),
+            expect_scroll_rows=[(5, {4, 5, 6, 7, 8})]
         )
 
         # Undo of cross-line de: cursor row should not be scrolled.
@@ -12213,11 +18318,11 @@ class EditorTestRunner:
         )
 
         # Redo of 2d$: re-deletes, line count decreases.
-        # Frames: 0=initial, 1=jjj, 2=ll, 3=count '2', 4=d$, 5=u, 6=space noop, 7=u redo
+        # Frames: 0=initial, 1=jjj, 2=ll, 3=count '2', 4=d$, 5=u, 6=u redo
         self.run_test_screen(
             "Scroll opt: 2d$ redo does not scroll cursor row",
             make_lines(15),
-            b"jjjll2d$u u:q!\r",
+            b"jjjll2d$u\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12225,63 +18330,196 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 1),
-            expect_scroll_rows=[(7, {4, 5, 6, 7, 8})]
+            expect_scroll_rows=[(6, {4, 5, 6, 7, 8})]
         )
 
         self._group("Scroll opt: charwise paste:", leading_blank=True)
 
-        # Multi-line char paste p: yank with 2D (charwise, multi-line), then paste.
+        # Multi-line char paste p: yank with l2D (charwise, multi-line: from
+        # column 0 a 2D deletes whole lines, as in vi), then paste.
         # Cursor row content changes (line splits) but should NOT be in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D (scroll: charwise delete), 3=p (insert)
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (scroll: charwise delete), 4=p (insert)
         self.run_test_screen(
             "Scroll opt: multi-line char paste p does not scroll cursor row",
             make_lines(15),
-            b"2Dp:q!\r",
-            rows=10, cols=40,
-            expect_scroll_rows=[(3, {1, 2, 3, 4, 5, 6, 7, 8})]
-        )
-
-        # Multi-line char paste P: same yank, P pastes before cursor.
-        # Cursor row should NOT be in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D (scroll), 3=P (insert)
-        self.run_test_screen(
-            "Scroll opt: multi-line char paste P does not scroll cursor row",
-            make_lines(15),
-            b"2DP:q!\r",
-            rows=10, cols=40,
-            expect_scroll_rows=[(3, {1, 2, 3, 4, 5, 6, 7, 8})]
-        )
-
-        # Undo of multi-line char paste p: deletes pasted content, line count decreases.
-        # Undo uses delete_at_cursor which should not scroll cursor row.
-        # Frames: 0=initial, 1=count '2', 2=D (delete scroll), 3=p (insert scroll), 4=u (delete scroll)
-        self.run_test_screen(
-            "Scroll opt: char paste p undo does not scroll cursor row",
-            make_lines(15),
-            b"2Dpu:q!\r",
+            b"l2Dp:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(4, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
+        # Multi-line char paste P: same yank, P pastes before cursor.
+        # Cursor row should NOT be in scroll region.
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (scroll), 4=P (insert)
+        self.run_test_screen(
+            "Scroll opt: multi-line char paste P does not scroll cursor row",
+            make_lines(15),
+            b"l2DP:q!\r",
+            rows=10, cols=40,
+            expect_scroll_rows=[(4, {1, 2, 3, 4, 5, 6, 7, 8})]
+        )
+
+        # Undo of multi-line char paste p: deletes pasted content, line count decreases.
+        # Undo uses delete_at_cursor which should not scroll cursor row.
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D (delete scroll), 4=p (insert scroll), 5=u (delete scroll)
+        self.run_test_screen(
+            "Scroll opt: char paste p undo does not scroll cursor row",
+            make_lines(15),
+            b"l2Dpu:q!\r",
+            rows=10, cols=40,
+            expect_scroll_rows=[(5, {1, 2, 3, 4, 5, 6, 7, 8})]
+        )
+
         # Redo of multi-line char paste p: re-inserts content, line count increases.
         # Cursor row should NOT be in scroll region (it'll be repainted).
-        # Frames: ...4=u undo, 5=space noop, 6=u redo
+        # Frames: ...5=u undo, 6=u redo
         self.run_test_screen(
             "Scroll opt: char paste p redo does not scroll cursor row",
             make_lines(15),
-            b"2Dpu u:q!\r",
+            b"l2Dpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
         )
 
         # Redo of multi-line char paste P: same, cursor row not in scroll region.
-        # Frames: 0=initial, 1=count '2', 2=D, 3=P, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=l, 2=count '2', 3=D, 4=P, 5=u, 6=u redo
         self.run_test_screen(
             "Scroll opt: char paste P redo does not scroll cursor row",
             make_lines(15),
-            b"2DPu u:q!\r",
+            b"l2DPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_scroll_rows=[(6, {1, 2, 3, 4, 5, 6, 7, 8})]
+        )
+
+        # $09 (a line split into several by a multi-line char paste, or by
+        # undo of a multi-line char delete) with wrapped lines: the rows
+        # below must move by new_total - old_total, where old_total is the
+        # split line's height before the edit.
+        W, X, C = "W" * 40, "X" * 40, "c" * 40
+        wrap_split = "alpha beta\n" + "W" * 45 + " tail\n"
+        for name, content, keys, cursor, lines in [
+            # Joined line (2 rows) -> two 1-row lines: displacement 0
+            ("de undo, joined line wrapped",
+             "a" * 35 + " end\nword rest\nline 2\nline 3\nline 4\n",
+             b"$deu", (0, 38),
+             ["a" * 35 + " end", "word rest", "line 2", "line 3",
+              "line 4", "~"]),
+            # Undo from a 3-row line: old height is the joined line's, not
+            # the line the cursor was on when u was typed
+            ("de undo from another line",
+             "a" * 35 + " end\nword rest\n" + "c" * 85 + "\nline 3\nline 4\n",
+             b"$deju", (0, 38),
+             ["a" * 35 + " end", "word rest", C, C, "ccccc", "line 3",
+              "line 4", "~"]),
+            # 2-row line -> 1 row + 3 rows
+            ("P into wrapped line", wrap_split + "line 2\nline 3\nline 4\n",
+             b"$2ywjP", (1, 9),
+             ["alpha beta", "W" * 9 + "a", W, "WWWWW " + "W" * 34,
+              "WW tail", "line 2", "line 3", "line 4"]),
+            ("p into wrapped line", wrap_split + "line 2\nline 3\nline 4\n",
+             b"$2ywjp", (1, 10),
+             ["alpha beta", "W" * 10 + "a", W, "WWWWW " + "W" * 34,
+              "W tail", "line 2", "line 3", "line 4"]),
+            # First new line (2 rows) taller than the old line (1 row)
+            ("P first new line taller than old line",
+             "ab\n" + "X" * 50 + "\nZ\nline 2\nline 3\n",
+             b"j02yek0P", (0, 0),
+             [X, "X" * 10, "Zab", X, "X" * 10, "Z", "line 2", "line 3"]),
+            # Redo from a 2-row line: old height is the split line's
+            ("P redo from another line",
+             wrap_split + "c" * 45 + "\nline 3\nline 4\n",
+             b"$2ywjPuju", (1, 9),
+             ["alpha beta", "W" * 9 + "a", W, "WWWWW " + "W" * 34,
+              "WW tail", C, "ccccc", "line 3", "line 4"]),
+            ("P redo (1-row lines) from a 3-row line",
+             "alpha beta\nshort tail\n" + "c" * 85 + "\nline 3\nline 4\n",
+             b"$2ywjPuju", (1, 9),
+             ["alpha beta", "short taia", "short l", C, C, "ccccc",
+              "line 3", "line 4", "~"]),
+            # 2-word delete across a 3-row line, then undo
+            ("2dw undo across a wrapped line",
+             "hello w\nfoo " + "x" * 76 + "\n"
+             + "".join(f"l{i}\n" for i in range(2, 20)),
+             b"6l2dwu", (0, 6),
+             ["hello w", "foo " + "x" * 36, "x" * 40, "l2", "l3", "l4",
+              "l5", "l6", "l7"]),
+        ]:
+            self.run_test_screen(
+                "Scroll opt: wrapped split: " + name, content,
+                keys + b":q!\r", rows=10, cols=40,
+                expect_cursor=cursor, expect_lines=list(enumerate(lines)))
+
+        # Narrow screen: the pasted-into line keeps its 2 rows, the line
+        # after the paste must not be blanked (l2D: a charwise yank)
+        self.run_test_screen(
+            "Scroll opt: wrapped split: 2DP on a 2-row line",
+            "a" * 25 + "\nb\nc\nd\ne\n",
+            b"l2DP:q!\r", rows=10, cols=20,
+            expect_cursor=(0, 0),
+            expect_lines=[(0, "a" * 20), (1, "aaaa"), (2, "ba"), (3, "c"),
+                          (4, "d"), (5, "e"), (6, "~")])
+
+        self._group("Scroll opt: inserts of 256+ rows:", leading_blank=True)
+
+        # The insert-scroll walks sum the inserted lines' screen rows in
+        # 8 bits: 256 + d rows must not wrap into a d-row scroll/repaint.
+        # A 100-char line is 3 rows at 40 cols: 86 copies = 258 rows.
+        abc = "".join(chr(ord('a') + i % 26) for i in range(100))
+        abc_rows = [abc[:40], abc[40:80], abc[80:]]
+        abc_screen = [(i, abc_rows[i % 3]) for i in range(9)]
+        tail = "".join(f"line {i}\n" for i in range(1, 12))
+        self.run_test_screen(
+            "Scroll opt: 86p of a 3-row line (258 rows) fills the screen",
+            abc + "\n" + tail,
+            b"yy86p:q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=abc_screen
+        )
+        self.run_test_screen(
+            "Scroll opt: 86P of a 3-row line (258 rows) fills the screen",
+            abc + "\n" + tail,
+            b"yy86P:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=abc_screen
+        )
+        # Redo walks the pasted lines twice (scroll, then repaint)
+        self.run_test_screen(
+            "Scroll opt: redo of 86p (258 rows) repaints below the cursor",
+            abc + "\n" + tail,
+            b"yy86pu\x1bu:q!\r",
+            expect_cursor=(3, 0),
+            expect_lines=abc_screen
+        )
+        # Charwise paste ($09): 2yw yanks "b\n" + abc; 85 copies make
+        # 85 lines of abc + "b" (3 rows each) below "abb"
+        abcb_rows = [abc[:40], abc[40:80], abc[80:] + "b"]
+        self.run_test_screen(
+            "Scroll opt: 85p of a charwise 2-line yank (256 rows) repaints",
+            "ab\n" + abc + "\n" + tail,
+            b"l2yw85p:q!\r",
+            expect_cursor=(0, 2),
+            expect_lines=[(0, "abb")]
+                         + [(i, abcb_rows[(i - 1) % 3]) for i in range(1, 9)]
+        )
+        # J undo ($04): 81-char lines are 3 rows each.  86J u restores 85
+        # lines (255 rows) below a 3-row cursor line; 87J u restores 258
+        # rows.
+        eighty1 = [("".join(chr(ord('a') + (j + i) % 26) for j in range(81)))
+                   for i in range(100)]
+        self.run_test_screen(
+            "Scroll opt: undo of 86J (255 restored rows) repaints",
+            "\n".join(eighty1) + "\n" + tail,
+            b"86Ju:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, eighty1[i // 3][40 * (i % 3):40 * (i % 3 + 1)])
+                          for i in range(9)]
+        )
+        self.run_test_screen(
+            "Scroll opt: undo of 87J (258 restored rows) repaints",
+            "\n".join(eighty1) + "\n" + tail,
+            b"87Ju:q!\r",
+            expect_cursor=(0, 0),
+            expect_lines=[(i, eighty1[i // 3][40 * (i % 3):40 * (i % 3 + 1)])
+                          for i in range(9)]
         )
 
         self._group("Scroll opt: paste-below undo:", leading_blank=True)
@@ -12289,7 +18527,7 @@ class EditorTestRunner:
         # yypu at row 3: paste-below adds line 4, undo removes it.
         # The undo scroll should NOT include cursor row 3 in the scroll region.
         # Cursor row didn't change content, so scrolling it causes a glitch.
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=p (insert scroll), 4=u (delete scroll)
+        # Frames: 0=initial, 1=jjj, 2=p (insert scroll), 3=u (delete scroll)
         self.run_test_screen(
             "Scroll opt: yypu undo does not scroll cursor row",
             make_lines(15),
@@ -12301,10 +18539,84 @@ class EditorTestRunner:
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
             expect_cursor=(3, 0),
-            # Frame 4 (u): scroll region should NOT include cursor row 3
-            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})],
+            # Frame 3 (u): scroll region should NOT include cursor row 3
+            expect_scroll_rows=[(3, {4, 5, 6, 7, 8})],
             # Cursor row 3 should NOT be repainted (content unchanged)
-            expect_content_rows=[(4, {8})]
+            expect_content_rows=[(3, {8})]
+        )
+
+        # Line-delete undos ($07) scroll by the removed lines' own screen
+        # rows, not by a SCROLL_DELTA an earlier frame left behind: 8j8kk
+        # scrolls the view down a row and back, ^D^U, Ggg and ^F^B leave
+        # other values, and batched PP or PPP the rows of every paste
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
+        for keys, lines, cursor in (
+                (b"yy3p8j8kku", lines_1_9, (0, 0)),
+                (b"yy3P\x04\x15u", lines_1_9, (0, 0)),
+                (b"yy3pGggu", lines_1_9, (0, 0)),
+                (b"jO\x1bGggu", lines_1_9, (1, 0)),
+                (b"yyjPPu", lines_1_9[:1] + [(r, f"Line {r}")
+                                             for r in range(1, 9)], (1, 0)),
+                (b"jjjyyPPPu", lines_1_9[:4] + [(4, "Line 4"), (5, "Line 4"),
+                                                (6, "Line 5")], (3, 0)),
+                (b"yy8jPu", lines_1_9, (8, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} scrolls the removed rows",
+                make_lines(30),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
+        wrapped_4 = ("Line 1\nLine 2\nLine 3\n" + "W" * 100 + "\n"
+                     + make_lines(30)[28:])
+        for keys in (b"jjjyyp\x06\x02u", b"jjjyyP\x06\x02u"):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} scrolls the removed wrapped rows",
+                wrapped_4,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines_1_9[:3] + [
+                    (3, "W" * 40), (4, "W" * 40), (5, "W" * 20),
+                    (6, "Line 5"), (7, "Line 6"), (8, "Line 7")],
+                expect_cursor=(3, 0),
+            )
+        wrapped_45 = "".join(f"Line {i} " + "x" * 45 + "\n"
+                             for i in range(1, 31))
+        for keys, cursor in ((b"yy3pu", (0, 0)), (b"jjyypu", (4, 0)),
+                             (b"jj3yyPu", (4, 0)),
+                             (b"yy3p8j8kku", (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} of wrapped lines scrolls their rows",
+                wrapped_45,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=[(r, f"Line {r // 2 + 1} " + "x" * 33
+                               if r % 2 == 0 else "x" * 12)
+                              for r in range(9)],
+                expect_cursor=cursor,
+            )
+        # $07 draws no cursor row: when the removed rows fill the scroll
+        # region, every exposed row is drawn, from the cursor line's first
+        # row when the cursor is back on a wrap row
+        for keys, cursor in ((b"yy9Pu", (0, 0)), (b"jjjyy6Pu", (3, 0)),
+                             (b"yy20pu", (0, 0))):
+            self.run_test_screen(
+                f"Scroll opt: {keys!r} redraws a fully scrolled region",
+                make_lines(30),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines_1_9,
+                expect_cursor=cursor,
+            )
+        self.run_test_screen(
+            "Scroll opt: P undo onto a wrap row redraws the region",
+            "A" * 60 + "\n" + make_lines(29),
+            b"$yy5Pu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "A" * 40), (1, "A" * 20)]
+                         + [(r, f"Line {r - 1}") for r in range(2, 9)],
+            expect_cursor=(1, 19),
         )
 
         self._group("Minimal repaint: undo/redo:", leading_blank=True)
@@ -12335,11 +18647,11 @@ class EditorTestRunner:
 
         # dd redo: re-deletes line 4. Delete scroll pulls content up.
         # Bottom row 8 needs content write from below viewport.
-        # Frames: 0=initial, 1=jjj, 2=dd, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=dd, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: dd redo",
             make_lines(15),
-            b"jjjddu u:q!\r",
+            b"jjjddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12347,7 +18659,7 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {8})]
+            expect_content_rows=[(4, {8})]
         )
 
         # 3dd undo: restores lines 4-6. Insert scroll of 3, rows 3-5
@@ -12369,11 +18681,11 @@ class EditorTestRunner:
 
         # 3dd redo: re-deletes lines 4-6. Delete scroll of 3,
         # bottom rows 6-8 need content writes.
-        # Frames: 0=initial, 1=jjj, 2=count '3', 3=dd, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=count '3', 3=dd, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: 3dd redo",
             make_lines(15),
-            b"jjj3ddu u:q!\r",
+            b"jjj3ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12381,7 +18693,7 @@ class EditorTestRunner:
                 (6, "Line 10"), (7, "Line 11"), (8, "Line 12"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(6, {6, 7, 8})]
+            expect_content_rows=[(5, {6, 7, 8})]
         )
 
         # dd at top undo: restores line 1. Insert scroll.
@@ -12401,11 +18713,11 @@ class EditorTestRunner:
         )
 
         # dd at top redo: re-deletes line 1. Delete scroll.
-        # Frames: 0=initial, 1=dd, 2=u, 3=space, 4=u redo
+        # Frames: 0=initial, 1=dd, 2=u, 3=u redo
         self.run_test_screen(
             "Minimal repaint: dd at top redo",
             make_lines(15),
-            b"ddu u:q!\r",
+            b"ddu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 2"), (1, "Line 3"), (2, "Line 4"),
@@ -12413,7 +18725,7 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(0, 0),
-            expect_content_rows=[(4, {8})]
+            expect_content_rows=[(3, {8})]
         )
 
         # J undo: restores split (line count +1). Insert scroll.
@@ -12436,13 +18748,13 @@ class EditorTestRunner:
 
         # J redo: re-joins (line count -1). Delete scroll.
         # Cursor row 3 content changes + bottom row 8 from below viewport.
-        # Frames: 0=initial, 1=jjj, 2=J, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=J, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: J redo",
             make_lines(15),
-            b"jjjJu u:q!\r",
+            b"jjjJu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(5, {3, 8})]
+            expect_content_rows=[(4, {3, 8})]
         )
 
         # JJ undo: JJ is batched into one frame. Undo restores 1 join (batching
@@ -12458,13 +18770,13 @@ class EditorTestRunner:
 
         # JJ redo: re-does the batched join (1 join). Delete scroll.
         # Cursor row 3 changes + bottom row 8 from below viewport.
-        # Frames: 0=initial, 1=jjj, 2=JJ (batched), 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=JJ (batched), 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: JJ redo",
             make_lines(15),
-            b"jjjJJu u:q!\r",
+            b"jjjJJu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(5, {3, 8})]
+            expect_content_rows=[(4, {3, 8})]
         )
 
         # 3J undo: restores split (line count +2). Insert scroll of 2.
@@ -12486,13 +18798,13 @@ class EditorTestRunner:
 
         # 3J redo: re-joins 3 lines (line count -2). Delete scroll of 2.
         # Cursor row 3 changes + bottom rows 7-8.
-        # Frames: 0=initial, 1=jjj, 2=count '3', 3=J, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=count '3', 3=J, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: 3J redo",
             make_lines(15),
-            b"jjj3Ju u:q!\r",
+            b"jjj3Ju\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3, 7, 8})]
+            expect_content_rows=[(5, {3, 7, 8})]
         )
 
         # J undo of two lines at screen width: J adds a space, so the combined
@@ -12517,9 +18829,10 @@ class EditorTestRunner:
                 (8, "S9"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 = undo. Cursor line changes (41→20 chars) so row 0
-            # repaint is justified. Row 1 = restored line. Row 8 = scroll fill.
-            expect_content_rows=[(2, {0, 1, 8})]
+            # Frame 2 = undo. The cursor line changes (41→20 chars) from the
+            # join point, the end of its full row 0: row 1 = restored line.
+            # Row 8 = scroll fill.
+            expect_content_rows=[(2, {1, 8})]
         )
 
         # J redo of two lines at screen width.
@@ -12527,7 +18840,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "Minimal repaint: J redo at screen width",
             j_width_content,
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "12345678901234567890"),
@@ -12537,31 +18850,74 @@ class EditorTestRunner:
                 (6, "S6"), (7, "S7"), (8, "S8"),
             ],
             expect_cursor=(1, 0),
-            # Frame 4 = redo (frame 3 = space no-op). Cursor line changes
-            # (20→41 chars wrapping to 3 rows). Rows 0-2 = wrapped content.
-            expect_content_rows=[(4, {0, 1, 2})]
+            # Frame 3 = redo (the ESC sends no frame). Cursor line changes
+            # (20→41 chars wrapping to 3 rows) from the join: rows 1-2 are
+            # drawn, row 0 keeps its text.
+            expect_content_rows=[(3, {1, 2})]
         )
 
-        # o undo: removes opened blank line. Delete scroll.
-        # Cursor row content unchanged (Line 4 stays). Only bottom row 8.
+        # o undo: removes opened blank line. Delete scroll below the
+        # cursor row, whose content is unchanged (Line 4 stays). Only
+        # bottom row 8 is drawn.
         # Frames: 0=initial, 1=jjj, 2=o (insert+scroll), 3=ESC, 4=u
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
         self.run_test_screen(
             "Minimal repaint: o undo",
             make_lines(15),
             b"jjjo\x1bu:q!\r",
             rows=10, cols=40,
+            expect_lines=lines_1_9,
+            expect_cursor=(3, 0),
+            expect_scroll_rows=[(4, {4, 5, 6, 7, 8})],
             expect_content_rows=[(4, {8})]
         )
+        # The cursor line keeps every row it has (the removed line was
+        # below it)
+        self.run_test_screen(
+            "Minimal repaint: o undo on a wrapped line keeps its rows",
+            "Line 1\nLine 2\nLine 3\n" + "W" * 100 + "\n"
+            + make_lines(15)[28:],
+            b"jjjo\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=lines_1_9[:3] + [
+                (3, "W" * 40), (4, "W" * 40), (5, "W" * 20),
+                (6, "Line 5"), (7, "Line 6"), (8, "Line 7")],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(4, {8})]
+        )
+        for name, content, keys, lines, cursor in (
+                ("on line 1", make_lines(15), b"o\x1bu", lines_1_9, (0, 0)),
+                ("on the only line", "abc\n", b"o\x1bu",
+                 [(0, "abc"), (1, "~")], (0, 0)),
+                ("on the last line", make_lines(5), b"Go\x1bu",
+                 lines_1_9[:5] + [(5, "~")], (4, 0)),
+                ("after 8j8kk", make_lines(30), b"jo\x1b8j8kkku",
+                 lines_1_9, (1, 0)),
+                ("after G gg", make_lines(15), b"jjjo\x1bGggjjju",
+                 lines_1_9, (3, 0)),
+                ("after the view scrolled", make_lines(40), b"20jo\x1bu",
+                 [(r, f"Line {r + 14}") for r in range(9)], (7, 0)),
+                ("then redo", make_lines(15), b"jjjo\x1bu\x1bu",
+                 lines_1_9[:4] + [(4, ""), (5, "Line 5"), (8, "Line 8")],
+                 (4, 0))):
+            self.run_test_screen(
+                f"Minimal repaint: o undo {name} keeps the cursor line",
+                content,
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
 
         # o redo: re-opens blank line below. Insert scroll.
-        # Only the new blank line row needs content write.
-        # Frames: 0=initial, 1=jjj, 2=o, 3=ESC, 4=u, 5=space, 6=u redo
+        # The new blank line is the row IL opened: no content write.
+        # Frames: 0=initial, 1=jjj, 2=o, 3=ESC, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: o redo",
             make_lines(15),
-            b"jjjo\x1bu u:q!\r",
+            b"jjjo\x1bu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {4})]
+            expect_content_rows=[(5, set())]
         )
 
         # O undo: removes opened blank line above. Delete scroll.
@@ -12574,16 +18930,31 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_content_rows=[(4, {8})]
         )
+        # With one line left the undo still only scrolls it back up: the
+        # whole region is drawn only when a delete empties the buffer.
+        # Frames: 0=initial, 1=O, 2=ESC, 3=u; or 0=initial, 1=P, 2=u (yy
+        # changes nothing on the screen: no frame)
+        for keys, frame in ((b"O\x1bu", 3), (b"yyPu", 2)):
+            self.run_test_screen(
+                f"Minimal repaint: {keys!r} on the only line scrolls it back",
+                "abc\n",
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=[(0, "abc"), (1, "~"), (8, "~")],
+                expect_cursor=(0, 0),
+                expect_scroll_rows=[(frame, set(range(9)))],
+                expect_content_rows=[(frame, {8})]
+            )
 
         # O redo: re-opens blank line above. Insert scroll.
-        # Only the new blank line row needs content write.
-        # Frames: 0=initial, 1=jjj, 2=O, 3=ESC, 4=u, 5=space, 6=u redo
+        # The new blank line is the row IL opened: no content write.
+        # Frames: 0=initial, 1=jjj, 2=O, 3=ESC, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: O redo",
             make_lines(15),
-            b"jjjO\x1bu u:q!\r",
+            b"jjjO\x1bu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3})]
+            expect_content_rows=[(5, set())]
         )
 
         # 2cc undo: restores 2 original lines, removes 1 blank. Net +1 line.
@@ -12605,11 +18976,11 @@ class EditorTestRunner:
 
         # 2cc redo: re-replaces 2 lines with 1 blank. Net -1 line.
         # Delete scroll of 1. Cursor row 3 changes + bottom row 8.
-        # Frames: 0=initial, 1=jjj, 2=count '2', 3=cc, 4=ESC, 5=u, 6=space, 7=u redo
+        # Frames: 0=initial, 1=jjj, 2=count '2', 3=cc, 4=ESC, 5=u, 6=u redo
         self.run_test_screen(
             "Minimal repaint: 2cc redo",
             make_lines(15),
-            b"jjj2cc\x1bu u:q!\r",
+            b"jjj2cc\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12617,14 +18988,42 @@ class EditorTestRunner:
                 (6, "Line 8"), (7, "Line 9"), (8, "Line 10"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(7, {3, 8})]
+            expect_content_rows=[(6, {3, 8})]
         )
+
+        # Ncc undo/redo with N > 255: the scroll pre-computation walks the
+        # whole 16-bit count (or falls back), not its low byte (257 would
+        # walk 1 line, 258 2).  :marks + space forces a full redraw between
+        # the steps, so each checks one frame.
+        redraw = b":marks\r "
+        lines_1_9 = [(r, f"Line {r + 1}") for r in range(9)]
+        for keys, lines, cursor in (
+                (b"257cc\x1bu\x1bu",
+                 [(0, "")] + [(r, f"Line {r + 257}") for r in range(1, 9)],
+                 (0, 0)),
+                (b"jj258cc\x1bu", lines_1_9, (2, 0)),
+                (b"258cc\x1b" + redraw + b"u", lines_1_9, (0, 0)),
+                (b"264cc\x1b" + redraw + b"u", lines_1_9, (0, 0)),
+                (b"jj258cc\x1b" + redraw + b"u" + redraw + b"u",
+                 lines_1_9[:2] + [(2, "")]
+                 + [(r, f"Line {r + 258}") for r in range(3, 9)], (2, 0)),
+                (b"jj256cc\x1b" + redraw + b"u" + redraw + b"u",
+                 lines_1_9[:2] + [(2, "")]
+                 + [(r, f"Line {r + 256}") for r in range(3, 9)], (2, 0))):
+            self.run_test_screen(
+                f"Minimal repaint: {keys!r} over 255 lines repaints the rows",
+                make_lines(400),
+                keys + b":q!\r",
+                rows=10, cols=40,
+                expect_lines=lines,
+                expect_cursor=cursor,
+            )
 
         # --- Line-mode paste: operation + undo + redo ---
 
         # Line P operation: yyP at row 3 pastes line above.
         # Only the pasted line row should be repainted, NOT row 2.
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=P
+        # Frames: 0=initial, 1=jjj, 2=P
         self.run_test_screen(
             "Minimal repaint: line P operation",
             make_lines(15),
@@ -12636,12 +19035,12 @@ class EditorTestRunner:
                 (6, "Line 6"), (7, "Line 7"), (8, "Line 8"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(3, {3})]
+            expect_content_rows=[(2, {3})]
         )
 
         # Line P undo: removes pasted line.
         # Only bottom row should be repainted (scroll pulls content up).
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=P, 4=u
+        # Frames: 0=initial, 1=jjj, 2=P, 3=u
         self.run_test_screen(
             "Minimal repaint: line P undo",
             make_lines(15),
@@ -12653,16 +19052,16 @@ class EditorTestRunner:
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(4, {8})]
+            expect_content_rows=[(3, {8})]
         )
 
         # Line P redo: re-pastes line above.
         # Only pasted line row should be repainted, NOT row 2.
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=P, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=P, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: line P redo",
             make_lines(15),
-            b"jjjyyPu u:q!\r",
+            b"jjjyyPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12670,16 +19069,16 @@ class EditorTestRunner:
                 (6, "Line 6"), (7, "Line 7"), (8, "Line 8"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(6, {3})]
+            expect_content_rows=[(4, {3})]
         )
 
         # Line p redo: re-pastes line below.
         # Only pasted line row should be repainted, NOT row 3.
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=p, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=p, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: line p redo",
             make_lines(15),
-            b"jjjyypu u:q!\r",
+            b"jjjyypu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[
                 (0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
@@ -12687,12 +19086,12 @@ class EditorTestRunner:
                 (6, "Line 6"), (7, "Line 7"), (8, "Line 8"),
             ],
             expect_cursor=(4, 0),
-            expect_content_rows=[(6, {4})]
+            expect_content_rows=[(4, {4})]
         )
 
         # Line 2p undo: pastes 2 copies below, undo removes both.
         # Only bottom rows should be repainted (scroll pulls content up).
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=count '2', 4=p, 5=u
+        # Frames: 0=initial, 1=jjj, 2=count '2', 3=p, 4=u
         self.run_test_screen(
             "Minimal repaint: line 2p undo",
             make_lines(15),
@@ -12704,11 +19103,11 @@ class EditorTestRunner:
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {7, 8})]
+            expect_content_rows=[(4, {7, 8})]
         )
 
         # Line 2P undo: pastes 2 copies above, undo removes both.
-        # Frames: 0=initial, 1=jjj, 2=yy, 3=count '2', 4=P, 5=u
+        # Frames: 0=initial, 1=jjj, 2=count '2', 3=P, 4=u
         self.run_test_screen(
             "Minimal repaint: line 2P undo",
             make_lines(15),
@@ -12720,7 +19119,7 @@ class EditorTestRunner:
                 (6, "Line 7"), (7, "Line 8"), (8, "Line 9"),
             ],
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {7, 8})]
+            expect_content_rows=[(4, {7, 8})]
         )
 
         # --- Single-line operations: no scroll, just cursor row ---
@@ -12740,15 +19139,15 @@ class EditorTestRunner:
         )
 
         # x redo
-        # Frames: 0=initial, 1=jjj, 2=x, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=x, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: x redo",
             make_lines(15),
-            b"jjjxu u:q!\r",
+            b"jjjxu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {3})],
-            expect_scrolled_at_frame=[(5, False)]
+            expect_content_rows=[(4, {3})],
+            expect_scrolled_at_frame=[(4, False)]
         )
 
         # 3x undo
@@ -12776,15 +19175,15 @@ class EditorTestRunner:
         )
 
         # r redo
-        # Frames: 0=initial, 1=jjj, 2=rZ, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=rZ, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: r redo",
             make_lines(15),
-            b"jjjrZu u:q!\r",
+            b"jjjrZu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {3})],
-            expect_scrolled_at_frame=[(5, False)]
+            expect_content_rows=[(4, {3})],
+            expect_scrolled_at_frame=[(4, False)]
         )
 
         # ~ undo: ~ toggles case and advances cursor. Undo restores char.
@@ -12799,14 +19198,14 @@ class EditorTestRunner:
         )
 
         # ~ redo
-        # Frames: 0=initial, 1=jjj, 2=~, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=~, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: ~ redo",
             make_lines(15),
-            b"jjj~u u:q!\r",
+            b"jjj~u\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(5, {3})],
-            expect_scrolled_at_frame=[(5, False)]
+            expect_content_rows=[(4, {3})],
+            expect_scrolled_at_frame=[(4, False)]
         )
 
         # D undo (single line, cursor at col 2)
@@ -12822,15 +19221,15 @@ class EditorTestRunner:
         )
 
         # D redo
-        # Frames: 0=initial, 1=jjj, 2=ll, 3=D, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=ll, 3=D, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: D redo",
             make_lines(15),
-            b"jjjllDu u:q!\r",
+            b"jjjllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 1),
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # d$ undo
@@ -12858,15 +19257,15 @@ class EditorTestRunner:
         )
 
         # dw redo
-        # Frames: 0=initial, 1=jjj, 2=dw, 3=u, 4=space, 5=u redo
+        # Frames: 0=initial, 1=jjj, 2=dw, 3=u, 4=u redo
         self.run_test_screen(
             "Minimal repaint: dw redo",
             make_lines(15),
-            b"jjjdwu u:q!\r",
+            b"jjjdwu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
-            expect_content_rows=[(5, {3})],
-            expect_scrolled_at_frame=[(5, False)]
+            expect_content_rows=[(4, {3})],
+            expect_scrolled_at_frame=[(4, False)]
         )
 
         # db undo (move to word start first)
@@ -13004,15 +19403,15 @@ class EditorTestRunner:
         )
 
         # char p redo
-        # Frames: 0=initial, 1=jjj, 2=x, 3=p, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=x, 3=p, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: char p redo",
             make_lines(15),
-            b"jjjxpu u:q!\r",
+            b"jjjxpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 1),
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # char P undo
@@ -13028,15 +19427,15 @@ class EditorTestRunner:
         )
 
         # char P redo
-        # Frames: 0=initial, 1=jjj, 2=x, 3=P, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=x, 3=P, 4=u, 5=u redo
         self.run_test_screen(
             "Minimal repaint: char P redo",
             make_lines(15),
-            b"jjjxPu u:q!\r",
+            b"jjjxPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_cursor=(3, 0),
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # cc ESC u on line where next line is blank: cc uses UNDO_LINE path
@@ -13062,11 +19461,14 @@ class EditorTestRunner:
         )
 
         # 2C undo should not paint the line above the cursor.
-        # Frames: 0=initial, 1=jjj, 2=count '2', 3=C (delete+insert), 4=ESC, 5=u
+        # Frames: 0=initial, 1-3=j (the ESCs, the count and the ESC after
+        # it, which the status bar cut at 20 columns does not show, send no
+        # frame),
+        # 4=C (delete+insert), 5=u
         self.run_test_screen(
             "Minimal repaint: 2C undo does not paint line above",
             'S1\nS2\nS3\nAAAA\nBBBB\nS6\nS7\nS8\nS9\nS10\nS11\n',
-            b"j j j2C\x1bu:q!\r",
+            b"j\x1bj\x1bj2C\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "S1"), (1, "S2"), (2, "S3"),
@@ -13076,7 +19478,7 @@ class EditorTestRunner:
             expect_cursor=(3, 0),
             # Frame 5 = undo. Should touch only cursor row + restored line.
             # Row 2 (line above) must NOT be in the set.
-            expect_content_rows=[(9, {3, 4})]
+            expect_content_rows=[(5, {3, 4})]
         )
 
         # C on a wrapping line: line shrinks from 2 rows to 1 row (displacement -1).
@@ -13282,6 +19684,30 @@ class EditorTestRunner:
             expect_content_rows=[(3, {2, 8})]
         )
 
+        # A DEL join scrolls the rows below by the rows it removed, counted
+        # before the edit: the old cursor line plus the joined line, not the
+        # joined line plus the line that follows it afterwards
+        DEL = b"\x1b[3~"
+        para = "This paragraph line is long enough that it wraps around."
+        for name, content, lines, cursor in [
+            ("Scroll opt: insert DEL join above a wrapped line",
+             "abc\ndef\n" + "x" * 100 + "\nl3\nl4\nl5\n",
+             [(0, "abcdef"), (1, "x" * 40), (2, "x" * 40), (3, "x" * 20),
+              (4, "l3"), (5, "l4"), (6, "l5"), (7, "~")], (0, 2)),
+            ("Scroll opt: insert DEL joining empty line above a wrapped line",
+             f"title\n\n{para}\nend\n",
+             [(0, "title"), (1, para[:40].rstrip()), (2, para[40:]),
+              (3, "end"), (4, "~")], (0, 4)),
+            ("Scroll opt: insert DEL join that wraps, row count unchanged",
+             "a" * 30 + "\n" + "b" * 20 + "\nline three\nline four\n",
+             [(0, "a" * 30 + "b" * 10), (1, "b" * 10), (2, "line three"),
+              (3, "line four"), (4, "~")], (0, 29)),
+        ]:
+            self.run_test_screen(
+                name, content, b"A" + DEL + b"\x1b:q!\r",
+                expect_lines=lines, expect_cursor=cursor,
+            )
+
         # Typing the first character on the second wrap row should NOT redraw
         # the first row. The first row is already complete (full SCREEN_COLS chars).
         # Only the second row (where the new char appears) needs rendering.
@@ -13434,7 +19860,7 @@ class EditorTestRunner:
             b"lllx:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_ansi_contains="\x1b[1;4H\x1b[1P",
+            expect_ansi_contains="\x1b[?25l\x1b[P",
             expect_min_col=[(2, 0, -1)]
         )
 
@@ -13510,15 +19936,34 @@ class EditorTestRunner:
             expect_min_col=[(2, 1, 18)]
         )
 
-        # Batched 2D (D batched with pending D key)
-        # 2D from col 3 should delete to EOL (same as D with count)
+        # d$ is D: it repaints from the cursor col too, leaving the rows
+        # before the cursor's alone
         self.run_test_screen(
-            "2D batched: partial render from cursor col",
+            "d$ delete to EOL: partial render from cursor col",
+            "Hello World\n",
+            b"llld$:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Hel")],
+            expect_min_col=[(2, 0, 3)]
+        )
+        self.run_test_screen(
+            "d$ on wrapped line: partial render from cursor col",
+            "A" * 59 + "\nSecond\n",
+            b"$d$:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "A" * 40), (1, "A" * 18)],
+            expect_min_col=[(2, 0, -1), (2, 1, 18)]
+        )
+
+        # 2D on the last line fails, as in vim: nothing changes, and the
+        # frame draws no text
+        self.run_test_screen(
+            "2D on the last line: nothing changes or redraws",
             "Hello World\n",
             b"lll2D:q!\r",
             rows=10, cols=40,
-            expect_lines=[(0, "Hel")],
-            expect_min_col=[(3, 0, 3)]
+            expect_lines=[(0, "Hello World")],
+            expect_content_redraws=[True, False, False, False]
         )
 
         # C: change to EOL from col 3
@@ -13552,7 +19997,8 @@ class EditorTestRunner:
             b"llls\x1b:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(2, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # 3s at col 3: substitute 3 chars from col 3
@@ -13562,7 +20008,8 @@ class EditorTestRunner:
             b"lll3s\x1b:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "HelWorld")],
-            expect_min_col=[(3, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[3P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # s on wrapped line, same row count
@@ -13584,7 +20031,8 @@ class EditorTestRunner:
             b"wdw:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched 2dw: partial render from cursor col
@@ -13595,7 +20043,8 @@ class EditorTestRunner:
             b"w2dw:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Bar")],
-            expect_min_col=[(3, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[10P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # dw on wrapped line, cursor on wrap row 1
@@ -13618,7 +20067,8 @@ class EditorTestRunner:
             b"wde:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched dw+dw (dw with pending dw)
@@ -13640,7 +20090,8 @@ class EditorTestRunner:
             b"wwdb:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(2, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[;7H\x1b[6P",
+            expect_min_col=[(2, 0, -1)]
         )
 
         # Batched 2db: deletes 2 words backward
@@ -13651,7 +20102,8 @@ class EditorTestRunner:
             b"www2db:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Bar")],
-            expect_min_col=[(3, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[;7H\x1b[10P",
+            expect_min_col=[(3, 0, -1)]
         )
 
         # Batched db+db (db with pending db)
@@ -13672,11 +20124,14 @@ class EditorTestRunner:
             "A" * 50 + " BB CC\nSecond\n",
             b"$bdb:q!\r",
             rows=10, cols=40,
-            expect_min_col=[(3, 1, 11)]
+            expect_ansi_contains="\x1b[?25l\x1b[2;12H\x1b[3P",
+            expect_min_col=[(3, 1, -1)]
         )
 
         # p (char paste below): x at col 0 yanks 'H', lllp pastes after col 3
-        # "ello World" → after p → "elloH World" (H inserted after col 3)
+        # "ello World" → after p → "elloH World" (H inserted after col 3):
+        # the repaint starts at the cursor col 3 (no move) and shifts the
+        # rest (ICH)
         # Frame 0=initial, 1=x, 2=lll, 3=p
         self.run_test_screen(
             "p char paste: partial render from cursor col",
@@ -13684,6 +20139,7 @@ class EditorTestRunner:
             b"xlllp:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloH World")],
+            expect_ansi_contains="\x1b[?25l\x1b[@oH",
             expect_min_col=[(3, 0, 3)]
         )
 
@@ -13705,6 +20161,7 @@ class EditorTestRunner:
             b"xlllpp:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloHH World")],
+            expect_ansi_contains="\x1b[?25l\x1b[2@oHH",
             expect_min_col=[(3, 0, 3)]
         )
 
@@ -13733,14 +20190,15 @@ class EditorTestRunner:
         )
 
         # x redo: re-delete char at col 3
-        # Frames: 0=initial, 1=lll, 2=x, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=lll, 2=x, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo x: partial render from undo col",
             "Hello World\n",
-            b"lllxu u:q!\r",
+            b"lllxu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(5, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # D undo: restore from col 3
@@ -13755,14 +20213,14 @@ class EditorTestRunner:
         )
 
         # D redo: re-delete from col 3
-        # Frames: 0=initial, 1=lll, 2=D, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=lll, 2=D, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo D: partial render from undo col",
             "Hello World\n",
-            b"lllDu u:q!\r",
+            b"lllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hel")],
-            expect_min_col=[(5, 0, 3)]
+            expect_min_col=[(4, 0, 3)]
         )
 
         # dw undo: restore word at col 6
@@ -13777,14 +20235,15 @@ class EditorTestRunner:
         )
 
         # dw redo: re-delete word at col 6
-        # Frames: 0=initial, 1=w, 2=dw, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=w, 2=dw, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo dw: partial render from undo col",
             "Hello World Foo\n",
-            b"wdwu u:q!\r",
+            b"wdwu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # de undo: restore word at col 6
@@ -13799,14 +20258,15 @@ class EditorTestRunner:
         )
 
         # de redo: re-delete word at col 6
-        # Frames: 0=initial, 1=w, 2=de, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=w, 2=de, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo de: partial render from undo col",
             "Hello World Foo\n",
-            b"wdeu u:q!\r",
+            b"wdeu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # db undo: restore word at col 6
@@ -13822,14 +20282,15 @@ class EditorTestRunner:
         )
 
         # db redo: re-delete word backward at col 6
-        # Frames: 0=initial, 1=ww, 2=db, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=ww, 2=db, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo db: partial render from undo col",
             "Hello World Foo\n",
-            b"wwdbu u:q!\r",
+            b"wwdbu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello Foo")],
-            expect_min_col=[(5, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[6P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # s undo (no typing): restore char at col 3
@@ -13844,14 +20305,15 @@ class EditorTestRunner:
         )
 
         # s redo: re-delete char at col 3
-        # Frames: 0=initial, 1=lll, 2=s, 3=ESC, 4=u, 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=lll, 2=s, 3=ESC, 4=u, 5=u(redo)
         self.run_test_screen(
             "Redo s (no typing): partial render from undo col",
             "Hello World\n",
-            b"llls\x1bu u:q!\r",
+            b"llls\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Helo World")],
-            expect_min_col=[(6, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # C undo (no typing): restore from col 3
@@ -13866,14 +20328,14 @@ class EditorTestRunner:
         )
 
         # C redo: re-delete from col 3
-        # Frames: 0=initial, 1=lll, 2=C, 3=ESC, 4=u, 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=lll, 2=C, 3=ESC, 4=u, 5=u(redo)
         self.run_test_screen(
             "Redo C (no typing): partial render from undo col",
             "Hello World\n",
-            b"lllC\x1bu u:q!\r",
+            b"lllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hel")],
-            expect_min_col=[(6, 0, 3)]
+            expect_min_col=[(5, 0, 3)]
         )
 
         # cw undo (no typing): restore word at col 6
@@ -13888,14 +20350,15 @@ class EditorTestRunner:
         )
 
         # cw redo: re-delete word at col 6 (cw = change to end of word, not trailing space)
-        # Frames: 0=initial, 1=w, 2=cw, 3=ESC, 4=u, 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=w, 2=cw, 3=ESC, 4=u, 5=u(redo)
         self.run_test_screen(
             "Redo cw (no typing): partial render from undo col",
             "Hello World Foo\n",
-            b"wcw\x1bu u:q!\r",
+            b"wcw\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello  Foo")],
-            expect_min_col=[(6, 0, 6)]
+            expect_ansi_contains="\x1b[?25l\x1b[5P",
+            expect_min_col=[(5, 0, -1)]
         )
 
         # x undo on wrapped line (same row count)
@@ -13913,14 +20376,14 @@ class EditorTestRunner:
         )
 
         # x redo on wrapped line (same row count)
-        # Frames: 0=initial, 1=$, 2=x, 3=u, 4=space, 5=u(redo)
+        # Frames: 0=initial, 1=$, 2=x, 3=u, 4=u(redo)
         self.run_test_screen(
             "Redo x on wrapped line: partial render",
             "A" * 50 + "B\nSecond\n",
-            b"$xu u:q!\r",
+            b"$xu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A" * 40), (1, "A" * 10)],
-            expect_min_col=[(5, 1, 10)]
+            expect_min_col=[(4, 1, 10)]
         )
 
         self._group("Sub-line render opt: undo/redo char paste:", leading_blank=True)
@@ -13934,18 +20397,20 @@ class EditorTestRunner:
             b"xlllpu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ello World")],
-            expect_min_col=[(4, 0, 4)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # p redo: redo paste (calls do_char_paste_below, RENDER_FROM_COL16=cursor col=3)
-        # Frames: 0=initial, 1=x, 2=lll, 3=p, 4=u, 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=x, 2=lll, 3=p, 4=u, 5=u(redo)
         self.run_test_screen(
             "Redo p char paste: partial render from cursor col",
             "Hello World\n",
-            b"xlllpu u:q!\r",
+            b"xlllpu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "elloH World")],
-            expect_min_col=[(6, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[@oH",
+            expect_min_col=[(5, 0, 3)]
         )
 
         # P undo: x at col 0 yanks 'H', lll → col 3 ('o'), P pastes at col 3
@@ -13957,18 +20422,19 @@ class EditorTestRunner:
             b"xlllPu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ello World")],
-            expect_min_col=[(4, 0, 3)]
+            expect_ansi_contains="\x1b[?25l\x1b[P",
+            expect_min_col=[(4, 0, -1)]
         )
 
         # P redo: redo paste (calls do_char_paste_above, RENDER_FROM_COL16=cursor col=3)
-        # Frames: 0=initial, 1=x, 2=lll, 3=P, 4=u, 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=x, 2=lll, 3=P, 4=u, 5=u(redo)
         self.run_test_screen(
             "Redo P char paste: partial render from cursor col",
             "Hello World\n",
-            b"xlllPu u:q!\r",
+            b"xlllPu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ellHo World")],
-            expect_min_col=[(6, 0, 3)]
+            expect_min_col=[(5, 0, 3)]
         )
 
         # p undo on wrapped line (same row count)
@@ -13990,15 +20456,15 @@ class EditorTestRunner:
         # On 10-col screen: 2 lines × 1 row = 2 screen rows → 11 chars = 2 wrap rows
         # Same height: .j_really_no_scroll → render_current_line_and_status
         # RENDER_FROM_COL16 = 5, from_wrap = 0, from_col = 5: partial from col 5
-        # Frames: 0=initial, 1=J, 2=u, 3=space (noop), 4=u (redo)
+        # Frames: 0=initial, 1=J, 2=u, 3=u (redo)
         self.run_test_screen(
             "J redo same height wrapping: partial from join col",
             "Hello\nWorld\nThird\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=10,
             expect_lines=[(0, "Hello Worl"), (1, "d"), (2, "Third")],
             expect_cursor=(0, 5),
-            expect_min_col=[(4, 0, 5)]
+            expect_min_col=[(3, 0, 5)]
         )
 
         # J redo wrapped, same total screen rows (batched JJ):
@@ -14006,11 +20472,11 @@ class EditorTestRunner:
         #            + "Third!" (1 row) = 3 screen rows
         # After redo:  "First longer line!! Second longer line! Third!" (46 chars, 3 rows)
         # Same height: wrap row 0 skipped, render from col 19 on row 1
-        # Frames: 0=initial, 1=JJ (batched), 2=u, 3=space, 4=u (redo)
+        # Frames: 0=initial, 1=JJ (batched), 2=u, 3=u (redo)
         self.run_test_screen(
             "J redo wrapped same height: partial from join col",
             "First longer line!!\nSecond longer line!\nThird!\nEnd\n",
-            b"JJu u:q!\r",
+            b"JJu\x1bu:q!\r",
             rows=10, cols=20,
             expect_lines=[
                 (0, "First longer line!!"),
@@ -14019,8 +20485,8 @@ class EditorTestRunner:
                 (3, "End"),
             ],
             expect_cursor=(1, 19),
-            expect_content_rows=[(4, {1, 2})],
-            expect_min_col=[(4, 1, 19)]
+            expect_content_rows=[(3, {1, 2})],
+            expect_min_col=[(3, 1, 19)]
         )
 
         self._group("Sub-line render opt: scroll path RENDER_FROM_COL16:", leading_blank=True)
@@ -14045,15 +20511,16 @@ class EditorTestRunner:
         # Old = 3 rows (3 lines × 1), new = 2 rows, delta = 1 → scroll up
         # RENDER_FROM_COL16 = 2, .check_wrap path (new_total = 2)
         # from_wrap = 0, from_col = 2: partial render first wrap row from col 2
-        # Frames: 0=initial, 1='3' count, 2=J
+        # Frames: 0=initial, 1=3J (the count, not shown on the status bar
+        # cut at 5 columns, sends no frame)
         self.run_test_screen(
             "J scroll path wrapped: partial from join col",
             "AA\nBB\nCC\nEnd\n",
             b"3J:q!\r",
             rows=10, cols=5,
             expect_lines=[(0, "AA BB"), (1, " CC"), (2, "End")],
-            expect_cursor=(0, 2),
-            expect_min_col=[(2, 0, 2)]
+            expect_cursor=(1, 0),
+            expect_min_col=[(1, 0, 2)]
         )
 
         # J forward wrapped, from_wrap > 0 (skip full wrap rows):
@@ -14062,15 +20529,16 @@ class EditorTestRunner:
         # Old = 2+1+1 = 4 rows, new = 3 rows, delta = 1 → scroll up
         # RENDER_FROM_COL16 = 7, from_wrap = 7/5 = 1, from_col = 2
         # Wrap row 0 unchanged, render from col 2 on wrap row 1, full wrap row 2
-        # Frames: 0=initial, 1='3' count, 2=J
+        # Frames: 0=initial, 1=3J (the count, not shown on the status bar
+        # cut at 5 columns, sends no frame)
         self.run_test_screen(
             "J scroll path wrapped from_wrap>0: skip unchanged rows",
             "AAAAAAA\nBB\nCC\nEnd\n",
             b"3J:q!\r",
             rows=10, cols=5,
             expect_lines=[(0, "AAAAA"), (1, "AA BB"), (2, " CC"), (3, "End")],
-            expect_cursor=(1, 2),
-            expect_min_col=[(2, 1, 2)]
+            expect_cursor=(2, 0),
+            expect_min_col=[(1, 1, 2)]
         )
 
         self._group("Sub-line render opt: insert mode joins:", leading_blank=True)
@@ -14165,18 +20633,33 @@ class EditorTestRunner:
             expect_cursor=(0, 5),
             expect_min_col=[(3, 0, 5)]
         )
+        # The partial first row fills its row: the next row follows by
+        # the terminal's wrap, with no cursor move, and needs no ESC[K
+        # (the undo's ICH hint knows the scroll opened it blank)
+        for deferred in (False, True):
+            self.run_test_screen(
+                "Undo D on wrapped line: the partial row runs on into the next"
+                + (" (deferred wrap)" if deferred else ""),
+                "A" * 50 + "\nSecond\n",
+                b"lllllDu:q!\r",
+                rows=10, cols=40,
+                deferred_wrap=deferred,
+                expect_lines=[(0, "A" * 40), (1, "A" * 10), (2, "Second")],
+                expect_cursor=(0, 5),
+                expect_ansi_contains="\x1b[;6H" + "A" * 45 + "\x1b[10;",
+            )
 
         # Redo D on wrapped line (rows decrease: 2 → 1):
         # Same as D forward. .rc_rows_decreased path.
-        # Frames: 0=initial, 1=lllll, 2=D, 3=u(undo), 4=space(noop), 5=u(redo)
+        # Frames: 0=initial, 1=lllll, 2=D, 3=u(undo), 4=u(redo)
         self.run_test_screen(
             "Redo D on wrapped line rows decrease: partial from redo col",
             "A" * 50 + "\nSecond\n",
-            b"lllllDu u:q!\r",
+            b"lllllDu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AAAAA"), (1, "Second")],
             expect_cursor=(0, 4),
-            expect_min_col=[(5, 0, 5)]
+            expect_min_col=[(4, 0, 5)]
         )
 
         # Undo D from_wrap>0 (rows increase: 2 → 3):
@@ -14210,8 +20693,8 @@ class EditorTestRunner:
 
         # J on non-wrapped result (total rows decrease):
         # "AAAAA\nBBB\nThird\n" on 40-col. J → "AAAAA BBB" = 9 chars (1 row).
-        # Total before: 3. After: 2. Scroll path (RENDER_FLAG=$06).
-        # RENDER_FROM_COL16 = 5 (join col). render_line_delete_scroll partial.
+        # Total before: 3. After: 2. In-line edit path (RF_JOIN).
+        # RENDER_FROM_COL16 = 5 (join col): render_rows_resized, partial.
         # Frames: 0=initial, 1=J
         self.run_test_screen(
             "J on non-wrapped result total decrease: partial from join col",
@@ -14224,16 +20707,16 @@ class EditorTestRunner:
         )
 
         # Redo J on wrapped result (same total):
-        # Same setup as J wrapped test above. Ju u (undo, break, redo).
-        # Frames: 0=initial, 1=J, 2=u(undo), 3=space(noop), 4=u(redo)
+        # Same setup as J wrapped test above. Ju ESC u (undo, break, redo).
+        # Frames: 0=initial, 1=J, 2=u(undo), 3=u(redo)
         self.run_test_screen(
             "Redo J on wrapped result: partial from join col",
             "A" * 38 + "\nBB\nThird\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A" * 38 + " B"), (1, "B"), (2, "Third")],
             expect_cursor=(0, 38),
-            expect_min_col=[(4, 0, 38)]
+            expect_min_col=[(3, 0, 38)]
         )
 
         # Undo C on wrapped line (rows increase: 1 → 2):
@@ -14250,15 +20733,15 @@ class EditorTestRunner:
         )
 
         # Redo C on wrapped line (rows decrease: 2 → 1):
-        # Frames: 0=initial, 1=lllll, 2=C, 3=ESC, 4=u(undo), 5=space, 6=u(redo)
+        # Frames: 0=initial, 1=lllll, 2=C, 3=ESC, 4=u(undo), 5=u(redo)
         self.run_test_screen(
             "Redo C on wrapped line rows decrease: partial from redo col",
             "A" * 50 + "\nSecond\n",
-            b"lllllC\x1bu u:q!\r",
+            b"lllllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "AAAAA"), (1, "Second")],
             expect_cursor=(0, 4),
-            expect_min_col=[(6, 0, 5)]
+            expect_min_col=[(5, 0, 5)]
         )
 
         # Undo p (char paste) on wrapped line (rows decrease: 2 → 1):
@@ -14307,7 +20790,7 @@ class EditorTestRunner:
         self.run_test(
             "dd undo then redo",
             "Hello\nWorld\n",
-            b"ddu u:wq\r",
+            b"ddu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -14339,7 +20822,7 @@ class EditorTestRunner:
         self.run_test(
             ">> undo then redo",
             "Hello\nWorld\n",
-            b">>u u:wq\r",
+            b">>u\x1bu:wq\r",
             expected_content="  Hello\nWorld\n"
         )
 
@@ -14354,7 +20837,7 @@ class EditorTestRunner:
         self.run_test(
             "3>> undo redo cycles (u u u)",
             "aaa\n\nccc\nddd\n",
-            b"3>>u u u:wq\r",
+            b"3>>u\x1bu\x1bu:wq\r",
             expected_content="aaa\n\nccc\nddd\n"
         )
 
@@ -14369,7 +20852,7 @@ class EditorTestRunner:
         self.run_test(
             "3<< undo then redo",
             " a\n  b\n    c\n",
-            b"3<<u u:wq\r",
+            b"3<<u\x1bu:wq\r",
             expected_content="a\nb\n  c\n"
         )
 
@@ -14408,7 +20891,7 @@ class EditorTestRunner:
         self.run_test(
             ">>>> batched undo then redo",
             "Hello\n",
-            b">>>>u u:wq\r",
+            b">>>>u\x1bu:wq\r",
             expected_content="    Hello\n"
         )
 
@@ -14429,14 +20912,76 @@ class EditorTestRunner:
             expected_content="Hello\n"
         )
 
-        # Batched 2>>>> on two lines: undo removes the last 2-space step
-        # from both lines of the range
+        # 2>>>> on two lines is 2>> then >>: undo removes the >> (the
+        # cursor line only), leaving the 2>> on both lines
         self.run_test(
-            "2>>>> batched undo removes last step from range",
+            "2>>>> undo removes the last >>",
             "aaa\nbbb\nccc\n",
             b"2>>>>u:wq\r",
             expected_content="  aaa\n  bbb\nccc\n"
         )
+
+        # A count means lines and a repeated >> / << means width, so a
+        # count followed by typed-ahead pairs acts as the keys one at a
+        # time (the ESC-separated forms): 3>>>> is 3>> then >> (vim)
+        abcd = "a\nb\nc\nd\n"
+        deep = "      a\n      b\n      c\n"
+        for keys, content, expected, cursor in [
+                (b"3>>>>", abcd, "    a\n  b\n  c\nd\n", (0, 4)),
+                (b"3>>\x1b>>", abcd, "    a\n  b\n  c\nd\n", (0, 4)),
+                (b"3>>>>u", abcd, "  a\n  b\n  c\nd\n", (0, 2)),
+                (b"3>>>>uu", abcd, "    a\n  b\n  c\nd\n", (0, 2)),
+                (b"3>>\x1b>>\x1buu", abcd, "    a\n  b\n  c\nd\n", (0, 2)),
+                (b"2>>>>>>", abcd, "      a\n  b\nc\nd\n", (0, 6)),
+                (b"3<<<<", deep, "  a\n    b\n    c\n", (0, 2)),
+                (b"3<<\x1b<<", deep, "  a\n    b\n    c\n", (0, 2)),
+                (b"3<<<<uu", deep, "  a\n    b\n    c\n", (0, 2))]:
+            self.run_test_screen(
+                f"{keys!r} shifts as if unbatched", content,
+                keys + b"\x1b:wq\r", expected_content=expected,
+                expect_cursor=cursor)
+
+        # >> and << leave the cursor on the first non-blank, and u (and
+        # u again, the redo) put it back where the operator started: the
+        # cursor column, or the first non-blank if that is further left
+        # and the shift covered one line, as in vim.  Typed-ahead pairs,
+        # merged into one shift, must give what the ESC-separated keys
+        # give one at a time.  A range shift starts on its first line's
+        # first non-blank.
+        for keys, content, cursor in [
+                (b"l>>>>u", "aaa\n", (0, 2)),
+                (b"l>>\x1b>>\x1bu", "aaa\n", (0, 2)),
+                (b">>>>u", "abc def ghi\n", (0, 2)),
+                (b"l>>>>u\x1bu", "aaa\n", (0, 2)),
+                (b"l>>\x1b>>\x1bu\x1bu", "aaa\n", (0, 2)),
+                (b"l>>>>>>u", "aaa\n", (0, 4)),
+                (b"7l<<<<", "      aaa\n", (0, 2)),
+                (b"7l<<<<u", "      aaa\n", (0, 4)),
+                (b"7l<<\x1b<<\x1bu", "      aaa\n", (0, 4)),
+                (b"4l<<<<u", "   aaa\n", (0, 1)),
+                (b"4l<<\x1b<<\x1bu", "   aaa\n", (0, 1)),
+                (b"3l<<<<u", "      aaa\n", (0, 4)),
+                (b"3l<<<<u\x1bu", "      aaa\n", (0, 4)),
+                (b"6l>>", "  aaa bbb\n", (0, 4)),
+                (b"l>>", "  aaa bbb\n", (0, 4)),
+                (b"6l>>u", "  aaa bbb\n", (0, 2)),
+                (b"l>>u", "  aaa bbb\n", (0, 1)),
+                (b"7l<<", "      aaa\n", (0, 4)),
+                (b"7l<<u\x1bu", "      aaa\n", (0, 6)),
+                (b"2l<<", "aaa\n", (0, 0)),
+                (b"l>>", "   \n", (0, 4)),
+                (b"l>>u", "   \n", (0, 1)),
+                (b"2l3>>", "aaa\nbbb\nccc\n", (0, 2)),
+                (b"2l3>>u", "aaa\nbbb\nccc\n", (0, 2)),
+                (b"4l3>>u\x1bu", "  aaa\nbbb\nccc\n", (0, 4)),
+                (b"4l:>\r", "  aaa\nbbb\nccc\n", (0, 4)),
+                (b"4l:<\r", "  aaa\nbbb\nccc\n", (0, 0)),
+                (b"4l:<\ru", "  aaa\nbbb\nccc\n", (0, 2)),
+                (b"2l:2,3>\ru", "aaa\nbbb\nccc\n", (1, 0)),
+                (b"2l:2,3>\ru\x1bu", "aaa\nbbb\nccc\n", (1, 0))]:
+            self.run_test_screen(
+                f"{keys!r} on {content!r}: cursor as in vim",
+                content, b"0" + keys + b":q!\r", expect_cursor=cursor)
 
         # << that removes nothing is a no-op and records no undo:
         # u then re-executes nothing (prior undo state was cleared)
@@ -14446,6 +20991,69 @@ class EditorTestRunner:
             b"<<:q\r",
             expected_content="Hello\nWorld\n"
         )
+
+        # vim records a >> or << that changes nothing as an empty change:
+        # u "undoes" it (the change before stays done) and puts the cursor
+        # back where that shift started
+        for content, keys, expected, cursor in (
+                ("  bb cc\n", b"<<k<<lu", "bb cc\n", (0, 0)),
+                ("  bb cc\n", b"<<k<<luu", "bb cc\n", (0, 0)),
+                ("abc\n\n", b"xj>>u", "bc\n\n", (1, 0)),
+                ("  a\nb\n", b"<<j<<u", "a\nb\n", (1, 0)),
+                ("abc\n\n", b"xj<<ku", "bc\n\n", (1, 0)),
+                ("abc\n  x\n", b"xj:1<\ru", "bc\n  x\n", (0, 0))):
+            self.run_test_screen(
+                f"u after a {keys!r} that shifts nothing: cursor",
+                content,
+                keys + b":q!\r",
+                expect_cursor=cursor,
+            )
+            self.run_test(
+                f"u after a {keys!r} that shifts nothing: text",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+
+        # N>> and N<< with N of 2 or more fail on the last line, as in vim
+        # (the count's lines below are not there): nothing changes, and u
+        # still undoes the change before
+        for content, keys, expected in (("abc\n", b"3>>", "abc\n"),
+                                        ("  abc\n", b"2<<", "  abc\n"),
+                                        ("a\nb\n", b"j3>>", "a\nb\n"),
+                                        ("abc\n", b"x3>>u", "abc\n"),
+                                        ("a\nb\nc\n", b"j5>>", "a\n  b\n  c\n"),
+                                        ("abc\n", b"1>>", "  abc\n")):
+            self.run_test(
+                f"{keys!r} on the last line",
+                content,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+
+        # So do Ndd, Ncc, NS and Nyy (vim moves down count - 1 lines first,
+        # which fails there); from a line above they go to the last line
+        abc = "a\nb\nc\n"
+        for keys, expected in ((b"G2dd", abc), (b"G9dd", abc),
+                               (b"G2ccX\x1b", abc), (b"G2SX\x1b", abc),
+                               (b"yyG2yyP", "a\nb\na\nc\n"),
+                               (b"xG2ddu", abc), (b"G1dd", "a\nb\n"),
+                               (b"j5dd", "a\n"), (b"j5yyP", "a\nb\nc\nb\nc\n"),
+                               (b"j5ccX\x1b", "a\nX\n")):
+            self.run_test(
+                f"{keys!r} with a count on or near the last line",
+                abc,
+                keys + b":wq\r",
+                expected_content=expected,
+            )
+        # A refused count keeps the remembered column, as a failed command
+        for keys in (b"2dd", b"2yy", b"2cc", b"2S"):
+            self.run_test_screen(
+                f"{keys!r} refused on the last line keeps the column for k",
+                "abcdef\nabcdef\nab\n",
+                b"$jj" + keys + b"k:q!\r",
+                expect_cursor=(1, 5),
+            )
 
         # >> then movement then u: undo applies to the recorded range
         self.run_test(
@@ -14467,7 +21075,7 @@ class EditorTestRunner:
         self.run_test(
             "r undo then redo",
             "Hello\n",
-            b"rXu u:wq\r",
+            b"rXu\x1bu:wq\r",
             expected_content="Xello\n"
         )
 
@@ -14481,7 +21089,7 @@ class EditorTestRunner:
         self.run_test(
             "3rX undo redo cycle",
             "Hello\n",
-            b"3rXu u:wq\r",
+            b"3rXu\x1bu:wq\r",
             expected_content="XXXlo\n"
         )
 
@@ -14499,6 +21107,41 @@ class EditorTestRunner:
             expected_content="abc\ndef\n"
         )
 
+        # u of r<Enter> joins the line back with the replaced chars, the
+        # cursor on the first of them; u again (redo) splits it again, the
+        # cursor at the start of the new line as r<Enter> left it
+        for name, content, keys, lines, cursor in [
+                ("r<Enter> undo joins the line back", "abcde\ndef\n",
+                 b"llr\ru", ["abcde", "def"], (0, 2)),
+                ("r<Enter> undo then redo", "abcde\ndef\n",
+                 b"llr\ru\x1bu", ["ab", "de", "def"], (1, 0)),
+                ("3r<Enter> undo restores the 3 chars", "abcdef\nxy\n",
+                 b"l3r\ru", ["abcdef", "xy"], (0, 1)),
+                ("3r<Enter> undo then redo", "abcdef\nxy\n",
+                 b"l3r\ru\x1bu", ["a", "ef", "xy"], (1, 0)),
+                ("r<Enter> on the last char: undo then redo", "abc\ndef\n",
+                 b"$r\ru\x1bu", ["ab", "", "def"], (1, 0)),
+                ("r<Enter> undo, redo, undo", "abcde\ndef\n",
+                 b"llr\ru\x1bu\x1bu", ["abcde", "def"], (0, 2)),
+                ("r<Enter> undo from another line", "abcde\ndef\nghi\n",
+                 b"llr\rjju", ["abcde", "def", "ghi"], (0, 2)),
+                ("r<Enter> redo from another line", "abcde\ndef\nghi\n",
+                 b"llr\rujju", ["ab", "de", "def", "ghi"], (1, 0))]:
+            self.run_test_screen(
+                name, content, keys + b":wq\r",
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=cursor,
+                expected_content="\n".join(lines) + "\n"
+            )
+        self.run_test(
+            "r<Enter> undo moves the marks below back up",
+            "abc\ndef\nghi\n", b"jjmagglr\ru'ax:wq\r",
+            expected_content="abc\ndef\nhi\n")
+        self.run_test(
+            "r<Enter> redo moves the marks below down again",
+            "abc\ndef\nghi\n", b"jjmagglr\ru\x1bu'ax:wq\r",
+            expected_content="a\nc\ndef\nhi\n")
+
         # --- Toggle case (~) undo ---
 
         self.run_test(
@@ -14511,7 +21154,7 @@ class EditorTestRunner:
         self.run_test(
             "~ undo then redo",
             "Hello\n",
-            b"~u u:wq\r",
+            b"~u\x1bu:wq\r",
             expected_content="hello\n"
         )
 
@@ -14529,6 +21172,85 @@ class EditorTestRunner:
             expected_content="abc\ndef\n"
         )
 
+        # --- Failed commands leave the previous undo intact ---
+        # J with no line to join or too many, and r or ~ on an empty line,
+        # fail as in vi and vim: u still undoes the edit before them, at its
+        # recorded place.
+
+        self.run_test(
+            "J on last line keeps previous undo",
+            "abc\nd\n",
+            b"$xjJu:wq\r",
+            expected_content="abc\nd\n"
+        )
+
+        # Typed separately, the second J fails on the (new) last line, so u
+        # undoes the first J, exactly as after a batched JJ
+        self.run_test(
+            "J then failed J: u undoes the join",
+            "a\nb\n",
+            b"J\x1bJu:wq\r",
+            expected_content="a\nb\n"
+        )
+
+        # Batched after a count, the trailing J fails on the new last line:
+        # u undoes all of 3J's joins, as with 3J and J typed apart
+        self.run_test(
+            "3JJ batched, J fails: u undoes the 3J",
+            "a\nb\nc\n",
+            b"3JJu:wq\r",
+            expected_content="a\nb\nc\n"
+        )
+
+        self.run_test(
+            "Too many lines to join keeps previous undo",
+            "abc\n" + "\n" * 130,
+            b"x130J\x1bu:wq\r",          # (the ESC does nothing)
+            expected_content="abc\n" + "\n" * 130
+        )
+
+        self.run_test(
+            "r on empty line keeps previous undo",
+            "abc\n\nd\n",
+            b"2rZjrYku:wq\r",
+            expected_content="abc\n\nd\n"
+        )
+
+        self.run_test(
+            "~ on empty line keeps previous undo",
+            "abc\n\nd\n",
+            b"$xj~ku:wq\r",
+            expected_content="abc\n\nd\n"
+        )
+
+        # vim records an empty change for x, X and 5x on an empty line
+        # (X and d0 at column 0 of any line), and for s, C and cw left at
+        # once there: u then only puts the cursor back, and the change
+        # before stays done. D, d$ (and ~, r) there record nothing.
+        for keys, expected, cursor in (
+                (b"x", "bc\n\nxy\n", (1, 0)), (b"5x", "bc\n\nxy\n", (1, 0)),
+                (b"X", "bc\n\nxy\n", (1, 0)), (b"d0", "bc\n\nxy\n", (1, 0)),
+                (b"s\x1b", "bc\n\nxy\n", (1, 0)),
+                (b"C\x1b", "bc\n\nxy\n", (1, 0)),
+                (b"D", "abc\n\nxy\n", (0, 0)), (b"d$", "abc\n\nxy\n", (0, 0))):
+            self.run_test_screen(
+                f"x then {keys!r} on an empty line then u",
+                "abc\n\nxy\n", b"xj" + keys + b"u:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test_screen(
+            "x then cw on an empty last line then u",
+            "abc\n\n", b"xjcw\x1bu:wq\r",
+            expected_content="bc\n\n", expect_cursor=(1, 0))
+        for keys in (b"X", b"d0", b"5X"):
+            self.run_test_screen(
+                f"x then {keys!r} at column 0 of a line then u",
+                "abc\nde\nxy\n", b"xj" + keys + b"u:wq\r",
+                expected_content="bc\nde\nxy\n", expect_cursor=(1, 0))
+        # y$ on an empty line and y0 at column 0 yank the empty range
+        for content, keys in (("hello\n\n", b"yyjy$p"), ("hello\nab\n", b"yyjy0p")):
+            self.run_test(f"{keys!r}: the empty yank puts nothing",
+                          content, keys + b":wq\r", expected_content=content)
+
         # dd then dd then undo: first dd stays, second dd undone
         self.run_test(
             "dd dd u: first dd stays, second dd undone",
@@ -14537,12 +21259,12 @@ class EditorTestRunner:
             expected_content="B\nC\n"
         )
 
-        # dd then insert clears undo
+        # u after o and typing undoes both, not the dd before them
         self.run_test(
-            "dd then oNew ESC u: insert clears undo",
+            "dd then oNew ESC u: u undoes the o and the typing",
             "A\nB\n",
             b"ddoNew\x1bu:wq\r",
-            expected_content="B\nNew\n"
+            expected_content="B\n"
         )
 
         # u with no prior edit is no-op
@@ -14553,6 +21275,38 @@ class EditorTestRunner:
             expected_content="Hello\n",
             expect_unmodified=True
         )
+
+        # Delete and paste undo restore from (or size by) the yank buffer,
+        # so a yank-only command ends them: u is then a no-op instead of
+        # replaying the new yank. Undo types that keep their own data
+        # (J, ~, r, >>, o) survive a yank.
+        for keys, content, expected in [
+            (b"xyyu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"ddyyu", "abcdef\nsecond\n", "second\n"),
+            (b"xjywku", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xy$u", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x$ybu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xyeu", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x$y0u", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"x:2y\ru", "abcdef\nsecond\n", "bcdef\nsecond\n"),
+            (b"xuyyu", "abcdef\nsecond\n", "abcdef\nsecond\n"),
+            (b"yyp2yyu", "one\ntwo\nthree\n", "one\none\ntwo\nthree\n"),
+            (b"ywPyyu", "one two\nthree\n", "one one two\nthree\n"),
+            # u used to paste the char yank 'a' as a line: 'a\na' with no
+            # final newline, and the o after it never returned
+            (b"Gddywuoo\x1b", "a\nb\n", "a\no\n"),
+            (b"Jyyu", "abc\ndef\n", "abc\ndef\n"),
+            (b"~yyu", "abc\n", "abc\n"),
+            (b"rZyyu", "abc\n", "abc\n"),
+            (b">>yyu", "abc\n", "abc\n"),
+            (b"o\x1byyu", "abc\ndef\n", "abc\ndef\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: u after a yank never replays the yank",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
 
         self._group("Undo char-delete (x, D, dw, db, de):", leading_blank=True)
 
@@ -14568,7 +21322,7 @@ class EditorTestRunner:
         self.run_test(
             "x undo then redo",
             "Hello\n",
-            b"xu u:wq\r",
+            b"xu\x1bu:wq\r",
             expected_content="ello\n"
         )
 
@@ -14624,7 +21378,7 @@ class EditorTestRunner:
         self.run_test(
             "d$ undo then redo",
             "Hello\n",
-            b"lld$u u:wq\r",
+            b"lld$u\x1bu:wq\r",
             expected_content="He\n"
         )
 
@@ -14674,6 +21428,108 @@ class EditorTestRunner:
             "Hello\nWorld\nFoo\n",
             b"2S\x1buu:wq\r",
             expected_content="\nFoo\n"
+        )
+
+        self._group("Char ops larger than the yank buffer:", leading_blank=True)
+
+        # A char range that does not fit the 4 KB yank buffer is refused
+        # with "Yank buffer full", like dd: nothing is deleted, and the
+        # yank and the undo record of the previous change survive. The
+        # key after the refusal runs (as in vim): the X deletes the char
+        # before the cursor, which stays where the command was typed (at
+        # the end of the line for $d0 and $db, else at column 0, where X
+        # does nothing).
+        big = "hello\n" + "a" * 5000 + "\nend\n"
+        for keys in (b"yyjD", b"yyjd$", b"yyjdw", b"yyj5000s", b"yyjC",
+                     b"yyjcw", b"yyj$d0", b"yyj$db"):
+            self.run_test(
+                f"{keys[3:].decode()} over 4 KB refused",
+                big,
+                keys + b"X\x1b:wq\r",
+                expected_content=big.replace("a", "", 1) if keys[3:4] == b"$"
+                else big
+            )
+        self.run_test(
+            "D over 4 KB keeps the yank",
+            big,
+            b"yyjD\x1bp:wq\r",
+            expected_content=big.replace("\nend", "\nhello\nend")
+        )
+        for keys in (b"xjD", b"xjy$"):
+            self.run_test(
+                f"{keys[2:].decode()} over 4 KB keeps the previous undo",
+                big,
+                keys + b"\x1bu:wq\r",
+                expected_content=big
+            )
+        # A refused C does not enter insert mode: the x after it deletes
+        self.run_test(
+            "C over 4 KB stays in normal mode",
+            big,
+            b"jC\x1bx:wq\r",
+            expected_content=big.replace("a", "", 1)
+        )
+        for keys in (b"jD", b"jy$"):
+            self.run_test_screen(
+                f"{keys[1:].decode()} over 4 KB shows Yank buffer full",
+                big,
+                keys + b"\x1b:q!\r",
+                expect_ansi_contains="Yank buffer full"
+            )
+        # Typed-ahead dw/de pairs run each press: every press over 4 KB is
+        # refused with its own message, nothing is deleted and the yank
+        # survives for p
+        big_word = "hello\n" + "a" * 5000 + " b\nend\n"
+        for keys in (b"yyjdwdw", b"yyjdede"):
+            self.run_test(
+                f"typed-ahead {keys[3:].decode()} over 4 KB refused, keeps the yank",
+                big_word,
+                keys + b"\x1b\x1bp:wq\r",
+                expected_content=big_word.replace("\nend", "\nhello\nend")
+            )
+        self.run_test_screen(
+            "typed-ahead dwdw over 4 KB shows Yank buffer full",
+            big_word,
+            b"jdwdw\x1b\x1b:q!\r",
+            expect_ansi_contains="Yank buffer full"
+        )
+        # A refused command leaves the cursor where it was typed: d0, db,
+        # cb and yb too, which measure their range from where the cursor
+        # goes, and :d
+        big_b = "hello\n" + "a" * 5000 + " b\nend\n"
+        for content, keys, status in ((big, b"j$d0", " 2,5000 "),
+                                      (big_b, b"j$db", " 2,5002 "),
+                                      (big_b, b"j$cb", " 2,5002 "),
+                                      (big_b, b"j$yb", " 2,5002 "),
+                                      (big_b, b"j$dbdb", " 2,5002 ")):
+            self.run_test_screen(
+                f"{keys.decode()} over 4 KB leaves the cursor",
+                content,
+                keys + b"\x1b\x1b:q!\r",
+                expect_status_contains=status,
+            )
+        rows200 = "".join("%03d abcdefghijklmnopqrstuvwxyz\n" % i
+                          for i in range(200))
+        self.run_test_screen(
+            ":20,160d over 4 KB leaves the cursor",
+            rows200,
+            b"10j5l:20,160d\r\x1b:q!\r",
+            expect_status_contains=" 11,6 ",
+        )
+
+        # Exactly 4 KB still fits: D deletes and u restores it
+        fits = "hello\n" + "a" * 4096 + "\nend\n"
+        self.run_test(
+            "D of exactly 4 KB deletes",
+            fits,
+            b"jD:wq\r",
+            expected_content="hello\n\nend\n"
+        )
+        self.run_test(
+            "D of exactly 4 KB undoes",
+            fits,
+            b"jDu:wq\r",
+            expected_content=fits
         )
 
         self._group("Undo change commands (clean insert exit):", leading_blank=True)
@@ -14736,6 +21592,38 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # Undo/redo of cc at the end of the file and next to empty lines
+        for name, content, keys, expected in [
+            ("cc ESC undo on last line", "a\nb\n", b"Gcc\x1bu:wq\r", "a\nb\n"),
+            ("cc ESC undo redo on last line", "a\nb\n", b"Gcc\x1bu\x1bu:wq\r",
+             "a\n\n"),
+            ("2cc ESC undo reaching last line", "a\nb\nc\n", b"j2cc\x1bu:wq\r",
+             "a\nb\nc\n"),
+            ("3cc clamped ESC undo", "a\nb\nc\nd\n", b"jj3cc\x1bu:wq\r",
+             "a\nb\nc\nd\n"),
+            ("3cc clamped ESC undo redo", "a\nb\nc\nd\n",
+             b"jj3cc\x1bu\x1bu:wq\r", "a\nb\n\n"),
+            ("cc ESC undo redo keeps following empty line", "Hello\n\nWorld\n",
+             b"cc\x1bu\x1bu:wq\r", "\n\nWorld\n"),
+            ("cc ESC undo keeps empty last line", "X\n\n", b"cc\x1bu:wq\r",
+             "X\n\n"),
+            ("cc ESC undo redo on only line", "X\n", b"cc\x1bu\x1bu:wq\r", "\n"),
+            ("cc ESC undo redo undo on only line", "X\n", b"cc\x1bu\x1bu\x1bu:wq\r",
+             "X\n"),
+            ("2cc ESC undo redo undo on whole buffer", "a\nb\n",
+             b"2cc\x1bu\x1bu\x1bu:wq\r", "a\nb\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
+        self.run_test_screen(
+            "cc ESC undo on last line: screen and cursor",
+            "a\nb\n",
+            b"Gcc\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a"), (1, "b"), (2, "~")],
+            expect_cursor=(1, 0),
+        )
+
         # cc undo preserves mark below (undo must adjust marks when deleting blank)
         self.run_test_screen(
             "cc undo preserves mark set below",
@@ -14749,7 +21637,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "cc redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggcc\x1bu u'a:q!\r",
+            b"jjmaggcc\x1bu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(2, 0),  # mark on "C" = line 2 after redo
         )
@@ -14767,7 +21655,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggddu u'a:q!\r",
+            b"jjmaggddu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),  # mark on "C" = line 1 after redo (A deleted)
         )
@@ -14796,6 +21684,282 @@ class EditorTestRunner:
             expected_content="Hello World\n"
         )
 
+        self._group("Undo of insert-mode typing:", leading_blank=True)
+
+        # As in vim, u takes back the text typed in insert mode, and puts
+        # the cursor where the typing began (on the last char when that is
+        # past the line end).  Checked against vim 8.2, typed in a terminal
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ihello", "abc\n", (0, 0)),
+                ("abc\n", b"lihello", "abc\n", (0, 1)),
+                ("abc\n", b"Ahello\x08\x08p", "abc\n", (0, 2)),
+                ("abc\n", b"Afoo\rbar", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"lifoo\rbar", "abc\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"Ax\r\x08y", "abc\ndef\n", (0, 2)),
+                ("abc\ndef\n", b"Afoo\rbar\rbaz", "abc\ndef\n", (0, 2)),
+                # Typed and erased again: an empty change, which u undoes
+                # (the edit before stays done)
+                ("abc\n", b"xia\x08", "bc\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert undo: {keys!r} ESC u on {content!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        # An insert that only moves the cursor changes nothing: u still
+        # undoes the edit before it
+        for moves in (b"\x1b[D\x1b[D", b"\x1b[C\x1b[A\x1b[B\x1b[H\x1b[F"):
+            self.run_test_screen(
+                f"Insert undo: x, then i {moves!r} ESC u undoes the x",
+                "abcdef\n", b"lllxi" + moves + b"\x1bu:wq\r",
+                expected_content="abcdef\n", expect_cursor=(0, 3))
+        # As in vim, a cursor key that moves the cursor in insert mode starts
+        # a new stretch of typing, and u takes back the last one; Home and
+        # End always do, a key that cannot move (Right at the line end, Up
+        # on the first line, Left at column 0, Ctrl-Right at the end of the
+        # text) does not
+        lines30 = "".join(f"line {i}\n" for i in range(30))
+        for content, keys, expected, cursor in (
+                ("abc\n", b"Ahello\x1b[D\x1b[DXY", "abchello\n", (0, 6)),
+                ("abc\n", b"ihello\x1b[HX", "helloabc\n", (0, 0)),
+                ("abc\ndef\n", b"ihello\x1b[BX", "helloabc\ndef\n", (1, 2)),
+                ("abc\n", b"ix\x1b[Dy", "xabc\n", (0, 0)),
+                ("abc\ndef\n", b"Ax\x1b[B\x1b[Ay", "abcx\ndef\n", (0, 3)),
+                ("abc def\n", b"ix\x1b[1;5Dy", "xabc def\n", (0, 0)),
+                ("abc def\n", b"ix\x1b[1;5Cy", "xabc def\n", (0, 5)),
+                ("abc\n", b"ia\r\x1b[Hb", "a\nabc\n", (1, 0)),
+                ("abc\n", b"Aa\x1b[Fb", "abca\n", (0, 3)),
+                ("abc\n", b"Ax\x1b[Cy", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"Ax\x1b[Ay", "abc\ndef\n", (0, 2)),
+                ("abc\ndef\n", b"jAx\x1b[By", "abc\ndef\n", (1, 2)),
+                ("abc\n", b"ia\r\x1b[Db", "abc\n", (0, 0)),
+                ("abc def\n", b"$ax\x1b[1;5Cy", "abc def\n", (0, 6))):
+            self.run_test_screen(
+                f"Insert undo after a cursor key: {keys!r} ESC u on {content[:8]!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test(
+            "Insert undo after a cursor key: PgDn starts a new stretch",
+            lines30, b"Ax\x1b[6~y\x1bu:wq\r",
+            expected_content=lines30.replace("line 0\n", "line 0x\n", 1))
+        # o and O: u takes back the opened line with the text typed on it,
+        # and returns to where o or O was typed, as in vim
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ofoo", "abc\n", (0, 0)),
+                ("abc\n", b"lofoo", "abc\n", (0, 1)),
+                ("  abc\ndef\n", b"0jlOfoo", "  abc\ndef\n", (1, 1)),
+                ("abc\n", b"llOfoo", "abc\n", (0, 2)),
+                ("abc\ndef\n", b"lofoo\rbar", "abc\ndef\n", (0, 1)),
+                ("abc\ndef\n", b"jlOfoo\rbar", "abc\ndef\n", (1, 1)),
+                ("abc\nxy\n", b"j$o", "abc\nxy\n", (1, 1)),
+                ("abc\nxy\n", b"j$O", "abc\nxy\n", (1, 1)),
+                ("abc\n", b"Ofoo\x1b[Ax", "abc\n", (0, 0)),
+                # A cursor move after o starts a new stretch
+                ("abc\n", b"ofoo\x1b[Dx", "abc\nfoo\n", (1, 2)),
+                ("abc\n", b"o\x1b[Ax", "abc\n\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert undo of o and O: {keys!r} ESC u on {content!r}",
+                content, keys + b"\x1bu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        # u again puts the lines back: after O the cursor returns to the
+        # column O was typed at (vim), after o to the opened line (vim: to
+        # the line o was typed on)
+        for content, keys, expected, cursor in (
+                ("abc\n", b"llOfoo", "foo\nabc\n", (0, 2)),
+                ("abc\ndef\n", b"jlOfoo\rbar", "abc\nfoo\nbar\ndef\n", (1, 1)),
+                ("abc\nxy\n", b"j$O", "abc\n\nxy\n", (1, 0)),
+                ("abc\n", b"ofoo", "abc\nfoo\n", (1, 0))):
+            self.run_test_screen(
+                f"Insert redo of o and O: {keys!r} ESC u u on {content!r}",
+                content, keys + b"\x1buu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        for keys, expected in ((b"u", "abc\nef\n"),
+                               (b"uu", "abc\nfoo\nbar\nef\n")):
+            self.run_test(
+                f"Insert undo of o: the marks below after {keys.decode()}",
+                "abc\ndef\n", b"jmakofoo\rbar\x1b" + keys + b"'ax:wq\r",
+                expected_content=expected)
+        self.run_test_screen(
+            "Insert undo of o: the screen after u of typed lines",
+            "abc\ndef\nghi\n", b"jofoo\rbar\rbaz\x1bu",
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "~")],
+            expect_cursor=(1, 0))
+        # The screen after u of typed line breaks
+        self.run_test_screen(
+            "Insert undo: the screen after u of typed line breaks",
+            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu",
+            expect_lines=[(0, "abc"), (1, "def"), (2, "ghi"), (3, "~")],
+            expect_cursor=(1, 2))
+        # u again redoes the typing, the cursor where it began (vim's Ctrl-R)
+        for content, keys, expected, cursor in (
+                ("abc\n", b"ihello", "helloabc\n", (0, 0)),
+                ("abc\n", b"lihello", "ahellobc\n", (0, 1)),
+                ("abc\n", b"Ahello\x1b[D\x1b[DXY", "abchelXYlo\n", (0, 6)),
+                ("abc\n", b"Afoo\rbar", "abcfoo\nbar\n", (0, 3)),
+                ("abc\ndef\n", b"lifoo\rbar", "afoo\nbarbc\ndef\n", (0, 1)),
+                ("abc\n", b"xia\x08", "bc\n", (0, 0))):
+            self.run_test_screen(
+                f"Insert redo: {keys!r} ESC u u on {content!r}",
+                content, keys + b"\x1buu:wq\r",
+                expected_content=expected, expect_cursor=cursor)
+        self.run_test(
+            "Insert redo: u u u undoes again",
+            "abc\n", b"ihello\x1buuu:wq\r", expected_content="abc\n")
+        self.run_test(
+            "Insert redo: the marks below move down again",
+            "abc\ndef\n", b"jmakAfoo\rbar\x1buu'ax:wq\r",
+            expected_content="abcfoo\nbar\nef\n")
+        self.run_test_screen(
+            "Insert redo: the screen after typed line breaks come back",
+            "abc\ndef\nghi\n", b"jAfoo\rbar\rbaz\x1bu\x1bu",
+            expect_lines=[(0, "abc"), (1, "deffoo"), (2, "bar"), (3, "baz"),
+                          (4, "ghi"), (5, "~")],
+            expect_cursor=(1, 3))
+        # The text of a long insert is undone too; its redo keeps up to 255
+        # chars (u after the undo of more does nothing)
+        self.run_test(
+            "Insert undo: 300 chars typed",
+            "abc\n", b"i" + b"x" * 300 + b"\x1bu:wq\r",
+            expected_content="abc\n")
+        self.run_test(
+            "Insert redo: 255 chars typed",
+            "abc\n", b"i" + b"x" * 255 + b"\x1buu:wq\r",
+            expected_content="x" * 255 + "abc\n")
+        self.run_test(
+            "Insert redo: none for 256 chars typed",
+            "abc\n", b"i" + b"x" * 256 + b"\x1buu:wq\r",
+            expected_content="abc\n")
+        self.run_test_screen(
+            "Insert redo: none for 256 chars, typed-ahead uu draws the undo",
+            "abc\n", b"i" + b"x" * 256 + b"\x1buu",
+            expect_lines=[(0, "abc"), (1, "~")], expect_cursor=(0, 0))
+        # Typing that deletes text from before where it began (BS) or after
+        # the cursor (DEL) is not undoable yet: it clears the undo, as does
+        # typing after a change command (vim undoes it: 'cd' in both)
+        self.run_test(
+            "Insert undo: BS of text from before the insert clears undo",
+            "ab\ncd\n", b"ddA\x08x\x1bu:wq\r", expected_content="cx\n")
+        self.run_test(
+            "Insert undo: DEL of text after the cursor clears undo",
+            "ab\ncd\n", b"ddix\x1b[3~\x1bu:wq\r", expected_content="xd\n")
+        # o's line break is before the typing, so a BS at the start of its
+        # line clears the undo too, and a DEL at its end (vim: 'abc' and
+        # 'abc\ndef')
+        self.run_test(
+            "Insert undo of o: BS at the start of the opened line clears undo",
+            "abc\n", b"o\x08x\x1bu:wq\r", expected_content="abcx\n")
+        self.run_test(
+            "Insert undo of o: DEL at the end of the opened line clears undo",
+            "abc\ndef\n", b"ofoo\x1b[3~\x1bu:wq\r",
+            expected_content="abc\nfoodef\n")
+
+        self._group("Counts on i, a, A, o and O (vim's insert repeat):",
+                    leading_blank=True)
+
+        # ESC after i, a, A, o or O with a count types the text count - 1
+        # times more (o and O on lines of their own), and u takes it all
+        # back.  A cursor move in insert mode drops the count (vim's
+        # arrow_used: Home and End even where they cannot move), one that
+        # fails keeps it; the count of a change command is its own, s and
+        # cw on an empty line too.  Checked by typing into vim 8.2
+        LEFT, UP, HOME, END = b"\x1b[D", b"\x1b[A", b"\x1b[H", b"\x1b[F"
+        for content, keys, expected, cursor in (
+                ("abc\n", b"3ix\x1b", "xxxabc\n", (0, 2)),
+                ("abc\n", b"3oab\x1b", "abc\nab\nab\nab\n", (3, 1)),
+                ("abc\n", b"3Oab\x1b", "ab\nab\nab\nabc\n", (2, 1)),
+                ("abc\n", b"3aab\x1b", "aabababbc\n", (0, 6)),
+                ("abc\n", b"3Aab\x1b", "abcababab\n", (0, 8)),
+                ("abc\n", b"3o\x1b", "abc\n\n\n\n", (3, 0)),
+                ("abc\n", b"3O\x1b", "\n\n\nabc\n", (2, 0)),
+                ("abc\n", b"3ia" + LEFT + b"b\x1b", "baabc\n", (0, 0)),
+                ("abc\n", b"3i" + LEFT + b"x\x1b", "xxxabc\n", (0, 2)),
+                ("abc\ndef\n", b"3ix" + UP + b"y\x1b", "xyxyxyabc\ndef\n",
+                 (0, 5)),
+                ("abc\n", b"3ix" + END + b"y\x1b", "xabcy\n", (0, 4)),
+                ("abc\n", b"3i" + HOME + b"x\x1b", "xabc\n", (0, 0)),
+                ("abc\n", b"3ifoo\r\x1b", "foo\nfoo\nfoo\nabc\n", (3, 0)),
+                ("abc\n", b"l3i\r\x1b", "a\n\n\nbc\n", (3, 0)),
+                ("abc\n", b"3ixy\x08z\x1b", "xzxzxzabc\n", (0, 5)),
+                ("abc\ndef\n", b"3oa\rb\x1b",
+                 "abc\na\nb\na\nb\na\nb\ndef\n", (6, 0)),
+                ("abc\ndef\n", b"3Oa\rb\x1b",
+                 "a\nb\na\nb\na\nb\nabc\ndef\n", (5, 0)),
+                ("", b"3ix\x1b", "xxx\n", (0, 2)),
+                ("", b"3oab\x1b", "\nab\nab\nab\n", (3, 1)),
+                ("", b"3Oab\x1b", "ab\nab\nab\n\n", (2, 1)),
+                ("abc\n", b"3i\x1b", "abc\n", (0, 0)),
+                ("abc\n", b"3ix\x08\x1b", "abc\n", (0, 0)),
+                ("abcdef\n", b"3sX\x1b", "Xdef\n", (0, 0)),
+                ("\n", b"3sX\x1b", "X\n", (0, 0)),
+                ("\n", b"3cwX\x1b", "X\n", (0, 0)),
+                ("abc\n", b"3ix\x1bu", "abc\n", (0, 0)),
+                ("abc\n", b"3oab\x1bu", "abc\n", (0, 0)),
+                ("abc\n", b"3ix\x1buu", "xxxabc\n", (0, 0)),  # (vim's u Ctrl-R)
+                ("abc\n", b"100ixyz\x1bu", "abc\n", (0, 0)),
+                # The marks below move down with the lines, and u moves
+                # them back; one on the line the count splits stays
+                ("abc\ndef\nghi\n", b"jmak3oab\x1b'ax",
+                 "abc\nab\nab\nab\nef\nghi\n", (4, 0)),
+                ("abc\ndef\nghi\n", b"jmak3oab\x1bu'ax",
+                 "abc\nef\nghi\n", (1, 0)),
+                ("abc\ndef\n", b"mal3ifoo\r\x1b'ax",
+                 "foo\nfoo\nfoo\nbc\ndef\n", (0, 0))):
+            self.run_test_screen(
+                f"Count insert: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
+        # The copies are drawn: a split, and a line that wraps (the second
+        # ESC ends the first one's wait for the rest of a key)
+        self.run_test_screen(
+            "Count insert: 3ifoo Enter draws the split lines",
+            "abc\ndef\n", b"3ifoo\r\x1b\x1b",
+            expect_lines=[(0, "foo"), (1, "foo"), (2, "foo"), (3, "abc"),
+                          (4, "def"), (5, "~")], expect_cursor=(3, 0))
+        wrapped = "abc" + "xy" * 20
+        self.run_test_screen(
+            "Count insert: 20Axy draws the line's new rows",
+            "abc\ndef\n", b"20Axy\x1b\x1b", rows=6, cols=20,
+            expect_lines=[(0, wrapped[:20]), (1, wrapped[20:40]),
+                          (2, wrapped[40:]), (3, "def")], expect_cursor=(2, 2))
+        self.run_test_batch_equiv("Batch equiv: 3o with typing",
+                                  "abc\ndef\n",
+                                  [b"3o", b"a", b"\r", b"b", b"\x1b"])
+        self.run_test_batch_equiv("Batch equiv: 3i with typing and BS",
+                                  "abc\n",
+                                  [b"3", b"i", b"x", b"y", b"\x08", b"z",
+                                   b"\x1b"])
+        # A product past 16 bits is refused ("Buffer full"), and leaves no
+        # count behind: x then deletes one char
+        self.run_test_screen(
+            "Count insert: 9999i of 200 chars is refused, then x",
+            "abcdef\n", b"9999i" + b"y" * 200 + b"\x1bx:wq\r", cols=80,
+            expected_content="y" * 199 + "abcdef\n",
+            expect_ansi_contains="Buffer full")
+
+        self._group("I (insert before the first non-blank):",
+                    leading_blank=True)
+
+        # I inserts before the line's first non-blank, past the blanks of
+        # a line of blanks (vim's beginline(BL_WHITE)), with a count as i,
+        # and u returns there.  Checked by typing into vim 8.2
+        for content, keys, expected, cursor in (
+                ("  abc\n", b"$Ix\x1b", "  xabc\n", (0, 2)),
+                ("abc\n", b"$Ix\x1b", "xabc\n", (0, 0)),
+                (" \t abc\n", b"$I-\x1b", " \t -abc\n", (0, 3)),
+                ("   \n", b"Ix\x1b", "   x\n", (0, 3)),
+                ("abc\n\ndef\n", b"jIx\x1b", "abc\nx\ndef\n", (1, 0)),
+                ("", b"Ix\x1b", "x\n", (0, 0)),
+                ("  abc\n", b"3Ix\x1b", "  xxxabc\n", (0, 4)),
+                ("   \n", b"3Ix\x1b", "   xxx\n", (0, 5)),
+                ("\tab\n", b"2Iy\x1b", "\tyyab\n", (0, 2)),
+                ("  abc\n", b"$3Ia\rb\x1b", "  a\nba\nba\nbabc\n", (3, 0)),
+                ("  abc\n  de\n", b"j$Ix\x1b[Ay\x1b", "  aybc\n  xde\n",
+                 (0, 3)),
+                ("  abc\ndef\n", b"0I\x08x\x1b", " xabc\ndef\n", (0, 1)),
+                ("  abc\n", b"$Ixy\x1bu", "  abc\n", (0, 2))):
+            self.run_test_screen(
+                f"I: {keys!r} on {content!r}", content,
+                keys + b":wq\r", expected_content=expected,
+                expect_cursor=cursor)
+
         self._group("Undo join (J):", leading_blank=True)
 
         # J undo: restore joined lines
@@ -14810,7 +21974,7 @@ class EditorTestRunner:
         self.run_test(
             "J undo then redo",
             "Hello\nWorld\n",
-            b"Ju u:wq\r",
+            b"Ju\x1bu:wq\r",
             expected_content="Hello World\n"
         )
 
@@ -14826,7 +21990,7 @@ class EditorTestRunner:
         self.run_test(
             "3J undo then redo",
             "A\nB\nC\nD\n",
-            b"3Ju u:wq\r",
+            b"3Ju\x1bu:wq\r",
             expected_content="A B C\nD\n"
         )
 
@@ -14844,7 +22008,7 @@ class EditorTestRunner:
         self.run_test(
             "JJ batched: undo only undoes last join",
             "A\nB\nC\n",
-            b"JJ u:wq\r",
+            b"JJ\x1bu:wq\r",
             expected_content="A B\nC\n"
         )
 
@@ -14853,7 +22017,7 @@ class EditorTestRunner:
         self.run_test(
             "JJ batched: redo re-joins",
             "A\nB\nC\n",
-            b"JJ u u:wq\r",
+            b"JJ\x1bu\x1bu:wq\r",
             expected_content="A B C\n"
         )
 
@@ -14866,12 +22030,12 @@ class EditorTestRunner:
         )
 
         # Join limit: 129J on 130-line file exceeds JOIN_UNDO_MAX (128)
-        # Should show error and not modify buffer (keypress dismisses msg)
+        # Should show error and not modify buffer
         content_130 = ''.join(f"{i}\n" for i in range(130))
         self.run_test(
             "129J exceeds limit: no modification",
             content_130,
-            b"130J :wq\r",  # space dismisses error msg
+            b"130J\x1b:wq\r",  # (the ESC does nothing)
             expected_content=content_130,
             expect_unmodified=True
         )
@@ -14884,6 +22048,47 @@ class EditorTestRunner:
             content_129,
             b"129J:wq\r",
             expected_content=expected_128j
+        )
+
+        # A typed-ahead J must not lift the limit: one at a time, 131J is
+        # refused and the next J joins one line, as in vim
+        self.run_test(
+            "131J + typed-ahead J: refused, then the J joins a line",
+            content_130 + "130\n",
+            b"131JJ:wq\r",
+            expected_content="0 " + content_130[2:] + "130\n"
+        )
+
+        self.run_test(
+            "131J, ESC, J joins one line",
+            content_130 + "130\n",
+            b"131J\x1bJ:wq\r",
+            expected_content="0 1\n" + content_130[4:] + "130\n"
+        )
+
+        # 1J joins two lines like J (vi and vim: a count below 2 joins two)
+        self.run_test(
+            "1J joins two lines",
+            "a\nb\nc\n",
+            b"1J:wq\r",
+            expected_content="a b\nc\n"
+        )
+
+        # A count past the lines left joins them all (as in vim)
+        self.run_test(
+            "999J on a short file joins every line",
+            "a\nb\nc\n",
+            b"999J:wq\r",
+            expected_content="a b c\n"
+        )
+
+        # A refused count costs no line walk: the limit is checked first
+        # (the whole run took 517,195 cycles, now 437,215)
+        self.run_test_cycle_cap(
+            "999J refused without walking the lines",
+            make_lines(400),
+            b"999J\x1b:q!\r",
+            470000
         )
 
         # J undo preserves mark below
@@ -14903,7 +22108,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo preserves mark set below",
             "A\nB\nC\nD\n",
-            b"jjmaggJu u'a:q!\r",
+            b"jjmaggJu\x1bu'a:q!\r",
             rows=10, cols=40,
             expect_cursor=(1, 0),  # mark on "C" = line 1 after redo (A+B joined)
         )
@@ -14924,7 +22129,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "JJ batched undo: screen correct",
             "A\nB\nC\n",
-            b"JJ u:q!\r",
+            b"JJ\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A B"), (1, "C")],
         )
@@ -14934,7 +22139,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "JJ batched redo: screen correct",
             "A\nB\nC\n",
-            b"JJ u u:q!\r",
+            b"JJ\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "A B C"), (1, "~")],
         )
@@ -14957,26 +22162,28 @@ class EditorTestRunner:
             expect_lines=[(0, "A"), (1, "B"), (2, "C"), (3, "D")],
         )
 
-        # JJ batched undo: cursor stays at col 0
+        # JJ batched undo: cursor goes back to where the second J was
+        # typed (the first J's join point), as with J J typed apart
         self.run_test_screen(
             "JJ batched undo: cursor position",
             "A\nB\nC\n",
-            b"JJ u:q!\r",
+            b"JJ\x1bu:q!\r",
             rows=10, cols=40,
-            expect_cursor=(0, 0),
+            expect_cursor=(0, 1),
         )
 
         self._group("Undo batching (u):", leading_blank=True)
 
         # uu batched: even count = noop, no content redraw
-        # Frames: initial (True), dd (True), uu noop (False)
+        # Frames: initial (True), dd (True); uu changes nothing: no frame
         self.run_test_screen(
             "uu batched: even count is noop after dd",
             "A\nB\nC\n",
             b"dduu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "B"), (1, "C")],
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
+            expect_frame_count=2,
         )
 
         # uuu batched: odd count = one undo, one content redraw
@@ -14991,25 +22198,62 @@ class EditorTestRunner:
         )
 
         # uuuu batched: even count = noop, no content redraw
-        # Frames: initial (True), dd (True), uuuu noop (False)
+        # Frames: initial (True), dd (True); uuuu changes nothing: no frame
         self.run_test_screen(
             "uuuu batched: even count is noop after dd",
             "A\nB\nC\n",
             b"dduuuu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "B"), (1, "C")],
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
+            expect_frame_count=2,
         )
 
         # uu batched after x: noop, no content redraw
-        # Frames: initial (True), x (True), uu noop (False)
+        # Frames: initial (True), x (True); uu changes nothing: no frame
         self.run_test_screen(
             "uu batched: even count is noop after x",
             "Hello\n",
             b"xuu:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "ello")],
-            expect_content_redraws=[True, True, False],
+            expect_content_redraws=[True, True],
+            expect_frame_count=2,
+        )
+
+        # The text is unchanged after uu, but as with u typed twice the
+        # cursor ends where the second step (the redo) leaves it; only the
+        # cursor moves, so there is still no content redraw.
+        # Frames: initial, dd, jj, uu, ':'
+        self.run_test_screen(
+            "uu batched: cursor ends at the redo position",
+            "abc\ndef\nghi\njkl\nmno\n",
+            b"ddjjuu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "def"), (1, "ghi")],
+            expect_cursor=(0, 0),
+            expect_content_redraws=[True, True, False, False],
+        )
+
+        # After an undo, uu is redo then undo: the cursor ends at the undo
+        # position.  Frames: initial, j, dd, u, jj, uu, ':'
+        self.run_test_screen(
+            "uu batched after u: cursor ends at the undo position",
+            "abc\ndef\nghi\njkl\nmno\n",
+            b"jddujjuu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(1, "def"), (2, "ghi")],
+            expect_cursor=(1, 0),
+            expect_content_redraws=[True, False, True, True, False, False],
+        )
+
+        # Each u marks the text changed, as typed one at a time: after :w,
+        # uu leaves it modified, so :q refuses
+        self.run_test_screen(
+            "uu batched after :w leaves the file modified",
+            "abc\ndef\nghi\n",
+            b"dd:w\ruu:q\r:q!\r",
+            expect_ansi_contains="No write since last change",
         )
 
         # uuu batched after J: odd count = one undo, one content redraw
@@ -15023,18 +22267,19 @@ class EditorTestRunner:
             expect_content_redraws=[True, True, True],
         )
 
-        # J undo scroll region should exclude cursor row
+        # J undo scroll excludes the cursor row
         # When J is undone, cursor row content changes but doesn't need to scroll.
         # Only rows below cursor should scroll down.
-        # For cursor at row 0 with 10 rows: scroll region should be ESC[2;9r
-        # (rows 2-9 in 1-based = rows 1-8 in 0-based), not ESC[1;9r
+        # For cursor at row 0 with 10 rows: the line is inserted at row 2
+        # (1-based: ESC[2H ESC[L, after the DL at the bottom that keeps the
+        # status bar in place), not at row 1
         self.run_test_screen(
             "J undo scroll excludes cursor row",
             "Hello\nWorld\n",
             b"Ju:q!\r",
             rows=10, cols=40,
             expect_lines=[(0, "Hello"), (1, "World")],
-            expect_ansi_contains="\x1b[2;9r",
+            expect_ansi_contains="\x1b[9H\x1b[M\x1b[2H\x1b[L",
         )
 
         self._group("Undo line paste below (p):", leading_blank=True)
@@ -15100,7 +22345,7 @@ class EditorTestRunner:
         self.run_test(
             "yyppu u redo re-pastes last copy",
             "A\nB\n",
-            b"yyppu u:wq\r",
+            b"yyppu\x1bu:wq\r",
             expected_content="A\nA\nA\nB\n"
         )
 
@@ -15117,6 +22362,114 @@ class EditorTestRunner:
             "a\nb\nc\n",
             b"2yyppu:wq\r",
             expected_content="a\na\nb\nb\nc\n"
+        )
+
+        # Multi-line yank: separate p presses nest (each p pastes below
+        # the first line of the copy before), and typed ahead they must too
+        self.run_test(
+            "2yy pp nests copies like p <Esc> p",
+            "L0\nA\nB\nL3\n",
+            b"2yypp:wq\r",
+            expected_content="L0\nL0\nL0\nA\nA\nA\nB\nL3\n"
+        )
+
+        self.run_test(
+            "2yy 2pp nests like 2p <Esc> p",
+            "L0\nA\nB\nL3\n",
+            b"2yy2pp:wq\r",
+            expected_content="L0\nL0\nL0\nA\nA\nL0\nA\nA\nB\nL3\n"
+        )
+
+        self.run_test_screen(
+            "2yy pp u cursor on the line the last p was typed on",
+            "L0\nA\nB\nL3\n",
+            b"2yyppu:q!\r",
+            expect_lines=[(0, "L0"), (1, "L0"), (2, "A"), (3, "A")],
+            expect_cursor=(1, 0),
+        )
+
+        # A count, then typed-ahead p: 3p moves the cursor to the first
+        # pasted line only, so the next p was typed on line 1, not line 3
+        self.run_test_screen(
+            "yy 3pp u cursor on the line the last p was typed on",
+            "L\nx\nZ\n",
+            b"yy3ppu:q!\r",
+            expect_lines=[(0, "L"), (1, "L"), (2, "L"), (3, "L"), (4, "x")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "yy 2ppp u cursor on the line the last p was typed on",
+            "L\nx\nZ\n",
+            b"yy2pppu:q!\r",
+            expect_lines=[(0, "L"), (1, "L"), (2, "L"), (3, "L"), (4, "x")],
+            expect_cursor=(2, 0),
+        )
+
+        # A line paste leaves the cursor at column 0, so the next p or P
+        # is typed there, and u after typed-ahead pp or PP returns there
+        self.run_test_screen(
+            "yy$ pp u cursor at column 0 like p <Esc> p u",
+            "abcdef\nxy\n",
+            b"yy$ppu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "yy$ PP u cursor at column 0 like P <Esc> P u",
+            "abcdef\nxy\n",
+            b"yy$PPu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "xy")],
+            expect_cursor=(0, 0),
+        )
+
+        self.run_test_screen(
+            "yy$ 2PP u cursor at column 0 like 2P <Esc> P u",
+            "abcdef\nxy\n",
+            b"yy$2PPu:q!\r",
+            expect_lines=[(0, "abcdef"), (1, "abcdef"), (2, "abcdef"), (3, "xy")],
+            expect_cursor=(0, 0),
+        )
+
+        # Multi-line char yank ("b\ncd"): p leaves the cursor on the first
+        # pasted char, so the next p pastes inside the copy before
+        self.run_test(
+            "Multi-line char pp nests like p <Esc> p",
+            "ab\ncd\n",
+            b"l2y$pp:wq\r",
+            expected_content="abbb\ncd\ncd\ncd\n"
+        )
+
+        self.run_test(
+            "Multi-line char pp u undoes the last p only",
+            "ab\ncd\n",
+            b"l2y$ppu:wq\r",
+            expected_content="abb\ncd\ncd\n"
+        )
+
+        # A char yank that starts with a newline (jye: "\ncd"): P leaves
+        # the cursor on the pasted newline, which is past the end of the
+        # line, so it steps back a column and the next P goes in there
+        self.run_test(
+            "P of a yank starting with a newline: PP as P <Esc> P",
+            "ab\n\ncd\nef\n",
+            b"jyegg$PP:wq\r",
+            expected_content="\ncda\ncdb\n\ncd\nef\n"
+        )
+
+        self.run_test(
+            "P of a yank starting with a newline: 2PP as 2P <Esc> P",
+            "ab\n\ncd\nef\n",
+            b"jyegg$2PP:wq\r",
+            expected_content="\ncda\ncd\ncdb\n\ncd\nef\n"
+        )
+
+        self.run_test(
+            "P of a yank starting with a newline: PP u keeps the text",
+            "ab\n\ncd\nef\n",
+            b"jyegg$PPu:wq\r",
+            expected_content="a\ncdb\n\ncd\nef\n"
         )
 
         # Char paste batching: same rule
@@ -15141,12 +22494,60 @@ class EditorTestRunner:
             expected_content="B\n"
         )
 
+        # A yank of several chars: each P inserts at the cursor, which the
+        # P before left on its last pasted char, so the last P's copy
+        # starts S-1 columns right of where the first P was typed
+        self.run_test(
+            "3x PP u removes the last P's copy",
+            "abcdef\n",
+            b"3xPPu:wq\r",
+            expected_content="abcdef\n"
+        )
+
+        self.run_test(
+            "3x 2PP u removes the last P's copy",
+            "abcdef\n",
+            b"3x2PPu:wq\r",
+            expected_content="abcabcdef\n"
+        )
+
+        self.run_test_screen(
+            "3x PP u cursor where the last P was typed",
+            "abcdef\n",
+            b"3xPPu:q!\r",
+            expect_lines=[(0, "abcdef")],
+            expect_cursor=(0, 2),
+        )
+
+        self.run_test_screen(
+            "3x 2PP u cursor where the last P was typed",
+            "abcdef\n",
+            b"3x2PPu:q!\r",
+            expect_lines=[(0, "abcabcdef")],
+            expect_cursor=(0, 5),
+        )
+
+        self.run_test(
+            "3x PP u u redo re-pastes the last P's copy",
+            "abcdef\n",
+            b"3xPPu\x1bu:wq\r",
+            expected_content="ababccdef\n"
+        )
+
+        self.run_test(
+            "3x 2pp u removes the last p's copy",
+            "abcdef\n",
+            b"3x2ppu:wq\r",
+            expected_content="dabcabcef\n"
+        )
+
         # Cursor position after undo: back to pre-paste line+col
         self.run_test_screen(
             "ddpu cursor at original position",
             "AB\nCD\nEF\n",
+            b"dd" +
             b"l" +              # cursor at col 1
-            b"ddpu:q!\r",
+            b"pu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -15155,7 +22556,7 @@ class EditorTestRunner:
             "ddpu mark preserved",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy p" +         # yank A, paste below line 0 -> C shifts to 3
+            b"ggyy\x1bp" +         # yank A, paste below line 0 -> C shifts to 3
             b"u" +              # undo paste -> C shifts back to 2
             b"'a:q!\r",
             expect_cursor=(2, 0),
@@ -15166,7 +22567,7 @@ class EditorTestRunner:
             "ddpuu mark preserved on redo",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy p" +         # paste -> C at 3
+            b"ggyy\x1bp" +         # paste -> C at 3
             b"uu" +             # undo+redo -> C at 3
             b"'a:q!\r",
             expect_cursor=(3, 0),
@@ -15210,8 +22611,9 @@ class EditorTestRunner:
         self.run_test_screen(
             "jddPu cursor at original position",
             "AB\nCD\nEF\n",
+            b"jdd" +
             b"l" +              # cursor at col 1
-            b"jddPu:q!\r",
+            b"Pu:q!\r",
             expect_cursor=(1, 1),
         )
 
@@ -15220,7 +22622,7 @@ class EditorTestRunner:
             "yyPu mark preserved",
             "A\nB\nC\n",
             b"jjma" +           # mark C (line 2)
-            b"ggyy P" +         # paste above line 0 -> C shifts to 3
+            b"ggyy\x1bP" +         # paste above line 0 -> C shifts to 3
             b"u" +              # undo -> C back to 2
             b"'a:q!\r",
             expect_cursor=(2, 0),
@@ -15294,6 +22696,56 @@ class EditorTestRunner:
             b"gg$de" +          # delete "B\nCD" -> EF at line 1
             b"pu" +             # paste then undo -> EF back at 1
             b"'a:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        # A mark on the line a multi-line char p or P goes into stays on
+        # that line, as in vim, even at column 0 (p on an empty line, P
+        # at the line start), and u and its redo leave it there
+        self.run_test_screen(
+            "multiline char p on empty line: undo keeps its mark",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Dj" +           # yank "b\ncd"; line 1 is now empty
+            b"ma" +             # mark the empty line
+            b"pu" +             # paste at col 0, then undo
+            b"gg'a:q!\r",
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char p on empty line leaves its mark there",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Djmap" +        # "b" / "cd": the mark stays on "b"
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cd"), (3, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char p on empty line: redo leaves its mark there",
+            "ab\ncd\n\nxy\nzz\n",
+            b"l2Djmapu\x1bu" +
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cd"), (3, "xy")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char P at column 0 leaves the line's mark there",
+            "ab\ncd\nxy\nzz\n",
+            b"l2Djma" +         # yank "b\ncd"; mark "xy" (line 1)
+            b"P" +              # "b" / "cdxy": the mark stays on "b"
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "b"), (2, "cdxy"), (3, "zz")],
+            expect_cursor=(1, 0),
+        )
+
+        self.run_test_screen(
+            "multiline char P at column 0: undo keeps the line's mark",
+            "ab\ncd\nxy\nzz\n",
+            b"l2DjmaPu" +
+            b"gg'a:q!\r",
+            expect_lines=[(0, "a"), (1, "xy"), (2, "zz")],
             expect_cursor=(1, 0),
         )
 
@@ -15398,13 +22850,13 @@ class EditorTestRunner:
             expect_lines=[(0, "A" * 10), (1, "AA bar")],
         )
 
-        # [n]J cursor at first join point: 3J on "A\nB\nC\n" -> "A B C\n"
-        # Cursor at col 1 (end of original first line "A").
+        # [n]J cursor at the last join point, as in vim (it was the first):
+        # 3J on "A\nB\nC\n" -> "A B C\n", cursor at col 3 (before "C")
         self.run_test_screen(
-            "3J cursor at first join point",
+            "3J cursor at the last join point",
             "A\nB\nC\n",
             b"3J:q!\r",
-            expect_cursor=(0, 1),
+            expect_cursor=(0, 3),
             expect_lines=[(0, "A B C")],
         )
 
@@ -15661,6 +23113,46 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
+        # u after J puts the cursor back where the J was typed, as in vi
+        self.run_test_screen(
+            "Ju cursor back at the J column",
+            "abc def\nghi\n",
+            b"5lJu:q!\r",
+            expect_lines=[(0, "abc def"), (1, "ghi")],
+            expect_cursor=(0, 5),
+        )
+
+        self.run_test_screen(
+            "3Ju cursor back at the 3J column",
+            "Ab\nB\nC\nD\n",
+            b"l3Ju:q!\r",
+            expect_cursor=(0, 1),
+        )
+
+        # Typed apart, the second J starts at the first J's join point,
+        # so u (which undoes only the second J) puts the cursor back there
+        self.run_test_screen(
+            "J J u cursor back at the second J column",
+            "A\nB\nC\n",
+            b"J\x1bJ\x1bu:q!\r",
+            expect_lines=[(0, "A B"), (1, "C")],
+            expect_cursor=(0, 1),
+        )
+
+        # There, on a later row of a line that starts above the view (the
+        # join point of the second of three typed-ahead J's), the lines are
+        # redrawn in full: redrawn as one block from a row above the view,
+        # the row of the restored line break kept the joined text
+        self.run_test_screen(
+            "JJJu cursor on a row of a line starting above the view",
+            "a" * 30 + "\n" + "b" * 60 + "\nccc\n" + "d" * 50 + "\nee\n",
+            b"JJJu:q!\r",
+            rows=5, cols=20,
+            expect_lines=[(0, "a" * 10 + " " + "b" * 9), (1, "b" * 20),
+                          (2, "b" * 20), (3, "b" * 11 + " ccc")],
+            expect_cursor=(3, 11),
+        )
+
         # ccu: cursor returns to original line content
         self.run_test_screen(
             "ccu cursor on restored line",
@@ -15770,6 +23262,39 @@ class EditorTestRunner:
             expected_content="A\n\nB\n"
         )
 
+        # Only a delete that emptied the buffer leaves a synthetic newline
+        # for undo to remove; a real empty line left as the only line stays
+        for name, content, keys, expected in [
+            ("dd undo of empty last line", "abc\n\n", b"jddu:wq\r", "abc\n\n"),
+            ("dd undo of empty last line then edit", "abc\n\n",
+             b"jdduggx:wq\r", "bc\n\n"),
+            ("dd undo of empty last line then redo", "abc\n\n",
+             b"jddu\x1bu:wq\r", "abc\n"),
+            ("dd undo keeps remaining empty line", "abc\n\n", b"ddu:wq\r",
+             "abc\n\n"),
+            ("dd undo of last line after empty line", "\nb\n", b"jddu:wq\r",
+             "\nb\n"),
+            ("dd undo of first of two empty lines", "\n\n", b"ddu:wq\r",
+             "\n\n"),
+            ("2dd undo of empty and last line", "abc\n\ndef\n", b"j2ddu:wq\r",
+             "abc\n\ndef\n"),
+            ("2dd undo keeps remaining empty line", "abc\ndef\n\n",
+             b"2ddu:wq\r", "abc\ndef\n\n"),
+            ("batched dd undo of last line after empty line", "abc\n\ndef\n",
+             b"jddddu:wq\r", "abc\ndef\n"),
+            ("5dd undo of empty lines to end of file",
+             "abc\n\ndef\n\n\nghi\n", b"j5ddu:wq\r", "abc\n\ndef\n\n\nghi\n"),
+            ("dd undo of whole buffer", "abc\n", b"ddu:wq\r", "abc\n"),
+            ("2dd undo of whole buffer", "abc\n\n", b"2ddu:wq\r", "abc\n\n"),
+            ("2dd undo redo undo of whole buffer", "abc\n\n",
+             b"2ddu\x1bu\x1bu:wq\r", "abc\n\n"),
+            (":d undo of empty last line", "abc\n\n", b":2d\ru:wq\r",
+             "abc\n\n"),
+            (":d undo of whole buffer", "abc\n\n", b":1,2d\ru:wq\r",
+             "abc\n\n"),
+        ]:
+            self.run_test(name, content, keys, expected_content=expected)
+
         # BS on only empty line in file: no-op (can't join, can't delete)
         self.run_test_screen(
             "BS on only empty line in file is no-op",
@@ -15786,7 +23311,7 @@ class EditorTestRunner:
         self.run_test(
             "undo then edit clears redo stack",
             "AB\nCD\n",
-            b"dduxu u:wq\r",
+            b"dduxu\x1bu:wq\r",
             expected_content="B\nCD\n"   # redo does x again (not dd)
         )
 
@@ -15807,12 +23332,12 @@ class EditorTestRunner:
             expected_content="ello\n"
         )
 
-        # insert mode typing clears undo stack (dd then iX ESC then u)
+        # u after typing undoes the typing, not the dd before it
         self.run_test(
-            "dd then iX ESC u: typing clears undo",
+            "dd then iX ESC u: u undoes the typing",
             "A\nB\n",
             b"ddiX\x1bu:wq\r",
-            expected_content="XB\n"     # u is no-op, dd undo was cleared by typing
+            expected_content="B\n"
         )
 
         self._group("Redo content and render edge cases:", leading_blank=True)
@@ -15823,7 +23348,7 @@ class EditorTestRunner:
         self.run_test(
             "2dd redo content",
             "A\nB\nC\nD\n",
-            b"2ddu u:wq\r",
+            b"2ddu\x1bu:wq\r",
             expected_content="C\nD\n"
         )
 
@@ -15831,7 +23356,7 @@ class EditorTestRunner:
         self.run_test(
             "3x redo content",
             "Hello\n",
-            b"3xu u:wq\r",
+            b"3xu\x1bu:wq\r",
             expected_content="lo\n"
         )
 
@@ -15839,7 +23364,7 @@ class EditorTestRunner:
         self.run_test(
             "d0 redo content",
             "Hello\n",
-            b"llld0u u:wq\r",
+            b"llld0u\x1bu:wq\r",
             expected_content="lo\n"
         )
 
@@ -15847,7 +23372,7 @@ class EditorTestRunner:
         self.run_test(
             "db redo content",
             "Hello World\n",
-            b"wdbu u:wq\r",
+            b"wdbu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -15855,7 +23380,7 @@ class EditorTestRunner:
         self.run_test(
             "de redo content",
             "Hello World\n",
-            b"deu u:wq\r",
+            b"deu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -15863,7 +23388,7 @@ class EditorTestRunner:
         self.run_test(
             "2D redo content",
             "Hello\nWorld\nFoo\n",
-            b"ll2Du u:wq\r",
+            b"ll2Du\x1bu:wq\r",
             expected_content="He\nFoo\n"
         )
 
@@ -15871,7 +23396,7 @@ class EditorTestRunner:
         self.run_test(
             "s redo content",
             "Hello\n",
-            b"s\x1bu u:wq\r",
+            b"s\x1bu\x1bu:wq\r",
             expected_content="ello\n"
         )
 
@@ -15879,7 +23404,7 @@ class EditorTestRunner:
         self.run_test(
             "C redo content",
             "Hello\n",
-            b"llC\x1bu u:wq\r",
+            b"llC\x1bu\x1bu:wq\r",
             expected_content="He\n"
         )
 
@@ -15887,7 +23412,7 @@ class EditorTestRunner:
         self.run_test(
             "cw redo content",
             "Hello World\n",
-            b"cw\x1bu u:wq\r",
+            b"cw\x1bu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -15895,7 +23420,7 @@ class EditorTestRunner:
         self.run_test(
             "cb redo content",
             "Hello World\n",
-            b"wcb\x1bu u:wq\r",
+            b"wcb\x1bu\x1bu:wq\r",
             expected_content="World\n"
         )
 
@@ -15903,7 +23428,7 @@ class EditorTestRunner:
         self.run_test(
             "ce redo content",
             "Hello World\n",
-            b"ce\x1bu u:wq\r",
+            b"ce\x1bu\x1bu:wq\r",
             expected_content=" World\n"
         )
 
@@ -15911,7 +23436,7 @@ class EditorTestRunner:
         self.run_test(
             "o redo content",
             "Hello\nWorld\n",
-            b"o\x1bu u:wq\r",
+            b"o\x1bu\x1bu:wq\r",
             expected_content="Hello\n\nWorld\n"
         )
 
@@ -15919,7 +23444,7 @@ class EditorTestRunner:
         self.run_test(
             "O redo content",
             "Hello\nWorld\n",
-            b"jO\x1bu u:wq\r",
+            b"jO\x1bu\x1bu:wq\r",
             expected_content="Hello\n\nWorld\n"
         )
 
@@ -15929,7 +23454,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "x redo cursor at x position",
             "Hello\n",
-            b"lxu u:q!\r",
+            b"lxu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -15937,7 +23462,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dd redo cursor position",
             "A\nB\nC\n",
-            b"jddu u:q!\r",
+            b"jddu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
@@ -15945,7 +23470,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "D redo cursor position",
             "Hello\n",
-            b"llDu u:q!\r",
+            b"llDu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -15953,7 +23478,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "dw redo cursor position",
             "Hello World\n",
-            b"dwu u:q!\r",
+            b"dwu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -15961,7 +23486,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "db redo cursor position",
             "Hello World\n",
-            b"edbu u:q!\r",
+            b"edbu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -15969,7 +23494,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "de redo cursor position",
             "Hello World\n",
-            b"deu u:q!\r",
+            b"deu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -15977,7 +23502,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "d$ redo cursor position",
             "Hello\n",
-            b"lld$u u:q!\r",
+            b"lld$u\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -15985,7 +23510,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "d0 redo cursor position",
             "Hello\n",
-            b"llld0u u:q!\r",
+            b"llld0u\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -15993,7 +23518,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "s redo cursor position",
             "Hello\n",
-            b"s\x1bu u:q!\r",
+            b"s\x1bu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -16001,7 +23526,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "C redo cursor position",
             "Hello\n",
-            b"llC\x1bu u:q!\r",
+            b"llC\x1bu\x1bu:q!\r",
             expect_cursor=(0, 1),
         )
 
@@ -16009,7 +23534,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "cw redo cursor position",
             "Hello World\n",
-            b"cw\x1bu u:q!\r",
+            b"cw\x1bu\x1bu:q!\r",
             expect_cursor=(0, 0),
         )
 
@@ -16017,7 +23542,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "o redo cursor position",
             "Hello\nWorld\n",
-            b"o\x1bu u:q!\r",
+            b"o\x1bu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
@@ -16025,87 +23550,87 @@ class EditorTestRunner:
         self.run_test_screen(
             "O redo cursor position",
             "Hello\nWorld\n",
-            b"jO\x1bu u:q!\r",
+            b"jO\x1bu\x1bu:q!\r",
             expect_cursor=(1, 0),
         )
 
         # --- Redo render optimization: verify minimal repaint on undo/redo ---
 
         # d0 undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=lll, 3=d0, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=lll, 3=d0, 4=u, 5=u redo
         self.run_test_screen(
             "Redo render: d0 undo then redo single row",
             make_lines(15),
-            b"jjjllld0u u:q!\r",
+            b"jjjllld0u\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # 3x undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=count '3', 3=x, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=count '3', 3=x, 4=u, 5=u redo
         self.run_test_screen(
             "Redo render: 3x undo then redo single row",
             make_lines(15),
-            b"jjj3xu u:q!\r",
+            b"jjj3xu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # s undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=s (insert), 3=ESC, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=s (insert), 3=ESC, 4=u, 5=u redo
         self.run_test_screen(
             "Redo render: s undo then redo single row",
             make_lines(15),
-            b"jjjs\x1bu u:q!\r",
+            b"jjjs\x1bu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # C undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=ll, 3=C (insert), 4=ESC, 5=u, 6=space, 7=u redo
+        # Frames: 0=initial, 1=jjj, 2=ll, 3=C (insert), 4=ESC, 5=u, 6=u redo
         self.run_test_screen(
             "Redo render: C undo then redo single row",
             make_lines(15),
-            b"jjjllC\x1bu u:q!\r",
+            b"jjjllC\x1bu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(7, {3})],
-            expect_scrolled_at_frame=[(7, False)]
+            expect_content_rows=[(6, {3})],
+            expect_scrolled_at_frame=[(6, False)]
         )
 
         # cw undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=cw (insert), 3=ESC, 4=u, 5=space, 6=u redo
+        # Frames: 0=initial, 1=jjj, 2=cw (insert), 3=ESC, 4=u, 5=u redo
         self.run_test_screen(
             "Redo render: cw undo then redo single row",
             make_lines(15),
-            b"jjjcw\x1bu u:q!\r",
+            b"jjjcw\x1bu\x1bu:q!\r",
             rows=10, cols=40,
-            expect_content_rows=[(6, {3})],
-            expect_scrolled_at_frame=[(6, False)]
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # cb undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=w, 3=cb (insert), 4=ESC, 5=u, 6=space, 7=u redo
+        # Frames: 0=initial, 1=jjj, 2=w, 3=cb (insert), 4=ESC, 5=u, 6=u redo
         self.run_test_screen(
             "Redo render: cb undo then redo single row",
             make_lines(15),
-            b"jjjwcb\x1bu u:q!\r",
-            rows=10, cols=40,
-            expect_content_rows=[(7, {3})],
-            expect_scrolled_at_frame=[(7, False)]
-        )
-
-        # ce undo then redo - single row repaint
-        # Frames: 0=initial, 1=jjj, 2=ce (insert), 3=ESC, 4=u, 5=space, 6=u redo
-        self.run_test_screen(
-            "Redo render: ce undo then redo single row",
-            make_lines(15),
-            b"jjjce\x1bu u:q!\r",
+            b"jjjwcb\x1bu\x1bu:q!\r",
             rows=10, cols=40,
             expect_content_rows=[(6, {3})],
             expect_scrolled_at_frame=[(6, False)]
+        )
+
+        # ce undo then redo - single row repaint
+        # Frames: 0=initial, 1=jjj, 2=ce (insert), 3=ESC, 4=u, 5=u redo
+        self.run_test_screen(
+            "Redo render: ce undo then redo single row",
+            make_lines(15),
+            b"jjjce\x1bu\x1bu:q!\r",
+            rows=10, cols=40,
+            expect_content_rows=[(5, {3})],
+            expect_scrolled_at_frame=[(5, False)]
         )
 
         # d0 undo - single row repaint (only the affected row redrawn)
@@ -16139,106 +23664,110 @@ class EditorTestRunner:
 
         # --- Cursor-only operations (no content redraw) ---
 
-        # ^ (first non-blank) is a movement: cursor-only
-        # Frame 0: init(T), Frame 1: ^(F), Frame 2: :q!(F)
+        # ^ (first non-blank) is a movement: cursor-only (from the line's
+        # end: the cursor starts on the first non-blank, where ^ is a no-op)
+        # Frame 0: init(T), Frame 1: $(F), Frame 2: ^(F)
         self.run_test_screen(
             "Render opt: ^ is cursor-only",
             "   hello\n",
-            b"^:q!\r",
+            b"$^:q!\r",
             expect_content_redraws=[True, False, False]
         )
 
         # n (next search match) without scroll: cursor-only
         # /AAA finds at line 2, n wraps to line 0 (still visible)
-        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: n(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: n(F)
         self.run_test_screen(
             "Render opt: n no-scroll is cursor-only (edge)",
             "AAA\nBBB\nAAA\n",
             b"/AAA\rn:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # ? (reverse search) without scroll: cursor-only
         # jj moves to line 2, ?AAA finds on line 0 (still visible)
-        # Frame 0: init(T), Frame 1: jj(F), Frame 2: ?AAA\r(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: jj(F), Frame 2: ?AAA\r(F)
         self.run_test_screen(
             "Render opt: ? no-scroll is cursor-only",
             "AAA\nBBB\nAAA\n",
             b"jj?AAA\r:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # N (find prev) without scroll: cursor-only
         # /AAA finds at line 2. N goes backward to line 0 (still visible).
-        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: N(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: /AAA\r(F), Frame 2: N(F)
         self.run_test_screen(
             "Render opt: N no-scroll is cursor-only",
             "AAA\nBBB\nAAA\n",
             b"/AAA\rN:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
         # N (find prev) with scroll: triggers repaint
         # AAA at line 0 and line 11. /AAA finds line 11 (scrolls down).
         # N from line 11 searches backward to line 0 (scrolls up).
         # Frame 0: init(T), Frame 1: /AAA\r scrolls(T),
-        # Frame 2: N scrolls(T), Frame 3: :q!(F)
+        # Frame 2: N scrolls(T)
         self.run_test_screen(
             "Render opt: N with scroll triggers repaint",
             "AAA\n" + ''.join(f"X{i}\n" for i in range(2, 12))
             + "AAA\nY13\nY14\nY15\n",
             b"/AAA\rN:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
-        # y$ (yank to end) is cursor-only (yank doesn't modify content)
-        # Frame 0: init(T), Frame 1: y$(F), Frame 2: :q!(F)
+        # y$ (yank to end) changes nothing on the screen: no frame
+        # Frame 0: init(T)
         self.run_test_screen(
             "Render opt: y$ is cursor-only",
             "Hello World\n",
             b"y$:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # y0 (yank to start) is cursor-only
-        # Frame 0: init(T), Frame 1: lll(F), Frame 2: y0(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: lll(F), Frame 2: y0(F)
         self.run_test_screen(
             "Render opt: y0 is cursor-only",
             "Hello\n",
             b"llly0:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
-        # yw (yank word) is cursor-only
-        # Frame 0: init(T), Frame 1: yw(F), Frame 2: :q!(F)
+        # yw (yank word) changes nothing on the screen: no frame
+        # Frame 0: init(T)
         self.run_test_screen(
             "Render opt: yw is cursor-only",
             "Hello World\n",
             b"yw:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # yb (yank word back) is cursor-only
         # w moves to "World", yb yanks back
-        # Frame 0: init(T), Frame 1: w(F), Frame 2: yb(F), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: w(F), Frame 2: yb(F)
         self.run_test_screen(
             "Render opt: yb is cursor-only",
             "Hello World\n",
             b"wyb:q!\r",
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
-        # ye (yank to end of word) is cursor-only
-        # Frame 0: init(T), Frame 1: ye(F), Frame 2: :q!(F)
+        # ye (yank to end of word) changes nothing on the screen: no frame
+        # Frame 0: init(T)
         self.run_test_screen(
             "Render opt: ye is cursor-only",
             "Hello World\n",
             b"ye:q!\r",
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # --- Indent operations render ---
@@ -16246,12 +23775,12 @@ class EditorTestRunner:
         # << (unindent) triggers full content redraw (all rows touched)
         # This is a render optimization gap - ideally only row 0 would be
         # redrawn, but the current implementation repaints all content rows.
-        # Frame 0: init(T), Frame 1: <<(T full redraw), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: <<(T full redraw)
         self.run_test_screen(
             "Render opt: << triggers content redraw",
             "  Hello\nWorld\n",
             b"<<:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # --- Scroll-triggering operations ---
@@ -16259,92 +23788,90 @@ class EditorTestRunner:
         # w causing scroll (word forward past viewport bottom)
         # Single-word lines so w crosses line boundaries and scrolls.
         # j*8 moves to last visible line (row 8), w crosses to next line (scroll).
-        # Frame 0: init(T), Frame 1: j*8 batched(F), Frame 2: w scrolls(T),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: j*8 batched(F), Frame 2: w scrolls(T)
         self.run_test_screen(
             "Render opt: w with scroll triggers repaint",
             ''.join(f"W{i}\n" for i in range(1, 16)),
             b"jjjjjjjjw:q!\r",
-            expect_content_redraws=[True, False, True, False]
+            expect_content_redraws=[True, False, True]
         )
 
         # b causing scroll (word back past viewport top)
         # G scrolls to bottom, then batched b's scroll back past top.
-        # Frame 0: init(T), Frame 1: G(T scroll), Frame 2: b*20 batched(T scroll),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T scroll), Frame 2: b*20 batched(T scroll)
         self.run_test_screen(
             "Render opt: b with scroll triggers repaint",
             make_lines(15),
             b"G" + b"b" * 20 + b":q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # e causing scroll (end of word past viewport bottom)
         # Single-word lines. j*8 to last visible row, $ to end, e to next word end.
         # Frame 0: init(T), Frame 1: j*8(F), Frame 2: $(F),
-        # Frame 3: e scrolls(T), Frame 4: :q!(F)
+        # Frame 3: e scrolls(T)
         self.run_test_screen(
             "Render opt: e with scroll triggers repaint",
             ''.join(f"W{i}\n" for i in range(1, 16)),
             b"jjjjjjjj$e:q!\r",
-            expect_content_redraws=[True, False, False, True, False]
+            expect_content_redraws=[True, False, False, True]
         )
 
         # G (go to last line) with scroll
         # 15-line file, 10 rows. G goes to last line, must scroll.
-        # Frame 0: init(T), Frame 1: G scrolls(T), Frame 2: :q!(F)
+        # Frame 0: init(T), Frame 1: G scrolls(T)
         self.run_test_screen(
             "Render opt: G with scroll triggers repaint",
             make_lines(15),
             b"G:q!\r",
-            expect_content_redraws=[True, True, False]
+            expect_content_redraws=[True, True]
         )
 
         # gg (go to first line) with scroll (from scrolled position)
         # G scrolls to bottom, gg scrolls back to top.
-        # Frame 0: init(T), Frame 1: G(T), Frame 2: gg(T), Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T), Frame 2: gg(T)
         self.run_test_screen(
             "Render opt: gg with scroll triggers repaint",
             make_lines(15),
             b"Ggg:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # Mark goto with scroll (ma, scroll down, then 'a)
         # ma sets mark at line 1, G scrolls to bottom, 'a goes back to top.
-        # Frame 0: init(T), Frame 1: ma(F), Frame 2: G(T),
-        # Frame 3: 'a scrolls(T), Frame 4: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T), Frame 2: 'a scrolls(T) (ma
+        # changes nothing on the screen: no frame)
         self.run_test_screen(
             "Render opt: mark goto with scroll triggers repaint",
             make_lines(15),
             b"ma" + b"G" + b"'a:q!\r",
-            expect_content_redraws=[True, False, True, True, False]
+            expect_content_redraws=[True, True, True],
+            expect_frame_count=3
         )
 
         # n (next match) with scroll
         # AAA appears at line 0 and line 11 (off-screen on 9 content rows).
         # /AAA finds line 11 (scrolls). n wraps back to line 0 (scrolls).
         # Frame 0: init(T), Frame 1: /AAA\r scrolls(T),
-        # Frame 2: n wraps to line 0 scrolls(T), Frame 3: :q!(F)
+        # Frame 2: n wraps to line 0 scrolls(T)
         self.run_test_screen(
             "Render opt: n with scroll triggers repaint",
             "AAA\n" + ''.join(f"X{i}\n" for i in range(2, 12))
             + "AAA\nY13\nY14\nY15\n",
             b"/AAA\rn:q!\r",
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # ? (reverse search) with scroll
         # G scrolls to bottom. ?Line 2\r searches backward, finds "Line 2"
         # near top, scrolls back.
-        # Frame 0: init(T), Frame 1: G(T), Frame 2: ?Line 2\r scrolls(T),
-        # Frame 3: :q!(F)
+        # Frame 0: init(T), Frame 1: G(T), Frame 2: ?Line 2\r scrolls(T)
         self.run_test_screen(
             "Render opt: ? with scroll triggers repaint",
             make_lines(15),
             b"G?Line 2\r:q!\r",
-            expect_content_redraws=[True, True, True, False]
+            expect_content_redraws=[True, True, True]
         )
 
         # --- Insert mode render ---
@@ -16352,16 +23879,40 @@ class EditorTestRunner:
         # DEL (delete key) joining lines in insert mode - needs repaint
         # At end of line 1, DEL joins line 2 onto line 1.
         # Frame 0: init(T), Frame 1: A enter insert(F), Frame 2: DEL join(T),
-        # Frame 3: ESC(F), Frame 4: :q!(F)
+        # Frame 3: ESC(F)
         DEL = b"\x1b[3~"
         self.run_test_screen(
             "Render opt: DEL joining lines in insert mode repaints",
             "Hello\nWorld\n",
             b"A" + DEL + b"\x1b:q!\r",
-            expect_content_redraws=[True, False, True, False, False]
+            expect_content_redraws=[True, False, True, False]
         )
 
         self._group("Batching counting and insert mode edge cases:", leading_blank=True)
+
+        # --- Typed-ahead vertical moves ---
+        # j, k and the insert-mode arrows go to the remembered column, so
+        # typed ahead they land where one at a time would (a count as well)
+        self.run_test(
+            "batched jj keep the column across a short line",
+            "abcdef\nab\nabcdef\n",
+            b"4ljjx:wq\r",
+            expected_content="abcdef\nab\nabcdf\n"
+        )
+
+        self.run_test(
+            "batched $jj stay at the end of each line",
+            "abcdef\nab\nabcdef\n",
+            b"$jjx:wq\r",
+            expected_content="abcdef\nab\nabcde\n"
+        )
+
+        self.run_test(
+            "2j + batched j keep the column",
+            "abcdef\nabcdef\nab\nabcdef\n",
+            b"4l2jjx:wq\r",
+            expected_content="abcdef\nabcdef\nab\nabcdf\n"
+        )
 
         # --- Batch undo behavior ---
 
@@ -16381,14 +23932,50 @@ class EditorTestRunner:
             expected_content="ABCDE\n"
         )
 
-        # dwdw then undo: batched dw's overwrite undo entry,
-        # so u after batched dwdw has no effect
-        self.run_test(
-            "dwdw then undo: batched dw undo lost",
-            "one two three four\n",
-            b"dwdwu:wq\r",
-            expected_content="three four\n"
-        )
+        # Typed-ahead dw/db/de must act exactly like the same keys typed one
+        # at a time: a dw that reaches the end of a line stops there (the
+        # cursor then clamps back), a dw on an empty line deletes it (vi),
+        # and de from a one-char word skips it. N pairs are not Ndw.
+        for keys, content, expected in [
+            (b"wdwdw", "foo bar\n", "foo\n"),
+            (b"wdwdw", "foo bar\nbaz qux\n", "foo\nbaz qux\n"),
+            (b"dwdw", "aaa\nbbb\n", "bbb\n"),
+            (b"$dwdw", "abc def ghi\njkl mno\n", "abc def g\njkl mno\n"),
+            (b"wdede", "foo bar\n", "foo\n"),
+            (b"dede", "aaa\nbbb\n", ""),
+            (b"dede", "h ikc.i\n", "\n"),
+            (b"jdbdb", "ab cd\n\n", " \n\n"),
+            (b"dwdwdwu", "..b  \n", "b  \n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r} typed ahead acts like one key at a time",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
+
+        # Undo after typed-ahead dw/db/de acts as if each ran alone: u
+        # re-inserts only the last word and u u deletes it again. An
+        # earlier undo record (the x on line 2) must not be replayed.
+        x2 = "one two three four five\nsecond line here\n"
+        for keys, content, expected in [
+            (b"dwdwu", "one two three four\n", "two three four\n"),
+            (b"dwdwuu", "one two three four\n", "three four\n"),
+            (b"2dwdwu", "one two three four\n", "three four\n"),
+            (b"jxkwdwdwu", x2, "one three four five\necond line here\n"),
+            (b"$dbdbu", "one two three four\n", "one two three r\n"),
+            (b"$2dbdbu", "one two three four\n", "one two r\n"),
+            (b"j$dbdbu", "one two\nthree\n", "one two\ne\n"),
+            (b"jxk$dbdbu", x2, "one two three four e\necond line here\n"),
+            (b"dedeu", "one two three four\n", " two three four\n"),
+            (b"jxkdedeu", x2, " two three four five\necond line here\n"),
+        ]:
+            self.run_test(
+                f"{keys.decode()!r}: typed-ahead word delete undoes the last word",
+                content,
+                keys + b":wq\r",
+                expected_content=expected
+            )
 
         # Single dw then u: undo works for non-batched dw
         self.run_test(
@@ -16442,13 +24029,12 @@ class EditorTestRunner:
             expected_content="\n"
         )
 
-        # 99r with replacement char: editor clamps count to available chars
-        # (unlike vim which would do nothing when count exceeds available)
+        # 99r with fewer chars left does nothing, as in vim
         self.run_test(
-            "99rx on short line: clamps and replaces all",
+            "99rx on short line does nothing",
             "Hello\n",
             b"99rx:wq\r",
-            expected_content="xxxxx\n"
+            expected_content="Hello\n"
         )
 
         # 2J then J then undo: undo only undoes the last J
@@ -16502,6 +24088,16 @@ class EditorTestRunner:
             expected_content="X" * 33 + "\n"
         )
 
+        # key_peek/get_key preserve Y: insert_batch counts its remaining
+        # BATCH_BUF capacity in Y across them.  A batch longer than
+        # BATCH_MAX must not overrun BATCH_BUF into the mark table.
+        self.run_test(
+            "Insert 40 chars keeps marks intact",
+            "a\nb\nc\nd\n",
+            b"jjmagg" + b"i" + b"X" * 40 + b"\x1b'ax:wq\r",
+            expected_content="X" * 40 + "a\nb\n\nd\n"
+        )
+
         # ~ echo over skipped punctuation: chars must land in the right
         # columns (regression: skipped non-alpha chars used to shift all
         # later direct writes left)
@@ -16523,6 +24119,87 @@ class EditorTestRunner:
             expect_lines=[(0, "ABCDEFGHZZ"), (1, "ZZM"), (2, "x")],
         )
 
+        # r<Enter> splits the line as an Enter in insert mode does: the
+        # rows below scroll down and only the split line's rows are drawn,
+        # from the replaced char.  Frames: 0=initial, 1=jjj, 2=lll,
+        # 3=r<Enter>
+        self.run_test_screen(
+            "Minimal repaint: r<Enter> draws only the split line's rows",
+            make_lines(15), b"jjjlllr\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "Line 1"), (1, "Line 2"), (2, "Line 3"),
+                          (3, "Lin"), (4, " 4"), (5, "Line 5"),
+                          (6, "Line 6"), (7, "Line 7"), (8, "Line 8")],
+            expect_cursor=(4, 0),
+            expect_content_rows=[(3, {3, 4})],
+            expect_scrolled_at_frame=[(3, True)]
+        )
+        # The new line would fall below the screen: the view scrolls up
+        self.run_test_screen(
+            "r<Enter> on the bottom row scrolls the view",
+            make_lines(15), b"8jlllr\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(r, f"Line {r + 2}") for r in range(7)]
+                         + [(7, "Lin"), (8, " 9")],
+            expect_cursor=(8, 0)
+        )
+        # In a wrapped line (10x10), and its undo and redo, also from
+        # another line (whose rows the split line's need not match)
+        split12 = ["ABCDEFGHIJ", "KL", "NO", "x", "y", "~"]
+        joined12 = ["ABCDEFGHIJ", "KLMNO", "x", "y", "~"]
+        for name, content, keys, lines, cursor in [
+                ("r<Enter> in the second row of a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\r", split12, (2, 0)),
+                ("r<Enter> in the first row of a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"3lr\r",
+                 ["ABC", "EFGHIJKLMN", "O", "x", "y", "~"], (1, 0)),
+                ("r<Enter> undo in a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru", joined12, (1, 2)),
+                ("r<Enter> redo in a wrapped line",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\ru\x1bu", split12, (2, 0)),
+                ("r<Enter> undo in a wrapped line from a line below",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\rjju", joined12, (1, 2)),
+                ("r<Enter> redo in a wrapped line from a line below",
+                 "ABCDEFGHIJKLMNO\nx\ny\n", b"12lr\rujju", split12, (2, 0)),
+                ("19r<Enter> shrinks a 3-row line to 2 rows",
+                 "ABCDEFGHIJKLMNOPQRSTUV\nx\n", b"2l19r\r",
+                 ["AB", "V", "x", "~"], (1, 0)),
+                ("19r<Enter> undo grows the line back to 3 rows",
+                 "ABCDEFGHIJKLMNOPQRSTUV\nx\n", b"2l19r\ru",
+                 ["ABCDEFGHIJ", "KLMNOPQRST", "UV", "x", "~"], (0, 2))]:
+            self.run_test_screen(
+                name, content, keys + b":q!\r",
+                rows=10, cols=10,
+                expect_lines=list(enumerate(lines)),
+                expect_cursor=cursor
+            )
+        # A split of the view's top line at a row start: r<Enter> at row 1
+        # of the 53-char 'w5 ...' (which the view shows from its first
+        # row, as vim's does: it never starts a line above the view), and
+        # a redo from two lines below of an r<Enter> at column 0 of
+        # 'w3 ...', whose rows 1-3 are then at the top of the view (10x10)
+        wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
+                         for i in range(20))
+        self.run_test_screen(
+            "r<Enter> at the view's top row start in a line above the view",
+            wlines, b"6G10ljjjkkkr\r:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "w5 abcdefg")]
+                         + [(r, "ijabcdefgh") for r in range(1, 5)]
+                         + [(5, "ij"), (6, "w6"), (7, "w7 abcdefg"),
+                            (8, "hij")],
+            expect_cursor=(1, 0)
+        )
+        self.run_test_screen(
+            "r<Enter> redo splitting a line that starts above the view",
+            wlines, b"4Gr\rujju:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "3 abcdefgh"), (1, "ijabcdefgh"),
+                          (2, "ijabcdefgh"), (3, "ij"), (4, "w4 abcdefg"),
+                          (5, "hijabcdefg"), (8, "hij")],
+            expect_cursor=(0, 0)
+        )
+
         # Batching is a performance optimization and must not change undo
         # semantics: u after batched ~~~ undoes only the LAST ~, exactly
         # as if the keys had been processed separately.
@@ -16536,7 +24213,7 @@ class EditorTestRunner:
         self.run_test(
             "Batched tilde undo then redo",
             "abc\n",
-            b"~~~u u:wq\r",
+            b"~~~u\x1bu:wq\r",
             expected_content="ABC\n"
         )
 
@@ -16737,21 +24414,21 @@ class EditorTestRunner:
         )
 
         # J at bottom: screen state. j*8 to line 8 = "Short 9", J joins with "X"*20.
-        # "Short 9 " + "X"*20 = 28 chars at 20 cols: wraps to 2 rows.
-        # Row 8: "Short 9 XXXXXXXXXXXX" (20 chars), row 9 would be status bar.
-        # The joined result wraps, possibly needing scroll to stay visible.
+        # "Short 9 " + "X"*20 = 28 chars at 20 cols: wraps to 2 rows, so
+        # the view scrolls a line to show it in full, as vim's does
         self.run_test_screen(
             "J at bottom: screen correct",
             j_bottom_content,
             b"j" * 8 + b"J:q!\r",
             rows=10, cols=20,
             expect_lines=[
-                (0, "Short 1"), (1, "Short 2"),
-                (2, "Short 3"), (3, "Short 4"),
-                (4, "Short 5"), (5, "Short 6"),
-                (6, "Short 7"), (7, "Short 8"),
-                (8, "Short 9 XXXXXXXXXXXX"),
+                (0, "Short 2"), (1, "Short 3"),
+                (2, "Short 4"), (3, "Short 5"),
+                (4, "Short 6"), (5, "Short 7"),
+                (6, "Short 8"), (7, "Short 9 XXXXXXXXXXXX"),
+                (8, "XXXXXXXX"),
             ],
+            expect_cursor=(7, 7),
         )
 
         # J redo on a 3+ row wrapped line.
@@ -16761,7 +24438,7 @@ class EditorTestRunner:
         self.run_test_screen(
             "J redo on short lines: screen correct",
             "AAAA\nBBBB\nCCCC\n",
-            b"Ju u:q!\r",
+            b"Ju\x1bu:q!\r",
             rows=10, cols=10,
             expect_lines=[
                 (0, "AAAA BBBB"),
@@ -16785,7 +24462,7 @@ class EditorTestRunner:
                 (2, "CCCCCC"),
                 (3, "D"),
             ],
-            expect_cursor=(0, 8),
+            expect_cursor=(1, 7),
         )
 
         # cc when deleted line wraps: "This is a long line!" (20 chars at 10 cols = 2 rows).
@@ -17015,6 +24692,531 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
+        # An Enter batch that also typed or deleted characters: the line's
+        # old height is the one before the batch, not one worked out from
+        # the lengths after it (which count the typed chars as old text).
+        # A 39-char line (1 row) with "xyz" typed before two Enters.
+        self.run_test_screen(
+            "Batched text + Enters: old height from before the batch",
+            "0123456789" * 3 + "012345678\n"
+            + "".join(f"l{i}\n" for i in range(2, 10)),
+            b"5lixyz\r\r\x1b:q!\r",
+            expect_lines=[
+                (0, "01234xyz"),
+                (1, ""),
+                (2, "5678901234567890123456789012345678"),
+                (3, "l2"),
+                (4, "l3"),
+            ],
+            expect_cursor=(2, 0),
+        )
+        # Typed text makes the old 1-row line wrap before the split, so it
+        # grows by 2 rows, not 1
+        self.run_test_screen(
+            "Batched text + Enter wrapping the line: screen",
+            "line 1\nline 2\nline 3" + "y" * 30 + "\nline 4\nline 5\n",
+            b"3GAyyyyyy\rz\x1b:q!\r",
+            expect_lines=[
+                (2, "line 3" + "y" * 34),
+                (3, "yy"),
+                (4, "z"),
+                (5, "line 4"),
+                (6, "line 5"),
+                (7, "~"),
+            ],
+            expect_cursor=(4, 0),
+        )
+        # Backspaces in the batch: the 41-char line (2 rows) splits into
+        # two 1-row lines, so its height does not change
+        self.run_test_screen(
+            "Batched BS + Enter keeping the line's height: screen",
+            "0123456789" * 4 + "X\nl2\nl3\nl4\n",
+            b"30li\x08\x08\r\x1b:q!\r",
+            expect_lines=[
+                (0, "0123456789012345678901234567"),
+                (1, "0123456789X"),
+                (2, "l2"),
+                (3, "l3"),
+                (4, "l4"),
+                (5, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+
+        # Enter batches that grow the text by more rows than remain below
+        # the new cursor row: the scroll starts at the old line, so it must
+        # not be clamped against the new cursor row
+        self.run_test_screen(
+            "Batched Enters at start of line near the bottom: screen",
+            "abc\n",
+            b"i\r\r\r\r\r\x1b:q!\r",
+            expect_lines=[(0, ""), (4, ""), (5, "abc"), (6, "~")],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Batched Enters mid-line ending on last content row: screen",
+            "L0\nL1\nL2\nL3\nL4\nhello world\nL6\nL7\nL8\n",
+            b"5j5li\r\r\r\x1b:q!\r",
+            expect_lines=[
+                (4, "L4"), (5, "hello"), (6, ""), (7, ""), (8, " world"),
+            ],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Pasted lines ending near the bottom: screen",
+            "".join(f"line {i}\n" for i in range(1, 20)),
+            b"5Goa\rb\rc\r\x1b:q!\r",
+            expect_lines=[
+                (4, "line 5"), (5, "a"), (6, "b"), (7, "c"), (8, ""),
+            ],
+            expect_cursor=(8, 0),
+        )
+
+        # Enter splitting a wrapped line whose part after the split still
+        # wraps: every row of the new lines must be drawn, and only the
+        # rows below the old line's end scrolled
+        self.run_test_screen(
+            "Enter in first row of wrapped line: screen",
+            "abcdefghijklmnopqrstuvwxyz" * 2 + "abcdefgh\nnext\n",
+            b"5li\r\x1b:q!\r",
+            expect_lines=[
+                (0, "abcde"),
+                (1, "fghijklmnopqrstuvwxyzabcdefghijklmnopqrs"),
+                (2, "tuvwxyzabcdefgh"),
+                (3, "next"),
+                (4, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+        digits = "0123456789" * 10
+        self.run_test_screen(
+            "Enter in 3-row line, cursor line keeps 3 rows: screen",
+            digits + "\nnext line\n",
+            b"lli\r\x1b:q!\r",
+            expect_lines=[
+                (0, "01"),
+                (1, digits[2:42]),
+                (2, digits[42:82]),
+                (3, digits[82:]),
+                (4, "next line"),
+                (5, "~"),
+            ],
+            expect_cursor=(1, 0),
+        )
+        # A batch whose cursor line wraps with the cursor on its first row
+        self.run_test_screen(
+            "Batched Enter + text wrapping the cursor line: screen",
+            "abc\nnext\n",
+            b"li\r" + b"z" * 19 + b"\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, "a"),
+                (1, "z" * 19 + "b"),
+                (2, "c"),
+                (3, "next"),
+                (4, "~"),
+            ],
+            expect_cursor=(1, 18),
+        )
+        # A batch whose middle line wraps (narrow screen)
+        self.run_test_screen(
+            "Batched Enter with a wrapping middle line: screen",
+            "line 1\nline 2\nline 3\nline 4\nline 5\n",
+            b"3GA\r" + b"x" * 25 + b"\rz\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (2, "line 3"),
+                (3, "x" * 20),
+                (4, "x" * 5),
+                (5, "z"),
+                (6, "line 4"),
+                (7, "line 5"),
+                (8, "~"),
+            ],
+            expect_cursor=(5, 0),
+        )
+        self.run_test_screen(
+            "Batched Enters and a wrapping middle line after o: screen",
+            "\n\n",
+            b"o\r\r" + b"x" * 25 + b"\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, ""), (1, ""), (2, ""), (3, "x" * 20), (4, "x" * 5),
+                (5, ""), (6, ""), (7, "~"),
+            ],
+            expect_cursor=(5, 0),
+        )
+        # Enters and a Del splitting a wrapped line after its first char
+        self.run_test_screen(
+            "Batched Enters + Del in a wrapped line: screen",
+            "abcdefghijklmnopqrstu\n",
+            b"a\r\r\r\r\x1b[3~\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, "a"), (1, ""), (2, ""), (3, ""),
+                (4, "cdefghijklmnopqrstu"), (5, "~"),
+            ],
+            expect_cursor=(4, 0),
+        )
+        self.run_test_screen(
+            "cw + Enter, text and Del in a wrapped line: screen",
+            "agj gefggjhabha   aabjciifiej fh djdbifc\n",
+            b"cw\rabc\x1b[3~\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[
+                (0, ""), (1, "abcgefggjhabha   aab"),
+                (2, "jciifiej fh djdbifc"), (3, "~"),
+            ],
+            expect_cursor=(1, 2),
+        )
+        # Enter in a line taller than the screen, which starts above the
+        # view: the new line, which fits, goes on top in full, as vim's
+        # view shows it (the tall line was on top for the cursor on it)
+        abc = "abcdefghij" * 4
+        self.run_test_screen(
+            "Enter in a line taller than the screen: screen",
+            "abcdefghij" * 48 + "\n"
+            + "".join(f"line {i}\n" for i in range(1, 12)),
+            b"$100hi\r\x1b:q!\r",
+            expect_lines=[
+                (0, "j" + abc[:39]),
+                (1, "j" + abc[:39]),
+                (2, "j" + abc[:20]),
+                (3, "line 1"),
+            ],
+            expect_cursor=(0, 0),
+        )
+        # Enter in a line of about 250 rows below the top: the rows below
+        # it start past row 255, so there is nothing to scroll (the 8-bit
+        # scroll start must not wrap back onto the screen)
+        az = "".join(chr(ord("a") + i % 26) for i in range(5000))
+        self.run_test_screen(
+            "Enter in a 250-row line below the top: screen",
+            "".join(f"line {i}\n" for i in range(6)) + az + "\nafter\n",
+            b"7G5li\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "line 0"), (5, "line 5"), (6, "abcde"),
+                          (7, az[5:25]), (8, az[25:45])],
+            expect_cursor=(7, 0),
+        )
+        self.run_test_screen(
+            "Enter in a 254-row line below the top: screen",
+            "a\n" + "x" * 10160 + "\nend\n",
+            b"j5li\r\x1b:q!\r",
+            expect_lines=[(0, "a"), (1, "xxxxx"), (2, "x" * 40),
+                          (8, "x" * 40)],
+            expect_cursor=(2, 0),
+        )
+        # The row loop draws a line's rows from its first screen row to
+        # its last or the status bar: the stop row, first row + rows, must
+        # not wrap in 8 bits for a line running far past the screen.  10x20
+        # screen; six short lines put the long line at row 6.
+        alpha = lambda n: "".join(chr(97 + i % 26) for i in range(n))
+        abc = alpha(100)
+        six = "".join(f"line {i}\n" for i in range(6))
+        six_rows = [(i, f"line {i}") for i in range(6)]
+        self.run_test_screen(
+            "Undo x on a 253-row line below the top",
+            six + alpha(5050) + "\nafter\n",
+            b"7Gxu:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "Undo x on the second row of a 253-row line below the top",
+            six + alpha(5050) + "\nafter\n",
+            b"7G25lxu:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
+            expect_cursor=(7, 5),
+        )
+        # J that keeps the line's 250 rows (10x40): the joined line is
+        # drawn from the join point
+        self.run_test_screen(
+            "J into a 250-row line below the top: screen",
+            "".join(f"l{i}\n" for i in range(8)) + "x" * 9960 + "\nend\n",
+            b"8GJ:q!\r",
+            expect_lines=[(6, "l6"), (7, "l7 " + "x" * 37), (8, "x" * 40)],
+            expect_cursor=(7, 2),
+        )
+        # Terminals of more than 128 rows: a line starting on row 128 or
+        # below is on screen too, so an edit there draws only its own row
+        # (frames: 0, 1-4 for 151G, 5 for x)
+        self.run_test_screen(
+            "x on row 150 of a 200-row terminal draws one row",
+            "".join(f"line {i}\n" for i in range(300)),
+            b"151Gx:q!\r",
+            rows=200, cols=40,
+            expect_lines=[(149, "line 149"), (150, "ine 150"),
+                          (151, "line 151")],
+            expect_cursor=(150, 0),
+            expect_content_rows=[(5, {150})],
+        )
+        # A 255-row terminal: row 252 + the line's rows passes 255 (a line
+        # taller than the screen, which stays below the top with the cursor
+        # on its first row; one that fits is shown in full, as in vim)
+        alpha2600 = alpha(2600)
+        self.run_test_screen(
+            "Undo D on a line at row 252 of a 255-row terminal",
+            "".join(f"line {i}\n" for i in range(252)) + alpha2600
+            + "\nafter\n",
+            b"253GDu:q!\r",
+            rows=255, cols=10,
+            expect_lines=[(251, "line 251"), (252, alpha2600[:10]),
+                          (253, alpha2600[10:20])],
+            expect_cursor=(252, 0),
+        )
+        # Undo and redo that restore 254-255 lines below row 2 (the
+        # line-insert repaint walks): row 2 + 255 rows passes 255
+        self.run_test_screen(
+            "Undo of 255dd below the top repaints the lines",
+            make_lines(700),
+            b"jj255ddu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
+            expect_cursor=(2, 0),
+        )
+        self.run_test_screen(
+            "Undo of 254cc below the top repaints the lines",
+            make_lines(700),
+            b"jj254cc\x1bu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(9)],
+            expect_cursor=(2, 0),
+        )
+        self.run_test_screen(
+            "Redo of 255p below the top repaints the lines",
+            make_lines(700),
+            b"jjyy255pu\x1bu:q!\r",
+            expect_lines=[(i, f"Line {i+1}") for i in range(3)]
+                         + [(i, "Line 3") for i in range(3, 9)],
+            expect_cursor=(3, 0),
+        )
+        # The scroll region below a line whose rows changed starts at
+        # first row + rows + 1: for a line running far past the screen
+        # that sum must not wrap to a small row and scroll the rows above
+        # it (nothing below such a line is on screen)
+        self.run_test_screen(
+            "Insert growing a 250-row line below the top",
+            six + alpha(5000) + "\nafter\n",
+            b"7GiZ\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "Z" + abc[:19]), (7, abc[19:39]),
+                                     (8, abc[39:59])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "x shrinking a 251-row line below the top",
+            six + alpha(5001) + "\nafter\n",
+            b"7Gx:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[1:21]), (7, abc[21:41]),
+                                     (8, abc[41:61])],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "J into a 253-row line below the top",
+            six + "x\n" + alpha(5050) + "\nafter\n",
+            b"7GJ:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "x " + abc[:18]), (7, abc[18:38]),
+                                     (8, abc[38:58])],
+            expect_cursor=(6, 1),
+        )
+        # J growing a line from 250 rows to 251 (the space fills a row)
+        self.run_test_screen(
+            "J growing a line to 251 rows below the top",
+            six + "x" * 20 + "\n" + alpha(4980) + "\nafter\n",
+            b"7GJ:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, "x" * 20), (7, " " + abc[:19]),
+                                     (8, abc[19:39])],
+            expect_cursor=(7, 0),
+        )
+        # Undo of J restores a 250-row line and the 1-row line after it
+        # (the J had saved a row); the cursor is back on the line's first
+        # row, at row 6
+        self.run_test_screen(
+            "Undo of J on a 250-row line below the top",
+            six + alpha(4990) + "\n" + "q" * 5 + "\nafter\n",
+            b"7GJ06k6ju:q!\r",
+            rows=10, cols=20,
+            expect_lines=six_rows + [(6, abc[:20]), (7, abc[20:40]),
+                                     (8, abc[40:60])],
+            expect_cursor=(6, 0),
+        )
+        # D leaves 1 row of a 20-row line at row 2: the 19 rows lost are
+        # more than the 7 rows below, which are all drawn
+        post = "".join(f"post {i}\n" for i in range(10))
+        self.run_test_screen(
+            "D on a line taller than the screen redraws the lines below",
+            "line 0\nline 1\n" + alpha(400) + "\n" + post,
+            b"3G5lD:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "line 0"), (1, "line 1"), (2, abc[:5])]
+                         + [(3 + i, f"post {i}") for i in range(6)],
+            expect_cursor=(2, 4),
+        )
+        # A line of 255 full rows and a partial one (5,101-5,119 chars at
+        # 20 columns) counts as 255 rows, as longer ones do: its row
+        # count must not wrap to 0, or an edit on it is never drawn
+        long256 = alpha(5110)
+        self.run_test_screen(
+            "x on a 256-row line redraws it",
+            "top\n" + long256 + "\nafter\n",
+            b"jx:wq\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "top")] + [
+                (r, long256[20 * r - 19:20 * r + 1]) for r in range(1, 9)],
+            expect_cursor=(1, 0),
+            expected_content="top\n" + long256[1:] + "\nafter\n",
+        )
+        self.run_test_screen(
+            "Insert on a 256-row line redraws it",
+            "top\n" + long256 + "\nafter\n",
+            b"jiZ\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(0, "top")] + [
+                (r, ("Z" + long256)[20 * r - 20:20 * r])
+                for r in range(1, 9)],
+            expect_cursor=(1, 0),
+        )
+        # A join whose lines had more than 255 rows (8x12: 'fmt' and a
+        # 255-row line): their row count overflows, and the joined line
+        # is redrawn in full, not scrolled from its first row by the line
+        # count
+        fmt255 = ("".join(f"l{i}\n" for i in range(5)) + "fmt\n"
+                  + alpha(3051) + "\nend\n")
+        l0_4 = [(i, f"l{i}") for i in range(5)]
+        for name, keys, joined, cursor in [
+                ("J", b"6GJ", "fmt " + abc, (5, 3)),
+                ("Redo of J", b"6GJu\x1bu", "fmt " + abc, (5, 3)),
+                ("Insert-mode BS", b"7Gi\x08\x1b", "fmt" + abc, (5, 2))]:
+            self.run_test_screen(
+                f"{name} joining a line to a 255-row line below it",
+                fmt255, keys + b":q!\r",
+                rows=8, cols=12,
+                expect_lines=l0_4 + [(5, joined[:12]), (6, joined[12:24])],
+                expect_cursor=cursor,
+            )
+        # An Enter at the first column of a row of the view's top line
+        # (10x10: row 1 of the 53-char 'w5 ...', which the view shows from
+        # its first row, as vim's does; the Enter is at its column 10)
+        wlines = "".join(f"w{i} " + "abcdefghij" * (i % 6) + "\n"
+                         for i in range(20))
+        self.run_test_screen(
+            "Enter at the view's top row start in a line above the view",
+            wlines, b"6G10ljjjkkki\r\x1b:q!\r",
+            rows=10, cols=10,
+            expect_lines=[(0, "w5 abcdefg")]
+                         + [(r, "hijabcdefg") for r in range(1, 5)]
+                         + [(5, "hij"), (6, "w6"), (7, "w7 abcdefg"),
+                            (8, "hij")],
+            expect_cursor=(1, 0),
+        )
+        # An Enter that keeps the line's height (the split is at a row
+        # boundary) draws only the rows from the split on: no scroll and
+        # no full redraw.  Frames: 0 initial, 1 j, 2 l, 3 i, 4 Enter (the
+        # count, not shown on the status bar cut at 20 columns, sends no
+        # frame)
+        self.run_test_screen(
+            "Enter keeping the line's height draws from the split",
+            "x\n" + "a" * 25 + "\nnext\nl3\nl4\n",
+            b"j20li\r\x1b:q!\r",
+            rows=10, cols=20,
+            expect_lines=[(1, "a" * 20), (2, "aaaaa"), (3, "next")],
+            expect_cursor=(2, 0),
+            expect_content_rows=[(4, {2})],
+        )
+        # Text + Enter typed ahead at the end of a wrapped line: drawn from
+        # the row where the batch began, not the line's first row.
+        # Frames: 0 initial, 1 j, 2 A, 3 the batch
+        prose = "The quick brown fox jumps over the lazy dog and keeps on " \
+            "running far away. " * 3
+        self.run_test_screen(
+            "Batched text + Enter at end of wrapped line: drawn rows",
+            "x\n" + prose + "\nnext\n",
+            b"jAfoo\rbar\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(3, prose[160:] + "foo"), (4, "bar"),
+                          (5, "next")],
+            expect_cursor=(4, 2),
+            expect_content_rows=[(3, {3, 4})],
+        )
+
+        # An Enter batch draws the split line only from its first changed
+        # column: the cells before it (and whole rows before it) are left
+        # as they are.  Frames: 0=initial, 1-3=count and l, 4=i, 5=Enter
+        # batch
+        digits = "0123456789"
+        for deferred in (False, True):
+            suffix = " (deferred wrap)" if deferred else ""
+            self.run_test_screen(
+                "Enter mid-line: split line drawn from the split" + suffix,
+                "0123456789ABCDEFGHIJ\nnext\n",
+                b"10li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, "0123456789"),
+                                            (1, "ABCDEFGHIJ"), (2, "next"),
+                                            (3, "~")])],
+                expect_min_col=[(5, 0, 10), (5, 1, 0), (5, 2, -1)],
+            )
+            # Typed text, BS and Enter in one batch: the change starts at
+            # the first backspaced column
+            self.run_test_screen(
+                "Enter batch with BS: split line drawn from the change"
+                + suffix,
+                "0123456789ABCDEFGHIJ\nnext\n",
+                b"10li\x7f\x7f\rxy\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, "01234567"),
+                                            (1, "xyABCDEFGHIJ"),
+                                            (2, "next")])],
+                expect_min_col=[(5, 0, 8), (5, 1, 0), (5, 2, -1)],
+            )
+            # Split in the second row of a wrapped line: the first row is
+            # untouched, the second is drawn from the split column
+            self.run_test_screen(
+                "Enter in second wrap row: first row untouched" + suffix,
+                digits * 6 + "\nnext\n",
+                b"45li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, digits * 4),
+                                            (1, digits[:5]),
+                                            (2, (digits * 2)[5:]),
+                                            (3, "next")])],
+                expect_min_col=[(5, 0, -1), (5, 1, 5), (5, 2, 0),
+                                (5, 3, -1)],
+            )
+            # Split at a row boundary: the split line's rows are unchanged,
+            # only the new line's rows are drawn
+            self.run_test_screen(
+                "Enter at a row boundary: split line untouched" + suffix,
+                digits * 10 + "\nnext\n",
+                b"40li\r\x1b:q!\r",
+                deferred_wrap=deferred,
+                expect_lines_at_frame=[(5, [(0, digits * 4),
+                                            (1, digits * 4),
+                                            (2, digits * 2), (3, "next")])],
+                expect_min_col=[(5, 0, -1), (5, 1, 0), (5, 2, 0),
+                                (5, 3, -1)],
+            )
+        # Append, Enter and text typed ahead in one batch: the old line is
+        # only cleared from its end, and the rows below it scroll.
+        # Frames: 0=initial, 1-2=jjj moves, 3=A + Enter batch
+        self.run_test_screen(
+            "Enter + text typed ahead at a line's end: drawn from its end",
+            "  LDA #$00 ; clear the accumulator\n" * 12,
+            b"jjjA\r  STA $10\x1b:q!\r",
+            expect_lines_at_frame=[(3, [
+                (2, "  LDA #$00 ; clear the accumulator"),
+                (3, "  LDA #$00 ; clear the accumulator"),
+                (4, "  STA $10"),
+                (5, "  LDA #$00 ; clear the accumulator")])],
+            expect_min_col=[(3, 2, -1), (3, 3, 34), (3, 4, 0), (3, 5, -1)],
+        )
+
         # dd on last wrapped line when VIEW_TOP needs adjusting.
         # 5 rows (4 content + 1 status), 10 cols.
         # Lines: "A\nB\n" + "C"*15 (wraps to 2 rows) = 4 screen rows.
@@ -17130,53 +25332,95 @@ class EditorTestRunner:
             expect_cursor=(1, 0),
         )
 
-        # 3>>>> count + batched indent.
-        # 3>> indents up to 3 lines (2 spaces), >> batched repeat (2 more) = 4 spaces.
+        # 3>>>> count + typed-ahead indent.
+        # 3>> indents up to 3 lines (2 spaces), then >> the cursor line (2
+        # more) = 4 spaces; on the last line 3>> fails (vim), and >> alone
+        # shifts
         self.run_test(
-            "3>>>> count plus batched indent",
+            "3>>>> count plus typed-ahead indent",
+            "abc\ndef\n",
+            b"3>>>>:wq\r",
+            expected_content="    abc\n  def\n"
+        )
+        self.run_test(
+            "3>>>> on the last line: only >> shifts",
             "abc\n",
             b"3>>>>:wq\r",
-            expected_content="    abc\n"
+            expected_content="  abc\n"
         )
 
         # ================================================================
         # Vertical scroll optimization with VIEW_TOP_WRAP
         # ================================================================
-        # When the first visible line is partially off-screen (VIEW_TOP_WRAP > 0),
-        # the editor should use scroll optimization instead of full repaint.
+        # The view shows whole lines from its top line, as vim's does: a
+        # line that wraps goes off the top whole when the view scrolls past
+        # it, and comes back whole.  Only a line taller than the screen is
+        # shown from a later row (VIEW_TOP_WRAP > 0: see the tall-line tests
+        # below).  The moves scroll the rows (instead of a full repaint).
+
+        # vim's view (checked in vim 8.2, 10x40): G to a last line whose
+        # lines above wrap shows whole lines from the top, '~' below; typing
+        # that wraps the bottom line scrolls a whole line off the top; j to
+        # a line shown only in part scrolls to show it in full
+        self.run_test_screen(
+            "View: G shows whole lines from the top",
+            "".join(("L%d" % i + ("y" * 98 if i in (14, 15) else "")) + "\n"
+                    for i in range(20)),
+            b"G:q!\r",
+            expect_lines=[(0, "L15" + "y" * 37), (3, "L16"), (6, "L19"),
+                          (7, "~")],
+            expect_cursor=(6, 0),
+        )
+        self.run_test_screen(
+            "View: typing that wraps the bottom line scrolls a line off",
+            "".join(("L%d" % i + ("a" * 58 if i == 0 else "")) + "\n"
+                    for i in range(20)),
+            b"7jA" + b"x" * 40 + b"\x1b:q!\r",
+            expect_lines=[(0, "L1"), (6, "L7" + "x" * 38), (7, "xx"),
+                          (8, "L8")],
+            expect_cursor=(7, 1),
+        )
+        self.run_test_screen(
+            "View: j to a line shown in part shows it in full",
+            "line 0\nline 1\nline 2\n"
+            + ("abcdefghijklmnopqrstuvwxyz" * 12)[:300] + "\n"
+            + "".join(f"line {i}\n" for i in range(4, 20)),
+            b"3j:q!\r",
+            expect_lines=[(0, "line 2"), (1, "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"),
+                          (8, ("abcdefghijklmnopqrstuvwxyz" * 12)[280:300])],
+            expect_cursor=(1, 0),
+        )
 
         # Setup content: line 0 wraps to 2 rows (35 chars at 20 cols), then short lines.
         # 6-row screen = 5 content rows + status bar.
         # Initial view: row 0-1 = line 0 (wrapped), rows 2-4 = lines 1-3.
-        # j*4 batches: cursor at line 4. Walk-back 4 rows from line 4 lands on
-        # (VIEW_TOP16=0, VIEW_TOP_WRAP=1) — partial wrap of line 0.
-        # Viewport scrolled up by 1 row. New bottom row (row 4) exposed.
+        # j*4 batches: cursor at line 4, which fits with lines 1-3 above it
+        # but not with line 0: the view scrolls up 2 rows, line 0 off whole
+        # (vim 8.2 shows line 1 on top, the cursor on row 3)
         vtw_content = ("A" * 35 + "\n"
                        + ''.join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
-            "Scroll opt: j past bottom wrap increases on same VIEW_TOP",
+            "Scroll opt: j past bottom scrolls the wrapped top line off whole",
             vtw_content,
             b"j" * 4 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 1
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
-            # With scroll optimization: scroll up by 1, only bottom row redrawn
-            expect_content_rows=[(1, {4})]
+            expect_cursor=(3, 0),
+            # With scroll optimization: scroll up by 2, the two bottom rows
+            # redrawn
+            expect_content_rows=[(1, {3, 4})]
         )
 
-        # After VIEW_TOP_WRAP increased (j*4 → VTW=1), k*4 returns cursor to
-        # line 0, col 0 (WRAP_QUOT=0). Since WRAP_QUOT(0) < VIEW_TOP_WRAP(1),
-        # ensure_cursor_visible scrolls up: VIEW_TOP_WRAP goes from 1 back to 0.
-        # Viewport scrolled down by 1. New top row (line 0 wrap 0) exposed.
-        # Frames: 0=initial, 1=j*4 (VTW 0→1), 2=k*4 (VTW 1→0)
+        # k*4 back to line 0: the view scrolls down 2 rows to show it whole
+        # Frames: 0=initial, 1=j*4, 2=k*4
         self.run_test_screen(
-            "Scroll opt: k wrap decreases on same VIEW_TOP",
+            "Scroll opt: k brings the wrapped top line back whole",
             vtw_content,
             b"j" * 4 + b"k" * 4 + b":q!\r",
             rows=6, cols=20,
@@ -17188,48 +25432,75 @@ class EditorTestRunner:
                 (4, "Short 3"),
             ],
             expect_cursor=(0, 0),
-            # Frame 2 (k*4): scroll down by 1, only top row redrawn
-            expect_content_rows=[(2, {0})]
+            # Frame 2 (k*4): scroll down by 2, the two top rows redrawn
+            expect_content_rows=[(2, {0, 1})]
         )
 
-        # j past bottom where VIEW_TOP changes AND new VIEW_TOP_WRAP > 0.
+        # G to a line already on screen leaves the view alone, as k and :N
+        # do (vim scrolls only for a line not shown in full).  Frames: 0
+        # initial, 1 j*4, 2 G (the count, not shown on the status bar cut
+        # at 20 columns, sends no frame)
+        self.run_test_screen(
+            "G to a visible line keeps the view",
+            vtw_content,
+            b"j" * 4 + b"3G:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "Short 1"), (1, "Short 2"), (2, "Short 3")],
+            expect_cursor=(1, 0),
+            expect_content_redraws=[True, True, False],
+            expect_frame_count=3,
+        )
+        # The same at 10x40, with its bytes: the cursor move and the new
+        # position, as 3k sends
+        top5 = "a" * 200 + "\n" + "".join(f"L{i}\n" for i in range(1, 61))
+        self.run_test_screen(
+            "G to a visible line sends the cursor move only",
+            top5,
+            b"5j3G:q!\r",
+            expect_lines=[(0, "L1"), (1, "L2"), (4, "L5")],
+            expect_cursor=(1, 0),
+            expect_frame_bytes=[(4, 40)],
+        )
+        # gg (and 1G) from a view past line 1: the cursor goes above the
+        # view, which scrolls to show line 1 whole
+        self.run_test_screen(
+            "gg from a view past a wrapped line 1 shows it whole",
+            vtw_content,
+            b"j" * 4 + b"gg:q!\r",
+            rows=6, cols=20,
+            expect_lines=[(0, "A" * 20), (1, "A" * 15), (2, "Short 1")],
+            expect_cursor=(0, 0),
+            expect_content_rows=[(2, {0, 1})],
+        )
+
+        # j past a line that wraps mid-screen: the view moves past it whole.
         # Content: lines 0-1 short, line 2 wraps to 3 rows (55 chars at 20 cols),
         # then short lines. 6-row screen.
-        # j*5: cursor at line 5. Walk-back 4 rows from line 5:
-        #   line 4 (1 row, RR=3), line 3 (1 row, RR=2), line 2 (3 rows, VTW=2, RR=1),
-        #   VTW 2→1, RR=0. Result: VIEW_TOP16=2, VIEW_TOP_WRAP=1.
-        # SNAP: (0,0). Scroll amount: line 0 (1) + line 1 (1) + new_wrap (1) = 3.
-        # Scroll up by 3, render 3 new bottom rows.
+        # j*5: cursor at line 5, which fits with lines 3-4 above it but not
+        # with line 2: line 3 goes on top (vim 8.2 too), the view moving
+        # the 5 rows of lines 0-2, all of the text rows: every row is drawn
         vtw_content2 = ("Short 0\nShort 1\n" + "D" * 55 + "\n"
                         + ''.join(f"Short {i}\n" for i in range(3, 12)))
         self.run_test_screen(
-            "Scroll opt: j past bottom VIEW_TOP changes new wrap nonzero",
+            "Scroll opt: j past a wrapped line moves the view past it whole",
             vtw_content2,
             b"j" * 5 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "D" * 20),    # line 2, wrap row 1
-                (1, "D" * 15),    # line 2, wrap row 2
-                (2, "Short 3"),
-                (3, "Short 4"),
-                (4, "Short 5"),   # cursor
+                (0, "Short 3"),
+                (1, "Short 4"),
+                (2, "Short 5"),   # cursor
+                (3, "Short 6"),
+                (4, "Short 7"),
             ],
-            expect_cursor=(4, 0),
-            # Scroll up by 3, render 3 new bottom rows
-            expect_content_rows=[(1, {2, 3, 4})]
+            expect_cursor=(2, 0),
+            expect_content_rows=[(1, {0, 1, 2, 3, 4})]
         )
 
-        # j with VIEW_TOP change and SNAP_VIEW_TOP_WRAP > 0.
-        # From j*5 state: VIEW_TOP16=2, VTW=1. Use 'l' to break batching,
-        # then j*2 in a new frame.
-        # j*2 from line 5→7. Walk-back from 7, 4 rows:
-        #   line 6 (1), line 5 (1), line 4 (1), line 3 (1) → VTW=0.
-        # Result: VIEW_TOP16=3, VIEW_TOP_WRAP=0. SNAP: (2,1).
-        # Scroll amount: (screen_rows(line 2) - 1) + line 3 visible = (3-1) + 0 = 2.
-        # Wait — walk from (2,1) to (3,0): line 2 contributes 3-1=2 visible rows.
-        # But new_wrap = 0. Total = 2. Scroll up by 2, render 2 bottom rows.
+        # From there, j*2 (after 'l', which breaks the batching) to line 7,
+        # on the bottom row: the view stays, and only the cursor moves
         self.run_test_screen(
-            "Scroll opt: j VIEW_TOP changes with old wrap nonzero",
+            "Scroll opt: j to the bottom row draws no row",
             vtw_content2,
             b"j" * 5 + b"l" + b"j" * 2 + b":q!\r",
             rows=6, cols=20,
@@ -17241,36 +25512,66 @@ class EditorTestRunner:
                 (4, "Short 7"),   # cursor
             ],
             expect_cursor=(4, 1),   # 'l' moved col to 1
-            # Frame 3 (j*2): scroll up by 2, render 2 new bottom rows
-            expect_content_rows=[(3, {3, 4})]
+            expect_content_rows=[(3, set())]
         )
 
-        # VIEW_TOP_WRAP increases by more than 1 in a single step.
+        # A top line of 4 rows goes off whole: the view scrolls 4 rows.
         # Content: line 0 wraps to 4 rows (75 chars at 20 cols), then short lines.
         # 6-row screen: initial shows line 0 wrap 0-3 (4 rows) + Short 1 (1 row).
-        # j*4: cursor at line 4. Walk-back 4 rows from line 4:
-        #   line 3 (1, RR=3), line 2 (1, RR=2), line 1 (1, RR=1),
-        #   line 0 (4 rows, VTW=3, RR=0).
-        # Result: VIEW_TOP16=0, VIEW_TOP_WRAP=3. Wrap changed by 3.
-        # Scroll up by 3, render 3 new bottom rows.
+        # j*4: cursor at line 4, which fits with lines 1-3 above it but not
+        # with line 0 (vim 8.2 shows line 1 on top too): scroll up by 4,
+        # render the 4 new bottom rows
         vtw_multi_wrap = ("A" * 75 + "\n"
                           + ''.join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
-            "Scroll opt: VIEW_TOP_WRAP increases by 3",
+            "Scroll opt: j past a 4-row top line scrolls it off whole",
             vtw_multi_wrap,
             b"j" * 4 + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 3
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
-            # Scroll up by 3, render 3 new bottom rows
-            expect_content_rows=[(1, {2, 3, 4})]
+            expect_cursor=(3, 0),
+            expect_content_rows=[(1, {1, 2, 3, 4})]
         )
+
+        # Cursor line starting above the view (the view's top line shown
+        # from VIEW_TOP_WRAP > 0, which only a line taller than the screen
+        # is): line-count repaints must not draw from the negative first
+        # row CURSOR_ROW - WRAP_QUOT
+        alpha = "".join(chr(ord("a") + i % 26) for i in range(500))
+        upper = "".join(chr(ord("A") + i % 26) for i in range(400))
+        rest = "".join(f"line {i}\n" for i in range(2, 12))
+        joined = "a" * 400 + " bb " + "C" * 40
+        # (dd goes to the first non-blank: the spaces before it keep the
+        # line's start above the view)
+        for name, content, keys, expect, cursor, rows, cols in (
+                ("dd", alpha + "\n" + " " * 160 + upper[160:] + "\n" + rest,
+                 b"$dd",
+                 [(r, upper[(4 + r) * 40:(5 + r) * 40]) for r in range(6)]
+                 + [(6, "line 2"), (7, "line 3"), (8, "line 4")], (0, 0),
+                 10, 40),
+                ("dd on a narrow screen", "line 0 " + "y" * 90 + "\n"
+                 + " " * 16 + "y" * 73 + "\nline 2 " + "y" * 37 + "\n",
+                 b"$xdd",
+                 [(r, "y" * 8) for r in range(9)]
+                 + [(9, "y"), (10, "line 2 y")], (0, 0), 12, 8),
+                ("J that grows the line", "a" * 400 + " bb\n"
+                 + "C" * 40 + "\n" + "".join(f"l{i}\n" for i in range(2, 30)),
+                 b"$J",
+                 [(r, joined[(r + 2) * 40:(r + 3) * 40]) for r in range(9)],
+                 (8, 3), 10, 40),
+                ("2d$", alpha + "\nshort one\n" + rest, b"$h2d$",
+                 [(r, alpha[160 + r * 40:200 + r * 40]) for r in range(8)]
+                 + [(8, alpha[480:498])], (8, 17), 10, 40)):
+            self.run_test_screen(
+                "Scroll opt: line starting above the view, " + name,
+                content, keys + b":q!\r", rows=rows, cols=cols,
+                expect_lines=expect, expect_cursor=cursor)
 
         # Large scroll delta that exceeds SCREEN_ROWS should fall back to
         # full repaint. j*50 on a file with many short lines where VIEW_TOP
@@ -17292,33 +25593,32 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
-        # Insert mode: arrow down past bottom with VIEW_TOP_WRAP.
-        # Same content as vtw_content (line 0 wraps to 2 rows).
+        # Insert mode: arrow down past the bottom, as j*4 above: the
+        # wrapped line 0 goes off the top whole.
         # Enter insert mode on line 0 (i), then press down arrow 4 times.
-        # Same walk-back as normal mode: VIEW_TOP_WRAP goes from 0 to 1.
         DOWN = b"\x1b[B"
         self.run_test_screen(
-            "Scroll opt: insert arrow down wrap increases on same VIEW_TOP",
+            "Scroll opt: insert arrow down scrolls the wrapped top line off",
             vtw_content,
             b"i" + DOWN * 4 + b"\x1b:q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap row 1
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "Short 4"),   # cursor was here in insert mode
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "Short 4"),   # cursor was here in insert mode
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),  # cursor at line 4 (col 0, ESC no decrement)
-            # Frame 2 (DOWN*4): scroll up by 1, only bottom row redrawn
-            expect_content_rows=[(2, {4})]
+            expect_cursor=(3, 0),  # cursor at line 4 (col 0, ESC no decrement)
+            # Frame 2 (DOWN*4): scroll up by 2, the two bottom rows redrawn
+            expect_content_rows=[(2, {3, 4})]
         )
 
-        # Insert mode: arrow up past top with VIEW_TOP_WRAP decrease.
-        # Start with j*4 to get VTW=1, then enter insert mode, arrow up 4 times.
+        # Insert mode: arrow up back to line 0, which comes back whole.
+        # Start with j*4, then enter insert mode, arrow up 4 times.
         UP = b"\x1b[A"
         self.run_test_screen(
-            "Scroll opt: insert arrow up wrap decreases on same VIEW_TOP",
+            "Scroll opt: insert arrow up brings the wrapped top line back",
             vtw_content,
             b"j" * 4 + b"i" + UP * 4 + b"\x1b:q!\r",
             rows=6, cols=20,
@@ -17330,8 +25630,8 @@ class EditorTestRunner:
                 (4, "Short 3"),
             ],
             expect_cursor=(0, 0),
-            # Frame 3 (UP*4): scroll down by 1, only top row redrawn
-            expect_content_rows=[(3, {0})]
+            # Frame 3 (UP*4): scroll down by 2, the two top rows redrawn
+            expect_content_rows=[(3, {0, 1})]
         )
 
         # VIEW_TOP_WRAP changes but LINE_COUNT also changed: should fall back
@@ -17349,30 +25649,29 @@ class EditorTestRunner:
             expect_cursor=(4, 0),
         )
 
-        # Both SNAP_VIEW_TOP_WRAP and VIEW_TOP_WRAP non-zero (wrap_changed path).
-        # Line 0 wraps to 4 rows (75 chars at 20 cols), then short lines.
-        # j*2 batches (frame 1): cursor at line 2. Walk-back 4 rows:
-        #   line 1 (1, RR=3), line 0 (4 rows, VTW=3, RR=2), VTW 3→2 (RR=1),
-        #   VTW 2→1 (RR=0). Result: VIEW_TOP16=0, VTW=1. Wrap changes 0→1.
-        # Then 'l' (frame 2, no viewport change), j (frame 3): cursor at line 3.
-        # Walk-back from 3, 4: line 2 (1,3), line 1 (1,2), line 0 (4, VTW=3, 1),
-        #   VTW 3→2 (0). Result: VIEW_TOP16=0, VTW=2. SNAP_VTW=1, VTW=2.
-        # Both non-zero. Scroll up by 1, render 1 new bottom row.
+        # Both SNAP_VIEW_TOP_WRAP and VIEW_TOP_WRAP non-zero (wrap_changed
+        # path): the view's top line taller than the screen (8 rows at
+        # 6x20), shown from row 3 for the cursor at its end ($), then from
+        # row 2 for the cursor on its row 2 (100h, as vim's skipcol moves
+        # as little as it can): scroll down 1, the top row redrawn.
+        # Frames: 0 initial, 1 $, 2 100h (the count, not shown on the
+        # status bar cut at 20 columns, sends no frame)
+        vtw_tall = ("".join(chr(ord("a") + i // 20) for i in range(150))
+                    + "\n" + "".join(f"Short {i}\n" for i in range(1, 10)))
         self.run_test_screen(
             "Scroll opt: both old and new VIEW_TOP_WRAP nonzero",
-            vtw_multi_wrap,
-            b"j" * 2 + b"l" + b"j" + b":q!\r",
+            vtw_tall,
+            b"$" + b"100h" + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 20),    # line 0, wrap row 2
-                (1, "A" * 15),    # line 0, wrap row 3
-                (2, "Short 1"),
-                (3, "Short 2"),
-                (4, "Short 3"),   # cursor
+                (0, "c" * 20),    # line 0, wrap row 2 (cursor)
+                (1, "d" * 20),
+                (2, "e" * 20),
+                (3, "f" * 20),
+                (4, "g" * 20),
             ],
-            expect_cursor=(4, 1),  # l moved col to 1
-            # Frame 3 (j): wrap 1→2, scroll up 1, only bottom row redrawn
-            expect_content_rows=[(3, {4})]
+            expect_cursor=(0, 9),
+            expect_content_rows=[(2, {0})]
         )
 
         # Scroll direction verification: j triggers scroll UP (content moves up),
@@ -17395,31 +25694,30 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(1, True), (2, True)],
         )
 
-        # Two-phase: j*4 scroll (VTW 0→1), l (break), j scroll (VIEW_TOP changes).
-        # After j*4: VIEW_TOP (0,1). After l: unchanged. After j: cursor at line 5.
-        # Walk-back from 5: lines 4,3,2,1 → VIEW_TOP16=1, VTW=0.
-        # SNAP: (0,1). After: (1,0). VIEW_TOP changed, old wrap>0.
-        # Walk from (0,1) to (1,0): line 0 visible=2-1=1, new_wrap=0. Total=1.
-        # Scroll up by 1.
+        # Two-phase: from the top line taller than the screen shown from
+        # row 3 ($), l breaks the batching, then j to the next line, which
+        # goes on top whole (the tall line off the view, as in vim): the
+        # view moves the 5 rows of the tall line left on screen, all of
+        # the text rows, so every row is drawn.  Frames: 0 initial, 1 $,
+        # 2 h, 3 j
         self.run_test_screen(
             "Scroll opt: wrap then view change single j",
-            vtw_content,
-            b"j" * 4 + b"l" + b"j" + b":q!\r",
+            vtw_tall,
+            b"$" + b"h" + b"j" + b":q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "Short 1"),
+                (0, "Short 1"),   # cursor
                 (1, "Short 2"),
                 (2, "Short 3"),
                 (3, "Short 4"),
-                (4, "Short 5"),   # cursor
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 1),
-            # Frame 3 (j): VIEW_TOP changed with old wrap, scroll up 1
-            expect_content_rows=[(3, {4})]
+            expect_cursor=(0, 6),
+            expect_content_rows=[(3, {0, 1, 2, 3, 4})]
         )
 
-        # Round-trip content verification: j*4 scrolls VTW 0→1, then k*4
-        # scrolls back to VTW 0→0. Verify exact content matches initial state
+        # Round-trip content verification: j*4 scrolls line 0 off, then k*4
+        # scrolls it back. Verify exact content matches initial state
         # using expect_lines_at_frame at both frames.
         self.run_test_screen(
             "Scroll opt: round trip content matches initial",
@@ -17428,11 +25726,11 @@ class EditorTestRunner:
             rows=6, cols=20,
             expect_lines_at_frame=[
                 (1, [
-                    (0, "A" * 15),
-                    (1, "Short 1"),
-                    (2, "Short 2"),
-                    (3, "Short 3"),
-                    (4, "Short 4"),
+                    (0, "Short 1"),
+                    (1, "Short 2"),
+                    (2, "Short 3"),
+                    (3, "Short 4"),
+                    (4, "Short 5"),
                 ]),
                 (2, [
                     (0, "A" * 20),
@@ -17445,21 +25743,491 @@ class EditorTestRunner:
             expect_cursor=(0, 0),
         )
 
-        # Insert mode: type after VIEW_TOP_WRAP scroll to verify no corruption.
-        # j*4 (VTW 0→1), enter insert, type "X", ESC, verify content.
+        # Insert mode: type after the wrapped line 0 scrolled off, to
+        # verify no corruption: j*4, enter insert, type "X", ESC
         self.run_test_screen(
             "Scroll opt: insert type after wrap scroll preserves content",
             vtw_content,
             b"j" * 4 + b"iX\x1b:q!\r",
             rows=6, cols=20,
             expect_lines=[
-                (0, "A" * 15),    # line 0, wrap 1 (unchanged)
-                (1, "Short 1"),
-                (2, "Short 2"),
-                (3, "Short 3"),
-                (4, "XShort 4"),  # cursor on line 4, typed X
+                (0, "Short 1"),
+                (1, "Short 2"),
+                (2, "Short 3"),
+                (3, "XShort 4"),  # cursor on line 4, typed X
+                (4, "Short 5"),
             ],
-            expect_cursor=(4, 0),
+            expect_cursor=(3, 0),
+        )
+
+        # Insert-mode cursor at col == len == k*cols sits on a virtual row
+        # past the line's last row.  When that line is above the view, the
+        # view top must be its last real row (cursor on the next row, as
+        # mid-screen), not the virtual row: find_line_at_render_row and
+        # ensure_cursor_visible count the virtual row as 0 rows.
+        virt = ("a" * 40 + "\n" + "b" * 45 + "\n"
+                + "".join(f"l{i}\n" for i in range(2, 20)))
+        # Up to line 0 (col 40, above the view), then ESC (col 39).
+        self.run_test_screen(
+            "Scroll opt: insert Up onto a full-width line above the view",
+            virt,
+            b"9jkkkkkkkkA\x1b[A\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "b" * 5),
+                          (3, "l2"), (8, "l7")],
+            expect_cursor=(0, 39),
+        )
+        # ... then Down and type: the cursor row must match the rows drawn.
+        # Down goes back to the column A left (col 45, as in vim; it went
+        # to the column Up had clamped it to, col 40)
+        self.run_test_screen(
+            "Scroll opt: insert Up onto a full-width line, Down, type",
+            virt,
+            b"9jkkkkkkkkA\x1b[A\x1b[BX\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "b" * 40), (2, "bbbbbX"),
+                          (3, "l2"), (8, "l7")],
+            expect_cursor=(2, 5),
+        )
+        # C on line 1 makes it exactly 10 wide; Up onto the 10-wide line
+        # 0 above the view, then ESC.
+        self.run_test_screen(
+            "Scroll opt: ESC after insert Up onto a full-width top line",
+            "abcdefghij\nabcdefgh\n    world (\n\n",
+            b":5\ryb\x1b[ACsum\x1b[A\x1b:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "abcdefgsum"),
+                          (2, "    world"), (3, "(")],
+            expect_cursor=(0, 9),
+        )
+        # C on the line's second row, the view's top row, leaves the line
+        # one full row with the insert cursor past it
+        self.run_test_screen(
+            "Scroll opt: insert C at the top row leaving a full-width line",
+            "abcdefghijKLMNO\nl1\nl2\nl3\nl4\nl5\n",
+            b"3j/K\rC\x1b:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "abcdefghij"), (1, "l1"), (2, "l2"), (3, "l3")],
+            expect_cursor=(0, 9),
+        )
+
+        # ================================================================
+        # Edit plus viewport scroll: the scroll paths must also repaint
+        # the edited line, not just the rows the scroll exposes.
+        # ================================================================
+        twenty = "".join(f"line {i}\n" for i in range(20))
+        RIGHT = b"\x1b[C"
+
+        # Typing the 40th char of the last visible line moves the cursor
+        # to the next (off-screen) wrap row: the view scrolls by 1 and the
+        # typed char must still appear.  The right arrow unbatches the last
+        # 'x'.
+        self.run_test_screen(
+            "Scroll opt: typing that scrolls the view shows the typed char",
+            twenty,
+            b"9GA" + b"x" * 33 + RIGHT + b"x\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "line 7"), (7, "line 8" + "x" * 34),
+                          (8, "line 9")],
+            expect_cursor=(7, 39),
+        )
+
+        # Batched insert that crosses the edge of the last visible row.
+        self.run_test_screen(
+            "Scroll opt: batched typing that scrolls the view",
+            twenty,
+            b"9GA" + b"x" * 20 + b"\x1bA" + b"y" * 20 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(7, "line 8" + "x" * 20 + "y" * 14),
+                          (8, "y" * 6)],
+            expect_cursor=(8, 5),
+        )
+
+        # Typing past the end of the bottom row of the last line
+        self.run_test_screen(
+            "Scroll opt: typing past the last line's bottom row shows it",
+            "".join(f"l{i}\n" for i in range(30)) + "a" * 39 + "\n",
+            b"GAx\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(6, "l29"), (7, "a" * 39 + "x"), (8, "~")],
+            expect_cursor=(7, 39),
+        )
+
+        # Pasting a word that pushes the cursor two wrap rows down.
+        self.run_test_screen(
+            "Scroll opt: p that scrolls the view repaints the line",
+            "".join(f"line {i}\n" for i in range(8)) + "abcdefghij" * 5
+            + "\n" + "".join(f"line {i}\n" for i in range(9, 20)),
+            b"9G0yw36lp:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(5, "line 7"),
+                          (6, "abcdefghijabcdefghijabcdefghijabcdefgabc"),
+                          (7, "defghijabcdefghijabcdefghijabcdefghijabc"),
+                          (8, "defghijhijabcdefghij")],
+            expect_cursor=(8, 6),
+        )
+
+        # A paste that grows the cursor line past the bottom of the screen
+        # from its first row: the view moves down within the line
+        self.run_test_screen(
+            "Scroll opt: 100p growing the line past the screen repaints it",
+            "abcd\ncd\n",
+            b"yw100p:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "dabc" * 10) for i in range(8)]
+                         + [(8, "dbcd")],
+            expect_cursor=(8, 0),
+        )
+        self.run_test_screen(
+            "Scroll opt: 100P growing the line past the screen repaints it",
+            "abcd\ncd\n",
+            b"yw100P:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "abcd" * 10) for i in range(9)],
+            expect_cursor=(8, 39),
+        )
+        # The line below grows past the bottom: it rides along with the
+        # scroll, redrawn from its first row
+        self.run_test_screen(
+            "Scroll opt: y$jP of 200 chars scrolls and repaints the line",
+            "q" * 200 + "\nxy\n",
+            b"y$jP:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(i, "q" * 40) for i in range(5)]
+                         + [(5, "xy"), (6, "~")],
+            expect_cursor=(4, 39),
+        )
+
+        # Undo of x on a 3-row line whose first row is scrolled off: the
+        # view scrolls down 1 and the line's other rows must shift too.
+        self.run_test_screen(
+            "Scroll opt: undo that scrolls the view up repaints the line",
+            "a" * 104 + "\n" + "".join(f"line {i}\n" for i in range(1, 12)),
+            b"5lx8Gu:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "a" * 40), (1, "a" * 40), (2, "a" * 24),
+                          (3, "line 1"), (8, "line 6")],
+            expect_cursor=(0, 5),
+        )
+        # The same from a line of another height, on a narrow screen
+        self.run_test_screen(
+            "Scroll opt: undo from a taller line that scrolls the view up",
+            "0123456789abcdefghijABCDEFGHIJ\n" + "x" * 72 + "\n",
+            b"x$ju:q!\r",
+            rows=5, cols=10,
+            expect_lines=[(0, "0123456789"), (1, "abcdefghij"),
+                          (2, "ABCDEFGHIJ"), (3, "x" * 10)],
+            expect_cursor=(0, 0),
+        )
+
+        # cc on a 3-row line shown from its third row: the line shrinks to
+        # 1 row and VIEW_TOP_WRAP drops 2 -> 0 (the wrap_changed path).
+        self.run_test_screen(
+            "Scroll opt: cc that changes VIEW_TOP_WRAP repaints correctly",
+            "a" * 84 + " " + "Q" * 15 + "\n" + "b" * 60 + "\n"
+            + "".join(f"line {i}\n" for i in range(2, 20)),
+            b"8Gkkkkkkbcc\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, ""), (1, "b" * 40), (2, "b" * 20),
+                          (3, "line 2"), (8, "line 7")],
+            expect_cursor=(0, 0),
+        )
+
+        # Counted ~ past the last visible row: the direct echo stops at
+        # the row edge and defers the rest (RENDER_FLAG=$01, BUF_END16
+        # unchanged); the cursor lands off-screen and the view scrolls 2.
+        self.run_test_screen(
+            "Scroll opt: counted ~ that scrolls the view repaints the rest",
+            "".join(f"line {i}\n" for i in range(8)) + "abcdefghij" * 12
+            + "\n" + "".join(f"t{i}\n" for i in range(5)),
+            b"9G0106~:q!\r",
+            rows=12, cols=30,
+            expect_lines=[(6, "line 7"),
+                          (7, "ABCDEFGHIJ" * 3), (8, "ABCDEFGHIJ" * 3),
+                          (9, "ABCDEFGHIJ" * 3),
+                          (10, "ABCDEFGHIJABCDEFghijabcdefghij")],
+            expect_cursor=(10, 16),
+        )
+
+        # BS that moves the cursor above the view top (VIEW_TOP_WRAP 1 ->
+        # 0): the view scrolls down 1 and the edited rows must be redrawn.
+        self.run_test_screen(
+            "Scroll opt: BS that scrolls the view down repaints the line",
+            "0123456789" * 8 + "\n" + "a" * 45 + "\n"
+            + "".join(f"line{i}\n" for i in range(2, 20)),
+            b"7j6kA\x1b[A" + b"\x08" * 6 + b"\x1b:q!\r",
+            rows=10, cols=40,
+            expect_lines=[(0, "0123456789" * 3 + "012345678" + "5"),
+                          (1, "6789" + "0123456789" * 3),
+                          (2, "a" * 40), (3, "a" * 5), (4, "line2")],
+            expect_cursor=(0, 38),
+        )
+
+        # ================================================================
+        # Line inserts and joins that move the view down (o, Enter, p, J
+        # on the bottom row): the text area scrolls up by the rows the
+        # view moved, and only the rows from the first change on (or the
+        # rows the scroll exposed, if they come first) are drawn, not the
+        # whole screen
+        # ================================================================
+        bottom = [(i, f"Line {i + 2}") for i in range(8)]
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jo\x1b:q!\r",
+            expect_lines=bottom + [(8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, set())],
+        )
+        # The split line is drawn from the Enter's column
+        self.run_test_screen(
+            "Scroll opt: Enter at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jA\r\x1b:q!\r",
+            expect_lines=bottom + [(8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, True)],
+            expect_content_rows=[(4, {7})],
+            expect_min_col=[(4, 7, 6)],
+        )
+        self.run_test_screen(
+            "Scroll opt: p at the bottom row scrolls the view",
+            make_lines(15),
+            b"8jyyp:q!\r",
+            expect_lines=bottom + [(8, "Line 9")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {8})],
+        )
+        # The top line wraps: the view moves past it whole (vim's view:
+        # line 1 on top), and the row below the new line is drawn
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row below a wrapped top line",
+            "a" * 50 + "\n" + make_lines(14),
+            b"7jo\x1b:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, ""), (8, "Line 8")],
+            expect_cursor=(7, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {8})],
+        )
+        # The bottom line wraps: j to it scrolls the view to show it whole
+        # (vim's view), so o then scrolls a line and draws nothing but the
+        # new empty line, a row the IL opened
+        self.run_test_screen(
+            "Scroll opt: o below a line that ran past the bottom row",
+            make_lines(8) + "b" * 50 + "\n" + make_lines(5),
+            b"8jo\x1b:q!\r",
+            expect_lines=[(i, f"Line {i + 3}") for i in range(6)]
+                         + [(6, "b" * 40), (7, "b" * 10), (8, "")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, set())],
+        )
+        # J of a line that wraps on the bottom rows: j to it scrolled the
+        # view to show it whole (vim's view), so the J that keeps its rows
+        # scrolls nothing and draws its second row
+        self.run_test_screen(
+            "Scroll opt: J that wraps past the bottom row scrolls the view",
+            make_lines(8) + "x" * 45 + "\n" + "y" * 10 + "\n"
+            + make_lines(5),
+            b"8jJ:q!\r",
+            expect_lines=[(i, f"Line {i + 2}") for i in range(7)]
+                         + [(7, "x" * 40), (8, "xxxxx " + "y" * 10)],
+            expect_cursor=(8, 5),
+            expect_scrolled_at_frame=[(3, False)],
+            expect_content_rows=[(3, {8})],
+        )
+        # One insert batch joins the bottom line onto the one above, edits
+        # it and splits twice: the line above changed too
+        self.run_test_screen(
+            "Batch BS-join, text and Enters at the bottom row",
+            make_lines(15),
+            b"8ji\x08x\r\r\x1b:q!\r",
+            expect_lines=[(i, f"Line {i + 2}") for i in range(6)]
+                         + [(6, "Line 8x"), (7, ""), (8, "Line 9")],
+            expect_cursor=(8, 0),
+        )
+        # A paste that grows the bottom line past the screen: the view
+        # moves the 5-row top line off to show the line whole (vim's view),
+        # and every row is drawn once, the line from the top
+        self.run_test_screen(
+            "Scroll opt: P growing the bottom line draws each row once",
+            "q" * 200 + "\nxy\n",
+            b"y$jP:q!\r",
+            expect_lines=[(i, "q" * 40) for i in range(5)]
+                         + [(5, "xy"), (6, "~")],
+            expect_cursor=(4, 39),
+            expect_scrolled_at_frame=[(2, False)],
+            expect_content_rows=[(2, {0, 1, 2, 3, 4, 5, 6, 7, 8})],
+            expect_frame_bytes=[(2, 283)],
+        )
+        # Typing at the end of a line taller than the screen: the char
+        # that fills its last row moves the view down a row within the
+        # line, and only the char and the row below it are drawn.
+        # Frames: 0 init, 1 G, 2 A, 3 x, 4 Right (unbatches), 5 x
+        self.run_test_screen(
+            "Scroll opt: typing at the end of a line taller than the screen",
+            "l0\n" + "t" * 399 + "\n",
+            b"GAx" + RIGHT + b"x\x1b:q!\r",
+            expect_lines=[(i, "t" * 40) for i in range(7)]
+                         + [(7, "t" * 39 + "x"), (8, "x")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {7, 8})],
+            expect_min_col=[(3, 7, 39)],
+        )
+        # Edits of a line that starts above the view, the view unmoved:
+        # the rows above the change keep their place.  Frames: 0 init,
+        # 1 G, 2 A, 3 x (fills the last row: the view moves), 4 x (a new
+        # row), 5 x (in the row); Right at the line end changes nothing, so
+        # it sends no frame
+        self.run_test_screen(
+            "Typing on a line that starts above the view draws the change",
+            "l0\n" + "t" * 399 + "\n",
+            b"GAx" + RIGHT + b"x" + RIGHT + b"x\x1b:q!\r",
+            expect_lines=[(i, "t" * 40) for i in range(7)]
+                         + [(7, "t" * 39 + "x"), (8, "xx")],
+            expect_cursor=(8, 1),
+            expect_content_rows=[(4, {8}), (5, {8})],
+            expect_frame_bytes=[(5, 38)],
+        )
+        # x and its undo there.  Frames: 0 init, 1 G, 2 $, 3 hh, 4 x, 5 u
+        self.run_test_screen(
+            "x on a line that starts above the view draws the change",
+            "l0\n" + "".join("abcdefghij" for _ in range(40)) + "\n",
+            b"G$hhxu:q!\r",
+            expect_lines=[(i, "abcdefghij" * 4) for i in range(8)]
+                         + [(8, "abcdefghij" * 4)],
+            expect_cursor=(8, 37),
+            expect_content_rows=[(4, {8}), (5, {8})],
+        )
+
+        # 24x80, 48-char lines: o and Enter at the bottom row
+        long48 = "".join(f"line {i:02d} " + "abcdefghij" * 4 + "\n"
+                         for i in range(40))
+        self.run_test_screen(
+            "Scroll opt: o at the bottom row at 24x80 sends one row",
+            long48,
+            b"22jo\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
+                          (21, "line 22 " + "abcdefghij" * 4), (22, "")],
+            expect_cursor=(22, 0),
+            expect_frame_bytes=[(4, 69)],
+        )
+        self.run_test_screen(
+            "Scroll opt: Enter at the bottom row at 24x80 sends one row",
+            long48,
+            b"22jA\r\x1b:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(0, "line 01 " + "abcdefghij" * 4),
+                          (21, "line 22 " + "abcdefghij" * 4), (22, "")],
+            expect_cursor=(22, 0),
+            expect_frame_bytes=[(5, 82)],
+        )
+
+        # Typed-ahead pp pastes both copies in one frame, after the line
+        # the cursor started on (it ends on the last copy): the rows below
+        # scroll down and only the copies are drawn (after an ESC[K at the
+        # end of that line).  Frames: 0 init, 1 jjj, 2 pp (yy changes
+        # nothing on the screen: no frame)
+        self.run_test_screen(
+            "Scroll opt: batched pp scrolls instead of repainting",
+            make_lines(15),
+            b"jjjyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(4)]
+                         + [(4, "Line 4"), (5, "Line 4")]
+                         + [(i, f"Line {i - 1}") for i in range(6, 9)],
+            expect_cursor=(5, 0),
+            expect_scrolled_at_frame=[(2, True)],
+            expect_content_rows=[(2, {3, 4, 5})],
+            expect_min_col=[(2, 3, 6)],
+            expect_frame_bytes=[(2, 94)],
+        )
+        self.run_test_screen(
+            "Scroll opt: batched ppp at the top",
+            make_lines(15),
+            b"yyppp:q!\r",
+            expect_lines=[(i, "Line 1") for i in range(4)]
+                         + [(i, f"Line {i - 2}") for i in range(4, 9)],
+            expect_cursor=(3, 0),
+            expect_content_rows=[(1, {0, 1, 2, 3})],
+            expect_min_col=[(1, 0, 6)],
+        )
+        # A wrapped line: the copies start below its second row
+        self.run_test_screen(
+            "Scroll opt: batched pp of a wrapped line",
+            "Line 1\nLine 2\n" + "w" * 50 + "\n" + make_lines(12)[21:],
+            b"2jyypp:q!\r",
+            expect_lines=[(0, "Line 1"), (1, "Line 2")]
+                         + [(r, "w" * (40 if r % 2 == 0 else 10))
+                            for r in range(2, 8)]
+                         + [(8, "Line 4")],
+            expect_cursor=(6, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {3, 4, 5, 6, 7})],
+            expect_min_col=[(3, 3, 10)],
+        )
+        # The copies fill the rows below the cursor line: nothing to
+        # scroll, as every row below is drawn
+        self.run_test_screen(
+            "Scroll opt: batched pp filling the rows below",
+            make_lines(15),
+            b"6jyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(7)]
+                         + [(7, "Line 7"), (8, "Line 7")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, False)],
+            expect_content_rows=[(3, {6, 7, 8})],
+        )
+        # The same for an Enter batch: two new lines on the row above the
+        # last.  Frames: 0 init, 1 6, 2 j, 3 A, 4 the batch
+        self.run_test_screen(
+            "Scroll opt: Enter batch filling the rows below sends no scroll",
+            make_lines(15),
+            b"6jA\r\rx\x1b:q!\r",
+            expect_lines=[(6, "Line 7"), (7, ""), (8, "x")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(4, False)],
+            expect_content_rows=[(4, {6, 7, 8})],
+        )
+        # On the bottom row the view moves down: the copies are drawn
+        # after the scroll
+        self.run_test_screen(
+            "Scroll opt: batched pp on the bottom row scrolls the view",
+            make_lines(15),
+            b"8jyypp:q!\r",
+            expect_lines=[(i, f"Line {i + 3}") for i in range(7)]
+                         + [(7, "Line 9"), (8, "Line 9")],
+            expect_cursor=(8, 0),
+            expect_scrolled_at_frame=[(3, True)],
+            expect_content_rows=[(3, {6, 7, 8})],
+        )
+        # With a count the copies go on past the cursor line: 2pp gives
+        # three copies, the cursor on the second
+        self.run_test_screen(
+            "Batched 2pp: three copies, the cursor on the second",
+            make_lines(15),
+            b"jjjyy2pp:q!\r",
+            expect_lines=[(i, f"Line {i + 1}") for i in range(4)]
+                         + [(4, "Line 4"), (5, "Line 4"), (6, "Line 4"),
+                            (7, "Line 5")],
+            expect_cursor=(5, 0),
+        )
+        # 24x80, 48-char lines: pp mid-screen
+        self.run_test_screen(
+            "Scroll opt: batched pp at 24x80 sends only the copies",
+            long48,
+            b"11jyypp:q!\r",
+            rows=24, cols=80,
+            expect_lines=[(11, "line 11 " + "abcdefghij" * 4),
+                          (12, "line 11 " + "abcdefghij" * 4),
+                          (13, "line 11 " + "abcdefghij" * 4),
+                          (14, "line 12 " + "abcdefghij" * 4)],
+            expect_cursor=(13, 0),
+            expect_frame_bytes=[(4, 184)],
         )
 
         # ================================================================
@@ -17596,7 +26364,28 @@ class EditorTestRunner:
             expect_scrolled_at_frame=[(1, True)],
         )
 
-        # << no-op (no leading spaces): no content redraw needed.
+        # >> / << whose row count change leaves one text row below the range:
+        # only that row moves, and the rows above the range stay put
+        self.run_test_screen(
+            "Render opt: >> wrapping into the last text row",
+            "TOP\nMID\n" + "A" * 39 + "\nNEXT\nLAST\n",
+            b"jj>>:q!\r",
+            rows=5, cols=40,
+            expect_lines=[(0, "TOP"), (1, "MID"), (2, "  " + "A" * 38),
+                          (3, "A")],
+            expect_cursor=(2, 2),
+        )
+        self.run_test_screen(
+            "Render opt: << unwrapping above the last text row",
+            "TOP\nMID\n  " + "A" * 39 + "\nNEXT\nLAST\n",
+            b"jj<<:q!\r",
+            rows=5, cols=40,
+            expect_lines=[(0, "TOP"), (1, "MID"), (2, "A" * 39),
+                          (3, "NEXT")],
+            expect_cursor=(2, 0),
+        )
+
+        # << no-op (no leading spaces): nothing changes, no frame.
         self.run_test_screen(
             "Render opt: << no-op no content redraw",
             "Hello\nWorld\n",
@@ -17604,7 +26393,8 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, "Hello"), (1, "World")],
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False]
+            expect_content_redraws=[True],
+            expect_frame_count=1
         )
 
         # >> all empty lines in range: nothing changes, no content redraw.
@@ -17615,25 +26405,26 @@ class EditorTestRunner:
             rows=10, cols=40,
             expect_lines=[(0, ""), (1, ""), (2, "Third")],
             expect_cursor=(0, 0),
-            expect_content_redraws=[True, False, False, False]
+            expect_content_redraws=[True, False, False]
         )
 
-        # 2>>>> batched multi-line: 2 lines, 4 spaces each, rows 0-1 redrawn.
+        # 2>>>> is 2>> then >> (a count means lines, so the pairs do not
+        # merge): rows 0-1 redrawn for the 2>>, then row 0 for the >>.
         self.run_test_screen(
-            "Render opt: 2>>>> batched multi-line partial redraw",
+            "Render opt: 2>>>> multi-line partial redraws",
             "Hello\nWorld\nThird\n",
             b"2>>>>:q!\r",
             rows=10, cols=40,
             expect_lines=[
-                (0, "    Hello"), (1, "    World"), (2, "Third"),
+                (0, "    Hello"), (1, "  World"), (2, "Third"),
             ],
             expect_cursor=(0, 4),
-            expect_content_rows=[(2, {0, 1})]
+            expect_content_rows=[(2, {0, 1}), (3, {0})]
         )
 
         # :1,3> range indent: only rows 0-2 redrawn.
-        # Frames: 0=initial, 1=':' entry (status only), 2=command completes
-        # and renders the partial repaint.
+        # Frames: 0=initial, 1=the command (':' sends no frame of its own)
+        # with its partial repaint.
         self.run_test_screen(
             "Render opt: :1,3> range partial redraw",
             "aaa\nbbb\nccc\nddd\neee\n",
@@ -17643,8 +26434,8 @@ class EditorTestRunner:
                 (0, "  aaa"), (1, "  bbb"), (2, "  ccc"),
                 (3, "ddd"), (4, "eee"),
             ],
-            expect_cursor=(0, 2),
-            expect_content_rows=[(2, {0, 1, 2})]
+            expect_cursor=(2, 2),
+            expect_content_rows=[(1, {0, 1, 2})]
         )
 
         # :1,3< range unindent: only rows 0-2 redrawn.
@@ -17657,10 +26448,33 @@ class EditorTestRunner:
                 (0, "aaa"), (1, "bbb"), (2, "ccc"),
                 (3, "ddd"), (4, "eee"),
             ],
-            expect_cursor=(0, 0),
-            expect_content_rows=[(2, {0, 1, 2})]
+            expect_cursor=(2, 0),
+            expect_content_rows=[(1, {0, 1, 2})]
         )
 
+        # The range starts above the cursor's line (:N,M> ends on M): its
+        # rows, wrapped ones too, are found from there
+        wr = "x" * 50
+        self.run_test_screen(
+            "Render opt: :2,4> with wrapped lines partial redraw",
+            f"top\n{wr}\nbbb\n{wr}\nzzz\n",
+            b":2,4>\r:q!\r",
+            rows=10, cols=40,
+            expect_lines=[
+                (0, "top"), (1, "  " + wr[:38]), (2, wr[38:]),
+                (3, "  bbb"), (4, "  " + wr[:38]), (5, wr[38:]),
+                (6, "zzz"),
+            ],
+            expect_cursor=(4, 2),
+            expect_content_rows=[(1, {1, 2, 3, 4, 5})]
+        )
+
+        self._group("Batching equivalence (paced vs batched):",
+                    leading_blank=True)
+        self.run_batch_equiv_tests()
+
+    def _finish(self):
+        """Print the results, keep stable copies if every test passed."""
         print()
         print("=" * 60)
         total = self.passed + self.failed + self.skipped
@@ -17672,8 +26486,8 @@ class EditorTestRunner:
         print(f"Results: {', '.join(parts)} of {total} tests")
         print("=" * 60)
 
-        # Create stable copy only if all tests passed
-        if self.failed == 0:
+        # Create stable copy only if all tests passed (of the usual builds)
+        if self.failed == 0 and not self.direct_io:
             self.create_stable_copy()
 
         self.emulator_runner.close()
@@ -17688,6 +26502,8 @@ def main():
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--no-server", action="store_true",
                         help="Use subprocess.run instead of persistent server")
+    parser.add_argument("--direct-io", action="store_true",
+                        help="Test the define:direct_io builds (emulator --direct-io)")
     args = parser.parse_args()
 
     if args.no_color:
@@ -17698,7 +26514,8 @@ def main():
 
     runner = EditorTestRunner(base_dir, verbose=args.verbose,
                               quiet=args.quiet,
-                              use_server=not args.no_server)
+                              use_server=not args.no_server,
+                              direct_io=args.direct_io)
     runner.run_all_tests()
 
     sys.exit(1 if runner.failed > 0 else 0)

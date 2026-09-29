@@ -1,21 +1,13 @@
-; Normal mode shared utilities - zero-page variables, dispatch, cursor helpers,
+; Normal mode shared utilities - dispatch, cursor helpers,
 ; count prefix system, and common yank/delete operations.
 
-  .zeropage
+; (zero-page variables: zp.asm)
 
-LAST_KEY:       .byte  ; Previous key for multi-key commands (dd, gg, yy, m, ')
-LINE_LEN16:     .word  ; Cached length of current line (16-bit)
-DISPATCH_PTR16: .word  ; Pointer into dispatch table during scan
-JUMP_TARGET16:  .word  ; Target for indirect jump
-COUNT16:        .word  ; Accumulated count (0 = no count entered)
-COUNT_ACTIVE:   .byte  ; $FF if digits are being entered, $00 otherwise
-NORMAL_TEMP:    .byte  ; Temp byte for normal mode operations
-SCROLL_AMOUNT:  .byte  ; Sticky scroll amount for Ctrl-D/U (0 = half-page default)
-BATCH_RESTORE_KEY: .byte ; Key to restore to LAST_KEY after batch (0 = none)
-BATCH_EXTRA:       .byte ; Number of extra pairs found by batch_pending_pairs (0 = none)
-DEL_BACK:          .byte ; $FF when batched_char_delete serves X (last press deleted the range's first char)
-
-  .code
+; BUF_DST16 = BUF_PTR16 (ptr_to_src is below).  Clobbers A (= the high
+; byte)
+ptr_to_dst:
+  CP16 BUF_PTR16, BUF_DST16
+  RTS
 
 ; --- Generic key dispatcher ---
 ; Input: A = low byte, X = high byte of dispatch table address
@@ -33,10 +25,49 @@ dispatch_key:
   INY
   INY
   INY
-  JMP .loop
+  BNE .loop                  ; Always (tables are < 256 bytes)
 
-; Shared dispatch tail: fetch handler at Y+1/Y+2 and call it, return C=0
-; (also used by dispatch_pending_key)
+; --- Pending key dispatcher ---
+; Input: A = low byte, X = high byte of dispatch table address
+;        LAST_KEY = first key, BUF_TEMP = second key
+; Output: C = 0 if handler was called, C = 1 if no match
+; Table format: 5-byte entries [last_key, second_key, flags, handler_lo, handler_hi]
+;   second_key = 0 means wildcard (match any second key)
+;   flags bit 0: take the typed-ahead pairs and run the handler once per
+;     press (dispatch_replay)
+;   Terminated by 0 byte
+dispatch_pending_key:
+  STA DISPATCH_PTR16
+  STX DISPATCH_PTR16 + 1
+  LDY #0
+.loop:
+  LDA (DISPATCH_PTR16),Y
+  BEQ dispatch_no_match
+  INY
+  CMP LAST_KEY
+  BNE .next
+  LDA (DISPATCH_PTR16),Y
+  BEQ .matched               ; Wildcard second key
+  CMP BUF_TEMP
+  BEQ .matched
+.next:
+  INY
+  INY
+  INY
+  INY
+  BNE .loop                  ; Always (tables are < 256 bytes)
+.matched:
+  INY
+  LDA (DISPATCH_PTR16),Y     ; Flags
+  LSR
+  BCC dispatch_fetch_jump
+  JSR batch_pending_pairs    ; X = pairs taken; preserves Y
+  TXA
+  BNE dispatch_replay
+  ; fall through
+
+; Shared dispatch tail (dispatch_key, dispatch_pending_key): fetch the
+; handler at Y+1/Y+2 and call it, return C=0
 dispatch_fetch_jump:
   INY
   LDA (DISPATCH_PTR16),Y
@@ -49,52 +80,97 @@ dispatch_fetch_jump:
   RTS
 .do_jump:
   JMP (JUMP_TARGET16)
-dispatch_no_match:
-  SEC
-  RTS
 
-; --- Pending key dispatcher ---
-; Input: A = low byte, X = high byte of dispatch table address
-;        LAST_KEY = first key, BUF_TEMP = second key
-; Output: C = 0 if handler was called, C = 1 if no match
-; Table format: 5-byte entries [last_key, second_key, flags, handler_lo, handler_hi]
-;   second_key = 0 means wildcard (match any second key)
-;   flags bit 0: call batch_pending_pairs before handler
-;   Terminated by 0 byte
-dispatch_pending_key:
+; Check if key starts a multi-key combo by scanning the combo table
+; Input: A = low byte, X = high byte of combo table address
+;        BUF_TEMP = key code to match
+; Output: C = 0 if valid first key (LAST_KEY set), C = 1 if not
+; Respects READONLY: skips entries with flags bit 1 set
+; A second key that is already typed is handled at once, so the pending
+; first key gets no frame of its own (dw, dd, gg, ra...).  Only a first
+; key that has changed nothing yet is batched this way: the first key of
+; a partial pair, left pending after its command, waits for a render
+check_combo_first_key:
   STA DISPATCH_PTR16
   STX DISPATCH_PTR16 + 1
   LDY #0
 .loop:
   LDA (DISPATCH_PTR16),Y
   BEQ dispatch_no_match
-  CMP LAST_KEY
-  BNE .next5
   INY
-  LDA (DISPATCH_PTR16),Y
-  BEQ .matched
+  INY                        ; Y -> flags
   CMP BUF_TEMP
-  BNE .next4
-.matched:
-  INY
+  BNE .skip
+  ; Key matches - check READONLY + editing flag
+  LDA READONLY
+  BEQ .found
   LDA (DISPATCH_PTR16),Y
-  LSR
-  BCC .no_batch
+  AND #$02
+  BEQ .found
+.skip:
+  INY
+  INY
+  INY
+  BNE .loop                  ; Always (tables are < 256 bytes)
+.found:
+  LDA BUF_TEMP
+  STA LAST_KEY
+  JSR key_peek
+  BCS .second                ; The second key is typed already
+  ASL CURSWANT_KEEP          ; A pending first key changes nothing (yet)
+  CLC
+  RTS
+.second:
+  JSR get_key
+  JSR normal_handle_key      ; LAST_KEY set: dispatches the pair
+  CLC
+  RTS
+; No match (dispatch_key, dispatch_pending_key, check_combo_first_key)
+dispatch_no_match:
+  SEC
+  RTS
+
+; Run the handler once per typed-ahead press, exactly as if the keys had
+; been typed one at a time, with a single render afterwards.  For dw, db
+; and de, whose N presses differ from a count of N (a press stops at a
+; line end or on an empty line, and u undoes only the last one).
+; The first press takes the typed count, the others none (each press
+; ends in clear_count).
+; Input: Y = the entry's flags index, A = BATCH_EXTRA = extra presses (> 0)
+; Output: C = 0 (handler called)
+dispatch_replay:
+  PHA                        ; Presses left after the next one
+  LDA BATCH_RESTORE_KEY      ; A partial pair's first key: pending after
+  PHA                        ; the last press
   TYA
-  PHA
-  JSR batch_pending_pairs
+  PHA                        ; Flags index
+  LDA #0
+  STA BATCH_RESTORE_KEY
+  STA BATCH_EXTRA            ; Each press on its own (dd for a linewise dw)
+.press:
+  JSR snapshot_cursor        ; Where this press starts (range_yank_full)
+  TSX
+  LDY $0101,X                ; Flags index
+  JSR dispatch_fetch_jump
+  TSX
+  DEC $0103,X
+  BPL .press
   PLA
-  TAY
-.no_batch:
-  JMP dispatch_fetch_jump
-.next5:
-  INY
-.next4:
-  INY
-  INY
-  INY
-  INY
-  JMP .loop
+  PLA
+  STA LAST_KEY               ; (clear_count left it 0)
+  PLA
+  ; A press's ICH/DCH hint describes that press alone: rewrite the line
+  ; from where the last one left RENDER_FROM_COL16 (the leftmost change)
+  STA SHIFT_WRITE            ; (A = the pairs left, $FF: no hint)
+  ; A press that set a render flag (it joined lines) left scroll hints
+  ; for itself only: repaint everything
+  LDA RENDER_FLAG
+  BEQ .rendered
+  LDA #RF_FULL
+  STA RENDER_FLAG
+.rendered:
+  CLC
+  RTS
 
 ; --- Cursor and line utilities ---
 
@@ -104,13 +180,11 @@ dispatch_pending_key:
 ; Clobbers: A, X
 check_cursor_in_line:
   JSR get_line_len_z
-  ; Empty line needs no separate test: cursor >= 0 = len bails below
+  ; Empty line needs no separate test: cursor >= 0 = len sets carry
+  ; fall through
+; The same test against the LINE_LEN16 already set
+cursor_in_line:
   CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .bail
-  CLC
-  RTS
-.bail:
-  SEC
   RTS
 
 get_current_line_len:
@@ -122,6 +196,12 @@ get_current_line_ptr:
   LDAX16 FILE_LINE16
   JMP buf_get_line_ptr
 
+; The same for the line after it (BUF_END16 after the last line).
+; Clobbers A, X, Y
+get_next_line_ptr:
+  JSR next_line_ax
+  JMP buf_get_line_ptr
+
 ; Get buffer pointer at cursor position on current line
 ; Sets BUF_PTR16 to start of FILE_LINE16 + CURSOR_COL16
 ; Clobbers A, X, Y
@@ -131,146 +211,217 @@ get_cursor_buf_ptr:
   ADC16 CURSOR_COL16, BUF_PTR16, BUF_PTR16
   RTS
 
+; BUF_SRC16 = BUF_PTR16 = buffer address at the cursor.  Clobbers A, X, Y
+get_cursor_src:
+  JSR get_cursor_buf_ptr
+; BUF_SRC16 = BUF_PTR16.  Clobbers A (= the high byte)
+ptr_to_src:
+  CP16 BUF_PTR16, BUF_SRC16
+  RTS
+
+; Clamp CURSOR_COL16 to the line's last char (0 on an empty line), or in
+; insert mode to the line end (col = len at most)
+; Output (normal mode): LINE_LEN16 = line length.  Clobbers: A, X, Y
 clamp_cursor_col:
-  JSR get_line_len_z
-  BEQ .set_zero
-  SEC
-  SBCI16 LINE_LEN16, 1, LINE_LEN16  ; LINE_LEN16 = len - 1
-  CMP16 LINE_LEN16, CURSOR_COL16
-  BCS .ok                ; len-1 >= cursor, cursor is fine
+  LDA MODE
+  BNE clamp_cursor_col_insert
+  JSR check_cursor_in_line
+  BCC .ok                    ; Cursor inside the line
   CP16 LINE_LEN16, CURSOR_COL16
+  ORA CURSOR_COL16           ; A = high byte: Z = empty line (col 0)
+  BEQ .ok
+  JMP dec_cursor_col         ; col = len - 1
 .ok:
   RTS
-.set_zero:
-  LDA #0
-  STA_LH16 CURSOR_COL16
+
+; Clamp cursor for insert mode (can be one past end of line content)
+clamp_cursor_col_insert:
+  JSR get_current_line_len   ; A/X = len
+  CPX CURSOR_COL16 + 1
+  BCC set_cursor_col_ax      ; len < col
+  BNE .ok
+  CMP CURSOR_COL16
+  BCC set_cursor_col_ax      ; len < col
+.ok:
   RTS
 
-; --- Shared vertical movement loops ---
+insert_end:
+  JSR get_current_line_len   ; A/X = len
+set_cursor_col_ax:
+  STAX16 CURSOR_COL16
+  RTS
 
-; Move down X lines (clamped to last line)
-; Input: X = number of lines to move
-; Clobbers: A, X, BUF_TEMP, BUF_PTR16
-move_down_x:
-.loop:
-  STX BUF_TEMP
+; --- Shared vertical movement ---
+
+; BUF_TEMP16 = the count (1 with none, as in insert mode) plus the
+; typed-ahead presses of the same key (BUF_TEMP): j, k and the insert-
+; mode motions.  X = its low byte (in insert mode, the presses).
+; Clobbers A
+get_count_pending16:
+  JSR get_count
+  JSR count_pending_key      ; X = the presses
+; BUF_TEMP16 += X; X = A = its new low byte.  Carry undefined
+add_x_temp16:
+  TXA
+  ADDA16 BUF_TEMP16
+  TAX
+  RTS
+
+; Move down BUF_TEMP16 lines, clamped to the last line (the count is at
+; most 64,000, so the sum stays within 16 bits).  Clobbers: A
+move_down16:
   CLC
-  ADCI16 FILE_LINE16, $0001, BUF_PTR16
-  CMP16 BUF_PTR16, LINE_COUNT16
-  BCS .done
-  INC16 FILE_LINE16
-  LDX BUF_TEMP
-  DEX
-  BNE .loop
-.done:
+  ADC16 FILE_LINE16, BUF_TEMP16, FILE_LINE16
+  ; fall through
+
+; Clamp FILE_LINE16 to the last line: C=1 if it was past it.  Clobbers: A
+clamp_file_line:
+  CMP16 FILE_LINE16, LINE_COUNT16
+  BCC .ok
+  CP16 LINE_COUNT16, FILE_LINE16
+  JMP dec_file_line          ; (C stays set)
+.ok:
   RTS
 
-; Move up X lines (clamped to first line)
-; Input: X = number of lines to move
-; Clobbers: A, X, BUF_TEMP
-move_up_x:
-.loop:
-  STX BUF_TEMP
-  TST16 FILE_LINE16
-  BEQ .done
-  DEC16 FILE_LINE16
-  LDX BUF_TEMP
-  DEX
-  BNE .loop
-.done:
+; Move up BUF_TEMP16 lines, clamped to the first line.  Clobbers: A, X
+move_up16:
+  LDX #FILE_LINE16
+; The 16-bit zero-page value at X -= BUF_TEMP16, clamped to 0.
+; Clobbers: A
+sub_count_x:
+  SEC
+  LDA $00,X
+  SBC BUF_TEMP16
+  STA $00,X
+  LDA $01,X
+  SBC BUF_TEMP16 + 1
+  STA $01,X
+  BCS .ok
+  LDA #0
+  STA $00,X
+  STA $01,X
+.ok:
   RTS
 
-; --- Shared horizontal movement loops ---
-
-; Move left X positions, clamped to col 0
-; Input: X = count. Clobbers: A, X
-move_left_x:
-  TST16 CURSOR_COL16
-  BEQ .done
-  JSR dec_cursor_col
-  DEX
-  BNE move_left_x
-.done:
-  RTS
-
-; Move right X positions, clamped to LINE_LEN16
-; Input: X = count, LINE_LEN16 = max col. Clobbers: A, X
-move_right_x:
-  CMP16 CURSOR_COL16, LINE_LEN16
-  BCS .done
+; h, l, Left, Right (in insert mode too), Space and Backspace: the count
+; (and the typed-ahead presses) in steps of one column.  Space and Backspace go on over
+; line ends, as with vim's default 'whichwrap' (b,s): past the last char
+; Space goes to the start of the next line, and from column 0 Backspace
+; to the last char of the line above, a step each.  They take the whole
+; count, as vim.  NORMAL_TEMP: bit 7 = right, bit 6 = over line ends;
+; BUF_TEMP16 counts the steps
+normal_move_left:            ; h, Left
+  LDA #$00
+  .byte $2C                  ; BIT abs (RAM): skip the next LDA #
+normal_backspace:
+  LDA #$40
+  .byte $2C
+normal_move_right:           ; l, Right
+  LDA #$80
+  .byte $2C
+normal_space:
+  LDA #$C0
+  STA NORMAL_TEMP
+  JSR get_count_pending16    ; BUF_TEMP16 = the steps
+.step:
+  BIT NORMAL_TEMP
+  BPL .left
   JSR inc_cursor_col
-  DEX
-  BNE move_right_x
+  JSR check_cursor_in_line   ; C = 1: past the last char
+  BCC .next
+  BIT NORMAL_TEMP
+  BVC .done                  ; l stops (the clamp steps back)
+  JSR advance_next_line      ; Space: the start of the next line
+  BCC .next
+  BCS .done                  ; (none: back onto the last char)
+.left:
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BNE .back
+  BVC .done                  ; h stops at column 0
+  JSR line_above_end
+  BCC .done                  ; Backspace stops at the start of the text
+  BEQ .next                  ; (an empty line: column 0)
+.back:
+  JSR dec_cursor_col
+.next:
+  JSR dec_buf_temp16
+  BNE .step
 .done:
-  RTS
+  JSR clamp_cursor_col
+  ; One that could not move (vim beeps) keeps the remembered column
+  JSR cursor_moved
+  BNE clear_count
+  BEQ keep_clear_count       ; Always
 
 ; --- Count prefix helpers ---
 
-; Check if key starts a multi-key combo by scanning the combo table
-; Input: A = low byte, X = high byte of combo table address
-;        BUF_TEMP = key code to match
-; Output: C = 0 if valid first key (LAST_KEY set), C = 1 if not
-; Respects READONLY: skips entries with flags bit 1 set
-check_combo_first_key:
-  STA DISPATCH_PTR16
-  STX DISPATCH_PTR16 + 1
-  LDY #0
-.loop:
-  LDA (DISPATCH_PTR16),Y
-  BEQ .no_match
-  CMP BUF_TEMP
-  BNE .skip
-  ; Key matches - check READONLY + editing flag
-  LDA READONLY
-  BEQ .found
-  INY
-  INY
-  LDA (DISPATCH_PTR16),Y
-  DEY
-  DEY
-  AND #$02
-  BEQ .found
-.skip:
-  TYA
-  CLC
-  ADC #5
-  TAY
-  JMP .loop
-.found:
-  LDA BUF_TEMP
-  STA LAST_KEY
-  CLC
-  RTS
-.no_match:
-  SEC
-  RTS
-
-; Get count and clamp to available lines from FILE_LINE16
-; Output: BUF_TEMP16 = clamped count, LINE_LEN16 = FILE_LINE16 (line counter)
-; Clobbers: A
+; Get count, clamped to the lines from FILE_LINE16 to the end, for the
+; line commands (dd, cc, S, yy, >>, <<), which call it first.  On the
+; last line a count of 2 or more fails, as in vim (it moves down count
+; - 1 lines first): the command ends there (end_command)
+; Output: BUF_TEMP16 = clamped count, BUF_LEN16 = the lines left.
+; Clobbers: A, X
 get_count_clamp_lines:
   JSR get_count
-  SEC
-  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
+  JSR lines_left
+  BNE .clamp                 ; Not the last line
+  LDA COUNT16
+  LSR
+  ORA COUNT16 + 1
+  BNE end_command            ; A count of 2 or more
+.clamp:
   CMP16 BUF_TEMP16, BUF_LEN16
   BCC .ok
   CP16 BUF_LEN16, BUF_TEMP16
 .ok:
-  CP16 FILE_LINE16, LINE_LEN16
+  RTS
+
+; BUF_LEN16 = the lines from the cursor's to the end, Z set if the
+; cursor is on the last line.  Clobbers A, X
+lines_left:
+  SEC
+  SBC16 LINE_COUNT16, FILE_LINE16, BUF_LEN16
+  LDX BUF_LEN16 + 1
+  BNE .done
+  LDX BUF_LEN16
+  DEX
+.done:
   RTS
 
 ; --- Insert mode entry helpers ---
 
-; Enter insert mode with render flag=1
-enter_insert_mode_render:
-  ; fall through
-
-; Enter insert mode and clear count
+; Enter insert mode after a change command (c, s, C, S, cc) or o/O: the
+; text typed then is not kept for undo (it would join the command's own
+; record), so typing clears the undo
+enter_insert_change:
+  LDA #$7F
+  .byte $2C                  ; BIT abs: skip the LDA #0
+; Enter insert mode and clear count: the first change starts a segment
 enter_insert_mode:
+  LDA #0
+  STA INSERT_SEG
+; (o and O: their segment is started)
+enter_insert_open:
+  JSR get_count
+  JSR dec_buf_temp16
+  CP16 BUF_TEMP16, INS_COUNT16  ; The copies ESC puts in (insert_repeat)
   LDA #MODE_INSERT
   STA MODE
-  LDA #0
-  STA INSERT_CHANGED
+  JMP clear_count
+
+; End the command that called the routine that jumps here, which has
+; pushed nothing (a command that fails: drop the return into it), as
+; keep_clear_count
+end_command:
+  PLA
+  PLA
+
+; A command that did nothing (it failed, or it leaves the cursor and the
+; text alone: m, and : commands but those that move the cursor) keeps the
+; remembered column, as vim does, then clears the count state
+keep_clear_count:
+  ASL CURSWANT_KEEP
   JMP clear_count
 
 ; Set RENDER_FLAG from A, then clear count state
@@ -278,114 +429,173 @@ set_render_clear_count:
   STA RENDER_FLAG
   ; fall through
 
-; Clear count state: zeroes COUNT16, COUNT_ACTIVE, LAST_KEY
+; Clear count state: zeroes COUNT16, LAST_KEY
 ; If BATCH_RESTORE_KEY is set, restores it to LAST_KEY (for partial pair e.g. dddw)
 clear_count:
-  LDA #0
-  STA_LH16 COUNT16
-  STA COUNT_ACTIVE
   LDA BATCH_RESTORE_KEY
   STA LAST_KEY
   LDA #0
+  STA_LH16 COUNT16
   STA BATCH_RESTORE_KEY
-  STA BATCH_EXTRA
   RTS
 
-; Move cursor to col 0, clamp, then clear count (shared terminal tail)
-zero_col_clamp_clear:
-  LDA #0
-  STA_LH16 CURSOR_COL16
+; $ and End (both modes): remember a column past any line end, so that j
+; and k go to the end of each line too
+; A count first goes down count - 1 lines (clamped to the last line), as
+; in vim, where it fails on the last line itself (the column is
+; remembered all the same: vert_moved)
+normal_line_end:
+  LDA #$FF
+  STA_LH16 CURSWANT16
+  JSR get_count
+  JSR dec_buf_temp16
+  BEQ vert_keep              ; No count, or 1: this line
+  JSR move_down16
+  JMP vert_moved
+
+; j, k, Down, Up (in insert mode too): the whole count, as vim (and the
+; typed-ahead presses)
+normal_move_down:
+  JSR get_count_pending16
+  JSR move_down16
+  JMP vert_col_clamp
+
+normal_move_up:
+  JSR get_count_pending16
+  JSR move_up16
   ; fall through
 
-; Clamp cursor column, then clear count state (shared terminal tail)
+; Vertical move tail (j, k and Up/Down in both modes): the cursor goes
+; to the remembered column (vim's curswant), clamped to the line for the
+; mode.  A run of vertical keys remembers the column the cursor had at
+; its start, which the previous key tells by leaving CURSWANT_KEEP 0
+; (main_loop halves it for every key; a vertical move sets 2, and a key
+; that changes nothing, a count digit, ESC or a pending first key,
+; doubles it back); $ and End remember one past any line end.  A move
+; that left the cursor on its line (j or N$ on the last line, k on the
+; first) failed, as in vim, and leaves the column alone: only the
+; remembered column counts
+vert_col_clamp:
+  LDA CURSWANT_KEEP
+  BNE vert_moved
+  CP16 CURSOR_COL16, CURSWANT16  ; A new run: remember the column
+vert_moved:
+  LDX #2
+  STX CURSWANT_KEEP
+  JSR cursor_moved
+  BEQ clear_count                ; The cursor did not move: it failed
+vert_keep:
+  LDA #2
+  STA CURSWANT_KEEP
+vert_to_col:
+  CP16 CURSWANT16, CURSOR_COL16
+  ; fall through
+
+; Clamp cursor column (for the mode), then clear count state (shared
+; terminal tail)
 clamp_and_clear_count:
   JSR clamp_cursor_col
   JMP clear_count
 
-; Accumulate digit in A ('0'-'9') into COUNT16
-; COUNT16 = COUNT16 * 10 + digit
-; If COUNT16 >= 1000, digit is ignored (prevents overflow)
-; Clobbers A
-count_accumulate_digit:
-  ; Check if count already >= 1000 ($03E8)
-  PHA                    ; Save digit char
-  LDA COUNT16 + 1
-  CMP #$03
-  BCC .count_has_room
-  BNE .count_at_limit
-  LDA COUNT16
-  CMP #$E8
-  BCC .count_has_room
-.count_at_limit:
-  PLA                    ; Discard digit
+; The cursor back where it was before the key.  Clobbers A, X
+cursor_to_snap:
+  LDX #3
+.loop:
+  LDA SNAP_LINE16,X
+  STA FILE_LINE16,X
+  DEX
+  BPL .loop
   RTS
-.count_has_room:
-  PLA                    ; Restore digit char
-  SEC
-  SBC #'0'
-  PHA                    ; Save digit
 
-  ; Multiply COUNT16 by 10: COUNT16 * 8 + COUNT16 * 2
-  ; Save original in BUF_LEN16
+; Z = 1 if the cursor is where it was before the key (SNAP_LINE16 and
+; SNAP_COL16): a move that failed left it there.  Clobbers A, X
+cursor_moved:
+  LDX #3
+.loop:
+  LDA FILE_LINE16,X
+  EOR SNAP_LINE16,X
+  BNE .done
+  DEX
+  BPL .loop
+  INX                        ; (X = 0: Z = 1)
+.done:
+  RTS
+
+; Accumulate the digit value in A (0-9) into COUNT16: COUNT16 =
+; COUNT16 * 10 + digit, through mul10_add (so up to 63999)
+; Clobbers A, Y, BUF_LEN16, BUF_DST16
+count_accumulate_digit:
+  TAY
   CP16 COUNT16, BUF_LEN16
+  TYA
+  JSR mul10_add
+  CP16 BUF_LEN16, COUNT16
+  RTS
 
-  ; *2
-  ASL16 COUNT16
-  ; *4
-  ASL16 COUNT16
-  ; *8
-  ASL16 COUNT16
-
-  ; original * 2
+; BUF_LEN16 = BUF_LEN16 * 10 + A (a digit value, 0-9), unless BUF_LEN16
+; is 6400 or more: then the digit is ignored, so the value stays within
+; 16 bits (at most 63999 before it stops: past every line, and every
+; count, that matters).  Clobbers A, Y, BUF_DST16
+mul10_add:
+  LDY BUF_LEN16 + 1
+  CPY #>6400
+  BCS .done
+  PHA
   ASL16 BUF_LEN16
-
-  ; COUNT16 = COUNT16*8 + original*2
+  CP16 BUF_LEN16, BUF_DST16  ; x2
+  ASL16 BUF_LEN16
+  ASL16 BUF_LEN16            ; x8
   CLC
-  ADC16 COUNT16, BUF_LEN16, COUNT16
-
-  ; Add digit
+  ADC16 BUF_LEN16, BUF_DST16, BUF_LEN16
   PLA
-  CLC
-  ADCA16 COUNT16, COUNT16
-
+  ADDA16 BUF_LEN16
+.done:
   RTS
 
 ; Get effective count with pending key batching
-; Gets count prefix, adds pending matching keys
+; Gets the count prefix (capped at 255), adds pending matching keys
 ; Input: BUF_TEMP = key code to match (set by normal_handle_key)
-; Output: X = total count (count + pending), capped at 255
-;         BATCH_EXTRA = pending key count (cleared later by clear_count;
-;         callers that skip clear_count must not let it leak)
+; Output: X = total = count + pending keys (1 to 255)
+;         BUF_DELTA = count, BATCH_EXTRA = pending key count
 ; Clobbers: A
 get_batched_count:
-  JSR get_count
-  LDX BUF_TEMP16         ; X = count (low byte, capped at 255)
+  JSR get_count_x        ; X = count (capped at 255)
   STX BUF_DELTA
+  ; Pending keys join only while the total fits in a byte; from a count
+  ; of 256 - BATCH_MAX on they stay queued and run one at a time
+  LDA #0
+  CPX #256 - BATCH_MAX
+  BCS .no_batch
   JSR count_pending_key  ; X = pending matching keys
-  STX BATCH_EXTRA
   TXA
+.no_batch:
+  STA BATCH_EXTRA
   CLC
   ADC BUF_DELTA          ; Total = count + pending
-  BCS .cap
   TAX
   RTS
-.cap:
-  LDX #$FF
-  RTS
 
-; Count extra pending paste keys and add to BUF_TEMP16
-; Prerequisite: get_count already called (BUF_TEMP16 = count)
-; Input: BUF_TEMP = key to match ('p' or 'P', already set by dispatch)
-; Output: BUF_TEMP16 += extras, BATCH_EXTRA = extras count
-; Clobbers: A, X
-count_paste_extras:
-  JSR count_pending_key      ; X = pending matching keys
-  STX BATCH_EXTRA
-  TXA
-  BEQ .done
-  CLC
-  ADCA16 BUF_TEMP16, BUF_TEMP16
-.done:
+; The same, but after a typed count the typed-ahead presses stay queued
+; (X = the count, BATCH_EXTRA = 0): Ctrl-F and Ctrl-B, where the count
+; can run out on a line whose column the view then shows, and a press
+; typed after it pages from that view
+get_count_or_presses:
+  LDA COUNT16
+  ORA COUNT16 + 1
+  BEQ get_batched_count
+  ; fall through
+
+; Get the count in X, capped at 255, for the commands that loop on an
+; 8-bit count (BUF_TEMP16's low byte = X)
+; Clobbers: A
+get_count_x:
+  JSR get_count
+  LDX BUF_TEMP16
+  LDA BUF_TEMP16 + 1
+  BEQ .fits
+  LDX #$FF
+  STX BUF_TEMP16
+.fits:
   RTS
 
 ; Get effective count in BUF_TEMP16, minimum 1
@@ -393,11 +603,9 @@ count_paste_extras:
 ; Clobbers: A
 get_count:
   LDA COUNT16
+  STA BUF_TEMP16
   ORA COUNT16 + 1
   BEQ set_buf_temp16_one     ; Zero = no count, return 1
-  ; Copy COUNT16 to BUF_TEMP16
-  LDA COUNT16
-  STA BUF_TEMP16
   LDA COUNT16 + 1
   STA BUF_TEMP16 + 1
   RTS
@@ -418,74 +626,43 @@ set_buf_temp16_a:
 
 ; Batch pending pairs of LAST_KEY + BUF_TEMP from the input stream
 ; Uses LAST_KEY (first key) and BUF_TEMP (second key) already set by
-; pending_key_dispatch. Adds matched pairs to COUNT16.
+; pending_key_dispatch.  Leaves COUNT16 alone: each caller applies the
+; pairs its own way.
 ; Sets BATCH_RESTORE_KEY if a partial pair was consumed.
-; Clobbers: A, X
+; batch_pending_pairs_upto: X = most pairs to take (batch_pending_pairs:
+; BATCH_MAX)
+; Output: X = BATCH_EXTRA = pairs taken
+; Clobbers: A.  Preserves Y
 batch_pending_pairs:
+  LDX #BATCH_MAX
+batch_pending_pairs_upto:
+  STX BATCH_EXTRA          ; The limit, until it becomes the pairs taken
   LDX #0                   ; X = extra pairs found
 .loop:
-  JSR key_ready
-  CMP #$FF
-  BNE .done                ; No key available, stop
-  JSR get_key
+  CPX BATCH_EXTRA
+  BEQ .done                ; Taken as many as allowed
+  JSR key_peek
+  BCC .done                ; No key available, stop
   CMP LAST_KEY
-  BNE .no_first_match      ; First key doesn't match, push back
-  ; First key matches - need second key
-  JSR key_ready
-  CMP #$FF
-  BNE .partial             ; No second key available
-  JSR get_key
+  BNE .done                ; Not a pair start: leave it buffered
+  INC HAS_KEY_DECODED      ; Consume the first key ($FF -> $00)
+  JSR key_peek
+  BCC .partial             ; No second key available
   CMP BUF_TEMP
-  BNE .second_mismatch     ; Second key doesn't match
+  BNE .partial             ; Second key doesn't match: leave it buffered
+  INC HAS_KEY_DECODED      ; Consume the second key
   ; Full pair matched
   INX
-  CPX #BATCH_MAX
-  BEQ .done
-  JMP .loop
-.second_mismatch:
-  ; Push back the non-matching second key
-  JSR unget_key
+  BCS .loop                ; Always (C = 1 from the match)
 .partial:
   ; Save consumed first key for restore after command completes
   LDA LAST_KEY
   STA BATCH_RESTORE_KEY
-  JMP .done
-.no_first_match:
-  ; Push back the non-matching key
-  JSR unget_key
 .done:
   STX BATCH_EXTRA
-  ; Add X extra pairs to COUNT16
-  TXA
-  BEQ .no_add              ; No extra pairs, nothing to do
-  ; Ensure COUNT16 >= 1 (the original command counts as 1)
-  PHA                      ; Save extra count
-  LDA COUNT16
-  ORA COUNT16 + 1
-  BNE .has_count
-  LDA #1
-  STA COUNT16              ; COUNT16 was 0, set to 1
-.has_count:
-  PLA                      ; Restore extra count
-  CLC
-  ADC COUNT16
-  STA COUNT16
-  LDA #0
-  ADC COUNT16 + 1
-  STA COUNT16 + 1
-.no_add:
   RTS
 
 ; --- Common yank/delete operations ---
-
-; Show yank overflow error: clear yank, show message, clear count
-; Used when yank buffer is too full to complete an operation
-show_yank_overflow:
-  JSR yank_clear
-  LDA #<str_yank_full
-  LDX #>str_yank_full
-  JSR show_message_ax
-  JMP clear_count
 
 ; Yank then delete N lines starting at FILE_LINE16
 ; Input: BUF_TEMP16 = count of lines (from get_count)
@@ -493,17 +670,14 @@ show_yank_overflow:
 ; On success: lines deleted, FILE_LINE16 clamped, YANK_LINES16 set
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 yank_delete_current_lines:
-  JSR yank_clear
-  LDAX16 FILE_LINE16
-  JSR yank_add_lines
-  BCS .ydcl_overflow
+  JSR yank_current_lines
+  BCS ydcl_done              ; C = 1: overflow
+; Record undo, then delete BUF_TEMP16 lines at FILE_LINE16; returns C = 0
+undo_delete_current_lines:
   JSR undo_record_line_delete
   JSR delete_current_lines
   CLC
-  RTS
-
-.ydcl_overflow:
-  SEC
+ydcl_done:
   RTS
 
 ; Delete N lines starting at FILE_LINE16 without yanking
@@ -516,114 +690,147 @@ delete_current_lines:
 
   LDAX16 FILE_LINE16
   JSR buf_delete_lines
+  JMP clamp_file_line        ; Clamp file line if past end of file
 
-  ; Clamp file line if past end of file
-  CMP16 FILE_LINE16, LINE_COUNT16
-  BCC .dcl_ok
+; Count the newlines in the BUF_LEN16 bytes at the cursor
+; Output: BUF_TEMP16 = the count, BUF_DST16 = the address after them
+; (if there are any), Y = 0.  A range that ends within the cursor's line
+; holds none: it is not scanned (count_newlines_all scans it, for a line
+; table that is stale past the cursor line).  Clobbers A, X, BUF_PTR16,
+; BUF_SRC16
+count_newlines:
+  JSR get_current_line_len
   SEC
-  SBCI16 LINE_COUNT16, 1, FILE_LINE16
-.dcl_ok:
+  SBC CURSOR_COL16
+  TAY
+  TXA
+  SBC CURSOR_COL16 + 1       ; Y/A = the chars from the cursor to the line end
+  CPY BUF_LEN16
+  SBC BUF_LEN16 + 1
+  .byte $24                  ; BIT zp: skip the CLC
+count_newlines_all:
+  CLC
+  PHP                        ; C = they hold the range
+  JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
+  JSR ptr_to_dst             ; BUF_DST16 = scan pointer
+  CP16 BUF_LEN16, BUF_SRC16 ; BUF_SRC16 = bytes left to scan
+  LDA #0
+  STA_LH16 BUF_TEMP16
+  TAY                        ; Y = 0 for the scan
+  PLP
+  BCS .scan_done
+.scan_nl:
+  TST16 BUF_SRC16
+  BEQ .scan_done
+  LDA (BUF_DST16),Y
+  CMP #'\n'
+  BNE .scan_next
+  INC16 BUF_TEMP16           ; Found newline
+.scan_next:
+  INC16 BUF_DST16
+  DEC16 BUF_SRC16
+  JMP .scan_nl
+.scan_done:
   RTS
 
-; Yank chars at cursor position then delete them
+; Record undo, then delete chars at the cursor (once they are yanked)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Yanks from cursor, deletes, rebuilds lines, sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
-yank_delete_at_cursor:
+; Deletes, rebuilds lines, sets MODIFIED
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
+undo_delete_at_cursor:
   JSR undo_record_char_delete
-  PUSH16 BUF_LEN16           ; Save delete count
-  JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  CP16 BUF_PTR16, BUF_SRC16
-  JSR yank_add_chars         ; Clobbers BUF_LEN16, BUF_PTR16
-  POP16 BUF_LEN16            ; Restore delete count
   ; Fall through to delete_at_cursor
 
 ; Delete bytes at cursor position (no yank)
 ; Input: BUF_LEN16 = number of bytes to delete, cursor position set via CURSOR_COL16
-; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED
-; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
+; Shifts buffer, adjusts line table (incremental if no newlines), sets MODIFIED;
+; the line repaints from the cursor (RENDER_FROM_COL16), with a DCH hint
+; for a range within the line
+; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_TEMP16
 delete_at_cursor:
-  JSR get_cursor_buf_ptr     ; BUF_PTR16 = cursor position
-  ; Scan deleted range for newlines
-  CP16 BUF_PTR16, BUF_DST16 ; BUF_DST16 = scan pointer
-  LDA #0
-  STA NORMAL_TEMP            ; 0 = no newlines found
-  PUSH16 BUF_LEN16           ; Save delete count
-.scan_nl:
-  TST16 BUF_LEN16
-  BEQ .scan_done
-  LDY #0
-  LDA (BUF_DST16),Y
-  CMP #'\n'
-  BNE .scan_next
-  INC NORMAL_TEMP            ; Found newline
-.scan_next:
-  INC16 BUF_DST16
-  DEC16 BUF_LEN16
-  JMP .scan_nl
-.scan_done:
-  POP16 BUF_LEN16            ; Restore delete count
-  ; Pre-compute old screen rows BEFORE shift (only when newlines found)
-  LDA NORMAL_TEMP
+  JSR set_render_from_cursor
+  JSR count_newlines         ; BUF_TEMP16 = the range's newlines
+  ; Newlines found: BEFORE the shift, sum the old screen rows of the
+  ; cursor line and the lines joined to it into DELETE_SCREEN_ROWS (0 if
+  ; over 255; over 255 newlines walk 256 lines, so over 255 rows), for
+  ; the join's render (RF_JOIN)
+  LDA BUF_TEMP16
+  LDX BUF_TEMP16 + 1
+  BEQ .nl_count
+  LDA #$FF
+.nl_count:
+  TAX
   BEQ .no_precompute
-  ; Walk cursor line + deleted lines to sum old screen rows
-  ; NORMAL_TEMP = number of newlines = number of extra lines
-  JSR set_render_line_to_cursor
-  LDA #0
-  STA SCROLL_DELTA            ; accumulator for old screen rows
-  LDA NORMAL_TEMP
-  STA SCROLL_AMOUNT           ; loop counter (lines after cursor)
-  ; First: cursor line
-  JSR render_line_rows
-  STA SCROLL_DELTA
-  ; Then: each deleted line
-.precomp_walk:
-  LDA SCROLL_AMOUNT
-  BEQ .precomp_done
-  INC16 RENDER_LINE16
-  JSR render_line_rows
-  CLC
-  ADC SCROLL_DELTA
-  STA SCROLL_DELTA
-  DEC SCROLL_AMOUNT
-  JMP .precomp_walk
-.precomp_done:
+  JSR compute_delete_rows_join
 .no_precompute:
   JSR get_cursor_buf_ptr     ; Recompute BUF_PTR16 (scan clobbered BUF_DST16)
   JSR buf_shift_left_16
-  LDA NORMAL_TEMP
+  TST16 BUF_TEMP16
   BNE .full_rebuild
-  ; Incremental: negate BUF_LEN16 into BUF_SRC16
-  LDA #0
+  ; Incremental: negate BUF_LEN16 into BUF_SRC16 (A = 0 here)
   SEC
   SBC BUF_LEN16
   STA BUF_SRC16
   LDA #0
   SBC BUF_LEN16 + 1
   STA BUF_SRC16 + 1
+  ; ICH/DCH hint: -n cells at the cursor, if it fits SHIFT_NET's signed
+  ; byte (n <= 128; a longer delete takes the row rewrite, which costs no
+  ; more once n passes the row width)
+  TAX
+  INX
+  BNE .no_hint               ; n > 255
+  LDA BUF_SRC16
+  BPL .no_hint               ; n > 128
+  STA SHIFT_NET
+  STX SHIFT_WRITE            ; 0: no new cells
+.no_hint:
   JSR buf_adjust_lines_apply
-  JMP .done
+  JMP set_modified
 .full_rebuild:
   JSR buf_rebuild_lines
-  ; Adjust marks for deleted newlines (NORMAL_TEMP = count)
-  LDA NORMAL_TEMP
-  JSR set_buf_temp16_a
-  LDAX16 FILE_LINE16
-  SEC
-  JSR mark_adjust_col
-  ; Signal line-delete scroll, skip cursor row in scroll region
-  JSR file_line_rows
-  STA DELETE_SCREEN_ROWS     ; Cursor line screen rows (new)
-  ; Compute SCROLL_DELTA = old_total - new_cursor_rows
-  LDA SCROLL_DELTA            ; old total screen rows
-  SEC
-  SBC DELETE_SCREEN_ROWS
-  STA SCROLL_DELTA            ; pre-computed scroll displacement
-  LDA #$08
-  STA RENDER_FLAG            ; Line-delete, skip cursor row, repaint cursor
-.done:
+  ; Adjust marks for the deleted newlines (BUF_TEMP16 = count): the last
+  ; line's move to the cursor line, but for the u of typing, which
+  ; deletes the marks of the lines it takes away, as vim's u does
+  JSR next_line_ax
+  LDY UNDO_TYPE
+  CPY #UNDO_INSERT           ; C = 1: the u of typing (the last type)
+  JSR mark_adjust_c
+  ; The lines joined into the cursor line (DELETE_SCREEN_ROWS = their
+  ; rows before)
+  LDA #RF_JOIN
+  ; fall through
+
+; Set RENDER_FLAG from A and mark the buffer modified.  Clobbers A
+set_modified_render:
+  STA RENDER_FLAG
+; Mark the buffer modified.  Clobbers A; preserves X, Y and the carry
+set_modified:
   LDA #$FF
   STA MODIFIED
+  RTS
+
+; RENDER_FROM_COL16 = the cursor line's length (where a J changes it).
+; Returns it in A/X.  Clobbers Y, BUF_PTR16
+set_render_from_line_end:
+  JSR get_current_line_len
+  STAX16 RENDER_FROM_COL16
+  RTS
+
+; Partial line repaint from the cursor: RENDER_FROM_COL16 = CURSOR_COL16,
+; or from A columns before it (_before_cursor, A <= CURSOR_COL16).
+; Clobbers A; preserves X, Y
+set_render_from_cursor:
+  LDA #0
+set_render_from_before_cursor:
+  EOR #$FF
+  SEC
+  ADC CURSOR_COL16           ; CURSOR_COL16 - A: + (255 - A) + 1
+  STA RENDER_FROM_COL16
+  LDA CURSOR_COL16 + 1
+  ADC #$FF                   ; - 1 unless the low byte carried
+  STA RENDER_FROM_COL16 + 1
+char_op_ret:
   RTS
 
 ; --- Operator dispatch ---
@@ -636,103 +843,160 @@ OP_CHANGE = 2
 ; Input: A = operator (OP_YANK, OP_DELETE, OP_CHANGE)
 ;        BUF_LEN16 = byte count of range
 ;        Cursor at start of range (CURSOR_COL16, FILE_LINE16)
-; OP_YANK:   yank range, done
-; OP_DELETE:  yank range, delete, clamp cursor
-; OP_CHANGE:  yank range, delete, enter insert mode
+; Yanks the range first. If it does not fit the yank buffer, shows "Yank
+; buffer full" and changes nothing else (the yank, the undo record and
+; the mode included), as dd does.
+; OP_YANK:   done
+; OP_DELETE: record undo, delete, clamp cursor
+; OP_CHANGE: record undo, delete, enter insert mode
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16
 apply_char_operator:
-  CMP #OP_YANK
-  BNE .do_delete
-  ; Yank only: no delete, no MODIFIED
-  JSR get_cursor_buf_ptr
-  CP16 BUF_PTR16, BUF_SRC16
-  JSR yank_add_chars
-  RTS
-.do_delete:
-  PHA                          ; Save operator on stack
-  JSR yank_delete_at_cursor
-  PLA                          ; Restore operator
+  PHA                          ; Save operator
+  JSR get_cursor_src           ; BUF_SRC16 = range start
+  JSR yank_add_chars           ; Preserves BUF_LEN16
+  PLA                          ; Restore operator (keeps C; Z = OP_YANK)
+  BCS show_yank_overflow       ; Does not fit: nothing changes
+  BEQ char_op_ret              ; Yank only: no delete, no MODIFIED
+  PHA
+  JSR undo_delete_at_cursor
+  PLA
   CMP #OP_CHANGE
   BEQ .change
   ; OP_DELETE: clamp cursor
-  JSR clamp_cursor_col
-  RTS
+  JMP clamp_cursor_col
 .change:
-  JMP enter_insert_mode_render
+  JMP enter_insert_change
+
+; Show yank overflow error: show message, clear count
+; Used when a yank did not fit (the yank buffer is unchanged)
+show_yank_overflow:
+  JSR range_yank_full        ; "Yank buffer full"
+x_done:
+  JMP clear_count
 
 ; --- Shared batched character delete (for x and X commands) ---
+
+; BUF_LEN16 = the chars from the cursor to the end of its line,
+; LINE_LEN16 - CURSOR_COL16 (Z set: fewer than 256).  Clobbers A
+chars_left:
+  SEC
+  SBC16 LINE_LEN16, CURSOR_COL16, BUF_LEN16
+  RTS
+
+; Compute forward character range from cursor
+; Input: X = char count (8-bit), LINE_LEN16 = line length (from check_cursor_in_line)
+; Output: BUF_LEN16 = min(X, available chars on line), carry set if nothing
+; Clobbers: A
+compute_char_range_forward:
+  JSR chars_left             ; BUF_LEN16 = available
+  BNE .use_x                 ; Available >= 256 > X
+  CPX BUF_LEN16
+  BCS .done                  ; X >= available: keep available
+.use_x:
+  STX BUF_LEN16
+  LDA #0
+  STA BUF_LEN16 + 1
+.done:
+  JMP range_epilogue
 
 ; Batched character delete for x (batched_char_delete) and X
 ; (batched_char_delete_back, cursor already moved to the range start).
 ; When batched, the register gets what the last key press deleted: the
-; range's last char for x, its first char for X.
-; Input: BUF_TEMP16 = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
+; range's last char for x, its first char for X.  Batched x presses left
+; over at the line end go on as X from the line end.
+; Input: X = total count, BATCH_EXTRA = # of extra batched units (0 = no batching)
+;        BUF_DELTA = count (x: from get_batched_count)
 ;        LINE_LEN16 = line length (from check_cursor_in_line)
 ; Clobbers: A, X, Y, BUF_PTR16, BUF_SRC16, BUF_DST16, BUF_LEN16
 batched_char_delete_back:
-  LDA #$FF
+  LDY #$FF                  ; Y = DEL_BACK flag (kept until .batched)
   BNE bcd_start             ; Always taken
+
+; x on an empty line (and X and d0 on column 0): an empty change, as in
+; vim, but none on a buffer with no lines, where vim's op_delete returns
+; at once (dd and :d end here then too)
+x_empty:
+  BIT EMPTY_BUF
+  BMI x_done
+  JSR undo_record_empty
+  BEQ x_done                 ; Always
+
+; x and Del: delete count chars at the cursor, with the typed-ahead x's
+normal_delete_char:
+  JSR check_cursor_in_line
+  BCS x_empty
+  JSR get_batched_count      ; X = total, BATCH_EXTRA = extras
 batched_char_delete:
-  LDA #0
+  LDY #0
 bcd_start:
-  STA DEL_BACK
+  JSR compute_char_range_forward
+  BCS bcd_done
   LDA BATCH_EXTRA
   BNE .batched
-
-  ; --- Non-batched: compute full range, yank+delete all ---
-  LDX BUF_TEMP16
-  JSR compute_char_range_forward
-  BCS .done
-  JSR set_shift_delete
+  ; --- Non-batched: yank+delete the full range (at most 255 chars, so
+  ; it always fits the yank buffer), clamp the cursor ---
+.unbatched:
   LDA #OP_DELETE
   JSR apply_char_operator
-  JMP .finish
+  JMP clear_count
+
+.x_past_end:
+  LDA BUF_DELTA              ; The count (get_batched_count)
+  CMP BUF_LEN16              ; C = 1: it reaches the line end
+  LDA CURSOR_COL16
+  ORA CURSOR_COL16 + 1
+  BNE .leftward
+  ; From column 0 the presses only delete forward, to the line end: the
+  ; forward range stands, and when the count alone empties the line, its
+  ; delete is the last.  The presses left over find the line empty:
+  ; empty changes, as for X
+  JSR .forward
+  JMP undo_record_empty
+.forward:
+  BCC .yank_last
+  BCS .unbatched
+.leftward:
+  ; One at a time, x on the last char leaves the cursor on the new last
+  ; char, which the next x deletes: min(count, the range) + the extras
+  ; is X of as many from the line end
+  LDA BUF_DELTA
+  BCC .count_ok
+  LDA BUF_LEN16              ; The count stops at the line end
+.count_ok:
+  CLC
+  ADC BATCH_EXTRA
+  TAX                        ; X = the chars to delete (< 256)
+  STY BUF_DELTA              ; (Y = 0) No X count of its own
+  CP16 LINE_LEN16, CURSOR_COL16
+  JMP delete_char_back_x
 
 .batched:
-  ; --- Batched: compute full range, yank last-deleted char, delete all ---
-  LDX BUF_TEMP16
-  JSR compute_char_range_forward
-  BCS .done
-  JSR set_shift_delete
-  ; Yank 1 char at cursor + range - 1 (x) or at cursor (X)
+  ; x presses left over at the line end (the range stopped short of X:
+  ; only x's range can) delete leftward from there, as one at a time
+  CPX BUF_LEN16
+  BNE .x_past_end
+.yank_last:
+  ; --- Batched: yank only what the last key press deleted (the range's
+  ; last char for x, its first char for X), then delete the full range ---
   PUSH16 BUF_LEN16              ; Save full range
-  JSR yank_clear
-  SEC
-  SBCI16 BUF_LEN16, 1, BUF_LEN16
-  LDA DEL_BACK
-  BEQ .yank_offset_ok
-  LDA #0
-  STA_LH16 BUF_LEN16
-.yank_offset_ok:
-  CLC
-  ADC16 CURSOR_COL16, BUF_LEN16, BUF_LEN16  ; BUF_LEN16 = col of yanked char
-  PUSH16 CURSOR_COL16
-  CP16 BUF_LEN16, CURSOR_COL16  ; Move cursor to yanked char
-  JSR get_cursor_buf_ptr         ; BUF_PTR16 = address of yanked char
-  CP16 BUF_PTR16, BUF_SRC16
+  TYA
+  PHA                           ; Save the DEL_BACK flag
+  JSR get_cursor_src            ; BUF_SRC16 = range start
+  PLA
+  BNE .yank_one                 ; X: the first char
+  LDX BUF_LEN16                 ; x: the last char (range <= 255)
+  DEX
+  TXA
+  ADDA16 BUF_SRC16
+.yank_one:
   LDA #1
   STA BUF_LEN16
   LDA #0
   STA BUF_LEN16 + 1
-  JSR yank_add_chars
-  POP16 CURSOR_COL16             ; Restore original cursor
+  JSR yank_add_chars            ; (resets the yank buffer)
   POP16 BUF_LEN16               ; Restore full range
-  ; Record undo before deleting
-  JSR undo_record_char_delete
-  ; Delete full range in single operation
-  JSR delete_at_cursor
-
-.finish:
+  ; Record undo, delete full range in single operation
+  JSR undo_delete_at_cursor
   JSR clamp_cursor_col
-.done:
+bcd_done:
   JMP clear_count
-
-; ICH/DCH hint for deleting BUF_LEN16 (<= 255) chars at the cursor
-; Clobbers: A
-set_shift_delete:
-  LDA #0
-  STA SHIFT_WRITE
-  SEC
-  SBC BUF_LEN16
-  STA SHIFT_NET
-  RTS

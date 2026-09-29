@@ -2,10 +2,18 @@
 ; VI - Minimal Vi-like Text Editor for 6502
 ; ============================================================================
 ;
-; A vi-like text editor running on the 6502 emulator in console mode.
+; A vi-like text editor running on the 6502 emulator: console I/O by
+; default, serial I/O to an ANSI terminal with define:terminal_mode.
+; define:direct_io calls screen services (environment.asm: scr_*) instead
+; of writing ANSI sequences and reads key codes from con_read, for
+; machines without an ANSI terminal (the emulator runs it with --direct-io).
+; With define:michael as well it runs on the Michael board, on its ROM's
+; services (editor/michael_image.py; ./editor-michael.sh in the emulator,
+; ./editor-michael-upload.sh to the board).
 ;
-; Usage:
-;   ./emulator.out editor/out/editor.out --load 0400 --console outfile.txt infile.txt
+; Usage (from toolchain/asm2; edits file.txt in place, :w writes it back):
+;   ../../emulator/emulator.out editor/out/editor.out --load 0400 --console file.txt
+;   ./editor.sh file.txt        (terminal build)
 ;
 ; Modes:
 ;   Normal:  h/j/k/l movement, x/dd delete, i/a/o/O insert, : command
@@ -15,40 +23,41 @@
 ; MEMORY LAYOUT
 ;   $0000-$00FF   Zero page variables
 ;   $0100-$01FF   6502 stack
-;   $0200-$02FF   Filename buffer
-;   $0300-$03FF   Command buffer
+;   $0200-$027F   Search buffer (SEARCH_BUF)
+;   $0280-$02FF   (unused)
+;   $0300-$037F   Command buffer
+;   $0380-$03FF   Status bar text (STATUS_SHADOW)
 ;   $0400         Editor code loads here
 ;   TEXT_BUF      Text buffer (page-aligned after code, up to $D5FF)
 ;   $D600-$D61F   Batch insert staging buffer (BATCH_BUF)
 ;   $D620-$D653   Mark table (MARK_TBL)
-;   $D654-$D6FF   Search buffer (SEARCH_BUF)
+;   $D6A0-$D6D3   The marks u puts back (MARK_SAVE)
 ;   $D700-$D7FF   Undo data buffer (UNDO_DATA_BUF)
 ;   $D800-$DFFF   Line pointer table (LINE_TBL)
 ;   $E000-$EFFF   Yank buffer (4KB)
 ;   $F000+        Emulator I/O
 ; ============================================================================
 
-FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
-
+  .ifdef michael
+* = $0200                  ; Michael: the ROM's loader uploads from here
+  .else
 * = $0400
+  .endif
 
   JMP editor_main
 
   .include 17/environment.asm
+  .include editor/memory_map.asm
   .include 17/macros.asm
-  .include editor/io.asm
-
-; PRINT_STR addr - Print null-terminated string at addr
-; Clobbers A, Y
-  .macro PRINT_STR addr
-  SET16 addr, STR_PTR16
-  JSR write_string
-  .endmacro
-
-  .include 17/to_decimal.asm
+  .include editor/macros.asm
+  .include editor/zp.asm
   .include editor/terminal.asm
   .include editor/input.asm
   .include editor/buffer_mem.asm
+  ; io.asm after those: the terminal build's serial routines there would
+  ; put mem_copy_down's copy loop across a page (the console build's
+  ; io.asm is aliases only)
+  .include editor/io.asm
   .include editor/buffer.asm
   .include editor/undo_state.asm
   .include editor/render.asm
@@ -56,8 +65,8 @@ FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
   .include editor/render_scroll.asm
   .include editor/yank.asm
   .include editor/search.asm
-  .include editor/word.asm
   .include editor/normal_util.asm
+  .include editor/word.asm
   .include editor/normal.asm
   .include editor/normal_move.asm
   .include editor/normal_edit.asm
@@ -71,71 +80,59 @@ FNAME_BUF   = $0200   ; Filename buffer (256 bytes)
 ; Entry point
 ; ============================================================================
 editor_main:
-  ; Initialize flags
+  ; Clear zero page: every zero-page variable starts at 0, which is the
+  ; initial value of all editor state except what yank_init and
+  ; mark_init set below
   LDA #0
-  STA CMD_QUIT
-  STA READONLY
-  LDA #>TEXT_LIMIT
-  STA BUF_LIMIT
+  TAX
+.clear_zp:
+  STA $00,X
+  INX
+  BNE .clear_zp
+  ; Line 0 starts at TEXT_BUF (page-aligned), where the first line table
+  ; rebuild starts (FILE_LINE16 = 0)
+  STA LINE_TBL
+  LDA #>TEXT_BUF
+  STA LINE_TBL + 1
 
-  ; Get filename from argv
+  ; Filename: first argument, or "[No Name]" if none.  The argument is
+  ; used where it is: the emulator keeps the argument strings in their
+  ; own window ($FE00-$FFDF), so a name can be as long as they allow
+  LDX #>str_untitled      ; argc preserves X
   JSR argc
   CMP #1
-  BCC .no_file
-  ; Get first argument (the input filename)
+  LDA #<str_untitled
+  BCC .have_name
   LDA #0
-  JSR argv
-  ; A;X = pointer to filename string, copy to FNAME_BUF and set FNAME_PTR16
-  STAX16 BUF_PTR16
-.set_fname:
-  LDY #0
-.copy_fname:
-  LDA (BUF_PTR16),Y
-  STA FNAME_BUF,Y
-  BEQ .fname_copied
-  INY
-  BNE .copy_fname
-.fname_copied:
-  SET16 FNAME_BUF, FNAME_PTR16
+  JSR argv                ; A;X = first argument
+.have_name:
+  STAX16 FNAME_PTR16
 
   ; Try to open the file for reading (returns 0 if not found)
-  LDAX16 FNAME_PTR16
   JSR open
   CMP #0
   BEQ .new_file
 
-  ; File exists - load it
-  STA FILE_HANDLE
-  LDA FILE_HANDLE
+  ; File exists - load it (buf_load_file saves the handle in FILE_HANDLE;
+  ; a truncated file opens read-only)
   JSR buf_load_file
-  PHP                  ; Save carry (truncation flag)
   LDA FILE_HANDLE
   JSR close
-  PLP                  ; Restore carry
-  BCC .init_display
-  ; File was truncated - set read-only mode
-  LDA #$FF
-  STA READONLY
   JMP .init_display
-
-.no_file:
-  ; No file specified - use default name and empty buffer
-  ; (FNAME_PTR16 is set at .fname_copied after the copy)
-  SET16 str_untitled, BUF_PTR16
-  JMP .set_fname
 
 .new_file:
   ; File doesn't exist or no file specified - start with empty buffer
   JSR buf_init
 
 .init_display:
-  ; Initialize rendering and normal mode state
+  ; Get the screen size; set up the yank buffer and mark table
   JSR render_init
-  JSR normal_init
   JSR yank_init
-  JSR search_init
   JSR mark_init
-  JSR undo_init
+  ; The cursor starts on the first non-blank of line 1, as in vim, which
+  ; can be on a later row of the line (or past the first screen)
+  JSR first_nonblank
+  JSR ensure_cursor_visible
 
   ; Draw initial screen
   JSR render_screen
@@ -146,71 +143,46 @@ editor_main:
   LDA #<str_truncated
   LDX #>str_truncated
   JSR show_message_ax
+  JSR render_cursor_and_status   ; (takes the hold: the message stays until
+                                 ; the first key)
 .no_truncation_warning:
 
 ; ============================================================================
 ; Main loop
 ; ============================================================================
 main_loop:
-  ; Default: no render. Snapshot detection infers render level.
-  LDA #0
-  STA RENDER_FLAG
   ; Default: full line render. Handlers may set a partial column.
   LDA #$FF
   STA_LH16 RENDER_FROM_COL16
   STA SHIFT_WRITE            ; No ICH/DCH hint
+  ; Default: no render. Snapshot detection infers render level.
   LDA #0
+  STA RENDER_FLAG
   STA INSERT_LINE_COUNT
-
-  ; If entering command mode, handle it specially (it does own I/O)
-  LDA MODE
-  CMP #MODE_COMMAND
-  BNE .not_command_entry
-  JSR render_snapshot
-  JSR command_handle
-  JMP .after_key
-.not_command_entry:
+  STA DELETE_SCREEN_ROWS     ; 0 = no pre-computed screen rows
+  STA BATCH_EXTRA            ; No typed-ahead keys or pairs taken yet
 
   ; Poll for input (non-blocking)
-  JSR key_ready
-  CMP #$FF
-  BEQ .key_available
+  JSR key_peek
+  BCS .key_available
 
   ; No input - exit if input has ended (console build only)
   .ifndef terminal_mode
-  JSR io_ready
-  CMP #CON_EOF
-  BEQ .editor_exit
+  JSR exit_at_eof
   .endif
-  JSR background_work
   JMP main_loop
 
 .key_available:
-  JSR get_current_line_len
-  JSR line_screen_rows
+  LSR CURSWANT_KEEP          ; Vertical moves keep their column one key
+  JSR file_line_rows
   STA PREV_LINE_ROWS
-  ; Save whether old line's last row was full (WRAP_REM == 0 after line_screen_rows)
-  LDA WRAP_REM
-  STA PREV_LINE_FULL       ; 0 = last row full, non-zero = not full
   JSR render_snapshot
-  ; Read a key
+  ; Read a key (the console build exits if the read hit end of input)
   JSR get_key
-
-  ; Exit if the read hit end of input (console build only)
-  .ifndef terminal_mode
-  PHA
-  JSR io_ready
-  CMP #CON_EOF
-  BNE .not_eof
-  PLA
-  JMP .editor_exit
-.not_eof:
-  PLA
-  .endif
 
   ; Dispatch based on mode
   LDX MODE
-  CPX #MODE_INSERT
+  DEX                      ; MODE_INSERT = 1
   BEQ .insert_mode
 
   ; Normal mode
@@ -219,27 +191,12 @@ main_loop:
 
 .insert_mode:
   JSR insert_handle_key
-  JMP .after_key
 
 .after_key:
   ; Check if we should quit
   LDA CMD_QUIT
-  BNE .editor_exit
+  BNE editor_exit
 
-  ; Batch pending combo keys: when the first key of a two-key combo has
-  ; been received and another key is already available, process it
-  ; immediately without rendering.  This eliminates the intermediate
-  ; status-bar frame for rapid combos like dw, yw, dd, gg, ra, etc.
-  LDA MODE
-  BNE .render              ; Only batch in normal mode
-  LDA LAST_KEY
-  BEQ .render              ; No pending combo key
-  JSR key_ready
-  CMP #$FF
-  BNE .render              ; No key available yet, render normally
-  JMP .key_available       ; Process next key without rendering
-
-.render:
   ; Ensure cursor is on screen (may scroll viewport)
   JSR ensure_cursor_visible
 
@@ -248,21 +205,22 @@ main_loop:
 
   JMP main_loop
 
-.editor_exit:
-  ; Reset scroll region and clear screen before exit
+  .ifndef terminal_mode
+; Exit if console input has ended, else return. Preserves X, Y
+exit_at_eof:
+  JSR io_ready
+  CMP #CON_EOF
+  BEQ editor_exit
+  RTS
+  .endif
+
+editor_exit:
+  ; Reset any scroll region and clear the screen before exit
   JSR ansi_reset_scroll_region
   JSR ansi_clear_screen
   JSR io_flush
   LDA #0
-  JSR exit
-
-; ============================================================================
-; Background work
-; ============================================================================
-
-; Called when no input is available - hook for background tasks
-background_work:
-  RTS
+  JMP exit                 ; Does not return
 
 ; ============================================================================
 ; Data
@@ -281,9 +239,9 @@ str_untitled: .asciiz "[No Name]"
 _code_end:
 TEXT_BUF = _code_end + $00FF >> $08 << $08
 
-; Buffer size: normal build = up to $D600 (BATCH_BUF), small build = 256 bytes
+; Buffer size: normal build = up to TEXT_END, small build = 256 bytes
   .ifndef small_buffer
-TEXT_LIMIT  = $D600  ; End of text buffer space (up to start of BATCH_BUF)
+TEXT_LIMIT  = TEXT_END
   .else
 TEXT_LIMIT  = TEXT_BUF + $0100  ; Small test buffer (256 bytes)
   .endif

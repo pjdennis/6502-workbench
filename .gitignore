@@ -20,6 +20,8 @@ log
 spread
 _tr_*.tmp
 .claude/settings.local.json
+a.hex
+a.s19
 
 # Greatest / sanitizer test build directory. The *.out binaries are
 # already covered by the *.out wildcard above; the build/run logs and

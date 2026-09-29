@@ -5,6 +5,7 @@ DISPLAY_STRING_PARAM = $00 ; 2 bytes
 TO_DECIMAL_PARAM     = $02
 
   .org $2000                     ; Loader loads programs to this address
+start:
   jmp initialize_machine         ; Initialize hardware and then jump to program_start
 
   .include initialize_machine_v2.inc
