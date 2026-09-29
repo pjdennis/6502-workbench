@@ -1,5 +1,6 @@
 #include "cli.h"
 #include "cpu_core.h"  /* CPU_NMOS / CPU_65C02 */
+#include "chips/glue_michael.h"  /* glue_michael_ram_by_name */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->wendy2_prog_filename = NULL;
     opts->kbd_scancodes = NULL;
     opts->kbd_fault = NULL;
+    opts->ram_map = NULL;
     opts->keys_filename = NULL;
     opts->key_interval_ms = 0;
     opts->disk_dir = NULL;
@@ -118,6 +120,10 @@ void emu_opts_usage(FILE *fp) {
 "  --kbd-fault <name>     michael: keyboard board fault -- noedge (CA2 never moves),\n"
 "                         noirq (the VIA's IRQ doesn't reach the CPU), noack (no\n"
 "                         answer to commands) or resend (every answer is $FE)\n"
+"  --ram <decode>         michael: how RAM below the VIA is decoded -- 16k ($0000-$3FFF,\n"
+"                         the default), eater (Ben Eater's: writes to $4000-$7FFF also\n"
+"                         land in $0000-$3FFF), full (24K at $0000-$5FFF) or mirror8k\n"
+"                         (8K at $0000-$1FFF, repeated up to $5FFF)\n"
 "  --live                 wendy2c: live ANSI render of LCD, LED, button, VIA pin state\n"
 "                         michael: the LCD, with the terminal's keys typed on the\n"
 "                         PS/2 keyboard (Ctrl-] quits); paced to 2 MHz or --mhz\n"
@@ -339,6 +345,13 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
                 fprintf(stderr, "error: --kbd-fault value must be 'noedge', 'noirq', 'noack' or 'resend'\n");
                 return 1;
             }
+        } else if (strcmp(argv[i], "--ram") == 0) {
+            if (take_str_value(argc, argv, &i, "--ram", &opts->ram_map)) return 1;
+            enum glue_michael_ram ram;
+            if (glue_michael_ram_by_name(opts->ram_map, &ram) != 0) {
+                fprintf(stderr, "error: --ram value must be '16k', 'eater', 'full' or 'mirror8k'\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--disk") == 0) {
             if (take_str_value(argc, argv, &i, "--disk", &opts->disk_dir)) return 1;
         } else if (strcmp(argv[i], "--live") == 0) {
@@ -481,6 +494,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
     if ((opts->kbd_scancodes || opts->kbd_fault || opts->keys_filename || opts->key_interval_ms)
         && opts->machine != MACHINE_MICHAEL) {
         fprintf(stderr, "error: --kbd-scancodes / --kbd-fault / --keys / --key-interval require --machine michael\n");
+        return 1;
+    }
+
+    if (opts->ram_map && opts->machine != MACHINE_MICHAEL) {
+        fprintf(stderr, "error: --ram requires --machine michael\n");
         return 1;
     }
 

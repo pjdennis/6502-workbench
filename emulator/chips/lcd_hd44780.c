@@ -180,6 +180,10 @@ static void execute_byte(struct lcd_hd44780_state *s, uint8_t rs, uint8_t byte) 
     }
 }
 
+void lcd_hd44780_instruction(struct lcd_hd44780_state *s, uint8_t byte) {
+    execute_byte(s, 0, byte);
+}
+
 static void lcd_hd44780_reset(struct chip *self) {
     struct lcd_hd44780_state *s = (struct lcd_hd44780_state *)self->state;
     memset(s->ddram, 0x20, LCD_DDRAM_SIZE);  /* HD44780 starts cleared */

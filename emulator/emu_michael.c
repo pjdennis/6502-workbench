@@ -132,17 +132,30 @@ static enum ps2_fault board_fault(const char *name) {
 static uint8_t michael_cpu_read(uint16_t addr) {
     active_bus->addr = addr;
     active_bus->rwb = 1;
-    glue_michael_decode(active_bus);
+    uint16_t chip_addr = glue_michael_decode(active_bus);
     uint8_t data = 0xFF;
-    bus_read(active_bus, addr, &data);
+    bus_read(active_bus, chip_addr, &data);
     return data;
+}
+
+/* A write goes to the chip the decode selects; with --ram eater, one to
+ * $6000-$7FFF selects both the VIA and the RAM, and the bus hands a
+ * write only to the first chip that takes it, so each gets it in turn. */
+static void michael_bus_write(struct bus *b, uint8_t data) {
+    uint16_t chip_addr = glue_michael_decode(b);
+    if (b->viacs && b->ramcs) {
+        b->ramcs = 0;
+        bus_write(b, chip_addr, data);
+        b->ramcs = 1;
+        b->viacs = 0;
+    }
+    bus_write(b, chip_addr, data);
 }
 
 static void michael_cpu_write(uint16_t addr, uint8_t data) {
     active_bus->addr = addr;
     active_bus->rwb = 0;
-    glue_michael_decode(active_bus);
-    bus_write(active_bus, addr, data);
+    michael_bus_write(active_bus, data);
 }
 
 static void set_vector(struct rom_28c256_state *rom, uint16_t vector, uint16_t target) {
@@ -169,7 +182,7 @@ static int load_program(struct bus *b, const char *path, uint16_t load) {
             fclose(f);
             return -1;
         }
-        bus_write(b, a, (uint8_t)byte);
+        michael_bus_write(b, (uint8_t)byte);
     }
     fclose(f);
     b->rwb = 1;
@@ -296,6 +309,9 @@ int emu_run_michael(const struct emu_opts *opts) {
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
     glue_michael_init(&glue_chip, &glue_state);
+    enum glue_michael_ram ram = GLUE_MICHAEL_RAM_16K;
+    if (opts->ram_map) glue_michael_ram_by_name(opts->ram_map, &ram);   /* cli.c checked it */
+    glue_michael_set_ram(ram);
     rom_28c256_init(&rom_chip, &rom_state);
     ram_628128_init(&ram_chip, &ram_state);
     via_6522_init(&via_chip, &via_state);
@@ -362,6 +378,21 @@ int emu_run_michael(const struct emu_opts *opts) {
     b.res = 1;
     for (int i = 0; i < 8; i++) bus_step(&b);
     b.res = 0;
+
+    /* A program run without a ROM finds the LCD as the ROM leaves it
+     * (michael_rom.s: reset_and_enable_display_no_cursor), as the
+     * programs that run after the ROM's loader expect */
+    if (!rom_path) {
+        static const uint8_t rom_lcd_setup[] = {
+            0x38,   /* 8-bit, 2 lines, 5x8 */
+            0x08,   /* display off */
+            0x01,   /* clear */
+            0x06,   /* increment, no display shift */
+            0x0C,   /* display on, no cursor */
+        };
+        for (size_t i = 0; i < sizeof rom_lcd_setup; i++)
+            lcd_hd44780_instruction(&lcd_state, rom_lcd_setup[i]);
+    }
 
     uint64_t cap = opts->cycle_cap;
     uint8_t lowest_sp = 0xFF;

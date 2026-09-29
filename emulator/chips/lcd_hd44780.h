@@ -99,6 +99,10 @@ void lcd_hd44780_init(struct chip *chip, struct lcd_hd44780_state *state,
  * gives the byte's high nibble every time. */
 int lcd_hd44780_output(const struct lcd_hd44780_state *state, uint8_t *value);
 
+/* Run a command (RS low) as if it had been strobed in, e.g. to set the
+ * LCD up as a ROM would when a machine starts without it. */
+void lcd_hd44780_instruction(struct lcd_hd44780_state *state, uint8_t byte);
+
 /* Override the default wendy2c wiring. */
 void lcd_hd44780_set_wiring(struct lcd_hd44780_state *state,
                             const struct lcd_hd44780_wiring *wiring);

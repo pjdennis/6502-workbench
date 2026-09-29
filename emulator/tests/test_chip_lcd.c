@@ -365,6 +365,25 @@ TEST ddram_20x4_rows_do_not_overlap(void) {
     PASS();
 }
 
+/* lcd_hd44780_instruction runs a command as if it had been strobed in:
+ * a machine started without its ROM sets the LCD up as the ROM would. */
+TEST instruction_runs_a_command_without_the_bus(void) {
+    setup_michael();
+    lcd_hd44780_set_geometry(&ls, 4, 20);
+    lcd_hd44780_instruction(&ls, 0x38);   /* 8-bit, 2 lines */
+    lcd_hd44780_instruction(&ls, 0x0C);   /* display on */
+    ASSERT_EQ_FMT(1, ls.two_line_mode, "%d");
+    ASSERT_EQ_FMT(1, ls.display_on, "%d");
+    michael_write(0x80 | 0x54, 0);        /* row 4 */
+    michael_write('Z', 1);
+
+    char buf[LCD_DDRAM_SIZE + 1];
+    lcd_hd44780_render(&ls, buf);
+    ASSERT_EQ_FMT((char)'Z', buf[60], "%c");
+    ASSERT_EQ_FMT((char)' ', buf[0], "%c");
+    PASS();
+}
+
 /* In 2-line mode the address counter runs from the end of line 1 ($27)
  * to the start of line 2 ($40), and from the end of line 2 ($67) to $00. */
 TEST ddram_address_wraps_between_lines(void) {
@@ -412,6 +431,7 @@ SUITE(lcd_hd44780_suite) {
     RUN_TEST(michael_read_against_driven_data_pins_is_contention);
     RUN_TEST(ddram_20x4_rows_do_not_overlap);
     RUN_TEST(ddram_address_wraps_between_lines);
+    RUN_TEST(instruction_runs_a_command_without_the_bus);
     RUN_TEST(cursor_position_on_20x4_rows);
 }
 

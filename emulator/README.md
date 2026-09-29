@@ -11,12 +11,14 @@ A three-machine 6502 emulator:
   VIA, HD44780 LCD, serial-USB bridge, LED + button, all wired to a
   W65C02S core. Selected with `--machine wendy2c`.
 - **`michael`** — a board-level model of Michael (v2), the Ben Eater-style
-  board: 16 KiB RAM at `$0000`, 6522 VIA at `$6000`, ROM at `$8000`, a
-  20x4 HD44780 in 8-bit mode, and the PS/2 keyboard board
-  (`chips/ps2_keyboard_board.c`). With `--load`, the code file is loaded
-  into RAM there, and without `--rom` the ROM holds only the vectors
-  (reset to the load address, IRQ to `$3F00`); without `--load`, the code
-  file is the ROM image. Selected with
+  board: 16 KiB RAM at `$0000` (`--ram` picks another decoding), 6522 VIA
+  at `$6000`, ROM at `$8000`, a 20x4 HD44780 in 8-bit mode, and the PS/2
+  keyboard board (`chips/ps2_keyboard_board.c`). With `--load`, the code
+  file is loaded into RAM there, and without `--rom` the ROM holds only
+  the vectors (reset to the load address, IRQ to `$3F00`) and the LCD
+  starts as the ROM leaves it (two lines, display on, no cursor, clear),
+  as programs run from the ROM's loader expect; without `--load`, the
+  code file is the ROM image. Selected with
   `--machine michael`. At exit it prints the LCD and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once.
@@ -61,6 +63,7 @@ Common options (the full list is in `--help`):
 | `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
 | `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
 | `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
+| `--ram <decode>` | michael: how RAM below the VIA is decoded: `16k` (the default: `$0000-$3FFF`), `eater` (Ben Eater's: reads of `$4000-$7FFF` find nothing, but writes there, the VIA's too, land in `$0000-$3FFF`), `full` (24K at `$0000-$5FFF`) or `mirror8k` (8K at `$0000-$1FFF`, repeated up to `$5FFF`); `firmware/programs/michael/michael_ram_map.s` shows which |
 | `--serial-input <path>` | wendy2c, michael: bytes pre-queued into the SERIAL_USB chip |
 | `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins. michael: the LCD, with the terminal's keys typed on the PS/2 keyboard (Ctrl-] quits), paced to 2 MHz or `--mhz` |
 | `--cycle-cap N` | max cycles before forced exit (decimal; default 200000000; no cap under `--live` unless this is given explicitly). For wendy2c this is oscillator ticks (~2 per CPU cycle); for `nmos-default` and `--server` it is CPU cycles. |

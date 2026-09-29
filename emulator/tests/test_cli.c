@@ -348,6 +348,41 @@ TEST cli_keys_and_interval_parsed_for_michael(void) {
     PASS();
 }
 
+TEST cli_ram_parsed_for_michael(void) {
+    const char *maps[] = {"16k", "eater", "full", "mirror8k"};
+    for (unsigned i = 0; i < sizeof maps / sizeof *maps; i++) {
+        char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--ram", (char *)maps[i], NULL};
+        struct emu_opts opts;
+        ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+        ASSERT_STR_EQ(maps[i], opts.ram_map);
+    }
+    PASS();
+}
+
+TEST cli_unknown_ram_rejected(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--ram", "32k", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--ram") != NULL);
+    PASS();
+}
+
+TEST cli_ram_requires_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "wendy2c", "--ram", "full", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--ram requires --machine michael") != NULL);
+    PASS();
+}
+
 TEST cli_kbd_options_require_michael(void) {
     char *argv[] = {"emulator", "prog.bin", "--machine", "wendy2c",
                     "--kbd-scancodes", "1c", NULL};
@@ -443,6 +478,9 @@ SUITE(cli_suite) {
     RUN_TEST(cli_keys_and_interval_parsed_for_michael);
     RUN_TEST(cli_kbd_options_require_michael);
     RUN_TEST(cli_unknown_kbd_fault_rejected);
+    RUN_TEST(cli_ram_parsed_for_michael);
+    RUN_TEST(cli_unknown_ram_rejected);
+    RUN_TEST(cli_ram_requires_michael);
 }
 
 GREATEST_MAIN_DEFS();
