@@ -12,7 +12,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 LINK = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')
 
 GUIDES = ['README.md', 'CLAUDE.md', 'docs/*.md', '*/README.md', '*/*/README.md',
-          'toolchain/asm2/CLAUDE.md']
+          'asm/CLAUDE.md', 'editor/CLAUDE.md']
 
 
 def guide_files():

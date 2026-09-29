@@ -37,7 +37,7 @@ class EmulatorTestRunner:
         self.verbose = verbose
         self.filter_pattern = filter_pattern
         self.emulator = base_dir / "emulator" / "emulator.out"
-        self.assembler = base_dir / "toolchain" / "asm2" / "17" / "out" / "asm.out"
+        self.assembler = base_dir / "asm" / "17" / "out" / "asm.out"
         self.passed = 0
         self.failed = 0
         self.skipped = 0

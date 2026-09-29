@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-/* --direct-io: the screen and key interface of the asm2 editor's
+/* --direct-io: the screen and key interface of the editor's
  * define:direct_io build, which calls screen services instead of
  * writing ANSI sequences and reads key codes instead of decoding them.
  * The emulator turns each screen call back into the ANSI sequence the

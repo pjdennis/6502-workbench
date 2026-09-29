@@ -45,7 +45,7 @@ int direct_io_screen(uint8_t op, uint8_t a, uint8_t y, char *out) {
 
 /* ---- ANSI input -> key codes ----
  *
- * A port of read_key in toolchain/asm2/editor/input.asm, with its
+ * A port of read_key in editor/input.asm, with its
  * two-deep pushback: keep them in step. */
 
 #define ESC_WAIT_MS 100

@@ -1,4 +1,4 @@
-; The ROM's service vectors under the asm2 environment's names (toolchain/asm2/17/environment.asm),
+; The ROM's service vectors under the asm17 environment's names (asm/17/environment.asm),
 ; for the test programs
   .include michael_rom.inc
 write_b          = SVC_WRITE_B

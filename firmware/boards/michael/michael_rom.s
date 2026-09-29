@@ -2,7 +2,7 @@
 ; (firmware/lib/serial/upload_v3.inc, tools/upload/upload_frame.py) and runs it. Uploads go
 ; to zero page, and from $0200 up to the interrupt page ($3F00, where the IRQ vector points). Uploaded programs
 ; can call the LCD and keyboard services (michael_services.inc) through the vector table at
-; $F006 (michael_rom.inc): the asm2 environment's entry points, so the editor's
+; $F006 (michael_rom.inc): the asm17 environment's entry points, so the editor's
 ; direct_io build runs on it; exit comes back here.
 ;
 ; Build:   firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc

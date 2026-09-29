@@ -1,4 +1,4 @@
-; The asm2 editor's environment (toolchain/asm2/17/environment.asm, the direct_io build's) on
+; The editor's environment (asm/17/environment.asm, the direct_io build's) on
 ; Michael, behind the entry points of michael_rom.inc: the 20x4 LCD as the screen and the PS/2
 ; keyboard for input. write_b and the scr_* calls draw on a copy of the screen that goes to the
 ; LCD when the program waits for a key or flushes (lcd_screen.inc); con_read and con_ready give
