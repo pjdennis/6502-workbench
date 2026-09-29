@@ -98,14 +98,15 @@ SS_NAME             = TOKEN
 MEMORY_POP_HANDLER  = pop_label_scope_from_frame  ; called by pop_source
                                                    ; on memory frames; restores
                                                    ; the macro's saved scope
-  .ifdef enable_debug
-SS_ERR_NO_FILE     = err_no_file
-  .endif
   .include source_stack.asm
 read_char          = source_stack_read_char
 CURR_CHAR          = SS_CURR_CHAR
 CURR_LINE16        = SS_CURR_LINE16
   .include errors.asm
+  .ifdef enable_debug
+SS_ERR_NO_FILE     = err_no_file   ; after errors.asm: an assignment takes
+                                   ; only labels defined before it
+  .endif
   .include from_decimal.asm
   .include output.asm
   .include tokenizer.asm

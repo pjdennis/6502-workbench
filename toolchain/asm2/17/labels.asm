@@ -5,7 +5,7 @@
 ;
 ; Requires:
 ;   CURR_CHAR (asm.asm alias; backing storage in source_stack.asm)
-;   TOKEN, PASS, OPERAND16 (asm.asm)
+;   TOKEN, PASS, OPERAND16, TEMP (asm.asm)
 ;   LABEL_SCOPE16 (hash_table.asm)
 ;   LABEL_TYPE, LABEL_TYPE_GLOBAL, LABEL_TYPE_LOCAL, LABEL_TYPE_MACRO_LOCAL (common.asm)
 ;   SCOPE_DEPTH (label_scope.asm)
@@ -100,6 +100,10 @@ update_label_scope_from_lookup:
 ;         A, X, Y are not preserved
 ; Raises 'PC value expected' if no value provided when setting PC via '*'
 ;        'Duplicate label' error if label has already been encountered
+;        'Assignment uses a label defined later' (pass 2) if an assigned
+;          value differs from pass 1's, which took such a label as 0
+;        'Address differs between passes' (pass 2) if a label's address
+;          differs from pass 1's
 ;        'Bad hex' error if non-hex characters were encountered
 capture_label:
   CMP #'*'
@@ -121,17 +125,27 @@ capture_label:
   ; Normal label
   BIT PASS
   BPL .pass_1
-  ; Pass 2 - don't capture label, but must track globals for local label scoping
+  ; Pass 2 - don't capture label, but must track globals for local label
+  ; scoping, and check each label's address against pass 1's
   ; LABEL_TYPE already set
   JSR check_for_value
   BCS .has_equals_2         ; If = found, branch
-  ; No = found - update global heap if this was not a local label
-  ; check_for_value updated CURR_CHAR if it called read_char
+  ; No = found: look the label up (a global one sets the scope for the
+  ; local labels after it); check_for_value updated CURR_CHAR if it
+  ; called read_char
   LDA LABEL_TYPE
-  BNE .was_local_2          ; If local flag != 0, skip update
+  BEQ .global_2
+  JSR select_label_hash_table
+  JSR find_in_hash          ; A local or macro-local label
+  JMP .check_address_2
+.global_2:
   JSR update_label_scope_from_lookup  ; Set LABEL_SCOPE16 for local label lookups
-.was_local_2:
-  JMP .skip_spaces_and_return_processed_flag
+.check_address_2:
+  ; HT_V16 = the address pass 1 gave the label: the same now, unless a
+  ; * = or .reserve before it took a label not defined yet in pass 1
+  CMP16 HT_V16, PC16
+  BEQ .skip_spaces_and_return_processed_flag
+  JMP err_address_differs
 .set_pc:
   ; Set PC
   JSR read_char             ; Skip the *
@@ -146,8 +160,23 @@ capture_label:
   SEC                       ; Indicate line is fully processed
   RTS
 .has_equals_2:
-  JSR read_value
-  JMP .return_processed
+  ; Pass 1 stored the value, taking a label not defined yet as 0; now
+  ; that every label is, the value must come out the same
+  JSR select_label_hash_table
+  JSR find_in_hash          ; HT_V16 = the value pass 1 stored
+  LDA HT_V16 + 1
+  PHA
+  LDA HT_V16
+  PHA
+  JSR read_value            ; HEX16 = the value now (HT_V16 is HEX16)
+  PLA
+  EOR HEX16
+  STA TEMP
+  PLA
+  EOR HEX16 + 1
+  ORA TEMP
+  BEQ .return_processed
+  JMP err_assignment_of_later_label
 .pass_1:
   ; LABEL_TYPE already set
   ; Add key to hash table first (before read_value may overwrite TOKEN)

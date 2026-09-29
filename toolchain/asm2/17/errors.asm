@@ -197,6 +197,15 @@ err_operand_in_zeropage:
   BRK
   .asciiz 42, "Operand not allowed on .byte/.word in .zeropage"
 
+; --- Pass consistency errors (43-44) ---
+err_assignment_of_later_label:
+  BRK
+  .asciiz 43, "Assignment uses a label defined later"
+
+err_address_differs:
+  BRK
+  .asciiz 44, "Address differs between passes"
+
 ; --- Command line/usage errors (240-241) ---
 err_usage:
   BRK

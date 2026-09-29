@@ -156,6 +156,7 @@ class UploadTest(TransferTestCase):
     self.assertEqual(self.devices.writes(), [])
 
   def test_status(self):
+    self.upload()
     status, output = self.run_transfer('--daemon', 'status')
     self.assertEqual(status, 0)
     self.assertIn(str(os.getpid()), output)
@@ -174,6 +175,18 @@ class AutostartTest(TransferTestCase):
     self.assertEqual(self.upload(start_daemon=self.start_daemon), (0, ''))
     self.assertEqual(self.starts, 1)
     self.assertEqual(self.devices.writes(), [build_frame(PROGRAM)])
+
+  def test_starts_a_new_daemon_after_the_device_is_unplugged_and_replugged(self):
+    self.devices.plug()
+    self.upload(start_daemon=self.start_daemon)
+    self.devices.unplug()
+    self.thread.join(5)
+    self.assertFalse(self.thread.is_alive())
+    self.devices.plug()
+    self.assertEqual(self.upload(start_daemon=self.start_daemon), (0, ''))
+    self.assertEqual(self.starts, 2)
+    self.assertEqual(len(self.devices.opened), 2)
+    self.assertEqual(self.devices.writes(), [build_frame(PROGRAM)] * 2)
 
   def test_daemon_that_does_not_start(self):
     with mock.patch.object(transfer, 'AUTOSTART_TIMEOUT', 0.2):

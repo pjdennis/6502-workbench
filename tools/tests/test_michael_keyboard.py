@@ -1,4 +1,5 @@
-"""Michael's keyboard programs, run on the emulator's Michael machine.
+"""Michael's keyboard programs, run on the emulator's Michael machine, and its RAM map
+probe, run in tools/michael_keyboard_sim.c.
 
 The emulator models the VIA, the LCD and the PS/2 keyboard board closely
 enough for the keyboard driver (firmware/lib/keyboard/keyboard_driver.inc):
@@ -20,6 +21,7 @@ import unittest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
+SIM_SOURCE = os.path.join(ROOT, 'tools', 'michael_keyboard_sim.c')
 BASE_CONFIG = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'base_config_v2.inc')
 PROGRAMS = os.path.join(ROOT, 'firmware', 'programs', 'michael')
 
@@ -100,6 +102,51 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_diag_shows_a_resend_request(self):
         self.assertEqual(self.diag_text(KEY_A, 'resend'), 'F4bcd[FE][1C][F0][1C]')
+
+
+@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc'),
+                     'vasm6502_oldstyle and gcc are needed')
+class MichaelRamMapTest(unittest.TestCase):
+    """michael_ram_map.s run in tools/michael_keyboard_sim.c, whose --ram picks how RAM is
+    decoded below the VIA (the emulator's Michael machine has Ben Eater's decode only)."""
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.sim = os.path.join(cls.tmp.name, 'michael_keyboard_sim')
+        subprocess.run(['gcc', '-O2', '-I', os.path.join(ROOT, 'emulator'), '-o', cls.sim,
+                        SIM_SOURCE, os.path.join(ROOT, 'emulator', 'cpu_core.c')],
+                       check=True, capture_output=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def run_program(self, name, ram):
+        """Returns the LCD's 4 lines once the program has run."""
+        binary = os.path.join(self.tmp.name, name + '.bin')
+        subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir',
+                        '-ignore-mult-inc', '-esc', '-o', binary,
+                        os.path.join(PROGRAMS, name + '.s')], check=True, capture_output=True)
+        with open(os.path.join(PROGRAMS, name + '.s')) as f:
+            load = re.search(r'^RAM_MAP_LOAD\s*=\s*\$([0-9a-fA-F]+)', f.read(), re.M).group(1)
+        output = subprocess.run([self.sim, '--ram=' + ram, binary, load,
+                                 base_config_address('INTERRUPT_VECTOR_TARGET')],
+                                check=True, capture_output=True, text=True).stdout.splitlines()
+        self.assertEqual(output[4], 'bad LCD writes: 0')
+        return [line.rstrip() for line in output[:4]]
+
+    def test_ram_map_shows_ben_eaters_16k(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='eater'),
+                         ['RAM map, 1K per char', '0000 RRRRRRRRRRRR', '3000 RRRRwwwwwwww',
+                          '16K RAM $0000-$3FFF'])
+
+    def test_ram_map_shows_24k(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='full')[1:],
+                         ['0000 RRRRRRRRRRRR', '3000 RRRRRRRRRRRR', '24K RAM $0000-$5FFF'])
+
+    def test_ram_map_shows_mirrors(self):
+        self.assertEqual(self.run_program('michael_ram_map', ram='mirror8k')[1:],
+                         ['0000 RRRRRRRRmmmm', '3000 mmmmmmmmmmmm', '8K RAM $0000-$1FFF'])
 
 
 if __name__ == '__main__':
