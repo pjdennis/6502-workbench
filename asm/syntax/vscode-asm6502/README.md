@@ -18,7 +18,7 @@ VS Code syntax highlighting for the asm17 6502 assembler dialect.
 Create a symlink from your VS Code extensions directory:
 
 ```bash
-ln -s /path/to/toolchain/asm2/vscode-asm6502 ~/.vscode/extensions/asm6502
+ln -s /path/to/asm/syntax/vscode-asm6502 ~/.vscode/extensions/asm6502
 ```
 
 Then reload VS Code. All `.asm` files will use the `6502 Assembly` language mode.

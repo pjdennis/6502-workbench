@@ -114,7 +114,7 @@ milestone map P7-M1..M6.
   shifts, comparisons + branches, unary, `@()`, `&`, indexing, calls, and
   the word-expression evaluator.)
 
-`p1.p8` is **generated** by [`build_p1.py`](./build_p1.py), which splices
+`p1.p8` is **generated** by `build_p1.py` (not in the repository), which splices
 stmt.p8's current front-end with the codegen back-end and renders fixed
 assembly text as `out_text("...")` calls over pooled string literals.
 Regenerate after editing the generator:
@@ -128,7 +128,7 @@ differs (stmt.p8 serializes the AST, p1.p8 emits assembly).
 ## Running
 
     # all p1 milestone tests (SKIPs without vasm6502_oldstyle + emulator):
-    make -C toolchain/prog8 p1-test
+    make -C prog8 p1-test
 
     # by hand: build, run on the emulator, diff against the oracle
     python3 -m p8c p1/lexer.p8 -o /tmp/lexer.s

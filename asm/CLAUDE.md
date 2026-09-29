@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in toolchain/asm2. Run the commands below from this directory.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in asm/. Run the commands below from this directory.
 
 ## Build Commands
 
@@ -10,9 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Run assembler tests
 python3 run_tests.py -q
-
-# Build editor and run editor tests
-python3 editor/tests/editor_tests.py -q
 
 # Build just the emulator and initial bootstrap
 make
@@ -24,7 +21,7 @@ The build succeeds when `17/out/asm.out == 17/out/asm_2.out` (self-assembly veri
 
 This is a self-hosting 6502 assembler built through progressive bootstrapping. The current assembler (`17/asm.asm`) can assemble its own source code.
 
-Also, there is a vi-like editor with source code in `editor`
+The vi-like editor written in this assembler's dialect lives in `../editor` (see `editor/CLAUDE.md`).
 
 ### Bootstrap Chain
 

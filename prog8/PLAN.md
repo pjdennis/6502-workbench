@@ -11,7 +11,7 @@ language-surface checklist, see [`README.md`](./README.md).
 
 * [`ASM_MIGRATION_PLAN.md`](./ASM_MIGRATION_PLAN.md) -- gap analysis +
   plan for swapping vasm out for the in-tree on-host assembler
-  (`toolchain/asm2/17/`), so pass 1 + pass 2 + assembler all run on target.
+  (`asm/17/`), so pass 1 + pass 2 + assembler all run on target.
 * [`CODEGEN_SIZE_COMPARISON.md`](./CODEGEN_SIZE_COMPARISON.md) -- measured
   p8c vs. upstream prog8 binary sizes (p8c emits ~1.5-1.65x the code).
 * [`CODEGEN_LOW_HANGING_FRUIT.md`](./CODEGEN_LOW_HANGING_FRUIT.md) -- ranked
@@ -82,7 +82,7 @@ its own version series (v2..v8) rather than being a single Phase
 
 ### Phase 0 -- Scaffolding `[done]`
 
-* Directory layout under `toolchain/prog8/`.
+* Directory layout under `prog8/`.
 * Host compiler driver (`python3 -m p8c`).
 * Test harness: unit / snapshot / golden tiers.
 
@@ -372,14 +372,14 @@ Phase 7 grind.
 
 ## How a fresh session should orient itself
 
-1. Read `toolchain/prog8/PLAN.md` (this file) -- gives you the
+1. Read `prog8/PLAN.md` (this file) -- gives you the
    strategic map.
-2. Read `toolchain/prog8/RESUME_NOTES.md` -- tells you what
+2. Read `prog8/RESUME_NOTES.md` -- tells you what
    landed in the most recent session and what the concrete
    ready-to-pick-up next pushes are.
-3. (Optional) Skim `toolchain/prog8/README.md` -- the per-feature
+3. (Optional) Skim `prog8/README.md` -- the per-feature
    language-surface checklist.
-4. `make -C toolchain/prog8 prog8-test tinyp8-test` -- confirm
+4. `make -C prog8 prog8-test tinyp8-test` -- confirm
    everything's actually green before you start changing things.
 5. Pick one push from RESUME_NOTES.md, work it, commit, push.
    Update RESUME_NOTES.md (and this file's status markers if a

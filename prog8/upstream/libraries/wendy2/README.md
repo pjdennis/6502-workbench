@@ -42,10 +42,10 @@ in `RTS`; the trampoline lives in the fixed lower 32K so the return works.
 ## Build / run / test
 
     # one demo (prints the final LCD frame):
-    cd toolchain/prog8/upstream && ./wendy2_run.sh demos/t1_bank_probe.p8
+    cd prog8/upstream && ./wendy2_run.sh demos/t1_bank_probe.p8
 
     # the golden test suite:
-    make -C toolchain/prog8 wendy2-test
+    make -C prog8 wendy2-test
 
 Prereqs: `prog8c.jar` at `/tmp/prog8c.jar` (or `$PROG8C`), `64tass` and
 `vasm6502_oldstyle` on PATH, and the emulator built

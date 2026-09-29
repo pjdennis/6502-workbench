@@ -10,9 +10,9 @@ OS-call file I/O from
 > The `$F800+` OS-call port chip + `--disk` (D1), the monitor ROM with autoexec
 > load+run (D2), return-to-monitor + multi-command autoexec (D4), and loading
 > code into multiple banks + executing across them (T5/T6) are implemented and
-> tested (`make -C toolchain/prog8 wendy2-test`: 12 e2e goldens). Implementation:
+> tested (`make -C prog8 wendy2-test`: 12 e2e goldens). Implementation:
 > `emulator/chips/syscall_ports.{c,h}`, `wendy2c_monitor.s`,
-> `toolchain/prog8/upstream/libraries/wendy2/os.p8`, demos `d1_*`/`d2_*`/`d4_*`/`t5_*`/`t6_*`/`d5_*` + `wendy2_pack.py`.
+> `prog8/upstream/libraries/wendy2/os.p8`, demos `d1_*`/`d2_*`/`d4_*`/`t5_*`/`t6_*`/`d5_*` + `wendy2_pack.py`.
 > Remaining (future work): D3 (interactive serial commands -- deferred),
 > D6 (real SPI-flash image backing).
 

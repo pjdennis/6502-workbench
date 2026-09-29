@@ -66,4 +66,4 @@ skipped, malformed `print_ub` cleanly aborts compilation.
     python3 -m tinyp8 hello.tp8
 
     # run the test suite
-    make -C toolchain/prog8 tinyp8-test
+    make -C prog8 tinyp8-test

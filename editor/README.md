@@ -454,37 +454,39 @@ as a VT102 does by default:
 - Bounds checking tests build `editor_small.out` with `define:small_buffer` to
   force truncation/read-only scenarios.
 - On success, copies the builds to `editor/out/editor_stable.out` (used by
-  `editor-fast.sh` and `editor-slow-console.sh`) and
-  `editor/out/editor_terminal_stable.out` (used by `editor.sh` and the
-  `editor-terminal-*.sh` scripts).
+  `bin/editor-fast.sh` and `bin/editor-slow-console.sh`) and
+  `editor/out/editor_terminal_stable.out` (used by `bin/editor.sh` and the
+  `bin/editor-terminal-*.sh` scripts).
 
 ### Quick commands
 ```bash
-# Run tests (from toolchain/asm2):
-python3 editor/tests/editor_tests.py -q
+# Run tests (needs asm17: tools/build_all.sh asm):
+editor/verify.sh                          # all of them
+python3 editor/tests/editor_tests.py -q   # just the main ones
 
 # Run editor (terminal build, 19200 baud, 2 MHz):
-./editor.sh <file>
+editor/bin/editor.sh <file>
 ```
 
 ## Build/run
 
 ```bash
+# The assembler resolves .include from the working directory: run these from the repository root.
 # Assemble (release):
-../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor.out
+emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor.out
 
 # Assemble (small buffer):
-../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
+emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
 
 # Assemble (terminal mode):
-../../emulator/emulator.out 17/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
+emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
 
 # Run (console):
-../../emulator/emulator.out editor/out/editor.out --load 0400 --console <file>
+emulator/emulator.out editor/out/editor.out --load 0400 --console <file>
 
-# Shortcuts: editor.sh runs editor_terminal_stable.out (--terminal
+# Shortcuts in editor/bin: editor.sh runs editor_terminal_stable.out (--terminal
 # --baud 19200 --mhz 2); editor-fast.sh runs editor_stable.out (--console)
-./editor.sh <file>
+editor/bin/editor.sh <file>
 ```
 
 ## Tips for LLMs making changes

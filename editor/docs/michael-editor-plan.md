@@ -1,12 +1,12 @@
-# Plan: the asm2 editor on Michael
+# Plan: the editor on Michael
 
-Goal: run `toolchain/asm2/editor` on Michael (the v2 board), with the 20x4 LCD as the screen and the PS/2 keyboard board (`Bidirectional PS2 Keyboard Interface Schematic v1.0.pdf`) as input. For now everything runs from RAM. Load and save are left out: the editor starts with an unnamed empty file and `openout` fails, so `:w` shows "Can't open file for writing". The editor changes as little as possible. The `emulator/` gets a Michael machine so all of this can be tested.
+Goal: run `editor` on Michael (the v2 board), with the 20x4 LCD as the screen and the PS/2 keyboard board (`Bidirectional PS2 Keyboard Interface Schematic v1.0.pdf`) as input. For now everything runs from RAM. Load and save are left out: the editor starts with an unnamed empty file and `openout` fails, so `:w` shows "Can't open file for writing". The editor changes as little as possible. The `emulator/` gets a Michael machine so all of this can be tested.
 
 Branch: `michael-editor`, from `editor-size-series` with GitHub `main` merged in.
 
 ## Progress (2026-09-27)
 
-Phases 1-4 are done: the editor runs on the emulated Michael board (`toolchain/asm2/editor-michael.sh`), and `verify.sh` tests it end to end (`editor/tests/michael_tests.py`). Phase 5: `toolchain/asm2/editor-michael-upload.sh` uploads it to the board in two steps (`tools/upload/upload_michael_big.sh`): the second-stage loader (`firmware/programs/michael/michael_second_stage_loader.s`) through the ROM's loader, then the whole image through it, straight to $0400. Neither trimming nor a change to the ROM was needed. The tests upload the image over the emulated serial line. Confirmed working on the real board on 2026-09-27. (Superseded by the new ROM, `docs/michael-rom-plan.md`: the two-stage upload and the RAM build of the services are gone; they remain in the history.)
+Phases 1-4 are done: the editor runs on the emulated Michael board (`editor/bin/editor-michael.sh`), and `editor/verify.sh` tests it end to end (`editor/tests/michael_tests.py`). Phase 5: `editor/bin/editor-michael-upload.sh` uploads it to the board in two steps (`tools/upload/upload_michael_big.sh`): the second-stage loader (`firmware/programs/michael/michael_second_stage_loader.s`) through the ROM's loader, then the whole image through it, straight to $0400. Neither trimming nor a change to the ROM was needed. The tests upload the image over the emulated serial line. Confirmed working on the real board on 2026-09-27. (Superseded by the new ROM, `docs/michael-rom-plan.md`: the two-stage upload and the RAM build of the services are gone; they remain in the history.)
 
 Sizes and memory as built:
 - The define:direct_io define:michael editor is 11,807 bytes ($0400-$32DE); the services are 2,406 bytes at $3500.

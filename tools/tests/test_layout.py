@@ -15,7 +15,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 # Files that describe the old paths on purpose, and the attic (never built or tested).
 HISTORICAL = ('attic/', 'docs/history.md', 'docs/REORGANIZATION_PLAN.md', 'tools/reorg/',
               'tools/tests/test_layout.py')
-OLD_PATH = re.compile(r'toolchain/|(?<![\w-])asm2/(?:17|editor|Makefile|verify)')
+OLD_PATH = re.compile(r'(?<!\w)toolchain/(?:asm|prog8|README)|(?<![\w-])asm2/(?:17|editor|Makefile|verify)')
 
 
 def tracked_files():
@@ -56,7 +56,9 @@ class LayoutTest(unittest.TestCase):
     def test_editor_includes_resolve_from_the_root(self):
         # The assembler resolves .include against its working directory: the root.
         missing = []
-        for path in glob.glob(os.path.join(ROOT, 'editor', '*.asm')):
+        sources = glob.glob(os.path.join(ROOT, 'editor', '*.asm'))
+        self.assertIn(os.path.join(ROOT, 'editor', 'editor.asm'), sources)
+        for path in sources:
             with open(path) as f:
                 for line in f:
                     m = re.match(r'\s*\.include\s+(\S+)', line)
@@ -71,8 +73,13 @@ class LayoutTest(unittest.TestCase):
         for path in launchers:
             with open(path) as f:
                 text = f.read()
-            self.assertIn('emulator/emulator.out', text, path)
-            self.assertNotIn('../../', text, path)
+            self.assertIn('/../..', text, path)  # they find the repository root from editor/bin
+            if 'michael' in os.path.basename(path):
+                continue  # these build an image or upload it; they run from the root
+            self.assertIn('$ROOT/emulator/emulator.out', text, path)
+            self.assertTrue(os.path.exists(os.path.join(ROOT, 'emulator')), path)
+            for m in re.finditer(r'\$ROOT/(editor/out/\S+\.out)', text):
+                self.assertTrue(m.group(1).startswith('editor/out/'), path)
 
     def test_check_and_build_scripts_use_the_new_names(self):
         with open(os.path.join(ROOT, 'tools', 'check_all.sh')) as f:
