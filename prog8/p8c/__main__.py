@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[2] / "firmware" / "vasm"
 
 from .codegen import CodeGenError, generate
 from .lex import LexError, lex
@@ -34,7 +34,7 @@ from .sema import SemaError, analyze
 from .serialize import serialize, serialize_tokens
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 EMULATOR = REPO_ROOT / "emulator" / "emulator.out"
 WENDY2_UPLOAD = REPO_ROOT / "emulator" / "wendy2_upload.py"
 BOOT_SRC = REPO_ROOT / "firmware" / "boards" / "wendy2" / "upload_and_run_eeprom_wendy2c.s"

@@ -9,7 +9,7 @@ the golden.
 Skips cleanly if the toolchain isn't present (prog8c.jar / 64tass /
 vasm6502_oldstyle / the built emulator).
 
-Run:  python3 tests/test_wendy2.py        (from .../toolchain/prog8/upstream)
+Run:  python3 tests/test_wendy2.py        (from .../prog8/upstream)
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent          # .../upstream/tests
 UP = HERE.parent                                 # .../upstream
-REPO = UP.parents[2]                             # repo root
+REPO = UP.parents[1]                             # repo root
 EMU = REPO / "emulator" / "emulator.out"
 JAR = Path(os.environ.get("PROG8C", "/tmp/prog8c.jar"))
 DEMOS = UP / "demos"

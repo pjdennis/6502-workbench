@@ -4,7 +4,7 @@
 test: prog8-test tinyp8-test p1-test
 
 emu:
-	@$(MAKE) -s -C ../.. emulator/emulator.out
+	@$(MAKE) -s -C .. emulator/emulator.out
 
 # Prog8 host compiler (Phase 1 walking skeleton) test suite. Includes
 # lexer / parser / sema / codegen unit tests, .s snapshot tests, and an

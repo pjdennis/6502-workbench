@@ -15,14 +15,14 @@
 # large p8c-compilation sanity check below.)
 set -e
 cd "$(dirname "$0")"
-EMU=../../emulator/emulator.out
+EMU=../emulator/emulator.out
 CAP=30000000000
 
 python3 -m p8c --target nmos p1/p1_pass1_sh.p8 -o /tmp/_p1.s >/dev/null 2>&1
-O1=$(../../firmware/vasm -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p1.bin /tmp/_p1.s 2>&1) \
+O1=$(../firmware/vasm -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p1.bin /tmp/_p1.s 2>&1) \
    || { echo "PASS1 VASM FAIL"; echo "$O1" | grep -i error; exit 1; }
 python3 -m p8c --target nmos p1/p1_pass2_sh.p8 -o /tmp/_p2.s >/dev/null 2>&1
-O2=$(../../firmware/vasm -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p2.bin /tmp/_p2.s 2>&1) \
+O2=$(../firmware/vasm -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p2.bin /tmp/_p2.s 2>&1) \
    || { echo "PASS2 VASM FAIL"; echo "$O2" | grep -iE 'error|overlap'; exit 1; }
 s1=$(echo "$O1" | grep 'org0001' | grep -oE '[0-9]+ bytes' | grep -oE '[0-9]+')
 s2=$(echo "$O2" | grep 'org0001' | grep -oE '[0-9]+ bytes' | grep -oE '[0-9]+')

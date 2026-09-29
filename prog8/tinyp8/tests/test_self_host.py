@@ -24,12 +24,12 @@ import unittest
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[4] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
 
 HERE = Path(__file__).resolve().parent
 TP8 = HERE.parent
 PROG8 = TP8.parent
-REPO = PROG8.parents[1]
+REPO = PROG8.parent
 EMU = REPO / "emulator" / "emulator.out"
 TINYP8_P8_SRC = TP8 / "tinyp8.p8"
 GOLDENS = HERE / "goldens"

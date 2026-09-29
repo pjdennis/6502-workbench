@@ -18,7 +18,7 @@ sys.path.insert(0, "p1/tests")
 import test_p1 as T
 
 PROG8 = Path(__file__).resolve().parent.parent
-EMU = PROG8.parent.parent / "emulator" / "emulator.out"
+EMU = PROG8.parent / "emulator" / "emulator.out"
 P1, P2 = Path("/tmp/pass1/img.bin"), Path("/tmp/pass2/img.bin")
 CAP = "30000000000"
 wd = Path(tempfile.mkdtemp(prefix="shc_"))

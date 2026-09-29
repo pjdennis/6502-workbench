@@ -30,7 +30,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent           # tinyp8/tests
 TP8 = HERE.parent                                  # tinyp8/
 PROG8 = TP8.parent                                 # prog8/
-REPO = PROG8.parents[1]                            # repo root
+REPO = PROG8.parent                            # repo root
 EMU = REPO / "emulator" / "emulator.out"
 GOLDENS = HERE / "goldens"
 

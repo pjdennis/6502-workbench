@@ -17,11 +17,11 @@ import unittest
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[2] / "firmware" / "vasm"
 
 HERE = Path(__file__).resolve().parent
 PROG8 = HERE.parent
-REPO = PROG8.parents[1]
+REPO = PROG8.parent
 EMU = REPO / "emulator" / "emulator.out"
 
 _SHIM = """%address $0200

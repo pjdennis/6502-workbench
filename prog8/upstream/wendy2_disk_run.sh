@@ -8,7 +8,7 @@
 #   uploads the compiled program to $4000 and runs it).
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PROG8="$HERE/.."; REPO="$PROG8/../.."
+PROG8="$HERE/.."; REPO="$PROG8/.."
 JAR="${PROG8C:-/tmp/prog8c.jar}"
 EMU="$REPO/emulator/emulator.out"
 UPLOAD="$REPO/emulator/wendy2_upload.py"

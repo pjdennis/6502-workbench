@@ -10,7 +10,7 @@
 # Usage: wendy2_monitor_run.sh demos/foo.p8 [cyclecap] [extra_disk_file ...]
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PROG8="$HERE/.."; REPO="$PROG8/../.."
+PROG8="$HERE/.."; REPO="$PROG8/.."
 JAR="${PROG8C:-/tmp/prog8c.jar}"
 EMU="$REPO/emulator/emulator.out"
 MON_SRC="$REPO/firmware/boards/wendy2/wendy2c_monitor.s"

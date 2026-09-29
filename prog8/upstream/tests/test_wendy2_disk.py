@@ -8,7 +8,7 @@ staged host directory mounted as --disk; the final LCD frame is diffed
 against the golden.
 
 Skips cleanly if prog8c.jar / 64tass / vasm6502_oldstyle / the emulator
-are missing. Run from .../toolchain/prog8/upstream.
+are missing. Run from .../prog8/upstream.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 UP = HERE.parent
-REPO = UP.parents[2]                             # repo root
+REPO = UP.parents[1]                             # repo root
 EMU = REPO / "emulator" / "emulator.out"
 JAR = Path(os.environ.get("PROG8C", "/tmp/prog8c.jar"))
 GOLDENS = HERE / "goldens"

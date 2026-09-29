@@ -27,11 +27,11 @@ import sys
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[2] / "firmware" / "vasm"
 
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[2]
+REPO = HERE.parents[1]
 EMU = REPO / "emulator" / "emulator.out"
 TINYP8_SRC = HERE / "tinyp8.s"
 TINYP8_BIN = HERE / "out" / "tinyp8.bin"

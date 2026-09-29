@@ -14,11 +14,11 @@ import os, shutil, subprocess, tempfile, unittest
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[4] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
 
 HERE = Path(__file__).resolve().parent
 UP = HERE.parent
-REPO = UP.parents[2]
+REPO = UP.parents[1]
 EMU = REPO / "emulator" / "emulator.out"
 JAR = Path(os.environ.get("PROG8C", "/tmp/prog8c.jar"))
 MON_SRC = REPO / "firmware" / "boards" / "wendy2" / "wendy2c_monitor.s"

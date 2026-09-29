@@ -11,11 +11,11 @@ import unittest
 from pathlib import Path
 
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[3] / "firmware" / "vasm"
+FW_VASM = Path(__file__).resolve().parents[2] / "firmware" / "vasm"
 
 HERE = Path(__file__).resolve()
 PROG8 = HERE.parent.parent
-REPO = PROG8.parent.parent
+REPO = PROG8.parent
 EMU = REPO / "emulator" / "emulator.out"
 
 # Reuse the shim from the sibling e2e test, with `%import strings` added.
