@@ -78,3 +78,22 @@ Then build it the way that era did, using the table below.
 | `assembler2/emulator/`, `assembler2/persistent_emulator.py` | `emulator/` |
 | `bbc-basic-four-analysis/` | `research/bbc-basic-iv/` |
 | stale, broken or superseded files | `attic/` (same relative path) |
+
+## Where things moved on 2026-09-29
+
+`toolchain/` was dissolved. Pure `git mv` commits, so `git log --follow` works across each move.
+
+| Was | Now |
+|---|---|
+| `toolchain/asm2/` | `asm/` |
+| `toolchain/asm2/editor/` | `editor/` |
+| `toolchain/asm2/editor*.sh` | `editor/bin/` |
+| `toolchain/asm2/{rules,general-todos.txt,unicode.txt,resources/}`, `docs/michael-editor-plan.md` | `editor/`, `editor/docs/` |
+| `toolchain/asm2/{asm6502.vim,vscode-asm6502/}` | `asm/syntax/` |
+| `toolchain/asm2/{*_plan.md,*_notes.md,TODOS}` | `asm/docs/` |
+| `toolchain/asm2/{review-unpushed.sh,vreview-unpushed.sh}` | `tools/` |
+| `toolchain/asm2/{legacy/,.claude/}` | `attic/asm-legacy/` |
+| `toolchain/prog8/` | `prog8/` |
+| `toolchain/asm1/` | `attic/asm1/` |
+
+Building a commit from before this date: use the paths of that commit (`cd toolchain/asm2 && ./verify.sh`).
