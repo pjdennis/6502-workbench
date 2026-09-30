@@ -1,7 +1,7 @@
 ; File write test: opens argv[0] for writing, writes stdin bytes to it, closes, exits
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 HANDLE = $00
 

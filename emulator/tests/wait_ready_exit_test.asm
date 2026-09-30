@@ -2,7 +2,7 @@
 ; the result as the exit code ($FF ready, $00 timed out, $01 input ended)
 * = $0400
   JMP main
-  .include 17/environment.asm
+  .include asm/17/environment.asm
 
 main:
   LDA #$C8               ; 200 ms

@@ -2,8 +2,8 @@
 ; (michael_services.inc) and the RAM they use. This file is the source of truth: the ROM checks
 ; that each entry is where this says.
 ;
-; Entry points are 3-byte jmps. The asm2 environment's are at the offsets of
-; toolchain/asm2/17/environment.asm (the editor uses that file); Michael's own follow.
+; Entry points are 3-byte jmps. The asm17 environment's are at the offsets of
+; asm/17/environment.asm (the editor uses that file); Michael's own follow.
 ;
 ; RAM: the loader uses nothing that lasts once a program runs. A program that calls the LCD
 ; routines (SVC_LCD_*, and the services') must leave ROM_FLAGS alone; one that starts the

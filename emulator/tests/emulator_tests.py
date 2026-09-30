@@ -37,7 +37,7 @@ class EmulatorTestRunner:
         self.verbose = verbose
         self.filter_pattern = filter_pattern
         self.emulator = base_dir / "emulator" / "emulator.out"
-        self.assembler = base_dir / "toolchain" / "asm2" / "17" / "out" / "asm.out"
+        self.assembler = base_dir / "asm" / "17" / "out" / "asm.out"
         self.passed = 0
         self.failed = 0
         self.skipped = 0
@@ -89,7 +89,7 @@ class EmulatorTestRunner:
         result = subprocess.run(
             [str(self.emulator), str(self.assembler),
              "--no-dump", str(src), str(dst)],
-            capture_output=True, text=True
+            capture_output=True, text=True, cwd=self.base_dir  # .include paths are root-relative
         )
         if result.returncode != 0:
             print(f"Error: Failed to assemble {src.name}:")

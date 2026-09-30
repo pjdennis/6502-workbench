@@ -2,11 +2,11 @@
 # Run every regression check the repo has. The reorganization must keep all of
 # these green (docs/REORGANIZATION_PLAN.md, rule R1). CI runs the same steps.
 #
-#   tools/check_all.sh [firmware|asm1|asm2|emulator|prog8]...   (default: all)
+#   tools/check_all.sh [firmware|asm|editor|emulator|prog8]...   (default: all)
 #
 # Needs on PATH: vasm6502_oldstyle (CI uses the version recorded in firmware/manifest.txt --
 # see .github/workflows/ci.yml; another version that gives identical binaries only warns),
-# gcc, g++, make, python3, hexdump.
+# gcc, g++, make, python3.
 # The emulator suite also uses Python playwright; the prog8 suite uses 64tass and
 # java + $PROG8C (default /tmp/prog8c.jar). Those tests SKIP when the tool is missing.
 # The slow opt-in suites (Harte, P1_WENDY_SELFHOST, MERGE_SORT_FULL_N) are not run.
@@ -24,32 +24,32 @@ firmware() {
     python3 tools/firmware_manifest.py check --include-list firmware/include-dirs
 }
 
-asm1() {
-  # asmtestgen.sh always exits 0 and, without hexdump, "passes" by diffing two
-  # empty dumps -- so require hexdump and check the printed verdicts instead.
-  command -v hexdump >/dev/null || { echo "hexdump not on PATH"; return 1; }
-  local log
-  log="$(cd toolchain/asm1 && ./asmtestgen.sh </dev/null 2>&1)"
-  echo "$log" | tail -3
-  echo "$log" | grep -qx 'OK' && echo "$log" | grep -qx 'Assembled'
+asm() {
+  (cd asm && ./verify.sh)
 }
 
-asm2() {
-  (cd toolchain/asm2 && ./verify.sh)
+# The editor and the emulator's terminal tests run on the assembler; build it once if it is missing.
+need_asm() {
+  [ -f asm/17/out/asm.out ] || (cd asm && ./asmtestgen.sh)
+}
+
+editor() {
+  need_asm && editor/verify.sh
 }
 
 emulator() {
   # Emulator C tests + wendy2c goldens; must run from the repo root. Clean
   # first so stale test binaries cannot mask a broken build rule.
-  make -s clean && make test
+  make -s clean && make test && need_asm &&
+    emulator/tests/terminal_tests.py && emulator/tests/emulator_tests.py
 }
 
 prog8() {
-  make -C toolchain/prog8 test
+  make -C prog8 test
 }
 
 suites=("$@")
-[ ${#suites[@]} -eq 0 ] && suites=(firmware asm1 asm2 emulator prog8)
+[ ${#suites[@]} -eq 0 ] && suites=(firmware asm editor emulator prog8)
 
 for s in "${suites[@]}"; do
   echo "=== $s ==="

@@ -82,7 +82,7 @@ Add `--no-write-protect` if the chip has software write protection on. To go bac
 After a reset, the LCD shows "Michael ROM 4" and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
 
 - `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to S-records and sends them, so a program loads at its `.org` and starts at its `start` label, which every uploaded program needs. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000`.
-- `tools/upload/transfer.py --baudrate=57600 --format=3 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `toolchain/asm2/editor-michael-upload.sh` builds the asm2 editor and uploads it to `$0200`.
+- `tools/upload/transfer.py --baudrate=57600 --format=3 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `editor/bin/editor-michael-upload.sh` builds the editor and uploads it to `$0200`.
 - An upload can also load zero page. Writing 0 where a program specified nothing is harmless, so the sender merges nearby pieces, with zeros between, to stay within the loader's 32 entries.
 
 While an upload arrives, the first two rows show the entry ("Block") arriving, where its next byte will end up, and how many bytes have come in. They're redrawn about five times a second, so a stalled upload shows exactly where it stopped. When the upload is complete, the loader clears the screen and runs it. A bad upload leaves "Upload failed" and the reason on the screen, with the LED lit, until reset.

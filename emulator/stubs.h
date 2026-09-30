@@ -50,7 +50,7 @@
 // Generate I/O stubs at $F006+ in memory, returns address after last stub byte.
 // direct_io adds the screen call vectors after wait_ready (direct_io.h).
 // strict_api (--strict-api) makes each call keep only what its contract
-// (toolchain/asm2/17/environment.asm) says: the flags it does not return
+// (asm/17/environment.asm) says: the flags it does not return
 // come back inverted, and the screen calls change A and Y.
 size_t generate_stubs(uint8_t *memory, int terminal_mode, int direct_io, int strict_api);
 

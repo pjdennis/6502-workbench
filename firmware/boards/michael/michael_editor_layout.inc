@@ -1,5 +1,5 @@
-; How the asm2 editor and the Michael ROM's services (michael_services.inc) share Michael's RAM,
-; for both sides: the ROM (vasm) and the editor's define:michael build (asm2, which includes this
+; How the editor and the Michael ROM's services (michael_services.inc) share Michael's RAM,
+; for both sides: the ROM (vasm) and the editor's define:michael build (built by asm17, which includes this
 ; file by path, from editor/memory_map.asm).
 ; Plain "NAME = $VALUE" lines only, with upper-case hex, so both assemblers read it.
 

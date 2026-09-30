@@ -1,6 +1,6 @@
 ; Keys as a terminal program wants them: ASCII, Enter as CR, Ctrl with a
 ; letter as its control code, and the special keys as the key codes of
-; toolchain/asm2/17/environment.asm (con_read with direct_io).
+; asm/17/environment.asm (con_read with direct_io).
 ;
 ; Requires keyboard_driver.inc (and what it requires)
 

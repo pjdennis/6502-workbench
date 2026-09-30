@@ -29,7 +29,7 @@ CHECK = os.path.join(TESTS, 'upload_check.s')
 HELLO = os.path.join(ROOT, 'firmware', 'programs', 'michael', 'hello_michael_ram.s')
 ZP_CHECK = os.path.join(TESTS, 'zp_check.s')
 VECTORS = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.inc')
-ENVIRONMENT = os.path.join(ROOT, 'toolchain', 'asm2', '17', 'environment.asm')
+ENVIRONMENT = os.path.join(ROOT, 'asm', '17', 'environment.asm')
 
 
 NEEDS = unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc') and shutil.which('make'),

@@ -50,15 +50,17 @@ Then build it the way that era did, using the table below.
 
 **Boards.** Wendy (v1, 2020) and Michael (v2, 2021) share a library of LCD, keyboard, sound, serial and multitasking routines. Each board has its own `base_config_*.inc` and `initialize_machine_*.inc`. Wendy 2 (2022) moved to a 65C02 with PLD glue logic and banked RAM; its revisions are in `hardware/wendy2/README.md`. Work on Michael's graphics console and keyboard driver continued on `michael_keyboard_wip` from 2023 to 2024 (BBC BASIC). That branch also carried a Wendy 2 LED control and a 2026 PLD experiment. It was merged in the 2026 reorganization.
 
-**Assemblers.** `asm1` (2022–2025, now `toolchain/asm1`) was bootstrapped with vasm. `asm2` (2026, now `toolchain/asm2`) starts from a small C assembler and builds 17 stages, each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
+**Assemblers.** `asm1` (2022–2025, now `attic/asm1`) was bootstrapped with vasm. `asm2` (2026, now `asm/`) starts from a small C assembler and builds 17 stages, each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
 
-**Editor.** A vi-like editor written in asm2's dialect (from 2026-02, `toolchain/asm2/editor`).
+**Editor.** A vi-like editor written in asm2's dialect (from 2026-02, now `editor/`).
 
 **Emulator.** It started as asm1's single-file `emulator.c` built on fake6502. From 2026-02 it is a modular emulator with a host-stub machine for the assemblers and editor. In 2026-05 it gained a board-level Wendy 2 rev c model generated from the real PLD equations, with web, audio and serial-link front ends (`emulator/`).
 
-**Prog8.** A host compiler, then on-target compilers. It culminated in `p1` compiling itself on the emulated banked Wendy 2 (`toolchain/prog8`).
+**Prog8.** A host compiler, then on-target compilers. It culminated in `p1` compiling itself on the emulated banked Wendy 2 (now `prog8/`).
 
 ## Where things moved in 2026-09
+
+The first reorganization, 2026-09-24. The next section has the 2026-09-29 moves that followed it.
 
 `git log --follow <new path>` follows a file back through the move. The main moves:
 
@@ -78,3 +80,22 @@ Then build it the way that era did, using the table below.
 | `assembler2/emulator/`, `assembler2/persistent_emulator.py` | `emulator/` |
 | `bbc-basic-four-analysis/` | `research/bbc-basic-iv/` |
 | stale, broken or superseded files | `attic/` (same relative path) |
+
+## Where things moved on 2026-09-29
+
+`toolchain/` was dissolved. Pure `git mv` commits, so `git log --follow` works across each move.
+
+| Was | Now |
+|---|---|
+| `toolchain/asm2/` | `asm/` |
+| `toolchain/asm2/editor/` | `editor/` |
+| `toolchain/asm2/editor*.sh` | `editor/bin/` |
+| `toolchain/asm2/{rules,general-todos.txt,unicode.txt,resources/}`, `docs/michael-editor-plan.md` | `editor/`, `editor/docs/` |
+| `toolchain/asm2/{asm6502.vim,vscode-asm6502/}` | `asm/syntax/` |
+| `toolchain/asm2/{*_plan.md,*_notes.md,TODOS}` | `asm/docs/` |
+| `toolchain/asm2/{review-unpushed.sh,vreview-unpushed.sh}` | `tools/` |
+| `toolchain/asm2/{legacy/,.claude/}` | `attic/asm-legacy/` |
+| `toolchain/prog8/` | `prog8/` |
+| `toolchain/asm1/` | `attic/asm1/` |
+
+Building a commit from before this date: use the paths of that commit (`cd toolchain/asm2 && ./verify.sh`).

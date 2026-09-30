@@ -115,7 +115,7 @@ def set_nonblocking(fd):
 def run_sigtstp_redraw_test(base_dir, verbose=False):
     """Test that screen is redrawn after SIGTSTP/SIGCONT in terminal mode."""
     emulator = base_dir / "emulator" / "emulator.out"
-    assembler = base_dir / "toolchain" / "asm2" / "17" / "out" / "asm.out"
+    assembler = base_dir / "asm" / "17" / "out" / "asm.out"
     test_asm = base_dir / "emulator" / "tests" / "sigtstp_test.asm"
     test_bin = base_dir / "emulator" / "tests" / "out" / "sigtstp_test.out"
 
@@ -131,7 +131,7 @@ def run_sigtstp_redraw_test(base_dir, verbose=False):
     result = subprocess.run(
         [str(emulator), str(assembler), "--no-dump",
          str(test_asm), str(test_bin)],
-        capture_output=True, text=True
+        capture_output=True, text=True, cwd=base_dir  # .include paths are root-relative
     )
     if result.returncode != 0:
         print(f"Error: Failed to assemble test program:")

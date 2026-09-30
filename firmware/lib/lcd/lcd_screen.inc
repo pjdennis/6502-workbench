@@ -1,5 +1,5 @@
 ; A character screen kept in RAM and shown on an HD44780 panel: the screen
-; calls of the asm2 editor's direct_io build (toolchain/asm2/17/environment.asm,
+; calls of the editor's direct_io build (asm/17/environment.asm,
 ; scr_*), plus writing characters at the cursor. They change the copy in RAM
 ; and mark its rows dirty; lcd_screen_flush writes the dirty rows to the LCD
 ; and places the LCD's cursor.

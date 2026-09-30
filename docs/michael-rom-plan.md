@@ -3,9 +3,9 @@
 Goal: a new EEPROM for Michael that
 - takes uploads in a new format (below) that can fill RAM from `$0200` to `$3EFF` (15.25 KB instead of 13.5 KB), in one or more blocks;
 - no longer reverses each byte's bits after an upload, because the uploader sends them already reversed;
-- carries the LCD and keyboard services, at the same entry points as the emulator's environment (`toolchain/asm2/17/environment.asm`, `ENV_BASE = $F000`).
+- carries the LCD and keyboard services, at the same entry points as the emulator's environment (`asm/17/environment.asm`, `ENV_BASE = $F000`).
 
-The asm2 editor then uploads alone, with about 4 KB of buffers instead of about 1 KB. The two-stage upload goes. The other boards stay as they are: every change is behind a flag or conditional assembly that only Michael turns on.
+The editor then uploads alone, with about 4 KB of buffers instead of about 1 KB. The two-stage upload goes. The other boards stay as they are: every change is behind a flag or conditional assembly that only Michael turns on.
 
 Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 
@@ -54,7 +54,7 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 - The new loader is a new include, `upload_v2.inc`, sharing `serial_receive_timing.inc` and `serial_receive_interrupt.inc` with `upload_and_run.inc`, which is left alone.
 
 **Services in the ROM.**
-- The vector table sits at `$F006-$F068`, the offsets of `17/environment.asm`, so a program built for the emulator's environment calls the same addresses on Michael. The asm2 editor's `define:michael` then needs no vector changes at all, and `editor/michael_environment.asm` goes.
+- The vector table sits at `$F006-$F068`, the offsets of `asm/17/environment.asm`, so a program built for the emulator's environment calls the same addresses on Michael. The editor's `define:michael` then needs no vector changes at all, and `editor/michael_environment.asm` goes.
 - The entries:
   - `write_b` and the `scr_*` calls draw on the LCD.
   - `con_read`, `con_ready` and `con_flush` handle keys and redrawing.

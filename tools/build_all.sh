@@ -1,11 +1,11 @@
 #!/bin/bash
-# Build the main tools, so the scripts that use them work (e.g. toolchain/asm2/editor.sh,
+# Build the main tools, so the scripts that use them work (e.g. editor/bin/editor.sh,
 # editor-michael.sh and editor-michael-upload.sh). About 30 seconds.
 #
-#   tools/build_all.sh [emulator|asm2|editor]...   (default: all, in this order)
+#   tools/build_all.sh [emulator|asm|editor]...   (default: all, in this order)
 #
 #   emulator  emulator/emulator.out
-#   asm2      the asm2 chain 00..17, each stage built by the one before and tested
+#   asm       the asm chain 00..17, each stage built by the one before and tested
 #             (asmtestgen.sh); 17/out/asm.out is the live assembler
 #   editor    the editor's stable builds, editor/out/editor_stable.out and
 #             editor_terminal_stable.out, which its tests write once they pass
@@ -29,16 +29,16 @@ emulator() {
   make -s
 }
 
-asm2() {
-  (cd toolchain/asm2 && ./asmtestgen.sh)
+asm() {
+  (cd asm && ./asmtestgen.sh)
 }
 
 editor() {
-  (cd toolchain/asm2 && python3 editor/tests/editor_tests.py -q)
+  python3 editor/tests/editor_tests.py -q
 }
 
 steps=("$@")
-[ ${#steps[@]} -eq 0 ] && steps=(emulator asm2 editor)
+[ ${#steps[@]} -eq 0 ] && steps=(emulator asm editor)
 
 for s in "${steps[@]}"; do
   echo "=== $s ==="

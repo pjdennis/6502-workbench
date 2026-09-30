@@ -54,7 +54,7 @@ Commits from before the port need vasm 1.9f; see `docs/history.md`.
 
 ## Regression check
 
-`tools/firmware_manifest.py` assembles every `.s`/`.asm` under the repository (except `attic/`, `emulator/` and `toolchain/`) twice: once with `-esc` and once without. It compares each output's sha256 with `manifest.txt`. `FAIL` entries record programs that don't assemble today.
+`tools/firmware_manifest.py` assembles every `.s`/`.asm` under the repository (except `attic/`, `emulator/`, `asm/`, `editor/` and `prog8/`) twice: once with `-esc` and once without. It compares each output's sha256 with `manifest.txt`. `FAIL` entries record programs that don't assemble today.
 - 39 entries contain a `FAIL`, as of the 2026-09 reorganization. They are mostly 2020–21 Wendy programs whose includes no longer match the current libraries.
 - Programs that build only with `-esc` show `noesc=FAIL`.
 

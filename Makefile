@@ -1,7 +1,7 @@
 # Repository-level Makefile. Run from the repository root:
 #   make            build the emulator (emulator/emulator.out)
 #   make test       emulator C unit tests + wendy2c end-to-end goldens
-# The asm2 bootstrap lives in toolchain/asm2/Makefile, prog8 in toolchain/prog8/Makefile.
+# The assembler bootstrap lives in asm/Makefile, prog8 in prog8/Makefile.
 # Emulator tests open paths like emulator/web and emulator/tests/... relative
 # to the current directory, so they must run from the repository root.
 

@@ -27,6 +27,16 @@ For each item, decide whether to **delete** it (it stays in git history), **rest
 | `assembler2/archive/` | 2026-02 | Earlier plan documents |
 | `assembler2/UNIFIED_PARSING_ANALYSIS.md` | 2026-07 | Analysis for the `asm-unified-parsing` refactor, which was never ported to stage 17 (branch and tag `archive/asm-unified-parsing`) |
 
+## Assembler and toolchain reorganization (2026-09-29)
+
+`toolchain/` was dissolved: `asm2/` became `asm/`, its editor `editor/`, and `prog8/` moved up to the top level. These went to the attic, at their new short names rather than under `toolchain/`.
+
+| Item | Why it's here |
+|---|---|
+| `asm1/` (was `toolchain/asm1/`) | The first self-hosting assembler (2022-11 → 2025-11), bootstrapped with vasm and frozen since asm2 replaced it. Its `asmtestgen.sh` still works (needs vasm and `hexdump`), but it is no longer run by `tools/check_all.sh` or CI |
+| `asm-legacy/` (was `toolchain/asm2/legacy/`) | Early asm2 tests and scripts from before the stage directories existed, and the asm18–20 tests |
+| `asm-legacy/claude-plans/` (was `toolchain/asm2/.claude/`) | Two old plans for the accumulator-syntax migration and operand consolidation (asm18/19 era) |
+
 ## Michael Arduino directory cleanup (2026-09-24)
 
 | Item | Why it's here |
