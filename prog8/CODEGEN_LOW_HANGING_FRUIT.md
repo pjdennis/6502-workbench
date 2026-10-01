@@ -1,5 +1,9 @@
 # Lowest-hanging fruit for p8c codegen size
 
+Status: **proposal, not implemented** (checked 2026-09-30: `p8c/codegen.py` has
+no peephole pass, instruction sizer or branch relaxation; long forward branches
+are still invert+`jmp`). Byte counts are from the time of writing and drift.
+
 Concrete, measured peephole/relaxation wins for the `p8c` backend, ranked
 by effort. Numbers are byte counts from the actual `.s` output of the two
 pipeline halves (`p1_pass1_sh.p8` + `p1_pass2_sh.p8`) at the current

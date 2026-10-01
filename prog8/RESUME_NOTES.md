@@ -1,9 +1,17 @@
 # Session Resume Notes -- Prog8 bootstrap project
 
+> **Status note (2026-09-30).** This is a dated session log, kept as history; the
+> project state is in [`PLAN.md`](./PLAN.md): p1 self-hosts (nmos emulator and banked
+> Wendy 2), and the upstream port is done (`upstream/PORT_STATUS.md`). Paths and
+> commands here were updated to the current layout (repository root `prog8/`,
+> emulator at `../emulator/`); names like `stmt.p8`, `build_p1.py`, `/tmp/verify.sh`
+> (now `prog8/verify.sh`) and `/tmp/ptest.sh` (a scratch script, not in the repo) are
+> historical. Test counts quoted below were true at the time.
+
 ## *** LANGUAGE-CLEANUP PASS (2026-06, after self-host) -- read this first ***
 
 Post-self-host work to clean up the compiler with richer language features.
-Self-host stays byte-identical (0 diff) throughout; verify with `/tmp/verify.sh`
+Self-host stays byte-identical (0 diff) throughout; verify with `verify.sh`
 or `python3 -m unittest prog8.p1.tests.test_p1.P1SelfHost`.
 
 DONE + committed:
@@ -142,7 +150,7 @@ REMAINING (next session):
     must be applied to BOTH stmt.p8 (regenerates p1.p8 via `python3 -m
     p1.build_p1`) and p1_pass1_sh.p8; codegen edits to build_p1.py and
     p1_pass2_sh.p8. Quick per-program pipeline check: /tmp/ptest.sh <file.p8>
-    (compares pipeline output to p8c); self-host check: /tmp/verify.sh.
+    (compares pipeline output to p8c); self-host check: verify.sh.
 
 ---
 
@@ -187,7 +195,7 @@ which `p1/tests/test_p1.py` normalizes exactly as the snapshot tests do (the
 on-target compiler has no host realpath to echo). Reproduce:
 
 ```
-# from assembler2/prog8, with vasm on PATH and ../emulator/emulator.out built
+# from prog8/, with vasm on PATH and ../emulator/emulator.out built
 python3 -m p8c p1/p1_pass1_sh.p8 -o /tmp/_p1.s && vasm6502_oldstyle -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p1.bin /tmp/_p1.s
 python3 -m p8c p1/p1_pass2_sh.p8 -o /tmp/_p2.s && vasm6502_oldstyle -Fbin -dotdir -ignore-mult-inc -esc -wfail -o /tmp/p2.bin /tmp/_p2.s
 EMU=../emulator/emulator.out
@@ -796,11 +804,11 @@ PHASE7_DESIGN.md section 10.
   long-branch handling, `%target wendy2c` and `%target nmos`,
   string-literal-as-data (a bare `"..."` is the address of its pool label,
   a uword -- assignable to / passable to / initializing a uword). See
-  `assembler2/prog8/p8c/` and the README for the full surface.
+  `prog8/p8c/` and the README for the full surface.
 
 * **tinyp8.s (hand-written 6502)** -- a tiny on-target compiler.
   Accepts `print "..."`, `print_ub $XX`, `print_uw $XXXX`, `end`.
-  Lives at `assembler2/prog8/tinyp8/tinyp8.s` (~500 bytes of asm,
+  Lives at `prog8/tinyp8/tinyp8.s` (~500 bytes of asm,
   assembled by vasm).
 
 * **tinyp8.p8 (Prog8, compiled by host p8c)** -- the same compiler
@@ -834,13 +842,13 @@ PHASE7_DESIGN.md section 10.
 
 Run:
 
-    cd assembler2 && make prog8-test tinyp8-test
+    make -C prog8 prog8-test tinyp8-test
 
 ---
 
 ## Repo layout you need to know
 
-    assembler2/prog8/
+    prog8/
         p8c/                # host compiler (Python)
             __main__.py     # `python3 -m p8c source.p8 [-o out.s] [--run]`
             lex.py
@@ -865,9 +873,9 @@ Run:
                 goldens/            # v0/v1 .tp8 + .expected.stdout
                 goldens_v2/         # v2..v8 .tp8 + .expected.stdout
 
-The emulator is at `assembler2/emulator/emulator.out`. The
+The emulator is at `emulator/emulator.out` (repository root). The
 nmos-default machine (the one tinyp8 targets) exposes file I/O
-at $F006-$F03C; see `assembler2/emulator/stubs.c` for the ABI.
+at $F006-$F03C; see `emulator/stubs.c` for the ABI.
 
 ---
 
@@ -1453,12 +1461,11 @@ when a demo or tinyp8 push needs them.
 ## Quick-resume cheatsheet
 
     # 1. Get to clean state
-    cd assembler2/prog8
-    git pull --rebase origin claude/review-wendy2-plan-MOfnA
+    cd prog8
+    git pull --rebase origin <your-branch>
 
-    # 2. Verify everything's green
-    cd ..
-    make prog8-test tinyp8-test
+    # 2. Verify everything's green (from the repository root)
+    make -C prog8 prog8-test tinyp8-test
 
     # 3. Look at the most recent commits to see what just landed
     git log --oneline -15
@@ -1521,7 +1528,7 @@ I/O: pass1 dumps via out_byte (to dump file = argv[1]); pass2 loads via read_src
 ## *** HISTORICAL (self-host ACHIEVED) -- everything below is the build saga ***
 The self-hosting pipeline is DONE: it compiles p1.p8 byte-identically to
 `p8c -o` (0 diff). The LIVE pipeline is the HAND-MAINTAINED p1_pass1_sh.p8 /
-p1_pass2_sh.p8 (built into pass1.bin/pass2.bin; see /tmp/verify.sh +
+p1_pass2_sh.p8 (built into pass1.bin/pass2.bin; see verify.sh +
 p1/tests/test_p1.py). The original generator `build_pipeline.py` and its
 output `p1_pass1.p8` / `p1_pass2.p8` were SUPERSEDED by the _sh forks (which
 fixed the runtime crash + ZP-overflow gaps described below) and have been
@@ -1689,7 +1696,7 @@ PHASES (each ends green + committed):
     Reconcile port_pipeline.py (slab step now no-op; set memtop from baked
     consts/manifest). Verify all: prog8-test, verify.sh, upstream selfhost.sh.
 
-Verify cmds: bash /tmp/verify.sh (0 diff); python3 -m unittest discover -s tests;
+Verify cmds: bash verify.sh (0 diff); python3 -m unittest discover -s tests;
 cd upstream && bash selfhost.sh. Baseline before this work: pass1 $EBAE,
 pass2 $EEAE, self-host 0 diff, 121 p8c tests OK.
 

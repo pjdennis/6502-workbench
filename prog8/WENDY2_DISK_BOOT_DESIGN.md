@@ -11,7 +11,7 @@ OS-call file I/O from
 > load+run (D2), return-to-monitor + multi-command autoexec (D4), and loading
 > code into multiple banks + executing across them (T5/T6) are implemented and
 > tested (`make -C prog8 wendy2-test`: 12 e2e goldens). Implementation:
-> `emulator/chips/syscall_ports.{c,h}`, `wendy2c_monitor.s`,
+> `emulator/chips/syscall_ports.{c,h}`, `firmware/boards/wendy2/wendy2c_monitor.s`,
 > `prog8/upstream/libraries/wendy2/os.p8`, demos `d1_*`/`d2_*`/`d4_*`/`t5_*`/`t6_*`/`d5_*` + `wendy2_pack.py`.
 > Remaining (future work): D3 (interactive serial commands -- deferred),
 > D6 (real SPI-flash image backing).
@@ -213,9 +213,9 @@ The monitor ROM is built once with vasm (like the upload ROM).
 * `upstream/wendy2_disk_run.sh PROG.p8 [extra disk files...]`: compile, drop
   `PROG.bin` + an `autoexec` (`run PROG`) into a temp disk dir, boot the
   monitor ROM with `--disk`, capture the LCD frame.
-* `tests/test_wendy2_disk.py`: golden test -- autoexec runs a known program;
-  assert its LCD output. Skips if toolchain/emulator missing. Wire into
-  `make wendy2-test`.
+* `upstream/tests/test_wendy2_disk.py`: golden test -- autoexec runs a known program;
+  assert its LCD output. Skips if toolchain/emulator missing. Wired into
+  `make -C prog8 wendy2-test`.
 
 ## 9b. Loading code into upper banks (the two models) -- BUILT
 
@@ -292,7 +292,7 @@ the switch.
 * **Memory overlap.** The monitor loads to `$4000`; its own scratch/stack
   must stay clear of `$4000-$7FFF`. Keep monitor RAM in `$0200-$03FF` +
   `$F810+` fixed high RAM.
-* **Self-hosting tie-in.** Once D1-D2 land, the on-target prog8 toolchain
-  (compiler reading source, writing `.bin`) can read/write the disk through
-  the same OS calls -- the long-term reason M5 exists.
+* **Self-hosting tie-in.** (Realized: the banked monolith p1.p8 reads its source
+  from and writes its `.s` to the simulated disk through these OS calls; see
+  `WENDY2_MONOLITH_BANKING_PLAN.md`.) This was the long-term reason M5 exists.
 </content>

@@ -1,5 +1,9 @@
 # Codegen size: p8c vs. upstream prog8 (headroom measurement)
 
+Status: a dated measurement (2026-06), not a plan; numbers have drifted as the
+passes changed. No optimizer work has followed from it yet (see
+`CODEGEN_LOW_HANGING_FRUIT.md`).
+
 A measurement of how much smaller the pipeline binaries would be if our
 `p8c` backend generated upstream-quality 6502 code. Motivation: the
 two-pass `p1_pass1_sh` / `p1_pass2_sh` split exists because the monolith
@@ -17,8 +21,9 @@ binaries measured:
 * **p8c** (our compiler): `python3 -m p8c --target nmos p1/<pass>.p8 -o x.s`
   then `vasm6502_oldstyle -Fbin` -> binary.
 * **upstream prog8c** (`prog8c-12.1.1-all.jar`, optimizer on by default):
-  via the repo's own `upstream/port_pipeline.py` (which ports the source
-  to upstream-legal Prog8 and **slabs the >256-element arenas into RAM**),
+  via the repo's then-current `upstream/port_pipeline.py` (since retired: the
+  sources are now one converged dialect with the >256-element arenas already
+  **slabbed into RAM**; see `upstream/selfhost.sh`),
   then `java -jar prog8c.jar -target nmos.properties` -> 64tass -> binary.
 
 To compare **codegen** and not data layout, each binary was split into

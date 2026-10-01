@@ -1,9 +1,11 @@
 # Prog8 compiler for wendy2c
 
-Bootstrap chain for a Prog8 compiler that eventually self-hosts on
-wendy2c, mirroring the asm00..asm17 chain.
+Bootstrap chain for a Prog8 compiler that self-hosts on the emulator
+(p1, byte-identical to host p8c; also on banked Wendy 2), mirroring the
+asm00..asm17 chain (`../asm/`). `upstream/` ports p1 to upstream Prog8
+and adds the wendy2 banking targets.
 
-**Three companion documents:**
+**Companion documents** (plus the design/plan docs linked from `PLAN.md`):
 
 * [`PLAN.md`](./PLAN.md) -- strategic plan: goal, phase map, what's
   done, what remains, critical-path summary. Read this first when
@@ -17,16 +19,22 @@ wendy2c, mirroring the asm00..asm17 chain.
 ## Layout
 
     prog8/
-        p8c/                  # Phase-1 "p0" host compiler (Python)
+        p8c/                  # "p0" host compiler (Python)
             __main__.py       # CLI driver: `python3 -m p8c`
             lex.py
-            parse.py
+            parse.py          # recursive descent (kept as the test oracle)
+            iter_parse.py     # iterative expression parser (the default)
             sema.py
             codegen.py
+            serialize.py      # canonical AST / token dumps
+            ast.py
             stdlib_decls.py   # symbols the stdlib modules export
-        stdlib/               # Prog8 + inline-asm stdlib modules (Phase 2+)
-        examples/             # demo programs
-            hello.p8
+        p1/                   # the on-target compiler (Prog8): lexer, expr, p1.p8,
+                              # p1_pass1_sh.p8 + p1_pass2_sh.p8 (self-host pipeline)
+        tinyp8/               # tinyp8.s / tinyp8.p8, the first on-target compiler
+        upstream/             # upstream-Prog8 port, wendy2 targets (own README)
+        verify.sh             # self-host gate for the pipeline
+        examples/             # demo programs (hello.p8, counter.p8, sieve.p8, ...)
         tests/
             test_lex.py       # lexer unit tests
             test_parse.py
@@ -36,14 +44,15 @@ wendy2c, mirroring the asm00..asm17 chain.
             test_e2e_lcd.py   # compile + assemble + emulate + LCD diff
             goldens/          # .p8 + matching .expected.lcd
             snapshots/        # .p8 + matching .expected.s
+            (plus test_serialize, test_iter_parse*, goldens_sexp/, more e2e tests)
 
 ## Building / running
 
-    # Build the emulator (needed by the e2e golden test):
+    # Build the emulator (needed by the e2e tests; `make -C prog8 <target>` builds it too):
     make emulator/emulator.out        # from the repository root
 
-    # Run the test suite:
-    make -C prog8 prog8-test
+    # Run the test suites (all three: make -C prog8 test; `tools/check_all.sh prog8`):
+    make -C prog8 prog8-test          # host p8c (also tinyp8-test, p1-test, wendy2-test)
 
     # Compile a .p8 by hand and inspect the .s (from prog8/, where p8c imports):
     cd prog8 && python3 -m p8c examples/hello.p8 -o /tmp/hello.s
@@ -233,7 +242,7 @@ language and remains byte-identical to the reference asm.
   a non-trivial compiler. Tokenizer demo (`examples/tokenizer.p8`)
   proves the shape.
 
-**Still ahead for *full* p8c-in-Prog8 self-host:**
+**Items that were ahead of the full p8c-in-Prog8 self-host (now reached; some of the language items remain unimplemented in p8c):**
 
   * Pointer-to-struct (`^^Token`) and struct-as-param.
   * String operations as proper iterable buffers (strlen, strcmp,
@@ -252,22 +261,16 @@ language and remains byte-identical to the reference asm.
     expression fuzzer, full-program AST diffs, and a whole-corpus
     codegen diff (byte-identical assembly on all 22 example/snapshot
     programs); the recursive parser is retained as that equivalence
-    oracle (`parse(..., iter_expr=False, iter_stmt=False)`). Remaining:
-    port the iterative parser to Prog8 itself -- planned in
+    oracle (`parse(..., iter_expr=False, iter_stmt=False)`). The port of
+    the iterative parser to Prog8 itself is **done**, see
     [`PARSER_PORT_DESIGN.md`](./PARSER_PORT_DESIGN.md), milestones
-    M0..M5. **M0 done:** `p8c/serialize.py` + `p8c --dump-ast` /
-    `--dump-tokens` emit the canonical AST and token serializations
-    (the on-target equivalence contracts), frozen by
-    `tests/test_serialize.py` and on-disk goldens. **M1 done:**
-    `p1/lexer.p8` is the on-target lexer -- it runs on the 6502 and
-    produces a token-stream dump byte-identical to the host lexer over
-    examples + snapshots + tinyp8.p8 + its own source (`make p1-test`;
-    see [`p1/README.md`](./p1/README.md)). M2 (the expression parser
-    port) is next.
+    M0..M5 (serializers, lexer, expression parser, statement parser,
+    streaming), then [`PHASE7_DESIGN.md`](./PHASE7_DESIGN.md) for sema +
+    codegen. The result is `p1/` (`make p1-test`; see
+    [`p1/README.md`](./p1/README.md)), which compiles itself on the 6502
+    byte-identically to host p8c (`verify.sh`).
 
-See the plan in conversation history for Phases 3-6, including the
-on-emulator emit-equivalence test tier that activates at Phase 5 when
-the compiler first runs on wendy2c.
+See [`PLAN.md`](./PLAN.md) for the phase map.
 
 ## ABI notes (Phase 1)
 
@@ -278,4 +281,5 @@ the compiler first runs on wendy2c.
     serial-upload demo (`hello_ram_4000_wendy2c.s` etc).
   * Emitted .s uses asm17-compatible syntax that is also accepted by
     `vasm6502_oldstyle`. Phase 1 assembles with vasm for iteration
-    speed; Phase 5 switches the bootstrap-verification path to asm17.
+    speed; swapping in the on-host assembler (`../asm/17`) is the subject of
+    [`ASM_MIGRATION_PLAN.md`](./ASM_MIGRATION_PLAN.md).
