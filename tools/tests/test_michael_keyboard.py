@@ -117,6 +117,18 @@ class MichaelKeyboardTest(unittest.TestCase):
         self.assertEqual(self.run_program('michael_keyboard_info', KEY_PAUSE + KEY_PAUSE)[2:],
                          ['77 E1 F0 14 F0 77 E1', '14 77 E1 F0 14 F0 77'])
 
+    def test_frame_detector_probe_measures_the_emulated_idle_time(self):
+        lines = self.run_program('michael_keyboard_frame_detector')
+        ticks = [int(t, 16) for t in ' '.join(lines).split()]
+        self.assertEqual(len(ticks), 8)
+        for t in ticks:
+            self.assertTrue(296 <= t <= 310, lines)    # 150 us in 0.5 us ticks, plus polling
+
+    def test_frame_timing_probe_shows_each_reply_frame(self):
+        text = ''.join(line.ljust(20) for line in self.run_program('michael_keyboard_frame_timing')).rstrip()
+        self.assertRegex(text, r'^b0{6} c[0-9A-F]{6} h[0-9A-F]{6} '
+                               r's[0-9A-F]{6} aFA[0-9A-F]{4} s[0-9A-F]{6} rAB[0-9A-F]{4} s[0-9A-F]{6} r83[0-9A-F]{4}$')
+
     def ram_map(self, ram=None):
         """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""
         with open(os.path.join(PROGRAMS, 'michael_ram_map.s')) as f:
