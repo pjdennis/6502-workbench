@@ -22,7 +22,8 @@
  * The keyboard clocks a command in about 1 ms after the host releases
  * the clock and answers about 1 ms after that: $FA (acknowledge), or
  * $EE to $EE (echo), $FA $AA to $FF (reset), $FA $AB $83 to $F2 (read
- * ID). $ED and $F3 take an argument byte, also acknowledged. Queued
+ * ID). $ED, $F0 and $F3 take an argument byte, also acknowledged;
+ * $F0 $00 is answered $FA $FA $02 (scan code set 2). Queued
  * keys (groups of scan code bytes) go out once the host has sent a
  * command and then left the keyboard alone for 200 ms (start-up is
  * over): a key's bytes 1 ms apart, keys key_interval_us apart. */
@@ -64,7 +65,7 @@ struct ps2_keyboard_board_state {
     uint64_t next_send;             /* no frame from the keyboard before this */
     uint64_t keys_after;            /* no key frame before this */
     uint32_t key_interval_us;       /* from one key's last byte to the next key */
-    uint8_t awaiting_argument;
+    uint8_t awaiting_argument_for;  /* the command whose argument comes next, or 0 */
     uint32_t commands;              /* command and argument bytes received */
 };
 

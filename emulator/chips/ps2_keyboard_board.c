@@ -16,6 +16,7 @@
 #define BYTE_GAP_US       1000   /* between frames from the keyboard */
 #define KEY_QUIET_US      200000 /* host quiet before key frames go out */
 #define KEY_INTERVAL_US   20000  /* default gap between keys */
+#define SCAN_CODE_SET     0x02
 
 static int queue_put(struct ps2_byte_queue *q, uint16_t entry) {
     if (q->count == PS2_QUEUE_SIZE) return -1;
@@ -59,9 +60,10 @@ static void receive_command(struct ps2_keyboard_board_state *s, uint8_t byte, ui
     s->keys_after = now + us(s, KEY_QUIET_US);
     if (s->fault == PS2_FAULT_NOACK) return;
     if (s->fault == PS2_FAULT_RESEND) { reply(s, 0xFE); return; }
-    if (s->awaiting_argument) {
-        s->awaiting_argument = 0;
+    if (s->awaiting_argument_for) {
         reply(s, 0xFA);
+        if (s->awaiting_argument_for == 0xF0 && byte == 0x00) reply(s, SCAN_CODE_SET);
+        s->awaiting_argument_for = 0;
         return;
     }
     switch (byte) {
@@ -69,7 +71,8 @@ static void receive_command(struct ps2_keyboard_board_state *s, uint8_t byte, ui
         case 0xFF: reply(s, 0xFA); reply(s, 0xAA); break;
         case 0xF2: reply(s, 0xFA); reply(s, 0xAB); reply(s, 0x83); break;
         case 0xED:
-        case 0xF3: s->awaiting_argument = 1; reply(s, 0xFA); break;
+        case 0xF0:
+        case 0xF3: s->awaiting_argument_for = byte; reply(s, 0xFA); break;
         default:   reply(s, 0xFA); break;
     }
 }

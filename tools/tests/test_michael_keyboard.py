@@ -25,6 +25,7 @@ PROGRAMS = os.path.join(ROOT, 'firmware', 'programs', 'michael')
 
 KEY_A = ['1c', 'f0', '1c']                                   # PS/2 set 2: 'a' down, up
 KEY_PAUSE = ['e1', '14', '77', 'e1', 'f0', '14', 'f0', '77']  # Pause/Break: down only
+KEY_CAPS_LOCK = ['58', 'f0', '58']
 
 
 def base_config_address(name):
@@ -103,6 +104,18 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_diag_shows_a_resend_request(self):
         self.assertEqual(self.diag_text(KEY_A, 'resend'), 'F4bcd[FE][1C][F0][1C]')
+
+    def test_keyboard_info_shows_id_and_scan_code_set(self):
+        self.assertEqual(self.run_program('michael_keyboard_info'),
+                         ['ID AB 83 Set 02', 'Lock Num', '', ''])
+
+    def test_keyboard_info_shows_locks_and_raw_bytes(self):
+        self.assertEqual(self.run_program('michael_keyboard_info', KEY_CAPS_LOCK + KEY_A)[1:],
+                         ['Lock Num Caps', '58 F0 58 1C F0 1C', ''])
+
+    def test_keyboard_info_shows_the_latest_raw_bytes_on_two_lines(self):
+        self.assertEqual(self.run_program('michael_keyboard_info', KEY_PAUSE + KEY_PAUSE)[2:],
+                         ['77 E1 F0 14 F0 77 E1', '14 77 E1 F0 14 F0 77'])
 
     def ram_map(self, ram=None):
         """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""
