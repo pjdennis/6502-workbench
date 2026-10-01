@@ -2,6 +2,8 @@
 
 Status: **done (2026-09-24).** The reorganized history was pushed to a new repository, `pjdennis/6502-workbench`, instead of rewriting `pjdennis/6502-experiments` in place. See [§6](#6-go-live-checklist-not-yet-run).
 
+> **Paths.** This plan is a record of the 2026-09-24 reorganization and uses the names of its time (`assembler2/`, `toolchain/asm2/`, `toolchain/prog8/`). `toolchain/` was dissolved on 2026-09-29: see the table in [`history.md`](history.md) for the current locations (`asm/`, `editor/`, `prog8/`, `attic/asm1/`).
+
 ## 1. Current state
 
 ### 1.1 History shape
