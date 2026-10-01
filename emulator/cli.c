@@ -1,3 +1,4 @@
+/* Command-line parsing and the usage text, printed when run with no arguments (see cli.h). */
 #include "cli.h"
 #include "cpu_core.h"  /* CPU_NMOS / CPU_65C02 */
 #include "chips/glue_michael.h"  /* glue_michael_ram_by_name */
@@ -82,11 +83,13 @@ void emu_opts_usage(FILE *fp) {
 "  --show-repaints        flash on console/terminal repaints (debug)\n"
 "  --server               long-running server: as argv[1] dispatches into\n"
 "                         server_main; after argv[1] enables one-shot reuse loop\n"
-"  --mhz <speed>          wall-clock throttle target. For nmos-default this is\n"
-"                         the CPU clock (in MHz). For wendy2c this is the OSC\n"
-"                         crystal frequency (the 22V10 PLD halves it for the\n"
-"                         CPU clock); --mhz 9.72 matches the real wendy2c\n"
-"                         board. Applies to both --live and non-live runs.\n"
+"  --mhz <speed>          wall-clock throttle target; what it means depends on\n"
+"                         the machine. nmos-default and michael: the CPU clock\n"
+"                         in MHz (michael --live defaults to 2). wendy2c: the\n"
+"                         OSC crystal frequency, which the 22V10 PLD halves for\n"
+"                         the CPU clock, so --mhz 19.44 matches the real board\n"
+"                         (9.72 MHz CPU). Paces --live and non-live runs, except\n"
+"                         that michael is paced only with --live.\n"
 "  --cpu-mhz <speed>      assumed CPU MHz for --baud timing\n"
 "  --baud <rate>          serial-port baud rate (requires --mhz or --cpu-mhz)\n"
 "  --pace-mask <path>     test hook: one byte per input byte; after a byte whose\n"
