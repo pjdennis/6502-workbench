@@ -1,7 +1,9 @@
 # Design: porting the iterative parser to Prog8 (Phase 6, step 5)
 
-Status: **design** -- no code yet. This is the document PLAN.md's
-Phase 6 asks for "before the first push" of the Prog8 port.
+Status: **done** -- M0..M5 all implemented (`p1/`, `p8c/serialize.py`); see
+`PLAN.md` Phase 6 and `p1/README.md`. Kept as the design record; `p1/stmt.p8`
+and `build_p1.py` named below were later merged into `p1.p8` and retired.
+The document PLAN.md's Phase 6 asked for "before the first push" of the Prog8 port.
 
 For the strategic context see [`PLAN.md`](./PLAN.md) (Phase 6/7) and
 [`RESUME_NOTES.md`](./RESUME_NOTES.md) (Option D). The Python side of
@@ -440,7 +442,7 @@ the Prog8 expression parser the same fuzz coverage the Python one has.
   one kind table; keep it in a single include both `%import`.
 * **Operator-id encoding.** Map each operator token-kind to a small id
   with a const lookup; the precedence table indexes by that id.
-* **Where this lives.** Proposed `assembler2/prog8/p1/`, built and
+* **Where this lives.** Implemented as `prog8/p1/`, built and
   tested through the emulator exactly like `tinyp8/` (vasm -> bin ->
   emulator -> diff golden). Reuses the tinyp8 runtime-I/O shim.
 * **Self-reference.** Eventually p1.p8 must parse *its own* source.
@@ -450,7 +452,7 @@ the Prog8 expression parser the same fuzz coverage the Python one has.
 
 ---
 
-## 8. What to do first
+## 8. What to do first (historical; done)
 
 M0: add the Python `serialize()` and freeze the format. It is pure
 Python (no vasm/emulator needed), it pins down the contract every later

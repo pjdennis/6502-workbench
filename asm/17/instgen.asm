@@ -1,5 +1,5 @@
 ; Instruction table generator for new conventional syntax
-; Written in new syntax (assembled by asm18)
+; Written in new syntax (assembled by the previous stage, asm16)
 ;
 ; New table format: each instruction has mode:opcode pairs
 ;   [mnemonic string] $00 [mode1 opcode1] [mode2 opcode2] ... MODE_END

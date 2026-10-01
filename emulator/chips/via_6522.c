@@ -1,3 +1,4 @@
+/* 6522 VIA model: registers, T1/T2, shift register, IFR/IER, port pins (see via_6522.h). */
 #include "via_6522.h"
 
 #include <stddef.h>

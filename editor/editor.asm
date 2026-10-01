@@ -20,7 +20,7 @@
 ;   Insert:  Type text, Enter for newline, Backspace to delete, ESC to exit
 ;   Command: :w save, :q quit, :wq save+quit, :q! force quit, :NNN goto line
 ;
-; MEMORY LAYOUT
+; MEMORY LAYOUT (standard build; memory_map.asm has the addresses, and the define:michael ones)
 ;   $0000-$00FF   Zero page variables
 ;   $0100-$01FF   6502 stack
 ;   $0200-$027F   Search buffer (SEARCH_BUF)

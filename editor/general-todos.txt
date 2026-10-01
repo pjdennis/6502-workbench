@@ -1,3 +1,14 @@
+Scratch list of ideas and open items. Done items get removed; the defects found by the
+September 2026 audit are in known-issues.md, the larger vim differences in vim-gaps.md, and
+the performance ideas in PERFORMANCE.md (gap buffer).
+
+Also open, from the old editor/TODOS (removed; the rest of it is done: search, word motions,
+yank/paste, dirty-region rendering, incremental line table):
+Reduce command-mode flushes: command.asm calls text_flush after each echoed key; batch it to
+flush once per line.
+Auto-indent: on Enter in insert mode, copy the previous line's leading spaces.
+Tab key in insert mode: insert fixed spaces.
+
 Support batching for D
 
 Batched backspace joing lines had issues and then enter to split caused issues. Saw unnecessary line repaints, and also as full repaint that I wasn't able to repro just yet.
@@ -8,7 +19,6 @@ cc / C / J, undo redo across a blank line lost that line (single dash below)
  -Do the join and calculate the new screen row for the line following the joined lines
  -Scroll from the row following the lines to be joined, up by the delta amount
 -
- Add support for e
 
 There's an 8-bit limit on number of wrap rows for a line... Can we at least have some error checking to prevent bogus behavior? Or just make this 16 bit - e.g. PREV_LINE_ROWS
 
@@ -29,10 +39,8 @@ Toggle modified flag back when undoing the first modification to a file
 Update the tests that are relying on u u to break the batch to do something else like a movement key - we might at some point filter ' ' before batching since it doesn't do anything.
 When last line wraps, rows 2+ don't display at all
 When backspacing from below a wrapped line onto the wrapped line, the row that was just moved to is unnecessarily redrawn
-Implement an ability to specify a filename to write to + an e command to load a file
-Implmement y$, d$, etc.
+Implement an ability to specify a filename to write to + an e command to load a file (planned: vim-gaps.md section 1 for :w {file})
 Line-level render optimiaztion for undo and redo
-Undo for paste operations
 Batching for undo
 Undo restore cursor position based on the operation OK?
 
@@ -106,15 +114,13 @@ EMIT16 macro
 -Marks display has cursor visible
 -Marks display should show as much of the line as will fit
 
-Add the :'a,.d syntax to delete (assuming that's what it is)
-
 Allow $ for last line
 
-Allow $ for e.g. d$, y$
+Allow a delete that will not fit in the yank buffer, after a prompt (today a yank, delete or
+change over 4KB is refused with "Yank buffer full"; see HELP)
+
 
  JMP do_jump not needed
-
-Allow for delete but prompt if it will not fit in the yank buffer
 
 Editor crashes when pasting a chunk of text a large number of multiples
 

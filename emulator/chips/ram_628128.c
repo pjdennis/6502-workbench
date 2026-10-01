@@ -1,3 +1,4 @@
+/* wendy2c 512 KiB banked RAM (see ram_628128.h). */
 #include "ram_628128.h"
 
 #include <string.h>

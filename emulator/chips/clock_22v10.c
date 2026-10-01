@@ -1,3 +1,4 @@
+/* 22V10 PLD model: chip selects, RAM bank bits and the CPU clock, from clock_22v10_pld_generated.h (see clock_22v10.h). */
 #include "clock_22v10.h"
 
 #include <stddef.h>

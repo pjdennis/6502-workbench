@@ -9,7 +9,7 @@ firmware/
   manifest.txt    sha256 of every program's binary (regression check)
   boards/         per-board config, machine init, RAM/EEPROM upload loaders
     wendy/        Wendy (v1):     base_config_v1.inc, initialize_machine_v1.inc, upload_and_run_{ram,eeprom}_v1.s
-    michael/      Michael (v2):   ..._v2
+    michael/      Michael (v2):   ..._v2, plus michael_rom.s (the ROM: loader and LCD/keyboard services; built to hardware/michael/michael_rom.bin)
     wendy2/       Wendy 2 rev c:  ..._wendy2c, plus the wendy2c_monitor.s boot monitor
   lib/            shared routines, included by file name
     core/         6522 registers, delays, utilities, memory copy, number conversion, buffers, macros
@@ -19,7 +19,7 @@ firmware/
     keyboard/     key codes/names, typematic, keyboard driver (COMMANDS regenerates key_names.inc)
     sound/        tones, musical notes, morse
     tasks/        prg_* tasks used by the multitasking demos
-    serial/       upload_and_run.inc, the bit-banged serial loader
+    serial/       the bit-banged serial loaders: upload_and_run.inc (format 1, used by every board's RAM/EEPROM loader), upload_v3.inc (the Michael ROM, format 3), and the serial_receive*.inc receiver parts
   programs/
     wendy/  michael/  wendy2/   programs for each board (by the base_config they include)
     michael/bringup/            first standalone-board programs (2021-04), hard-coded addresses
@@ -27,6 +27,8 @@ firmware/
     common/                     board-independent experiments
   fonts/          font8x8 sources and dumpers
 ```
+
+Each subdirectory has its own README: [`boards/`](boards/README.md), [`lib/`](lib/README.md) (and one per library area) and [`programs/`](programs/README.md).
 
 ## Building
 
@@ -55,7 +57,7 @@ Commits from before the port need vasm 1.9f; see `docs/history.md`.
 ## Regression check
 
 `tools/firmware_manifest.py` assembles every `.s`/`.asm` under the repository (except `attic/`, `emulator/`, `asm/`, `editor/` and `prog8/`) twice: once with `-esc` and once without. It compares each output's sha256 with `manifest.txt`. `FAIL` entries record programs that don't assemble today.
-- 39 entries contain a `FAIL`, as of the 2026-09 reorganization. They are mostly 2020–21 Wendy programs whose includes no longer match the current libraries.
+- 40 entries contain a `FAIL`, as of 2026-09-30: 28 don't assemble at all (mostly 2020–21 Wendy programs whose includes no longer match the current libraries) and the rest only fail without `-esc`.
 - Programs that build only with `-esc` show `noesc=FAIL`.
 
 ```bash

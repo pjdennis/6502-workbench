@@ -1,6 +1,9 @@
 # Design: porting sema + codegen to Prog8 -- the self-hosting `p1.p8` (Phase 7)
 
-Status: **design** -- no code yet. Entry point for Phase 7, written the
+Status: **done** -- P7-M1..M6 implemented; `p1` self-hosts byte-identically
+(`verify.sh`; see `PLAN.md` Phase 7 and `RESUME_NOTES.md`). Kept as the design
+record: the text below is the original plan, and it names `stmt.p8` / `build_p1.py`,
+which were later merged into `p1.p8` and retired. Entry point for Phase 7, written the
 same way [`PARSER_PORT_DESIGN.md`](./PARSER_PORT_DESIGN.md) opened the
 parser port (Phase 6 step 5), which is now **complete** (M0..M5: the
 Prog8 parser runs on the 6502 and is byte-identical to the host across
@@ -344,7 +347,7 @@ fixes already proven host-side transitively back the on-target output.
 
 ---
 
-## 9. What to do first
+## 9. What to do first (historical; done)
 
 P7-M1: extend a copy of the parser front-end into `p1/codegen` scaffolding
 that, for `main { }`, emits the fixed nmos prologue, an empty `p8s_main`,

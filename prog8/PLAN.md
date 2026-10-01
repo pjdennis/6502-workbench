@@ -1,5 +1,9 @@
 # Prog8 self-hosting plan -- status and roadmap
 
+Status: **the original goal is reached** (p1 self-hosts, 2026-06); Phases 0-7 are done. What
+followed (upstream-Prog8 port of p1, banked Wendy 2 self-host) is in `upstream/PORT_STATUS.md`.
+The per-phase text below is the historical plan; the phase headers carry the current status.
+
 This file is the **strategic plan** for the Prog8 bootstrap. It's
 the document you read when you want to know *where this project is
 going* and *what's left*. For the tactical "what changed last
@@ -17,14 +21,14 @@ language-surface checklist, see [`README.md`](./README.md).
 * [`CODEGEN_LOW_HANGING_FRUIT.md`](./CODEGEN_LOW_HANGING_FRUIT.md) -- ranked
   peephole/branch-relaxation wins (~2.4 KB cheap) for the p8c backend.
 * [`WENDY2_BANKING_TARGET_PLAN.md`](./WENDY2_BANKING_TARGET_PLAN.md) -- custom
-  external Prog8 target exposing wendy2 upper-bank memory banking (M0-M4+M6
+  external Prog8 target exposing wendy2 upper-bank memory banking (M0-M6
   built: code/data banking demos green on the emulator).
 * [`WENDY2_DISK_BOOT_DESIGN.md`](./WENDY2_DISK_BOOT_DESIGN.md) -- design for an
   alternate monitor boot ROM + simulated SPI storage that loads/runs programs
   over the file-I/O OS calls (with autoexec); folds in the M5 OS-call ABI.
-* [`WENDY2_SELFHOST_BANKING_PLAN.md`](./WENDY2_SELFHOST_BANKING_PLAN.md) -- plan
-  to self-host `p1.p8` on wendy2c using a mapped RAM bank as high RAM (the two
-  passes' code fits the 32K fixed region; only data overflows into the bank).
+* [`WENDY2_MONOLITH_BANKING_PLAN.md`](./WENDY2_MONOLITH_BANKING_PLAN.md) -- self-host
+  of the single-binary `p1.p8` on wendy2c with a second RAM bank for the symbol
+  tables (achieved; also records the unbuilt two-pass banking alternative).
 
 When you finish a feature, update this file. When you finish a
 session, update `RESUME_NOTES.md`.
@@ -132,7 +136,7 @@ Result: the host language is now comfortably wide enough to express
 a real compiler. Tokenizer demo (`examples/tokenizer.p8`) proves
 the shape.
 
-### Phase 5 -- tinyp8 grows beyond the reference `[in progress]`
+### Phase 5 -- tinyp8 grows beyond the reference `[done through v9; v10+ not pursued]`
 
 Each tinyp8.p8 version adds one capability:
 
@@ -147,8 +151,8 @@ Each tinyp8.p8 version adds one capability:
   let increment.
 * `v9` `[done]` -- multi-character variable names (symbol table with
   `read_ident` / `find_var` / `declare_var`; up to 8 chars, 16 vars).
-* `v10` `[todo]` -- input from stdin via `$F006`.
-* `v11`..`vN` `[todo]` -- progressively more of Prog8's surface
+* `v10` `[not pursued]` -- input from stdin via `$F006`.
+* `v11`..`vN` `[not pursued]` -- progressively more of Prog8's surface
   (multi-statement if-then bodies, expressions deeper than two
   terms, then `sub`/`asmsub` for on-target user-defined
   subroutines, etc.).
@@ -159,7 +163,7 @@ parse its own grammar without restrictions on control-flow body
 shape and expression depth. (The identifier-length restriction is
 gone as of v9.)
 
-### Phase 6 -- Host p8c iterative-parser rewrite `[in progress: steps 1-4 done; only the Prog8 port remains]` (THE strategic item)
+### Phase 6 -- Host p8c iterative-parser rewrite `[done: steps 1-5, M0-M5]`
 
 Host `p8c/parse.py` is recursive-descent in Python. Prog8 forbids
 recursion (subs are non-reentrant by design), so the host parser
@@ -207,7 +211,7 @@ Recommended approach:
    and as the reference for the Prog8 port -- it is NOT deleted yet on
    purpose: deleting it would remove that oracle. Drop it only once the
    Prog8 port is itself the working reference.
-5. `[in progress]` Port `iter_parse.py` + `parse_block_iter` to Prog8
+5. `[done]` Port `iter_parse.py` + `parse_block_iter` to Prog8
    itself. Design doc: [`PARSER_PORT_DESIGN.md`](./PARSER_PORT_DESIGN.md)
    -- node-arena AST, parallel-array stacks/frames, a canonical AST
    serialization as the equivalence contract, and milestones M0
@@ -254,17 +258,18 @@ Recommended approach:
      (~2300 AST lines) parses byte-identical to the host
      (`p1/tests/test_stmt.py::test_tinyp8_capacity`).
 
+   (`p1/stmt.p8`, `tests/test_stmt.py` and `build_p1.py` were retired with the
+   Phase 7 merge into `p1.p8` (2026-06-06); see `p1/README.md`.)
+
    **Step 5 (the Prog8 parser port) is COMPLETE: M0-M5 all done.** The
    parser runs on the 6502 and is byte-identical to the host across the
    token / expression / whole-program contracts, including a real
    compiler-sized program. Phase 7 can begin.
 
-Estimated remaining effort: the Prog8 port (step 5) is the last piece,
-and it feeds directly into Phase 7. The iterative parser is now the
-production path; the recursive descent survives only as a test oracle.
-M0 is done (the format is frozen); M1 (the lexer port) is next.
+The iterative parser is the production path; the recursive descent
+survives only as a test oracle.
 
-### Phase 7 -- Self-hosting bootstrap proof `[in progress: design done]`
+### Phase 7 -- Self-hosting bootstrap proof `[done]`
 
 The Phase 6 parser port is complete (`p1/` M0..M5: lexer, expression
 parser, statement/whole-program parser, streaming -- parses the whole
@@ -281,6 +286,8 @@ then trailers) reconciles streaming with the global symbol table and
 main-first emission; milestones P7-M1 (`main { }` skeleton) .. P7-M6
 (corpus + `p0(p1.p8)==p1(p1.p8)`). 64 KB capacity is the main risk
 (mitigated by dropping the serializer + table-driving the literal text).
+Outcome: the two-pass pipeline (see the Goal section) reproduces `p8c -o`
+byte-for-byte on `p1.p8` itself; `verify.sh` is the gate.
 
 Original plan:
 
@@ -296,7 +303,7 @@ Original plan:
    * **End-to-end golden runs**: each corpus `.p8` compiled by p1
      and run on the emulator produces the expected LCD / stdout.
 
-### Phase 8 -- Chain growth `[todo]`
+### Phase 8 -- Chain growth `[not started; superseded in practice]`
 
 Mirror the asm00..asm17 chain. `p2.p8` adds features that `p1`
 couldn't express, compiled by `p1`. `p3.p8` adds more, compiled by
@@ -307,61 +314,38 @@ couldn't express, compiled by `p1`. `p3.p8` adds more, compiled by
 * Has its own three verification gates.
 * The corpus from every earlier `pK` (K < N) reruns against pN.
 
-This is the long-term steady-state.
+This is the long-term steady-state. In practice the work went into porting p1 to
+upstream-valid Prog8 and self-hosting it on banked Wendy 2 instead
+(`upstream/PORT_STATUS.md`); no `p2/` exists.
 
 ---
 
 ## Where we are right now
 
-Branch `claude/prog8-bootstrap-continue-6Pzo0` (continues the
-`claude/review-wendy2-plan-MOfnA` work).
+* Phases 0-7: **done**. p1 (`p1/p1_pass1_sh.p8` + `p1/p1_pass2_sh.p8`) self-hosts
+  byte-identically on the emulated nmos machine (`verify.sh`), and on the
+  banked Wendy 2 (`P1_WENDY_SELFHOST=1 make -C prog8 p1-test`, slow; see
+  `upstream/PORT_STATUS.md`).
+* tinyp8.p8 stays at v9 (no further growth planned; p1 superseded it).
+* Phase 8: not started.
 
-* Phases 0-4: **done**.
-* Phase 5 (tinyp8.p8 growth): at **v9**. Real loops, conditionals,
-  arithmetic, comparisons, and now **multi-character variable names**
-  via a symbol table. Next surface items: stdin input (v10),
-  multi-statement bodies, deeper expressions.
-* Phase 6 (iterative parser rewrite): **steps 1-4 done** -- the
-  iterative parser handles both expressions and statements and is now
-  the DEFAULT path (CLI + all test tiers + the tinyp8 self-host build
-  run on it). Proven equivalent to the recursive descent (unit +
-  4000-sample fuzz + full-program AST diff + whole-corpus
-  byte-identical codegen); the recursive parser is kept as the test
-  oracle. Step 5 (the Prog8 port) is **in progress**: M0 done -- the
-  canonical AST serializer (`p8c/serialize.py` + `--dump-ast`) is
-  written and the format is frozen by `tests/test_serialize.py` +
-  on-disk goldens. M1 (lexer port to `p1/`) is next.
-* Phase 7-8: blocked on the rest of the Phase 6 Prog8 port (M1-M4).
-
-153 tests green (host p8c 104, tinyp8 22, p1 27). Self-host equivalence holds for the v0/v1 corpus.
+Suites (collected counts): host p8c 132, tinyp8 22, p1 59 (`make -C prog8 test`;
+the end-to-end ones SKIP without vasm6502_oldstyle + the emulator).
 
 ---
 
-## Critical-path summary (what gates full self-host)
+## Critical-path summary
 
-Of all the work above, only TWO items truly block the end-state:
-
-1. **Phase 6** -- host parser rewrite. This is the one big design
-   item left. Without it, host p8c can't be ported to Prog8.
-2. **Phase 7** -- writing p1.p8 itself and getting the equivalence
-   gates green.
-
-Everything else (Phase 5 continued tinyp8 growth, more upstream
-Prog8 features in the host) makes the project *better* but isn't
-on the critical path. If you only had time for one thing, do
-Phase 6.
-
-That said, Phase 5 work has value beyond the bootstrap: it keeps
-the on-target compiler real, exercises the language under load,
-and surfaces friction that would otherwise only appear in the
-Phase 7 grind.
+Both items that gated the end-state (the Phase 6 parser rewrite and the
+Phase 7 `p1.p8` with its equivalence gates) are done. Remaining work is
+optional: code size (`CODEGEN_LOW_HANGING_FRUIT.md`), the on-host assembler
+(`ASM_MIGRATION_PLAN.md`), and the upstream/Wendy 2 track.
 
 ---
 
 ## Recommended cadence (per fresh session)
 
-* Take **one** of the next-push options from `RESUME_NOTES.md`,
-  or the next sub-step from the Phase 6 plan above.
+* Take **one** of the next-push options from `RESUME_NOTES.md`.
 * Stay within a single feature. Commit at the green test boundary;
   push every commit.
 * At end of session, refresh `RESUME_NOTES.md` and this file's

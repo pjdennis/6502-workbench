@@ -9,6 +9,11 @@ milestones M0..M5).
 
 ## Status
 
+All milestones below are done, and p1 has since self-hosted (see `../PLAN.md`).
+Notes on the current tree: `stmt.p8` and `tests/test_stmt.py` (M3-M5) are gone
+(merged into `p1.p8`), the self-host pipeline is `p1_pass1_sh.p8` +
+`p1_pass2_sh.p8` (gate: `../verify.sh`), and `tinyp8.p8` is now 1323 lines.
+
 * **M0 (done)** -- the canonical serialization contract, frozen on the
   Python side: `../p8c/serialize.py` (`serialize` for the AST,
   `serialize_tokens` for the token stream) + `p8c --dump-ast` /
@@ -110,16 +115,19 @@ milestone map P7-M1..M6.
   fast path (left-nested chains `a+b+c`) and the generic CPU-stack spill
   path for a non-leaf RHS (`pha / sta __p8c_tmp1 / pla`, the host's
   dual-scratch-safe sequence). Augmented assignment now shares the same
-  binop emitter. Verified against `p8c -o`. (Still to come in M3: `*`,
-  shifts, comparisons + branches, unary, `@()`, `&`, indexing, calls, and
-  the word-expression evaluator.)
+  binop emitter. Verified against `p8c -o`. (The rest -- `*`, shifts,
+  comparisons + branches, unary, `@()`, `&`, indexing, calls, the
+  word-expression evaluator -- followed and is done; see `../PLAN.md` and
+  `../RESUME_NOTES.md`.)
 
 `p1.p8` was first **generated** by `build_p1.py`, which spliced stmt.p8's
 front-end with the codegen back-end and rendered fixed assembly text as
 `out_text("...")` calls over pooled string literals. The generator,
 `stmt.p8` and `tests/test_stmt.py` were retired together in `f56d6ced`
 (2026-06-06); since then `p1.p8` is edited directly, although its header
-still says it is generated. The generator is in history:
+still says it is generated. References to `build_p1.py`, `stmt.p8` and
+`tests/test_stmt.py` in the other Prog8 docs are historical. The generator is
+in history, at its pre-2026-09 path (needs a full, not shallow, clone):
 
     git show f56d6ced^:assembler2/prog8/p1/build_p1.py
 
@@ -128,11 +136,11 @@ still says it is generated. The generator is in history:
     # all p1 milestone tests (SKIPs without vasm6502_oldstyle + emulator):
     make -C prog8 p1-test
 
-    # by hand: build, run on the emulator, diff against the oracle
+    # by hand, from prog8/: build, run on the emulator, diff against the oracle
     python3 -m p8c p1/lexer.p8 -o /tmp/lexer.s
     vasm6502_oldstyle -Fbin -dotdir -ignore-mult-inc -esc -wfail \
         -o /tmp/lexer.bin /tmp/lexer.s
-    emulator/emulator.out /tmp/lexer.bin SOURCE.p8 /tmp/out.dump --no-dump
+    ../emulator/emulator.out /tmp/lexer.bin SOURCE.p8 /tmp/out.dump --no-dump
     diff <(python3 -m p8c SOURCE.p8 --dump-tokens) /tmp/out.dump
 
 ## Notes

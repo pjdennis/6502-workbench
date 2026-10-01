@@ -4,22 +4,22 @@ Establish a new **external** Prog8 compilation target (`wendy2`) that
 exposes the wendy2/wendy2c memory-banking hardware, and demonstrate
 banking of **code and data** running on the emulator in `wendy2c` mode.
 
-This is a planning document. No code is changed by committing it.
+Originally a planning document; it is now implemented (see the status box).
 Companion docs: [`PLAN.md`](./PLAN.md), [`ASM_MIGRATION_PLAN.md`](./ASM_MIGRATION_PLAN.md),
 [`upstream/README.md`](./upstream/README.md) (the existing custom-target
 scaffolding this builds on).
 
 ---
 
-> **Status (in progress):** M0-M4 + M6 done -- the custom `wendy2` target
+> **Status (done):** M0-M6 all done (M5 via the disk-boot subsystem) -- the custom `wendy2` target
 > compiles with upstream prog8c, boots on the emulator, drives the LCD, and
 > demonstrates banked **data** (T1/T2/T4) and banked **code** (T3); 6 e2e
-> golden tests green (`make -C assembler2 wendy2-test`). Implementation lives
+> golden tests green at the time (`make -C prog8 wendy2-test`, now 12 e2e goldens with the disk-boot demos). Implementation lives
 > in `upstream/wendy2.properties` + `upstream/libraries/wendy2/` +
 > `upstream/demos/` + `upstream/tests/`; see
 > [`upstream/libraries/wendy2/README.md`](./upstream/libraries/wendy2/README.md).
-> **M5** (the `$F800+` OS-call read/write emulator enhancement, S2.6) is the
-> remaining milestone -- now folded into the disk-boot subsystem:
+> **M5** (the `$F800+` OS-call read/write emulator enhancement, S2.6) was
+> delivered by the disk-boot subsystem:
 > [`WENDY2_DISK_BOOT_DESIGN.md`](./WENDY2_DISK_BOOT_DESIGN.md) (alternate
 > monitor ROM + simulated SPI storage + loading programs over the file-I/O
 > OS calls).

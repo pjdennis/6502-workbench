@@ -1,3 +1,4 @@
+/* emulator main(): memory image, argument handling, signal and terminal cleanup, the nmos-default $F0xx port interception, and --server mode. */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>

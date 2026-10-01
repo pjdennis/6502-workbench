@@ -1,4 +1,5 @@
 #!/bin/bash
+# ATTIC NOTE: parked. Expects the old assembler2/ layout (23/out/asm.out, emulator/emulator.out); does not run from here.
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p terminal_demo/out

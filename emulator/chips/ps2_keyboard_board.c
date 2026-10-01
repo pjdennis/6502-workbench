@@ -1,3 +1,4 @@
+/* Michael's PS/2 keyboard board, modelled at frame level (see ps2_keyboard_board.h). */
 #include "ps2_keyboard_board.h"
 
 #include <string.h>

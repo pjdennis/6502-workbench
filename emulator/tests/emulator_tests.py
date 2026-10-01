@@ -6,7 +6,7 @@ Tests memory-mapped I/O ports, file handling, argument passing,
 and other emulator features outside of core 6502 instruction emulation.
 
 Usage:
-    python3 tests/emulator_tests.py [-v] [-f FILTER]
+    python3 emulator/tests/emulator_tests.py [-v] [-f FILTER]
 """
 
 import argparse

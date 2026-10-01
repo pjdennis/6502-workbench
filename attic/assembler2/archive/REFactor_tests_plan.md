@@ -1,5 +1,8 @@
 # Plan: Per-version test suites under assembler folders
 
+> **Attic note:** historical. Paths (`22/`, `23/`, `editor/`, `assembler2/`) are from the old assembler2 layout; the live code is `asm/` (stages 00-17) and `editor/`. See `attic/assembler2/README.md`.
+
+
 ## Goals
 - Move assembler test suites into per-version folders (e.g., `22/tests/`, `23/tests/`).
 - Keep the test runner in the repo root (move from `tests/run_tests.py` to `run_tests.py`).

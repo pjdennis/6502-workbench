@@ -6,13 +6,13 @@
 ; Output is verified by reading back the output file after assembly.
 ;
 ; Build:
-;   (cd 17 && ../emulator.out out/asm.out asm.asm out/test_runner.out define:enable_test_runner)
+;   (cd 17 && ../../emulator/emulator.out out/asm.out asm.asm out/test_runner.out define:enable_test_runner define:enable_debug)
 ;
 ; Usage:
-;   (cd 17/tests/asm && ../../../emulator.out ../../out/test_runner.out 01-instructions.txt)
+;   (cd 17/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out 01-instructions.txt)
 ;
-; Directory mode (no arguments):
-;   (cd 17/tests/asm && ../../../emulator.out ../../out/test_runner.out)
+; Directory mode (no arguments; asmtestgen.sh runs it this way, with -q):
+;   (cd 17/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out)
 ;
 ; When no filename is given, opendir(".") is used to discover and run all
 ; .txt files in the current directory in alphabetical order.

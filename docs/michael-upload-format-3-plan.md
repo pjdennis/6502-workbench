@@ -135,7 +135,7 @@ This page is free while loading: the ROM's services haven't started, and uploads
    - a corrupted header, a bad entry, bad data;
    - the start address taken from `start` in the source;
    - the loader's lowest stack point staying above the table.
-4. **Editor and ROM image:** `michael_tests.py` on format 3, the ROM image rebuilt, the manifest, and the docs (`hardware/michael/README.md`, `tools/README.md`, `upload_frame.py`'s docstring).
+4. **Editor and ROM image:** `editor/tests/michael_tests.py` on format 3, the ROM image rebuilt, the manifest, and the docs (`hardware/michael/README.md`, `tools/README.md`, `upload_frame.py`'s docstring).
 5. **Hand over** the new image for programming. Uploads in format 2 stop working once it is on the board.
 
 ## Later, maybe

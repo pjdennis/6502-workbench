@@ -2,7 +2,7 @@
 
 Homebrew 6502 single-board computers and the software written for them: board firmware and peripheral drivers, self-hosting assemblers, a vi-like editor, a Prog8 compiler that compiles itself on the target, and a board-accurate emulator. It has grown since 2020. [`docs/history.md`](docs/history.md) tells the story and shows how to build each era.
 
-This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 with its full history. Every commit of every old branch is here: `main` plus three `archive/…` branches for work that was never merged. The `archive/<branch>` tags record where each old branch pointed.
+This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 with its full history. Every commit of every old branch is here: on `main`, or, for work that was never merged, reachable from an `archive/<branch>` tag. There is one such tag for each old branch, recording where it pointed.
 
 ## Map
 
@@ -17,7 +17,7 @@ This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 wi
 | [`tools/`](tools/) | Host-side tools: serial upload (`upload/`), webcam LCD OCR (`lcd-ocr/`), `makerom.py`, the firmware regression check, `check_all.sh`. |
 | [`research/`](research/) | Analyses, e.g. a byte-level breakdown of BBC BASIC IV. |
 | [`attic/`](attic/) | Stale, broken or superseded things kept for review, including the first assembler (`asm1/`, 2022–2025). See [`attic/README.md`](attic/README.md). |
-| [`docs/`](docs/) | History, and the plan behind the 2026 reorganization. |
+| [`docs/`](docs/README.md) | History, the plan behind the 2026 reorganization, and the plans for Michael's ROM and upload format (both done). |
 
 ## Quick start
 

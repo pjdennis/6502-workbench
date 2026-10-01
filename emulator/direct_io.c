@@ -1,3 +1,4 @@
+/* --direct-io: screen-call to ANSI conversion and ANSI-input to key-code decoding (see direct_io.h). */
 #include "direct_io.h"
 
 #include <stdio.h>

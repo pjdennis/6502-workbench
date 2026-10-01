@@ -1,3 +1,4 @@
+/* LED taps and control-button injection on the wendy2c VIA pins (see led_buttons.h). */
 #include "led_buttons.h"
 
 #include <stddef.h>

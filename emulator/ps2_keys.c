@@ -1,3 +1,4 @@
+/* ps2_encode_key: terminal key bytes to PS/2 scan code set 2 (see ps2_keys.h). */
 #include "ps2_keys.h"
 
 #include <string.h>

@@ -60,7 +60,7 @@ wait_ready   = ENV_BASE + $3F ; Waits until an input byte is ready (console inpu
                               ; emulated time, otherwise it is real time.
 
 ; Screen calls, for programs built to call them instead of writing ANSI
-; sequences (the asm2 editor's define:direct_io build; the emulator's
+; sequences (the editor's define:direct_io build; the emulator's
 ; --direct-io). Rows and columns are 1-based. All preserve X; they may
 ; change A and Y.
 scr_goto         = ENV_BASE + $42 ; Move the cursor to row A, column Y

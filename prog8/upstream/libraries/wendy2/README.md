@@ -3,7 +3,7 @@
 A custom (external) upstream-Prog8 compilation target for the
 6502-experiments **wendy2c** machine, with first-class helpers for its
 upper-window memory banking. Design + hardware details:
-[`../../WENDY2_BANKING_TARGET_PLAN.md`](../../WENDY2_BANKING_TARGET_PLAN.md).
+[`../../../WENDY2_BANKING_TARGET_PLAN.md`](../../../WENDY2_BANKING_TARGET_PLAN.md).
 
 ## Files
 
@@ -14,8 +14,10 @@ upper-window memory banking. Design + hardware details:
         syslib.p8               # sys/cx16/p8_sys_startup; exit = STP
         textio.p8              # HD44780 4-bit LCD: clear/line2/chrout/print/print_ub
         banking.p8            # set_upper_bank / bank_peek / bank_poke / bank_call
-      demos/                   # .p8 demos (m0,m1,t1..t4)
-      tests/                  # test_wendy2.py + goldens/*.expected.lcd
+        os.p8                 # $F800+ file-I/O OS calls (disk boot, below)
+      wendy2_{disk,monitor}_run.sh, wendy2_pack.py   # disk / monitor runners, .w2x packager
+      demos/                   # .p8 demos (m0, m1, t1..t6, d1, d2, d4, d5)
+      tests/                  # test_wendy2{,_disk,_monitor}.py + goldens/*.expected.lcd
 
 ## Memory model (summary)
 
@@ -80,10 +82,10 @@ a syscall-port chip backed by a host directory = the simulated SPI disk):
 
     os.openfile/createfile/select/readbyte/at_eof/writebyte/closefile   (os.p8)
 
-An alternate boot ROM (`../../../../wendy2c_monitor.s`) reads a disk file
+An alternate boot ROM (`firmware/boards/wendy2/wendy2c_monitor.s`) reads a disk file
 `autoexec`, and for each line loads that program from disk into `$4000` and
 runs it; programs return to the monitor on exit, so multiple commands run in
-turn. See [`../../WENDY2_DISK_BOOT_DESIGN.md`](../../WENDY2_DISK_BOOT_DESIGN.md).
+turn. See [`../../../WENDY2_DISK_BOOT_DESIGN.md`](../../../WENDY2_DISK_BOOT_DESIGN.md).
 
     # one program from disk to LCD:
     ./wendy2_disk_run.sh demos/d1_catfile.p8 /path/to/diskdir
@@ -95,7 +97,7 @@ program), `d4_first`/`d4_second` (two-line autoexec, return-to-monitor).
 
 ## Not yet done
 
-D3 interactive serial commands (`run`/`load`/`dir`), D5 program header for
-banked programs, D6 real SPI-flash image backing -- all behind the same OS-call
-ABI. (Plan milestone M5/the disk-boot design.)
+D3 interactive serial commands (`run`/`load`/`dir`) and D6 real SPI-flash image
+backing -- both behind the same OS-call ABI (the `.w2x` program header, D5, is
+done; see the disk-boot design).
 </content>

@@ -1,5 +1,8 @@
 # Editor Normal Mode Audit Plan
 
+> **Attic note:** historical. Paths (`22/`, `23/`, `editor/`, `assembler2/`) are from the old assembler2 layout; the live code is `asm/` (stages 00-17) and `editor/`. See `attic/assembler2/README.md`.
+
+
 ## 1. Operation-by-Operation Batching Analysis
 
 ### 1.1 Movement Commands (all are read-only, no buffer shifts needed)

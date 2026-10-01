@@ -64,9 +64,9 @@ void bus_reset(struct bus *b);
 int bus_read(struct bus *b, uint16_t addr, uint8_t *data_out);
 int bus_write(struct bus *b, uint16_t addr, uint8_t data);
 
-/* One OSC tick. Stub for phase 2: only increments osc_ticks. Real
- * tick scheduling (combinational vs registered outputs) lands in
- * phase 5 (clock_22v10). */
+/* One OSC tick: increments osc_ticks, then calls tick() on every
+ * registered chip in registration order. The clock_22v10 chip decides
+ * when the CPU runs (bus->cpu_cycle_due). */
 void bus_step(struct bus *b);
 
 #endif

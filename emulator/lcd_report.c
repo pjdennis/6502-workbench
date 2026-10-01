@@ -1,3 +1,4 @@
+/* LCD frame output for --lcd-trace and the final LCD dump (see lcd_report.h). */
 #include "lcd_report.h"
 
 #include "cpu_core.h"

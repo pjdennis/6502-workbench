@@ -1,15 +1,15 @@
 # Future Improvements
 
 ## Housekeeping
-- [ ] Add .gitignore - Exclude out/, dump/, and tool .out files from version control
+- [X] Add .gitignore - Exclude out/, dump/, and tool .out files from version control (root `.gitignore`)
 
 ## Assembler Features
 - [X] Macro support - Define reusable code patterns with `.macro`/`.endmacro`
-- [X] Conditional assembly - `.ifdef`/`.endif` directives (asm20), `define:label` command line
+- [X] Conditional assembly - `.ifdef`/`.endif` directives, `define:label` command line
 - [X] More instructions - All standard 6502 opcodes present in instruction tables
 - [ ] Better error messages - Include source line content in error output, not just line numbers
-- [ ] `.ifndef` directive - complement to `.ifdef`
-- [ ] `.else` for conditionals - more expressive conditional assembly
+- [X] `.ifndef` directive - complement to `.ifdef` (asm17)
+- [X] `.else` for conditionals - more expressive conditional assembly (asm17)
 - [ ] `.fill count, value` - emit N copies of a byte, useful for padding/alignment
 - [ ] `.align N` - align PC to N-byte boundary (emits padding)
 - [ ] More expression operators - `*`, `/`, `&`, `|`, `^` for bit manipulation
@@ -27,10 +27,10 @@
 - [X] Introduce macros for 16-bit arithmetic patterns
 - [ ] Capture load/store patterns as macros in `expand_macro`
 - [ ] Introduce a macro for adding A to a 16-bit variable
-- [ ] Cleanup `write_label_and_modes` in instgen
+- [ ] Cleanup `write_mnemonic_and_modes` in instgen
 
 ## Testing & Quality
-- [X] Test suite - Automated tests for assembler features and edge cases (288 tests)
+- [X] Test suite - Automated tests for assembler features and edge cases (456 tests in 17/tests/asm, plus 59 source-stack tests)
 - [ ] Regression testing - Compare outputs against known-good binaries automatically
 
 ## Tooling
@@ -40,35 +40,22 @@
 ## Performance
 - [ ] Profile the assembler - See where cycles are being spent and optimize hot paths
 
-## Following refactoring for directives to use hash table
+## Residual opportunities after moving directives to a hash table
 
-Residual Opportunities
+Done since these notes were first written: `dir_ifdef` / `dir_ifndef` share
+`process_conditional_common` (a `COND_INVERT` flag flips the decision), there
+are no `dir_*` JMP stubs any more, `process_directive` dispatches through
+`JUMP_TARGET16` rather than borrowing `INST_PTR16`, the `MODE_END` value in
+the `instgen.asm` header comment is correct ($0F), and the nesting limit has a
+test (`17/tests/asm/13-conditionals_edge_cases.txt`, error 24). In `instgen.asm`,
+`populate_instruction_hash_table` and `populate_directive_hash_table` share
+`hash_add_from_table`, and in skip mode `process_conditional_directive` finds
+the directive with the hash lookup and compares its handler address with
+`dir_ifdef`/`dir_ifndef`/`dir_else`/`dir_endif`, instead of a chain of
+`compare_token` calls.
 
-  Duplication in instgen.asm: populate_instruction_hash_table and populate_directive_hash_table share nearly identical
-  Phase 1 (copy name to TOKEN) and structure. They could be merged with a callback or flag for the Phase 3 copy loop, but
-   6502 doesn't lend itself to that pattern well, and this only runs at build time.
-
-  Extra indirection through dir_ JMP stubs*: The conditional directive stubs (dir_ifdef → JMP process_ifdef, etc.) add an
-   extra JMP when dispatched through the hash table. The handler addresses in IHASHTAB could point directly to
-  process_ifdef instead. However, the stubs provide a clean separation point if handler signatures ever change, and the
-  cost is just 3 cycles per call.
-
-  process_conditional_directive still uses string comparison: The skip-mode path does 4 compare_token calls for
-  ifdef/ifndef/else/endif. This could use a hash lookup, but it would need extra logic to distinguish conditional
-  directives from non-conditional ones (you can't just dispatch all directives during skip mode). The 4-comparison chain
-  is fast enough and keeps the skip-mode logic simple and self-contained.
-
-  Stale comment in instgen.asm header: The mode encoding comment block says MODE_END = $FF but the actual value in
-  common.asm is MODE_END = 15 ($0F). This predates my changes but I didn't fix it either. The generated output correctly
-  uses $0F.
-
-  INST_PTR16 reuse in process_directive: process_directive borrows INST_PTR16 for the JMP (INST_PTR16) indirect dispatch.
-   This works because directive and instruction paths don't overlap, but it's a subtle coupling. A dedicated temporary
-  like JUMP_TARGET16 (which exists in init.asm) would be clearer, though it would require making that variable accessible
-   from directives.asm.
-
-  Hash table load factor: Adding 13 directives brought IHASHTAB from 56 entries to 69 entries in 128 slots (~54% load
-  factor). Still reasonable, but future additions would push toward collision territory. Not actionable now, but worth
-  noting.
-
-
+Still open:
+- [ ] Use a named constant for the conditional nesting limit (`directives.asm`
+  compares against the literal 17; `ELSE_SEEN_ARRAY` in `asm.asm` is 16 bytes).
+- IHASHTAB holds 69 entries in 128 slots (~54% load); adding many more
+  directives or mnemonics would start to collide. Not actionable now.

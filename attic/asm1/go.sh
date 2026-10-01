@@ -1,4 +1,5 @@
 #!/bin/zsh
+# ATTIC NOTE: parked asm1 watch script (zsh + fswatch); see attic/asm1/README.md.
 clear && ./asmtest4b.sh
 echo "Waiting for file change..."
 

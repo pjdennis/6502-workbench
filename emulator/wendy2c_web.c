@@ -1,3 +1,4 @@
+/* Embedded HTTP + WebSocket server for --web (see wendy2c_web.h); serves emulator/web/. */
 #include "wendy2c_web.h"
 #include "web_json.h"
 

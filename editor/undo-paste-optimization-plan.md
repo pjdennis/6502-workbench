@@ -1,5 +1,7 @@
 # Plan: Skip cursor row repaint on line paste undo
 
+> Status: superseded. The `RENDER_FLAG` values in the table below are the old numbering (now `$05` is `RF_JOIN`, not a delete-scroll variant); the current flags and render decisions are in the table at the top of `render_decide.asm`, and `render.asm` line numbers no longer apply. Kept as a record of the idea.
+
 ## Context
 
 When undoing a line paste (`p`/`P`), `RENDER_FLAG = $02` triggers `render_line_delete_scroll` which always repaints the cursor row (lines 726-741 of render.asm). This repaint is needed for operations where cursor line content changes (J join, cc change), but for paste undo the cursor row is unmodified — only pasted lines below/above were deleted.

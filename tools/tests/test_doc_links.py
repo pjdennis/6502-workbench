@@ -1,7 +1,7 @@
 """Relative links in the repository's guide documents must point at files that exist.
 
-Covers the root README/CLAUDE, docs/, and the README of each top-level area
-(not attic/, and not historical plan/notes documents).
+Covers the root README/CLAUDE, docs/, and every tracked README.md at any depth
+(not attic/ or vendored code, and not historical plan/notes documents).
 """
 import glob
 import os
@@ -11,20 +11,24 @@ import unittest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 LINK = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')
 
-GUIDES = ['README.md', 'CLAUDE.md', 'docs/*.md', '*/README.md', '*/*/README.md',
+GUIDES = ['README.md', 'CLAUDE.md', 'docs/*.md', '**/README.md',
           'asm/CLAUDE.md', 'editor/CLAUDE.md']
+SKIP = ('attic/', 'emulator/vendor/', 'emulator/tests/harte/data/')
 
 
 def guide_files():
     files = set()
     for pattern in GUIDES:
-        files.update(glob.glob(os.path.join(ROOT, pattern)))
-    return sorted(f for f in files if not os.path.relpath(f, ROOT).startswith('attic'))
+        files.update(glob.glob(os.path.join(ROOT, pattern), recursive=True))
+    return sorted(f for f in files if not os.path.relpath(f, ROOT).startswith(SKIP))
 
 
 class DocLinksTest(unittest.TestCase):
     def test_guides_exist(self):
         self.assertIn(os.path.join(ROOT, 'README.md'), guide_files())
+
+    def test_nested_readmes_are_covered(self):
+        self.assertIn(os.path.join(ROOT, 'firmware/lib/serial/README.md'), guide_files())
 
     def test_relative_links_resolve(self):
         broken = []

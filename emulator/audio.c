@@ -1,3 +1,4 @@
+/* wendy2c PB7 audio: per-sample averaging, piezo high-pass, WAV writer and miniaudio live playback (see audio.h). */
 #include "audio.h"
 
 #include <math.h>

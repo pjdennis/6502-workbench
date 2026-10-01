@@ -7,9 +7,7 @@ Goal: a new EEPROM for Michael that
 
 The editor then uploads alone, with about 4 KB of buffers instead of about 1 KB. The two-stage upload goes. The other boards stay as they are: every change is behind a flag or conditional assembly that only Michael turns on.
 
-Branch: continue on `michael-editor` (or a new `michael-rom` from it).
-
-**Status (2026-09-27): done.** Phases 1-5 and 7 are complete and the ROM runs on the board (`hardware/michael/michael_rom.bin`). Phase 6 wasn't needed, since programs load at `$2000` again. What was built differs from the plan below in a few places, noted where they come up: upload progress on the LCD, separate keyboard and screen starts, `SVC_IRQ`, the `ROM_FLAGS` byte at `$FC`, and the hand-written `michael_rom.inc`.
+**Status (2026-09-27): done.** Format 2 and `upload_v2.inc` were then superseded by format 3 (`firmware/lib/serial/upload_v3.inc`, `transfer.py --format=3`; see `michael-upload-format-3-plan.md`); `upload_v2.inc` and `--format=2` no longer exist in the tree. Phases 1-5 and 7 are complete and the ROM runs on the board (`hardware/michael/michael_rom.bin`). Phase 6 wasn't needed, since programs load at `$2000` again. What was built differs from the plan below in a few places, noted where they come up: upload progress on the LCD, separate keyboard and screen starts, `SVC_IRQ`, the `ROM_FLAGS` byte at `$FC`, and the hand-written `michael_rom.inc`.
 
 ## What the current loader does (firmware/lib/serial/upload_and_run.inc)
 
@@ -67,7 +65,7 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
   - `SVC_LCD_COMMAND` and `SVC_LCD_CHARACTER`, which need no start;
   - `SVC_DELAY` (A x 100 us);
   - `SVC_IRQ`, the ROM's interrupt handler, at a fixed place with a generic name so that later services can share it.
-- `firmware/boards/michael/michael_rom.inc` is written by hand and is the source of truth: it names every entry point and the RAM the services use, and the ROM checks that each entry is where it says. The editor keeps using `17/environment.asm`, which has the same offsets.
+- `firmware/boards/michael/michael_rom.inc` is written by hand and is the source of truth: it names every entry point and the RAM the services use, and the ROM checks that each entry is where it says. The editor keeps using `asm/17/environment.asm`, which has the same offsets.
 - **Services' RAM**, each part's only once that part has started:
   - the keyboard: zero page `$F0-$F9`, and `$3F04-$3F27` for its ring;
   - the screen: `$3F28-$3F80` for its copy of the LCD (and `$FA-$FB` while it starts);
@@ -85,7 +83,7 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
   - yank: 512 bytes;
   - undo: 256 bytes;
   - batch, marks, search, file name and command line: in page 1 below the stack, and in `$3F90`.
-- `editor/michael_image.py` becomes a plain build, since there are no services to add, and `editor-michael-upload.sh` a single upload.
+- `editor/michael_image.py` becomes a plain build, since there are no services to add, and `editor/bin/editor-michael-upload.sh` a single upload.
 
 ## Phases (each test-first, in the emulator before the board)
 
@@ -99,20 +97,20 @@ Branch: continue on `michael-editor` (or a new `michael-rom` from it).
 3. **The ROM.**
    - `michael_rom.s`: the loader at reset, the services and the vector table.
    - The Michael machine boots from a ROM image: with `--rom` and no `--load`, nothing goes into RAM.
-   - A `michael_goldens.sh` case boots `michael_rom.bin` and uploads a program over the serial line.
-   - A test that the ROM's vector table matches `17/environment.asm`.
+   - An `emulator/tests/michael_goldens.sh` case boots `michael_rom.bin` and uploads a program over the serial line.
+   - A test that the ROM's vector table matches `asm/17/environment.asm`.
 4. **Editor on the ROM.**
    - The editor's origin and memory map for Michael, and `michael_environment.asm` removed.
-   - `michael_tests.py` boots the ROM, uploads the editor over the serial line, and runs the existing scripts, differential tests, live test and stack check against it.
+   - `editor/tests/michael_tests.py` boots the ROM, uploads the editor over the serial line, and runs the existing scripts, differential tests, live test and stack check against it.
 5. **The new ROM image.** Committed, in the manifest and handed over for programming (below). Then:
    - `base_config_v2.inc` sets `PROGRAM_LOAD_ADDRESS = $2000`, where programs loaded before the `$0900` ROM, so they keep their data at `$0200-$1FFF` and run unchanged. Only programs that want the room, like the editor, load at `$0200`. `michael_graphic_bf.s`, whose memory map is built around `$0900`, keeps that address, as BBC BASIC does;
-   - `compile_and_upload_michael.sh` assembles to Intel HEX and passes `--format=2`, so a program loads and starts at its `.org`; `transfer.py` sends a flat binary to `$2000` unless told otherwise (`editor-michael-upload.sh` passes `--load-address=0200`).
+   - `compile_and_upload_michael.sh` assembles to Intel HEX and passes `--format=2`, so a program loads and starts at its `.org`; `transfer.py` sends a flat binary to `$2000` unless told otherwise (`editor/bin/editor-michael-upload.sh` passes `--load-address=0200`).
 6. ~~**Programs with data at `$0200`-`$08FF`.**~~ Not needed: with programs at `$2000`, their data stays below them.
 7. **Cleanup of the two-stage upload** (it stays in the history). Remove:
    - `firmware/programs/michael/michael_second_stage_loader.s` and its manifest entry;
    - `tools/upload/upload_michael_big.sh` and its README row;
    - `MichaelBigUploadTest` in `tools/tests/test_upload_scripts.py`;
-   - the three second-stage tests in `michael_tests.py`;
+   - the three second-stage tests in `editor/tests/michael_tests.py`;
    - the RAM services build (`michael_editor_services.s`), once the ROM carries them. Its tests (`test_michael_editor_services.py`) move to the ROM image.
 
    Keep:

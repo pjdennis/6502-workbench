@@ -15,9 +15,11 @@ machine, reproducing its own host-compiled `.s` byte-for-byte (the
 self-host fixpoint), reading source / writing output over the simulated
 SPI disk.
 
-This is the **monolith** counterpart to
-[`WENDY2_SELFHOST_BANKING_PLAN.md`](./WENDY2_SELFHOST_BANKING_PLAN.md)
-(which banks the two-pass split). The user chose the single binary.
+The two-pass alternative (banking the `p1_pass*_sh` split) is summarised in
+the last section; it was planned but not built, because the single binary was
+chosen and got there first. Sections 3-6 below are the original plan, written
+before M2/M5/M6 landed; the STATUS box above is authoritative and the
+milestone list marks what is done.
 
 ---
 
@@ -129,26 +131,26 @@ Everything else (parser, codegen, AST format) is unchanged.
   straight into RAM (bank $01) and starts it -- the serial boot is far too
   slow for ~38 KB. Regression test: `P1WendyEquivalence` (12-program
   cross-section), each byte-identical.
-* **M2 — slab conversion. NEXT.** Convert persistent tables to peek/poke
+* **M2 — slab conversion. DONE (per the STATUS box: ident/str slabs in bank 0, sym/node/cons in bank 1).** Convert persistent tables to peek/poke
   slabs at absolute addresses; raise caps past 256. Corpus green after
   each arena. (Self-host capacity; also the user's explicit ask.) Now also
   feeds M6 -- the slabs are what get partitioned across banks.
-* **M5 — self-host fixpoint on wendy2.** Compile `p1.p8` itself on
+* **M5 — self-host fixpoint on wendy2. DONE** (`P1WendySelfHost`, `P1_WENDY_SELFHOST=1 make -C prog8 p1-test`; there is no `make wendy2-mono-selfhost` target). Compile `p1.p8` itself on
   wendy2; emitted `p1.s` equals host `prog8c`/p8c output (normalized for
   `; source:`). Needs M2 (capacity) + M6 (the ~24 KB of slabs exceed one
   bank, S6). Wire `make wendy2-mono-selfhost` behind skip guards. Also
   needs the monolith to PARSE its own dialect fully (it already handles
   qualified calls like strings.compare / sysio.* via the parser, but
   %import handling for self-parse is unverified -- shake out at M5).
-* **M6 — multi-bank data (now primary, not "only if needed").** p1.p8's
+* **M6 — multi-bank data. DONE** (sym/node/cons in logical bank 1, accessor in fixed RAM). p1.p8's
   ~24 KB persistent slabs exceed the ~22 KB free in one held bank (S6), so
   partition: sym/sub/node/cons in the default bank, ident_pool/str_pool in
   a second bank with switching accessors.
 
 ## 5. Feature completeness (parallel prerequisite)
 
-The monolith still lacks `asmsub`/`extsub` with `@REG` ABI, which
-`p1.p8`'s own source uses (sys_* I/O). This must land for the self-host
+(Historical; done.) The monolith lacked `asmsub`/`extsub` with `@REG` ABI, which
+`p1.p8`'s own source uses (sys_* I/O). This had to land for the self-host
 (M5) regardless of banking. Slab conversion (M2) frees main-address-space
 headroom that the flat monolith lacked, unblocking this feature work. Port
 from the `_sh` chain (`reg_code`, `parse_param @REG`, `parse_ret`,
@@ -192,3 +194,23 @@ from the `_sh` chain (`reg_code`, `parse_param @REG`, `parse_ret`,
 * The monitor ROM with multi-line `autoexec` + return-to-monitor.
 * `mkimage.py` (reset-vector wrap) and the upstream build invocation
   (`cd upstream && prog8c -target … -out W ../p1/p1.p8`).
+
+## 8. The two-pass alternative (folded in from the retired WENDY2_SELFHOST_BANKING_PLAN.md; never built)
+
+Keep the nmos two-pass split (`p1_pass1_sh` + `p1_pass2_sh`) and run each pass
+on wendy2c with **one RAM bank held mapped** (the monitor launch stub maps
+PORTB `$01`), so `$0200-$EFFF` looks like the nmos flat layout (`load $0200`,
+`memtop $F000`). Measured with upstream `prog8c`: pass1 code ~17 KB
+(`$0200-~$44DB`, memtop `$8300`), pass2 ~26 KB (`$0200-~$6800`, memtop
+`$9f00`), so each pass's code fits the fixed lower 32 KB and only data
+overflows into the mapped bank -- no per-access switching or overlays. The
+passes would be sequenced by the monitor's multi-line `autoexec` (return to
+monitor between them), handing the AST over as a disk file (a bank hand-off
+would need multi-bank AST addressing), with the I/O shim retargeted from the
+nmos `$F006+` stubs to the `$F800+` OS calls. Fallbacks if a pass outgrew
+that: partition slabs across banks, or code overlays (`.w2x` loader, T5/T6/D5).
+No two-pass wendy2 build exists; the single-binary route above is what was
+delivered (the self-host test in `p1/tests/test_p1.py` builds with
+`upstream/wendy2_selfhost.properties`; `wendy2_mono.properties` is an earlier
+monolith target that nothing references now).
+

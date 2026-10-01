@@ -1,5 +1,7 @@
 # Editor Performance Plan
 
+> Status: everything under Completed is in the code (see README, Performance). The only open item is Step 4, the gap buffer, which is not started (`buffer.asm` is still a contiguous buffer).
+
 ## Completed
 
 ### Incremental line pointer adjustment

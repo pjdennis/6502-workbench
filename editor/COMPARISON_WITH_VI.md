@@ -4,7 +4,7 @@
 
 | Aspect | Original Vi (Bill Joy, ~1976) | Our Editor |
 |--------|-------------------------------|------------|
-| Language | C (~15,000 lines across 38 files) | 6502 Assembly (~7,500 lines across 15 files) |
+| Language | C (~15,000 lines across 38 files) | 6502 Assembly (~10,700 lines across 27 files) |
 | Platform | VAX/PDP Unix, termcap terminals | 6502 emulator, ANSI terminal |
 | Memory | Virtual memory + disk temp file | 64KB flat memory, all in-core |
 | Max file | Limited by disk, not RAM | ~40KB text buffer, 1023 lines |

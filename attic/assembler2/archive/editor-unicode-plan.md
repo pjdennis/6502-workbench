@@ -1,5 +1,8 @@
 # Editor UTF-8/Unicode Support Plan
 
+> **Attic note:** historical. Paths (`22/`, `23/`, `editor/`, `assembler2/`) are from the old assembler2 layout; the live code is `asm/` (stages 00-17) and `editor/`. See `attic/assembler2/README.md`.
+
+
 ## Problem
 
 The editor assumes **1 byte = 1 display column** throughout. When a file contains multi-byte UTF-8 characters, this causes:

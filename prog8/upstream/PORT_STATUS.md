@@ -1,5 +1,12 @@
 # Bootstrapping p1.p8 with the UPSTREAM Prog8 compiler -- status
 
+Status (2026-09-30): **complete** -- see Updates 4 and 12 for the final state.
+This is a dated play-by-play; the "Remaining" / "Next steps" sections and other
+interim text below were true when written and are kept as history. Tool names
+that no longer exist: `setup.sh` (install 64tass + JRE and fetch the jar as in
+`.github/workflows/ci.yml`) and `port_pipeline.py` (retired in Update 8-12).
+Run from `prog8/` (paths below are relative to it; the emulator is `../emulator/emulator.out`).
+
 Goal: compile the self-hosting compiler (`../p1/p1.p8`) with the **upstream**
 Prog8 compiler and run it on the emulator, verifying self-host from the
 official toolchain.
@@ -8,7 +15,7 @@ official toolchain.
 - **Toolchain (MILESTONE A).** Upstream `prog8c` v12.1.1 + a custom `nmos`
   target (`nmos.properties` + `libraries/nmos/syslib.p8`) + `64tass` 1.60 +
   `mkimage.py` produce an emulator image that RUNS. Proven by `hello.p8`
-  ("HI" via the syscall stubs). `setup.sh` fetches/builds the tools.
+  ("HI" via the syscall stubs). the tools are 64tass + the prog8c jar (see CI).
 - **p1.p8 compiles under upstream (0 errors).** `port_p1.py` transforms the
   p8c-flavoured `p1/p1.p8` into upstream-Prog8 source, resolving every
   static-check incompatibility:
@@ -98,11 +105,11 @@ edge; bisect `parse_main` next. After that: codegen recursion (still warned),
 then the pipeline `_sh` port for true self-host.
 
 ### How to reproduce / continue
-  bash upstream/setup.sh                       # prog8c.jar + 64tass
+  # prerequisites: 64tass, java, /tmp/prog8c.jar (see .github/workflows/ci.yml)
   python3 upstream/port_p1.py p1/p1.p8 /tmp/p1_up.p8
   (cd upstream && java -jar /tmp/prog8c.jar -target nmos.properties -out /tmp/up /tmp/p1_up.p8)
   python3 upstream/mkimage.py /tmp/up/p1_up.bin /tmp/up/img.bin
-  emulator/emulator.out /tmp/up/img.bin <in.p8> <out.s> --no-dump
+  ../emulator/emulator.out /tmp/up/img.bin <in.p8> <out.s> --no-dump
 Exit-bisection: inject `sys_exit(7)` after a phase in start() to see if it's
 reached. Compare output to `python3 -m p8c <in.p8> -o oracle.s`.
 
@@ -193,7 +200,7 @@ Two pieces beyond the monolith fixes:
    0-diff), correct under upstream. (The monolith p1.p8 has a simpler fast path
    with no such recursive call, so it was already fine.)
 
-Reproduce: `bash upstream/setup.sh && bash upstream/selfhost.sh`.
+Reproduce: `bash upstream/selfhost.sh` (prerequisites as above).
 
 ## Update 5: corpus hardening of the slab port
 `upstream/selfhost_corpus.py` runs the full p1 test corpus (81 programs) through

@@ -1,3 +1,5 @@
+# Manual test of the DTR reset line: opens the serial port and toggles DTR. Edit `port` and
+# `baudrate` below first; needs pyserial. Not run by the test suites.
 import serial
 import time
 

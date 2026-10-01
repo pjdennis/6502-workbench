@@ -1,3 +1,4 @@
+/* Alternate screen + raw terminal mode save/restore (see tty_alt_screen.h). */
 #include "tty_alt_screen.h"
 
 #include <termios.h>

@@ -1,14 +1,13 @@
+/* OSC chip (see osc.h). */
 #include "osc.h"
 
 #include <stddef.h>
 
 static void osc_tick(struct chip *self, struct bus *bus) {
     (void)self;
-    /* OSC drives the master tick. bus_step also increments osc_ticks
-     * for tests that exercise bus alone; in production with an OSC
-     * registered, this method is the source of truth. The double-count
-     * goes away in phase 5 when bus_step stops bumping the counter
-     * itself and only fans tick() out to registered chips. */
+    /* Nothing to do: bus_step() increments bus->osc_ticks itself. The
+     * machines (emu_wendy2c.c, emu_michael.c) do not register this chip;
+     * it only holds a frequency and is exercised by test_chip_osc.c. */
     (void)bus;
 }
 

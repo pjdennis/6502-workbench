@@ -46,18 +46,20 @@ skipped, malformed `print_ub` cleanly aborts compilation.
 ## Layout
 
     tinyp8/
-        tinyp8.s            # the compiler -- assembled by vasm
+        tinyp8.s            # the compiler (v0/v1) -- assembled by vasm
+        tinyp8.p8           # the same compiler in Prog8 (grown to v9), built by p8c
         __main__.py         # Python driver: build, run, wrap, run-out
-        out/tinyp8.bin      # cached vasm output
+        out/tinyp8.bin      # cached vasm output (created on first run)
         tests/
             test_e2e.py     # discovers goldens/*.tp8 and runs them
-            goldens/
-                01_hello.tp8 + .expected.stdout
-                02_multi.tp8 + .expected.stdout
-                03_bytes.tp8 + .expected.stdout
-                04_mixed.tp8 + .expected.stdout
+            test_self_host.py  # tinyp8.s and tinyp8.p8 give identical output
+            test_v2.py      # goldens_v2/ (v2..v9 features), via tinyp8.p8
+            goldens/        # 01_hello .. 05_print_uw (.tp8 + .expected.stdout)
+            goldens_v2/
 
 ## Use
+
+(From `prog8/`.)
 
     # one-shot: compile via emulator, wrap, run, print captured stdout
     python3 -m tinyp8 hello.tp8 --run-out

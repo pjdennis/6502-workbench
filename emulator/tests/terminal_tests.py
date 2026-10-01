@@ -6,7 +6,7 @@ Tests the emulator's --terminal mode by assembling a test program,
 running it with --terminal --input/--output, and verifying output.
 
 Usage:
-    python3 tests/terminal_tests.py [-v]
+    python3 emulator/tests/terminal_tests.py [-v]
 """
 
 import argparse

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "../bus.h"
 
-/* CPU-on-the-bus chip wrapper. Phase 8 strategy 1:
+/* CPU-on-the-bus chip wrapper. Per-instruction strategy:
  *
  *   When the clock_22v10 sets bus->cpu_cycle_due (CK falling edge):
  *     - if cycles_owed > 0, decrement (the CPU is finishing a multi-

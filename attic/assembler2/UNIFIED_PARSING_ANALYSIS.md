@@ -1,5 +1,8 @@
 # Unified Parsing for Conditional Assembly - Implementation Analysis
 
+> **Attic note:** historical. Paths (`22/`, `23/`, `editor/`, `assembler2/`) are from the old assembler2 layout; the live code is `asm/` (stages 00-17) and `editor/`. See `attic/assembler2/README.md`.
+
+
 ## Core Principle
 **In skipping mode (SKIP_DEPTH > 0), follow the exact same parsing flow as normal mode, but suppress state-changing operations.**
 

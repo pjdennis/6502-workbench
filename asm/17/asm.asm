@@ -1,5 +1,5 @@
 ; ============================================================================
-; ASM23 - Self-Hosting 6502 Assembler
+; ASM17 - Self-Hosting 6502 Assembler
 ; ============================================================================
 ;
 ; See README for architecture, memory map, and module documentation.

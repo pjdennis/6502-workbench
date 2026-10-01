@@ -1,5 +1,8 @@
 # Plan: Consolidate Operand Value Parsing
 
+> **Attic note:** finished plan from the asm18/19 era. Paths and `./asmtestgen.sh` commands are of that time; the live assembler is `asm/` (stages 00-17). See `attic/asm-legacy/README.md`.
+
+
 ## Status: COMPLETE
 
 Successfully consolidated all operand value parsing into a single `parse_value` function.

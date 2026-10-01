@@ -1,3 +1,4 @@
+/* E6502_TRACE diagnostics: PC ring buffer and hottest-PC histogram (see trace.h). */
 #include "trace.h"
 
 #include <stdio.h>

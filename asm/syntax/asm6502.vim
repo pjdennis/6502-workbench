@@ -1,4 +1,4 @@
-" Vim syntax file for 6502 assembler (asm22 format)
+" Vim syntax file for 6502 assembler (asm17 dialect)
 " Language: 6502 Assembly
 " Put this file in ~/.vim/syntax/asm6502.vim
 " Add to ~/.vimrc:  autocmd BufRead,BufNewFile *.asm set filetype=asm6502
@@ -33,7 +33,7 @@ syntax match asm6502Label "^[a-zA-Z_][a-zA-Z0-9_]*"
 syntax match asm6502LocalLabel "^\.[a-zA-Z_][a-zA-Z0-9_]*"
 
 " Directives (start with . but not at line start)
-syntax match asm6502Directive "\s\+\.\(macro\|endmacro\|data\|include\|ifdef\|endif\|zeropage\)\>"
+syntax match asm6502Directive "\s\+\.\(byte\|word\|asciiz\|include\|reserve\|macro\|endmacro\|zeropage\|code\|ifdef\|ifndef\|else\|endif\)\>"
 
 " 6502 Opcodes - Load/Store
 syntax keyword asm6502Opcode LDA LDX LDY STA STX STY

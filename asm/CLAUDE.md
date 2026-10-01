@@ -35,7 +35,7 @@ Each version builds into its own `NN/out/` directory (e.g., `16/out/asm.out`). T
 
 - **Instruction generators** (`NN/instgen.asm`): Generate `NN/out/inst.asm.out` files containing pre-computed instruction hash tables. These are `.include`d (as `out/inst.asm.out` relative to the version directory) by the assemblers to avoid runtime initialization.
 
-- **Hash tables**: Used for both label lookup (`LHASHTAB` at $1F00) and instruction lookup (`IHASHTAB`). Hash entries are stored on a heap (`MEMP16`).
+- **Hash tables**: Used for both label lookup (`LHASHTAB` at $0700) and instruction lookup (`IHASHTAB` at $1F00 in instgen, the start of the generated `inst.asm.out` at $2000 in asm.asm). Hash entries are stored on a heap (`MEMP16`).
 
 - **Macros**: Definitions are stored on the heap with parameter names. Invocations substitute arguments for parameters during expansion.
 
@@ -204,6 +204,7 @@ DEBUG = $01          ; Define a label
 - Error 23: `Duplicate .else in conditional block` - Multiple `.else` in same block
 - Error 24: `Conditional nesting exceeds 16 levels` - Too deeply nested
 - Error 4: `Label expected` - `.ifdef`/`.ifndef` without a label name
+- (Errors 43 and 44, `Assignment uses a label defined later` and `Address differs between passes`, are described in `17/README`.)
 
 ### Macros (asm16+)
 
@@ -228,13 +229,15 @@ Starting with asm16, the assembler supports macros with parameters:
 - Parameters are simple text substitution
 - Local labels (`.label`) in macros are scoped to each invocation
 - Macros can use expressions: `ptr+$01` expands correctly
-- Up to 8 parameters per macro
+- Up to 32 parameters per macro (`MACRO_MAX_ARGS`)
 
 **Errors:**
-- Error 1E: `Unclosed macro` - Missing `.endmacro`
-- Error 1F: `Macro not found` - Undefined macro invocation
-- Error 20: `Expected macro name` - `.macro` without name
-- Error 22: `Too many macro arguments` - More than 8 parameters
+(Error codes are decimal; the full list is in `17/errors.asm`.)
+- Error 29: `Unclosed .macro` - Missing `.endmacro`
+- Error 25: `Macro name expected` - `.macro` without name
+- Error 28: `.endmacro without .macro`
+- Error 32 / 33: `Too few` / `Too many macro arguments` (more than `MACRO_MAX_ARGS` = 32 parameters)
+- Error 31: `Recursive macro invocation`
 
 ## Migration Patterns
 

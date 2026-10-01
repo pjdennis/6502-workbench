@@ -1,4 +1,5 @@
 #!/bin/bash
+# ATTIC NOTE: parked. File names (asm0c.c, asm0.asm) predate asm/00/ (asm.c, asm.asm); does not run as is.
 # bootstrap0.sh - Verify minimal bootstrap assembler self-assembly
 set -e
 
