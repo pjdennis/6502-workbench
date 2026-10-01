@@ -1,3 +1,4 @@
+/* HD44780 LCD controller model (see lcd_hd44780.h). */
 #include "lcd_hd44780.h"
 
 #include <stddef.h>

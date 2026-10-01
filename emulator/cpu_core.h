@@ -4,8 +4,7 @@
 #include <stdint.h>
 
 // CPU variant selection. NMOS is the default; 65C02 picks an
-// alternate dispatch table (currently initialized identically to NMOS;
-// phases 3b..3f add the actual differences).
+// alternate dispatch table with the W65C02S differences and new opcodes.
 #define CPU_NMOS  0
 #define CPU_65C02 1
 extern int cpu_variant;
@@ -32,15 +31,15 @@ extern void write6502(uint16_t address, uint8_t value);
 
 // Optional bus-transaction taps. When non-NULL, every read6502/write6502
 // performed by the CPU dispatch is mirrored to the tap with the (addr,
-// data) it observed. Used by the bus-trace ring buffer (phase 15a) and
-// the Harte cycle-log harness (phase 3h). Default is NULL (no overhead
+// data) it observed. Used by the Harte harness
+// (tests/harte_runner.c) and test_cpu_bus_tap.c. Default is NULL (no overhead
 // beyond a per-access null-pointer check).
 extern void (*cpu_bus_read_tap)(uint16_t addr, uint8_t data);
 extern void (*cpu_bus_write_tap)(uint16_t addr, uint8_t data);
 
 // Optional external memory hooks. When set, the CPU dispatch routes
 // every memory access through these instead of the host's read6502 /
-// write6502 (phase 8: the wendy2c bus model installs these so the CPU
+// write6502 (the bus-model machines install these so the CPU
 // reads/writes go to the ROM/RAM/VIA chips on the bus).
 extern uint8_t (*cpu_external_read)(uint16_t addr);
 extern void    (*cpu_external_write)(uint16_t addr, uint8_t data);

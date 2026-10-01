@@ -1,3 +1,4 @@
+/* emu_run_michael: the Michael (v2) machine -- bus wiring, LCD/keyboard/bus-check reporting (see emu_michael.h). */
 #include "emu_michael.h"
 
 #include <stdio.h>

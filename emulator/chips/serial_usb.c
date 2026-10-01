@@ -1,3 +1,4 @@
+/* USB serial chip: feeds queued bytes to the VIA's CB2/SR (see serial_usb.h). */
 #include "serial_usb.h"
 
 #include <stdio.h>

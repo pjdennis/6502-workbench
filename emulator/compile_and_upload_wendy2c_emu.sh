@@ -1,5 +1,5 @@
 #!/bin/sh
-# Emulator-side equivalent of compile_and_upload_115200_wendy.sh.
+# Emulator-side equivalent of tools/upload/compile_and_upload_wendy.sh.
 #
 # Assembles the given .s source with vasm6502_oldstyle, frames the
 # resulting binary (length + payload + BSD checksum), and streams it

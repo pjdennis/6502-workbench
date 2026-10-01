@@ -1,3 +1,4 @@
+/* --serial-link: the Unix-socket wire protocol that drives CB2 at emulated-time resolution (see serial_link.h). */
 #include "serial_link.h"
 
 #include <errno.h>

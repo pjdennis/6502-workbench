@@ -1,3 +1,4 @@
+/* emu_run_wendy2c: the wendy2c machine -- chip wiring plus the plain, --live, --web and --serial-link run loops and the live ANSI renderer. */
 #include "emu_wendy2c.h"
 
 #include <stdio.h>
@@ -79,7 +80,7 @@ static const char *PORTB_LABELS[8] = {
     /* PB3 */ "B3",
     /* PB4 */ "B4",
     /* PB5 */ "E",    /* LCD enable */
-    /* PB6 */ "LED",  /* phase 11 */
+    /* PB6 */ "LED",  /* morse LED */
     /* PB7 */ "T1",   /* T1 squarewave */
 };
 
@@ -599,7 +600,7 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     if ((opts->live || opts->web) && !opts->cycle_cap_set) cap = UINT64_MAX;
 
     /* --mhz N pins the OSC (crystal) frequency. The 22V10 PLD halves
-     * it for the CPU clock, so a --mhz 9.72 run matches the real
+     * it for the CPU clock, so a --mhz 19.44 run matches the real
      * wendy2c board's CLOCK_FREQ_KHZ = 9720. 0 means "no throttle":
      * non-live runs uncapped; --live falls back to a default pace
      * inside emu_run_wendy2c_live. */

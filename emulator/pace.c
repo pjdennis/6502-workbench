@@ -1,3 +1,4 @@
+/* emu_pace: wall-clock throttle for the bus-model machines (see pace.h). */
 #include "pace.h"
 
 long emu_pace(const struct timespec *t0, uint64_t osc0, uint64_t osc_now, double osc_per_us) {

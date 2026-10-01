@@ -1,3 +1,4 @@
+/* CPU-on-the-bus wrapper that runs one instruction per CK fall and owes the rest of its cycles (see cpu_65c02.h). */
 #include "cpu_65c02.h"
 
 #include <stddef.h>

@@ -14,7 +14,7 @@ This test:
 5. Verifies that "HELLO" appears in the output after resume (screen redrawn)
 
 Usage:
-    python3 tests/sigtstp_test.py [-v]
+    python3 emulator/tests/sigtstp_test.py [-v]
 """
 
 import argparse

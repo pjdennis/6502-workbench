@@ -1,3 +1,4 @@
+/* Bus: chip registration, read/write dispatch in registration order, and bus_step (see bus.h). */
 #include "bus.h"
 
 #include <string.h>

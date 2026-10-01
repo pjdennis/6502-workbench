@@ -7,7 +7,7 @@
  * emulator is given a --disk directory). Provides host-backed file I/O to
  * guest code from any bank (the block is in the fixed high-RAM window, ahead
  * of the RAM chip on the bus). Filenames are pushed byte-by-byte into the
- * chip (no guest-RAM reads needed). See WENDY2_DISK_BOOT_DESIGN.md.
+ * chip (no guest-RAM reads needed). See prog8/WENDY2_DISK_BOOT_DESIGN.md.
  *
  * Port map (R=read by guest, W=written by guest):
  *   $F800 W  append a byte to the filename buffer

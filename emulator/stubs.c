@@ -1,3 +1,4 @@
+/* Generates the $F006 jump table and stub routines the nmos-default programs call for file, console and terminal services (see stubs.h). */
 #include "stubs.h"
 #include "direct_io.h"
 

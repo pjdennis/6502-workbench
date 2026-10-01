@@ -1,3 +1,4 @@
+/* Michael's address decode and RAM decoding variants (see glue_michael.h). */
 #include "glue_michael.h"
 
 #include <stddef.h>

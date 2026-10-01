@@ -3,10 +3,10 @@
 
 #include "cli.h"
 
-/* Run the wendy2c machine model. Phase 4b: only constructs an empty
- * bus, sets cpu_variant, and spins a small OSC tick loop. Real chip
- * wiring (clock_22v10, ROM, RAM, VIA, CPU-on-bus, etc.) lands in
- * phases 5..9. Returns 0 on normal exit, non-zero on error. */
+/* Run the wendy2c machine model: builds the bus with the
+ * 22V10 clock, ROM, RAM, VIA, LCD, serial-USB and LED/button chips and a
+ * 65C02 on the bus, then steps it (plain, --live, --web or --serial-link
+ * per opts). Returns 0 on normal exit, non-zero on error. */
 int emu_run_wendy2c(const struct emu_opts *opts);
 
 #endif

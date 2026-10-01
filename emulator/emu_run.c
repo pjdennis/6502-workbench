@@ -1,3 +1,4 @@
+/* emu_run_default: the nmos-default run loop (direct memory, Fake6502 dispatch, console/terminal/throttle). */
 #include "emu_run.h"
 
 #include <stdlib.h>

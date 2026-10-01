@@ -5,12 +5,10 @@
 
 #include "../bus.h"
 
-/* OSC chip. Holds the crystal frequency (used later by the audio sink
- * to set sample-rate decimation, and informational for diagnostics).
- * Its tick() advances bus->osc_ticks; bus_step() does the same in the
- * absence of an OSC, so having both attached counts only once -- the
- * OSC's tick() runs before bus_step's bump in the current
- * scaffolding. (Phase 5 / clock_22v10 takes over scheduling.) */
+/* OSC chip: holds the crystal frequency. Its tick() does nothing,
+ * because bus_step() itself advances bus->osc_ticks; the machines do
+ * not register it (emu_wendy2c.c paces from --mhz instead), so it is
+ * only exercised by tests/test_chip_osc.c. */
 struct osc_state {
     uint64_t frequency_hz;
 };

@@ -1,3 +1,4 @@
+/* Parser for the wendy2c web protocol's client messages (see web_json.h). */
 #include "web_json.h"
 
 #include <string.h>

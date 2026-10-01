@@ -1,3 +1,4 @@
+/* wendy2c host file-I/O port block at $F800-$F80F, enabled by --disk (see syscall_ports.h). */
 #include "syscall_ports.h"
 
 #include <stdio.h>

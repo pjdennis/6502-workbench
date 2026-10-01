@@ -1,3 +1,4 @@
+/* File and directory handles behind the nmos-default file ports (open/read/write/close, directory listing as text). */
 #include "file_io.h"
 
 #include <stdlib.h>
@@ -8,7 +9,7 @@
 #include <limits.h>
 
 // Defined in emulator.c - needed for error handling during extraction
-// Phase 2b will replace these with a clean callback interface
+// (a callback interface would remove this dependency)
 extern void restore_terminal(void);
 extern void emulation_exit(int code);
 

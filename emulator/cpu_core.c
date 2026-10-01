@@ -77,12 +77,12 @@ int cpu_variant = CPU_NMOS;
 static int wai_pending = 0;
 static int stp_pending = 0;
 
-/* Optional bus-transaction taps (phase 3i). Default NULL; the
+/* Optional bus-transaction taps. Default NULL; the
  * per-access overhead is a null check. */
 void (*cpu_bus_read_tap)(uint16_t addr, uint8_t data) = NULL;
 void (*cpu_bus_write_tap)(uint16_t addr, uint8_t data) = NULL;
 
-/* Optional external memory hooks (phase 8). When set, the CPU dispatch
+/* Optional external memory hooks (the bus-model machines). When set, the CPU dispatch
  * routes every memory access through these instead of the host's
  * read6502/write6502. The wendy2c bus model installs these. */
 uint8_t (*cpu_external_read)(uint16_t addr) = NULL;
@@ -1067,10 +1067,9 @@ static const uint32_t ticktable_nmos[256] = {
 };
 
 /* 65C02 dispatch tables. Initialized close to the NMOS tables with
- * selected entries replaced for the W65C02S differences (phase 3b:
- * JMP indirect page-bug fix at $6C, BCD-aware ADC/SBC, BRK clears D).
- * Further phases (3c..3f) will add the new opcodes (bra/phx/phy/
- * plx/ply/stz/etc., bit ops, wai/stp). */
+ * selected entries replaced for the W65C02S differences (JMP indirect
+ * page-bug fix at $6C, BCD-aware ADC/SBC, BRK clears D) and the new
+ * opcodes (bra/phx/phy/plx/ply/stz/etc., bit ops, wai/stp). */
 static void (*addrtable_65c02[256])() = {
 /* 0 */      imp, indx,  imm,  imp,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imp, abso, abso, abso,   zp,
 /* 1 */      rel, indy, ind_zp, imp,   zp,  zpx,  zpx,   zp,  imp, absy,  acc,  imp, abso, absx, absx,   zp,

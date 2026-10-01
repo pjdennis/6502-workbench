@@ -1,3 +1,4 @@
+/* The --console / --terminal screen model for nmos-default: ANSI output parsing, cell grid, repaint, key input and the emulated serial buffers. */
 #include "console.h"
 
 #include <stdio.h>

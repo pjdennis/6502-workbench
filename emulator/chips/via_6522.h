@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "../bus.h"
 
-/* WDC 6522 VIA. Phase 9 = registers + T1/T2 + PB7 + IFR/IER + bank
+/* WDC 6522 VIA: registers + T1/T2 + PB7 + IFR/IER + bank
  * config feedback to the clock + CB2-edge / SR-in-T2 path that
  * upload_and_run.inc uses for serial RX.
  *
@@ -18,7 +18,7 @@
  * computing bus->bank_config = (orb & ddrb) & 0x1F whenever ORB or
  * DDRB changes.
  *
- * Serial RX: the SERIAL_USB chip (phase 13) drives via_set_cb2() to
+ * Serial RX: the SERIAL_USB chip drives via_set_cb2() to
  * pulse the CB2 pin low (start bit) and then to feed bits during
  * shift-in-T2 mode. */
 
@@ -116,7 +116,7 @@ struct via_6522_state {
 
 void via_6522_init(struct chip *chip, struct via_6522_state *state);
 
-/* External CB2 driver (used by the SERIAL_USB chip in phase 13). The
+/* External CB2 driver (used by the SERIAL_USB chip). The
  * "edge" form runs the PCR-based IFR-edge logic; the "quiet" form
  * just updates the cb2_in level so the next T2 underflow shifts it,
  * without firing IFR (used to drive subsequent bits in a byte without

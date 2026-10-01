@@ -1,3 +1,4 @@
+/* 28C256 32 KiB ROM loaded from a file (see rom_28c256.h). */
 #include "rom_28c256.h"
 
 #include <stdio.h>
