@@ -15,7 +15,7 @@
 ; re-enters the monitor. The wendy2 syslib's exit jumps to $0320 iff the
 ; monitor signature byte ($A5 at $02FF) is present, else it halts (STP), so
 ; the same programs still run standalone under the upload boot ROM.
-; See WENDY2_DISK_BOOT_DESIGN.md.
+; See prog8/WENDY2_DISK_BOOT_DESIGN.md.
 
   .include base_config_wendy2c.inc
 

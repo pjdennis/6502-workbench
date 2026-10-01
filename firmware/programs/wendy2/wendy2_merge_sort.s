@@ -1,6 +1,6 @@
 ; wendy2 merge-sort demo (skeleton phase).
 ;
-; See plan-for-wendy2-merge-sort-demo.md for the full design. This file
+; See attic/plan-for-wendy2-merge-sort-demo.md for the full design. This file
 ; is built up TDD-style across multiple commits; right now it just sets
 ; up the machine, shows a banner with the build-time N_ELEMENTS, and
 ; halts via STP. Subsequent commits add the fill, sort, and verify
