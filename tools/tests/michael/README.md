@@ -1,0 +1,3 @@
+# Michael ROM test programs
+
+Small 6502 programs that `../test_michael_rom.py` uploads to the emulated Michael through the ROM's loader and then reads off the LCD. Each exercises one thing: `upload_check.s` and `zp_check.s` show what an upload left in RAM and zero page; `screen_*.s` and `print_string.inc` the screen services; `keys.s`, `kb_only.s` the keyboard; `chain.s` a program's own interrupt handler chained to the ROM's; `exit.s` and `display_flag.s` program exit and the LCD routines' interrupt flag. `rom_vectors.inc` gives the ROM's entries the names of `asm/17/environment.asm`.

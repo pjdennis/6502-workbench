@@ -19,4 +19,6 @@ Host-side tools. Run them from the repository root unless noted.
 | `tests/test_layout.py` | Guards the directory layout: `asm/`, `editor/` and `prog8/` at the top, asm1 in the attic, no live file naming an old path. |
 | `makerom.py` | The 2020 Ben Eater-style ROM image generator (`rom.bin`). |
 
+Each of `upload/`, `lcd-ocr/` and `tests/` also has its own README: [`upload/`](upload/README.md), [`lcd-ocr/`](lcd-ocr/README.md), [`tests/`](tests/README.md).
+
 Older per-baud-rate copies of the upload scripts are in `attic/`.

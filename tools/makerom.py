@@ -1,3 +1,6 @@
+# Writes rom.bin in the current directory: a tiny 32K ROM image from the 2020 Ben Eater-style
+# Wendy (v1) breadboard (code at $8000, reset vector to it, rest NOP). Kept for history; current
+# firmware is assembled with firmware/vasm.
 code = bytearray([
   0xa9, 0xff,        # lda #$ff
   0x8d, 0x02, 0x60,  # sta $6002
