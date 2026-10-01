@@ -1,6 +1,6 @@
 # Firmware
 
-6502 assembly for the real boards, assembled with **vasm** (`vasm6502_oldstyle`). vasm 1.9f and 2.0 through 2.0f all produce byte-identical binaries. `firmware/manifest.txt` records the version CI uses, 2.0e.
+6502 assembly for the real boards, assembled with **vasm** (`vasm6502_oldstyle`). vasm 1.9f and 2.0 through 2.0f all produce byte-identical binaries. `firmware/manifest.txt` records the version CI uses, 2.0f.
 
 ```
 firmware/

@@ -11,7 +11,7 @@ on:
 env:
   # The firmware assembles identically on vasm 1.9f through 2.0f; pin the version
   # recorded in firmware/manifest.txt (check fails if they differ).
-  VASM_URL: http://phoenix.owl.de/tags/vasm2_0e.tar.gz
+  VASM_URL: http://phoenix.owl.de/tags/vasm2_0f.tar.gz
   PROG8C_URL: https://github.com/irmen/prog8/releases/download/v12.1.1/prog8c-12.1.1-all.jar
   PROG8C: /tmp/prog8c.jar
 
