@@ -1,5 +1,7 @@
 # Plan: Reserve / commit split for macro source-stack frames
 
+> Status: done. `ss_reserve_frame` / `ss_commit_pending_frame` are in `17/source_stack.asm` and used by `expand_macro`. Kept as a design record. Paths below are relative to `asm/`; line numbers and the stack memory map may have drifted.
+
 ## Problem
 
 `expand_macro` builds a memory frame whose payload is parsed argument

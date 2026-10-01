@@ -1,5 +1,7 @@
 # Plan: cache macro slot-list and param-name pointers in zero page
 
+> Status: done. `MACRO_LOOKUP_SLOTS16` / `MACRO_LOOKUP_PARAMS16` exist in `17/label_scope.asm` and `ss_lookup_param_slot` (`17/macro_expansion.asm`) uses them. Kept as a design record; the line numbers quoted below are from before the change.
+
 ## Problem
 
 `ss_lookup_param_slot` (`17/macro_expansion.asm:117`) is the hot path

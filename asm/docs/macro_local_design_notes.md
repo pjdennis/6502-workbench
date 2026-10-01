@@ -1,6 +1,6 @@
 # Macro-Local Optimization: Design Notes
 
-Status: deferred. Tackle **after** parameter activation-frame work is done.
+Status: still deferred (verified against `17/`: `LABEL_TYPE_MACRO_LOCAL` and `EXPANSION_ID16` are still in use). The prerequisite, parameter activation frames (`source_stack_unification_plan.md`), is done.
 This doc captures the design we agreed on so we can come back to it cold.
 
 ## Goal

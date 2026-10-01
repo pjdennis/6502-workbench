@@ -1,5 +1,7 @@
 # Plan: Unify Scope Stack with File Stack, then Move Macro Parameters to Activation Frames
 
+> Status: done (all phases, including the post-Phase-5 follow-ups, are checked off below). `SCOPE_STACK` is gone and macro parameters live in activation slots on the source stack (`17/source_stack.asm`, `17/label_scope.asm`). Kept as a design record; its memory-map and line references describe the pre-change layout. Current layout: `17/README`.
+
 This is the implementation plan for two related changes:
 
 1. Merge the scope stack (`SCOPE_STACK` at `$0400`) into the file stack

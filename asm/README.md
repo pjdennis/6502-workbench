@@ -34,7 +34,7 @@ python3 run_tests.py -q                      # stage-17 test suite
   - `show_captured_macros`
 - **Directives:** `.include`, `.zeropage`, `.code`, `.byte`, `.word`, `.asciiz`, `.reserve`, `.ifdef`, `.ifndef`, `.else`, `.endif`, `.macro`, `.endmacro`.
 - **Syntax:** standard 6502 mnemonics and addressing modes, with expressions, local labels and forward references.
-- **Tests:** the files in [`17/tests/asm/`](17/tests/asm/) are the executable specification of the syntax; `run_tests.py` runs them. Stage 17 can also run them itself when built with `define:enable_test_runner` (see `asmtestgen.sh`).
+- **Tests:** the files in [`17/tests/asm/`](17/tests/asm/) (format: [`17/tests/README.md`](17/tests/README.md)) are the executable specification of the syntax; `run_tests.py` runs them. Stage 17 can also run them itself when built with `define:enable_test_runner` (see `asmtestgen.sh`).
 - **Internals:** [`17/README`](17/README) (memory map, hash tables, macro system, source stack).
 - **Host calls:** programs reach the host through the emulator's stub table at `$F006`–`$F03C` (stdin/stdout/stderr, files, argv, console, terminal size, serial, directories). They are listed in [`17/environment.asm`](17/environment.asm).
 
@@ -46,5 +46,5 @@ python3 run_tests.py -q                      # stage-17 test suite
 | `run_tests.py` | Test runner for the stage test suites and the source-stack tests |
 | `pyasm.py` | A Python work-alike of the stage-17 assembler |
 | `syntax/` | Syntax highlighting for the dialect: `vscode-asm6502/` and `asm6502.vim` |
-| `docs/` | Design notes and plans from the development of stage 17 |
+| `docs/` | Design notes and plans from the development of stage 17 (index with status: [`docs/README.md`](docs/README.md)) |
 | `CLAUDE.md` | Build commands and architecture notes for AI-assisted work |
