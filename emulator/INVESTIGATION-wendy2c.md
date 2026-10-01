@@ -1,5 +1,12 @@
 # INVESTIGATION — wendy2c emulator extension (Phase 0)
 
+> **Status (2026-09-30): complete; its findings are implemented** in `chips/` and
+> summarised in `README.md` (memory map, RAM wiring). File names and commands
+> below are from the `assembler2/` era: `upload_and_run.inc` is now
+> `firmware/lib/serial/upload_and_run.inc`, `base_config_wendy2c.inc` is in
+> `firmware/boards/wendy2/`, `22V10-wendy2c.pld` is `hardware/wendy2/22V10-wendy2c.pld`,
+> and `./asmtestgen.sh` / `run_tests.py` are now in `asm/` (everything runs from `tools/check_all.sh`).
+
 This note records the answers to the five investigate-first items called out
 in `WENDY2_EMULATOR_PLAN.md`. Each answer cites the source-of-truth file
 lines so the later phases can be implemented against pinned facts rather than

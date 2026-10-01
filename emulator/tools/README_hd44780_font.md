@@ -15,10 +15,14 @@ The generated artifacts are committed to the repo:
   The same two tables, base64-encoded into a small JS module that
   defines `window.HD44780_A00 = { font5x8, font5x10 }` as `Uint8Array`s.
 
-## Regenerating
+The committed tables no longer come straight from this tool: codes
+`0x20`-`0xFF` were since overwritten with the font captured from the real
+wendy2c panel by `tools/lcd-ocr/apply_font_to_emulator.py` (see
+`tools/lcd-ocr/README.md`), which also rewrites both file headers. Re-running
+the extractor replaces the captured glyphs with the datasheet ones.
 
-The font tables only need to be regenerated if the extraction
-algorithm changes — the source data (the public datasheet) is fixed.
+## Regenerating from the datasheet
+
 To re-run:
 
 ```sh

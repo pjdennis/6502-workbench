@@ -148,7 +148,7 @@ interval from the start-bit interrupt to the first sample.
 - Update the SR tests in `tests/test_chip_via.c`: 2(N+2) cycles per bit, with the first
   sample at the first rising edge of CB1.
 - Run the wendy2c goldens (`--serial-input`) and `wendy2c-serial-link` (real time,
-  now at 115200), and the Michael loader tests on `michael-editor`.
+  now at 115200), and the Michael tests (`make michael-goldens`).
 
 ## 4. VIA features that aren't modelled
 
@@ -156,8 +156,8 @@ None of these affect timing today, but a program that relies on one behaves
 differently:
 - **ORB access and the CB flags.** Reading or writing ORB doesn't clear IFR.CB1 or
   IFR.CB2. CB2 is modelled only as a negative-edge input.
-- **CA1, CB1 and CA2.** No CA1 or CB1 edge interrupts. `michael-editor` adds CA2 edges
-  and the IFR.CA2 clear on an ORA access.
+- **CA1, CB1 and CA2.** No CA1 or CB1 edge interrupts. CA2 edges
+  and the IFR.CA2 clear on an ORA access are modelled (the Michael keyboard needs them).
 - **Handshake and pulse output modes** on CA2 and CB2.
 - **T2 pulse counting** on PB6 (ACR5 = 1). T2 always counts PHI2 cycles.
 - **Other SR modes.** Shift out under T2, PHI2 or CB1, and shift in under PHI2 or an
@@ -174,7 +174,7 @@ differently:
 - `make timer2-cycles`: exact T2 tick intervals for a handler tuned on the board.
 - `make harte` (opt-in, needs `tests/harte/fetch.sh`): instruction results. Once
   section 1's full fix exists, turn on the cycle-log check.
-- On `michael-editor`, the Michael machine (`--machine michael`) runs
+- The Michael machine (`--machine michael`) runs
   `michael_timer2_test2.s` through the real ROM's serial loader. Over 200 s of emulated
   time (400,000,000 cycles), its LCD clock and tick count advance by exactly 200.00 s
   and 100,000 ticks.

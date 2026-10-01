@@ -5,7 +5,7 @@ SingleStepTests/65x02 vectors. The runner reports each as FAIL; this
 file documents *why* each one is acceptable for our purposes (or
 flags it as a real bug to chase).
 
-## Summary as of phase 3h v1
+## Summary as of the first harness version (not re-measured since)
 
 With `HARTE_LIMIT=200`:
 - `6502/`: pass=229 fail=27

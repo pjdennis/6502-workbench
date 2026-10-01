@@ -1,5 +1,34 @@
 # Plan: extend `assembler2/emulator/` into a wendy2c board-level simulator
 
+> **Status (2026-09-30): implemented, apart from the items below.** This is the
+> original plan, kept for its narrative; paths and commands in it are from the
+> `assembler2/` era (`assembler2/emulator/` is now `emulator/`, and
+> `asmtestgen.sh` and `run_tests.py` are now in `asm/`; `./commit` no longer
+> exists). For the current state
+> read `README.md`, `chips/README.md` and `tests/README.md`.
+>
+> - Done: phases 0-11 (decomposition, bus, 65C02 core with Dormann and Harte
+>   harnesses, `--machine wendy2c`, PLD, ROM, RAM, CPU on the bus, VIA, LCD, LED
+>   and button), 13 (serial chip, demo script) and 17's README (the usage text
+>   is printed when `emulator.out` runs with no arguments; there is no `--help`
+>   flag).
+>
+> - Done differently: the LED/button panel (phase 11) is a status line above the
+>   LCD in `--live`, with SPACE as the button instead of F1. Audio (phase 12) uses vendored miniaudio with `--wav` and
+>   `--audio`, not `--audio-out` / SDL2 (`audio.c`). The serial upload socket
+>   (13b/13c) became `--serial-link` with `wendy2c_emu_link.py` and
+>   `wendy2c_emu_upload.py` (`wendy2_upload.py` still writes framed files for
+>   `--serial-input`). The button is PA1, the control LED PA2 (see
+>   `chips/led_buttons.h`). Beyond the plan: `--machine michael`, `--web`,
+>   `--live`, `--lcd-trace`, `--disk`. The LCD size question (open question 4)
+>   became `--lcd-panel 16x2|16x1-5x10`, not `--lcd-rows`/`--lcd-cols`.
+> - Not done as written: phase 16's scripted run (its `--audio-out`,
+>   `--serial-socket` and F1 never existed); the goldens and end-to-end targets
+>   in `tests/README.md` cover that ground instead.
+> - Never built: phase 14 (ST7920 stub), 15a (`E6502_TRACE=bus`), 15b
+>   (snapshots), 15c (`--selftest` / `make selftest`; `make test` and
+>   `make harte` cover it).
+
 ## Branch & ground rules
 
 - Cut a new branch from `text-editor`: `git checkout -b wendy2-emulator`.

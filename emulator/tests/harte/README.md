@@ -22,8 +22,7 @@ make harte HARTE_LIMIT=10 # only first 10 vectors per opcode (fast)
 ```
 
 When `data/` is missing, `make harte` prints a warning and exits 0
-(the harness is opt-in). The same skip-with-warning behavior applies
-to `--selftest` (phase 15c).
+(the harness is opt-in); it is not part of `make test` or `check_all`.
 
 ## Known deltas
 

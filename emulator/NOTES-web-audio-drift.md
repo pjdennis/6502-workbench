@@ -1,5 +1,10 @@
 # Web-audio drift in the wendy2c emulator's web UI
 
+> **Status (2026-09-30): still open.** Checked against `web/wendy2c.js`
+> (`playAudioFrame` still has only the one-sided `audioNextTime` resync and no
+> AudioWorklet) and `wendy2c_web.c` (8192-sample ring, frames of up to 2000
+> samples): section 1 describes the current code and section 3 is not implemented.
+
 Investigation notes on how audio is delivered from the emulator to the
 browser, what currently protects (and fails to protect) against drift,
 and a sketch of a moderately sophisticated fix. Captured for future
