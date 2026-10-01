@@ -31,7 +31,7 @@ Memory Map
   $0200-$03FF   Forward reference list (512 bytes)
   $0400-$04FF   Free (was a separate label scope stack pre-Phase-3.6;
                 macro activation state now lives on the source stack)
-  $0500-$05FF   Free (was a 256-byte macro argument buffer pre-Phase-4.10)
+  $0500-$05FF   Free (was a 256-byte macro argument buffer pre-Phase-4.8)
   $0600-$067F   TOKEN buffer (128 bytes)
   $0680-$068F   ELSE_SEEN_ARRAY (16 bytes, one per .ifdef nesting level;
                 accessed as ELSE_SEEN_ARRAY - 1,Y with Y = COND_DEPTH
