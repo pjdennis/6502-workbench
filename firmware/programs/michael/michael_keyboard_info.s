@@ -8,6 +8,8 @@
 ;   77 1C F0 1C
 ;
 ; A reply that doesn't come within about 50 ms shows as "--" (an AT keyboard has no ID).
+; A keyboard that sends its reply bytes back to back (the MC-689) hangs it after "ID": the
+; board loses the ACK. See docs/michael-keyboard-frame-detection.md.
 
   .include base_config_v2.inc
 
