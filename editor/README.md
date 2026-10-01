@@ -1,7 +1,11 @@
 # Editor (6502 vi-like)
 
-A vi-like text editor (~7,500 lines of 6502 assembly) that runs under the
-project's 6502 emulator in console/ANSI mode.
+A vi-like text editor (~10,700 lines of 6502 assembly, comments included) built
+with the assembler in `../asm` (asm17). It runs under the project's 6502
+emulator in console mode, in terminal mode (ANSI over emulated serial), and on
+the Michael board (real or emulated, with the `define:direct_io` and
+`define:michael` build on its 20x4 LCD).  The launcher scripts are described
+in [`bin/README.md`](bin/README.md).
 
 The commands are in `HELP`.  The differences from vim are listed in
 `vi-compatibility-changes`, the larger ones planned, with their costs, in
@@ -78,9 +82,11 @@ CPU costs that could come down.
   `:marks` display, automatic adjustment on insert/delete.
 
 ### Shared includes
-- `17/environment.asm`: emulator I/O port definitions (shared with assembler).
-- `17/macros.asm`: 16-bit macros (`SET16`, `LDAX16`, `STAX16`, etc.).
-- `macros.asm`: editor-only macros (`ADDA16`, `PRINT_STR`); `17/macros.asm`
+- `memory_map.asm`: the fixed buffer addresses (see Memory layout), for the
+  standard build and for `define:michael`.
+- `asm/17/environment.asm`: emulator I/O port definitions (shared with assembler).
+- `asm/17/macros.asm`: 16-bit macros (`SET16`, `LDAX16`, `STAX16`, etc.).
+- `macros.asm`: editor-only macros (`ADDA16`, `PRINT_STR`); `asm/17/macros.asm`
   is shared with the assembler.
 - `zp.asm`: every editor zero-page variable, grouped by owning module and
   included before any code, so all zero-page references are backward ones
@@ -443,12 +449,17 @@ as a VT102 does by default:
 |--------|--------|
 | `define:small_buffer` | Reduces `TEXT_LIMIT` to 256 bytes (for testing truncation/read-only) |
 | `define:terminal_mode` | Switches to serial I/O with spin loops and DSR terminal size query |
+| `define:direct_io` | Calls the host's screen services (`scr_*` in `asm/17/environment.asm`) instead of writing ANSI sequences (`terminal.asm`, `input.asm`) |
+| `define:michael` | Michael board memory map (`memory_map.asm`); built with `direct_io` by `michael_image.py` |
 
 ## Testing
 
 - `editor/tests/editor_tests.py` assembles the editor (using `asm/17/out/asm.out`
   via the emulator) and runs it under `emulator/emulator.out`, feeding
   keystroke byte streams and verifying saved file contents and screen state.
+- `editor/tests/michael_tests.py` runs the `direct_io` + `michael` build on the
+  emulated Michael board (needs `vasm6502_oldstyle`); `editor_tests.py --direct-io`
+  runs the main tests against the `direct_io` build.
 - `editor/tests/ansi_screen.py` is a virtual terminal that processes ANSI
   escape sequences into a screen buffer for screen-state assertions.
 - Bounds checking tests build `editor_small.out` with `define:small_buffer` to

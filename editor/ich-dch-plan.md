@@ -1,5 +1,7 @@
 # Plan: ICH/DCH shifting for in-line edits
 
+> Status: done. All nine steps below are marked done, and the ICH/DCH shifting is in `render.asm` (see README, Rendering). Kept as a record of the design.
+
 Use the terminal's Insert Character (`ESC[n@`, ICH) and Delete Character
 (`ESC[nP`, DCH) controls so that an in-line edit shifts the existing text on
 screen instead of resending everything after the edit point. Scope: insert

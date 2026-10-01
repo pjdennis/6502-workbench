@@ -1,3 +1,4 @@
+ Snapshot of a code-duplication survey. Some routine names have since changed or gone (for example mem_copy_up: only mem_copy_down is left, see buffer_mem.asm); check the source before acting on an item.
  
   ┌─────────────────────────┬───────┬───────────────────────────────────────────────────────────────────┐
   │        Category         │ Count │                            Description                            │
