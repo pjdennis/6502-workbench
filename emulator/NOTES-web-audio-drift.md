@@ -2,7 +2,7 @@
 
 > **Status (2026-09-30): still open.** Checked against `web/wendy2c.js`
 > (`playAudioFrame` still has only the one-sided `audioNextTime` resync and no
-> AudioWorklet) and `wendy2c_web.c` (8192-sample ring, frames of up to 2000
+> AudioWorklet) and `web_server.c` (8192-sample ring, frames of up to 2000
 > samples): section 1 describes the current code and section 3 is not implemented.
 
 Investigation notes on how audio is delivered from the emulator to the
@@ -19,22 +19,22 @@ reference — nothing here is implemented yet.
   22050 Hz). Each sample is delivered through three sinks:
   miniaudio's local SPSC ring (when `--live`), the WAV writer (when
   `--wav`), and `tap_cb` — which `emu_wendy2c.c` wires to
-  `wendy2c_web_audio_tap`.
+  `web_server_audio_tap`.
 - The emulator's main loop in `emu_wendy2c.c` calls `wendy2c_pace`
   before each step. `wendy2c_pace` *only ever sleeps* — it sleeps when
   `emu_ns > wall_ns`, but never tries to catch up if the emulator is
   behind. So the producer is wallclock-paced with a downward bias: at
   most 22050 samples per wallclock second, often slightly fewer on a
   loaded host.
-- `wendy2c_web_audio_tap` pushes each sample into a per-server ring
+- `web_server_audio_tap` pushes each sample into a per-server ring
   (`audio_ring`, 8192 int16 = ~370 ms @ 22050 Hz). On overflow it drops
   the oldest sample. Overflow only really happens when no client is
   attached.
 - Every ~33 ms (the snapshot cadence — see `SNAP_NS` in
-  `emu_wendy2c.c`), `wendy2c_web_flush_audio` drains the ring into one
+  `emu_wendy2c.c`), `web_server_flush_audio` drains the ring into one
   or more WebSocket binary frames, each tagged `0x01` followed by
   little-endian int16 samples (capped at 2000 samples per frame in
-  `wendy2c_web_broadcast_audio`).
+  `web_server_broadcast_audio`).
 - The WebSocket is TCP, so **once a client is attached, no audio frames
   are dropped on the wire**. Backpressure shows up as growing kernel
   send buffer, then a growing JS receive queue.

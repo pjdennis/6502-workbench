@@ -141,7 +141,7 @@ void emu_opts_usage(FILE *fp) {
 "                         127.0.0.1, loopback only). Use 0.0.0.0 to also accept\n"
 "                         connections from the LAN; the listen banner prints a\n"
 "                         warning when bound non-loopback.\n"
-"  --web-root PATH        wendy2c: directory containing index.html/wendy2c.css/.js.\n"
+"  --web-root PATH        wendy2c: directory containing the pages, board.css and scripts.\n"
 "                         Defaults to <dir-of-argv0>/web.\n"
 "  --serial-link PATH     wendy2c: Unix-domain socket for host-driven CB2 line.\n"
 "                         A Python client drives bit-level transitions and reset\n"

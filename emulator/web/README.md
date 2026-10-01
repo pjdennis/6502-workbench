@@ -2,14 +2,14 @@
 
 The browser UI served by `emulator.out --machine wendy2c --web` (default
 `http://127.0.0.1:8080/`; `--web-port`, `--web-bind` and `--web-root`
-adjust it). The server is `../wendy2c_web.c`; it serves these files from
+adjust it). The server is `../web_server.c`; it serves these files from
 the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 | File | Role |
 |---|---|
-| `index.html` | page: LCD canvas, the two LEDs (PB6, PA2), control and reset buttons, VIA port pin tables, status line |
+| `wendy2c.html` | page (served at `/`): LCD canvas, the two LEDs (PB6, PA2), control and reset buttons, VIA port pin tables, status line |
 | `wendy2c.js` | client: draws the LCD per pixel, handles the WebSocket, plays the audio, sends button/reset messages (SPACE also presses the button) |
-| `wendy2c.css` | styling |
+| `board.css` | styling |
 | `hd44780_a00_font.js` | the HD44780 A00 character ROM as base64 tables, captured from the real wendy2c panel and written by `tools/lcd-ocr/apply_font_to_emulator.py` (which also writes `../chips/hd44780_a00_font.h`); the first version came from the datasheet via `../tools/extract_hd44780_font.py` (see `../tools/README_hd44780_font.md`) |
 
 ## Protocol

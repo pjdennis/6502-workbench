@@ -1,5 +1,5 @@
-/* Embedded HTTP + WebSocket server for --web (see wendy2c_web.h); serves emulator/web/. */
-#include "wendy2c_web.h"
+/* Embedded HTTP + WebSocket server for --web (see web_server.h); serves emulator/web/. */
+#include "web_server.h"
 #include "web_json.h"
 
 #include <arpa/inet.h>
@@ -123,29 +123,30 @@ struct client {
 #define EVENT_QUEUE_SIZE 32
 #define AUDIO_RING_CAPACITY 8192  /* int16 samples; ~0.37s @ 22050 Hz */
 
-struct wendy2c_web_server {
+struct web_server {
     int listen_fd;
     int port;
     char web_root[1024];
-    struct client clients[WENDY2C_WEB_MAX_CLIENTS];
+    char machine[32];               /* log prefix; the page at / is <machine>.html */
+    struct client clients[WEB_MAX_CLIENTS];
 
     /* FIFO of pending client-originated events. */
-    struct wendy2c_web_event events[EVENT_QUEUE_SIZE];
+    struct web_event events[EVENT_QUEUE_SIZE];
     int evt_head, evt_tail;
 
-    /* Server-side audio ring: filled by wendy2c_web_audio_tap() from
+    /* Server-side audio ring: filled by web_server_audio_tap() from
      * the audio module's emit_sample(); drained by
-     * wendy2c_web_flush_audio() into a single WS binary frame. */
+     * web_server_flush_audio() into a single WS binary frame. */
     int16_t audio_ring[AUDIO_RING_CAPACITY];
     int audio_head, audio_tail;
     int audio_sample_rate;          /* announced to new clients via init msg */
 };
 
 /* ===== Logging ===== */
-static void web_warn(const char *fmt, ...) {
+static void web_warn(const struct web_server *srv, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "wendy2c-web: ");
+    fprintf(stderr, "%s-web: ", srv->machine);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -251,9 +252,9 @@ static void send_simple(struct client *c, int code, const char *status,
     if (blen) queue_bytes(c, body, blen);
 }
 
-static void send_file(struct client *c, const char *web_root, const char *path) {
-    /* Sanitize. The only files we serve (index.html / wendy2c.css /
-     * wendy2c.js) need none of: parent-dir navigation, double slashes,
+static void send_file(struct client *c, const struct web_server *srv, const char *path) {
+    /* Sanitize. The only files we serve (<machine>.html, board.css and
+     * the scripts) need none of: parent-dir navigation, double slashes,
      * or any URL-percent-encoding. Rejecting any '%' in the path
      * forecloses the "encode .. as %2e%2e" bypass class without us
      * having to write a URL decoder. If a future asset needs %20 etc.
@@ -266,10 +267,12 @@ static void send_file(struct client *c, const char *web_root, const char *path) 
         send_simple(c, 400, "Bad Request", "bad path\n");
         return;
     }
-    /* Default root -> index.html */
-    const char *rel = (strcmp(path, "/") == 0) ? "/index.html" : path;
+    /* Default root -> the machine's page */
+    char page[48];
+    snprintf(page, sizeof(page), "/%s.html", srv->machine);
+    const char *rel = (strcmp(path, "/") == 0) ? page : path;
     char full[2048];
-    if (snprintf(full, sizeof(full), "%s%s", web_root, rel) >= (int)sizeof(full)) {
+    if (snprintf(full, sizeof(full), "%s%s", srv->web_root, rel) >= (int)sizeof(full)) {
         send_simple(c, 400, "Bad Request", "path too long\n");
         return;
     }
@@ -358,7 +361,7 @@ static const char *find_header(const char *req, const char *name, char *tmp, siz
 }
 
 /* Returns 1 if request fully read (terminated by \r\n\r\n). */
-static int try_complete_request(struct client *c, const char *web_root) {
+static int try_complete_request(struct client *c, const struct web_server *srv) {
     /* Look for end-of-headers. */
     char *end = NULL;
     if (c->inlen >= 4) {
@@ -399,7 +402,7 @@ static int try_complete_request(struct client *c, const char *web_root) {
         c->inlen = 0;
         return 1;
     }
-    send_file(c, web_root, path);
+    send_file(c, srv, path);
     return 1;
 }
 
@@ -472,8 +475,8 @@ static int ws_parse_frame(struct client *c, char **out_text, int *out_textlen) {
 }
 
 /* ===== Event queue ===== */
-static void queue_event(struct wendy2c_web_server *srv,
-                         enum wendy2c_web_event_type t, int btn_down) {
+static void queue_event(struct web_server *srv,
+                         enum web_event_type t, int btn_down) {
     int next = (srv->evt_tail + 1) % EVENT_QUEUE_SIZE;
     if (next == srv->evt_head) {
         /* Queue full -- drop oldest. */
@@ -484,30 +487,31 @@ static void queue_event(struct wendy2c_web_server *srv,
     srv->evt_tail = next;
 }
 
-static void handle_text_msg(struct wendy2c_web_server *srv,
+static void handle_text_msg(struct web_server *srv,
                              const char *txt, int len) {
     /* Single-pass structured parse; see web_json.h for the security
      * guarantees vs. the original "find substring" helpers. */
     struct web_json_msg msg;
     if (web_json_parse(txt, len, &msg) != 0) return;
     if (msg.has_type && strcmp(msg.type, "button") == 0 && msg.has_down) {
-        queue_event(srv, WENDY2C_WEB_EVT_BUTTON, msg.down ? 1 : 0);
+        queue_event(srv, WEB_EVT_BUTTON, msg.down ? 1 : 0);
     } else if (msg.has_type && strcmp(msg.type, "reset") == 0) {
         /* Reset is a one-shot (button_down field unused). */
-        queue_event(srv, WENDY2C_WEB_EVT_RESET, 0);
+        queue_event(srv, WEB_EVT_RESET, 0);
     }
 }
 
 /* ===== Server lifecycle ===== */
-struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
-                                              const char *web_root) {
+struct web_server *web_server_start(const char *machine, int port,
+                                    const char *bind_addr, const char *web_root) {
     /* Ignore SIGPIPE; we handle write errors per-connection. */
     signal(SIGPIPE, SIG_IGN);
 
-    struct wendy2c_web_server *srv = calloc(1, sizeof(*srv));
+    struct web_server *srv = calloc(1, sizeof(*srv));
     if (!srv) return NULL;
     srv->listen_fd = -1;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) srv->clients[i].fd = -1;
+    snprintf(srv->machine, sizeof(srv->machine), "%s", machine);
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) srv->clients[i].fd = -1;
     resolve_web_root(web_root, srv->web_root, sizeof(srv->web_root));
 
     /* Default to loopback. inet_aton accepts "0.0.0.0" / "1.2.3.4". */
@@ -516,7 +520,7 @@ struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
     int loopback_only = 1;
     if (bind_addr && *bind_addr) {
         if (inet_aton(bind_addr, &ba) == 0) {
-            web_warn("bad --web-bind address '%s' (expected IPv4 dotted-quad)",
+            web_warn(srv, "bad --web-bind address '%s' (expected IPv4 dotted-quad)",
                      bind_addr);
             free(srv);
             return NULL;
@@ -525,7 +529,7 @@ struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
     }
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { web_warn("socket: %s", strerror(errno)); free(srv); return NULL; }
+    if (fd < 0) { web_warn(srv, "socket: %s", strerror(errno)); free(srv); return NULL; }
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in addr;
@@ -534,13 +538,13 @@ struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
     addr.sin_addr   = ba;
     addr.sin_port   = htons((uint16_t)port);
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        web_warn("bind %s:%d: %s",
+        web_warn(srv, "bind %s:%d: %s",
                  bind_addr && *bind_addr ? bind_addr : "127.0.0.1",
                  port, strerror(errno));
         close(fd); free(srv); return NULL;
     }
     if (listen(fd, 4) < 0) {
-        web_warn("listen: %s", strerror(errno));
+        web_warn(srv, "listen: %s", strerror(errno));
         close(fd); free(srv); return NULL;
     }
     socklen_t alen = sizeof(addr);
@@ -557,11 +561,11 @@ struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
     } else {
         inet_ntop(AF_INET, &ba, shown, sizeof(shown));
     }
-    fprintf(stderr, "wendy2c-web: listening on http://%s:%d/ "
+    fprintf(stderr, "%s-web: listening on http://%s:%d/ "
                     "(web_root=%s)\n",
-            shown, srv->port, srv->web_root);
+            srv->machine, shown, srv->port, srv->web_root);
     if (!loopback_only) {
-        web_warn("WARNING: bound to %s -- the wendy2c control button "
+        web_warn(srv, "WARNING: bound to %s -- the board's controls "
                  "and audio stream are reachable from anyone who can "
                  "connect to this port. Use --web-bind 127.0.0.1 to "
                  "restrict to localhost.", shown);
@@ -569,32 +573,32 @@ struct wendy2c_web_server *wendy2c_web_start(int port, const char *bind_addr,
     return srv;
 }
 
-void wendy2c_web_stop(struct wendy2c_web_server *srv) {
+void web_server_stop(struct web_server *srv) {
     if (!srv) return;
     if (srv->listen_fd >= 0) close(srv->listen_fd);
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) close_client(&srv->clients[i]);
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) close_client(&srv->clients[i]);
     free(srv);
 }
 
-int wendy2c_web_client_count(const struct wendy2c_web_server *srv) {
+int web_server_client_count(const struct web_server *srv) {
     int n = 0;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         if (srv->clients[i].state == CS_WS_OPEN) n++;
     }
     return n;
 }
 
-int wendy2c_web_port(const struct wendy2c_web_server *srv) {
+int web_server_port(const struct web_server *srv) {
     return srv ? srv->port : 0;
 }
 
 /* Accept any pending connections into a free client slot. */
-static void try_accept(struct wendy2c_web_server *srv) {
+static void try_accept(struct web_server *srv) {
     for (;;) {
         int fd = accept(srv->listen_fd, NULL, NULL);
         if (fd < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                web_warn("accept: %s", strerror(errno));
+                web_warn(srv, "accept: %s", strerror(errno));
             }
             return;
         }
@@ -603,7 +607,7 @@ static void try_accept(struct wendy2c_web_server *srv) {
         int one = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
         int slot = -1;
-        for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+        for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
             if (srv->clients[i].state == CS_FREE) { slot = i; break; }
         }
         if (slot < 0) {
@@ -623,7 +627,7 @@ static void try_accept(struct wendy2c_web_server *srv) {
     }
 }
 
-static void read_from_client(struct wendy2c_web_server *srv, struct client *c) {
+static void read_from_client(struct web_server *srv, struct client *c) {
     if (c->state == CS_FREE) return;
     int room = CLIENT_INBUF_SIZE - c->inlen;
     if (room <= 0) { close_client(c); return; }
@@ -637,7 +641,7 @@ static void read_from_client(struct wendy2c_web_server *srv, struct client *c) {
     c->inlen += (int)n;
 
     if (c->state == CS_READING_HTTP) {
-        if (try_complete_request(c, srv->web_root)) {
+        if (try_complete_request(c, srv)) {
             /* HTTP done: either upgraded to WS or queued response + will close. */
             flush_outbuf(c);
             if (c->state != CS_WS_OPEN) {
@@ -664,9 +668,9 @@ static void read_from_client(struct wendy2c_web_server *srv, struct client *c) {
     }
 }
 
-int wendy2c_web_poll(struct wendy2c_web_server *srv,
-                     struct wendy2c_web_event *out_event) {
-    out_event->type = WENDY2C_WEB_EVT_NONE;
+int web_server_poll(struct web_server *srv,
+                     struct web_event *out_event) {
+    out_event->type = WEB_EVT_NONE;
     out_event->button_down = 0;
     if (!srv) return 0;
 
@@ -674,7 +678,7 @@ int wendy2c_web_poll(struct wendy2c_web_server *srv,
     FD_ZERO(&rfds);
     int maxfd = srv->listen_fd;
     FD_SET(srv->listen_fd, &rfds);
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         if (srv->clients[i].state != CS_FREE) {
             FD_SET(srv->clients[i].fd, &rfds);
             if (srv->clients[i].fd > maxfd) maxfd = srv->clients[i].fd;
@@ -684,7 +688,7 @@ int wendy2c_web_poll(struct wendy2c_web_server *srv,
     int rc = select(maxfd + 1, &rfds, NULL, NULL, &tv);
     if (rc > 0) {
         if (FD_ISSET(srv->listen_fd, &rfds)) try_accept(srv);
-        for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+        for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
             if (srv->clients[i].state != CS_FREE
                 && FD_ISSET(srv->clients[i].fd, &rfds)) {
                 read_from_client(srv, &srv->clients[i]);
@@ -692,7 +696,7 @@ int wendy2c_web_poll(struct wendy2c_web_server *srv,
         }
     }
     /* Flush any pending outbufs (e.g. broadcast queued state). */
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         if (srv->clients[i].state != CS_FREE) flush_outbuf(&srv->clients[i]);
     }
     /* Drain one event from the queue. */
@@ -715,11 +719,11 @@ static int sj_printf(char *buf, int cap, int *pos, const char *fmt, ...) {
     return 0;
 }
 
-void wendy2c_web_broadcast(struct wendy2c_web_server *srv,
-                           const struct wendy2c_web_snapshot *s) {
+void web_server_broadcast(struct web_server *srv,
+                           const struct web_snapshot *s) {
     if (!srv) return;
     int any = 0;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++)
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
         if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
     if (!any) return;
 
@@ -763,7 +767,7 @@ void wendy2c_web_broadcast(struct wendy2c_web_server *srv,
             srv->audio_sample_rate);
     }
 
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         struct client *c = &srv->clients[i];
         if (c->state != CS_WS_OPEN) continue;
         if (initlen > 0 && !c->audio_init_sent) {
@@ -800,8 +804,8 @@ static void ws_send_binary(struct client *c, const uint8_t *data, size_t n) {
     queue_bytes(c, data, (int)n);
 }
 
-void wendy2c_web_audio_tap(void *user, int16_t sample) {
-    struct wendy2c_web_server *srv = (struct wendy2c_web_server *)user;
+void web_server_audio_tap(void *user, int16_t sample) {
+    struct web_server *srv = (struct web_server *)user;
     if (!srv) return;
     int next = (srv->audio_tail + 1) % AUDIO_RING_CAPACITY;
     if (next == srv->audio_head) {
@@ -814,7 +818,7 @@ void wendy2c_web_audio_tap(void *user, int16_t sample) {
     srv->audio_tail = next;
 }
 
-void wendy2c_web_send_audio_rate(struct wendy2c_web_server *srv,
+void web_server_send_audio_rate(struct web_server *srv,
                                  int sample_rate) {
     if (!srv) return;
     srv->audio_sample_rate = sample_rate;
@@ -823,7 +827,7 @@ void wendy2c_web_send_audio_rate(struct wendy2c_web_server *srv,
     char msg[64];
     int n = snprintf(msg, sizeof(msg),
                      "{\"type\":\"audio_init\",\"rate\":%d}", sample_rate);
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         if (srv->clients[i].state == CS_WS_OPEN) {
             ws_send_text(&srv->clients[i], msg, (size_t)n);
             flush_outbuf(&srv->clients[i]);
@@ -831,7 +835,7 @@ void wendy2c_web_send_audio_rate(struct wendy2c_web_server *srv,
     }
 }
 
-void wendy2c_web_broadcast_audio(struct wendy2c_web_server *srv,
+void web_server_broadcast_audio(struct web_server *srv,
                                  const int16_t *samples, int count) {
     if (!srv || count <= 0) return;
     /* Frame format: [0x01 = audio tag][LE int16 samples...].
@@ -847,10 +851,10 @@ void wendy2c_web_broadcast_audio(struct wendy2c_web_server *srv,
     }
     size_t plen = 1 + 2 * (size_t)count;
     int any = 0;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++)
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
         if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
     if (!any) return;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++) {
         if (srv->clients[i].state == CS_WS_OPEN) {
             ws_send_binary(&srv->clients[i], buf, plen);
             flush_outbuf(&srv->clients[i]);
@@ -858,11 +862,11 @@ void wendy2c_web_broadcast_audio(struct wendy2c_web_server *srv,
     }
 }
 
-void wendy2c_web_flush_audio(struct wendy2c_web_server *srv) {
+void web_server_flush_audio(struct web_server *srv) {
     if (!srv) return;
     /* No clients? Drop the queue so it doesn't fill up forever. */
     int any = 0;
-    for (int i = 0; i < WENDY2C_WEB_MAX_CLIENTS; i++)
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
         if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
     if (!any) { srv->audio_head = srv->audio_tail; return; }
 
@@ -875,6 +879,6 @@ void wendy2c_web_flush_audio(struct wendy2c_web_server *srv) {
             batch[n++] = srv->audio_ring[srv->audio_head];
             srv->audio_head = (srv->audio_head + 1) % AUDIO_RING_CAPACITY;
         }
-        wendy2c_web_broadcast_audio(srv, batch, n);
+        web_server_broadcast_audio(srv, batch, n);
     }
 }
