@@ -1,5 +1,8 @@
 # Replace Runtime Buffer Configuration with Compile-Time Conditional Assembly
 
+> **Attic note:** historical. Paths (`22/`, `23/`, `editor/`, `assembler2/`) are from the old assembler2 layout; the live code is `asm/` (stages 00-17) and `editor/`. See `attic/assembler2/README.md`.
+
+
 ## Context
 
 The editor currently uses a debug build with runtime command-line argument parsing (`bufsize:NN`) to override the buffer size for testing. This approach adds ~100 lines of argument parsing code that's only used in tests. By moving to compile-time conditional assembly at the constant definition level, we:

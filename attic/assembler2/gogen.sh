@@ -1,4 +1,5 @@
 #!/bin/bash
+# ATTIC NOTE: parked. Watches the old assembler2/emulator.c, which no longer exists (see attic/asm1/emulator.c and emulator/).
 trap exit SIGINT
 
 while true

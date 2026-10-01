@@ -1,4 +1,5 @@
 #!/bin/bash
+# ATTIC NOTE: parked alternate of asmtestgen.sh for the old assembler2/ layout (stages 06-17 paths, ../emulator/emulator.out). Live chain: asm/asmtestgen.sh, asm/verify.sh.
 
 set -e
 shopt -s extglob

@@ -1,5 +1,8 @@
 # Wendy2 Merge Sort Memory Demo
 
+> **Attic note:** implemented as `firmware/programs/wendy2/wendy2_merge_sort.s`. The `base_config_wendy2.inc` named below is now `firmware/boards/wendy2/base_config_wendy2c.inc`, and upload is via `tools/upload/compile_and_upload_wendy2.sh`.
+
+
 ## Context
 
 > **Update:** commit `8a8eb82` was later reverted: cfg `$18` maps ROM into the upper window again

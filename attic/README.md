@@ -1,65 +1,43 @@
 # Attic
 
-Things that are no longer used or no longer work, kept here for the owner to review. Nothing here is built or tested. `tools/firmware_manifest.py` skips this directory.
+Parked material: things that are no longer used, no longer build, or were never merged. Nothing here is built or tested, `tools/check_all.sh` and CI skip it, and `tools/firmware_manifest.py` skips it. Files are kept only so the owner can review them, and docs here describe the state of the code at the time, so paths inside them (`23/`, `assembler2/`, `toolchain/`, root-level names) are historical.
 
-Each item keeps its original path. For example, `attic/assembler2/webserver/` used to be `assembler2/webserver/`. Its full history is still available with `git log --follow`. Moved in the reorganization, 2026-09-24. See `docs/REORGANIZATION_PLAN.md`.
+Each item keeps its original path relative to the time of the move, except where noted. History is still available with `git log --follow -- <path>` (for files that were moved twice, also `git log -- <old path>`). The moves are described in `docs/REORGANIZATION_PLAN.md` and the eras in `docs/history.md`.
 
 For each item, decide whether to **delete** it (it stays in git history), **restore** it (`git mv` it back and fix it), or **keep** it here.
 
-| Item | Last changed | Why it's here |
-|---|---|---|
-| `stty` | 2020 | Stray binary (687 bytes), not referenced |
-| `DISPLAY_S` | 2020 | Stray assembly listing |
-| `a.out.old`, `a.out.reference` | 2023 | Old build outputs from michael_keyboard_wip |
-| `display_routines_original.inc`, `upload_and_run.old.inc`, `michael_keyboard-v2.s.old` | 2020–21 | Superseded copies of live files |
-| `lcd.asm`, `lcd_test_2.asm` | 2022-02 | Stand-alone LCD tests with hard-coded `$6000` addresses; no longer assemble |
-| `commands.txt`, `gdiff.sh`, `Connection 38400.stc` | 2020 | Early notes, a git-diff helper, and serial-terminal settings |
-| `TODO` | 2022-02 | Old to-do list |
-| `test/` | 2020–23 | vasm syntax experiments and `makebin*.py`; most don't assemble |
-| `plan-for-wendy2-merge-sort-demo.md` | 2026-05 | Plan for `wendy2_merge_sort.s`, which has been implemented |
-| `assembler2/webserver/`, `assembler2/tests/` | 2026-03/07 | 6502 HTTP demo and its test. They need the emulator socket API, which was never ported (branch and tag `archive/claude/install-hexdump-5CahY`), and use stage `23/` paths |
-| `assembler2/terminal_demo/` | 2026-02 | ANSI terminal demo; uses stage `23/` paths |
-| `assembler2/webapp/` | 2026-03 | Python "hello world" server; not 6502-related |
-| `assembler2/gogen.sh` | 2026-02 | Watch mode for `emulator.c`, which no longer exists |
-| `assembler2/new_asmtestgen.sh` | 2026-02 | Alternate bootstrap-chain script, superseded by `asmtestgen.sh` |
-| `assembler2/check_ascii.sh` | 2026-02 | Scans the old `22/` and `23/` stages |
-| `assembler2/REVIEW` | 2026-02 | Review of asm22 (before the renumber) |
-| `assembler2/archive/` | 2026-02 | Earlier plan documents |
-| `assembler2/UNIFIED_PARSING_ANALYSIS.md` | 2026-07 | Analysis for the `asm-unified-parsing` refactor, which was never ported to stage 17 (branch and tag `archive/asm-unified-parsing`) |
+## Index of top-level entries
 
-## Assembler and toolchain reorganization (2026-09-29)
+Directories (each has its own README):
 
-`toolchain/` was dissolved: `asm2/` became `asm/`, its editor `editor/`, and `prog8/` moved up to the top level. These went to the attic, at their new short names rather than under `toolchain/`.
+| Entry | What it is | Why it is parked | Live successor |
+|---|---|---|---|
+| `asm1/` | First self-hosting 6502 assembler (2022-11 to 2025-11), its bootstrap scripts and its own `emulator.c` | Frozen since asm2 replaced it; not run by `check_all.sh` or CI | `asm/` (asm2 chain), `emulator/` |
+| `asm-legacy/` | Early asm2 tests and scripts from before the stage directories, asm18-21 tests, two finished plans | Superseded by per-stage `asm/NN/tests/` | `asm/` |
+| `assembler2/` | Leftovers of the old `assembler2/` directory: 6502 web server demo, terminal demo, review and plan notes, old scripts | Use removed stage `23/` paths and the old single-file emulator; socket API never merged | `asm/`, `emulator/`, `editor/` |
+| `test/` | Early vasm syntax experiments and `makebin*.py` helpers | Most do not assemble with the current includes | `firmware/`, `tools/tests/` |
+| `hardware/` | Two Michael Arduino-directory files that duplicate live ones | Duplicates | `hardware/michael/arduino/`, `firmware/programs/wendy/hello.s`, `tools/upload/compile_and_program.sh` |
+| `unmerged/` | `git format-patch` exports of branch work that was never merged | Does not apply to the current tree | none (see its README) |
 
-| Item | Why it's here |
-|---|---|
-| `asm1/` (was `toolchain/asm1/`) | The first self-hosting assembler (2022-11 → 2025-11), bootstrapped with vasm and frozen since asm2 replaced it. Its `asmtestgen.sh` still works (needs vasm and `hexdump`), but it is no longer run by `tools/check_all.sh` or CI |
-| `asm-legacy/` (was `toolchain/asm2/legacy/`) | Early asm2 tests and scripts from before the stage directories existed, and the asm18–20 tests |
-| `asm-legacy/claude-plans/` (was `toolchain/asm2/.claude/`) | Two old plans for the accumulator-syntax migration and operand consolidation (asm18/19 era) |
+Upload scripts, wendy 2 programs and notes (single files):
 
-## Michael Arduino directory cleanup (2026-09-24)
+| Entry | What it is | Why it is parked | Live successor |
+|---|---|---|---|
+| `compile_and_upload*.sh` (15) | Per-baud / per-board assemble-and-upload wrappers (2020-22), call `./vasm6502_oldstyle` and `transfer_*.py` from the repo root | Replaced by one parameterised script; the root-level paths they assume no longer exist | `tools/upload/compile_and_upload{,_michael,_wendy,_wendy2}.sh` |
+| `transfer_*.py` (9) | Per-baud serial upload scripts; `transfer_with_length*.py` are older protocol variants | Replaced by `--port`, `--baudrate`, `--noreset` and USB auto-detect | `tools/upload/transfer.py` |
+| `wendy2_call_eeprom.s`, `wendy2_hello_in_eeprom.s`, `wendy2_relocate_test.s`, `wendy2relocate.s`, `test_delay_wendy2.s` | Wendy 2 / rev b era programs (2022) | Include `base_config_wendy2.inc`, which no longer exists (deleted on michael_keyboard_wip, 2023); restored here only for review | `firmware/programs/wendy2/`, `firmware/boards/wendy2/base_config_wendy2c.inc` |
+| `lcd.asm`, `lcd_test_2.asm` | Stand-alone LCD tests (2022-02) with hard-coded `$6000` VIA addresses | Do not assemble with the current includes | `firmware/lib/lcd/` routines |
+| `DISPLAY_S` | Early assembly listing (2020), VIA port equates and LCD code | Stray, unreferenced | `firmware/lib/lcd/` |
+| `display_routines_original.inc`, `upload_and_run.old.inc`, `michael_keyboard-v2.s.old` | Superseded copies of a display library, the RAM upload loader and the Michael keyboard demo (2020-21); the last two include `base_config_v1.inc`/`base_config_v2.inc` | Old versions of live files | `firmware/lib/`, `firmware/programs/michael/` |
+| `a.out.old`, `a.out.reference` | Old build outputs from michael_keyboard_wip (2023) | Binary build artifacts | regenerate with `firmware/vasm` |
+| `stty` | Stray 687-byte binary (a 6502 image with "Hello, from ram!") | Not referenced | none |
+| `commands.txt`, `Connection 38400.stc`, `gdiff.sh` | Early notes (vasm flags, `screen`/`minipro` lines), serial-terminal settings, a `git diff` pager helper | Personal 2020 notes | `tools/upload/`, `firmware/README.md` |
+| `TODO` | Two old Michael to-do items (modified ASCII key codes, editor up/down arrows) | Old (2022-02) | none |
+| `plan-for-wendy2-merge-sort-demo.md` | Plan for `wendy2_merge_sort.s` (2026-05) | Implemented; kept as design record | `firmware/programs/wendy2/wendy2_merge_sort.s` |
 
-| Item | Why it's here |
-|---|---|
-| `hardware/michael/arduino/hello-again.s` | Byte-identical to `firmware/programs/wendy/hello.s` (Ben Eater's hello world, copied to test the new board) |
-| `hardware/michael/arduino/compile_and_program.sh` | Same as `tools/upload/compile_and_program.sh` (minipro EEPROM burner) |
+## Where things came from
 
-## Restored after the michael_keyboard_wip merge
-
-The merge accepted michael_keyboard_wip's 2023 deletions of these files. They were restored here, as they were at `claude/pld-hardware-memory-map-3hslxb` (`dd0cf45`), so every program from every branch stays reviewable. Their earlier history is under their original root-level paths (`git log -- <name>`).
-
-| Item | Why it's here |
-|---|---|
-| `compile_and_upload*.sh` (15), `transfer_*.py` (9) | Per-baud and per-board copies of the upload scripts. They were replaced by the parameterised `transfer.py` (`--port`, `--baudrate`, `--noreset`, USB auto-detect) and `compile_and_upload_{michael,wendy,wendy2,wendy2_noreset}.sh`. `transfer_with_length*.py` are older protocol variants. |
-| `wendy2_call_eeprom.s`, `wendy2_hello_in_eeprom.s`, `wendy2_relocate_test.s`, `wendy2relocate.s`, `test_delay_wendy2.s` | Wendy 2 / rev b-era programs (2022). They include `base_config_wendy2.inc`, which no longer exists, and were deleted on michael_keyboard_wip in 2023. |
-
-## Unmerged branch work (`unmerged/`)
-
-Commits that exist only on branches that were never merged, exported with `git format-patch` so they can be read here. The branches themselves are kept in this repository as `archive/…` branches (and `archive/…` tags).
-
-| Item | What it is |
-|---|---|
-| `unmerged/asm-unified-parsing/` (16 patches, 2026-02-10) | A "unified parsing" refactor of the old stage-23 assembler that replaces the SKIP_DEPTH skip path with a SKIP_FLAG, plus a backport to stage 22 and a test split. Stage 23 was later renumbered away, and stage 17 still uses SKIP_DEPTH, so these don't apply as-is. |
-| `unmerged/install-hexdump/` (5 patches, 2026-03-28) | The emulator TCP socket API (patches 3–5, against the old single-file `assembler2/emulator.c`), the 6502 web server demo, and a Python hello-world web app. Only the demos reached the tree (now `attic/assembler2/webserver/` etc.); the emulator socket code was never ported. |
-
-`claude/prog8-assembler-gap-analysis-pJ7nG` holds only generated build output (`__pycache__`, a test `.wav`, `prog8/upstream/out/*.asm`), so nothing from it is kept.
+- **Assembler and toolchain reorganization (2026-09-29).** `toolchain/` was dissolved: `toolchain/asm1/` became `attic/asm1/`, `toolchain/asm2/legacy/` became `attic/asm-legacy/`, and `toolchain/asm2/.claude/` became `attic/asm-legacy/claude-plans/`. (asm2 itself became `asm/`, its editor `editor/`, and `prog8/` moved to the top level.)
+- **Michael Arduino directory cleanup (2026-09-24).** `hardware/michael/arduino/` was split by purpose; the two duplicates went to `attic/hardware/michael/arduino/`.
+- **Restored after the michael_keyboard_wip merge.** The merge accepted that branch's 2023 deletions of the upload scripts and Wendy 2 programs. They were restored here as they were at `claude/pld-hardware-memory-map-3hslxb` (`dd0cf45`), so every program from every branch stays reviewable. Earlier history is under their original root-level paths (`git log -- <name>`).
+- **`unmerged/`.** Commits that exist only on branches that were never merged, exported with `git format-patch`. The branches themselves were deleted in the 2026-09 reorganization; each is kept as an `archive/<branch>` tag, so `git log archive/claude/install-hexdump-5CahY` shows the original commits. `claude/prog8-assembler-gap-analysis-pJ7nG` holds only generated build output, so nothing from it is kept.

@@ -1,4 +1,5 @@
 #!/bin/bash
+# ATTIC NOTE: parked. The 22/, 23/ and editor/ paths below are from the old assembler2/ layout (now asm/NN/ and editor/). See attic/assembler2/README.md.
 # Check that all .asm and .txt files in the assembler/editor source tree
 # contain only ASCII characters (bytes 0x00-0x7F).
 # Scans: 22/, 23/, editor/ (excluding Python scripts and output directories)
