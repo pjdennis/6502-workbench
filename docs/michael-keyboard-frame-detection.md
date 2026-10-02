@@ -64,8 +64,9 @@ End each frame on its **11th clock pulse** (start bit, 8 data bits, parity, stop
 
 1. **Counter:** a 74HC161 (4-bit counter: asynchronous clear, synchronous load) clocked from U1D's output, the inverted clock that shifts the 74HC595s (SRCLK). It then counts the same edges the shift registers shift on.
 2. **Frame complete:** decode a count of 11 (`1011`: Q3·Q1·Q0; 15 can't be reached) as *frame complete*, for example with a 74HC11, and send it to CA2 in place of IRQ. It rises right after the 11th bit and stays high until the next frame's first clock. So every frame produces a rising edge, however short the gap.
+   The board's own frames to the keyboard have 11 clocks too: 8 data bits, parity, stop and the keyboard's line ACK. The start bit goes out while the board holds the clock low. So *frame complete* also marks the end of the board's frame, which is where the driver now counts a byte as sent.
 3. **Back-to-back frames:** while the count is 11, hold the counter's LOAD active with the inputs set to 1. The next frame's first clock then loads 1 instead of counting to 12, so back-to-back frames stay aligned without an idle gap.
-4. **Resync:** keep the existing RC idle detector (U1F, R1, R2, D3, C1, U1E), but use it to clear the counter (its asynchronous CLR) once the bus has been idle. That throws away partial frames (a transmission aborted by the host, a glitch, the host frame's 12th clock for the ACK bit). Its timing no longer decides where a frame ends.
+4. **Resync:** keep the existing RC idle detector (U1F, R1, R2, D3, C1, U1E), but use it to clear the counter (its asynchronous CLR) once the bus has been idle. That throws away partial frames (a transmission aborted by the host, or a glitch). Its timing no longer decides where a frame ends.
 5. **Latch the byte:** clock the 74HC595s' storage registers (RCLK) with *frame complete*, in place of IRQ, so the byte the CPU reads stays put while the next frame shifts in. The next frame can start as little as 50 µs after the last one (92 µs on the MC-689), which is less time than the interrupt handler can count on to read it.
 
 Another option uses no new chips: route the keyboard clock to a free VIA input (e.g. CB1) and count the bits in software. That costs one interrupt per bit (about 11 per byte, at 60–100 µs intervals). The board's spare pins and the cost in interrupt time would need checking.
@@ -124,6 +125,14 @@ Then it logs the next key typed (`a` here: `1C`, then `F0 1C` for the release) t
 
 Within a frame the clock is high for 37 µs (HP), 38 µs (MC-689) and 39 µs (Adesso). The Adesso's clock period, from rising edge to rising edge, is about 81 µs, with some periods as short as 75 µs. The Adesso's gaps change from one Read ID to the next; the table gives the shortest and longest seen.
 
+The whole Read ID exchange on the HP KB-1156 (500 µs/div). After the trigger the board holds the clock low, then come four frames: the board's `$F2` and the keyboard's ACK, `$AB` and `$83`:
+
+![Scope: Read ID exchange on the HP KB-1156](images/michael-keyboard-scope-read-id.jpg)
+
+The board sending `$F2` (100 µs/div). The data line is low (the start bit) while the board holds the clock low. Then the keyboard clocks 11 pulses about 77 µs apart. The board changes the data while the clock is low, and the keyboard reads it on each rising edge: d0–d7 LSB first, parity, stop. On the 11th pulse the keyboard drives the data line low itself as its line ACK:
+
+![Scope: the board sending $F2](images/michael-keyboard-scope-send-f2.jpg)
+
 How the table under [Cause](#cause) comes from these:
 
 - **Single frame:** the time from a frame's start (`s`) to its end (`r` or `a`) is the frame's clocking plus the idle time. That's `$7AD` (1965 ticks) for the Perixx, `$70F` (1807 ticks) for the HP and `$6CB` (1739 ticks) for the MC-689. Less the idle time (184 ticks), the clocking takes 10.5 clock periods (from the start bit's falling edge to the stop bit's rising edge). That gives clock periods of about 85 µs, 77 µs and 74 µs.
@@ -138,4 +147,4 @@ How the table under [Cause](#cause) comes from these:
 - [ ] Decide between the stopgap (R1 6.8 kΩ, an idle time of about 64 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
 - [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
-- [ ] Set the emulator's `DETECT_IDLE_US` to the measured 92 µs, and add a keyboard option that sends reply bytes like the MC-689 (92 µs, then 98 µs apart), so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
+- [ ] Model the board's frame in the emulator as 11 clock pulses after the clock is released (`HOST_FRAME_BITS` is 12). Set the emulator's `DETECT_IDLE_US` to the measured 92 µs, and add a keyboard option that sends reply bytes like the MC-689 (92 µs, then 98 µs apart), so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
