@@ -19,7 +19,7 @@ The MC-689 works with every other test program, typing included. `michael_keyboa
 
 The keyboard board shifts each frame from the keyboard into 74HC595s. A frame detector drives the VIA's CA2. CA2 goes low when the keyboard clock starts and goes high again once the clock has been idle for a fixed time, which this document calls the **idle time**. The driver (`firmware/lib/keyboard/keyboard_driver.inc`) treats a falling CA2 edge as the start of a frame and a rising edge as its end. On the rising edge it reads the byte through SOEB.
 
-The idle time was measured on the board at **about 87 µs** (see [measurements](#measurements)). The emulator assumes 150 µs (`DETECT_IDLE_US` in `emulator/chips/ps2_keyboard_board.c`).
+The idle time was measured on the board at **about 92 µs** (90–94 µs on a scope; see [measurements](#measurements)). The emulator assumes 150 µs (`DETECT_IDLE_US` in `emulator/chips/ps2_keyboard_board.c`).
 
 ## Cause
 
@@ -27,19 +27,21 @@ If the keyboard starts its next frame less than the idle time after the previous
 
 | Keyboard | Clock period | Gap between reply bytes | Gap between scan code bytes |
 |---|---|---|---|
-| Perixx | about 85 µs | about 525 µs | 2 ms or more |
-| HP KB-1156 | about 78 µs | about 535 µs and 315 µs | 1.8 ms or more |
-| MC-689 | about 75 µs | **about 83 µs**, 4 µs less than the idle time | 5 ms or more |
+| Perixx | about 85 µs | about 530 µs | 2 ms or more |
+| HP KB-1156 | about 77 µs (high for 37 µs) | 540 µs and 322 µs | 1.8 ms or more |
+| MC-689 | about 74 µs (high for 38 µs) | **92 µs** and 98 µs | 5 ms or more |
 
 - The Perixx's and the HP's gaps are much longer than the idle time, so each frame is seen separately.
-- The MC-689's `$FA` and `$AB` came as a single burst of 1735 µs, twice its single-frame time less 4 µs. The `$FA` was lost and the driver read `$AB`. It goes on waiting for an ACK that never comes.
-- Then `$83` was lost too. This is inferred, not measured: the gap before it was probably just over the idle time, given how close the first gap was. CA2 rose, but the next frame began before the interrupt handler had switched CA2 back to the falling edge (about 20 µs after the rising edge). The handler then misses that frame's start, and so its end too.
+- The MC-689 leaves 92 µs between `$FA` and `$AB`, and on a scope CA2 stays low across the gap. The two frames came as a single burst of 1735 µs. The `$FA` was lost and the driver read `$AB`. It goes on waiting for an ACK that never comes.
+- Then `$83` was lost too. Its gap is 98 µs, just over the idle time, and CA2 is high for only 4 µs before `$83`'s first clock. The interrupt handler takes about 20 µs to switch CA2 back to the falling edge. So it misses `$83`'s start, and then its end.
 
 The MC-689 sends scan codes with wider gaps, so typing works. Only command replies come back to back.
 
 ### Why changing the idle time is only a stopgap
 
-The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the three keyboards measured here that is possible. The HP's clock is high for 37 µs (measured on a scope), and the others' clock periods suggest about 40 µs. The shortest gap is the MC-689's 83 µs. So an idle time of about 60 µs would separate every frame. The Adesso hasn't been measured. But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler.
+The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the three keyboards measured here that is possible. On a scope, the HP's clock is high for 37 µs and the MC-689's for 38 µs (the Perixx's period suggests about 42 µs). The shortest gap is the MC-689's 92 µs. So an idle time of about 60 µs would separate every frame, with about 20 µs of margin either side. The Adesso hasn't been measured.
+
+But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler. With a 60 µs idle time, CA2 would be high for 38 µs before the MC-689's `$83`, against the handler's 20 µs.
 
 ## Recommended hardware change: count the clock pulses
 
@@ -49,7 +51,7 @@ End each frame on its **11th clock pulse** (start bit, 8 data bits, parity, stop
 2. **Frame complete:** decode a count of 11 (`1011`: Q3·Q1·Q0; 15 can't be reached) as *frame complete* and send it to CA2. It rises right after the 11th bit and stays high until the next frame's first clock. So every frame produces a rising edge, however short the gap.
 3. **Back-to-back frames:** while the count is 11, hold the counter's LOAD active with the inputs set to 1. The next frame's first clock then loads 1 instead of counting to 12, so back-to-back frames stay aligned without an idle gap.
 4. **Resync:** keep the existing RC idle detector, but use it to clear the counter (its asynchronous CLR) once the bus has been idle. That throws away partial frames (a transmission aborted by the host, a glitch, the host frame's 12th clock for the ACK bit). Its timing no longer decides where a frame ends.
-5. **Latch the byte:** clock the 74HC595s' storage registers (RCLK) with *frame complete*, so the byte the CPU reads stays put while the next frame shifts in. The next frame can start as little as 50 µs after the last one (83 µs on the MC-689), which is less time than the interrupt handler can count on to read it.
+5. **Latch the byte:** clock the 74HC595s' storage registers (RCLK) with *frame complete*, so the byte the CPU reads stays put while the next frame shifts in. The next frame can start as little as 50 µs after the last one (92 µs on the MC-689), which is less time than the interrupt handler can count on to read it.
 
 Another option uses no new chips: route the keyboard clock to a free VIA input (e.g. CB1) and count the bits in software. That costs one interrupt per bit (about 11 per byte, at 60–100 µs intervals). The board's spare pins and the cost in interrupt time would need checking.
 
@@ -71,7 +73,7 @@ Both programs are in `firmware/programs/michael/`, and the emulator tests in `to
 | Board | `00B5 00B5 00B6 00B6 00B5 00BC 00B6 00B6` |
 | Emulator, which models 150 µs (300 ticks) | `0133` × 8 |
 
-The emulator shows the program adds about 7 ticks. So the board's idle time is about 181 − 7 = 174 ticks, or 87 µs.
+That's about 181 ticks, or 91 µs. On a scope with the MC-689 (below), the idle time is the gap less the time CA2 was high: 414 − 324 = 90 µs and 98 − 4 = 94 µs. The calculations below use 92 µs (184 ticks).
 
 **Frames** (`michael_keyboard_frame_timing.s`): the program sends Read ID and logs each CA2 interrupt. Each entry is a type, a byte and the time since the previous entry:
 
@@ -93,22 +95,30 @@ Then it logs the next key typed (`a` here: `1C`, then `F0 1C` for the release) t
 | HP KB-1156 | `b000000 c000474 h0004D9 s0001C1 aFA070B s00037F rAB070F s0001CA r83070F` | `s000000 r1C070E s00A840 rF00711 s000DA0 r1C070E` |
 | Emulator | `b000000 c000465 h000E01 s0006A6 aFA080C s0006A2 rAB080C s0006A4 r83080D` | `s000000 r1C080A s0006A4 rF0080D s0006A5 r1C080A` |
 
-**Oscilloscope** (`michael_keyboard_scope.s`, which sends Read ID about every 100 ms and raises the LED output, PA2, as a trigger): on the HP KB-1156, the clock is high for 37 µs within a frame, and the gap between `$AB`'s last clock and `$83`'s first is 317 µs. That gap was worked out as 316 µs from the T1 log (below), which confirms the method. It also puts the idle time at 317 − 229 (`$1CA` ticks) = 88 µs.
+**Oscilloscope** (`michael_keyboard_scope.s`, which sends Read ID about every 100 ms and raises the LED output, PA2, as a trigger). A gap is the time the clock is high from one frame's last clock to the next frame's first:
+
+| Keyboard | Gap | CA2 during the gap | Worked out from the T1 log |
+|---|---|---|---|
+| HP | `$F2` to ACK: 317 µs | | 316 µs |
+| HP | `$AB` to `$83`: 322 µs | | 321 µs |
+| MC-689 | `$F2` to ACK: 414 µs | high for 324 µs | 418 µs |
+| MC-689 | ACK to `$AB`: 92 µs | stays low | 88 µs |
+| MC-689 | `$AB` to `$83`: 98 µs | high for 4 µs | |
+
+Within a frame the clock is high for 37 µs (HP) and 38 µs (MC-689).
 
 How the table under [Cause](#cause) comes from these:
 
-- **Single frame:** the time from a frame's start (`s`) to its end (`r` or `a`) is the frame's clocking plus the idle time. That's `$7AD` (1965 ticks) for the Perixx, `$70F` (1807 ticks) for the HP and `$6CB` (1739 ticks) for the MC-689. Less the idle time (174 ticks), the clocking takes 10.5 clock periods (from the start bit's falling edge to the stop bit's rising edge). That gives clock periods of about 85 µs, 78 µs and 75 µs.
-- **Perixx and HP gaps:** an `s` comes the gap minus the idle time after the previous end. So the Perixx's gaps between reply bytes are 890 + 174 and 872 + 174 ticks, about 525 µs. The HP's are 895 + 174 and 458 + 174 ticks, about 535 µs and 315 µs.
-- **MC-689 merged burst:** the burst (`$D8E`, 3470 ticks) is two frames' clocking plus the gap plus one idle time. A single frame is one frame's clocking plus one idle time. So the gap is the burst minus two single frames plus the idle time: 3470 − 2 × 1739 + idle = idle − 8 ticks. That's 4 µs less than the idle time, whatever its exact value: about 83 µs. On 2026-09-30 the burst was `$D93`, giving idle − 3 ticks.
+- **Single frame:** the time from a frame's start (`s`) to its end (`r` or `a`) is the frame's clocking plus the idle time. That's `$7AD` (1965 ticks) for the Perixx, `$70F` (1807 ticks) for the HP and `$6CB` (1739 ticks) for the MC-689. Less the idle time (184 ticks), the clocking takes 10.5 clock periods (from the start bit's falling edge to the stop bit's rising edge). That gives clock periods of about 85 µs, 77 µs and 74 µs.
+- **Perixx and HP gaps:** an `s` comes the gap minus the idle time after the previous end. So the Perixx's gaps between reply bytes are 890 + 184 and 872 + 184 ticks, about 530 µs. The HP's are 895 + 184 and 458 + 184 ticks, about 540 µs and 321 µs.
+- **MC-689 merged burst:** the burst (`$D8E`, 3470 ticks) is two frames' clocking plus the gap plus one idle time. A single frame is one frame's clocking plus one idle time. So the gap is the burst minus two single frames plus the idle time: 3470 − 2 × 1739 + idle = idle − 8 ticks. That's 4 µs less than the idle time, whatever its exact value: about 88 µs, against 92 µs on the scope. On 2026-09-30 the burst was `$D93`, giving idle − 3 ticks.
 
 ## TODO
 
 - [x] Run `michael_keyboard_frame_detector.s` and `michael_keyboard_frame_timing.s` on the board with the MC-689, the Perixx and the HP KB-1156 (2026-10-01; results above).
-- [x] Measure the MC-689's gap between reply bytes (2026-10-01: about 83 µs, from its single-frame time).
-- [x] Check the method on a scope (2026-10-01, HP KB-1156: a gap of 317 µs against 316 µs worked out, and a clock high time of 37 µs).
-- [ ] With `michael_keyboard_scope.s`, scope the MC-689: the gap between `$FA` and `$AB` (about 83 µs expected), CA2 staying low across both, and its clock high time, which the [stopgap](#why-changing-the-idle-time-is-only-a-stopgap) depends on.
+- [x] Measure the MC-689's gaps between reply bytes and its clock high time, and check the T1 method, on a scope (2026-10-01; results above).
 - [ ] Check the board against "Bidirectional PS2 Keyboard Interface Schematic v1.0.pdf" (not in this repository): the RC values, which edge the 74HC595s shift on, and how their RCLK is driven today. Add the schematic, or its details, to `hardware/michael/`.
 - [ ] Run `michael_keyboard_frame_timing.s` with the Adesso too. Then decide between the stopgap (an idle time of about 60 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
 - [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
-- [ ] Set the emulator's `DETECT_IDLE_US` to the measured 87 µs, and add a keyboard option that sends reply bytes 83 µs apart, so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
+- [ ] Set the emulator's `DETECT_IDLE_US` to the measured 92 µs, and add a keyboard option that sends reply bytes like the MC-689 (92 µs, then 98 µs apart), so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
