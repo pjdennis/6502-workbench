@@ -65,6 +65,7 @@ KB_NO_INTERRUPT_HANDLER = 1      ; probe_isr is copied to the ROM's IRQ vector i
 callback_kb_trace       = probe_trace
   .include keyboard_driver.inc
   .include convert_to_hex.inc
+  .include read_t1.inc
 
 program_start:
   ; Initialize stack
@@ -199,10 +200,7 @@ probe_trace:
   sei
   sta EVT_TYPE
   stz LAST_BYTE
-  lda T1CL
-  sta T_LO
-  lda T1CH
-  sta T_HI
+  jsr read_t1
   phx
   jsr log_event
   plx
@@ -235,10 +233,7 @@ probe_interrupt:
   rts
 .ca2:
   phx
-  lda T1CL
-  sta T_LO
-  lda T1CH
-  sta T_HI
+  jsr read_t1
   lda #'s'
   ldx KEYBOARD_RECEIVING
   beq .type

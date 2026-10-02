@@ -21,6 +21,7 @@ start:
   .include initialize_machine_v2.inc
   .include display_routines.inc
   .include display_hex.inc
+  .include read_t1.inc
 
 
 program_start:
@@ -116,19 +117,3 @@ show:
 
 forever:
   bra forever
-
-
-; On exit T_HI, T_LO = T1's count when the low byte was read. The time taken doesn't depend
-;         on the count (a retry would add to some measurements)
-;         A is not preserved
-;         X, Y are preserved
-read_t1:
-  lda T1CH
-  sta T_HI
-  lda T1CL
-  sta T_LO
-  bpl .done                      ; Read too soon after T_HI for the low byte to have wrapped
-  lda T1CH                       ; Near $FF it may just have wrapped: then the high byte has
-  sta T_HI                       ; changed, and won't again for another 128 cycles
-.done:
-  rts
