@@ -27,11 +27,12 @@ If the keyboard starts its next frame less than the idle time after the previous
 
 | Keyboard | Clock period | Gap between reply bytes | Gap between scan code bytes |
 |---|---|---|---|
+| Adesso | not measured (high for 39 µs) | 203 µs or more, varying up to 528 µs | not measured |
 | Perixx | about 85 µs | about 530 µs | 2 ms or more |
 | HP KB-1156 | about 77 µs (high for 37 µs) | 540 µs and 322 µs | 1.8 ms or more |
 | MC-689 | about 74 µs (high for 38 µs) | **92 µs** and 98 µs | 5 ms or more |
 
-- The Perixx's and the HP's gaps are much longer than the idle time, so each frame is seen separately.
+- The Adesso's, the Perixx's and the HP's gaps are much longer than the idle time, so each frame is seen separately.
 - The MC-689 leaves 92 µs between `$FA` and `$AB`, and on a scope CA2 stays low across the gap. The two frames came as a single burst of 1735 µs. The `$FA` was lost and the driver read `$AB`. It goes on waiting for an ACK that never comes.
 - Then `$83` was lost too. Its gap is 98 µs, just over the idle time, and CA2 is high for only 4 µs before `$83`'s first clock. The interrupt handler takes about 20 µs to switch CA2 back to the falling edge. So it misses `$83`'s start, and then its end.
 
@@ -39,7 +40,7 @@ The MC-689 sends scan codes with wider gaps, so typing works. Only command repli
 
 ### Why changing the idle time is only a stopgap
 
-The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the three keyboards measured here that is possible. On a scope, the HP's clock is high for 37 µs and the MC-689's for 38 µs (the Perixx's period suggests about 42 µs). The shortest gap is the MC-689's 92 µs. So an idle time of about 60 µs would separate every frame, with about 20 µs of margin either side. The Adesso hasn't been measured.
+The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the four keyboards measured here that is possible. On a scope, the clock is high for 37 µs (HP), 38 µs (MC-689) and 39 µs (Adesso), and the Perixx's period suggests about 42 µs. The shortest gap is the MC-689's 92 µs. So an idle time of about 60 µs would separate every frame, with about 20 µs of margin either side.
 
 But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler. With a 60 µs idle time, CA2 would be high for 38 µs before the MC-689's `$83`, against the handler's 20 µs.
 
@@ -73,7 +74,7 @@ Both programs are in `firmware/programs/michael/`, and the emulator tests in `to
 | Board | `00B5 00B5 00B6 00B6 00B5 00BC 00B6 00B6` |
 | Emulator, which models 150 µs (300 ticks) | `0133` × 8 |
 
-That's about 181 ticks, or 91 µs. On a scope with the MC-689 (below), the idle time is the gap less the time CA2 was high: 414 − 324 = 90 µs and 98 − 4 = 94 µs. The calculations below use 92 µs (184 ticks).
+That's about 181 ticks, or 91 µs. On a scope (below), the idle time is the gap less the time CA2 was high: 414 − 324 = 90 µs and 98 − 4 = 94 µs with the MC-689; 203 − 112 = 91 µs, 528 − 440 = 88 µs and 205 − 110 = 95 µs with the Adesso. The calculations below use 92 µs (184 ticks).
 
 **Frames** (`michael_keyboard_frame_timing.s`): the program sends Read ID and logs each CA2 interrupt. Each entry is a type, a byte and the time since the previous entry:
 
@@ -104,8 +105,10 @@ Then it logs the next key typed (`a` here: `1C`, then `F0 1C` for the release) t
 | MC-689 | `$F2` to ACK: 414 µs | high for 324 µs | 418 µs |
 | MC-689 | ACK to `$AB`: 92 µs | stays low | 88 µs |
 | MC-689 | `$AB` to `$83`: 98 µs | high for 4 µs | |
+| Adesso | ACK to `$AB`: varies, down to about 205 µs | high for 110 µs at 205 µs | |
+| Adesso | `$AB` to `$83`: varies, 203 µs to 528 µs | high for 112 µs to 440 µs | |
 
-Within a frame the clock is high for 37 µs (HP) and 38 µs (MC-689).
+Within a frame the clock is high for 37 µs (HP), 38 µs (MC-689) and 39 µs (Adesso). The Adesso's gaps change from one Read ID to the next; the table gives the shortest and longest seen.
 
 How the table under [Cause](#cause) comes from these:
 
@@ -116,9 +119,9 @@ How the table under [Cause](#cause) comes from these:
 ## TODO
 
 - [x] Run `michael_keyboard_frame_detector.s` and `michael_keyboard_frame_timing.s` on the board with the MC-689, the Perixx and the HP KB-1156 (2026-10-01; results above).
-- [x] Measure the MC-689's gaps between reply bytes and its clock high time, and check the T1 method, on a scope (2026-10-01; results above).
+- [x] Measure the MC-689's and the Adesso's gaps between reply bytes and their clock high times, and check the T1 method, on a scope (2026-10-01; results above).
 - [ ] Check the board against "Bidirectional PS2 Keyboard Interface Schematic v1.0.pdf" (not in this repository): the RC values, which edge the 74HC595s shift on, and how their RCLK is driven today. Add the schematic, or its details, to `hardware/michael/`.
-- [ ] Run `michael_keyboard_frame_timing.s` with the Adesso too. Then decide between the stopgap (an idle time of about 60 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
+- [ ] Decide between the stopgap (an idle time of about 60 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
 - [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
 - [ ] Set the emulator's `DETECT_IDLE_US` to the measured 92 µs, and add a keyboard option that sends reply bytes like the MC-689 (92 µs, then 98 µs apart), so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
