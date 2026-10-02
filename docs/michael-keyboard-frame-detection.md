@@ -58,13 +58,50 @@ The idle time has to be longer than the clock's high phase, or a frame would end
 
 But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler. With a 64 µs idle time, CA2 would be high for about 34 µs before the MC-689's `$83`, against the handler's 20 µs.
 
+## What IBM's PS/2 reference says
+
+The passages below are quoted from IBM's *Personal System/2 Hardware Interface Technical Reference*, First Edition (May 1988), section "Keyboards (101- and 102-Key)". Copies are on [bitsavers](https://bitsavers.org/pdf/ibm/pc/ps2/Personal_System_2_Hardware_Interface_Technical_Reference_May88.pdf) and the [Internet Archive](https://archive.org/details/ps-2-hardware-interface-technical-reference-ocr). OCR typos are corrected. In IBM's wording, a line is *active* when it is high and *inactive* when it is low; the *system* is the host, here the board.
+
+**Frame format** (page 38, "Data Stream"):
+
+> Data transmissions to and from the keyboard consist of an 11-bit data stream (Mode 2) sent serially over the 'data' line.
+
+Figure 18 (page 39) lists the bits: a start bit (always 0), data bits 0 (least significant) to 7, a parity bit (odd parity) and a stop bit (always 1).
+
+**Keyboard to board** (page 39, "Data Output"):
+
+> If the 'clock' and 'data' lines are both active, the keyboard sends the 0 start bit, 8 data bits, the parity bit, and the stop bit.
+
+> If line contention occurs before the leading edge of the 10th clock signal (parity bit), the keyboard buffer returns the 'clock' and 'data' lines to an active level. If contention does not occur by the 10th clock signal, the keyboard completes the transmission.
+
+**Board to keyboard** (page 40, "Data Input"):
+
+> ...the system forces the keyboard 'clock' line to an inactive level for more than 60 microseconds while preparing to send data. When the system is ready to send the start bit (the 'data' line will be inactive), it allows the 'clock' line to go to an active (high) level.
+
+> If a system request-to-send signal (RTS) is detected, the keyboard counts 11 bits. After the 10th bit, the keyboard checks for an active level on the 'data' line, and if the line is active, forces it inactive, and counts one more bit. This action signals the system that the keyboard has received its data.
+
+> If the keyboard 'data' line is found at an inactive level following the 10th bit, a framing error has occurred, and the keyboard continues to count until the 'data' line becomes active. The keyboard then makes the 'data' line inactive and sends a Resend command.
+
+> Each system command or data transmission to the keyboard requires a response from the keyboard before the system can send its next output. The keyboard will respond within 20 milliseconds unless the system prevents keyboard output.
+
+**The ACK byte** (page 27, "Commands to the System"):
+
+> Acknowledge (Hex FA): The keyboard issues ACK to any valid input other than an Echo, or Resend command. If the keyboard is interrupted while sending ACK, it discards ACK and accepts and responds to the new command.
+
+What this means here:
+
+- **Two different ACKs.** Only frames from the board to the keyboard end with an acknowledge bit (IBM's "line-control bit"), and the keyboard drives it. Frames from the keyboard have no acknowledge bit. Separately, the keyboard answers each valid command or argument byte with a whole `$FA` frame, within 20 ms. That `$FA` is what `keyboard_send_command` waits for.
+- **11 clock pulses each way.** The keyboard clocks all 11 bits of its own frames. For the board's frames, the start bit goes out with the board's release of the clock (the RTS). The keyboard then clocks the other 10 bits (data, parity, stop) and "one more bit", the acknowledge, so again 11 pulses. The scope photo of the board sending `$F2` (under [measurements](#measurements)) shows exactly this.
+- **The board holds the clock low for about 210 µs before sending,** more than the 60 µs required.
+- **Response time:** an ACK timeout in the driver must allow at least 20 ms.
+
 ## Recommended hardware change: count the clock pulses
 
 End each frame on its **11th clock pulse** (start bit, 8 data bits, parity, stop bit) instead of after an idle time:
 
 1. **Counter:** a 74HC161 (4-bit counter: asynchronous clear, synchronous load) clocked from U1D's output, the inverted clock that shifts the 74HC595s (SRCLK). It then counts the same edges the shift registers shift on.
 2. **Frame complete:** decode a count of 11 (`1011`: Q3·Q1·Q0; 15 can't be reached) as *frame complete*, for example with a 74HC11, and send it to CA2 in place of IRQ. It rises right after the 11th bit and stays high until the next frame's first clock. So every frame produces a rising edge, however short the gap.
-   The board's own frames to the keyboard have 11 clocks too: 8 data bits, parity, stop and the keyboard's line ACK. The start bit goes out while the board holds the clock low. So *frame complete* also marks the end of the board's frame, which is where the driver now counts a byte as sent.
+   The board's own frames to the keyboard have 11 clocks too: 8 data bits, parity, stop and the keyboard's line ACK. The start bit goes out while the board holds the clock low (see [What IBM's PS/2 reference says](#what-ibms-ps2-reference-says)). So *frame complete* also marks the end of the board's frame, which is where the driver now counts a byte as sent.
 3. **Back-to-back frames:** while the count is 11, hold the counter's LOAD active with the inputs set to 1. The next frame's first clock then loads 1 instead of counting to 12, so back-to-back frames stay aligned without an idle gap.
 4. **Resync:** keep the existing RC idle detector (U1F, R1, R2, D3, C1, U1E), but use it to clear the counter (its asynchronous CLR) once the bus has been idle. That throws away partial frames (a transmission aborted by the host, or a glitch). Its timing no longer decides where a frame ends.
 5. **Latch the byte:** clock the 74HC595s' storage registers (RCLK) with *frame complete*, in place of IRQ, so the byte the CPU reads stays put while the next frame shifts in. The next frame can start as little as 50 µs after the last one (92 µs on the MC-689), which is less time than the interrupt handler can count on to read it.
@@ -146,5 +183,5 @@ How the table under [Cause](#cause) comes from these:
 - [x] Check the board against its schematic (now [`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)): the RC values (R1 10 kΩ, C1 10 nF, τ = 100 µs, which match the measured idle time), which edge the 74HC595s shift on (the PS/2 clock's falling edge) and what drives their RCLK (IRQ, the frame detector's output).
 - [ ] Decide between the stopgap (R1 6.8 kΩ, an idle time of about 64 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
-- [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
+- [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. It must allow at least the 20 ms IBM gives a keyboard to respond. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
 - [ ] Model the board's frame in the emulator as 11 clock pulses after the clock is released (`HOST_FRAME_BITS` is 12). Set the emulator's `DETECT_IDLE_US` to the measured 92 µs, and add a keyboard option that sends reply bytes like the MC-689 (92 µs, then 98 µs apart), so the hang can be reproduced in `tools/tests/test_michael_keyboard.py`.
