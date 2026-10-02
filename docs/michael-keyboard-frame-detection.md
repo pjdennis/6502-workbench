@@ -39,7 +39,7 @@ The MC-689 sends scan codes with wider gaps, so typing works. Only command repli
 
 ### Why changing the idle time is only a stopgap
 
-The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the three keyboards measured here that is possible. Their clock periods suggest high phases of about 40 µs (assuming an even duty cycle), and the shortest gap is the MC-689's 83 µs. So an idle time of about 60 µs would separate every frame. The Adesso hasn't been measured. But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler.
+The idle time has to be longer than the clock's high phase, or a frame would end in the middle. It also has to be shorter than the shortest gap between frames. For the three keyboards measured here that is possible. The HP's clock is high for 37 µs (measured on a scope), and the others' clock periods suggest about 40 µs. The shortest gap is the MC-689's 83 µs. So an idle time of about 60 µs would separate every frame. The Adesso hasn't been measured. But PS/2 allows a high phase of up to 50 µs and a gap of only 50 µs, so no idle time works for every keyboard. Each frame's start would also still race the interrupt handler.
 
 ## Recommended hardware change: count the clock pulses
 
@@ -93,6 +93,8 @@ Then it logs the next key typed (`a` here: `1C`, then `F0 1C` for the release) t
 | HP KB-1156 | `b000000 c000474 h0004D9 s0001C1 aFA070B s00037F rAB070F s0001CA r83070F` | `s000000 r1C070E s00A840 rF00711 s000DA0 r1C070E` |
 | Emulator | `b000000 c000465 h000E01 s0006A6 aFA080C s0006A2 rAB080C s0006A4 r83080D` | `s000000 r1C080A s0006A4 rF0080D s0006A5 r1C080A` |
 
+**Oscilloscope** (`michael_keyboard_scope.s`, which sends Read ID about every 100 ms and raises the LED output, PA2, as a trigger): on the HP KB-1156, the clock is high for 37 µs within a frame, and the gap between `$AB`'s last clock and `$83`'s first is 317 µs. That gap was worked out as 316 µs from the T1 log (below), which confirms the method. It also puts the idle time at 317 − 229 (`$1CA` ticks) = 88 µs.
+
 How the table under [Cause](#cause) comes from these:
 
 - **Single frame:** the time from a frame's start (`s`) to its end (`r` or `a`) is the frame's clocking plus the idle time. That's `$7AD` (1965 ticks) for the Perixx, `$70F` (1807 ticks) for the HP and `$6CB` (1739 ticks) for the MC-689. Less the idle time (174 ticks), the clocking takes 10.5 clock periods (from the start bit's falling edge to the stop bit's rising edge). That gives clock periods of about 85 µs, 78 µs and 75 µs.
@@ -102,7 +104,9 @@ How the table under [Cause](#cause) comes from these:
 ## TODO
 
 - [x] Run `michael_keyboard_frame_detector.s` and `michael_keyboard_frame_timing.s` on the board with the MC-689, the Perixx and the HP KB-1156 (2026-10-01; results above).
-- [x] Measure the MC-689's gap between reply bytes (2026-10-01: about 83 µs, from its single-frame time). Confirming it on a logic analyser or scope would still be worthwhile, along with the clock's high phase, which the [stopgap](#why-changing-the-idle-time-is-only-a-stopgap) depends on.
+- [x] Measure the MC-689's gap between reply bytes (2026-10-01: about 83 µs, from its single-frame time).
+- [x] Check the method on a scope (2026-10-01, HP KB-1156: a gap of 317 µs against 316 µs worked out, and a clock high time of 37 µs).
+- [ ] With `michael_keyboard_scope.s`, scope the MC-689: the gap between `$FA` and `$AB` (about 83 µs expected), CA2 staying low across both, and its clock high time, which the [stopgap](#why-changing-the-idle-time-is-only-a-stopgap) depends on.
 - [ ] Check the board against "Bidirectional PS2 Keyboard Interface Schematic v1.0.pdf" (not in this repository): the RC values, which edge the 74HC595s shift on, and how their RCLK is driven today. Add the schematic, or its details, to `hardware/michael/`.
 - [ ] Run `michael_keyboard_frame_timing.s` with the Adesso too. Then decide between the stopgap (an idle time of about 60 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
