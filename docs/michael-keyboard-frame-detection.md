@@ -8,8 +8,8 @@ Findings from 2026-09-30 and 2026-10-01. With some keyboards, Michael's keyboard
 
 | Keyboard | Result |
 |---|---|
-| Adesso EasyTouch mini | `ID AB 83` |
-| Perixx PERIBOARD-409 Mini | `ID AB 83` |
+| Adesso EasyTouch mini | `ID AB 83 Set 02` |
+| Perixx PERIBOARD-409 Mini | `ID AB 83 Set 02` |
 | HP KB-1156 | `ID AB 83 Set 02` |
 | MC Saite MC-689 | hangs after showing `ID` |
 
