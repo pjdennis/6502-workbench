@@ -118,7 +118,8 @@ forever:
   bra forever
 
 
-; On exit T_HI, T_LO = T1's count, read again if the high byte changed while reading
+; On exit T_HI, T_LO = T1's count when the low byte was read. The time taken doesn't depend
+;         on the count (a retry would add to some measurements)
 ;         A is not preserved
 ;         X, Y are preserved
 read_t1:
@@ -126,7 +127,8 @@ read_t1:
   sta T_HI
   lda T1CL
   sta T_LO
-  lda T1CH
-  cmp T_HI
-  bne read_t1
+  bpl .done                      ; Read too soon after T_HI for the low byte to have wrapped
+  lda T1CH                       ; Near $FF it may just have wrapped: then the high byte has
+  sta T_HI                       ; changed, and won't again for another 128 cycles
+.done:
   rts

@@ -129,6 +129,10 @@ class MichaelKeyboardTest(unittest.TestCase):
         self.assertRegex(text, r'^b0{6} c[0-9A-F]{6} h[0-9A-F]{6} '
                                r's[0-9A-F]{6} aFA[0-9A-F]{4} s[0-9A-F]{6} rAB[0-9A-F]{4} s[0-9A-F]{6} r83[0-9A-F]{4}$')
 
+    def test_frame_timing_probe_then_shows_a_keys_frames(self):
+        text = ''.join(line.ljust(20) for line in self.run_program('michael_keyboard_frame_timing', KEY_A)).rstrip()
+        self.assertRegex(text, r'^s0{6} r1C[0-9A-F]{4} s[0-9A-F]{6} rF0[0-9A-F]{4} s[0-9A-F]{6} r1C[0-9A-F]{4}$')
+
     def ram_map(self, ram=None):
         """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""
         with open(os.path.join(PROGRAMS, 'michael_ram_map.s')) as f:

@@ -8,6 +8,8 @@
 ;   h  end of the host's frame (the $F2)
 ;   a  end of a frame that was an ACK ($FA)
 ;   r  end of a frame with any other byte
+; Then it logs the next key typed (a press and release that send 3 bytes, such as 'a') and shows
+; its entries instead, to time single frames from the same keyboard.
 ; A frame's end comes the detector's idle time after its last clock. If the keyboard sends
 ; the next byte sooner than that, the two frames show as one long one. The driver then reads
 ; only the second byte and never sees the ACK: after about a second this program stops waiting
@@ -39,6 +41,7 @@ SIMPLE_BUFFER            = $0200 ; 256 bytes
 CONSOLE_TEXT             = $0300 ; CONSOLE_LENGTH + 1 bytes
 LOG                      = $0400 ; 4 bytes per entry: type, byte, T1 high, T1 low
 LOG_ENTRIES              = 10    ; 8 characters each fill the screen
+KEY_ENTRIES              = 6     ; A start and an end for each of a key's 3 bytes
 
   .org PROGRAM_LOAD_ADDRESS      ; Loader loads programs to this address
 start:
@@ -109,7 +112,26 @@ program_start:
   stz LOGGING
   cli
 
-  ; Show the log: each entry's time is from the previous one
+  jsr show_log
+
+  ; Log a key's frames
+  stz LOG_INDEX
+  lda #1
+  sta LOGGING
+.wait_for_key:
+  lda LOG_INDEX
+  cmp #KEY_ENTRIES * 4
+  bcc .wait_for_key
+  stz LOGGING
+  jsr show_log
+
+forever:
+  bra forever
+
+
+; Shows the log: each entry's time is from the previous one
+; On exit A, X, Y are not preserved
+show_log:
   jsr console_clear
   ldx #0
 .entry:
@@ -150,9 +172,7 @@ program_start:
   inx
   bra .entry
 .done:
-  jsr console_show
-forever:
-  bra forever
+  jmp console_show               ; tail call
 
 
 ; The driver's KB_BUFFER_WRITE: notes each byte for the log
