@@ -27,7 +27,7 @@ If the keyboard starts its next frame less than the idle time after the previous
 
 | Keyboard | Clock period | Gap between reply bytes | Gap between scan code bytes |
 |---|---|---|---|
-| Adesso | not measured (high for 39 µs) | 203 µs or more, varying up to 528 µs | not measured |
+| Adesso | about 81 µs, some as short as 75 µs (high for 39 µs) | 203 µs or more, varying up to 528 µs | not measured |
 | Perixx | about 85 µs | about 530 µs | 2 ms or more |
 | HP KB-1156 | about 77 µs (high for 37 µs) | 540 µs and 322 µs | 1.8 ms or more |
 | MC-689 | about 74 µs (high for 38 µs) | **92 µs** and 98 µs | 5 ms or more |
@@ -108,7 +108,7 @@ Then it logs the next key typed (`a` here: `1C`, then `F0 1C` for the release) t
 | Adesso | ACK to `$AB`: varies, down to about 205 µs | high for 110 µs at 205 µs | |
 | Adesso | `$AB` to `$83`: varies, 203 µs to 528 µs | high for 112 µs to 440 µs | |
 
-Within a frame the clock is high for 37 µs (HP), 38 µs (MC-689) and 39 µs (Adesso). The Adesso's gaps change from one Read ID to the next; the table gives the shortest and longest seen.
+Within a frame the clock is high for 37 µs (HP), 38 µs (MC-689) and 39 µs (Adesso). The Adesso's clock period, from rising edge to rising edge, is about 81 µs, with some periods as short as 75 µs. The Adesso's gaps change from one Read ID to the next; the table gives the shortest and longest seen.
 
 How the table under [Cause](#cause) comes from these:
 
