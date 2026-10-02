@@ -8,7 +8,7 @@
 ;
 ;   Scope: send $F2
 ;   Trigger: LED (PA2)
-;   ACK AB 83            what the driver got: ACK, or --- if none came within about 10 ms,
+;   ACK AB 83            what the driver got: ACK, or --- if none came within about 25 ms,
 ;   Count 002A           then the other bytes; and how many times $F2 has been sent
 ;
 ; It doesn't hang when the ACK is lost (as with the MC-689, whose reply bytes the board merges).
@@ -35,7 +35,7 @@ KB_ZERO_PAGE_BASE        = $0D ; up to KB_ZERO_PAGE_STOP
 SIMPLE_BUFFER            = $0200 ; 256 bytes
 
 COMMAND                  = KB_COMMAND_READ_ID
-ACK_WAIT_STEPS           = 100   ; 0.1 ms each
+ACK_WAIT_STEPS           = 250   ; 0.1 ms each: more than the 20 ms IBM allows for a response
 REPLY_TIME               = 2     ; Hundredths of a second for the reply, after the ACK
 REPEAT_TIME              = 8     ; Hundredths of a second between sends, besides the above
 REPLY_BYTES_SHOWN        = 4
