@@ -99,18 +99,34 @@ What this means here:
 
 End each frame on its **11th clock pulse** (start bit, 8 data bits, parity, stop bit) instead of after an idle time:
 
-1. **Counter:** a 74HC161 (4-bit counter: asynchronous clear, synchronous load) clocked from U1D's output, the inverted clock that shifts the 74HC595s (SRCLK). It then counts the same edges the shift registers shift on.
-2. **Frame complete:** decode a count of 11 (`1011`: Q3·Q1·Q0; 15 can't be reached) as *frame complete*, for example with a 74HC11, and send it to CA2 in place of IRQ. It rises right after the 11th bit and stays high until the next frame's first clock. So every frame produces a rising edge, however short the gap.
-   The board's own frames to the keyboard have 11 clocks too: 8 data bits, parity, stop and the keyboard's line ACK. The start bit goes out while the board holds the clock low (see [What IBM's PS/2 reference says](#what-ibms-ps2-reference-says)). So *frame complete* also marks the end of the board's frame, which is where the driver now counts a byte as sent.
-3. **Back-to-back frames:** while the count is 11, hold the counter's LOAD active with the inputs set to 1. The next frame's first clock then loads 1 instead of counting to 12, so back-to-back frames stay aligned without an idle gap.
-4. **Resync:** keep the existing RC idle detector (U1F, R1, R2, D3, C1, U1E), but use it to clear the counter (its asynchronous CLR) once the bus has been idle. That throws away partial frames (a transmission aborted by the host, or a glitch). Its timing no longer decides where a frame ends.
+1. **Counter:** a 74HC161 (4-bit counter: asynchronous clear, synchronous load) clocked on the PS/2 clock's **rising** edge, the end of each clock pulse. A spare 74HC14 gate (U1A) re-inverts U1D's output for it. Each bit has already shifted into the 74HC595s on the falling edge before, so the 11th rising edge means a whole frame.
+
+   Not the falling edge the 74HC595s shift on: the clears below let go only after the clock falls (the RC idle detector's IRQ falls 1–2 µs later, once C1 has charged through R2 past U1E's threshold). A counter clocked on falling edges would miss the first pulse of every frame that follows an idle gap.
+2. **Frame complete:** decode a count of 11 (`1011`: Q3·Q1·Q0; 15 can't be reached) as *frame complete*, for example with a 74HC11, and send it to CA2 in place of IRQ. It rises at the end of the 11th pulse and stays high until the next frame's first pulse ends. So every frame produces a rising edge, however short the gap.
+
+   The board's own frames to the keyboard have 11 pulses too: 8 data bits, parity, stop and the keyboard's line ACK. The start bit goes out while the board holds the clock low (see [What IBM's PS/2 reference says](#what-ibms-ps2-reference-says)). So *frame complete* also marks the end of the board's frame, which is where the driver now counts a byte as sent.
+3. **Back-to-back frames:** while the count is 11, hold the counter's LOAD active with the inputs set to 1. The next frame's first pulse then loads 1 instead of counting to 12. This is what handles narrow gaps such as the MC-689's, where the RC idle detector never fires between frames.
+4. **Clears:** two conditions clear the counter, combined into its active-low CLR with a diode-AND or a 74HC08:
+   - **Idle:** the existing RC idle detector (U1F, R1, R2, D3, C1, U1E), with IRQ inverted by the other spare 74HC14 gate (U1B). It clears the counter whenever the clock has been idle for about 92 µs. That throws away partial frames (a frame cut off by the board, a glitch, or a keyboard plugged in while running). Its timing no longer decides where a frame ends.
+   - **The board holding the clock:** KBD_CLK_OUT (SOLB, J2 pin 4) is low while the board holds the clock low. Stretch its release by a few µs (a small RC with a diode: fast to assert, slow to release) so it still clears the counter at the rising edge when the board lets the clock go. The board's frame then counts exactly the keyboard's 11 pulses. The idle detector can't do this: it sees the hold as a busy clock, and a keyboard may start clocking sooner than the idle time after the release (about 80 µs on the HP; see the scope photo).
+
+   | Situation | What makes the next frame's first pulse count as 1 |
+   |---|---|
+   | A gap longer than the idle time (the Adesso, Perixx and HP) | The idle clear resets the counter to 0 |
+   | A gap shorter than the idle time (the MC-689's 92 µs) | The reload at a count of 11 (step 3) |
+   | The board sending a command | The KBD_CLK_OUT clear, held past the release |
+   | A glitch, or a frame cut off partway | The idle clear, at the next idle gap |
 5. **Latch the byte:** clock the 74HC595s' storage registers (RCLK) with *frame complete*, in place of IRQ, so the byte the CPU reads stays put while the next frame shifts in. The next frame can start as little as 50 µs after the last one (92 µs on the MC-689), which is less time than the interrupt handler can count on to read it.
+
+The RC idle detector could go, with the KBD_CLK_OUT clear as the only clear. But then a counter put out of step by the keyboard (a glitch, or plugging it in while the board runs) would stay out of step until the board next sent a command. The driver's stop and parity checks (below) would only catch it after a few wrong bytes. For two gates of the existing 74HC14 and a few passive parts, keeping it is worth it.
 
 Another option uses no new chips: route the keyboard clock to a free VIA input (e.g. CB1) and count the bits in software. That costs one interrupt per bit (about 11 per byte, at 60–100 µs intervals). The board's spare pins and the cost in interrupt time would need checking.
 
 ### Software changes the hardware change needs
 
 - **Driver:** each rising CA2 edge is one whole frame. Leave CA2 on the rising edge and drop the start/end toggling (`KEYBOARD_RECEIVING`). This also removes the race that lost `$83`.
+- **Driver:** check each frame's stop and parity bits. DE (the last bit in, the stop bit) is on PA5 (`ACK` in `base_config_v2.inc`) and DP (parity) on PA6, inverted like the data. The driver already switches both pins to inputs when it reads a byte, but doesn't check them. On an error, hold the clock low (which also clears the counter) and send Resend (`$FE`), as IBM describes. On the board's own frames DE is the keyboard's line ACK, so the driver can check that too.
+- **Driver:** before sending, the driver waits until no frame is in progress (`KEYBOARD_RECEIVING`), because IBM says the board must let a frame finish once it is past the 10th clock. With the start/end toggling gone, it needs another sign of that, such as IRQ (low while the clock is busy) on a spare VIA input. PA0 and PA1 aren't assigned in `base_config_v2.inc`; check whether either is free on the board.
 - **Driver:** `keyboard_send_command` waits for CA2 to fall after pulling the clock low (trace step `b`). With the counter, CA2 no longer falls then, so it needs another way to time the hold, such as a fixed 100 µs delay.
 - **ROM:** the driver is built into the Michael ROM (`firmware/boards/michael/michael_services.inc`). Rebuild `hardware/michael/michael_rom.bin` and reprogram the EEPROM.
 - **Emulator:** update the frame detector model in `emulator/chips/ps2_keyboard_board.c` to match.
