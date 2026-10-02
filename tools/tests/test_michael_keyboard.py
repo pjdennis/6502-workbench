@@ -133,6 +133,13 @@ class MichaelKeyboardTest(unittest.TestCase):
         text = ''.join(line.ljust(20) for line in self.run_program('michael_keyboard_frame_timing', KEY_A)).rstrip()
         self.assertRegex(text, r'^s0{6} r1C[0-9A-F]{4} s[0-9A-F]{6} rF0[0-9A-F]{4} s[0-9A-F]{6} r1C[0-9A-F]{4}$')
 
+    def test_scope_program_repeats_read_id(self):
+        lines = self.run_program('michael_keyboard_scope')
+        self.assertEqual(lines[:3], ['Scope: send $F2', 'Trigger: LED (PA2)', 'ACK AB 83'])
+        count = re.fullmatch(r'Count ([0-9A-F]{4})', lines[3])
+        self.assertTrue(count, lines[3])
+        self.assertGreaterEqual(int(count.group(1), 16), 5)   # about every 100 ms for 1 s
+
     def ram_map(self, ram=None):
         """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""
         with open(os.path.join(PROGRAMS, 'michael_ram_map.s')) as f:
