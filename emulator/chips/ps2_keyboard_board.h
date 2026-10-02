@@ -6,8 +6,10 @@
 #include "via_6522.h"
 
 /* Michael's PS/2 keyboard board ("Bidirectional PS2 Keyboard Interface
- * Schematic v1.0.pdf") with a keyboard plugged in, modelled at frame
- * level: the level of each line over time, not every clock edge.
+ * Schematic v1.0",
+ * docs/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)
+ * with a keyboard plugged in, modelled at frame level: the level of each
+ * line over time, not every clock edge.
  *
  * VIA wiring (base_config_v2.inc):
  *   PA3 SOLB   low: the 74HC165s load PORTB plus START (PA5) and PARITY
