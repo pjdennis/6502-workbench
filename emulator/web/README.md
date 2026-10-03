@@ -7,8 +7,9 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 | File | Role |
 |---|---|
-| `wendy2c.html` | page (served at `/`): LCD canvas, the two LEDs (PB6, PA2), control and reset buttons, VIA port pin tables, status line |
-| `wendy2c.js` | client: draws the LCD per pixel, handles the WebSocket, plays the audio, sends button/reset messages (SPACE also presses the button) |
+| `wendy2c.html` | page (served at `/`): LCD canvas, the two LEDs (PB6, PA2), control and reset buttons, VIA port pin table, status line |
+| `board.js` | the client the pages share: draws the LCD per pixel, builds and fills the pin table, lights the LEDs (`data-led`), handles the WebSocket, plays the audio, sends reset |
+| `wendy2c.js` | wendy2c's pin labels and its control button (SPACE also presses it, R resets) |
 | `board.css` | styling |
 | `hd44780_a00_font.js` | the HD44780 A00 character ROM as base64 tables, captured from the real wendy2c panel and written by `tools/lcd-ocr/apply_font_to_emulator.py` (which also writes `../chips/hd44780_a00_font.h`); the first version came from the datasheet via `../tools/extract_hd44780_font.py` (see `../tools/README_hd44780_font.md`) |
 

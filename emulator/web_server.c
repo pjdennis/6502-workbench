@@ -747,17 +747,19 @@ void web_server_broadcast(struct web_server *srv,
     if (sj_printf(json, sizeof(json), &pos,
         "],\"cur\":[%d,%d],\"cur_on\":%d,\"blink_on\":%d,\"disp_on\":%d,"
         "\"f5x10\":%d,\"panel_rows\":%d,\"panel_5x10\":%d},"
-        "\"led\":{\"morse\":%d,\"control\":%d},"
-        "\"btn\":{\"pressed\":%d},"
+        "\"btn\":%d,"
         "\"porta\":%u,\"portb\":%u,\"ddra\":%u,\"ddrb\":%u,"
-        "\"osc\":%llu,\"cpu\":%llu,\"pc\":%u,\"irq\":%d,\"stp\":%d}",
+        "\"osc\":%llu,\"cpu\":%llu,\"pc\":%u,\"irq\":%d,\"stp\":%d,\"leds\":[",
         s->cursor_row, s->cursor_col, s->cursor_on, s->blink_on, s->display_on,
         s->font_5x10, s->panel_rows, s->panel_5x10,
-        s->morse_led, s->control_led,
         s->button_pressed,
         (unsigned)s->porta, (unsigned)s->portb,
         (unsigned)s->ddra, (unsigned)s->ddrb,
         s->osc_ticks, s->cpu_cycles, (unsigned)s->pc, s->irq, s->stopped)) return;
+    for (int i = 0; i < s->n_leds && i < WEB_MAX_LEDS; i++) {
+        if (sj_printf(json, sizeof(json), &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return;
+    }
+    if (sj_printf(json, sizeof(json), &pos, "]}")) return;
 
     char initmsg[64];
     int initlen = 0;

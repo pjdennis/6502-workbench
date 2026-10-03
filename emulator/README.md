@@ -190,8 +190,9 @@ emulator/
 │                           wall-clock pacing, --lcd-trace output, PS/2 scan codes
 ├── audio.{c,h}             PB7 -> WAV / miniaudio live playback (vendor/miniaudio.h)
 ├── serial_link.{c,h}       --serial-link socket transport
-├── web_server.{c,h}, web_json.{c,h}, web/
-│                           --web server, its JSON parser, the browser UI
+├── web_server.{c,h}, web_json.{c,h}, web_run.{c,h}, web/
+│                           --web server, its JSON parser, the shared --web
+│                           run loop, the browser UI
 ├── chips/                  chip models (see chips/README.md)
 ├── pld_to_c.py             22V10 .pld -> chips/clock_22v10_pld_generated.h
 ├── persistent_emulator.py  --server wrapper the Python tests use

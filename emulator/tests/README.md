@@ -41,9 +41,12 @@ without `playwright`.
 | `wendy2c-merge-sort` | `merge_sort_goldens.sh` | the wendy2 merge-sort demo, asserted on intermediate frames; the full 57344-element case is opt-in with `MERGE_SORT_FULL_N=1` (~60 s) |
 | `wendy2c-serial-link` | `wendy2c_serial_link_test.sh` | upload over the `--serial-link` socket with `../wendy2c_emu_link.py` |
 | `wendy2c-live-sigint` | `live_sigint_test.py` | Ctrl-C during `--live` restores the terminal |
-| `wendy2c-web` | `web_playwright_test.py` | the `--web` UI in headless Chromium: CGRAM rendering, state and audio frames, button round trip |
+| `wendy2c-web` | `web_playwright_test.py` | the `--web` UI in headless Chromium: CGRAM rendering, the pin table, state and audio frames, button and reset round trips |
 | `wendy2c-lcd5x10` | `lcd_5x10_playwright_test.py` | 5x10 LCD mode in the web UI |
 | `timer2-cycles` | `timer2_cycles_test.py` + `via_t2_runner.c` | T2 tick timing of `michael_timer2_test2.s` on the CPU and VIA chips |
+
+The Playwright tests share `web_test_util.py` (tool checks, building
+programs, starting the `--web` server, opening the page).
 
 ## Tests that need the assembler chain
 

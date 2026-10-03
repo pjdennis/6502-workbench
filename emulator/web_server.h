@@ -21,10 +21,11 @@
  * past the cap get HTTP 503. */
 
 #define WEB_MAX_CLIENTS 4
+#define WEB_MAX_LEDS 4
 
 struct web_server;
 
-/* Snapshot of everything the UI renders. Filled by the run loop and
+/* Snapshot of everything the UI renders. Filled by web_run and
  * passed to web_server_broadcast(). The DDRAM buffer is rows*cols
  * raw bytes (e.g. character codes 0x00..0x07 = CGRAM); the JS side
  * picks the glyph based on these. */
@@ -41,8 +42,8 @@ struct web_snapshot {
                                   * 0 = render as 5x8 cells with cursor row directly
                                   *     below (standard 16x2 module). */
 
-    int morse_led;
-    int control_led;
+    int n_leds;
+    int leds[WEB_MAX_LEDS];      /* the board's LEDs, in the order its page numbers them */
     int button_pressed;
 
     uint8_t porta, portb;
