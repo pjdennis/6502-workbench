@@ -18,11 +18,13 @@ class InitCommandsTest(unittest.TestCase):
         self.assertEqual(len(gamma[1]), 15)
         self.assertEqual(gamma[1][-1], 0x00)
         self.assertEqual(cmds[-2:], [(0x11, [], True), (0x29, [], False)])  # SLPOUT then a delay; DISPON
+        self.assertIn((0xB6, [0x08, 0xE2, 0x27], False), cmds)       # DFUNCTR, its scan named GD_PANEL_SCAN
 
     def test_constants(self):
         names = probe.driver_constants()
         self.assertEqual(names["ILI9341_TFTHEIGHT"], 320)
         self.assertEqual(names["ILI9341_MADCTL_MY"], 0x80)
+        self.assertEqual(names["GD_PANEL_SCAN"], 0xE2)               # names combined with |
 
 
 if __name__ == "__main__":

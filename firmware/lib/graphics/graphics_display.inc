@@ -110,6 +110,17 @@ ILI9341_MADCTL_ML  = %00010000 ; Affects vertical scrolling orientation
 ILI9341_MADCTL_BGR = %00001000 ; LCD pixel color order is BGR when set, RGB otherwise
 ILI9341_MADCTL_MH  = %00000100 ; Affects horizontal refresh direction
 
+; Second parameter of the ILI9341_DFUNCTR command
+ILI9341_DFUNCTR_REV = %10000000 ; Normally white panel
+ILI9341_DFUNCTR_GS  = %01000000 ; Gate scan reversed: the picture is upside down
+ILI9341_DFUNCTR_SS  = %00100000 ; Source scan reversed: the picture is mirrored left to right
+ILI9341_DFUNCTR_ISC = %00000010 ; Gate scan cycle in the non-display area
+
+; Michael's display, as mounted on the FPGA interface (hardware/michael/fpga/spi-display), needs the picture
+; rotated 180 degrees: both scans reversed. Reversing the panel's scan, rather than the memory access order
+; (MADCTL), keeps hardware scrolling (VSCRSADD) moving the right way.
+GD_PANEL_SCAN = ILI9341_DFUNCTR_REV | ILI9341_DFUNCTR_GS | ILI9341_DFUNCTR_SS | ILI9341_DFUNCTR_ISC
+
 ; Color definitions
 ILI9341_BLACK       = $0000 ;   0,   0,   0
 ILI9341_NAVY        = $000f ;   0,   0, 123
@@ -586,7 +597,7 @@ INIT_COMMANDS:
   .byte ILI9341_VSCRSADD, 1, $00                     ; Vertical scroll zero
   .byte ILI9341_PIXFMT,   1, $55
   .byte ILI9341_FRMCTR1,  2, $00, $18
-  .byte ILI9341_DFUNCTR,  3, $08, $82, $27           ; Display Function Control
+  .byte ILI9341_DFUNCTR,  3, $08, GD_PANEL_SCAN, $27 ; Display Function Control
   .byte $f2,              1, $00                     ; 3Gamma Function Disable
   .byte ILI9341_GAMMASET, 1, $01                     ; Gamma curve selected
   .byte ILI9341_GMCTRP1, 15, $0f, $31, $2b, $0c, $0e ; Set Gamma

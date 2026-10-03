@@ -88,12 +88,19 @@ def _number(tok):
 
 
 def driver_constants():
-    """NAME = value definitions from the display driver (graphics_display.inc)."""
+    """NAME = value definitions from the display driver (graphics_display.inc): numbers, or numbers and
+    earlier names combined with |. Other expressions are skipped."""
     names = {}
     for line in _driver_lines():
-        m = re.match(r"(\w+)\s*=\s*(\$[0-9a-fA-F]+|%[01]+|\d+)$", line)
-        if m:
-            names[m[1]] = _number(m[2])
+        m = re.match(r"(\w+)\s*=\s*(.+)$", line)
+        if not m:
+            continue
+        terms = [t.strip() for t in m[2].split("|")]
+        if all(t in names or re.fullmatch(r"\$[0-9a-fA-F]+|%[01]+|\d+", t) for t in terms):
+            value = 0
+            for t in terms:
+                value |= names[t] if t in names else _number(t)
+            names[m[1]] = value
     return names
 
 
