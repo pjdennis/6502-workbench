@@ -8,7 +8,6 @@ Cmod's USB serial port, and compares it with what the program does, naming any s
   check.py [--michael-port DEV] [--fpga-port DEV] [--timeout S]
 """
 import argparse
-import glob
 import os
 import subprocess
 import sys
@@ -109,43 +108,43 @@ def serial_module():
     return uart_check
 
 
-def default_michael_port():
-    ports = [p for p in sorted(glob.glob("/dev/serial/by-id/*")) if "Digilent" not in p]
-    if len(ports) != 1:
-        sys.exit(f"Can't tell which serial port is Michael's ({ports or 'none found'}); use --michael-port")
-    return ports[0]
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--michael-port", help="Michael's serial port (default: the only non-Digilent USB serial port)")
+    ap.add_argument("--michael-port", help="Michael's serial port (default: as the upload tools choose it)")
     ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
     ap.add_argument("--timeout", type=float, default=30, help="seconds to wait for the end marker")
     args = ap.parse_args()
 
     uart_check = serial_module()
-    michael_port = args.michael_port or default_michael_port()
     lines, lock = [], threading.Lock()
 
     with uart_check.Serial(args.fpga_port or uart_check.find_port()) as ser:
         def reader():
             while True:
-                line = ser.readline(deadline=None).decode(errors="replace").strip()
+                raw = ser.readline(deadline=None).decode(errors="replace")
+                # Junk can precede the first line (the serial line settling as the FPGA starts up)
+                starts = [raw.find(c) for c in "SB!" if c in raw]
+                line = raw[min(starts):].strip() if starts else raw.strip()
                 with lock:
                     lines.append(line)
 
         ser.flush_input()
         threading.Thread(target=reader, daemon=True).start()
         ser.write(b"?")
-        time.sleep(0.2)
+        for _ in range(10):
+            time.sleep(0.1)
+            with lock:
+                if lines:
+                    break
         with lock:
             if not lines:
                 sys.exit("No report from the FPGA: is the input-check design loaded (make prog)?")
-            print(f"Inputs before the test: {lines[-1]}")
+            print(f"Inputs before the test: {lines[-1]}  (port B; E, CSB, RSTB, DC, backlight)")
 
-        print(f"Uploading {os.path.relpath(PROGRAM, REPO)} to Michael on {michael_port} ...")
+        print(f"Uploading {os.path.relpath(PROGRAM, REPO)} to Michael ...")
+        port = [f"--port={args.michael_port}"] if args.michael_port else []
         with tempfile.TemporaryDirectory() as tmp:  # the upload script writes a.s19 in its working directory
-            r = subprocess.run([UPLOAD, f"--port={michael_port}", PROGRAM], cwd=tmp)
+            r = subprocess.run([UPLOAD, *port, PROGRAM], cwd=tmp)
         if r.returncode:
             sys.exit(f"Upload failed ({r.returncode})")
 
