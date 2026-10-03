@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'upload'))
@@ -328,6 +329,84 @@ class ServeTest(DaemonTestCase):
     path = os.path.join(tempfile.mkdtemp(), 'daemon.sock')
     with self.assertRaises(serial_daemon.NotRunning):
       serial_daemon.request(path, {'protocol': serial_daemon.PROTOCOL, 'op': 'status'})
+
+
+def comport(device, vid=0x10C4, description='CP2102 USB to UART Bridge Controller', manufacturer='Silicon Labs',
+            hwid='USB VID:PID=10C4:EA60 SER=0001 LOCATION=1-2'):
+  """A stand-in for one of pyserial's list_ports.comports() entries."""
+  return types.SimpleNamespace(device=device, vid=vid, description=description, manufacturer=manufacturer,
+                               product=description, hwid=hwid)
+
+
+DIGILENT = dict(vid=0x0403, description='Digilent Adept USB Device', manufacturer='Digilent',
+                hwid='USB VID:PID=0403:6010 SER=210328B04676 LOCATION=1-1:1.0')
+
+
+class FindUsbSerialPortTest(unittest.TestCase):
+  def find(self, *ports, **options):
+    return serial_daemon.find_usb_serial_port(comports=lambda: list(ports), **options)
+
+  def test_the_only_usb_port_is_found(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0')), '/dev/ttyUSB0')
+
+  def test_non_usb_ports_are_skipped(self):
+    self.assertEqual(self.find(comport('/dev/ttyS0', vid=None), comport('/dev/ttyUSB0')), '/dev/ttyUSB0')
+
+  def test_no_usb_port_is_refused(self):
+    with self.assertRaisesRegex(serial_daemon.NoDevice, 'no USB serial device found'):
+      self.find(comport('/dev/ttyS0', vid=None))
+
+  def test_several_usb_ports_are_refused_and_listed(self):
+    with self.assertRaisesRegex(serial_daemon.NoDevice, r'multiple .*/dev/ttyUSB0 .*/dev/ttyUSB1'):
+      self.find(comport('/dev/ttyUSB0'), comport('/dev/ttyUSB1'))
+
+  def test_a_given_port_is_used_without_looking(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0'), comport('/dev/ttyUSB1'), port=os.devnull), os.devnull)
+
+  def test_a_given_port_that_does_not_exist_is_refused(self):
+    with self.assertRaisesRegex(serial_daemon.NoDevice, 'not found'):
+      self.find(port='/dev/no-such-port')
+
+  def test_ignored_ports_are_skipped(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0', **DIGILENT), comport('/dev/ttyUSB1', **DIGILENT),
+                               comport('/dev/ttyUSB2'), ignore=['*Digilent*']), '/dev/ttyUSB2')
+
+  def test_ignore_patterns_ignore_case(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0', **DIGILENT), comport('/dev/ttyUSB2'), ignore=['*DIGILENT*']),
+                     '/dev/ttyUSB2')
+
+  def test_ignore_patterns_match_the_hardware_id(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0', **DIGILENT), comport('/dev/ttyUSB2'),
+                               ignore=['*VID:PID=0403:6010 *']), '/dev/ttyUSB2')
+
+  def test_ignore_patterns_match_whole_fields(self):
+    with self.assertRaisesRegex(serial_daemon.NoDevice, 'multiple'):
+      self.find(comport('/dev/ttyUSB0', **DIGILENT), comport('/dev/ttyUSB2'), ignore=['Digilent Adept'])
+
+  def test_only_ignored_ports_is_refused_and_lists_them(self):
+    with self.assertRaisesRegex(serial_daemon.NoDevice, r'no USB serial device found.*ignored.*/dev/ttyUSB0'):
+      self.find(comport('/dev/ttyUSB0', **DIGILENT), ignore=['*Digilent*'])
+
+  def test_a_given_port_is_used_even_if_ignored(self):
+    self.assertEqual(self.find(comport(os.devnull, **DIGILENT), port=os.devnull, ignore=['*Digilent*']), os.devnull)
+
+  def test_the_ignore_list_ignores_digilent_boards(self):
+    self.assertEqual(self.find(comport('/dev/ttyUSB0', **DIGILENT), comport('/dev/ttyUSB2')), '/dev/ttyUSB2')
+
+
+class ReadIgnorePatternsTest(unittest.TestCase):
+  def read(self, text):
+    path = os.path.join(tempfile.mkdtemp(), 'ignore.txt')
+    with open(path, 'w') as f:
+      f.write(text)
+    return serial_daemon.read_ignore_patterns(path)
+
+  def test_one_pattern_per_line_without_comments_or_blank_lines(self):
+    self.assertEqual(self.read('# comment\n\n  *Digilent*  \n*VID:PID=0403:6010 *\n'),
+                     ['*Digilent*', '*VID:PID=0403:6010 *'])
+
+  def test_a_missing_file_ignores_nothing(self):
+    self.assertEqual(serial_daemon.read_ignore_patterns('/no/such/file'), [])
 
 
 try:
