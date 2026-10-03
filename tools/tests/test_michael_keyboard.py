@@ -25,6 +25,7 @@ PROGRAMS = os.path.join(ROOT, 'firmware', 'programs', 'michael')
 
 KEY_A = ['1c', 'f0', '1c']                                   # PS/2 set 2: 'a' down, up
 KEY_PAUSE = ['e1', '14', '77', 'e1', 'f0', '14', 'f0', '77']  # Pause/Break: down only
+KEY_CAPS_LOCK = ['58', 'f0', '58']
 
 
 def base_config_address(name):
@@ -103,6 +104,41 @@ class MichaelKeyboardTest(unittest.TestCase):
 
     def test_diag_shows_a_resend_request(self):
         self.assertEqual(self.diag_text(KEY_A, 'resend'), 'F4bcd[FE][1C][F0][1C]')
+
+    def test_keyboard_info_shows_id_and_scan_code_set(self):
+        self.assertEqual(self.run_program('michael_keyboard_info'),
+                         ['ID AB 83 Set 02', 'Lock Num', '', ''])
+
+    def test_keyboard_info_shows_locks_and_raw_bytes(self):
+        self.assertEqual(self.run_program('michael_keyboard_info', KEY_CAPS_LOCK + KEY_A)[1:],
+                         ['Lock Num Caps', '58 F0 58 1C F0 1C', ''])
+
+    def test_keyboard_info_shows_the_latest_raw_bytes_on_two_lines(self):
+        self.assertEqual(self.run_program('michael_keyboard_info', KEY_PAUSE + KEY_PAUSE)[2:],
+                         ['77 E1 F0 14 F0 77 E1', '14 77 E1 F0 14 F0 77'])
+
+    def test_frame_detector_probe_measures_the_emulated_idle_time(self):
+        lines = self.run_program('michael_keyboard_frame_detector')
+        ticks = [int(t, 16) for t in ' '.join(lines).split()]
+        self.assertEqual(len(ticks), 8)
+        for t in ticks:
+            self.assertTrue(296 <= t <= 310, lines)    # 150 us in 0.5 us ticks, plus polling
+
+    def test_frame_timing_probe_shows_each_reply_frame(self):
+        text = ''.join(line.ljust(20) for line in self.run_program('michael_keyboard_frame_timing')).rstrip()
+        self.assertRegex(text, r'^b0{6} c[0-9A-F]{6} h[0-9A-F]{6} '
+                               r's[0-9A-F]{6} aFA[0-9A-F]{4} s[0-9A-F]{6} rAB[0-9A-F]{4} s[0-9A-F]{6} r83[0-9A-F]{4}$')
+
+    def test_frame_timing_probe_then_shows_a_keys_frames(self):
+        text = ''.join(line.ljust(20) for line in self.run_program('michael_keyboard_frame_timing', KEY_A)).rstrip()
+        self.assertRegex(text, r'^s0{6} r1C[0-9A-F]{4} s[0-9A-F]{6} rF0[0-9A-F]{4} s[0-9A-F]{6} r1C[0-9A-F]{4}$')
+
+    def test_scope_program_repeats_read_id(self):
+        lines = self.run_program('michael_keyboard_scope')
+        self.assertEqual(lines[:3], ['Scope: send $F2', 'Trigger: LED (PA2)', 'ACK AB 83'])
+        count = re.fullmatch(r'Count ([0-9A-F]{4})', lines[3])
+        self.assertTrue(count, lines[3])
+        self.assertGreaterEqual(int(count.group(1), 16), 5)   # about every 100 ms for 1 s
 
     def ram_map(self, ram=None):
         """michael_ram_map.s's LCD lines, the program loaded where it asks (RAM_MAP_LOAD)."""

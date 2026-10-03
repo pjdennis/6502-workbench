@@ -7,5 +7,6 @@ Board-independent building blocks.
 - `delay_routines.inc`: `delay_hundredths` (A = count) and `delay_10_thousandths`, timed from `CLOCK_FREQ_KHZ`. `utilities.inc`: `lock_screen`/`unlock_screen` (a lock shared by tasks) and `delay_tenth`.
 - `buffer.inc` (locking ring buffer for tasks: `buffer_initialize`, `buffer_read`, `buffer_write`, ...) and `simple_buffer.inc` (256-byte ring for interrupt-written bytes, used by the keyboard).
 - `to_decimal.inc`, `convert_to_hex.inc`, `multiply8x8.inc`: number conversion and an 8x8 multiply.
+- `read_t1.inc`: `read_t1`, a fixed-time read of the VIA's T1 counter, without the off-by-$100 misread of reading its bytes one after the other.
 - `copy_memory.inc` (macro `invoke_copy_memory`) and `copy_memory_inline.inc`: block copy, used to place interrupt handlers.
 - `bf_compiler.inc`: a Brainfuck compiler used by `michael_graphic_bf.s`.

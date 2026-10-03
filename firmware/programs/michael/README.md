@@ -1,7 +1,7 @@
 # Michael programs
 
 - `hello_michael_*.s`, `michael_decimal_test.s`, `michael_timer2_test2.s`, `michael_show_some_text.s`: LCD, LED and VIA tests.
-- `michael_keyboard*.s`: keyboard driver demos and diagnostics (`michael_keyboard_new.s` is the current one; `michael_show_vectors.s` shows the installed loader ROM's IRQ, reset and load addresses and tests RAM, to tell which loader ROM a board has).
+- `michael_keyboard*.s`: keyboard driver demos and diagnostics (`michael_keyboard_new.s` is the current one; `michael_keyboard_info.s` shows the keyboard's ID, scan code set, lock keys and raw bytes; `michael_keyboard_frame_detector.s` and `michael_keyboard_frame_timing.s` measure the keyboard board's frame timing, and `michael_keyboard_scope.s` repeats Read ID with a trigger on the LED output for an oscilloscope (see [`docs/michael-keyboard-frame-detection.md`](../../../docs/michael-keyboard-frame-detection.md)); `michael_show_vectors.s` shows the installed loader ROM's IRQ, reset and load addresses and tests RAM, to tell which loader ROM a board has).
 - `michael_graphic_*.s`: the SPI graphic display, its console and prompt, and `michael_graphic_bf.s`, a Brainfuck REPL.
 - `michael_ram_map.s`: probes RAM.
 - [`bringup/`](bringup/): the first standalone-board programs (2021-04), with hard-coded addresses.
