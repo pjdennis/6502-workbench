@@ -213,7 +213,7 @@
 <line x1="98" y1="391" x2="122" y2="391" stroke="#1f2328" stroke-width="2"/>
 <line x1="98" y1="399" x2="122" y2="399" stroke="#1f2328" stroke-width="2"/>
 <text x="126" y="393" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C5</text>
-<text x="126" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">100 nF</text>
+<text x="126" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">0.1 µF</text>
 <rect x="92.4" y="345" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
 <text x="110" y="356" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
 <rect x="95.55" y="430" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
@@ -223,7 +223,7 @@
 <line x1="168" y1="391" x2="192" y2="391" stroke="#1f2328" stroke-width="2"/>
 <line x1="168" y1="399" x2="192" y2="399" stroke="#1f2328" stroke-width="2"/>
 <text x="196" y="393" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C6</text>
-<text x="196" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">100 nF</text>
+<text x="196" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">0.1 µF</text>
 <rect x="162.4" y="345" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
 <text x="180" y="356" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
 <rect x="165.55" y="430" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
@@ -232,7 +232,7 @@
 <line x1="60" y1="778" x2="60" y2="810" stroke="#1f2328" stroke-width="1.3"/>
 <rect x="54" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
 <text x="76" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R9</text>
-<text x="76" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10k</text>
+<text x="76" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
 <rect x="42.4" y="705" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
 <text x="60" y="716" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
 <rect x="39.25" y="810" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
@@ -242,7 +242,7 @@
 <line x1="130" y1="778" x2="130" y2="810" stroke="#1f2328" stroke-width="1.3"/>
 <rect x="124" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
 <text x="146" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R10</text>
-<text x="146" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10k</text>
+<text x="146" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
 <rect x="109.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="130" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B6</text>
 <rect x="115.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
@@ -251,7 +251,7 @@
 <line x1="200" y1="778" x2="200" y2="810" stroke="#1f2328" stroke-width="1.3"/>
 <rect x="194" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
 <text x="216" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R11</text>
-<text x="216" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10k</text>
+<text x="216" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
 <rect x="179.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="200" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B7</text>
 <rect x="185.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
@@ -260,7 +260,7 @@
 <line x1="270" y1="778" x2="270" y2="810" stroke="#1f2328" stroke-width="1.3"/>
 <rect x="264" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
 <text x="286" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R12</text>
-<text x="286" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10k</text>
+<text x="286" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
 <rect x="249.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="270" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B8</text>
 <rect x="255.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
@@ -513,7 +513,7 @@
 <rect x="1150" y="110" width="130" height="420" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
 <text x="1215" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U10</text>
 <text x="1215" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">Adafruit 2.8" TFT (ILI9341)</text>
-<text x="1215" y="546" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">capacitive touch (I²C): not connected</text>
+<text x="1215" y="546" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">capacitive touch version; touch (I²C) not connected</text>
 <line x1="1150" y1="130" x2="1124" y2="130" stroke="#1f2328" stroke-width="1.3"/>
 <text x="1137" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
 <text x="1155" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
@@ -616,33 +616,47 @@
 <line x1="1120" y1="514" x2="1128" y2="506" stroke="#59636e" stroke-width="1.3"/>
 <rect x="1150" y="700" width="110" height="60" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
 <text x="1205" y="678" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U11</text>
-<text x="1205" y="693" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3.3 V regulator</text>
+<text x="1205" y="693" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">LM1117T-3.3</text>
+<text x="1205" y="776" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">tab: OUT</text>
 <line x1="1150" y1="720" x2="1124" y2="720" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="717" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
 <text x="1155" y="724" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IN</text>
 <rect x="1095.1" y="712.5" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
 <text x="1109.55" y="724" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
 <line x1="1150" y1="740" x2="1124" y2="740" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="737" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
 <text x="1155" y="744" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
 <rect x="1095.1" y="732.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
 <text x="1109.55" y="744" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
 <line x1="1260" y1="720" x2="1286" y2="720" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1273" y="717" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
 <text x="1255" y="724" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">OUT</text>
 <rect x="1286" y="712.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
 <text x="1303.6" y="724" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
-<line x1="1080" y1="820" x2="1080" y2="856" stroke="#1f2328" stroke-width="1.3"/>
-<line x1="1080" y1="874" x2="1080" y2="910" stroke="#1f2328" stroke-width="1.3"/>
-<path d="M1071,857 L1089,857 L1080,872 Z" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
-<line x1="1071" y1="873" x2="1089" y2="873" stroke="#1f2328" stroke-width="1.6"/>
-<text x="1096" y="863" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">D2</text>
-<text x="1096" y="877" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">diode</text>
-<rect x="1065.55" y="805" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
-<text x="1080" y="816" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
-<rect x="1068.7" y="910" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
-<text x="1080" y="921" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">VU</text>
+<line x1="1060" y1="820" x2="1060" y2="856" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1060" y1="874" x2="1060" y2="910" stroke="#1f2328" stroke-width="1.3"/>
+<path d="M1051,857 L1069,857 L1060,872 Z" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1051" y1="873" x2="1069" y2="873" stroke="#1f2328" stroke-width="1.6"/>
+<text x="1076" y="863" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">D2</text>
+<text x="1076" y="877" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">1N4001 (or similar)</text>
+<rect x="1045.55" y="805" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="1060" y="816" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<rect x="1048.7" y="910" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1060" y="921" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">VU</text>
+<line x1="1230" y1="820" x2="1230" y2="861" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1230" y1="869" x2="1230" y2="910" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1218" y1="861" x2="1242" y2="861" stroke="#1f2328" stroke-width="2"/>
+<line x1="1218" y1="869" x2="1242" y2="869" stroke="#1f2328" stroke-width="2"/>
+<text x="1214" y="858" font-size="12" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">+</text>
+<text x="1246" y="863" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C7</text>
+<text x="1246" y="877" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">1 µF 25 V electrolytic</text>
+<rect x="1215.55" y="805" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="1230" y="816" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<rect x="1215.55" y="910" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="1230" y="921" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
 <text x="24" y="920" font-size="13" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">Notes</text>
 <text x="24" y="940" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V A side. DIR and /OE are grounded.</text>
 <text x="24" y="957" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc); U10's MISO is read only by the display probe.</text>
 <text x="24" y="974" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.</text>
-<text x="24" y="997" font-size="13" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">To confirm</text>
-<text x="24" y="1017" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#9a6700">U11 and D2: the parts, and U11's capacitors.</text>
+<text x="24" y="991" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">U11: the LM1117's data sheet asks for 10 µF on its output for stability (and on its input). None is fitted; add them in a new build.</text>
 </svg>

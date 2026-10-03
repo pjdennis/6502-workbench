@@ -50,6 +50,21 @@ class BoardChecks:
         for pin in pins:
             self.assertEqual(self.board.net(*pin), net, pin)
 
+    def test_every_part_has_a_value(self):
+        """The sheets are build instructions: no part left as a question."""
+        for ref in self.board.parts:
+            with self.subTest(ref):
+                self.assertTrue(self.board.values[ref])
+                self.assertNotIn('?', self.board.values[ref])
+
+    def test_the_fpga_supplies(self):
+        """+3V3 from an LM1117 (IN pin 3, GND 1, OUT 2), the Cmod's VU through D2, and C7 on the 5 V rail."""
+        self.assertIn('LM1117', self.board.values['U11'])
+        self.assertPinsOn('+5V', ('U11', 3), ('D2', 'A'), ('C7', 1))
+        self.assertPinsOn('+3V3', ('U11', 2))
+        self.assertPinsOn('GND', ('U11', 1), ('C7', 2))
+        self.assertPinsOn('VU', ('D2', 'K'), ('U9', 24))
+
     def test_every_net_joins_two_pins_or_more(self):
         single = {net: pins for net, pins in self.board.nets().items() if len(pins) < 2}
         self.assertEqual(single, {})
@@ -191,11 +206,14 @@ class PlannedTest(BoardChecks, unittest.TestCase):
         self.assertPinsOn('GND', ('D1', 'K'))
 
 
-class CommittedSvgTest(unittest.TestCase):
-    def test_committed_svgs_are_current(self):
-        for name, svg in michael_schematic.sheets().items():
+class CommittedOutputTest(unittest.TestCase):
+    def test_committed_sheets_and_parts_lists_are_current(self):
+        outputs = michael_schematic.outputs()
+        self.assertIn('parts.md', outputs)
+        self.assertIn('planned/parts.md', outputs)
+        for name, text in outputs.items():
             with self.subTest(name), open(os.path.join(SCHEMATICS, name)) as f:
-                self.assertEqual(f.read(), svg, f'run: python3 {os.path.relpath(SCHEMATICS, ROOT)}/michael_schematic.py')
+                self.assertEqual(f.read(), text, f'run: python3 {os.path.relpath(SCHEMATICS, ROOT)}/michael_schematic.py')
 
 
 if __name__ == '__main__':

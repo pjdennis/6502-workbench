@@ -15,15 +15,16 @@ CHAR = 6.3          # average character width at 11 px, for sizing labels
 
 
 class Board:
-    """The netlist: each part's pins as (number, name, net); net None is not connected."""
+    """The netlist: each part's pins as (number, name, net), where net None is not connected, and each
+    part's value and the sheet it's drawn on."""
 
     def __init__(self):
-        self.parts = {}
+        self.parts, self.values, self.sheets = {}, {}, {}
 
-    def add(self, ref, pins):
+    def add(self, ref, value, pins, sheet):
         if ref in self.parts:
             raise ValueError(f"{ref} drawn twice")
-        self.parts[ref] = pins
+        self.parts[ref], self.values[ref], self.sheets[ref] = pins, value, sheet
 
     def net(self, ref, pin):
         """The net on a part's pin, by number (int) or name (str)."""
@@ -94,6 +95,9 @@ class Sheet:
         return y
 
     # ---- parts --------------------------------------------------------------------------------------
+    def add_part(self, ref, value, pins):
+        self.board.add(ref, value, pins, self.title)
+
     def ic(self, ref, value, x, y, left=(), right=(), width=120, rows=None, caption=None):
         """A box with pins down each side. left and right list (number, name, net[, note]) top to bottom;
         None leaves a gap. Notes are written beyond the pin's label."""
@@ -125,7 +129,7 @@ class Sheet:
                     self.text(nx, py + 4, note, "end" if side == "left" else "start", 10, fill=MUTED,
                               style="italic")
                 pins.append((number, name, net))
-        self.board.add(ref, pins)
+        self.add_part(ref, value, pins)
 
     def dip(self, ref, value, x, y, names, nets, width=120, notes=None, caption=None):
         """A DIP package in pin order: 1 to n/2 down the left, n/2 + 1 to n up the right. names lists the
@@ -143,17 +147,19 @@ class Sheet:
         self.ic(ref, value, x, y, left, right, width, caption=caption)
 
     def two_pin(self, kind, ref, value, x, y, top, bottom, names=("1", "2"), length=90):
-        """A resistor, capacitor, LED, diode, switch or unknown part ('box'), drawn vertically from
-        (x, y): pin 1 at the top."""
+        """A resistor, capacitor, electrolytic capacitor (+ at pin 1), LED, diode or switch, drawn
+        vertically from (x, y): pin 1 at the top."""
         mid = y + length / 2
-        body = {"resistor": 26, "capacitor": 8, "led": 18, "diode": 18, "switch": 22, "box": 30}[kind]
+        body = {"resistor": 26, "capacitor": 8, "electrolytic": 8, "led": 18, "diode": 18, "switch": 22}[kind]
         self.line(x, y, x, mid - body / 2)
         self.line(x, mid + body / 2, x, y + length)
         if kind == "resistor":
             self.rect(x - 6, mid - 13, 12, 26, "#ffffff", 0, 1.3)
-        elif kind == "capacitor":
+        elif kind in ("capacitor", "electrolytic"):
             self.line(x - 12, mid - 4, x + 12, mid - 4, width=2)
             self.line(x - 12, mid + 4, x + 12, mid + 4, width=2)
+            if kind == "electrolytic":
+                self.text(x - 16, mid - 7, "+", "middle", 12, "bold")
         elif kind in ("led", "diode"):   # anode at the top
             self.path(f"M{x - 9:g},{mid - 8:g} L{x + 9:g},{mid - 8:g} L{x:g},{mid + 7:g} Z", "#ffffff")
             self.line(x - 9, mid + 8, x + 9, mid + 8, width=1.6)
@@ -166,15 +172,12 @@ class Sheet:
             self.line(x - 10, mid - 2, x - 18, mid - 2)
             self.path(f"M{x - 2:g},{mid - 11:g} a2,2 0 1 0 0.1,0", "#ffffff")
             self.path(f"M{x - 2:g},{mid + 11:g} a2,2 0 1 0 0.1,0", "#ffffff")
-        elif kind == "box":
-            self.rect(x - 14, mid - 15, 28, 30, "#ffffff", 0, 1.3, NOTE, "4 3")
-            self.text(x, mid + 5, "?", "middle", 14, "bold", NOTE)
-        tx = x + {"led": 24, "box": 22}.get(kind, 16)
+        tx = x + (24 if kind == "led" else 16)
         self.text(tx, mid - 2, ref, size=11.5, weight="bold")
         self.text(tx, mid + 12, value, size=10.5, fill=MUTED)
         self.label(x, y, top, "up")
         self.label(x, y + length, bottom, "down")
-        self.board.add(ref, [(1, names[0], top), (2, names[1], bottom)])
+        self.add_part(ref, value, [(1, names[0], top), (2, names[1], bottom)])
 
     def pot(self, ref, value, x, y, top, wiper, bottom, length=90):
         """A potentiometer from (x, y) down, its wiper (pin 2) to the left."""
@@ -189,7 +192,7 @@ class Sheet:
         self.label(x, y, top, "up")
         self.label(x - 30, mid, wiper, "left")
         self.label(x, y + length, bottom, "down")
-        self.board.add(ref, [(1, "1", top), (2, "W", wiper), (3, "3", bottom)])
+        self.add_part(ref, value, [(1, "1", top), (2, "W", wiper), (3, "3", bottom)])
 
     def nand(self, x, y, a, b, out):
         """One 74HC00 gate, inputs at the left: a, b and out are (pin, net). Returns the pins for the

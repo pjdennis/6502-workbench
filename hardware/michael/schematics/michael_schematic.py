@@ -11,7 +11,7 @@ tools/tests/test_michael_schematic.py checks the netlists against the firmware a
 """
 import os
 
-from schematic_svg import Board, Sheet, MUTED, NOTE
+from schematic_svg import Board, Sheet, MUTED
 
 W65C02 = (["VPB", "RDY", "PHI1O", "IRQB", "MLB", "NMIB", "SYNC", "VDD"] + [f"A{i}" for i in range(12)] +
           ["VSS", "A12", "A13", "A14", "A15"] + [f"D{i}" for i in range(7, -1, -1)] +
@@ -56,12 +56,12 @@ def core(board, planned):
     y = 600
     s.ic("X1", "2 MHz oscillator", 170, y, left=[(1, "NC", None), (7, "GND", "GND")],
          right=[(14, "VCC", "+5V"), (8, "OUT", "PHI2")], width=80)
-    s.two_pin("resistor", "R1", "1k", 400, y, "+5V", "RESB")
+    s.two_pin("resistor", "R1", "1 kΩ", 400, y, "+5V", "RESB")
     s.two_pin("capacitor", "C1", "0.1 µF", 470, y, "RESB", "GND")
-    s.two_pin("switch", "SW1", "reset", 550, y, "RESB", "GND")
-    s.two_pin("diode", "D3", "1N4148?", 640, y, "RESB", "DTR/K", names=("A", "K"))
-    s.two_pin("resistor", "R13", "220?", 730, y, "DTR", "DTR/K")
-    s.two_pin("resistor", "R2", "1k", 400, y + 150, "+5V", "RDY", length=70)
+    s.two_pin("switch", "SW1", "pushbutton", 550, y, "RESB", "GND")
+    s.two_pin("diode", "D3", "1N4148", 640, y, "RESB", "DTR/K", names=("A", "K"))
+    s.two_pin("resistor", "R13", "220 Ω", 730, y, "DTR", "DTR/K")
+    s.two_pin("resistor", "R2", "1 kΩ", 400, y + 150, "+5V", "RDY", length=70)
     for i in range(3):
         s.two_pin("capacitor", f"C{i + 2}", "0.1 µF", 480 + i * 75, y + 150, "+5V", "GND", length=70)
     s.text(555, y + 255, "bypass", "middle", 10.5, fill=MUTED)
@@ -75,7 +75,7 @@ def core(board, planned):
         u4 += s.nand(900, gy, a, b, out)
         s.text(922, gy - 5, unit, "middle", 11.5, "bold")
     s.text(922, y + 282, "74HC00 (U4A spare)", "middle", 10.5, fill=MUTED)
-    board.add("U4", u4)
+    s.add_part("U4", "74HC00", u4)
 
     y = s.note(24, 910, [
         "As Ben Eater's schematic (ben-eater-6502-schematic.png), with the same reference designators (new parts start at R8),",
@@ -83,8 +83,6 @@ def core(board, planned):
         "DTR low pulls RESB low through R13 and D3. While DTR is high, D3 blocks, so the button and R1/C1 work as on Ben's.",
         "Memory map: RAM $0000–$3FFF, VIA $6000–$7FFF, ROM $8000–$FFFF. Writes to $4000–$7FFF also go to the RAM, into its",
         "upper half, which can't be read (A14 drives /OE). +5V comes from the USB serial adapter."], "Notes")
-    s.note(24, y + 6, ["R13's value and D3's part (red-red-brown and a small glass diode in the photo)."],
-           "To confirm", NOTE)
     return s
 
 
@@ -97,21 +95,21 @@ def io(board, planned):
     uses = PLANNED_PORT_A_USES if planned else PORT_A_USES
     if planned:
         via["PA0"] = None
-    s.dip("U5", "W65C22 VIA", 390, 110, W65C22, via, width=130, notes=uses | {
+    s.dip("U5", "W65C22S VIA", 390, 110, W65C22, via, width=130, notes=uses | {
         "CA2": "keyboard IRQ", "CB2": "serial in", "CB1": "shift clock out"})
 
     lcd = [(1, "VSS", "GND"), (2, "VDD", "+5V"), (3, "V0", "V0"), (4, "RS", "PA5"), (5, "RW", "PA6"),
            (6, "E", "PA7")] + [(7 + i, f"DB{i}", f"PB{i}") for i in range(8)] + [(15, "A", "+5V"),
                                                                                  (16, "K", "GND")]
     s.ic("U3", "20×4 LCD (HD44780)", 790, 110, left=lcd, width=110)
-    s.pot("RV1", "10k contrast", 860, 490, "+5V", "V0", "GND")
+    s.pot("RV1", "10 kΩ potentiometer", 860, 490, "+5V", "V0", "GND")
 
     if planned:   # on PA1, lit while it is high
-        s.two_pin("resistor", "R8", "?", 790, 650, "PA1", "LED")
-        s.two_pin("led", "D1", "LED", 870, 650, "LED", "GND", names=("A", "K"))
+        s.two_pin("resistor", "R8", "220 Ω", 790, 650, "PA1", "LED")
+        s.two_pin("led", "D1", "red LED", 870, 650, "LED", "GND", names=("A", "K"))
     else:         # lit while PA2 is low, so the display's reset (idle high) leaves it dark
-        s.two_pin("resistor", "R8", "?", 790, 650, "+5V", "LED")
-        s.two_pin("led", "D1", "LED", 870, 650, "LED", "PA2", names=("A", "K"))
+        s.two_pin("resistor", "R8", "220 Ω", 790, 650, "+5V", "LED")
+        s.two_pin("led", "D1", "red LED", 870, 650, "LED", "PA2", names=("A", "K"))
 
     kbd = [(1, "VCC", "+5V"), (2, "GND", "GND"), (3, "IRQ", "CA2"), (4, "KBD_CLK_OUT", "PA3"),
            (5, "REG_OE", "PA4"), (6, "DE", "PA5"), (7, "DP", "PA6")] + [
@@ -132,7 +130,6 @@ def io(board, planned):
         "J1's pins and the PA3–PA6 uses are from base_config_v2.inc, keyboard_driver.inc and the keyboard board's schematic.",
         led, "Ben's buttons SW2–SW6 and their pull-ups R3–R7 are not fitted. The LCD's backlight is straight to +5V and GND."],
         "Notes")
-    s.note(24, y + 6, ["R8's value."], "To confirm", NOTE)
     return s
 
 
@@ -153,20 +150,20 @@ def fpga(board, planned):
     unused = {"B1": "unused", "B2": "unused", "B5": "unused"} if planned else {}
     s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power | {"DIR": "GND", "/OE": "GND"}, width=110,
           notes=unused)
-    s.two_pin("capacitor", "C5", "100 nF", 110, 360, "+3V3", "GND", length=70)
-    s.two_pin("capacitor", "C6", "100 nF", 180, 360, "+3V3", "GND", length=70)
-    s.two_pin("resistor", "R9", "10k", 60, 720, "+3V3", "U8.B5")
+    s.two_pin("capacitor", "C5", "0.1 µF", 110, 360, "+3V3", "GND", length=70)
+    s.two_pin("capacitor", "C6", "0.1 µF", 180, 360, "+3V3", "GND", length=70)
+    s.two_pin("resistor", "R9", "10 kΩ", 60, 720, "+3V3", "U8.B5")
     s.text(60, 850, "backlight on", "middle", 10.5, fill=MUTED)
     ties = ([("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned
             else [("R10", "U8.B6"), ("R11", "U8.B7"), ("R12", "U8.B8")])
     for i, (ref, net) in enumerate(ties):
-        s.two_pin("resistor", ref, "10k", 130 + i * 70, 720, net, "GND")
+        s.two_pin("resistor", ref, "10 kΩ", 130 + i * 70, 720, net, "GND")
     s.text(200, 850, "ties (unused inputs)", "middle", 10.5, fill=MUTED)
     if planned:
         for i, (ref, top, bottom, why) in enumerate((("R18", "PA2", "GND", "E idle low"),
                                                      ("R15", "+3V3", "d_oeb", "off unconfigured"),
                                                      ("R16", "d_dir", "GND", "inward by default"))):
-            s.two_pin("resistor", ref, "10k", 340 + i * 100, 720, top, bottom)
+            s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
             s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
 
     lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
@@ -184,17 +181,20 @@ def fpga(board, planned):
            "D/C": "lcd_dc", "RST": "lcd_reset", "Lite": "lcd_led"}
     s.ic("U10", "Adafruit 2.8\" TFT (ILI9341)", 1150, 110, width=130,
          left=[(i + 1, n, tft.get(n) if i != 10 else None) for i, n in enumerate(ADAFRUIT_TFT)],
-         caption="capacitive touch (I²C): not connected")
+         caption="capacitive touch version; touch (I²C) not connected")
 
-    s.ic("U11", "3.3 V regulator", 1150, 700, left=[(None, "IN", "+5V"), (None, "GND", "GND")],
-         right=[(None, "OUT", "+3V3")], width=110)
-    s.two_pin("diode", "D2", "diode", 1080, 820, "+5V", "VU", names=("A", "K"))
+    s.ic("U11", "LM1117T-3.3", 1150, 700, left=[(3, "IN", "+5V"), (1, "GND", "GND")],
+         right=[(2, "OUT", "+3V3")], width=110, caption="tab: OUT")
+    s.two_pin("diode", "D2", "1N4001 (or similar)", 1060, 820, "+5V", "VU", names=("A", "K"))
+    s.two_pin("electrolytic", "C7", "1 µF 25 V electrolytic", 1230, 820, "+5V", "GND")
 
     notes = ["From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V "
              "A side.",
              "Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc); U10's MISO is read only by the "
              "display probe.",
-             "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming."]
+             "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
+             "U11: the LM1117's data sheet asks for 10 µF on its output for stability (and on its input). None is fitted; "
+             "add them in a new build."]
     if planned:
         notes[1] = ("The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives "
                     "PORTB with the keyboard board.")
@@ -204,8 +204,7 @@ def fpga(board, planned):
                      "The new port names are proposals.")
     else:
         notes[0] += " DIR and /OE are grounded."
-    y = s.note(24, 920, notes, "Notes")
-    s.note(24, y + 6, ["U11 and D2: the parts, and U11's capacitors."], "To confirm", NOTE)
+    s.note(24, 920, notes, "Notes")
     return s
 
 
@@ -221,15 +220,37 @@ def board(planned=False):
     return build(planned)[0]
 
 
-def sheets():
-    """Both sets of SVGs by path: as built, then planned/."""
-    return {("planned/" if planned else "") + name: sheet.svg()
-            for planned in (False, True) for name, sheet in build(planned)[1].items()}
+def parts_list(board, planned):
+    """The parts, as a Markdown table."""
+    def order(ref):
+        letters = ref.rstrip("0123456789")
+        return letters, int(ref[len(letters):])
+    state = "once the FPGA bus plan is complete (planned)" if planned else "as built (2026-10-03)"
+    lines = [f"# Michael's parts, {state}", "",
+             "Generated by `michael_schematic.py` from the schematics beside this file. \"(or similar)\" marks a part",
+             "identified only from a photo. The keyboard board's own parts are on its schematic,",
+             "`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`" + (" (one level up)." if planned else "."),
+             "", "| Ref | Part | Sheet |", "|---|---|---|"]
+    for ref in sorted(board.parts, key=order):
+        sheet = board.sheets[ref].removeprefix("Michael: ")
+        lines.append(f"| {ref} | {board.values[ref]} | {sheet} |")
+    return "\n".join(lines) + "\n"
+
+
+def outputs():
+    """Both sets of sheets and parts lists by path: as built, then planned/."""
+    files = {}
+    for planned in (False, True):
+        board, drawn = build(planned)
+        prefix = "planned/" if planned else ""
+        files |= {prefix + name: sheet.svg() for name, sheet in drawn.items()}
+        files[prefix + "parts.md"] = parts_list(board, planned)
+    return files
 
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(os.path.join(here, "planned"), exist_ok=True)
-    for name, svg in sheets().items():
+    for name, text in outputs().items():
         with open(os.path.join(here, name), "w") as f:
-            f.write(svg)
+            f.write(text)
