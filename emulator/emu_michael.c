@@ -297,9 +297,15 @@ static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
     tty_alt_screen_leave();
 }
 
-/* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
-
 #define MICHAEL_LED 0x04    /* PA2: LED in base_config_v2.inc */
+
+/* The LED is wired from +5V to PA2, so it lights while PA2 is an output
+ * driven low (initialize_michael_ports drives it high to turn it off). */
+static int led_on(const struct via_6522_state *via) {
+    return (via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(via) & MICHAEL_LED);
+}
+
+/* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
 
 struct michael_web {
     struct bus *b;
@@ -321,13 +327,11 @@ static void web_event(void *ctx, const struct web_event *evt) {
     else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
 }
 
-/* The page's LED 0 is PA2's. It is wired from +5V to the pin, so it
- * lights while PA2 is an output driven low (initialize_michael_ports
- * drives it high to turn it off). */
+/* The page's LED 0 is PA2's. */
 static void web_snapshot(void *ctx, struct web_snapshot *snap) {
     struct michael_web *w = ctx;
     snap->n_leds = 1;
-    snap->leds[0] = (w->via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(w->via) & MICHAEL_LED);
+    snap->leds[0] = led_on(w->via);
 }
 
 int emu_run_michael(const struct emu_opts *opts) {
@@ -469,6 +473,7 @@ int emu_run_michael(const struct emu_opts *opts) {
             (unsigned long long)clockticks6502, pc,
             cpu_stp_pending() ? "(STP)" : "(cycle cap)");
     lcd_report_final(stderr, "michael", &lcd_state);
+    fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
     fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
             (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
     /* The lowest the stack pointer went: an address free below it is

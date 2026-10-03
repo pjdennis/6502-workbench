@@ -19,7 +19,8 @@ A three-machine 6502 emulator:
   starts as the ROM leaves it (two lines, display on, no cursor, clear),
   as programs run from the ROM's loader expect; without `--load`, the
   code file is the ROM image. Selected with
-  `--machine michael`. At exit it prints the LCD and a bus check: LCD
+  `--machine michael`. At exit it prints the LCD, the PA2 LED (lit while
+  the pin is low) and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once. `--live` runs it in the terminal and `--web` in the
   browser (see [`--web` mode](#--web-mode)).
