@@ -36,6 +36,7 @@ without `playwright`.
 | Make target | Script | What it checks |
 |---|---|---|
 | `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame, and the EEPROM loader boots from a ROM image to its ready screen |
+| `michael-web` | `michael_web_playwright_test.py` | michael's `--web` page in headless Chromium: the 20x4 LCD and pin table, keys typed and pasted on the page reaching the program through the PS/2 keyboard, reset, the PA2 LED |
 | `wendy2c-goldens` | `wendy2c_goldens.sh` | wendy2c programs uploaded through the boot ROM (`--serial-input`) leave the expected LCD frame |
 | `wendy2c-lcd-trace` | `lcd_trace_test.sh` | `--lcd-trace` records intermediate LCD frames |
 | `wendy2c-merge-sort` | `merge_sort_goldens.sh` | the wendy2 merge-sort demo, asserted on intermediate frames; the full 57344-element case is opt-in with `MERGE_SORT_FULL_N=1` (~60 s) |

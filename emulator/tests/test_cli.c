@@ -296,6 +296,27 @@ TEST cli_live_accepted_for_michael(void) {
     PASS();
 }
 
+TEST cli_web_accepted_for_michael(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--web", NULL};
+    struct emu_opts opts;
+    int rc = parse(argv, &opts);
+    ASSERT_EQ_FMT(0, rc, "%d");
+    ASSERT_EQ_FMT(1, opts.web, "%d");
+    PASS();
+}
+
+TEST cli_web_requires_a_board(void) {
+    char *argv[] = {"emulator", "prog.bin", "--web", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--web requires --machine wendy2c or michael") != NULL);
+    PASS();
+}
+
 TEST cli_direct_io_parsed(void) {
     char *argv[] = {"emulator", "prog.bin", "--direct-io", NULL};
     struct emu_opts opts;
@@ -471,6 +492,8 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_missing_value_errors);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
     RUN_TEST(cli_live_accepted_for_michael);
+    RUN_TEST(cli_web_accepted_for_michael);
+    RUN_TEST(cli_web_requires_a_board);
     RUN_TEST(cli_direct_io_parsed);
     RUN_TEST(cli_direct_io_with_terminal_rejected);
     RUN_TEST(cli_strict_api_parsed);

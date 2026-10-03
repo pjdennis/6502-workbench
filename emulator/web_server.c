@@ -120,7 +120,7 @@ struct client {
     int  audio_init_sent;            /* 1 once we've sent the audio_init JSON */
 };
 
-#define EVENT_QUEUE_SIZE 32
+#define EVENT_QUEUE_SIZE 256  /* room for a paste's worth of key messages */
 #define AUDIO_RING_CAPACITY 8192  /* int16 samples; ~0.37s @ 22050 Hz */
 
 struct web_server {
@@ -475,15 +475,13 @@ static int ws_parse_frame(struct client *c, char **out_text, int *out_textlen) {
 }
 
 /* ===== Event queue ===== */
-static void queue_event(struct web_server *srv,
-                         enum web_event_type t, int btn_down) {
+static void queue_event(struct web_server *srv, const struct web_event *evt) {
     int next = (srv->evt_tail + 1) % EVENT_QUEUE_SIZE;
     if (next == srv->evt_head) {
         /* Queue full -- drop oldest. */
         srv->evt_head = (srv->evt_head + 1) % EVENT_QUEUE_SIZE;
     }
-    srv->events[srv->evt_tail].type = t;
-    srv->events[srv->evt_tail].button_down = btn_down;
+    srv->events[srv->evt_tail] = *evt;
     srv->evt_tail = next;
 }
 
@@ -492,13 +490,19 @@ static void handle_text_msg(struct web_server *srv,
     /* Single-pass structured parse; see web_json.h for the security
      * guarantees vs. the original "find substring" helpers. */
     struct web_json_msg msg;
-    if (web_json_parse(txt, len, &msg) != 0) return;
-    if (msg.has_type && strcmp(msg.type, "button") == 0 && msg.has_down) {
-        queue_event(srv, WEB_EVT_BUTTON, msg.down ? 1 : 0);
-    } else if (msg.has_type && strcmp(msg.type, "reset") == 0) {
-        /* Reset is a one-shot (button_down field unused). */
-        queue_event(srv, WEB_EVT_RESET, 0);
+    if (web_json_parse(txt, len, &msg) != 0 || !msg.has_type) return;
+    struct web_event evt = { .type = WEB_EVT_NONE };
+    if (strcmp(msg.type, "button") == 0 && msg.has_down) {
+        evt.type = WEB_EVT_BUTTON;
+        evt.button_down = msg.down ? 1 : 0;
+    } else if (strcmp(msg.type, "reset") == 0) {
+        evt.type = WEB_EVT_RESET;
+    } else if (strcmp(msg.type, "keys") == 0 && msg.has_bytes) {
+        evt.type = WEB_EVT_KEYS;
+        evt.n_bytes = msg.n_bytes;
+        memcpy(evt.bytes, msg.bytes, (size_t)msg.n_bytes);
     }
+    if (evt.type != WEB_EVT_NONE) queue_event(srv, &evt);
 }
 
 /* ===== Server lifecycle ===== */
@@ -670,8 +674,8 @@ static void read_from_client(struct web_server *srv, struct client *c) {
 
 int web_server_poll(struct web_server *srv,
                      struct web_event *out_event) {
+    memset(out_event, 0, sizeof(*out_event));
     out_event->type = WEB_EVT_NONE;
-    out_event->button_down = 0;
     if (!srv) return 0;
 
     fd_set rfds;

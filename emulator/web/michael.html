@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>michael</title>
+  <link rel="stylesheet" href="/board.css">
+</head>
+<body>
+  <main id="board">
+    <header><h1>michael <span class="accent">v2</span></h1></header>
+
+    <section id="lcd-frame" aria-label="HD44780 LCD">
+      <div id="lcd-bezel">
+        <canvas id="lcd" width="530" height="162"></canvas>
+      </div>
+    </section>
+
+    <section id="controls" aria-label="controls">
+      <div class="indicator">
+        <div class="led led-red" id="led" data-led="0"></div>
+        <div class="indicator-label">LED &middot; PA2</div>
+      </div>
+      <div class="indicator">
+        <button class="btn btn-reset" id="btn-reset" aria-label="reset (RES) button">
+          <span class="btn-cap">RST</span>
+        </button>
+        <div class="indicator-label">RESET</div>
+      </div>
+      <div class="hint">Type or paste anywhere on the page: the keys go to the PS/2 keyboard.</div>
+    </section>
+
+    <section id="pins" aria-label="VIA 6522 pin state">
+      <table id="pin-table"></table>
+    </section>
+
+    <section id="status">
+      <span id="status-conn" class="dot off"></span>
+      <span id="status-text">connecting&hellip;</span>
+      <span id="status-clock"></span>
+    </section>
+  </main>
+  <script src="/hd44780_a00_font.js"></script>
+  <script src="/board.js"></script>
+  <script src="/michael.js"></script>
+</body>
+</html>

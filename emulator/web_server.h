@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "web_json.h"
+
 /* Tiny embedded HTTP + WebSocket server for the boards' live web UI.
  *
  * Design:
@@ -61,11 +63,14 @@ enum web_event_type {
     WEB_EVT_NONE = 0,
     WEB_EVT_BUTTON,
     WEB_EVT_RESET,
+    WEB_EVT_KEYS,
 };
 
 struct web_event {
     enum web_event_type type;
     int button_down;             /* 0 or 1 when type == BUTTON */
+    int n_bytes;                 /* type == KEYS: key bytes as a terminal */
+    uint8_t bytes[WEB_JSON_BYTES_MAX];   /* sends them (ps2_keys.h) */
 };
 
 /* Start listening on the given TCP port. Returns NULL on error

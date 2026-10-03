@@ -70,6 +70,8 @@ int web_run(const struct web_machine *m, const struct emu_opts *opts) {
     while (!sigint_requested && !m->step(m->ctx)) {
         long wall_ns = emu_pace(&t0, osc0, m->bus->osc_ticks, m->osc_per_us);
 
+        /* One event per batch, so a button press and release always
+         * have a batch between them. */
         struct web_event evt;
         web_server_poll(srv, &evt);
         if (evt.type != WEB_EVT_NONE) m->event(m->ctx, &evt);

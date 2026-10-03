@@ -67,6 +67,7 @@ header h1 .accent { color: var(--accent); }
 }
 .indicator { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .indicator-label { font-size: 11px; letter-spacing: 0.15em; color: var(--ink-dim); text-transform: uppercase; }
+.hint { max-width: 200px; font-size: 12px; line-height: 1.4; color: var(--ink-dim); align-self: center; }
 
 .led {
   width: 16px; height: 16px;
