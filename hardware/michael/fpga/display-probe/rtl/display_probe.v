@@ -30,10 +30,13 @@ module display_probe #(
   output       t_clk,
   output       t_cs,
   output       t_din,
-  output [1:0] led         // LD1: busy, LD2: display selected
+  output [1:0] led,        // LD1: busy, LD2: display selected
+  output       d_oeb,      // the data buffer: on, and Michael to the FPGA, as the interface has it
+  output       d_dir
 );
   localparam LEN = 11;
   assign {t_cs, t_clk, t_din} = 3'b100;
+  assign {d_oeb, d_dir} = 2'b00;
 
   // Command bytes, queued
   wire       rx_valid;

@@ -12,11 +12,12 @@ module tb_top;
   reg e = 1'b0, csb = 1'b1, rstb = 1'b1, dc = 1'b0, bl = 1'b1;
   wire lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led, t_clk, t_cs, t_din;
   wire [1:0] led;
+  wire d_oeb, d_dir;
 
   top #(.ACTIVITY_CYCLES(ACTIVITY_CYCLES)) dut (
     .sysclk(clk), .d(portb), .e(e), .csb(csb), .rstb(rstb), .dc(dc), .bl(bl),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
-    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led));
+    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led), .d_oeb(d_oeb), .d_dir(d_dir));
 
   `TB_CLOCK(clk, 41.667, 10_000_000)  // 12 MHz
 
@@ -75,6 +76,7 @@ module tb_top;
     `CHECK_EQ({t_cs, t_clk, t_din}, 3'b100, "touch controller idle")
     `CHECK_EQ(lcd_led, 1'b1, "backlight follows bl (high)")
     `CHECK_EQ(led, 2'b00, "status LEDs off while idle")
+    `CHECK_EQ({d_oeb, d_dir}, 2'b00, "data buffer enabled, Michael to the FPGA (stage 1 of the bus plan)")
 
     // Strobes while the display is not selected are someone else's business
     gd_configure;
@@ -130,6 +132,7 @@ module tb_top;
     gd_unselect;
     #(ACTIVITY_CYCLES * 84 + 2000);
     `CHECK_EQ(led, 2'b00, "status LEDs off again when idle")
+    `CHECK_EQ({d_oeb, d_dir}, 2'b00, "data buffer enabled, Michael to the FPGA (stage 1 of the bus plan)")
     `TB_PASS
   end
 endmodule

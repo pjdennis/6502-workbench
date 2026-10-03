@@ -13,12 +13,13 @@ module tb_display_probe;
   wire [7:0] rx_data;
   wire lcd_cs, lcd_reset, lcd_dc, pin_mosi, pin_sck, lcd_led;
   reg  miso = 1'b1;
+  wire d_oeb, d_dir;
 
   display_probe #(.CLKS_PER_BIT(CPB)) dut (
     .sysclk(clk), .d(8'h00), .e(1'b0), .csb(1'b1), .rstb(1'b1), .dc(1'b0), .bl(1'b1),
     .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(pin_mosi), .lcd_sck(pin_sck),
-    .lcd_led(lcd_led), .lcd_miso(miso), .t_clk(), .t_cs(), .t_din(), .led());
+    .lcd_led(lcd_led), .lcd_miso(miso), .t_clk(), .t_cs(), .t_din(), .led(), .d_oeb(d_oeb), .d_dir(d_dir));
 
   uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (.clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
   uart_rx #(.CLKS_PER_BIT(CPB)) host_uart_rx (.clk(clk), .rx(fpga_tx), .valid(rx_valid), .data(rx_data));
@@ -92,6 +93,7 @@ module tb_display_probe;
   initial begin
     repeat (20) @(posedge clk);
     `CHECK_EQ({lcd_cs, lcd_reset, lcd_led}, 3'b111, "idle: deselected, out of reset, backlight on")
+    `CHECK_EQ({d_oeb, d_dir}, 2'b00, "data buffer enabled, Michael to the FPGA (stage 1 of the bus plan)")
     sync;
 
     // Control lines follow the control byte

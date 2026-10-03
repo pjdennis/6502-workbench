@@ -19,7 +19,9 @@ module top #(
   output       t_clk,      // touch controller, held idle for now
   output       t_cs,
   output       t_din,
-  output [1:0] led         // LD1: display traffic, LD2: display selected
+  output [1:0] led,        // LD1: display traffic, LD2: display selected
+  output       d_oeb,      // the data buffer's /OE and DIR: on, and Michael to the FPGA (stage 1 of the bus plan)
+  output       d_dir
 );
   wire selected, accepted;
   spi_bridge bridge (
@@ -31,6 +33,7 @@ module top #(
   assign lcd_led = bl_sync[1];
 
   assign {t_cs, t_clk, t_din} = 3'b100;
+  assign {d_oeb, d_dir} = 2'b00;
 
   reg [$clog2(ACTIVITY_CYCLES)-1:0] activity = 0;
   always @(posedge sysclk)

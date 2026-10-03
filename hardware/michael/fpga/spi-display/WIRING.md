@@ -92,3 +92,24 @@ modules only while their jumper J1 is open.
 - [ ] The display's VCC is on 3.3 V and its GND on Cmod pin 25 / the GND rail.
 - [ ] The FPGA has the interface design in its flash (`make flash` in this directory). Otherwise the Cmod's
       pins carry whatever design is in its flash.
+
+## Stage 1 rewiring for the FPGA bus
+
+Step 2 of stage 1 in [`docs/michael-fpga-bus-plan.md`](../../../../docs/michael-fpga-bus-plan.md). The FPGA
+designs here already drive Cmod pin 14 (`d_oeb`) and pin 17 (`d_dir`) low, which is what the data buffer's
+/OE and DIR are tied to now. So the display keeps working through each step. When this is done, update the
+tables above and Michael's schematics to match.
+
+With Michael and the Cmod powered off:
+
+- [ ] Data buffer /OE (pin 19): remove its link to ground, wire it to **Cmod pin 14**, and add **10 kΩ to the
+      3.3 V rail**. The pull-up keeps the buffer off while the FPGA isn't configured.
+- [ ] Data buffer DIR (pin 1): remove its link to ground, wire it to **Cmod pin 17**, and add **10 kΩ to ground**.
+      The pull-down keeps the buffer pointing from Michael to the FPGA.
+- [ ] Control buffer B6 (pin 13): remove its 10 kΩ tie and wire it to **PA4** (VIA pin 6, SOEB). Wire A6 (pin 7)
+      to **Cmod pin 18**.
+- [ ] Control buffer B7 (pin 12): remove its 10 kΩ tie and wire it to **PA6** (VIA pin 8, RW). Wire A7 (pin 8)
+      to **Cmod pin 19**.
+- [ ] Control buffer B1 (pin 18, PA0, E): add **10 kΩ to ground**, so E idles low while the VIA's pins are inputs.
+
+Then power up and run `michael_graphic_display_test.s`: the display should work exactly as before.
