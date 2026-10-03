@@ -1,0 +1,722 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="1080" viewBox="0 0 1420 1080" font-family="Helvetica, Arial, sans-serif">
+<rect width="1420" height="1080" fill="#ffffff"/>
+<text x="24" y="34" font-size="18" font-weight="bold" fill="#1f2328">Michael: FPGA bus interface (3 of 3)</text>
+<text x="24" y="54" font-size="12" fill="#59636e">Michael once the FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete. Planned, not built. Pins with the same label are connected; × is not connected. U7, U8 and U10 run from +3V3.</text>
+<rect x="330" y="110" width="110" height="220" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
+<text x="385" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U7</text>
+<text x="385" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">74LVC245 (data)</text>
+<line x1="330" y1="130" x2="304" y2="130" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
+<text x="335" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">DIR</text>
+<rect x="262.5" y="122.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="283.25" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_dir</text>
+<line x1="330" y1="150" x2="304" y2="150" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
+<text x="335" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A1</text>
+<rect x="268.8" y="142.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[0]</text>
+<line x1="330" y1="170" x2="304" y2="170" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
+<text x="335" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A2</text>
+<rect x="268.8" y="162.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[1]</text>
+<line x1="330" y1="190" x2="304" y2="190" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">4</text>
+<text x="335" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A3</text>
+<rect x="268.8" y="182.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[2]</text>
+<line x1="330" y1="210" x2="304" y2="210" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">5</text>
+<text x="335" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A4</text>
+<rect x="268.8" y="202.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[3]</text>
+<line x1="330" y1="230" x2="304" y2="230" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="227" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">6</text>
+<text x="335" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A5</text>
+<rect x="268.8" y="222.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[4]</text>
+<line x1="330" y1="250" x2="304" y2="250" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="247" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">7</text>
+<text x="335" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A6</text>
+<rect x="268.8" y="242.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[5]</text>
+<line x1="330" y1="270" x2="304" y2="270" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">8</text>
+<text x="335" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A7</text>
+<rect x="268.8" y="262.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[6]</text>
+<line x1="330" y1="290" x2="304" y2="290" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">9</text>
+<text x="335" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A8</text>
+<rect x="268.8" y="282.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[7]</text>
+<line x1="330" y1="310" x2="304" y2="310" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="307" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">10</text>
+<text x="335" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
+<rect x="275.1" y="302.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="289.55" y="314" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="440" y1="130" x2="466" y2="130" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">20</text>
+<text x="435" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">VCC</text>
+<rect x="466" y="122.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="483.6" y="134" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<line x1="440" y1="150" x2="466" y2="150" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">19</text>
+<text x="435" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">/OE</text>
+<rect x="466" y="142.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="486.75" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_oeb</text>
+<line x1="440" y1="170" x2="466" y2="170" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">18</text>
+<text x="435" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B1</text>
+<rect x="466" y="162.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB0</text>
+<line x1="440" y1="190" x2="466" y2="190" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">17</text>
+<text x="435" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B2</text>
+<rect x="466" y="182.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB1</text>
+<line x1="440" y1="210" x2="466" y2="210" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">16</text>
+<text x="435" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B3</text>
+<rect x="466" y="202.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB2</text>
+<line x1="440" y1="230" x2="466" y2="230" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="227" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">15</text>
+<text x="435" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B4</text>
+<rect x="466" y="222.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB3</text>
+<line x1="440" y1="250" x2="466" y2="250" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="247" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">14</text>
+<text x="435" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B5</text>
+<rect x="466" y="242.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB4</text>
+<line x1="440" y1="270" x2="466" y2="270" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">13</text>
+<text x="435" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B6</text>
+<rect x="466" y="262.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB5</text>
+<line x1="440" y1="290" x2="466" y2="290" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">12</text>
+<text x="435" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B7</text>
+<rect x="466" y="282.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB6</text>
+<line x1="440" y1="310" x2="466" y2="310" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="307" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">11</text>
+<text x="435" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B8</text>
+<rect x="466" y="302.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PB7</text>
+<rect x="330" y="420" width="110" height="220" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
+<text x="385" y="398" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U8</text>
+<text x="385" y="413" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">74LVC245 (control)</text>
+<line x1="330" y1="440" x2="304" y2="440" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="437" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
+<text x="335" y="444" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">DIR</text>
+<rect x="275.1" y="432.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="289.55" y="444" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="330" y1="460" x2="304" y2="460" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="457" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
+<text x="335" y="464" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A1</text>
+<rect x="268.8" y="452.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="464" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">pio9</text>
+<line x1="330" y1="480" x2="304" y2="480" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="477" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
+<text x="335" y="484" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A2</text>
+<rect x="262.5" y="472.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="283.25" y="484" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">pio10</text>
+<line x1="330" y1="500" x2="304" y2="500" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="497" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">4</text>
+<text x="335" y="504" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A3</text>
+<rect x="287.7" y="492.5" width="16.3" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="295.85" y="504" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">e</text>
+<line x1="330" y1="520" x2="304" y2="520" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="517" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">5</text>
+<text x="335" y="524" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A4</text>
+<rect x="281.4" y="512.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="292.7" y="524" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">rs</text>
+<line x1="330" y1="540" x2="304" y2="540" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="537" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">6</text>
+<text x="335" y="544" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A5</text>
+<rect x="281.4" y="532.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="292.7" y="544" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">bl</text>
+<line x1="330" y1="560" x2="304" y2="560" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="557" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">7</text>
+<text x="335" y="564" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A6</text>
+<rect x="268.8" y="552.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="286.4" y="564" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">soeb</text>
+<line x1="330" y1="580" x2="304" y2="580" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="577" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">8</text>
+<text x="335" y="584" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A7</text>
+<rect x="281.4" y="572.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="292.7" y="584" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">rw</text>
+<line x1="330" y1="600" x2="304" y2="600" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="597" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">9</text>
+<text x="335" y="604" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">A8</text>
+<line x1="300" y1="596" x2="308" y2="604" stroke="#59636e" stroke-width="1.3"/>
+<line x1="300" y1="604" x2="308" y2="596" stroke="#59636e" stroke-width="1.3"/>
+<line x1="330" y1="620" x2="304" y2="620" stroke="#1f2328" stroke-width="1.3"/>
+<text x="317" y="617" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">10</text>
+<text x="335" y="624" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
+<rect x="275.1" y="612.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="289.55" y="624" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="440" y1="440" x2="466" y2="440" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="437" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">20</text>
+<text x="435" y="444" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">VCC</text>
+<rect x="466" y="432.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="483.6" y="444" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<line x1="440" y1="460" x2="466" y2="460" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="457" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">19</text>
+<text x="435" y="464" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">/OE</text>
+<rect x="466" y="452.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="464" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="440" y1="480" x2="466" y2="480" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="477" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">18</text>
+<text x="435" y="484" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B1</text>
+<rect x="466" y="472.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="486.75" y="484" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B1</text>
+<text x="513.5" y="484" font-size="10" font-weight="normal" font-style="italic" text-anchor="start" fill="#59636e">unused</text>
+<line x1="440" y1="500" x2="466" y2="500" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="497" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">17</text>
+<text x="435" y="504" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B2</text>
+<rect x="466" y="492.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="486.75" y="504" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B2</text>
+<text x="513.5" y="504" font-size="10" font-weight="normal" font-style="italic" text-anchor="start" fill="#59636e">unused</text>
+<line x1="440" y1="520" x2="466" y2="520" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="517" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">16</text>
+<text x="435" y="524" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B3</text>
+<rect x="466" y="512.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="524" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA2</text>
+<line x1="440" y1="540" x2="466" y2="540" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="537" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">15</text>
+<text x="435" y="544" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B4</text>
+<rect x="466" y="532.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="544" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA5</text>
+<line x1="440" y1="560" x2="466" y2="560" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="557" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">14</text>
+<text x="435" y="564" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B5</text>
+<rect x="466" y="552.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="486.75" y="564" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B5</text>
+<text x="513.5" y="564" font-size="10" font-weight="normal" font-style="italic" text-anchor="start" fill="#59636e">unused</text>
+<line x1="440" y1="580" x2="466" y2="580" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="577" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">13</text>
+<text x="435" y="584" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B6</text>
+<rect x="466" y="572.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="584" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA4</text>
+<line x1="440" y1="600" x2="466" y2="600" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="597" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">12</text>
+<text x="435" y="604" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B7</text>
+<rect x="466" y="592.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="480.45" y="604" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA6</text>
+<line x1="440" y1="620" x2="466" y2="620" stroke="#1f2328" stroke-width="1.3"/>
+<text x="453" y="617" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">11</text>
+<text x="435" y="624" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">B8</text>
+<rect x="466" y="612.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="486.75" y="624" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B8</text>
+<line x1="110" y1="360" x2="110" y2="391" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="110" y1="399" x2="110" y2="430" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="98" y1="391" x2="122" y2="391" stroke="#1f2328" stroke-width="2"/>
+<line x1="98" y1="399" x2="122" y2="399" stroke="#1f2328" stroke-width="2"/>
+<text x="126" y="393" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C5</text>
+<text x="126" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">0.1 µF</text>
+<rect x="92.4" y="345" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="110" y="356" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="95.55" y="430" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="110" y="441" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="180" y1="360" x2="180" y2="391" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="180" y1="399" x2="180" y2="430" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="168" y1="391" x2="192" y2="391" stroke="#1f2328" stroke-width="2"/>
+<line x1="168" y1="399" x2="192" y2="399" stroke="#1f2328" stroke-width="2"/>
+<text x="196" y="393" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C6</text>
+<text x="196" y="407" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">0.1 µF</text>
+<rect x="162.4" y="345" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="180" y="356" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="165.55" y="430" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="180" y="441" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="60" y1="720" x2="60" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="60" y1="778" x2="60" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="54" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="76" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R9</text>
+<text x="76" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="42.4" y="705" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="60" y="716" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="39.25" y="810" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="60" y="821" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B5</text>
+<text x="60" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">backlight on</text>
+<line x1="130" y1="720" x2="130" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="130" y1="778" x2="130" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="124" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="146" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R12</text>
+<text x="146" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="109.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="130" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B8</text>
+<rect x="115.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="130" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="200" y1="720" x2="200" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="200" y1="778" x2="200" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="194" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="216" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R14</text>
+<text x="216" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="179.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="200" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B1</text>
+<rect x="185.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="200" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="270" y1="720" x2="270" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="270" y1="778" x2="270" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="264" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="286" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R17</text>
+<text x="286" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="249.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="270" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B2</text>
+<rect x="255.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="270" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<text x="200" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">ties (unused inputs)</text>
+<line x1="340" y1="720" x2="340" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="340" y1="778" x2="340" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="334" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="356" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R18</text>
+<text x="356" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="325.55" y="705" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="340" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA2</text>
+<rect x="325.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="340" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<text x="340" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">E idle low</text>
+<line x1="440" y1="720" x2="440" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="440" y1="778" x2="440" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="434" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="456" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R15</text>
+<text x="456" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="422.4" y="705" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="440" y="716" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="419.25" y="810" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="440" y="821" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_oeb</text>
+<text x="440" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">off unconfigured</text>
+<line x1="540" y1="720" x2="540" y2="752" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="540" y1="778" x2="540" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<rect x="534" y="752" width="12" height="26" rx="0" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<text x="556" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R16</text>
+<text x="556" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 kΩ</text>
+<rect x="519.25" y="705" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="540" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_dir</text>
+<rect x="525.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="540" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<text x="540" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">inward by default</text>
+<rect x="720" y="110" width="110" height="500" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
+<text x="775" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U9</text>
+<text x="775" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">Cmod A7-35T</text>
+<text x="775" y="626" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">33–37 reserved for touch</text>
+<line x1="720" y1="130" x2="694" y2="130" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
+<text x="725" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO1</text>
+<rect x="658.8" y="122.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[0]</text>
+<line x1="720" y1="150" x2="694" y2="150" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
+<text x="725" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO2</text>
+<rect x="658.8" y="142.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[1]</text>
+<line x1="720" y1="170" x2="694" y2="170" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
+<text x="725" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO3</text>
+<rect x="658.8" y="162.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[2]</text>
+<line x1="720" y1="190" x2="694" y2="190" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">4</text>
+<text x="725" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO4</text>
+<rect x="658.8" y="182.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[3]</text>
+<line x1="720" y1="210" x2="694" y2="210" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">5</text>
+<text x="725" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO5</text>
+<rect x="658.8" y="202.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[4]</text>
+<line x1="720" y1="230" x2="694" y2="230" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="227" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">6</text>
+<text x="725" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO6</text>
+<rect x="658.8" y="222.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[5]</text>
+<line x1="720" y1="250" x2="694" y2="250" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="247" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">7</text>
+<text x="725" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO7</text>
+<rect x="658.8" y="242.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[6]</text>
+<line x1="720" y1="270" x2="694" y2="270" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">8</text>
+<text x="725" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO8</text>
+<rect x="658.8" y="262.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d[7]</text>
+<line x1="720" y1="290" x2="694" y2="290" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">9</text>
+<text x="725" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO9</text>
+<rect x="658.8" y="282.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">pio9</text>
+<text x="652.8" y="294" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">ignored</text>
+<line x1="720" y1="310" x2="694" y2="310" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="307" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">10</text>
+<text x="725" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO10</text>
+<rect x="652.5" y="302.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="673.25" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">pio10</text>
+<text x="646.5" y="314" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">ignored</text>
+<line x1="720" y1="330" x2="694" y2="330" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="327" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">11</text>
+<text x="725" y="334" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO11</text>
+<rect x="677.7" y="322.5" width="16.3" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="685.85" y="334" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">e</text>
+<line x1="720" y1="350" x2="694" y2="350" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="347" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">12</text>
+<text x="725" y="354" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO12</text>
+<rect x="671.4" y="342.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="682.7" y="354" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">rs</text>
+<line x1="720" y1="370" x2="694" y2="370" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="367" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">13</text>
+<text x="725" y="374" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO13</text>
+<rect x="671.4" y="362.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="682.7" y="374" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">bl</text>
+<text x="665.4" y="374" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">ignored</text>
+<line x1="720" y1="390" x2="694" y2="390" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="387" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">14</text>
+<text x="725" y="394" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO14</text>
+<rect x="652.5" y="382.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="673.25" y="394" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_oeb</text>
+<line x1="720" y1="410" x2="694" y2="410" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="407" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">15</text>
+<text x="725" y="414" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO15</text>
+<line x1="690" y1="406" x2="698" y2="414" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="414" x2="698" y2="406" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="430" x2="694" y2="430" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="427" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">16</text>
+<text x="725" y="434" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO16</text>
+<line x1="690" y1="426" x2="698" y2="434" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="434" x2="698" y2="426" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="450" x2="694" y2="450" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="447" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">17</text>
+<text x="725" y="454" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO17</text>
+<rect x="652.5" y="442.5" width="41.5" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="673.25" y="454" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">d_dir</text>
+<line x1="720" y1="470" x2="694" y2="470" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="467" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">18</text>
+<text x="725" y="474" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO18</text>
+<rect x="658.8" y="462.5" width="35.2" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="676.4" y="474" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">soeb</text>
+<line x1="720" y1="490" x2="694" y2="490" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="487" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">19</text>
+<text x="725" y="494" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO19</text>
+<rect x="671.4" y="482.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="682.7" y="494" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">rw</text>
+<line x1="720" y1="510" x2="694" y2="510" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="507" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">20</text>
+<text x="725" y="514" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO20</text>
+<line x1="690" y1="506" x2="698" y2="514" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="514" x2="698" y2="506" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="530" x2="694" y2="530" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="527" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">21</text>
+<text x="725" y="534" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO21</text>
+<line x1="690" y1="526" x2="698" y2="534" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="534" x2="698" y2="526" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="550" x2="694" y2="550" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="547" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">22</text>
+<text x="725" y="554" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO22</text>
+<line x1="690" y1="546" x2="698" y2="554" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="554" x2="698" y2="546" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="570" x2="694" y2="570" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="567" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">23</text>
+<text x="725" y="574" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PIO23</text>
+<line x1="690" y1="566" x2="698" y2="574" stroke="#59636e" stroke-width="1.3"/>
+<line x1="690" y1="574" x2="698" y2="566" stroke="#59636e" stroke-width="1.3"/>
+<line x1="720" y1="590" x2="694" y2="590" stroke="#1f2328" stroke-width="1.3"/>
+<text x="707" y="587" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">24</text>
+<text x="725" y="594" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">VU</text>
+<rect x="671.4" y="582.5" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="682.7" y="594" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">VU</text>
+<line x1="830" y1="130" x2="856" y2="130" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">48</text>
+<text x="825" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO48</text>
+<line x1="852" y1="126" x2="860" y2="134" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="134" x2="860" y2="126" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="150" x2="856" y2="150" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">47</text>
+<text x="825" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO47</text>
+<line x1="852" y1="146" x2="860" y2="154" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="154" x2="860" y2="146" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="170" x2="856" y2="170" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">46</text>
+<text x="825" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO46</text>
+<line x1="852" y1="166" x2="860" y2="174" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="174" x2="860" y2="166" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="190" x2="856" y2="190" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">45</text>
+<text x="825" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO45</text>
+<line x1="852" y1="186" x2="860" y2="194" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="194" x2="860" y2="186" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="210" x2="856" y2="210" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">44</text>
+<text x="825" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO44</text>
+<line x1="852" y1="206" x2="860" y2="214" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="214" x2="860" y2="206" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="230" x2="856" y2="230" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="227" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">43</text>
+<text x="825" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO43</text>
+<line x1="852" y1="226" x2="860" y2="234" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="234" x2="860" y2="226" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="250" x2="856" y2="250" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="247" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">42</text>
+<text x="825" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO42</text>
+<line x1="852" y1="246" x2="860" y2="254" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="254" x2="860" y2="246" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="270" x2="856" y2="270" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">41</text>
+<text x="825" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO41</text>
+<line x1="852" y1="266" x2="860" y2="274" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="274" x2="860" y2="266" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="290" x2="856" y2="290" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">40</text>
+<text x="825" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO40</text>
+<line x1="852" y1="286" x2="860" y2="294" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="294" x2="860" y2="286" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="310" x2="856" y2="310" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="307" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">39</text>
+<text x="825" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO39</text>
+<line x1="852" y1="306" x2="860" y2="314" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="314" x2="860" y2="306" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="330" x2="856" y2="330" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="327" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">38</text>
+<text x="825" y="334" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO38</text>
+<line x1="852" y1="326" x2="860" y2="334" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="334" x2="860" y2="326" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="350" x2="856" y2="350" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="347" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">37</text>
+<text x="825" y="354" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO37</text>
+<line x1="852" y1="346" x2="860" y2="354" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="354" x2="860" y2="346" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="370" x2="856" y2="370" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="367" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">36</text>
+<text x="825" y="374" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO36</text>
+<line x1="852" y1="366" x2="860" y2="374" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="374" x2="860" y2="366" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="390" x2="856" y2="390" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="387" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">35</text>
+<text x="825" y="394" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO35</text>
+<line x1="852" y1="386" x2="860" y2="394" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="394" x2="860" y2="386" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="410" x2="856" y2="410" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="407" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">34</text>
+<text x="825" y="414" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO34</text>
+<line x1="852" y1="406" x2="860" y2="414" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="414" x2="860" y2="406" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="430" x2="856" y2="430" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="427" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">33</text>
+<text x="825" y="434" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO33</text>
+<line x1="852" y1="426" x2="860" y2="434" stroke="#59636e" stroke-width="1.3"/>
+<line x1="852" y1="434" x2="860" y2="426" stroke="#59636e" stroke-width="1.3"/>
+<line x1="830" y1="450" x2="856" y2="450" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="447" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">32</text>
+<text x="825" y="454" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO32</text>
+<rect x="856" y="442.5" width="60.4" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="886.2" y="454" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_miso</text>
+<line x1="830" y1="470" x2="856" y2="470" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="467" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">31</text>
+<text x="825" y="474" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO31</text>
+<rect x="856" y="462.5" width="54.1" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="883.05" y="474" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_led</text>
+<line x1="830" y1="490" x2="856" y2="490" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="487" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">30</text>
+<text x="825" y="494" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO30</text>
+<rect x="856" y="482.5" width="54.1" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="883.05" y="494" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_sck</text>
+<line x1="830" y1="510" x2="856" y2="510" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="507" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">29</text>
+<text x="825" y="514" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO29</text>
+<rect x="856" y="502.5" width="60.4" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="886.2" y="514" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_mosi</text>
+<line x1="830" y1="530" x2="856" y2="530" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="527" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">28</text>
+<text x="825" y="534" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO28</text>
+<rect x="856" y="522.5" width="47.8" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="879.9" y="534" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_dc</text>
+<line x1="830" y1="550" x2="856" y2="550" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="547" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">27</text>
+<text x="825" y="554" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO27</text>
+<rect x="856" y="542.5" width="66.7" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="889.35" y="554" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_reset</text>
+<line x1="830" y1="570" x2="856" y2="570" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="567" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">26</text>
+<text x="825" y="574" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">PIO26</text>
+<rect x="856" y="562.5" width="47.8" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="879.9" y="574" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_cs</text>
+<line x1="830" y1="590" x2="856" y2="590" stroke="#1f2328" stroke-width="1.3"/>
+<text x="843" y="587" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">25</text>
+<text x="825" y="594" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">GND</text>
+<rect x="856" y="582.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="870.45" y="594" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<rect x="1150" y="110" width="130" height="420" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
+<text x="1215" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U10</text>
+<text x="1215" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">Adafruit 2.8" TFT (ILI9341)</text>
+<text x="1215" y="546" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">capacitive touch version; touch (I²C) not connected</text>
+<line x1="1150" y1="130" x2="1124" y2="130" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="127" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
+<text x="1155" y="134" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
+<rect x="1095.1" y="122.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="1109.55" y="134" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="1150" y1="150" x2="1124" y2="150" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
+<text x="1155" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Vin</text>
+<rect x="1088.8" y="142.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="1106.4" y="154" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<line x1="1150" y1="170" x2="1124" y2="170" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
+<text x="1155" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">3Vo</text>
+<line x1="1120" y1="166" x2="1128" y2="174" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="174" x2="1128" y2="166" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="190" x2="1124" y2="190" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">4</text>
+<text x="1155" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">CLK</text>
+<rect x="1069.9" y="182.5" width="54.1" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1096.95" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_sck</text>
+<line x1="1150" y1="210" x2="1124" y2="210" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">5</text>
+<text x="1155" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">MISO</text>
+<rect x="1063.6" y="202.5" width="60.4" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1093.8" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_miso</text>
+<line x1="1150" y1="230" x2="1124" y2="230" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="227" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">6</text>
+<text x="1155" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">MOSI</text>
+<rect x="1063.6" y="222.5" width="60.4" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1093.8" y="234" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_mosi</text>
+<line x1="1150" y1="250" x2="1124" y2="250" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="247" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">7</text>
+<text x="1155" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">CS</text>
+<rect x="1076.2" y="242.5" width="47.8" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1100.1" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_cs</text>
+<line x1="1150" y1="270" x2="1124" y2="270" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">8</text>
+<text x="1155" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">D/C</text>
+<rect x="1076.2" y="262.5" width="47.8" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1100.1" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_dc</text>
+<line x1="1150" y1="290" x2="1124" y2="290" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">9</text>
+<text x="1155" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">RST</text>
+<rect x="1057.3" y="282.5" width="66.7" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1090.65" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_reset</text>
+<line x1="1150" y1="310" x2="1124" y2="310" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="307" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">10</text>
+<text x="1155" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Lite</text>
+<rect x="1069.9" y="302.5" width="54.1" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="1096.95" y="314" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">lcd_led</text>
+<line x1="1150" y1="330" x2="1124" y2="330" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="327" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">11</text>
+<text x="1155" y="334" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
+<line x1="1120" y1="326" x2="1128" y2="334" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="334" x2="1128" y2="326" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="350" x2="1124" y2="350" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="347" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">12</text>
+<text x="1155" y="354" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IRQ</text>
+<line x1="1120" y1="346" x2="1128" y2="354" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="354" x2="1128" y2="346" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="370" x2="1124" y2="370" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="367" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">13</text>
+<text x="1155" y="374" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">SDA</text>
+<line x1="1120" y1="366" x2="1128" y2="374" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="374" x2="1128" y2="366" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="390" x2="1124" y2="390" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="387" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">14</text>
+<text x="1155" y="394" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">SCL</text>
+<line x1="1120" y1="386" x2="1128" y2="394" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="394" x2="1128" y2="386" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="410" x2="1124" y2="410" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="407" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">15</text>
+<text x="1155" y="414" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IM3</text>
+<line x1="1120" y1="406" x2="1128" y2="414" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="414" x2="1128" y2="406" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="430" x2="1124" y2="430" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="427" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">16</text>
+<text x="1155" y="434" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IM2</text>
+<line x1="1120" y1="426" x2="1128" y2="434" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="434" x2="1128" y2="426" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="450" x2="1124" y2="450" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="447" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">17</text>
+<text x="1155" y="454" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IM1</text>
+<line x1="1120" y1="446" x2="1128" y2="454" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="454" x2="1128" y2="446" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="470" x2="1124" y2="470" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="467" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">18</text>
+<text x="1155" y="474" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IM0</text>
+<line x1="1120" y1="466" x2="1128" y2="474" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="474" x2="1128" y2="466" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="490" x2="1124" y2="490" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="487" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">19</text>
+<text x="1155" y="494" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">CCS</text>
+<line x1="1120" y1="486" x2="1128" y2="494" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="494" x2="1128" y2="486" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1150" y1="510" x2="1124" y2="510" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="507" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">20</text>
+<text x="1155" y="514" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">CD</text>
+<line x1="1120" y1="506" x2="1128" y2="514" stroke="#59636e" stroke-width="1.3"/>
+<line x1="1120" y1="514" x2="1128" y2="506" stroke="#59636e" stroke-width="1.3"/>
+<rect x="1150" y="700" width="110" height="60" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
+<text x="1205" y="678" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U11</text>
+<text x="1205" y="693" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">LM1117T-3.3</text>
+<text x="1205" y="776" font-size="10.5" font-weight="normal" font-style="italic" text-anchor="middle" fill="#59636e">tab: OUT</text>
+<line x1="1150" y1="720" x2="1124" y2="720" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="717" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
+<text x="1155" y="724" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">IN</text>
+<rect x="1095.1" y="712.5" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="1109.55" y="724" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<line x1="1150" y1="740" x2="1124" y2="740" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1137" y="737" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">1</text>
+<text x="1155" y="744" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">GND</text>
+<rect x="1095.1" y="732.5" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="1109.55" y="744" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="1260" y1="720" x2="1286" y2="720" stroke="#1f2328" stroke-width="1.3"/>
+<text x="1273" y="717" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
+<text x="1255" y="724" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="end" fill="#1f2328">OUT</text>
+<rect x="1286" y="712.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="1303.6" y="724" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<line x1="1100" y1="820" x2="1100" y2="861" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1100" y1="869" x2="1100" y2="910" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1088" y1="861" x2="1112" y2="861" stroke="#1f2328" stroke-width="2"/>
+<line x1="1088" y1="869" x2="1112" y2="869" stroke="#1f2328" stroke-width="2"/>
+<text x="1084" y="858" font-size="12" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">+</text>
+<text x="1116" y="863" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C8</text>
+<text x="1116" y="877" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 µF tantalum, to add</text>
+<rect x="1085.55" y="805" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="1100" y="816" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<rect x="1085.55" y="910" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="1100" y="921" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="1250" y1="820" x2="1250" y2="861" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1250" y1="869" x2="1250" y2="910" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="1238" y1="861" x2="1262" y2="861" stroke="#1f2328" stroke-width="2"/>
+<line x1="1238" y1="869" x2="1262" y2="869" stroke="#1f2328" stroke-width="2"/>
+<text x="1234" y="858" font-size="12" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">+</text>
+<text x="1266" y="863" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C9</text>
+<text x="1266" y="877" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">10 µF tantalum, to add</text>
+<rect x="1232.4" y="805" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
+<text x="1250" y="816" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="1235.55" y="910" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="1250" y="921" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<line x1="740" y1="720" x2="740" y2="756" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="740" y1="774" x2="740" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<path d="M731,757 L749,757 L740,772 Z" fill="#ffffff" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="731" y1="773" x2="749" y2="773" stroke="#1f2328" stroke-width="1.6"/>
+<text x="756" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">D2</text>
+<text x="756" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">1N4001 (or similar)</text>
+<rect x="725.55" y="705" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="740" y="716" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<rect x="728.7" y="810" width="22.6" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
+<text x="740" y="821" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">VU</text>
+<line x1="900" y1="720" x2="900" y2="761" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="900" y1="769" x2="900" y2="810" stroke="#1f2328" stroke-width="1.3"/>
+<line x1="888" y1="761" x2="912" y2="761" stroke="#1f2328" stroke-width="2"/>
+<line x1="888" y1="769" x2="912" y2="769" stroke="#1f2328" stroke-width="2"/>
+<text x="884" y="758" font-size="12" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">+</text>
+<text x="916" y="763" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">C7</text>
+<text x="916" y="777" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">1 µF 25 V electrolytic</text>
+<rect x="885.55" y="705" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="900" y="716" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
+<rect x="885.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
+<text x="900" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<text x="24" y="920" font-size="13" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">Notes</text>
+<text x="24" y="940" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V A side.</text>
+<text x="24" y="957" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives PORTB with the keyboard board.</text>
+<text x="24" y="974" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.</text>
+<text x="24" y="991" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (for stability). Not fitted on Michael yet: see the to-do list in README.md.</text>
+<text x="24" y="1008" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">E moves to PA2 in stage 4, through U8's B3 (the old display reset), so it needs no new wire. U8's B1, B2 and B5 are ignored.</text>
+<text x="24" y="1025" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">RS and RW are the LCD's own register select and read/write pins, with the same meanings. The new port names are proposals.</text>
+</svg>

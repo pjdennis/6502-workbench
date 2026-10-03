@@ -17,7 +17,7 @@ The MC-689 works with every other test program, typing included. `michael_keyboa
 
 ## How the board finds the end of a byte
 
-The schematic is [`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf).
+The schematic is [`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](../hardware/michael/schematics/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf).
 
 The keyboard clock, inverted by U1D, shifts the keyboard data, inverted by U1C, into two 74HC595s (U2, U3) on each falling edge of the PS/2 clock. The data is inverted, so the driver flips each byte it reads (`eor #$ff`). A frame detector (bottom left of the schematic) drives IRQ, which goes to the VIA's CA2:
 
@@ -196,7 +196,7 @@ How the table under [Cause](#cause) comes from these:
 
 - [x] Run `michael_keyboard_frame_detector.s` and `michael_keyboard_frame_timing.s` on the board with the MC-689, the Perixx and the HP KB-1156 (2026-10-01; results above).
 - [x] Measure the MC-689's and the Adesso's gaps between reply bytes and their clock high times, and check the T1 method, on a scope (2026-10-01; results above).
-- [x] Check the board against its schematic (now [`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)): the RC values (R1 10 kΩ, C1 10 nF, τ = 100 µs, which match the measured idle time), which edge the 74HC595s shift on (the PS/2 clock's falling edge) and what drives their RCLK (IRQ, the frame detector's output).
+- [x] Check the board against its schematic (now [`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](../hardware/michael/schematics/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)): the RC values (R1 10 kΩ, C1 10 nF, τ = 100 µs, which match the measured idle time), which edge the 74HC595s shift on (the PS/2 clock's falling edge) and what drives their RCLK (IRQ, the frame detector's output).
 - [ ] Decide between the stopgap (R1 6.8 kΩ, an idle time of about 64 µs) and the counter-based frame detector (above), build it and test it with all four keyboards.
 - [ ] Driver, ROM and emulator changes for the counter-based detector (above).
 - [ ] Until then, consider a timeout on the ACK wait in `keyboard_send_command`, so a fast keyboard (or none) can't hang the board. It must allow at least the 20 ms IBM gives a keyboard to respond. `michael_keyboard_info.s` would then show `--` for the MC-689. The bytes would still be lost.
