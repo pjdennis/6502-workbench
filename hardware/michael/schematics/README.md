@@ -19,6 +19,11 @@ The sheets join parts with net labels: pins whose labels match are connected, an
 - the Cmod's pin labels are ports of the FPGA designs, and the planned set has every wiring change in the plan;
 - every part has a value, and the committed SVGs and parts lists match what the script draws.
 
+## To do
+
+- Fit C8 and C9, the 10 µF tantalum capacitors on the LM1117's input and output (sheet 3). Its data sheet asks for them, the output one for stability, and Michael doesn't have them yet.
+- Rewire for the FPGA bus as its plan's stages call for (`docs/michael-fpga-bus-plan.md`, on branch `michael-fpga-bus` for now), so that Michael becomes the planned set. Then the planned sheets replace these.
+
 ![Sheet 1](michael-core.svg)
 ![Sheet 2](michael-io.svg)
 ![Sheet 3](michael-fpga-display.svg)

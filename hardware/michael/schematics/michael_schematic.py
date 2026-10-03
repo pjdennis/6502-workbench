@@ -135,7 +135,7 @@ def io(board, planned):
 
 def fpga(board, planned):
     title = "Michael: FPGA bus interface (3 of 3)" if planned else "Michael: FPGA display interface (3 of 3)"
-    s = Sheet(board, title, subtitle(planned) + " U7, U8 and U10 run from +3V3.", 1360, 1080)
+    s = Sheet(board, title, subtitle(planned) + " U7, U8 and U10 run from +3V3.", 1420, 1080)
     data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
     power = {"GND": "GND", "VCC": "+3V3"}
     s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | (
@@ -185,16 +185,18 @@ def fpga(board, planned):
 
     s.ic("U11", "LM1117T-3.3", 1150, 700, left=[(3, "IN", "+5V"), (1, "GND", "GND")],
          right=[(2, "OUT", "+3V3")], width=110, caption="tab: OUT")
-    s.two_pin("diode", "D2", "1N4001 (or similar)", 1060, 820, "+5V", "VU", names=("A", "K"))
-    s.two_pin("electrolytic", "C7", "1 µF 25 V electrolytic", 1230, 820, "+5V", "GND")
+    s.two_pin("electrolytic", "C8", "10 µF tantalum, to add", 1100, 820, "+5V", "GND")
+    s.two_pin("electrolytic", "C9", "10 µF tantalum, to add", 1250, 820, "+3V3", "GND")
+    s.two_pin("diode", "D2", "1N4001 (or similar)", 740, 720, "+5V", "VU", names=("A", "K"))
+    s.two_pin("electrolytic", "C7", "1 µF 25 V electrolytic", 900, 720, "+5V", "GND")
 
     notes = ["From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V "
              "A side.",
              "Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc); U10's MISO is read only by the "
              "display probe.",
              "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
-             "U11: the LM1117's data sheet asks for 10 µF on its output for stability (and on its input). None is fitted; "
-             "add them in a new build."]
+             "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (for stability). Not fitted "
+             "on Michael yet: see the to-do list in README.md."]
     if planned:
         notes[1] = ("The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives "
                     "PORTB with the keyboard board.")

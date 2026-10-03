@@ -65,6 +65,15 @@ class BoardChecks:
         self.assertPinsOn('GND', ('U11', 1), ('C7', 2))
         self.assertPinsOn('VU', ('D2', 'K'), ('U9', 24))
 
+    def test_the_regulator_has_the_capacitors_its_data_sheet_asks_for(self):
+        """10 µF on U11's input (C8) and output (C9): not fitted yet, so marked to add."""
+        for ref, rail in (('C8', '+5V'), ('C9', '+3V3')):
+            with self.subTest(ref):
+                self.assertPinsOn(rail, (ref, 1))
+                self.assertPinsOn('GND', (ref, 2))
+                self.assertIn('10 µF', self.board.values[ref])
+                self.assertIn('to add', self.board.values[ref])
+
     def test_every_net_joins_two_pins_or_more(self):
         single = {net: pins for net, pins in self.board.nets().items() if len(pins) < 2}
         self.assertEqual(single, {})
