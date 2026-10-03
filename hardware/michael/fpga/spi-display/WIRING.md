@@ -1,0 +1,93 @@
+# Michael FPGA SPI display interface: wiring
+
+The FPGA board turns Michael's parallel display writes (VIA port B plus four port A control bits) into SPI
+for the ILI9341 240×320 display. It replaces the earlier interface board, which had no schematic. Michael's
+firmware (`firmware/lib/graphics/graphics_display.inc`) is unchanged.
+
+```
+Michael VIA (5 V) ──► 2 × 74LVC245 (3.3 V, B→A) ──► Cmod A7-35T pins 1–13 ──► FPGA ──► Cmod pins 25–32 ──► ILI9341 display
+```
+
+Cmod pin numbers below are the DIP pin numbers printed on the Cmod (1–48; 24 is VU, 25 is GND).
+VIA pin numbers are for the 40-pin W65C22.
+
+## Power and ground
+
+| From | To | Notes |
+|---|---|---|
+| Michael 5 V | 5 V rail | Feeds the 3.3 V regulator and the Cmod (through the diode). |
+| Michael GND | GND rails | **Required**: Michael, the '245s, the Cmod and the display must share ground. |
+| 5 V rail | Diode (silver band towards the Cmod) → Cmod pin 24 (VU) | As built. The Cmod runs from Michael's supply, so USB is only needed for programming. |
+| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. |
+| GND rail | Cmod pin 25 (GND) | As built. |
+
+## Data buffer (upper 74LVC245)
+
+As built: DIR (pin 1), /OE (pin 19) and GND (pin 10) to ground, VCC (pin 20) to 3.3 V, with a 100 nF cap.
+
+| Michael signal | VIA pin | '245 B side (pin) | '245 A side (pin) | Cmod pin | FPGA signal |
+|---|---|---|---|---|---|
+| PB0 | 10 | B1 (18) | A1 (2) | 1 | `d[0]` |
+| PB1 | 11 | B2 (17) | A2 (3) | 2 | `d[1]` |
+| PB2 | 12 | B3 (16) | A3 (4) | 3 | `d[2]` |
+| PB3 | 13 | B4 (15) | A4 (5) | 4 | `d[3]` |
+| PB4 | 14 | B5 (14) | A5 (6) | 5 | `d[4]` |
+| PB5 | 15 | B6 (13) | A6 (7) | 6 | `d[5]` |
+| PB6 | 16 | B7 (12) | A7 (8) | 7 | `d[6]` |
+| PB7 | 17 | B8 (11) | A8 (9) | 8 | `d[7]` |
+
+## Control buffer (lower 74LVC245)
+
+Same power and DIR/OE connections as the data buffer.
+
+| Michael signal | VIA pin | '245 B side (pin) | '245 A side (pin) | Cmod pin | FPGA signal |
+|---|---|---|---|---|---|
+| PA0, `GD_E` (byte strobe) | 2 | B1 (18) | A1 (2) | 9 | `e` |
+| PA1, `GD_CSB` (select, active low) | 3 | B2 (17) | A2 (3) | 10 | `csb` |
+| PA2, `GD_RSTB` (reset, active low; shared with Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `rstb` |
+| PA5, `GD_DC` (data/command; shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `dc` |
+| **Backlight**: for now, **10 kΩ to the 3.3 V rail** (on) | — | B5 (14) | A5 (6) | 13 | `bl` |
+| unused: 10 kΩ ties, as now | — | B6–B8 (13, 12, 11) | A6–A8 | — | — |
+
+The display's backlight input is active high, so tying B5 high keeps the backlight on. The FPGA copies it to
+the display's LED pin, so later a VIA output or PWM source can drive B5 instead with no other change.
+
+**Optional bias resistors.** After a Michael reset the VIA pins are inputs and float until a graphics program
+sets them up. To keep the FPGA from seeing stray strobes or resets meanwhile, add on the B side:
+10 kΩ pull-up on B2 (CSB) and B3 (RSTB), and 10 kΩ pull-down on B1 (E). Graphics programs reset and
+reinitialize the display anyway, so this is a nicety rather than a requirement. A pull-up on PA2 may make
+Michael's LED glow faintly while PA2 is an input.
+
+## Display (ILI9341, SPI)
+
+Connect the display by signal. Modules name the pins differently: the second column gives the names on
+Adafruit's ILI9341 breakouts. The red "240X320 V1.2" modules have the pins in this table's order along
+their header (VCC end first). With one of those, put the VCC/GND end towards the Cmod's USB end, so the
+wires run in order to Cmod pins 25 upwards.
+
+| Display signal | Adafruit | Connect to | Cmod pin | FPGA signal | Direction (FPGA) |
+|---|---|---|---|---|---|
+| VCC | Vin | **3.3 V rail** | — | — | — |
+| GND | GND | GND | 25 | — | — |
+| CS | CS | Cmod | 26 | `lcd_cs` | out |
+| RESET | RST | Cmod | 27 | `lcd_reset` | out |
+| DC | D/C | Cmod | 28 | `lcd_dc` | out |
+| SDI (MOSI) | MOSI | Cmod | 29 | `lcd_mosi` | out |
+| SCK | CLK | Cmod | 30 | `lcd_sck` | out |
+| LED (backlight, active high) | Lite | Cmod | 31 | `lcd_led` | out |
+| SDO (MISO) | MISO | Cmod | 32 | `lcd_miso` | in: read by the [display probe](../display-probe/), not by the interface |
+
+The touch controller (T_CLK, T_CS, T_DIN, T_DO, T_IRQ) is not connected. Cmod pins 33–37 are reserved for
+it, and the interface holds T_CS high (idle) and T_CLK and T_DIN low.
+
+Both kinds of module work from 3.3 V. Each has its own regulator, so they also take 5 V, but the red
+modules only while their jumper J1 is open.
+
+## Before powering up
+
+- [ ] Every '245 B-side input goes either to a Michael signal or to a 10 kΩ tie; none floating.
+- [ ] Nothing at 5 V connects directly to a Cmod pin. Michael signals reach the Cmod only through '245 A outputs.
+- [ ] Michael and this board share ground.
+- [ ] The display's VCC is on 3.3 V and its GND on Cmod pin 25 / the GND rail.
+- [ ] The FPGA has the interface design in its flash (`make flash` in this directory). Otherwise the Cmod's
+      pins carry whatever design is in its flash.
