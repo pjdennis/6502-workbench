@@ -22,8 +22,12 @@ $(XDC): ../spi-display/constr/cmod_a7.xdc constr/uart.xdc
 	cat $^ > $@
 
 .DEFAULT_GOAL := all
-.PHONY: all check
+.PHONY: all check test-py
 all: test bit
 
-check:
+test: test-py
+test-py:
+	python3 -m unittest test_check
+
+check: prog
 	python3 check.py
