@@ -63,13 +63,17 @@ def default_socket_path():
   return os.path.join(tempfile.gettempdir(), '6502-serial-daemon-{}.sock'.format(os.getuid()))
 
 
-def find_usb_serial_port(port=None):
+def list_serial_ports():
+  from serial.tools import list_ports
+  return list_ports.comports()
+
+
+def find_usb_serial_port(port=None, comports=list_serial_ports):
   if port is not None:
     if not os.path.exists(port):
       raise NoDevice('{} not found'.format(port))
     return port
-  from serial.tools import list_ports
-  usb_ports = [p for p in list_ports.comports() if p.vid is not None]
+  usb_ports = [p for p in comports() if p.vid is not None]
   if not usb_ports:
     raise NoDevice('no USB serial device found; specify --port')
   if len(usb_ports) > 1:
