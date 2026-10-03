@@ -8,13 +8,20 @@ Michael reaches through commands rather than dedicated VIA pins:
 - later, storage (FPGA RAM, an SD card or the spare configuration flash), a serial port to the PC through the
   Cmod's USB, and more.
 
-It uses one dedicated VIA pin, E (PA0). Two shared pins are sampled only when E rises: F (PA5) and G (PA6).
-The FPGA also watches the keyboard board's output enable (SOEB, PA4), so a keyboard interrupt can safely
-pause a read. This frees PA1 (the display's chip select today), PA2 (back to being only the LED) and the
-backlight tie on the control buffer's B5.
+It uses one dedicated VIA pin, E. Two shared pins are sampled only when E rises: RS (PA5) and RW (PA6). They
+are the LCD's own register select and read/write pins, and they mean the same here as on the LCD: RW chooses
+a read or a write, and RS chooses commands and status (0) or data (1). The FPGA also watches the keyboard
+board's output enable (SOEB, PA4), so a keyboard interrupt can safely pause a read.
 
-**Status (2026-10-03): stage 0, this document, for review.** Revised the same day: reads use E with the shared
-pin G instead of a dedicated PA1, and a SOEB interlock lets interrupts pause a read.
+E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, which leaves PA0 free: the
+pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
+select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
+
+**Status (2026-10-03): stage 0, this document, for review.** Revised the same day: reads use E with a shared
+pin instead of a dedicated PA1, and a SOEB interlock lets interrupts pause a read. Revised again: the shared
+pins, first called F and G, are named RS and RW after their LCD meanings, and stage 4 moves E to PA2 and the
+LED to PA1. The schematics of the end state are in `hardware/michael/schematics/planned/` (branch
+`michael-schematics` for now).
 
 ## Stages
 
@@ -27,7 +34,7 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 1. **FPGA first.** The spi-display design drives two new pins: the data buffer's /OE low and DIR low (Michael
    to FPGA). It's written to flash and works exactly as today, since the pins aren't connected yet.
 2. **Rewire** ([Wiring changes](#wiring-changes)): the data buffer's /OE and DIR go to the FPGA, plus the pull
-   resistors. PA4 and PA6 go to two of the control buffer's spare inputs, and the E pull-down is added. Doing it
+   resistors. PA4 (SOEB) and PA6 (RW) go to two of the control buffer's spare inputs, and the E pull-down is added. Doing it
    in this order keeps the display working throughout. Rewiring first would leave the data buffer disabled
    until the FPGA caught up. Nothing the current interface uses moves, so it keeps working until stage 2.
 3. **Prove reads on the board.** A test design (an extension of
@@ -63,7 +70,9 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   editor's screen calls one for one.
 - **Testing:** first in simulation, with a display model that decodes the ILI9341 writes into a frame buffer
   and checks the characters drawn. Then on the board, driven from the PC through the debug port.
-- **The grid's shape and font** are decided here, for example 40×30 with 8×8 characters in landscape.
+- **The grid's shape and font** should follow from the existing michael graphic display routines. The display
+  is in portrait mode. We should derive the font information from the same source data, and add the font data
+  generation for the existing display code and new FPGA display code to the build process.
 - **Look into the panel's windowed scrolling** to speed up the editor's scrolling.
   - The ILI9341's Vertical Scrolling Definition (`$33`: top fixed area, scroll area, bottom fixed area) and
     Vertical Scrolling Start Address (`$37`) scroll a band of the screen in hardware between fixed areas,
@@ -82,6 +91,22 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 - **ROM:** graphic screen services behind the existing `scr_*` entries, `term_rows`/`term_cols` per display,
   and a new `SVC_SCREEN_SELECT` (LCD or graphic, kept in the ROM's spare RAM and reset to the LCD by the
   loader). ROM tests in the emulator.
+- **Pin shuffle: E to PA2, the LED to PA1, PA0 free.** It goes with this stage's EEPROM programming because
+  the ROM drives the LED: today's ROM sets the LED bit (PA2) high whenever it sets up the ports, and with
+  port B an output. With E on PA2, that would start a read and the FPGA would drive port B against the VIA.
+  So the firmware, the FPGA design, the ROM and the wiring change together:
+  - firmware: `LED` becomes PA1 in `base_config_v2.inc` and E becomes PA2 in `fpga_bus.inc`; every program is
+    rebuilt and the firmware manifest refreshed. Comments that name PA2 for the LED (such as
+    `michael_keyboard_scope.s`'s) follow;
+  - firmware: the LED's polarity flips to active high, to match the rewired LED. `initialize_michael_ports`
+    stops setting the LED bit to turn it off and clears it instead. Setting the bit kept the reversed LED dark
+    and the display's reset released, and neither applies on PA1. `upload_v3.inc` already lights the LED by
+    setting the bit, so a failed upload lights it again. Today it turns the reversed LED off. Test first: in the
+    emulator, the LED pin is low after the ROM starts and high after a failed upload;
+  - FPGA: E comes from Cmod pin 11, which the control buffer's B3 already carries from PA2, instead of pin 9.
+    So E needs no new wire;
+  - wiring ([Stage 4 wiring changes](#stage-4-wiring-changes)), with Michael powered off, then the EEPROM and
+    the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
   `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up the current chip.
 
@@ -105,11 +130,20 @@ is updated to match).
 | Data buffer (upper 74LVC245): /OE (pin 19) from ground to **Cmod pin 14**, with **10 kΩ to 3.3 V** | The FPGA enables the buffer. The pull-up keeps it off whenever the FPGA isn't configured or isn't powered. |
 | Data buffer: DIR (pin 1) from ground to **Cmod pin 17**, with **10 kΩ to ground** | The FPGA turns the bus around for reads. Michael to FPGA by default. |
 | Control buffer B6 (pin 13): its 10 kΩ tie replaced by **PA4** (VIA pin 6), and A6 (pin 7) to **Cmod pin 18** | SOEB, for the interlock |
-| Control buffer B7 (pin 12): its 10 kΩ tie replaced by **PA6** (VIA pin 8), and A7 (pin 8) to **Cmod pin 19** | G |
+| Control buffer B7 (pin 12): its 10 kΩ tie replaced by **PA6** (VIA pin 8), and A7 (pin 8) to **Cmod pin 19** | RW |
 | Control buffer B2 (PA1) | Used as CSB by the current interface until the stage 2 cutover, then unused, so PA1 is free. Can stay wired. |
 | Control buffer B1 (PA0, E): **10 kΩ to ground** | No stray strobes while the VIA pins are inputs after a reset. It's the only bias Michael's side needs: without an E edge, nothing else matters. |
-| Control buffer B3 (PA2) | Unused by the FPGA from stage 2 (PA2 is only the LED). Can stay wired. |
+| Control buffer B3 (PA2) | Unused by the FPGA from stage 2 (PA2 is only the LED) until stage 4 makes it E. Stays wired. |
 | Control buffer B5 (backlight tie) | Unused from stage 2 (the backlight is a command). Can stay as a tie. |
+
+### Stage 4 wiring changes
+
+| Change | Why |
+|---|---|
+| The LED and its resistor: from PA2 (VIA pin 4) to **PA1** (VIA pin 3), the right way round (PA1, resistor, LED, ground) | The LED is reversed today because it shares PA2 with the display's reset, which idles high. Alone on PA1 it lights when the pin is high, as the ROM expects. |
+| Control buffer B3 (PA2): **10 kΩ to ground** | E's pull-down, now on PA2 |
+| Control buffer B1: the wire from **PA0** removed; its 10 kΩ to ground stays, as a tie | PA0 is free |
+| Control buffer B2: the wire from **PA1** removed, and **10 kΩ to ground** | PA1 is only the LED's. B2 isn't left floating. |
 
 The VIA reads 2.0 V as high on every input at 5 V ([W65C22 datasheet](https://www.westerndesigncenter.com/documentation/w65c22.pdf),
 DC characteristics), so the data buffer's 3.3 V outputs are valid highs on port B.
@@ -121,16 +155,16 @@ DC characteristics), so the data buffer's 3.3 V outputs are valid highs on port 
 | Signal | VIA pin | Direction | Use |
 |---|---|---|---|
 | D0–D7 | PB0–PB7 | both | data; the FPGA drives them only during a read |
-| E | PA0 | to the FPGA | the strobe: each rising edge starts one transfer. Dedicated to the bus; idle low |
-| F | PA5 | to the FPGA | sampled when E rises. Shared with the LCD's RS and the keyboard's START/ACK |
-| G | PA6 | to the FPGA | sampled when E rises. Shared with the LCD's R/W and the keyboard's PARITY |
+| E | PA0, PA2 from stage 4 | to the FPGA | the strobe: each rising edge starts one transfer. Dedicated to the bus; idle low |
+| RS | PA5 | to the FPGA | register select, sampled when E rises: 0 for commands and status, 1 for data. Shared with the LCD's RS and the keyboard's START/ACK |
+| RW | PA6 | to the FPGA | read/write, sampled when E rises: 1 to read. Shared with the LCD's R/W and the keyboard's PARITY |
 | SOEB | PA4 | to the FPGA | the keyboard board's output enable (active low), watched for the [interlock](#the-soeb-interlock) |
 
 The shared pins are harmless to their other users. The LCD only looks at RS and R/W while its own E (PA7)
-strobes; the keyboard driver's interrupt saves and restores port A. And F and G only matter at the instant E
-rises. E's rising edge chooses the transfer:
+strobes; the keyboard driver's interrupt saves and restores port A. And RS and RW only matter at the instant
+E rises. E's rising edge chooses the transfer, as the same two pins do for the LCD:
 
-| G | F | Transfer |
+| RW | RS | Transfer |
 |---|---|---|
 | 0 | 0 | write a command byte |
 | 0 | 1 | write a data byte |
@@ -138,19 +172,19 @@ rises. E's rising edge chooses the transfer:
 | 1 | 0 | read the status byte (the reply queue is left alone) |
 
 ## Writing a byte
-1. Port B is an output, holding the byte. G is 0 and F is set, by an instruction before the one that raises E.
+1. Port B is an output, holding the byte. RW is 0 and RS is set, by an instruction before the one that raises E.
 2. Raise E, then lower it.
 
-The FPGA takes port B, F and G at E's rising edge. They must be stable from before E rises until at least
+The FPGA takes port B, RS and RW at E's rising edge. They must be stable from before E rises until at least
 0.5 µs after, and E must stay high, then low, for at least 0.5 µs each. At 2 MHz every instruction takes at
-least 1 µs, so `tsb`/`trb` on PA0 (as `gd_send_data` does) and `sta PORTA,Y`/`stx PORTA` (as the fill loops do)
+least 1 µs, so `tsb`/`trb` on E (as `gd_send_data` does) and `sta PORTA,Y`/`stx PORTA` (as the fill loops do)
 meet this.
 
 The FPGA accepts a byte every 2 µs indefinitely. Faster bursts go into a 512-byte command queue. Michael's
 fastest loop sends a byte every 4.5 µs.
 
 ## Reading a byte
-1. Port B is an input. G is 1, and F is 1 for the reply queue or 0 for the status byte, set by an instruction
+1. Port B is an input. RW is 1, and RS is 1 for the reply queue or 0 for the status byte, set by an instruction
    before the one that raises E.
 2. Raise E. Within 0.5 µs the FPGA turns the bus around and drives the byte.
 3. Read port B, at least 0.5 µs after raising E.
@@ -176,13 +210,13 @@ keyboard driver needs no change. The interlock also means no software mistake ca
 keyboard board drive port B at once.
 
 ## Commands
-- **A byte with F = 0 is a command.** It always starts a new command, abandoning any unfinished one. That
+- **A byte with RS = 0 is a command.** It always starts a new command, abandoning any unfinished one. That
   makes the bus self-synchronising: if Michael resets mid-command, the next command puts the FPGA right.
-- **Bytes with F = 1 are data:** first the command's fixed arguments, then, for streaming commands, any
+- **Bytes with RS = 1 are data:** first the command's fixed arguments, then, for streaming commands, any
   number of data bytes until the next command.
 - Extra data after a non-streaming command's arguments is ignored.
 
-Errors don't stop anything. They set sticky bits that the status read (G = 1, F = 0) reports and clears:
+Errors don't stop anything. They set sticky bits that the status read (RW = 1, RS = 0) reports and clears:
 
 | Bit | Name | Set when |
 |---|---|---|
@@ -195,7 +229,7 @@ Errors don't stop anything. They set sticky bits that the status read (G = 1, F 
 
 ## Command map
 
-Commands are grouped by their high nibble. Arguments are listed in order; all are data (F = 1) bytes.
+Commands are grouped by their high nibble. Arguments are listed in order; all are data (RS = 1) bytes.
 
 ### Control (`$0x`)
 
@@ -264,15 +298,16 @@ background. So text commands never make Michael wait, and Michael never needs to
 | `$60`–`$FF` | later devices |
 
 ## Rules for Michael's software
-- **PA0 (E) is an output, idle low,** set up before the first transfer.
-- **Set G and F for every transfer, by an instruction before the one that raises E.** The LCD routines and
+- **E (PA0, then PA2 from stage 4) is an output, idle low,** set up before the first transfer.
+- **The bus's RS and RW are the `RS` and `RW` bits of `base_config_v2.inc`,** so the driver uses those names.
+- **Set RS and RW for every transfer, by an instruction before the one that raises E.** The LCD routines and
   the keyboard driver also use PA5 and PA6, so their levels can't be assumed. If both changed in the same
   instruction as E, the FPGA might sample either value.
-- **G must be 0 for writes.** A write with G = 1 would be taken as a read, and the FPGA would drive port B
+- **RW must be 0 for writes.** A write with RW = 1 would be taken as a read, and the FPGA would drive port B
   against the VIA while E is high.
 - **Start with `RESET`,** then check `ID` before relying on the FPGA.
 - Reads need no other care: interrupts may arrive at any point ([the SOEB interlock](#the-soeb-interlock)).
 
 ## The debug port
 The Cmod's USB serial port carries the same transactions, so a PC can drive every device without Michael
-(stage 2 onwards). The framing (how a serial byte carries F, and how reads come back) is specified in stage 2.
+(stage 2 onwards). The framing (how a serial byte carries RS, and how reads come back) is specified in stage 2.
