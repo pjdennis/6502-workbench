@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # firmware/vasm: vasm6502_oldstyle with the firmware include path.
 FW_VASM = REPO_ROOT / "firmware" / "vasm"
 EMULATOR = REPO_ROOT / "emulator" / "emulator.out"
+MICHAEL_PROGRAMS = REPO_ROOT / "firmware" / "programs" / "michael"
 
 
 class Colors:
@@ -85,12 +86,20 @@ def build_wendy2c_upload(out_dir, payload_name, stem):
     return boot_rom, framed
 
 
+def michael_load_address():
+    """PROGRAM_LOAD_ADDRESS from michael's base_config_v2.inc, in hex: where --load puts programs."""
+    base_config = REPO_ROOT / "firmware" / "boards" / "michael" / "base_config_v2.inc"
+    return re.search(r"^PROGRAM_LOAD_ADDRESS\s*=\s*\$([0-9a-fA-F]+)",
+                     base_config.read_text(), re.M).group(1)
+
+
 @contextmanager
-def web_emulator(args):
-    """Runs emulator.out <args> --web --web-port 0 and yields the port it
-    listens on (None if it never said), stopping it with SIGINT after."""
+def web_emulator(args, port=0):
+    """Runs emulator.out <args> --web --web-port <port> (by default one the
+    kernel picks) and yields the port it listens on (None if it never
+    said), stopping it with SIGINT after."""
     proc = subprocess.Popen(
-        [str(EMULATOR), *map(str, args), "--web", "--web-port", "0"],
+        [str(EMULATOR), *map(str, args), "--web", "--web-port", str(port)],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True,
     )
@@ -129,6 +138,28 @@ def track_last_state(page):
         };
         for (const k in origWS) window.WebSocket[k] = origWS[k];
     """)
+
+
+# The LCD's lines from the latest snapshot (see track_last_state),
+# trailing blanks dropped.
+LCD_LINES = """() => {
+    const l = window._lastState && window._lastState.lcd;
+    if (!l) return null;
+    const lines = [];
+    for (let r = 0; r < l.rows; r++)
+        lines.push(String.fromCharCode(...l.ddram.slice(r * l.cols, (r + 1) * l.cols)).trimEnd());
+    return lines;
+}"""
+
+
+def first_line_becomes(page, want, timeout=3000):
+    """None once the LCD's first line reads want, else a failure message."""
+    try:
+        page.wait_for_function(f"(want) => {{ const l = ({LCD_LINES})(); return l && l[0] === want; }}",
+                               arg=want, timeout=timeout)
+        return None
+    except Exception:
+        return f"LCD's first line never became {want!r}: {page.evaluate(LCD_LINES)}"
 
 
 def open_page(p, port, setup=None):

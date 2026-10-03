@@ -197,9 +197,11 @@ window.Board = (() => {
     machines[name] = description;
   }
 
-  // Build the page for the named machine: header, LEDs, controls, pins.
+  // Build the page for the named machine, in place of any other:
+  // header, LEDs, controls, pins.
   function mount(name) {
     machineName = name;
+    buttonKeyDown = false;
     machine = machines[name] || null;
     document.body.dataset.machine = name;
     document.title = name;
@@ -352,7 +354,8 @@ window.Board = (() => {
         let obj;
         try { obj = JSON.parse(e.data); } catch { return; }
         if (obj.type === "hello") {
-          if (!machineName) mount(obj.machine);
+          // A reconnect can find a different machine on the port.
+          if (obj.machine !== machineName) mount(obj.machine);
         } else if (obj.type === "audio_init") {
           audioRate = obj.rate;
           // Don't ensureAudioContext here -- browsers want a user

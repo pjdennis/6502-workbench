@@ -11,7 +11,7 @@ clean:
 	rm -f emulator/emulator.out
 	rm -rf emulator/tests/out
 
-.PHONY: all clean test michael-goldens wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint michael-web wendy2c-web wendy2c-lcd5x10 timer2-cycles
+.PHONY: all clean test michael-goldens wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint michael-web wendy2c-web wendy2c-lcd5x10 web-machine-switch timer2-cycles
 
 EMU_SRCS = emulator/emulator.c emulator/direct_io.c emulator/file_io.c emulator/console.c emulator/cpu_core.c emulator/stubs.c emulator/trace.c emulator/cli.c emulator/emu_run.c emulator/bus.c emulator/emu_wendy2c.c emulator/emu_michael.c emulator/ps2_keys.c emulator/lcd_report.c emulator/pace.c emulator/tty_alt_screen.c emulator/audio.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/serial_link.c emulator/chips/osc.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/glue_michael.c emulator/chips/ps2_keyboard_board.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c
 EMU_HDRS = emulator/direct_io.h emulator/file_io.h emulator/console.h emulator/cpu_core.h emulator/stubs.h emulator/trace.h emulator/cli.h emulator/emu_run.h emulator/bus.h emulator/emu_wendy2c.h emulator/emu_michael.h emulator/ps2_keys.h emulator/lcd_report.h emulator/pace.h emulator/tty_alt_screen.h emulator/audio.h emulator/web_server.h emulator/web_run.h emulator/web_json.h emulator/serial_link.h emulator/chips/osc.h emulator/chips/clock_22v10.h emulator/chips/clock_22v10_pld_generated.h emulator/chips/rom_28c256.h emulator/chips/ram_628128.h emulator/chips/via_6522.h emulator/chips/lcd_hd44780.h emulator/chips/glue_michael.h emulator/chips/ps2_keyboard_board.h emulator/chips/serial_usb.h emulator/chips/led_buttons.h emulator/chips/cpu_65c02.h
@@ -45,7 +45,7 @@ C_TESTS = emulator/tests/out/test_smoke.out emulator/tests/out/test_file_io.out 
 
 # Must follow the C_TESTS definition: make expands prerequisites when it
 # reads the rule.
-test: $(C_TESTS) michael-goldens michael-web wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint wendy2c-web wendy2c-lcd5x10 timer2-cycles
+test: $(C_TESTS) michael-goldens michael-web wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint wendy2c-web wendy2c-lcd5x10 web-machine-switch timer2-cycles
 	@for t in $(C_TESTS); do ./$$t || exit 1; done
 
 # End-to-end Michael golden-LCD tests. Same vasm-skip pattern as the
@@ -101,6 +101,11 @@ wendy2c-web: emulator/emulator.out
 # canvas grew to the 11-row-per-cell size. SKIPs same as wendy2c-web.
 wendy2c-lcd5x10: emulator/emulator.out
 	@python3 emulator/tests/lcd_5x10_playwright_test.py
+
+# Playwright test: one open page follows the emulator on its port from
+# wendy2c to michael and back. SKIPs same as wendy2c-web.
+web-machine-switch: emulator/emulator.out
+	@python3 emulator/tests/web_machine_switch_playwright_test.py
 
 # michael_timer2_test2.s's T2 ticks, timed on the CPU and VIA chips by
 # via_t2_runner. Requires vasm6502_oldstyle on PATH.

@@ -46,7 +46,8 @@ make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 then the C unit tests (written with the greatest framework). The end-to-end
 targets are (`michael-goldens`, `michael-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
-`wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `timer2-cycles`).
+`wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
+`timer2-cycles`).
 All but `timer2-cycles` skip with a warning if `vasm6502_oldstyle` isn't on
 `PATH` (the web tests also if Playwright is missing); `timer2-cycles` needs
 vasm.
@@ -141,7 +142,9 @@ emulator-side counterparts of `tools/upload/`).
 reset button, the VIA's port pins and the clock, updated about 30 times
 a second. It runs uncapped and paced to the board's clock (or `--mhz`)
 until Ctrl-C. The page (`web/index.html`) shows the machine the server
-names; `web/README.md` has the files and the protocol.
+names, and an open page that reconnects to a different machine on the
+same port rebuilds itself for it; `web/README.md` has the files and the
+protocol.
 
 - **wendy2c**: the 16x2 LCD (or `--lcd-panel 16x1-5x10`), the LEDs on
   PB6 and PA2, the control button (SPACE holds it, R resets), and the

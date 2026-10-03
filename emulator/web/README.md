@@ -19,7 +19,9 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 One WebSocket on the same port. Server to browser: first
 `{"type":"hello","machine":"wendy2c"|"michael"}`, which picks the
-machine description the page builds itself from; then JSON text frames
+machine description the page builds itself from (the page retries a
+lost connection every 500 ms, and rebuilds itself if the hello names
+another machine); then JSON text frames
 with a state snapshot (LCD contents and CGRAM, VIA pins, `leds` in the order
 the page numbers them, `btn`, `f5x10` mode, clock) about every 33 ms,
 and, from wendy2c, binary frames tagged `0x01` followed by little-endian
@@ -31,8 +33,9 @@ sends them (`../ps2_keys.h`), which the server types on the PS/2
 keyboard.
 
 Tests: `../tests/web_playwright_test.py`,
-`../tests/lcd_5x10_playwright_test.py` and
-`../tests/michael_web_playwright_test.py` (headless Chromium, need
+`../tests/lcd_5x10_playwright_test.py`,
+`../tests/michael_web_playwright_test.py` and
+`../tests/web_machine_switch_playwright_test.py` (headless Chromium, need
 `pip3 install playwright && playwright install chromium`).
 `../NOTES-web-audio-drift.md` describes the audio scheduling and its
 weakness.

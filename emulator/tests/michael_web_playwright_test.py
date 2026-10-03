@@ -20,45 +20,15 @@ LED is wired from +5V to the pin.
 SKIPs cleanly if vasm6502_oldstyle or playwright are missing.
 """
 
-import re
-
-from web_test_util import (REPO_ROOT, failed, main, missing_tools, open_page,
-                           out_dir_for, passed, run_vasm, skipped,
-                           track_last_state, web_emulator)
-
-PROGRAMS = REPO_ROOT / "firmware" / "programs" / "michael"
-BASE_CONFIG = REPO_ROOT / "firmware" / "boards" / "michael" / "base_config_v2.inc"
-
-# The LCD's lines from the latest snapshot, trailing blanks dropped.
-LCD_LINES = """() => {
-    const l = window._lastState && window._lastState.lcd;
-    if (!l) return null;
-    const lines = [];
-    for (let r = 0; r < l.rows; r++)
-        lines.push(String.fromCharCode(...l.ddram.slice(r * l.cols, (r + 1) * l.cols)).trimEnd());
-    return lines;
-}"""
+from web_test_util import (MICHAEL_PROGRAMS, failed, first_line_becomes, main,
+                           michael_load_address, missing_tools, open_page, out_dir_for,
+                           passed, run_vasm, skipped, track_last_state, web_emulator)
 
 PASTE = """(text) => {
     const data = new DataTransfer();
     data.setData('text/plain', text);
     document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
 }"""
-
-
-def load_address():
-    return re.search(r"^PROGRAM_LOAD_ADDRESS\s*=\s*\$([0-9a-fA-F]+)",
-                     BASE_CONFIG.read_text(), re.M).group(1)
-
-
-def first_line_becomes(page, want, timeout=3000):
-    """None once the LCD's first line reads want, else a failure message."""
-    try:
-        page.wait_for_function(f"(want) => {{ const l = ({LCD_LINES})(); return l && l[0] === want; }}",
-                               arg=want, timeout=timeout)
-        return None
-    except Exception:
-        return f"LCD's first line never became {want!r}: {page.evaluate(LCD_LINES)}"
 
 
 def check_keyboard_page(page, out_dir, verbose):
@@ -140,13 +110,13 @@ def run_test(verbose=False):
     binaries = {}
     for name in ("michael_keyboard_new", "hello_michael_led"):
         binaries[name] = out_dir / f"{name}.bin"
-        if not run_vasm(PROGRAMS / f"{name}.s", binaries[name], out_dir / f"{name}.vasm.log"):
+        if not run_vasm(MICHAEL_PROGRAMS / f"{name}.s", binaries[name], out_dir / f"{name}.vasm.log"):
             return failed(f"michael web UI test: vasm failed; see {out_dir}/{name}.vasm.log")
 
     checks = [("michael_keyboard_new", lambda page: check_keyboard_page(page, out_dir, verbose)),
               ("hello_michael_led", lambda page: check_led_page(page, verbose))]
     for name, check in checks:
-        with web_emulator([binaries[name], "--machine", "michael", "--load", load_address()]) as port:
+        with web_emulator([binaries[name], "--machine", "michael", "--load", michael_load_address()]) as port:
             if port is None:
                 return failed(f"michael web UI test ({name}): did not see server listen line in stderr")
             if verbose: print(f"  {name}: emulator port {port}")

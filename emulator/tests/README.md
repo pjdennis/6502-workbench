@@ -44,6 +44,7 @@ without `playwright`.
 | `wendy2c-live-sigint` | `live_sigint_test.py` | Ctrl-C during `--live` restores the terminal |
 | `wendy2c-web` | `web_playwright_test.py` | the `--web` UI in headless Chromium: CGRAM rendering, the pin table, state and audio frames, button and reset round trips |
 | `wendy2c-lcd5x10` | `lcd_5x10_playwright_test.py` | 5x10 LCD mode in the web UI |
+| `web-machine-switch` | `web_machine_switch_playwright_test.py` | one open page follows the emulator on its port from wendy2c to michael and back: title, controls, LCD, and michael's keyboard |
 | `timer2-cycles` | `timer2_cycles_test.py` + `via_t2_runner.c` | T2 tick timing of `michael_timer2_test2.s` on the CPU and VIA chips |
 
 The Playwright tests share `web_test_util.py` (tool checks, building
