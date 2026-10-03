@@ -15,10 +15,11 @@ VIA pin numbers are for the 40-pin W65C22.
 
 | From | To | Notes |
 |---|---|---|
-| Michael 5 V | 5 V rail | Feeds the 3.3 V regulator and the Cmod (through the diode). |
+| Michael 5 V | 5 V rail | Feeds the 3.3 V regulator (an LM1117T-3.3) and the Cmod (through the diode). 1 µF electrolytic across the rail. |
 | Michael GND | GND rails | **Required**: Michael, the '245s, the Cmod and the display must share ground. |
 | 5 V rail | Diode (silver band towards the Cmod) → Cmod pin 24 (VU) | As built. The Cmod runs from Michael's supply, so USB is only needed for programming. |
 | 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. |
+| Regulator IN and OUT | 10 µF tantalum to GND, each | **To do:** not fitted yet. The LM1117's data sheet asks for them, the output one for stability. |
 | GND rail | Cmod pin 25 (GND) | As built. |
 
 ## Data buffer (upper 74LVC245)
@@ -47,7 +48,7 @@ Same power and DIR/OE connections as the data buffer.
 | PA2, `GD_RSTB` (reset, active low; shared with Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `rstb` |
 | PA5, `GD_DC` (data/command; shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `dc` |
 | **Backlight**: for now, **10 kΩ to the 3.3 V rail** (on) | — | B5 (14) | A5 (6) | 13 | `bl` |
-| unused: 10 kΩ ties, as now | — | B6–B8 (13, 12, 11) | A6–A8 | — | — |
+| unused: 10 kΩ ties to ground | — | B6–B8 (13, 12, 11) | A6–A8 | — | — |
 
 The display's backlight input is active high, so tying B5 high keeps the backlight on. The FPGA copies it to
 the display's LED pin, so later a VIA output or PWM source can drive B5 instead with no other change.
