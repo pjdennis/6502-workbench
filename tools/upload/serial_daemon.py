@@ -15,6 +15,7 @@ Requests carry 'op' ('send', 'status' or 'stop'), and a send carries 'protocol';
 """
 import argparse
 import fcntl
+import fnmatch
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ RESET_SETTLE = 0.2     # seconds allowed for the board to start up after a reset
 OPEN_BAUDRATE = 115200
 
 SCRIPT = os.path.abspath(__file__)
+IGNORE_FILE = os.path.join(os.path.dirname(SCRIPT), 'ignored-serial-ports.txt')
 
 REOPENED = ("the serial port has just been opened, which resets the board, so nothing was sent. "
             "The board is now running its ROM loader: do a reset upload (e.g. of the RAM uploader), "
@@ -63,18 +65,46 @@ def default_socket_path():
   return os.path.join(tempfile.gettempdir(), '6502-serial-daemon-{}.sock'.format(os.getuid()))
 
 
-def find_usb_serial_port(port=None):
+def list_serial_ports():
+  from serial.tools import list_ports
+  return list_ports.comports()
+
+
+def read_ignore_patterns(path=IGNORE_FILE):
+  try:
+    with open(path) as f:
+      lines = [line.strip() for line in f]
+  except FileNotFoundError:
+    return []
+  return [line for line in lines if line and not line.startswith('#')]
+
+
+def ignored(port, patterns):
+  fields = [port.description, port.manufacturer, port.product, port.hwid]
+  return any(fnmatch.fnmatch(field.lower(), pattern.lower())
+             for field in fields if field for pattern in patterns)
+
+
+def describe_ports(ports):
+  return ', '.join('{} ({})'.format(p.device, p.description) for p in ports)
+
+
+def find_usb_serial_port(port=None, comports=list_serial_ports, ignore=None):
+  """The given port, or else the only USB serial port not matched by a pattern in IGNORE_FILE."""
   if port is not None:
     if not os.path.exists(port):
       raise NoDevice('{} not found'.format(port))
     return port
-  from serial.tools import list_ports
-  usb_ports = [p for p in list_ports.comports() if p.vid is not None]
+  patterns = read_ignore_patterns() if ignore is None else ignore
+  all_usb_ports = [p for p in comports() if p.vid is not None]
+  usb_ports = [p for p in all_usb_ports if not ignored(p, patterns)]
   if not usb_ports:
-    raise NoDevice('no USB serial device found; specify --port')
+    skipped = [p for p in all_usb_ports if p not in usb_ports]
+    raise NoDevice('no USB serial device found; specify --port' +
+                   ('. Ignored ({}): {}'.format(IGNORE_FILE, describe_ports(skipped)) if skipped else ''))
   if len(usb_ports) > 1:
-    raise NoDevice('multiple USB serial devices found; specify --port. Found: ' +
-                   ', '.join('{} ({})'.format(p.device, p.description) for p in usb_ports))
+    raise NoDevice('multiple USB serial devices found; specify --port, or add a pattern to {}. Found: {}'.format(
+      IGNORE_FILE, describe_ports(usb_ports)))
   return usb_ports[0].device
 
 

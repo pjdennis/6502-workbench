@@ -1,0 +1,8 @@
+# USB serial ports that transfer.py and serial_daemon.py skip when auto-detecting the board's port
+# (an explicit --port is always used). One pattern per line, matched case-insensitively against the
+# port's description, manufacturer, product and hardware ID (e.g. 'USB VID:PID=0403:6010 SER=...'),
+# as shown by: python3 -m serial.tools.list_ports -v. * and ? are wildcards, and a pattern must match a
+# whole field, so use *word* to match part of one.
+
+# Digilent boards: their FTDI chip shows up as two USB serial ports
+*Digilent*
