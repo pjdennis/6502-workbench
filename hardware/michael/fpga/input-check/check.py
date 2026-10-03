@@ -160,7 +160,9 @@ def main():
 
     start = find_start(got)
     if start is None:
-        print("The start marker never arrived. Everything the FPGA reported:")
+        print("The start marker never arrived. If Michael's LCD shows 'Ready', the upload didn't reach it: try\n"
+              "  python3 tools/upload/transfer.py --daemon stop   (then rerun with --michael-port=<Michael's port>)\n"
+              "Everything the FPGA reported:")
         print("\n".join(got[-40:]))
         sys.exit(1)
     expected = expected_lines()
