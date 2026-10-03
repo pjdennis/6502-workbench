@@ -145,9 +145,9 @@ files and the protocol.
 - **wendy2c**: the 16x2 LCD (or `--lcd-panel 16x1-5x10`), the LEDs on
   PB6 and PA2, the control button (SPACE holds it, R resets), and the
   PB7 piezo as audio. `emulator/demo_wendy2c.sh --web` boots a demo.
-- **michael**: the 20x4 LCD and the LED on PA2. Keys typed or pasted on
-  the page go to the PS/2 keyboard, encoded as `--keys` encodes a
-  terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
+- **michael**: the 20x4 LCD and the LED on PA2 (lit while PA2 is low, as
+  on the board). Keys typed or pasted on the page go to the PS/2
+  keyboard, encoded as `--keys` encodes a terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
   arrows, Home/End/PgUp/PgDn/Insert/Delete and Ctrl+letter.
 
 ```sh

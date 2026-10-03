@@ -14,7 +14,8 @@ and drives the page with headless Chromium:
 4. The reset button restarts the program, and the keyboard still works.
 
 Then runs hello_michael_led.s and checks the PA2 LED lights on the page
-as the program toggles it.
+as the program toggles it: while PA2 is low, as on the board, where the
+LED is wired from +5V to the pin.
 
 SKIPs cleanly if vasm6502_oldstyle or playwright are missing.
 """
@@ -79,6 +80,11 @@ def check_keyboard_page(page, out_dir, verbose):
                   ["D7", "D6", "D5", "D4", "D3", "D2", "D1", "D0"]]:
         return f"pin labels: {labels}"
 
+    # initialize_michael_ports drives PA2 high: the LED is off.
+    led = page.evaluate(LED_STATE)
+    if led != ["0", False, 1]:
+        return f"LED (snapshot, page, PA2) after the ports are set up: {led}; want it off"
+
     steps = [
         ("type", "Hi!", ">Hi!"),
         ("press", "Backspace", ">Hi"),
@@ -104,17 +110,24 @@ def check_keyboard_page(page, out_dir, verbose):
     return None
 
 
+# The LED as the snapshot and the page show it, and the PA2 pin's level.
+LED_STATE = """() => [window._lastState.leds.join(),
+                     document.getElementById('led').classList.contains('on'),
+                     (window._lastState.porta >> 2) & 1]"""
+
+
 def check_led_page(page, verbose):
-    """The PA2 LED goes on and off on the page as hello_michael_led.s toggles it."""
+    """The PA2 LED goes on and off on the page as hello_michael_led.s toggles
+    it. It is wired from +5V to the pin, so it lights while PA2 is low."""
     page.wait_for_function("window._lastState", timeout=3000)
     seen = set()
     for _ in range(30):
         page.wait_for_timeout(100)
-        seen.add(tuple(page.evaluate("[window._lastState.leds.join(), "
-                                     "document.getElementById('led').classList.contains('on')]")))
-    if verbose: print(f"  led states seen: {sorted(seen)}")
-    if seen != {("0", False), ("1", True)}:
-        return f"PA2 LED states seen: {sorted(seen)}; want it on and off, matching the snapshot"
+        seen.add(tuple(page.evaluate(LED_STATE)))
+    if verbose: print(f"  led states (snapshot, page, PA2) seen: {sorted(seen)}")
+    if seen != {("0", False, 1), ("1", True, 0)}:
+        return (f"PA2 LED states (snapshot, page, PA2) seen: {sorted(seen)}; "
+                "want it on while PA2 is low and off while it is high")
     return None
 
 

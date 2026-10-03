@@ -321,11 +321,13 @@ static void web_event(void *ctx, const struct web_event *evt) {
     else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
 }
 
-/* The page's LED 0 is PA2, lit while it drives high. */
+/* The page's LED 0 is PA2's. It is wired from +5V to the pin, so it
+ * lights while PA2 is an output driven low (initialize_michael_ports
+ * drives it high to turn it off). */
 static void web_snapshot(void *ctx, struct web_snapshot *snap) {
     struct michael_web *w = ctx;
     snap->n_leds = 1;
-    snap->leds[0] = (w->via->ddra & MICHAEL_LED) && (via_6522_porta_pins(w->via) & MICHAEL_LED);
+    snap->leds[0] = (w->via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(w->via) & MICHAEL_LED);
 }
 
 int emu_run_michael(const struct emu_opts *opts) {
