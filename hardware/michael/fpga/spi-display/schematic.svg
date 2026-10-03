@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="748" viewBox="0 0 1180 748" font-family="Helvetica, Arial, sans-serif">
+<rect width="1180" height="748" fill="#ffffff"/>
+<rect x="640" y="72" width="170" height="530" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.6"/>
+<text x="725.0" y="50" font-size="14" font-weight="bold" text-anchor="middle" fill="#1f2328">Cmod A7-35T</text>
+<text x="725.0" y="65" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">FPGA, 3.3 V I/O</text>
+<text x="725.0" y="538" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">12 MHz clock</text>
+<text x="725.0" y="554" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">LD1 traffic, LD2 selected</text>
+<text x="648" y="580" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">24 VU</text>
+<text x="802" y="580" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">GND 25</text>
+<rect x="40" y="72" width="130" height="366" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.6"/>
+<text x="105.0" y="50" font-size="14" font-weight="bold" text-anchor="middle" fill="#1f2328">Michael</text>
+<text x="105.0" y="65" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">W65C22 VIA (5 V)</text>
+<rect x="330" y="72" width="120" height="212" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.6"/>
+<text x="390.0" y="50" font-size="14" font-weight="bold" text-anchor="middle" fill="#1f2328">U1 74LVC245</text>
+<text x="390.0" y="65" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">data; DIR, /OE = GND (B→A)</text>
+<text x="338" y="94" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">18 B1</text>
+<text x="442" y="94" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A1 2</text>
+<line x1="450" y1="90" x2="640" y2="90" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="94" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">1</text>
+<text x="672" y="94" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[0]</text>
+<line x1="170" y1="90" x2="330" y2="90" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="94" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB0 10</text>
+<text x="338" y="118" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">17 B2</text>
+<text x="442" y="118" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A2 3</text>
+<line x1="450" y1="114" x2="640" y2="114" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="118" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">2</text>
+<text x="672" y="118" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[1]</text>
+<line x1="170" y1="114" x2="330" y2="114" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="118" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB1 11</text>
+<text x="338" y="142" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">16 B3</text>
+<text x="442" y="142" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A3 4</text>
+<line x1="450" y1="138" x2="640" y2="138" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="142" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">3</text>
+<text x="672" y="142" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[2]</text>
+<line x1="170" y1="138" x2="330" y2="138" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="142" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB2 12</text>
+<text x="338" y="166" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">15 B4</text>
+<text x="442" y="166" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A4 5</text>
+<line x1="450" y1="162" x2="640" y2="162" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="166" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">4</text>
+<text x="672" y="166" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[3]</text>
+<line x1="170" y1="162" x2="330" y2="162" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="166" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB3 13</text>
+<text x="338" y="190" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">14 B5</text>
+<text x="442" y="190" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A5 6</text>
+<line x1="450" y1="186" x2="640" y2="186" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="190" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">5</text>
+<text x="672" y="190" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[4]</text>
+<line x1="170" y1="186" x2="330" y2="186" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="190" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB4 14</text>
+<text x="338" y="214" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">13 B6</text>
+<text x="442" y="214" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A6 7</text>
+<line x1="450" y1="210" x2="640" y2="210" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="214" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">6</text>
+<text x="672" y="214" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[5]</text>
+<line x1="170" y1="210" x2="330" y2="210" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="214" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB5 15</text>
+<text x="338" y="238" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">12 B7</text>
+<text x="442" y="238" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A7 8</text>
+<line x1="450" y1="234" x2="640" y2="234" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="238" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">7</text>
+<text x="672" y="238" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[6]</text>
+<line x1="170" y1="234" x2="330" y2="234" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="238" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB6 16</text>
+<text x="338" y="262" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">11 B8</text>
+<text x="442" y="262" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A8 9</text>
+<line x1="450" y1="258" x2="640" y2="258" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="262" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">8</text>
+<text x="672" y="262" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">d[7]</text>
+<line x1="170" y1="258" x2="330" y2="258" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="262" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PB7 17</text>
+<rect x="330" y="334" width="120" height="140" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.6"/>
+<text x="390.0" y="312" font-size="14" font-weight="bold" text-anchor="middle" fill="#1f2328">U2 74LVC245</text>
+<text x="390.0" y="327" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">control; DIR, /OE = GND (B→A)</text>
+<text x="338" y="356" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">18 B1</text>
+<text x="442" y="356" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A1 2</text>
+<line x1="450" y1="352" x2="640" y2="352" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="356" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">9</text>
+<text x="672" y="356" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">e</text>
+<line x1="170" y1="352" x2="330" y2="352" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="356" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PA0 E 2</text>
+<text x="338" y="380" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">17 B2</text>
+<text x="442" y="380" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A2 3</text>
+<line x1="450" y1="376" x2="640" y2="376" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="380" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">10</text>
+<text x="672" y="380" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">csb</text>
+<line x1="170" y1="376" x2="330" y2="376" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="380" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PA1 CSB 3</text>
+<text x="338" y="404" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">16 B3</text>
+<text x="442" y="404" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A3 4</text>
+<line x1="450" y1="400" x2="640" y2="400" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="404" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">11</text>
+<text x="672" y="404" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">rstb</text>
+<line x1="170" y1="400" x2="330" y2="400" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="404" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PA2 RSTB 4</text>
+<text x="338" y="428" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">15 B4</text>
+<text x="442" y="428" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A4 5</text>
+<line x1="450" y1="424" x2="640" y2="424" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="428" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">12</text>
+<text x="672" y="428" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">dc</text>
+<line x1="170" y1="424" x2="330" y2="424" stroke="#1f2328" stroke-width="1.4"/>
+<text x="162" y="428" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">PA5 DC 7</text>
+<text x="338" y="452" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">14 B5</text>
+<text x="442" y="452" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">A5 6</text>
+<line x1="450" y1="448" x2="640" y2="448" stroke="#1f2328" stroke-width="1.4"/>
+<text x="648" y="452" font-size="11" font-weight="bold" text-anchor="start" fill="#1f2328">13</text>
+<text x="672" y="452" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">bl</text>
+<line x1="330" y1="448" x2="260" y2="448" stroke="#1f2328" stroke-width="1.4"/>
+<rect x="220" y="443" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>
+<line x1="246" y1="448" x2="260" y2="448" stroke="#1f2328" stroke-width="1.4"/>
+<line x1="206" y1="448" x2="220" y2="448" stroke="#1f2328" stroke-width="1.4"/>
+<text x="202" y="452" font-size="11" font-weight="normal" text-anchor="end" fill="#59636e">3.3 V, 10k (backlight on)</text>
+<text x="324" y="506" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">13 B6</text>
+<line x1="328" y1="502" x2="340" y2="502" stroke="#1f2328" stroke-width="1.4"/>
+<rect x="340" y="497" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>
+<line x1="366" y1="502" x2="378" y2="502" stroke="#1f2328" stroke-width="1.4"/>
+<text x="382" y="506" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e"></text>
+<text x="324" y="524" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">12 B7</text>
+<line x1="328" y1="520" x2="340" y2="520" stroke="#1f2328" stroke-width="1.4"/>
+<rect x="340" y="515" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>
+<line x1="366" y1="520" x2="378" y2="520" stroke="#1f2328" stroke-width="1.4"/>
+<text x="382" y="524" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e"></text>
+<text x="324" y="542" font-size="11" font-weight="normal" text-anchor="end" fill="#1f2328">11 B8</text>
+<line x1="328" y1="538" x2="340" y2="538" stroke="#1f2328" stroke-width="1.4"/>
+<rect x="340" y="533" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>
+<line x1="366" y1="538" x2="378" y2="538" stroke="#1f2328" stroke-width="1.4"/>
+<text x="382" y="542" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e"></text>
+<text x="382" y="538" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">10k ties (unused inputs)</text>
+<rect x="1010" y="72" width="140" height="352" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.6"/>
+<text x="1080.0" y="50" font-size="14" font-weight="bold" text-anchor="middle" fill="#1f2328">ILI9341 module</text>
+<text x="1080.0" y="65" font-size="11" font-weight="normal" text-anchor="middle" fill="#59636e">240×320, J1 open</text>
+<text x="1018" y="94" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">VCC</text>
+<text x="1018" y="118" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">GND</text>
+<line x1="1010" y1="90" x2="970" y2="90" stroke="#1f2328" stroke-width="1.4"/>
+<text x="966" y="94" font-size="11" font-weight="normal" text-anchor="end" fill="#59636e">5 V</text>
+<line x1="1010" y1="114" x2="970" y2="114" stroke="#1f2328" stroke-width="1.4"/>
+<text x="966" y="118" font-size="11" font-weight="normal" text-anchor="end" fill="#59636e">GND (Cmod 25)</text>
+<line x1="810" y1="138" x2="1010" y2="138" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="142" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">26</text>
+<text x="1018" y="142" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">CS</text>
+<line x1="810" y1="162" x2="1010" y2="162" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="166" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">27</text>
+<text x="1018" y="166" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">RESET</text>
+<line x1="810" y1="186" x2="1010" y2="186" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="190" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">28</text>
+<text x="1018" y="190" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">DC</text>
+<line x1="810" y1="210" x2="1010" y2="210" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="214" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">29</text>
+<text x="1018" y="214" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">SDI (MOSI)</text>
+<line x1="810" y1="234" x2="1010" y2="234" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="238" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">30</text>
+<text x="1018" y="238" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">SCK</text>
+<line x1="810" y1="258" x2="1010" y2="258" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="262" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">31</text>
+<text x="1018" y="262" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">LED</text>
+<line x1="810" y1="282" x2="1010" y2="282" stroke="#1f2328" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="802" y="286" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">32</text>
+<text x="1018" y="286" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">SDO (MISO)</text>
+<line x1="810" y1="306" x2="1010" y2="306" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="310" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">33</text>
+<text x="1018" y="310" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">T_CLK</text>
+<line x1="810" y1="330" x2="1010" y2="330" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="334" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">34</text>
+<text x="1018" y="334" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">T_CS</text>
+<line x1="810" y1="354" x2="1010" y2="354" stroke="#1f2328" stroke-width="1.4"/>
+<text x="802" y="358" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">35</text>
+<text x="1018" y="358" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">T_DIN</text>
+<line x1="810" y1="378" x2="1010" y2="378" stroke="#1f2328" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="802" y="382" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">36</text>
+<text x="1018" y="382" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">T_DO</text>
+<line x1="810" y1="402" x2="1010" y2="402" stroke="#1f2328" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="802" y="406" font-size="11" font-weight="bold" text-anchor="end" fill="#1f2328">37</text>
+<text x="1018" y="406" font-size="11" font-weight="normal" text-anchor="start" fill="#1f2328">T_IRQ</text>
+<text x="816" y="430" font-size="11" font-weight="normal" text-anchor="start" fill="#59636e">dashed: wired, not yet used</text>
+<text x="40" y="652" font-size="14" font-weight="bold" text-anchor="start" fill="#1f2328">Power</text>
+<text x="40" y="674" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2328">Michael 5 V → 5 V rail → 3.3 V regulator → 3.3 V rail → U1, U2 VCC (pin 20), 100 nF each</text>
+<text x="40" y="692" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2328">5 V rail → diode (band towards the Cmod) → Cmod VU (24); USB only needed for programming</text>
+<text x="40" y="710" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2328">5 V rail → display VCC; Michael GND, both GND rails, U1/U2 pin 10, Cmod 25 and display GND joined</text>
+</svg>
