@@ -265,6 +265,7 @@
 <text x="270" y="716" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">U8.B8</text>
 <rect x="255.55" y="810" width="28.9" height="15" rx="3" fill="#eaeef2" stroke="#1f2328" stroke-width="1"/>
 <text x="270" y="821" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">GND</text>
+<text x="200" y="850" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">ties (unused inputs)</text>
 <rect x="720" y="110" width="110" height="500" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
 <text x="775" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U9</text>
 <text x="775" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">Cmod A7-35T</text>

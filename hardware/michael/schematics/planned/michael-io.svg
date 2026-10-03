@@ -13,21 +13,21 @@
 <line x1="390" y1="150" x2="364" y2="150" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
 <text x="395" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA0</text>
-<rect x="335.1" y="142.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
-<text x="349.55" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA0</text>
-<text x="329.1" y="154" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">FPGA E</text>
+<line x1="360" y1="146" x2="368" y2="154" stroke="#59636e" stroke-width="1.3"/>
+<line x1="360" y1="154" x2="368" y2="146" stroke="#59636e" stroke-width="1.3"/>
+<text x="350" y="154" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">free</text>
 <line x1="390" y1="170" x2="364" y2="170" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
 <text x="395" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA1</text>
 <rect x="335.1" y="162.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="349.55" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA1</text>
-<text x="329.1" y="174" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">free</text>
+<text x="329.1" y="174" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LED</text>
 <line x1="390" y1="190" x2="364" y2="190" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="187" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">4</text>
 <text x="395" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA2</text>
 <rect x="335.1" y="182.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="349.55" y="194" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA2</text>
-<text x="329.1" y="194" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LED</text>
+<text x="329.1" y="194" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">FPGA E</text>
 <line x1="390" y1="210" x2="364" y2="210" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="207" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">5</text>
 <text x="395" y="214" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA3</text>
@@ -45,13 +45,13 @@
 <text x="395" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA5</text>
 <rect x="335.1" y="242.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="349.55" y="254" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA5</text>
-<text x="329.1" y="254" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LCD RS, kbd START/ACK, FPGA F</text>
+<text x="329.1" y="254" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LCD RS, kbd START/ACK, FPGA RS</text>
 <line x1="390" y1="270" x2="364" y2="270" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="267" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">8</text>
 <text x="395" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA6</text>
 <rect x="335.1" y="262.5" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="349.55" y="274" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA6</text>
-<text x="329.1" y="274" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LCD RW, kbd PARITY, FPGA G</text>
+<text x="329.1" y="274" font-size="10" font-weight="normal" font-style="italic" text-anchor="end" fill="#59636e">LCD RW, kbd PARITY, FPGA RW</text>
 <line x1="390" y1="290" x2="364" y2="290" stroke="#1f2328" stroke-width="1.3"/>
 <text x="377" y="287" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">9</text>
 <text x="395" y="294" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">PA7</text>
@@ -318,7 +318,7 @@
 <text x="806" y="693" font-size="11.5" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">R8</text>
 <text x="806" y="707" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#59636e">?</text>
 <rect x="775.55" y="635" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
-<text x="790" y="646" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA2</text>
+<text x="790" y="646" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">PA1</text>
 <rect x="775.55" y="740" width="28.9" height="15" rx="3" fill="#ffffff" stroke="#1f2328" stroke-width="1"/>
 <text x="790" y="751" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#1f2328">LED</text>
 <line x1="870" y1="650" x2="870" y2="686" stroke="#1f2328" stroke-width="1.3"/>
@@ -453,7 +453,7 @@
 <text x="24" y="837" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">while SOLB is low) and the FPGA. The keyboard driver saves and restores PORTA, PORTB and their DDRs in its interrupt.</text>
 <text x="24" y="854" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Serial is received only: CB2 is the shift register's input, timed by T2 (firmware/lib/serial/), so CB1 is its clock out.</text>
 <text x="24" y="871" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">J1's pins and the PA3–PA6 uses are from base_config_v2.inc, keyboard_driver.inc and the keyboard board's schematic.</text>
-<text x="24" y="888" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">LED: R8 and D1 light it while PA2 is high, as upload_v3.inc expects. PA2 is the LED's alone again.</text>
+<text x="24" y="888" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">LED: moved to PA1 in stage 4, the right way round: it lights while PA1 is high, as upload_v3.inc expects.</text>
 <text x="24" y="905" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Ben's buttons SW2–SW6 and their pull-ups R3–R7 are not fitted. The LCD's backlight is straight to +5V and GND.</text>
 <text x="24" y="928" font-size="13" font-weight="bold" font-style="normal" text-anchor="start" fill="#1f2328">To confirm</text>
 <text x="24" y="948" font-size="11.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#9a6700">R8's value.</text>

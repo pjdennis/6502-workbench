@@ -33,8 +33,9 @@ BUSES = {f"A{i}": f"A{i}" for i in range(16)} | {f"D{i}": f"D{i}" for i in range
 PORT_A_USES = {"PA0": "FPGA E", "PA1": "FPGA CSB", "PA2": "LED, FPGA RSTB", "PA3": "keyboard SOLB",
                "PA4": "keyboard SOEB", "PA5": "LCD RS, kbd START/ACK, FPGA DC", "PA6": "LCD RW, kbd PARITY",
                "PA7": "LCD E"}
-PLANNED_PORT_A_USES = PORT_A_USES | {"PA1": "free", "PA2": "LED", "PA4": "keyboard SOEB, FPGA",
-                                     "PA5": "LCD RS, kbd START/ACK, FPGA F", "PA6": "LCD RW, kbd PARITY, FPGA G"}
+# After stage 4's pin shuffle: E on PA2, the LED on PA1, PA0 free
+PLANNED_PORT_A_USES = PORT_A_USES | {"PA0": "free", "PA1": "LED", "PA2": "FPGA E", "PA4": "keyboard SOEB, FPGA",
+                                     "PA5": "LCD RS, kbd START/ACK, FPGA RS", "PA6": "LCD RW, kbd PARITY, FPGA RW"}
 
 
 def subtitle(planned):
@@ -94,6 +95,8 @@ def io(board, planned):
         "VSS": "GND", "VDD": "+5V", "IRQB": "IRQB", "RWB": "RWB", "CS2B": "VIA/CS2", "CS1": "A13",
         "PHI2": "PHI2", "RESB": "RESB", "CA2": "CA2", "CB2": "CB2"}
     uses = PLANNED_PORT_A_USES if planned else PORT_A_USES
+    if planned:
+        via["PA0"] = None
     s.dip("U5", "W65C22 VIA", 390, 110, W65C22, via, width=130, notes=uses | {
         "CA2": "keyboard IRQ", "CB2": "serial in", "CB1": "shift clock out"})
 
@@ -103,8 +106,8 @@ def io(board, planned):
     s.ic("U3", "20×4 LCD (HD44780)", 790, 110, left=lcd, width=110)
     s.pot("RV1", "10k contrast", 860, 490, "+5V", "V0", "GND")
 
-    if planned:   # lit while PA2 is high
-        s.two_pin("resistor", "R8", "?", 790, 650, "PA2", "LED")
+    if planned:   # on PA1, lit while it is high
+        s.two_pin("resistor", "R8", "?", 790, 650, "PA1", "LED")
         s.two_pin("led", "D1", "LED", 870, 650, "LED", "GND", names=("A", "K"))
     else:         # lit while PA2 is low, so the display's reset (idle high) leaves it dark
         s.two_pin("resistor", "R8", "?", 790, 650, "+5V", "LED")
@@ -119,7 +122,7 @@ def io(board, planned):
     s.ic("J2", "USB serial (CP2102)", 1120, 500, left=[(i + 1, n, serial.get(n)) for i, n in enumerate(SERIAL)],
          width=120, caption="powers Michael; DTR resets it (sheet 1)")
 
-    led = ("LED: R8 and D1 light it while PA2 is high, as upload_v3.inc expects. PA2 is the LED's alone again." if planned
+    led = ("LED: moved to PA1 in stage 4, the right way round: it lights while PA1 is high, as upload_v3.inc expects." if planned
            else "LED: lit while PA2 is low, because PA2 is also the display's reset (idle high). It goes back to normal "
                 "once PA2 is the LED's alone.")
     y = s.note(24, 800, [
@@ -140,34 +143,41 @@ def fpga(board, planned):
     power = {"GND": "GND", "VCC": "+3V3"}
     s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | (
         {"DIR": "d_dir", "/OE": "d_oeb"} if planned else {"DIR": "GND", "/OE": "GND"}), width=110)
-    control = {"B1": "PA0", "B2": "PA1", "B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B8": "U8.B8",
-               "A1": "e", "A2": "csb", "A3": "rstb", "A4": "f" if planned else "dc", "A5": "bl"}
-    control |= ({"B6": "PA4", "B7": "PA6", "A6": "soeb", "A7": "g"} if planned else {"B6": "U8.B6", "B7": "U8.B7"})
-    unused = {"B2": "unused", "B3": "unused", "B5": "unused"} if planned else {}
+    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B8": "U8.B8", "A5": "bl"}
+    if planned:   # E now arrives on B3 from PA2; B1 and B2 are tied off
+        control |= {"B1": "U8.B1", "B2": "U8.B2", "B6": "PA4", "B7": "PA6",
+                    "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs", "A6": "soeb", "A7": "rw"}
+    else:
+        control |= {"B1": "PA0", "B2": "PA1", "B6": "U8.B6", "B7": "U8.B7",
+                    "A1": "e", "A2": "csb", "A3": "rstb", "A4": "dc"}
+    unused = {"B1": "unused", "B2": "unused", "B5": "unused"} if planned else {}
     s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power | {"DIR": "GND", "/OE": "GND"}, width=110,
           notes=unused)
     s.two_pin("capacitor", "C5", "100 nF", 110, 360, "+3V3", "GND", length=70)
     s.two_pin("capacitor", "C6", "100 nF", 180, 360, "+3V3", "GND", length=70)
     s.two_pin("resistor", "R9", "10k", 60, 720, "+3V3", "U8.B5")
     s.text(60, 850, "backlight on", "middle", 10.5, fill=MUTED)
-    ties = [("R12", "U8.B8")] if planned else [("R10", "U8.B6"), ("R11", "U8.B7"), ("R12", "U8.B8")]
+    ties = ([("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned
+            else [("R10", "U8.B6"), ("R11", "U8.B7"), ("R12", "U8.B8")])
     for i, (ref, net) in enumerate(ties):
         s.two_pin("resistor", ref, "10k", 130 + i * 70, 720, net, "GND")
+    s.text(200, 850, "ties (unused inputs)", "middle", 10.5, fill=MUTED)
     if planned:
-        for i, (ref, top, bottom, why) in enumerate((("R14", "PA0", "GND", "E idle low"),
+        for i, (ref, top, bottom, why) in enumerate((("R18", "PA2", "GND", "E idle low"),
                                                      ("R15", "+3V3", "d_oeb", "off unconfigured"),
                                                      ("R16", "d_dir", "GND", "inward by default"))):
-            s.two_pin("resistor", ref, "10k", 220 + i * 105, 720, top, bottom)
-            s.text(220 + i * 105, 850, why, "middle", 10.5, fill=MUTED)
+            s.two_pin("resistor", ref, "10k", 340 + i * 100, 720, top, bottom)
+            s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
 
     lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
-    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {9: "e", 10: "csb", 11: "rstb", 12: "f" if planned else "dc",
-                                                   13: "bl", 24: "VU", 25: "GND"} | {
+    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "bl", 24: "VU", 25: "GND"} | {
         26 + i: n for i, n in enumerate(lcd)}
     if planned:
-        cmod |= {14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "g"}
+        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw"}
+    else:
+        cmod |= {9: "e", 10: "csb", 11: "rstb", 12: "dc"}
     s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
-          notes={"PIO10": "ignored", "PIO11": "ignored", "PIO13": "ignored"} if planned else None,
+          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else None,
           caption="33–37 reserved for touch")
 
     tft = {"GND": "GND", "Vin": "+3V3", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
@@ -188,8 +198,10 @@ def fpga(board, planned):
     if planned:
         notes[1] = ("The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives "
                     "PORTB with the keyboard board.")
-        notes.append("Port names for the new pins (d_oeb, d_dir, soeb, g, f) are proposals. U8's B2, B3 and B5 can stay "
-                     "wired; the bus design ignores them.")
+        notes.append("E moves to PA2 in stage 4, through U8's B3 (the old display reset), so it needs no new wire. "
+                     "U8's B1, B2 and B5 are ignored.")
+        notes.append("RS and RW are the LCD's own register select and read/write pins, with the same meanings. "
+                     "The new port names are proposals.")
     else:
         notes[0] += " DIR and /OE are grounded."
     y = s.note(24, 920, notes, "Notes")
