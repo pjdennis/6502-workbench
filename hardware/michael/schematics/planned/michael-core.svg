@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1080" viewBox="0 0 1160 1080" font-family="Helvetica, Arial, sans-serif">
 <rect width="1160" height="1080" fill="#ffffff"/>
 <text x="24" y="34" font-size="18" font-weight="bold" fill="#1f2328">Michael: CPU, memory, clock and reset (1 of 3)</text>
-<text x="24" y="54" font-size="12" fill="#59636e">Michael as built, 2026-10-03. Pins with the same label are connected; × is not connected.</text>
+<text x="24" y="54" font-size="12" fill="#59636e">Michael once the FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete. Planned, not built. Pins with the same label are connected; × is not connected.</text>
 <rect x="170" y="110" width="130" height="420" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
 <text x="235" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U1</text>
 <text x="235" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">W65C02S</text>

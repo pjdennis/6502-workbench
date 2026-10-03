@@ -47,7 +47,7 @@ Same power and DIR/OE connections as the data buffer.
 | PA2, `GD_RSTB` (reset, active low; shared with Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `rstb` |
 | PA5, `GD_DC` (data/command; shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `dc` |
 | **Backlight**: for now, **10 kΩ to the 3.3 V rail** (on) | — | B5 (14) | A5 (6) | 13 | `bl` |
-| unused: 10 kΩ ties, as now | — | B6–B8 (13, 12, 11) | A6–A8 | — | — |
+| unused: 10 kΩ ties to ground | — | B6–B8 (13, 12, 11) | A6–A8 | — | — |
 
 The display's backlight input is active high, so tying B5 high keeps the backlight on. The FPGA copies it to
 the display's LED pin, so later a VIA output or PWM source can drive B5 instead with no other change.

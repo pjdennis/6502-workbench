@@ -1,6 +1,7 @@
-"""Michael's schematic (hardware/michael/schematics/michael_schematic.py) against the firmware and the FPGA
-design: the VIA pins the firmware names reach the parts that use them, the 74HC00's chip selects give
-Michael's memory map, the FPGA pin names are the design's ports, and the committed SVGs are current.
+"""Michael's schematics (hardware/michael/schematics/michael_schematic.py), as built and as planned once the
+FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete, against the firmware and the FPGA design: the
+VIA pins the firmware names reach the parts that use them, the 74HC00's chip selects give Michael's memory
+map, the FPGA pin names are the design's ports, and the committed SVGs are current.
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -16,6 +17,8 @@ SCHEMATICS = os.path.join(ROOT, 'hardware', 'michael', 'schematics')
 sys.path.insert(0, SCHEMATICS)
 import michael_schematic  # noqa: E402
 
+LCD_AND_KEYBOARD = 'firmware/boards/michael/base_config_v2.inc'
+
 
 def constants(path):
     """NAME = %bits definitions from a firmware include, as bit numbers."""
@@ -28,10 +31,13 @@ def constants(path):
     return found
 
 
-class MichaelSchematicTest(unittest.TestCase):
+class BoardChecks:
+    """What holds in both states. Subclasses set PLANNED."""
+    PLANNED = None
+
     @classmethod
     def setUpClass(cls):
-        cls.board = michael_schematic.board()
+        cls.board = michael_schematic.board(planned=cls.PLANNED)
 
     def joined(self, a, b):
         """True if pin a and pin b, each (ref, pin name or number), are on the same net."""
@@ -40,23 +46,22 @@ class MichaelSchematicTest(unittest.TestCase):
     def assertJoined(self, a, b):
         self.assertTrue(self.joined(a, b), f'{a} (net {self.board.net(*a)}) and {b} (net {self.board.net(*b)})')
 
+    def assertPinsOn(self, net, *pins):
+        for pin in pins:
+            self.assertEqual(self.board.net(*pin), net, pin)
+
     def test_every_net_joins_two_pins_or_more(self):
         single = {net: pins for net, pins in self.board.nets().items() if len(pins) < 2}
         self.assertEqual(single, {})
 
-    def test_port_a_reaches_what_the_firmware_drives(self):
-        lcd_and_keyboard = constants('firmware/boards/michael/base_config_v2.inc')
-        display = constants('firmware/lib/graphics/graphics_display.inc')
+    def test_port_a_reaches_the_lcd_and_keyboard(self):
+        bits = constants(LCD_AND_KEYBOARD)
         uses = {'E': ('U3', 'E'), 'RW': ('U3', 'RW'), 'RS': ('U3', 'RS'),
                 'SOLB': ('J1', 'KBD_CLK_OUT'), 'SOEB': ('J1', 'REG_OE'),
-                'START': ('J1', 'DE'), 'ACK': ('J1', 'DE'), 'PARITY': ('J1', 'DP'), 'LED': ('R8', 1)}
-        gd_uses = {'GD_E': 'B1', 'GD_CSB': 'B2', 'GD_RSTB': 'B3', 'GD_DC': 'B4'}
+                'START': ('J1', 'DE'), 'ACK': ('J1', 'DE'), 'PARITY': ('J1', 'DP')}
         for name, part_pin in uses.items():
             with self.subTest(name):
-                self.assertJoined(('U5', f'PA{lcd_and_keyboard[name]}'), part_pin)
-        for name, buffer_pin in gd_uses.items():
-            with self.subTest(name):
-                self.assertJoined(('U5', f'PA{display[name]}'), ('U8', buffer_pin))
+                self.assertJoined(('U5', f'PA{bits[name]}'), part_pin)
 
     def test_port_b_is_the_lcd_keyboard_and_fpga_data_bus(self):
         for i in range(8):
@@ -65,12 +70,33 @@ class MichaelSchematicTest(unittest.TestCase):
                 self.assertJoined(('U5', f'PB{i}'), ('J1', f'D{i}'))
                 self.assertJoined(('U5', f'PB{i}'), ('U7', f'B{i + 1}'))
 
-    def test_interrupts_serial_and_reset(self):
+    def test_interrupts_and_serial(self):
         self.assertJoined(('U5', 'CA2'), ('J1', 'IRQ'))           # the keyboard's frame detector
         self.assertJoined(('U5', 'CB2'), ('J2', 'TXD'))           # serial in, through the shift register
         self.assertJoined(('U5', 'IRQB'), ('U1', 'IRQB'))
-        self.assertJoined(('U1', 'RESB'), ('U5', 'RESB'))
-        self.assertJoined(('U1', 'RESB'), ('SW1', 1))
+
+    def test_reset_from_the_button_or_dtr(self):
+        """SW1 and C1 on RESB with R1's pull-up; DTR pulls RESB low through R13 and D3, whose anode is on
+        RESB so DTR high never fights the button."""
+        self.assertPinsOn('RESB', ('U1', 'RESB'), ('U5', 'RESB'), ('SW1', 1), ('C1', 1), ('R1', 2), ('D3', 'A'))
+        self.assertJoined(('D3', 'K'), ('R13', 2))
+        self.assertJoined(('R13', 1), ('J2', 'DTR'))
+
+    def test_power_comes_from_the_usb_serial_adapter(self):
+        self.assertPinsOn('+5V', ('J2', '+5V'), ('U1', 'VDD'), ('U5', 'VDD'))
+        self.assertPinsOn('GND', ('J2', 'GND'))
+        self.assertIsNone(self.board.net('J2', '3V3'))
+
+    def test_spare_nand_inputs_are_tied_high(self):
+        self.assertPinsOn('+5V', ('U4', 1), ('U4', 2))
+
+    def test_unused_buffer_inputs_are_tied_low(self):
+        for pin in self.UNUSED_CONTROL_INPUTS:
+            with self.subTest(pin):
+                tie = self.board.net('U8', pin)
+                ref = next(r for r, pins in self.board.parts.items()
+                           if r.startswith('R') and any(net == tie for _, _, net in pins))
+                self.assertEqual({self.board.net(ref, 1), self.board.net(ref, 2)}, {tie, 'GND'})
 
     def test_chip_selects_give_the_memory_map(self):
         """Evaluates the 74HC00 (U4) for every combination of A15, A14, A13 and PHI2."""
@@ -93,6 +119,31 @@ class MichaelSchematicTest(unittest.TestCase):
                 self.assertEqual(level('U5', 'CS1') == 1 and level('U5', 'CS2B') == 0,
                                  0x6000 <= addr < 0x8000, 'VIA')
 
+    def test_cmod_pins(self):
+        for i in range(8):
+            self.assertEqual(self.board.net('U9', i + 1), f'd[{i}]')
+        for pin, net in self.CMOD_PINS.items():
+            self.assertEqual(self.board.net('U9', pin), net, f'Cmod pin {pin}')
+
+
+class AsBuiltTest(BoardChecks, unittest.TestCase):
+    PLANNED = False
+    UNUSED_CONTROL_INPUTS = ('B6', 'B7', 'B8')
+    CMOD_PINS = {9: 'e', 10: 'csb', 11: 'rstb', 12: 'dc', 13: 'bl', 26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc',
+                 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led', 32: 'lcd_miso'}
+
+    def test_port_a_reaches_the_display_interface(self):
+        bits = constants('firmware/lib/graphics/graphics_display.inc')
+        for name, buffer_pin in {'GD_E': 'B1', 'GD_CSB': 'B2', 'GD_RSTB': 'B3', 'GD_DC': 'B4'}.items():
+            with self.subTest(name):
+                self.assertJoined(('U5', f'PA{bits[name]}'), ('U8', buffer_pin))
+
+    def test_the_led_lights_when_pa2_is_low(self):
+        """Reversed, so the display's reset (active low, idle high) leaves it dark."""
+        self.assertJoined(('U5', f'PA{constants(LCD_AND_KEYBOARD)["LED"]}'), ('D1', 'K'))
+        self.assertJoined(('D1', 'A'), ('R8', 2))
+        self.assertPinsOn('+5V', ('R8', 1))
+
     def test_fpga_pins_are_the_designs_ports(self):
         ports = set()
         for xdc in ('spi-display/constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc'):  # MISO: the probe's
@@ -100,13 +151,42 @@ class MichaelSchematicTest(unittest.TestCase):
                 ports |= set(re.findall(r'get_ports \{(\S+)\}', f.read()))
         nets = {self.board.net('U9', pin) for pin in range(1, 49)} - {None, 'GND', '+5V', '+3V3', 'VU'}
         self.assertEqual(nets - ports, set())
-        for i in range(8):
-            self.assertEqual(self.board.net('U9', i + 1), f'd[{i}]')
-        for pin, net in ((9, 'e'), (10, 'csb'), (11, 'rstb'), (12, 'dc'), (13, 'bl'), (26, 'lcd_cs'),
-                         (27, 'lcd_reset'), (28, 'lcd_dc'), (29, 'lcd_mosi'), (30, 'lcd_sck'), (31, 'lcd_led'),
-                         (32, 'lcd_miso')):
-            self.assertEqual(self.board.net('U9', pin), net)
 
+
+class PlannedTest(BoardChecks, unittest.TestCase):
+    """The FPGA bus plan's wiring changes, all of stage 1."""
+    PLANNED = True
+    UNUSED_CONTROL_INPUTS = ('B8',)
+    CMOD_PINS = {9: 'e', 12: 'f', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'g', 26: 'lcd_cs', 27: 'lcd_reset',
+                 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led', 32: 'lcd_miso'}
+
+    def test_the_bus_signals_reach_the_fpga(self):
+        bits = constants(LCD_AND_KEYBOARD)
+        for pa, buffer_pin, cmod_pin in ((0, 'B1', 9), (bits['RS'], 'B4', 12), (bits['SOEB'], 'B6', 18),
+                                         (bits['RW'], 'B7', 19)):
+            with self.subTest(pa=pa):
+                self.assertJoined(('U5', f'PA{pa}'), ('U8', buffer_pin))
+                self.assertJoined(('U8', 'A' + buffer_pin[1:]), ('U9', cmod_pin))
+
+    def test_e_is_pulled_down(self):
+        self.assertTrue(any({self.board.net(r, 1), self.board.net(r, 2)} == {'PA0', 'GND'}
+                            for r in self.board.parts if r.startswith('R')))
+
+    def test_the_fpga_controls_the_data_buffer_and_it_defaults_off_and_inward(self):
+        self.assertJoined(('U7', '/OE'), ('U9', 14))
+        self.assertJoined(('U7', 'DIR'), ('U9', 17))
+        pulls = {frozenset((self.board.net(r, 1), self.board.net(r, 2))) for r in self.board.parts
+                 if r.startswith('R')}
+        self.assertIn(frozenset(('d_oeb', '+3V3')), pulls)   # off while the FPGA isn't configured
+        self.assertIn(frozenset(('d_dir', 'GND')), pulls)    # B to A: Michael to the FPGA
+
+    def test_the_led_is_back_to_lighting_when_pa2_is_high(self):
+        self.assertJoined(('U5', f'PA{constants(LCD_AND_KEYBOARD)["LED"]}'), ('R8', 1))
+        self.assertJoined(('R8', 2), ('D1', 'A'))
+        self.assertPinsOn('GND', ('D1', 'K'))
+
+
+class CommittedSvgTest(unittest.TestCase):
     def test_committed_svgs_are_current(self):
         for name, svg in michael_schematic.sheets().items():
             with self.subTest(name), open(os.path.join(SCHEMATICS, name)) as f:
