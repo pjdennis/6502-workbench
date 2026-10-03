@@ -1,7 +1,7 @@
 # Display probe (see README.md): the FPGA becomes a slow SPI master for the ILI9341, driven from the PC
 # over the Cmod's USB serial port, to check the display and its wiring independently of Michael.
 #   make test    simulations          make prog    load into the FPGA (the spi-display design stays in flash)
-#   make probe   load, then read the display's registers and fill the screen red (probe.py)
+#   make probe   load, read the display's registers, initialise it as Michael's driver does, cycle colours
 include ../kit.mk
 
 TOP    := display_probe
@@ -19,8 +19,12 @@ $(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc constr/miso.xdc
 	cat $^ > $@
 
 .DEFAULT_GOAL := all
-.PHONY: all probe
+.PHONY: all probe test-py
 all: test bit
+
+test: test-py
+test-py:
+	python3 -m unittest test_probe
 
 probe: prog
 	python3 probe.py
