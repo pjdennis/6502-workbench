@@ -17,11 +17,11 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0, this document, for review.** Revised the same day: reads use E with a shared
-pin instead of a dedicated PA1, and a SOEB interlock lets interrupts pause a read. Revised again: the shared
-pins, first called F and G, are named RS and RW after their LCD meanings, and stage 4 moves E to PA2 and the
-LED to PA1. The schematics of the end state are in `hardware/michael/schematics/planned/` (branch
-`michael-schematics` for now).
+**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 next.** In review, reads came to use E
+with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
+pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
+Michael's schematics, as built and as planned at the end of this plan, are in
+[`hardware/michael/schematics/`](../hardware/michael/schematics/) ([`planned/`](../hardware/michael/schematics/planned/)).
 
 ## Stages
 
