@@ -1,128 +1,177 @@
 #!/usr/bin/env python3
-"""Draws michael-fpga-display.svg for the FPGA SPI display interface (../fpga/spi-display/WIRING.md has the
-same connections as tables).
+"""Michael as built (2026-10-03), in three sheets drawn with net labels: michael-core.svg (CPU, memory,
+clock, reset), michael-io.svg (the VIA and what hangs off it) and michael-fpga-display.svg (the FPGA display
+interface; ../fpga/spi-display/WIRING.md has its connections as tables).
 
-Run: python3 michael_schematic.py > michael-fpga-display.svg
+Run: python3 michael_schematic.py   (writes the SVGs beside this file)
+tools/tests/test_michael_schematic.py checks the netlist against the firmware and the FPGA design.
 """
-from xml.sax.saxutils import escape
+import os
 
-ROW = 24                     # vertical pitch of signal rows
-DATA = [(f"PB{i}", 10 + i, f"B{i + 1}", 18 - i, f"A{i + 1}", 2 + i, 1 + i, f"d[{i}]") for i in range(8)]
-CTRL = [("PA0 E", 2, "B1", 18, "A1", 2, 9, "e"),
-        ("PA1 CSB", 3, "B2", 17, "A2", 3, 10, "csb"),
-        ("PA2 RSTB", 4, "B3", 16, "A3", 4, 11, "rstb"),
-        ("PA5 DC", 7, "B4", 15, "A4", 5, 12, "dc"),
-        (None, None, "B5", 14, "A5", 6, 13, "bl")]
-LCD = [("CS", 26), ("RESET", 27), ("DC", 28), ("SDI (MOSI)", 29), ("SCK", 30), ("LED", 31), ("SDO (MISO)", 32)]
+from schematic_svg import Board, Sheet, MUTED, NOTE
 
-X_VIA, X_BUF, X_CMOD, X_LCD = 40, 330, 640, 1010     # left edges of the four blocks
-W_VIA, W_BUF, W_CMOD, W_LCD = 130, 120, 170, 140
-Y0 = 90
-out = []
+SUBTITLE = "Michael as built, 2026-10-03. Pins with the same label are connected; × is not connected."
 
+W65C02 = (["VPB", "RDY", "PHI1O", "IRQB", "MLB", "NMIB", "SYNC", "VDD"] + [f"A{i}" for i in range(12)] +
+          ["VSS", "A12", "A13", "A14", "A15"] + [f"D{i}" for i in range(7, -1, -1)] +
+          ["RWB", "NC", "BE", "PHI2", "SOB", "PHI2O", "RESB"])
+W65C22 = (["VSS"] + [f"PA{i}" for i in range(8)] + [f"PB{i}" for i in range(8)] +
+          ["CB1", "CB2", "VDD", "IRQB", "RWB", "CS2B", "CS1", "PHI2"] + [f"D{i}" for i in range(7, -1, -1)] +
+          ["RESB", "RS3", "RS2", "RS1", "RS0", "CA2", "CA1"])
+X28C256 = ["A14", "A12", "A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0", "D0", "D1", "D2", "GND", "D3", "D4",
+           "D5", "D6", "D7", "/CE", "A10", "/OE", "A11", "A9", "A8", "A13", "/WE", "VCC"]
+LVC245 = ["DIR"] + [f"A{i}" for i in range(1, 9)] + ["GND"] + [f"B{i}" for i in range(8, 0, -1)] + ["/OE", "VCC"]
+CMOD = [f"PIO{i}" for i in range(1, 49)]
+CMOD[23], CMOD[24] = "VU", "GND"
 
-def text(x, y, s, anchor="start", size=12, weight="normal", fill="#1f2328"):
-    out.append(f'<text x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" text-anchor="{anchor}" '
-               f'fill="{fill}">{escape(s)}</text>')
-
-
-def line(x1, y1, x2, y2, color="#1f2328", width=1.4, dash=None):
-    d = f' stroke-dasharray="{dash}"' if dash else ""
-    out.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{color}" stroke-width="{width}"{d}/>')
+BUSES = {f"A{i}": f"A{i}" for i in range(16)} | {f"D{i}": f"D{i}" for i in range(8)}
+PORT_A_USES = {"PA0": "FPGA E", "PA1": "FPGA CSB", "PA2": "LED, FPGA RSTB", "PA3": "keyboard SOLB",
+               "PA4": "keyboard SOEB", "PA5": "LCD RS, kbd START/ACK, FPGA DC", "PA6": "LCD RW, kbd PARITY",
+               "PA7": "LCD E"}
 
 
-def box(x, y, w, h, title, subtitle=None):
-    out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="6" fill="#f6f8fa" stroke="#1f2328" '
-               f'stroke-width="1.6"/>')
-    text(x + w / 2, y - 22, title, "middle", 14, "bold")
-    if subtitle:
-        text(x + w / 2, y - 7, subtitle, "middle", 11, fill="#59636e")
+def core(board):
+    s = Sheet(board, "Michael: CPU, memory, clock and reset (1 of 3)", SUBTITLE, 1160, 1060)
+    s.dip("U1", "W65C02S", 170, 110, W65C02, BUSES | {
+        "RDY": "RDY", "IRQB": "IRQB", "NMIB": "+5V", "VDD": "+5V", "VSS": "GND", "RWB": "RWB", "BE": "+5V",
+        "PHI2": "PHI2", "RESB": "RESB"}, width=130)
+    memory = {name: name for name in X28C256 if name[0] in "AD"} | {"GND": "GND", "VCC": "+5V"}
+    s.dip("U2", "AT28C256 EEPROM", 570, 110, X28C256, memory | {"/CE": "/A15", "/OE": "GND", "/WE": "+5V"})
+    s.dip("U6", "62256 RAM", 900, 110, X28C256, memory | {"/CE": "RAM/CE", "/OE": "A14", "/WE": "RWB"})
+
+    y = 600
+    s.ic("X1", "2 MHz oscillator", 170, y, left=[(1, "NC", None), (7, "GND", "GND")],
+         right=[(14, "VCC", "+5V"), (8, "OUT", "PHI2")], width=80)
+    s.two_pin("resistor", "R1", "1k", 420, y, "+5V", "RESB")
+    s.two_pin("capacitor", "C1", "0.1 µF", 500, y, "RESB", "GND")
+    s.two_pin("switch", "SW1", "reset", 590, y, "RESB", "GND")
+    s.two_pin("resistor", "R2", "1k", 670, y, "+5V", "RDY")
+    u4 = [(1, "1A", None), (2, "1B", None), (3, "1Y", None), (7, "GND", "GND"), (14, "VCC", "+5V")]
+    for i, (unit, a, b, out) in enumerate((("U4D", (12, "A15"), (13, "A15"), (11, "/A15")),
+                                           ("U4C", (9, "PHI2"), (10, "/A15"), (8, "RAM/CE")),
+                                           ("U4B", (4, "A14"), (5, "/A15"), (6, "VIA/CS2")))):
+        gy = y + 10 + i * 70
+        u4 += s.nand(830, gy, a, b, out)
+        s.text(852, gy - 6, unit, "middle", 11.5, "bold")
+    s.text(852, y + 228, "74HC00; U4A (1–3) unused", "middle", 10.5, fill=MUTED)
+    board.add("U4", u4)
+    for i in range(3):
+        s.two_pin("capacitor", f"C{i + 2}", "0.1 µF", 420 + i * 85, y + 150, "+5V", "GND", length=70)
+    s.text(505, y + 255, "bypass", "middle", 10.5, fill=MUTED)
+
+    y = s.note(24, 880, [
+        "As Ben Eater's schematic (ben-eater-6502-schematic.png), with the same reference designators (new parts start at R8),",
+        "except that X1 runs at 2 MHz (CLOCK_FREQ_KHZ = 2000 in base_config_v2.inc; Ben's is 1 MHz).",
+        "Memory map: RAM $0000–$3FFF, VIA $6000–$7FFF, ROM $8000–$FFFF. Writes to $4000–$7FFF also go to the RAM, into its",
+        "upper half, which can't be read (A14 drives /OE).",
+        "RESB also goes to the VIA and, through Z1, to the USB serial adapter's DTR (sheet 2)."], "Notes")
+    s.note(24, y + 6, [
+        "X1: the part, and that it is 2 MHz (the firmware's timing says so).",
+        "U4A: Ben's schematic doesn't show its inputs. Tied to GND or +5V, or left open?",
+        "Where Michael's +5V comes from (the USB serial adapter, or a separate supply)."], "To confirm", NOTE)
+    return s
 
 
-def resistor(x, y, label):
-    """A 10k tie drawn horizontally from (x, y) to a rail label at its right."""
-    line(x, y, x + 12, y)
-    out.append(f'<rect x="{x + 12}" y="{y - 5}" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>')
-    line(x + 38, y, x + 50, y)
-    text(x + 54, y + 4, label, size=11, fill="#59636e")
+def io(board):
+    s = Sheet(board, "Michael: VIA, LCD, LED, keyboard board and serial (2 of 3)", SUBTITLE, 1300, 1000)
+    via = {f"P{p}{i}": f"P{p}{i}" for p in "AB" for i in range(8)} | {
+        f"RS{i}": f"A{i}" for i in range(4)} | {f"D{i}": f"D{i}" for i in range(8)} | {
+        "VSS": "GND", "VDD": "+5V", "IRQB": "IRQB", "RWB": "RWB", "CS2B": "VIA/CS2", "CS1": "A13",
+        "PHI2": "PHI2", "RESB": "RESB", "CA2": "CA2", "CB2": "CB2"}
+    s.dip("U5", "W65C22 VIA", 390, 110, W65C22, via, width=130, notes=PORT_A_USES | {
+        "CA2": "keyboard IRQ", "CB2": "serial in", "CB1": "shift clock out"})
+
+    lcd = [(1, "VSS", "GND"), (2, "VDD", "+5V"), (3, "V0", "V0"), (4, "RS", "PA5"), (5, "RW", "PA6"),
+           (6, "E", "PA7")] + [(7 + i, f"DB{i}", f"PB{i}") for i in range(8)] + [(15, "A", "+5V"),
+                                                                                 (16, "K", "GND")]
+    s.ic("U3", "20×4 LCD (HD44780)", 790, 110, left=lcd, width=110)
+    s.pot("RV1", "10k contrast", 860, 490, "+5V", "V0", "GND")
+
+    s.two_pin("resistor", "R8", "?", 790, 650, "PA2", "LED")
+    s.two_pin("led", "D1", "LED", 870, 650, "LED", "GND", names=("A", "K"))
+
+    kbd = [(1, "VCC", "+5V"), (2, "GND", "GND"), (3, "IRQ", "CA2"), (4, "KBD_CLK_OUT", "PA3"),
+           (5, "REG_OE", "PA4"), (6, "DE", "PA5"), (7, "DP", "PA6")] + [
+        (8 + i, f"D{7 - i}", f"PB{7 - i}") for i in range(8)]
+    s.ic("J1", "keyboard board (its J2)", 1120, 110, left=kbd, width=120,
+         caption="michael-bidirectional-PS2-…-v-1.0.pdf")
+    serial = [(None, "DTR", "DTR"), (None, "RXD", None), (None, "TXD", "CB2"), (None, "5V", None),
+              (None, "GND", "GND")]
+    s.ic("J2", "USB serial (CP2102)", 1120, 500, left=serial, width=120, caption="to the host PC")
+    s.two_pin("box", "Z1", "DTR → reset", 1000, 640, "DTR", "RESB")
+
+    y = s.note(24, 800, [
+        "PORTB is shared by the LCD, the keyboard board (its 74HC595s drive it while SOEB is low; its 74HC165s load it",
+        "while SOLB is low) and the FPGA. The keyboard driver saves and restores PORTA, PORTB and their DDRs in its interrupt.",
+        "Serial is received only: CB2 is the shift register's input, timed by T2 (firmware/lib/serial/), so CB1 is its clock out.",
+        "J1's pins and the PA3–PA6 uses are from base_config_v2.inc, keyboard_driver.inc and the keyboard board's schematic."],
+        "Notes")
+    s.note(24, y + 6, [
+        "Ben's buttons SW2–SW6 and pull-ups R3–R7 on PA0–PA4: removed (those pins now go to the FPGA, LED and keyboard)?",
+        "Z1: how DTR reaches RESB (wire, diode or capacitor). Uploads hold DTR for 0.1 s to reset and then release it.",
+        "LED polarity and R8: upload_v3.inc lights the LED by setting PA2 (as drawn); michael_ports.inc's comment says the opposite.",
+        "LCD backlight (pins 15 and 16) straight to +5V and GND, as Ben's? J2's 5V: connected?"], "To confirm", NOTE)
+    return s
 
 
-def buffer_block(rows, y_top, name, note):
-    h = len(rows) * ROW + 16
-    box(X_BUF, y_top - 18, W_BUF, h + 4, name, note)
-    for i, (sig, via_pin, b, b_pin, a, a_pin, cmod_pin, fpga) in enumerate(rows):
-        y = y_top + i * ROW
-        text(X_BUF + 8, y + 4, f"{b_pin} {b}", size=11)
-        text(X_BUF + W_BUF - 8, y + 4, f"{a} {a_pin}", "end", 11)
-        # A side to the Cmod
-        line(X_BUF + W_BUF, y, X_CMOD, y)
-        text(X_CMOD + 8, y + 4, f"{cmod_pin}", size=11, weight="bold")
-        text(X_CMOD + 32, y + 4, fpga, size=11, fill="#59636e")
-        if sig:   # B side from Michael
-            line(X_VIA + W_VIA, y, X_BUF, y)
-            text(X_VIA + W_VIA - 8, y + 4, f"{sig} {via_pin}", "end", 11)
-        else:     # backlight level: a tie for now
-            out.append(f'<line x1="{X_BUF}" y1="{y}" x2="{X_BUF - 70}" y2="{y}" stroke="#1f2328" stroke-width="1.4"/>')
-            out.append(f'<rect x="{X_BUF - 110}" y="{y - 5}" width="26" height="10" fill="#ffffff" stroke="#1f2328"/>')
-            line(X_BUF - 84, y, X_BUF - 70, y)
-            line(X_BUF - 124, y, X_BUF - 110, y)
-            text(X_BUF - 128, y + 4, "3.3 V, 10k (backlight on)", "end", 11, fill="#59636e")
-    return y_top + len(rows) * ROW
+def fpga(board):
+    s = Sheet(board, "Michael: FPGA display interface (3 of 3)", SUBTITLE + " U7, U8 and U10 run from +3V3.",
+              1360, 1060)
+    data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
+    power = {"DIR": "GND", "/OE": "GND", "GND": "GND", "VCC": "+3V3"}
+    s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power, width=110)
+    control = {"B1": "PA0", "B2": "PA1", "B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B6": "U8.B6", "B7": "U8.B7",
+               "B8": "U8.B8", "A1": "e", "A2": "csb", "A3": "rstb", "A4": "dc", "A5": "bl"}
+    s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power, width=110)
+    s.two_pin("capacitor", "C5", "100 nF", 110, 360, "+3V3", "GND", length=70)
+    s.two_pin("capacitor", "C6", "100 nF", 180, 360, "+3V3", "GND", length=70)
+    s.two_pin("resistor", "R9", "10k", 110, 700, "+3V3", "U8.B5")
+    s.text(110, 830, "backlight on", "middle", 10.5, fill=MUTED)
+    for i in range(3):
+        s.two_pin("resistor", f"R{10 + i}", "10k", 180 + i * 70, 700, f"U8.B{6 + i}", "TIE")
+
+    lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
+    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {9: "e", 10: "csb", 11: "rstb", 12: "dc", 13: "bl",
+                                                   24: "VU", 25: "GND"} | {26 + i: n for i, n in enumerate(lcd)}
+    s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
+          caption="33–37 reserved for the touch controller")
+
+    display = [(None, "VCC", "+3V3"), (None, "GND", "GND"), (None, "CS", "lcd_cs"), (None, "RESET", "lcd_reset"),
+               (None, "DC", "lcd_dc"), (None, "SDI (MOSI)", "lcd_mosi"), (None, "SCK", "lcd_sck"),
+               (None, "LED", "lcd_led"), (None, "SDO (MISO)", "lcd_miso")] + [
+        (None, n, None) for n in ("T_CLK", "T_CS", "T_DIN", "T_DO", "T_IRQ")]
+    s.ic("U10", "ILI9341 240×320 (Adafruit)", 1130, 300, left=display, width=150)
+
+    s.ic("U11", "3.3 V regulator", 1130, 680, left=[(None, "IN", "+5V"), (None, "GND", "GND")],
+         right=[(None, "OUT", "+3V3")], width=110)
+    s.two_pin("diode", "D2", "diode", 1060, 820, "+5V", "VU", names=("A", "K"))
+
+    y = s.note(24, 900, [
+        "From ../fpga/spi-display/WIRING.md. Both '245s pass Michael's 5 V signals (B) to the Cmod (A) at 3.3 V: DIR and /OE are grounded.",
+        "Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc). U10's SDO is read only by the display probe.",
+        "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming."], "Notes")
+    s.note(24, y + 6, [
+        "R10–R12 (the unused inputs' ties): which rail TIE is, +3V3 or GND. U11 and D2: the parts, and U11's capacitors."],
+        "To confirm", NOTE)
+    return s
 
 
-y_data, y_ctrl = Y0, Y0 + 8 * ROW + 70
-end_ctrl = y_ctrl + len(CTRL) * ROW
+def build():
+    board = Board()
+    return board, {"michael-core.svg": core(board), "michael-io.svg": io(board),
+                   "michael-fpga-display.svg": fpga(board)}
 
-# Cmod A7 (drawn first so the buffers' pin labels land on top of it)
-cmod_top, cmod_bottom = Y0 - 18, end_ctrl + 130
-box(X_CMOD, cmod_top, W_CMOD, cmod_bottom - cmod_top, "Cmod A7-35T", "FPGA, 3.3 V I/O")
-text(X_CMOD + W_CMOD / 2, cmod_bottom - 64, "12 MHz clock", "middle", 11, fill="#59636e")
-text(X_CMOD + W_CMOD / 2, cmod_bottom - 48, "LD1 traffic, LD2 selected", "middle", 11, fill="#59636e")
-text(X_CMOD + 8, cmod_bottom - 22, "24 VU", size=11, weight="bold")
-text(X_CMOD + W_CMOD - 8, cmod_bottom - 22, "GND 25", "end", 11, weight="bold")
 
-# Michael's VIA: its box stops above the backlight row, which has no VIA signal
-box(X_VIA, Y0 - 18, W_VIA, (y_ctrl + 3 * ROW + 14) - (Y0 - 18), "Michael", "W65C22 VIA (5 V)")
-buffer_block(DATA, y_data, "U1 74LVC245", "data; DIR, /OE = GND (B→A)")
-buffer_block(CTRL, y_ctrl, "U2 74LVC245", "control; DIR, /OE = GND (B→A)")
-for i, (b, b_pin) in enumerate([("B6", 13), ("B7", 12), ("B8", 11)]):
-    y = end_ctrl + 30 + i * 18
-    text(X_BUF - 6, y + 4, f"{b_pin} {b}", "end", 11)
-    resistor(X_BUF - 2, y, "")
-text(X_BUF + 52, end_ctrl + 66, "10k ties (unused inputs)", size=11, fill="#59636e")
+def board():
+    return build()[0]
 
-# Display
-lcd_y0 = Y0 + 2 * ROW
-box(X_LCD, lcd_y0 - 2 * ROW - 18, W_LCD, (len(LCD) + 2) * ROW + 16, "ILI9341 display", "240×320, SPI")
-text(X_LCD + 8, lcd_y0 - 2 * ROW + 4, "VCC", size=11)
-text(X_LCD + 8, lcd_y0 - ROW + 4, "GND", size=11)
-line(X_LCD, lcd_y0 - 2 * ROW, X_LCD - 40, lcd_y0 - 2 * ROW)
-text(X_LCD - 44, lcd_y0 - 2 * ROW + 4, "3.3 V", "end", 11, fill="#59636e")
-line(X_LCD, lcd_y0 - ROW, X_LCD - 40, lcd_y0 - ROW)
-text(X_LCD - 44, lcd_y0 - ROW + 4, "GND (Cmod 25)", "end", 11, fill="#59636e")
-for i, (name, pin) in enumerate(LCD):
-    y = lcd_y0 + i * ROW
-    dashed = name == "SDO (MISO)"
-    line(X_CMOD + W_CMOD, y, X_LCD, y, dash="5 4" if dashed else None)
-    text(X_CMOD + W_CMOD - 8, y + 4, f"{pin}", "end", 11, weight="bold")
-    text(X_LCD + 8, y + 4, name, size=11)
-text(X_CMOD + W_CMOD + 6, lcd_y0 + len(LCD) * ROW + 4, "dashed: read only by the display probe", size=11, fill="#59636e")
-text(X_CMOD + W_CMOD + 6, lcd_y0 + len(LCD) * ROW + 22, "33–37: reserved for the touch controller (not connected)", size=11,
-     fill="#59636e")
 
-# Power
-py = cmod_bottom + 50
-text(X_VIA, py, "Power", size=14, weight="bold")
-items = ["Michael 5 V → 5 V rail → 3.3 V regulator → 3.3 V rail → U1, U2 VCC (pin 20), 100 nF each",
-         "5 V rail → diode (band towards the Cmod) → Cmod VU (24); USB only needed for programming",
-         "3.3 V rail → display VCC; Michael GND, both GND rails, U1/U2 pin 10, Cmod 25 and display GND joined"]
-for i, s in enumerate(items):
-    text(X_VIA, py + 22 + i * 18, s, size=12)
+def sheets():
+    return {name: sheet.svg() for name, sheet in build()[1].items()}
 
-height = py + 22 + len(items) * 18 + 20
-width = X_LCD + W_LCD + 30
-print(f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-      f'font-family="Helvetica, Arial, sans-serif">')
-print(f'<rect width="{width}" height="{height}" fill="#ffffff"/>')
-print("\n".join(out))
-print("</svg>")
+
+if __name__ == "__main__":
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name, svg in sheets().items():
+        with open(os.path.join(here, name), "w") as f:
+            f.write(svg)

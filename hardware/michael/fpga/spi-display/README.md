@@ -9,8 +9,8 @@ Working since 2026-10-03 with an Adafruit ILI9341 display. `michael_graphic_disp
 `michael_graphic_keyboard.s` run unchanged.
 
 - Wiring, pin by pin: [`WIRING.md`](WIRING.md)
-- Schematic: [`michael-fpga-display.svg`](../../schematics/michael-fpga-display.svg), drawn by
-  [`michael_schematic.py`](../../schematics/michael_schematic.py)
+- Schematic: [`michael-fpga-display.svg`](../../schematics/michael-fpga-display.svg), sheet 3 of
+  [Michael's schematics](../../schematics/)
 - Design: [`rtl/spi_bridge.v`](rtl/spi_bridge.v) (the interface), [`rtl/top.v`](rtl/top.v) (pins, backlight,
   touch, LEDs); testbench [`sim/tb_top.v`](sim/tb_top.v), which replays the driver's own write timings
   ([`../sim/michael_via.vh`](../sim/michael_via.vh)) against an ILI9341 model
