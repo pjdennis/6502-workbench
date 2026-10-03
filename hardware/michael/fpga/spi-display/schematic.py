@@ -12,8 +12,7 @@ CTRL = [("PA0 E", 2, "B1", 18, "A1", 2, 9, "e"),
         ("PA2 RSTB", 4, "B3", 16, "A3", 4, 11, "rstb"),
         ("PA5 DC", 7, "B4", 15, "A4", 5, 12, "dc"),
         (None, None, "B5", 14, "A5", 6, 13, "bl")]
-LCD = [("CS", 26), ("RESET", 27), ("DC", 28), ("SDI (MOSI)", 29), ("SCK", 30), ("LED", 31), ("SDO (MISO)", 32),
-       ("T_CLK", 33), ("T_CS", 34), ("T_DIN", 35), ("T_DO", 36), ("T_IRQ", 37)]
+LCD = [("CS", 26), ("RESET", 27), ("DC", 28), ("SDI (MOSI)", 29), ("SCK", 30), ("LED", 31), ("SDO (MISO)", 32)]
 
 X_VIA, X_BUF, X_CMOD, X_LCD = 40, 330, 640, 1010     # left edges of the four blocks
 W_VIA, W_BUF, W_CMOD, W_LCD = 130, 120, 170, 140
@@ -93,27 +92,29 @@ text(X_BUF + 52, end_ctrl + 66, "10k ties (unused inputs)", size=11, fill="#5963
 
 # Display
 lcd_y0 = Y0 + 2 * ROW
-box(X_LCD, lcd_y0 - 2 * ROW - 18, W_LCD, (len(LCD) + 2) * ROW + 16, "ILI9341 module", "240×320, J1 open")
+box(X_LCD, lcd_y0 - 2 * ROW - 18, W_LCD, (len(LCD) + 2) * ROW + 16, "ILI9341 display", "240×320, SPI")
 text(X_LCD + 8, lcd_y0 - 2 * ROW + 4, "VCC", size=11)
 text(X_LCD + 8, lcd_y0 - ROW + 4, "GND", size=11)
 line(X_LCD, lcd_y0 - 2 * ROW, X_LCD - 40, lcd_y0 - 2 * ROW)
-text(X_LCD - 44, lcd_y0 - 2 * ROW + 4, "5 V", "end", 11, fill="#59636e")
+text(X_LCD - 44, lcd_y0 - 2 * ROW + 4, "3.3 V", "end", 11, fill="#59636e")
 line(X_LCD, lcd_y0 - ROW, X_LCD - 40, lcd_y0 - ROW)
 text(X_LCD - 44, lcd_y0 - ROW + 4, "GND (Cmod 25)", "end", 11, fill="#59636e")
 for i, (name, pin) in enumerate(LCD):
     y = lcd_y0 + i * ROW
-    dashed = name in ("SDO (MISO)", "T_DO", "T_IRQ")
+    dashed = name == "SDO (MISO)"
     line(X_CMOD + W_CMOD, y, X_LCD, y, dash="5 4" if dashed else None)
     text(X_CMOD + W_CMOD - 8, y + 4, f"{pin}", "end", 11, weight="bold")
     text(X_LCD + 8, y + 4, name, size=11)
-text(X_CMOD + W_CMOD + 6, lcd_y0 + len(LCD) * ROW + 4, "dashed: wired, not yet used", size=11, fill="#59636e")
+text(X_CMOD + W_CMOD + 6, lcd_y0 + len(LCD) * ROW + 4, "dashed: read only by the display probe", size=11, fill="#59636e")
+text(X_CMOD + W_CMOD + 6, lcd_y0 + len(LCD) * ROW + 22, "33–37: reserved for the touch controller (not connected)", size=11,
+     fill="#59636e")
 
 # Power
 py = cmod_bottom + 50
 text(X_VIA, py, "Power", size=14, weight="bold")
 items = ["Michael 5 V → 5 V rail → 3.3 V regulator → 3.3 V rail → U1, U2 VCC (pin 20), 100 nF each",
          "5 V rail → diode (band towards the Cmod) → Cmod VU (24); USB only needed for programming",
-         "5 V rail → display VCC; Michael GND, both GND rails, U1/U2 pin 10, Cmod 25 and display GND joined"]
+         "3.3 V rail → display VCC; Michael GND, both GND rails, U1/U2 pin 10, Cmod 25 and display GND joined"]
 for i, s in enumerate(items):
     text(X_VIA, py + 22 + i * 18, s, size=12)
 

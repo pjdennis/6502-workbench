@@ -23,9 +23,9 @@ A pass ends with `PASS: all 350 steps matched`. `make test` runs the simulation 
 ## Troubleshooting
 
 - **The start marker never arrives, and Michael's LCD shows `Ready`:** the upload never reached Michael.
-  The upload tools' serial daemon can get stuck; stop it with `python3 tools/upload/transfer.py --daemon stop`.
-  The next upload starts a new one. While the Cmod is plugged in, auto-detection finds several serial
-  ports, so give Michael's: `python3 check.py --michael-port=/dev/serial/by-id/usb-Silicon_Labs_CP2102_...`.
+  The upload tools' serial daemon can get stuck; stop it with `python3 tools/upload/transfer.py --daemon stop`,
+  and the next upload starts a new one. Auto-detection skips the Cmod's serial ports
+  (`tools/upload/ignored-serial-ports.txt`), so Michael's is found even with the Cmod plugged in.
 - **The report stalls part-way, or starts with nonsense:** the FPGA may have started with wrong register
   values. That's the JTAG/flash race described in the kit's README ("The JTAG/flash race"): a JTAG load
   restarts the boot from flash, and a fast flash boot can finish first. Bitstreams from kit commit

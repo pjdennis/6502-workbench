@@ -161,7 +161,7 @@ def main():
     start = find_start(got)
     if start is None:
         print("The start marker never arrived. If Michael's LCD shows 'Ready', the upload didn't reach it: try\n"
-              "  python3 tools/upload/transfer.py --daemon stop   (then rerun with --michael-port=<Michael's port>)\n"
+              "  python3 tools/upload/transfer.py --daemon stop   (then rerun)\n"
               "Everything the FPGA reported:")
         print("\n".join(got[-40:]))
         sys.exit(1)

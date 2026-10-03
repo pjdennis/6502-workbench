@@ -5,11 +5,18 @@ board that had no schematic. Michael's display driver,
 [`firmware/lib/graphics/graphics_display.inc`](../../../../firmware/lib/graphics/graphics_display.inc), is
 unchanged: the FPGA reproduces what that driver expects.
 
+Working since 2026-10-03 with an Adafruit ILI9341 display. `michael_graphic_display_test.s` and
+`michael_graphic_keyboard.s` run unchanged.
+
 - Wiring, pin by pin: [`WIRING.md`](WIRING.md)
 - Schematic: [`schematic.svg`](schematic.svg), drawn by [`schematic.py`](schematic.py)
   (`python3 schematic.py > schematic.svg`)
 - Design: [`rtl/spi_bridge.v`](rtl/spi_bridge.v) (the interface), [`rtl/top.v`](rtl/top.v) (pins, backlight,
-  touch, LEDs); testbench [`sim/tb_top.v`](sim/tb_top.v)
+  touch, LEDs); testbench [`sim/tb_top.v`](sim/tb_top.v), which replays the driver's own write timings
+  ([`../sim/michael_via.vh`](../sim/michael_via.vh)) against an ILI9341 model
+- Bring-up tools, each a separate FPGA design loaded over JTAG:
+  - [`../input-check/`](../input-check/): checks the wiring from Michael's VIA to the FPGA, end to end.
+  - [`../display-probe/`](../display-probe/): checks the display and its wiring without Michael.
 
 ![Schematic](schematic.svg)
 
@@ -52,14 +59,28 @@ The Cmod runs from Michael's 5 V through its VU pin, so USB is only needed for p
 
 ## Bring-up
 
-1. Before connecting Michael: with the Cmod on USB, `make flash`. LD1 and LD2 stay off and the backlight is on.
-2. Connect Michael and power up. The display shows nothing until a program initialises it.
-3. Upload a graphics program, e.g.
+1. Wire as in [`WIRING.md`](WIRING.md). With the Cmod on USB, `make flash`: the interface then starts on its own
+   at every power-up. LD1 and LD2 stay off and the backlight comes on.
+2. Check the inputs: `make -C ../input-check check` uploads a test program to Michael and compares what
+   the FPGA sees, wire by wire.
+3. Check the display: `make -C ../display-probe probe` reads the display's registers back, initialises it
+   exactly as Michael's driver does, and cycles colours. None of this involves Michael.
+4. Upload a graphics program, e.g.
    `tools/upload/compile_and_upload_michael.sh firmware/programs/michael/michael_graphic_display_test.s`.
    LD2 lights while the display is selected, and LD1 flashes while bytes go out.
+
+Steps 2 and 3 load their own designs into the FPGA. Power-cycle the Cmod, or `make reset` here, to go back to
+the interface in flash.
+
+A display that stays plain white while the probe reports it awake and on is faulty. The first module
+tried (a red "240X320 V1.2" board, which had worked before) was such a case. It answered every register read
+correctly (ID `00 93 41`, power mode `9C`), and even read back the colours written to its memory. But its
+panel never showed anything, whatever the supply or initialisation. An Adafruit module on the same wiring
+worked at once.
 
 ## Reserved for later
 
 - **Backlight brightness:** drive B5 from a spare output (or PWM it in the FPGA) instead of the tie.
-- **Reading the display:** SDO (MISO) is wired to Cmod pin 32, but nothing reads it yet.
-- **Touch:** the XPT2046's pins are wired (Cmod 33–37). The FPGA holds T_CS high so it stays idle.
+- **Reading the display:** SDO (MISO) is wired to Cmod pin 32. Only the display probe reads it.
+- **Touch:** Cmod pins 33–37 are reserved for the touch controller, which isn't connected yet. The FPGA holds
+  T_CS high so a connected controller would stay idle.

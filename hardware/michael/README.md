@@ -4,7 +4,7 @@ The second board (v2, 2021). It started as an alternative way to build Ben Eater
 
 The keyboard board's schematic is [`docs/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](../../docs/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf). It finds the end of each byte by waiting for the clock to go idle. Some keyboards send their command replies too quickly for that, and a byte is lost. See [`docs/michael-keyboard-frame-detection.md`](../../docs/michael-keyboard-frame-detection.md) for the measurements and the recommended change.
 
-The SPI graphic display's interface board is being replaced by an FPGA (a Digilent Cmod A7-35T) that the unchanged display driver talks to: wiring, schematic and design in [`fpga/spi-display/`](fpga/spi-display/).
+The SPI graphic display's interface board has been replaced by an FPGA (a Digilent Cmod A7-35T), working since 2026-10-03, that the unchanged display driver talks to. Wiring, schematic and design are in [`fpga/spi-display/`](fpga/spi-display/), with bring-up tools for the inputs ([`fpga/input-check/`](fpga/input-check/)) and the display ([`fpga/display-probe/`](fpga/display-probe/)).
 
 Firmware for the finished board: `firmware/boards/michael/` (`base_config_v2.inc`) and `firmware/programs/michael/`.
 
