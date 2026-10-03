@@ -21,8 +21,6 @@ module tb_top;
   `TB_CLOCK(clk, 41.667, 10_000_000)  // 12 MHz
 
   // ---- Michael ----------------------------------------------------------------------------------
-  task cycles(input integer n); #(n * CPU_NS); endtask
-
   // Bytes the display should receive, in order, with the DC level each is sent with. Recorded as E
   // rises, since the FPGA may finish sending a byte before Michael lowers E again.
   reg [7:0] exp_byte [0:1023];
@@ -32,37 +30,7 @@ module tb_top;
     begin exp_byte[n_exp] = b; exp_dc[n_exp] = d; n_exp = n_exp + 1; end
   endtask
 
-  task gd_configure;   begin cycles(8); e = 1'b0; cycles(8); {rstb, csb} = 2'b11; end endtask
-  task gd_reset;       begin cycles(6); rstb = 1'b0; cycles(40); rstb = 1'b1; cycles(40); end endtask
-  task gd_select;      begin cycles(11); dc = 1'b1; cycles(8); csb = 1'b0; cycles(10); end endtask
-  task gd_unselect;    begin cycles(11); csb = 1'b1; cycles(8); dc = 1'b0; cycles(10); end endtask
-
-  // jsr gd_send_data: sta PORTB / lda #GD_E / tsb GD_PORT / trb GD_PORT / rts
-  task gd_send_data(input [7:0] b);
-    begin
-      cycles(6 + 4); portb = b;
-      cycles(2 + 6); if (!csb) expect_byte(b, dc); e = 1'b1;
-      cycles(6);     e = 1'b0;
-      cycles(6);
-    end
-  endtask
-
-  // gd_send_command: DC low for one byte, high again after E has fallen
-  task gd_send_command(input [7:0] b);
-    begin cycles(3 + 2 + 6); dc = 1'b0; cycles(4); gd_send_data(b); cycles(2 + 6); dc = 1'b1; cycles(6); end
-  endtask
-
-  // send_zero_data's unrolled loop: sta PORTA,Y (E high) / stx PORTA (E low), one byte every 9 cycles
-  task fast_fill(input [7:0] b, input integer n);
-    integer i;
-    begin
-      cycles(4); portb = b;
-      for (i = 0; i < n; i = i + 1) begin
-        cycles(5); expect_byte(b, dc); e = 1'b1;
-        cycles(4); e = 1'b0;
-      end
-    end
-  endtask
+  `include "../sim/michael_via.vh"
 
   // ---- ILI9341 (4-wire SPI, mode 0, MSB first) ------------------------------------------------------
   integer n_rx = 0, bits = 0;
