@@ -1,6 +1,6 @@
 # Web-audio drift in the wendy2c emulator's web UI
 
-> **Status (2026-09-30): still open.** Checked against `web/wendy2c.js`
+> **Status (2026-09-30): still open.** Checked against `web/board.js`
 > (`playAudioFrame` still has only the one-sided `audioNextTime` resync and no
 > AudioWorklet) and `web_server.c` (8192-sample ring, frames of up to 2000
 > samples): section 1 describes the current code and section 3 is not implemented.
@@ -39,7 +39,7 @@ reference — nothing here is implemented yet.
   are dropped on the wire**. Backpressure shows up as growing kernel
   send buffer, then a growing JS receive queue.
 
-### Wire → speakers (`web/wendy2c.js`)
+### Wire → speakers (`web/board.js`)
 
 - `handleBinary` unpacks the `0x01` frames into `Int16Array` and calls
   `playAudioFrame`.

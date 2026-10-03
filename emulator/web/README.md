@@ -8,18 +8,19 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 | File | Role |
 |---|---|
-| `wendy2c.html` | page (served at `/`): LCD canvas, the two LEDs (PB6, PA2), control and reset buttons, VIA port pin table, status line |
-| `board.js` | the client the pages share: draws the LCD per pixel, builds and fills the pin table, lights the LEDs (`data-led`), handles the WebSocket, plays the audio, sends reset |
-| `wendy2c.js` | wendy2c's pin labels and its control button (SPACE also presses it, R resets) |
-| `michael.html` | michael's page (served at `/`): the 20x4 LCD, the LED (PA2), reset, pin table, status line |
-| `michael.js` | michael's pin labels; sends keys typed or pasted on the page to the PS/2 keyboard |
+| `index.html` | the page (served at `/`) for every machine: LCD canvas, controls, VIA port pin table, status line |
+| `board.js` | the client: builds the page for the machine the server names (title, LEDs, control button, reset, keys, pin table), draws the LCD per pixel, lights the LEDs, handles the WebSocket, plays the audio |
+| `machines.js` | each machine's description: wendy2c's two LEDs (PB6, PA2) and control button (SPACE holds it, R resets); michael's LED (PA2) and keyboard; their pin labels |
+| `keyboard.js` | for michael: keys typed or pasted on the page as the bytes a terminal sends, for the PS/2 keyboard |
 | `board.css` | styling |
 | `hd44780_a00_font.js` | the HD44780 A00 character ROM as base64 tables, captured from the real wendy2c panel and written by `tools/lcd-ocr/apply_font_to_emulator.py` (which also writes `../chips/hd44780_a00_font.h`); the first version came from the datasheet via `../tools/extract_hd44780_font.py` (see `../tools/README_hd44780_font.md`) |
 
 ## Protocol
 
-One WebSocket on the same port. Server to browser: JSON text frames with
-a state snapshot (LCD contents and CGRAM, VIA pins, `leds` in the order
+One WebSocket on the same port. Server to browser: first
+`{"type":"hello","machine":"wendy2c"|"michael"}`, which picks the
+machine description the page builds itself from; then JSON text frames
+with a state snapshot (LCD contents and CGRAM, VIA pins, `leds` in the order
 the page numbers them, `btn`, `f5x10` mode, clock) about every 33 ms,
 and, from wendy2c, binary frames tagged `0x01` followed by little-endian
 int16 mono samples (the PB7 piezo line, 22050 Hz). Browser to server

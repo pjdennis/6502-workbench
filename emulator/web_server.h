@@ -10,19 +10,23 @@
  * Design:
  *   - Single-threaded, driven by the machine's --web batch loop.
  *   - Non-blocking listening socket + per-client fds.
- *   - HTTP: serves a few static files from web_root (the machine's
- *     page, css, js).
+ *   - HTTP: serves a few static files from web_root (index.html,
+ *     css, js): one page for every machine.
  *   - WebSocket: text frames only (JSON state snapshots + commands).
  *     Frames up to 64 KiB; longer payloads close the connection.
  *
  * State direction:
- *   server -> client: web_server_broadcast() pushes a JSON snapshot
+ *   server -> client: {"type":"hello","machine":"<machine>"} first on
+ *                     each connection, so the page knows which board
+ *                     to draw; then web_server_broadcast() pushes a
+ *                     JSON snapshot
  *   client -> server: web_server_poll() returns queued events
  *
- * Up to WEB_MAX_CLIENTS concurrent WS clients. New connects
- * past the cap get HTTP 503. */
+ * Up to WEB_MAX_CLIENTS concurrent connections, HTTP or WS: enough for
+ * a browser fetching the page's files in parallel (six) beside its WS,
+ * and a few more pages. New connects past the cap get HTTP 503. */
 
-#define WEB_MAX_CLIENTS 4
+#define WEB_MAX_CLIENTS 16
 #define WEB_MAX_LEDS 4
 
 struct web_server;
@@ -75,8 +79,8 @@ struct web_event {
 
 /* Start listening on the given TCP port. Returns NULL on error
  * (diagnostic printed to stderr). `machine` names the board: it
- * prefixes the log lines ("<machine>-web: ...") and `/` serves
- * <machine>.html. `bind_addr` is the IPv4 address to bind to (NULL or
+ * prefixes the log lines ("<machine>-web: ...") and each connection's
+ * hello. `bind_addr` is the IPv4 address to bind to (NULL or
  * "127.0.0.1" = loopback only; "0.0.0.0" = all interfaces, reachable
  * from the LAN). `web_root` is the directory holding the pages,
  * board.css and the scripts; pass NULL to fall back to

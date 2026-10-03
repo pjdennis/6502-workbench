@@ -1,17 +1,16 @@
-// Board web UI shared by the machines' pages: state via WS JSON, audio
-// via WS binary, the LCD as a per-pixel canvas render, the LEDs, the
-// VIA pin table, the reset button and the status line. Glyphs come from
-// the HD44780 ROM Code A00 font (extracted from the datasheet — see
+// Board web UI: one page for every machine. The server's first message
+// names the machine ({"type":"hello","machine":...}), and the page
+// builds itself from that machine's description (machines.js): title,
+// LEDs, controls and VIA pin labels. Then: state via WS JSON, audio via
+// WS binary, the LCD as a per-pixel canvas render, the LEDs, the pin
+// table, the reset button and the status line. Glyphs come from the
+// HD44780 ROM Code A00 font (extracted from the datasheet — see
 // hd44780_a00_font.js). CGRAM patterns ride along in each state
 // snapshot. In 5x10 mode the LCD reports f5x10:1 and we render 10-row
 // glyphs with the cursor on row 10; CGRAM slots 0..3 each cover 11
 // bytes (10 dot rows + cursor).
 //
-// A page calls Board.start({ pins, onState }): pins gives the pin
-// labels, MSB first, as { a: [...], b: [...] } with highlighted labels
-// in { hl: { a: [...], b: [...] } }; onState(s) sees each snapshot after
-// the shared parts are drawn. Elements with data-led="i" light from
-// the snapshot's leds[i]. Board.send(obj) sends a message to the server.
+// Board.define(name, description) adds a machine; Board.start() connects.
 
 window.Board = (() => {
   const $ = (id) => document.getElementById(id);
@@ -189,19 +188,99 @@ window.Board = (() => {
       "DDR=$" + ddr.toString(16).padStart(2, "0").toUpperCase();
   }
 
-  let onState = () => {};
+  // ===== Machines =====
+  const machines = {};
+  let machineName = null;
+  let machine = null;        // the description of the machine on the page
+
+  function define(name, description) {
+    machines[name] = description;
+  }
+
+  // Build the page for the named machine: header, LEDs, controls, pins.
+  function mount(name) {
+    machineName = name;
+    machine = machines[name] || null;
+    document.body.dataset.machine = name;
+    document.title = name;
+    if (!machine) {
+      $("title").textContent = name;
+      $("controls").innerHTML = "";
+      $("pin-table").innerHTML = "";
+      setConn("off", `no description for machine "${name}"`);
+      return;
+    }
+    $("title").innerHTML = `${machine.title[0]}<span class="accent">${machine.title[1]}</span>`;
+
+    const indicator = (inner, label) =>
+      `<div class="indicator">${inner}<div class="indicator-label">${label}</div></div>`;
+    let html = (machine.leds || []).map((led, i) =>
+      indicator(`<div class="led${led.red ? " led-red" : ""}" id="${led.id}" data-led="${i}"></div>`, led.label)).join("");
+    if (machine.button) {
+      html += indicator(`<button class="btn" id="${machine.button.id}" aria-label="control button">` +
+                        `<span class="btn-cap"></span></button>`, machine.button.label);
+    }
+    html += indicator(`<button class="btn btn-reset" id="btn-reset" aria-label="reset (RES) button">` +
+                      `<span class="btn-cap">RST</span></button>`, "RESET");
+    if (machine.hint) html += `<div class="hint">${machine.hint}</div>`;
+    $("controls").innerHTML = html;
+
+    $("btn-reset").addEventListener("click", (e) => { unlockAudio(); reset(); e.preventDefault(); });
+    if (machine.button) {
+      const btn = $(machine.button.id);
+      btn.addEventListener("pointerdown", (e) => { unlockAudio(); press(1); e.preventDefault(); });
+      btn.addEventListener("pointerup",   () => press(0));
+      btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) press(0); });
+    }
+    buildPinTable($("pin-table"), machine.pins);
+  }
+
+  // The control button, held down or let go.
+  function press(down) {
+    $(machine.button.id).classList.toggle("held", !!down);
+    send({ type: "button", down: down ? 1 : 0 });
+  }
+
+  // Keys: on a machine with a keyboard they are typed on it; otherwise
+  // the button's key holds the button and the reset key resets.
+  let buttonKeyDown = false;
+  function onKeyDown(e) {
+    if (!machine) return;
+    if (machine.keyboard) {
+      const text = Keyboard.keyText(e);
+      if (text === null) return;
+      e.preventDefault();
+      Keyboard.messages(text).forEach(send);
+    } else if (machine.button && e.key === machine.button.key) {
+      if (!buttonKeyDown) { buttonKeyDown = true; unlockAudio(); press(1); }
+      e.preventDefault();
+    } else if (machine.resetKey && e.key.toLowerCase() === machine.resetKey) {
+      unlockAudio(); reset(); e.preventDefault();
+    }
+  }
+  function onKeyUp(e) {
+    if (machine && machine.button && e.key === machine.button.key && buttonKeyDown) {
+      buttonKeyDown = false; press(0); e.preventDefault();
+    }
+  }
+  function onPaste(e) {
+    if (!machine || !machine.keyboard) return;
+    Keyboard.messages(e.clipboardData.getData("text")).forEach(send);
+    e.preventDefault();
+  }
 
   function render(s) {
+    if (!machine) return;
     renderLcd($("lcd"), s.lcd);
     document.querySelectorAll("[data-led]").forEach((el) => {
       el.classList.toggle("on", !!s.leds[Number(el.dataset.led)]);
     });
+    if (machine.button) $(machine.button.id).classList.toggle("held", !!s.btn);
     fmtBitsRow("row-a", s.porta, s.ddra);
     fmtBitsRow("row-b", s.portb, s.ddrb);
     $("status-clock").textContent =
       `osc:${s.osc}  cpu:${s.cpu}  pc:$${s.pc.toString(16).padStart(4, "0").toUpperCase()}` +
       (s.stp ? "  [STP]" : "");
-    onState(s);
   }
 
   // ===== WebSocket =====
@@ -272,7 +351,9 @@ window.Board = (() => {
       if (typeof e.data === "string") {
         let obj;
         try { obj = JSON.parse(e.data); } catch { return; }
-        if (obj.type === "audio_init") {
+        if (obj.type === "hello") {
+          if (!machineName) mount(obj.machine);
+        } else if (obj.type === "audio_init") {
           audioRate = obj.rate;
           // Don't ensureAudioContext here -- browsers want a user
           // gesture first. We'll start it on the first button click
@@ -304,14 +385,14 @@ window.Board = (() => {
     send({ type: "reset" });
   }
 
-  function start(opts) {
-    buildPinTable($("pin-table"), opts.pins);
-    if (opts.onState) onState = opts.onState;
-    $("btn-reset").addEventListener("click", (e) => { unlockAudio(); reset(); e.preventDefault(); });
+  function start() {
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("paste", onPaste);
     // Any click on the document unlocks audio (browser-gesture policy).
     document.addEventListener("click", unlockAudio, { once: false });
     connect();
   }
 
-  return { start, send, reset, unlockAudio };
+  return { define, start };
 })();

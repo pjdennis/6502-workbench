@@ -140,8 +140,8 @@ emulator-side counterparts of `tools/upload/`).
 `--web-bind`): the LCD drawn dot by dot (CGRAM included), the LEDs, a
 reset button, the VIA's port pins and the clock, updated about 30 times
 a second. It runs uncapped and paced to the board's clock (or `--mhz`)
-until Ctrl-C. The page is `web/<machine>.html`; `web/README.md` has the
-files and the protocol.
+until Ctrl-C. The page (`web/index.html`) shows the machine the server
+names; `web/README.md` has the files and the protocol.
 
 - **wendy2c**: the 16x2 LCD (or `--lcd-panel 16x1-5x10`), the LEDs on
   PB6 and PA2, the control button (SPACE holds it, R resets), and the

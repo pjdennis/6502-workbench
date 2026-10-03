@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>wendy2c</title>
+  <title>6502 board</title>
   <link rel="stylesheet" href="/board.css">
 </head>
 <body>
   <main id="board">
-    <header><h1>wendy<span class="accent">2c</span></h1></header>
+    <header><h1 id="title">&nbsp;</h1></header>
 
     <section id="lcd-frame" aria-label="HD44780 LCD">
       <div id="lcd-bezel">
@@ -15,28 +15,7 @@
       </div>
     </section>
 
-    <section id="controls" aria-label="controls">
-      <div class="indicator">
-        <div class="led" id="led-morse" data-led="0"></div>
-        <div class="indicator-label">LED &middot; PB6</div>
-      </div>
-      <div class="indicator">
-        <div class="led led-red" id="led-control" data-led="1"></div>
-        <div class="indicator-label">LED &middot; PA2</div>
-      </div>
-      <div class="indicator">
-        <button class="btn" id="btn-press" aria-label="control button">
-          <span class="btn-cap"></span>
-        </button>
-        <div class="indicator-label">BTN &middot; PA1</div>
-      </div>
-      <div class="indicator">
-        <button class="btn btn-reset" id="btn-reset" aria-label="reset (RES) button">
-          <span class="btn-cap">RST</span>
-        </button>
-        <div class="indicator-label">RESET</div>
-      </div>
-    </section>
+    <section id="controls" aria-label="controls"></section>
 
     <section id="pins" aria-label="VIA 6522 pin state">
       <table id="pin-table"></table>
@@ -50,6 +29,8 @@
   </main>
   <script src="/hd44780_a00_font.js"></script>
   <script src="/board.js"></script>
-  <script src="/wendy2c.js"></script>
+  <script src="/keyboard.js"></script>
+  <script src="/machines.js"></script>
+  <script>Board.start();</script>
 </body>
 </html>

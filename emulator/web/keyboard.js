@@ -1,9 +1,9 @@
-// michael's page (see board.js for the shared parts): keys typed or
-// pasted on the page go to the PS/2 keyboard, as the bytes a terminal
-// sends for them (the server encodes them with ps2_keys.c, as --live
-// does). The LED is data-led 0 (PA2).
+// Keys for a machine with a PS/2 keyboard (michael): a keydown or pasted
+// text as the bytes a terminal sends, which the server types on the
+// keyboard with ps2_keys.c, as --live does. Board.js sends them for a
+// machine whose description has keyboard: true.
 
-(() => {
+window.Keyboard = (() => {
   const MAX_BYTES = 64;   // per message: WEB_JSON_BYTES_MAX
 
   const KEYS = {
@@ -30,30 +30,14 @@
     return null;
   }
 
-  function typeText(text) {
-    const bytes = [...text].map((c) => c.charCodeAt(0)).filter((b) => b < 0x80);
+  // The keys messages for text: ASCII only, pasted lines ending in Enter.
+  function messages(text) {
+    const bytes = [...text.replace(/\r\n?/g, "\n")].map((c) => c.charCodeAt(0)).filter((b) => b < 0x80);
+    const out = [];
     for (let at = 0; at < bytes.length; at += MAX_BYTES)
-      Board.send({ type: "keys", bytes: bytes.slice(at, at + MAX_BYTES) });
+      out.push({ type: "keys", bytes: bytes.slice(at, at + MAX_BYTES) });
+    return out;
   }
 
-  document.addEventListener("keydown", (e) => {
-    const text = keyText(e);
-    if (text === null) return;
-    e.preventDefault();
-    typeText(text);
-  });
-
-  // Pasted lines end in Enter.
-  document.addEventListener("paste", (e) => {
-    typeText(e.clipboardData.getData("text").replace(/\r\n?/g, "\n"));
-    e.preventDefault();
-  });
-
-  Board.start({
-    pins: {
-      a: ["E", "RW", "RS", "SOEB", "SOLB", "LED", "A1", "A0"],
-      b: ["D7", "D6", "D5", "D4", "D3", "D2", "D1", "D0"],
-      hl: { a: ["LED"] },
-    },
-  });
+  return { keyText, messages };
 })();

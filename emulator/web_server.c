@@ -127,7 +127,7 @@ struct web_server {
     int listen_fd;
     int port;
     char web_root[1024];
-    char machine[32];               /* log prefix; the page at / is <machine>.html */
+    char machine[32];               /* log prefix; named to the page in its hello */
     struct client clients[WEB_MAX_CLIENTS];
 
     /* FIFO of pending client-originated events. */
@@ -253,8 +253,8 @@ static void send_simple(struct client *c, int code, const char *status,
 }
 
 static void send_file(struct client *c, const struct web_server *srv, const char *path) {
-    /* Sanitize. The only files we serve (<machine>.html, board.css and
-     * the scripts) need none of: parent-dir navigation, double slashes,
+    /* Sanitize. The only files we serve (index.html, board.css and the
+     * scripts) need none of: parent-dir navigation, double slashes,
      * or any URL-percent-encoding. Rejecting any '%' in the path
      * forecloses the "encode .. as %2e%2e" bypass class without us
      * having to write a URL decoder. If a future asset needs %20 etc.
@@ -267,10 +267,8 @@ static void send_file(struct client *c, const struct web_server *srv, const char
         send_simple(c, 400, "Bad Request", "bad path\n");
         return;
     }
-    /* Default root -> the machine's page */
-    char page[48];
-    snprintf(page, sizeof(page), "/%s.html", srv->machine);
-    const char *rel = (strcmp(path, "/") == 0) ? page : path;
+    /* Default root -> index.html */
+    const char *rel = (strcmp(path, "/") == 0) ? "/index.html" : path;
     char full[2048];
     if (snprintf(full, sizeof(full), "%s%s", srv->web_root, rel) >= (int)sizeof(full)) {
         send_simple(c, 400, "Bad Request", "path too long\n");
@@ -312,8 +310,11 @@ static void send_file(struct client *c, const struct web_server *srv, const char
     fclose(f);
 }
 
-/* WebSocket handshake: compute Sec-WebSocket-Accept and emit 101. */
-static void do_ws_handshake(struct client *c, const char *key) {
+static void ws_send_text(struct client *c, const char *data, size_t n);
+
+/* WebSocket handshake: compute Sec-WebSocket-Accept and emit 101, then
+ * tell the page which machine this is, before any snapshot. */
+static void do_ws_handshake(struct client *c, const struct web_server *srv, const char *key) {
     static const char magic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     struct sha1_ctx h;
     sha1_init(&h);
@@ -333,6 +334,10 @@ static void do_ws_handshake(struct client *c, const char *key) {
         b64);
     queue_bytes(c, resp, n);
     c->state = CS_WS_OPEN;
+
+    char hello[80];
+    n = snprintf(hello, sizeof(hello), "{\"type\":\"hello\",\"machine\":\"%s\"}", srv->machine);
+    ws_send_text(c, hello, (size_t)n);
 }
 
 /* Parse a Header: value out of an HTTP request that's been NUL-
@@ -398,7 +403,7 @@ static int try_complete_request(struct client *c, const struct web_server *srv) 
             send_simple(c, 400, "Bad Request", "missing WS key\n");
             return 1;
         }
-        do_ws_handshake(c, key);
+        do_ws_handshake(c, srv, key);
         c->inlen = 0;
         return 1;
     }
