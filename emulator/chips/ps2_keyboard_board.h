@@ -7,7 +7,7 @@
 
 /* Michael's PS/2 keyboard board ("Bidirectional PS2 Keyboard Interface
  * Schematic v1.0",
- * docs/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)
+ * hardware/michael/schematics/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)
  * with a keyboard plugged in, modelled at frame level: the level of each
  * line over time, not every clock edge.
  *

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Draws schematic.svg for the FPGA SPI display interface (WIRING.md has the same connections as tables).
+"""Draws michael-fpga-display.svg for the FPGA SPI display interface (../fpga/spi-display/WIRING.md has the
+same connections as tables).
 
-Run: python3 schematic.py > schematic.svg
+Run: python3 michael_schematic.py > michael-fpga-display.svg
 """
 from xml.sax.saxutils import escape
 
