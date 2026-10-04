@@ -6,7 +6,7 @@
 include ../kit.mk
 
 TOP    := bus_check
-RTL    := rtl/bus_check.v ../rtl/michael_bus.v ../rtl/level_filter.v ../rtl/bus_control.v \
+RTL    := rtl/bus_check.v ../rtl/michael_bus.v ../rtl/level_filter.v ../rtl/bus_control.v ../rtl/fifo.v \
           $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v)
 XDC    := build/bus_check.xdc
 TB_DIR := sim
@@ -15,12 +15,9 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
-$(TB_PASS): ../sim/michael_fpga_bus.vh
+$(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh
 
-# The spi-display pins (its DC is the bus's RS), the Cmod's USB serial port and the bus's own pins
-$(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc ../constr/bus.xdc
-	@mkdir -p $(dir $@)
-	sed 's/{dc}/{rs}/' $^ > $@
+include ../bus.mk
 
 .DEFAULT_GOAL := all
 .PHONY: all check noise test-py

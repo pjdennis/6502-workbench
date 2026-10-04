@@ -12,80 +12,19 @@ module tb_bus_check;
   reg clk;
   `TB_CLOCK(clk, 41.667, 200_000_000)  // 12 MHz
 
-  // ---- The board ------------------------------------------------------------------------------------
-  reg        e = 1'b0, rs = 1'b0, rw = 1'b0, soeb = 1'b1, via_drive = 1'b0;
-  reg  [7:0] via_out = 8'h00, kbd_byte = 8'h00;
-  wire [7:0] portb, d_pins;
-  wire       d_oeb, d_dir;
-  wire       buf_to_michael = !d_oeb && d_dir, buf_to_fpga = !d_oeb && !d_dir;
-
-  assign portb  = via_drive      ? via_out  : 8'bz;
-  assign portb  = !soeb          ? kbd_byte : 8'bz;
-  assign portb  = buf_to_michael ? d_pins   : 8'bz;
-  assign d_pins = buf_to_fpga    ? portb    : 8'bz;
-
-  wire host_tx, fpga_tx, host_ready, rx_valid;
-  wire [7:0] rx_data;
-  reg  host_valid = 1'b0;
-  reg  [7:0] host_data = 8'h00;
+  // ---- The board, Michael and the PC -------------------------------------------------------------------
+  `include "../../sim/michael_board.vh"
+  wire host_tx, fpga_tx;
   wire [1:0] led;
 
   bus_check #(.CLKS_PER_BIT(CPB), .SERIAL_DEPTH(256), .ACTIVITY_CYCLES(100)) dut (
-    .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .csb(1'b1), .rstb(1'b1), .bl(1'b1),
+    .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pa1(1'b1), .pa2(1'b1), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(),
     .led(led));
 
-  // No two drivers on a net. Checked 1 ns after any change: the parts switch in zero time here, and the
-  // real ones take a few ns.
-  wire fpga_drives = dut.d_drive;
-  always @(via_drive, soeb, buf_to_michael, buf_to_fpga, fpga_drives) #1 begin
-    `CHECK(via_drive + !soeb + buf_to_michael <= 1, "two drivers on port B")
-    `CHECK(buf_to_fpga + fpga_drives <= 1, "two drivers on the D pins")
-  end
-  always @(d_dir) if ($time > 0) `CHECK_EQ(d_oeb, 1'b1, "DIR changed while the buffer was on")
-
-  // Reads: the byte reaches port B within 1 us of E rising, and the bus is released within 1 us of E
-  // falling (unless the keyboard board took port B first)
-  realtime t_e_rise = 0, t_e_fall = 0, t_drive = 0;
-  always @(posedge buf_to_michael) begin   // the read's first drive: later ones follow a keyboard interrupt
-    if (t_drive < t_e_rise) `CHECK($realtime - t_e_rise <= 1000.0, "byte on port B more than 1 us after E rose")
-    t_drive = $realtime;
-  end
-  always @(negedge buf_to_michael) if (!e)
-    `CHECK($realtime - t_e_fall <= 1000.0, "port B released more than 1 us after E fell")
-
   `include "../../sim/michael_fpga_bus.vh"
-
-  // ---- The PC ---------------------------------------------------------------------------------------
-  uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (.clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
-  uart_rx #(.CLKS_PER_BIT(CPB)) host_uart_rx (.clk(clk), .rx(fpga_tx), .valid(rx_valid), .data(rx_data));
-
-  reg [8*96-1:0] line = 0;   // the latest complete line received, without CR LF
-  reg [8*96-1:0] partial = 0;
-  integer n_lines = 0;
-  always @(posedge clk) if (rx_valid) begin
-    if (rx_data == 8'h0A) begin line = partial; partial = 0; n_lines = n_lines + 1; end
-    else if (rx_data != 8'h0D) partial = {partial[8*95-1:0], rx_data};
-  end
-
-  task send_host(input [7:0] b);
-    begin
-      host_data = b; host_valid = 1;
-      @(posedge clk); while (!host_ready) @(posedge clk);
-      #1 host_valid = 0;
-    end
-  endtask
-
-  task expect_line(input [8*96-1:0] exp, input [8*40-1:0] what);
-    integer lines_before, waited;
-    begin
-      lines_before = n_lines;
-      for (waited = 0; n_lines == lines_before && waited < 20000; waited = waited + 1) #1000;
-      if (line !== exp) $display("got \"%0s\", expected \"%0s\"", line, exp);
-      `CHECK(line === exp, what)
-    end
-  endtask
+  `include "../../sim/host_serial.vh"
 
   // ---- Michael's side, with counts to compare with the FPGA's ------------------------------------------
   integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0, bounces = 0;

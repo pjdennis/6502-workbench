@@ -29,9 +29,9 @@ module bus_check #(
   input        rs,
   input        rw,
   input        soeb,
-  input        csb,          // the spi-display interface's pins, unused here
-  input        rstb,
-  input        bl,
+  input        pa1,          // unused: the spi-display interface's CSB, RSTB and backlight inputs
+  input        pa2,
+  input        backlight_tie,
   output       d_oeb,
   output       d_dir,
   input        uart_txd_in,
@@ -68,7 +68,7 @@ module bus_check #(
   bus_control control (
     .clk(sysclk), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end), .rd_rs(rd_rs),
     .reply_byte(reply_byte), .status_byte(status_byte), .busy(serial_busy),
-    .ser_valid(ser_valid), .ser_data(ser_data));
+    .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(), .disp_kind(), .disp_value(), .disp_full(1'b0));
 
   // Counts
   reg [15:0] writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0,
@@ -160,17 +160,14 @@ module bus_check #(
   reg [6:0]        query_left = 0;
   wire             query_push = query_left != 0 && !ser_valid;
 
-  // Serial output queue (block RAM), drained into the UART
-  localparam AW = $clog2(SERIAL_DEPTH);
-  reg  [7:0]  fifo [0:SERIAL_DEPTH-1];
-  reg  [7:0]  head = 8'h00, tx_data = 8'h00;
-  reg  [AW-1:0] f_wr = 0, f_rd = 0;
-  reg  [AW:0]   f_count = 0;
-  reg         fetch = 1'b0, tx_valid = 1'b0;
-  wire        tx_ready;
-  wire        push = ser_valid || query_push;
-  wire        stored = push && f_count != SERIAL_DEPTH;
-  assign serial_busy = f_count != 0 || tx_valid || !tx_ready;
+  // Serial output queue, drained into the UART
+  wire [7:0] tx_data;
+  wire       tx_ready, serial_empty;
+  fifo #(.WIDTH(8), .DEPTH(SERIAL_DEPTH)) serial_out (
+    .clk(sysclk), .clear(1'b0), .push(ser_valid || query_push),
+    .din(ser_valid ? ser_data : query_line[8*LINE-1 -: 8]), .full(), .pop(!serial_empty && tx_ready),
+    .dout(tx_data), .empty(serial_empty), .count());
+  assign serial_busy = !serial_empty || !tx_ready;
 
   always @(posedge sysclk) begin
     if (rx_valid && rx_data == "?") query_waiting <= 1'b1;
@@ -185,24 +182,8 @@ module bus_check #(
       query_line <= query_line << 8;
       query_left <= query_left - 1'b1;
     end
-
-    if (stored) begin
-      fifo[f_wr] <= ser_valid ? ser_data : query_line[8*LINE-1 -: 8];
-      f_wr <= f_wr + 1'b1;
-    end
-    head    <= fifo[f_rd];
-    f_count <= f_count + stored - fetch;
-    if (fetch) f_rd <= f_rd + 1'b1;
-
-    fetch <= 1'b0;
-    if (tx_valid && tx_ready) tx_valid <= 1'b0;
-    if (fetch) begin
-      tx_valid <= 1'b1;
-      tx_data  <= head;
-    end else if (!tx_valid && tx_ready && f_count != 0)
-      fetch <= 1'b1;   // head shows fifo[f_rd] next clock
   end
 
   uart_tx #(.CLKS_PER_BIT(CLKS_PER_BIT)) u_tx (
-    .clk(sysclk), .valid(tx_valid), .data(tx_data), .ready(tx_ready), .tx(uart_rxd_out));
+    .clk(sysclk), .valid(!serial_empty), .data(tx_data), .ready(tx_ready), .tx(uart_rxd_out));
 endmodule

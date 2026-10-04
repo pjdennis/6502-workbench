@@ -77,3 +77,22 @@
   task fb_status(output [7:0] b);
     begin cycles(6 + 3 + 2 + 6); rs = 1'b0; fb_read_byte(b, 1'b0); end
   endtask
+
+  // The display driver's fill loop on the bus (send_zero_data): RS high and the byte on port B, then a data
+  // byte every 9 cycles (sta PORTA,Y with E high, stx PORTA with E low), with an interrupt in the middle of
+  // strobe irq_at if asked (n + 1 for none), then RS low again
+  task fb_fill(input [7:0] b, input integer n, input integer irq_at);
+    integer i;
+    begin
+      cycles(2 + 6); rs = 1'b1; rw = 1'b0;
+      cycles(2 + 4); via_drive = 1'b1;
+      cycles(2 + 4); via_out = b;
+      cycles(4 + 2 + 2 + 2 + 2);
+      for (i = 0; i < n; i = i + 1) begin
+        cycles(5); set_e(1'b1);
+        if (i == irq_at) keyboard_interrupt;
+        cycles(4); set_e(1'b0);
+      end
+      cycles(2 + 6); rs = 1'b0;
+    end
+  endtask

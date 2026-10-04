@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Measures switching noise on the FPGA bus's E: runs firmware/programs/michael/michael_fpga_bus_noise.s
-(port B switching between $00 and $FF, E held low) and counts the glitches on E per second, first with the
+(port B switching between $00 and $FF, E held low) and counts, per second, the glitches on E (which the
+bus's filter rejects) and the writes (noise that got through it, since Michael makes none), first with the
 data buffer working as usual, then held off ('1' to the bus-check design), so that only Michael's side of
 the buffer switches. Leaves Michael in the idle program. Needs the bus-check design loaded (make noise).
 
@@ -17,14 +18,14 @@ import board  # noqa: E402
 PROGRAM = os.path.join(board.REPO, "firmware", "programs", "michael", "michael_fpga_bus_noise.s")
 
 
-def glitches(ser, reader):
-    """The glitch count from the design's counts line (bounces and glitches together)."""
+def counts(ser, reader):
+    """From the design's counts line: the glitches (bounces and glitches together) and the writes."""
     before = sum(line.startswith("C ") for line in reader.snapshot())
     ser.write(b"?")
     if not reader.wait_for(lambda lines: sum(line.startswith("C ") for line in lines) > before, 2.0):
         sys.exit("No counts from the FPGA: is the bus-check design loaded (make prog)?")
     fields = [int(f, 16) for f in [line for line in reader.snapshot() if line.startswith("C ")][-1].split()[1:]]
-    return fields[4] + fields[7]
+    return fields[4] + fields[7], fields[0]
 
 
 def main():
@@ -39,17 +40,17 @@ def main():
         ser.flush_input()
         reader = board.LineReader(ser, "C")
         ser.write(b"0")
-        glitches(ser, reader)
+        counts(ser, reader)
         if board.upload(PROGRAM, args.michael_port, wait=True):
             sys.exit("Upload failed")
         time.sleep(board.IDLE_START)
         for setting, label in ((b"0", "buffer working"), (b"1", "buffer held off"), (b"0", "buffer working"),
                                (b"1", "buffer held off")):
             ser.write(setting)
-            start = glitches(ser, reader)
+            start = counts(ser, reader)
             time.sleep(args.seconds)
-            rate = (glitches(ser, reader) - start) % 65536 / args.seconds
-            print(f"  {label:16s} {rate:8.0f} glitches on E per second", flush=True)
+            glitches, writes = ((end - begin) % 65536 / args.seconds for begin, end in zip(start, counts(ser, reader)))
+            print(f"  {label:16s} {glitches:8.0f} glitches on E and {writes:5.1f} writes per second", flush=True)
         ser.write(b"0")
     board.idle(args.michael_port)
 

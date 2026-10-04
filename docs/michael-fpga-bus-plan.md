@@ -17,11 +17,13 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 under way.** Stage 1 is done (2026-10-03): the FPGA
+**Status (2026-10-04): stages 0 to 2 done; stage 3 is next.** Stage 0 is this document, reviewed. Stage 1 is done (2026-10-03): the FPGA
 drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
-the FPGA is unconfigured. Stage 2 is next. In review, reads came to use E
+the FPGA is unconfigured. Stage 2 is done (2026-10-04): the [bus design](../hardware/michael/fpga/bus/) is in
+the Cmod's flash, with the raw display commands and the debug port, and `graphics_display.inc` uses it. On
+the board, the backlight's PWM made snow on the display until its edges were kept clear of the SPI bytes. In review, reads came to use E
 with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
 pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
 Michael's schematics, as built and as planned at the end of this plan, are in
@@ -301,8 +303,10 @@ background. So text commands never make Michael wait, and Michael never needs to
 
 ### Serial port to the PC (`$5x`)
 
-Provisional: stage 1's check design implements `$50`, through which Michael's test program reports. Stage 2's
-debug port decides how it shares the Cmod's USB serial port.
+Provisional: stage 1's check design implements `$50`, through which Michael's test program reports. In
+stage 2's design its bytes share the Cmod's USB serial port with the debug port's answers, and can land
+in the middle of one.
+
 
 | Code | Name | Arguments | Data | Effect |
 |---|---|---|---|---|
@@ -333,4 +337,7 @@ debug port decides how it shares the Cmod's USB serial port.
 
 ## The debug port
 The Cmod's USB serial port carries the same transactions, so a PC can drive every device without Michael
-(stage 2 onwards). The framing (how a serial byte carries RS, and how reads come back) is specified in stage 2.
+(stage 2 onwards). The framing is text lines: `C hh ...` writes commands, `D hh ...` data, `R n` reads n bytes
+of the reply queue and `S` the status, each read answering with a line of hex
+([`debug_port.v`](../hardware/michael/fpga/rtl/debug_port.v) has the details, and
+[`debug.py`](../hardware/michael/fpga/bus/debug.py) wraps it).

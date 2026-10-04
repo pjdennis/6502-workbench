@@ -12,7 +12,7 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
-$(TB_PASS): ../sim/michael_via.vh   # shared Michael model, included by the testbench
+$(TB_PASS): ../sim/michael_via.vh ../sim/ili9341_model.vh   # shared Michael model, included by the testbench
 
 .DEFAULT_GOAL := all
 .PHONY: all

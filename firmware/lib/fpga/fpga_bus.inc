@@ -17,6 +17,10 @@ FB_NOP             = $00
 FB_ID              = $01 ; replies 'M', 'B', the protocol version, a capabilities byte
 FB_RESET           = $03 ; empties the queues and clears the status
 FB_ECHO            = $04 ; streams: each data byte joins the reply queue
+FB_DISP_RESET      = $10 ; the display's RESET line: argument 0 (held in reset) or 1 (released)
+FB_DISP_COMMAND    = $11 ; argument the ILI9341 command, then streams its data bytes
+FB_DISP_DATA       = $12 ; streams data bytes to the display (continuing a DISP_COMMAND)
+FB_BACKLIGHT       = $13 ; argument the brightness, 0 (off) to 255
 FB_SERIAL_SEND     = $50 ; streams: each data byte goes to the PC (provisional)
 
 ; Status bits (sticky ones are cleared by reading the status)
