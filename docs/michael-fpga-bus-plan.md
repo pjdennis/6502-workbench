@@ -17,7 +17,10 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 next.** In review, reads came to use E
+**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 under way.** Steps 1 and 2 (the FPGA
+drives the data buffer's /OE and DIR; the rewiring) are done. The read test for steps 3 and 4,
+[`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/), passes in simulation and waits for
+the board. In review, reads came to use E
 with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
 pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
 Michael's schematics, as built and as planned at the end of this plan, are in
@@ -287,12 +290,21 @@ Provisional: the details are settled in stage 3. They mirror the editor's screen
 The character grid changes as each command arrives, and the renderer catches the screen up in the
 background. So text commands never make Michael wait, and Michael never needs to read before writing.
 
+### Serial port to the PC (`$5x`)
+
+Provisional: stage 1's check design implements `$50`, through which Michael's test program reports. Stage 2's
+debug port decides how it shares the Cmod's USB serial port.
+
+| Code | Name | Arguments | Data | Effect |
+|---|---|---|---|---|
+| `$50` | `SERIAL_SEND` | — | streams | Each data byte goes out of the Cmod's USB serial port |
+
 ### Reserved
 
 | Range | For |
 |---|---|
 | `$4x` | storage |
-| `$5x` | a serial port to the PC |
+| `$51`–`$5F` | more of the serial port |
 | `$31`–`$3F` | more text mode |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
 | `$60`–`$FF` | later devices |
@@ -303,6 +315,8 @@ background. So text commands never make Michael wait, and Michael never needs to
 - **Set RS and RW for every transfer, by an instruction before the one that raises E.** The LCD routines and
   the keyboard driver also use PA5 and PA6, so their levels can't be assumed. If both changed in the same
   instruction as E, the FPGA might sample either value.
+- **Leave RS and RW low between transfers,** as the LCD routines do and expect. With RS high, the LCD's
+  busy check would read its data instead of the busy flag. `fpga_bus.inc` does this.
 - **RW must be 0 for writes.** A write with RW = 1 would be taken as a read, and the FPGA would drive port B
   against the VIA while E is high.
 - **Start with `RESET`,** then check `ID` before relying on the FPGA.
