@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 // The ILI9341 display, fed from a queue (4-wire SPI, mode 0, MSB first, SCK = clk / 2: 6 MHz at 12 MHz).
-// Entries are taken in order:
+// A second source, the text renderer (text_render.v), offers entries of its own (r_valid; r_take takes one):
+// queued entries go first between its runs, and wait while it's in the middle of one (r_lock), so nothing
+// lands inside a character's bytes. Entries are taken in order:
 //   DATA       the byte, with DC high          RESET      the display's RESET line to value[0]
 //   COMMAND    the byte, with DC low           BACKLIGHT  the brightness, 0 (off) to 255 (fully on), by PWM
 // CS is low while a byte is going out, and rises between bytes. The ILI9341 allows that anywhere between whole
@@ -21,6 +23,11 @@ module display_spi #(
   input      [7:0] value,
   output           full,
   output           busy,       // entries waiting, or a byte going out
+  input            r_valid,    // the renderer's entry
+  input      [1:0] r_kind,
+  input      [7:0] r_value,
+  input            r_lock,     // the renderer is in the middle of a run
+  output           r_take,
   output           lcd_cs,
   output reg       lcd_reset = 1'b1,
   output reg       lcd_dc = 1'b1,
@@ -30,7 +37,6 @@ module display_spi #(
 );
   localparam DATA = 2'd0, COMMAND = 2'd1, RESET = 2'd2, BACKLIGHT = 2'd3;
 
-  wire [9:0] entry;
   wire       empty;
   reg  [3:0] bits_left = 0;
   wire       shifting = bits_left != 0;
@@ -38,9 +44,14 @@ module display_spi #(
   reg  [$clog2(GUARD + 1)-1:0] guard = 0;
   wire       led = brightness == 8'hFF || pwm < brightness;   // the backlight as the PWM has it
   wire       led_change = led != lcd_led && !shifting;
-  wire       take = !empty && !shifting && !led_change && guard == 0;
+  wire       ready = !shifting && !led_change && guard == 0;
+  wire [9:0] queued;
+  wire       q_take = ready && !empty && !r_lock;
+  assign     r_take = ready && r_valid && (r_lock || empty);
+  wire       take = q_take || r_take;
+  wire [9:0] entry = r_take ? {r_kind, r_value} : queued;
   fifo #(.WIDTH(10), .DEPTH(QUEUE_DEPTH)) entries (
-    .clk(clk), .clear(1'b0), .push(push), .din({kind, value}), .full(full), .pop(take), .dout(entry),
+    .clk(clk), .clear(1'b0), .push(push), .din({kind, value}), .full(full), .pop(q_take), .dout(queued),
     .empty(empty), .count());
   assign busy     = !empty || shifting;
   assign lcd_cs   = !shifting;

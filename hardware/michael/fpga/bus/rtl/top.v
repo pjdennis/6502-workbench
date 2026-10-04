@@ -80,6 +80,7 @@ module top #(
   // The display
   display_spi #(.QUEUE_DEPTH(DISPLAY_DEPTH)) display (
     .clk(sysclk), .push(disp_push), .kind(disp_kind), .value(disp_value), .full(disp_full), .busy(disp_busy),
+    .r_valid(1'b0), .r_kind(2'd0), .r_value(8'h00), .r_lock(1'b0), .r_take(),   // no text renderer yet
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
     .lcd_led(lcd_led));
 
