@@ -16,7 +16,8 @@ FB_E               = %00000001 ; PA0: the bus's strobe (moves to PA2 in stage 4 
 
 ; Commands
 FB_NOP             = $00
-FB_ID              = $01 ; replies 'M', 'B', the protocol version, a capabilities byte
+FB_ID              = $01 ; replies 'M', 'B' (Michael Bus: this design is answering), the protocol version, a
+                         ; capabilities byte
 FB_RESET           = $03 ; empties the queues and clears the status
 FB_ECHO            = $04 ; streams: each data byte joins the reply queue
 FB_DISP_RESET      = $10 ; the display's RESET line: argument 0 (held in reset) or 1 (released)

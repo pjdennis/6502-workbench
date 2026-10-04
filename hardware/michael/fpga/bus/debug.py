@@ -65,6 +65,7 @@ class DebugPort:
         return int(self._answer("s"), 16)
 
     def id(self):
+        """("MB", version, capabilities): "MB" (Michael Bus) is the design's signature."""
         self.command(0x01)
         m, b, version, capabilities = self.read(4)
         return chr(m) + chr(b), version, capabilities

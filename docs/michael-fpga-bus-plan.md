@@ -307,7 +307,7 @@ Commands are grouped by their high nibble. Arguments are listed in order; all ar
 | Code | Name | Arguments | Data | Effect |
 |---|---|---|---|---|
 | `$00` | `NOP` | — | — | Nothing. Safe as padding or a resync |
-| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'`, the protocol version (1), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
+| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (1), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
 | `$03` | `RESET` | — | — | Empties both queues and clears the status. The display is left as it is |
 | `$04` | `ECHO` | — | streams | Each data byte is added to the reply queue: a loopback for testing reads |
 
