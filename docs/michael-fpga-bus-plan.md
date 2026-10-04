@@ -176,6 +176,16 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
 - **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
   B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
   design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
+- **A version for the FPGA design.** `ID` gives the protocol's version and capabilities, but nothing says which
+  build of a design is loaded. Both the stage 2 snow fix and the review's clean-ups went into flash with `ID`
+  unchanged. Add a design version that changes with every change to a design, readable by Michael and
+  through the debug port (`debug.py id`). To decide:
+  - **the format and size:** e.g. a minor number beside the protocol version, or major and minor, or a build
+    number;
+  - **where it's reported:** more bytes in `ID`'s reply (programs read only the first four today), or a
+    command of its own (`$02` is free);
+  - **how it's set:** by hand when a design changes, or at build time from git (a commit count or short
+    hash), which can't be forgotten.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
