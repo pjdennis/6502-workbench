@@ -5,8 +5,8 @@
 #   1. Build the payload .s.
 #   2. Run it on the Michael machine, loaded straight into RAM at the
 #      board's PROGRAM_LOAD_ADDRESS.
-#   3. Confirm the expected substring appears in the final-LCD-frame
-#      stderr summary.
+#   3. Confirm the expected substring appears in the exit report on
+#      stderr (the final LCD frame, the LED, the bus check).
 #
 # Skips with a warning (exit 0) if vasm6502_oldstyle is not on PATH.
 
@@ -55,7 +55,7 @@ run_case() {
         >"$OUT/$name.stdout" 2>"$OUT/$name.stderr" || true
 
     if ! grep -qF "$expected" "$OUT/$name.stderr"; then
-        echo "michael_goldens: FAIL $name -- expected '$expected' not in final LCD frame"
+        echo "michael_goldens: FAIL $name -- expected '$expected' not in the exit report"
         echo "  stderr was:"
         sed 's/^/    /' "$OUT/$name.stderr"
         exit 1
@@ -64,6 +64,11 @@ run_case() {
 }
 
 run_case hello hello_michael_ram.s 2000000 "|Hi I'm Michael!     |"
+
+# The PA2 LED, wired from +5V, lights while the pin is low: the program
+# toggles it every 0.5 s (1000000 cycles), starting with it on.
+run_case led-on hello_michael_led.s 500000 "michael: led: on"
+run_case led-off hello_michael_led.s 1500000 "michael: led: off"
 
 # Boot from a ROM image (no --load): the repo's EEPROM loader shows its ready screen.
 echo "michael_goldens: case rom-boot"
@@ -77,6 +82,11 @@ fi
     >"$OUT/rom-boot.stdout" 2>"$OUT/rom-boot.stderr" || true
 if ! grep -qF "|57600bps Ready.     |" "$OUT/rom-boot.stderr"; then
     echo "michael_goldens: FAIL rom-boot -- the loader's ready screen isn't on the LCD"
+    sed 's/^/    /' "$OUT/rom-boot.stderr"
+    exit 1
+fi
+if ! grep -qF "michael: led: off" "$OUT/rom-boot.stderr"; then
+    echo "michael_goldens: FAIL rom-boot -- the LED isn't off at the ready screen"
     sed 's/^/    /' "$OUT/rom-boot.stderr"
     exit 1
 fi

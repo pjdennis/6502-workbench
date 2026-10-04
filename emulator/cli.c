@@ -134,21 +134,22 @@ void emu_opts_usage(FILE *fp) {
 "  --wav <path>           wendy2c: record the PB7 piezo line to a WAV file\n"
 "                         (PCM mono int16 @22050 Hz, high-passed to mimic a small piezo)\n"
 "  --audio                wendy2c: play the piezo line live through the host audio device\n"
-"  --web                  wendy2c: embedded HTTP+WS server with a browser UI on\n"
-"                         http://127.0.0.1:8080/ (override port with --web-port).\n"
-"  --web-port N           wendy2c: TCP port for --web (default 8080).\n"
-"  --web-bind ADDR        wendy2c: IPv4 bind address for --web (default\n"
+"  --web                  wendy2c, michael: embedded HTTP+WS server with a browser UI\n"
+"                         on http://127.0.0.1:8080/ (override port with --web-port).\n"
+"                         michael: keys typed on the page go to the PS/2 keyboard.\n"
+"  --web-port N           wendy2c, michael: TCP port for --web (default 8080).\n"
+"  --web-bind ADDR        wendy2c, michael: IPv4 bind address for --web (default\n"
 "                         127.0.0.1, loopback only). Use 0.0.0.0 to also accept\n"
 "                         connections from the LAN; the listen banner prints a\n"
 "                         warning when bound non-loopback.\n"
-"  --web-root PATH        wendy2c: directory containing index.html/wendy2c.css/.js.\n"
-"                         Defaults to <dir-of-argv0>/web.\n"
+"  --web-root PATH        wendy2c, michael: directory containing the pages, board.css\n"
+"                         and scripts. Defaults to <dir-of-argv0>/web.\n"
 "  --serial-link PATH     wendy2c: Unix-domain socket for host-driven CB2 line.\n"
 "                         A Python client drives bit-level transitions and reset\n"
 "                         pulses at emulated-time resolution; see wendy2c_emu_link.py.\n"
 "                         Compatible with --web, --live, both, or neither.\n"
 "  --cycle-cap N          max cycles before forced exit (decimal; default 200000000;\n"
-"                         no cap under --live unless this is given explicitly).\n"
+"                         no cap under --live or --web unless this is given explicitly).\n"
 "                         For wendy2c this is oscillator ticks (~2 per CPU cycle);\n"
 "                         for nmos-default and --server it is CPU cycles.\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
@@ -465,8 +466,8 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         fprintf(stderr, "error: --live requires --machine wendy2c or michael\n");
         return 1;
     }
-    if (opts->web && opts->machine != MACHINE_WENDY2C) {
-        fprintf(stderr, "error: --web currently requires --machine wendy2c\n");
+    if (opts->web && opts->machine == MACHINE_NMOS_DEFAULT) {
+        fprintf(stderr, "error: --web requires --machine wendy2c or michael\n");
         return 1;
     }
     if (opts->web && opts->live) {

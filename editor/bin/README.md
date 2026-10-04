@@ -9,7 +9,7 @@ Launchers for the editor. The console and terminal ones take the file to edit an
 | `editor-terminal-9600-repaint.sh` | as the 9600 one, with the emulator's `--show-repaints` |
 | `editor-fast.sh` | console build (`editor_stable.out`) at 2 MHz, no serial link |
 | `editor-slow-console.sh` | console build at 0.5 MHz |
-| `editor-michael.sh` | the `direct_io` + `michael` build on the emulated Michael board (ROM, serial loader, 20x4 LCD drawn in the terminal); Ctrl-] quits; needs `vasm6502_oldstyle` |
+| `editor-michael.sh` | the `direct_io` + `michael` build on the emulated Michael board (ROM, serial loader, 20x4 LCD drawn in the terminal); Ctrl-] quits; with `--web` the board is in the browser instead (`http://127.0.0.1:8080/`, Ctrl-C quits); needs `vasm6502_oldstyle` |
 | `editor-michael-upload.sh` | builds the Michael image (`../michael_image.py`) and uploads it to a real board; options go to `tools/upload/transfer.py` |
 
 Run them from anywhere; they find the repository root themselves.

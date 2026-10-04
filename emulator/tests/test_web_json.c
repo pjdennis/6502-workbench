@@ -8,6 +8,7 @@
  * and DoS-shape rejection.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "greatest.h"
 #include "../web_json.h"
@@ -200,6 +201,67 @@ TEST string_too_long_truncates(void) {
     PASS();
 }
 
+/* ===== key bytes ===== */
+
+TEST keys_bytes_parsed(void) {
+    struct web_json_msg m;
+    ASSERT_EQ(0, parse("{\"type\":\"keys\",\"bytes\":[27, 91,65]}", &m));
+    ASSERT_STR_EQ("keys", m.type);
+    ASSERT(m.has_bytes);
+    ASSERT_EQ(3, m.n_bytes);
+    ASSERT_EQ(27, m.bytes[0]);
+    ASSERT_EQ(91, m.bytes[1]);
+    ASSERT_EQ(65, m.bytes[2]);
+    PASS();
+}
+
+TEST keys_bytes_empty(void) {
+    struct web_json_msg m;
+    ASSERT_EQ(0, parse("{\"bytes\":[]}", &m));
+    ASSERT(m.has_bytes);
+    ASSERT_EQ(0, m.n_bytes);
+    PASS();
+}
+
+TEST keys_bytes_full(void) {
+    char buf[1024];
+    int n = snprintf(buf, sizeof(buf), "{\"bytes\":[");
+    for (int i = 0; i < WEB_JSON_BYTES_MAX; i++) n += snprintf(buf + n, sizeof(buf) - n, "%s255", i ? "," : "");
+    n += snprintf(buf + n, sizeof(buf) - n, "]}");
+    struct web_json_msg m;
+    ASSERT_EQ(0, web_json_parse(buf, n, &m));
+    ASSERT_EQ(WEB_JSON_BYTES_MAX, m.n_bytes);
+    ASSERT_EQ(255, m.bytes[WEB_JSON_BYTES_MAX - 1]);
+    PASS();
+}
+
+TEST keys_too_many_bytes_rejected(void) {
+    /* The client sends long text in pieces; one too many is malformed. */
+    char buf[1024];
+    int n = snprintf(buf, sizeof(buf), "{\"bytes\":[");
+    for (int i = 0; i <= WEB_JSON_BYTES_MAX; i++) n += snprintf(buf + n, sizeof(buf) - n, "%s1", i ? "," : "");
+    n += snprintf(buf + n, sizeof(buf) - n, "]}");
+    struct web_json_msg m;
+    ASSERT_EQ(-1, web_json_parse(buf, n, &m));
+    PASS();
+}
+
+TEST keys_byte_out_of_range_rejected(void) {
+    struct web_json_msg m;
+    ASSERT_EQ(-1, parse("{\"bytes\":[256]}", &m));
+    ASSERT_EQ(-1, parse("{\"bytes\":[-1]}", &m));
+    PASS();
+}
+
+TEST keys_bytes_must_be_numbers(void) {
+    struct web_json_msg m;
+    ASSERT_EQ(-1, parse("{\"bytes\":[\"a\"]}", &m));
+    ASSERT_EQ(-1, parse("{\"bytes\":[[1]]}", &m));
+    ASSERT_EQ(-1, parse("{\"bytes\":\"ab\"}", &m));
+    ASSERT_EQ(-1, parse("{\"bytes\":[1,]}", &m));
+    PASS();
+}
+
 /* ===== DoS guards ===== */
 
 TEST nesting_depth_capped(void) {
@@ -263,6 +325,13 @@ SUITE(web_json_suite) {
     RUN_TEST(nesting_depth_capped);
     RUN_TEST(giant_number_rejected);
     RUN_TEST(negative_down_value);
+    /* key bytes */
+    RUN_TEST(keys_bytes_parsed);
+    RUN_TEST(keys_bytes_empty);
+    RUN_TEST(keys_bytes_full);
+    RUN_TEST(keys_too_many_bytes_rejected);
+    RUN_TEST(keys_byte_out_of_range_rejected);
+    RUN_TEST(keys_bytes_must_be_numbers);
 }
 
 GREATEST_MAIN_DEFS();

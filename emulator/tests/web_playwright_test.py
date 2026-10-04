@@ -18,129 +18,35 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
      pixel pattern in its top row (pattern: . X . X . from the
      bitmap in cgram_test_wendy2c.s).
    - Also samples a pixel from the second-line CGRAM arrow.
-5. Clicks the button and verifies the .btn.held class lands.
-6. Verifies that audio binary frames flowed (the JS side counts them
-   on a window.__wendy2cAudioFrames property the test sets up).
+5. Checks the VIA pin table shows wendy2c's pin labels, levels and DDRs.
+6. Clicks the button and verifies the .btn.held class lands, then the
+   reset button, and that the PC goes back to the boot ROM.
+7. Verifies that state and audio frames flowed (counted with
+   Playwright's WebSocket frame events), and that after a click the
+   audio worklet plays them (its buffer readout shows).
 """
 
-import argparse
-import asyncio
-import os
-import re
-import shutil
-import signal
-import subprocess
-import sys
-import time
-from pathlib import Path
-
-# firmware/vasm: vasm6502_oldstyle with the firmware include path.
-FW_VASM = Path(__file__).resolve().parents[2] / "firmware" / "vasm"
+from web_test_util import (build_wendy2c_upload, failed, main, missing_tools,
+                           open_page, out_dir_for, passed, skipped, speed_shown,
+                           web_emulator)
 
 
-class Colors:
-    RED = "\033[0;31m"; GREEN = "\033[0;32m"; YELLOW = "\033[0;33m"; NC = "\033[0m"
-    @classmethod
-    def disable(cls): cls.RED = cls.GREEN = cls.YELLOW = cls.NC = ""
-
-
-def have_vasm():
-    return shutil.which("vasm6502_oldstyle") is not None
-
-
-def have_playwright():
-    try:
-        from playwright.sync_api import sync_playwright  # noqa
-        return True
-    except ImportError:
-        return False
-
-
-def run_vasm(src, out_path, log_path):
-    r = subprocess.run(
-        [str(FW_VASM), "-wdc02", "-wfail", "-Fbin", "-dotdir",
-         "-ignore-mult-inc", "-esc", "-o", str(out_path), str(src)],
-        capture_output=True, text=True
-    )
-    log_path.write_text(r.stdout + r.stderr)
-    return r.returncode == 0
-
-
-def build_artifacts(repo_root, out_dir):
-    boot_src    = repo_root / "firmware" / "boards" / "wendy2" / "upload_and_run_eeprom_wendy2c.s"
-    payload_src = repo_root / "firmware" / "programs" / "wendy2" / "cgram_test_wendy2c.s"
-    boot_rom    = out_dir / "boot.bin"
-    payload_bin = out_dir / "cgram.bin"
-    framed      = out_dir / "cgram.framed"
-
-    if not run_vasm(boot_src,    boot_rom,    out_dir / "boot.vasm.log"):    return None
-    if not run_vasm(payload_src, payload_bin, out_dir / "cgram.vasm.log"):  return None
-
-    framer = repo_root / "emulator" / "wendy2_upload.py"
-    r = subprocess.run(
-        ["python3", str(framer), str(payload_bin), "-o", str(framed)],
-        capture_output=True, text=True
-    )
-    if r.returncode != 0: return None
-    return boot_rom, framed
-
-
-def run_test(base_dir, verbose=False, keep=False):
-    if not have_vasm():
-        print(f"  {Colors.YELLOW}SKIP{Colors.NC} web UI test (vasm6502_oldstyle not on PATH)")
-        return None
-    if not have_playwright():
-        print(f"  {Colors.YELLOW}SKIP{Colors.NC} web UI test (playwright not installed: pip3 install playwright && playwright install chromium)")
-        return None
+def run_test(verbose=False):
+    missing = missing_tools("web UI test")
+    if missing: return skipped(missing)
     from playwright.sync_api import sync_playwright
 
-    emulator = base_dir / "emulator" / "emulator.out"
-    if not emulator.exists():
-        print(f"  {Colors.RED}FAIL{Colors.NC} web UI test: emulator not built at {emulator}")
-        return False
-
-    repo_root = base_dir
-    out_dir = Path("/tmp") / "wendy2c-web-test"
-    out_dir.mkdir(exist_ok=True)
-    for f in out_dir.glob("*.png"):
-        f.unlink()
-
-    arts = build_artifacts(repo_root, out_dir)
+    out_dir = out_dir_for("wendy2c-web-test")
+    arts = build_wendy2c_upload(out_dir, "cgram_test_wendy2c.s", "cgram")
     if arts is None:
-        print(f"  {Colors.RED}FAIL{Colors.NC} web UI test: vasm/framing failed; see {out_dir}/*.vasm.log")
-        return False
+        return failed(f"web UI test: vasm/framing failed; see {out_dir}/*.vasm.log")
     boot_rom, framed = arts
 
-    proc = subprocess.Popen(
-        [str(emulator), str(boot_rom),
-         "--machine", "wendy2c",
-         "--serial-input", str(framed),
-         "--web", "--web-port", "0"],
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True,
-    )
-
-    # Parse the bound port from stderr (which is line-buffered after fflush).
-    port = None
-    start = time.monotonic()
-    while time.monotonic() - start < 3.0 and port is None:
-        line = proc.stderr.readline()
-        if not line: time.sleep(0.05); continue
-        m = re.search(r"http://127\.0\.0\.1:(\d+)/", line)
-        if m: port = int(m.group(1))
-    if port is None:
-        print(f"  {Colors.RED}FAIL{Colors.NC} web UI test: did not see server listen line in stderr")
-        proc.kill(); proc.wait(timeout=2)
-        return False
-
-    if verbose: print(f"  emulator port {port}")
-
-    try:
+    with web_emulator([boot_rom, "--machine", "wendy2c", "--serial-input", framed]) as port:
+        if port is None:
+            return failed("web UI test: did not see server listen line in stderr")
+        if verbose: print(f"  emulator port {port}")
         with sync_playwright() as p:
-            browser = p.chromium.launch()
-            ctx = browser.new_context(viewport={"width": 900, "height": 700})
-            page = ctx.new_page()
-
             # Count WS frames via Playwright's built-in API rather than
             # monkey-patching WebSocket. In playwright-python, the
             # framereceived handler receives the payload directly --
@@ -152,16 +58,8 @@ def run_test(base_dir, verbose=False, keep=False):
                     audio_frames[0] += 1
                 else:
                     state_frames[0] += 1
-            def on_ws(ws):
-                ws.on("framereceived", on_frame)
-            page.on("websocket", on_ws)
-
-            page.goto(f"http://127.0.0.1:{port}/")
-            # Wait for status to flip to "connected".
-            page.wait_for_function(
-                "document.getElementById('status-text')?.textContent.includes('connected')",
-                timeout=5000,
-            )
+            browser, page = open_page(
+                p, port, lambda page: page.on("websocket", lambda ws: ws.on("framereceived", on_frame)))
             # Give the state stream a moment so the LCD renders the
             # payload's actual content (post-upload).
             page.wait_for_timeout(1500)
@@ -173,11 +71,34 @@ def run_test(base_dir, verbose=False, keep=False):
             sf, af = state_frames[0], audio_frames[0]
             if verbose: print(f"  state frames: {sf}, audio frames: {af}")
             if sf < 3:
-                print(f"  {Colors.RED}FAIL{Colors.NC} web UI test: only {sf} state frames received in 1.5s")
-                return False
+                return failed(f"web UI test: only {sf} state frames received in 1.5s")
             if af < 3:
-                print(f"  {Colors.RED}FAIL{Colors.NC} web UI test: only {af} audio frames in 1.5s")
-                return False
+                return failed(f"web UI test: only {af} audio frames in 1.5s")
+
+            # Audio plays once the page has had a click (browsers want a
+            # gesture first): the audio worklet reports its buffer.
+            if page.text_content("#status-audio"):
+                return failed(f"audio readout before any click: {page.text_content('#status-audio')!r}")
+            page.mouse.click(5, 5)
+            try:
+                page.wait_for_function(
+                    "/^audio \\d+ ms/.test(document.getElementById('status-audio').textContent)", timeout=3000)
+            except Exception:
+                return failed(f"no audio readout after a click: {page.text_content('#status-audio')!r}")
+            if verbose: print(f"  {page.text_content('#status-audio')}")
+
+            # The VIA pin table: wendy2c's labels, the pins' levels and DDRs.
+            pins = page.evaluate("""
+                () => ['row-a', 'row-a-lbl', 'row-b', 'row-b-lbl'].map(id =>
+                    [...document.querySelectorAll('#' + id + ' td')].map(td => td.textContent))
+            """)
+            if verbose: print(f"  pins: {pins}")
+            if pins[1][1:9] != ["D7", "D6", "D5", "D4", "RW", "LED", "BTN", "RS"] or \
+               pins[3][1:9] != ["T1", "LED", "E", "B4", "B3", "B2", "B1", "B0"]:
+                return failed(f"pin labels wrong: {pins[1]} {pins[3]}")
+            if any(b not in ("0", "1") for b in pins[0][1:9] + pins[2][1:9]) or \
+               not pins[0][9].startswith("DDR=$") or not pins[2][9].startswith("DDR=$"):
+                return failed(f"pin levels not shown: {pins[0]} {pins[2]}")
 
             # Sample LCD canvas pixels. The JS draws:
             #   LCD_MARGIN=8, DOT=3, GAP=1, COLS_PER_CHAR=5, CELL_PAD_X=6
@@ -226,13 +147,11 @@ def run_test(base_dir, verbose=False, keep=False):
             # On pixels should be at least ~50 brightness-units darker
             # than off pixels (off ~ 200+ in the yellow-green; on ~ 50).
             if heart_off - heart_on < 50:
-                print(f"  {Colors.RED}FAIL{Colors.NC} CGRAM heart pixel (1,0) not appreciably ON: "
+                return failed(f"CGRAM heart pixel (1,0) not appreciably ON: "
                       f"on={heart_on} off={heart_off}")
-                return False
             if heart_off4 - heart_on3 < 50:
-                print(f"  {Colors.RED}FAIL{Colors.NC} CGRAM heart pixel (3,0) not appreciably ON: "
+                return failed(f"CGRAM heart pixel (3,0) not appreciably ON: "
                       f"on={heart_on3} off={heart_off4}")
-                return False
 
             # Press the button (mouse.down only, leave it held) and
             # verify .held class lands within 1 s, then release.
@@ -248,8 +167,7 @@ def run_test(base_dir, verbose=False, keep=False):
                 )
             except Exception:
                 page.mouse.up()
-                print(f"  {Colors.RED}FAIL{Colors.NC} button press did not produce .held class")
-                return False
+                return failed(f"button press did not produce .held class")
             shot2 = out_dir / "web-button-pressed.png"
             page.screenshot(path=str(shot2))
             page.mouse.up()
@@ -262,10 +180,13 @@ def run_test(base_dir, verbose=False, keep=False):
             # The actual ASCII PC text is on #status-clock.
             # Sample the pre-reset PC -- with the cgram payload running
             # it should be parked in the $4000-range payload code.
+            # The board clock's measured rate against the wendy2c's 19.44 MHz.
+            problem = speed_shown(page, "19.44")
+            if problem: return failed(problem)
+
             pre_pc_text = page.text_content("#status-clock") or ""
             if "pc:$4" not in pre_pc_text:
-                print(f"  {Colors.RED}FAIL{Colors.NC} pre-reset PC unexpected: '{pre_pc_text}'")
-                return False
+                return failed(f"pre-reset PC unexpected: '{pre_pc_text}'")
             page.click("#btn-reset")
             # Wait up to 2s for PC to land back in the boot ROM (any
             # $8xxx address). The pulse + a few cycles for the reset
@@ -278,51 +199,20 @@ def run_test(base_dir, verbose=False, keep=False):
                 )
             except Exception:
                 pc_now = page.text_content("#status-clock") or ""
-                print(f"  {Colors.RED}FAIL{Colors.NC} after reset, PC never re-entered the $8xxx boot ROM: "
+                return failed(f"after reset, PC never re-entered the $8xxx boot ROM: "
                       f"pre='{pre_pc_text}' post='{pc_now}'")
-                return False
             shot3 = out_dir / "web-after-reset.png"
             page.screenshot(path=str(shot3))
 
             browser.close()
 
-        print(f"  {Colors.GREEN}PASS{Colors.NC} web UI test (screenshots in {out_dir}/)")
+        passed(f"web UI test (screenshots in {out_dir}/)")
         if verbose:
             print(f"    {shot1}")
             print(f"    {shot2}")
             print(f"    {shot3}")
         return True
 
-    finally:
-        proc.send_signal(signal.SIGINT)
-        try: proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill(); proc.wait(timeout=2)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--keep", action="store_true", help="(unused, reserved)")
-    args = parser.parse_args()
-    if not sys.stdout.isatty(): Colors.disable()
-
-    base_dir = Path(__file__).resolve().parent.parent.parent  # repository root
-    print("=" * 60)
-    print("wendy2c web UI test (HTTP+WS + Playwright)")
-    print("=" * 60)
-    result = run_test(base_dir, verbose=args.verbose, keep=args.keep)
-    print()
-    print("=" * 60)
-    if result is None:
-        print(f"Results: {Colors.YELLOW}skipped{Colors.NC}")
-        sys.exit(0)
-    if result:
-        print(f"Results: {Colors.GREEN}1 passed{Colors.NC} of 1 test")
-        sys.exit(0)
-    print(f"Results: {Colors.RED}1 failed{Colors.NC} of 1 test")
-    sys.exit(1)
-
 
 if __name__ == "__main__":
-    main()
+    main("wendy2c web UI test (HTTP+WS + Playwright)", run_test)

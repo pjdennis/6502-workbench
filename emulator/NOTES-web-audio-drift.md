@@ -1,14 +1,32 @@
 # Web-audio drift in the wendy2c emulator's web UI
 
-> **Status (2026-09-30): still open.** Checked against `web/wendy2c.js`
-> (`playAudioFrame` still has only the one-sided `audioNextTime` resync and no
-> AudioWorklet) and `wendy2c_web.c` (8192-sample ring, frames of up to 2000
-> samples): section 1 describes the current code and section 3 is not implemented.
+> **Status (2026-10-03): implemented**, in `web/audio_buffer.js` (the
+> jitter buffer, tested by `tests/web_audio_buffer_test.py`) and
+> `web/audio_worklet.js`. Sections 1 and 2 describe the pipeline before
+> that: the server side is unchanged, but the browser side (a
+> per-frame `AudioBufferSourceNode` scheduled from the main thread with
+> 20 ms of headroom, which a busy or background tab ran dry) is gone.
+> Section 3's sketch was built with these differences:
+>
+> - The target adapts instead of being fixed: 0.12 s more than the
+>   longest wait between deliveries, raised as soon as a longer wait is
+>   seen (about 150 ms for a steady 33 ms stream, up to 1.5 s for a
+>   background tab's bursts), x1.5 on an underrun, and x0.8 after 10 s
+>   without one in which the fill stayed above half the target.
+> - The rate trim is `clamp(0.1 * (fill_avg - target), +-0.5%)`, the
+>   fill averaged over 0.3 s and the rate eased over 0.5 s; samples are
+>   resampled linearly to the sound card's rate (the AudioContext runs
+>   at the device's rate).
+> - On an underrun it plays silence and waits for the target before
+>   playing again: a gap, then steady play.
+> - A backlog more than 1.5 s over the target is dropped in one go,
+>   without a crossfade.
+> - The status line shows the buffer and its gaps (`audio 150 ms, 2
+>   gaps`), beside the clock's measured speed.
 
-Investigation notes on how audio is delivered from the emulator to the
-browser, what currently protects (and fails to protect) against drift,
-and a sketch of a moderately sophisticated fix. Captured for future
-reference — nothing here is implemented yet.
+Investigation notes on how audio was delivered from the emulator to the
+browser, what protected (and failed to protect) against drift, and the
+sketch of the fix that the status above records as built.
 
 ## 1. Current pipeline
 
@@ -19,27 +37,27 @@ reference — nothing here is implemented yet.
   22050 Hz). Each sample is delivered through three sinks:
   miniaudio's local SPSC ring (when `--live`), the WAV writer (when
   `--wav`), and `tap_cb` — which `emu_wendy2c.c` wires to
-  `wendy2c_web_audio_tap`.
+  `web_server_audio_tap`.
 - The emulator's main loop in `emu_wendy2c.c` calls `wendy2c_pace`
   before each step. `wendy2c_pace` *only ever sleeps* — it sleeps when
   `emu_ns > wall_ns`, but never tries to catch up if the emulator is
   behind. So the producer is wallclock-paced with a downward bias: at
   most 22050 samples per wallclock second, often slightly fewer on a
   loaded host.
-- `wendy2c_web_audio_tap` pushes each sample into a per-server ring
+- `web_server_audio_tap` pushes each sample into a per-server ring
   (`audio_ring`, 8192 int16 = ~370 ms @ 22050 Hz). On overflow it drops
   the oldest sample. Overflow only really happens when no client is
   attached.
 - Every ~33 ms (the snapshot cadence — see `SNAP_NS` in
-  `emu_wendy2c.c`), `wendy2c_web_flush_audio` drains the ring into one
+  `emu_wendy2c.c`), `web_server_flush_audio` drains the ring into one
   or more WebSocket binary frames, each tagged `0x01` followed by
   little-endian int16 samples (capped at 2000 samples per frame in
-  `wendy2c_web_broadcast_audio`).
+  `web_server_broadcast_audio`).
 - The WebSocket is TCP, so **once a client is attached, no audio frames
   are dropped on the wire**. Backpressure shows up as growing kernel
   send buffer, then a growing JS receive queue.
 
-### Wire → speakers (`web/wendy2c.js`)
+### Wire → speakers (`web/board.js`)
 
 - `handleBinary` unpacks the `0x01` frames into `Int16Array` and calls
   `playAudioFrame`.
