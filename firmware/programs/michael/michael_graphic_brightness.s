@@ -4,7 +4,8 @@
 ;
 ; Keys: up/down   +1/-1          + and -   +1/-1
 ;       right/left +16/-16        0-9       presets, from off (0) to full (9)
-; The level never goes past 0 or 255.
+; The level never goes past 0 or 255. Each key sends its level at once, but the screens are redrawn only
+; when no keys are waiting, so a held key's repeats don't pile up behind the drawing.
   .include base_config_v2.inc
 
 INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
@@ -20,7 +21,8 @@ MULTIPLY_8X8_TEMP        = $0b ; 1 byte
 LEVEL                    = $0c ; 1 byte: the brightness
 DIGITS                   = $0d ; 3 bytes: a number in decimal, as characters
 BAR                      = $10 ; 1 byte: the bar's length
-GD_ZERO_PAGE_BASE        = $11 ; 18 bytes
+CHANGED                  = $11 ; 1 byte: non-zero when LEVEL hasn't been shown yet
+GD_ZERO_PAGE_BASE        = $12 ; 18 bytes
 KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
@@ -67,13 +69,18 @@ program_start:
   jsr gd_unselect
 
   lda #255
-  sta LEVEL
-  jsr show_level
+  jsr set_level
   jsr keyboard_initialize        ; Enables interrupts
 
 .keys:
   jsr keyboard_get_char          ; The arrow keys are handled on the way, by the callbacks above
-  bcs .keys
+  bcc .key
+  lda CHANGED                    ; No keys waiting: catch the screens up
+  beq .keys
+  stz CHANGED
+  jsr show_level
+  bra .keys
+.key:
   cmp #'+'
   beq .brighter
   cmp #'='                       ; + without shift
@@ -88,8 +95,7 @@ program_start:
   sbc #'0'
   tax
   lda presets,X
-  sta LEVEL
-  jsr show_level
+  jsr set_level
   bra .keys
 .brighter:
   jsr brighter_by_1
@@ -117,7 +123,7 @@ screen:
 lcd_label: .asciiz "BACKLIGHT "
 
 
-; Changes LEVEL by a signed amount, staying within 0-255, and shows it.
+; Changes LEVEL by a signed amount, staying within 0-255, and sends it.
 ; On exit X, Y are preserved
 brighter_by_1:
   lda #1
@@ -144,19 +150,24 @@ change_level:
   bcs .set
   lda #0                         ; Past 0
 .set:
-  sta LEVEL
   ; fall through
 
 
-; Sends LEVEL to the FPGA and shows it on the display and the LCD.
+; LEVEL = A, sent to the FPGA; shown later, by show_level.
 ; On exit X, Y are preserved
-show_level:
-  phx
-  phy
+set_level:
+  sta LEVEL
   lda #FB_BACKLIGHT              ; Outside gd_select: fb_data leaves RS low
   jsr fb_command
   lda LEVEL
   jsr fb_data
+  lda #1                         ; LEVEL may be 0
+  sta CHANGED
+  rts
+
+
+; Shows LEVEL on the display and the LCD.
+show_level:
 
   ; The LCD
   lda #DISPLAY_FIRST_LINE
@@ -220,8 +231,6 @@ show_level:
   cpx #GD_CHAR_COLS
   bne .bar
   jsr gd_unselect
-  ply
-  plx
   rts
 
 

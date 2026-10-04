@@ -17,9 +17,10 @@ def build_emulator():
     subprocess.run(['make', '-s', 'emulator/emulator.out'], cwd=ROOT, check=True, capture_output=True)
 
 
-def run(source=None, program=None, keys=None, cycle_cap=6_000_000):
-    """Assembles source (text) or program (a path) and runs it. Returns (the FPGA bus log, the emulator's
-    report: its exit line, the LCD and so on)."""
+def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=None):
+    """Assembles source (text) or program (a path) and runs it, typing keys (bytes) key_interval ms apart
+    (the emulator's default if None). Returns (the FPGA bus log, the emulator's report: its exit line, the
+    LCD and so on)."""
     with tempfile.TemporaryDirectory() as tmp:
         if source is not None:
             program = os.path.join(tmp, 'program.s')
@@ -34,6 +35,8 @@ def run(source=None, program=None, keys=None, cycle_cap=6_000_000):
             with open(keys_file, 'wb') as f:
                 f.write(keys)
             options = ['--keys', keys_file]
+            if key_interval:
+                options += ['--key-interval', str(key_interval)]
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '2000', '--cycle-cap',
                                  str(cycle_cap), '--fpga-log', log, *options],
                                 cwd=ROOT, check=True, capture_output=True, text=True).stderr

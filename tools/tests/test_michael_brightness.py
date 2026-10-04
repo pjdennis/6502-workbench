@@ -1,6 +1,8 @@
 """michael_graphic_brightness.s: explores the display's backlight brightness (the FPGA bus's BACKLIGHT, $13,
 0 off to 255 full, by PWM). Run on the emulator with keys typed, it must send the levels the keys ask for:
 up/down by 1, right/left by 16, + and - by 1, digits 0-9 the presets from off to full, never past 0 or 255.
+Keys come faster than the screen can be redrawn (a held key repeats every 33 ms): every key is still sent,
+and the redraws are folded together.
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -31,7 +33,8 @@ class BrightnessTest(unittest.TestCase):
     def setUpClass(cls):
         michael_emulator.build_emulator()
         keys = b'5+' + UP + RIGHT + b'-' + DOWN + LEFT + b'0-9+'
-        cls.log, cls.report = michael_emulator.run(program=PROGRAM, keys=keys, cycle_cap=30_000_000)
+        cls.log, cls.report = michael_emulator.run(program=PROGRAM, keys=keys, cycle_cap=30_000_000,
+                                                   key_interval=10)
 
     def test_levels_follow_the_keys(self):
         self.assertEqual(backlight_levels(self.log),
@@ -39,6 +42,13 @@ class BrightnessTest(unittest.TestCase):
                           142, 143, 144, 160,  # 5 (a preset), +, up, right
                           159, 158, 142,       # -, down, left
                           0, 0, 255, 255])     # 0 (off), - (stays at 0), 9 (full), + (stays at 255)
+
+    def test_redraws_are_folded_together(self):
+        """Each redraw draws the level, the duty and the bar: 26 characters, each a RAMWR. Drawing them for
+        every one of the 12 levels would be 312."""
+        redraws = self.log.split('C 13\n', 1)[1]   # from the first level, after the static screen
+        characters = redraws.count('C 11\nD 2C\n')
+        self.assertLess(characters, 12 * 26 // 2)
 
     def test_the_lcd_shows_the_level(self):
         """Readable even with the backlight off"""
