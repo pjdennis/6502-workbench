@@ -79,6 +79,18 @@ window.Board = (() => {
     return { bitmap, rows };
   }
 
+  // The LCD's colors, from board.css, read once.
+  let colors = null;
+  function lcdColors() {
+    if (!colors) {
+      const style = getComputedStyle(document.documentElement);
+      const color = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+      colors = { bg: color("--lcd-bg", "#7a9438"), onCol: color("--lcd-on", "#1a2a08"),
+                 offCol: color("--lcd-off", "#6e8731") };
+    }
+    return colors;
+  }
+
   function renderLcd(canvas, lcd) {
     const { rows, cols, ddram, cgram, cur, cur_on, blink_on, disp_on,
             panel_5x10 } = lcd;
@@ -113,9 +125,7 @@ window.Board = (() => {
     }
     const ctx = canvas.getContext("2d");
 
-    const bg = getComputedStyle(document.documentElement).getPropertyValue("--lcd-bg").trim() || "#7a9438";
-    const onCol = getComputedStyle(document.documentElement).getPropertyValue("--lcd-on").trim() || "#1a2a08";
-    const offCol = getComputedStyle(document.documentElement).getPropertyValue("--lcd-off").trim() || "#6e8731";
+    const { bg, onCol, offCol } = lcdColors();
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -227,10 +237,10 @@ window.Board = (() => {
     if (machine.hint) html += `<div class="hint">${machine.hint}</div>`;
     $("controls").innerHTML = html;
 
-    $("btn-reset").addEventListener("click", (e) => { unlockAudio(); reset(); e.preventDefault(); });
+    $("btn-reset").addEventListener("click", (e) => { startAudio(); reset(); e.preventDefault(); });
     if (machine.button) {
       const btn = $(machine.button.id);
-      btn.addEventListener("pointerdown", (e) => { unlockAudio(); press(1); e.preventDefault(); });
+      btn.addEventListener("pointerdown", (e) => { startAudio(); press(1); e.preventDefault(); });
       btn.addEventListener("pointerup",   () => press(0));
       btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) press(0); });
     }
@@ -254,10 +264,10 @@ window.Board = (() => {
       e.preventDefault();
       Keyboard.messages(text).forEach(send);
     } else if (machine.button && e.key === machine.button.key) {
-      if (!buttonKeyDown) { buttonKeyDown = true; unlockAudio(); press(1); }
+      if (!buttonKeyDown) { buttonKeyDown = true; startAudio(); press(1); }
       e.preventDefault();
     } else if (machine.resetKey && e.key.toLowerCase() === machine.resetKey) {
-      unlockAudio(); reset(); e.preventDefault();
+      startAudio(); reset(); e.preventDefault();
     }
   }
   function onKeyUp(e) {
@@ -282,9 +292,21 @@ window.Board = (() => {
     el.classList.toggle("slow", percent < 98);
   }
 
+  // Snapshots are drawn on the next animation frame, the latest one only,
+  // so a hidden tab (which gets no animation frames) draws nothing, and
+  // the LCD is redrawn only when it (or its cursor's blink) changed.
+  let latest = null, drawing = false, drawnLcd = null;
   function render(s) {
-    if (!machine) return;
-    renderLcd($("lcd"), s.lcd);
+    latest = s;
+    if (!drawing) { drawing = true; requestAnimationFrame(draw); }
+  }
+
+  function draw() {
+    drawing = false;
+    const s = latest;
+    if (!machine || !s) return;
+    const lcdKey = JSON.stringify(s.lcd) + (s.lcd.blink_on ? Math.floor(Date.now() / 400) & 1 : "");
+    if (lcdKey !== drawnLcd) { renderLcd($("lcd"), s.lcd); drawnLcd = lcdKey; }
     document.querySelectorAll("[data-led]").forEach((el) => {
       el.classList.toggle("on", !!s.leds[Number(el.dataset.led)]);
     });
@@ -297,51 +319,52 @@ window.Board = (() => {
       (s.stp ? "  [STP]" : "");
   }
 
-  // ===== WebSocket =====
-  let ws = null;
+  // ===== Audio =====
+  // The samples go to an AudioWorklet (audio_worklet.js), which plays
+  // them on the audio thread through a jitter buffer (audio_buffer.js),
+  // so a late or bursty main thread doesn't break up the sound. Browsers
+  // want a gesture before playing, so it starts on the first click or key.
   let audioCtx = null;
+  let audioNode = null;
   let audioRate = 22050;
-  let audioNextTime = 0;
+  let audioAt = -Infinity;     // when samples last came
 
-  function ensureAudioContext() {
-    if (audioCtx) return audioCtx;
-    try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({
-        sampleRate: audioRate,
-      });
-    } catch (e) {
-      // Some browsers reject explicit sample rates; fall back to default.
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function startAudio() {
+    if (audioCtx) {
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      return;
     }
-    audioNextTime = audioCtx.currentTime + 0.1;  // small head-start
-    return audioCtx;
-  }
-
-  function playAudioFrame(int16) {
-    if (!audioCtx) return;
-    if (int16.length === 0) return;
-    const buf = audioCtx.createBuffer(1, int16.length, audioRate);
-    const ch = buf.getChannelData(0);
-    for (let i = 0; i < int16.length; i++) ch[i] = int16[i] / 32768;
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    const now = audioCtx.currentTime;
-    if (audioNextTime < now + 0.02) audioNextTime = now + 0.02; // resync
-    src.start(audioNextTime);
-    audioNextTime += int16.length / audioRate;
+    audioCtx = new AudioContext();
+    audioCtx.audioWorklet.addModule("/audio_worklet.js").then(() => {
+      audioNode = new AudioWorkletNode(audioCtx, "board-audio", { outputChannelCount: [1] });
+      audioNode.port.onmessage = (e) => renderAudio(e.data);
+      audioNode.port.postMessage({ rate: audioRate });
+      audioNode.connect(audioCtx.destination);
+    });
   }
 
   function handleBinary(buf) {
     const u8 = new Uint8Array(buf);
-    if (u8.length < 1) return;
-    if (u8[0] !== 0x01) return; // unknown tag
-    const samples = (u8.length - 1) >> 1;
-    const i16 = new Int16Array(samples);
+    if (u8.length < 1 || u8[0] !== 0x01) return;   // 0x01: audio
+    audioAt = performance.now();
+    if (!audioNode) return;
+    const n = (u8.length - 1) >> 1;
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-    for (let i = 0; i < samples; i++) i16[i] = dv.getInt16(1 + i * 2, true);
-    playAudioFrame(i16);
+    const samples = new Float32Array(n);
+    for (let i = 0; i < n; i++) samples[i] = dv.getInt16(1 + i * 2, true) / 32768;
+    audioNode.port.postMessage({ samples }, [samples.buffer]);
   }
+
+  // The worklet's buffer: how much it holds, and its gaps so far.
+  function renderAudio(stats) {
+    const el = $("status-audio");
+    if (performance.now() - audioAt > 2000) { el.textContent = ""; return; }   // no audio coming
+    el.textContent = `audio ${Math.round(stats.fill * 1000)} ms` +
+      (stats.underruns ? `, ${stats.underruns} gap${stats.underruns === 1 ? "" : "s"}` : "");
+  }
+
+  // ===== WebSocket =====
+  let ws = null;
 
   function send(obj) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
@@ -370,9 +393,7 @@ window.Board = (() => {
           if (obj.machine !== machineName) mount(obj.machine);
         } else if (obj.type === "audio_init") {
           audioRate = obj.rate;
-          // Don't ensureAudioContext here -- browsers want a user
-          // gesture first. We'll start it on the first button click
-          // or focus.
+          if (audioNode) audioNode.port.postMessage({ rate: audioRate });
         } else if (obj.lcd) {
           render(obj);
         }
@@ -382,12 +403,6 @@ window.Board = (() => {
     };
     ws.onclose = () => { setConn("off", "disconnected, retrying…"); setTimeout(connect, 500); };
     ws.onerror = () => { setConn("off", "ws error"); };
-  }
-
-  // Audio context init on first user gesture (browser policy).
-  function unlockAudio() {
-    if (!audioCtx) ensureAudioContext();
-    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
   }
 
   // Reset button: one-shot {type:"reset"} on click. The server pulses
@@ -404,8 +419,8 @@ window.Board = (() => {
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("paste", onPaste);
-    // Any click on the document unlocks audio (browser-gesture policy).
-    document.addEventListener("click", unlockAudio, { once: false });
+    document.addEventListener("click", startAudio);
+    document.addEventListener("keydown", startAudio);
     connect();
   }
 

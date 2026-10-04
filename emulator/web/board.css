@@ -184,5 +184,7 @@ header h1 .accent { color: var(--accent); }
 #status .dot.ok { background: #5dd56b; box-shadow: 0 0 6px #5dd56b; }
 #status .dot.off { background: #4a4a4a; }
 #status #status-text { flex-shrink: 0; }
+#status #status-audio { margin-left: auto; }
+#status #status-audio + #status-speed { margin-left: 0; }
 #status #status-speed { margin-left: auto; }
 #status #status-speed.slow { color: var(--led-red-on); }

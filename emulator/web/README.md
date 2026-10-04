@@ -11,6 +11,8 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 | `index.html` | the page (served at `/`) for every machine: LCD canvas, controls, VIA port pin table, status line |
 | `board.js` | the client: builds the page for the machine the server names (title, LEDs, control button, reset, keys, pin table), draws the LCD per pixel, lights the LEDs, handles the WebSocket, plays the audio |
 | `machines.js` | each machine's description: wendy2c's two LEDs (PB6, PA2) and control button (SPACE holds it, R resets); michael's LED (PA2) and keyboard; their pin labels |
+| `audio_worklet.js` | the AudioWorklet that plays the audio on the browser's audio thread, through the jitter buffer |
+| `audio_buffer.js` | the jitter buffer: holds a little more than the longest wait between deliveries (about 150 ms steady, up to 1.5 s for a background tab's bursts), resamples to the sound card at up to 0.5% fast or slow to keep that fill, plays silence on an underrun and drops a backlog |
 | `keyboard.js` | for michael: keys typed or pasted on the page as the bytes a terminal sends, for the PS/2 keyboard |
 | `board.css` | styling |
 | `hd44780_a00_font.js` | the HD44780 A00 character ROM as base64 tables, captured from the real wendy2c panel and written by `tools/lcd-ocr/apply_font_to_emulator.py` (which also writes `../chips/hd44780_a00_font.h`); the first version came from the datasheet via `../tools/extract_hd44780_font.py` (see `../tools/README_hd44780_font.md`) |
@@ -35,8 +37,9 @@ PS/2 keyboard.
 
 Tests: `../tests/web_playwright_test.py`,
 `../tests/lcd_5x10_playwright_test.py`,
-`../tests/michael_web_playwright_test.py` and
-`../tests/web_machine_switch_playwright_test.py` (headless Chromium, need
+`../tests/michael_web_playwright_test.py`,
+`../tests/web_machine_switch_playwright_test.py` and
+`../tests/web_audio_buffer_test.py` (headless Chromium, need
 `pip3 install playwright && playwright install chromium`).
-`../NOTES-web-audio-drift.md` describes the audio scheduling and its
-weakness.
+`../NOTES-web-audio-drift.md` describes the audio pipeline and the
+design of the jitter buffer.

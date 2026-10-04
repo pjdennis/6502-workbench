@@ -38,6 +38,10 @@ def check_keyboard_page(page, out_dir, verbose):
     if problem: return problem
     problem = speed_shown(page, "2.00")     # michael's 2 MHz clock
     if problem: return problem
+    page.mouse.click(5, 5)
+    page.wait_for_timeout(500)
+    if page.text_content("#status-audio"):     # michael has no audio
+        return f"audio readout on michael: {page.text_content('#status-audio')!r}"
 
     lcd = page.evaluate("window._lastState.lcd")
     size = page.evaluate("[document.getElementById('lcd').width, document.getElementById('lcd').height]")
@@ -55,8 +59,8 @@ def check_keyboard_page(page, out_dir, verbose):
 
     # initialize_michael_ports drives PA2 high: the LED is off.
     led = page.evaluate(LED_STATE)
-    if led != ["0", False, 1]:
-        return f"LED (snapshot, page, PA2) after the ports are set up: {led}; want it off"
+    if led != [False, "1"]:
+        return f"LED (lit, PA2) after the ports are set up: {led}; want it off"
 
     steps = [
         ("type", "Hi!", ">Hi!"),
@@ -83,10 +87,10 @@ def check_keyboard_page(page, out_dir, verbose):
     return None
 
 
-# The LED as the snapshot and the page show it, and the PA2 pin's level.
-LED_STATE = """() => [window._lastState.leds.join(),
-                     document.getElementById('led').classList.contains('on'),
-                     (window._lastState.porta >> 2) & 1]"""
+# The LED and the PA2 pin's level as the page shows them: both drawn
+# from the same snapshot, so they always agree with each other.
+LED_STATE = """() => [document.getElementById('led').classList.contains('on'),
+                     document.querySelector('#row-a .b2').textContent]"""
 
 
 def check_led_page(page, verbose):
@@ -97,9 +101,9 @@ def check_led_page(page, verbose):
     for _ in range(30):
         page.wait_for_timeout(100)
         seen.add(tuple(page.evaluate(LED_STATE)))
-    if verbose: print(f"  led states (snapshot, page, PA2) seen: {sorted(seen)}")
-    if seen != {("0", False, 1), ("1", True, 0)}:
-        return (f"PA2 LED states (snapshot, page, PA2) seen: {sorted(seen)}; "
+    if verbose: print(f"  led states (lit, PA2) seen: {sorted(seen)}")
+    if seen != {(False, "1"), (True, "0")}:
+        return (f"PA2 LED states (lit, PA2) seen: {sorted(seen)}; "
                 "want it on while PA2 is low and off while it is high")
     return None
 

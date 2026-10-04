@@ -47,10 +47,11 @@ then the C unit tests (written with the greatest framework). The end-to-end
 targets are (`michael-goldens`, `michael-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
 `wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
-`timer2-cycles`).
-All but `timer2-cycles` skip with a warning if `vasm6502_oldstyle` isn't on
-`PATH` (the web tests also if Playwright is missing); `timer2-cycles` needs
-vasm.
+`web-audio-buffer`, `timer2-cycles`).
+All but `timer2-cycles` and `web-audio-buffer` skip with a warning if
+`vasm6502_oldstyle` isn't on `PATH`, and the web tests also if Playwright
+is missing (`web-audio-buffer` needs only Playwright); `timer2-cycles`
+needs vasm.
 The nmos-default tests (`terminal_tests.py`, `emulator_tests.py`) need the
 assembler chain and run from `tools/check_all.sh emulator`. See
 `tests/README.md` for each suite and the slow opt-in ones.
@@ -324,5 +325,5 @@ mappings, including that all 32 configs are distinct.
   differs from the W65C02S / W65C22 (instruction-atomic CPU, free
   interrupt entry, SR-under-T2 shift rate, unmodelled VIA features)
   and how to fix each.
-- `NOTES-web-audio-drift.md` — how web audio is scheduled and a sketch
-  of a drift fix (not implemented).
+- `NOTES-web-audio-drift.md` — how web audio was scheduled, and the
+  jitter buffer and drift correction that replaced it.

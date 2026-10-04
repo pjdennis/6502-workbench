@@ -22,7 +22,8 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
 6. Clicks the button and verifies the .btn.held class lands, then the
    reset button, and that the PC goes back to the boot ROM.
 7. Verifies that state and audio frames flowed (counted with
-   Playwright's WebSocket frame events).
+   Playwright's WebSocket frame events), and that after a click the
+   audio worklet plays them (its buffer readout shows).
 """
 
 from web_test_util import (build_wendy2c_upload, failed, main, missing_tools,
@@ -73,6 +74,18 @@ def run_test(verbose=False):
                 return failed(f"web UI test: only {sf} state frames received in 1.5s")
             if af < 3:
                 return failed(f"web UI test: only {af} audio frames in 1.5s")
+
+            # Audio plays once the page has had a click (browsers want a
+            # gesture first): the audio worklet reports its buffer.
+            if page.text_content("#status-audio"):
+                return failed(f"audio readout before any click: {page.text_content('#status-audio')!r}")
+            page.mouse.click(5, 5)
+            try:
+                page.wait_for_function(
+                    "/^audio \\d+ ms/.test(document.getElementById('status-audio').textContent)", timeout=3000)
+            except Exception:
+                return failed(f"no audio readout after a click: {page.text_content('#status-audio')!r}")
+            if verbose: print(f"  {page.text_content('#status-audio')}")
 
             # The VIA pin table: wendy2c's labels, the pins' levels and DDRs.
             pins = page.evaluate("""
