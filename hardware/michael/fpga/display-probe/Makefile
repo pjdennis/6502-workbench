@@ -13,6 +13,8 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
+$(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
+
 # The spi-display pins, the USB serial port and the display's SDO (MISO)
 $(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc constr/miso.xdc
 	@mkdir -p $(dir $@)

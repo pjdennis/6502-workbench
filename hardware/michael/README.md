@@ -6,7 +6,7 @@ The schematics are in [`schematics/`](schematics/): Michael as built, in three s
 
 The keyboard board ([`schematics/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`](schematics/michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf)) finds the end of each byte by waiting for the clock to go idle. Some keyboards send their command replies too quickly for that, and a byte is lost. See [`docs/michael-keyboard-frame-detection.md`](../../docs/michael-keyboard-frame-detection.md) for the measurements and the recommended change.
 
-The SPI graphic display's interface board has been replaced by an FPGA (a Digilent Cmod A7-35T), working since 2026-10-03, that the unchanged display driver talks to. Wiring and design are in [`fpga/spi-display/`](fpga/spi-display/), and its schematic is sheet 3, with bring-up tools for the inputs ([`fpga/input-check/`](fpga/input-check/)) and the display ([`fpga/display-probe/`](fpga/display-probe/)).
+The SPI graphic display's interface board was replaced by an FPGA (a Digilent Cmod A7-35T) on 2026-10-03, first as a drop-in for the old board ([`fpga/spi-display/`](fpga/spi-display/), which has the wiring; the schematic is sheet 3), with bring-up tools for the inputs ([`fpga/input-check/`](fpga/input-check/)) and the display ([`fpga/display-probe/`](fpga/display-probe/)). Since 2026-10-04 it is a general bus to the FPGA ([`docs/michael-fpga-bus-plan.md`](../../docs/michael-fpga-bus-plan.md)), with the display as its first device and the display driver moved onto it: [`fpga/bus/`](fpga/bus/) is the design in the Cmod's flash, and [`fpga/bus-check/`](fpga/bus-check/) checks its reads.
 
 Firmware for the finished board: `firmware/boards/michael/` (`base_config_v2.inc`) and `firmware/programs/michael/`.
 

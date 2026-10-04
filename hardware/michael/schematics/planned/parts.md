@@ -14,7 +14,7 @@ identified only from a photo. The keyboard board's own parts are on its schemati
 | C6 | 0.1 µF | FPGA bus interface (3 of 3) |
 | C7 | 1 µF 25 V electrolytic | FPGA bus interface (3 of 3) |
 | C8 | 10 µF tantalum, to add | FPGA bus interface (3 of 3) |
-| C9 | 10 µF tantalum, to add | FPGA bus interface (3 of 3) |
+| C9 | 10 µF electrolytic | FPGA bus interface (3 of 3) |
 | D1 | red LED | VIA, LCD, LED, keyboard board and serial (2 of 3) |
 | D2 | 1N4001 (or similar) | FPGA bus interface (3 of 3) |
 | D3 | 1N4148 | CPU, memory, clock and reset (1 of 3) |

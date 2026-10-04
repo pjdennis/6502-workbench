@@ -5,7 +5,7 @@
 include ../kit.mk
 
 TOP    := input_check
-RTL    := rtl/input_check.v ../spi-display/rtl/spi_bridge.v \
+RTL    := rtl/input_check.v ../spi-display/rtl/spi_bridge.v ../rtl/level_filter.v \
           $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v uart_line_tx.v)
 XDC    := build/input_check.xdc
 TB_DIR := sim
@@ -13,6 +13,8 @@ TB_DIR := sim
 include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
+
+$(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
 
 $(TB_PASS): ../sim/michael_via.vh
 

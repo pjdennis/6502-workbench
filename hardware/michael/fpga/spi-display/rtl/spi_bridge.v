@@ -6,8 +6,12 @@
 // display's RESET and also abandons any byte in progress. CS stays low while Michael selects the display
 // and until the last byte has been shifted out.
 //
-// At 12 MHz a byte takes 16 clocks plus 2 to 3 for synchronising E: about 1.5 us. Michael's fastest
-// loop sends a byte every 4.5 us, so a byte is always finished before the next strobe.
+// E is filtered (level_filter.v): a level counts once it has held for 3 clocks (250 ns), so spikes on E
+// from switching noise aren't strobes. Michael's strobes are high for 2 us or more. The byte and DC are
+// still taken at E's first high sample.
+//
+// At 12 MHz a byte takes 16 clocks plus about 5 for synchronising and filtering E: under 2 us. Michael's
+// fastest loop sends a byte every 4.5 us, so a byte is always finished before the next strobe.
 module spi_bridge (
   input            clk,
   input      [7:0] d,          // VIA port B; stable around the E strobe
@@ -23,12 +27,19 @@ module spi_bridge (
   output           lcd_mosi,
   output reg       lcd_sck = 1'b0
 );
-  reg [2:0] e_sync = 3'b000;  // two synchroniser stages and one for edge detection
-  reg [1:0] csb_sync = 2'b11, rstb_sync = 2'b11;
+  reg [1:0] e_sync = 2'b00, csb_sync = 2'b11, rstb_sync = 2'b11;
+  reg [8:0] d_dc_sync1 = 0, d_dc_sync2 = 0, d_dc_at_e = 0;   // {d, dc}, synchronised with E, and as E rose
+  reg       e_prev = 1'b0;
+  wire      e_f, e_starting;
+  level_filter e_filter (.clk(clk), .in(e_sync[1]), .level(e_f), .glitch(), .starting(e_starting));
   always @(posedge clk) begin
-    e_sync    <= {e_sync[1:0], e};
-    csb_sync  <= {csb_sync[0], csb};
-    rstb_sync <= {rstb_sync[0], rstb};
+    e_sync     <= {e_sync[0], e};
+    d_dc_sync1 <= {d, dc};
+    d_dc_sync2 <= d_dc_sync1;
+    if (e_starting && e_sync[1]) d_dc_at_e <= d_dc_sync2;
+    e_prev     <= e_f;
+    csb_sync   <= {csb_sync[0], csb};
+    rstb_sync  <= {rstb_sync[0], rstb};
   end
 
   reg [7:0] shift = 8'h00;
@@ -37,15 +48,15 @@ module spi_bridge (
 
   wire in_reset = !rstb_sync[1];
   assign selected = !csb_sync[1];
-  assign accepted = e_sync[1] && !e_sync[2] && selected && !in_reset && bits_left == 0;
+  assign accepted = e_f && !e_prev && selected && !in_reset && bits_left == 0;
 
   always @(posedge clk)
     if (in_reset) begin
       bits_left <= 0;
       lcd_sck   <= 1'b0;
     end else if (accepted) begin
-      shift     <= d;
-      lcd_dc    <= dc;
+      shift     <= d_dc_at_e[8:1];
+      lcd_dc    <= d_dc_at_e[0];
       bits_left <= 8;
     end else if (busy) begin
       lcd_sck <= !lcd_sck;

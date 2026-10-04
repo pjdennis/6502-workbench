@@ -30,13 +30,28 @@ GDC_CURSOR_HEIGHT = 2
   .include graphics_macros.inc
 
 
-; PORT A
+; The display is reached through the FPGA bus (fpga_bus.inc): E (PA0) strobes each byte on port B, and RS (PA5)
+; chooses between the bus's commands (low) and data (high). gd_select raises RS, so every byte strobed until
+; gd_unselect is display data (the fast paths: gd_send_data, send_zero_data, gd_send_x2); gd_send_command
+; sends the bus's DISP_COMMAND, then the display's command as its argument.
+;
+; With GD_PIN_INTERFACE defined, it drives the older interface instead (the spi-display FPGA design, before
+; the bus), which has pins of its own for the display: E, CSB (select), RSTB (reset) and DC (data/command,
+; on PA5). Only michael_fpga_input_check.s, which checks that interface's wiring, defines it.
+;
+; GD_E on GD_PORT is the strobe for whichever interface it is (the bus's E, or the pin interface's), for the
+; code that serves both: gd_send_data, the fill loops and the macros. Code for one interface uses its own
+; names: PORTA, RS and RW for the bus, as fpga_bus.inc does.
 GD_PORT = PORTA
-
+  .ifdef GD_PIN_INTERFACE
 GD_E    = %00000001
 GD_CSB  = %00000010
 GD_RSTB = %00000100
 GD_DC   = %00100000
+  .else
+  .include fpga_bus.inc
+GD_E    = FB_E
+  .endif
 
 GD_CHAR_BYTES = GD_CHAR_WIDTH * GD_CHAR_HEIGHT / 8
 
@@ -176,6 +191,8 @@ gd_prepare_vertical:
   rts
 
 
+  .ifdef GD_PIN_INTERFACE
+
 gd_configure:
   lda #GD_E
   trb PORTA
@@ -220,7 +237,7 @@ gd_reset:
   lda #12 ; 120 ms
   jsr delay_hundredths
   pla
-  rts 
+  rts
 
 
 gd_send_command:
@@ -232,6 +249,70 @@ gd_send_command:
   lda #GD_DC
   tsb GD_PORT
   rts
+
+  .else
+
+gd_configure = fb_initialize
+
+
+; Sets RS high (data), so every byte strobed until gd_unselect is display data. RW is low (a write) between
+; transfers already (fpga_bus.inc).
+; On exit A, X, Y are preserved
+gd_select:
+  pha
+  lda #RS
+  tsb PORTA
+  pla
+  rts
+
+
+; Sets RS low again, as the LCD routines expect between transfers.
+; On exit A, X, Y are preserved
+gd_unselect:
+  pha
+  lda #RS
+  trb PORTA
+  pla
+  rts
+
+
+; Resets the display through the bus's DISP_RESET: after 10 ms, holds it in reset for 10 ms, then waits
+; 120 ms for it to wake.
+; On exit A, X, Y are preserved
+gd_reset:
+  pha
+  lda #1 ; could be 1 ms
+  jsr delay_hundredths
+  lda #FB_DISP_RESET
+  jsr fb_command
+  lda #0
+  jsr fb_data                    ; RESET low
+  lda #1 ; 10 ms
+  jsr delay_hundredths
+  lda #FB_DISP_RESET
+  jsr fb_command
+  lda #1
+  jsr fb_data                    ; RESET high
+  lda #12 ; 120 ms
+  jsr delay_hundredths
+  pla
+  rts
+
+
+; Between gd_select and gd_unselect.
+; On entry A = the display command
+gd_send_command:
+  pha
+  lda #RS
+  trb PORTA                      ; RS low: the bus's command
+  lda #FB_DISP_COMMAND
+  jsr gd_send_data
+  lda #RS
+  tsb PORTA                      ; RS high: its argument, the display's command, then data
+  pla
+  jmp gd_send_data               ; tail call
+
+  .endif
 
 
 gd_send_data:

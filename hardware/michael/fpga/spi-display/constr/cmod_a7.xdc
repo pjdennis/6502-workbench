@@ -18,6 +18,11 @@ set_property -dict { PACKAGE_PIN J1  IOSTANDARD LVCMOS33 } [get_ports {rstb}]
 set_property -dict { PACKAGE_PIN K2  IOSTANDARD LVCMOS33 } [get_ports {dc}]
 set_property -dict { PACKAGE_PIN L1  IOSTANDARD LVCMOS33 } [get_ports {bl}]
 
+# To the data buffer (the upper 74LVC245): /OE on pin 14, DIR on pin 17. Held low (on, Michael to the FPGA)
+# by every design that uses these pins; the FPGA bus (docs/michael-fpga-bus-plan.md) turns the bus around.
+set_property -dict { PACKAGE_PIN L2  IOSTANDARD LVCMOS33 } [get_ports {d_oeb}]
+set_property -dict { PACKAGE_PIN M1  IOSTANDARD LVCMOS33 } [get_ports {d_dir}]
+
 # To the ILI9341 module
 set_property -dict { PACKAGE_PIN R3  IOSTANDARD LVCMOS33 } [get_ports {lcd_cs}]
 set_property -dict { PACKAGE_PIN T3  IOSTANDARD LVCMOS33 } [get_ports {lcd_reset}]

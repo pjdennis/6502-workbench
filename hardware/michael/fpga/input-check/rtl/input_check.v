@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "../../rtl/cmod_a7.vh"
 // Bring-up check for the spi-display interface's inputs. Reports over the Cmod's USB serial port (115200 8N1):
 //   "S dd ecrdb"  the 13 inputs held steady for SETTLE_CYCLES (1 ms) and differ from the last state reported;
 //                 also sent for '?'. dd = port B in hex, then E, CSB, RSTB, DC and backlight as 0/1.
@@ -8,7 +9,7 @@
 // 4.5 us) is reported in full. The display outputs are held idle.
 module input_check #(
   parameter SETTLE_CYCLES = 12_000,  // 1 ms at 12 MHz
-  parameter CLKS_PER_BIT  = 104,     // 115200 baud
+  parameter BAUD          = `PC_BAUD,
   parameter FIFO_DEPTH    = 2048
 ) (
   input        sysclk,
@@ -29,14 +30,18 @@ module input_check #(
   output       t_clk,
   output       t_cs,
   output       t_din,
-  output [1:0] led
+  output [1:0] led,
+  output       d_oeb,  // the data buffer: on, and Michael to the FPGA
+  output       d_dir
 );
+  localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   localparam LEN = 12;
   localparam [1:0] KIND_STATE = 0, KIND_BYTE = 1;
 
   assign {lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led} = 6'b110000;
   assign {t_cs, t_clk, t_din} = 3'b100;
   assign led = 2'b00;
+  assign {d_oeb, d_dir} = 2'b00;
 
   // Inputs, synchronised: {d[7:0], e, csb, rstb, dc, bl}
   reg [12:0] sync1 = 0, inputs = 0;

@@ -3,7 +3,7 @@
 clock, reset), michael-io.svg (the VIA and what hangs off it) and michael-fpga-display.svg (the FPGA display
 interface; ../fpga/spi-display/WIRING.md has its connections as tables).
 
-The top-level SVGs are Michael as built (2026-10-03). Those in planned/ are Michael once the FPGA bus plan
+The top-level SVGs are Michael as built (2026-10-04). Those in planned/ are Michael once the FPGA bus plan
 (docs/michael-fpga-bus-plan.md) is complete: they differ in the LED and the FPGA interface's wiring.
 
 Run: python3 michael_schematic.py   (writes the SVGs beside this file)
@@ -40,7 +40,7 @@ PLANNED_PORT_A_USES = PORT_A_USES | {"PA0": "free", "PA1": "LED", "PA2": "FPGA E
 
 def subtitle(planned):
     state = ("Michael once the FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete. Planned, not built."
-             if planned else "Michael as built, 2026-10-03.")
+             if planned else "Michael as built, 2026-10-04.")
     return state + " Pins with the same label are connected; × is not connected."
 
 
@@ -138,43 +138,43 @@ def fpga(board, planned):
     s = Sheet(board, title, subtitle(planned) + " U7, U8 and U10 run from +3V3.", 1420, 1080)
     data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
     power = {"GND": "GND", "VCC": "+3V3"}
-    s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | (
-        {"DIR": "d_dir", "/OE": "d_oeb"} if planned else {"DIR": "GND", "/OE": "GND"}), width=110)
-    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B8": "U8.B8", "A5": "bl"}
+    # Stages 1 and 2 of the bus plan (built): the FPGA controls the data buffer; SOEB and RW reach the FPGA
+    s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | {"DIR": "d_dir", "/OE": "d_oeb"}, width=110)
+    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B6": "PA4", "B7": "PA6", "B8": "U8.B8",
+               "A5": "backlight_tie", "A6": "soeb", "A7": "rw"}
     if planned:   # E now arrives on B3 from PA2; B1 and B2 are tied off
-        control |= {"B1": "U8.B1", "B2": "U8.B2", "B6": "PA4", "B7": "PA6",
-                    "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs", "A6": "soeb", "A7": "rw"}
+        control |= {"B1": "U8.B1", "B2": "U8.B2", "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs"}
     else:
-        control |= {"B1": "PA0", "B2": "PA1", "B6": "U8.B6", "B7": "U8.B7",
-                    "A1": "e", "A2": "csb", "A3": "rstb", "A4": "dc"}
+        control |= {"B1": "PA0", "B2": "PA1", "A1": "e", "A2": "pa1", "A3": "pa2", "A4": "rs"}
     unused = {"B1": "unused", "B2": "unused", "B5": "unused"} if planned else {}
     s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power | {"DIR": "GND", "/OE": "GND"}, width=110,
           notes=unused)
     s.two_pin("capacitor", "C5", "0.1 µF", 110, 360, "+3V3", "GND", length=70)
     s.two_pin("capacitor", "C6", "0.1 µF", 180, 360, "+3V3", "GND", length=70)
     s.two_pin("resistor", "R9", "10 kΩ", 60, 720, "+3V3", "U8.B5")
-    s.text(60, 850, "backlight on", "middle", 10.5, fill=MUTED)
-    ties = ([("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned
-            else [("R10", "U8.B6"), ("R11", "U8.B7"), ("R12", "U8.B8")])
+    s.text(60, 850, "backlight tie", "middle", 10.5, fill=MUTED)
+    # R14 is E's pull-down until stage 4 moves E to PA2; it then stays as B1's tie
+    ties = [("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned else [("R12", "U8.B8")]
     for i, (ref, net) in enumerate(ties):
         s.two_pin("resistor", ref, "10 kΩ", 130 + i * 70, 720, net, "GND")
-    s.text(200, 850, "ties (unused inputs)", "middle", 10.5, fill=MUTED)
-    if planned:
-        for i, (ref, top, bottom, why) in enumerate((("R18", "PA2", "GND", "E idle low"),
-                                                     ("R15", "+3V3", "d_oeb", "off unconfigured"),
-                                                     ("R16", "d_dir", "GND", "inward by default"))):
-            s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
-            s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
+    s.text(130 + (len(ties) - 1) * 35, 850, "ties (unused inputs)" if planned else "tie", "middle", 10.5, fill=MUTED)
+    e_pull = ("R18", "PA2") if planned else ("R14", "PA0")
+    for i, (ref, top, bottom, why) in enumerate(((*e_pull, "GND", "E idle low"),
+                                                 ("R15", "+3V3", "d_oeb", "off unconfigured"),
+                                                 ("R16", "d_dir", "GND", "inward by default"))):
+        s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
+        s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
 
     lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
-    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "bl", 24: "VU", 25: "GND"} | {
-        26 + i: n for i, n in enumerate(lcd)}
+    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "backlight_tie", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw",
+                                                   24: "VU", 25: "GND"} | {26 + i: n for i, n in enumerate(lcd)}
     if planned:
-        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw"}
+        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs"}
     else:
-        cmod |= {9: "e", 10: "csb", 11: "rstb", 12: "dc"}
+        cmod |= {9: "e", 10: "pa1", 11: "pa2", 12: "rs"}
     s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
-          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else None,
+          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else
+                {"PIO10": "ignored", "PIO11": "ignored", "PIO13": "ignored"},
           caption="33–37 reserved for touch")
 
     tft = {"GND": "GND", "Vin": "+3V3", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
@@ -186,17 +186,17 @@ def fpga(board, planned):
     s.ic("U11", "LM1117T-3.3", 1150, 700, left=[(3, "IN", "+5V"), (1, "GND", "GND")],
          right=[(2, "OUT", "+3V3")], width=110, caption="tab: OUT")
     s.two_pin("electrolytic", "C8", "10 µF tantalum, to add", 1100, 820, "+5V", "GND")
-    s.two_pin("electrolytic", "C9", "10 µF tantalum, to add", 1250, 820, "+3V3", "GND")
+    s.two_pin("electrolytic", "C9", "10 µF electrolytic", 1250, 820, "+3V3", "GND")
     s.two_pin("diode", "D2", "1N4001 (or similar)", 740, 720, "+5V", "VU", names=("A", "K"))
     s.two_pin("electrolytic", "C7", "1 µF 25 V electrolytic", 900, 720, "+5V", "GND")
 
     notes = ["From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V "
              "A side.",
-             "Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc); U10's MISO is read only by the "
-             "display probe.",
+             "Cmod pins carry the bus designs' port names (spi-display/constr/cmod_a7.xdc as bus.mk renames it, "
+             "constr/bus.xdc); U10's MISO is read only by the display probe.",
              "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
-             "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (for stability). Not fitted "
-             "on Michael yet: see the to-do list in README.md."]
+             "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (the output one for "
+             "stability). C9 was fitted on 2026-10-04; C8 isn't yet: see the to-do list in README.md."]
     if planned:
         notes[1] = ("The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives "
                     "PORTB with the keyboard board.")
@@ -205,7 +205,9 @@ def fpga(board, planned):
         notes.append("RS and RW are the LCD's own register select and read/write pins, with the same meanings. "
                      "The new port names are proposals.")
     else:
-        notes[0] += " DIR and /OE are grounded."
+        notes.append("Stages 1 and 2 of the FPGA bus plan are done: the bus design in the Cmod's flash drives U7's /OE "
+                     "and DIR, and ignores Cmod 10, 11 and 13 (PA1, PA2 and R9's tie: the older display interface's "
+                     "select, reset and backlight).")
     s.note(24, 920, notes, "Notes")
     return s
 
@@ -227,7 +229,7 @@ def parts_list(board, planned):
     def order(ref):
         letters = ref.rstrip("0123456789")
         return letters, int(ref[len(letters):])
-    state = "once the FPGA bus plan is complete (planned)" if planned else "as built (2026-10-03)"
+    state = "once the FPGA bus plan is complete (planned)" if planned else "as built (2026-10-04)"
     lines = [f"# Michael's parts, {state}", "",
              "Generated by `michael_schematic.py` from the schematics beside this file. \"(or similar)\" marks a part",
              "identified only from a photo. The keyboard board's own parts are on its schematic,",

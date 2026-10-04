@@ -17,11 +17,18 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 next.** In review, reads came to use E
-with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
-pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
-Michael's schematics, as built and as planned at the end of this plan, are in
-[`hardware/michael/schematics/`](../hardware/michael/schematics/) ([`planned/`](../hardware/michael/schematics/planned/)).
+**Status (2026-10-04): stages 0 to 2 done; stage 3 is next.** Stage 0 is this document, reviewed. Stage 1 is
+done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
+([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
+interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
+the FPGA is unconfigured. Stage 2 is done (2026-10-04): the [bus design](../hardware/michael/fpga/bus/) is in
+the Cmod's flash, with the raw display commands and the debug port, and `graphics_display.inc` uses it. On the
+board, the backlight's PWM made snow on the display until its edges were kept clear of the SPI bytes. In
+review, reads came to use E with a shared pin instead of a dedicated PA1, a SOEB interlock came to let
+interrupts pause a read, the shared pins (first F and G) were named RS and RW after their LCD meanings, and
+stage 4 gained the pin shuffle. Michael's schematics, as built and as planned at the end of this plan, are in
+[`hardware/michael/schematics/`](../hardware/michael/schematics/)
+([`planned/`](../hardware/michael/schematics/planned/)).
 
 ## Stages
 
@@ -46,7 +53,16 @@ The protocol below is the contract that the FPGA design, the firmware and the em
    keyboard byte must arrive. Also check, in nextpnr's timing report, that the interlock is a direct path from
    input pin to output pin.
 5. **Check the safe default.** With the FPGA erased or held in configuration, Michael's port B must stay
-   undriven.
+   undriven:
+   - `~/opt/fpga/oss-cad-suite/bin/openFPGALoader -b cmoda7_35t --bulk-erase` (or `openFPGALoader` after
+     `source <kit>/env.sh`) empties the Cmod's flash, so after a power cycle the FPGA stays unconfigured;
+   - the data buffer's /OE (pin 19) must then measure 3.3 V (off) and its DIR (pin 1) about 0 V;
+   - `make -C hardware/michael/fpga/bus flash` puts the bus design back (before stage 2, the spi-display
+     design: `make -C hardware/michael/fpga/spi-display flash`).
+
+   Done on 2026-10-03: /OE at the 3.3 V rail, DIR at 0.014 V. But the "3.3 V" rail itself measured 4.07 V,
+   above what the FPGA's inputs may see (VCCO + 0.55 V). The cause was found on 2026-10-04: 5 V had been fed
+   into the 3.3 V rail by mistake. Rewired, it measures 3.297 V.
 
 ### 2. The new bus, with raw display access (the cutover)
 - **FPGA:** a new design replacing spi-display, with:
@@ -120,6 +136,64 @@ Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configurati
 flash's clock goes through `STARTUPE2`, unproven with the open toolchain). Also a serial port to the PC, and an
 FPGA interrupt on the VIA's CA1 (unused on Michael; input-only, so a 3.3 V FPGA pin can drive it directly).
 
+### Follow-ups
+Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Michael today.
+
+- **`OVERFLOW` for the serial queue.** `SERIAL_SEND`'s bytes beyond the 2048-byte serial queue are dropped
+  without setting `OVERFLOW`, though [its definition](#commands) covers the queues a transaction fills.
+  Set it for a `SERIAL_SEND` byte that is dropped, whoever sent it: Michael, or the PC through the debug
+  port, since either can read the status. The FPGA's own use of the serial port must never set it, and
+  needn't, since nothing of its own is dropped: the debug port's answers wait for room (`out_ready` in
+  [`top.v`](../hardware/michael/fpga/bus/rtl/top.v)), and bus-check's counts line starts only once the
+  queue is empty. Test first in `bus/sim/tb_top.v`. The bitstream changes, so it needs a board run and a
+  flash.
+- **One serial output module.** [`bus/rtl/top.v`](../hardware/michael/fpga/bus/rtl/top.v) and
+  [`bus-check/rtl/bus_check.v`](../hardware/michael/fpga/bus-check/rtl/bus_check.v) build the same serial
+  output (a FIFO into `uart_tx`, busy while either has work). A shared `rtl/serial_out.v` would hold it,
+  with the full flag the item above needs. The activity LEDs' pulse stretchers are repeated in three designs
+  too.
+- **Faster fills and pixels.** The fill loop (`send_zero_data` in
+  [`graphics_display.inc`](../firmware/lib/graphics/graphics_display.inc)) was slowed on purpose for the old
+  interface board: `sta PORTA,Y` with Y = 0 spends one cycle more than `sta PORTA`, so a byte goes every 9
+  cycles (4.5 µs) instead of 8, with E low for 2.5 µs instead of 2. Its only purpose is that cycle: the old
+  board's first test program, `hello_michael_spi.s` (2022-09-16), has the same `sta PORTA,Y`, with a `nop`
+  commented out beside it. The bus needs only 250 ns of E high and low, and drains a byte in about 1.4 µs, so:
+  - `sta PORTA` in the fill loop: 8 cycles a byte, fills about 11% faster;
+  - `gd_send_x2` (every character's pixels) strobes with `tsb`/`trb`, 12 cycles a byte; the fill loop's
+    `sta`/`stx` would take 8;
+  - far more: a fill command in the FPGA (in the reserved `$14`–`$1F`), so that a rectangle of one colour is
+    a few bytes from Michael, not two per pixel.
+
+  Each changes the graphics programs' timing, so each needs a board run.
+- **Sharing the serial port between Michael and the debug port.** Michael's `SERIAL_SEND` bytes and the
+  debug port's answers go out of the one USB serial port, mixed (an answer can be split by Michael's bytes).
+  Plan a clean path by default, Michael's bytes only, as they are sent, and, only while debugging, a
+  multiplexed one, which a host tool splits back into Michael's stream and the debug port's. Either would be
+  chosen from the PC. Candidates: the modems' GSM 07.10 multiplexer (CMUX), which carries several virtual
+  serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
+  escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
+  designed.
+- **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
+  B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
+  design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
+- **A version for the FPGA design.** `ID` gives the protocol's version and capabilities, but nothing says which
+  build of a design is loaded. Both the stage 2 snow fix and the review's clean-ups went into flash with `ID`
+  unchanged. Add a design version that changes with every change to a design, readable by Michael and
+  through the debug port (`debug.py id`). To decide:
+  - **the format and size:** e.g. a minor number beside the protocol version, or major and minor, or a build
+    number;
+  - **where it's reported:** more bytes in `ID`'s reply (programs read only the first four today), or a
+    command of its own (`$02` is free);
+  - **how it's set:** by hand when a design changes, or at build time from git (a commit count or short
+    hash), which can't be forgotten.
+
+  While changing `ID`'s reply in [`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v), comment
+  that `'M'`, `'B'` stands for "Michael Bus". It was left out of the review's clean-ups, because any edit
+  there moves the placement away from the build in flash.
+- **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
+  `test_michael_display_orientation.py` have their own copies of what
+  [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
+
 ## Wiring changes
 
 Done in stage 1, after the FPGA drives the new pins ([`WIRING.md`](../hardware/michael/fpga/spi-display/WIRING.md)
@@ -176,9 +250,10 @@ E rises. E's rising edge chooses the transfer, as the same two pins do for the L
 2. Raise E, then lower it.
 
 The FPGA takes port B, RS and RW at E's rising edge. They must be stable from before E rises until at least
-0.5 µs after, and E must stay high, then low, for at least 0.5 µs each. At 2 MHz every instruction takes at
-least 1 µs, so `tsb`/`trb` on E (as `gd_send_data` does) and `sta PORTA,Y`/`stx PORTA` (as the fill loops do)
-meet this.
+0.5 µs after, and E must stay high, then low, for at least 0.5 µs each. The FPGA filters E: a level counts
+only once it has held for 250 ns, so glitches on the line (seen on the board in stage 1) can't make transfers.
+At 2 MHz every instruction takes at least 1 µs, so `tsb`/`trb` on E (as `gd_send_data` does) and `sta
+PORTA,Y`/`stx PORTA` (as the fill loops do) meet this.
 
 The FPGA accepts a byte every 2 µs indefinitely. Faster bursts go into a 512-byte command queue. Michael's
 fastest loop sends a byte every 4.5 µs.
@@ -186,12 +261,12 @@ fastest loop sends a byte every 4.5 µs.
 ## Reading a byte
 1. Port B is an input. RW is 1, and RS is 1 for the reply queue or 0 for the status byte, set by an instruction
    before the one that raises E.
-2. Raise E. Within 0.5 µs the FPGA turns the bus around and drives the byte.
-3. Read port B, at least 0.5 µs after raising E.
-4. Lower E. The FPGA releases the bus within 0.5 µs, and for a reply-queue read moves to the next byte.
+2. Raise E. Within 1 µs the FPGA turns the bus around and drives the byte.
+3. Read port B, at least 1 µs after raising E (`fpga_bus.inc` reads it 2 µs after).
+4. Lower E. The FPGA releases the bus within 1 µs, and for a reply-queue read moves to the next byte.
 
-Don't make port B an output again until 0.5 µs after lowering E; at 2 MHz the next instruction is late
-enough. A byte takes about 6 µs (`tsb`, `lda`, `trb`).
+Don't make port B an output again until 1 µs after lowering E; `fb_read` returns later than that. A byte takes
+about 6 µs (`tsb`, `lda`, `trb`).
 
 Reading with an empty reply queue gives `$00` and sets the `UNDERFLOW` status bit. Replies are queued in
 the order of the commands that asked for them. With the FPGA unconfigured, the data buffer stays off and a
@@ -224,7 +299,7 @@ Errors don't stop anything. They set sticky bits that the status read (RW = 1, R
 | 1 | `UNKNOWN` | an unknown command (its data is then ignored) |
 | 2 | `EXTRA` | data after a non-streaming command's arguments |
 | 3 | `UNDERFLOW` | a read with the reply queue empty |
-| 4 | `OVERFLOW` | the command queue or the reply queue overflowed |
+| 4 | `OVERFLOW` | the command queue or the reply queue overflowed (the serial queue too: a [follow-up](#follow-ups)) |
 | 7 | `BUSY` | (not sticky) the FPGA is still working through queued commands |
 
 ## Command map
@@ -236,7 +311,7 @@ Commands are grouped by their high nibble. Arguments are listed in order; all ar
 | Code | Name | Arguments | Data | Effect |
 |---|---|---|---|---|
 | `$00` | `NOP` | — | — | Nothing. Safe as padding or a resync |
-| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'`, the protocol version (1), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
+| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (1), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
 | `$03` | `RESET` | — | — | Empties both queues and clears the status. The display is left as it is |
 | `$04` | `ECHO` | — | streams | Each data byte is added to the reply queue: a loopback for testing reads |
 
@@ -287,12 +362,22 @@ Provisional: the details are settled in stage 3. They mirror the editor's screen
 The character grid changes as each command arrives, and the renderer catches the screen up in the
 background. So text commands never make Michael wait, and Michael never needs to read before writing.
 
+### Serial port to the PC (`$5x`)
+
+Provisional: stage 1's check design implements `$50`, through which Michael's test program reports. In
+stage 2's design its bytes share the Cmod's USB serial port with the debug port's answers, and can land
+in the middle of one.
+
+| Code | Name | Arguments | Data | Effect |
+|---|---|---|---|---|
+| `$50` | `SERIAL_SEND` | — | streams | Each data byte goes out of the Cmod's USB serial port |
+
 ### Reserved
 
 | Range | For |
 |---|---|
 | `$4x` | storage |
-| `$5x` | a serial port to the PC |
+| `$51`–`$5F` | more of the serial port |
 | `$31`–`$3F` | more text mode |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
 | `$60`–`$FF` | later devices |
@@ -303,6 +388,8 @@ background. So text commands never make Michael wait, and Michael never needs to
 - **Set RS and RW for every transfer, by an instruction before the one that raises E.** The LCD routines and
   the keyboard driver also use PA5 and PA6, so their levels can't be assumed. If both changed in the same
   instruction as E, the FPGA might sample either value.
+- **Leave RS and RW low between transfers,** as the LCD routines do and expect. With RS high, the LCD's
+  busy check would read its data instead of the busy flag. `fpga_bus.inc` does this.
 - **RW must be 0 for writes.** A write with RW = 1 would be taken as a read, and the FPGA would drive port B
   against the VIA while E is high.
 - **Start with `RESET`,** then check `ID` before relying on the FPGA.
@@ -310,4 +397,7 @@ background. So text commands never make Michael wait, and Michael never needs to
 
 ## The debug port
 The Cmod's USB serial port carries the same transactions, so a PC can drive every device without Michael
-(stage 2 onwards). The framing (how a serial byte carries RS, and how reads come back) is specified in stage 2.
+(stage 2 onwards). The framing is text lines: `C hh ...` writes commands, `D hh ...` data, `R n` reads n bytes
+of the reply queue and `S` the status, each read answering with a line of hex
+([`debug_port.v`](../hardware/michael/fpga/rtl/debug_port.v) has the details, and
+[`debug.py`](../hardware/michael/fpga/bus/debug.py) wraps it).
