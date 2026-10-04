@@ -100,18 +100,22 @@ module text_grid #(
   reg        was_on = 1'b0;
   wire       cursor_moved = {cursor_row, cursor_col, cursor_on} != {was_row, was_col, was_on};
 
-  // The lowest dirty cell
-  reg [4:0] d_row, d_col;
-  reg       d_any;
-  integer r, c;
-  always @* begin
-    d_any = 1'b0; d_row = 0; d_col = 0;
-    for (r = LAST_ROW; r >= 0; r = r - 1)
-      if (marks[r*COLS +: COLS] != 0) begin d_any = 1'b1; d_row = r; end
-    for (c = LAST_COL; c >= 0; c = c - 1)
-      if (marks[d_row*COLS + c]) d_col = c;
-  end
-  assign dirty = d_any, dirty_row = d_row, dirty_col = d_col;
+  // The lowest dirty cell (functions, not always @*, so that simulation has it from time 0)
+  function [4:0] first_row(input [ROWS*COLS-1:0] m);
+    integer r;
+    begin
+      first_row = 0;
+      for (r = LAST_ROW; r >= 0; r = r - 1) if (m[r*COLS +: COLS] != 0) first_row = r;
+    end
+  endfunction
+  function [4:0] first_col(input [COLS-1:0] m);
+    integer c;
+    begin
+      first_col = 0;
+      for (c = LAST_COL; c >= 0; c = c - 1) if (m[c]) first_col = c;
+    end
+  endfunction
+  assign dirty = marks != 0, dirty_row = first_row(marks), dirty_col = first_col(marks[dirty_row*COLS +: COLS]);
 
   always @(posedge clk) begin
     if (take_dirty) marks[dirty_row*COLS + dirty_col] <= 1'b0;

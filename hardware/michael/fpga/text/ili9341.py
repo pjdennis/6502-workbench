@@ -1,0 +1,56 @@
+"""An ILI9341 panel, as far as the text mode uses it: the bytes it receives over SPI (each with its DC level)
+become pixels, through CASET and PASET (the window) and RAMWR (pixels, two bytes each, columns first, then
+pages, within the window). MADCTL and VSCRSADD are recorded; the orientation itself isn't modelled: column
+and page are the panel's addresses as Michael's driver uses them (gd_prepare_vertical's MY, MV), so text row r
+is columns 16r to 16r + 15 and text column c is pages 12c to 12c + 11.
+"""
+CASET, PASET, RAMWR, MADCTL, VSCRSADD = 0x2A, 0x2B, 0x2C, 0x36, 0x37
+COLUMNS, PAGES = 320, 240
+
+
+class Panel:
+    def __init__(self):
+        self.pixels = [[None] * COLUMNS for _ in range(PAGES)]   # None: never written
+        self.command, self.params = None, []
+        self.registers = {}
+        self.window = (0, COLUMNS - 1, 0, PAGES - 1)
+        self.column = self.page = 0
+        self.high = None
+
+    def receive(self, dc, byte):
+        if not dc:
+            self.command, self.params, self.high = byte, [], None
+            if byte == RAMWR:
+                self.column, self.page = self.window[0], self.window[2]
+            return
+        self.params.append(byte)
+        if self.command in (CASET, PASET) and len(self.params) == 4:
+            start, end = self.params[0] << 8 | self.params[1], self.params[2] << 8 | self.params[3]
+            c0, c1, p0, p1 = self.window
+            self.window = (start, end, p0, p1) if self.command == CASET else (c0, c1, start, end)
+        elif self.command == RAMWR:
+            if self.high is None:
+                self.high = byte
+            else:
+                self.pixels[self.page][self.column] = self.high << 8 | byte
+                self.high = None
+                c0, c1, p0, p1 = self.window
+                self.column += 1
+                if self.column > c1:
+                    self.column, self.page = c0, self.page + 1 if self.page < p1 else p0
+        else:
+            self.registers[self.command] = list(self.params)
+
+    def cell(self, row, col):
+        """The text cell's 12 columns of 16 pixels, each a 16-bit word (top pixel in bit 0) of lit pixels;
+        None if any of its pixels is neither white nor black."""
+        words = []
+        for x in range(12):
+            word = 0
+            for y in range(16):
+                p = self.pixels[col * 12 + x][row * 16 + y]
+                if p not in (0x0000, 0xFFFF):
+                    return None
+                word |= (p == 0xFFFF) << y
+            words.append(word)
+        return words

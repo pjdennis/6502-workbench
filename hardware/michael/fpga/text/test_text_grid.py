@@ -54,7 +54,7 @@ class Simulator:
         shutil.rmtree(self.dir)
 
 
-def random_ops(rng, n):
+def random_ops(rng, n, rows=ROWS, cols=COLS):
     ops = [(TEXT_ON, 0, 0)]
     for _ in range(n):
         op = rng.choice([PUT] * 120 + [GOTO] * 10 + list(range(2, 16)) * 2)
@@ -62,13 +62,13 @@ def random_ops(rng, n):
             a = rng.choice([0x08, 0x0A, 0x0D, 0x07, 0xC1]) if rng.random() < 0.1 else rng.randrange(0x20, 0x7F)
             ops.append((op, a, 0))
         elif op in (GOTO, REGION):
-            ops.append((op, rng.choice([rng.randrange(ROWS), rng.randrange(256)]),
-                        rng.choice([rng.randrange(COLS + 1), rng.randrange(256)])))
+            ops.append((op, rng.choice([rng.randrange(rows), rng.randrange(256)]),
+                        rng.choice([rng.randrange(cols + 1), rng.randrange(256)])))
         elif op in (TEXT_ON, CLEAR) and rng.random() < 0.8:
             continue                                     # rarely, or they wipe everything
         else:
             big = rng.random() < 0.1
-            ops.append((op, rng.choice([19, 20, 255]) if big else rng.choice([0, 1, 1, 1, 2, 3]), 0))
+            ops.append((op, rng.choice([rows - 1, rows, cols, 255]) if big else rng.choice([0, 1, 1, 1, 2, 3]), 0))
     return ops
 
 
