@@ -19,9 +19,11 @@ A three-machine 6502 emulator:
   starts as the ROM leaves it (two lines, display on, no cursor, clear),
   as programs run from the ROM's loader expect; without `--load`, the
   code file is the ROM image. Selected with
-  `--machine michael`. At exit it prints the LCD and a bus check: LCD
+  `--machine michael`. At exit it prints the LCD, the PA2 LED (lit while
+  the pin is low) and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
-  PORTB at once.
+  PORTB at once. `--live` runs it in the terminal and `--web` in the
+  browser (see [`--web` mode](#--web-mode)).
 
 The default machine is `nmos-default`; nothing about the assembler
 bootstrap chain changed when the wendy2c work landed.
@@ -42,9 +44,10 @@ make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 
 `make test` runs the end-to-end targets first (they are its prerequisites),
 then the C unit tests (written with the greatest framework). The end-to-end
-targets are (`michael-goldens`, `wendy2c-goldens`,
+targets are (`michael-goldens`, `michael-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
-`wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `timer2-cycles`).
+`wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
+`timer2-cycles`).
 All but `timer2-cycles` skip with a warning if `vasm6502_oldstyle` isn't on
 `PATH` (the web tests also if Playwright is missing); `timer2-cycles` needs
 vasm.
@@ -78,14 +81,14 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--input` / `--output` / `--error-output` | ports `$F006` / `$F009` / `$F00C` |
 | `--dump` / `--no-dump` | memory dump on exit |
 | `--console` / `--terminal` | full-screen UI modes (mutually exclusive) |
-| `--mhz` / `--cpu-mhz` / `--baud` | wall-clock pacing + serial timing. `--mhz` is the CPU clock for nmos-default and michael (michael `--live` defaults to 2; non-live michael runs are not paced), but the OSC crystal for wendy2c (CPU = OSC / 2) |
+| `--mhz` / `--cpu-mhz` / `--baud` | wall-clock pacing + serial timing. `--mhz` is the CPU clock for nmos-default and michael (michael `--live` and `--web` default to 2; other michael runs are not paced), but the OSC crystal for wendy2c (CPU = OSC / 2) |
 | `--pace-mask` / `--pace-log` / `--pace-polls` | test hook: after reading an input byte whose mask byte is not `0`, `con_ready` reports not-ready for N polls (default 2000), so the next key arrives only after the program went idle (a `wait_ready` in the pause times out, and the program's next request for input ends the pause); the log gets `<input read> <output written>` as each pause ends. In terminal mode the serial input is held before the first byte and after each such byte until the program asks for input with nothing pending and all its output sent, like a user who waits for the screen before typing (the log is not written there) |
 | `--rows N` / `--cols N` | terminal-size overrides |
 | `--direct-io` | the program calls the `scr_*` screen vectors and `con_read` returns key codes; the emulator converts to and from ANSI (`direct_io.c`) |
 | `--wendy2-prog <path>` | wendy2c: preload a raw program into RAM at `--load` (default `$4000`) and start it there, skipping the serial boot |
 | `--disk <dir>` | wendy2c: host directory behind the `$F800-$F80F` file-I/O port block (`chips/syscall_ports.h`) |
 | `--serial-link <path>` | wendy2c: Unix socket on which a client drives the serial RX line bit by bit (`wendy2c_emu_link.py`) |
-| `--web` / `--web-port N` / `--web-bind ADDR` / `--web-root PATH` | wendy2c: browser UI over HTTP + WebSocket (see `web/README.md`) |
+| `--web` / `--web-port N` / `--web-bind ADDR` / `--web-root PATH` | wendy2c, michael: browser UI over HTTP + WebSocket (see [`--web` mode](#--web-mode) and `web/README.md`) |
 | `--audio` / `--wav <path>` | wendy2c: play the PB7 piezo line live, or record it to a WAV |
 | `--lcd-trace <path>` | wendy2c, michael: append an LCD frame to the file each time the LCD changes |
 | `--lcd-panel <type>` | wendy2c: `16x2` (default) or `16x1-5x10` render layout |
@@ -131,6 +134,35 @@ in the real board. In another terminal,
 `compile_and_upload_wendy2c_emu.sh foo.s` assembles, frames and uploads a
 program through `wendy2c_emu_upload.py` and `wendy2c_emu_link.py` (the
 emulator-side counterparts of `tools/upload/`).
+
+## `--web` mode
+
+`--web` serves the board on `http://127.0.0.1:8080/` (`--web-port`,
+`--web-bind`): the LCD drawn dot by dot (CGRAM included), the LEDs, a
+reset button, the VIA's port pins and the clock, updated about 30 times
+a second. It runs uncapped and paced to the board's clock (or `--mhz`)
+until Ctrl-C. The page (`web/index.html`) shows the machine the server
+names, and an open page that reconnects to a different machine on the
+same port rebuilds itself for it; `web/README.md` has the files and the
+protocol.
+
+- **wendy2c**: the 16x2 LCD (or `--lcd-panel 16x1-5x10`), the LEDs on
+  PB6 and PA2, the control button (SPACE holds it, R resets), and the
+  PB7 piezo as audio. `emulator/demo_wendy2c.sh --web` boots a demo.
+- **michael**: the 20x4 LCD and the LED on PA2 (lit while PA2 is low, as
+  on the board). Keys typed or pasted on the page go to the PS/2
+  keyboard, encoded as `--keys` encodes a terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
+  arrows, Home/End/PgUp/PgDn/Insert/Delete and Ctrl+letter.
+
+```sh
+# michael: a program loaded into RAM (the keyboard echo demo)
+firmware/vasm -wdc02 -Fbin -dotdir -ignore-mult-inc -esc \
+    -o /tmp/kbd.bin firmware/programs/michael/michael_keyboard_new.s
+emulator/emulator.out /tmp/kbd.bin --machine michael --load 2000 --web
+
+# michael: the editor, through the ROM's loader
+editor/bin/editor-michael.sh --web
+```
 
 ## `--live` mode
 
@@ -179,7 +211,7 @@ emulator/
 ├── cli.{c,h}               argument parsing + usage
 ├── emu_run.{c,h}           emu_run_default loop (nmos-default)
 ├── emu_wendy2c.{c,h}       wendy2c machine: chip wiring, run loops, --live renderer
-├── emu_michael.{c,h}       michael machine
+├── emu_michael.{c,h}       michael machine: chip wiring, run loops, --live renderer
 ├── bus.{c,h}               chip vtable + bus walk
 ├── cpu_core.{c,h}          fake6502-derived CPU; NMOS + 65C02 variants
 ├── stubs.{c,h}, file_io.{c,h}, console.{c,h}, direct_io.{c,h}
@@ -190,8 +222,9 @@ emulator/
 │                           wall-clock pacing, --lcd-trace output, PS/2 scan codes
 ├── audio.{c,h}             PB7 -> WAV / miniaudio live playback (vendor/miniaudio.h)
 ├── serial_link.{c,h}       --serial-link socket transport
-├── wendy2c_web.{c,h}, web_json.{c,h}, web/
-│                           --web server, its JSON parser, the browser UI
+├── web_server.{c,h}, web_json.{c,h}, web_run.{c,h}, web/
+│                           --web server, its JSON parser, the shared --web
+│                           run loop, the browser UI
 ├── chips/                  chip models (see chips/README.md)
 ├── pld_to_c.py             22V10 .pld -> chips/clock_22v10_pld_generated.h
 ├── persistent_emulator.py  --server wrapper the Python tests use

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Run the editor on the emulated Michael board: boots the Michael ROM, uploads the editor through
 # its loader over the serial line, and draws the 20x4 LCD in this terminal, with this terminal's
-# keys typed on its PS/2 keyboard. Ctrl-] quits. Extra arguments go to the emulator (e.g. --mhz 4).
+# keys typed on its PS/2 keyboard. Ctrl-] quits. Extra arguments go to the emulator (e.g. --mhz 4);
+# with --web the board is in the browser instead (http://127.0.0.1:8080/; Ctrl-C quits).
 set -e
 cd "$(dirname "$0")/../.."
 work="$(mktemp -d)"
@@ -14,5 +15,7 @@ work = Path(sys.argv[1])
 michael_image.build_rom(work / "michael_rom.bin")
 michael_image.write_upload(michael_image.build(work / "editor_michael.bin"), work / "editor.upload")
 PYTHON
+mode=--live
+for arg; do [ "$arg" = --web ] && mode=; done
 exec emulator/emulator.out "$work/michael_rom.bin" --machine michael \
-  --serial-input "$work/editor.upload" --live "$@"
+  --serial-input "$work/editor.upload" $mode "$@"

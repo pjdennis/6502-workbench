@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>wendy2c</title>
-  <link rel="stylesheet" href="/wendy2c.css">
+  <title>6502 board</title>
+  <link rel="stylesheet" href="/board.css">
 </head>
 <body>
   <main id="board">
-    <header><h1>wendy<span class="accent">2c</span></h1></header>
+    <header><h1 id="title">&nbsp;</h1></header>
 
     <section id="lcd-frame" aria-label="HD44780 LCD">
       <div id="lcd-bezel">
@@ -15,57 +15,10 @@
       </div>
     </section>
 
-    <section id="controls" aria-label="controls">
-      <div class="indicator">
-        <div class="led" id="led-morse"></div>
-        <div class="indicator-label">LED &middot; PB6</div>
-      </div>
-      <div class="indicator">
-        <div class="led led-red" id="led-control"></div>
-        <div class="indicator-label">LED &middot; PA2</div>
-      </div>
-      <div class="indicator">
-        <button class="btn" id="btn-press" aria-label="control button">
-          <span class="btn-cap"></span>
-        </button>
-        <div class="indicator-label">BTN &middot; PA1</div>
-      </div>
-      <div class="indicator">
-        <button class="btn btn-reset" id="btn-reset" aria-label="reset (RES) button">
-          <span class="btn-cap">RST</span>
-        </button>
-        <div class="indicator-label">RESET</div>
-      </div>
-    </section>
+    <section id="controls" aria-label="controls"></section>
 
     <section id="pins" aria-label="VIA 6522 pin state">
-      <table>
-        <tr><th>PORT</th><th colspan="8">bits&nbsp; 7&nbsp; 6&nbsp; 5&nbsp; 4&nbsp; 3&nbsp; 2&nbsp; 1&nbsp; 0</th><th>DDR</th></tr>
-        <tr id="row-a">
-          <td class="port-name">PORTA</td>
-          <td class="b b7"></td><td class="b b6"></td><td class="b b5"></td><td class="b b4"></td>
-          <td class="b b3"></td><td class="b b2"></td><td class="b b1"></td><td class="b b0"></td>
-          <td class="ddr"></td>
-        </tr>
-        <tr id="row-a-lbl" class="labels">
-          <td></td>
-          <td>D7</td><td>D6</td><td>D5</td><td>D4</td>
-          <td>RW</td><td class="hl">LED</td><td class="hl">BTN</td><td>RS</td>
-          <td></td>
-        </tr>
-        <tr id="row-b">
-          <td class="port-name">PORTB</td>
-          <td class="b b7"></td><td class="b b6"></td><td class="b b5"></td><td class="b b4"></td>
-          <td class="b b3"></td><td class="b b2"></td><td class="b b1"></td><td class="b b0"></td>
-          <td class="ddr"></td>
-        </tr>
-        <tr id="row-b-lbl" class="labels">
-          <td></td>
-          <td>T1</td><td class="hl">LED</td><td>E</td><td>B4</td>
-          <td>B3</td><td>B2</td><td>B1</td><td>B0</td>
-          <td></td>
-        </tr>
-      </table>
+      <table id="pin-table"></table>
     </section>
 
     <section id="status">
@@ -75,6 +28,9 @@
     </section>
   </main>
   <script src="/hd44780_a00_font.js"></script>
-  <script src="/wendy2c.js"></script>
+  <script src="/board.js"></script>
+  <script src="/keyboard.js"></script>
+  <script src="/machines.js"></script>
+  <script>Board.start();</script>
 </body>
 </html>

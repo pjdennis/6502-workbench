@@ -14,8 +14,9 @@
  *   string  = '"' char* '"'           -- no \uXXXX
  *   number  = '-'? digit+             -- no fractions / exponents
  *
- * We only EXTRACT the values of "type" (string) and "down" (number);
- * any other key's value is parsed-and-discarded.
+ * We only EXTRACT the values of "type" (string), "down" (number) and
+ * "bytes" (an array of numbers 0..255); any other key's value is
+ * parsed-and-discarded.
  */
 
 #define DEPTH_CAP        WEB_JSON_MAX_DEPTH
@@ -103,6 +104,26 @@ static int parse_int(struct parser *P, long *out) {
 }
 
 static int parse_value(struct parser *P, int depth);
+
+/* Parse an array of up to WEB_JSON_BYTES_MAX integers 0..255. */
+static int parse_byte_array(struct parser *P, uint8_t *out, int *n_out) {
+    if (peek(P) != '[') return -1;
+    P->p++;
+    int n = 0;
+    skip_ws(P);
+    if (peek(P) == ']') { P->p++; *n_out = 0; return 0; }
+    for (;;) {
+        skip_ws(P);
+        long v;
+        if (n == WEB_JSON_BYTES_MAX || parse_int(P, &v) != 0 || v < 0 || v > 255) return -1;
+        out[n++] = (uint8_t)v;
+        skip_ws(P);
+        int c = peek(P);
+        if (c == ',') { P->p++; continue; }
+        if (c == ']') { P->p++; *n_out = n; return 0; }
+        return -1;
+    }
+}
 
 /* Parse-and-discard an object body: zero or more "key":value pairs. */
 static int parse_object_skip(struct parser *P, int depth) {
@@ -204,6 +225,9 @@ int web_json_parse(const char *s, int slen, struct web_json_msg *msg) {
             if (parse_int(&P, &v) != 0) return -1;
             msg->down = v;
             msg->has_down = 1;
+        } else if (strcmp(key, "bytes") == 0) {
+            if (parse_byte_array(&P, msg->bytes, &msg->n_bytes) != 0) return -1;
+            msg->has_bytes = 1;
         } else {
             /* Unknown key: parse-and-discard its value. */
             if (parse_value(&P, 1) != 0) return -1;

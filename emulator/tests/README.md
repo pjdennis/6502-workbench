@@ -36,14 +36,19 @@ without `playwright`.
 | Make target | Script | What it checks |
 |---|---|---|
 | `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame, and the EEPROM loader boots from a ROM image to its ready screen |
+| `michael-web` | `michael_web_playwright_test.py` | michael's `--web` page in headless Chromium: the 20x4 LCD and pin table, keys typed and pasted on the page reaching the program through the PS/2 keyboard, reset, the PA2 LED |
 | `wendy2c-goldens` | `wendy2c_goldens.sh` | wendy2c programs uploaded through the boot ROM (`--serial-input`) leave the expected LCD frame |
 | `wendy2c-lcd-trace` | `lcd_trace_test.sh` | `--lcd-trace` records intermediate LCD frames |
 | `wendy2c-merge-sort` | `merge_sort_goldens.sh` | the wendy2 merge-sort demo, asserted on intermediate frames; the full 57344-element case is opt-in with `MERGE_SORT_FULL_N=1` (~60 s) |
 | `wendy2c-serial-link` | `wendy2c_serial_link_test.sh` | upload over the `--serial-link` socket with `../wendy2c_emu_link.py` |
 | `wendy2c-live-sigint` | `live_sigint_test.py` | Ctrl-C during `--live` restores the terminal |
-| `wendy2c-web` | `web_playwright_test.py` | the `--web` UI in headless Chromium: CGRAM rendering, state and audio frames, button round trip |
+| `wendy2c-web` | `web_playwright_test.py` | the `--web` UI in headless Chromium: CGRAM rendering, the pin table, state and audio frames, button and reset round trips |
 | `wendy2c-lcd5x10` | `lcd_5x10_playwright_test.py` | 5x10 LCD mode in the web UI |
+| `web-machine-switch` | `web_machine_switch_playwright_test.py` | one open page follows the emulator on its port from wendy2c to michael and back: title, controls, LCD, and michael's keyboard |
 | `timer2-cycles` | `timer2_cycles_test.py` + `via_t2_runner.c` | T2 tick timing of `michael_timer2_test2.s` on the CPU and VIA chips |
+
+The Playwright tests share `web_test_util.py` (tool checks, building
+programs, starting the `--web` server, opening the page).
 
 ## Tests that need the assembler chain
 

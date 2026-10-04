@@ -1,11 +1,18 @@
-// wendy2c web UI: state via WS JSON, audio via WS binary, LCD as
-// per-pixel canvas render. Glyphs come from the HD44780 ROM Code A00
-// font (extracted from the datasheet — see hd44780_a00_font.js).
-// CGRAM patterns ride along in each state snapshot. In 5x10 mode the
-// LCD reports f5x10:1 and we render 10-row glyphs with the cursor on
-// row 10; CGRAM slots 0..3 each cover 11 bytes (10 dot rows + cursor).
+// Board web UI: one page for every machine. The server's first message
+// names the machine ({"type":"hello","machine":...}), and the page
+// builds itself from that machine's description (machines.js): title,
+// LEDs, controls and VIA pin labels. Then: state via WS JSON, audio via
+// WS binary, the LCD as a per-pixel canvas render, the LEDs, the pin
+// table, the reset button and the status line. Glyphs come from the
+// HD44780 ROM Code A00 font (extracted from the datasheet — see
+// hd44780_a00_font.js). CGRAM patterns ride along in each state
+// snapshot. In 5x10 mode the LCD reports f5x10:1 and we render 10-row
+// glyphs with the cursor on row 10; CGRAM slots 0..3 each cover 11
+// bytes (10 dot rows + cursor).
+//
+// Board.define(name, description) adds a machine; Board.start() connects.
 
-(() => {
+window.Board = (() => {
   const $ = (id) => document.getElementById(id);
 
   // ===== HD44780 A00 font (loaded from hd44780_a00_font.js) =====
@@ -78,10 +85,10 @@
     // Cell layout is driven by the panel choice (a hardware decision
     // baked in by --lcd-panel), not by the controller's F-bit.
     //
-    // 16x2 5x8 panel: each cell is 5x8 dots. The cursor is rendered as
-    //   an underline at row 7 (the bottom row of the 8-row cell) by
-    //   overlaying the glyph data there -- HD44780 ROM glyphs leave
-    //   row 7 blank for exactly this reason.
+    // 5x8 panels (16x2, 20x4): each cell is 5x8 dots. The cursor is
+    //   rendered as an underline at row 7 (the bottom row of the 8-row
+    //   cell) by overlaying the glyph data there -- HD44780 ROM glyphs
+    //   leave row 7 blank for exactly this reason.
     //
     // 16x1 5x10 panel: each cell is 5x10 dots for the glyph, plus one
     //   blank backlight row (not drawn as off-pixels), plus a 1-pixel
@@ -153,6 +160,19 @@
   }
 
   // ===== Pins panel =====
+  function buildPinTable(table, pins) {
+    const hl = pins.hl || {};
+    let html = "<tr><th>PORT</th><th colspan=\"8\">bits&nbsp; 7&nbsp; 6&nbsp; 5&nbsp; 4&nbsp; 3&nbsp; 2&nbsp; 1&nbsp; 0</th><th>DDR</th></tr>";
+    for (const port of ["a", "b"]) {
+      const bits = [7, 6, 5, 4, 3, 2, 1, 0].map((i) => `<td class="b b${i}"></td>`).join("");
+      const labels = pins[port].map((l) =>
+        `<td${(hl[port] || []).includes(l) ? ' class="hl"' : ""}>${l}</td>`).join("");
+      html += `<tr id="row-${port}"><td class="port-name">PORT${port.toUpperCase()}</td>${bits}<td class="ddr"></td></tr>` +
+              `<tr id="row-${port}-lbl" class="labels"><td></td>${labels}<td></td></tr>`;
+    }
+    table.innerHTML = html;
+  }
+
   function fmtBitsRow(rowId, val, ddr) {
     const tr = $(rowId);
     if (!tr) return;
@@ -168,11 +188,96 @@
       "DDR=$" + ddr.toString(16).padStart(2, "0").toUpperCase();
   }
 
+  // ===== Machines =====
+  const machines = {};
+  let machineName = null;
+  let machine = null;        // the description of the machine on the page
+
+  function define(name, description) {
+    machines[name] = description;
+  }
+
+  // Build the page for the named machine, in place of any other:
+  // header, LEDs, controls, pins.
+  function mount(name) {
+    machineName = name;
+    buttonKeyDown = false;
+    machine = machines[name] || null;
+    document.body.dataset.machine = name;
+    document.title = name;
+    if (!machine) {
+      $("title").textContent = name;
+      $("controls").innerHTML = "";
+      $("pin-table").innerHTML = "";
+      setConn("off", `no description for machine "${name}"`);
+      return;
+    }
+    $("title").innerHTML = `${machine.title[0]}<span class="accent">${machine.title[1]}</span>`;
+
+    const indicator = (inner, label) =>
+      `<div class="indicator">${inner}<div class="indicator-label">${label}</div></div>`;
+    let html = (machine.leds || []).map((led, i) =>
+      indicator(`<div class="led${led.red ? " led-red" : ""}" id="${led.id}" data-led="${i}"></div>`, led.label)).join("");
+    if (machine.button) {
+      html += indicator(`<button class="btn" id="${machine.button.id}" aria-label="control button">` +
+                        `<span class="btn-cap"></span></button>`, machine.button.label);
+    }
+    html += indicator(`<button class="btn btn-reset" id="btn-reset" aria-label="reset (RES) button">` +
+                      `<span class="btn-cap">RST</span></button>`, "RESET");
+    if (machine.hint) html += `<div class="hint">${machine.hint}</div>`;
+    $("controls").innerHTML = html;
+
+    $("btn-reset").addEventListener("click", (e) => { unlockAudio(); reset(); e.preventDefault(); });
+    if (machine.button) {
+      const btn = $(machine.button.id);
+      btn.addEventListener("pointerdown", (e) => { unlockAudio(); press(1); e.preventDefault(); });
+      btn.addEventListener("pointerup",   () => press(0));
+      btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) press(0); });
+    }
+    buildPinTable($("pin-table"), machine.pins);
+  }
+
+  // The control button, held down or let go.
+  function press(down) {
+    $(machine.button.id).classList.toggle("held", !!down);
+    send({ type: "button", down: down ? 1 : 0 });
+  }
+
+  // Keys: on a machine with a keyboard they are typed on it; otherwise
+  // the button's key holds the button and the reset key resets.
+  let buttonKeyDown = false;
+  function onKeyDown(e) {
+    if (!machine) return;
+    if (machine.keyboard) {
+      const text = Keyboard.keyText(e);
+      if (text === null) return;
+      e.preventDefault();
+      Keyboard.messages(text).forEach(send);
+    } else if (machine.button && e.key === machine.button.key) {
+      if (!buttonKeyDown) { buttonKeyDown = true; unlockAudio(); press(1); }
+      e.preventDefault();
+    } else if (machine.resetKey && e.key.toLowerCase() === machine.resetKey) {
+      unlockAudio(); reset(); e.preventDefault();
+    }
+  }
+  function onKeyUp(e) {
+    if (machine && machine.button && e.key === machine.button.key && buttonKeyDown) {
+      buttonKeyDown = false; press(0); e.preventDefault();
+    }
+  }
+  function onPaste(e) {
+    if (!machine || !machine.keyboard) return;
+    Keyboard.messages(e.clipboardData.getData("text")).forEach(send);
+    e.preventDefault();
+  }
+
   function render(s) {
+    if (!machine) return;
     renderLcd($("lcd"), s.lcd);
-    $("led-morse").classList.toggle("on", !!s.led.morse);
-    $("led-control").classList.toggle("on", !!s.led.control);
-    $("btn-press").classList.toggle("held", !!s.btn.pressed);
+    document.querySelectorAll("[data-led]").forEach((el) => {
+      el.classList.toggle("on", !!s.leds[Number(el.dataset.led)]);
+    });
+    if (machine.button) $(machine.button.id).classList.toggle("held", !!s.btn);
     fmtBitsRow("row-a", s.porta, s.ddra);
     fmtBitsRow("row-b", s.portb, s.ddrb);
     $("status-clock").textContent =
@@ -248,7 +353,10 @@
       if (typeof e.data === "string") {
         let obj;
         try { obj = JSON.parse(e.data); } catch { return; }
-        if (obj.type === "audio_init") {
+        if (obj.type === "hello") {
+          // A reconnect can find a different machine on the port.
+          if (obj.machine !== machineName) mount(obj.machine);
+        } else if (obj.type === "audio_init") {
           audioRate = obj.rate;
           // Don't ensureAudioContext here -- browsers want a user
           // gesture first. We'll start it on the first button click
@@ -270,35 +378,24 @@
     if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
   }
 
-  const btn = $("btn-press");
-  btn.addEventListener("pointerdown", (e) => { unlockAudio(); btn.classList.add("held"); send({ type: "button", down: 1 }); e.preventDefault(); });
-  btn.addEventListener("pointerup",   () => { btn.classList.remove("held"); send({ type: "button", down: 0 }); });
-  btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) { btn.classList.remove("held"); send({ type: "button", down: 0 }); } });
   // Reset button: one-shot {type:"reset"} on click. The server pulses
   // bus->res high for several oscillator ticks; the CPU and VIA see
   // the rising edge and clear their state.
-  const rst = $("btn-reset");
-  function fireReset() {
+  function reset() {
+    const rst = $("btn-reset");
     rst.classList.add("flash");
     setTimeout(() => rst.classList.remove("flash"), 120);
     send({ type: "reset" });
   }
-  rst.addEventListener("click", (e) => { unlockAudio(); fireReset(); e.preventDefault(); });
 
-  // Keyboard: space toggles button; 'r' / 'R' triggers reset.
-  let spaceDown = false;
-  document.addEventListener("keydown", (e) => {
-    if (e.key === " " && !spaceDown) {
-      spaceDown = true; unlockAudio();
-      btn.classList.add("held"); send({ type: "button", down: 1 });
-      e.preventDefault();
-    } else if (e.key === "r" || e.key === "R") {
-      unlockAudio(); fireReset(); e.preventDefault();
-    }
-  });
-  document.addEventListener("keyup",   (e) => { if (e.key === " ") { spaceDown = false; btn.classList.remove("held"); send({ type: "button", down: 0 }); e.preventDefault(); } });
-  // Also: any click on the document unlocks audio (browser-gesture policy).
-  document.addEventListener("click", unlockAudio, { once: false });
+  function start() {
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("paste", onPaste);
+    // Any click on the document unlocks audio (browser-gesture policy).
+    document.addEventListener("click", unlockAudio, { once: false });
+    connect();
+  }
 
-  connect();
+  return { define, start };
 })();
