@@ -1,14 +1,15 @@
 `timescale 1ns / 1ps
 // The Michael FPGA bus's command layer (docs/michael-fpga-bus-plan.md, "Commands"), fed by michael_bus.v:
-// the control commands ($0x), the reply queue, the status byte, and SERIAL_SEND ($50, provisional), whose
-// data bytes go to the PC through the Cmod's USB serial port.
+// the control commands ($0x), the reply queue, the status byte, SERIAL_SEND ($50, provisional), whose data
+// bytes go to the PC through the Cmod's USB serial port, and, with DISPLAY, the raw display commands ($1x),
+// whose effects go to a display queue (display_spi.v) as entries: kind and value.
 //
 // A byte with RS 0 is a command and always starts a new one. Bytes with RS 1 are data: a command's
 // arguments, then, for a streaming command, any number of data bytes. Errors set sticky status bits,
 // which a status read reports and clears.
 module bus_control #(
   parameter       REPLY_DEPTH  = 512,
-  parameter [7:0] CAPABILITIES = 8'h00   // the ID reply's capabilities byte
+  parameter       DISPLAY      = 0       // 1: the raw display commands (and capabilities bit 0)
 ) (
   input        clk,
   input        wr,
@@ -21,20 +22,29 @@ module bus_control #(
   output [7:0] status_byte,
   input        busy,         // status bit 7: devices still working through what they were sent
   output reg       ser_valid = 1'b0,  // SERIAL_SEND's bytes, one clock each
-  output reg [7:0] ser_data = 8'h00
+  output reg [7:0] ser_data = 8'h00,
+  output           disp_push,         // a display queue entry (display_spi.v's kinds)
+  output     [1:0] disp_kind,
+  output     [7:0] disp_value,
+  input            disp_full
 );
-  localparam [7:0] NOP = 8'h00, ID = 8'h01, RESET = 8'h03, ECHO = 8'h04, SERIAL_SEND = 8'h50;
-  localparam [7:0] VERSION = 8'd1;
+  localparam [7:0] NOP = 8'h00, ID = 8'h01, RESET = 8'h03, ECHO = 8'h04, SERIAL_SEND = 8'h50,
+                   DISP_RESET = 8'h10, DISP_COMMAND = 8'h11, DISP_DATA = 8'h12, BACKLIGHT = 8'h13;
+  localparam [7:0] VERSION = 8'd1, CAPABILITIES = DISPLAY ? 8'h01 : 8'h00;
   localparam ABANDONED = 0, UNKNOWN = 1, EXTRA = 2, UNDERFLOW = 3, OVERFLOW = 4;
+  localparam [1:0] D_DATA = 2'd0, D_COMMAND = 2'd1, D_RESET = 2'd2, D_BACKLIGHT = 2'd3;   // display_spi.v's
 
+  function display(input [7:0] c);
+    display = DISPLAY && (c == DISP_RESET || c == DISP_COMMAND || c == DISP_DATA || c == BACKLIGHT);
+  endfunction
   function known(input [7:0] c);
-    known = c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND;
+    known = c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || display(c);
   endfunction
   function streams(input [7:0] c);
-    streams = c == ECHO || c == SERIAL_SEND;
+    streams = c == ECHO || c == SERIAL_SEND || c == DISP_COMMAND || c == DISP_DATA;
   endfunction
-  function [2:0] arguments(input [7:0] c);   // none of these commands has arguments yet
-    arguments = 3'd0;
+  function [2:0] arguments(input [7:0] c);
+    arguments = display(c) && c != DISP_DATA ? 3'd1 : 3'd0;
   endfunction
 
   reg  [7:0] cmd = NOP;
@@ -51,6 +61,13 @@ module bus_control #(
   wire echo       = is_data && args_left == 0 && cmd == ECHO;
   wire push       = echo || (id_left != 0);
   wire reset      = is_command && wr_data == RESET;
+
+  // The display: a display command's argument is an entry of its own (the ILI9341 command, the reset level
+  // or the brightness); the data bytes of DISP_COMMAND and DISP_DATA are DATA entries
+  assign disp_push  = is_data && display(cmd) && (args_left == 1 || (args_left == 0 && streams(cmd)));
+  assign disp_kind  = args_left == 0 ? D_DATA : cmd == DISP_COMMAND ? D_COMMAND : cmd == DISP_RESET ? D_RESET :
+                      D_BACKLIGHT;
+  assign disp_value = wr_data;
 
   // The reply queue
   wire [7:0] head;
@@ -70,8 +87,8 @@ module bus_control #(
       sticky  <= 5'd0;
       id_left <= 3'd0;
     end
-    if (push && full)           sticky[OVERFLOW]  <= 1'b1;
-    if (rd && rd_rs && empty)   sticky[UNDERFLOW] <= 1'b1;
+    if ((push && full) || (disp_push && disp_full)) sticky[OVERFLOW] <= 1'b1;
+    if (rd && rd_rs && empty) sticky[UNDERFLOW] <= 1'b1;
 
     if (is_command) begin
       if (args_left != 0) sticky[ABANDONED] <= 1'b1;
