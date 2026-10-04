@@ -35,8 +35,9 @@ GDC_CURSOR_HEIGHT = 2
 ; gd_unselect is display data (the fast paths: gd_send_data, send_zero_data, gd_send_x2); gd_send_command
 ; sends the bus's DISP_COMMAND, then the display's command as its argument.
 ;
-; With GD_PIN_INTERFACE defined, it uses the spi-display interface's own pins instead
-; (hardware/michael/fpga/spi-display: E, CSB, RSTB, and DC on PA5), as michael_fpga_input_check.s checks them.
+; With GD_PIN_INTERFACE defined, it drives the older interface instead (the spi-display FPGA design, before
+; the bus), which has pins of its own for the display: E, CSB (select), RSTB (reset) and DC (data/command,
+; on PA5). Only michael_fpga_input_check.s, which checks that interface's wiring, defines it.
 GD_PORT = PORTA
   .ifdef GD_PIN_INTERFACE
 GD_E    = %00000001
@@ -46,7 +47,6 @@ GD_DC   = %00100000
   .else
   .include fpga_bus.inc
 GD_E    = FB_E
-GD_DC   = RS
   .endif
 
 GD_CHAR_BYTES = GD_CHAR_WIDTH * GD_CHAR_HEIGHT / 8
@@ -251,10 +251,11 @@ gd_send_command:
 gd_configure = fb_initialize
 
 
-; Display data until gd_unselect: RS high (data) and RW low (a write)
+; Sets RS high (data) and RW low (a write), so every byte strobed until gd_unselect is display data.
+; On exit A, X, Y are preserved
 gd_select:
   pha
-  lda #GD_DC
+  lda #RS
   tsb GD_PORT
   lda #RW
   trb GD_PORT
@@ -262,10 +263,11 @@ gd_select:
   rts
 
 
-; RS low again, as the LCD routines expect
+; Sets RS low again, as the LCD routines expect between transfers.
+; On exit A, X, Y are preserved
 gd_unselect:
   pha
-  lda #GD_DC
+  lda #RS
   trb GD_PORT
   pla
   rts
@@ -295,11 +297,11 @@ gd_reset:
 ; On entry A = the display command
 gd_send_command:
   pha
-  lda #GD_DC
+  lda #RS
   trb GD_PORT                    ; RS low: the bus's command
   lda #FB_DISP_COMMAND
   jsr gd_send_data
-  lda #GD_DC
+  lda #RS
   tsb GD_PORT                    ; RS high: its argument, the display's command, then data
   pla
   jmp gd_send_data               ; tail call

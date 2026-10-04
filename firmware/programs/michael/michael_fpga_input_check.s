@@ -12,7 +12,9 @@
 ;   end marker    $E7, $7E, $00
   .include base_config_v2.inc
 
-GD_PIN_INTERFACE = 1           ; the spi-display interface's own pins, which this checks
+; This checks the older display interface (the spi-display FPGA design), which has its own select (CSB) and
+; reset (RSTB) pins, so it asks graphics_display.inc for that interface's routines rather than the bus's.
+GD_PIN_INTERFACE = 1
 
 DISPLAY_STRING_PARAM     = $00 ; 2 bytes
 MULTIPLY_8X8_RESULT_LOW  = $02 ; 1 byte
