@@ -22,7 +22,7 @@ The sheets join parts with net labels: pins whose labels match are connected, an
 ## To do
 
 - Fit C8 and C9, the 10 µF tantalum capacitors on the LM1117's input and output (sheet 3). Its data sheet asks for them, the output one for stability, and Michael doesn't have them yet.
-- Rewire for the FPGA bus as the [plan's](../../../docs/michael-fpga-bus-plan.md) stages call for, so that Michael becomes the planned set. Then the planned sheets replace these.
+- Rewire for the FPGA bus as the [plan's](../../../docs/michael-fpga-bus-plan.md) stages call for, so that Michael becomes the planned set. Stage 1's rewiring is done (2026-10-03, in sheet 3); stage 4's pin shuffle remains. Then the planned sheets replace these.
 
 ![Sheet 1](michael-core.svg)
 ![Sheet 2](michael-io.svg)

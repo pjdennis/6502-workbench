@@ -138,15 +138,14 @@ def fpga(board, planned):
     s = Sheet(board, title, subtitle(planned) + " U7, U8 and U10 run from +3V3.", 1420, 1080)
     data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
     power = {"GND": "GND", "VCC": "+3V3"}
-    s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | (
-        {"DIR": "d_dir", "/OE": "d_oeb"} if planned else {"DIR": "GND", "/OE": "GND"}), width=110)
-    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B8": "U8.B8", "A5": "bl"}
+    # Stage 1 of the bus plan (built): the FPGA controls the data buffer; SOEB and RW reach the FPGA
+    s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | {"DIR": "d_dir", "/OE": "d_oeb"}, width=110)
+    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B6": "PA4", "B7": "PA6", "B8": "U8.B8",
+               "A5": "bl", "A6": "soeb", "A7": "rw"}
     if planned:   # E now arrives on B3 from PA2; B1 and B2 are tied off
-        control |= {"B1": "U8.B1", "B2": "U8.B2", "B6": "PA4", "B7": "PA6",
-                    "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs", "A6": "soeb", "A7": "rw"}
+        control |= {"B1": "U8.B1", "B2": "U8.B2", "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs"}
     else:
-        control |= {"B1": "PA0", "B2": "PA1", "B6": "U8.B6", "B7": "U8.B7",
-                    "A1": "e", "A2": "csb", "A3": "rstb", "A4": "dc"}
+        control |= {"B1": "PA0", "B2": "PA1", "A1": "e", "A2": "csb", "A3": "rstb", "A4": "dc"}
     unused = {"B1": "unused", "B2": "unused", "B5": "unused"} if planned else {}
     s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power | {"DIR": "GND", "/OE": "GND"}, width=110,
           notes=unused)
@@ -154,27 +153,28 @@ def fpga(board, planned):
     s.two_pin("capacitor", "C6", "0.1 µF", 180, 360, "+3V3", "GND", length=70)
     s.two_pin("resistor", "R9", "10 kΩ", 60, 720, "+3V3", "U8.B5")
     s.text(60, 850, "backlight on", "middle", 10.5, fill=MUTED)
-    ties = ([("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned
-            else [("R10", "U8.B6"), ("R11", "U8.B7"), ("R12", "U8.B8")])
+    # R14 is E's pull-down until stage 4 moves E to PA2; it then stays as B1's tie
+    ties = [("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned else [("R12", "U8.B8")]
     for i, (ref, net) in enumerate(ties):
         s.two_pin("resistor", ref, "10 kΩ", 130 + i * 70, 720, net, "GND")
-    s.text(200, 850, "ties (unused inputs)", "middle", 10.5, fill=MUTED)
-    if planned:
-        for i, (ref, top, bottom, why) in enumerate((("R18", "PA2", "GND", "E idle low"),
-                                                     ("R15", "+3V3", "d_oeb", "off unconfigured"),
-                                                     ("R16", "d_dir", "GND", "inward by default"))):
-            s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
-            s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
+    s.text(130 + (len(ties) - 1) * 35, 850, "ties (unused inputs)" if planned else "tie", "middle", 10.5, fill=MUTED)
+    e_pull = ("R18", "PA2") if planned else ("R14", "PA0")
+    for i, (ref, top, bottom, why) in enumerate(((*e_pull, "GND", "E idle low"),
+                                                 ("R15", "+3V3", "d_oeb", "off unconfigured"),
+                                                 ("R16", "d_dir", "GND", "inward by default"))):
+        s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
+        s.text(340 + i * 100, 850, why, "middle", 10.5, fill=MUTED)
 
     lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
-    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "bl", 24: "VU", 25: "GND"} | {
-        26 + i: n for i, n in enumerate(lcd)}
+    cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "bl", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw",
+                                                   24: "VU", 25: "GND"} | {26 + i: n for i, n in enumerate(lcd)}
     if planned:
-        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw"}
+        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs"}
     else:
         cmod |= {9: "e", 10: "csb", 11: "rstb", 12: "dc"}
     s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
-          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else None,
+          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else
+                {"PIO18": "bus only", "PIO19": "bus only"},
           caption="33–37 reserved for touch")
 
     tft = {"GND": "GND", "Vin": "+3V3", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
@@ -192,8 +192,8 @@ def fpga(board, planned):
 
     notes = ["From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V "
              "A side.",
-             "Cmod pins carry the FPGA design's port names (spi-display/constr/cmod_a7.xdc); U10's MISO is read only by the "
-             "display probe.",
+             "Cmod pins carry the FPGA designs' port names (spi-display/constr/cmod_a7.xdc, constr/bus.xdc); U10's MISO is "
+             "read only by the display probe.",
              "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
              "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (for stability). Not fitted "
              "on Michael yet: see the to-do list in README.md."]
@@ -205,7 +205,8 @@ def fpga(board, planned):
         notes.append("RS and RW are the LCD's own register select and read/write pins, with the same meanings. "
                      "The new port names are proposals.")
     else:
-        notes[0] += " DIR and /OE are grounded."
+        notes.append("Stage 1 of the FPGA bus plan is wired: every design holds U7's /OE and DIR low (on, Michael to the "
+                     "FPGA); SOEB and RW reach Cmod 18 and 19 for the bus-check design.")
     s.note(24, 920, notes, "Notes")
     return s
 
