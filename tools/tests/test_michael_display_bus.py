@@ -8,19 +8,14 @@ Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 Uses firmware/vasm with vasm6502_oldstyle from PATH, and builds the emulator with make.
 """
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
-sys.path.insert(0, os.path.join(ROOT, 'hardware', 'michael', 'fpga', 'display-probe'))
+sys.path.insert(0, HERE)
+import michael_emulator  # noqa: E402
+sys.path.insert(0, os.path.join(michael_emulator.ROOT, 'hardware', 'michael', 'fpga', 'display-probe'))
 import probe  # noqa: E402  (its parsers of graphics_display.inc)
-
-FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
-EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 
 PROGRAM = """
   .include base_config_v2.inc
@@ -72,22 +67,12 @@ def display_operations(log):
     return [tuple(op) for op in ops]
 
 
-@unittest.skipUnless(shutil.which('vasm6502_oldstyle') and shutil.which('gcc') and shutil.which('make'),
-                     'vasm6502_oldstyle, gcc and make are needed')
+@unittest.skipUnless(michael_emulator.AVAILABLE, 'vasm6502_oldstyle, gcc and make are needed')
 class DisplayDriverOnTheBusTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        subprocess.run(['make', '-s', 'emulator/emulator.out'], cwd=ROOT, check=True, capture_output=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            source, binary, log = (os.path.join(tmp, name) for name in ('prepare.s', 'prepare.bin', 'fpga.log'))
-            with open(source, 'w') as f:
-                f.write(PROGRAM)
-            subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir', '-ignore-mult-inc', '-esc',
-                            '-o', binary, source], cwd=ROOT, check=True, capture_output=True)
-            subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '2000', '--cycle-cap', '6000000',
-                            '--fpga-log', log], cwd=ROOT, check=True, capture_output=True)
-            with open(log) as f:
-                cls.ops = display_operations(f.read())
+        michael_emulator.build_emulator()
+        cls.ops = display_operations(michael_emulator.run(source=PROGRAM)[0])
 
     def test_resets_the_display(self):
         self.assertEqual(self.ops[:2], [('reset', 0), ('reset', 1)])
