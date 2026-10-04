@@ -16,8 +16,6 @@ import time
 
 KIT = os.environ.get("FPGA_KIT") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                  "..", "..", "..", "..", "..", "fpga-toolchain-research")
-sys.path.insert(0, os.path.join(KIT, "scripts"))
-import uart_check  # noqa: E402
 
 
 class Probe:
@@ -177,6 +175,8 @@ def main():
     ap.add_argument("--cycles", type=int, default=2, help="times through the colour cycle (3 s per colour)")
     ap.add_argument("--speed", type=int, default=1, help="SCK half period in 12 MHz clocks (1 = 6 MHz, as Michael)")
     args = ap.parse_args()
+    sys.path.insert(0, os.path.join(KIT, "scripts"))   # here, so the parsers above need no kit
+    import uart_check
     with uart_check.Serial(uart_check.find_port()) as ser:
         ser.flush_input()
         p = Probe(ser)
