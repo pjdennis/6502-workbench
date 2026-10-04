@@ -136,6 +136,26 @@ Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configurati
 flash's clock goes through `STARTUPE2`, unproven with the open toolchain). Also a serial port to the PC, and an
 FPGA interrupt on the VIA's CA1 (unused on Michael; input-only, so a 3.3 V FPGA pin can drive it directly).
 
+### Follow-ups
+Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Michael today.
+
+- **`OVERFLOW` for the serial queue.** `SERIAL_SEND`'s bytes beyond the 2048-byte serial queue are dropped
+  without setting `OVERFLOW`, though [its definition](#commands) covers the queues a transaction fills.
+  Set it for a `SERIAL_SEND` byte that is dropped, whoever sent it: Michael, or the PC through the debug
+  port, since either can read the status. The FPGA's own use of the serial port must never set it, and
+  needn't, since nothing of its own is dropped: the debug port's answers wait for room (`out_ready` in
+  [`top.v`](../hardware/michael/fpga/bus/rtl/top.v)), and bus-check's counts line starts only once the
+  queue is empty. Test first in `bus/sim/tb_top.v`. The bitstream changes, so it needs a board run and a
+  flash.
+- **One serial output module.** [`bus/rtl/top.v`](../hardware/michael/fpga/bus/rtl/top.v) and
+  [`bus-check/rtl/bus_check.v`](../hardware/michael/fpga/bus-check/rtl/bus_check.v) build the same serial
+  output (a FIFO into `uart_tx`, busy while either has work). A shared `rtl/serial_out.v` would hold it,
+  with the full flag the item above needs. The activity LEDs' pulse stretchers are repeated in three designs
+  too.
+- **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
+  `test_michael_display_orientation.py` have their own copies of what
+  [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
+
 ## Wiring changes
 
 Done in stage 1, after the FPGA drives the new pins ([`WIRING.md`](../hardware/michael/fpga/spi-display/WIRING.md)
@@ -241,7 +261,7 @@ Errors don't stop anything. They set sticky bits that the status read (RW = 1, R
 | 1 | `UNKNOWN` | an unknown command (its data is then ignored) |
 | 2 | `EXTRA` | data after a non-streaming command's arguments |
 | 3 | `UNDERFLOW` | a read with the reply queue empty |
-| 4 | `OVERFLOW` | the command queue or the reply queue overflowed |
+| 4 | `OVERFLOW` | the command queue or the reply queue overflowed (the serial queue too: a [follow-up](#follow-ups)) |
 | 7 | `BUSY` | (not sticky) the FPGA is still working through queued commands |
 
 ## Command map

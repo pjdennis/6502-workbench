@@ -66,3 +66,8 @@ python3 debug.py pattern   # initialises the display as Michael's driver does, t
     1 µs after a change. With that, there is no snow.
   - The pins already have slow slew and 12 mA drive, nextpnr-xilinx's defaults (as Vivado's). The XDC's
     `SLEW` and `DRIVE` properties do work if wanted.
+
+## To do
+
+The [plan's follow-ups](../../../../docs/michael-fpga-bus-plan.md#follow-ups): `OVERFLOW` for `SERIAL_SEND`'s
+dropped bytes (never for the FPGA's own answers), and a serial output module shared with bus-check.
