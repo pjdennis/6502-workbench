@@ -41,14 +41,16 @@ module michael_bus #(
   output           glitch,         // one clock: E changed for less than E_FILTER samples (ignored)
   output           e_filtered      // E as the bus sees it
 );
-  // Synchronised inputs: {d, e, rs, rw, soeb}
-  reg [11:0] sync1 = 12'h001, sync2 = 12'h001;   // SOEB high: the keyboard board off
+  // Synchronised inputs: {d, e, rs, rw}, and SOEB (on its own, so that it goes cleanly when paused is unused)
+  reg [10:0] sync1 = 11'h000, sync2 = 11'h000;
+  reg  [1:0] soeb_sync = 2'b11;   // high: the keyboard board off
   always @(posedge clk) begin
-    sync1 <= {d_in, e, rs, rw, soeb};
-    sync2 <= sync1;
+    sync1     <= {d_in, e, rs, rw};
+    sync2     <= sync1;
+    soeb_sync <= {soeb_sync[0], soeb};
   end
-  wire [7:0] d_s = sync2[11:4];
-  wire e_s = sync2[3], rs_s = sync2[2], rw_s = sync2[1], soeb_s = sync2[0];
+  wire [7:0] d_s = sync2[10:3];
+  wire e_s = sync2[2], rs_s = sync2[1], rw_s = sync2[0], soeb_s = soeb_sync[1];
   reg  e_prev = 1'b0, soeb_prev = 1'b1;
 
   // E, filtered (e_f), with D, RS and RW as E first went high
