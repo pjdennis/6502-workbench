@@ -57,6 +57,8 @@ struct web_snapshot {
 
     unsigned long long osc_ticks;
     unsigned long long cpu_cycles;
+    double clock_mhz;            /* the oscillator's measured rate (0: not yet) */
+    double target_mhz;           /* the rate it is paced to */
     uint16_t pc;
     int irq;
     int stopped;                 /* 1 if CPU halted on STP */

@@ -26,7 +26,8 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
 """
 
 from web_test_util import (build_wendy2c_upload, failed, main, missing_tools,
-                           open_page, out_dir_for, passed, skipped, web_emulator)
+                           open_page, out_dir_for, passed, skipped, speed_shown,
+                           web_emulator)
 
 
 def run_test(verbose=False):
@@ -166,6 +167,10 @@ def run_test(verbose=False):
             # The actual ASCII PC text is on #status-clock.
             # Sample the pre-reset PC -- with the cgram payload running
             # it should be parked in the $4000-range payload code.
+            # The board clock's measured rate against the wendy2c's 19.44 MHz.
+            problem = speed_shown(page, "19.44")
+            if problem: return failed(problem)
+
             pre_pc_text = page.text_content("#status-clock") or ""
             if "pc:$4" not in pre_pc_text:
                 return failed(f"pre-reset PC unexpected: '{pre_pc_text}'")

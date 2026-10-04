@@ -19,18 +19,19 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 One WebSocket on the same port. Server to browser: first
 `{"type":"hello","machine":"wendy2c"|"michael"}`, which picks the
-machine description the page builds itself from (the page retries a
-lost connection every 500 ms, and rebuilds itself if the hello names
-another machine); then JSON text frames
-with a state snapshot (LCD contents and CGRAM, VIA pins, `leds` in the order
-the page numbers them, `btn`, `f5x10` mode, clock) about every 33 ms,
-and, from wendy2c, binary frames tagged `0x01` followed by little-endian
-int16 mono samples (the PB7 piezo line, 22050 Hz). Browser to server
-(parsed by `../web_json.c`): `{"type":"reset"}`; wendy2c's
-`{"type":"button","down":0|1}`; and michael's
-`{"type":"keys","bytes":[...]}`, up to 64 bytes of keys as a terminal
-sends them (`../ps2_keys.h`), which the server types on the PS/2
-keyboard.
+machine description the page builds itself from (the page retries a lost
+connection every 500 ms, and rebuilds itself if the hello names another
+machine); then JSON text frames with a state snapshot (LCD contents and
+CGRAM, VIA pins, `leds` in the order the page numbers them, `btn`,
+`f5x10` mode, clock, and `mhz`, the clock's rate measured over the last
+half second, against `target_mhz`, which the status line shows, red
+below 98%) about every 33 ms, and, from wendy2c, binary frames tagged
+`0x01` followed by little-endian int16 mono samples (the PB7 piezo line,
+22050 Hz). Browser to server (parsed by `../web_json.c`):
+`{"type":"reset"}`; wendy2c's `{"type":"button","down":0|1}`; and
+michael's `{"type":"keys","bytes":[...]}`, up to 64 bytes of keys as a
+terminal sends them (`../ps2_keys.h`), which the server types on the
+PS/2 keyboard.
 
 Tests: `../tests/web_playwright_test.py`,
 `../tests/lcd_5x10_playwright_test.py`,

@@ -12,8 +12,10 @@
 
 /* The --web run loop the board machines share: it steps the machine in
  * batches paced to wall time, hands the browser's events to it and
- * pushes a snapshot of the LCD, the VIA pins and the clock to the page
- * about every 33 ms (with the audio stream, when the machine has one). */
+ * pushes a snapshot of the LCD, the VIA pins and the clock (with its
+ * measured rate against the target, so the page shows when the host
+ * can't keep up) to the page about every 33 ms (with the audio stream,
+ * when the machine has one). */
 struct web_machine {
     const char *name;                   /* web_server_start's machine */
     struct bus *bus;

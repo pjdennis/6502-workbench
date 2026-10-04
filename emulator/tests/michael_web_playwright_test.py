@@ -22,7 +22,8 @@ SKIPs cleanly if vasm6502_oldstyle or playwright are missing.
 
 from web_test_util import (MICHAEL_PROGRAMS, failed, first_line_becomes, main,
                            michael_load_address, missing_tools, open_page, out_dir_for,
-                           passed, run_vasm, skipped, track_last_state, web_emulator)
+                           passed, run_vasm, skipped, speed_shown, track_last_state,
+                           web_emulator)
 
 PASTE = """(text) => {
     const data = new DataTransfer();
@@ -34,6 +35,8 @@ PASTE = """(text) => {
 def check_keyboard_page(page, out_dir, verbose):
     """The keyboard program's checks; None if they pass, else a failure message."""
     problem = first_line_becomes(page, ">", timeout=5000)
+    if problem: return problem
+    problem = speed_shown(page, "2.00")     # michael's 2 MHz clock
     if problem: return problem
 
     lcd = page.evaluate("window._lastState.lcd")

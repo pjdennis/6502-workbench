@@ -271,6 +271,17 @@ window.Board = (() => {
     e.preventDefault();
   }
 
+  // The board clock's measured rate against its target, flagged when the
+  // host can't keep up (the audio breaks up then too).
+  function renderSpeed(mhz, target) {
+    const el = $("status-speed");
+    if (!(mhz > 0)) { el.textContent = ""; return; }
+    const shown = mhz.toFixed(2);
+    const percent = Math.round(100 * Number(shown) / Number(target.toFixed(2)));
+    el.textContent = `clock ${shown} / ${target.toFixed(2)} MHz (${percent}%)`;
+    el.classList.toggle("slow", percent < 98);
+  }
+
   function render(s) {
     if (!machine) return;
     renderLcd($("lcd"), s.lcd);
@@ -280,6 +291,7 @@ window.Board = (() => {
     if (machine.button) $(machine.button.id).classList.toggle("held", !!s.btn);
     fmtBitsRow("row-a", s.porta, s.ddra);
     fmtBitsRow("row-b", s.portb, s.ddrb);
+    renderSpeed(s.mhz, s.target_mhz);
     $("status-clock").textContent =
       `osc:${s.osc}  cpu:${s.cpu}  pc:$${s.pc.toString(16).padStart(4, "0").toUpperCase()}` +
       (s.stp ? "  [STP]" : "");

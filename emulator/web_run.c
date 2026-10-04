@@ -10,8 +10,23 @@
 #include "tty_alt_screen.h"
 
 #define SNAP_NS (33 * 1000 * 1000L)     /* ~30 fps */
+#define SPEED_NS (500 * 1000 * 1000L)   /* the clock speed is measured over this */
 
-static void broadcast(struct web_server *srv, const struct web_machine *m) {
+/* The oscillator's rate over the last SPEED_NS of wall time. */
+struct speed_meter {
+    long since_ns;
+    uint64_t since_osc;
+    double mhz;                         /* 0 until the first measurement */
+};
+
+static void measure_speed(struct speed_meter *s, long wall_ns, uint64_t osc) {
+    if (wall_ns - s->since_ns < SPEED_NS) return;
+    s->mhz = (double)(osc - s->since_osc) * 1000.0 / (double)(wall_ns - s->since_ns);
+    s->since_ns = wall_ns;
+    s->since_osc = osc;
+}
+
+static void broadcast(struct web_server *srv, const struct web_machine *m, double clock_mhz) {
     struct web_snapshot snap;
     memset(&snap, 0, sizeof(snap));
     const struct lcd_hd44780_state *lcd = m->lcd;
@@ -37,6 +52,8 @@ static void broadcast(struct web_server *srv, const struct web_machine *m) {
 
     snap.osc_ticks  = m->bus->osc_ticks;
     snap.cpu_cycles = clockticks6502;
+    snap.clock_mhz  = clock_mhz;
+    snap.target_mhz = m->osc_per_us;
     snap.pc         = pc;
     snap.irq        = m->bus->irq;
     snap.stopped    = cpu_stp_pending() ? 1 : 0;
@@ -66,6 +83,7 @@ int web_run(const struct web_machine *m, const struct emu_opts *opts) {
     clock_gettime(CLOCK_MONOTONIC, &t0);
     uint64_t osc0 = m->bus->osc_ticks;
     long last_snap_ns = 0;
+    struct speed_meter speed = { 0, osc0, 0.0 };
 
     while (!sigint_requested && !m->step(m->ctx)) {
         long wall_ns = emu_pace(&t0, osc0, m->bus->osc_ticks, m->osc_per_us);
@@ -76,14 +94,15 @@ int web_run(const struct web_machine *m, const struct emu_opts *opts) {
         web_server_poll(srv, &evt);
         if (evt.type != WEB_EVT_NONE) m->event(m->ctx, &evt);
 
+        measure_speed(&speed, wall_ns, m->bus->osc_ticks);
         if (wall_ns - last_snap_ns >= SNAP_NS) {
-            broadcast(srv, m);
+            broadcast(srv, m, speed.mhz);
             last_snap_ns = wall_ns;
         }
     }
 
     /* Final snapshot so any connected client sees the end state. */
-    broadcast(srv, m);
+    broadcast(srv, m, speed.mhz);
 
     if (m->audio) audio_set_tap(m->audio, NULL, NULL);  /* detach before audio_close */
     web_server_stop(srv);

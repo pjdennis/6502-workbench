@@ -162,6 +162,24 @@ def first_line_becomes(page, want, timeout=3000):
         return f"LCD's first line never became {want!r}: {page.evaluate(LCD_LINES)}"
 
 
+def speed_shown(page, target, timeout=3000):
+    """None once the status line shows the emulated clock's measured rate
+    against target ("clock 19.43 / 19.44 MHz (100%)"), else a failure
+    message."""
+    pattern = r"clock (\d+\.\d\d) / (\d+\.\d\d) MHz \((\d+)%\)"
+    try:
+        page.wait_for_function("(p) => new RegExp(p).test(document.getElementById('status-speed').textContent)",
+                               arg=pattern, timeout=timeout)
+    except Exception:
+        shown = page.evaluate("document.getElementById('status-speed')?.textContent")
+        return f"no clock speed readout: {shown!r}"
+    text = page.text_content("#status-speed")
+    mhz, shown_target, percent = re.search(pattern, text).groups()
+    if shown_target != target or float(mhz) <= 0 or int(percent) != round(100 * float(mhz) / float(target)):
+        return f"clock speed readout {text!r}; want the measured rate against {target} MHz"
+    return None
+
+
 def open_page(p, port, setup=None):
     """A headless Chromium page on the server, once it shows "connected".
     setup(page) runs before the page loads, to hook its WebSocket."""

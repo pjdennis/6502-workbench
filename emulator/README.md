@@ -140,7 +140,9 @@ emulator-side counterparts of `tools/upload/`).
 `--web` serves the board on `http://127.0.0.1:8080/` (`--web-port`,
 `--web-bind`): the LCD drawn dot by dot (CGRAM included), the LEDs, a
 reset button, the VIA's port pins and the clock, updated about 30 times
-a second. It runs uncapped and paced to the board's clock (or `--mhz`)
+a second. The status line shows the emulated clock's measured rate
+against the board's (red below 98%: the host isn't keeping up, and the
+audio breaks up). It runs uncapped and paced to the board's clock (or `--mhz`)
 until Ctrl-C. The page (`web/index.html`) shows the machine the server
 names, and an open page that reconnects to a different machine on the
 same port rebuilds itself for it; `web/README.md` has the files and the
