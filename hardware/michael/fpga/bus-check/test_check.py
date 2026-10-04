@@ -92,5 +92,31 @@ class AssessTest(unittest.TestCase):
         self.assertIsNone(pauses)
 
 
+class CountsTest(unittest.TestCase):
+    def test_fields_by_name(self):
+        counts = check.parse_counts("C 9111 9098 0009 0040 0003 00A3 0000 01CD 0001 0002 0003 0004 0005")
+        self.assertEqual(counts["writes"], 0x9111)
+        self.assertEqual(counts["short_writes"], 0)
+        self.assertEqual(counts["bounces"], 0x1CD)
+        self.assertEqual(counts["after_many"], 5)
+
+    def test_request_waits_for_the_next_line(self):
+        class Reader:
+            def __init__(self):
+                self.lines = ["C 0001 0000 0000 0000 0000 0000 0000 0000"]
+            def snapshot(self):
+                return list(self.lines)
+            def wait_for(self, predicate, timeout):
+                self.lines.append("C 0002 0000 0000 0000 0000 0000 0000 0000")   # the answer to '?'
+                return predicate(self.lines)
+        class Serial:
+            written = b""
+            def write(self, data):
+                self.written += data
+        ser = Serial()
+        self.assertEqual(check.request_counts(ser, Reader())["writes"], 2)
+        self.assertEqual(ser.written, b"?")
+
+
 if __name__ == "__main__":
     unittest.main()

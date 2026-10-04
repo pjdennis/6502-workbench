@@ -1,6 +1,8 @@
 import os
 import sys
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
 import debug  # noqa: E402
@@ -70,6 +72,22 @@ class DebugPortTest(unittest.TestCase):
         p = self.port("r4D420101\r\n")
         self.assertEqual(p.id(), ("MB", 1, 0x01))
         self.assertEqual(self.ser.written, b"C01\nR04\n")
+
+
+class MainTest(unittest.TestCase):
+    def test_no_answer_is_a_message_not_a_traceback(self):
+        class Serial(FakeSerial):
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                return False
+            def flush_input(self):
+                pass
+        uart = types.SimpleNamespace(Serial=lambda port: Serial(), find_port=lambda: "port")
+        board = types.SimpleNamespace(serial_module=lambda: uart)
+        with mock.patch.dict(sys.modules, {"board": board}), self.assertRaises(SystemExit) as exit:
+            debug.main(["status"])
+        self.assertIn("is the bus design loaded?", str(exit.exception.code))
 
 
 if __name__ == "__main__":

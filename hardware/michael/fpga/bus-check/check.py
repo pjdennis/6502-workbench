@@ -53,9 +53,34 @@ def difference(got, expected, what):
            f"expected {expected} (modulo 65536)" if d else None
 
 
+# The fields of the design's counts line, "C wwww rrrr ..." in hex: rtl/bus_check.v's header says what each is
+COUNT_FIELDS = ("writes", "reads", "pauses", "soeb_falls", "glitches", "commands", "short_writes", "bounces",
+                "glitches_low", "after_d", "after_rs_rw", "after_d7", "after_many")
+
+
+def parse_counts(line):
+    """A counts line as a dict of COUNT_FIELDS (as many as the line has)."""
+    return dict(zip(COUNT_FIELDS, (int(f, 16) for f in line.split()[1:])))
+
+
+def counts_lines(lines):
+    return [line for line in lines if line.startswith("C ")]
+
+
+def request_counts(ser, reader, timeout=2.0, raw=False):
+    """Asks the design for its counts ('?') and waits for the line: parsed, or as it came if raw (None if it
+    doesn't come)."""
+    before = len(counts_lines(reader.snapshot()))
+    ser.write(b"?")
+    if not reader.wait_for(lambda lines: len(counts_lines(lines)) > before, timeout):
+        return None
+    line = counts_lines(reader.snapshot())[-1]
+    return line if raw else parse_counts(line)
+
+
 def assess(lines, counts):
-    """Judges the program's report (the lines from the FPGA) and the FPGA's counts line
-    ("C wwww rrrr pppp ssss gggg cccc tttt bbbb ..." in hex, or None; see rtl/bus_check.v). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
+    """Judges the program's report (the lines from the FPGA) and the FPGA's counts line (or None). Returns the
+    problems found and the number of reads the SOEB interlock paused (or None)."""
     starts = [i for i, line in enumerate(lines) if line == START]
     if not starts:
         return ["The program never started: no 'FPGA BUS CHECK' arrived from the FPGA"], None
@@ -89,7 +114,9 @@ def assess(lines, counts):
     if counts is None:
         problems.append("No counts from the FPGA (its reply to '?')")
         return problems, None
-    writes, reads, pauses, soeb_falls, _, commands, short_writes = (int(f, 16) for f in counts.split()[1:8])
+    c = parse_counts(counts)
+    writes, reads, pauses, soeb_falls, commands = (c[k] for k in ("writes", "reads", "pauses", "soeb_falls",
+                                                                  "commands"))
     if keys and not soeb_falls:
         problems.append(f"the FPGA never saw SOEB fall, though the keyboard driver read {keys} keys: check PA4 "
                         "(VIA pin 6) to the control buffer's B6 (pin 13), and its A6 (pin 7) to Cmod pin 18")
@@ -101,8 +128,9 @@ def assess(lines, counts):
         extra_writes = difference(writes, exp_writes, "writes")
         if extra_writes:
             extra_commands = signed_difference(commands, exp_commands)
-            extra_writes += (f": {extra_commands} commands and {signed_difference(writes, exp_writes) - extra_commands} "
-                             f"data bytes; {short_writes} writes had E pulses shorter than Michael's")
+            extra_data = signed_difference(writes, exp_writes) - extra_commands
+            extra_writes += (f": {extra_commands} commands and {extra_data} data bytes; {c['short_writes']} writes "
+                             "had E pulses shorter than Michael's")
         problems += [p for p in (extra_writes, difference(reads, exp_reads, "reads")) if p]
     return problems, pauses
 
@@ -115,13 +143,10 @@ def main():
     args = ap.parse_args()
 
     uart_check = board.serial_module()
-    counts_lines = lambda lines: [line for line in lines if line.startswith("C ")]  # noqa: E731
-
     with uart_check.Serial(args.fpga_port or uart_check.find_port()) as ser:
         ser.flush_input()
         reader = board.LineReader(ser, "CFIEUHKD")
-        ser.write(b"?")
-        if not reader.wait_for(lambda lines: counts_lines(lines), 1.0):
+        if request_counts(ser, reader, 1.0) is None:
             sys.exit("No reply from the FPGA: is the bus-check design loaded (make prog)?")
 
         rc = board.upload(PROGRAM, args.michael_port)
@@ -131,24 +156,21 @@ def main():
             print("Now hold a key down on Michael's keyboard (a letter), until the program says DONE ...")
             if reader.wait_for(lambda lines: DONE in lines, args.timeout):
                 print("Done: you can let go of the key.")
-        before = len(counts_lines(reader.snapshot()))
-        ser.write(b"?")
-        reader.wait_for(lambda lines: len(counts_lines(lines)) > before, 2.0)
+        counts = request_counts(ser, reader, raw=True)
         got = reader.snapshot()
         os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "build"), exist_ok=True)
         reader.save_raw(SERIAL_LOG)
 
-    counts = counts_lines(got)[before] if len(counts_lines(got)) > before else None
     program = [line for line in got if not line.startswith("C ")]
     problems, pauses = assess(program, counts)
     if counts:
-        writes, reads, _, soeb_falls, glitches, _, _, bounces, low, after_d, after_rs_rw, after_d7, after_many = (
-            int(f, 16) for f in counts.split()[1:14])
-        print(f"The FPGA counted {writes} writes and {reads} reads (both modulo 65536), {soeb_falls} falls of SOEB, "
-              f"{pauses} reads paused by the SOEB interlock, and on E, {bounces} bounces at its edges and {glitches} "
-              f"glitches in steady levels (both filtered out). Of the glitches, {low} came while E was low, "
-              f"{after_d} just after a change on D ({after_many} of 4 or more bits, {after_d7} including D7) and "
-              f"{after_rs_rw} just after a change of RS or RW.")
+        c = parse_counts(counts)
+        print(f"The FPGA counted {c['writes']} writes and {c['reads']} reads (both modulo 65536), {c['soeb_falls']} "
+              f"falls of SOEB, {pauses} reads paused by the SOEB interlock, and on E, {c['bounces']} bounces at its "
+              f"edges and {c['glitches']} glitches in steady levels (both filtered out). Of the glitches, "
+              f"{c['glitches_low']} came while E was low, {c['after_d']} just after a change on D ({c['after_many']} "
+              f"of 4 or more bits, {c['after_d7']} including D7) and {c['after_rs_rw']} just after a change of RS or "
+              "RW.")
     if problems:
         print(f"FAIL: {len(problems)} problem(s):")
         print("\n".join("  " + p for p in problems))

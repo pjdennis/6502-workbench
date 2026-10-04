@@ -107,12 +107,19 @@ def fill(port, x, y, width, height, colour):
     port.data(*[colour >> 8, colour & 0xFF] * (width * height))
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["id", "status", "pattern"])
     ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    try:
+        run(args)
+    except NoAnswer as e:
+        sys.exit(str(e))
 
+
+def run(args):
+    """The action, on the Cmod's serial port."""
     import board
     uart_check = board.serial_module()
     with uart_check.Serial(args.fpga_port or uart_check.find_port()) as ser:

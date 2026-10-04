@@ -1,5 +1,6 @@
-"""Helpers for the bring-up checks that run a program on Michael and listen to the FPGA on the Cmod's USB
-serial port (input-check/check.py, bus-check/check.py).
+"""Helpers for the host tools that run a program on Michael and listen to the FPGA on the Cmod's USB serial
+port (input-check/check.py, bus-check/check.py and noise.py), and the kit's serial module for those that
+only talk to the FPGA (bus/debug.py, display-probe/probe.py).
 
   board.py idle [--michael-port DEV]   leaves Michael quiet on the FPGA bus (michael_fpga_bus_idle.s), as the
                                       bus check does before loading its design

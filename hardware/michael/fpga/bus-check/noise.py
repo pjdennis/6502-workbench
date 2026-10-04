@@ -14,18 +14,17 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import board  # noqa: E402
+from check import request_counts  # noqa: E402
 
 PROGRAM = os.path.join(board.REPO, "firmware", "programs", "michael", "michael_fpga_bus_noise.s")
 
 
 def counts(ser, reader):
-    """From the design's counts line: the glitches (bounces and glitches together) and the writes."""
-    before = sum(line.startswith("C ") for line in reader.snapshot())
-    ser.write(b"?")
-    if not reader.wait_for(lambda lines: sum(line.startswith("C ") for line in lines) > before, 2.0):
+    """From the design's counts: the glitches (bounces and glitches together) and the writes."""
+    c = request_counts(ser, reader)
+    if c is None:
         sys.exit("No counts from the FPGA: is the bus-check design loaded (make prog)?")
-    fields = [int(f, 16) for f in [line for line in reader.snapshot() if line.startswith("C ")][-1].split()[1:]]
-    return fields[4] + fields[7], fields[0]
+    return c["glitches"] + c["bounces"], c["writes"]
 
 
 def main():
