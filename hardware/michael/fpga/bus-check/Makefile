@@ -15,6 +15,8 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
+$(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
+
 $(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh
 
 include ../bus.mk

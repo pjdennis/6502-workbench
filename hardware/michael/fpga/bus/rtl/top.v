@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "../../rtl/cmod_a7.vh"
 // The Michael FPGA bus with the display (stage 2 of docs/michael-fpga-bus-plan.md), replacing spi-display:
 // michael_bus.v (the pins as transfers), bus_control.v (the commands, the reply queue and the status, with the
 // raw display commands) and display_spi.v (the ILI9341, fed from a queue). The Cmod's USB serial port (115200
@@ -9,7 +10,7 @@
 // tie) are unused: the display's chip select, reset and backlight are commands now. LD1 flashes on bus
 // traffic, LD2 while the display is busy.
 module top #(
-  parameter CLKS_PER_BIT    = 104,      // 115200 baud
+  parameter BAUD            = `PC_BAUD,
   parameter SERIAL_DEPTH    = 2048,
   parameter DISPLAY_DEPTH   = 512,
   parameter ACTIVITY_CYCLES = 600_000   // 50 ms at 12 MHz
@@ -38,6 +39,7 @@ module top #(
   output       t_din,
   output [1:0] led
 );
+  localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   assign {t_cs, t_clk, t_din} = 3'b100;
 
   // The bus

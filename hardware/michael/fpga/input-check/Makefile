@@ -14,6 +14,8 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
+$(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
+
 $(TB_PASS): ../sim/michael_via.vh
 
 # The spi-display pins plus the Cmod's USB serial port

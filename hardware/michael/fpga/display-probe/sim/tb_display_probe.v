@@ -1,10 +1,11 @@
 `timescale 1ns / 1ps
 `include "tb_util.vh"
+`include "../../rtl/cmod_a7.vh"
 
 // The host side sends display-probe commands over the serial port; an ILI9341 model on the SPI pins
 // records what is written and answers reads.
 module tb_display_probe;
-  localparam CPB = 4, LEN = 11;  // 3 Mbaud keeps the simulation short
+  localparam BAUD = 3_000_000, CPB = `CLKS_PER_BIT(BAUD), LEN = 11;  // 3 Mbaud keeps the simulation short
 
   reg clk;
   reg host_valid = 1'b0;
@@ -15,7 +16,7 @@ module tb_display_probe;
   reg  miso = 1'b1;
   wire d_oeb, d_dir;
 
-  display_probe #(.CLKS_PER_BIT(CPB)) dut (
+  display_probe #(.BAUD(BAUD)) dut (
     .sysclk(clk), .d(8'h00), .e(1'b0), .csb(1'b1), .rstb(1'b1), .dc(1'b0), .bl(1'b1),
     .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(pin_mosi), .lcd_sck(pin_sck),

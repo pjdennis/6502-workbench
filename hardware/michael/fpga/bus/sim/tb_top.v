@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 `include "tb_util.vh"
+`include "../../rtl/cmod_a7.vh"
 
 // The Michael FPGA bus design with the display: Michael (fpga_bus.inc's timings, the display driver's fill
 // loop, and the keyboard driver's interrupt), the board between (michael_board.vh: no net with two drivers),
@@ -7,7 +8,7 @@
 // PC on the serial port.
 module tb_top;
   localparam real CPU_NS = 500.0;  // one 65C02 cycle at 2 MHz
-  localparam CPB = 104;            // 115200 baud, as on the board
+  localparam CPB = `CLKS_PER_BIT(`PC_BAUD);   // as on the board
 
   reg clk;
   `TB_CLOCK(clk, 41.667, 200_000_000)  // 12 MHz
@@ -17,7 +18,7 @@ module tb_top;
   wire lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led, t_clk, t_cs, t_din;
   wire [1:0] led;
 
-  top #(.CLKS_PER_BIT(CPB), .ACTIVITY_CYCLES(100)) dut (
+  top #(.ACTIVITY_CYCLES(100)) dut (
     .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pa1(1'b1), .pa2(1'b1), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),

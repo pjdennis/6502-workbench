@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "../../rtl/cmod_a7.vh"
 // Bring-up check for the Michael FPGA bus's reads (stage 1 of docs/michael-fpga-bus-plan.md): the bus
 // (michael_bus.v) with its control commands (bus_control.v): NOP, ID, RESET, ECHO, the status read, and
 // SERIAL_SEND ($50, provisional), whose bytes go out of the Cmod's USB serial port (115200 8N1). Michael's
@@ -19,7 +20,7 @@
 //       changes of 4 or more bits of D
 // The display is held idle. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 module bus_check #(
-  parameter CLKS_PER_BIT    = 104,      // 115200 baud
+  parameter BAUD            = `PC_BAUD,
   parameter SERIAL_DEPTH    = 2048,
   parameter ACTIVITY_CYCLES = 600_000,  // 50 ms at 12 MHz
   parameter SHORT_E         = 18,       // 1.5 us at 12 MHz
@@ -49,6 +50,7 @@ module bus_check #(
   output       t_din,
   output [1:0] led
 );
+  localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   localparam LINE = 68;
 
   assign {lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led} = 6'b110000;

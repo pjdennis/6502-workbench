@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "../../rtl/cmod_a7.vh"
 // Display probe: a slow SPI master for the ILI9341, commanded from the PC over the Cmod's USB serial port
 // (115200 8N1), to check the display and its wiring independently of Michael. Commands (bytes):
 //   01 n b1..bn        write n bytes (MSB first) with the current CS and DC levels
@@ -9,7 +10,7 @@
 //   06                 replies "K00000000" once everything before it is done
 // Replies are 11 characters including CR LF. Commands queue in a 64-byte buffer.
 module display_probe #(
-  parameter CLKS_PER_BIT = 104  // 115200 baud
+  parameter BAUD = `PC_BAUD
 ) (
   input        sysclk,
   input  [7:0] d,          // Michael's inputs: unused here, present so the spi-display pins apply as they are
@@ -34,6 +35,7 @@ module display_probe #(
   output       d_oeb,      // the data buffer: on, and Michael to the FPGA, as the interface has it
   output       d_dir
 );
+  localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   localparam LEN = 11;
   assign {t_cs, t_clk, t_din} = 3'b100;
   assign {d_oeb, d_dir} = 2'b00;
