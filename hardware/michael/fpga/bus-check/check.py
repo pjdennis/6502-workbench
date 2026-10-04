@@ -46,8 +46,8 @@ def difference(got, expected, what):
 
 
 def assess(lines, counts):
-    """Judges the program's report (the lines from the FPGA) and the FPGA's counts line ("C wwww rrrr pppp",
-    or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
+    """Judges the program's report (the lines from the FPGA) and the FPGA's counts line
+    ("C wwww rrrr pppp ssss gggg", or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
     starts = [i for i, line in enumerate(lines) if line == START]
     if not starts:
         return ["The program never started: no 'FPGA BUS CHECK' arrived from the FPGA"], None
@@ -81,7 +81,7 @@ def assess(lines, counts):
     if counts is None:
         problems.append("No counts from the FPGA (its reply to '?')")
         return problems, None
-    writes, reads, pauses, soeb_falls = (int(field, 16) for field in counts.split()[1:])
+    writes, reads, pauses, soeb_falls, _ = (int(field, 16) for field in counts.split()[1:])
     if keys and not soeb_falls:
         problems.append(f"the FPGA never saw SOEB fall, though the keyboard driver read {keys} keys: check PA4 "
                         "(VIA pin 6) to the control buffer's B6 (pin 13), and its A6 (pin 7) to Cmod pin 18")
@@ -127,9 +127,10 @@ def main():
     program = [line for line in got if not line.startswith("C ")]
     problems, pauses = assess(program, counts)
     if counts:
-        _, writes, reads, _, soeb_falls = counts.split()
+        _, writes, reads, _, soeb_falls, glitches = counts.split()
         print(f"The FPGA counted {int(writes, 16)} writes and {int(reads, 16)} reads (both modulo 65536), "
-              f"{int(soeb_falls, 16)} falls of SOEB, and {pauses} reads paused by the SOEB interlock.")
+              f"{int(soeb_falls, 16)} falls of SOEB, {pauses} reads paused by the SOEB interlock, and "
+              f"{int(glitches, 16)} glitches on E (filtered out).")
     if problems:
         print(f"FAIL: {len(problems)} problem(s):")
         print("\n".join("  " + p for p in problems))

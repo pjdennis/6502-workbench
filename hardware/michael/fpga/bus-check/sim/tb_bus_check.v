@@ -45,15 +45,15 @@ module tb_bus_check;
   end
   always @(d_dir) if ($time > 0) `CHECK_EQ(d_oeb, 1'b1, "DIR changed while the buffer was on")
 
-  // Reads: the byte reaches port B within 0.5 us of E rising, and the bus is released within 0.5 us of E
+  // Reads: the byte reaches port B within 1 us of E rising, and the bus is released within 1 us of E
   // falling (unless the keyboard board took port B first)
   realtime t_e_rise = 0, t_e_fall = 0, t_drive = 0;
   always @(posedge buf_to_michael) begin   // the read's first drive: later ones follow a keyboard interrupt
-    if (t_drive < t_e_rise) `CHECK($realtime - t_e_rise <= 500.0, "byte on port B more than 0.5 us after E rose")
+    if (t_drive < t_e_rise) `CHECK($realtime - t_e_rise <= 1000.0, "byte on port B more than 1 us after E rose")
     t_drive = $realtime;
   end
   always @(negedge buf_to_michael) if (!e)
-    `CHECK($realtime - t_e_fall <= 500.0, "port B released more than 0.5 us after E fell")
+    `CHECK($realtime - t_e_fall <= 1000.0, "port B released more than 1 us after E fell")
 
   `include "../../sim/michael_fpga_bus.vh"
 
@@ -88,7 +88,7 @@ module tb_bus_check;
   endtask
 
   // ---- Michael's side, with counts to compare with the FPGA's ------------------------------------------
-  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0;
+  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0;
   always @(negedge soeb) soeb_falls = soeb_falls + 1;
   task command(input [7:0] b); begin fb_command(b); writes = writes + 1; end endtask
   task data(input [7:0] b);    begin fb_data(b);    writes = writes + 1; end endtask
@@ -159,6 +159,17 @@ module tb_bus_check;
     expect_read(8'h00, 0, "RESET empties the reply queue");
     expect_status(8'h08, "a read after RESET underflows");
 
+    // Glitches on E shorter than the filter (3 samples, 250 ns) are ignored, and counted: one while idle
+    // (with RW high, as after a read), one in the middle of a read
+    rw = 1'b1; #2000; e = 1'b1; #120; e = 1'b0; #2000; rw = 1'b0; glitches = glitches + 1;
+    command(8'h04); data(8'h44); data(8'h55);
+    fork
+      expect_read(8'h44, 0, "a read with a glitch while E is high");
+      begin wait (e); #1500; e = 1'b0; #120; e = 1'b1; glitches = glitches + 1; end
+    join
+    expect_read(8'h55, 0, "the glitch didn't end the read or take a byte");
+    expect_status(8'h00, "status after the glitches");
+
     // SERIAL_SEND reaches the PC; '?' adds the counts
     command(8'h50); data("O"); data("K"); data(8'h0D); data(8'h0A);
     expect_status(8'h80, "BUSY while the serial output is still going");
@@ -167,7 +178,8 @@ module tb_bus_check;
     expect_status(8'h00, "BUSY clear once it has gone");
     `CHECK_EQ(led[1], 1'b1, "LD2 lit once a read was paused")
     send_host("?");
-    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls)}, "counts line");
+    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls), " ", hex4(glitches)},
+                "counts line");
     `TB_PASS
   end
 

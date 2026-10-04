@@ -126,11 +126,12 @@ program_start:
 .underflow_done:
   jsr say_line
 
-  ; The same with the keyboard interrupting
+  ; The same with the keyboard interrupting. The keyboard is set up before asking for a key: setting it up
+  ; stops a key already held from repeating.
+  jsr keyboard_initialize        ; Enables interrupts
   lda #<hold_a_key
   ldx #>hold_a_key
   jsr say_line
-  jsr keyboard_initialize        ; Enables interrupts
   lda #200
   jsr delay_hundredths           ; Time to hold a key down
   stz KEYS

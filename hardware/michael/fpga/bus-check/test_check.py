@@ -11,7 +11,7 @@ GOOD = ["FPGA BUS CHECK", "ID OK", "ECHO BAD 0000", "UNDERFLOW OK", "HOLD A KEY"
 # read and two status reads, and 7 rounds of 16 passes: 5 + 8224 + 3 + 28784 = 37016 ($9098). Writes: RESET
 # and ID, ECHO and 256 bytes per pass (8224 + 28784), and each report line's characters, CR LF, and its
 # SERIAL_SEND commands (two per line, three for KEYS): 18+9+17+16+14+21+24+8 = 127. 37137 is $9111.
-COUNTS = "C 9111 9098 0009 0040"
+COUNTS = "C 9111 9098 0009 0040 0000"
 
 
 class AssessTest(unittest.TestCase):
@@ -52,23 +52,28 @@ class AssessTest(unittest.TestCase):
     def test_the_interlock_must_be_exercised(self):
         problems, _ = check.assess(GOOD[:6] + ["KEYS 0000 ROUNDS 40"] + GOOD[7:], None)
         self.assertIn("no keys", problems[0])
-        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0040")
+        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0040 0000")
         self.assertEqual(len(problems), 1)
         self.assertIn("no read was paused", problems[0])
 
     def test_soeb_never_seen_names_the_wiring(self):
-        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0000")
+        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0000 0000")
         self.assertEqual(len(problems), 1)
         self.assertIn("never saw SOEB", problems[0])
         self.assertIn("Cmod pin 18", problems[0])
 
     def test_transfers_the_program_didnt_make_are_reported(self):
-        problems, _ = check.assess(GOOD, "C 9111 909C 0009 0040")
+        problems, _ = check.assess(GOOD, "C 9111 909C 0009 0040 0000")
         self.assertEqual(len(problems), 1)
         self.assertIn("4 more reads", problems[0])
-        problems, _ = check.assess(GOOD, "C 910F 9098 0009 0040")
+        problems, _ = check.assess(GOOD, "C 910F 9098 0009 0040 0000")
         self.assertEqual(len(problems), 1)
         self.assertIn("2 fewer writes", problems[0])
+
+    def test_glitches_on_e_are_not_a_failure(self):
+        """The bus filters them out; check.py reports how many."""
+        problems, _ = check.assess(GOOD, "C 9111 9098 0009 0040 0003")
+        self.assertEqual(problems, [])
 
     def test_missing_counts(self):
         problems, pauses = check.assess(GOOD, None)

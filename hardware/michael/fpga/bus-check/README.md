@@ -20,13 +20,15 @@ make check    # load the design, upload the Michael program, and judge what it r
 
 - [`../rtl/michael_bus.v`](../rtl/michael_bus.v): the bus's pins as transfers. It turns the data buffer
   around a step at a time, so that neither of its sides ever has two drivers, and gates the buffer's /OE
-  with SOEB, pin to pin (one LUT, no clock).
+  with SOEB, pin to pin (one LUT, no clock). E is filtered (a level must hold for 250 ns): on the board, a
+  glitch on E once made an extra read.
 - [`../rtl/bus_control.v`](../rtl/bus_control.v): the control commands (`NOP`, `ID`, `RESET`, `ECHO`), the
   reply queue, the status byte, and `SERIAL_SEND` (`$50`, provisional), whose bytes go to the PC through the
   Cmod's USB serial port. Both modules carry on into stage 2's design.
 - [`rtl/bus_check.v`](rtl/bus_check.v): the two, with the serial port. `?` from the PC adds a line of
-  counts: `C wwww rrrr pppp ssss`, the transfers written, the bytes read, the reads that the interlock
-  paused, and SOEB's falls at any time (one for each keyboard byte Michael reads), in hex. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
+  counts: `C wwww rrrr pppp ssss gggg`, the transfers written, the bytes read, the reads that the interlock
+  paused, SOEB's falls at any time (one for each keyboard byte Michael reads), and the glitches on E that
+  the bus filtered out, in hex. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 - [`sim/tb_bus_check.v`](sim/tb_bus_check.v): Michael ([`../sim/michael_fpga_bus.vh`](../sim/michael_fpga_bus.vh),
   with `fpga_bus.inc`'s timings and the keyboard driver's interrupt), the VIA, the keyboard board and the
   data buffer around the design. It checks every command, the status bits, reads across a keyboard

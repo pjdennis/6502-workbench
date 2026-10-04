@@ -1,7 +1,9 @@
 `timescale 1ns / 1ps
 // The Michael FPGA bus's pins, as transfers (docs/michael-fpga-bus-plan.md, "The protocol").
 //
-// E's rising edge starts a transfer, chosen by RS and RW sampled with it:
+// E's rising edge starts a transfer, chosen by RS and RW sampled with it. E is filtered: a level counts once
+// it has held for E_FILTER samples (250 ns at 12 MHz), so glitches on the line can't make transfers; D, RS
+// and RW are still taken at E's first high sample.
 //   RW 0: a write. The byte on D is passed on with `wr`.
 //   RW 1: a read. The byte is taken from `reply_byte` (RS 1) or `status_byte` (RS 0) as E rises, driven
 //         onto D until E falls, and `rd_end` reports the end of the read.
@@ -13,7 +15,9 @@
 //   E falls   buffer off; then B to A and the FPGA releases D; then the buffer on again
 // While a read drives port B, SOEB low (the keyboard board driving port B) turns the buffer off at once:
 // d_oeb is logic from the soeb pin, with no clock in the path (the SOEB interlock).
-module michael_bus (
+module michael_bus #(
+  parameter E_FILTER = 3
+) (
   input            clk,
   input      [7:0] d_in,        // the D pins
   output     [7:0] d_out,
@@ -32,7 +36,8 @@ module michael_bus (
   output reg       rd_rs = 1'b0,
   input      [7:0] reply_byte,
   input      [7:0] status_byte,
-  output reg       paused = 1'b0   // one clock: SOEB fell while a read was driving port B
+  output reg       paused = 1'b0,  // one clock: SOEB fell while a read was driving port B
+  output reg       glitch = 1'b0   // one clock: E changed for less than E_FILTER samples (ignored)
 );
   // Synchronised inputs: {d, e, rs, rw, soeb}
   reg [11:0] sync1 = 12'h001, sync2 = 12'h001;   // SOEB high: the keyboard board off
@@ -44,6 +49,23 @@ module michael_bus (
   wire e_s = sync2[3], rs_s = sync2[2], rw_s = sync2[1], soeb_s = sync2[0];
   reg  e_prev = 1'b0, soeb_prev = 1'b1;
 
+  // E, filtered (e_f), with D, RS and RW as E first went high
+  reg        e_f = 1'b0;
+  reg  [$clog2(E_FILTER)-1:0] run = 0;   // samples in a row that differ from e_f
+  reg  [7:0] d_at_e = 8'h00;
+  reg        rs_at_e = 1'b0, rw_at_e = 1'b0;
+  always @(posedge clk) begin
+    glitch <= 1'b0;
+    if (e_s != e_f) begin
+      if (run == 0 && e_s) {d_at_e, rs_at_e, rw_at_e} <= {d_s, rs_s, rw_s};
+      if (run == E_FILTER - 1) begin e_f <= e_s; run <= 0; end
+      else run <= run + 1'b1;
+    end else begin
+      if (run != 0) glitch <= 1'b1;
+      run <= 0;
+    end
+  end
+
   localparam IDLE = 3'd0, OFF_OUT = 3'd1, TURN_OUT = 3'd2, OUT = 3'd3, OFF_IN = 3'd4, TURN_IN = 3'd5;
   reg [2:0] state = IDLE;
   reg       oe_off = 1'b0;   // the buffer held off (between turnaround steps)
@@ -53,7 +75,7 @@ module michael_bus (
   assign d_oeb = state == OUT ? !soeb : oe_off;
 
   always @(posedge clk) begin
-    e_prev    <= e_s;
+    e_prev    <= e_f;
     soeb_prev <= soeb_s;
     wr        <= 1'b0;
     rd        <= 1'b0;
@@ -61,24 +83,24 @@ module michael_bus (
     paused    <= 1'b0;
     case (state)
       IDLE:
-        if (e_s && !e_prev) begin
-          if (rw_s) begin
+        if (e_f && !e_prev) begin
+          if (rw_at_e) begin
             rd       <= 1'b1;
-            rd_rs    <= rs_s;
-            byte_out <= rs_s ? reply_byte : status_byte;
+            rd_rs    <= rs_at_e;
+            byte_out <= rs_at_e ? reply_byte : status_byte;
             oe_off   <= 1'b1;
             state    <= OFF_OUT;
           end else begin
             wr      <= 1'b1;
-            wr_rs   <= rs_s;
-            wr_data <= d_s;
+            wr_rs   <= rs_at_e;
+            wr_data <= d_at_e;
           end
         end
       OFF_OUT:  begin d_dir <= 1'b1; d_drive <= 1'b1; state <= TURN_OUT; end
       TURN_OUT: begin oe_off <= 1'b0; state <= OUT; end
       OUT: begin
         if (soeb_prev && !soeb_s) paused <= 1'b1;
-        if (!e_s) begin
+        if (!e_f) begin
           oe_off <= 1'b1;
           rd_end <= 1'b1;
           state  <= OFF_IN;
