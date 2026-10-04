@@ -55,7 +55,7 @@ def difference(got, expected, what):
 
 def assess(lines, counts):
     """Judges the program's report (the lines from the FPGA) and the FPGA's counts line
-    ("C wwww rrrr pppp ssss gggg cccc tttt", or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
+    ("C wwww rrrr pppp ssss gggg cccc tttt bbbb ..." in hex, or None; see rtl/bus_check.v). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
     starts = [i for i, line in enumerate(lines) if line == START]
     if not starts:
         return ["The program never started: no 'FPGA BUS CHECK' arrived from the FPGA"], None
@@ -89,7 +89,7 @@ def assess(lines, counts):
     if counts is None:
         problems.append("No counts from the FPGA (its reply to '?')")
         return problems, None
-    writes, reads, pauses, soeb_falls, _, commands, short_writes = (int(field, 16) for field in counts.split()[1:])
+    writes, reads, pauses, soeb_falls, _, commands, short_writes = (int(f, 16) for f in counts.split()[1:8])
     if keys and not soeb_falls:
         problems.append(f"the FPGA never saw SOEB fall, though the keyboard driver read {keys} keys: check PA4 "
                         "(VIA pin 6) to the control buffer's B6 (pin 13), and its A6 (pin 7) to Cmod pin 18")
@@ -142,10 +142,13 @@ def main():
     program = [line for line in got if not line.startswith("C ")]
     problems, pauses = assess(program, counts)
     if counts:
-        _, writes, reads, _, soeb_falls, glitches, _, _ = counts.split()
-        print(f"The FPGA counted {int(writes, 16)} writes and {int(reads, 16)} reads (both modulo 65536), "
-              f"{int(soeb_falls, 16)} falls of SOEB, {pauses} reads paused by the SOEB interlock, and "
-              f"{int(glitches, 16)} glitches on E (filtered out).")
+        writes, reads, _, soeb_falls, glitches, _, _, bounces, low, after_d, after_rs_rw, after_d7, after_many = (
+            int(f, 16) for f in counts.split()[1:14])
+        print(f"The FPGA counted {writes} writes and {reads} reads (both modulo 65536), {soeb_falls} falls of SOEB, "
+              f"{pauses} reads paused by the SOEB interlock, and on E, {bounces} bounces at its edges and {glitches} "
+              f"glitches in steady levels (both filtered out). Of the glitches, {low} came while E was low, "
+              f"{after_d} just after a change on D ({after_many} of 4 or more bits, {after_d7} including D7) and "
+              f"{after_rs_rw} just after a change of RS or RW.")
     if problems:
         print(f"FAIL: {len(problems)} problem(s):")
         print("\n".join("  " + p for p in problems))

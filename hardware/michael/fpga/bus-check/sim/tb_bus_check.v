@@ -61,12 +61,12 @@ module tb_bus_check;
   uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (.clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
   uart_rx #(.CLKS_PER_BIT(CPB)) host_uart_rx (.clk(clk), .rx(fpga_tx), .valid(rx_valid), .data(rx_data));
 
-  reg [8*64-1:0] line = 0;   // the latest complete line received, without CR LF
-  reg [8*64-1:0] partial = 0;
+  reg [8*96-1:0] line = 0;   // the latest complete line received, without CR LF
+  reg [8*96-1:0] partial = 0;
   integer n_lines = 0;
   always @(posedge clk) if (rx_valid) begin
     if (rx_data == 8'h0A) begin line = partial; partial = 0; n_lines = n_lines + 1; end
-    else if (rx_data != 8'h0D) partial = {partial[8*63-1:0], rx_data};
+    else if (rx_data != 8'h0D) partial = {partial[8*95-1:0], rx_data};
   end
 
   task send_host(input [7:0] b);
@@ -77,18 +77,20 @@ module tb_bus_check;
     end
   endtask
 
-  task expect_line(input [8*64-1:0] exp, input [8*40-1:0] what);
+  task expect_line(input [8*96-1:0] exp, input [8*40-1:0] what);
     integer lines_before, waited;
     begin
       lines_before = n_lines;
-      for (waited = 0; n_lines == lines_before && waited < 5000; waited = waited + 1) #1000;
+      for (waited = 0; n_lines == lines_before && waited < 20000; waited = waited + 1) #1000;
       if (line !== exp) $display("got \"%0s\", expected \"%0s\"", line, exp);
       `CHECK(line === exp, what)
     end
   endtask
 
   // ---- Michael's side, with counts to compare with the FPGA's ------------------------------------------
-  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0;
+  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0, bounces = 0;
+  integer glitches_low = 0, glitches_after_d = 0, glitches_after_rs_rw = 0, glitches_after_d7 = 0,
+          glitches_after_many = 0;
   always @(negedge soeb) soeb_falls = soeb_falls + 1;
   task command(input [7:0] b); begin fb_command(b); writes = writes + 1; commands = commands + 1; end endtask
   task data(input [7:0] b);    begin fb_data(b);    writes = writes + 1; end endtask
@@ -162,6 +164,7 @@ module tb_bus_check;
     // Glitches on E shorter than the filter (3 samples, 250 ns) are ignored, and counted: one while idle
     // (with RW high, as after a read), one in the middle of a read
     rw = 1'b1; #2000; e = 1'b1; #120; e = 1'b0; #2000; rw = 1'b0; glitches = glitches + 1;
+    glitches_low = glitches_low + 1;
     command(8'h04); data(8'h44); data(8'h55);
     fork
       expect_read(8'h44, 0, "a read with a glitch while E is high");
@@ -169,6 +172,21 @@ module tb_bus_check;
     join
     expect_read(8'h55, 0, "the glitch didn't end the read or take a byte");
     expect_status(8'h00, "status after the glitches");
+
+    // Glitches just after port B or RS changes, with E low (as crosstalk from a neighbouring wire would make)
+    via_drive = 1'b1; via_out = 8'h00; #2000; via_out = 8'hF0; #100; e = 1'b1; #90; e = 1'b0; #2000;
+    rs = 1'b1; #100; e = 1'b1; #90; e = 1'b0; #2000; rs = 1'b0; #2000;
+    glitches = glitches + 2; glitches_low = glitches_low + 2;
+    glitches_after_d = glitches_after_d + 1; glitches_after_rs_rw = glitches_after_rs_rw + 1;
+    glitches_after_d7 = glitches_after_d7 + 1; glitches_after_many = glitches_after_many + 1;   // $00 to $F0
+
+    // A flicker at an edge (E rising, back low for a sample, then high for good) is a bounce, not a glitch,
+    // and the write it starts still happens once
+    command(8'h04);
+    rs = 1'b1; #2000; via_drive = 1'b1; via_out = 8'h77; #2000;
+    e = 1'b1; #90; e = 1'b0; #90; e = 1'b1; #3000; e = 1'b0; #2000; rs = 1'b0;
+    writes = writes + 1; bounces = bounces + 1;
+    expect_read(8'h77, 0, "the byte written across a bounce");
 
     // A write whose E pulse is shorter than any Michael makes (1 us; Michael's are 3 us or more) is counted
     // as a write and as a short one
@@ -186,7 +204,9 @@ module tb_bus_check;
     `CHECK_EQ(led[1], 1'b1, "LD2 lit once a read was paused")
     send_host("?");
     expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls), " ", hex4(glitches),
-                 " ", hex4(commands), " ", hex4(short_writes)}, "counts line");
+                 " ", hex4(commands), " ", hex4(short_writes), " ", hex4(bounces), " ", hex4(glitches_low), " ",
+                 hex4(glitches_after_d), " ", hex4(glitches_after_rs_rw), " ", hex4(glitches_after_d7), " ",
+                 hex4(glitches_after_many)}, "counts line");
     `TB_PASS
   end
 

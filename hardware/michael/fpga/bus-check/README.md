@@ -30,10 +30,12 @@ cursor once added 395 writes.
   reply queue, the status byte, and `SERIAL_SEND` (`$50`, provisional), whose bytes go to the PC through the
   Cmod's USB serial port. Both modules carry on into stage 2's design.
 - [`rtl/bus_check.v`](rtl/bus_check.v): the two, with the serial port. `?` from the PC adds a line of
-  counts, in hex: `C wwww rrrr pppp ssss gggg cccc tttt`: the transfers written, the bytes read, the reads
-  that the interlock paused, SOEB's falls at any time (one for each keyboard byte Michael reads), the
-  glitches on E that the bus filtered out, the writes that were commands, and the writes whose E pulse was
-  under 1.5 µs (Michael's last 3 µs or more). LD1 flashes on bus traffic; LD2 lights once a read has been paused.
+  counts, in hex (`C wwww rrrr ...`; the comment at the top of `bus_check.v` has the list): the transfers
+  written and read, the reads that the interlock paused, SOEB's falls, and a characterisation of what happens
+  on E: glitches the bus filtered out (by E's level, and by what changed just before: D, D7, 4 or more bits
+  of D, RS or RW), bounces at E's edges, the writes that were commands, and writes with short E pulses.
+  On the board (2026-10-04), with the buffers at 3.3 V, about 500 glitches a run, all short positive spikes
+  while E is low just after 4 or more bits of D switch: switching noise, which the filter rejects. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 - [`sim/tb_bus_check.v`](sim/tb_bus_check.v): Michael ([`../sim/michael_fpga_bus.vh`](../sim/michael_fpga_bus.vh),
   with `fpga_bus.inc`'s timings and the keyboard driver's interrupt), the VIA, the keyboard board and the
   data buffer around the design. It checks every command, the status bits, reads across a keyboard
