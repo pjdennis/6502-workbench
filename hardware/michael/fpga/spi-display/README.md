@@ -5,13 +5,15 @@ board that had no schematic. Michael's display driver,
 [`firmware/lib/graphics/graphics_display.inc`](../../../../firmware/lib/graphics/graphics_display.inc), is
 unchanged: the FPGA reproduces what that driver expects.
 
-Working since 2026-10-03 with an Adafruit ILI9341 display. `michael_graphic_display_test.s` and
-`michael_graphic_keyboard.s` run unchanged.
+Worked from 2026-10-03 with an Adafruit ILI9341 display, running `michael_graphic_display_test.s` and
+`michael_graphic_keyboard.s` unchanged.
 
 **Replaced in the Cmod's flash on 2026-10-04** by the [FPGA bus design](../bus/) (stage 2 of the
-[FPGA bus plan](../../../../docs/michael-fpga-bus-plan.md)), which Michael's driver now uses. This design is
-kept for the driver's pin interface (`GD_PIN_INTERFACE`, which `michael_fpga_input_check.s` uses) and
-for the record.
+[FPGA bus plan](../../../../docs/michael-fpga-bus-plan.md)). Michael's driver now speaks the bus's protocol,
+so today's graphics programs need the bus design. This design works only with programs that use the
+driver's older pin interface (`GD_PIN_INTERFACE`, as `michael_fpga_input_check.s` does) or binaries built
+before stage 2, and is kept for that and for the record. The wiring, [`WIRING.md`](WIRING.md), is the bus's
+too.
 
 - Wiring, pin by pin: [`WIRING.md`](WIRING.md)
 - Schematic: [`michael-fpga-display.svg`](../../schematics/michael-fpga-display.svg), sheet 3 of
@@ -70,9 +72,9 @@ The Cmod runs from Michael's 5 V through its VU pin, so USB is only needed for p
    the FPGA sees, wire by wire.
 3. Check the display: `make -C ../display-probe probe` reads the display's registers back, initialises it
    exactly as Michael's driver does, and cycles colours. None of this involves Michael.
-4. Upload a graphics program, e.g.
-   `tools/upload/compile_and_upload_michael.sh firmware/programs/michael/michael_graphic_display_test.s`.
-   LD2 lights while the display is selected, and LD1 flashes while bytes go out.
+4. Upload a graphics program built before stage 2 (today's need the [bus design](../bus/)), e.g.
+   `michael_graphic_display_test.s` from before commit 8fc84438. LD2 lights while the display is selected,
+   and LD1 flashes while bytes go out.
 
 Steps 2 and 3 load their own designs into the FPGA. Power-cycle the Cmod, or `make reset` here, to go back to
 the interface in flash.

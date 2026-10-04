@@ -1,8 +1,10 @@
-# Michael FPGA SPI display interface: wiring
+# Michael FPGA display interface and bus: wiring
 
-The FPGA board turns Michael's parallel display writes (VIA port B plus four port A control bits) into SPI
-for the ILI9341 240×320 display. It replaces the earlier interface board, which had no schematic. Michael's
-firmware (`firmware/lib/graphics/graphics_display.inc`) is unchanged.
+The FPGA board between Michael's VIA and the ILI9341 240×320 display. It replaced the earlier interface
+board, which had no schematic, first as this directory's design, which took the old board's parallel writes
+(port B plus four port A control bits). Since 2026-10-04 the same wiring carries the
+[FPGA bus](../bus/), whose design is in the Cmod's flash. The tables give both designs' names for the FPGA's
+pins where they differ.
 
 ```
 Michael VIA (5 V) ──► 2 × 74LVC245 (3.3 V, B→A) ──► Cmod A7-35T pins 1–13 ──► FPGA ──► Cmod pins 25–32 ──► ILI9341 display
@@ -17,9 +19,11 @@ VIA pin numbers are for the 40-pin W65C22.
 |---|---|---|
 | Michael 5 V | 5 V rail | Feeds the 3.3 V regulator (an LM1117T-3.3) and the Cmod (through the diode). 1 µF electrolytic across the rail. |
 | Michael GND | GND rails | **Required**: Michael, the '245s, the Cmod and the display must share ground. |
+| GND rail near the VIA | GND near the '245s | An extra ground wire (2026-10-04), for the '245s' ground return. It halved the switching spikes on E. |
 | 5 V rail | Diode (silver band towards the Cmod) → Cmod pin 24 (VU) | As built. The Cmod runs from Michael's supply, so USB is only needed for programming. |
-| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. **To do:** it measured 4.07 V on 2026-10-03, too high for the Cmod's inputs; see the to-do list in [Michael's schematics](../../schematics/README.md#to-do). |
-| Regulator IN and OUT | 10 µF tantalum to GND, each | **To do:** not fitted yet. The LM1117's data sheet asks for them, the output one for stability. |
+| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. Measures 3.297 V (the 4.07 V seen on 2026-10-03 was 5 V fed into the rail by mistake). |
+| Regulator OUT | 10 µF electrolytic to GND | Fitted 2026-10-04: the LM1117's data sheet asks for it, for stability. |
+| Regulator IN | 10 µF to GND | **To do:** not fitted yet; the data sheet asks for it too. |
 | GND rail | Cmod pin 25 (GND) | As built. |
 
 ## Data buffer (upper 74LVC245)
@@ -47,23 +51,23 @@ the FPGA controls the buffer; every design here holds both pins low (on, Michael
 
 Same power connections as the data buffer; DIR (pin 1) and /OE (pin 19) to ground (always on, Michael to the FPGA).
 
-| Michael signal | VIA pin | '245 B side (pin) | '245 A side (pin) | Cmod pin | FPGA signal |
-|---|---|---|---|---|---|
-| PA0, `GD_E` (byte strobe), with **10 kΩ to ground** | 2 | B1 (18) | A1 (2) | 9 | `e` |
-| PA1, `GD_CSB` (select, active low) | 3 | B2 (17) | A2 (3) | 10 | `csb` |
-| PA2, `GD_RSTB` (reset, active low; shared with Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `rstb` |
-| PA5, `GD_DC` (data/command; shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `dc` |
-| **Backlight**: for now, **10 kΩ to the 3.3 V rail** (on) | — | B5 (14) | A5 (6) | 13 | `bl` |
-| PA4, SOEB (the keyboard board's output enable), for the bus's interlock | 6 | B6 (13) | A6 (7) | 18 | `soeb` |
-| PA6, RW (shared with LCD R/W, keyboard PARITY), for the bus | 8 | B7 (12) | A7 (8) | 19 | `rw` |
-| unused: 10 kΩ tie to ground | — | B8 (11) | A8 | — | — |
+| Michael signal | VIA pin | '245 B side (pin) | '245 A side (pin) | Cmod pin | Bus design | This design |
+|---|---|---|---|---|---|---|
+| PA0, E (the strobe), with **10 kΩ to ground** | 2 | B1 (18) | A1 (2) | 9 | `e` | `e` |
+| PA1 | 3 | B2 (17) | A2 (3) | 10 | `pa1` (ignored) | `csb` (select, active low) |
+| PA2 (Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `pa2` (ignored) | `rstb` (reset, active low) |
+| PA5, RS (shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `rs` | `dc` (data/command) |
+| **10 kΩ to the 3.3 V rail** (a tie) | — | B5 (14) | A5 (6) | 13 | `backlight_tie` (ignored) | `bl` (backlight on) |
+| PA4, SOEB (the keyboard board's output enable) | 6 | B6 (13) | A6 (7) | 18 | `soeb` (the interlock) | unused |
+| PA6, RW (shared with LCD R/W, keyboard PARITY) | 8 | B7 (12) | A7 (8) | 19 | `rw` | unused |
+| unused: 10 kΩ tie to ground | — | B8 (11) | A8 | — | — | — |
 
-The display's backlight input is active high, so tying B5 high keeps the backlight on. The FPGA copies it to
-the display's LED pin, so later a VIA output or PWM source can drive B5 instead with no other change.
+This design copies B5 to the display's LED pin, so the tie keeps the backlight on. The bus design ignores it
+and sets the backlight with its `BACKLIGHT` command, by PWM. Its renames of this directory's pin names are in
+[`../bus.mk`](../bus.mk).
 
-SOEB and RW are unused by the display interface; the FPGA bus's designs (from [`../bus-check/`](../bus-check/))
-read them. The pull-down on B1 keeps E low while the VIA's pins are inputs after a reset, so the FPGA sees
-no stray strobes.
+The pull-down on B1 keeps E low while the VIA's pins are inputs after a reset, so the FPGA sees no stray
+strobes.
 
 ## Display (ILI9341, SPI)
 
@@ -97,8 +101,8 @@ modules only while their jumper J1 is open.
 - [ ] Nothing at 5 V connects directly to a Cmod pin. Michael signals reach the Cmod only through '245 A outputs.
 - [ ] Michael and this board share ground.
 - [ ] The display's VCC is on 3.3 V and its GND on Cmod pin 25 / the GND rail.
-- [ ] The FPGA has the interface design in its flash (`make flash` in this directory). Otherwise the Cmod's
-      pins carry whatever design is in its flash.
+- [ ] The FPGA has the bus design in its flash (`make -C ../bus flash`). Otherwise the Cmod's pins carry
+      whatever design is in its flash.
 
 ## Stage 1 rewiring for the FPGA bus
 
