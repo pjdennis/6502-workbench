@@ -1,6 +1,7 @@
 # The Michael FPGA bus with the display (stage 2 of docs/michael-fpga-bus-plan.md), replacing spi-display.
 #   make test    simulations          make bit     build bitstreams
 #   make prog    load into the FPGA   make flash   write the Cmod's flash (survives power-off)
+#   debug.py     the debug port: the PC drives the bus (id, status, a display test pattern)
 include ../kit.mk
 
 TOP    := top
@@ -21,5 +22,9 @@ $(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc ../constr/bus.xdc
 	sed 's/{dc}/{rs}/' $^ > $@
 
 .DEFAULT_GOAL := all
-.PHONY: all
+.PHONY: all test-py
 all: test bit
+
+test: test-py
+test-py:
+	python3 -m unittest test_debug
