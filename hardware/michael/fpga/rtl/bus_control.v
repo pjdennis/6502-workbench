@@ -42,14 +42,6 @@ module bus_control #(
   reg  [4:0] sticky = 5'd0;
   assign status_byte = {busy, 2'b00, sticky};
 
-  // The reply queue (block RAM)
-  localparam AW = $clog2(REPLY_DEPTH);
-  reg  [7:0] queue [0:REPLY_DEPTH-1];
-  reg  [7:0] head = 8'h00;
-  reg  [AW-1:0] q_wr = 0, q_rd = 0;
-  reg  [AW:0]   q_count = 0;
-  assign reply_byte = q_count == 0 ? 8'h00 : head;
-
   // The ID reply goes in a byte a clock
   reg  [2:0] id_left = 3'd0;
   wire [7:0] id_byte = id_left == 4 ? "M" : id_left == 3 ? "B" : id_left == 2 ? VERSION : CAPABILITIES;
@@ -58,25 +50,18 @@ module bus_control #(
   wire is_data    = wr && wr_rs;
   wire echo       = is_data && args_left == 0 && cmd == ECHO;
   wire push       = echo || (id_left != 0);
-  wire [7:0] push_byte = echo ? wr_data : id_byte;
-  wire pop        = rd_end && rd_rs && q_count != 0;
   wire reset      = is_command && wr_data == RESET;
+
+  // The reply queue
+  wire [7:0] head;
+  wire       empty, full;
+  fifo #(.WIDTH(8), .DEPTH(REPLY_DEPTH)) replies (
+    .clk(clk), .clear(reset), .push(push), .din(echo ? wr_data : id_byte), .full(full),
+    .pop(rd_end && rd_rs), .dout(head), .empty(empty), .count());
+  assign reply_byte = empty ? 8'h00 : head;
 
   always @(posedge clk) begin
     ser_valid <= 1'b0;
-    head      <= queue[q_rd];
-
-    // The reply queue
-    if (reset) begin
-      q_wr <= 0; q_rd <= 0; q_count <= 0;
-    end else begin
-      if (push && q_count != REPLY_DEPTH) begin
-        queue[q_wr] <= push_byte;
-        q_wr <= q_wr + 1'b1;
-      end
-      if (pop) q_rd <= q_rd + 1'b1;
-      q_count <= q_count + (push && q_count != REPLY_DEPTH) - pop;
-    end
     if (!echo && id_left != 0) id_left <= id_left - 1'b1;
 
     // Status: a status read clears what it reports; errors from this clock are kept
@@ -85,8 +70,8 @@ module bus_control #(
       sticky  <= 5'd0;
       id_left <= 3'd0;
     end
-    if (push && q_count == REPLY_DEPTH) sticky[OVERFLOW]  <= 1'b1;
-    if (rd && rd_rs && q_count == 0)    sticky[UNDERFLOW] <= 1'b1;
+    if (push && full)           sticky[OVERFLOW]  <= 1'b1;
+    if (rd && rd_rs && empty)   sticky[UNDERFLOW] <= 1'b1;
 
     if (is_command) begin
       if (args_left != 0) sticky[ABANDONED] <= 1'b1;
