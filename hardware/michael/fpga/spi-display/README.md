@@ -8,6 +8,11 @@ unchanged: the FPGA reproduces what that driver expects.
 Working since 2026-10-03 with an Adafruit ILI9341 display. `michael_graphic_display_test.s` and
 `michael_graphic_keyboard.s` run unchanged.
 
+**Replaced in the Cmod's flash on 2026-10-04** by the [FPGA bus design](../bus/) (stage 2 of the
+[FPGA bus plan](../../../../docs/michael-fpga-bus-plan.md)), which Michael's driver now uses. This design is
+kept for the driver's pin interface (`GD_PIN_INTERFACE`, which `michael_fpga_input_check.s` uses) and
+for the record.
+
 - Wiring, pin by pin: [`WIRING.md`](WIRING.md)
 - Schematic: [`michael-fpga-display.svg`](../../schematics/michael-fpga-display.svg), sheet 3 of
   [Michael's schematics](../../schematics/)
