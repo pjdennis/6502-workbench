@@ -9,16 +9,13 @@ Cmod's USB serial port, and compares it with what the program does, naming any s
 """
 import argparse
 import os
-import subprocess
 import sys
-import tempfile
-import threading
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
-PROGRAM = os.path.join(REPO, "firmware", "programs", "michael", "michael_fpga_input_check.s")
-UPLOAD = os.path.join(REPO, "tools", "upload", "compile_and_upload_michael.sh")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import board  # noqa: E402
+
+PROGRAM = os.path.join(board.REPO, "firmware", "programs", "michael", "michael_fpga_input_check.s")
 
 IDLE = "01101"  # E low, CSB high, RSTB high, DC low, backlight high
 START = [f"S C3 {IDLE}", f"S 3C {IDLE}", f"S 00 {IDLE}"]
@@ -101,13 +98,6 @@ def compare(expected, got):
     return problems
 
 
-def serial_module():
-    kit = os.environ.get("FPGA_KIT") or os.path.join(REPO, "..", "fpga-toolchain-research")
-    sys.path.insert(0, os.path.join(kit, "scripts"))
-    import uart_check
-    return uart_check
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--michael-port", help="Michael's serial port (default: as the upload tools choose it)")
@@ -115,48 +105,23 @@ def main():
     ap.add_argument("--timeout", type=float, default=30, help="seconds to wait for the end marker")
     args = ap.parse_args()
 
-    uart_check = serial_module()
-    lines, lock = [], threading.Lock()
+    uart_check = board.serial_module()
 
     with uart_check.Serial(args.fpga_port or uart_check.find_port()) as ser:
-        def reader():
-            while True:
-                raw = ser.readline(deadline=None).decode(errors="replace")
-                # Junk can precede the first line (the serial line settling as the FPGA starts up)
-                starts = [raw.find(c) for c in "SB!" if c in raw]
-                line = raw[min(starts):].strip() if starts else raw.strip()
-                with lock:
-                    lines.append(line)
-
         ser.flush_input()
-        threading.Thread(target=reader, daemon=True).start()
+        reader = board.LineReader(ser, "SB!")
         ser.write(b"?")
-        for _ in range(10):
-            time.sleep(0.1)
-            with lock:
-                if lines:
-                    break
-        with lock:
-            if not lines:
-                sys.exit("No report from the FPGA: is the input-check design loaded (make prog)?")
-            print(f"Inputs before the test: {lines[-1]}  (port B; E, CSB, RSTB, DC, backlight)")
+        if not reader.wait_for(lambda lines: lines, 1.0):
+            sys.exit("No report from the FPGA: is the input-check design loaded (make prog)?")
+        print(f"Inputs before the test: {reader.snapshot()[-1]}  (port B; E, CSB, RSTB, DC, backlight)")
 
-        print(f"Uploading {os.path.relpath(PROGRAM, REPO)} to Michael ...")
-        port = [f"--port={args.michael_port}"] if args.michael_port else []
-        with tempfile.TemporaryDirectory() as tmp:  # the upload script writes a.s19 in its working directory
-            r = subprocess.run([UPLOAD, *port, PROGRAM], cwd=tmp)
-        if r.returncode:
-            sys.exit(f"Upload failed ({r.returncode})")
+        rc = board.upload(PROGRAM, args.michael_port)
+        if rc:
+            sys.exit(f"Upload failed ({rc})")
 
-        deadline = time.monotonic() + args.timeout
-        while time.monotonic() < deadline:
-            with lock:
-                if lines[-len(END):] == END and find_start(lines) is not None:
-                    break
-            time.sleep(0.1)
+        reader.wait_for(lambda lines: lines[-len(END):] == END and find_start(lines) is not None, args.timeout)
         time.sleep(0.2)  # catch anything unexpected after the end marker
-        with lock:
-            got = list(lines)
+        got = reader.snapshot()
 
     start = find_start(got)
     if start is None:
