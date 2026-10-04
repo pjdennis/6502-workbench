@@ -159,7 +159,7 @@ change_level:
 ; On exit X, Y are preserved
 set_level:
   sta LEVEL
-  lda #FB_BACKLIGHT              ; Outside gd_select: fb_data leaves RS low
+  lda #FB_BACKLIGHT              ; Never between gd_select and gd_unselect: fb_data leaves RS low
   jsr fb_command
   lda LEVEL
   jsr fb_data

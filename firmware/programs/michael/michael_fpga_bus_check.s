@@ -3,14 +3,14 @@
 ; through SERIAL_SEND, to the PC, where hardware/michael/fpga/bus-check/check.py reads it:
 ;   FPGA BUS CHECK        the start
 ;   ID OK                 ID replies 'M', 'B', version 1, and the status is clear
-;   ECHO BAD nnnn         32 passes of 256 bytes echoed and read back; nnnn mismatches (hex)
+;   ECHO BAD nnnn         32 passes of 256 bytes echoed and read back; nnnn mismatches and status errors (hex)
 ;   UNDERFLOW OK          an empty queue reads $00 and sets UNDERFLOW, which one status read clears
 ;   HOLD A KEY            the keyboard is now on: hold a key down until DONE
 ;   KEYBOARD BAD nnnn     more passes, with the keyboard interrupting at random points, until 128 keys
 ;                         have arrived (or about 15 s)
 ;   KEYS nnnn ROUNDS nn   characters the keyboard driver received meanwhile, and the rounds of passes
-; Status checks ignore BUSY: it's set while SERIAL_SEND's output is still going to the PC.
 ;   DONE
+; Status checks ignore BUSY: it's set while SERIAL_SEND's output is still going to the PC.
   .include base_config_v2.inc
 
 INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
@@ -27,9 +27,9 @@ SEED                     = $0E ; 1 byte
 PASSES                   = $0F ; 1 byte
 GOT                      = $10 ; 1 byte
 LINE                     = $11 ; 1 byte: the LCD line being written (DISPLAY_HEIGHT: the screen is full)
+SAY_PTR                  = $12 ; 2 bytes
 ROUNDS                   = $14 ; 1 byte: rounds left
 ROUNDS_RUN               = $15 ; 1 byte
-SAY_PTR                  = $12 ; 2 bytes
 KB_ZERO_PAGE_BASE        = $20 ; 10 bytes
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes

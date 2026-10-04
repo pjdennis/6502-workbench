@@ -69,6 +69,7 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
 | `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
 | `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
+| `--fpga-log <path>` | michael: a line per FPGA bus transfer (a rising edge of E on PA0): `C hh` (command), `D hh` (data), `R` (reply read), `S` (status read) |
 | `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
 | `--ram <decode>` | michael: how RAM below the VIA is decoded: `16k` (the default: `$0000-$3FFF`), `eater` (Ben Eater's: reads of `$4000-$7FFF` find nothing, but writes there, the VIA's too, land in `$0000-$3FFF`), `full` (24K at `$0000-$5FFF`) or `mirror8k` (8K at `$0000-$1FFF`, repeated up to `$5FFF`); `firmware/programs/michael/michael_ram_map.s` shows which |
 | `--serial-input <path>` | wendy2c, michael: bytes pre-queued into the SERIAL_USB chip |

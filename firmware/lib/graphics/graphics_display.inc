@@ -277,6 +277,9 @@ gd_unselect:
   rts
 
 
+; Resets the display through the bus's DISP_RESET: after 10 ms, holds it in reset for 10 ms, then waits
+; 120 ms for it to wake.
+; On exit A, X, Y are preserved
 gd_reset:
   pha
   lda #1 ; could be 1 ms

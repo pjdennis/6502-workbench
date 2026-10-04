@@ -4,11 +4,15 @@ logged (--fpga-log). Needs vasm6502_oldstyle on PATH, gcc and make (the tests sk
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+from firmware_manifest import BASE_FLAGS, FLAG_SETS  # noqa: E402
+UPLOAD_FLAGS = BASE_FLAGS + dict(FLAG_SETS)['esc']   # as the upload scripts assemble
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 AVAILABLE = bool(shutil.which('vasm6502_oldstyle') and shutil.which('gcc') and shutil.which('make'))
 
@@ -27,8 +31,7 @@ def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=
             with open(program, 'w') as f:
                 f.write(source)
         binary, log = os.path.join(tmp, 'program.bin'), os.path.join(tmp, 'fpga.log')
-        subprocess.run([FW_VASM, '-quiet', '-wdc02', '-wfail', '-Fbin', '-dotdir', '-ignore-mult-inc', '-esc',
-                        '-o', binary, program], cwd=ROOT, check=True, capture_output=True)
+        subprocess.run([FW_VASM, *UPLOAD_FLAGS, '-o', binary, program], cwd=ROOT, check=True, capture_output=True)
         options = []
         if keys:
             keys_file = os.path.join(tmp, 'keys')
