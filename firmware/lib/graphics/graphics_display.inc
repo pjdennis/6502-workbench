@@ -255,14 +255,13 @@ gd_send_command:
 gd_configure = fb_initialize
 
 
-; Sets RS high (data) and RW low (a write), so every byte strobed until gd_unselect is display data.
+; Sets RS high (data), so every byte strobed until gd_unselect is display data. RW is low (a write) between
+; transfers already (fpga_bus.inc).
 ; On exit A, X, Y are preserved
 gd_select:
   pha
   lda #RS
   tsb PORTA
-  lda #RW
-  trb PORTA
   pla
   rts
 
