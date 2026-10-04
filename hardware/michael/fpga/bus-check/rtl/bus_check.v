@@ -5,7 +5,9 @@
 // test program reports its results that way.
 //
 // '1' from the PC holds the data buffer off while the bus is idle, and '0' puts it back: for telling switching
-// noise from the buffer's outputs from noise upstream of it (no writes get through while it's held off).
+// noise from the buffer's outputs from noise upstream of it. E still arrives (through the control buffer), so
+// a write still counts, but with whatever the undriven D pins read.
+// SERIAL_SEND's bytes beyond the serial queue's 2048 are dropped, unreported (the check's reports are short).
 // '?' from the PC adds a line of counts to the serial output, once it's idle:
 //   "C wwww rrrr pppp ssss gggg cccc tttt bbbb"  in hex: transfers written, bytes read (replies and status),
 //       reads paused by the SOEB interlock, SOEB's falls at any time (each keyboard byte Michael reads),

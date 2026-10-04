@@ -5,8 +5,8 @@
 //   D hh hh ...   write data bytes                             answers "r" and the bytes in hex
 //                                                     S       read the status byte; answers "s" and it in hex
 // Answers end with CR LF. Transactions wait for a clock without one of Michael's (bus_busy), and each answer
-// character for a clock when out_ready is high: out_valid follows it in the same clock, so nothing collides. Characters arriving while an answer is going out are dropped, so the PC
-// waits for each answer.
+// character for a clock when out_ready is high: out_valid follows it in the same clock, so nothing collides.
+// Characters arriving while an answer is going out are dropped, so the PC waits for each answer.
 module debug_port (
   input            clk,
   input            rx_valid,      // characters from the PC

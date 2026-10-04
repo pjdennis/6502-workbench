@@ -61,7 +61,7 @@ module tb_display_spi;
     queue(COMMAND, 8'h2C);
     for (i = 0; i < 12; i = i + 1) queue(DATA, 8'hF0 + i);
     `CHECK_EQ(busy, 1'b1, "busy while bytes are queued")
-    `CHECK_EQ(lcd_cs, 1'b0, "selected while bytes are queued")
+    `CHECK_EQ(lcd_cs, 1'b0, "selected while a byte goes out")
     wait_idle;
     expect_all_received;
     `CHECK_EQ(lcd_cs, 1'b1, "deselected once the queue is empty")

@@ -6,8 +6,8 @@ arrives in the middle of a read (the SOEB interlock). Passed on the board on 202
 them paused by keyboard interrupts, every byte right and every transfer accounted for. It needs the stage 1 wiring
 ([`../spi-display/WIRING.md`](../spi-display/WIRING.md#stage-1-rewiring-for-the-fpga-bus)).
 
-The design is loaded over JTAG (`make prog`), so the spi-display design stays in the Cmod's flash and comes
-back at the next power-up.
+The design is loaded over JTAG (`make prog`), so the design in the Cmod's flash (the [bus design](../bus/)
+since stage 2) stays there and comes back at the next power-up.
 
 ```
 make test     # simulation, and check.py's tests

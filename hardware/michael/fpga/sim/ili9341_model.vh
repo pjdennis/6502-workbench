@@ -30,7 +30,7 @@
     sr = {sr[6:0], lcd_mosi};
     bits = bits + 1;
     if (bits == 8) begin
-      `CHECK(n_rx < n_exp, "display received a byte that Michael never sent")
+      `CHECK(n_rx < n_exp, "display received a byte nobody sent")
       `CHECK_EQ(sr, exp_byte[n_rx], "byte received by the display")
       `CHECK_EQ(dc_first, exp_dc[n_rx], "DC of the byte received by the display")
       n_rx = n_rx + 1;

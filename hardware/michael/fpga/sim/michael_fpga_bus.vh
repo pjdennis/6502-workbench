@@ -1,8 +1,7 @@
 // Michael using the FPGA bus as firmware/lib/fpga/fpga_bus.inc does, with that code's cycle timings at 2 MHz,
 // and the keyboard driver's interrupt (firmware/lib/keyboard/keyboard_driver.inc), which can arrive in the
-// middle of a transfer. Include inside a testbench module that declares `reg e, rs, rw, soeb, via_drive`,
-// `reg [7:0] via_out, kbd_byte`, `wire [7:0] portb` (Michael's port B), `localparam real CPU_NS` and
-// `realtime t_e_rise, t_e_fall`.
+// middle of a transfer. Include after michael_board.vh (the pins, port B and t_e_rise/t_e_fall), in a
+// testbench module that declares `localparam real CPU_NS`.
   task cycles(input integer n); #(n * CPU_NS); endtask
 
   task set_e(input v);

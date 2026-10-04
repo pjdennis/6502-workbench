@@ -26,7 +26,7 @@ module michael_bus #(
   input            rs,
   input            rw,
   input            soeb,
-  input            hold_off,    // keeps the data buffer off while idle (for experiments; no writes get through)
+  input            hold_off,    // keeps the data buffer off while idle, for noise experiments (E still works)
   output           d_oeb,       // the data buffer's /OE and DIR (1: A to B, the FPGA to Michael)
   output reg       d_dir = 1'b0,
   output reg       wr = 1'b0,   // one clock: a byte written
@@ -41,7 +41,8 @@ module michael_bus #(
   output           glitch,         // one clock: E changed for less than E_FILTER samples (ignored)
   output           e_filtered      // E as the bus sees it
 );
-  // Synchronised inputs: {d, e, rs, rw}, and SOEB (on its own, so that it goes cleanly when paused is unused)
+  // Synchronised inputs: {d, e, rs, rw}, and SOEB on its own: sharing a register with them, the SOEB bits were
+  // partly unused in designs that leave paused unconnected, and yosys left a dangling $buf that failed the build
   reg [10:0] sync1 = 11'h000, sync2 = 11'h000;
   reg  [1:0] soeb_sync = 2'b11;   // high: the keyboard board off
   always @(posedge clk) begin
@@ -55,7 +56,8 @@ module michael_bus #(
 
   // E, filtered (e_f), with D, RS and RW as E first went high
   wire       e_f, e_starting;
-  level_filter #(.SAMPLES(E_FILTER)) e_filter (.clk(clk), .in(e_s), .level(e_f), .glitch(glitch), .starting(e_starting));
+  level_filter #(.SAMPLES(E_FILTER)) e_filter (
+    .clk(clk), .in(e_s), .level(e_f), .glitch(glitch), .starting(e_starting));
   assign e_filtered = e_f;
   reg  [7:0] d_at_e = 8'h00;
   reg        rs_at_e = 1'b0, rw_at_e = 1'b0;

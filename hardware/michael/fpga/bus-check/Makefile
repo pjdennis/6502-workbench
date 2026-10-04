@@ -1,6 +1,6 @@
 # Bring-up check for the Michael FPGA bus's reads (see README.md): the bus with its control commands, and
 # SERIAL_SEND, through which Michael's test program reports to the PC.
-#   make test    simulations          make prog    load into the FPGA (the spi-display design stays in flash)
+#   make test    simulations          make prog    load into the FPGA (the design in flash returns at power-up)
 #   make check   quiet Michael, load the design, then upload the Michael test program and check what it
 #                and the FPGA report
 include ../kit.mk

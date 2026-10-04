@@ -5,7 +5,8 @@
   wire [7:0] rx_data;
   reg  host_valid = 1'b0;
   reg  [7:0] host_data = 8'h00;
-  uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (.clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
+  uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (
+    .clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
   uart_rx #(.CLKS_PER_BIT(CPB)) host_uart_rx (.clk(clk), .rx(fpga_tx), .valid(rx_valid), .data(rx_data));
 
   reg [8*96-1:0] line = 0;   // the latest complete line received, without CR LF

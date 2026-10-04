@@ -39,7 +39,9 @@ module tb_top;
     end
   endtask
   reg [7:0] got;
-  task expect_status(input [7:0] exp, input [8*40-1:0] what); begin fb_status(got); `CHECK_EQ(got, exp, what) end endtask
+  task expect_status(input [7:0] exp, input [8*40-1:0] what);
+    begin fb_status(got); `CHECK_EQ(got, exp, what) end
+  endtask
 
   integer i;
   initial begin

@@ -81,7 +81,9 @@ module top #(
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
     .lcd_led(lcd_led));
 
-  // SERIAL_SEND's bytes and the debug port's answers, queued for the UART
+  // SERIAL_SEND's bytes and the debug port's answers, queued for the UART. The debug port waits while the
+  // queue is full; SERIAL_SEND's bytes beyond it are dropped, unreported (OVERFLOW covers only the reply and
+  // display queues)
   wire [7:0] tx_data;
   wire       tx_ready, serial_empty;
   fifo #(.WIDTH(8), .DEPTH(SERIAL_DEPTH)) serial_out (
