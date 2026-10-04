@@ -7,7 +7,7 @@
 // have two drivers, and the buffer's direction may change only while it is off.
 module tb_bus_check;
   localparam real CPU_NS = 500.0;  // one 65C02 cycle at 2 MHz
-  localparam CPB = 4;              // 3 Mbaud keeps the simulation short
+  localparam CPB = 104;            // 115200 baud, as on the board
 
   reg clk;
   `TB_CLOCK(clk, 41.667, 200_000_000)  // 12 MHz
@@ -160,7 +160,10 @@ module tb_bus_check;
 
     // SERIAL_SEND reaches the PC; '?' adds the counts
     command(8'h50); data("O"); data("K"); data(8'h0D); data(8'h0A);
+    expect_status(8'h80, "BUSY while the serial output is still going");
     expect_line({"OK"}, "SERIAL_SEND line");
+    #20000;
+    expect_status(8'h00, "BUSY clear once it has gone");
     `CHECK_EQ(led[1], 1'b1, "LD2 lit once a read was paused")
     send_host("?");
     expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses)}, "counts line");

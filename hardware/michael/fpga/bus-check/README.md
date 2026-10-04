@@ -13,7 +13,8 @@ make test     # simulation, and check.py's tests
 make check    # load the design, upload the Michael program, and judge what it reports
 ```
 
-`make check` asks you to hold a key down on Michael's keyboard part-way through, for about 5 seconds.
+`make check` asks you to hold a key down on Michael's keyboard part-way through, until the program says
+`DONE`: about 5 seconds, for 128 keys.
 
 ## The pieces
 
@@ -37,10 +38,10 @@ make check    # load the design, upload the Michael program, and judge what it r
   | Line | Meaning |
   |---|---|
   | `ID OK` | `ID` replied `M`, `B`, version 1, and the status was clear |
-  | `ECHO BAD nnnn` | 32 passes of 256 bytes echoed and read back: nnnn mismatches or status errors, in hex |
+  | `ECHO BAD nnnn` | 32 passes of 256 bytes echoed and read back: nnnn mismatches or status errors, in hex (BUSY, set while the program's report is still going out, isn't an error) |
   | `UNDERFLOW OK` | an empty reply queue read `$00` and set `UNDERFLOW`, which one status read cleared |
   | `HOLD A KEY` | the keyboard is on now: hold a key down until `DONE` |
-  | `KEYBOARD BAD nnnn` | 256 more passes, with the keyboard's interrupts landing at random points |
+  | `KEYBOARD BAD nnnn` | more passes, with the keyboard's interrupts landing at random points, until 128 keys have arrived (or about 15 s) |
   | `KEYS nnnn` | characters the keyboard driver received meanwhile |
 - [`check.py`](check.py): runs the program and judges its report and the FPGA's counts. It fails if no key
   arrived or if no read was paused, since then the interlock wasn't exercised.

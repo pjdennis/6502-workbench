@@ -26,6 +26,7 @@ FB_EXTRA           = %00000100 ; data after a command's arguments, for one that 
 FB_UNDERFLOW       = %00001000 ; a read with the reply queue empty
 FB_OVERFLOW        = %00010000 ; a queue overflowed
 FB_BUSY            = %10000000 ; (not sticky) the FPGA is still working through what it was sent
+FB_ERRORS          = %00011111 ; the error bits: and the status with this to ignore BUSY, which isn't one
 
 
 ; Makes E an output, low, and RS and RW outputs. Call before the first transfer.

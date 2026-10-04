@@ -6,8 +6,10 @@
 ;   ECHO BAD nnnn         32 passes of 256 bytes echoed and read back; nnnn mismatches (hex)
 ;   UNDERFLOW OK          an empty queue reads $00 and sets UNDERFLOW, which one status read clears
 ;   HOLD A KEY            the keyboard is now on: hold a key down until DONE
-;   KEYBOARD BAD nnnn     256 more passes, with the keyboard interrupting at random points
+;   KEYBOARD BAD nnnn     more passes, with the keyboard interrupting at random points, until 128 keys
+;                         have arrived (or about 15 s)
 ;   KEYS nnnn             characters the keyboard driver received meanwhile
+; Status checks ignore BUSY: it's set while SERIAL_SEND's output is still going to the PC.
 ;   DONE
   .include base_config_v2.inc
 
@@ -25,13 +27,16 @@ SEED                     = $0E ; 1 byte
 PASSES                   = $0F ; 1 byte
 GOT                      = $10 ; 1 byte
 LINE                     = $11 ; 1 byte: the LCD line being written (DISPLAY_HEIGHT: the screen is full)
+ROUNDS                   = $14 ; 1 byte
 SAY_PTR                  = $12 ; 2 bytes
 KB_ZERO_PAGE_BASE        = $20 ; 10 bytes
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
 
 ECHO_PASSES              = 32
-KEYBOARD_PASSES          = 0     ; 256
+KEYBOARD_KEYS            = 128   ; keys to wait for with the keyboard on, a round of passes at a time
+KEYBOARD_ROUND_PASSES    = 16    ; about 0.25 s
+KEYBOARD_ROUNDS          = 64    ; at most: about 15 s
 
   .org PROGRAM_LOAD_ADDRESS
 start:
@@ -81,6 +86,7 @@ program_start:
   bne .id_bad
   jsr fb_read                    ; Capabilities: none in the check design
   jsr fb_status
+  and #FB_ERRORS
   bne .id_bad
   lda #<id_ok
   ldx #>id_ok
@@ -92,6 +98,8 @@ program_start:
   jsr say_line
 
   ; Echoed bytes read back
+  stz ERRORS
+  stz ERRORS + 1
   lda #ECHO_PASSES
   jsr echo_passes
   lda #<echo_bad
@@ -102,9 +110,11 @@ program_start:
   jsr fb_read
   bne .underflow_bad
   jsr fb_status
+  and #FB_ERRORS
   cmp #FB_UNDERFLOW
   bne .underflow_bad
   jsr fb_status
+  and #FB_ERRORS
   bne .underflow_bad
   lda #<underflow_ok
   ldx #>underflow_ok
@@ -124,8 +134,21 @@ program_start:
   jsr delay_hundredths           ; Time to hold a key down
   stz KEYS
   stz KEYS + 1
-  lda #KEYBOARD_PASSES
+  stz ERRORS
+  stz ERRORS + 1
+  lda #KEYBOARD_ROUNDS
+  sta ROUNDS
+.round:
+  lda #KEYBOARD_ROUND_PASSES
   jsr echo_passes
+  lda KEYS + 1
+  bne .enough_keys
+  lda KEYS
+  cmp #KEYBOARD_KEYS
+  bcs .enough_keys
+  dec ROUNDS
+  bne .round
+.enough_keys:
   sei
   lda #%00000001                 ; CA2 interrupt off
   sta IER
@@ -160,13 +183,12 @@ keys:          .asciiz "KEYS "
 done:          .asciiz "DONE"
 
 
-; Passes of ECHO with 256 bytes, read back and compared, with a clear status after each. Mismatches and
-; status errors are counted in ERRORS. Characters from the keyboard, if it's on, are counted in KEYS.
+; Passes of ECHO with 256 bytes, read back and compared, with no errors in the status after each.
+; Mismatches and status errors are added to ERRORS. Characters from the keyboard, if it's on, are added
+; to KEYS.
 ; On entry A = passes (0 for 256)
 echo_passes:
   sta PASSES
-  stz ERRORS
-  stz ERRORS + 1
 .pass:
   lda #FB_ECHO
   jsr fb_command
@@ -191,6 +213,7 @@ echo_passes:
   inx
   bne .receive
   jsr fb_status
+  and #FB_ERRORS
   beq .status_clear
   jsr count_error
 .status_clear:
