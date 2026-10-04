@@ -11,6 +11,7 @@ and exercise the SOEB interlock. The FPGA's counts then say how many reads were 
 """
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -23,6 +24,27 @@ STEPS = [(START, "exact"), ("ID", "ok"), ("ECHO BAD", "count"), ("UNDERFLOW", "o
          ("KEYBOARD BAD", "count"), ("KEYS", "keys"), (DONE, "exact")]
 
 
+def program_constant(name):
+    with open(PROGRAM) as f:
+        return int(re.search(rf"^{name}\s*=\s*(\d+)", f.read(), re.M)[1])
+
+
+def expected_counts(report, rounds):
+    """The transfers a complete, successful run makes, as the FPGA counts them (writes, reads; modulo 65536):
+    ID and RESET, ECHO passes of 256 bytes each with a status read, the underflow's three reads, and the
+    report, each line one SERIAL_SEND per say_string call (two for KEYS) plus one for its CR LF."""
+    passes = program_constant("ECHO_PASSES") + rounds * program_constant("KEYBOARD_ROUND_PASSES")
+    reads = 4 + 1 + passes * 257 + 3
+    writes = 2 + passes * 257 + sum(len(line) + 2 + (3 if line.startswith("KEYS") else 2) for line in report)
+    return writes % 65536, reads % 65536
+
+
+def difference(got, expected, what):
+    d = (got - expected + 32768) % 65536 - 32768
+    return f"{abs(d)} {'more' if d > 0 else 'fewer'} {what} than the program made: the FPGA counted {got}, " \
+           f"expected {expected} (modulo 65536)" if d else None
+
+
 def assess(lines, counts):
     """Judges the program's report (the lines from the FPGA) and the FPGA's counts line ("C wwww rrrr pppp",
     or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
@@ -30,7 +52,7 @@ def assess(lines, counts):
     if not starts:
         return ["The program never started: no 'FPGA BUS CHECK' arrived from the FPGA"], None
     report = lines[starts[-1]:]
-    problems, keys = [], None
+    problems, keys, rounds = [], None, None
     for i, (name, kind) in enumerate(STEPS):
         if i >= len(report):
             problems.append(f"The program stopped after '{report[-1]}': '{name}' never came")
@@ -47,9 +69,9 @@ def assess(lines, counts):
             if not line.startswith(name + " "):
                 problems.append(f"Expected '{name} nnnn', got '{line}'")
                 continue
-            n = int(line.split()[-1], 16)
+            n = int(line.split()[1 if kind == "keys" else -1], 16)
             if kind == "keys":
-                keys = n
+                keys, rounds = n, int(line.split()[3], 16)
                 if n == 0:
                     problems.append("no keys arrived during the keyboard part: hold a key down from "
                                     f"'{HOLD}' until '{DONE}'")
@@ -59,10 +81,16 @@ def assess(lines, counts):
     if counts is None:
         problems.append("No counts from the FPGA (its reply to '?')")
         return problems, None
-    pauses = int(counts.split()[3], 16)
-    if keys and not pauses:
+    writes, reads, pauses, soeb_falls = (int(field, 16) for field in counts.split()[1:])
+    if keys and not soeb_falls:
+        problems.append(f"the FPGA never saw SOEB fall, though the keyboard driver read {keys} keys: check PA4 "
+                        "(VIA pin 6) to the control buffer's B6 (pin 13), and its A6 (pin 7) to Cmod pin 18")
+    elif keys and not pauses:
         problems.append("no read was paused by a keyboard interrupt, so the interlock wasn't exercised: "
                         "run again, holding the key down until DONE")
+    if rounds is not None and not problems:   # a complete, clean run: every transfer is accounted for
+        exp_writes, exp_reads = expected_counts(report[:len(STEPS)], rounds)
+        problems += [p for p in (difference(writes, exp_writes, "writes"), difference(reads, exp_reads, "reads")) if p]
     return problems, pauses
 
 
@@ -99,9 +127,9 @@ def main():
     program = [line for line in got if not line.startswith("C ")]
     problems, pauses = assess(program, counts)
     if counts:
-        _, writes, reads, _ = counts.split()
+        _, writes, reads, _, soeb_falls = counts.split()
         print(f"The FPGA counted {int(writes, 16)} writes and {int(reads, 16)} reads (both modulo 65536), "
-              f"and {pauses} reads paused by the SOEB interlock.")
+              f"{int(soeb_falls, 16)} falls of SOEB, and {pauses} reads paused by the SOEB interlock.")
     if problems:
         print(f"FAIL: {len(problems)} problem(s):")
         print("\n".join("  " + p for p in problems))

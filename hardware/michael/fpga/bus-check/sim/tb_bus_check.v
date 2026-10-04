@@ -88,7 +88,8 @@ module tb_bus_check;
   endtask
 
   // ---- Michael's side, with counts to compare with the FPGA's ------------------------------------------
-  integer writes = 0, reads = 0, pauses = 0;
+  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0;
+  always @(negedge soeb) soeb_falls = soeb_falls + 1;
   task command(input [7:0] b); begin fb_command(b); writes = writes + 1; end endtask
   task data(input [7:0] b);    begin fb_data(b);    writes = writes + 1; end endtask
   reg [7:0] got;
@@ -166,7 +167,7 @@ module tb_bus_check;
     expect_status(8'h00, "BUSY clear once it has gone");
     `CHECK_EQ(led[1], 1'b1, "LD2 lit once a read was paused")
     send_host("?");
-    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses)}, "counts line");
+    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls)}, "counts line");
     `TB_PASS
   end
 

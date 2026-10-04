@@ -8,7 +8,7 @@
 ;   HOLD A KEY            the keyboard is now on: hold a key down until DONE
 ;   KEYBOARD BAD nnnn     more passes, with the keyboard interrupting at random points, until 128 keys
 ;                         have arrived (or about 15 s)
-;   KEYS nnnn             characters the keyboard driver received meanwhile
+;   KEYS nnnn ROUNDS nn   characters the keyboard driver received meanwhile, and the rounds of passes
 ; Status checks ignore BUSY: it's set while SERIAL_SEND's output is still going to the PC.
 ;   DONE
   .include base_config_v2.inc
@@ -27,7 +27,8 @@ SEED                     = $0E ; 1 byte
 PASSES                   = $0F ; 1 byte
 GOT                      = $10 ; 1 byte
 LINE                     = $11 ; 1 byte: the LCD line being written (DISPLAY_HEIGHT: the screen is full)
-ROUNDS                   = $14 ; 1 byte
+ROUNDS                   = $14 ; 1 byte: rounds left
+ROUNDS_RUN               = $15 ; 1 byte
 SAY_PTR                  = $12 ; 2 bytes
 KB_ZERO_PAGE_BASE        = $20 ; 10 bytes
 
@@ -138,7 +139,9 @@ program_start:
   stz ERRORS + 1
   lda #KEYBOARD_ROUNDS
   sta ROUNDS
+  stz ROUNDS_RUN
 .round:
+  inc ROUNDS_RUN
   lda #KEYBOARD_ROUND_PASSES
   jsr echo_passes
   lda KEYS + 1
@@ -162,6 +165,11 @@ program_start:
   jsr say_hex
   lda KEYS
   jsr say_hex
+  lda #<rounds
+  ldx #>rounds
+  jsr say_string
+  lda ROUNDS_RUN
+  jsr say_hex
   jsr say_newline
 
   lda #<done
@@ -180,6 +188,7 @@ underflow_bad: .asciiz "UNDERFLOW BAD"
 hold_a_key:    .asciiz "HOLD A KEY"
 keyboard_bad:  .asciiz "KEYBOARD BAD "
 keys:          .asciiz "KEYS "
+rounds:        .asciiz " ROUNDS "
 done:          .asciiz "DONE"
 
 

@@ -6,8 +6,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 import check  # noqa: E402
 
 GOOD = ["FPGA BUS CHECK", "ID OK", "ECHO BAD 0000", "UNDERFLOW OK", "HOLD A KEY", "KEYBOARD BAD 0000",
-        "KEYS 002A", "DONE"]
-COUNTS = "C 1234 5678 0009"
+        "KEYS 002A ROUNDS 07", "DONE"]
+# What the FPGA should count for GOOD. Reads: ID 4 + status, 32 echo passes of 256 + status, the underflow's
+# read and two status reads, and 7 rounds of 16 passes: 5 + 8224 + 3 + 28784 = 37016 ($9098). Writes: RESET
+# and ID, ECHO and 256 bytes per pass (8224 + 28784), and each report line's characters, CR LF, and its
+# SERIAL_SEND commands (two per line, three for KEYS): 18+9+17+16+14+21+24+8 = 127. 37137 is $9111.
+COUNTS = "C 9111 9098 0009 0040"
 
 
 class AssessTest(unittest.TestCase):
@@ -46,12 +50,25 @@ class AssessTest(unittest.TestCase):
         self.assertIn("never started", problems[0])
 
     def test_the_interlock_must_be_exercised(self):
-        problems, _ = check.assess(GOOD[:6] + ["KEYS 0000"] + GOOD[7:], COUNTS)
-        self.assertEqual(len(problems), 1)
+        problems, _ = check.assess(GOOD[:6] + ["KEYS 0000 ROUNDS 40"] + GOOD[7:], None)
         self.assertIn("no keys", problems[0])
-        problems, _ = check.assess(GOOD, "C 1234 5678 0000")
+        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0040")
         self.assertEqual(len(problems), 1)
         self.assertIn("no read was paused", problems[0])
+
+    def test_soeb_never_seen_names_the_wiring(self):
+        problems, _ = check.assess(GOOD, "C 9111 9098 0000 0000")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("never saw SOEB", problems[0])
+        self.assertIn("Cmod pin 18", problems[0])
+
+    def test_transfers_the_program_didnt_make_are_reported(self):
+        problems, _ = check.assess(GOOD, "C 9111 909C 0009 0040")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("4 more reads", problems[0])
+        problems, _ = check.assess(GOOD, "C 910F 9098 0009 0040")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("2 fewer writes", problems[0])
 
     def test_missing_counts(self):
         problems, pauses = check.assess(GOOD, None)

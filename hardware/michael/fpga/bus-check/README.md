@@ -25,8 +25,8 @@ make check    # load the design, upload the Michael program, and judge what it r
   reply queue, the status byte, and `SERIAL_SEND` (`$50`, provisional), whose bytes go to the PC through the
   Cmod's USB serial port. Both modules carry on into stage 2's design.
 - [`rtl/bus_check.v`](rtl/bus_check.v): the two, with the serial port. `?` from the PC adds a line of
-  counts: `C wwww rrrr pppp`, the transfers written, the bytes read, and the reads that the interlock paused,
-  in hex. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
+  counts: `C wwww rrrr pppp ssss`, the transfers written, the bytes read, the reads that the interlock
+  paused, and SOEB's falls at any time (one for each keyboard byte Michael reads), in hex. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 - [`sim/tb_bus_check.v`](sim/tb_bus_check.v): Michael ([`../sim/michael_fpga_bus.vh`](../sim/michael_fpga_bus.vh),
   with `fpga_bus.inc`'s timings and the keyboard driver's interrupt), the VIA, the keyboard board and the
   data buffer around the design. It checks every command, the status bits, reads across a keyboard
@@ -42,6 +42,8 @@ make check    # load the design, upload the Michael program, and judge what it r
   | `UNDERFLOW OK` | an empty reply queue read `$00` and set `UNDERFLOW`, which one status read cleared |
   | `HOLD A KEY` | the keyboard is on now: hold a key down until `DONE` |
   | `KEYBOARD BAD nnnn` | more passes, with the keyboard's interrupts landing at random points, until 128 keys have arrived (or about 15 s) |
-  | `KEYS nnnn` | characters the keyboard driver received meanwhile |
+  | `KEYS nnnn ROUNDS nn` | characters the keyboard driver received meanwhile, and the rounds of 16 passes run |
 - [`check.py`](check.py): runs the program and judges its report and the FPGA's counts. It fails if no key
-  arrived or if no read was paused, since then the interlock wasn't exercised.
+  arrived or if no read was paused, since then the interlock wasn't exercised, and says so if the FPGA never
+  saw SOEB fall at all. After a clean run, the FPGA's counts must match the transfers the program made
+  exactly.
