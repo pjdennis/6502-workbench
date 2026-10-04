@@ -38,6 +38,10 @@ GDC_CURSOR_HEIGHT = 2
 ; With GD_PIN_INTERFACE defined, it drives the older interface instead (the spi-display FPGA design, before
 ; the bus), which has pins of its own for the display: E, CSB (select), RSTB (reset) and DC (data/command,
 ; on PA5). Only michael_fpga_input_check.s, which checks that interface's wiring, defines it.
+;
+; GD_E on GD_PORT is the strobe for whichever interface it is (the bus's E, or the pin interface's), for the
+; code that serves both: gd_send_data, the fill loops and the macros. Code for one interface uses its own
+; names: PORTA, RS and RW for the bus, as fpga_bus.inc does.
 GD_PORT = PORTA
   .ifdef GD_PIN_INTERFACE
 GD_E    = %00000001
@@ -256,9 +260,9 @@ gd_configure = fb_initialize
 gd_select:
   pha
   lda #RS
-  tsb GD_PORT
+  tsb PORTA
   lda #RW
-  trb GD_PORT
+  trb PORTA
   pla
   rts
 
@@ -268,7 +272,7 @@ gd_select:
 gd_unselect:
   pha
   lda #RS
-  trb GD_PORT
+  trb PORTA
   pla
   rts
 
@@ -298,11 +302,11 @@ gd_reset:
 gd_send_command:
   pha
   lda #RS
-  trb GD_PORT                    ; RS low: the bus's command
+  trb PORTA                      ; RS low: the bus's command
   lda #FB_DISP_COMMAND
   jsr gd_send_data
   lda #RS
-  tsb GD_PORT                    ; RS high: its argument, the display's command, then data
+  tsb PORTA                      ; RS high: its argument, the display's command, then data
   pla
   jmp gd_send_data               ; tail call
 
