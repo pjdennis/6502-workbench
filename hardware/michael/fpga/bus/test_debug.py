@@ -53,6 +53,14 @@ class DebugPortTest(unittest.TestCase):
         with self.assertRaises(debug.NoAnswer):
             p.status()
 
+    def test_a_serial_timeout_is_no_answer(self):
+        p = self.port()
+        def timeout(deadline):
+            raise TimeoutError("no response from board")
+        self.ser.readline = timeout
+        with self.assertRaises(debug.NoAnswer):
+            p.read()
+
     def test_display_command_is_disp_command_then_its_bytes(self):
         p = self.port()
         p.disp_command(0x2A, 0x00, 0x00, 0x01, 0x3F)

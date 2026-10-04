@@ -44,7 +44,10 @@ class DebugPort:
         """The next line starting with letter; other lines (Michael's SERIAL_SEND text) are skipped."""
         deadline = time.monotonic() + TIMEOUT
         while time.monotonic() < deadline:
-            line = self.ser.readline(deadline).decode(errors="replace").strip()
+            try:
+                line = self.ser.readline(deadline).decode(errors="replace").strip()
+            except TimeoutError:   # the kit's serial port, at the deadline
+                break
             if line.startswith(letter):
                 return line[1:]
             if not line:
