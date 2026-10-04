@@ -6,7 +6,7 @@
 include ../kit.mk
 
 TOP    := bus_check
-RTL    := rtl/bus_check.v ../rtl/michael_bus.v ../rtl/bus_control.v \
+RTL    := rtl/bus_check.v ../rtl/michael_bus.v ../rtl/level_filter.v ../rtl/bus_control.v \
           $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v)
 XDC    := build/bus_check.xdc
 TB_DIR := sim

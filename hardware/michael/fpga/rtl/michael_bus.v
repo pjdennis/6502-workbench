@@ -38,7 +38,7 @@ module michael_bus #(
   input      [7:0] reply_byte,
   input      [7:0] status_byte,
   output reg       paused = 1'b0,  // one clock: SOEB fell while a read was driving port B
-  output reg       glitch = 1'b0,  // one clock: E changed for less than E_FILTER samples (ignored)
+  output           glitch,         // one clock: E changed for less than E_FILTER samples (ignored)
   output           e_filtered      // E as the bus sees it
 );
   // Synchronised inputs: {d, e, rs, rw, soeb}
@@ -52,22 +52,13 @@ module michael_bus #(
   reg  e_prev = 1'b0, soeb_prev = 1'b1;
 
   // E, filtered (e_f), with D, RS and RW as E first went high
-  reg        e_f = 1'b0;
+  wire       e_f, e_starting;
+  level_filter #(.SAMPLES(E_FILTER)) e_filter (.clk(clk), .in(e_s), .level(e_f), .glitch(glitch), .starting(e_starting));
   assign e_filtered = e_f;
-  reg  [$clog2(E_FILTER)-1:0] run = 0;   // samples in a row that differ from e_f
   reg  [7:0] d_at_e = 8'h00;
   reg        rs_at_e = 1'b0, rw_at_e = 1'b0;
-  always @(posedge clk) begin
-    glitch <= 1'b0;
-    if (e_s != e_f) begin
-      if (run == 0 && e_s) {d_at_e, rs_at_e, rw_at_e} <= {d_s, rs_s, rw_s};
-      if (run == E_FILTER - 1) begin e_f <= e_s; run <= 0; end
-      else run <= run + 1'b1;
-    end else begin
-      if (run != 0) glitch <= 1'b1;
-      run <= 0;
-    end
-  end
+  always @(posedge clk)
+    if (e_starting && e_s) {d_at_e, rs_at_e, rw_at_e} <= {d_s, rs_s, rw_s};
 
   localparam IDLE = 3'd0, OFF_OUT = 3'd1, TURN_OUT = 3'd2, OUT = 3'd3, OFF_IN = 3'd4, TURN_IN = 3'd5;
   reg [2:0] state = IDLE;
