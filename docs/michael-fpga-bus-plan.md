@@ -186,6 +186,10 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
     command of its own (`$02` is free);
   - **how it's set:** by hand when a design changes, or at build time from git (a commit count or short
     hash), which can't be forgotten.
+
+  While changing `ID`'s reply in [`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v), comment
+  that `'M'`, `'B'` stands for "Michael Bus". It was left out of the review's clean-ups, because any edit
+  there moves the placement away from the build in flash.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
