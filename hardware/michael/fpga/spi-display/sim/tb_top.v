@@ -107,6 +107,11 @@ module tb_top;
     gd_send_data(8'h81);
     expect_all_received;
 
+    // A spike on E (switching noise when port B changes, a few ns to tens of ns) is not a strobe: nothing
+    // may be sent
+    cycles(10); portb = 8'hA5; #100; e = 1'b1; #90; e = 1'b0; cycles(10);
+    expect_all_received;
+
     // The keyboard interrupt can change PA5 (DC) while a byte is still being shifted out
     cycles(10); portb = 8'h99; cycles(4); expect_byte(8'h99, dc); e = 1'b1; #300; dc = ~dc;
     cycles(4); e = 1'b0; cycles(10); dc = 1'b1;

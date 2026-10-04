@@ -4,7 +4,7 @@
 include ../kit.mk
 
 TOP    := top
-RTL    := rtl/top.v rtl/spi_bridge.v
+RTL    := rtl/top.v rtl/spi_bridge.v ../rtl/level_filter.v
 XDC    := constr/cmod_a7.xdc
 TB_DIR := sim
 
