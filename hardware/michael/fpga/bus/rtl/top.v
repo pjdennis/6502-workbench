@@ -5,8 +5,9 @@
 // 8N1) carries SERIAL_SEND's bytes to the PC and the debug port (debug_port.v), through which the PC makes
 // the same transactions as Michael. BUSY is set while the display queue or the serial output has work.
 //
-// The spi-display interface's other inputs (CSB, RSTB and the backlight tie) are unused: the display's chip
-// select, reset and backlight are commands now. LD1 flashes on bus traffic, LD2 while the display is busy.
+// The inputs that were the spi-display interface's CSB, RSTB and backlight (now PA1, PA2 and the backlight
+// tie) are unused: the display's chip select, reset and backlight are commands now. LD1 flashes on bus
+// traffic, LD2 while the display is busy.
 module top #(
   parameter CLKS_PER_BIT    = 104,      // 115200 baud
   parameter SERIAL_DEPTH    = 2048,
@@ -19,9 +20,9 @@ module top #(
   input        rs,
   input        rw,
   input        soeb,
-  input        csb,          // unused
-  input        rstb,         // unused
-  input        bl,           // unused
+  input        pa1,          // unused
+  input        pa2,          // unused (Michael's LED)
+  input        backlight_tie,// unused
   output       d_oeb,
   output       d_dir,
   input        uart_txd_in,

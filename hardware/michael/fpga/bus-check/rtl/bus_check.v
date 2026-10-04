@@ -29,9 +29,9 @@ module bus_check #(
   input        rs,
   input        rw,
   input        soeb,
-  input        csb,          // the spi-display interface's pins, unused here
-  input        rstb,
-  input        bl,
+  input        pa1,          // unused: the spi-display interface's CSB, RSTB and backlight inputs
+  input        pa2,
+  input        backlight_tie,
   output       d_oeb,
   output       d_dir,
   input        uart_txd_in,

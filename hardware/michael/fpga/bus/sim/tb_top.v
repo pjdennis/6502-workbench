@@ -18,7 +18,7 @@ module tb_top;
   wire [1:0] led;
 
   top #(.CLKS_PER_BIT(CPB), .ACTIVITY_CYCLES(100)) dut (
-    .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .csb(1'b1), .rstb(1'b1), .bl(1'b1),
+    .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pa1(1'b1), .pa2(1'b1), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
     .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led));

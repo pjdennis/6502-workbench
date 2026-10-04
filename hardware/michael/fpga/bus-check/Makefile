@@ -17,10 +17,7 @@ include $(FPGA_KIT)/mk/openxc7.mk
 
 $(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh
 
-# The spi-display pins (its DC is the bus's RS), the Cmod's USB serial port and the bus's own pins
-$(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc ../constr/bus.xdc
-	@mkdir -p $(dir $@)
-	sed 's/{dc}/{rs}/' $^ > $@
+include ../bus.mk
 
 .DEFAULT_GOAL := all
 .PHONY: all check noise test-py
