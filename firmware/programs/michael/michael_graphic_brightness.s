@@ -22,7 +22,8 @@ LEVEL                    = $0c ; 1 byte: the brightness
 DIGITS                   = $0d ; 3 bytes: a number in decimal, as characters
 BAR                      = $10 ; 1 byte: the bar's length
 CHANGED                  = $11 ; 1 byte: non-zero when LEVEL hasn't been shown yet
-GD_ZERO_PAGE_BASE        = $12 ; 18 bytes
+TO_DECIMAL_PARAM         = $12 ; 10 bytes
+GD_ZERO_PAGE_BASE        = TO_DECIMAL_PARAM_STOP ; 18 bytes
 KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
@@ -39,6 +40,7 @@ start:
   .include display_string.inc
   .include simple_buffer.inc
   .include copy_memory.inc
+  .include to_decimal.inc
   .include key_codes.inc
   .include keyboard_typematic.inc
 KB_BUFFER_INITIALIZE = simple_buffer_initialize
@@ -252,37 +254,29 @@ show_number_at:
   rts
 
 
-; DIGITS = A in decimal: three characters, with leading spaces.
+; DIGITS = A in decimal: three characters, right aligned.
 ; On exit X, Y are preserved
 to_digits:
   phx
-  ldx #'0' - 1
-.hundreds:
-  inx
-  sec
-  sbc #100
-  bcs .hundreds
-  adc #100
-  stx DIGITS
-  ldx #'0' - 1
-.tens:
-  inx
-  sec
-  sbc #10
-  bcs .tens
-  adc #10 + '0'
-  sta DIGITS + 2
-  stx DIGITS + 1
-  lda DIGITS                     ; Leading zeros as spaces
-  cmp #'0'
-  bne .done
+  phy
+  ldx #0
+  jsr to_decimal                 ; TO_DECIMAL_RESULT: 1 to 3 digits
   lda #' '
   sta DIGITS
-  lda DIGITS + 1
-  cmp #'0'
-  bne .done
-  lda #' '
   sta DIGITS + 1
-.done:
+  ldx #$ff
+.length:
+  inx
+  lda TO_DECIMAL_RESULT,X
+  bne .length
+  ldy #2
+.digit:                          ; The last digit to the last place, and so on back
+  dex
+  lda TO_DECIMAL_RESULT,X
+  sta DIGITS,Y
+  dey
+  txa
+  bne .digit
+  ply
   plx
   rts
