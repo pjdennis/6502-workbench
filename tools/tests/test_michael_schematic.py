@@ -66,13 +66,13 @@ class BoardChecks:
         self.assertPinsOn('VU', ('D2', 'K'), ('U9', 24))
 
     def test_the_regulator_has_the_capacitors_its_data_sheet_asks_for(self):
-        """10 µF on U11's input (C8) and output (C9): not fitted yet, so marked to add."""
-        for ref, rail in (('C8', '+5V'), ('C9', '+3V3')):
+        """10 µF on U11's input (C8, not fitted yet, so marked to add) and output (C9, fitted 2026-10-04)."""
+        for ref, rail, fitted in (('C8', '+5V', False), ('C9', '+3V3', True)):
             with self.subTest(ref):
                 self.assertPinsOn(rail, (ref, 1))
                 self.assertPinsOn('GND', (ref, 2))
                 self.assertIn('10 µF', self.board.values[ref])
-                self.assertIn('to add', self.board.values[ref])
+                self.assertEqual('to add' not in self.board.values[ref], fitted)
 
     def test_every_net_joins_two_pins_or_more(self):
         single = {net: pins for net, pins in self.board.nets().items() if len(pins) < 2}
@@ -171,11 +171,12 @@ class BoardChecks:
 
 
 class AsBuiltTest(BoardChecks, unittest.TestCase):
-    """Michael with stage 1's wiring for the FPGA bus (2026-10-03), the display interface still in charge."""
+    """Michael with the FPGA bus in charge (stage 2, 2026-10-04), before stage 4's pin shuffle. The older display
+    interface's select, reset and backlight inputs are still wired, as PA1, PA2 and a tie, but ignored."""
     PLANNED = False
     E, E_BUFFER_PIN, E_CMOD_PIN = 0, 'B1', 9
     UNUSED_CONTROL_INPUTS = ('B8',)
-    CMOD_PINS = {9: 'e', 10: 'csb', 11: 'rstb', 12: 'dc', 13: 'bl', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw',
+    CMOD_PINS = {9: 'e', 10: 'pa1', 11: 'pa2', 12: 'rs', 13: 'backlight_tie', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw',
                  26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led',
                  32: 'lcd_miso'}
 
@@ -192,11 +193,16 @@ class AsBuiltTest(BoardChecks, unittest.TestCase):
         self.assertPinsOn('+5V', ('R8', 1))
 
     def test_fpga_pins_are_the_designs_ports(self):
+        """As the bus designs name them: spi-display's pin file with bus.mk's renames, and the bus's own pins."""
+        fpga = os.path.join(ROOT, 'hardware/michael/fpga')
         ports = set()
         for xdc in ('spi-display/constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc',  # MISO: the probe's
                     'constr/bus.xdc'):                                                     # SOEB, RW: the bus's
-            with open(os.path.join(ROOT, 'hardware/michael/fpga', xdc)) as f:
+            with open(os.path.join(fpga, xdc)) as f:
                 ports |= set(re.findall(r'get_ports \{(\S+)\}', f.read()))
+        with open(os.path.join(fpga, 'bus.mk')) as f:
+            renames = dict(re.findall(r's/\{(\w+)\}/\{(\w+)\}/', f.read()))
+        ports = {renames.get(port, port) for port in ports}
         nets = {self.board.net('U9', pin) for pin in range(1, 49)} - {None, 'GND', '+5V', '+3V3', 'VU'}
         self.assertEqual(nets - ports, set())
 
