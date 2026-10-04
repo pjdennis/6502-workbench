@@ -3,9 +3,14 @@
 // Entries are taken in order:
 //   DATA       the byte, with DC high          RESET      the display's RESET line to value[0]
 //   COMMAND    the byte, with DC low           BACKLIGHT  the brightness, 0 (off) to 255 (fully on), by PWM
-// CS is low while a byte is going out. The backlight starts fully on. Its PWM edges disturb the SPI lines on
-// the board (they made snow on the display), so it changes only while CS is high, and the next byte waits
-// GUARD clocks after a change, for the lines to settle.
+// CS is low while a byte is going out, and rises between bytes. The ILI9341 allows that anywhere between whole
+// bytes, even within a command's parameters or a RAMWR's pixels: it carries on from where it paused (its data
+// sheet's "Data Transfer Pause"). Only a break in the middle of a byte makes it drop that byte, and this
+// never makes one. Reads would need CS held low across the command and the reply, but this design doesn't
+// read. On the board, Michael's streams have always gone this way, a byte per CS pulse.
+// The backlight starts fully on. Its PWM edges disturb the SPI lines on the board (they made snow on the
+// display), so it changes only while CS is high, and the next byte waits GUARD clocks after a change, for
+// the lines to settle.
 module display_spi #(
   parameter QUEUE_DEPTH = 512,
   parameter GUARD       = 12   // 1 us at 12 MHz

@@ -15,7 +15,7 @@ module fifo #(
   output                     empty,
   output reg [$clog2(DEPTH):0] count = 0
 );
-  localparam AW = $clog2(DEPTH);
+  localparam AW = $clog2(DEPTH);   // address width: the bits of a RAM index
   reg  [WIDTH-1:0] mem [0:DEPTH-1];
   reg  [AW-1:0]    wr = 0, rd = 0;
   assign full  = count == DEPTH;
