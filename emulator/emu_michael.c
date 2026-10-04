@@ -1,4 +1,4 @@
-/* emu_run_michael: the Michael (v2) machine -- bus wiring, LCD/keyboard/bus-check reporting (see emu_michael.h). */
+/* emu_run_michael: the Michael (v2) machine -- bus wiring, the plain, --live and --web run loops, LCD/keyboard/bus-check reporting (see emu_michael.h). */
 #include "emu_michael.h"
 
 #include <stdio.h>
@@ -15,6 +15,7 @@
 #include "lcd_report.h"
 #include "pace.h"
 #include "tty_alt_screen.h"
+#include "web_run.h"
 #include "chips/glue_michael.h"
 #include "chips/rom_28c256.h"
 #include "chips/ram_628128.h"
@@ -100,6 +101,20 @@ static int queue_scancodes(struct ps2_keyboard_board_state *kbd, const char *lis
     return ps2_board_queue_key(kbd, codes, n);
 }
 
+/* Type the keys in text (as a terminal sends them, see ps2_keys.h) on
+ * the keyboard, a key at a time. Returns -1 if the keyboard's queue
+ * filled up. */
+static int type_keys(struct ps2_keyboard_board_state *kbd, const uint8_t *text, size_t len) {
+    for (size_t at = 0; at < len; ) {
+        uint8_t codes[PS2_KEY_MAX_CODES];
+        size_t used;
+        int n = ps2_encode_key(text + at, len - at, &used, codes);
+        at += used;
+        if (n && ps2_board_queue_key(kbd, codes, n) < 0) return -1;
+    }
+    return 0;
+}
+
 /* --keys: type each key in the file. */
 static int queue_keys_file(struct ps2_keyboard_board_state *kbd, const char *path) {
     FILE *f = fopen(path, "rb");
@@ -110,15 +125,9 @@ static int queue_keys_file(struct ps2_keyboard_board_state *kbd, const char *pat
     static uint8_t text[PS2_QUEUE_SIZE];
     size_t len = fread(text, 1, sizeof(text), f);
     fclose(f);
-    for (size_t at = 0; at < len; ) {
-        uint8_t codes[PS2_KEY_MAX_CODES];
-        size_t used;
-        int n = ps2_encode_key(text + at, len - at, &used, codes);
-        at += used;
-        if (n && ps2_board_queue_key(kbd, codes, n) < 0) {
-            fprintf(stderr, "michael: too many keys in %s\n", path);
-            return -1;
-        }
+    if (type_keys(kbd, text, len) < 0) {
+        fprintf(stderr, "michael: too many keys in %s\n", path);
+        return -1;
     }
     return 0;
 }
@@ -158,6 +167,14 @@ static void michael_cpu_write(uint16_t addr, uint8_t data) {
     active_bus->addr = addr;
     active_bus->rwb = 0;
     michael_bus_write(active_bus, data);
+}
+
+/* Hold RES for a few ticks: the CPU fetches its reset vector through
+ * the ROM and the VIA clears its registers. */
+static void pulse_reset(struct bus *b) {
+    b->res = 1;
+    for (int i = 0; i < 8; i++) bus_step(b);
+    b->res = 0;
 }
 
 static void set_vector(struct rom_28c256_state *rom, uint16_t vector, uint16_t target) {
@@ -248,17 +265,6 @@ static int live_read(uint8_t *buf, int room) {
     return n > 0 ? (int)n : 0;
 }
 
-/* Type the terminal's bytes on the keyboard, a key at a time */
-static void live_type(struct ps2_keyboard_board_state *kbd, const uint8_t *text, int len) {
-    for (int at = 0; at < len; ) {
-        uint8_t codes[PS2_KEY_MAX_CODES];
-        size_t used;
-        int n = ps2_encode_key(text + at, (size_t)len - at, &used, codes);
-        at += (int)used;
-        if (n) ps2_board_queue_key(kbd, codes, n);
-    }
-}
-
 static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
                      struct ps2_keyboard_board_state *kbd, uint64_t cap,
                      double osc_per_us, uint8_t *lowest_sp) {
@@ -284,12 +290,49 @@ static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
         if (got) last_input_ns = wall_ns;
         typed_len += got;
         if (typed_len && wall_ns - last_input_ns >= LIVE_KEY_GAP_NS) {
-            live_type(kbd, typed, typed_len);
+            type_keys(kbd, typed, (size_t)typed_len);
             typed_len = 0;
         }
     }
     live_render(lcd);
     tty_alt_screen_leave();
+}
+
+#define MICHAEL_LED 0x04    /* PA2: LED in base_config_v2.inc */
+
+/* The LED is wired from +5V to PA2, so it lights while PA2 is an output
+ * driven low (initialize_michael_ports drives it high to turn it off). */
+static int led_on(const struct via_6522_state *via) {
+    return (via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(via) & MICHAEL_LED);
+}
+
+/* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
+
+struct michael_web {
+    struct bus *b;
+    const struct via_6522_state *via;
+    struct ps2_keyboard_board_state *kbd;
+    uint64_t cap;
+    uint8_t *lowest_sp;
+};
+
+static int web_step(void *ctx) {
+    struct michael_web *w = ctx;
+    step(w->b, 5000, w->cap, w->lowest_sp);
+    return w->b->osc_ticks >= w->cap || cpu_stp_pending();
+}
+
+static void web_event(void *ctx, const struct web_event *evt) {
+    struct michael_web *w = ctx;
+    if (evt->type == WEB_EVT_RESET) pulse_reset(w->b);
+    else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
+}
+
+/* The page's LED 0 is PA2's. */
+static void web_snapshot(void *ctx, struct web_snapshot *snap) {
+    struct michael_web *w = ctx;
+    snap->n_leds = 1;
+    snap->leds[0] = led_on(w->via);
 }
 
 int emu_run_michael(const struct emu_opts *opts) {
@@ -385,10 +428,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     cpu_external_read  = michael_cpu_read;
     cpu_external_write = michael_cpu_write;
 
-    /* Pulse RES so the CPU fetches its reset vector through the ROM. */
-    b.res = 1;
-    for (int i = 0; i < 8; i++) bus_step(&b);
-    b.res = 0;
+    pulse_reset(&b);
 
     /* A program run without a ROM finds the LCD as the ROM leaves it
      * (michael_rom.s: reset_and_enable_display_no_cursor), as the
@@ -406,11 +446,20 @@ int emu_run_michael(const struct emu_opts *opts) {
     }
 
     uint64_t cap = opts->cycle_cap;
+    if ((opts->live || opts->web) && !opts->cycle_cap_set) cap = UINT64_MAX;
+    double osc_per_us = opts->target_mhz > 0.0 ? opts->target_mhz : MICHAEL_TICKS_PER_US;
     uint8_t lowest_sp = 0xFF;
-    if (opts->live) {
-        if (!opts->cycle_cap_set) cap = UINT64_MAX;
-        run_live(&b, &lcd_state, &kbd_state, cap,
-                 opts->target_mhz > 0.0 ? opts->target_mhz : MICHAEL_TICKS_PER_US, &lowest_sp);
+    int rc = 0;
+    if (opts->web) {
+        struct michael_web w = { &b, &via_state, &kbd_state, cap, &lowest_sp };
+        struct web_machine m = {
+            .name = "michael", .bus = &b, .lcd = &lcd_state, .via = &via_state,
+            .osc_per_us = osc_per_us, .ctx = &w,
+            .step = web_step, .event = web_event, .snapshot = web_snapshot,
+        };
+        rc = web_run(&m, opts);
+    } else if (opts->live) {
+        run_live(&b, &lcd_state, &kbd_state, cap, osc_per_us, &lowest_sp);
     } else {
         FILE *lcd_trace_fp = NULL;
         if (opts->lcd_trace_filename) {
@@ -434,6 +483,7 @@ int emu_run_michael(const struct emu_opts *opts) {
             (unsigned long long)clockticks6502, pc,
             cpu_stp_pending() ? "(STP)" : "(cycle cap)");
     lcd_report_final(stderr, "michael", &lcd_state);
+    fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
     fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
             (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
     /* The lowest the stack pointer went: an address free below it is
@@ -444,5 +494,5 @@ int emu_run_michael(const struct emu_opts *opts) {
     cpu_external_read  = NULL;
     cpu_external_write = NULL;
     active_bus = NULL;
-    return 0;
+    return rc;
 }

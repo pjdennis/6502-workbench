@@ -80,7 +80,10 @@ class RomTestCase(unittest.TestCase):
 
     def boot(self, wire, typed=None, stops=None, options=()):
         """The LCD's rows after the ROM boots and receives wire (see emulate)."""
-        report = self.emulate(wire, typed, stops, options)
+        return self.lcd_rows(self.emulate(wire, typed, stops, options))
+
+    @staticmethod
+    def lcd_rows(report):
         lcd = report.index('michael: lcd:')
         return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 5]]
 
@@ -116,7 +119,9 @@ class MichaelRomLoaderTest(RomTestCase):
                              '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
 
     def test_waiting_screen(self):
-        self.assertEqual(self.boot(b'')[:2], ['Michael ROM 4', 'Ready'])
+        report = self.emulate(b'')
+        self.assertEqual(self.lcd_rows(report)[:2], ['Michael ROM 4', 'Ready'])
+        self.assertIn('michael: led: off', report)
 
     def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
         wire = self.upload([Block(0x0200, self.check)])
@@ -210,8 +215,11 @@ class MichaelRomLoaderTest(RomTestCase):
         self.assertEqual(self.boot(wire)[:2], ['Loaded.', 'Received $%04X' % len(wire)])
 
     def failure(self, wire):
-        rows = self.boot(wire)
+        """The reason a failed upload shows; the loader lights the LED too."""
+        report = self.emulate(wire)
+        rows = self.lcd_rows(report)
         self.assertEqual(rows[0], 'Upload failed')
+        self.assertIn('michael: led: on', report)
         return rows[1]
 
     def test_unknown_version(self):

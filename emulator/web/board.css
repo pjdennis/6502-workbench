@@ -1,4 +1,4 @@
-/* wendy2c web UI -- aims for a "looks like the real board" vibe. */
+/* Board web UI -- aims for a "looks like the real board" vibe. */
 
 :root {
   --bg:        #0e1216;
@@ -67,6 +67,7 @@ header h1 .accent { color: var(--accent); }
 }
 .indicator { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .indicator-label { font-size: 11px; letter-spacing: 0.15em; color: var(--ink-dim); text-transform: uppercase; }
+.hint { max-width: 200px; font-size: 12px; line-height: 1.4; color: var(--ink-dim); align-self: center; }
 
 .led {
   width: 16px; height: 16px;
@@ -183,4 +184,7 @@ header h1 .accent { color: var(--accent); }
 #status .dot.ok { background: #5dd56b; box-shadow: 0 0 6px #5dd56b; }
 #status .dot.off { background: #4a4a4a; }
 #status #status-text { flex-shrink: 0; }
-#status #status-clock { margin-left: auto; }
+#status #status-audio { margin-left: auto; }
+#status #status-audio + #status-speed { margin-left: 0; }
+#status #status-speed { margin-left: auto; }
+#status #status-speed.slow { color: var(--led-red-on); }
