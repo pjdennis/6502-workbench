@@ -15,7 +15,10 @@ make check    # load the design, upload the Michael program, and judge what it r
 ```
 
 `make check` asks you to hold a key down on Michael's keyboard part-way through, until the program says
-`DONE`: about 5 seconds, for 128 keys.
+`DONE`: about 5 seconds, for 128 keys. Before loading the design, it puts Michael in an idle program
+([`michael_fpga_bus_idle.s`](../../../../firmware/programs/michael/michael_fpga_bus_idle.s), E held low), so
+that a program still running from before can't add to the design's counts: a graphics program's blinking
+cursor once added 395 writes.
 
 ## The pieces
 

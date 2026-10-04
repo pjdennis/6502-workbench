@@ -1,7 +1,8 @@
 # Bring-up check for the Michael FPGA bus's reads (see README.md): the bus with its control commands, and
 # SERIAL_SEND, through which Michael's test program reports to the PC.
 #   make test    simulations          make prog    load into the FPGA (the spi-display design stays in flash)
-#   make check   upload the Michael test program and check what it and the FPGA report
+#   make check   quiet Michael, load the design, then upload the Michael test program and check what it
+#                and the FPGA report
 include ../kit.mk
 
 TOP    := bus_check
@@ -29,5 +30,9 @@ test: test-py
 test-py:
 	python3 -m unittest test_check
 
-check: prog
+# Michael runs an idle program while the design loads, so that nothing from before (a graphics program's
+# cursor, say) reaches the counts
+check: $(LOAD_BIT)
+	python3 ../board.py idle
+	$(MAKE) prog
 	python3 check.py
