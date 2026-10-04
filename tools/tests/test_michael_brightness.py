@@ -52,7 +52,13 @@ class BrightnessTest(unittest.TestCase):
 
     def test_the_lcd_shows_the_level(self):
         """Readable even with the backlight off"""
-        self.assertIn('BACKLIGHT 255', self.report)
+        self.assertIn('|BACKLIGHT 255       |', self.report)
+
+    def test_levels_are_right_aligned(self):
+        for key, shown in ((b'0', '  0'), (b'1', ' 28')):
+            with self.subTest(key=key):
+                _, report = michael_emulator.run(program=PROGRAM, keys=key, cycle_cap=8_000_000)
+                self.assertIn(f'|BACKLIGHT {shown}       |', report)
 
 
 if __name__ == '__main__':
