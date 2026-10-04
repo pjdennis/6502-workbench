@@ -5,14 +5,16 @@
 // test program reports its results that way.
 //
 // '?' from the PC adds a line of counts to the serial output, once it's idle:
-//   "C wwww rrrr pppp ssss gggg"  transfers written, bytes read (replies and status), reads paused by the
-//                                 SOEB interlock, SOEB's falls at any time (each keyboard byte Michael reads),
-//                                 and glitches on E (shorter than the bus's filter, so ignored), in hex
+//   "C wwww rrrr pppp ssss gggg cccc tttt"  in hex: transfers written, bytes read (replies and status), reads
+//       paused by the SOEB interlock, SOEB's falls at any time (each keyboard byte Michael reads), glitches on E
+//       (shorter than the bus's filter, so ignored), the writes that were commands, and writes whose E pulse
+//       was shorter than SHORT_E (Michael's strobes last 3 us or more)
 // The display is held idle. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 module bus_check #(
   parameter CLKS_PER_BIT    = 104,      // 115200 baud
   parameter SERIAL_DEPTH    = 2048,
-  parameter ACTIVITY_CYCLES = 600_000   // 50 ms at 12 MHz
+  parameter ACTIVITY_CYCLES = 600_000,  // 50 ms at 12 MHz
+  parameter SHORT_E         = 18        // 1.5 us at 12 MHz
 ) (
   input        sysclk,
   inout  [7:0] d,
@@ -38,20 +40,21 @@ module bus_check #(
   output       t_din,
   output [1:0] led
 );
-  localparam LINE = 28;
+  localparam LINE = 38;
 
   assign {lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led} = 6'b110000;
   assign {t_cs, t_clk, t_din} = 3'b100;
 
   // The bus
   wire [7:0] d_out, wr_data, reply_byte, status_byte, ser_data;
-  wire       d_drive, wr, wr_rs, rd, rd_end, rd_rs, paused, glitch, ser_valid;
+  wire       d_drive, wr, wr_rs, rd, rd_end, rd_rs, paused, glitch, e_filtered, ser_valid;
   assign d = d_drive ? d_out : 8'bz;
 
   michael_bus bus (
     .clk(sysclk), .d_in(d), .d_out(d_out), .d_drive(d_drive), .e(e), .rs(rs), .rw(rw), .soeb(soeb),
     .d_oeb(d_oeb), .d_dir(d_dir), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end),
-    .rd_rs(rd_rs), .reply_byte(reply_byte), .status_byte(status_byte), .paused(paused), .glitch(glitch));
+    .rd_rs(rd_rs), .reply_byte(reply_byte), .status_byte(status_byte), .paused(paused), .glitch(glitch),
+    .e_filtered(e_filtered));
 
   wire serial_busy;
   bus_control control (
@@ -60,7 +63,9 @@ module bus_check #(
     .ser_valid(ser_valid), .ser_data(ser_data));
 
   // Counts
-  reg [15:0] writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0;
+  reg [15:0] writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0;
+  reg [$clog2(SHORT_E)-1:0] e_high = 0;   // how long E has been high, up to SHORT_E
+  reg        writing = 1'b0, e_was = 1'b0;
   reg        paused_ever = 1'b0;
   reg  [2:0] soeb_sync = 3'b111;
   always @(posedge sysclk) begin
@@ -70,6 +75,15 @@ module bus_check #(
     if (paused) begin pauses <= pauses + 1'b1; paused_ever <= 1'b1; end
     if (soeb_sync[2:1] == 2'b10) soeb_falls <= soeb_falls + 1'b1;
     if (glitch) glitches <= glitches + 1'b1;
+    if (wr && !wr_rs) commands <= commands + 1'b1;
+    e_was <= e_filtered;
+    if (!e_filtered) e_high <= 0;
+    else if (e_high != SHORT_E) e_high <= e_high + 1'b1;
+    if (wr) writing <= 1'b1;
+    if (e_was && !e_filtered) begin
+      if (writing && e_high != SHORT_E) short_writes <= short_writes + 1'b1;
+      writing <= 1'b0;
+    end
   end
 
   reg [$clog2(ACTIVITY_CYCLES)-1:0] activity = 0;
@@ -88,7 +102,7 @@ module bus_check #(
 
   reg              query_waiting = 1'b0;
   reg [8*LINE-1:0] query_line = 0;
-  reg [4:0]        query_left = 0;
+  reg [5:0]        query_left = 0;
   wire             query_push = query_left != 0 && !ser_valid;
 
   // Serial output queue (block RAM), drained into the UART
@@ -107,7 +121,7 @@ module bus_check #(
     if (rx_valid && rx_data == "?") query_waiting <= 1'b1;
     if (query_waiting && query_left == 0 && !serial_busy && !ser_valid) begin
       query_line    <= {"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls), " ",
-                        hex4(glitches), 8'h0D, 8'h0A};
+                        hex4(glitches), " ", hex4(commands), " ", hex4(short_writes), 8'h0D, 8'h0A};
       query_left    <= LINE;
       query_waiting <= 1'b0;
     end else if (query_push) begin

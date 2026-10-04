@@ -34,20 +34,27 @@ class LineReader:
 
     def __init__(self, ser, starts):
         self.ser, self.starts = ser, starts
-        self.lines, self.lock = [], threading.Lock()
+        self.lines, self.raw, self.lock = [], [], threading.Lock()   # raw: each line's bytes as they came
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
         while True:
-            raw = self.ser.readline(deadline=None).decode(errors="replace")
+            data = self.ser.readline(deadline=None)
+            raw = data.decode(errors="replace")
             found = [raw.find(c) for c in self.starts if c in raw]
             line = raw[min(found):].strip() if found else raw.strip()
             with self.lock:
                 self.lines.append(line)
+                self.raw.append(data)
 
     def snapshot(self):
         with self.lock:
             return list(self.lines)
+
+    def save_raw(self, path):
+        """Writes every line's bytes as they came, one per line, with non-printing bytes as escapes."""
+        with self.lock, open(path, "w") as f:
+            f.writelines(repr(data)[2:-1] + "\n" for data in self.raw)
 
     def wait_for(self, predicate, timeout):
         """Waits until predicate(lines) is true; returns whether it became true in time."""

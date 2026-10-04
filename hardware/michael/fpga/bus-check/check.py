@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import board  # noqa: E402
 
 PROGRAM = os.path.join(board.REPO, "firmware", "programs", "michael", "michael_fpga_bus_check.s")
+SERIAL_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build", "check-serial.log")
 START, HOLD, DONE = "FPGA BUS CHECK", "HOLD A KEY", "DONE"
 # The program's report, in order, with how to judge each line
 STEPS = [(START, "exact"), ("ID", "ok"), ("ECHO BAD", "count"), ("UNDERFLOW", "ok"), (HOLD, "exact"),
@@ -30,24 +31,31 @@ def program_constant(name):
 
 
 def expected_counts(report, rounds):
-    """The transfers a complete, successful run makes, as the FPGA counts them (writes, reads; modulo 65536):
-    ID and RESET, ECHO passes of 256 bytes each with a status read, the underflow's three reads, and the
-    report, each line one SERIAL_SEND per say_string call (two for KEYS) plus one for its CR LF."""
+    """The transfers a complete, successful run makes, as the FPGA counts them (writes, reads, commands;
+    modulo 65536): ID and RESET, ECHO passes of 256 bytes each with a status read, the underflow's three
+    reads, and the report, each line one SERIAL_SEND per say_string call (two for KEYS) plus one for its
+    CR LF."""
     passes = program_constant("ECHO_PASSES") + rounds * program_constant("KEYBOARD_ROUND_PASSES")
     reads = 4 + 1 + passes * 257 + 3
-    writes = 2 + passes * 257 + sum(len(line) + 2 + (3 if line.startswith("KEYS") else 2) for line in report)
-    return writes % 65536, reads % 65536
+    serial_sends = sum(3 if line.startswith("KEYS") else 2 for line in report)
+    commands = 2 + passes + serial_sends
+    writes = commands + passes * 256 + sum(len(line) + 2 for line in report)
+    return writes % 65536, reads % 65536, commands % 65536
+
+
+def signed_difference(got, expected):
+    return (got - expected + 32768) % 65536 - 32768
 
 
 def difference(got, expected, what):
-    d = (got - expected + 32768) % 65536 - 32768
+    d = signed_difference(got, expected)
     return f"{abs(d)} {'more' if d > 0 else 'fewer'} {what} than the program made: the FPGA counted {got}, " \
            f"expected {expected} (modulo 65536)" if d else None
 
 
 def assess(lines, counts):
     """Judges the program's report (the lines from the FPGA) and the FPGA's counts line
-    ("C wwww rrrr pppp ssss gggg", or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
+    ("C wwww rrrr pppp ssss gggg cccc tttt", or None). Returns the problems found and the number of reads the SOEB interlock paused (or None)."""
     starts = [i for i, line in enumerate(lines) if line == START]
     if not starts:
         return ["The program never started: no 'FPGA BUS CHECK' arrived from the FPGA"], None
@@ -81,7 +89,7 @@ def assess(lines, counts):
     if counts is None:
         problems.append("No counts from the FPGA (its reply to '?')")
         return problems, None
-    writes, reads, pauses, soeb_falls, _ = (int(field, 16) for field in counts.split()[1:])
+    writes, reads, pauses, soeb_falls, _, commands, short_writes = (int(field, 16) for field in counts.split()[1:])
     if keys and not soeb_falls:
         problems.append(f"the FPGA never saw SOEB fall, though the keyboard driver read {keys} keys: check PA4 "
                         "(VIA pin 6) to the control buffer's B6 (pin 13), and its A6 (pin 7) to Cmod pin 18")
@@ -89,8 +97,13 @@ def assess(lines, counts):
         problems.append("no read was paused by a keyboard interrupt, so the interlock wasn't exercised: "
                         "run again, holding the key down until DONE")
     if rounds is not None and not problems:   # a complete, clean run: every transfer is accounted for
-        exp_writes, exp_reads = expected_counts(report[:len(STEPS)], rounds)
-        problems += [p for p in (difference(writes, exp_writes, "writes"), difference(reads, exp_reads, "reads")) if p]
+        exp_writes, exp_reads, exp_commands = expected_counts(report[:len(STEPS)], rounds)
+        extra_writes = difference(writes, exp_writes, "writes")
+        if extra_writes:
+            extra_commands = signed_difference(commands, exp_commands)
+            extra_writes += (f": {extra_commands} commands and {signed_difference(writes, exp_writes) - extra_commands} "
+                             f"data bytes; {short_writes} writes had E pulses shorter than Michael's")
+        problems += [p for p in (extra_writes, difference(reads, exp_reads, "reads")) if p]
     return problems, pauses
 
 
@@ -122,12 +135,14 @@ def main():
         ser.write(b"?")
         reader.wait_for(lambda lines: len(counts_lines(lines)) > before, 2.0)
         got = reader.snapshot()
+        os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "build"), exist_ok=True)
+        reader.save_raw(SERIAL_LOG)
 
     counts = counts_lines(got)[before] if len(counts_lines(got)) > before else None
     program = [line for line in got if not line.startswith("C ")]
     problems, pauses = assess(program, counts)
     if counts:
-        _, writes, reads, _, soeb_falls, glitches = counts.split()
+        _, writes, reads, _, soeb_falls, glitches, _, _ = counts.split()
         print(f"The FPGA counted {int(writes, 16)} writes and {int(reads, 16)} reads (both modulo 65536), "
               f"{int(soeb_falls, 16)} falls of SOEB, {pauses} reads paused by the SOEB interlock, and "
               f"{int(glitches, 16)} glitches on E (filtered out).")
@@ -139,6 +154,7 @@ def main():
                   "  python3 tools/upload/transfer.py --daemon stop   (then rerun)")
         print("Everything the program reported:")
         print("\n".join("  " + line for line in program[-12:]))
+        print(f"Everything from the serial port, as it came: {os.path.relpath(SERIAL_LOG)}")
         sys.exit(1)
     print(f"PASS: every byte read back right, with and without the keyboard interrupting; {pauses} reads "
           "were paused by a keyboard interrupt and resumed correctly.")

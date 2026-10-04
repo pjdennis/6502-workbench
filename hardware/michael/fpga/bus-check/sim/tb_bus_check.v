@@ -88,9 +88,9 @@ module tb_bus_check;
   endtask
 
   // ---- Michael's side, with counts to compare with the FPGA's ------------------------------------------
-  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0;
+  integer writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0;
   always @(negedge soeb) soeb_falls = soeb_falls + 1;
-  task command(input [7:0] b); begin fb_command(b); writes = writes + 1; end endtask
+  task command(input [7:0] b); begin fb_command(b); writes = writes + 1; commands = commands + 1; end endtask
   task data(input [7:0] b);    begin fb_data(b);    writes = writes + 1; end endtask
   reg [7:0] got;
   task expect_read(input [7:0] exp, input irq, input [8*40-1:0] what);
@@ -170,6 +170,13 @@ module tb_bus_check;
     expect_read(8'h55, 0, "the glitch didn't end the read or take a byte");
     expect_status(8'h00, "status after the glitches");
 
+    // A write whose E pulse is shorter than any Michael makes (1 us; Michael's are 3 us or more) is counted
+    // as a write and as a short one
+    command(8'h04);
+    rs = 1'b1; #2000; via_drive = 1'b1; via_out = 8'h66; #2000; e = 1'b1; #1000; e = 1'b0; #2000; rs = 1'b0;
+    writes = writes + 1; short_writes = short_writes + 1;
+    expect_read(8'h66, 0, "the short write's byte");
+
     // SERIAL_SEND reaches the PC; '?' adds the counts
     command(8'h50); data("O"); data("K"); data(8'h0D); data(8'h0A);
     expect_status(8'h80, "BUSY while the serial output is still going");
@@ -178,8 +185,8 @@ module tb_bus_check;
     expect_status(8'h00, "BUSY clear once it has gone");
     `CHECK_EQ(led[1], 1'b1, "LD2 lit once a read was paused")
     send_host("?");
-    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls), " ", hex4(glitches)},
-                "counts line");
+    expect_line({"C ", hex4(writes), " ", hex4(reads), " ", hex4(pauses), " ", hex4(soeb_falls), " ", hex4(glitches),
+                 " ", hex4(commands), " ", hex4(short_writes)}, "counts line");
     `TB_PASS
   end
 

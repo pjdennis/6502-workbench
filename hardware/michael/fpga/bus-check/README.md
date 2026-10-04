@@ -27,9 +27,10 @@ make check    # load the design, upload the Michael program, and judge what it r
   reply queue, the status byte, and `SERIAL_SEND` (`$50`, provisional), whose bytes go to the PC through the
   Cmod's USB serial port. Both modules carry on into stage 2's design.
 - [`rtl/bus_check.v`](rtl/bus_check.v): the two, with the serial port. `?` from the PC adds a line of
-  counts: `C wwww rrrr pppp ssss gggg`, the transfers written, the bytes read, the reads that the interlock
-  paused, SOEB's falls at any time (one for each keyboard byte Michael reads), and the glitches on E that
-  the bus filtered out, in hex. LD1 flashes on bus traffic; LD2 lights once a read has been paused.
+  counts, in hex: `C wwww rrrr pppp ssss gggg cccc tttt`: the transfers written, the bytes read, the reads
+  that the interlock paused, SOEB's falls at any time (one for each keyboard byte Michael reads), the
+  glitches on E that the bus filtered out, the writes that were commands, and the writes whose E pulse was
+  under 1.5 µs (Michael's last 3 µs or more). LD1 flashes on bus traffic; LD2 lights once a read has been paused.
 - [`sim/tb_bus_check.v`](sim/tb_bus_check.v): Michael ([`../sim/michael_fpga_bus.vh`](../sim/michael_fpga_bus.vh),
   with `fpga_bus.inc`'s timings and the keyboard driver's interrupt), the VIA, the keyboard board and the
   data buffer around the design. It checks every command, the status bits, reads across a keyboard
@@ -49,4 +50,5 @@ make check    # load the design, upload the Michael program, and judge what it r
 - [`check.py`](check.py): runs the program and judges its report and the FPGA's counts. It fails if no key
   arrived or if no read was paused, since then the interlock wasn't exercised, and says so if the FPGA never
   saw SOEB fall at all. After a clean run, the FPGA's counts must match the transfers the program made
-  exactly.
+  exactly; extra writes are split into commands and data. Everything that came from the serial port is
+  saved, as it came, in `build/check-serial.log`.

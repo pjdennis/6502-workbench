@@ -37,7 +37,8 @@ module michael_bus #(
   input      [7:0] reply_byte,
   input      [7:0] status_byte,
   output reg       paused = 1'b0,  // one clock: SOEB fell while a read was driving port B
-  output reg       glitch = 1'b0   // one clock: E changed for less than E_FILTER samples (ignored)
+  output reg       glitch = 1'b0,  // one clock: E changed for less than E_FILTER samples (ignored)
+  output           e_filtered      // E as the bus sees it
 );
   // Synchronised inputs: {d, e, rs, rw, soeb}
   reg [11:0] sync1 = 12'h001, sync2 = 12'h001;   // SOEB high: the keyboard board off
@@ -51,6 +52,7 @@ module michael_bus #(
 
   // E, filtered (e_f), with D, RS and RW as E first went high
   reg        e_f = 1'b0;
+  assign e_filtered = e_f;
   reg  [$clog2(E_FILTER)-1:0] run = 0;   // samples in a row that differ from e_f
   reg  [7:0] d_at_e = 8'h00;
   reg        rs_at_e = 1'b0, rw_at_e = 1'b0;
