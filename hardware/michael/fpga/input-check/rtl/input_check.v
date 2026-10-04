@@ -29,7 +29,9 @@ module input_check #(
   output       t_clk,
   output       t_cs,
   output       t_din,
-  output [1:0] led
+  output [1:0] led,
+  output       d_oeb,  // the data buffer: on, and Michael to the FPGA
+  output       d_dir
 );
   localparam LEN = 12;
   localparam [1:0] KIND_STATE = 0, KIND_BYTE = 1;
@@ -37,6 +39,7 @@ module input_check #(
   assign {lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led} = 6'b110000;
   assign {t_cs, t_clk, t_din} = 3'b100;
   assign led = 2'b00;
+  assign {d_oeb, d_dir} = 2'b00;
 
   // Inputs, synchronised: {d[7:0], e, csb, rstb, dc, bl}
   reg [12:0] sync1 = 0, inputs = 0;

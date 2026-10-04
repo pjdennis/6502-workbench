@@ -17,7 +17,11 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 next.** In review, reads came to use E
+**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 under way.** Stage 1 is done (2026-10-03): the FPGA
+drives the data buffer's /OE and DIR, Michael is rewired, the read test
+([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
+interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
+the FPGA is unconfigured. Stage 2 is next. In review, reads came to use E
 with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
 pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
 Michael's schematics, as built and as planned at the end of this plan, are in
@@ -46,7 +50,15 @@ The protocol below is the contract that the FPGA design, the firmware and the em
    keyboard byte must arrive. Also check, in nextpnr's timing report, that the interlock is a direct path from
    input pin to output pin.
 5. **Check the safe default.** With the FPGA erased or held in configuration, Michael's port B must stay
-   undriven.
+   undriven:
+   - `~/opt/fpga/oss-cad-suite/bin/openFPGALoader -b cmoda7_35t --bulk-erase` (or `openFPGALoader` after
+     `source <kit>/env.sh`) empties the Cmod's flash, so after a power cycle the FPGA stays unconfigured;
+   - the data buffer's /OE (pin 19) must then measure 3.3 V (off) and its DIR (pin 1) about 0 V;
+   - `make -C hardware/michael/fpga/spi-display flash` puts the display interface back.
+
+   Done on 2026-10-03: /OE at the 3.3 V rail, DIR at 0.014 V. But the "3.3 V" rail itself measured 4.07 V,
+   above what the FPGA's inputs may see (VCCO + 0.55 V): a to-do in
+   [Michael's schematics](../hardware/michael/schematics/README.md#to-do).
 
 ### 2. The new bus, with raw display access (the cutover)
 - **FPGA:** a new design replacing spi-display, with:
@@ -176,7 +188,8 @@ E rises. E's rising edge chooses the transfer, as the same two pins do for the L
 2. Raise E, then lower it.
 
 The FPGA takes port B, RS and RW at E's rising edge. They must be stable from before E rises until at least
-0.5 µs after, and E must stay high, then low, for at least 0.5 µs each. At 2 MHz every instruction takes at
+0.5 µs after, and E must stay high, then low, for at least 0.5 µs each. The FPGA filters E: a level counts only
+once it has held for 250 ns, so glitches on the line (seen on the board in stage 1) can't make transfers. At 2 MHz every instruction takes at
 least 1 µs, so `tsb`/`trb` on E (as `gd_send_data` does) and `sta PORTA,Y`/`stx PORTA` (as the fill loops do)
 meet this.
 
@@ -186,12 +199,11 @@ fastest loop sends a byte every 4.5 µs.
 ## Reading a byte
 1. Port B is an input. RW is 1, and RS is 1 for the reply queue or 0 for the status byte, set by an instruction
    before the one that raises E.
-2. Raise E. Within 0.5 µs the FPGA turns the bus around and drives the byte.
-3. Read port B, at least 0.5 µs after raising E.
-4. Lower E. The FPGA releases the bus within 0.5 µs, and for a reply-queue read moves to the next byte.
+2. Raise E. Within 1 µs the FPGA turns the bus around and drives the byte.
+3. Read port B, at least 1 µs after raising E (`fpga_bus.inc` reads it 2 µs after).
+4. Lower E. The FPGA releases the bus within 1 µs, and for a reply-queue read moves to the next byte.
 
-Don't make port B an output again until 0.5 µs after lowering E; at 2 MHz the next instruction is late
-enough. A byte takes about 6 µs (`tsb`, `lda`, `trb`).
+Don't make port B an output again until 1 µs after lowering E; `fb_read` returns later than that. A byte takes about 6 µs (`tsb`, `lda`, `trb`).
 
 Reading with an empty reply queue gives `$00` and sets the `UNDERFLOW` status bit. Replies are queued in
 the order of the commands that asked for them. With the FPGA unconfigured, the data buffer stays off and a
@@ -287,12 +299,21 @@ Provisional: the details are settled in stage 3. They mirror the editor's screen
 The character grid changes as each command arrives, and the renderer catches the screen up in the
 background. So text commands never make Michael wait, and Michael never needs to read before writing.
 
+### Serial port to the PC (`$5x`)
+
+Provisional: stage 1's check design implements `$50`, through which Michael's test program reports. Stage 2's
+debug port decides how it shares the Cmod's USB serial port.
+
+| Code | Name | Arguments | Data | Effect |
+|---|---|---|---|---|
+| `$50` | `SERIAL_SEND` | — | streams | Each data byte goes out of the Cmod's USB serial port |
+
 ### Reserved
 
 | Range | For |
 |---|---|
 | `$4x` | storage |
-| `$5x` | a serial port to the PC |
+| `$51`–`$5F` | more of the serial port |
 | `$31`–`$3F` | more text mode |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
 | `$60`–`$FF` | later devices |
@@ -303,6 +324,8 @@ background. So text commands never make Michael wait, and Michael never needs to
 - **Set RS and RW for every transfer, by an instruction before the one that raises E.** The LCD routines and
   the keyboard driver also use PA5 and PA6, so their levels can't be assumed. If both changed in the same
   instruction as E, the FPGA might sample either value.
+- **Leave RS and RW low between transfers,** as the LCD routines do and expect. With RS high, the LCD's
+  busy check would read its data instead of the busy flag. `fpga_bus.inc` does this.
 - **RW must be 0 for writes.** A write with RW = 1 would be taken as a read, and the FPGA would drive port B
   against the VIA while E is high.
 - **Start with `RESET`,** then check `ID` before relying on the FPGA.

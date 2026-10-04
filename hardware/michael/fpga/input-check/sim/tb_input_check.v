@@ -17,16 +17,19 @@ module tb_input_check;
   reg host_valid = 1'b0;
   reg [7:0] host_data = 0;
   wire host_ready, host_tx, fpga_tx, small_tx;
+  wire d_oeb, d_dir;
 
   input_check #(.SETTLE_CYCLES(SETTLE), .CLKS_PER_BIT(CPB), .FIFO_DEPTH(512)) dut (
     .sysclk(clk), .d(portb), .e(e), .csb(csb), .rstb(rstb), .dc(dc), .bl(bl),
     .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
-    .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(), .led());
+    .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(), .led(),
+    .d_oeb(d_oeb), .d_dir(d_dir));
   // A copy with a tiny buffer, to check that overflow is reported
   input_check #(.SETTLE_CYCLES(SETTLE), .CLKS_PER_BIT(CPB), .FIFO_DEPTH(8)) dut_small (
     .sysclk(clk), .d(portb), .e(e), .csb(csb), .rstb(rstb), .dc(dc), .bl(bl),
     .uart_txd_in(1'b1), .uart_rxd_out(small_tx),
-    .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(), .led());
+    .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(), .led(),
+    .d_oeb(), .d_dir());
 
   uart_tx #(.CLKS_PER_BIT(CPB)) host_uart_tx (.clk(clk), .valid(host_valid), .data(host_data), .ready(host_ready), .tx(host_tx));
 
@@ -115,6 +118,8 @@ module tb_input_check;
   // ---- Tests ----------------------------------------------------------------------------------------
   integer i;
   initial begin
+    #1;        // let the continuous assignments settle
+    `CHECK_EQ({d_oeb, d_dir}, 2'b00, "data buffer enabled, Michael to the FPGA (stage 1 of the bus plan)")
     settled;   // the first settled state is reported at start-up
     query;     // '?' reports the current state even when nothing changed
     expect_all_reported;

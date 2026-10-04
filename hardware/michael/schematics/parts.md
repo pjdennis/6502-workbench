@@ -24,10 +24,11 @@ identified only from a photo. The keyboard board's own parts are on its schemati
 | R2 | 1 kΩ | CPU, memory, clock and reset (1 of 3) |
 | R8 | 220 Ω | VIA, LCD, LED, keyboard board and serial (2 of 3) |
 | R9 | 10 kΩ | FPGA display interface (3 of 3) |
-| R10 | 10 kΩ | FPGA display interface (3 of 3) |
-| R11 | 10 kΩ | FPGA display interface (3 of 3) |
 | R12 | 10 kΩ | FPGA display interface (3 of 3) |
 | R13 | 220 Ω | CPU, memory, clock and reset (1 of 3) |
+| R14 | 10 kΩ | FPGA display interface (3 of 3) |
+| R15 | 10 kΩ | FPGA display interface (3 of 3) |
+| R16 | 10 kΩ | FPGA display interface (3 of 3) |
 | RV1 | 10 kΩ potentiometer | VIA, LCD, LED, keyboard board and serial (2 of 3) |
 | SW1 | pushbutton | CPU, memory, clock and reset (1 of 3) |
 | U1 | W65C02S | CPU, memory, clock and reset (1 of 3) |

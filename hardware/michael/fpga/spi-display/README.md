@@ -27,7 +27,7 @@ There was no schematic for the old board, so its behaviour was worked out from t
 | Signal | VIA pin | How the driver uses it | What the FPGA does |
 |---|---|---|---|
 | D0–D7 | PB0–PB7 | Written before each E pulse, held until after E falls. | Latches the byte on E's rising edge. |
-| E | PA0 | One high pulse per byte: `tsb`/`trb` in `gd_send_data`, or `sta PORTA,Y`/`stx PORTA` in the fill loops (a byte every 9 cycles, 4.5 µs at 2 MHz, E high for 2 µs). | One byte per rising edge. Level changes are ignored. |
+| E | PA0 | One high pulse per byte: `tsb`/`trb` in `gd_send_data`, or `sta PORTA,Y`/`stx PORTA` in the fill loops (a byte every 9 cycles, 4.5 µs at 2 MHz, E high for 2 µs). | One byte per rising edge, taken at E's first high sample. E is filtered: a level must hold for 250 ns, so spikes from switching noise (seen on the board, see [`../bus-check/`](../bus-check/README.md)) aren't strobes. |
 | DC | PA5, shared with the LCD's RS and the keyboard's START/ACK | Low for command bytes, raised again only after E falls. | Latched with the byte, because the keyboard interrupt can drive PA5 at any time. |
 | CSB | PA1 | Low for a whole session (`gd_select` … `gd_unselect`). | Strobes count only while CSB is low; port B and PA5 carry other traffic otherwise. Display CS is low while CSB is, and until the last byte is out. |
 | RSTB | PA2, shared with Michael's LED | `gd_reset` holds it low for 10 ms and waits 120 ms, before `gd_select`. | Drives the display's RESET directly, not gated by CS, and abandons any byte in progress. |

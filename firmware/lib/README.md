@@ -12,3 +12,4 @@ Shared routines, included by bare file name (see [`../README.md`](../README.md))
 | [`sound/`](sound/README.md) | Tones, notes, morse |
 | [`tasks/`](tasks/README.md) | `prg_*` tasks for the multitasking demos |
 | [`serial/`](serial/README.md) | The bit-banged serial upload loaders |
+| [`fpga/`](fpga/README.md) | The Michael FPGA bus driver (`fpga_bus.inc`) |

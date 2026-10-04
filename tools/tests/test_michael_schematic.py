@@ -143,6 +143,26 @@ class BoardChecks:
                 self.assertEqual(level('U5', 'CS1') == 1 and level('U5', 'CS2B') == 0,
                                  0x6000 <= addr < 0x8000, 'VIA')
 
+    def test_the_bus_signals_reach_the_fpga(self):
+        bits = constants(LCD_AND_KEYBOARD)
+        for pa, buffer_pin, cmod_pin in ((self.E, self.E_BUFFER_PIN, self.E_CMOD_PIN), (bits['RS'], 'B4', 12),
+                                         (bits['SOEB'], 'B6', 18), (bits['RW'], 'B7', 19)):
+            with self.subTest(pa=pa):
+                self.assertJoined(('U5', f'PA{pa}'), ('U8', buffer_pin))
+                self.assertJoined(('U8', 'A' + buffer_pin[1:]), ('U9', cmod_pin))
+
+    def test_e_is_pulled_down(self):
+        self.assertTrue(any({self.board.net(r, 1), self.board.net(r, 2)} == {f'PA{self.E}', 'GND'}
+                            for r in self.board.parts if r.startswith('R')))
+
+    def test_the_fpga_controls_the_data_buffer_and_it_defaults_off_and_inward(self):
+        self.assertJoined(('U7', '/OE'), ('U9', 14))
+        self.assertJoined(('U7', 'DIR'), ('U9', 17))
+        pulls = {frozenset((self.board.net(r, 1), self.board.net(r, 2))) for r in self.board.parts
+                 if r.startswith('R')}
+        self.assertIn(frozenset(('d_oeb', '+3V3')), pulls)   # off while the FPGA isn't configured
+        self.assertIn(frozenset(('d_dir', 'GND')), pulls)    # B to A: Michael to the FPGA
+
     def test_cmod_pins(self):
         for i in range(8):
             self.assertEqual(self.board.net('U9', i + 1), f'd[{i}]')
@@ -151,10 +171,13 @@ class BoardChecks:
 
 
 class AsBuiltTest(BoardChecks, unittest.TestCase):
+    """Michael with stage 1's wiring for the FPGA bus (2026-10-03), the display interface still in charge."""
     PLANNED = False
-    UNUSED_CONTROL_INPUTS = ('B6', 'B7', 'B8')
-    CMOD_PINS = {9: 'e', 10: 'csb', 11: 'rstb', 12: 'dc', 13: 'bl', 26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc',
-                 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led', 32: 'lcd_miso'}
+    E, E_BUFFER_PIN, E_CMOD_PIN = 0, 'B1', 9
+    UNUSED_CONTROL_INPUTS = ('B8',)
+    CMOD_PINS = {9: 'e', 10: 'csb', 11: 'rstb', 12: 'dc', 13: 'bl', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw',
+                 26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led',
+                 32: 'lcd_miso'}
 
     def test_port_a_reaches_the_display_interface(self):
         bits = constants('firmware/lib/graphics/graphics_display.inc')
@@ -170,7 +193,8 @@ class AsBuiltTest(BoardChecks, unittest.TestCase):
 
     def test_fpga_pins_are_the_designs_ports(self):
         ports = set()
-        for xdc in ('spi-display/constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc'):  # MISO: the probe's
+        for xdc in ('spi-display/constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc',  # MISO: the probe's
+                    'constr/bus.xdc'):                                                     # SOEB, RW: the bus's
             with open(os.path.join(ROOT, 'hardware/michael/fpga', xdc)) as f:
                 ports |= set(re.findall(r'get_ports \{(\S+)\}', f.read()))
         nets = {self.board.net('U9', pin) for pin in range(1, 49)} - {None, 'GND', '+5V', '+3V3', 'VU'}
@@ -181,33 +205,13 @@ class PlannedTest(BoardChecks, unittest.TestCase):
     """The FPGA bus plan's wiring changes: stage 1's, then stage 4's pin shuffle (E to PA2, the LED to PA1,
     PA0 free). The firmware moves the LED and E in stage 4, so their pins are written out here."""
     PLANNED = True
-    E, LED = 2, 1
+    E, E_BUFFER_PIN, E_CMOD_PIN, LED = 2, 'B3', 11, 1
     UNUSED_CONTROL_INPUTS = ('B1', 'B2', 'B8')
     CMOD_PINS = {11: 'e', 12: 'rs', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw', 26: 'lcd_cs', 27: 'lcd_reset',
                  28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led', 32: 'lcd_miso'}
 
-    def test_the_bus_signals_reach_the_fpga(self):
-        bits = constants(LCD_AND_KEYBOARD)
-        for pa, buffer_pin, cmod_pin in ((self.E, 'B3', 11), (bits['RS'], 'B4', 12), (bits['SOEB'], 'B6', 18),
-                                         (bits['RW'], 'B7', 19)):
-            with self.subTest(pa=pa):
-                self.assertJoined(('U5', f'PA{pa}'), ('U8', buffer_pin))
-                self.assertJoined(('U8', 'A' + buffer_pin[1:]), ('U9', cmod_pin))
-
     def test_pa0_is_free(self):
         self.assertIsNone(self.board.net('U5', 'PA0'))
-
-    def test_e_is_pulled_down(self):
-        self.assertTrue(any({self.board.net(r, 1), self.board.net(r, 2)} == {f'PA{self.E}', 'GND'}
-                            for r in self.board.parts if r.startswith('R')))
-
-    def test_the_fpga_controls_the_data_buffer_and_it_defaults_off_and_inward(self):
-        self.assertJoined(('U7', '/OE'), ('U9', 14))
-        self.assertJoined(('U7', 'DIR'), ('U9', 17))
-        pulls = {frozenset((self.board.net(r, 1), self.board.net(r, 2))) for r in self.board.parts
-                 if r.startswith('R')}
-        self.assertIn(frozenset(('d_oeb', '+3V3')), pulls)   # off while the FPGA isn't configured
-        self.assertIn(frozenset(('d_dir', 'GND')), pulls)    # B to A: Michael to the FPGA
 
     def test_the_led_is_on_pa1_and_lights_when_it_is_high(self):
         self.assertJoined(('U5', f'PA{self.LED}'), ('R8', 1))
