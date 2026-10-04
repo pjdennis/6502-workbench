@@ -2,7 +2,8 @@
 
 Stage 1 of the [FPGA bus plan](../../../../docs/michael-fpga-bus-plan.md): proves that Michael can read
 from the FPGA, through the data buffer that the FPGA now turns around, including when a keyboard interrupt
-arrives in the middle of a read (the SOEB interlock). It needs the stage 1 wiring
+arrives in the middle of a read (the SOEB interlock). Passed on the board on 2026-10-03: 41,128 reads, 9 of
+them paused by keyboard interrupts, every byte right and every transfer accounted for. It needs the stage 1 wiring
 ([`../spi-display/WIRING.md`](../spi-display/WIRING.md#stage-1-rewiring-for-the-fpga-bus)).
 
 The design is loaded over JTAG (`make prog`), so the spi-display design stays in the Cmod's flash and comes

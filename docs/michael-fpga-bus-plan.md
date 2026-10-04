@@ -17,10 +17,11 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 under way.** Steps 1 and 2 (the FPGA
-drives the data buffer's /OE and DIR; the rewiring) are done. The read test for steps 3 and 4,
-[`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/), passes in simulation and waits for
-the board. In review, reads came to use E
+**Status (2026-10-03): stage 0 done (this document, reviewed); stage 1 under way.** Steps 1 to 4 are done: the FPGA
+drives the data buffer's /OE and DIR, Michael is rewired, and the read test
+([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board on 2026-10-03,
+with keyboard interrupts pausing reads (the SOEB interlock) and every transfer accounted for. Step 5 is
+next. In review, reads came to use E
 with a shared pin instead of a dedicated PA1, a SOEB interlock came to let interrupts pause a read, the shared
 pins (first F and G) were named RS and RW after their LCD meanings, and stage 4 gained the pin shuffle.
 Michael's schematics, as built and as planned at the end of this plan, are in
@@ -49,7 +50,11 @@ The protocol below is the contract that the FPGA design, the firmware and the em
    keyboard byte must arrive. Also check, in nextpnr's timing report, that the interlock is a direct path from
    input pin to output pin.
 5. **Check the safe default.** With the FPGA erased or held in configuration, Michael's port B must stay
-   undriven.
+   undriven:
+   - `openFPGALoader -b cmoda7_35t --bulk-erase` empties the Cmod's flash, so after a power cycle the FPGA
+     stays unconfigured;
+   - the data buffer's /OE (pin 19) must then measure 3.3 V (off) and its DIR (pin 1) about 0 V;
+   - `make -C hardware/michael/fpga/spi-display flash` puts the display interface back.
 
 ### 2. The new bus, with raw display access (the cutover)
 - **FPGA:** a new design replacing spi-display, with:
