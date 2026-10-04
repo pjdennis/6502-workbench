@@ -23,6 +23,7 @@
 #include "chips/cpu_65c02.h"
 #include "chips/ps2_keyboard_board.h"
 #include "chips/serial_usb.h"
+#include "chips/fpga_bus.h"
 #include "ps2_keys.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
@@ -302,10 +303,11 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct cpu_65c02_state    cpu_state;
     static struct ps2_keyboard_board_state kbd_state;
     static struct serial_usb_state   ser_state;
+    static struct fpga_bus_state     fpga_state;
     static struct bus_check_state    check_state;
     static const struct chip_ops check_ops = { .tick = bus_check_tick };
     static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
-    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, cpu_chip;
+    struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, fpga_chip, cpu_chip;
     struct chip check_chip = { &check_ops, "bus_check", &check_state };
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
@@ -331,6 +333,13 @@ int emu_run_michael(const struct emu_opts *opts) {
         fprintf(stderr, "michael: could not open --serial-input %s\n", opts->serial_input_filename);
         return 1;
     }
+    /* The FPGA bus: E on PA0, with RS and RW on PA5 and PA6 */
+    FILE *fpga_log = NULL;
+    if (opts->fpga_log_filename && !(fpga_log = fopen(opts->fpga_log_filename, "w"))) {
+        fprintf(stderr, "michael: could not open --fpga-log %s\n", opts->fpga_log_filename);
+        return 1;
+    }
+    fpga_bus_init(&fpga_chip, &fpga_state, &via_state, fpga_log);
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));
@@ -365,6 +374,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &lcd_chip);
     bus_add_chip(&b, &kbd_chip);
     bus_add_chip(&b, &ser_chip);
+    bus_add_chip(&b, &fpga_chip);
     bus_add_chip(&b, &check_chip);
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);
@@ -430,6 +440,7 @@ int emu_run_michael(const struct emu_opts *opts) {
      * room programs can use for data. */
     fprintf(stderr, "michael: stack: lowest $01%02X\n", lowest_sp);
 
+    if (fpga_log) fclose(fpga_log);
     cpu_external_read  = NULL;
     cpu_external_write = NULL;
     active_bus = NULL;
