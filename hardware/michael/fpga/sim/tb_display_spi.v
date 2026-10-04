@@ -2,7 +2,9 @@
 `include "tb_util.vh"
 
 // display_spi.v: queued data and command bytes reach an ILI9341 model in order, with their DC levels and
-// within its SPI timing; reset and backlight entries take effect in their turn; CS is high when idle.
+// within its SPI timing; reset and backlight entries take effect in their turn; CS is high when idle. The
+// backlight's PWM edges disturb the SPI lines on the board (snow on the display), so the backlight only
+// changes while CS is high, and no byte starts within 1 us of a change.
 module tb_display_spi;
   reg clk;
   `TB_CLOCK(clk, 41.667, 20_000_000)  // 12 MHz
@@ -37,6 +39,16 @@ module tb_display_spi;
     begin high = 0; for (c = 0; c < 256; c = c + 1) begin @(posedge clk); high = high + lcd_led; end end
   endtask
 
+  // Watches every backlight change against the SPI lines
+  integer led_while_selected = 0, sck_near_led = 0, since_led = 1000;
+  reg     led_before = 1'b1;
+  always @(posedge clk) begin
+    since_led <= lcd_led != led_before ? 0 : since_led + 1;
+    if (lcd_led != led_before && !lcd_cs) led_while_selected = led_while_selected + 1;
+    led_before <= lcd_led;
+  end
+  always @(posedge lcd_sck) if (since_led < 12) sck_near_led = sck_near_led + 1;
+
   integer i;
   initial begin
     repeat (4) @(posedge clk); #1;
@@ -68,6 +80,14 @@ module tb_display_spi;
     `CHECK_EQ(high, 0, "backlight off")
     queue(BACKLIGHT, 8'd128); wait_idle; measure_backlight;
     `CHECK_EQ(high, 128, "backlight at half")
+
+    // A stream of bytes while the backlight is dimmed: they all arrive, and the PWM keeps clear of them
+    for (i = 0; i < 300; i = i + 1) begin queue(DATA, i); repeat (14 + i % 7) @(posedge clk); #1; end
+    wait_idle;
+    expect_all_received;
+    `CHECK_EQ(led_while_selected, 0, "no backlight change while selected")
+    `CHECK_EQ(sck_near_led, 0, "no SCK within 1 us of a backlight change")
+
     queue(BACKLIGHT, 8'd255); wait_idle; measure_backlight;
     `CHECK_EQ(high, 256, "backlight fully on again")
 
