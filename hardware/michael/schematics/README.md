@@ -21,6 +21,7 @@ The sheets join parts with net labels: pins whose labels match are connected, an
 
 ## To do
 
+- Find out why the "3.3 V" rail (U11's output) measured 4.07 V on 2026-10-03. U7 and U8 run from it, so the Cmod's inputs see highs above their limit (VCCO + 0.55 V = 3.85 V). Measure U11's IN (pin 3), OUT (pin 2, the tab) and GND (pin 1, which must be at 0 V), and the Cmod's VU (pin 24): a floating GND pin, the rail joined to the wrong 5 V point, or U11 oscillating without C9 would each give about 4 V.
 - Fit C8 and C9, the 10 µF tantalum capacitors on the LM1117's input and output (sheet 3). Its data sheet asks for them, the output one for stability, and Michael doesn't have them yet.
 - Rewire for the FPGA bus as the [plan's](../../../docs/michael-fpga-bus-plan.md) stages call for, so that Michael becomes the planned set. Stage 1's rewiring is done (2026-10-03, in sheet 3); stage 4's pin shuffle remains. Then the planned sheets replace these.
 

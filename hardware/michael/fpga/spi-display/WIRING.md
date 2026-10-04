@@ -18,7 +18,7 @@ VIA pin numbers are for the 40-pin W65C22.
 | Michael 5 V | 5 V rail | Feeds the 3.3 V regulator (an LM1117T-3.3) and the Cmod (through the diode). 1 µF electrolytic across the rail. |
 | Michael GND | GND rails | **Required**: Michael, the '245s, the Cmod and the display must share ground. |
 | 5 V rail | Diode (silver band towards the Cmod) → Cmod pin 24 (VU) | As built. The Cmod runs from Michael's supply, so USB is only needed for programming. |
-| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. |
+| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. **To do:** it measured 4.07 V on 2026-10-03, too high for the Cmod's inputs; see the to-do list in [Michael's schematics](../../schematics/README.md#to-do). |
 | Regulator IN and OUT | 10 µF tantalum to GND, each | **To do:** not fitted yet. The LM1117's data sheet asks for them, the output one for stability. |
 | GND rail | Cmod pin 25 (GND) | As built. |
 
