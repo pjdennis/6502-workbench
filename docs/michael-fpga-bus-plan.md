@@ -152,6 +152,30 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   output (a FIFO into `uart_tx`, busy while either has work). A shared `rtl/serial_out.v` would hold it,
   with the full flag the item above needs. The activity LEDs' pulse stretchers are repeated in three designs
   too.
+- **Faster fills and pixels.** The fill loop (`send_zero_data` in
+  [`graphics_display.inc`](../firmware/lib/graphics/graphics_display.inc)) was slowed on purpose for the old
+  interface board: `sta PORTA,Y` with Y = 0 spends one cycle more than `sta PORTA`, so a byte goes every 9
+  cycles (4.5 µs) instead of 8, with E low for 2.5 µs instead of 2. Its only purpose is that cycle: the old
+  board's first test program, `hello_michael_spi.s` (2022-09-16), has the same `sta PORTA,Y`, with a `nop`
+  commented out beside it. The bus needs only 250 ns of E high and low, and drains a byte in about 1.4 µs, so:
+  - `sta PORTA` in the fill loop: 8 cycles a byte, fills about 11% faster;
+  - `gd_send_x2` (every character's pixels) strobes with `tsb`/`trb`, 12 cycles a byte; the fill loop's
+    `sta`/`stx` would take 8;
+  - far more: a fill command in the FPGA (in the reserved `$14`–`$1F`), so that a rectangle of one colour is
+    a few bytes from Michael, not two per pixel.
+
+  Each changes the graphics programs' timing, so each needs a board run.
+- **Sharing the serial port between Michael and the debug port.** Michael's `SERIAL_SEND` bytes and the
+  debug port's answers go out of the one USB serial port, mixed (an answer can be split by Michael's bytes).
+  Plan a clean path by default, Michael's bytes only, as they are sent, and, only while debugging, a
+  multiplexed one, which a host tool splits back into Michael's stream and the debug port's. Either would be
+  chosen from the PC. Candidates: the modems' GSM 07.10 multiplexer (CMUX), which carries several virtual
+  serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
+  escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
+  designed.
+- **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
+  B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
+  design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.

@@ -69,5 +69,7 @@ python3 debug.py pattern   # initialises the display as Michael's driver does, t
 
 ## To do
 
-The [plan's follow-ups](../../../../docs/michael-fpga-bus-plan.md#follow-ups): `OVERFLOW` for `SERIAL_SEND`'s
-dropped bytes (never for the FPGA's own answers), and a serial output module shared with bus-check.
+The [plan's follow-ups](../../../../docs/michael-fpga-bus-plan.md#follow-ups), among them: `OVERFLOW` for
+`SERIAL_SEND`'s dropped bytes (never for the FPGA's own answers), a serial output module shared with
+bus-check, a fill command, sharing the serial port between Michael and the debug port, and the Cmod's RGB LED
+off.
