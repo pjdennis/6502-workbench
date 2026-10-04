@@ -15,7 +15,7 @@ include $(FPGA_KIT)/boards/cmod_a7_35t.mk
 include $(FPGA_KIT)/mk/sim.mk
 include $(FPGA_KIT)/mk/openxc7.mk
 
-$(TB_PASS): ../sim/michael_fpga_bus.vh
+$(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh
 
 # The spi-display pins (its DC is the bus's RS), the Cmod's USB serial port and the bus's own pins
 $(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc ../constr/bus.xdc
