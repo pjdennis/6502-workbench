@@ -14,6 +14,12 @@ make test     # simulation, and check.py's tests
 make check    # load the design, upload the Michael program, and judge what it reports
 ```
 
+`make noise` measures the switching noise on E: with Michael switching all of port B continuously
+([`michael_fpga_bus_noise.s`](../../../../firmware/programs/michael/michael_fpga_bus_noise.s)), it counts the
+glitches per second with the data buffer working and then held off (`noise.py`). On 2026-10-04: about 4,000 a
+second with it working and 3,200 with it held off, so most of the noise comes from Michael's side of the
+buffer (likely the VIA's ground bouncing as port B switches), not from the buffer's fast outputs.
+
 `make check` asks you to hold a key down on Michael's keyboard part-way through, until the program says
 `DONE`: about 5 seconds, for 128 keys. Before loading the design, it puts Michael in an idle program
 ([`michael_fpga_bus_idle.s`](../../../../firmware/programs/michael/michael_fpga_bus_idle.s), E held low), so

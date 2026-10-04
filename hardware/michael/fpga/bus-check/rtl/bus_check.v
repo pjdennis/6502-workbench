@@ -4,6 +4,8 @@
 // SERIAL_SEND ($50, provisional), whose bytes go out of the Cmod's USB serial port (115200 8N1). Michael's
 // test program reports its results that way.
 //
+// '1' from the PC holds the data buffer off while the bus is idle, and '0' puts it back: for telling switching
+// noise from the buffer's outputs from noise upstream of it (no writes get through while it's held off).
 // '?' from the PC adds a line of counts to the serial output, once it's idle:
 //   "C wwww rrrr pppp ssss gggg cccc tttt bbbb"  in hex: transfers written, bytes read (replies and status),
 //       reads paused by the SOEB interlock, SOEB's falls at any time (each keyboard byte Michael reads),
@@ -53,10 +55,11 @@ module bus_check #(
   // The bus
   wire [7:0] d_out, wr_data, reply_byte, status_byte, ser_data;
   wire       d_drive, wr, wr_rs, rd, rd_end, rd_rs, paused, glitch, e_filtered, ser_valid;
+  reg        hold_off = 1'b0;   // set by '1' from the PC
   assign d = d_drive ? d_out : 8'bz;
 
   michael_bus bus (
-    .clk(sysclk), .d_in(d), .d_out(d_out), .d_drive(d_drive), .e(e), .rs(rs), .rw(rw), .soeb(soeb),
+    .clk(sysclk), .d_in(d), .d_out(d_out), .d_drive(d_drive), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .hold_off(hold_off),
     .d_oeb(d_oeb), .d_dir(d_dir), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end),
     .rd_rs(rd_rs), .reply_byte(reply_byte), .status_byte(status_byte), .paused(paused), .glitch(glitch),
     .e_filtered(e_filtered));
@@ -147,6 +150,10 @@ module bus_check #(
 
   function [7:0] hex(input [3:0] n); hex = n < 10 ? "0" + n : "A" + n - 10; endfunction
   function [31:0] hex4(input [15:0] v); hex4 = {hex(v[15:12]), hex(v[11:8]), hex(v[7:4]), hex(v[3:0])}; endfunction
+
+  always @(posedge sysclk)
+    if (rx_valid && rx_data == "1")      hold_off <= 1'b1;
+    else if (rx_valid && rx_data == "0") hold_off <= 1'b0;
 
   reg              query_waiting = 1'b0;
   reg [8*LINE-1:0] query_line = 0;

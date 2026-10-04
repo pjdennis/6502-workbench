@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Measures switching noise on the FPGA bus's E: runs firmware/programs/michael/michael_fpga_bus_noise.s
+(port B switching between $00 and $FF, E held low) and counts the glitches on E per second, first with the
+data buffer working as usual, then held off ('1' to the bus-check design), so that only Michael's side of
+the buffer switches. Leaves Michael in the idle program. Needs the bus-check design loaded (make noise).
+
+  noise.py [--seconds S] [--michael-port DEV] [--fpga-port DEV]
+"""
+import argparse
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import board  # noqa: E402
+
+PROGRAM = os.path.join(board.REPO, "firmware", "programs", "michael", "michael_fpga_bus_noise.s")
+
+
+def glitches(ser, reader):
+    """The glitch count from the design's counts line (bounces and glitches together)."""
+    before = sum(line.startswith("C ") for line in reader.snapshot())
+    ser.write(b"?")
+    if not reader.wait_for(lambda lines: sum(line.startswith("C ") for line in lines) > before, 2.0):
+        sys.exit("No counts from the FPGA: is the bus-check design loaded (make prog)?")
+    fields = [int(f, 16) for f in [line for line in reader.snapshot() if line.startswith("C ")][-1].split()[1:]]
+    return fields[4] + fields[7]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--seconds", type=float, default=5, help="how long to count in each setting")
+    ap.add_argument("--michael-port", help="Michael's serial port (default: as the upload tools choose it)")
+    ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
+    args = ap.parse_args()
+
+    uart_check = board.serial_module()
+    with uart_check.Serial(args.fpga_port or uart_check.find_port()) as ser:
+        ser.flush_input()
+        reader = board.LineReader(ser, "C")
+        ser.write(b"0")
+        glitches(ser, reader)
+        if board.upload(PROGRAM, args.michael_port, wait=True):
+            sys.exit("Upload failed")
+        time.sleep(board.IDLE_START)
+        for setting, label in ((b"0", "buffer working"), (b"1", "buffer held off"), (b"0", "buffer working"),
+                               (b"1", "buffer held off")):
+            ser.write(setting)
+            start = glitches(ser, reader)
+            time.sleep(args.seconds)
+            rate = (glitches(ser, reader) - start) % 65536 / args.seconds
+            print(f"  {label:16s} {rate:8.0f} glitches on E per second", flush=True)
+        ser.write(b"0")
+    board.idle(args.michael_port)
+
+
+if __name__ == "__main__":
+    main()

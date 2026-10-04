@@ -26,6 +26,7 @@ module michael_bus #(
   input            rs,
   input            rw,
   input            soeb,
+  input            hold_off,    // keeps the data buffer off while idle (for experiments; no writes get through)
   output           d_oeb,       // the data buffer's /OE and DIR (1: A to B, the FPGA to Michael)
   output reg       d_dir = 1'b0,
   output reg       wr = 1'b0,   // one clock: a byte written
@@ -74,7 +75,7 @@ module michael_bus #(
   reg [7:0] byte_out = 8'h00;
 
   assign d_out = byte_out;
-  assign d_oeb = state == OUT ? !soeb : oe_off;
+  assign d_oeb = state == OUT ? !soeb : oe_off | hold_off;
 
   always @(posedge clk) begin
     e_prev    <= e_f;

@@ -195,6 +195,13 @@ module tb_bus_check;
     writes = writes + 1; short_writes = short_writes + 1;
     expect_read(8'h66, 0, "the short write's byte");
 
+    // '1' from the PC holds the data buffer off while the bus is idle (for experiments on switching noise);
+    // '0' puts it back
+    send_host("1");
+    #200000; `CHECK_EQ(d_oeb, 1'b1, "data buffer held off while idle after '1'")
+    send_host("0");
+    #200000; `CHECK_EQ(d_oeb, 1'b0, "data buffer back on after '0'")
+
     // SERIAL_SEND reaches the PC; '?' adds the counts
     command(8'h50); data("O"); data("K"); data(8'h0D); data(8'h0A);
     expect_status(8'h80, "BUSY while the serial output is still going");

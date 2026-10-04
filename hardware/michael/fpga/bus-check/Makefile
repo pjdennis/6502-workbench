@@ -23,7 +23,7 @@ $(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc ../constr/bus.xdc
 	sed 's/{dc}/{rs}/' $^ > $@
 
 .DEFAULT_GOAL := all
-.PHONY: all check test-py
+.PHONY: all check noise test-py
 all: test bit
 
 test: test-py
@@ -36,3 +36,9 @@ check: $(LOAD_BIT)
 	python3 ../board.py idle
 	$(MAKE) prog
 	python3 check.py
+
+# Glitches on E per second with port B switching, with the data buffer working and held off (noise.py)
+noise: $(LOAD_BIT)
+	python3 ../board.py idle
+	$(MAKE) prog
+	python3 noise.py
