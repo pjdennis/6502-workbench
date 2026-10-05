@@ -18,7 +18,8 @@ pins at that end of the VIA are then the reusable ones. In the end the bus has f
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
 **Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at a scrolled region on the glass
-([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
+([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4 done in software, the bench to go
+([below](#4-rom-support-and-switching-displays-at-run-time)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
@@ -27,8 +28,8 @@ the Cmod's flash, with the raw display commands and the debug port, and `graphic
 board, the backlight's PWM made snow on the display until its edges were kept clear of the SPI bytes. In
 review, reads came to use E with a shared pin instead of a dedicated PA1, a SOEB interlock came to let
 interrupts pause a read, the shared pins (first F and G) were named RS and RW after their LCD meanings, and
-stage 4 gained the pin shuffle. Michael's schematics, with the plan's wiring complete (stage 4's pin shuffle included), are in
-[`hardware/michael/schematics/`](../hardware/michael/schematics/).
+stage 4 gained the pin shuffle. Michael's schematics, with the plan's wiring complete (stage 4's pin
+shuffle included), are in [`hardware/michael/schematics/`](../hardware/michael/schematics/).
 
 ## Stages
 
@@ -136,6 +137,23 @@ The protocol below is the contract that the FPGA design, the firmware and the em
     the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
   `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up the current chip.
+- **Status (2026-10-04): done in software, not yet on the board.**
+  - The emulator models the FPGA at the level of its commands (`emulator/chips/fpga_bus.c`, `fpga_text.c`),
+    checked against the text mode's model; `--no-fpga` leaves it out.
+  - The ROM ("Michael ROM 5") has the graphic screen behind the screen calls (`michael_graphic_screen.inc`)
+    and `SVC_SCREEN_SELECT`, tested on the emulator (`tools/tests/michael/graphic_*.s`).
+  - The pin shuffle is in the firmware, the ROM, the emulator, the bus designs (`bus.mk`) and the schematics,
+    which now show the board as this plan leaves it.
+  - The editor's differential tests on the graphic screen need stage 5's launcher, which selects it.
+- **On the bench**, in this order:
+  1. Back up the EEPROM (`minipro -p AT28C256 -r michael_rom_4.bin`), then program the new ROM (above).
+  2. With Michael powered off, rewire ([the checklist](../hardware/michael/fpga/spi-display/WIRING.md#stage-4-rewiring-the-pin-shuffle)).
+  3. Power on: the LCD shows "Michael ROM 5" and the LED stays dark. The flash still holds stage 2's bus
+     design, which takes E from Cmod 9, now tied low, so it sees no transfers.
+  4. With the Cmod on USB: `make -C hardware/michael/fpga/bus flash`, the design that takes E from Cmod 11.
+  5. Check: `make -C hardware/michael/fpga/bus-check check` (reads and the interlock; power-cycle the Cmod
+     after, to have the bus design back), a graphics program, `michael_graphic_text.s`, and
+     `hardware/michael/fpga/text/board_check.py`.
 
 ### 5. The editor on the graphic display
 - `editor/bin/editor-michael-upload.sh --graphic` adds a few-byte launcher that selects the graphic display and
