@@ -9,6 +9,11 @@ keeps reverse video, and rows and columns are 0-based. The RTL (../rtl/text_grid
   (staying on the bottom row); other control codes are dropped.
 - Counts of 0 do nothing. Counts are limited to the cells or rows there are.
 - The scroll region is two rows or more; a smaller one is ignored. Setting it homes the cursor.
+
+It also keeps what the RTL does with the display's hardware scroll (offset, and memory_row), which doesn't
+change what the screen shows, only where in the display's memory each row is drawn: scrolling the whole region
+by fewer rows than it has moves its picture by offset rows; a new region, with the picture scrolled, starts
+again at 0 (text_grid.v, text_render.v).
 """
 
 BLANK = (' ', False)
@@ -23,7 +28,7 @@ class TextScreen:
     def text_on(self):
         """As the ROM's lcd_screen_initialize: cursor hidden, normal video, the whole screen the region,
         cleared, the cursor home."""
-        self.cursor, self.reverse = False, False
+        self.cursor, self.reverse, self.offset = False, False, 0
         self.region_reset()
         self.clear()
 
@@ -83,6 +88,8 @@ class TextScreen:
     def region(self, top, bottom):
         bottom = min(bottom, self.rows - 1)
         if top < bottom:
+            if (top, bottom) != (getattr(self, 'top', None), getattr(self, 'bottom', None)):
+                self.offset = 0
             self.top, self.bottom = top, bottom
             self.goto(0, 0)
 
@@ -91,6 +98,8 @@ class TextScreen:
 
     def _scroll(self, top, n, up):
         rows = self.cells[top:self.bottom + 1]
+        if top == self.top and 0 < n < len(rows):    # the hardware scroll moves the picture
+            self.offset = (self.offset + (-n if up else n)) % len(rows)
         n = min(n, len(rows))
         if n:
             blanks = [[BLANK] * self.cols for _ in range(n)]
@@ -108,6 +117,12 @@ class TextScreen:
         if self.top <= self.row <= self.bottom:
             self.col = 0
             self._scroll(self.row, n, up)
+
+    def memory_row(self, row):
+        """The display memory row where row is drawn, through the hardware scroll."""
+        if not self.top <= row <= self.bottom:
+            return row
+        return self.bottom - (self.offset + self.bottom - row) % (self.bottom - self.top + 1)
 
     def insert_lines(self, n):
         self._lines(n, up=False)

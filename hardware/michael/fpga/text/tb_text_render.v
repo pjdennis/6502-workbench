@@ -1,7 +1,8 @@
 `timescale 1ns / 1ps
 // The text grid, the renderer and the display queue, as the bus design has them: operations from a file
-// (+ops=FILE: lines "op a b" in hex) go in as fast as the grid takes them, and every byte the display
-// receives is logged (+spi=FILE: lines "dc byte"), until everything is idle. Run by test_text_render.py.
+// (+ops=FILE: lines "op a b" in hex; op 10 waits until everything is idle) go in as fast as the grid takes
+// them, and every byte the display receives is logged (+spi=FILE: lines "dc byte"), until everything is idle.
+// Run by test_text_render.py.
 module tb_text_render;
   parameter ROWS = 20, COLS = 20;   // smaller in most tests, for speed
   reg clk = 1'b0;
@@ -12,18 +13,19 @@ module tb_text_render;
   reg  [7:0] a = 0, b = 0;
   wire       full, grid_idle, text_mode, cursor_on, dirty, take_dirty, rd, r_valid, r_lock, r_take, render_idle;
   wire       spi_busy, lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led;
-  wire [4:0] cursor_row, cursor_col, dirty_row, dirty_col, rd_row, rd_col;
+  wire [4:0] cursor_row, cursor_col, dirty_row, dirty_col, rd_row, rd_col, top, bottom, offset;
+  wire       moving;
   wire [8:0] rd_cell;
   wire [1:0] r_kind;
   wire [7:0] r_value;
   text_grid #(.ROWS(ROWS), .COLS(COLS), .QUEUE_DEPTH(64)) grid (
     .clk(clk), .push(push), .op(op), .a(a), .b(b), .full(full), .idle(grid_idle), .text_mode(text_mode),
-    .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on), .dirty(dirty),
-    .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(rd), .rd_row(rd_row),
-    .rd_col(rd_col), .rd_cell(rd_cell));
+    .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on), .top(top), .bottom(bottom),
+    .offset(offset), .moving(moving), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col),
+    .take_dirty(take_dirty), .rd(rd), .rd_row(rd_row), .rd_col(rd_col), .rd_cell(rd_cell));
   text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(100_000_000)) render (
     .clk(clk), .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
-    .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(rd),
+    .top(top), .bottom(bottom), .offset(offset), .moving(moving), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(rd),
     .rd_row(rd_row), .rd_col(rd_col), .rd_cell(rd_cell), .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value),
     .r_lock(r_lock), .r_take(r_take), .idle(render_idle));
   display_spi #(.QUEUE_DEPTH(16)) display (
@@ -43,24 +45,34 @@ module tb_text_render;
     if (bits == 8) begin $fwrite(fspi, "%0d %02h\n", lcd_dc, sr); bits = 0; end
   end
 
+  integer quiet;
+  task wait_quiet;
+    begin
+      quiet = 0;
+      while (quiet < 100) begin
+        @(posedge clk); #1;
+        quiet = grid_idle && render_idle && !spi_busy && !r_valid ? quiet + 1 : 0;
+      end
+    end
+  endtask
+
   reg [8*256-1:0] ops_file, spi_file;
-  integer fin, o, x, y, quiet;
+  integer fin, o, x, y;
   initial begin
     if (!$value$plusargs("ops=%s", ops_file) || !$value$plusargs("spi=%s", spi_file)) $fatal(1, "+ops and +spi");
     fin = $fopen(ops_file, "r");
     fspi = $fopen(spi_file, "w");
     @(posedge clk); #1;
     while ($fscanf(fin, "%h %h %h\n", o, x, y) == 3) begin
-      while (full) begin @(posedge clk); #1; end
-      op = o; a = x; b = y; push = 1'b1;
-      @(posedge clk); #1 push = 1'b0;
+      if (o == 'h10) wait_quiet;
+      else begin
+        while (full) begin @(posedge clk); #1; end
+        op = o; a = x; b = y; push = 1'b1;
+        @(posedge clk); #1 push = 1'b0;
+      end
     end
     $fclose(fin);
-    quiet = 0;
-    while (quiet < 100) begin
-      @(posedge clk); #1;
-      quiet = grid_idle && render_idle && !spi_busy && !r_valid ? quiet + 1 : 0;
-    end
+    wait_quiet;
     $fclose(fspi);
     $finish;
   end

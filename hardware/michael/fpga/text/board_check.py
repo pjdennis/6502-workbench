@@ -39,8 +39,9 @@ def expected(screen, row, col, cursor_shown):
 
 
 def read_cell(p, row, col):
-    """The cell's 12 columns of 16 pixels (top in bit 0), lit or not, read with RAMRD: a dummy byte, then
-    three bytes (red, green, blue) a pixel, in the order they were written."""
+    """The memory cell's 12 columns of 16 pixels (top in bit 0), lit or not, read with RAMRD: a dummy byte,
+    then three bytes (red, green, blue) a pixel, in the order they were written. (The hardware scroll decides
+    which memory row a text row is drawn in: screen.memory_row.)"""
     y0, x0 = row * 16, col * 12
     p.command(CASET, y0 >> 8, y0 & 0xFF, (y0 + 15) >> 8, (y0 + 15) & 0xFF)
     p.command(PASET, x0 >> 8, x0 & 0xFF, (x0 + 11) >> 8, (x0 + 11) & 0xFF)
@@ -79,7 +80,7 @@ def main():
         ser.flush_input()
         p = debug_probe(ser)
         for row, col in cells:
-            got = read_cell(p, row, col)
+            got = read_cell(p, screen.memory_row(row), col)
             if got not in (expected(screen, row, col, True), expected(screen, row, col, False)):   # blinking
                 wrong.append((row, col))
                 print(f'cell ({row}, {col}), {screen.cell(row, col)[0]!r}: got {[hex(w) for w in got]}', flush=True)

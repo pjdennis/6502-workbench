@@ -49,21 +49,23 @@ module bus_control #(
   localparam [1:0] D_DATA = 2'd0, D_COMMAND = 2'd1, D_RESET = 2'd2, D_BACKLIGHT = 2'd3;   // display_spi.v's
 
   reg text_mode = 1'b0;
-  function display(input [7:0] c);   // in text mode, only BACKLIGHT
+  // (The functions take all they use as arguments: simulation re-evaluates a function in a continuous
+  // assignment only when its arguments change)
+  function display(input [7:0] c, input text_mode);   // in text mode, only BACKLIGHT
     display = DISPLAY && (c == BACKLIGHT || (!text_mode && (c == DISP_RESET || c == DISP_COMMAND || c == DISP_DATA)));
   endfunction
   function text(input [7:0] c);      // an operation for the text grid
     text = TEXT && c >= TEXT_ON && c < GEOMETRY;
   endfunction
-  function known(input [7:0] c);
-    known = c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || display(c) || text(c) ||
+  function known(input [7:0] c, input text_mode);
+    known = c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || display(c, text_mode) || text(c) ||
             (TEXT && c == GEOMETRY);
   endfunction
   function streams(input [7:0] c);
     streams = c == ECHO || c == SERIAL_SEND || c == DISP_COMMAND || c == DISP_DATA || (TEXT && c == PUT);
   endfunction
-  function [2:0] arguments(input [7:0] c);   // GOTO and REGION 2; TEXT_ON to VIDEO without data 0; the rest 1
-    arguments = display(c) && c != DISP_DATA ? 3'd1 :
+  function [2:0] arguments(input [7:0] c, input text_mode);   // GOTO and REGION 2; TEXT_ON to VIDEO without data 0; the rest 1
+    arguments = display(c, text_mode) && c != DISP_DATA ? 3'd1 :
                 !text(c) || c == PUT ? 3'd0 :
                 c == GOTO || c == REGION ? 3'd2 :
                 c == TEXT_ON || c == TEXT_OFF || c == CLEAR || c == CLEAR_EOL || c == REGION_RESET ? 3'd0 : 3'd1;
@@ -87,7 +89,7 @@ module bus_control #(
 
   // The display: a display command's argument is an entry of its own (the ILI9341 command, the reset level
   // or the brightness); the data bytes of DISP_COMMAND and DISP_DATA are DATA entries
-  assign disp_push  = is_data && display(cmd) && (args_left == 1 || (args_left == 0 && streams(cmd)));
+  assign disp_push  = is_data && display(cmd, text_mode) && (args_left == 1 || (args_left == 0 && streams(cmd)));
   assign disp_kind  = args_left == 0 ? D_DATA : cmd == DISP_COMMAND ? D_COMMAND : cmd == DISP_RESET ? D_RESET :
                       D_BACKLIGHT;
   assign disp_value = wr_data;
@@ -95,12 +97,12 @@ module bus_control #(
   // The text grid: an operation when its command arrives (without arguments), with its last argument, or
   // for each of PUT's characters
   reg  [7:0] first_arg = 8'h00;
-  assign text_push = (is_command && text(wr_data) && arguments(wr_data) == 0 && wr_data != PUT) ||
+  assign text_push = (is_command && text(wr_data) && arguments(wr_data, text_mode) == 0 && wr_data != PUT) ||
                      (is_data && text(cmd) && (args_left == 1 || (args_left == 0 && cmd == PUT)));
   wire [7:0] op_cmd = is_command ? wr_data : cmd;
   assign text_op = op_cmd[3:0];
-  assign text_a  = is_command ? 8'h00 : arguments(cmd) == 2 ? first_arg : wr_data;
-  assign text_b  = is_command || arguments(cmd) != 2 ? 8'h00 : wr_data;
+  assign text_a  = is_command ? 8'h00 : arguments(cmd, text_mode) == 2 ? first_arg : wr_data;
+  assign text_b  = is_command || arguments(cmd, text_mode) != 2 ? 8'h00 : wr_data;
 
   // The reply queue
   wire [7:0] head;
@@ -127,9 +129,9 @@ module bus_control #(
 
     if (is_command) begin
       if (args_left != 0) sticky[ABANDONED] <= 1'b1;
-      if (!known(wr_data)) sticky[UNKNOWN] <= 1'b1;
+      if (!known(wr_data, text_mode)) sticky[UNKNOWN] <= 1'b1;
       cmd       <= wr_data;
-      args_left <= arguments(wr_data);
+      args_left <= arguments(wr_data, text_mode);
       if (wr_data == ID) id_left <= 3'd4;
       if (TEXT && wr_data == GEOMETRY) geo_left <= 3'd2;
       if (TEXT && wr_data == TEXT_ON) text_mode <= 1'b1;
@@ -142,7 +144,7 @@ module bus_control #(
       else if (cmd == SERIAL_SEND) begin
         ser_valid <= 1'b1;
         ser_data  <= wr_data;
-      end else if (known(cmd) && !streams(cmd))
+      end else if (known(cmd, text_mode) && !streams(cmd))
         sticky[EXTRA] <= 1'b1;   // an unknown command's data is ignored silently
     end
   end

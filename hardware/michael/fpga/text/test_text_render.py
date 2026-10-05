@@ -20,12 +20,15 @@ import font_12x16  # noqa: E402
 from ili9341 import Panel, MADCTL, VSCRSADD  # noqa: E402
 from text_screen import TextScreen  # noqa: E402
 from test_text_grid import (TEXT_ON, TEXT_OFF, GOTO, PUT, CLEAR, CLEAR_EOL, INSERT, DELETE, REGION,  # noqa: E402
-                            SCROLL_UP, INSERT_LINES, CURSOR, VIDEO, apply, random_ops)
+                            REGION_RESET, SCROLL_UP, SCROLL_DOWN, INSERT_LINES, DELETE_LINES, CURSOR, VIDEO,
+                            apply, random_ops)
+from ili9341 import RAMWR  # noqa: E402
 
 RTL_DIR = os.path.join(HERE, '..', 'rtl')
 RTL = [os.path.join(RTL_DIR, f) for f in ('text_grid.v', 'text_render.v', 'display_spi.v', 'fifo.v')]
 FONT_VH = os.path.join(HERE, '..', 'build', 'font_12x16.vh')
 SMALL = (6, 8)
+WAIT = 0x10   # the testbench waits until everything is idle
 WORDS = font_12x16.fpga_words(font_12x16.read_source())
 
 
@@ -52,10 +55,12 @@ class Simulator:
         subprocess.run(['vvp', '-n', self.vvp, f'+ops={ops_file}', f'+spi={spi_file}'], check=True,
                        capture_output=True, text=True)
         panel = Panel()
+        panel.cells_drawn = 0
         with open(spi_file) as f:
             for line in f:
                 dc, byte = line.split()
                 panel.receive(int(dc), int(byte, 16))
+                panel.cells_drawn += line == f'0 {RAMWR:02x}\n'
         return panel
 
     def close(self):
@@ -78,10 +83,12 @@ class TextRenderTest(unittest.TestCase):
         sim = sim or self.sim
         model = TextScreen(sim.rows, sim.cols)
         for op, a, b in ops:
-            apply(model, op, a, b)
+            if op != WAIT:
+                apply(model, op, a, b)
         panel = sim.run(ops)
         wrong = [(r, c) for r in range(sim.rows) for c in range(sim.cols)
-                 if panel.cell(r, c) != expected_cell(model, r, c)]
+                 if panel.cell(r, c, shown=True) != expected_cell(model, r, c)
+                 or panel.cell(model.memory_row(r), c) != expected_cell(model, r, c)]   # where board_check.py reads
         self.assertEqual(wrong, [], f'cells that differ (row, column); the model has {model.text(wrong[0][0])!r} '
                                     f'in row {wrong[0][0]}' if wrong else '')
         return panel
@@ -103,6 +110,25 @@ class TextRenderTest(unittest.TestCase):
         self.check([(TEXT_ON, 0, 0)] + fill + [(GOTO, 1, 2), (INSERT, 3, 0), (GOTO, 2, 2), (DELETE, 4, 0),
                                                (GOTO, 3, 5), (CLEAR_EOL, 0, 0), (REGION, 1, 4), (SCROLL_UP, 2, 0),
                                                (GOTO, 2, 1), (INSERT_LINES, 1, 0), (CURSOR, 1, 0)])
+
+    def test_region_scrolls_move_the_picture(self):
+        """The hardware scroll moves the region's picture, so a scroll draws only the rows that come in blank
+        (and the cursor's cells), not the whole region."""
+        rows, cols = SMALL
+        fill = [op for r in range(rows) for op in [(GOTO, r, 0)] + [(PUT, 0x41 + (r * 3 + c) % 26, 0) for c in range(cols)]]
+        start = [(TEXT_ON, 0, 0)] + fill + [(REGION, 1, 4), (WAIT, 0, 0)]
+        drawn = self.check(start).cells_drawn
+        for ops, most in (([(SCROLL_UP, 1, 0)], cols), ([(SCROLL_DOWN, 2, 0)], 2 * cols),
+                          ([(SCROLL_UP, 1, 0), (SCROLL_UP, 2, 0), (SCROLL_DOWN, 1, 0)], 4 * cols),
+                          ([(GOTO, 1, 0), (DELETE_LINES, 1, 0)], cols), ([(GOTO, 1, 0), (INSERT_LINES, 1, 0)], cols)):
+            with self.subTest(ops=ops):
+                self.assertLessEqual(self.check(start + ops).cells_drawn - drawn, most + 2)
+
+    def test_changing_the_region_after_a_scroll(self):
+        rows, cols = SMALL
+        fill = [op for r in range(rows) for op in [(GOTO, r, 0)] + [(PUT, 0x61 + (r * 5 + c) % 26, 0) for c in range(cols)]]
+        self.check([(TEXT_ON, 0, 0)] + fill + [(REGION, 1, 4), (SCROLL_UP, 2, 0), (REGION, 2, 5), (SCROLL_DOWN, 1, 0),
+                                               (REGION_RESET, 0, 0), (SCROLL_UP, 1, 0), (CURSOR, 1, 0), (GOTO, 3, 3)])
 
     def test_text_off_stops_drawing(self):
         panel = self.sim.run([(TEXT_ON, 0, 0), (TEXT_OFF, 0, 0)] + [(PUT, ord('x'), 0)] * 5)

@@ -1,10 +1,18 @@
 """An ILI9341 panel, as far as the text mode uses it: the bytes it receives over SPI (each with its DC level)
 become pixels, through CASET and PASET (the window) and RAMWR (pixels, two bytes each, columns first, then
-pages, within the window). MADCTL and VSCRSADD are recorded; the orientation itself isn't modelled: column
-and page are the panel's addresses as Michael's driver uses them (gd_prepare_vertical's MY, MV), so text row r
-is columns 16r to 16r + 15 and text column c is pages 12c to 12c + 11.
+pages, within the window). MADCTL is recorded; the orientation itself isn't modelled: column and page are the
+panel's addresses as Michael's driver uses them (gd_prepare_vertical's MY, MV), so text row r is columns 16r
+to 16r + 15 and text column c is pages 12c to 12c + 11.
+
+What the glass shows (shown_cell) follows the hardware scroll, VSCRDEF (top fixed area, scroll area, bottom
+fixed area, in lines) and VSCRSADD (the scroll area's first line). Those count the panel's frame memory lines,
+which run the other way from columns: with MADCTL's MY, frame line 0 is column 319. And with the gate scan
+reversed (GD_PANEL_SCAN), frame line 0 is shown at the bottom of the glass. So the top fixed area is shown at
+the bottom, the scroll area above it, starting (at its bottom) with VSCRSADD's line, and the bottom fixed area
+at the top. Michael's graphic driver scrolls the whole screen this way (gd_scroll_up: VSCRSADD = (20 - rows
+scrolled) * 16), which test_ili9341.py checks.
 """
-CASET, PASET, RAMWR, MADCTL, VSCRSADD = 0x2A, 0x2B, 0x2C, 0x36, 0x37
+CASET, PASET, RAMWR, VSCRDEF, MADCTL, VSCRSADD = 0x2A, 0x2B, 0x2C, 0x33, 0x36, 0x37
 COLUMNS, PAGES = 320, 240
 
 
@@ -41,14 +49,26 @@ class Panel:
         else:
             self.registers[self.command] = list(self.params)
 
-    def cell(self, row, col):
+    def _words(self, value_pairs):
+        return [value_pairs[i] << 8 | value_pairs[i + 1] for i in range(0, len(value_pairs), 2)]
+
+    def shown_column(self, line):
+        """The memory column shown on the glass's line (0 at the top), through the hardware scroll."""
+        tfa, vsa, bfa = self._words(self.registers.get(VSCRDEF, [0, 0, 1, 0x40, 0, 0]))
+        ssa = self._words(self.registers.get(VSCRSADD, [0, 0]))[0]
+        k = COLUMNS - 1 - line                          # from the bottom of the glass
+        frame = k if k < tfa or k >= tfa + vsa else tfa + (ssa - tfa + k - tfa) % vsa
+        return COLUMNS - 1 - frame
+
+    def cell(self, row, col, shown=False):
         """The text cell's 12 columns of 16 pixels, each a 16-bit word (top pixel in bit 0) of lit pixels;
-        None if any of its pixels is neither white nor black."""
+        None if any of its pixels is neither white nor black. In memory, or as shown on the glass."""
         words = []
         for x in range(12):
             word = 0
             for y in range(16):
-                p = self.pixels[col * 12 + x][row * 16 + y]
+                column = self.shown_column(row * 16 + y) if shown else row * 16 + y
+                p = self.pixels[col * 12 + x][column]
                 if p not in (0x0000, 0xFFFF):
                     return None
                 word |= (p == 0xFFFF) << y

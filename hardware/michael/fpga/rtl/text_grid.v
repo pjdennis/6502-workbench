@@ -7,10 +7,17 @@
 // The renderer reads the grid through its own port, and finds what to draw through the dirty bits: every
 // cell written is marked, and so are the cells the cursor leaves and reaches (or shows or hides on).
 // take_dirty clears the lowest dirty cell's bit and reads it; a cell marked in the same clock stays marked.
+//
+// With HW_SCROLL, scrolling the whole region (SCROLL_UP and SCROLL_DOWN, and INSERT_LINES and DELETE_LINES
+// from its top row) moves the cells with their marks, marks only the rows that come in blank, and changes
+// offset instead: the renderer has the display's hardware scroll move the region's picture by as many rows.
+// The cursor's cell, and the cell its picture moved to, are marked. Changing the region while offset isn't
+// 0 sets it back to 0 and marks every cell. The renderer takes no cells while the grid is moving cells.
 module text_grid #(
   parameter ROWS        = 20,
   parameter COLS        = 20,
-  parameter QUEUE_DEPTH = 512
+  parameter QUEUE_DEPTH = 512,
+  parameter HW_SCROLL   = 1
 ) (
   input            clk,
   input            push,           // an operation: op = the command's code - $20, with its arguments
@@ -23,6 +30,10 @@ module text_grid #(
   output reg [4:0] cursor_row = 5'd0,
   output reg [4:0] cursor_col = 5'd0,   // COLS: past the end of the row
   output reg       cursor_on = 1'b0,
+  output reg [4:0] top = 5'd0,     // the scroll region
+  output reg [4:0] bottom = ROWS - 1,
+  output reg [4:0] offset = 5'd0,  // rows the region's picture has scrolled (HW_SCROLL)
+  output           moving,         // cells are moving: the renderer waits
   output           dirty,          // a cell to draw: dirty_row, dirty_col
   output     [4:0] dirty_row,
   output     [4:0] dirty_col,
@@ -64,7 +75,6 @@ module text_grid #(
 
   // State
   reg       reverse = 1'b0;
-  reg [4:0] top = 5'd0, bottom = LAST_ROW;
 
   // The shifting engine: the block of cells rows r0-r1, columns c0-c1 moves by n rows (vertical) or columns,
   // towards its start (forward: each cell takes the one n after it) or its end; blanks fill in
@@ -82,13 +92,48 @@ module text_grid #(
   assign src = {src_row, src_col};
   wire       last = forward ? row == r1 && col == c1 : row == r0 && col == c0;
   assign idle = state == IDLE && empty && !pop && !we;
+  assign moving = state != IDLE;
+
+  reg       carry = 1'b0, scrolled = 1'b0, mark_all = 1'b0;
+  reg [4:0] next_offset = 5'd0;
 
   task start(input v, input f, input [4:0] top_row, input [4:0] bottom_row, input [4:0] first_col,
              input [4:0] last_col, input [7:0] count);
     begin
       vertical <= v; forward <= f; r0 <= top_row; r1 <= bottom_row; c0 <= first_col; c1 <= last_col;
       n <= count; row <= f ? top_row : bottom_row; col <= f ? first_col : last_col;
+      carry <= 1'b0;
       if (count != 0) state <= MOVE;
+    end
+  endtask
+
+  // A scroll of the region's rows from_row down (up: the content moves up), by the hardware scroll when the
+  // whole region moves by fewer rows than it has
+  wire [4:0] height = bottom - top + 1'b1;
+  task scroll(input up, input [4:0] from_row, input [7:0] count);
+    begin
+      start(1'b1, up, from_row, bottom, 0, LAST_COL, count);
+      if (HW_SCROLL && from_row == top && count != 0 && count < height) begin
+        carry <= 1'b1;
+        next_offset <= up ? (offset >= count ? offset - count[4:0] : offset + height - count[4:0])
+                          : (offset + count[4:0] >= height ? offset + count[4:0] - height : offset + count[4:0]);
+      end
+    end
+  endtask
+
+  // A new region: with the picture scrolled, back to no scroll, and every cell redrawn
+  task set_region(input [4:0] new_top, input [4:0] new_bottom);
+    begin
+      top <= new_top; bottom <= new_bottom; cursor_row <= 0; cursor_col <= 0;
+      if ({new_top, new_bottom} != {top, bottom} && offset != 0) begin offset <= 0; mark_all <= 1'b1; end
+    end
+  endtask
+
+  // The end of a move
+  task finish;
+    begin
+      state <= IDLE;
+      if (carry) begin offset <= next_offset; carry <= 1'b0; scrolled <= 1'b1; end
     end
   endtask
 
@@ -97,6 +142,11 @@ module text_grid #(
   reg  [4:0] was_row = 0, was_col = 0;
   reg        was_on = 1'b0;
   wire       cursor_moved = {cursor_row, cursor_col, cursor_on} != {was_row, was_col, was_on};
+  reg        w_mark = 1'b1;   // the written cell's mark: set, or carried with the cell
+  // After a hardware scroll, where the cursor's picture went: n rows up or down, if still in the block
+  wire [5:0] moved_row = forward ? {1'b0, cursor_row} - n[4:0] : {1'b0, cursor_row} + n[4:0];
+  wire       cursor_in_block = cursor_col < COLS && cursor_row >= r0 && cursor_row <= r1;
+  wire       moved_in_block = forward ? cursor_row >= r0 + n[4:0] : moved_row <= r1;
 
   // The lowest dirty cell (functions, not always @*, so that simulation has it from time 0)
   function [4:0] first_row(input [ROWS*COLS-1:0] m);
@@ -117,25 +167,33 @@ module text_grid #(
 
   always @(posedge clk) begin
     if (take_dirty) marks[dirty_row*COLS + dirty_col] <= 1'b0;
-    if (we) marks[w_row*COLS + w_col] <= 1'b1;
+    if (we) marks[w_row*COLS + w_col] <= w_mark;
+    if (scrolled && cursor_in_block) begin
+      marks[cursor_row*COLS + cursor_col] <= 1'b1;
+      if (moved_in_block) marks[moved_row[4:0]*COLS + cursor_col] <= 1'b1;
+    end
     if (cursor_moved) begin
       if (was_col < COLS) marks[was_row*COLS + was_col] <= 1'b1;
       if (cursor_col < COLS) marks[cursor_row*COLS + cursor_col] <= 1'b1;
       {was_row, was_col, was_on} <= {cursor_row, cursor_col, cursor_on};
     end
+    if (mark_all) marks <= {ROWS*COLS{1'b1}};
   end
 
   // Running the operations
   always @(posedge clk) begin
     pop <= 1'b0;
     we  <= 1'b0;
+    w_mark   <= 1'b1;
+    scrolled <= 1'b0;
+    mark_all <= 1'b0;
     case (state)
       IDLE:
         if (!empty && !pop) begin
           pop <= 1'b1;
           case (e_op)
             TEXT_ON: begin
-              text_mode <= 1'b1; cursor_on <= 1'b0; reverse <= 1'b0; top <= 0; bottom <= LAST_ROW;
+              text_mode <= 1'b1; cursor_on <= 1'b0; reverse <= 1'b0; top <= 0; bottom <= LAST_ROW; offset <= 0;
               cursor_row <= 0; cursor_col <= 0;
               start(1'b1, 1'b1, 0, LAST_ROW, 0, LAST_COL, ROWS);
             end
@@ -166,17 +224,14 @@ module text_grid #(
             INSERT:    if (cursor_col < COLS) start(1'b0, 1'b0, cursor_row, cursor_row, cursor_col, LAST_COL, e_a);
             DELETE:    if (cursor_col < COLS) start(1'b0, 1'b1, cursor_row, cursor_row, cursor_col, LAST_COL, e_a);
             REGION:
-              if (e_a < (e_b > LAST_ROW ? LAST_ROW : e_b)) begin
-                top <= e_a[4:0]; bottom <= e_b > LAST_ROW ? LAST_ROW : e_b[4:0];
-                cursor_row <= 0; cursor_col <= 0;
-              end
-            REGION_RESET: begin top <= 0; bottom <= LAST_ROW; cursor_row <= 0; cursor_col <= 0; end
-            SCROLL_UP:   start(1'b1, 1'b1, top, bottom, 0, LAST_COL, e_a);
-            SCROLL_DOWN: start(1'b1, 1'b0, top, bottom, 0, LAST_COL, e_a);
+              if (e_a < (e_b > LAST_ROW ? LAST_ROW : e_b)) set_region(e_a[4:0], e_b > LAST_ROW ? LAST_ROW : e_b[4:0]);
+            REGION_RESET: set_region(0, LAST_ROW);
+            SCROLL_UP:   scroll(1'b1, top, e_a);
+            SCROLL_DOWN: scroll(1'b0, top, e_a);
             INSERT_LINES, DELETE_LINES:
               if (cursor_row >= top && cursor_row <= bottom) begin
                 cursor_col <= 0;
-                start(1'b1, e_op == DELETE_LINES, cursor_row, bottom, 0, LAST_COL, e_a);
+                scroll(e_op == DELETE_LINES, cursor_row, e_a);
               end
             CURSOR: cursor_on <= e_a != 0;
             VIDEO:  reverse <= e_a != 0;
@@ -187,12 +242,13 @@ module text_grid #(
         else begin
           we <= 1'b1; w_row <= row; w_col <= col; w_cell <= BLANK;
           step;
-          if (last) state <= IDLE;
+          if (last) finish;
         end
       MOVE_WRITE: begin
         we <= 1'b1; w_row <= row; w_col <= col; w_cell <= r_cell;
+        w_mark <= !carry || marks[src_row*COLS + src_col];
         step;
-        state <= last ? IDLE : MOVE;
+        if (last) finish; else state <= MOVE;
       end
       default: state <= IDLE;
     endcase

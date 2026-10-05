@@ -16,7 +16,8 @@ module tb_text_grid;
   wire [8:0] rd_cell;
   text_grid #(.ROWS(ROWS), .COLS(COLS), .QUEUE_DEPTH(16)) dut (
     .clk(clk), .push(push), .op(op), .a(a), .b(b), .full(full), .idle(idle), .text_mode(text_mode),
-    .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on), .dirty(dirty),
+    .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on), .top(), .bottom(), .offset(),
+    .moving(), .dirty(dirty),
     .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(1'b0), .rd(rd), .rd_row(rd_row),
     .rd_col(rd_col), .rd_cell(rd_cell));
 
