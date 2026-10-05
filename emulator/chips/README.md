@@ -23,6 +23,7 @@ uses it.
 | `syscall_ports` | host file I/O at `$F800-$F80F`, registered only with `--disk DIR` (see `prog8/WENDY2_DISK_BOOT_DESIGN.md`) | wendy2c |
 | `glue_michael` | Michael's address decode and the `--ram` decoding variants | michael |
 | `ps2_keyboard_board` | Michael's PS/2 keyboard board at frame level (`--keys`, `--kbd-scancodes`, `--kbd-fault`) | michael |
+| `ili9341` | Michael's graphic display: the ILI9341's frame memory, its window (CASET, PASET, RAMWR) under MADCTL, and what the glass shows through the scan direction and the hardware scroll (VSCRDEF, VSCRSADD) | michael |
 | `osc` | the crystal frequency only; no machine registers it (it is only exercised by `tests/test_chip_osc.c`) | tests |
 
 Most modules have a matching `tests/test_chip_*.c` or `tests/test_*.c`
