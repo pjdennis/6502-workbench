@@ -30,11 +30,12 @@ FONT_VH = os.path.join(HERE, '..', 'build', 'font_12x16.vh')
 SMALL = (6, 8)
 WAIT = 0x10   # the testbench waits until everything is idle
 WORDS = font_12x16.fpga_words(font_12x16.read_source())
+BOX = 0x7F
 
 
 def expected_cell(model, row, col):
     char, reverse = model.cell(row, col)
-    code = ord(char) if ord(char) < 0x80 else 0
+    code = min(ord(char), BOX)   # codes outside the font show the box
     cursor = model.cursor and (row, col) == (model.row, model.col)
     return [WORDS[code << 4 | x] ^ (0xFFFF if reverse else 0) ^ (0xC000 if cursor else 0) for x in range(12)]
 
@@ -108,6 +109,12 @@ class TextRenderTest(unittest.TestCase):
     def test_reverse_video_and_the_cursor(self):
         self.check([(TEXT_ON, 0, 0), (PUT, ord('a'), 0), (VIDEO, 1, 0), (PUT, ord('b'), 0), (VIDEO, 0, 0),
                     (PUT, ord('c'), 0), (GOTO, 5, 7), (CURSOR, 1, 0), (GOTO, 6, 8)])
+
+    def test_codes_outside_the_font_show_the_box(self):
+        panel = self.check([(TEXT_ON, 0, 0)] + [(PUT, code, 0) for code in (0x7F, 0x80, 0xC1, 0xFF, 0x41)])
+        box = WORDS[BOX << 4:(BOX << 4) + 12]
+        self.assertEqual([panel.cell(0, c, shown=True) for c in range(4)], [box] * 4)
+        self.assertNotEqual(panel.cell(0, 4, shown=True), box)
 
     def test_a_full_screen_then_shifts(self):
         rows, cols = SMALL

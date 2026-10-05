@@ -1,7 +1,8 @@
 `timescale 1ns / 1ps
 // Draws the text grid (text_grid.v) on the ILI9341, through display_spi.v's renderer input: each dirty cell
 // as Michael's driver draws a character (gd_show_character in firmware/lib/graphics/graphics_display.inc),
-// a window (CASET, PASET) and RAMWR, then its 12 columns of 16 pixels, white on black. Reverse video inverts
+// a window (CASET, PASET) and RAMWR, then its 12 columns of 16 pixels, white on black (codes from $7F up as
+// the font's box, $7F, so that a stray one shows). Reverse video inverts
 // a cell; the cursor inverts its bottom two rows, blinking every BLINK clocks (250 ms) and shown at once
 // when it moves. A cell's bytes are a locked run, so nothing else reaches the display in the middle of one.
 // On entering text mode it first sets the orientation Michael's driver uses (MADCTL: MY, MV, BGR).
@@ -207,7 +208,7 @@ module text_render #(
         if (last) begin blanking <= 1'b0; state <= IDLE; end
       end
       FONT: begin                  // the column's pixels, read
-        column <= font[{code[7] ? 7'd0 : code[6:0], i}];
+        column <= font[{code[7] ? 7'h7F : code[6:0], i}];   // past the font, its box ($7F)
         y <= 0; half <= 1'b0; state <= PIXELS;
       end
       PIXELS: if (r_take) begin

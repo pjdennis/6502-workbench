@@ -15,6 +15,7 @@ import font_12x16  # noqa: E402
 
 INC = os.path.join(ROOT, 'firmware', 'lib', 'graphics', 'character_patterns_12x16.inc')
 HEADER = os.path.join(ROOT, 'emulator', 'chips', 'font_12x16.h')
+BOX = 0x7F
 
 
 class FontTest(unittest.TestCase):
@@ -22,8 +23,17 @@ class FontTest(unittest.TestCase):
     def setUpClass(cls):
         cls.glyphs = font_12x16.read_source()
 
-    def test_every_printable_character_is_drawn_once(self):
-        self.assertEqual(sorted(self.glyphs), list(range(32, 127)))
+    def test_every_printable_character_is_drawn_once_and_the_box(self):
+        self.assertEqual(sorted(self.glyphs), list(range(32, 127)) + [BOX])
+
+    def test_the_box_is_an_outline(self):
+        """$7F, drawn for codes outside the font (the FPGA's text mode draws every code from $7F up so), so a
+        stray one shows."""
+        rows = self.glyphs[BOX]
+        self.assertEqual(rows[1], '.##########.')
+        self.assertEqual(rows[14], '.##########.')
+        self.assertTrue(all(row == '.#........#.' for row in rows[2:14]))
+        self.assertEqual({rows[0], rows[15]}, {'.' * 12})
 
     def test_glyphs_are_16_rows_of_12(self):
         for code, rows in self.glyphs.items():
@@ -56,7 +66,8 @@ class FontTest(unittest.TestCase):
         self.assertEqual(words[(ord('!') << 4) | 5], 0x33FF)
         self.assertEqual(words[(ord('!') << 4) | 12], 0)   # columns 12-15 are padding
         self.assertEqual(words[(ord(' ') << 4) | 5], 0)
-        self.assertEqual(sum(words[:32 << 4]) + sum(words[127 << 4:]), 0)   # no glyphs outside ' '-'~'
+        self.assertEqual(sum(words[:32 << 4]), 0)   # no glyphs below ' '
+        self.assertEqual(words[(BOX << 4) | 1], 0x7FFE)   # the box's left side
 
 
 if __name__ == '__main__':

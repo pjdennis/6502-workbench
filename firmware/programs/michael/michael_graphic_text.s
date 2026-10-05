@@ -9,6 +9,7 @@
 ;       Backspace  delete to the left    Delete  delete the line (the lines below move up)
 ;       arrows     move                  Tab     reverse video on/off      Esc  clear
 ;       Page Up, Page Down  the backlight brighter, dimmer: 0, 1, 3, 7 ... 127, 255 (halving down)
+;       Insert     types $FF, a code outside the font: text mode shows it as a box
 ; Michael keeps the cursor's position itself, by the text mode's rules, and never reads it back.
   .include base_config_v2.inc
 
@@ -58,6 +59,7 @@ callback_key_esc     = clear_region
 callback_key_delete  = delete_line
 callback_key_pageup  = brighter
 callback_key_pagedown = dimmer
+callback_key_insert  = type_outside_the_font
   .include keyboard_driver.inc
   .include multiply8x8.inc
   .include graphics_display.inc
@@ -75,8 +77,8 @@ program_start:
   lda #$ff                         ; Fully on, whatever ran before left
   sta BRIGHTNESS
   jsr send_brightness
-  lda #FB_TEXT_ON
-  jsr fb_command
+  lda #FB_T_ON
+  jsr fb_text
   lda #1
   jsr video
   ldx #0
@@ -89,14 +91,14 @@ program_start:
 .title_done:
   lda #0
   jsr video
-  lda #FB_REGION
-  jsr fb_command
+  lda #FB_T_REGION
+  jsr fb_text
   lda #FIRST_ROW
   jsr fb_data
   lda #TEXT_ROWS - 1
   jsr fb_data
-  lda #FB_CURSOR
-  jsr fb_command
+  lda #FB_T_CURSOR
+  jsr fb_text
   lda #1
   jsr fb_data
   stz REVERSE
@@ -119,22 +121,7 @@ program_start:
   bcc .keys
   cmp #$7f
   bcs .keys
-  pha
-  lda #FB_INSERT                   ; Room for it: the rest of the line moves right
-  jsr fb_command
-  lda #1
-  jsr fb_data
-  pla
-  jsr put
-  inc COL                          ; The text mode's rule: to the next row after the last column, but not
-  lda COL                          ; past the bottom one
-  cmp #TEXT_COLS
-  bne .keys
-  lda ROW
-  cmp #TEXT_ROWS - 1
-  bcs .scroll                      ; Past the bottom row's end: the region scrolls up
-  inc ROW
-  stz COL
+  jsr type_char
   bra .keys
 .enter:
   lda ROW
@@ -142,24 +129,22 @@ program_start:
   bcs .scroll
   inc ROW                          ; A new line below: the lines under it move down
   jsr goto
-  lda #FB_INSERT_LINES
-  jsr fb_command
+  lda #FB_T_INSERT_LINES
+  jsr fb_text
   lda #1
   jsr fb_data
   stz COL                          ; (where INSERT_LINES leaves the cursor)
   bra .keys
 .scroll:
-  jsr scroll_up                    ; The bottom: the region scrolls up a row
-  stz COL
-  jsr goto
+  jsr new_bottom_line
   bra .keys
 .backspace:
   lda COL
   beq .keys
   dec COL
   jsr goto
-  lda #FB_DELETE
-  jsr fb_command
+  lda #FB_T_DELETE
+  jsr fb_text
   lda #1
   jsr fb_data
   bra .keys
@@ -179,8 +164,8 @@ lcd_message:  .asciiz "TEXT MODE ON THE FPGA"
 ; On exit X, Y are preserved
 put:
   pha
-  lda #FB_PUT
-  jsr fb_command
+  lda #FB_T_PUT
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -189,8 +174,8 @@ put:
 ; On exit X, Y are preserved
 video:
   pha
-  lda #FB_VIDEO
-  jsr fb_command
+  lda #FB_T_VIDEO
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -198,8 +183,8 @@ video:
 ; Moves the text mode's cursor to ROW, COL.
 ; On exit X, Y are preserved
 goto:
-  lda #FB_GOTO
-  jsr fb_command
+  lda #FB_T_GOTO
+  jsr fb_text
   lda ROW
   jsr fb_data
   lda COL
@@ -245,8 +230,8 @@ scroll_up:
 ; On exit X, Y are preserved
 scroll_up_a:
   pha
-  lda #FB_SCROLL_UP
-  jsr fb_command
+  lda #FB_T_SCROLL_UP
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -260,6 +245,43 @@ clear_region:
   sta ROW
   stz COL
   bra goto
+
+
+; Inserts the character in A at the cursor (the rest of the line moves right, its last character dropping
+; off), and moves on: to the next row after the last column, or past the bottom row's end, scrolling.
+; On exit X, Y are preserved
+type_char:
+  pha
+  lda #FB_T_INSERT                 ; Room for it
+  jsr fb_text
+  lda #1
+  jsr fb_data
+  pla
+  jsr put
+  inc COL                          ; The text mode's rule: to the next row after the last column, but not
+  lda COL                          ; past the bottom one
+  cmp #TEXT_COLS
+  bne .done
+  lda ROW
+  cmp #TEXT_ROWS - 1
+  bcs new_bottom_line              ; Past the bottom row's end: the region scrolls up
+  inc ROW
+  stz COL
+.done:
+  rts
+
+; The region scrolled up a row, and the cursor to the start of the bottom row.
+; On exit X, Y are preserved
+new_bottom_line:
+  jsr scroll_up
+  stz COL
+  jmp goto                         ; tail call
+
+; Insert's callback: $FF typed, a code outside the font, which text mode shows as a box.
+; On exit X, Y are preserved
+type_outside_the_font:
+  lda #$ff
+  bra type_char
 
 
 ; Page Up's callback: the backlight a step brighter (doubled, and 1 more), up to 255.
@@ -296,8 +318,8 @@ brightness_stays:
 ; Delete's callback: the cursor's line deleted, the lines below moving up, and the cursor to its start.
 ; On exit X, Y are preserved
 delete_line:
-  lda #FB_DELETE_LINES
-  jsr fb_command
+  lda #FB_T_DELETE_LINES
+  jsr fb_text
   lda #1
   jsr fb_data
   stz COL                          ; (where DELETE_LINES leaves the cursor)

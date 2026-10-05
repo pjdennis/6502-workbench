@@ -1,6 +1,7 @@
 # Michael's 12x16 font, the source of firmware/lib/graphics/character_patterns_12x16.inc and the FPGA's
 # font memory (tools/font_12x16.py generates both). Each glyph is a line naming it, then 16 rows of 12
-# pixels, '#' lit and '.' dark, the top row first.
+# pixels, '#' lit and '.' dark, the top row first. $7f is a box, drawn for codes outside the font so that a
+# stray one shows.
 
 $20 ' '
 ............
@@ -1710,4 +1711,22 @@ $7e '~'
 ............
 ............
 ............
+............
+
+$7f box
+............
+.##########.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.#........#.
+.##########.
 ............

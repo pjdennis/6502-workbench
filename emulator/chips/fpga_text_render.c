@@ -45,7 +45,7 @@ static void send_scroll(struct ili9341 *p, const struct fpga_text_render *r) {
 /* A cell, {cursor, reverse, code}, at memory row m, column c, as gd_show_character draws a character */
 static void draw_cell(struct ili9341 *p, int m, int c, int cell) {
     int code = cell & 0xFF;
-    const uint16_t *glyph = font_12x16[code & 0x80 ? 0 : code];
+    const uint16_t *glyph = font_12x16[code & 0x80 ? 0x7F : code];   /* past the font, its box */
     uint16_t invert = (cell & REVERSE ? 0xFFFF : 0) ^ (cell & CURSOR ? (uint16_t)(0xFFFF << (CELL_H - CURSOR_ROWS)) : 0);
     words(p, CASET, 2, (const int[]){ m * CELL_H, m * CELL_H + CELL_H - 1 });
     words(p, PASET, 2, (const int[]){ c * CELL_W, c * CELL_W + CELL_W - 1 });
