@@ -89,19 +89,21 @@ module top #(
   // Text mode: the grid, and its renderer
   wire       text_mode, cursor_on, dirty, take_dirty, cell_rd, r_valid, r_lock, r_take;
   wire [4:0] cursor_row, cursor_col, dirty_row, dirty_col, cell_row, cell_col, region_top, region_bottom, offset;
-  wire       moving;
+  wire       moving, hw_request, hw_up, hw_ready;
+  wire [4:0] hw_count;
   wire [8:0] cell_data;
   wire [1:0] r_kind;
   wire [7:0] r_value;
   text_grid #(.ROWS(ROWS), .COLS(COLS), .QUEUE_DEPTH(TEXT_DEPTH)) grid (
     .clk(sysclk), .push(text_push), .op(text_op), .a(text_a), .b(text_b), .full(text_full), .idle(grid_idle),
     .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
-    .top(region_top), .bottom(region_bottom), .offset(offset), .moving(moving),
-    .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
+    .top(region_top), .bottom(region_bottom), .offset(offset), .moving(moving), .hw_request(hw_request),
+    .hw_up(hw_up), .hw_count(hw_count), .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
     .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data));
   text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(BLINK)) render (
     .clk(sysclk), .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
-    .top(region_top), .bottom(region_bottom), .offset(offset), .moving(moving), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
+    .top(region_top), .bottom(region_bottom), .offset(offset), .moving(moving), .hw_request(hw_request),
+    .hw_up(hw_up), .hw_count(hw_count), .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
     .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data), .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value),
     .r_lock(r_lock), .r_take(r_take), .idle(render_idle));
 

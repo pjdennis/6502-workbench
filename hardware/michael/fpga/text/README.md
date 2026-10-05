@@ -19,7 +19,9 @@ sees the same screen on either display.
 - **Hardware scrolling.** Scrolling the whole region (and inserting or deleting lines at its top row)
   doesn't redraw it: the grid moves the cells with their dirty marks and changes an offset, and the
   renderer has the display's own scroll (VSCRDEF, VSCRSADD) move the region's picture, drawing only the rows
-  that come in blank. Each row is drawn in the memory row the scroll shows where it belongs. The frame
+  that come in blank. So that nothing stale shows while it moves, the grid first asks the renderer, which
+  draws what's dirty, takes the cursor off the glass and blanks the rows that leave (their memory is where the
+  new rows show); after the scroll it draws nothing for a frame, as the display takes it up at its next. Each row is drawn in the memory row the scroll shows where it belongs. The frame
   memory runs from the bottom row up, so the top fixed area is the rows below the region:
   [`ili9341.py`](ili9341.py) models it, and [`test_ili9341.py`](test_ili9341.py) checks the model against
   Michael's graphic driver's whole-screen scroll, which works on the board.
@@ -39,7 +41,9 @@ sees the same screen on either display.
 - [`test_text_grid.py`](test_text_grid.py): the grid's RTL against the model, directed and random.
 - [`test_text_render.py`](test_text_render.py): the grid, the renderer and the display queue together; a model
   panel ([`ili9341.py`](ili9341.py)) turns the display's SPI bytes into pixels, and every cell must show what
-  the model holds, on the glass and in memory. A region's scroll must redraw only its new rows. Most tests use
+  the model holds, on the glass and in memory. A region's scroll must redraw only its new rows, only cells
+  that change may be drawn, and the glass, scanned frame by frame as the panel does, must never show a cell
+  anything it doesn't hold before, between or after the operations of a scroll. Most tests use
   a 6 by 8 grid: a full screen takes about 18 s to simulate.
 
 ## On the board

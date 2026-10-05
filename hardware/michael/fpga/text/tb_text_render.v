@@ -6,6 +6,8 @@
 // Run by test_text_render.py.
 module tb_text_render;
   parameter ROWS = 20, COLS = 20;   // smaller in most tests, for speed
+  parameter FRAME = 5000;           // the renderer's wait for the display's next frame: test_text_render.py's
+                                    // frames are shorter
   reg clk = 1'b0;
   always #41.667 clk = !clk;   // 12 MHz
 
@@ -15,18 +17,21 @@ module tb_text_render;
   wire       full, grid_idle, text_mode, cursor_on, dirty, take_dirty, rd, r_valid, r_lock, r_take, render_idle;
   wire       spi_busy, lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led;
   wire [4:0] cursor_row, cursor_col, dirty_row, dirty_col, rd_row, rd_col, top, bottom, offset;
-  wire       moving;
+  wire       moving, hw_request, hw_up, hw_ready;
+  wire [4:0] hw_count;
   wire [8:0] rd_cell;
   wire [1:0] r_kind;
   wire [7:0] r_value;
   text_grid #(.ROWS(ROWS), .COLS(COLS), .QUEUE_DEPTH(64)) grid (
     .clk(clk), .push(push), .op(op), .a(a), .b(b), .full(full), .idle(grid_idle), .text_mode(text_mode),
     .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on), .top(top), .bottom(bottom),
-    .offset(offset), .moving(moving), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col),
+    .offset(offset), .moving(moving), .hw_request(hw_request), .hw_up(hw_up), .hw_count(hw_count),
+    .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col),
     .take_dirty(take_dirty), .rd(rd), .rd_row(rd_row), .rd_col(rd_col), .rd_cell(rd_cell));
-  text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(100_000_000)) render (
+  text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(100_000_000), .FRAME(FRAME)) render (
     .clk(clk), .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
-    .top(top), .bottom(bottom), .offset(offset), .moving(moving), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(rd),
+    .top(top), .bottom(bottom), .offset(offset), .moving(moving), .hw_request(hw_request), .hw_up(hw_up),
+    .hw_count(hw_count), .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(rd),
     .rd_row(rd_row), .rd_col(rd_col), .rd_cell(rd_cell), .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value),
     .r_lock(r_lock), .r_take(r_take), .idle(render_idle));
   display_spi #(.QUEUE_DEPTH(16)) display (
