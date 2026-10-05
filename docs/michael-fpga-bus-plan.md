@@ -27,9 +27,8 @@ the Cmod's flash, with the raw display commands and the debug port, and `graphic
 board, the backlight's PWM made snow on the display until its edges were kept clear of the SPI bytes. In
 review, reads came to use E with a shared pin instead of a dedicated PA1, a SOEB interlock came to let
 interrupts pause a read, the shared pins (first F and G) were named RS and RW after their LCD meanings, and
-stage 4 gained the pin shuffle. Michael's schematics, as built and as planned at the end of this plan, are in
-[`hardware/michael/schematics/`](../hardware/michael/schematics/)
-([`planned/`](../hardware/michael/schematics/planned/)).
+stage 4 gained the pin shuffle. Michael's schematics, with the plan's wiring complete (stage 4's pin shuffle included), are in
+[`hardware/michael/schematics/`](../hardware/michael/schematics/).
 
 ## Stages
 

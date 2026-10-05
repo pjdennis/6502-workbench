@@ -30,7 +30,7 @@ GDC_CURSOR_HEIGHT = 2
   .include graphics_macros.inc
 
 
-; The display is reached through the FPGA bus (fpga_bus.inc): E (PA0) strobes each byte on port B, and RS (PA5)
+; The display is reached through the FPGA bus (fpga_bus.inc): E (PA2) strobes each byte on port B, and RS (PA5)
 ; chooses between the bus's commands (low) and data (high). gd_select raises RS, so every byte strobed until
 ; gd_unselect is display data (the fast paths: gd_send_data, send_zero_data, gd_send_x2); gd_send_command
 ; sends the bus's DISP_COMMAND, then the display's command as its argument.

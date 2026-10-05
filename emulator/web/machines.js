@@ -26,11 +26,11 @@ Board.define("wendy2c", {
 
 Board.define("michael", {
   title: ["michael ", "v2"],
-  leds: [{ id: "led", label: "LED · PA2", red: true }],
+  leds: [{ id: "led", label: "LED · PA1", red: true }],
   keyboard: true,
   hint: "Type or paste anywhere on the page: the keys go to the PS/2 keyboard.",
   pins: {
-    a: ["E", "RW", "RS", "SOEB", "SOLB", "LED", "A1", "A0"],
+    a: ["E", "RW", "RS", "SOEB", "SOLB", "FE", "LED", "A0"],   // FE: the FPGA bus's E
     b: ["D7", "D6", "D5", "D4", "D3", "D2", "D1", "D0"],
     hl: { a: ["LED"] },
   },

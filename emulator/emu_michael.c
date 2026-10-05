@@ -300,12 +300,13 @@ static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
     tty_alt_screen_leave();
 }
 
-#define MICHAEL_LED 0x04    /* PA2: LED in base_config_v2.inc */
+#define MICHAEL_LED 0x02    /* PA1: LED in base_config_v2.inc */
 
-/* The LED is wired from +5V to PA2, so it lights while PA2 is an output
- * driven low (initialize_michael_ports drives it high to turn it off). */
+/* The LED is wired from PA1 through its resistor to ground (stage 4 of
+ * docs/michael-fpga-bus-plan.md), so it lights while PA1 is an output
+ * driven high. */
 static int led_on(const struct via_6522_state *via) {
-    return (via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(via) & MICHAEL_LED);
+    return (via->ddra & MICHAEL_LED) && (via_6522_porta_pins(via) & MICHAEL_LED);
 }
 
 /* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
@@ -330,7 +331,7 @@ static void web_event(void *ctx, const struct web_event *evt) {
     else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
 }
 
-/* The page's LED 0 is PA2's. */
+/* The page's LED 0 is PA1's. */
 static void web_snapshot(void *ctx, struct web_snapshot *snap) {
     struct michael_web *w = ctx;
     snap->n_leds = 1;
@@ -378,7 +379,7 @@ int emu_run_michael(const struct emu_opts *opts) {
         fprintf(stderr, "michael: could not open --serial-input %s\n", opts->serial_input_filename);
         return 1;
     }
-    /* The FPGA bus: E on PA0, with RS and RW on PA5 and PA6 */
+    /* The FPGA bus: E on PA2, with RS and RW on PA5 and PA6 */
     FILE *fpga_log = NULL;
     if (opts->fpga_log_filename && !(fpga_log = fopen(opts->fpga_log_filename, "w"))) {
         fprintf(stderr, "michael: could not open --fpga-log %s\n", opts->fpga_log_filename);

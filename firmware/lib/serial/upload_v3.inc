@@ -971,8 +971,8 @@ upload_failed:
   bcc .no_value
   jsr display_hex
 .no_value:
-  lda #LED                       ; The LED is wired from +5V: low lights it
-  trb PORTA
+  lda #LED                       ; The LED lights while its pin is high
+  tsb PORTA
   stp
 
 

@@ -2,12 +2,12 @@
 ; 100 ms, so the same exchange repeats on the screen: the host's frame, the ACK ($FA), then
 ; the ID (AB 83).
 ;
-; Scope trigger: the LED output (VIA PA2, pin 4) rises just before the clock is pulled low to
+; Scope trigger: the LED output (VIA PA1, pin 3) rises just before the clock is pulled low to
 ; send $F2 and falls about 20 ms later, once the reply is over. Trigger on its rising edge and
 ; probe the PS/2 clock and data lines, and CA2 (VIA pin 39), the frame detector's output.
 ;
 ;   Scope: send $F2
-;   Trigger: LED (PA2)
+;   Trigger: LED (PA1)
 ;   ACK AB 83            what the driver got: ACK, or --- if none came within about 25 ms,
 ;   Count 002A           then the other bytes; and how many times $F2 has been sent
 ;
@@ -185,7 +185,7 @@ show_count:
 
 
 title:         .asciiz "Scope: send $F2"
-trigger_label: .asciiz "Trigger: LED (PA2)"
+trigger_label: .asciiz "Trigger: LED (PA1)"
 ack_label:     .asciiz "ACK"
 no_ack_label:  .asciiz "---"
 blank_byte:    .asciiz "   "

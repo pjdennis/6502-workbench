@@ -1,5 +1,5 @@
-"""Michael's schematics (hardware/michael/schematics/michael_schematic.py), as built and as planned once the
-FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete, against the firmware and the FPGA design: the
+"""Michael's schematics (hardware/michael/schematics/michael_schematic.py), with the FPGA bus plan's wiring
+(docs/michael-fpga-bus-plan.md) complete, against the firmware and the FPGA design: the
 VIA pins the firmware names reach the parts that use them, the 74HC00's chip selects give Michael's memory
 map, the FPGA pin names are the design's ports, and the committed SVGs are current.
 
@@ -32,12 +32,11 @@ def constants(path):
 
 
 class BoardChecks:
-    """What holds in both states. Subclasses set PLANNED."""
-    PLANNED = None
+    """The checks of the board's netlist."""
 
     @classmethod
     def setUpClass(cls):
-        cls.board = michael_schematic.board(planned=cls.PLANNED)
+        cls.board = michael_schematic.board()
 
     def joined(self, a, b):
         """True if pin a and pin b, each (ref, pin name or number), are on the same net."""
@@ -170,27 +169,27 @@ class BoardChecks:
             self.assertEqual(self.board.net('U9', pin), net, f'Cmod pin {pin}')
 
 
-class AsBuiltTest(BoardChecks, unittest.TestCase):
-    """Michael with the FPGA bus in charge (stage 2, 2026-10-04), before stage 4's pin shuffle. The older display
-    interface's select, reset and backlight inputs are still wired, as PA1, PA2 and a tie, but ignored."""
-    PLANNED = False
-    E, E_BUFFER_PIN, E_CMOD_PIN = 0, 'B1', 9
-    UNUSED_CONTROL_INPUTS = ('B8',)
-    CMOD_PINS = {9: 'e', 10: 'pa1', 11: 'pa2', 12: 'rs', 13: 'backlight_tie', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw',
-                 26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led',
-                 32: 'lcd_miso'}
+class MichaelTest(BoardChecks, unittest.TestCase):
+    """Michael with the FPGA bus plan's wiring complete: stage 4's pin shuffle (E on PA2, the LED on PA1, PA0
+    free), so the firmware's pins (base_config_v2.inc, fpga_bus.inc) are the ones checked."""
+    E, E_BUFFER_PIN, E_CMOD_PIN = 2, 'B3', 11
+    UNUSED_CONTROL_INPUTS = ('B1', 'B2', 'B8')
+    CMOD_PINS = {9: 'pio9', 10: 'pio10', 11: 'e', 12: 'rs', 13: 'backlight_tie', 14: 'd_oeb', 17: 'd_dir',
+                 18: 'soeb', 19: 'rw', 26: 'lcd_cs', 27: 'lcd_reset', 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck',
+                 31: 'lcd_led', 32: 'lcd_miso'}
 
-    def test_port_a_reaches_the_display_interface(self):
-        bits = constants('firmware/lib/graphics/graphics_display.inc')
-        for name, buffer_pin in {'GD_E': 'B1', 'GD_CSB': 'B2', 'GD_RSTB': 'B3', 'GD_DC': 'B4'}.items():
-            with self.subTest(name):
-                self.assertJoined(('U5', f'PA{bits[name]}'), ('U8', buffer_pin))
+    def test_e_is_the_bus_drivers(self):
+        self.assertEqual(constants('firmware/lib/fpga/fpga_bus.inc')['FB_E'], self.E)
 
-    def test_the_led_lights_when_pa2_is_low(self):
-        """Reversed, so the display's reset (active low, idle high) leaves it dark."""
-        self.assertJoined(('U5', f'PA{constants(LCD_AND_KEYBOARD)["LED"]}'), ('D1', 'K'))
-        self.assertJoined(('D1', 'A'), ('R8', 2))
-        self.assertPinsOn('+5V', ('R8', 1))
+    def test_pa0_is_free(self):
+        self.assertIsNone(self.board.net('U5', 'PA0'))
+
+    def test_the_led_is_on_pa1_and_lights_when_it_is_high(self):
+        led = constants(LCD_AND_KEYBOARD)['LED']
+        self.assertEqual(led, 1)
+        self.assertJoined(('U5', f'PA{led}'), ('R8', 1))
+        self.assertJoined(('R8', 2), ('D1', 'A'))
+        self.assertPinsOn('GND', ('D1', 'K'))
 
     def test_fpga_pins_are_the_designs_ports(self):
         """As the bus designs name them: spi-display's pin file with bus.mk's renames, and the bus's own pins."""
@@ -207,29 +206,10 @@ class AsBuiltTest(BoardChecks, unittest.TestCase):
         self.assertEqual(nets - ports, set())
 
 
-class PlannedTest(BoardChecks, unittest.TestCase):
-    """The FPGA bus plan's wiring changes: stage 1's, then stage 4's pin shuffle (E to PA2, the LED to PA1,
-    PA0 free). The firmware moves the LED and E in stage 4, so their pins are written out here."""
-    PLANNED = True
-    E, E_BUFFER_PIN, E_CMOD_PIN, LED = 2, 'B3', 11, 1
-    UNUSED_CONTROL_INPUTS = ('B1', 'B2', 'B8')
-    CMOD_PINS = {11: 'e', 12: 'rs', 14: 'd_oeb', 17: 'd_dir', 18: 'soeb', 19: 'rw', 26: 'lcd_cs', 27: 'lcd_reset',
-                 28: 'lcd_dc', 29: 'lcd_mosi', 30: 'lcd_sck', 31: 'lcd_led', 32: 'lcd_miso'}
-
-    def test_pa0_is_free(self):
-        self.assertIsNone(self.board.net('U5', 'PA0'))
-
-    def test_the_led_is_on_pa1_and_lights_when_it_is_high(self):
-        self.assertJoined(('U5', f'PA{self.LED}'), ('R8', 1))
-        self.assertJoined(('R8', 2), ('D1', 'A'))
-        self.assertPinsOn('GND', ('D1', 'K'))
-
-
 class CommittedOutputTest(unittest.TestCase):
     def test_committed_sheets_and_parts_lists_are_current(self):
         outputs = michael_schematic.outputs()
         self.assertIn('parts.md', outputs)
-        self.assertIn('planned/parts.md', outputs)
         for name, text in outputs.items():
             with self.subTest(name), open(os.path.join(SCHEMATICS, name)) as f:
                 self.assertEqual(f.read(), text, f'run: python3 {os.path.relpath(SCHEMATICS, ROOT)}/michael_schematic.py')

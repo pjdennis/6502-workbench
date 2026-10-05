@@ -1,5 +1,5 @@
 /* fpga_bus chip tests: the Michael FPGA bus as the emulator sees it (docs/michael-fpga-bus-plan.md). Each
- * rising edge of E (PA0) is a transfer, chosen by RS (PA5) and RW (PA6); writes carry port B. With a log,
+ * rising edge of E (PA2) is a transfer, chosen by RS (PA5) and RW (PA6); writes carry port B. With a log,
  * each transfer is a line: "C hh" (command), "D hh" (data), "R" (reply read) or "S" (status read). */
 
 #include <stdint.h>
@@ -9,6 +9,8 @@
 #include "../bus.h"
 #include "../chips/via_6522.h"
 #include "../chips/fpga_bus.h"
+
+#define E 0x04                        /* PA2, the bus's E */
 
 static struct via_6522_state vs;
 static struct fpga_bus_state fs;
@@ -42,7 +44,7 @@ static void teardown(void) {
 static void strobe(uint8_t porta) {
     bus_write(&bus_, 0xF001, porta);
     bus_step(&bus_); bus_step(&bus_);
-    bus_write(&bus_, 0xF001, porta | 0x01);
+    bus_write(&bus_, 0xF001, porta | E);
     bus_step(&bus_); bus_step(&bus_); bus_step(&bus_);
     bus_write(&bus_, 0xF001, porta);
     bus_step(&bus_); bus_step(&bus_);
@@ -50,7 +52,7 @@ static void strobe(uint8_t porta) {
 
 TEST writes_and_reads(void) {
     setup();
-    bus_write(&bus_, 0xF003, 0x61);   /* DDRA: E, RS, RW outputs */
+    bus_write(&bus_, 0xF003, 0x60 | E);   /* DDRA: E, RS, RW outputs */
     bus_write(&bus_, 0xF002, 0xFF);   /* DDRB: port B an output */
     bus_write(&bus_, 0xF000, 0x2A);
     strobe(0x00);                     /* RS 0, RW 0: a command */
@@ -66,8 +68,8 @@ TEST writes_and_reads(void) {
 
 TEST e_held_high_is_one_transfer(void) {
     setup();
-    bus_write(&bus_, 0xF003, 0x61);
-    bus_write(&bus_, 0xF001, 0x21);
+    bus_write(&bus_, 0xF003, 0x60 | E);
+    bus_write(&bus_, 0xF001, 0x20 | E);
     for (int i = 0; i < 20; i++) bus_step(&bus_);
     ASSERT_STR_EQ("D 00\n", logged());
     teardown();
@@ -75,10 +77,10 @@ TEST e_held_high_is_one_transfer(void) {
 }
 
 TEST e_as_an_input_is_held_low(void) {
-    /* After a reset PA0 is an input; the board's pull-down keeps E low */
+    /* After a reset PA2 is an input; the board's pull-down keeps E low */
     setup();
     bus_write(&bus_, 0xF003, 0x60);
-    bus_write(&bus_, 0xF001, 0x01);
+    bus_write(&bus_, 0xF001, E);
     for (int i = 0; i < 10; i++) bus_step(&bus_);
     ASSERT_STR_EQ("", logged() ? logged() : "");
     ASSERT_EQ_FMT(0u, fs.transfers, "%u");
@@ -96,7 +98,7 @@ static uint8_t driven(void *ctx) {
 static void model_setup(void) {
     setup();
     via_6522_set_portb_input(&vs, driven, &fs);
-    bus_write(&bus_, 0xF003, 0x71);   /* DDRA: E, SOEB, RS, RW outputs */
+    bus_write(&bus_, 0xF003, 0x70 | E);   /* DDRA: E, SOEB, RS, RW outputs */
 }
 
 #define SOEB 0x10                     /* high: the keyboard board off */
@@ -117,7 +119,7 @@ static uint8_t read_byte(int rs) {
     bus_write(&bus_, 0xF002, 0x00);
     bus_write(&bus_, 0xF001, porta);
     bus_step(&bus_); bus_step(&bus_);
-    bus_write(&bus_, 0xF001, porta | 0x01);
+    bus_write(&bus_, 0xF001, porta | E);
     bus_step(&bus_); bus_step(&bus_);
     uint8_t b = via_6522_portb_pins(&vs);
     bus_write(&bus_, 0xF001, porta);
@@ -155,11 +157,11 @@ TEST echo_and_the_soeb_interlock(void) {
     /* SOEB low (the keyboard board on) stops the FPGA driving port B */
     bus_write(&bus_, 0xF002, 0x00);
     bus_write(&bus_, 0xF001, 0x60);
-    bus_write(&bus_, 0xF001, 0x61);
+    bus_write(&bus_, 0xF001, 0x60 | E);
     bus_step(&bus_); bus_step(&bus_);
     uint8_t v;
     ASSERT_FALSE(fpga_bus_output(&fs, &v));
-    bus_write(&bus_, 0xF001, 0x60 | SOEB | 0x01);
+    bus_write(&bus_, 0xF001, 0x60 | SOEB | E);
     bus_step(&bus_);
     ASSERT(fpga_bus_output(&fs, &v));
     ASSERT_EQ_FMT(0x5A, v, "%02x");
