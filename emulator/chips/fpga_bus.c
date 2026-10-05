@@ -74,9 +74,13 @@ static void fpga_bus_tick(struct chip *self, struct bus *bus) {
         if (!(pins & BUS_RW)) {
             uint8_t b = via_6522_portb_pins(s->via);
             if (s->log) fprintf(s->log, "%c %02X\n", rs ? 'D' : 'C', b);
-            if (rs) write_data(s, b); else write_command(s, b);
-        } else {
-            if (s->log) fputs(rs ? "R\n" : "S\n", s->log);
+            if (!s->absent) {
+                if (rs) write_data(s, b); else write_command(s, b);
+            }
+        } else if (s->log) {
+            fputs(rs ? "R\n" : "S\n", s->log);
+        }
+        if ((pins & BUS_RW) && !s->absent) {
             s->reading = 1;
             s->read_rs = rs;
             if (!rs) {

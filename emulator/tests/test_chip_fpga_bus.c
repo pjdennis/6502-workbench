@@ -207,6 +207,18 @@ TEST text_mode_refuses_raw_display_commands(void) {
     PASS();
 }
 
+TEST an_absent_fpga_never_answers(void) {
+    /* Unconfigured, the FPGA keeps the data buffer off: port B floats (reads 0 here) and nothing changes */
+    model_setup();
+    fs.absent = 1;
+    command(0x01);
+    ASSERT_EQ_FMT(0x00, read_byte(1), "%02x");
+    command(0x20);
+    ASSERT_FALSE(fs.text.used);
+    teardown();
+    PASS();
+}
+
 SUITE(fpga_bus_suite) {
     RUN_TEST(writes_and_reads);
     RUN_TEST(e_held_high_is_one_transfer);
@@ -216,6 +228,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(echo_and_the_soeb_interlock);
     RUN_TEST(text_mode_changes_the_grid);
     RUN_TEST(text_mode_refuses_raw_display_commands);
+    RUN_TEST(an_absent_fpga_never_answers);
 }
 
 GREATEST_MAIN_DEFS();

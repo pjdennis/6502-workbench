@@ -385,6 +385,7 @@ int emu_run_michael(const struct emu_opts *opts) {
         return 1;
     }
     fpga_bus_init(&fpga_chip, &fpga_state, &via_state, fpga_log);
+    fpga_state.absent = opts->no_fpga;
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));

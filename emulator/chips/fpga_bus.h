@@ -29,6 +29,7 @@ struct fpga_bus_state {
     uint8_t cmd, args_left, first_arg, sticky, text_mode;
     uint8_t reply[FPGA_REPLY_DEPTH];
     unsigned reply_head, reply_count;
+    int absent;             /* unconfigured: transfers are logged, but nothing answers or acts on them */
     int reading, read_rs;   /* a read under way (E high), of the reply queue (read_rs) or the status */
     uint8_t read_value;
     struct fpga_text text;
