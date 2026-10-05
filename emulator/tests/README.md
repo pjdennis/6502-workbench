@@ -22,7 +22,7 @@ test goes in both. It currently leaves out `test_stubs`, `test_serial_link`,
   `test_hd44780_font`.
 - Machines and front ends: `test_machine_dispatch`, `test_emu_run`,
   `test_cli`, `test_serial_link`, `test_ps2_keys`, `test_audio`,
-  `test_web_json`, `test_web_smoke`.
+  `test_web_json`, `test_web_smoke`, `test_web_snapshot`.
 - nmos-default services: `test_console`, `test_file_io`, `test_stubs`,
   `test_trace`, `test_direct_io`, `test_smoke`.
 

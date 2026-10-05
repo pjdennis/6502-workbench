@@ -68,6 +68,7 @@ test_chip_led_buttons|emulator/tests/test_chip_led_buttons.c emulator/chips/led_
 test_audio|emulator/tests/test_audio.c emulator/audio.c|$AUDIO_LDLIBS
 test_web_json|emulator/tests/test_web_json.c emulator/web_json.c|
 test_web_smoke|emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_json.c|
+test_web_snapshot|emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_json.c|
 "
 
 # ASan + UBSan options. detect_leaks is on by default on Linux; explicit

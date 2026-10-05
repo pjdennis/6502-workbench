@@ -102,6 +102,10 @@ int web_server_poll(struct web_server *srv,
 void web_server_broadcast(struct web_server *srv,
                            const struct web_snapshot *snap);
 
+/* The snapshot as the JSON text the page receives, in json[0..cap).
+ * Returns its length, or -1 if it doesn't fit. */
+int web_snapshot_json(const struct web_snapshot *snap, char *json, int cap);
+
 /* Push a sample-rate header to clients (sent once after each new WS
  * upgrade so the JS audio decoder knows what rate to feed WebAudio). */
 void web_server_send_audio_rate(struct web_server *srv,

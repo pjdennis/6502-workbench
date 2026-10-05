@@ -728,32 +728,24 @@ static int sj_printf(char *buf, int cap, int *pos, const char *fmt, ...) {
     return 0;
 }
 
-void web_server_broadcast(struct web_server *srv,
-                           const struct web_snapshot *s) {
-    if (!srv) return;
-    int any = 0;
-    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
-        if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
-    if (!any) return;
-
-    char json[8192];
+int web_snapshot_json(const struct web_snapshot *s, char *json, int cap) {
     int pos = 0;
     int rows = s->lcd_rows, cols = s->lcd_cols;
     int ddram_n = rows * cols;
     if (ddram_n > (int)sizeof(s->ddram_visible)) ddram_n = (int)sizeof(s->ddram_visible);
 
-    if (sj_printf(json, sizeof(json), &pos,
-        "{\"lcd\":{\"rows\":%d,\"cols\":%d,\"ddram\":[", rows, cols)) return;
+    if (sj_printf(json, cap, &pos,
+        "{\"lcd\":{\"rows\":%d,\"cols\":%d,\"ddram\":[", rows, cols)) return -1;
     for (int i = 0; i < ddram_n; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%u",
-                      i ? "," : "", (unsigned)s->ddram_visible[i])) return;
+        if (sj_printf(json, cap, &pos, "%s%u",
+                      i ? "," : "", (unsigned)s->ddram_visible[i])) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos, "],\"cgram\":[")) return;
+    if (sj_printf(json, cap, &pos, "],\"cgram\":[")) return -1;
     for (int i = 0; i < 64; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%u",
-                      i ? "," : "", (unsigned)(s->cgram[i] & 0x1F))) return;
+        if (sj_printf(json, cap, &pos, "%s%u",
+                      i ? "," : "", (unsigned)(s->cgram[i] & 0x1F))) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos,
+    if (sj_printf(json, cap, &pos,
         "],\"cur\":[%d,%d],\"cur_on\":%d,\"blink_on\":%d,\"disp_on\":%d,"
         "\"f5x10\":%d,\"panel_rows\":%d,\"panel_5x10\":%d},"
         "\"btn\":%d,"
@@ -766,11 +758,25 @@ void web_server_broadcast(struct web_server *srv,
         (unsigned)s->porta, (unsigned)s->portb,
         (unsigned)s->ddra, (unsigned)s->ddrb,
         s->osc_ticks, s->cpu_cycles, s->clock_mhz, s->target_mhz,
-        (unsigned)s->pc, s->irq, s->stopped)) return;
+        (unsigned)s->pc, s->irq, s->stopped)) return -1;
     for (int i = 0; i < s->n_leds && i < WEB_MAX_LEDS; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return;
+        if (sj_printf(json, cap, &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos, "]}")) return;
+    if (sj_printf(json, cap, &pos, "]}")) return -1;
+    return pos;
+}
+
+void web_server_broadcast(struct web_server *srv,
+                           const struct web_snapshot *s) {
+    if (!srv) return;
+    int any = 0;
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
+        if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
+    if (!any) return;
+
+    char json[8192];
+    int pos = web_snapshot_json(s, json, sizeof(json));
+    if (pos < 0) return;
 
     char initmsg[64];
     int initlen = 0;
