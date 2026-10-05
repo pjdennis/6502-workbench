@@ -39,60 +39,29 @@ graphic_present:
 
 
 ; Starts the graphic screen: the display reset and initialised as Michael's graphic driver does it
-; (ili9341_init_commands.inc), then text mode on (the orientation, the grid cleared and drawn).
+; (ili9341_start.inc), then text mode on (the orientation, the grid cleared and drawn).
 ; On exit A is not preserved; X, Y are
 graphic_start:
-  phx
-  phy
   jsr fb_initialize
-  lda #FB_DISP_RESET               ; (which ends text mode, if it's on)
-  jsr fb_command
-  lda #0
-  jsr fb_data                      ; In reset...
-  lda #1
-  jsr delay_hundredths             ; ...10 ms...
-  lda #FB_DISP_RESET
-  jsr fb_command
-  lda #1
-  jsr fb_data                      ; ...out of it...
-  lda #12
-  jsr delay_hundredths             ; ...and 120 ms to wake
-  ldy #0
-.command:
-  lda INIT_COMMANDS,Y              ; Each: the command, a count of its parameters (bit 7: a delay after),
-  beq .commands_done               ; the parameters
-  iny
+  jsr ili9341_reset                ; (which ends text mode, if it's on)
+  jsr ili9341_initialize
+  lda #FB_T_ON
+  jmp graphic_op                   ; tail call
+
+
+; ili9341_start.inc's display command: the bus's DISP_COMMAND, with the command as its argument
+; On entry A = the display command
+; On exit A, X, Y are preserved
+graphic_display_command:
   pha
   lda #FB_DISP_COMMAND
   jsr fb_command
   pla
-  jsr fb_data
-  lda INIT_COMMANDS,Y
-  iny
-  pha
-  and #$7f
-  tax
-  beq .parameters_done
-.parameter:
-  lda INIT_COMMANDS,Y
-  iny
-  jsr fb_data
-  dex
-  bne .parameter
-.parameters_done:
-  pla
-  bpl .command
-  lda #15
-  jsr delay_hundredths             ; 150 ms
-  bra .command
-.commands_done:
-  lda #FB_T_ON
-  jsr graphic_op
-  ply
-  plx
-  rts
+  jmp fb_data                      ; tail call
 
-  .include ili9341_init_commands.inc
+ILI_COMMAND = graphic_display_command
+ILI_DATA    = fb_data
+  .include ili9341_start.inc
 
 
 ; Sends a text mode operation other than PUT (which it closes)
