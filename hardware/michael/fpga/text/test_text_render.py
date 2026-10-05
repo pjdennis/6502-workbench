@@ -124,6 +124,20 @@ class TextRenderTest(unittest.TestCase):
             with self.subTest(ops=ops):
                 self.assertLessEqual(self.check(start + ops).cells_drawn - drawn, most + 2)
 
+    def test_only_cells_that_change_are_drawn(self):
+        """A cell written with what it already holds, or a blank moved onto a blank, isn't drawn again; nor are
+        the cells a hidden cursor passes."""
+        rows, cols = SMALL
+        text = [[0x41 + (r * 7 + c) % 26 for c in range(cols)] for r in range(3)]   # rows 3 on stay blank
+        fill = [op for r in range(3) for op in [(GOTO, r, 0)] + [(PUT, ch, 0) for ch in text[r]]]
+        start = [(TEXT_ON, 0, 0)] + fill + [(WAIT, 0, 0)]
+        drawn = self.check(start).cells_drawn
+        for ops, most in (([(GOTO, 1, 0)] + [(PUT, ch, 0) for ch in text[1]], 0),
+                          ([(GOTO, 1, 0), (INSERT_LINES, 1, 0)], 3 * cols),   # rows 1-3 change; 4 and 5 stay blank
+                          ([(GOTO, 0, 0), (DELETE_LINES, 1, 0)], 3 * cols)):  # rows 0-2 change
+            with self.subTest(ops=ops):
+                self.assertLessEqual(self.check(start + ops).cells_drawn - drawn, most)
+
     def test_changing_the_region_after_a_scroll(self):
         rows, cols = SMALL
         fill = [op for r in range(rows) for op in [(GOTO, r, 0)] + [(PUT, 0x61 + (r * 5 + c) % 26, 0) for c in range(cols)]]

@@ -4,8 +4,10 @@
 // video, 0-based). Operations queue, so Michael never waits; each runs in turn, the shifting ones a cell
 // per clock or two.
 //
-// The renderer reads the grid through its own port, and finds what to draw through the dirty bits: every
-// cell written is marked, and so are the cells the cursor leaves and reaches (or shows or hides on).
+// The renderer reads the grid through its own port, and finds what to draw through the dirty bits: a cell
+// is marked when what's written changes it (a cell written with what it holds keeps its mark, set or not, so
+// rewriting the same text or moving blanks onto blanks draws nothing), and so are the cells a shown cursor
+// leaves and reaches (or shows or hides on). TEXT_ON marks every cell.
 // take_dirty clears the lowest dirty cell's bit and reads it; a cell marked in the same clock stays marked.
 //
 // With HW_SCROLL, scrolling the whole region (SCROLL_UP and SCROLL_DOWN, and INSERT_LINES and DELETE_LINES
@@ -60,14 +62,17 @@ module text_grid #(
   wire [3:0] e_op = entry[19:16];
   wire [7:0] e_a = entry[15:8], e_b = entry[7:0];
 
-  // The grid: {row, col} -> {reverse, character}
+  // The grid: {row, col} -> {reverse, character}. A write (we) reads the cell first, and lands the next clock
+  // (wb), marked by what it held
   reg  [8:0] cells [0:1023];       // undefined until TEXT_ON clears it
-  reg        we = 1'b0;
-  reg  [4:0] w_row = 0, w_col = 0;
-  reg  [8:0] w_cell = BLANK, r_cell = BLANK;
+  reg        we = 1'b0, wb = 1'b0;
+  reg  [4:0] w_row = 0, w_col = 0, wb_row = 0, wb_col = 0;
+  reg  [8:0] w_cell = BLANK, r_cell = BLANK, wb_cell = BLANK, wb_old = BLANK;
   wire [9:0] src;                  // the shifting engine's source cell, read for the next clock
   always @(posedge clk) begin
-    if (we) cells[{w_row, w_col}] <= w_cell;
+    wb <= we;
+    if (we) begin {wb_row, wb_col, wb_cell} <= {w_row, w_col, w_cell}; wb_old <= cells[{w_row, w_col}]; end
+    if (wb) cells[{wb_row, wb_col}] <= wb_cell;
     r_cell <= cells[src];
   end
   wire [4:0] p_row = take_dirty ? dirty_row : rd_row, p_col = take_dirty ? dirty_col : rd_col;
@@ -91,7 +96,7 @@ module text_grid #(
   wire [4:0] src_col = vertical ? col : forward ? col + step_n : col - step_n;
   assign src = {src_row, src_col};
   wire       last = forward ? row == r1 && col == c1 : row == r0 && col == c0;
-  assign idle = state == IDLE && empty && !pop && !we;
+  assign idle = state == IDLE && empty && !pop && !we && !wb;
   assign moving = state != IDLE;
 
   reg       carry = 1'b0, scrolled = 1'b0, mark_all = 1'b0;
@@ -142,7 +147,8 @@ module text_grid #(
   reg  [4:0] was_row = 0, was_col = 0;
   reg        was_on = 1'b0;
   wire       cursor_moved = {cursor_row, cursor_col, cursor_on} != {was_row, was_col, was_on};
-  reg        w_mark = 1'b1;   // the written cell's mark: set, or carried with the cell
+  reg        w_carry = 1'b0, wb_carry = 1'b0;   // the written cell's mark is w_mark (carried with the cell),
+  reg        w_mark = 1'b1, wb_mark = 1'b1;     // not set by a change
   // After a hardware scroll, where the cursor's picture went: n rows up or down, if still in the block
   wire [5:0] moved_row = forward ? {1'b0, cursor_row} - n[4:0] : {1'b0, cursor_row} + n[4:0];
   wire       cursor_in_block = cursor_col < COLS && cursor_row >= r0 && cursor_row <= r1;
@@ -167,14 +173,15 @@ module text_grid #(
 
   always @(posedge clk) begin
     if (take_dirty) marks[dirty_row*COLS + dirty_col] <= 1'b0;
-    if (we) marks[w_row*COLS + w_col] <= w_mark;
+    if (we) {wb_carry, wb_mark} <= {w_carry, w_mark};
+    if (wb) marks[wb_row*COLS + wb_col] <= wb_carry ? wb_mark : marks[wb_row*COLS + wb_col] || wb_cell != wb_old;
     if (scrolled && cursor_in_block) begin
       marks[cursor_row*COLS + cursor_col] <= 1'b1;
       if (moved_in_block) marks[moved_row[4:0]*COLS + cursor_col] <= 1'b1;
     end
     if (cursor_moved) begin
-      if (was_col < COLS) marks[was_row*COLS + was_col] <= 1'b1;
-      if (cursor_col < COLS) marks[cursor_row*COLS + cursor_col] <= 1'b1;
+      if (was_on && was_col < COLS) marks[was_row*COLS + was_col] <= 1'b1;
+      if (cursor_on && cursor_col < COLS) marks[cursor_row*COLS + cursor_col] <= 1'b1;
       {was_row, was_col, was_on} <= {cursor_row, cursor_col, cursor_on};
     end
     if (mark_all) marks <= {ROWS*COLS{1'b1}};
@@ -184,6 +191,7 @@ module text_grid #(
   always @(posedge clk) begin
     pop <= 1'b0;
     we  <= 1'b0;
+    w_carry  <= 1'b0;
     w_mark   <= 1'b1;
     scrolled <= 1'b0;
     mark_all <= 1'b0;
@@ -194,7 +202,7 @@ module text_grid #(
           case (e_op)
             TEXT_ON: begin
               text_mode <= 1'b1; cursor_on <= 1'b0; reverse <= 1'b0; top <= 0; bottom <= LAST_ROW; offset <= 0;
-              cursor_row <= 0; cursor_col <= 0;
+              cursor_row <= 0; cursor_col <= 0; mark_all <= 1'b1;
               start(1'b1, 1'b1, 0, LAST_ROW, 0, LAST_COL, ROWS);
             end
             TEXT_OFF: text_mode <= 1'b0;
@@ -240,13 +248,13 @@ module text_grid #(
       MOVE:                        // the source is being read; or a blank goes in
         if (src_ok) state <= MOVE_WRITE;
         else begin
-          we <= 1'b1; w_row <= row; w_col <= col; w_cell <= BLANK;
+          we <= 1'b1; w_row <= row; w_col <= col; w_cell <= BLANK; w_carry <= carry;
           step;
           if (last) finish;
         end
       MOVE_WRITE: begin
         we <= 1'b1; w_row <= row; w_col <= col; w_cell <= r_cell;
-        w_mark <= !carry || marks[src_row*COLS + src_col];
+        w_carry <= carry; w_mark <= marks[src_row*COLS + src_col];
         step;
         if (last) finish; else state <= MOVE;
       end

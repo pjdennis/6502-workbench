@@ -10,8 +10,9 @@ sees the same screen on either display.
 ## The pieces
 
 - [`../rtl/text_grid.v`](../rtl/text_grid.v): the grid. Operations queue and run in turn; one engine does
-  every shift (insert, delete, the scrolls, lines). Every cell written, and every cell the cursor leaves or
-  reaches, is marked dirty.
+  every shift (insert, delete, the scrolls, lines). A cell is marked dirty when a write changes it, so
+  rewriting the same text, or moving blank rows onto blank rows, draws nothing; so are the cells a shown
+  cursor leaves or reaches.
 - [`../rtl/text_render.v`](../rtl/text_render.v): draws the dirty cells, each as Michael's driver draws a
   character, with reverse video and the blinking cursor (the bottom two pixel rows of its cell), through
   [`../rtl/display_spi.v`](../rtl/display_spi.v)'s second input.
