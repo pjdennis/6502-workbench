@@ -14,8 +14,8 @@
  *
  * The FPGA's side is modelled at the level of its commands (hardware/michael/fpga/rtl/bus_control.v): the
  * control commands (NOP, ID, RESET, ECHO), the reply queue and the status byte's sticky bits, GEOMETRY, and
- * text mode's grid (fpga_text.h); the raw display commands are accepted (and refused in text mode, as the
- * FPGA does) but not drawn. A read drives port B with its byte while E is high, unless SOEB (PA4) is low:
+ * text mode's grid (fpga_text.h); the raw display commands are accepted but not drawn (in text mode, as the
+ * FPGA does, DISP_COMMAND and DISP_DATA are refused, and DISP_RESET ends it). A read drives port B with its byte while E is high, unless SOEB (PA4) is low:
  * the keyboard board has port B then (the interlock). */
 
 #define FPGA_REPLY_DEPTH 512

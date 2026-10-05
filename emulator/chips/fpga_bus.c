@@ -12,9 +12,10 @@ enum { NOP = 0x00, ID = 0x01, RESET = 0x03, ECHO = 0x04, DISP_RESET = 0x10, DISP
        REGION = 0x28, REGION_RESET = 0x29, GEOMETRY = 0x30, SERIAL_SEND = 0x50 };
 enum { ABANDONED = 0x01, UNKNOWN = 0x02, EXTRA = 0x04, UNDERFLOW = 0x08, OVERFLOW = 0x10 };
 
-/* The commands, as bus_control.v has them */
+/* The commands, as bus_control.v has them: in text mode, DISP_COMMAND and DISP_DATA are refused, and
+   DISP_RESET ends it */
 static int display(const struct fpga_bus_state *s, uint8_t c) {
-    return c == BACKLIGHT || (!s->text_mode && (c == DISP_RESET || c == DISP_COMMAND || c == DISP_DATA));
+    return c == BACKLIGHT || c == DISP_RESET || (!s->text_mode && (c == DISP_COMMAND || c == DISP_DATA));
 }
 static int text(uint8_t c) { return c >= TEXT_ON && c < GEOMETRY; }
 static int known(const struct fpga_bus_state *s, uint8_t c) {
@@ -45,7 +46,7 @@ static void write_command(struct fpga_bus_state *s, uint8_t c) {
     if (c == GEOMETRY) { push_reply(s, FPGA_TEXT_ROWS); push_reply(s, FPGA_TEXT_COLS); }
     if (c == RESET) { s->reply_count = 0; s->sticky = 0; }
     if (c == TEXT_ON) s->text_mode = 1;
-    if (c == TEXT_OFF) s->text_mode = 0;
+    if (c == TEXT_OFF || c == DISP_RESET) s->text_mode = 0;
     if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c, 0, 0);
 }
 

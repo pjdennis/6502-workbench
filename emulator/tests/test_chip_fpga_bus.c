@@ -209,6 +209,18 @@ TEST text_mode_refuses_raw_display_commands(void) {
     PASS();
 }
 
+TEST disp_reset_ends_text_mode(void) {
+    /* A graphics program after a text one: its display reset is taken, and ends text mode */
+    model_setup();
+    command(0x20);
+    command(0x10); data(0x00);                   /* DISP_RESET */
+    ASSERT_FALSE(fs.text_mode);
+    command(0x11); data(0x2A);                   /* DISP_COMMAND: taken */
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    teardown();
+    PASS();
+}
+
 TEST an_absent_fpga_never_answers(void) {
     /* Unconfigured, the FPGA keeps the data buffer off: port B floats (reads 0 here) and nothing changes */
     model_setup();
@@ -230,6 +242,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(echo_and_the_soeb_interlock);
     RUN_TEST(text_mode_changes_the_grid);
     RUN_TEST(text_mode_refuses_raw_display_commands);
+    RUN_TEST(disp_reset_ends_text_mode);
     RUN_TEST(an_absent_fpga_never_answers);
 }
 
