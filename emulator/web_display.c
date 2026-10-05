@@ -33,24 +33,28 @@ static int lone(const struct writer *w, const uint16_t *px, int n, int i) {
     return (i + 1 == n || px[i + 1] != px[i]) && px[i] != w->colours[0] && px[i] != w->colours[1];
 }
 
+/* The n pixels before end, as themselves */
+static void put_literal(struct writer *w, const uint16_t *end, int n) {
+    if (!n) return;
+    put_run(w, LITERAL, n);
+    for (const uint16_t *p = end - n; p < end; p++) put16(w, *p);
+}
+
 /* n pixels: runs of a remembered colour, of a new one, or (for pixels in a row that neither repeat nor are
  * remembered) the pixels themselves */
 static void put_pixels(struct writer *w, const uint16_t *px, int n) {
     int literal = 0;          /* pixels waiting to go as themselves, before i */
     for (int i = 0; i < n; ) {
-        uint16_t v = px[i];
-        int run = 1;
-        while (i + run < n && px[i + run] == v) run++;
         if (lone(w, px, n, i) && (literal || (i + 1 < n && lone(w, px, n, i + 1)))) {
             literal++;
             i++;
             continue;
         }
-        if (literal) {
-            put_run(w, LITERAL, literal);
-            for (int k = i - literal; k < i; k++) put16(w, px[k]);
-            literal = 0;
-        }
+        put_literal(w, px + i, literal);
+        literal = 0;
+        uint16_t v = px[i];
+        int run = 1;
+        while (i + run < n && px[i + run] == v) run++;
         if (v == w->colours[0]) {
             put_run(w, FIRST, run);
         } else if (v == w->colours[1]) {
@@ -65,10 +69,7 @@ static void put_pixels(struct writer *w, const uint16_t *px, int n) {
         }
         i += run;
     }
-    if (literal) {
-        put_run(w, LITERAL, literal);
-        for (int k = n - literal; k < n; k++) put16(w, px[k]);
-    }
+    put_literal(w, px + n, literal);
 }
 
 /* Where the line differs from what the page has: x0 to x1 - 1; 0 if nowhere */
