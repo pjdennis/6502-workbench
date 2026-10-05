@@ -17,8 +17,8 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at the clean scrolls on the glass
-([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4 done in software, the bench to go
+**Status (2026-10-05): stages 0 to 3 done (stage 3, text mode:
+[`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4 done in software, the bench to go
 ([below](#4-rom-support-and-switching-displays-at-run-time)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
@@ -95,7 +95,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   commands, and the windowed scrolling below. `board_check.py` reads the cells back out of the display's
   memory and finds them as the model has them. On the glass a region scrolled the right way between its
   fixed areas, but with flashes: the row that left showed for a moment where the new one comes in, and the
-  cursor showed in rows it never reached. Fixed in simulation (below); still to see on the glass.
+  cursor showed in rows it never reached. Fixed (below), and the clean scrolls confirmed on the glass
+  (2026-10-05).
 - **Look into the panel's windowed scrolling** to speed up the editor's scrolling. Done: scrolling the whole
   region (and inserting or deleting lines at its top row) moves its picture with VSCRDEF and VSCRSADD, and
   redraws only the rows that come in blank. The frame memory runs from the bottom row up (MADCTL's MY), so
