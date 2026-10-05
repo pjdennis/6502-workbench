@@ -24,7 +24,8 @@ sees the same screen on either display.
   Michael's graphic driver's whole-screen scroll, which works on the board.
 - The font is [`firmware/lib/graphics/font_12x16.txt`](../../../../firmware/lib/graphics/font_12x16.txt), shared
   with Michael's graphics driver: [`tools/font_12x16.py`](../../../../tools/font_12x16.py) generates the
-  firmware's table and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
+  firmware's table, the emulator's ([`emulator/chips/font_12x16.h`](../../../../emulator/chips/font_12x16.h)),
+  and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
 - The bus design ([`../bus/`](../bus/)) puts them behind [`../rtl/bus_control.v`](../rtl/bus_control.v), and
   [`../bus/debug.py`](../bus/debug.py) has the text commands, and `debug.py text`, a screen of them.
 
