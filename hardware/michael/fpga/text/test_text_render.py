@@ -55,12 +55,17 @@ class Simulator:
         subprocess.run(['vvp', '-n', self.vvp, f'+ops={ops_file}', f'+spi={spi_file}'], check=True,
                        capture_output=True, text=True)
         panel = Panel()
-        panel.cells_drawn = 0
+        panel.cells_drawn, panel.events, panel.waits = 0, [], []   # events: (clock, dc, byte), for frames
         with open(spi_file) as f:
             for line in f:
-                dc, byte = line.split()
-                panel.receive(int(dc), int(byte, 16))
-                panel.cells_drawn += line == f'0 {RAMWR:02x}\n'
+                fields = line.split()
+                if fields[0] == 'wait':
+                    panel.waits.append(int(fields[1]))
+                    continue
+                clock, dc, byte = int(fields[0]), int(fields[1]), int(fields[2], 16)
+                panel.receive(dc, byte)
+                panel.events.append((clock, dc, byte))
+                panel.cells_drawn += (dc, byte) == (0, RAMWR)
         return panel
 
     def close(self):

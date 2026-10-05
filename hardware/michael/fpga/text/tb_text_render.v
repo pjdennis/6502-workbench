@@ -1,7 +1,8 @@
 `timescale 1ns / 1ps
 // The text grid, the renderer and the display queue, as the bus design has them: operations from a file
 // (+ops=FILE: lines "op a b" in hex; op 10 waits until everything is idle) go in as fast as the grid takes
-// them, and every byte the display receives is logged (+spi=FILE: lines "dc byte"), until everything is idle.
+// them, and every byte the display receives is logged (+spi=FILE: lines "clock dc byte", the clock counted from
+// the start), until everything is idle. Each wait ends with a line "wait clock".
 // Run by test_text_render.py.
 module tb_text_render;
   parameter ROWS = 20, COLS = 20;   // smaller in most tests, for speed
@@ -37,12 +38,13 @@ module tb_text_render;
   always @(posedge clk) if (r_take && $isunknown({r_kind, r_value})) $fatal(1, "renderer entry undefined at %t", $time);
 
   // The display's side: each byte, with its DC level
-  integer fspi, bits = 0;
+  integer fspi, bits = 0, clocks = 0;
+  always @(posedge clk) clocks = clocks + 1;
   reg [7:0] sr = 0;
   always @(posedge lcd_sck) begin
     sr = {sr[6:0], lcd_mosi};
     bits = bits + 1;
-    if (bits == 8) begin $fwrite(fspi, "%0d %02h\n", lcd_dc, sr); bits = 0; end
+    if (bits == 8) begin $fwrite(fspi, "%0d %0d %02h\n", clocks, lcd_dc, sr); bits = 0; end
   end
 
   integer quiet;
@@ -64,7 +66,7 @@ module tb_text_render;
     fspi = $fopen(spi_file, "w");
     @(posedge clk); #1;
     while ($fscanf(fin, "%h %h %h\n", o, x, y) == 3) begin
-      if (o == 'h10) wait_quiet;
+      if (o == 'h10) begin wait_quiet; $fwrite(fspi, "wait %0d\n", clocks); end
       else begin
         while (full) begin @(posedge clk); #1; end
         op = o; a = x; b = y; push = 1'b1;
