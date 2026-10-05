@@ -209,6 +209,32 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
   escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
   designed.
+- **Interrupt handlers on the bus.** With more peripherals, interrupt handlers will want to use the bus
+  without upsetting what the main thread is doing. Today nothing does (the keyboard's handler never touches
+  the bus), and a handler that did could break two kinds of state: Michael's (`fb_write` sets RS, port B and
+  E in turn, so a handler between them changes port A's RS and RW and port B's direction) and the FPGA's
+  (the open command, its arguments left, and the reply queue, where a handler's reply would interleave with
+  a multi-byte reply the main thread is reading). A stream has no end marker: the next command ends it.
+  Options, simplest first:
+  1. **Handlers stay off the bus.** They note what happened (a flag, a byte in a buffer) and the main loop
+     does the bus work: the usual embedded practice (deferred work, a "bottom half"), and the keyboard's way.
+  2. **Atomic transactions, with resumable streams (recommended).** As drivers share an I²C or SPI bus: each
+     transaction (a command and its arguments, a byte of a stream, or a command and the read of its reply)
+     runs with interrupts off, so a handler runs only between transactions and may use the bus freely. The
+     bus driver keeps the open stream's command in RAM; a handler that used the bus marks it closed, and the
+     main thread's next stream byte sends the command again first, then carries on. Every stream resumes so:
+     PUT at the grid's cursor, DISP_DATA in the display's write, SERIAL_SEND's bytes. It's the ROM's
+     `ROM_PUTTING` ([`michael_graphic_screen.inc`](../firmware/boards/michael/michael_graphic_screen.inc))
+     generalised into [`fpga_bus.inc`](../firmware/lib/fpga/fpga_bus.inc). No protocol change; interrupt
+     latency grows by at most one transaction. Handlers still save and restore the port state they change.
+  3. **Contexts in the FPGA,** if a handler ever needs to stream in the middle of the main thread's streams:
+     two complete sets of parser state (main and interrupt), each with its own command, arguments left and
+     reply queue, and a command (`CONTEXT n`) switching between them, leaving the other untouched. The
+     precedents are banked registers (the Z80's alternate set, the ARM's FIQ registers), multiplexed channels
+     (CMUX, above) and USB endpoints. One level is enough, as 6502 IRQ handlers don't nest (keep NMI off the
+     bus). Handlers still save and restore Michael's port state.
+
+  Decide with stage 6's peripherals; option 2 is the default either way.
 - **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
   B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
   design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
