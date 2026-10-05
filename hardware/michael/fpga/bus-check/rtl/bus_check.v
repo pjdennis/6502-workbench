@@ -32,8 +32,8 @@ module bus_check #(
   input        rs,
   input        rw,
   input        soeb,
-  input        pa1,          // unused: the spi-display interface's CSB, RSTB and backlight inputs
-  input        pa2,
+  input        pio9,         // unused: ties (stage 4 moved E to Cmod 11), and the backlight tie
+  input        pio10,
   input        backlight_tie,
   output       d_oeb,
   output       d_dir,

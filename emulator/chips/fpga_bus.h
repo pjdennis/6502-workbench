@@ -9,7 +9,7 @@
 #include "fpga_text_render.h"
 
 /* The Michael FPGA bus (docs/michael-fpga-bus-plan.md), as the emulator sees it: each rising edge of E
- * (PA0, held low by the board's pull-down while it's an input) is a transfer, chosen by RS (PA5) and RW
+ * (PA2, held low by the board's pull-down while it's an input) is a transfer, chosen by RS (PA5) and RW
  * (PA6). With a log, each is a line: "C hh" (a command), "D hh" (data), "R" (a reply read) or "S" (a status
  * read).
  *

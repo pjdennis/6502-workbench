@@ -61,7 +61,11 @@ SVC_DELAY            = SVC_BASE + $99 ; Wait A times 100 microseconds
 SVC_KEYBOARD_START   = SVC_BASE + $9C ; Start the keyboard: con_read, con_ready; enables interrupts
 SVC_SCREEN_START     = SVC_BASE + $9F ; Start the screen: write_b, con_flush, scr_*
 SVC_IRQ              = SVC_BASE + $A2 ; The ROM's interrupt handler (ends with rti)
-SVC_END              = SVC_BASE + $A5
+SVC_SCREEN_SELECT    = SVC_BASE + $A5 ; The screen: A = 0 the LCD, 1 the graphic display (the FPGA's text
+                                      ; mode, 20 by 20); C set, and the LCD kept, if no FPGA with text mode
+                                      ; answers. Choose before starting the screen, or the chosen one starts
+                                      ; at once. The loader sets the LCD again before each program
+SVC_END              = SVC_BASE + $A8
 
 ; Zero page
 ROM_ZP_KEYBOARD      = $F0 ; $F0-$F9: the keyboard's, from SVC_KEYBOARD_START
@@ -76,4 +80,6 @@ ROM_IRQ_JMP          = $3F00 ; 3 bytes: jmp, where the IRQ vector points (from S
 ROM_STARTED          = $3F03 ; 1 byte: which parts have started (cleared before a program runs)
 ROM_RAM_KEYBOARD     = $3F04 ; The keyboard's, from SVC_KEYBOARD_START...
 ROM_RAM_SCREEN       = $3F28 ; ...the screen's, from SVC_SCREEN_START...
-ROM_RAM_END          = $3F81 ; ...up to here
+ROM_SCREEN           = $3F81 ; 1 byte: bit 7 set: the graphic screen (from SVC_SCREEN_SELECT)
+ROM_PUTTING          = $3F82 ; 1 byte: bit 7 set: the FPGA bus's last command was PUT (the graphic screen's)
+ROM_RAM_END          = $3F83 ; ...up to here

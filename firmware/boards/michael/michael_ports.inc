@@ -2,10 +2,11 @@
 ; program (initialize_machine_v2.inc) or a subroutine (the ROM's services).
 
   .macro initialize_michael_ports
-  ; Disable input shift register; prepare to initialize output shift register; turn off LED.
+  ; Disable input shift register; prepare to initialize output shift register; LED off (low).
   ; Set before port A becomes an output: SOEB low would have the input shift register drive
-  ; port B at the same time as the 6522
-  lda #(SOEB | SOLB | START | PARITY | LED)
+  ; port B at the same time as the 6522. PA2 (the FPGA bus's E) stays an input, held low by its
+  ; pull-down: driven high with port B an output, it would start a read
+  lda #(SOEB | SOLB | START | PARITY)
   sta PORTA
 
   ; Initialize 6522 port A (display control and shift register output enable)

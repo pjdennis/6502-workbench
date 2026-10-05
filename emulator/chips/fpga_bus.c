@@ -2,7 +2,7 @@
 #include <string.h>
 #include "fpga_bus.h"
 
-#define BUS_E    0x01
+#define BUS_E    0x04   /* PA2 (stage 4 of the plan moved it from PA0) */
 #define BUS_SOEB 0x10
 #define BUS_RS   0x20
 #define BUS_RW   0x40

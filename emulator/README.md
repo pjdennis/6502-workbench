@@ -19,8 +19,8 @@ A three-machine 6502 emulator:
   starts as the ROM leaves it (two lines, display on, no cursor, clear),
   as programs run from the ROM's loader expect; without `--load`, the
   code file is the ROM image. Selected with
-  `--machine michael`. At exit it prints the LCD, the PA2 LED (lit while
-  the pin is low) and a bus check: LCD
+  `--machine michael`. At exit it prints the LCD, the PA1 LED (lit while
+  the pin is high) and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once. `--live` runs it in the terminal and `--web` in the
   browser (see [`--web` mode](#--web-mode)).
@@ -73,7 +73,7 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
 | `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
 | `--key-interval MS` | michael: milliseconds between typed keys (default 20) |
-| `--fpga-log <path>` | michael: a line per FPGA bus transfer (a rising edge of E on PA0): `C hh` (command), `D hh` (data), `R` (reply read), `S` (status read) |
+| `--fpga-log <path>` | michael: a line per FPGA bus transfer (a rising edge of E on PA2): `C hh` (command), `D hh` (data), `R` (reply read), `S` (status read) |
 | `--kbd-fault <name>` | michael: `noedge`, `noirq`, `noack` or `resend` (see `tools/tests/test_michael_keyboard.py`) |
 | `--ram <decode>` | michael: how RAM below the VIA is decoded: `16k` (the default: `$0000-$3FFF`), `eater` (Ben Eater's: reads of `$4000-$7FFF` find nothing, but writes there, the VIA's too, land in `$0000-$3FFF`), `full` (24K at `$0000-$5FFF`) or `mirror8k` (8K at `$0000-$1FFF`, repeated up to `$5FFF`); `firmware/programs/michael/michael_ram_map.s` shows which |
 | `--serial-input <path>` | wendy2c, michael: bytes pre-queued into the SERIAL_USB chip |
@@ -155,8 +155,8 @@ protocol.
   PB7 piezo as audio. `emulator/demo_wendy2c.sh --web` boots a demo.
 - **michael**: the 20x4 LCD, the graphic display (the ILI9341 Michael
   drives through the FPGA bus, in raw mode or the FPGA's text mode, its
-  hardware scroll and backlight included) and the LED on PA2 (lit while
-  PA2 is low, as on the board). Keys typed or pasted on the page go to the PS/2
+  hardware scroll and backlight included) and the LED on PA1 (lit while
+  PA1 is high, as on the board). Keys typed or pasted on the page go to the PS/2
   keyboard, encoded as `--keys` encodes a terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
   arrows, Home/End/PgUp/PgDn/Insert/Delete and Ctrl+letter.
 

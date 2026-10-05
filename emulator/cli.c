@@ -154,7 +154,7 @@ void emu_opts_usage(FILE *fp) {
 "                         no cap under --live or --web unless this is given explicitly).\n"
 "                         For wendy2c this is oscillator ticks (~2 per CPU cycle);\n"
 "                         for nmos-default and --server it is CPU cycles.\n"
-"  --fpga-log PATH        michael: a line per FPGA bus transfer (E on PA0): \"C hh\", \"D hh\", \"R\" or \"S\"\n"
+"  --fpga-log PATH        michael: a line per FPGA bus transfer (E on PA2): \"C hh\", \"D hh\", \"R\" or \"S\"\n"
 "  --no-fpga              michael: the FPGA unconfigured: it never answers or acts on the bus\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"

@@ -51,11 +51,14 @@ the FPGA controls the buffer; every design here holds both pins low (on, Michael
 
 Same power connections as the data buffer; DIR (pin 1) and /OE (pin 19) to ground (always on, Michael to the FPGA).
 
+Since stage 4's pin shuffle ([below](#stage-4-rewiring-the-pin-shuffle)); the last column is this directory's
+design, from before the FPGA bus, which no longer fits this wiring:
+
 | Michael signal | VIA pin | '245 B side (pin) | '245 A side (pin) | Cmod pin | Bus design | This design |
 |---|---|---|---|---|---|---|
-| PA0, E (the strobe), with **10 kΩ to ground** | 2 | B1 (18) | A1 (2) | 9 | `e` | `e` |
-| PA1 | 3 | B2 (17) | A2 (3) | 10 | `pa1` (ignored) | `csb` (select, active low) |
-| PA2 (Michael's LED) | 4 | B3 (16) | A3 (4) | 11 | `pa2` (ignored) | `rstb` (reset, active low) |
+| unused: **10 kΩ tie to ground** (PA0 is free) | — | B1 (18) | A1 (2) | 9 | `pio9` (ignored) | `e` |
+| unused: **10 kΩ tie to ground** | — | B2 (17) | A2 (3) | 10 | `pio10` (ignored) | `csb` |
+| PA2, E (the strobe), with **10 kΩ to ground** | 4 | B3 (16) | A3 (4) | 11 | `e` | `rstb` |
 | PA5, RS (shared with LCD RS, keyboard START/ACK) | 7 | B4 (15) | A4 (5) | 12 | `rs` | `dc` (data/command) |
 | **10 kΩ to the 3.3 V rail** (a tie) | — | B5 (14) | A5 (6) | 13 | `backlight_tie` (ignored) | `bl` (backlight on) |
 | PA4, SOEB (the keyboard board's output enable) | 6 | B6 (13) | A6 (7) | 18 | `soeb` (the interlock) | unused |
@@ -66,8 +69,9 @@ This design copies B5 to the display's LED pin, so the tie keeps the backlight o
 and sets the backlight with its `BACKLIGHT` command, by PWM. Its renames of this directory's pin names are in
 [`../bus.mk`](../bus.mk).
 
-The pull-down on B1 keeps E low while the VIA's pins are inputs after a reset, so the FPGA sees no stray
-strobes.
+The pull-down on B3 keeps E low while the VIA's pins are inputs after a reset (and until a program makes
+PA2 an output), so the FPGA sees no stray strobes. Michael's LED is on PA1 since stage 4, the right way round
+(PA1, 220 Ω, the LED, ground): Michael's schematics, sheet 2.
 
 ## Display (ILI9341, SPI)
 
@@ -124,3 +128,16 @@ With Michael and the Cmod powered off:
 - [x] Control buffer B1 (pin 18, PA0, E): add **10 kΩ to ground**, so E idles low while the VIA's pins are inputs.
 
 Then power up and run `michael_graphic_display_test.s`: the display should work exactly as before.
+
+## Stage 4 rewiring: the pin shuffle
+
+Stage 4 of [`docs/michael-fpga-bus-plan.md`](../../../../docs/michael-fpga-bus-plan.md): E moves from PA0 to
+PA2 and the LED from PA2 to PA1, leaving PA0 free. The firmware, the ROM and the bus design change with it,
+so do it all at once, with Michael powered off ([the plan's procedure](../../../../docs/michael-fpga-bus-plan.md#4-rom-support-and-switching-displays-at-run-time)):
+
+- [ ] The LED and its 220 Ω resistor: off PA2 (VIA pin 4) and +5V; now PA1 (VIA pin 3), the resistor, the
+      LED's anode, its cathode to ground.
+- [ ] Control buffer B3 (pin 16, PA2's): add **10 kΩ to ground**, E's pull-down now.
+- [ ] Control buffer B1 (pin 18): remove the wire from PA0; its 10 kΩ to ground stays, as a tie.
+- [ ] Control buffer B2 (pin 17): remove the wire from PA1, and add **10 kΩ to ground**.
+

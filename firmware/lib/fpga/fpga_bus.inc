@@ -12,7 +12,7 @@
 ; instead of the busy flag); the keyboard driver puts them back as it found them. So each routine sets only
 ; the bits that differ from it.
 
-FB_E               = %00000001 ; PA0: the bus's strobe (moves to PA2 in stage 4 of the plan)
+FB_E               = %00000100 ; PA2: the bus's strobe (on PA0 until stage 4 of the plan)
 
 ; Commands
 FB_NOP             = $00
