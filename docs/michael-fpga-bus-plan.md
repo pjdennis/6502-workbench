@@ -166,8 +166,13 @@ The protocol below is the contract that the FPGA design, the firmware and the em
      `hardware/michael/fpga/text/board_check.py`.
 
 ### 5. The editor on the graphic display
-- `editor/bin/editor-michael-upload.sh --graphic` adds a few-byte launcher that selects the graphic display and
-  then starts the editor. The editor itself doesn't change: it reads its screen size at run time.
+- `editor/bin/editor-michael-upload.sh` chooses the screen: the 20x4 LCD as now, or with `--graphic` the
+  graphic display, through a few-byte launcher that selects it and then starts the editor. The editor itself
+  doesn't change: it reads its screen size at run time.
+- The launcher also sets the scroll region to the editor's text rows (1-19), leaving the status bar outside
+  it. The editor sets no region itself (it resets it only on exit), and its pairs of DL and IL still leave
+  the same screen with a region set, but its view scrolls then start at the region's top: text mode's
+  hardware scroll, with no editor change.
 - Emulator tests in graphic mode, then on the board.
 
 ### 6. Later
