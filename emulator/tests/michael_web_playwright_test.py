@@ -13,9 +13,9 @@ and drives the page with headless Chromium:
    pasted text.
 4. The reset button restarts the program, and the keyboard still works.
 
-Then runs hello_michael_led.s and checks the PA2 LED lights on the page
-as the program toggles it: while PA2 is low, as on the board, where the
-LED is wired from +5V to the pin.
+Then runs hello_michael_led.s and checks the PA1 LED lights on the page
+as the program toggles it: while PA1 is high, as on the board, where the
+LED is wired from the pin to ground (since stage 4 of the FPGA bus plan).
 
 SKIPs cleanly if vasm6502_oldstyle or playwright are missing.
 """
@@ -53,14 +53,14 @@ def check_keyboard_page(page, out_dir, verbose):
 
     labels = page.evaluate("""() => ['row-a-lbl', 'row-b-lbl'].map(id =>
         [...document.querySelectorAll('#' + id + ' td')].slice(1, 9).map(td => td.textContent))""")
-    if labels != [["E", "RW", "RS", "SOEB", "SOLB", "LED", "A1", "A0"],
+    if labels != [["E", "RW", "RS", "SOEB", "SOLB", "FE", "LED", "A0"],
                   ["D7", "D6", "D5", "D4", "D3", "D2", "D1", "D0"]]:
         return f"pin labels: {labels}"
 
-    # initialize_michael_ports drives PA2 high: the LED is off.
+    # initialize_michael_ports leaves PA1 low: the LED is off.
     led = page.evaluate(LED_STATE)
-    if led != [False, "1"]:
-        return f"LED (lit, PA2) after the ports are set up: {led}; want it off"
+    if led != [False, "0"]:
+        return f"LED (lit, PA1) after the ports are set up: {led}; want it off"
 
     steps = [
         ("type", "Hi!", ">Hi!"),
@@ -87,24 +87,24 @@ def check_keyboard_page(page, out_dir, verbose):
     return None
 
 
-# The LED and the PA2 pin's level as the page shows them: both drawn
+# The LED and the PA1 pin's level as the page shows them: both drawn
 # from the same snapshot, so they always agree with each other.
 LED_STATE = """() => [document.getElementById('led').classList.contains('on'),
-                     document.querySelector('#row-a .b2').textContent]"""
+                     document.querySelector('#row-a .b1').textContent]"""
 
 
 def check_led_page(page, verbose):
-    """The PA2 LED goes on and off on the page as hello_michael_led.s toggles
-    it. It is wired from +5V to the pin, so it lights while PA2 is low."""
+    """The PA1 LED goes on and off on the page as hello_michael_led.s toggles
+    it. It is wired from the pin to ground, so it lights while PA1 is high."""
     page.wait_for_function("window._lastState", timeout=3000)
     seen = set()
     for _ in range(30):
         page.wait_for_timeout(100)
         seen.add(tuple(page.evaluate(LED_STATE)))
-    if verbose: print(f"  led states (lit, PA2) seen: {sorted(seen)}")
-    if seen != {(False, "1"), (True, "0")}:
-        return (f"PA2 LED states (lit, PA2) seen: {sorted(seen)}; "
-                "want it on while PA2 is low and off while it is high")
+    if verbose: print(f"  led states (lit, PA1) seen: {sorted(seen)}")
+    if seen != {(False, "0"), (True, "1")}:
+        return (f"PA1 LED states (lit, PA1) seen: {sorted(seen)}; "
+                "want it on while PA1 is high and off while it is low")
     return None
 
 
