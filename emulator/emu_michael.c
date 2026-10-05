@@ -40,21 +40,23 @@ static struct bus *active_bus = NULL;
 struct portb_drivers {
     const struct lcd_hd44780_state *lcd;
     const struct ps2_keyboard_board_state *kbd;
+    const struct fpga_bus_state *fpga;
 };
 
 /* Pins driven by more than one device read as the AND of their drives,
  * as a low driver wins. Undriven pins read 0. */
 static uint8_t portb_input(void *ctx) {
     const struct portb_drivers *d = ctx;
-    uint8_t lcd = 0xFF, kbd = 0xFF;
+    uint8_t lcd = 0xFF, kbd = 0xFF, fpga = 0xFF;
     int lcd_drives = lcd_hd44780_output(d->lcd, &lcd);
     int kbd_drives = ps2_board_output(d->kbd, &kbd);
-    return (lcd_drives || kbd_drives) ? (uint8_t)(lcd & kbd) : 0x00;
+    int fpga_drives = fpga_bus_output(d->fpga, &fpga);
+    return (lcd_drives || kbd_drives || fpga_drives) ? (uint8_t)(lcd & kbd & fpga) : 0x00;
 }
 
 /* Counts spells of more than one device driving the same PORTB pin:
- * the VIA (pins set as outputs), the LCD (a read cycle) and the
- * keyboard board (SOEB low). */
+ * the VIA (pins set as outputs), the LCD (a read cycle), the keyboard
+ * board (SOEB low) and the FPGA (a bus read). */
 struct bus_check_state {
     const struct via_6522_state *via;
     struct portb_drivers drivers;
@@ -67,7 +69,7 @@ static void bus_check_tick(struct chip *self, struct bus *bus) {
     struct bus_check_state *s = self->state;
     uint8_t value;
     int drivers = (s->via->ddrb != 0) + lcd_hd44780_output(s->drivers.lcd, &value)
-                + ps2_board_output(s->drivers.kbd, &value);
+                + ps2_board_output(s->drivers.kbd, &value) + fpga_bus_output(s->drivers.fpga, &value);
     if (drivers > 1) {
         if (!s->contending) s->contention++;
         s->contending = 1;
@@ -389,6 +391,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     check_state.via = &via_state;
     check_state.drivers.lcd = &lcd_state;
     check_state.drivers.kbd = &kbd_state;
+    check_state.drivers.fpga = &fpga_state;
     via_6522_set_portb_input(&via_state, portb_input, &check_state.drivers);
 
     /* With --load the code file goes into RAM, and the ROM is --rom's or
@@ -483,6 +486,7 @@ int emu_run_michael(const struct emu_opts *opts) {
             (unsigned long long)clockticks6502, pc,
             cpu_stp_pending() ? "(STP)" : "(cycle cap)");
     lcd_report_final(stderr, "michael", &lcd_state);
+    fpga_bus_report(stderr, "michael", &fpga_state);
     fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
     fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
             (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);

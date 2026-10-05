@@ -86,10 +86,136 @@ TEST e_as_an_input_is_held_low(void) {
     PASS();
 }
 
+/* The FPGA's side of the model: its commands, the reply queue and the status, and text mode */
+
+static uint8_t driven(void *ctx) {
+    uint8_t v = 0;
+    return fpga_bus_output(ctx, &v) ? v : 0x00;
+}
+
+static void model_setup(void) {
+    setup();
+    via_6522_set_portb_input(&vs, driven, &fs);
+    bus_write(&bus_, 0xF003, 0x71);   /* DDRA: E, SOEB, RS, RW outputs */
+}
+
+#define SOEB 0x10                     /* high: the keyboard board off */
+
+static void write_byte(int rs, uint8_t b) {
+    bus_write(&bus_, 0xF002, 0xFF);
+    bus_write(&bus_, 0xF000, b);
+    strobe(SOEB | (rs ? 0x20 : 0x00));
+}
+
+static void command(uint8_t c) { write_byte(0, c); }
+static void data(uint8_t d) { write_byte(1, d); }
+
+/* A read as fpga_bus.inc makes it: port B an input, RW 1 (RS 1 the reply queue, 0 the status), E up; the byte
+ * on port B while E is high */
+static uint8_t read_byte(int rs) {
+    uint8_t porta = SOEB | 0x40 | (rs ? 0x20 : 0x00);
+    bus_write(&bus_, 0xF002, 0x00);
+    bus_write(&bus_, 0xF001, porta);
+    bus_step(&bus_); bus_step(&bus_);
+    bus_write(&bus_, 0xF001, porta | 0x01);
+    bus_step(&bus_); bus_step(&bus_);
+    uint8_t b = via_6522_portb_pins(&vs);
+    bus_write(&bus_, 0xF001, porta);
+    bus_step(&bus_); bus_step(&bus_);
+    return b;
+}
+
+TEST id_and_geometry_reply(void) {
+    model_setup();
+    command(0x01);
+    ASSERT_EQ_FMT('M', read_byte(1), "%02x");
+    ASSERT_EQ_FMT('B', read_byte(1), "%02x");
+    ASSERT_EQ_FMT(1, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(0x03, read_byte(1), "%02x");   /* raw display and text mode */
+    command(0x30);
+    ASSERT_EQ_FMT(20, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(20, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");   /* a clean status */
+    teardown();
+    PASS();
+}
+
+TEST an_empty_reply_queue_underflows(void) {
+    model_setup();
+    ASSERT_EQ_FMT(0x00, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(0x08, read_byte(0), "%02x");   /* UNDERFLOW, which the read clears */
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    teardown();
+    PASS();
+}
+
+TEST echo_and_the_soeb_interlock(void) {
+    model_setup();
+    command(0x04); data(0x5A);
+    /* SOEB low (the keyboard board on) stops the FPGA driving port B */
+    bus_write(&bus_, 0xF002, 0x00);
+    bus_write(&bus_, 0xF001, 0x60);
+    bus_write(&bus_, 0xF001, 0x61);
+    bus_step(&bus_); bus_step(&bus_);
+    uint8_t v;
+    ASSERT_FALSE(fpga_bus_output(&fs, &v));
+    bus_write(&bus_, 0xF001, 0x60 | SOEB | 0x01);
+    bus_step(&bus_);
+    ASSERT(fpga_bus_output(&fs, &v));
+    ASSERT_EQ_FMT(0x5A, v, "%02x");
+    teardown();
+    PASS();
+}
+
+static void put(const char *text) {
+    command(0x23);
+    while (*text) data((uint8_t)*text++);
+}
+
+TEST text_mode_changes_the_grid(void) {
+    model_setup();
+    command(0x20);                               /* TEXT_ON */
+    put("Hi");
+    command(0x22); data(2); data(3);             /* GOTO 2, 3 */
+    command(0x2F); data(1);                      /* VIDEO reverse */
+    put("x");
+    command(0x2E); data(1);                      /* CURSOR on */
+    char row[FPGA_TEXT_COLS + 1];
+    fpga_text_row(&fs.text, 0, row);
+    ASSERT_STR_EQ("Hi                  ", row);
+    fpga_text_row(&fs.text, 2, row);
+    ASSERT_STR_EQ("   x                ", row);
+    ASSERT(fs.text.reverse_cells[2][3]);
+    ASSERT_FALSE(fs.text.reverse_cells[0][0]);
+    ASSERT_EQ(2, fs.text.row);
+    ASSERT_EQ(4, fs.text.col);
+    ASSERT(fs.text.cursor);
+    teardown();
+    PASS();
+}
+
+TEST text_mode_refuses_raw_display_commands(void) {
+    model_setup();
+    command(0x20);
+    command(0x11); data(0x2A);                   /* DISP_COMMAND: refused */
+    ASSERT_EQ_FMT(0x02, read_byte(0), "%02x");   /* UNKNOWN */
+    command(0x13); data(0x80);                   /* BACKLIGHT: still fine */
+    command(0x21);                               /* TEXT_OFF */
+    command(0x11); data(0x2A);
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    teardown();
+    PASS();
+}
+
 SUITE(fpga_bus_suite) {
     RUN_TEST(writes_and_reads);
     RUN_TEST(e_held_high_is_one_transfer);
     RUN_TEST(e_as_an_input_is_held_low);
+    RUN_TEST(id_and_geometry_reply);
+    RUN_TEST(an_empty_reply_queue_underflows);
+    RUN_TEST(echo_and_the_soeb_interlock);
+    RUN_TEST(text_mode_changes_the_grid);
+    RUN_TEST(text_mode_refuses_raw_display_commands);
 }
 
 GREATEST_MAIN_DEFS();
