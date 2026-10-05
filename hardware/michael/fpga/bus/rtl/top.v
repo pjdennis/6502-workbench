@@ -75,7 +75,7 @@ module top #(
   wire       rd_rs   = m_rd || m_rd_end ? m_rd_rs : p_rd_rs;
 
   localparam ROWS = 20, COLS = 20;   // text mode: 12 by 16 characters, portrait
-  wire       text_push, text_full, grid_idle, render_idle;
+  wire       text_push, text_full, grid_idle, render_idle, bus_text_mode;
   wire [3:0] text_op;
   wire [7:0] text_a, text_b;
   bus_control #(.DISPLAY(1), .TEXT(1), .TEXT_ROWS(ROWS), .TEXT_COLS(COLS)) control (
@@ -84,7 +84,7 @@ module top #(
     .busy(disp_busy || serial_busy || !grid_idle || !render_idle),
     .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(disp_push), .disp_kind(disp_kind),
     .disp_value(disp_value), .disp_full(disp_full), .text_push(text_push), .text_op(text_op), .text_a(text_a),
-    .text_b(text_b), .text_full(text_full));
+    .text_b(text_b), .text_full(text_full), .text_mode(bus_text_mode));
 
   // Text mode: the grid, and its renderer
   wire       text_mode, cursor_on, dirty, take_dirty, cell_rd, r_valid, r_lock, r_take;
@@ -101,7 +101,7 @@ module top #(
     .hw_up(hw_up), .hw_count(hw_count), .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
     .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data));
   text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(BLINK)) render (
-    .clk(sysclk), .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
+    .clk(sysclk), .text_mode(text_mode && bus_text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
     .top(region_top), .bottom(region_bottom), .offset(offset), .moving(moving), .hw_request(hw_request),
     .hw_up(hw_up), .hw_count(hw_count), .hw_ready(hw_ready), .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
     .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data), .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value),

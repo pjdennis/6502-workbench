@@ -5,8 +5,10 @@
 // whose effects go to a display queue (display_spi.v) as entries: kind and value. With TEXT, the text
 // commands ($20-$2F) go to the text grid (text_grid.v) as operations, a command with its arguments each
 // (op = its code - $20) and PUT's data a character each, and GEOMETRY ($30) replies the grid's rows and
-// columns. Between TEXT_ON and TEXT_OFF the raw display commands are refused (UNKNOWN), all but BACKLIGHT:
-// the text renderer has the display.
+// columns. Between TEXT_ON and TEXT_OFF the text renderer has the display: DISP_COMMAND and DISP_DATA are
+// refused (UNKNOWN). DISP_RESET ends text mode (with a TEXT_OFF to the grid), as a reset loses all the
+// renderer set up, so a graphics program, which starts with one, has the display. text_mode follows at once,
+// so the renderer stops before the reset's entry, not when the grid gets to its TEXT_OFF.
 //
 // A byte with RS 0 is a command and always starts a new one. Bytes with RS 1 are data: a command's
 // arguments, then, for a streaming command, any number of data bytes. Errors set sticky status bits,
@@ -38,7 +40,8 @@ module bus_control #(
   output     [3:0] text_op,
   output     [7:0] text_a,
   output     [7:0] text_b,
-  input            text_full
+  input            text_full,
+  output reg       text_mode = 1'b0
 );
   localparam [7:0] NOP = 8'h00, ID = 8'h01, RESET = 8'h03, ECHO = 8'h04, SERIAL_SEND = 8'h50,
                    DISP_RESET = 8'h10, DISP_COMMAND = 8'h11, DISP_DATA = 8'h12, BACKLIGHT = 8'h13,
@@ -48,11 +51,10 @@ module bus_control #(
   localparam ABANDONED = 0, UNKNOWN = 1, EXTRA = 2, UNDERFLOW = 3, OVERFLOW = 4;
   localparam [1:0] D_DATA = 2'd0, D_COMMAND = 2'd1, D_RESET = 2'd2, D_BACKLIGHT = 2'd3;   // display_spi.v's
 
-  reg text_mode = 1'b0;
   // (The functions take all they use as arguments: simulation re-evaluates a function in a continuous
   // assignment only when its arguments change)
-  function display(input [7:0] c, input text_mode);   // in text mode, only BACKLIGHT
-    display = DISPLAY && (c == BACKLIGHT || (!text_mode && (c == DISP_RESET || c == DISP_COMMAND || c == DISP_DATA)));
+  function display(input [7:0] c, input text_mode);   // in text mode, BACKLIGHT and DISP_RESET
+    display = DISPLAY && (c == BACKLIGHT || c == DISP_RESET || (!text_mode && (c == DISP_COMMAND || c == DISP_DATA)));
   endfunction
   function text(input [7:0] c);      // an operation for the text grid
     text = TEXT && c >= TEXT_ON && c < GEOMETRY;
@@ -95,11 +97,12 @@ module bus_control #(
   assign disp_value = wr_data;
 
   // The text grid: an operation when its command arrives (without arguments), with its last argument, or
-  // for each of PUT's characters
+  // for each of PUT's characters; and a TEXT_OFF for DISP_RESET
   reg  [7:0] first_arg = 8'h00;
+  wire disp_reset = TEXT && text_mode && is_command && wr_data == DISP_RESET;
   assign text_push = (is_command && text(wr_data) && arguments(wr_data, text_mode) == 0 && wr_data != PUT) ||
-                     (is_data && text(cmd) && (args_left == 1 || (args_left == 0 && cmd == PUT)));
-  wire [7:0] op_cmd = is_command ? wr_data : cmd;
+                     (is_data && text(cmd) && (args_left == 1 || (args_left == 0 && cmd == PUT))) || disp_reset;
+  wire [7:0] op_cmd = disp_reset ? TEXT_OFF : is_command ? wr_data : cmd;
   assign text_op = op_cmd[3:0];
   assign text_a  = is_command ? 8'h00 : arguments(cmd, text_mode) == 2 ? first_arg : wr_data;
   assign text_b  = is_command || arguments(cmd, text_mode) != 2 ? 8'h00 : wr_data;
@@ -135,7 +138,7 @@ module bus_control #(
       if (wr_data == ID) id_left <= 3'd4;
       if (TEXT && wr_data == GEOMETRY) geo_left <= 3'd2;
       if (TEXT && wr_data == TEXT_ON) text_mode <= 1'b1;
-      if (TEXT && wr_data == TEXT_OFF) text_mode <= 1'b0;
+      if (TEXT && (wr_data == TEXT_OFF || wr_data == DISP_RESET)) text_mode <= 1'b0;
     end else if (is_data) begin
       if (args_left != 0) begin
         args_left <= args_left - 1'b1;

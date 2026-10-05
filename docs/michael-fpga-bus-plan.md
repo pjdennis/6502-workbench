@@ -402,8 +402,11 @@ the same screen on either display. The model they're tested against is
 - **`TEXT_ON`** hides the cursor, sets normal video and the whole screen as the region, clears the grid and
   homes the cursor. It sets the display's orientation (MADCTL `$A8`) and hardware scroll (0), and draws every
   cell; the display must already be initialised (as `gd_prepare_vertical` does).
-- **Between `TEXT_ON` and `TEXT_OFF`**, the raw display commands `$10`–`$12` are refused (`UNKNOWN`): the
-  renderer has the display. `BACKLIGHT` still works.
+- **Between `TEXT_ON` and `TEXT_OFF`**, the raw display commands `DISP_COMMAND` and `DISP_DATA` are refused
+  (`UNKNOWN`): the renderer has the display. `BACKLIGHT` still works. `DISP_RESET` ends text mode, as a reset
+  loses the orientation, the scroll and the picture the renderer keeps: so a graphics program, which starts by
+  resetting the display, has it after a text one. The renderer stops at once (after the cell it's drawing), so
+  nothing of its reaches the display after the reset.
 - **The cursor** inverts the bottom two pixel rows of its cell, as Michael's graphic cursor does, blinking
   every 250 ms and shown at once when it moves.
 - **Reverse video** inverts a cell, and is kept per cell.
@@ -413,7 +416,7 @@ the same screen on either display. The model they're tested against is
 | Code | Name | Arguments | Data | Mirrors |
 |---|---|---|---|---|
 | `$20` | `TEXT_ON` | — | — | Enter text mode: clear the grid and draw it |
-| `$21` | `TEXT_OFF` | — | — | Back to raw mode |
+| `$21` | `TEXT_OFF` | — | — | Back to raw mode (`DISP_RESET` also ends text mode) |
 | `$22` | `GOTO` | row, column | — | `scr_goto` |
 | `$23` | `PUT` | — | streams | `write_b`: characters at the cursor, advancing |
 | `$24` | `CLEAR` | — | — | `scr_clear` |
