@@ -131,7 +131,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   the ROM drives the LED: today's ROM sets the LED bit (PA2) high whenever it sets up the ports, and with
   port B an output. With E on PA2, that would start a read and the FPGA would drive port B against the VIA.
   So the firmware, the FPGA design, the ROM and the wiring change together:
-  - firmware: `LED` becomes PA1 in `base_config_v2.inc` and E becomes PA2 in `fpga_bus.inc`; every program is
+  - firmware: `LED` becomes PA1 and E (`FPGA_E`) PA2 in `base_config_v2.inc`, and Michael's port set-up
+    (`michael_ports.inc`) makes E an output, low, as it does the LCD's pins; every program is
     rebuilt and the firmware manifest refreshed. Comments that name PA2 for the LED (such as
     `michael_keyboard_scope.s`'s) follow;
   - firmware: the LED's polarity flips to active high, to match the rewired LED. `initialize_michael_ports`
@@ -144,7 +145,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   - wiring ([Stage 4 wiring changes](#stage-4-wiring-changes)), with Michael powered off, then the EEPROM and
     the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
-  `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up the current chip.
+  `python3 tools/michael_rom.py`, then `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up
+  the current chip.
 - **Status (2026-10-04): done in software, not yet on the board.**
   - The emulator models the FPGA at the level of its commands (`emulator/chips/fpga_bus.c`, `fpga_text.c`),
     checked against the text mode's model; `--no-fpga` leaves it out.
@@ -164,8 +166,13 @@ The protocol below is the contract that the FPGA design, the firmware and the em
      `hardware/michael/fpga/text/board_check.py`.
 
 ### 5. The editor on the graphic display
-- `editor/bin/editor-michael-upload.sh --graphic` adds a few-byte launcher that selects the graphic display and
-  then starts the editor. The editor itself doesn't change: it reads its screen size at run time.
+- `editor/bin/editor-michael-upload.sh` chooses the screen: the 20x4 LCD as now, or with `--graphic` the
+  graphic display, through a few-byte launcher that selects it and then starts the editor. The editor itself
+  doesn't change: it reads its screen size at run time.
+- The launcher also sets the scroll region to the editor's text rows (1-19), leaving the status bar outside
+  it. The editor sets no region itself (it resets it only on exit), and its pairs of DL and IL still leave
+  the same screen with a region set, but its view scrolls then start at the region's top: text mode's
+  hardware scroll, with no editor change.
 - Emulator tests in graphic mode, then on the board.
 
 ### 6. Later
@@ -265,6 +272,21 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
   timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
   the fast domain. Needs a board run and a flash.
+- **A minor version for the ROM.** The LCD shows "Michael ROM 5", the major version only; the review
+  of stage 4 changed ROM 5 several times before it was programmed. As with the FPGA design's version: a minor
+  number (e.g. "Michael ROM 5.1"), set by hand or from git at build time, and perhaps readable by programs.
+- **The LCD beside the graphic display.** With the editor on the graphic display, Michael's 20x4 LCD is
+  free: the editor, or the ROM's services, could show useful information there (the file and position,
+  memory, diagnostics such as the bus's status or the keyboard's errors).
+- **The ROM's busy flags in zero page.** `ROM_SCREEN` (read by every screen call's dispatch) and
+  `ROM_PUTTING` (by every character) are in the interrupt page's RAM; in zero page each read and write is a
+  cycle and a byte shorter, about 2 cycles of a character's 75 or so through the graphic screen. The strategy
+  is there already: the top of zero page, `$F0`–`$FF`, is the ROM's (the keyboard's state, scratch,
+  `ROM_FLAGS`; `$FD`–`$FF` free), and programs that use its services keep out. But the editor clears all of
+  zero page as it starts, after a launcher may have chosen the graphic screen, so first:
+- **The editor clears only its own zero page.** Its start-up zeroes `$00`–`$FF`; it should clear only the
+  variables it owns (its memory map), leaving the ROM's `$F0`–`$FF`. Then `ROM_SCREEN` and `ROM_PUTTING`
+  can move to `$FD` and `$FE` (`ROM_PUTTING` could move now: cleared, it only costs a PUT reopened).
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.

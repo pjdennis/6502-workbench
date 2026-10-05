@@ -179,7 +179,8 @@ class MichaelTest(BoardChecks, unittest.TestCase):
                  31: 'lcd_led', 32: 'lcd_miso'}
 
     def test_e_is_the_bus_drivers(self):
-        self.assertEqual(constants('firmware/lib/fpga/fpga_bus.inc')['FB_E'], self.E)
+        self.assertEqual(constants('firmware/boards/michael/base_config_v2.inc')['FPGA_E'], self.E)
+        self.assertIn('FB_E               = FPGA_E', open(os.path.join(ROOT, 'firmware/lib/fpga/fpga_bus.inc')).read())
 
     def test_pa0_is_free(self):
         self.assertIsNone(self.board.net('U5', 'PA0'))

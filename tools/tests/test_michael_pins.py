@@ -1,5 +1,6 @@
 """Michael's port A as stage 4 of the FPGA bus plan wires it (docs/michael-fpga-bus-plan.md, "Stage 4 wiring
-changes"), on the emulator: the LED on PA1, lit while it's high; the FPGA bus's E on PA2; PA0 free.
+changes"), on the emulator: the LED on PA1, lit while it's high; the FPGA bus's E on PA2, made an output and
+low by Michael's port set-up (michael_ports.inc); PA0 free.
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -35,6 +36,21 @@ def run(ddra, porta, strobe=0):
     led = next(line for line in report.split('\n') if line.startswith('michael: led:'))
     return led.split()[-1], log
 
+# Michael's port set-up, then E raised and lowered without the program making PA2 an output
+SET_UP_THEN_STROBE = """
+  .include base_config_v2.inc
+  .include michael_ports.inc
+  .org $2000
+start:
+  initialize_michael_ports
+  lda #$2a
+  sta PORTB
+  lda #%00000100           ; PA2, E
+  tsb PORTA
+  trb PORTA
+  stp
+"""
+
 
 @unittest.skipUnless(michael_emulator.AVAILABLE, 'vasm6502_oldstyle, gcc and make are needed')
 class MichaelPinsTest(unittest.TestCase):
@@ -50,6 +66,12 @@ class MichaelPinsTest(unittest.TestCase):
     def test_the_fpga_buss_e_is_on_pa2(self):
         self.assertEqual(run(ddra=0x64, porta=0x00, strobe=0x04)[1], 'C 2A\n')
         self.assertEqual(run(ddra=0x61, porta=0x00, strobe=0x01)[1], '')       # PA0 is free
+
+    def test_the_port_set_up_makes_e_an_output_low(self):
+        """No transfer while the ports are set up (E stays low), and E is an output after it: a strobe reaches
+        the FPGA, a command as RS and RW are low."""
+        log, _ = michael_emulator.run(source=SET_UP_THEN_STROBE, cycle_cap=100_000)
+        self.assertEqual(log, 'C 2A\n')
 
 
 if __name__ == '__main__':

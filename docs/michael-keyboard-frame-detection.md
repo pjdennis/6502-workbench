@@ -128,7 +128,7 @@ Another option uses no new chips: route the keyboard clock to a free VIA input (
 - **Driver:** check each frame's stop and parity bits. DE (the last bit in, the stop bit) is on PA5 (`ACK` in `base_config_v2.inc`) and DP (parity) on PA6, inverted like the data. The driver already switches both pins to inputs when it reads a byte, but doesn't check them. On an error, hold the clock low (which also clears the counter) and send Resend (`$FE`), as IBM describes. On the board's own frames DE is the keyboard's line ACK, so the driver can check that too.
 - **Driver:** before sending, the driver waits until no frame is in progress (`KEYBOARD_RECEIVING`), because IBM says the board must let a frame finish once it is past the 10th clock. With the start/end toggling gone, it needs another sign of that, such as IRQ (low while the clock is busy) on a spare VIA input. PA0 and PA1 aren't assigned in `base_config_v2.inc`; check whether either is free on the board.
 - **Driver:** `keyboard_send_command` waits for CA2 to fall after pulling the clock low (trace step `b`). With the counter, CA2 no longer falls then, so it needs another way to time the hold, such as a fixed 100 µs delay.
-- **ROM:** the driver is built into the Michael ROM (`firmware/boards/michael/michael_services.inc`). Rebuild `hardware/michael/michael_rom.bin` and reprogram the EEPROM.
+- **ROM:** the driver is built into the Michael ROM (`firmware/boards/michael/michael_services.inc`). Rebuild the image (`tools/michael_rom.py`, after refreshing the firmware manifest) and reprogram the EEPROM.
 - **Emulator:** update the frame detector model in `emulator/chips/ps2_keyboard_board.c` to match.
 
 ## Measurements

@@ -23,7 +23,8 @@ from upload_frame import Block  # noqa: E402
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 ROM = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.s')
-COMMITTED_ROM = os.path.join(ROOT, 'hardware', 'michael', 'michael_rom.bin')
+ROM_TOOL = os.path.join(ROOT, 'tools', 'michael_rom.py')
+MANIFEST = os.path.join(ROOT, 'firmware', 'manifest.txt')
 TESTS = os.path.join(HERE, 'michael')
 CHECK = os.path.join(TESTS, 'upload_check.s')
 HELLO = os.path.join(ROOT, 'firmware', 'programs', 'michael', 'hello_michael_ram.s')
@@ -111,12 +112,28 @@ class MichaelRomLoaderTest(RomTestCase):
             memory.update((block.address + i, b) for i, b in enumerate(data))
         return memory
 
-    def test_the_committed_image_is_this_build(self):
-        """hardware/michael/michael_rom.bin, what goes on the EEPROM, is michael_rom.s built."""
-        with open(self.rom, 'rb') as built, open(COMMITTED_ROM, 'rb') as committed:
-            self.assertEqual(built.read(), committed.read(),
-                             'rebuild it: firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc '
-                             '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
+    def test_the_rom_tool_builds_the_image_the_manifest_records(self):
+        """tools/michael_rom.py builds what goes on the EEPROM: michael_rom.s, as the tests here build it, with
+        the hash the firmware manifest records for it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'rom.bin')
+            subprocess.run([sys.executable, ROM_TOOL, out], check=True, capture_output=True)
+            with open(out, 'rb') as built, open(self.rom, 'rb') as tested:
+                self.assertEqual(built.read(), tested.read())
+
+    def test_the_rom_tool_refuses_a_build_the_manifest_does_not_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = os.path.join(tmp, 'manifest.txt')
+            with open(MANIFEST) as f:
+                text = re.sub(r'(firmware/boards/michael/michael_rom\.s esc=)[0-9a-f]+', r'\g<1>' + '0' * 64, f.read())
+            with open(manifest, 'w') as f:
+                f.write(text)
+            out = os.path.join(tmp, 'rom.bin')
+            result = subprocess.run([sys.executable, ROM_TOOL, '--manifest', manifest, out], capture_output=True,
+                                    text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('manifest', result.stderr)
+            self.assertFalse(os.path.exists(out), 'no image left to program')
 
     def test_waiting_screen(self):
         report = self.emulate(b'')

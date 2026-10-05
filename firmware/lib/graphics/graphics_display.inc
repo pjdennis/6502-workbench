@@ -60,7 +60,7 @@ BYTES_PER_SEND_ZERO_LOOP = 16
 
   .include ili9341.inc
 
-GD_CMD_PTR           = GD_ZERO_PAGE_BASE + $00 ; 2 bytes
+GD_SPARE             = GD_ZERO_PAGE_BASE + $00 ; 2 bytes: free
 GD_COLOR             = GD_ZERO_PAGE_BASE + $02 ; 2 bytes
 GD_ROW               = GD_ZERO_PAGE_BASE + $04 ; 1 byte
 GD_COL               = GD_ZERO_PAGE_BASE + $05 ; 1 byte
@@ -179,27 +179,7 @@ gd_unselect:
   rts
 
 
-; Resets the display through the bus's DISP_RESET: after 10 ms, holds it in reset for 10 ms, then waits
-; 120 ms for it to wake.
-; On exit A, X, Y are preserved
-gd_reset:
-  pha
-  lda #1 ; could be 1 ms
-  jsr delay_hundredths
-  lda #FB_DISP_RESET
-  jsr fb_command
-  lda #0
-  jsr fb_data                    ; RESET low
-  lda #1 ; 10 ms
-  jsr delay_hundredths
-  lda #FB_DISP_RESET
-  jsr fb_command
-  lda #1
-  jsr fb_data                    ; RESET high
-  lda #12 ; 120 ms
-  jsr delay_hundredths
-  pla
-  rts
+gd_reset = ili9341_reset          ; (ili9341_start.inc)
 
 
 ; Between gd_select and gd_unselect.
@@ -518,51 +498,9 @@ x_y_from_row_col:
 
 
 gd_initialize:
-  pha
-  phx
-  phy
   stz GD_SCROLL_ROWS ; TODO: maybe there's a better place to handle this kind of initialization
-  lda #<INIT_COMMANDS
-  sta GD_CMD_PTR
-  lda #>INIT_COMMANDS
-  sta GD_CMD_PTR + 1
-.loop:
-  jsr .next_byte
-  cmp #0
-  beq .done
-  jsr gd_send_command
-  jsr .next_byte
-  tay
-  and #$7f
-  tax
-  beq .param_done
-.param_loop:
-  jsr .next_byte
-  jsr gd_send_data
-  dex
-  bne .param_loop
-.param_done:
-  tya
-  and #$80
-  beq .loop
-  jsr .delay
-  bra .loop
-.done:
-  ply
-  plx
-  pla
-  rts
-.next_byte:
-  lda (GD_CMD_PTR)
-  inc GD_CMD_PTR
-  bne .next_byte_over
-  inc GD_CMD_PTR + 1
-.next_byte_over:
-  rts
-.delay:
-  lda #15
-  jsr delay_hundredths
-  rts
+  jmp ili9341_initialize           ; tail call
 
-
-  .include ili9341_init_commands.inc
+ILI_COMMAND = gd_send_command
+ILI_DATA    = gd_send_data
+  .include ili9341_start.inc

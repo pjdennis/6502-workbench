@@ -52,6 +52,7 @@ SVC_SCR_SCROLL_UP    = SVC_BASE + $63
 SVC_SCR_SCROLL_DOWN  = SVC_BASE + $66
 SVC_SCR_INSERT_LINES = SVC_BASE + $69
 SVC_SCR_DELETE_LINES = SVC_BASE + $6C
+SVC_ENV_END          = SVC_BASE + $6F ; The end of the environment's: a new one goes here, and this moves on
 ; (up to $8D: room for more of the environment's; each does nothing)
 ; Michael's own. All preserve X and Y
 SVC_START            = SVC_BASE + $90 ; Start the keyboard and the screen (argc does, the first time)
