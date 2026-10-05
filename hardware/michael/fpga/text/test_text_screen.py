@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from text_screen import TextScreen, BS, LF, CR  # noqa: E402
+from text_screen import TextScreen, ScreenPort, BS, LF, CR  # noqa: E402
 
 
 def screen(rows=4, cols=5):
@@ -171,6 +171,21 @@ class TextScreenTest(unittest.TestCase):
         self.assertEqual((s.top, s.bottom, s.cursor, s.reverse), (1, 2, True, True))
         s.text_on()
         self.assertEqual((s.top, s.bottom, s.cursor, s.reverse), (0, 3, False, False))
+
+
+class ScreenPortTest(unittest.TestCase):
+    def test_the_board_text_demo_runs_on_the_model(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bus'))
+        import debug
+        port = ScreenPort()
+        debug.text_demo(port)
+        s = port.screen
+        self.assertEqual(s.text(0), ' MICHAEL TEXT MODE  ')
+        self.assertTrue(all(s.cell(0, c)[1] for c in range(20)))
+        self.assertEqual([s.text(r).rstrip() for r in (2, 3, 4, 6, 17, 18, 19)],
+                         ['The quick brown fox', 'jumps over the lazy', 'dog. 0123456789', 'row 7', 'row 18', '',
+                          'Ready'])
+        self.assertEqual((s.row, s.col, s.cursor), (19, 5, True))
 
 
 if __name__ == '__main__':

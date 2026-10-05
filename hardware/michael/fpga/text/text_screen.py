@@ -114,3 +114,23 @@ class TextScreen:
 
     def delete_lines(self, n):
         self._lines(n, up=True)
+
+
+class ScreenPort:
+    """The model with the debug port's text methods (bus/debug.py's DebugPort), so a scenario written for the
+    board, such as debug.text_demo, also runs on the model."""
+    def __init__(self, rows=20, cols=20):
+        self.screen = TextScreen(rows, cols)
+
+    def put(self, text):
+        for ch in text.encode('latin-1'):
+            self.screen.put(ch)
+
+    def cursor(self, on):
+        self.screen.set_cursor(on)
+
+    def text_off(self):
+        pass
+
+    def __getattr__(self, name):   # text_on, goto, clear, clear_eol, insert, delete, region, ... video
+        return getattr(self.screen, name)
