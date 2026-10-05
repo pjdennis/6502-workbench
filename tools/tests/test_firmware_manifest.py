@@ -141,6 +141,13 @@ class FirmwareManifestTest(unittest.TestCase):
         self.assertEqual(sorted(self.entries()),
                          ['bad.s', 'excluded/skip.s', 'good.s', 'sub/other.s'])
 
+    def test_agent_worktrees_are_skipped(self):
+        """A git worktree under .claude/ (an agent's) holds a whole copy of the firmware."""
+        self.write('.claude/worktrees/agent/firmware/copy.s', BAD)
+        result = run('update', '--root', self.root, '--manifest', self.manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse([e for e in self.entries() if e.startswith('.claude')])
+
     def test_include_list_file_adds_each_listed_dir(self):
         for d in ('lib/a', 'lib/b'):
             os.makedirs(os.path.join(self.root, d))
