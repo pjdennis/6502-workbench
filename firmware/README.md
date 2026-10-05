@@ -25,7 +25,7 @@ firmware/
     michael/bringup/            first standalone-board programs (2021-04), hard-coded addresses
     michael/bbc-basic/          BBC BASIC MOS shim (needs the external ../BeebEater tree)
     common/                     board-independent experiments
-  fonts/          font8x8 sources and dumpers
+  fonts/          font sources (font8x8; font-12x16.c, the 12x16 font's) and dumpers
 ```
 
 Each subdirectory has its own README: [`boards/`](boards/README.md), [`lib/`](lib/README.md) (and one per library area) and [`programs/`](programs/README.md).

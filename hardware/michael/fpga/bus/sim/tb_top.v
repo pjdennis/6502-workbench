@@ -50,10 +50,12 @@ module tb_top;
     `CHECK_EQ({lcd_cs, lcd_reset, lcd_led}, 3'b111, "idle: deselected, out of reset, backlight on")
     `CHECK_EQ({t_cs, t_clk, t_din}, 3'b100, "touch controller idle")
 
-    // ID: the raw display
+    // ID: the raw display and text mode; GEOMETRY: text mode's rows and columns
     fb_command(8'h03); fb_command(8'h01);
     fb_read(got); `CHECK_EQ(got, "M", "ID 1") fb_read(got); `CHECK_EQ(got, "B", "ID 2")
-    fb_read(got); `CHECK_EQ(got, 8'd1, "ID version") fb_read(got); `CHECK_EQ(got, 8'h01, "ID: raw display")
+    fb_read(got); `CHECK_EQ(got, 8'd2, "ID version") fb_read(got); `CHECK_EQ(got, 8'h03, "ID: raw display and text")
+    fb_command(8'h80); fb_data(8'h10);          // text mode's GEOMETRY (the long form: device, operation)
+    fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY rows") fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY columns")
 
     // gd_reset: RESET low, then high
     fb_command(8'h10); fb_data(8'h00);
@@ -101,6 +103,24 @@ module tb_top;
     send_line("C7F"); send_line("S");
     expect_line({"s02"}, "UNKNOWN, through the debug port");
     expect_all_received;
+
+    // DISP_RESET ends text mode, so a graphics program started after a text one has the display: the reset
+    // reaches it even while the renderer is drawing, and from then on only Michael's bytes do
+    unchecked = 1'b1;                          // the renderer's bytes
+    fb_command(8'h80); fb_data(8'h00);         // TEXT_ON: the renderer sets up, waits a frame, draws every cell
+    cycles(1000);
+    for (i = 0; i < 400 && !(lcd_reset && !lcd_cs); i = i + 1) cycles(1000);
+    `CHECK_EQ(lcd_cs, 1'b0, "the renderer drawing")
+    expect_status(8'h80, "status in text mode: busy drawing");
+    fb_command(8'h10); fb_data(8'h00);
+    for (i = 0; i < 100 && lcd_reset; i = i + 1) cycles(100);
+    `CHECK_EQ(lcd_reset, 1'b0, "DISP_RESET in text mode: display held in reset")
+    unchecked = 1'b0;
+    fb_command(8'h10); fb_data(8'h01);
+    disp_command(8'h36); disp_data(8'hE8);
+    cycles(2000);
+    expect_all_received;
+    expect_status(8'h00, "status after DISP_RESET in text mode: nothing refused, nothing busy");
     `TB_PASS
   end
 endmodule

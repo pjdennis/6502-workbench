@@ -14,7 +14,7 @@
 
 FB_E               = %00000001 ; PA0: the bus's strobe (moves to PA2 in stage 4 of the plan)
 
-; Commands
+; Commands: $00-$7F one byte each; $80-$FF long-form devices, each followed by an operation byte (as data)
 FB_NOP             = $00
 FB_ID              = $01 ; replies 'M', 'B' (Michael Bus: this design is answering), the protocol version, a
                          ; capabilities byte
@@ -25,6 +25,26 @@ FB_DISP_COMMAND    = $11 ; argument the ILI9341 command, then streams its data b
 FB_DISP_DATA       = $12 ; streams data bytes to the display (continuing a DISP_COMMAND)
 FB_BACKLIGHT       = $13 ; argument the brightness, 0 (off) to 255
 FB_SERIAL_SEND     = $50 ; streams: each data byte goes to the PC (provisional)
+FB_TEXT            = $80 ; text mode, a long-form device: its operations (FB_T_*, sent by fb_text) follow
+
+; Text mode's operations
+FB_T_ON            = $00 ; clears the grid (20 rows of 20) and draws it; DISP_COMMAND and DISP_DATA refused
+FB_T_OFF           = $01 ; back to raw display commands (DISP_RESET also ends text mode)
+FB_T_GOTO          = $02 ; arguments row, column (0-based)
+FB_T_PUT           = $03 ; streams: characters at the cursor
+FB_T_CLEAR         = $04
+FB_T_CLEAR_EOL     = $05
+FB_T_INSERT        = $06 ; argument count: blanks at the cursor
+FB_T_DELETE        = $07 ; argument count: characters at the cursor
+FB_T_REGION        = $08 ; arguments top, bottom: the scroll region
+FB_T_REGION_RESET  = $09
+FB_T_SCROLL_UP     = $0a ; argument rows
+FB_T_SCROLL_DOWN   = $0b ; argument rows
+FB_T_INSERT_LINES  = $0c ; argument rows, at the cursor's
+FB_T_DELETE_LINES  = $0d ; argument rows, at the cursor's
+FB_T_CURSOR        = $0e ; argument 0 hidden, 1 shown
+FB_T_VIDEO         = $0f ; argument 0 normal, 1 reverse
+FB_T_GEOMETRY      = $10 ; replies rows, columns
 
 ; Status bits (sticky ones are cleared by reading the status)
 FB_ABANDONED       = %00000001 ; a command arrived before the previous one's arguments were complete
@@ -54,6 +74,17 @@ fb_initialize:
 fb_command:
   pha
   bra fb_write                   ; RS 0 and RW 0: the quiet state already
+
+
+; Sends a text mode operation: FB_TEXT, then the operation (its arguments, if any, follow by fb_data).
+; On entry A = the operation (FB_T_*)
+; On exit A, X, Y are preserved
+fb_text:
+  pha
+  lda #FB_TEXT
+  jsr fb_command
+  pla
+  ; fall through
 
 
 ; Sends a data byte.

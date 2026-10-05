@@ -6,6 +6,8 @@ serial port (rtl/debug_port.v has the line format). With the bus design loaded:
   debug.py status     the status byte
   debug.py pattern    resets and initialises the display as Michael's driver does (graphics_display.inc),
                       then draws coloured squares: the FPGA and the display, checked without Michael
+  debug.py text       initialises the display, then shows text mode: a screen of text, reverse video, a
+                      scroll region, and the cursor blinking where the last line ends
 """
 import argparse
 import os
@@ -83,6 +85,37 @@ class DebugPort:
         self.command(0x13)
         self.data(level)
 
+    # Text mode, the long-form device $80: each operation is the device, then the operation and its
+    # arguments as data. Rows and columns are 0-based
+    TEXT = 0x80
+
+    def _text(self, op, *arguments):
+        self.command(self.TEXT)
+        self.data(op, *arguments)
+
+    def text_on(self): self._text(0x00)
+    def text_off(self): self._text(0x01)
+    def goto(self, row, col): self._text(0x02, row, col)
+    def put(self, text): self._text(0x03, *text.encode('latin-1'))
+    def clear(self): self._text(0x04)
+    def clear_eol(self): self._text(0x05)
+    def insert(self, n): self._text(0x06, n)
+    def delete(self, n): self._text(0x07, n)
+    def region(self, top, bottom): self._text(0x08, top, bottom)
+    def region_reset(self): self._text(0x09)
+    def scroll_up(self, n): self._text(0x0A, n)
+    def scroll_down(self, n): self._text(0x0B, n)
+    def insert_lines(self, n): self._text(0x0C, n)
+    def delete_lines(self, n): self._text(0x0D, n)
+    def cursor(self, on): self._text(0x0E, int(on))
+    def video(self, reverse): self._text(0x0F, int(reverse))
+
+    def geometry(self):
+        """(rows, columns) of text mode's grid."""
+        self._text(0x10)
+        rows, cols = self.read(2)
+        return rows, cols
+
 
 def initialise_display(port):
     """As gd_prepare_vertical does: reset, INIT_COMMANDS, landscape MADCTL."""
@@ -108,9 +141,30 @@ def fill(port, x, y, width, height, colour):
     port.data(*[colour >> 8, colour & 0xFF] * (width * height))
 
 
+def text_demo(port):
+    """A screen of text: a title in reverse video, a sentence that wraps over rows 2-4, a scroll region (rows
+    6-18) scrolled up a line (so it starts at "row 7", and row 18 is blank), and the cursor blinking after
+    "Ready" on the bottom row."""
+    port.text_on()
+    port.video(True)
+    port.put(" MICHAEL TEXT MODE  ")
+    port.video(False)
+    port.goto(2, 0)
+    port.put("The quick brown fox jumps over the lazy dog. 0123456789")
+    port.region(6, 18)
+    for row in range(6, 19):
+        port.goto(row, 0)
+        port.put(f"row {row}")
+    port.scroll_up(1)
+    port.region_reset()
+    port.goto(19, 0)
+    port.put("Ready")
+    port.cursor(True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["id", "status", "pattern"])
+    ap.add_argument("action", choices=["id", "status", "pattern", "text"])
     ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
     args = ap.parse_args(argv)
     try:
@@ -131,11 +185,16 @@ def run(args):
             print(f"{name}, protocol version {version}, capabilities ${capabilities:02X}")
         elif args.action == "status":
             print(f"status ${port.status():02X}")
-        else:
+        elif args.action == "pattern":
             initialise_display(port)
             for i, colour in enumerate((0xF800, 0x07E0, 0x001F, 0xFFFF)):   # red, green, blue, white
                 fill(port, 16 + i * 72, 88, 64, 64, colour)
             print(f"Drew four squares (red, green, blue, white); status ${port.status():02X}")
+        else:
+            initialise_display(port)
+            text_demo(port)
+            rows, cols = port.geometry()
+            print(f"Text mode: {rows} rows of {cols}; status ${port.status():02X}")
 
 
 if __name__ == "__main__":

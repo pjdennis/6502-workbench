@@ -6,7 +6,8 @@ include ../kit.mk
 
 TOP    := top
 RTL    := rtl/top.v ../rtl/michael_bus.v ../rtl/level_filter.v ../rtl/bus_control.v ../rtl/fifo.v \
-          ../rtl/display_spi.v ../rtl/debug_port.v $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v)
+          ../rtl/display_spi.v ../rtl/debug_port.v ../rtl/text_grid.v ../rtl/text_render.v \
+          $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v)
 XDC    := build/top.xdc
 TB_DIR := sim
 
@@ -19,6 +20,8 @@ $(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
 $(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh ../sim/ili9341_model.vh
 
 include ../bus.mk
+include ../text.mk
+$(BUILD)/$(TOP).json: $(FONT_VH)
 
 .DEFAULT_GOAL := all
 .PHONY: all test-py

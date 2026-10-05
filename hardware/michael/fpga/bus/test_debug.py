@@ -73,6 +73,23 @@ class DebugPortTest(unittest.TestCase):
         self.assertEqual(p.id(), ("MB", 1, 0x01))
         self.assertEqual(self.ser.written, b"C01\nR04\n")
 
+    def test_text_commands_with_their_arguments(self):
+        p = self.port()
+        p.text_on()
+        p.goto(3, 4)
+        p.put("Hi")
+        p.region(1, 9)
+        p.cursor(True)
+        p.scroll_up(2)
+        # Text mode is device $80: its operation is the first data byte, then the arguments
+        self.assertEqual(self.ser.written, b"C80\nD00\nC80\nD020304\nC80\nD034869\nC80\nD080109\nC80\nD0E01\n"
+                                           b"C80\nD0A02\n")
+
+    def test_geometry(self):
+        p = self.port("r1414\r\n")
+        self.assertEqual(p.geometry(), (20, 20))
+        self.assertEqual(self.ser.written, b"C80\nD10\nR02\n")
+
 
 class MainTest(unittest.TestCase):
     def test_no_answer_is_a_message_not_a_traceback(self):

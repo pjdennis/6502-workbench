@@ -4,7 +4,9 @@
 // display_spi.v: queued data and command bytes reach an ILI9341 model in order, with their DC levels and
 // within its SPI timing; reset and backlight entries take effect in their turn; CS is high when idle. The
 // backlight's PWM edges disturb the SPI lines on the board (snow on the display), so the backlight only
-// changes while CS is high, and no byte starts within 1 us of a change.
+// changes while CS is high, and no byte starts within 1 us of a change. A second source, the text renderer,
+// has bytes of its own: queued entries go first between its runs, and wait while it's in the middle of one
+// (r_lock), so nothing lands inside a character's bytes.
 module tb_display_spi;
   reg clk;
   `TB_CLOCK(clk, 41.667, 20_000_000)  // 12 MHz
@@ -13,9 +15,13 @@ module tb_display_spi;
   reg        push = 1'b0;
   reg  [1:0] kind = DATA;
   reg  [7:0] value = 8'h00;
-  wire       full, busy, lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led;
+  wire       full, busy, lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led, r_take;
+  reg        r_valid = 1'b0, r_lock = 1'b0;
+  reg  [1:0] r_kind = DATA;
+  reg  [7:0] r_value = 8'h00;
   display_spi #(.QUEUE_DEPTH(16)) dut (
     .clk(clk), .push(push), .kind(kind), .value(value), .full(full), .busy(busy),
+    .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value), .r_lock(r_lock), .r_take(r_take),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
     .lcd_led(lcd_led));
 
@@ -48,6 +54,20 @@ module tb_display_spi;
     led_before <= lcd_led;
   end
   always @(posedge lcd_sck) if (since_led < 12) sck_near_led = sck_near_led + 1;
+
+  // The renderer's run of bytes (a command, then data), locked from its first byte's going to its last's
+  reg [7:0] run [0:7];
+  integer   run_n = 0, run_i;
+  task render;
+    begin
+      for (run_i = 0; run_i < run_n; run_i = run_i + 1) begin
+        r_kind = run_i == 0 ? COMMAND : DATA; r_value = run[run_i]; r_valid = 1'b1;
+        @(posedge clk); while (!r_take) @(posedge clk);
+        #1 r_lock = run_i != run_n - 1;
+      end
+      r_valid = 1'b0;
+    end
+  endtask
 
   integer i;
   initial begin
@@ -90,6 +110,17 @@ module tb_display_spi;
 
     queue(BACKLIGHT, 8'd255); wait_idle; measure_backlight;
     `CHECK_EQ(high, 256, "backlight fully on again")
+
+    // The renderer: queued entries go first, then its run; entries queued during the run wait for its end
+    run[0] = 8'h2C; run[1] = 8'hA1; run[2] = 8'hA2; run[3] = 8'hA3; run_n = 4;
+    queue(DATA, 8'h11);
+    expect_byte(8'h2C, 1'b0); expect_byte(8'hA1, 1'b1); expect_byte(8'hA2, 1'b1); expect_byte(8'hA3, 1'b1);
+    fork
+      render;
+      begin repeat (40) @(posedge clk); #1 queue(DATA, 8'h22); queue(BACKLIGHT, 8'd255); end
+    join
+    wait_idle;
+    expect_all_received;
 
     // The queue fills (16 entries here) while a byte goes out
     for (i = 0; i < 17; i = i + 1) begin kind = DATA; value = i; push = 1; expect_byte(i, 1'b1); @(posedge clk); #1; end
