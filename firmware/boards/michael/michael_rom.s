@@ -79,6 +79,7 @@ program_start:
   jmp upload_v3                   ; Shows "Ready" under it while it waits
 
   .include upload_v3.inc
+  .include michael_graphic_screen.inc   ; The graphic screen, for the services
 
 nmi:
   rti
