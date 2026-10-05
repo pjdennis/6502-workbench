@@ -213,9 +213,9 @@ emulator/tests/out/test_chip_ram.out: emulator/tests/test_chip_ram.c emulator/ch
 	@mkdir -p emulator/tests/out
 	gcc -Wall -Werror -o $@ emulator/tests/test_chip_ram.c emulator/chips/ram_628128.c emulator/chips/clock_22v10.c emulator/bus.c
 
-emulator/tests/out/test_chip_cpu_65c02.out: emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/chips/cpu_65c02.h emulator/emu_wendy2c.c emulator/emu_wendy2c.h emulator/lcd_report.c emulator/lcd_report.h emulator/pace.c emulator/pace.h emulator/cli.c emulator/cli.h emulator/cpu_core.c emulator/cpu_core.h emulator/bus.c emulator/bus.h emulator/tty_alt_screen.c emulator/tty_alt_screen.h emulator/web_server.c emulator/web_server.h emulator/web_run.c emulator/web_run.h emulator/web_json.c emulator/web_json.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/chips/clock_22v10.c emulator/chips/clock_22v10.h emulator/chips/rom_28c256.c emulator/chips/rom_28c256.h emulator/chips/ram_628128.c emulator/chips/ram_628128.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/chips/lcd_hd44780.c emulator/chips/lcd_hd44780.h emulator/chips/serial_usb.c emulator/chips/serial_usb.h emulator/chips/led_buttons.c emulator/chips/led_buttons.h emulator/tests/greatest.h
+emulator/tests/out/test_chip_cpu_65c02.out: emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/chips/cpu_65c02.h emulator/emu_wendy2c.c emulator/emu_wendy2c.h emulator/lcd_report.c emulator/lcd_report.h emulator/pace.c emulator/pace.h emulator/cli.c emulator/cli.h emulator/cpu_core.c emulator/cpu_core.h emulator/bus.c emulator/bus.h emulator/tty_alt_screen.c emulator/tty_alt_screen.h emulator/web_server.c emulator/web_server.h emulator/web_run.c emulator/web_run.h emulator/web_json.c emulator/web_json.h emulator/web_display.c emulator/web_display.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/chips/clock_22v10.c emulator/chips/clock_22v10.h emulator/chips/rom_28c256.c emulator/chips/rom_28c256.h emulator/chips/ram_628128.c emulator/chips/ram_628128.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/chips/lcd_hd44780.c emulator/chips/lcd_hd44780.h emulator/chips/serial_usb.c emulator/chips/serial_usb.h emulator/chips/led_buttons.c emulator/chips/led_buttons.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
-	gcc -Wall -Werror -Wno-unused-function -o $@ emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/emu_wendy2c.c emulator/lcd_report.c emulator/pace.c emulator/cli.c emulator/cpu_core.c emulator/bus.c emulator/tty_alt_screen.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/chips/ili9341.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c
+	gcc -Wall -Werror -Wno-unused-function -o $@ emulator/tests/test_chip_cpu_65c02.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c emulator/emu_wendy2c.c emulator/lcd_report.c emulator/pace.c emulator/cli.c emulator/cpu_core.c emulator/bus.c emulator/tty_alt_screen.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c
 
 emulator/tests/out/test_chip_serial_usb.out: emulator/tests/test_chip_serial_usb.c emulator/chips/serial_usb.c emulator/chips/serial_usb.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/bus.c emulator/bus.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
@@ -267,13 +267,13 @@ emulator/tests/out/test_web_json.out: emulator/tests/test_web_json.c emulator/we
 	@mkdir -p emulator/tests/out
 	gcc -Wall -Werror -o $@ emulator/tests/test_web_json.c emulator/web_json.c
 
-emulator/tests/out/test_web_smoke.out: emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_server.h emulator/web_json.c emulator/web_json.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/tests/greatest.h
+emulator/tests/out/test_web_smoke.out: emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_server.h emulator/web_json.c emulator/web_json.h emulator/web_display.c emulator/web_display.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
-	gcc -Wall -Werror -o $@ emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_json.c emulator/chips/ili9341.c
+	gcc -Wall -Werror -o $@ emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c
 
-emulator/tests/out/test_web_snapshot.out: emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_server.h emulator/web_json.c emulator/web_json.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/tests/greatest.h
+emulator/tests/out/test_web_snapshot.out: emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_server.h emulator/web_json.c emulator/web_json.h emulator/web_display.c emulator/web_display.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
-	gcc -Wall -Werror -o $@ emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_json.c emulator/chips/ili9341.c
+	gcc -Wall -Werror -o $@ emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c
 
 emulator/tests/out/test_web_display.out: emulator/tests/test_web_display.c emulator/web_display.c emulator/web_display.h emulator/chips/ili9341.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
