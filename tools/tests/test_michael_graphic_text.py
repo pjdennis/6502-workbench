@@ -3,7 +3,8 @@ the emulator with keys typed, its bus transfers (decoded into text operations an
 hardware/michael/fpga/text/text_screen.py) must make the screen the keys ask for: a reverse title on row 0;
 characters inserted where typed, the region (rows 1-19) scrolling when they run off the bottom; Enter opening a
 line below, or scrolling the region at the bottom; Backspace deleting; Delete deleting the line; the arrows
-moving; Tab toggling reverse video; Esc clearing the region.
+moving; Tab toggling reverse video; Esc clearing the region; Page Up and Page Down stepping the backlight's
+brightness (BACKLIGHT, $13) up and down, halving it at each step down.
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -19,8 +20,18 @@ from text_screen import TextScreen  # noqa: E402
 
 PROGRAM = os.path.join(michael_emulator.ROOT, 'firmware', 'programs', 'michael', 'michael_graphic_text.s')
 UP, DOWN, RIGHT, LEFT, ESC, DELETE = b'\x1b[A', b'\x1b[B', b'\x1b[C', b'\x1b[D', b'\x1b', b'\x1b[3~'
+PAGE_UP, PAGE_DOWN = b'\x1b[5~', b'\x1b[6~'
 TITLE = ' MICHAEL TEXT MODE  '
 ARGUMENTS = {0x22: 2, 0x26: 1, 0x27: 1, 0x28: 2, 0x2A: 1, 0x2B: 1, 0x2C: 1, 0x2D: 1, 0x2E: 1, 0x2F: 1}
+
+
+def backlight_levels(log):
+    """The levels BACKLIGHT ($13) was sent."""
+    lines, levels = [line.split() for line in log.split('\n') if line], []
+    for (kind, value, *_), following in zip(lines, lines[1:]):
+        if (kind, int(value, 16)) == ('C', 0x13) and following[0] == 'D':
+            levels.append(int(following[1], 16))
+    return levels
 
 
 def screen_from(log):
@@ -56,8 +67,12 @@ class GraphicTextTest(unittest.TestCase):
         michael_emulator.build_emulator()
 
     def type(self, keys):
+        s, report, _ = self.type_with_log(keys)
+        return s, report
+
+    def type_with_log(self, keys):
         log, report = michael_emulator.run(program=PROGRAM, keys=keys, cycle_cap=60_000_000, key_interval=30)
-        return screen_from(log), report
+        return screen_from(log), report, log
 
     def test_the_title_and_typing(self):
         s, report = self.type(b'Hi there\rsecond\x08\x08ND\r' + UP + b'X' + b'\tR\tn')
@@ -104,6 +119,12 @@ class GraphicTextTest(unittest.TestCase):
         s, _ = self.type(b'one\rtwo' + ESC + b'three')
         self.assertEqual(s.text(0), TITLE)
         self.assertEqual([s.text(r).rstrip() for r in (1, 2)], ['three', ''])
+
+    def test_page_up_and_down_step_the_brightness(self):
+        s, _, log = self.type_with_log(PAGE_UP + PAGE_DOWN * 3 + PAGE_UP + PAGE_DOWN * 9 + b'b')
+        # Fully on at the start; no further than 255 or 0
+        self.assertEqual(backlight_levels(log), [255, 127, 63, 31, 63, 31, 15, 7, 3, 1, 0])
+        self.assertEqual(s.text(1).rstrip(), 'b', 'the keys type nothing')
 
 
 if __name__ == '__main__':

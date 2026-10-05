@@ -5,7 +5,7 @@
 // entries; argument errors set ABANDONED and EXTRA; a full display queue sets OVERFLOW; ID reports the raw
 // display and text mode. The text commands ($2x, GEOMETRY $30) turn into text grid operations, a command
 // with its arguments each, PUT's data a character each; in text mode the raw display commands are refused
-// (UNKNOWN), all but BACKLIGHT. Transfers are driven directly, as michael_bus.v would make them.
+// (UNKNOWN), but for BACKLIGHT and DISP_RESET, which ends text mode. Transfers are driven directly, as michael_bus.v would make them.
 module tb_bus_control;
   reg clk;
   `TB_CLOCK(clk, 41.667, 5_000_000)
@@ -130,6 +130,17 @@ module tb_bus_control;
     expect_entry(DATA, 8'h55);
     read(0, got);
     `CHECK_EQ(got, 8'h00, "raw display commands after TEXT_OFF")
+    // DISP_RESET in text mode: the reset, and text mode ends (TEXT_OFF to the grid)
+    command(8'h20);                               expect_op(4'h0, 8'h00, 8'h00);
+    `CHECK_EQ(dut.text_mode, 1'b1, "text mode")
+    command(8'h10);                               expect_op(4'h1, 8'h00, 8'h00);
+    `CHECK_EQ(dut.text_mode, 1'b0, "text mode ended by DISP_RESET")
+    data(8'h00);
+    expect_entry(RESET, 8'h00);
+    command(8'h11); data(8'h36);
+    expect_entry(COMMAND, 8'h36);
+    read(0, got);
+    `CHECK_EQ(got, 8'h00, "raw display commands after DISP_RESET in text mode")
     `CHECK_EQ(n_checked, n_pushed, "no other display queue entries")
     `CHECK_EQ(n_ops_checked, n_ops, "no other text operations")
     `TB_PASS
