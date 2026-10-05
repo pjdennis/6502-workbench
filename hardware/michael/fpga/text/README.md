@@ -15,6 +15,13 @@ sees the same screen on either display.
 - [`../rtl/text_render.v`](../rtl/text_render.v): draws the dirty cells, each as Michael's driver draws a
   character, with reverse video and the blinking cursor (the bottom two pixel rows of its cell), through
   [`../rtl/display_spi.v`](../rtl/display_spi.v)'s second input.
+- **Hardware scrolling.** Scrolling the whole region (and inserting or deleting lines at its top row)
+  doesn't redraw it: the grid moves the cells with their dirty marks and changes an offset, and the
+  renderer has the display's own scroll (VSCRDEF, VSCRSADD) move the region's picture, drawing only the rows
+  that come in blank. Each row is drawn in the memory row the scroll shows where it belongs. The frame
+  memory runs from the bottom row up, so the top fixed area is the rows below the region:
+  [`ili9341.py`](ili9341.py) models it, and [`test_ili9341.py`](test_ili9341.py) checks the model against
+  Michael's graphic driver's whole-screen scroll, which works on the board.
 - The font is [`firmware/lib/graphics/font_12x16.txt`](../../../../firmware/lib/graphics/font_12x16.txt), shared
   with Michael's graphics driver: [`tools/font_12x16.py`](../../../../tools/font_12x16.py) generates the
   firmware's table and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
@@ -31,11 +38,15 @@ sees the same screen on either display.
 - [`test_text_grid.py`](test_text_grid.py): the grid's RTL against the model, directed and random.
 - [`test_text_render.py`](test_text_render.py): the grid, the renderer and the display queue together; a model
   panel ([`ili9341.py`](ili9341.py)) turns the display's SPI bytes into pixels, and every cell must show what
-  the model holds. Most tests use a 6 by 8 grid: a full screen takes about 18 s to simulate.
+  the model holds, on the glass and in memory. A region's scroll must redraw only its new rows. Most tests use
+  a 6 by 8 grid: a full screen takes about 18 s to simulate.
 
 ## On the board
 
 [`board_check.py`](board_check.py) checks text mode without anyone watching the display: it draws `debug.py
 text`'s screen through the debug port, loads the display-probe design (which leaves the display as it is),
 reads cells back out of the display's memory and compares them with the model, then reloads the bus design and
-redraws. On 2026-10-04: PASS, 112 cells.
+redraws. On 2026-10-04: PASS, 112 cells, before and with hardware scrolling (the demo scrolls a region,
+so its rows are in rotated memory rows, where the check expects them). What it can't see is the glass: that
+the region shows scrolled the right way between its fixed areas is for a person to check, with `debug.py
+text` (rows 6-17 show "row 7" to "row 18", row 18 is blank, and rows 0-5 and 19 are as drawn).

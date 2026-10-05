@@ -17,8 +17,8 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-04): stages 0 to 2 done; stage 3 under way: text mode works on the board, hardware
-scrolling next ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
+**Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at a scrolled region on the glass
+([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
@@ -90,7 +90,18 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 - **The grid's shape and font** should follow from the existing michael graphic display routines. The display
   is in portrait mode. We should derive the font information from the same source data, and add the font data
   generation for the existing display code and new FPGA display code to the build process.
-- **Look into the panel's windowed scrolling** to speed up the editor's scrolling.
+- **Done (2026-10-04), in simulation and on the board through the debug port**
+  ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)): the grid, the renderer, the text
+  commands, and the windowed scrolling below. `board_check.py` reads the cells back out of the display's
+  memory and finds them as the model has them. Still to see on the glass: that a region scrolls the right way
+  between its fixed areas (`debug.py text` scrolls one).
+- **Look into the panel's windowed scrolling** to speed up the editor's scrolling. Done: scrolling the whole
+  region (and inserting or deleting lines at its top row) moves its picture with VSCRDEF and VSCRSADD, and
+  redraws only the rows that come in blank. The frame memory runs from the bottom row up (MADCTL's MY), so
+  the top fixed area is the rows below the region, and VSCRSADD counts from there; the model panel
+  ([`ili9341.py`](../hardware/michael/fpga/text/ili9341.py)) has this, checked against the graphic driver's
+  own whole-screen scroll, which works on the board. Inserting or deleting lines below the region's top
+  still redraws the rows that move.
   - The ILI9341's Vertical Scrolling Definition (`$33`: top fixed area, scroll area, bottom fixed area) and
     Vertical Scrolling Start Address (`$37`) scroll a band of the screen in hardware between fixed areas,
     with no redraw. The editor scrolls its text area and leaves the status line fixed, which is exactly
