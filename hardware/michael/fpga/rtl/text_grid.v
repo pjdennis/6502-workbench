@@ -68,8 +68,8 @@ module text_grid #(
   wire [3:0] e_op = entry[19:16];
   wire [7:0] e_a = entry[15:8], e_b = entry[7:0];
 
-  // The grid: {row, col} -> {reverse, character}. A write (we) reads the cell first, and lands the next clock
-  // (wb), marked by what it held
+  // The grid: {row, col} -> {reverse, character}. A write (we) reads what the cell held as it writes it (the
+  // block RAM's read-first mode), and its mark follows the next clock (wb)
   reg  [8:0] cells [0:1023];       // undefined until TEXT_ON clears it
   reg        we = 1'b0, wb = 1'b0;
   reg  [4:0] w_row = 0, w_col = 0, wb_row = 0, wb_col = 0;
@@ -77,8 +77,11 @@ module text_grid #(
   wire [9:0] src;                  // the shifting engine's source cell, read for the next clock
   always @(posedge clk) begin
     wb <= we;
-    if (we) begin {wb_row, wb_col, wb_cell} <= {w_row, w_col, w_cell}; wb_old <= cells[{w_row, w_col}]; end
-    if (wb) cells[{wb_row, wb_col}] <= wb_cell;
+    if (we) begin
+      cells[{w_row, w_col}] <= w_cell;
+      wb_old <= cells[{w_row, w_col}];
+      {wb_row, wb_col, wb_cell} <= {w_row, w_col, w_cell};
+    end
     r_cell <= cells[src];
   end
   wire [4:0] p_row = take_dirty ? dirty_row : rd_row, p_col = take_dirty ? dirty_col : rd_col;
