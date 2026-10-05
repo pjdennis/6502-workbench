@@ -44,8 +44,8 @@ static void write_command(struct fpga_bus_state *s, uint8_t c) {
     if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, 1); push_reply(s, 0x03); }
     if (c == GEOMETRY) { push_reply(s, FPGA_TEXT_ROWS); push_reply(s, FPGA_TEXT_COLS); }
     if (c == RESET) { s->reply_count = 0; s->sticky = 0; }
-    if (c == TEXT_ON) s->text_mode = 1;
-    if (c == TEXT_OFF) s->text_mode = 0;
+    if (c == TEXT_ON) { s->text_mode = 1; fpga_text_render_init(&s->render); }
+    if (c == TEXT_OFF) { fpga_bus_render(s, s->render_us); s->text_mode = 0; }   /* the picture finished */
     if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c, 0, 0);
 }
 
@@ -118,6 +118,12 @@ int fpga_bus_output(const struct fpga_bus_state *s, uint8_t *value) {
     if (!s->reading || !(via_6522_porta_pins(s->via) & BUS_SOEB)) return 0;
     *value = s->read_value;
     return 1;
+}
+
+void fpga_bus_render(struct fpga_bus_state *s, uint64_t now_us) {
+    if (!s->text_mode) return;
+    fpga_text_render_draw(&s->render, &s->text, &s->panel, now_us);
+    s->render_us = now_us;
 }
 
 void fpga_bus_report(FILE *fp, const char *prefix, const struct fpga_bus_state *s) {

@@ -66,7 +66,7 @@ test_chip_lcd|emulator/tests/test_chip_lcd.c emulator/chips/lcd_hd44780.c emulat
 test_chip_serial_usb|emulator/tests/test_chip_serial_usb.c emulator/chips/serial_usb.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_led_buttons|emulator/tests/test_chip_led_buttons.c emulator/chips/led_buttons.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_ili9341|emulator/tests/test_chip_ili9341.c emulator/chips/ili9341.c|
-test_chip_fpga_bus|emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_text.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c|
+test_chip_fpga_bus|emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c|
 test_audio|emulator/tests/test_audio.c emulator/audio.c|$AUDIO_LDLIBS
 test_web_json|emulator/tests/test_web_json.c emulator/web_json.c|
 test_web_smoke|emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_json.c|

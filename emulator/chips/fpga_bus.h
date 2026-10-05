@@ -6,7 +6,7 @@
 #include "../bus.h"
 #include "via_6522.h"
 #include "fpga_text.h"
-#include "ili9341.h"
+#include "fpga_text_render.h"
 
 /* The Michael FPGA bus (docs/michael-fpga-bus-plan.md), as the emulator sees it: each rising edge of E
  * (PA0, held low by the board's pull-down while it's an input) is a transfer, chosen by RS (PA5) and RW
@@ -17,8 +17,9 @@
  * control commands (NOP, ID, RESET, ECHO), the reply queue and the status byte's sticky bits, GEOMETRY, and
  * text mode's grid (fpga_text.h). The raw display commands drive the display (ili9341.h): its reset line,
  * its commands and their data, and its backlight; in text mode they are refused, as the FPGA does, all but
- * BACKLIGHT. A read drives port B with its byte while E is high, unless SOEB (PA4) is low:
- * the keyboard board has port B then (the interlock). */
+ * BACKLIGHT. In text mode the renderer (fpga_text_render.h) draws the grid on the display when
+ * fpga_bus_render asks, and finishes the picture at TEXT_OFF. A read drives port B with its byte while E is
+ * high, unless SOEB (PA4) is low: the keyboard board has port B then (the interlock). */
 
 #define FPGA_REPLY_DEPTH 512
 
@@ -36,6 +37,8 @@ struct fpga_bus_state {
     uint8_t read_value;
     struct fpga_text text;
     struct ili9341 panel;   /* the display the FPGA drives */
+    struct fpga_text_render render;   /* text mode's, drawing the grid on it */
+    uint64_t render_us;     /* when it last drew */
 };
 
 void fpga_bus_init(struct chip *chip, struct fpga_bus_state *state, const struct via_6522_state *via, FILE *log);
@@ -43,5 +46,7 @@ void fpga_bus_init(struct chip *chip, struct fpga_bus_state *state, const struct
 int fpga_bus_output(const struct fpga_bus_state *state, uint8_t *value);
 /* The text grid, cursor and reverse cells, if text mode was ever on: "<prefix>: fpga text: ..." lines */
 void fpga_bus_report(FILE *fp, const char *prefix, const struct fpga_bus_state *state);
+/* In text mode, the grid drawn on the display as the FPGA would have by now_us (fpga_text_render.h) */
+void fpga_bus_render(struct fpga_bus_state *state, uint64_t now_us);
 
 #endif

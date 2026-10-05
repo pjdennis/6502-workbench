@@ -9,6 +9,7 @@
 #include "../bus.h"
 #include "../chips/via_6522.h"
 #include "../chips/fpga_bus.h"
+#include "../chips/font_12x16.h"
 
 static struct via_6522_state vs;
 static struct fpga_bus_state fs;
@@ -270,6 +271,158 @@ TEST raw_display_commands_drive_the_panel(void) {
     PASS();
 }
 
+/* Text mode on the display: drawn as text_render.v draws it */
+
+/* The display as Michael's driver initialises it (gd_prepare_vertical) before TEXT_ON: out of reset, sleep
+ * and off, with the panel's scans reversed (GD_PANEL_SCAN) */
+static void display_setup(void) {
+    model_setup();
+    command(0x10); data(1);
+    display(0x11, 0, NULL);
+    display(0x29, 0, NULL);
+    display(0xB6, 3, (const uint8_t[]){ 0x08, 0xE2, 0x27 });
+}
+
+/* Whether the glass shows the cell (row, col) as the character code, with reverse video and the cursor */
+static int glass_shows(int row, int col, uint8_t code, int reverse, int cursor) {
+    for (int x = 0; x < 12; x++) {
+        uint16_t want = font_12x16[code & 0x80 ? 0 : code][x] ^ (reverse ? 0xFFFF : 0) ^ (cursor ? 0xC000 : 0);
+        for (int y = 0; y < 16; y++) {
+            uint16_t lit = (want >> y) & 1 ? 0xFFFF : 0x0000;
+            if (ili9341_glass_pixel(&fs.panel, col * 12 + x, row * 16 + y) != lit) return 0;
+        }
+    }
+    return 1;
+}
+
+TEST text_mode_draws_the_grid(void) {
+    display_setup();
+    command(0x20);
+    put("Hi");
+    command(0x22); data(2); data(3);
+    command(0x2F); data(1);
+    put("x");
+    fpga_bus_render(&fs, 0);
+    ASSERT_EQ_FMT(0xA8, fs.panel.madctl, "%02X");   /* Michael's orientation */
+    ASSERT(glass_shows(0, 0, 'H', 0, 0));
+    ASSERT(glass_shows(0, 1, 'i', 0, 0));
+    ASSERT(glass_shows(2, 3, 'x', 1, 0));
+    ASSERT(glass_shows(19, 19, ' ', 0, 0));
+    teardown();
+    PASS();
+}
+
+TEST codes_outside_the_font_show_blank(void) {
+    display_setup();
+    command(0x20);
+    command(0x23); data(0x7F); data(0x80); data(0xC1);
+    fpga_bus_render(&fs, 0);
+    for (int c = 0; c < 3; c++) ASSERT(glass_shows(0, c, ' ', 0, 0));
+    teardown();
+    PASS();
+}
+
+TEST the_cursor_blinks_and_shows_at_once_when_it_moves(void) {
+    display_setup();
+    command(0x20);
+    put("Hi");
+    command(0x2E); data(1);
+    fpga_bus_render(&fs, 1000);
+    ASSERT(glass_shows(0, 2, ' ', 0, 1));       /* the bottom two rows inverted */
+    fpga_bus_render(&fs, 1000 + 249999);
+    ASSERT(glass_shows(0, 2, ' ', 0, 1));
+    fpga_bus_render(&fs, 1000 + 250000);
+    ASSERT(glass_shows(0, 2, ' ', 0, 0));
+    fpga_bus_render(&fs, 1000 + 500000);
+    ASSERT(glass_shows(0, 2, ' ', 0, 1));
+    fpga_bus_render(&fs, 1000 + 750000);
+    ASSERT(glass_shows(0, 2, ' ', 0, 0));
+    put("A");
+    fpga_bus_render(&fs, 1000 + 760000);
+    ASSERT(glass_shows(0, 2, 'A', 0, 0));
+    ASSERT(glass_shows(0, 3, ' ', 0, 1));
+    command(0x22); data(0); data(20);            /* past the last column: not shown */
+    fpga_bus_render(&fs, 1000 + 770000);
+    ASSERT(glass_shows(0, 3, ' ', 0, 0));
+    teardown();
+    PASS();
+}
+
+TEST a_region_scrolls_by_the_hardware_scroll(void) {
+    /* Rows 1-19 up a row: the display's scroll registers move the picture, and only the row that comes in
+     * blank is drawn. A mark in the memory of a row that only moves stays. */
+    display_setup();
+    command(0x20);
+    for (int r = 0; r < 20; r++) {
+        command(0x22); data((uint8_t)r); data(0);
+        command(0x23); data((uint8_t)('A' + r));
+    }
+    command(0x28); data(1); data(19);
+    fpga_bus_render(&fs, 0);
+    uint16_t *mark = &fs.panel.memory[ILI9341_LINES - 1 - 5 * 16][5], was = *mark;   /* row 5's memory */
+    *mark = 0x1234;
+    command(0x2A); data(1);
+    fpga_bus_render(&fs, 0);
+    ASSERT_EQ(0, fs.panel.tfa);
+    ASSERT_EQ(19 * 16, fs.panel.vsa);
+    ASSERT_EQ(16, fs.panel.bfa);
+    ASSERT_EQ(18 * 16, fs.panel.ssa);
+    ASSERT_EQ_FMT(0x1234, *mark, "%04X");
+    *mark = was;
+    ASSERT(glass_shows(0, 0, 'A', 0, 0));
+    for (int r = 1; r < 19; r++) ASSERT(glass_shows(r, 0, (uint8_t)('A' + r + 1), 0, 0));
+    ASSERT(glass_shows(19, 0, ' ', 0, 0));
+    teardown();
+    PASS();
+}
+
+TEST text_off_leaves_the_picture_for_raw_mode(void) {
+    display_setup();
+    command(0x20);
+    put("Z");
+    command(0x21);                               /* TEXT_OFF, before any render */
+    ASSERT(glass_shows(0, 0, 'Z', 0, 0));
+    display(0x2A, 4, (const uint8_t[]){ 0, 0, 0, 0 });
+    display(0x2B, 4, (const uint8_t[]){ 0, 0, 0, 0 });
+    display(0x2C, 2, (const uint8_t[]){ 0xF8, 0x00 });
+    ASSERT_EQ_FMT(0xF800, ili9341_glass_pixel(&fs.panel, 0, 0), "%04X");
+    command(0x20);                               /* TEXT_ON again: everything redrawn */
+    fpga_bus_render(&fs, 0);
+    ASSERT(glass_shows(0, 0, ' ', 0, 0));
+    teardown();
+    PASS();
+}
+
+TEST random_operations_show_the_grid(void) {
+    /* Text operations at random, rendered now and then: the glass must always show the grid, whatever the
+     * hardware scroll has done to where its rows are in memory */
+    static const uint8_t ops[] = { 0x22, 0x23, 0x23, 0x23, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
+                                   0x2D, 0x2E, 0x2F };
+    display_setup();
+    command(0x20);
+    srand(9341);
+    for (int step = 0; step < 400; step++) {
+        uint8_t op = ops[rand() % (int)sizeof ops];
+        command(op);
+        if (op == 0x23) for (int n = rand() % 6; n >= 0; n--) data((uint8_t)(rand() % 4 ? 0x20 + rand() % 95 : '\n'));
+        else if (op == 0x22 || op == 0x28) { data((uint8_t)(rand() % 21)); data((uint8_t)(rand() % 21)); }
+        else if (op != 0x25 && op != 0x29) data((uint8_t)(rand() % 4));
+        if (rand() % 8) continue;
+        fpga_bus_render(&fs, 0);
+        const struct fpga_text *t = &fs.text;
+        for (int r = 0; r < FPGA_TEXT_ROWS; r++)
+            for (int c = 0; c < FPGA_TEXT_COLS; c++) {
+                int cursor = t->cursor && r == t->row && c == t->col;
+                if (!glass_shows(r, c, t->chars[r][c], t->reverse_cells[r][c], cursor)) {
+                    fprintf(stderr, "step %d: cell %d, %d\n", step, r, c);
+                    FAIL();
+                }
+            }
+    }
+    teardown();
+    PASS();
+}
+
 TEST an_absent_fpga_never_answers(void) {
     /* Unconfigured, the FPGA keeps the data buffer off: port B floats (reads 0 here) and nothing changes */
     model_setup();
@@ -293,6 +446,12 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(whole_region_scrolls_move_the_offset);
     RUN_TEST(text_mode_refuses_raw_display_commands);
     RUN_TEST(raw_display_commands_drive_the_panel);
+    RUN_TEST(text_mode_draws_the_grid);
+    RUN_TEST(codes_outside_the_font_show_blank);
+    RUN_TEST(the_cursor_blinks_and_shows_at_once_when_it_moves);
+    RUN_TEST(a_region_scrolls_by_the_hardware_scroll);
+    RUN_TEST(text_off_leaves_the_picture_for_raw_mode);
+    RUN_TEST(random_operations_show_the_grid);
     RUN_TEST(an_absent_fpga_never_answers);
 }
 
