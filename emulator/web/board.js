@@ -8,7 +8,9 @@
 // hd44780_a00_font.js). CGRAM patterns ride along in each state
 // snapshot. In 5x10 mode the LCD reports f5x10:1 and we render 10-row
 // glyphs with the cursor on row 10; CGRAM slots 0..3 each cover 11
-// bytes (10 dot rows + cursor).
+// bytes (10 dot rows + cursor). A machine with a graphic display
+// (michael's ILI9341) also gets its frame memory as binary deltas, and
+// draws the glass from it.
 //
 // Board.define(name, description) adds a machine; Board.start() connects.
 
@@ -169,6 +171,83 @@ window.Board = (() => {
     }
   }
 
+  // ===== Graphic display (ILI9341) =====
+  // The display's frame memory arrives as binary messages (tag 0x02) of
+  // what changed, in rectangles of runs (../web_display.h has the
+  // format), applied to a copy here. The snapshot's gd says how the
+  // glass shows it, as ../chips/ili9341.c's ili9341_glass_pixel does:
+  // on (else blank, white), the backlight (as brightness), the scans
+  // reversed (gs: scan line 0 at the bottom; ss: a line's pixel 0 at the
+  // left) and the hardware scroll (VSCRDEF's areas, VSCRSADD).
+  const GD_W = 240, GD_LINES = 320;
+  const gdMemory = new Uint16Array(GD_W * GD_LINES);
+  let gdChanged = true;                 // the memory changed since the glass was drawn
+
+  function applyDisplay(u8) {
+    const u16 = (p) => u8[p] | u8[p + 1] << 8;
+    const colours = [0x0000, 0xFFFF];   // remembered: the first, then the second
+    let p = 1;
+    while (p + 5 <= u8.length) {
+      const line = u16(p), x = u8[p + 2], w = u8[p + 3] + 1, h = u8[p + 4] + 1;
+      p += 5;
+      for (let at = 0; at < w * h && p < u8.length; ) {
+        const kind = u8[p] >> 6;
+        let n = u8[p++] & 63, c = 0;
+        if (!n) { n = u16(p); p += 2; }
+        if (kind === 1) { c = u16(p); p += 2; colours[1] = colours[0]; colours[0] = c; }
+        else if (kind === 2) c = colours[0];
+        else if (kind === 3) { c = colours[1]; colours[1] = colours[0]; colours[0] = c; }
+        for (const end = Math.min(at + n, w * h); at < end; at++) {
+          if (kind === 0) { c = u16(p); p += 2; }
+          gdMemory[(line + Math.floor(at / w)) * GD_W + x + at % w] = c;
+        }
+      }
+    }
+    gdChanged = true;
+  }
+
+  // RGB565 to the canvas's RGBA, as little-endian words
+  let rgba565 = null;
+  function rgbaTable() {
+    if (!rgba565) {
+      rgba565 = new Uint32Array(65536);
+      for (let v = 0; v < 65536; v++) {
+        const r = ((v >> 11) * 527 + 23) >> 6, g = (((v >> 5) & 63) * 259 + 33) >> 6,
+              b = ((v & 31) * 527 + 23) >> 6;
+        rgba565[v] = (0xFF000000 | b << 16 | g << 8 | r) >>> 0;
+      }
+    }
+    return rgba565;
+  }
+
+  // The memory line shown at row y of the glass (0 the top)
+  function glassLine(gd, y) {
+    const k = gd.gs ? GD_LINES - 1 - y : y;
+    const [tfa, vsa, , ssa] = gd.scroll;
+    if (k < tfa || k >= tfa + vsa) return k;
+    const at = (ssa - tfa + k - tfa) % vsa;
+    return tfa + (at < 0 ? at + vsa : at);
+  }
+
+  let gdImage = null;
+  function renderDisplay(canvas, gd) {
+    const ctx = canvas.getContext("2d");
+    if (!gdImage) gdImage = ctx.createImageData(GD_W, GD_LINES);
+    const out = new Uint32Array(gdImage.data.buffer);
+    if (!gd.on) {
+      out.fill(0xFFFFFFFF);
+    } else {
+      const lut = rgbaTable();
+      for (let y = 0; y < GD_LINES; y++) {
+        const src = glassLine(gd, y) * GD_W, dst = y * GD_W;
+        if (gd.ss) for (let x = 0; x < GD_W; x++) out[dst + x] = lut[gdMemory[src + x]];
+        else for (let x = 0; x < GD_W; x++) out[dst + x] = lut[gdMemory[src + GD_W - 1 - x]];
+      }
+    }
+    ctx.putImageData(gdImage, 0, 0);
+    canvas.style.filter = `brightness(${gd.bl / 255})`;
+  }
+
   // ===== Pins panel =====
   function buildPinTable(table, pins) {
     const hl = pins.hl || {};
@@ -219,6 +298,7 @@ window.Board = (() => {
       $("title").textContent = name;
       $("controls").innerHTML = "";
       $("pin-table").innerHTML = "";
+      $("gd-frame").hidden = true;
       setConn("off", `no description for machine "${name}"`);
       return;
     }
@@ -245,6 +325,7 @@ window.Board = (() => {
       btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) press(0); });
     }
     buildPinTable($("pin-table"), machine.pins);
+    $("gd-frame").hidden = !machine.display;
   }
 
   // The control button, held down or let go.
@@ -294,8 +375,9 @@ window.Board = (() => {
 
   // Snapshots are drawn on the next animation frame, the latest one only,
   // so a hidden tab (which gets no animation frames) draws nothing, and
-  // the LCD is redrawn only when it (or its cursor's blink) changed.
-  let latest = null, drawing = false, drawnLcd = null;
+  // the LCD is redrawn only when it (or its cursor's blink) changed, the
+  // graphic display only when its memory or its gd changed.
+  let latest = null, drawing = false, drawnLcd = null, drawnGd = null;
   function render(s) {
     latest = s;
     if (!drawing) { drawing = true; requestAnimationFrame(draw); }
@@ -307,6 +389,10 @@ window.Board = (() => {
     if (!machine || !s) return;
     const lcdKey = JSON.stringify(s.lcd) + (s.lcd.blink_on ? Math.floor(Date.now() / 400) & 1 : "");
     if (lcdKey !== drawnLcd) { renderLcd($("lcd"), s.lcd); drawnLcd = lcdKey; }
+    if (machine.display && s.gd) {
+      const gdKey = JSON.stringify(s.gd);
+      if (gdChanged || gdKey !== drawnGd) { renderDisplay($("gd"), s.gd); drawnGd = gdKey; gdChanged = false; }
+    }
     document.querySelectorAll("[data-led]").forEach((el) => {
       el.classList.toggle("on", !!s.leds[Number(el.dataset.led)]);
     });
@@ -345,6 +431,7 @@ window.Board = (() => {
 
   function handleBinary(buf) {
     const u8 = new Uint8Array(buf);
+    if (u8.length && u8[0] === 0x02) { applyDisplay(u8); return; }   // 0x02: the graphic display
     if (u8.length < 1 || u8[0] !== 0x01) return;   // 0x01: audio
     audioAt = performance.now();
     if (!audioNode) return;
@@ -383,7 +470,11 @@ window.Board = (() => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(`${proto}//${location.host}/`);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => setConn("ok", "connected");
+    ws.onopen = () => {
+      setConn("ok", "connected");
+      gdMemory.fill(0);          // a new connection sends the whole display
+      gdChanged = true;
+    };
     ws.onmessage = (e) => {
       if (typeof e.data === "string") {
         let obj;

@@ -6,6 +6,8 @@
 //             down, shown held from the snapshot's btn
 //   resetKey  a key that presses reset (the reset button is always there)
 //   keyboard  keys typed or pasted on the page go to the PS/2 keyboard
+//   display   a graphic display (the ILI9341), drawn from the snapshot's
+//             gd and the display's binary messages
 //   hint      text beside the controls
 //   pins      the VIA pin labels, MSB first, and the highlighted ones
 
@@ -28,6 +30,7 @@ Board.define("michael", {
   title: ["michael ", "v2"],
   leds: [{ id: "led", label: "LED · PA2", red: true }],
   keyboard: true,
+  display: true,
   hint: "Type or paste anywhere on the page: the keys go to the PS/2 keyboard.",
   pins: {
     a: ["E", "RW", "RS", "SOEB", "SOLB", "LED", "A1", "A0"],

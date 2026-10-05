@@ -308,12 +308,13 @@ static int led_on(const struct via_6522_state *via) {
     return (via->ddra & MICHAEL_LED) && !(via_6522_porta_pins(via) & MICHAEL_LED);
 }
 
-/* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
+/* ---- --web: the page's LCD, graphic display, pins and LED; its keys typed on the keyboard ---- */
 
 struct michael_web {
     struct bus *b;
     const struct via_6522_state *via;
     struct ps2_keyboard_board_state *kbd;
+    struct fpga_bus_state *fpga;
     uint64_t cap;
     uint8_t *lowest_sp;
 };
@@ -330,11 +331,14 @@ static void web_event(void *ctx, const struct web_event *evt) {
     else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
 }
 
-/* The page's LED 0 is PA2's. */
+/* The page's LED 0 is PA2's. The graphic display as the FPGA has drawn it by now (text mode's cursor blinks
+ * in emulated time). */
 static void web_snapshot(void *ctx, struct web_snapshot *snap) {
     struct michael_web *w = ctx;
     snap->n_leds = 1;
     snap->leds[0] = led_on(w->via);
+    fpga_bus_render(w->fpga, w->b->osc_ticks / MICHAEL_TICKS_PER_US);
+    snap->display = &w->fpga->panel;
 }
 
 int emu_run_michael(const struct emu_opts *opts) {
@@ -455,7 +459,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     uint8_t lowest_sp = 0xFF;
     int rc = 0;
     if (opts->web) {
-        struct michael_web w = { &b, &via_state, &kbd_state, cap, &lowest_sp };
+        struct michael_web w = { &b, &via_state, &kbd_state, &fpga_state, cap, &lowest_sp };
         struct web_machine m = {
             .name = "michael", .bus = &b, .lcd = &lcd_state, .via = &via_state,
             .osc_per_us = osc_per_us, .ctx = &w,
