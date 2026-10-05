@@ -120,7 +120,7 @@ class MichaelRomLoaderTest(RomTestCase):
 
     def test_waiting_screen(self):
         report = self.emulate(b'')
-        self.assertEqual(self.lcd_rows(report)[:2], ['Michael ROM 4', 'Ready'])
+        self.assertEqual(self.lcd_rows(report)[:2], ['Michael ROM 5', 'Ready'])
         self.assertIn('michael: led: off', report)
 
     def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
@@ -356,7 +356,7 @@ class MichaelRomServicesTest(RomTestCase):
         self.assertEqual(self.graphic_rows(report)[0][0].rstrip(), 'graphic')
 
     def test_exit_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 4', 'Ready'])
+        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 5', 'Ready'])
 
 
 @NEEDS

@@ -85,7 +85,7 @@ minipro -p AT28C256 -w hardware/michael/michael_rom.bin
 
 Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
 
-After a reset, the LCD shows "Michael ROM 4" and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
+After a reset, the LCD shows "Michael ROM 5" (4 before the FPGA bus's stage 4) and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
 
 - `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to S-records and sends them, so a program loads at its `.org` and starts at its `start` label, which every uploaded program needs. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000`.
 - `tools/upload/transfer.py --baudrate=57600 --format=3 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `editor/bin/editor-michael-upload.sh` builds the editor and uploads it to `$0200`.
