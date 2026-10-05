@@ -72,13 +72,14 @@ The EEPROM sketch replaces `a` and `i` with these:
   - `monitor_arduino.py` and `arduino-console.py` show the Arduino's serial output.
   - `asciimatics-*.py`, `try-curses.py` and `with-thread.py` are terminal-UI experiments for that console.
 - `michael-2023-12-04.rom`: a ROM image from 2023-12-04 (committed on michael_keyboard_wip).
-- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 3 (`tools/upload/transfer.py --format=3`) to zero page and anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
+- `michael_rom.bin` (not committed: built by `tools/michael_rom.py`): the current ROM, `firmware/boards/michael/michael_rom.s` as the firmware manifest records its build. Its loader takes uploads in format 3 (`tools/upload/transfer.py --format=3`) to zero page and anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
 
 ## Programming the ROM
 
-The EEPROM is an AT28C256. With a TL866-style programmer and `minipro`, keep a copy of what's on it first, then write the new image:
+The EEPROM is an AT28C256. Build the image (`tools/michael_rom.py` builds `michael_rom.s` and checks it against the firmware manifest's hash, so it's the recorded build). Then, with a TL866-style programmer and `minipro`, keep a copy of what's on the chip first, and write the new image:
 
 ```
+python3 tools/michael_rom.py
 minipro -p AT28C256 -r michael-rom-backup.bin
 minipro -p AT28C256 -w hardware/michael/michael_rom.bin
 ```
