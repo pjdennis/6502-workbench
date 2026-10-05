@@ -209,6 +209,14 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   While changing `ID`'s reply in [`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v), comment
   that `'M'`, `'B'` stands for "Michael Bus". It was left out of the review's clean-ups, because any edit
   there moves the placement away from the build in flash.
+- **A faster SPI clock.** The display's SPI runs at 6 MHz (the 12 MHz clock halved), so a character cell's
+  395 bytes take 0.5 ms and a full 20 by 20 screen 0.2 s: every redraw the hardware scroll can't save
+  (inserting or deleting lines mid-screen, changing the region) runs at that rate. The Cmod's MMCM can make a
+  faster clock: SCK at 12, 24 or more MHz. The ILI9341's data sheet gives a 100 ns write cycle (10 MHz), but
+  these panels commonly run much faster. Find the board's safe limit with `board_check.py` (it reads every
+  cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
+  timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
+  the fast domain. Needs a board run and a flash.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
