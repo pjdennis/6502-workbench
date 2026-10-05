@@ -76,15 +76,13 @@ The EEPROM sketch replaces `a` and `i` with these:
 
 ## Programming the ROM
 
-The EEPROM is an AT28C256. Build the image (`tools/michael_rom.py` builds `michael_rom.s` and checks it against the firmware manifest's hash, so it's the recorded build). Then, with a TL866-style programmer and `minipro`, keep a copy of what's on the chip first, and write the new image:
+The EEPROM is an AT28C256, programmed with a TL866-style programmer and `minipro`:
 
 ```
-python3 tools/michael_rom.py
-minipro -p AT28C256 -r michael-rom-backup.bin
-minipro -p AT28C256 -w hardware/michael/michael_rom.bin
+make -C hardware/michael program
 ```
 
-Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
+It builds the image (`tools/michael_rom.py` builds `michael_rom.s` and checks it against the firmware manifest's hash, so it's the recorded build), backs up what's on the chip to `hardware/michael/backups/`, then writes the image. `make -C hardware/michael rom` only builds it. Add `MINIPRO_FLAGS=--no-write-protect` if the chip has software write protection on. To go back, write a backup with `minipro -p AT28C256 -w <backup>`.
 
 After a reset, the LCD shows "Michael ROM 5" (4 before the FPGA bus's stage 4) and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
 
