@@ -24,6 +24,23 @@ FB_DISP_RESET      = $10 ; the display's RESET line: argument 0 (held in reset) 
 FB_DISP_COMMAND    = $11 ; argument the ILI9341 command, then streams its data bytes
 FB_DISP_DATA       = $12 ; streams data bytes to the display (continuing a DISP_COMMAND)
 FB_BACKLIGHT       = $13 ; argument the brightness, 0 (off) to 255
+FB_TEXT_ON         = $20 ; text mode: clears the grid (20 rows of 20) and draws it; raw display commands refused
+FB_TEXT_OFF        = $21 ; back to raw display commands
+FB_GOTO            = $22 ; arguments row, column (0-based)
+FB_PUT             = $23 ; streams: characters at the cursor
+FB_CLEAR           = $24
+FB_CLEAR_EOL       = $25
+FB_INSERT          = $26 ; argument count: blanks at the cursor
+FB_DELETE          = $27 ; argument count: characters at the cursor
+FB_REGION          = $28 ; arguments top, bottom: the scroll region
+FB_REGION_RESET    = $29
+FB_SCROLL_UP       = $2a ; argument rows
+FB_SCROLL_DOWN     = $2b ; argument rows
+FB_INSERT_LINES    = $2c ; argument rows, at the cursor's
+FB_DELETE_LINES    = $2d ; argument rows, at the cursor's
+FB_CURSOR          = $2e ; argument 0 hidden, 1 shown
+FB_VIDEO           = $2f ; argument 0 normal, 1 reverse
+FB_GEOMETRY        = $30 ; replies rows, columns
 FB_SERIAL_SEND     = $50 ; streams: each data byte goes to the PC (provisional)
 
 ; Status bits (sticky ones are cleared by reading the status)

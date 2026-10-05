@@ -1,0 +1,228 @@
+; Types on the FPGA's text mode (stage 3 of docs/michael-fpga-bus-plan.md): the FPGA keeps the 20 by 20 grid of
+; characters and draws it, so each key is a few bytes on the bus, not a character's 400. Row 0 is a title;
+; rows 1-19 are the scroll region, which Enter scrolls (by the display's hardware scroll) at the bottom.
+;
+; Keys: characters where the cursor is   Enter      the next line        Backspace  delete to the left
+;       arrows   move                   Tab        reverse video on/off  Esc        clear
+; Michael keeps the cursor's position itself, by the text mode's rules, and never reads it back.
+  .include base_config_v2.inc
+
+INTERRUPT_ROUTINE        = INTERRUPT_VECTOR_TARGET
+
+CP_M_DEST_P              = $00 ; 2 bytes
+CP_M_SRC_P               = $02 ; 2 bytes
+CP_M_LEN                 = $04 ; 2 bytes
+SIMPLE_BUFFER_WRITE_PTR  = $06 ; 1 byte
+SIMPLE_BUFFER_READ_PTR   = $07 ; 1 byte
+DISPLAY_STRING_PARAM     = $08 ; 2 bytes
+MULTIPLY_8X8_RESULT_LOW  = $0a ; 1 byte
+MULTIPLY_8X8_TEMP        = $0b ; 1 byte
+ROW                      = $0c ; 1 byte: the cursor's, 1-19
+COL                      = $0d ; 1 byte: the cursor's, 0-19, or 20 past the end of the bottom row
+REVERSE                  = $0e ; 1 byte: 0 normal video, 1 reverse
+GD_ZERO_PAGE_BASE        = $0f ; 18 bytes
+KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
+
+SIMPLE_BUFFER            = $0200 ; 256 bytes
+
+TEXT_ROWS                = 20
+TEXT_COLS                = 20
+FIRST_ROW                = 1   ; of the region: row 0 is the title
+
+  .org PROGRAM_LOAD_ADDRESS
+start:
+  jmp initialize_machine
+
+  .include delay_routines.inc
+  .include initialize_machine_v2.inc
+  .include display_routines.inc
+  .include display_string.inc
+  .include simple_buffer.inc
+  .include copy_memory.inc
+  .include key_codes.inc
+  .include keyboard_typematic.inc
+KB_BUFFER_INITIALIZE = simple_buffer_initialize
+KB_BUFFER_WRITE      = simple_buffer_write
+KB_BUFFER_READ       = simple_buffer_read
+callback_key_up      = cursor_up
+callback_key_down    = cursor_down
+callback_key_left    = cursor_left
+callback_key_right   = cursor_right
+callback_key_esc     = clear_region
+  .include keyboard_driver.inc
+  .include multiply8x8.inc
+  .include graphics_display.inc
+
+program_start:
+  ldx #$ff
+  txs
+
+  jsr reset_and_enable_display_no_cursor
+  lda #<lcd_message
+  ldx #>lcd_message
+  jsr display_string
+
+  jsr gd_prepare_vertical          ; Initialises the display, through the raw display commands
+  lda #FB_TEXT_ON
+  jsr fb_command
+  lda #1
+  jsr video
+  ldx #0
+.title:
+  lda title,X
+  beq .title_done
+  jsr put
+  inx
+  bra .title
+.title_done:
+  lda #0
+  jsr video
+  lda #FB_REGION
+  jsr fb_command
+  lda #FIRST_ROW
+  jsr fb_data
+  lda #TEXT_ROWS - 1
+  jsr fb_data
+  lda #FB_CURSOR
+  jsr fb_command
+  lda #1
+  jsr fb_data
+  stz REVERSE
+  lda #FIRST_ROW
+  sta ROW
+  stz COL
+  jsr goto
+  jsr keyboard_initialize          ; Enables interrupts
+
+.keys:
+  jsr keyboard_get_char            ; The arrows and Esc are handled on the way, by the callbacks above
+  bcs .keys
+  cmp #KEY_ENTER
+  beq .enter
+  cmp #KEY_BACKSPACE
+  beq .backspace
+  cmp #KEY_TAB
+  beq .tab
+  cmp #' '
+  bcc .keys
+  cmp #$7f
+  bcs .keys
+  jsr put
+  inc COL                          ; The text mode's rule: to the next row after the last column, but not
+  lda COL                          ; past the bottom one
+  cmp #TEXT_COLS
+  bne .keys
+  lda ROW
+  cmp #TEXT_ROWS - 1
+  bcs .keys
+  inc ROW
+  stz COL
+  bra .keys
+.enter:
+  lda ROW
+  cmp #TEXT_ROWS - 1
+  bcc .next_row
+  lda #FB_SCROLL_UP                ; The bottom: the region scrolls up a row
+  jsr fb_command
+  lda #1
+  jsr fb_data
+  bra .first_column
+.next_row:
+  inc ROW
+.first_column:
+  stz COL
+  jsr goto
+  bra .keys
+.backspace:
+  lda COL
+  beq .keys
+  dec COL
+  jsr goto
+  lda #FB_DELETE
+  jsr fb_command
+  lda #1
+  jsr fb_data
+  bra .keys
+.tab:
+  lda REVERSE
+  eor #1
+  sta REVERSE
+  jsr video
+  bra .keys
+
+
+title:        .asciiz " MICHAEL TEXT MODE  "
+lcd_message:  .asciiz "TEXT MODE ON THE FPGA"
+
+
+; Writes the character in A at the cursor.
+; On exit X, Y are preserved
+put:
+  pha
+  lda #FB_PUT
+  jsr fb_command
+  pla
+  jmp fb_data                      ; tail call
+
+
+; Normal (A = 0) or reverse (1) video from here on.
+; On exit X, Y are preserved
+video:
+  pha
+  lda #FB_VIDEO
+  jsr fb_command
+  pla
+  jmp fb_data                      ; tail call
+
+
+; Moves the text mode's cursor to ROW, COL.
+; On exit X, Y are preserved
+goto:
+  lda #FB_GOTO
+  jsr fb_command
+  lda ROW
+  jsr fb_data
+  lda COL
+  jmp fb_data                      ; tail call
+
+
+; The arrows' callbacks: the cursor stays in the region.
+; On exit X, Y are preserved
+cursor_up:
+  lda ROW
+  cmp #FIRST_ROW + 1
+  bcc cursor_stays
+  dec ROW
+  bra goto
+cursor_down:
+  lda ROW
+  cmp #TEXT_ROWS - 1
+  bcs cursor_stays
+  inc ROW
+  bra goto
+cursor_left:
+  lda COL
+  beq cursor_stays
+  dec COL
+  bra goto
+cursor_right:
+  lda COL
+  cmp #TEXT_COLS - 1
+  bcs cursor_stays
+  inc COL
+  bra goto
+cursor_stays:
+  rts
+
+
+; Esc's callback: the region scrolled clear, and the cursor to its start.
+; On exit X, Y are preserved
+clear_region:
+  lda #FB_SCROLL_UP
+  jsr fb_command
+  lda #TEXT_ROWS - FIRST_ROW
+  jsr fb_data
+  lda #FIRST_ROW
+  sta ROW
+  stz COL
+  bra goto
