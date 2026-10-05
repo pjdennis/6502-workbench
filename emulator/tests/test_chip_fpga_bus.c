@@ -194,6 +194,37 @@ TEST text_mode_changes_the_grid(void) {
     PASS();
 }
 
+TEST whole_region_scrolls_move_the_offset(void) {
+    /* As text_grid.v's HW_SCROLL: scrolling the whole region by fewer rows than it has moves its picture by
+     * the display's hardware scroll, offset rows; a new region starts again at 0 */
+    model_setup();
+    command(0x20);
+    command(0x28); data(1); data(19);            /* REGION 1-19: 19 rows */
+    command(0x2A); data(1);                      /* SCROLL_UP 1 */
+    ASSERT_EQ(18, fs.text.offset);
+    command(0x2A); data(2);
+    ASSERT_EQ(16, fs.text.offset);
+    command(0x2B); data(3);                      /* SCROLL_DOWN 3 */
+    ASSERT_EQ(0, fs.text.offset);
+    command(0x2A); data(19);                     /* the whole region: cleared, not scrolled */
+    ASSERT_EQ(0, fs.text.offset);
+    command(0x22); data(1); data(4);             /* GOTO the region's top row */
+    command(0x2C); data(2);                      /* INSERT_LINES 2: down */
+    ASSERT_EQ(2, fs.text.offset);
+    command(0x22); data(5); data(0);
+    command(0x2D); data(1);                      /* DELETE_LINES below the top: moved, not scrolled */
+    ASSERT_EQ(2, fs.text.offset);
+    command(0x28); data(1); data(19);            /* the same region: kept */
+    ASSERT_EQ(2, fs.text.offset);
+    command(0x28); data(2); data(19);            /* another: back to 0 */
+    ASSERT_EQ(0, fs.text.offset);
+    command(0x2B); data(1);
+    command(0x20);                               /* TEXT_ON: 0 */
+    ASSERT_EQ(0, fs.text.offset);
+    teardown();
+    PASS();
+}
+
 TEST text_mode_refuses_raw_display_commands(void) {
     model_setup();
     command(0x20);
@@ -259,6 +290,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(an_empty_reply_queue_underflows);
     RUN_TEST(echo_and_the_soeb_interlock);
     RUN_TEST(text_mode_changes_the_grid);
+    RUN_TEST(whole_region_scrolls_move_the_offset);
     RUN_TEST(text_mode_refuses_raw_display_commands);
     RUN_TEST(raw_display_commands_drive_the_panel);
     RUN_TEST(an_absent_fpga_never_answers);

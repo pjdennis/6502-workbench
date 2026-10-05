@@ -23,9 +23,11 @@ static void clear(struct fpga_text *t) {
     goto_cell(t, 0, 0);
 }
 
+/* A new region; with the picture scrolled, back to no scroll */
 static void region(struct fpga_text *t, int top, int bottom) {
     if (bottom > ROWS - 1) bottom = ROWS - 1;
     if (top < bottom) {
+        if (top != t->top || bottom != t->bottom) t->offset = 0;
         t->top = top;
         t->bottom = bottom;
         goto_cell(t, 0, 0);
@@ -50,10 +52,12 @@ static void shift_row(struct fpga_text *t, int n, int insert) {
     }
 }
 
-/* Rows top to the region's bottom move up (or down) n rows, blank rows coming in */
+/* Rows top to the region's bottom move up (or down) n rows, blank rows coming in. The whole region, by fewer
+ * rows than it has, moves by the display's hardware scroll: its picture moves offset rows (text_grid.v). */
 static void scroll(struct fpga_text *t, int top, int n, int up) {
     int height = t->bottom - top + 1;
     if (n == 0 || height <= 0) return;
+    if (top == t->top && n < height) t->offset = (t->offset + (up ? height - n : n)) % height;
     if (n > height) n = height;
     for (int i = 0; i < height; i++) {
         int dst = up ? top + i : t->bottom - i;
@@ -99,7 +103,8 @@ void fpga_text_init(struct fpga_text *t) {
 
 void fpga_text_op(struct fpga_text *t, uint8_t code, uint8_t a, uint8_t b) {
     switch (code) {
-    case TEXT_ON:      t->cursor = t->reverse = 0; t->top = 0; t->bottom = ROWS - 1; clear(t); t->used = 1; break;
+    case TEXT_ON:      t->cursor = t->reverse = t->offset = 0; t->top = 0; t->bottom = ROWS - 1; clear(t); t->used = 1;
+                       break;
     case TEXT_OFF:     break;
     case GOTO:         goto_cell(t, a, b); break;
     case PUT:          put(t, a); break;
