@@ -385,7 +385,8 @@ then data `$02`, `$03`, `$04`. A `PUT` stream sends `$80`, `$03` once, then a by
 - **Writing** (`PUT`) puts a character at the cursor and moves right, to the start of the next row after the
   last column. On the bottom row the cursor stays past the last column, and characters written there are
   dropped, so writing never scrolls. BS moves left, CR to the first column, LF to the first column of the next
-  row (staying on the bottom row); other control codes are dropped. Codes from `$7F` up show as blanks.
+  row (staying on the bottom row); other control codes are dropped. Codes from `$7F` up show as a box (the
+  font's `$7F`), so a stray one is obvious.
 - **`GOTO`** past the last row goes to the last; past the last column, just past it.
 - **Counts of 0 do nothing.** Counts larger than the cells or rows there are clear them all.
 - **`REGION`** needs two rows or more (a smaller one is ignored), and homes the cursor, as does

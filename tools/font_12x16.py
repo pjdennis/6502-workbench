@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Michael's 12x16 font, from its one source: firmware/lib/graphics/font_12x16.txt, each glyph a line naming
-it ("$21 '!'") then 16 rows of 12 pixels, '#' lit and '.' dark, the top row first.
+it ("$21 '!'", or "$7f box") then 16 rows of 12 pixels, '#' lit and '.' dark, the top row first.
 
   font_12x16.py inc          rewrites firmware/lib/graphics/character_patterns_12x16.inc, the firmware's table
   font_12x16.py vh PATH      writes the FPGA's font memory, as Verilog that fills an array `font` (the FPGA
@@ -28,7 +28,7 @@ def read_source(path=SOURCE):
             line = line.rstrip('\n')
             if not line or line.startswith('# '):
                 continue
-            m = re.match(r"\$([0-9a-f]{2}) '.'$", line)
+            m = re.match(r"\$([0-9a-f]{2}) ('.'|box)$", line)
             if m:
                 rows = glyphs[int(m[1], 16)] = []
             else:
@@ -45,7 +45,8 @@ def firmware_table(glyphs):
     lines = ['character_patterns_12x16:']
     for code in sorted(glyphs):
         data = [b for word in columns(glyphs[code]) for b in (word & 0xFF, word >> 8)]
-        lines.append('  .byte ' + ', '.join(f'${b:02x}' for b in data) + f" ; {code:3d} ${code:02x} '{chr(code)}'")
+        name = f"'{chr(code)}'" if code < 0x7F else 'box'
+        lines.append('  .byte ' + ', '.join(f'${b:02x}' for b in data) + f" ; {code:3d} ${code:02x} {name}")
     return '\n'.join(lines) + '\n'
 
 
