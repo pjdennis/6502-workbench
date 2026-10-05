@@ -131,7 +131,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   the ROM drives the LED: today's ROM sets the LED bit (PA2) high whenever it sets up the ports, and with
   port B an output. With E on PA2, that would start a read and the FPGA would drive port B against the VIA.
   So the firmware, the FPGA design, the ROM and the wiring change together:
-  - firmware: `LED` becomes PA1 in `base_config_v2.inc` and E becomes PA2 in `fpga_bus.inc`; every program is
+  - firmware: `LED` becomes PA1 and E (`FPGA_E`) PA2 in `base_config_v2.inc`, and Michael's port set-up
+    (`michael_ports.inc`) makes E an output, low, as it does the LCD's pins; every program is
     rebuilt and the firmware manifest refreshed. Comments that name PA2 for the LED (such as
     `michael_keyboard_scope.s`'s) follow;
   - firmware: the LED's polarity flips to active high, to match the rewired LED. `initialize_michael_ports`

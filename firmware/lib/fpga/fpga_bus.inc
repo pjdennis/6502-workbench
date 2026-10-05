@@ -12,7 +12,7 @@
 ; instead of the busy flag); the keyboard driver puts them back as it found them. So each routine sets only
 ; the bits that differ from it.
 
-FB_E               = %00000100 ; PA2: the bus's strobe (on PA0 until stage 4 of the plan)
+FB_E               = FPGA_E    ; PA2: the bus's strobe (base_config_v2.inc; on PA0 until stage 4 of the plan)
 
 ; Commands: $00-$7F one byte each; $80-$FF long-form devices, each followed by an operation byte (as data)
 FB_NOP             = $00
