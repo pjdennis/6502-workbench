@@ -33,7 +33,7 @@ def load(design):
 
 def expected(screen, row, col, cursor_shown):
     char, reverse = screen.cell(row, col)
-    code = ord(char) if ord(char) < 0x80 else 0
+    code = min(ord(char), 0x7F)   # codes outside the font show the box
     cursor = cursor_shown and screen.cursor and (row, col) == (screen.row, screen.col)
     return [WORDS[code << 4 | x] ^ (0xFFFF if reverse else 0) ^ (0xC000 if cursor else 0) for x in range(12)]
 

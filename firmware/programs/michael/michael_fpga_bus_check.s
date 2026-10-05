@@ -2,7 +2,7 @@
 ; bus-check design loaded in the FPGA (hardware/michael/fpga/bus-check/). Reports each result on the LCD and,
 ; through SERIAL_SEND, to the PC, where hardware/michael/fpga/bus-check/check.py reads it:
 ;   FPGA BUS CHECK        the start
-;   ID OK                 ID replies 'M', 'B', version 1, and the status is clear
+;   ID OK                 ID replies 'M', 'B', version 2, and the status is clear
 ;   ECHO BAD nnnn         32 passes of 256 bytes echoed and read back; nnnn mismatches and status errors (hex)
 ;   UNDERFLOW OK          an empty queue reads $00 and sets UNDERFLOW, which one status read clears
 ;   HOLD A KEY            the keyboard is now on: hold a key down until DONE
@@ -83,7 +83,7 @@ program_start:
   cmp #'B'
   bne .id_bad
   jsr fb_read
-  cmp #1
+  cmp #2                         ; The protocol's version
   bne .id_bad
   jsr fb_read                    ; Capabilities: none in the check design
   jsr fb_status

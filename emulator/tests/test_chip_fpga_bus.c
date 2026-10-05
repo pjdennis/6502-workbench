@@ -111,6 +111,7 @@ static void write_byte(int rs, uint8_t b) {
 
 static void command(uint8_t c) { write_byte(0, c); }
 static void data(uint8_t d) { write_byte(1, d); }
+static void text(uint8_t op) { command(0x80); data(op); }   /* a text mode operation: the long form */
 
 /* A read as fpga_bus.inc makes it: port B an input, RW 1 (RS 1 the reply queue, 0 the status), E up; the byte
  * on port B while E is high */
@@ -132,9 +133,9 @@ TEST id_and_geometry_reply(void) {
     command(0x01);
     ASSERT_EQ_FMT('M', read_byte(1), "%02x");
     ASSERT_EQ_FMT('B', read_byte(1), "%02x");
-    ASSERT_EQ_FMT(1, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(2, read_byte(1), "%02x");      /* the protocol's version */
     ASSERT_EQ_FMT(0x03, read_byte(1), "%02x");   /* raw display and text mode */
-    command(0x30);
+    text(0x10);                                  /* GEOMETRY */
     ASSERT_EQ_FMT(20, read_byte(1), "%02x");
     ASSERT_EQ_FMT(20, read_byte(1), "%02x");
     ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");   /* a clean status */
@@ -169,19 +170,19 @@ TEST echo_and_the_soeb_interlock(void) {
     PASS();
 }
 
-static void put(const char *text) {
-    command(0x23);
-    while (*text) data((uint8_t)*text++);
+static void put(const char *chars) {
+    text(0x03);
+    while (*chars) data((uint8_t)*chars++);
 }
 
 TEST text_mode_changes_the_grid(void) {
     model_setup();
-    command(0x20);                               /* TEXT_ON */
+    text(0x00);                                  /* TEXT_ON */
     put("Hi");
-    command(0x22); data(2); data(3);             /* GOTO 2, 3 */
-    command(0x2F); data(1);                      /* VIDEO reverse */
+    text(0x02); data(2); data(3);                /* GOTO 2, 3 */
+    text(0x0F); data(1);                         /* VIDEO reverse */
     put("x");
-    command(0x2E); data(1);                      /* CURSOR on */
+    text(0x0E); data(1);                         /* CURSOR on */
     char row[FPGA_TEXT_COLS + 1];
     fpga_text_row(&fs.text, 0, row);
     ASSERT_STR_EQ("Hi                  ", row);
@@ -198,11 +199,11 @@ TEST text_mode_changes_the_grid(void) {
 
 TEST text_mode_refuses_raw_display_commands(void) {
     model_setup();
-    command(0x20);
+    text(0x00);
     command(0x11); data(0x2A);                   /* DISP_COMMAND: refused */
     ASSERT_EQ_FMT(0x02, read_byte(0), "%02x");   /* UNKNOWN */
     command(0x13); data(0x80);                   /* BACKLIGHT: still fine */
-    command(0x21);                               /* TEXT_OFF */
+    text(0x01);                                  /* TEXT_OFF */
     command(0x11); data(0x2A);
     ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
     teardown();
@@ -212,11 +213,24 @@ TEST text_mode_refuses_raw_display_commands(void) {
 TEST disp_reset_ends_text_mode(void) {
     /* A graphics program after a text one: its display reset is taken, and ends text mode */
     model_setup();
-    command(0x20);
+    text(0x00);
     command(0x10); data(0x00);                   /* DISP_RESET */
     ASSERT_FALSE(fs.text_mode);
     command(0x11); data(0x2A);                   /* DISP_COMMAND: taken */
     ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    teardown();
+    PASS();
+}
+
+TEST the_long_forms_errors(void) {
+    model_setup();
+    text(0x11); data(0x05);                      /* an unknown operation: UNKNOWN, its data ignored */
+    ASSERT_EQ_FMT(0x02, read_byte(0), "%02x");
+    command(0x80); command(0x00);                /* a command before the operation: ABANDONED */
+    ASSERT_EQ_FMT(0x01, read_byte(0), "%02x");
+    command(0x20);                               /* version 1's TEXT_ON: unknown */
+    ASSERT_EQ_FMT(0x02, read_byte(0), "%02x");
+    ASSERT_FALSE(fs.text_mode);
     teardown();
     PASS();
 }
@@ -227,7 +241,7 @@ TEST an_absent_fpga_never_answers(void) {
     fs.absent = 1;
     command(0x01);
     ASSERT_EQ_FMT(0x00, read_byte(1), "%02x");
-    command(0x20);
+    text(0x00);
     ASSERT_FALSE(fs.text.used);
     teardown();
     PASS();
@@ -243,6 +257,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(text_mode_changes_the_grid);
     RUN_TEST(text_mode_refuses_raw_display_commands);
     RUN_TEST(disp_reset_ends_text_mode);
+    RUN_TEST(the_long_forms_errors);
     RUN_TEST(an_absent_fpga_never_answers);
 }
 

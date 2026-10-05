@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-/* The FPGA bus's text mode as a model: the character grid the text commands ($20-$2F) change, by the rules
+/* The FPGA bus's text mode as a model: the character grid text mode's operations ($00-$0F) change, by the rules
  * of hardware/michael/fpga/text/text_screen.py (the ROM's LCD screen's, lcd_screen.inc, with reverse video
  * and 0-based rows and columns). How the FPGA draws it isn't modelled. */
 
@@ -20,7 +20,7 @@ struct fpga_text {
 };
 
 void fpga_text_init(struct fpga_text *t);
-/* A text operation: the command's code ($20-$2F) and its arguments (0 if it has none) */
+/* A text operation: text mode's operation ($00-$0F) and its arguments (0 if it has none) */
 void fpga_text_op(struct fpga_text *t, uint8_t code, uint8_t a, uint8_t b);
 /* The row's characters, FPGA_TEXT_COLS of them, and a NUL */
 void fpga_text_row(const struct fpga_text *t, int row, char *out);

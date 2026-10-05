@@ -45,9 +45,7 @@ graphic_start:
   phx
   phy
   jsr fb_initialize
-  lda #FB_TEXT_OFF                 ; The raw display commands are refused in text mode
-  jsr fb_command
-  lda #FB_DISP_RESET
+  lda #FB_DISP_RESET               ; (which ends text mode, if it's on)
   jsr fb_command
   lda #0
   jsr fb_data                      ; In reset...
@@ -88,8 +86,8 @@ graphic_start:
   jsr delay_hundredths             ; 150 ms
   bra .command
 .commands_done:
-  lda #FB_TEXT_ON
-  jsr graphic_command
+  lda #FB_T_ON
+  jsr graphic_op
   ply
   plx
   rts
@@ -97,12 +95,12 @@ graphic_start:
   .include ili9341_init_commands.inc
 
 
-; Sends a bus command other than PUT (which it closes)
-; On entry A = the command
+; Sends a text mode operation other than PUT (which it closes)
+; On entry A = the operation (FB_T_*)
 ; On exit A, X, Y are preserved
-graphic_command:
+graphic_op:
   stz ROM_PUTTING
-  jmp fb_command                   ; tail call
+  jmp fb_text                      ; tail call
 
 
 ; write_b: the character in A at the cursor
@@ -111,8 +109,8 @@ graphic_write:
   pha
   bit ROM_PUTTING
   bmi .putting
-  lda #FB_PUT
-  jsr fb_command
+  lda #FB_T_PUT
+  jsr fb_text
   lda #$ff
   sta ROM_PUTTING
 .putting:
@@ -124,16 +122,16 @@ graphic_write:
 ; On exit X is preserved
 graphic_goto:
   pha
-  lda #FB_GOTO
+  lda #FB_T_GOTO
   bra graphic_row_and_column
 
 ; scr_region: rows A to Y (1-based)
 ; On exit X is preserved
 graphic_region:
   pha
-  lda #FB_REGION
+  lda #FB_T_REGION
 graphic_row_and_column:
-  jsr graphic_command
+  jsr graphic_op
   pla
   dec
   jsr fb_data
@@ -146,29 +144,29 @@ graphic_row_and_column:
 ; On exit X is preserved
 graphic_insert:
   pha
-  lda #FB_INSERT
+  lda #FB_T_INSERT
   bra graphic_counted
 graphic_delete:
   pha
-  lda #FB_DELETE
+  lda #FB_T_DELETE
   bra graphic_counted
 graphic_scroll_up:
   pha
-  lda #FB_SCROLL_UP
+  lda #FB_T_SCROLL_UP
   bra graphic_counted
 graphic_scroll_down:
   pha
-  lda #FB_SCROLL_DOWN
+  lda #FB_T_SCROLL_DOWN
   bra graphic_counted
 graphic_insert_lines:
   pha
-  lda #FB_INSERT_LINES
+  lda #FB_T_INSERT_LINES
   bra graphic_counted
 graphic_delete_lines:
   pha
-  lda #FB_DELETE_LINES
+  lda #FB_T_DELETE_LINES
 graphic_counted:
-  jsr graphic_command
+  jsr graphic_op
   pla
   jmp fb_data                      ; tail call
 
@@ -176,31 +174,31 @@ graphic_counted:
 ; The calls without arguments
 ; On exit X is preserved
 graphic_clear:
-  lda #FB_CLEAR
-  jmp graphic_command
+  lda #FB_T_CLEAR
+  jmp graphic_op
 graphic_clear_eol:
-  lda #FB_CLEAR_EOL
-  jmp graphic_command
+  lda #FB_T_CLEAR_EOL
+  jmp graphic_op
 graphic_region_reset:
-  lda #FB_REGION_RESET
-  jmp graphic_command
+  lda #FB_T_REGION_RESET
+  jmp graphic_op
 graphic_cursor_on:
-  lda #FB_CURSOR
+  lda #FB_T_CURSOR
   ldy #1
   bra graphic_switch
 graphic_cursor_off:
-  lda #FB_CURSOR
+  lda #FB_T_CURSOR
   ldy #0
   bra graphic_switch
 graphic_reverse:
-  lda #FB_VIDEO
+  lda #FB_T_VIDEO
   ldy #1
   bra graphic_switch
 graphic_normal:
-  lda #FB_VIDEO
+  lda #FB_T_VIDEO
   ldy #0
 graphic_switch:
-  jsr graphic_command
+  jsr graphic_op
   tya
   jmp fb_data                      ; tail call
 

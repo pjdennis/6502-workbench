@@ -53,8 +53,8 @@ module tb_top;
     // ID: the raw display and text mode; GEOMETRY: text mode's rows and columns
     fb_command(8'h03); fb_command(8'h01);
     fb_read(got); `CHECK_EQ(got, "M", "ID 1") fb_read(got); `CHECK_EQ(got, "B", "ID 2")
-    fb_read(got); `CHECK_EQ(got, 8'd1, "ID version") fb_read(got); `CHECK_EQ(got, 8'h03, "ID: raw display and text")
-    fb_command(8'h30);
+    fb_read(got); `CHECK_EQ(got, 8'd2, "ID version") fb_read(got); `CHECK_EQ(got, 8'h03, "ID: raw display and text")
+    fb_command(8'h80); fb_data(8'h10);          // text mode's GEOMETRY (the long form: device, operation)
     fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY rows") fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY columns")
 
     // gd_reset: RESET low, then high
@@ -107,7 +107,7 @@ module tb_top;
     // DISP_RESET ends text mode, so a graphics program started after a text one has the display: the reset
     // reaches it even while the renderer is drawing, and from then on only Michael's bytes do
     unchecked = 1'b1;                          // the renderer's bytes
-    fb_command(8'h20);                         // TEXT_ON: the renderer sets up, waits a frame, draws every cell
+    fb_command(8'h80); fb_data(8'h00);         // TEXT_ON: the renderer sets up, waits a frame, draws every cell
     cycles(1000);
     for (i = 0; i < 400 && !(lcd_reset && !lcd_cs); i = i + 1) cycles(1000);
     `CHECK_EQ(lcd_cs, 1'b0, "the renderer drawing")

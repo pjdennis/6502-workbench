@@ -57,7 +57,7 @@ module tb_bus_check;
     command(8'h01);
     expect_read("M", 0, "ID byte 1");
     expect_read("B", 0, "ID byte 2");
-    expect_read(8'd1, 0, "ID: protocol version");
+    expect_read(8'd2, 0, "ID: protocol version");
     expect_read(8'h00, 0, "ID: capabilities");
     expect_status(8'h00, "status after ID");
 

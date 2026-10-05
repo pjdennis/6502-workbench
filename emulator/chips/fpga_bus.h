@@ -26,7 +26,8 @@ struct fpga_bus_state {
     uint8_t e_was;
     uint32_t transfers;
     /* The FPGA's side */
-    uint8_t cmd, args_left, first_arg, sticky, text_mode;
+    uint16_t cmd;            /* as bus_control.v: a one-byte command, or a long form's operation | 0x100 */
+    uint8_t args_left, first_arg, sticky, text_mode;
     uint8_t reply[FPGA_REPLY_DEPTH];
     unsigned reply_head, reply_count;
     int absent;             /* unconfigured: transfers are logged, but nothing answers or acts on them */

@@ -2,8 +2,9 @@
 
 Stage 3 of the [FPGA bus plan](../../../../docs/michael-fpga-bus-plan.md): the FPGA keeps a 20 by 20 grid of
 characters and draws it on the display itself, so Michael sends a character code where it used to send about
-400 bytes of pixels. The text commands (`$20`–`$30`) and their rules are in the plan's
-[text mode section](../../../../docs/michael-fpga-bus-plan.md#text-mode-2x-and-3x): the screen behaves as the
+400 bytes of pixels. Text mode is the bus's first long-form device (`$80`, then an operation); its operations
+and their rules are in the plan's
+[text mode section](../../../../docs/michael-fpga-bus-plan.md#text-mode-device-80): the screen behaves as the
 ROM's screen on the LCD does ([`lcd_screen.inc`](../../../../firmware/lib/lcd/lcd_screen.inc)), so the editor
 sees the same screen on either display.
 

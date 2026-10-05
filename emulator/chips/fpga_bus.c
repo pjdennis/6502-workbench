@@ -7,26 +7,31 @@
 #define BUS_RS   0x20
 #define BUS_RW   0x40
 
+/* Commands are 9 bits, as in bus_control.v: a long form's operation is 0x100 | the operation (text mode's
+   operations are fpga_text_op's codes) */
 enum { NOP = 0x00, ID = 0x01, RESET = 0x03, ECHO = 0x04, DISP_RESET = 0x10, DISP_COMMAND = 0x11, DISP_DATA = 0x12,
-       BACKLIGHT = 0x13, TEXT_ON = 0x20, TEXT_OFF = 0x21, GOTO = 0x22, PUT = 0x23, CLEAR = 0x24, CLEAR_EOL = 0x25,
-       REGION = 0x28, REGION_RESET = 0x29, GEOMETRY = 0x30, SERIAL_SEND = 0x50 };
+       BACKLIGHT = 0x13, SERIAL_SEND = 0x50, TEXT = 0x80, LONG = 0x100,
+       TEXT_ON = 0x100, TEXT_OFF = 0x101, GOTO = 0x102, PUT = 0x103, CLEAR = 0x104, CLEAR_EOL = 0x105,
+       REGION = 0x108, REGION_RESET = 0x109, GEOMETRY = 0x110 };
+#define VERSION 2
 enum { ABANDONED = 0x01, UNKNOWN = 0x02, EXTRA = 0x04, UNDERFLOW = 0x08, OVERFLOW = 0x10 };
 
 /* The commands, as bus_control.v has them: in text mode, DISP_COMMAND and DISP_DATA are refused, and
    DISP_RESET ends it */
-static int display(const struct fpga_bus_state *s, uint8_t c) {
+static int display(const struct fpga_bus_state *s, int c) {
     return c == BACKLIGHT || c == DISP_RESET || (!s->text_mode && (c == DISP_COMMAND || c == DISP_DATA));
 }
-static int text(uint8_t c) { return c >= TEXT_ON && c < GEOMETRY; }
-static int known(const struct fpga_bus_state *s, uint8_t c) {
-    return c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || c == GEOMETRY || display(s, c) ||
-           text(c);
+static int text(int c) { return c >= TEXT_ON && c < GEOMETRY; }
+static int known(const struct fpga_bus_state *s, int c) {
+    return c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || c == TEXT || c == GEOMETRY ||
+           display(s, c) || text(c);
 }
-static int streams(uint8_t c) {
+static int streams(int c) {
     return c == ECHO || c == SERIAL_SEND || c == DISP_COMMAND || c == DISP_DATA || c == PUT;
 }
-static int arguments(const struct fpga_bus_state *s, uint8_t c) {
+static int arguments(const struct fpga_bus_state *s, int c) {
     if (display(s, c)) return c != DISP_DATA;
+    if (c == TEXT) return 1;   /* the operation */
     if (!text(c) || c == PUT) return 0;
     if (c == GOTO || c == REGION) return 2;
     return c == TEXT_ON || c == TEXT_OFF || c == CLEAR || c == CLEAR_EOL || c == REGION_RESET ? 0 : 1;
@@ -37,28 +42,35 @@ static void push_reply(struct fpga_bus_state *s, uint8_t b) {
     s->reply[(s->reply_head + s->reply_count++) % FPGA_REPLY_DEPTH] = b;
 }
 
-static void write_command(struct fpga_bus_state *s, uint8_t c) {
-    if (s->args_left) s->sticky |= ABANDONED;
+/* A command, or a long form's operation (c | LONG) */
+static void start(struct fpga_bus_state *s, int c) {
     if (!known(s, c)) s->sticky |= UNKNOWN;
-    s->cmd = c;
+    s->cmd = (uint16_t)c;
     s->args_left = (uint8_t)arguments(s, c);
-    if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, 1); push_reply(s, 0x03); }
+    if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, VERSION); push_reply(s, 0x03); }
     if (c == GEOMETRY) { push_reply(s, FPGA_TEXT_ROWS); push_reply(s, FPGA_TEXT_COLS); }
     if (c == RESET) { s->reply_count = 0; s->sticky = 0; }
     if (c == TEXT_ON) s->text_mode = 1;
     if (c == TEXT_OFF || c == DISP_RESET) s->text_mode = 0;
-    if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c, 0, 0);
+    if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c & 0xFF, 0, 0);
+}
+
+static void write_command(struct fpga_bus_state *s, uint8_t c) {
+    if (s->args_left) s->sticky |= ABANDONED;
+    start(s, c);
 }
 
 static void write_data(struct fpga_bus_state *s, uint8_t d) {
-    if (s->args_left) {
+    if (s->cmd == TEXT && s->args_left) {
+        start(s, LONG | d);
+    } else if (s->args_left) {
         if (s->args_left == 2) s->first_arg = d;
         if (--s->args_left == 0 && text(s->cmd))
-            fpga_text_op(&s->text, s->cmd, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
+            fpga_text_op(&s->text, s->cmd & 0xFF, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
     } else if (s->cmd == ECHO) {
         push_reply(s, d);
     } else if (s->cmd == PUT) {
-        fpga_text_op(&s->text, PUT, d, 0);
+        fpga_text_op(&s->text, PUT & 0xFF, d, 0);
     } else if (known(s, s->cmd) && !streams(s->cmd)) {
         s->sticky |= EXTRA;
     }
