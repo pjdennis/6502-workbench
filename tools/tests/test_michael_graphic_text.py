@@ -4,8 +4,8 @@ hardware/michael/fpga/text/text_screen.py) must make the screen the keys ask for
 characters inserted where typed, the region (rows 1-19) scrolling when they run off the bottom; Enter opening a
 line below, or scrolling the region at the bottom; Backspace deleting; Delete deleting the line; the arrows
 moving; Tab toggling reverse video; Esc clearing the region; Page Up and Page Down stepping the backlight's
-brightness (BACKLIGHT, $13) up and down, halving it at each step down; Insert typing $FF, a code outside the
-font, which text mode shows as a box.
+brightness (BACKLIGHT, $13) up and down, halving it at each step down; Alt and two hex digits typing any code
+from $20 up (the font's glyphs: code page 437's).
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -21,7 +21,12 @@ from text_screen import TextScreen  # noqa: E402
 
 PROGRAM = os.path.join(michael_emulator.ROOT, 'firmware', 'programs', 'michael', 'michael_graphic_text.s')
 UP, DOWN, RIGHT, LEFT, ESC, DELETE = b'\x1b[A', b'\x1b[B', b'\x1b[C', b'\x1b[D', b'\x1b', b'\x1b[3~'
-PAGE_UP, PAGE_DOWN, INSERT = b'\x1b[5~', b'\x1b[6~', b'\x1b[2~'
+PAGE_UP, PAGE_DOWN = b'\x1b[5~', b'\x1b[6~'
+
+
+def alt(keys):
+    """Each key with Alt held (ESC [ code ; 3 u, as the emulator types it)"""
+    return b''.join(b'\x1b[%d;3u' % key for key in keys)
 TITLE = ' MICHAEL TEXT MODE  '
 TEXT = 0x80   # text mode, the long-form device: its first data byte is the operation
 ARGUMENTS = {0x02: 2, 0x06: 1, 0x07: 1, 0x08: 2, 0x0A: 1, 0x0B: 1, 0x0C: 1, 0x0D: 1, 0x0E: 1, 0x0F: 1}
@@ -124,10 +129,13 @@ class GraphicTextTest(unittest.TestCase):
         self.assertEqual(s.text(0), TITLE)
         self.assertEqual([s.text(r).rstrip() for r in (1, 2)], ['three', ''])
 
-    def test_insert_types_a_code_outside_the_font(self):
-        s, _ = self.type(b'ab' + LEFT + INSERT)
-        self.assertEqual(s.text(1).rstrip(), 'a\xffb')
-        self.assertEqual((s.row, s.col), (1, 2))
+    def test_alt_and_two_hex_digits_type_the_code(self):
+        """Alt-c Alt-9: $C9, a line-drawing corner. A control code ($05) is dropped; a key that isn't a hex digit
+        drops a first digit (the 7). Capital hex digits do too."""
+        s, _ = self.type(b'ab' + LEFT + alt(b'c9') + alt(b'05') + alt(b'41') + alt(b'7g42') + alt(b'B') + b'x' +
+                         alt(b'7F'))
+        self.assertEqual(s.text(1).rstrip(), 'a\xc9ABx\x7fb')
+        self.assertEqual((s.row, s.col), (1, 6))
 
     def test_page_up_and_down_step_the_brightness(self):
         s, _, log = self.type_with_log(PAGE_UP + PAGE_DOWN * 3 + PAGE_UP + PAGE_DOWN * 9 + b'b')

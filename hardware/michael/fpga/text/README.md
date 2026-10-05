@@ -26,9 +26,12 @@ sees the same screen on either display.
   memory runs from the bottom row up, so the top fixed area is the rows below the region:
   [`ili9341.py`](ili9341.py) models it, and [`test_ili9341.py`](test_ili9341.py) checks the model against
   Michael's graphic driver's whole-screen scroll, which works on the board.
-- The font is [`firmware/lib/graphics/font_12x16.txt`](../../../../firmware/lib/graphics/font_12x16.txt), shared
-  with Michael's graphics driver: [`tools/font_12x16.py`](../../../../tools/font_12x16.py) generates the
-  firmware's table and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
+- The font is Michael's graphics driver's, the original C font
+  [`firmware/fonts/font-12x16.c`](../../../../firmware/fonts/font-12x16.c) (code page 437's 256 glyphs; text
+  mode shows every code from `$20` up). [`tools/font_12x16.py`](../../../../tools/font_12x16.py) expands it
+  into a view of every glyph,
+  [`font_12x16.txt`](../../../../firmware/lib/graphics/font_12x16.txt), and generates from it the firmware's
+  table and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
 - The bus design ([`../bus/`](../bus/)) puts them behind [`../rtl/bus_control.v`](../rtl/bus_control.v), and
   [`../bus/debug.py`](../bus/debug.py) has the text commands, and `debug.py text`, a screen of them.
 

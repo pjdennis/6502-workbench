@@ -5,6 +5,7 @@
 
 #define SHIFT     0x12
 #define CTRL      0x14
+#define ALT       0x11
 #define ENTER     0x5A
 #define BACKSPACE 0x66
 #define TAB       0x0D
@@ -59,10 +60,29 @@ static int press(int key, uint8_t modifier, uint8_t *out) {
     return n;
 }
 
+/* ESC [ <code> ; 3 u: the printable character `code` with Alt held around it. Returns 0 if `in` isn't one. */
+static int alt_key(const uint8_t *in, size_t len, size_t *consumed, uint8_t *out) {
+    size_t i = 2;
+    unsigned code = 0;
+    if (len < 2 || in[1] != '[') return 0;
+    while (i < len && in[i] >= '0' && in[i] <= '9' && code < 0x100) code = code * 10 + (in[i++] - '0');
+    if (i == 2 || code < 0x20 || code > 0x7E || i + 3 > len || memcmp(in + i, ";3u", 3)) return 0;
+    uint8_t c = (uint8_t)code;
+    size_t one;
+    int n = ps2_encode_key(&c, 1, &one, out + 1);
+    out[0] = ALT;
+    out[n + 1] = RELEASE;
+    out[n + 2] = ALT;
+    *consumed = i + 3;
+    return n + 3;
+}
+
 int ps2_encode_key(const uint8_t *in, size_t len, size_t *consumed, uint8_t *out) {
     uint8_t c = in[0];
     *consumed = 1;
     if (c == 0x1B) {
+        int n = alt_key(in, len, consumed, out);
+        if (n) return n;
         for (size_t i = 0; i < sizeof(sequences) / sizeof(sequences[0]); i++) {
             size_t n = strlen(sequences[i].seq);
             if (len > n && !memcmp(in + 1, sequences[i].seq, n)) {
