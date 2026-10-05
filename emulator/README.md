@@ -44,7 +44,7 @@ make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 
 `make test` runs the end-to-end targets first (they are its prerequisites),
 then the C unit tests (written with the greatest framework). The end-to-end
-targets are (`michael-goldens`, `michael-web`, `wendy2c-goldens`,
+targets are (`michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
 `wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
 `web-audio-buffer`, `timer2-cycles`).
@@ -153,8 +153,10 @@ protocol.
 - **wendy2c**: the 16x2 LCD (or `--lcd-panel 16x1-5x10`), the LEDs on
   PB6 and PA2, the control button (SPACE holds it, R resets), and the
   PB7 piezo as audio. `emulator/demo_wendy2c.sh --web` boots a demo.
-- **michael**: the 20x4 LCD and the LED on PA2 (lit while PA2 is low, as
-  on the board). Keys typed or pasted on the page go to the PS/2
+- **michael**: the 20x4 LCD, the graphic display (the ILI9341 Michael
+  drives through the FPGA bus, in raw mode or the FPGA's text mode, its
+  hardware scroll and backlight included) and the LED on PA2 (lit while
+  PA2 is low, as on the board). Keys typed or pasted on the page go to the PS/2
   keyboard, encoded as `--keys` encodes a terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
   arrows, Home/End/PgUp/PgDn/Insert/Delete and Ctrl+letter.
 
@@ -226,9 +228,9 @@ emulator/
 │                           wall-clock pacing, --lcd-trace output, PS/2 scan codes
 ├── audio.{c,h}             PB7 -> WAV / miniaudio live playback (vendor/miniaudio.h)
 ├── serial_link.{c,h}       --serial-link socket transport
-├── web_server.{c,h}, web_json.{c,h}, web_run.{c,h}, web/
+├── web_server.{c,h}, web_json.{c,h}, web_run.{c,h}, web_display.{c,h}, web/
 │                           --web server, its JSON parser, the shared --web
-│                           run loop, the browser UI
+│                           run loop, the graphic display's deltas, the browser UI
 ├── chips/                  chip models (see chips/README.md)
 ├── pld_to_c.py             22V10 .pld -> chips/clock_22v10_pld_generated.h
 ├── persistent_emulator.py  --server wrapper the Python tests use
