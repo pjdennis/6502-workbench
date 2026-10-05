@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Most scan code bytes one key produces (Ctrl + an extended key). */
-#define PS2_KEY_MAX_CODES 8
+/* Most scan code bytes one key produces (Alt + Shift + a key). */
+#define PS2_KEY_MAX_CODES 10
 
 /* Encode the key at the start of `in` (len > 0) as PS/2 scan code set 2
  * bytes: press and release, with Shift or Ctrl held around it when
@@ -15,6 +15,8 @@
  *     control codes as Ctrl + letter;
  *   - ESC [ or ESC O sequences for the arrows, Home, End, PgUp, PgDn,
  *     Insert and Delete, and ESC [1;5C / ESC [1;5D for Ctrl+Right/Left;
+ *   - ESC [ <code> ; 3 u for a printable key with Alt held ("CSI u",
+ *     modifier 3: Alt), with Shift too when the character needs it;
  *     any other ESC is the Esc key.
  * Sets *consumed to the bytes used and returns the number of codes
  * written to out (at most PS2_KEY_MAX_CODES); 0 for a byte no key
