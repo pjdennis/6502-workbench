@@ -1,10 +1,11 @@
 `timescale 1ns / 1ps
 `include "../../rtl/cmod_a7.vh"
-// The Michael FPGA bus with the display (stage 2 of docs/michael-fpga-bus-plan.md), replacing spi-display:
-// michael_bus.v (the pins as transfers), bus_control.v (the commands, the reply queue and the status, with the
-// raw display commands) and display_spi.v (the ILI9341, fed from a queue). The Cmod's USB serial port (115200
+// The Michael FPGA bus with the display (stages 2 and 3 of docs/michael-fpga-bus-plan.md), replacing
+// spi-display: michael_bus.v (the pins as transfers), bus_control.v (the commands, the reply queue and the
+// status, with the raw display and text commands), display_spi.v (the ILI9341, fed from a queue), and text
+// mode: text_grid.v (the character grid) and text_render.v (drawing it). The Cmod's USB serial port (115200
 // 8N1) carries SERIAL_SEND's bytes to the PC and the debug port (debug_port.v), through which the PC makes
-// the same transactions as Michael. BUSY is set while the display queue or the serial output has work.
+// the same transactions as Michael. BUSY is set while the display, text mode or the serial output has work.
 //
 // The inputs that were the spi-display interface's CSB, RSTB and backlight (now PA1, PA2 and the backlight
 // tie) are unused: the display's chip select, reset and backlight are commands now. LD1 flashes on bus
@@ -13,6 +14,8 @@ module top #(
   parameter BAUD            = `PC_BAUD,
   parameter SERIAL_DEPTH    = 2048,
   parameter DISPLAY_DEPTH   = 512,
+  parameter TEXT_DEPTH      = 512,
+  parameter BLINK           = 3_000_000,   // the cursor's blink, 250 ms at 12 MHz
   parameter ACTIVITY_CYCLES = 600_000   // 50 ms at 12 MHz
 ) (
   input        sysclk,       // 12 MHz
@@ -71,16 +74,39 @@ module top #(
   wire       rd_end  = m_rd_end || p_rd_end;
   wire       rd_rs   = m_rd || m_rd_end ? m_rd_rs : p_rd_rs;
 
-  bus_control #(.DISPLAY(1)) control (
+  localparam ROWS = 20, COLS = 20;   // text mode: 12 by 16 characters, portrait
+  wire       text_push, text_full, grid_idle, render_idle;
+  wire [3:0] text_op;
+  wire [7:0] text_a, text_b;
+  bus_control #(.DISPLAY(1), .TEXT(1), .TEXT_ROWS(ROWS), .TEXT_COLS(COLS)) control (
     .clk(sysclk), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end), .rd_rs(rd_rs),
-    .reply_byte(reply_byte), .status_byte(status_byte), .busy(disp_busy || serial_busy),
+    .reply_byte(reply_byte), .status_byte(status_byte),
+    .busy(disp_busy || serial_busy || !grid_idle || !render_idle),
     .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(disp_push), .disp_kind(disp_kind),
-    .disp_value(disp_value), .disp_full(disp_full));
+    .disp_value(disp_value), .disp_full(disp_full), .text_push(text_push), .text_op(text_op), .text_a(text_a),
+    .text_b(text_b), .text_full(text_full));
+
+  // Text mode: the grid, and its renderer
+  wire       text_mode, cursor_on, dirty, take_dirty, cell_rd, r_valid, r_lock, r_take;
+  wire [4:0] cursor_row, cursor_col, dirty_row, dirty_col, cell_row, cell_col;
+  wire [8:0] cell_data;
+  wire [1:0] r_kind;
+  wire [7:0] r_value;
+  text_grid #(.ROWS(ROWS), .COLS(COLS), .QUEUE_DEPTH(TEXT_DEPTH)) grid (
+    .clk(sysclk), .push(text_push), .op(text_op), .a(text_a), .b(text_b), .full(text_full), .idle(grid_idle),
+    .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
+    .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
+    .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data));
+  text_render #(.ROWS(ROWS), .COLS(COLS), .BLINK(BLINK)) render (
+    .clk(sysclk), .text_mode(text_mode), .cursor_row(cursor_row), .cursor_col(cursor_col), .cursor_on(cursor_on),
+    .dirty(dirty), .dirty_row(dirty_row), .dirty_col(dirty_col), .take_dirty(take_dirty), .rd(cell_rd),
+    .rd_row(cell_row), .rd_col(cell_col), .rd_cell(cell_data), .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value),
+    .r_lock(r_lock), .r_take(r_take), .idle(render_idle));
 
   // The display
   display_spi #(.QUEUE_DEPTH(DISPLAY_DEPTH)) display (
     .clk(sysclk), .push(disp_push), .kind(disp_kind), .value(disp_value), .full(disp_full), .busy(disp_busy),
-    .r_valid(1'b0), .r_kind(2'd0), .r_value(8'h00), .r_lock(1'b0), .r_take(),   // no text renderer yet
+    .r_valid(r_valid), .r_kind(r_kind), .r_value(r_value), .r_lock(r_lock), .r_take(r_take),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
     .lcd_led(lcd_led));
 

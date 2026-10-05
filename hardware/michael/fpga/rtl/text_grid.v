@@ -50,9 +50,7 @@ module text_grid #(
   wire [7:0] e_a = entry[15:8], e_b = entry[7:0];
 
   // The grid: {row, col} -> {reverse, character}
-  reg  [8:0] cells [0:1023];
-  integer i;
-  initial for (i = 0; i < 1024; i = i + 1) cells[i] = BLANK;
+  reg  [8:0] cells [0:1023];       // undefined until TEXT_ON clears it
   reg        we = 1'b0;
   reg  [4:0] w_row = 0, w_col = 0;
   reg  [8:0] w_cell = BLANK, r_cell = BLANK;

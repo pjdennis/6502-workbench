@@ -50,10 +50,12 @@ module tb_top;
     `CHECK_EQ({lcd_cs, lcd_reset, lcd_led}, 3'b111, "idle: deselected, out of reset, backlight on")
     `CHECK_EQ({t_cs, t_clk, t_din}, 3'b100, "touch controller idle")
 
-    // ID: the raw display
+    // ID: the raw display and text mode; GEOMETRY: text mode's rows and columns
     fb_command(8'h03); fb_command(8'h01);
     fb_read(got); `CHECK_EQ(got, "M", "ID 1") fb_read(got); `CHECK_EQ(got, "B", "ID 2")
-    fb_read(got); `CHECK_EQ(got, 8'd1, "ID version") fb_read(got); `CHECK_EQ(got, 8'h01, "ID: raw display")
+    fb_read(got); `CHECK_EQ(got, 8'd1, "ID version") fb_read(got); `CHECK_EQ(got, 8'h03, "ID: raw display and text")
+    fb_command(8'h30);
+    fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY rows") fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY columns")
 
     // gd_reset: RESET low, then high
     fb_command(8'h10); fb_data(8'h00);

@@ -73,6 +73,21 @@ class DebugPortTest(unittest.TestCase):
         self.assertEqual(p.id(), ("MB", 1, 0x01))
         self.assertEqual(self.ser.written, b"C01\nR04\n")
 
+    def test_text_commands_with_their_arguments(self):
+        p = self.port()
+        p.text_on()
+        p.goto(3, 4)
+        p.put("Hi")
+        p.region(1, 9)
+        p.cursor(True)
+        p.scroll_up(2)
+        self.assertEqual(self.ser.written, b"C20\nC22\nD0304\nC23\nD4869\nC28\nD0109\nC2E\nD01\nC2A\nD02\n")
+
+    def test_geometry(self):
+        p = self.port("r1414\r\n")
+        self.assertEqual(p.geometry(), (20, 20))
+        self.assertEqual(self.ser.written, b"C30\nR02\n")
+
 
 class MainTest(unittest.TestCase):
     def test_no_answer_is_a_message_not_a_traceback(self):

@@ -72,7 +72,8 @@ module bus_check #(
   bus_control control (
     .clk(sysclk), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end), .rd_rs(rd_rs),
     .reply_byte(reply_byte), .status_byte(status_byte), .busy(serial_busy),
-    .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(), .disp_kind(), .disp_value(), .disp_full(1'b0));
+    .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(), .disp_kind(), .disp_value(), .disp_full(1'b0),
+    .text_push(), .text_op(), .text_a(), .text_b(), .text_full(1'b0));
 
   // Counts
   reg [15:0] writes = 0, reads = 0, pauses = 0, soeb_falls = 0, glitches = 0, commands = 0, short_writes = 0,

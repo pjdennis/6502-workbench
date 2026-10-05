@@ -6,6 +6,8 @@ serial port (rtl/debug_port.v has the line format). With the bus design loaded:
   debug.py status     the status byte
   debug.py pattern    resets and initialises the display as Michael's driver does (graphics_display.inc),
                       then draws coloured squares: the FPGA and the display, checked without Michael
+  debug.py text       initialises the display, then shows text mode: a screen of text, reverse video, a
+                      scroll region, and the cursor blinking where the last line ends
 """
 import argparse
 import os
@@ -83,6 +85,53 @@ class DebugPort:
         self.command(0x13)
         self.data(level)
 
+    # Text mode (the text commands, $2x): rows and columns are 0-based
+    def text_on(self):
+        self.command(0x20)
+
+    def text_off(self):
+        self.command(0x21)
+
+    def goto(self, row, col):
+        self.command(0x22)
+        self.data(row, col)
+
+    def put(self, text):
+        self.command(0x23)
+        self.data(*text.encode('latin-1'))
+
+    def clear(self):
+        self.command(0x24)
+
+    def clear_eol(self):
+        self.command(0x25)
+
+    def _counted(self, code, n):
+        self.command(code)
+        self.data(n)
+
+    def insert(self, n): self._counted(0x26, n)
+    def delete(self, n): self._counted(0x27, n)
+    def scroll_up(self, n): self._counted(0x2A, n)
+    def scroll_down(self, n): self._counted(0x2B, n)
+    def insert_lines(self, n): self._counted(0x2C, n)
+    def delete_lines(self, n): self._counted(0x2D, n)
+    def cursor(self, on): self._counted(0x2E, int(on))
+    def video(self, reverse): self._counted(0x2F, int(reverse))
+
+    def region(self, top, bottom):
+        self.command(0x28)
+        self.data(top, bottom)
+
+    def region_reset(self):
+        self.command(0x29)
+
+    def geometry(self):
+        """(rows, columns) of text mode's grid."""
+        self.command(0x30)
+        rows, cols = self.read(2)
+        return rows, cols
+
 
 def initialise_display(port):
     """As gd_prepare_vertical does: reset, INIT_COMMANDS, landscape MADCTL."""
@@ -108,9 +157,30 @@ def fill(port, x, y, width, height, colour):
     port.data(*[colour >> 8, colour & 0xFF] * (width * height))
 
 
+def text_demo(port):
+    """A screen of text: a title in reverse video, a sentence that wraps over rows 2-4, a scroll region (rows
+    6-18) scrolled up a line (so it starts at "row 7", and row 18 is blank), and the cursor blinking after
+    "Ready" on the bottom row."""
+    port.text_on()
+    port.video(True)
+    port.put(" MICHAEL TEXT MODE  ")
+    port.video(False)
+    port.goto(2, 0)
+    port.put("The quick brown fox jumps over the lazy dog. 0123456789")
+    port.region(6, 18)
+    for row in range(6, 19):
+        port.goto(row, 0)
+        port.put(f"row {row}")
+    port.scroll_up(1)
+    port.region_reset()
+    port.goto(19, 0)
+    port.put("Ready")
+    port.cursor(True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["id", "status", "pattern"])
+    ap.add_argument("action", choices=["id", "status", "pattern", "text"])
     ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
     args = ap.parse_args(argv)
     try:
@@ -131,11 +201,16 @@ def run(args):
             print(f"{name}, protocol version {version}, capabilities ${capabilities:02X}")
         elif args.action == "status":
             print(f"status ${port.status():02X}")
-        else:
+        elif args.action == "pattern":
             initialise_display(port)
             for i, colour in enumerate((0xF800, 0x07E0, 0x001F, 0xFFFF)):   # red, green, blue, white
                 fill(port, 16 + i * 72, 88, 64, 64, colour)
             print(f"Drew four squares (red, green, blue, white); status ${port.status():02X}")
+        else:
+            initialise_display(port)
+            text_demo(port)
+            rows, cols = port.geometry()
+            print(f"Text mode: {rows} rows of {cols}; status ${port.status():02X}")
 
 
 if __name__ == "__main__":

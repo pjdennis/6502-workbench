@@ -336,8 +336,35 @@ In text mode the raw commands are ignored, and set `UNKNOWN`.
 
 ### Text mode (`$2x` and `$3x`)
 
-Provisional: the details are settled in stage 3. They mirror the editor's screen calls (`asm/17/environment.asm`,
-`scr_*`), so the ROM's graphic services are a thin translation. Rows and columns are 0-based.
+Settled in stage 3 ([`rtl/text_grid.v`](../hardware/michael/fpga/rtl/text_grid.v),
+[`rtl/text_render.v`](../hardware/michael/fpga/rtl/text_render.v)). They mirror the editor's screen calls
+(`asm/17/environment.asm`, `scr_*`), so the ROM's graphic services are a thin translation, and they behave as
+the ROM's screen on the LCD does ([`lcd_screen.inc`](../firmware/lib/lcd/lcd_screen.inc)), so the editor sees
+the same screen on either display. The model they're tested against is
+[`text/text_screen.py`](../hardware/michael/fpga/text/text_screen.py), itself checked against `lcd_screen.inc`.
+
+- **The grid** is 20 rows of 20 characters, 12 by 16 pixels from Michael's font
+  ([`font_12x16.txt`](../firmware/lib/graphics/font_12x16.txt)), white on black, in the portrait orientation
+  Michael's driver uses. Rows and columns are 0-based.
+- **Writing** (`PUT`) puts a character at the cursor and moves right, to the start of the next row after the
+  last column. On the bottom row the cursor stays past the last column, and characters written there are
+  dropped, so writing never scrolls. BS moves left, CR to the first column, LF to the first column of the next
+  row (staying on the bottom row); other control codes are dropped. Codes from `$7F` up show as blanks.
+- **`GOTO`** past the last row goes to the last; past the last column, just past it.
+- **Counts of 0 do nothing.** Counts larger than the cells or rows there are clear them all.
+- **`REGION`** needs two rows or more (a smaller one is ignored), and homes the cursor, as does
+  `REGION_RESET`. `INSERT_LINES` and `DELETE_LINES` work from the cursor's row to the region's bottom, only
+  when the cursor is in the region, and move it to the row's first column.
+- **`TEXT_ON`** hides the cursor, sets normal video and the whole screen as the region, clears the grid and
+  homes the cursor. It sets the display's orientation (MADCTL `$A8`) and hardware scroll (0), and draws every
+  cell; the display must already be initialised (as `gd_prepare_vertical` does).
+- **Between `TEXT_ON` and `TEXT_OFF`**, the raw display commands `$10`–`$12` are refused (`UNKNOWN`): the
+  renderer has the display. `BACKLIGHT` still works.
+- **The cursor** inverts the bottom two pixel rows of its cell, as Michael's graphic cursor does, blinking
+  every 250 ms and shown at once when it moves.
+- **Reverse video** inverts a cell, and is kept per cell.
+- Text operations queue (512 deep, `OVERFLOW` beyond), and the renderer redraws the cells that changed, a cell
+  at a time; `BUSY` is set until it has caught up.
 
 | Code | Name | Arguments | Data | Mirrors |
 |---|---|---|---|---|
