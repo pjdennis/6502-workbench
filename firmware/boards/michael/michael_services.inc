@@ -91,7 +91,10 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   vector SVC_SCR_SCROLL_DOWN , screen_scroll_down       ; scr_scroll_down
   vector SVC_SCR_INSERT_LINES, screen_insert_lines      ; scr_insert_lines
   vector SVC_SCR_DELETE_LINES, screen_delete_lines      ; scr_delete_lines
-  .rept (SVC_START - SVC_SCR_DELETE_LINES) / 3 - 1       ; room for more
+  .if * != SVC_ENV_END
+  fail "SVC_ENV_END (michael_rom.inc) isn't the end of the environment's vectors"
+  .endif
+  .rept (SVC_START - SVC_ENV_END) / 3                    ; room for more, up to Michael's own
   jmp services_nothing
   .endr
   vector SVC_START           , services_start           ; Michael's own: start the services
