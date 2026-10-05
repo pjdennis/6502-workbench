@@ -11,6 +11,9 @@ reversed (GD_PANEL_SCAN), frame line 0 is shown at the bottom of the glass. So t
 the bottom, the scroll area above it, starting (at its bottom) with VSCRSADD's line, and the bottom fixed area
 at the top. Michael's graphic driver scrolls the whole screen this way (gd_scroll_up: VSCRSADD = (20 - rows
 scrolled) * 16), which test_ili9341.py checks.
+
+The glass, as frames shows it, is scanned a line at a time, top to bottom, over each frame; the scroll's
+registers take effect at the start of a frame (inferred: the board shows a new VSCRSADD a frame late).
 """
 CASET, PASET, RAMWR, VSCRDEF, MADCTL, VSCRSADD = 0x2A, 0x2B, 0x2C, 0x33, 0x36, 0x37
 COLUMNS, PAGES = 320, 240
@@ -52,10 +55,12 @@ class Panel:
     def _words(self, value_pairs):
         return [value_pairs[i] << 8 | value_pairs[i + 1] for i in range(0, len(value_pairs), 2)]
 
-    def shown_column(self, line):
-        """The memory column shown on the glass's line (0 at the top), through the hardware scroll."""
-        tfa, vsa, bfa = self._words(self.registers.get(VSCRDEF, [0, 0, 1, 0x40, 0, 0]))
-        ssa = self._words(self.registers.get(VSCRSADD, [0, 0]))[0]
+    def shown_column(self, line, registers=None):
+        """The memory column shown on the glass's line (0 at the top), through the hardware scroll (as the
+        registers have it, by default the panel's)."""
+        registers = self.registers if registers is None else registers
+        tfa, vsa, bfa = self._words(registers.get(VSCRDEF, [0, 0, 1, 0x40, 0, 0]))
+        ssa = self._words(registers.get(VSCRSADD, [0, 0]))[0]
         k = COLUMNS - 1 - line                          # from the bottom of the glass
         frame = k if k < tfa or k >= tfa + vsa else tfa + (ssa - tfa + k - tfa) % vsa
         return COLUMNS - 1 - frame
@@ -74,3 +79,32 @@ class Panel:
                 word |= (p == 0xFFFF) << y
             words.append(word)
         return words
+
+
+def frames(events, period, phase=0, lines=COLUMNS, pages=PAGES):
+    """The glass, frame by frame, as the panel scans it, for bytes received at times (events: (time, dc, byte),
+    in order): each frame starts at phase + k * period with the scroll's registers as they are then, and shows
+    line l as the frame memory holds it l / 320 of the way through. Yields (start, glass), glass[line][page]
+    being the pixel (None: never written) for the first lines and pages, until the frame after the last byte."""
+    panel, i = Panel(), 0
+
+    def until(t):
+        nonlocal i
+        while i < len(events) and events[i][0] < t:
+            panel.receive(*events[i][1:])
+            i += 1
+
+    start = phase
+    while True:
+        until(start)
+        settled = i == len(events)
+        registers = {k: v for k, v in panel.registers.items() if k in (VSCRDEF, VSCRSADD)}
+        glass = []
+        for line in range(lines):
+            until(start + line * period // COLUMNS)
+            column = panel.shown_column(line, registers)
+            glass.append([panel.pixels[page][column] for page in range(pages)])
+        yield start, glass
+        if settled:
+            return
+        start += period

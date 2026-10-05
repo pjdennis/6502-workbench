@@ -8,7 +8,11 @@
 //
 // The display's hardware scroll follows the grid's scroll region and offset (text_grid.v's HW_SCROLL): the
 // region is VSCRDEF's scroll area and VSCRSADD moves its picture, sent whenever they change, before any more
-// cells are drawn. The display's frame memory lines run from the bottom row up (MADCTL's MY), so the rows
+// cells are drawn; then nothing is drawn for FRAME clocks, as the display takes them up at its next frame,
+// and until then a cell drawn for the new picture would show in the old one. Before the grid moves the
+// region's cells (its hw_request), the renderer gets the glass ready, so that nothing stale shows while the
+// picture moves: it draws what's dirty, draws the cursor's cell without the cursor, and blanks the rows that
+// leave, a window each, as their memory is where the rows coming in show. The display's frame memory lines run from the bottom row up (MADCTL's MY), so the rows
 // below the region are the top fixed area, those above it the bottom one (hardware/michael/fpga/text/
 // ili9341.py has the mapping, checked against the graphic driver's own scrolling). A cell is drawn in the
 // memory row that the scroll shows where it belongs. The font is generated from firmware/lib/graphics/font_12x16.txt
@@ -16,7 +20,8 @@
 module text_render #(
   parameter ROWS  = 20,
   parameter COLS  = 20,
-  parameter BLINK = 3_000_000
+  parameter BLINK = 3_000_000,
+  parameter FRAME = 200_000        // 16.7 ms: a frame at 79 Hz (FRMCTR1 $00 $18) takes 12.7 ms
 ) (
   input            clk,
   input            text_mode,
@@ -27,6 +32,10 @@ module text_render #(
   input      [4:0] bottom,
   input      [4:0] offset,
   input            moving,         // the grid is moving cells: wait
+  input            hw_request,     // the grid's hardware scroll, up (or down) by hw_count rows, waits for
+  input            hw_up,          // hw_ready
+  input      [4:0] hw_count,
+  output           hw_ready,
   input            dirty,          // the grid's lowest dirty cell
   input      [4:0] dirty_row,
   input      [4:0] dirty_col,
@@ -54,8 +63,14 @@ module text_render #(
 `include "../build/font_12x16.vh"
   end
 
-  localparam IDLE = 3'd0, SETUP = 3'd1, LOAD = 3'd2, HEAD = 3'd3, FONT = 3'd4, PIXELS = 3'd5, SCROLL = 3'd6;
+  localparam IDLE = 3'd0, SETUP = 3'd1, LOAD = 3'd2, HEAD = 3'd3, FONT = 3'd4, PIXELS = 3'd5, SCROLL = 3'd6,
+             BLANK = 3'd7;           // a row's window of black, after HEAD
+  localparam ROW_BYTES = COLS * 12 * 16 * 2;
   reg [2:0] state = IDLE;
+  reg [$clog2(FRAME + 1)-1:0] frame_wait = 0;
+  reg [$clog2(ROW_BYTES + 1)-1:0] blank_left = 0;
+  reg       erased = 1'b0, hide = 1'b0, blanking = 1'b0;   // getting ready for the grid's hardware scroll
+  reg [4:0] blanked = 0;
   reg       was_mode = 1'b0, blink_on = 1'b1, blink_due = 1'b0;
   reg [$clog2(BLINK + 1)-1:0] blink_count = 0;
   reg [4:0] row = 0, col = 0, was_row = 0, was_col = 0;
@@ -74,11 +89,17 @@ module text_render #(
 
   wire cursor_shown = cursor_on && cursor_col < COLS;
   wire setup_due = text_mode && !was_mode;
-  wire may_draw = state == IDLE && !setup_due && !scroll_due && text_mode && !moving;
-  wire start_blink = may_draw && blink_due && cursor_shown;
+  wire may_draw = state == IDLE && frame_wait == 0 && !setup_due && !scroll_due && text_mode && !moving;
+  wire start_blink = may_draw && blink_due && cursor_shown && !hw_request;
   assign take_dirty = may_draw && !start_blink && dirty;
-  assign rd = start_blink, rd_row = cursor_row, rd_col = cursor_col;
-  assign idle = state == IDLE && !setup_due && !scroll_due && !(text_mode && (dirty || (blink_due && cursor_shown)));
+  // Getting ready for the hardware scroll, once nothing is dirty: the cursor off, then the rows that leave
+  wire getting_ready = may_draw && hw_request && !dirty;
+  wire start_erase = getting_ready && !erased && cursor_shown && cursor_row >= s_top && cursor_row <= s_bottom;
+  wire start_blank = getting_ready && erased && blanked != hw_count;
+  assign hw_ready = hw_request && (!text_mode || getting_ready && erased && blanked == hw_count);
+  assign rd = start_blink || start_erase, rd_row = cursor_row, rd_col = cursor_col;
+  assign idle = state == IDLE && frame_wait == 0 && !setup_due && !scroll_due &&
+                !(text_mode && (dirty || (blink_due && cursor_shown)));
 
   // The memory row where row r shows, through the hardware scroll. In the region, the scroll shows memory
   // row bottom - k, k being (offset + bottom - r) mod its height; elsewhere, row r. (Every function here takes
@@ -98,7 +119,7 @@ module text_render #(
   // The run's entries
   wire [4:0] p_row = memory_row(row, s_top, s_bottom, s_offset);
   wire [8:0] y0 = p_row * 16, y1 = y0 + 15;
-  wire [8:0] x0 = col * 12, x1 = x0 + 11;
+  wire [8:0] x0 = blanking ? 9'd0 : col * 12, x1 = blanking ? COLS * 12 - 1 : x0 + 11;
   // (Functions, not always @*, so that simulation has them from time 0)
   function [9:0] head_entry(input [3:0] n, input [8:0] y0, input [8:0] y1, input [8:0] x0, input [8:0] x1);
     case (n)
@@ -128,10 +149,12 @@ module text_render #(
   endfunction
   wire [9:0] head = head_entry(i, y0, y1, x0, x1), setup = setup_entry(i), scroll = scroll_entry(i, tfa, vsa, bfa, ssa);   // {kind, value}
   wire lit = column[y] ^ reverse ^ (cursor_here && y >= 16 - CURSOR_ROWS);
-  wire [9:0] out = state == SETUP ? setup : state == SCROLL ? scroll : state == HEAD ? head : {DATA, {8{lit}}};
-  assign r_valid = state == SETUP || state == SCROLL || state == HEAD || state == PIXELS;
+  wire [9:0] out = state == SETUP ? setup : state == SCROLL ? scroll : state == HEAD ? head :
+                  state == BLANK ? {DATA, 8'h00} : {DATA, {8{lit}}};
+  assign r_valid = state == SETUP || state == SCROLL || state == HEAD || state == PIXELS || state == BLANK;
   assign {r_kind, r_value} = out;
-  wire last = state == SETUP ? i == 1 : state == SCROLL ? i == 9 : state == PIXELS && i == 11 && y == 15 && half;
+  wire last = state == SETUP ? i == 1 : state == SCROLL ? i == 9 : state == BLANK ? blank_left == 1 :
+              state == PIXELS && i == 11 && y == 15 && half;
 
   always @(posedge clk) begin
     // The cursor blinks, and shows at once when it moves
@@ -144,6 +167,8 @@ module text_render #(
     if (start_blink) blink_due <= 1'b0;
 
     if (r_take) r_lock <= !last;
+    if (frame_wait != 0) frame_wait <= frame_wait - 1'b1;
+    if (hw_ready) begin erased <= 1'b0; blanked <= 0; end
     case (state)
       IDLE:
         if (setup_due) begin was_mode <= 1'b1; s_ok <= 1'b0; i <= 0; state <= SETUP; end
@@ -151,23 +176,35 @@ module text_render #(
           {s_top, s_bottom, s_offset} <= {top, bottom, offset}; i <= 0; state <= SCROLL;
         end else begin
           if (!text_mode) was_mode <= 1'b0;
-          if (start_blink || take_dirty) begin
-            row <= start_blink ? cursor_row : dirty_row; col <= start_blink ? cursor_col : dirty_col;
+          if (start_blink || take_dirty || start_erase) begin
+            row <= take_dirty ? dirty_row : cursor_row; col <= take_dirty ? dirty_col : cursor_col;
+            hide <= start_erase;
             state <= LOAD;
+          end
+          if (getting_ready && !erased) erased <= 1'b1;
+          if (start_blank) begin         // the leaving rows, from the region's edge
+            row <= hw_up ? s_top + blanked : s_bottom - blanked;
+            blanked <= blanked + 1'b1; blanking <= 1'b1; i <= 0; state <= HEAD;
           end
         end
       SETUP: if (r_take) begin i <= i + 1'b1; if (last) state <= IDLE; end
       SCROLL: if (r_take) begin
         i <= i + 1'b1;
-        if (last) begin s_ok <= 1'b1; state <= IDLE; end
+        if (last) begin s_ok <= 1'b1; frame_wait <= FRAME; state <= IDLE; end
       end
       LOAD: begin
         code <= rd_cell[7:0]; reverse <= rd_cell[8];
-        cursor_here <= cursor_shown && blink_on && cursor_row == row && cursor_col == col;
+        cursor_here <= cursor_shown && blink_on && cursor_row == row && cursor_col == col && !hide;
         i <= 0; state <= HEAD;
       end
       HEAD: if (r_take) begin
-        if (i == 10) begin i <= 0; state <= FONT; end else i <= i + 1'b1;
+        if (i != 10) i <= i + 1'b1;
+        else if (blanking) begin blank_left <= ROW_BYTES; state <= BLANK; end
+        else begin i <= 0; state <= FONT; end
+      end
+      BLANK: if (r_take) begin
+        blank_left <= blank_left - 1'b1;
+        if (last) begin blanking <= 1'b0; state <= IDLE; end
       end
       FONT: begin                  // the column's pixels, read
         column <= font[{code[7] ? 7'd0 : code[6:0], i}];
@@ -181,7 +218,6 @@ module text_render #(
           end else y <= y + 1'b1;
         end
       end
-      default: state <= IDLE;
     endcase
   end
 endmodule

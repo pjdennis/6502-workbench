@@ -17,7 +17,7 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at a scrolled region on the glass
+**Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at the clean scrolls on the glass
 ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4 done in software, the bench to go
 ([below](#4-rom-support-and-switching-displays-at-run-time)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
@@ -93,15 +93,22 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 - **Done (2026-10-04), in simulation and on the board through the debug port**
   ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)): the grid, the renderer, the text
   commands, and the windowed scrolling below. `board_check.py` reads the cells back out of the display's
-  memory and finds them as the model has them. Still to see on the glass: that a region scrolls the right way
-  between its fixed areas (`debug.py text` scrolls one).
+  memory and finds them as the model has them. On the glass a region scrolled the right way between its
+  fixed areas, but with flashes: the row that left showed for a moment where the new one comes in, and the
+  cursor showed in rows it never reached. Fixed in simulation (below); still to see on the glass.
 - **Look into the panel's windowed scrolling** to speed up the editor's scrolling. Done: scrolling the whole
   region (and inserting or deleting lines at its top row) moves its picture with VSCRDEF and VSCRSADD, and
   redraws only the rows that come in blank. The frame memory runs from the bottom row up (MADCTL's MY), so
   the top fixed area is the rows below the region, and VSCRSADD counts from there; the model panel
   ([`ili9341.py`](../hardware/michael/fpga/text/ili9341.py)) has this, checked against the graphic driver's
   own whole-screen scroll, which works on the board. Inserting or deleting lines below the region's top
-  still redraws the rows that move.
+  still redraws the rows that move, but only the cells that change: a blank moved onto a blank isn't drawn.
+  - **Clean scrolls.** The display takes up a new VSCRSADD at its next frame (inferred from the flashes), and
+    the rows coming in reuse the memory of the rows that leave. So before the grid moves its cells it asks the
+    renderer, which draws what's dirty, takes the cursor off the glass and blanks the leaving rows; after
+    sending the scroll it draws nothing for a frame (16.7 ms). The test model panel scans its glass frame by
+    frame, and `test_text_render.py` checks that a scroll never shows a cell anything it doesn't hold
+    before, between or after the operations.
   - The ILI9341's Vertical Scrolling Definition (`$33`: top fixed area, scroll area, bottom fixed area) and
     Vertical Scrolling Start Address (`$37`) scroll a band of the screen in hardware between fixed areas,
     with no redraw. The editor scrolls its text area and leaves the status line fixed, which is exactly
@@ -219,6 +226,14 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   While changing `ID`'s reply in [`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v), comment
   that `'M'`, `'B'` stands for "Michael Bus". It was left out of the review's clean-ups, because any edit
   there moves the placement away from the build in flash.
+- **A faster SPI clock.** The display's SPI runs at 6 MHz (the 12 MHz clock halved), so a character cell's
+  395 bytes take 0.5 ms and a full 20 by 20 screen 0.2 s: every redraw the hardware scroll can't save
+  (inserting or deleting lines mid-screen, changing the region) runs at that rate. The Cmod's MMCM can make a
+  faster clock: SCK at 12, 24 or more MHz. The ILI9341's data sheet gives a 100 ns write cycle (10 MHz), but
+  these panels commonly run much faster. Find the board's safe limit with `board_check.py` (it reads every
+  cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
+  timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
+  the fast domain. Needs a board run and a flash.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
