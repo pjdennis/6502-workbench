@@ -199,9 +199,41 @@ TEST text_mode_refuses_raw_display_commands(void) {
     command(0x20);
     command(0x11); data(0x2A);                   /* DISP_COMMAND: refused */
     ASSERT_EQ_FMT(0x02, read_byte(0), "%02x");   /* UNKNOWN */
+    ASSERT(fs.panel.command != 0x2A);
     command(0x13); data(0x80);                   /* BACKLIGHT: still fine */
+    ASSERT_EQ(0x80, fs.panel.backlight);
     command(0x21);                               /* TEXT_OFF */
     command(0x11); data(0x2A);
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    ASSERT_EQ(0x2A, fs.panel.command);
+    teardown();
+    PASS();
+}
+
+/* An ILI9341 command and its parameters, through DISP_COMMAND */
+static void display(uint8_t c, int n, const uint8_t *params) {
+    command(0x11); data(c);
+    for (int i = 0; i < n; i++) data(params[i]);
+}
+
+TEST raw_display_commands_drive_the_panel(void) {
+    model_setup();
+    command(0x10); data(0);                      /* DISP_RESET: held */
+    ASSERT(fs.panel.in_reset);
+    command(0x10); data(1);
+    ASSERT_FALSE(fs.panel.in_reset);
+    display(0x11, 0, NULL);                      /* SLPOUT */
+    display(0x29, 0, NULL);                      /* DISPON */
+    display(0x36, 1, (const uint8_t[]){ 0xA8 });                 /* MADCTL */
+    display(0x2A, 4, (const uint8_t[]){ 0, 5, 0, 5 });           /* CASET 5-5 */
+    display(0x2B, 4, (const uint8_t[]){ 0, 7, 0, 8 });           /* PASET 7-8 */
+    display(0x2C, 2, (const uint8_t[]){ 0xF8, 0x00 });           /* RAMWR, a pixel */
+    command(0x12); data(0x07); data(0xE0);       /* DISP_DATA: the next */
+    ASSERT(ili9341_showing(&fs.panel));
+    ASSERT_EQ_FMT(0xF800, fs.panel.memory[ILI9341_LINES - 1 - 5][7], "%04X");
+    ASSERT_EQ_FMT(0x07E0, fs.panel.memory[ILI9341_LINES - 1 - 5][8], "%04X");
+    command(0x13); data(0x40);                   /* BACKLIGHT */
+    ASSERT_EQ(0x40, fs.panel.backlight);
     ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
     teardown();
     PASS();
@@ -228,6 +260,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(echo_and_the_soeb_interlock);
     RUN_TEST(text_mode_changes_the_grid);
     RUN_TEST(text_mode_refuses_raw_display_commands);
+    RUN_TEST(raw_display_commands_drive_the_panel);
     RUN_TEST(an_absent_fpga_never_answers);
 }
 

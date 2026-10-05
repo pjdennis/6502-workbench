@@ -49,15 +49,26 @@ static void write_command(struct fpga_bus_state *s, uint8_t c) {
     if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c, 0, 0);
 }
 
+/* A raw display command's argument, to the display (display_spi.v's entries) */
+static void display_argument(struct fpga_bus_state *s, uint8_t a) {
+    if (s->cmd == DISP_RESET) ili9341_reset_line(&s->panel, a & 1);
+    else if (s->cmd == DISP_COMMAND) ili9341_command(&s->panel, a);
+    else if (s->cmd == BACKLIGHT) s->panel.backlight = a;
+}
+
 static void write_data(struct fpga_bus_state *s, uint8_t d) {
     if (s->args_left) {
         if (s->args_left == 2) s->first_arg = d;
-        if (--s->args_left == 0 && text(s->cmd))
-            fpga_text_op(&s->text, s->cmd, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
+        if (--s->args_left == 0) {
+            if (text(s->cmd)) fpga_text_op(&s->text, s->cmd, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
+            else if (display(s, s->cmd)) display_argument(s, d);
+        }
     } else if (s->cmd == ECHO) {
         push_reply(s, d);
     } else if (s->cmd == PUT) {
         fpga_text_op(&s->text, PUT, d, 0);
+    } else if (display(s, s->cmd) && streams(s->cmd)) {
+        ili9341_data(&s->panel, d);
     } else if (known(s, s->cmd) && !streams(s->cmd)) {
         s->sticky |= EXTRA;
     }
@@ -138,6 +149,7 @@ void fpga_bus_init(struct chip *chip, struct fpga_bus_state *state, const struct
     state->via = via;
     state->log = log;
     fpga_text_init(&state->text);
+    ili9341_init(&state->panel);
     chip->ops = &ops;
     chip->name = "fpga_bus";
     chip->state = state;
