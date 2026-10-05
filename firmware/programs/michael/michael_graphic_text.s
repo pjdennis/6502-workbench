@@ -9,7 +9,8 @@
 ;       Backspace  delete to the left    Delete  delete the line (the lines below move up)
 ;       arrows     move                  Tab     reverse video on/off      Esc  clear
 ;       Page Up, Page Down  the backlight brighter, dimmer: 0, 1, 3, 7 ... 127, 255 (halving down)
-;       Insert     types $FF, a code outside the font: text mode shows it as a box
+;       Alt and two hex digits  types that code, from $20 up: the font's glyphs, code page 437's (a control
+;                  code is dropped, as is a first digit followed by anything else)
 ; Michael keeps the cursor's position itself, by the text mode's rules, and never reads it back.
   .include base_config_v2.inc
 
@@ -27,7 +28,9 @@ ROW                      = $0c ; 1 byte: the cursor's, 1-19
 COL                      = $0d ; 1 byte: the cursor's, 0-19, or 20 past the end of the bottom row
 REVERSE                  = $0e ; 1 byte: 0 normal video, 1 reverse
 BRIGHTNESS               = $0f ; 1 byte: the backlight's level
-GD_ZERO_PAGE_BASE        = $10 ; 18 bytes
+HEX_COUNT                = $10 ; 1 byte: Alt's hex digits so far, 0 or 1
+HEX_HIGH                 = $11 ; 1 byte: the first of them, in the high nibble
+GD_ZERO_PAGE_BASE        = $12 ; 18 bytes
 KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
@@ -59,7 +62,6 @@ callback_key_esc     = clear_region
 callback_key_delete  = delete_line
 callback_key_pageup  = brighter
 callback_key_pagedown = dimmer
-callback_key_insert  = type_outside_the_font
   .include keyboard_driver.inc
   .include multiply8x8.inc
   .include graphics_display.inc
@@ -111,6 +113,16 @@ program_start:
 .keys:
   jsr keyboard_get_char            ; The arrows and Esc are handled on the way, by the callbacks above
   bcs .keys
+  pha
+  lda KEYBOARD_LATEST_META
+  and #KB_META_ALT
+  beq .not_alt
+  pla
+  jsr alt_hex
+  bra .keys
+.not_alt:
+  stz HEX_COUNT                    ; Alt's code unfinished: dropped
+  pla
   cmp #KEY_ENTER
   beq .enter
   cmp #KEY_BACKSPACE
@@ -277,11 +289,46 @@ new_bottom_line:
   stz COL
   jmp goto                         ; tail call
 
-; Insert's callback: $FF typed, a code outside the font, which text mode shows as a box.
+; A key with Alt held: two hex digits type the code they make, from $20 up (a control code is dropped);
+; anything else drops a first digit.
+; On entry A = the key's character
+alt_hex:
+  jsr hex_value
+  bcs .drop
+  ldy HEX_COUNT
+  bne .second
+  asl
+  asl
+  asl
+  asl
+  sta HEX_HIGH
+  inc HEX_COUNT
+  rts
+.second:
+  ora HEX_HIGH
+  stz HEX_COUNT
+  cmp #' '
+  bcs type_char                    ; tail call
+  rts
+.drop:
+  stz HEX_COUNT
+  rts
+
+; The hex digit in A ('0'-'9', 'a'-'f', 'A'-'F'): C clear and A its value, 0-15; else C set.
 ; On exit X, Y are preserved
-type_outside_the_font:
-  lda #$ff
-  bra type_char
+hex_value:
+  sec
+  sbc #'0'
+  cmp #10
+  bcc .done                        ; '0'-'9'
+  ora #$20                         ; 'A'-'F' as 'a'-'f' (less '0')
+  sec
+  sbc #'a' - '0'
+  cmp #6
+  bcs .done                        ; not a hex digit (C set)
+  adc #10                          ; 'a'-'f' (C clear, and stays so)
+.done:
+  rts
 
 
 ; Page Up's callback: the backlight a step brighter (doubled, and 1 more), up to 255.
