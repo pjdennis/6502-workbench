@@ -762,7 +762,12 @@ int web_snapshot_json(const struct web_snapshot *s, char *json, int cap) {
     for (int i = 0; i < s->n_leds && i < WEB_MAX_LEDS; i++) {
         if (sj_printf(json, cap, &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return -1;
     }
-    if (sj_printf(json, cap, &pos, "]}")) return -1;
+    if (sj_printf(json, cap, &pos, "]")) return -1;
+    const struct ili9341 *d = s->display;
+    if (d && sj_printf(json, cap, &pos, ",\"gd\":{\"on\":%d,\"bl\":%d,\"gs\":%d,\"ss\":%d,\"scroll\":[%d,%d,%d,%d]}",
+                       ili9341_showing(d), d->backlight, (d->scan & ILI9341_GS) != 0, (d->scan & ILI9341_SS) != 0,
+                       d->tfa, d->vsa, d->bfa, d->ssa)) return -1;
+    if (sj_printf(json, cap, &pos, "}")) return -1;
     return pos;
 }
 

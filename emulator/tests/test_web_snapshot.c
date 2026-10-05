@@ -43,6 +43,32 @@ TEST the_lcd_pins_clock_and_leds(void) {
     PASS();
 }
 
+TEST no_graphic_display_no_gd(void) {
+    fill();
+    web_snapshot_json(&snap, json, sizeof(json));
+    ASSERT_FALSE(has("\"gd\""));
+    PASS();
+}
+
+TEST the_graphic_displays_glass(void) {
+    /* How the glass shows the display's memory (which goes to the page as deltas, not JSON): on or blank, the
+     * backlight, the scans and the hardware scroll */
+    static struct ili9341 panel;
+    ili9341_init(&panel);
+    fill();
+    snap.display = &panel;
+    web_snapshot_json(&snap, json, sizeof(json));
+    ASSERT(has(",\"gd\":{\"on\":0,\"bl\":255,\"gs\":0,\"ss\":0,\"scroll\":[0,320,0,0]}}"));
+    panel.sleeping = 0;
+    panel.on = 1;
+    panel.backlight = 128;
+    panel.scan = ILI9341_GS | ILI9341_SS;
+    panel.tfa = 16; panel.vsa = 288; panel.bfa = 16; panel.ssa = 48;
+    web_snapshot_json(&snap, json, sizeof(json));
+    ASSERT(has(",\"gd\":{\"on\":1,\"bl\":128,\"gs\":1,\"ss\":1,\"scroll\":[16,288,16,48]}}"));
+    PASS();
+}
+
 TEST too_small_a_buffer_is_refused(void) {
     fill();
     ASSERT_EQ(-1, web_snapshot_json(&snap, json, 64));
@@ -51,6 +77,8 @@ TEST too_small_a_buffer_is_refused(void) {
 
 SUITE(web_snapshot_suite) {
     RUN_TEST(the_lcd_pins_clock_and_leds);
+    RUN_TEST(no_graphic_display_no_gd);
+    RUN_TEST(the_graphic_displays_glass);
     RUN_TEST(too_small_a_buffer_is_refused);
 }
 
