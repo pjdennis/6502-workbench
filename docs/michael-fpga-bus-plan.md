@@ -193,6 +193,10 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
   escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
   designed.
+- **Revisit text mode's control codes.** `PUT` acts on BS, LF and CR and drops the other codes below `$20`,
+  while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
+  shown. One option: no special meaning for any code, so every character written goes into its cell, with
+  separate text mode operations for backspace, newline and carriage return. Undecided (2026-10-05).
 - **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
   B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
   design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
