@@ -1,4 +1,4 @@
-"""The FPGA bus's text mode as a model: the character grid that the text commands ($2x, $3x in
+"""The FPGA bus's text mode as a model: the character grid that text mode's operations (device $80 in
 docs/michael-fpga-bus-plan.md) change. It behaves as the ROM's screen on the LCD does
 (firmware/lib/lcd/lcd_screen.inc), so the editor sees the same screen on either display, except that it
 keeps reverse video, and rows and columns are 0-based. The RTL (../rtl/text_grid.v) is tested against it.

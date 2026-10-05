@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-// The FPGA bus's text mode: the character grid that the text commands ($2x in docs/michael-fpga-bus-plan.md)
+// The FPGA bus's text mode: the character grid that text mode's operations (device $80 in docs/michael-fpga-bus-plan.md)
 // change, as hardware/michael/fpga/text/text_screen.py models it (the ROM's LCD screen's rules, with reverse
 // video, 0-based). Operations queue, so Michael never waits; each runs in turn, the shifting ones a cell
 // per clock or two.
@@ -24,7 +24,7 @@ module text_grid #(
   parameter HW_SCROLL   = 1
 ) (
   input            clk,
-  input            push,           // an operation: op = the command's code - $20, with its arguments
+  input            push,           // an operation: op = text mode's operation ($00-$0F), with its arguments
   input      [3:0] op,
   input      [7:0] a,
   input      [7:0] b,

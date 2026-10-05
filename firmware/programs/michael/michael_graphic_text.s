@@ -75,8 +75,8 @@ program_start:
   lda #$ff                         ; Fully on, whatever ran before left
   sta BRIGHTNESS
   jsr send_brightness
-  lda #FB_TEXT_ON
-  jsr fb_command
+  lda #FB_T_ON
+  jsr fb_text
   lda #1
   jsr video
   ldx #0
@@ -89,14 +89,14 @@ program_start:
 .title_done:
   lda #0
   jsr video
-  lda #FB_REGION
-  jsr fb_command
+  lda #FB_T_REGION
+  jsr fb_text
   lda #FIRST_ROW
   jsr fb_data
   lda #TEXT_ROWS - 1
   jsr fb_data
-  lda #FB_CURSOR
-  jsr fb_command
+  lda #FB_T_CURSOR
+  jsr fb_text
   lda #1
   jsr fb_data
   stz REVERSE
@@ -120,8 +120,8 @@ program_start:
   cmp #$7f
   bcs .keys
   pha
-  lda #FB_INSERT                   ; Room for it: the rest of the line moves right
-  jsr fb_command
+  lda #FB_T_INSERT                 ; Room for it: the rest of the line moves right
+  jsr fb_text
   lda #1
   jsr fb_data
   pla
@@ -142,8 +142,8 @@ program_start:
   bcs .scroll
   inc ROW                          ; A new line below: the lines under it move down
   jsr goto
-  lda #FB_INSERT_LINES
-  jsr fb_command
+  lda #FB_T_INSERT_LINES
+  jsr fb_text
   lda #1
   jsr fb_data
   stz COL                          ; (where INSERT_LINES leaves the cursor)
@@ -158,8 +158,8 @@ program_start:
   beq .keys
   dec COL
   jsr goto
-  lda #FB_DELETE
-  jsr fb_command
+  lda #FB_T_DELETE
+  jsr fb_text
   lda #1
   jsr fb_data
   bra .keys
@@ -179,8 +179,8 @@ lcd_message:  .asciiz "TEXT MODE ON THE FPGA"
 ; On exit X, Y are preserved
 put:
   pha
-  lda #FB_PUT
-  jsr fb_command
+  lda #FB_T_PUT
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -189,8 +189,8 @@ put:
 ; On exit X, Y are preserved
 video:
   pha
-  lda #FB_VIDEO
-  jsr fb_command
+  lda #FB_T_VIDEO
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -198,8 +198,8 @@ video:
 ; Moves the text mode's cursor to ROW, COL.
 ; On exit X, Y are preserved
 goto:
-  lda #FB_GOTO
-  jsr fb_command
+  lda #FB_T_GOTO
+  jsr fb_text
   lda ROW
   jsr fb_data
   lda COL
@@ -245,8 +245,8 @@ scroll_up:
 ; On exit X, Y are preserved
 scroll_up_a:
   pha
-  lda #FB_SCROLL_UP
-  jsr fb_command
+  lda #FB_T_SCROLL_UP
+  jsr fb_text
   pla
   jmp fb_data                      ; tail call
 
@@ -296,8 +296,8 @@ brightness_stays:
 ; Delete's callback: the cursor's line deleted, the lines below moving up, and the cursor to its start.
 ; On exit X, Y are preserved
 delete_line:
-  lda #FB_DELETE_LINES
-  jsr fb_command
+  lda #FB_T_DELETE_LINES
+  jsr fb_text
   lda #1
   jsr fb_data
   stz COL                          ; (where DELETE_LINES leaves the cursor)

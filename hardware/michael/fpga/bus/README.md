@@ -46,7 +46,7 @@ sending.
 [`debug.py`](debug.py) wraps it:
 
 ```
-python3 debug.py id        # "MB, protocol version 1, capabilities $01"
+python3 debug.py id        # "MB, protocol version 2, capabilities $03"
 python3 debug.py status    # the status byte
 python3 debug.py pattern   # initialises the display as Michael's driver does, then draws four squares
 python3 debug.py text      # the same, then a screen in text mode

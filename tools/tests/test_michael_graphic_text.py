@@ -22,7 +22,8 @@ PROGRAM = os.path.join(michael_emulator.ROOT, 'firmware', 'programs', 'michael',
 UP, DOWN, RIGHT, LEFT, ESC, DELETE = b'\x1b[A', b'\x1b[B', b'\x1b[C', b'\x1b[D', b'\x1b', b'\x1b[3~'
 PAGE_UP, PAGE_DOWN = b'\x1b[5~', b'\x1b[6~'
 TITLE = ' MICHAEL TEXT MODE  '
-ARGUMENTS = {0x22: 2, 0x26: 1, 0x27: 1, 0x28: 2, 0x2A: 1, 0x2B: 1, 0x2C: 1, 0x2D: 1, 0x2E: 1, 0x2F: 1}
+TEXT = 0x80   # text mode, the long-form device: its first data byte is the operation
+ARGUMENTS = {0x02: 2, 0x06: 1, 0x07: 1, 0x08: 2, 0x0A: 1, 0x0B: 1, 0x0C: 1, 0x0D: 1, 0x0E: 1, 0x0F: 1}
 
 
 def backlight_levels(log):
@@ -35,28 +36,30 @@ def backlight_levels(log):
 
 
 def screen_from(log):
-    """The bus transfers from TEXT_ON on, run on the model."""
+    """Text mode's operations from TEXT_ON on, run on the model."""
     s = TextScreen()
-    calls = {0x20: s.text_on, 0x24: s.clear, 0x25: s.clear_eol, 0x29: s.region_reset, 0x22: s.goto, 0x26: s.insert,
-             0x27: s.delete, 0x28: s.region, 0x2A: s.scroll_up, 0x2B: s.scroll_down, 0x2C: s.insert_lines,
-             0x2D: s.delete_lines, 0x2E: s.set_cursor, 0x2F: s.video}
-    cmd, args, on = None, [], False
+    calls = {0x00: s.text_on, 0x04: s.clear, 0x05: s.clear_eol, 0x09: s.region_reset, 0x02: s.goto, 0x06: s.insert,
+             0x07: s.delete, 0x08: s.region, 0x0A: s.scroll_up, 0x0B: s.scroll_down, 0x0C: s.insert_lines,
+             0x0D: s.delete_lines, 0x0E: s.set_cursor, 0x0F: s.video}
+    cmd, op, args, on = None, None, [], False
     for line in log.split('\n'):
         if not line:
             continue
         kind, value = line.split()[0], int(line.split()[1], 16) if len(line.split()) > 1 else None
         if kind == 'C':
-            cmd, args = value, []
-            on = on or cmd == 0x20
-            if on and cmd in calls and ARGUMENTS.get(cmd, 0) == 0:
-                calls[cmd]()
-        elif kind == 'D' and on:
-            if cmd == 0x23:
+            cmd, op, args = value, None, []
+        elif kind == 'D' and cmd == TEXT and op is None:
+            op = value
+            on = on or op == 0x00
+            if on and op in calls and ARGUMENTS.get(op, 0) == 0:
+                calls[op]()
+        elif kind == 'D' and cmd == TEXT and on:
+            if op == 0x03:
                 s.put(value)
-            elif cmd in ARGUMENTS:
+            elif op in ARGUMENTS:
                 args.append(value)
-                if len(args) == ARGUMENTS[cmd]:
-                    calls[cmd](*args)
+                if len(args) == ARGUMENTS[op]:
+                    calls[op](*args)
     return s
 
 
