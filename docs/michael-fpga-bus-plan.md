@@ -267,6 +267,21 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
   timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
   the fast domain. Needs a board run and a flash.
+- **A minor version for the ROM.** The LCD shows "Michael ROM 5", the major version only; the review
+  of stage 4 changed ROM 5 several times before it was programmed. As with the FPGA design's version: a minor
+  number (e.g. "Michael ROM 5.1"), set by hand or from git at build time, and perhaps readable by programs.
+- **The LCD beside the graphic display.** With the editor on the graphic display, Michael's 20x4 LCD is
+  free: the editor, or the ROM's services, could show useful information there (the file and position,
+  memory, diagnostics such as the bus's status or the keyboard's errors).
+- **The ROM's busy flags in zero page.** `ROM_SCREEN` (read by every screen call's dispatch) and
+  `ROM_PUTTING` (by every character) are in the interrupt page's RAM; in zero page each read and write is a
+  cycle and a byte shorter, about 2 cycles of a character's 75 or so through the graphic screen. The strategy
+  is there already: the top of zero page, `$F0`–`$FF`, is the ROM's (the keyboard's state, scratch,
+  `ROM_FLAGS`; `$FD`–`$FF` free), and programs that use its services keep out. But the editor clears all of
+  zero page as it starts, after a launcher may have chosen the graphic screen, so first:
+- **The editor clears only its own zero page.** Its start-up zeroes `$00`–`$FF`; it should clear only the
+  variables it owns (its memory map), leaving the ROM's `$F0`–`$FF`. Then `ROM_SCREEN` and `ROM_PUTTING`
+  can move to `$FD` and `$FE` (`ROM_PUTTING` could move now: cleared, it only costs a PUT reopened).
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
