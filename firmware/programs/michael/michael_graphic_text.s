@@ -8,6 +8,7 @@
 ;       Enter      a new line below (on the bottom row the region scrolls up)
 ;       Backspace  delete to the left    Delete  delete the line (the lines below move up)
 ;       arrows     move                  Tab     reverse video on/off      Esc  clear
+;       Page Up, Page Down  the backlight brighter, dimmer: 0, 1, 3, 7 ... 127, 255 (halving down)
 ; Michael keeps the cursor's position itself, by the text mode's rules, and never reads it back.
   .include base_config_v2.inc
 
@@ -24,7 +25,8 @@ MULTIPLY_8X8_TEMP        = $0b ; 1 byte
 ROW                      = $0c ; 1 byte: the cursor's, 1-19
 COL                      = $0d ; 1 byte: the cursor's, 0-19, or 20 past the end of the bottom row
 REVERSE                  = $0e ; 1 byte: 0 normal video, 1 reverse
-GD_ZERO_PAGE_BASE        = $0f ; 18 bytes
+BRIGHTNESS               = $0f ; 1 byte: the backlight's level
+GD_ZERO_PAGE_BASE        = $10 ; 18 bytes
 KB_ZERO_PAGE_BASE        = GD_ZERO_PAGE_STOP
 
 SIMPLE_BUFFER            = $0200 ; 256 bytes
@@ -54,6 +56,8 @@ callback_key_left    = cursor_left
 callback_key_right   = cursor_right
 callback_key_esc     = clear_region
 callback_key_delete  = delete_line
+callback_key_pageup  = brighter
+callback_key_pagedown = dimmer
   .include keyboard_driver.inc
   .include multiply8x8.inc
   .include graphics_display.inc
@@ -68,6 +72,9 @@ program_start:
   jsr display_string
 
   jsr gd_prepare_vertical          ; Initialises the display, through the raw display commands
+  lda #$ff                         ; Fully on, whatever ran before left
+  sta BRIGHTNESS
+  jsr send_brightness
   lda #FB_TEXT_ON
   jsr fb_command
   lda #1
@@ -253,6 +260,37 @@ clear_region:
   sta ROW
   stz COL
   bra goto
+
+
+; Page Up's callback: the backlight a step brighter (doubled, and 1 more), up to 255.
+; On exit X, Y are preserved
+brighter:
+  lda BRIGHTNESS
+  cmp #$ff
+  beq brightness_stays
+  sec
+  rol
+  bra brightness_to_a
+
+; Page Down's callback: the backlight a step dimmer (halved), down to 0 (off).
+; On exit X, Y are preserved
+dimmer:
+  lda BRIGHTNESS
+  beq brightness_stays
+  lsr
+brightness_to_a:
+  sta BRIGHTNESS
+  ; fall through
+
+; Sends BRIGHTNESS to the backlight.
+; On exit X, Y are preserved
+send_brightness:
+  lda #FB_BACKLIGHT
+  jsr fb_command
+  lda BRIGHTNESS
+  jmp fb_data                      ; tail call
+brightness_stays:
+  rts
 
 
 ; Delete's callback: the cursor's line deleted, the lines below moving up, and the cursor to its start.
