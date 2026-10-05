@@ -1,9 +1,13 @@
 ; Types on the FPGA's text mode (stage 3 of docs/michael-fpga-bus-plan.md): the FPGA keeps the 20 by 20 grid of
 ; characters and draws it, so each key is a few bytes on the bus, not a character's 400. Row 0 is a title;
-; rows 1-19 are the scroll region, which Enter scrolls (by the display's hardware scroll) at the bottom.
+; rows 1-19 are the scroll region. The keys try out the text mode's operations: inserting characters, and
+; inserting, deleting and scrolling lines, the scrolls of the whole region by the display's hardware scroll.
 ;
-; Keys: characters where the cursor is   Enter      the next line        Backspace  delete to the left
-;       arrows   move                   Tab        reverse video on/off  Esc        clear
+; Keys: characters inserted at the cursor (the line's last drops off); past the bottom row's end the
+;                  region scrolls up
+;       Enter      a new line below (on the bottom row the region scrolls up)
+;       Backspace  delete to the left    Delete  delete the line (the lines below move up)
+;       arrows     move                  Tab     reverse video on/off      Esc  clear
 ; Michael keeps the cursor's position itself, by the text mode's rules, and never reads it back.
   .include base_config_v2.inc
 
@@ -49,6 +53,7 @@ callback_key_down    = cursor_down
 callback_key_left    = cursor_left
 callback_key_right   = cursor_right
 callback_key_esc     = clear_region
+callback_key_delete  = delete_line
   .include keyboard_driver.inc
   .include multiply8x8.inc
   .include graphics_display.inc
@@ -107,6 +112,12 @@ program_start:
   bcc .keys
   cmp #$7f
   bcs .keys
+  pha
+  lda #FB_INSERT                   ; Room for it: the rest of the line moves right
+  jsr fb_command
+  lda #1
+  jsr fb_data
+  pla
   jsr put
   inc COL                          ; The text mode's rule: to the next row after the last column, but not
   lda COL                          ; past the bottom one
@@ -114,22 +125,24 @@ program_start:
   bne .keys
   lda ROW
   cmp #TEXT_ROWS - 1
-  bcs .keys
+  bcs .scroll                      ; Past the bottom row's end: the region scrolls up
   inc ROW
   stz COL
   bra .keys
 .enter:
   lda ROW
   cmp #TEXT_ROWS - 1
-  bcc .next_row
-  lda #FB_SCROLL_UP                ; The bottom: the region scrolls up a row
+  bcs .scroll
+  inc ROW                          ; A new line below: the lines under it move down
+  jsr goto
+  lda #FB_INSERT_LINES
   jsr fb_command
   lda #1
   jsr fb_data
-  bra .first_column
-.next_row:
-  inc ROW
-.first_column:
+  stz COL                          ; (where INSERT_LINES leaves the cursor)
+  bra .keys
+.scroll:
+  jsr scroll_up                    ; The bottom: the region scrolls up a row
   stz COL
   jsr goto
   bra .keys
@@ -215,14 +228,39 @@ cursor_stays:
   rts
 
 
+; Scrolls the region up a row.
+; On exit X, Y are preserved
+scroll_up:
+  lda #1
+  ; fall through
+
+; Scrolls the region up A rows.
+; On exit X, Y are preserved
+scroll_up_a:
+  pha
+  lda #FB_SCROLL_UP
+  jsr fb_command
+  pla
+  jmp fb_data                      ; tail call
+
+
 ; Esc's callback: the region scrolled clear, and the cursor to its start.
 ; On exit X, Y are preserved
 clear_region:
-  lda #FB_SCROLL_UP
-  jsr fb_command
   lda #TEXT_ROWS - FIRST_ROW
-  jsr fb_data
+  jsr scroll_up_a
   lda #FIRST_ROW
   sta ROW
   stz COL
   bra goto
+
+
+; Delete's callback: the cursor's line deleted, the lines below moving up, and the cursor to its start.
+; On exit X, Y are preserved
+delete_line:
+  lda #FB_DELETE_LINES
+  jsr fb_command
+  lda #1
+  jsr fb_data
+  stz COL                          ; (where DELETE_LINES leaves the cursor)
+  rts
