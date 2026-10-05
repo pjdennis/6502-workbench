@@ -17,7 +17,8 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-04): stages 0 to 2 done; stage 3 is next.** Stage 0 is this document, reviewed. Stage 1 is
+**Status (2026-10-04): stages 0 to 2 done; stage 3 under way: text mode works on the board, hardware
+scrolling next ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while

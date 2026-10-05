@@ -28,6 +28,8 @@ still running doesn't send it half a transfer.
   and backlight levels. SPI at 6 MHz, and the backlight's brightness (`BACKLIGHT`, 0 to 255) by PWM at
   47 kHz.
 - [`../rtl/debug_port.v`](../rtl/debug_port.v): the debug port (below).
+- Text mode (stage 3): [`../rtl/text_grid.v`](../rtl/text_grid.v) and
+  [`../rtl/text_render.v`](../rtl/text_render.v), described in [`../text/`](../text/).
 - [`sim/tb_top.v`](sim/tb_top.v): Michael (the driver's timings, its fill loop and the keyboard's
   interrupt), the board between, an ILI9341 model on the display's pins, and the PC on the serial port.
 
@@ -47,6 +49,7 @@ sending.
 python3 debug.py id        # "MB, protocol version 1, capabilities $01"
 python3 debug.py status    # the status byte
 python3 debug.py pattern   # initialises the display as Michael's driver does, then draws four squares
+python3 debug.py text      # the same, then a screen in text mode
 ```
 
 ## Michael's programs
