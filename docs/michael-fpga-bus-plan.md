@@ -145,8 +145,7 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   - wiring ([Stage 4 wiring changes](#stage-4-wiring-changes)), with Michael powered off, then the EEPROM and
     the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
-  `python3 tools/michael_rom.py`, then `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up
-  the current chip.
+  `make -C hardware/michael program` (it builds the image, backs up the chip, then writes it).
 - **Status (2026-10-04): done in software, not yet on the board.**
   - The emulator models the FPGA at the level of its commands (`emulator/chips/fpga_bus.c`, `fpga_text.c`),
     checked against the text mode's model; `--no-fpga` leaves it out.
