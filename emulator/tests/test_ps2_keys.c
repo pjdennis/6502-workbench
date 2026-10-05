@@ -90,6 +90,14 @@ TEST ctrl_arrows(void) {
     PASS();
 }
 
+TEST alt_keys_as_csi_u(void) {
+    /* ESC [ <code> ; 3 u: the key with Alt held (modifier 3: 1 + Alt's 2), as terminals' "CSI u" sends it */
+    CHECK("\x1b[97;3u", 7, 0x11, 0x1C, 0xF0, 0x1C, 0xF0, 0x11);                 /* Alt+a */
+    CHECK("\x1b[55;3u", 7, 0x11, 0x3D, 0xF0, 0x3D, 0xF0, 0x11);                 /* Alt+7 */
+    CHECK("\x1b[65;3u", 7, 0x11, 0x12, 0x1C, 0xF0, 0x1C, 0xF0, 0x12, 0xF0, 0x11);   /* Alt+Shift+a */
+    PASS();
+}
+
 TEST non_ascii_byte_is_skipped(void) {
     uint8_t out[PS2_KEY_MAX_CODES];
     size_t used = 0;
@@ -109,6 +117,7 @@ SUITE(ps2_keys_suite) {
     RUN_TEST(ansi_arrows_are_extended_keys);
     RUN_TEST(ansi_editing_keys);
     RUN_TEST(ctrl_arrows);
+    RUN_TEST(alt_keys_as_csi_u);
     RUN_TEST(non_ascii_byte_is_skipped);
 }
 

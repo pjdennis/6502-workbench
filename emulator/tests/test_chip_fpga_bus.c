@@ -289,7 +289,7 @@ static void display_setup(void) {
 /* Whether the glass shows the cell (row, col) as the character code, with reverse video and the cursor */
 static int glass_shows(int row, int col, uint8_t code, int reverse, int cursor) {
     for (int x = 0; x < 12; x++) {
-        uint16_t want = font_12x16[code & 0x80 ? 0x7F : code][x] ^ (reverse ? 0xFFFF : 0) ^ (cursor ? 0xC000 : 0);
+        uint16_t want = font_12x16[code][x] ^ (reverse ? 0xFFFF : 0) ^ (cursor ? 0xC000 : 0);
         for (int y = 0; y < 16; y++) {
             uint16_t lit = (want >> y) & 1 ? 0xFFFF : 0x0000;
             if (ili9341_glass_pixel(&fs.panel, col * 12 + x, row * 16 + y) != lit) return 0;
@@ -315,12 +315,16 @@ TEST text_mode_draws_the_grid(void) {
     PASS();
 }
 
-TEST codes_outside_the_font_show_the_box(void) {
+TEST codes_from_del_up_show_their_glyphs(void) {
+    /* Code page 437's: DEL's house, then accented, shaded and line-drawing characters */
+    static const uint8_t codes[] = { 0x7F, 0x80, 0xB1, 0xC1 };
     display_setup();
     text(0x00);
-    text(0x03); data(0x7F); data(0x80); data(0xC1); data(0xFF);
+    text(0x03);
+    for (int c = 0; c < 4; c++) data(codes[c]);
     fpga_bus_render(&fs, 0);
-    for (int c = 0; c < 4; c++) ASSERT(glass_shows(0, c, 0x7F, 0, 0));   /* the font's box */
+    for (int c = 0; c < 4; c++) ASSERT(glass_shows(0, c, codes[c], 0, 0));
+    ASSERT_FALSE(glass_shows(0, 1, 0x7F, 0, 0));   /* distinct glyphs */
     teardown();
     PASS();
 }
@@ -475,7 +479,7 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(text_mode_refuses_raw_display_commands);
     RUN_TEST(raw_display_commands_drive_the_panel);
     RUN_TEST(text_mode_draws_the_grid);
-    RUN_TEST(codes_outside_the_font_show_the_box);
+    RUN_TEST(codes_from_del_up_show_their_glyphs);
     RUN_TEST(the_cursor_blinks_and_shows_at_once_when_it_moves);
     RUN_TEST(a_region_scrolls_by_the_hardware_scroll);
     RUN_TEST(text_off_leaves_the_picture_for_raw_mode);

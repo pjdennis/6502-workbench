@@ -14,7 +14,6 @@
 ;   callback_key_esc     - callback when Escape pressed
 ;   callback_key_delete  - callback when Delete pressed
 ;   callback_key_pageup  - callback when Page Up pressed
-;   callback_key_insert  - callback when Insert pressed
 ;   callback_key_pagedown - callback when Page Down pressed
 ;   callback_key_f1      - callback when F1 pressed
 ;   callback_kb_trace    - called at each step of keyboard_send_command, for diagnostics:
@@ -227,11 +226,6 @@ handle_special_keys:
   beq .key_pageup
   .endif
 
-  .ifdef callback_key_insert
-  cmp #KEY_INSERT
-  beq .key_insert
-  .endif
-
   .ifdef callback_key_pagedown
   cmp #KEY_PAGEDOWN
   beq .key_pagedown
@@ -300,12 +294,6 @@ handle_special_keys:
   .ifdef callback_key_pageup
 .key_pageup:
   jsr callback_key_pageup
-  bra .handled
-  .endif
-
-  .ifdef callback_key_insert
-.key_insert:
-  jsr callback_key_insert
   bra .handled
   .endif
 

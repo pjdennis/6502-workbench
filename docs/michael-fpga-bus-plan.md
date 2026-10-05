@@ -236,6 +236,10 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
      bus). Handlers still save and restore Michael's port state.
 
   Decide with stage 6's peripherals; option 2 is the default either way.
+- **Revisit text mode's control codes.** `PUT` acts on BS, LF and CR and drops the other codes below `$20`,
+  while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
+  shown. One option: no special meaning for any code, so every character written goes into its cell, with
+  separate text mode operations for backspace, newline and carriage return. Undecided (2026-10-05).
 - **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
   B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
   design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
@@ -424,13 +428,13 @@ Each operation is the device byte `$80` (RS = 0), then the operation and its arg
 then data `$02`, `$03`, `$04`. A `PUT` stream sends `$80`, `$03` once, then a byte per character.
 
 - **The grid** is 20 rows of 20 characters, 12 by 16 pixels from Michael's font
-  ([`font_12x16.txt`](../firmware/lib/graphics/font_12x16.txt)), white on black, in the portrait orientation
-  Michael's driver uses. Rows and columns are 0-based.
+  ([`font_12x16.txt`](../firmware/lib/graphics/font_12x16.txt), generated from the original C font), white on
+  black, in the portrait orientation Michael's driver uses. Rows and columns are 0-based.
 - **Writing** (`PUT`) puts a character at the cursor and moves right, to the start of the next row after the
   last column. On the bottom row the cursor stays past the last column, and characters written there are
   dropped, so writing never scrolls. BS moves left, CR to the first column, LF to the first column of the next
-  row (staying on the bottom row); other control codes are dropped. Codes from `$7F` up show as a box (the
-  font's `$7F`), so a stray one is obvious.
+  row (staying on the bottom row); other control codes are dropped. Every other code shows its glyph from the
+  C font, in code page 437's order: `$7F` a house, then accented, shaded and line-drawing characters.
 - **`GOTO`** past the last row goes to the last; past the last column, just past it.
 - **Counts of 0 do nothing.** Counts larger than the cells or rows there are clear them all.
 - **`REGION`** needs two rows or more (a smaller one is ignored), and homes the cursor, as does

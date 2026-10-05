@@ -30,12 +30,11 @@ FONT_VH = os.path.join(HERE, '..', 'build', 'font_12x16.vh')
 SMALL = (6, 8)
 WAIT = 0x10   # the testbench waits until everything is idle
 WORDS = font_12x16.fpga_words(font_12x16.read_source())
-BOX = 0x7F
 
 
 def expected_cell(model, row, col):
     char, reverse = model.cell(row, col)
-    code = min(ord(char), BOX)   # codes outside the font show the box
+    code = ord(char)   # every code the grid holds has its glyph
     cursor = model.cursor and (row, col) == (model.row, model.col)
     return [WORDS[code << 4 | x] ^ (0xFFFF if reverse else 0) ^ (0xC000 if cursor else 0) for x in range(12)]
 
@@ -110,11 +109,14 @@ class TextRenderTest(unittest.TestCase):
         self.check([(TEXT_ON, 0, 0), (PUT, ord('a'), 0), (VIDEO, 1, 0), (PUT, ord('b'), 0), (VIDEO, 0, 0),
                     (PUT, ord('c'), 0), (GOTO, 5, 7), (CURSOR, 1, 0), (GOTO, 6, 8)])
 
-    def test_codes_outside_the_font_show_the_box(self):
-        panel = self.check([(TEXT_ON, 0, 0)] + [(PUT, code, 0) for code in (0x7F, 0x80, 0xC1, 0xFF, 0x41)])
-        box = WORDS[BOX << 4:(BOX << 4) + 12]
-        self.assertEqual([panel.cell(0, c, shown=True) for c in range(4)], [box] * 4)
-        self.assertNotEqual(panel.cell(0, 4, shown=True), box)
+    def test_codes_from_del_up_show_their_glyphs(self):
+        """Code page 437's: DEL's house, then accented, shaded and line-drawing characters."""
+        codes = (0x7F, 0x80, 0xB1, 0xC1, 0xFE)
+        panel = self.check([(TEXT_ON, 0, 0)] + [(PUT, code, 0) for code in codes])
+        glyph = lambda code: WORDS[code << 4:(code << 4) + 12]   # noqa: E731
+        self.assertEqual([panel.cell(0, c, shown=True) for c in range(5)], [glyph(c) for c in codes])
+        self.assertEqual(len({tuple(glyph(c)) for c in codes}), 5)   # distinct, and none blank
+        self.assertNotIn(tuple(glyph(0x20)), {tuple(glyph(c)) for c in codes})
 
     def test_a_full_screen_then_shifts(self):
         rows, cols = SMALL
