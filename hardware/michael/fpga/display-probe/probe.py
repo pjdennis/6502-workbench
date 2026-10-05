@@ -70,13 +70,18 @@ class Probe:
         self.ctrl(reset=1); self.sync(); time.sleep(0.15)
 
 
-DRIVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
-                      "firmware", "lib", "graphics", "graphics_display.inc")
+GRAPHICS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "firmware", "lib",
+                        "graphics")
+DRIVER = [os.path.join(GRAPHICS, name) for name in ("ili9341.inc", "ili9341_init_commands.inc",
+                                                     "graphics_display.inc")]
 
 
 def _driver_lines():
-    with open(DRIVER) as f:
-        return [line.split(";")[0].strip() for line in f]
+    lines = []
+    for path in DRIVER:
+        with open(path) as f:
+            lines += [line.split(";")[0].strip() for line in f]
+    return lines
 
 
 def _number(tok):
@@ -84,8 +89,8 @@ def _number(tok):
 
 
 def driver_constants():
-    """NAME = value definitions from the display driver (graphics_display.inc): numbers, or numbers and
-    earlier names combined with |. Other expressions are skipped."""
+    """NAME = value definitions from the display driver (graphics_display.inc and its ili9341*.inc): numbers,
+    or numbers and earlier names combined with |. Other expressions are skipped."""
     names = {}
     for line in _driver_lines():
         m = re.match(r"(\w+)\s*=\s*(.+)$", line)

@@ -1,5 +1,5 @@
 """Michael's graphic display, as mounted on the FPGA interface (hardware/michael/fpga/spi-display), shows the
-picture upside down unless the panel scans in reverse. graphics_display.inc's INIT_COMMANDS therefore sets
+picture upside down unless the panel scans in reverse. INIT_COMMANDS (ili9341_init_commands.inc) therefore sets
 Display Function Control's GS (gate scan) and SS (source scan) bits. Rotating the panel's scan, rather than
 the memory access order (MADCTL), keeps hardware scrolling (VSCRSADD) going the right way.
 
