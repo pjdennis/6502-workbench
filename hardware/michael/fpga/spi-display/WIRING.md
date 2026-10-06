@@ -133,11 +133,11 @@ Then power up and run `michael_graphic_display_test.s`: the display should work 
 
 Stage 4 of [`docs/michael-fpga-bus-plan.md`](../../../../docs/michael-fpga-bus-plan.md): E moves from PA0 to
 PA2 and the LED from PA2 to PA1, leaving PA0 free. The firmware, the ROM and the bus design change with it,
-so do it all at once, with Michael powered off ([the plan's procedure](../../../../docs/michael-fpga-bus-plan.md#4-rom-support-and-switching-displays-at-run-time)):
+so do it all at once, with Michael powered off (done 2026-10-05) ([the plan's procedure](../../../../docs/michael-fpga-bus-plan.md#4-rom-support-and-switching-displays-at-run-time)):
 
-- [ ] The LED and its 220 Ω resistor: off PA2 (VIA pin 4) and +5V; now PA1 (VIA pin 3), the resistor, the
+- [x] The LED and its 220 Ω resistor: off PA2 (VIA pin 4) and +5V; now PA1 (VIA pin 3), the resistor, the
       LED's anode, its cathode to ground.
-- [ ] Control buffer B3 (pin 16, PA2's): add **10 kΩ to ground**, E's pull-down now.
-- [ ] Control buffer B1 (pin 18): remove the wire from PA0; its 10 kΩ to ground stays, as a tie.
-- [ ] Control buffer B2 (pin 17): remove the wire from PA1, and add **10 kΩ to ground**.
+- [x] Control buffer B3 (pin 16, PA2's): add **10 kΩ to ground**, E's pull-down now.
+- [x] Control buffer B1 (pin 18): remove the wire from PA0; its 10 kΩ to ground stays, as a tie.
+- [x] Control buffer B2 (pin 17): remove the wire from PA1, and add **10 kΩ to ground**.
 

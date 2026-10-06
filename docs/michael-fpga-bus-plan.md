@@ -13,13 +13,14 @@ are the LCD's own register select and read/write pins, and they mean the same he
 a read or a write, and RS chooses commands and status (0) or data (1). The FPGA also watches the keyboard
 board's output enable (SOEB, PA4), so a keyboard interrupt can safely pause a read.
 
-E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, which leaves PA0 free: the
-pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
-select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
+E started on PA0. Stage 4 moved it to PA2 and the LED to PA1, which left PA0 free: the pins at that end of
+the VIA are now the reusable ones. In the end the bus freed PA0, the display's chip select and reset (PA1 and
+PA2 before the bus), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-05): stages 0 to 3 done (stage 3, text mode:
-[`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4 done in software, the bench to go
-([below](#4-rom-support-and-switching-displays-at-run-time)).** Stage 0 is this document, reviewed. Stage 1 is
+**Status (2026-10-05): stages 0 to 4 done; stage 5, the editor on the graphic display, is next.** Stage 3 is
+text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
+screen and the pin shuffle, is on the board ([below](#4-rom-support-and-switching-displays-at-run-time)).
+Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
@@ -146,7 +147,12 @@ The protocol below is the contract that the FPGA design, the firmware and the em
     the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
   `make -C hardware/michael program` (it builds the image, backs up the chip, then writes it).
-- **Status (2026-10-04): done in software, not yet on the board.**
+- **Done (2026-10-05), on the board.** ROM 5 is on the EEPROM (ROM 4 backed up), Michael is rewired and the
+  stage 4 bus design is in the Cmod's flash. The bus check passed, keyboard interrupts included, as did
+  `board_check.py`; the text demo, a graphics program, the graphic keyboard demo and the ROM's graphic screen
+  (`tools/tests/michael/graphic_screen.s`) work on the glass. At the bench, port B's wires had worked loose
+  (the low data bits read wrong) and were reseated, and `board_check.py` needs the panel initialised first,
+  by a graphics program after a power cycle. In software:
   - The emulator models the FPGA at the level of its commands (`emulator/chips/fpga_bus.c`, `fpga_text.c`),
     checked against the text mode's model; `--no-fpga` leaves it out.
   - The ROM ("Michael ROM 5") has the graphic screen behind the screen calls (`michael_graphic_screen.inc`)
@@ -154,8 +160,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   - The pin shuffle is in the firmware, the ROM, the emulator, the bus designs (`bus.mk`) and the schematics,
     which now show the board as this plan leaves it.
   - The editor's differential tests on the graphic screen need stage 5's launcher, which selects it.
-- **On the bench**, in this order:
-  1. Back up the EEPROM (`minipro -p AT28C256 -r michael_rom_4.bin`), then program the new ROM (above).
+- **On the bench**, in this order (done 2026-10-05):
+  1. Program the new ROM (`make -C hardware/michael program`, which backs up the old one first).
   2. With Michael powered off, rewire ([the checklist](../hardware/michael/fpga/spi-display/WIRING.md#stage-4-rewiring-the-pin-shuffle)).
   3. Power on: the LCD shows "Michael ROM 5" and the LED stays dark. The flash still holds stage 2's bus
      design, which takes E from Cmod 9, now tied low, so it sees no transfers.
@@ -271,6 +277,15 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
   timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
   the fast domain. Needs a board run and a flash.
+- **The backlight off until the display is ready.** The FPGA starts with the backlight fully on
+  ([`display_spi.v`](../hardware/michael/fpga/rtl/display_spi.v): brightness 255), so at power-up, and after
+  every display reset, the panel glows plain white until a program has initialised it. Instead: start with
+  it off, turn it off again with `DISP_RESET`'s reset (so a program's start-up hides the panel's noise too),
+  and have the display's start-up (`ili9341_start.inc`, which the graphics driver and the ROM's graphic screen
+  share) turn it on once the panel shows its first picture. The brightness program and anything else that sets
+  a level keep doing so. Tests first: `display_spi.v`'s simulation (off at start and after a reset) and the
+  firmware's bus logs (the backlight on after the start-up commands). The bitstream changes, so it needs a
+  board run and a flash.
 - **A minor version for the ROM.** The LCD shows "Michael ROM 5", the major version only; the review
   of stage 4 changed ROM 5 several times before it was programmed. As with the FPGA design's version: a minor
   number (e.g. "Michael ROM 5.1"), set by hand or from git at build time, and perhaps readable by programs.
