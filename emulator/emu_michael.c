@@ -210,10 +210,12 @@ static int load_program(struct bus *b, const char *path, uint16_t load) {
     return 0;
 }
 
-/* Step up to n oscillator ticks, stopping at the cap or an STP; keep the
- * lowest stack pointer seen. */
-static void step(struct bus *b, int n, uint64_t cap, uint8_t *lowest_sp) {
-    for (int i = 0; i < n && b->osc_ticks < cap && !cpu_stp_pending(); i++) {
+/* Step up to n oscillator ticks, stopping at the cap, and at an STP if
+ * stop_at_stp (a plain run ends there; under --live and --web the board
+ * runs on with the CPU stopped, until reset); keep the lowest stack
+ * pointer seen. */
+static void step(struct bus *b, int n, uint64_t cap, int stop_at_stp, uint8_t *lowest_sp) {
+    for (int i = 0; i < n && b->osc_ticks < cap && !(stop_at_stp && cpu_stp_pending()); i++) {
         bus_step(b);
         if (sp < *lowest_sp) *lowest_sp = sp;
     }
@@ -280,8 +282,8 @@ static void run_live(struct bus *b, struct lcd_hd44780_state *lcd,
     long last_render_ns = -LIVE_FRAME_NS, last_input_ns = 0;
     uint8_t typed[256];
     int typed_len = 0, quit = 0;
-    while (!quit && !sigint_requested && !cpu_stp_pending() && b->osc_ticks < cap) {
-        step(b, 2000, cap, lowest_sp);
+    while (!quit && !sigint_requested && b->osc_ticks < cap) {
+        step(b, 2000, cap, 0, lowest_sp);
         long wall_ns = emu_pace(&t0, osc0, b->osc_ticks, osc_per_us);
         if (wall_ns - last_render_ns >= LIVE_FRAME_NS) {
             live_render(lcd);
@@ -309,20 +311,21 @@ static int led_on(const struct via_6522_state *via) {
     return (via->ddra & MICHAEL_LED) && (via_6522_porta_pins(via) & MICHAEL_LED);
 }
 
-/* ---- --web: the page's LCD, pins and LED; its keys typed on the keyboard ---- */
+/* ---- --web: the page's LCD, graphic display, pins and LED; its keys typed on the keyboard ---- */
 
 struct michael_web {
     struct bus *b;
     const struct via_6522_state *via;
     struct ps2_keyboard_board_state *kbd;
+    struct fpga_bus_state *fpga;
     uint64_t cap;
     uint8_t *lowest_sp;
 };
 
 static int web_step(void *ctx) {
     struct michael_web *w = ctx;
-    step(w->b, 5000, w->cap, w->lowest_sp);
-    return w->b->osc_ticks >= w->cap || cpu_stp_pending();
+    step(w->b, 5000, w->cap, 0, w->lowest_sp);
+    return w->b->osc_ticks >= w->cap;
 }
 
 static void web_event(void *ctx, const struct web_event *evt) {
@@ -331,11 +334,14 @@ static void web_event(void *ctx, const struct web_event *evt) {
     else if (evt->type == WEB_EVT_KEYS) type_keys(w->kbd, evt->bytes, (size_t)evt->n_bytes);
 }
 
-/* The page's LED 0 is PA1's. */
+/* The page's LED 0 is PA1's. The graphic display as the FPGA has drawn it by now (text mode's cursor blinks
+ * in emulated time). */
 static void web_snapshot(void *ctx, struct web_snapshot *snap) {
     struct michael_web *w = ctx;
     snap->n_leds = 1;
     snap->leds[0] = led_on(w->via);
+    fpga_bus_render(w->fpga, w->b->osc_ticks / MICHAEL_TICKS_PER_US);
+    snap->display = &w->fpga->panel;
 }
 
 int emu_run_michael(const struct emu_opts *opts) {
@@ -456,7 +462,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     uint8_t lowest_sp = 0xFF;
     int rc = 0;
     if (opts->web) {
-        struct michael_web w = { &b, &via_state, &kbd_state, cap, &lowest_sp };
+        struct michael_web w = { &b, &via_state, &kbd_state, &fpga_state, cap, &lowest_sp };
         struct web_machine m = {
             .name = "michael", .bus = &b, .lcd = &lcd_state, .via = &via_state,
             .osc_per_us = osc_per_us, .ctx = &w,
@@ -475,7 +481,7 @@ int emu_run_michael(const struct emu_opts *opts) {
             }
         }
         while (b.osc_ticks < cap && !cpu_stp_pending()) {
-            step(&b, 50000, cap, &lowest_sp);
+            step(&b, 50000, cap, 1, &lowest_sp);
             lcd_report_trace(lcd_trace_fp, &lcd_state, b.osc_ticks);
         }
         if (lcd_trace_fp) {

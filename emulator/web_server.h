@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "web_json.h"
+#include "chips/ili9341.h"
 
 /* Tiny embedded HTTP + WebSocket server for the boards' live web UI.
  *
@@ -62,6 +63,10 @@ struct web_snapshot {
     uint16_t pc;
     int irq;
     int stopped;                 /* 1 if CPU halted on STP */
+
+    /* The graphic display, or NULL: its memory goes to each page as
+     * deltas (web_display.h), and how the glass shows it as "gd" */
+    const struct ili9341 *display;
 };
 
 /* Events the client sends back. WEB_EVT_NONE if nothing queued. */
@@ -101,6 +106,10 @@ int web_server_poll(struct web_server *srv,
  * text frame. Silent on send errors (the connection is just dropped). */
 void web_server_broadcast(struct web_server *srv,
                            const struct web_snapshot *snap);
+
+/* The snapshot as the JSON text the page receives, in json[0..cap).
+ * Returns its length, or -1 if it doesn't fit. */
+int web_snapshot_json(const struct web_snapshot *snap, char *json, int cap);
 
 /* Push a sample-rate header to clients (sent once after each new WS
  * upgrade so the JS audio decoder knows what rate to feed WebAudio). */

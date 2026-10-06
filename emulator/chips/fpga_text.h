@@ -15,6 +15,7 @@ struct fpga_text {
     uint8_t reverse_cells[FPGA_TEXT_ROWS][FPGA_TEXT_COLS];
     int row, col;            /* col FPGA_TEXT_COLS: past the end of the row */
     int top, bottom;         /* the scroll region */
+    int offset;              /* rows the region's picture has moved by the display's hardware scroll */
     int cursor, reverse;
     int used;                /* text mode has been turned on */
 };

@@ -17,12 +17,13 @@ test goes in both. It currently leaves out `test_stubs`, `test_serial_link`,
   bit ops, WAI/STP), `test_cpu_bus_tap`, and `test_dormann` (needs the
   Dormann binaries; see `dormann/README.md`).
 - Bus and chips: `test_bus`, `test_chip_*` (clock, rom, ram, via, lcd,
-  serial_usb, led_buttons, osc, cpu_65c02), `test_pld_literal` and
+  serial_usb, led_buttons, osc, cpu_65c02, fpga_bus with text mode's
+  renderer, ili9341), `test_pld_literal` and
   `test_pld_config_map` (the PLD equations and the per-config memory map),
   `test_hd44780_font`.
 - Machines and front ends: `test_machine_dispatch`, `test_emu_run`,
   `test_cli`, `test_serial_link`, `test_ps2_keys`, `test_audio`,
-  `test_web_json`, `test_web_smoke`.
+  `test_web_json`, `test_web_smoke`, `test_web_snapshot`, `test_web_display`.
 - nmos-default services: `test_console`, `test_file_io`, `test_stubs`,
   `test_trace`, `test_direct_io`, `test_smoke`.
 
@@ -37,6 +38,7 @@ without `playwright`.
 |---|---|---|
 | `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame, and the EEPROM loader boots from a ROM image to its ready screen |
 | `michael-web` | `michael_web_playwright_test.py` | michael's `--web` page in headless Chromium: the 20x4 LCD and pin table, keys typed and pasted on the page reaching the program through the PS/2 keyboard, reset, the PA2 LED |
+| `michael-display-web` | `michael_display_playwright_test.py` | michael's graphic display on the `--web` page, read off the canvas against the 12x16 font: the FPGA's text mode (typing, reverse video, the cursor's blink, a region scrolled by the hardware scroll, and the bytes it all took), raw mode's stripes and text, and the backlight |
 | `wendy2c-goldens` | `wendy2c_goldens.sh` | wendy2c programs uploaded through the boot ROM (`--serial-input`) leave the expected LCD frame |
 | `wendy2c-lcd-trace` | `lcd_trace_test.sh` | `--lcd-trace` records intermediate LCD frames |
 | `wendy2c-merge-sort` | `merge_sort_goldens.sh` | the wendy2 merge-sort demo, asserted on intermediate frames; the full 57344-element case is opt-in with `MERGE_SORT_FULL_N=1` (~60 s) |

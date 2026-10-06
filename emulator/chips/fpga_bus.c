@@ -50,8 +50,11 @@ static void start(struct fpga_bus_state *s, int c) {
     if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, VERSION); push_reply(s, 0x03); }
     if (c == GEOMETRY) { push_reply(s, FPGA_TEXT_ROWS); push_reply(s, FPGA_TEXT_COLS); }
     if (c == RESET) { s->reply_count = 0; s->sticky = 0; }
-    if (c == TEXT_ON) s->text_mode = 1;
-    if (c == TEXT_OFF || c == DISP_RESET) s->text_mode = 0;
+    if (c == TEXT_ON) { s->text_mode = 1; fpga_text_render_init(&s->render); }
+    if (s->text_mode && (c == TEXT_OFF || c == DISP_RESET)) {   /* the picture as far as it got */
+        fpga_bus_render(s, s->render_us);
+        s->text_mode = 0;
+    }
     if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c & 0xFF, 0, 0);
 }
 
@@ -60,17 +63,28 @@ static void write_command(struct fpga_bus_state *s, uint8_t c) {
     start(s, c);
 }
 
+/* A raw display command's argument, to the display (display_spi.v's entries) */
+static void display_argument(struct fpga_bus_state *s, uint8_t a) {
+    if (s->cmd == DISP_RESET) ili9341_reset_line(&s->panel, a & 1);
+    else if (s->cmd == DISP_COMMAND) ili9341_command(&s->panel, a);
+    else if (s->cmd == BACKLIGHT) s->panel.backlight = a;
+}
+
 static void write_data(struct fpga_bus_state *s, uint8_t d) {
     if (s->cmd == TEXT && s->args_left) {
         start(s, LONG | d);
     } else if (s->args_left) {
         if (s->args_left == 2) s->first_arg = d;
-        if (--s->args_left == 0 && text(s->cmd))
-            fpga_text_op(&s->text, s->cmd & 0xFF, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
+        if (--s->args_left == 0) {
+            if (text(s->cmd)) fpga_text_op(&s->text, s->cmd & 0xFF, arguments(s, s->cmd) == 2 ? s->first_arg : d, d);
+            else if (display(s, s->cmd)) display_argument(s, d);
+        }
     } else if (s->cmd == ECHO) {
         push_reply(s, d);
     } else if (s->cmd == PUT) {
         fpga_text_op(&s->text, PUT & 0xFF, d, 0);
+    } else if (display(s, s->cmd) && streams(s->cmd)) {
+        ili9341_data(&s->panel, d);
     } else if (known(s, s->cmd) && !streams(s->cmd)) {
         s->sticky |= EXTRA;
     }
@@ -122,6 +136,12 @@ int fpga_bus_output(const struct fpga_bus_state *s, uint8_t *value) {
     return 1;
 }
 
+void fpga_bus_render(struct fpga_bus_state *s, uint64_t now_us) {
+    if (!s->text_mode) return;
+    fpga_text_render_draw(&s->render, &s->text, &s->panel, now_us);
+    s->render_us = now_us;
+}
+
 void fpga_bus_report(FILE *fp, const char *prefix, const struct fpga_bus_state *s) {
     const struct fpga_text *t = &s->text;
     if (!t->used) return;
@@ -151,6 +171,7 @@ void fpga_bus_init(struct chip *chip, struct fpga_bus_state *state, const struct
     state->via = via;
     state->log = log;
     fpga_text_init(&state->text);
+    ili9341_init(&state->panel);
     chip->ops = &ops;
     chip->name = "fpga_bus";
     chip->state = state;

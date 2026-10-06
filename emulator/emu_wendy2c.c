@@ -258,15 +258,15 @@ struct wendy2c_run {
 };
 
 /* Step up to n oscillator ticks, servicing the serial link (a stall
- * ends the batch early). Returns 1 when the run is over: the cycle cap
- * or STP. */
+ * ends the batch early). Returns 1 when the run is over: the cycle cap.
+ * An STP stops only the CPU: under --live and --web the board runs on,
+ * and the reset button starts the CPU again. */
 static int run_batch(struct wendy2c_run *r, int n) {
     struct bus *b = r->b;
     for (int i = 0; i < n; i++) {
         if (b->osc_ticks >= r->cap) return 1;
         bus_step(b);
         audio_step(r->audio, b->osc_ticks, via_6522_portb_pins(r->via));
-        if (cpu_stp_pending()) return 1;
         if (r->link && serial_link_needs_repoll(r->link, b->osc_ticks)) {
             serial_link_poll(r->link, b->osc_ticks, b, r->via);
             if (serial_link_should_stall(r->link, b->osc_ticks)) break;
@@ -307,7 +307,7 @@ static int emu_run_wendy2c_live(struct wendy2c_run *r, double osc_per_us) {
         /* Batch size tuned so the inner loop has minimal overhead
          * between renders. */
         if (run_batch(r, 2000)) {
-            cap_hit = !cpu_stp_pending();
+            cap_hit = 1;
             break;
         }
 
@@ -328,7 +328,7 @@ static int emu_run_wendy2c_live(struct wendy2c_run *r, double osc_per_us) {
     live_render(b, r->lcd, r->via, r->ledbtn, cap_hit);
     /* Brief pause so the user sees the final state before we restore
      * the original terminal contents. */
-    if (cpu_stp_pending() || cap_hit) {
+    if (cap_hit) {
         struct timespec ts = { 0, 250 * 1000 * 1000 };
         nanosleep(&ts, NULL);
     }

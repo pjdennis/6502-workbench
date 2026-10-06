@@ -1,6 +1,7 @@
 /* Embedded HTTP + WebSocket server for --web (see web_server.h); serves emulator/web/. */
 #include "web_server.h"
 #include "web_json.h"
+#include "web_display.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -118,10 +119,13 @@ struct client {
     char outbuf[CLIENT_OUTBUF_SIZE];
     int  outlen;
     int  audio_init_sent;            /* 1 once we've sent the audio_init JSON */
+    struct web_display_shadow *display;   /* what the page has of the graphic display (from the first
+                                           * snapshot with one) */
 };
 
 #define EVENT_QUEUE_SIZE 256  /* room for a paste's worth of key messages */
 #define AUDIO_RING_CAPACITY 8192  /* int16 samples; ~0.37s @ 22050 Hz */
+#define DISPLAY_BUDGET (32 * 1024)  /* the most of the graphic display a page gets a snapshot: ~1 MB/s */
 
 struct web_server {
     int listen_fd;
@@ -140,6 +144,8 @@ struct web_server {
     int16_t audio_ring[AUDIO_RING_CAPACITY];
     int audio_head, audio_tail;
     int audio_sample_rate;          /* announced to new clients via init msg */
+
+    uint8_t display_msg[DISPLAY_BUDGET + WEB_DISPLAY_RECT_MAX];   /* a page's display deltas */
 };
 
 /* ===== Logging ===== */
@@ -200,6 +206,8 @@ static void close_client(struct client *c) {
     c->inlen = 0;
     c->outlen = 0;
     c->audio_init_sent = 0;
+    free(c->display);
+    c->display = NULL;
 }
 
 /* Try to drain outbuf to the wire (best-effort, non-blocking). */
@@ -728,32 +736,24 @@ static int sj_printf(char *buf, int cap, int *pos, const char *fmt, ...) {
     return 0;
 }
 
-void web_server_broadcast(struct web_server *srv,
-                           const struct web_snapshot *s) {
-    if (!srv) return;
-    int any = 0;
-    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
-        if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
-    if (!any) return;
-
-    char json[8192];
+int web_snapshot_json(const struct web_snapshot *s, char *json, int cap) {
     int pos = 0;
     int rows = s->lcd_rows, cols = s->lcd_cols;
     int ddram_n = rows * cols;
     if (ddram_n > (int)sizeof(s->ddram_visible)) ddram_n = (int)sizeof(s->ddram_visible);
 
-    if (sj_printf(json, sizeof(json), &pos,
-        "{\"lcd\":{\"rows\":%d,\"cols\":%d,\"ddram\":[", rows, cols)) return;
+    if (sj_printf(json, cap, &pos,
+        "{\"lcd\":{\"rows\":%d,\"cols\":%d,\"ddram\":[", rows, cols)) return -1;
     for (int i = 0; i < ddram_n; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%u",
-                      i ? "," : "", (unsigned)s->ddram_visible[i])) return;
+        if (sj_printf(json, cap, &pos, "%s%u",
+                      i ? "," : "", (unsigned)s->ddram_visible[i])) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos, "],\"cgram\":[")) return;
+    if (sj_printf(json, cap, &pos, "],\"cgram\":[")) return -1;
     for (int i = 0; i < 64; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%u",
-                      i ? "," : "", (unsigned)(s->cgram[i] & 0x1F))) return;
+        if (sj_printf(json, cap, &pos, "%s%u",
+                      i ? "," : "", (unsigned)(s->cgram[i] & 0x1F))) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos,
+    if (sj_printf(json, cap, &pos,
         "],\"cur\":[%d,%d],\"cur_on\":%d,\"blink_on\":%d,\"disp_on\":%d,"
         "\"f5x10\":%d,\"panel_rows\":%d,\"panel_5x10\":%d},"
         "\"btn\":%d,"
@@ -766,11 +766,46 @@ void web_server_broadcast(struct web_server *srv,
         (unsigned)s->porta, (unsigned)s->portb,
         (unsigned)s->ddra, (unsigned)s->ddrb,
         s->osc_ticks, s->cpu_cycles, s->clock_mhz, s->target_mhz,
-        (unsigned)s->pc, s->irq, s->stopped)) return;
+        (unsigned)s->pc, s->irq, s->stopped)) return -1;
     for (int i = 0; i < s->n_leds && i < WEB_MAX_LEDS; i++) {
-        if (sj_printf(json, sizeof(json), &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return;
+        if (sj_printf(json, cap, &pos, "%s%d", i ? "," : "", s->leds[i] ? 1 : 0)) return -1;
     }
-    if (sj_printf(json, sizeof(json), &pos, "]}")) return;
+    if (sj_printf(json, cap, &pos, "]")) return -1;
+    const struct ili9341 *d = s->display;
+    if (d && sj_printf(json, cap, &pos, ",\"gd\":{\"on\":%d,\"bl\":%d,\"gs\":%d,\"ss\":%d,\"scroll\":[%d,%d,%d,%d]}",
+                       ili9341_showing(d), d->backlight, (d->scan & ILI9341_GS) != 0, (d->scan & ILI9341_SS) != 0,
+                       d->tfa, d->vsa, d->bfa, d->ssa)) return -1;
+    if (sj_printf(json, cap, &pos, "}")) return -1;
+    return pos;
+}
+
+static void ws_send_binary(struct client *c, const uint8_t *data, size_t n);
+
+/* What the page lacks of the graphic display, as much as its outbuf has room for beside the reserve (the
+ * snapshot): a page that falls behind gets the rest later, the latest picture, not every one */
+static void send_display(struct web_server *srv, struct client *c, const struct ili9341 *d, int reserve) {
+    if (!c->display) {
+        if (!(c->display = malloc(sizeof(*c->display)))) return;
+        web_display_shadow_forget(c->display);
+    }
+    int room = CLIENT_OUTBUF_SIZE - c->outlen - reserve - WEB_DISPLAY_RECT_MAX - 16;   /* 16: frame headers */
+    int budget = room < DISPLAY_BUDGET ? room : DISPLAY_BUDGET;
+    if (budget < 1024) return;
+    int n = web_display_encode(c->display, d->memory, srv->display_msg, budget);
+    if (n > 0) ws_send_binary(c, srv->display_msg, (size_t)n);
+}
+
+void web_server_broadcast(struct web_server *srv,
+                           const struct web_snapshot *s) {
+    if (!srv) return;
+    int any = 0;
+    for (int i = 0; i < WEB_MAX_CLIENTS; i++)
+        if (srv->clients[i].state == CS_WS_OPEN) { any = 1; break; }
+    if (!any) return;
+
+    char json[8192];
+    int pos = web_snapshot_json(s, json, sizeof(json));
+    if (pos < 0) return;
 
     char initmsg[64];
     int initlen = 0;
@@ -787,6 +822,7 @@ void web_server_broadcast(struct web_server *srv,
             ws_send_text(c, initmsg, (size_t)initlen);
             c->audio_init_sent = 1;
         }
+        if (s->display) send_display(srv, c, s->display, pos + initlen);
         ws_send_text(c, json, (size_t)pos);
         flush_outbuf(c);
     }
