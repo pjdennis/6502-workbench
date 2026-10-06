@@ -119,7 +119,7 @@ def io(board):
 
 
 def fpga(board):
-    s = Sheet(board, "Michael: FPGA bus interface (3 of 3)", SUBTITLE + " U7, U8 and U10 run from +3V3.", 1420, 1080)
+    s = Sheet(board, "Michael: FPGA bus interface (3 of 3)", SUBTITLE + " U7 and U8 run from +3V3, U10 from +5V.", 1420, 1080)
     data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
     power = {"GND": "GND", "VCC": "+3V3"}
     # The FPGA controls the data buffer; SOEB and RW reach the FPGA; E arrives on B3 from PA2
@@ -151,7 +151,7 @@ def fpga(board):
     s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
           notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"}, caption="33–37 reserved for touch")
 
-    tft = {"GND": "GND", "Vin": "+3V3", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
+    tft = {"GND": "GND", "Vin": "+5V", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
            "D/C": "lcd_dc", "RST": "lcd_reset", "Lite": "lcd_led"}
     s.ic("U10", "Adafruit 2.8\" TFT (ILI9341)", 1150, 110, width=130,
          left=[(i + 1, n, tft.get(n) if i != 10 else None) for i, n in enumerate(ADAFRUIT_TFT)],

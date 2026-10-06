@@ -17,11 +17,11 @@ VIA pin numbers are for the 40-pin W65C22.
 
 | From | To | Notes |
 |---|---|---|
-| Michael 5 V | 5 V rail | Feeds the 3.3 V regulator (an LM1117T-3.3) and the Cmod (through the diode). 1 µF electrolytic across the rail. |
+| Michael 5 V | 5 V rail | Feeds the display's Vin, the 3.3 V regulator (an LM1117T-3.3) and the Cmod (through the diode). 1 µF electrolytic across the rail. |
 | Michael GND | GND rails | **Required**: Michael, the '245s, the Cmod and the display must share ground. |
 | GND rail near the VIA | GND near the '245s | An extra ground wire (2026-10-04), for the '245s' ground return. It halved the switching spikes on E. |
 | 5 V rail | Diode (silver band towards the Cmod) → Cmod pin 24 (VU) | As built. The Cmod runs from Michael's supply, so USB is only needed for programming. |
-| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20) and the display's VCC. Measures 3.297 V (the 4.07 V seen on 2026-10-03 was 5 V fed into the rail by mistake). |
+| 3.3 V regulator output | 3.3 V rail | Both '245s' VCC (pin 20), and the two 10 kΩ pull-ups to it: a few mA. Measures 3.297 V (the 4.07 V seen on 2026-10-03 was 5 V fed into the rail by mistake). |
 | Regulator OUT | 10 µF electrolytic to GND | Fitted 2026-10-04: the LM1117's data sheet asks for it, for stability. |
 | Regulator IN | 10 µF to GND | **To do:** not fitted yet; the data sheet asks for it too. |
 | GND rail | Cmod pin 25 (GND) | As built. |
@@ -82,7 +82,7 @@ wires run in order to Cmod pins 25 upwards.
 
 | Display signal | Adafruit | Connect to | Cmod pin | FPGA signal | Direction (FPGA) |
 |---|---|---|---|---|---|
-| VCC | Vin | **3.3 V rail** | — | — | — |
+| VCC | Vin | **5 V rail** (the module's own regulator makes its 3.3 V; its inputs take the Cmod's 3.3 V logic) | — | — | — |
 | GND | GND | GND | 25 | — | — |
 | CS | CS | Cmod | 26 | `lcd_cs` | out |
 | RESET | RST | Cmod | 27 | `lcd_reset` | out |
@@ -104,7 +104,7 @@ modules only while their jumper J1 is open.
 - [ ] The data buffer's /OE has its pull-up to 3.3 V and its DIR its pull-down.
 - [ ] Nothing at 5 V connects directly to a Cmod pin. Michael signals reach the Cmod only through '245 A outputs.
 - [ ] Michael and this board share ground.
-- [ ] The display's VCC is on 3.3 V and its GND on Cmod pin 25 / the GND rail.
+- [ ] The display's VCC (Vin) is on 5 V and its GND on Cmod pin 25 / the GND rail.
 - [ ] The FPGA has the bus design in its flash (`make -C ../bus flash`). Otherwise the Cmod's pins carry
       whatever design is in its flash.
 
