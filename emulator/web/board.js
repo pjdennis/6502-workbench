@@ -298,7 +298,7 @@ window.Board = (() => {
       $("title").textContent = name;
       $("controls").innerHTML = "";
       $("pin-table").innerHTML = "";
-      $("gd-frame").hidden = true;
+      showDisplay(false);
       setConn("off", `no description for machine "${name}"`);
       return;
     }
@@ -325,7 +325,14 @@ window.Board = (() => {
       btn.addEventListener("pointerleave",() => { if (btn.classList.contains("held")) press(0); });
     }
     buildPinTable($("pin-table"), machine.pins);
-    $("gd-frame").hidden = !machine.display;
+    showDisplay(!!machine.display);
+  }
+
+  // A machine with a graphic display gets it, and the two-column layout
+  // that puts it beside the rest (board.css).
+  function showDisplay(on) {
+    $("gd-frame").hidden = !on;
+    $("board").classList.toggle("with-display", on);
   }
 
   // The control button, held down or let go.
