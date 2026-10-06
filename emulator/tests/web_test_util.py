@@ -180,6 +180,27 @@ def speed_shown(page, target, timeout=3000):
     return None
 
 
+def board_runs_past_stp(page, timeout=10000):
+    """None if, once the program's STP stops the CPU, the board runs on (the
+    page stays connected, the clock counting) until the reset button starts
+    the CPU again; else a failure message. Needs track_last_state."""
+    try:
+        page.wait_for_function("window._lastState && window._lastState.stp === 1", timeout=timeout)
+    except Exception:
+        return f"the program never reached its STP: pc ${page.evaluate('window._lastState.pc'):04X}"
+    osc = page.evaluate("window._lastState.osc")
+    page.wait_for_timeout(1500)
+    if page.evaluate("window._lastState.osc") <= osc or page.text_content("#status-text") != "connected":
+        return (f"after STP the board stopped: osc {osc} -> {page.evaluate('window._lastState.osc')}, "
+                f"{page.text_content('#status-text')!r}")
+    page.click("#btn-reset")
+    try:
+        page.wait_for_function("window._lastState.stp === 0", timeout=5000)
+    except Exception:
+        return "the reset button didn't start the CPU again after its STP"
+    return None
+
+
 def open_page(p, port, setup=None):
     """A headless Chromium page on the server, once it shows "connected".
     setup(page) runs before the page loads, to hook its WebSocket."""

@@ -58,6 +58,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->serial_link_path = NULL;
     opts->lcd_trace_filename = NULL;
     opts->fpga_log_filename = NULL;
+    opts->no_fpga = 0;
     opts->lcd_panel = LCD_PANEL_16X2_5X8;
 }
 
@@ -154,6 +155,7 @@ void emu_opts_usage(FILE *fp) {
 "                         For wendy2c this is oscillator ticks (~2 per CPU cycle);\n"
 "                         for nmos-default and --server it is CPU cycles.\n"
 "  --fpga-log PATH        michael: a line per FPGA bus transfer (E on PA0): \"C hh\", \"D hh\", \"R\" or \"S\"\n"
+"  --no-fpga              michael: the FPGA unconfigured: it never answers or acts on the bus\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -402,6 +404,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (take_str_value(argc, argv, &i, "--serial-link", &opts->serial_link_path)) return 1;
         } else if (strcmp(argv[i], "--lcd-trace") == 0) {
             if (take_str_value(argc, argv, &i, "--lcd-trace", &opts->lcd_trace_filename)) return 1;
+        } else if (strcmp(argv[i], "--no-fpga") == 0) {
+            opts->no_fpga = 1;
+            i++;
         } else if (strcmp(argv[i], "--fpga-log") == 0) {
             if (take_str_value(argc, argv, &i, "--fpga-log", &opts->fpga_log_filename)) return 1;
         } else if (strcmp(argv[i], "--lcd-panel") == 0) {
@@ -507,6 +512,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if (opts->fpga_log_filename && opts->machine != MACHINE_MICHAEL) {
         fprintf(stderr, "error: --fpga-log requires --machine michael\n");
+        return 1;
+    }
+
+    if (opts->no_fpga && opts->machine != MACHINE_MICHAEL) {
+        fprintf(stderr, "error: --no-fpga requires --machine michael\n");
         return 1;
     }
 

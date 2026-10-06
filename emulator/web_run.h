@@ -28,7 +28,7 @@ struct web_machine {
     int (*step)(void *ctx);
     void (*event)(void *ctx, const struct web_event *evt);
     /* Fills the machine's own snapshot fields: its LEDs and button,
-     * the panel layout. */
+     * the panel layout, its graphic display. */
     void (*snapshot)(void *ctx, struct web_snapshot *snap);
 };
 

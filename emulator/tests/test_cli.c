@@ -239,6 +239,21 @@ TEST cli_unknown_machine_rejected(void) {
     PASS();
 }
 
+TEST cli_no_fpga_for_michael_only(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--no-fpga", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT(opts.no_fpga);
+    char *wendy[] = {"emulator", "prog.bin", "--machine", "wendy2c", "--no-fpga", NULL};
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(wendy, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--no-fpga requires --machine michael") != NULL);
+    PASS();
+}
+
 TEST cli_lcd_trace_path_parsed(void) {
     char *argv[] = {"emulator", "prog.bin",
                     "--machine", "wendy2c",
@@ -490,6 +505,7 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_path_parsed);
     RUN_TEST(cli_lcd_trace_default_null);
     RUN_TEST(cli_lcd_trace_missing_value_errors);
+    RUN_TEST(cli_no_fpga_for_michael_only);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
     RUN_TEST(cli_live_accepted_for_michael);
     RUN_TEST(cli_web_accepted_for_michael);

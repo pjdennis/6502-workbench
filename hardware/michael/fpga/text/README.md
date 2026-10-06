@@ -31,7 +31,8 @@ sees the same screen on either display.
   mode shows every code from `$20` up). [`tools/font_12x16.py`](../../../../tools/font_12x16.py) expands it
   into a view of every glyph,
   [`font_12x16.txt`](../../../../firmware/lib/graphics/font_12x16.txt), and generates from it the firmware's
-  table and, for the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
+  table, the emulator's ([`emulator/chips/font_12x16.h`](../../../../emulator/chips/font_12x16.h)), and, for
+  the FPGA builds (`../text.mk`), `build/font_12x16.vh`.
 - The bus design ([`../bus/`](../bus/)) puts them behind [`../rtl/bus_control.v`](../rtl/bus_control.v), and
   [`../bus/debug.py`](../bus/debug.py) has the text commands, and `debug.py text`, a screen of them.
 
