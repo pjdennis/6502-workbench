@@ -8,7 +8,7 @@ the `web/` directory next to the binary unless `--web-root` says otherwise.
 
 | File | Role |
 |---|---|
-| `index.html` | the page (served at `/`) for every machine: LCD canvas, graphic display canvas (shown for a machine that has one, on the left, from the LCD's top to the status line's bottom, so the page fits a 1280x900 screen), controls, VIA port pin table, status line |
+| `index.html` | the page (served at `/`) for every machine: LCD canvas, graphic display canvas (shown for a machine that has one, on the left from the LCD's top down, so the page fits a 1280x900 screen), controls, VIA port pin table, the machine's name, and the status line along the bottom (under the graphic display too, so its changing text can't move the rest) |
 | `board.js` | the client: builds the page for the machine the server names (title, LEDs, control button, reset, keys, pin table), draws the LCD per pixel and the graphic display from its memory, lights the LEDs, handles the WebSocket, plays the audio |
 | `machines.js` | each machine's description: wendy2c's two LEDs (PB6, PA2) and control button (SPACE holds it, R resets); michael's LED (PA2), keyboard and graphic display; their pin labels |
 | `audio_worklet.js` | the AudioWorklet that plays the audio on the browser's audio thread, through the jitter buffer |

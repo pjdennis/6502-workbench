@@ -18,7 +18,8 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
      pixel pattern in its top row (pattern: . X . X . from the
      bitmap in cgram_test_wendy2c.s).
    - Also samples a pixel from the second-line CGRAM arrow.
-5. Checks the VIA pin table shows wendy2c's pin labels, levels and DDRs.
+5. Checks the layout (the title below the ports, the status bar at the
+   bottom, the LCD staying put while the status text changes) and the VIA pin table shows wendy2c's pin labels, levels and DDRs.
 6. Clicks the button and verifies the .btn.held class lands, then the
    reset button, and that the PC goes back to the boot ROM.
 8. Uploads wendy2c_eeprom_show.s, which ends with STP: the CPU stops but
@@ -28,7 +29,7 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
    audio worklet plays them (its buffer readout shows).
 """
 
-from web_test_util import (board_runs_past_stp, build_wendy2c_upload, failed, main,
+from web_test_util import (board_runs_past_stp, build_wendy2c_upload, failed, layout_problems, main,
                            missing_tools, open_page, out_dir_for, passed, skipped,
                            speed_shown, track_last_state, web_emulator)
 
@@ -88,6 +89,10 @@ def run_test(verbose=False):
             except Exception:
                 return failed(f"no audio readout after a click: {page.text_content('#status-audio')!r}")
             if verbose: print(f"  {page.text_content('#status-audio')}")
+
+            box, problems = layout_problems(page, [])
+            if problems:
+                return failed(f"layout: {'; '.join(problems)}: {box}")
 
             # The VIA pin table: wendy2c's labels, the pins' levels and DDRs.
             pins = page.evaluate("""

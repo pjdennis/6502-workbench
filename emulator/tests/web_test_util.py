@@ -180,6 +180,51 @@ def speed_shown(page, target, timeout=3000):
     return None
 
 
+# Where the page's parts are: {id: [left, top, right, bottom]}
+BOXES = """(ids) => Object.fromEntries(ids.map(id => {
+    const r = document.getElementById(id).getBoundingClientRect();
+    return [id, [r.left, r.top, r.right, r.bottom]];
+}))"""
+
+# The LCD's left edge before and after the status text grows, as the
+# connection's state and the readouts change it.
+LCD_MOVES = """() => {
+    const left = () => document.getElementById('lcd-bezel').getBoundingClientRect().left;
+    const text = document.getElementById('status-text'), old = text.textContent;
+    const before = left();
+    text.textContent = 'disconnected, retrying… and a good deal longer';
+    const after = left();
+    text.textContent = old;
+    return [before, after];
+}"""
+
+
+def layout_problems(page, ids):
+    """On a 1280 by 900 screen: the board's parts at {id: box} for ids (with
+    pins, title and status), and a list of what's wrong with the layout every
+    machine shares: the title below the ports, the status bar along the
+    bottom, as wide as the board's contents, the LCD staying put while the
+    status text changes, and no scrolling."""
+    page.set_viewport_size({"width": 1280, "height": 900})
+    box = page.evaluate(BOXES, list(dict.fromkeys(ids + ["lcd-bezel", "pins", "title", "status"])))
+    pins, title, status = box["pins"], box["title"], box["status"]
+    problems = []
+    if not (pins[3] <= title[1] and title[3] <= status[1]):
+        problems.append("the title isn't between the ports and the status bar")
+    if any(b[3] > status[1] for i, b in box.items() if i != "status"):
+        problems.append("the status bar isn't below everything else")
+    if abs(status[2] - pins[2]) > 2:
+        problems.append("the status bar's right edge isn't the ports'")
+    before, after = page.evaluate(LCD_MOVES)
+    if before != after:
+        problems.append(f"the LCD moves from {before} to {after} when the status text grows")
+    if page.evaluate("document.documentElement.scrollWidth") > 1280:
+        problems.append("the page scrolls sideways at 1280 pixels")
+    if page.evaluate("document.documentElement.scrollHeight") > 900:
+        problems.append("the page scrolls down at 900 pixels")
+    return box, problems
+
+
 def board_runs_past_stp(page, timeout=10000):
     """None if, once the program's STP stops the CPU, the board runs on (the
     page stays connected, the clock counting) until the reset button starts

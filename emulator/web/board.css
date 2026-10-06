@@ -34,7 +34,7 @@ main#board {
     inset 0 -1px 0 rgba(0, 0, 0, 0.4);
 }
 
-header h1 { margin: 0 0 24px; font-weight: 300; letter-spacing: 0.3em; color: var(--ink-dim); text-transform: uppercase; font-size: 14px; }
+header h1 { margin: 0 0 16px; font-weight: 300; letter-spacing: 0.3em; color: var(--ink-dim); text-transform: uppercase; font-size: 14px; }
 header h1 .accent { color: var(--accent); }
 
 /* ----- LCD ----- */
@@ -84,27 +84,28 @@ header h1 .accent { color: var(--accent); }
   background: #000;
 }
 
-/* ----- With a graphic display: it on the left, from the LCD's top down to
- * the status bar's bottom; the LCD, controls, ports and status bar on its
- * right, the ports and status bar at the bottom ----- */
+/* ----- With a graphic display: it on the left, level with the LCD's top;
+ * the LCD, controls, ports and title on its right, the ports and title at
+ * the bottom; the status bar under them all, so its text can't change the
+ * columns' widths ----- */
 main#board.with-display {
   max-width: none;
   width: max-content;
   display: grid;
   grid-template-columns: auto auto;
-  grid-template-rows: auto auto auto 1fr auto auto;
+  grid-template-rows: auto auto 1fr auto auto auto;
   grid-template-areas:
-    "header header"
     "gd     lcd"
     "gd     controls"
     "gd     ."
     "gd     pins"
-    "gd     status";
+    "gd     header"
+    "status status";
   column-gap: 28px;
 }
 main#board.with-display > header   { grid-area: header; }
 main#board.with-display #lcd-frame  { grid-area: lcd; }
-main#board.with-display #gd-frame   { grid-area: gd; margin-bottom: 0; align-items: flex-start; }
+main#board.with-display #gd-frame   { grid-area: gd; margin-bottom: 16px; align-items: flex-start; }
 main#board.with-display #controls   { grid-area: controls; }
 main#board.with-display #pins       { grid-area: pins; }
 main#board.with-display #status     { grid-area: status; }
