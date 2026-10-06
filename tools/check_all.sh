@@ -1,8 +1,11 @@
 #!/bin/bash
-# Run every regression check the repo has. The reorganization must keep all of
+# Run the repo's regression checks. The reorganization must keep all of
 # these green (docs/REORGANIZATION_PLAN.md, rule R1). CI runs the same steps.
 #
-#   tools/check_all.sh [firmware|asm|editor|emulator|prog8]...   (default: all)
+#   tools/check_all.sh [firmware|asm|editor|emulator|prog8]...   (default: all but prog8)
+#
+# prog8 is slow and rarely affected by current work, so it runs only when named;
+# CI still runs it on every push.
 #
 # Needs on PATH: vasm6502_oldstyle (CI uses the version recorded in firmware/manifest.txt --
 # see .github/workflows/ci.yml; another version that gives identical binaries only warns),
@@ -49,7 +52,7 @@ prog8() {
 }
 
 suites=("$@")
-[ ${#suites[@]} -eq 0 ] && suites=(firmware asm editor emulator prog8)
+[ ${#suites[@]} -eq 0 ] && suites=(firmware asm editor emulator)
 
 for s in "${suites[@]}"; do
   echo "=== $s ==="

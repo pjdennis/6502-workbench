@@ -29,7 +29,7 @@ Prerequisites:
 ```bash
 make                                   # build the emulator (emulator/emulator.out)
 tools/build_all.sh                     # ...or the emulator, assembler and editor (about 30 seconds)
-tools/check_all.sh                     # run every test suite (about 3.5 minutes)
+tools/check_all.sh                     # run the test suites, all but the slow prog8 (about 2 minutes)
 tools/check_all.sh firmware asm        # ...or just some: firmware asm editor emulator prog8
 
 # Assemble and upload a program to a board over serial
@@ -39,4 +39,4 @@ tools/upload/compile_and_upload_wendy2.sh firmware/programs/wendy2/hello_ram_400
 bash emulator/demo_wendy2c.sh --live
 ```
 
-CI (`.github/workflows/ci.yml`) runs the five `check_all.sh` suites on every push.
+CI (`.github/workflows/ci.yml`) runs all five `check_all.sh` suites, prog8 included, on every push.

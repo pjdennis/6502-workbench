@@ -11,7 +11,8 @@ Guidance for Claude Code working in this repository. The root `README.md` has th
 ```bash
 make                      # emulator (run make and the emulator tests from the repo root)
 tools/build_all.sh        # emulator, assembler chain (asm17) and the editor's stable builds (~30 s)
-tools/check_all.sh        # all suites: firmware asm editor emulator prog8 (~3.5 min); CI runs the same
+tools/check_all.sh        # suites firmware asm editor emulator (~2 min); CI runs these and prog8
+tools/check_all.sh prog8  # the slow prog8 suite, only when named
 tools/check_all.sh asm    # one suite
 ```
 
