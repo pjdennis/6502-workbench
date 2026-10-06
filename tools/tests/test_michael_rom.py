@@ -23,7 +23,8 @@ from upload_frame import Block  # noqa: E402
 FW_VASM = os.path.join(ROOT, 'firmware', 'vasm')
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 ROM = os.path.join(ROOT, 'firmware', 'boards', 'michael', 'michael_rom.s')
-COMMITTED_ROM = os.path.join(ROOT, 'hardware', 'michael', 'michael_rom.bin')
+ROM_TOOL = os.path.join(ROOT, 'tools', 'michael_rom.py')
+MANIFEST = os.path.join(ROOT, 'firmware', 'manifest.txt')
 TESTS = os.path.join(HERE, 'michael')
 CHECK = os.path.join(TESTS, 'upload_check.s')
 HELLO = os.path.join(ROOT, 'firmware', 'programs', 'michael', 'hello_michael_ram.s')
@@ -111,16 +112,32 @@ class MichaelRomLoaderTest(RomTestCase):
             memory.update((block.address + i, b) for i, b in enumerate(data))
         return memory
 
-    def test_the_committed_image_is_this_build(self):
-        """hardware/michael/michael_rom.bin, what goes on the EEPROM, is michael_rom.s built."""
-        with open(self.rom, 'rb') as built, open(COMMITTED_ROM, 'rb') as committed:
-            self.assertEqual(built.read(), committed.read(),
-                             'rebuild it: firmware/vasm -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc '
-                             '-o hardware/michael/michael_rom.bin firmware/boards/michael/michael_rom.s')
+    def test_the_rom_tool_builds_the_image_the_manifest_records(self):
+        """tools/michael_rom.py builds what goes on the EEPROM: michael_rom.s, as the tests here build it, with
+        the hash the firmware manifest records for it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'rom.bin')
+            subprocess.run([sys.executable, ROM_TOOL, out], check=True, capture_output=True)
+            with open(out, 'rb') as built, open(self.rom, 'rb') as tested:
+                self.assertEqual(built.read(), tested.read())
+
+    def test_the_rom_tool_refuses_a_build_the_manifest_does_not_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = os.path.join(tmp, 'manifest.txt')
+            with open(MANIFEST) as f:
+                text = re.sub(r'(firmware/boards/michael/michael_rom\.s esc=)[0-9a-f]+', r'\g<1>' + '0' * 64, f.read())
+            with open(manifest, 'w') as f:
+                f.write(text)
+            out = os.path.join(tmp, 'rom.bin')
+            result = subprocess.run([sys.executable, ROM_TOOL, '--manifest', manifest, out], capture_output=True,
+                                    text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('manifest', result.stderr)
+            self.assertFalse(os.path.exists(out), 'no image left to program')
 
     def test_waiting_screen(self):
         report = self.emulate(b'')
-        self.assertEqual(self.lcd_rows(report)[:2], ['Michael ROM 4', 'Ready'])
+        self.assertEqual(self.lcd_rows(report)[:2], ['Michael ROM 5', 'Ready'])
         self.assertIn('michael: led: off', report)
 
     def test_a_stalled_upload_shows_exactly_how_far_it_got(self):
@@ -276,11 +293,25 @@ class MichaelRomLoaderTest(RomTestCase):
 
 @NEEDS
 class MichaelRomServicesTest(RomTestCase):
-    def run_program(self, name, typed=None, stops=True):
+    def run_program(self, name, typed=None, stops=True, options=()):
         """The LCD's rows after uploading and running tests/michael/<name>.s."""
+        return self.lcd_rows(self.run_report(name, typed, stops, options))
+
+    def run_report(self, name, typed=None, stops=True, options=()):
+        """The emulator's report after uploading and running tests/michael/<name>.s."""
         with open(self.assemble(os.path.join(TESTS, name + '.s')), 'rb') as f:
             program = f.read()
-        return self.boot(upload_frame.format_3([(0x0200, program)]), typed, stops)
+        return self.emulate(upload_frame.format_3([(0x0200, program)]), typed, stops, options)
+
+    @staticmethod
+    def graphic_rows(report):
+        """The FPGA's text grid (the graphic screen), its reverse cells and its cursor line."""
+        i = next(n for n, line in enumerate(report) if line.startswith('michael: fpga text:'))
+        rows = [line.strip()[1:-1] for line in report[i + 1:i + 21]]
+        reverse = []
+        if i + 21 < len(report) and report[i + 21].startswith('michael: fpga text-reverse:'):
+            reverse = [line.strip()[1:-1] for line in report[i + 22:i + 42]]
+        return rows, reverse, report[i]
 
     def test_the_vectors_are_the_environments(self):
         definition = re.compile(r'^([A-Za-z_]+) *= *(?:SVC|ENV)_BASE \+ \$([0-9A-F]{2})', re.M)
@@ -324,8 +355,25 @@ class MichaelRomServicesTest(RomTestCase):
     def test_a_programs_interrupt_handler_ahead_of_the_roms(self):
         self.assertEqual(self.run_program('chain', b'z')[0], 'zY')
 
+    def test_the_graphic_screen(self):
+        report = self.run_report('graphic_screen')
+        rows, reverse, head = self.graphic_rows(report)
+        self.assertEqual([r.rstrip() for r in rows], ['HelloXY world', '  abcdefghijklmnopqr', 'stuvwxyz', '', 'REV',
+                                                      '', '1414'] + [''] * 12 + ['              abcdef'])
+        self.assertEqual(reverse[4], '###' + ' ' * 17)
+        self.assertEqual(head, 'michael: fpga text: on, cursor 19,20 shown')
+        self.assertEqual(self.lcd_rows(report), ['', '', '', ''])   # not the screen now
+
+    def test_no_text_mode_fpga_keeps_the_lcd(self):
+        self.assertEqual(self.run_program('graphic_screen', options=['--no-fpga'])[0], 'NO FPGA')
+
+    def test_choosing_the_graphic_screen_after_the_lcd_has_started(self):
+        report = self.run_report('graphic_select_late')
+        self.assertEqual(self.lcd_rows(report)[0], 'lcd')
+        self.assertEqual(self.graphic_rows(report)[0][0].rstrip(), 'graphic')
+
     def test_exit_goes_back_to_the_loader(self):
-        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 4', 'Ready'])
+        self.assertEqual(self.run_program('exit', stops=False)[:2], ['Michael ROM 5', 'Ready'])
 
 
 @NEEDS

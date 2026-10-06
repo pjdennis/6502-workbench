@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Michael's schematics, drawn with net labels, in two sets of three sheets: michael-core.svg (CPU, memory,
-clock, reset), michael-io.svg (the VIA and what hangs off it) and michael-fpga-display.svg (the FPGA display
-interface; ../fpga/spi-display/WIRING.md has its connections as tables).
+"""Michael's schematics, drawn with net labels, in three sheets: michael-core.svg (CPU, memory, clock, reset),
+michael-io.svg (the VIA and what hangs off it) and michael-fpga-display.svg (the FPGA bus interface;
+../fpga/spi-display/WIRING.md has its connections as tables).
 
-The top-level SVGs are Michael as built (2026-10-04). Those in planned/ are Michael once the FPGA bus plan
-(docs/michael-fpga-bus-plan.md) is complete: they differ in the LED and the FPGA interface's wiring.
+They show Michael as built once the FPGA bus plan's wiring (docs/michael-fpga-bus-plan.md) is complete, with
+stage 4's pin shuffle: E on PA2, the LED on PA1, PA0 free. Until then, the sheets of an earlier commit
+(before stage 4) show the board.
 
 Run: python3 michael_schematic.py   (writes the SVGs beside this file)
 tools/tests/test_michael_schematic.py checks the netlists against the firmware and the FPGA design.
@@ -30,22 +31,14 @@ ADAFRUIT_TFT = ["GND", "Vin", "3Vo", "CLK", "MISO", "MOSI", "CS", "D/C", "RST", 
 SERIAL = ["3V3", "DTR", "RXD", "TXD", "GND", "+5V"]   # the CP2102 adapter's header, in order
 
 BUSES = {f"A{i}": f"A{i}" for i in range(16)} | {f"D{i}": f"D{i}" for i in range(8)}
-PORT_A_USES = {"PA0": "FPGA E", "PA1": "FPGA CSB", "PA2": "LED, FPGA RSTB", "PA3": "keyboard SOLB",
-               "PA4": "keyboard SOEB", "PA5": "LCD RS, kbd START/ACK, FPGA DC", "PA6": "LCD RW, kbd PARITY",
-               "PA7": "LCD E"}
-# After stage 4's pin shuffle: E on PA2, the LED on PA1, PA0 free
-PLANNED_PORT_A_USES = PORT_A_USES | {"PA0": "free", "PA1": "LED", "PA2": "FPGA E", "PA4": "keyboard SOEB, FPGA",
-                                     "PA5": "LCD RS, kbd START/ACK, FPGA RS", "PA6": "LCD RW, kbd PARITY, FPGA RW"}
+PORT_A_USES = {"PA0": "free", "PA1": "LED", "PA2": "FPGA E", "PA3": "keyboard SOLB", "PA4": "keyboard SOEB, FPGA",
+               "PA5": "LCD RS, kbd START/ACK, FPGA RS", "PA6": "LCD RW, kbd PARITY, FPGA RW", "PA7": "LCD E"}
+SUBTITLE = ("Michael as built, with the FPGA bus plan's wiring (docs/michael-fpga-bus-plan.md) complete. Pins with "
+            "the same label are connected; × is not connected.")
 
 
-def subtitle(planned):
-    state = ("Michael once the FPGA bus plan (docs/michael-fpga-bus-plan.md) is complete. Planned, not built."
-             if planned else "Michael as built, 2026-10-04.")
-    return state + " Pins with the same label are connected; × is not connected."
-
-
-def core(board, planned):
-    s = Sheet(board, "Michael: CPU, memory, clock and reset (1 of 3)", subtitle(planned), 1160, 1080)
+def core(board):
+    s = Sheet(board, "Michael: CPU, memory, clock and reset (1 of 3)", SUBTITLE, 1160, 1080)
     s.dip("U1", "W65C02S", 170, 110, W65C02, BUSES | {
         "RDY": "RDY", "IRQB": "IRQB", "NMIB": "+5V", "VDD": "+5V", "VSS": "GND", "RWB": "RWB", "BE": "+5V",
         "PHI2": "PHI2", "RESB": "RESB"}, width=130)
@@ -86,16 +79,14 @@ def core(board, planned):
     return s
 
 
-def io(board, planned):
-    s = Sheet(board, "Michael: VIA, LCD, LED, keyboard board and serial (2 of 3)", subtitle(planned), 1300, 980)
+def io(board):
+    s = Sheet(board, "Michael: VIA, LCD, LED, keyboard board and serial (2 of 3)", SUBTITLE, 1300, 980)
     via = {f"P{p}{i}": f"P{p}{i}" for p in "AB" for i in range(8)} | {
         f"RS{i}": f"A{i}" for i in range(4)} | {f"D{i}": f"D{i}" for i in range(8)} | {
         "VSS": "GND", "VDD": "+5V", "IRQB": "IRQB", "RWB": "RWB", "CS2B": "VIA/CS2", "CS1": "A13",
         "PHI2": "PHI2", "RESB": "RESB", "CA2": "CA2", "CB2": "CB2"}
-    uses = PLANNED_PORT_A_USES if planned else PORT_A_USES
-    if planned:
-        via["PA0"] = None
-    s.dip("U5", "W65C22S VIA", 390, 110, W65C22, via, width=130, notes=uses | {
+    via["PA0"] = None
+    s.dip("U5", "W65C22S VIA", 390, 110, W65C22, via, width=130, notes=PORT_A_USES | {
         "CA2": "keyboard IRQ", "CB2": "serial in", "CB1": "shift clock out"})
 
     lcd = [(1, "VSS", "GND"), (2, "VDD", "+5V"), (3, "V0", "V0"), (4, "RS", "PA5"), (5, "RW", "PA6"),
@@ -104,12 +95,8 @@ def io(board, planned):
     s.ic("U3", "20×4 LCD (HD44780)", 790, 110, left=lcd, width=110)
     s.pot("RV1", "10 kΩ potentiometer", 860, 490, "+5V", "V0", "GND")
 
-    if planned:   # on PA1, lit while it is high
-        s.two_pin("resistor", "R8", "220 Ω", 790, 650, "PA1", "LED")
-        s.two_pin("led", "D1", "red LED", 870, 650, "LED", "GND", names=("A", "K"))
-    else:         # lit while PA2 is low, so the display's reset (idle high) leaves it dark
-        s.two_pin("resistor", "R8", "220 Ω", 790, 650, "+5V", "LED")
-        s.two_pin("led", "D1", "red LED", 870, 650, "LED", "PA2", names=("A", "K"))
+    s.two_pin("resistor", "R8", "220 Ω", 790, 650, "PA1", "LED")   # lit while PA1 is high
+    s.two_pin("led", "D1", "red LED", 870, 650, "LED", "GND", names=("A", "K"))
 
     kbd = [(1, "VCC", "+5V"), (2, "GND", "GND"), (3, "IRQ", "CA2"), (4, "KBD_CLK_OUT", "PA3"),
            (5, "REG_OE", "PA4"), (6, "DE", "PA5"), (7, "DP", "PA6")] + [
@@ -120,9 +107,7 @@ def io(board, planned):
     s.ic("J2", "USB serial (CP2102)", 1120, 500, left=[(i + 1, n, serial.get(n)) for i, n in enumerate(SERIAL)],
          width=120, caption="powers Michael; DTR resets it (sheet 1)")
 
-    led = ("LED: moved to PA1 in stage 4, the right way round: it lights while PA1 is high, as upload_v3.inc expects." if planned
-           else "LED: lit while PA2 is low, because PA2 is also the display's reset (idle high). It goes back to normal "
-                "once PA2 is the LED's alone.")
+    led = "LED: on PA1 since stage 4, the right way round: it lights while PA1 is high, as upload_v3.inc expects."
     y = s.note(24, 800, [
         "PORTB is shared by the LCD, the keyboard board (its 74HC595s drive it while SOEB is low; its 74HC165s load it",
         "while SOLB is low) and the FPGA. The keyboard driver saves and restores PORTA, PORTB and their DDRs in its interrupt.",
@@ -133,33 +118,27 @@ def io(board, planned):
     return s
 
 
-def fpga(board, planned):
-    title = "Michael: FPGA bus interface (3 of 3)" if planned else "Michael: FPGA display interface (3 of 3)"
-    s = Sheet(board, title, subtitle(planned) + " U7, U8 and U10 run from +3V3.", 1420, 1080)
+def fpga(board):
+    s = Sheet(board, "Michael: FPGA bus interface (3 of 3)", SUBTITLE + " U7, U8 and U10 run from +3V3.", 1420, 1080)
     data = {f"B{i + 1}": f"PB{i}" for i in range(8)} | {f"A{i + 1}": f"d[{i}]" for i in range(8)}
     power = {"GND": "GND", "VCC": "+3V3"}
-    # Stages 1 and 2 of the bus plan (built): the FPGA controls the data buffer; SOEB and RW reach the FPGA
+    # The FPGA controls the data buffer; SOEB and RW reach the FPGA; E arrives on B3 from PA2
     s.dip("U7", "74LVC245 (data)", 330, 110, LVC245, data | power | {"DIR": "d_dir", "/OE": "d_oeb"}, width=110)
-    control = {"B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B6": "PA4", "B7": "PA6", "B8": "U8.B8",
-               "A5": "backlight_tie", "A6": "soeb", "A7": "rw"}
-    if planned:   # E now arrives on B3 from PA2; B1 and B2 are tied off
-        control |= {"B1": "U8.B1", "B2": "U8.B2", "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs"}
-    else:
-        control |= {"B1": "PA0", "B2": "PA1", "A1": "e", "A2": "pa1", "A3": "pa2", "A4": "rs"}
-    unused = {"B1": "unused", "B2": "unused", "B5": "unused"} if planned else {}
+    control = {"B1": "U8.B1", "B2": "U8.B2", "B3": "PA2", "B4": "PA5", "B5": "U8.B5", "B6": "PA4", "B7": "PA6",
+               "B8": "U8.B8", "A1": "pio9", "A2": "pio10", "A3": "e", "A4": "rs", "A5": "backlight_tie", "A6": "soeb",
+               "A7": "rw"}
     s.dip("U8", "74LVC245 (control)", 330, 420, LVC245, control | power | {"DIR": "GND", "/OE": "GND"}, width=110,
-          notes=unused)
+          notes={"B1": "unused", "B2": "unused", "B5": "unused"})
     s.two_pin("capacitor", "C5", "0.1 µF", 110, 360, "+3V3", "GND", length=70)
     s.two_pin("capacitor", "C6", "0.1 µF", 180, 360, "+3V3", "GND", length=70)
     s.two_pin("resistor", "R9", "10 kΩ", 60, 720, "+3V3", "U8.B5")
     s.text(60, 850, "backlight tie", "middle", 10.5, fill=MUTED)
-    # R14 is E's pull-down until stage 4 moves E to PA2; it then stays as B1's tie
-    ties = [("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")] if planned else [("R12", "U8.B8")]
+    # R14 was E's pull-down until stage 4 moved E to PA2; it stays as B1's tie
+    ties = [("R12", "U8.B8"), ("R14", "U8.B1"), ("R17", "U8.B2")]
     for i, (ref, net) in enumerate(ties):
         s.two_pin("resistor", ref, "10 kΩ", 130 + i * 70, 720, net, "GND")
-    s.text(130 + (len(ties) - 1) * 35, 850, "ties (unused inputs)" if planned else "tie", "middle", 10.5, fill=MUTED)
-    e_pull = ("R18", "PA2") if planned else ("R14", "PA0")
-    for i, (ref, top, bottom, why) in enumerate(((*e_pull, "GND", "E idle low"),
+    s.text(130 + (len(ties) - 1) * 35, 850, "ties (unused inputs)", "middle", 10.5, fill=MUTED)
+    for i, (ref, top, bottom, why) in enumerate((("R18", "PA2", "GND", "E idle low"),
                                                  ("R15", "+3V3", "d_oeb", "off unconfigured"),
                                                  ("R16", "d_dir", "GND", "inward by default"))):
         s.two_pin("resistor", ref, "10 kΩ", 340 + i * 100, 720, top, bottom)
@@ -168,14 +147,9 @@ def fpga(board, planned):
     lcd = ["lcd_cs", "lcd_reset", "lcd_dc", "lcd_mosi", "lcd_sck", "lcd_led", "lcd_miso"]
     cmod = {i + 1: f"d[{i}]" for i in range(8)} | {13: "backlight_tie", 14: "d_oeb", 17: "d_dir", 18: "soeb", 19: "rw",
                                                    24: "VU", 25: "GND"} | {26 + i: n for i, n in enumerate(lcd)}
-    if planned:
-        cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs"}
-    else:
-        cmod |= {9: "e", 10: "pa1", 11: "pa2", 12: "rs"}
+    cmod |= {9: "pio9", 10: "pio10", 11: "e", 12: "rs"}
     s.dip("U9", "Cmod A7-35T", 720, 110, CMOD, cmod, width=110,
-          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"} if planned else
-                {"PIO10": "ignored", "PIO11": "ignored", "PIO13": "ignored"},
-          caption="33–37 reserved for touch")
+          notes={"PIO9": "ignored", "PIO10": "ignored", "PIO13": "ignored"}, caption="33–37 reserved for touch")
 
     tft = {"GND": "GND", "Vin": "+3V3", "CLK": "lcd_sck", "MISO": "lcd_miso", "MOSI": "lcd_mosi", "CS": "lcd_cs",
            "D/C": "lcd_dc", "RST": "lcd_reset", "Lite": "lcd_led"}
@@ -196,18 +170,12 @@ def fpga(board, planned):
              "constr/bus.xdc); U10's MISO is read only by the display probe.",
              "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
              "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (the output one for "
-             "stability). C9 was fitted on 2026-10-04; C8 isn't yet: see the to-do list in README.md."]
-    if planned:
-        notes[1] = ("The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives "
-                    "PORTB with the keyboard board.")
-        notes.append("E moves to PA2 in stage 4, through U8's B3 (the old display reset), so it needs no new wire. "
-                     "U8's B1, B2 and B5 are ignored.")
-        notes.append("RS and RW are the LCD's own register select and read/write pins, with the same meanings. "
-                     "The new port names are proposals.")
-    else:
-        notes.append("Stages 1 and 2 of the FPGA bus plan are done: the bus design in the Cmod's flash drives U7's /OE "
-                     "and DIR, and ignores Cmod 10, 11 and 13 (PA1, PA2 and R9's tie: the older display interface's "
-                     "select, reset and backlight).")
+             "stability). C9 was fitted on 2026-10-04; C8 isn't yet: see the to-do list in README.md.",
+             "The FPGA drives U7's /OE and DIR to read: d_oeb is gated by SOEB in logic, so it never drives PORTB "
+             "with the keyboard board.",
+             "E moved to PA2 in stage 4, through U8's B3 (the old display reset), so it needed no new wire. U8's B1, "
+             "B2 and B5 are ignored.",
+             "RS and RW are the LCD's own register select and read/write pins, with the same meanings."]
     s.note(24, 920, notes, "Notes")
     return s
 
@@ -215,25 +183,24 @@ def fpga(board, planned):
 SHEETS = {"michael-core.svg": core, "michael-io.svg": io, "michael-fpga-display.svg": fpga}
 
 
-def build(planned=False):
+def build():
     board = Board()
-    return board, {name: draw(board, planned) for name, draw in SHEETS.items()}
+    return board, {name: draw(board) for name, draw in SHEETS.items()}
 
 
-def board(planned=False):
-    return build(planned)[0]
+def board():
+    return build()[0]
 
 
-def parts_list(board, planned):
+def parts_list(board):
     """The parts, as a Markdown table."""
     def order(ref):
         letters = ref.rstrip("0123456789")
         return letters, int(ref[len(letters):])
-    state = "once the FPGA bus plan is complete (planned)" if planned else "as built (2026-10-04)"
-    lines = [f"# Michael's parts, {state}", "",
+    lines = ["# Michael's parts, as built with the FPGA bus plan's wiring complete", "",
              "Generated by `michael_schematic.py` from the schematics beside this file. \"(or similar)\" marks a part",
              "identified only from a photo. The keyboard board's own parts are on its schematic,",
-             "`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`" + (" (one level up)." if planned else "."),
+             "`michael-bidirectional-PS2-keyboard-interface-schematic-v-1.0.pdf`.",
              "", "| Ref | Part | Sheet |", "|---|---|---|"]
     for ref in sorted(board.parts, key=order):
         sheet = board.sheets[ref].removeprefix("Michael: ")
@@ -242,19 +209,13 @@ def parts_list(board, planned):
 
 
 def outputs():
-    """Both sets of sheets and parts lists by path: as built, then planned/."""
-    files = {}
-    for planned in (False, True):
-        board, drawn = build(planned)
-        prefix = "planned/" if planned else ""
-        files |= {prefix + name: sheet.svg() for name, sheet in drawn.items()}
-        files[prefix + "parts.md"] = parts_list(board, planned)
-    return files
+    """The sheets and the parts list by file name."""
+    board, drawn = build()
+    return {name: sheet.svg() for name, sheet in drawn.items()} | {"parts.md": parts_list(board)}
 
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
-    os.makedirs(os.path.join(here, "planned"), exist_ok=True)
     for name, text in outputs().items():
         with open(os.path.join(here, name), "w") as f:
             f.write(text)

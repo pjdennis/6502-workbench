@@ -20,6 +20,11 @@ scr_scroll_up    = SVC_SCR_SCROLL_UP
 scr_scroll_down  = SVC_SCR_SCROLL_DOWN
 scr_insert_lines = SVC_SCR_INSERT_LINES
 scr_delete_lines = SVC_SCR_DELETE_LINES
+scr_reverse      = SVC_SCR_REVERSE
+scr_normal       = SVC_SCR_NORMAL
+term_rows        = SVC_TERM_ROWS
+term_cols        = SVC_TERM_COLS
+screen_select    = SVC_SCREEN_SELECT
 
 TEXT_PTR         = $00 ; 2 bytes
 

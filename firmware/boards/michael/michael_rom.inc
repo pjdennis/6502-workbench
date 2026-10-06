@@ -52,6 +52,7 @@ SVC_SCR_SCROLL_UP    = SVC_BASE + $63
 SVC_SCR_SCROLL_DOWN  = SVC_BASE + $66
 SVC_SCR_INSERT_LINES = SVC_BASE + $69
 SVC_SCR_DELETE_LINES = SVC_BASE + $6C
+SVC_ENV_END          = SVC_BASE + $6F ; The end of the environment's: a new one goes here, and this moves on
 ; (up to $8D: room for more of the environment's; each does nothing)
 ; Michael's own. All preserve X and Y
 SVC_START            = SVC_BASE + $90 ; Start the keyboard and the screen (argc does, the first time)
@@ -61,7 +62,11 @@ SVC_DELAY            = SVC_BASE + $99 ; Wait A times 100 microseconds
 SVC_KEYBOARD_START   = SVC_BASE + $9C ; Start the keyboard: con_read, con_ready; enables interrupts
 SVC_SCREEN_START     = SVC_BASE + $9F ; Start the screen: write_b, con_flush, scr_*
 SVC_IRQ              = SVC_BASE + $A2 ; The ROM's interrupt handler (ends with rti)
-SVC_END              = SVC_BASE + $A5
+SVC_SCREEN_SELECT    = SVC_BASE + $A5 ; The screen: A = 0 the LCD, 1 the graphic display (the FPGA's text
+                                      ; mode, 20 by 20); C set, and the LCD kept, if no FPGA with text mode
+                                      ; answers. Choose before starting the screen, or the chosen one starts
+                                      ; at once. The loader sets the LCD again before each program
+SVC_END              = SVC_BASE + $A8
 
 ; Zero page
 ROM_ZP_KEYBOARD      = $F0 ; $F0-$F9: the keyboard's, from SVC_KEYBOARD_START
@@ -76,4 +81,6 @@ ROM_IRQ_JMP          = $3F00 ; 3 bytes: jmp, where the IRQ vector points (from S
 ROM_STARTED          = $3F03 ; 1 byte: which parts have started (cleared before a program runs)
 ROM_RAM_KEYBOARD     = $3F04 ; The keyboard's, from SVC_KEYBOARD_START...
 ROM_RAM_SCREEN       = $3F28 ; ...the screen's, from SVC_SCREEN_START...
-ROM_RAM_END          = $3F81 ; ...up to here
+ROM_SCREEN           = $3F81 ; 1 byte: bit 7 set: the graphic screen (from SVC_SCREEN_SELECT)
+ROM_PUTTING          = $3F82 ; 1 byte: bit 7 set: the FPGA bus's last command was PUT (the graphic screen's)
+ROM_RAM_END          = $3F83 ; ...up to here

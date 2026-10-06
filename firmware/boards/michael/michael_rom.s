@@ -69,7 +69,7 @@ reset:
   .include display_string.inc
   .include display_hex.inc
 
-rom_message:   .asciiz 'Michael ROM 4'
+rom_message:   .asciiz 'Michael ROM 5'
 
 program_start:
   jsr reset_and_enable_display_no_cursor
@@ -79,6 +79,7 @@ program_start:
   jmp upload_v3                   ; Shows "Ready" under it while it waits
 
   .include upload_v3.inc
+  .include michael_graphic_screen.inc   ; The graphic screen, for the services
 
 nmi:
   rti

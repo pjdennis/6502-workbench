@@ -13,12 +13,14 @@ are the LCD's own register select and read/write pins, and they mean the same he
 a read or a write, and RS chooses commands and status (0) or data (1). The FPGA also watches the keyboard
 board's output enable (SOEB, PA4), so a keyboard interrupt can safely pause a read.
 
-E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, which leaves PA0 free: the
-pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
-select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
+E started on PA0. Stage 4 moved it to PA2 and the LED to PA1, which left PA0 free: the pins at that end of
+the VIA are now the reusable ones. In the end the bus freed PA0, the display's chip select and reset (PA1 and
+PA2 before the bus), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-05): stages 0 to 3 done (stage 3, text mode:
-[`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
+**Status (2026-10-05): stages 0 to 4 done; stage 5, the editor on the graphic display, is next.** Stage 3 is
+text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
+screen and the pin shuffle, is on the board ([below](#4-rom-support-and-switching-displays-at-run-time)).
+Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
@@ -27,9 +29,8 @@ the Cmod's flash, with the raw display commands and the debug port, and `graphic
 board, the backlight's PWM made snow on the display until its edges were kept clear of the SPI bytes. In
 review, reads came to use E with a shared pin instead of a dedicated PA1, a SOEB interlock came to let
 interrupts pause a read, the shared pins (first F and G) were named RS and RW after their LCD meanings, and
-stage 4 gained the pin shuffle. Michael's schematics, as built and as planned at the end of this plan, are in
-[`hardware/michael/schematics/`](../hardware/michael/schematics/)
-([`planned/`](../hardware/michael/schematics/planned/)).
+stage 4 gained the pin shuffle. Michael's schematics, with the plan's wiring complete (stage 4's pin
+shuffle included), are in [`hardware/michael/schematics/`](../hardware/michael/schematics/).
 
 ## Stages
 
@@ -131,7 +132,8 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   the ROM drives the LED: today's ROM sets the LED bit (PA2) high whenever it sets up the ports, and with
   port B an output. With E on PA2, that would start a read and the FPGA would drive port B against the VIA.
   So the firmware, the FPGA design, the ROM and the wiring change together:
-  - firmware: `LED` becomes PA1 in `base_config_v2.inc` and E becomes PA2 in `fpga_bus.inc`; every program is
+  - firmware: `LED` becomes PA1 and E (`FPGA_E`) PA2 in `base_config_v2.inc`, and Michael's port set-up
+    (`michael_ports.inc`) makes E an output, low, as it does the LCD's pins; every program is
     rebuilt and the firmware manifest refreshed. Comments that name PA2 for the LED (such as
     `michael_keyboard_scope.s`'s) follow;
   - firmware: the LED's polarity flips to active high, to match the rewired LED. `initialize_michael_ports`
@@ -144,11 +146,38 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   - wiring ([Stage 4 wiring changes](#stage-4-wiring-changes)), with Michael powered off, then the EEPROM and
     the FPGA's flash programmed before powering on.
 - **One EEPROM programming** (the programmer and `minipro` are ready on the bench):
-  `minipro -p AT28C256 -w hardware/michael/michael_rom.bin`, after backing up the current chip.
+  `make -C hardware/michael program` (it builds the image, backs up the chip, then writes it).
+- **Done (2026-10-05), on the board.** ROM 5 is on the EEPROM (ROM 4 backed up), Michael is rewired and the
+  stage 4 bus design is in the Cmod's flash. The bus check passed, keyboard interrupts included, as did
+  `board_check.py`; the text demo, a graphics program, the graphic keyboard demo and the ROM's graphic screen
+  (`tools/tests/michael/graphic_screen.s`) work on the glass. At the bench, port B's wires had worked loose
+  (the low data bits read wrong) and were reseated, and `board_check.py` needs the panel initialised first,
+  by a graphics program after a power cycle. In software:
+  - The emulator models the FPGA at the level of its commands (`emulator/chips/fpga_bus.c`, `fpga_text.c`),
+    checked against the text mode's model; `--no-fpga` leaves it out.
+  - The ROM ("Michael ROM 5") has the graphic screen behind the screen calls (`michael_graphic_screen.inc`)
+    and `SVC_SCREEN_SELECT`, tested on the emulator (`tools/tests/michael/graphic_*.s`).
+  - The pin shuffle is in the firmware, the ROM, the emulator, the bus designs (`bus.mk`) and the schematics,
+    which now show the board as this plan leaves it.
+  - The editor's differential tests on the graphic screen need stage 5's launcher, which selects it.
+- **On the bench**, in this order (done 2026-10-05):
+  1. Program the new ROM (`make -C hardware/michael program`, which backs up the old one first).
+  2. With Michael powered off, rewire ([the checklist](../hardware/michael/fpga/spi-display/WIRING.md#stage-4-rewiring-the-pin-shuffle)).
+  3. Power on: the LCD shows "Michael ROM 5" and the LED stays dark. The flash still holds stage 2's bus
+     design, which takes E from Cmod 9, now tied low, so it sees no transfers.
+  4. With the Cmod on USB: `make -C hardware/michael/fpga/bus flash`, the design that takes E from Cmod 11.
+  5. Check: `make -C hardware/michael/fpga/bus-check check` (reads and the interlock; power-cycle the Cmod
+     after, to have the bus design back), a graphics program, `michael_graphic_text.s`, and
+     `hardware/michael/fpga/text/board_check.py`.
 
 ### 5. The editor on the graphic display
-- `editor/bin/editor-michael-upload.sh --graphic` adds a few-byte launcher that selects the graphic display and
-  then starts the editor. The editor itself doesn't change: it reads its screen size at run time.
+- `editor/bin/editor-michael-upload.sh` chooses the screen: the 20x4 LCD as now, or with `--graphic` the
+  graphic display, through a few-byte launcher that selects it and then starts the editor. The editor itself
+  doesn't change: it reads its screen size at run time.
+- The launcher also sets the scroll region to the editor's text rows (1-19), leaving the status bar outside
+  it. The editor sets no region itself (it resets it only on exit), and its pairs of DL and IL still leave
+  the same screen with a region set, but its view scrolls then start at the region's top: text mode's
+  hardware scroll, with no editor change.
 - Emulator tests in graphic mode, then on the board.
 
 ### 6. Later
@@ -193,6 +222,32 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
   escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
   designed.
+- **Interrupt handlers on the bus.** With more peripherals, interrupt handlers will want to use the bus
+  without upsetting what the main thread is doing. Today nothing does (the keyboard's handler never touches
+  the bus), and a handler that did could break two kinds of state: Michael's (`fb_write` sets RS, port B and
+  E in turn, so a handler between them changes port A's RS and RW and port B's direction) and the FPGA's
+  (the open command, its arguments left, and the reply queue, where a handler's reply would interleave with
+  a multi-byte reply the main thread is reading). A stream has no end marker: the next command ends it.
+  Options, simplest first:
+  1. **Handlers stay off the bus.** They note what happened (a flag, a byte in a buffer) and the main loop
+     does the bus work: the usual embedded practice (deferred work, a "bottom half"), and the keyboard's way.
+  2. **Atomic transactions, with resumable streams (recommended).** As drivers share an I²C or SPI bus: each
+     transaction (a command and its arguments, a byte of a stream, or a command and the read of its reply)
+     runs with interrupts off, so a handler runs only between transactions and may use the bus freely. The
+     bus driver keeps the open stream's command in RAM; a handler that used the bus marks it closed, and the
+     main thread's next stream byte sends the command again first, then carries on. Every stream resumes so:
+     PUT at the grid's cursor, DISP_DATA in the display's write, SERIAL_SEND's bytes. It's the ROM's
+     `ROM_PUTTING` ([`michael_graphic_screen.inc`](../firmware/boards/michael/michael_graphic_screen.inc))
+     generalised into [`fpga_bus.inc`](../firmware/lib/fpga/fpga_bus.inc). No protocol change; interrupt
+     latency grows by at most one transaction. Handlers still save and restore the port state they change.
+  3. **Contexts in the FPGA,** if a handler ever needs to stream in the middle of the main thread's streams:
+     two complete sets of parser state (main and interrupt), each with its own command, arguments left and
+     reply queue, and a command (`CONTEXT n`) switching between them, leaving the other untouched. The
+     precedents are banked registers (the Z80's alternate set, the ARM's FIQ registers), multiplexed channels
+     (CMUX, above) and USB endpoints. One level is enough, as 6502 IRQ handlers don't nest (keep NMI off the
+     bus). Handlers still save and restore Michael's port state.
+
+  Decide with stage 6's peripherals; option 2 is the default either way.
 - **Revisit text mode's control codes.** `PUT` acts on BS, LF and CR and drops the other codes below `$20`,
   while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
   shown. One option: no special meaning for any code, so every character written goes into its cell, with
@@ -222,6 +277,30 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
   timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
   the fast domain. Needs a board run and a flash.
+- **The backlight off until the display is ready.** The FPGA starts with the backlight fully on
+  ([`display_spi.v`](../hardware/michael/fpga/rtl/display_spi.v): brightness 255), so at power-up, and after
+  every display reset, the panel glows plain white until a program has initialised it. Instead: start with
+  it off, turn it off again with `DISP_RESET`'s reset (so a program's start-up hides the panel's noise too),
+  and have the display's start-up (`ili9341_start.inc`, which the graphics driver and the ROM's graphic screen
+  share) turn it on once the panel shows its first picture. The brightness program and anything else that sets
+  a level keep doing so. Tests first: `display_spi.v`'s simulation (off at start and after a reset) and the
+  firmware's bus logs (the backlight on after the start-up commands). The bitstream changes, so it needs a
+  board run and a flash.
+- **A minor version for the ROM.** The LCD shows "Michael ROM 5", the major version only; the review
+  of stage 4 changed ROM 5 several times before it was programmed. As with the FPGA design's version: a minor
+  number (e.g. "Michael ROM 5.1"), set by hand or from git at build time, and perhaps readable by programs.
+- **The LCD beside the graphic display.** With the editor on the graphic display, Michael's 20x4 LCD is
+  free: the editor, or the ROM's services, could show useful information there (the file and position,
+  memory, diagnostics such as the bus's status or the keyboard's errors).
+- **The ROM's busy flags in zero page.** `ROM_SCREEN` (read by every screen call's dispatch) and
+  `ROM_PUTTING` (by every character) are in the interrupt page's RAM; in zero page each read and write is a
+  cycle and a byte shorter, about 2 cycles of a character's 75 or so through the graphic screen. The strategy
+  is there already: the top of zero page, `$F0`–`$FF`, is the ROM's (the keyboard's state, scratch,
+  `ROM_FLAGS`; `$FD`–`$FF` free), and programs that use its services keep out. But the editor clears all of
+  zero page as it starts, after a launcher may have chosen the graphic screen, so first:
+- **The editor clears only its own zero page.** Its start-up zeroes `$00`–`$FF`; it should clear only the
+  variables it owns (its memory map), leaving the ROM's `$F0`–`$FF`. Then `ROM_SCREEN` and `ROM_PUTTING`
+  can move to `$FD` and `$FE` (`ROM_PUTTING` could move now: cleared, it only costs a PUT reopened).
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.

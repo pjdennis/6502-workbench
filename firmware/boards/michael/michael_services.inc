@@ -1,5 +1,6 @@
 ; The editor's environment (asm/17/environment.asm, the direct_io build's) on
-; Michael, behind the entry points of michael_rom.inc: the 20x4 LCD as the screen and the PS/2
+; Michael, behind the entry points of michael_rom.inc: the 20x4 LCD as the screen (or, chosen with
+; SVC_SCREEN_SELECT, the graphic display: michael_graphic_screen.inc, which the ROM includes) and the PS/2
 ; keyboard for input. write_b and the scr_* calls draw on a copy of the screen that goes to the
 ; LCD when the program waits for a key or flushes (lcd_screen.inc); con_read and con_ready give
 ; keys as the editor's key codes (keyboard_keys.inc); term_rows and term_cols are 4 and 20; there
@@ -35,9 +36,17 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   .if KB_RING + KB_RING_SIZE > ROM_RAM_SCREEN
   fail "The keyboard's RAM runs into the screen's (michael_rom.inc)"
   .endif
-  .if LCD_SCREEN_STATE + 9 > ROM_RAM_END
-  fail "The screen's RAM runs past ROM_RAM_END (michael_rom.inc)"
+  .if LCD_SCREEN_STATE + 9 > ROM_SCREEN
+  fail "The screen's RAM runs into ROM_SCREEN (michael_rom.inc)"
   .endif
+
+; A screen call to the LCD's routine, or the graphic screen's when that's chosen (ROM_SCREEN bit 7)
+  .macro screen,lcd,graphic
+  bit ROM_SCREEN
+  bpl * + 5                       ; Over the jmp
+  jmp \graphic
+  jmp \lcd
+  .endm
 
 ; The vector table, at the includer's .org SVC_BASE + $06 (michael_rom.inc)
   .macro vector,address,target
@@ -48,7 +57,7 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   .endm
 
   vector SVC_READ_B          , services_nothing_carry   ; read_b: end of input
-  vector SVC_WRITE_B         , lcd_screen_write         ; write_b
+  vector SVC_WRITE_B         , screen_write             ; write_b
   vector SVC_WRITE_D         , services_nothing         ; write_d
   vector SVC_EXIT            , services_exit            ; exit
   vector SVC_OPEN            , services_zero            ; open: no files
@@ -61,28 +70,31 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   vector SVC_CON_READ        , services_con_read        ; con_read
   vector SVC_CON_FLUSH       , services_show            ; con_flush
   vector SVC_CON_READY       , services_con_ready       ; con_ready
-  vector SVC_TERM_ROWS       , services_term_rows       ; term_rows
-  vector SVC_TERM_COLS       , services_term_cols       ; term_cols
+  vector SVC_TERM_ROWS       , screen_rows              ; term_rows
+  vector SVC_TERM_COLS       , screen_cols              ; term_cols
   vector SVC_SERIAL_READ     , services_nothing_carry   ; serial_read: nothing
   vector SVC_SERIAL_WRITE    , services_nothing_carry   ; serial_write: not accepted
   vector SVC_OPENDIR         , services_zero            ; opendir: no directories
   vector SVC_WAIT_READY      , services_zero            ; wait_ready: time passed
-  vector SVC_SCR_GOTO        , lcd_screen_goto          ; scr_goto
-  vector SVC_SCR_CLEAR       , lcd_screen_clear         ; scr_clear
-  vector SVC_SCR_CLEAR_EOL   , lcd_screen_clear_eol     ; scr_clear_eol
-  vector SVC_SCR_CURSOR_ON   , lcd_screen_cursor_on     ; scr_cursor_on
-  vector SVC_SCR_CURSOR_OFF  , lcd_screen_cursor_off    ; scr_cursor_off
-  vector SVC_SCR_REVERSE     , lcd_screen_nothing       ; scr_reverse
-  vector SVC_SCR_NORMAL      , lcd_screen_nothing       ; scr_normal
-  vector SVC_SCR_REGION      , lcd_screen_region        ; scr_region
-  vector SVC_SCR_REGION_RESET, lcd_screen_region_reset  ; scr_region_reset
-  vector SVC_SCR_INSERT      , lcd_screen_insert        ; scr_insert
-  vector SVC_SCR_DELETE      , lcd_screen_delete        ; scr_delete
-  vector SVC_SCR_SCROLL_UP   , lcd_screen_scroll_up     ; scr_scroll_up
-  vector SVC_SCR_SCROLL_DOWN , lcd_screen_scroll_down   ; scr_scroll_down
-  vector SVC_SCR_INSERT_LINES, lcd_screen_insert_lines  ; scr_insert_lines
-  vector SVC_SCR_DELETE_LINES, lcd_screen_delete_lines  ; scr_delete_lines
-  .rept (SVC_START - SVC_SCR_DELETE_LINES) / 3 - 1       ; room for more
+  vector SVC_SCR_GOTO        , screen_goto              ; scr_goto
+  vector SVC_SCR_CLEAR       , screen_clear             ; scr_clear
+  vector SVC_SCR_CLEAR_EOL   , screen_clear_eol         ; scr_clear_eol
+  vector SVC_SCR_CURSOR_ON   , screen_cursor_on         ; scr_cursor_on
+  vector SVC_SCR_CURSOR_OFF  , screen_cursor_off        ; scr_cursor_off
+  vector SVC_SCR_REVERSE     , screen_reverse           ; scr_reverse
+  vector SVC_SCR_NORMAL      , screen_normal            ; scr_normal
+  vector SVC_SCR_REGION      , screen_region            ; scr_region
+  vector SVC_SCR_REGION_RESET, screen_region_reset      ; scr_region_reset
+  vector SVC_SCR_INSERT      , screen_insert            ; scr_insert
+  vector SVC_SCR_DELETE      , screen_delete            ; scr_delete
+  vector SVC_SCR_SCROLL_UP   , screen_scroll_up         ; scr_scroll_up
+  vector SVC_SCR_SCROLL_DOWN , screen_scroll_down       ; scr_scroll_down
+  vector SVC_SCR_INSERT_LINES, screen_insert_lines      ; scr_insert_lines
+  vector SVC_SCR_DELETE_LINES, screen_delete_lines      ; scr_delete_lines
+  .if * != SVC_ENV_END
+  fail "SVC_ENV_END (michael_rom.inc) isn't the end of the environment's vectors"
+  .endif
+  .rept (SVC_START - SVC_ENV_END) / 3                    ; room for more, up to Michael's own
   jmp services_nothing
   .endr
   vector SVC_START           , services_start           ; Michael's own: start the services
@@ -92,6 +104,7 @@ LCD_SCREEN_STATE         = LCD_SCREEN + 80         ; 9 bytes
   vector SVC_KEYBOARD_START  , services_keyboard_start
   vector SVC_SCREEN_START    , services_screen_start
   vector SVC_IRQ             , rom_interrupt
+  vector SVC_SCREEN_SELECT   , services_screen_select
 
   .include delay_routines.inc
   .include michael_ports.inc
@@ -127,17 +140,61 @@ services_term_cols:
   lda #DISPLAY_WIDTH
   rts
 
+; The screen calls: the LCD's, or the graphic screen's
+screen_write:        screen lcd_screen_write, graphic_write
+screen_rows:         screen services_term_rows, graphic_rows
+screen_cols:         screen services_term_cols, graphic_cols
+screen_goto:         screen lcd_screen_goto, graphic_goto
+screen_clear:        screen lcd_screen_clear, graphic_clear
+screen_clear_eol:    screen lcd_screen_clear_eol, graphic_clear_eol
+screen_cursor_on:    screen lcd_screen_cursor_on, graphic_cursor_on
+screen_cursor_off:   screen lcd_screen_cursor_off, graphic_cursor_off
+screen_reverse:      screen lcd_screen_nothing, graphic_reverse
+screen_normal:       screen lcd_screen_nothing, graphic_normal
+screen_region:       screen lcd_screen_region, graphic_region
+screen_region_reset: screen lcd_screen_region_reset, graphic_region_reset
+screen_insert:       screen lcd_screen_insert, graphic_insert
+screen_delete:       screen lcd_screen_delete, graphic_delete
+screen_scroll_up:    screen lcd_screen_scroll_up, graphic_scroll_up
+screen_scroll_down:  screen lcd_screen_scroll_down, graphic_scroll_down
+screen_insert_lines: screen lcd_screen_insert_lines, graphic_insert_lines
+screen_delete_lines: screen lcd_screen_delete_lines, graphic_delete_lines
+
+; SVC_SCREEN_SELECT: A = 0 the LCD, 1 the graphic screen; C set (and the LCD kept) if there's no FPGA
+; with text mode. A screen already started gives way to the chosen one, started at once
+; On exit A is not preserved; X, Y are
+services_screen_select:
+  cmp #0
+  beq .chosen                     ; A = 0: the LCD
+  jsr graphic_present
+  bcs .done                       ; No text mode: the LCD stays
+  lda #$80
+.chosen:
+  cmp ROM_SCREEN
+  beq .same
+  sta ROM_SCREEN
+  lda #STARTED_SCREEN
+  trb ROM_STARTED
+  beq .same                       ; Not started yet: the start call will
+  jsr services_screen_start
+.same:
+  clc
+.done:
+  rts
+
 services_exit:
   jsr services_show
   jmp SERVICES_EXIT
 
-; Show the screen on the LCD, if it has started
+; Show the screen on the LCD, if it has started (the graphic screen shows itself)
 ; On exit A, X, Y are preserved
 services_show:
   pha
   lda ROM_STARTED
   and #STARTED_SCREEN
   beq .not_started
+  bit ROM_SCREEN
+  bmi .not_started
   jsr lcd_screen_flush
 .not_started:
   pla
@@ -156,12 +213,16 @@ services_start:
   jsr services_keyboard_start
   ; fall through
 
-; Start the screen, the first time: the LCD, cleared, and its copy in RAM
+; Start the screen, the first time: the LCD, cleared, and its copy in RAM; or the graphic screen
 ; On exit A is not preserved; X, Y are
 services_screen_start:
   lda #STARTED_SCREEN
   jsr services_first_time
   bne .started
+  bit ROM_SCREEN
+  bpl .lcd
+  jmp graphic_start
+.lcd:
   phx
   phy
   jsr reset_display
@@ -216,6 +277,7 @@ services_first_time:
 services_reset:
   stz ROM_STARTED
   stz ROM_FLAGS
+  stz ROM_SCREEN                  ; The LCD
   rts
 
 

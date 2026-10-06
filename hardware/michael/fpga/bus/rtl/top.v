@@ -7,8 +7,8 @@
 // 8N1) carries SERIAL_SEND's bytes to the PC and the debug port (debug_port.v), through which the PC makes
 // the same transactions as Michael. BUSY is set while the display, text mode or the serial output has work.
 //
-// The inputs that were the spi-display interface's CSB, RSTB and backlight (now PA1, PA2 and the backlight
-// tie) are unused: the display's chip select, reset and backlight are commands now. LD1 flashes on bus
+// Since stage 4's pin shuffle E arrives from PA2 on the pin that was the spi-display interface's RSTB (Cmod
+// 11); E's old pin, CSB's and the backlight input are unused ties (bus.mk names the pins). LD1 flashes on bus
 // traffic, LD2 while the display is busy.
 module top #(
   parameter BAUD            = `PC_BAUD,
@@ -24,8 +24,8 @@ module top #(
   input        rs,
   input        rw,
   input        soeb,
-  input        pa1,          // unused
-  input        pa2,          // unused (Michael's LED)
+  input        pio9,         // unused: ties (stage 4 moved E to Cmod 11)
+  input        pio10,        // unused
   input        backlight_tie,// unused
   output       d_oeb,
   output       d_dir,

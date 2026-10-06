@@ -72,20 +72,19 @@ The EEPROM sketch replaces `a` and `i` with these:
   - `monitor_arduino.py` and `arduino-console.py` show the Arduino's serial output.
   - `asciimatics-*.py`, `try-curses.py` and `with-thread.py` are terminal-UI experiments for that console.
 - `michael-2023-12-04.rom`: a ROM image from 2023-12-04 (committed on michael_keyboard_wip).
-- `michael_rom.bin`: the current ROM, built from `firmware/boards/michael/michael_rom.s` (`tools/tests/test_michael_rom.py` checks it is that build). Its loader takes uploads in format 3 (`tools/upload/transfer.py --format=3`) to zero page and anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
+- `michael_rom.bin` (not committed: built by `tools/michael_rom.py`): the current ROM, `firmware/boards/michael/michael_rom.s` as the firmware manifest records its build. Its loader takes uploads in format 3 (`tools/upload/transfer.py --format=3`) to zero page and anywhere from `$0200` to `$3EFF`, and it carries the LCD and keyboard services at `$F006`. `firmware/boards/michael/michael_rom.inc` names their entry points and says what RAM they use. See "Programming the ROM" below.
 
 ## Programming the ROM
 
-The EEPROM is an AT28C256. With a TL866-style programmer and `minipro`, keep a copy of what's on it first, then write the new image:
+The EEPROM is an AT28C256, programmed with a TL866-style programmer and `minipro`:
 
 ```
-minipro -p AT28C256 -r michael-rom-backup.bin
-minipro -p AT28C256 -w hardware/michael/michael_rom.bin
+make -C hardware/michael program
 ```
 
-Add `--no-write-protect` if the chip has software write protection on. To go back, write the backup the same way.
+It builds the image (`tools/michael_rom.py` builds `michael_rom.s` and checks it against the firmware manifest's hash, so it's the recorded build), backs up what's on the chip to `hardware/michael/backups/`, then writes the image. `make -C hardware/michael rom` only builds it. Add `MINIPRO_FLAGS=--no-write-protect` if the chip has software write protection on. To go back, write a backup with `minipro -p AT28C256 -w <backup>`.
 
-After a reset, the LCD shows "Michael ROM 4" and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
+After a reset, the LCD shows "Michael ROM 5" (4 before the FPGA bus's stage 4) and "Ready"; "Received" replaces "Ready" once data arrives. The ROM only understands format 3 uploads (`docs/michael-upload-format-3-plan.md`):
 
 - `tools/upload/compile_and_upload_michael.sh <program.s>` assembles to S-records and sends them, so a program loads at its `.org` and starts at its `start` label, which every uploaded program needs. Programs that follow `base_config_v2.inc` load at `PROGRAM_LOAD_ADDRESS`, `$2000`.
 - `tools/upload/transfer.py --baudrate=57600 --format=3 FILE` sends a flat binary to `$2000`, or elsewhere with `--load-address`. For example, `editor/bin/editor-michael-upload.sh` builds the editor and uploads it to `$0200`.

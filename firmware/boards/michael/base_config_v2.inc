@@ -16,7 +16,8 @@ START  = %00100000  ; Output start bit - multiplexed with RS and ACK bit
 ACK    = %00100000  ; Input ACK bit - multiplexed with RS and output start bit
 PARITY = %01000000  ; Input and output parity bit - multiplexed with RW
 
-LED    = %00000100  ; Output LED
+LED    = %00000010  ; Output LED: PA1, lit while high
+FPGA_E = %00000100  ; The FPGA bus's strobe: PA2 (fpga_bus.inc), an output, low between transfers
 
 DISPLAY_BITS = 8
 

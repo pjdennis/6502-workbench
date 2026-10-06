@@ -1,5 +1,5 @@
 /* fpga_bus chip tests: the Michael FPGA bus as the emulator sees it (docs/michael-fpga-bus-plan.md). Each
- * rising edge of E (PA0) is a transfer, chosen by RS (PA5) and RW (PA6); writes carry port B. With a log,
+ * rising edge of E (PA2) is a transfer, chosen by RS (PA5) and RW (PA6); writes carry port B. With a log,
  * each transfer is a line: "C hh" (command), "D hh" (data), "R" (reply read) or "S" (status read). */
 
 #include <stdint.h>
@@ -11,7 +11,7 @@
 #include "../chips/fpga_bus.h"
 #include "../chips/font_12x16.h"
 
-#define E 0x01                        /* PA0, the bus's E */
+#define E 0x04                        /* PA2, the bus's E */
 
 static struct via_6522_state vs;
 static struct fpga_bus_state fs;
@@ -78,7 +78,7 @@ TEST e_held_high_is_one_transfer(void) {
 }
 
 TEST e_as_an_input_is_held_low(void) {
-    /* After a reset PA0 is an input; the board's pull-down keeps E low */
+    /* After a reset PA2 is an input; the board's pull-down keeps E low */
     setup();
     bus_write(&bus_, 0xF003, 0x60);
     bus_write(&bus_, 0xF001, E);
