@@ -21,14 +21,16 @@ Drives the embedded HTTP+WS server with a real Chromium via Playwright:
 5. Checks the VIA pin table shows wendy2c's pin labels, levels and DDRs.
 6. Clicks the button and verifies the .btn.held class lands, then the
    reset button, and that the PC goes back to the boot ROM.
+8. Uploads wendy2c_eeprom_show.s, which ends with STP: the CPU stops but
+   the board runs on, until the reset button starts the CPU again.
 7. Verifies that state and audio frames flowed (counted with
    Playwright's WebSocket frame events), and that after a click the
    audio worklet plays them (its buffer readout shows).
 """
 
-from web_test_util import (build_wendy2c_upload, failed, main, missing_tools,
-                           open_page, out_dir_for, passed, skipped, speed_shown,
-                           web_emulator)
+from web_test_util import (board_runs_past_stp, build_wendy2c_upload, failed, main,
+                           missing_tools, open_page, out_dir_for, passed, skipped,
+                           speed_shown, track_last_state, web_emulator)
 
 
 def run_test(verbose=False):
@@ -205,6 +207,20 @@ def run_test(verbose=False):
             page.screenshot(path=str(shot3))
 
             browser.close()
+
+    # A program that ends with STP: the CPU stops, the board runs on.
+    arts = build_wendy2c_upload(out_dir, "wendy2c_eeprom_show.s", "eeprom_show")
+    if arts is None:
+        return failed(f"web UI test: vasm/framing failed; see {out_dir}/*.vasm.log")
+    with web_emulator([arts[0], "--machine", "wendy2c", "--serial-input", arts[1]]) as port:
+        if port is None:
+            return failed("web UI test (STP): did not see server listen line in stderr")
+        with sync_playwright() as p:
+            browser, page = open_page(p, port, track_last_state)
+            problem = board_runs_past_stp(page)
+            browser.close()
+        if problem:
+            return failed(f"web UI test (STP): {problem}")
 
         passed(f"web UI test (screenshots in {out_dir}/)")
         if verbose:

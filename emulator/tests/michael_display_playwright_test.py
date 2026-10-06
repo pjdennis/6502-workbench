@@ -6,7 +6,8 @@ hardware scroll). The canvas is the glass, a canvas pixel a panel pixel.
 1. michael_graphic_text.s, on the FPGA's text mode: the reverse title, typed text, Tab's reverse video, the
    cursor blinking, and Enter at the bottom scrolling the region by the hardware scroll (VSCRSADD moves) with
    the rows in order on the glass. A typed character costs little on the wire.
-2. michael_graphic_display_test.s, raw mode: its colour stripes, then its text, drawn by Michael's driver.
+2. michael_graphic_display_test.s, raw mode: its colour stripes, then its text, drawn by Michael's driver;
+   then its STP stops the CPU but not the board, and reset starts it again.
 3. michael_graphic_brightness.s: the backlight's level dims the glass.
 
 The cells are read off the canvas against the 12x16 font (tools/font_12x16.py). SKIPs cleanly if
@@ -14,8 +15,9 @@ vasm6502_oldstyle or playwright are missing.
 """
 import sys
 
-from web_test_util import (MICHAEL_PROGRAMS, REPO_ROOT, failed, main, michael_load_address, missing_tools,
-                           open_page, out_dir_for, passed, run_vasm, skipped, track_last_state, web_emulator)
+from web_test_util import (MICHAEL_PROGRAMS, REPO_ROOT, board_runs_past_stp, failed, main, michael_load_address,
+                           missing_tools, open_page, out_dir_for, passed, run_vasm, skipped, track_last_state,
+                           web_emulator)
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 import font_12x16  # noqa: E402
@@ -180,7 +182,9 @@ def check_raw_mode(page, out_dir, verbose):
     if verbose: print(f"  raw mode: {page.evaluate('window._displayMessages')} display messages, "
                       f"{page.evaluate('window._displayBytes')} bytes")
     page.screenshot(path=str(out_dir / "michael-raw-text.png"))
-    return None
+
+    # The program ends with STP: the CPU stops, the board runs on.
+    return board_runs_past_stp(page)
 
 
 def check_backlight(page, out_dir, verbose):

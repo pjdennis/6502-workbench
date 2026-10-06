@@ -142,7 +142,9 @@ emulator-side counterparts of `tools/upload/`).
 `--web` serves the board on `http://127.0.0.1:8080/` (`--web-port`,
 `--web-bind`): the LCD drawn dot by dot (CGRAM included), the LEDs, a
 reset button, the VIA's port pins and the clock, updated about 30 times
-a second. The status line shows the emulated clock's measured rate
+a second. A program's STP stops only the CPU: the board runs on (as it
+does under `--live`) until the reset button starts it again; a plain run
+ends at STP. The status line shows the emulated clock's measured rate
 against the board's (red below 98%: the host isn't keeping up, and the
 audio breaks up). It runs uncapped and paced to the board's clock (or `--mhz`)
 until Ctrl-C. The page (`web/index.html`) shows the machine the server
