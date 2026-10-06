@@ -3,9 +3,10 @@
 
 // bus_control.v with a display: the display commands ($1x) and their arguments turn into display queue
 // entries; argument errors set ABANDONED and EXTRA; a full display queue sets OVERFLOW; ID reports the raw
-// display and text mode. The text commands ($2x, GEOMETRY $30) turn into text grid operations, a command
-// with its arguments each, PUT's data a character each; in text mode the raw display commands are refused
-// (UNKNOWN), all but BACKLIGHT. Transfers are driven directly, as michael_bus.v would make them.
+// display and text mode, and the protocol's version. Text mode is the long-form device $80: its operation
+// is the first data byte, and each operation turns into a text grid operation, with its arguments, PUT's data
+// a character each. In text mode the raw display commands are refused (UNKNOWN), but for BACKLIGHT and
+// DISP_RESET, which ends text mode. Transfers are driven directly, as michael_bus.v would make them.
 module tb_bus_control;
   reg clk;
   `TB_CLOCK(clk, 41.667, 5_000_000)
@@ -52,6 +53,7 @@ module tb_bus_control;
   endtask
   task command(input [7:0] b); write(1'b0, b); endtask
   task data(input [7:0] b);    write(1'b1, b); endtask
+  task text(input [7:0] op);   begin command(8'h80); data(op); end endtask   // a text mode operation
   reg [7:0] got;
   task read(input r, output [7:0] b);
     begin
@@ -63,9 +65,11 @@ module tb_bus_control;
   initial begin
     repeat (3) @(posedge clk); #1;
 
-    // ID reports the raw display (capabilities bit 0)
+    // ID reports the protocol's version, 2 (the long form), and the raw display and text mode
     command(8'h01);
-    read(1, got); read(1, got); read(1, got); read(1, got);
+    read(1, got); read(1, got); read(1, got);
+    `CHECK_EQ(got, 8'd2, "ID version")
+    read(1, got);
     `CHECK_EQ(got, 8'h03, "ID capabilities: raw display and text mode")
 
     // DISP_COMMAND: its argument is the command byte, then data bytes stream
@@ -96,19 +100,30 @@ module tb_bus_control;
     `CHECK_EQ(got, 8'h10, "OVERFLOW")
     expect_entry(DATA, 8'h99);   // offered to the queue, which dropped it
 
-    // Text mode: each command an operation (op = code - $20), with its arguments
-    command(8'h20);                               expect_op(4'h0, 8'h00, 8'h00);   // TEXT_ON
-    command(8'h22); data(8'd3); data(8'd4);       expect_op(4'h2, 8'd3, 8'd4);     // GOTO row, column
-    command(8'h23); data("H"); data("i");         expect_op(4'h3, "H", 8'h00); expect_op(4'h3, "i", 8'h00);
-    command(8'h24);                               expect_op(4'h4, 8'h00, 8'h00);   // CLEAR
-    command(8'h26); data(8'd2);                   expect_op(4'h6, 8'd2, 8'h00);    // INSERT count
-    command(8'h28); data(8'd1); data(8'd9);       expect_op(4'h8, 8'd1, 8'd9);     // REGION top, bottom
-    command(8'h2E); data(8'd1);                   expect_op(4'hE, 8'd1, 8'h00);    // CURSOR on
-    command(8'h2F); data(8'd1);                   expect_op(4'hF, 8'd1, 8'h00);    // VIDEO reverse
+    // Text mode: each operation a grid operation, with its arguments
+    text(8'h00);                                  expect_op(4'h0, 8'h00, 8'h00);   // TEXT_ON
+    text(8'h02); data(8'd3); data(8'd4);          expect_op(4'h2, 8'd3, 8'd4);     // GOTO row, column
+    text(8'h03); data("H"); data("i");            expect_op(4'h3, "H", 8'h00); expect_op(4'h3, "i", 8'h00);
+    text(8'h04);                                  expect_op(4'h4, 8'h00, 8'h00);   // CLEAR
+    text(8'h06); data(8'd2);                      expect_op(4'h6, 8'd2, 8'h00);    // INSERT count
+    text(8'h08); data(8'd1); data(8'd9);          expect_op(4'h8, 8'd1, 8'd9);     // REGION top, bottom
+    text(8'h0E); data(8'd1);                      expect_op(4'hE, 8'd1, 8'h00);    // CURSOR on
+    text(8'h0F); data(8'd1);                      expect_op(4'hF, 8'd1, 8'h00);    // VIDEO reverse
     read(0, got);
     `CHECK_EQ(got, 8'h00, "clean status after the text commands")
+    // The long form's errors: an unknown operation (UNKNOWN, its data ignored), a command before the
+    // operation (ABANDONED); and the old short codes are unknown
+    text(8'h11); data(8'h05);
+    read(0, got);
+    `CHECK_EQ(got, 8'h02, "UNKNOWN: text operation $11")
+    command(8'h80); command(8'h00);
+    read(0, got);
+    `CHECK_EQ(got, 8'h01, "ABANDONED: no operation")
+    command(8'h20);
+    read(0, got);
+    `CHECK_EQ(got, 8'h02, "UNKNOWN: the old short TEXT_ON")
     // GEOMETRY replies rows and columns, and isn't an operation
-    command(8'h30);
+    text(8'h10);
     read(1, got);
     `CHECK_EQ(got, 8'd20, "GEOMETRY rows")
     read(1, got);
@@ -120,16 +135,27 @@ module tb_bus_control;
     command(8'h13); data(8'h40);
     expect_entry(BACKLIGHT, 8'h40);
     // A full text queue: OVERFLOW
-    text_full = 1; command(8'h23); data("x"); text_full = 0;
+    text_full = 1; text(8'h03); data("x"); text_full = 0;
     read(0, got);
     `CHECK_EQ(got, 8'h10, "OVERFLOW: text queue full")
     expect_op(4'h3, "x", 8'h00);
     // TEXT_OFF: raw display commands again
-    command(8'h21);                               expect_op(4'h1, 8'h00, 8'h00);
+    text(8'h01);                                  expect_op(4'h1, 8'h00, 8'h00);   // TEXT_OFF
     command(8'h12); data(8'h55);
     expect_entry(DATA, 8'h55);
     read(0, got);
     `CHECK_EQ(got, 8'h00, "raw display commands after TEXT_OFF")
+    // DISP_RESET in text mode: the reset, and text mode ends (TEXT_OFF to the grid)
+    text(8'h00);                                  expect_op(4'h0, 8'h00, 8'h00);
+    `CHECK_EQ(dut.text_mode, 1'b1, "text mode")
+    command(8'h10);                               expect_op(4'h1, 8'h00, 8'h00);
+    `CHECK_EQ(dut.text_mode, 1'b0, "text mode ended by DISP_RESET")
+    data(8'h00);
+    expect_entry(RESET, 8'h00);
+    command(8'h11); data(8'h36);
+    expect_entry(COMMAND, 8'h36);
+    read(0, got);
+    `CHECK_EQ(got, 8'h00, "raw display commands after DISP_RESET in text mode")
     `CHECK_EQ(n_checked, n_pushed, "no other display queue entries")
     `CHECK_EQ(n_ops_checked, n_ops, "no other text operations")
     `TB_PASS

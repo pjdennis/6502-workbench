@@ -17,13 +17,13 @@ sys.path.insert(0, os.path.join(michael_emulator.ROOT, 'hardware', 'michael', 'f
 from test_text_grid import apply, random_ops  # noqa: E402
 from text_screen import TextScreen  # noqa: E402
 
-ARGUMENTS = {2: 2, 3: 1, 6: 1, 7: 1, 8: 2, 10: 1, 11: 1, 12: 1, 13: 1, 14: 1, 15: 1}   # op (code - $20): bytes
+ARGUMENTS = {2: 2, 3: 1, 6: 1, 7: 1, 8: 2, 10: 1, 11: 1, 12: 1, 13: 1, 14: 1, 15: 1}   # operation: bytes
 
 
 def program(ops):
     lines = []
     for op, a, b in ops:
-        lines += [f'  lda #${0x20 + op:02x}', '  jsr fb_command']
+        lines += [f'  lda #${op:02x}', '  jsr fb_text']   # text mode's operation, in the long form
         lines += [f'  lda #${v:02x}\n  jsr fb_data' for v in (a, b)[:ARGUMENTS.get(op, 0)]]
     return '\n'.join(['  .include base_config_v2.inc', '  .org PROGRAM_LOAD_ADDRESS', 'start:', '  ldx #$ff',
                       '  txs', '  jsr fb_initialize'] + lines + ['  stp', '  .include fpga_bus.inc'])

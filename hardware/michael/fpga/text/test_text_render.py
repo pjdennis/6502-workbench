@@ -17,7 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..', '..', '..', 'tools'))
 import font_12x16  # noqa: E402
-from ili9341 import Panel, MADCTL, VSCRSADD  # noqa: E402
+from ili9341 import Panel, MADCTL, VSCRSADD, frames  # noqa: E402
 from text_screen import TextScreen  # noqa: E402
 from test_text_grid import (TEXT_ON, TEXT_OFF, GOTO, PUT, CLEAR, CLEAR_EOL, INSERT, DELETE, REGION,  # noqa: E402
                             REGION_RESET, SCROLL_UP, SCROLL_DOWN, INSERT_LINES, DELETE_LINES, CURSOR, VIDEO,
@@ -34,7 +34,7 @@ WORDS = font_12x16.fpga_words(font_12x16.read_source())
 
 def expected_cell(model, row, col):
     char, reverse = model.cell(row, col)
-    code = ord(char) if ord(char) < 0x80 else 0
+    code = ord(char)   # every code the grid holds has its glyph
     cursor = model.cursor and (row, col) == (model.row, model.col)
     return [WORDS[code << 4 | x] ^ (0xFFFF if reverse else 0) ^ (0xC000 if cursor else 0) for x in range(12)]
 
@@ -55,12 +55,17 @@ class Simulator:
         subprocess.run(['vvp', '-n', self.vvp, f'+ops={ops_file}', f'+spi={spi_file}'], check=True,
                        capture_output=True, text=True)
         panel = Panel()
-        panel.cells_drawn = 0
+        panel.cells_drawn, panel.events, panel.waits = 0, [], []   # events: (clock, dc, byte), for frames
         with open(spi_file) as f:
             for line in f:
-                dc, byte = line.split()
-                panel.receive(int(dc), int(byte, 16))
-                panel.cells_drawn += line == f'0 {RAMWR:02x}\n'
+                fields = line.split()
+                if fields[0] == 'wait':
+                    panel.waits.append(int(fields[1]))
+                    continue
+                clock, dc, byte = int(fields[0]), int(fields[1]), int(fields[2], 16)
+                panel.receive(dc, byte)
+                panel.events.append((clock, dc, byte))
+                panel.cells_drawn += (dc, byte) == (0, RAMWR)
         return panel
 
     def close(self):
@@ -104,6 +109,15 @@ class TextRenderTest(unittest.TestCase):
         self.check([(TEXT_ON, 0, 0), (PUT, ord('a'), 0), (VIDEO, 1, 0), (PUT, ord('b'), 0), (VIDEO, 0, 0),
                     (PUT, ord('c'), 0), (GOTO, 5, 7), (CURSOR, 1, 0), (GOTO, 6, 8)])
 
+    def test_codes_from_del_up_show_their_glyphs(self):
+        """Code page 437's: DEL's house, then accented, shaded and line-drawing characters."""
+        codes = (0x7F, 0x80, 0xB1, 0xC1, 0xFE)
+        panel = self.check([(TEXT_ON, 0, 0)] + [(PUT, code, 0) for code in codes])
+        glyph = lambda code: WORDS[code << 4:(code << 4) + 12]   # noqa: E731
+        self.assertEqual([panel.cell(0, c, shown=True) for c in range(5)], [glyph(c) for c in codes])
+        self.assertEqual(len({tuple(glyph(c)) for c in codes}), 5)   # distinct, and none blank
+        self.assertNotIn(tuple(glyph(0x20)), {tuple(glyph(c)) for c in codes})
+
     def test_a_full_screen_then_shifts(self):
         rows, cols = SMALL
         fill = [op for r in range(rows) for op in [(GOTO, r, 0)] + [(PUT, 0x41 + (r + c) % 26, 0) for c in range(cols)]]
@@ -123,6 +137,70 @@ class TextRenderTest(unittest.TestCase):
                           ([(GOTO, 1, 0), (DELETE_LINES, 1, 0)], cols), ([(GOTO, 1, 0), (INSERT_LINES, 1, 0)], cols)):
             with self.subTest(ops=ops):
                 self.assertLessEqual(self.check(start + ops).cells_drawn - drawn, most + 2)
+
+    def test_only_cells_that_change_are_drawn(self):
+        """A cell written with what it already holds, or a blank moved onto a blank, isn't drawn again; nor are
+        the cells a hidden cursor passes."""
+        rows, cols = SMALL
+        text = [[0x41 + (r * 7 + c) % 26 for c in range(cols)] for r in range(3)]   # rows 3 on stay blank
+        fill = [op for r in range(3) for op in [(GOTO, r, 0)] + [(PUT, ch, 0) for ch in text[r]]]
+        start = [(TEXT_ON, 0, 0)] + fill + [(WAIT, 0, 0)]
+        drawn = self.check(start).cells_drawn
+        for ops, most in (([(GOTO, 1, 0)] + [(PUT, ch, 0) for ch in text[1]], 0),
+                          ([(GOTO, 1, 0), (INSERT_LINES, 1, 0)], 3 * cols),   # rows 1-3 change; 4 and 5 stay blank
+                          ([(GOTO, 0, 0), (DELETE_LINES, 1, 0)], 3 * cols)):  # rows 0-2 change
+            with self.subTest(ops=ops):
+                self.assertLessEqual(self.check(start + ops).cells_drawn - drawn, most)
+
+    def test_scrolls_show_nothing_stale_on_the_way(self):
+        """While the region scrolls, the glass (scanned frame by frame, ili9341.frames) shows only what the
+        screen holds before, between or after the operations, with or without the cursor, or black: never the
+        row that left where the one coming in belongs, nor the cursor in a row it never reached."""
+        rows, cols = SMALL
+        fill = [op for r in range(rows) for op in [(GOTO, r, 0)] + [(PUT, 0x41 + (r * 3 + c) % 26, 0) for c in range(cols)]]
+        start = [(TEXT_ON, 0, 0)] + fill + [(REGION, 1, 4), (CURSOR, 1, 0)]
+        for ops in ([(GOTO, 4, 3), (WAIT, 0, 0), (SCROLL_UP, 1, 0), (GOTO, 4, 0)],   # Enter on the bottom row
+                    [(GOTO, 1, 2), (WAIT, 0, 0), (SCROLL_DOWN, 2, 0)],
+                    [(GOTO, 1, 0), (WAIT, 0, 0), (DELETE_LINES, 1, 0)],
+                    [(GOTO, 1, 0), (WAIT, 0, 0), (INSERT_LINES, 1, 0)]):
+            with self.subTest(ops=ops):
+                panel = self.check(start + ops)
+                self.assert_glass_shows_only(start + ops, panel)
+
+    def assert_glass_shows_only(self, ops, panel):
+        """Every frame after the last wait shows, pixel by pixel, one of the screens the operations after it
+        make (the model's, before each and after the last), with or without the cursor, or black."""
+        rows, cols = SMALL
+        model, screens = TextScreen(rows, cols), []
+
+        def snapshot():
+            shown = model.cursor
+            for model.cursor in (shown, False):
+                screens.append([[expected_cell(model, r, c) for c in range(cols)] for r in range(rows)])
+            model.cursor = shown
+
+        for op, a, b in ops:
+            if op == WAIT:
+                screens = []
+                snapshot()
+            else:
+                apply(model, op, a, b)
+                snapshot()
+        lit = [[False] * (cols * 12) for _ in range(rows * 16)]   # [line][page]: lit on some screen
+        for words in screens:
+            for r in range(rows):
+                for c in range(cols):
+                    for x, word in enumerate(words[r][c]):
+                        for y in range(16):
+                            lit[r * 16 + y][c * 12 + x] |= bool(word >> y & 1)
+        period = 4000
+        for phase in (0, period // 3, 2 * period // 3):
+            for start, glass in frames(panel.events, period, phase, rows * 16, cols * 12):
+                if start < panel.waits[-1]:
+                    continue
+                wrong = [(line // 16, page // 12) for line in range(rows * 16) for page in range(cols * 12)
+                         if glass[line][page] not in (0, 0xFFFF) or glass[line][page] and not lit[line][page]]
+                self.assertEqual(wrong[:1], [], f'a cell (row, column) shows what it never held, at clock {start}')
 
     def test_changing_the_region_after_a_scroll(self):
         rows, cols = SMALL

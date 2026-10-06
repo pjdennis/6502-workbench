@@ -85,50 +85,34 @@ class DebugPort:
         self.command(0x13)
         self.data(level)
 
-    # Text mode (the text commands, $2x): rows and columns are 0-based
-    def text_on(self):
-        self.command(0x20)
+    # Text mode, the long-form device $80: each operation is the device, then the operation and its
+    # arguments as data. Rows and columns are 0-based
+    TEXT = 0x80
 
-    def text_off(self):
-        self.command(0x21)
+    def _text(self, op, *arguments):
+        self.command(self.TEXT)
+        self.data(op, *arguments)
 
-    def goto(self, row, col):
-        self.command(0x22)
-        self.data(row, col)
-
-    def put(self, text):
-        self.command(0x23)
-        self.data(*text.encode('latin-1'))
-
-    def clear(self):
-        self.command(0x24)
-
-    def clear_eol(self):
-        self.command(0x25)
-
-    def _counted(self, code, n):
-        self.command(code)
-        self.data(n)
-
-    def insert(self, n): self._counted(0x26, n)
-    def delete(self, n): self._counted(0x27, n)
-    def scroll_up(self, n): self._counted(0x2A, n)
-    def scroll_down(self, n): self._counted(0x2B, n)
-    def insert_lines(self, n): self._counted(0x2C, n)
-    def delete_lines(self, n): self._counted(0x2D, n)
-    def cursor(self, on): self._counted(0x2E, int(on))
-    def video(self, reverse): self._counted(0x2F, int(reverse))
-
-    def region(self, top, bottom):
-        self.command(0x28)
-        self.data(top, bottom)
-
-    def region_reset(self):
-        self.command(0x29)
+    def text_on(self): self._text(0x00)
+    def text_off(self): self._text(0x01)
+    def goto(self, row, col): self._text(0x02, row, col)
+    def put(self, text): self._text(0x03, *text.encode('latin-1'))
+    def clear(self): self._text(0x04)
+    def clear_eol(self): self._text(0x05)
+    def insert(self, n): self._text(0x06, n)
+    def delete(self, n): self._text(0x07, n)
+    def region(self, top, bottom): self._text(0x08, top, bottom)
+    def region_reset(self): self._text(0x09)
+    def scroll_up(self, n): self._text(0x0A, n)
+    def scroll_down(self, n): self._text(0x0B, n)
+    def insert_lines(self, n): self._text(0x0C, n)
+    def delete_lines(self, n): self._text(0x0D, n)
+    def cursor(self, on): self._text(0x0E, int(on))
+    def video(self, reverse): self._text(0x0F, int(reverse))
 
     def geometry(self):
         """(rows, columns) of text mode's grid."""
-        self.command(0x30)
+        self._text(0x10)
         rows, cols = self.read(2)
         return rows, cols
 

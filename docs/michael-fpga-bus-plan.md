@@ -17,8 +17,8 @@ E starts on PA0, where it is today. Stage 4 moves it to PA2 and the LED to PA1, 
 pins at that end of the VIA are then the reusable ones. In the end the bus has freed PA0, the display's chip
 select and reset (PA1 and PA2 today), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-04): stages 0 to 2 done; stage 3 done but for a look at a scrolled region on the glass
-([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
+**Status (2026-10-05): stages 0 to 3 done (stage 3, text mode:
+[`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)).** Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
 ([`hardware/michael/fpga/bus-check/`](../hardware/michael/fpga/bus-check/)) passed on the board, with keyboard
 interrupts pausing reads (the SOEB interlock) and every transfer accounted for, and the buffer stays off while
@@ -83,7 +83,7 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 
 ### 3. Text mode in the FPGA
 - **The design:** a character grid and a font in block RAM, and a renderer that repaints changed cells in
-  the background. It implements the text commands ([`$2x`, `$3x`](#text-mode-2x-and-3x)), which mirror the
+  the background. It implements text mode's operations ([device `$80`](#text-mode-device-80)), which mirror the
   editor's screen calls one for one.
 - **Testing:** first in simulation, with a display model that decodes the ILI9341 writes into a frame buffer
   and checks the characters drawn. Then on the board, driven from the PC through the debug port.
@@ -93,15 +93,23 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 - **Done (2026-10-04), in simulation and on the board through the debug port**
   ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)): the grid, the renderer, the text
   commands, and the windowed scrolling below. `board_check.py` reads the cells back out of the display's
-  memory and finds them as the model has them. Still to see on the glass: that a region scrolls the right way
-  between its fixed areas (`debug.py text` scrolls one).
+  memory and finds them as the model has them. On the glass a region scrolled the right way between its
+  fixed areas, but with flashes: the row that left showed for a moment where the new one comes in, and the
+  cursor showed in rows it never reached. Fixed (below), and the clean scrolls confirmed on the glass
+  (2026-10-05).
 - **Look into the panel's windowed scrolling** to speed up the editor's scrolling. Done: scrolling the whole
   region (and inserting or deleting lines at its top row) moves its picture with VSCRDEF and VSCRSADD, and
   redraws only the rows that come in blank. The frame memory runs from the bottom row up (MADCTL's MY), so
   the top fixed area is the rows below the region, and VSCRSADD counts from there; the model panel
   ([`ili9341.py`](../hardware/michael/fpga/text/ili9341.py)) has this, checked against the graphic driver's
   own whole-screen scroll, which works on the board. Inserting or deleting lines below the region's top
-  still redraws the rows that move.
+  still redraws the rows that move, but only the cells that change: a blank moved onto a blank isn't drawn.
+  - **Clean scrolls.** The display takes up a new VSCRSADD at its next frame (inferred from the flashes), and
+    the rows coming in reuse the memory of the rows that leave. So before the grid moves its cells it asks the
+    renderer, which draws what's dirty, takes the cursor off the glass and blanks the leaving rows; after
+    sending the scroll it draws nothing for a frame (16.7 ms). The test model panel scans its glass frame by
+    frame, and `test_text_render.py` checks that a scroll never shows a cell anything it doesn't hold
+    before, between or after the operations.
   - The ILI9341's Vertical Scrolling Definition (`$33`: top fixed area, scroll area, bottom fixed area) and
     Vertical Scrolling Start Address (`$37`) scroll a band of the screen in hardware between fixed areas,
     with no redraw. The editor scrolls its text area and leaves the status line fixed, which is exactly
@@ -185,6 +193,10 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
   escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
   designed.
+- **Revisit text mode's control codes.** `PUT` acts on BS, LF and CR and drops the other codes below `$20`,
+  while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
+  shown. One option: no special meaning for any code, so every character written goes into its cell, with
+  separate text mode operations for backspace, newline and carriage return. Undecided (2026-10-05).
 - **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
   B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
   design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
@@ -202,6 +214,14 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   While changing `ID`'s reply in [`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v), comment
   that `'M'`, `'B'` stands for "Michael Bus". It was left out of the review's clean-ups, because any edit
   there moves the placement away from the build in flash.
+- **A faster SPI clock.** The display's SPI runs at 6 MHz (the 12 MHz clock halved), so a character cell's
+  395 bytes take 0.5 ms and a full 20 by 20 screen 0.2 s: every redraw the hardware scroll can't save
+  (inserting or deleting lines mid-screen, changing the region) runs at that rate. The Cmod's MMCM can make a
+  faster clock: SCK at 12, 24 or more MHz. The ILI9341's data sheet gives a 100 ns write cycle (10 MHz), but
+  these panels commonly run much faster. Find the board's safe limit with `board_check.py` (it reads every
+  cell back) and the held-key brightness and snow checks, with the backlight PWM at several levels. Watch the
+  timing of the design's other logic at the higher clock, or keep it at 12 MHz with the SPI shifter alone in
+  the fast domain. Needs a board run and a flash.
 - **One assemble-and-run helper for the Michael emulator tests.** `tools/tests/test_michael_keyboard.py` and
   `test_michael_display_orientation.py` have their own copies of what
   [`tools/tests/michael_emulator.py`](../tools/tests/michael_emulator.py) does.
@@ -234,7 +254,7 @@ is updated to match).
 The VIA reads 2.0 V as high on every input at 5 V ([W65C22 datasheet](https://www.westerndesigncenter.com/documentation/w65c22.pdf),
 DC characteristics), so the data buffer's 3.3 V outputs are valid highs on port B.
 
-# The protocol (version 1)
+# The protocol (version 2)
 
 ## Signals
 
@@ -302,6 +322,12 @@ keyboard board drive port B at once.
 - **Bytes with RS = 1 are data:** first the command's fixed arguments, then, for streaming commands, any
   number of data bytes until the next command.
 - Extra data after a non-streaming command's arguments is ignored.
+- **Commands `$00`–`$7F` are one byte; `$80`–`$FF` are long-form devices.** A device's command byte is
+  followed by an operation, as its first data byte, then the operation's arguments and data. So there are 128
+  devices of up to 256 operations each, and a device's operations are numbered on their own. The busy paths
+  keep one-byte commands (the raw display); new peripherals become devices. An unknown operation sets
+  `UNKNOWN`, and a command before the operation `ABANDONED`. Version 2 of the protocol made text mode
+  (`$20`–`$30` in version 1) the first device.
 
 Errors don't stop anything. They set sticky bits that the status read (RW = 1, RS = 0) reports and clears:
 
@@ -316,14 +342,15 @@ Errors don't stop anything. They set sticky bits that the status read (RW = 1, R
 
 ## Command map
 
-Commands are grouped by their high nibble. Arguments are listed in order; all are data (RS = 1) bytes.
+One-byte commands are grouped by their high nibble; each long-form device has a section of its own.
+Arguments are listed in order; all are data (RS = 1) bytes.
 
 ### Control (`$0x`)
 
 | Code | Name | Arguments | Data | Effect |
 |---|---|---|---|---|
 | `$00` | `NOP` | — | — | Nothing. Safe as padding or a resync |
-| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (1), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
+| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (2), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
 | `$03` | `RESET` | — | — | Empties both queues and clears the status. The display is left as it is |
 | `$04` | `ECHO` | — | streams | Each data byte is added to the reply queue: a loopback for testing reads |
 
@@ -344,9 +371,9 @@ The driver maps onto these directly:
 - `gd_send_data` and the fill loops: data bytes, unchanged in speed;
 - `gd_select`/`gd_unselect`: nothing to do.
 
-In text mode the raw commands are ignored, and set `UNKNOWN`.
+In text mode `DISP_COMMAND` and `DISP_DATA` are ignored, and set `UNKNOWN`; `DISP_RESET` ends text mode.
 
-### Text mode (`$2x` and `$3x`)
+### Text mode (device `$80`)
 
 Settled in stage 3 ([`rtl/text_grid.v`](../hardware/michael/fpga/rtl/text_grid.v),
 [`rtl/text_render.v`](../hardware/michael/fpga/rtl/text_render.v)). They mirror the editor's screen calls
@@ -354,14 +381,17 @@ Settled in stage 3 ([`rtl/text_grid.v`](../hardware/michael/fpga/rtl/text_grid.v
 the ROM's screen on the LCD does ([`lcd_screen.inc`](../firmware/lib/lcd/lcd_screen.inc)), so the editor sees
 the same screen on either display. The model they're tested against is
 [`text/text_screen.py`](../hardware/michael/fpga/text/text_screen.py), itself checked against `lcd_screen.inc`.
+Each operation is the device byte `$80` (RS = 0), then the operation and its arguments: `GOTO` 3, 4 is `$80`,
+then data `$02`, `$03`, `$04`. A `PUT` stream sends `$80`, `$03` once, then a byte per character.
 
 - **The grid** is 20 rows of 20 characters, 12 by 16 pixels from Michael's font
-  ([`font_12x16.txt`](../firmware/lib/graphics/font_12x16.txt)), white on black, in the portrait orientation
-  Michael's driver uses. Rows and columns are 0-based.
+  ([`font_12x16.txt`](../firmware/lib/graphics/font_12x16.txt), generated from the original C font), white on
+  black, in the portrait orientation Michael's driver uses. Rows and columns are 0-based.
 - **Writing** (`PUT`) puts a character at the cursor and moves right, to the start of the next row after the
   last column. On the bottom row the cursor stays past the last column, and characters written there are
   dropped, so writing never scrolls. BS moves left, CR to the first column, LF to the first column of the next
-  row (staying on the bottom row); other control codes are dropped. Codes from `$7F` up show as blanks.
+  row (staying on the bottom row); other control codes are dropped. Every other code shows its glyph from the
+  C font, in code page 437's order: `$7F` a house, then accented, shaded and line-drawing characters.
 - **`GOTO`** past the last row goes to the last; past the last column, just past it.
 - **Counts of 0 do nothing.** Counts larger than the cells or rows there are clear them all.
 - **`REGION`** needs two rows or more (a smaller one is ignored), and homes the cursor, as does
@@ -370,35 +400,38 @@ the same screen on either display. The model they're tested against is
 - **`TEXT_ON`** hides the cursor, sets normal video and the whole screen as the region, clears the grid and
   homes the cursor. It sets the display's orientation (MADCTL `$A8`) and hardware scroll (0), and draws every
   cell; the display must already be initialised (as `gd_prepare_vertical` does).
-- **Between `TEXT_ON` and `TEXT_OFF`**, the raw display commands `$10`–`$12` are refused (`UNKNOWN`): the
-  renderer has the display. `BACKLIGHT` still works.
+- **Between `TEXT_ON` and `TEXT_OFF`**, the raw display commands `DISP_COMMAND` and `DISP_DATA` are refused
+  (`UNKNOWN`): the renderer has the display. `BACKLIGHT` still works. `DISP_RESET` ends text mode, as a reset
+  loses the orientation, the scroll and the picture the renderer keeps: so a graphics program, which starts by
+  resetting the display, has it after a text one. The renderer stops at once (after the cell it's drawing), so
+  nothing of its reaches the display after the reset.
 - **The cursor** inverts the bottom two pixel rows of its cell, as Michael's graphic cursor does, blinking
   every 250 ms and shown at once when it moves.
 - **Reverse video** inverts a cell, and is kept per cell.
 - Text operations queue (512 deep, `OVERFLOW` beyond), and the renderer redraws the cells that changed, a cell
   at a time; `BUSY` is set until it has caught up.
 
-| Code | Name | Arguments | Data | Mirrors |
+| Operation | Name | Arguments | Data | Mirrors |
 |---|---|---|---|---|
-| `$20` | `TEXT_ON` | — | — | Enter text mode: clear the grid and draw it |
-| `$21` | `TEXT_OFF` | — | — | Back to raw mode |
-| `$22` | `GOTO` | row, column | — | `scr_goto` |
-| `$23` | `PUT` | — | streams | `write_b`: characters at the cursor, advancing |
-| `$24` | `CLEAR` | — | — | `scr_clear` |
-| `$25` | `CLEAR_EOL` | — | — | `scr_clear_eol` |
-| `$26` | `INSERT` | count | — | `scr_insert` |
-| `$27` | `DELETE` | count | — | `scr_delete` |
-| `$28` | `REGION` | top, bottom | — | `scr_region` |
-| `$29` | `REGION_RESET` | — | — | `scr_region_reset` |
-| `$2A` | `SCROLL_UP` | count | — | `scr_scroll_up` |
-| `$2B` | `SCROLL_DOWN` | count | — | `scr_scroll_down` |
-| `$2C` | `INSERT_LINES` | count | — | `scr_insert_lines` |
-| `$2D` | `DELETE_LINES` | count | — | `scr_delete_lines` |
-| `$2E` | `CURSOR` | 0 off, 1 on | — | `scr_cursor_off`/`scr_cursor_on` |
-| `$2F` | `VIDEO` | 0 normal, 1 reverse | — | `scr_normal`/`scr_reverse` |
-| `$30` | `GEOMETRY` | — | — | Replies 2 bytes: rows and columns (for `term_rows`, `term_cols`) |
+| `$00` | `TEXT_ON` | — | — | Enter text mode: clear the grid and draw it |
+| `$01` | `TEXT_OFF` | — | — | Back to raw mode (`DISP_RESET` also ends text mode) |
+| `$02` | `GOTO` | row, column | — | `scr_goto` |
+| `$03` | `PUT` | — | streams | `write_b`: characters at the cursor, advancing |
+| `$04` | `CLEAR` | — | — | `scr_clear` |
+| `$05` | `CLEAR_EOL` | — | — | `scr_clear_eol` |
+| `$06` | `INSERT` | count | — | `scr_insert` |
+| `$07` | `DELETE` | count | — | `scr_delete` |
+| `$08` | `REGION` | top, bottom | — | `scr_region` |
+| `$09` | `REGION_RESET` | — | — | `scr_region_reset` |
+| `$0A` | `SCROLL_UP` | count | — | `scr_scroll_up` |
+| `$0B` | `SCROLL_DOWN` | count | — | `scr_scroll_down` |
+| `$0C` | `INSERT_LINES` | count | — | `scr_insert_lines` |
+| `$0D` | `DELETE_LINES` | count | — | `scr_delete_lines` |
+| `$0E` | `CURSOR` | 0 off, 1 on | — | `scr_cursor_off`/`scr_cursor_on` |
+| `$0F` | `VIDEO` | 0 normal, 1 reverse | — | `scr_normal`/`scr_reverse` |
+| `$10` | `GEOMETRY` | — | — | Replies 2 bytes: rows and columns (for `term_rows`, `term_cols`) |
 
-The character grid changes as each command arrives, and the renderer catches the screen up in the
+The character grid changes as each operation arrives, and the renderer catches the screen up in the
 background. So text commands never make Michael wait, and Michael never needs to read before writing.
 
 ### Serial port to the PC (`$5x`)
@@ -417,9 +450,10 @@ in the middle of one.
 |---|---|
 | `$4x` | storage |
 | `$51`–`$5F` | more of the serial port |
-| `$31`–`$3F` | more text mode |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
-| `$60`–`$FF` | later devices |
+| `$20`–`$3F`, `$60`–`$7F` | later one-byte commands, for busy paths |
+| `$81`–`$FF` | later devices |
+| text mode's `$11`–`$FF` | more text mode operations |
 
 ## Rules for Michael's software
 - **E (PA0, then PA2 from stage 4) is an output, idle low,** set up before the first transfer.

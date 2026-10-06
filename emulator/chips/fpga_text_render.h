@@ -11,8 +11,8 @@
  * offset have it; then each cell the display's memory doesn't hold yet, as Michael's driver draws a character
  * (a window, RAMWR, 12 columns of 16 pixels from font_12x16.h), white on black, in the memory row the scroll
  * shows where the cell belongs. Reverse video inverts a cell. The cursor inverts its cell's bottom two pixel
- * rows, blinking with a half-period of FPGA_TEXT_BLINK_US, and shows at once when it moves. Codes outside
- * ' '-'~' show blank.
+ * rows, blinking with a half-period of FPGA_TEXT_BLINK_US, and shows at once when it moves. Every code
+ * shows its glyph from the FPGA's font (code page 437's, the control codes blank).
  *
  * The FPGA draws in the background as the grid changes; the model draws everything at once, when asked, so its
  * picture is the FPGA's once the FPGA has caught up. It remembers what each cell of the memory holds, and

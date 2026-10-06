@@ -16,10 +16,10 @@
  * The FPGA's side is modelled at the level of its commands (hardware/michael/fpga/rtl/bus_control.v): the
  * control commands (NOP, ID, RESET, ECHO), the reply queue and the status byte's sticky bits, GEOMETRY, and
  * text mode's grid (fpga_text.h). The raw display commands drive the display (ili9341.h): its reset line,
- * its commands and their data, and its backlight; in text mode they are refused, as the FPGA does, all but
- * BACKLIGHT. In text mode the renderer (fpga_text_render.h) draws the grid on the display when
- * fpga_bus_render asks, and finishes the picture at TEXT_OFF. A read drives port B with its byte while E is
- * high, unless SOEB (PA4) is low: the keyboard board has port B then (the interlock). */
+ * its commands and their data, and its backlight; in text mode, as the FPGA does, DISP_COMMAND and DISP_DATA
+ * are refused, and DISP_RESET ends it. In text mode the renderer (fpga_text_render.h) draws the grid on the
+ * display when fpga_bus_render asks, and finishes the picture when text mode ends. A read drives port B with
+ * its byte while E is high, unless SOEB (PA4) is low: the keyboard board has port B then (the interlock). */
 
 #define FPGA_REPLY_DEPTH 512
 
@@ -29,7 +29,8 @@ struct fpga_bus_state {
     uint8_t e_was;
     uint32_t transfers;
     /* The FPGA's side */
-    uint8_t cmd, args_left, first_arg, sticky, text_mode;
+    uint16_t cmd;            /* as bus_control.v: a one-byte command, or a long form's operation | 0x100 */
+    uint8_t args_left, first_arg, sticky, text_mode;
     uint8_t reply[FPGA_REPLY_DEPTH];
     unsigned reply_head, reply_count;
     int absent;             /* unconfigured: transfers are logged, but nothing answers or acts on them */

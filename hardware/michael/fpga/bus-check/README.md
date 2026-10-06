@@ -52,7 +52,7 @@ cursor once added 395 writes.
 
   | Line | Meaning |
   |---|---|
-  | `ID OK` | `ID` replied `M`, `B`, version 1, and the status was clear |
+  | `ID OK` | `ID` replied `M`, `B`, version 2, and the status was clear |
   | `ECHO BAD nnnn` | 32 passes of 256 bytes echoed and read back: nnnn mismatches or status errors, in hex (BUSY, set while the program's report is still going out, isn't an error) |
   | `UNDERFLOW OK` | an empty reply queue read `$00` and set `UNDERFLOW`, which one status read cleared |
   | `HOLD A KEY` | the keyboard is on now: hold a key down until `DONE` |
