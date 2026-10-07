@@ -221,10 +221,16 @@ The FPGA takes **`$4000–$5FFF`**, which nothing uses today. The existing decod
 `VIA/CS2` (U4B: NAND of A14 and /A15) is low for `$4000–$7FFF`, and the VIA is selected there when A13 is high.
 So the FPGA is selected when `VIA/CS2` is low and A13 is low, and taps those two nets.
 
+- **Two active-low chip selects, and no new gate.** The FPGA "chip" has two chip-select pins, both active
+  low, as real peripheral chips mix their selects (the 6551 has one of each polarity): **CS1B** on A13 and
+  **CS2B** on `VIA/CS2`. It is selected while both are low, and its logic ANDs them, as a chip would.
+- **Not the spare NAND.** U4A (inputs tied high today) could make /A13 for a VIA-style active-high CS1. That
+  works, but spends the board's last spare gate on what an active-low pin gets for free. U4A stays spare.
+
 - **The VIA's chip select doesn't change.** The VIA stays at `$6000–$7FFF`, and the two windows never overlap.
 - **Reads** of the window find only the FPGA: the RAM's /OE is A14, high there, and the ROM needs A15.
 - **Writes** also land in the RAM's upper half, which can't be read (as for the VIA's window today): harmless.
-- **PHI2 qualifies the select inside the FPGA,** as the VIA does through its own PHI2 pin. `VIA/CS2` isn't gated
+- **PHI2 qualifies the selects inside the FPGA,** as the VIA does through its own PHI2 pin. `VIA/CS2` isn't gated
   by PHI2.
 - **Registers:** `$4000` writes a command and reads the status; `$4001` writes data and reads the reply queue.
   A0 takes RS's place and RWB RW's, so the protocol's four transfers are unchanged. With A0 to A2 decoded,
@@ -239,8 +245,8 @@ So the FPGA is selected when `VIA/CS2` is low and A13 is low, and taps those two
 | Data buffer (U7): its B side from port B (PB0–PB7) to the **CPU's D0–D7**; its A side stays on Cmod pins 1–8 | The FPGA's data bus |
 | U7 DIR (pin 1): from Cmod pin 17 to **RWB**; R16 (its pull-down) removed | The buffer turns with the CPU's own R/W. RWB changes only while PHI2 is low, when the buffer is off. Cmod pin 17 is freed |
 | U7 /OE (pin 19): stays on Cmod pin 14 with R15's pull-up | On only while the FPGA is selected and PHI2 is high, reads and writes: on otherwise, it would drive the bus when the CPU reads RAM. Off while the FPGA is unconfigured |
-| Control buffer (U8) B1–B8: **PHI2, RWB, `VIA/CS2`, A13, A0, A1, A2, RESB**, replacing PA2, PA5, PA4, PA6 and the ties (R12, R14, R17, R18, R9 removed) | The FPGA's inputs, all through a 5 V-tolerant '245 as today. A8 needs a Cmod pin (B8 has none today) |
-| **74HCT08** (new) near the CPU: the VIA's IRQB and the FPGA's `irq_b` in, the CPU's IRQB out. The VIA's IRQB comes off the CPU's IRQB | The W65C22S drives IRQB both ways (only the W65C22N's is open-drain), so the two can't share a wire: active low, an AND is their OR. HCT, so 3.3 V is a valid high at its input, within spec, and it drives the CPU at 5 V |
+| Control buffer (U8) B1–B8: **PHI2, RWB, CS2B (`VIA/CS2`), CS1B (A13), A0, A1, A2, RESB**, replacing PA2, PA5, PA4, PA6 and the ties (R12, R14, R17, R18, R9 removed) | The FPGA's inputs, all through a 5 V-tolerant '245 as today. A8 needs a Cmod pin (B8 has none today) |
+| **74HCT08** (new) near the CPU: the VIA's IRQB and the FPGA's `irq_b` in, the CPU's IRQB out. The VIA's IRQB comes off the CPU's IRQB | The W65C22S drives IRQB both ways (only the W65C22N's is open-drain), so the two can't share a wire: active low, an AND is their OR. One NAND can't make it (it needs a NAND and an inverter), so U4A's spare doesn't do; a 74HCT00, two NANDs as the AND, would serve as well. HCT, so 3.3 V is a valid high at its input, within spec, and it drives the CPU at 5 V |
 | FPGA `irq_b` (a free Cmod pin) to the 74HCT08, with **10 kΩ to 3.3 V** | Unconfigured, the FPGA's pin floats and the pull-up keeps its input inactive, so the VIA's (the keyboard's) interrupts work without the FPGA |
 | FPGA `rdy_b` (a free Cmod pin) to the CPU's **RDY**, open-drain (driven low or left floating); **R2's pull-up from +5V to 3.3 V** | Wait states ([7.4](#74-rdy-flow-control-optional)). The W65C02S drives RDY low itself (WAI), so nothing may drive it high. With the pull-up at 3.3 V the FPGA's pin never sees more than its supply. Out of spec: see the next row |
 | None: the FPGA's 3.3 V reaches the CPU on the data bus (reads) and RDY | The W65C02S asks for 0.8 × VDD and in practice switches at about 0.5 × VDD: accepted out of spec ([Michael's README](../hardware/michael/README.md#known-departures-from-the-data-sheets)) |
@@ -270,6 +276,28 @@ Instead the design runs on **one fast clock from the MMCM**, 96 MHz (12 MHz × 6
 the text renderer doesn't close timing there. The whole design moves to it, not just the front end, so there
 is no crossing: the 12 MHz-derived parameters (the UART's divider, the cursor's blink, the activity LEDs, the
 SPI's divider) scale with it. That also gives the [faster SPI clock](#follow-ups).
+
+**If the display side doesn't close timing,** in order:
+1. One clock at 48 MHz. The sampling below still has margin: a filter of 2 samples, and k about 2 (40 to 60
+   ns before the fall).
+2. **Two clock domains, cut at the queues.** The bus front end, `bus_control.v`, the debug port and the UART
+   stay on the fast clock; the text grid, its renderer and `display_spi.v` move to a slow one (12 MHz, as
+   today, from the same MMCM), so the SPI's timing and the display side's parameters don't change. The cut
+   goes where the design already decouples, its two queues:
+   - the text grid's operation queue and the display queue become **asynchronous FIFOs** (Gray-coded
+     pointers; `fifo.v` is single-clock, so a new module, tested with two unrelated clocks). Their full flags
+     on the fast side keep `OVERFLOW` as it is;
+   - `BUSY` comes back synchronised (two flip-flops), ORed with the FIFOs' own not-empty flags on the fast
+     side, so a status read straight after a write never misses `BUSY` while the write crosses;
+   - **one ordering rule moves.** Today `bus_control.v`'s `text_mode` drops as `DISP_RESET` arrives, so the
+     renderer stops before the reset's entry reaches the display. Across the cut the level and the entry
+     would travel separately. Instead `display_spi.v` stops the renderer when the reset's entry reaches the
+     head of its queue, which is all in the slow domain.
+
+   Not the cut between the grid and the renderer: their interface is wide and tightly coupled (a cell read
+   answered the next clock, the `take_dirty`, `moving` and hardware-scroll handshakes), so it would cross
+   in a dozen places. A clock enable on one clock wouldn't help either: without multicycle constraints, which
+   the open toolchain lacks, nextpnr would still time every path at the fast clock.
 
 **Writes: a history of samples.** The CPU's write data is stable from shortly after PHI2 rises until about 10
 ns after it falls. That is a window of about 200 ns at 2 MHz, of which only the end is short. So:
@@ -373,7 +401,8 @@ Measure first; stall only briefly, if at all.
 - The W65C02S's AC timings at 5 V (write data delay and hold, address delay, read setup and hold, RDY's setup),
   from the data sheet's tables, against the sample window above.
 - The three free Cmod pins.
-- That the text renderer closes timing at 96 MHz with the open toolchain, or settle on 48 MHz.
+- That the display side (the text grid's 400-cell priority search is the likely critical path, more than the
+  renderer) closes timing at 96 MHz with the open toolchain, or 48 MHz, or the two-domain cut above.
 
 ### Follow-ups
 Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Michael today.
