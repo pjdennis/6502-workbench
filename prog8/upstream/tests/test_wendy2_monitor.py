@@ -89,7 +89,7 @@ def _run(autoexec: str, files: dict, raw: dict) -> str:
         (disk / "autoexec").write_text(autoexec)
         r = subprocess.run(
             [str(EMU), str(rom), "--machine", "wendy2c", "--disk", str(disk),
-             "--cycle-cap", "6000000"], capture_output=True, text=True)
+             "--cycle-cap", "6000000", "--exit-report"], capture_output=True, text=True)
         rows = [ln for ln in r.stderr.splitlines()
                 if ln.startswith("  |") and ln.endswith("|")]
         if not rows:
@@ -145,7 +145,7 @@ def _run_packed(main_demo: str, segs: list) -> str:
         (disk / "autoexec").write_text("app\n")
         r = subprocess.run(
             [str(EMU), str(rom), "--machine", "wendy2c", "--disk", str(disk),
-             "--cycle-cap", "6000000"], capture_output=True, text=True)
+             "--cycle-cap", "6000000", "--exit-report"], capture_output=True, text=True)
         rows = [ln for ln in r.stderr.splitlines()
                 if ln.startswith("  |") and ln.endswith("|")]
         if not rows:

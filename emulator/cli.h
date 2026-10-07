@@ -84,6 +84,8 @@ struct emu_opts {
                                          * timestamped LCD frame to PATH every time the LCD changes during
                                          * the run loop. Format: a "--- osc=N cpu=N pc=$NNNN ---" header
                                          * line followed by one "|...|"-bracketed row per LCD row. */
+    int exit_report;                    /* --exit-report (wendy2c, michael): at exit, print the final LCD
+                                         * frame and the board's state to stderr */
     int lcd_panel;                      /* --lcd-panel; LCD_PANEL_* constants. Default = 16x2 5x8. */
     const char *kbd_scancodes;          /* --kbd-scancodes HEX,HEX,... (michael): bytes the PS/2
                                          * keyboard sends once the host has set it up */

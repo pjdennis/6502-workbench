@@ -490,17 +490,19 @@ int emu_run_michael(const struct emu_opts *opts) {
         }
     }
 
-    fprintf(stderr, "michael: exit  cpu_cycles=%llu  pc=$%04X  %s\n",
-            (unsigned long long)clockticks6502, pc,
-            cpu_stp_pending() ? "(STP)" : "(cycle cap)");
-    lcd_report_final(stderr, "michael", &lcd_state);
-    fpga_bus_report(stderr, "michael", &fpga_state);
-    fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
-    fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
-            (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
-    /* The lowest the stack pointer went: an address free below it is
-     * room programs can use for data. */
-    fprintf(stderr, "michael: stack: lowest $01%02X\n", lowest_sp);
+    if (opts->exit_report) {
+        fprintf(stderr, "michael: exit  cpu_cycles=%llu  pc=$%04X  %s\n",
+                (unsigned long long)clockticks6502, pc,
+                cpu_stp_pending() ? "(STP)" : "(cycle cap)");
+        lcd_report_final(stderr, "michael", &lcd_state);
+        fpga_bus_report(stderr, "michael", &fpga_state);
+        fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
+        fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
+                (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
+        /* The lowest the stack pointer went: an address free below it is
+         * room programs can use for data. */
+        fprintf(stderr, "michael: stack: lowest $01%02X\n", lowest_sp);
+    }
 
     if (fpga_log) fclose(fpga_log);
     cpu_external_read  = NULL;

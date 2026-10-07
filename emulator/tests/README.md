@@ -36,11 +36,11 @@ without `playwright`.
 
 | Make target | Script | What it checks |
 |---|---|---|
-| `compile-and-run` | `compile_and_run_test.sh` | `emulator/compile_and_run.sh`: a program for each board uploaded through its ROM's loader and run headless to the expected LCD, its usage and assembly errors (a Michael program without `start`), and the web page served by default |
-| `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame, and the EEPROM loader boots from a ROM image to its ready screen |
+| `compile-and-run` | `compile_and_run_test.sh` | `emulator/compile_and_run.sh`: a program for each board uploaded through its ROM's loader and run headless to the expected LCD, its usage and assembly errors (a Michael program without `start`), and the web page served by default, the run ending quietly |
+| `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame (`--exit-report`), a run without it prints nothing, and the EEPROM loader boots from a ROM image to its ready screen |
 | `michael-web` | `michael_web_playwright_test.py` | michael's `--web` page in headless Chromium: the 20x4 LCD and pin table, keys typed and pasted on the page reaching the program through the PS/2 keyboard, reset, the PA2 LED |
 | `michael-display-web` | `michael_display_playwright_test.py` | michael's graphic display on the `--web` page, read off the canvas against the 12x16 font: the FPGA's text mode (typing, reverse video, the cursor's blink, a region scrolled by the hardware scroll, and the bytes it all took), raw mode's stripes and text, and the backlight |
-| `wendy2c-goldens` | `wendy2c_goldens.sh` | wendy2c programs uploaded through the boot ROM (`--serial-input`) leave the expected LCD frame |
+| `wendy2c-goldens` | `wendy2c_goldens.sh` | wendy2c programs uploaded through the boot ROM (`--serial-input`) leave the expected LCD frame (`--exit-report`), and a run without it prints nothing |
 | `wendy2c-lcd-trace` | `lcd_trace_test.sh` | `--lcd-trace` records intermediate LCD frames |
 | `wendy2c-merge-sort` | `merge_sort_goldens.sh` | the wendy2 merge-sort demo, asserted on intermediate frames; the full 57344-element case is opt-in with `MERGE_SORT_FULL_N=1` (~60 s) |
 | `wendy2c-serial-link` | `wendy2c_serial_link_test.sh` | upload over the `--serial-link` socket with `../wendy2c_emu_link.py` |

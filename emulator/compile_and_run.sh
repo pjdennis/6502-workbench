@@ -7,8 +7,9 @@
 #   --michael  Michael: its ROM (firmware/boards/michael/michael_rom.s) takes it in upload format 3,
 #              from S-records: it loads at its .org and starts at its start label, which it must have.
 # The board runs in the browser (--web, at http://127.0.0.1:8080/; Ctrl-C stops it) unless the
-# options say --live (this terminal; Ctrl-] quits on Michael) or --cycle-cap (headless; the exit
-# report shows the LCD). Options after the program go to the emulator (e.g. --web-port 8081, --mhz 4).
+# options say --live (this terminal; Ctrl-] quits on Michael) or --cycle-cap (headless, with the
+# emulator's --exit-report: the final LCD frame and the board's state). Options after the program
+# go to the emulator (e.g. --web-port 8081, --mhz 4).
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
@@ -22,7 +23,8 @@ mode=--web
 for arg; do
   case "$arg" in
     --wendy|--michael) [ -z "$program" ] && [ -z "$board" ] || usage; board=${arg#--} ;;
-    --web|--live|--cycle-cap) mode=; options+=("$arg") ;;
+    --web|--live) mode=; options+=("$arg") ;;
+    --cycle-cap) [ "$mode" = --web ] && mode=--exit-report; options+=("$arg") ;;
     *) if [ -z "$program" ] && [ -n "$board" ] && [ "${arg#-}" = "$arg" ]; then program=$arg
        else options+=("$arg"); fi ;;
   esac
@@ -36,7 +38,8 @@ vasm() { "$FW/vasm" -quiet -wdc02 -wfail -dotdir -ignore-mult-inc -esc "$@"; }
 if [ "$board" = wendy ]; then
   rom="$FW/boards/wendy2/upload_and_run_eeprom_wendy2c.s"
   vasm -Fbin -o "$work/program.bin" "$program"
-  python3 "$HERE/wendy2_upload.py" "$work/program.bin" -o "$work/program.upload"
+  framing=$(python3 "$HERE/wendy2_upload.py" "$work/program.bin" -o "$work/program.upload" 2>&1) ||
+    { echo "$framing" >&2; exit 1; }
   machine=wendy2c
 else
   rom="$FW/boards/michael/michael_rom.s"

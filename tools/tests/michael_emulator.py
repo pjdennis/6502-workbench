@@ -41,7 +41,7 @@ def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=
             if key_interval:
                 options += ['--key-interval', str(key_interval)]
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '2000', '--cycle-cap',
-                                 str(cycle_cap), '--fpga-log', log, *options],
+                                 str(cycle_cap), '--fpga-log', log, '--exit-report', *options],
                                 cwd=ROOT, check=True, capture_output=True, text=True).stderr
         with open(log) as f:
             return f.read(), report

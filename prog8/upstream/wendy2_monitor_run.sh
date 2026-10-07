@@ -37,5 +37,5 @@ cp "$OUT/$base.bin" "$DISK/$base"
 printf '%s\n' "$base" > "$DISK/autoexec"
 for f in "$@"; do cp "$f" "$DISK/"; done
 
-"$EMU" "$MON" --machine wendy2c --disk "$DISK" --cycle-cap "$CAP" 2>&1
+"$EMU" "$MON" --machine wendy2c --disk "$DISK" --cycle-cap "$CAP" --exit-report 2>&1
 rm -rf "$DISK"

@@ -35,5 +35,5 @@ BOOT="$HERE/out/wendy2c_boot.bin"
 [ -f "$BOOT" ] || ( cd "$REPO" && firmware/vasm -wdc02 -wfail -Fbin -dotdir \
         -ignore-mult-inc -esc -o "$BOOT" "$BOOT_SRC" ) >/dev/null
 
-# 4. run; the emulator prints the final LCD frame on stderr
-"$EMU" "$BOOT" --machine wendy2c --serial-input "$OUT/$base.framed" --cycle-cap "$CAP" 2>&1
+# 4. run; --exit-report prints the final LCD frame on stderr
+"$EMU" "$BOOT" --machine wendy2c --serial-input "$OUT/$base.framed" --cycle-cap "$CAP" --exit-report 2>&1

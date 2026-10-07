@@ -72,7 +72,7 @@ class RomTestCase(unittest.TestCase):
                 f.write(typed)
             options += ['--keys', keys]
         report = subprocess.run([EMULATOR, self.rom, '--machine', 'michael', '--serial-input', upload,
-                                 '--cycle-cap', '20000000', *options],
+                                 '--cycle-cap', '20000000', '--exit-report', *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         if bool(wire) if stops is None else stops:
             self.assertTrue(report[0].endswith('(STP)'), report[0])
@@ -381,7 +381,7 @@ class DisplayInterruptsFlagTest(RomTestCase):
     def test_bit_7_leaves_interrupts_alone(self):
         binary = self.assemble(os.path.join(TESTS, 'display_flag.s'))
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '0400',
-                                 '--cycle-cap', '2000000'],
+                                 '--cycle-cap', '2000000', '--exit-report'],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         lcd = report.index('michael: lcd:')
         self.assertEqual(report[lcd + 1].strip()[1:-1].rstrip(), '10')

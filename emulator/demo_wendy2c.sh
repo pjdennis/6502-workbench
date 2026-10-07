@@ -202,4 +202,4 @@ echo
 # Cap is in oscillator ticks (~2 per CPU cycle). ~1.5M is the minimum for
 # the payload's LCD frame to appear after the upload; 3M leaves headroom
 # while still exiting in well under a second. Override via DEMO_CYCLE_CAP.
-exec ./emulator/emulator.out "$@" --cycle-cap "${DEMO_CYCLE_CAP:-3000000}"
+exec ./emulator/emulator.out "$@" --cycle-cap "${DEMO_CYCLE_CAP:-3000000}" --exit-report

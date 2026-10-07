@@ -85,10 +85,10 @@ def run_on_emulator(boot: Path, framed: Path, cycle_cap: int) -> str:
         [str(EMULATOR), str(boot),
          "--machine", "wendy2c",
          "--serial-input", str(framed),
-         "--cycle-cap", str(cycle_cap)],
+         "--cycle-cap", str(cycle_cap), "--exit-report"],
         capture_output=True, text=True,
     )
-    # Emulator prints the final LCD frame on stderr.
+    # --exit-report prints the final LCD frame on stderr.
     return r.stderr
 
 

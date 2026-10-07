@@ -19,8 +19,8 @@ A three-machine 6502 emulator:
   starts as the ROM leaves it (two lines, display on, no cursor, clear),
   as programs run from the ROM's loader expect; without `--load`, the
   code file is the ROM image. Selected with
-  `--machine michael`. At exit it prints the LCD, the PA1 LED (lit while
-  the pin is high) and a bus check: LCD
+  `--machine michael`. With `--exit-report`, at exit it prints the LCD,
+  the PA1 LED (lit while the pin is high) and a bus check: LCD
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once. `--live` runs it in the terminal and `--web` in the
   browser (see [`--web` mode](#--web-mode)).
@@ -92,6 +92,7 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--serial-link <path>` | wendy2c: Unix socket on which a client drives the serial RX line bit by bit (`wendy2c_emu_link.py`) |
 | `--web` / `--web-port N` / `--web-bind ADDR` / `--web-root PATH` | wendy2c, michael: browser UI over HTTP + WebSocket (see [`--web` mode](#--web-mode) and `web/README.md`) |
 | `--audio` / `--wav <path>` | wendy2c: play the PB7 piezo line live, or record it to a WAV |
+| `--exit-report` | wendy2c, michael: at exit, print to stderr how the run ended, the final LCD frame (text and hex) and, on michael, the FPGA bus, the LED, the bus checks and the stack's lowest point. Off by default, so `--live` and `--web` runs end quietly; the tests and the headless scripts (`demo_wendy2c.sh`, `compile_and_run.sh --cycle-cap`, prog8's `wendy2_*run.sh`) pass it |
 | `--lcd-trace <path>` | wendy2c, michael: append an LCD frame to the file each time the LCD changes |
 | `--lcd-panel <type>` | wendy2c: `16x2` (default) or `16x1-5x10` render layout |
 | `--show-repaints` | debug: flash repainted cells in `--console` / `--terminal` |
@@ -166,8 +167,8 @@ protocol.
 assembles a program and runs it on the board, uploaded through the board's
 ROM loader as `tools/upload/compile_and_upload_<board>.sh` sends it to the
 real one (so a Michael program needs a `start` label). It serves the page
-unless the options say `--live` or `--cycle-cap` (headless: the exit report
-shows the LCD); options after the program go to the emulator.
+unless the options say `--live` or `--cycle-cap` (headless, with
+`--exit-report` to show the LCD); options after the program go to the emulator.
 
 ```sh
 # either board: assemble, upload through its ROM's loader, serve the page

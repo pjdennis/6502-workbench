@@ -63,6 +63,7 @@ run_case() {
         --machine wendy2c \
         --serial-link "$sock" \
         --cycle-cap "$cycle_cap" \
+        --exit-report \
         >"$OUT/$name.stdout" 2>"$OUT/$name.stderr" &
     emu_pid=$!
 

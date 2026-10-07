@@ -6,7 +6,8 @@
 #   2. Run it on the Michael machine, loaded straight into RAM at the
 #      board's PROGRAM_LOAD_ADDRESS.
 #   3. Confirm the expected substring appears in the exit report on
-#      stderr (the final LCD frame, the LED, the bus check).
+#      stderr (--exit-report: the final LCD frame, the LED, the bus check).
+# Without --exit-report a run prints nothing.
 #
 # Skips with a warning (exit 0) if vasm6502_oldstyle is not on PATH.
 
@@ -52,6 +53,7 @@ run_case() {
         --machine michael \
         --load "$LOAD" \
         --cycle-cap "$cycle_cap" \
+        --exit-report \
         >"$OUT/$name.stdout" 2>"$OUT/$name.stderr" || true
 
     if ! grep -qF "$expected" "$OUT/$name.stderr"; then
@@ -64,6 +66,16 @@ run_case() {
 }
 
 run_case hello hello_michael_ram.s 2000000 "|Hi I'm Michael!     |"
+
+echo "michael_goldens: case quiet"
+"$EMU" "$OUT/hello.bin" --machine michael --load "$LOAD" --cycle-cap 2000000 \
+    >"$OUT/quiet.stdout" 2>"$OUT/quiet.stderr"
+if [ -s "$OUT/quiet.stdout" ] || [ -s "$OUT/quiet.stderr" ]; then
+    echo "michael_goldens: FAIL quiet -- a run without --exit-report printed:"
+    sed 's/^/    /' "$OUT/quiet.stdout" "$OUT/quiet.stderr"
+    exit 1
+fi
+echo "  PASS quiet (nothing printed)"
 
 # The PA2 LED, wired from +5V, lights while the pin is low: the program
 # toggles it every 0.5 s (1000000 cycles), starting with it on.
@@ -78,7 +90,7 @@ if ! "$FW/vasm" -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc \
     cat "$OUT/rom.vasm.log"
     exit 1
 fi
-"$EMU" "$OUT/rom.bin" --machine michael --cycle-cap 2000000 \
+"$EMU" "$OUT/rom.bin" --machine michael --cycle-cap 2000000 --exit-report \
     >"$OUT/rom-boot.stdout" 2>"$OUT/rom-boot.stderr" || true
 if ! grep -qF "|57600bps Ready.     |" "$OUT/rom-boot.stderr"; then
     echo "michael_goldens: FAIL rom-boot -- the loader's ready screen isn't on the LCD"

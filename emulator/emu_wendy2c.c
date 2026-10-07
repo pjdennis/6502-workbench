@@ -609,15 +609,15 @@ int emu_run_wendy2c(const struct emu_opts *opts) {
     audio_close(&audio);
 
     int halted_on_stp = cpu_stp_pending();
-    fprintf(stderr,
-        "wendy2c: exit  osc_ticks=%llu  cpu_cycles=%llu  pc=$%04X  %s\n",
-        (unsigned long long)b.osc_ticks,
-        (unsigned long long)clockticks6502,
-        pc,
-        halted_on_stp ? "(STP)" : "(cycle cap)");
-
-    /* Print final LCD frame so the user sees what landed. */
-    lcd_report_final(stderr, "wendy2c", &lcd_state);
+    if (opts->exit_report) {
+        fprintf(stderr,
+            "wendy2c: exit  osc_ticks=%llu  cpu_cycles=%llu  pc=$%04X  %s\n",
+            (unsigned long long)b.osc_ticks,
+            (unsigned long long)clockticks6502,
+            pc,
+            halted_on_stp ? "(STP)" : "(cycle cap)");
+        lcd_report_final(stderr, "wendy2c", &lcd_state);
+    }
 
     /* Tear down the external hooks before returning so other code (e.g.
      * the test harness or a subsequent run) doesn't dangle on a dead
