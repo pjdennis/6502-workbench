@@ -44,7 +44,7 @@ make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 
 `make test` runs the end-to-end targets first (they are its prerequisites),
 then the C unit tests (written with the greatest framework). The end-to-end
-targets are (`michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
+targets are (`compile-and-run`, `michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
 `wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
 `web-audio-buffer`, `timer2-cycles`).
@@ -162,7 +162,18 @@ protocol.
   keyboard, encoded as `--keys` encodes a terminal's (`ps2_keys.h`): text, Enter, Backspace, Tab, Esc, the
   arrows, Home/End/PgUp/PgDn/Insert/Delete and Ctrl+letter.
 
+`emulator/compile_and_run.sh --wendy|--michael <program.s> [emulator options]`
+assembles a program and runs it on the board, uploaded through the board's
+ROM loader as `tools/upload/compile_and_upload_<board>.sh` sends it to the
+real one (so a Michael program needs a `start` label). It serves the page
+unless the options say `--live` or `--cycle-cap` (headless: the exit report
+shows the LCD); options after the program go to the emulator.
+
 ```sh
+# either board: assemble, upload through its ROM's loader, serve the page
+emulator/compile_and_run.sh --michael firmware/programs/michael/michael_graphic_keyboard.s
+emulator/compile_and_run.sh --wendy firmware/programs/wendy2/hello_ram_4000_wendy2c.s --web-port 8081
+
 # michael: a program loaded into RAM (the keyboard echo demo)
 firmware/vasm -wdc02 -Fbin -dotdir -ignore-mult-inc -esc \
     -o /tmp/kbd.bin firmware/programs/michael/michael_keyboard_new.s

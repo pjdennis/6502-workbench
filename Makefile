@@ -11,7 +11,7 @@ clean:
 	rm -f emulator/emulator.out
 	rm -rf emulator/tests/out
 
-.PHONY: all clean test michael-goldens wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint michael-web michael-display-web wendy2c-web wendy2c-lcd5x10 web-machine-switch web-audio-buffer timer2-cycles
+.PHONY: all clean test compile-and-run michael-goldens wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint michael-web michael-display-web wendy2c-web wendy2c-lcd5x10 web-machine-switch web-audio-buffer timer2-cycles
 
 EMU_SRCS = emulator/emulator.c emulator/direct_io.c emulator/file_io.c emulator/console.c emulator/cpu_core.c emulator/stubs.c emulator/trace.c emulator/cli.c emulator/emu_run.c emulator/bus.c emulator/emu_wendy2c.c emulator/emu_michael.c emulator/ps2_keys.c emulator/lcd_report.c emulator/pace.c emulator/tty_alt_screen.c emulator/audio.c emulator/web_server.c emulator/web_run.c emulator/web_json.c emulator/web_display.c emulator/serial_link.c emulator/chips/osc.c emulator/chips/clock_22v10.c emulator/chips/rom_28c256.c emulator/chips/ram_628128.c emulator/chips/via_6522.c emulator/chips/lcd_hd44780.c emulator/chips/glue_michael.c emulator/chips/ps2_keyboard_board.c emulator/chips/serial_usb.c emulator/chips/led_buttons.c emulator/chips/fpga_bus.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/cpu_65c02.c emulator/chips/syscall_ports.c
 EMU_HDRS = emulator/direct_io.h emulator/file_io.h emulator/console.h emulator/cpu_core.h emulator/stubs.h emulator/trace.h emulator/cli.h emulator/emu_run.h emulator/bus.h emulator/emu_wendy2c.h emulator/emu_michael.h emulator/ps2_keys.h emulator/lcd_report.h emulator/pace.h emulator/tty_alt_screen.h emulator/audio.h emulator/web_server.h emulator/web_run.h emulator/web_json.h emulator/web_display.h emulator/serial_link.h emulator/chips/osc.h emulator/chips/clock_22v10.h emulator/chips/clock_22v10_pld_generated.h emulator/chips/rom_28c256.h emulator/chips/ram_628128.h emulator/chips/via_6522.h emulator/chips/lcd_hd44780.h emulator/chips/glue_michael.h emulator/chips/ps2_keyboard_board.h emulator/chips/serial_usb.h emulator/chips/led_buttons.h emulator/chips/fpga_bus.h emulator/chips/fpga_text.h emulator/chips/fpga_text_render.h emulator/chips/font_12x16.h emulator/chips/ili9341.h emulator/chips/cpu_65c02.h
@@ -45,8 +45,13 @@ C_TESTS = emulator/tests/out/test_smoke.out emulator/tests/out/test_file_io.out 
 
 # Must follow the C_TESTS definition: make expands prerequisites when it
 # reads the rule.
-test: $(C_TESTS) michael-goldens michael-web michael-display-web wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint wendy2c-web wendy2c-lcd5x10 web-machine-switch web-audio-buffer timer2-cycles
+test: $(C_TESTS) compile-and-run michael-goldens michael-web michael-display-web wendy2c-goldens wendy2c-lcd-trace wendy2c-merge-sort wendy2c-serial-link wendy2c-live-sigint wendy2c-web wendy2c-lcd5x10 web-machine-switch web-audio-buffer timer2-cycles
 	@for t in $(C_TESTS); do ./$$t || exit 1; done
+
+# emulator/compile_and_run.sh: programs uploaded through each board's
+# ROM loader and run, and its usage errors. SKIPs without vasm.
+compile-and-run: emulator/emulator.out
+	@emulator/tests/compile_and_run_test.sh
 
 # End-to-end Michael golden-LCD tests. Same vasm-skip pattern as the
 # wendy2c goldens below.
