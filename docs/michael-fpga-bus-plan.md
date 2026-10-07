@@ -179,6 +179,12 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   the same screen with a region set, but its view scrolls then start at the region's top: text mode's
   hardware scroll, with no editor change.
 - Emulator tests in graphic mode, then on the board.
+- **Done in software (2026-10-07):** `editor/michael_graphic_launcher.s` (in zero page, at $10: S-records can't
+  start at 0) selects the graphic screen, starts the services and sets the region to rows 1-19, or does
+  nothing more if there's no FPGA. `editor-michael.sh --graphic --web` runs it in the browser;
+  `editor-michael-upload.sh --graphic` sends it to the board. `editor/tests/michael_tests.py`'s
+  `MichaelGraphicEditorTest` checks the FPGA's grid and compares it with the console build at 20x20. **Left:**
+  the web emulator by eye, then the board.
 
 ### 6. Later
 Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configuration flash's spare space (the
