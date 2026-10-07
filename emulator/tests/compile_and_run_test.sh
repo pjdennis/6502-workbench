@@ -1,8 +1,8 @@
 #!/bin/sh
 # emulator/compile_and_run.sh end to end: a program assembled, uploaded
 # through each board's ROM loader as the real board's upload script would
-# send it, and run (headless under --cycle-cap, so the exit report shows
-# the LCD), its usage errors, and that it serves the board's web page
+# send it, and run (headless under --cycle-cap, with the exit report that
+# shows the LCD), its usage errors, and that it serves the board's web page
 # unless told otherwise.
 #
 # Skips with a warning (exit 0) if vasm6502_oldstyle is not on PATH.
@@ -54,20 +54,25 @@ printf '  .org $2000\nmain:\n  stp\n' >"$OUT/no_start.s"
 run_case no-start 1 "<start>" --michael "$OUT/no_start.s" --cycle-cap 1000
 
 # By default the board is in the browser: the server says where, and runs
-# until stopped.
-"$RUN" --michael "$REPO_ROOT/$M/hello_michael_ram.s" --web-port 0 >"$OUT/default-web.out" 2>&1 &
-pid=$!
-tries=0
-until grep -q "michael-web: listening on http://" "$OUT/default-web.out"; do
-    tries=$((tries + 1))
-    if [ "$tries" -gt 50 ] || ! kill -0 "$pid" 2>/dev/null; then
-        kill -INT "$pid" 2>/dev/null || true
-        fail "default-web -- the web server never said it was listening" default-web
-    fi
-    sleep 0.1
+# until stopped; then it says nothing more.
+for board in wendy michael; do
+    name=default-web-$board
+    if [ $board = wendy ]; then program=$W/hello_ram_4000_wendy2c.s; else program=$M/hello_michael_ram.s; fi
+    "$RUN" --$board "$REPO_ROOT/$program" --web-port 0 >"$OUT/$name.out" 2>&1 &
+    pid=$!
+    tries=0
+    until grep -q "listening on http://" "$OUT/$name.out"; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 50 ] || ! kill -0 "$pid" 2>/dev/null; then
+            kill -INT "$pid" 2>/dev/null || true
+            fail "$name -- the web server never said it was listening" "$name"
+        fi
+        sleep 0.1
+    done
+    kill -INT "$pid"
+    wait "$pid" || true
+    [ "$(wc -l <"$OUT/$name.out")" -eq 1 ] || fail "$name -- more than the listening line" "$name"
+    echo "  PASS $name (the server listened, and stopped quietly)"
 done
-kill -INT "$pid"
-wait "$pid" || true
-echo "  PASS default-web (the server listened)"
 
 echo "compile_and_run_test: all PASS"

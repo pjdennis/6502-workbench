@@ -302,6 +302,29 @@ TEST cli_lcd_trace_requires_wendy2c(void) {
     PASS();
 }
 
+TEST cli_exit_report_opt_in(void) {
+    char *off[] = {"emulator", "prog.bin", "--machine", "michael", NULL};
+    char *on[]  = {"emulator", "prog.bin", "--machine", "wendy2c", "--exit-report", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(off, &opts), "%d");
+    ASSERT_EQ_FMT(0, opts.exit_report, "%d");
+    ASSERT_EQ_FMT(0, parse(on, &opts), "%d");
+    ASSERT_EQ_FMT(1, opts.exit_report, "%d");
+    PASS();
+}
+
+TEST cli_exit_report_requires_a_board(void) {
+    char *argv[] = {"emulator", "prog.bin", "--exit-report", NULL};
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    ASSERT_EQ_FMT(1, rc, "%d");
+    ASSERT(strstr(buf, "--exit-report requires --machine wendy2c or michael") != NULL);
+    PASS();
+}
+
 TEST cli_live_accepted_for_michael(void) {
     char *argv[] = {"emulator", "prog.bin", "--machine", "michael", "--live", NULL};
     struct emu_opts opts;
@@ -507,6 +530,8 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_missing_value_errors);
     RUN_TEST(cli_no_fpga_for_michael_only);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
+    RUN_TEST(cli_exit_report_opt_in);
+    RUN_TEST(cli_exit_report_requires_a_board);
     RUN_TEST(cli_live_accepted_for_michael);
     RUN_TEST(cli_web_accepted_for_michael);
     RUN_TEST(cli_web_requires_a_board);

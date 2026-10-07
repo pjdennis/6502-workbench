@@ -34,4 +34,4 @@ if [ -z "$ROM" ]; then
 fi
 
 "$EMU" "$ROM" --machine wendy2c --serial-input "$OUT/$base.framed" \
-    --disk "$(realpath "$DISK")" --cycle-cap "$CAP" 2>&1
+    --disk "$(realpath "$DISK")" --cycle-cap "$CAP" --exit-report 2>&1

@@ -57,6 +57,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->web_root = NULL;
     opts->serial_link_path = NULL;
     opts->lcd_trace_filename = NULL;
+    opts->exit_report = 0;
     opts->fpga_log_filename = NULL;
     opts->no_fpga = 0;
     opts->lcd_panel = LCD_PANEL_16X2_5X8;
@@ -159,6 +160,9 @@ void emu_opts_usage(FILE *fp) {
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
+"  --exit-report          wendy2c, michael: at exit, print to stderr how the run ended, the final\n"
+"                         LCD frame (text and hex) and, on michael, the FPGA bus, the LED, the\n"
+"                         bus checks and the stack's lowest point.\n"
 "  --lcd-panel TYPE       wendy2c: which LCD panel to model for the live/web render.\n"
 "                         '16x2' (default) -- standard 16-col x 2-row 5x8 module, what\n"
 "                         the breadboard ships with. '16x1-5x10' -- 16-col x 1-row module\n"
@@ -404,6 +408,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (take_str_value(argc, argv, &i, "--serial-link", &opts->serial_link_path)) return 1;
         } else if (strcmp(argv[i], "--lcd-trace") == 0) {
             if (take_str_value(argc, argv, &i, "--lcd-trace", &opts->lcd_trace_filename)) return 1;
+        } else if (strcmp(argv[i], "--exit-report") == 0) {
+            opts->exit_report = 1;
+            i++;
         } else if (strcmp(argv[i], "--no-fpga") == 0) {
             opts->no_fpga = 1;
             i++;
@@ -492,6 +499,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if (opts->serial_link_path && opts->machine != MACHINE_WENDY2C) {
         fprintf(stderr, "error: --serial-link currently requires --machine wendy2c\n");
+        return 1;
+    }
+
+    if (opts->exit_report && opts->machine == MACHINE_NMOS_DEFAULT) {
+        fprintf(stderr, "error: --exit-report requires --machine wendy2c or michael\n");
         return 1;
     }
 

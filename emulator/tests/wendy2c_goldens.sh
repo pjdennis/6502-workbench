@@ -67,6 +67,7 @@ run_case() {
         --machine wendy2c \
         --serial-input "$OUT/$name.framed" \
         --cycle-cap "$cycle_cap" \
+        --exit-report \
         >"$OUT/$name.stdout" 2>"$OUT/$name.stderr" || true
 
     if ! grep -q "$expected" "$OUT/$name.stderr"; then
@@ -81,6 +82,17 @@ run_case() {
 # 3M osc ticks is comfortably above the ~1.5M minimum for the upload
 # pipeline + first LCD frame; see demo_wendy2c.sh.
 run_case hello_4000   hello_ram_4000_wendy2c.s 3000000 "Hi! I'm Wendy 2."
+
+# Without --exit-report a run prints nothing.
+echo "wendy2c_goldens: case quiet"
+"$EMU" "$OUT/boot.bin" --machine wendy2c --serial-input "$OUT/hello_4000.framed" --cycle-cap 3000000 \
+    >"$OUT/quiet.stdout" 2>"$OUT/quiet.stderr"
+if [ -s "$OUT/quiet.stdout" ] || [ -s "$OUT/quiet.stderr" ]; then
+    echo "wendy2c_goldens: FAIL quiet -- a run without --exit-report printed:"
+    sed 's/^/    /' "$OUT/quiet.stdout" "$OUT/quiet.stderr"
+    exit 1
+fi
+echo "  PASS quiet (nothing printed)"
 run_case led_test     wendy2c_led_test.s        3000000 "LED Flashing..."
 # Multitasking exercises the WAI-wakes-on-masked-IRQ behavior: the
 # scheduler's IRQ handler runs WAI with I set, and only wakes when the

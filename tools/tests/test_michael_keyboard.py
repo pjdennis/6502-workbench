@@ -65,7 +65,7 @@ class MichaelKeyboardTest(unittest.TestCase):
             options += ['--ram', ram]
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael',
                                  '--load', load or base_config_address('PROGRAM_LOAD_ADDRESS'),
-                                 '--cycle-cap', '2000000', *options],
+                                 '--cycle-cap', '2000000', '--exit-report', *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         self.assertIn('michael: bus: lcd-undriven=0 portb-contention=0', report)
         lcd = report.index('michael: lcd:')

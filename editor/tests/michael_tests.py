@@ -63,7 +63,7 @@ class MichaelBase(unittest.TestCase):
         keys_file.write_bytes(keys)
         cycles = UPLOAD_AND_START_CYCLES + CYCLES_PER_KEY * len(keys)
         report = subprocess.run([EMULATOR, self.rom, "--machine", "michael", "--serial-input", upload or self.upload,
-                                 "--keys", keys_file, "--cycle-cap", str(cycles), *options],
+                                 "--keys", keys_file, "--cycle-cap", str(cycles), "--exit-report", *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         self.assertIn("michael: bus: lcd-undriven=0 portb-contention=0", report)
         stack = next(line for line in report if line.startswith("michael: stack: lowest $"))
