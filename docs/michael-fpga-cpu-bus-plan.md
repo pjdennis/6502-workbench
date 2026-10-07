@@ -114,8 +114,8 @@ the FPGA's consumer fills a queue. With Michael's fastest writes, back-to-back `
 
 So the guarantee holds for the raw display and not in general. The driver checks BUSY: `fb_command` and
 `fb_data` start with `bit FB_FLAGS` (`$4002`) and wait while V is set, 6 cycles more a byte when clear. A fill
-loop can check once every 16 bytes, which BUSY's definition allows. Possible later, so that text mode never
-needs the check: let the grid take cell writes for rows outside the scroll while it waits. Not planned.
+loop can check once every 16 bytes, which BUSY's definition allows. [Stage 2](#2-text-mode-without-stalls)
+takes the stall out of text mode, which leaves serial as the only device that can be outpaced.
 
 ## Hardware
 
@@ -125,14 +125,14 @@ needs the check: let the grid take cell writes for rows outside the scroll while
 | U7 DIR (pin 1): from Cmod pin 17 to **RWB**; R16 (its pull-down) removed | The buffer turns with the CPU's own R/W. RWB changes only while PHI2 is low, when the buffer is off. Cmod pin 17 is freed |
 | U7 /OE (pin 19): stays on Cmod pin 14 with R15's pull-up | On only while the FPGA is selected and PHI2 is high, reads and writes: on otherwise, it would drive the bus when the CPU reads RAM. Off while the FPGA is unconfigured |
 | Control buffer (U8) B1–B8: **PHI2, RWB, CS2B (`VIA/CS2`), CS1B (A13), A0, A1, A2, RESB**, replacing PA2, PA5, PA4, PA6 and the ties (R12, R14, R17, R18, R9 removed) | The FPGA's inputs, all through a 5 V-tolerant '245 as today. A8 needs a Cmod pin (B8 has none today) |
-| **74HC08** (new) near the CPU: the VIA's IRQB and the FPGA's `irq_b` in, the CPU's IRQB out. The VIA's IRQB comes off the CPU's IRQB | The W65C22S drives IRQB both ways (only the W65C22N's is open-drain), so the two can't share a wire: active low, an AND is their OR. One NAND can't make it (it needs a NAND and an inverter), so U4A's spare doesn't do. HC, as the rest of Michael's logic |
-| FPGA `irq_b` (a free Cmod pin) to the 74HC08, with **10 kΩ to 3.3 V** | Unconfigured, the FPGA's pin floats and the pull-up keeps its input inactive, so the VIA's (the keyboard's) interrupts work without the FPGA. The pull-up is to 3.3 V so the FPGA's pin never sees more than its supply |
-| None: the FPGA's 3.3 V reaches the CPU's data bus on reads, and the 74HC08's input | The W65C02S asks for 0.8 × VDD and the 74HC08 for 0.7 × VDD (3.5 V at 5 V); in practice both switch at about half VDD. Accepted out of spec ([Michael's README](../hardware/michael/README.md#known-departures-from-the-data-sheets)). A 74HCT08 would take 3.3 V within spec, if the gate ever misbehaves |
+| **74HCT08** (new) near the CPU: the VIA's IRQB and the FPGA's `irq_b` in, the CPU's IRQB out. The VIA's IRQB comes off the CPU's IRQB | The W65C22S drives IRQB both ways (only the W65C22N's is open-drain), so the two can't share a wire: active low, an AND is their OR. One NAND can't make it (it needs a NAND and an inverter), so U4A's spare doesn't do. HCT, unlike the rest of Michael's 74HC logic, because it shifts the level: its inputs take TTL levels (a high from 2.0 V), so the FPGA's 3.3 V is a valid high within spec, and it drives the CPU at 5 V. A 74HC08 may stand in if there's no HCT to hand, off the books: on paper an HC input needs 3.5 V ([Michael's README](../hardware/michael/README.md#known-departures-from-the-data-sheets)) |
+| FPGA `irq_b` (a free Cmod pin) to the 74HCT08, with **10 kΩ to 3.3 V** | Unconfigured, the FPGA's pin floats and the pull-up keeps its input inactive, so the VIA's (the keyboard's) interrupts work without the FPGA. The pull-up is to 3.3 V so the FPGA's pin never sees more than its supply |
+| None: the FPGA's 3.3 V reaches the CPU's data bus on reads | The W65C02S asks for 0.8 × VDD and in practice switches at about half VDD. Accepted out of spec ([Michael's README](../hardware/michael/README.md#known-departures-from-the-data-sheets)) |
 
 RDY is left as it is: R2's pull-up to +5V, nothing else on it.
 
 Cmod pins 9–13, 18 and 19 carry U8's A side as now (renamed); `irq_b` and U8's A8 need two free Cmod pins, to
-choose (33–37 stay reserved for the touch controller). The 74HC08's three spare gates are for later (an NMI
+choose (33–37 stay reserved for the touch controller). The 74HCT08's three spare gates are for later (an NMI
 source, say). The schematics (`michael_schematic.py`, checked by `test_michael_schematic.py`),
 [`WIRING.md`](../hardware/michael/fpga/spi-display/WIRING.md) and `michael-fpga-display.svg` follow.
 
@@ -241,8 +241,8 @@ command switching it on and off, off by default, so a program asks to be held.
 ## Software
 - **`fpga_bus.inc`** keeps its entry points. `fb_command` becomes `sta FB_COMMAND` (`$4000`), `fb_data`
   `sta FB_DATA` (`$4001`), each after waiting while BUSY is set
-  ([flow control](#flow-control-what-can-outpace-what)); `fb_status` is `lda FB_STATUS` and `fb_read` `lda FB_REPLY`, each still keeping A, X, Y and the flags as
-  documented. `fb_initialize` sends `RESET`. A new `FB_FLAGS` (`$4002`) is for `bit`.
+  ([flow control](#flow-control-what-can-outpace-what)); `fb_status` is `lda FB_STATUS` and `fb_read`
+  `lda FB_REPLY`, each still keeping A, X, Y and the flags as documented. `fb_initialize` sends `RESET`. A new `FB_FLAGS` (`$4002`) is for `bit`.
 - The status bits' names change with version 3: `FB_IRQ` %10000000, `FB_BUSY` %01000000.
 - `FPGA_E` leaves `base_config_v2.inc` and `initialize_michael_ports`: PA2 and PA0 are free.
 - `graphics_display.inc`'s fill loops and `gd_send_x2` can store straight to `FB_DATA`, a byte every 4 cycles,
@@ -284,9 +284,43 @@ Tests first, then the code, all without the board:
   and PA0 free, the LED unchanged), the ROM's tests on the graphic screen, and the editor's graphic tests.
 - **The schematics:** `test_michael_schematic.py` against the new nets.
 
-### 2. The cutover, on the bench
+### 2. Text mode without stalls
+The grid stops taking operations while a hardware scroll gets the glass ready (`text_grid.v`'s `ASK`, until
+the renderer's `hw_ready`). Most of that wait is the renderer drawing every dirty cell first, up to a full
+screen (0.2 s), and that part isn't needed: **a dirty cell that moved with the scroll can be drawn at its new
+place in the display's memory before the scroll reaches the glass.** The memory row it is drawn in shows,
+before the scroll, the screen row the cell was in before the scroll, and after it, the row it moved to: right
+both times. Only two kinds of cell must wait for the scroll to reach the glass: the rows coming in (their
+memory is where the leaving rows still show), and any cell changed after the scroll (drawn at its new place
+early, it would show one scroll away from it for a frame).
+
+So the grid stops waiting:
+- **The grid applies the scroll at once** (moves the cells and their marks, changes `offset`) and tells the
+  renderer: the scroll's direction and count. `ASK` goes.
+- **A second kind of dirty mark:** cells marked after a scroll that hasn't reached the glass yet (including
+  every cell of the rows coming in that is written) are "late". The renderer draws the other marks at once, by
+  the grid's offset, as it does now, and late marks only once the scroll is on the glass.
+- **The renderer performs the scroll in its own time:** the cursor off, the leaving rows blanked, VSCRSADD,
+  then the frame's wait. Then the late marks become ordinary marks.
+- **One hardware scroll in flight.** A scroll that arrives while one is in flight is done in the grid's cells
+  only (as with no hardware scroll), with every cell it changes marked late, so the region is redrawn behind
+  it, at the SPI's rate. A burst of scrolls (a listing) costs redrawing time, never a wait for Michael.
+- **Region changes** while a scroll is in flight wait for it (they set the offset back to 0 and mark every
+  cell), or are queued for the renderer the same way.
+
+Then no text mode operation waits on the renderer, so the operation queue only fills if Michael outruns the
+grid itself, a clock or two a cell, which it can't (moving a whole screen's cells for an `INSERT_LINES` is
+about 70 µs at 12 MHz, 10 µs at 96 MHz).
+
+Test first, against the model panel's frame-by-frame checks (`test_text_render.py`): that no frame ever shows
+a cell anything it doesn't hold before, between or after the operations, now with operations arriving during
+a scroll; that a scroll arriving while one is in flight is redrawn correctly; and in `tb_text_grid.v`, that
+the grid never stops taking operations. This stage doesn't depend on the CPU bus: it can go onto the board
+before the cutover, on today's bus.
+
+### 3. The cutover, on the bench
 As stage 4 of the first plan, all at once, with Michael powered off: program the new ROM
-(`make -C hardware/michael program`), rewire (the hardware table, including the 74HC08), then flash the new
+(`make -C hardware/michael program`), rewire (the hardware table, including the 74HCT08), then flash the new
 design. Then:
 1. **The safe default first:** with the Cmod's flash erased, Michael boots, the LCD and the keyboard work
    (interrupts through the AND gate), U7's /OE measures 3.3 V, and a read of `$4000` finds a floating bus.
@@ -297,8 +331,8 @@ design. Then:
    (it no longer shares anything, which is the point of checking).
 4. The graphics programs, `board_check.py`, the ROM's graphic screen and the editor on the graphic display.
 
-### 3. The FPGA's interrupt
-The 74HC08 is wired at the cutover, with `irq_b` held high. Then `IRQ_ENABLE` and the first source
+### 4. The FPGA's interrupt
+The 74HCT08 is wired at the cutover, with `irq_b` held high. Then `IRQ_ENABLE` and the first source
 ([above](#the-fpgas-interrupt)), with a keyboard handler that also checks the FPGA.
 
 ## To confirm
