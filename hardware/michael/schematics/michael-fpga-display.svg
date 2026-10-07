@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1420" height="1080" viewBox="0 0 1420 1080" font-family="Helvetica, Arial, sans-serif">
 <rect width="1420" height="1080" fill="#ffffff"/>
 <text x="24" y="34" font-size="18" font-weight="bold" fill="#1f2328">Michael: FPGA bus interface (3 of 3)</text>
-<text x="24" y="54" font-size="12" fill="#59636e">Michael as built, with the FPGA bus plan's wiring (docs/michael-fpga-bus-plan.md) complete. Pins with the same label are connected; × is not connected. U7, U8 and U10 run from +3V3.</text>
+<text x="24" y="54" font-size="12" fill="#59636e">Michael as built, with the FPGA bus plan's wiring (docs/michael-fpga-bus-plan.md) complete. Pins with the same label are connected; × is not connected. U7 and U8 run from +3V3, U10 from +5V.</text>
 <rect x="330" y="110" width="110" height="220" rx="0" fill="#fff8dc" stroke="#1f2328" stroke-width="1.5"/>
 <text x="385" y="88" font-size="13" font-weight="bold" font-style="normal" text-anchor="middle" fill="#1f2328">U7</text>
 <text x="385" y="103" font-size="11" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">74LVC245 (data)</text>
@@ -558,8 +558,8 @@
 <line x1="1150" y1="150" x2="1124" y2="150" stroke="#1f2328" stroke-width="1.3"/>
 <text x="1137" y="147" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">2</text>
 <text x="1155" y="154" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">Vin</text>
-<rect x="1088.8" y="142.5" width="35.2" height="15" rx="3" fill="#fff1ef" stroke="#bc4c00" stroke-width="1"/>
-<text x="1106.4" y="154" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#bc4c00">+3V3</text>
+<rect x="1095.1" y="142.5" width="28.9" height="15" rx="3" fill="#fff1ef" stroke="#b42318" stroke-width="1"/>
+<text x="1109.55" y="154" font-size="10.5" font-weight="bold" font-style="normal" text-anchor="middle" fill="#b42318">+5V</text>
 <line x1="1150" y1="170" x2="1124" y2="170" stroke="#1f2328" stroke-width="1.3"/>
 <text x="1137" y="167" font-size="9.5" font-weight="normal" font-style="normal" text-anchor="middle" fill="#59636e">3</text>
 <text x="1155" y="174" font-size="10.5" font-weight="normal" font-style="normal" text-anchor="start" fill="#1f2328">3Vo</text>
