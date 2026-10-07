@@ -278,11 +278,33 @@ command switching it on and off, off by default, so a program asks to be held.
   checking BUSY every 16 bytes (or not at all for raw display writes, up to the CPU clock above: to decide).
 - **The ROM changes** (its graphic screen and launcher use the bus), so a new ROM is programmed with the
   rewiring, as in stage 4. The firmware manifest is refreshed.
-- **The rules for Michael's software** lose E, RS and RW and gain one: **reads have side effects**, except
-  `$4002`'s (`$4000` clears the errors, `$4001` takes the reply queue's next byte, `$4003` serial input's). So no
-  read-modify-write instructions (`inc`, `asl`, `tsb`, `trb` and the like) on the FPGA's registers, and no
-  addressing modes whose extra cycles may read a register's address. Plain `lda`, `sta`, `stz` and `bit`
-  absolute only.
+- **The rules for Michael's software** lose E, RS and RW and gain two:
+  - **Reads have side effects**, except `$4002`'s (`$4000` clears the errors, `$4001` takes the reply queue's
+    next byte, `$4003` serial input's). So no read-modify-write instructions (`inc`, `asl`, `tsb`, `trb` and
+    the like) on the FPGA's registers, and no addressing modes whose extra cycles may read a register's
+    address. Plain `lda`, `sta`, `stz` and `bit` absolute only.
+  - **Interrupt handlers may read the flags (`$4002`) and serial input (`$4003`), and nothing else:** they never
+    write commands or data, and never read replies or errors. Those belong to the main program, which may be
+    in the middle of a command or a stream at any moment. Work a handler would do on the bus, it notes for the
+    main program instead (a flag, or a byte in a buffer), the usual deferred work, and the keyboard
+    handler's way. This settles the first plan's
+    [interrupt handlers follow-up](michael-fpga-bus-plan.md#follow-ups) as its option 1, for this bus.
+
+    The likely handler, serial input, fits: on an `RX` interrupt it drains `$4003` into a RAM ring buffer,
+    16 bytes at a time while `RX16` is set, then the rest while `RX` is. It touches nothing the main program
+    uses. A handler that wrote would break the main program's work. Say a timer's handler kept a clock in
+    the editor's status line, sending `GOTO`, a `PUT` of the time and a `GOTO` back, about 15 bytes. If the
+    editor was in the middle of a `PUT` stream, the handler's `GOTO` ends it, so the editor's next character
+    goes to the handler's `PUT` and lands after the time. The handler can't put the cursor back without asking
+    the FPGA where it was, which puts a reply in the middle of any the main program is reading. And its 15
+    bytes take room the editor counted on when it saw BUSY clear. Instead the handler sets a `clock_due` flag,
+    and the editor's main loop redraws the clock when it next waits for a key. That loop already polls the
+    keyboard's buffer, so it costs nothing, and the clock is late by a keystroke at most.
+
+    So BUSY's 16 bytes are the main program's alone, and need no margin for handlers. If a handler ever must
+    write, that needs the follow-up's option 2 (the driver reopening the main program's stream after an
+    interrupt), a way to put the cursor back, and BUSY set early enough to leave room for the handler's
+    bytes. Decide then.
 
 ## Emulator
 `fpga_bus.c` leaves the VIA's pins and joins the CPU's bus at `$4000–$5FFF`, decoded by `glue_michael.c`. Its
