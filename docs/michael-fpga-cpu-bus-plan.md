@@ -47,28 +47,54 @@ So the FPGA is selected when `VIA/CS2` is low and A13 is low.
 
 | Address | Write | Read |
 |---|---|---|
-| `$4000` (A0 0) | a command | the status, clearing its sticky bits |
+| `$4000` (A0 0) | a command | the **errors**, clearing them |
 | `$4001` (A0 1) | a data byte | the reply queue's next byte |
-| `$4002` | — | the status, **without** clearing anything: for polling with `bit` |
-| `$4003`–`$4007` | reserved | reserved |
+| `$4002` | — | the **flags**, without side effects: for polling with `bit` |
+| `$4003` | — | serial input's next byte, once the serial port takes input ([stage 6 of the first plan](michael-fpga-bus-plan.md#6-later)) |
+| `$4004`–`$4007` | reserved | reserved |
 
-A0 takes RS's place and RWB RW's, so the protocol's four transfers are as before. `$4002` is new: `bit $4002`
-puts IRQ in N and BUSY in V ([below](#the-status-byte-protocol-version-3)) without touching the sticky
-errors, which a plain status read clears. Any read of the FPGA has a side effect except `$4002`'s, so an
-interrupt handler or a wait loop can poll it freely.
+A0 takes RS's place and RWB RW's, so the protocol's four transfers are as before, except that a status read
+now gives only the errors. Every read has a side effect except `$4002`'s, so an interrupt handler or a wait
+loop can poll the flags freely. Serial input gets a register of its own rather than the reply queue: it is an
+unbounded stream, arriving whenever the PC sends, and in the reply queue it would interleave with the replies
+to commands.
 
-## The status byte (protocol version 3)
-The cutover changes the status byte, and the meaning of BUSY, so `ID` reports protocol version 3.
+## The errors and the flags (protocol version 3)
+Version 2 had one status byte: the sticky errors, cleared by reading it, and BUSY. Version 3 splits it in two,
+so the flags that programs poll can be read without clearing the errors, and changes the meaning of BUSY, so
+`ID` reports protocol version 3.
 
-| Bit | Name | Meaning |
+**The errors** (`$4000`), sticky, as in version 2, cleared by reading them:
+
+| Bit | Name | Set when |
 |---|---|---|
-| 7 | `IRQ` | (not sticky) an enabled interrupt source wants service, as the VIA's IFR bit 7 ([below](#the-fpgas-interrupt)) |
-| 6 | `BUSY` | (not sticky) **the FPGA can't safely take more writes.** When clear, at least 16 more bytes (commands or data) are accepted without checking again |
-| 5 | — | reserved, 0 |
-| 0–4 | `ABANDONED`, `UNKNOWN`, `EXTRA`, `UNDERFLOW`, `OVERFLOW` | sticky errors, as in version 2 |
+| 0 | `ABANDONED` | a command arrived before the previous one's arguments were complete |
+| 1 | `UNKNOWN` | an unknown command |
+| 2 | `EXTRA` | data after a non-streaming command's arguments |
+| 3 | `UNDERFLOW` | a read of the reply queue (or of serial input) with nothing there |
+| 4 | `OVERFLOW` | a queue overflowed |
+| 5–7 | — | 0 |
 
-`bit` tests bits 7 and 6 directly (N and V), so both flags that want quick checks are there. Bit 7 for the
-interrupt follows the VIA's IFR (and most chips of its family).
+**The flags** (`$4002`), each the state at that moment:
+
+| Bit | Name | Set while |
+|---|---|---|
+| 7 | `IRQ` | an enabled interrupt source wants service, as the VIA's IFR bit 7 ([below](#the-fpgas-interrupt)) |
+| 6 | `BUSY` | **the FPGA can't safely take more writes:** a queue that writes go into has 15 free entries or fewer. When clear, at least 16 more bytes (commands or data) are accepted without checking again |
+| 5 | `REPLY` | the reply queue holds at least one byte |
+| 4 | `REPLY16` | the reply queue holds at least 16 bytes: 16 reads without checking again |
+| 3 | `RX` | serial input holds at least one byte (0 until the serial port takes input) |
+| 2 | `RX16` | serial input holds at least 16 bytes |
+| 0–1 | — | 0 |
+
+`bit $4002` tests bits 7 and 6 directly (N and V), so the two flags that want the quickest checks are there.
+Bit 7 for the interrupt follows the VIA's IFR (and most chips of its family). The others take `lda $4002` and
+`and #mask`, which in a bulk transfer is once every 16 bytes. The 16s pair up: BUSY is "nearly full" for
+writes, `REPLY16` and `RX16` are "nearly empty" for reads, and `REPLY` and `RX` say whether there's anything at
+all, for reading everything received so far of an unbounded stream such as serial input. A byte written adds
+at most one entry to a queue, so counting bytes is safe. Replies to today's commands are ready within a clock,
+so a program reading a known number of them needs no flag; `REPLY16` is for slow producers to come, such as
+storage reading a block.
 
 **BUSY means "can't accept", nothing else.** In version 2 it also meant "still working": it was set while
 the display, the text grid, the renderer or the serial output had anything to do, even with every queue
@@ -139,8 +165,8 @@ source, say). The schematics (`michael_schematic.py`, checked by `test_michael_s
 ## The FPGA's bus front end
 A new `rtl/cpu_bus.v` replaces [`michael_bus.v`](../hardware/michael/fpga/rtl/michael_bus.v), with the same
 interface to `bus_control.v` (`wr`, `wr_rs`, `wr_data`, `rd`, `rd_end`, `rd_rs`, `reply_byte`, `status_byte`),
-plus the side-effect-free status read, so the debug port and the command layer change only as the status
-byte does.
+plus the flags' read and serial input's, so the debug port and the command layer change only as the errors
+and the flags do. The debug port's `S` reads the errors, and a new `F` the flags.
 
 **PHI2 is a signal, not a clock** (decided 2026-10-07). As a clock it would sample where the CPU does, with no
 synchronisers. But:
@@ -208,12 +234,12 @@ latched by PHI2, holding the byte through PHI2's low phase.
 
 **Reads.** The address, RWB and the selects are valid from shortly after PHI2 falls, so the front end decodes
 them into registers during PHI2's low phase. It drives D from them: the reply queue's head for `$4001`, the
-status for `$4000` and `$4002`. U7's /OE is the registered select gated by the PHI2 pin with no clock in the
-path, as the SOEB interlock is today, so the buffer turns off within about 10–15 ns of PHI2 falling. That is
-after the CPU's read hold time and long before anything else drives the bus. A read's side effect (the reply
-queue moving on, the sticky bits clearing) happens only after the fall, so the byte on the bus never changes
-while it is read. The FPGA drives its D pins only during a selected read cycle, when U7 points from the FPGA
-to the CPU.
+errors for `$4000`, the flags for `$4002`, serial input for `$4003`. U7's /OE is the registered select gated
+by the PHI2 pin with no clock in the path, as the SOEB interlock is today, so the buffer turns off within
+about 10–15 ns of PHI2 falling. That is after the CPU's read hold time and long before anything else drives
+the bus. A read's side effect (the reply queue or serial input moving on, the errors clearing) happens only
+after the fall, so the byte on the bus never changes while it is read. The FPGA drives its D pins only during
+a selected read cycle, when U7 points from the FPGA to the CPU.
 
 **RESB** resets the front end and the command layer, as `RESET` does (the queues and the status), and
 disables the FPGA's interrupt sources, as a peripheral chip's reset pin would. The display is left as it is.
@@ -241,16 +267,19 @@ command switching it on and off, off by default, so a program asks to be held.
 ## Software
 - **`fpga_bus.inc`** keeps its entry points. `fb_command` becomes `sta FB_COMMAND` (`$4000`), `fb_data`
   `sta FB_DATA` (`$4001`), each after waiting while BUSY is set
-  ([flow control](#flow-control-what-can-outpace-what)); `fb_status` is `lda FB_STATUS` and `fb_read`
-  `lda FB_REPLY`, each still keeping A, X, Y and the flags as documented. `fb_initialize` sends `RESET`. A new `FB_FLAGS` (`$4002`) is for `bit`.
-- The status bits' names change with version 3: `FB_IRQ` %10000000, `FB_BUSY` %01000000.
+  ([flow control](#flow-control-what-can-outpace-what)); `fb_status` becomes `fb_errors`, `lda FB_ERRORS`, and
+  `fb_read` is `lda FB_REPLY`, each still keeping A, X, Y and the processor flags as documented.
+  `fb_initialize` sends `RESET`. A new `fb_flags` reads `FB_FLAGS` (`$4002`), which programs also test with
+  `bit`.
+- The flags' names: `FB_IRQ` %10000000, `FB_BUSY` %01000000, `FB_REPLY` %00100000, `FB_REPLY16` %00010000,
+  `FB_RX` %00001000, `FB_RX16` %00000100. The errors keep version 2's names; `FB_ERRORS` the mask goes.
 - `FPGA_E` leaves `base_config_v2.inc` and `initialize_michael_ports`: PA2 and PA0 are free.
 - `graphics_display.inc`'s fill loops and `gd_send_x2` can store straight to `FB_DATA`, a byte every 4 cycles,
   checking BUSY every 16 bytes (or not at all for raw display writes, up to the CPU clock above: to decide).
 - **The ROM changes** (its graphic screen and launcher use the bus), so a new ROM is programmed with the
   rewiring, as in stage 4. The firmware manifest is refreshed.
 - **The rules for Michael's software** lose E, RS and RW and gain one: **reads have side effects**, except
-  `$4002`'s (`$4000` clears the status's sticky bits, `$4001` takes the reply queue's next byte). So no
+  `$4002`'s (`$4000` clears the errors, `$4001` takes the reply queue's next byte, `$4003` serial input's). So no
   read-modify-write instructions (`inc`, `asl`, `tsb`, `trb` and the like) on the FPGA's registers, and no
   addressing modes whose extra cycles may read a register's address. Plain `lda`, `sta`, `stz` and `bit`
   absolute only.
@@ -258,8 +287,8 @@ command switching it on and off, off by default, so a program asks to be held.
 ## Emulator
 `fpga_bus.c` leaves the VIA's pins and joins the CPU's bus at `$4000–$5FFF`, decoded by `glue_michael.c`. Its
 `--fpga-log` lines (`C`, `D`, `R`, `S`) stay the same, plus one for the side-effect-free read, so the driver
-test's expectations change little. It models the queues' fill levels, so BUSY and the version 3 status byte
-are tested. Its IRQ output goes through the board's AND with the VIA's. `--no-fpga` leaves the window empty:
+test's expectations change little. It models the queues' fill levels, so the version 3 flags and errors are
+tested. Its IRQ output goes through the board's AND with the VIA's. `--no-fpga` leaves the window empty:
 reads find a floating bus.
 
 ## Stages
@@ -274,10 +303,11 @@ Tests first, then the code, all without the board:
   ns of the fall; reading `$4002` changes nothing; the buffer is never on while the CPU reads anything else.
   `michael_board.vh` and `michael_fpga_bus.vh` become a CPU bus model (address, RWB, PHI2 and the cycle
   timings of `fpga_bus.inc`), keeping the no-two-drivers checks.
-- **Version 3's status in `bus_control.v`:** BUSY from the queues' room alone (set at fewer than 16 free, clear
-  with a full renderer backlog), `IRQ` in bit 7, and `DRAWN`, `DISP_IDLE` and `SERIAL_IDLE`. Then a test that
-  overruns text mode during a hardware scroll without checking BUSY (`OVERFLOW` set), and doesn't when it
-  checks.
+- **Version 3's errors and flags in `bus_control.v`:** the errors alone at `$4000`; the flags at `$4002`, BUSY
+  from the queues' room alone (set at 15 free or fewer, clear with a full renderer backlog), `REPLY` and
+  `REPLY16` from the reply queue's count, `IRQ` in bit 7; and `DRAWN`, `DISP_IDLE` and `SERIAL_IDLE`. Then a
+  test that overruns the serial queue without checking BUSY (`OVERFLOW` set), and doesn't when it checks every
+  16 bytes.
 - **The whole design on the fast clock:** `tb_top.v` and the text mode's testbenches still pass with the scaled
   parameters; nextpnr's report shows the clock met.
 - **The emulator, the driver and the firmware:** `test_michael_fpga_bus_driver.py`, `test_michael_pins.py` (PA2
