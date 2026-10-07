@@ -17,7 +17,8 @@ E started on PA0. Stage 4 moved it to PA2 and the LED to PA1, which left PA0 fre
 the VIA are now the reusable ones. In the end the bus freed PA0, the display's chip select and reset (PA1 and
 PA2 before the bus), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-06): stages 0 to 5 done; stage 5 put the editor on the graphic display.** Stage 3 is
+**Status (2026-10-06): stages 0 to 5 done; stage 5 put the editor on the graphic display. Stage 6, one USB
+cable (the Cmod's), is next.** Stage 3 is
 text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
 screen and the pin shuffle, is on the board ([below](#4-rom-support-and-switching-displays-at-run-time)).
 Stage 0 is this document, reviewed. Stage 1 is
@@ -186,7 +187,81 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   `MichaelGraphicEditorTest` checks the FPGA's grid and compares it with the console build at 20x20. It ran in
   the web emulator, then on the board, where a variety of editing worked as expected.
 
-### 6. Later
+### 6. One USB cable: the Cmod's
+Today Michael needs two USB cables: the CP2102 adapter's ([schematics](../hardware/michael/schematics/),
+J2), which powers Michael, sends uploads into CB2 and resets the board with DTR, and the Cmod's, for
+programming the FPGA and the debug port. This stage gives all three of the adapter's jobs to the Cmod, and
+removes the adapter.
+
+**From the datasheets** (checked 2026-10-06):
+- **Cmod A7 reference manual** (Digilent, `cmod_a7_rm.pdf`), Power: with USB attached, the USB 5 V is
+  driven onto VU (DIP pin 24) through a Schottky diode, "close to 5V", to power circuits outside the Cmod.
+  The manual gives no current limit for it, so the USB host's limit applies (500 mA on USB 2.0) to the Cmod
+  and Michael together. It warns that nothing else may drive VU while USB is attached: today's D2 (band
+  towards the Cmod) is what keeps Michael's supply and the Cmod's USB apart.
+- **The same manual**, USB-UART bridge: the FT2232HQ's serial port reaches the FPGA on two wires only, TXD
+  and RXD (J17, J18). There's no DTR, so reset has to come from an FPGA pin. DIP pins 20–23 are unused
+  (FPGA pins M2, N1, N2, P1 in Digilent's master constraints file). The pins take 3.75 V at most.
+- **W65C22S** ([WDC](https://www.westerndesigncenter.com/documentation/w65c22.pdf), table 4-2b): at 5 V an
+  input is high from 0.8 × VDD, 4.0 V. The 2.0 V figure is the NMOS-compatible W65C22N's (table 4-2a). So
+  a 3.3 V output drives CB2 outside the specification.
+- **W65C02S** ([WDC](https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf), DC
+  characteristics): RESB is high from VDD − 0.4 V, 4.6 V at 5 V.
+- **In practice** these WDC parts read high from a little over VDD/2, so 3.3 V drives them: measured earlier
+  on the bench, and how the adapter and the data buffer drive Michael today. Michael accepts being outside
+  the datasheet here (decided 2026-10-06), so the FPGA drives Michael's 5 V inputs directly, without level
+  shifters.
+
+**Design:**
+- **Power:** Michael's +5V comes from VU. D2 is replaced by a wire, and the adapter, Michael's supply today,
+  goes. VU is the USB voltage less a Schottky drop, so it can sit near 4.5 V, the bottom of the 65C02's,
+  the VIA's, the EEPROM's and the LCD's range. Measure it under load first (both backlights on), with
+  Michael's current, before committing.
+- **Uploads:** a new command, `MICHAEL_SERIAL` (`$51`, streams), queues each data byte for Michael's serial
+  input, and the FPGA sends the queue out at 57600 8N1 (208 of the Cmod's 12 MHz clocks a bit), as the
+  adapter does. The PC sends it through the debug port: `C 51`, then `D` lines. As hex text at 115200 baud
+  the data arrives at about 3800 bytes a second, slower than 57600 baud drains it, so the queue never fills
+  (`OVERFLOW` if it does).
+- **Reset:** `MICHAEL_RESET` (`$52`, no arguments) holds Michael's RESB low for 100 ms, then lets go. It
+  pulses rather than taking a level, so Michael can also reset itself through the bus.
+- **Wiring, no new parts:** the serial output (Cmod DIP 20) goes straight to CB2, where the adapter's TXD
+  went: CB2 is only an input, so nothing at 5 V reaches the Cmod pin. The reset output (DIP 21) takes DTR's
+  place on R13, so D3 still keeps RESB's 5 V off the pin: low pulls RESB low as DTR does, and high (3.3 V)
+  leaves D3 blocking, or nearly so, with RESB a valid high in practice (above). Neither pin ever sees more
+  than 3.3 V.
+- **Start-up:** the FPGA pulses `MICHAEL_RESET` once it's configured. While it configures, the serial pin
+  floats and CB2 can see noise as the start of an upload; the pulse puts the loader right afterwards, and
+  Michael starts afresh whenever the FPGA is reprogrammed.
+- **Host:** `transfer.py --cmod` finds the Cmod's serial port (FTDI 0403:6010, its second interface), sends
+  `MICHAEL_RESET`, waits for the ROM to be ready, then streams the upload through `MICHAEL_SERIAL`. The
+  serial daemon isn't needed: opening the Cmod's port asserts DTR, but nothing is wired to it. Michael's
+  upload scripts (`tools/upload/compile_and_upload_michael.sh`, `editor/bin/editor-michael-upload.sh`) use it
+  by default once the adapter is gone, as they would otherwise look for a port that no longer exists. The
+  DTR path (`serial_daemon.py`) stays, for Wendy.
+- **The adapter's removal:** its four wires on J2 go. +5V and GND leave with it (Michael's supply is VU's), and
+  TXD and DTR are replaced by Cmod DIP 20 (to CB2) and DIP 21 (to R13). D3 and R13 stay, for the new reset.
+  The adapter's +5V must be off the rail before D2 becomes a wire: from then on the Cmod's USB drives the rail,
+  and the Cmod's manual says nothing else may drive VU while USB is attached.
+
+**Steps:**
+1. On the bench, before any change: measure VU with the Cmod alone on USB and Michael's current from the
+   adapter (both backlights on, the editor running). Check that DIP 20 and 21 are free on the board.
+2. FPGA, tested in simulation first (`bus/sim`): the serial queue and transmitter, and the reset pulse,
+   on DIP 20 and 21, and the start-up pulse; `ID`'s capabilities byte gains bit 3. The emulator models both
+   commands: `MICHAEL_SERIAL`'s bytes reach the VIA's CB2 as the adapter's do, and `MICHAEL_RESET` resets the
+   machine.
+3. Host: `transfer.py --cmod`, tested against the emulator's debug port model (`bus/test_debug.py`'s way).
+4. Docs, before the wiring: the [checklist](../hardware/michael/fpga/spi-display/WIRING.md); the schematics
+   (`michael_schematic.py`, with `parts.md` and `test_michael_schematic.py`), which lose J2 and its notes
+   (+5V from the adapter, DTR resetting), and gain the two wires and VU as Michael's supply; and the READMEs
+   that describe uploading through the adapter (`hardware/michael/README.md`, `tools/upload/README.md`).
+5. Wiring, with Michael off, the adapter unplugged and the Cmod unplugged, in this order: the adapter's four
+   wires removed, its +5V first; CB2 and R13 to Cmod DIP 20 and 21; then D2 replaced by a wire. Then the
+   Cmod on USB, and its flash.
+6. Check on the board: the upload of a test program and of the editor, reset from the PC and from Michael,
+   and the bus check, all from the one cable.
+
+### 7. Later
 Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configuration flash's spare space (the
 flash's clock goes through `STARTUPE2`, unproven with the open toolchain). Also a serial port to the PC, and an
 FPGA interrupt on the VIA's CA1 (unused on Michael; input-only, so a 3.3 V FPGA pin can drive it directly).
@@ -226,7 +301,7 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   multiplexed one, which a host tool splits back into Michael's stream and the debug port's. Either would be
   chosen from the PC. Candidates: the modems' GSM 07.10 multiplexer (CMUX), which carries several virtual
   serial channels over one UART and has existing host-side drivers, or a simple framing of our own (an
-  escape byte with a channel number, or SLIP or COBS frames). Decide when stage 6's serial port to the PC is
+  escape byte with a channel number, or SLIP or COBS frames). Decide when stage 7's serial port to the PC is
   designed.
 - **Interrupt handlers on the bus.** With more peripherals, interrupt handlers will want to use the bus
   without upsetting what the main thread is doing. Today nothing does (the keyboard's handler never touches
@@ -253,7 +328,7 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
      (CMUX, above) and USB endpoints. One level is enough, as 6502 IRQ handlers don't nest (keep NMI off the
      bus). Handlers still save and restore Michael's port state.
 
-  Decide with stage 6's peripherals; option 2 is the default either way.
+  Decide with stage 7's peripherals; option 2 is the default either way.
 - **Revisit text mode's control codes.** `PUT` acts on BS, LF and CR and drops the other codes below `$20`,
   while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
   shown. One option: no special meaning for any code, so every character written goes into its cell, with
@@ -336,8 +411,11 @@ is updated to match).
 | Control buffer B1: the wire from **PA0** removed; its 10 kΩ to ground stays, as a tie | PA0 is free |
 | Control buffer B2: the wire from **PA1** removed, and **10 kΩ to ground** | PA1 is only the LED's. B2 isn't left floating. |
 
-The VIA reads 2.0 V as high on every input at 5 V ([W65C22 datasheet](https://www.westerndesigncenter.com/documentation/w65c22.pdf),
-DC characteristics), so the data buffer's 3.3 V outputs are valid highs on port B.
+The data buffer's 3.3 V outputs drive port B. That's within the W65C22**N**'s specification (high from 2.0 V,
+[W65C22 datasheet](https://www.westerndesigncenter.com/documentation/w65c22.pdf), table 4-2a), but Michael's
+VIA is a W65C22**S**, whose inputs are high from 0.8 × VDD, 4.0 V at 5 V (table 4-2b; found 2026-10-06, while
+planning stage 6). In practice they read high from a little over VDD/2, and Michael accepts being outside the
+datasheet here (decided 2026-10-06).
 
 # The protocol (version 2)
 
@@ -534,7 +612,8 @@ in the middle of one.
 | Range | For |
 |---|---|
 | `$4x` | storage |
-| `$51`–`$5F` | more of the serial port |
+| `$51`, `$52` | stage 6's `MICHAEL_SERIAL` and `MICHAEL_RESET` |
+| `$53`–`$5F` | more of the serial port |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
 | `$20`–`$3F`, `$60`–`$7F` | later one-byte commands, for busy paths |
 | `$81`–`$FF` | later devices |
