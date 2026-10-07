@@ -234,6 +234,13 @@ already; `opentmp` is a host temporary file), so a program using them is tested 
 mounts at its first call, so a program that never touches it pays nothing, and the loader's start-up stays as
 it is.
 
+## Decided
+
+- **16 handles** (2026-10-07): a compromise between the deepest include nest, with the assembler's output or
+  the editor's two files beside it, and Michael's RAM. The assembler reports a clean error when `open` fails.
+- **About 150 bytes of Michael's RAM** for the filesystem's state (2026-10-07), the handles included. Where
+  exactly is settled with ROM 6's memory map.
+
 ## Alternatives considered
 
 - **One ring, a file's data and its commit in the same slot** (this plan's first draft). Half the writes per
@@ -302,10 +309,6 @@ it is.
   the header's 3.3 V supply can feed the card's write current.
 - The ring sizes: 1 MB data slots are generous (256 KB would do); a 64 MB commit ring could be larger to lap
   more slowly. Both are format options.
-- 16 handles: enough for the deepest include nest we expect, with the output and the editor's two? The
-  assembler reports a clean error when `open` fails.
 - 23-character names: long enough for `editor/render_scroll.asm`? 32-byte entries could become 48 for 39
   characters, with 24 directory sectors.
-- Where Michael's filesystem state goes in RAM: about 150 bytes, which competes with the editor's buffers; the
-  handles could live in the FPGA's spare buffer memory instead, with only the current handle's in RAM.
 - The volume ID at format: random on the PC; on Michael, from the VIA's timer at a key press.
