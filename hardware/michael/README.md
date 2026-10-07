@@ -65,11 +65,12 @@ Choices made knowingly, so that nobody has to rediscover them while debugging.
 - **3.3 V drives the W65C02S's inputs (decided 2026-10-07).** The W65C02S data sheet gives VIH as 0.8 × VDD
   (4.0 V at 5 V). The parts on this board in practice switch a little above 0.5 × VDD (about 2.5 V), and the
   owner accepts running out of spec: 3.3 V logic (the FPGA's outputs, or a 3.3 V pull-up) may drive the CPU's
-  inputs (RDY, IRQB, and the data bus on reads) without a 5 V translator. Measured by the owner, not from a
-  data sheet; another batch of chips, a hotter chip or a noisier board may not behave so. A 3.3 V-driven line
+  inputs without a 5 V translator. The FPGA on the CPU bus (stage 7 of
+  [`docs/michael-fpga-bus-plan.md`](../../docs/michael-fpga-bus-plan.md)) would rely on it for the data bus on
+  reads and for RDY, pulled up to 3.3 V; its IRQ goes through a 74HCT08, within spec. Measured by the owner,
+  not from a data sheet; another batch of chips, a hotter chip or a noisier board may not behave so. A 3.3 V-driven line
   that stops working is the first thing to suspect. A 5 V translating buffer (74HCT, or a dual-supply
-  transceiver) is the fix. Nothing relies on this yet: it is a precondition of connecting the FPGA directly to
-  the CPU bus.
+  transceiver) is the fix. Nothing relies on this yet.
 
 ## Files
 

@@ -17,8 +17,9 @@ E started on PA0. Stage 4 moved it to PA2 and the LED to PA1, which left PA0 fre
 the VIA are now the reusable ones. In the end the bus freed PA0, the display's chip select and reset (PA1 and
 PA2 before the bus), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-06): stages 0 to 5 done; stage 5 put the editor on the graphic display.** Stage 3 is
-text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
+**Status (2026-10-06): stages 0 to 5 done; stage 5 put the editor on the graphic display.** Stage 7, the
+FPGA on the CPU bus with the bus's transfers as memory accesses, is proposed
+([below](#7-the-fpga-on-the-cpu-bus-proposed-2026-10-07)). Stage 3 is text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
 screen and the pin shuffle, is on the board ([below](#4-rom-support-and-switching-displays-at-run-time)).
 Stage 0 is this document, reviewed. Stage 1 is
 done (2026-10-03): the FPGA drives the data buffer's /OE and DIR, Michael is rewired, the read test
@@ -190,6 +191,189 @@ The protocol below is the contract that the FPGA design, the firmware and the em
 Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configuration flash's spare space (the
 flash's clock goes through `STARTUPE2`, unproven with the open toolchain). Also a serial port to the PC, and an
 FPGA interrupt on the VIA's CA1 (unused on Michael; input-only, so a 3.3 V FPGA pin can drive it directly).
+Stage 7 would replace the CA1 idea with the CPU's IRQB, through an AND gate with the VIA's.
+
+### 7. The FPGA on the CPU bus (proposed, 2026-10-07)
+Move the FPGA from behind the VIA onto Michael's CPU bus, as a memory-mapped peripheral. The FPGA imitates a
+hypothetical peripheral chip, beside the VIA, the RAM and the ROM: it has a chip select, register selects,
+R/W, PHI2, RESB, a data bus, an IRQ output and a RDY output, and it knows nothing about the other chips. The
+glue stays glue: the address decode and the combining of interrupts are gates on the board, not logic in the
+FPGA. Not started; nothing in the stages above changes until its cutover.
+
+**Why.** Every transfer today is several VIA accesses: port B's direction, RS and RW on port A, then E up and
+down. On the CPU bus it is one access:
+
+| Routine | Today | On the CPU bus |
+|---|---|---|
+| `fb_command`, `fb_data` | about 25 cycles | `sta`, 4 cycles (2 µs) |
+| `fb_status`, `fb_read` | about 28 cycles | `lda`, 4 cycles |
+| a fill loop's byte | 9 cycles (4.5 µs) | 4 cycles (2 µs), about the SPI's own rate |
+
+A single `lda` or `sta` can't be split by an interrupt, so Michael's half of the
+[interrupt handlers follow-up](#follow-ups) disappears: no port state to save, no RS, RW or port B direction
+to disturb. The FPGA's half (an open command and the reply queue) remains, and option 2 there still applies.
+The FPGA leaves port B and port A: PA2 (E) is free again, PA4, PA5 and PA6 are only the LCD's and the
+keyboard board's, and the SOEB interlock is no longer needed, because the keyboard board never shares a bus
+with the FPGA.
+
+#### Address map
+The FPGA takes **`$4000–$5FFF`**, which nothing uses today. The existing decode already nearly gives it:
+`VIA/CS2` (U4B: NAND of A14 and /A15) is low for `$4000–$7FFF`, and the VIA is selected there when A13 is high.
+So the FPGA is selected when `VIA/CS2` is low and A13 is low, and taps those two nets.
+
+- **The VIA's chip select doesn't change.** The VIA stays at `$6000–$7FFF`, and the two windows never overlap.
+- **Reads** of the window find only the FPGA: the RAM's /OE is A14, high there, and the ROM needs A15.
+- **Writes** also land in the RAM's upper half, which can't be read (as for the VIA's window today): harmless.
+- **PHI2 qualifies the select inside the FPGA,** as the VIA does through its own PHI2 pin. `VIA/CS2` isn't gated
+  by PHI2.
+- **Registers:** `$4000` writes a command and reads the status; `$4001` writes data and reads the reply queue.
+  A0 takes RS's place and RWB RW's, so the protocol's four transfers are unchanged. With A0 to A2 decoded,
+  the registers mirror every 8 bytes across the window, as the VIA's mirror every 16.
+- The command layer ([`bus_control.v`](../hardware/michael/fpga/rtl/bus_control.v)) and every device are
+  unchanged. Whether `ID`'s version moves to 3 for the new transport is to decide: nothing in the command
+  layer differs.
+
+#### Hardware
+| Change | Why |
+|---|---|
+| Data buffer (U7): its B side from port B (PB0–PB7) to the **CPU's D0–D7**; its A side stays on Cmod pins 1–8 | The FPGA's data bus |
+| U7 DIR (pin 1): from Cmod pin 17 to **RWB**; R16 (its pull-down) removed | The buffer turns with the CPU's own R/W. RWB changes only while PHI2 is low, when the buffer is off. Cmod pin 17 is freed |
+| U7 /OE (pin 19): stays on Cmod pin 14 with R15's pull-up | On only while the FPGA is selected and PHI2 is high, reads and writes: on otherwise, it would drive the bus when the CPU reads RAM. Off while the FPGA is unconfigured |
+| Control buffer (U8) B1–B8: **PHI2, RWB, `VIA/CS2`, A13, A0, A1, A2, RESB**, replacing PA2, PA5, PA4, PA6 and the ties (R12, R14, R17, R18, R9 removed) | The FPGA's inputs, all through a 5 V-tolerant '245 as today. A8 needs a Cmod pin (B8 has none today) |
+| **74HCT08** (new) near the CPU: the VIA's IRQB and the FPGA's `irq_b` in, the CPU's IRQB out. The VIA's IRQB comes off the CPU's IRQB | The W65C22S drives IRQB both ways (only the W65C22N's is open-drain), so the two can't share a wire: active low, an AND is their OR. HCT, so 3.3 V is a valid high at its input, within spec, and it drives the CPU at 5 V |
+| FPGA `irq_b` (a free Cmod pin) to the 74HCT08, with **10 kΩ to 3.3 V** | Unconfigured, the FPGA's pin floats and the pull-up keeps its input inactive, so the VIA's (the keyboard's) interrupts work without the FPGA |
+| FPGA `rdy_b` (a free Cmod pin) to the CPU's **RDY**, open-drain (driven low or left floating); **R2's pull-up from +5V to 3.3 V** | Wait states ([7.4](#74-rdy-flow-control-optional)). The W65C02S drives RDY low itself (WAI), so nothing may drive it high. With the pull-up at 3.3 V the FPGA's pin never sees more than its supply. Out of spec: see the next row |
+| None: the FPGA's 3.3 V reaches the CPU on the data bus (reads) and RDY | The W65C02S asks for 0.8 × VDD and in practice switches at about 0.5 × VDD: accepted out of spec ([Michael's README](../hardware/michael/README.md#known-departures-from-the-data-sheets)) |
+
+Cmod pins 9–13, 18 and 19 carry U8's A side as now (renamed); `irq_b`, `rdy_b` and U8's A8 need three free
+Cmod pins, to choose (33–37 stay reserved for the touch controller). The 74HCT08's three spare gates are for
+later (an NMI source, say). The schematics (`michael_schematic.py`, checked by `test_michael_schematic.py`),
+[`WIRING.md`](../hardware/michael/fpga/spi-display/WIRING.md) and `michael-fpga-display.svg` follow.
+
+#### The FPGA's bus front end
+A new `rtl/cpu_bus.v` replaces [`michael_bus.v`](../hardware/michael/fpga/rtl/michael_bus.v), with the same
+interface to `bus_control.v` (`wr`, `wr_rs`, `wr_data`, `rd`, `rd_end`, `rd_rs`, `reply_byte`, `status_byte`),
+so the debug port and the command layer don't change.
+
+**PHI2 is a signal, not a clock** (decided 2026-10-07). As a clock it would sample where the CPU does, with no
+synchronisers. But:
+- a glitch on it would be a clock edge, and so a spurious bus cycle; E needed a filter on this board
+  (stage 1), and a clock can't be filtered in logic;
+- the Artix-7's MMCM won't take a 2 MHz input (it needs about 10 MHz or more), so the domain would be PHI2 as
+  it comes;
+- the rest of the design would sit across a clock crossing, with the debug port a second writer on the far
+  side;
+- the open toolchain has no input-delay timing checks (the repo has no clock constraints at all), so the
+  timing would be proved only on the bench.
+
+Instead the design runs on **one fast clock from the MMCM**, 96 MHz (12 MHz × 64 ÷ 8) as the target, 48 MHz if
+the text renderer doesn't close timing there. The whole design moves to it, not just the front end, so there
+is no crossing: the 12 MHz-derived parameters (the UART's divider, the cursor's blink, the activity LEDs, the
+SPI's divider) scale with it. That also gives the [faster SPI clock](#follow-ups).
+
+**Writes: a history of samples.** The CPU's write data is stable from shortly after PHI2 rises until about 10
+ns after it falls. That is a window of about 200 ns at 2 MHz, of which only the end is short. So:
+
+```
+PHI2   ____/‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾\______
+D      xxxxxxx<========== stable ==========>xxx
+samples  |  |  |  |  |  |  |  |  |  |  |  |  |     every 10.4 ns at 96 MHz
+                                  ^            ^
+                     taken from here           the fall seen here
+```
+
+1. D, A0, RWB, the select and PHI2 go through synchronisers of equal depth, so samples of one clock line up.
+2. A shift register keeps the last few samples of D, A0 and RWB (4 to 6 deep).
+3. When the synchronised, filtered PHI2 falls, take D, A0 and RWB from k samples earlier, about 30 ns before
+   the fall (k about 3, plus the filter's delay), far from both ends of the window.
+
+Only PHI2 can be caught changing, and its synchroniser settles it. The ±1 sample of uncertainty in when the fall
+is seen is absorbed by looking back k samples. D is never sampled while it changes. This doesn't depend on
+the CPU's speed, as long as PHI2's high phase lasts several samples. PHI2's glitch filter must be short, a few
+samples (about 30 ns): E's 250 ns would swallow PHI2's whole 250 ns high phase. `michael_bus.v`'s `d_at_e`
+(D as E first went high) is the same idea; here it's D before PHI2 fell. At 12 MHz this would be marginal (two
+samples back is 83 to 166 ns before the fall). Fallback if the board shows skew: a 74LVC573 on U7's A side,
+latched by PHI2, holding the byte through PHI2's low phase.
+
+**Reads.** The address, RWB and the select are valid from shortly after PHI2 falls, so the front end decodes
+them into registers during PHI2's low phase. It drives D from them: the reply queue's head for A0 1, the status
+for A0 0. U7's /OE is the registered select gated by the PHI2 pin with no clock in the path, as the SOEB
+interlock is today, so the buffer turns off within about 10–15 ns of PHI2 falling. That is after the CPU's
+read hold time and long before anything else drives the bus. The reply queue moves on (`rd_end`) only after
+the fall, so the byte on the bus never changes while it is read. The FPGA drives its D pins only during a
+selected read cycle, when U7 points from the FPGA to the CPU.
+
+**RESB** resets the front end and the command layer, as `RESET` does (the queues and the status), as a
+peripheral chip's reset pin would. The display is left as it is.
+
+**What goes:** E's 250 ns filter, the turnaround states, `paused` and the SOEB interlock.
+
+#### Software
+- **`fpga_bus.inc`** keeps its entry points. `fb_command` becomes `sta FB_COMMAND` (`$4000`), `fb_data`
+  `sta FB_DATA` (`$4001`), `fb_status` `lda FB_STATUS` and `fb_read` `lda FB_REPLY`, each still keeping A, X,
+  Y and the flags as documented. `fb_initialize` sends `RESET`.
+- `FPGA_E` leaves `base_config_v2.inc` and `initialize_michael_ports`: PA2 and PA0 are free.
+- `graphics_display.inc`'s fill loops and `gd_send_x2` can store straight to `FB_DATA`, a byte every 4 cycles.
+- **The ROM changes** (its graphic screen and launcher use the bus), so a new ROM is programmed with the
+  rewiring, as in stage 4. The firmware manifest is refreshed.
+- **The rules for Michael's software** lose E, RS and RW and gain one: **a read has a side effect** (it takes
+  the reply queue's next byte, or clears the status's sticky bits). So no read-modify-write instructions
+  (`inc`, `asl`, `tsb`, `trb` and the like) on the FPGA's registers, and no addressing modes whose extra
+  cycles may read a register's address. Plain `lda`, `sta`, `stz` absolute only.
+
+#### Emulator
+`fpga_bus.c` leaves the VIA's pins and joins the CPU's bus at `$4000–$5FFF`, decoded by `glue_michael.c`. Its
+`--fpga-log` lines (`C`, `D`, `R`, `S`) stay the same, so the driver test's expectations stay too. Its IRQ
+output goes through the board's AND with the VIA's, and RDY holds the CPU. `--no-fpga` leaves the window
+empty: reads find a floating bus.
+
+#### Stages
+Each leaves Michael working, is built test-first, and ends in a PR.
+
+##### 7.1 In software
+Tests first, then the code, all without the board:
+- **The front end in simulation.** A testbench that drives PHI2 at random phases against the fast clock, with
+  a few ns of skew between PHI2 and D each way, and D invalid outside the data sheet's window, so a wrong
+  sample shows as a wrong byte. Every write arrives with its byte, A0 and RWB; a PHI2 glitch shorter than the
+  filter makes no transfer; reads drive the byte through PHI2's high phase and release the bus within 15 ns
+  of the fall; the buffer is never on while the CPU reads anything else. `michael_board.vh` and
+  `michael_fpga_bus.vh` become a CPU bus model (address, RWB, PHI2 and the cycle timings of `fpga_bus.inc`),
+  keeping the no-two-drivers checks.
+- **The whole design on the fast clock:** `tb_top.v` and the text mode's testbenches still pass with the scaled
+  parameters; nextpnr's report shows the clock met.
+- **The emulator, the driver and the firmware:** `test_michael_fpga_bus_driver.py`, `test_michael_pins.py` (PA2
+  and PA0 free, the LED unchanged), the ROM's tests on the graphic screen, and the editor's graphic tests.
+- **The schematics:** `test_michael_schematic.py` against the new nets.
+
+##### 7.2 The cutover, on the bench
+As stage 4, all at once, with Michael powered off: program the new ROM (`make -C hardware/michael program`),
+rewire (the hardware table, including the 74HCT08 and RDY's pull-up), then flash the new design. Then:
+1. **The safe default first:** with the Cmod's flash erased, Michael boots, the LCD and the keyboard work
+   (interrupts through the AND gate), U7's /OE measures 3.3 V, and a read of `$4000` finds a floating bus.
+2. **Writes only:** a check design that only listens (U7 on for selected writes, never driving) reports the
+   bytes Michael writes to `$4000–$5FFF` over USB serial. It proves the sampling on the board before the FPGA
+   ever drives the CPU's bus.
+3. **Reads:** `bus-check` rebuilt for the CPU bus: `ECHO` patterns read back, with keyboard typing alongside
+   (it no longer shares anything, which is the point of checking).
+4. The graphics programs, `board_check.py`, the ROM's graphic screen and the editor on the graphic display.
+
+##### 7.3 The FPGA's interrupt
+The 74HCT08 is wired at the cutover, with `irq_b` held high. Then: an interrupt status bit (bit 6 is free), an
+enable command, and the first sources (the reply queue not empty; later serial input, storage). As with a real
+chip, the handler asks each chip in turn: the VIA's IFR, then the FPGA's status. This replaces stage 6's idea of
+an interrupt on the VIA's CA1.
+
+##### 7.4 RDY flow control (optional)
+The W65C02S's RDY halts it on any cycle, writes included. So the FPGA could hold RDY low while its command queue
+is nearly full, and programs would never need to poll `BUSY`. The catch: a halted CPU takes no interrupts, so
+the keyboard's bytes could be lost in a long stall (a full-screen redraw is about 0.2 s at today's SPI clock).
+Measure first; stall only briefly, if at all.
+
+#### To confirm
+- The W65C02S's AC timings at 5 V (write data delay and hold, address delay, read setup and hold, RDY's setup),
+  from the data sheet's tables, against the sample window above.
+- The three free Cmod pins.
+- That the text renderer closes timing at 96 MHz with the open toolchain, or settle on 48 MHz.
 
 ### Follow-ups
 Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Michael today.
