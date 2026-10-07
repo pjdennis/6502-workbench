@@ -4,7 +4,7 @@ on a canvas from the display's memory (sent as deltas) and the snapshot's "gd" (
 hardware scroll). The canvas is the glass, a canvas pixel a panel pixel.
 
 1. michael_graphic_text.s, on the FPGA's text mode: the page's layout (the display on the left, level with
-   the LCD's top and the status bar's bottom), the reverse title, typed text, Tab's reverse video, the
+   the LCD's top, the status bar along the bottom), the reverse title, typed text, Tab's reverse video, the
    cursor blinking, and Enter at the bottom scrolling the region by the hardware scroll (VSCRSADD moves) with
    the rows in order on the glass. A typed character costs little on the wire.
 2. michael_graphic_display_test.s, raw mode: its colour stripes, then its text, drawn by Michael's driver;
@@ -16,9 +16,9 @@ vasm6502_oldstyle or playwright are missing.
 """
 import sys
 
-from web_test_util import (MICHAEL_PROGRAMS, REPO_ROOT, board_runs_past_stp, failed, main, michael_load_address,
-                           missing_tools, open_page, out_dir_for, passed, run_vasm, skipped, track_last_state,
-                           web_emulator)
+from web_test_util import (MICHAEL_PROGRAMS, REPO_ROOT, board_runs_past_stp, failed, layout_problems, main,
+                           michael_load_address, missing_tools, open_page, out_dir_for, passed, run_vasm, skipped,
+                           track_last_state, web_emulator)
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 import font_12x16  # noqa: E402
@@ -110,34 +110,20 @@ def gd(page):
     return page.evaluate("window._lastState && window._lastState.gd")
 
 
-# Where the page's parts are: {id: [left, top, right, bottom]}
-BOXES = """() => Object.fromEntries(['gd-bezel', 'lcd-bezel', 'pins', 'status'].map(id => {
-    const r = document.getElementById(id).getBoundingClientRect();
-    return [id, [r.left, r.top, r.right, r.bottom]];
-}))"""
-
-
 def check_layout(page):
-    """The graphic display on the left, from the LCD's top down to the status
-    bar's bottom; the LCD, ports and status bar on its right; all of it on
-    a 1280 by 900 screen without scrolling. None, or a failure message."""
-    page.set_viewport_size({"width": 1280, "height": 900})
+    """The graphic display on the left, level with the LCD's top; the LCD,
+    ports and title on its right; the status bar under them all, from the
+    display's left edge to the ports' right (layout_problems has the rest).
+    None, or a failure message."""
     page.wait_for_function("!document.getElementById('gd-frame').hidden", timeout=5000)
-    box = page.evaluate(BOXES)
-    gd, lcd, pins, status = box["gd-bezel"], box["lcd-bezel"], box["pins"], box["status"]
-    problems = []
-    if not (gd[2] < lcd[0] and gd[2] < pins[0] and gd[2] < status[0]):
-        problems.append("the display isn't left of the LCD, ports and status bar")
+    box, problems = layout_problems(page, ["gd-bezel"])
+    gd, lcd, pins, title, status = (box[i] for i in ("gd-bezel", "lcd-bezel", "pins", "title", "status"))
+    if not (gd[2] < lcd[0] and gd[2] < pins[0] and gd[2] < title[0]):
+        problems.append("the display isn't left of the LCD, ports and title")
     if abs(gd[1] - lcd[1]) > 2:
         problems.append("the display's top isn't level with the LCD's")
-    if abs(gd[3] - status[3]) > 2:
-        problems.append("the display's bottom isn't level with the status bar's")
-    if not (lcd[3] < pins[1] < status[1]):
-        problems.append("the ports aren't between the LCD and the status bar")
-    if page.evaluate("document.documentElement.scrollWidth") > 1280:
-        problems.append("the page scrolls sideways at 1280 pixels")
-    if page.evaluate("document.documentElement.scrollHeight") > 900:
-        problems.append("the page scrolls down at 900 pixels")
+    if abs(gd[0] - status[0]) > 2:
+        problems.append("the status bar's left edge isn't the display's")
     return f"layout: {'; '.join(problems)}: {box}" if problems else None
 
 
