@@ -41,7 +41,8 @@ UPLOAD_AND_START_CYCLES = 6000000  # 3 s: the upload (~1.2 s here, the loader dr
                                    # start-up and its 200 ms before the first key
 
 
-class MichaelEditorTest(unittest.TestCase):
+class MichaelBase(unittest.TestCase):
+    """The build, the emulator runs and the console build's screen, for the tests below."""
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -56,12 +57,12 @@ class MichaelEditorTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def michael(self, keys, *options):
-        """Boot the ROM, upload the editor and type keys; the emulator's report."""
+    def michael(self, keys, *options, upload=None):
+        """Boot the ROM, upload the editor (or upload) and type keys; the emulator's report."""
         keys_file = Path(self.tmp.name) / "keys.txt"
         keys_file.write_bytes(keys)
         cycles = UPLOAD_AND_START_CYCLES + CYCLES_PER_KEY * len(keys)
-        report = subprocess.run([EMULATOR, self.rom, "--machine", "michael", "--serial-input", self.upload,
+        report = subprocess.run([EMULATOR, self.rom, "--machine", "michael", "--serial-input", upload or self.upload,
                                  "--keys", keys_file, "--cycle-cap", str(cycles), *options],
                                 check=True, capture_output=True, text=True).stderr.splitlines()
         self.assertIn("michael: bus: lcd-undriven=0 portb-contention=0", report)
@@ -77,7 +78,7 @@ class MichaelEditorTest(unittest.TestCase):
         lcd = report.index("michael: lcd:")
         return [line.strip()[1:-1].rstrip() for line in report[lcd + 1:lcd + 1 + ROWS]]
 
-    def run_console(self, keys):
+    def run_console(self, keys, rows=ROWS, cols=COLS):
         """The console build's screen at 20x4 after the same keys. It runs in
         an empty directory, so it too edits a new "[No Name]", and a $00 (no
         key) follows the keys: the console build exits once a key read hits
@@ -88,16 +89,18 @@ class MichaelEditorTest(unittest.TestCase):
         keys_file.write_bytes(keys + b"\x00")
         output = work / "output.bin"
         subprocess.run([EMULATOR, self.console_editor, "--no-dump", "--load", "%04x" % CONSOLE_LOAD,
-                        "--rows", str(ROWS), "--cols", str(COLS), "--input", keys_file,
+                        "--rows", str(rows), "--cols", str(cols), "--input", keys_file,
                         "--output", output],
                        capture_output=True, timeout=10, cwd=work)
-        screen = AnsiScreen(ROWS, COLS, deferred_wrap=False, clip_bottom=True)
+        screen = AnsiScreen(rows, cols, deferred_wrap=False, clip_bottom=True)
         screen.process(output.read_bytes().decode("latin-1"))
-        return [screen.get_row_text(row) for row in range(ROWS)]
+        return [screen.get_row_text(row) for row in range(rows)]
 
     def assert_same_as_console(self, keys):
         self.assertEqual(self.run_michael(keys), self.run_console(keys))
 
+
+class MichaelEditorTest(MichaelBase):
     def test_code_ends_below_the_text_buffers_end(self):
         """The text buffer starts on the page after the code and ends at TEXT_END (memory_map.asm)."""
         end = michael_image.LOAD + len(self.editor.read_bytes())
@@ -162,6 +165,64 @@ class MichaelEditorTest(unittest.TestCase):
 
     def test_same_as_console_long_line(self):
         self.assert_same_as_console(b"i" + b"0123456789" * 5 + b"\x1b0")
+
+
+class MichaelGraphicEditorTest(MichaelBase):
+    """The editor on the graphic display (the FPGA's text mode, 20 by 20), started by the launcher
+    editor-michael-upload.sh --graphic sends."""
+    GRAPHIC_ROWS, GRAPHIC_COLS = 20, 20
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.graphic_upload = michael_image.write_upload(
+            cls.editor, Path(cls.tmp.name) / "editor_graphic.upload", graphic=True)
+
+    def graphic_report(self, keys):
+        return self.michael(keys, upload=self.graphic_upload)
+
+    def graphic_rows(self, keys):
+        """The text grid once the keys are handled, and the cursor line."""
+        report = self.graphic_report(keys)
+        at = next(n for n, line in enumerate(report) if line.startswith("michael: fpga text:"))
+        return [line.strip()[1:-1].rstrip() for line in report[at + 1:at + 1 + self.GRAPHIC_ROWS]], report[at]
+
+    def assert_same_as_console(self, keys):
+        self.assertEqual(self.graphic_rows(keys)[0],
+                         self.run_console(keys, self.GRAPHIC_ROWS, self.GRAPHIC_COLS))
+
+    def test_starts_with_an_empty_unnamed_file(self):
+        rows, _ = self.graphic_rows(b"")
+        self.assertEqual(rows, [""] + ["~"] * 18 + ["[No Name] - NORMAL"])
+
+    def test_typed_text_shows_and_the_cursor_follows(self):
+        rows, head = self.graphic_rows(b"ihello")
+        self.assertEqual(rows[0], "hello")
+        self.assertEqual(rows[19], "[No Name] [+] - INS")
+        self.assertIn("cursor 0,5", head)
+
+    def test_the_status_bar_stays_while_the_view_scrolls(self):
+        rows, _ = self.graphic_rows(b"i" + b"".join(b"line%d\r" % n for n in range(1, 31)))
+        self.assertEqual(rows[0], "line13")
+        self.assertEqual(rows[18], "")
+        self.assertEqual(rows[19], "[No Name] [+] - INS")
+
+    def test_same_as_console_typing_past_the_screen(self):
+        self.assert_same_as_console(b"i" + b"".join(b"row%d\r" % n for n in range(1, 26)) + b"\x1b")
+
+    def test_same_as_console_moving_and_editing(self):
+        self.assert_same_as_console(
+            b"ialpha beta gamma\rdelta\repsilon\x1bggwdwjA!\x1b\x1b[A\x1b[Dx")
+
+    def test_same_as_console_long_line_and_scrolling_back(self):
+        self.assert_same_as_console(b"i" + b"".join(b"line%d\r" % n for n in range(1, 41))
+                                    + b"\x1b" + b"\x15" * 2 + b"ggG")
+
+    def test_quitting_goes_back_to_the_loader_on_the_lcd(self):
+        self.assertEqual(self.run_michael_graphic(b":q\r")[:2], ["Michael ROM 5", "Ready"])
+
+    def run_michael_graphic(self, keys):
+        return self.lcd_rows(self.graphic_report(keys))
 
 
 if __name__ == "__main__":

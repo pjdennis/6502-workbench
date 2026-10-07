@@ -17,7 +17,7 @@ E started on PA0. Stage 4 moved it to PA2 and the LED to PA1, which left PA0 fre
 the VIA are now the reusable ones. In the end the bus freed PA0, the display's chip select and reset (PA1 and
 PA2 before the bus), and the backlight tie on the control buffer's B5.
 
-**Status (2026-10-05): stages 0 to 4 done; stage 5, the editor on the graphic display, is next.** Stage 3 is
+**Status (2026-10-06): stages 0 to 5 done; stage 5 put the editor on the graphic display.** Stage 3 is
 text mode ([`hardware/michael/fpga/text/`](../hardware/michael/fpga/text/)); stage 4, the ROM's graphic
 screen and the pin shuffle, is on the board ([below](#4-rom-support-and-switching-displays-at-run-time)).
 Stage 0 is this document, reviewed. Stage 1 is
@@ -179,6 +179,12 @@ The protocol below is the contract that the FPGA design, the firmware and the em
   the same screen with a region set, but its view scrolls then start at the region's top: text mode's
   hardware scroll, with no editor change.
 - Emulator tests in graphic mode, then on the board.
+- **Done (2026-10-06), on the board:** `editor/michael_graphic_launcher.s` (in zero page, at $10: S-records can't
+  start at 0) selects the graphic screen, starts the services and sets the region to rows 1-19, or does
+  nothing more if there's no FPGA. `editor-michael.sh --graphic --web` runs it in the browser;
+  `editor-michael-upload.sh --graphic` sends it to the board. `editor/tests/michael_tests.py`'s
+  `MichaelGraphicEditorTest` checks the FPGA's grid and compares it with the console build at 20x20. It ran in
+  the web emulator, then on the board, where a variety of editing worked as expected.
 
 ### 6. Later
 Storage ([`$4x`](#reserved)): FPGA RAM first, then an SD card or the configuration flash's spare space (the
