@@ -193,10 +193,10 @@ class MichaelTest(BoardChecks, unittest.TestCase):
         self.assertPinsOn('GND', ('D1', 'K'))
 
     def test_fpga_pins_are_the_designs_ports(self):
-        """As the bus designs name them: spi-display's pin file with bus.mk's renames, and the bus's own pins."""
+        """As the bus designs name them: the shared pin file with bus.mk's renames, and the bus's own pins."""
         fpga = os.path.join(ROOT, 'hardware/michael/fpga')
         ports = set()
-        for xdc in ('spi-display/constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc',  # MISO: the probe's
+        for xdc in ('constr/cmod_a7.xdc', 'display-probe/constr/miso.xdc',  # MISO: the probe's
                     'constr/bus.xdc'):                                                     # SOEB, RW: the bus's
             with open(os.path.join(fpga, xdc)) as f:
                 ports |= set(re.findall(r'get_ports \{(\S+)\}', f.read()))
