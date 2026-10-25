@@ -17,7 +17,8 @@
  * a driver can check them to see the frame was taken whole. MISO is 0 during a write's data.
  *
  * Modelled: the register and buffer memory, with the reset values of the registers a driver reads first
- * (VERSIONR, read-only, is $04). The network side isn't: commands, sockets and the PHY don't act. */
+ * (VERSIONR, read-only, is $04), and MR's software reset (RST, bit 7). PHYCFGR reads link up, as if
+ * the cable were plugged into a 100 Mbps full duplex port. The network side isn't: commands, sockets and the PHY don't act. */
 
 #define W5500_SOCKETS 8
 #define W5500_BUFFER 0x800      /* each socket's TX and RX buffer at their reset size, 2 KB */

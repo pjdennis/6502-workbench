@@ -137,6 +137,25 @@ TEST the_header_bytes_answer_01_02_03(void) {
     PASS();
 }
 
+/* MR's RST bit (7) resets every register; MR reads 0 again once it's done */
+TEST mr_rst_resets_the_registers(void) {
+    setup();
+    const uint8_t gar[4] = { 10, 0, 0, 1 }, rst = 0x80;
+    write_common(GAR, gar, 4);
+    write_common(0x0000, &rst, 1);
+    ASSERT_EQ_FMT(0x00, read_common(0x0000), "%02X");
+    ASSERT_EQ_FMT(0x00, read_common(GAR), "%02X");
+    ASSERT_EQ_FMT(0x08, read_common(0x001B), "%02X");   /* RCR back to its reset value */
+    PASS();
+}
+
+/* The emulated cable is plugged into a 100 Mbps full duplex port: PHYCFGR's LNK, SPD and DPX bits are set */
+TEST phycfgr_reads_link_up(void) {
+    setup();
+    ASSERT_EQ_FMT(0xBF, read_common(0x002E), "%02X");
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -162,6 +181,8 @@ SUITE(w5500) {
     RUN_TEST(the_chip_select_rising_ends_a_frame);
     RUN_TEST(fixed_length_mode_frames_without_the_chip_select);
     RUN_TEST(the_header_bytes_answer_01_02_03);
+    RUN_TEST(mr_rst_resets_the_registers);
+    RUN_TEST(phycfgr_reads_link_up);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }
