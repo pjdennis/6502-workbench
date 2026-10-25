@@ -1,0 +1,23 @@
+Name     D-SPI2.dig ;
+PartNo   00 ;
+Date     16.09.2022 ;
+Revision 01 ;
+Designer pjd1224 ;
+Company  unknown ;
+Assembly None ;
+Location unknown ;
+Device   g16v8a ;
+
+/* inputs */
+PIN 2 = A;
+PIN 3 = B;
+PIN 4 = C;
+PIN 5 = E;
+PIN 6 = F;
+
+/* outputs */
+PIN 12 = Y;
+
+/* combinatorial logic */
+Y = (A & !B & C & !F) # (A & B & C & F) # (!A & !B & !C & !E) # (!A & !E & F) # (!B & !C & !E & F) 
+     # (B & !C & E & !F);
