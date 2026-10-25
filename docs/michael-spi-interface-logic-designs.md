@@ -3,7 +3,7 @@
 Michael drives its ILI9341 display, an SPI device, from a VIA: a byte on port B and a strobe, E. Between the
 two sat an interface that turns each strobe into eight SPI clocks. From 2022 to 2025 it was designed in logic
 chips, four times over: in Logisim and Digital in September 2022 (the board Michael used until 2026), and as a
-two-way interface in 74LS chips and then in a GAL20RA10 in October 2025. The FPGA designs that ran alongside
+two-way interface in 74LS chips and then in a GAL20RA10 in October 2025, meant for a W5500 Ethernet module. The FPGA designs that ran alongside
 from 2024 are in [`michael-fpga-display-earlier-designs.md`](michael-fpga-display-earlier-designs.md), and the
 Cmod A7 replaced the board on 2026-10-03 ([`spi-display`](../hardware/michael/fpga/spi-display/)).
 
@@ -38,8 +38,8 @@ GAL equations' history (2025).
 | 2024-10-15 | The write-only circuit, exported to Verilog for the first FPGA try | `digital/D-SPI-WriteOnly.dig`, `.v` |
 | 2025-10-03/04 | "Bidirectional SPI interface" rev 0.1 in 74LS chips, drawn in KiCad overnight | `kicad/SPI Interface.kicad_sch` |
 | 2025-10-04 | GAL20RA10 bring-up: GALasm and the TL866II+ programmer, register by register | `gal/bring-up/` |
-| 2025-10-04 to 10 | The same interface in a GAL20RA10 and a 74HC299 | `gal/spi-control.pld` |
-| 2025-10-11 | minipro: "Fix bit order for gal20ra10 negation flags" (`~/research/minipro`, `366c50f`) | — |
+| 2025-10-04 to 10 | The same interface in a GAL20RA10 and a 74HC299, programmed and tried on a breadboard | `gal/spi-control.pld` |
+| 2025-10-11 | minipro: "Fix bit order for gal20ra10 negation flags" (`~/research/minipro`, `366c50f`): every output's polarity had gone to its mirror-image output | — |
 | 2026-10-03 | The Cmod A7 replaces the 2022 board | [`fpga/spi-display/`](../hardware/michael/fpga/spi-display/) |
 
 ## 2022: the board Michael used
@@ -142,10 +142,16 @@ Notes on it, from the review of 2026-10-25:
   version.
 - **E is sampled on Phi2.** Unlike the 2022 board and the first FPGA design, a spike on E can't start a
   byte between clock edges.
-- **dBRST.** In the GAL, the rising CLK reaches SCLK's AND term through the array as BRST's register does
-  through its product-term clock, with similar delays. If BRST arrived first, SCLK would show a runt pulse as a
-  burst begins. Delaying BRST outside the chip (pin 17 to pin 5) removes the race. What made the delay isn't
-  recorded.
+- **dBRST is BRST's trip out of the chip and back in.** On the breadboard pin 17 (/BRST) is wired straight to
+  pin 5 (/dBRST) (the photo below). Without the loop, SCLK would be /CLK · BRST, and BRST changes on CLK's rising
+  edge, the same edge that ends /CLK. Inside the chip, the edge reaches SCLK's AND term two ways: through pin 6's input buffer as
+  /CLK, and through the same input, the product-term clock and BRST's register as BRST. The register makes the
+  second way the longer, but only by a delay the data sheet doesn't guarantee. If BRST arrived first, the AND
+  term would see /CLK and BRST both high for a moment, and SCLK would show a runt pulse as a burst begins. Taken
+  out through pin 17's output buffer, along the wire and in through pin 5's input buffer, BRST arrives a whole
+  pass through the chip later (some 20 ns on a -20 part), when /CLK has long gone low. At the end of a burst
+  dBRST falls just as late, while /CLK is still low, so no pulse is cut or added. It works as long as the trip
+  is shorter than Phi2's high half (250 ns at 2 MHz).
 - **A second strobe during a burst is lost.** If E rises again before the burst ends, it's taken as "hold the
   byte". Strobes must be at least nine clocks apart, as on the 2022 board.
 - **Port B when reading.** The '299 drives the data lines from the end of the burst while E is high. Michael
@@ -155,8 +161,31 @@ Notes on it, from the review of 2026-10-25:
 - **Stale comments.** The description says 74HC922 (the S0/S1 table is the 74HC299's) and names
   `WAITsrS0OE`, now /OUTPUT.
 
-Whether a GAL was programmed with the final version and tried on a board isn't recorded, nor what the two-way
-interface was for (the display, which can be read, or another SPI device).
+### On the breadboard
+
+![The GAL20RA10 on its breadboard](images/michael-gal-spi-breadboard.jpg)
+
+The GAL was programmed and tried on a breadboard, for a W5500 Ethernet module. Its wiring in the photo matches
+`spi-control.pin`: /PL (pin 1) to +5 V, the pin 17 to pin 5 loop, CLK, E, MISO and /RST on pins 6 to 9, srS1,
+/OUTPUT, MISOr and SCLK out on pins 22 to 19, /OE (pin 13) to ground. It didn't transfer data correctly:
+something seemed to trigger falsely. The details weren't written down.
+
+**A likely cause: minipro's bug.** The JEDEC file is from the evening of 10 October, and minipro's fix for the
+GAL20RA10's polarity fuses came at noon the next day. Before it, minipro wrote fuses 3200–3209 in reverse:
+each output got the polarity meant for its mirror image (pins 14 and 23, 15 and 22, and so on). GALasm puts
+pin 23's polarity in fuse 3200 and pin 14's in 3209, and `spi-control.jed` has `0101100000`. Programmed
+mirrored, at the pins:
+
+- /BRST (17) took MISOr's active-high polarity, so pin 5 saw BRST the wrong way up, and SCLK (19) took pin 18's
+  active-low one. SCLK at its pin became CLK + BRST: **a clock running all the time while idle, at Phi2's
+  rate, and stuck high during a burst.** A device on the bus would see clock edges it was never meant to.
+- MISOr (20) inverted: the received bits, inverted.
+- srS1 (22) inverted: the '299 shifts while idle and loads during a burst, so MOSI doesn't carry the byte.
+- /C1 (15) inverted, harmlessly: it isn't used outside the chip.
+
+The bring-up design that "tested OK", `my_20ra10.pld`, had all ten outputs active high, so mirroring changed
+nothing. That's how the bug got through. Whether the GAL was programmed again with the fixed minipro and tried
+isn't recorded.
 
 ## The files
 
