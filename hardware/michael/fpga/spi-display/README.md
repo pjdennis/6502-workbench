@@ -1,7 +1,8 @@
 # Michael: FPGA SPI display interface
 
 A Digilent Cmod A7-35T between Michael's VIA and the ILI9341 240×320 TFT. It replaces an earlier interface
-board that had no schematic, after two FPGA designs that only partly worked
+board that had no schematic (its design in the Digital simulator turned up later:
+[`../../spi-interface/`](../../spi-interface/)), after two FPGA designs that only partly worked
 ([`docs/michael-fpga-display-earlier-designs.md`](../../../../docs/michael-fpga-display-earlier-designs.md)).
 Michael's display driver,
 [`firmware/lib/graphics/graphics_display.inc`](../../../../firmware/lib/graphics/graphics_display.inc), is
@@ -31,7 +32,8 @@ too.
 
 ## What Michael's driver expects
 
-There was no schematic for the old board, so its behaviour was worked out from the driver:
+There was no schematic for the old board, so its behaviour was worked out from the driver (its Digital design,
+found later, agrees: [`../../spi-interface/`](../../spi-interface/)):
 
 | Signal | VIA pin | How the driver uses it | What the FPGA does |
 |---|---|---|---|

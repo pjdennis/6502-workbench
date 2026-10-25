@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Digital by H.Neemann -->
+<!-- created: Sun Oct 25 09:00:23 CDT 2026 -->
+
+<svg
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   width="211.65mm"
+   height="128.85mm"
+   viewBox="-622 -57 1411 859">
+<g stroke-linecap="square">
+<path d="M 180,640 L 200,640 L 200,720 L 500,720 L 500,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 140,0 L 320,0 L 320,120" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -80,80 L -80,0 L -40,0" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,580 L 260,580 L 260,660 L 380,660 L 380,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,520 L 220,520 L 220,440 L 460,440 L 460,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -220,200 L -180,200 L -180,140 L -160,140" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -360,520 L -360,460 L -180,460 L -180,580 L -120,580" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -120,140 L 20,140 L 20,400 L 40,400 L 40,420" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -220,140 L -200,140 L -200,360 L -60,360 L -60,760 L -520,760 L -520,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -440,640 L -440,720 L -160,720 L -160,560 L -120,560" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 80,420 L 80,400 L 100,400 L 100,320 L 380,320 L 600,320 L 600,-20 L 480,-20 L 480,0" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -280,520 L -280,400 L -80,400 L -80,780 L 620,780 L 620,380" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -220,80 L -160,80" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -120,80 L -80,80 L 40,80 L 40,320" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 40,20 L 60,20" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -220,20 L -160,20 L -160,-20 L 60,-20" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,600 L 240,600 L 240,680 L 420,680 L 420,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -180,200 L -180,280 L 400,280 L 400,360 L 420,360" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,540 L 240,540 L 240,460 L 420,460 L 420,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -320,520 L -320,480 L -200,480 L -200,620 L -120,620" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 580,520 L 580,420 L 660,420" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -440,520 L -440,420 L -140,420 L -140,500 L -120,500" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 60,500 L 60,740 L 340,740 L 340,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -480,640 L -480,740 L -140,740 L -140,520 L -120,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -220,-40 L -100,-40 L 160,-40 L 160,500" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -360,640 L -360,680 L -200,680 L -200,640 L -120,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 80,320 L 80,300 L 360,300 L 360,240" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,620 L 220,620 L 220,700 L 460,700 L 460,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,560 L 260,560 L 260,480 L 380,480 L 380,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 180,500 L 200,500 L 200,420 L 500,420 L 500,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 60,480 L 60,500 L 120,500 L 120,80 L 360,80 L 360,120" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -400,520 L -400,440 L -160,440 L -160,540 L -120,540" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -400,640 L -400,700 L -180,700 L -180,600 L -120,600" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 380,320 L 380,380 L 420,380" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 480,380 L 620,380 L 660,380" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -520,520 L -520,380 L -40,380 L -40,800 L 640,800 L 640,460 L 660,460" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 580,640 L 580,660" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 420,400 L 360,400 L 140,400 L 140,760 L 300,760 L 300,640" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 400,100 L 400,120" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 340,500 L 340,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -280,640 L -280,660" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -600,500 L -600,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -600,640 L -600,660" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 280,100 L 280,120" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 540,500 L 540,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 480,60 L 480,120" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -100,-40 L -100,500" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 360,380 L 360,400" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 360,300 L 360,340" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 300,500 L 300,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -560,640 L -560,660" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -560,500 L -560,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -240,640 L -240,660" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -240,500 L -240,520" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 560,240 L 560,260" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -40,40 L -60,40 L -60,60 L 480,60 L 480,40" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M 60,400 L 60,420" stroke="#0000b2" stroke-width="4.0" fill="none"/>
+<path d="M -228,28 L -222,34" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 280,94 L 280,100" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 300,494 L 300,500" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 160,500 L 170,500 L 180,500" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,520 L 170,520" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,540 L 170,540" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,560 L 170,560" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,580 L 170,580" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,600 L 170,600" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,620 L 170,620" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 180,640 L 170,640" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,500 L -110,500 L -100,500" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,520 L -110,520" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,540 L -110,540" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,560 L -110,560" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,580 L -110,580" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,600 L -110,600" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,620 L -110,620" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -120,640 L -110,640" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -600,494 L -600,500" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M 550,260 L 570,260" stroke="#000000" stroke-width="6.0" fill="none"/>
+<path d="M 570,660 L 590,660" stroke="#000000" stroke-width="6.0" fill="none"/>
+<path d="M -250,660 L -230,660" stroke="#000000" stroke-width="6.0" fill="none"/>
+<g>
+<circle cx="380.0" cy="320.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-180.0" cy="200.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="360.0" cy="400.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-80.0" cy="80.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-100.0" cy="-40.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="360.0" cy="300.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="60.0" cy="500.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="480.0" cy="60.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="620.0" cy="380.0" r="4.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<path d="M -251,-55 L -221,-55 L -221,-25 L -251,-25 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-236.0" cy="-40.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="end" x="-265.0" y="-31.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;">D0..7</tspan></text>
+<circle cx="-220.0" cy="-40.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -258,-2 L -228,-2 L -221,5 L -221,35 L -251,35 L -258,28 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -228,-1 L -228,28 L -257,28" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-265.0" y="25.0" fill="#000000" style="font-size:24px"><tspan style="text-decoration:overline;">RST</tspan></text>
+<circle cx="-220.0" cy="20.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -251,185 L -221,185 L -221,215 L -251,215 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<path d="M -245,205 L -240,205 L -240,195 L -235,195 L -235,205 L -230,205 L -230,195 L -225,195" stroke="#000000" stroke-width="2.0" fill="none"/>
+<circle cx="-220.0" cy="200.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 270,230 L 270,238 L 290,238 L 290,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="280.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,280.0,225.0)" >5</text>
+<path d="M 270,130 L 270,122 L 290,122 L 290,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="280.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,280.0,135.0)" >VCC</text>
+<path d="M 310,230 L 310,238 L 330,238 L 330,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="320.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,320.0,225.0)" >1</text>
+<path d="M 310,130 L 310,122 L 330,122 L 330,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="320.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,320.0,135.0)" >MR</text>
+<path d="M 350,230 L 350,238 L 370,238 L 370,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="360.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,360.0,225.0)" >0</text>
+<path d="M 350,130 L 350,122 L 370,122 L 370,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="360.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,360.0,135.0)" >CP</text>
+<path d="M 390,230 L 390,238 L 410,238 L 410,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="400.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,400.0,225.0)" >2</text>
+<path d="M 390,130 L 390,122 L 410,122 L 410,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="400.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,400.0,135.0)" ><tspan style="text-decoration:overline;">CE</tspan></text>
+<path d="M 430,230 L 430,238 L 450,238 L 450,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="440.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,440.0,225.0)" >6</text>
+<path d="M 430,130 L 430,122 L 450,122 L 450,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="440.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,440.0,135.0)" >TC</text>
+<path d="M 470,230 L 470,238 L 490,238 L 490,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="480.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,480.0,225.0)" >7</text>
+<path d="M 470,130 L 470,122 L 490,122 L 490,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="480.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,480.0,135.0)" >9</text>
+<path d="M 510,230 L 510,238 L 530,238 L 530,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="520.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,520.0,225.0)" >3</text>
+<path d="M 510,130 L 510,122 L 530,122 L 530,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="520.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,520.0,135.0)" >4</text>
+<path d="M 550,230 L 550,238 L 570,238 L 570,230" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="560.0" y="231.75" fill="#808080" style="font-size:18px" transform="rotate(-90,560.0,225.0)" >GND</text>
+<path d="M 550,130 L 550,122 L 570,122 L 570,130" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="560.0" y="141.75" fill="#808080" style="font-size:18px" transform="rotate(-90,560.0,135.0)" >8</text>
+<path d="M 260,230 L 260,190 C 266,190 270,186 270,180 C 270,174 266,170 260,170 L 260,130 L 580,130 L 580,230 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="290.0" y="189.0" fill="#000000" style="font-size:24px">74x4017</text>
+<circle cx="280.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="320.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="360.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="400.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="440.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="480.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="520.0" cy="240.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="560.0" cy="240.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="560.0" cy="120.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="520.0" cy="120.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="480.0" cy="120.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="440.0" cy="120.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="400.0" cy="120.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="360.0" cy="120.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="320.0" cy="120.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="280.0" cy="120.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<path d="M 270,104 L 280,91 L 290,104" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="280.0" cy="100.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<circle cx="560.0" cy="260.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="start" x="400.0" y="106.0" fill="#000000" style="font-size:24px" transform="rotate(-90,400.0,97.0)" >0</text>
+<circle cx="400.0" cy="100.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 290,630 L 290,638 L 310,638 L 310,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="300.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,300.0,625.0)" ><tspan style="text-decoration:overline;">LD</tspan></text>
+<path d="M 290,530 L 290,522 L 310,522 L 310,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="300.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,300.0,535.0)" >VCC</text>
+<path d="M 330,630 L 330,638 L 350,638 L 350,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="340.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,340.0,625.0)" >CLK</text>
+<path d="M 330,530 L 330,522 L 350,522 L 350,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="340.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,340.0,535.0)" >INH</text>
+<path d="M 370,630 L 370,638 L 390,638 L 390,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="380.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,380.0,625.0)" >E</text>
+<path d="M 370,530 L 370,522 L 390,522 L 390,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="380.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,380.0,535.0)" >D</text>
+<path d="M 410,630 L 410,638 L 430,638 L 430,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="420.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,420.0,625.0)" >F</text>
+<path d="M 410,530 L 410,522 L 430,522 L 430,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="420.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,420.0,535.0)" >C</text>
+<path d="M 450,630 L 450,638 L 470,638 L 470,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="460.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,460.0,625.0)" >G</text>
+<path d="M 450,530 L 450,522 L 470,522 L 470,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="460.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,460.0,535.0)" >B</text>
+<path d="M 490,630 L 490,638 L 510,638 L 510,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="500.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,500.0,625.0)" >H</text>
+<path d="M 490,530 L 490,522 L 510,522 L 510,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="500.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,500.0,535.0)" >A</text>
+<path d="M 530,630 L 530,638 L 550,638 L 550,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="540.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,540.0,625.0)" ><tspan style="text-decoration:overline;">QH</tspan></text>
+<path d="M 530,530 L 530,522 L 550,522 L 550,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="540.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,540.0,535.0)" >SER</text>
+<path d="M 570,630 L 570,638 L 590,638 L 590,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="580.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,580.0,625.0)" >GND</text>
+<path d="M 570,530 L 570,522 L 590,522 L 590,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="580.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,580.0,535.0)" >QH</text>
+<path d="M 280,630 L 280,590 C 286,590 290,586 290,580 C 290,574 286,570 280,570 L 280,530 L 600,530 L 600,630 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="310.0" y="589.0" fill="#000000" style="font-size:24px">74165</text>
+<circle cx="300.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="340.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="380.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="420.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="460.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="500.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="540.0" cy="640.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="580.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="580.0" cy="520.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="540.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="500.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="460.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="420.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="380.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="340.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="300.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<path d="M 290,504 L 300,491 L 310,504" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="300.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<circle cx="580.0" cy="660.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="start" x="340.0" y="506.0" fill="#000000" style="font-size:24px" transform="rotate(-90,340.0,497.0)" >0</text>
+<circle cx="340.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="start" x="540.0" y="506.0" fill="#000000" style="font-size:24px" transform="rotate(-90,540.0,497.0)" >0</text>
+<circle cx="540.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="end" x="158.0" y="497.0" fill="#808080" style="font-size:12px">0-7</text>
+<text text-anchor="start" x="182.0" y="497.0" fill="#808080" style="font-size:12px">0</text>
+<text text-anchor="start" x="182.0" y="517.0" fill="#808080" style="font-size:12px">1</text>
+<text text-anchor="start" x="182.0" y="537.0" fill="#808080" style="font-size:12px">2</text>
+<text text-anchor="start" x="182.0" y="557.0" fill="#808080" style="font-size:12px">3</text>
+<text text-anchor="start" x="182.0" y="577.0" fill="#808080" style="font-size:12px">4</text>
+<text text-anchor="start" x="182.0" y="597.0" fill="#808080" style="font-size:12px">5</text>
+<text text-anchor="start" x="182.0" y="617.0" fill="#808080" style="font-size:12px">6</text>
+<text text-anchor="start" x="182.0" y="637.0" fill="#808080" style="font-size:12px">7</text>
+<path d="M 168,498 L 172,498 L 172,642 L 168,642 Z" stroke="#000000" stroke-width="4.0" fill="#000000" fill-opacity="1.0"/>
+<circle cx="160.0" cy="500.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="180.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="520.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="540.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="560.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="580.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="600.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="620.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="180.0" cy="640.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 61,-30 L 119,-30 L 119,30 L 61,30 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="130.0" cy="0.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="middle" x="90.0" y="-8.0" fill="#000000" style="font-size:24px">&amp;</text>
+<circle cx="60.0" cy="-20.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="60.0" cy="20.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="140.0" cy="0.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -39,-10 L 19,-10 L 19,50 L -39,50 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="30.0" cy="20.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="middle" x="-10.0" y="12.0" fill="#000000" style="font-size:24px">&amp;</text>
+<circle cx="-40.0" cy="0.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-40.0" cy="40.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="40.0" cy="20.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -159,70 L -141,70 L -141,90 L -159,90 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-130.0" cy="80.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="-160.0" cy="80.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="80.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 90,321 L 90,379 L 30,379 L 30,321 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="60.0" cy="390.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="middle" x="86.0" y="350.0" fill="#000000" style="font-size:24px" transform="rotate(-90,86.0,350.0)" >&amp;</text>
+<circle cx="80.0" cy="320.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="40.0" cy="320.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="60.0" cy="400.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 90,421 L 90,479 L 30,479 L 30,421 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="middle" x="86.0" y="450.0" fill="#000000" style="font-size:24px" transform="rotate(-90,86.0,450.0)" >&amp;</text>
+<circle cx="80.0" cy="420.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="60.0" cy="420.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="40.0" cy="420.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="60.0" cy="480.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -159,130 L -141,130 L -141,150 L -159,150 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-130.0" cy="140.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="-160.0" cy="140.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="140.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 470,39 L 470,21 L 490,21 L 490,39 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="480.0" cy="10.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="480.0" cy="40.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="480.0" cy="0.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 421,350 L 479,350 L 479,410 L 421,410 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="middle" x="450.0" y="372.0" fill="#000000" style="font-size:24px">&amp;</text>
+<circle cx="420.0" cy="360.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="420.0" cy="380.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="420.0" cy="400.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="480.0" cy="380.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 370,341 L 370,359 L 350,359 L 350,341 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="360.0" cy="370.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="360.0" cy="340.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="360.0" cy="380.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<circle cx="676.0" cy="380.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="676.0" cy="380.0" r="15.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="start" x="705.0" y="389.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;">SPICLK</tspan></text>
+<circle cx="660.0" cy="380.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<circle cx="676.0" cy="420.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<circle cx="676.0" cy="420.0" r="15.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="start" x="705.0" y="429.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;">MOSI</tspan></text>
+<circle cx="660.0" cy="420.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<path d="M -251,65 L -221,65 L -221,95 L -251,95 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-236.0" cy="80.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="end" x="-265.0" y="89.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;">E</tspan></text>
+<circle cx="-220.0" cy="80.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -610,630 L -610,638 L -590,638 L -590,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-600.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-600.0,625.0)" >S0</text>
+<path d="M -610,530 L -610,522 L -590,522 L -590,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-600.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-600.0,535.0)" >VCC</text>
+<path d="M -570,630 L -570,638 L -550,638 L -550,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-560.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-560.0,625.0)" ><tspan style="text-decoration:overline;">OE1</tspan></text>
+<path d="M -570,530 L -570,522 L -550,522 L -550,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-560.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-560.0,535.0)" >S1</text>
+<path d="M -530,630 L -530,638 L -510,638 L -510,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-520.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-520.0,625.0)" ><tspan style="text-decoration:overline;">OE2</tspan></text>
+<path d="M -530,530 L -530,522 L -510,522 L -510,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-520.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-520.0,535.0)" >DSL</text>
+<path d="M -490,630 L -490,638 L -470,638 L -470,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-480.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-480.0,625.0)" >I/O6</text>
+<path d="M -490,530 L -490,522 L -470,522 L -470,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-480.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-480.0,535.0)" >Q7</text>
+<path d="M -450,630 L -450,638 L -430,638 L -430,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-440.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-440.0,625.0)" >I/O4</text>
+<path d="M -450,530 L -450,522 L -430,522 L -430,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-440.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-440.0,535.0)" >I/O7</text>
+<path d="M -410,630 L -410,638 L -390,638 L -390,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-400.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-400.0,625.0)" >I/O2</text>
+<path d="M -410,530 L -410,522 L -390,522 L -390,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-400.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-400.0,535.0)" >I/O5</text>
+<path d="M -370,630 L -370,638 L -350,638 L -350,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-360.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-360.0,625.0)" >I/O0</text>
+<path d="M -370,530 L -370,522 L -350,522 L -350,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-360.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-360.0,535.0)" >I/O3</text>
+<path d="M -330,630 L -330,638 L -310,638 L -310,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-320.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-320.0,625.0)" >Q0</text>
+<path d="M -330,530 L -330,522 L -310,522 L -310,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-320.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-320.0,535.0)" >I/O1</text>
+<path d="M -290,630 L -290,638 L -270,638 L -270,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-280.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-280.0,625.0)" ><tspan style="text-decoration:overline;">MR</tspan></text>
+<path d="M -290,530 L -290,522 L -270,522 L -270,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-280.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-280.0,535.0)" >CP</text>
+<path d="M -250,630 L -250,638 L -230,638 L -230,630" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-240.0" y="631.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-240.0,625.0)" >GND</text>
+<path d="M -250,530 L -250,522 L -230,522 L -230,530" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="end" x="-240.0" y="541.75" fill="#808080" style="font-size:18px" transform="rotate(-90,-240.0,535.0)" >DSR</text>
+<path d="M -620,630 L -620,590 C -614,590 -610,586 -610,580 C -610,574 -614,570 -620,570 L -620,530 L -220,530 L -220,630 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<text text-anchor="start" x="-590.0" y="589.0" fill="#000000" style="font-size:24px">74299</text>
+<circle cx="-600.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-560.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-520.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-480.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-440.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-400.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-360.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-320.0" cy="640.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="-280.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-240.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-240.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-280.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-320.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-360.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-400.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-440.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-480.0" cy="520.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+<circle cx="-520.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-560.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-600.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+</g>
+<g>
+<text text-anchor="end" x="-122.0" y="497.0" fill="#808080" style="font-size:12px">0</text>
+<text text-anchor="end" x="-122.0" y="517.0" fill="#808080" style="font-size:12px">1</text>
+<text text-anchor="end" x="-122.0" y="537.0" fill="#808080" style="font-size:12px">2</text>
+<text text-anchor="end" x="-122.0" y="557.0" fill="#808080" style="font-size:12px">3</text>
+<text text-anchor="end" x="-122.0" y="577.0" fill="#808080" style="font-size:12px">4</text>
+<text text-anchor="end" x="-122.0" y="597.0" fill="#808080" style="font-size:12px">5</text>
+<text text-anchor="end" x="-122.0" y="617.0" fill="#808080" style="font-size:12px">6</text>
+<text text-anchor="end" x="-122.0" y="637.0" fill="#808080" style="font-size:12px">7</text>
+<text text-anchor="start" x="-98.0" y="497.0" fill="#808080" style="font-size:12px">0-7</text>
+<path d="M -112,498 L -108,498 L -108,642 L -112,642 Z" stroke="#000000" stroke-width="4.0" fill="#000000" fill-opacity="1.0"/>
+<circle cx="-120.0" cy="500.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="520.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="540.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="560.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="580.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="600.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="620.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-120.0" cy="640.0" r="2.0" stroke="#0000b2" stroke-width="4.0" fill="#0000b2" />
+<circle cx="-100.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<circle cx="-240.0" cy="660.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -610,504 L -600,491 L -590,504" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-600.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="end" x="-280.0" y="672.0" fill="#000000" style="font-size:24px" transform="rotate(-90,-280.0,663.0)" >1</text>
+<circle cx="-280.0" cy="660.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="start" x="-240.0" y="506.0" fill="#000000" style="font-size:24px" transform="rotate(-90,-240.0,497.0)" >0</text>
+<circle cx="-240.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M 691,475 L 661,475 L 661,445 L 691,445 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="676.0" cy="460.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="start" x="705.0" y="469.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;">MISO</tspan></text>
+<circle cx="660.0" cy="460.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="end" x="-560.0" y="672.0" fill="#000000" style="font-size:24px" transform="rotate(-90,-560.0,663.0)" >0</text>
+<circle cx="-560.0" cy="660.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="end" x="-600.0" y="672.0" fill="#000000" style="font-size:24px" transform="rotate(-90,-600.0,663.0)" >0</text>
+<circle cx="-600.0" cy="660.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<text text-anchor="start" x="-560.0" y="506.0" fill="#000000" style="font-size:24px" transform="rotate(-90,-560.0,497.0)" >1</text>
+<circle cx="-560.0" cy="500.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+<g>
+<path d="M -251,125 L -221,125 L -221,155 L -251,155 Z" stroke="#000000" stroke-width="4.0" fill="none"/>
+<circle cx="-236.0" cy="140.0" r="9.0" stroke="#000000" stroke-width="4.0" fill="none" />
+<text text-anchor="end" x="-265.0" y="149.0" fill="#000000" style="font-size:24px"><tspan style="font-style:italic;"><tspan style="text-decoration:overline;">RD</tspan></tspan></text>
+<circle cx="-220.0" cy="140.0" r="2.0" stroke="#b20000" stroke-width="4.0" fill="#b20000" />
+</g>
+</g>
+</svg>
