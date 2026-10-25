@@ -2,6 +2,7 @@
 #define EMULATOR_CHIPS_W5500_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include "../bus.h"
 #include "spi.h"
 #include "via_6522.h"
@@ -40,6 +41,8 @@ struct w5500_state {
 void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6522_state *via, uint8_t cs_mask);
 /* One SCLK pulse (spi.h): the MISO bit the rising edge saw */
 int w5500_pulse(void *state, int mosi);
+/* The network settings: "<prefix>: w5500: ip a.b.c.d mask a.b.c.d gateway a.b.c.d mac xx:xx:xx:xx:xx:xx" */
+void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *state);
 /* The W5500 as the GAL SPI interface's device */
 struct spi_device w5500_spi(struct w5500_state *state);
 

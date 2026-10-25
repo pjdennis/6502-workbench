@@ -3,6 +3,8 @@
  * length mode it lasts until the chip select rises. */
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "greatest.h"
 #include "../bus.h"
 #include "../chips/via_6522.h"
@@ -156,6 +158,21 @@ TEST phycfgr_reads_link_up(void) {
     PASS();
 }
 
+TEST the_report_shows_the_network_settings(void) {
+    setup();
+    const uint8_t net[18] = { 192, 168, 8, 1,   255, 255, 255, 0,   0x02, 0x65, 0x02, 0x00, 0x00, 0x01,
+                              192, 168, 8, 50 };   /* GAR, SUBR, SHAR, SIPR: one run from $0001 */
+    write_common(GAR, net, 18);
+    char *text; size_t size;
+    FILE *fp = open_memstream(&text, &size);
+    w5500_report(fp, "michael", &ws);
+    fclose(fp);
+    ASSERT_STR_EQ("michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 mac 02:65:02:00:00:01\n",
+                  text);
+    free(text);
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -183,6 +200,7 @@ SUITE(w5500) {
     RUN_TEST(the_header_bytes_answer_01_02_03);
     RUN_TEST(mr_rst_resets_the_registers);
     RUN_TEST(phycfgr_reads_link_up);
+    RUN_TEST(the_report_shows_the_network_settings);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }

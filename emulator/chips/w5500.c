@@ -116,6 +116,14 @@ void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6
     chip->state = state;
 }
 
+void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *s) {
+    const uint8_t *c = s->common;   /* GAR $01, SUBR $05, SHAR $09, SIPR $0F */
+    fprintf(fp, "%s: w5500: ip %u.%u.%u.%u mask %u.%u.%u.%u gateway %u.%u.%u.%u "
+                "mac %02x:%02x:%02x:%02x:%02x:%02x\n", prefix,
+            c[0x0F], c[0x10], c[0x11], c[0x12], c[0x05], c[0x06], c[0x07], c[0x08],
+            c[0x01], c[0x02], c[0x03], c[0x04], c[0x09], c[0x0A], c[0x0B], c[0x0C], c[0x0D], c[0x0E]);
+}
+
 struct spi_device w5500_spi(struct w5500_state *state) {
     return (struct spi_device){ state, w5500_pulse };
 }

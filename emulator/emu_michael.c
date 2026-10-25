@@ -518,6 +518,7 @@ int emu_run_michael(const struct emu_opts *opts) {
                 cpu_stp_pending() ? "(STP)" : "(cycle cap)");
         lcd_report_final(stderr, "michael", &lcd_state);
         fpga_bus_report(stderr, "michael", &fpga_state);
+        if (w5500) w5500_report(stderr, "michael", &w5500_state);
         fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
         fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
                 (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
