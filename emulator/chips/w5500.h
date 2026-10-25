@@ -13,7 +13,8 @@
  * A frame is two address bytes, a control byte -- the block (BSB, bits 7-3: 0 the common registers, 4n+1, 4n+2
  * and 4n+3 socket n's registers, TX buffer and RX buffer), read or write (bit 2: 1 writes) and the mode (bits 1-0:
  * 0 variable length, until SCSn rises; 1, 2 or 3 fixed at 1, 2 or 4 data bytes) -- then data, the address
- * counting up. MISO is 0 outside a read's data, as the address and control phases have no defined data.
+ * counting up. While the address and control bytes go in, MISO counts them, $01, $02 and $03 (as the board shows):
+ * a driver can check them to see the frame was taken whole. MISO is 0 during a write's data.
  *
  * Modelled: the register and buffer memory, with the reset values of the registers a driver reads first
  * (VERSIONR, read-only, is $04). The network side isn't: commands, sockets and the PHY don't act. */
