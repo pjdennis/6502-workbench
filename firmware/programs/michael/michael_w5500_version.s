@@ -10,8 +10,6 @@
 ; board never drives port B.
   .include base_config_v2.inc
 
-GAL_E                = FPGA_E    ; PA2: a rising edge sends the byte on port B; held high past the 8 SCLK
-                                 ; pulses, the '299 drives the byte received onto port B until E falls
 W5500_CS             = %00000001 ; PA0, active low; the module pulls it up
 VERSIONR             = $0039
 VERSION              = $04
@@ -37,6 +35,7 @@ start:
   .include display_routines.inc
   .include display_string.inc
   .include convert_to_hex.inc
+  .include gal_spi.inc
 
 program_start:
   ldx #$ff
@@ -96,51 +95,16 @@ read_version:
   lda #W5500_CS
   trb PORTA                      ; Select
   lda #>VERSIONR
-  jsr spi_write
+  jsr gal_spi_write
   lda #<VERSIONR
-  jsr spi_write
+  jsr gal_spi_write
   lda #CONTROL_COMMON_READ
-  jsr spi_write
+  jsr gal_spi_write
   lda #$00
-  jsr spi_read
+  jsr gal_spi_read
   pha
   lda #W5500_CS
   tsb PORTA                      ; Deselect: the frame ends
-  pla
-  rts
-
-
-; Sends A. E is high for 6 cycles (tsb ... trb), well inside the 8 of the burst, so the '299 never drives
-; port B; the burst ends long before the caller can start another (E must be low at its last edge).
-; On exit A = GAL_E; X, Y are preserved
-spi_write:
-  sta PORTB
-  lda #GAL_E
-  tsb PORTA
-  trb PORTA
-  rts
-
-
-; Sends A and returns the byte received in A. E stays high past the burst, so the '299 drives the byte
-; received onto port B; port B turns to input within 8 cycles of E rising, before the '299 does, and back to
-; output only after E has fallen and the '299 has let go. X, Y are preserved
-spi_read:
-  sta PORTB
-  lda #GAL_E
-  tsb PORTA                      ; The burst starts
-  stz DDRB                       ; Port B an input
-  nop                            ; The burst's 8 cycles, and the '299's outputs settling
-  nop
-  nop
-  nop
-  nop
-  nop
-  lda PORTB                      ; The byte received
-  pha
-  lda #GAL_E
-  trb PORTA                      ; The '299 lets go at the next edge
-  lda #$ff
-  sta DDRB                       ; Port B an output again
   pla
   rts
 

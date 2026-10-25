@@ -13,3 +13,4 @@ Shared routines, included by bare file name (see [`../README.md`](../README.md))
 | [`tasks/`](tasks/README.md) | `prg_*` tasks for the multitasking demos |
 | [`serial/`](serial/README.md) | The bit-banged serial upload loaders |
 | [`fpga/`](fpga/README.md) | The Michael FPGA bus driver (`fpga_bus.inc`) |
+| [`spi/`](spi/README.md) | SPI through Michael's GAL20RA10 interface (`gal_spi.inc`) |
