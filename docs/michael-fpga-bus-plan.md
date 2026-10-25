@@ -263,6 +263,8 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   (`rgb_led`, in the shared pin file
   [`spi-display/constr/cmod_a7.xdc`](../hardware/michael/fpga/spi-display/constr/cmod_a7.xdc)), as the
   toolchain kit's `bram_check` does, and each testbench checks it's off. Give it a meaning later if one is wanted.
+  The orange LED that stays lit is DONE: the FPGA has loaded its design. It and the power and USB-UART
+  traffic LEDs aren't wired to the FPGA's user pins ([Cmod A7 reference manual](cmod_a7_rm.pdf), section 7).
 - **A version for the FPGA design.** `ID` gives the protocol's version and capabilities, but nothing says which
   build of a design is loaded. Both the stage 2 snow fix and the review's clean-ups went into flash with `ID`
   unchanged. Add a design version that changes with every change to a design, readable by Michael and
