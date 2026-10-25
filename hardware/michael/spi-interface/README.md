@@ -11,7 +11,8 @@ The designs for the interface between Michael's VIA and the SPI display, before 
 | [`kicad/`](kicad/) | "Bidirectional SPI interface" rev 0.1 in 74LS chips (2025-10-04): schematic, and a PCB with the parts placed but not routed | KiCad 6 |
 | [`gal/`](gal/) | `spi-control.pld` for a GAL20RA10 and a 74HC299 (2025-10-10) and `program-spi.sh`; [`bring-up/`](gal/bring-up/), the GAL20RA10 test designs of 2025-10-04 | GALasm, minipro |
 
-The emulator models the GAL design and a W5500 on it (`--add gal-spi,w5500` on `--machine michael`:
+The GAL design works on Michael with a W5500 module (2026-10-25, after three wiring faults: see the write-up's
+"Tried again"). The emulator models the GAL design and a W5500 on it (`--add gal-spi,w5500` on `--machine michael`:
 `emulator/chips/gal_spi.h`, `emulator/chips/w5500.h`), and
 [`michael_w5500_version.s`](../../../firmware/programs/michael/michael_w5500_version.s) reads the W5500 through it,
 on the board or the emulator.

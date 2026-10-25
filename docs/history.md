@@ -37,6 +37,7 @@ Then build it the way that era did, using the table below.
 | 2024-10 | Michael's SPI display interface in an FPGA (Cmod A7), first try: the 74-series circuit from the Digital simulator | — | Vivado, outside this repository: [`michael-fpga-display-earlier-designs.md`](michael-fpga-display-earlier-designs.md) |
 | 2025-04 | Second try: hand-written Verilog at 128 MHz; flaky, then set aside | — | as above |
 | 2025-10-04 | A two-way SPI interface in 74LS chips, then in a GAL20RA10 and a 74HC299 | — | KiCad and GALasm, outside this repository at the time: [`michael-spi-interface-logic-designs.md`](michael-spi-interface-logic-designs.md) |
+| 2026-10-25 | The GAL interface and a W5500 working on Michael (the FPGA board unplugged), and both modelled in the emulator | — | `michael_w5500_version.s`; emulator `--add gal-spi,w5500` |
 | 2025-11-15 | asm1 assembles itself byte-identically | `07b2118` (`asm1/self-hosts`) | `cd assembler && ./asmtestgen.sh` (needs `../vasm6502_oldstyle`, `hexdump`) |
 | 2026-01-06 | **asm2** enters version control (flat `asmNN.asm` files) | `005e339` (`asm2/start`) | `cd assembler2 && ./asmtestgen.sh` |
 | 2026-02-07 | Per-stage directories; first editor program | `b4e2f4a`, `cc718c8` (`editor/start`) | `cd assembler2 && ./asmtestgen.sh`; `python3 editor/tests/editor_tests.py` |
