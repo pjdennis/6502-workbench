@@ -10,10 +10,6 @@
 ; board never drives port B.
   .include base_config_v2.inc
 
-W5500_CS             = %00000001 ; PA0, active low; the module pulls it up
-VERSIONR             = $0039
-VERSION              = $04
-CONTROL_COMMON_READ  = $00       ; the common registers' block, read, variable length (until CS rises)
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
 GOOD                 = $02 ; 2 bytes
@@ -23,6 +19,7 @@ LAST                 = $08 ; 1 byte
 FIRST_BAD            = $09 ; 1 byte
 SEEN_BAD             = $0A ; 1 byte
 ROUND                = $0B ; 1 byte
+W5500_CHECK          = $0C ; 1 byte
 
 READS_HIGH           = $10       ; 4096 reads a round
 
@@ -36,14 +33,13 @@ start:
   .include display_string.inc
   .include convert_to_hex.inc
   .include gal_spi.inc
+  .include w5500.inc
 
 program_start:
   ldx #$ff
   txs
   sei
-  lda #W5500_CS
-  tsb PORTA                      ; Deselected before PA0 becomes an output
-  tsb DDRA
+  jsr w5500_initialize
   jsr reset_and_enable_display_no_cursor
   stz ROUND
   stz SEEN_BAD
@@ -61,7 +57,7 @@ program_start:
 .read:
   jsr read_version
   sta LAST
-  cmp #VERSION
+  cmp #W5500_VERSION
   bne .bad
   inc GOOD
   bne .counted
@@ -92,20 +88,16 @@ program_start:
 
 ; Reads VERSIONR in one frame. On exit A = the value read; X, Y are preserved
 read_version:
-  lda #W5500_CS
-  trb PORTA                      ; Select
-  lda #>VERSIONR
-  jsr gal_spi_write
-  lda #<VERSIONR
-  jsr gal_spi_write
-  lda #CONTROL_COMMON_READ
-  jsr gal_spi_write
-  lda #$00
-  jsr gal_spi_read
-  pha
-  lda #W5500_CS
-  tsb PORTA                      ; Deselect: the frame ends
-  pla
+  phx
+  phy
+  ldx #>W5500_VERSIONR
+  ldy #<W5500_VERSIONR
+  lda #W5500_COMMON_READ
+  jsr w5500_begin
+  jsr w5500_read_byte
+  jsr w5500_end
+  ply
+  plx
   rts
 
 
