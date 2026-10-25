@@ -254,6 +254,40 @@ TEST cli_no_fpga_for_michael_only(void) {
     PASS();
 }
 
+/* --add: hardware plugged into Michael beyond the board's own, a comma list or repeated */
+TEST cli_add_hardware_for_michael(void) {
+    struct emu_opts opts;
+    char *list[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,w5500", NULL};
+    ASSERT_EQ_FMT(0, parse(list, &opts), "%d");
+    ASSERT_EQ_FMT(MICHAEL_ADD_GAL_SPI | MICHAEL_ADD_W5500, opts.michael_add, "%u");
+    char *repeated[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--add", "gal-spi", NULL};
+    ASSERT_EQ_FMT(0, parse(repeated, &opts), "%d");
+    ASSERT_EQ_FMT(MICHAEL_ADD_GAL_SPI | MICHAEL_ADD_W5500, opts.michael_add, "%u");
+    char *none[] = {"emulator", "prog.bin", "--machine", "michael", NULL};
+    ASSERT_EQ_FMT(0, parse(none, &opts), "%d");
+    ASSERT_EQ_FMT(0u, opts.michael_add, "%u");
+    PASS();
+}
+
+static int add_error(char **argv, const char *message) {
+    struct emu_opts opts;
+    char buf[1024] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    return rc == 1 && strstr(buf, message) != NULL;
+}
+
+TEST cli_add_hardware_errors(void) {
+    char *unknown[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,modem", NULL};
+    ASSERT(add_error(unknown, "--add: unknown hardware 'modem'"));
+    char *alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", NULL};
+    ASSERT(add_error(alone, "--add w5500 needs gal-spi"));
+    char *wendy[] = {"emulator", "prog.bin", "--machine", "wendy2c", "--add", "gal-spi", NULL};
+    ASSERT(add_error(wendy, "--add requires --machine michael"));
+    PASS();
+}
+
 TEST cli_lcd_trace_path_parsed(void) {
     char *argv[] = {"emulator", "prog.bin",
                     "--machine", "wendy2c",
@@ -529,6 +563,8 @@ SUITE(cli_suite) {
     RUN_TEST(cli_lcd_trace_default_null);
     RUN_TEST(cli_lcd_trace_missing_value_errors);
     RUN_TEST(cli_no_fpga_for_michael_only);
+    RUN_TEST(cli_add_hardware_for_michael);
+    RUN_TEST(cli_add_hardware_errors);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
     RUN_TEST(cli_exit_report_opt_in);
     RUN_TEST(cli_exit_report_requires_a_board);

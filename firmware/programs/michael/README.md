@@ -9,6 +9,7 @@
 - `michael_fpga_bus_noise.s`: switches all of port B continuously with the FPGA bus's E held low, for measuring the noise that reaches E (`hardware/michael/fpga/bus-check/noise.py`).
 - `michael_fpga_bus_idle.s`: holds the FPGA bus's E low and does nothing else, so a bus check starts from a quiet bus.
 - `michael_fpga_bus_check.s`: echoes bytes through the FPGA bus and reads them back, without and then with the keyboard interrupting, and reports through the FPGA's serial port, for the bus check (see [`hardware/michael/fpga/bus-check/`](../../../hardware/michael/fpga/bus-check/)).
+- `michael_w5500_version.s`: reads the W5500's VERSIONR through the GAL20RA10 SPI interface (with the FPGA board unplugged) in rounds of 4096 and shows the counts on the LCD (see [`hardware/michael/spi-interface/`](../../../hardware/michael/spi-interface/)); on the emulator, `--add gal-spi,w5500` (`tools/tests/test_michael_w5500.py`).
 - `michael_ram_map.s`: probes RAM.
 - [`bringup/`](bringup/): the first standalone-board programs (2021-04), with hard-coded addresses.
 - [`bbc-basic/`](bbc-basic/): BBC BASIC on Michael through a MOS shim. It needs the external `../BeebEater` tree, which is not in this repository.
