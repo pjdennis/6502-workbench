@@ -25,6 +25,8 @@
 #include "chips/ps2_keyboard_board.h"
 #include "chips/serial_usb.h"
 #include "chips/fpga_bus.h"
+#include "chips/gal_spi.h"
+#include "chips/w5500.h"
 #include "ps2_keys.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
@@ -41,22 +43,29 @@ struct portb_drivers {
     const struct lcd_hd44780_state *lcd;
     const struct ps2_keyboard_board_state *kbd;
     const struct fpga_bus_state *fpga;
+    const struct gal_spi_state *gal;   /* --add gal-spi's 74HC299, or NULL */
 };
+
+static int gal_output(const struct gal_spi_state *gal, uint8_t *value) {
+    return gal ? gal_spi_output(gal, value) : 0;
+}
 
 /* Pins driven by more than one device read as the AND of their drives,
  * as a low driver wins. Undriven pins read 0. */
 static uint8_t portb_input(void *ctx) {
     const struct portb_drivers *d = ctx;
-    uint8_t lcd = 0xFF, kbd = 0xFF, fpga = 0xFF;
+    uint8_t lcd = 0xFF, kbd = 0xFF, fpga = 0xFF, gal = 0xFF;
     int lcd_drives = lcd_hd44780_output(d->lcd, &lcd);
     int kbd_drives = ps2_board_output(d->kbd, &kbd);
     int fpga_drives = fpga_bus_output(d->fpga, &fpga);
-    return (lcd_drives || kbd_drives || fpga_drives) ? (uint8_t)(lcd & kbd & fpga) : 0x00;
+    int gal_drives = gal_output(d->gal, &gal);
+    return (lcd_drives || kbd_drives || fpga_drives || gal_drives) ? (uint8_t)(lcd & kbd & fpga & gal) : 0x00;
 }
 
 /* Counts spells of more than one device driving the same PORTB pin:
  * the VIA (pins set as outputs), the LCD (a read cycle), the keyboard
- * board (SOEB low) and the FPGA (a bus read). */
+ * board (SOEB low), the FPGA (a bus read) and --add gal-spi's 74HC299
+ * (holding the byte received). */
 struct bus_check_state {
     const struct via_6522_state *via;
     struct portb_drivers drivers;
@@ -69,7 +78,8 @@ static void bus_check_tick(struct chip *self, struct bus *bus) {
     struct bus_check_state *s = self->state;
     uint8_t value;
     int drivers = (s->via->ddrb != 0) + lcd_hd44780_output(s->drivers.lcd, &value)
-                + ps2_board_output(s->drivers.kbd, &value) + fpga_bus_output(s->drivers.fpga, &value);
+                + ps2_board_output(s->drivers.kbd, &value) + fpga_bus_output(s->drivers.fpga, &value)
+                + gal_output(s->drivers.gal, &value);
     if (drivers > 1) {
         if (!s->contending) s->contention++;
         s->contending = 1;
@@ -356,10 +366,13 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct ps2_keyboard_board_state kbd_state;
     static struct serial_usb_state   ser_state;
     static struct fpga_bus_state     fpga_state;
+    static struct gal_spi_state      gal_state;
+    static struct w5500_state        w5500_state;
     static struct bus_check_state    check_state;
     static const struct chip_ops check_ops = { .tick = bus_check_tick };
     static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
     struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, fpga_chip, cpu_chip;
+    struct chip gal_chip, w5500_chip;
     struct chip check_chip = { &check_ops, "bus_check", &check_state };
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
@@ -393,6 +406,12 @@ int emu_run_michael(const struct emu_opts *opts) {
     }
     fpga_bus_init(&fpga_chip, &fpga_state, &via_state, fpga_log);
     fpga_state.absent = opts->no_fpga;
+    /* --add: the GAL20RA10 SPI interface in place of the FPGA board (unplugged, so it never answers), and the
+       W5500 on its SPI, the chip select on PA0 */
+    int gal = (opts->michael_add & MICHAEL_ADD_GAL_SPI) != 0, w5500 = (opts->michael_add & MICHAEL_ADD_W5500) != 0;
+    if (gal) fpga_state.absent = 1;
+    w5500_init(&w5500_chip, &w5500_state, &via_state, 0x01);
+    gal_spi_init(&gal_chip, &gal_state, &via_state, w5500 ? w5500_spi(&w5500_state) : (struct spi_device){ 0 });
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));
@@ -400,6 +419,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     check_state.drivers.lcd = &lcd_state;
     check_state.drivers.kbd = &kbd_state;
     check_state.drivers.fpga = &fpga_state;
+    check_state.drivers.gal = gal ? &gal_state : NULL;
     via_6522_set_portb_input(&via_state, portb_input, &check_state.drivers);
 
     /* With --load the code file goes into RAM, and the ROM is --rom's or
@@ -429,6 +449,8 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &kbd_chip);
     bus_add_chip(&b, &ser_chip);
     bus_add_chip(&b, &fpga_chip);
+    if (w5500) bus_add_chip(&b, &w5500_chip);   /* ahead of the GAL: it sees its chip select before the pulses */
+    if (gal) bus_add_chip(&b, &gal_chip);
     bus_add_chip(&b, &check_chip);
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);

@@ -60,6 +60,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->exit_report = 0;
     opts->fpga_log_filename = NULL;
     opts->no_fpga = 0;
+    opts->michael_add = 0;
     opts->lcd_panel = LCD_PANEL_16X2_5X8;
 }
 
@@ -157,6 +158,9 @@ void emu_opts_usage(FILE *fp) {
 "                         for nmos-default and --server it is CPU cycles.\n"
 "  --fpga-log PATH        michael: a line per FPGA bus transfer (E on PA2): \"C hh\", \"D hh\", \"R\" or \"S\"\n"
 "  --no-fpga              michael: the FPGA unconfigured: it never answers or acts on the bus\n"
+"  --add NAME[,NAME...]   michael: plug in more hardware (repeatable): gal-spi, the GAL20RA10 SPI\n"
+"                         interface on port B and PA2 in place of the FPGA board; w5500, the W5500\n"
+"                         Ethernet controller on its SPI, chip select on PA0 (needs gal-spi)\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -174,6 +178,25 @@ void emu_opts_usage(FILE *fp) {
 
 /* Helper: --FLAG VALUE. Returns 0 on success, sets *value_out and
  * advances *idx by 2; returns 1 on missing value. */
+/* --add's comma list into MICHAEL_ADD_* flags */
+static int add_hardware(const char *list, unsigned *flags) {
+    static const struct { const char *name; unsigned flag; } names[] = {
+        { "gal-spi", MICHAEL_ADD_GAL_SPI }, { "w5500", MICHAEL_ADD_W5500 },
+    };
+    while (*list) {
+        size_t n = strcspn(list, ",");
+        size_t k = 0;
+        while (k < sizeof names / sizeof names[0] && !(strlen(names[k].name) == n && !strncmp(list, names[k].name, n))) k++;
+        if (k == sizeof names / sizeof names[0]) {
+            fprintf(stderr, "error: --add: unknown hardware '%.*s' (gal-spi, w5500)\n", (int)n, list);
+            return 1;
+        }
+        *flags |= names[k].flag;
+        list += n + (list[n] == ',');
+    }
+    return 0;
+}
+
 static int take_str_value(int argc, char **argv, int *idx, const char *flag, const char **value_out) {
     if (*idx + 1 >= argc) {
         fprintf(stderr, "error: %s requires a value\n", flag);
@@ -414,6 +437,10 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         } else if (strcmp(argv[i], "--no-fpga") == 0) {
             opts->no_fpga = 1;
             i++;
+        } else if (strcmp(argv[i], "--add") == 0) {
+            const char *list;
+            if (take_str_value(argc, argv, &i, "--add", &list)) return 1;
+            if (add_hardware(list, &opts->michael_add)) return 1;
         } else if (strcmp(argv[i], "--fpga-log") == 0) {
             if (take_str_value(argc, argv, &i, "--fpga-log", &opts->fpga_log_filename)) return 1;
         } else if (strcmp(argv[i], "--lcd-panel") == 0) {
@@ -529,6 +556,16 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if (opts->no_fpga && opts->machine != MACHINE_MICHAEL) {
         fprintf(stderr, "error: --no-fpga requires --machine michael\n");
+        return 1;
+    }
+
+    if (opts->michael_add && opts->machine != MACHINE_MICHAEL) {
+        fprintf(stderr, "error: --add requires --machine michael\n");
+        return 1;
+    }
+
+    if ((opts->michael_add & MICHAEL_ADD_W5500) && !(opts->michael_add & MICHAEL_ADD_GAL_SPI)) {
+        fprintf(stderr, "error: --add w5500 needs gal-spi, the SPI interface it is on\n");
         return 1;
     }
 

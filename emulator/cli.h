@@ -24,6 +24,11 @@
 /* Parsed command-line options for the default (non-server-as-first-arg)
  * code path. Numeric defaults are 0 / -1; string defaults are documented
  * per field. */
+/* --add's hardware (michael): the GAL20RA10 SPI interface on port B and PA2, in place of the FPGA board
+ * (chips/gal_spi.h), and the W5500 on its SPI, the chip select on PA0 (chips/w5500.h) */
+#define MICHAEL_ADD_GAL_SPI 0x01u
+#define MICHAEL_ADD_W5500   0x02u
+
 struct emu_opts {
     const char *code_filename;          /* positional argv[1], NULL if missing */
     long load_address;                  /* --load HEX; -1 if not specified */
@@ -80,6 +85,7 @@ struct emu_opts {
     const char *serial_link_path;       /* --serial-link PATH (wendy2c only): Unix socket for host-driven CB2 + reset */
     const char *fpga_log_filename;      /* --fpga-log PATH (michael): a line per FPGA bus transfer (fpga_bus.h) */
     int no_fpga;                        /* --no-fpga (michael): the FPGA unconfigured, never answering */
+    unsigned michael_add;               /* --add NAME[,NAME...] (michael): MICHAEL_ADD_* hardware plugged in */
     const char *lcd_trace_filename;     /* --lcd-trace PATH (wendy2c, michael; non-live, non-web): append a
                                          * timestamped LCD frame to PATH every time the LCD changes during
                                          * the run loop. Format: a "--- osc=N cpu=N pc=$NNNN ---" header

@@ -21,9 +21,9 @@ def build_emulator():
     subprocess.run(['make', '-s', 'emulator/emulator.out'], cwd=ROOT, check=True, capture_output=True)
 
 
-def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=None):
+def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=None, options=()):
     """Assembles source (text) or program (a path) and runs it, typing keys (bytes) key_interval ms apart
-    (the emulator's default if None). Returns (the FPGA bus log, the emulator's report: its exit line, the
+    (the emulator's default if None), with more emulator options (such as --add's hardware). Returns (the FPGA bus log, the emulator's report: its exit line, the
     LCD and so on)."""
     with tempfile.TemporaryDirectory() as tmp:
         if source is not None:
@@ -32,12 +32,12 @@ def run(source=None, program=None, keys=None, cycle_cap=6_000_000, key_interval=
                 f.write(source)
         binary, log = os.path.join(tmp, 'program.bin'), os.path.join(tmp, 'fpga.log')
         subprocess.run([FW_VASM, *UPLOAD_FLAGS, '-o', binary, program], cwd=ROOT, check=True, capture_output=True)
-        options = []
+        options = list(options)
         if keys:
             keys_file = os.path.join(tmp, 'keys')
             with open(keys_file, 'wb') as f:
                 f.write(keys)
-            options = ['--keys', keys_file]
+            options += ['--keys', keys_file]
             if key_interval:
                 options += ['--key-interval', str(key_interval)]
         report = subprocess.run([EMULATOR, binary, '--machine', 'michael', '--load', '2000', '--cycle-cap',

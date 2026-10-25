@@ -16,7 +16,12 @@
  * on every edge, so the first edge with E high takes the byte to send; during the burst it shifts, Q7 to MOSI and
  * MISOr (MISO, sampled as SCLK rises) in at Q0. If E is still high at the burst's last edge, OUTPUT is set: the
  * '299 holds and drives the byte it received onto port B until an edge finds E low. A strobe that comes during a
- * burst is lost (it reads as "hold"); E as an input is low. */
+ * burst is lost (it reads as "hold"); E as an input is low.
+ *
+ * Timing that matters here is cycle counting against E, and the CPU model makes its accesses on an instruction's
+ * first cycle (../NOTES-timing-accuracy.md): tsb PORTA raises E 5 cycles early and lda PORTB reads 3 early, so a
+ * read placed too soon after E can pass here and fail on the board. Programs keep a margin (michael_w5500_version.s
+ * reads 12 cycles later than it must). */
 
 struct gal_spi_state {
     const struct via_6522_state *via;

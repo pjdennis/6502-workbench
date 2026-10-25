@@ -18,7 +18,7 @@ test goes in both. It currently leaves out `test_stubs`, `test_serial_link`,
   Dormann binaries; see `dormann/README.md`).
 - Bus and chips: `test_bus`, `test_chip_*` (clock, rom, ram, via, lcd,
   serial_usb, led_buttons, osc, cpu_65c02, fpga_bus with text mode's
-  renderer, ili9341), `test_pld_literal` and
+  renderer, ili9341, gal_spi, w5500), `test_pld_literal` and
   `test_pld_config_map` (the PLD equations and the per-config memory map),
   `test_hd44780_font`.
 - Machines and front ends: `test_machine_dispatch`, `test_emu_run`,
