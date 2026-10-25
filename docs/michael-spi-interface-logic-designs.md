@@ -41,6 +41,7 @@ GAL equations' history (2025).
 | 2025-10-04 to 10 | The same interface in a GAL20RA10 and a 74HC299, programmed and tried on a breadboard | `gal/spi-control.pld` |
 | 2025-10-11 | minipro: "Fix bit order for gal20ra10 negation flags" (`~/research/minipro`, `366c50f`): every output's polarity had gone to its mirror-image output | — |
 | 2026-10-03 | The Cmod A7 replaces the 2022 board | [`fpga/spi-display/`](../hardware/michael/fpga/spi-display/) |
+| 2026-10-25 | The GAL board and a W5500 on Michael, the FPGA board unplugged: VERSIONR reads right, 4096 times in 4096, after three wiring faults | [`michael_w5500_version.s`](../firmware/programs/michael/michael_w5500_version.s) |
 
 ## 2022: the board Michael used
 
@@ -165,27 +166,53 @@ Notes on it, from the review of 2026-10-25:
 
 ![The GAL20RA10 on its breadboard](images/michael-gal-spi-breadboard.jpg)
 
-The GAL was programmed and tried on a breadboard, for a W5500 Ethernet module. Its wiring in the photo matches
-`spi-control.pin`: /PL (pin 1) to +5 V, the pin 17 to pin 5 loop, CLK, E, MISO and /RST on pins 6 to 9, srS1,
-/OUTPUT, MISOr and SCLK out on pins 22 to 19, /OE (pin 13) to ground. It didn't transfer data correctly:
-something seemed to trigger falsely. The details weren't written down.
+The GAL was programmed and tried on a breadboard in October 2025, for a W5500 Ethernet module. Its wiring in
+the photo matches `spi-control.pin`: /PL (pin 1) to +5 V, the pin 17 to pin 5 loop, CLK, E, MISO and /RST on
+pins 6 to 9, srS1, /OUTPUT, MISOr and SCLK out on pins 22 to 19, /OE (pin 13) to ground. It didn't transfer
+data correctly: something seemed to trigger falsely. The details weren't written down.
 
-**A likely cause: minipro's bug.** The JEDEC file is from the evening of 10 October, and minipro's fix for the
-GAL20RA10's polarity fuses came at noon the next day. Before it, minipro wrote fuses 3200–3209 in reverse:
-each output got the polarity meant for its mirror image (pins 14 and 23, 15 and 22, and so on). GALasm puts
-pin 23's polarity in fuse 3200 and pin 14's in 3209, and `spi-control.jed` has `0101100000`. Programmed
-mirrored, at the pins:
+**Not minipro's bug.** The JEDEC file is from the evening of 10 October, and minipro's fix for the GAL20RA10's
+polarity fuses came at noon the next day: before it, minipro wrote fuses 3200–3209 in reverse, each output
+getting the polarity meant for its mirror image (pins 14 and 23, 15 and 22, and so on). GALasm puts pin 23's
+polarity in fuse 3200 and pin 14's in 3209. Programmed that way, SCLK would have run with Phi2 while idle, and
+MISOr and srS1 would have been inverted. But the chip read back on 2026-10-25 (with `~/projects/minipro`, which
+has the fixed order) matches `spi-control.jed` fuse for fuse, `0101100000` included: it was programmed, or
+reprogrammed, correctly. The bring-up design that "tested OK", `my_20ra10.pld`, had all ten outputs active high,
+so the bug couldn't show in it.
 
-- /BRST (17) took MISOr's active-high polarity, so pin 5 saw BRST the wrong way up, and SCLK (19) took pin 18's
-  active-low one. SCLK at its pin became CLK + BRST: **a clock running all the time while idle, at Phi2's
-  rate, and stuck high during a burst.** A device on the bus would see clock edges it was never meant to.
-- MISOr (20) inverted: the received bits, inverted.
-- srS1 (22) inverted: the '299 shifts while idle and loads during a burst, so MOSI doesn't carry the byte.
-- /C1 (15) inverted, harmlessly: it isn't used outside the chip.
+### Tried again, 2026-10-25: working
 
-The bring-up design that "tested OK", `my_20ra10.pld`, had all ten outputs active high, so mirroring changed
-nothing. That's how the bug got through. Whether the GAL was programmed again with the fixed minipro and tried
-isn't recorded.
+Michael's FPGA board unplugged, the GAL board on its port B and port A, and the W5500 module on the GAL's SPI.
+[`michael_w5500_version.s`](../firmware/programs/michael/michael_w5500_version.s) reads the W5500's VERSIONR
+(`$0039`, always `$04`) in rounds of 4096 and counts the results. Three faults, found in turn:
+
+1. **The data connector was reversed.** The 8-wire bundle's colours are a slice of rainbow ribbon and carry no
+   meaning; on the GAL board **khaki/brown is I/O0 and yellow I/O7**, so khaki/brown goes beside the LCD ribbon's
+   khaki (E) conductor, on D0/PB0, and yellow beside its red (backlight A), on D7/PB7. Reversed, every byte went
+   out and came back bit-reversed: the address `$0039` reached the W5500 as `$009C`. A loopback (GAL pin 8, MISO,
+   jumpered to the '299's Q7) passed regardless, because its test byte, `$A5`, reads the same backwards: a
+   loopback can't see a scrambled port B, only a stuck or open line.
+2. **PB7 had a poor contact**: bit 7 of every read was high. Reseating fixed it. PB0 still measures about 200 Ω
+   end to end, a poor contact that doesn't matter at these speeds but should be redone.
+3. **A glitch on the chip select.** About one read in six returned `$02`. The scope showed why: while a frame's
+   address and control bytes go in, the W5500 puts out a count on MISO, `$01`, `$02`, `$03`, and in the bad
+   frames burst 3 carried `$01` and burst 4 `$02`. The W5500 had started a new frame at burst 3, so CS had gone
+   high between bursts 2 and 3. That is where the program writes `$00` over `$39`, four port B lines falling at
+   once, the only falling transition in the frame; the scope showed a spike on CS there. 100 pF from CS to
+   ground at the module cured it: 4096 good reads a round. The spike is ground bounce or crosstalk from port B,
+   so more ground between Michael and the GAL board (and 1 nF on CS) would give margin.
+
+None of these was the GAL design itself; whether the 2025 fault was the same isn't recorded, but the CS glitch
+fits "something seemed to trigger falsely".
+
+On the way, the 100 Ω in series with SCLK and the 100 pF on it made no difference and came off; SCLK, MOSI and
+the GAL's timing were clean throughout. The supply at the GAL board measured 4.3 V (4.8 V from the USB serial
+adapter), below the GAL20RA10B's 4.75 V minimum, with the W5500 drawing about 130 mA: worth a stronger supply.
+
+The emulator now models the interface and the W5500 (`--add gal-spi,w5500`, `emulator/chips/gal_spi.h` and
+`emulator/chips/w5500.h`, the W5500's `$01 $02 $03` included), and the program passes on it. Its CPU makes each
+access on an instruction's first cycle, so it can't catch a read placed a few cycles too early after E
+(`emulator/NOTES-timing-accuracy.md`); the program keeps a 12-cycle margin there.
 
 ## The files
 
