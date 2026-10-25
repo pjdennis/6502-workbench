@@ -19,7 +19,7 @@ $(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
 $(TB_PASS): ../sim/michael_via.vh
 
 # The spi-display pins plus the Cmod's USB serial port
-$(XDC): ../spi-display/constr/cmod_a7.xdc ../constr/uart.xdc
+$(XDC): ../constr/cmod_a7.xdc ../constr/uart.xdc
 	@mkdir -p $(dir $@)
 	cat $^ > $@
 

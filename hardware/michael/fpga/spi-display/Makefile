@@ -5,7 +5,7 @@ include ../kit.mk
 
 TOP    := top
 RTL    := rtl/top.v rtl/spi_bridge.v ../rtl/level_filter.v
-XDC    := constr/cmod_a7.xdc
+XDC    := ../constr/cmod_a7.xdc
 TB_DIR := sim
 
 include $(FPGA_KIT)/boards/cmod_a7_35t.mk

@@ -1,4 +1,5 @@
-# Cmod A7-35T pins for the SPI display interface; see WIRING.md. Comments give the Cmod DIP pin.
+# Cmod A7-35T pins shared by Michael's FPGA designs, named as the SPI display interface has them; bus.mk renames
+# some for the bus designs. Wiring: spi-display/WIRING.md. Comments give the Cmod DIP pin.
 # nextpnr-xilinx needs "[get_ports {name}]" without spaces inside the braces.
 
 set_property -dict { PACKAGE_PIN L17 IOSTANDARD LVCMOS33 } [get_ports {sysclk}]
@@ -33,9 +34,9 @@ set_property -dict { PACKAGE_PIN U1  IOSTANDARD LVCMOS33 } [get_ports {lcd_led}]
 set_property -dict { PACKAGE_PIN V2  IOSTANDARD LVCMOS33 } [get_ports {t_clk}]
 set_property -dict { PACKAGE_PIN W3  IOSTANDARD LVCMOS33 } [get_ports {t_cs}]
 set_property -dict { PACKAGE_PIN V3  IOSTANDARD LVCMOS33 } [get_ports {t_din}]
-# Wired but not yet used by the design: pin 32 SDO/MISO (W2), 36 T_DO (W5), 37 T_IRQ (V4).
+# Wired but not here: pin 32 SDO/MISO (W2, the display probe's constr/miso.xdc), 36 T_DO (W5), 37 T_IRQ (V4).
 
-# Cmod status LEDs: LD1 flashes on display traffic, LD2 lights while the display is selected
+# Cmod status LEDs LD1 and LD2: each design's README or top module says what they show
 set_property -dict { PACKAGE_PIN A17 IOSTANDARD LVCMOS33 } [get_ports {led[0]}]
 set_property -dict { PACKAGE_PIN C16 IOSTANDARD LVCMOS33 } [get_ports {led[1]}]
 # The Cmod's RGB LED (LD0), active low: held off by every design. Left undriven, it glows

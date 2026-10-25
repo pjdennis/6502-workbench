@@ -261,7 +261,7 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
 - **The Cmod's RGB LED off.** Done (2026-10-25). It lit constantly with the bus design and meant nothing:
   its pins (C17 red, B16 green, B17 blue, active low) were left undriven. Every design now drives them high
   (`rgb_led`, in the shared pin file
-  [`spi-display/constr/cmod_a7.xdc`](../hardware/michael/fpga/spi-display/constr/cmod_a7.xdc)), as the
+  [`constr/cmod_a7.xdc`](../hardware/michael/fpga/constr/cmod_a7.xdc)), as the
   toolchain kit's `bram_check` does, and each testbench checks it's off. Give it a meaning later if one is wanted.
   The orange LED that stays lit is DONE: the FPGA has loaded its design. It and the power and USB-UART
   traffic LEDs aren't wired to the FPGA's user pins ([Cmod A7 reference manual](cmod_a7_rm.pdf), section 7).

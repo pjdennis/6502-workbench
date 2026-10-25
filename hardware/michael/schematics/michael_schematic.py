@@ -166,7 +166,7 @@ def fpga(board):
 
     notes = ["From ../fpga/spi-display/WIRING.md. The '245s take Michael's 5 V signals on their B side to the Cmod's 3.3 V "
              "A side.",
-             "Cmod pins carry the bus designs' port names (spi-display/constr/cmod_a7.xdc as bus.mk renames it, "
+             "Cmod pins carry the bus designs' port names (constr/cmod_a7.xdc as bus.mk renames it, "
              "constr/bus.xdc); U10's MISO is read only by the display probe.",
              "The Cmod runs from Michael's +5V through D2 (band towards the Cmod), so its USB is needed only for programming.",
              "C8 and C9: the 10 µF the LM1117's data sheet asks for on its input and output (the output one for "
