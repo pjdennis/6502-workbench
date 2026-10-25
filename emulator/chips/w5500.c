@@ -44,24 +44,25 @@ static void write_cell(struct w5500_state *s, uint8_t v) {
     if (c && !(s->control >> 3 == 0 && s->addr == VERSIONR)) *c = v;
 }
 
+/* The next frame's first byte; MISO counts the header's bytes, $01 to $03 */
 static void end_frame(struct w5500_state *s) {
     s->phase = 0;
     s->bits = 0;
-    s->out = 0;
+    s->out = 0x01;
 }
 
 static void byte_done(struct w5500_state *s, uint8_t b) {
     static const uint8_t fixed[4] = { 0, 1, 2, 4 };
     int writes = (s->control & 0x04) != 0;
     switch (s->phase) {
-    case 0: s->addr = (uint16_t)(b << 8); s->phase = 1; return;
-    case 1: s->addr |= b; s->phase = 2; return;
+    case 0: s->addr = (uint16_t)(b << 8); s->phase = 1; s->out = 0x02; return;
+    case 1: s->addr |= b; s->phase = 2; s->out = 0x03; return;
     case 2:
         s->control = b;
         s->data_left = fixed[b & 0x03];
         s->phase = 3;
         s->frames++;
-        if (!(b & 0x04)) s->out = read_cell(s);
+        s->out = (b & 0x04) ? 0x00 : read_cell(s);
         return;
     default:
         if (writes) write_cell(s, b);
@@ -105,6 +106,7 @@ void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6
     state->via = via;
     state->cs_mask = cs_mask;
     reset_registers(state);
+    end_frame(state);
     chip->ops = &ops;
     chip->name = "w5500";
     chip->state = state;

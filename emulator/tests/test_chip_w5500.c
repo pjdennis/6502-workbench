@@ -121,6 +121,22 @@ TEST fixed_length_mode_frames_without_the_chip_select(void) {
     PASS();
 }
 
+/* While the address and control bytes go in, MISO counts them: $01, $02, $03 (seen on the board) */
+TEST the_header_bytes_answer_01_02_03(void) {
+    setup();
+    select_(1);
+    ASSERT_EQ_FMT(0x01, byte(VERSIONR >> 8), "%02X");
+    ASSERT_EQ_FMT(0x02, byte(VERSIONR & 0xFF), "%02X");
+    ASSERT_EQ_FMT(0x03, byte(COMMON | 0x01), "%02X");   /* fixed length, one byte */
+    ASSERT_EQ_FMT(0x04, byte(0x00), "%02X");
+    ASSERT_EQ_FMT(0x01, byte(VERSIONR >> 8), "%02X");   /* the next frame, with the chip select still low */
+    select_(0);
+    select_(1);
+    ASSERT_EQ_FMT(0x01, byte(0x00), "%02X");            /* and after the chip select rises */
+    select_(0);
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -145,6 +161,7 @@ SUITE(w5500) {
     RUN_TEST(deselected_it_ignores_the_bus);
     RUN_TEST(the_chip_select_rising_ends_a_frame);
     RUN_TEST(fixed_length_mode_frames_without_the_chip_select);
+    RUN_TEST(the_header_bytes_answer_01_02_03);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }
