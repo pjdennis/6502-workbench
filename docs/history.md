@@ -34,6 +34,8 @@ Then build it the way that era did, using the table below.
 | 2022-11-19 | **asm1** bootstrap begins | `60be16b` (`asm1/start`) | `cd assembler`, then the `go*.sh` / `asmtest*.sh` scripts of the time (`asmtestgen.sh` from 2022-11-26) |
 | 2023-04-22 | `michael_keyboard_wip` forks: graphics console, keyboard driver; `wendy2c` renamed `wendy2` there | `536f200` (`fork/michael-keyboard`) | |
 | 2024-02-11 | **BBC BASIC on Michael** through a MOS shim | `ecfa0b0` (`michael/bbc-basic`) | `upload_and_run_michael_beeb.s`; needs the external `../BeebEater` tree |
+| 2024-10 | Michael's SPI display interface in an FPGA (Cmod A7), first try: the 74-series circuit from the Digital simulator | — | Vivado, outside this repository: [`michael-fpga-display-earlier-designs.md`](michael-fpga-display-earlier-designs.md) |
+| 2025-04 | Second try: hand-written Verilog at 128 MHz; flaky, then set aside | — | as above |
 | 2025-11-15 | asm1 assembles itself byte-identically | `07b2118` (`asm1/self-hosts`) | `cd assembler && ./asmtestgen.sh` (needs `../vasm6502_oldstyle`, `hexdump`) |
 | 2026-01-06 | **asm2** enters version control (flat `asmNN.asm` files) | `005e339` (`asm2/start`) | `cd assembler2 && ./asmtestgen.sh` |
 | 2026-02-07 | Per-stage directories; first editor program | `b4e2f4a`, `cc718c8` (`editor/start`) | `cd assembler2 && ./asmtestgen.sh`; `python3 editor/tests/editor_tests.py` |
