@@ -126,7 +126,7 @@ A week later, minipro got "Fix bit order for gal20ra10 negation flags" (2025-10-
 | `af84dfd`, `0c8efef`, `38ee59d` | 10-05 00:57–01:05 | The active-low signals as GALasm's `/X` instead of `nX` |
 | `c97edf2` | 10-05 01:30 | "Shift register S0 and output enable – fix for them going low too soon": a separate srS0OE output. (`Documents/spi-control.pld` on Windows is this version.) |
 | `3ddabaa`, `c1cf844` | 10-06 23:03 | "Simplify logic": WAIT becomes OUTPUT, which drives S0 and the output enable itself; the counter and BRST outputs active low |
-| uncommitted | 10-10 | /dBRST, BRST delayed outside the GAL, gates SCLK. The committed `spi-control.jed` is built from this version (reassembled on 2026-10-25: identical). |
+| uncommitted | 10-10 | /dBRST, BRST delayed outside the GAL, gates SCLK. The `spi-control.jed` committed there is built from this version (reassembled on 2026-10-25: identical). |
 
 How it works: BRST is set on a rising CLK (Phi2) when E is high, OUTPUT is clear and the count is 0, and holds
 while the count runs 0 to 7. SCLK is /CLK · dBRST, so its eight pulses are the CPU clock's low halves. MISOr
