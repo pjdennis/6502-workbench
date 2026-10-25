@@ -9,7 +9,7 @@ The files are on that install, under `/home/phil`:
 
 | What | Where |
 |---|---|
-| The 74-series circuits, in the [Digital](https://github.com/hneemann/Digital) simulator | `Documents/digitaldisplaydriver/`: `D-SPI.dig`, `D-SPI2.dig`, `D-SPI-WriteOnly.dig`, `e-4017.dig` |
+| The 74-series circuits, in the [Digital](https://github.com/hneemann/Digital) simulator | `Documents/digitaldisplaydriver/`: `D-SPI.dig`, `D-SPI2.dig`, `D-SPI-WriteOnly.dig`, `e-4017.dig`. Now in [`hardware/michael/spi-interface/digital/`](../hardware/michael/spi-interface/digital/), from the 2022 originals ([`michael-spi-interface-logic-designs.md`](michael-spi-interface-logic-designs.md)) |
 | The October 2024 design | `Documents/FPGA/graphics-spi/` (`graphics-spi-backup-74-series-emu/` is the same project) |
 | The April 2025 design | `fpga/graphics-spi-native-verilog/` (11 April); `Documents/FPGA/graphics-spi-native-verilog/` is the 7 April copy, at 40 MHz |
 
@@ -19,8 +19,9 @@ A 74HC165 shift register and a 4017 decade counter, clocked by Michael's CPU clo
 at 0, the '165 follows port B. E starts the count, and SPICLK is CK for counts 1 to 8: a byte goes out at
 2 MHz, MSB first. The counter then waits at 9 until E falls. `D-SPI.dig` and `D-SPI2.dig` add a 74299 that
 shifts MISO in and drives port B while ~RD is low. `D-SPI2.dig` has active-low E, Digital's own 74HC4017 and
-the only test (it passes, and covers writes only). These are probably the design of the interface board that
-the spi-display README says had no schematic, but that isn't confirmed.
+the only test (it passes, and covers writes only). These are the design of the interface board that the
+spi-display README says had no schematic: the originals are from 15 and 16 September 2022, the day Michael's
+first SPI program was committed ([`michael-spi-interface-logic-designs.md`](michael-spi-interface-logic-designs.md)).
 
 ## October 2024: the circuit in the FPGA (`graphics-spi`)
 

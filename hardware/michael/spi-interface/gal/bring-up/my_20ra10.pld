@@ -1,0 +1,24 @@
+GAL20RA10
+20RA10
+
+/PL NC NC NC NC NC NC A  B  C  D  GND
+/OE O1 O2 O3 O4 O5 O6 O7 O8 O9 O10 VCC
+
+
+O1 = A * B
+O2 = A + B
+O3 = /A
+O4 = /B
+O5 = A * B * C
+O6 = A * B * C * D
+O7 = A + B + C
+O8 = A + B + C + D
+O9 = A * B + C * D
+O10 = A * D
+
+
+DESCRIPTION
+
+Some basic logic elements
+
+This tested OK - works per the design

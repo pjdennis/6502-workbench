@@ -1,0 +1,27 @@
+GAL20RA10
+20RA10
+
+/PL NC NC NC NC CK1 CK2 A  B  C  D   GND
+/OE O1 O2 O3 O4 O5  O6  O7 O8 O9 O10 VCC
+
+O1.R     = A
+O1.CLK   = CK1
+O1.ARST  = B
+O1.APRST = C
+
+O2.R     = D
+O2.CLK   = CK2
+
+O3       = A
+O4       = A
+O5       = A
+O6       = A
+O7       = A
+O8       = A
+O9       = A
+O10      = A
+
+
+DESCRIPTION
+
+Design uses sequential logic including an inverted clock

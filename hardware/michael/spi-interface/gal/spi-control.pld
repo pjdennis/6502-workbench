@@ -1,0 +1,73 @@
+GAL20RA10
+SPI CTRL
+
+/PL  NC  NC  NC /dBRST CLK E    MISO  /RST    NC   NC GND
+/OE /C0 /C1 /C2 /BRST  NC  SCLK MISOr /OUTPUT srS1 NC VCC
+
+; SPI Clock
+SCLK        =   /CLK *  dBRST
+
+; Retimed MISO value
+MISOr.R     =   /RST *  MISO
+MISOr.CLK   =   /CLK
+
+; Burst - 8 SPI clock cycles
+BRST.R      =   /RST *  E    * /OUTPUT * /C2 * /C1 * /C0
+              + /RST *  BRST * /C2
+              + /RST *  BRST * /C1
+              + /RST *  BRST * /C0
+/BRST.CLK   =    CLK
+
+; OUTPUT - waiting for E to go low; allow read of value
+OUTPUT.R    =   /RST *  E *  OUTPUT
+              + /RST *  E *  BRST *  C2 *  C1 *  C0
+/OUTPUT.CLK =    CLK
+
+; Shift register S1
+srS1        =   /OUTPUT * /BRST
+
+; SPI cycle counter
+C0.R        =   /RST *  BRST * /C0
+
+C1.R        =   /RST *  BRST * /C1 *  C0
+              + /RST *  BRST *  C1 * /C0
+
+C2.R        =   /RST *  BRST *  C2 * /C1
+              + /RST *  BRST *  C2 * /C0
+              + /RST *  BRST * /C2 *  C1 *  C0
+
+/C0.CLK     =    CLK
+/C1.CLK     =    CLK
+/C2.CLK     =    CLK
+
+
+DESCRIPTION
+
+Control logic for bidirectional SPI interface
+
+Inputs:
+  CLK           System clock Phi2
+  E             Enable send - start sending. If still asserted when burst complete then output data
+  MISO          MISO input for retiming
+ /RST           Active low synchronous reset signal
+ /dBRST         Delayed BRST signal to avoid runt pulse on the SCLK output which might otherwise
+                occur when the burst on SCLK begins - BRST goes high on the edge that /CLK falls 
+
+Outputs:
+  SCLK          The SPI clock
+  MISOr         The retimed MISO signal, clocked on SCLK
+ /BRST          The negated BRST signal (SCLK active) for feeding back to the input for gating
+                /CLK to generate SCLK
+ /OUTPUT        When low, received value is output until E goes low
+                Controls shift register S0 (see below)
+                Controls shift register active low output enable to allow reading received value
+  srS1          Along with WAITsrS0OE, control S0 and S1 inputs for the 74HC922 shift register:
+                S0 S1
+                 0  0 Hold value (hold for reading)
+                 1  1 Load value (parallel load - on every CLK while idle
+                 1  0 Shifting value for output on every CLK
+
+Intermediate values:
+ /C0, /C1, /C2  Counter values for the 8 clock steps
+ /BRST          Burst not active (active low since device resets with value high)
+
