@@ -258,9 +258,11 @@ Found in the review of stages 1 and 2 (2026-10-04). None changes what runs on Mi
   while every code from `$20` up shows its glyph, so 32 of the font's glyphs (code page 437's ☺ … ▼) can't be
   shown. One option: no special meaning for any code, so every character written goes into its cell, with
   separate text mode operations for backspace, newline and carriage return. Undecided (2026-10-05).
-- **The Cmod's RGB LED off.** It lights constantly with the bus design, meaning nothing. Its pins (B17 blue,
-  B16 green, C17 red, active low) aren't driven by the designs here. Drive them high (off) in every
-  design, as the toolchain kit's `bram_check` does, unless one is given a meaning.
+- **The Cmod's RGB LED off.** Done (2026-10-25). It lit constantly with the bus design and meant nothing:
+  its pins (C17 red, B16 green, B17 blue, active low) were left undriven. Every design now drives them high
+  (`rgb_led`, in the shared pin file
+  [`spi-display/constr/cmod_a7.xdc`](../hardware/michael/fpga/spi-display/constr/cmod_a7.xdc)), as the
+  toolchain kit's `bram_check` does, and each testbench checks it's off. Give it a meaning later if one is wanted.
 - **A version for the FPGA design.** `ID` gives the protocol's version and capabilities, but nothing says which
   build of a design is loaded. Both the stage 2 snow fix and the review's clean-ups went into flash with `ID`
   unchanged. Add a design version that changes with every change to a design, readable by Michael and

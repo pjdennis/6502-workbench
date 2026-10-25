@@ -20,7 +20,8 @@ still running doesn't send it half a transfer.
 
 ## The pieces
 
-- [`rtl/top.v`](rtl/top.v): the design. LD1 flashes on bus traffic, and LD2 while the display has work.
+- [`rtl/top.v`](rtl/top.v): the design. LD1 flashes on bus traffic, and LD2 while the display has work. The
+  RGB LED (LD0) is held off.
 - [`../rtl/michael_bus.v`](../rtl/michael_bus.v) (the pins as transfers, the data buffer's turnaround and
   the SOEB interlock) and [`../rtl/bus_control.v`](../rtl/bus_control.v) (the commands, the reply queue and
   the status byte), as proved in stage 1 ([`../bus-check/`](../bus-check/)).
@@ -74,5 +75,4 @@ python3 debug.py text      # the same, then a screen in text mode
 
 The [plan's follow-ups](../../../../docs/michael-fpga-bus-plan.md#follow-ups), among them: `OVERFLOW` for
 `SERIAL_SEND`'s dropped bytes (never for the FPGA's own answers), a serial output module shared with
-bus-check, a fill command, sharing the serial port between Michael and the debug port, and the Cmod's RGB LED
-off.
+bus-check, a fill command, and sharing the serial port between Michael and the debug port.

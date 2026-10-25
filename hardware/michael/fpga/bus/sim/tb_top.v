@@ -17,12 +17,13 @@ module tb_top;
   wire host_tx, fpga_tx;
   wire lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led, t_clk, t_cs, t_din;
   wire [1:0] led;
+  wire [2:0] rgb_led;
 
   top #(.ACTIVITY_CYCLES(100)) dut (
     .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pio9(1'b0), .pio10(1'b0), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
-    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led));
+    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led), .rgb_led(rgb_led));
 
   `include "../../sim/michael_fpga_bus.vh"
   `include "../../sim/host_serial.vh"
@@ -49,6 +50,7 @@ module tb_top;
     #2000;
     `CHECK_EQ({lcd_cs, lcd_reset, lcd_led}, 3'b111, "idle: deselected, out of reset, backlight on")
     `CHECK_EQ({t_cs, t_clk, t_din}, 3'b100, "touch controller idle")
+    `CHECK_EQ(rgb_led, 3'b111, "RGB LED off")
 
     // ID: the raw display and text mode; GEOMETRY: text mode's rows and columns
     fb_command(8'h03); fb_command(8'h01);

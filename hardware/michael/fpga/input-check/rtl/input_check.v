@@ -31,6 +31,7 @@ module input_check #(
   output       t_cs,
   output       t_din,
   output [1:0] led,
+  output [2:0] rgb_led,    // LD0, active low {red, green, blue}: held off
   output       d_oeb,  // the data buffer: on, and Michael to the FPGA
   output       d_dir
 );
@@ -40,6 +41,7 @@ module input_check #(
 
   assign {lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led} = 6'b110000;
   assign {t_cs, t_clk, t_din} = 3'b100;
+  assign rgb_led = 3'b111;
   assign led = 2'b00;
   assign {d_oeb, d_dir} = 2'b00;
 
