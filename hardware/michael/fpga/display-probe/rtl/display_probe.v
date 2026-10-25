@@ -32,12 +32,14 @@ module display_probe #(
   output       t_cs,
   output       t_din,
   output [1:0] led,        // LD1: busy, LD2: display selected
+  output [2:0] rgb_led,    // LD0, active low {red, green, blue}: held off
   output       d_oeb,      // the data buffer: on, and Michael to the FPGA, as the interface has it
   output       d_dir
 );
   localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   localparam LEN = 11;
   assign {t_cs, t_clk, t_din} = 3'b100;
+  assign rgb_led = 3'b111;
   assign {d_oeb, d_dir} = 2'b00;
 
   // Command bytes, queued

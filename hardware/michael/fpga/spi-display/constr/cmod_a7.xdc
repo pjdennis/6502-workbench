@@ -38,3 +38,7 @@ set_property -dict { PACKAGE_PIN V3  IOSTANDARD LVCMOS33 } [get_ports {t_din}]
 # Cmod status LEDs: LD1 flashes on display traffic, LD2 lights while the display is selected
 set_property -dict { PACKAGE_PIN A17 IOSTANDARD LVCMOS33 } [get_ports {led[0]}]
 set_property -dict { PACKAGE_PIN C16 IOSTANDARD LVCMOS33 } [get_ports {led[1]}]
+# The Cmod's RGB LED (LD0), active low: held off by every design. Left undriven, it glows
+set_property -dict { PACKAGE_PIN C17 IOSTANDARD LVCMOS33 } [get_ports {rgb_led[2]}]
+set_property -dict { PACKAGE_PIN B16 IOSTANDARD LVCMOS33 } [get_ports {rgb_led[1]}]
+set_property -dict { PACKAGE_PIN B17 IOSTANDARD LVCMOS33 } [get_ports {rgb_led[0]}]

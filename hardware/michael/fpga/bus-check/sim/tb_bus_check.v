@@ -17,12 +17,13 @@ module tb_bus_check;
   `include "../../sim/michael_board.vh"
   wire host_tx, fpga_tx;
   wire [1:0] led;
+  wire [2:0] rgb_led;
 
   bus_check #(.SERIAL_DEPTH(256), .ACTIVITY_CYCLES(100)) dut (
     .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pio9(1'b0), .pio10(1'b0), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(), .lcd_reset(), .lcd_dc(), .lcd_mosi(), .lcd_sck(), .lcd_led(), .t_clk(), .t_cs(), .t_din(),
-    .led(led));
+    .led(led), .rgb_led(rgb_led));
 
   `include "../../sim/michael_fpga_bus.vh"
   `include "../../sim/host_serial.vh"
@@ -51,6 +52,7 @@ module tb_bus_check;
     #2000;
     `CHECK_EQ({d_oeb, d_dir}, 2'b00, "idle: buffer on, Michael to the FPGA")
     `CHECK_EQ(fpga_drives, 1'b0, "idle: the FPGA doesn't drive the D pins")
+    `CHECK_EQ(rgb_led, 3'b111, "RGB LED off")
 
     // ID, and a clean status
     command(8'h03);

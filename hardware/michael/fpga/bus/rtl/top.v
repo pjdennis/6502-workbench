@@ -40,10 +40,12 @@ module top #(
   output       t_clk,        // touch controller, held idle
   output       t_cs,
   output       t_din,
-  output [1:0] led
+  output [1:0] led,
+  output [2:0] rgb_led       // LD0, active low {red, green, blue}: held off
 );
   localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   assign {t_cs, t_clk, t_din} = 3'b100;
+  assign rgb_led = 3'b111;
 
   // The bus
   wire [7:0] d_out, m_wr_data, reply_byte, status_byte, ser_data, disp_value;
