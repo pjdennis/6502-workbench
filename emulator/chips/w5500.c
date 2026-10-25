@@ -2,6 +2,8 @@
 #include <string.h>
 #include "w5500.h"
 
+#define MR       0x0000
+#define MR_RST   0x80
 #define VERSIONR 0x0039
 
 static void reset_registers(struct w5500_state *s) {
@@ -9,7 +11,7 @@ static void reset_registers(struct w5500_state *s) {
     memset(s->socket, 0, sizeof s->socket);
     s->common[0x19] = 0x07; s->common[0x1A] = 0xD0;   /* RTR: 200 ms */
     s->common[0x1B] = 0x08;                           /* RCR */
-    s->common[0x2E] = 0xB8;                           /* PHYCFGR: auto-negotiation, link down */
+    s->common[0x2E] = 0xBF;                           /* PHYCFGR: auto-negotiation; link up, 100 Mbps, full duplex */
     s->common[VERSIONR] = 0x04;
     for (int n = 0; n < W5500_SOCKETS; n++) {
         uint8_t *r = s->socket[n];
@@ -41,7 +43,9 @@ static uint8_t read_cell(struct w5500_state *s) {
 
 static void write_cell(struct w5500_state *s, uint8_t v) {
     uint8_t *c = cell(s, s->addr);
-    if (c && !(s->control >> 3 == 0 && s->addr == VERSIONR)) *c = v;
+    int common = s->control >> 3 == 0;
+    if (common && s->addr == MR && (v & MR_RST)) reset_registers(s);   /* a software reset; MR reads 0 after */
+    else if (c && !(common && s->addr == VERSIONR)) *c = v;
 }
 
 /* The next frame's first byte; MISO counts the header's bytes, $01 to $03 */
@@ -110,6 +114,14 @@ void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6
     chip->ops = &ops;
     chip->name = "w5500";
     chip->state = state;
+}
+
+void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *s) {
+    const uint8_t *c = s->common;   /* GAR $01, SUBR $05, SHAR $09, SIPR $0F */
+    fprintf(fp, "%s: w5500: ip %u.%u.%u.%u mask %u.%u.%u.%u gateway %u.%u.%u.%u "
+                "mac %02x:%02x:%02x:%02x:%02x:%02x\n", prefix,
+            c[0x0F], c[0x10], c[0x11], c[0x12], c[0x05], c[0x06], c[0x07], c[0x08],
+            c[0x01], c[0x02], c[0x03], c[0x04], c[0x09], c[0x0A], c[0x0B], c[0x0C], c[0x0D], c[0x0E]);
 }
 
 struct spi_device w5500_spi(struct w5500_state *state) {

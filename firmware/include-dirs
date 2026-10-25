@@ -14,3 +14,4 @@ firmware/lib/sound
 firmware/lib/tasks
 firmware/lib/serial
 firmware/lib/fpga
+firmware/lib/spi

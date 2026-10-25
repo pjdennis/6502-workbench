@@ -10,12 +10,6 @@
 ; board never drives port B.
   .include base_config_v2.inc
 
-GAL_E                = FPGA_E    ; PA2: a rising edge sends the byte on port B; held high past the 8 SCLK
-                                 ; pulses, the '299 drives the byte received onto port B until E falls
-W5500_CS             = %00000001 ; PA0, active low; the module pulls it up
-VERSIONR             = $0039
-VERSION              = $04
-CONTROL_COMMON_READ  = $00       ; the common registers' block, read, variable length (until CS rises)
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
 GOOD                 = $02 ; 2 bytes
@@ -25,6 +19,7 @@ LAST                 = $08 ; 1 byte
 FIRST_BAD            = $09 ; 1 byte
 SEEN_BAD             = $0A ; 1 byte
 ROUND                = $0B ; 1 byte
+W5500_CHECK          = $0C ; 1 byte
 
 READS_HIGH           = $10       ; 4096 reads a round
 
@@ -37,14 +32,14 @@ start:
   .include display_routines.inc
   .include display_string.inc
   .include convert_to_hex.inc
+  .include gal_spi.inc
+  .include w5500.inc
 
 program_start:
   ldx #$ff
   txs
   sei
-  lda #W5500_CS
-  tsb PORTA                      ; Deselected before PA0 becomes an output
-  tsb DDRA
+  jsr w5500_initialize
   jsr reset_and_enable_display_no_cursor
   stz ROUND
   stz SEEN_BAD
@@ -62,7 +57,7 @@ program_start:
 .read:
   jsr read_version
   sta LAST
-  cmp #VERSION
+  cmp #W5500_VERSION
   bne .bad
   inc GOOD
   bne .counted
@@ -93,55 +88,16 @@ program_start:
 
 ; Reads VERSIONR in one frame. On exit A = the value read; X, Y are preserved
 read_version:
-  lda #W5500_CS
-  trb PORTA                      ; Select
-  lda #>VERSIONR
-  jsr spi_write
-  lda #<VERSIONR
-  jsr spi_write
-  lda #CONTROL_COMMON_READ
-  jsr spi_write
-  lda #$00
-  jsr spi_read
-  pha
-  lda #W5500_CS
-  tsb PORTA                      ; Deselect: the frame ends
-  pla
-  rts
-
-
-; Sends A. E is high for 6 cycles (tsb ... trb), well inside the 8 of the burst, so the '299 never drives
-; port B; the burst ends long before the caller can start another (E must be low at its last edge).
-; On exit A = GAL_E; X, Y are preserved
-spi_write:
-  sta PORTB
-  lda #GAL_E
-  tsb PORTA
-  trb PORTA
-  rts
-
-
-; Sends A and returns the byte received in A. E stays high past the burst, so the '299 drives the byte
-; received onto port B; port B turns to input within 8 cycles of E rising, before the '299 does, and back to
-; output only after E has fallen and the '299 has let go. X, Y are preserved
-spi_read:
-  sta PORTB
-  lda #GAL_E
-  tsb PORTA                      ; The burst starts
-  stz DDRB                       ; Port B an input
-  nop                            ; The burst's 8 cycles, and the '299's outputs settling
-  nop
-  nop
-  nop
-  nop
-  nop
-  lda PORTB                      ; The byte received
-  pha
-  lda #GAL_E
-  trb PORTA                      ; The '299 lets go at the next edge
-  lda #$ff
-  sta DDRB                       ; Port B an output again
-  pla
+  phx
+  phy
+  ldx #>W5500_VERSIONR
+  ldy #<W5500_VERSIONR
+  lda #W5500_COMMON_READ
+  jsr w5500_begin
+  jsr w5500_read_byte
+  jsr w5500_end
+  ply
+  plx
   rts
 
 

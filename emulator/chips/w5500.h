@@ -2,6 +2,7 @@
 #define EMULATOR_CHIPS_W5500_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include "../bus.h"
 #include "spi.h"
 #include "via_6522.h"
@@ -17,7 +18,8 @@
  * a driver can check them to see the frame was taken whole. MISO is 0 during a write's data.
  *
  * Modelled: the register and buffer memory, with the reset values of the registers a driver reads first
- * (VERSIONR, read-only, is $04). The network side isn't: commands, sockets and the PHY don't act. */
+ * (VERSIONR, read-only, is $04), and MR's software reset (RST, bit 7). PHYCFGR reads link up, as if
+ * the cable were plugged into a 100 Mbps full duplex port. The network side isn't: commands, sockets and the PHY don't act. */
 
 #define W5500_SOCKETS 8
 #define W5500_BUFFER 0x800      /* each socket's TX and RX buffer at their reset size, 2 KB */
@@ -39,6 +41,8 @@ struct w5500_state {
 void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6522_state *via, uint8_t cs_mask);
 /* One SCLK pulse (spi.h): the MISO bit the rising edge saw */
 int w5500_pulse(void *state, int mosi);
+/* The network settings: "<prefix>: w5500: ip a.b.c.d mask a.b.c.d gateway a.b.c.d mac xx:xx:xx:xx:xx:xx" */
+void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *state);
 /* The W5500 as the GAL SPI interface's device */
 struct spi_device w5500_spi(struct w5500_state *state);
 

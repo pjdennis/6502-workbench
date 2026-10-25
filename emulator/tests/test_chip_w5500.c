@@ -3,6 +3,8 @@
  * length mode it lasts until the chip select rises. */
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "greatest.h"
 #include "../bus.h"
 #include "../chips/via_6522.h"
@@ -137,6 +139,40 @@ TEST the_header_bytes_answer_01_02_03(void) {
     PASS();
 }
 
+/* MR's RST bit (7) resets every register; MR reads 0 again once it's done */
+TEST mr_rst_resets_the_registers(void) {
+    setup();
+    const uint8_t gar[4] = { 10, 0, 0, 1 }, rst = 0x80;
+    write_common(GAR, gar, 4);
+    write_common(0x0000, &rst, 1);
+    ASSERT_EQ_FMT(0x00, read_common(0x0000), "%02X");
+    ASSERT_EQ_FMT(0x00, read_common(GAR), "%02X");
+    ASSERT_EQ_FMT(0x08, read_common(0x001B), "%02X");   /* RCR back to its reset value */
+    PASS();
+}
+
+/* The emulated cable is plugged into a 100 Mbps full duplex port: PHYCFGR's LNK, SPD and DPX bits are set */
+TEST phycfgr_reads_link_up(void) {
+    setup();
+    ASSERT_EQ_FMT(0xBF, read_common(0x002E), "%02X");
+    PASS();
+}
+
+TEST the_report_shows_the_network_settings(void) {
+    setup();
+    const uint8_t net[18] = { 192, 168, 8, 1,   255, 255, 255, 0,   0x02, 0x65, 0x02, 0x00, 0x00, 0x01,
+                              192, 168, 8, 50 };   /* GAR, SUBR, SHAR, SIPR: one run from $0001 */
+    write_common(GAR, net, 18);
+    char *text; size_t size;
+    FILE *fp = open_memstream(&text, &size);
+    w5500_report(fp, "michael", &ws);
+    fclose(fp);
+    ASSERT_STR_EQ("michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 mac 02:65:02:00:00:01\n",
+                  text);
+    free(text);
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -162,6 +198,9 @@ SUITE(w5500) {
     RUN_TEST(the_chip_select_rising_ends_a_frame);
     RUN_TEST(fixed_length_mode_frames_without_the_chip_select);
     RUN_TEST(the_header_bytes_answer_01_02_03);
+    RUN_TEST(mr_rst_resets_the_registers);
+    RUN_TEST(phycfgr_reads_link_up);
+    RUN_TEST(the_report_shows_the_network_settings);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }
