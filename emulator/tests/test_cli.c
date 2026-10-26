@@ -263,6 +263,9 @@ TEST cli_add_hardware_for_michael(void) {
     char *repeated[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--add", "gal-spi", NULL};
     ASSERT_EQ_FMT(0, parse(repeated, &opts), "%d");
     ASSERT_EQ_FMT(MICHAEL_ADD_GAL_SPI | MICHAEL_ADD_W5500, opts.michael_add, "%u");
+    char *rc[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,w5500,w5500-cs-rc", NULL};
+    ASSERT_EQ_FMT(0, parse(rc, &opts), "%d");
+    ASSERT_EQ_FMT(MICHAEL_ADD_GAL_SPI | MICHAEL_ADD_W5500 | MICHAEL_ADD_W5500_CS_RC, opts.michael_add, "%u");
     char *none[] = {"emulator", "prog.bin", "--machine", "michael", NULL};
     ASSERT_EQ_FMT(0, parse(none, &opts), "%d");
     ASSERT_EQ_FMT(0u, opts.michael_add, "%u");
@@ -283,6 +286,8 @@ TEST cli_add_hardware_errors(void) {
     ASSERT(add_error(unknown, "--add: unknown hardware 'modem'"));
     char *alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", NULL};
     ASSERT(add_error(alone, "--add w5500 needs gal-spi"));
+    char *rc_alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,w5500-cs-rc", NULL};
+    ASSERT(add_error(rc_alone, "--add w5500-cs-rc needs w5500"));
     char *wendy[] = {"emulator", "prog.bin", "--machine", "wendy2c", "--add", "gal-spi", NULL};
     ASSERT(add_error(wendy, "--add requires --machine michael"));
     PASS();

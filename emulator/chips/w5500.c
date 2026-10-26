@@ -89,11 +89,19 @@ int w5500_pulse(void *state, int mosi) {
     return miso;
 }
 
-/* SCSn follows the pin; a rise ends the frame */
+/* SCSn follows the pin once it has held a level cs_delay ticks (as through a capacitor: shorter glitches don't
+   reach it); a rise ends the frame */
 static void w5500_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct w5500_state *s = self->state;
-    int selected = (s->via->ddra & s->cs_mask) && !(via_6522_porta_pins(s->via) & s->cs_mask);
+    int pin = (s->via->ddra & s->cs_mask) && !(via_6522_porta_pins(s->via) & s->cs_mask);
+    if (pin != s->pin_selected) {
+        s->pin_selected = pin;
+        s->pin_ticks = 0;
+    } else if (s->pin_ticks < s->cs_delay) {
+        s->pin_ticks++;
+    }
+    int selected = s->pin_ticks >= s->cs_delay ? pin : s->selected;
     if (s->selected && !selected) end_frame(s);
     s->selected = selected;
 }

@@ -28,6 +28,9 @@ struct w5500_state {
     const struct via_6522_state *via;
     uint8_t cs_mask;            /* the port A pin of SCSn */
     int selected;
+    unsigned cs_delay;          /* ticks before a change of the pin reaches SCSn (a capacitor on it); 0 by default */
+    int pin_selected;           /* the pin, and ticks since it last changed */
+    unsigned pin_ticks;
     uint8_t in, out, bits;      /* the byte arriving, the one leaving, and bits so far */
     uint8_t phase;              /* 0, 1: the address's bytes; 2: the control byte; 3: data */
     uint16_t addr;

@@ -6,6 +6,10 @@
 ; checks them, so a frame it didn't take whole (as a glitch on its chip select causes: the W5500 starts again)
 ; is reported rather than trusted.
 ;
+; The chip select changes slowly: it carries a capacitor at the module (10 nF, against glitches when many port
+; B lines fall at once), so after each change w5500_begin and w5500_end wait for it to settle, about 100 us at
+; 2 MHz (W5500_CS_SETTLE loops of 5 cycles, which a program may define first).
+;
 ; Requires: gal_spi.inc; W5500_CHECK (1 byte). Interrupts off around a frame (see gal_spi.inc).
 
 W5500_CS           = %00000001 ; PA0, active low; the module pulls it up
@@ -30,6 +34,10 @@ W5500_FULL         = %00000100
 W5500_VERSIONR     = $0039 ; always W5500_VERSION
 W5500_VERSION      = $04
 
+  .ifndef W5500_CS_SETTLE
+W5500_CS_SETTLE    = 36    ; 5 cycles a loop, with the call: about 200 cycles
+  .endif
+
 
 ; Deselects the W5500 and makes its chip select an output. A, X, Y are preserved
 w5500_initialize:
@@ -48,6 +56,7 @@ w5500_begin:
   pha
   lda #W5500_CS
   trb PORTA                      ; Select
+  jsr w5500_cs_settle
   txa
   jsr gal_spi_read
   eor #$01
@@ -69,6 +78,16 @@ w5500_end:
   pha
   lda #W5500_CS
   tsb PORTA
+  pla
+  ; fall through
+
+; Waits for the chip select to reach its new level. A, X, Y are preserved
+w5500_cs_settle:
+  pha
+  lda #W5500_CS_SETTLE
+.loop:
+  dec
+  bne .loop
   pla
   rts
 

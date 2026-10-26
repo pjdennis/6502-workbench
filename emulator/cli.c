@@ -160,7 +160,8 @@ void emu_opts_usage(FILE *fp) {
 "  --no-fpga              michael: the FPGA unconfigured: it never answers or acts on the bus\n"
 "  --add NAME[,NAME...]   michael: plug in more hardware (repeatable): gal-spi, the GAL20RA10 SPI\n"
 "                         interface on port B and PA2 in place of the FPGA board; w5500, the W5500\n"
-"                         Ethernet controller on its SPI, chip select on PA0 (needs gal-spi)\n"
+"                         Ethernet controller on its SPI, chip select on PA0 (needs gal-spi);\n"
+"                         w5500-cs-rc, a 10 nF capacitor on that chip select: it changes 20 us late\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -181,14 +182,14 @@ void emu_opts_usage(FILE *fp) {
 /* --add's comma list into MICHAEL_ADD_* flags */
 static int add_hardware(const char *list, unsigned *flags) {
     static const struct { const char *name; unsigned flag; } names[] = {
-        { "gal-spi", MICHAEL_ADD_GAL_SPI }, { "w5500", MICHAEL_ADD_W5500 },
+        { "gal-spi", MICHAEL_ADD_GAL_SPI }, { "w5500", MICHAEL_ADD_W5500 }, { "w5500-cs-rc", MICHAEL_ADD_W5500_CS_RC },
     };
     while (*list) {
         size_t n = strcspn(list, ",");
         size_t k = 0;
         while (k < sizeof names / sizeof names[0] && !(strlen(names[k].name) == n && !strncmp(list, names[k].name, n))) k++;
         if (k == sizeof names / sizeof names[0]) {
-            fprintf(stderr, "error: --add: unknown hardware '%.*s' (gal-spi, w5500)\n", (int)n, list);
+            fprintf(stderr, "error: --add: unknown hardware '%.*s' (gal-spi, w5500, w5500-cs-rc)\n", (int)n, list);
             return 1;
         }
         *flags |= names[k].flag;
@@ -566,6 +567,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if ((opts->michael_add & MICHAEL_ADD_W5500) && !(opts->michael_add & MICHAEL_ADD_GAL_SPI)) {
         fprintf(stderr, "error: --add w5500 needs gal-spi, the SPI interface it is on\n");
+        return 1;
+    }
+
+    if ((opts->michael_add & MICHAEL_ADD_W5500_CS_RC) && !(opts->michael_add & MICHAEL_ADD_W5500)) {
+        fprintf(stderr, "error: --add w5500-cs-rc needs w5500, whose chip select it slows\n");
         return 1;
     }
 
