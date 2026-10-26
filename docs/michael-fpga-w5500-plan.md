@@ -6,7 +6,10 @@ device on the [FPGA bus](michael-fpga-bus-plan.md). The FPGA runs the SPI from i
 at slow slew, behind the bus's filtered strobe and SOEB interlock, so Michael's port B noise never reaches the
 W5500. Michael asks for whole W5500 frames; the FPGA makes them and checks them.
 
-**Status (2026-10-25): plan.** The wiring is settled.
+**Status (2026-10-25): steps 1 and 2 coded, in simulation.** `rtl/net_spi.v` and the NET device pass against a W5500
+model (`sim/tb_net_spi.v`, `sim/tb_bus_control.v`, `bus/sim/tb_top.v`), and `bus/debug.py` has the bring-up
+commands. Next, on the board once it's wired: load the bus design (`make -C hardware/michael/fpga/bus prog`),
+then `debug.py net-version` (expect `$04`), `net-setup`, and ping 192.168.8.50.
 
 ## Wiring
 

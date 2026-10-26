@@ -29,6 +29,8 @@ still running doesn't send it half a transfer.
   and backlight levels. SPI at 6 MHz, and the backlight's brightness (`BACKLIGHT`, 0 to 255) by PWM at
   47 kHz.
 - [`../rtl/debug_port.v`](../rtl/debug_port.v): the debug port (below).
+- The network, device `$81`: [`../rtl/net_spi.v`](../rtl/net_spi.v), the W5500's SPI frames on Cmod pins 43–48
+  ([`../constr/net.xdc`](../constr/net.xdc)); the plan is [`docs/michael-fpga-w5500-plan.md`](../../../../docs/michael-fpga-w5500-plan.md).
 - Text mode (stage 3): [`../rtl/text_grid.v`](../rtl/text_grid.v) and
   [`../rtl/text_render.v`](../rtl/text_render.v), described in [`../text/`](../text/).
 - [`sim/tb_top.v`](sim/tb_top.v): Michael (the driver's timings, its fill loop and the keyboard's
@@ -51,6 +53,9 @@ python3 debug.py id        # "MB, protocol version 2, capabilities $03"
 python3 debug.py status    # the status byte
 python3 debug.py pattern   # initialises the display as Michael's driver does, then draws four squares
 python3 debug.py text      # the same, then a screen in text mode
+python3 debug.py net-version   # the W5500's VERSIONR: $04
+python3 debug.py net-setup     # its network settings (192.168.8.50 by default), read back: it answers ping
+python3 debug.py net-dump      # its common registers
 ```
 
 ## Michael's programs
