@@ -9,6 +9,7 @@
 #include "../bus.h"
 #include "../chips/via_6522.h"
 #include "../chips/fpga_bus.h"
+#include "../chips/w5500.h"
 #include "../chips/font_12x16.h"
 
 #define E 0x04                        /* PA2, the bus's E */
@@ -135,7 +136,7 @@ TEST id_and_geometry_reply(void) {
     ASSERT_EQ_FMT('M', read_byte(1), "%02x");
     ASSERT_EQ_FMT('B', read_byte(1), "%02x");
     ASSERT_EQ_FMT(2, read_byte(1), "%02x");      /* the protocol's version */
-    ASSERT_EQ_FMT(0x03, read_byte(1), "%02x");   /* raw display and text mode */
+    ASSERT_EQ_FMT(0x0B, read_byte(1), "%02x");   /* raw display, text mode and the network */
     text(0x10);                                  /* GEOMETRY */
     ASSERT_EQ_FMT(20, read_byte(1), "%02x");
     ASSERT_EQ_FMT(20, read_byte(1), "%02x");
@@ -467,6 +468,66 @@ TEST an_absent_fpga_never_answers(void) {
     PASS();
 }
 
+/* The network, device $81 (docs/michael-fpga-w5500-plan.md): the W5500 on the FPGA's net pins */
+static struct w5500_state ws;
+static struct chip wch;
+
+static void net_setup(void) {
+    model_setup();
+    w5500_init(&wch, &ws, NULL, 0);
+    fpga_bus_attach_net(&fs, w5500_spi(&ws));
+}
+
+static void net_read(uint16_t addr, uint8_t control, uint8_t n) {
+    command(0x81); data(0x01); data(addr >> 8); data(addr & 0xFF); data(control); data(n);
+}
+
+TEST net_read_versionr(void) {
+    net_setup();
+    net_read(0x0039, 0x00, 1);
+    ASSERT_EQ_FMT(0x04, read_byte(1), "%02x");
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");   /* no NET_ERROR */
+    teardown();
+    PASS();
+}
+
+TEST net_write_then_read_back(void) {
+    net_setup();
+    command(0x81); data(0x02); data(0x00); data(0x01); data(0x04);
+    data(192); data(168); data(8); data(1);
+    command(0x00);                               /* the next command ends the frame */
+    net_read(0x0001, 0x00, 4);
+    ASSERT_EQ_FMT(192, read_byte(1), "%u");
+    ASSERT_EQ_FMT(168, read_byte(1), "%u");
+    ASSERT_EQ_FMT(8, read_byte(1), "%u");
+    ASSERT_EQ_FMT(1, read_byte(1), "%u");
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");
+    teardown();
+    PASS();
+}
+
+TEST net_status_and_reset(void) {
+    net_setup();
+    command(0x81); data(0x03);
+    ASSERT_EQ_FMT(0x00, read_byte(1), "%02x");   /* INTn high, no frame open */
+    command(0x81); data(0x02); data(0x00); data(0x01); data(0x04); data(10);
+    command(0x81); data(0x00);                   /* NET_RESET */
+    net_read(0x0001, 0x00, 1);
+    ASSERT_EQ_FMT(0x00, read_byte(1), "%02x");   /* the gateway reset */
+    teardown();
+    PASS();
+}
+
+TEST net_without_a_w5500_reports_net_error(void) {
+    model_setup();
+    net_read(0x0039, 0x00, 1);
+    ASSERT_EQ_FMT(0xFF, read_byte(1), "%02x");   /* MISO pulled up */
+    ASSERT_EQ_FMT(0x20, read_byte(0), "%02x");   /* NET_ERROR: the header wasn't answered */
+    ASSERT_EQ_FMT(0x00, read_byte(0), "%02x");   /* cleared by the read */
+    teardown();
+    PASS();
+}
+
 SUITE(fpga_bus_suite) {
     RUN_TEST(writes_and_reads);
     RUN_TEST(e_held_high_is_one_transfer);
@@ -487,6 +548,10 @@ SUITE(fpga_bus_suite) {
     RUN_TEST(disp_reset_ends_text_mode);
     RUN_TEST(the_long_forms_errors);
     RUN_TEST(an_absent_fpga_never_answers);
+    RUN_TEST(net_read_versionr);
+    RUN_TEST(net_write_then_read_back);
+    RUN_TEST(net_status_and_reset);
+    RUN_TEST(net_without_a_w5500_reports_net_error);
 }
 
 GREATEST_MAIN_DEFS();

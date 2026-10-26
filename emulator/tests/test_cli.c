@@ -290,8 +290,11 @@ static int add_error(char **argv, const char *message) {
 TEST cli_add_hardware_errors(void) {
     char *unknown[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,modem", NULL};
     ASSERT(add_error(unknown, "--add: unknown hardware 'modem'"));
-    char *alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", NULL};
-    ASSERT(add_error(alone, "--add w5500 needs gal-spi"));
+    char *on_the_fpga[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(on_the_fpga, &opts), "%d");   /* without gal-spi, on the FPGA's net pins */
+    char *fault_on_the_fpga[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500,w5500-cs-flaky", NULL};
+    ASSERT(add_error(fault_on_the_fpga, "--add w5500-cs-flaky needs gal-spi"));
     char *rc_alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,w5500-cs-rc", NULL};
     ASSERT(add_error(rc_alone, "--add w5500-cs-rc needs w5500"));
     char *bounce_alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "gal-spi,w5500-cs-bounce", NULL};

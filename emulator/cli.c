@@ -160,7 +160,8 @@ void emu_opts_usage(FILE *fp) {
 "  --no-fpga              michael: the FPGA unconfigured: it never answers or acts on the bus\n"
 "  --add NAME[,NAME...]   michael: plug in more hardware (repeatable): gal-spi, the GAL20RA10 SPI\n"
 "                         interface on port B and PA2 in place of the FPGA board; w5500, the W5500\n"
-"                         Ethernet controller on its SPI, chip select on PA0 (needs gal-spi);\n"
+"                         Ethernet controller: on the FPGA's network device, or with gal-spi on its\n"
+"                         SPI, chip select on PA0; the faults below need gal-spi:\n"
 "                         w5500-cs-rc, a 10 nF capacitor on that chip select: it changes 20 us late;\n"
 "                         w5500-cs-bounce, the board's ground bounce: more than two port B lines\n"
 "                         falling at once glitch that chip select, restarting the W5500's frame;\n"
@@ -569,9 +570,14 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
-    if ((opts->michael_add & MICHAEL_ADD_W5500) && !(opts->michael_add & MICHAEL_ADD_GAL_SPI)) {
-        fprintf(stderr, "error: --add w5500 needs gal-spi, the SPI interface it is on\n");
-        return 1;
+    {
+        const char *fault = (opts->michael_add & MICHAEL_ADD_W5500_CS_RC) ? "w5500-cs-rc" :
+                            (opts->michael_add & MICHAEL_ADD_W5500_CS_BOUNCE) ? "w5500-cs-bounce" :
+                            (opts->michael_add & MICHAEL_ADD_W5500_CS_FLAKY) ? "w5500-cs-flaky" : NULL;
+        if (fault && (opts->michael_add & MICHAEL_ADD_W5500) && !(opts->michael_add & MICHAEL_ADD_GAL_SPI)) {
+            fprintf(stderr, "error: --add %s needs gal-spi: it is the GAL board's fault\n", fault);
+            return 1;
+        }
     }
 
     if ((opts->michael_add & MICHAEL_ADD_W5500_CS_RC) && !(opts->michael_add & MICHAEL_ADD_W5500)) {

@@ -261,9 +261,9 @@ emulator/tests/out/test_chip_led_buttons.out: emulator/tests/test_chip_led_butto
 	@mkdir -p emulator/tests/out
 	gcc -Wall -Werror -o $@ emulator/tests/test_chip_led_buttons.c emulator/chips/led_buttons.c emulator/chips/via_6522.c emulator/bus.c
 
-emulator/tests/out/test_chip_fpga_bus.out: emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_bus.h emulator/chips/fpga_text.c emulator/chips/fpga_text.h emulator/chips/fpga_text_render.c emulator/chips/fpga_text_render.h emulator/chips/font_12x16.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/bus.c emulator/bus.h emulator/tests/greatest.h
+emulator/tests/out/test_chip_fpga_bus.out: emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_bus.h emulator/chips/w5500.c emulator/chips/w5500.h emulator/chips/spi.h emulator/chips/fpga_text.c emulator/chips/fpga_text.h emulator/chips/fpga_text_render.c emulator/chips/fpga_text_render.h emulator/chips/font_12x16.h emulator/chips/ili9341.c emulator/chips/ili9341.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/bus.c emulator/bus.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out
-	gcc -Wall -Werror -o $@ emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c
+	gcc -Wall -Werror -o $@ emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/w5500.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c
 
 emulator/tests/out/test_chip_w5500.out: emulator/tests/test_chip_w5500.c emulator/chips/w5500.c emulator/chips/w5500.h emulator/chips/spi.h emulator/chips/via_6522.c emulator/chips/via_6522.h emulator/bus.c emulator/bus.h emulator/tests/greatest.h
 	@mkdir -p emulator/tests/out

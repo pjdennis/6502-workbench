@@ -94,6 +94,7 @@ int w5500_pulse(void *state, int mosi) {
 static void w5500_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct w5500_state *s = self->state;
+    if (!s->via) return;   /* its chip select is the FPGA's (w5500_select) */
     int pin = (s->via->ddra & s->cs_mask) && !(via_6522_porta_pins(s->via) & s->cs_mask);
     if (pin != s->pin_selected) {
         s->pin_selected = pin;
@@ -136,6 +137,18 @@ void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *s) {
             c[0x01], c[0x02], c[0x03], c[0x04], c[0x09], c[0x0A], c[0x0B], c[0x0C], c[0x0D], c[0x0E]);
 }
 
+void w5500_select(void *state, int selected) {
+    struct w5500_state *s = state;
+    if (s->selected && !selected) end_frame(s);
+    s->selected = selected;
+}
+
+static void w5500_reset_line(void *state) {
+    struct w5500_state *s = state;
+    end_frame(s);
+    reset_registers(s);
+}
+
 struct spi_device w5500_spi(struct w5500_state *state) {
-    return (struct spi_device){ state, w5500_pulse };
+    return (struct spi_device){ state, w5500_pulse, w5500_select, w5500_reset_line };
 }

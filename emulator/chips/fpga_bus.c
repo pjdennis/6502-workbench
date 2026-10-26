@@ -12,9 +12,11 @@
 enum { NOP = 0x00, ID = 0x01, RESET = 0x03, ECHO = 0x04, DISP_RESET = 0x10, DISP_COMMAND = 0x11, DISP_DATA = 0x12,
        BACKLIGHT = 0x13, SERIAL_SEND = 0x50, TEXT = 0x80, LONG = 0x100,
        TEXT_ON = 0x100, TEXT_OFF = 0x101, GOTO = 0x102, PUT = 0x103, CLEAR = 0x104, CLEAR_EOL = 0x105,
-       REGION = 0x108, REGION_RESET = 0x109, GEOMETRY = 0x110 };
+       REGION = 0x108, REGION_RESET = 0x109, GEOMETRY = 0x110,
+       NET = 0x81, NET_OP = 0x200, NET_RESET = 0x200, NET_READ = 0x201, NET_WRITE = 0x202, NET_STATUS = 0x203 };
 #define VERSION 2
-enum { ABANDONED = 0x01, UNKNOWN = 0x02, EXTRA = 0x04, UNDERFLOW = 0x08, OVERFLOW = 0x10 };
+enum { ABANDONED = 0x01, UNKNOWN = 0x02, EXTRA = 0x04, UNDERFLOW = 0x08, OVERFLOW = 0x10, NET_ERROR = 0x20 };
+#define CAPABILITIES 0x0B   /* the raw display, text mode and the network */
 
 /* The commands, as bus_control.v has them: in text mode, DISP_COMMAND and DISP_DATA are refused, and
    DISP_RESET ends it */
@@ -22,16 +24,20 @@ static int display(const struct fpga_bus_state *s, int c) {
     return c == BACKLIGHT || c == DISP_RESET || (!s->text_mode && (c == DISP_COMMAND || c == DISP_DATA));
 }
 static int text(int c) { return c >= TEXT_ON && c < GEOMETRY; }
+static int net(int c) { return c >= NET_RESET && c <= NET_STATUS; }
 static int known(const struct fpga_bus_state *s, int c) {
     return c == NOP || c == ID || c == RESET || c == ECHO || c == SERIAL_SEND || c == TEXT || c == GEOMETRY ||
-           display(s, c) || text(c);
+           display(s, c) || text(c) || c == NET || net(c);
 }
 static int streams(int c) {
-    return c == ECHO || c == SERIAL_SEND || c == DISP_COMMAND || c == DISP_DATA || c == PUT;
+    return c == ECHO || c == SERIAL_SEND || c == DISP_COMMAND || c == DISP_DATA || c == PUT || c == NET_WRITE;
 }
 static int arguments(const struct fpga_bus_state *s, int c) {
     if (display(s, c)) return c != DISP_DATA;
-    if (c == TEXT) return 1;   /* the operation */
+    if (c == TEXT || c == NET) return 1;   /* the operation */
+    if (c == NET_READ) return 4;           /* address high, address low, control byte, count */
+    if (c == NET_WRITE) return 3;          /* address high, address low, control byte; then data */
+    if (net(c)) return 0;
     if (!text(c) || c == PUT) return 0;
     if (c == GOTO || c == REGION) return 2;
     return c == TEXT_ON || c == TEXT_OFF || c == CLEAR || c == CLEAR_EOL || c == REGION_RESET ? 0 : 1;
@@ -47,7 +53,9 @@ static void start(struct fpga_bus_state *s, int c) {
     if (!known(s, c)) s->sticky |= UNKNOWN;
     s->cmd = (uint16_t)c;
     s->args_left = (uint8_t)arguments(s, c);
-    if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, VERSION); push_reply(s, 0x03); }
+    if (c == ID) { push_reply(s, 'M'); push_reply(s, 'B'); push_reply(s, VERSION); push_reply(s, CAPABILITIES); }
+    if (c == NET_RESET) spi_reset(&s->net);
+    if (c == NET_STATUS) push_reply(s, 0x00);
     if (c == GEOMETRY) { push_reply(s, FPGA_TEXT_ROWS); push_reply(s, FPGA_TEXT_COLS); }
     if (c == RESET) { s->reply_count = 0; s->sticky = 0; }
     if (c == TEXT_ON) { s->text_mode = 1; fpga_text_render_init(&s->render); }
@@ -58,8 +66,40 @@ static void start(struct fpga_bus_state *s, int c) {
     if (text(c) && s->args_left == 0 && c != PUT) fpga_text_op(&s->text, c & 0xFF, 0, 0);
 }
 
+/* The network's frames, made at once */
+static void net_close(struct fpga_bus_state *s) {
+    if (s->net_open) spi_select(&s->net, 0);
+    s->net_open = 0;
+}
+
+static void net_header(struct fpga_bus_state *s, uint8_t b) {
+    if (!s->net_open) {
+        spi_select(&s->net, 1);
+        s->net_open = 1;
+        s->net_header = 0;
+    }
+    if (spi_byte(&s->net, b) != ++s->net_header) s->sticky |= NET_ERROR;   /* (once is as good as more) */
+}
+
+static void net_data(struct fpga_bus_state *s, uint8_t d) {
+    if (s->args_left) {
+        --s->args_left;
+        if (s->cmd == NET_READ && s->args_left == 0) {   /* the count: the bytes, then the frame ends */
+            for (int n = d ? d : 256; n > 0; n--) push_reply(s, spi_byte(&s->net, 0x00));
+            net_close(s);
+        } else {
+            net_header(s, d);
+        }
+    } else if (s->cmd == NET_WRITE) {
+        spi_byte(&s->net, d);
+    } else {
+        s->sticky |= EXTRA;
+    }
+}
+
 static void write_command(struct fpga_bus_state *s, uint8_t c) {
     if (s->args_left) s->sticky |= ABANDONED;
+    net_close(s);   /* a command ends a frame */
     start(s, c);
 }
 
@@ -71,7 +111,11 @@ static void display_argument(struct fpga_bus_state *s, uint8_t a) {
 }
 
 static void write_data(struct fpga_bus_state *s, uint8_t d) {
-    if (s->cmd == TEXT && s->args_left) {
+    if (s->cmd == NET && s->args_left) {
+        start(s, NET_OP | d);
+    } else if (net(s->cmd)) {
+        net_data(s, d);
+    } else if (s->cmd == TEXT && s->args_left) {
         start(s, LONG | d);
     } else if (s->args_left) {
         if (s->args_left == 2) s->first_arg = d;
@@ -163,6 +207,10 @@ void fpga_bus_report(FILE *fp, const char *prefix, const struct fpga_bus_state *
         for (int c = 0; c < FPGA_TEXT_COLS; c++) row[c] = t->reverse_cells[r][c] ? '#' : ' ';
         fprintf(fp, "  |%s|\n", row);
     }
+}
+
+void fpga_bus_attach_net(struct fpga_bus_state *s, struct spi_device device) {
+    s->net = device;
 }
 
 void fpga_bus_init(struct chip *chip, struct fpga_bus_state *state, const struct via_6522_state *via, FILE *log) {
