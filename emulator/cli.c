@@ -66,6 +66,7 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->net_response_filename = NULL;
     opts->net_port = 80;
     opts->net_connections = 1;
+    opts->net_idle = 0;
     opts->lcd_panel = LCD_PANEL_16X2_5X8;
 }
 
@@ -176,6 +177,8 @@ void emu_opts_usage(FILE *fp) {
 "                         bytes 1 ms later and keeps what the server sends until it closes the\n"
 "                         connection; then again, --net-connections times (default 1)\n"
 "  --net-response PATH    michael: where the client puts what the server sent it\n"
+"  --net-idle N           michael: first the client opens N connections (0 to 8) that send nothing and\n"
+"                         stay open until the server closes them, as a browser's early ones can\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -238,7 +241,7 @@ static int take_int_in(int argc, char **argv, int *idx, const char *flag, long l
 }
 
 int parse_args(int argc, char **argv, struct emu_opts *opts) {
-    int net_options = 0;   /* --net-response, --net-port or --net-connections given */
+    int net_options = 0;   /* --net-response, --net-port, --net-connections or --net-idle given */
     emu_opts_init(opts);
 
     if (argc < 2) {
@@ -484,6 +487,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (take_int_in(argc, argv, &i, "--net-connections", 1, INT_MAX, "positive", &opts->net_connections))
                 return 1;
             net_options = 1;
+        } else if (strcmp(argv[i], "--net-idle") == 0) {
+            if (take_int_in(argc, argv, &i, "--net-idle", 0, 8, "0 to 8", &opts->net_idle)) return 1;
+            net_options = 1;
         } else if (strcmp(argv[i], "--fpga-log") == 0) {
             if (take_str_value(argc, argv, &i, "--fpga-log", &opts->fpga_log_filename)) return 1;
         } else if (strcmp(argv[i], "--lcd-panel") == 0) {
@@ -638,7 +644,7 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
     }
 
     if (net_options && !opts->net_request_filename) {
-        fprintf(stderr, "error: --net-response, --net-port and --net-connections need --net-request\n");
+        fprintf(stderr, "error: --net-response, --net-port, --net-connections and --net-idle need --net-request\n");
         return 1;
     }
 
