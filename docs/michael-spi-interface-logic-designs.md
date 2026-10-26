@@ -199,8 +199,8 @@ Michael's FPGA board unplugged, the GAL board on its port B and port A, and the 
    frames burst 3 carried `$01` and burst 4 `$02`. The W5500 had started a new frame at burst 3, so CS had gone
    high between bursts 2 and 3. That is where the program writes `$00` over `$39`, four port B lines falling at
    once, the only falling transition in the frame; the scope showed a spike on CS there. 100 pF from CS to
-   ground at the module cured it: 4096 good reads a round. The spike is ground bounce or crosstalk from port B,
-   so more ground between Michael and the GAL board (and 1 nF on CS) would give margin.
+   ground at the module cured it: 4096 good reads a round. The spike is ground bounce or crosstalk from port B
+   (more below).
 
 None of these was the GAL design itself; whether the 2025 fault was the same isn't recorded, but the CS glitch
 fits "something seemed to trigger falsely".
@@ -213,6 +213,60 @@ The emulator now models the interface and the W5500 (`--add gal-spi,w5500`, `emu
 `emulator/chips/w5500.h`, the W5500's `$01 $02 $03` included), and the program passes on it. Its CPU makes each
 access on an instruction's first cycle, so it can't catch a read placed a few cycles too early after E
 (`emulator/NOTES-timing-accuracy.md`); the program keeps a 12-cycle margin there.
+
+### Ping, and the limits of the breadboard
+
+[`michael_w5500_ping.s`](../firmware/programs/michael/michael_w5500_ping.s) gives the W5500 its network settings
+(192.168.8.50 on a GL.iNet GL-MT3000's LAN), and the W5500 then answers ping by itself. It worked on the board the
+same day, after the settings write had needed more work than the reads:
+
+- **The 18-byte write never took.** Read back, it showed bytes 0 to 5 written, byte 6 lost, nothing after, and
+  `$02` in GAR's second byte. A model of the W5500 parsing the frame with its chip select going high and low at
+  every possible pair of bit positions matched only one case: a glitch at the end of byte 6, where port B goes
+  from `$FF` to `$00` (the subnet mask, 255 255 255 0), eight lines falling at once. The W5500 then took bytes 7
+  onward as a new frame, `$00 $02` an address, `$65` a control byte, `$02` the data. (Port A's pins, logged
+  before each byte, ruled out the other suspect, the read-modify-write `tsb`/`trb` on port A writing back a
+  misread chip select.)
+- **What fixed it, on the board:** a ground wire from the VIA's pin 1 (VSS) straight to the GAL board's ground
+  rail made the clearest difference, with one on to the W5500's GND; 100 pF from CS to ground at the module
+  stays. 10 nF there made things worse: charging and discharging it through the VIA pin bounces the same ground.
+- **What fixed it, in software** (`firmware/lib/spi/`): port B never drops more than two lines at a time
+  (`gal_spi_port_b` steps a byte down), and after a read the VIA takes port B back at the level the '299 left;
+  `w5500_begin` checks the W5500's answer to the control byte (`$03`); register reads are made twice and must
+  agree, writes are read back, and both retry, counting the retries. On the board: `RETRIES 0001` over thousands
+  of frames.
+- **The emulator models the faults** (`--add` on `--machine michael`): `w5500-cs-bounce` (more than two port B
+  lines falling at once glitch the chip select), `w5500-cs-flaky` (every 37th falling step does) and
+  `w5500-cs-rc` (a capacitor on the chip select delays it). The programs failed under each before their fixes.
+
+### Assessment
+
+**The GAL design's logic is sound.** In loopback, rounds of 4096 transfers came back without an error (E, the
+burst, the '299's load, shift and hold, MISOr, the hand-back of port B); its equations, simulated with a '299 and
+an SPI device, send and receive the right bytes, short strobes and held ones included; on the scope the W5500's
+answers matched the bits received; and the chip reads back exactly as designed. No race explains any fault
+found: E is sampled on Phi2's rising edge; MOSI changes as SCLK falls, half a cycle before the W5500 samples it;
+MISOr samples MISO tens of nanoseconds before the W5500 sees SCLK rise, with MISO stable since the falling edge
+before. The `/dBRST` loop keeps BRST's edges in Phi2's high half, relying on the GAL's delays having a minimum
+the data sheet doesn't state: a margin that holds in practice, not a guarantee.
+
+Every fault was outside the chip: wiring (the reversed connector, PB7's contact) and signal integrity (the chip
+select glitching as port B falls). The design's weaknesses, by design rather than bugs:
+
+1. SCLK is combinational from the clock input, so noise on Phi2 at GAL pin 6 reaches SCLK; a registered SCLK
+   would need a doubled clock.
+2. Software keeps the protocol: E under 8 cycles on a write, port B an input within 8 cycles on a read, a strobe
+   during a burst lost, interrupts off since nothing keeps the '299 and the keyboard board from driving port B
+   together (the FPGA bus's SOEB interlock).
+3. The supply at the GAL board measured 4.3 V, under the GAL20RA10B's 4.75 V minimum.
+4. The chip select, SCLK and port B run on long jumpers side by side.
+
+For bulk data (HTTP, through the W5500's 2 KB buffers) the checks would have to grow to chunks read back before
+a SEND, at about half the speed, and a glitch mid-write can still turn data into a stray frame writing anywhere,
+a socket's command register included; a Schmitt buffer on the chip select at the module, series resistors on port
+B, or shorter wiring would be needed. So the W5500 goes on the FPGA bus instead, the direction already planned:
+the Cmod drives its chip select and SCLK on short 3.3 V wires, from its own clock, behind the bus's filtered
+strobe and the SOEB interlock.
 
 ## The files
 
