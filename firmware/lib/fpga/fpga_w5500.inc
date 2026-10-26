@@ -6,13 +6,30 @@
 ; if a frame didn't get it; each routine here waits until the FPGA has finished (BUSY clear), gathering the
 ; status's error bits on the way, and returns carry set if there were any; W5500_FAULTS counts the times.
 ;
-; Requires: fpga_bus.inc, fb_initialize called; W5500_COUNT and W5500_ERRORS (1 byte each), W5500_WORD and
+; Requires: fpga_bus.inc, fb_initialize then w5500_initialize called; W5500_COUNT and W5500_ERRORS (1 byte each), W5500_WORD and
 ; W5500_FAULTS (2 bytes each; the program clears W5500_FAULTS)
 
   .include w5500_registers.inc
 
 w5500_read_byte  = fb_read
 w5500_write_byte = fb_data
+
+
+; Starts afresh with the FPGA, whatever a program stopped by a reset left there: ends a frame left open (or a
+; command cut off in its arguments), waits for the FPGA to finish, then RESET empties the reply queue of bytes
+; nobody read and clears the status's errors. Call once, after fb_initialize.
+; On exit A, X, Y are preserved
+w5500_initialize:
+  pha
+  lda #FB_NOP
+  jsr fb_command
+.busy:
+  jsr fb_status
+  bmi .busy                      ; BUSY, bit 7
+  lda #FB_RESET
+  jsr fb_command
+  pla
+  rts
 
 
 ; Reads W5500_COUNT bytes (0 means 256) into the reply queue, from the address X (high), Y (low) in the block

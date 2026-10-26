@@ -73,6 +73,7 @@ program_start:
   txs
   sei
   jsr fb_initialize
+  jsr w5500_initialize           ; Whatever the program before left with the FPGA (as it was reset) is gone
   jsr reset_and_enable_display_no_cursor
   stz W5500_FAULTS
   stz W5500_FAULTS + 1
