@@ -19,6 +19,10 @@ LAST                 = $08 ; 1 byte
 FIRST_BAD            = $09 ; 1 byte
 SEEN_BAD             = $0A ; 1 byte
 ROUND                = $0B ; 1 byte
+W5500_VALUE          = $0C ; 1 byte: w5500.inc's (unused here)
+W5500_FIRST          = $0D ; 1 byte
+W5500_TRIES_LEFT     = $0E ; 1 byte
+W5500_RETRIES        = $0F ; 2 bytes
 
 READS_HIGH           = $10       ; 4096 reads a round
 

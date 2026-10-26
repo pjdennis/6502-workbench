@@ -53,7 +53,7 @@ class W5500VersionTest(unittest.TestCase):
         self.assertIn('|W5500 192.168.8.50  |', report)
         self.assertIn('|CONFIG OK           |', report)
         self.assertIn('|LINK UP 100M FULL   |', report)
-        self.assertIn('|BAD FRAMES 0000     |', report)
+        self.assertIn('|RETRIES 0000        |', report)
         self.assertIn('michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 '
                       'mac 02:65:02:00:00:01', report)
         self.assertIn('portb-contention=0', report)
@@ -61,13 +61,21 @@ class W5500VersionTest(unittest.TestCase):
     def test_ping_setup_through_a_slow_chip_select(self):
         report = self.run_program('gal-spi,w5500,w5500-cs-rc', PING, settle=True)
         self.assertIn('|CONFIG OK           |', report)
-        self.assertIn('|BAD FRAMES 0000     |', report)
+        self.assertIn('|RETRIES 0000        |', report)
 
     def test_ping_setup_despite_the_ground_bounce(self):
         """w5500-cs-bounce: port B lines falling together glitch the chip select, as on the board"""
         report = self.run_program('gal-spi,w5500,w5500-cs-bounce', PING)
         self.assertIn('|CONFIG OK           |', report)
-        self.assertIn('|BAD FRAMES 0000     |', report)
+        self.assertIn('|RETRIES 0000        |', report)
+
+    def test_ping_setup_retries_writes_a_glitch_spoiled(self):
+        """w5500-cs-flaky: a glitch on the chip select now and then, as on the board after its ground fix"""
+        report = self.run_program('gal-spi,w5500,w5500-cs-flaky', PING)
+        self.assertIn('|CONFIG OK           |', report)
+        self.assertNotIn('|RETRIES 0000        |', report)
+        self.assertIn('michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 '
+                      'mac 02:65:02:00:00:01', report)
 
     def test_every_read_finds_version_4_despite_the_ground_bounce(self):
         report = self.run_program('gal-spi,w5500,w5500-cs-bounce')
