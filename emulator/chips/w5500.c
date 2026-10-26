@@ -124,6 +124,10 @@ void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6
     chip->state = state;
 }
 
+void w5500_cs_glitch(struct w5500_state *s) {
+    if (s->selected) end_frame(s);
+}
+
 void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *s) {
     const uint8_t *c = s->common;   /* GAR $01, SUBR $05, SHAR $09, SIPR $0F */
     fprintf(fp, "%s: w5500: ip %u.%u.%u.%u mask %u.%u.%u.%u gateway %u.%u.%u.%u "

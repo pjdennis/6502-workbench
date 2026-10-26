@@ -3,14 +3,15 @@
 ; then w5500_end; the address counts up through the data.
 ;
 ; While the address and control bytes go in, the W5500 answers on MISO with $01, $02 and $03. w5500_begin
-; checks them, so a frame it didn't take whole (as a glitch on its chip select causes: the W5500 starts again)
-; is reported rather than trusted.
+; checks the third, so a frame it didn't take whole (a glitch on its chip select starts it again, and it would
+; answer $01 or $02) is reported rather than trusted. (Reading the address bytes' answers too would have the
+; '299 drive $01 and $02 over them: more falling lines than port B can take at once.)
 ;
-; The chip select changes slowly: it carries a capacitor at the module (10 nF, against glitches when many port
-; B lines fall at once), so after each change w5500_begin and w5500_end wait for it to settle, about 100 us at
-; 2 MHz (W5500_CS_SETTLE loops of 5 cycles, which a program may define first).
+; If the chip select carries a capacitor (against glitches), a program defines W5500_CS_SETTLE first: then,
+; after each change, w5500_begin and w5500_end wait for it, W5500_CS_SETTLE loops of 5 cycles (36 is about
+; 100 us at 2 MHz).
 ;
-; Requires: gal_spi.inc; W5500_CHECK (1 byte). Interrupts off around a frame (see gal_spi.inc).
+; Requires: gal_spi.inc. Interrupts off around a frame (see gal_spi.inc).
 
 W5500_CS           = %00000001 ; PA0, active low; the module pulls it up
 
@@ -34,10 +35,6 @@ W5500_FULL         = %00000100
 W5500_VERSIONR     = $0039 ; always W5500_VERSION
 W5500_VERSION      = $04
 
-  .ifndef W5500_CS_SETTLE
-W5500_CS_SETTLE    = 36    ; 5 cycles a loop, with the call: about 200 cycles
-  .endif
-
 
 ; Deselects the W5500 and makes its chip select an output. A, X, Y are preserved
 w5500_initialize:
@@ -50,26 +47,23 @@ w5500_initialize:
 
 
 ; Starts a frame. On entry X, Y = the address's high, low bytes; A = the control byte
-; On exit carry clear if the W5500 answered the header $01 $02 $03, set if not; the frame is open either way
+; On exit carry clear if the W5500 answered the control byte with $03, set if not; the frame is open either way
 ;         X, Y are preserved
 w5500_begin:
   pha
   lda #W5500_CS
   trb PORTA                      ; Select
+  .ifdef W5500_CS_SETTLE
   jsr w5500_cs_settle
+  .endif
   txa
-  jsr gal_spi_read
-  eor #$01
-  sta W5500_CHECK
+  jsr gal_spi_write
   tya
-  jsr gal_spi_read
-  eor #$02
-  tsb W5500_CHECK
+  jsr gal_spi_write
   pla
   jsr gal_spi_read
   eor #$03
-  ora W5500_CHECK
-  cmp #1                         ; Carry set unless each byte was as expected
+  cmp #1                         ; Carry set unless it was $03
   rts
 
 
@@ -79,6 +73,9 @@ w5500_end:
   lda #W5500_CS
   tsb PORTA
   pla
+  .ifndef W5500_CS_SETTLE
+  rts
+  .else
   ; fall through
 
 ; Waits for the chip select to reach its new level. A, X, Y are preserved
@@ -90,6 +87,7 @@ w5500_cs_settle:
   bne .loop
   pla
   rts
+  .endif
 
 
 ; Sends A, a data byte. X, Y are preserved

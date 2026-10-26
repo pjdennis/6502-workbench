@@ -206,6 +206,20 @@ TEST a_slow_chip_select_ignores_a_glitch(void) {
     PASS();
 }
 
+/* A glitch on the chip select while it's low: the W5500 starts a new frame */
+TEST a_chip_select_glitch_restarts_the_frame(void) {
+    setup();
+    select_(1);
+    byte(VERSIONR >> 8);
+    w5500_cs_glitch(&ws);
+    ASSERT_EQ_FMT(0x01, byte(VERSIONR >> 8), "%02X");   /* the header again from its first byte */
+    ASSERT_EQ_FMT(0x02, byte(VERSIONR & 0xFF), "%02X");
+    ASSERT_EQ_FMT(0x03, byte(COMMON), "%02X");
+    ASSERT_EQ_FMT(0x04, byte(0x00), "%02X");
+    select_(0);
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -236,6 +250,7 @@ SUITE(w5500) {
     RUN_TEST(the_report_shows_the_network_settings);
     RUN_TEST(a_slow_chip_select_ignores_a_frame_that_starts_too_soon);
     RUN_TEST(a_slow_chip_select_ignores_a_glitch);
+    RUN_TEST(a_chip_select_glitch_restarts_the_frame);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }

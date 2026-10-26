@@ -44,6 +44,8 @@ struct w5500_state {
 void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6522_state *via, uint8_t cs_mask);
 /* One SCLK pulse (spi.h): the MISO bit the rising edge saw */
 int w5500_pulse(void *state, int mosi);
+/* A glitch on the chip select (the board's ground bounce): if selected, the frame starts again */
+void w5500_cs_glitch(struct w5500_state *state);
 /* The network settings: "<prefix>: w5500: ip a.b.c.d mask a.b.c.d gateway a.b.c.d mac xx:xx:xx:xx:xx:xx" */
 void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *state);
 /* The W5500 as the GAL SPI interface's device */

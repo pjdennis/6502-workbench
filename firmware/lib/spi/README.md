@@ -5,5 +5,5 @@ with the FPGA board unplugged. Each file's header says what it requires.
 
 | File | What |
 |---|---|
-| `gal_spi.inc` | A byte out, or a byte out and one back, through the GAL and its 74HC299 (E on PA2, port B) |
+| `gal_spi.inc` | A byte out, or a byte out and one back, through the GAL and its 74HC299 (E on PA2, port B), never letting more than two port B lines fall at once (the board's ground bounce glitches the W5500's chip select) |
 | `w5500.inc` | The W5500 Ethernet controller on it (chip select on PA0): frames whose header count (`$01 $02 $03` on MISO) is checked, and its common registers |
