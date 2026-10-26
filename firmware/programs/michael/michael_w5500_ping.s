@@ -1,11 +1,12 @@
 ; Gives the W5500 Ethernet module its network settings (network, below), so that it answers ping by itself,
 ; then keeps showing the link:
-;   W5500 192.168.8.50
+;   W5500 192.168.86.251
 ;   CONFIG OK              the settings read back as written (CONFIG BAD if not; NO W5500 if VERSIONR isn't $04)
 ;   LINK UP 100M FULL      or LINK DOWN; 10M, HALF
 ;   RETRIES 0000           reads and writes tried again after a glitch spoiled them (w5500.inc), in hex
-; Then ping 192.168.8.50 from a computer on the same network. The settings suit a GL.iNet router's LAN
-; (192.168.8.1, its DHCP pool from .100); the MAC address is locally administered (02:...).
+; Then ping 192.168.86.251 from a computer on the same network. The settings suit the home network (the router
+; 192.168.86.1), which a GL.iNet GL-MT3000 in extender mode joins Michael to; the MAC address is locally
+; administered (02:...). The W5500 uses no DNS.
 ; Wiring as michael_w5500_version.s: the GAL SPI interface (gal_spi.inc), the W5500's chip select on PA0.
 ; Interrupts stay off, so the keyboard board never drives port B.
   .include base_config_v2.inc
@@ -179,10 +180,10 @@ show_hex:
 
 ; GAR, SUBR, SHAR and SIPR, in the W5500's order
 network:
-  .byte 192, 168, 8, 1                       ; the gateway: the router
+  .byte 192, 168, 86, 1                      ; the gateway: the home router
   .byte 255, 255, 255, 0                     ; the subnet mask
   .byte $02, $65, $02, $00, $00, $01         ; the MAC address
-  .byte 192, 168, 8, 50                      ; the IP address
+  .byte 192, 168, 86, 251                    ; the IP address
 
 title:      .asciiz "W5500 "
 no_w5500:   .asciiz "NO W5500"

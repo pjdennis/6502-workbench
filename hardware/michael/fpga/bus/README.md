@@ -54,7 +54,7 @@ python3 debug.py status    # the status byte
 python3 debug.py pattern   # initialises the display as Michael's driver does, then draws four squares
 python3 debug.py text      # the same, then a screen in text mode
 python3 debug.py net-version   # the W5500's VERSIONR: $04
-python3 debug.py net-setup     # its network settings (192.168.8.50 by default), read back: it answers ping
+python3 debug.py net-setup     # its network settings (192.168.86.251 by default), read back: it answers ping
 python3 debug.py net-dump      # its common registers
 ```
 

@@ -10,7 +10,7 @@ W5500. Michael asks for whole W5500 frames; the FPGA makes them and checks them.
 model (`sim/tb_net_spi.v`, `sim/tb_bus_control.v`, `bus/sim/tb_top.v`), and `bus/debug.py` has the bring-up
 commands. On the board the W5500 answered first time: `net-version` `$04`, `net-setup` read back, ping, and 500
 frames of 64 bytes written and read back without an error. Michael's driver is `firmware/lib/fpga/fpga_w5500.inc`,
-and `firmware/programs/michael/michael_web_server.s` serves http://192.168.8.50/ (100 requests in a row, all
+and `firmware/programs/michael/michael_web_server.s` serves http://192.168.86.251/ on the home network (100 requests in a row, all
 answered, about 60 ms a page). The emulator models the W5500's TCP sockets and a client on the network
 (`--add w5500 --net-request`).
 
