@@ -19,6 +19,16 @@ W5500 is at **192.168.86.251** (mask 255.255.255.0, gateway the home router, 192
 http://192.168.86.251/ opens on a PC and on phones on the home Wi-Fi. The address is set by hand, just above
 the router's DHCP pool (Google Home Wi-Fi's ends at .250), so the router never gives it to another device.
 
+**Phones, and four sockets (2026-10-26).** A phone then couldn't connect while the PC could: a phone's browser
+opens connections early and may send its request on another, and the server, with one socket, waited for a
+request on the idle one while every other connection was refused. Now four sockets listen, served in turn, and a
+connection gets 5 s to send its request (counted by VIA T1), then is ended and counted (`DROP` on the LCD), and
+closed outright if it hasn't closed 5 s after that. On the board: a request alongside an idle connection is
+answered at once; four idle connections are dropped after 5 s. The emulator's client opens idle connections
+with `--net-idle`. Also, after an upload the server sometimes showed `NO W5500`: the reset had stopped the
+program before it mid-conversation with the FPGA, leaving a frame cut off, unread replies and errors;
+`w5500_initialize` now clears them first.
+
 ## Wiring
 
 The Cmod sits with its USB end away from Michael's near edge: its left side is DIP pins 25–48, pin 25 (GND) at
