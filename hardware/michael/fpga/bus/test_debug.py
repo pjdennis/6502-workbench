@@ -90,6 +90,32 @@ class DebugPortTest(unittest.TestCase):
         self.assertEqual(p.geometry(), (20, 20))
         self.assertEqual(self.ser.written, b"C80\nD10\nR02\n")
 
+    # The network, the long-form device $81 (docs/michael-fpga-w5500-plan.md)
+    def test_net_read_waits_for_the_frame_then_reads_it(self):
+        p = self.port("s80\r\n", "s00\r\n", "r04\r\n")
+        self.assertEqual(p.net_read(0x0039, 0x00, 1), [0x04])
+        self.assertEqual(self.ser.written, b"C81\nD0100390001\nS\nS\nR01\n")
+
+    def test_net_write_ends_its_frame_with_a_nop(self):
+        p = self.port()
+        p.net_write(0x0001, 0x04, [192, 168, 8, 1])
+        self.assertEqual(self.ser.written, b"C81\nD02000104C0A80801\nC00\n")
+
+    def test_net_reset_and_status(self):
+        p = self.port("r02\r\n")
+        p.net_reset()
+        self.assertEqual(p.net_status(), 0x02)
+        self.assertEqual(self.ser.written, b"C81\nD00\nC81\nD03\nR01\n")
+
+    def test_net_read_reports_a_failed_header_check(self):
+        p = self.port("s20\r\n", "r00\r\n")
+        with self.assertRaises(debug.NetError):
+            p.net_read(0x0039, 0x00, 1)
+
+    def test_network_settings_in_the_w5500s_order(self):
+        self.assertEqual(debug.network_settings("192.168.8.50", "255.255.255.0", "192.168.8.1", "02:65:02:00:00:01"),
+                         [192, 168, 8, 1, 255, 255, 255, 0, 0x02, 0x65, 0x02, 0x00, 0x00, 0x01, 192, 168, 8, 50])
+
 
 class MainTest(unittest.TestCase):
     def test_no_answer_is_a_message_not_a_traceback(self):

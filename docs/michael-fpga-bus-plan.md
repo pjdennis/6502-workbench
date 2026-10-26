@@ -427,6 +427,7 @@ Errors don't stop anything. They set sticky bits that the status read (RW = 1, R
 | 2 | `EXTRA` | data after a non-streaming command's arguments |
 | 3 | `UNDERFLOW` | a read with the reply queue empty |
 | 4 | `OVERFLOW` | the command queue or the reply queue overflowed (the serial queue too: a [follow-up](#follow-ups)) |
+| 5 | `NET_ERROR` | a W5500 frame's header wasn't answered `$01 $02 $03` ([the network](michael-fpga-w5500-plan.md)) |
 | 7 | `BUSY` | (not sticky) the FPGA is still working through queued commands |
 
 ## Command map
@@ -439,7 +440,7 @@ Arguments are listed in order; all are data (RS = 1) bytes.
 | Code | Name | Arguments | Data | Effect |
 |---|---|---|---|---|
 | `$00` | `NOP` | — | — | Nothing. Safe as padding or a resync |
-| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (2), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage) |
+| `$01` | `ID` | — | — | Replies 4 bytes: `'M'`, `'B'` ("Michael Bus", a signature: the bus design is answering, not a floating port B), the protocol version (2), and a capabilities byte (bit 0 raw display, bit 1 text mode, bit 2 storage, bit 3 the network) |
 | `$03` | `RESET` | — | — | Empties both queues and clears the status. The display is left as it is |
 | `$04` | `ECHO` | — | streams | Each data byte is added to the reply queue: a loopback for testing reads |
 
@@ -541,7 +542,8 @@ in the middle of one.
 | `$51`–`$5F` | more of the serial port |
 | `$02`, `$05`–`$0F`, `$14`–`$1F` | more control and display commands |
 | `$20`–`$3F`, `$60`–`$7F` | later one-byte commands, for busy paths |
-| `$81`–`$FF` | later devices |
+| `$81` | the network: the W5500 ([`michael-fpga-w5500-plan.md`](michael-fpga-w5500-plan.md)) |
+| `$82`–`$FF` | later devices |
 | text mode's `$11`–`$FF` | more text mode operations |
 
 ## Rules for Michael's software

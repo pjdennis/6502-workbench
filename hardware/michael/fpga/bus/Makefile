@@ -6,7 +6,7 @@ include ../kit.mk
 
 TOP    := top
 RTL    := rtl/top.v ../rtl/michael_bus.v ../rtl/level_filter.v ../rtl/bus_control.v ../rtl/fifo.v \
-          ../rtl/display_spi.v ../rtl/debug_port.v ../rtl/text_grid.v ../rtl/text_render.v \
+          ../rtl/display_spi.v ../rtl/debug_port.v ../rtl/text_grid.v ../rtl/text_render.v ../rtl/net_spi.v \
           $(addprefix $(FPGA_KIT)/lib/rtl/,uart_tx.v uart_rx.v)
 XDC    := build/top.xdc
 TB_DIR := sim
@@ -17,9 +17,11 @@ include $(FPGA_KIT)/mk/openxc7.mk
 
 $(TB_PASS) $(BUILD)/$(TOP).json: ../rtl/cmod_a7.vh
 
-$(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh ../sim/ili9341_model.vh
+$(TB_PASS): ../sim/michael_fpga_bus.vh ../sim/michael_board.vh ../sim/host_serial.vh ../sim/ili9341_model.vh \
+            ../sim/w5500_model.vh
 
 include ../bus.mk
+$(XDC): ../constr/net.xdc   # the W5500's pins, this design's alone
 include ../text.mk
 $(BUILD)/$(TOP).json: $(FONT_VH)
 

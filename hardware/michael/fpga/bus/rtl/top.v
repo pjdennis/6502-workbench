@@ -5,7 +5,9 @@
 // status, with the raw display and text commands), display_spi.v (the ILI9341, fed from a queue), and text
 // mode: text_grid.v (the character grid) and text_render.v (drawing it). The Cmod's USB serial port (115200
 // 8N1) carries SERIAL_SEND's bytes to the PC and the debug port (debug_port.v), through which the PC makes
-// the same transactions as Michael. BUSY is set while the display, text mode or the serial output has work.
+// the same transactions as Michael. With the network, the long-form device $81 (docs/michael-fpga-w5500-plan.md),
+// net_spi.v makes the W5500's SPI frames on the net pins (Cmod 43-48). BUSY is set while the display, text mode,
+// the network or the serial output has work.
 //
 // Since stage 4's pin shuffle E arrives from PA2 on the pin that was the spi-display interface's RSTB (Cmod
 // 11); E's old pin, CSB's and the backlight input are unused ties (bus.mk names the pins). LD1 flashes on bus
@@ -16,7 +18,9 @@ module top #(
   parameter DISPLAY_DEPTH   = 512,
   parameter TEXT_DEPTH      = 512,
   parameter BLINK           = 3_000_000,   // the cursor's blink, 250 ms at 12 MHz
-  parameter ACTIVITY_CYCLES = 600_000   // 50 ms at 12 MHz
+  parameter ACTIVITY_CYCLES = 600_000,  // 50 ms at 12 MHz
+  parameter NET_RESET_CYCLES = 12_000,  // the W5500's RSTn low after configuration and on NET_RESET: 1 ms
+  parameter NET_RESET_WAIT   = 24_000   // then 2 ms for its PLL
 ) (
   input        sysclk,       // 12 MHz
   inout  [7:0] d,
@@ -41,7 +45,13 @@ module top #(
   output       t_cs,
   output       t_din,
   output [1:0] led,
-  output [2:0] rgb_led       // LD0, active low {red, green, blue}: held off
+  output [2:0] rgb_led,      // LD0, active low {red, green, blue}: held off
+  output       net_sclk,     // the W5500 (docs/michael-fpga-w5500-plan.md)
+  output       net_mosi,
+  input        net_miso,
+  output       net_cs_n,
+  output       net_rst_n,
+  input        net_int_n
 );
   localparam CLKS_PER_BIT = `CLKS_PER_BIT(BAUD);
   assign {t_cs, t_clk, t_din} = 3'b100;
@@ -80,13 +90,26 @@ module top #(
   wire       text_push, text_full, grid_idle, render_idle, bus_text_mode;
   wire [3:0] text_op;
   wire [7:0] text_a, text_b;
-  bus_control #(.DISPLAY(1), .TEXT(1), .TEXT_ROWS(ROWS), .TEXT_COLS(COLS)) control (
+  // The network
+  wire       net_push, net_full, net_busy, net_rx_valid, net_rx_take, net_header_error, net_frame_open;
+  wire [2:0] net_kind;
+  wire [7:0] net_value, net_rx_data;
+  net_spi #(.RESET_CYCLES(NET_RESET_CYCLES), .RESET_WAIT(NET_RESET_WAIT)) net (
+    .clk(sysclk), .push(net_push), .kind(net_kind), .value(net_value), .full(net_full), .busy(net_busy),
+    .rx_valid(net_rx_valid), .rx_data(net_rx_data), .rx_take(net_rx_take), .header_error(net_header_error),
+    .frame_open(net_frame_open), .net_cs_n(net_cs_n), .net_sclk(net_sclk), .net_mosi(net_mosi),
+    .net_miso(net_miso), .net_rst_n(net_rst_n));
+
+  bus_control #(.DISPLAY(1), .TEXT(1), .NET(1), .TEXT_ROWS(ROWS), .TEXT_COLS(COLS)) control (
     .clk(sysclk), .wr(wr), .wr_rs(wr_rs), .wr_data(wr_data), .rd(rd), .rd_end(rd_end), .rd_rs(rd_rs),
     .reply_byte(reply_byte), .status_byte(status_byte),
-    .busy(disp_busy || serial_busy || !grid_idle || !render_idle),
+    .busy(disp_busy || serial_busy || !grid_idle || !render_idle || net_busy),
     .ser_valid(ser_valid), .ser_data(ser_data), .disp_push(disp_push), .disp_kind(disp_kind),
     .disp_value(disp_value), .disp_full(disp_full), .text_push(text_push), .text_op(text_op), .text_a(text_a),
-    .text_b(text_b), .text_full(text_full), .text_mode(bus_text_mode));
+    .text_b(text_b), .text_full(text_full), .text_mode(bus_text_mode),
+    .net_push(net_push), .net_kind(net_kind), .net_value(net_value), .net_full(net_full),
+    .net_rx_valid(net_rx_valid), .net_rx_data(net_rx_data), .net_rx_take(net_rx_take),
+    .net_header_error(net_header_error), .net_frame_open(net_frame_open), .net_int_n(net_int_n));
 
   // Text mode: the grid, and its renderer
   wire       text_mode, cursor_on, dirty, take_dirty, cell_rd, r_valid, r_lock, r_take;
