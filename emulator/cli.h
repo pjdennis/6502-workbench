@@ -96,6 +96,7 @@ struct emu_opts {
     const char *net_response_filename;  /* --net-response PATH: what the server sent it; NULL = not kept */
     int net_port;                       /* --net-port N; default 80 */
     int net_connections;                /* --net-connections N; default 1 */
+    int net_idle;                       /* --net-idle N; default 0: idle connections the client opens first */
     const char *lcd_trace_filename;     /* --lcd-trace PATH (wendy2c, michael; non-live, non-web): append a
                                          * timestamped LCD frame to PATH every time the LCD changes during
                                          * the run loop. Format: a "--- osc=N cpu=N pc=$NNNN ---" header

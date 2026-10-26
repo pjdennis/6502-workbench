@@ -464,7 +464,8 @@ int emu_run_michael(const struct emu_opts *opts) {
             return 1;
         }
         net_client_init(&net_chip, &net_state, &w5500_state, (uint16_t)opts->net_port, net_request, (unsigned)len,
-                        (unsigned)opts->net_connections, 1000 * MICHAEL_TICKS_PER_US, net_response);
+                        (unsigned)opts->net_connections, (unsigned)opts->net_idle, 1000 * MICHAEL_TICKS_PER_US,
+                        net_response);
     }
     cpu_65c02_init(&cpu_chip, &cpu_state);
 

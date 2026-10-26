@@ -40,6 +40,8 @@ program_start:
   txs
   sei
   jsr fb_initialize
+;STALE
+  jsr w5500_initialize
   jsr reset_and_enable_display_no_cursor
   stz FAILED
   stz W5500_FAULTS
@@ -159,6 +161,18 @@ class FpgaW5500Test(unittest.TestCase):
         self.assertIn('|OK 0000             |', report)
         self.assertIn('michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 '
                       'mac 02:65:02:00:00:01', report)
+
+    def test_whatever_a_program_stopped_by_a_reset_left(self):
+        """A reset stops a program part way: here a byte left in the reply queue, an error in the status and a
+        NET_READ cut off in its arguments"""
+        stale = '\n'.join(['  lda #FB_ECHO', '  jsr fb_command', '  lda #$55', '  jsr fb_data',
+                           '  lda #$7F', '  jsr fb_command',
+                           '  lda #FB_NET', '  jsr fb_command', '  lda #FB_NET_READ', '  jsr fb_data',
+                           '  lda #$00', '  jsr fb_data'])
+        report = michael_emulator.run(source=PROGRAM.replace(';STALE', stale), cycle_cap=2_000_000,
+                                      options=['--add', 'w5500'])[1]
+        self.assertIn('|04 C0A80832 5A 0800 |', report)
+        self.assertIn('|OK 0000             |', report)
 
     def test_without_the_w5500_every_frame_is_an_error(self):
         report = self.run_program()

@@ -11,6 +11,12 @@ static void receive(void *ctx, int socket, const uint8_t *data, unsigned len) {
 
 static void closed(void *ctx, int socket) {
     struct net_client *c = ctx;
+    for (unsigned i = 0; i < c->idle_made; i++)
+        if (c->idle_socket[i] == socket) {
+            c->idle_socket[i] = -1;
+            c->idle_closed++;
+            return;
+        }
     if (socket != c->socket) return;
     c->socket = -1;
     c->closed++;
@@ -19,6 +25,11 @@ static void closed(void *ctx, int socket) {
 static void net_client_tick(struct chip *self, struct bus *bus) {
     (void)bus;
     struct net_client *c = self->state;
+    if (c->idle_made < c->idle) {
+        int n = w5500_peer_connect(c->w5500, c->port);
+        if (n >= 0) c->idle_socket[c->idle_made++] = n;
+        return;
+    }
     if (c->socket < 0) {
         if (c->made == c->connections) return;
         c->socket = w5500_peer_connect(c->w5500, c->port);
@@ -34,8 +45,8 @@ static void net_client_tick(struct chip *self, struct bus *bus) {
 }
 
 void net_client_init(struct chip *chip, struct net_client *c, struct w5500_state *w5500, uint16_t port,
-                     const uint8_t *request, unsigned request_len, unsigned connections, unsigned latency,
-                     FILE *response) {
+                     const uint8_t *request, unsigned request_len, unsigned connections, unsigned idle,
+                     unsigned latency, FILE *response) {
     static const struct chip_ops ops = { .tick = net_client_tick };
     memset(c, 0, sizeof *c);
     c->w5500 = w5500;
@@ -43,6 +54,7 @@ void net_client_init(struct chip *chip, struct net_client *c, struct w5500_state
     c->request = request;
     c->request_len = request_len;
     c->connections = connections;
+    c->idle = idle < W5500_SOCKETS ? idle : W5500_SOCKETS;
     c->latency = latency;
     c->response = response;
     c->socket = -1;
@@ -53,6 +65,8 @@ void net_client_init(struct chip *chip, struct net_client *c, struct w5500_state
 }
 
 void net_client_report(FILE *fp, const char *prefix, const struct net_client *c) {
-    fprintf(fp, "%s: net client: port %u: %u of %u connections, %u closed by the server, %u bytes received\n",
+    fprintf(fp, "%s: net client: port %u: %u of %u connections, %u closed by the server, %u bytes received",
             prefix, c->port, c->made, c->connections, c->closed, (unsigned)c->received);
+    if (c->idle) fprintf(fp, "; %u idle connections, %u closed by the server", c->idle_made, c->idle_closed);
+    fputc('\n', fp);
 }

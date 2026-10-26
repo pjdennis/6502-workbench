@@ -315,13 +315,16 @@ TEST cli_net_client(void) {
     ASSERT_EQ(NULL, opts.net_response_filename);
     ASSERT_EQ_FMT(80, opts.net_port, "%d");
     ASSERT_EQ_FMT(1, opts.net_connections, "%d");
+    ASSERT_EQ_FMT(0, opts.net_idle, "%d");
     char *all[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "req.txt",
-                   "--net-response", "resp.txt", "--net-port", "8080", "--net-connections", "3", NULL};
+                   "--net-response", "resp.txt", "--net-port", "8080", "--net-connections", "3", "--net-idle", "2",
+                   NULL};
     ASSERT_EQ_FMT(0, parse(all, &opts), "%d");
     ASSERT_STR_EQ("req.txt", opts.net_request_filename);
     ASSERT_STR_EQ("resp.txt", opts.net_response_filename);
     ASSERT_EQ_FMT(8080, opts.net_port, "%d");
     ASSERT_EQ_FMT(3, opts.net_connections, "%d");
+    ASSERT_EQ_FMT(2, opts.net_idle, "%d");
     PASS();
 }
 
@@ -329,7 +332,12 @@ TEST cli_net_client_errors(void) {
     char *no_w5500[] = {"emulator", "prog.bin", "--machine", "michael", "--net-request", "req.txt", NULL};
     ASSERT(add_error(no_w5500, "--net-request needs --add w5500"));
     char *no_request[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-response", "r", NULL};
-    ASSERT(add_error(no_request, "--net-response, --net-port and --net-connections need --net-request"));
+    ASSERT(add_error(no_request, "--net-response, --net-port, --net-connections and --net-idle need --net-request"));
+    char *idle_alone[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-idle", "1", NULL};
+    ASSERT(add_error(idle_alone, "need --net-request"));
+    char *bad_idle[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "q",
+                        "--net-idle", "9", NULL};
+    ASSERT(add_error(bad_idle, "--net-idle must be 0 to 8"));
     char *bad_port[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "q",
                         "--net-port", "70000", NULL};
     ASSERT(add_error(bad_port, "--net-port must be 1 to 65535"));

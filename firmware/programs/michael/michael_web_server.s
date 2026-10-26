@@ -3,13 +3,18 @@
 ;   WEB 192.168.86.251
 ;   SERVED 2               visits answered
 ;   GET / HTTP/1.1         the last request's first line (its first 20 characters)
-;   FAULTS 0000            frames the FPGA reported going wrong (fpga_w5500.inc), in hex
+;   FAULTS 0000 DROP 00    frames the FPGA reported going wrong (fpga_w5500.inc), and connections dropped for
+;                          sending no request in time, in hex
 ; or NO W5500 if VERSIONR doesn't read $04.
 ;
-; One TCP socket (socket 0) on port 80, HTTP/1.0: listen; once a client is connected, read what it sends until
-; the blank line that ends its request's headers, send the page (or 404, for any path but /: a browser asks for
-; /favicon.ico too), disconnect; listen again. The network settings
-; are michael_w5500_ping.s's (the home network), so the W5500 answers ping too. Interrupts stay off.
+; HTTP/1.0 on port 80, through SOCKETS of the W5500's TCP sockets, each listening, so that a connection that sends
+; nothing (a browser opens some early and may never use them; a phone may go to sleep) doesn't keep others out.
+; The loop goes round the sockets: a socket closed listens again; once a client is connected, what it sends is
+; read until the blank line that ends its request's headers, then the page goes out (or 404, for any path but /:
+; a browser asks for /favicon.ico too) and the connection is ended. A connection gets TIME_LIMIT to send its
+; request, and again to close; then it is ended (and counted as dropped), or closed outright. VIA T1 keeps the
+; time. The network settings are michael_w5500_ping.s's (the home network), so the W5500 answers ping too.
+; Interrupts stay off.
   .include base_config_v2.inc
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
@@ -24,10 +29,28 @@ SENT                 = $16 ; 2 bytes: bytes of the reply put in the TX buffer
 TX_START             = $18 ; 2 bytes: where they started
 TAKE                 = $1A ; 1 byte: bytes of the request in this read
 HEADER_STATE         = $1B ; 1 byte: see scan
-LINE_LENGTH          = $1C ; 1 byte: characters of the request's first line kept in LINE
+LINE_LENGTH          = $1C ; 1 byte: characters of the request's first line kept at LINE_POINTER
 LINE_ENDED           = $1D ; 1 byte: non-zero once the first line has ended
-LINE                 = $0200 ; LINE_SIZE bytes
+LINE_POINTER         = $1E ; 2 bytes: the socket's line, in LINES
+SOCKET               = $20 ; 1 byte: the socket being served
+REGISTERS            = $21 ; 1 byte: its registers' block (a control byte); its TX buffer's is 8 more, RX 16
+STATUS               = $22 ; 1 byte: its Sn_SR
+DROPS                = $23 ; 1 byte: connections dropped for sending no request in time
 
+; Each socket's state, indexed by its number
+PHASES               = $0200 ; SOCKETS bytes: LISTENING, READING (the request) or CLOSING
+TIMERS               = $0208 ; SOCKETS bytes: ticks left in the phase (0: no time left)
+HEADERS              = $0210 ; SOCKETS bytes: HEADER_STATE, LINE_LENGTH and LINE_ENDED, kept while another
+LENGTHS              = $0218 ; SOCKETS bytes:   socket is served
+ENDINGS              = $0220 ; SOCKETS bytes
+LINES                = $0300 ; 32 bytes each: the request's first line (LINE_SIZE characters)
+
+SOCKETS              = 4
+LISTENING            = 0
+READING              = 1
+CLOSING              = 2
+TICK                 = 50000 ; cycles: 25 ms at 2 MHz
+TIME_LIMIT           = 200   ; ticks: 5 s
 LINE_SIZE            = 20
 PORT                 = 80
 CR                   = 13
@@ -50,11 +73,19 @@ program_start:
   txs
   sei
   jsr fb_initialize
+  jsr w5500_initialize           ; Whatever the program before left with the FPGA (as it was reset) is gone
   jsr reset_and_enable_display_no_cursor
   stz W5500_FAULTS
   stz W5500_FAULTS + 1
   stz VISITS
   stz VISITS + 1
+  stz DROPS
+  ldx #(SOCKETS - 1)
+.clear:
+  stz PHASES,X
+  stz TIMERS,X
+  dex
+  bpl .clear
   lda #<title
   ldx #>title
   jsr display_string
@@ -77,34 +108,77 @@ program_start:
 
 .found:
   jsr set_up_network
+  jsr start_timer
   jsr show_status
+.round:
+  lda #0
+.next:
+  jsr select_socket
+  jsr serve
+  lda SOCKET
+  inc
+  cmp #SOCKETS
+  bne .next
+  jsr count_time
+  bra .round
 
-.serve:
-  jsr listen
-.wait:
+
+; Serves the selected socket: whatever its state calls for, once
+serve:
   ldy #<W5500_SN_SR
-  jsr s0_read_register
+  jsr sock_read_register
+  sta STATUS
+  ldx SOCKET
+  cmp #W5500_SOCK_CLOSED
+  bne .open
+  jmp listen
+.open:
+  cmp #W5500_SOCK_LISTEN
+  beq .done
+  cmp #W5500_SOCK_SYNRECV
+  beq .done
   cmp #W5500_SOCK_ESTABLISHED
   beq .connected
   cmp #W5500_SOCK_CLOSE_WAIT
-  beq .closing
-  cmp #W5500_SOCK_LISTEN
-  beq .wait
-  cmp #W5500_SOCK_SYNRECV
-  beq .wait
-  bra .serve                     ; Closed (a timeout), or anything else: start again
-
-.closing:                        ; The client has finished sending: answer if its request is whole
-  jsr take_request
-  bcs .answer
-  lda #W5500_SN_CR_CLOSE
-  jsr s0_command
-  bra .serve
-
+  bne .timed                     ; Closing, or anything unexpected
 .connected:
+  lda PHASES,X
+  cmp #CLOSING
+  beq .timed                     ; Answered (or given up on): it's closing
+  cmp #READING
+  beq .reading
+  lda #READING                   ; Newly connected: the time for its request starts
+  jsr set_phase
+.reading:
   jsr take_request
-  bcc .wait
-.answer:
+  bcs answer
+  lda STATUS
+  cmp #W5500_SOCK_CLOSE_WAIT
+  beq disconnect                 ; The client has stopped sending, with no request whole
+.timed:
+  ldx SOCKET
+  lda TIMERS,X
+  bne .done
+  lda PHASES,X
+  cmp #READING
+  beq .drop
+  cmp #CLOSING
+  beq .close
+  lda #CLOSING                   ; An unexpected state: give it time to close
+  jmp set_phase
+.drop:                           ; No request in time
+  inc DROPS
+  jsr show_status
+  bra disconnect
+.close:                          ; Not closed in time
+  lda #W5500_SN_CR_CLOSE
+  jmp sock_command
+.done:
+  rts
+
+
+; Answers the request with the page, or 404, then ends the connection
+answer:
   jsr asks_for_the_page
   bcs .page
   jsr begin_reply
@@ -120,9 +194,70 @@ program_start:
 .counted:
   jsr send_page
 .answered:
-  jsr disconnect
+  jsr show_request
   jsr show_status
-  bra .serve
+  ; fall through
+
+; Ends the connection: the W5500 closes it as the client agrees (serve closes it outright if that takes too long)
+disconnect:
+  lda #W5500_SN_CR_DISCON
+  jsr sock_command
+  lda #CLOSING
+  ; fall through
+
+; Puts the selected socket in phase A, with TIME_LIMIT for it
+set_phase:
+  ldx SOCKET
+  sta PHASES,X
+  lda #TIME_LIMIT
+  sta TIMERS,X
+  rts
+
+
+; Selects socket A: SOCKET, REGISTERS and LINE_POINTER
+select_socket:
+  sta SOCKET
+  asl
+  asl
+  asl
+  asl
+  asl                            ; 32 times the socket
+  sta LINE_POINTER
+  ora #W5500_S0_REGISTERS
+  sta REGISTERS
+  lda #>LINES
+  sta LINE_POINTER + 1
+  rts
+
+
+; Starts VIA T1 running free, a tick every TICK cycles (its flag, not an interrupt)
+start_timer:
+  lda ACR
+  and #%00111111
+  ora #ACR_T1_CONT
+  sta ACR
+  lda #<(TICK - 2)
+  sta T1CL
+  lda #>(TICK - 2)
+  sta T1CH
+  rts
+
+
+; If a tick has passed, takes one from each socket's time left
+count_time:
+  bit IFR
+  bvc .done                      ; T1's flag, bit 6
+  lda T1CL                       ; Clears it
+  ldx #(SOCKETS - 1)
+.next:
+  lda TIMERS,X
+  beq .counted
+  dec TIMERS,X
+.counted:
+  dex
+  bpl .next
+.done:
+  rts
 
 
 ; A software reset, then the network settings
@@ -149,44 +284,54 @@ set_up_network:
   jmp w5500_end
 
 
-; Opens socket 0 for TCP on PORT and listens, ready for a new request
+; Opens the selected socket for TCP on PORT and listens, ready for a new request
 listen:
   ldy #<W5500_SN_MR
   lda #W5500_SN_MR_TCP
-  jsr s0_write_register
+  jsr sock_write_register
   lda #<PORT
   sta W5500_WORD
   lda #>PORT
   sta W5500_WORD + 1
   ldy #<W5500_SN_PORT
-  jsr s0_write_register16
+  jsr sock_write_register16
   lda #W5500_SN_CR_OPEN
-  jsr s0_command
+  jsr sock_command
   ldy #<W5500_SN_SR
-  jsr s0_read_register
+  jsr sock_read_register
   cmp #W5500_SOCK_INIT
   beq .opened
   lda #W5500_SN_CR_CLOSE
-  jsr s0_command
+  jsr sock_command
   bra listen
 .opened:
   ldy #<W5500_SN_IR
   lda #$ff
-  jsr s0_write_register          ; Clears every interrupt bit
+  jsr sock_write_register        ; Clears every interrupt bit
   lda #W5500_SN_CR_LISTEN
-  jsr s0_command
-  stz HEADER_STATE
-  stz LINE_LENGTH
-  stz LINE_ENDED
+  jsr sock_command
+  ldx SOCKET
+  stz PHASES,X                   ; LISTENING
+  stz TIMERS,X
+  stz HEADERS,X
+  stz LENGTHS,X
+  stz ENDINGS,X
   rts
 
 
 ; Takes what has arrived of the request (255 bytes at most at a time), looking for the blank line that ends its
-; headers and keeping its first line's first LINE_SIZE characters in LINE.
+; headers and keeping its first line's first LINE_SIZE characters at LINE_POINTER.
 ; On exit carry set once the headers have ended
 take_request:
+  ldx SOCKET
+  lda HEADERS,X
+  sta HEADER_STATE
+  lda LENGTHS,X
+  sta LINE_LENGTH
+  lda ENDINGS,X
+  sta LINE_ENDED
   ldy #<W5500_SN_RX_RSR
-  jsr s0_read_register16
+  jsr sock_read_register16
   lda W5500_WORD + 1
   bne .plenty
   lda W5500_WORD
@@ -197,12 +342,14 @@ take_request:
 .take:
   sta TAKE
   ldy #<W5500_SN_RX_RD
-  jsr s0_read_register16
+  jsr sock_read_register16
   lda TAKE
   sta W5500_COUNT
   ldx W5500_WORD + 1
   ldy W5500_WORD
-  lda #W5500_S0_RX
+  lda REGISTERS
+  clc
+  adc #16                        ; The RX buffer
   jsr w5500_read
   ldx TAKE
 .next:
@@ -218,9 +365,16 @@ take_request:
   inc W5500_WORD + 1
 .moved:
   ldy #<W5500_SN_RX_RD
-  jsr s0_write_register16
+  jsr sock_write_register16
   lda #W5500_SN_CR_RECV
-  jsr s0_command
+  jsr sock_command
+  ldx SOCKET
+  lda HEADER_STATE
+  sta HEADERS,X
+  lda LINE_LENGTH
+  sta LENGTHS,X
+  lda LINE_ENDED
+  sta ENDINGS,X
 .result:
   lda HEADER_STATE
   cmp #4                         ; Carry set once the headers have ended
@@ -243,7 +397,7 @@ scan:
   ldy LINE_LENGTH
   cpy #LINE_SIZE
   beq .done
-  sta LINE,Y
+  sta (LINE_POINTER),Y
   inc LINE_LENGTH
 .done:
   rts
@@ -271,7 +425,7 @@ asks_for_the_page:
 .compare:
   cpy LINE_LENGTH
   bcs .no                        ; The line is shorter
-  lda LINE,Y
+  lda (LINE_POINTER),Y
   cmp get_root,Y
   bne .no
   iny
@@ -310,29 +464,31 @@ end_reply:
   adc SENT + 1
   sta W5500_WORD + 1
   ldy #<W5500_SN_TX_WR
-  jsr s0_write_register16
+  jsr sock_write_register16
   lda #W5500_SN_CR_SEND
-  jsr s0_command
+  jsr sock_command
   ldy #<W5500_SN_IR
 .sending:
-  jsr s0_read_register
+  jsr sock_read_register
   and #(W5500_SN_IR_SEND_OK | W5500_SN_IR_TIMEOUT)
   beq .sending
   lda #W5500_SN_IR_SEND_OK
-  jmp s0_write_register          ; Clears it
+  jmp sock_write_register        ; Clears it
 
 
 ; Opens a frame writing the reply into the TX buffer at Sn_TX_WR; send_text streams into it, then end_reply
 begin_reply:
   ldy #<W5500_SN_TX_WR
-  jsr s0_read_register16
+  jsr sock_read_register16
   lda W5500_WORD
   sta TX_START
   lda W5500_WORD + 1
   sta TX_START + 1
   tax
   ldy W5500_WORD
-  lda #W5500_S0_TX
+  lda REGISTERS
+  clc
+  adc #8                         ; The TX buffer
   jsr w5500_write
   stz SENT
   stz SENT + 1
@@ -361,52 +517,35 @@ send_text:
   rts
 
 
-; Ends the connection, and waits until it has (or a timeout closes it)
-disconnect:
-  lda #W5500_SN_CR_DISCON
-  jsr s0_command
-.closing:
-  ldy #<W5500_SN_SR
-  jsr s0_read_register
-  cmp #W5500_SOCK_CLOSED
-  beq .closed
-  ldy #<W5500_SN_IR
-  jsr s0_read_register
-  and #W5500_SN_IR_TIMEOUT
-  beq .closing
-.closed:
-  rts
-
-
-; Gives socket 0 the command A and waits until the W5500 has taken it (Sn_CR reads 0 again)
-s0_command:
+; Gives the selected socket the command A and waits until the W5500 has taken it (Sn_CR reads 0 again)
+sock_command:
   ldy #<W5500_SN_CR
-  jsr s0_write_register
+  jsr sock_write_register
 .taking:
-  jsr s0_read_register
+  jsr sock_read_register
   bne .taking
   rts
 
 
-; Socket 0's registers: as w5500_read_register and so on, the register at Y
-s0_read_register:
-  ldx #W5500_S0_REGISTERS
+; The selected socket's registers: as w5500_read_register and so on, the register at Y
+sock_read_register:
+  ldx REGISTERS
   jmp w5500_read_register
 
-s0_read_register16:
-  ldx #W5500_S0_REGISTERS
+sock_read_register16:
+  ldx REGISTERS
   jmp w5500_read_register16
 
-s0_write_register:
-  ldx #W5500_S0_REGISTERS
+sock_write_register:
+  ldx REGISTERS
   jmp w5500_write_register
 
-s0_write_register16:
-  ldx #W5500_S0_REGISTERS
+sock_write_register16:
+  ldx REGISTERS
   jmp w5500_write_register16
 
 
-; The visits, the last request's first line and the faults
+; The visits, the faults and the connections dropped
 show_status:
   lda #DISPLAY_SECOND_LINE
   jsr move_cursor
@@ -416,19 +555,6 @@ show_status:
   lda VISITS
   ldx VISITS + 1
   jsr display_decimal
-  lda #DISPLAY_THIRD_LINE
-  jsr move_cursor
-  ldy #0
-.line:
-  lda #' '
-  cpy LINE_LENGTH
-  bcs .show
-  lda LINE,Y
-.show:
-  jsr display_character
-  iny
-  cpy #LINE_SIZE
-  bne .line
   lda #DISPLAY_FOURTH_LINE
   jsr move_cursor
   lda #<faults
@@ -437,7 +563,30 @@ show_status:
   lda W5500_FAULTS + 1
   jsr display_hex
   lda W5500_FAULTS
+  jsr display_hex
+  lda #<drop
+  ldx #>drop
+  jsr display_string
+  lda DROPS
   jmp display_hex
+
+
+; The request's first line, as far as it was kept
+show_request:
+  lda #DISPLAY_THIRD_LINE
+  jsr move_cursor
+  ldy #0
+.line:
+  lda #' '
+  cpy LINE_LENGTH
+  bcs .show
+  lda (LINE_POINTER),Y
+.show:
+  jsr display_character
+  iny
+  cpy #LINE_SIZE
+  bne .line
+  rts
 
 
 ; The IP address, from the settings, in decimal
@@ -468,6 +617,7 @@ title:    .asciiz "WEB "
 no_w5500: .asciiz "NO W5500"
 served:   .asciiz "SERVED "
 faults:   .asciiz "FAULTS "
+drop:     .asciiz " DROP "
 
 get_root:  .byte "GET / "
 get_root_end:
