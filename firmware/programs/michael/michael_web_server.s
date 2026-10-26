@@ -1,6 +1,6 @@
 ; A web server: the W5500 Ethernet module on the FPGA bus (fpga_w5500.inc) answers each visit to
-; http://192.168.8.50/ with a page, "Hello, world!" and a note for Angel, and the visitor's number. The LCD shows
-;   WEB 192.168.8.50
+; http://192.168.86.251/ with a page, "Hello, world!" and a note for Angel, and the visitor's number. The LCD shows
+;   WEB 192.168.86.251
 ;   SERVED 2               visits answered
 ;   GET / HTTP/1.1         the last request's first line (its first 20 characters)
 ;   FAULTS 0000            frames the FPGA reported going wrong (fpga_w5500.inc), in hex
@@ -9,7 +9,7 @@
 ; One TCP socket (socket 0) on port 80, HTTP/1.0: listen; once a client is connected, read what it sends until
 ; the blank line that ends its request's headers, send the page (or 404, for any path but /: a browser asks for
 ; /favicon.ico too), disconnect; listen again. The network settings
-; are michael_w5500_ping.s's (a GL.iNet router's LAN), so the W5500 answers ping too. Interrupts stay off.
+; are michael_w5500_ping.s's (the home network), so the W5500 answers ping too. Interrupts stay off.
   .include base_config_v2.inc
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
@@ -459,10 +459,10 @@ show_ip:
 
 ; GAR, SUBR, SHAR and SIPR, in the W5500's order
 network:
-  .byte 192, 168, 8, 1                       ; the gateway: the router
+  .byte 192, 168, 86, 1                      ; the gateway: the home router
   .byte 255, 255, 255, 0                     ; the subnet mask
   .byte $02, $65, $02, $00, $00, $01         ; the MAC address (locally administered)
-  .byte 192, 168, 8, 50                      ; the IP address
+  .byte 192, 168, 86, 251                    ; the IP address
 
 title:    .asciiz "WEB "
 no_w5500: .asciiz "NO W5500"

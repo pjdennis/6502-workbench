@@ -224,9 +224,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["id", "status", "pattern", "text", "net-version", "net-setup", "net-dump"])
     ap.add_argument("--fpga-port", help="the Cmod's serial port (default: auto-detect)")
-    ap.add_argument("--ip", default="192.168.8.50", help="net-setup: the W5500's IP address")
+    ap.add_argument("--ip", default="192.168.86.251", help="net-setup: the W5500's IP address")
     ap.add_argument("--mask", default="255.255.255.0", help="net-setup: the subnet mask")
-    ap.add_argument("--gateway", default="192.168.8.1", help="net-setup: the gateway (a GL.iNet router's LAN)")
+    ap.add_argument("--gateway", default="192.168.86.1", help="net-setup: the gateway (the home router)")
     ap.add_argument("--mac", default="02:65:02:00:00:01", help="net-setup: the MAC address (locally administered)")
     args = ap.parse_args(argv)
     try:

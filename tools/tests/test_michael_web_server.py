@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import michael_emulator  # noqa: E402
 
 PROGRAM = os.path.join(michael_emulator.ROOT, 'firmware', 'programs', 'michael', 'michael_web_server.s')
-CURL = (b'GET / HTTP/1.1\r\nHost: 192.168.8.50\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n')
+CURL = (b'GET / HTTP/1.1\r\nHost: 192.168.86.251\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n')
 
 
 @unittest.skipUnless(michael_emulator.AVAILABLE, 'vasm6502_oldstyle, gcc and make are needed')
@@ -61,17 +61,17 @@ class WebServerTest(unittest.TestCase):
 
     def test_the_lcd_shows_the_visits_and_the_request(self):
         report, _ = self.serve()
-        self.assertIn('|WEB 192.168.8.50    |', report)
+        self.assertIn('|WEB 192.168.86.251  |', report)
         self.assertIn('|SERVED 2            |', report)
         self.assertIn('|GET / HTTP/1.1      |', report)
         self.assertIn('|FAULTS 0000         |', report)
-        self.assertIn('michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 '
+        self.assertIn('michael: w5500: ip 192.168.86.251 mask 255.255.255.0 gateway 192.168.86.1 '
                       'mac 02:65:02:00:00:01', report)
         self.assertIn('portb-contention=0', report)
 
     def test_a_long_request_is_read_to_its_end(self):
         """More than one read of the RX buffer (256 bytes at most each); the first line shown cut to 20"""
-        request = (b'GET /a/rather/long/path/to/nowhere HTTP/1.1\r\nHost: 192.168.8.50\r\nCookie: '
+        request = (b'GET /a/rather/long/path/to/nowhere HTTP/1.1\r\nHost: 192.168.86.251\r\nCookie: '
                    + b'x' * 700 + b'\r\n\r\n')
         report, response = self.serve(request, connections=1)
         self.assertIn('1 of 1 connections, 1 closed by the server', report)
@@ -80,7 +80,7 @@ class WebServerTest(unittest.TestCase):
 
     def test_anything_but_the_page_is_not_found(self):
         """A browser asks for /favicon.ico too: it isn't a visit"""
-        report, response = self.serve(b'GET /favicon.ico HTTP/1.1\r\nHost: 192.168.8.50\r\n\r\n', connections=1)
+        report, response = self.serve(b'GET /favicon.ico HTTP/1.1\r\nHost: 192.168.86.251\r\n\r\n', connections=1)
         self.assertIn('1 of 1 connections, 1 closed by the server', report)
         self.assertTrue(response.startswith(b'HTTP/1.0 404 Not Found\r\n'), response[:40])
         self.assertNotIn(b'Angel', response)
