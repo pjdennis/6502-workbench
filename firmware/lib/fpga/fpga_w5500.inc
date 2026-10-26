@@ -4,9 +4,10 @@
 ; reply queue, and fb_read (w5500_read_byte) takes them; a write's data streams (w5500_write_byte) until
 ; w5500_end. The FPGA checks the header count the W5500 answers ($01 $02 $03) and sets FB_NET_ERROR in the status
 ; if a frame didn't get it; each routine here waits until the FPGA has finished (BUSY clear), gathering the
-; status's error bits on the way, and returns carry set if there were any.
+; status's error bits on the way, and returns carry set if there were any; W5500_FAULTS counts the times.
 ;
-; Requires: fpga_bus.inc, fb_initialize called; W5500_COUNT and W5500_ERRORS (1 byte each), W5500_WORD (2 bytes)
+; Requires: fpga_bus.inc, fb_initialize called; W5500_COUNT and W5500_ERRORS (1 byte each), W5500_WORD and
+; W5500_FAULTS (2 bytes each; the program clears W5500_FAULTS)
 
   .include w5500_registers.inc
 
@@ -28,7 +29,8 @@ w5500_read:
   ; fall through
 
 ; Waits until the FPGA has finished what it was sent, gathering the status's error bits.
-; On exit A = the error bits seen (FB_ERRORS and FB_NET_ERROR), carry set if there were any; X, Y are preserved
+; On exit A = the error bits seen (FB_ERRORS and FB_NET_ERROR), carry set if there were any (and W5500_FAULTS
+;         counted); X, Y are preserved
 w5500_wait:
   stz W5500_ERRORS
 .poll:
@@ -39,6 +41,13 @@ w5500_wait:
   pla
   bmi .poll                      ; BUSY, bit 7
   lda W5500_ERRORS
+  beq .done                      ; None
+  inc W5500_FAULTS
+  bne .counted
+  inc W5500_FAULTS + 1
+.counted:
+  lda W5500_ERRORS
+.done:
   cmp #1                         ; Carry set unless 0
   rts
 

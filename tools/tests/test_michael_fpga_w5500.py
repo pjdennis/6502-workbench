@@ -1,7 +1,8 @@
 """Michael's W5500 driver on the FPGA bus (firmware/lib/fpga/fpga_w5500.inc), run on the emulator's Michael with
 the W5500 on the FPGA's network device (--add w5500): a register read, the network settings written in one frame
 and read back in another, a register written and read back and a 16-bit register; each step's error flag (carry)
-is gathered, so the LCD shows OK, or ERR if a frame's header wasn't answered (with no W5500, MISO reads high).
+is gathered, so the LCD shows OK, or ERR if a frame's header wasn't answered (with no W5500, MISO reads high),
+then how many frames went wrong (W5500_FAULTS).
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -19,7 +20,8 @@ DISPLAY_STRING_PARAM = $00 ; 2 bytes
 W5500_COUNT          = $02 ; 1 byte
 W5500_ERRORS         = $03 ; 1 byte
 W5500_WORD           = $04 ; 2 bytes
-FAILED               = $06 ; 1 byte
+W5500_FAULTS         = $06 ; 2 bytes
+FAILED               = $08 ; 1 byte
 
   .org PROGRAM_LOAD_ADDRESS
 start:
@@ -40,6 +42,8 @@ program_start:
   jsr fb_initialize
   jsr reset_and_enable_display_no_cursor
   stz FAILED
+  stz W5500_FAULTS
+  stz W5500_FAULTS + 1
 
   ldx #W5500_COMMON
   ldy #<W5500_VERSIONR
@@ -106,6 +110,12 @@ program_start:
   ldx #>failed
 .result:
   jsr display_string
+  lda #' '
+  jsr display_character
+  lda W5500_FAULTS + 1
+  jsr display_hex
+  lda W5500_FAULTS
+  jsr display_hex
   stp
 
 ; Notes a step's failure (carry set)
@@ -140,14 +150,14 @@ class FpgaW5500Test(unittest.TestCase):
     def test_registers_and_frames(self):
         report = self.run_program(['--add', 'w5500'])
         self.assertIn('|04 C0A80832 5A 0800 |', report)
-        self.assertIn('|OK                  |', report)
+        self.assertIn('|OK 0000             |', report)
         self.assertIn('michael: w5500: ip 192.168.8.50 mask 255.255.255.0 gateway 192.168.8.1 '
                       'mac 02:65:02:00:00:01', report)
 
     def test_without_the_w5500_every_frame_is_an_error(self):
         report = self.run_program()
         self.assertIn('|FF FFFFFFFF FF FFFF |', report)
-        self.assertIn('|ERR                 |', report)
+        self.assertIn('|ERR 0006            |', report)   # every frame
 
 
 if __name__ == '__main__':
