@@ -4,8 +4,8 @@
 
 // The Michael FPGA bus design with the display: Michael (fpga_bus.inc's timings, the display driver's fill
 // loop, and the keyboard driver's interrupt), the board between (michael_board.vh: no net with two drivers),
-// an ILI9341 model on the display pins (ili9341_model.vh: every byte, its DC and the SPI timing), and the
-// PC on the serial port.
+// an ILI9341 model on the display pins (ili9341_model.vh: every byte, its DC and the SPI timing), a W5500 model
+// on the net pins (w5500_model.vh), and the PC on the serial port.
 module tb_top;
   localparam real CPU_NS = 500.0;  // one 65C02 cycle at 2 MHz
   localparam CPB = `CLKS_PER_BIT(`PC_BAUD);   // as on the board
@@ -18,17 +18,27 @@ module tb_top;
   wire lcd_cs, lcd_reset, lcd_dc, lcd_mosi, lcd_sck, lcd_led, t_clk, t_cs, t_din;
   wire [1:0] led;
   wire [2:0] rgb_led;
+  wire net_sclk, net_mosi, net_miso, net_cs_n, net_rst_n, net_int_n;
+  pullup (net_miso);
 
-  top #(.ACTIVITY_CYCLES(100)) dut (
+  top #(.ACTIVITY_CYCLES(100), .NET_RESET_CYCLES(50), .NET_RESET_WAIT(30)) dut (
     .sysclk(clk), .d(d_pins), .e(e), .rs(rs), .rw(rw), .soeb(soeb), .pio9(1'b0), .pio10(1'b0), .backlight_tie(1'b1),
     .d_oeb(d_oeb), .d_dir(d_dir), .uart_txd_in(host_tx), .uart_rxd_out(fpga_tx),
     .lcd_cs(lcd_cs), .lcd_reset(lcd_reset), .lcd_dc(lcd_dc), .lcd_mosi(lcd_mosi), .lcd_sck(lcd_sck),
-    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led), .rgb_led(rgb_led));
+    .lcd_led(lcd_led), .t_clk(t_clk), .t_cs(t_cs), .t_din(t_din), .led(led), .rgb_led(rgb_led),
+    .net_sclk(net_sclk), .net_mosi(net_mosi), .net_miso(net_miso), .net_cs_n(net_cs_n), .net_rst_n(net_rst_n),
+    .net_int_n(net_int_n));
 
   `include "../../sim/michael_fpga_bus.vh"
   `include "../../sim/host_serial.vh"
   `include "../../sim/ili9341_model.vh"
+  `include "../../sim/w5500_model.vh"
 
+  // Waits for the status's BUSY to clear, as a program would before reading what a NET_READ fetched
+  task wait_not_busy;
+    reg [7:0] status;
+    begin fb_status(status); while (status[7]) fb_status(status); end
+  endtask
   // A display command as gd_send_command will send it: DISP_COMMAND, then the command as its argument. Each
   // byte is expected before it's sent, since the display can have it before Michael's routine returns.
   task disp_command(input [7:0] c); begin fb_command(8'h11); expect_byte(c, 1'b0); fb_data(c); end endtask
@@ -55,7 +65,8 @@ module tb_top;
     // ID: the raw display and text mode; GEOMETRY: text mode's rows and columns
     fb_command(8'h03); fb_command(8'h01);
     fb_read(got); `CHECK_EQ(got, "M", "ID 1") fb_read(got); `CHECK_EQ(got, "B", "ID 2")
-    fb_read(got); `CHECK_EQ(got, 8'd2, "ID version") fb_read(got); `CHECK_EQ(got, 8'h03, "ID: raw display and text")
+    fb_read(got); `CHECK_EQ(got, 8'd2, "ID version")
+    fb_read(got); `CHECK_EQ(got, 8'h0B, "ID: raw display, text and the network")
     fb_command(8'h80); fb_data(8'h10);          // text mode's GEOMETRY (the long form: device, operation)
     fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY rows") fb_read(got); `CHECK_EQ(got, 8'd20, "GEOMETRY columns")
 
@@ -105,6 +116,26 @@ module tb_top;
     send_line("C7F"); send_line("S");
     expect_line({"s02"}, "UNKNOWN, through the debug port");
     expect_all_received;
+
+    // The network: Michael reads the W5500's VERSIONR, writes the gateway and reads it back; the PC reads
+    // VERSIONR through the debug port
+    `CHECK_EQ(net_rst_n, 1'b1, "the W5500 out of reset")
+    fb_command(8'h81); fb_data(8'h01); fb_data(8'h00); fb_data(8'h39); fb_data(8'h00); fb_data(8'd1);
+    wait_not_busy;
+    fb_read(got); `CHECK_EQ(got, 8'h04, "VERSIONR, through the bus")
+    fb_command(8'h81); fb_data(8'h02); fb_data(8'h00); fb_data(8'h01); fb_data(8'h04);
+    fb_data(8'd192); fb_data(8'd168); fb_data(8'd8); fb_data(8'd1);
+    fb_command(8'h00);                                     // NOP: the next command ends the frame
+    fb_command(8'h81); fb_data(8'h01); fb_data(8'h00); fb_data(8'h01); fb_data(8'h00); fb_data(8'd4);
+    wait_not_busy;
+    fb_read(got); `CHECK_EQ(got, 8'd192, "gateway 1") fb_read(got); `CHECK_EQ(got, 8'd168, "gateway 2")
+    fb_read(got); `CHECK_EQ(got, 8'd8, "gateway 3")   fb_read(got); `CHECK_EQ(got, 8'd1, "gateway 4")
+    `CHECK_EQ(w5500_frames, 3, "three frames")
+    expect_status(8'h00, "status after the network: no NET_ERROR");
+    send_line("C81"); send_line("D01 00 39 00 01");
+    cycles(200);
+    send_line("R1");
+    expect_line({"r04"}, "VERSIONR, through the debug port");
 
     // DISP_RESET ends text mode, so a graphics program started after a text one has the display: the reset
     // reaches it even while the renderer is drawing, and from then on only Michael's bytes do
