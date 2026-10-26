@@ -7,9 +7,10 @@
 #include "spi.h"
 #include "via_6522.h"
 
-/* The WIZnet W5500 Ethernet controller as an SPI device (chips/spi.h), its chip select (SCSn, active low) on a
- * VIA port A pin: on Michael, PA0, through the GAL SPI interface (gal_spi.h). The module pulls SCSn up, so it is
- * deselected while the pin is an input.
+/* The WIZnet W5500 Ethernet controller as an SPI device (chips/spi.h). Its chip select (SCSn, active low) is
+ * either a VIA port A pin, which it watches (on Michael, PA0, through the GAL SPI interface, gal_spi.h; the module
+ * pulls SCSn up, so it is deselected while the pin is an input), or, with no VIA, set through the SPI device's
+ * select by the master that drives it (the FPGA bus's network device, fpga_bus.h), which also resets it.
  *
  * A frame is two address bytes, a control byte -- the block (BSB, bits 7-3: 0 the common registers, 4n+1, 4n+2
  * and 4n+3 socket n's registers, TX buffer and RX buffer), read or write (bit 2: 1 writes) and the mode (bits 1-0:
@@ -48,7 +49,9 @@ int w5500_pulse(void *state, int mosi);
 void w5500_cs_glitch(struct w5500_state *state);
 /* The network settings: "<prefix>: w5500: ip a.b.c.d mask a.b.c.d gateway a.b.c.d mac xx:xx:xx:xx:xx:xx" */
 void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *state);
-/* The W5500 as the GAL SPI interface's device */
+/* Its chip select, set by a master that drives it (no VIA): deselecting ends a frame */
+void w5500_select(void *state, int selected);
+/* The W5500 as an SPI device: on the GAL interface, or with select and reset, on the FPGA's net pins */
 struct spi_device w5500_spi(struct w5500_state *state);
 
 #endif

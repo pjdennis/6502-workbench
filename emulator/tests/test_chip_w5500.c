@@ -220,6 +220,27 @@ TEST a_chip_select_glitch_restarts_the_frame(void) {
     PASS();
 }
 
+/* On the FPGA's net pins the FPGA drives the chip select: no VIA pin, select through the SPI device */
+TEST selected_through_the_spi_device(void) {
+    static struct w5500_state w;
+    static struct chip c;
+    w5500_init(&c, &w, NULL, 0);
+    struct spi_device d = w5500_spi(&w);
+    ASSERT_EQ_FMT(1, spi_pulse(&d, 0), "%d");          /* deselected: MISO undriven */
+    spi_select(&d, 1);
+    uint8_t in = 0;
+    const uint8_t frame[4] = { 0x00, 0x39, 0x00, 0x00 };
+    for (int k = 0; k < 4; k++) {
+        in = 0;
+        for (int i = 7; i >= 0; i--) in = (uint8_t)(in << 1 | spi_pulse(&d, (frame[k] >> i) & 1));
+    }
+    ASSERT_EQ_FMT(0x04, in, "%02X");
+    spi_select(&d, 0);
+    c.ops->tick(&c, &bus_);                            /* no VIA: the tick leaves the selection alone */
+    ASSERT_EQ_FMT(1, spi_pulse(&d, 0), "%d");
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -251,6 +272,7 @@ SUITE(w5500) {
     RUN_TEST(a_slow_chip_select_ignores_a_frame_that_starts_too_soon);
     RUN_TEST(a_slow_chip_select_ignores_a_glitch);
     RUN_TEST(a_chip_select_glitch_restarts_the_frame);
+    RUN_TEST(selected_through_the_spi_device);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }

@@ -25,7 +25,8 @@
  * code path. Numeric defaults are 0 / -1; string defaults are documented
  * per field. */
 /* --add's hardware (michael): the GAL20RA10 SPI interface on port B and PA2, in place of the FPGA board
- * (chips/gal_spi.h), and the W5500 on its SPI, the chip select on PA0 (chips/w5500.h) */
+ * (chips/gal_spi.h), and the W5500 (chips/w5500.h): on the FPGA's network device, or with the GAL interface on
+ * its SPI, the chip select on PA0; the faults model the GAL board */
 #define MICHAEL_ADD_GAL_SPI 0x01u
 #define MICHAEL_ADD_W5500   0x02u
 #define MICHAEL_ADD_W5500_CS_BOUNCE 0x08u   /* more than two port B lines falling at once glitch that chip select */
