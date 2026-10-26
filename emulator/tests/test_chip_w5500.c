@@ -173,6 +173,39 @@ TEST the_report_shows_the_network_settings(void) {
     PASS();
 }
 
+/* A capacitor on the chip select (against glitches) delays it: the W5500 sees it change cs_delay ticks late */
+TEST a_slow_chip_select_ignores_a_frame_that_starts_too_soon(void) {
+    setup();
+    ws.cs_delay = 10;
+    select_(1);                        /* one tick: too soon */
+    ASSERT_EQ_FMT(0xFF, byte(0x00), "%02X");
+    for (int i = 0; i < 10; i++) bus_step(&bus_);
+    ASSERT_EQ_FMT(0x01, byte(VERSIONR >> 8), "%02X");   /* now it's selected */
+    ASSERT_EQ_FMT(0x02, byte(VERSIONR & 0xFF), "%02X");
+    ASSERT_EQ_FMT(0x03, byte(COMMON), "%02X");
+    ASSERT_EQ_FMT(0x04, byte(0x00), "%02X");
+    select_(0);
+    for (int i = 0; i < 10; i++) bus_step(&bus_);
+    ASSERT_EQ_FMT(0xFF, byte(0x00), "%02X");            /* deselected again */
+    PASS();
+}
+
+/* A glitch on the chip select shorter than the delay doesn't end the frame */
+TEST a_slow_chip_select_ignores_a_glitch(void) {
+    setup();
+    ws.cs_delay = 10;
+    select_(1);
+    for (int i = 0; i < 10; i++) bus_step(&bus_);
+    byte(VERSIONR >> 8);
+    select_(0);                        /* a glitch, one tick wide */
+    select_(1);
+    byte(VERSIONR & 0xFF);
+    byte(COMMON);
+    ASSERT_EQ_FMT(0x04, byte(0x00), "%02X");
+    select_(0);
+    PASS();
+}
+
 TEST reset_values(void) {
     setup();
     ASSERT_EQ_FMT(0x07, read_common(0x0019), "%02X");   /* RTR, $07D0 */
@@ -201,6 +234,8 @@ SUITE(w5500) {
     RUN_TEST(mr_rst_resets_the_registers);
     RUN_TEST(phycfgr_reads_link_up);
     RUN_TEST(the_report_shows_the_network_settings);
+    RUN_TEST(a_slow_chip_select_ignores_a_frame_that_starts_too_soon);
+    RUN_TEST(a_slow_chip_select_ignores_a_glitch);
     RUN_TEST(reset_values);
     RUN_TEST(reset_clears_what_was_written);
 }

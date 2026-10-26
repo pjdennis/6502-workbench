@@ -411,6 +411,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     int gal = (opts->michael_add & MICHAEL_ADD_GAL_SPI) != 0, w5500 = (opts->michael_add & MICHAEL_ADD_W5500) != 0;
     if (gal) fpga_state.absent = 1;
     w5500_init(&w5500_chip, &w5500_state, &via_state, 0x01);
+    if (opts->michael_add & MICHAEL_ADD_W5500_CS_RC) w5500_state.cs_delay = 20 * MICHAEL_TICKS_PER_US;
     gal_spi_init(&gal_chip, &gal_state, &via_state, w5500 ? w5500_spi(&w5500_state) : (struct spi_device){ 0 });
     cpu_65c02_init(&cpu_chip, &cpu_state);
 

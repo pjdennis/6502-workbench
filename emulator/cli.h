@@ -28,6 +28,7 @@
  * (chips/gal_spi.h), and the W5500 on its SPI, the chip select on PA0 (chips/w5500.h) */
 #define MICHAEL_ADD_GAL_SPI 0x01u
 #define MICHAEL_ADD_W5500   0x02u
+#define MICHAEL_ADD_W5500_CS_RC 0x04u   /* a 10 nF capacitor on the W5500's chip select: it changes 20 us late */
 
 struct emu_opts {
     const char *code_filename;          /* positional argv[1], NULL if missing */
