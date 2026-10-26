@@ -16,8 +16,8 @@ and `firmware/programs/michael/michael_web_server.s` serves its page (100 reques
 
 **On the home network.** The GL-MT3000 runs in extender mode, joining Michael to the home Wi-Fi's network: the
 W5500 is at **192.168.86.251** (mask 255.255.255.0, gateway the home router, 192.168.86.1; it uses no DNS), and
-http://192.168.86.251/ opens on a PC and on phones on the home Wi-Fi. The address is set by hand, so the
-router mustn't give it to another device: a DHCP reservation for its MAC address, `02:65:02:00:00:01`, makes sure.
+http://192.168.86.251/ opens on a PC and on phones on the home Wi-Fi. The address is set by hand, just above
+the router's DHCP pool (Google Home Wi-Fi's ends at .250), so the router never gives it to another device.
 
 ## Wiring
 
