@@ -29,6 +29,7 @@
 #define MICHAEL_ADD_GAL_SPI 0x01u
 #define MICHAEL_ADD_W5500   0x02u
 #define MICHAEL_ADD_W5500_CS_BOUNCE 0x08u   /* more than two port B lines falling at once glitch that chip select */
+#define MICHAEL_ADD_W5500_CS_FLAKY 0x10u    /* every 37th falling step of port B glitches that chip select */
 #define MICHAEL_ADD_W5500_CS_RC 0x04u   /* a 10 nF capacitor on the W5500's chip select: it changes 20 us late */
 
 struct emu_opts {

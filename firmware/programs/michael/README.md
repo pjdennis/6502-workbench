@@ -10,7 +10,7 @@
 - `michael_fpga_bus_idle.s`: holds the FPGA bus's E low and does nothing else, so a bus check starts from a quiet bus.
 - `michael_fpga_bus_check.s`: echoes bytes through the FPGA bus and reads them back, without and then with the keyboard interrupting, and reports through the FPGA's serial port, for the bus check (see [`hardware/michael/fpga/bus-check/`](../../../hardware/michael/fpga/bus-check/)).
 - `michael_w5500_version.s`: reads the W5500's VERSIONR through the GAL20RA10 SPI interface (with the FPGA board unplugged) in rounds of 4096 and shows the counts on the LCD (see [`hardware/michael/spi-interface/`](../../../hardware/michael/spi-interface/)); on the emulator, `--add gal-spi,w5500` (`tools/tests/test_michael_w5500.py`).
-- `michael_w5500_ping.s`: gives the W5500 its network settings (192.168.8.50 on a GL.iNet router's LAN) so it answers ping by itself, then shows them, the link, and frames that failed the W5500's header check.
+- `michael_w5500_ping.s`: gives the W5500 its network settings (192.168.8.50 on a GL.iNet router's LAN) so it answers ping by itself, then shows them, the link, and how many reads and writes a glitch made it retry.
 - `michael_ram_map.s`: probes RAM.
 - [`bringup/`](bringup/): the first standalone-board programs (2021-04), with hard-coded addresses.
 - [`bbc-basic/`](bbc-basic/): BBC BASIC on Michael through a MOS shim. It needs the external `../BeebEater` tree, which is not in this repository.

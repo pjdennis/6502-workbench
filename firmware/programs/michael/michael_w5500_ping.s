@@ -3,7 +3,7 @@
 ;   W5500 192.168.8.50
 ;   CONFIG OK              the settings read back as written (CONFIG BAD if not; NO W5500 if VERSIONR isn't $04)
 ;   LINK UP 100M FULL      or LINK DOWN; 10M, HALF
-;   BAD FRAMES 0000        frames the W5500 didn't take whole (its header count, w5500.inc), in hex
+;   RETRIES 0000           reads and writes tried again after a glitch spoiled them (w5500.inc), in hex
 ; Then ping 192.168.8.50 from a computer on the same network. The settings suit a GL.iNet router's LAN
 ; (192.168.8.1, its DHCP pool from .100); the MAC address is locally administered (02:...).
 ; Wiring as michael_w5500_version.s: the GAL SPI interface (gal_spi.inc), the W5500's chip select on PA0.
@@ -12,8 +12,11 @@
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
 TO_DECIMAL_PARAM     = $02 ; 10 bytes
-BAD_FRAMES           = $0D ; 2 bytes
-CONFIG_BAD           = $0F ; 1 byte
+W5500_VALUE          = $0C ; 1 byte
+W5500_FIRST          = $0D ; 1 byte
+W5500_TRIES_LEFT     = $0E ; 1 byte
+W5500_RETRIES        = $0F ; 2 bytes
+CONFIG_BAD           = $11 ; 1 byte
 
   .org PROGRAM_LOAD_ADDRESS
 start:
@@ -33,8 +36,8 @@ program_start:
   sei
   jsr w5500_initialize
   jsr reset_and_enable_display_no_cursor
-  stz BAD_FRAMES
-  stz BAD_FRAMES + 1
+  stz W5500_RETRIES
+  stz W5500_RETRIES + 1
   lda #<title
   ldx #>title
   jsr display_string
@@ -44,9 +47,11 @@ program_start:
 
   ldx #>W5500_VERSIONR
   ldy #<W5500_VERSIONR
-  jsr read_register
+  jsr w5500_read_common
+  bcs .absent
   cmp #W5500_VERSION
   beq .found
+.absent:
   lda #<no_w5500
   ldx #>no_w5500
   jsr display_string
@@ -54,52 +59,34 @@ program_start:
   bra .stop
 
 .found:
-  ; A software reset, then the settings in one frame
+  ; A software reset (MR reads 0 once it's done, so it isn't read back), then the settings a register at a
+  ; time, each read back
   ldx #>W5500_MR
   ldy #<W5500_MR
   lda #W5500_COMMON_WRITE
-  jsr begin
+  jsr w5500_begin
   lda #W5500_MR_RST
   jsr w5500_write_byte
   jsr w5500_end
 .resetting:
-  ldx #>W5500_MR
-  ldy #<W5500_MR
-  jsr read_register
+  jsr w5500_read_common
+  bcs .resetting
   and #W5500_MR_RST
   bne .resetting
 
-  ldx #>W5500_GAR
-  ldy #<W5500_GAR
-  lda #W5500_COMMON_WRITE
-  jsr begin
-  ldx #0
-.write:
-  lda network,X
-  jsr w5500_write_byte
-  inx
-  cpx #W5500_NETWORK_SIZE
-  bne .write
-  jsr w5500_end
-
-  ; Read back
   stz CONFIG_BAD
   ldx #>W5500_GAR
   ldy #<W5500_GAR
-  lda #W5500_COMMON_READ
-  jsr begin
-  ldx #0
-.check:
-  jsr w5500_read_byte
-  cmp network,X
-  beq .same
+.write:
+  lda network - W5500_GAR,Y
+  jsr w5500_write_common
+  bcc .written
   lda #1
   sta CONFIG_BAD
-.same:
-  inx
-  cpx #W5500_NETWORK_SIZE
-  bne .check
-  jsr w5500_end
+.written:
+  iny
+  cpy #<(W5500_GAR + W5500_NETWORK_SIZE)
+  bne .write
   lda #<config_ok
   ldx #>config_ok
   ldy CONFIG_BAD
@@ -111,28 +98,8 @@ program_start:
 
 .watch:
   jsr show_link
-  jsr show_bad_frames
+  jsr show_retries
   bra .watch
-
-
-; Starts a frame (w5500_begin), counting it if its header was wrong. X, Y are preserved
-begin:
-  jsr w5500_begin
-  bcc .counted
-  inc BAD_FRAMES
-  bne .counted
-  inc BAD_FRAMES + 1
-.counted:
-  rts
-
-
-; On entry X, Y = a common register's address, high and low
-; On exit A = its value; X, Y are preserved
-read_register:
-  lda #W5500_COMMON_READ
-  jsr begin
-  jsr w5500_read_byte
-  jmp w5500_end
 
 
 ; The IP address, from the settings, in decimal
@@ -157,7 +124,7 @@ show_link:
   jsr move_cursor
   ldx #>W5500_PHYCFGR
   ldy #<W5500_PHYCFGR
-  jsr read_register
+  jsr w5500_read_common
   tay                            ; PHYCFGR, for the tests below (display_string preserves A, X, Y)
   and #W5500_LINK
   bne .up
@@ -191,15 +158,15 @@ show_link:
   jmp display_string
 
 
-show_bad_frames:
+show_retries:
   lda #DISPLAY_FOURTH_LINE
   jsr move_cursor
-  lda #<bad_frames
-  ldx #>bad_frames
+  lda #<retries
+  ldx #>retries
   jsr display_string
-  lda BAD_FRAMES + 1
+  lda W5500_RETRIES + 1
   jsr show_hex
-  lda BAD_FRAMES
+  lda W5500_RETRIES
   ; fall through
 
 ; On entry A = the byte to show in hex
@@ -227,4 +194,4 @@ speed_100:  .asciiz "100M "
 speed_10:   .asciiz "10M  "
 full:       .asciiz "FULL"
 half:       .asciiz "HALF"
-bad_frames: .asciiz "BAD FRAMES "
+retries:    .asciiz "RETRIES "

@@ -163,7 +163,8 @@ void emu_opts_usage(FILE *fp) {
 "                         Ethernet controller on its SPI, chip select on PA0 (needs gal-spi);\n"
 "                         w5500-cs-rc, a 10 nF capacitor on that chip select: it changes 20 us late;\n"
 "                         w5500-cs-bounce, the board's ground bounce: more than two port B lines\n"
-"                         falling at once glitch that chip select, restarting the W5500's frame\n"
+"                         falling at once glitch that chip select, restarting the W5500's frame;\n"
+"                         w5500-cs-flaky, every 37th step in which port B lines fall glitches it\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -185,14 +186,14 @@ void emu_opts_usage(FILE *fp) {
 static int add_hardware(const char *list, unsigned *flags) {
     static const struct { const char *name; unsigned flag; } names[] = {
         { "gal-spi", MICHAEL_ADD_GAL_SPI }, { "w5500", MICHAEL_ADD_W5500 }, { "w5500-cs-rc", MICHAEL_ADD_W5500_CS_RC },
-        { "w5500-cs-bounce", MICHAEL_ADD_W5500_CS_BOUNCE },
+        { "w5500-cs-bounce", MICHAEL_ADD_W5500_CS_BOUNCE }, { "w5500-cs-flaky", MICHAEL_ADD_W5500_CS_FLAKY },
     };
     while (*list) {
         size_t n = strcspn(list, ",");
         size_t k = 0;
         while (k < sizeof names / sizeof names[0] && !(strlen(names[k].name) == n && !strncmp(list, names[k].name, n))) k++;
         if (k == sizeof names / sizeof names[0]) {
-            fprintf(stderr, "error: --add: unknown hardware '%.*s' (gal-spi, w5500, w5500-cs-rc, w5500-cs-bounce)\n", (int)n, list);
+            fprintf(stderr, "error: --add: unknown hardware '%.*s' (gal-spi, w5500, w5500-cs-rc, w5500-cs-bounce, w5500-cs-flaky)\n", (int)n, list);
             return 1;
         }
         *flags |= names[k].flag;
@@ -580,6 +581,11 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if ((opts->michael_add & MICHAEL_ADD_W5500_CS_BOUNCE) && !(opts->michael_add & MICHAEL_ADD_W5500)) {
         fprintf(stderr, "error: --add w5500-cs-bounce needs w5500, whose chip select it glitches\n");
+        return 1;
+    }
+
+    if ((opts->michael_add & MICHAEL_ADD_W5500_CS_FLAKY) && !(opts->michael_add & MICHAEL_ADD_W5500)) {
+        fprintf(stderr, "error: --add w5500-cs-flaky needs w5500, whose chip select it glitches\n");
         return 1;
     }
 
