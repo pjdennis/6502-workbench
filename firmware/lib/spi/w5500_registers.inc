@@ -44,6 +44,7 @@ W5500_SN_SR        = $0003 ; status
 W5500_SOCK_CLOSED  = $00
 W5500_SOCK_INIT    = $13
 W5500_SOCK_LISTEN  = $14
+W5500_SOCK_SYNRECV = $16
 W5500_SOCK_ESTABLISHED = $17
 W5500_SOCK_CLOSE_WAIT = $1C
 W5500_SN_PORT      = $0004 ; the source port (2 bytes, high first, as every 16-bit register)
