@@ -6,39 +6,43 @@ device on the [FPGA bus](michael-fpga-bus-plan.md). The FPGA runs the SPI from i
 at slow slew, behind the bus's filtered strobe and SOEB interlock, so Michael's port B noise never reaches the
 W5500. Michael asks for whole W5500 frames; the FPGA makes them and checks them.
 
-**Status (2026-10-25): plan.** The pins are chosen; the order along the module's header is to be confirmed.
+**Status (2026-10-25): plan.** The wiring is settled.
 
 ## Wiring
 
 The Cmod sits with its USB end away from Michael's near edge: its left side is DIP pins 25–48, pin 25 (GND) at
 the USB end and 48 nearest the W5500. Pins 26–32 are the display and 33–37 are kept for its touch controller, so
-the W5500 takes the free pins at the near end, **48 down to 43**, all in bank 34 (3.3 V):
+the W5500 takes the free pins at the near end, **48 down to 43**, all in bank 34 (3.3 V).
 
-| Cmod pin | FPGA pin | Signal | Direction (FPGA) | W5500 |
-|---|---|---|---|---|
-| 48 | V8 | to be assigned | | the signal pin furthest from the Cmod |
-| 47 | U8 | | | the next |
-| 46 | W7 | | | |
-| 45 | U7 | | | |
-| 44 | U3 | | | |
-| 43 | W6 | | | the signal pin nearest the Cmod |
+The module (a "W5500 Lite") sits in front of the Cmod with its Ethernet jack towards Michael's near edge, so its
+two headers run away from the Cmod: J1 under the Cmod's left side, J2 to its right. From the end nearest the
+Cmod:
 
-The order follows the module's header so the wires nest, each passing over the last: the Cmod pin nearest the
-W5500 goes to the module's signal pin furthest away. The six signals:
-
-| Signal | Direction (FPGA) | Notes |
+| Position | J1 (left) | J2 (right) |
 |---|---|---|
-| `net_sclk` | out | SPI clock, mode 0, idle low |
-| `net_mosi` | out | |
-| `net_miso` | in | |
-| `net_cs_n` | out | SCSn; the module pulls it up (10 kΩ), so the W5500 is deselected while the FPGA is unconfigured |
-| `net_rst_n` | out | RSTn, held low for 1 ms after configuration and by `NET_RESET` |
-| `net_int_n` | in | INTn, for a later interrupt to Michael (the bus plan's CA1); pulled up in the XDC |
+| 1 (nearest the Cmod) | MISO | INT |
+| 2 | RST | CS |
+| 3 | NC | SCLK |
+| 4 | 3V3 | MOSI |
+| 5 | 3V3 | GND |
+| 6 | GND | GND |
 
-- **Power:** the module's 5 V pin from Michael's 5 V rail (its regulator makes the 3.3 V), its GND to the rail
-  beside the Cmod's GND. No level shifting: the W5500's I/O is 3.3 V, as the FPGA's.
+Nearest to nearest, so the wires nest, each passing over the last: J1 first, beneath the Cmod's pins, then J2.
+
+| Cmod pin | FPGA pin | Signal | Direction (FPGA) | W5500 | Notes |
+|---|---|---|---|---|---|
+| 48 | V8 | `net_miso` | in | J1 MISO | |
+| 47 | U8 | `net_rst_n` | out | J1 RST | RSTn: held low for 1 ms after configuration and by `NET_RESET` |
+| 46 | W7 | `net_int_n` | in | J2 INT | INTn, for a later interrupt to Michael (the bus plan's CA1); pulled up in the XDC |
+| 45 | U7 | `net_cs_n` | out | J2 CS | SCSn; the module pulls it up (10 kΩ), so the W5500 is deselected while the FPGA is unconfigured |
+| 44 | U3 | `net_sclk` | out | J2 SCLK | SPI clock, mode 0, idle low |
+| 43 | W6 | `net_mosi` | out | J2 MOSI | |
+
+- **Power:** the module takes 3.3 V only (it has no 5 V pin): J1's 3V3 from the board's 3.3 V rail (the
+  LM1117T-3.3 that feeds the '245s, which has the W5500's 150 mA or so to spare), and its GND pins to the ground
+  rail beside the Cmod. No level shifting: the W5500's I/O is 3.3 V, as the FPGA's.
 - **Edges:** the outputs `SLEW SLOW` and `DRIVE 4` in the XDC (nextpnr-xilinx honours both), to keep the edges
-  gentle on breadboard wires. Keep the CS wire apart from SCLK where the nesting allows.
+  gentle on breadboard wires. CS and SCLK run side by side in the nesting: if CS picks up glitches, part them.
 
 ## The FPGA design
 
