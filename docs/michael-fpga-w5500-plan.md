@@ -6,10 +6,13 @@ device on the [FPGA bus](michael-fpga-bus-plan.md). The FPGA runs the SPI from i
 at slow slew, behind the bus's filtered strobe and SOEB interlock, so Michael's port B noise never reaches the
 W5500. Michael asks for whole W5500 frames; the FPGA makes them and checks them.
 
-**Status (2026-10-25): steps 1 and 2 coded, in simulation.** `rtl/net_spi.v` and the NET device pass against a W5500
+**Status (2026-10-25): done; a web server runs on it.** `rtl/net_spi.v` and the NET device pass against a W5500
 model (`sim/tb_net_spi.v`, `sim/tb_bus_control.v`, `bus/sim/tb_top.v`), and `bus/debug.py` has the bring-up
-commands. Next, on the board once it's wired: load the bus design (`make -C hardware/michael/fpga/bus prog`),
-then `debug.py net-version` (expect `$04`), `net-setup`, and ping 192.168.8.50.
+commands. On the board the W5500 answered first time: `net-version` `$04`, `net-setup` read back, ping, and 500
+frames of 64 bytes written and read back without an error. Michael's driver is `firmware/lib/fpga/fpga_w5500.inc`,
+and `firmware/programs/michael/michael_web_server.s` serves http://192.168.8.50/ (100 requests in a row, all
+answered, about 60 ms a page). The emulator models the W5500's TCP sockets and a client on the network
+(`--add w5500 --net-request`).
 
 ## Wiring
 
@@ -73,9 +76,9 @@ others are).
 
 ## Michael's side
 
-`firmware/lib/fpga/fpga_w5500.inc`, with `w5500.inc`'s interface (`w5500_read_common`, `w5500_write_common`,
-the register names) over `NET_READ` and `NET_WRITE`, so `michael_w5500_ping.s` and what follows build for either
-interface. The retries stay, as cheap insurance; on the FPGA they should never count.
+`firmware/lib/fpga/fpga_w5500.inc`, sharing `w5500.inc`'s register names (`w5500_registers.inc`): a frame reads
+up to 256 bytes into the reply queue or streams the bytes written; each routine waits for `BUSY` to clear and
+returns carry set (counting `W5500_FAULTS`) if the status showed `NET_ERROR` or a bus error.
 
 ## Bring-up
 
@@ -89,5 +92,7 @@ Test first throughout, as the bus's stages were:
    VERSIONR over the Cmod's USB serial before Michael is involved. Michael stays in its idle program.
 3. **The emulator.** `chips/fpga_bus.c`'s NET device drives the existing W5500 model (`chips/w5500.c`) through
    `chips/spi.h`.
-4. **Michael.** `fpga_w5500.inc`, and `michael_w5500_ping.s` built for the FPGA: the W5500 answers ping.
-5. **Later:** a TCP socket and `webserver.asm` (`attic/assembler2/webserver/`); INTn as an interrupt to Michael.
+4. **Michael.** `fpga_w5500.inc`: frames and registers over `NET_READ` and `NET_WRITE` (its own interface, rather
+   than `w5500.inc`'s: the FPGA checks every frame, so the read-twice and read-back retries aren't needed).
+5. **A web server**, `michael_web_server.s`, on a TCP socket, tested first on the emulator's TCP model and client.
+   Later: INTn as an interrupt to Michael.

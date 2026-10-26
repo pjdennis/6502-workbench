@@ -90,6 +90,12 @@ struct emu_opts {
     const char *fpga_log_filename;      /* --fpga-log PATH (michael): a line per FPGA bus transfer (fpga_bus.h) */
     int no_fpga;                        /* --no-fpga (michael): the FPGA unconfigured, never answering */
     unsigned michael_add;               /* --add NAME[,NAME...] (michael): MICHAEL_ADD_* hardware plugged in */
+    const char *net_request_filename;   /* --net-request PATH (michael, --add w5500): a client on the network
+                                         * (chips/net_client.h) connects to the W5500's net_port and sends
+                                         * PATH's bytes, net_connections times; NULL = no client */
+    const char *net_response_filename;  /* --net-response PATH: what the server sent it; NULL = not kept */
+    int net_port;                       /* --net-port N; default 80 */
+    int net_connections;                /* --net-connections N; default 1 */
     const char *lcd_trace_filename;     /* --lcd-trace PATH (wendy2c, michael; non-live, non-web): append a
                                          * timestamped LCD frame to PATH every time the LCD changes during
                                          * the run loop. Format: a "--- osc=N cpu=N pc=$NNNN ---" header

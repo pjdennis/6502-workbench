@@ -29,7 +29,8 @@ uses it.
 | `ili9341` | Michael's graphic display: the ILI9341's frame memory, its window (CASET, PASET, RAMWR) under MADCTL, and what the glass shows through the scan direction and the hardware scroll (VSCRDEF, VSCRSADD) | michael |
 | `spi` | a mode 0 SPI device as a master's model drives it: a call per SCLK pulse | `gal_spi`, `w5500` |
 | `gal_spi` | Michael's GAL20RA10 SPI interface and its 74HC299 (`hardware/michael/spi-interface/gal/spi-control.pld`), a tick per Phi2 cycle, in place of the FPGA board (`--add gal-spi`) | michael |
-| `w5500` | the W5500 Ethernet controller as an SPI device, on the FPGA's network device or the GAL interface (its chip select on PA0): frames, and the register and buffer memory (`--add w5500`) | michael |
+| `w5500` | the W5500 Ethernet controller as an SPI device, on the FPGA's network device or the GAL interface (its chip select on PA0): frames, the register and buffer memory, and TCP sockets toward a peer on the network (`--add w5500`) | michael |
+| `net_client` | a client on the network for the W5500's TCP sockets: connects once a socket listens, sends a request, keeps the reply (`--net-request`) | michael |
 | `osc` | the crystal frequency only; no machine registers it (it is only exercised by `tests/test_chip_osc.c`) | tests |
 
 Most modules have a matching `tests/test_chip_*.c` or `tests/test_*.c`

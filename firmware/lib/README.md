@@ -12,5 +12,5 @@ Shared routines, included by bare file name (see [`../README.md`](../README.md))
 | [`sound/`](sound/README.md) | Tones, notes, morse |
 | [`tasks/`](tasks/README.md) | `prg_*` tasks for the multitasking demos |
 | [`serial/`](serial/README.md) | The bit-banged serial upload loaders |
-| [`fpga/`](fpga/README.md) | The Michael FPGA bus driver (`fpga_bus.inc`) |
+| [`fpga/`](fpga/README.md) | The Michael FPGA bus driver (`fpga_bus.inc`) and the W5500 on it (`fpga_w5500.inc`) |
 | [`spi/`](spi/README.md) | SPI through Michael's GAL20RA10 interface (`gal_spi.inc`) and the W5500 Ethernet controller on it (`w5500.inc`) |

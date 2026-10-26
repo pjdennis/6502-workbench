@@ -306,6 +306,39 @@ TEST cli_add_hardware_errors(void) {
     PASS();
 }
 
+/* A client on the network for a server program on the W5500 (chips/net_client.h) */
+TEST cli_net_client(void) {
+    struct emu_opts opts;
+    char *plain[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", NULL};
+    ASSERT_EQ_FMT(0, parse(plain, &opts), "%d");
+    ASSERT_EQ(NULL, opts.net_request_filename);
+    ASSERT_EQ(NULL, opts.net_response_filename);
+    ASSERT_EQ_FMT(80, opts.net_port, "%d");
+    ASSERT_EQ_FMT(1, opts.net_connections, "%d");
+    char *all[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "req.txt",
+                   "--net-response", "resp.txt", "--net-port", "8080", "--net-connections", "3", NULL};
+    ASSERT_EQ_FMT(0, parse(all, &opts), "%d");
+    ASSERT_STR_EQ("req.txt", opts.net_request_filename);
+    ASSERT_STR_EQ("resp.txt", opts.net_response_filename);
+    ASSERT_EQ_FMT(8080, opts.net_port, "%d");
+    ASSERT_EQ_FMT(3, opts.net_connections, "%d");
+    PASS();
+}
+
+TEST cli_net_client_errors(void) {
+    char *no_w5500[] = {"emulator", "prog.bin", "--machine", "michael", "--net-request", "req.txt", NULL};
+    ASSERT(add_error(no_w5500, "--net-request needs --add w5500"));
+    char *no_request[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-response", "r", NULL};
+    ASSERT(add_error(no_request, "--net-response, --net-port and --net-connections need --net-request"));
+    char *bad_port[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "q",
+                        "--net-port", "70000", NULL};
+    ASSERT(add_error(bad_port, "--net-port must be 1 to 65535"));
+    char *bad_count[] = {"emulator", "prog.bin", "--machine", "michael", "--add", "w5500", "--net-request", "q",
+                         "--net-connections", "0", NULL};
+    ASSERT(add_error(bad_count, "--net-connections must be positive"));
+    PASS();
+}
+
 TEST cli_lcd_trace_path_parsed(void) {
     char *argv[] = {"emulator", "prog.bin",
                     "--machine", "wendy2c",
@@ -583,6 +616,8 @@ SUITE(cli_suite) {
     RUN_TEST(cli_no_fpga_for_michael_only);
     RUN_TEST(cli_add_hardware_for_michael);
     RUN_TEST(cli_add_hardware_errors);
+    RUN_TEST(cli_net_client);
+    RUN_TEST(cli_net_client_errors);
     RUN_TEST(cli_lcd_trace_requires_wendy2c);
     RUN_TEST(cli_exit_report_opt_in);
     RUN_TEST(cli_exit_report_requires_a_board);
