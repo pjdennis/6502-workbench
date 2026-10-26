@@ -1,7 +1,7 @@
 """Michael's W5500 driver on the FPGA bus (firmware/lib/fpga/fpga_w5500.inc), run on the emulator's Michael with
 the W5500 on the FPGA's network device (--add w5500): a register read, the network settings written in one frame
 and read back in another, a register written and read back and a 16-bit register; each step's error flag (carry)
-is gathered, so the LCD shows OK, or ERR if a frame's header wasn't answered (with no W5500, MISO reads high),
+is gathered (and a register read sets Z from the value), so the LCD shows OK, or ERR if a frame's header wasn't answered (with no W5500, MISO reads high),
 then how many frames went wrong (W5500_FAULTS).
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
@@ -50,6 +50,12 @@ program_start:
   jsr w5500_read_register
   jsr check
   jsr show
+  ldx #W5500_S0_REGISTERS
+  ldy #<W5500_SN_CR
+  jsr w5500_read_register        ; Reads 0: Z and N from the value
+  beq .zero
+  inc FAILED
+.zero:
 
   ldx #>W5500_GAR
   ldy #<W5500_GAR
@@ -157,7 +163,7 @@ class FpgaW5500Test(unittest.TestCase):
     def test_without_the_w5500_every_frame_is_an_error(self):
         report = self.run_program()
         self.assertIn('|FF FFFFFFFF FF FFFF |', report)
-        self.assertIn('|ERR 0006            |', report)   # every frame
+        self.assertIn('|ERR 0007            |', report)   # every frame
 
 
 if __name__ == '__main__':

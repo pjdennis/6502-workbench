@@ -76,7 +76,7 @@ w5500_end:
 
 
 ; Reads the register at Y in the block whose control byte is X.
-; On exit A = its value; carry set if the frame went wrong; X, Y are preserved
+; On exit A = its value, Z and N set from it; carry set if the frame went wrong; X, Y are preserved
 w5500_read_register:
   lda #1
   jsr w5500_read_registers
@@ -138,11 +138,13 @@ w5500_register_write:
   rts
 
 
-; On exit A = the next byte of the reply queue; carry is preserved (fb_read sets it); X, Y are preserved
+; On exit A = the next byte of the reply queue, Z and N set from it; carry is preserved (fb_read sets it); X, Y
+;         are preserved
 w5500_read_byte_keep_carry:
   php
   jsr w5500_read_byte
   plp
+  ora #0                         ; Z and N from the byte (carry untouched)
   rts
 
 
