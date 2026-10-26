@@ -26,6 +26,7 @@ FB_DISP_DATA       = $12 ; streams data bytes to the display (continuing a DISP_
 FB_BACKLIGHT       = $13 ; argument the brightness, 0 (off) to 255
 FB_SERIAL_SEND     = $50 ; streams: each data byte goes to the PC (provisional)
 FB_TEXT            = $80 ; text mode, a long-form device: its operations (FB_T_*, sent by fb_text) follow
+FB_NET             = $81 ; the network (the W5500), a long-form device: its operations (FB_NET_*) follow
 
 ; Text mode's operations
 FB_T_ON            = $00 ; clears the grid (20 rows of 20) and draws it; DISP_COMMAND and DISP_DATA refused
@@ -46,14 +47,23 @@ FB_T_CURSOR        = $0e ; argument 0 hidden, 1 shown
 FB_T_VIDEO         = $0f ; argument 0 normal, 1 reverse
 FB_T_GEOMETRY      = $10 ; replies rows, columns
 
+; The network's operations (docs/michael-fpga-w5500-plan.md; fpga_w5500.inc makes the frames)
+FB_NET_RESET       = $00 ; pulses the W5500's reset line
+FB_NET_READ        = $01 ; arguments address high, low, control byte, count (0 means 256): a frame reading that
+                         ; many bytes into the reply queue
+FB_NET_WRITE       = $02 ; arguments address high, low, control byte, then streams: a frame writing them; the
+                         ; next command ends it
+FB_NET_STATUS      = $03 ; replies bit 0 INTn low, bit 1 a frame in progress
+
 ; Status bits (sticky ones are cleared by reading the status)
 FB_ABANDONED       = %00000001 ; a command arrived before the previous one's arguments were complete
 FB_UNKNOWN         = %00000010 ; an unknown command
 FB_EXTRA           = %00000100 ; data after a command's arguments, for one that doesn't stream
 FB_UNDERFLOW       = %00001000 ; a read with the reply queue empty
 FB_OVERFLOW        = %00010000 ; a queue overflowed
+FB_NET_ERROR       = %00100000 ; a W5500 frame whose header wasn't answered $01 $02 $03
 FB_BUSY            = %10000000 ; (not sticky) the FPGA is still working through what it was sent
-FB_ERRORS          = %00011111 ; the error bits: and the status with this to ignore BUSY, which isn't one
+FB_ERRORS          = %00011111 ; the bus's error bits: and the status with this to ignore BUSY (and NET_ERROR)
 
 
 ; Makes E, RS and RW outputs, low (the quiet state, whatever was running before). Call before the first

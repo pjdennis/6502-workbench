@@ -1,3 +1,4 @@
 # fpga
 
 - `fpga_bus.inc`: the Michael FPGA bus driver: commands, data, reads of the reply queue and the status, over port B with E (PA2) and the LCD's RS and RW. The protocol is in [`docs/michael-fpga-bus-plan.md`](../../../docs/michael-fpga-bus-plan.md). Used by `graphics_display.inc` (the display driver, since stage 2) and by the bus's own programs (`firmware/programs/michael/michael_fpga_bus_*.s`).
+- `fpga_w5500.inc`: the W5500 Ethernet controller on the bus's network device (`FB_NET`, [`docs/michael-fpga-w5500-plan.md`](../../../docs/michael-fpga-w5500-plan.md)): frames reading into the reply queue or writing streamed data, register reads and writes (8 and 16 bits), each waiting for the FPGA and reporting a frame the W5500 didn't take whole (`FB_NET_ERROR`). Its register names are `w5500_registers.inc`'s (in `lib/spi/`).
