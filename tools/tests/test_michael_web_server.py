@@ -2,7 +2,9 @@
 emulator with a client on the network (--add w5500 --net-request): each time the client connects and sends its
 request, the server answers with the page ("Hello, world!" and a note for Angel), or 404 for any other path,
 and closes the connection. The
-LCD shows the address, the visits, the last request's first line and the frames that went wrong.
+LCD shows the address, the visits, the last request's first line, the frames that went wrong and the connections
+dropped for sending no request in time. Four sockets listen at once, so a browser's idle early connections (or a
+sleeping phone's) don't keep others out.
 
 Run from the repo root:  python3 -m unittest discover -s tools/tests -v
 """
@@ -24,7 +26,7 @@ class WebServerTest(unittest.TestCase):
     def setUpClass(cls):
         michael_emulator.build_emulator()
 
-    def serve(self, request=CURL, connections=2, w5500=True):
+    def serve(self, request=CURL, connections=2, w5500=True, idle=0, cycle_cap=3_000_000):
         """Runs the server for the client's connections. Returns (the emulator's report, what the server sent)"""
         with tempfile.TemporaryDirectory() as tmp:
             request_file, response_file = os.path.join(tmp, 'request'), os.path.join(tmp, 'response')
@@ -33,8 +35,8 @@ class WebServerTest(unittest.TestCase):
             options = []
             if w5500:
                 options = ['--add', 'w5500', '--net-request', request_file, '--net-response', response_file,
-                           '--net-connections', str(connections)]
-            report = michael_emulator.run(program=PROGRAM, cycle_cap=3_000_000, options=options)[1]
+                           '--net-connections', str(connections), '--net-idle', str(idle)]
+            report = michael_emulator.run(program=PROGRAM, cycle_cap=cycle_cap, options=options)[1]
             response = b''
             if os.path.exists(response_file):
                 with open(response_file, 'rb') as f:
@@ -64,7 +66,7 @@ class WebServerTest(unittest.TestCase):
         self.assertIn('|WEB 192.168.86.251  |', report)
         self.assertIn('|SERVED 2            |', report)
         self.assertIn('|GET / HTTP/1.1      |', report)
-        self.assertIn('|FAULTS 0000         |', report)
+        self.assertIn('|FAULTS 0000 DROP 00 |', report)
         self.assertIn('michael: w5500: ip 192.168.86.251 mask 255.255.255.0 gateway 192.168.86.1 '
                       'mac 02:65:02:00:00:01', report)
         self.assertIn('portb-contention=0', report)
@@ -86,6 +88,24 @@ class WebServerTest(unittest.TestCase):
         self.assertNotIn(b'Angel', response)
         self.assertIn('|SERVED 0            |', report)
         self.assertIn('|GET /favicon.ico HTT|', report)
+
+    def test_an_idle_connection_doesnt_hold_up_the_page(self):
+        """A phone's browser opens a connection early and sends nothing on it, then asks on another: both are
+        taken, the page goes out at once, and the idle one is closed after the time limit (5 s)"""
+        report, response = self.serve(idle=1, cycle_cap=2_000_000)
+        self.assertIn('2 of 2 connections, 2 closed by the server', report)
+        self.assertEqual(len(self.pages(response)), 2)
+        report, _ = self.serve(idle=1, cycle_cap=12_000_000)
+        self.assertIn('; 1 idle connections, 1 closed by the server', report)
+        self.assertIn('|FAULTS 0000 DROP 01 |', report)
+
+    def test_with_every_socket_idle_the_time_limit_frees_them(self):
+        report, response = self.serve(idle=4, cycle_cap=14_000_000)
+        self.assertIn('2 of 2 connections, 2 closed by the server', report)
+        self.assertIn('; 4 idle connections, 4 closed by the server', report)
+        self.assertEqual(len(self.pages(response)), 2)
+        self.assertIn('|SERVED 2            |', report)
+        self.assertIn('|FAULTS 0000 DROP 04 |', report)
 
     def test_without_the_w5500(self):
         report, _ = self.serve(w5500=False)   # the FPGA's network pins unconnected: MISO reads high
