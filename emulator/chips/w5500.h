@@ -20,10 +20,26 @@
  *
  * Modelled: the register and buffer memory, with the reset values of the registers a driver reads first
  * (VERSIONR, read-only, is $04), and MR's software reset (RST, bit 7). PHYCFGR reads link up, as if
- * the cable were plugged into a 100 Mbps full duplex port. The network side isn't: commands, sockets and the PHY don't act. */
+ * the cable were plugged into a 100 Mbps full duplex port.
+ *
+ * TCP sockets, toward a peer on the network (w5500_attach_peer; net_client.h): Sn_CR's commands act at once
+ * (and it reads 0): OPEN (with Sn_MR TCP; other protocols aren't modelled) to INIT, LISTEN, then a peer's
+ * w5500_peer_connect to a socket listening on its port makes it ESTABLISHED; what the peer sends joins the RX
+ * buffer at Sn_RX_WR (Sn_RX_RSR counts it, and RECV, after the driver moves Sn_RX_RD past what it took, counts
+ * again); SEND gives the peer the TX buffer from Sn_TX_RD to Sn_TX_WR; DISCON and CLOSE close the connection
+ * at once (CLOSED; no FIN_WAIT or TIME_WAIT), and the peer closing it leaves CLOSE_WAIT. Sn_IR's CON, DISCON,
+ * RECV and SEND_OK are set as on the chip, and a 1 written clears one; Sn_SR and the pointers the W5500 keeps
+ * (Sn_TX_FSR, Sn_TX_RD, Sn_RX_RSR, Sn_RX_WR) are read-only. Timeouts, the interrupt pin and IP aren't. */
 
 #define W5500_SOCKETS 8
 #define W5500_BUFFER 0x800      /* each socket's TX and RX buffer at their reset size, 2 KB */
+
+/* A peer on the network: told what a socket sends, and when the W5500 closes the connection */
+struct w5500_peer {
+    void *ctx;
+    void (*receive)(void *ctx, int socket, const uint8_t *data, unsigned len);
+    void (*closed)(void *ctx, int socket);
+};
 
 struct w5500_state {
     const struct via_6522_state *via;
@@ -40,6 +56,7 @@ struct w5500_state {
     uint8_t common[0x40];
     uint8_t socket[W5500_SOCKETS][0x30];
     uint8_t tx[W5500_SOCKETS][W5500_BUFFER], rx[W5500_SOCKETS][W5500_BUFFER];
+    struct w5500_peer peer;
 };
 
 void w5500_init(struct chip *chip, struct w5500_state *state, const struct via_6522_state *via, uint8_t cs_mask);
@@ -53,5 +70,13 @@ void w5500_report(FILE *fp, const char *prefix, const struct w5500_state *state)
 void w5500_select(void *state, int selected);
 /* The W5500 as an SPI device: on the GAL interface, or with select and reset, on the FPGA's net pins */
 struct spi_device w5500_spi(struct w5500_state *state);
+/* The network side */
+void w5500_attach_peer(struct w5500_state *state, struct w5500_peer peer);
+/* A TCP connection to the socket listening on port: its number, or -1 if none is */
+int w5500_peer_connect(struct w5500_state *state, uint16_t port);
+/* Data from the peer into the socket's RX buffer: the bytes it took (as many as fit) */
+unsigned w5500_peer_send(struct w5500_state *state, int socket, const uint8_t *data, unsigned len);
+/* The peer closing the connection (its FIN) */
+void w5500_peer_close(struct w5500_state *state, int socket);
 
 #endif

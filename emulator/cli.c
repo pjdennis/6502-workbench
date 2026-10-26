@@ -3,6 +3,7 @@
 #include "cpu_core.h"  /* CPU_NMOS / CPU_65C02 */
 #include "chips/glue_michael.h"  /* glue_michael_ram_by_name */
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,10 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->fpga_log_filename = NULL;
     opts->no_fpga = 0;
     opts->michael_add = 0;
+    opts->net_request_filename = NULL;
+    opts->net_response_filename = NULL;
+    opts->net_port = 80;
+    opts->net_connections = 1;
     opts->lcd_panel = LCD_PANEL_16X2_5X8;
 }
 
@@ -166,6 +171,11 @@ void emu_opts_usage(FILE *fp) {
 "                         w5500-cs-bounce, the board's ground bounce: more than two port B lines\n"
 "                         falling at once glitch that chip select, restarting the W5500's frame;\n"
 "                         w5500-cs-flaky, every 37th step in which port B lines fall glitches it\n"
+"  --net-request PATH     michael, with --add w5500: a client on the network connects to the\n"
+"                         W5500 once a socket listens on --net-port (default 80), sends PATH's\n"
+"                         bytes 1 ms later and keeps what the server sends until it closes the\n"
+"                         connection; then again, --net-connections times (default 1)\n"
+"  --net-response PATH    michael: where the client puts what the server sent it\n"
 "  --lcd-trace PATH       wendy2c, michael (non-live, non-web): append a timestamped LCD frame to\n"
 "                         PATH every time the LCD changes during the run. Lets tests assert\n"
 "                         on intermediate display states, not just the final frame.\n"
@@ -213,7 +223,22 @@ static int take_str_value(int argc, char **argv, int *idx, const char *flag, con
     return 0;
 }
 
+/* A flag's value, a number from lo to hi (what describes the range in the error) */
+static int take_int_in(int argc, char **argv, int *idx, const char *flag, long lo, long hi, const char *what,
+                       int *value_out) {
+    const char *value;
+    if (take_str_value(argc, argv, idx, flag, &value)) return 1;
+    long n = strtol(value, NULL, 10);
+    if (n < lo || n > hi) {
+        fprintf(stderr, "error: %s must be %s\n", flag, what);
+        return 1;
+    }
+    *value_out = (int)n;
+    return 0;
+}
+
 int parse_args(int argc, char **argv, struct emu_opts *opts) {
+    int net_options = 0;   /* --net-response, --net-port or --net-connections given */
     emu_opts_init(opts);
 
     if (argc < 2) {
@@ -447,6 +472,18 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             const char *list;
             if (take_str_value(argc, argv, &i, "--add", &list)) return 1;
             if (add_hardware(list, &opts->michael_add)) return 1;
+        } else if (strcmp(argv[i], "--net-request") == 0) {
+            if (take_str_value(argc, argv, &i, "--net-request", &opts->net_request_filename)) return 1;
+        } else if (strcmp(argv[i], "--net-response") == 0) {
+            if (take_str_value(argc, argv, &i, "--net-response", &opts->net_response_filename)) return 1;
+            net_options = 1;
+        } else if (strcmp(argv[i], "--net-port") == 0) {
+            if (take_int_in(argc, argv, &i, "--net-port", 1, 65535, "1 to 65535", &opts->net_port)) return 1;
+            net_options = 1;
+        } else if (strcmp(argv[i], "--net-connections") == 0) {
+            if (take_int_in(argc, argv, &i, "--net-connections", 1, INT_MAX, "positive", &opts->net_connections))
+                return 1;
+            net_options = 1;
         } else if (strcmp(argv[i], "--fpga-log") == 0) {
             if (take_str_value(argc, argv, &i, "--fpga-log", &opts->fpga_log_filename)) return 1;
         } else if (strcmp(argv[i], "--lcd-panel") == 0) {
@@ -592,6 +629,16 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
 
     if ((opts->michael_add & MICHAEL_ADD_W5500_CS_FLAKY) && !(opts->michael_add & MICHAEL_ADD_W5500)) {
         fprintf(stderr, "error: --add w5500-cs-flaky needs w5500, whose chip select it glitches\n");
+        return 1;
+    }
+
+    if (opts->net_request_filename && !(opts->michael_add & MICHAEL_ADD_W5500)) {
+        fprintf(stderr, "error: --net-request needs --add w5500, the client's way in\n");
+        return 1;
+    }
+
+    if (net_options && !opts->net_request_filename) {
+        fprintf(stderr, "error: --net-response, --net-port and --net-connections need --net-request\n");
         return 1;
     }
 

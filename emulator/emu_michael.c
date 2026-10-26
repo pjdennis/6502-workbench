@@ -27,6 +27,7 @@
 #include "chips/fpga_bus.h"
 #include "chips/gal_spi.h"
 #include "chips/w5500.h"
+#include "chips/net_client.h"
 #include "ps2_keys.h"
 
 /* The ROM's IRQ vector points here; programs copy their handler to it
@@ -397,13 +398,15 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct fpga_bus_state     fpga_state;
     static struct gal_spi_state      gal_state;
     static struct w5500_state        w5500_state;
+    static struct net_client         net_state;
+    static uint8_t                   net_request[0x10000];
     static struct bus_check_state    check_state;
     static struct bounce_state       bounce_state;
     static const struct chip_ops bounce_ops = { .tick = bounce_tick };
     static const struct chip_ops check_ops = { .tick = bus_check_tick };
     static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
     struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, fpga_chip, cpu_chip;
-    struct chip gal_chip, w5500_chip;
+    struct chip gal_chip, w5500_chip, net_chip;
     struct chip bounce_chip = { &bounce_ops, "bounce", &bounce_state };
     struct chip check_chip = { &check_ops, "bus_check", &check_state };
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
@@ -446,6 +449,23 @@ int emu_run_michael(const struct emu_opts *opts) {
     if (opts->michael_add & MICHAEL_ADD_W5500_CS_RC) w5500_state.cs_delay = 20 * MICHAEL_TICKS_PER_US;
     gal_spi_init(&gal_chip, &gal_state, &via_state, w5500 ? w5500_spi(&w5500_state) : (struct spi_device){ 0 });
     if (w5500 && !gal) fpga_bus_attach_net(&fpga_state, w5500_spi(&w5500_state));
+    /* --net-request: a client on the network, for a server program */
+    FILE *net_response = NULL;
+    if (opts->net_request_filename) {
+        FILE *f = fopen(opts->net_request_filename, "rb");
+        if (!f) {
+            fprintf(stderr, "michael: could not open --net-request %s\n", opts->net_request_filename);
+            return 1;
+        }
+        size_t len = fread(net_request, 1, sizeof net_request, f);
+        fclose(f);
+        if (opts->net_response_filename && !(net_response = fopen(opts->net_response_filename, "wb"))) {
+            fprintf(stderr, "michael: could not open --net-response %s\n", opts->net_response_filename);
+            return 1;
+        }
+        net_client_init(&net_chip, &net_state, &w5500_state, (uint16_t)opts->net_port, net_request, (unsigned)len,
+                        (unsigned)opts->net_connections, 1000 * MICHAEL_TICKS_PER_US, net_response);
+    }
     cpu_65c02_init(&cpu_chip, &cpu_state);
 
     memset(&check_state, 0, sizeof(check_state));
@@ -488,6 +508,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &fpga_chip);
     if (w5500) bus_add_chip(&b, &w5500_chip);   /* ahead of the GAL: it sees its chip select before the pulses */
     if (gal) bus_add_chip(&b, &gal_chip);
+    if (opts->net_request_filename) bus_add_chip(&b, &net_chip);
     if (opts->michael_add & (MICHAEL_ADD_W5500_CS_BOUNCE | MICHAEL_ADD_W5500_CS_FLAKY)) bus_add_chip(&b, &bounce_chip);
     bus_add_chip(&b, &check_chip);
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
@@ -557,6 +578,7 @@ int emu_run_michael(const struct emu_opts *opts) {
         lcd_report_final(stderr, "michael", &lcd_state);
         fpga_bus_report(stderr, "michael", &fpga_state);
         if (w5500) w5500_report(stderr, "michael", &w5500_state);
+        if (opts->net_request_filename) net_client_report(stderr, "michael", &net_state);
         fprintf(stderr, "michael: led: %s\n", led_on(&via_state) ? "on" : "off");
         fprintf(stderr, "michael: bus: lcd-undriven=%u portb-contention=%u\n",
                 (unsigned)lcd_state.undriven_strobes, (unsigned)check_state.contention);
@@ -566,6 +588,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     }
 
     if (fpga_log) fclose(fpga_log);
+    if (net_response) fclose(net_response);
     cpu_external_read  = NULL;
     cpu_external_write = NULL;
     active_bus = NULL;
