@@ -10,13 +10,40 @@
 ; The timing is counted against the GAL's burst of 8 cycles from the first Phi2 edge with E high: a strobe
 ; that comes during a burst reads as "hold" and is lost, so successive calls must start 9 cycles apart (they
 ; do: a jsr and an rts alone take 12).
+;
+; Port B's lines never fall more than two at a time: on the board, several falling together bounce the ground
+; enough to glitch a device's chip select (docs/michael-spi-interface-logic-designs.md). A byte goes onto port
+; B in steps (gal_spi_port_b), and after a read the VIA takes port B back at the level the '299 left. The '299
+; drives the byte received over the byte sent, which floats there, so a read should send few 1s ($00 is best).
 
 GAL_E = FPGA_E   ; PA2
+
+; Puts A on port B with no more than two lines falling at a time: the falling lines of bits 0-1, then 2-3, then
+; 4-5, then the byte (6-7, and every rising line). A, X, Y are preserved
+gal_spi_port_b:
+  phx
+  tax
+  ora #%11111100
+  and PORTB
+  sta PORTB
+  txa
+  ora #%11110000
+  and PORTB
+  sta PORTB
+  txa
+  ora #%11000000
+  and PORTB
+  sta PORTB
+  stx PORTB
+  txa
+  plx
+  rts
+
 
 ; Sends A. E is high for 6 cycles (tsb ... trb), inside the 8 of the burst, so the '299 never drives port B.
 ; On exit A = GAL_E; X, Y are preserved
 gal_spi_write:
-  sta PORTB
+  jsr gal_spi_port_b
   lda #GAL_E
   tsb PORTA
   trb PORTA
@@ -29,7 +56,7 @@ gal_spi_write:
 ; emulator's CPU makes each access on an instruction's first cycle, so it can't check this margin.
 ; X, Y are preserved
 gal_spi_read:
-  sta PORTB
+  jsr gal_spi_port_b
   lda #GAL_E
   tsb PORTA                      ; The burst starts
   stz DDRB                       ; Port B an input
@@ -40,6 +67,7 @@ gal_spi_read:
   nop
   nop
   lda PORTB                      ; The byte received
+  sta PORTB                      ; The VIA will drive port B at the level the '299 leaves
   pha
   lda #GAL_E
   trb PORTA                      ; The '299 lets go at the next edge

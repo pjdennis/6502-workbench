@@ -19,7 +19,6 @@ LAST                 = $08 ; 1 byte
 FIRST_BAD            = $09 ; 1 byte
 SEEN_BAD             = $0A ; 1 byte
 ROUND                = $0B ; 1 byte
-W5500_CHECK          = $0C ; 1 byte
 
 READS_HIGH           = $10       ; 4096 reads a round
 

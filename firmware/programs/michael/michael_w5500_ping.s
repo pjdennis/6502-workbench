@@ -3,7 +3,7 @@
 ;   W5500 192.168.8.50
 ;   CONFIG OK              the settings read back as written (CONFIG BAD if not; NO W5500 if VERSIONR isn't $04)
 ;   LINK UP 100M FULL      or LINK DOWN; 10M, HALF
-;   BAD FRAMES 0000        frames whose header count wasn't $01 $02 $03 (a glitch on the chip select), in hex
+;   BAD FRAMES 0000        frames the W5500 didn't take whole (its header count, w5500.inc), in hex
 ; Then ping 192.168.8.50 from a computer on the same network. The settings suit a GL.iNet router's LAN
 ; (192.168.8.1, its DHCP pool from .100); the MAC address is locally administered (02:...).
 ; Wiring as michael_w5500_version.s: the GAL SPI interface (gal_spi.inc), the W5500's chip select on PA0.
@@ -12,7 +12,6 @@
 
 DISPLAY_STRING_PARAM = $00 ; 2 bytes
 TO_DECIMAL_PARAM     = $02 ; 10 bytes
-W5500_CHECK          = $0C ; 1 byte
 BAD_FRAMES           = $0D ; 2 bytes
 CONFIG_BAD           = $0F ; 1 byte
 

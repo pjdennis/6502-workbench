@@ -88,6 +88,29 @@ static void bus_check_tick(struct chip *self, struct bus *bus) {
     }
 }
 
+/* --add w5500-cs-bounce: the board's ground bounce. Port B's levels (the VIA's outputs, a device driving the
+ * rest, and undriven lines holding their last level); when more than two fall in one cycle, the W5500's chip
+ * select glitches and it starts its frame again, as on the board (docs/michael-spi-interface-logic-designs.md). */
+struct bounce_state {
+    const struct via_6522_state *via;
+    const struct portb_drivers *drivers;
+    struct w5500_state *w5500;
+    uint8_t level;
+};
+
+static void bounce_tick(struct chip *self, struct bus *bus) {
+    (void)bus;
+    struct bounce_state *s = self->state;
+    const struct portb_drivers *d = s->drivers;
+    uint8_t lcd = 0xFF, kbd = 0xFF, fpga = 0xFF, gal = 0xFF;
+    int others = lcd_hd44780_output(d->lcd, &lcd) | ps2_board_output(d->kbd, &kbd) | fpga_bus_output(d->fpga, &fpga)
+               | gal_output(d->gal, &gal);
+    uint8_t level = (uint8_t)((s->via->orb & s->via->ddrb) | (s->level & ~s->via->ddrb));
+    if (others) level = (uint8_t)((level & s->via->ddrb) | (lcd & kbd & fpga & gal & ~s->via->ddrb));
+    if (__builtin_popcount(s->level & ~level) > 2) w5500_cs_glitch(s->w5500);
+    s->level = level;
+}
+
 /* The VIA's IRQ output to the CPU; --kbd-fault noirq cuts it. Ticks
  * between the VIA and the CPU. */
 static void irq_cut_tick(struct chip *self, struct bus *bus) {
@@ -369,10 +392,13 @@ int emu_run_michael(const struct emu_opts *opts) {
     static struct gal_spi_state      gal_state;
     static struct w5500_state        w5500_state;
     static struct bus_check_state    check_state;
+    static struct bounce_state       bounce_state;
+    static const struct chip_ops bounce_ops = { .tick = bounce_tick };
     static const struct chip_ops check_ops = { .tick = bus_check_tick };
     static const struct chip_ops irq_cut_ops = { .tick = irq_cut_tick };
     struct chip glue_chip, rom_chip, ram_chip, via_chip, lcd_chip, kbd_chip, ser_chip, fpga_chip, cpu_chip;
     struct chip gal_chip, w5500_chip;
+    struct chip bounce_chip = { &bounce_ops, "bounce", &bounce_state };
     struct chip check_chip = { &check_ops, "bus_check", &check_state };
     struct chip irq_cut_chip = { &irq_cut_ops, "irq_cut", NULL };
 
@@ -422,6 +448,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     check_state.drivers.fpga = &fpga_state;
     check_state.drivers.gal = gal ? &gal_state : NULL;
     via_6522_set_portb_input(&via_state, portb_input, &check_state.drivers);
+    bounce_state = (struct bounce_state){ &via_state, &check_state.drivers, &w5500_state, 0xFF };
 
     /* With --load the code file goes into RAM, and the ROM is --rom's or
      * holds only the vectors; without it the code file is the ROM image
@@ -452,6 +479,7 @@ int emu_run_michael(const struct emu_opts *opts) {
     bus_add_chip(&b, &fpga_chip);
     if (w5500) bus_add_chip(&b, &w5500_chip);   /* ahead of the GAL: it sees its chip select before the pulses */
     if (gal) bus_add_chip(&b, &gal_chip);
+    if (opts->michael_add & MICHAEL_ADD_W5500_CS_BOUNCE) bus_add_chip(&b, &bounce_chip);
     bus_add_chip(&b, &check_chip);
     if (opts->kbd_fault && !strcmp(opts->kbd_fault, "noirq")) bus_add_chip(&b, &irq_cut_chip);
     bus_add_chip(&b, &cpu_chip);

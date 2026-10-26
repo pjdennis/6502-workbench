@@ -25,9 +25,12 @@ class W5500VersionTest(unittest.TestCase):
     def setUpClass(cls):
         michael_emulator.build_emulator()
 
-    def run_program(self, hardware, program=PROGRAM):
-        """At least a round of 4096 reads: each frame waits about 100 us twice for the chip select (w5500.inc)"""
-        return michael_emulator.run(program=program, cycle_cap=8_000_000, options=['--add', hardware])[1]
+    def run_program(self, hardware, program=PROGRAM, settle=False):
+        """At least a round of 4096 reads. settle: the program waits for a slow chip select (w5500.inc's
+        W5500_CS_SETTLE, about 100 us)"""
+        with open(program) as f:
+            source = ('W5500_CS_SETTLE = 36\n' if settle else '') + f.read()
+        return michael_emulator.run(source=source, cycle_cap=8_000_000, options=['--add', hardware])[1]
 
     def test_every_read_finds_version_4(self):
         report = self.run_program('gal-spi,w5500')
@@ -36,7 +39,7 @@ class W5500VersionTest(unittest.TestCase):
         self.assertIn('portb-contention=0', report)
 
     def test_every_read_finds_version_4_through_a_slow_chip_select(self):
-        report = self.run_program('gal-spi,w5500,w5500-cs-rc')
+        report = self.run_program('gal-spi,w5500,w5500-cs-rc', settle=True)
         self.assertIn('GOOD 1000 BAD 0000', report)
 
     def test_without_the_w5500_miso_reads_high(self):
@@ -56,9 +59,19 @@ class W5500VersionTest(unittest.TestCase):
         self.assertIn('portb-contention=0', report)
 
     def test_ping_setup_through_a_slow_chip_select(self):
-        report = self.run_program('gal-spi,w5500,w5500-cs-rc', PING)
+        report = self.run_program('gal-spi,w5500,w5500-cs-rc', PING, settle=True)
         self.assertIn('|CONFIG OK           |', report)
         self.assertIn('|BAD FRAMES 0000     |', report)
+
+    def test_ping_setup_despite_the_ground_bounce(self):
+        """w5500-cs-bounce: port B lines falling together glitch the chip select, as on the board"""
+        report = self.run_program('gal-spi,w5500,w5500-cs-bounce', PING)
+        self.assertIn('|CONFIG OK           |', report)
+        self.assertIn('|BAD FRAMES 0000     |', report)
+
+    def test_every_read_finds_version_4_despite_the_ground_bounce(self):
+        report = self.run_program('gal-spi,w5500,w5500-cs-bounce')
+        self.assertIn('GOOD 1000 BAD 0000', report)
 
     def test_ping_setup_without_the_w5500(self):
         report = self.run_program('gal-spi', PING)
