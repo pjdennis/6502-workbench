@@ -34,6 +34,10 @@ echo "--- Version 03 ---"
 run_version_tests 03
 echo "--- Version 04 ---"
 (cd 04 && mkdir -p out && ../../emulator/emulator.out ../03/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+# Stage 04 renames LDA(),Y and STA(),Y to LDAZ(),Y and STAZ(),Y but keeps the old names, which
+# its own source (assembled by 03) has to use, so it can still assemble itself.
+(cd 04 && ../../emulator/emulator.out out/asm.out --load 2000 --input asm.asm --output out/asm_2.out)
+cmp 04/out/asm.out 04/out/asm_2.out
 echo "--- Version 05 ---"
 (cd 05 && mkdir -p out && ../../emulator/emulator.out ../04/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 06 ---"

@@ -57,6 +57,7 @@ MNTAB
   DATA "JSR"      $00 $00 $20
   DATA "LDA#"     $00 $00 $A9
   DATA "LDAZ(),Y" $00 $00 $B1
+  DATA "LDA(),Y"  $00 $00 $B1  ; the old name: this source uses it (03 assembles it)
   DATA "LDA,X"    $00 $00 $BD
   DATA "LDA,Y"    $00 $00 $B9
   DATA "LDAZ"     $00 $00 $A5
@@ -73,6 +74,7 @@ MNTAB
   DATA "SEC"      $00 $00 $38
   DATA "STA"      $00 $00 $8D
   DATA "STAZ(),Y" $00 $00 $91
+  DATA "STA(),Y"  $00 $00 $91  ; the old name, as for LDA(),Y
   DATA "STA,X"    $00 $00 $9D
   DATA "STA,Y"    $00 $00 $99
   DATA "STAZ"     $00 $00 $85
