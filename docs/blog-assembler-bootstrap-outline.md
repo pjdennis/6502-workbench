@@ -1,6 +1,6 @@
 # Blog post outline: the bootstrapped assembler
 
-An outline for a long-form post about [`asm/`](../asm/). Second draft, 2026-11-12, revised after the author's first review.
+An outline for a long-form post about [`asm/`](../asm/). Third draft, 2026-11-13, revised after the author's second review.
 
 How to read it:
 
@@ -23,7 +23,8 @@ Title 1 now matches the stated motive. Avoid "from nothing" in a headline; secti
 - **Collapsed by default:** the full stage table, each stage's detail, stage 17's internals, the memory map, the related-work notes.
 - **Length:** about 3,000 words for the main line; perhaps as much again inside the collapsed sections.
 - **Follow-up posts**, if this one lands: stage 17's internals; the editor; running the chain on a real board (section 13).
-- **Hacker News** is a link aggregator: the post lives on your own site (or GitHub Pages) and you submit its URL. "Show HN" is for things readers can try, which this is, since the repository builds with one command. 6502.org's forum and r/beneater take links the same way.
+- **Hosting:** the author's own site, phildennis.com, so collapsible sections and custom figures are no obstacle.
+- **Hacker News** is a link aggregator: you submit the post's URL. "Show HN" is for things readers can try, which this is, since the repository builds with one command. 6502.org's forum and r/beneater take links the same way.
 
 ## Reader and promise
 
@@ -49,7 +50,7 @@ The author's motive, to be written in the first person:
 - **The question.** How could someone with an 8-bit machine in about 1980, and no assembler, have got to a good one? The post replays that process, using an emulator and a modern PC for convenience but keeping each step something the period machine could have done.
 - **Keep every step.** In the 1980s the intermediate tools would have been overwritten as soon as the next one worked. Here the whole chain is kept and rebuilt on every change, as a permanent record of the route.
 - **It started in the middle.** The work began in 2022 with an assembler written against an existing one (vasm) and already able to read mnemonics. The earlier, cruder steps were filled in afterwards to give an honest starting point. Say this in two or three sentences and move on. The repository shows it: the first commit of the present chain (2026-01-06) is a copy of the older chain; the hex seed arrived two days later, and the last use of the outside assembler was removed the day after that.
-- **Inspiration.** A web page presenting a series of languages of increasing power, each editable and runnable in the browser. **[You]** My best candidate is Ben Lynn's *Compiler Quest* (<https://crypto.stanford.edu/~blynn/compiler/quest.html>), which builds a Haskell compiler through a chain of ever more capable compilers and, as I recall, has in-browser editors. **[Check]** I found the page by search but did not open it; confirm it is the one you remember. Another possibility is Edmund Grimley Evans's *bcompiler* (HEX1 to HEX5 and beyond), though that one is not browser-based.
+- **Inspiration.** James M. Neighbors's *Tutorial: Metacompilers Part 1* (Bayfront Technologies, 2008, revised 2016): <https://www.bayfronttechnologies.com/mc_tutorial.html>. It rebuilds Val Schorre's META II of 1964 in 17 steps, each producing a compiler that can build the next, and every step can be edited and run on the page in its "Metacompiler Workshop". The parallel is close: small steps, each tool built by the last, and a check at each step that the output matches. Worth a sentence on the difference too: that tutorial climbs from a working compiler-compiler, and this one starts below the level of an assembler.
 - **What it is not:** a competitor to vasm or ca65.
 
 ## 3. The rules of the game
@@ -73,6 +74,7 @@ These followed from the motive; present them that way.
 
 - **What it is.** Stage 00: 92 lines of source, 129 bytes of code. It reads lines of `DATA $XX` and writes the bytes. No labels, no mnemonics.
 - **The C program is a stand-in for fingers.** `00/asm.c` turns stage 00's hex source into a binary. It does nothing a person at a hex keypad could not do: it transcribes the hex digits already written in the source. Say so plainly, since it answers the obvious objection.
+- **Possible replacement before publishing** (to decide): drop `asm.c` and have the emulator load the commented hex file straight into memory, as its "front panel". The seed's source stays one text file of hex with comments. Its `DATA` keyword would have to go from that file or be skipped by the loader, since D and A are themselves hex digits. The read call signals end of input in the carry flag, not by a byte value, so any byte can be loaded.
 - **How the seed was really written.** Honest and interesting: the original hand-made starting point (2022) was written with instructions and hand-calculated addresses in the margin, and working out branch offsets by hand was painful. The 129-byte seed in the repository was written later by an AI model, to the specification "the smallest assembler that can assemble itself", and was right first time. **[Check]** The log shows one fix the next day (a comment-handling bug found when stage 01 was added), so "nearly right first time" may be more exact.
 - Show the old hand-annotated listing beside the new seed: `JSR F006 ; 2000 read_b` against `DATA $20 $06 $F0 ; 2000: JSR read`.
 
@@ -85,7 +87,7 @@ Tell it in acts: what hurt, what the stage added, what that made possible. The f
 - **01** adds mnemonics, labels and strings, but is still written in hex. Its instruction table is spelled out byte by byte.
 - **02** adds nothing. It is stage 01 rewritten in the mnemonics stage 01 understands, and the two binaries are identical (744 bytes). First appearance of the pattern to name: **teach, then use**.
 - The early mnemonics carry the addressing mode in the name (`LDA#`, `LDAZ`, `LDA(),Y`), so the assembler needs no operand parser yet.
-- **03** byte selectors, assignments, origin. **04** two passes, so labels can be used before they are defined: the end of hand-counted branch offsets.
+- **03** byte selectors, assignments, origin. **04** two passes, so labels can be used before they are defined: the end of hand-counted branch offsets. Stage 04 also renames two instructions and keeps the old names alongside, so that it can still assemble its own source.
 
 ### Act 2: growing up (stages 05–10)
 
@@ -105,20 +107,26 @@ Tell it in acts: what hurt, what the stage added, what that made possible. The f
 
 ### Act 5: the live assembler (stage 17)
 
-- Stage 17 removes nothing. It adds `.ifndef` and `.else`, is rewritten in the final dialect that stage 16 taught, and is where development now happens: 8,345 lines in 29 files against stage 16's 5,086 in 12, with a test runner that runs on the 6502 itself.
+Stage 16 taught the final dialect; stage 17 is the first written in it, and then kept growing. What changed, specifically:
+
+- **Data declarations.** Stage 16's source has 238 `.data` lines. Stage 17 has none: they became `.byte` (118), `.word` (78) and `.asciiz` (184), with comma-separated operands. Stage 17 then drops `.data` from the language.
+- **Decimal numbers** where they read better, such as error codes: `.asciiz 1, "Label not found"`.
+- **New in the language:** `.ifndef` and `.else`, which its own source uses a little (4 and 8 times).
+- **Reorganisation.** 12 files became 29: tokenizer, expressions, labels, instructions, directives, macro capture and expansion, output and so on. 5,086 lines became 8,345.
+- **Later work on the live stage** (May 2026): includes and macro calls unified on one source stack, and a test runner that runs on the 6502 itself.
 - It is the fixed point the build checks on every change, in both its plain and debug builds.
 
 ### Which stages can assemble themselves (optional)
 
-A correction to the usual telling, measured by having each stage's binary assemble its own source:
+Measured by having each stage's binary assemble its own source:
 
-- **Fourteen of the eighteen stages self-host**, from stage 00 on. Self-hosting is the normal state of the chain, not something reached at the end.
-- **Four do not: 04, 11, 13 and 16.** Each one changes the language in a way its own source has not caught up with:
-  - 04 drops two instructions its own source still uses.
-  - 11 takes only standard syntax, and is written in the old one.
-  - 13 rejects an older form of data declaration its source still uses. **[Check]** The exact construct.
-  - 16 replaces `.data` with `.byte`, and its generated instruction table still uses `.data`.
-- So the pattern is: a stage that *replaces* syntax cannot build itself, and the next stage is the rewrite. A stage that only *adds* can.
+- **Fifteen of the eighteen stages self-host**, from stage 00 on. Self-hosting is the normal state of the chain, not something reached at the end.
+- **Three do not: 11, 13 and 16.**
+  - **11** takes only standard syntax and is written in the old one. Deliberate: it is the "teach" half of the migration, and 12 is the "use" half.
+  - **13** accepts `.data` and no longer accepts the older `DATA`, which its own source uses. It cannot use `.data` itself, because stage 12, which assembles it, does not know the word. Before the chain was consolidated there was a stage between them that accepted both; removing it merged "teach" and "drop the old form" into one step. Letting 13 keep `DATA` would make it self-hosting again, at the cost of moving the removal to 14.
+  - **16** still accepts `.data`, but rejects one form of it that its own generated instruction table uses (a local label after the first operand). **[Check]** This looks unintended, not a design choice; decide whether to fix it as stage 04 was fixed.
+- Stage 04 used to be a fourth: it renamed two instructions its own source still used under the old names. It now accepts both names (fixed 2026-11-13, and checked by the build).
+- So the pattern: a stage that *replaces* syntax in one step cannot build itself; one that adds, or keeps the old form for a stage, can.
 
 ### The chain in numbers (optional)
 
@@ -128,7 +136,7 @@ A correction to the usual telling, measured by having each stage's binary assemb
 | 01 | mnemonics, labels | 338 | 744 | yes |
 | 02 | source in mnemonics | 376 | 744 (same as 01) | yes |
 | 03 | selectors, assignments, origin | 507 | 942 | yes |
-| 04 | two passes | 574 | 1,050 | no |
+| 04 | two passes | 576 | 1,070 | yes |
 | 05 | hash tables | 823 | 1,564 | yes |
 | 06 | instruction table generator | 1,498 | 17,959 | yes |
 | 07 | diagnostics | 1,875 | 29,138 | yes |
@@ -141,7 +149,7 @@ A correction to the usual telling, measured by having each stage's binary assemb
 | 14 | conditional assembly | 3,547 | image | yes |
 | 15 | macros | 4,532 | image | yes |
 | 16 | data directives, decimal | 5,086 | image | no |
-| 17 | `.ifndef`/`.else`, final dialect | 8,345 | image | yes |
+| 17 | `.ifndef`/`.else`, final dialect; drops `.data` | 8,345 | image | yes |
 
 From stage 09 the output is a fixed 57,344-byte memory image, so its size says nothing. Stage 17's code and tables are about 7.4 KB of it. The whole chain builds and checks itself in about 10 seconds on a current PC **[Check]**.
 
@@ -149,7 +157,7 @@ From stage 09 the output is a fixed 57,344-byte memory image, so its size says n
 
 - Ken Thompson's *Reflections on Trusting Trust*: a compiler can carry something its source does not show, passed on each time it compiles itself. The usual defence is to be able to rebuild the tool from something small enough to inspect.
 - This chain is a small, complete example of that defence. Nothing in it is a binary handed down from an earlier build: every stage is rebuilt from source each time, starting from 129 bytes a person can read in an afternoon.
-- **Be exact about what it settles.** It answers the question for the assembler's own lineage. It moves the trust to what lies underneath: the C compiler and emulator today, or on a real board the hardware and whatever lets the first bytes be keyed in. So it shows the remedy at small scale; it does not dispose of the problem.
+- **Be exact about what it settles.** Today it answers the question for the assembler's own lineage, and leaves the C compiler and the emulator underneath. Done entirely on the hardware, with the seed keyed in by hand (section 13), nothing would be left but the machine itself. That is as far as the argument can be taken, and a 6502 board is about the last kind of computer one person can inspect: a few thousand transistors in the CPU, and logic chips whose every pin can be probed.
 - Related work to name briefly **[Check]**: the bootstrappable-builds community and its hex-seed projects (stage0), and David A. Wheeler's "diverse double-compiling".
 
 ## 8. Keeping it honest
@@ -158,18 +166,19 @@ From stage 09 the output is a fixed 57,344-byte memory image, so its size says n
 - **Frozen tests per stage.** Stages 03 and 07 to 17 have their own test suites, and all of them run every time the chain is built, in CI on every push. Stage 17's suite, 515 tests today, is the definition of the dialect, and the assembler can run it on the 6502 itself.
 - **A second implementation.** `pyasm.py` is a Python work-alike of the last stage, added on 2026-02-08. Its commit says what it is for: an independent implementation that passes the same tests and assembles the assembler's source to identical bytes, and so cross-checks it; it is also a way into the chain without the emulator.
 - **Every stage must earn its keep.** The chain was once 24 stages and was cut to 18 on 2026-02-13, to make each step a real one and the whole presentable to others.
-- **Backports.** Now and then a feature was added to an earlier frozen stage where that made more sense than a new stage. **[You]** One example and its reasoning would be enough.
+- **Backports.** Now and then something was added to an earlier frozen stage where that made more sense than a new stage. The usual case was an instruction: a later stage's source wanted one the earlier assembler's table lacked.
 
 ## 9. Working with an AI
 
 To be written candidly; this is the part many readers will come for.
 
-- **By hand (2022–2025):** the original starting point with hand-calculated addresses, and the first chain up to a self-hosting assembler with hash tables and includes. **[You]** Confirm where the hand-written line ends; you said about the new-syntax stage.
-- **With AI (from January 2026):** the hex seed, written retroactively; the conversion of the source to standard syntax; and much of the code from there on: expressions, conditional assembly, macros, the test runner. The author's part became design: discussing implementation approaches and optimisations, reviewing, and deciding what each stage should be.
+- **By hand (2022–2025):** today's stages 02 to 09, and the base of stage 10: mnemonics, labels, two passes, hash tables, the instruction table generator, diagnostics, includes, sections and arguments. This is the first chain, which reached self-hosting in November 2025.
+- **With AI (from January 2026):** stage 00 (the hex seed) and stage 01 (the first mnemonic assembler translated back into hex), both written retroactively; local labels in stage 10; and stage 11 onward: standard syntax, the conversion of the source to it, expressions, conditional assembly, macros, the data directives, the test runner. Commit messages name the model used for each step.
+- **The author's part** became design and review: discussing implementation approaches and optimisations, and deciding what each stage should be.
+- **Where it needed steering:** it tended to solve a new problem with new code beside the old. The clearest case is macro calls, first given their own machinery next to the stack of open files; the author pushed for one mechanism, and the file stack was extended to carry macro invocations too.
 - **What it changed:** ambition. Standard syntax, expressions and macros are the features that turn a bootstrap exercise into an assembler one can write a 10,000-line editor in, and they are the ones that would have taken longest alone.
 - **Why it could be trusted:** the byte-identical check (the AI's suggestion) and the frozen tests. A rewrite either reproduces the binary or it does not. This is the general lesson: mechanical checks that cannot be argued with are what make generated code acceptable.
 - The repository is open about it: commit messages carry co-author lines from the first day of the new chain.
-- **[You]** One thing the AI got wrong or that needed steering would add balance.
 
 ## 10. Inside stage 17 (optional)
 
@@ -192,15 +201,20 @@ To be written candidly; this is the part many readers will come for.
 
 ## 13. What's next: the bring-up on a real board
 
-A closing section that sets up a follow-up post. Ideas to choose from:
+A closing section that sets up a follow-up post.
 
-- **Run the last stage on a board.** It needs files. Michael is close, through storage on its FPGA bus. The assembler's only contact with the outside is its table of host calls (open, read, write, close), so the board needs those few calls implemented, and the assembler does not change.
-- **Memory.** Code, heap and low memory come to about 24 KB when the assembler builds itself, more than Michael's 16 KB of RAM. Wendy 2 has room. **[You]** Which board?
-- **Replay the whole climb on hardware.** Enter the seed on a hex keypad, then grow an editor in step with the assembler: a line-entry program first, a line editor once labels exist, the screen editor at the end. The need to type source text is what forces the editor to exist, which is a good story.
+- **Run the last stage on a board.** It needs files. The assembler's only contact with the outside is its table of host calls (open, read, write, close), so the board needs those few calls implemented, and the assembler does not change.
+- **Memory.** Code, heap and low memory come to about 24 KB when the assembler builds itself.
+- **Which board** (undecided; the post can say so):
+  - *Wendy 2* is the period-correct home: banked RAM in plenty, glue logic in a PLD. It lacks Michael's interfaces (keyboard, graphic display, storage, network).
+  - *Michael* has the interfaces but 16 KB of RAM, and was meant to stay true to the Ben Eater design.
+  - A middle course: put the FPGA on Wendy 2's CPU bus as its peripheral board. Memory stays real chips, and the FPGA supplies keyboard, display and storage.
+- **Replay the whole climb on hardware.** Key in the seed, then grow an editor in step with the assembler: a line-entry program first, a line editor once labels exist, the screen editor at the end. The need to type source text is what forces the editor to exist.
+- **The line-entry program.** A few hundred bytes, keyed in as hex: read a character from the keyboard, echo it, handle backspace, append to a text buffer; on a command key, save the buffer or hand it to the assembler as its input. With a keyboard that delivers ASCII directly it is short enough to enter by hand.
 - **Period storage.** What the design asks of a disk is small: named files read from start to end, several open at once (one per level of include), and one output file. No seeking within a file.
   - Tape gives one stream, which is all stages 00 to 07 need.
   - A floppy with a simple sequential file system is enough from stage 08 on. A period controller chip (the WD1770 family) can be driven by a 2 MHz 6502, as the BBC Micro did.
-  - Size matters: stage 17's source is 237 KB, more than a 140 KB Apple II disk, so a 1980 author would have used two drives or terser comments. It fits a 360 KB disk.
+  - Size matters: stage 17's source is 237 KB, more than a 140 KB Apple II disk. It fits a 360 KB disk.
 
 ## 14. Closing
 
@@ -224,9 +238,8 @@ cd 6502-workbench/asm && ./asmtestgen.sh
 
 ## Questions still open
 
-1. Is *Compiler Quest* the page you remember?
-2. Where exactly does the hand-written work end and the AI-assisted work begin: which stage, in today's numbering?
-3. Should `asm.c` be replaced before the post goes out (for example by a small hex loader run in the emulator), or described as a stand-in and replaced later?
-4. Which board is the target for running the assembler: Michael with more RAM, or Wendy 2?
-5. Where will the post be hosted? That decides whether collapsible sections and an in-browser demo are easy.
-6. An example each of a backport and of the AI needing correction.
+1. Replace `asm.c` before the post goes out, or describe it as a stand-in and replace it later? (A concrete proposal is in section 5.)
+2. Stage 16's failure to assemble itself looks like a bug in its handling of `.data`. Fix it, as stage 04 was fixed, or leave the frozen stage alone and say so?
+3. Should stage 13 keep accepting `DATA` so that it self-hosts too? Then only stage 11 would be an exception, and for a reason that is easy to explain.
+4. Confirm the hand-written range (today's stages 02 to 09 and the base of 10), which is inferred from commit messages.
+5. Which board is the target, and does the post commit to one?
