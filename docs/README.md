@@ -4,6 +4,7 @@
 |---|---|
 | [`history.md`](history.md) | The repository's timeline, how to check out and build an older era, and where files moved in 2026-09. Start here. |
 | [`overview.md`](overview.md) | A tour of the projects (boards, firmware, assemblers, editor, Prog8, emulator) and a narrative of the work from 2020 on, year by year (2026-11-10). |
+| [`blog-assembler-bootstrap-outline.md`](blog-assembler-bootstrap-outline.md) | An outline for a long-form blog post about the bootstrapped assembler, with the author's parts marked. Draft for review (2026-11-12). |
 | [`REORGANIZATION_PLAN.md`](REORGANIZATION_PLAN.md) | The plan for the 2026-09-24 reorganization, with what was done. Done; uses the paths of its time. |
 | [`michael-rom-plan.md`](michael-rom-plan.md) | The plan for Michael's new ROM (loader and LCD/keyboard services in EEPROM). Done (2026-09-27). |
 | [`michael-keyboard-frame-detection.md`](michael-keyboard-frame-detection.md) | Why some keyboards' command replies are lost on Michael (the frame detector's idle time), the measurements, the recommended hardware change (count clock pulses) and TODOs. Open (2026-09-30). |
