@@ -143,7 +143,7 @@ asm2 enters version control on 2026-01-06 and gets its C seed two days later. Ja
 
 In May the assembler's source stack and macro frames are reworked, and the emulator gains the **`wendy2c` machine** (2026-05-12), the Tom Harte CPU tests, and the webcam LCD reader. From 2026-05-31 the **Prog8** work runs for a month: the host compiler's walking skeleton, `tinyp8`, then `p1`, which **self-hosts on 2026-06-07**, followed by the upstream port and the banked Wendy 2 targets. Early July reduces the editor's size by about 3 KB and adds more undo.
 
-The git author field shows AI assistance from this period: the first commits authored as "Claude" are dated 2026-05-07, and 471 commits carry that author. The repository has `CLAUDE.md` guidance files, and several unmerged `claude/…` branches are preserved as `archive/` tags.
+AI assistance is recorded in the history. Commit messages carry AI co-author lines from the first day of asm2 (2026-01-06), and from 2026-05-07 some commits are authored as "Claude" outright (471 of them). The repository has `CLAUDE.md` guidance files, and several unmerged `claude/…` branches are preserved as `archive/` tags.
 
 ### 2026, September: reorganization
 
