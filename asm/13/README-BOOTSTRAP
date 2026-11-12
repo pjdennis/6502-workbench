@@ -10,7 +10,10 @@ expression-aware forward reference propagation, and error module extraction:
 Syntax:
 - Standard 6502 mnemonic syntax (LDA, STA, etc.)
 - All addressing modes (immediate, zero page, absolute, indexed, indirect)
-- DATA pseudo-instruction for raw byte emission
+- .data directive for raw byte emission. The DATA pseudo-instruction is no longer
+  accepted. This version's own source still uses DATA (version 12, which assembles
+  it, has no .data), so version 13 cannot assemble itself; version 14 is the
+  first written with .data
 - Hex constants: $xx (1 byte) or $xxxx (2 bytes)
 - Character literals: 'x', '\n', '\\', '\'' (in expressions and immediate mode)
 - Quoted strings in DATA with escape sequences
