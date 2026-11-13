@@ -82,6 +82,7 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--live` | wendy2c: live ANSI render of LCD, LED, button, VIA pins. michael: the LCD, with the terminal's keys typed on the PS/2 keyboard (Ctrl-] quits), paced to 2 MHz or `--mhz` |
 | `--cycle-cap N` | max cycles before forced exit (decimal; default 200000000; no cap under `--live` unless this is given explicitly). For wendy2c this is oscillator ticks (~2 per CPU cycle); for `nmos-default` and `--server` it is CPU cycles. |
 | `--load <hex>` | load address for the positional code file |
+| `--hex` | nmos-default, with `--load`: the code file is a hex listing, put in memory as if keyed in at a front panel. Each `$` and two hex digits is a byte, `;` starts a comment and the rest is ignored (`hex_text.h`). The assembler chain's seed, `asm/00/asm.asm`, is loaded this way |
 | `--input` / `--output` / `--error-output` | ports `$F006` / `$F009` / `$F00C` |
 | `--dump` / `--no-dump` | memory dump on exit |
 | `--console` / `--terminal` | full-screen UI modes (mutually exclusive) |

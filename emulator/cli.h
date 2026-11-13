@@ -43,6 +43,8 @@ struct emu_opts {
     int no_dump;                        /* --no-dump */
     int input_specified;                /* set when --input given */
     int output_specified;               /* set when --output given */
+    int code_is_hex;                    /* --hex (nmos-default, with --load): the code file is a
+                                         * hex listing (hex_text.h), put in memory at --load */
     int console_mode;                   /* --console */
     int terminal_mode;                  /* --terminal */
     int direct_io;                      /* --direct-io (nmos-default, not --terminal): the

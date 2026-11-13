@@ -70,6 +70,39 @@ TEST cli_code_file_only(void) {
     PASS();
 }
 
+/* --hex: the code file is a hex listing (hex_text.h), put in memory at --load */
+TEST cli_hex_parsed(void) {
+    char *argv[] = {"emulator", "seed.asm", "--hex", "--load", "2000", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_EQ_FMT(1, opts.code_is_hex, "%d");
+    ASSERT_EQ_FMT(0x2000L, opts.load_address, "%lx");
+    char *plain[] = {"emulator", "prog.bin", NULL};
+    ASSERT_EQ_FMT(0, parse(plain, &opts), "%d");
+    ASSERT_EQ_FMT(0, opts.code_is_hex, "%d");
+    PASS();
+}
+
+/* A listing does not say where it goes, so --hex needs --load, and only the default machine
+ * takes it. */
+TEST cli_hex_requires_load_and_default_machine(void) {
+    char *argv[] = {"emulator", "seed.asm", "--hex", NULL};
+    struct emu_opts opts;
+    char buf[512];
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof buf);
+    ASSERT(rc != 0);
+    ASSERT(strstr(buf, "--hex") != NULL);
+    char *board[] = {"emulator", "seed.asm", "--hex", "--load", "2000", "--machine", "michael", NULL};
+    capture_stderr_begin();
+    rc = parse(board, &opts);
+    capture_stderr_end(buf, sizeof buf);
+    ASSERT(rc != 0);
+    ASSERT(strstr(buf, "--hex") != NULL);
+    PASS();
+}
+
 TEST cli_unknown_flag_errors(void) {
     char *argv[] = {"emulator", "prog.bin", "--bogus", NULL};
     struct emu_opts opts;
@@ -604,6 +637,8 @@ SUITE(cli_suite) {
     RUN_TEST(cli_empty_argv_errors);
     RUN_TEST(cli_server_first_arg_dispatches);
     RUN_TEST(cli_code_file_only);
+    RUN_TEST(cli_hex_parsed);
+    RUN_TEST(cli_hex_requires_load_and_default_machine);
     RUN_TEST(cli_unknown_flag_errors);
     RUN_TEST(cli_missing_value_errors);
     RUN_TEST(cli_mhz_and_baud_combination);

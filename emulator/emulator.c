@@ -16,6 +16,7 @@
 #include "cpu_core.h"
 #include "trace.h"
 #include "cli.h"
+#include "hex_text.h"
 #include "emu_run.h"
 #include "emu_wendy2c.h"
 #include "emu_michael.h"
@@ -744,18 +745,36 @@ int main(int argc, char **argv) {
     }
 
     long index = load_address;
-    int b;
-    while ((b = fgetc(code_file_ptr)) != EOF) {
-        if (index > 0xffff) {
+    if (opts.code_is_hex) {
+        // --hex: the code file is a hex listing, keyed into memory at the load address
+        int line = 0;
+        long count = hex_text_read(code_file_ptr, memory + load_address, 0x10000 - load_address, &line);
+        fclose(code_file_ptr);
+        if (count == HEX_TEXT_TOO_LONG) {
             fprintf(stderr,
                     "Code file %s will not fit in memory at the specified load address\n",
-		    code_filename);
-            fclose(code_file_ptr);
+                    code_filename);
             return 1;
         }
-        memory[index++] = b;
+        if (count < 0) {
+            fprintf(stderr, "%s line %d: a byte is $ and two hex digits\n", code_filename, line);
+            return 1;
+        }
+        index += count;
+    } else {
+        int b;
+        while ((b = fgetc(code_file_ptr)) != EOF) {
+            if (index > 0xffff) {
+                fprintf(stderr,
+                        "Code file %s will not fit in memory at the specified load address\n",
+                        code_filename);
+                fclose(code_file_ptr);
+                return 1;
+            }
+            memory[index++] = b;
+        }
+        fclose(code_file_ptr);
     }
-    fclose(code_file_ptr);
 
     if (index < 0xfffe) {
       memory[0xfffd] = memory[index - 1];

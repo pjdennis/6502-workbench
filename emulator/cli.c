@@ -13,6 +13,7 @@
 void emu_opts_init(struct emu_opts *opts) {
     opts->code_filename = NULL;
     opts->load_address = -1;
+    opts->code_is_hex = 0;
     opts->input_filename = "/dev/null";
     opts->output_filename = "/dev/null";
     opts->error_output_filename = NULL;
@@ -77,6 +78,9 @@ void emu_opts_usage(FILE *fp) {
 "\n"
 "options:\n"
 "  --load <hex addr>      load address for the code file (hexadecimal)\n"
+"  --hex                  the code file is a hex listing, as keyed in at a front\n"
+"                         panel: each $ and two hex digits is a byte, ; starts a\n"
+"                         comment, the rest is ignored (needs --load)\n"
 "  --input <path>         file read from $F006 input port (default /dev/null)\n"
 "  --output <path>        file written from $F009 output port (default /dev/null)\n"
 "  --error-output <path>  file written from $F00C error port\n"
@@ -265,6 +269,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             i++;
         } else if (strcmp(argv[i], "--direct-io") == 0) {
             opts->direct_io = 1;
+            i++;
+        } else if (strcmp(argv[i], "--hex") == 0) {
+            opts->code_is_hex = 1;
             i++;
         } else if (strcmp(argv[i], "--strict-api") == 0) {
             opts->strict_api = 1;
@@ -540,6 +547,10 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         }
     }
 
+    if (opts->code_is_hex && (opts->load_address < 0 || opts->machine != MACHINE_NMOS_DEFAULT)) {
+        fprintf(stderr, "error: --hex requires --load and the nmos-default machine\n");
+        return 1;
+    }
     if (opts->direct_io && (opts->terminal_mode || opts->machine != MACHINE_NMOS_DEFAULT)) {
         fprintf(stderr, "error: --direct-io requires the nmos-default machine, not --terminal\n");
         return 1;

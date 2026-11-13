@@ -43,6 +43,7 @@ test_file_io|emulator/tests/test_file_io.c emulator/file_io.c|
 test_console|emulator/tests/test_console.c emulator/console.c|
 test_trace|emulator/tests/test_trace.c emulator/trace.c|
 test_cli|emulator/tests/test_cli.c emulator/cli.c|
+test_hex_text|emulator/tests/test_hex_text.c emulator/hex_text.c|
 test_emu_run|emulator/tests/test_emu_run.c emulator/emu_run.c emulator/cli.c emulator/trace.c|
 test_bus|emulator/tests/test_bus.c emulator/bus.c|
 test_cpu_variant|emulator/tests/test_cpu_variant.c emulator/cpu_core.c|-Wno-unused-function
