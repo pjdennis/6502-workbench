@@ -1,0 +1,152 @@
+# Test suite for asm00b assembler
+# DATA-only, with single-character labels and strings. PC starts at $2000.
+# A label is defined by a name at column 0; only its first character counts.
+# Inside DATA, an argument that is not $XX, "string" or a ; comment is a label
+# reference, emitted as two bytes (low, high). References are backward only.
+# Whitespace is spaces only, as in asm01.
+
+---
+NAME: data_hex
+INPUT:
+1:  DATA $01 $02 $FF
+EXPECT_HEX: 01 02 ff
+
+---
+NAME: data_hex_letters
+INPUT:
+1:  DATA $AB $CD $EF $9A
+EXPECT_HEX: ab cd ef 9a
+
+---
+NAME: comments_and_blank_lines
+INPUT:
+1: ; a comment at column 0
+2:
+3:  DATA $01 ; a comment after data
+4:  ; an indented comment
+5:  DATA $02
+EXPECT_HEX: 01 02
+
+---
+NAME: data_string
+INPUT:
+1:  DATA "Hi" $00
+EXPECT_HEX: 48 69 00
+
+---
+NAME: data_string_space
+INPUT:
+1:  DATA $C9 " "
+EXPECT_HEX: c9 20
+
+---
+NAME: data_string_punctuation
+INPUT:
+1:  DATA "CMP(),Y #;$"
+EXPECT_HEX: 43 4d 50 28 29 2c 59 20 23 3b 24
+
+---
+NAME: label_at_start
+INPUT:
+1: a
+2:  DATA $EA
+3:  DATA $4C a
+EXPECT_HEX: ea 4c 00 20
+
+---
+NAME: label_after_bytes
+INPUT:
+1:  DATA $EA $EA $EA
+2: x
+3:  DATA $4C x
+EXPECT_HEX: ea ea ea 4c 03 20
+
+---
+NAME: label_long_names
+INPUT:
+1: f_findintab ; rest of the line is ignored
+2:  DATA $EA
+3: g_other
+4:  DATA $20 f_findintab $20 g_other $60
+EXPECT_HEX: ea 20 00 20 20 01 20 60
+
+---
+NAME: label_reference_ends_line
+INPUT:
+1: s
+2:  DATA $EA
+3:  DATA s
+4:  DATA $60
+EXPECT_HEX: ea 00 20 60
+
+---
+NAME: label_reference_then_comment
+INPUT:
+1: s
+2:  DATA $20 s ; JSR s
+EXPECT_HEX: 20 00 20
+
+---
+NAME: label_case_matters
+INPUT:
+1: t
+2:  DATA $EA
+3: T
+4:  DATA t T
+EXPECT_HEX: ea 00 20 01 20
+
+---
+NAME: label_past_page
+INPUT:
+1:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+2:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+3:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+4:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+5:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+6:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+7:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+8:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+9:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+10:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+11:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+12:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+13:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+14:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+15:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+16:  DATA $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+17:  DATA $00 $00
+18: p
+19:  DATA p
+EXPECT_HEX: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02 21
+
+---
+NAME: error_duplicate_label
+INPUT:
+1: a
+2:  DATA $EA
+3: a
+EXPECT_ERROR: 1
+EXPECT_MSG: Duplicate label
+
+---
+NAME: error_duplicate_first_character
+INPUT:
+1: r_read
+2:  DATA $EA
+3: r_readhex
+EXPECT_ERROR: 1
+EXPECT_MSG: Duplicate label
+
+---
+NAME: error_label_not_found
+INPUT:
+1:  DATA $20 nowhere
+EXPECT_ERROR: 3
+EXPECT_MSG: Label not found
+
+---
+NAME: error_opcode_not_found
+INPUT:
+1:  LDA $00
+EXPECT_ERROR: 2
+EXPECT_MSG: Opcode not found

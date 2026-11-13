@@ -21,12 +21,15 @@ run_version_tests() {
 
 mkdir -p out
 rm -f out/*.out out/*.asm.out
-rm -rf {00..99}/out
+rm -rf {00..99}/out 00b/out
 make --quiet
 echo "--- Version 00 ---"
 (cd 00 && out/asm_c.out asm.asm out/asm.out)
+echo "--- Version 00b ---"
+(cd 00b && mkdir -p out && ../../emulator/emulator.out ../00/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+run_version_tests 00b
 echo "--- Version 01 ---"
-(cd 01 && mkdir -p out && ../../emulator/emulator.out ../00/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+(cd 01 && mkdir -p out && ../../emulator/emulator.out ../00b/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 02 ---"
 (cd 02 && mkdir -p out && ../../emulator/emulator.out ../01/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 03 ---"

@@ -542,6 +542,15 @@ class TestRunner:
         actual_line = ""
         actual_msg = ""
 
+        # Stages before 07 stop with BRK, an exit code and a message; the
+        # emulator reports them as "Error: <message>" and "Exit code <N>; ...".
+        m = re.search(r"^Error: (.*)$", stderr_text, re.MULTILINE)
+        if m:
+            actual_msg = m.group(1)
+            m = re.search(r"^Exit code (\d+);", stderr_text, re.MULTILINE)
+            if m:
+                actual_error = m.group(1)
+
         for line in stderr_text.split("\n"):
             if line.startswith("Error "):
                 m = re.match(r"Error (\d+)", line)
