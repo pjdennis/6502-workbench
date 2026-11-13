@@ -14,6 +14,7 @@ This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 wi
 | [`asm/`](asm/) | The assembler, bootstrapped from nothing: `00/asm.c`, then stages `01`…`17`, each built by the one before. `17/` is the live assembler. |
 | [`editor/`](editor/) | A vi-like text editor written in the assembler's dialect and built by stage 17. Runs in the emulator's terminal and on the Michael board. |
 | [`prog8/`](prog8/) | Prog8 compiler work: host compiler `p8c`, `tinyp8`, the self-hosting `p1`, and custom upstream prog8c targets for Wendy 2. |
+| [`lathe/`](lathe/) | Lathe, a high-level language and compiler designed to compile on a 6502. Design documents only so far. |
 | [`tools/`](tools/) | Host-side tools: serial upload (`upload/`), webcam LCD OCR (`lcd-ocr/`), `makerom.py`, the firmware regression check, `check_all.sh`. |
 | [`research/`](research/) | Analyses, e.g. a byte-level breakdown of BBC BASIC IV. |
 | [`attic/`](attic/) | Stale, broken or superseded things kept for review, including the first assembler (`asm1/`, 2022–2025). See [`attic/README.md`](attic/README.md). |

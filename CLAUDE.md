@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repository. The root `README.md` has th
 
 ## Layout
 
-`hardware/` (boards), `firmware/` (vasm code for the boards), `emulator/`, `asm/` (the assembler), `editor/`, `prog8/`, `tools/`, `research/`, `attic/` (parked for review: don't build, fix or delete things there unless asked). `asm/CLAUDE.md` and `editor/CLAUDE.md` have details for the assembler and the editor. The first assembler, `asm1`, is in the attic.
+`hardware/` (boards), `firmware/` (vasm code for the boards), `emulator/`, `asm/` (the assembler), `editor/`, `prog8/`, `lathe/` (a new language and compiler: design documents only so far), `tools/`, `research/`, `attic/` (parked for review: don't build, fix or delete things there unless asked). `asm/CLAUDE.md` and `editor/CLAUDE.md` have details for the assembler and the editor. The first assembler, `asm1`, is in the attic.
 
 ## Build and test
 
