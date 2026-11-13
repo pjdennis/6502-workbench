@@ -116,9 +116,10 @@ A stream of records, each a type byte, a length and a body. The order is fixed s
 | Module | Name, CPU variant, format version. |
 | Import | A module this one refers to. |
 | Symbol | A module-level variable, constant table or string: segment, size, zero page class, weight, region if any, and initial bytes for data. |
-| Function header | Name, attributes (`recursive`, `interrupt`, address taken, signature class), code size. |
+| Function header | Name, attributes (`recursive`, `interrupt`), code size. |
+| Class | A pointer class: its signature, whether it is `recursive`, and the functions this module adds to it. |
 | Slots | For each slot of the frame: size, zero page class, weight. |
-| Calls | For each call: the callee, whether it saves the caller's frame, and any call made while its arguments were pending. |
+| Calls | For each call: the callee or, for a call through a pointer, the class; whether it saves the caller's frame; and any call made while its arguments were pending. |
 | Sites | Offsets in the code where an operand may shrink from absolute to zero page, and the positions of branches that cross them. |
 | Code | The instruction bytes. |
 | Fix-ups | Offsets in the code to fill with the address of a symbol, slot or function, with an addend and a part (low byte, high byte or both). |
@@ -130,9 +131,9 @@ In stage A the Slots and Calls records are written to the `.lfm` file in the sam
 
 **Pass 1** reads every record except Code and Fix-ups.
 
-1. Build the call graph. Find the functions reachable from `main` and from each interrupt handler, and drop the rest.
+1. Build the call graph, with one node per pointer class standing for its parameter block. Find the functions reachable from `main` and from each interrupt handler, and drop the rest.
 2. Check cycles against the `recursive` attribute.
-3. Find functions used by more than one context and plan their copies.
+3. Find functions used by more than one context and plan their copies. Check that each pointer class is called through pointers from one context only.
 4. Allocate frames and module-level variables in zero page and main memory ([`code-model.md`](code-model.md)).
 5. Compute each function's final size, place code and constants in their regions, and create stubs for calls that cross windows.
 

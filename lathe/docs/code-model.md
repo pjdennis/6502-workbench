@@ -127,7 +127,30 @@ In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h`
 
 ### Functions called through a pointer
 
-The caller does not know which function it is calling, so it cannot store into slots. Arguments go in A, X and Y, and the function stores them into its own slots on entry. For storage sharing, the linker assumes the call may reach every function with that signature whose address is taken.
+The caller does not know which function it is calling, but the linker chooses every address, so it makes the question unnecessary: **all functions in a pointer class have their parameters at the same addresses.** (Classes are defined in [`language.md`](language.md).)
+
+- The linker allocates one block of parameter slots per class. Each member's parameters are names for that block.
+- A call through a pointer stores its arguments into the block with ordinary instructions and costs the same as a direct call. The callee has no entry code.
+- A function whose address is never taken joins no class, and nothing changes for it.
+
+```
+        LDA #3
+        STA Handler.code      ; the same address as beep.code, flash.code, ...
+        LDA #<500
+        STA Handler.arg
+        LDA #>500
+        STA Handler.arg+1
+        JSR .call             ; .call: JMP (on_key)
+        STA ok
+```
+
+In the call graph the block is one extra node. Every caller of any member, direct or through a pointer, calls the block; the block calls every member. The ordinary rule for sharing frames then places the block above everything that can be active when a member is called, and each member's locals above the block.
+
+Consequences:
+
+- **Members calling members.** If one member calls another, the callee's arguments would overwrite the caller's parameters. In the graph this is a cycle through the block, so the linker's cycle check reports it, and the remedy is the one for recursion. If this proves common, the linker can instead give such a function a small entry stub that copies the block into slots of its own.
+- **Slot classes.** A block slot takes the strictest zero page class any member needs, and the sum of the members' weights.
+- **The call itself.** The 6502 has no indirect `JSR`. The call is a `JSR` to a three-byte `JMP (pointer)`, which works because the pointer variable has a fixed address. On an NMOS 6502 the linker keeps such a variable from straddling a page boundary. A pointer taken from a table is copied to a temporary first.
 
 ### Register arguments for ordinary calls
 
@@ -146,6 +169,7 @@ Calls into a `recursive` function from outside, and everything inside its body, 
 
 Rules that follow:
 
+- **Through a pointer** the compiler cannot see the callee, so the function type decides. A call through a type marked `recursive`, made from a `recursive` function, saves the caller's frame, including its parameters if they are in a class block. A call through an unmarked type never saves. A recursive tree walker can therefore call a plain callback at no extra cost, as long as the callbacks never call back into the walker; if one does, the cycle check below reports it.
 - `recursive` functions that can call each other do not share storage.
 - The linker checks every cycle in the call graph. A cycle through a function not marked `recursive` is an error.
 - A pointer to a local of a `recursive` function points at the slot, not at one activation. Passing such a pointer down a recursive call is an error the compiler cannot always catch; this is documented, as it was for Turbo Pascal.
@@ -159,6 +183,7 @@ An `interrupt` function is the root of its own context.
 - **Storage.** The linker places the frames of an interrupt context above everything the main program uses, and above any other interrupt context. A handler therefore never touches a slot the interrupted code was using, and saves nothing but the registers.
 - **Functions used by two contexts.** A function reachable from both the main program and a handler, or from two handlers, is linked once per context, each copy with its own frame. The map file lists the copies. This covers the run-time library: a handler that multiplies gets its own multiply routine.
 - **Entry and exit.** The handler saves A, X and Y on the stack and returns with `RTI`.
+- **Pointer calls.** A pointer class may be called through pointers from one context only. `@f` then means that context's copy of `f`, and the class's parameter block is in that context's storage. Other contexts can still call `f` directly and get their own copy. A class called through pointers from two contexts is a link error naming both calls. The pointer variable is shared data like any other.
 - **Shared variables.** A module-level variable used by a handler and by the main program is the programmer's responsibility. A single byte needs no care. Anything longer must be read and written inside `critical … end` in the main program.
 - **Placement.** Code in an interrupt context is always placed in fixed memory, never in a window.
 - **Vectors.** Installing a handler is done by the environment module for the machine, using `@handler`.
@@ -234,4 +259,5 @@ The 65C02's extra instructions (`STZ`, `BRA`, `INC A`, `PHX` and the rest) are u
 - An argument stored into a slot and then loaded again by the callee costs more than a register would for tiny functions. `inline` is the remedy.
 - Calls between `recursive` functions copy a frame each way.
 - A function used from two contexts is linked twice.
+- Two functions in one pointer class cannot call each other without the cost of recursion.
 - A variable's value is lost between calls unless it is `static`. This is a rule to learn, not a run-time cost.

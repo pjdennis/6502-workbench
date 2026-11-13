@@ -63,7 +63,7 @@ The suite joins `tools/check_all.sh` as `lathe` when stage 1 lands, and CI with 
 
 ### Stage 5. Function features
 
-- **Work:** `interrupt` functions and contexts, with copies for shared functions. `critical`. `recursive` with frame save and restore. Function pointers. `inline` with token replay. Status results. `asm` functions and register-bound `extern` declarations in full.
+- **Work:** `interrupt` functions and contexts, with copies for shared functions. `critical`. `recursive` with frame save and restore. Function pointers: classes, shared parameter blocks, `recursive` function types, the one-context rule. `inline` with token replay. Status results. `asm` functions and register-bound `extern` declarations in full.
 - **Gate:** End-to-end tests for each: a timer interrupt on emulated Michael or Wendy 2 that calls a function the main program also calls; a recursive evaluator; a dispatch table of function pointers; a link error for an unmarked cycle.
 
 ### Stage 6. Run-time library and environments

@@ -34,7 +34,7 @@ Each is days, not hours, and each guards a decision that would be expensive to r
 ### L2. Storage allocation
 
 - **Question:** Which rule for giving zero page to "either" slots works best, and is the whole allocation cheap enough to run on the target?
-- **Method:** A Python allocator run on the S1 call graph and on synthetic graphs, with zero page budgets of 16, 32, 144 and 224 bytes. Try at least two rules: callers first, and heaviest first across the program. Count the zero page accesses each gives, weighted by loop depth. Include an interrupt context, a function used from two contexts, a recursive group and calls inside arguments. Estimate the memory and time of the same algorithm on a 6502.
+- **Method:** A Python allocator run on the S1 call graph and on synthetic graphs, with zero page budgets of 16, 32, 144 and 224 bytes. Try at least two rules: callers first, and heaviest first across the program. Count the zero page accesses each gives, weighted by loop depth. Include an interrupt context, a function used from two contexts, a recursive group, calls inside arguments, and pointer classes with their shared parameter blocks. Estimate the memory and time of the same algorithm on a 6502.
 - **Decides:** The allocation rule. The frame and call records. The smallest supported zero page.
 - **Before:** Stage 3.
 

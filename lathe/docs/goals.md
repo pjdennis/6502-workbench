@@ -68,6 +68,7 @@ Status (2026-11-13): proposal. Targets marked *(to measure)* are estimates until
 | D8 | One pass, no syntax tree, operands described lazily. | The technique of Wirth's one-pass compilers: small, fast, and good enough code without an optimiser. |
 | D9 | Arrays of records are stored by column. | An indexed access needs no multiply. `p1` already does this by hand with parallel arrays. |
 | D10 | Banking and disk overlays use one mechanism. | Both fill a window of memory before a call; only the run-time routine differs. |
+| D11 | Functions in a pointer class share their parameter addresses. | A call through a pointer then costs the same as a direct call, with any number of parameters and no run-time record. |
 
 ## What the prior art taught
 
@@ -76,12 +77,14 @@ Status (2026-11-13): proposal. Targets marked *(to measure)* are estimates until
 - **Turbo Pascal 3** showed opt-in recursion by saving a function's storage, finding a run-time error by recompiling to an address, chained programs sharing a library, and inline code that names variables. It put the whole run-time library in every program and had no separate compilation.
 - **`p1`** (this repository) showed the costs to avoid: a syntax tree that does not fit, every expression spilled through scratch storage, a long branch on every forward condition, and zero page that overflows without a plan.
 
-## Open questions for the owner
+## Questions settled
 
-These are choices the design has made provisionally. Each can be changed before implementation starts at little cost.
+Accepted by the owner on 2026-11-13.
 
-1. **Bootstrap seed.** The plan uses a Python host compiler as oracle and first compiler, as `p8c` was for `p1`. The alternative is a chain from asm17 with no host tool in the line of trust, as the assembler was built. Recommendation: Python first; add a seed chain later only if that line of trust matters.
-2. **Case.** Names are not case sensitive, so `Sym` and `sym` are the same name. This is needed for upper-case-only machines. It could be made a per-environment option instead.
-3. **Characters outside `$20`–`$5F`.** The operators `|` and `~` cannot be typed on a stock Commodore 64 or Apple II+. The proposal keeps them and leaves alternate spellings open until an editor on one of those machines is a real target.
-4. **First period machine.** The emulator, Michael and Wendy 2 come first. Recommendation for the first period port: the BBC Micro, which has full ASCII, 32 or more bytes of free zero page, sideways RAM for banking and a simple file API.
-5. **Calling convention details.** Arguments go straight into the callee's storage and results come back in registers. Passing one argument in a register is left as a measured experiment, because `p1`'s notes put the gain at about 0.5%.
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Bootstrap seed | A Python host compiler is the oracle and first compiler. A seed chain from asm17 may be added later if a line of trust with no host tool is wanted. |
+| Q2 | Case | Names and keywords are not case sensitive. |
+| Q3 | Characters outside `$20`–`$5F` | `\|` and `~` stay. Alternate spellings wait until an editor on a Commodore 64 or Apple II+ is a real target. |
+| Q4 | First period machine | The BBC Micro, after the emulator's default machine, Michael and Wendy 2. |
+| Q5 | Calling convention | Arguments go straight into the callee's storage; results return in registers. Passing one argument in a register stays a measured experiment. |

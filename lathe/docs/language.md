@@ -60,7 +60,7 @@ end
 | `^T` | 2 | Pointer to a `T`. |
 | `[N]T` | N × size of T | Array of `N` elements, indexed from 0. `N` is a constant. |
 | `record … end` | sum of fields | Fields in order, no padding. |
-| `func(…): T` | 2 | Pointer to a function (restricted; see below). |
+| `func(…): T` | 2 | Pointer to a function (see Function pointers). |
 
 Named types are introduced with `type`. An enumeration introduces a `byte`-sized type and its constants:
 
@@ -167,10 +167,22 @@ Register names are `a`, `x`, `y`, the pairs `ax`, `ay` and `xy` (low byte in the
 
 ### Function pointers
 
-`@f` gives a pointer of type `func(…): T`. To keep the call graph known:
+```
+type Handler = func(code: byte, arg: word): bool
 
-- A function whose address is taken must have parameters that fit in the registers A, X and Y, assigned in that order.
-- A call through a pointer is treated as a possible call of every function with that signature whose address is taken somewhere in the program.
+var on_key: Handler
+
+on_key = @beep            ; beep must have exactly Handler's parameters and result
+ok = on_key(3, 500)       ; call through the pointer
+```
+
+- A function type lists parameters with names, like a function header. `@f` can be assigned wherever a function type with `f`'s exact signature is expected.
+- **Class.** Each named function type is a class of its own. Unnamed function types with the same signature share one class. A function joins a class when its address is used as that type. A function used as two types makes the linker merge those classes.
+- **Any number of parameters.** All functions in a class have their parameters at the same addresses, chosen by the linker, so a call through a pointer stores its arguments exactly as a direct call does ([`code-model.md`](code-model.md)).
+- **What the linker assumes.** A call through a pointer may reach every function in the pointer's class. Named types keep that assumption narrow.
+- **Members calling members.** Two functions in one class share parameter storage, so one calling the other, directly or through a pointer, counts as recursion.
+- **`recursive` function types.** `type Visit = recursive func(n: ^Node)` accepts only `recursive` functions. A call through it from a `recursive` function saves the caller's storage. A call through an unmarked type never saves.
+- **One context per class.** A class can be called through pointers from the main program or from one interrupt handler, not both. Use two named types to have the same signature in both.
 
 ## Statements
 
@@ -295,7 +307,7 @@ type        = "byte" | "sbyte" | "word" | "int" | "bool"
             | "^" type
             | "[" constExpr "]" type
             | "record" NL { name ":" type NL } "end"
-            | "func" "(" [ type { "," type } ] ")" [ ":" type ] .
+            | [ "recursive" ] "func" "(" [ param { "," param } ] ")" [ ":" type [ "," "bool" ] ] .
 
 funcDecl    = { "inline" | "recursive" | "interrupt" } funcHead NL body "end" NL
             | "asm" regHead NL { asmLine NL } "end" NL .
@@ -411,4 +423,3 @@ end
 - Alternate spellings for `|` and `~`.
 - A register hint for loop variables. The compiler's tracking of register contents may make it unnecessary.
 - Whether column storage should be the default or asked for. It is the default here because it is the cheaper form on a 6502.
-- Passing more than three bytes to a function called through a pointer.
