@@ -205,7 +205,9 @@ A Python implementation in `lathe/host/`, written first.
 
 ## Constraints of starting on asm17
 
-Read from `asm/17/` on 2026-11-13. Spike S2 tests them with generated input.
+Read from `asm/17/` and measured by spike S2 on 2026-11-13.
+
+**The limit that shapes the plan:** asm17 keeps every label on a heap of about 45 KB, at the length of the name plus 5 bytes for a global label and plus 8 for a local one, and never releases local labels. Compiler output has about one label per 8 bytes of code, so asm17 on the target assembles 15 to 20 KB of it with readable names and no more than 30 KB with very short ones. The Lathe-written compiler will be larger than that. Stage A is therefore a host stage: `asm/pyasm.py` gives the same bytes as asm17 and assembled a 45 KB test in a third of a second. On the target, the compiler emits object code from the start ([`build-plan.md`](build-plan.md)).
 
 | Constraint | Effect on stage A |
 |---|---|
@@ -215,5 +217,8 @@ Read from `asm/17/` on 2026-11-13. Spike S2 tests them with generated input.
 | A branch out of range is an error, not widened. | The compiler fixes branch lengths itself, from the function buffer, as it must in stage B anyway. |
 | At most 256 conditional blocks in a program. | Unused functions cannot each be wrapped in `.ifdef`. In stage A only the run-time library is trimmed, by including one file per routine. Full trimming arrives with the linker. |
 | Expressions have `+`, `-`, `<<`, `>>` only, evaluated left to right. | The compiler folds everything else itself and emits simple expressions. |
-| Label names are held in a 128-byte token buffer. | Mangled names stay short: module, function and slot joined by `__`. |
+| Label names can be 127 characters. A `.` is not allowed inside a name. | Names are module, function and slot joined by `__`. Branch targets are local labels `.L1`, `.L2`. |
+| After a forward `JSR`, `JMP` or branch, an instruction with a literal address is treated as a forward reference and forced to three bytes. | Operands are always names, never literal addresses. A variable declared `at` an address gets an equate. |
+| `*` cannot be used in an operand. | Branches always name a label. |
+| `.include` paths are relative to the working directory. Directives must be indented. The file must end with a newline. | The build driver runs the assembler from one directory and writes files accordingly. |
 | The origin is set with `* = address`. | Written by the top-level file from the environment description. |

@@ -176,8 +176,8 @@ on_key = @beep            ; beep must have exactly Handler's parameters and resu
 ok = on_key(3, 500)       ; call through the pointer
 ```
 
-- A function type lists parameters with names, like a function header. `@f` can be assigned wherever a function type with `f`'s exact signature is expected.
-- **Class.** Each named function type is a class of its own. Unnamed function types with the same signature share one class. A function joins a class when its address is used as that type. A function used as two types makes the linker merge those classes.
+- A function type is written only in a `type` declaration, so it always has a name. It lists parameters with names, like a function header. `@f` can be assigned wherever a function type with `f`'s exact signature is expected.
+- **Class.** Each function type is a class of its own. A function joins a class when its address is used as that type. A function used as two types makes the linker merge those classes.
 - **Any number of parameters.** All functions in a class have their parameters at the same addresses, chosen by the linker, so a call through a pointer stores its arguments exactly as a direct call does ([`code-model.md`](code-model.md)).
 - **What the linker assumes.** A call through a pointer may reach every function in the pointer's class. Named types keep that assumption narrow.
 - **Members calling members.** Two functions in one class share parameter storage, so one calling the other, directly or through a pointer, counts as recursion.
@@ -296,18 +296,20 @@ declaration = [ "pub" ] ( constDecl | typeDecl | enumDecl | varDecl | funcDecl |
             | "forward" funcHead NL .
 
 constDecl   = "const" name [ ":" type ] "=" initialiser NL .
-typeDecl    = "type" name "=" type NL .
 enumDecl    = "enum" name NL { name [ "=" constExpr ] NL } "end" NL .
 varDecl     = [ "static" ] "var" name ":" type { placement } [ "=" initialiser ] NL .
 placement   = "zp" | "nozp" | "rows" | "at" constExpr | "in" name .
-initialiser = constExpr | string | "[" constExpr { "," constExpr } "]" .
+initialiser = constExpr | "[" constExpr { "," constExpr } "]" .
+constExpr   = expression .
 
-type        = "byte" | "sbyte" | "word" | "int" | "bool"
+typeDecl    = "type" name "=" ( type | funcType ) NL .
+funcType    = [ "recursive" ] "func" "(" [ param { "," param } ] ")" [ ":" type [ "," "bool" ] ] .
+type        = typeKw
             | name [ "." name ]
             | "^" type
             | "[" constExpr "]" type
-            | "record" NL { name ":" type NL } "end"
-            | [ "recursive" ] "func" "(" [ param { "," param } ] ")" [ ":" type [ "," "bool" ] ] .
+            | "record" NL { name ":" type NL } "end" .
+typeKw      = "byte" | "sbyte" | "word" | "int" | "bool" .
 
 funcDecl    = { "inline" | "recursive" | "interrupt" } funcHead NL body "end" NL
             | "asm" regHead NL { asmLine NL } "end" NL .
@@ -341,7 +343,8 @@ relation    = sum [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) sum ] .
 sum         = term { ( "+" | "-" | "|" | "^" ) term } .
 term        = factor { ( "*" | "/" | "mod" | "&" | "<<" | ">>" ) factor } .
 factor      = ( "-" | "~" ) factor | "@" designator | primary .
-primary     = number | string | "true" | "false" | "(" expression ")"
+primary     = number | string | "(" expression ")"
+            | typeKw "(" expression ")"
             | designator [ arguments ] .
 designator  = name { "." name | "[" expression "]" } .
 arguments   = "(" [ expression { "," expression } ] ")" .
@@ -351,8 +354,11 @@ call        = designator arguments .
 Notes on the grammar:
 
 - A statement that starts with a name is an assignment, a two-result call or a plain call; the token after the designator decides.
-- A type conversion such as `byte(w)` is parsed as a call. The symbol table says whether the name is a type.
-- `true` and `false` are predeclared constants, not keywords.
+- A conversion to a named type, such as `SymPtr(w)`, is parsed as a call. The symbol table says whether the name is a type.
+- `true` and `false` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
+- A `constExpr` is an expression the compiler can evaluate; anything else is an error.
+- `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar.
+- Inside an `asm` block the lexer passes whole lines through. The block ends at a line whose first word is `end`.
 
 ## A larger example
 

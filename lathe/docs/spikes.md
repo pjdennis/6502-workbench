@@ -1,6 +1,6 @@
 # Lathe: spikes
 
-Status (2026-11-13): none run yet.
+Status (2026-11-13): the small spikes S1 to S7 are done; results are at the end. The larger spikes have not run.
 
 A spike is a short experiment that answers one question and is then thrown away. Its output is a number or a yes or no, written back into the design documents. Spike code does not become the compiler.
 
@@ -85,3 +85,68 @@ Each is days, not hours, and each guards a decision that would be expensive to r
 - **The language is new.** No amount of measurement shows whether it is pleasant to write a 10,000-line compiler in. Writing the compiler is the test, and stage 7 is where changes to the language will be found.
 - **Two implementations must stay identical.** Every feature is written twice, in Python and in Lathe. The rule that the Python follows the target's structure keeps this cheap; breaking that rule once makes it expensive for good.
 - **Period machines are not in the emulator.** The first period port needs either an outside emulator in the test suite or a new machine model here.
+
+## Results of the small spikes (2026-11-13)
+
+### S1 and S7: storage in `p1`
+
+Measured exactly from the syntax tree of the three `p1` sources.
+
+| | `p1.p8` | `p1_pass1_sh.p8` | `p1_pass2_sh.p8` |
+|---|---|---|---|
+| Functions | 240 | 121 | 171 |
+| Sum of all frames, bytes | 1003 | 444 | 688 |
+| Deepest chain, bytes | 159 | 89 | 218 |
+| Deepest chain as a share of the sum | 16% | 20% | 32% |
+| Pointer bytes on the deepest chain (estimate) | 18 | 22 | 90 |
+| Frame size: median / 90th percentile / largest | 3 / 10 / 23 | 3 / 9 / 12 | 3 / 11 / 23 |
+| Recursive groups | none | none | one of 14 functions, 94 bytes |
+
+- **Sharing pays.** Storage falls to between a sixth and a third of the unshared total.
+- **Frames are small.** A recursive call that saves a frame copies about 10 bytes each way.
+- **Zero page floor.** A compiler-sized program needs 20 to 90 bytes of zero page for dereferenced pointers alone. The 16-byte target in [`goals.md`](goals.md) holds only for small programs, or with pointers declared `nozp`.
+- **The recursive group** is the expression code generator, as expected.
+
+### S2: asm17 capacity
+
+asm17 assembles compiler-shaped text correctly and identically to `asm/pyasm.py`, but its label heap is the limit. The details are in [`architecture.md`](architecture.md), "Constraints of starting on asm17". The consequence is the changed order of work in [`build-plan.md`](build-plan.md).
+
+| Program | Result on asm17 |
+|---|---|
+| 5 KB of code, 836 labels | Assembles: 20 million cycles. |
+| 15 KB, 2500 labels | Assembles: 65 million cycles, heap 32 KB of 45 KB. |
+| 30 KB, 5000 labels | Out of memory. Fits only with one-letter module names and three branch labels per function. |
+| 45 KB | Out of memory in every arrangement tried. |
+
+### S4: the grammar
+
+The grammar as first written had two real LL(1) conflicts and three gaps. All are fixed in [`language.md`](language.md).
+
+| Finding | Fix |
+|---|---|
+| A function type's `, bool` result clashed with the comma between parameters. | A function type can be written only in a `type` declaration, so it always has a name. |
+| `initialiser` listed `string` twice, once through `constExpr`. | The separate alternative is removed. |
+| `byte(w)` and `sizeof(byte)` were not accepted, because type keywords are not names. | A type keyword followed by arguments is a conversion; `sizeof` takes a type. |
+| `constExpr` was not defined. | It is an `expression` that the compiler must be able to evaluate. |
+| `#if` and the end of an `asm` block were not specified. | Both are lexer rules, now stated. |
+
+### S5: forward branches
+
+Estimated from `p8c`'s assembly for `p1` with a size calculator, not an assembler listing.
+
+- Between 88% and 94% of forward conditional branches reach their target as a two-byte branch.
+- The median distance is 9 to 18 bytes; the longest is 1840.
+- The largest function is about 2 KB of `p8c` code, so a function buffer of 4 KB is enough.
+
+"Short first, widen the few" is confirmed.
+
+### S6: characters
+
+| Machine | Characters of the syntax that cannot be typed or shown |
+|---|---|
+| Commodore 64 | `\|` and `~` have no key and no glyph. `\` shows as £, `^` as ↑, `_` as ←. |
+| Apple II+ | `\|` and `~` are impossible. `[`, `\` and `_` have no key. |
+| Apple IIe | None known. |
+| BBC Micro | None in modes 0 to 6. Mode 7 shows `# [ \ ] ^ _ ~` as other glyphs. |
+
+This matches decision Q3: only `|` and `~` need alternate spellings, and only for the first two machines.

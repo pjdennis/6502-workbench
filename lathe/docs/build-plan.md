@@ -1,6 +1,8 @@
 # Lathe: incremental build plan
 
-Status (2026-11-13): proposal. No stage has started.
+Status (2026-11-13): stage 0 done; stage 1 in progress.
+
+**Order of work, changed after spike S2.** asm17 runs out of symbol memory at about 15 to 20 KB of compiler-shaped code, so it cannot assemble the Lathe-written compiler on the target. The stages keep their numbers but run in this order: 0 to 6, then 9 and 10 on the host, then 7, 8 and 11. The compiler written in Lathe then emits object code from its first day, and the on-target tool chain is the compiler and the linker with no assembler. On the host, large programs in stage A are assembled with `asm/pyasm.py`, the Python work-alike of asm17, which has no such limit.
 
 ## Principles
 
@@ -64,7 +66,7 @@ The suite joins `tools/check_all.sh` as `lathe` when stage 1 lands, and CI with 
 ### Stage 5. Function features
 
 - **Work:** `interrupt` functions and contexts, with copies for shared functions. `critical`. `recursive` with frame save and restore. Function pointers: classes, shared parameter blocks, `recursive` function types, the one-context rule. `inline` with token replay. Status results. `asm` functions and register-bound `extern` declarations in full.
-- **Gate:** End-to-end tests for each: a timer interrupt on emulated Michael or Wendy 2 that calls a function the main program also calls; a recursive evaluator; a dispatch table of function pointers; a link error for an unmarked cycle.
+- **Gate:** End-to-end tests for each: a timer interrupt on emulated Michael or Wendy 2; a recursive evaluator; a dispatch table of function pointers; a link error for an unmarked cycle. A function used by both the main program and a handler is reported as an error in stage A, because assembler text cannot hold two copies of one function; the copies arrive with the linker in stage 9.
 
 ### Stage 6. Run-time library and environments
 
@@ -73,26 +75,32 @@ The suite joins `tools/check_all.sh` as `lathe` when stage 1 lands, and CI with 
 
 ### Stage 7. The compiler in Lathe
 
+Runs after stages 9 and 10.
+
 - **Spikes first:** L4 (compiler size), L6 (recursion), L7 (symbol heap).
-- **Work:** Write the compiler in Lathe under `lathe/src/`, component by component in the order kernel, SRC, LEX, DECL, STMT, EXPR, GEN, FBUF, OUT. Each component is tested against the host component it mirrors. The host compiler builds it.
+- **Work:** Write the compiler in Lathe under `lathe/src/`, component by component in the order kernel, SRC, LEX, DECL, STMT, EXPR, GEN, FBUF, ASM, OUT. It writes object files only; the assembler-text writer stays a host tool. Each component is tested against the host component it mirrors. The host compiler and linker build it.
 - **Gate:** The Lathe-written compiler, running on the emulator, compiles itself, and the result is byte-identical to the host compiler's output. The whole snapshot suite passes through it.
 - **Expect:** Changes to the language. This is the first large program written in it.
 
-### Stage 8. The allocator in Lathe
+### Stage 8. The linker in Lathe
 
-- **Work:** Write the allocator in Lathe. With asm17, the whole tool chain now runs on the target.
-- **Gate:** Compiler, allocator and asm17, all running on the emulator, rebuild the compiler and allocator byte for byte.
+- **Work:** Write the linker in Lathe. The whole tool chain now runs on the target, with no assembler.
+- **Gate:** Compiler and linker, both running on the emulator, rebuild the compiler and linker byte for byte.
 
 ### Stage 9. Object code and the linker
 
 - **Spike first:** L3 (shrinking in the linker).
-- **Work:** The object file format. A second OUT component that writes object records. The linker's two passes, growing out of the allocator: placement, fix-ups, shrinking, removal of unused functions, image output. Host first, then Lathe.
-- **Gate:** For every test program and for the compiler itself, the linker's image is byte-identical to asm17's. Programs with no inline assembly no longer need asm17.
+Runs after stage 6, on the host only.
+
+- **Work:** The object file format. A second OUT component that writes object records. The linker's two passes, growing out of the allocator: placement, fix-ups, shrinking, removal of unused functions, one copy of a function per context, image output.
+- **Gate:** For every test program, the linker's image is byte-identical to the assembler's. Programs with no inline assembly no longer need an assembler. A function shared by the main program and an interrupt handler links and runs.
 
 ### Stage 10. Embedded assembler
 
+Runs after stage 9, on the host only.
+
 - **Work:** The ASM component assembles inline blocks and `asm` functions into object records, with Lathe names resolved by the compiler.
-- **Gate:** asm17 is no longer needed to build anything in `lathe/`. Identity with stage A still holds for the whole suite.
+- **Gate:** No assembler is needed to build anything in `lathe/`. Identity with stage A still holds for the whole suite.
 
 ### Stage 11. Configurations
 
@@ -118,6 +126,7 @@ The suite joins `tools/check_all.sh` as `lathe` when stage 1 lands, and CI with 
 
 - Stage 6 can proceed alongside stages 4 and 5.
 - The host linker of stage 9 can start any time after stage 3, since it extends the allocator.
+- The linker in Lathe (stage 8) can be written alongside the compiler in Lathe (stage 7).
 - Environment descriptions for period machines can be drafted from stage 4 on, to test that the format is general enough.
 
 ## Checkpoints for the owner
