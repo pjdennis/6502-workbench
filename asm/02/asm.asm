@@ -1,6 +1,6 @@
-; asm01.asm - Assembler level 1, in the syntax of version 00b
+; asm02.asm - Assembler level 2, in the syntax of version 01
 ; DATA lines of hex bytes, strings and labels. Only a label's first
-; character counts in 00b, so each name starts with a distinct one.
+; character counts in 01, so each name starts with a distinct one.
 ; Each instruction is on its own line with its mnemonic as a comment.
 ; Branch offsets are still counted by hand.
 

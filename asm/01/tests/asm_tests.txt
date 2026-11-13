@@ -1,9 +1,9 @@
-# Test suite for asm00b assembler
+# Test suite for asm01 assembler
 # DATA-only, with single-character labels and strings. PC starts at $2000.
 # A label is defined by a name at column 0; only its first character counts.
 # Inside DATA, an argument that is not $XX, "string" or a ; comment is a label
 # reference, emitted as two bytes (low, high). References are backward only.
-# Whitespace is spaces only, as in asm01.
+# Whitespace is spaces only, as in asm02.
 
 ---
 NAME: data_hex

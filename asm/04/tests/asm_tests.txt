@@ -1,4 +1,4 @@
-# Test suite for asm03 assembler
+# Test suite for asm04 assembler
 # Non-standard syntax: LDA#, STAZ, etc. PC starts at $2000.
 # Features: labels, label assignment (=), DATA, < > byte selectors, strings, origin (* = $XXXX)
 # Note: Single pass - no forward references for labels used as operands

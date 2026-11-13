@@ -1,7 +1,7 @@
 {
   "name": "asm6502",
-  "displayName": "6502 Assembly (asm17)",
-  "description": "Syntax highlighting for the asm17 6502 assembler dialect",
+  "displayName": "6502 Assembly (asm18)",
+  "description": "Syntax highlighting for the asm18 6502 assembler dialect",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.75.0"

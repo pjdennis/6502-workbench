@@ -1,6 +1,6 @@
 ; Zero-page variables of every editor module, gathered here and
 ; included before any code so every zero-page reference is a backward
-; one (asm17 assembles a forward reference as absolute: one more byte
+; one (asm18 assembles a forward reference as absolute: one more byte
 ; and one more cycle).  Grouped by owning module, in include order.
 
   .zeropage

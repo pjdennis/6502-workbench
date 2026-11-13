@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Python work-alike of the v17 6502 assembler.
+Python work-alike of the v18 6502 assembler.
 
 Usage: python3 pyasm.py <input> <output> [debug] [define:LABEL ...]
 

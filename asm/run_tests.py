@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "emulator"))
 from persistent_emulator import PersistentEmulator
 
 
-ASM_VERSION = "17"
+ASM_VERSION = "18"
 
 # Test-run input/output filenames passed as argv to the assembler.
 # These match the self-hosted test runner's TR_INPUT_FILE / TR_OUTPUT_FILE
@@ -65,14 +65,6 @@ class Colors:
     @classmethod
     def disable(cls):
         cls.RED = cls.GREEN = cls.YELLOW = cls.NC = ""
-
-
-def version_number(asm_version: str) -> int:
-    """The stage number of a version name: its leading digits, so "00b" is stage 0."""
-    m = re.match(r"\d+", asm_version)
-    if not m:
-        raise ValueError(f"not a stage name: {asm_version!r}")
-    return int(m.group())
 
 
 @dataclass
@@ -112,7 +104,7 @@ class TestRunner:
         self.verbose = verbose
         self.quiet = quiet
         self.python_mode = python_mode
-        self.use_server = use_server and not python_mode and version_number(asm_version) >= 9
+        self.use_server = use_server and not python_mode and int(asm_version) >= 10
         self.asm_version = asm_version
         self.emulator = base_dir.parent / "emulator" / "emulator.out"
         self.assembler = self._resolve_assembler_binary(base_dir, asm_version)
@@ -135,14 +127,14 @@ class TestRunner:
     @staticmethod
     def _resolve_assembler_binary(base_dir: Path, asm_version: str) -> Path:
         """Determine the correct assembler binary for a given version."""
-        version = version_number(asm_version)
-        if version <= 5:
+        version = int(asm_version)
+        if version <= 6:
             return base_dir / asm_version / "out" / "asm.out"
-        elif version <= 8:
+        elif version <= 9:
             return base_dir / asm_version / "out" / "asmc.out"
-        elif version <= 14:
+        elif version <= 15:
             return base_dir / asm_version / "out" / "asm.out"
-        else:  # v15+
+        else:  # v16+
             return base_dir / asm_version / "out" / "asm_debug.out"
 
     def _read_text_safe(self, filepath: Path) -> str:
@@ -399,9 +391,9 @@ class TestRunner:
                     cmd.append("debug")
             else:
                 # Emulator mode - version-aware command construction
-                version = version_number(self.asm_version)
-                if version <= 7:
-                    # v01-v07: --load 2000 --input FILE --output FILE
+                version = int(self.asm_version)
+                if version <= 8:
+                    # v01-v08: --load 2000 --input FILE --output FILE
                     cmd = [
                         str(self.emulator),
                         str(self.assembler),
@@ -411,8 +403,8 @@ class TestRunner:
                         "--input", TR_INPUT_FILE,
                         "--output", TR_OUTPUT_FILE,
                     ]
-                elif version <= 8:
-                    # v08: --input FILE --output FILE (no --load)
+                elif version <= 9:
+                    # v09: --input FILE --output FILE (no --load)
                     cmd = [
                         str(self.emulator),
                         str(self.assembler),
@@ -422,7 +414,7 @@ class TestRunner:
                         "--output", TR_OUTPUT_FILE,
                     ]
                 else:
-                    # v09+: positional args
+                    # v10+: positional args
                     cmd = [
                         str(self.emulator),
                         str(self.assembler),
@@ -434,7 +426,7 @@ class TestRunner:
                     # Add args (ARGS overrides the default "debug" argument)
                     if test.args:
                         cmd.extend(test.args.split())
-                    elif version >= 11:
+                    elif version >= 12:
                         cmd.append("debug")
 
             if self.python_mode:
@@ -542,7 +534,7 @@ class TestRunner:
         actual_line = ""
         actual_msg = ""
 
-        # Stages before 07 stop with BRK, an exit code and a message; the
+        # Stages before 08 stop with BRK, an exit code and a message; the
         # emulator reports them as "Error: <message>" and "Exit code <N>; ...".
         m = re.search(r"^Error: (.*)$", stderr_text, re.MULTILINE)
         if m:
@@ -636,7 +628,7 @@ class TestRunner:
             args = [TR_INPUT_FILE, TR_OUTPUT_FILE]
             if test.args:
                 args.extend(test.args.split())
-            elif version_number(self.asm_version) >= 11:
+            elif int(self.asm_version) >= 12:
                 args.append("debug")
 
             exit_code, _, stderr_data = self.emu.run(
@@ -926,7 +918,7 @@ def main():
     if not args.test_files:
         latest_tests_dir = script_dir / args.version / "tests"
 
-        # Check for modular structure (v23+)
+        # Check for modular structure (v18+)
         asm_subdir = latest_tests_dir / "asm"
         source_stack_subdir = latest_tests_dir / "source_stack"
 
@@ -943,7 +935,7 @@ def main():
             for test_file in sorted(asm_subdir.glob("*.txt")):
                 args.test_files.append(str(test_file))
         else:
-            # Legacy structure (v22 and earlier)
+            # Legacy structure (v17 and earlier)
             args.test_files = [
                 str(latest_tests_dir / "source_stack_tests.txt"),
                 str(latest_tests_dir / "asm_tests.txt"),

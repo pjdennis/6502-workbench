@@ -80,7 +80,7 @@ count_pending_key:
 
   .ifdef direct_io
 ; Read one key: con_read returns key codes itself (environment.asm).
-; (Not io_read: io.asm comes later, and asm17 takes a forward symbol in
+; (Not io_read: io.asm comes later, and asm18 takes a forward symbol in
 ; an equate as the wrong value, without an error)
 read_key = con_read
   .else

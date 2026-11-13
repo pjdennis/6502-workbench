@@ -9,10 +9,10 @@
 ;   (cd 17 && ../../emulator/emulator.out out/asm.out asm.asm out/test_runner.out define:enable_test_runner define:enable_debug)
 ;
 ; Usage:
-;   (cd 17/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out 01-instructions.txt)
+;   (cd 18/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out 01-instructions.txt)
 ;
 ; Directory mode (no arguments; asmtestgen.sh runs it this way, with -q):
-;   (cd 17/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out)
+;   (cd 18/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out)
 ;
 ; When no filename is given, opendir(".") is used to discover and run all
 ; .txt files in the current directory in alphabetical order.

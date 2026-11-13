@@ -157,7 +157,7 @@ class EditorTestRunner:
         self.verbose = verbose
         self.quiet = quiet
         self.emulator = base_dir / "emulator" / "emulator.out"
-        self.assembler = base_dir / "asm" / "17" / "out" / "asm.out"
+        self.assembler = base_dir / "asm" / "18" / "out" / "asm.out"
         self.editor_asm = base_dir / "editor" / "editor.asm"
         suffix = "_direct" if direct_io else ""
         self.editor_bin = base_dir / "editor" / "out" / f"editor{suffix}.out"

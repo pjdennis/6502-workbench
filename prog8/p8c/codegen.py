@@ -1,8 +1,8 @@
 """Codegen for the Prog8 subset -> 6502 assembly.
 
 Phase 1 targets a syntax that is a strict subset of both vasm6502_oldstyle
-and asm17, so we can iterate with vasm during development and switch
-to asm17-only once the self-hosting path is set up.
+and asm18, so we can iterate with vasm during development and switch
+to asm18-only once the self-hosting path is set up.
 
 Generated layout:
 
@@ -297,7 +297,7 @@ class CodeGen:
 
     def _escape(self, s: str) -> str:
         """Turn a Python string into a `.byte` list compatible with both
-        asm17 and vasm without depending on -esc."""
+        asm18 and vasm without depending on -esc."""
         parts: list[str] = []
         run: list[str] = []
 

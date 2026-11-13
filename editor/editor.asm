@@ -46,9 +46,9 @@
 
   JMP editor_main
 
-  .include asm/17/environment.asm
+  .include asm/18/environment.asm
   .include editor/memory_map.asm
-  .include asm/17/macros.asm
+  .include asm/18/macros.asm
   .include editor/macros.asm
   .include editor/zp.asm
   .include editor/terminal.asm

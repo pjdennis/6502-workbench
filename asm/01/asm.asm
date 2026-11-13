@@ -1,4 +1,4 @@
-; asm00b.asm - DATA with single-character labels and strings
+; asm01.asm - DATA with single-character labels and strings
 ; Assembled by version 00, so this source is DATA $XX lines and comments only.
 ;
 ; The assembler reads lines from $F006 and writes bytes to $F009:
@@ -10,7 +10,7 @@
 ;   ; comment     anywhere outside a string
 ; Only a name's first character counts, so names must differ in it.
 ; Labels must be defined before they are used. Whitespace is spaces only.
-; Errors stop with BRK, an exit code and a message, as in version 01:
+; Errors stop with BRK, an exit code and a message, as in version 02:
 ;   1 Duplicate label   2 Opcode not found   3 Label not found
 ;
 ; ZP: $00=TMP  $04/$05=PC (low, high)

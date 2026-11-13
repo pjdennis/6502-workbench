@@ -1,7 +1,7 @@
 ; File read test: opens argv[0], reads all bytes to stdout, closes, exits
 * = $0400
   JMP main
-  .include asm/17/environment.asm
+  .include asm/18/environment.asm
 
 HANDLE = $00
 

@@ -1863,7 +1863,7 @@ start
   LDA FWDREF_PASS1_H
   SBC #>FWDREF_LIST
   STA TO_DECIMAL_VALUE_H
-  ; Divide by 2 (16-bit right shift, match v11 workaround for identical binary)
+  ; Divide by 2 (16-bit right shift, match v12 workaround for identical binary)
   LDA TO_DECIMAL_VALUE_H
   LSR A                      ; carry = old bit 0 of H
   STA TO_DECIMAL_VALUE_H     ; H >> 1 (always 0)

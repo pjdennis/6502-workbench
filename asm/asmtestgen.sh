@@ -21,46 +21,39 @@ run_version_tests() {
 
 mkdir -p out
 rm -f out/*.out out/*.asm.out
-rm -rf {00..99}/out 00b/out
+rm -rf {00..99}/out
 make --quiet
 echo "--- Version 00 ---"
 (cd 00 && out/asm_c.out asm.asm out/asm.out)
-echo "--- Version 00b ---"
-(cd 00b && mkdir -p out && ../../emulator/emulator.out ../00/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
-run_version_tests 00b
 echo "--- Version 01 ---"
-(cd 01 && mkdir -p out && ../../emulator/emulator.out ../00b/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+(cd 01 && mkdir -p out && ../../emulator/emulator.out ../00/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+run_version_tests 01
 echo "--- Version 02 ---"
 (cd 02 && mkdir -p out && ../../emulator/emulator.out ../01/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
-# 01's source is written for 00b, which keeps only a label's first character.
-# 01 and 02 compare whole names, so they must assemble it to the same bytes.
-(cd 01 &&
-  ../../emulator/emulator.out out/asm.out --load 2000 --input asm.asm --output out/asm_by_01.out &&
-  ../../emulator/emulator.out ../02/out/asm.out --load 2000 --input asm.asm --output out/asm_by_02.out)
-cmp 01/out/asm.out 01/out/asm_by_01.out
-cmp 01/out/asm.out 01/out/asm_by_02.out
-# 02 is 01 rewritten in 01's syntax: the two binaries are the same.
-cmp 01/out/asm.out 02/out/asm.out
 echo "--- Version 03 ---"
 (cd 03 && mkdir -p out && ../../emulator/emulator.out ../02/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
-run_version_tests 03
+# 02's source is written for 01, which keeps only a label's first character.
+# 02 and 03 compare whole names, so they must assemble it to the same bytes.
+(cd 02 &&
+  ../../emulator/emulator.out out/asm.out --load 2000 --input asm.asm --output out/asm_by_02.out &&
+  ../../emulator/emulator.out ../03/out/asm.out --load 2000 --input asm.asm --output out/asm_by_03.out)
+cmp 02/out/asm.out 02/out/asm_by_02.out
+cmp 02/out/asm.out 02/out/asm_by_03.out
+# 03 is 02 rewritten in 02's syntax: the two binaries are the same.
+cmp 02/out/asm.out 03/out/asm.out
 echo "--- Version 04 ---"
 (cd 04 && mkdir -p out && ../../emulator/emulator.out ../03/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+run_version_tests 04
 echo "--- Version 05 ---"
 (cd 05 && mkdir -p out && ../../emulator/emulator.out ../04/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 06 ---"
-(cd 06 && mkdir -p out &&
-  ../../emulator/emulator.out ../05/out/asm.out --load 2000 --input instgen.asm --output out/instgen.out &&
-  ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
-  cat out/inst.asm.out asm.asm > out/asmc.asm.out &&
-  ../../emulator/emulator.out ../05/out/asm.out --load 2000 --input out/asmc.asm.out --output out/asmc.out)
+(cd 06 && mkdir -p out && ../../emulator/emulator.out ../05/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 07 ---"
 (cd 07 && mkdir -p out &&
-  ../../emulator/emulator.out ../06/out/asmc.out --load 2000 --input instgen.asm --output out/instgen.out &&
+  ../../emulator/emulator.out ../06/out/asm.out --load 2000 --input instgen.asm --output out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
   cat out/inst.asm.out asm.asm > out/asmc.asm.out &&
-  ../../emulator/emulator.out ../06/out/asmc.out --load 2000 --input out/asmc.asm.out --output out/asmc.out)
-run_version_tests 07
+  ../../emulator/emulator.out ../06/out/asm.out --load 2000 --input out/asmc.asm.out --output out/asmc.out)
 echo "--- Version 08 ---"
 (cd 08 && mkdir -p out &&
   ../../emulator/emulator.out ../07/out/asmc.out --load 2000 --input instgen.asm --output out/instgen.out &&
@@ -70,15 +63,16 @@ echo "--- Version 08 ---"
 run_version_tests 08
 echo "--- Version 09 ---"
 (cd 09 && mkdir -p out &&
-  ../../emulator/emulator.out ../08/out/asmc.out --input instgen.asm --output out/instgen.out &&
+  ../../emulator/emulator.out ../08/out/asmc.out --load 2000 --input instgen.asm --output out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
-  ../../emulator/emulator.out ../08/out/asmc.out --input asm.asm --output out/asm.out)
+  cat out/inst.asm.out asm.asm > out/asmc.asm.out &&
+  ../../emulator/emulator.out ../08/out/asmc.out --load 2000 --input out/asmc.asm.out --output out/asmc.out)
 run_version_tests 09
 echo "--- Version 10 ---"
 (cd 10 && mkdir -p out &&
-  ../../emulator/emulator.out ../09/out/asm.out instgen.asm out/instgen.out &&
+  ../../emulator/emulator.out ../09/out/asmc.out --input instgen.asm --output out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
-  ../../emulator/emulator.out ../09/out/asm.out asm.asm out/asm.out)
+  ../../emulator/emulator.out ../09/out/asmc.out --input asm.asm --output out/asm.out)
 run_version_tests 10
 echo "--- Version 11 ---"
 (cd 11 && mkdir -p out &&
@@ -92,17 +86,17 @@ echo "--- Version 12 ---"
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
   ../../emulator/emulator.out ../11/out/asm.out asm.asm out/asm.out)
 run_version_tests 12
-# cmp (not diff of hexdump output): hexdump may be missing from the
-# environment, and a failure inside a process substitution doesn't
-# propagate through set -e -- the diff would silently compare two empty
-# streams and pass.
-cmp 11/out/asm.out 12/out/asm.out
 echo "--- Version 13 ---"
 (cd 13 && mkdir -p out &&
   ../../emulator/emulator.out ../12/out/asm.out instgen.asm out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
   ../../emulator/emulator.out ../12/out/asm.out asm.asm out/asm.out)
 run_version_tests 13
+# cmp (not diff of hexdump output): hexdump may be missing from the
+# environment, and a failure inside a process substitution doesn't
+# propagate through set -e -- the diff would silently compare two empty
+# streams and pass.
+cmp 12/out/asm.out 13/out/asm.out
 echo "--- Version 14 ---"
 (cd 14 && mkdir -p out &&
   ../../emulator/emulator.out ../13/out/asm.out instgen.asm out/instgen.out &&
@@ -113,47 +107,53 @@ echo "--- Version 15 ---"
 (cd 15 && mkdir -p out &&
   ../../emulator/emulator.out ../14/out/asm.out instgen.asm out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
-  ../../emulator/emulator.out ../14/out/asm.out asm.asm out/asm.out &&
-  ../../emulator/emulator.out ../14/out/asm.out asm.asm out/asm_debug.out define:enable_debug)
+  ../../emulator/emulator.out ../14/out/asm.out asm.asm out/asm.out)
 run_version_tests 15
 echo "--- Version 16 ---"
 (cd 16 && mkdir -p out &&
-  ../../emulator/emulator.out ../15/out/asm_debug.out tests/file_stack_test.asm out/file_stack_test.out &&
-  ../../emulator/emulator.out ../15/out/asm_debug.out instgen.asm out/instgen.out &&
+  ../../emulator/emulator.out ../15/out/asm.out instgen.asm out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
-  ../../emulator/emulator.out ../15/out/asm_debug.out asm.asm out/asm.out &&
-  ../../emulator/emulator.out ../15/out/asm_debug.out asm.asm out/asm_debug.out define:enable_debug)
+  ../../emulator/emulator.out ../15/out/asm.out asm.asm out/asm.out &&
+  ../../emulator/emulator.out ../15/out/asm.out asm.asm out/asm_debug.out define:enable_debug)
 run_version_tests 16
 echo "--- Version 17 ---"
 (cd 17 && mkdir -p out &&
-  ../../emulator/emulator.out ../16/out/asm_debug.out tests/source_stack/source_stack_test.asm out/source_stack_test.out &&
-  ../../emulator/emulator.out ../16/out/asm_debug.out tests/opendir/opendir_test.asm out/opendir_test.out &&
+  ../../emulator/emulator.out ../16/out/asm_debug.out tests/file_stack_test.asm out/file_stack_test.out &&
   ../../emulator/emulator.out ../16/out/asm_debug.out instgen.asm out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
   ../../emulator/emulator.out ../16/out/asm_debug.out asm.asm out/asm.out &&
   ../../emulator/emulator.out ../16/out/asm_debug.out asm.asm out/asm_debug.out define:enable_debug)
 run_version_tests 17
+echo "--- Version 18 ---"
+(cd 18 && mkdir -p out &&
+  ../../emulator/emulator.out ../17/out/asm_debug.out tests/source_stack/source_stack_test.asm out/source_stack_test.out &&
+  ../../emulator/emulator.out ../17/out/asm_debug.out tests/opendir/opendir_test.asm out/opendir_test.out &&
+  ../../emulator/emulator.out ../17/out/asm_debug.out instgen.asm out/instgen.out &&
+  ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
+  ../../emulator/emulator.out ../17/out/asm_debug.out asm.asm out/asm.out &&
+  ../../emulator/emulator.out ../17/out/asm_debug.out asm.asm out/asm_debug.out define:enable_debug)
+run_version_tests 18
 echo "--- opendir tests ---"
-python3 17/tests/opendir/test_opendir.py
+python3 18/tests/opendir/test_opendir.py
 echo "--- Self-assembly test ---"
 # Self-assembly test (without debug - smaller)
-(cd 17 && ../../emulator/emulator.out out/asm.out asm.asm out/asm_2.out)
-cmp 17/out/asm.out 17/out/asm_2.out
+(cd 18 && ../../emulator/emulator.out out/asm.out asm.asm out/asm_2.out)
+cmp 18/out/asm.out 18/out/asm_2.out
 # Self-assembly test (with debug)
-(cd 17 && ../../emulator/emulator.out out/asm_debug.out asm.asm out/asm_debug_2.out define:enable_debug)
-cmp 17/out/asm_debug.out 17/out/asm_debug_2.out
+(cd 18 && ../../emulator/emulator.out out/asm_debug.out asm.asm out/asm_debug_2.out define:enable_debug)
+cmp 18/out/asm_debug.out 18/out/asm_debug_2.out
 echo "--- Self-hosted tests ---"
-(cd 17 && ../../emulator/emulator.out out/asm.out asm.asm out/test_runner.out define:enable_test_runner define:enable_debug)
-(cd 17/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out -q)
-python3 17/tests/test_runner/test_runner_dir.py -q
+(cd 18 && ../../emulator/emulator.out out/asm.out asm.asm out/test_runner.out define:enable_test_runner define:enable_debug)
+(cd 18/tests/asm && ../../../../emulator/emulator.out ../../out/test_runner.out -q)
+python3 18/tests/test_runner/test_runner_dir.py -q
 
 echo "Build chain completed OK"
 
 # Show actual code size difference
 # File covers $2000-$FFFF, vectors at end. Scan backwards from just before vectors.
 echo "Code size comparison:"
-SIZE1=$(perl -e 'open(F,"<","17/out/asm.out");binmode(F);read(F,$d,0xE000);for($i=0xDFFB;$i>=0;$i--){last if ord(substr($d,$i,1))!=0}print $i+1')
-SIZE2=$(perl -e 'open(F,"<","17/out/asm_debug.out");binmode(F);read(F,$d,0xE000);for($i=0xDFFB;$i>=0;$i--){last if ord(substr($d,$i,1))!=0}print $i+1')
+SIZE1=$(perl -e 'open(F,"<","18/out/asm.out");binmode(F);read(F,$d,0xE000);for($i=0xDFFB;$i>=0;$i--){last if ord(substr($d,$i,1))!=0}print $i+1')
+SIZE2=$(perl -e 'open(F,"<","18/out/asm_debug.out");binmode(F);read(F,$d,0xE000);for($i=0xDFFB;$i>=0;$i--){last if ord(substr($d,$i,1))!=0}print $i+1')
 echo "  asm.out (no debug):     $SIZE1 bytes"
 echo "  asm_debug.out:          $SIZE2 bytes"
 echo "  Difference:             $((SIZE2 - SIZE1)) bytes"

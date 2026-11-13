@@ -7,7 +7,7 @@ it should use opendir(".") to discover .txt test files in the
 current directory and run them all.
 
 Usage:
-    python3 17/tests/test_runner/test_runner_dir.py
+    python3 18/tests/test_runner/test_runner_dir.py
 """
 
 import os
@@ -21,7 +21,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent
 EMULATOR = PROJECT_ROOT.parent / "emulator" / "emulator.out"
-TEST_RUNNER = PROJECT_ROOT / "17" / "out" / "test_runner.out"
+TEST_RUNNER = PROJECT_ROOT / "18" / "out" / "test_runner.out"
 
 
 class Colors:

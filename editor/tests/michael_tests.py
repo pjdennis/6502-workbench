@@ -12,7 +12,7 @@ output at 20x4 (ansi_screen.AnsiScreen, its bottom row clipped like the
 LCD's).
 
 Run from anywhere (editor/verify.sh does); needs vasm6502_oldstyle on PATH
-and the emulator and asm17 built.
+and the emulator and asm18 built.
 """
 import os
 import pty

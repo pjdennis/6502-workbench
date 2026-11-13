@@ -2,7 +2,7 @@
 
 This is the "p0" stage of the Prog8 bootstrap chain (see
 plan-for-wendy2c-prog8-compiler in the conversation context).
-Reads .p8 source, emits .s in a syntax that asm17 accepts (and
+Reads .p8 source, emits .s in a syntax that asm18 accepts (and
 that vasm6502_oldstyle also assembles, by design, so we get fast
 iteration during early phases).
 

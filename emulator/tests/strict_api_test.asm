@@ -4,7 +4,7 @@
 ; P AND $C3), then A, X and Y.
 * = $0400
   JMP main
-  .include asm/17/environment.asm
+  .include asm/18/environment.asm
 
 main:
   LDX #$5A

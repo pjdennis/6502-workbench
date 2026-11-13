@@ -1,4 +1,4 @@
-" Vim syntax file for 6502 assembler (asm17 dialect)
+" Vim syntax file for 6502 assembler (asm18 dialect)
 " Language: 6502 Assembly
 " Put this file in ~/.vim/syntax/asm6502.vim
 " Add to ~/.vimrc:  autocmd BufRead,BufNewFile *.asm set filetype=asm6502

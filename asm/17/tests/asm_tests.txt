@@ -1,4 +1,4 @@
-# Test suite for asm22 assembler
+# Test suite for asm17 assembler
 # Format:
 #   --- separates test cases
 #   NAME: test identifier

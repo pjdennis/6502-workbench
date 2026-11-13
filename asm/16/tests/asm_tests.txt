@@ -1,4 +1,4 @@
-# Test suite for asm21 assembler
+# Test suite for asm16 assembler
 # Format:
 #   --- separates test cases
 #   NAME: test identifier

@@ -31,7 +31,7 @@ def is_text(path):
 
 class LayoutTest(unittest.TestCase):
     def test_new_areas_exist(self):
-        for d in ('asm/17', 'editor/tests', 'editor/bin', 'prog8/p8c', 'attic/asm1'):
+        for d in ('asm/18', 'editor/tests', 'editor/bin', 'prog8/p8c', 'attic/asm1'):
             self.assertTrue(os.path.isdir(os.path.join(ROOT, d)), d)
 
     def test_old_areas_are_gone(self):

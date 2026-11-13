@@ -1,4 +1,4 @@
-# Test suite for asm14 assembler
+# Test suite for asm11 assembler
 # Non-standard syntax, two-pass, hash tables, .include, sections, local labels
 # Features: .zeropage/.code, local labels (.label), forward refs
 

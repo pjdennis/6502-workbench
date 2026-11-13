@@ -6,7 +6,7 @@ Runs the opendir_test.out program against various directory configurations
 and validates the output.
 
 Usage:
-    python3 17/tests/opendir/test_opendir.py
+    python3 18/tests/opendir/test_opendir.py
 """
 
 import os
@@ -27,7 +27,7 @@ class Colors:
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent
 EMULATOR = PROJECT_ROOT.parent / "emulator" / "emulator.out"
-TEST_PROGRAM = PROJECT_ROOT / "17" / "out" / "opendir_test.out"
+TEST_PROGRAM = PROJECT_ROOT / "18" / "out" / "opendir_test.out"
 
 
 def run_opendir(dir_path, cwd=None):

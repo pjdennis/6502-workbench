@@ -1,4 +1,4 @@
-# Test suite for asm12 assembler
+# Test suite for asm10 assembler
 # Non-standard syntax, two-pass, hash tables, .include support
 # Features: .zeropage/.code sections, labels, forward refs, branches
 

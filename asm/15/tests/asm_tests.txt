@@ -1,4 +1,4 @@
-# Test suite for asm18 assembler
+# Test suite for asm15 assembler
 # Format:
 #   --- separates test cases
 #   NAME: test identifier

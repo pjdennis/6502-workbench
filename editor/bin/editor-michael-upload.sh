@@ -4,7 +4,7 @@
 # format 3, which resets the board first. With --graphic (first) it runs on the graphic display (the
 # FPGA's text mode, 20x20) instead, through a launcher that selects it. Other options go to transfer.py
 # (e.g. --port=/dev/ttyUSB0).
-# Needs the emulator and asm17 built (tools/build_all.sh).
+# Needs the emulator and asm18 built (tools/build_all.sh).
 set -e
 cd "$(dirname "$0")/../.."
 editor="$(mktemp -d)/editor_michael.bin"

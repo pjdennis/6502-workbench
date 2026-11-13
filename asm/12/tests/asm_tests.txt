@@ -1,4 +1,4 @@
-# Test suite for asm11 assembler
+# Test suite for asm12 assembler
 # Features: standard 6502 syntax, .include, .zeropage/.code sections,
 #   DATA (not .data), character literals, <> byte selectors, local labels,
 #   forward ref tracking

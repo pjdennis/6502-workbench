@@ -1,5 +1,5 @@
 #!/bin/bash
-# The assembler's whole check: builds the chain 00..17 (each stage assembles the next, 17 assembles
+# The assembler's whole check: builds the chain 00..18 (each stage assembles the next, 18 assembles
 # itself) and runs the in-assembler tests. The editor's tests are in editor/verify.sh.
 
 set -e

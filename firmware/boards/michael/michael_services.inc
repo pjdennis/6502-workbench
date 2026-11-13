@@ -1,4 +1,4 @@
-; The editor's environment (asm/17/environment.asm, the direct_io build's) on
+; The editor's environment (asm/18/environment.asm, the direct_io build's) on
 ; Michael, behind the entry points of michael_rom.inc: the 20x4 LCD as the screen (or, chosen with
 ; SVC_SCREEN_SELECT, the graphic display: michael_graphic_screen.inc, which the ROM includes) and the PS/2
 ; keyboard for input. write_b and the scr_* calls draw on a copy of the screen that goes to the

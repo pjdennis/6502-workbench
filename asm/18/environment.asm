@@ -4,7 +4,7 @@
 ; Provides: entry points for I/O, args, and console helpers
 ;
 ; The vectors are 3-byte JMP slots at fixed offsets from ENV_BASE.
-; (asm16 builds asm17 with this file, so it stays free of .else and
+; (asm17 builds asm18 with this file, so it stays free of .else and
 ; .ifndef.) Michael's ROM has the same vectors at the same addresses
 ; (firmware/boards/michael/michael_rom.inc), so the editor's define:michael
 ; build uses this file too.
