@@ -1,6 +1,9 @@
 Assembler Version 00
 ====================
-Assembled by: C bootstrap assembler (00/asm.c, compiled to 00/out/asm_c.out)
+Assembled by: itself. Its source is a hex listing, which the emulator puts in
+memory byte by byte (--hex, standing in for a front panel or a hex keypad);
+run from there, its first job is to assemble that same listing into
+00/out/asm.out. (Until 2026-11-13 a C program, 00/asm.c, did the transcribing.)
 
 Features Supported by This Assembler
 -------------------------------------
@@ -23,12 +26,15 @@ spaces until end of line.
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source is written for the C bootstrap assembler (00/asm.c), which supports:
+The source is a hex listing, in the one form this assembler itself reads:
 
-- DATA $XX: emit hex bytes (2-digit and 4-digit, little-endian for 4-digit)
-- DATA "string": emit ASCII string literals with \n escape
+- DATA $XX: a byte, as two hex digits
 - Semicolon comments
 - Blank lines
+
+The emulator's --hex reads the same file (emulator/hex_text.h): each $ and two
+hex digits is a byte, a comment runs from ; to the end of the line, and the rest,
+the word DATA included, is ignored.
 
 The source uses only DATA with hex bytes. All 6502 instructions are manually
 encoded as hex byte sequences. Address calculations are done by hand and

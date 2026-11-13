@@ -73,8 +73,8 @@ These followed from the motive; present them that way.
 ## 5. The seed
 
 - **What it is.** Stage 00: 92 lines of source, 129 bytes of code. It reads lines of `DATA $XX` and writes the bytes. No labels, no mnemonics.
-- **The C program is a stand-in for fingers.** `00/asm.c` turns stage 00's hex source into a binary. It does nothing a person at a hex keypad could not do: it transcribes the hex digits already written in the source. Say so plainly, since it answers the obvious objection.
-- **Possible replacement before publishing** (to decide): drop `asm.c` and have the emulator load the commented hex file straight into memory, as its "front panel". The seed's source stays one text file of hex with comments. Its `DATA` keyword would have to go from that file or be skipped by the loader, since D and A are themselves hex digits. The read call signals end of input in the carry flag, not by a byte value, so any byte can be loaded.
+- **Keyed in, not assembled.** The seed's source is a hex listing, and the emulator puts it in memory byte by byte, as a front panel or a hex keypad would (its `--hex` option: every `$` and two hex digits is a byte, comments and everything else are ignored). Run from there, the seed's first job is to assemble that same listing into a binary. No other program touches it.
+- Until this post was being written a 165-line C program did that transcription. It did nothing a person at a keypad could not, but removing it removes the objection.
 - **How the seed was really written.** Honest and interesting: the original hand-made starting point (2022) was written with instructions and hand-calculated addresses in the margin, and working out branch offsets by hand was painful. The 129-byte seed in the repository was written later by an AI model, to the specification "the smallest assembler that can assemble itself", and was right first time. **[Check]** The log shows one fix the next day (a comment-handling bug found when stage 01 was added), so "nearly right first time" may be more exact.
 - Show the old hand-annotated listing beside the new seed: `JSR F006 ; 2000 read_b` against `DATA $20 $06 $F0 ; 2000: JSR read`.
 
@@ -120,12 +120,11 @@ Stage 16 taught the final dialect; stage 17 is the first written in it, and then
 
 Measured by having each stage's binary assemble its own source:
 
-- **Sixteen of the eighteen stages self-host**, from stage 00 on, and the build checks every one of them. Self-hosting is the normal state of the chain, not something reached at the end.
-- **Two do not: 11 and 13.**
-  - **11** takes only standard syntax and is written in the old one. Deliberate: it is the "teach" half of the migration, and 12 is the "use" half.
-  - **13** accepts `.data` and no longer accepts the older `DATA`, which its own source uses. It cannot use `.data` itself, because stage 12, which assembles it, does not know the word. Before the chain was consolidated there was a stage between them that accepted both; removing it merged "teach" and "drop the old form" into one step. Letting 13 keep `DATA` would make it self-hosting again, at the cost of moving the removal to 14.
-- **Two more were exceptions until this post was being written**, and checking the claim is what found them:
+- **Seventeen of the eighteen stages self-host**, from stage 00 on, and the build checks every one of them. Self-hosting is the normal state of the chain, not something reached at the end.
+- **One does not: stage 11.** It takes only standard syntax and is written in the old one. It is the "teach" half of the migration, and stage 12, the same assembler rewritten, is the "use" half.
+- **Three more were exceptions until this post was being written**, and checking the claim is what found them:
   - **04** renamed two instructions (`LDA(),Y` and `STA(),Y` gained a `Z`) that its own source still used under the old names. The new names were backported to stages 01 to 03, which is itself an example of the backports of section 8.
+  - **13** brought in `.data` and the bare shifts (`LSR` for `LSR A`) and dropped the older forms in the same step, while its own source had to use them. A stage that once sat between 12 and 13 and took both had been removed when the chain was consolidated. Stage 13 now takes both itself, and stage 14 drops the old ones.
   - **16** had a bug: it took a local label after the first value of a `.data` line for a new directive, and its own generated instruction table has such lines. No test had caught it, because the stage that built stage 16's table was stage 15.
 - So the pattern: a stage that *replaces* syntax in one step cannot build itself; one that adds, or keeps the old form for a stage, can.
 
@@ -146,7 +145,7 @@ Measured by having each stage's binary assemble its own source:
 | 10 | local labels, heap | 2,358 | image | yes |
 | 11 | standard syntax | 3,373 | image | no |
 | 12 | source in standard syntax | 3,395 | image (same as 11) | yes |
-| 13 | expressions | 3,278 | image | no |
+| 13 | expressions | 3,327 | image | yes |
 | 14 | conditional assembly | 3,547 | image | yes |
 | 15 | macros | 4,532 | image | yes |
 | 16 | data directives, decimal | 5,091 | image | yes |
@@ -173,7 +172,7 @@ From stage 09 the output is a fixed 57,344-byte memory image, so its size says n
 
 To be written candidly; this is the part many readers will come for.
 
-- **By hand (2022–2025):** today's stages 02 to 09, and the base of stage 10: mnemonics, labels, two passes, hash tables, the instruction table generator, diagnostics, includes, sections and arguments. This is the first chain, which reached self-hosting in November 2025.
+- **By hand (2022–2025):** today's stages 02 to 09, and the base of stage 10 (confirmed by the author): mnemonics, labels, two passes, hash tables, the instruction table generator, diagnostics, includes, sections and arguments. This is the first chain, which reached self-hosting in November 2025.
 - **With AI (from January 2026):** stage 00 (the hex seed) and stage 01 (the first mnemonic assembler translated back into hex), both written retroactively; local labels in stage 10; and stage 11 onward: standard syntax, the conversion of the source to it, expressions, conditional assembly, macros, the data directives, the test runner. Commit messages name the model used for each step.
 - **The author's part** became design and review: discussing implementation approaches and optimisations, and deciding what each stage should be.
 - **Where it needed steering:** it tended to solve a new problem with new code beside the old. The clearest case is macro calls, first given their own machinery next to the stack of open files; the author pushed for one mechanism, and the file stack was extended to carry macro invocations too.
@@ -190,10 +189,10 @@ To be written candidly; this is the part many readers will come for.
 
 ## 11. Honest limits
 
-- The seed is transcribed by a C program and the chain runs in an emulator written in C. The claim is "no outside assembler", and "nothing a 1980 machine could not do".
+- The seed is put in memory by the emulator, and the chain runs in that emulator, which is written in C. The claim is "no outside assembler", and "nothing a 1980 machine could not do".
 - It does not yet run on a real board (section 13).
 - It targets the NMOS 6502 instruction set. **[Check]**
-- **A hex loader would be the more honest seed.** Explain the difference in two sentences: `asm.c` runs on the PC and writes a file; a hex loader is a few dozen bytes on the 6502 itself (in ROM, or entered on switches) that takes hex digits from a keypad and puts them in memory, as the KIM-1's monitor and the Apple 1's did. Stage 00 is already close to one: it reads hex and writes bytes.
+- **A hex keypad on a real board is the last step.** The emulator's loader plays the part of the few dozen bytes of monitor that the KIM-1 and the Apple 1 had in ROM to take hex digits from a keypad and put them in memory. On real hardware that monitor is the one thing that must exist before the seed.
 
 ## 12. What it made possible
 
@@ -239,7 +238,4 @@ cd 6502-workbench/asm && ./asmtestgen.sh
 
 ## Questions still open
 
-1. Replace `asm.c` before the post goes out, or describe it as a stand-in and replace it later? (A concrete proposal is in section 5.)
-2. Should stage 13 keep accepting `DATA` so that it self-hosts too? Then only stage 11 would be an exception, and for a reason that is easy to explain.
-3. Confirm the hand-written range (today's stages 02 to 09 and the base of 10), which is inferred from commit messages.
-4. Which board is the target, and does the post commit to one?
+1. Which board is the target, and does the post commit to one?

@@ -11,7 +11,7 @@ This repository continues `pjdennis/6502-experiments`, reorganized in 2026-09 wi
 | [`hardware/`](hardware/) | The boards: **Wendy** (v1, 2020), **Michael** (v2, 2021) and **Wendy 2** (2022, now revision c). PLD equations, pin notes, revision history, and the Arduino monitor used with Michael. |
 | [`firmware/`](firmware/) | Everything assembled with vasm for the real boards: shared libraries (`lib/`), per-board config and loaders (`boards/`), programs (`programs/`), fonts. |
 | [`emulator/`](emulator/) | C emulator. `nmos-default` is a host-stub machine for the assemblers and editor. `wendy2c` models Wendy 2 rev c chip by chip (PLD, VIA, LCD, banked RAM), with web, audio and serial-link front ends. |
-| [`asm/`](asm/) | The assembler, bootstrapped from nothing: `00/asm.c`, then stages `01`…`17`, each built by the one before. `17/` is the live assembler. |
+| [`asm/`](asm/) | The assembler, bootstrapped from a 129-byte seed in hex (`00/asm.asm`), then stages `01`…`17`, each built by the one before. `17/` is the live assembler. |
 | [`editor/`](editor/) | A vi-like text editor written in the assembler's dialect and built by stage 17. Runs in the emulator's terminal and on the Michael board. |
 | [`prog8/`](prog8/) | Prog8 compiler work: host compiler `p8c`, `tinyp8`, the self-hosting `p1`, and custom upstream prog8c targets for Wendy 2. |
 | [`tools/`](tools/) | Host-side tools: serial upload (`upload/`), webcam LCD OCR (`lcd-ocr/`), `makerom.py`, the firmware regression check, `check_all.sh`. |

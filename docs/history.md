@@ -55,7 +55,7 @@ Then build it the way that era did, using the table below.
 
 **Boards.** Wendy (v1, 2020) and Michael (v2, 2021) share a library of LCD, keyboard, sound, serial and multitasking routines. Each board has its own `base_config_*.inc` and `initialize_machine_*.inc`. Wendy 2 (2022) moved to a 65C02 with PLD glue logic and banked RAM; its revisions are in `hardware/wendy2/README.md`. Work on Michael's graphics console and keyboard driver continued on `michael_keyboard_wip` from 2023 to 2024 (BBC BASIC). That branch also carried a Wendy 2 LED control and a 2026 PLD experiment. It was merged in the 2026 reorganization.
 
-**Assemblers.** `asm1` (2022–2025, now `attic/asm1`) was bootstrapped with vasm. `asm2` (2026, now `asm/`) starts from a small C assembler and builds 17 stages, each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
+**Assemblers.** `asm1` (2022–2025, now `attic/asm1`) was bootstrapped with vasm. `asm2` (2026, now `asm/`) starts from a 129-byte seed in hex (put in memory by a small C assembler until 2026-11, by the emulator since) and builds 17 stages, each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
 
 **Editor.** A vi-like editor written in asm2's dialect (from 2026-02, now `editor/`).
 

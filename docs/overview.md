@@ -24,7 +24,7 @@ The repository is one person's six-year exploration of the 6502, starting from a
 
 - **Firmware** is assembled on the host with vasm and sent to a board over a serial link the firmware bit-bangs through the 6522 VIA, or burned into an EEPROM.
 - **The emulator** has two roles. Its `nmos-default` machine is a plain 6502 with host calls (files, console, arguments), which is where the assembler chain, the editor and the Prog8 compilers run. Its `wendy2c` and `michael` machines model the real boards, so the same firmware binaries run unchanged on the emulator and on the hardware.
-- **The assembler, editor and Prog8 compiler** are 6502 programs. They depend on vasm for nothing: the assembler builds itself from a small C seed, and it builds the editor.
+- **The assembler, editor and Prog8 compiler** are 6502 programs. They depend on vasm for nothing: the assembler builds itself from a 129-byte seed written out in hex, and it builds the editor.
 
 ## The hardware
 
@@ -68,7 +68,7 @@ Revision c's PLD ([`hardware/wendy2/22V10-wendy2c.pld`](../hardware/wendy2/22V10
 Two generations of self-hosting 6502 assembler, both written in 6502 assembly.
 
 - **asm1** (2022-11 to 2025-11, now in [`attic/asm1/`](../attic/asm1/)) was seeded by a version written in vasm syntax and reached byte-identical self-assembly on 2025-11-15. It brought the first emulator with it: a single C file on the fake6502 core.
-- **asm2** (2026, now [`asm/`](../asm/)) removes the dependence on any outside assembler. Stage `00` is a C program that only understands `DATA $XX` bytes and produces a 129-byte assembler. Each of stages `01`–`16` is assembled by the stage before it and adds what the next needs: labels, two passes, hash tables, `.include`, sections, local labels, standard 6502 syntax, expressions, conditional assembly, macros. Stage `17` is the live assembler and must reassemble itself byte for byte. [`asm/BOOTSTRAP-OVERVIEW`](../asm/BOOTSTRAP-OVERVIEW) lists each stage's step.
+- **asm2** (2026, now [`asm/`](../asm/)) removes the dependence on any outside assembler. Stage `00` is a 129-byte assembler that only understands `DATA $XX` bytes; it is written out as a hex listing, which the emulator puts in memory as if keyed in. (Until 2026-11 a small C program did that transcription.) Each of stages `01`–`16` is assembled by the stage before it and adds what the next needs: labels, two passes, hash tables, `.include`, sections, local labels, standard 6502 syntax, expressions, conditional assembly, macros. Stage `17` is the live assembler and must reassemble itself byte for byte. [`asm/BOOTSTRAP-OVERVIEW`](../asm/BOOTSTRAP-OVERVIEW) lists each stage's step.
 
 The stage-17 test files are the executable specification of the dialect. There is also a Python work-alike (`pyasm.py`) and syntax highlighting for Vim and VS Code.
 
@@ -137,7 +137,7 @@ In April 2023 a branch, `michael_keyboard_wip`, forks from `main` and carries Mi
 
 ### 2026, January–February: asm2 and the editor
 
-asm2 enters version control on 2026-01-06 and gets its C seed two days later. January's commits add macros, scopes, expressions and out-of-memory checks. February is the busiest month in the repository (836 commits): the stages move into their own directories, the chain is renumbered from 00–23 to 00–17, the emulator is split out, and the **editor** goes from its first program (02-07) to word motions, search, marks, undo and a long series of render optimizations, each with tests.
+asm2 enters version control on 2026-01-06 and gets its hex seed two days later (transcribed by a small C program until 2026-11). January's commits add macros, scopes, expressions and out-of-memory checks. February is the busiest month in the repository (836 commits): the stages move into their own directories, the chain is renumbered from 00–23 to 00–17, the emulator is split out, and the **editor** goes from its first program (02-07) to word motions, search, marks, undo and a long series of render optimizations, each with tests.
 
 ### 2026, May–July: board-accurate emulation and Prog8
 

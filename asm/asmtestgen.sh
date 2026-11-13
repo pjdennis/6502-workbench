@@ -27,6 +27,9 @@ run_version_tests() {
 # file names as arguments) or "files-debug" (15 on: also the define:enable_debug build).
 check_self_assembly() {
     local ver=$1 mode=$2
+    # (cmp finds two empty files equal: the first binary must be there and hold something)
+    case "$mode" in stream-combined) [ -s "$ver/out/asmc.out" ] ;; *) [ -s "$ver/out/asm.out" ] ;; esac ||
+        { echo "ERROR: version $ver built no binary" >&2; exit 1; }
     case "$mode" in
         stream)
             (cd "$ver" && ../../emulator/emulator.out out/asm.out --load 2000 --input asm.asm --output out/asm_2.out)
@@ -50,7 +53,9 @@ rm -f out/*.out out/*.asm.out
 rm -rf {00..99}/out
 make --quiet
 echo "--- Version 00 ---"
-(cd 00 && out/asm_c.out asm.asm out/asm.out)
+# The seed is keyed into memory from its own hex listing (the emulator's --hex stands in for a
+# front panel), and its first job is to assemble that listing into a binary.
+(cd 00 && mkdir -p out && ../../emulator/emulator.out asm.asm --hex --load 2000 --input asm.asm --output out/asm.out)
 check_self_assembly 00 stream
 echo "--- Version 01 ---"
 (cd 01 && mkdir -p out && ../../emulator/emulator.out ../00/out/asm.out --load 2000 --input asm.asm --output out/asm.out)

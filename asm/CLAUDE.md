@@ -25,7 +25,7 @@ The vi-like editor written in this assembler's dialect lives in `../editor` (see
 
 ### Bootstrap Chain
 
-A C bootstrap assembler assembles the initial versions, which then assemble progressively more capable versions (asm00 → asm01 → ... → asm17). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/` through `17/`) with all its source files.
+The first version (asm00) is a hex listing that the emulator loads into memory (`--hex`); it assembles its own listing, and then each version assembles the next, progressively more capable one (asm00 → asm01 → ... → asm17). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/` through `17/`) with all its source files.
 
 ### Build Output Structure
 
