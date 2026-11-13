@@ -1682,7 +1682,12 @@ data_parameters_loop:
   JMP data_parameters_loop
 .data_not_comma:
   CMP #'.'
-  BEQ .data_done           ; Another directive follows - return to caller
+  BNE .data_next
+  ; A '.' after a .byte, .word or .asciiz value starts another directive: return to caller.
+  ; After a .data value it starts a local label: .data's values are separated by spaces.
+  LDA DATA_MODE
+  BNE .data_done
+.data_next:
   JMP data_parameters_loop
 .data_value:
   JSR parse_value        ; C=1 for 2-byte, C=0 for 1-byte

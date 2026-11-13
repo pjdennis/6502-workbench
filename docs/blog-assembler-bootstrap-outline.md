@@ -112,7 +112,7 @@ Stage 16 taught the final dialect; stage 17 is the first written in it, and then
 - **Data declarations.** Stage 16's source has 238 `.data` lines. Stage 17 has none: they became `.byte` (118), `.word` (78) and `.asciiz` (184), with comma-separated operands. Stage 17 then drops `.data` from the language.
 - **Decimal numbers** where they read better, such as error codes: `.asciiz 1, "Label not found"`.
 - **New in the language:** `.ifndef` and `.else`, which its own source uses a little (4 and 8 times).
-- **Reorganisation.** 12 files became 29: tokenizer, expressions, labels, instructions, directives, macro capture and expansion, output and so on. 5,086 lines became 8,345.
+- **Reorganisation.** 12 files became 29: tokenizer, expressions, labels, instructions, directives, macro capture and expansion, output and so on. 5,091 lines became 8,345.
 - **Later work on the live stage** (May 2026): includes and macro calls unified on one source stack, and a test runner that runs on the 6502 itself.
 - It is the fixed point the build checks on every change, in both its plain and debug builds.
 
@@ -120,12 +120,13 @@ Stage 16 taught the final dialect; stage 17 is the first written in it, and then
 
 Measured by having each stage's binary assemble its own source:
 
-- **Fifteen of the eighteen stages self-host**, from stage 00 on. Self-hosting is the normal state of the chain, not something reached at the end.
-- **Three do not: 11, 13 and 16.**
+- **Sixteen of the eighteen stages self-host**, from stage 00 on, and the build checks every one of them. Self-hosting is the normal state of the chain, not something reached at the end.
+- **Two do not: 11 and 13.**
   - **11** takes only standard syntax and is written in the old one. Deliberate: it is the "teach" half of the migration, and 12 is the "use" half.
   - **13** accepts `.data` and no longer accepts the older `DATA`, which its own source uses. It cannot use `.data` itself, because stage 12, which assembles it, does not know the word. Before the chain was consolidated there was a stage between them that accepted both; removing it merged "teach" and "drop the old form" into one step. Letting 13 keep `DATA` would make it self-hosting again, at the cost of moving the removal to 14.
-  - **16** still accepts `.data`, but rejects one form of it that its own generated instruction table uses (a local label after the first operand). **[Check]** This looks unintended, not a design choice; decide whether to fix it as stage 04 was fixed.
-- Stage 04 used to be a fourth: it renamed two instructions (`LDA(),Y` and `STA(),Y` gained a `Z`) that its own source still used under the old names. The new names were backported to stages 01 to 03 on 2026-11-13, which is itself an example of the backports of section 8; the build now checks that stage 04 reproduces itself.
+- **Two more were exceptions until this post was being written**, and checking the claim is what found them:
+  - **04** renamed two instructions (`LDA(),Y` and `STA(),Y` gained a `Z`) that its own source still used under the old names. The new names were backported to stages 01 to 03, which is itself an example of the backports of section 8.
+  - **16** had a bug: it took a local label after the first value of a `.data` line for a new directive, and its own generated instruction table has such lines. No test had caught it, because the stage that built stage 16's table was stage 15.
 - So the pattern: a stage that *replaces* syntax in one step cannot build itself; one that adds, or keeps the old form for a stage, can.
 
 ### The chain in numbers (optional)
@@ -148,7 +149,7 @@ Measured by having each stage's binary assemble its own source:
 | 13 | expressions | 3,278 | image | no |
 | 14 | conditional assembly | 3,547 | image | yes |
 | 15 | macros | 4,532 | image | yes |
-| 16 | data directives, decimal | 5,086 | image | no |
+| 16 | data directives, decimal | 5,091 | image | yes |
 | 17 | `.ifndef`/`.else`, final dialect; drops `.data` | 8,345 | image | yes |
 
 From stage 09 the output is a fixed 57,344-byte memory image, so its size says nothing. Stage 17's code and tables are about 7.4 KB of it. The whole chain builds and checks itself in about 10 seconds on a current PC **[Check]**.
@@ -162,7 +163,7 @@ From stage 09 the output is a fixed 57,344-byte memory image, so its size says n
 
 ## 8. Keeping it honest
 
-- **The chain is its own test.** Any change that breaks an early stage breaks everything after it, at once and visibly.
+- **The chain is its own test.** Any change that breaks an early stage breaks everything after it, at once and visibly. And each stage that can is made to assemble itself and compared, on every build.
 - **Frozen tests per stage.** Stages 03 and 07 to 17 have their own test suites, and all of them run every time the chain is built, in CI on every push. Stage 17's suite, 515 tests today, is the definition of the dialect, and the assembler can run it on the 6502 itself.
 - **A second implementation.** `pyasm.py` is a Python work-alike of the last stage, added on 2026-02-08. Its commit says what it is for: an independent implementation that passes the same tests and assembles the assembler's source to identical bytes, and so cross-checks it; it is also a way into the chain without the emulator.
 - **Every stage must earn its keep.** The chain was once 24 stages and was cut to 18 on 2026-02-13, to make each step a real one and the whole presentable to others.
@@ -239,7 +240,6 @@ cd 6502-workbench/asm && ./asmtestgen.sh
 ## Questions still open
 
 1. Replace `asm.c` before the post goes out, or describe it as a stand-in and replace it later? (A concrete proposal is in section 5.)
-2. Stage 16's failure to assemble itself looks like a bug in its handling of `.data`. Fix it, as stage 04 was fixed, or leave the frozen stage alone and say so?
-3. Should stage 13 keep accepting `DATA` so that it self-hosts too? Then only stage 11 would be an exception, and for a reason that is easy to explain.
-4. Confirm the hand-written range (today's stages 02 to 09 and the base of 10), which is inferred from commit messages.
-5. Which board is the target, and does the post commit to one?
+2. Should stage 13 keep accepting `DATA` so that it self-hosts too? Then only stage 11 would be an exception, and for a reason that is easy to explain.
+3. Confirm the hand-written range (today's stages 02 to 09 and the base of 10), which is inferred from commit messages.
+4. Which board is the target, and does the post commit to one?

@@ -1831,6 +1831,16 @@ INPUT:
 EXPECT_HEX: 42 ad 00 02
 
 ---
+NAME: data_local_label_after_first_operand
+INPUT:
+ 1: * = $0200
+ 2: global
+ 3:   .data $EA .local $1234 .local
+ 4: .local
+ 5:   NOP
+EXPECT_HEX: ea 07 02 34 12 07 02 ea
+
+---
 NAME: local_label_with_colon
 INPUT:
  1: * = $0200

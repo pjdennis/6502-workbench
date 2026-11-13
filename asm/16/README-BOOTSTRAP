@@ -15,7 +15,11 @@ assembly:
 Syntax:
 - Standard 6502 mnemonic syntax (LDA, STA, etc.)
 - All addressing modes (immediate, zero page, absolute, indexed, indirect)
-- .data directive for byte/string data (retained for compatibility)
+- .data directive for byte/string data (retained for compatibility). Its values are
+  separated by spaces and may be local labels (.name) in any position, as this version's
+  own generated instruction table has them, so version 16 can assemble itself
+  (asmtestgen.sh checks it; a local label after the first value was taken for a
+  directive until 2026-11-13)
 - Hex constants: $xx (1 byte) or $xxxx (2 bytes)
 - Decimal constants (parsed by from_decimal.asm)
 - Character literals: 'x', '\n', '\\', '\''
