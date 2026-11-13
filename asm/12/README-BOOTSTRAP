@@ -1,6 +1,6 @@
-Assembler Version 11
+Assembler Version 12
 ====================
-Assembled by: version 10 (both instgen and asm)
+Assembled by: version 11 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
@@ -63,14 +63,14 @@ Full 6502 instruction set (56 opcodes):
 - Other: BRK, NOP, RTI, RTS
 - Pseudo: DATA
 
-Error handling: same as version 10 (errors 1-10), plus:
+Error handling: same as version 11 (errors 1-10), plus:
 - Invalid addressing mode (error 11): mode not supported for instruction
 - Invalid character literal (error 12): malformed character literal
 - Too many forward references (error 13): forward reference list overflow
 - Internal error - reference tracking (error 16): forward ref pointer mismatch
   between passes (debug verification)
 
-New in this version (relative to version 10):
+New in this version (relative to version 11):
 - Complete rewrite of instruction processing for standard 6502 syntax
 - New instruction table format with mode:opcode pairs: each instruction
   entry contains the mnemonic followed by pairs of (mode, opcode) terminated
@@ -124,9 +124,9 @@ Features Used in This Assembler's Source Code
 - Command-line arg access: argc, argv
 - File I/O: open, close, read, openout, write
 
-New syntax used in source (relative to version 10):
+New syntax used in source (relative to version 11):
 - None (source is still written in non-standard mnemonic syntax because it
-  is assembled by version 10 which only supports non-standard syntax)
+  is assembled by version 11 which only supports non-standard syntax)
 
 Other source changes:
 - ADDR_MODE, INST_PTR_L/H, OPERAND_L/H added to zero page variables

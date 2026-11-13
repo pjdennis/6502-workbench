@@ -1,7 +1,7 @@
 # Editor (6502 vi-like)
 
 A vi-like text editor (~10,700 lines of 6502 assembly, comments included) built
-with the assembler in `../asm` (asm17). It runs under the project's 6502
+with the assembler in `../asm` (asm18). It runs under the project's 6502
 emulator in console mode, in terminal mode (ANSI over emulated serial), and on
 the Michael board (real or emulated, with the `define:direct_io` and
 `define:michael` build on its 20x4 LCD).  The launcher scripts are described
@@ -84,13 +84,13 @@ CPU costs that could come down.
 ### Shared includes
 - `memory_map.asm`: the fixed buffer addresses (see Memory layout), for the
   standard build and for `define:michael`.
-- `asm/17/environment.asm`: emulator I/O port definitions (shared with assembler).
-- `asm/17/macros.asm`: 16-bit macros (`SET16`, `LDAX16`, `STAX16`, etc.).
-- `macros.asm`: editor-only macros (`ADDA16`, `PRINT_STR`); `asm/17/macros.asm`
+- `asm/18/environment.asm`: emulator I/O port definitions (shared with assembler).
+- `asm/18/macros.asm`: 16-bit macros (`SET16`, `LDAX16`, `STAX16`, etc.).
+- `macros.asm`: editor-only macros (`ADDA16`, `PRINT_STR`); `asm/18/macros.asm`
   is shared with the assembler.
 - `zp.asm`: every editor zero-page variable, grouped by owning module and
   included before any code, so all zero-page references are backward ones
-  (asm17 assembles a forward reference as absolute: one byte and one
+  (asm18 assembles a forward reference as absolute: one byte and one
   cycle more).
 
 ### Standalone demos (not part of the editor)
@@ -449,12 +449,12 @@ as a VT102 does by default:
 |--------|--------|
 | `define:small_buffer` | Reduces `TEXT_LIMIT` to 256 bytes (for testing truncation/read-only) |
 | `define:terminal_mode` | Switches to serial I/O with spin loops and DSR terminal size query |
-| `define:direct_io` | Calls the host's screen services (`scr_*` in `asm/17/environment.asm`) instead of writing ANSI sequences (`terminal.asm`, `input.asm`) |
+| `define:direct_io` | Calls the host's screen services (`scr_*` in `asm/18/environment.asm`) instead of writing ANSI sequences (`terminal.asm`, `input.asm`) |
 | `define:michael` | Michael board memory map (`memory_map.asm`); built with `direct_io` by `michael_image.py` |
 
 ## Testing
 
-- `editor/tests/editor_tests.py` assembles the editor (using `asm/17/out/asm.out`
+- `editor/tests/editor_tests.py` assembles the editor (using `asm/18/out/asm.out`
   via the emulator) and runs it under `emulator/emulator.out`, feeding
   keystroke byte streams and verifying saved file contents and screen state.
 - `editor/tests/michael_tests.py` runs the `direct_io` + `michael` build on the
@@ -471,7 +471,7 @@ as a VT102 does by default:
 
 ### Quick commands
 ```bash
-# Run tests (needs asm17: tools/build_all.sh asm):
+# Run tests (needs asm18: tools/build_all.sh asm):
 editor/verify.sh                          # all of them
 python3 editor/tests/editor_tests.py -q   # just the main ones
 
@@ -484,13 +484,13 @@ editor/bin/editor.sh <file>
 ```bash
 # The assembler resolves .include from the working directory: run these from the repository root.
 # Assemble (release):
-emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor.out
+emulator/emulator.out asm/18/out/asm.out editor/editor.asm editor/out/editor.out
 
 # Assemble (small buffer):
-emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
+emulator/emulator.out asm/18/out/asm.out editor/editor.asm editor/out/editor_small.out define:small_buffer
 
 # Assemble (terminal mode):
-emulator/emulator.out asm/17/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
+emulator/emulator.out asm/18/out/asm.out editor/editor.asm editor/out/editor_terminal.out define:terminal_mode
 
 # Run (console):
 emulator/emulator.out editor/out/editor.out --load 0400 --console <file>

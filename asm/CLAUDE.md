@@ -15,21 +15,21 @@ python3 run_tests.py -q
 make
 ```
 
-The build succeeds when `17/out/asm.out == 17/out/asm_2.out` (self-assembly verification).
+The build succeeds when `18/out/asm.out == 18/out/asm_2.out` (self-assembly verification).
 
 ## Architecture
 
-This is a self-hosting 6502 assembler built through progressive bootstrapping. The current assembler (`17/asm.asm`) can assemble its own source code.
+This is a self-hosting 6502 assembler built through progressive bootstrapping. The current assembler (`18/asm.asm`) can assemble its own source code.
 
 The vi-like editor written in this assembler's dialect lives in `../editor` (see `editor/CLAUDE.md`).
 
 ### Bootstrap Chain
 
-A C bootstrap assembler assembles the initial versions, which then assemble progressively more capable versions (asm00 → asm00b → asm01 → ... → asm17). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/`, `00b/`, then `01/` through `17/`) with all its source files. `00b` was inserted later, so the numbers stay as they were.
+A C bootstrap assembler assembles the initial versions, which then assemble progressively more capable versions (asm00 → asm01 → ... → asm18). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/` through `18/`) with all its source files.
 
 ### Build Output Structure
 
-Each version builds into its own `NN/out/` directory (e.g., `16/out/asm.out`). The root `out/` directory is used only for test outputs. The emulator auto-creates its `dump/` directory, so no symlinks or pre-creation are needed. `make clean` removes all per-version `out/` and `dump/` directories.
+Each version builds into its own `NN/out/` directory (e.g., `17/out/asm.out`). The root `out/` directory is used only for test outputs. The emulator auto-creates its `dump/` directory, so no symlinks or pre-creation are needed. `make clean` removes all per-version `out/` and `dump/` directories.
 
 ### Key Components
 
@@ -41,7 +41,7 @@ Each version builds into its own `NN/out/` directory (e.g., `16/out/asm.out`). T
 
 - **Two-pass assembly**: Pass 1 collects labels, Pass 2 resolves references and emits code.
 
-### Memory Layout (asm17)
+### Memory Layout (asm18)
 
 - `$0000-$00FF`: Zero page variables (see `.zeropage` section)
 - `$0200-$03FF`: `FWDREF_LIST` (forward reference list, 512 bytes)
@@ -68,8 +68,8 @@ The heap (`MEMP16`) grows upward storing hash entries, macro definitions, and fo
 ### Shared Code Pattern
 
 Common code is factored into include files within each version directory:
-- `17/common.asm`: Shared between `17/asm.asm` and `17/instgen.asm`
-- `17/hash_table.asm`: Hash table implementation (included by common)
+- `18/common.asm`: Shared between `18/asm.asm` and `18/instgen.asm`
+- `18/hash_table.asm`: Hash table implementation (included by common)
 
 The hash table requires caller to define `HT_KEY` and `HT_V16` before including.
 
@@ -86,17 +86,17 @@ The C emulator (`emulator.c`) provides memory-mapped I/O. Key addresses:
 
 ## Syntax Notes
 
-The current assembler (asm17) uses standard 6502 syntax:
+The current assembler (asm18) uses standard 6502 syntax:
 - `LDA #$42` for immediate mode
 - `LDA $00` for zero page (automatic detection based on value)
 - `LDA ($00),Y` for indirect indexed
 - `LDA $1234,X` for indexed absolute
 
-Early bootstrap levels (asm01-05) used non-standard syntax (`LDA#`, `LDAZ`, etc.) but asm06+ uses standard syntax. asm00 and asm00b assemble only DATA lines.
+Early bootstrap levels (asm02-06) used non-standard syntax (`LDA#`, `LDAZ`, etc.) but asm07+ uses standard syntax. asm00 and asm01 assemble only DATA lines.
 
-### Expression Evaluation (asm13+)
+### Expression Evaluation (asm14+)
 
-Starting with asm13, the assembler supports expression evaluation with `+`, `-`, `<<`, and `>>` operators:
+Starting with asm14, the assembler supports expression evaluation with `+`, `-`, `<<`, and `>>` operators:
 
 **Syntax:**
 - `LDA #$10+$20` - Arithmetic in immediate mode
@@ -127,14 +127,14 @@ Starting with asm13, the assembler supports expression evaluation with `+`, `-`,
 - If any term in an expression is a forward reference, the entire expression is treated as a forward reference
 - The assembler resolves the complete expression in pass 2
 
-### Conditional Assembly (asm14+, enhanced in asm17)
+### Conditional Assembly (asm15+, enhanced in asm18)
 
 The assembler supports conditional assembly with `.ifdef`, `.ifndef`, `.else`, and `.endif` directives:
 
 **Directives:**
-- `.ifdef label` - Begin conditional block if label is defined (asm14+)
-- `.ifndef label` - Begin conditional block if label is NOT defined (asm17+)
-- `.else` - Alternative branch in conditional block (asm17+)
+- `.ifdef label` - Begin conditional block if label is defined (asm15+)
+- `.ifndef label` - Begin conditional block if label is NOT defined (asm18+)
+- `.else` - Alternative branch in conditional block (asm18+)
 - `.endif` - End conditional block
 
 **Basic Usage:**
@@ -204,11 +204,11 @@ DEBUG = $01          ; Define a label
 - Error 23: `Duplicate .else in conditional block` - Multiple `.else` in same block
 - Error 24: `Conditional nesting exceeds 16 levels` - Too deeply nested
 - Error 4: `Label expected` - `.ifdef`/`.ifndef` without a label name
-- (Errors 43 and 44, `Assignment uses a label defined later` and `Address differs between passes`, are described in `17/README`.)
+- (Errors 43 and 44, `Assignment uses a label defined later` and `Address differs between passes`, are described in `18/README`.)
 
-### Macros (asm16+)
+### Macros (asm17+)
 
-Starting with asm16, the assembler supports macros with parameters:
+Starting with asm17, the assembler supports macros with parameters:
 
 **Defining Macros:**
 ```asm
@@ -232,7 +232,7 @@ Starting with asm16, the assembler supports macros with parameters:
 - Up to 32 parameters per macro (`MACRO_MAX_ARGS`)
 
 **Errors:**
-(Error codes are decimal; the full list is in `17/errors.asm`.)
+(Error codes are decimal; the full list is in `18/errors.asm`.)
 - Error 29: `Unclosed .macro` - Missing `.endmacro`
 - Error 25: `Macro name expected` - `.macro` without name
 - Error 28: `.endmacro without .macro`

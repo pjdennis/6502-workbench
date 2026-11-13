@@ -1,12 +1,12 @@
 # Plan: cache macro slot-list and param-name pointers in zero page
 
-> Status: done. `MACRO_LOOKUP_SLOTS16` / `MACRO_LOOKUP_PARAMS16` exist in `17/label_scope.asm` and `ss_lookup_param_slot` (`17/macro_expansion.asm`) uses them. Kept as a design record; the line numbers quoted below are from before the change.
+> Status: done. `MACRO_LOOKUP_SLOTS16` / `MACRO_LOOKUP_PARAMS16` exist in `18/label_scope.asm` and `ss_lookup_param_slot` (`18/macro_expansion.asm`) uses them. Kept as a design record; the line numbers quoted below are from before the change.
 
 ## Problem
 
-`ss_lookup_param_slot` (`17/macro_expansion.asm:117`) is the hot path
+`ss_lookup_param_slot` (`18/macro_expansion.asm:117`) is the hot path
 for resolving a parameter inside a macro body. `resolve_identifier`
-(`17/expressions.asm:65-69`) calls it once per identifier mention
+(`18/expressions.asm:65-69`) calls it once per identifier mention
 inside any macro expansion. The routine's first ~25 instructions
 (macro_expansion.asm:117-159) **re-derive** values that are stable
 for the entire lifetime of the active macro frame, on every call:
@@ -388,7 +388,7 @@ Per the project's small-commits TDD workflow:
 5. **Add coverage tests** (see "Test coverage" below). Commit.
 
 Each step ends with `./asmtestgen.sh` clean and
-`python3 run_tests.py -q --version 17` showing the same number of
+`python3 run_tests.py -q --version 18` showing the same number of
 tests it showed before (or +N for new tests in step 5).
 
 ## Test coverage

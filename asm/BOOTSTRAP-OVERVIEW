@@ -4,24 +4,24 @@ Bootstrap Chain Milestones
 Version  Milestone
 -------  ---------
 00       Minimal DATA-only bootstrap (129 bytes)
-00b      Single-character labels and strings in DATA (250 bytes)
-01       First non-standard 6502 mnemonics
-02       Source becomes human-readable assembly
-03       Byte selectors, label assignments, origin setting
-04       Two-pass assembly (forward references)
-05       Hash tables for label/instruction lookup
-06       Instruction table generator (instgen)
-07       Error diagnostics, line numbers, stderr output
-08       .include directive, file stack
-09       Sections (.zeropage/.code), command-line arguments
-10       Local labels, heap-based global label storage
-11       Standard 6502 syntax (all 13 addressing modes), forward reference tracking
-12       Source transitions to standard syntax (standard syntax migration)
-13       Expression evaluation, .data directive
-14       .ifdef/.endif conditional assembly
-15       Macros, << >> shift operators
-16       Data directives, decimal constants, memory protection
-17       Self-hosting, .ifndef/.else
+01       Single-character labels and strings in DATA (250 bytes)
+02       First non-standard 6502 mnemonics
+03       Source becomes human-readable assembly
+04       Byte selectors, label assignments, origin setting
+05       Two-pass assembly (forward references)
+06       Hash tables for label/instruction lookup
+07       Instruction table generator (instgen)
+08       Error diagnostics, line numbers, stderr output
+09       .include directive, file stack
+10       Sections (.zeropage/.code), command-line arguments
+11       Local labels, heap-based global label storage
+12       Standard 6502 syntax (all 13 addressing modes), forward reference tracking
+13       Source transitions to standard syntax (standard syntax migration)
+14       Expression evaluation, .data directive
+15       .ifdef/.endif conditional assembly
+16       Macros, << >> shift operators
+17       Data directives, decimal constants, memory protection
+18       Self-hosting, .ifndef/.else
 
 
 Source Syntax Evolution
@@ -33,42 +33,42 @@ the right column shows new syntax first used in that version's source.
 Ver New syntax supported             New syntax used in source
 --- -------------------------------- ----------------------------
 00  DATA $XX, ; comments             -
-00b Single-character labels,         None
+01  Single-character labels,         None
     DATA "string", DATA label
-01  Non-standard mnemonics           Labels, label references,
+02  Non-standard mnemonics           Labels, label references,
     (LDA#, STAZ), whole-name         DATA "string"
     labels, $XXXX hex, \n escapes
-02  None                             Non-standard mnemonics,
+03  None                             Non-standard mnemonics,
                                      whole-name labels
-03  < > byte selectors,              Char escape literals
+04  < > byte selectors,              Char escape literals
     label = $XX, * = $XXXX,
     new instrs (BITZ, BMI,
     BPL, SBCZ)
-04  Two-pass (fwd refs),             = assignments, < > selectors,
+05  Two-pass (fwd refs),             = assignments, < > selectors,
     ~ branches, more instrs          * = origin
-05  Hash tables (internal)           None
-06  More instrs (via instgen),       None
+06  Hash tables (internal)           None
+07  More instrs (via instgen),       None
     flag-based operand types
-07  Error diagnostics, stderr,       ZP addressing without <
+08  Error diagnostics, stderr,       ZP addressing without <
     line number tracking             (STAZ VAR not STAZ <VAR)
-08  .include, file stack,            None
+09  .include, file stack,            None
     more instructions
-09  .zeropage, .code, ASLZ,         .include
+10  .zeropage, .code, ASLZ,         .include
     command-line arguments
-10  Local labels (.prefix),          .zeropage, .code
+11  Local labels (.prefix),          .zeropage, .code
     heap-based global labels
-11  Standard 6502 syntax,            None (cannot self-host)
+12  Standard 6502 syntax,            None (cannot self-host)
     all 13 addr modes, #'x',
     fwd ref tracking
-12  None                             Standard 6502 syntax,
+13  None                             Standard 6502 syntax,
                                      #'x' character literals
-13  Expressions (+, -), .data,       .data (replaces DATA)
+14  Expressions (+, -), .data,       .data (replaces DATA)
     char lits as terms
-14  .ifdef/.endif, define:           Expressions (+, -),
+15  .ifdef/.endif, define:           Expressions (+, -),
                                      char literal arithmetic
-15  .macro/.endmacro, << >>,         .ifdef/.endif, define:
+16  .macro/.endmacro, << >>,         .ifdef/.endif, define:
     optional label colons
-16  .byte/.word/.asciiz/.reserve,    Colons, macros, << >>
+17  .byte/.word/.asciiz/.reserve,    Colons, macros, << >>
     decimal, comma-separated
-17  .ifndef, .else                   .byte, .word, .asciiz,
+18  .ifndef, .else                   .byte, .word, .asciiz,
                                      decimal constants

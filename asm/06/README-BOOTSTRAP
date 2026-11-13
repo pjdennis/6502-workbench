@@ -1,10 +1,10 @@
-Assembler Version 05
+Assembler Version 06
 ====================
-Assembled by: version 04
+Assembled by: version 05
 
 Features Supported by This Assembler
 -------------------------------------
-Same feature set as version 04, refactored with hash tables:
+Same feature set as version 05, refactored with hash tables:
 
 Syntax:
 - Non-standard (custom) mnemonic syntax: LDA#, LDAZ, STAZ, STAZ(),Y, etc.
@@ -42,7 +42,7 @@ Error handling:
 - Opcode not found (error 3)
 - Expected hex value (error 4)
 
-New in this version (relative to version 04):
+New in this version (relative to version 05):
 - Hash table-based lookup for both labels and instructions (replacing linear table scan)
 - Scramble table for hash computation
 - Heap-based storage for hash table entries
@@ -64,5 +64,5 @@ Features Used in This Assembler's Source Code
 - BRK with inline error code and message string
 - Last 2 bytes of output used as entry point address
 
-New syntax used in source (relative to version 04):
+New syntax used in source (relative to version 05):
 - None

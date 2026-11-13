@@ -1,6 +1,6 @@
 # Plan: Unify Scope Stack with File Stack, then Move Macro Parameters to Activation Frames
 
-> Status: done (all phases, including the post-Phase-5 follow-ups, are checked off below). `SCOPE_STACK` is gone and macro parameters live in activation slots on the source stack (`17/source_stack.asm`, `17/label_scope.asm`). Kept as a design record; its memory-map and line references describe the pre-change layout. Current layout: `17/README`.
+> Status: done (all phases, including the post-Phase-5 follow-ups, are checked off below). `SCOPE_STACK` is gone and macro parameters live in activation slots on the source stack (`18/source_stack.asm`, `18/label_scope.asm`). Kept as a design record; its memory-map and line references describe the pre-change layout. Current layout: `18/README`.
 
 This is the implementation plan for two related changes:
 
@@ -23,8 +23,8 @@ macro-local label work into this plan).
 - After every commit: `./asmtestgen.sh` (full self-host verification) +
   `python3 run_tests.py -q` + `python3 editor/tests/editor_tests.py -q`
   (last only if editor touched, which it shouldn't be).
-- The source_stack component test suite (`17/tests/source_stack/`,
-  formerly `17/tests/file_stack/`) is the primary verification
+- The source_stack component test suite (`18/tests/source_stack/`,
+  formerly `18/tests/file_stack/`) is the primary verification
   surface for the stack refactors. Extend it early and lean on it.
 - Use `./commit -m"..."` not `git commit`.
 
@@ -119,7 +119,7 @@ Generic helpers:
   memory frame, or signal "none". Phase 4's parameter lookup is a
   single-frame access, but it must **skip past any file frames** on
   top — `.include` from inside a macro pushes a file frame above the
-  macro's memory frame, and asm17 today still resolves the macro's
+  macro's memory frame, and asm18 today still resolves the macro's
   params from inside that included file. (Sketch only — add when 4.6
   lands.)
 
@@ -318,7 +318,7 @@ Tasks:
 
 - **4.1** Verify the parameter scoping invariants are pinned down.
   Tests covering all four cases below have already been added to
-  `17/tests/asm/15-macros_advanced.txt` (passing under the current
+  `18/tests/asm/15-macros_advanced.txt` (passing under the current
   EXPANSION_ID-scoped hash); Phase 4 must keep them green.
     - *Shadowing* (`macro_inner_param_shadows_outer`): outer macro
       has `x`, inner has `x`, body of inner uses `x` — must resolve
@@ -363,7 +363,7 @@ Tasks:
   Add `ss_top_memory_frame` (a one-shot scan that returns the newest
   memory frame's address, or signals "none") and use it here.
 
-  **Scoping note**: this preserves asm17's current parameter scoping
+  **Scoping note**: this preserves asm18's current parameter scoping
   semantics. Today, `expand_macro` hashes parameters under the
   current `EXPANSION_ID`, so an inner macro's body sees only its own
   parameters and falls through to globals — outer-macro parameters
@@ -376,7 +376,7 @@ Tasks:
       identifiers in the included file still see the macro's
       params. `ss_top_memory_frame` is what makes this work after
       the migration -- it walks past any file frames on top to find
-      the innermost memory frame, matching asm17's behavior.
+      the innermost memory frame, matching asm18's behavior.
   (Switching to dynamic scoping where outer macros' params are
   visible is a separate language change and is **not** part of
   Phase 4.) Commit.
@@ -456,7 +456,7 @@ Each phase ends with:
 - [x] Phase 1 — rename (complete; file_stack.asm -> source_stack.asm,
   FILE_STACK -> SOURCE_STACK, FS_* -> SS_*, file_stack_* routines ->
   source_stack_* / push_file_source, pop_source alias dropped, test
-  artifacts moved into 17/tests/source_stack/, comments and README swept)
+  artifacts moved into 18/tests/source_stack/, comments and README swept)
 - [x] Phase 1.6 — pre-Phase-2 cleanup (complete; documented
   push_memory_source's parent-pointer-on-entry contract and noted it
   at the macro_expansion call site, tightened the source_stack.asm
@@ -521,7 +521,7 @@ Each phase ends with:
   verification test (macro_param_no_per_invocation_heap_leak: 30
   invocations under small_heap, would OOM pre-4.7); 4.10 reclaimed
   \$0500-\$05FF (no longer MACRO_ARG_BUF; documented as free in
-  asm.asm). Counts: 492 v17 asm tests, 55 source_stack; v17
+  asm.asm). Counts: 492 v18 asm tests, 55 source_stack; v18
   self-hosts; preexisting opendir readonly_file failure aside,
   every test green throughout.)
 - [x] Post-Phase-4 follow-up: macro-nesting / max-name tests + frame
@@ -538,14 +538,14 @@ Each phase ends with:
   prev_data scan (now starts at offset 5), ss_walk_frames_by_type,
   ss_top_memory_frame, errors.asm's SHOW_FRAME_NAME, and the
   source_stack test program's print_traceback / print_frame_callback.
-  494 v17 asm tests + 49 source_stack tests still green; self-host
+  494 v18 asm tests + 49 source_stack tests still green; self-host
   (asm.out == asm_2.out) verified.
 - [x] Phase 5 — cleanup (5.1 updated CLAUDE.md memory map: corrected
   TOKEN/LHASHTAB addresses, documented the freed $0400-$05FF regions,
   switched "file stack" / FS_P16 references to "source stack" / SS_P16,
   noted the frame_size-driven O(1) walk; 5.2 BOOTSTRAP-OVERVIEW only
-  references "file stack" historically in the v08 milestone row, no
-  edit needed; 5.3 swept 17/README-BOOTSTRAP -- removed
+  references "file stack" historically in the v09 milestone row, no
+  edit needed; 5.3 swept 18/README-BOOTSTRAP -- removed
   LABEL_TYPE_MACRO from the constants list, reworded recursion
   detection from "walking scope stack" to "walking the source-stack
   chain", added a line about parameters living as activation slots;
@@ -595,8 +595,8 @@ Each phase ends with:
     so deleted from source_stack.asm. ss_walk_frames stays -- the
     test program's print_frames mode still uses it.
   Step 5: refreshed CLAUDE.md memory map (\$0690 now free) and
-    17/README sections on macro definition / expansion / source
+    18/README sections on macro definition / expansion / source
     stack to describe the new push-after-write flow, the count-byte
     def layout, and MACRO_LOOKUP_FRAME16 as the lookup anchor.
-    494/494 v17 asm tests, both regular and debug self-host clean
+    494/494 v18 asm tests, both regular and debug self-host clean
     throughout.

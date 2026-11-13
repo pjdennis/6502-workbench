@@ -2,7 +2,7 @@
 
 Bootstrap chain for a Prog8 compiler that self-hosts on the emulator
 (p1, byte-identical to host p8c; also on banked Wendy 2), mirroring the
-asm00..asm17 chain (`../asm/`). `upstream/` ports p1 to upstream Prog8
+asm00..asm18 chain (`../asm/`). `upstream/` ports p1 to upstream Prog8
 and adds the wendy2 banking targets.
 
 **Companion documents** (plus the design/plan docs linked from `PLAN.md`):
@@ -279,7 +279,7 @@ See [`PLAN.md`](./PLAN.md) for the phase map.
     `p8s_` and `p8c_str_*`.
   * Default load address is `$4000` -- matches every existing
     serial-upload demo (`hello_ram_4000_wendy2c.s` etc).
-  * Emitted .s uses asm17-compatible syntax that is also accepted by
+  * Emitted .s uses asm18-compatible syntax that is also accepted by
     `vasm6502_oldstyle`. Phase 1 assembles with vasm for iteration
-    speed; swapping in the on-host assembler (`../asm/17`) is the subject of
+    speed; swapping in the on-host assembler (`../asm/18`) is the subject of
     [`ASM_MIGRATION_PLAN.md`](./ASM_MIGRATION_PLAN.md).

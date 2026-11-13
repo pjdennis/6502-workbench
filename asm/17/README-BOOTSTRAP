@@ -1,14 +1,14 @@
-Assembler Version 16
+Assembler Version 17
 ====================
-Assembled by: version 15 debug build (asm_debug.out with define:enable_debug)
+Assembled by: version 16 debug build (asm_debug.out with define:enable_debug)
 
-Build notes: The v15 debug build is used because v16 source uses
-.ifdef enable_debug conditional compilation, which requires v15 support.
-Version 16 also produces both normal and debug builds.
+Build notes: The v16 debug build is used because v17 source uses
+.ifdef enable_debug conditional compilation, which requires v16 support.
+Version 17 also produces both normal and debug builds.
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 15, plus .byte/.word/.asciiz directives,
+All features from version 16, plus .byte/.word/.asciiz directives,
 .reserve, decimal numbers, memory protection, and enhanced conditional
 assembly:
 
@@ -69,7 +69,7 @@ Error handling: reorganized error codes into categories, plus new errors:
 - err_nested_macro_definition ($1B): Nested .macro inside .macro
 - Error codes reorganized: usage errors at $F0-$F1, debug at $FE-$FF
 
-New in this version (relative to version 15):
+New in this version (relative to version 16):
 - .byte, .word, .asciiz directives with comma-separated values
   - DATA_MODE tracking (0=.data, 1=.byte, 2=.word, 3=.asciiz)
   - Comma-separated data values in .byte, .word, .asciiz
@@ -113,7 +113,7 @@ Features Used in This Assembler's Source Code
 - .ifdef enable_debug / .endif conditional compilation
 - Macro invocations (SET16, CP16, INC16, DEC16, etc.)
 
-New syntax used in source (relative to version 15):
+New syntax used in source (relative to version 16):
 - Colon after label definitions (label:) - first version using
   colon-terminated labels
 - Macro invocations (SET16, CP16, INC16, DEC16, CMP16, CMPI16,

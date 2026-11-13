@@ -4,7 +4,7 @@ Host-side tools. Run them from the repository root unless noted.
 
 | Path | What it does |
 |---|---|
-| `build_all.sh` | Builds the main tools, so the scripts that use them work (e.g. `editor/bin/editor.sh` and `editor-michael-upload.sh`): `emulator`, `asm` (the chain up to asm17, via `asmtestgen.sh`) and `editor` (its stable builds, written once its tests pass), all or the ones named. About 30 seconds. |
+| `build_all.sh` | Builds the main tools, so the scripts that use them work (e.g. `editor/bin/editor.sh` and `editor-michael-upload.sh`): `emulator`, `asm` (the chain up to asm18, via `asmtestgen.sh`) and `editor` (its stable builds, written once its tests pass), all or the ones named. About 30 seconds. |
 | `check_all.sh` | Runs the regression suites `firmware`, `asm`, `editor` and `emulator`, or the ones named; the slow `prog8` suite runs only when named. CI runs all five. |
 | `firmware_manifest.py` | Firmware regression check: assembles every program and compares hashes with `firmware/manifest.txt` (see `firmware/README.md`). Tests in `tests/`. |
 | `upload/upload_frame.py [--load-address=HEX] [--start=HEX] FILE OUT` | The upload formats (see its docstring). As a command, writes FILE (binary, or S-records `.s19`) as a format 3 upload, as it goes on the wire, e.g. for the emulator's `--serial-input`. |

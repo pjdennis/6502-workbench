@@ -58,7 +58,7 @@ programs, starting the `--web` server, opening the page).
 
 `terminal_tests.py` (`--terminal` mode, serial I/O, `wait_ready`) and
 `emulator_tests.py` (file ports, arguments, `--direct-io`, `--strict-api`)
-assemble the `*.asm` files here with `asm/17/out/asm.out` (`make -C asm`
+assemble the `*.asm` files here with `asm/18/out/asm.out` (`make -C asm`
 or `tools/build_all.sh`) and run them through `../persistent_emulator.py`.
 `sigtstp_test.py` (Ctrl-Z / `fg` redraw in terminal mode) uses
 `sigtstp_test.asm` and is not wired into `make test` or `check_all`; run

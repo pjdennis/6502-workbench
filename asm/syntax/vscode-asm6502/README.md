@@ -1,6 +1,6 @@
-# 6502 Assembly Syntax Highlighting (asm17)
+# 6502 Assembly Syntax Highlighting (asm18)
 
-VS Code syntax highlighting for the asm17 6502 assembler dialect.
+VS Code syntax highlighting for the asm18 6502 assembler dialect.
 
 ## Features
 

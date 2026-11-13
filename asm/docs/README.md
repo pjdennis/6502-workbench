@@ -1,6 +1,6 @@
 # asm/docs
 
-Design notes and plans from the development of stage 17. They are design records: the narrative is kept even after the work is done, so line numbers and memory maps inside them may be out of date. The current layout is in [`../17/README`](../17/README).
+Design notes and plans from the development of stage 18. They are design records: the narrative is kept even after the work is done, so line numbers and memory maps inside them may be out of date. The current layout is in [`../18/README`](../18/README).
 
 | File | Status |
 |---|---|

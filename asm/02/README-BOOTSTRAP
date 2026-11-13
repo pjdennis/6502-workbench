@@ -1,6 +1,6 @@
-Assembler Version 01
+Assembler Version 02
 ====================
-Assembled by: Version 00b
+Assembled by: Version 01
 
 Features Supported by This Assembler
 -------------------------------------
@@ -41,9 +41,9 @@ Error handling:
 Semicolon comments (to end of line).
 Output starts at $2000 (hardcoded).
 
-New in this version (relative to version 00b):
+New in this version (relative to version 01):
 - Non-standard 6502 instruction mnemonics with built-in instruction table
-- Labels with whole names (00b keeps only the first character), found by
+- Labels with whole names (01 keeps only the first character), found by
   linear search
 - Label references as 16-bit operands of instructions
 - Hex operands ($XXXX as well as $XX), with automatic 1 or 2 byte emission
@@ -51,15 +51,15 @@ New in this version (relative to version 00b):
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source is written for version 00b. Each 6502 instruction is a DATA
+The source is written for version 01. Each 6502 instruction is a DATA
 line of hex bytes, commented with its mnemonic; jump and subroutine targets
 are labels, and the instruction mnemonic table and error messages are
 strings. Branch offsets are still counted by hand.
 
-Labels are named after version 02's, behind a first character that tells
-them apart, since 00b keeps only that character (f_findintab, t_readtoken).
-01 and 02 compare whole names; asmtestgen.sh checks that they assemble this
-source to the same bytes as 00b.
+Labels are named after version 03's, behind a first character that tells
+them apart, since 01 keeps only that character (f_findintab, t_readtoken).
+02 and 03 compare whole names; asmtestgen.sh checks that they assemble this
+source to the same bytes as 01.
 
 Source features used:
   - DATA $XX $XX ... (hex bytes)
@@ -67,8 +67,8 @@ Source features used:
   - Labels at column 0, and label references in DATA
   - Semicolon comments (documenting the intended mnemonics)
 
-New source features (relative to version 00b, whose source is hex bytes):
+New source features (relative to version 01, whose source is hex bytes):
 - Labels at column 0, and label references in DATA
 - Strings in DATA
 Until 2026-11 this source was hex bytes only, for version 00. It was
-rewritten for 00b, with the binary unchanged.
+rewritten for the new version 01, with the binary unchanged.

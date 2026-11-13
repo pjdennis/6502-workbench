@@ -1,19 +1,19 @@
-Assembler Version 12
+Assembler Version 13
 ====================
-Assembled by: version 11 (both instgen and asm)
+Assembled by: version 12 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-Same features as version 11. No new assembler capabilities. The significance
+Same features as version 12. No new assembler capabilities. The significance
 of this version is that the source code itself is rewritten in standard 6502
-syntax, taking advantage of version 11's standard syntax support.
+syntax, taking advantage of version 12's standard syntax support.
 
-Version 12 produces binary-identical output to version 11 for any given input.
+Version 13 produces binary-identical output to version 12 for any given input.
 This is the bootstrap chain's standard syntax migration: two implementations
-(non-standard source assembled by v10, standard source assembled by v11)
+(non-standard source assembled by v11, standard source assembled by v12)
 producing the same binary.
 
-Syntax (standard 6502 - same as version 11):
+Syntax (standard 6502 - same as version 12):
 - Standard 6502 mnemonic syntax: LDA #$42, STA $00, LDA ($10),Y, etc.
 - Automatic addressing mode detection from operand syntax
 - Automatic zero page detection: operand < $100 uses zero page mode
@@ -37,13 +37,13 @@ Directives:
 - .zeropage - switches to zero page section
 - .code - switches back to code section
 
-Full 6502 instruction set: same as version 11 (56 opcodes plus DATA pseudo)
+Full 6502 instruction set: same as version 12 (56 opcodes plus DATA pseudo)
 
-Error handling: same as version 11 (errors 1-12, 13, 16)
+Error handling: same as version 12 (errors 1-12, 13, 16)
 
-New in this version (relative to version 11):
+New in this version (relative to version 12):
 - No new assembler features. The assembler produces binary-identical output
-  to version 11 for any given input.
+  to version 12 for any given input.
 - This version exists solely as a source code migration: the assembler's own
   source is rewritten from non-standard to standard 6502 syntax.
 
@@ -79,7 +79,7 @@ Features Used in This Assembler's Source Code
 - Command-line arg access: argc, argv
 - File I/O: open, close, read, openout, write
 
-New syntax used in source (relative to version 11):
+New syntax used in source (relative to version 12):
 - Standard 6502 mnemonic syntax replaces non-standard syntax throughout.
   This is a major milestone: from this version forward, all source code
   uses standard assembly syntax.
@@ -91,4 +91,4 @@ Other source changes:
 - All included modules (common.asm, hash_table.asm, file_stack.asm,
   to_decimal.asm) also rewritten in standard syntax
 - instgen.asm rewritten in standard syntax but generates the same
-  instruction table format as version 11
+  instruction table format as version 12

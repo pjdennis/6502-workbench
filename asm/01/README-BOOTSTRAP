@@ -1,11 +1,13 @@
-Assembler Version 00b
+Assembler Version 01
 =====================
 Assembled by: Version 00
 
 Features Supported by This Assembler
 -------------------------------------
-A stage between 00 and 01: DATA directives with labels and strings, in the
-same syntax as version 01, so its input is also valid input for 01 and 02.
+DATA directives with labels and strings, in the same syntax as version 02,
+so its input is also valid input for 02 and 03. It was added in 2026-11,
+between the stages then numbered 00 and 01, and the later stages were
+renumbered.
 Labels are single characters, which needs no token buffer, no compare and
 no search: a label's character, doubled, indexes a table of addresses.
 
@@ -19,16 +21,16 @@ no search: a label's character, doubled, indexes a table of addresses.
     of the line is ignored.
   - Only the first character of a name counts, both where it is defined and
     where it is used, so names must differ in their first character. A
-    name in DATA ends at a space or the end of the line, as in 01.
+    name in DATA ends at a space or the end of the line, as in 02.
   - The table is at $3000, two bytes per character at offset 2 * character.
     A high byte of zero means undefined (labels are always at $2000 or
     above).
   - Forward references are NOT supported (single-pass)
-- Semicolon comments (to end of line). Whitespace is spaces only, as in 01.
+- Semicolon comments (to end of line). Whitespace is spaces only, as in 02.
 - Output starts at $2000 (hardcoded). The source's last two bytes are the
   reset vector.
 
-Error handling (BRK with an exit code and message, as in version 01):
+Error handling (BRK with an exit code and message, as in version 02):
   - Error 01: Duplicate label (including two names with the same first
     character)
   - Error 02: Opcode not found (an indented line that does not start with D)

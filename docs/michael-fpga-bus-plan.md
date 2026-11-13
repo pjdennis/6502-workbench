@@ -467,7 +467,7 @@ In text mode `DISP_COMMAND` and `DISP_DATA` are ignored, and set `UNKNOWN`; `DIS
 
 Settled in stage 3 ([`rtl/text_grid.v`](../hardware/michael/fpga/rtl/text_grid.v),
 [`rtl/text_render.v`](../hardware/michael/fpga/rtl/text_render.v)). They mirror the editor's screen calls
-(`asm/17/environment.asm`, `scr_*`), so the ROM's graphic services are a thin translation, and they behave as
+(`asm/18/environment.asm`, `scr_*`), so the ROM's graphic services are a thin translation, and they behave as
 the ROM's screen on the LCD does ([`lcd_screen.inc`](../firmware/lib/lcd/lcd_screen.inc)), so the editor sees
 the same screen on either display. The model they're tested against is
 [`text/text_screen.py`](../hardware/michael/fpga/text/text_screen.py), itself checked against `lcd_screen.inc`.

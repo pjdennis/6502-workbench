@@ -98,7 +98,7 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--lcd-trace <path>` | wendy2c, michael: append an LCD frame to the file each time the LCD changes |
 | `--lcd-panel <type>` | wendy2c: `16x2` (default) or `16x1-5x10` render layout |
 | `--show-repaints` | debug: flash repainted cells in `--console` / `--terminal` |
-| `--strict-api` | test hook: each `$F006` call keeps only what its contract (`asm/17/environment.asm`) says. The flags it does not return come back inverted, and the screen calls change A and Y, so a program that relies on more fails its tests here rather than on a board. The server takes it as `API strict` / `API standard` |
+| `--strict-api` | test hook: each `$F006` call keeps only what its contract (`asm/18/environment.asm`) says. The flags it does not return come back inverted, and the screen calls change A and Y, so a program that relies on more fails its tests here rather than on a board. The server takes it as `API strict` / `API standard` |
 
 ## wendy2c demo
 

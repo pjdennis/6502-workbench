@@ -1,10 +1,10 @@
-Assembler Version 08
+Assembler Version 09
 ====================
-Assembled by: version 07 (both instgen and asm)
+Assembled by: version 08 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 07, plus .include directive, file I/O, file stack,
+All features from version 08, plus .include directive, file I/O, file stack,
 and an expanded instruction set:
 
 Syntax:
@@ -26,18 +26,18 @@ Syntax:
 Directives:
 - .include filename - includes contents of another file at current position
 
-Instruction set (expanded from version 07):
-  Same as version 06/07, plus:
+Instruction set (expanded from version 08):
+  Same as version 08/07, plus:
   CPXZ, CPYZ, DEY, LDXZ, LDYZ, STXZ, STYZ
 
-Error handling: same errors as version 07 (errors 1-A), plus:
+Error handling: same errors as version 08 (errors 1-A), plus:
 - Unknown directive (error B)
 - Filename expected (error C)
 - No file open (error E): attempt to read with no file open
 - Error messages now include filename when inside an included file
 - Format: "Error N in file F at line M: message"
 
-New in this version (relative to version 07):
+New in this version (relative to version 08):
 - .include directive: includes contents of another assembly file
 - File stack: saves/restores file handle, line number, and filename when
   entering/leaving included files
@@ -71,7 +71,7 @@ Features Used in This Assembler's Source Code
 - File I/O operations: open, close, read
 - File stack operations (push/pop)
 
-New syntax used in source (relative to version 07):
+New syntax used in source (relative to version 08):
 - None
 
 Other source changes:

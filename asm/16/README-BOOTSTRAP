@@ -1,14 +1,14 @@
-Assembler Version 15
+Assembler Version 16
 ====================
-Assembled by: version 14 (asm and debug build both assembled by v14)
+Assembled by: version 15 (asm and debug build both assembled by v15)
 
 Build notes: This version produces both a normal build (asm.out) and a
 debug build (asm_debug.out) using define:enable_debug. The debug build
-is used to assemble version 16.
+is used to assemble version 17.
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 14, plus macros, shift operators, and label
+All features from version 15, plus macros, shift operators, and label
 scope management:
 
 Syntax:
@@ -59,7 +59,7 @@ Label scope:
 - push_label_scope / pop_label_scope / init_scope_stack / reset_scope_stack
 - Scope stack bounds check (err_macro_nesting_too_deep)
 
-Error handling: same as version 14, plus:
+Error handling: same as version 15, plus:
 - err_expected_shift ($1A): Expected << or >>
 - err_macro_name_expected ($1B): .macro without name
 - err_macro_shadows_instruction ($1C): Macro name conflicts with instruction
@@ -73,7 +73,7 @@ Error handling: same as version 14, plus:
 - Include traceback shows file inclusion chain on errors
 - err_fwdref_tracking now conditional (debug build only)
 
-New in this version (relative to version 14):
+New in this version (relative to version 15):
 - << and >> shift operators in expressions
   - parse_term_with_selector for shift count parsing
   - Added <, >, :, = as token terminators in compare_end_of_token
@@ -120,7 +120,7 @@ Features Used in This Assembler's Source Code
 - .zeropage and .code directives
 - .ifdef enable_debug / .endif conditional compilation
 
-New syntax used in source (relative to version 14):
+New syntax used in source (relative to version 15):
 - .ifdef/.endif conditional assembly (first version where source uses
   conditional compilation)
 - define:enable_debug command-line argument for debug builds

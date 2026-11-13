@@ -8,7 +8,7 @@ Entry points (A, X, Y are preserved unless a file says otherwise):
 - `clear_display`, `move_cursor`, `display_space`, `display_cursor_on/off` (`display_update_helpers.inc`)
 - `display_string` (A, X = address), `display_string_immediate` (string follows the `jsr`), `display_hex`, `display_hex_indirect`, `display_decimal`, `display_binary`
 - `extend_character_set.inc`: with `EXTEND_CHARACTER_SET` defined, `display_character` also shows characters the panel lacks by loading custom glyphs.
-- `lcd_screen.inc`: a character screen kept in RAM and flushed to the LCD (the `scr_*` calls of `asm/17/environment.asm`); used by the Michael ROM services.
+- `lcd_screen.inc`: a character screen kept in RAM and flushed to the LCD (the `scr_*` calls of `asm/18/environment.asm`); used by the Michael ROM services.
 - `display_parameters.inc`: HD44780 command constants.
 
 Temporary parameters (e.g. `DISPLAY_STRING_PARAM`, `D_S_I_P`) are zero-page locations the program defines.

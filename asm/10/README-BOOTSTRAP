@@ -1,10 +1,10 @@
-Assembler Version 09
+Assembler Version 10
 ====================
-Assembled by: version 08 (both instgen and asm)
+Assembled by: version 09 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 08, plus section directives, command-line arguments,
+All features from version 09, plus section directives, command-line arguments,
 parameterized hash table module, and modular source organization:
 
 Syntax:
@@ -30,13 +30,13 @@ Directives:
 - .zeropage - switches to zero page section (new)
 - .code - switches back to code section (new)
 
-Instruction set: same as version 08, plus:
+Instruction set: same as version 09, plus:
 - ASLZ (ASL zero-page)
 
-Error handling: same errors as version 08 (errors 1-E), plus:
+Error handling: same errors as version 09 (errors 1-E), plus:
 - Usage error (error D): wrong number of command-line arguments
 
-New in this version (relative to version 08):
+New in this version (relative to version 09):
 - .zeropage and .code section directives: allows defining zero page variables
   separately from code, with automatic PC save/restore between sections
 - IN_ZEROPAGE flag: suppresses code output during zero page section
@@ -70,7 +70,7 @@ Features Used in This Assembler's Source Code
 - File stack operations (push/pop) for .include handling
 - Command-line arg access: argc, argv
 
-New syntax used in source (relative to version 08):
+New syntax used in source (relative to version 09):
 - .include directive (first version to use .include in its own source,
   including environment.asm, common.asm, and out/inst.asm.out)
 

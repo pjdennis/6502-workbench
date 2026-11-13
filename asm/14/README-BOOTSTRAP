@@ -1,10 +1,10 @@
-Assembler Version 13
+Assembler Version 14
 ====================
-Assembled by: version 12 (both instgen and asm)
+Assembled by: version 13 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 12, plus expression evaluation, .data directive,
+All features from version 13, plus expression evaluation, .data directive,
 expression-aware forward reference propagation, and error module extraction:
 
 Syntax:
@@ -21,7 +21,7 @@ Syntax:
 - Expression evaluation with + and - operators (left-to-right, no precedence)
 - Mixed expressions: hex, labels, and character literals (e.g., '9'-'0'+$01)
 - Comments with semicolons
-- Two-pass assembly with forward reference tracking (from version 12)
+- Two-pass assembly with forward reference tracking (from version 13)
 - Automatic zero page vs absolute addressing based on value
 
 Directives:
@@ -30,11 +30,11 @@ Directives:
 - .code - switch to code section
 - .data - declare raw byte data (new)
 
-Error handling: same as version 12 (errors $01-$12, $13, $16), plus:
+Error handling: same as version 13 (errors $01-$12, $13, $16), plus:
 - err_invalid_operand ($14): invalid operand in expression
 - err_unexpected_text ($15): unexpected text after operand
 
-New in this version (relative to version 12):
+New in this version (relative to version 13):
 - Expression evaluation with + and - operators
   - parse_term: parses a single value ($hex, 'char', label)
   - parse_expression: chains terms with + and - operators
@@ -44,7 +44,7 @@ New in this version (relative to version 12):
   - Forward references propagate through expressions (if any term is forward
     ref, entire expression is treated as forward ref via EXPR_FWDREF)
 - Extended forward reference tracking for expressions
-  - Version 12 introduced basic forward ref tracking for single label operands;
+  - Version 13 introduced basic forward ref tracking for single label operands;
     this version extends IS_FWDREF propagation to multi-term expressions
   - EXPR_FWDREF accumulates forward reference status across expression terms
 - .data directive: new directive form for raw byte data
@@ -74,14 +74,14 @@ Features Used in This Assembler's Source Code
   errors.asm, fwdref.asm)
 - .zeropage and .code directives
 
-New syntax used in source (relative to version 12):
+New syntax used in source (relative to version 13):
 - None (source uses DATA pseudo-instruction, not the new .data directive,
-  because it is assembled by version 12 which does not support .data)
+  because it is assembled by version 13 which does not support .data)
 
 Note: the source does NOT use expression evaluation (no + or - operators
 in operands). Expressions are a feature this assembler SUPPORTS for programs
-it assembles. Version 14 is the first version whose source uses expressions,
-since it is assembled by version 13.
+it assembles. Version 15 is the first version whose source uses expressions,
+since it is assembled by version 14.
 
 Other source changes:
 - errors.asm module extracted (error messages, interrupt handler, show_message,

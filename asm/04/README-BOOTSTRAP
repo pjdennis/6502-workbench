@@ -1,6 +1,6 @@
-Assembler Version 03
+Assembler Version 04
 ====================
-Assembled by: Version 02
+Assembled by: Version 03
 
 Features Supported by This Assembler
 -------------------------------------
@@ -9,7 +9,7 @@ selectors for extracting the low or high byte of a label's value. These
 features lay the groundwork for the next version to use named zero-page
 variables and set the program origin.
 
-Instruction mnemonics (expanded from version 02):
+Instruction mnemonics (expanded from version 03):
   ADC# ADCZ ASLA BCC BCS BEQ BNE BRK CLC CMPZ,X CMP# CMP,Y DEY INCZ INX
   INY JMP JSR LDAZ LDA# LDA(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SBCZ SEC
   STA STA(),Y STAZ STAZ,X TYA
@@ -47,7 +47,7 @@ Error handling:
 Semicolon comments (to end of line).
 Output starts at $2000 (hardcoded in source).
 
-New in this version (relative to version 02):
+New in this version (relative to version 03):
 - < (low byte) selector for label operands
 - > (high byte) selector for label operands
 - label = $XXXX constant assignments
@@ -59,14 +59,14 @@ New in this version (relative to version 02):
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source uses the same feature set as version 02 provides. Despite adding
+The source uses the same feature set as version 03 provides. Despite adding
 < and > byte selectors and label = $XXXX assignments, the source itself does
 not use these new features. Zero-page variables are still referenced by raw
 hex addresses (e.g., $02 instead of <TABL), and constants are listed as
 comments rather than actual assignments.
 
 Source features used:
-  - Non-standard instruction mnemonics (from version 02's table)
+  - Non-standard instruction mnemonics (from version 03's table)
   - Labels at column 0 for code locations
   - Label references as 16-bit operands
   - DATA directive with hex bytes and string literals
@@ -75,9 +75,9 @@ Source features used:
   - Semicolon comments
   - Branch targets as hardcoded hex offsets
 
-New syntax used in source (relative to version 02):
+New syntax used in source (relative to version 03):
 - Character escape literals used directly in instruction operands
   (e.g., CMP# "\n" instead of CMP# $0A, CMP# "\\" instead of CMP# $5C,
-  CMP# "\"" instead of CMP# $22). While technically supported by version 01
+  CMP# "\"" instead of CMP# $22). While technically supported by version 02
   as string operands, this is the first version to use them extensively in
   instruction operands for readability.

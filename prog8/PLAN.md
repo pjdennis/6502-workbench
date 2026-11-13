@@ -15,7 +15,7 @@ language-surface checklist, see [`README.md`](./README.md).
 
 * [`ASM_MIGRATION_PLAN.md`](./ASM_MIGRATION_PLAN.md) -- gap analysis +
   plan for swapping vasm out for the in-tree on-host assembler
-  (`asm/17/`), so pass 1 + pass 2 + assembler all run on target.
+  (`asm/18/`), so pass 1 + pass 2 + assembler all run on target.
 * [`CODEGEN_SIZE_COMPARISON.md`](./CODEGEN_SIZE_COMPARISON.md) -- measured
   p8c vs. upstream prog8 binary sizes (p8c emits ~1.5-1.65x the code).
 * [`CODEGEN_LOW_HANGING_FRUIT.md`](./CODEGEN_LOW_HANGING_FRUIT.md) -- ranked
@@ -38,7 +38,7 @@ session, update `RESUME_NOTES.md`.
 ## Goal -- *** REACHED (2026-06) ***
 
 Bring up a Prog8 compiler that runs natively on the 6502, mirroring
-the asm00..asm17 bootstrap pattern. The end-state is:
+the asm00..asm18 bootstrap pattern. The end-state is:
 
 * A Prog8 compiler whose source is itself written in Prog8.
 * It compiles its own source on a 6502 (in our case, in the
@@ -57,7 +57,7 @@ the same normalization the snapshot tests use). The monolith p1.p8
 didn't fit one 64 KB binary (front-end ~22 KB + codegen ~33 KB +
 program-wide arenas ~15 KB), so the front-end and back-end were split
 across two passes that exchange the AST through a file -- the same
-<=64 KB pipeline pattern as the asm00..asm17 chain. See RESUME_NOTES.md
+<=64 KB pipeline pattern as the asm00..asm18 chain. See RESUME_NOTES.md
 for the closing fixes (str_pool transient overflow, binop word-typing,
 byte-context binop array index, single-arg call high-byte store).
 
@@ -297,7 +297,7 @@ Original plan:
 3. Verification gates:
    * **Binary equivalence**: `p0(p1.p8) == p1(p1.p8)` after
      re-running through the same downstream assembler. The
-     classic asm17 self-host check, in 6502-Prog8 form.
+     classic asm18 self-host check, in 6502-Prog8 form.
    * **Output equivalence on a test corpus**: for every
      `.p8` in a curated set, p0's output equals p1's output.
    * **End-to-end golden runs**: each corpus `.p8` compiled by p1
@@ -305,7 +305,7 @@ Original plan:
 
 ### Phase 8 -- Chain growth `[not started; superseded in practice]`
 
-Mirror the asm00..asm17 chain. `p2.p8` adds features that `p1`
+Mirror the asm00..asm18 chain. `p2.p8` adds features that `p1`
 couldn't express, compiled by `p1`. `p3.p8` adds more, compiled by
 `p2`. Etc. Each stage:
 

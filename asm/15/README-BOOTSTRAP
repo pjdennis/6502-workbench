@@ -1,10 +1,10 @@
-Assembler Version 14
+Assembler Version 15
 ====================
-Assembled by: version 13 (both instgen and asm)
+Assembled by: version 14 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 13, plus conditional assembly and variable
+All features from version 14, plus conditional assembly and variable
 argument count:
 
 Syntax:
@@ -36,7 +36,7 @@ Command line:
 - Variable argument count (2 or more arguments)
 - define:label - pre-define a label with value $0001 (new)
 
-Error handling: same as version 13, plus:
+Error handling: same as version 14, plus:
 - err_endif_without_ifdef ($17): .endif without matching .ifdef
 - err_unclosed_ifdef ($18): missing .endif at end of file
 - err_label_expected ($19): .ifdef without label name
@@ -44,7 +44,7 @@ Error handling: same as version 13, plus:
 - err_conditional_nesting_too_deep ($1B): exceeds 16 nesting levels
 - err_invalid_arg ($10): replaces err_invalid_debug_arg with generic message
 
-New in this version (relative to version 13):
+New in this version (relative to version 14):
 - Conditional assembly with .ifdef/.endif
   - COND_DEPTH tracks nesting depth
   - SKIP_DEPTH records depth where skipping started
@@ -83,7 +83,7 @@ Features Used in This Assembler's Source Code
 - .include directive
 - .zeropage and .code directives
 
-New syntax used in source (relative to version 13):
+New syntax used in source (relative to version 14):
 - .data directive replaces DATA pseudo-instruction throughout
   (first version whose source uses .data)
 - Expression evaluation with + operator in constant definitions

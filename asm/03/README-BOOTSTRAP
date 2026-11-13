@@ -1,16 +1,16 @@
-Assembler Version 02
+Assembler Version 03
 ====================
-Assembled by: Version 01
+Assembled by: Version 02
 
 Features Supported by This Assembler
 -------------------------------------
-This version is a clean rewrite of version 01 in version 01's own mnemonic
-syntax. It supports the same feature set as version 01: non-standard 6502
+This version is a clean rewrite of version 02 in version 02's own mnemonic
+syntax. It supports the same feature set as version 02: non-standard 6502
 mnemonics, labels, DATA directive, and operand types. The main improvement
 is that the source code is now human-readable assembly rather than raw hex
 DATA bytes.
 
-Instruction mnemonics (same set as version 01):
+Instruction mnemonics (same set as version 02):
   ADC# ADCZ ASLA BCC BCS BEQ BNE BRK CLC CMPZ,X CMP# CMP,Y DEY INCZ INX
   INY JMP JSR LDAZ LDA# LDA(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SEC STA
   STA(),Y STAZ STAZ,X TYA
@@ -41,20 +41,20 @@ Error handling:
 Semicolon comments (to end of line).
 Output starts at $2000 (hardcoded).
 
-New in this version (relative to version 01):
+New in this version (relative to version 02):
 - No new assembler features. This version has identical capabilities to
-  version 01. The value is in the source code migration: the assembler is
+  version 02. The value is in the source code migration: the assembler is
   now written in its own mnemonic syntax rather than raw hex bytes,
   making it maintainable and extensible for future versions.
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source uses version 01's mnemonic syntax throughout, replacing the hex
-DATA bytes of version 01's source. This is the first version whose
+The source uses version 02's mnemonic syntax throughout, replacing the hex
+DATA bytes of version 02's source. This is the first version whose
 source code is human-readable 6502 assembly.
 
 Source features used:
-  - Non-standard instruction mnemonics (from version 01's table)
+  - Non-standard instruction mnemonics (from version 02's table)
   - Labels at column 0, bound to current program counter
   - Label references as 16-bit operands in instructions and DATA
   - DATA directive with hex bytes and string literals
@@ -63,10 +63,10 @@ Source features used:
   - Semicolon comments
   - Branch targets as hardcoded hex offsets (e.g., BNE $06, BEQ $03)
 
-New syntax used in source (relative to version 01):
+New syntax used in source (relative to version 02):
 - Non-standard instruction mnemonics (LDAZ, LDA#, STAZ, CMP#, etc.)
   instead of raw hex DATA bytes
-- Whole label names (01's source, written for 00b, has names that differ
+- Whole label names (02's source, written for 01, has names that differ
   in their first character)
 - Label references in instruction operands (e.g., JSR read, JMP lnloop)
-  instead of DATA (01's source has DATA $20 r_read)
+  instead of DATA (02's source has DATA $20 r_read)

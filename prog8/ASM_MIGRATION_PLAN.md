@@ -54,7 +54,7 @@ dependency by switching to the in-tree assembler.
 `p8c` emits assembly that is deliberately a subset of *both*
 `vasm6502_oldstyle` and the in-tree assembler -- see the header comment in
 `p8c/codegen.py:3-5` ("a strict subset of both vasm6502_oldstyle and
-asm17, so we can iterate with vasm during development and switch ...").
+asm18, so we can iterate with vasm during development and switch ...").
 
 Invocation today (`p8c/__main__.py:45-60`, `prog8/verify.sh:15-19`):
 
@@ -67,7 +67,7 @@ vasm6502_oldstyle -wdc02 -wfail -Fbin -dotdir -ignore-mult-inc -esc \
 
 The self-hosted assembler lives in `asm/`, one directory per bootstrap
 stage `00/` .. `17/`. **The latest and most capable version is
-`asm/17/`** (asm17).
+`asm/18/`** (asm18).
 It is a two-pass, self-hosting 6502 assembler with hash-table symbol
 storage, macros, conditional assembly, and an expression evaluator. The
 migration target is `17/`.
@@ -80,7 +80,7 @@ emulator/emulator.out <asm.out> --load 2000 --input source.s --output out.bin
 ```
 
 where `<asm.out>` is the assembled assembler binary produced by the chain
-(`asm/17/out/asm.out` after a full `asmtestgen.sh` run; the chain
+(`asm/18/out/asm.out` after a full `asmtestgen.sh` run; the chain
 proves it by self-assembly).
 
 ## 3. What p8c actually emits (the assembler-feature requirements)
@@ -111,13 +111,13 @@ macros, conditional assembly, `.align`/`.fill`. All compile-time
 arithmetic (struct offsets, `<label`/`>label` of array elements, etc.)
 is folded by codegen before emission.
 
-## 4. asm17 (`asm/17/`) capabilities vs. those requirements
+## 4. asm18 (`asm/18/`) capabilities vs. those requirements
 
 Verified against `17/directives.asm`, `17/expressions.asm`,
 `17/instruction_tables.asm`, `17/labels.asm`, `17/from_decimal.asm`,
 `17/forward_ref.asm`, and the `17/tests/` corpus.
 
-| Req | asm17 support | Verdict |
+| Req | asm18 support | Verdict |
 |---|---|---|
 | R1 origin | **`* = $addr` only** -- there is no `.org` directive | **GAP-A** |
 | R2 `.byte` comma/decimal/hex/strings + `,0` | `.byte` with comma-separated mixed decimal/hex/string operands (directives.asm:36,104,257-264) | OK |
@@ -147,9 +147,9 @@ Preferred approach: change **codegen**, leave the assembler untouched.
 ### GAP-A -- `.org` -> `* =`
 `vasm6502_oldstyle` accepts `* = $addr` for PC assignment, so emitting
 that form instead of `.org` loses nothing on the vasm side and gains
-asm17. Four emission sites in `codegen.py` (prologue x2, string-pool
+asm18. Four emission sites in `codegen.py` (prologue x2, string-pool
 reloc, reset-vector). Trivial.
-Alternative (rejected): add `.org` as an alias in asm17's directive
+Alternative (rejected): add `.org` as an alias in asm18's directive
 table -- more invasive, and forks the assembler's own dialect.
 
 ### GAP-B -- `bcc *+3` -> labeled skip
@@ -162,7 +162,7 @@ with a generated unique local label:
 .Lskip_N:
 ```
 
-vasm-compatible and asm17-compatible. One small codegen edit.
+vasm-compatible and asm18-compatible. One small codegen edit.
 
 ### GAP-C -- `bra` halt (wendy2c target only)
 Not on the nmos self-host critical path. When/if the wendy2c target is
@@ -171,19 +171,19 @@ brought onto the on-host assembler, replace `bra .Lhalt` with NMOS
 self-host milestone.
 
 ### Stale comment cleanup
-Resolved: the `p8c` comments now name asm17, which is the on-host target.
+Resolved: the `p8c` comments now name asm18, which is the on-host target.
 
 ## 6. Migration steps (phased; each step independently testable)
 
 **Phase M0 -- narrow the emitted dialect (codegen only).**
 Apply GAP-A and GAP-B (and GAP-C if wendy2c is in scope). After this,
-every `.s` p8c emits is accepted by *both* vasm and asm17. Gate: the
+every `.s` p8c emits is accepted by *both* vasm and asm18. Gate: the
 existing host test suite (snapshots/codegen/e2e under vasm) stays green,
 i.e. the dialect change must not alter assembled bytes. Re-bless the
 `.expected.s` snapshots for the `.org`->`*=` text change.
 
 **Phase M1 -- build + wrap the assembler.**
-Run `asm/asmtestgen.sh` to produce `asm/17/out/asm.out` and
+Run `asm/asmtestgen.sh` to produce `asm/18/out/asm.out` and
 confirm self-assembly. Add a thin wrapper, e.g.
 `prog8/tools/asm_onhost.sh src.s out.bin`, that runs
 `emulator/emulator.out 17/out/asm.out --load 2000 --input src.s --output out.bin`.
@@ -230,7 +230,7 @@ oracle. Update docs (`PLAN.md` Phase 7, this file, README ABI note).
 ## 8. Risks / open questions
 
 * **R-FWDREF (highest risk) -- forward-reference table capacity.**
-  asm17 records **one entry per forward-referenced use-site** in a fixed
+  asm18 records **one entry per forward-referenced use-site** in a fixed
   list `FWDREF_LIST = $0200..$03FF` (512 bytes => ~255 entries;
   `17/asm.asm:13-14`, `17/forward_ref.asm`). The list is *rewound*
   between passes, not compacted, so the cap is the **total number of
@@ -241,7 +241,7 @@ oracle. Update docs (`PLAN.md` Phase 7, this file, README ABI note).
   string pool and reset vector at the end). A compiler-sized program like
   the `p1` pipeline `.s` may well exceed 255.
   - **Action:** empirically assemble the `p1_pass1_sh` / `p1_pass2_sh`
-    `.s` (and `tinyp8.p8`'s `.s`) with asm17 *first*, before committing
+    `.s` (and `tinyp8.p8`'s `.s`) with asm18 *first*, before committing
     to the swap, and read the debug forward-ref count
     (`enable_debug` build prints it).
   - **Mitigations if it overflows, cheapest first:** (a) enlarge
@@ -260,19 +260,19 @@ oracle. Update docs (`PLAN.md` Phase 7, this file, README ABI note).
   on the `p1` pipeline `.s`.
 
 * **R-FILL -- reset-vector binary length.** With `* = $0200 ... * = $FFFC
-  .word entry`, asm17 zero-fills forward to $FFFC (output.asm
+  .word entry`, asm18 zero-fills forward to $FFFC (output.asm
   `advance_pc_to_hex16`), yielding a ~64 KB image -- same shape vasm
   produces today. Confirm the emulator's load/size handling matches
   between the two backends; define the M3 normalization accordingly.
 
-* **R-TOKEN -- identifier length.** asm17 caps tokens at 127 chars
+* **R-TOKEN -- identifier length.** asm18 caps tokens at 127 chars
   (`err_token_too_long`). p8c mangled names are short; low risk, but
   worth a guard/check.
 
 * **Open:** does the wendy2c target join this migration, or only nmos?
   The self-host milestone needs only nmos; wendy2c adds GAP-C plus its
   `.include`d `.inc` library files, which must themselves assemble under
-  asm17 (they are hand-written for vasm and may use unsupported
+  asm18 (they are hand-written for vasm and may use unsupported
   constructs). Recommend: nmos first, wendy2c as a follow-on.
 
 ## 9. Bottom line

@@ -188,7 +188,7 @@ is the source of truth across sessions.
 The two-pass self-host pipeline (`p1/p1_pass1_sh.p8` + `p1/p1_pass2_sh.p8`,
 built with `p8c` then `vasm`, run on the emulator) **compiles p1.p8 itself to
 output byte-identical to `p8c -o p1/p1.p8`** -- the strict self-host test, the
-same one the asm00..asm17 chain uses. The full 545 KB of generated 6502
+same one the asm00..asm18 chain uses. The full 545 KB of generated 6502
 assembly matches; the ONLY difference is the `; source:` comment line (the
 pipeline emits the `SRC` placeholder, p8c emits the resolved absolute path),
 which `p1/tests/test_p1.py` normalizes exactly as the snapshot tests do (the
@@ -384,7 +384,7 @@ was wrong; the real gap is ~15 KB).** Measured/counted at this HEAD:
   ### the upstream-comparability question -- no banking, ordinary Prog8). <<<
     The monolith doesn't fit because the front-end AND back-end code are
     resident TOGETHER (~55 KB) plus all arenas. The repo's OWN proof-of-concept
-    is the asm00->asm17 bootstrap chain: a pipeline of separate <=64 KB binaries.
+    is the asm00->asm18 bootstrap chain: a pipeline of separate <=64 KB binaries.
     Do the same for p1. MEASURED split point in p1.bin (vasm listing):
       - front-end (lexer + parser, from stmt.p8): $0203..~$598A  ~= 22 KB
       - back-end  (codegen, from build_p1.py):     ~$598A..$D983 ~= 33 KB
@@ -1383,7 +1383,7 @@ when a demo or tinyp8 push needs them.
 
 * **Emulator rewinds input on EOF (by design, not a bug).** The read
   syscall does `fseek(f, 0, SEEK_SET)` at EOF (so two-pass tools like
-  asm17 can re-read their input). EOF is therefore NOT sticky at the
+  asm18 can re-read their input). EOF is therefore NOT sticky at the
   syscall level: read past EOF and you get the file from the top again.
   A single-pass reader must make EOF sticky in software (once `src_eof`
   is set, never call `_read` again) -- see `p1/lexer.p8` / `p1/expr.p8`

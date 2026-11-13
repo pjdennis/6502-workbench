@@ -1,6 +1,6 @@
-Assembler Version 04
+Assembler Version 05
 ====================
-Assembled by: Version 03
+Assembled by: Version 04
 
 Features Supported by This Assembler
 -------------------------------------
@@ -58,7 +58,7 @@ Error handling:
 
 Semicolon comments (to end of line).
 
-New in this version (relative to version 03):
+New in this version (relative to version 04):
 - Two-pass assembly enabling forward references
 - ~ prefix for relative branch target labels (emitlabelrel computes
   target - PC - 1 on pass 2)
@@ -75,13 +75,13 @@ New in this version (relative to version 03):
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source uses features from version 03. It uses label assignments, byte
-selectors, and the origin directive that version 03 introduced, plus the
-same instruction set that version 03 supports.
+The source uses features from version 04. It uses label assignments, byte
+selectors, and the origin directive that version 04 introduced, plus the
+same instruction set that version 04 supports.
 
 Source features used:
-  - Non-standard instruction mnemonics from version 03's table
-    (including BITZ, BMI, BPL, SBCZ which were added in version 03)
+  - Non-standard instruction mnemonics from version 04's table
+    (including BITZ, BMI, BPL, SBCZ which were added in version 04)
   - Labels at column 0 for code locations
   - label = $XXXX constant assignments for all variables
     (TEMP, NEXTCHAR, TABL, TABH, PCL, PCH, HEX1, HEX2, PASS, TOKEN, LBTAB)
@@ -95,7 +95,7 @@ Source features used:
   - Semicolon comments
   - Branch targets as hardcoded hex offsets (not yet using ~ for branches)
 
-New syntax used in source (relative to version 03):
+New syntax used in source (relative to version 04):
 - * = $2000 origin directive
 - label = $XXXX constant assignments for zero-page variables
 

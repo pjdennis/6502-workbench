@@ -1,10 +1,10 @@
-Assembler Version 10
+Assembler Version 11
 ====================
-Assembled by: version 09 (both instgen and asm)
+Assembled by: version 10 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-All features from version 09, plus local labels, heap-based global label
+All features from version 10, plus local labels, heap-based global label
 storage, debug output, and an expanded instruction set:
 
 Syntax:
@@ -29,15 +29,15 @@ Directives:
 - .zeropage - switches to zero page section
 - .code - switches back to code section
 
-Instruction set: same as version 09, plus:
+Instruction set: same as version 10, plus:
 - CMP,X (compare absolute indexed X - opcode $DD)
 
-Error handling: same as version 09 (errors 1-D), plus:
+Error handling: same as version 10 (errors 1-D), plus:
 - No file open (error E): attempt to read with no file open
 - No global label for local (error F): local label used before any global label
 - Invalid debug argument (error 10): third argument is not "debug"
 
-New in this version (relative to version 09):
+New in this version (relative to version 10):
 - Local labels (.label syntax): labels starting with . are scoped to the
   most recent global label. The assembler expands ".foo" to "globalname.foo"
   internally before storing in the hash table.
@@ -78,7 +78,7 @@ Features Used in This Assembler's Source Code
 - Command-line arg access: argc, argv
 - File I/O: open, close, read, openout, write
 
-New syntax used in source (relative to version 09):
+New syntax used in source (relative to version 10):
 - .zeropage and .code section directives (first version whose source uses
   these directives for zero page variable allocation)
 

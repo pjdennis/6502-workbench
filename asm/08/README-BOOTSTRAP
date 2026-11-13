@@ -1,10 +1,10 @@
-Assembler Version 07
+Assembler Version 08
 ====================
-Assembled by: version 06 (both instgen and asm)
+Assembled by: version 07 (both instgen and asm)
 
 Features Supported by This Assembler
 -------------------------------------
-Same non-standard mnemonic syntax as version 06, with improved error handling,
+Same non-standard mnemonic syntax as version 07, with improved error handling,
 error diagnostics with line numbers, stderr output, and PC management:
 
 Syntax:
@@ -23,7 +23,7 @@ Syntax:
 - Zero page addressing uses plain hex values without the < prefix (e.g., STAZ $07
   rather than STAZ <$07)
 
-Instruction set: same as version 06
+Instruction set: same as version 07
 
 Error handling (expanded):
 - Label not found (error 1)
@@ -37,7 +37,7 @@ Error handling (expanded):
 - Closing quote not found (error 9)
 - Cannot move PC backwards (error A)
 
-New in this version (relative to version 06):
+New in this version (relative to version 07):
 - Interrupt handler for formatted error output: errors displayed via BRK
   interrupt with error code and inline message string
 - Stderr output via write_d ($F00C): error messages written to stderr
@@ -74,7 +74,7 @@ Features Used in This Assembler's Source Code
   STAZ MEMPL where MEMPL = $08)
 - Forward branch labels (no ~ prefix needed, auto-detected by flags)
 
-New syntax used in source (relative to version 06):
+New syntax used in source (relative to version 07):
 - Zero page addressing without < prefix (STAZ MEMPL instead of STAZ <MEMPL)
 
 Other source changes:

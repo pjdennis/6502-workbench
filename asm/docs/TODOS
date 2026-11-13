@@ -8,8 +8,8 @@
 - [X] Conditional assembly - `.ifdef`/`.endif` directives, `define:label` command line
 - [X] More instructions - All standard 6502 opcodes present in instruction tables
 - [ ] Better error messages - Include source line content in error output, not just line numbers
-- [X] `.ifndef` directive - complement to `.ifdef` (asm17)
-- [X] `.else` for conditionals - more expressive conditional assembly (asm17)
+- [X] `.ifndef` directive - complement to `.ifdef` (asm18)
+- [X] `.else` for conditionals - more expressive conditional assembly (asm18)
 - [ ] `.fill count, value` - emit N copies of a byte, useful for padding/alignment
 - [ ] `.align N` - align PC to N-byte boundary (emits padding)
 - [ ] More expression operators - `*`, `/`, `&`, `|`, `^` for bit manipulation
@@ -30,7 +30,7 @@
 - [ ] Cleanup `write_mnemonic_and_modes` in instgen
 
 ## Testing & Quality
-- [X] Test suite - Automated tests for assembler features and edge cases (456 tests in 17/tests/asm, plus 59 source-stack tests)
+- [X] Test suite - Automated tests for assembler features and edge cases (456 tests in 18/tests/asm, plus 59 source-stack tests)
 - [ ] Regression testing - Compare outputs against known-good binaries automatically
 
 ## Tooling
@@ -47,7 +47,7 @@ Done since these notes were first written: `dir_ifdef` / `dir_ifndef` share
 are no `dir_*` JMP stubs any more, `process_directive` dispatches through
 `JUMP_TARGET16` rather than borrowing `INST_PTR16`, the `MODE_END` value in
 the `instgen.asm` header comment is correct ($0F), and the nesting limit has a
-test (`17/tests/asm/13-conditionals_edge_cases.txt`, error 24). In `instgen.asm`,
+test (`18/tests/asm/13-conditionals_edge_cases.txt`, error 24). In `instgen.asm`,
 `populate_instruction_hash_table` and `populate_directive_hash_table` share
 `hash_add_from_table`, and in skip mode `process_conditional_directive` finds
 the directive with the hash lookup and compares its handler address with
