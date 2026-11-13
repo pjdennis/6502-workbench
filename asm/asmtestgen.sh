@@ -32,6 +32,15 @@ echo "--- Version 01 ---"
 (cd 01 && mkdir -p out && ../../emulator/emulator.out ../00b/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 echo "--- Version 02 ---"
 (cd 02 && mkdir -p out && ../../emulator/emulator.out ../01/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
+# 01's source is written for 00b, which keeps only a label's first character.
+# 01 and 02 compare whole names, so they must assemble it to the same bytes.
+(cd 01 &&
+  ../../emulator/emulator.out out/asm.out --load 2000 --input asm.asm --output out/asm_by_01.out &&
+  ../../emulator/emulator.out ../02/out/asm.out --load 2000 --input asm.asm --output out/asm_by_02.out)
+cmp 01/out/asm.out 01/out/asm_by_01.out
+cmp 01/out/asm.out 01/out/asm_by_02.out
+# 02 is 01 rewritten in 01's syntax: the two binaries are the same.
+cmp 01/out/asm.out 02/out/asm.out
 echo "--- Version 03 ---"
 (cd 03 && mkdir -p out && ../../emulator/emulator.out ../02/out/asm.out --load 2000 --input asm.asm --output out/asm.out)
 run_version_tests 03
