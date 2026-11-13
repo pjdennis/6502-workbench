@@ -10,10 +10,13 @@ expression-aware forward reference propagation, and error module extraction:
 Syntax:
 - Standard 6502 mnemonic syntax (LDA, STA, etc.)
 - All addressing modes (immediate, zero page, absolute, indexed, indirect)
-- .data directive for raw byte emission. The DATA pseudo-instruction is no longer
-  accepted. This version's own source still uses DATA (version 12, which assembles
-  it, has no .data), so version 13 cannot assemble itself; version 14 is the
-  first written with .data
+- .data directive for raw byte emission
+- Two older forms are still taken, because this version's own source has to use
+  them (version 12, which assembles it, knows no others): the DATA
+  pseudo-instruction, and the accumulator operand of the shifts (LSR A; here
+  LSR alone is the new form). So version 13 can assemble itself, and
+  asmtestgen.sh checks that it does. Version 14 is the first written with
+  .data and the bare shifts, and takes neither older form
 - Hex constants: $xx (1 byte) or $xxxx (2 bytes)
 - Character literals: 'x', '\n', '\\', '\'' (in expressions and immediate mode)
 - Quoted strings in DATA with escape sequences

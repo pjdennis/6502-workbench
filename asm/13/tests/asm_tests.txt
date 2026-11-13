@@ -670,10 +670,21 @@ EXPECT_HEX: cd 00 ab 00
 EXPECT_FWDREF: 0
 
 ---
-NAME: shift_with_operand_treats_as_label
+NAME: shift_with_accumulator_operand_still_accepted
 INPUT:
 1: * = $0200
 2:   ASL A
+3:   LSR A
+4:   ROL A
+5:   ROR A
+6:   ASL
+EXPECT_HEX: 0a 4a 2a 6a 0a
+
+---
+NAME: accumulator_operand_only_as_whole_operand
+INPUT:
+1: * = $0200
+2:   LDA #A
 EXPECT_ERROR: 1
 EXPECT_LINE: 2
 EXPECT_MSG: Label not found
@@ -1129,3 +1140,12 @@ INPUT:
 2:   LDA #$10++$20
 EXPECT_ERROR: 1
 EXPECT_LINE: 2
+
+---
+NAME: data_pseudo_instruction_still_accepted
+INPUT:
+1: * = $0200
+2: first DATA $01 "Hi" $1234
+3:   DATA <first >first
+4:   .data $02
+EXPECT_HEX: 01 48 69 34 12 00 02 02

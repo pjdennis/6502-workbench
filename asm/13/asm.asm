@@ -40,6 +40,7 @@ EXPR_ACCU_L DATA $00 ; Expression accumulator low byte
 EXPR_ACCU_H DATA $00 ; Expression accumulator high byte
 EXPR_FWDREF DATA $00 ; Accumulated forward ref flag
 EXPR_CARRY  DATA $00 ; Saved carry from first term
+ACC_STATE   DATA $00 ; $80 while an accumulator operand (A) is allowed, $C0 once one is seen
 
   .code
 
@@ -396,6 +397,25 @@ parse_term
   ; Reuse logic from .is_label (lines 1391-1425)
   JSR read_token
   PHA                  ; Save next char
+  ; The older accumulator operand (as in LSR A) is still taken where a whole
+  ; operand is a value: this source has to use it, since version 12, which
+  ; assembles it, takes no other form
+  BIT ACC_STATE
+  BPL .not_accumulator
+  LDY #$00
+  LDA TOKEN,Y
+  CMP #'A'
+  BNE .not_accumulator
+  INY
+  LDA TOKEN,Y
+  BNE .not_accumulator
+  LDA #$C0
+  STA ACC_STATE        ; Seen
+  LDA #$00
+  STA HEX1
+  STA HEX2
+  BEQ .label_found     ; Always taken
+.not_accumulator
   ; Look up the token
   JSR check_local_label
   JSR select_label_hash_table
@@ -827,6 +847,8 @@ update_pc
 ; Raises 'Opcode not found' error if mnemonic is not found
 lookup_mnemonic
   JSR read_token
+; Entry for a caller that has read the token itself (A contains the next character)
+lookup_mnemonic_token
   PHA                  ; Save next char
   JSR select_instruction_hash_table
   JSR find_in_hash_instruction
@@ -1136,7 +1158,15 @@ parse_operand_and_emit
 .value_operand
   ; Parse value: $xx, $xxxx, or label
   ; All handled uniformly with appropriate mode selection
+  LDY #$80
+  STY ACC_STATE        ; An accumulator operand is allowed here
   JSR parse_value      ; Returns C=1 for bare label, OPERAND_L/H set, IS_FWDREF set
+  BIT ACC_STATE        ; V set if the operand was the accumulator
+  LDY #$00             ; (LDY and STY leave V and C as they are)
+  STY ACC_STATE
+  BVC .not_accumulator
+  JMP .implied_mode    ; LSR A is LSR
+.not_accumulator
   PHA                  ; Save next char
   ; Check if this is a branch instruction
   JSR check_if_branch
@@ -1324,6 +1354,9 @@ directive_code
 directive_data
   DATA "data" $00
 
+pseudo_data
+  DATA "DATA" $00
+
 
 
 
@@ -1418,8 +1451,24 @@ assemble_code
   JSR process_directive
   JMP .line_loop
 .opcode
-  ; Read mnemonic and look up in instruction table
-  JSR lookup_mnemonic
+  ; Read the mnemonic
+  JSR read_token
+  PHA                  ; Save next char
+  ; The older DATA pseudo-instruction is still taken, beside .data: this
+  ; source has to use it, since version 12, which assembles it, has no .data
+  LDA #<pseudo_data
+  STA TABPL
+  LDA #>pseudo_data
+  STA TABPH
+  JSR compare_token
+  BNE .not_data
+  PLA                  ; Restore next char
+  JSR data_parameters_loop_entry
+  JMP .line_loop
+.not_data
+  PLA                  ; Restore next char
+  ; Look the mnemonic up in the instruction table
+  JSR lookup_mnemonic_token
   ; A contains next char after mnemonic
   ; Parse operand to determine addressing mode
   JSR parse_operand_and_emit

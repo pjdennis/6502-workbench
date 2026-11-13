@@ -20,8 +20,8 @@ run_version_tests() {
 }
 
 # Check that a version assembles its own source to the binary the version before it produced.
-# Every version does, except 11 and 13: each takes only a new syntax while its own source, which
-# the version before must be able to assemble, is still in the old one (see their README-BOOTSTRAP).
+# Every version does, except 11: it takes only the standard syntax, while its own source, which
+# version 10 must be able to assemble, is still in the old one (version 12 is 11 rewritten).
 # The second argument says how the version is run: "stream" (00-05: source on the input port),
 # "stream-combined" (06-08: the generated tables and the source as one stream), "files" (09 on:
 # file names as arguments) or "files-debug" (15 on: also the define:enable_debug build).
@@ -130,6 +130,7 @@ echo "--- Version 13 ---"
   ../../emulator/emulator.out ../12/out/asm.out instgen.asm out/instgen.out &&
   ../../emulator/emulator.out out/instgen.out --load 2000 --output out/inst.asm.out &&
   ../../emulator/emulator.out ../12/out/asm.out asm.asm out/asm.out)
+check_self_assembly 13 files
 run_version_tests 13
 echo "--- Version 14 ---"
 (cd 14 && mkdir -p out &&
