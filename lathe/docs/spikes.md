@@ -118,6 +118,28 @@ asm17 assembles compiler-shaped text correctly and identically to `asm/pyasm.py`
 | 30 KB, 5000 labels | Out of memory. Fits only with one-letter module names and three branch labels per function. |
 | 45 KB | Out of memory in every arrangement tried. |
 
+### S3: four routines compiled by hand
+
+Routines from the editor's search, asm17's hash table, the firmware's decimal conversion and `p1`'s name interning were written in Lathe and compiled by hand, using only the techniques in [`code-model.md`](code-model.md).
+
+| Routine | Original bytes | Lathe bytes | Ratio | Inner loop cycles, ratio |
+|---|---|---|---|---|
+| Editor search | 107 | 166 | 1.55 | 1.64 |
+| asm17 hash table | 130 | 192 | 1.48 | 1.09 to 1.40 |
+| Decimal conversion | 101 | 161 | 1.59 | 1.30 to 1.85 |
+| `p1` name interning | 125 | 163 | 1.30 | 1.38 |
+| **Total** | **463** | **682** | **1.47** | |
+
+The target of 1.5 is met, with little margin. Changes made to the language as a result:
+
+- A `bool` result travels in the carry flag; a status can be tested directly with `f() -> v`; `return f()` passes results on as a jump.
+- `p[i]` works for pointers to elements of 2, 4 or 8 bytes; `nil`; `^T(x)`.
+- `lo(x)` and `hi(x)` can be assigned to.
+- `loop … until`.
+- The meaning of `for` at the ends of the range is defined.
+
+The further code generation refinements it identified are listed in [`code-model.md`](code-model.md), "Generating the code".
+
 ### S4: the grammar
 
 The grammar as first written had two real LL(1) conflicts and three gaps. All are fixed in [`language.md`](language.md).

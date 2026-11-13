@@ -46,7 +46,7 @@ end
 - **Numbers.** Decimal `123`, hexadecimal `$7F`, binary `%1010`, character `'A'`. A number literal has no type of its own; it takes the type its context needs, and it is an error if it does not fit.
 - **Strings.** `"TEXT"` is a zero-terminated sequence of bytes. Escapes: `\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`, `\xHH`.
 - **Statements end at the end of the line.** A line continues onto the next when it ends with a binary operator or a comma, or while a `(` or `[` is open. This rule is applied by the lexer alone.
-- **Keywords**: `and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module not nozp of or pub record recursive return rows sbyte static then to type var while word zp`. Reserved for later: `long`.
+- **Keywords**: `and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module not nozp of or pub record recursive return rows sbyte static then to type until var while word zp`. Reserved for later: `long`.
 
 ## Types
 
@@ -85,7 +85,7 @@ end
 - **Signed and unsigned do not mix** without a conversion. Signed comparisons cost more code than unsigned ones; the type makes that visible.
 - **Conditions are `bool`.** There is no "non-zero is true": write `if n != 0 then`.
 - **Conversions** are written as a call of the type name: `byte(w)`, `word(b)`, `int(w)`, or a named pointer type such as `SymPtr(w)`.
-- **Built-ins:** `lo(x)`, `hi(x)`, `sizeof(T)`, `len(array)`.
+- **Built-ins:** `lo(x)`, `hi(x)`, `sizeof(T)`, `len(array)`. `lo(x)` and `hi(x)` of a variable can also be assigned to: `hi(w) = 0`.
 
 ### Arrays and their layout
 
@@ -96,10 +96,12 @@ end
 
 ### Pointers
 
-- `@x` is the address of a variable, a `rows` array element or a function.
+- `@x` is the address of a variable, a `rows` array element or a function. The address of an array is a pointer to its first element.
 - `p.field` reads a field of the record `p` points to.
-- `p[i]` reads byte `i` after the address in `p`, for a `^byte` and a `byte` index. This is the 6502's `(zp),Y` addressing and costs the same as an array access. `p[0]` is the byte `p` points to.
-- Pointer arithmetic is in bytes and written out: `p + sizeof(Sym)`.
+- `p[i]` is element `i` after the address in `p`, with a `byte` index. For a `^byte` this is the 6502's `(zp),Y` addressing and costs the same as an array access. For a larger element the size must be 2, 4 or 8, the index is scaled by shifts, and the scaled index must stay below 256. `p[0]` is what `p` points to, for any type.
+- Pointer arithmetic is in bytes and written out: `p + sizeof(Sym)`. A pointer plus or minus an integer is a pointer; the difference of two pointers is a `word`. Pointers compare as unsigned numbers.
+- `nil` is the pointer with value 0 and fits any pointer type. `^T(x)` converts a number to a pointer.
+- A record field may be a pointer to the record being declared: `next: ^Link`.
 - A string literal used as a value is a `^byte` to a constant.
 
 ## Declarations
@@ -110,7 +112,7 @@ const DIGITS: [16]byte = "0123456789ABCDEF"   ; constant table: read-only data
 
 var count: byte                        ; variable: the linker chooses the address
 var line: [128]byte
-var cursor: ^byte zp                   ; must be in zero page
+var cursor: ^byte zp                   ; must be in zero page (arrays too, if asked)
 var big: [512]byte nozp                ; must not be in zero page
 var border: byte at $D020              ; fixed address, never cached in a register
 var total: word = 0                    ; initialised when the program starts
@@ -134,7 +136,11 @@ end
 ```
 
 - Parameters are ordinary local variables that the caller fills in. They can be assigned to.
-- A function returns nothing, one value, or **one value and a `bool` status**: `func next(): byte, bool`. The status travels in the carry flag, the 6502's usual way to report "end of input" or "failed". The caller writes `ch, ok = next()`.
+- A function returns nothing, one value, or **one value and a `bool` status**: `func next(): byte, bool`. The caller writes `ch, ok = next()`.
+- **A `bool` result travels in the carry flag**, whether it is the only result or the status beside a value. This is the 6502's usual way to report "found" or "end of input", and a test of it is one branch.
+- **Testing a status directly.** In a condition, `next() -> ch` calls the function, stores the value in `ch` and gives the status: `while next() -> ch do … end`.
+- **Passing results on.** `return f(…)` is allowed when `f` has the same results as the function returning; both results pass through, and the call becomes a jump.
+- A call used as a statement may ignore its results.
 - A name must be declared before use. For functions that call each other, declare one first: `forward func expr(): byte`.
 
 ### Function attributes
@@ -195,6 +201,7 @@ v, ok = f()              ; call returning a value and a status
 if cond then … elif cond then … else … end
 while cond do … end
 loop … end                           ; forever; leave with break or return
+loop … until cond                    ; test at the bottom: the body runs at least once
 for i = first to last do … end       ; also downto; i is a declared variable
 break                                ; leave the nearest loop
 continue                             ; next iteration of the nearest loop
@@ -217,7 +224,8 @@ asm                                  ; inline assembly
 end
 ```
 
-- `for` evaluates `last` once. The loop variable is a `byte` or `word` declared beforehand. Counting `downto 0` gives the shortest loop.
+- `for` evaluates `last` once. The loop variable is a `byte` or `word` declared beforehand. The body runs for every value from `first` to `last` inclusive, and not at all if `first` is already past `last`. The test is at the bottom, so a loop to 255 or down to 0 ends correctly. Counting `downto 0` gives the shortest loop.
+- `loop … until` is the tightest loop on a 6502: one branch per pass.
 - `case` with dense constants becomes a jump table; otherwise a chain of compares.
 - `critical` saves the interrupt flag, disables interrupts, and restores the flag at `end`. Use it around any access to a multi-byte variable shared with an interrupt handler.
 
@@ -326,7 +334,7 @@ statement   = designator ( assignOp expression | "," designator "=" call | argum
             | "if" expression "then" NL body
                  { "elif" expression "then" NL body } [ "else" NL body ] "end" NL
             | "while" expression "do" NL body "end" NL
-            | "loop" NL body "end" NL
+            | "loop" NL body ( "end" | "until" expression ) NL
             | "for" name "=" expression ( "to" | "downto" ) expression "do" NL body "end" NL
             | "case" expression NL { "of" constExpr { "," constExpr } NL body }
                  [ "else" NL body ] "end" NL
@@ -345,7 +353,8 @@ term        = factor { ( "*" | "/" | "mod" | "&" | "<<" | ">>" ) factor } .
 factor      = ( "-" | "~" ) factor | "@" designator | primary .
 primary     = number | string | "(" expression ")"
             | typeKw "(" expression ")"
-            | designator [ arguments ] .
+            | "^" type "(" expression ")"
+            | designator [ arguments [ "->" designator ] ] .
 designator  = name { "." name | "[" expression "]" } .
 arguments   = "(" [ expression { "," expression } ] ")" .
 call        = designator arguments .
@@ -355,7 +364,7 @@ Notes on the grammar:
 
 - A statement that starts with a name is an assignment, a two-result call or a plain call; the token after the designator decides.
 - A conversion to a named type, such as `SymPtr(w)`, is parsed as a call. The symbol table says whether the name is a type.
-- `true` and `false` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
+- `true`, `false` and `nil` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
 - A `constExpr` is an expression the compiler can evaluate; anything else is an error.
 - `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar.
 - Inside an `asm` block the lexer passes whole lines through. The block ends at a line whose first word is `end`.

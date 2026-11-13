@@ -4,7 +4,9 @@ Status (2026-11-13): proposal. Sizes are estimates until measured ([`spikes.md`]
 
 ## Two stages of output
 
-The compiler is built twice over, on purpose (decision D4 in [`goals.md`](goals.md)).
+**Revised after spike S2 (2026-11-13).** The compiler always writes object files, from stage 1 on, and assembles inline assembly itself. "Stage A" is now a host-side path: the tool `lo2asm` renders object files and the linker's map as asm17 text, and an assembler turns that into an image. It gives readable output for the snapshot tests and an independent check on the linker, whose own image must be byte-identical. The format is in [`object-format.md`](object-format.md). The two diagrams below show the original plan, in which the compiler itself wrote text; the components, the linker and the constraints that follow are unchanged except that OUT has one form, there is no `.lfm` file, and ASM is the embedded assembler from the start.
+
+The compiler was to be built twice over, on purpose (decision D4 in [`goals.md`](goals.md)).
 
 **Stage A: assembler text.** The compiler writes asm17 source. asm17 does the work of an assembler and of the final link step.
 

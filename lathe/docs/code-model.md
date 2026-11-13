@@ -58,14 +58,14 @@ Temporaries for expression evaluation are slots in the frame of the function tha
 | Item | Where |
 |---|---|
 | Arguments | The caller stores each one directly into the callee's parameter slot. |
-| `byte`, `sbyte`, `bool` result | A. For `bool`, the zero flag also reflects A. |
+| `byte`, `sbyte` result | A. |
 | `word`, `int`, pointer result | A (low byte) and X (high byte). |
-| Status result | The carry flag: set for `true`. |
+| `bool` result, alone or as a status | The carry flag: set for `true`. |
 | A, X, Y and the flags | Not preserved across a call. |
 
 The pair A and X matches the host interface in `asm/17/environment.asm`, which passes pointers the same way.
 
-A call is a `JSR`. There is no entry or exit code in an ordinary function, and no stack frame to build.
+A call is a `JSR`. There is no entry or exit code in an ordinary function, and no stack frame to build. A call whose results are returned unchanged (`return f(…)`, or a call as the last statement) is a `JMP`.
 
 ### Example
 
@@ -251,6 +251,13 @@ The compiler has no syntax tree and no optimiser pass. Code quality comes from f
 3. **Register tracking.** Within straight-line code the compiler remembers what A, X and Y hold, as a constant or a copy of a variable, and skips loads that would change nothing. The memory is cleared at every label and call.
 4. **Operand order.** When the left operand is simple and the right is not, the right is evaluated first and the left used as a memory operand. When both are complex, the left is saved in a frame temporary.
 5. **Short branches first.** A function's code is held in a buffer until the function ends. Forward branches are emitted short, and only those that turn out not to reach are widened to a reversed branch around a `JMP`. `p8c` widened every one.
+
+Spike S3 hand-compiled four existing routines by these rules and got 1.47 times the size of the hand-written originals, with inner loops between 1.1 and 1.85 times the cycles. It also named the refinements worth adding once the basics work, in order of gain:
+
+- Keep register knowledge across a label reached only by forward branches, by keeping what every incoming branch agreed on.
+- Remember that A holds an indexed element such as `a[i]` while its index register is unchanged.
+- Turn a loop tested at the top into one tested at the bottom.
+- Keep a loop counter in X or Y when the body allows.
 
 The 65C02's extra instructions (`STZ`, `BRA`, `INC A`, `PHX` and the rest) are used when the environment says the CPU has them.
 
