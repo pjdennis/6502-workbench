@@ -41,23 +41,73 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 | `src.py` | SRC: the source stack. |
 | `lex.py` | LEX. |
 | `types.py` | The type table. |
-| `decl.py` | DECL. |
+| `decl.py` | DECL, and reading and writing interface files. |
 | `stmt.py` | STMT. |
 | `expr.py` | EXPR: lazy operands. |
 | `gen.py` | GEN: instruction selection and register tracking. |
 | `fbuf.py` | FBUF: the function buffer and branch lengths. |
-| `out.py` | OUT: assembler text and frame records. |
-| `asmblock.py` | ASM: inline assembly. |
-| `lathec.py` | The compiler's main program: one module in, `.asm`, `.lfm` and `.li` out. |
-| `alloc.py` | The allocator's main program: all `.lfm` in, `alloc.asm` and a map out. |
-| `driver/` | Ordinary Python, not ported: builds a whole program by running the compiler on each module in order, then the allocator, then asm17 on the emulator. |
+| `out.py` | OUT: the object file writer. |
+| `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. |
+| `lathec.py` | The compiler's main program. |
+| `link.py` | The linker's main program (with its own modules as it grows). |
+| `driver/` | Ordinary Python, not ported: `lo.py` (read and write object files), `lodump.py` (print one), `lo2asm.py` (render as asm17 text), `build.py` (build and run a whole program). |
 
-## Running
+## Command lines
 
 ```bash
-python3 lathe/host/lathec.py FILE.lth OUTDIR        # compile one module
-python3 lathe/host/alloc.py ENV.cfg OUTDIR MODULE…  # allocate storage for a program
-python3 lathe/host/driver/build.py FILE.lth -o OUT.bin [--env NAME] [--run]
+python3 lathe/host/lathec.py SOURCE.lth OUTDIR [IMPORTDIR...]
 ```
 
-Tests: `lathe/verify.sh`, which `tools/check_all.sh lathe` runs.
+Compiles one module. The module name is the file name without `.lth`, in lower case. Writes `OUTDIR/name.lo` (object file, `../docs/object-format.md`) and `OUTDIR/name.li` (interface). `import x` reads `x.li` from `OUTDIR`, then from each `IMPORTDIR`. On an error it prints `FILE:LINE:COL: error N: text` to the error output and exits with status 1.
+
+```bash
+python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
+```
+
+Links a program whose entry is `MAINMODULE.main`. Objects are placed in the order given.
+
+```bash
+python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm]
+```
+
+Finds the modules a program imports (in `lathe/rt/` and beside the source), compiles them in dependency order, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
+
+## The environment file
+
+Text, one entry per line, `;` starts a comment. Version 1 (it grows towards the form in `../docs/architecture.md`):
+
+```
+cpu       6502          ; or 65c02
+zeropage  $00 $FF       ; first and last address the linker may use
+code      $0200 $BFFF   ; where code and constant data go
+data      $C000 $EFFF   ; where variables go
+start     host_start.start   ; the function the reset vector points at
+```
+
+The image runs from the start of `code` to `$FFFF`, with the reset vector at `$FFFC`, which is what the emulator's default machine loads. Environment files are in `lathe/env/`; `host.env` describes that machine.
+
+## The map file
+
+Text, one item per line: kind, address and size in four hex digits, name; a slot line adds the slot number and name.
+
+```
+F 0200 0012 hello.main            ; function, in placement order
+D 0212 0006 hello.$1              ; constant data
+V C000 0001 demo.count            ; module-level variable
+S 0010 0002 demo.spaces 0 s       ; slot 0 of demo.spaces
+C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
+```
+
+Only functions the linker kept are listed.
+
+## Tests
+
+`lathe/verify.sh` runs everything; `tools/check_all.sh lathe` calls it. Tests are Python `unittest` files in `lathe/tests/`, run from the repository root.
+
+| Kind | Cases | Check |
+|---|---|---|
+| Unit | in the test file | One host module's functions. |
+| Shape | `test_shape.py` | The rule above. |
+| Snapshot | `tests/cases/snap/NAME.lth` | `lo2asm` of the compiled module equals `NAME.expected.asm`. |
+| Error | `tests/cases/err/NAME.lth` | The first line is `; error N LINE COL`; the compiler must report exactly that. |
+| End to end | `tests/cases/e2e/NAME.lth` | The program's output on the emulator equals `NAME.expected.out`. Built both ways (linker, and assembler path) once the linker exists; the two images must be identical. |

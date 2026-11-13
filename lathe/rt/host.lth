@@ -1,0 +1,8 @@
+; Services of the emulator's default machine and of Michael's ROM
+; (asm/17/environment.asm lists every call and what it preserves).
+module host
+
+pub extern func read_byte(): byte in a, bool in c            at $F006
+pub extern func put_byte(ch: byte in a)                       at $F009
+pub extern func put_error(ch: byte in a)                      at $F00C
+pub extern func exit(code: byte in a)                         at $F00F
