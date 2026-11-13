@@ -42,8 +42,8 @@ EXPECT_HEX: 95 20
 ---
 NAME: indirect_y_hex
 INPUT:
-1:   LDA(),Y $10
-2:   STA(),Y $20
+1:   LDAZ(),Y $10
+2:   STAZ(),Y $20
 EXPECT_HEX: b1 10 91 20
 
 ---

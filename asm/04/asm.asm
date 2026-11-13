@@ -57,7 +57,6 @@ MNTAB
   DATA "JSR"      $00 $00 $20
   DATA "LDA#"     $00 $00 $A9
   DATA "LDAZ(),Y" $00 $00 $B1
-  DATA "LDA(),Y"  $00 $00 $B1  ; the old name: this source uses it (03 assembles it)
   DATA "LDA,X"    $00 $00 $BD
   DATA "LDA,Y"    $00 $00 $B9
   DATA "LDAZ"     $00 $00 $A5
@@ -74,7 +73,6 @@ MNTAB
   DATA "SEC"      $00 $00 $38
   DATA "STA"      $00 $00 $8D
   DATA "STAZ(),Y" $00 $00 $91
-  DATA "STA(),Y"  $00 $00 $91  ; the old name, as for LDA(),Y
   DATA "STA,X"    $00 $00 $9D
   DATA "STA,Y"    $00 $00 $99
   DATA "STAZ"     $00 $00 $85
@@ -192,7 +190,7 @@ advanceintab
 findintab
   LDY# $00
 fit_tokenloop          ; Outer loop
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   BNE $02              ; BNE fit_charloop
   ; not found
   SEC
@@ -210,10 +208,10 @@ fit_charloop           ; inner loop
   RTS
 fit_nextchar           ; Move to next char
   INY
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JMP fit_charloop     ; Inner loop
 fit_skipcurrent        ; Skip current symbol in table
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   BEQ $04              ; BEQ fit_nextsymbol ; done skipping
   INY
   JMP fit_skipcurrent
@@ -371,7 +369,7 @@ cl_pass1
 cl_notfound
 cl_loop                ; Copy TOKEN to table
   LDA,Y TOKEN
-  STA(),Y <TABL
+  STAZ(),Y <TABL
   BEQ $04              ; BEQ cl_copyvalue
   INY
   JMP cl_loop
@@ -387,17 +385,17 @@ cl_copyvalue           ; Copy value or PC value to table
 cl_hextotable
   INY
   LDAZ <HEX2
-  STA(),Y <TABL
+  STAZ(),Y <TABL
   INY
   LDAZ <HEX1
-  STA(),Y <TABL
+  STAZ(),Y <TABL
   ; Skip past rest of table
   LDAZ <NEXTCHAR
   JSR skiprestofline
   ; Terminate table value
   INY
   LDA# $00
-  STA(),Y <TABL
+  STAZ(),Y <TABL
   RTS
 
 
@@ -413,11 +411,11 @@ emitopcode
   BCC $03              ; BCC eo_found
   JMP err_opcodenotfound
 eo_found
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   BNE $06              ; BNE eo_done ; Not opcode (DATA command)
   ; Opcode
   INY
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JSR emit
 eo_done
   LDAZ <NEXTCHAR
@@ -447,10 +445,10 @@ eq_notescaped
 emitlabel
   JSR readandfindexistinglabel
   ; Emit low byte then high byte from table
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JSR emit
   INY
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JSR emit
   LDAZ <NEXTCHAR       ; Load next character
   RTS
@@ -460,7 +458,7 @@ emitlabel
 emitlabellsb
   JSR readandfindexistinglabel
   ; Emit low byte
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JSR emit
   LDAZ <NEXTCHAR       ; Load next character
   RTS
@@ -471,7 +469,7 @@ emitlabelmsb
   JSR readandfindexistinglabel
   ; Emit high byte
   INY
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   JSR emit
   LDAZ <NEXTCHAR       ; Load next character
   RTS
@@ -488,7 +486,7 @@ elr_pass2
   JSR readandfindexistinglabel
   ; Calculate target - PC - 1
   CLC ; for the - 1
-  LDA(),Y <TABL
+  LDAZ(),Y <TABL
   SBCZ <PCL
   JSR emit
   LDAZ <NEXTCHAR

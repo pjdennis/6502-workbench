@@ -36,7 +36,7 @@ MNTAB
   DATA "JSR"     $00 $00 $20
   DATA "LDAZ"    $00 $00 $A5
   DATA "LDA#"    $00 $00 $A9
-  DATA "LDA(),Y" $00 $00 $B1
+  DATA "LDAZ(),Y" $00 $00 $B1
   DATA "LDA,Y"   $00 $00 $B9
   DATA "LDX#"    $00 $00 $A2
   DATA "LDY#"    $00 $00 $A0
@@ -45,7 +45,7 @@ MNTAB
   DATA "SBC#"    $00 $00 $E9
   DATA "SEC"     $00 $00 $38
   DATA "STA"     $00 $00 $8D
-  DATA "STA(),Y" $00 $00 $91
+  DATA "STAZ(),Y" $00 $00 $91
   DATA "STAZ"    $00 $00 $85
   DATA "STAZ,X"  $00 $00 $95
   DATA "TYA"     $00 $00 $98
@@ -115,7 +115,7 @@ advanceintab
 
 findintab
 findintab1 ; outer loop
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BNE $02              ; BNE findintab2
   ; not found
   SEC
@@ -133,10 +133,10 @@ findintab2 ; inner loop
   RTS
 findintab3
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   JMP findintab2       ; inner loop
 findintab4 ; no match
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BEQ $04              ; BEQ findintab5 ; done skipping
   INY
   JMP findintab4
@@ -159,20 +159,20 @@ capturelabel
 clnotfound
 clloop
   LDA,Y $0006          ; LDA,Y TOKEN
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   BEQ $04              ; BEQ cldone
   INY
   JMP clloop
 cldone
   INY
   LDAZ $04             ; LDAZ PC
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   INY
   LDAZ $05             ; LDAZ PC+1
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   INY
   LDA# $00
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   LDY# $00             ; restore
   RTS
 
@@ -199,12 +199,12 @@ emitoc
   BRK                  ; Opcode not found
   DATA $02 "Opcode not found" $00
 emitoc1
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BEQ $01              ; BEQ emitoc2
   RTS
 emitoc2
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   DEY
   JSR emit
   RTS
@@ -289,10 +289,10 @@ emitlabel
   BRK                  ; Label not found
   DATA $03 "Label not found" $00
 emitlabel2
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   JSR emit
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   DEY
   JSR emit
   LDAZ $00             ; LDAZ TEMP

@@ -16,14 +16,14 @@ Instruction mnemonics (significantly expanded):
   LDY# LSRA ORAZ PHA PLA RTS SBC# SBCZ SEC STA STAZ(),Y STA,X STA,Y STAZ
   STAZ,X TAY TYA
 
-  New instructions: AND#, EORZ, LDAZ(),Y (was LDA(),Y), LDA,X, LDAZ,X,
-    LSRA, PHA, PLA, STA,X, STA,Y, STAZ(),Y (was STA(),Y), TAY
+  New instructions: AND#, EORZ, LDA,X, LDAZ,X, LSRA, PHA, PLA, STA,X,
+    STA,Y, TAY
   Removed: CMPZ,X, DEY
-  LDA(),Y and STA(),Y are renamed LDAZ(),Y and STAZ(),Y. The old names are
-    kept as well: this version's own source has to use them, because
-    version 03, which assembles it, knows no others. So version 04 can
-    assemble itself (asmtestgen.sh checks that it reproduces its binary).
-    Version 05 is the first written with the new names.
+  LDAZ(),Y and STAZ(),Y: this version first gave them these names, when
+    versions 01 to 03 still had LDA(),Y and STA(),Y. The names were
+    backported to those versions (2026-11-13), so this version's source
+    uses them and it can assemble itself (asmtestgen.sh checks that it
+    reproduces its binary).
 
 DATA directive:
   DATA $XX ...        - emit hex bytes
@@ -70,11 +70,11 @@ New in this version (relative to version 03):
 - Pass-aware emit (only writes output on pass 2)
 - Pass-aware label capture (only on pass 1)
 - Pass-aware label resolution (returns dummy on pass 1)
-- Expanded instruction table: AND#, EORZ, LDAZ(),Y, LDA,X, LDAZ,X,
-  LSRA, PHA, PLA, STA,X, STA,Y, STAZ(),Y, TAY
+- Expanded instruction table: AND#, EORZ, LDA,X, LDAZ,X, LSRA, PHA, PLA,
+  STA,X, STA,Y, TAY
 - Removed CMPZ,X and DEY from instruction table
-- Renamed LDA(),Y to LDAZ(),Y and STA(),Y to STAZ(),Y (Z prefix indicates
-  zero-page pointer); the old names are still accepted
+- LDAZ(),Y and STAZ(),Y (the Z marks a zero-page pointer) keep the names
+  versions 01 to 03 give them
 - findintab now initializes Y=0 internally (callers no longer need to
   maintain Y=0)
 

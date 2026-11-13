@@ -40,7 +40,7 @@ MNTAB
   DATA "JSR"     $00 $00 $20
   DATA "LDAZ"    $00 $00 $A5
   DATA "LDA#"    $00 $00 $A9
-  DATA "LDA(),Y" $00 $00 $B1
+  DATA "LDAZ(),Y" $00 $00 $B1
   DATA "LDA,Y"   $00 $00 $B9
   DATA "LDX#"    $00 $00 $A2
   DATA "LDY#"    $00 $00 $A0
@@ -50,7 +50,7 @@ MNTAB
   DATA "SBCZ"    $00 $00 $E5
   DATA "SEC"     $00 $00 $38
   DATA "STA"     $00 $00 $8D
-  DATA "STA(),Y" $00 $00 $91
+  DATA "STAZ(),Y" $00 $00 $91
   DATA "STAZ"    $00 $00 $85
   DATA "STAZ,X"  $00 $00 $95
   DATA "TYA"     $00 $00 $98
@@ -166,7 +166,7 @@ advanceintab
 ;         Y = 0
 ;         A is not preserved
 findintab              ; outer loop
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BNE $02              ; BNE findintab2
   ; not found
   SEC
@@ -184,10 +184,10 @@ fit_charloop           ; inner loop
   RTS
 fit_nextchar           ; move to next char
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   JMP fit_charloop     ; inner loop
 fit_skipcurrent        ; skip current symbol in table
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BEQ $04              ; BEQ fit_nextsymbol ; done skipping
   INY
   JMP fit_skipcurrent
@@ -263,15 +263,15 @@ htt_hexvalue
   INY
   JSR read
   JSR readhex
-  STA(),Y $02
+  STAZ(),Y $02
   DEY
   JSR read
   JSR readhex
-  STA(),Y $02
+  STAZ(),Y $02
   INY
   INY  
   LDA# $00
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   LDY# $00
   JSR read
   STAZ $00             ; STAZ TEMP
@@ -306,7 +306,7 @@ cl_notfound
   JMP cl_setpc
 cl_loop                ; Copy TOKEN to table
   LDA,Y $0006          ; LDA,Y TOKEN
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   BEQ $04              ; BEQ cl_done
   INY
   JMP cl_loop
@@ -320,13 +320,13 @@ cl_copypc
   STAZ $00             ; STAZ TEMP
   INY
   LDAZ $04             ; LDAZ PC
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   INY
   LDAZ $05             ; LDAZ PC+1
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   INY                  ; Terminate table value
   LDA# $00
-  STA(),Y $02          ; STA(),Y TAB
+  STAZ(),Y $02          ; STAZ(),Y TAB
   LDY# $00             ; restore Y register
   RTS
 
@@ -352,12 +352,12 @@ emitopcode
   BRK                  ; Opcode not found
   DATA $02 "Opcode not found" $00
 eo_found
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   BEQ $01              ; BEQ eo_opcode
   RTS                  ; Not opcode (DATA command)
 eo_opcode
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   DEY
   JSR emit
   RTS
@@ -406,10 +406,10 @@ eh_last
 
 emitlabel
   JSR readandfindexistinglabel
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   JSR emit
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   DEY
   JSR emit
   LDAZ $00             ; LDAZ TEMP
@@ -418,7 +418,7 @@ emitlabel
 
 emitlabellsb
   JSR readandfindexistinglabel
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   JSR emit
   LDAZ $00             ; LDAZ TEMP
   RTS
@@ -427,7 +427,7 @@ emitlabellsb
 emitlabelmsb
   JSR readandfindexistinglabel
   INY
-  LDA(),Y $02          ; LDA(),Y TAB
+  LDAZ(),Y $02          ; LDAZ(),Y TAB
   DEY
   JSR emit
   LDAZ $00             ; LDAZ TEMP

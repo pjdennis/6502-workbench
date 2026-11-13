@@ -10,8 +10,8 @@ mnemonics in a built-in instruction table using linear search.
 
 Instruction mnemonics (non-standard syntax, addressing mode encoded in name):
   ADC# ADCZ ASLA BCC BCS BEQ BNE BRK CLC CMPZ,X CMP# CMP,Y DEY INCZ INX
-  INY JMP JSR LDAZ LDA# LDA(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SEC STA
-  STA(),Y STAZ STAZ,X TYA
+  INY JMP JSR LDAZ LDA# LDAZ(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SEC STA
+  STAZ(),Y STAZ STAZ,X TYA
 
 DATA directive:
   DATA $XX ...        - emit hex bytes

@@ -85,9 +85,9 @@ Tell it in acts: what hurt, what the stage added, what that made possible. The f
 ### Act 1: getting out of hex (stages 01–04)
 
 - **01** adds mnemonics, labels and strings, but is still written in hex. Its instruction table is spelled out byte by byte.
-- **02** adds nothing. It is stage 01 rewritten in the mnemonics stage 01 understands, and the two binaries are identical (744 bytes). First appearance of the pattern to name: **teach, then use**.
+- **02** adds nothing. It is stage 01 rewritten in the mnemonics stage 01 understands, and the two binaries are identical (746 bytes). First appearance of the pattern to name: **teach, then use**.
 - The early mnemonics carry the addressing mode in the name (`LDA#`, `LDAZ`, `LDA(),Y`), so the assembler needs no operand parser yet.
-- **03** byte selectors, assignments, origin. **04** two passes, so labels can be used before they are defined: the end of hand-counted branch offsets. Stage 04 also renames two instructions and keeps the old names alongside, so that it can still assemble its own source.
+- **03** byte selectors, assignments, origin. **04** two passes, so labels can be used before they are defined: the end of hand-counted branch offsets.
 
 ### Act 2: growing up (stages 05–10)
 
@@ -125,7 +125,7 @@ Measured by having each stage's binary assemble its own source:
   - **11** takes only standard syntax and is written in the old one. Deliberate: it is the "teach" half of the migration, and 12 is the "use" half.
   - **13** accepts `.data` and no longer accepts the older `DATA`, which its own source uses. It cannot use `.data` itself, because stage 12, which assembles it, does not know the word. Before the chain was consolidated there was a stage between them that accepted both; removing it merged "teach" and "drop the old form" into one step. Letting 13 keep `DATA` would make it self-hosting again, at the cost of moving the removal to 14.
   - **16** still accepts `.data`, but rejects one form of it that its own generated instruction table uses (a local label after the first operand). **[Check]** This looks unintended, not a design choice; decide whether to fix it as stage 04 was fixed.
-- Stage 04 used to be a fourth: it renamed two instructions its own source still used under the old names. It now accepts both names (fixed 2026-11-13, and checked by the build).
+- Stage 04 used to be a fourth: it renamed two instructions (`LDA(),Y` and `STA(),Y` gained a `Z`) that its own source still used under the old names. The new names were backported to stages 01 to 03 on 2026-11-13, which is itself an example of the backports of section 8; the build now checks that stage 04 reproduces itself.
 - So the pattern: a stage that *replaces* syntax in one step cannot build itself; one that adds, or keeps the old form for a stage, can.
 
 ### The chain in numbers (optional)
@@ -133,10 +133,10 @@ Measured by having each stage's binary assemble its own source:
 | Stage | Adds | Source lines | Binary (bytes) | Assembles itself |
 |---|---|---|---|---|
 | 00 | `DATA` only | 92 | 131 | yes |
-| 01 | mnemonics, labels | 338 | 744 | yes |
-| 02 | source in mnemonics | 376 | 744 (same as 01) | yes |
-| 03 | selectors, assignments, origin | 507 | 942 | yes |
-| 04 | two passes | 576 | 1,070 | yes |
+| 01 | mnemonics, labels | 338 | 746 | yes |
+| 02 | source in mnemonics | 376 | 746 (same as 01) | yes |
+| 03 | selectors, assignments, origin | 507 | 944 | yes |
+| 04 | two passes | 574 | 1,050 | yes |
 | 05 | hash tables | 823 | 1,564 | yes |
 | 06 | instruction table generator | 1,498 | 17,959 | yes |
 | 07 | diagnostics | 1,875 | 29,138 | yes |

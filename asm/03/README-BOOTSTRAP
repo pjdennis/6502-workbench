@@ -11,8 +11,8 @@ variables and set the program origin.
 
 Instruction mnemonics (expanded from version 02):
   ADC# ADCZ ASLA BCC BCS BEQ BNE BRK CLC CMPZ,X CMP# CMP,Y DEY INCZ INX
-  INY JMP JSR LDAZ LDA# LDA(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SBCZ SEC
-  STA STA(),Y STAZ STAZ,X TYA
+  INY JMP JSR LDAZ LDA# LDAZ(),Y LDA,Y LDX# LDY# ORAZ RTS SBC# SBCZ SEC
+  STA STAZ(),Y STAZ STAZ,X TYA
 
   New instructions: BITZ (BIT zero-page), BMI, BPL, SBCZ (SBC zero-page)
 
