@@ -4,6 +4,7 @@ Bootstrap Chain Milestones
 Version  Milestone
 -------  ---------
 00       Minimal DATA-only bootstrap (129 bytes)
+00b      Single-character labels and strings in DATA (250 bytes)
 01       First non-standard 6502 mnemonics
 02       Source becomes human-readable assembly
 03       Byte selectors, label assignments, origin setting
@@ -32,11 +33,13 @@ the right column shows new syntax first used in that version's source.
 Ver New syntax supported             New syntax used in source
 --- -------------------------------- ----------------------------
 00  DATA $XX, ; comments             -
-01  Non-standard mnemonics           None
-    (LDA#, STAZ), labels,
-    strings, $XXXX hex
+00b Single-character labels,         None
+    DATA "string", DATA label
+01  Non-standard mnemonics           Labels, label references,
+    (LDA#, STAZ), whole-name         DATA "string"
+    labels, $XXXX hex, \n escapes
 02  None                             Non-standard mnemonics,
-                                     labels, label references
+                                     whole-name labels
 03  < > byte selectors,              Char escape literals
     label = $XX, * = $XXXX,
     new instrs (BITZ, BMI,

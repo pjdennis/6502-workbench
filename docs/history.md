@@ -50,12 +50,13 @@ Then build it the way that era did, using the table below.
 | 2026-06-07 | **p1 self-hosts** on banked Wendy 2 (byte-identical to host p8c) | `fb90b8e` (`prog8/self-hosts`) | `P1_WENDY_SELFHOST=1 make -C assembler2 p1-test` (~18 min) |
 | 2026-09-23 | PLD cfg `$18` restored to upper ROM | `17e4a78` (`wendy2c/pld-cfg18-rom`) | `make -C assembler2 test` |
 | 2026-09-24 | **Reorganization**: `michael_keyboard_wip` merged, new layout, CI; moved to the new repository `pjdennis/6502-workbench` | `reorg/before` … `reorg/after` | `make`, `tools/check_all.sh` (see the root README) |
+| 2026-11-13 | Stage **00b** inserted between 00 and 01: single-character labels and strings, so 01's source has no hand-computed addresses (01's binary unchanged) | — | `asm/verify.sh` |
 
 ## By area
 
 **Boards.** Wendy (v1, 2020) and Michael (v2, 2021) share a library of LCD, keyboard, sound, serial and multitasking routines. Each board has its own `base_config_*.inc` and `initialize_machine_*.inc`. Wendy 2 (2022) moved to a 65C02 with PLD glue logic and banked RAM; its revisions are in `hardware/wendy2/README.md`. Work on Michael's graphics console and keyboard driver continued on `michael_keyboard_wip` from 2023 to 2024 (BBC BASIC). That branch also carried a Wendy 2 LED control and a 2026 PLD experiment. It was merged in the 2026 reorganization.
 
-**Assemblers.** `asm1` (2022–2025, now `attic/asm1`) was bootstrapped with vasm. `asm2` (2026, now `asm/`) starts from a small C assembler and builds 17 stages, each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
+**Assemblers.** `asm1` (2022–2025, now `attic/asm1`) was bootstrapped with vasm. `asm2` (2026, now `asm/`) starts from a small C assembler and builds 18 stages (00, 00b, 01 to 17), each assembled by the one before. Stage history lives in the stage directories themselves. `BOOTSTRAP-OVERVIEW` summarises what each stage added.
 
 **Editor.** A vi-like editor written in asm2's dialect (from 2026-02, now `editor/`).
 

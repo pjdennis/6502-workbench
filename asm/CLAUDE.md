@@ -25,7 +25,7 @@ The vi-like editor written in this assembler's dialect lives in `../editor` (see
 
 ### Bootstrap Chain
 
-A C bootstrap assembler assembles the initial versions, which then assemble progressively more capable versions (asm00 → asm01 → ... → asm17). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/` through `17/`) with all its source files.
+A C bootstrap assembler assembles the initial versions, which then assemble progressively more capable versions (asm00 → asm00b → asm01 → ... → asm17). Each version adds features needed by the next. Each version lives in its own subdirectory (`00/`, `00b/`, then `01/` through `17/`) with all its source files. `00b` was inserted later, so the numbers stay as they were.
 
 ### Build Output Structure
 
@@ -92,7 +92,7 @@ The current assembler (asm17) uses standard 6502 syntax:
 - `LDA ($00),Y` for indirect indexed
 - `LDA $1234,X` for indexed absolute
 
-Early bootstrap levels (asm00-05) used non-standard syntax (`LDA#`, `LDAZ`, etc.) but asm06+ uses standard syntax.
+Early bootstrap levels (asm01-05) used non-standard syntax (`LDA#`, `LDAZ`, etc.) but asm06+ uses standard syntax. asm00 and asm00b assemble only DATA lines.
 
 ### Expression Evaluation (asm13+)
 

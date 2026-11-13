@@ -1,6 +1,6 @@
 Assembler Version 01
 ====================
-Assembled by: Version 00
+Assembled by: Version 00b
 
 Features Supported by This Assembler
 -------------------------------------
@@ -41,29 +41,34 @@ Error handling:
 Semicolon comments (to end of line).
 Output starts at $2000 (hardcoded).
 
-New in this version (relative to version 00):
+New in this version (relative to version 00b):
 - Non-standard 6502 instruction mnemonics with built-in instruction table
-- Labels defined at start of line (bound to program counter)
-- Label references as 16-bit operands
-- Hex operands ($XX and $XXXX) with automatic 1 or 2 byte emission
-- String literal operands ("string") with escape sequences (\n, \\)
-- DATA directive supporting mixed hex, string, and label arguments
-- Error reporting via BRK with inline messages
+- Labels with whole names (00b keeps only the first character), found by
+  linear search
+- Label references as 16-bit operands of instructions
+- Hex operands ($XXXX as well as $XX), with automatic 1 or 2 byte emission
+- Escape sequences in strings (\n, \\)
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source is written entirely in DATA directives with hex bytes, which is
-the only feature version 00 supports. All 6502 instructions are manually
-encoded as hex byte sequences. The instruction mnemonic table, subroutine
-addresses, branch targets, and error messages are all encoded as raw hex
-values. The reset vector entry point address is emitted as the final two
-DATA bytes.
+The source is written for version 00b. Each 6502 instruction is a DATA
+line of hex bytes, commented with its mnemonic; jump and subroutine targets
+are labels, and the instruction mnemonic table and error messages are
+strings. Branch offsets are still counted by hand.
+
+Labels are named after version 02's, behind a first character that tells
+them apart, since 00b keeps only that character (f_findintab, t_readtoken).
+01 and 02 compare whole names; asmtestgen.sh checks that they assemble this
+source to the same bytes as 00b.
 
 Source features used:
-  - DATA $XX $XX ... (hex byte emission only)
+  - DATA $XX $XX ... (hex bytes)
+  - DATA "string" (no escapes)
+  - Labels at column 0, and label references in DATA
   - Semicolon comments (documenting the intended mnemonics)
 
-New source features (relative to version 00):
-- None. The source uses the same DATA-with-hex-bytes format as version 00.
-  The comments are more detailed, showing the equivalent mnemonic source,
-  but these are still just comments.
+New source features (relative to version 00b, whose source is hex bytes):
+- Labels at column 0, and label references in DATA
+- Strings in DATA
+Until 2026-11 this source was hex bytes only, for version 00. It was
+rewritten for 00b, with the binary unchanged.

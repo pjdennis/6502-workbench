@@ -1,0 +1,54 @@
+Assembler Version 00b
+=====================
+Assembled by: Version 00
+
+Features Supported by This Assembler
+-------------------------------------
+A stage between 00 and 01: DATA directives with labels and strings, in the
+same syntax as version 01, so its input is also valid input for 01 and 02.
+Labels are single characters, which needs no token buffer, no compare and
+no search: a label's character, doubled, indexes a table of addresses.
+
+- DATA directive, on a line that starts with a space:
+    DATA $XX ...        - emit hex bytes (two upper-case hex digits)
+    DATA "string"       - emit ASCII characters (no escape sequences)
+    DATA name           - emit a label's 16-bit address (little-endian)
+    Mixed: DATA $20 name "text" $00 on the same line
+- Labels:
+  - Defined by a name at column 0, bound to the program counter. The rest
+    of the line is ignored.
+  - Only the first character of a name counts, both where it is defined and
+    where it is used, so names must differ in their first character. A
+    name in DATA ends at a space or the end of the line, as in 01.
+  - The table is at $3000, two bytes per character at offset 2 * character.
+    A high byte of zero means undefined (labels are always at $2000 or
+    above).
+  - Forward references are NOT supported (single-pass)
+- Semicolon comments (to end of line). Whitespace is spaces only, as in 01.
+- Output starts at $2000 (hardcoded). The source's last two bytes are the
+  reset vector.
+
+Error handling (BRK with an exit code and message, as in version 01):
+  - Error 01: Duplicate label (including two names with the same first
+    character)
+  - Error 02: Opcode not found (an indented line that does not start with D)
+  - Error 03: Label not found
+
+New in this version (relative to version 00):
+- Program counter tracking
+- Single-character labels, defined at column 0 and used in DATA
+- String arguments in DATA
+- Error reporting via BRK with inline messages
+
+Features Used in This Assembler's Source Code
+----------------------------------------------
+The source is written for version 00: DATA lines of hex bytes and comments.
+Each line holds one instruction, commented with its address and mnemonic.
+The instructions were written in standard syntax and encoded with a
+generator; the resulting bytes match pyasm.py's assembly of the same
+program.
+
+New source features (relative to version 00):
+- None.
+
+Total code size: 250 bytes ($2000-$20F9), 51 of them error messages.

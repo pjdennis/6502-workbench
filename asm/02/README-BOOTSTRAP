@@ -49,8 +49,8 @@ New in this version (relative to version 01):
 
 Features Used in This Assembler's Source Code
 ----------------------------------------------
-The source uses version 01's mnemonic syntax throughout, replacing the raw
-hex DATA bytes of version 01's source. This is the first version whose
+The source uses version 01's mnemonic syntax throughout, replacing the hex
+DATA bytes of version 01's source. This is the first version whose
 source code is human-readable 6502 assembly.
 
 Source features used:
@@ -66,5 +66,7 @@ Source features used:
 New syntax used in source (relative to version 01):
 - Non-standard instruction mnemonics (LDAZ, LDA#, STAZ, CMP#, etc.)
   instead of raw hex DATA bytes
-- Named labels for code locations instead of hardcoded addresses
+- Whole label names (01's source, written for 00b, has names that differ
+  in their first character)
 - Label references in instruction operands (e.g., JSR read, JMP lnloop)
+  instead of DATA (01's source has DATA $20 r_read)
