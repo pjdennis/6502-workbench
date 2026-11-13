@@ -40,7 +40,7 @@ end
 
 ## Lexical rules
 
-- **Character set.** Source is 7-bit ASCII. Lower-case letters are folded to upper case outside string and character literals, so keywords and names are not case sensitive. Only `|` and `~` fall outside the range `$20`–`$5F` (see the open questions in [`goals.md`](goals.md)).
+- **Character set.** Source is 7-bit ASCII. Upper-case letters are folded to lower case outside string and character literals, so keywords and names are not case sensitive. Only `|` and `~` fall outside the range `$20`–`$5F` (see the open questions in [`goals.md`](goals.md)).
 - **Comments** run from `;` to the end of the line.
 - **Names** start with a letter and continue with letters, digits and `_`. The first 31 characters are significant.
 - **Numbers.** Decimal `123`, hexadecimal `$7F`, binary `%1010`, character `'A'`. A number literal has no type of its own; it takes the type its context needs, and it is an error if it does not fit.
