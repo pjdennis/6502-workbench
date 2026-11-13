@@ -2,7 +2,7 @@
 
 A high-level language and compiler for the 6502, meant to compile on the machine it targets: the boards in this repository, and period machines such as the BBC Micro, Apple II and Commodore 64.
 
-**Status (2026-11-13): design only.** Nothing is implemented. The documents below are the proposal to review before the first line of the compiler is written.
+**Status (2026-11-13): implementation under way.** The small spikes are done and the first build stage is in progress; [`docs/build-plan.md`](docs/build-plan.md) has the stages and their order.
 
 ## In one paragraph
 
@@ -17,14 +17,13 @@ Read them in this order.
 | [`docs/goals.md`](docs/goals.md) | Goals, targets to measure against, non-goals, the decisions already taken and the questions still open. |
 | [`docs/language.md`](docs/language.md) | The proposed language: lexical rules, types, declarations, statements, grammar and examples. |
 | [`docs/code-model.md`](docs/code-model.md) | How a compiled program runs: storage, calls, interrupts, recursion, zero page, banking, and the code the compiler should produce. |
+| [`docs/codegen.md`](docs/codegen.md) | The rules the compiler follows to turn expressions, statements and calls into instructions. |
 | [`docs/architecture.md`](docs/architecture.md) | How the compiler is built: phases, object files, the linker, environment configuration, memory budgets, and the constraints of starting on asm17. |
 | [`docs/object-format.md`](docs/object-format.md) | The object file format, and how object files are rendered as assembler text. |
 | [`docs/spikes.md`](docs/spikes.md) | Experiments to run before and during implementation, each with the question it answers and the decision it informs. |
 | [`docs/build-plan.md`](docs/build-plan.md) | The incremental build: stages, the test gate for each, and how the tests are organised. |
 
 ## Planned layout
-
-Only `docs/` exists today.
 
 ```
 lathe/
