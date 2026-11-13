@@ -18,6 +18,7 @@ Read them in this order.
 | [`docs/language.md`](docs/language.md) | The proposed language: lexical rules, types, declarations, statements, grammar and examples. |
 | [`docs/code-model.md`](docs/code-model.md) | How a compiled program runs: storage, calls, interrupts, recursion, zero page, banking, and the code the compiler should produce. |
 | [`docs/architecture.md`](docs/architecture.md) | How the compiler is built: phases, object files, the linker, environment configuration, memory budgets, and the constraints of starting on asm17. |
+| [`docs/object-format.md`](docs/object-format.md) | The object file format, and how object files are rendered as assembler text. |
 | [`docs/spikes.md`](docs/spikes.md) | Experiments to run before and during implementation, each with the question it answers and the decision it informs. |
 | [`docs/build-plan.md`](docs/build-plan.md) | The incremental build: stages, the test gate for each, and how the tests are organised. |
 
