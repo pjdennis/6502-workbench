@@ -67,6 +67,14 @@ class Colors:
         cls.RED = cls.GREEN = cls.YELLOW = cls.NC = ""
 
 
+def version_number(asm_version: str) -> int:
+    """The stage number of a version name: its leading digits, so "00b" is stage 0."""
+    m = re.match(r"\d+", asm_version)
+    if not m:
+        raise ValueError(f"not a stage name: {asm_version!r}")
+    return int(m.group())
+
+
 @dataclass
 class Test:
     name: str = ""
@@ -104,7 +112,7 @@ class TestRunner:
         self.verbose = verbose
         self.quiet = quiet
         self.python_mode = python_mode
-        self.use_server = use_server and not python_mode and int(asm_version) >= 9
+        self.use_server = use_server and not python_mode and version_number(asm_version) >= 9
         self.asm_version = asm_version
         self.emulator = base_dir.parent / "emulator" / "emulator.out"
         self.assembler = self._resolve_assembler_binary(base_dir, asm_version)
@@ -127,7 +135,7 @@ class TestRunner:
     @staticmethod
     def _resolve_assembler_binary(base_dir: Path, asm_version: str) -> Path:
         """Determine the correct assembler binary for a given version."""
-        version = int(asm_version)
+        version = version_number(asm_version)
         if version <= 5:
             return base_dir / asm_version / "out" / "asm.out"
         elif version <= 8:
@@ -391,7 +399,7 @@ class TestRunner:
                     cmd.append("debug")
             else:
                 # Emulator mode - version-aware command construction
-                version = int(self.asm_version)
+                version = version_number(self.asm_version)
                 if version <= 7:
                     # v01-v07: --load 2000 --input FILE --output FILE
                     cmd = [
@@ -619,7 +627,7 @@ class TestRunner:
             args = [TR_INPUT_FILE, TR_OUTPUT_FILE]
             if test.args:
                 args.extend(test.args.split())
-            elif int(self.asm_version) >= 11:
+            elif version_number(self.asm_version) >= 11:
                 args.append("debug")
 
             exit_code, _, stderr_data = self.emu.run(
