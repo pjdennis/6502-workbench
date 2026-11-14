@@ -3254,3 +3254,223 @@ ws[i] += w
 ws[2] -= 1
 rec.x |= 4
 rec.y += ws[i]
+
+== with blocks: a region's bank mapped and put back, nesting, and every way out of a block
+func g 0 0 0 1 1 1              ; 0: g(): byte
+func f 0 0 1 1 1 0 1 1          ; 1: f(i: byte): byte
+source
+first
+decl 0 0
+first
+decl 0 0
+first
+scope
+fbegin 1
+param 1 i
+receive 1
+body 1
+fend 0
+syms 0
+end
+--
+var t: [8]byte in r
+var u: byte in s
+static var seen: byte in r
+var k: byte
+k = g()
+with r do
+  with r do
+    t[1] = i
+  end
+  seen += 1
+  with s do
+    u = k
+    if u == 0 then
+      return 1
+    end
+  end
+  for k = 0 to 7 do
+    if t[k] == 0 then
+      continue
+    end
+    if t[k] == 1 then
+      break
+    end
+  end
+  k = g()
+  if k == 3 then
+    return t[2]
+  end
+end
+while k != 0 do
+  with s do
+    if u == k then
+      break
+    end
+    u = k
+  end
+  k -= 1
+end
+loop
+  with s do
+    u = 1
+    if k == 2 then
+      continue
+    end
+  end
+until k == 0
+return 0
+with r do
+  t[0] = 1
+end
+
+== with blocks: a table in a region, and a second function's blocks
+func f 0 0 0 0                  ; 0: f()
+func h 0 0 0 0                  ; 1: h()
+source
+first
+decl 0 0
+dregion msgs
+first
+decl 0 0
+syms 0
+scope
+fbegin 0
+first
+body 0
+fend 0
+send
+scope
+fbegin 1
+first
+body 1
+fend 0
+end
+--
+var v: [2]byte in msgs
+var w: [2]byte = [1, 2]
+with msgs do
+  v[0] = w[1]
+end
+end
+with msgs do
+  v[1] = 2
+end
+
+== with blocks: not in an interrupt function (error 119)
+func f 0 32 0 0                 ; 0: interrupt f()
+scope
+fbegin 0
+source
+first
+body 0
+end
+--
+with r do
+end
+
+== with blocks: a name after with (error 21)
+func f 0 0 0 0                  ; 0: f()
+scope
+fbegin 0
+source
+first
+body 0
+end
+--
+with 3 do
+end
+
+== with blocks: do after the name (error 38)
+func f 0 0 0 0                  ; 0: f()
+scope
+fbegin 0
+source
+first
+body 0
+end
+--
+with r then
+end
+
+== with blocks: a block in which nothing of its region is used (error 183)
+var 1 0 0 0 a                   ; 0
+func f 0 0 0 0                  ; 1: f()
+scope
+fbegin 1
+source
+first
+body 1
+end
+--
+a = 0
+with r do
+  a = 1
+end
+
+== with blocks: a variable of a region used outside its block (error 118)
+var 1 0 0 0 a                   ; 0
+func f 0 0 0 0                  ; 1: f()
+source
+first
+decl 0 0
+first
+scope
+fbegin 1
+body 1
+end
+--
+var t: [4]byte in r
+with r do
+  a = t[0]
+end
+a = 1 + t[1]
+
+== with blocks: a name after in (error 21)
+source
+first
+decl 0 0
+end
+--
+var t: byte in 5
+
+== with blocks: a local cannot be in a region (error 182)
+func f 0 0 0 0                  ; 0: f()
+scope
+fbegin 0
+source
+first
+body 0
+end
+--
+var x: byte
+var t: byte in r
+
+== with blocks: a variable in a region has no initial value (error 182)
+source
+first
+decl 0 0
+end
+--
+var t: byte in r = 1
+
+== with blocks: not in the body of an inline function (error 168)
+func get 0 16 0 1 1 1           ; 0: inline get(): byte
+var 1 0 0 0 a                   ; 1
+func f 0 0 0 0                  ; 2: f()
+source
+first
+decl 0 0
+first
+save 0
+first
+scope
+fbegin 2
+body 2
+end
+--
+var t: byte in r
+  with a do
+    return t
+end
+a = get()

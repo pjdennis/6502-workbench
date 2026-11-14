@@ -1,0 +1,14 @@
+; error 168 7 3
+module inline_with
+
+var t: byte in r
+
+inline func get(): byte
+  with r do
+    return t
+  end
+end
+
+func f(): byte
+  return get()
+end

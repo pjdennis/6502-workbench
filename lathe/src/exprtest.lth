@@ -24,7 +24,7 @@ import src
 import sys
 import typetab
 
-const WORDS = "source first next sym record field enum fbegin param receive body fend expr cond econst cnum type vtype decl save scope send gstore asvalue accept lresult gjump efunc initfn cpu syms module einit setv "
+const WORDS = "source first next sym record field enum fbegin param receive body fend expr cond econst cnum type vtype decl save scope send gstore asvalue accept lresult gjump efunc initfn cpu syms module einit setv dregion "
 
 ; Set up as regcmd does (a module `m` that imports `util`, its object file, and a function
 ; `m.f` being generated), and GEN, SRC, LEX, INLINE and EXPR.
@@ -243,6 +243,8 @@ func run_more(c: byte)
   of 33
     s = script.number()
     kernel.sym_value[s] = script.number()
+  of 34
+    expr.data_region = script.name()
   end
 end
 

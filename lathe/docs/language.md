@@ -350,7 +350,7 @@ end
 - **`with REGION do … end`** maps the region's bank into the window, keeps the bank it replaces in a temporary of the function, and puts it back at its `end` and at every `return`, `break` or `continue` that leaves it. A `return` keeps its result: A, X and the carry pass through, so a status can be returned from inside (unlike `critical`).
 - **Only inside.** A variable or table of a region can be used, or have its address taken, only inside a `with` block of that region (error 118), also in an `asm` block and in the body of an `inline` function expanded there. An address taken inside and used after the block points at whatever the window then holds: that is the programmer's responsibility.
 - **Nesting.** A block inside a block of the same region costs nothing. A block of another region maps its own bank, and inside it only that region's names can be used: there is one window. A block in which nothing of its region is used is error 183.
-- **Not in interrupt functions** (error 119), nor in what an interrupt function calls (link error 57). Not in an `inline` function (168; see the note in `lathe/host/README.md`).
+- **Not in interrupt functions** (error 119), nor in what an interrupt function calls (link error 57). Not in an `inline` function (168).
 - **The linker checks** that a function with a `with` block is in fixed memory (55), and that no call made inside a block goes to a function in a window (56). Calls of fixed functions are allowed inside.
 - **Interfaces** carry `in REGION`, so an importer is held to the same rule.
 

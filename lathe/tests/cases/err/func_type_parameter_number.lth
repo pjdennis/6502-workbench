@@ -1,0 +1,4 @@
+; error 21 4 15
+module func_type_parameter_number
+
+type T = func(3: byte)

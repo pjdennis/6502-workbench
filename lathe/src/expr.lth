@@ -19,7 +19,7 @@
 ; expressions, and array types need a constant expression. Variable declarations are parsed here,
 ; for DECL too, because a body has them.
 ;
-; Recursion. Expressions nest in expressions and statements in statements, so 45 of the 77
+; Recursion. Expressions nest in expressions and statements in statements, so 46 of the 83
 ; functions are on a cycle of calls, and Lathe makes each of them `recursive`: a call from one of
 ; them to another saves the caller's parameters and the locals it has declared so far on
 ; rt_frame's stack of 255 bytes, and its return address on the 6502's (docs/code-model.md,
@@ -27,15 +27,15 @@
 ; calls made before a value is needed save nothing, and expr.py keeps what expand() needs across
 ; an expansion in arrays: a level of parentheses saves nothing on rt_frame's stack (12 bytes of
 ; the 6502's), the arguments of a call 28 bytes (about 20), an inline expansion 23 (26), a `for` 20
-; (6), an `if` 4 (6). The saves are 492 pushes, about 5,900 bytes of the code. expr.py limits
-; the nesting (nest(), MAX_NESTING: 16 levels, error 88) so that both compilers stop with the
-; same error before either stack can fill.
+; (6), an `if` 4 (6), a `with` block 15. The saves were 492 pushes before `with` came, about
+; 5,900 bytes of the code. expr.py limits the nesting (nest(), MAX_NESTING: 16 levels, error 88)
+; so that both compilers stop with the same error before either stack can fill.
 ;
 ; Where the Lathe differs from the Python:
 ;
 ;   | Python                               | Lathe                             | Why             |
 ;   |--------------------------------------|-----------------------------------|-----------------|
-;   | RECURSIVE (four functions)           | `recursive` on the 43 functions   | every function  |
+;   | RECURSIVE (four functions)           | `recursive` on the 46 functions   | every function  |
 ;   |                                      | on a cycle of calls, and forward  | on a cycle must |
 ;   |                                      | recursive declarations            | be (link error) |
 ;   | the module `inline`                  | the module `inlines`              | `inline` is a   |
@@ -59,6 +59,9 @@
 ;   | which test_operator() uses           |                                   |                 |
 ;   | expression() and test(): module      | `pub`                             | exprtest calls  |
 ;   | functions                            |                                   | them            |
+;   | map_symbol and unmap_symbol, set by  | declared above init()             | declare before  |
+;   | init() and declared with `with`      |                                   | use             |
+;   | fbuf.buffer[entry + 2] = used & 0xFF | lo(used), hi(used)                |                 |
 module expr
 
 import asmblock
@@ -96,10 +99,16 @@ var pending_count: byte = 0     ; with at least one stored already: the outermos
 const MAX_NESTING = 16
 var nesting: byte = 0
 
+; The symbols of rt_with.map and rt_with.unmap, once used (with the statement `with` below)
+var map_symbol: word = kernel.NO_OBJ
+var unmap_symbol: word = kernel.NO_OBJ
+
 pub func init()
   passing = false
   passed = reg.NONE
   pending_count = 0
+  map_symbol = kernel.NO_OBJ
+  unmap_symbol = kernel.NO_OBJ
   nesting = 0
 end
 
@@ -298,13 +307,17 @@ recursive func designator()
   if kind == kernel.K_FUNC then
     gen.function(s)
   elif kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]) then
+    err.position(line, col)     ; a table in a region is used only inside `with`
     gen.table(s)
+    err.position(lex.line, lex.col)
   elif kind == kernel.K_CONST then
     gen.constant(kernel.sym_type[s], kernel.sym_value[s])
   elif kind == kernel.K_LOCAL then
     gen.local(kernel.sym_type[s], lo(kernel.sym_value[s]))
   elif kind == kernel.K_VAR then
+    err.position(line, col)
     gen.variable(s)
+    err.position(lex.line, lex.col)
   elif kind == kernel.K_TYPE then
     conversion(kernel.sym_type[s], line, col)
   else
@@ -912,6 +925,24 @@ var next_label: word = reg.NONE ; where `continue` goes: to that loop's next pas
 var placed_at: word = 0         ; the address after "at" in the declaration being parsed
 var critical_depth: byte = 0    ; how many `critical` blocks the statement being compiled is inside
 var critical_inner: byte = 0    ; how many of those are inside the nearest loop
+; `with REGION do ... end` (provisional, 2026-11-14): the temporaries that hold the bank found
+; when the outermost `with` block of the function, and the outermost inside the nearest loop,
+; mapped theirs; fbuf.NO_SLOT for none. Unmapping it puts back what was there before them all.
+var with_function: byte = fbuf.NO_SLOT
+var with_loop: byte = fbuf.NO_SLOT
+var with_entry: word = reg.NONE ; map(): the buffer entry of its LDA #bank, whose symbol comes later
+var placed_region: word = 0     ; the name after "in" in the declaration being parsed
+pub var data_region: word = 0   ; the region of the table table_data() writes, or 0
+var in_line: word = 0           ; and where the "in" is
+var in_col: word = 0
+const FARCALL_MODULE = "rt_with"    ; the far-call module, as the linker resolves it (configurations.md)
+const MAP_NAME = "map"              ; map(value: byte in a): byte in a, the old value
+const UNMAP_NAME = "unmap"          ; unmap(value: byte in y), which keeps A, X, Y and the flags
+; map_symbol and unmap_symbol, their object-file symbols, are declared above init()
+const FIX_BANK = 6                  ; fix-up kind 6: the register value of a symbol's region
+const OP_LDA_IMMEDIATE = $A9
+const OP_STA = $8D
+const OP_LDY = $AC
 
 const MAX_CASE = 256
 var case_value: [MAX_CASE]byte  ; the constants of the `case` statements being compiled
@@ -919,8 +950,10 @@ var case_count: word = 0
 
 ; ---- Variables ---------------------------------------------------------------------------
 
-; { "zp" | "nozp" | "rows" | "at" constExpr }. Returns them as symbol flags; the address is
-; left in `placed_at`.
+forward func region_name(): word
+
+; { "zp" | "nozp" | "rows" | "at" constExpr | "in" name }. Returns them as symbol flags; the
+; address is left in `placed_at`, the region in `placed_region`.
 recursive func placements(): byte
   var flags: byte
   flags = 0
@@ -939,7 +972,8 @@ recursive func placements(): byte
       flags = flags | kernel.SF_ROWS
       lex.next()
     elif lex.tok == lex.T_IN then
-      err.fatal(err.E_UNSUPPORTED)
+      flags = flags | kernel.SF_IN
+      placed_region = region_name()
     else
       break
     end
@@ -948,6 +982,26 @@ recursive func placements(): byte
     err.fatal(err.E_SYNTAX)
   end
   return flags
+end
+
+; "in" name: the region's name. Where the "in" is is kept for an error.
+pub func region_name(): word
+  var name: word
+  in_line = lex.line
+  in_col = lex.col
+  lex.next()
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  name = lex.value
+  lex.next()
+  return name
+end
+
+; `in REGION` was given where it is not allowed.
+pub func not_in_region()
+  err.position(in_line, in_col)
+  err.fatal(err.E_IN_HERE)
 end
 
 ; The class of a slot or variable declared with these flags.
@@ -976,6 +1030,9 @@ func lasting_variable(scope: byte, name: word, t: byte, flags: byte, level: byte
   else
     kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, kernel.module_name[0],
         kernel.sym_name[function], name)
+  end
+  if flags & kernel.SF_IN != 0 then
+    kernel.sym_value[s] = placed_region
   end
   return s
 end
@@ -1027,6 +1084,13 @@ pub recursive func variable(more: byte, level: byte)
   col = lex.col
   t = type_spec()
   flags = placements() | more
+  if flags & kernel.SF_IN != 0 then
+    ; In a region: in its bank, never in zero page, with no initial value, and not a slot.
+    if flags & (kernel.SF_AT | kernel.SF_ZP) != 0 or level == LEVEL_LOCAL or lex.tok == lex.T_ASSIGN then
+      not_in_region()
+    end
+    flags = flags | kernel.SF_NOZP
+  end
   err.position(line, col)
   if flags & kernel.SF_ROWS != 0 then
     if not typetab.is_array(t) then
@@ -1171,6 +1235,9 @@ pub recursive func table_data(t: byte, symbol: word)
       lex.next()
     end
     lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+  end
+  if data_region != 0 then
+    out.region(data_region)
   end
   out.table_end(symbol, total)
 end
@@ -1319,11 +1386,14 @@ recursive func while_statement()
   var saved_exit: word
   var saved_next: word
   var saved_inner: byte
+  var saved_with: byte
   var top: byte
   saved_exit = exit_label
   saved_next = next_label
   saved_inner = critical_inner
   critical_inner = 0
+  saved_with = with_loop
+  with_loop = fbuf.NO_SLOT
   lex.next()
   top = fbuf.new_label()
   reg.loop_label(top)
@@ -1342,6 +1412,7 @@ recursive func while_statement()
   exit_label = saved_exit
   next_label = saved_next
   critical_inner = saved_inner
+  with_loop = saved_with
 end
 
 ; "loop" NL body ( "end" | "until" expression ). `continue` goes to the test of `until`, or to
@@ -1350,11 +1421,14 @@ recursive func loop_statement()
   var saved_exit: word
   var saved_next: word
   var saved_inner: byte
+  var saved_with: byte
   var top: byte
   saved_exit = exit_label
   saved_next = next_label
   saved_inner = critical_inner
   critical_inner = 0
+  saved_with = with_loop
+  with_loop = fbuf.NO_SLOT
   lex.next()
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
   top = fbuf.new_label()
@@ -1379,6 +1453,7 @@ recursive func loop_statement()
   exit_label = saved_exit
   next_label = saved_next
   critical_inner = saved_inner
+  with_loop = saved_with
 end
 
 ; The name after "for": a variable of a number type. Returns its symbol.
@@ -1466,6 +1541,7 @@ recursive func for_statement()
   var saved_exit: word
   var saved_next: word
   var saved_inner: byte
+  var saved_with: byte
   var s: word
   var t: byte
   var line: word
@@ -1475,6 +1551,8 @@ recursive func for_statement()
   saved_next = next_label
   saved_inner = critical_inner
   critical_inner = 0
+  saved_with = with_loop
+  with_loop = fbuf.NO_SLOT
   lex.next()
   s = loop_variable()
   t = kernel.sym_type[s]
@@ -1542,6 +1620,7 @@ recursive func for_statement()
   exit_label = saved_exit
   next_label = saved_next
   critical_inner = saved_inner
+  with_loop = saved_with
   unnest()
 end
 
@@ -1677,6 +1756,125 @@ recursive func critical_statement()
   restore_flags(1)
 end
 
+; The symbols of rt_with.map and rt_with.unmap, and the IMP record of `rt_with`, which the first
+; `with` block of the module writes. The linker gives these names to the environment's far-call
+; module, or, with none, to the module `rt_with` that maps nothing.
+func farcall_symbols()
+  var module_name: word
+  if map_symbol != kernel.NO_OBJ then
+    return
+  end
+  module_name = gen.fixed_name(@FARCALL_MODULE)
+  out.imported(module_name)
+  map_symbol = out.symbol(out.SYM_FUNCTION, module_name, 0, gen.fixed_name(@MAP_NAME))
+  unmap_symbol = out.symbol(out.SYM_FUNCTION, module_name, 0, gen.fixed_name(@UNMAP_NAME))
+end
+
+; LDA #bank(REGION) / JSR rt_with.map / STA temporary: the region's bank in the window, and the
+; bank it replaces kept. Returns the temporary; with_entry is the buffer entry of the LDA, whose
+; fix-up names a symbol of the region once the block has used one (reg.NONE if the code cannot
+; be reached).
+func map_bank(): byte
+  var temp: byte
+  farcall_symbols()
+  reg.clobber()
+  fbuf.op_fix(OP_LDA_IMMEDIATE, FIX_BANK, 0, fbuf.NO_SLOT, 0)
+  with_entry = reg.NONE
+  if not fbuf.unreached then
+    with_entry = fbuf.newest
+  end
+  fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, map_symbol, fbuf.NO_SLOT, 0)
+  out.call(map_symbol, 0, out.NO_OUTER)
+  temp = reg.temp(1)
+  fbuf.op_fix(OP_STA, fbuf.FIX_ADDRESS, reg.own, temp, 0)
+  reg.use_slot(temp)
+  reg.forget()
+  return temp
+end
+
+; LDY temporary / JSR rt_with.unmap: the bank that was in the window before the block that kept
+; it in `temp`. A, X and the carry are kept, so a result can be on its way.
+func unmap_bank(temp: byte)
+  fbuf.op_fix(OP_LDY, fbuf.FIX_ADDRESS, reg.own, temp, 0)
+  reg.use_slot(temp)
+  fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, unmap_symbol, fbuf.NO_SLOT, 0)
+  out.call(unmap_symbol, 0, out.NO_OUTER)
+  reg.forget()
+end
+
+; "with" name "do" NL body "end" (provisional, 2026-11-14): inside it the variables and tables
+; `in` that region can be used. Its bank is mapped at the start and the bank found there put back
+; at the end, and by a `return`, `break` or `continue` that leaves it. A block inside a block of
+; the same region costs nothing; one of another region maps its own, and the outer region's
+; names cannot be used in it.
+recursive func with_statement()
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  if kernel.sym_flags[function] & inlines.SF_INTERRUPT != 0 then
+    err.fatal(err.E_WITH_INTERRUPT)
+  end
+  if inlines.level > 0 then
+    err.fatal(err.E_INLINE_NOT_HERE)
+  end
+  lex.next()
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  var region: word
+  region = lex.value
+  lex.next()
+  lex.expect(lex.T_DO, err.E_DO_EXPECTED)
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  var outer_region: word
+  var outer_used: word
+  var saved_function: byte
+  var saved_loop: byte
+  var temp: byte
+  var entry: word
+  outer_region = out.with_region
+  outer_used = out.with_used
+  saved_function = with_function
+  saved_loop = with_loop
+  temp = fbuf.NO_SLOT
+  entry = reg.NONE
+  if region != outer_region then
+    temp = map_bank()
+    entry = with_entry
+    if with_function == fbuf.NO_SLOT then
+      with_function = temp
+    end
+    if with_loop == fbuf.NO_SLOT then
+      with_loop = temp
+    end
+  end
+  out.with_region = region
+  out.with_used = kernel.NO_OBJ
+  body()
+  end_of_block()
+  var used: word
+  used = out.with_used
+  if used == kernel.NO_OBJ then
+    err.position(line, col)
+    err.fatal(err.E_WITH_UNUSED)
+  end
+  out.with_region = outer_region
+  out.with_used = outer_used
+  if temp != fbuf.NO_SLOT then
+    if entry != reg.NONE then
+      fbuf.buffer[entry + 2] = lo(used)
+      fbuf.buffer[entry + 3] = hi(used)
+    end
+    unmap_bank(temp)
+    reg.slot_busy[temp] = false
+  elif outer_used == kernel.NO_OBJ then
+    out.with_used = used
+  end
+  with_function = saved_function
+  with_loop = saved_loop
+end
+
 ; "#if" constExpr NL. LEX passes over what is not to be compiled. The condition is a `bool`, or
 ; a number, which is true unless it is 0 (docs/language.md, "Conditional compilation").
 pub recursive func directive()
@@ -1710,6 +1908,9 @@ func jump_statement(target: word)
   end
   lex.next()
   restore_flags(critical_inner)
+  if with_loop != fbuf.NO_SLOT then
+    unmap_bank(with_loop)
+  end
   reg.jump(byte(target))
 end
 
@@ -1798,6 +1999,9 @@ recursive func return_statement()
     end
   end
   restore_flags(critical_depth)
+  if with_function != fbuf.NO_SLOT then
+    unmap_bank(with_function)
+  end
   if keep then
     inlines.lazy[inlines.level] = true
   elif inlines.level > 0 then
@@ -1839,6 +2043,8 @@ recursive func statement()
     case_statement()
   elif lex.tok == lex.T_CRITICAL then
     critical_statement()
+  elif lex.tok == lex.T_WITH then
+    with_statement()
   elif lex.tok == lex.T_HASH_IF then
     directive()
   else
@@ -1888,7 +2094,7 @@ var expand_exit: [EXPANSIONS]word
 var expand_next: [EXPANSIONS]word
 var expand_depth: [EXPANSIONS]byte
 var expand_inner: [EXPANSIONS]byte
-var expand_with_function: [EXPANSIONS]byte     ; for `with` blocks, which this twin does not have yet
+var expand_with_function: [EXPANSIONS]byte     ; the caller's `with_function` and `with_loop`
 var expand_with_loop: [EXPANSIONS]byte
 
 ; The arguments and ")" of a call of inline function `f`, after its "(".
@@ -1931,11 +2137,15 @@ recursive func expand()
   expand_next[inlines.depth] = next_label
   expand_depth[inlines.depth] = critical_depth
   expand_inner[inlines.depth] = critical_inner
+  expand_with_function[inlines.depth] = with_function
+  expand_with_loop[inlines.depth] = with_loop
   function = inlines.expanding[inlines.depth]
   exit_label = reg.NONE
   next_label = reg.NONE
   critical_depth = 0
   critical_inner = 0
+  with_function = fbuf.NO_SLOT  ; its `return` is a jump inside the caller's blocks
+  with_loop = fbuf.NO_SLOT
   lex.open_brackets = 0
   inlines.body_begin(function)
   lex.next()
@@ -1949,6 +2159,8 @@ recursive func expand()
   next_label = expand_next[inlines.depth]
   critical_depth = expand_depth[inlines.depth]
   critical_inner = expand_inner[inlines.depth]
+  with_function = expand_with_function[inlines.depth]
+  with_loop = expand_with_loop[inlines.depth]
   lex.open_brackets = expand_brackets[inlines.depth]
   lex.resume(lex.T_RPAREN, expand_line[inlines.depth], expand_col[inlines.depth])
   if not inlines.lazy[inlines.depth] then
@@ -1970,6 +2182,8 @@ pub func function_body(f: word)
   next_label = reg.NONE
   critical_depth = 0
   critical_inner = 0
+  with_function = fbuf.NO_SLOT
+  with_loop = fbuf.NO_SLOT
   asm_last = false
   body()
   if kernel.sym_results[f] != 0 and fbuf.runs_on() and not asm_last then

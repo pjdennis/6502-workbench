@@ -106,11 +106,11 @@ const OP_BRA = $80              ; 65C02: the one branch with no opposite
 const OPPOSITE = $20            ; the bit that differs between a branch and its opposite
 const UNPLACED = $FFFF
 
-var buffer: [BUFFER_SIZE]byte nozp
+pub var buffer: [BUFFER_SIZE]byte nozp
 pub var used: word = 0
-var newest: word = 0                    ; the entry added last, if used is not 0
+pub var newest: word = 0                    ; the entry added last, if used is not 0
 var older: word = 0                     ; the entry before it, if it is below `newest`
-var unreached: bool = false             ; true while the entry being made is being left out
+pub var unreached: bool = false             ; true while the entry being made is being left out
 var kept: word = UNPLACED               ; an entry an `asm` block wrote last: never a tail call
 var written: bool = false               ; true while an `asm` block is written: kept as it is
 var label_offset: [MAX_LABELS]word      ; where each label is in the written layout

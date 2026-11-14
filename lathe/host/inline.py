@@ -217,7 +217,7 @@ def assignment(f, before, before_value):
 
 def opens_block(token):
     return token == lex.T_IF or token == lex.T_WHILE or token == lex.T_LOOP or token == lex.T_FOR \
-        or token == lex.T_CASE or token == lex.T_CRITICAL
+        or token == lex.T_CASE or token == lex.T_CRITICAL or token == lex.T_WITH
 
 
 def save_token(at_line):
@@ -279,7 +279,8 @@ def save(f):
         token = lex.tok
         if token == lex.T_EOF:
             err.fatal(err.E_END_EXPECTED)
-        if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF:
+        if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF \
+                or token == lex.T_WITH:
             err.fatal(err.E_INLINE_NOT_HERE)
         if scan_index == 0:
             scan_first = token

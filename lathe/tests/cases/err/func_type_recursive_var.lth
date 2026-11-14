@@ -1,0 +1,4 @@
+; error 27 4 20
+module func_type_recursive_var
+
+type T = recursive var

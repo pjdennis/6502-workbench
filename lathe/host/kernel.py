@@ -298,7 +298,7 @@ def names_release(mark):
 # straight to its symbols and the table needs no hash of its own. The chains are short:
 # one symbol per module that has the name, and the local that hides it.
 
-MAX_SYMS = 512
+MAX_SYMS = 560
 MAX_MEMBERS = 432
 MAX_MODULES = 16            # the module being compiled and those it imports
 

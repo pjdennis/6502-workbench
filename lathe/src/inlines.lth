@@ -277,7 +277,7 @@ end
 
 func opens_block(token: byte): bool
   return token == lex.T_IF or token == lex.T_WHILE or token == lex.T_LOOP or token == lex.T_FOR or
-      token == lex.T_CASE or token == lex.T_CRITICAL
+      token == lex.T_CASE or token == lex.T_CRITICAL or token == lex.T_WITH
 end
 
 ; Save the current token, which is on line `at_line` or later. Returns its line.
@@ -357,7 +357,8 @@ pub func save(f: word)
     if token == lex.T_EOF then
       err.fatal(err.E_END_EXPECTED)
     end
-    if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF then
+    if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF or
+        token == lex.T_WITH then
       err.fatal(err.E_INLINE_NOT_HERE)
     end
     if scan_index == 0 then

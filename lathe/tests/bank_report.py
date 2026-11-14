@@ -25,6 +25,12 @@ the section's commands and its source as two files, its first and third argument
 counter goes to its fourth. Such a program does not fit the default machine or Wendy 2 all in one
 (exprtest has about 68 KB of code), so only 1 and 2 are made.
 
+With --compile PATH..., the program is the compiler itself, lathe/src/lathec.lth: it is built
+banked and with the counting far-call routine, and compiles each module PATH (with the
+interfaces of what it imports, made by the host compiler) as test_src_lathec.py runs it, the
+counter's file given as an import directory after the output directory; and a command line
+that stops at once, the start-up alone.
+
 OUT_DIR (default: a temporary directory) keeps the builds."""
 import os
 import re
@@ -152,9 +158,54 @@ def runs(image, run, sections, work, tag, extra=False, sources=False):
     return found
 
 
+def compile_report(out_dir, paths):
+    """The compiler's own banked build: its map, and the cycles and far calls of compiling each
+    of `paths`."""
+    import test_src_lathec as lathec
+    banked = os.path.join(out_dir, 'banked')
+    os.makedirs(banked, exist_ok=True)
+    image = support.build_banked('lathec', banked)
+    map_report(os.path.join(banked, 'work', 'lathec.map'))
+    counting = os.path.join(out_dir, 'counting')
+    os.makedirs(counting, exist_ok=True)
+    counting_copies(counting, 2)
+    cimage = os.path.join(counting, 'lathec.bin')
+    support.banked_env('lathec', os.path.join(counting, 'lathec.env'))
+    support.build.build(os.path.join(counting, 'lathec.lth'), cimage,
+                        env=os.path.join(counting, 'lathec.env'), keep=os.path.join(counting, 'work'))
+    corpus = lathec.Corpus.__new__(lathec.Corpus)
+    corpus.work, corpus.done = os.path.join(out_dir, 'corpus'), {}
+    os.makedirs(corpus.work, exist_ok=True)
+    # The start-up alone: options, and a source name that is not one (error 61)
+    items = [('start-up', 'the start-up', ['-c6502', '-c6502', 'farcalls'], [])]
+    for path in paths:
+        files = [(os.path.basename(path), path)]
+        for name, dep in lathec.imports_of(path) or []:
+            li = corpus.interface(dep, ())
+            files.append((os.path.basename(li), li))
+        with open(path, 'rb') as f:
+            lines = f.read().count(b'\n')
+        items.append(('%d lines' % lines, path, [os.path.basename(path), '.', 'farcalls'], files))
+    for kind, path, args, files in items:
+        status, out, err, written, cycles = lathec.run_lathe(image, (kind, path, args, files), out_dir,
+                                                             cycles=True)
+        got = lathec.run_lathe(cimage, (kind, path, args, files), out_dir)
+        far_file = got[3].get('farcalls')
+        far = int.from_bytes(far_file, 'big') if far_file else 0
+        print('%s (%s): status %d, %d cycles banked, %d far calls (%d cycles at %d), %s'
+              % (os.path.relpath(path, support.LATHE) if os.path.isfile(path) else path, kind,
+                 status, cycles, far, far * FAR_CALL, FAR_CALL, ' '.join(sorted(written)) or '-'))
+
+
 def main(argv):
     out_dir = None
     name, script = 'gentest', 'gen'
+    if '--compile' in argv:
+        paths = argv[argv.index('--compile') + 1:]
+        argv = argv[:argv.index('--compile')]
+        out_dir = argv[0] if argv else tempfile.mkdtemp(prefix='lathe-bank-report-')
+        compile_report(out_dir, paths)
+        return
     while argv:
         a = argv.pop(0)
         if a == '--program':

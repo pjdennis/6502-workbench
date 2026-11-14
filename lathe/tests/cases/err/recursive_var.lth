@@ -1,0 +1,4 @@
+; error 27 4 11
+module recursive_var
+
+recursive var x: byte

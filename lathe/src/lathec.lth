@@ -1,0 +1,266 @@
+; The Lathe compiler's main program. lathe/host/lathec.py in Lathe.
+;
+;     lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]
+;
+; Compiles one module in one pass: SRC and LEX turn the file into tokens; DECL, STMT and EXPR
+; parse them; GEN chooses instructions, which FBUF holds until each function ends; OUT writes the
+; object file OUTDIR/name.lo, and DECL the interface OUTDIR/name.li. Owns the command line and
+; the order in which the components start. The options set the CPU the module is for and
+; predeclare constants for `#if` (lathe/host/README.md, "Command lines").
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | env: env.argc(), env.exit()          | sys: sys.argc(), sys.exit()       | sys is env's    |
+;   |                                      |                                   | twin            |
+;   | the module `inline`                  | the module `inlines`              | `inline` is a   |
+;   |                                      |                                   | keyword         |
+;   | source, place, start, stop: ints     | ^byte; env.mem[p] is p[0]         | lathe/src/      |
+;   | that index env.mem                   |                                   | sys.lth,        |
+;   |                                      |                                   | "Pointers"      |
+;   | env.mem[stop - len(SOURCE_ENDING)    | p = stop - len(SOURCE_ENDING),    | a pointer's     |
+;   | + i]                                 | then p[i]                         | index is a byte |
+;   | for i in range(start, stop - 4):     | a pointer p from start while p is | a loop variable |
+;   | env.mem[i]                           | below stop - 4                    | is a number     |
+;   | SOURCE_ENDING, OBJECT_ENDING,        | tables of bytes as long as the    | a table is not  |
+;   | CPU_NAME: byte strings, len(text)    | text                              | a value         |
+;   | is_text(place, text): len(text)      | text ended by a zero, walked to   | (the same); the |
+;   | CPU_6502, CPU_65C02: byte strings    | it; given as @CPU_6502            | table's address |
+;   | (0xFFFF - digit) // 10               | ($FFFF - digit) / 10              |                 |
+;   | `while True:`                        | `loop`                            |                 |
+;   | main(): a module function            | `pub`: the program's entry        | the linker's    |
+;   |                                      |                                   | $start calls it |
+module lathec
+
+import decl
+import err
+import expr
+import gen
+import inlines
+import kernel
+import lex
+import out
+import src
+import sys
+import typetab
+
+const C_0 = $30
+const C_SLASH = $2F
+const C_EQUALS = $3D
+const C_UNDERSCORE = $5F
+const C_MINUS = $2D
+const C_C = $63
+const C_D = $64
+const SOURCE_ENDING: [4]byte = ".lth"
+const OBJECT_ENDING: [3]byte = ".lo"
+const CPU_6502 = "6502"
+const CPU_65C02 = "65c02"
+const CPU_NAME: [9]byte = "cpu_65c02"    ; the bool constant the CPU option sets
+
+; True if the text that stops at `stop` ends with `.lth`, in either case.
+func has_source_ending(stop: ^byte): bool
+  var p: ^byte
+  var i: byte
+  p = stop - len(SOURCE_ENDING)
+  for i = 0 until len(SOURCE_ENDING) do
+    if lex.fold(p[i]) != SOURCE_ENDING[i] then
+      return false
+    end
+  end
+  return true
+end
+
+; The name of the module in the file whose name is at `source`: the file's name without its
+; directories and its `.lth`, in lower case. It must be a name the language allows.
+func module_name(source: ^byte): word
+  var start: ^byte
+  var stop: ^byte
+  var p: ^byte
+  var ch: byte
+  start = source
+  stop = source
+  while stop[0] != 0 do
+    if stop[0] == C_SLASH then
+      start = stop + 1
+    end
+    stop += 1
+  end
+  if stop - start <= len(SOURCE_ENDING) or not has_source_ending(stop) or not lex.is_letter(start[0]) then
+    err.fatal(err.E_SOURCE_NAME)
+  end
+  kernel.name_begin()
+  p = start
+  while p < stop - len(SOURCE_ENDING) do
+    ch = p[0]
+    if not lex.is_letter(ch) and not lex.is_digit(ch) and ch != C_UNDERSCORE then
+      err.fatal(err.E_SOURCE_NAME)
+    end
+    kernel.name_add(lex.fold(ch))
+    p += 1
+  end
+  return kernel.name_end()
+end
+
+; Pointer to the file name of the module's object file in a directory.
+func object_path(directory: ^byte): ^byte
+  var i: byte
+  kernel.path_begin()
+  kernel.path_add_text(directory)
+  kernel.path_add(C_SLASH)
+  kernel.path_add_name(kernel.module_name[0])
+  for i = 0 until len(OBJECT_ENDING) do
+    kernel.path_add(OBJECT_ENDING[i])
+  end
+  return kernel.path_end()
+end
+
+; True if the zero-terminated text at `place` is `text`, in either case.
+func is_text(place: ^byte, text: ^byte): bool
+  var i: byte
+  i = 0
+  while text[i] != 0 do
+    if lex.fold(place[i]) != text[i] then
+      return false
+    end
+    i += 1
+  end
+  return place[i] == 0
+end
+
+; The CPU named by the text after `-c`: 0 for 6502, 1 for 65C02.
+func cpu_option(place: ^byte): byte
+  if is_text(place, @CPU_6502) then
+    return 0
+  end
+  if not is_text(place, @CPU_65C02) then
+    err.fatal(err.E_USAGE)
+  end
+  return 1
+end
+
+; Predeclare the constant `name`: it can be used everywhere, `#if` included.
+func constant(name: word, t: byte, value: word)
+  var s: word
+  s = kernel.sym_add(kernel.SCOPE_PREDECLARED, name, kernel.K_CONST)
+  kernel.sym_type[s] = t
+  kernel.sym_value[s] = value
+end
+
+; The number written in decimal at `place`, to the end of the text.
+func decimal(place: ^byte): word
+  var n: word
+  var digit: byte
+  n = 0
+  if place[0] == 0 then
+    err.fatal(err.E_USAGE)
+  end
+  while place[0] != 0 do
+    digit = place[0] - C_0
+    if not lex.is_digit(place[0]) or n > ($FFFF - digit) / 10 then
+      err.fatal(err.E_USAGE)
+    end
+    n = n * 10 + digit
+    place += 1
+  end
+  return n
+end
+
+; The text after `-d`: NAME, which predeclares the bool constant NAME as true, or NAME=NUMBER,
+; which predeclares it as that number, of no type yet.
+func define(place: ^byte)
+  var ch: byte
+  var name: word
+  kernel.name_begin()
+  if not lex.is_letter(place[0]) then
+    err.fatal(err.E_USAGE)
+  end
+  while place[0] != 0 and place[0] != C_EQUALS do
+    ch = place[0]
+    if not lex.is_letter(ch) and not lex.is_digit(ch) and ch != C_UNDERSCORE then
+      err.fatal(err.E_USAGE)
+    end
+    kernel.name_add(lex.fold(ch))
+    place += 1
+  end
+  name = kernel.name_end()
+  if kernel.name_token(name) != 0 then
+    err.fatal(err.E_USAGE)              ; a keyword
+  end
+  if place[0] == 0 then
+    constant(name, typetab.BOOL_TYPE, 1)
+  else
+    constant(name, typetab.NUMBER_TYPE, decimal(place + 1))
+  end
+end
+
+; One option, the text at `place`: -c6502, -c65c02, -dNAME or -dNAME=NUMBER.
+func option(place: ^byte)
+  if place[1] == C_C then
+    gen.cpu = cpu_option(place + 2)
+  elif place[1] == C_D then
+    define(place + 2)
+  else
+    err.fatal(err.E_USAGE)
+  end
+end
+
+; Start every component, each after the ones it relies on.
+func init()
+  err.init()
+  kernel.init()
+  inlines.init()
+  typetab.init()
+  src.init()
+  lex.init()
+  out.init()
+  gen.init()
+  expr.init()
+  decl.init()
+end
+
+pub func main()
+  var n: byte
+  var source: ^byte
+  var output: ^byte
+  var i: byte
+  init()
+  n = 0
+  loop
+    if n == sys.argc() then
+      err.fatal(err.E_USAGE)
+    end
+    source = kernel.keep_argument(n)
+    n += 1
+    if source[0] != C_MINUS then
+      break
+    end
+    option(source)
+  end
+  kernel.name_begin()
+  for i = 0 until len(CPU_NAME) do
+    kernel.name_add(CPU_NAME[i])
+  end
+  constant(kernel.name_end(), typetab.BOOL_TYPE, gen.cpu)
+  if n == sys.argc() then
+    err.fatal(err.E_USAGE)
+  end
+  err.set_file(source)
+  output = kernel.keep_argument(n)
+  decl.directory_add(output)
+  for i = n + 1 until sys.argc() do
+    decl.directory_add(kernel.keep_argument(i))
+  end
+  kernel.module_add(module_name(source))
+  if not src.open_file(source) then
+    err.fatal(err.E_OPEN_SOURCE)
+  end
+  if not out.open(object_path(output)) then
+    err.fatal(err.E_CREATE)
+  end
+  decl.unit()
+  out.end_module()
+  err.position(0, 0)
+  decl.write_interface(output)
+  sys.exit(0)
+end

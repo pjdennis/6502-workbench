@@ -60,10 +60,10 @@ class Banked(unittest.TestCase):
 
     def test_placement(self):
         """The test's main module, script and the other drivers in bank 1; the code generator
-        in banks 2 and 3; the lower layers fixed."""
+        in banks 2, 3 and 5; the lower layers fixed."""
         self.assertEqual(self.bank_of(self.NAME), {1})
         self.assertEqual(self.bank_of('script'), {1})
-        for module, bank in (('out', 2), ('reg', 2), ('gen', 2), ('cond', 3), ('listing', 1),
+        for module, bank in (('out', 5), ('reg', 2), ('gen', 2), ('cond', 3), ('listing', 1),
                              ('regcmd', 1), ('kernel', 0), ('err', 0), ('fbuf', 0), ('sys', 0),
                              ('disk', 0), ('rt_bank', 0)):
             self.assertIn(self.bank_of(module), (set(), {bank}), module)

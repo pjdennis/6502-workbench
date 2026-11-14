@@ -1962,7 +1962,7 @@ func frame_routines()
   frame_pop = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(@POP_NAME))
 end
 
-func fixed_name(text: ^byte): word
+pub func fixed_name(text: ^byte): word
   var i: byte
   kernel.name_begin()
   i = 0

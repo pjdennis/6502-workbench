@@ -429,6 +429,16 @@ line end
 open
 save 0
 
+== with is not allowed in a body
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   with r do
+line     a = 1
+line   end
+line end
+open
+save 0
+
 == #if is not allowed in a body
 sym 3 $FE 0 5 1 true
 func g 0 16 1 1 1 0 1 0

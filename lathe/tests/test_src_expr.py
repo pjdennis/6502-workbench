@@ -27,6 +27,7 @@ import regcmd_host
 import env
 import cond
 import expr
+import fbuf
 import gen
 import inline
 import kernel
@@ -39,7 +40,7 @@ ALL = os.environ.get('LATHE_BANKED_ALL') == '1'
 
 COMMANDS = (b"source first next sym record field enum fbegin param receive body fend expr cond econst "
             b"cnum type vtype decl save scope send gstore asvalue accept lresult gjump efunc initfn "
-            b"cpu syms module einit setv ")
+            b"cpu syms module einit setv dregion ")
 
 
 def init():
@@ -62,6 +63,13 @@ def init():
     expr.critical_depth = 0
     expr.critical_inner = 0
     expr.case_count = 0
+    expr.with_function = fbuf.NO_SLOT
+    expr.with_loop = fbuf.NO_SLOT
+    expr.with_entry = reg.NONE
+    expr.placed_region = 0
+    expr.data_region = 0
+    expr.in_line = 0
+    expr.in_col = 0
 
 
 def show_token():
@@ -227,6 +235,8 @@ def run(c):
     elif c == 33:
         s = n_()
         kernel.sym_value[s] = n_()
+    elif c == 34:
+        expr.data_region = script.name()
 
 
 def main():
@@ -336,9 +346,6 @@ class ExprTest(unittest.TestCase):
                         self.assertEqual(a.read(), b.read(), 'object file')
         self.assertGreater(len(found), 20)
 
-    # Not yet: expr.py has the `with REGION do ... end` statement (stage 11, step 9) and
-    # expr.lth does not, so no section can reach its lines. Remove this when the twin has it.
-    @unittest.expectedFailure
     def test_the_sections_reach_every_line_of_expr_py(self):
         """Every statement of expr.py but those listed in UNREACHED runs in some section."""
         found = sections(self.dir)
@@ -366,6 +373,8 @@ UNREACHED = [
     # 256 constants in the cases of one function: at the small build's capacities the function
     # buffer (1,024 bytes) is full first.
     ('case_constants', 'err.fatal(err.E_LABELS_FULL)'),
+    # INLINE refuses `with` when it saves a body (inline.save()), so no expansion holds one.
+    ('with_statement', 'err.fatal(err.E_INLINE_NOT_HERE)'),
 ]
 
 

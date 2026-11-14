@@ -35,12 +35,12 @@ import script_host
 
 LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock', 'inline', 'expr')
+           'asmblock', 'inline', 'expr', 'decl', 'lathec')
 TWIN = {'inline': 'inlines'}    # a twin whose module has another name: `inline` is a keyword
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
-            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest', 'exprtest')
+            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest', 'exprtest', 'lathec')
 SMALL = ('regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')    # the small build (src_support.build_program)
-BANKED = ('exprtest',)          # the banked build on Wendy 2: too large for the default machine
+BANKED = ('exprtest', 'lathec')     # the banked build on Wendy 2: too large for the default machine
 
 
 LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
@@ -211,6 +211,13 @@ def report(out_dir):
     print('The ten largest functions')
     for name, size in sorted(function_size.items(), key=lambda x: -x[1])[:10]:
         print('%6d %s' % (size, name))
+    print()
+    rows = per_module(maps['lathec'])
+    code = sum(r[0] for r in rows.values())
+    print('The compiler, lathec banked (lathe/src/lathec.lth and what it links): %d bytes of code, '
+          '%d of constant data, %d of variables; of the code, %d in the sixteen modules'
+          % (code, sum(r[1] for r in rows.values()), sum(r[2] for r in rows.values()),
+             sum(rows.get(TWIN.get(m, m), [0])[0] for m in MODULES)))
 
 
 def linker_report(out_dir):

@@ -270,7 +270,7 @@ The compiler reads none of these (it reads `cpu` and `define` only), so an objec
 - **Without placed code.** A program with something in a region in a bank uses the far-call module even if no code is placed: `lk_envf.placed()` is true, start-up calls `start` to load bank files, and `call` and `back` are kept though nothing calls them (about 100 bytes; `lk_graph` roots them).
 - **Checks** (link errors): a function with a `with` block (a kind 6 fix-up, `lk_tab.F_WITH`) placed in a window (55); a call flagged inside a block that reaches a function in a window, directly or through a pointer class with a member in one (56) — only the call itself: what a fixed callee calls may be in a bank, since a far call puts back what it found; an interrupt context that reaches a function with a `with` block (57), and `with` in an interrupt function is a compile error (119), a conservative rule: the routines would be safe there; a region in an overlay, or in another window than code or another region (58); a region in a bank with no `farcall` entry (54); overflow (45).
 - **Interfaces** carry `in REGION`: a variable's placement byte 8 and the region's name, and a constant table as entry kind 9 (`lathe/host/README.md`).
-- **Inline.** `with` cannot be in an inline function. `lathe/host/inline.py` does not count `with` as opening a block, so such a body ends at the block's `end` and the compiler reports a declaration error after it; two lines there (`opens_block`, and `T_WITH` with `asm`, `static` and `#if` in `save`) would give error 168, whose text already names `with`. A body without `with` that uses a region expands inside a caller's block.
+- **Inline.** `with` cannot be in an inline function: `lathe/host/inline.py` counts it as opening a block and refuses it when it saves a body, with `asm`, `static` and `#if` (error 168, `cases/err/inline_with.lth`). A body without `with` that uses a region expands inside a caller's block.
 - **Costs** (measured, `with` as a function's last statement, 200 calls): all in one 24 cycles and 12 bytes a block (14 with the temporary in main memory), banked on Wendy 2 90 cycles; about 9 cycles more where the block is not last (estimated: `JSR` and `RTS` instead of the tail call's `JMP`).
 
 ### What the linker does
@@ -450,8 +450,42 @@ The other three: resident code and stubs 8,831 (regtest, 69 stubs), 9,025 (condt
 | bank 3 | 6,589 file, 565 variables | cond, asmblock |
 
 - **Far calls**: 12,449 in the 165 sections, 75 a section, 758 at most (section 8, `for` loops): EXPR calls GEN and REG in bank 2 at every operand, and ASMBLOCK in bank 3 calls REG back. The start-up of an empty script takes 3.8 million cycles, 14 far calls.
-- **What `decl` and `lathec` will need.** Placement D puts lathec, decl, expr and inline in bank 1: with `expr` at 15.2 KB and `inlines` at 3.7 KB (placed; the bank is judged as written, 16.8 KB and 5.5 KB), `decl` (1,090 lines of Python, about 9 KB at expr's 9.5 bytes a line) and `lathec` (about 1.2 KB) would make about 29 KB, over the 28 KB of a bank. One of them must go elsewhere: `inlines` beside cond and asmblock in bank 3 (9.9 KB there now), whose calls from EXPR (`lookup` at every name) would then be far. Fixed memory has no room for more resident code until the data bank takes the tables (step 9): every table of the small build is in fixed memory, and at full size they are 49 KB.
+- **What `decl` and `lathec` needed** (estimated here before they were written: about 29 KB for bank 1 with expr and inlines) is in "The compiler itself, banked", below: `inlines` moved to bank 3 when `with` made `expr` larger, and `decl` and `out` went to a fifth bank.
 - **The cost of recursion** (`docs/code-model.md`, "Recursion"): 45 of `expr.lth`'s 77 functions are `recursive`; their saving calls push 482 bytes in all and cost about 5,800 bytes of code, a third of the module. At run time a level of parentheses takes 12 bytes of the 6502's stack and none of rt_frame's; the arguments of a call about 20 and 28; an inline expansion about 26 and 23; a `for` 6 and 20. `expr.MAX_NESTING` (16 levels, error 88) keeps both stacks within their 256 bytes; measured past the limit, the twin still gets through 16 parentheses inside each other (18 levels) and 8 calls inside each other's arguments (18 levels), and overflows a stack at 20 parentheses and at 10 calls, so the limit leaves about two levels to spare.
+
+## The compiler itself, banked
+
+Measured 2026-11-14 by `lathe/tests/bank_report.py --compile` on `lathe/src/lathec.lth`, the compiler's main module, which links the twins of all sixteen host modules, built by `src_support.build_banked` with `lathe/src/compiler-bank.env` (the small build's tables, `SMALL 1`), and tested by `lathe/tests/test_src_lathec.py`, which runs it on the corpus against the host compiler at the same capacities (`lathe/host/README.md`, "The compiler in Lathe").
+
+**The placement.** Fixed: err, kernel, src, lex, typetab, fbuf, sys, disk, rt_bank, rt_math, rt_frame. Bank 1: lathec and expr. Bank 2: gen and reg. Bank 3: cond, asmblock, inlines and fold. Bank 5: decl and out. Placement D with E's cond, as the test programs had it, does not link: decl and lathec in bank 1 beside expr and inlines judge it 1,413 bytes over 28 KB; with inlines in bank 3 and decl there too, bank 2 (gen, reg, out) is judged 259 bytes over, because the whole compiler keeps functions of reg and out that no test program does; with out in bank 3 as well, bank 3 is 571 over. So a fifth bank holds decl and out. It is bank 5 because bank 4 is the data bank that step 10 is to fill (`region NAMES WIN 4`). DECL calls EXPR (bank 1) once a declaration or a function body, and GEN calls OUT (bank 5) for each symbol, call and fix-up record: both are far calls now.
+
+| | Bytes | |
+|---|---|---|
+| resident code | 13,234 | err, kernel, src, lex, typetab, fbuf, sys, disk, rt_bank, rt_math, rt_frame, `$start` and `$init` |
+| stubs | 1,062 | 177 stubs, against 96 estimated in section 3 and 151 for exprtest |
+| resident constants | 5,975 | 5,256 of them err's messages |
+| resident code, stubs and constants but the messages | **15,015** | under the 16 KB goal by 1,369 bytes |
+| free fixed memory | 1,468 | 1 below the code (`$3080`), 81 above it, 1,386 at `$F810-$FFF9` |
+| bank 1 | 17,706 file, 419 variables | lathec, expr |
+| bank 2 | 20,371 file, 2,438 variables | gen, reg |
+| bank 3 | 12,645 file, 771 variables | cond, asmblock, inlines, fold |
+| bank 5 | 10,877 file, 1,033 variables | decl, out |
+
+In all 74,092 bytes of code, 72,653 of them the sixteen modules (`size_report.py --report`; `spikes.md`, "L4 revised").
+
+**Compiling** (each run loads the 61,599 bytes of the four bank files first; the far calls are counted by the counting copy of `rt_bank`):
+
+| Input | Lines | CPU cycles | Far calls | |
+|---|---|---|---|---|
+| the start-up alone (a command line that stops at error 61) | | 4,460,076 | 12 | loading the banks, about 70 cycles a byte |
+| `cases/snap/compare.lth` | 182 | 8,089,856 | 1,382 | 7.6 a line; 251,524 cycles, 3 % of the run |
+| `cases/snap/for_loops.lth` | 128 | 7,875,117 | 1,383 | 10.8 a line |
+| `cases/snap/case_of.lth` | 120 | 6,421,863 | 603 | 5.0 a line |
+| `lathe/rt/rt_math.lth` | 370 | 9,952,878 | 904 | 2.4 a line: mostly `asm` |
+
+Beyond the start-up, compiling takes about 20,000 cycles a source line of ordinary code (compare.lth: 3.6 million cycles for 182 lines), and the far calls 3 % of it: about 8 a line where EXPR, GEN and REG work together, against the 6 that spike L5 estimated.
+
+**What it compiles.** Every input of `test_src_lathec.py` gives the host compiler's status, output, error output and files, byte for byte: 681 inputs (the 632 modules of the corpus and 49 made for what the corpus lacks: command lines, damaged interfaces, each capacity of the small build). With the small build's tables (name heap 1,536 bytes, 264 symbols, a function buffer of 1,024, text memory of 896), 393 of 395 error cases, 89 of 116 end-to-end modules, 55 of 56 snapshot cases and all 11 run-time modules fit; of the 54 modules of `lathe/src/`, 2 do (`sys`, `lk_op`): 47 stop at the name heap (error 70) and 5 at the text memory (82), whose arguments and the file names of imported inline functions leave too little beside the 384 bytes of saved tokens and the 256 of the path. Those that do not fit stop at the same capacity error, at the same place, on both. The tables at full size are 50 KB: they fit only when the data bank of step 10 takes the name heap, the function buffer and the messages.
 
 ## Decisions for the owner
 

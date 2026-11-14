@@ -70,8 +70,8 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 
 | Table | Owner | Rows × bytes | Bytes | Peak on the corpus | Why this size |
 |---|---|---|---|---|---|
-| Name heap: names, frozen imports | kernel | 17,920 × 1 | 17,920 | 17,096 (`expr.lth`, 12 imports) | `expr.lth`, with 5 % to spare; `inlines.lth` 14,971, `gen.lth` 14,149, `inlinetest` 14,698, `regcmd` 11,923, `reg.lth` 11,085. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function) |
-| Symbol columns | kernel | 512 × 17 | 8,704 | 485 (`expr.lth`) | own symbols, locals, and the imported symbols the module names; `gen.lth` 462, `reg.lth` 298 |
+| Name heap: names, frozen imports | kernel | 17,920 × 1 | 17,920 | 17,875 (`expr.lth`, 12 imports) | `expr.lth` (17,096 before `with`); `decl.lth` 16,970, `lathec.lth` 13,034; `inlines.lth` 14,971, `gen.lth` 14,149, `inlinetest` 14,698, `regcmd` 11,923, `reg.lth` 11,085. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function) |
+| Symbol columns | kernel | 560 × 17 | 9,520 | 539 (`expr.lth`) | own symbols, locals, and the imported symbols the module names; `gen.lth` 462, `decl.lth` 366, `reg.lth` 298, `lathec.lth` 113 |
 | Members (parameters, results) | kernel | 432 × 2 | 864 | 409 (`gen.lth`) | `reg.lth` 285 |
 | Name buckets, streams, modules | kernel | | 252 | | |
 | Text memory: file name, arguments, saved tokens | kernel | 4,096 × 1 | 4,096 | 3,383 (saved tokens 520 of 2,048) | the Lathe twin has the same since INLINE is ported (1,280, with 384 of saved tokens, in the small build) |
@@ -85,7 +85,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Types | typetab | 64 × 7 + 16 × 3 | 496 | 35 | |
 | Initial values, stubs, saving calls | gen | | 744 | 22 inits of 32 | |
 | ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,343 | | ASMBLOCK's label numbers and INLINE's byte columns are bytearrays (1,408 to 1,252); what `expr.expand()` keeps for each expansion, 91 bytes, which `expr.lth` would otherwise push on rt_frame's stack |
-| **Total** | | | **49,316** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+| **Total** | | | **50,132** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
 
 What changed, and what each change saved:
 
@@ -96,6 +96,7 @@ What changed, and what each change saved:
 - **Raised for `inlines.lth`** (2026-11-14), the twin of INLINE: the name heap 14,848 to 15,872 bytes (it needs 14,971: its eight imports are 13.6 KB; importing `src` before `lex`, whose interface imports `src` again otherwise, saved 261). INLINE's byte columns became bytearrays (92 bytes less). The twin's text memory grew from 1,024 to the host's 4,096 bytes, so `lathe/src/compiler.env` moved its split from `$6000` to `$5000` for `outtest`.
 - **Raised for `gen.lth`** (2026-11-14), the twin of GEN and the largest module so far: the name heap 12,800 to 14,848 bytes, symbols 384 to 480, members 320 to 432, 3,904 bytes in all. Before that, `string()` moved from GEN to EXPR, so that GEN does not import LEX, whose names took 2.0 KB of its heap (16,147 to 14,149); and GEN's byte columns became bytearrays (920 to 744 bytes). Of `gen.lth`'s 14.1 KB of names, 12.5 KB are its eight imports.
 
+- **Raised for `with` in `expr.lth`** (2026-11-14): symbols 512 to 560, 816 bytes. The twin gained the statement `with REGION do … end` and `in REGION` (22 names of its own, about 30 more of its imports named), and peaks at 539 symbols and 17,875 bytes of names, 45 under the heap's size (with `kernel.MAX_NAME` exported for `decl`). `decl.lth` and `lathec.lth`, written after, need no more: 16,970 bytes and 366 symbols, 13,034 and 113. The small build's name heap grew from 768 to 1,536 bytes at the same time, so that the compiler running banked on Wendy 2 can compile most of the corpus (`configurations.md`, "The compiler itself, banked").
 - **Raised for banked data** (stage 11, step 9, 2026-11-14): the name heap 14,848 to 15,360 bytes. The new exported names (`err`'s four errors, `lex.T_WITH`, `kernel.SF_IN`, `out.with_region`, `with_used`, `CALL_WITH`, `region()`) cost each importer about 8 bytes plus the name, and `asmblock.lth`, which had 132 bytes to spare, needed 14,917. The heap is the table step 10 moves into a data bank.
 
 **The 20 KB budget is not met** (`test_memory.py` keeps the budget test as an expected failure, and fails if the total grows). What remains is the name text: every name a module has, and every name its imports export, frozen or not, about 16 bytes each. Sized by the twins: `reg` (1,196 lines of Python, 5 imports with 6.1 KB of interfaces) peaks at 11.0 KB of names and 295 symbols; `gen` has as many top-level names as `reg` and imports nine modules whose twins' interfaces hold 10.0 KB, so it would need about 15.5 KB of names and 500 symbols (measured on `gen.lth`, once `string()` had moved to EXPR: 14.1 KB and 462); `expr` (12 imports, about 12 KB of interfaces) about 16 KB and 480; `decl` about 16 KB and 360. At those sizes the tables would take about 48 KB, and the twins' test programs, whose code is 28 KB, would not fit the emulator's 60 KB, so the capacities are set by the corpus and the larger modules wait for one of these:

@@ -1,0 +1,4 @@
+; error 27 4 8
+module inline_var
+
+inline var x: byte
