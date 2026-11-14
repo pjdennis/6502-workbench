@@ -1,8 +1,0 @@
-; error 183 5 3
-module with_nothing_used
-var t: byte in r
-func f()
-  with r do
-    f()
-  end
-end

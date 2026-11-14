@@ -191,7 +191,8 @@ pub const E_INTERRUPT_CALL = 173
 pub const E_NO_RETURN = 180
 pub const E_ERROR_DIRECTIVE = 181
 pub const E_IN_HERE = 182
-pub const E_WITH_UNUSED = 183
+; 183 is retired: a `with` block need not use a name of its region (2026-11-14)
+pub const E_WITH_UNKNOWN = 184
 
 ; The texts, a line `number text` each, in three strings (a string holds at most 2048 bytes)
 ; in the region MSGS: read only by fatal_start(), inside `with MSGS do ... end`.
@@ -321,7 +322,7 @@ const MESSAGES_3 in MSGS = "152 a recursive function type takes only functions d
   "180 the end of a function that has a result can be reached: return a value there\n"
   "181 #error\n"
   "182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table\n"
-  "183 nothing in this region is used inside the with block\n"
+  "184 this module declares nothing in this region, and nothing of it is used inside the with block\n"
 
 const TOOL: [6]byte = "lathec"
 const ERROR: [8]byte = ": error "

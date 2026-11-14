@@ -16,7 +16,7 @@ import cpu6502  # noqa: E402
 import lo  # noqa: E402
 
 CPU_NAMES = {0: '6502', 1: '65c02'}
-FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp', 5: 'abs', 6: 'bank'}
+FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp', 5: 'abs', 6: 'bank', 7: 'rlow', 8: 'rhi'}
 
 
 def records(data):

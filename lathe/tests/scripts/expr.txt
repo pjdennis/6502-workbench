@@ -3393,7 +3393,29 @@ end
 with r then
 end
 
-== with blocks: a block in which nothing of its region is used (error 183)
+== with blocks: a block that uses nothing of its region names the first the module declares
+func f 0 0 1 1 3 0 1 1          ; 0: f(p: word): byte
+source
+first
+decl 0 0
+first
+decl 0 0
+first
+scope
+fbegin 0
+param 0 p
+receive 0
+body 0
+fend 0
+end
+--
+var a: byte in q
+var t: [4]byte in r
+with r do
+  return byte(p)
+end
+
+== with blocks: a block that uses nothing of a region the module declares nothing in (error 184)
 var 1 0 0 0 a                   ; 0
 func f 0 0 0 0                  ; 1: f()
 scope

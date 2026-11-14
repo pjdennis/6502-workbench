@@ -1,6 +1,6 @@
-# Lathe: object files, version 3
+# Lathe: object files, version 4
 
-Status (2026-11-14): specification for stages 1 to 5 and stage 11. Version 3 replaced version 2 on 2026-11-14 for banked data (stage 11, step 9; the source form is provisional): the `RGN` record, fix-up kind 6 and `CALL` flag bit 2. A module with neither `in` nor `with` is the same as in version 2 but for the version byte. Version 2 had replaced version 1: a fix-up kind for instructions that shrink, `DFIX` before its `DATA`, parameter names in `CLAS` and the `WGT` record. Nothing reads an older version; a module in one is compiled again.
+Status (2026-11-14): specification for stages 1 to 5 and stage 11. Version 4 replaced version 3 on 2026-11-14: fix-up kinds 7 and 8, the low and high byte of an address that a function forms only to reach a part of what it names, so that the linker can tell them from an address taken ("What the linker keeps", and configurations.md, "Constants and variables of a module in a window"). A module that indexes no table of more than 256 bytes by a variable is the same as in version 3 but for the version byte. Version 3 replaced version 2 on 2026-11-14 for banked data (stage 11, step 9; the source form is provisional): the `RGN` record, fix-up kind 6 and `CALL` flag bit 2. A module with neither `in` nor `with` is the same as in version 2 but for the version byte. Version 2 had replaced version 1: a fix-up kind for instructions that shrink, `DFIX` before its `DATA`, parameter names in `CLAS` and the `WGT` record. Nothing reads an older version; a module in one is compiled again.
 
 **Why a record, not a flag.** The design (configurations.md, "Changes to the object format") put the region behind a flag bit in `VAR` and `DATA`. `DATA` has no flag byte, and giving it one would change every object file; one record before either keeps every other record as it was and serves both.
 
@@ -19,7 +19,7 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 
 | Type | Name | Body |
 |---|---|---|
-| `$01` | `MOD` | version (1 byte, value 3), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
+| `$01` | `MOD` | version (1 byte, value 4), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
 | `$02` | `IMP` | Name of an imported module (string). Also written for a run-time module the code calls without an `import` (`rt_frame`, at the first call that saves a frame), so it can come after other records. |
 | `$03` | `SYM` | Kind (1 byte), name (string). Kinds: 1 function, 2 variable, 3 constant data, 4 pointer class. |
 | `$04` | `VAR` | Defines a module-level variable: symbol (2), size (2), class (1), weight (1), flags (1). A variable is storage only; it has no initial value in the object file. |
@@ -84,6 +84,10 @@ A fix-up says: put the address of a target, plus the addend, at this offset in t
 | 4 | One byte: the address, which must be in zero page. Used for `(zp),Y`, `(zp,X)` and slots already known to be in zero page. |
 | 5 | Two bytes: the address, in an instruction that has a zero page form, which it takes if and only if the final address, addend included, is below `$100`. Only in code. |
 | 6 | One byte: the register value of the bank of the region that the variable or constant data named is in, or 0 if the region is in fixed memory (the operand of `LDA #bank` in a `with` block). Only in code. A function with one is a function with a `with` block. |
+| 7 | One byte: the low byte of the address, as kind 2, of an address the function forms only to reach a part of what it names: an element of an array of more than 256 bytes indexed by a variable, a row of a `rows` array, an element of a large array field of a record. The address goes into a zero page temporary of the function and is used there through `(zp),Y`; it is not stored elsewhere, passed or returned. Only in code, and only naming a variable, constant data or a slot (a local array). |
+| 8 | One byte: the high byte of the address, as kind 3, of such an address. |
+
+Kinds 7 and 8 are written by the compiler for the address it works out to reach an element (`gen.element_pointer`), unless the element is what `@` takes the address of (`@t[i]`): then the address escapes, and is kinds 2 and 3, as is `@t`. An `asm` block's `#<t` and `#>t` are always kinds 2 and 3.
 
 In code, a two-byte address is kind 5 exactly when its instruction has a zero page form, and kind 1 otherwise: `JSR`, `JMP`, `JMP (abs)`, and the `abs,Y` instructions with no `zp,Y` twin (all but `LDX`). In constant data a two-byte address is always kind 1. A kind that does not suit the opcode is a bad fix-up (link error 29).
 
@@ -130,7 +134,8 @@ A function linked for several contexts is written once for each, its `CODE` reco
 
 The linker keeps a function if an entry point reaches it by calls, or if kept code or kept constant data takes its address ([`code-model.md`](code-model.md), "Sharing frames"). It keeps a variable or a piece of constant data only if a fix-up of kept code (any copy) or of kept constant data names it. A kept table of pointers therefore keeps the tables, variables and functions it points to; a table nothing kept names keeps nothing, not even the functions in it. What is not kept gets no address and no map line, and takes no storage, zero page included.
 
-- In code, an address is taken by a kind 2, 3 or 5 fix-up (`#<f`, `#>f`, `LDA f,X`); a kind 1 fix-up naming a function is a call, which needs a `CALL` record of its own.
+- In code, an address is taken by a kind 2, 3 or 5 fix-up (`#<f`, `#>f`, `LDA f,X`); a kind 1 fix-up naming a function is a call, which needs a `CALL` record of its own. Kinds 7 and 8 never name a function's entry.
+- A variable or constant data of a module placed in a window goes into that module's bank only if every kept fix-up that names it is in that bank's code and of kind 1, 4, 5, 7 or 8: a kind 2 or 3 fix-up, or one in constant data, takes its address, and so does any fix-up in code outside the bank (configurations.md, "Constants and variables of a module in a window").
 - `module.$init` is always kept, so a variable given an initial value is kept, whether or not anything else reads it.
 - A symbol need only be defined if something kept names it: by a call, a fix-up or a `MEMB` record (which is not inside a function, so always counts). A name only dropped code or dropped data uses may be missing from every object file. Otherwise the link fails with error 18.
 - The records of what is dropped are read once, for the sizes and the names, and not checked further: a bad fix-up in a dropped table is not found.
@@ -165,7 +170,7 @@ The host tool `lo2asm` turns object files into asm17 source.
 | Slot `n` of `mod.func` | Label `mod__func__slotname`. |
 | Parameter `n` of class `mod.type` | Label `mod__type__name`, its name from the `CLAS` records, or `mod__type__pN` if they give none. |
 | A label inside a function | Local label `.L` followed by the written offset in hex. |
-| A fix-up | The label, with `+addend` if not zero, and `<` or `>` for kinds 2 and 3. Kinds 1 and 5 look the same: the assembler chooses the zero page form by the value, as the linker does for kind 5. |
+| A fix-up | The label, with `+addend` if not zero, and `<` or `>` for kinds 2 and 7, and 3 and 8. Kinds 1 and 5 look the same: the assembler chooses the zero page form by the value, as the linker does for kind 5. |
 | `DATA` | `.byte` lines. |
 | `WGT` | Nothing: it is only for the linker's choice of zero page. |
 | `RGN` | `, in region NAME` in the comment of the variable or data. |

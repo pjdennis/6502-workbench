@@ -30,7 +30,7 @@ import err
 import fbuf
 import kernel
 
-const VERSION = 3
+const VERSION = 4
 
 ; Record types
 const R_END = $00

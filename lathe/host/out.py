@@ -11,7 +11,7 @@ import err
 import fbuf
 import kernel
 
-VERSION = 3
+VERSION = 4
 
 # Record types
 R_END = 0x00

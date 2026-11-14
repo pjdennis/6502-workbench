@@ -72,7 +72,7 @@ MESSAGES = (
     b"cannot open file\n"
     b"environment file: bad entry\n"
     b"environment file: zeropage, code, data and exit must all be given\n"
-    b"unsupported object version: this linker reads version 3\n"
+    b"unsupported object version: this linker reads version 4\n"
     b"object file is damaged\n"
     b"object file needs a 65C02 and the environment has a 6502\n"
     b"too many object files\n"

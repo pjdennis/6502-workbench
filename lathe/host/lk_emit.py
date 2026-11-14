@@ -149,8 +149,9 @@ def emit_data(obj, dest):
         if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + i] == pos:
             address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.work[lk_fix.FX_SYM + i], lk_tab.work[lk_fix.FX_SLOT + i], False)
             address = (address + lk_tab.work[lk_fix.FX_ADD + i]) & 0xFFFF
-            if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_BANK:
-                lk_fix.bad()            # the bank of a region is for `with` blocks, in code
+            if lk_tab.work[lk_fix.FX_KIND + i] >= lk_fix.K_BANK:
+                lk_fix.bad()            # the bank of a region is for `with` blocks, and an
+                                        # address only reached is formed by code
             if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()

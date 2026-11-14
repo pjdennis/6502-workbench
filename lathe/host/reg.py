@@ -55,6 +55,8 @@ F_ZP = 2                # the memory is known to be in zero page
 F_DATA = 8              # constant data: it cannot be assigned to (4 is cond.F_COMPARED)
 F_WRAPS = 16            # a number below 0 that `~` or unary `-` made of a number without a type:
 #                         given an unsigned type, it is cut to that type's width
+F_REACH = 32            # an address (O_ADDR) formed only to reach a part of what it names, in this
+#                         function: its fix-ups are kinds 7 and 8, not 2 and 3
 
 INDEX = MAX_OPERANDS + 1                # entry i + INDEX describes the index of operand i
 ENTRIES = 2 * INDEX                     # one more than the stack, for swap(), and their indexes
@@ -694,12 +696,20 @@ def implied(opcode):
     fbuf.op(opcode)
 
 
+def address_part(i, k):
+    """The fix-up kind of byte `k` of operand `i`, an address: its low or high byte, of an
+    address that escapes, or of one formed only to reach a part of what it names (F_REACH)."""
+    if op_flags[i] & F_REACH != 0:
+        return fbuf.FIX_REACH_LOW + k
+    return fbuf.FIX_LOW + k
+
+
 def memory(opcode, i, k):
     """The instruction `opcode` (absolute form) on byte `k` of operand `i`: memory, reached as
     its mode says, or an address, as an immediate. An element's index goes to X (to Y for
     LDX), and the index of what a pointer points at to Y."""
     if op_kind[i] == O_ADDR:
-        fbuf.op_fix(opcode - IMMEDIATE_FORM, fbuf.FIX_LOW + k, op_symbol[i], op_slot[i], op_value[i])
+        fbuf.op_fix(opcode - IMMEDIATE_FORM, address_part(i, k), op_symbol[i], op_slot[i], op_value[i])
         return
     if op_mode[i] == M_POINTER:
         point(i, k)
@@ -826,7 +836,7 @@ def load_direct(r, i, k):
         return
     claim(r)
     if op_kind[i] == O_ADDR:
-        fbuf.op_fix(LOAD_IMMEDIATE[r], fbuf.FIX_LOW + k, op_symbol[i], op_slot[i], op_value[i])
+        fbuf.op_fix(LOAD_IMMEDIATE[r], address_part(i, k), op_symbol[i], op_slot[i], op_value[i])
         forget_register(r)
     elif op_kind[i] == O_VAR:
         direct(LOAD_ABSOLUTE[r], i, k)

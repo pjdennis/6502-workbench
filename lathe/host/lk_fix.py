@@ -30,6 +30,8 @@ K_HIGH = 3
 K_ZP = 4
 K_SHRINK = 5
 K_BANK = 6                          # one byte: the register value of a region's bank (lk_win)
+K_REACH_LOW = 7                     # K_LOW and K_HIGH of an address formed only to reach a part of
+K_REACH_HIGH = 8                    # what it names, in code (lk_graph.note_named)
 
 # The entry read last.
 e_at = 0
@@ -143,7 +145,7 @@ def more():
 def next_fix():
     """The fix-up at the cursor is applied: go on to the next."""
     global cursor
-    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_BANK:
+    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_REACH_HIGH:
         bad()
     cursor += 1
     if cursor < fix_count:
@@ -238,7 +240,7 @@ def bank_value(s):
 
 def part(value, kind):
     """The byte a one-byte fix-up of this kind puts in the code."""
-    if kind == K_HIGH:
+    if kind == K_HIGH or kind == K_REACH_HIGH:
         return value >> 8
     if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.

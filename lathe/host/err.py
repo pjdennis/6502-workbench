@@ -24,7 +24,7 @@ The numbers are grouped by what the error is about:
     180 to 199  functions and directives, continued: the end of a function with a result,
                 `#error`
 
-A number is never reused for another error; a new one takes the next free number of its group.
+A number is never reused for another error (183 is retired); a new one takes the next free number of its group.
 """
 import env
 
@@ -175,7 +175,8 @@ E_INTERRUPT_CALL = 173
 E_NO_RETURN = 180
 E_ERROR_DIRECTIVE = 181
 E_IN_HERE = 182
-E_WITH_UNUSED = 183
+# 183 is retired: a `with` block need not use a name of its region (2026-11-14)
+E_WITH_UNKNOWN = 184
 
 MESSAGES = (
     b"1 character not allowed here\n"
@@ -304,7 +305,7 @@ MESSAGES = (
     b"180 the end of a function that has a result can be reached: return a value there\n"
     b"181 #error\n"
     b"182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table\n"
-    b"183 nothing in this region is used inside the with block\n"
+    b"184 this module declares nothing in this region, and nothing of it is used inside the with block\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "

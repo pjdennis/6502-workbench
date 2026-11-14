@@ -1,4 +1,4 @@
-"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 3).
+"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 4).
 
     m = lo.load('hello.lo')          # -> Module; raises LoError with file and offset on bad input
     data = lo.write(m)               # -> bytes
@@ -14,8 +14,9 @@
 Operands for Builder ops: an int (a literal), a symbol name, (function name, slot name or
 number), (class name, parameter number), or a label name of the function being built (for
 branches, and for JMP/JSR/immediates, which then get a fix-up to the function itself with the
-label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups, and
-'#bank' one with a kind 6 fix-up (the register value of the region of the variable or constant
+label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups,
+'#<reach' and '#>reach' with kind 7 / 8 (an address formed only to reach a part of the variable
+or constant data named, in this function), and '#bank' one with a kind 6 fix-up (the register value of the region of the variable or constant
 named). A two-byte operand gets kind 5 if the instruction has a zero page form and kind 1 if not.
 `var(..., region='r')` and `data(..., region='r')` put a variable or constant in a region (a
 RGN record before it).
@@ -26,7 +27,7 @@ from typing import List
 
 import cpu6502
 
-VERSION = 3
+VERSION = 4
 
 R_END, R_MOD, R_IMP, R_SYM, R_VAR, R_DATA, R_DFIX, R_FUNC, R_SLOT, R_CALL, R_FIX, R_CODE, R_ENDF, \
     R_CLAS, R_MEMB, R_WGT, R_RGN = range(17)
@@ -38,8 +39,10 @@ RECORD_NAMES = {R_END: 'END', R_MOD: 'MOD', R_IMP: 'IMP', R_SYM: 'SYM', R_VAR: '
 K_FUNC, K_VAR, K_DATA, K_CLASS = 1, 2, 3, 4
 KIND_NAMES = {K_FUNC: 'function', K_VAR: 'variable', K_DATA: 'constant data', K_CLASS: 'pointer class'}
 
-FX_WORD, FX_LO, FX_HI, FX_ZP, FX_SHRINK, FX_BANK = 1, 2, 3, 4, 5, 6
-FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1, FX_SHRINK: 2, FX_BANK: 1}
+FX_WORD, FX_LO, FX_HI, FX_ZP, FX_SHRINK, FX_BANK, FX_REACH_LO, FX_REACH_HI = 1, 2, 3, 4, 5, 6, 7, 8
+FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1, FX_SHRINK: 2, FX_BANK: 1, FX_REACH_LO: 1, FX_REACH_HI: 1}
+LOW_KINDS = (FX_LO, FX_REACH_LO)        # the low byte of the address
+HIGH_KINDS = (FX_HI, FX_REACH_HI)       # the high byte
 
 SK_PARAM, SK_LOCAL, SK_TEMP = 0, 1, 2
 SLOT_KIND_NAMES = {SK_PARAM: 'param', SK_LOCAL: 'local', SK_TEMP: 'temp'}
@@ -289,6 +292,12 @@ def read(data, filename='<object>'):
             if x.kind == FX_BANK and sym_ref(x.sym, what).kind not in (K_VAR, K_DATA):
                 r.fail(f'{what}: fix-up kind 6 at offset ${x.offset:04X} names a '
                        f'{KIND_NAMES[m.symbols[x.sym].kind]}, not a variable or constant data')
+            if x.kind in (FX_REACH_LO, FX_REACH_HI) and code is None:
+                r.fail(f'{what}: fix-up kind {x.kind} at offset ${x.offset:04X} in constant data')
+            if x.kind in (FX_REACH_LO, FX_REACH_HI) and x.slot == NO_SLOT \
+                    and sym_ref(x.sym, what).kind not in (K_VAR, K_DATA):
+                r.fail(f'{what}: fix-up kind {x.kind} at offset ${x.offset:04X} names a '
+                       f'{KIND_NAMES[m.symbols[x.sym].kind]}, not a variable, constant data or a slot')
             if x.kind in (FX_WORD, FX_SHRINK) and code is not None and x.offset > 0:
                 entry = cpu6502.decode_table(m.cpu).get(code[x.offset - 1])
                 if entry is not None:
@@ -625,8 +634,9 @@ class FuncBuilder:
 
     def op(self, mnemonic, mode=cpu6502.IMP, operand=None, addend=0):
         part = None
-        if mode in ('#<', '#>', '#bank'):
-            part, mode = {'#<': FX_LO, '#>': FX_HI, '#bank': FX_BANK}[mode], cpu6502.IMM
+        if mode in ('#<', '#>', '#bank', '#<reach', '#>reach'):
+            part, mode = {'#<': FX_LO, '#>': FX_HI, '#bank': FX_BANK, '#<reach': FX_REACH_LO,
+                          '#>reach': FX_REACH_HI}[mode], cpu6502.IMM
         modes = cpu6502.table(self.b.module_.cpu).get(mnemonic.upper())
         if modes is None:
             raise LoError(f'unknown mnemonic {mnemonic}')

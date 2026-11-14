@@ -134,7 +134,7 @@ class FirmwareManifestTest(unittest.TestCase):
         self.assertIn('may explain', result.stdout)
 
     def test_default_excludes_skip_non_firmware_dirs(self):
-        for d in ('attic', 'emulator', 'asm', 'editor', 'prog8'):
+        for d in ('attic', 'emulator', 'asm', 'editor', 'prog8', 'lathe'):
             self.write(f'{d}/parked.s', BAD)
         result = run('update', '--root', self.root, '--manifest', self.manifest)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -164,6 +164,27 @@ class FirmwareManifestTest(unittest.TestCase):
         self.tool('update', '--include', 'libdir')
         entries = self.entries()
         self.assertNotIn('FAIL', entries['good.s'][0])
+
+
+class SourcesTest(unittest.TestCase):
+    """Which files the tool takes for firmware. Needs no vasm."""
+
+    def test_lathe_is_not_firmware(self):
+        """Lathe's assembly files are compiler output and spike sources, not vasm programs."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('firmware_manifest', TOOL)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        root = tempfile.mkdtemp()
+        try:
+            for rel in ('lathe/tests/cases/snap/a.expected.asm', 'firmware/ok.s'):
+                os.makedirs(os.path.dirname(os.path.join(root, rel)))
+                with open(os.path.join(root, rel), 'w') as f:
+                    f.write(BAD)
+            found = module.find_sources(root, module.DEFAULT_EXCLUDES)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual([os.path.normpath(f) for f in found], [os.path.normpath('firmware/ok.s')])
 
 
 if __name__ == '__main__':

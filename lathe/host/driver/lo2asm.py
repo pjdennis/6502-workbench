@@ -133,8 +133,8 @@ def decode_function(m, f):
         width = ins.length - 1
         if lo.FIX_WIDTH[fx.kind] != width:
             raise RenderError(f'{where}: kind {fx.kind} on a {width}-byte operand ({ins.mnemonic})')
-        if ins.mode == cpu6502.IMM and fx.kind not in (lo.FX_LO, lo.FX_HI, lo.FX_BANK):
-            raise RenderError(f'{where}: an immediate operand takes kind 2, 3 or 6, not {fx.kind}')
+        if ins.mode == cpu6502.IMM and fx.kind not in lo.LOW_KINDS + lo.HIGH_KINDS + (lo.FX_BANK,):
+            raise RenderError(f'{where}: an immediate operand takes kind 2, 3, 6, 7 or 8, not {fx.kind}')
         ins.fix = fx
         if fx.sym == f.sym and fx.slot == lo.NO_SLOT:
             labels.add(fx.addend)
@@ -352,9 +352,9 @@ class Renderer:
             return f'{INDENT}{mn} #$00{"":<{max(1, 18 - len(mn))}}; bank of {self.target_text(m, x.fix, current)}'
         if x.fix is not None:
             e = self.target_text(m, x.fix, current, ctx, is_call(x))
-            if x.fix.kind == lo.FX_LO:
+            if x.fix.kind in lo.LOW_KINDS:
                 e = '<' + e
-            elif x.fix.kind == lo.FX_HI:
+            elif x.fix.kind in lo.HIGH_KINDS:
                 e = '>' + e
         elif mode == cpu6502.IMM:
             return f'{INDENT}{mn} #${x.operand:02X}'

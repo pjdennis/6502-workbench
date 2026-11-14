@@ -34,10 +34,10 @@
 ;   | NO_SYM, NO_OBJ declared with the     | declared at the top               | declare before  |
 ;   | symbol table, used by name_end()     |                                   | use             |
 ;   | token memory: env.mem from TOKEN_BASE| the array `tokens`, `in TOKENS`;  | in a data bank  |
-;   |                                      | token_byte(p) is tokens[p -       | when banked;    |
-;   |                                      | @tokens] in a block; get() reads a| p - @tokens     |
-;   |                                      | memory stream inside a block too  | names the region|
-;   |                                      | (what it reads may be fixed       | (error 183)     |
+;   |                                      | token_byte(p) is p[0] in a block; | when banked     |
+;   |                                      | get() reads a memory stream inside|                 |
+;   |                                      | a block too                       |                 |
+;   |                                      | (what it reads may be fixed       |                 |
 ;   |                                      | memory: the address is p either   |                 |
 ;   |                                      | way)                              |                 |
 ;   | path_add_name, put_name: with the    | after the name heap               | declare before  |
@@ -107,13 +107,13 @@ end
 ; The byte of token memory at `p`.
 pub func token_byte(p: ^byte): byte
   with TOKENS do
-    return tokens[p - @tokens]
+    return p[0]
   end
 end
 
 pub func set_token_byte(p: ^byte, value: byte)
   with TOKENS do
-    tokens[p - @tokens] = value
+    p[0] = value
   end
 end
 
@@ -248,7 +248,7 @@ pub func get(s: byte): byte, bool
     p = stream_next[s]
     stream_next[s] = p + 1
     with TOKENS do                      ; a stream may read the token memory
-      return tokens[p - @tokens], false
+      return p[0], false
     end
   end
   if stream_kind[s] == STREAM_ENDED then

@@ -1,0 +1,8 @@
+; error 184 5 3
+module with_unknown_region
+var t: byte in r
+func f(p: ^byte): byte
+  with rr do
+    return p[0]
+  end
+end

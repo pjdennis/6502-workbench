@@ -485,7 +485,10 @@ def factor():
         err.position(lex.line, lex.col)
     else:
         lex.next()
+        outer = gen.address_of
+        gen.address_of = reg.depth
         designator()
+        gen.address_of = outer
         err.position(line, col)
         i = reg.depth - 1
         if reg.op_kind[i] == reg.O_FUNC and kernel.sym_flags[reg.op_var[i]] & inline.SF_INTERRUPT != 0:
@@ -1443,6 +1446,20 @@ def unmap_bank(temp):
     reg.forget()
 
 
+def region_symbol(region):
+    """The object-file symbol of the first variable or table of `region` that this module
+    declares (at module level, or `static` in the function being compiled), or NO_OBJ. A block
+    that uses nothing of its region names its bank by it: the linker learns a bank only from a
+    variable or table of the region, and the module has no symbol of another module's that it
+    has not used."""
+    for s in range(0, kernel.sym_count):
+        if (kernel.sym_kind[s] == kernel.K_VAR or kernel.sym_kind[s] == kernel.K_CONST) \
+                and kernel.sym_flags[s] & kernel.SF_IN != 0 and kernel.sym_obj[s] != kernel.NO_OBJ \
+                and reg.same_region(kernel.sym_value[s], region):
+            return kernel.sym_obj[s]
+    return kernel.NO_OBJ
+
+
 def with_statement():
     """"with" name "do" NL body "end" (provisional, 2026-11-14): inside it the variables and
     tables `in` that region can be used. Its bank is mapped at the start and the bank found
@@ -1481,12 +1498,14 @@ def with_statement():
     body()
     end_of_block()
     used = out.with_used
-    if used == kernel.NO_OBJ:
-        err.position(line, col)
-        err.fatal(err.E_WITH_UNUSED)
     out.with_region = outer_region
     out.with_used = outer_used
     if temp != fbuf.NO_SLOT:
+        if used == kernel.NO_OBJ:
+            used = region_symbol(region)
+        if used == kernel.NO_OBJ:
+            err.position(line, col)
+            err.fatal(err.E_WITH_UNKNOWN)
         if entry != reg.NONE:
             fbuf.set_symbol(entry, used)
         unmap_bank(temp)

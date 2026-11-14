@@ -634,7 +634,11 @@ recursive func factor()
     err.position(lex.line, lex.col)
   else
     lex.next()
+    var outer: byte
+    outer = gen.address_of
+    gen.address_of = reg.depth
     designator()
+    gen.address_of = outer
     err.position(line, col)
     var i: byte
     i = reg.depth - 1
@@ -1801,6 +1805,22 @@ func unmap_bank(temp: byte)
   reg.forget()
 end
 
+; The object-file symbol of the first variable or table of `region` that this module declares
+; (at module level, or `static` in the function being compiled), or NO_OBJ. A block that uses
+; nothing of its region names its bank by it: the linker learns a bank only from a variable or
+; table of the region, and the module has no symbol of another module's that it has not used.
+func region_symbol(region: word): word
+  var s: word
+  for s = 0 until kernel.sym_count do
+    if (kernel.sym_kind[s] == kernel.K_VAR or kernel.sym_kind[s] == kernel.K_CONST) and
+        kernel.sym_flags[s] & kernel.SF_IN != 0 and kernel.sym_obj[s] != kernel.NO_OBJ and
+        reg.same_region(kernel.sym_value[s], region) then
+      return kernel.sym_obj[s]
+    end
+  end
+  return kernel.NO_OBJ
+end
+
 ; "with" name "do" NL body "end" (provisional, 2026-11-14): inside it the variables and tables
 ; `in` that region can be used. Its bank is mapped at the start and the bank found there put back
 ; at the end, and by a `return`, `break` or `continue` that leaves it. A block inside a block of
@@ -1854,13 +1874,16 @@ recursive func with_statement()
   end_of_block()
   var used: word
   used = out.with_used
-  if used == kernel.NO_OBJ then
-    err.position(line, col)
-    err.fatal(err.E_WITH_UNUSED)
-  end
   out.with_region = outer_region
   out.with_used = outer_used
   if temp != fbuf.NO_SLOT then
+    if used == kernel.NO_OBJ then
+      used = region_symbol(region)
+    end
+    if used == kernel.NO_OBJ then
+      err.position(line, col)
+      err.fatal(err.E_WITH_UNKNOWN)
+    end
     if entry != reg.NONE then
       fbuf.set_symbol(entry, used)
     end

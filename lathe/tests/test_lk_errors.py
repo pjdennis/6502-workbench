@@ -119,10 +119,10 @@ class EnvironmentFile(ErrorTest):
 
 class ObjectFiles(ErrorTest):
     def test_wrong_version(self):
-        for version in (2, 4):
+        for version in (3, 5):
             o = Obj('t', version=version)
             o.func('main', b'\x60')
-            self.assertError(link([o], ENV), 5, 'unsupported object version: this linker reads version 3',
+            self.assertError(link([o], ENV), 5, 'unsupported object version: this linker reads version 4',
                              'm0.lo')
 
     def test_not_an_object_file(self):

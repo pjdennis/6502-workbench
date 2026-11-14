@@ -215,8 +215,9 @@ func emit_data(obj: byte, dest: byte)
     if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + i] == pos then
       address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.work[lk_fix.FX_SYM + i], lo(lk_tab.work[lk_fix.FX_SLOT + i]), false)
       address = address + lk_tab.work[lk_fix.FX_ADD + i]
-      if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_BANK then
-        lk_fix.bad()                    ; the bank of a region is for `with` blocks, in code
+      if lk_tab.work[lk_fix.FX_KIND + i] >= lk_fix.K_BANK then
+        lk_fix.bad()                    ; the bank of a region is for `with` blocks, and an
+                                        ; address only reached is formed by code
       end
       if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_WORD then
         if lk_rec.left() == 0 then

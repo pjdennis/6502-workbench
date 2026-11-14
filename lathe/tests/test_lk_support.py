@@ -92,7 +92,7 @@ class Code:
 class Obj:
     """One object file under construction."""
 
-    def __init__(self, name, cpu=0, version=3):
+    def __init__(self, name, cpu=0, version=4):
         self.name = name
         self.records = [record(1, bytes((version, cpu)) + string(name))]
         self.numbers = {}

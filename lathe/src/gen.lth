@@ -152,6 +152,9 @@ var frame_pop: word = kernel.NO_OBJ
 var math_obj: [MATH_COUNT]word          ; the object-file symbols of rt_math's functions, once used
 var math_member: [MATH_COUNT]word       ; and their parameters and result as members
 var math_used: bool = false             ; the IMP record of rt_math is written
+const NO_OPERAND = $FF
+pub var address_of: byte = NO_OPERAND   ; the operand that the designator after `@` makes
+                                        ; (expr.factor): an element pointer of it escapes
 
 forward func resolve(in_memory: bool)
 forward func operate(op: byte, t: byte, first: byte, second: byte, target: word)
@@ -185,6 +188,7 @@ pub func init()
   var n: byte
   cpu = 0
   math_used = false
+  address_of = NO_OPERAND
   for n = 0 until MATH_COUNT do
     math_obj[n] = kernel.NO_OBJ
   end
@@ -1448,6 +1452,8 @@ func element_pointer(base: byte, e: byte)
   reg.op_kind[a] = reg.O_ADDR
   if reg.op_symbol[a] == kernel.NO_OBJ then
     reg.op_kind[a] = reg.O_CONST
+  elif base != address_of then
+    reg.op_flags[a] = reg.op_flags[a] | reg.F_REACH     ; the address does not leave the function
   end
   reg.describe_temp(a + 1, typetab.pointer_to(e))
   reg.zero_page(a + 1)
@@ -1614,7 +1620,7 @@ pub func table_element(where: word, step: word)
     if reg.op_kind[i] == reg.O_ADDR then
       out.table_fix(where + k * step, fbuf.FIX_LOW + k, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
     else
-      out.table[where + k * step] = reg.const_byte(i, k)
+      out.table_byte(where + k * step, reg.const_byte(i, k))
     end
   end
   reg.pop()

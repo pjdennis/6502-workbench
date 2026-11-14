@@ -103,6 +103,15 @@ class Banked(unittest.TestCase):
             if table in banks:
                 self.assertEqual(banks[table], [bank], table)
 
+    def test_out_table_follows_out_into_its_bank(self):
+        """A table of more than 256 bytes indexed by a word, named only by its module's code,
+        goes into its module's bank: its address is formed only to reach an element (fix-up
+        kinds 7 and 8). GEN fills OUT's table through out.table_byte()."""
+        banks = {name: [r for r in rest if r.startswith('b=')] for kind, address, size, name, rest
+                 in self.map if kind == 'V'}
+        if 'out.table' in banks:
+            self.assertEqual(banks['out.table'], ['b=5'])
+
     def test_resident_code_is_within_the_goal(self):
         """Fixed code, constant data that is not err's messages, and the stubs."""
         resident = sum(size for kind, address, size, name, rest in self.map

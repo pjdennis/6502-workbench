@@ -53,6 +53,8 @@ pub const K_HIGH = 3
 pub const K_ZP = 4
 pub const K_SHRINK = 5
 pub const K_BANK = 6                    ; one byte: the register value of a region's bank (lk_win)
+const K_REACH_LOW = 7                   ; K_LOW and K_HIGH of an address formed only to reach a part of
+const K_REACH_HIGH = 8                  ; what it names, in code (lk_graph.note_named)
 
 ; The entry read last.
 var e_at: word = 0
@@ -174,7 +176,7 @@ end
 ; The fix-up at the cursor is applied: go on to the next.
 pub func next_fix()
   var after: word
-  if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_BANK then
+  if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_REACH_HIGH then
     bad()
   end
   cursor += 1
@@ -300,7 +302,7 @@ end
 
 ; The byte a one-byte fix-up of this kind puts in the code.
 pub func part(value: word, kind: byte): byte
-  if kind == K_HIGH then
+  if kind == K_HIGH or kind == K_REACH_HIGH then
     return hi(value)
   end
   if kind == K_ZP and value > $FF then

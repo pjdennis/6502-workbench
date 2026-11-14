@@ -115,12 +115,16 @@ frame_pop = kernel.NO_OBJ
 math_obj = [0] * MATH_COUNT         # the object-file symbols of rt_math's functions, once used
 math_member = [0] * MATH_COUNT      # and their parameters and result as members
 math_used = False                   # the IMP record of rt_math is written
+NO_OPERAND = 0xFF
+address_of = NO_OPERAND             # the operand that the designator after `@` makes (expr.factor):
+                                    # an element pointer of it escapes (element_pointer)
 
 
 def init():
-    global cpu, init_count, init_part, data_count, frame_push, frame_pop, math_used
+    global cpu, init_count, init_part, data_count, frame_push, frame_pop, math_used, address_of
     cpu = 0
     math_used = False
+    address_of = NO_OPERAND
     for n in range(0, MATH_COUNT):
         math_obj[n] = kernel.NO_OBJ
     init_count = 0
@@ -1147,6 +1151,8 @@ def element_pointer(base, e):
     reg.op_kind[a] = reg.O_ADDR
     if reg.op_symbol[a] == kernel.NO_OBJ:
         reg.op_kind[a] = reg.O_CONST
+    elif base != address_of:
+        reg.op_flags[a] = reg.op_flags[a] | reg.F_REACH     # the address does not leave the function
     reg.describe_temp(a + 1, typetab.pointer_to(e))
     reg.zero_page(a + 1)
     reg.implied(reg.OP_CLC)
@@ -1283,7 +1289,7 @@ def table_element(where, step):
         if reg.op_kind[i] == reg.O_ADDR:
             out.table_fix(where + k * step, fbuf.FIX_LOW + k, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
         else:
-            out.table[where + k * step] = reg.const_byte(i, k)
+            out.table_byte(where + k * step, reg.const_byte(i, k))
     reg.pop()
 
 

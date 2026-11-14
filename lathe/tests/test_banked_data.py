@@ -102,6 +102,54 @@ class BankedDataTest(unittest.TestCase):
         f = m.definition(m.sym_index('w.f'))
         self.assertEqual([m.sym_name(x.sym) for x in f.fixes if x.kind == lo.FX_BANK], ['w.k'])
 
+    def test_a_block_that_uses_nothing_of_its_region_names_the_first_the_module_declares(self):
+        """A fixed function given a pointer into the region reads it with `p[0]`: the bank is
+        named by the module's first variable or table of the region (error 183 is retired)."""
+        m = self.compile('w', 'module w\n'
+                         'var plain: byte\n'
+                         'var other: byte in q\n'
+                         'var t: [4]byte in r\n'
+                         'const K: [2]byte in r = [1, 2]\n'
+                         'func get(p: ^byte): byte\n'
+                         '  with r do\n'
+                         '    return p[0]\n'
+                         '  end\n'
+                         'end\n'
+                         'func put(p: ^byte, v: byte)\n'
+                         '  with r do\n'
+                         '    with r do\n'
+                         '      p[0] = v\n'
+                         '    end\n'
+                         '  end\n'
+                         'end\n')
+        for function in ('w.get', 'w.put'):
+            f = m.definition(m.sym_index(function))
+            self.assertEqual([m.sym_name(x.sym) for x in f.fixes if x.kind == lo.FX_BANK], ['w.t'])
+        self.assertEqual(self.text(m, 'w.get')[2:5], ['LDA #$00', 'JSR rt_with__map', 'STA w__get__St1'])
+
+    def test_a_block_of_a_region_the_module_declares_nothing_in_must_use_something_of_it(self):
+        """The object file names a bank by a variable or table of its region: an importer that
+        uses nothing of an imported region in a block has none to name (error 184)."""
+        self.compile('lib', 'module lib\n'
+                     'pub var t: [4]byte in r\n')
+        errors = self.compile('user', 'module user\n'
+                              'import lib\n'
+                              'func f(p: ^byte): byte\n'
+                              '  with r do\n'
+                              '    return p[0]\n'
+                              '  end\n'
+                              'end\n', ok=False)
+        self.assertIn('4:3: error 184', errors)
+        m = self.compile('user', 'module user\n'
+                         'import lib\n'
+                         'func f(p: ^byte): byte\n'
+                         '  with r do\n'
+                         '    return p[lib.t[0]]\n'
+                         '  end\n'
+                         'end\n')
+        f = m.definition(m.sym_index('user.f'))
+        self.assertEqual([m.sym_name(x.sym) for x in f.fixes if x.kind == lo.FX_BANK], ['lib.t'])
+
     def test_calls_inside_a_block_are_flagged(self):
         m = self.compile('w', 'module w\n'
                          'var t: byte in r\n'
@@ -285,6 +333,54 @@ class BankedDataTest(unittest.TestCase):
         g = m.definition(m.sym_index('user.g'))
         self.assertEqual([m.sym_name(x.sym) for x in g.fixes if x.kind == lo.FX_BANK], ['lib.names'])
         self.assertEqual([name for name, flags in self.calls(m, 'user.g')], ['rt_with.map', 'rt_with.unmap'])
+
+    def kinds(self, m, function, name):
+        f = m.definition(m.sym_index(function))
+        return [x.kind for x in f.fixes if m.sym_name(x.sym) == name]
+
+    def test_an_address_formed_only_to_reach_an_element_is_kind_7_and_8(self):
+        """Indexing by a word, a row of a `rows` array, an element of a big array field: the
+        address is formed in code only to reach a part of the variable in this function, which
+        lets the linker put the variable in its module's bank (object-format.md, version 4)."""
+        m = self.compile('w', 'module w\n'
+                         'type Node = record\n'
+                         '  x: word\n'
+                         '  y: word\n'
+                         'end\n'
+                         'type Big = record\n'
+                         '  n: byte\n'
+                         '  a: [300]byte\n'
+                         'end\n'
+                         'var t: [2048]byte\n'
+                         'var nodes: [300]Node rows\n'
+                         'var b: Big\n'
+                         'const K: [400]byte = [1]\n'
+                         'func f(i: word): byte\n'
+                         '  t[i] = K[i]\n'
+                         '  nodes[i].y = 1\n'
+                         '  return b.a[i]\n'
+                         'end\n')
+        for name in ('w.t', 'w.nodes', 'w.b', 'w.k'):
+            self.assertEqual(sorted(set(self.kinds(m, 'w.f', name))), [lo.FX_REACH_LO, lo.FX_REACH_HI], name)
+
+    def test_an_address_that_escapes_is_kind_2_and_3(self):
+        m = self.compile('w', 'module w\n'
+                         'var t: [2048]byte\n'
+                         'var u: [2048]byte\n'
+                         'var p: ^byte\n'
+                         'func f(i: word)\n'
+                         '  p = @t[i]\n'
+                         'end\n'
+                         'func g(i: word)\n'
+                         '  p = @t[u[i]]\n'
+                         'end\n'
+                         'func h(): ^byte\n'
+                         '  return @t\n'
+                         'end\n')
+        for function in ('w.f', 'w.g', 'w.h'):
+            self.assertEqual(sorted(set(self.kinds(m, function, 'w.t'))), [lo.FX_LO, lo.FX_HI], function)
+        # The index inside the designator after @ is reached, not taken.
+        self.assertEqual(sorted(set(self.kinds(m, 'w.g', 'w.u'))), [lo.FX_REACH_LO, lo.FX_REACH_HI])
 
     def test_a_module_with_no_region_has_no_rt_with_import(self):
         m = self.compile('w', 'module w\nvar n: byte\nfunc f()\n  n = 1\nend\n')

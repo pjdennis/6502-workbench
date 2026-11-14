@@ -52,6 +52,8 @@ FIX_LOW = 2                 # one byte: the low byte of the address
 FIX_HIGH = 3                # one byte: the high byte
 FIX_ZERO_PAGE = 4           # one byte: an address known to be in zero page
 FIX_SHRINKS = 5             # two bytes, of an instruction that has a zero page form
+FIX_REACH_LOW = 7           # FIX_LOW and FIX_HIGH of an address formed only to reach a part of
+FIX_REACH_HIGH = 8          # what it names, in this function's code: it does not escape
 NO_SLOT = 0xFF              # in a fix-up's slot field: the symbol itself, not one of its slots
 FIRST_TEMP = 0x80           # slot numbers from here to NO_SLOT - 1 are the function's temporaries
 

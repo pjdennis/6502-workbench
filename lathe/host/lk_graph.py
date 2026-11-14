@@ -193,8 +193,10 @@ def read_entry(obj):
 def note_named(source, kind, s):
     """A fix-up entry of kept `source` (NONE for constant data) names s. A variable or
     constant of a module in a window goes into its bank only if every fix-up that names it is
-    in that bank's code and none takes its address (configurations.md, "Constants and
-    variables of a module in a window"); otherwise it is fixed (lk_tab.D_FIXED)."""
+    in that bank's code and none takes its address, kinds 2 and 3 (configurations.md,
+    "Constants and variables of a module in a window"); otherwise it is fixed (lk_tab.D_FIXED).
+    Kinds 7 and 8 form its address only to reach a part of it in the function: that function's
+    bank is mapped wherever the address is used."""
     sk = lk_sym.kind_of(s)
     if (sk != lk_sym.VARIABLE and sk != lk_sym.CONSTANT) or not lk_sym.is_defined(s):
         return

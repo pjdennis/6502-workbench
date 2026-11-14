@@ -150,7 +150,7 @@ def reference_image(modules, entries, env, main_module):
                         operand = bytes((v,))
                     elif lo.FIX_WIDTH[fx.kind] == 2:
                         operand = v.to_bytes(2, 'little')
-                    elif fx.kind == lo.FX_HI:
+                    elif fx.kind in lo.HIGH_KINDS:
                         operand = bytes((v >> 8,))
                     else:
                         operand = bytes((v & 0xFF,))

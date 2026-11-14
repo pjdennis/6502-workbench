@@ -313,6 +313,47 @@ class Data(ErrorTest):
         self.assertIn('b=1', r.line('D', 'a.$4'))
         self.assertGreaterEqual(r.addr('V', 'a.v'), 0xC000)
 
+    def test_an_address_formed_only_to_reach_a_part_does_not_keep_it_fixed(self):
+        """Kinds 7 and 8, the low and high byte of an address that the function forms only to
+        reach an element (a table of more than 256 bytes indexed by a word): the table follows
+        its module into the bank. Kinds 2 and 3 (`@t`) keep it fixed, and so do kinds 7 and 8
+        in fixed code."""
+        a = Obj('a')
+        a.data('$5', bytes(300))            # reached by a.f only: in the bank
+        a.data('$6', bytes(300))            # reached by t.main too: fixed
+        a.var('v', 300, NEVER)              # reached by a.f only: in the bank
+        c = a.code()
+        c.byte(0xA9, 7, a.d('$5'))          # LDA #<a.$5, to reach it
+        c.byte(0xA2, 8, a.d('$5'), add=1)   # LDX #>a.$5+1
+        c.byte(0xA9, 7, a.d('$6'))
+        c.byte(0xA9, 7, a.v('v'), add=2)
+        c.byte(0xA2, 8, a.v('v'))
+        c.raw(0x60)
+        a.func('f', c)
+        t = Obj('t')
+        c = t.code()
+        c.abs(0x20, t.f('a.f'))
+        c.byte(0xA9, 8, t.d('a.$6'))
+        c.raw(0x60)
+        t.func('main', c, calls=[(t.f('a.f'), 0, NOBODY)])
+        r = link([t, a, farcall()], PLACED)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertIn('D 8000 012C a.$5 b=1\n', r.map_text)
+        self.assertIn('F 812C 000B a.f b=1\n', r.map_text)
+        self.assertLess(r.addr('D', 'a.$6'), 0x8000)
+        self.assertIn('V 9ED4 012C a.v b=1\n', r.map_text)
+        six = r.addr('D', 'a.$6')
+        code = r.files['BANK1.BIN'][0x12C:]
+        self.assertEqual(code, bytes((0xA9, 0x00, 0xA2, 0x80, 0xA9, six & 0xFF, 0xA9, 0xD6, 0xA2, 0x9E, 0x60)))
+
+    def test_kinds_7_and_8_are_only_in_code(self):
+        o = Obj('t')
+        v = o.var('x', 1, NEVER)
+        o.data('k', b'\0', fixes=[(0, 7, v, 0xFF, 0)])
+        c = o.code().abs(0xAD, o.d('k')).raw(0x60)
+        o.func('main', c)
+        self.assertError(link([o], ENV), 29, 'bad fix-up', 't.k')
+
     def test_in_an_overlay_constants_go_in_and_variables_stay_fixed(self):
         t, a = with_data()
         r = link([t, a, farcall()], OVERLAY + 'place a OVL 1\nfarcall fc\n')

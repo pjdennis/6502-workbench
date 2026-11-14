@@ -62,7 +62,7 @@ pub func main()
       out.table_begin(script.number())
     of 10
       d = script.number()
-      out.table[d] = script.small()
+      out.table_byte(d, script.small())
     of 11
       d = script.number()
       a = script.small()

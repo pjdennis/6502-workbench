@@ -60,7 +60,7 @@ def main():
             out.table_begin(script.number())
         elif c == 10:
             d = script.number()
-            out.table[d] = script.small()
+            out.table_byte(d, script.small())
         elif c == 11:
             d = script.number()
             a = script.small()
