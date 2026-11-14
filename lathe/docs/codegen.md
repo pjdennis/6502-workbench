@@ -25,6 +25,16 @@ Rules for building them:
 - **Pointers.** The pointer of a Target must be a zero page variable. A local or module-level pointer variable that is dereferenced becomes "must be in zero page". Any other pointer value (a field, an element, a call result, a variable of another module not declared `zp`) is first copied to a zero page temporary.
 - **Arrays use X, pointers use Y.** Absolute,X exists for every instruction that takes memory, including `INC` and `ASL`; `(zp),Y` is the only practical indirect form.
 
+## Never forcing zero page
+
+**The compiler's choice of instruction never makes a variable "must be in zero page".** Only two things do: the program declares it `zp`, or the program dereferences it as a pointer, which the 6502 can only do through zero page.
+
+- Every instruction the compiler emits on a variable has an absolute form, so the linker stays free to place the variable anywhere.
+- `STX v,Y` and `STY v,X` exist only in zero page form. The compiler does not emit them, except on a variable that is already "must be in zero page" for one of the two reasons above.
+- In an `asm` block the programmer chooses the instruction. Writing a zero-page-only form there, or an indirect mode, on a variable makes that variable "must be in zero page". That is the programmer's decision, visible in the source.
+
+`lathe/tests/test_no_forced_zp.py` checks the recorded output of every snapshot case for this.
+
 ## Owning a register
 
 At most one pending operand is "In A", one "In A and X", one Condition.
