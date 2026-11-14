@@ -21,11 +21,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [firmware, asm, editor, emulator, prog8]
+        suite: [firmware, asm, editor, emulator, lathe, prog8]
     steps:
       - uses: actions/checkout@v5
 
       - name: Build vasm6502_oldstyle
+        if: matrix.suite != 'lathe'
         run: |
           curl -sSfL -o /tmp/vasm.tar.gz "$VASM_URL"
           mkdir -p /tmp/vasm && tar -xzf /tmp/vasm.tar.gz -C /tmp/vasm --strip-components=1

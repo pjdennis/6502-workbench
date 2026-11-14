@@ -1,0 +1,108 @@
+"""Snapshot and end-to-end cases (lathe/host/README.md, "Tests").
+
+    cases/snap/NAME.lth   lo2asm (module mode) of the compiled module equals NAME.expected.asm.
+                          LATHE_UPDATE=1 rewrites the expected files instead; review the diff.
+    cases/e2e/NAME.lth    The program's output on the emulator equals NAME.expected.out (and it
+                          exits with status 0). Once lathe/host/link.py exists it is built both
+                          ways, linker and assembler path, and the two images must be identical.
+
+Each case is its own test method (test_snap_NAME, test_e2e_NAME). Everything is skipped while
+lathe/host/lathec.py does not exist. Error cases (cases/err/) are tested with the compiler.
+"""
+import glob
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
+sys.path.insert(0, os.path.join(ROOT, 'lathe', 'host', 'driver'))
+
+import build  # noqa: E402
+import lo  # noqa: E402
+import lo2asm  # noqa: E402
+
+CASES = os.path.join(HERE, 'cases')
+UPDATE = os.environ.get('LATHE_UPDATE') == '1'
+NO_COMPILER = f'{os.path.relpath(build.COMPILER, ROOT)} does not exist yet: snapshot and end-to-end cases skipped'
+
+
+def cases(kind):
+    return sorted(glob.glob(os.path.join(CASES, kind, '*.lth')))
+
+
+def _name(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def _read(path, mode='r'):
+    with open(path, mode) as fh:
+        return fh.read()
+
+
+@unittest.skipUnless(os.path.isfile(build.COMPILER), NO_COMPILER)
+class TestCases(unittest.TestCase):
+    maxDiff = None
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='lathe-case-')
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def check_snap(self, source):
+        expected = os.path.splitext(source)[0] + '.expected.asm'
+        objects = build.compile_all(build.module_order(source), self.dir)
+        text = lo2asm.render_module(lo.load(objects[-1]), [lo.load(p) for p in objects[:-1]])
+        if UPDATE:
+            with open(expected, 'w') as fh:
+                fh.write(text)
+            return
+        if not os.path.isfile(expected):
+            self.fail(f'{os.path.relpath(expected, ROOT)} is missing: record it with LATHE_UPDATE=1 '
+                      f'and review it')
+        self.assertEqual(text, _read(expected), f'{os.path.relpath(source, ROOT)}: lo2asm output '
+                         'differs from the expected file (LATHE_UPDATE=1 rewrites it)')
+
+    def check_e2e(self, source):
+        expected = os.path.splitext(source)[0] + '.expected.out'
+        image = os.path.join(self.dir, 'default.bin')
+        build.build(source, image, keep=os.path.join(self.dir, 'default'))
+        status, out, err = build.run_image(image)
+        self.assertEqual(out, _read(expected, 'rb'), f'{os.path.relpath(source, ROOT)}: output')
+        self.assertEqual(status, 0, f'exit status; error output: {err!r}')
+        if os.path.isfile(build.LINKER):
+            other = os.path.join(self.dir, 'asm.bin')
+            build.build(source, other, use_asm=True, keep=os.path.join(self.dir, 'asm'))
+            self.assertTrue(_read(image, 'rb') == _read(other, 'rb'),
+                            'the linker and the assembler path give different images '
+                            f'(rebuild with build.py --keep DIR, with and without --asm, to compare)')
+
+
+def _add(kind, check):
+    for path in cases(kind):
+        def test(self, path=path):
+            check(self, path)
+        test.__doc__ = os.path.relpath(path, ROOT)
+        setattr(TestCases, f'test_{kind}_{_name(path)}', test)
+
+
+_add('snap', TestCases.check_snap)
+_add('e2e', TestCases.check_e2e)
+
+
+class TestHarness(unittest.TestCase):
+    """Runs without the compiler: the cases are well formed."""
+
+    def test_e2e_cases_have_expected_output(self):
+        for path in cases('e2e'):
+            self.assertTrue(os.path.isfile(os.path.splitext(path)[0] + '.expected.out'), path)
+
+    def test_there_is_a_case(self):
+        self.assertTrue(cases('e2e'), 'no end-to-end cases in lathe/tests/cases/e2e')
+
+
+if __name__ == '__main__':
+    unittest.main()

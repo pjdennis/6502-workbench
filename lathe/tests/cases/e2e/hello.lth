@@ -1,0 +1,10 @@
+; The walking skeleton: prints HI and a new line.
+module hello
+
+import host
+
+pub func main()
+  host.put_byte('H')
+  host.put_byte('I')
+  host.put_byte(10)
+end
