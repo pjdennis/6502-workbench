@@ -24,7 +24,11 @@ module typetab
 
 import err
 
+#if SMALL
+pub const MAX_TYPES = 32        ; (SMALL: the test programs' small build)
+#else
 pub const MAX_TYPES = 64
+#end
 
 pub const NO_TYPE = 0               ; no type
 pub const BYTE_TYPE = 1
@@ -35,12 +39,12 @@ pub const BOOL_TYPE = 5
 pub const NUMBER_TYPE = 6           ; a number of no type yet, zero or above: it takes the type its place needs
 pub const NEGATIVE_TYPE = 7         ; the same, below zero: held as 16 bits in two's complement
 pub const NIL_TYPE = 8              ; `nil`, which fits every pointer type
-pub const FIRST_MADE = 9
+const FIRST_MADE = 9
 
-pub const FORM_BASIC = 0
+const FORM_BASIC = 0
 pub const FORM_POINTER = 1          ; base: the type pointed to
 pub const FORM_ARRAY = 2            ; base: the element type; length: how many. Stored by column
-pub const FORM_ROWS = 3             ; the same, declared `rows`: each element's bytes together
+const FORM_ROWS = 3             ; the same, declared `rows`: each element's bytes together
 pub const FORM_RECORD = 4           ; base: the symbol of the type that declares it; size: of its fields so far
 pub const FORM_ENUM = 5             ; base: the same. One byte
 pub const FORM_FUNC = 6             ; base: the same; length: 1 if declared `recursive`, else 0. Two bytes

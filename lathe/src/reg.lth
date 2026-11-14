@@ -116,7 +116,7 @@ pub const CLASS_EITHER = 1
 pub const CLASS_NOT_ZP = 2
 pub const SLOT_PARAMETER = 0    ; slot kinds
 pub const SLOT_LOCAL = 1
-pub const SLOT_TEMPORARY = 2
+const SLOT_TEMPORARY = 2
 
 pub var slot_size: [SLOTS]word
 pub var slot_class: [SLOTS]byte
@@ -170,7 +170,7 @@ pub const OP_EOR = $4D
 pub const OP_LSR = $4E
 pub const OP_ADC = $6D
 pub const OP_ROR = $6E
-pub const OP_CMP = $CD
+const OP_CMP = $CD
 pub const OP_DEC = $CE
 pub const OP_SBC = $ED
 pub const OP_INC = $EE

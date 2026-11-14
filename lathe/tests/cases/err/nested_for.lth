@@ -1,0 +1,23 @@
+; error 88 13 25
+module nested_for
+var a: byte
+var p: bool
+func f()
+  for a = 0 to 1 do
+    for a = 0 to 1 do
+      for a = 0 to 1 do
+        for a = 0 to 1 do
+          for a = 0 to 1 do
+            for a = 0 to 1 do
+              for a = 0 to 1 do
+                for a = 0 to 1 do
+                  a = 1
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end

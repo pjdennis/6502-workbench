@@ -1,0 +1,10 @@
+; error 88 9 23
+module nested_calls
+var a: byte
+var p: bool
+func g(x: byte): byte
+  return x
+end
+func f()
+  a = g(g(g(g(g(g(g(g(a))))))))
+end

@@ -2,6 +2,7 @@
 lathe/docs/configurations.md, "Measured on the compiler's test programs").
 
     python3 lathe/tests/bank_report.py [OUT_DIR] [--program NAME] [--script NAME]
+    python3 lathe/tests/bank_report.py [OUT_DIR] --program exprtest --script expr
 
 Builds the test program (default gentest, script gen) three ways and runs every section of its
 script with each:
@@ -18,6 +19,11 @@ script with each:
 
 The start-up's loading of the banks is the banked run of an empty script less the all-in-one
 Wendy 2 run of it and the far calls it makes (at 182 cycles each, test_farcall.py).
+
+A program whose script's sections hold Lathe source after a line `--` (exprtest, SOURCES) gets
+the section's commands and its source as two files, its first and third arguments, and the
+counter goes to its fourth. Such a program does not fit the default machine or Wendy 2 all in one
+(exprtest has about 68 KB of code), so only 1 and 2 are made.
 
 OUT_DIR (default: a temporary directory) keeps the builds."""
 import os
@@ -42,7 +48,9 @@ COUNTING_CALL = '''pub asm func call()
 .counted
 '''
 
-COUNTING_EXIT = '''  h = open_out(argv(2))              ; the far calls, for lathe/tests/bank_report.py
+SOURCES = ('exprtest',)     # programs whose sections are commands, a line `--`, and Lathe source
+
+COUNTING_EXIT = '''  h = open_out(argv(%d))              ; the far calls, for lathe/tests/bank_report.py
   write(farcalls[2], h)
   write(farcalls[1], h)
   write(farcalls[0], h)
@@ -51,8 +59,9 @@ COUNTING_EXIT = '''  h = open_out(argv(2))              ; the far calls, for lat
 '''
 
 
-def counting_copies(where):
-    """Copies of lathe/src/*.lth, and the counting rt_bank.lth and disk.lth, in WHERE."""
+def counting_copies(where, count_argument=2):
+    """Copies of lathe/src/*.lth, and the counting rt_bank.lth and disk.lth, in WHERE. The
+    counter is written to the file the program's argument number `count_argument` names."""
     for f in os.listdir(support.SRC):
         if f.endswith('.lth'):
             shutil.copy(os.path.join(support.SRC, f), where)
@@ -65,7 +74,7 @@ def counting_copies(where):
         text = f.read()
     marker = '  for h = 1 to MAX_HANDLE do\n'
     assert text.count(marker) == 1 and '\nmodule disk\n' in text
-    text = text.replace(marker, COUNTING_EXIT)
+    text = text.replace(marker, COUNTING_EXIT % count_argument)
     text = text.replace('\nmodule disk\n', '\nmodule disk\n\npub var farcalls: [3]byte\n')
     with open(os.path.join(where, 'disk.lth'), 'w') as f:
         f.write(text)
@@ -76,7 +85,7 @@ def flat_wendy_env(name, path):
     support.banked_env(name, path)
     with open(path) as f:
         lines = [l for l in f if not re.match(r'^(window|switch|bank|place|farcall)\s', l)]
-    lines = [re.sub(r'^code\s+\$3A00 \$7FFF', 'code      $3A00 $EFFF', l) for l in lines]
+    lines = [re.sub(r'^code\s+\$(\w+) \$7FFF', r'code      $\1 $EFFF', l) for l in lines]
     with open(path, 'w') as f:
         f.write(''.join(lines))
 
@@ -118,14 +127,19 @@ def map_report(path):
              0xFFFA - (max(high) if high else 0xF810)))
 
 
-def runs(image, run, sections, work, tag, extra=False):
+def runs(image, run, sections, work, tag, extra=False, sources=False):
     """[(cycles, far calls)] of every section."""
     found = []
     for n, (title, text) in enumerate(sections):
         path = os.path.join(work, '%s-%d.txt' % (tag, n))
+        commands, _, source = text.partition(b'\n--\n')
         with open(path, 'wb') as f:
-            f.write(text)
+            f.write(commands + b'\n' if sources else text)
         args = [path, os.path.join(work, '%s-%d.lo' % (tag, n))]
+        if sources:
+            args.append(os.path.join(work, '%s-%d.lth' % (tag, n)))
+            with open(args[-1], 'wb') as f:
+                f.write(source)
         count = os.path.join(work, '%s-%d.far' % (tag, n))
         if extra:
             args.append(count)
@@ -160,12 +174,26 @@ def main(argv):
 
     counting = os.path.join(out_dir, 'counting')
     os.makedirs(counting, exist_ok=True)
-    counting_copies(counting)
+    sources = name in SOURCES
+    counting_copies(counting, 3 if sources else 2)
     cimage = os.path.join(counting, name + '.bin')
     support.banked_env(name, os.path.join(counting, name + '.env'))
     support.build.build(os.path.join(counting, name + '.lth'), cimage,
                         env=os.path.join(counting, name + '.env'), keep=os.path.join(counting, 'work'))
 
+    if sources:
+        b = runs(image, support.run_banked, sections + empty, banked, 'b', sources=True)
+        c = runs(cimage, support.run_banked, sections + empty, counting, 'c', extra=True, sources=True)
+        n = len(sections)
+        far = sum(x[1] for x in c[:n])
+        print('%s, %d sections of %s.txt:' % (name, n, script))
+        print('  banked on Wendy 2: %d cycles, %d far calls (%d at %d cycles)'
+              % (sum(x[0] for x in b[:n]), far, far * FAR_CALL, FAR_CALL))
+        print('  an empty script: %d cycles, %d far calls' % (b[n][0], c[n][1]))
+        worst = max(range(n), key=lambda i: c[i][1])
+        print('  most far calls in a section: %d (section %d, %d cycles banked); %.0f a section'
+              % (c[worst][1], worst, b[worst][0], far / n))
+        return
     flat = os.path.join(out_dir, 'flat')
     os.makedirs(flat, exist_ok=True)
     fimage = support.build_program(name, flat, small=True)

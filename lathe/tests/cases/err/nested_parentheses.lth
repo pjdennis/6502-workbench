@@ -1,0 +1,7 @@
+; error 88 6 22
+module nested_parentheses
+var a: byte
+var p: bool
+func f()
+  a = (((((((((((((((a)))))))))))))))
+end

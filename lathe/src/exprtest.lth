@@ -1,0 +1,263 @@
+; A test of expr (EXPR and STMT): exprtest SCRIPT OBJECT SOURCE runs the commands of a script:
+; those of lathe/src/regcmd.lth, which declare variables, functions, function types and the
+; types they use, and the commands below, which declare the other names a body can use and run
+; EXPR over real source, the file SOURCE, read through LEX and SRC as DECL will: bodies of
+; functions, expressions, conditions, constants, types and declarations. It prints what they
+; give, the token each hands back, and the code of the functions they end; the object file it
+; writes is compared too. lathe/tests/test_src_expr.py runs the same script with expr.py and
+; compares. The scripts are in lathe/tests/scripts/expr.txt. With EXPR, GEN and everything below
+; them it has about 50 KB of code: it is built banked on Wendy 2 (compiler-bank.env), with the
+; small build's capacities.
+module exprtest
+
+import cond
+import expr
+import gen
+import inlines
+import kernel
+import lex
+import listing
+import reg
+import regcmd
+import script
+import src
+import sys
+import typetab
+
+const WORDS = "source first next sym record field enum fbegin param receive body fend expr cond econst cnum type vtype decl save scope send gstore asvalue accept lresult gjump efunc initfn cpu syms module einit setv "
+
+; Set up as regcmd does (a module `m` that imports `util`, its object file, and a function
+; `m.f` being generated), and GEN, SRC, LEX, INLINE and EXPR.
+func init()
+  regcmd.init()
+  gen.init()
+  gen.function_begin(regcmd.own)
+  gen.pend_type = 0               ; as at the start: neither gen.init() nor function_begin() sets it
+  cond.wanted_in_carry(false)
+  src.init()
+  lex.init()
+  inlines.init()
+  expr.init()
+end
+
+func show_token()
+  script.show_byte(lex.tok)
+  script.show_word(lex.line)
+  script.show_word(lex.col)
+end
+
+; Pass over line ends to the next token.
+func first_token()
+  loop
+    lex.next()
+    if lex.tok != lex.T_NL then
+      return
+    end
+  end
+end
+
+; A record type, or an enumeration, called by the next argument.
+func declared(form: byte)
+  var s: word
+  var t: byte
+  s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE)
+  t = typetab.declared(form, s)
+  kernel.sym_type[s] = t
+  script.show_word(s)
+  script.show_byte(t)
+end
+
+; As decl.add_field(): a field called `name` of type `t` after the others of the record that
+; `s` declares.
+func add_field(s: word, name: word, t: byte)
+  var r: byte
+  var f: word
+  r = kernel.sym_type[s]
+  f = kernel.sym_add(kernel.SCOPE_FIELDS + r, name, kernel.K_FIELD)
+  kernel.sym_type[f] = t
+  kernel.sym_value[f] = typetab.grow(r, typetab.size(t))
+  kernel.sym_params[s] += 1
+end
+
+; As decl.parameters() declares parameter `i` of function `s`: a slot of the frame and a local
+; name, called by the next argument.
+func parameter(s: word, i: byte)
+  var name: word
+  var t: byte
+  var p: word
+  name = script.name()
+  t = kernel.member_type[kernel.sym_members[s] + i]
+  p = kernel.sym_add(kernel.SCOPE_LOCAL, name, kernel.K_LOCAL)
+  kernel.sym_type[p] = t
+  kernel.sym_value[p] = reg.new_slot(typetab.size(t), reg.CLASS_EITHER, reg.SLOT_PARAMETER, name)
+  script.show_word(p)
+  script.show_byte(lo(kernel.sym_value[p]))
+end
+
+func show_symbols(first: word)
+  var s: word
+  for s = first until kernel.sym_count do
+    script.show_word(kernel.sym_name[s])
+    script.show_byte(kernel.sym_scope[s])
+    script.show_byte(kernel.sym_kind[s])
+    script.show_byte(kernel.sym_flags[s])
+    script.show_byte(kernel.sym_type[s])
+    script.show_word(kernel.sym_value[s])
+    script.show_word(kernel.sym_obj[s])
+    sys.put_byte(',')
+  end
+end
+
+forward func run_more(c: byte)
+
+; Run command `c`, a number in WORDS, with its arguments.
+func run(c: byte)
+  var a: byte
+  var b: byte
+  var d: byte
+  var e: byte
+  var s: word
+  var v: word
+  var i: byte
+  case c
+  of 0
+    if not src.open_file(kernel.keep_argument(2)) then
+      sys.exit(2)
+    end
+  of 1
+    first_token()
+    show_token()
+  of 2
+    lex.next()
+    show_token()
+  of 3
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    e = script.small()
+    v = script.number()
+    s = kernel.sym_add(b, script.name(), a)
+    kernel.sym_flags[s] = d
+    kernel.sym_type[s] = e
+    kernel.sym_value[s] = v
+    script.show_word(s)
+  of 4
+    declared(typetab.FORM_RECORD)
+  of 5
+    s = script.number()
+    v = script.name()
+    add_field(s, v, script.small())
+  of 6
+    declared(typetab.FORM_ENUM)
+  of 7
+    s = script.number()
+    gen.function_begin(reg.object_symbol(s))
+    gen.saves_frame = kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0
+  of 8
+    s = script.number()
+    i = 0
+    while script.more() do
+      parameter(s, i)
+      i += 1
+    end
+  of 9
+    gen.receive(script.number())
+  of 10
+    expr.function_body(script.number())
+    show_token()
+  of 11
+    gen.function_end(script.small())
+    listing.show_finished()
+  of 12
+    expr.expression()
+    show_token()
+  of 13
+    script.show_word(expr.test())
+    show_token()
+  of 14
+    expr.constant(script.small())
+    show_token()
+  of 15
+    script.show_word(expr.constant_number())
+    show_token()
+  of 16
+    script.show_byte(expr.type_spec())
+    show_token()
+  else
+    run_more(c)
+  end
+end
+
+func run_more(c: byte)
+  var a: byte
+  var s: word
+  var v: word
+  var i: byte
+  case c
+  of 17
+    script.show_byte(expr.value_type())
+    show_token()
+  of 18
+    a = script.small()
+    expr.variable(script.small(), a)
+    show_token()
+  of 19
+    s = script.number()
+    kernel.scope_begin()
+    for i = 0 until kernel.sym_params[s] do
+      v = kernel.sym_add(kernel.SCOPE_LOCAL, script.name(), kernel.K_LOCAL)
+      kernel.sym_type[v] = kernel.member_type[kernel.sym_members[s] + i]
+    end
+    inlines.save(s)
+    kernel.local_names = kernel.name_top
+    kernel.scope_end()
+    show_token()
+  of 20
+    kernel.scope_begin()
+  of 21
+    kernel.scope_end()
+  of 22
+    gen.store()
+  of 23
+    gen.as_value()
+  of 24
+    gen.accept(script.small())
+  of 25
+    gen.load_result()
+  of 26
+    script.show_word(gen.jump_false())
+  of 27
+    script.show_word(expr.function)
+  of 28
+    s = script.number()
+    gen.init_function(s)
+    listing.show_finished()
+  of 29
+    gen.cpu = script.small()
+  of 30
+    show_symbols(script.number())
+  of 31
+    script.show_byte(kernel.module_add(script.name()))
+  of 32
+    expr.init()
+  of 33
+    s = script.number()
+    kernel.sym_value[s] = script.number()
+  end
+end
+
+pub func main()
+  var c: byte
+  init()
+  script.open()
+  while script.next() do
+    c = script.find(@WORDS)
+    if c == script.NOT_FOUND then
+      regcmd.run(script.command(@regcmd.WORDS))
+    else
+      run(c)
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

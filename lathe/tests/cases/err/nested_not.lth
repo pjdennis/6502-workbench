@@ -1,0 +1,7 @@
+; error 88 6 67
+module nested_not
+var a: byte
+var p: bool
+func f()
+  p = not not not not not not not not not not not not not not not p
+end

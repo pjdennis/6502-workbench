@@ -48,14 +48,37 @@ MAX_PENDING = 16
 pending = [0] * MAX_PENDING     # the functions whose arguments are being stored in their frames,
 pending_count = 0               # with at least one stored already: the outermost first
 
+# How deeply expressions and blocks may nest: each expression (one in parentheses, brackets or
+# arguments, or the operand of a `-`, `~` or `not`) and each body of a block is a level, and
+# the arguments of a call and a `for` are one more each. The parser is recursive, and
+# lathe/src/expr.lth keeps a level's state on the 6502's stack and rt_frame's, 256 bytes each
+# (docs/code-model.md, "Recursion"): nesting this deep fits both with room to spare.
+MAX_NESTING = 16
+nesting = 0
+
 
 def init():
-    global passing, passed, pending_count, map_symbol, unmap_symbol
+    global passing, passed, pending_count, nesting, map_symbol, unmap_symbol
     passing = False
     passed = reg.NONE
     pending_count = 0
+    nesting = 0
     map_symbol = kernel.NO_OBJ
     unmap_symbol = kernel.NO_OBJ
+
+
+def nest():
+    """One more level of nesting begins."""
+    global nesting
+    if nesting == MAX_NESTING:
+        err.fatal(err.E_NESTING)
+    nesting += 1
+
+
+def unnest():
+    """A level of nesting ends."""
+    global nesting
+    nesting -= 1
 
 
 # ---- Types and names ---------------------------------------------------------------------
@@ -265,6 +288,7 @@ def arguments(f):
     its parameter in the frame of function `f`, except those passed in registers (all of an
     `extern` or `asm` function's), which stay on the stack, in order, for GEN to load at the call."""
     global pending_count
+    nest()
     saved = gen.outer
     saved_pending = pending_count
     count = 0
@@ -290,6 +314,7 @@ def arguments(f):
         err.fatal(err.E_ARG_COUNT)
     pending_count = saved_pending
     gen.arguments_end(saved)
+    unnest()
     lex.next()
 
 
@@ -325,7 +350,7 @@ def call(wanted):
         lex.next()
         saved = passing
         passing = False
-        expand(f, wanted)
+        expand()
         passing = saved
         return
     if not gen.through(f):
@@ -408,26 +433,28 @@ def primary():
     """primary = number | string | "(" expression ")" | typeKw "(" expression ")"
     | "^" type "(" expression ")" | designator [ arguments [ "->" designator ] ]. Pushes its
     operand."""
-    line = lex.line
-    col = lex.col
     if lex.tok == lex.T_NUMBER:
         gen.constant(typetab.NUMBER_TYPE, lex.value)
         lex.next()
-    elif lex.tok == lex.T_LPAREN:
+        return
+    if lex.tok == lex.T_LPAREN:
         lex.next()
         expression()
         lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
-    elif basic_type(lex.tok) != typetab.NO_TYPE:
-        t = basic_type(lex.tok)
-        lex.next()
-        conversion(t, line, col)
-    elif lex.tok == lex.T_CARET:
-        conversion(type_spec(), line, col)
-    elif lex.tok == lex.T_NAME:
+        return
+    line = lex.line
+    col = lex.col
+    if lex.tok == lex.T_NAME:
         designator()
         callee()
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
             call_value(line, col)
+    elif lex.tok == lex.T_CARET:
+        conversion(type_spec(), line, col)
+    elif basic_type(lex.tok) != typetab.NO_TYPE:
+        t = basic_type(lex.tok)
+        lex.next()
+        conversion(t, line, col)
     elif lex.tok == lex.T_STRING:
         string()
         lex.next()
@@ -439,19 +466,24 @@ def primary():
 
 def factor():
     """factor = ( "-" | "~" ) factor | "@" designator | primary."""
+    if lex.tok != lex.T_MINUS and lex.tok != lex.T_TILDE and lex.tok != lex.T_ADDRESS:
+        primary()
+        return
     line = lex.line
     col = lex.col
     if lex.tok == lex.T_MINUS or lex.tok == lex.T_TILDE:
         minus = lex.tok == lex.T_MINUS
         lex.next()
+        nest()
         factor()
+        unnest()
         err.position(line, col)
         if minus:
             gen.negate()
         else:
             gen.complement()
         err.position(lex.line, lex.col)
-    elif lex.tok == lex.T_ADDRESS:
+    else:
         lex.next()
         designator()
         err.position(line, col)
@@ -465,8 +497,6 @@ def factor():
         else:
             gen.address()
         err.position(lex.line, lex.col)
-    else:
-        primary()
 
 
 def term_operator(token):
@@ -574,7 +604,9 @@ def inverse():
     line = lex.line
     col = lex.col
     lex.next()
+    nest()
     inverse()
+    unnest()
     err.position(line, col)
     gen.invert()
     err.position(lex.line, lex.col)
@@ -614,6 +646,7 @@ def both():
 def expression():
     """expression = andExpr { "or" andExpr }. Its operand is left on GEN's stack: a constant,
     a variable, a value in the registers, a Condition, or GEN's pending operation."""
+    nest()
     both()
     while lex.tok == lex.T_OR:
         line = lex.line
@@ -622,6 +655,7 @@ def expression():
         test_operator(False, line, col, True)
         both()
         test_operator(False, line, col, False)
+    unnest()
 
 
 def results_expression():
@@ -853,8 +887,12 @@ def variable(more, level):
             kernel.sym_value[s] = inline.own_slot(typetab.size(t))
     else:
         s = lasting_variable(scope, name, t, flags, level)
-    if lex.tok != lex.T_ASSIGN:
-        return
+    if lex.tok == lex.T_ASSIGN:
+        initial_value(s, t, level)
+
+
+def initial_value(s, t, level):
+    """"=" initialiser after the declaration of variable `s` of type `t`, at `level`."""
     lex.next()
     no_record(t)
     if typetab.is_array(t):
@@ -1189,6 +1227,7 @@ def for_statement():
     (docs/codegen.md, "Statements"). With `until` the test, variable < limit, is at the top
     instead. A limit that is a variable is not copied: it is read at each test."""
     global exit_label, next_label, critical_inner, with_loop
+    nest()
     saved_exit = exit_label
     saved_next = next_label
     saved_inner = critical_inner
@@ -1250,6 +1289,7 @@ def for_statement():
     next_label = saved_next
     critical_inner = saved_inner
     with_loop = saved_with
+    unnest()
 
 
 def case_constants(selector, chosen, base):
@@ -1617,8 +1657,10 @@ def ends_body(token):
 
 def body():
     """body = { varDecl | statement }."""
+    nest()
     while not ends_body(lex.tok):
         statement()
+    unnest()
 
 
 def inline_argument(f, i):
@@ -1634,14 +1676,23 @@ def inline_argument(f, i):
     err.position(lex.line, lex.col)
 
 
-def expand(f, wanted):
-    """The arguments and ")" of a call of inline function `f` (which inline.enter() has begun),
-    after its "(", and its body,
-    replayed from its saved tokens as if it were written here (docs/code-model.md, "Inline
-    functions"). A `return` goes to the end of the expansion, where the result is left as a
-    call leaves it, if it is `wanted`; or, from the last statement, it may leave its value
-    as the operand it is. The token after the ")" is the current one at the end."""
-    global function, exit_label, next_label, critical_depth, critical_inner, with_function, with_loop
+# What expand() keeps while an expansion's body is compiled, by inline.depth: in arrays and not
+# in its locals, so that lathe/src/expr.lth's saving call of body() has nothing to push
+EXPANSIONS = inline.MAX_DEPTH + 1
+expand_line = [0] * EXPANSIONS          # where the ")" of the call is
+expand_col = [0] * EXPANSIONS
+expand_brackets = bytearray(EXPANSIONS) # lex.open_brackets there
+expand_function = [0] * EXPANSIONS      # the caller's `function`, `exit_label` and the others
+expand_exit = [0] * EXPANSIONS
+expand_next = [0] * EXPANSIONS
+expand_depth = bytearray(EXPANSIONS)
+expand_inner = bytearray(EXPANSIONS)
+expand_with_function = bytearray(EXPANSIONS)   # the caller's `with_function` and `with_loop`
+expand_with_loop = bytearray(EXPANSIONS)
+
+
+def inline_arguments(f):
+    """The arguments and ")" of a call of inline function `f`, after its "("."""
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
@@ -1656,17 +1707,27 @@ def expand(f, wanted):
         err.fatal(err.E_RPAREN_EXPECTED)
     if count != kernel.sym_params[f]:
         err.fatal(err.E_ARG_COUNT)
-    line = lex.line
-    col = lex.col
-    brackets = lex.open_brackets
-    saved_function = function
-    saved_exit = exit_label
-    saved_next = next_label
-    saved_depth = critical_depth
-    saved_inner = critical_inner
-    saved_with_function = with_function
-    saved_with_loop = with_loop
-    function = f
+
+
+def expand():
+    """The arguments and ")" of the newest inline call, which inline.enter() has begun, after its
+    "(", and the body of its function, replayed from its saved tokens as if it were written here
+    (docs/code-model.md, "Inline functions"). A `return` goes to the end of the expansion, where
+    the result is left as a call leaves it, if it is wanted; or, from the last statement, it may
+    leave its value as the operand it is. The token after the ")" is the current one at the end."""
+    global function, exit_label, next_label, critical_depth, critical_inner, with_function, with_loop
+    inline_arguments(inline.expanding[inline.depth])
+    expand_line[inline.depth] = lex.line
+    expand_col[inline.depth] = lex.col
+    expand_brackets[inline.depth] = lex.open_brackets
+    expand_function[inline.depth] = function
+    expand_exit[inline.depth] = exit_label
+    expand_next[inline.depth] = next_label
+    expand_depth[inline.depth] = critical_depth
+    expand_inner[inline.depth] = critical_inner
+    expand_with_function[inline.depth] = with_function
+    expand_with_loop[inline.depth] = with_loop
+    function = inline.expanding[inline.depth]
     exit_label = reg.NONE
     next_label = reg.NONE
     critical_depth = 0
@@ -1674,25 +1735,25 @@ def expand(f, wanted):
     with_function = fbuf.NO_SLOT        # its `return` is a jump inside the caller's blocks
     with_loop = fbuf.NO_SLOT
     lex.open_brackets = 0
-    inline.body_begin(f)
+    inline.body_begin(function)
     lex.next()
     body()
     if lex.tok != lex.T_EOF:
         err.fatal(err.E_END_EXPECTED)
     src.close()
-    function = saved_function
-    exit_label = saved_exit
-    next_label = saved_next
-    critical_depth = saved_depth
-    critical_inner = saved_inner
-    with_function = saved_with_function
-    with_loop = saved_with_loop
-    lex.open_brackets = brackets
-    lex.resume(lex.T_RPAREN, line, col)
+    function = expand_function[inline.depth]
+    exit_label = expand_exit[inline.depth]
+    next_label = expand_next[inline.depth]
+    critical_depth = expand_depth[inline.depth]
+    critical_inner = expand_inner[inline.depth]
+    with_function = expand_with_function[inline.depth]
+    with_loop = expand_with_loop[inline.depth]
+    lex.open_brackets = expand_brackets[inline.depth]
+    lex.resume(lex.T_RPAREN, expand_line[inline.depth], expand_col[inline.depth])
     if not inline.lazy[inline.depth]:
         reg.label(inline.done[inline.depth])
-        if wanted:
-            gen.result(f)
+        if inline.wanted[inline.depth]:
+            gen.result(inline.expanding[inline.depth])
     inline.leave()
     lex.next()
 

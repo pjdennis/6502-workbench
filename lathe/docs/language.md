@@ -289,6 +289,8 @@ Bitwise operators bind tighter than comparisons, so `flags & MASK != 0` means wh
 
 Constant expressions are evaluated by the compiler wherever a constant is required, and folded elsewhere.
 
+**How deeply things nest.** Expressions and blocks nest at most 16 levels deep (error 88): each expression is a level (the whole of one, one in parentheses or brackets, an argument, the operand of a unary `-`, `~` or `not`), and so is each body of a block, a function's own included; the arguments of a call and a `for` count one more each. So a statement in a function's body can hold 14 parentheses inside each other, or 7 calls each inside the arguments of the next, and 7 `for` loops can nest. The compiler's parser is recursive and, compiled for the 6502, keeps what each level needs on the processor's stack and on the frame stack of `rt_frame` ([`code-model.md`](code-model.md), "Recursion"), 256 bytes each: the limit keeps both within their size.
+
 ## Modules
 
 ```

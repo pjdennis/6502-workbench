@@ -1,0 +1,39 @@
+; error 88 21 36
+module nested_blocks
+var a: byte
+var p: bool
+func f()
+  if p then
+    if p then
+      if p then
+        if p then
+          if p then
+            if p then
+              if p then
+                if p then
+                  if p then
+                    if p then
+                      if p then
+                        if p then
+                          if p then
+                            if p then
+                              if p then
+                                if p then
+                                  a = 1
+                                end
+                              end
+                            end
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end

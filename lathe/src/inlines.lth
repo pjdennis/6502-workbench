@@ -69,17 +69,17 @@ import reg
 import typetab
 
 #if SMALL
-pub const SAVED_SIZE = 384      ; (SMALL: the test programs' small build)
+const SAVED_SIZE = 384      ; (SMALL: the test programs' small build)
 #else
-pub const SAVED_SIZE = 2048     ; bytes of saved tokens in one module
+const SAVED_SIZE = 2048     ; bytes of saved tokens in one module
 #end
 pub const MAX_DEPTH = 6         ; inline calls inside inline calls: below src.MAX_SOURCES
 const MAX_LOCALS = 32           ; names of locals one body can declare
 const MAX_OWNED = 64            ; slots of the caller's frame the expansions under way own
 const MAX_ALIASES = 16          ; parameters that stand for a variable while arguments are read
 
-pub const SCOPE_INLINE = $F0    ; plus a level: the parameters and locals of that expansion
-pub const K_ALIAS = 9           ; a parameter that stands for the variable that is its value
+const SCOPE_INLINE = $F0    ; plus a level: the parameters and locals of that expansion
+const K_ALIAS = 9           ; a parameter that stands for the variable that is its value
 pub const SF_INLINE = kernel.SF_ZP      ; function flags: `inline` and `interrupt`. These bits are
 pub const SF_INTERRUPT = kernel.SF_NOZP ; variables' own, and mean these for a function
 
@@ -90,8 +90,8 @@ pub const R_FLAGS = 6
 pub const R_WRITTEN = 7
 pub const R_PARAMS = 9
 pub const PARAM_SIZE = 3
-pub const PURE = 1
-pub const LAST_RETURN = 2
+const PURE = 1
+const LAST_RETURN = 2
 const C_DOLLAR = $24
 const C_ZERO = $30
 
@@ -136,7 +136,7 @@ pub func word_at(p: ^byte): word
   return word(p[0]) | (word(p[1]) << 8)
 end
 
-pub func set_word_at(p: ^byte, value: word)
+func set_word_at(p: ^byte, value: word)
   p[0] = lo(value)
   p[1] = hi(value)
 end

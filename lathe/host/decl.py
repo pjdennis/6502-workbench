@@ -554,8 +554,15 @@ def import_line():
     if lex.value == kernel.module_name[0]:
         err.fatal(err.E_SELF_IMPORT)
     s = kernel.sym_add(kernel.SCOPE_MODULE, lex.value, kernel.K_MODULE)
-    kernel.sym_value[s] = kernel.module_add(lex.value)
-    read_interface(kernel.sym_value[s])
+    # An interface read before may have brought the module in, for its inline functions
+    # (imported_module()): that reading serves, and its names are not made twice.
+    m = 1
+    while m < kernel.module_count and kernel.module_name[m] != lex.value:
+        m += 1
+    if m == kernel.module_count:
+        m = kernel.module_add(lex.value)
+        read_interface(m)
+    kernel.sym_value[s] = m
     out.imported(lex.value)
     lex.next()
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)

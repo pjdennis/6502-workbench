@@ -35,11 +35,12 @@ import script_host
 
 LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock', 'inline')
+           'asmblock', 'inline', 'expr')
 TWIN = {'inline': 'inlines'}    # a twin whose module has another name: `inline` is a keyword
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
-            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')
+            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest', 'exprtest')
 SMALL = ('regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')    # the small build (src_support.build_program)
+BANKED = ('exprtest',)          # the banked build on Wendy 2: too large for the default machine
 
 
 LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
@@ -54,7 +55,7 @@ def build(name, out_dir, env=None):
     where = os.path.join(out_dir, name)
     os.makedirs(where, exist_ok=True)
     if env is None:
-        support.build_program(name, where, small=name in SMALL)
+        support.build_program(name, where, small=name in SMALL, banked=name in BANKED)
     else:
         import build as driver
         driver.build(os.path.join(support.SRC, name + '.lth'), os.path.join(where, name + '.bin'),

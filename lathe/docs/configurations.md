@@ -436,6 +436,23 @@ The other three: resident code and stubs 8,831 (regtest, 69 stubs), 9,025 (condt
 - **Fixed memory is the constraint**, as section 4 foresaw. At the small capacities gentest leaves 4 KB; `lex` and `src` will take 2.5 KB of it, and the full-size tables cannot fit until the data bank of step 9 takes `kernel.names` and `fbuf.buffer`. The `outtest` sections that test a full table of 2,048 bytes (out.txt sections 3 to 6) give error 87 banked, as the Python does at the small capacities: they are compared, but they test the small limit.
 - **`#if` in an `inline` function is error 168**, so `sys`'s choice of `disk` or `host` writes each inline function twice, whole.
 
+**`exprtest`, the test of `expr.lth`** (measured 2026-11-14 by `bank_report.py --program exprtest --script expr`, 165 sections), the first program that links the front end's code: EXPR and INLINE in bank 1 with the drivers, ASMBLOCK in bank 3 beside COND, and LEX and SRC fixed. It has about 68 KB of code as written and cannot be built all in one on either machine.
+
+| | Bytes | |
+|---|---|---|
+| resident code | 13,848 | gentest's 10,108, and lex 2,234, src 377 |
+| stubs | 906 | 151 stubs |
+| resident constants | 6,284 | 4,926 of them err's messages |
+| resident code, stubs and constants but the messages | **16,112** | under the 16 KB goal by 272 bytes |
+| free fixed memory | 272 | 28 below the code (`$2D80`), 82 above it, 162 at `$F810-$FFF9`: the small build's capacities had to come down to fit (text memory 1,280 to 896, name heap 1,024 to 768, labels 192 to 128, weights 64 to 32, types 64 to 32) |
+| bank 1 | 23,782 file, 887 variables | exprtest, script, listing, regcmd, **expr 15,207**, inlines 3,680 |
+| bank 2 | 22,231 file, 1,987 variables | gen, reg, out |
+| bank 3 | 6,589 file, 565 variables | cond, asmblock |
+
+- **Far calls**: 12,449 in the 165 sections, 75 a section, 758 at most (section 8, `for` loops): EXPR calls GEN and REG in bank 2 at every operand, and ASMBLOCK in bank 3 calls REG back. The start-up of an empty script takes 3.8 million cycles, 14 far calls.
+- **What `decl` and `lathec` will need.** Placement D puts lathec, decl, expr and inline in bank 1: with `expr` at 15.2 KB and `inlines` at 3.7 KB (placed; the bank is judged as written, 16.8 KB and 5.5 KB), `decl` (1,090 lines of Python, about 9 KB at expr's 9.5 bytes a line) and `lathec` (about 1.2 KB) would make about 29 KB, over the 28 KB of a bank. One of them must go elsewhere: `inlines` beside cond and asmblock in bank 3 (9.9 KB there now), whose calls from EXPR (`lookup` at every name) would then be far. Fixed memory has no room for more resident code until the data bank takes the tables (step 9): every table of the small build is in fixed memory, and at full size they are 49 KB.
+- **The cost of recursion** (`docs/code-model.md`, "Recursion"): 45 of `expr.lth`'s 77 functions are `recursive`; their saving calls push 482 bytes in all and cost about 5,800 bytes of code, a third of the module. At run time a level of parentheses takes 12 bytes of the 6502's stack and none of rt_frame's; the arguments of a call about 20 and 28; an inline expansion about 26 and 23; a `for` 6 and 20. `expr.MAX_NESTING` (16 levels, error 88) keeps both stacks within their 256 bytes; measured past the limit, the twin still gets through 16 parentheses inside each other (18 levels) and 8 calls inside each other's arguments (18 levels), and overflows a stack at 20 parentheses and at 10 calls, so the limit leaves about two levels to spare.
+
 ## Decisions for the owner
 
 | Decision | Recommendation |

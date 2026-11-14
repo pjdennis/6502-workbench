@@ -58,7 +58,7 @@ import sys
 ; ---- Text memory -------------------------------------------------------------------------
 
 #if SMALL
-const TEXT_SIZE = 1280          ; (SMALL: the test programs' small build)
+const TEXT_SIZE = 896           ; (SMALL: the test programs' small build)
 #else
 const TEXT_SIZE = 4096
 #end
@@ -261,9 +261,9 @@ end
 ; it is new, so looking a name up copies nothing.
 
 #if SMALL
-const NAME_HEAP_SIZE = 1024      ; (SMALL: the test programs' small build)
+const NAME_HEAP_SIZE = 768       ; (SMALL: the test programs' small build)
 #else
-const NAME_HEAP_SIZE = 15872
+const NAME_HEAP_SIZE = 17920
 #end
 const NAME_BUCKETS = 64         ; a power of two
 const MAX_NAME = 31             ; significant characters
@@ -391,7 +391,7 @@ end
 pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 256, which
 const MAX_MEMBERS = 264         ; a word index needs)
 #else
-pub const MAX_SYMS = 480
+pub const MAX_SYMS = 512
 const MAX_MEMBERS = 432
 #end
 const MAX_MODULES = 16          ; the module being compiled and those it imports

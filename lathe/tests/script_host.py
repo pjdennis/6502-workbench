@@ -212,10 +212,11 @@ def sections(name):
 # The small build (lathe/host/README.md, "The small build"): the capacities the twins declare
 # under `#if SMALL`, as (host module, name, size). host_run(small=True) gives the host modules
 # the same; test_memory.py checks that the twins agree.
-SMALL = (('kernel', 'NAME_HEAP_SIZE', 1024), ('kernel', 'MAX_SYMS', 264), ('kernel', 'MAX_MEMBERS', 264),
+SMALL = (('kernel', 'NAME_HEAP_SIZE', 768), ('kernel', 'MAX_SYMS', 264), ('kernel', 'MAX_MEMBERS', 264),
          ('fbuf', 'BUFFER_SIZE', 1024), ('out', 'MAX_TABLE', 264), ('out', 'MAX_TABLE_FIXES', 32),
          ('lex', 'MAX_STRING', 264),
-         ('kernel', 'TEXT_SIZE', 1280), ('inline', 'SAVED_SIZE', 384))
+         ('kernel', 'TEXT_SIZE', 896), ('inline', 'SAVED_SIZE', 384),
+         ('fbuf', 'MAX_LABELS', 128), ('fbuf', 'MAX_WEIGHTS', 32), ('typetab', 'MAX_TYPES', 32))
 
 
 def host_run(main, args, small=False):

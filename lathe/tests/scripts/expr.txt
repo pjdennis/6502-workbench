@@ -1,0 +1,3256 @@
+; Scripts for lathe/src/exprtest.lth and its twin in lathe/tests/test_src_expr.py, which test
+; EXPR and STMT (lathe/host/expr.py, lathe/src/expr.lth). Each section is a script, a line `--`,
+; and a piece of Lathe source that the script's commands read through SRC and LEX. A module `m`
+; that imports `util` (module 1) is being written, with the function `m.f` begun; each section
+; starts afresh. The commands are those of lathe/tests/scripts/reg.txt (regcmd), and these:
+;   source (open the section's source); first (pass over line ends to a token: the token);
+;   next (the next token); sym KIND SCOPE FLAGS TYPE VALUE NAME (a symbol); record NAME (a
+;   record type: its symbol and type); field S NAME T (a field of record S); enum NAME (an
+;   enumeration: its symbol and type); fbegin S (gen.function_begin of function S, recursive if
+;   S is); param S NAME... (S's parameters, as DECL declares them: each symbol and slot);
+;   receive S; body S (expr.function_body(S): then the token); fend FLAGS (gen.function_end,
+;   then the code, fix-ups and weights); expr (expr.expression(): then the token); cond
+;   (expr.test(): the label, then the token); econst T (expr.constant(T)); cnum
+;   (expr.constant_number(): its value); type (expr.type_spec(): the type); vtype
+;   (expr.value_type()); decl LEVEL MORE (expr.variable() at the `var`); save F NAME... (the
+;   body of inline function F, its parameters named so, saved from the source as DECL saves it);
+;   scope; send (kernel.scope_begin(), scope_end()); gstore; asvalue; accept T; lresult;
+;   gjump (gen.jump_false(): the label); efunc (expr.function); initfn S (gen.init_function,
+;   then the code); cpu N; syms FIRST (each symbol from FIRST: name, scope, kind, flags, type,
+;   value, object number); module NAME; einit (expr.init()).
+; A token is printed as its number, line and column; errors are reported in the section's
+; source file, whose line 1 is the line after `--`.
+; Kinds: 1 module, 2 function, 3 constant, 4 variable, 5 local, 6 built-in (value: 0 lo, 1 hi,
+; 2 sizeof, 3 len), 7 type. Scopes: 0 the module, 1 util, $FE predeclared, $FF local.
+; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative, 8 nil; those a section
+; makes are numbered from 9 in order (ptr, arr, ftype, record and enum print them).
+; Symbol flags: 1 pub, 2 extern, 8 at, 16 zp (of a function: inline), 32 nozp (of a function:
+; interrupt), 64 asm, 128 recursive. Registers of members: 0 none, 1 a, 2 x, 3 y, 4 ax, 5 ay,
+; 6 xy, 7 c. Slot classes: 0 zp, 1 either, 2 not zp; kinds 0 parameter, 1 local.
+; Tokens: 0 end of file, 1 line end, 78 end.
+; Each section names m.f as a function symbol of its own (`func f 0 FLAGS ...`), begins it
+; (fbegin), declares its parameters (param), then reads its body (body).
+
+== assignments of bytes and words, and a call as a statement
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+func g 0 0 1 0 1 0              ; 2: g(x: byte)
+func f 0 0 2 0 1 0 3 0          ; 3: f(p: byte, q: word)
+fbegin 3
+param 3 p q
+receive 3
+source
+first
+body 3
+fend 0
+end
+--
+a = p + 1
+w = q - a
+w += 300
+a <<= 2
+g(a)
+
+== every operator on bytes, at every level of precedence
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+var 1 0 0 0 c                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+end
+--
+a = b + c
+a = b - c
+a = b | c
+a = b ^ c
+a = b & c
+a = b * c
+a = b / c
+a = b mod c
+a = b << c
+a = b >> c
+a = b << 2
+a = b >> 3
+a = b * 4
+a = b / 8
+a = b mod 16
+a = a + b * c - (a | b) & c
+a = (a + b) * (c - 1)
+a = a ^ b | c & a
+a = -b
+a = ~b + 1
+a = - -b
+a = ~~b
+a = -(b + c)
+a = a + 1 + 2 + 3
+a = ((((b))))
+
+== every operator on words, ints and signed bytes
+var 3 0 0 0 w                   ; 0
+var 3 0 0 0 v                   ; 1
+var 4 0 0 0 i                   ; 2
+var 4 0 0 0 j                   ; 3
+var 2 0 0 0 s                   ; 4
+var 2 0 0 0 t                   ; 5
+var 1 0 0 0 b                   ; 6
+sym 6 254 0 0 0 lo              ; 7
+sym 6 254 0 0 1 hi              ; 8
+func f 0 0 0 0                  ; 9
+scope
+fbegin 9
+source
+first
+body 9
+fend 0
+end
+--
+w = v + b
+w = v - 1000
+w = v * w
+w = v / w
+w = v mod w
+w = v << b
+w = v >> 4
+w = v & $FF00 | b
+w = v ^ $1234
+i = j + i
+i = j * i
+i = j / i
+i = j mod i
+i = j >> 1
+i = -j
+s = t / s
+s = t mod s
+s = -t
+s = t + s
+w = $FFFF - b
+w = b + 300
+w = ~$20 & v
+b = ~$20
+b = lo(w) + hi(w)
+
+== numbers of every form, and constants
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+sym 3 0 0 6 40 max              ; 2: const MAX = 40
+sym 3 0 0 1 7 seven             ; 3: a byte constant
+sym 3 0 0 7 $FFDF mask          ; 4: const MASK = ~$20
+sym 3 254 0 5 1 true            ; 5
+sym 3 254 0 5 0 false           ; 6
+func f 0 0 0 0                  ; 7
+scope
+fbegin 7
+source
+first
+body 7
+fend 0
+end
+--
+a = 123
+a = $7F
+a = %1010
+a = 'A'
+a = max + seven
+w = max * 1000
+w = max - mask
+a = seven << 1
+w = 65535
+
+== comparisons give bools: signed and unsigned, of bytes and words
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+var 3 0 0 0 w                   ; 2
+var 4 0 0 0 i                   ; 3
+var 2 0 0 0 s                   ; 4
+var 5 0 0 0 ok                  ; 5
+func f 0 0 0 0                  ; 6
+scope
+fbegin 6
+source
+first
+body 6
+fend 0
+end
+--
+ok = a == b
+ok = a != b
+ok = a < b
+ok = a <= b
+ok = a > b
+ok = a >= b
+ok = w < 1000
+ok = w >= w
+ok = i < 0
+ok = i > i
+ok = s <= -5
+ok = s >= s
+ok = a + 1 == b
+ok = ok == ok
+ok = 3 < 4
+ok = a & 7 != 0
+
+== conditions: and, or, not, bool variables, constants
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+var 5 0 0 0 p                   ; 2
+var 5 0 0 0 q                   ; 3
+sym 3 254 0 5 1 true            ; 4
+sym 3 254 0 5 0 false           ; 5
+func f 0 0 0 0                  ; 6
+scope
+fbegin 6
+source
+first
+body 6
+fend 0
+end
+--
+p = a < b and b < 10
+p = a < b or b < 10
+p = not p
+p = not not q
+p = not (a == b)
+p = p and q or not p and a > b
+p = (p or q) and (a != 0 or b != 0)
+p = true
+p = false and q
+p = true or q
+if p and not q then
+  a = 1
+end
+if a == 1 or b == 2 or p then
+  a = 2
+end
+while not (a > b and p) do
+  a += 1
+end
+
+== if, elif and else, each part running on or not
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+func f 0 0 1 1 1 0 1 1          ; 2: f(x: byte): byte
+scope
+fbegin 2
+param 2 x
+receive 2
+source
+first
+body 2
+fend 0
+end
+--
+if x == 0 then
+  a = 1
+end
+if x == 1 then
+  a = 2
+else
+  a = 3
+end
+if x == 2 then
+  a = 4
+elif x == 3 then
+  a = 5
+elif x == 4 then
+  return 9
+else
+  b = 6
+end
+if x > 5 then
+  return 1
+elif x > 6 then
+  return 2
+else
+  return 3
+end
+
+== while, loop ... end and loop ... until, with break and continue
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+func f 0 0 0 0                  ; 2
+scope
+fbegin 2
+source
+first
+body 2
+fend 0
+end
+--
+while a < 10 do
+  a += 1
+  if a == 5 then
+    continue
+  end
+  if b == a then
+    break
+  end
+  b += 2
+end
+loop
+  a -= 1
+  if a == 0 then
+    break
+  end
+  if a == 3 then
+    continue
+  end
+end
+loop
+  b += 1
+  if b == 7 then
+    continue
+  end
+until b > 20
+loop
+  a += 1
+until a == b
+while a != 0 do
+  loop
+    b -= 1
+    if b == 0 then
+      break
+    end
+  end
+  a -= 1
+end
+
+== for up, down and until, bytes and words, constant and variable limits
+var 1 0 0 0 i                   ; 0
+var 1 0 0 0 n                   ; 1
+var 3 0 0 0 w                   ; 2
+var 3 0 0 0 total               ; 3
+var 4 0 0 0 k                   ; 4
+var 2 0 0 0 s                   ; 5
+func f 0 0 0 0                  ; 6
+scope
+fbegin 6
+source
+first
+body 6
+fend 0
+end
+--
+for i = 0 to 9 do
+  total += i
+end
+for i = 10 downto 1 do
+  total += i
+end
+for i = 10 downto 0 do
+  total -= i
+end
+for i = n to 200 do
+  total += 1
+end
+for i = 0 until n do
+  if i == 3 then
+    continue
+  end
+  total += i
+end
+for i = 1 to n - 1 do
+  if total > 100 then
+    break
+  end
+end
+for w = 0 to 1000 do
+  total += w
+end
+for w = 1000 downto 1 do
+  total -= 1
+end
+for w = 0 until total do
+  n += 1
+end
+for k = -5 to 5 do
+  total += 1
+end
+for s = 5 downto -5 do
+  total += 1
+end
+for i = 5 to 3 do
+  total += 1
+end
+
+== case with constants, lists, an else, and selectors of every kind
+var 1 0 0 0 a                   ; 0
+var 1 0 0 0 b                   ; 1
+var 2 0 0 0 s                   ; 2
+var 1 8 0 $D020 port            ; 3: at a fixed address
+var 5 0 0 0 ok                  ; 4
+arr 1 4 0                       ; type 9
+var 9 0 0 0 tab                 ; 5
+sym 3 254 0 5 1 true            ; 6
+func f 0 0 0 0                  ; 7
+scope
+fbegin 7
+source
+first
+body 7
+fend 0
+end
+--
+case a
+of 0
+  b = 1
+of 1, 2, 3
+  b = 2
+of 10
+  return
+else
+  b = 3
+end
+case a + 1
+of 5
+  b = 4
+end
+case s
+of -1, 1
+  b = 5
+of 0
+  b = 6
+end
+case port
+of 1
+  b = 7
+of 2
+  b = 8
+end
+case tab[b]
+of 0
+  b = 9
+end
+case ok
+of true
+  b = 10
+else
+  b = 11
+end
+
+== critical, and break, continue and return leaving it
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+func f 0 0 0 0                  ; 2
+scope
+fbegin 2
+source
+first
+body 2
+fend 0
+end
+--
+critical
+  w = w + 1
+end
+while a < 10 do
+  critical
+    a += 1
+    if a == 3 then
+      continue
+    end
+    critical
+      if a == 5 then
+        break
+      end
+    end
+  end
+end
+critical
+  loop
+    break
+  end
+  if a == 0 then
+    return
+  end
+end
+
+== calls: arguments in registers and in slots, results used and not, nested calls
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+func one 0 0 1 1 1 0 1 1        ; 2: one(x: byte): byte
+func two 0 0 2 1 3 0 1 0 3 4    ; 3: two(p: word, q: byte): word
+func three 0 0 3 0 3 0 3 0 1 0  ; 4: three(a: word, b: word, c: byte)
+func none 0 0 0 0               ; 5
+func f 0 0 0 0                  ; 6
+scope
+fbegin 6
+source
+first
+body 6
+fend 0
+end
+--
+none()
+a = one(a)
+a = one(one(a) + 1)
+w = two(w, a)
+w = two(two(1, 2), one(3))
+three(w, w + 1, a)
+three(1, two(w, 2), one(a))
+one(4)
+two(5, 6)
+a = one(a) + one(a)
+
+== extern and asm functions, and a value with a status
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+var 5 0 0 0 ok                  ; 2
+func put 0 2 1 0 1 1            ; 3: extern put(ch: byte in a) at $F009
+setv 3 $F009
+func get 0 2 0 2 1 1 5 7        ; 4: extern get(): byte in a, bool in c at $F006
+setv 4 $F006
+func sw 0 64 2 1 1 2 1 3 1 1    ; 5: asm sw(v: byte in x, k: byte in y): byte in a
+func next 0 0 0 2 1 1 5 7       ; 6: next(): byte, bool
+func f 0 0 0 0                  ; 7
+scope
+fbegin 7
+source
+first
+body 7
+fend 0
+end
+--
+put(a)
+put(sw(a, 3))
+a, ok = get()
+a, ok = next()
+a = next()
+a = get() + 1
+put(next())
+if next() -> a then
+  put(a)
+end
+while get() -> a and a != 0 do
+  put(a)
+end
+ok = next() -> w
+
+== return of nothing, a value, a status, and both
+var 1 0 0 0 a                   ; 0
+var 5 0 0 0 ok                  ; 1
+func pair 0 0 0 2 1 1 5 7       ; 2: pair(): byte, bool
+func f 0 0 1 2 1 0 1 1 5 7      ; 3: f(x: byte): byte, bool
+func g 0 0 1 1 1 0 5 7          ; 4: g(x: byte): bool
+func h 0 0 1 1 1 0 3 4          ; 5: h(x: byte): word
+func k 0 0 0 0                  ; 6
+sym 3 254 0 5 1 true            ; 7
+scope
+fbegin 3
+param 3 x
+receive 3
+source
+first
+body 3
+fend 0
+send
+scope
+fbegin 4
+param 4 y
+receive 4
+next
+first
+body 4
+fend 0
+send
+scope
+fbegin 5
+param 5 z
+receive 5
+next
+first
+body 5
+fend 0
+send
+scope
+fbegin 6
+next
+first
+body 6
+fend 0
+end
+--
+if x == 0 then
+  return 1, true
+end
+if x == 1 then
+  return x + 1, x > 3
+end
+if x == 2 then
+  return pair()
+end
+return a, ok
+end
+if y == 0 then
+  return true
+end
+if y == 1 then
+  return ok
+end
+return y < 10 and ok
+end
+if z == 0 then
+  return 1000
+end
+return z + 1
+end
+if a == 0 then
+  return
+end
+a = 1
+end
+
+== tail calls: a call that is the last thing done becomes a jump
+var 1 0 0 0 a                   ; 0
+func g 0 0 1 1 1 0 1 1          ; 1: g(x: byte): byte
+func e 0 0 0 0                  ; 2
+func f 0 0 1 1 1 0 1 1          ; 3: f(x: byte): byte
+func h 0 0 0 0                  ; 4
+scope
+fbegin 3
+param 3 x
+receive 3
+source
+first
+body 3
+fend 0
+send
+scope
+fbegin 4
+next
+first
+body 4
+fend 0
+end
+--
+if x == 0 then
+  return g(x)
+end
+return g(x + 1)
+end
+if a == 0 then
+  e()
+  return
+end
+e()
+end
+
+== a call through a pointer, and the address of a function
+var 1 0 0 0 a                   ; 0
+var 5 0 0 0 ok                  ; 1
+ftype handler 0 1 1 1 0 5 7     ; 2 type 9: handler = func(code: byte): bool
+var 9 0 0 0 on_key              ; 3
+func beep 0 0 1 1 1 0 5 7       ; 4: beep(code: byte): bool
+func tick 0 32 0 0              ; 5: interrupt tick()
+ptr 1                           ; type 10: ^byte
+var 10 0 0 0 vec                ; 6
+var 3 0 0 0 w                   ; 7
+func f 0 0 0 0                  ; 8
+scope
+fbegin 8
+source
+first
+body 8
+fend 0
+end
+--
+on_key = @beep
+ok = on_key(3)
+if on_key(a) then
+  a = 1
+end
+on_key(4)
+vec = @tick
+w = word(@beep)
+ok = on_key == @beep
+
+== arrays: bytes, words by column, rows, arrays of arrays, constant tables
+arr 1 10 0                      ; type 9: [10]byte
+arr 3 10 0                      ; type 10: [10]word
+arr 3 300 1                     ; type 11: [300]word rows
+arr 1 4 0                       ; type 12: [4]byte
+arr 12 3 0                      ; type 13: [3][4]byte
+arr 1 600 0                     ; type 14: [600]byte
+var 9 0 0 0 bytes               ; 0
+var 10 0 0 0 words              ; 1
+var 11 0 0 0 big                ; 2
+var 13 0 0 0 grid               ; 3
+var 14 0 0 0 longs              ; 4
+sym 3 0 0 9 0 table             ; 5: a constant table
+var 1 0 0 0 i                   ; 6
+var 3 0 0 0 w                   ; 7
+sym 6 254 0 0 2 sizeof          ; 8
+sym 6 254 0 0 3 len             ; 9
+func f 0 0 0 0                  ; 10
+scope
+fbegin 10
+source
+first
+body 10
+fend 0
+end
+--
+bytes[i] = bytes[i + 1]
+bytes[3] = 7
+words[i] = words[2] + w
+big[w] = big[1]
+grid[i][2] = grid[1][3]
+longs[w] = longs[i]
+i = table[i] + table[9]
+w = len(bytes) + len(table)
+w = sizeof(word) + sizeof(byte) + sizeof(^word) + sizeof([3]word)
+
+== records: fields, records in arrays, pointers to records
+ptr 1                           ; type 9: ^byte
+record sym                      ; 0, type 10
+field 0 name 9
+field 0 kind 1
+field 0 value 3
+arr 10 20 0                     ; type 11: [20]sym
+ptr 10                          ; type 12: ^sym
+var 11 0 0 0 syms               ; 1
+var 10 0 0 0 one                ; 2
+var 12 0 0 0 p                  ; 3
+var 1 0 0 0 i                   ; 4
+var 3 0 0 0 w                   ; 5
+sym 6 254 0 0 2 sizeof          ; 6
+func f 0 0 0 0                  ; 7
+scope
+fbegin 7
+source
+first
+body 7
+fend 0
+end
+--
+syms[i].kind = 3
+syms[i].value = w
+w = syms[i].value + one.value
+one.kind = syms[2].kind
+p.kind = 1
+w = p.value
+p = @one
+one = syms[i]
+i = p[0].kind
+w = sizeof(sym)
+
+== pointers: dereference, arithmetic, nil, comparisons
+ptr 1                           ; type 9: ^byte
+ptr 3                           ; type 10: ^word
+var 9 0 0 0 p                   ; 0
+var 9 0 0 0 q                   ; 1
+var 10 0 0 0 r                  ; 2
+var 1 0 0 0 i                   ; 3
+var 3 0 0 0 w                   ; 4
+var 5 0 0 0 ok                  ; 5
+sym 3 254 0 8 0 nil             ; 6
+arr 1 8 0                       ; type 11
+var 11 0 0 0 buf                ; 7
+func f 0 0 0 0                  ; 8
+scope
+fbegin 8
+source
+first
+body 8
+fend 0
+end
+--
+i = p[i]
+p[0] = i
+p[i + 1] = p[i]
+w = r[i]
+r[2] = w
+p = p + 1
+p = q + w
+w = p - q
+ok = p == nil
+ok = p < q
+p = nil
+p = @buf
+p = @buf[i]
+q = ^byte(w)
+w = word(p)
+
+== conversions, and lo, hi, sizeof and len
+var 1 0 0 0 b                   ; 0
+var 2 0 0 0 s                   ; 1
+var 3 0 0 0 w                   ; 2
+var 4 0 0 0 i                   ; 3
+ptr 1                           ; type 9
+sym 7 0 0 9 0 bytes_ptr         ; 4: type bytes_ptr = ^byte
+var 9 0 0 0 p                   ; 5
+enum kind                       ; 6, type 10
+sym 3 0 1 10 0 k_const          ; 7
+sym 3 0 1 10 1 k_var            ; 8
+var 10 0 0 0 k                  ; 9
+sym 6 254 0 0 0 lo              ; 10
+sym 6 254 0 0 1 hi              ; 11
+sym 6 254 0 0 2 sizeof          ; 12
+sym 6 254 0 0 3 len             ; 13
+func f 0 0 0 0                  ; 14
+scope
+fbegin 14
+source
+first
+body 14
+fend 0
+end
+--
+b = byte(w)
+w = word(b)
+i = int(w)
+w = word(i)
+s = sbyte(b)
+b = byte(s)
+i = int(s)
+p = bytes_ptr(w)
+p = ^byte(w + 1)
+b = byte(k)
+k = kind(b)
+k = k_var
+b = lo(w)
+b = hi(w)
+lo(w) = b
+hi(w) = 0
+w = sizeof(int) + sizeof(bytes_ptr)
+b = lo(w + 1)
+
+== strings as values, joined strings, and strings in calls
+ptr 1                           ; type 9
+var 9 0 0 0 p                   ; 0
+func say 0 0 1 0 9 0            ; 1: say(text: ^byte)
+func f 0 0 0 0                  ; 2
+scope
+fbegin 2
+source
+first
+body 2
+fend 0
+end
+--
+p = "hello"
+p = "two " "parts"
+say("A\n")
+say("first line "
+    "second line")
+p = ""
+
+== the address of variables, elements, functions and interrupt functions
+var 1 0 0 0 a                   ; 0
+arr 1 8 0                       ; type 9
+var 9 0 0 0 buf                 ; 1
+ptr 1                           ; type 10
+var 10 0 0 0 p                  ; 2
+func tick 0 32 0 0              ; 3: interrupt tick()
+ftype action 0 0 0              ; 4, type 11
+var 11 0 0 0 act                ; 5
+func run 0 0 0 0                ; 6
+var 3 0 0 0 w                   ; 7
+func f 0 0 0 0                  ; 8
+scope
+fbegin 8
+source
+first
+body 8
+fend 0
+end
+--
+p = @a
+p = @buf
+p = @buf[3]
+p = @tick
+act = @run
+w = word(@run)
+w = word(@tick)
+
+== locals with initial values, static variables, a local table
+var 1 0 0 0 g                   ; 0
+func f 0 0 1 0 1 0              ; 1: f(x: byte)
+scope
+fbegin 1
+param 1 x
+receive 1
+source
+first
+body 1
+fend 0
+syms 0
+end
+--
+var a: byte = x + 1
+var w: word = 1000
+var p: ^byte
+var t: [4]byte = [1, 2, 3]
+var name: [6]byte = "abc"
+var z: byte zp
+var n: [8]byte nozp
+static var count: byte
+static var keep: word
+count += a
+keep = w
+g = t[a] + name[0] + z + n[1]
+
+== variables of the module: initial values, placements, tables and strings
+arr 1 4 0                       ; type 9
+var 9 0 0 0 tab                 ; 0: something to take the address of
+source
+first
+decl 0 0
+first
+decl 0 1
+first
+decl 0 0
+first
+decl 0 0
+first
+decl 0 0
+first
+decl 0 0
+first
+decl 0 0
+first
+decl 0 0
+first
+decl 0 0
+syms 1
+initfn 0
+end
+--
+var count: byte = 3
+var total: word = 1000
+var p: ^byte = @tab
+var words: [3]word = [1, 2, 3]
+var big: [300]word rows
+var fixed: byte at $D020
+var fast: word zp
+var slow: [8]byte nozp = "hi"
+var signs: [4]sbyte = [-1, 2, -3]
+
+== types as written: keywords, pointers, arrays, named types and another module's
+ptr 1                           ; type 9: ^byte
+sym 7 0 0 9 0 text              ; 0: type text = ^byte
+record pt                       ; 1, type 10
+field 1 x 1
+sym 1 0 0 0 1 util              ; 2
+sym 7 1 1 3 0 count             ; 3: util.count, a pub named type
+sym 3 0 0 6 4 four              ; 4
+source
+first
+type
+first
+type
+first
+type
+first
+type
+first
+type
+first
+type
+first
+type
+first
+type
+first
+vtype
+first
+type
+end
+--
+byte
+^byte
+[4]word
+[four * 2]^text
+text
+pt
+util.count
+^[2][3]^int
+sbyte
+^pt
+
+== inline functions: an expansion, nested expansions, a local and a lazy result
+func double 0 16 1 1 1 0 1 1    ; 0: inline double(v: byte): byte
+func quad 0 16 1 1 1 0 1 1      ; 1: inline quad(v: byte): byte
+func mix 0 16 2 1 1 0 1 0 1 1   ; 2: inline mix(v: byte, w: byte): byte
+func hit 0 16 1 0 1 0           ; 3: inline hit(n: byte)
+var 1 0 0 0 a                   ; 4
+var 1 0 0 0 b                   ; 5
+var 1 0 0 0 total               ; 6
+func f 0 0 1 1 1 0 1 1          ; 7: f(x: byte): byte
+source
+first
+save 0 v
+first
+save 1 v
+first
+save 2 v w
+first
+save 3 n
+scope
+fbegin 7
+param 7 x
+receive 7
+first
+body 7
+fend 0
+end
+--
+  return v + v
+end
+  return double(double(v))
+end
+  var t: byte = quad(v)
+  if t > w then
+    return t
+  end
+  return t + double(w) + 1
+end
+  total += n
+  if total > 100 then
+    total = 0
+  end
+end
+a = double(x)
+b = quad(a)
+a = mix(a, b) + mix(b, double(a))
+hit(a)
+hit(3)
+if double(a) > b and quad(b) != 0 then
+  a = 0
+end
+return double(x)
+
+
+
+== an array of no elements is error 43
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: [0]byte
+
+== a missing ] after an array length is error 20
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: [4 byte
+
+== a name that is not a type is error 32
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+var t: a
+
+== a token that is no type is error 32
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: 5
+
+== a record written in a variable is error 134
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: record
+
+== a function type written in a variable is error 150
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: func()
+
+== a recursive function type written in a variable is error 150
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: recursive func()
+
+== a variable without a name is error 21
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var 5: byte
+
+== a variable declared twice is error 41
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: byte
+var a: word
+
+== an undefined name is error 40
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+b = 1
+
+== a name that is not exported is error 40
+sym 1 0 0 0 1 util
+sym 4 1 0 1 0 secret
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+util.secret = 1
+
+== a name of no module after the dot is error 40
+sym 1 0 0 0 1 util
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+util.none = 1
+
+== a module without a dot is error 36
+sym 1 0 0 0 1 util
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+util = 1
+
+== a dot without a name is error 21
+sym 1 0 0 0 1 util
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+util.5 = 1
+
+== lo without ( is error 23
+var 1 0 0 0 a
+sym 6 254 0 0 0 lo
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = lo 3
+
+== lo without ) is error 24
+var 1 0 0 0 a
+sym 6 254 0 0 0 lo
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = lo(3
+
+== a field that does not exist is error 129
+record r
+field 0 x 1
+var 9 0 0 0 v
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+v.y = 1
+
+== a dot without a field name is error 21
+record r
+field 0 x 1
+var 9 0 0 0 v
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+v.3 = 1
+
+== assigning to a constant is error 53
+sym 3 0 0 6 4 four
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+four = 1
+
+== assigning to a constant table is error 53
+arr 1 4 0
+sym 3 0 0 9 0 tab
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+tab[1] = 1
+
+== too many arguments is error 42
+func g 0 0 1 0 1 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(1, 2)
+
+== too few arguments is error 42
+func g 0 0 2 0 1 0 1 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(1)
+
+== no ) after the arguments is error 24
+func g 0 0 2 0 1 0 1 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(1, 2 3)
+
+== a call inside its own arguments is error 100
+func g 0 0 3 1 3 0 3 0 1 0 1 1
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(1, 2, g(3, 4, 5))
+
+== calling an interrupt function is error 173
+func tick 0 32 0 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+tick()
+
+== a function without ( is error 23
+func g 0 0 0 1 1 1
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = g
+
+== a call as a statement without ( is error 23
+func g 0 0 0 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g
+
+== -> after a call with one result is error 56
+func g 0 0 0 1 1 1
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+ok = g() -> a
+
+== a call with no result used as a value is error 56
+func g 0 0 0 0
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = g()
+
+== a pair from a call with one result is error 56
+func g 0 0 0 1 1 1
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+a, ok = g()
+
+== a pair from a call without ( is error 23
+func g 0 0 0 2 1 1 5 7
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+a, ok = g
+
+== a pair from a variable is error 56
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a, ok = a
+
+== a [ in an expression is error 39
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+a = [1]
+
+== a token that starts no expression is error 35
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+a = )
+
+== the address of an inline function is error 169
+func g 0 16 0 0
+ptr 1
+var 9 0 0 0 p
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+p = @g
+
+== a variable of no number type in for is error 44
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for ok = 0 to 1 do
+end
+
+== a for without a name is error 21
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+for 3 = 0 to 1 do
+end
+
+== a for over an undefined name is error 40
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+for i = 0 to 1 do
+end
+
+== a for over a constant is error 53
+sym 3 0 0 1 4 four
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for four = 0 to 1 do
+end
+
+== a for without to is error 110
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for i = 0 do
+end
+
+== a for without do is error 38
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for i = 0 to 9
+end
+
+== a while without do is error 38
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+while i < 3
+end
+
+== an if without then is error 37
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+if i < 3
+end
+
+== an if without end is error 30
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+if i < 3 then
+  i = 1
+
+== a statement left unfinished is error 22
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+i = 1 2
+
+== a loop without a line end is error 22
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+loop i = 1
+end
+
+== a token that starts no statement is error 34
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+5
+
+== a statement after the name of a variable that is not an assignment is error 20
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+i i
+
+== static without var is error 20
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+static a: byte
+
+== a variable called as a function is error 45
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+i(1)
+
+== break outside a loop is error 55
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+break
+
+== continue outside a loop is error 55
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+continue
+
+== a status returned inside critical is error 113
+var 5 0 0 0 ok
+func f 0 0 0 1 5 7
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+critical
+  return ok
+end
+
+== return without its value is error 56
+func f 0 0 0 1 1 1
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+return
+
+== return with a value from a function with none is error 56
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+return 1
+
+== return of one value from a function with a status too is error 56
+var 1 0 0 0 a
+func f 0 0 0 2 1 1 5 7
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+return a
+
+== return of a call with a value of another type and a status is error 56
+func g 0 0 0 2 3 4 5 7
+func f 0 0 0 2 1 1 5 7
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+return g()
+
+== the end of a function with a result reached is error 180
+var 1 0 0 0 a
+func f 0 0 0 1 1 1
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+if a == 0 then
+  return 1
+end
+
+== a case selector of a word is error 111
+var 3 0 0 0 w
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case w
+of 1
+  w = 2
+end
+
+== a case selector of no type is error 111
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+case 3
+of 1
+end
+
+== a constant twice in a case is error 112
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case a
+of 1, 2
+of 3, 1
+end
+
+== a case constant that is not constant is error 46
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case a
+of a
+end
+
+== a case without a line end after its selector is error 22
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case a of 1
+end
+
+== a case without end is error 30
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case a
+of 1
+  a = 2
+else
+  a = 3
+
+== a negative signed constant as a number is error 43
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var t: [-3]byte
+
+== a bool as a number is error 44
+sym 3 254 0 5 1 true
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+var t: [true]byte
+
+== a variable as a constant number is error 46
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+var t: [a]byte
+
+== an address as a constant number is error 46
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+var t: [@a]byte
+
+== zp and nozp together is error 20
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: byte zp nozp
+
+== a variable in a region is error 39 for now
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: byte in bank
+
+== rows on a variable that is not an array is error 44
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: word rows
+
+== a variable without : is error 25
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a byte
+
+== a long array of words not by rows is error 123
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [300]word
+
+== a rows array of three-byte records is error 136
+record r
+field 0 a 1
+field 0 b 1
+field 0 c 1
+func f 0 0 0 0
+source
+first
+scope
+fbegin 4
+body 4
+fend 0
+--
+var a: [10]r rows
+
+== a rows array of three-byte arrays is error 124
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [10][3]byte rows
+
+== a record with an initial value is error 131
+record r
+field 0 a 1
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+var a: r = 1
+
+== too many elements for a table is error 126
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]byte = [1, 2, 3]
+
+== a string too long for a table is error 126
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]byte = "abc"
+
+== a string for an array of words is error 44
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]word = "ab"
+
+== a table of arrays is error 39
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2][2]byte = [1, 2]
+
+== a table without [ is error 20
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]byte = 1
+
+== a table without ] is error 20
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]byte = [1, 2
+
+== an element of a table that is not constant is error 46
+var 1 0 0 0 b
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+var a: [2]byte = [1, b]
+
+== an element of a table that does not fit is error 43
+func f 0 0 0 0
+source
+first
+scope
+fbegin 0
+body 0
+fend 0
+--
+var a: [2]byte = [1, 300]
+
+== an #if on a pointer is error 44
+ptr 1
+sym 3 0 0 9 0 p
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+#if p
+#end
+
+== an #if with more after its condition is error 22
+sym 3 0 0 6 1 one
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+#if one one
+#end
+
+== #error in a part that is compiled is error 181
+sym 3 0 0 6 1 one
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+#if one
+#error "no"
+#end
+
+== a byte added to a word is reported at the operator
+var 1 0 0 0 a
+var 2 0 0 0 s
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = a +
+  s
+
+== a value that does not fit is reported at its start
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+a = 1 + 300
+
+== a test that is not a bool is reported at its start
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+if a + 1 then
+end
+
+== an argument that does not fit is reported at its start
+func g 0 0 1 0 1 0
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(256)
+
+== a register argument that does not fit is reported at its start
+func g 0 2 1 0 1 1
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+g(300)
+
+== a limit that does not fit is reported at its start
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for i = 0 to 300 do
+end
+
+== a first value that does not fit is reported at its start
+var 1 0 0 0 i
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+for i = 300 to 1 do
+end
+
+== a negation of a byte is reported at the minus
+var 3 0 0 0 w
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+w = -w + -(300 * 300)
+
+== not of a byte is reported at the not
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+ok = not a
+
+== and of bytes is reported at the and
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+ok = ok and a
+
+== or of bytes is reported at the or
+var 1 0 0 0 a
+var 5 0 0 0 ok
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+ok = a or ok
+
+== a conversion of a record is reported at the type
+record r
+field 0 a 1
+var 9 0 0 0 v
+var 3 0 0 0 w
+func f 0 0 0 0
+source
+first
+scope
+fbegin 4
+body 4
+fend 0
+--
+w = word(v)
+
+== an index of a word array by a word is reported at the [
+arr 3 4 0
+var 9 0 0 0 t
+var 3 0 0 0 w
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+w = t[w]
+
+== lo of a bool is reported at its argument
+var 5 0 0 0 ok
+var 1 0 0 0 a
+sym 6 254 0 0 0 lo
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+a = lo(ok)
+
+== len of a byte is reported at its argument
+var 1 0 0 0 a
+sym 6 254 0 0 3 len
+func f 0 0 0 0
+source
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+a = len(a)
+
+== a case constant that does not fit is reported at it
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+scope
+fbegin 1
+body 1
+fend 0
+--
+case a
+of 1, 300
+end
+
+== the result of -> that is not a variable is error 53
+func g 0 0 0 2 1 1 5 7
+var 5 0 0 0 ok
+sym 3 0 0 1 4 four
+func f 0 0 0 0
+source
+first
+scope
+fbegin 3
+body 3
+fend 0
+--
+ok = g() -> four
+
+== an inline call with too many arguments is error 42
+func d 0 16 1 1 1 0 1 1
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+save 0 v w
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+  return v
+end
+a = d(1, 2)
+
+== an inline call with too few arguments is error 42
+func d 0 16 2 1 1 0 1 0 1 1
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+save 0 v w
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+  return v
+end
+a = d(1)
+
+== an inline call without ) is error 24
+func d 0 16 1 1 1 0 1 1
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+save 0 v w
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+  return v
+end
+a = d(1 2)
+
+== an inline call with no result used as a value is error 56
+func d 0 16 1 0 1 0
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+save 0 v w
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+  a = v
+end
+a = d(1)
+
+== an expanded body with a stray end is error 30
+func d 0 16 1 0 1 0
+var 1 0 0 0 a
+func f 0 0 0 0
+source
+first
+save 0 v w
+first
+scope
+fbegin 2
+body 2
+fend 0
+--
+  a = v
+  else
+  a = 2
+end
+d(1)
+
+== asm blocks among statements, and one that ends a function with a result
+var 1 0 0 0 a                   ; 0
+func f 0 0 0 0                  ; 1
+func g 0 0 0 1 1 1              ; 2: g(): byte
+scope
+fbegin 1
+source
+first
+body 1
+fend 0
+send
+scope
+fbegin 2
+next
+first
+body 2
+fend 0
+end
+--
+a = 1
+asm
+  LDA a
+  STA $D020
+end
+a += 2
+end
+a = 3
+asm
+  LDA a
+  RTS
+end
+end
+
+== an and or an or while an argument waits for its register: copied first, keeping the flags
+var 1 0 0 0 a                   ; 0
+var 5 0 0 0 p                   ; 1
+var 5 0 0 0 q                   ; 2
+func chk 0 64 2 0 1 2 5 7       ; 3: asm chk(v: byte in x, ok: bool in c)
+func f 0 0 0 0                  ; 4
+scope
+fbegin 4
+source
+first
+body 4
+fend 0
+end
+--
+chk(a, p and q)
+chk(a + 1, p or a == 3)
+
+== an inline function with a local that must be in zero page, a bool and a value type
+func z 0 16 1 1 1 0 1 1         ; 0: inline z(v: byte): byte
+var 1 0 0 0 a                   ; 1
+func f 0 0 0 0                  ; 2
+source
+first
+save 0 v
+scope
+fbegin 2
+first
+body 2
+fend 0
+next
+first
+vtype
+first
+vtype
+end
+--
+  var t: byte zp
+  var flag: bool = v > 3
+  t = v + 1
+  return t
+end
+a = z(a)
+a = z(z(2))
+end
+^byte
+bool
+
+== a parameter or result of an array type is error 121
+arr 1 4 0
+source
+first
+vtype
+--
+[4]byte
+
+== a parameter or result of a record type is error 130
+record r                        ; 0, type 9
+field 0 x 1
+source
+first
+vtype
+--
+r
+
+== the address of a number is error 21
+ptr 1                           ; type 9
+var 9 0 0 0 p                   ; 0
+func f 0 0 0 0                  ; 1
+scope
+fbegin 1
+source
+first
+body 1
+--
+p = @5
+
+== an inline function nested seven deep is error 166
+func d1 0 16 1 1 1 0 1 1        ; 0
+func d2 0 16 1 1 1 0 1 1        ; 1
+func d3 0 16 1 1 1 0 1 1        ; 2
+func d4 0 16 1 1 1 0 1 1        ; 3
+func d5 0 16 1 1 1 0 1 1        ; 4
+func d6 0 16 1 1 1 0 1 1        ; 5
+func d7 0 16 1 1 1 0 1 1        ; 6
+func g 0 0 0 1 1 1              ; 7: g(): byte
+source
+first
+save 0 v
+first
+save 1 v
+first
+save 2 v
+first
+save 3 v
+first
+save 4 v
+first
+save 5 v
+first
+save 6 v
+scope
+fbegin 7
+first
+body 7
+--
+  return v + 1
+end
+  return d1(v) + 1
+end
+  return d2(v) + 1
+end
+  return d3(v) + 1
+end
+  return d4(v) + 1
+end
+  return d5(v) + 1
+end
+  return d6(v) + 1
+end
+return d7(1)
+
+== a constant, a constant number and a type read by themselves
+sym 3 0 0 6 40 max              ; 0
+var 1 0 0 0 a                   ; 1
+source
+first
+econst 1
+show 0
+pop
+first
+econst 3
+show 0
+pop
+first
+cnum
+first
+cnum
+first
+econst 0
+show 0
+pop
+first
+cond
+--
+max + 2
+max * 100
+$1234
+max / 3
+@a
+a == 1
+
+
+== nesting: 14 parentheses: the deepest that is allowed
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = ((((((((((((((a))))))))))))))
+
+== nesting: 15 parentheses are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = (((((((((((((((a)))))))))))))))
+
+== nesting: 7 calls inside each other's arguments
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = one(one(one(one(one(one(one(a)))))))
+
+== nesting: 8 calls inside each other's arguments are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = one(one(one(one(one(one(one(one(a))))))))
+
+== nesting: 14 minus signs
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = --------------a
+
+== nesting: 15 minus signs are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+a = ---------------a
+
+== nesting: 14 nots
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+p = not not not not not not not not not not not not not not p
+
+== nesting: 15 nots are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+p = not not not not not not not not not not not not not not not p
+
+== nesting: 14 ifs inside each other
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+if a == 1 then
+  if a == 1 then
+    if a == 1 then
+      if a == 1 then
+        if a == 1 then
+          if a == 1 then
+            if a == 1 then
+              if a == 1 then
+                if a == 1 then
+                  if a == 1 then
+                    if a == 1 then
+                      if a == 1 then
+                        if a == 1 then
+                          if a == 1 then
+                            a = 1
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 15 ifs inside each other are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+if a == 1 then
+  if a == 1 then
+    if a == 1 then
+      if a == 1 then
+        if a == 1 then
+          if a == 1 then
+            if a == 1 then
+              if a == 1 then
+                if a == 1 then
+                  if a == 1 then
+                    if a == 1 then
+                      if a == 1 then
+                        if a == 1 then
+                          if a == 1 then
+                            if a == 1 then
+                              a = 1
+                            end
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 14 loops inside each other
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+loop
+  loop
+    loop
+      loop
+        loop
+          loop
+            loop
+              loop
+                loop
+                  loop
+                    loop
+                      loop
+                        loop
+                          loop
+                            a = 1
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 14 cases inside each other
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+case a
+of 1
+  case a
+  of 1
+    case a
+    of 1
+      case a
+      of 1
+        case a
+        of 1
+          case a
+          of 1
+            case a
+            of 1
+              case a
+              of 1
+                case a
+                of 1
+                  case a
+                  of 1
+                    case a
+                    of 1
+                      case a
+                      of 1
+                        case a
+                        of 1
+                          case a
+                          of 1
+                            a = 1
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 7 fors inside each other
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+for a = 0 to 9 do
+  for a = 0 to 9 do
+    for a = 0 to 9 do
+      for a = 0 to 9 do
+        for a = 0 to 9 do
+          for a = 0 to 9 do
+            for a = 0 to 9 do
+              a = 1
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 8 fors inside each other are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+for a = 0 to 9 do
+  for a = 0 to 9 do
+    for a = 0 to 9 do
+      for a = 0 to 9 do
+        for a = 0 to 9 do
+          for a = 0 to 9 do
+            for a = 0 to 9 do
+              for a = 0 to 9 do
+                a = 1
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 4 fors with calls in their limits and bodies
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+for a = one(0) to one(a + 1) do
+  for a = one(0) to one(a + 1) do
+    for a = one(0) to one(a + 1) do
+      for a = one(0) to one(a + 1) do
+        a = one(one(one(a)))
+      end
+    end
+  end
+end
+
+== nesting: 5 fors with calls in their limits are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+for a = one(0) to one(a + 1) do
+  for a = one(0) to one(a + 1) do
+    for a = one(0) to one(a + 1) do
+      for a = one(0) to one(a + 1) do
+        for a = one(0) to one(a + 1) do
+          a = one(one(one(a)))
+        end
+      end
+    end
+  end
+end
+
+== nesting: 9 whiles with calls and parentheses in their tests and bodies
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+while one((a)) == 1 do
+  while one((a)) == 1 do
+    while one((a)) == 1 do
+      while one((a)) == 1 do
+        while one((a)) == 1 do
+          while one((a)) == 1 do
+            while one((a)) == 1 do
+              while one((a)) == 1 do
+                while one((a)) == 1 do
+                  a = one((one(a)))
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: 10 whiles with calls and parentheses are error 88
+var 1 0 0 0 a                   ; 0
+func one 0 0 1 1 1 0 1 1        ; 1: one(x: byte): byte
+var 5 0 0 0 p                   ; 2
+func f 0 0 0 0                  ; 3
+scope
+fbegin 3
+source
+first
+body 3
+fend 0
+--
+while one((a)) == 1 do
+  while one((a)) == 1 do
+    while one((a)) == 1 do
+      while one((a)) == 1 do
+        while one((a)) == 1 do
+          while one((a)) == 1 do
+            while one((a)) == 1 do
+              while one((a)) == 1 do
+                while one((a)) == 1 do
+                  while one((a)) == 1 do
+                    a = one((one(a)))
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+== nesting: inline functions six deep with a call of a function at the bottom, at the limit
+func d1 0 16 1 1 1 0 1 1        ; 0
+func d2 0 16 1 1 1 0 1 1        ; 1
+func d3 0 16 1 1 1 0 1 1        ; 2
+func d4 0 16 1 1 1 0 1 1        ; 3
+func d5 0 16 1 1 1 0 1 1        ; 4
+func d6 0 16 1 1 1 0 1 1        ; 5
+func d7 0 16 1 1 1 0 1 1        ; 6
+func g 0 0 0 1 1 1              ; 7: g(): byte
+func one 0 0 1 1 1 0 1 1        ; 8: one(x: byte): byte
+source
+first
+save 0 v
+first
+save 1 v
+first
+save 2 v
+first
+save 3 v
+first
+save 4 v
+first
+save 5 v
+first
+save 6 v
+scope
+fbegin 7
+first
+body 7
+fend 0
+--
+  return one(v) + 1
+end
+  return d1(v) + 1
+end
+  return d2(v) + 1
+end
+  return d3(v) + 1
+end
+  return d4(v) + 1
+end
+  return d5(v) + 1
+end
+  return d6(v) + 1
+end
+return d6(1)
+
+== #if, #else and #end inside a body, on bools and numbers, and #error in a part skipped
+var 1 0 0 0 a                   ; 0
+sym 3 0 0 6 1 fast              ; 1
+sym 3 0 0 6 0 slow              ; 2
+sym 3 254 0 5 1 true            ; 3
+sym 3 254 0 5 0 false           ; 4
+func f 0 0 0 0                  ; 5
+scope
+fbegin 5
+source
+first
+body 5
+fend 0
+end
+--
+#if fast
+a = 1
+#else
+a = 2
+#end
+#if slow
+a = 3
+#error "not this one"
+#else
+a = 4
+#end
+#if false
+  this is not read
+#end
+if a == 4 then
+#if true and fast == 1
+  a = 5
+#end
+end
+
+== a recursive function: its calls of itself and of another recursive function save its frame
+var 1 0 0 0 total               ; 0
+func walk 0 128 2 1 1 0 1 0 1 1 ; 1: recursive walk(n: byte, d: byte): byte
+func leaf 0 128 1 0 1 0         ; 2: recursive leaf(n: byte)
+func plain 0 0 1 1 1 0 1 1      ; 3: plain(x: byte): byte
+ftype visit 1 1 0 1 0           ; 4, type 9: recursive func(n: byte)
+var 9 0 0 0 v                   ; 5
+scope
+fbegin 1
+param 1 n d
+receive 1
+source
+first
+body 1
+fend 0
+end
+--
+var t: byte = n + 1
+if n == 0 then
+  leaf(d)
+  return plain(d)
+end
+t = walk(n - 1, walk(t, d)) + t
+v = @leaf
+v(t)
+total += plain(t)
+return walk(t, d + 1)
+
+== the operands an expression leaves: constants, pending operations, conditions and calls
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+func g 0 0 1 1 1 0 1 1          ; 2
+source
+first
+expr
+state
+show 0
+pop
+first
+expr
+state
+show 0
+show 1
+asvalue
+show 0
+pop
+first
+expr
+state
+show 0
+gjump
+place 0
+first
+expr
+state
+show 0
+asvalue
+show 0
+pop
+first
+expr
+state
+show 0
+asvalue
+show 0
+pop
+fend 0
+end
+--
+3 * 4 + 1
+a + 1
+a < 3 and a != 0
+g(a) + 2
+w
+
+== every assignment operator, on bytes and words, and to elements and fields
+var 1 0 0 0 a                   ; 0
+var 3 0 0 0 w                   ; 1
+arr 3 4 0                       ; type 9
+var 9 0 0 0 ws                  ; 2
+record r                        ; 3, type 10
+field 3 x 1
+field 3 y 3
+var 10 0 0 0 rec                ; 6
+func f 0 0 1 0 1 0              ; 7: f(i: byte)
+scope
+fbegin 7
+param 7 i
+receive 7
+source
+first
+body 7
+fend 0
+end
+--
+a = 1
+a += 2
+a -= 3
+a &= $0F
+a |= $80
+a ^= a
+a <<= 1
+a >>= i
+w += a
+w -= 1000
+w &= $FF00
+w |= 1
+w ^= w
+w <<= 2
+w >>= 3
+ws[i] += w
+ws[2] -= 1
+rec.x |= 4
+rec.y += ws[i]

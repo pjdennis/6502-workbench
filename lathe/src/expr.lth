@@ -1,0 +1,1978 @@
+; EXPR and STMT: expressions, statements, and types as they are written in the source.
+; lathe/host/expr.py in Lathe.
+;
+; EXPR owns the parsing of everything that can stand where a value is wanted: one function for
+; each level of precedence in docs/language.md, from expression() down to primary(). What it
+; parses becomes operands on GEN's stack; EXPR itself chooses no instruction. It says where an
+; error in an operand's type is reported: at the operator, or at the start of the value.
+;
+; STMT owns the parsing of a function's body: each statement of docs/language.md has a function
+; here, chosen in statement() by its first token, and the shapes they generate are those of
+; docs/codegen.md, "Statements". It knows the loop that `break` and `continue` belong to, and
+; the function whose results `return` gives.
+;
+; They are one file because they call each other: a statement holds expressions, and a call of
+; an `inline` function inside an expression compiles that function's body, which is statements
+; (docs/code-model.md, "Inline functions").
+;
+; Types are parsed here and not in DECL because conversions and `sizeof` need them inside
+; expressions, and array types need a constant expression. Variable declarations are parsed here,
+; for DECL too, because a body has them.
+;
+; Recursion. Expressions nest in expressions and statements in statements, so 45 of the 77
+; functions are on a cycle of calls, and Lathe makes each of them `recursive`: a call from one of
+; them to another saves the caller's parameters and the locals it has declared so far on
+; rt_frame's stack of 255 bytes, and its return address on the 6502's (docs/code-model.md,
+; "Recursion"). The locals are declared as late as the Python's statements allow, so that the
+; calls made before a value is needed save nothing, and expr.py keeps what expand() needs across
+; an expansion in arrays: a level of parentheses saves nothing on rt_frame's stack (12 bytes of
+; the 6502's), the arguments of a call 28 bytes (about 20), an inline expansion 23 (26), a `for` 20
+; (6), an `if` 4 (6). The saves are 492 pushes, about 5,900 bytes of the code. expr.py limits
+; the nesting (nest(), MAX_NESTING: 16 levels, error 88) so that both compilers stop with the
+; same error before either stack can fill.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | RECURSIVE (four functions)           | `recursive` on the 43 functions   | every function  |
+;   |                                      | on a cycle of calls, and forward  | on a cycle must |
+;   |                                      | recursive declarations            | be (link error) |
+;   | the module `inline`                  | the module `inlines`              | `inline` is a   |
+;   |                                      |                                   | keyword         |
+;   | locals assigned anywhere             | declared just before their first  | a saving call   |
+;   |                                      | use where a saving call comes     | pushes the      |
+;   |                                      | before it                         | locals declared |
+;   |                                      |                                   | so far          |
+;   | `_, found = f()`, `s, found = ...`   | s, found = ...                    | no `_`          |
+;   | a label, or reg.NONE                 | a word; byte(label) for reg       | reg.NONE is not |
+;   |                                      |                                   | a byte          |
+;   | a scope, a slot or a built-in in     | lo(kernel.sym_value[s])           | they are bytes  |
+;   | sym_value                            |                                   |                 |
+;   | typetab.size(t) as a count of bytes  | lo(typetab.size(t))               | gen.step takes  |
+;   |                                      |                                   | a byte          |
+;   | case_count, an int up to MAX_CASE    | a word; case_value[lo(n)]         | 256 is not a    |
+;   |                                      |                                   | byte            |
+;   | `while True:`                        | `loop`                            |                 |
+;   | the functions used before they are   | forward declarations              | declare before  |
+;   | defined, and OP_PHP and OP_PLP,      |                                   | use             |
+;   | which test_operator() uses           |                                   |                 |
+;   | expression() and test(): module      | `pub`                             | exprtest calls  |
+;   | functions                            |                                   | them            |
+module expr
+
+import asmblock
+import err
+import fbuf
+import fold
+import gen
+import inlines
+import kernel
+import lex
+import out
+import reg
+import src
+import typetab
+
+; The functions the language declares, as decl.BUILTINS lists them
+pub const B_LO = 0
+pub const B_HI = 1
+pub const B_SIZEOF = 2
+pub const B_LEN = 3
+
+var passing: bool = false       ; true while a call that gives a value and a status may stand
+;                                 without `->`: in a `return` that passes both on
+var passed: word = reg.NONE     ; gen.mark() just after such a call, if there was one
+
+const MAX_PENDING = 16
+var pending: [MAX_PENDING]word  ; the functions whose arguments are being stored in their frames,
+var pending_count: byte = 0     ; with at least one stored already: the outermost first
+
+; How deeply expressions and blocks may nest: each expression (one in parentheses, brackets or
+; arguments, or the operand of a `-`, `~` or `not`) and each body of a block is a level, and the
+; arguments of a call and a `for` are one more each. The parser is recursive, and this file
+; keeps a level's state on the 6502's stack and rt_frame's, 256 bytes each (docs/code-model.md,
+; "Recursion"): nesting this deep fits both with room to spare.
+const MAX_NESTING = 16
+var nesting: byte = 0
+
+pub func init()
+  passing = false
+  passed = reg.NONE
+  pending_count = 0
+  nesting = 0
+end
+
+; One more level of nesting begins.
+func nest()
+  if nesting == MAX_NESTING then
+    err.fatal(err.E_NESTING)
+  end
+  nesting += 1
+end
+
+; A level of nesting ends.
+func unnest()
+  nesting -= 1
+end
+
+forward recursive func expression()
+forward recursive func constant_number(): word
+
+; ---- Types and names ---------------------------------------------------------------------
+
+; The type a type keyword names, or typetab.NO_TYPE.
+func basic_type(token: byte): byte
+  if token == lex.T_BYTE then
+    return typetab.BYTE_TYPE
+  end
+  if token == lex.T_SBYTE then
+    return typetab.SBYTE_TYPE
+  end
+  if token == lex.T_WORD then
+    return typetab.WORD_TYPE
+  end
+  if token == lex.T_INT then
+    return typetab.INT_TYPE
+  end
+  if token == lex.T_BOOL then
+    return typetab.BOOL_TYPE
+  end
+  return typetab.NO_TYPE
+end
+
+forward func named_symbol(): word
+
+; type = typeKw | name [ "." name ] | "^" type | "[" constExpr "]" type. Returns the type. A
+; record is written only in a type declaration (DECL).
+pub recursive func type_spec(): byte
+  var mark: byte
+  var line: word
+  var col: word
+  var n: word
+  mark = typetab.prefix_count
+  while lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET do
+    if lex.tok == lex.T_CARET then
+      lex.next()
+      typetab.prefix(typetab.FORM_POINTER, 0)
+    else
+      lex.next()
+      line = lex.line
+      col = lex.col
+      n = constant_number()
+      if n == 0 then
+        err.position(line, col)
+        err.fatal(err.E_RANGE)
+      end
+      lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+      typetab.prefix(typetab.FORM_ARRAY, n)
+    end
+  end
+  var t: byte
+  var s: word
+  t = basic_type(lex.tok)
+  line = lex.line
+  col = lex.col
+  if t != typetab.NO_TYPE then
+    lex.next()
+  elif lex.tok == lex.T_NAME then
+    s = named_symbol()
+    if kernel.sym_kind[s] != kernel.K_TYPE then
+      err.position(line, col)
+      err.fatal(err.E_TYPE_EXPECTED)
+    end
+    t = kernel.sym_type[s]
+  elif lex.tok == lex.T_RECORD then
+    err.fatal(err.E_RECORD_PLACE)
+  elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE then
+    err.fatal(err.E_FUNC_TYPE_PLACE)
+  else
+    err.fatal(err.E_TYPE_EXPECTED)
+  end
+  return typetab.build(t, mark)
+end
+
+; The type of a parameter or a result: not an array or a record, which are not values.
+pub func value_type(): byte
+  var line: word
+  var col: word
+  var t: byte
+  line = lex.line
+  col = lex.col
+  t = type_spec()
+  err.position(line, col)
+  if typetab.is_array(t) then
+    err.fatal(err.E_ARRAY_VALUE)
+  end
+  if typetab.is_record(t) then
+    err.fatal(err.E_RECORD_VALUE)
+  end
+  err.position(lex.line, lex.col)
+  return t
+end
+
+; The name being declared, which `scope` must not have yet. It is passed over.
+pub func new_name(scope: byte): word
+  var name: word
+  var s: word
+  var found: bool
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  name = lex.value
+  s, found = kernel.sym_find(scope, name)
+  if found then
+    err.fatal(err.E_DUPLICATE)
+  end
+  lex.next()
+  return name
+end
+
+; name [ "." name ]: the symbol a name means here, or module.name means in that module, which
+; must export it (a type that it does not export is in its interface all the same).
+func named_symbol(): word
+  var s: word
+  var found: bool
+  var scope: byte
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  s, found = inlines.lookup(lex.value)
+  if not found then
+    err.fatal(err.E_UNDEFINED)
+  end
+  lex.next()
+  if kernel.sym_kind[s] == kernel.K_MODULE then
+    scope = lo(kernel.sym_value[s])
+    lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
+    if lex.tok != lex.T_NAME then
+      err.fatal(err.E_NAME_EXPECTED)
+    end
+    s, found = kernel.sym_find(scope, lex.value)
+    if not found or kernel.sym_flags[s] & kernel.SF_PUB == 0 then
+      err.fatal(err.E_UNDEFINED)
+    end
+    lex.next()
+  end
+  return s
+end
+
+; ---- Designators and calls ---------------------------------------------------------------
+
+; `lo(x)`, `hi(x)`, `len(a)` or `sizeof(type)`, after its name.
+recursive func builtin(which: byte)
+  lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+  if which == B_SIZEOF then
+    gen.size_of(type_spec())
+  else
+    var line: word
+    var col: word
+    line = lex.line
+    col = lex.col
+    expression()
+    err.position(line, col)
+    if which == B_LEN then
+      gen.length()
+    else
+      gen.part(which)
+    end
+    err.position(lex.line, lex.col)
+  end
+  lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+end
+
+forward recursive func conversion(t: byte, line: word, col: word)
+forward func field(line: word, col: word)
+
+; designator = name { "." name | "[" expression "]" }. Pushes an operand for what it names. A
+; named type followed by "(" is a conversion.
+recursive func designator()
+  var line: word
+  var col: word
+  var s: word
+  var kind: byte
+  line = lex.line
+  col = lex.col
+  s = named_symbol()
+  kind = kernel.sym_kind[s]
+  if kind == kernel.K_FUNC then
+    gen.function(s)
+  elif kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]) then
+    gen.table(s)
+  elif kind == kernel.K_CONST then
+    gen.constant(kernel.sym_type[s], kernel.sym_value[s])
+  elif kind == kernel.K_LOCAL then
+    gen.local(kernel.sym_type[s], lo(kernel.sym_value[s]))
+  elif kind == kernel.K_VAR then
+    gen.variable(s)
+  elif kind == kernel.K_TYPE then
+    conversion(kernel.sym_type[s], line, col)
+  else
+    builtin(lo(kernel.sym_value[s]))
+  end
+  while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT do
+    line = lex.line
+    col = lex.col
+    if lex.tok == lex.T_DOT then
+      lex.next()
+      field(line, col)
+    else
+      lex.next()
+      expression()
+      lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+      err.position(line, col)
+      gen.index()
+      err.position(lex.line, lex.col)
+    end
+  end
+end
+
+; The name after the "." at `line`, `col`: a field of the record that the newest operand is or
+; points to.
+func field(line: word, col: word)
+  var t: byte
+  var f: word
+  var found: bool
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  err.position(line, col)
+  t = gen.record_of()
+  err.position(lex.line, lex.col)
+  f, found = kernel.sym_find(kernel.SCOPE_FIELDS + t, lex.value)
+  if not found then
+    err.fatal(err.E_NO_FIELD)
+  end
+  gen.field(kernel.sym_value[f], kernel.sym_type[f])
+  lex.next()
+end
+
+; Check that the newest operand, which the designator at `line`, `col` gave, is a variable that
+; can be assigned to.
+func target(line: word, col: word)
+  var i: byte
+  i = reg.depth - 1
+  if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_DATA != 0 or
+      (reg.op_flags[i] & reg.F_TEMP != 0 and reg.op_mode[i] != reg.M_POINTER) then
+    err.position(line, col)
+    err.fatal(err.E_NOT_VAR)
+  end
+end
+
+; One argument for a parameter of type `t`. If `stored`, the parameter is the newest operand
+; and the argument is stored in it; if not, the argument is left on the stack. One that does
+; not fit is reported at its start.
+recursive func argument(t: byte, stored: bool)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  if stored then
+    gen.store()
+  else
+    gen.accept(t)
+  end
+  err.position(lex.line, lex.col)
+end
+
+forward func add_pending(f: word)
+
+; [ expression { "," expression } ] ")", after the "(". Each argument goes straight to its
+; parameter in the frame of function `f`, except those passed in registers (all of an
+; `extern` or `asm` function's), which stay on the stack, in order, for GEN to load at the call.
+recursive func arguments(f: word)
+  var saved: word
+  var saved_pending: byte
+  var count: byte
+  var by_register: bool
+  nest()
+  saved = gen.outer
+  saved_pending = pending_count
+  count = 0
+  if lex.tok != lex.T_RPAREN then
+    loop
+      if count == kernel.sym_params[f] then
+        err.fatal(err.E_ARG_COUNT)
+      end
+      by_register = gen.in_register(f, count)
+      if not by_register then
+        gen.parameter(f, count)
+      end
+      argument(kernel.member_type[kernel.sym_members[f] + count], not by_register)
+      count += 1
+      if lex.tok != lex.T_COMMA then
+        break
+      end
+      if by_register then
+        gen.hold()
+      elif not gen.saving(f) and (count == 1 or gen.in_register(f, count - 2)) then
+        add_pending(f)          ; the first argument stored in the frame
+      end
+      lex.next()
+    end
+  end
+  if lex.tok != lex.T_RPAREN then
+    err.fatal(err.E_RPAREN_EXPECTED)
+  end
+  if count != kernel.sym_params[f] then
+    err.fatal(err.E_ARG_COUNT)
+  end
+  pending_count = saved_pending
+  gen.arguments_end(saved)
+  unnest()
+  lex.next()
+end
+
+; An argument of `f` is in its frame, and the next is about to be worked out.
+func add_pending(f: word)
+  if pending_count == MAX_PENDING then
+    err.fatal(err.E_OPERANDS_FULL)
+  end
+  pending[pending_count] = f
+  pending_count += 1
+end
+
+; A call of `f` is about to be made: none of its own arguments may be waiting in its frame,
+; which the call's arguments would overwrite. (A call of another function is allowed: its CALL
+; record names the function whose arguments wait as `outer`.)
+func check_not_pending(f: word)
+  var i: byte
+  for i = 0 until pending_count do
+    if pending[i] == f then
+      err.fatal(err.E_CALL_IN_ARGUMENTS)
+    end
+  end
+end
+
+forward recursive func expand()
+
+; arguments = "(" [ expression { "," expression } ] ")", for the function whose operand is on
+; top of the stack. Generates the call and, if its results are `wanted`, leaves what
+; gen.result() pushes. A call of an inline function is an expansion of its body.
+recursive func call(wanted: bool)
+  var f: word
+  var saved: bool
+  f = reg.op_var[reg.depth - 1]
+  if not gen.through(f) and kernel.sym_flags[f] & inlines.SF_INTERRUPT != 0 then
+    err.fatal(err.E_INTERRUPT_CALL)
+  end
+  if not gen.through(f) and kernel.sym_flags[f] & inlines.SF_INLINE != 0 then
+    reg.pop()
+    inlines.enter(f, wanted)    ; errors at the "("
+    lex.next()
+    saved = passing
+    passing = false
+    expand()
+    passing = saved
+    return
+  end
+  if not gen.through(f) then
+    reg.pop()                   ; a pointer called through stays until the call
+  end
+  lex.next()
+  inlines.copy_aliases()
+  var first: byte
+  first = reg.depth
+  saved = passing
+  passing = false               ; a call inside an argument passes nothing on
+  arguments(f)
+  passing = saved
+  gen.call(f, first, wanted)
+end
+
+; The designator just parsed is called through if it is a value of a function type and a "("
+; follows: it becomes the callee.
+func callee()
+  var i: byte
+  i = reg.depth - 1
+  if lex.tok == lex.T_LPAREN and reg.op_kind[i] != reg.O_FUNC and typetab.is_func(reg.op_type[i]) then
+    gen.through_pointer()
+  end
+end
+
+; A call where a value is wanted, of the function whose operand is on top of the stack and
+; whose name is at `line`, `col`. One that gives a value and a status needs `-> v` after it,
+; which stores the value and leaves the status.
+recursive func call_value(line: word, col: word)
+  var f: word
+  f = reg.op_var[reg.depth - 1]
+  if lex.tok != lex.T_LPAREN then
+    err.fatal(err.E_LPAREN_EXPECTED)
+  end
+  err.position(line, col)
+  check_not_pending(f)
+  err.position(lex.line, lex.col)
+  call(true)
+  if lex.tok == lex.T_ARROW then
+    if kernel.sym_results[f] != 2 then
+      err.fatal(err.E_RESULTS)
+    end
+    lex.next()
+    line = lex.line
+    col = lex.col
+    designator()
+    target(line, col)
+    err.position(line, col)
+    gen.store_arrow()
+    err.position(lex.line, lex.col)
+  elif kernel.sym_results[f] == 2 and passing then
+    passed = gen.mark()
+  elif kernel.sym_results[f] == 0 then
+    err.position(line, col)
+    err.fatal(err.E_RESULTS)    ; a status beside a value may be ignored: v = f()
+  end
+end
+
+; ---- Expressions -------------------------------------------------------------------------
+
+; "(" expression ")" after typeKw, or after "^" type: a conversion to type `t`.
+recursive func conversion(t: byte, line: word, col: word)
+  lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+  expression()
+  err.position(line, col)
+  gen.convert(t)
+  err.position(lex.line, lex.col)
+  lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+end
+
+; The string LEX has just read, used as a value: a `^byte` to constant data that holds it, with
+; a zero after it. (Here and not in GEN, which then need not import LEX: its names would take
+; 2 KB of GEN's name heap.)
+func string()
+  var symbol: word
+  var i: word
+  gen.settle()
+  symbol = gen.anonymous()
+  out.data(symbol, lex.string_length + 1)
+  for i = 0 until lex.string_length do
+    out.data_byte(lex.string[i])
+  end
+  out.data_byte(0)
+  reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
+  reg.op_symbol[reg.depth - 1] = symbol
+end
+
+; primary = number | string | "(" expression ")" | typeKw "(" expression ")"
+; | "^" type "(" expression ")" | designator [ arguments [ "->" designator ] ]. Pushes its
+; operand.
+recursive func primary()
+  if lex.tok == lex.T_NUMBER then
+    gen.constant(typetab.NUMBER_TYPE, lex.value)
+    lex.next()
+    return
+  end
+  if lex.tok == lex.T_LPAREN then
+    lex.next()
+    expression()
+    lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+    return
+  end
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  if lex.tok == lex.T_NAME then
+    designator()
+    callee()
+    if reg.op_kind[reg.depth - 1] == reg.O_FUNC then
+      call_value(line, col)
+    end
+  elif lex.tok == lex.T_CARET then
+    conversion(type_spec(), line, col)
+  elif basic_type(lex.tok) != typetab.NO_TYPE then
+    var t: byte
+    t = basic_type(lex.tok)
+    lex.next()
+    conversion(t, line, col)
+  elif lex.tok == lex.T_STRING then
+    string()
+    lex.next()
+  elif lex.tok == lex.T_LBRACKET then
+    err.fatal(err.E_UNSUPPORTED)
+  else
+    err.fatal(err.E_EXPR_EXPECTED)
+  end
+end
+
+; factor = ( "-" | "~" ) factor | "@" designator | primary.
+recursive func factor()
+  if lex.tok != lex.T_MINUS and lex.tok != lex.T_TILDE and lex.tok != lex.T_ADDRESS then
+    primary()
+    return
+  end
+  var line: word
+  var col: word
+  var minus: bool
+  line = lex.line
+  col = lex.col
+  if lex.tok == lex.T_MINUS or lex.tok == lex.T_TILDE then
+    minus = lex.tok == lex.T_MINUS
+    lex.next()
+    nest()
+    factor()
+    unnest()
+    err.position(line, col)
+    if minus then
+      gen.negate()
+    else
+      gen.complement()
+    end
+    err.position(lex.line, lex.col)
+  else
+    lex.next()
+    designator()
+    err.position(line, col)
+    var i: byte
+    i = reg.depth - 1
+    if reg.op_kind[i] == reg.O_FUNC and kernel.sym_flags[reg.op_var[i]] & inlines.SF_INTERRUPT != 0 then
+      gen.code_address(reg.op_var[i])   ; a ^byte, never a value of a function type
+    elif reg.op_kind[i] == reg.O_FUNC and kernel.sym_flags[reg.op_var[i]] & inlines.SF_INLINE != 0 then
+      err.fatal(err.E_INLINE_ADDRESS)
+    elif reg.op_kind[i] == reg.O_FUNC then
+      gen.function_address()
+    else
+      gen.address()
+    end
+    err.position(lex.line, lex.col)
+  end
+end
+
+; The operator a token of the `*` level stands for, or 0.
+func term_operator(token: byte): byte
+  if token == lex.T_STAR then
+    return fold.MUL
+  end
+  if token == lex.T_SLASH then
+    return fold.DIV
+  end
+  if token == lex.T_MOD then
+    return fold.REM
+  end
+  if token == lex.T_AMP then
+    return fold.BAND
+  end
+  if token == lex.T_SHL then
+    return fold.SHL
+  end
+  if token == lex.T_SHR then
+    return fold.SHR
+  end
+  return 0
+end
+
+; The operator a token of the `+` level stands for, or 0.
+func sum_operator(token: byte): byte
+  if token == lex.T_PLUS then
+    return fold.ADD
+  end
+  if token == lex.T_MINUS then
+    return fold.SUB
+  end
+  if token == lex.T_BAR then
+    return fold.BOR
+  end
+  if token == lex.T_CARET then
+    return fold.BXOR
+  end
+  return 0
+end
+
+; The comparison a token stands for, or 0.
+func relation_operator(token: byte): byte
+  if token == lex.T_EQ then
+    return fold.EQ
+  end
+  if token == lex.T_NE then
+    return fold.NE
+  end
+  if token == lex.T_LT then
+    return fold.LT
+  end
+  if token == lex.T_GE then
+    return fold.GE
+  end
+  if token == lex.T_GT then
+    return fold.GT
+  end
+  if token == lex.T_LE then
+    return fold.LE
+  end
+  return 0
+end
+
+; Do the operator `op`, which was at `line`, `col`, on the two newest operands. Operands of the
+; wrong type are reported there.
+func apply(op: byte, line: word, col: word)
+  err.position(line, col)
+  if op >= fold.EQ then
+    gen.compare(op)
+  else
+    gen.binary(op)
+  end
+  err.position(lex.line, lex.col)
+end
+
+; term = factor { ( "*" | "/" | "mod" | "&" | "<<" | ">>" ) factor }.
+recursive func term()
+  factor()
+  var op: byte
+  var line: word
+  var col: word
+  op = term_operator(lex.tok)
+  while op != 0 do
+    line = lex.line
+    col = lex.col
+    lex.next()
+    factor()
+    apply(op, line, col)
+    op = term_operator(lex.tok)
+  end
+end
+
+; sum = term { ( "+" | "-" | "|" | "^" ) term }.
+recursive func addition()
+  term()
+  var op: byte
+  var line: word
+  var col: word
+  op = sum_operator(lex.tok)
+  while op != 0 do
+    line = lex.line
+    col = lex.col
+    lex.next()
+    term()
+    apply(op, line, col)
+    op = sum_operator(lex.tok)
+  end
+end
+
+; relation = sum [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) sum ].
+recursive func relation()
+  addition()
+  var op: byte
+  var line: word
+  var col: word
+  op = relation_operator(lex.tok)
+  if op != 0 then
+    line = lex.line
+    col = lex.col
+    lex.next()
+    gen.as_value()              ; a `bool` on the left cannot wait in the flags
+    addition()
+    apply(op, line, col)
+  end
+end
+
+; notExpr = "not" notExpr | relation.
+recursive func inverse()
+  if lex.tok != lex.T_NOT then
+    relation()
+    return
+  end
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  lex.next()
+  nest()
+  inverse()
+  unnest()
+  err.position(line, col)
+  gen.invert()
+  err.position(lex.line, lex.col)
+end
+
+const OP_PHP = $08
+const OP_PLP = $28
+const OP_SEI = $78
+
+; One side of the `and` (`wanted` true) or `or` (false) at `line`, `col` is complete.
+func test_operator(wanted: bool, line: word, col: word, is_left: bool)
+  err.position(line, col)
+  if is_left then
+    if inlines.copies_due() then
+      ; The right side may not be run, so a call in it must not be what copies an argument
+      ; waiting for a register, or a variable an inline parameter stands for, to its
+      ; temporary: they are copied now, on both ways, keeping the flags, which hold the left
+      ; side's test.
+      fbuf.op(OP_PHP)
+      inlines.copy_aliases()
+      fbuf.op(OP_PLP)
+      reg.flags = reg.NO_REG
+    end
+    gen.test_left(wanted)
+  else
+    gen.test_right()
+  end
+  err.position(lex.line, lex.col)
+end
+
+; andExpr = notExpr { "and" notExpr }. The right side is reached only if the left is true.
+recursive func both()
+  inverse()
+  var line: word
+  var col: word
+  while lex.tok == lex.T_AND do
+    line = lex.line
+    col = lex.col
+    lex.next()
+    test_operator(true, line, col, true)
+    inverse()
+    test_operator(true, line, col, false)
+  end
+end
+
+; expression = andExpr { "or" andExpr }. Its operand is left on GEN's stack: a constant, a
+; variable, a value in the registers, a Condition, or GEN's pending operation.
+pub recursive func expression()
+  nest()
+  both()
+  var line: word
+  var col: word
+  while lex.tok == lex.T_OR do
+    line = lex.line
+    col = lex.col
+    lex.next()
+    test_operator(false, line, col, true)
+    both()
+    test_operator(false, line, col, false)
+  end
+  unnest()
+end
+
+; An expression after `return` in a function that gives a value and a status: a call that
+; gives both may be all of it. `passed` then tells where that call ended.
+recursive func results_expression()
+  passed = reg.NONE
+  passing = true
+  expression()
+  passing = false
+end
+
+; ---- Constants ---------------------------------------------------------------------------
+
+; constExpr: an expression that is known now, a number or an address. Unless `t` is
+; typetab.NO_TYPE it must be one a `t` can be given, and takes that type. The constant is left
+; on the stack.
+pub recursive func constant(t: byte)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  gen.as_value()
+  if reg.op_kind[reg.depth - 1] != reg.O_CONST and reg.op_kind[reg.depth - 1] != reg.O_ADDR then
+    err.fatal(err.E_NOT_CONST)
+  end
+  if t != typetab.NO_TYPE then
+    reg.assignable(reg.depth - 1, t)
+  end
+  err.position(lex.line, lex.col)
+end
+
+; constExpr where a number that is not below zero is wanted, as for an address. Returns its
+; value.
+pub recursive func constant_number(): word
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  constant(typetab.NO_TYPE)
+  var i: byte
+  i = reg.depth - 1
+  err.position(line, col)
+  if reg.op_kind[i] != reg.O_CONST then
+    err.fatal(err.E_NOT_CONST)
+  end
+  if reg.op_type[i] == typetab.BOOL_TYPE then
+    err.fatal(err.E_TYPE)
+  end
+  if typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= $8000 then
+    err.fatal(err.E_RANGE)
+  end
+  err.position(lex.line, lex.col)
+  reg.pop()
+  return reg.op_value[i]
+end
+
+; ======== STMT: statements and control flow ===============================================
+
+; Where a variable is declared
+pub const LEVEL_MODULE = 0
+pub const LEVEL_LOCAL = 1       ; in a function: a slot of its frame
+pub const LEVEL_STATIC = 2      ; in a function, but it lives for the whole program
+
+pub var function: word = 0      ; the function being compiled: its symbol in the kernel's table
+var asm_last: bool = false      ; the statement compiled last is an `asm` block
+var exit_label: word = reg.NONE ; where `break` goes: after the nearest loop
+var next_label: word = reg.NONE ; where `continue` goes: to that loop's next pass
+var placed_at: word = 0         ; the address after "at" in the declaration being parsed
+var critical_depth: byte = 0    ; how many `critical` blocks the statement being compiled is inside
+var critical_inner: byte = 0    ; how many of those are inside the nearest loop
+
+const MAX_CASE = 256
+var case_value: [MAX_CASE]byte  ; the constants of the `case` statements being compiled
+var case_count: word = 0
+
+; ---- Variables ---------------------------------------------------------------------------
+
+; { "zp" | "nozp" | "rows" | "at" constExpr }. Returns them as symbol flags; the address is
+; left in `placed_at`.
+recursive func placements(): byte
+  var flags: byte
+  flags = 0
+  loop
+    if lex.tok == lex.T_ZP then
+      flags = flags | kernel.SF_ZP
+      lex.next()
+    elif lex.tok == lex.T_NOZP then
+      flags = flags | kernel.SF_NOZP
+      lex.next()
+    elif lex.tok == lex.T_AT then
+      flags = flags | kernel.SF_AT
+      lex.next()
+      placed_at = constant_number()
+    elif lex.tok == lex.T_ROWS then
+      flags = flags | kernel.SF_ROWS
+      lex.next()
+    elif lex.tok == lex.T_IN then
+      err.fatal(err.E_UNSUPPORTED)
+    else
+      break
+    end
+  end
+  if flags & kernel.SF_ZP != 0 and flags & kernel.SF_NOZP != 0 then
+    err.fatal(err.E_SYNTAX)
+  end
+  return flags
+end
+
+; The class of a slot or variable declared with these flags.
+pub func zp_class(flags: byte): byte
+  if flags & kernel.SF_ZP != 0 then
+    return reg.CLASS_ZP
+  end
+  if flags & kernel.SF_NOZP != 0 then
+    return reg.CLASS_NOT_ZP
+  end
+  return reg.CLASS_EITHER
+end
+
+; Declare a variable that is not a slot: one that lives for the whole program, which gets its
+; object-file symbol now, or one at a fixed address. A `static` variable is the symbol
+; `module.function.name`.
+func lasting_variable(scope: byte, name: word, t: byte, flags: byte, level: byte): word
+  var s: word
+  s = kernel.sym_add(scope, name, kernel.K_VAR)
+  kernel.sym_type[s] = t
+  kernel.sym_flags[s] = flags
+  if flags & kernel.SF_AT != 0 then
+    kernel.sym_value[s] = placed_at
+  elif level == LEVEL_MODULE then
+    kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, kernel.module_name[0], 0, name)
+  else
+    kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, kernel.module_name[0],
+        kernel.sym_name[function], name)
+  end
+  return s
+end
+
+; Push variable `s`: a local, or one that lives for the whole program.
+func push_variable(s: word)
+  if kernel.sym_kind[s] == kernel.K_LOCAL then
+    gen.local(kernel.sym_type[s], lo(kernel.sym_value[s]))
+  else
+    gen.variable(s)
+  end
+end
+
+; "=" expression after a local's declaration: an assignment made on every entry.
+recursive func initial_assignment(s: word)
+  push_variable(s)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  gen.store()
+  err.position(lex.line, lex.col)
+end
+
+forward func layout(t: byte)
+forward func no_record(t: byte)
+forward recursive func table_data(t: byte, symbol: word)
+forward recursive func initial_value(s: word, t: byte, level: byte)
+
+; varDecl = "var" name ":" type { placement } [ "=" initialiser ], from "var" on. `more` is
+; kernel.SF_PUB or 0.
+pub recursive func variable(more: byte, level: byte)
+  var scope: byte
+  var name: word
+  var line: word
+  var col: word
+  var t: byte
+  var flags: byte
+  lex.next()
+  scope = inlines.local_scope()
+  if level == LEVEL_MODULE then
+    scope = kernel.SCOPE_MODULE
+  end
+  name = new_name(scope)
+  lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
+  line = lex.line
+  col = lex.col
+  t = type_spec()
+  flags = placements() | more
+  err.position(line, col)
+  if flags & kernel.SF_ROWS != 0 then
+    if not typetab.is_array(t) then
+      err.fatal(err.E_TYPE)
+    end
+    t = typetab.array_of(byte(typetab.base(t)), typetab.length(t), true)
+  end
+  layout(t)
+  if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0 then
+    flags = flags | kernel.SF_NOZP      ; nor a record: never in zero page unless asked
+  end
+  err.position(lex.line, lex.col)
+  var s: word
+  if level == LEVEL_LOCAL and flags & kernel.SF_AT == 0 then
+    s = kernel.sym_add(scope, name, kernel.K_LOCAL)
+    kernel.sym_type[s] = t
+    if inlines.level == 0 then
+      kernel.sym_value[s] = reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL, name)
+    elif zp_class(flags) != reg.CLASS_EITHER then
+      kernel.sym_value[s] = reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL,
+          inlines.slot_name(name, reg.local_count))
+    else
+      ; A local of an inline function: a temporary of the caller's frame, free again when the
+      ; expansion ends; one that must be in zero page, or must not (an array, a record), is a
+      ; slot of its own, since temporaries share theirs.
+      kernel.sym_value[s] = inlines.own_slot(typetab.size(t))
+    end
+  else
+    s = lasting_variable(scope, name, t, flags, level)
+  end
+  if lex.tok == lex.T_ASSIGN then
+    initial_value(s, t, level)
+  end
+end
+
+; "=" initialiser after the declaration of variable `s` of type `t`, at `level`.
+recursive func initial_value(s: word, t: byte, level: byte)
+  lex.next()
+  no_record(t)
+  if typetab.is_array(t) then
+    var data: word
+    data = gen.anonymous()
+    table_data(t, data)
+    if level == LEVEL_LOCAL then
+      push_variable(s)
+      gen.copy_array(data, typetab.size(t))
+      reg.pop()
+    else
+      gen.initial(s, data, 0, 0)
+    end
+  elif level == LEVEL_LOCAL then
+    initial_assignment(s)
+  else
+    constant(t)
+    var i: byte
+    i = reg.depth - 1
+    if reg.op_kind[i] == reg.O_ADDR then
+      gen.initial(s, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
+    else
+      gen.initial(s, kernel.NO_OBJ, 0, reg.op_value[i])
+    end
+    reg.pop()
+  end
+end
+
+; Something of type `t` is given an initial value: it cannot be a record, or an array of them,
+; yet.
+pub func no_record(t: byte)
+  if typetab.is_record(typetab.innermost(t)) then
+    err.fatal(err.E_RECORD_INIT)
+  end
+end
+
+; Check that the elements of array type `t`, and of the arrays it is made of, can be reached:
+; one of more than 256 elements larger than a byte must be stored by row, and an element
+; stored by row must have a size that is a power of two.
+pub func layout(t: byte)
+  var size: word
+  while typetab.is_array(t) do
+    size = typetab.size(byte(typetab.base(t)))
+    if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t) then
+      err.fatal(err.E_NEEDS_ROWS)
+    end
+    if typetab.is_rows(t) and size & (size - 1) != 0 then
+      if typetab.is_record(byte(typetab.base(t))) then
+        err.fatal_value(err.E_ROWS_RECORD, size)
+      end
+      err.fatal(err.E_ELEMENT_SIZE)
+    end
+    t = byte(typetab.base(t))
+  end
+end
+
+; initialiser = "[" constExpr { "," constExpr } "]", or a string, for an array of type `t`:
+; write it as the constant data `symbol`, laid out as the array is. Elements not given are 0;
+; a string fills a byte array and is followed by a zero if there is room.
+pub recursive func table_data(t: byte, symbol: word)
+  var n: word
+  var e: byte
+  var total: word
+  var spacing: word
+  var step: word
+  n = typetab.length(t)
+  e = byte(typetab.base(t))
+  total = typetab.size(t)
+  spacing = typetab.size(e)     ; how far apart the elements start; their bytes: step
+  step = 1
+  if typetab.is_column(t) then
+    spacing = 1
+    step = n
+  end
+  if typetab.is_array(e) then
+    err.fatal(err.E_UNSUPPORTED)
+  end
+  out.table_begin(total)
+  if lex.tok == lex.T_STRING then
+    if e != typetab.BYTE_TYPE then
+      err.fatal(err.E_TYPE)
+    end
+    if lex.string_length > n then
+      err.fatal(err.E_TOO_MANY)
+    end
+    var i: word
+    for i = 0 until lex.string_length do
+      out.table[i] = lex.string[i]
+    end
+    lex.next()
+  else
+    lex.expect(lex.T_LBRACKET, err.E_SYNTAX)
+    var count: word
+    count = 0
+    loop
+      if count == n then
+        err.fatal(err.E_TOO_MANY)
+      end
+      constant(e)
+      gen.table_element(count * spacing, step)
+      count += 1
+      if lex.tok != lex.T_COMMA then
+        break
+      end
+      lex.next()
+    end
+    lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+  end
+  out.table_end(symbol, total)
+end
+
+; ---- Assignments and calls ---------------------------------------------------------------
+
+; assignOp expression, after the designator at `line`, `col`.
+recursive func assignment(line: word, col: word)
+  var token: byte
+  target(line, col)
+  token = lex.tok
+  lex.next()
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  if token == lex.T_ASSIGN then
+    gen.store()
+  else
+    gen.assign(token - lex.T_PLUS_ASSIGN + fold.ADD)
+  end
+  err.position(lex.line, lex.col)
+end
+
+; "," designator "=" call, after the designator at `line`, `col`: the value and the status of a
+; call that gives both.
+recursive func pair_assignment(line: word, col: word)
+  target(line, col)
+  lex.next()
+  line = lex.line
+  col = lex.col
+  designator()
+  target(line, col)
+  lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
+  line = lex.line
+  col = lex.col
+  designator()
+  callee()
+  var i: byte
+  i = reg.depth - 1
+  if reg.op_kind[i] != reg.O_FUNC or kernel.sym_results[reg.op_var[i]] != 2 then
+    err.position(line, col)
+    err.fatal(err.E_RESULTS)
+  end
+  if lex.tok != lex.T_LPAREN then
+    err.fatal(err.E_LPAREN_EXPECTED)
+  end
+  call(true)
+  err.position(line, col)
+  gen.store_pair()
+  err.position(lex.line, lex.col)
+end
+
+; designator ( assignOp expression | "," designator "=" call | arguments ): the token after
+; the designator says which.
+recursive func name_statement()
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  designator()
+  callee()
+  if reg.op_kind[reg.depth - 1] == reg.O_FUNC then
+    if lex.tok != lex.T_LPAREN then
+      err.fatal(err.E_LPAREN_EXPECTED)
+    end
+    err.position(line, col)
+    check_not_pending(reg.op_var[reg.depth - 1])    ; in an inline body, inside arguments
+    err.position(lex.line, lex.col)
+    call(false)                 ; a call used as a statement may ignore its results
+  elif lex.tok == lex.T_LPAREN then
+    err.fatal(err.E_NOT_FUNC)
+  elif lex.tok == lex.T_COMMA then
+    pair_assignment(line, col)
+  elif lex.tok >= lex.T_ASSIGN and lex.tok <= lex.T_SHR_ASSIGN then
+    assignment(line, col)
+  else
+    err.fatal(err.E_SYNTAX)
+  end
+end
+
+; ---- Control flow ------------------------------------------------------------------------
+
+; An expression used as a test: goes on when it is true. Returns the label gone to when it is
+; false.
+pub recursive func test(): word
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  var target: word
+  target = gen.jump_false()
+  err.position(lex.line, lex.col)
+  return target
+end
+
+func end_of_block()
+  if lex.tok != lex.T_END then
+    err.fatal(err.E_END_EXPECTED)
+  end
+  lex.next()
+end
+
+forward recursive func body()
+
+; "if" expression "then" NL body { "elif" expression "then" NL body } [ "else" NL body ] "end".
+; Each part but the last ends with a JMP to the end, unless it cannot be run off.
+recursive func if_statement()
+  var done: word
+  var skip: word
+  done = reg.NONE
+  loop
+    lex.next()
+    skip = test()
+    lex.expect(lex.T_THEN, err.E_THEN_EXPECTED)
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    body()
+    if lex.tok != lex.T_ELIF and lex.tok != lex.T_ELSE then
+      reg.label(byte(skip))
+      break
+    end
+    if fbuf.runs_on() then
+      if done == reg.NONE then
+        done = fbuf.new_label()
+      end
+      reg.jump(byte(done))
+    end
+    reg.label(byte(skip))
+    if lex.tok == lex.T_ELSE then
+      lex.next()
+      lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+      body()
+      break
+    end
+  end
+  end_of_block()
+  if done != reg.NONE then
+    reg.label(byte(done))
+  end
+end
+
+; "while" expression "do" NL body "end".
+recursive func while_statement()
+  var saved_exit: word
+  var saved_next: word
+  var saved_inner: byte
+  var top: byte
+  saved_exit = exit_label
+  saved_next = next_label
+  saved_inner = critical_inner
+  critical_inner = 0
+  lex.next()
+  top = fbuf.new_label()
+  reg.loop_label(top)
+  gen.loop_begin()
+  exit_label = test()
+  next_label = top
+  lex.expect(lex.T_DO, err.E_DO_EXPECTED)
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  body()
+  end_of_block()
+  if fbuf.runs_on() then
+    reg.jump(top)
+  end
+  reg.label(byte(exit_label))
+  gen.loop_end()
+  exit_label = saved_exit
+  next_label = saved_next
+  critical_inner = saved_inner
+end
+
+; "loop" NL body ( "end" | "until" expression ). `continue` goes to the test of `until`, or to
+; the top if there is none.
+recursive func loop_statement()
+  var saved_exit: word
+  var saved_next: word
+  var saved_inner: byte
+  var top: byte
+  saved_exit = exit_label
+  saved_next = next_label
+  saved_inner = critical_inner
+  critical_inner = 0
+  lex.next()
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  top = fbuf.new_label()
+  reg.loop_label(top)
+  gen.loop_begin()
+  exit_label = fbuf.new_label()
+  next_label = fbuf.new_label()
+  body()
+  if lex.tok == lex.T_UNTIL then
+    lex.next()
+    reg.label(byte(next_label))
+    reg.join(top, byte(test()))     ; when the test is false: round again
+  else
+    end_of_block()
+    reg.join(top, byte(next_label))
+    if fbuf.runs_on() then
+      reg.jump(top)
+    end
+  end
+  reg.label(byte(exit_label))
+  gen.loop_end()
+  exit_label = saved_exit
+  next_label = saved_next
+  critical_inner = saved_inner
+end
+
+; The name after "for": a variable of a number type. Returns its symbol.
+func loop_variable(): word
+  var s: word
+  var found: bool
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  s, found = inlines.lookup(lex.value)
+  if not found then
+    err.fatal(err.E_UNDEFINED)
+  end
+  if kernel.sym_kind[s] != kernel.K_LOCAL and kernel.sym_kind[s] != kernel.K_VAR then
+    err.fatal(err.E_NOT_VAR)
+  end
+  if not typetab.is_number(kernel.sym_type[s]) then
+    err.fatal(err.E_TYPE)
+  end
+  lex.next()
+  return s
+end
+
+; The expression after "to" or "downto", for a loop variable of type `t`: left on the stack as a
+; constant or a variable, which is a temporary unless it was one already.
+recursive func limit_value(t: byte)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  gen.resolve(true)
+  err.position(line, col)
+  reg.assignable(reg.depth - 1, t)
+  if reg.in_registers(reg.depth - 1) then
+    reg.spill(reg.depth - 1)
+  end
+  err.position(lex.line, lex.col)
+end
+
+; Compare the newest operand, the loop variable or its first value, with the limit, operand
+; `limit`. Returns the label gone to when the comparison is false.
+func compare_limit(limit: byte, op: byte): word
+  reg.duplicate(limit)
+  gen.compare(op)
+  return gen.jump_false()
+end
+
+; INC or DEC loop variable `s` and go back to `top`. A BNE goes back where the step cannot give
+; 0: counting up without a sign, or a byte counting down to a constant from 1 to 127
+; (docs/codegen.md, "Statements").
+func step_back(s: word, down: bool, limit: byte, top: byte)
+  var i: byte
+  var size: byte
+  var back: bool
+  push_variable(s)
+  i = reg.depth - 1
+  size = lo(typetab.size(reg.op_type[i]))
+  back = not down and not typetab.is_signed(reg.op_type[i])
+  if down then
+    back = size == 1 and reg.op_kind[limit] == reg.O_CONST and reg.op_value[limit] != 0 and
+        reg.op_value[limit] < $8000
+    gen.step(fold.SUB, size, i)
+  else
+    reg.modify(reg.OP_INC, i, 0)
+    if size == 2 then
+      reg.branch(gen.OP_BNE, top)
+      reg.modify(reg.OP_INC, i, 1)
+    end
+  end
+  if back then
+    reg.branch(gen.OP_BNE, top)
+  else
+    reg.jump(top)
+  end
+  reg.pop()
+end
+
+; "for" name "=" expression ( "to" | "downto" | "until" ) expression "do" NL body "end". The
+; variable is set to the first value, the loop is skipped if that is past the limit, and the
+; test is at the bottom: the variable is compared with the limit before each step
+; (docs/codegen.md, "Statements"). With `until` the test, variable < limit, is at the top
+; instead. A limit that is a variable is not copied: it is read at each test.
+recursive func for_statement()
+  var saved_exit: word
+  var saved_next: word
+  var saved_inner: byte
+  var s: word
+  var t: byte
+  var line: word
+  var col: word
+  nest()
+  saved_exit = exit_label
+  saved_next = next_label
+  saved_inner = critical_inner
+  critical_inner = 0
+  lex.next()
+  s = loop_variable()
+  t = kernel.sym_type[s]
+  lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
+  push_variable(s)
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  var known: bool
+  var first: word
+  var down: bool
+  var exclusive: bool
+  known = gen.pend_op == 0 and reg.op_kind[reg.depth - 1] == reg.O_CONST
+  if known then
+    reg.assignable(reg.depth - 1, t)
+  end
+  first = reg.op_value[reg.depth - 1]
+  gen.store()
+  err.position(lex.line, lex.col)
+  if lex.tok != lex.T_TO and lex.tok != lex.T_DOWNTO and lex.tok != lex.T_UNTIL then
+    err.fatal(err.E_TO_EXPECTED)
+  end
+  down = lex.tok == lex.T_DOWNTO
+  exclusive = lex.tok == lex.T_UNTIL
+  lex.next()
+  limit_value(t)
+  var limit: byte
+  var op: byte
+  var top: byte
+  limit = reg.depth - 1
+  lex.expect(lex.T_DO, err.E_DO_EXPECTED)
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  op = fold.LE
+  if down then
+    op = fold.GE
+  end
+  top = fbuf.new_label()
+  if exclusive then
+    reg.loop_label(top)         ; `until`: the test is at the top
+    push_variable(s)
+    exit_label = compare_limit(limit, fold.LT)
+  else
+    if known then
+      gen.constant(t, first)    ; a constant first value can make the test known
+    else
+      push_variable(s)
+    end
+    exit_label = compare_limit(limit, op)
+    reg.loop_label(top)
+  end
+  gen.loop_begin()
+  next_label = fbuf.new_label()
+  body()
+  end_of_block()
+  reg.label(byte(next_label))
+  if not exclusive then
+    push_variable(s)
+    reg.join(byte(exit_label), byte(compare_limit(limit, fold.NE)))
+  end
+  step_back(s, down, limit, top)
+  gen.loop_end()
+  reg.label(byte(exit_label))
+  reg.pop()
+  exit_label = saved_exit
+  next_label = saved_next
+  critical_inner = saved_inner
+  unnest()
+end
+
+; constExpr { "," constExpr }: compare the selector, operand `selector`, with each, and go to
+; `chosen` if it is equal to one. Returns the label gone to if it is equal to none.
+recursive func case_constants(selector: byte, chosen: byte, base: word): byte
+  var line: word
+  var col: word
+  var value: byte
+  var n: word
+  loop
+    line = lex.line
+    col = lex.col
+    constant(reg.op_type[selector])
+    value = lo(reg.op_value[reg.depth - 1])
+    reg.pop()
+    for n = base until case_count do
+      if case_value[lo(n)] == value then
+        err.position(line, col)
+        err.fatal(err.E_CASE_TWICE)
+      end
+    end
+    if case_count == MAX_CASE then
+      err.fatal(err.E_LABELS_FULL)
+    end
+    case_value[lo(case_count)] = value
+    case_count += 1
+    reg.load(reg.A, selector, 0)
+    if value == 0 then
+      reg.test(reg.A)           ; no CMP just after the load
+    else
+      reg.compare_const(value)
+    end
+    if lex.tok != lex.T_COMMA then
+      break
+    end
+    lex.next()
+    reg.branch(gen.OP_BEQ, chosen)
+  end
+  var other: byte
+  other = fbuf.new_label()
+  reg.branch(gen.OP_BNE, other)
+  return other
+end
+
+; "case" expression NL { "of" constExpr { "," constExpr } NL body } [ "else" NL body ] "end".
+; The selector is compared with the constants of each `of` in turn: it is a variable, or is
+; stored in a temporary, so that it can be loaded again (docs/codegen.md, "Statements"). A
+; variable at a fixed address may be a device, and is read once; an element is copied too, so
+; that the register memory knows A holds it.
+recursive func case_statement()
+  var line: word
+  var col: word
+  lex.next()
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  gen.as_value()
+  var selector: byte
+  var t: byte
+  selector = reg.depth - 1
+  t = reg.op_type[selector]
+  if typetab.size(t) != 1 or typetab.is_untyped(t) then
+    err.fatal(err.E_CASE_SELECTOR)
+  end
+  if reg.op_kind[selector] == reg.O_VAR and (reg.op_symbol[selector] == kernel.NO_OBJ or
+      not reg.is_direct(selector)) then
+    reg.release(selector)
+    reg.load(reg.A, selector, 0)
+    reg.become(selector, reg.O_A, t)
+  end
+  if reg.in_registers(selector) then
+    reg.spill(selector)
+  end
+  err.position(lex.line, lex.col)
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  var done: byte
+  var base: word
+  var chosen: byte
+  var other: byte
+  done = fbuf.new_label()
+  base = case_count
+  while lex.tok == lex.T_OF do
+    lex.next()
+    chosen = fbuf.new_label()
+    other = case_constants(selector, chosen, base)
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    reg.label(chosen)           ; the selector is in A on every way in
+    body()
+    if lex.tok == lex.T_END then
+      reg.label(other)          ; the body runs on to here: A may hold anything
+    else
+      if fbuf.runs_on() then
+        reg.jump(done)
+      end
+      reg.label(other)
+    end
+  end
+  if lex.tok == lex.T_ELSE then
+    lex.next()
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    body()
+  end
+  end_of_block()
+  reg.label(done)
+  reg.pop()
+  case_count = base
+end
+
+; Leave `count` `critical` blocks: a PLP for each. The flags then show nothing known.
+func restore_flags(count: byte)
+  var n: byte
+  for n = 0 until count do
+    fbuf.op(OP_PLP)
+  end
+  reg.flags = reg.NO_REG
+end
+
+; "critical" NL body "end": PHP and SEI, the body, PLP. `break`, `continue` and `return` that
+; leave the block restore the flags first (docs/codegen.md, "Statements").
+recursive func critical_statement()
+  lex.next()
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+  fbuf.op(OP_PHP)
+  fbuf.op(OP_SEI)
+  critical_depth += 1
+  critical_inner += 1
+  body()
+  end_of_block()
+  critical_depth -= 1
+  critical_inner -= 1
+  restore_flags(1)
+end
+
+; "#if" constExpr NL. LEX passes over what is not to be compiled. The condition is a `bool`, or
+; a number, which is true unless it is 0 (docs/language.md, "Conditional compilation").
+pub recursive func directive()
+  var line: word
+  var col: word
+  lex.next()
+  line = lex.line
+  col = lex.col
+  constant(typetab.NO_TYPE)
+  var i: byte
+  i = reg.depth - 1
+  err.position(line, col)
+  if not typetab.is_number(reg.op_type[i]) and not typetab.is_untyped(reg.op_type[i]) and
+      reg.op_type[i] != typetab.BOOL_TYPE then
+    err.fatal(err.E_TYPE)
+  end
+  reg.pop()
+  err.position(lex.line, lex.col)
+  if lex.tok != lex.T_NL then
+    err.fatal(err.E_NL_EXPECTED)
+  end
+  err.position(line, col)
+  lex.choose(reg.op_value[i] != 0)
+end
+
+; "break" or "continue": a JMP to `target`, the label the nearest loop has for it, after
+; leaving the `critical` blocks inside that loop.
+func jump_statement(target: word)
+  if target == reg.NONE then
+    err.fatal(err.E_NO_LOOP)
+  end
+  lex.next()
+  restore_flags(critical_inner)
+  reg.jump(byte(target))
+end
+
+; An expression whose value is returned in the carry flag.
+recursive func status()
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  gen.carry_wanted()
+  expression()
+  err.position(line, col)
+  gen.carry()
+  err.position(lex.line, lex.col)
+end
+
+; True if the expression just parsed is nothing but a call that gives a value of type `t` and a
+; status: both are then where this function's own results must be.
+func passes_on(t: byte): bool
+  var i: byte
+  i = reg.depth - 1
+  return lex.tok == lex.T_NL and gen.mark() == passed and reg.in_registers(i) and
+      reg.op_type[i] == t
+end
+
+; expression "," expression after "return", or a call that gives both results.
+recursive func value_and_status(t: byte)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  results_expression()
+  if passed != reg.NONE then
+    if not passes_on(t) then
+      err.position(line, col)
+      err.fatal(err.E_RESULTS)
+    end
+    reg.pop()
+    return
+  end
+  err.position(line, col)
+  gen.accept(t)
+  err.position(lex.line, lex.col)
+  lex.expect(lex.T_COMMA, err.E_RESULTS)
+  status()                      ; may need A: the value waits where it is
+  gen.load_result()
+end
+
+; "return" [ expression [ "," expression ] ], as the function's results require. The value goes
+; to A, or A and X, and a `bool` to the carry flag.
+recursive func return_statement()
+  var results: byte
+  var first: word
+  results = kernel.sym_results[function]
+  first = kernel.sym_members[function] + kernel.sym_params[function]
+  if critical_depth > 0 and results > 0 and kernel.member_value[first + results - 1] == gen.REG_C then
+    err.fatal(err.E_STATUS_IN_CRITICAL)     ; PLP would change the carry flag
+  end
+  lex.next()
+  if (results == 0) != (lex.tok == lex.T_NL) then
+    err.fatal(err.E_RESULTS)
+  end
+  ; In an expansion, the value may stay the operand it is (inlines.leaves_operand()); if not, it
+  ; goes where a call leaves it, and the `return` is a jump to the expansion's end.
+  var keep: bool
+  var t: byte
+  keep = inlines.level > 0 and inlines.leaves_operand()
+  t = kernel.member_type[first]
+  if results == 2 then
+    value_and_status(t)
+  elif results == 1 and kernel.member_value[first] == gen.REG_C and not keep then
+    status()
+  elif results == 1 then
+    var line: word
+    var col: word
+    line = lex.line
+    col = lex.col
+    expression()
+    err.position(line, col)
+    if not keep or gen.pend_op == 0 or gen.pend_type != t then
+      gen.accept(t)
+    end
+    err.position(lex.line, lex.col)
+    if not keep and t != typetab.BOOL_TYPE then
+      gen.load_result()
+    end
+  end
+  restore_flags(critical_depth)
+  if keep then
+    inlines.lazy[inlines.level] = true
+  elif inlines.level > 0 then
+    reg.jump(inlines.done[inlines.level])
+  else
+    gen.ret()
+  end
+end
+
+recursive func statement()
+  asm_last = lex.tok == lex.T_ASM
+  if lex.tok == lex.T_NAME then
+    name_statement()
+  elif lex.tok == lex.T_RETURN then
+    return_statement()
+  elif lex.tok == lex.T_IF then
+    if_statement()
+  elif lex.tok == lex.T_WHILE then
+    while_statement()
+  elif lex.tok == lex.T_LOOP then
+    loop_statement()
+  elif lex.tok == lex.T_BREAK then
+    jump_statement(exit_label)
+  elif lex.tok == lex.T_CONTINUE then
+    jump_statement(next_label)
+  elif lex.tok == lex.T_VAR then
+    variable(0, LEVEL_LOCAL)
+  elif lex.tok == lex.T_STATIC then
+    lex.next()
+    if lex.tok != lex.T_VAR then
+      err.fatal(err.E_SYNTAX)
+    end
+    variable(0, LEVEL_STATIC)
+  elif lex.tok == lex.T_ASM then
+    asmblock.block()
+  elif lex.tok == lex.T_FOR then
+    for_statement()
+  elif lex.tok == lex.T_CASE then
+    case_statement()
+  elif lex.tok == lex.T_CRITICAL then
+    critical_statement()
+  elif lex.tok == lex.T_HASH_IF then
+    directive()
+  else
+    err.fatal(err.E_STMT_EXPECTED)
+  end
+  lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+end
+
+; True for the tokens that end a body; which of them is right is for the caller to check.
+func ends_body(token: byte): bool
+  return token == lex.T_END or token == lex.T_EOF or token == lex.T_ELIF or token == lex.T_ELSE or
+      token == lex.T_UNTIL or token == lex.T_OF
+end
+
+; body = { varDecl | statement }.
+recursive func body()
+  nest()
+  while not ends_body(lex.tok) do
+    statement()
+  end
+  unnest()
+end
+
+; The argument for parameter `i` of inline function `f`: a value it can be given, which INLINE
+; makes the parameter's symbol of (inlines.argument_symbol()).
+recursive func inline_argument(f: word, i: byte)
+  var line: word
+  var col: word
+  line = lex.line
+  col = lex.col
+  expression()
+  err.position(line, col)
+  gen.as_value()
+  gen.accept(kernel.member_type[kernel.sym_members[f] + i])
+  inlines.argument_symbol(f, i)
+  err.position(lex.line, lex.col)
+end
+
+; What expand() keeps while an expansion's body is compiled, by inlines.depth: in arrays and not
+; in its locals, so that its saving call of body() has nothing to push
+const EXPANSIONS = inlines.MAX_DEPTH + 1
+var expand_line: [EXPANSIONS]word       ; where the ")" of the call is
+var expand_col: [EXPANSIONS]word
+var expand_brackets: [EXPANSIONS]byte   ; lex.open_brackets there
+var expand_function: [EXPANSIONS]word   ; the caller's `function`, `exit_label` and the others
+var expand_exit: [EXPANSIONS]word
+var expand_next: [EXPANSIONS]word
+var expand_depth: [EXPANSIONS]byte
+var expand_inner: [EXPANSIONS]byte
+var expand_with_function: [EXPANSIONS]byte     ; for `with` blocks, which this twin does not have yet
+var expand_with_loop: [EXPANSIONS]byte
+
+; The arguments and ")" of a call of inline function `f`, after its "(".
+recursive func inline_arguments(f: word)
+  var count: byte
+  count = 0
+  if lex.tok != lex.T_RPAREN then
+    loop
+      if count == kernel.sym_params[f] then
+        err.fatal(err.E_ARG_COUNT)
+      end
+      inline_argument(f, count)
+      count += 1
+      if lex.tok != lex.T_COMMA then
+        break
+      end
+      lex.next()
+    end
+  end
+  if lex.tok != lex.T_RPAREN then
+    err.fatal(err.E_RPAREN_EXPECTED)
+  end
+  if count != kernel.sym_params[f] then
+    err.fatal(err.E_ARG_COUNT)
+  end
+end
+
+; The arguments and ")" of the newest inline call, which inlines.enter() has begun, after its
+; "(", and the body of its function, replayed from its saved tokens as if it were written here
+; (docs/code-model.md, "Inline functions"). A `return` goes to the end of the expansion, where
+; the result is left as a call leaves it, if it is wanted; or, from the last statement, it may
+; leave its value as the operand it is. The token after the ")" is the current one at the end.
+recursive func expand()
+  inline_arguments(inlines.expanding[inlines.depth])
+  expand_line[inlines.depth] = lex.line
+  expand_col[inlines.depth] = lex.col
+  expand_brackets[inlines.depth] = lex.open_brackets
+  expand_function[inlines.depth] = function
+  expand_exit[inlines.depth] = exit_label
+  expand_next[inlines.depth] = next_label
+  expand_depth[inlines.depth] = critical_depth
+  expand_inner[inlines.depth] = critical_inner
+  function = inlines.expanding[inlines.depth]
+  exit_label = reg.NONE
+  next_label = reg.NONE
+  critical_depth = 0
+  critical_inner = 0
+  lex.open_brackets = 0
+  inlines.body_begin(function)
+  lex.next()
+  body()
+  if lex.tok != lex.T_EOF then
+    err.fatal(err.E_END_EXPECTED)
+  end
+  src.close()
+  function = expand_function[inlines.depth]
+  exit_label = expand_exit[inlines.depth]
+  next_label = expand_next[inlines.depth]
+  critical_depth = expand_depth[inlines.depth]
+  critical_inner = expand_inner[inlines.depth]
+  lex.open_brackets = expand_brackets[inlines.depth]
+  lex.resume(lex.T_RPAREN, expand_line[inlines.depth], expand_col[inlines.depth])
+  if not inlines.lazy[inlines.depth] then
+    reg.label(inlines.done[inlines.depth])
+    if inlines.wanted[inlines.depth] then
+      gen.result(inlines.expanding[inlines.depth])
+    end
+  end
+  inlines.leave()
+  lex.next()
+end
+
+; The body of function `f`, whose parameters are declared. If `f` has a result, its end must not
+; be reached: the code before it returns or jumps, or it is an `asm` block, which the programmer
+; has made return by itself.
+pub func function_body(f: word)
+  function = f
+  exit_label = reg.NONE
+  next_label = reg.NONE
+  critical_depth = 0
+  critical_inner = 0
+  asm_last = false
+  body()
+  if kernel.sym_results[f] != 0 and fbuf.runs_on() and not asm_last then
+    err.fatal(err.E_NO_RETURN)
+  end
+end

@@ -333,6 +333,43 @@ end
         self.assertEqual(support.run_lathec(path, self.tmp.name)[0], 1)
 
 
+    def test_an_import_of_a_module_an_interface_brought_in_reads_it_no_more(self):
+        """lib's interface brings in host, for the expansions of its inline function; m's own
+        `import host` after `import lib` uses that reading of host's interface, so host is one
+        module and its names are in the name heap once."""
+        import io
+        import lathec
+        self.assertEqual(support.run_lathec(os.path.join(support.LATHE, 'rt', 'host.lth'), self.tmp.name), (0, ''))
+        self.compile('module lib\nimport host\npub inline func say(c: byte)\n  host.put_byte(c)\nend\n', 'lib')
+        heap = {}
+        for imports in ('import lib\nimport host\n', 'import host\nimport lib\n'):
+            path = os.path.join(self.tmp.name, 'm.lth')
+            with open(path, 'w') as f:
+                f.write('module m\n' + imports + 'func f()\n  lib.say(1)\n  host.put_byte(2)\nend\n')
+            support.fresh()
+            env._out = io.BytesIO()
+            env.start([path, self.tmp.name])
+            try:
+                lathec.main()
+                status = 0
+            except SystemExit as e:
+                status = e.code
+            support.fresh()
+            self.assertEqual((status, support.error_text()), (0, ''))
+            self.assertEqual(kernel.module_count, 3)
+            heap[imports] = kernel.name_top
+        self.assertEqual(len(set(heap.values())), 1)
+
+    def test_an_import_of_a_module_named_twice_is_error_41(self):
+        path = os.path.join(self.tmp.name, 'm.lth')
+        self.assertEqual(support.run_lathec(os.path.join(support.LATHE, 'rt', 'host.lth'), self.tmp.name), (0, ''))
+        with open(path, 'w') as f:
+            f.write('module m\nimport host\nimport host\n')
+        status, errors = support.run_lathec(path, self.tmp.name)
+        self.assertEqual(status, 1)
+        self.assertTrue(errors.startswith('%s:3:8: error 41: ' % path), errors)
+
+
 class SameWithoutInlineTest(unittest.TestCase):
     def test_the_mix_cases_differ_only_in_inline(self):
         """cases/e2e/inline_mix.lth and inline_mix_plain.lth: the same program with and without

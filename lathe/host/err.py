@@ -106,6 +106,7 @@ E_DIRS_FULL = 84
 E_SLOTS_FULL = 85
 E_INITS_FULL = 86
 E_DATA_FULL = 87
+E_NESTING = 88
 E_INTERNAL = 99
 
 # Meaning, continued (40 to 59 are full)
@@ -246,6 +247,7 @@ MESSAGES = (
     b"85 too many variables in one function\n"
     b"86 too many initial values\n"
     b"87 too much constant data in one table\n"
+    b"88 expressions and blocks nested too deeply\n"
     b"99 compiler error\n"
     b"100 a call of this function inside its own arguments: use a variable\n"
     b"110 \"to\", \"downto\" or \"until\" expected\n"
