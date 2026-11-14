@@ -1,0 +1,10 @@
+; error 55 4 3
+module inline_break
+inline func f()
+  break
+end
+func g()
+  while true do
+    f()
+  end
+end

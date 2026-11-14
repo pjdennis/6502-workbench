@@ -1,0 +1,14 @@
+; Inline functions of another module (libinline.lth), expanded here from its interface: `level`
+; in their bodies is libinline.level, not this module's; libshared, which libinline imports, is
+; reached from their bodies without this module importing it.
+module inline_modules
+
+import libinline
+
+var level: byte
+
+func f(k: byte)
+  var level: byte = libinline.raise()
+  libinline.raise_and_report(k)
+  libinline.raise_and_report(level)
+end

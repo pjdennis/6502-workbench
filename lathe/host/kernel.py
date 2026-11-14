@@ -79,7 +79,7 @@ def path_end():
 
 # ---- Streams -----------------------------------------------------------------------------
 
-MAX_STREAMS = 6
+MAX_STREAMS = 10
 STREAM_FREE = 0
 STREAM_IN = 1               # a file being read
 STREAM_OUT = 2              # a file being written

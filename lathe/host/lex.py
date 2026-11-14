@@ -6,7 +6,8 @@ line ends. The parser sees one T_NL at the end of each statement and never a bla
 continuation rule is applied here and nowhere else.
 
 Conditional compilation is done here too: the lines of a part that is not compiled never
-become tokens (directive()). The line mode of `asm` blocks, where whole lines pass through
+become tokens (directive()). A saved token run (src.open_saved()) is read as tokens, not
+characters (saved_token()); the format is at SAVED_LINE. The line mode of `asm` blocks, where whole lines pass through
 until a line whose first word is `end`, is ASM's: it reads the source itself.
 """
 import err
@@ -162,6 +163,13 @@ C_X = 0x78
 C_Z = 0x7A
 C_BAR = 0x7C
 C_TILDE = 0x7E
+
+# A saved token run is, for each token: its token number, its column (one byte, at most 255),
+# and for T_NAME the name and for T_NUMBER the value (two bytes each), for T_STRING its length
+# and its bytes. Before a token on a later line than the one before it: SAVED_LINE and how many
+# lines later, one or more times (each at most 255). Every token number is below SAVED_LINE.
+SAVED_LINE = 0x7F
+MAX_COLUMN = 0xFF
 
 # ---- The current token -------------------------------------------------------------------
 
@@ -497,9 +505,35 @@ def mark(c):
     return T_EOF
 
 
+def saved_token():
+    """Read one token from the saved token run that is the top source. Its end is T_EOF, at the
+    place of the token before it."""
+    global tok, value, line, col, string_length
+    while not src.eof and src.ch == SAVED_LINE:
+        src.next_byte()
+        src.line += src.next_byte()
+    if src.eof:
+        tok = T_EOF
+        return
+    line = src.line
+    tok = src.next_byte()
+    col = src.next_byte()
+    err.position(line, col)
+    if tok == T_NAME or tok == T_NUMBER:
+        value = src.next_byte()
+        value = value | (src.next_byte() << 8)
+    elif tok == T_STRING:
+        string_length = src.next_byte()
+        for i in range(0, string_length):
+            string[i] = src.next_byte()
+
+
 def scan():
     """Read one token, taking every line end as a token."""
     global tok, value, line, col
+    if src.replaying:
+        saved_token()
+        return
     skip_blanks()
     line = src.line
     col = src.col

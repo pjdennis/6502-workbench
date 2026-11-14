@@ -1,0 +1,53 @@
+; Inline calls inside inline functions, and inside the arguments of inline calls, three deep;
+; parameters that share names with the caller's locals and with each other's; and an argument
+; that a later argument's call changes, which the parameter must not see.
+module inline_nested
+
+import libout
+
+var g: byte = 10
+
+inline func double(v: byte): byte
+  return v + v
+end
+
+inline func quad(v: byte): byte
+  return double(double(v))
+end
+
+inline func mix(v: byte, w: byte): byte
+  var t: byte = quad(v)
+  return t + double(w) + 1
+end
+
+inline func both(v: byte, w: byte): word
+  return word(mix(w, v)) * 256 + mix(v, w)
+end
+
+func bump(): byte
+  g += 5
+  return 1
+end
+
+inline func pair(a: byte, b: byte): byte
+  return a * 16 + b
+end
+
+pub func main()
+  var v: byte = 3
+  var w: byte = 4
+  libout.dec(quad(v))
+  libout.space()
+  libout.dec(mix(w, v))
+  libout.space()
+  libout.dec(double(quad(double(1))))
+  libout.space()
+  libout.hexw(both(1, 2))
+  libout.space()
+  libout.dec(mix(double(v), quad(w)))
+  libout.space()
+  libout.hex(pair(g, bump()))       ; a is g as it was before bump() changed it
+  libout.space()
+  libout.dec(g)
+  libout.nl()
+end

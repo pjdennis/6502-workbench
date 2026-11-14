@@ -1,0 +1,6 @@
+; error 170 5 15
+module inline_private_type
+type Hidden = byte
+pub inline func f(v: byte): byte
+  return byte(Hidden(v))
+end

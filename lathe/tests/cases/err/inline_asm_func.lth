@@ -1,0 +1,5 @@
+; error 171 3 8
+module inline_asm_func
+inline asm func f()
+  NOP
+end

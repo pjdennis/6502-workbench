@@ -13,6 +13,7 @@ import env
 import err
 import expr
 import gen
+import inline
 import kernel
 import lex
 import out
@@ -145,6 +146,7 @@ def init():
     """Start every component, each after the ones it relies on."""
     err.init()
     kernel.init()
+    inline.init()
     typetab.init()
     src.init()
     lex.init()

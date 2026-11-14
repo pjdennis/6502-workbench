@@ -164,9 +164,9 @@ end
 
 | Attribute | Meaning |
 |---|---|
-| `inline` | The body is expanded at each call. It cannot be recursive and its address cannot be taken. |
+| `inline` | The body is expanded at each call ([`code-model.md`](code-model.md), "Inline functions"). It cannot be recursive and its address cannot be taken. |
 | `recursive` | The function may be active more than once. Calls between `recursive` functions save and restore the caller's storage. A cycle of calls through any function not marked `recursive` is a link error. Only a function with a body in Lathe can be `recursive`, and its `forward` declaration says so too. |
-| `interrupt` | An interrupt handler: no parameters, no result. It saves the registers and returns with `RTI`. Everything it calls gets storage separate from the main program's. |
+| `interrupt` | An interrupt handler: no parameters, no result. It saves the registers and returns with `RTI`. Everything it calls gets storage separate from the main program's. It cannot be called: `@name` is its address, a `^byte`, to be stored in the board's vector. |
 | `extern … at` | A routine at a fixed address, with parameters and results in named registers. |
 | `asm` | A function whose whole body is assembly, with parameters and results in named registers. |
 
@@ -297,7 +297,7 @@ import strings
 - Imports cannot form a cycle. A module is compiled after the modules it imports.
 - Imported names are always written with the module name: `strings.equal(a, b)`.
 - The program starts at `pub func main()` in the module named when linking.
-- An exported `inline` function carries its body in the interface file.
+- An exported `inline` function carries its body in the interface file. Its body can use only what its module exports, and the modules its module imports, which an importer need not import itself.
 
 ## Conditional compilation
 

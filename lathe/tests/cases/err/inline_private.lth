@@ -1,0 +1,6 @@
+; error 170 5 10
+module inline_private
+var hidden: byte
+pub inline func f(): byte
+  return hidden
+end

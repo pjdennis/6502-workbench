@@ -1,0 +1,72 @@
+; What an inline call leaves, in each place a call can be. A `return` that is the body's last
+; statement and its only one leaves its value as the operand it is, if the expansion owns no
+; slot (lathe/host/inline.py, leaves_operand()); any other `return` puts the value where a call
+; leaves it (A, A and X, the carry flag) and jumps to the end of the expansion.
+module inline_results
+
+var g: byte
+var w: word
+var ok: bool
+var data: [8]byte
+
+inline func positive(v: byte): bool
+  return v > 0 and v < 128
+end
+
+inline func sign(v: sbyte): sbyte
+  if v < 0 then
+    return -1
+  elif v == 0 then
+    return 0
+  end
+  return 1
+end
+
+inline func scan(v: byte): byte, bool
+  var i: byte = 0
+  while i < 8 do
+    if data[i] == v then
+      return i, true
+    end
+    i += 1
+  end
+  return 0, false
+end
+
+inline func wide(v: byte): word
+  var x: word = v
+  return x + x
+end
+
+; a status left as it is: the condition branches straight to where the test goes
+func conditions(k: byte)
+  if positive(k) then
+    g = 1
+  end
+  ok = positive(g)
+  while not positive(k) do
+    k += 1
+  end
+end
+
+; several returns: each a jump to the end, the value in A
+func several(s: sbyte)
+  g = byte(sign(s))
+  if sign(s) == 1 then
+    g = 2
+  end
+end
+
+; a value and a status
+func pairs(k: byte)
+  g, ok = scan(k)
+  if scan(3) -> g then
+    g += 1
+  end
+  scan(k)
+end
+
+; a word through a local: in A and X
+func words(k: byte)
+  w = wide(k) + 1
+end

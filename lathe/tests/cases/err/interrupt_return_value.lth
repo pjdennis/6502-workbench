@@ -1,0 +1,5 @@
+; error 56 4 10
+module interrupt_return_value
+interrupt func handler()
+  return 1
+end

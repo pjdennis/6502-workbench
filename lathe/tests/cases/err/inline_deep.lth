@@ -1,0 +1,26 @@
+; error 166 7 12
+module inline_deep
+inline func d1(v: byte): byte
+  return v + 1
+end
+inline func d2(v: byte): byte
+  return d1(v) + 1
+end
+inline func d3(v: byte): byte
+  return d2(v) + 1
+end
+inline func d4(v: byte): byte
+  return d3(v) + 1
+end
+inline func d5(v: byte): byte
+  return d4(v) + 1
+end
+inline func d6(v: byte): byte
+  return d5(v) + 1
+end
+inline func d7(v: byte): byte
+  return d6(v) + 1
+end
+func g(): byte
+  return d7(1)
+end

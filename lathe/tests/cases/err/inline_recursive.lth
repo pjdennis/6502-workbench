@@ -1,0 +1,11 @@
+; error 167 7 11
+module inline_recursive
+inline func f(n: byte): byte
+  if n == 0 then
+    return 0
+  end
+  return f(n - 1)
+end
+func g(): byte
+  return f(3)
+end

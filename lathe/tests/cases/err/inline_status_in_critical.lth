@@ -1,0 +1,11 @@
+; error 113 6 5
+module inline_status_in_critical
+var n: byte
+inline func f(): bool
+  critical
+    return n > 3
+  end
+end
+func g(): bool
+  return f()
+end

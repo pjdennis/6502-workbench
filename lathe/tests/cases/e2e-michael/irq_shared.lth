@@ -1,0 +1,80 @@
+; The stage 5 gate (lathe/docs/build-plan.md): an interrupt handler calls `saturate`, which the
+; main program also calls, thousands of times in a tight loop, checking every result. Each
+; interrupt comes in the middle of whatever main is doing, often inside `saturate` itself, so
+; the two calls would trample each other's parameters and local if they shared them; the linker
+; gives the handler a copy of `saturate` with storage of its own (lathe/tests/test_inline.py
+; checks the map for the two copies), and main's results stay right.
+;
+; The handler counts its interrupts and stops the timer after IRQS of them; main checks rounds
+; until then. The first row says PASS if every result of main's and of the handler's was right
+; and main did at least MIN_ROUNDS rounds; the second, how many interrupts there were. The same
+; source serves both boards (cases/e2e-wendy2/irq_shared.lth is a link to this file).
+module irq_shared
+
+import lcd
+import timer
+
+const IRQS = 200
+const MIN_ROUNDS = 1000
+const STEP = 700
+
+var irq_sum: word           ; the handler's running sum, through saturate()
+var irq_bad: word           ; results of the handler's that were wrong
+
+; a + b, or $FFFF if that does not fit in a word.
+func saturate(a: word, b: word): word
+  var s: word = a + b
+  if s < a then
+    return $FFFF
+  end
+  return s
+end
+
+; What saturate(a, b) must give, worked out another way.
+func expected(a: word, b: word): word
+  if a > $FFFF - b then
+    return $FFFF
+  end
+  return a + b
+end
+
+interrupt func handler()
+  var want: word
+  timer.acknowledge()
+  want = expected(irq_sum, STEP)
+  irq_sum = saturate(irq_sum, STEP)
+  if irq_sum != want then
+    irq_bad += 1
+  end
+  if timer.count == IRQS then
+    timer.stop()
+  end
+end
+
+pub func main()
+  var a: word = 0
+  var b: word = 0
+  var r: word
+  var rounds: word = 0
+  var bad: word = 0
+  lcd.init()
+  timer.start_with(2000, @handler)
+  while timer.ticks() < IRQS do
+    a += 1237
+    b += 3001
+    r = saturate(a, b)
+    if r != expected(a, b) then
+      bad += 1
+    end
+    rounds += 1
+  end
+  lcd.print("SHARED ")
+  if bad == 0 and irq_bad == 0 and irq_sum == $FFFF and rounds >= MIN_ROUNDS then
+    lcd.print("PASS")
+  else
+    lcd.print("FAIL")
+  end
+  lcd.goto(1, 0)
+  lcd.print("IRQS ")
+  lcd.print_dec(timer.ticks())
+end

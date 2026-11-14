@@ -13,12 +13,14 @@ import asmblock
 import err
 import expr
 import gen
+import inline
 import kernel
 import lex
 import out
 import reg
-import stmt
 import typetab
+
+RECURSIVE = ["read_interface"]
 
 # ---- Interface files ---------------------------------------------------------------------
 
@@ -31,10 +33,13 @@ LI_TYPE = 4             # a named type: flags, then its type
 LI_RECORD = 5           # a record type declared here: flags, number of fields, each a name and a type
 LI_ENUM = 6             # an enumeration declared here: flags. Its constants follow as constants
 LI_FUNC_TYPE = 7        # a function type declared here: flags, then parameters and results
+LI_MODULE = 8           # a module this one imports, which its exported inline functions can name
 LI_PUB = 1              # flag of those four: exported (the others are there for the types of what is)
 LI_EXTERN = 1           # function flag: at a fixed address, which follows the flags
 LI_RECURSIVE = 2        # function and function type flag: declared `recursive`
 LI_ASM = 4              # function flag: an `asm` function, called like an extern one
+LI_INLINE = 8           # function flag: an `inline` function, whose saved tokens follow its members
+LI_INTERRUPT = 16       # function flag: an `interrupt` function, which cannot be called
 LI_AT = 1               # what a variable's placement byte can be: at a fixed address, which
 LI_ZP = 2               # follows it; declared `zp`; declared `nozp`; or 0
 LI_NOZP = 4
@@ -198,9 +203,15 @@ def write_function(stream, s):
         kernel.put(stream, LI_ASM)
     elif kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0:
         kernel.put(stream, LI_RECURSIVE)
+    elif kernel.sym_flags[s] & inline.SF_INLINE != 0:
+        kernel.put(stream, LI_INLINE)
+    elif kernel.sym_flags[s] & inline.SF_INTERRUPT != 0:
+        kernel.put(stream, LI_INTERRUPT)
     else:
         kernel.put(stream, 0)
     write_signature(stream, s)
+    if kernel.sym_flags[s] & inline.SF_INLINE != 0:
+        inline.write(stream, s)
 
 
 def write_constant(stream, s):
@@ -234,9 +245,18 @@ def write_interface(directory_name):
     kernel.put(stream, C_UPPER_I)
     kernel.put(stream, LI_VERSION)
     kernel.put_name(stream, kernel.module_name[0])
+    expands = False                     # an importer may expand an inline function of this one
+    for s in range(0, kernel.sym_count):
+        if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_FUNC \
+                and kernel.sym_flags[s] & (kernel.SF_PUB | inline.SF_INLINE) == kernel.SF_PUB | inline.SF_INLINE:
+            expands = True
     for s in range(0, kernel.sym_count):
         if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_TYPE:
             write_named_type(stream, s)
+        elif kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_MODULE:
+            if expands:
+                kernel.put(stream, LI_MODULE)
+                kernel.put_name(stream, kernel.sym_name[s])
         elif kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_flags[s] & kernel.SF_PUB != 0:
             if kernel.sym_kind[s] == kernel.K_FUNC:
                 write_function(stream, s)
@@ -249,15 +269,6 @@ def write_interface(directory_name):
 
 
 # ---- Reading an interface ----------------------------------------------------------------
-
-def read_name(stream):
-    length, _ = kernel.get(stream)
-    kernel.name_begin()
-    for i in range(0, length):
-        ch, _ = kernel.get(stream)
-        kernel.name_add(ch)
-    return kernel.name_end()
-
 
 def read_type(stream):
     mark = typetab.prefix_count
@@ -278,13 +289,13 @@ def read_type(stream):
 def imported_type(stream):
     """A record, an enumeration or a function type given by the name of its module and its own: the module must
     have been imported already, and is in a scope of its own number."""
-    name = read_name(stream)
+    name = inline.read_name(stream)
     scope = 1
     while scope < kernel.module_count and kernel.module_name[scope] != name:
         scope += 1
     if scope == kernel.module_count:
         err.fatal(err.E_TYPE_MODULE)
-    s, found = kernel.sym_find(scope, read_name(stream))
+    s, found = kernel.sym_find(scope, inline.read_name(stream))
     if not found or kernel.sym_kind[s] != kernel.K_TYPE:
         err.fatal(err.E_BAD_INTERFACE)
     return kernel.sym_type[s]
@@ -292,7 +303,7 @@ def imported_type(stream):
 
 def read_named_type(stream, scope, kind):
     """A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE."""
-    s = kernel.sym_add(scope, read_name(stream), kernel.K_TYPE)
+    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_TYPE)
     flags, _ = kernel.get(stream)
     if flags & LI_PUB != 0:
         kernel.sym_flags[s] = kernel.SF_PUB
@@ -310,7 +321,7 @@ def read_named_type(stream, scope, kind):
         return
     count, _ = kernel.get(stream)
     for i in range(0, count):
-        name = read_name(stream)
+        name = inline.read_name(stream)
         add_field(s, name, read_type(stream))
 
 
@@ -340,7 +351,7 @@ def read_signature(stream, s):
 
 
 def read_function(stream, scope):
-    s = kernel.sym_add(scope, read_name(stream), kernel.K_FUNC)
+    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_FUNC)
     flags, _ = kernel.get(stream)
     kernel.sym_flags[s] = kernel.SF_PUB
     if flags & LI_EXTERN != 0:
@@ -351,17 +362,22 @@ def read_function(stream, scope):
     if flags & LI_RECURSIVE != 0:
         kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_RECURSIVE
     read_signature(stream, s)
+    if flags & LI_INLINE != 0:
+        kernel.sym_flags[s] = kernel.SF_PUB | inline.SF_INLINE
+        inline.read(stream, s)
+    if flags & LI_INTERRUPT != 0:
+        kernel.sym_flags[s] = kernel.SF_PUB | inline.SF_INTERRUPT
 
 
 def read_constant(stream, scope):
-    s = kernel.sym_add(scope, read_name(stream), kernel.K_CONST)
+    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_CONST)
     kernel.sym_flags[s] = kernel.SF_PUB
     kernel.sym_type[s] = read_type(stream)
     kernel.sym_value[s] = kernel.get_word(stream)
 
 
 def read_variable(stream, scope):
-    s = kernel.sym_add(scope, read_name(stream), kernel.K_VAR)
+    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_VAR)
     kernel.sym_type[s] = read_type(stream)
     placement, _ = kernel.get(stream)
     kernel.sym_flags[s] = kernel.SF_PUB
@@ -374,6 +390,20 @@ def read_variable(stream, scope):
         kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_NOZP
     elif placement != 0:
         err.fatal(err.E_BAD_INTERFACE)
+
+
+def imported_module(stream, scope):
+    """An LI_MODULE entry: a module that the exported inline functions of module `scope` can
+    name. It is imported too, if it is not already, and is a name of that module's scope, which
+    the expansions of its inline functions see and the importer's own code does not."""
+    name = inline.read_name(stream)
+    m = 1
+    while m < kernel.module_count and kernel.module_name[m] != name:
+        m += 1
+    if m == kernel.module_count:
+        m = kernel.module_add(name)
+        read_interface(m)
+    kernel.sym_value[kernel.sym_add(scope, name, kernel.K_MODULE)] = m
 
 
 def open_interface(name):
@@ -394,11 +424,11 @@ def read_interface(number):
     version, _ = kernel.get(stream)
     if letter_l != C_UPPER_L or letter_i != C_UPPER_I or version != LI_VERSION:
         err.fatal(err.E_BAD_INTERFACE)
-    if read_name(stream) != kernel.module_name[number]:
+    if inline.read_name(stream) != kernel.module_name[number]:
         err.fatal(err.E_BAD_INTERFACE)
     while True:
         kind, at_end = kernel.get(stream)
-        if at_end or kind > LI_FUNC_TYPE:
+        if at_end or kind > LI_MODULE:
             err.fatal(err.E_BAD_INTERFACE)      # a file cut short has no LI_END
         if kind == LI_END:
             break
@@ -408,6 +438,8 @@ def read_interface(number):
             read_constant(stream, number)
         elif kind == LI_VAR:
             read_variable(stream, number)
+        elif kind == LI_MODULE:
+            imported_module(stream, number)
         else:
             read_named_type(stream, number, kind)
     kernel.close(stream)
@@ -454,6 +486,8 @@ def function_symbol(flags):
     s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
     if found and kernel.sym_kind[s] == kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_FORWARD != 0 \
             and flags & kernel.SF_FORWARD == 0:
+        if flags & (inline.SF_INLINE | inline.SF_INTERRUPT) != 0:
+            err.fatal(err.E_ATTRIBUTES)
         if (kernel.sym_flags[s] ^ flags) & kernel.SF_RECURSIVE != 0:
             err.fatal(err.E_FORWARD)
         kernel.sym_flags[s] = flags
@@ -572,6 +606,8 @@ def object_flags(s):
         flags = out.FUNC_EXPORTED
     if kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0:
         flags = flags | out.FUNC_RECURSIVE
+    if kernel.sym_flags[s] & inline.SF_INTERRUPT != 0:
+        flags = flags | out.FUNC_INTERRUPT
     return flags
 
 
@@ -664,12 +700,16 @@ def lasting_variables(first, scope):
         if kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] == scope \
                 and kernel.sym_flags[s] & kernel.SF_AT == 0:
             out.variable(kernel.sym_obj[s], typetab.size(kernel.sym_type[s]),
-                         stmt.zp_class(kernel.sym_flags[s]), kernel.sym_weight[s])
+                         expr.zp_class(kernel.sym_flags[s]), kernel.sym_weight[s])
 
 
 def function_declaration(flags):
-    """funcDecl = funcHead NL body "end" NL, or "forward" funcHead NL if `flags` say so."""
+    """funcDecl = funcHead NL body "end" NL, or "forward" funcHead NL if `flags` say so. An
+    interrupt function has no parameters and no results (reported at its name), and entry
+    and exit code."""
     lex.next()
+    line = lex.line
+    col = lex.col
     s, fresh = function_symbol(flags)
     # The scope begins once the function's own name is declared and the token after it has
     # been read: every name made from here on is a parameter's or a local's.
@@ -680,7 +720,12 @@ def function_declaration(flags):
     if flags & kernel.SF_FORWARD != 0:
         kernel.scope_end()
         return
-    stmt.function_body(s)
+    if flags & inline.SF_INTERRUPT != 0:
+        if kernel.sym_params[s] + kernel.sym_results[s] != 0:
+            err.position(line, col)
+            err.fatal(err.E_INTERRUPT_HEAD)
+        gen.interrupt_entry()
+    expr.function_body(s)
     if lex.tok != lex.T_END:
         err.fatal(err.E_END_EXPECTED)
     gen.function_end(object_flags(s))
@@ -690,6 +735,41 @@ def function_declaration(flags):
     kernel.scope_end()
     lex.next()
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
+def inline_declaration(flags):
+    """"inline" funcHead NL body "end" NL, from "func" on. The body is not compiled: INLINE
+    saves its tokens, which EXPR replays at each call. The names the declaration made are kept
+    for the whole module, because the saved tokens use them; its symbols go as a function's do."""
+    lex.next()
+    s, fresh = function_symbol(flags)
+    kernel.scope_begin()
+    reg.begin(kernel.NO_OBJ)
+    head(s, fresh)
+    inline.save(s)
+    kernel.local_names = kernel.name_top
+    kernel.scope_end()
+    lex.next()
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
+def attributed_declaration(flags):
+    """"inline" or "interrupt", then funcHead NL body "end" NL. Each attribute goes with
+    neither the other, nor `recursive`, nor `asm`."""
+    if lex.tok == lex.T_INLINE:
+        flags = flags | inline.SF_INLINE
+    else:
+        flags = flags | inline.SF_INTERRUPT
+    lex.next()
+    if lex.tok == lex.T_INLINE or lex.tok == lex.T_INTERRUPT or lex.tok == lex.T_RECURSIVE \
+            or lex.tok == lex.T_ASM:
+        err.fatal(err.E_ATTRIBUTES)
+    if lex.tok != lex.T_FUNC:
+        err.fatal(err.E_FUNC_EXPECTED)
+    if flags & inline.SF_INLINE != 0:
+        inline_declaration(flags)
+    else:
+        function_declaration(flags)
 
 
 # ---- Constants, and what the end of the module writes ------------------------------------
@@ -706,14 +786,14 @@ def constant_declaration(flags):
         col = lex.col
         t = expr.type_spec()
         err.position(line, col)
-        stmt.layout(t)
+        expr.layout(t)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
-    stmt.no_record(t)
+    expr.no_record(t)
     if t == typetab.NO_TYPE and lex.tok == lex.T_STRING:
         t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, False)
     if typetab.is_array(t):
         symbol = out.symbol(out.SYM_DATA, kernel.module_name[0], 0, name)
-        stmt.table_data(t, symbol)
+        expr.table_data(t, symbol)
         s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
         kernel.sym_flags[s] = flags
         kernel.sym_type[s] = t
@@ -763,11 +843,6 @@ def check_bodies():
             err.fatal(err.E_NO_BODY)
 
 
-def starts_later_declaration(token):
-    """True for the first token of a declaration not done yet."""
-    return token == lex.T_INLINE or token == lex.T_INTERRUPT
-
-
 def type_symbol(name, flags):
     s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_TYPE)
     kernel.sym_flags[s] = flags
@@ -788,7 +863,7 @@ def record_type(s):
         col = lex.col
         f = expr.type_spec()
         err.position(line, col)
-        stmt.layout(f)
+        expr.layout(f)
         if typetab.innermost(f) == t:
             err.fatal(err.E_RECORD_SELF)
         add_field(s, name, f)
@@ -842,7 +917,7 @@ def type_declaration(flags):
         col = lex.col
         t = expr.type_spec()
         err.position(line, col)
-        stmt.layout(t)
+        expr.layout(t)
         kernel.sym_type[type_symbol(name, flags)] = t
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 
@@ -896,6 +971,8 @@ def declaration():
         lex.next()
     if lex.tok == lex.T_RECURSIVE:
         lex.next()
+        if lex.tok == lex.T_INLINE or lex.tok == lex.T_INTERRUPT:
+            err.fatal(err.E_ATTRIBUTES)
         if lex.tok == lex.T_EXTERN or lex.tok == lex.T_ASM:
             err.fatal(err.E_RECURSIVE_BODY)
         if lex.tok != lex.T_FUNC:
@@ -907,6 +984,8 @@ def declaration():
         function_declaration(flags)
     elif lex.tok == lex.T_ASM:
         asm_function_declaration(flags)
+    elif lex.tok == lex.T_INLINE or lex.tok == lex.T_INTERRUPT:
+        attributed_declaration(flags)
     elif lex.tok == lex.T_CONST:
         constant_declaration(flags)
     elif lex.tok == lex.T_TYPE:
@@ -914,12 +993,12 @@ def declaration():
     elif lex.tok == lex.T_ENUM:
         enum_declaration(flags)
     elif lex.tok == lex.T_VAR:
-        stmt.variable(flags, stmt.LEVEL_MODULE)
+        expr.variable(flags, expr.LEVEL_MODULE)
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
     elif lex.tok == lex.T_HASH_IF:
-        stmt.directive()
+        expr.directive()
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
-    elif starts_later_declaration(lex.tok) or lex.tok == lex.T_STATIC:
+    elif lex.tok == lex.T_STATIC:
         err.fatal(err.E_UNSUPPORTED)
     else:
         err.fatal(err.E_DECL_EXPECTED)

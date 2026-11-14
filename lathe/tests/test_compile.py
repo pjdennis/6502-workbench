@@ -533,7 +533,7 @@ class InterfaceTest(CompileTest):
         head = b'LI\x01' + string(b'lib')
         for damaged in (head + b'\x03' + string(b'v') + b'\x13' + string(b'lib') + string(b'none') + b'\x00\x00',
                         head + b'\x04' + string(b'x') + b'\x01\x09',          # an unknown type
-                        head + b'\x08' + string(b'x') + b'\x00'):              # an unknown kind of entry
+                        head + b'\x09' + string(b'x') + b'\x00'):              # an unknown kind of entry
             with open(os.path.join(self.out, 'lib.li'), 'wb') as f:
                 f.write(damaged)
             self.assertEqual(support.run_lathec(user, self.out),

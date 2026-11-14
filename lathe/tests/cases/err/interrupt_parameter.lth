@@ -1,0 +1,4 @@
+; error 172 3 16
+module interrupt_parameter
+interrupt func handler(n: byte)
+end

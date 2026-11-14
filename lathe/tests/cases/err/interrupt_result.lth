@@ -1,0 +1,5 @@
+; error 172 3 16
+module interrupt_result
+interrupt func handler(): bool
+  return true
+end

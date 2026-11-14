@@ -70,6 +70,7 @@ cpu = 0                 # 0 6502, 1 65C02; from the environment description, whe
 pend_op = 0             # the pending operation (a fold.ADD to fold.SHR), or 0
 pend_type = 0           # the type of its result
 outer = out.NO_OUTER    # the function whose arguments are being stored, as CALL records name it
+leave = reg.NONE        # in an interrupt function: the label of its exit code
 
 init_symbol = [0] * MAX_INITS       # the variables with initial values: as for reg.push_memory
 init_address = [0] * MAX_INITS
@@ -1411,6 +1412,14 @@ def call(f, first, wanted):
         result(f)
 
 
+def code_address(s):
+    """`@f`, where the newest operand is function `s`, an interrupt function: its address, a
+    `^byte`."""
+    reg.pop()
+    reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
+    reg.op_symbol[reg.depth - 1] = object_symbol(s)
+
+
 def mark():
     """A number that changes with every instruction generated."""
     return fbuf.used
@@ -1482,9 +1491,46 @@ def load_result():
 
 
 def ret():
-    """Return from the function. A call just made returns for it instead."""
-    if not fbuf.tail_call():
+    """Return from the function. A call just made returns for it instead. An interrupt
+    function goes to its exit code."""
+    if leave != reg.NONE:
+        reg.jump(leave)
+    elif not fbuf.tail_call():
         fbuf.op(OP_RTS)
+
+
+# What an interrupt function does on entry and on exit (docs/code-model.md, "Interrupts"): save
+# A, X and Y on the stack, and clear the decimal flag, which an NMOS 6502 does not clear on an
+# interrupt; restore them, and RTI. The 65C02 pushes X and Y without A, and clears the flag itself.
+ENTRY_6502 = b"\x48\x8A\x48\x98\x48\xD8"       # PHA TXA PHA TYA PHA CLD
+EXIT_6502 = b"\x68\xA8\x68\xAA\x68\x40"        # PLA TAY PLA TAX PLA RTI
+ENTRY_65C02 = b"\x48\xDA\x5A"                    # PHA PHX PHY
+EXIT_65C02 = b"\x7A\xFA\x68\x40"                # PLY PLX PLA RTI
+
+
+def interrupt_entry():
+    """The function being compiled is an interrupt function: its entry code, here."""
+    global leave
+    leave = fbuf.new_label()
+    if cpu == 0:
+        for i in range(0, len(ENTRY_6502)):
+            fbuf.op(ENTRY_6502[i])
+    else:
+        for i in range(0, len(ENTRY_65C02)):
+            fbuf.op(ENTRY_65C02[i])
+
+
+def interrupt_exit():
+    """The exit code of an interrupt function, where its body ends and every `return` goes."""
+    global leave
+    reg.label(leave)
+    leave = reg.NONE
+    if cpu == 0:
+        for i in range(0, len(EXIT_6502)):
+            fbuf.op(EXIT_6502[i])
+    else:
+        for i in range(0, len(EXIT_65C02)):
+            fbuf.op(EXIT_65C02[i])
 
 
 def loop_begin():
@@ -1499,11 +1545,12 @@ def loop_end():
 
 def function_begin(symbol):
     """Start generating the function whose object-file symbol is `symbol`."""
-    global pend_op, outer, stub_count, saves_frame, argument_count
+    global pend_op, outer, leave, stub_count, saves_frame, argument_count
     fbuf.begin()
     reg.begin(symbol)
     pend_op = 0
     outer = out.NO_OUTER
+    leave = reg.NONE
     stub_count = 0
     saves_frame = False
     argument_count = 0
@@ -1518,7 +1565,9 @@ def slots(first, count):
 def function_end(flags):
     """End the function and write it to the object file: its parameters and locals, then its
     temporaries, then its code."""
-    if fbuf.runs_on():
+    if leave != reg.NONE:
+        interrupt_exit()
+    elif fbuf.runs_on():
         ret()
     for n in range(0, stub_count):
         reg.label(stub_label[n])        # reached only by the JSRs of pointer calls: nothing is known

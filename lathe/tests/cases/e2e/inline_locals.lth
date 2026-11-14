@@ -1,0 +1,39 @@
+; An inline function whose locals are an array (a slot of its own in the caller's frame, at
+; each expansion) and a pointer it steps (a temporary, which must be in zero page), expanded
+; twice in one expression and once inside a loop.
+module inline_locals
+
+import libout
+
+var text: [6]byte = [1, 2, 3, 4, 5, 0]
+
+; the bytes from p to the zero, read backwards as the bits of a sum: s = s * 2 + b
+inline func reverse_sum(p: ^byte): byte
+  var buf: [8]byte
+  var q: ^byte = p
+  var n: byte = 0
+  var s: byte = 0
+  while q[0] != 0 do
+    buf[n] = q[0]
+    n += 1
+    q += 1
+  end
+  while n > 0 do
+    n -= 1
+    s = s * 2 + buf[n]
+  end
+  return s
+end
+
+pub func main()
+  var i: byte
+  libout.dec(reverse_sum(@text))
+  libout.space()
+  libout.dec(reverse_sum(@text[3]) + reverse_sum(@text[4]))
+  libout.space()
+  for i = 0 to 4 do
+    libout.dec(reverse_sum(@text[i]))
+    libout.char(',')
+  end
+  libout.nl()
+end

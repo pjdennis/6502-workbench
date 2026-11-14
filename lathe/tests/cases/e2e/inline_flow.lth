@@ -1,0 +1,113 @@
+; Inline functions with locals and several returns, used as statements, in expressions, in
+; conditions, with `-> v` and with `v, ok = f()`, inside loops and inside `critical`.
+module inline_flow
+
+import libout
+
+var data: [12]byte = [14, 3, 250, 77, 0, 77, 9, 128, 31, 200, 5, 64]
+var calls: byte                 ; how often classify() ran: it counts itself
+var cursor: byte
+
+; 0 for zero, 1 below 10, 2 below 100, 3 otherwise
+inline func classify(v: byte): byte
+  var c: byte = 3
+  calls += 1
+  if v == 0 then
+    return 0
+  elif v < 10 then
+    c = 1
+  elif v < 100 then
+    return 2
+  end
+  return c
+end
+
+; where v is first, from `from` on
+inline func find(v: byte, from: byte): byte, bool
+  var i: byte = from
+  while i < 12 do
+    if data[i] == v then
+      return i, true
+    end
+    i += 1
+  end
+  return 12, false
+end
+
+; true if v is odd and above `limit`
+inline func odd_above(v: byte, limit: byte): bool
+  if v & 1 == 0 then
+    return false
+  end
+  return v > limit
+end
+
+; the next element, until there are none
+inline func next(): byte, bool
+  var at_cursor: byte = cursor
+  if at_cursor == 12 then
+    return 0, false
+  end
+  cursor = at_cursor + 1
+  return data[at_cursor], true
+end
+
+; the larger, as a word
+inline func larger(a: word, b: word): word
+  if a > b then
+    return a
+  end
+  return b
+end
+
+pub func main()
+  var i: byte
+  var where: byte
+  var ok: bool
+  var sum: word = 0
+  var v: byte
+  for i = 0 to 11 do
+    libout.dec(classify(data[i]))
+  end
+  libout.nl()
+  classify(5)                           ; a statement: the result is not used
+  sum = classify(data[2]) + classify(data[6]) * 4 + 1
+  libout.dec(sum)
+  libout.space()
+  libout.dec(calls)
+  libout.nl()
+  where, ok = find(77, 0)
+  libout.dec(where)
+  libout.truth(ok)
+  where, ok = find(77, where + 1)
+  libout.dec(where)
+  libout.truth(ok)
+  if not find(99, 0) -> where then
+    libout.dec(where)
+  end
+  if find(5, 3) -> where and classify(data[where]) == 1 then
+    libout.char('+')
+    libout.dec(where)
+  end
+  libout.nl()
+  for i = 0 to 11 do
+    if odd_above(data[i], 8) then
+      libout.char('o')
+    else
+      libout.char('.')
+    end
+  end
+  libout.nl()
+  cursor = 0
+  sum = 0
+  while next() -> v do
+    sum = larger(sum + v, 300)
+  end
+  libout.dec(sum)
+  libout.space()
+  critical
+    sum = larger(1000, larger(sum, 2000))
+  end
+  libout.dec(sum)
+  libout.nl()
+end

@@ -1,0 +1,63 @@
+; A word shared by an interrupt handler and the main program (docs/code-model.md, "Interrupts",
+; "Shared variables"). The handler adds $0101 to it at each interrupt, so its two bytes are
+; always equal; a read whose bytes differ is torn, the handler having come between them.
+;
+; Main reads it many times inside `critical`, where no read may be torn (first row: GUARDED OK),
+; and then as many times without, a byte at a time with a wait between the bytes, so that the
+; handler often comes between them (second row: BARE TORN): that shows the check finds a torn
+; read, whatever code the compiler makes of the reads. It stops after IRQS interrupts. The same source serves both boards
+; (cases/e2e-wendy2/irq_word.lth is a link to this file).
+module irq_word
+
+import board
+import lcd
+import timer
+
+const IRQS = 100
+
+var shared: word
+
+interrupt func handler()
+  timer.acknowledge()
+  shared += $0101
+  if timer.count == IRQS then
+    timer.stop()
+  end
+end
+
+pub func main()
+  var copy: word
+  var low: byte
+  var guarded: word = 0         ; torn reads inside critical
+  var bare: word = 0            ; and outside it
+  lcd.init()
+  timer.start_with(1000, @handler)
+  while timer.ticks() < IRQS / 2 do
+    critical
+      copy = shared
+    end
+    if lo(copy) != hi(copy) then
+      guarded += 1
+    end
+  end
+  while timer.ticks() < IRQS do
+    low = lo(shared)
+    board.delay(1)
+    if low != hi(shared) then
+      bare += 1
+    end
+  end
+  lcd.print("GUARDED ")
+  if guarded == 0 then
+    lcd.print("OK")
+  else
+    lcd.print("TORN")
+  end
+  lcd.goto(1, 0)
+  lcd.print("BARE ")
+  if bare == 0 then
+    lcd.print("OK")
+  else
+    lcd.print("TORN")
+  end
+end

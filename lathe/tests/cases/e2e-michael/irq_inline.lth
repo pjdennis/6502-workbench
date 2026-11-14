@@ -1,0 +1,44 @@
+; An interrupt handler that calls inline functions: timer.acknowledge(), from another module, and
+; remember(), which has a parameter and a local; both are expanded into the handler, whose frame
+; (in the handler's own storage) holds what they need. The handler keeps the low byte of the
+; count of each of the last eight interrupts in a ring; main waits for IRQS interrupts and shows
+; the ring, oldest first, in hexadecimal. The same source serves both boards
+; (cases/e2e-wendy2/irq_inline.lth is a link to this file).
+module irq_inline
+
+import lcd
+import timer
+
+const IRQS = 20
+const SIZE = 8
+
+var ring: [SIZE]byte
+var head: byte                  ; where the next goes
+
+inline func remember(v: byte)
+  var at_head: byte = head
+  ring[at_head] = v
+  head = (at_head + 1) & (SIZE - 1)
+end
+
+interrupt func handler()
+  timer.acknowledge()
+  remember(lo(timer.count))
+  if timer.count == IRQS then
+    timer.stop()
+  end
+end
+
+pub func main()
+  var i: byte
+  lcd.init()
+  timer.start_with(1500, @handler)
+  while timer.ticks() < IRQS do
+  end
+  lcd.print("IRQS ")
+  lcd.print_dec(timer.ticks())
+  lcd.goto(1, 0)
+  for i = 0 to SIZE - 1 do
+    lcd.print_hex(ring[(head + i) & (SIZE - 1)])
+  end
+end

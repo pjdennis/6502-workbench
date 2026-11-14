@@ -16,6 +16,7 @@
 ;     100 to 139  meaning, continued: further errors about meaning go here
 ;     140 to 149  `asm` blocks and `asm` functions
 ;     150 to 164  function types, calls through pointers, and recursion
+;     165 to 179  `inline` and `interrupt` functions (165 is a capacity)
 ;
 ; A number is never reused for another error; a new one takes the next free number of its group.
 ;
@@ -170,6 +171,16 @@ pub const E_FUNC_ADDRESS = 153
 pub const E_REGISTER_FUNC = 154
 pub const E_RECURSIVE_BODY = 155
 pub const E_CLASS_MEMBERS_FULL = 156
+; inline and interrupt functions
+pub const E_INLINE_FULL = 165
+pub const E_INLINE_DEEP = 166
+pub const E_INLINE_RECURSIVE = 167
+pub const E_INLINE_NOT_HERE = 168
+pub const E_INLINE_ADDRESS = 169
+pub const E_INLINE_PRIVATE = 170
+pub const E_ATTRIBUTES = 171
+pub const E_INTERRUPT_HEAD = 172
+pub const E_INTERRUPT_CALL = 173
 
 const MESSAGES: [60]^byte = [
   "1 character not allowed here",
@@ -233,7 +244,7 @@ const MESSAGES: [60]^byte = [
   "77 too many references in one function",
   "78 too many calls in one function"
 ]
-const MORE_MESSAGES: [51]^byte = [
+const MORE_MESSAGES: [60]^byte = [
   "79 expression too complex",
   "80 too many open files",
   "81 sources nested too deeply",
@@ -284,7 +295,16 @@ const MORE_MESSAGES: [51]^byte = [
   "153 the address of a function is a value only where a function type is wanted",
   "154 an asm function cannot be called through a pointer: its parameters are in registers",
   "155 only a function with a body in Lathe can be recursive",
-  "156 too many functions taken as function types in one module"
+  "156 too many functions taken as function types in one module",
+  "165 too many saved tokens of inline functions in this module",
+  "166 inline calls nested too deeply",
+  "167 an inline function cannot call itself, directly or through other inline functions",
+  "168 an inline function cannot have asm, static or #if",
+  "169 an inline function has no address",
+  "170 an exported inline function can use only exported names of its module",
+  "171 inline and interrupt go with neither each other, nor asm, nor a forward declaration",
+  "172 an interrupt function has no parameters and no results",
+  "173 an interrupt function cannot be called: store its address, @name, where the board wants it"
 ]
 const TOOL: [6]byte = "lathec"
 const ERROR: [8]byte = ": error "

@@ -1,0 +1,7 @@
+; error 173 6 10
+module interrupt_called
+interrupt func handler()
+end
+func f()
+  handler()
+end

@@ -1,15 +1,16 @@
 """SRC: the source stack.
 
 Owns the stack of sources being read and gives LEX the top one, a character at a time, with
-the line and column of that character. Today a source is a source file (or, for tests, text
-in memory). The saved tokens of an `inline` function being replayed will be a third kind of
-source, pushed on the same stack; an imported interface is not a source, because DECL reads
-it straight into the symbol table.
+the line and column of that character. A source is a source file (or, for tests, text in
+memory), or the saved tokens of an `inline` function being replayed (open_saved()): bytes in
+memory too, but LEX reads tokens from them with next_byte() instead of characters, and keeps
+`line` itself. An imported interface is not a source, because DECL reads it straight into the
+symbol table.
 """
 import err
 import kernel
 
-MAX_SOURCES = 4
+MAX_SOURCES = 8         # the file, and the bodies of inline calls inside each other
 LAST_POSITION = 0xFFFF      # lines and columns are counted this far and no further
 C_LF = 0x0A
 
@@ -21,6 +22,7 @@ depth = 0           # how many sources are open
 
 stream = 0          # the top source's stream
 name = 0            # pointer to its file name, 0 if it has none
+replaying = False   # True if the top source is a saved token run
 
 # The sources below the top one, as they were when the one above was opened.
 below_stream = [0] * MAX_SOURCES
@@ -29,6 +31,7 @@ below_ch = [0] * MAX_SOURCES
 below_eof = [False] * MAX_SOURCES
 below_line = [0] * MAX_SOURCES
 below_col = [0] * MAX_SOURCES
+below_replaying = [False] * MAX_SOURCES
 
 
 def init():
@@ -40,9 +43,10 @@ def init():
 
 def push(new_stream, new_name):
     """Make a new top source and look at its first character."""
-    global depth, stream, name, line, col, ch, eof
+    global depth, stream, name, line, col, ch, eof, replaying
     if depth == MAX_SOURCES:
         err.fatal(err.E_SOURCES_FULL)
+    below_replaying[depth] = replaying
     below_stream[depth] = stream
     below_name[depth] = name
     below_ch[depth] = ch
@@ -57,6 +61,7 @@ def push(new_stream, new_name):
     col = 0
     ch = 0
     eof = False
+    replaying = False
     advance()
 
 
@@ -71,6 +76,23 @@ def open_file(file_name):
 def open_memory(start, limit):
     """Start reading the text in env.mem from `start` up to but not including `limit`."""
     push(kernel.open_memory(start, limit), 0)
+
+
+def open_saved(start, limit, file_name, first_line):
+    """Start replaying the saved tokens in env.mem from `start` up to but not including `limit`,
+    which were read from the file whose name is at `file_name`, from line `first_line` on."""
+    global replaying, line
+    push(kernel.open_memory(start, limit), file_name)
+    replaying = True
+    line = first_line
+
+
+def next_byte():
+    """The byte being looked at in a saved token run; the one after it is looked at next."""
+    global ch, eof
+    b = ch
+    ch, eof = kernel.get(stream)
+    return b
 
 
 def advance():
@@ -89,9 +111,10 @@ def advance():
 
 def close():
     """Stop reading the top source and go back to the one below it."""
-    global depth, stream, name, ch, eof, line, col
+    global depth, stream, name, ch, eof, line, col, replaying
     kernel.close(stream)
     depth -= 1
+    replaying = below_replaying[depth]
     stream = below_stream[depth]
     name = below_name[depth]
     ch = below_ch[depth]

@@ -30,6 +30,8 @@
 ;   | write(handle, byte), put_byte(byte)    | parameter `b`               | `byte` is a keyword    |
 ;   | read() returns 0 at the end            | sets 0 itself               | the service leaves A   |
 ;   |                                        |                             | undefined at the end   |
+;   | argc, write, put_byte, put_error:      | `inline`: a call is the     | smaller code           |
+;   | functions                              | host service's own          |                        |
 module sys
 
 import host
@@ -38,7 +40,7 @@ const MAX_FILES = 16
 var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
 
 ; Number of program arguments.
-pub func argc(): byte
+pub inline func argc(): byte
   return host.argc()
 end
 
@@ -100,17 +102,17 @@ pub func read(handle: byte): byte, bool
   return b, false
 end
 
-pub func write(handle: byte, b: byte)
+pub inline func write(handle: byte, b: byte)
   host.write(b, handle)
 end
 
 ; One byte to standard output.
-pub func put_byte(b: byte)
+pub inline func put_byte(b: byte)
   host.put_byte(b)
 end
 
 ; One byte to the error output.
-pub func put_error(b: byte)
+pub inline func put_error(b: byte)
   host.put_error(b)
 end
 

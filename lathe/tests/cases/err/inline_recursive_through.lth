@@ -1,0 +1,13 @@
+; error 167 9 4
+module inline_recursive_through
+var n: byte
+inline func a()
+  n += 1
+end
+inline func b()
+  a()
+  b()
+end
+func g()
+  b()
+end

@@ -6,7 +6,8 @@
 ; continuation rule is applied here and nowhere else.
 ;
 ; Conditional compilation is done here too: the lines of a part that is not compiled never
-; become tokens (directive()). The line mode of `asm` blocks, where whole lines pass through
+; become tokens (directive()). A saved token run (src.open_saved()) is read as tokens, not
+; characters (saved_token()); the format is at SAVED_LINE. The line mode of `asm` blocks, where whole lines pass through
 ; until a line whose first word is `end`, is ASM's: it reads the source itself.
 ;
 ; Where the Lathe differs from the Python:
@@ -25,6 +26,7 @@
 ;   |                                     |                                    | library        |
 ;   | ~bit & 0xFFFF                       | ~bit                               | a word wraps   |
 ;   | `while True:` ... `break`           | loop ... end                       |                |
+;   | is_digit(): a function              | `inline`; C_0 and C_9 exported     | smaller code   |
 module lex
 
 import err
@@ -154,8 +156,8 @@ const C_COMMA = $2C
 const C_MINUS = $2D
 const C_DOT = $2E
 const C_SLASH = $2F
-const C_0 = $30
-const C_9 = $39
+pub const C_0 = $30
+pub const C_9 = $39
 const C_COLON = $3A
 const C_SEMICOLON = $3B
 const C_LESS = $3C
@@ -179,6 +181,13 @@ const C_X = $78
 const C_Z = $7A
 const C_BAR = $7C
 const C_TILDE = $7E
+
+; A saved token run is, for each token: its token number, its column (one byte, at most 255),
+; and for T_NAME the name and for T_NUMBER the value (two bytes each), for T_STRING its length
+; and its bytes. Before a token on a later line than the one before it: SAVED_LINE and how many
+; lines later, one or more times (each at most 255). Every token number is below SAVED_LINE.
+pub const SAVED_LINE = $7F
+pub const MAX_COLUMN = $FF
 
 ; ---- The current token -------------------------------------------------------------------
 
@@ -246,7 +255,7 @@ pub func is_letter(c: byte): bool
   return c >= C_A and c <= C_Z
 end
 
-pub func is_digit(c: byte): bool
+pub inline func is_digit(c: byte): bool
   return c >= C_0 and c <= C_9
 end
 
@@ -598,8 +607,41 @@ func mark(c: byte): byte
 end
 
 ; Read one token, taking every line end as a token.
+; Read one token from the saved token run that is the top source. Its end is T_EOF, at the
+; place of the token before it.
+func saved_token()
+  var i: byte
+  while not src.eof and src.ch == SAVED_LINE do
+    src.next_byte()
+    src.line += src.next_byte()
+  end
+  if src.eof then
+    tok = T_EOF
+    return
+  end
+  line = src.line
+  tok = src.next_byte()
+  col = src.next_byte()
+  err.position(line, col)
+  if tok == T_NAME or tok == T_NUMBER then
+    value = src.next_byte()
+    value = value | (word(src.next_byte()) << 8)
+  elif tok == T_STRING then
+    string_length = src.next_byte()
+    i = 0
+    while i < string_length do
+      string[i] = src.next_byte()
+      i += 1
+    end
+  end
+end
+
 func scan()
   var c: byte
+  if src.replaying then
+    saved_token()
+    return
+  end
   skip_blanks()
   line = src.line
   col = src.col

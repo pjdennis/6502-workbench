@@ -71,7 +71,7 @@ Because there is no syntax tree, memory holds only:
 | Symbol heap: module-level names, types, imported interfaces | whole module | 8–16 KB |
 | Symbols of the current function | until the function ends, then released | under 1 KB |
 | Function buffer | until the function ends | 2–4 KB |
-| Saved tokens of `inline` functions | whole module | small |
+| Saved tokens of `inline` functions | whole module | small (the host compiler keeps 4 KB, `inline.SAVED_SIZE`: about 20 bytes a line) |
 | Stream buffers | — | 256 bytes each |
 
 Source size is unlimited. The limits are the number of module-level names, and the size of one function. Both are raised by splitting a module.

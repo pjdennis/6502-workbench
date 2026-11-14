@@ -1,0 +1,81 @@
+; Inline accessors of one line called with constants and plain variables give exactly the code
+; their bodies give written in place: inlined() and in_place() below are the same instruction
+; for instruction (lathe/tests/test_inline.py checks it), with no slot and no jump of their own.
+; A body is not compiled where it is declared: the inline functions have no code here.
+module inline_basic
+
+type P = record
+  x: byte
+  y: word
+end
+
+var table: [16]byte
+var words: [16]word
+var ptr: ^P
+var g: byte
+var w: word
+
+inline func item(i: byte): byte
+  return table[i]
+end
+
+inline func word_at(i: byte): word
+  return words[i]
+end
+
+inline func px(q: ^P): byte
+  return q.x
+end
+
+inline func set(i: byte, v: byte)
+  table[i] = v
+end
+
+inline func sum(a: word, b: word): word
+  return a + b
+end
+
+inline func less(a: byte, b: byte): bool
+  return a < b
+end
+
+func inlined(k: byte)
+  var v: byte
+  v = item(k)
+  v = item(3) + g
+  w = word_at(k)
+  w = sum(w, 1000)
+  g = px(ptr)
+  set(k, g)
+  set(2, 7)
+  if less(g, k) then
+    g = 0
+  end
+  while less(k, 9) do
+    k += 1
+  end
+end
+
+func in_place(k: byte)
+  var v: byte
+  v = table[k]
+  v = table[3] + g
+  w = words[k]
+  w = w + 1000
+  g = ptr.x
+  table[k] = g
+  table[2] = 7
+  if g < k then
+    g = 0
+  end
+  while k < 9 do
+    k += 1
+  end
+end
+
+; An argument that is not a constant or a plain variable is stored in a slot of the caller's
+; frame, a temporary, which the expansion owns while it lasts: here the element and the sum.
+func not_plain(k: byte)
+  g = item(table[k])
+  w = sum(w + 1, w)
+end

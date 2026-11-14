@@ -1,0 +1,6 @@
+; error 168 4 3
+module inline_static
+inline func f(): byte
+  static var count: byte
+  return count
+end

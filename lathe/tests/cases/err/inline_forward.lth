@@ -1,0 +1,9 @@
+; error 171 7 13
+module inline_forward
+forward func f(): byte
+func g(): byte
+  return f()
+end
+inline func f(): byte
+  return 1
+end

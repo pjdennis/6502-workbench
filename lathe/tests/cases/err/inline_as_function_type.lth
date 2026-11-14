@@ -1,0 +1,9 @@
+; error 169 8 9
+module inline_as_function_type
+type Action = func()
+var act: Action
+inline func f()
+end
+func g()
+  act = @f
+end

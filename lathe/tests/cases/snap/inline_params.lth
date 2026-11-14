@@ -1,0 +1,66 @@
+; How a parameter of an inline function gets its argument (lathe/host/inline.py,
+; argument_symbol()): it stands for a constant, for a slot of the caller's frame, or (if the body
+; is pure and does not assign to it) for a variable of the program; otherwise it is a slot of
+; the caller's frame that the argument is stored in.
+module inline_params
+
+var g: byte
+var h: byte
+var device: byte at $D000
+var t: [8]byte
+
+; assigns to its parameter: always a slot
+inline func count_down(n: byte): byte
+  var steps: byte = 0
+  while n > 0 do
+    n -= 1
+    steps += 1
+  end
+  return steps
+end
+
+; pure, and assigns to `t` only: stands for any variable but `t`
+inline func put(i: byte, v: byte)
+  t[i] = v
+end
+
+; assigns to `g`: g as an argument is copied
+inline func into_g(v: byte)
+  g = v
+  h = v
+end
+
+func tick()
+  h += 1
+end
+
+; makes a call: no variable of the program stands for a parameter
+inline func call_with(v: byte)
+  tick()
+  h = v
+end
+
+inline func add(a: byte, b: byte): byte
+  return a + b
+end
+
+func cases(k: byte)
+  var local: byte = 1
+  g = count_down(k)             ; a slot, though k is a plain variable
+  g = count_down(5)
+  put(k, local)                 ; both are the caller's slots
+  put(g, h)                     ; both are variables of the program
+  put(1, device)                ; a variable at a fixed address is read once, into a slot
+  into_g(g)                     ; g is assigned by the body: copied
+  into_g(h)                     ; h too, as the body is not pure
+  call_with(k)                  ; a slot of the caller's: the call cannot reach it
+  call_with(g)                  ; a variable: copied, the call could change it
+end
+
+; An argument that a later argument's call could change is copied before that call; one that
+; only a pure expansion follows is not.
+func later(k: byte)
+  g = add(h, add(k, 1))
+  g = add(h, count_down(k))
+  g = add(k, count_down(k))
+end

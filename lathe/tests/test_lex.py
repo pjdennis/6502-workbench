@@ -414,5 +414,51 @@ class ConditionalTest(LexTest):
         self.assertIn('error %d:' % err.E_IF_DEEP, support.error_text())
 
 
+class SavedTokensTest(LexTest):
+    """A saved token run (src.open_saved): LEX reads its tokens, with their places, and goes
+    back to the source below at its end."""
+
+    def test_tokens_values_and_places_are_replayed(self):
+        start('a\nb')
+        lex.next()
+        self.assertEqual((lex.tok, lex.line), (lex.T_NAME, 1))
+        name = lex.value
+        run = bytes([lex.T_NAME, 3, name & 0xFF, name >> 8,
+                     lex.T_NUMBER, 5, 0x34, 0x12,
+                     lex.SAVED_LINE, 2,
+                     lex.T_STRING, 1, 2, ord('h'), ord('i'),
+                     lex.T_NL, 9,
+                     lex.SAVED_LINE, 255, lex.SAVED_LINE, 1,
+                     lex.T_END, 255])
+        begin, end = support.put_text(run, 0x9000)
+        src.open_saved(begin, end, 0, 10)
+        self.assertTrue(src.replaying)
+        found = []
+        for _ in range(5):
+            lex.next()
+            found.append((lex.tok, lex.line, lex.col))
+        self.assertEqual(found, [(lex.T_NAME, 10, 3), (lex.T_NUMBER, 10, 5), (lex.T_STRING, 12, 1),
+                                 (lex.T_NL, 12, 9), (lex.T_END, 268, 255)])
+        self.assertEqual(bytes(lex.string[:lex.string_length]), b'hi')
+        lex.next()
+        self.assertEqual(lex.tok, lex.T_NL)         # the last line ends, as in a file
+        lex.next()
+        self.assertEqual(lex.tok, lex.T_EOF)
+        src.close()
+        self.assertFalse(src.replaying)
+        lex.resume(lex.T_NAME, 1, 1)
+        lex.next()
+        self.assertEqual((lex.tok, lex.line), (lex.T_NL, 1))
+        lex.next()
+        self.assertEqual((lex.tok, lex.line, lex.col), (lex.T_NAME, 2, 1))
+
+    def test_a_number_in_a_run_is_two_bytes(self):
+        start('')
+        begin, end = support.put_text(bytes([lex.T_NUMBER, 1, 0xFF, 0xFF]), 0x9000)
+        src.open_saved(begin, end, 0, 1)
+        lex.next()
+        self.assertEqual((lex.tok, lex.value), (lex.T_NUMBER, 0xFFFF))
+
+
 if __name__ == '__main__':
     unittest.main()

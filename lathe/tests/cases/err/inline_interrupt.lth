@@ -1,0 +1,4 @@
+; error 171 3 8
+module inline_interrupt
+inline interrupt func f()
+end

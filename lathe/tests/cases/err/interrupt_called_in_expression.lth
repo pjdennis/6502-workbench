@@ -1,0 +1,8 @@
+; error 173 7 14
+module interrupt_called_in_expression
+var n: byte
+interrupt func handler()
+end
+func f()
+  n = handler()
+end

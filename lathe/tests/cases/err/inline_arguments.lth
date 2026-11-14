@@ -1,0 +1,8 @@
+; error 42 7 13
+module inline_arguments
+inline func f(a: byte, b: byte): byte
+  return a + b
+end
+func g(): byte
+  return f(1)
+end

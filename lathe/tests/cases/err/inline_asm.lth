@@ -1,0 +1,7 @@
+; error 168 4 3
+module inline_asm
+inline func f()
+  asm
+    NOP
+  end
+end

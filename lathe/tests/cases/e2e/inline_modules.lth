@@ -1,0 +1,38 @@
+; Inline functions of another module (cases/e2e/libstack.lth), expanded here from its interface:
+; names in their bodies mean that module's, never this one's (which has a `top` and an `items`
+; of its own), and the module they use (libout) need not be imported here.
+module inline_modules
+
+import libstack
+
+var top: byte = 99
+var items: [2]byte = [1, 2]
+
+pub func main()
+  var i: byte
+  var v: byte
+  var ok: bool
+  for i = 1 to 10 do
+    if not libstack.push(i + i + i) then
+      items[0] += 1
+    end
+  end
+  libstack.show()
+  v, ok = libstack.pop()
+  libstack.show()
+  while libstack.pop() -> v do
+    if v == 9 then
+      break
+    end
+  end
+  libstack.show()
+  if libstack.peek_or(77) == 6 and libstack.size() == 2 then
+    libstack.push(top)
+  end
+  libstack.show()
+  while libstack.pop() -> v do
+  end
+  libstack.push(libstack.peek_or(42))
+  libstack.show()
+  libstack.show()
+end

@@ -1,0 +1,38 @@
+; Interrupt functions: entry code that saves A, X and Y and clears the decimal flag, exit code
+; that restores them and ends with RTI, and every `return` going there (never a tail call).
+; `@name` is the function's address, a ^byte. (A 65C02 has shorter entry and exit code:
+; lathe/tests/test_inline.py.)
+module interrupts
+
+var ticks: word
+var vector: ^byte at $FFFE
+var spare: ^byte
+var budget: byte
+
+func spend(n: byte): bool
+  if budget < n then
+    return false
+  end
+  budget -= n
+  return true
+end
+
+interrupt func handler()
+  var n: byte = 2
+  ticks += 1
+  if not spend(n) then
+    return
+  end
+  critical
+    ticks += 1
+  end
+  spend(1)
+end
+
+pub interrupt func quiet()
+end
+
+pub func install()
+  vector = @handler
+  spare = @quiet
+end

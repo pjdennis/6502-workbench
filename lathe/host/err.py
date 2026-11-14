@@ -20,6 +20,7 @@ The numbers are grouped by what the error is about:
                 pointers, 128 to 139 records, enumerations and named types
     140 to 149  `asm` blocks and `asm` functions
     150 to 164  function types, calls through pointers, and recursion
+    165 to 179  `inline` and `interrupt` functions (165 is a capacity)
 
 A number is never reused for another error; a new one takes the next free number of its group.
 """
@@ -155,6 +156,16 @@ E_FUNC_ADDRESS = 153
 E_REGISTER_FUNC = 154
 E_RECURSIVE_BODY = 155
 E_CLASS_MEMBERS_FULL = 156
+# inline and interrupt functions
+E_INLINE_FULL = 165
+E_INLINE_DEEP = 166
+E_INLINE_RECURSIVE = 167
+E_INLINE_NOT_HERE = 168
+E_INLINE_ADDRESS = 169
+E_INLINE_PRIVATE = 170
+E_ATTRIBUTES = 171
+E_INTERRUPT_HEAD = 172
+E_INTERRUPT_CALL = 173
 
 MESSAGES = (
     b"1 character not allowed here\n"
@@ -268,6 +279,15 @@ MESSAGES = (
     b"154 an asm function cannot be called through a pointer: its parameters are in registers\n"
     b"155 only a function with a body in Lathe can be recursive\n"
     b"156 too many functions taken as function types in one module\n"
+    b"165 too many saved tokens of inline functions in this module\n"
+    b"166 inline calls nested too deeply\n"
+    b"167 an inline function cannot call itself, directly or through other inline functions\n"
+    b"168 an inline function cannot have asm, static or #if\n"
+    b"169 an inline function has no address\n"
+    b"170 an exported inline function can use only exported names of its module\n"
+    b"171 inline and interrupt go with neither each other, nor asm, nor a forward declaration\n"
+    b"172 an interrupt function has no parameters and no results\n"
+    b"173 an interrupt function cannot be called: store its address, @name, where the board wants it\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "

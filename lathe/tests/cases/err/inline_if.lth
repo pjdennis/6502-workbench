@@ -1,0 +1,8 @@
+; error 168 5 1
+module inline_if
+const FAST = true
+inline func f(): byte
+#if FAST
+  return 1
+#end
+end

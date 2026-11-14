@@ -44,6 +44,10 @@
 ;   | column widths: ints                  | byte where every value fits (see  | the type is the |
 ;   |                                      | each column), else word; the      | storage         |
 ;   |                                      | 512-element word columns `rows`   | (error 123)     |
+;   | name_word, name_set_word, name_token,| `inline`; `names` and N_TOKEN are | smaller code; an|
+;   | name_set_token: functions            | exported                          | exported inline |
+;   |                                      |                                   | function uses   |
+;   |                                      |                                   | exported names  |
 module kernel
 
 import err
@@ -121,7 +125,7 @@ end
 
 ; ---- Streams -----------------------------------------------------------------------------
 
-const MAX_STREAMS = 6
+const MAX_STREAMS = 10
 pub const STREAM_FREE = 0
 pub const STREAM_IN = 1             ; a file being read
 pub const STREAM_OUT = 2            ; a file being written
@@ -246,24 +250,24 @@ const MAX_NAME = 31             ; significant characters
 
 const N_LINK = 0
 const N_SYMBOL = 2
-const N_TOKEN = 4
+pub const N_TOKEN = 4
 const N_LENGTH = 5
 const N_TEXT = 6
 
 pub const NO_SYM = $FFFF        ; (with the symbol table below in the Python)
 pub const NO_OBJ = $FFFF
 
-var names: [NAME_HEAP_SIZE]byte nozp
+pub var names: [NAME_HEAP_SIZE]byte nozp
 var name_bucket: [NAME_BUCKETS]word
 pub var name_top: word = 1
 var new_length: byte
 var new_hash: byte
 
-func name_word(offset: word): word
+inline func name_word(offset: word): word
   return word(names[offset]) | (word(names[offset + 1]) << 8)
 end
 
-func name_set_word(offset: word, value: word)
+inline func name_set_word(offset: word, value: word)
   names[offset] = lo(value)
   names[offset + 1] = hi(value)
 end
@@ -332,11 +336,11 @@ pub func name_char(n: word, i: byte): byte
 end
 
 ; The token number LEX gave this name: its keyword, or 0 for an ordinary name.
-pub func name_token(n: word): byte
+pub inline func name_token(n: word): byte
   return names[n + N_TOKEN]
 end
 
-pub func name_set_token(n: word, token: byte)
+pub inline func name_set_token(n: word, token: byte)
   names[n + N_TOKEN] = token
 end
 

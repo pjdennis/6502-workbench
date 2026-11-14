@@ -1,0 +1,23 @@
+; imported by inline_modules.lth: exported inline functions, whose saved tokens are in this
+; module's interface. Their bodies use this module's exported names and a module it imports.
+module libinline
+
+import libshared
+
+pub var level: byte
+pub const STEP: byte = 3
+
+pub func report(v: byte)
+  level = v
+end
+
+pub inline func raise(): byte
+  level += STEP
+  return level
+end
+
+pub inline func raise_and_report(by: byte)
+  var v: byte = level + by
+  report(v)
+  libshared.count = v
+end

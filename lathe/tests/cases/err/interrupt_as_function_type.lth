@@ -1,0 +1,9 @@
+; error 44 8 9
+module interrupt_as_function_type
+type Action = func()
+var act: Action
+interrupt func h()
+end
+func g()
+  act = @h
+end

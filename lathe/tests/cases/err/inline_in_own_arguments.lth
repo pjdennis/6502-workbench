@@ -1,0 +1,11 @@
+; error 100 6 3
+module inline_in_own_arguments
+func h(a: byte, b: byte)
+end
+inline func f(v: byte): byte
+  h(v, v)
+  return v
+end
+func g()
+  h(1, f(2))
+end

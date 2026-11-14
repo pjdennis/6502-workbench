@@ -1,0 +1,8 @@
+; error 169 7 7
+module inline_address
+inline func f()
+end
+var p: ^byte
+func g()
+  p = @f
+end

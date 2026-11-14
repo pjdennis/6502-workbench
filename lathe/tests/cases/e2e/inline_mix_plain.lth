@@ -1,0 +1,74 @@
+; cases/e2e/inline_mix.lth with the word `inline` taken out: it must print the same.
+module inline_mix_plain
+
+import libout
+
+const N = 16
+
+var keys: [N]byte = [200, 13, 77, 13, 0, 255, 128, 64, 99, 1, 42, 42, 250, 7, 180, 33]
+var swaps: word
+
+func key(i: byte): byte
+  return keys[i]
+end
+
+func out_of_order(i: byte): bool
+  return keys[i] > keys[i + 1]
+end
+
+func swap(i: byte)
+  var t: byte = keys[i]
+  keys[i] = keys[i + 1]
+  keys[i + 1] = t
+  swaps += 1
+end
+
+func mix(sum: word, v: byte): word
+  var s: word = (sum << 1) ^ v
+  if s & $8000 != 0 then
+    s = s ^ $1021
+  end
+  return s
+end
+
+func sorted(): bool
+  var i: byte
+  for i = 0 to N - 2 do
+    if out_of_order(i) then
+      return false
+    end
+  end
+  return true
+end
+
+func sort()
+  var i: byte
+  var done: bool = false
+  while not done do
+    done = true
+    for i = 0 to N - 2 do
+      if out_of_order(i) then
+        swap(i)
+        done = false
+      end
+    end
+  end
+end
+
+pub func main()
+  var i: byte
+  var sum: word = $FFFF
+  libout.truth(sorted())
+  sort()
+  libout.truth(sorted())
+  libout.space()
+  for i = 0 to N - 1 do
+    libout.hex(key(i))
+    sum = mix(sum, key(i))
+  end
+  libout.space()
+  libout.hexw(sum)
+  libout.space()
+  libout.dec(swaps)
+  libout.nl()
+end

@@ -1,0 +1,69 @@
+; Inline accessors over an array of records and a byte array: getters and setters of one line,
+; called with constants, with variables and with expressions, and one through a pointer.
+module inline_access
+
+import libout
+
+type Item = record
+  key: byte
+  pad: byte
+  count: word
+end
+
+const N = 6
+
+var items: [N]Item rows
+var keys: [N]byte = [7, 3, 9, 1, 8, 2]
+var total: word
+
+inline func key_of(i: byte): byte
+  return items[i].key
+end
+
+inline func count_of(i: byte): word
+  return items[i].count
+end
+
+inline func set_item(i: byte, k: byte, c: word)
+  items[i].key = k
+  items[i].count = c
+end
+
+inline func bump(i: byte, by: word)
+  items[i].count += by
+end
+
+inline func count_at(p: ^Item): word
+  return p.count
+end
+
+inline func key_at(i: byte): byte
+  return keys[i]
+end
+
+pub func main()
+  var i: byte
+  var c: word = 0
+  for i = 0 to N - 1 do
+    set_item(i, key_at(i), c)
+    c += 250
+  end
+  bump(2, 1000)
+  bump(N - 1, c)
+  i = 3
+  bump(i, items[0].count + 7)
+  for i = 0 to N - 1 do
+    libout.dec(key_of(i))
+    libout.char(':')
+    libout.dec(count_of(i))
+    libout.space()
+    total += count_of(i)
+  end
+  libout.nl()
+  libout.dec(total)
+  libout.space()
+  libout.dec(count_at(@items[4]))
+  libout.space()
+  libout.dec(key_of(1) + key_of(2) * 2)
+  libout.nl()
+end

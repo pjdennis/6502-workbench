@@ -1,11 +1,12 @@
 ; A periodic interrupt from the VIA's timer 1, counted (lathe/docs/boards.md, "The VIA timer").
 ;
-; The handler is hand-written assembly because the language's `interrupt` functions are not
-; implemented yet. It is an `asm func` that saves A, acknowledges the interrupt by reading T1CL,
-; adds one to `count` and returns with RTI; start() stores its address at the board's vector. It
-; will be replaced by an `interrupt func` in Lathe, which saves the registers itself, gets its
-; own storage for what it calls, and returns with RTI; and, once `@f` of a function is
-; implemented, by storing `@tick` from Lathe instead of from an asm block.
+; tick() is the handler: an `interrupt` function, so it saves the registers, gets storage of its
+; own for whatever it calls, and returns with RTI. It acknowledges the interrupt and counts it,
+; which is what acknowledge() does. start() installs it with board.set_irq(@tick).
+;
+; A program that wants more done on each interrupt writes its own interrupt function, which calls
+; acknowledge() (so the count, and ticks(), go on as before), and starts the timer with
+; start_with(period, @its_handler).
 ;
 ; Uses timer 1 and its interrupt only: the other bits of ACR and IER are left as they were.
 module timer
@@ -13,17 +14,18 @@ module timer
 import board
 import via
 
-var count: word                     ; interrupts since start(); written by the handler
+; Interrupts since start(), written by the handler. It is exported only because acknowledge(),
+; which is expanded in the modules that call it, adds to it: read it with ticks().
+pub var count: word
 
-asm func handler()
-  PHA
-  LDA via.t1cl                      ; acknowledges timer 1's interrupt
-  INC count
-  BNE .counted
-  INC count+1
-.counted
-  PLA
-  RTI
+; Acknowledge timer 1's interrupt and count it. Call it from an interrupt function only.
+pub inline func acknowledge()
+  via.ifr = via.IRQ_T1              ; writing the flag clears it
+  count += 1
+end
+
+interrupt func tick()
+  acknowledge()
 end
 
 asm func disable_interrupts()
@@ -34,37 +36,25 @@ asm func enable_interrupts()
   CLI
 end
 
-; Start counting an interrupt every `period` CPU cycles (3 to 65537; 2000 is 1 ms on Michael,
-; about 0.2 ms on Wendy 2), from 0, and enable interrupts. Timer 1 runs free: it counts down
+; Start an interrupt every `period` CPU cycles (3 to 65537; 2000 is 1 ms on Michael, about
+; 0.2 ms on Wendy 2), handled by `handler`, the address of an interrupt function that calls
+; acknowledge(); set the count to 0 and enable interrupts. Timer 1 runs free: it counts down
 ; from its latch, which is period - 2, interrupts at the end and reloads.
-pub func start(period: word)
+pub func start_with(period: word, handler: ^byte)
   var latch: word = period - 2
   disable_interrupts()
-#if board.IRQ_JMP
-  ; Michael: the IRQ vector points at IRQ_VECTOR, which gets JMP handler.
-  asm
-    LDA #$4C
-    STA board.IRQ_VECTOR
-    LDA #<handler
-    STA board.IRQ_VECTOR+1
-    LDA #>handler
-    STA board.IRQ_VECTOR+2
-  end
-#else
-  ; Wendy 2: the IRQ vector is RAM and gets the handler's address.
-  asm
-    LDA #<handler
-    STA board.IRQ_VECTOR
-    LDA #>handler
-    STA board.IRQ_VECTOR+1
-  end
-#end
+  board.set_irq(handler)
   count = 0
   via.acr = (via.acr & ~via.ACR_T1_MASK) | via.ACR_T1_FREE_RUN
   via.t1cl = lo(latch)
   via.t1ch = hi(latch)              ; loads the counter from the latch and starts it
   via.ier = via.IER_SET | via.IRQ_T1
   enable_interrupts()
+end
+
+; Start counting an interrupt every `period` CPU cycles, with tick() as the handler.
+pub func start(period: word)
+  start_with(period, @tick)
 end
 
 ; Stop the interrupts. The count stays as it is; interrupts stay enabled for anything else.

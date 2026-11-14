@@ -13,7 +13,7 @@ import lathec_support as support  # noqa: E402
 
 # Lowest first: the order of the table in lathe/host/README.md.
 LAYERS = ['env', 'err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond',
-          'gen', 'asmblock', 'expr', 'stmt', 'decl', 'lathec']
+          'gen', 'asmblock', 'inline', 'expr', 'decl', 'lathec']
 
 
 def imports(module):

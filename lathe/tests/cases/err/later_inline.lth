@@ -1,4 +1,0 @@
-; error 39 3 1
-module later_inline
-inline func f()
-end

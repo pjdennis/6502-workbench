@@ -1,0 +1,4 @@
+; error 30 5 1
+module inline_no_end
+inline func f()
+  if true then

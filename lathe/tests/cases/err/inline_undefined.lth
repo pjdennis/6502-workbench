@@ -1,0 +1,6 @@
+; error 40 4 10
+module inline_undefined
+inline func f(): byte
+  return later
+end
+var later: byte

@@ -2,8 +2,9 @@
 
 Each CPU is a table from mnemonic to {mode: opcode}. `decode_table(cpu)` turns one into
 opcode -> (mnemonic, mode). The NMOS 6502 is filled in; a 65C02 table is the NMOS one plus
-its additions in `_C02_EXTRA`, of which only STP and WAI are there so far (add the others, and
-their new modes to the tables below, as they are needed).
+its additions in `_C02_EXTRA`, of which only STP, WAI and the pushes and pulls of X and Y (the
+entry and exit code of an interrupt function) are there so far (add the others, and their new
+modes to the tables below, as they are needed).
 """
 
 CPU_6502 = 0
@@ -65,7 +66,8 @@ for _m, _op in (('BRK', 0x00), ('PHP', 0x08), ('CLC', 0x18), ('PLP', 0x28), ('SE
 
 # 65C02 additions (new mnemonics, and new modes of existing ones). asm17 knows none of them, so
 # lo2asm writes them as .byte (lo2asm.py, "asm17_has").
-_C02_EXTRA = {'STP': {IMP: 0xDB}, 'WAI': {IMP: 0xCB}}
+_C02_EXTRA = {'STP': {IMP: 0xDB}, 'WAI': {IMP: 0xCB}, 'PHX': {IMP: 0xDA}, 'PHY': {IMP: 0x5A},
+              'PLX': {IMP: 0xFA}, 'PLY': {IMP: 0x7A}}
 
 
 def table(cpu):

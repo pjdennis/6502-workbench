@@ -3,7 +3,8 @@
 ; How one source serves both boards. The environment file names the board with a define,
 ; `define BOARD 1` in lathe/env/michael.env and `define BOARD 2` in wendy2.env, which the
 ; compiler predeclares as the constant BOARD. This module is the one place that turns that number
-; into facts: the VIA's address, the clock, the LCD's size and wiring, where the IRQ vector is.
+; into facts: the VIA's address, the clock, the LCD's size and wiring, where the IRQ vector is
+; (and set_irq(), which stores a handler's address there).
 ; Every other board module (via, lcd, timer) imports this one and reads `board.VIA`,
 ; `board.LCD_4BIT` and so on, in `at` placements, in constant expressions and in `#if`; so a
 ; program built with `build.py --env michael` or `--env wendy2` needs no edit and no define of its
@@ -41,6 +42,26 @@ pub const IRQ_VECTOR = $FFFE
 const BOARD_MUST_BE_1_MICHAEL_OR_2_WENDY2: byte = 256
 #end
 #end
+
+; Where the IRQ vector leads: on Michael, IRQ_VECTOR holds `JMP handler`; on Wendy 2 it is the
+; vector itself, in RAM.
+const OP_JMP: byte = $4C
+#if IRQ_JMP
+var irq_jump: byte at IRQ_VECTOR
+var irq_handler: ^byte at IRQ_VECTOR + 1
+#else
+var irq_handler: ^byte at IRQ_VECTOR
+#end
+
+; Make the IRQ vector lead to `handler`, the address of an interrupt function (`@name`). Call it
+; with interrupts disabled: an interrupt that came while the address was half written would go
+; astray.
+pub func set_irq(handler: ^byte)
+#if IRQ_JMP
+  irq_jump = OP_JMP
+#end
+  irq_handler = handler
+end
 
 ; The number of 5-cycle loops in 100 microseconds.
 const DELAY_LOOPS = CLOCK_KHZ / 50

@@ -1,0 +1,52 @@
+; A byte stack with exported inline functions, for cases/e2e/inline_modules.lth: their saved
+; tokens are in this module's interface, and the importer expands them. Their bodies use this
+; module's exported names, a module it imports (libout), and each other.
+module libstack
+
+import libout
+
+pub const DEPTH = 8
+pub var items: [DEPTH]byte
+pub var top: byte                   ; how many are on the stack
+pub var overflows: byte
+
+pub inline func size(): byte
+  return top
+end
+
+pub inline func push(v: byte): bool
+  if top == DEPTH then
+    overflows += 1
+    return false
+  end
+  items[top] = v
+  top += 1
+  return true
+end
+
+pub inline func pop(): byte, bool
+  if top == 0 then
+    return 0, false
+  end
+  top -= 1
+  return items[top], true
+end
+
+pub inline func peek_or(default: byte): byte
+  var v: byte = default
+  if size() > 0 then
+    v = items[top - 1]
+  end
+  return v
+end
+
+pub inline func show()
+  var i: byte
+  libout.char('[')
+  for i = 0 to DEPTH - 1 do
+    if i < top then
+      libout.hex(items[i])
+    end
+  end
+  libout.char(']')
+end
