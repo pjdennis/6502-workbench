@@ -47,19 +47,19 @@ inline_params__cases
     LDA inline_params__cases__St2
     STA inline_params__g
     LDA inline_params__cases__local
-    LDX inline_params__cases__k
-    STA inline_params__t,X
+    LDY inline_params__cases__k
+    STA inline_params__t,Y
     LDA inline_params__h
-    LDX inline_params__g
-    STA inline_params__t,X
+    LDY inline_params__g
+    STA inline_params__t,Y
     LDA abs_d000
     STA inline_params__cases__St1
     STA inline_params__t+$01
-    STX inline_params__cases__St1
-    STX inline_params__g
-    STX inline_params__h
-    STX inline_params__cases__St1
-    STX inline_params__g
+    STY inline_params__cases__St1
+    STY inline_params__g
+    STY inline_params__h
+    STY inline_params__cases__St1
+    STY inline_params__g
     LDA inline_params__cases__St1
     STA inline_params__h
     JSR inline_params__tick

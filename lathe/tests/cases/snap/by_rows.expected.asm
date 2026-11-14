@@ -5,43 +5,41 @@
 ;   slot 1 $t2: size 2, class 0 (zp), temp, weight 6
 by_rows__bytes
     CLC
-    LDA by_rows__i
-    ADC #<by_rows__big
-    STA by_rows__bytes__St1
     LDA by_rows__i+$01
     ADC #>by_rows__big
     STA by_rows__bytes__St1+$01
+    LDA #<by_rows__big
+    STA by_rows__bytes__St1
     CLC
-    LDA by_rows__i
-    ADC #<by_rows__big+$01
-    STA by_rows__bytes__St2
     LDA by_rows__i+$01
     ADC #>by_rows__big+$01
     STA by_rows__bytes__St2+$01
-    LDY #$00
+    LDA #<by_rows__big+$01
+    STA by_rows__bytes__St2
+    LDY by_rows__i
     LDA (by_rows__bytes__St2),Y
     STA (by_rows__bytes__St1),Y
     LDA #$01
     STA by_rows__big+$03E7
-    LDA by_rows__i
-    STA by_rows__bytes__St1
     CLC
     LDA by_rows__i+$01
     ADC #$04
     STA by_rows__bytes__St1+$01
+    LDA #$00
+    STA by_rows__bytes__St1
     CLC
-    LDA by_rows__k
-    ADC #<by_rows__big
-    STA by_rows__bytes__St2
-    TYA
     ADC #>by_rows__big
     STA by_rows__bytes__St2+$01
+    LDA #<by_rows__big
+    STA by_rows__bytes__St2
+    LDY by_rows__k
     LDA (by_rows__bytes__St2),Y
+    LDY by_rows__i
     STA (by_rows__bytes__St1),Y
     RTS
 
 ; function by_rows.words
-;   slot 0 $t1: size 2, class 1 (either), temp, weight 12
+;   slot 0 $t1: size 2, class 1 (either), temp, weight 11
 ;   slot 1 $t2: size 2, class 0 (zp), temp, weight 14
 by_rows__words
     LDA by_rows__i
@@ -51,16 +49,14 @@ by_rows__words
     ROL
     STA by_rows__words__St1+$01
     CLC
-    LDA by_rows__words__St1
-    ADC #<by_rows__cells
-    STA by_rows__words__St2
-    LDA by_rows__words__St1+$01
     ADC #>by_rows__cells
     STA by_rows__words__St2+$01
-    LDY #$00
+    LDA #<by_rows__cells
+    STA by_rows__words__St2
+    LDY by_rows__words__St1
     LDA (by_rows__words__St2),Y
     STA by_rows__v
-    LDY #$01
+    INY
     LDA (by_rows__words__St2),Y
     STA by_rows__v+$01
     LDA by_rows__k
@@ -70,24 +66,25 @@ by_rows__words
     ROL
     STA by_rows__words__St1+$01
     CLC
-    LDA by_rows__words__St1
-    ADC #<by_rows__cells
-    STA by_rows__words__St2
-    LDA by_rows__words__St1+$01
     ADC #>by_rows__cells
     STA by_rows__words__St2+$01
-    LDY #$00
+    LDA #<by_rows__cells
+    STA by_rows__words__St2
+    LDY by_rows__words__St1
     LDA (by_rows__words__St2),Y
     CLC
     ADC #$01
     STA (by_rows__words__St2),Y
-    BNE .L005F
-    LDY #$01
+    BNE .L0056
+    LDY by_rows__words__St1
+    INY
     LDA (by_rows__words__St2),Y
     CLC
     ADC #$01
+    LDY by_rows__words__St1
+    INY
     STA (by_rows__words__St2),Y
-.L005F
+.L0056
     LDA by_rows__k
     ASL
     STA by_rows__words__St1
@@ -95,16 +92,14 @@ by_rows__words
     ROL
     STA by_rows__words__St1+$01
     CLC
-    LDA by_rows__words__St1
-    ADC #<by_rows__small
-    STA by_rows__words__St2
-    LDA by_rows__words__St1+$01
     ADC #>by_rows__small
     STA by_rows__words__St2+$01
-    LDY #$00
+    LDA #<by_rows__small
+    STA by_rows__words__St2
+    LDY by_rows__words__St1
     LDA (by_rows__words__St2),Y
     STA by_rows__v
-    LDY #$01
+    INY
     LDA (by_rows__words__St2),Y
     STA by_rows__v+$01
     RTS
@@ -153,8 +148,8 @@ by_rows__line_of_bytes
     LDY by_rows__j
     STA (by_rows__line_of_bytes__St2),Y
     LDA #$00
-    LDX by_rows__j
-    STA by_rows__lines+$18,X
+    LDY by_rows__j
+    STA by_rows__lines+$18,Y
     RTS
 
 ; function by_rows.walk
@@ -204,7 +199,7 @@ by_rows__walk
 
 ; variable by_rows.lines: size 400, class 2 (not zp), weight 1
 
-; variable by_rows.i: size 2, class 1 (either), weight 8
+; variable by_rows.i: size 2, class 1 (either), weight 7
 
 ; variable by_rows.k: size 1, class 1 (either), weight 5
 

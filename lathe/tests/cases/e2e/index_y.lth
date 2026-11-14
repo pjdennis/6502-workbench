@@ -1,0 +1,69 @@
+; Elements at two indexes in one expression: while X holds one index, an element at another is
+; reached by absolute,Y, but not while Y holds the low byte of a word being worked out in A
+; and X (a result returned, an argument in registers). Words by column, bytes, all five
+; operators, the operands both ways round, and compares.
+module index_y
+
+import libout
+
+var w: [12]word
+var v: [12]word
+var b: [12]byte
+var c: [12]byte
+
+func add(i: byte, j: byte): word
+  return w[i] + v[j]
+end
+
+func sub(i: byte, j: byte): word
+  return w[i] - v[j]
+end
+
+func mixed(i: byte, j: byte): word
+  return (w[i] & v[j]) | (w[j] ^ v[i])
+end
+
+func bytes(i: byte, j: byte): byte
+  return b[i] + c[j] - b[j] + (c[i] & b[j])
+end
+
+func widened(i: byte, j: byte): word
+  return word(b[i]) + v[j] + word(c[j])
+end
+
+func less(i: byte, j: byte): bool
+  return w[i] < v[j]
+end
+
+func show(x: word)
+  libout.hexw(x)
+end
+
+pub func main()
+  var i: byte
+  var j: byte
+  var n: word
+  for i = 0 until 12 do
+    w[i] = word(i) * 4099 + $00F3
+    v[i] = word(i) * 7919 + $8001
+    b[i] = i * 37 + 200
+    c[i] = i * 91 + 13
+  end
+  n = 0
+  for i = 0 until 12 do
+    j = 11 - i
+    n += add(i, j)
+    n = n ^ sub(i, j)
+    n += mixed(i, j)
+    n += word(bytes(i, j))
+    n += widened(i, j)
+    if less(i, j) then
+      n += 1
+    end
+    show(add(j, i))
+    libout.space()
+  end
+  libout.nl()
+  show(n)
+  libout.nl()
+end

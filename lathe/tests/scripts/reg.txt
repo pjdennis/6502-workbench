@@ -549,6 +549,57 @@ put 1 0 2 0
 put 1 1 2 1
 implied $60
 finish
+== elements: a store whose index X does not hold is STA absolute,Y, but in zero page or at a fixed address
+mem 1 5 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 0
+mode 0 1 1
+mem 3 6 $FF 0 0 $FFFF
+mem 1 9 $FF 0 0 $FFFF
+index 1
+mode 1 1 10
+put 0 0 1 0
+put 0 0 1 1
+mem 1 4 $FF 0 2 $FFFF
+mem 1 9 $FF 0 0 $FFFF
+index 2
+mode 2 1 1
+store 0 2 0
+mem 1 $FFFF $FF $80 0 $FFFF
+mem 1 9 $FF 0 0 $FFFF
+index 3
+mode 3 1 1
+store 0 3 0
+mem 1 3 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 4
+mode 4 1 1
+store 0 4 0
+implied $60
+finish
+== elements: while X holds another variable, absolute,Y; not while Y holds what A held
+mem 1 5 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 0
+mode 0 1 1
+mem 1 6 $FF 0 0 $FFFF
+mem 1 9 $FF 0 0 $FFFF
+index 1
+mode 1 1 1
+load 0 0 0
+alu $6D 1 0
+cmp 0 0
+alu $2D 1 0
+transfer 0 2
+load 0 0 0
+load 0 1 0
+transfer 2 0
+load 0 1 0
+transfer 0 1
+transfer 0 2
+load 0 0 0
+implied $60
+finish
 == a word in A and X is stored before an element that needs X
 mem 3 8 $FF 0 0 $FFFF
 mem 1 7 $FF 0 0 $FFFF
@@ -667,6 +718,29 @@ index 4
 mode 4 2 1
 unaliased 4 3 0
 show 4
+implied $60
+finish
+== unaliased: w = t[lo(w)], a word element whose index is in the target; not a byte
+slot 2 1 1 w
+pslot 3 0
+mem 3 5 $FF 0 0 $FFFF
+pslot 1 0
+index 1
+mode 1 1 4
+unaliased 1 0 1
+show 1
+mem 1 6 $FF 0 0 $FFFF
+pslot 1 0
+index 2
+mode 2 1 1
+unaliased 2 0 1
+show 2
+mem 3 7 $FF 0 0 $FFFF
+pslot 1 0
+index 3
+mode 3 1 4
+unaliased 3 0 0
+show 3
 implied $60
 finish
 == claims and spills

@@ -123,6 +123,7 @@ NOTHING = 0                     # as fbuf.label_note: no way to the label is kno
 LOST = 0xFF                     # nothing is kept for it: a way to it could not be, or it is
 #                                 placed and what goes there now is a loop. 1 to STATES - 1:
 #                                 the state kept for it
+y_held = False                  # Y holds what A held, to be given back: it is not an index
 flags = NO_REG                  # the register whose value the N and Z flags show, or
 flags_symbol = 0                # IN_MEMORY for the byte that the fix-up flags_symbol,
 flags_slot = 0                  # flags_slot, flags_offset reaches: the one an INC, DEC or
@@ -148,7 +149,9 @@ OP_DEX = 0xCA
 OP_INX = 0xE8
 OP_INY = 0xC8
 OP_LDX = 0xAE
+OP_STA = 0x8D
 INDEXED_FORM = 0x10             # absolute,X (absolute,Y for LDX) is the absolute form + this
+ABSOLUTE_Y = 4                  # LDA STA ADC... absolute,Y are ABSOLUTE_Y less than absolute,X
 POINTER_FORM = 4                # (zp),Y is the absolute form + this
 LOAD_ABSOLUTE = b"\xAD\xAE\xAC"                  # LDA, LDX, LDY
 LOAD_IMMEDIATE = b"\xA9\xA2\xA0"
@@ -528,10 +531,14 @@ def apart(i, j):
 
 def unaliased(i, target, keep):
     """Operand `i` is stored in memory operand `target`, or used to work out what is. If `i`
-    is reached through a pointer that is `target` (`p = p.next`), load it first, into the
-    registers if `keep`, else into a temporary: storing the low byte would change the pointer."""
-    if op_mode[i] == M_POINTER and op_symbol[i] == op_symbol[target] and op_slot[i] == op_slot[target] \
-            and op_mode[target] == M_DIRECT:
+    is reached through a pointer that is `target` (`p = p.next`), or by an index that is in
+    `target` (`w = t[lo(w)]`), load it first, into the registers if `keep`, else into a
+    temporary: storing the low byte would change the pointer or the index."""
+    j = i                               # what must not change: the pointer, or an element's index
+    if op_mode[i] == M_INDEXED and op_size[i] > 1:
+        j = i + INDEX
+    if op_mode[i] != M_DIRECT and op_kind[j] == O_VAR and op_symbol[j] == op_symbol[target] \
+            and op_slot[j] == op_slot[target] and op_mode[target] == M_DIRECT:
         take(i)
         if not keep:
             spill(i)
@@ -577,7 +584,9 @@ def clobber():
 # ---- What the registers hold -------------------------------------------------------------
 
 def forget_register(r):
-    global flags
+    global flags, y_held
+    if r == Y:
+        y_held = False
     reg_known[r] = False
     for n in range(r * COPY_COUNT, r * COPY_COUNT + COPY_COUNT):
         reg_copy[n] = False
@@ -699,6 +708,11 @@ def memory(opcode, i, k):
         return
     if op_mode[i] == M_INDEXED:
         r = X
+        if opcode & 3 == 1 and not holds(X, i + INDEX, 0) and op_flags[i] & F_ZP == 0 \
+                and op_symbol[i] != kernel.NO_OBJ and (holds(Y, i + INDEX, 0) or not y_held
+                                                       and (opcode == OP_STA or reg_copy[X * COPY_COUNT])):
+            r = Y                       # a store leaves X to the loads: STA absolute,Y
+            opcode -= ABSOLUTE_Y
         if opcode == OP_LDX:
             r = Y
         load_direct(r, i + INDEX, 0)
@@ -738,13 +752,15 @@ def direct(opcode, i, k):
 
 def transfer(source, target):
     """Copy register `source` to register `target`. One of them is A."""
-    global flags
+    global flags, y_held
     if source == target:
         return
     if TRANSFERS[source * 3 + target] == 0:
         err.fatal(err.E_INTERNAL)
     claim(target)
     fbuf.op(TRANSFERS[source * 3 + target])
+    if source == Y or target == Y:
+        y_held = target == Y            # held from A, or given back
     reg_known[target] = reg_known[source]
     reg_const[target] = reg_const[source]
     for n in range(0, COPY_COUNT):

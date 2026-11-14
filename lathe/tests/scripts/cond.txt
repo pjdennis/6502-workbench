@@ -303,6 +303,36 @@ carry 0
 pop
 implied $60
 finish
+== words against $FFFF and -1: the AND of the bytes, which leaves the carry set if equal
+slot 2 1 1 w
+slot 1 1 1 i
+pslot 3 0
+const 6 $FFFF
+compare 11
+show 0
+carry 0
+pop
+pslot 4 0
+const 7 $FFFF
+compare 12
+iffalse
+const 6 $FFFF
+pslot 3 0
+compare 12
+iffalse
+mem 3 8 $FF 0 0 $FFFF
+pslot 1 1
+index 0
+mode 0 1 10
+const 6 $FFFF
+compare 11
+iffalse
+preg 3
+const 6 $FFFF
+compare 11
+iffalse
+implied $60
+finish
 == comparisons in A, and in A and X, with an element whose index needs X
 slot 1 1 1 i
 slot 2 1 1 w

@@ -93,8 +93,8 @@ inline_basic__not_plain
     TAX
     LDA inline_basic__table,X
     STA inline_basic__not_plain__St1
-    TAX
-    LDA inline_basic__table,X
+    TAY
+    LDA inline_basic__table,Y
     STA inline_basic__g
     CLC
     LDA inline_basic__w

@@ -19,8 +19,8 @@ enums__next
     LDA enums__names,X
     STA enums__b
     LDA #$0A
-    LDX enums__s
-    STA enums__table,X
+    LDY enums__s
+    STA enums__table,Y
     RTS
 
 ; function enums.tests

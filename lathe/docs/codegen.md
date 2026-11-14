@@ -27,9 +27,9 @@ Rules for building them:
 - **Pointers.** The pointer of a Target must be a zero page variable. A local or module-level pointer variable that is dereferenced becomes "must be in zero page". Any other pointer value (a field, an element, a call result, a variable of another module not declared `zp`) is first copied to a zero page temporary.
 - **Arrays use X, pointers use Y.** Absolute,X exists for every instruction that takes memory, including `INC` and `ASL`; `(zp),Y` is the only practical indirect form.
 - **One description for all three.** An Element and a Target are Variables with a mode (absolute,X or (zp),Y) and an index, which is itself a constant or a byte Variable. Byte *k* of a Variable is at its offset plus *k* times a stride: 1, or *N* for an element of an array stored by column. A constant index adds to the offset (for a Target, to the offset added to Y), so `grid[1][2]` and `hi(w[i])` are found the same way.
-- **A pointer that is the target.** A value reached through the pointer it is stored in, `p = p.next`, is loaded into A and X before the store, or into a temporary if an operation on it is pending: storing the low byte would change the pointer.
-- **Which index register.** X, except for `LDX`, which has only absolute,Y: a word element goes to A and X as `LDX i` / `LDA a,X` / `LDY i` / `LDX a+N,Y`. A word in A and X that is stored in an element goes through a temporary, because the element's index needs X. Only A is loaded from or stored through a pointer; `INC`, `DEC` and the shifts of what a pointer points at are done in A (`INC` as `CLC` / `ADC #1`). Byte *k* of a Target with a variable index is `LDY i` and *k* `INY`s.
-- **Big arrays.** A variable index into a byte array of more than 256 elements, or into a `rows` array of elements larger than a byte, is shifted by the element size and added to the array's address, in a word temporary that becomes "must be in zero page"; the element is then a Target with Y = 0. A constant added to such an index is folded into the address as for small arrays.
+- **A pointer that is the target.** A value reached through the pointer it is stored in, `p = p.next`, is loaded into A and X before the store, or into a temporary if an operation on it is pending: storing the low byte would change the pointer. So is an element of more than one byte whose index is in the variable it is stored in, `w = t[lo(w)]`: storing the low byte would change the index (`lathe/tests/cases/e2e/index_target.lth`).
+- **Which index register.** X, except for `LDX`, which has only absolute,Y: a word element goes to A and X as `LDX i` / `LDA a,X` / `LDY i` / `LDX a+N,Y`. An instruction that has an absolute,Y form (`LDA STA ADC SBC AND ORA EOR CMP`) on an element whose index X does not hold uses Y instead, if Y holds the index already, or if it is a store or X holds a copy of another variable: so two indexes that alternate stay one in X and one in Y. `a[i] = b[j]` is `LDX j` / `LDA b,X` / `LDY i` / `STA a,Y`, and the next `c[i] = d[j]` loads no index at all. Not for an array in zero page or at a fixed address, since these instructions have no zero page,Y form; and not while Y holds what A held and is to give it back (a word worked out into A and X keeps its low byte in Y meanwhile: REG knows this from the `TAY` and the `TYA`). A word in A and X that is stored in an element goes through a temporary, because the element's index needs X. Only A is loaded from or stored through a pointer; `INC`, `DEC` and the shifts of what a pointer points at are done in A (`INC` as `CLC` / `ADC #1`). Byte *k* of a Target with a variable index is `LDY i` and *k* `INY`s.
+- **Big arrays.** A variable index into a byte array of more than 256 elements, or into a `rows` array of elements larger than a byte, is a word, shifted by the element size. The pointer is a word temporary that becomes "must be in zero page". For elements of one or two bytes it holds the array's address plus 256 times the high byte of the shifted index, and Y is the low byte, since (zp),Y adds Y with its carry: `CLC` / `LDA i+1` / `ADC #>a` / `STA t+1` / `LDA #<a` / `STA t` / `LDY i`, 15 bytes where the whole addition and `LDY #0` are 17, and for words the doubled index is not added at all. A word's second byte is `INY` away, as the doubled index is even. Larger elements, and elements that are arrays, have the whole index added to the address and Y = 0, so that Y reaches their fields and parts. A constant added to such an index is folded into the address as for small arrays.
 - **Address.** `@x` is an Address, whose bytes are immediates with a low or high byte fix-up (`LDA #<x+3`). `@` of an element with a variable index adds the index to the Address, in the usual way.
 
 ## Never forcing zero page
@@ -91,6 +91,8 @@ A two-byte operation needs somewhere to put its low byte while it computes the h
 | unsigned byte `>` `<=` | operands swapped, then as `<` `>=` | |
 | `x == 0`, `x != 0` just after `x` was loaded | no `CMP` | Z |
 | word `==` `!=` | `LDA a` / `CMP b` / `BNE` false-or-true label / `LDA a+1` / `CMP b+1` | Z |
+| word `==` `!=` 0 | `LDA a` / `ORA a+1` | Z |
+| word `==` `!=` `$FFFF` (an `int` -1) | `LDA a` / `AND a+1` / `CMP #$FF`: one branch, and the carry is set if equal | Z |
 | unsigned word `<` `>=` | `LDA a` / `CMP b` / `LDA a+1` / `SBC b+1` | C |
 | signed `<` `>=` | subtract as above, then `BVC` over `EOR #$80` | N set / N clear |
 
@@ -158,3 +160,13 @@ The copy loop moves whole pages with `LDX #0` / `LDA data,X` / `STA var,X` (one 
 ## Naming
 
 String literals and other anonymous constant data are symbols `module.$1`, `module.$2`, … in order of appearance. A `static var` in a function is the module-level symbol `module.function.name`.
+
+## Tried and dropped
+
+Measured on the ten modules written in Lathe (`lathe/tests/size_report.py --report`), a change was kept only if it saved at least 40 bytes and twice the cost of the lines it adds to host modules that have no Lathe twin yet (8 bytes a line); growth of the twins `reg`, `cond` and `fbuf` is in the measure.
+
+- **Remembering that a pointer temporary holds the address of a big array's element**, to reuse it for the same index: saved 434 bytes elsewhere, but REG's twin grew by about 400 (the key has eight fields). With the low byte of the index in Y (above) only 12 exact repeats are left.
+- **A store through a pointer into a big array forgetting only the copies of that array**: 76 saved, 45 of REG and 2 lines of GEN: 31 net.
+- **`x | (word(b) << 8)` as a word of two bytes** with no temporary: 202 saved for 12 lines of GEN, but unsafe when the result goes to the variable that indexes the operands (`n = name_word(n)`); a safe check needs more lines than the saving pays for.
+- **Dropping stores into slots nothing reads** (FBUF, at the end of a function): 335 saved, FBUF's twin grew by 279; and the unit and snapshot tests store their results in locals that nothing reads.
+- **Bottom-tested loops** save no bytes on the 6502 (a `JMP` to the test replaces the `JMP` back), only cycles. **`JSR` / `RTS` after a join made a `JMP`**: 18 cases, 1 byte each.

@@ -686,9 +686,56 @@ class ElementTest(RegTest):
         reg.load(A, whole, 0)
         self.assertFalse(reg.holds(A, self.element(), 0))
         reg.load(Y, self.memory(BYTE, 7), 0)
-        reg.store(A, reg.depth - 2, 0)
+        reg.load(X, self.memory(BYTE, self.own, 0), 0)      # the index: the store uses X
+        reg.store(A, reg.depth - 3, 0)
         self.assertFalse(reg.copies(A, whole, 0))
-        self.assertTrue(reg.copies(Y, reg.depth - 1, 0))
+        self.assertTrue(reg.copies(Y, reg.depth - 2, 0))
+
+    def test_a_store_to_an_element_whose_index_x_does_not_hold_is_sta_absolute_y(self):
+        self.slots()
+        self.slot(BYTE, b'j')
+        source = self.element(BYTE, 5, 0)
+        target = self.element(WORD, 6, 2, stride=10)
+        for k in range(0, 2):
+            reg.load(A, source, 0)
+            reg.store(A, target, k)
+        self.assertEqual(self.listing(), ['LDX s0', 'LDA g5,X', 'LDY s2', 'STA g6,Y', 'LDA g5,X', 'STA g6+10,Y',
+                                          'RTS'])
+
+    def test_while_x_holds_another_variable_an_element_is_reached_by_absolute_y(self):
+        self.slots()
+        self.slot(BYTE, b'j')
+        reg.load(A, self.element(BYTE, 5, 0), 0)
+        reg.alu(reg.OP_ADC, self.element(BYTE, 6, 2), 0)
+        reg.compare(self.element(BYTE, 7, 0), 0)
+        reg.alu(reg.OP_AND, self.element(BYTE, 8, 2), 0)
+        self.assertEqual(self.listing(), ['LDX s0', 'LDA g5,X', 'LDY s2', 'ADC g6,Y', 'CMP g7,X', 'AND g8,Y',
+                                          'RTS'])
+
+    def test_but_not_while_y_holds_what_a_held_and_is_to_give_it_back(self):
+        self.slots()
+        self.slot(BYTE, b'j')
+        reg.load(A, self.element(BYTE, 5, 0), 0)
+        reg.transfer(A, Y)
+        reg.load(A, self.element(BYTE, 6, 2), 0)
+        reg.transfer(Y, A)
+        reg.load(A, self.element(BYTE, 7, 2), 0)
+        self.assertEqual(self.listing(), ['LDX s0', 'LDA g5,X', 'TAY', 'LDX s2', 'LDA g6,X', 'TYA', 'LDA g7,X',
+                                          'RTS'])
+
+    def test_but_not_one_in_zero_page_or_at_a_fixed_address_which_has_no_zero_page_y_form(self):
+        self.slots()
+        self.slot(BYTE, b'j')
+        reg.load(X, self.memory(BYTE, self.own, 2), 0)
+        reg.load_const(A, 0)
+        zp = self.element(BYTE, 6, 0)
+        reg.op_flags[zp] = reg.F_ZP
+        reg.store(A, zp, 0)
+        fixed = self.element(BYTE, kernel.NO_OBJ, 0, 0x80)
+        reg.store(A, fixed, 0)
+        reg.store(A, self.element(BYTE, 5, 2), 0)
+        self.assertEqual(self.listing(), ['LDX s2', 'LDA #$00', 'LDX s0', 'STA zp:g6,X', 'STA $80,X',
+                                          'LDY s2', 'STA g5,Y', 'RTS'])
 
     def test_what_a_pointer_points_at_is_reached_through_y(self):
         self.slots()

@@ -463,8 +463,8 @@ reg_args__through
     STA reg_args__pair__p1
     LDX reg_args__v+$01
     STX reg_args__pair__p1+$01
-    LDX reg_args__c
-    LDA reg_args__table,X
+    LDY reg_args__c
+    LDA reg_args__table,Y
     JSR .L0059
     STA reg_args__a
     RTS

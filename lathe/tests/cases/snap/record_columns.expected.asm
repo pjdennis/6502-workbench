@@ -19,8 +19,8 @@ record_columns__fields
     INC record_columns__syms+$0320,X
 .L0029
     LDA record_columns__b
-    LDX record_columns__j
-    STA record_columns__syms+$0259,X
+    LDY record_columns__j
+    STA record_columns__syms+$0259,Y
     LDA #$02
     STA record_columns__syms+$0193
     LDA record_columns__syms+$03E7
@@ -31,16 +31,16 @@ record_columns__fields
 ;   no slots
 record_columns__copies
     LDA record_columns__r
-    LDX record_columns__i
-    STA record_columns__syms,X
+    LDY record_columns__i
+    STA record_columns__syms,Y
     LDA record_columns__r+$01
-    STA record_columns__syms+$C8,X
+    STA record_columns__syms+$C8,Y
     LDA record_columns__r+$02
-    STA record_columns__syms+$0190,X
+    STA record_columns__syms+$0190,Y
     LDA record_columns__r+$03
-    STA record_columns__syms+$0258,X
+    STA record_columns__syms+$0258,Y
     LDA record_columns__r+$04
-    STA record_columns__syms+$0320,X
+    STA record_columns__syms+$0320,Y
     LDX record_columns__j
     LDA record_columns__syms,X
     STA record_columns__r
@@ -53,36 +53,27 @@ record_columns__copies
     LDA record_columns__syms+$0320,X
     STA record_columns__r+$04
     LDA record_columns__syms,X
-    LDX record_columns__i
-    STA record_columns__syms,X
-    LDX record_columns__j
+    STA record_columns__syms,Y
     LDA record_columns__syms+$C8,X
-    LDX record_columns__i
-    STA record_columns__syms+$C8,X
-    LDX record_columns__j
+    STA record_columns__syms+$C8,Y
     LDA record_columns__syms+$0190,X
-    LDX record_columns__i
-    STA record_columns__syms+$0190,X
-    LDX record_columns__j
+    STA record_columns__syms+$0190,Y
     LDA record_columns__syms+$0258,X
-    LDX record_columns__i
-    STA record_columns__syms+$0258,X
-    LDX record_columns__j
+    STA record_columns__syms+$0258,Y
     LDA record_columns__syms+$0320,X
-    LDX record_columns__i
-    STA record_columns__syms+$0320,X
+    STA record_columns__syms+$0320,Y
     RTS
 
 ; function record_columns.arrays_in_records
 ;   no slots
 record_columns__arrays_in_records
     LDA record_columns__grid+$02
-    LDX record_columns__i
-    STA record_columns__grid+$03,X
+    LDY record_columns__i
+    STA record_columns__grid+$03,Y
     LDA record_columns__grid+$07
-    STA record_columns__grid+$06,X
+    STA record_columns__grid+$06,Y
     LDA record_columns__grid+$0A
-    STA record_columns__grid+$09,X
+    STA record_columns__grid+$09,Y
     RTS
 
 ; function record_columns.is_var
@@ -115,9 +106,9 @@ record_columns__address
 
 ; variable record_columns.r: size 5, class 2 (not zp), weight 10
 
-; variable record_columns.i: size 1, class 1 (either), weight 10
+; variable record_columns.i: size 1, class 1 (either), weight 5
 
-; variable record_columns.j: size 1, class 1 (either), weight 6
+; variable record_columns.j: size 1, class 1 (either), weight 2
 
 ; variable record_columns.b: size 1, class 1 (either), weight 2
 

@@ -207,6 +207,20 @@ compare__words
     LDA #$04
     STA compare__r
 .L0048
+    LDA compare__w
+    AND compare__w+$01
+    CMP #$FF
+    BNE .L0057
+    LDA #$05
+    STA compare__r
+.L0057
+    LDA compare__i
+    AND compare__i+$01
+    CMP #$FF
+    BEQ .L0066
+    LDA #$06
+    STA compare__r
+.L0066
     RTS
 
 ; function compare.word_order
@@ -355,12 +369,12 @@ compare__known
 
 ; variable compare.t: size 1, class 1 (either), weight 3
 
-; variable compare.w: size 2, class 1 (either), weight 24
+; variable compare.w: size 2, class 1 (either), weight 26
 
 ; variable compare.v: size 2, class 1 (either), weight 14
 
-; variable compare.i: size 2, class 1 (either), weight 3
+; variable compare.i: size 2, class 1 (either), weight 5
 
 ; variable compare.j: size 2, class 1 (either), weight 2
 
-; variable compare.r: size 1, class 1 (either), weight 40
+; variable compare.r: size 1, class 1 (either), weight 42

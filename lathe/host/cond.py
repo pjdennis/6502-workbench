@@ -320,9 +320,15 @@ def equality(op, t):
     reg.release(first)
     differ = reg.NONE
     compared = False
-    if count == 2 and is_zero(second) and reg.op_kind[first] == reg.O_VAR:
+    if count == 2 and reg.op_kind[second] == reg.O_CONST and reg.op_kind[first] == reg.O_VAR \
+            and (reg.op_value[second] == 0 or reg.op_value[second] == 0xFFFF):
         reg.load(reg.A, first, 0)
-        reg.alu(reg.OP_ORA, first, 1)
+        if reg.op_value[second] == 0:
+            reg.alu(reg.OP_ORA, first, 1)
+        else:
+            reg.alu(reg.OP_AND, first, 1)       # $FFFF if the AND of its bytes is $FF
+            reg.compare_const(0xFF)
+            compared = True
         count = 0
     for k in range(0, count):
         if k == 1:

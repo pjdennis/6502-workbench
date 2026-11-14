@@ -71,6 +71,15 @@ class CompareTest(CondTest):
         reg.pop()
         self.assertEqual(self.listing(), ['LDA s0', 'ORA s0+1', 'RTS'])
 
+    def test_a_word_is_ffff_if_the_and_of_its_bytes_is_ff(self):
+        self.assertEqual(self.compare(fold.EQ, WORD, 0xFFFF), cond.OP_BEQ)
+        self.assertEqual(reg.op_flags[reg.depth - 1], cond.F_COMPARED)      # and the carry is set
+        self.assertEqual(self.compare(fold.NE, WORD, 0xFFFF), cond.OP_BNE)
+        reg.pop()
+        reg.pop()
+        self.assertEqual(self.listing(), ['LDA s0', 'AND s0+1', 'CMP #$FF', 'LDA s1', 'AND s1+1', 'CMP #$FF',
+                                          'RTS'])
+
     def test_words_are_equal_if_the_high_bytes_are_once_the_low_bytes_are(self):
         self.compare(fold.EQ, WORD)
         self.assertNotEqual(reg.op_false[0], reg.NONE)      # the low bytes differ: false at once

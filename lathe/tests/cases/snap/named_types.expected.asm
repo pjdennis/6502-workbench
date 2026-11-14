@@ -56,12 +56,12 @@ named_types__imported
     LDA (named_types__it),Y
     STA named_types__m
     LDA #$01
-    LDX named_types__b
-    STA named_types__items,X
+    LDY named_types__b
+    STA named_types__items,Y
     LDA named_types__it
-    STA named_types__items+$18,X
+    STA named_types__items+$18,Y
     LDA named_types__it+$01
-    STA named_types__items+$20,X
+    STA named_types__items+$20,Y
     LDX #>libtypes__first
     LDA #<libtypes__first
     JSR libtypes__count_of

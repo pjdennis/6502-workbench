@@ -1,0 +1,88 @@
+; Elements of arrays the index registers cannot reach: the pointer is the array's address plus
+; 256 times the high byte of the index (doubled for words) and Y the low byte, so the carry
+; from Y into the high byte must be right for every low byte of the address. Bytes and words
+; by row, at indexes whose low byte is $00, $01, $7F, $80, $FE and $FF in each page; with a
+; constant added to the index, a byte index, read, written and incremented in place; and
+; records of more than two bytes, which keep the whole index in the pointer.
+module bigarray_pages
+
+import libout
+
+type Cell = record
+  a: byte
+  b: word
+  c: byte
+end
+
+var bytes: [1100]byte
+var words: [700]word rows
+var cells: [300]Cell rows
+var i: word
+var k: byte
+var sum: word
+var mix: word
+
+const LOWS: [6]byte = [$00, $01, $7F, $80, $FE, $FF]
+
+pub func main()
+  var n: byte
+  var page: byte
+  i = 0
+  while i < 1100 do
+    bytes[i] = lo(i) ^ hi(i) ^ $5A
+    i += 1
+  end
+  i = 0
+  while i < 700 do
+    words[i] = i * 3 + $1234
+    i += 1
+  end
+  i = 0
+  while i < 300 do
+    cells[i].a = lo(i)
+    cells[i].b = i + $4000
+    cells[i].c = hi(i) + 1
+    i += 1
+  end
+  sum = 0
+  mix = 0
+  for page = 0 until 4 do
+    for n = 0 until 6 do
+      i = word(page) * 256 + word(LOWS[n])
+      sum += word(bytes[i]) + word(bytes[i + 1]) * 3
+      if page < 2 then
+        mix += words[i] ^ (words[i + 1] << 1)
+        words[i] += 1
+      end
+      bytes[i + 2] = bytes[i] + 1
+    end
+  end
+  libout.hexw(sum)
+  libout.space()
+  libout.hexw(mix)
+  libout.nl()
+  sum = 0
+  for k = 0 until 255 do
+    sum += word(bytes[k]) + words[k]
+  end
+  i = 0
+  while i < 700 do
+    sum += words[i]
+    i += 1
+  end
+  libout.hexw(sum)
+  libout.nl()
+  sum = 0
+  i = 0
+  while i < 300 do
+    sum += word(cells[i].a) + cells[i].b + word(cells[i].c)
+    i += 1
+  end
+  libout.hexw(sum)
+  libout.space()
+  libout.hex(bytes[1099])
+  libout.hex(bytes[2])
+  libout.hexw(words[699])
+  libout.hexw(words[$FF])
+  libout.nl()
+end

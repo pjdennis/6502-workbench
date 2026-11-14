@@ -100,7 +100,8 @@ func signs()
   end
 end
 
-; words: equality looks at the high bytes only if the low bytes are equal
+; words: equality looks at the high bytes only if the low bytes are equal; against 0 or
+; $FFFF, the OR or the AND of the bytes is enough
 func words()
   if w == v then
     r = 1
@@ -113,6 +114,12 @@ func words()
   end
   if w != $1200 then
     r = 4
+  end
+  if w == $FFFF then
+    r = 5
+  end
+  if i != -1 then
+    r = 6
   end
 end
 

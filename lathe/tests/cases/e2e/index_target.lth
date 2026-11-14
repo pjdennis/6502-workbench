@@ -1,0 +1,44 @@
+; A word element stored in the variable its index is a byte of, `w = tab[lo(w)]`: the index
+; must be the one it had before the low byte was stored (it was reloaded from the variable,
+; which then held the new low byte). As a plain store, with an operation pending, and with
+; the index reached through a pointer, and an element of a big array.
+module index_target
+
+import libout
+
+const INIT: [4]word = [$1102, $2203, $3301, $4400]
+var tab: [4]word
+var cells: [300]word rows
+var w: word
+var v: word
+
+pub func main()
+  var i: byte
+  var p: ^word
+  for i = 0 until 4 do
+    tab[i] = INIT[i]
+    cells[i] = INIT[3 - i]
+  end
+  w = 1
+  w = tab[lo(w)]
+  libout.hexw(w)
+  libout.space()
+  w = 2
+  w = tab[lo(w)] + 1
+  libout.hexw(w)
+  libout.space()
+  w = 3
+  v = 3
+  v = tab[lo(v)] - tab[lo(w)]
+  libout.hexw(v)
+  libout.space()
+  p = @cells[0]
+  w = 1
+  w = p[lo(w)]
+  libout.hexw(w)
+  libout.space()
+  w = 2
+  w = cells[w]
+  libout.hexw(w)
+  libout.nl()
+end

@@ -536,9 +536,33 @@ class ElementsTest(support.GenTest):
         self.local(WORD, b'i')
         gen.index()
         gen.store()
-        self.assertEqual(self.listing(), ['CLC', 'LDA s1', 'ADC #<g1', 'STA s2', 'LDA s1+1', 'ADC #>g1',
-                                          'STA s2+1', 'LDY #$00', 'LDA (zp:s2),Y', 'STA s0', 'RTS'])
+        self.assertEqual(self.listing(), ['CLC', 'LDA s1+1', 'ADC #>g1', 'STA zp:s2+1', 'LDA #<g1', 'STA zp:s2',
+                                          'LDY s1', 'LDA (zp:s2),Y', 'STA s0', 'RTS'])
         self.assertEqual(reg.slot_class[fbuf.FIRST_TEMP], reg.CLASS_ZP)
+
+    def test_a_big_word_array_has_y_the_low_byte_of_the_doubled_index_and_iny_for_the_high_byte(self):
+        self.local(WORD, b'v')
+        self.array(WORD, 300, rows=True)
+        self.local(WORD, b'i')
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA s1', 'ASL', 'STA s2', 'LDA s1+1', 'ROL', 'STA s2+1', 'CLC',
+                                          'ADC #>g1', 'STA zp:s3+1', 'LDA #<g1', 'STA zp:s3', 'LDY s2',
+                                          'LDA (zp:s3),Y', 'STA s0', 'INY', 'LDA (zp:s3),Y', 'STA s0+1', 'RTS'])
+
+    def test_elements_of_more_than_two_bytes_have_the_whole_index_added_and_y_reaches_their_parts(self):
+        self.local(WORD, b'v')
+        rec = typetab.array_of(WORD, 2, False)
+        self.array(rec, 100, rows=True)
+        self.local(BYTE, b'i')
+        gen.index()
+        gen.constant(NUMBER, 1)
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA s1', 'ASL', 'STA s2', 'LDA #$00', 'ROL', 'STA s2+1',
+                                          'ASL s2', 'ROL s2+1', 'CLC', 'LDA s2', 'ADC #<g1', 'STA zp:s3',
+                                          'LDA s2+1', 'ADC #>g1', 'STA zp:s3+1', 'LDY #$01', 'LDA (zp:s3),Y',
+                                          'STA s0', 'LDY #$03', 'LDA (zp:s3),Y', 'STA s0+1', 'RTS'])
 
     def test_a_pointer_index_is_scaled_by_the_element_size(self):
         self.local(WORD, b'w')

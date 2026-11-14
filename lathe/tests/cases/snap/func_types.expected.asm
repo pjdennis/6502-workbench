@@ -63,14 +63,14 @@ func_types__set_up
     LDA #>func_types__idle
     STA func_types__set_up__local+$01
     LDA func_types__set_up__local
-    LDX func_types__set_up__i
-    STA func_types__keys+$04,X
+    LDY func_types__set_up__i
+    STA func_types__keys+$04,Y
     LDA func_types__set_up__local+$01
-    STA func_types__keys+$08,X
+    STA func_types__keys+$08,Y
     LDA #<func_types__idle
-    STA func_types__actions,X
+    STA func_types__actions,Y
     LDA #>func_types__idle
-    STA func_types__actions+$03,X
+    STA func_types__actions+$03,Y
     LDX #>func_types__flash
     LDA #<func_types__flash
     JSR func_types__take

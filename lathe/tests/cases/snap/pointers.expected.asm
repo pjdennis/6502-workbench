@@ -113,10 +113,10 @@ pointers__copies
     LDY #$00
     LDA (pointers__copies__St1),Y
     STA pointers__n
-    LDX pointers__copies__i
-    LDA pointers__table,X
+    LDY pointers__copies__i
+    LDA pointers__table,Y
     STA pointers__copies__St1
-    LDA pointers__table+$04,X
+    LDA pointers__table+$04,Y
     STA pointers__copies__St1+$01
     LDY #$01
     LDA (pointers__copies__St1),Y

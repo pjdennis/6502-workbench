@@ -39,8 +39,8 @@ arrays__computed
     TAX
     LDA arrays__a,X
     STA arrays__n
-    LDX arrays__i
-    LDA arrays__b,X
+    LDY arrays__i
+    LDA arrays__b,Y
     STA arrays__computed__St1
     TAX
     LDA arrays__a,X
@@ -64,12 +64,12 @@ arrays__forgetting
     LDA arrays__a+$03
     STA arrays__n
     LDA #$00
-    LDX arrays__i
-    STA arrays__a,X
+    LDY arrays__i
+    STA arrays__a,Y
     LDA arrays__a+$03
     STA arrays__n
-    STX arrays__j
-    STA arrays__a,X
+    STY arrays__j
+    STA arrays__a,Y
     RTS
 
 ; function arrays.search

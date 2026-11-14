@@ -1,0 +1,46 @@
+; A word against $FFFF (or an int against -1) is the AND of its bytes against $FF, and against
+; 0 the OR of its bytes. Each line is one value, with one byte, the other or both at $FF or 0:
+; a variable == $FFFF, != $FFFF, == 0, != 0; an element of an array, then what a pointer points
+; at, == $FFFF and != $FFFF; an int == -1, and a `bool` result in the carry, `v == $FFFF`.
+module word_ones
+
+import libout
+
+const VALUES: [9]word = [$FFFF, $FF00, $00FF, $FFFE, $7FFF, $FEFF, 0, $0100, $FFFF]
+
+var w: word
+var cells: [9]word
+var line: [9]word rows
+var p: ^word
+var n: int
+
+func is_none(v: word): bool
+  return v == $FFFF
+end
+
+pub func main()
+  var i: byte
+  for i = 0 until 9 do
+    cells[i] = VALUES[i]
+    line[i] = VALUES[i]
+  end
+  for i = 0 until 9 do
+    w = VALUES[i]
+    p = @line[0]
+    p += 2 * word(i)
+    libout.truth(w == $FFFF)
+    libout.truth(w != $FFFF)
+    libout.truth(w == 0)
+    libout.truth(w != 0)
+    libout.space()
+    libout.truth(cells[i] == $FFFF)
+    libout.truth(cells[i] != $FFFF)
+    libout.truth(p[0] == $FFFF)
+    libout.truth(p[0] != $FFFF)
+    libout.space()
+    n = int(w)
+    libout.truth(n == -1)
+    libout.truth(is_none(w))
+    libout.nl()
+  end
+end

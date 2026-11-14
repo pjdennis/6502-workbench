@@ -16,36 +16,35 @@ columns__arithmetic
     LDX columns__j
     LDA columns__w,X
     ADC columns__total
-    LDX columns__i
-    STA columns__w,X
-    LDX columns__j
+    LDY columns__i
+    STA columns__w,Y
     LDA columns__w+$0A,X
     ADC columns__total+$01
-    LDX columns__i
-    STA columns__w+$0A,X
-    LDA columns__w,X
+    STA columns__w+$0A,Y
+    LDA columns__w,Y
     CLC
     ADC columns__total
     STA columns__total
     LDA columns__total+$01
-    ADC columns__w+$0A,X
+    ADC columns__w+$0A,Y
     STA columns__total+$01
     SEC
-    LDA columns__w,X
+    LDA columns__w,Y
     SBC #$01
     STA columns__w+$03
-    LDA columns__w+$0A,X
+    LDA columns__w+$0A,Y
     SBC #$00
     STA columns__w+$0D
+    LDX columns__i
     INC columns__w,X
-    BNE .L004B
+    BNE .L0048
     INC columns__w+$0A,X
-.L004B
+.L0048
     LDA columns__b
-    LDX columns__j
-    STA columns__w,X
+    LDY columns__j
+    STA columns__w,Y
     LDA #$00
-    STA columns__w+$0A,X
+    STA columns__w+$0A,Y
     RTS
 
 ; function columns.halves
@@ -70,21 +69,19 @@ columns__compare
     RTS
 .L000D
     LDA columns__s,X
-    LDX columns__j
-    CMP columns__s,X
-    LDX columns__i
+    LDY columns__j
+    CMP columns__s,Y
     LDA columns__s+$0A,X
-    LDX columns__j
-    SBC columns__s+$0A,X
-    BVC .L0026
+    SBC columns__s+$0A,Y
+    BVC .L0020
     EOR #$80
-.L0026
-    BMI .L002B
+.L0020
+    BMI .L0025
     CLC
-    BCC .L002C
-.L002B
+    BCC .L0026
+.L0025
     SEC
-.L002C
+.L0026
     RTS
 
 ; function columns.through
@@ -103,8 +100,8 @@ columns__through
 ;   no slots
 columns__arrays_of_arrays
     LDA columns__grid+$0A
-    LDX columns__i
-    STA columns__grid+$06,X
+    LDY columns__i
+    STA columns__grid+$06,Y
     LDA columns__grid+$0B
     STA columns__b
     RTS
@@ -117,7 +114,7 @@ columns__same
     RTS
 
 ; function columns.in_registers
-;   slot 0 $t1: size 2, class 1 (either), temp, weight 10
+;   slot 0 $t1: size 2, class 1 (either), temp, weight 7
 ;   calls columns.same
 columns__in_registers
     LDA columns__b
@@ -130,41 +127,41 @@ columns__in_registers
     STX columns__in_registers__St1+$01
     CLC
     ADC columns__total
-    LDX columns__i
-    STA columns__w,X
-    LDA columns__in_registers__St1+$01
+    LDY columns__i
+    STA columns__w,Y
+    TXA
     ADC columns__total+$01
-    STA columns__w+$0A,X
+    STA columns__w+$0A,Y
     LDX columns__total+$01
     LDA columns__total
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
-    LDX columns__j
-    LDA columns__w,X
+    LDY columns__j
+    LDA columns__w,Y
     CLC
     ADC columns__in_registers__St1
     STA columns__total
-    LDA columns__in_registers__St1+$01
-    ADC columns__w+$0A,X
+    TXA
+    ADC columns__w+$0A,Y
     STA columns__total+$01
     TAX
     LDA columns__total
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
-    LDX columns__i
-    CMP columns__w,X
-    BNE .L0065
-    LDA columns__in_registers__St1+$01
-    CMP columns__w+$0A,X
-    BEQ .L0068
-.L0065
+    LDY columns__i
+    CMP columns__w,Y
+    BNE .L005F
+    TXA
+    CMP columns__w+$0A,Y
+    BEQ .L0062
+.L005F
     CLC
-    BCC .L0069
-.L0068
+    BCC .L0063
+.L0062
     SEC
-.L0069
+.L0063
     RTS
 
 ; variable columns.w: size 20, class 2 (not zp), weight 27
@@ -175,9 +172,9 @@ columns__in_registers
 
 ; variable columns.grid: size 12, class 2 (not zp), weight 3
 
-; variable columns.i: size 1, class 1 (either), weight 11
+; variable columns.i: size 1, class 1 (either), weight 10
 
-; variable columns.j: size 1, class 1 (either), weight 7
+; variable columns.j: size 1, class 1 (either), weight 5
 
 ; variable columns.total: size 2, class 1 (either), weight 13
 

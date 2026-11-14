@@ -1143,29 +1143,45 @@ def array_index(base, t):
 
 def element_pointer(base, e):
     """The newest operand, a word, is the index of an element of the array `base` that the
-    index registers cannot reach: work out its address in a zero page temporary."""
+    index registers cannot reach. The index is shifted by the element size; the pointer, a
+    zero page temporary, is the array's address plus 256 times the high byte of that, and the
+    low byte is the index in Y, which (zp),Y adds with its carry. A word's second byte is then
+    an INY away (the low byte is even). Elements of more than two bytes, whose fields are
+    reached by Y, have the whole index added to the pointer and Y = 0."""
     size = typetab.size(e)
-    if exponent(size) > 15:
+    shift = exponent(size)
+    if shift > 15:
         err.fatal(err.E_ELEMENT_SIZE)
-    if size > 1:
-        constant(typetab.BYTE_TYPE, exponent(size))
+    if shift > 0:
+        constant(typetab.BYTE_TYPE, shift)
         binary(fold.SHL)
     settle()
+    i = reg.depth - 1
+    reg.into_memory(i)
+    whole = shift > 1 or typetab.is_array(e)       # Y reaches the parts: all of i is added
     reg.duplicate(base)
-    i = reg.depth - 1
-    reg.op_kind[i] = reg.O_ADDR
-    if reg.op_symbol[i] == kernel.NO_OBJ:
-        reg.op_kind[i] = reg.O_CONST
-    reg.op_type[i] = typetab.pointer_to(e)
-    reg.op_size[i] = 2
-    binary(fold.ADD)
-    resolve(True)
-    i = reg.depth - 1
-    reg.zero_page(i)
-    reg.copy(i, base)
-    reg.op_flags[i] = 0
+    a = reg.depth - 1
+    reg.op_kind[a] = reg.O_ADDR
+    if reg.op_symbol[a] == kernel.NO_OBJ:
+        reg.op_kind[a] = reg.O_CONST
+    reg.describe_temp(a + 1, typetab.pointer_to(e))
+    reg.zero_page(a + 1)
+    reg.implied(reg.OP_CLC)
+    if whole:
+        reg.load(reg.A, i, 0)
+        reg.alu(reg.OP_ADC, a, 0)
+        reg.store(reg.A, a + 1, 0)
+    reg.load(reg.A, i, 1)
+    reg.alu(reg.OP_ADC, a, 1)
+    reg.store(reg.A, a + 1, 1)
+    if not whole:
+        reg.load(reg.A, a, 0)
+        reg.store(reg.A, a + 1, 0)
     reg.pop()
-    reg.push(reg.O_CONST, typetab.BYTE_TYPE, 0)
+    reg.copy(a + 1, base)
+    reg.op_size[i] = 1
+    if whole:
+        reg.become(i, reg.O_CONST, typetab.BYTE_TYPE)
     pointed(base, e)
 
 
