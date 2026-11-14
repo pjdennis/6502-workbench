@@ -152,6 +152,7 @@ def show_env():
     show_word(lk_envf.stack)
     show_byte(lk_envf.exit_kind)
     show_word(lk_envf.exit_addr)
+    show_bool(lk_envf.exit_keeps)
     show_bool(lk_envf.raw)
     show_bool(lk_envf.has_more)
     show_word(lk_envf.more_lo)

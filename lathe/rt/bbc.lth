@@ -1,0 +1,343 @@
+; A Lathe program run on a BBC Micro (the emulator's `--machine bbcbplus`, a Model B+128) with
+; `*RUN NAME ARGS`, through the MOS's documented calls: the interface of lathe/rt/host.lth and
+; lathe/rt/disk.lth (the same names, parameters, results and registers), so that lathe/src/sys.lth
+; can choose it with `#if PORTS == 2`. lathe/env/bbc.env is its environment and
+; lathe/docs/boards.md, "The BBC Micro", the recipe. NMOS instructions only.
+;
+;   | host.lth                    | Here, through the MOS                                       |
+;   |-----------------------------|-------------------------------------------------------------|
+;   | read_byte: standard input   | OSRDCH. A carriage return ($0D, the Return key) is given as  |
+;   |                             | a line feed; an error or Escape (which the emulator gives   |
+;   |                             | at the end of its input) is the end: Escape is acknowledged |
+;   |                             | (OSBYTE 126) and the carry set                              |
+;   | put_byte: standard output   | OSWRCH; a line feed ($0A) is OSNEWL, LF and CR, the BBC's   |
+;   |                             | end of line; nothing else is translated                     |
+;   | put_error: error output     | the same as put_byte: the BBC has one output stream         |
+;   | open, open_out              | OSFIND $40 and $80 with the name ended by CR. A file that   |
+;   |                             | is not there is 0, as the MOS gives it; an error the filing |
+;   |                             | system raises (Bad name, Too many open files) is caught     |
+;   |                             | (BRKV for the call) and is 0 too                            |
+;   | read, write, close          | OSBGET, OSBPUT, OSFIND 0. Bytes are never translated, so a  |
+;   |                             | file is copied exactly. At the end of a file read gives the |
+;   |                             | carry set, and goes on giving it without asking the MOS     |
+;   |                             | again, which would raise the error EOF                      |
+;   | argc, argv                  | the tail of the command that ran the program (OSARGS A=1,   |
+;   |                             | Y=0), split at spaces; "..." is one argument, which may be  |
+;   |                             | empty or hold spaces, with "" for a quote inside it         |
+;   | exit(0)                     | closes every file (OSFIND 0 with Y = 0, as CLOSE#0) and     |
+;   |                             | returns to the MOS from any depth: the start-up code of     |
+;   |                             | `exit return $0400` kept the stack pointer at KEEP          |
+;   | exit(code), code not 0      | closes them and raises a MOS error, BRK with the number     |
+;   |                             | `code` and the message "Exit CODE"; the emulator prints it  |
+;   |                             | and ends with status 1, a real BBC's language reports it    |
+;
+; The command line. *RUN leaves the line it was given where its caller had it; typed at BASIC's
+; prompt that is the language's input buffer at $0700, which is where the emulator's
+; --bbc-command puts it too. lathe/env/bbc.env leaves $0700-$07FF out of the program's data, so
+; the tail stays there while the program runs, and argc and argv read it again at every call.
+;
+; No variable here has an initial value, so that the module has no `$init`: lathe/src/sys.lth
+; imports it in every build (build.py reads every `import` line, whatever `#if` it is under), and
+; a module's `$init` is called, and so linked, whether anything else of it is used or not.
+;
+; Where it differs from host.lth: a handle given to read, write or close must be one that open
+; or open_out gave; the arguments are at most MAX_ARGS with ARGS_SIZE bytes of text in all, and
+; what does not fit is dropped; a name for open must be shorter than NAME_SIZE; read keeps
+; the end of a file by its handle's low five bits (a filing system's handles lie within 32 of
+; each other: the DFS's are $11-$15).
+module bbc
+
+extern func osrdch(): byte in a, bool in c                      at $FFE0
+extern func osbget(handle: byte in y): byte in a, bool in c     at $FFD7
+extern func osbput(ch: byte in a, handle: byte in y)            at $FFD4
+extern func osfind_close(zero: byte in a, handle: byte in y)    at $FFCE
+extern func osbyte(code: byte in a, xv: byte in x, yv: byte in y) at $FFF4
+
+pub const KEEP = $0400              ; where the start-up code keeps S (bbc.env: exit return $0400)
+var kept_s: byte at KEEP
+
+const LF: byte = 10
+const CR: byte = 13
+const SPACE: byte = 32
+const QUOTE: byte = 34
+const FOR_INPUT: byte = $40
+const FOR_OUTPUT: byte = $80
+
+const HANDLES = 32                  ; files are known by their handle's low five bits
+var ended: [HANDLES]bool            ; the file of this handle has given its end
+
+; ---- Files ---------------------------------------------------------------------------------
+
+const NAME_SIZE = 128
+var name_buf: [NAME_SIZE]byte       ; the name for OSFIND, ended by CR
+var find_mode: byte
+var saved_s: byte                   ; S at find's entry, for caught()
+var old_brkv: word
+
+; Where the MOS goes on an error raised inside find's OSFIND: back to find's caller with 0.
+asm func caught()
+  LDX saved_s
+  TXS
+  LDA old_brkv
+  STA $0202
+  LDA old_brkv+1
+  STA $0203
+  LDA #$00
+  RTS
+end
+
+; OSFIND with A = mode on the name in name_buf: the handle, or 0 if the file was not opened or
+; the filing system raised an error.
+asm func find(mode: byte in a): byte in a
+  STA find_mode
+  TSX
+  STX saved_s
+  LDA $0202                         ; BRKV
+  STA old_brkv
+  LDA $0203
+  STA old_brkv+1
+  LDA #<caught
+  STA $0202
+  LDA #>caught
+  STA $0203
+  LDA find_mode
+  LDX #<name_buf
+  LDY #>name_buf
+  JSR $FFCE                         ; OSFIND
+  TAY
+  LDA old_brkv
+  STA $0202
+  LDA old_brkv+1
+  STA $0203
+  TYA
+end
+
+; Open the file named at p (zero-terminated) with `mode`. Returns a handle, or 0.
+func open_mode(name: ^byte, mode: byte): byte
+  var i: byte
+  var h: byte
+  i = 0
+  while name[i] != 0 do
+    if i == NAME_SIZE - 1 then
+      return 0
+    end
+    name_buf[i] = name[i]
+    i += 1
+  end
+  name_buf[i] = CR
+  h = find(mode)
+  ended[h & (HANDLES - 1)] = false  ; ended[0] is never read
+  return h
+end
+
+; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
+pub func open(name: ^byte): byte
+  return open_mode(name, FOR_INPUT)
+end
+
+; Create the file named at p for writing. Returns a handle, or 0.
+pub func open_out(name: ^byte): byte
+  return open_mode(name, FOR_OUTPUT)
+end
+
+pub func close(handle: byte)
+  if handle != 0 then               ; OSFIND 0 with Y = 0 would close every file
+    osfind_close(0, handle)
+  end
+end
+
+; The next byte of the file and false, or 0 and true at the end of the file.
+pub func read(handle: byte): byte, bool
+  var b: byte
+  if ended[handle & (HANDLES - 1)] then
+    return 0, true
+  end
+  if osbget(handle) -> b then
+    ended[handle & (HANDLES - 1)] = true
+    return 0, true
+  end
+  return b, false
+end
+
+pub func write(ch: byte, handle: byte)
+  osbput(ch, handle)
+end
+
+; ---- The console ---------------------------------------------------------------------------
+
+; One byte to standard output; a line feed is the BBC's end of line, LF and CR (OSNEWL).
+; Registers as host.put_byte's, so that asm can call it as it calls that.
+pub asm func put_byte(ch: byte in a)
+  CMP #LF
+  BNE .other
+  JMP $FFE7                         ; OSNEWL
+.other
+  JMP $FFEE                         ; OSWRCH
+end
+
+; One byte to the error output, which on the BBC is the output.
+pub asm func put_error(ch: byte in a)
+  JMP put_byte
+end
+
+; The next byte of standard input and false; true at its end (or on Escape).
+pub func read_byte(): byte, bool
+  var c: byte
+  if osrdch() -> c then
+    osbyte(126, 0, 0)               ; acknowledge the Escape
+    return 0, true
+  end
+  if c == CR then
+    return LF, false
+  end
+  return c, false
+end
+
+; ---- Arguments: the command line's tail ----------------------------------------------------
+
+const MAX_ARGS = 48                 ; the linker takes 4 and up to 40 object files
+const ARGS_SIZE = 256               ; bytes of text, each argument's terminating zero included
+
+var arg_text: [ARGS_SIZE]byte       ; the arguments, each followed by a zero
+var arg_start: [MAX_ARGS]byte       ; where each starts in arg_text
+var arg_count: byte
+var block: [4]byte zp               ; OSARGS's result
+var top: byte                       ; the next free byte of arg_text
+
+; The address of the command line's tail, ended by CR: OSARGS with A = 1, Y = 0.
+asm func tail_address(): ^byte in ax
+  LDA #$01
+  LDX #<block
+  LDY #$00
+  JSR $FFDA                         ; OSARGS
+  LDA block
+  LDX block+1
+end
+
+; Add c to the argument being read, if there is room.
+func store(c: byte)
+  if top < ARGS_SIZE - 1 then
+    arg_text[top] = c
+    top += 1
+  end
+end
+
+; Read the tail into arg_text, arg_start and arg_count.
+func read_args()
+  var t: ^byte
+  var i: byte
+  var c: byte
+  t = tail_address()
+  i = 0
+  top = 0
+  arg_count = 0
+  loop
+    while t[i] == SPACE do
+      i += 1
+    end
+    if t[i] == CR or arg_count == MAX_ARGS or top == ARGS_SIZE - 1 then
+      break                         ; the rest is dropped
+    end
+    arg_start[arg_count] = top
+    arg_count += 1
+    if t[i] == QUOTE then
+      i += 1
+      loop
+        c = t[i]
+        if c == CR then
+          break
+        end
+        i += 1
+        if c == QUOTE then
+          if t[i] != QUOTE then
+            break
+          end
+          i += 1
+        end
+        store(c)
+      end
+    else
+      while t[i] != SPACE and t[i] != CR do
+        store(t[i])
+        i += 1
+      end
+    end
+    arg_text[top] = 0
+    if top < ARGS_SIZE - 1 then
+      top += 1
+    end
+  end
+end
+
+; Number of program arguments.
+pub func argc(): byte
+  read_args()
+  return arg_count
+end
+
+; A pointer to argument i, a zero-terminated string; an empty string if there is no such
+; argument.
+pub func argv(i: byte): ^byte
+  read_args()
+  if i >= arg_count then
+    return ""
+  end
+  return @arg_text + arg_start[i]
+end
+
+; ---- The end -------------------------------------------------------------------------------
+
+; Back to the MOS, with the stack pointer the start-up code kept.
+asm func back()
+  LDX kept_s
+  TXS
+  RTS
+end
+
+; The error exit raises: BRK, the number, the message and its zero. Built here, in RAM.
+var brk_block: [12]byte
+
+asm func raise()
+  JMP brk_block
+end
+
+; End the program with status `code`. Closes every file. 0 returns to the MOS; any other code
+; raises the MOS error `code`, "Exit CODE". Does not return.
+pub func exit(code: byte)
+  var n: byte
+  var hundreds: byte
+  var tens: byte
+  osfind_close(0, 0)                ; every file
+  if code == 0 then
+    back()
+  end
+  brk_block[0] = 0                  ; BRK
+  brk_block[1] = code
+  brk_block[2] = 'E'
+  brk_block[3] = 'x'
+  brk_block[4] = 'i'
+  brk_block[5] = 't'
+  brk_block[6] = SPACE
+  n = 7
+  hundreds = '0'                    ; the digits by subtraction: no division to link
+  while code >= 100 do
+    code -= 100
+    hundreds += 1
+  end
+  tens = '0'
+  while code >= 10 do
+    code -= 10
+    tens += 1
+  end
+  if hundreds != '0' then
+    brk_block[n] = hundreds
+    n += 1
+  end
+  if hundreds != '0' or tens != '0' then
+    brk_block[n] = tens
+    n += 1
+  end
+  brk_block[n] = '0' + code
+  brk_block[n + 1] = 0
+  raise()
+end

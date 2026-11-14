@@ -1,6 +1,6 @@
 # Running on the boards
 
-A Lathe program can run on three machines of the emulator (`../../emulator/README.md`): the default machine, Michael and Wendy 2, which can also be run with files (`wendy2disk`). Each has an environment file in `../env/`. This document gives the recipe for each: how the emulator is run, the memory map, what the file must hold, how output is read, and how a timer interrupt is set up.
+A Lathe program can run on four machines of the emulator (`../../emulator/README.md`): the default machine, Michael, Wendy 2, which can also be run with files (`wendy2disk`), and the BBC Model B+128 (`bbc`). Each has an environment file in `../env/`. This document gives the recipe for each: how the emulator is run, the memory map, what the file must hold, how output is read, and how a timer interrupt is set up.
 
 `build.py --env NAME --run` follows these recipes. What the driver knows about each board is in `../host/driver/boards.py`.
 
@@ -137,6 +137,55 @@ The ports are in fixed RAM, so they are reached from every bank.
 **Code in banks.** An environment like `wendy2disk.env` with `code $4000 $7FFF`, a `window WIN $8000 $EFFF`, `switch WIN bank $F000 $1F`, `bank WIN N $1N FILE` entries and `place` entries puts the code of the modules placed in banks of the window, with `farcall rt_bank` ([`configurations.md`](configurations.md), section 5). The linker writes each bank's file beside the image, the build copies it into `DIR`, and the start-up code loads it through the ports before `main`. `../tests/cases/e2e-config/farcall_banks.env` is one. The default machine takes overlays the same way (`switch WIN overlay`, `farcall rt_ovl`), loaded through the host services from the emulator's working directory.
 
 `build.py --env wendy2disk --run [--disk DIR]` runs the program on `DIR` (a temporary empty directory without it), prints `out`, copies `errors` to the error output and exits with the status. `driver/boards.py` (`run_disk`) and `build.run_program(..., disk=DIR)` do the same for the tests; the cases are in `../tests/cases/e2e-wendy2disk/`.
+
+## The BBC Micro
+
+The emulator's `--machine bbcbplus`, a BBC Model B+128 with the DFS in mode 7, whose MOS is the emulator's own behind the documented entry points (`../../emulator/README.md`, "bbcbplus"; the facts it rests on are in `../../emulator/NOTES-bbcbplus.md`). Environment `bbc.env`. A program is run as on the real machine, by `*RUN` with its arguments on the command line, and talks only to the MOS. No banks yet: [`bbc.md`](bbc.md) has the design for those.
+
+```bash
+python3 lathe/host/driver/build.py PROG.lth -o PROG --env bbc     # writes PROG and PROG.inf
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict --bbc-command "RUN PROG ARGS"
+```
+
+`DIR` holds the program file, its `.inf` file and the files it reads and writes. `--bbc-command` gives the line to OSCLI after reset, from `$0700`, as BASIC's prompt would; the run's status is 0 when the program returns to the MOS, 1 when an error reaches the MOS's default handler (its message goes to standard error) or `--bbc-strict` catches a write to the MOS's memory. `build.py --env bbc --run [--disk DIR]` does both and prints the output (with `--disk`, the program's own name in `DIR` must be free).
+
+| Address | What is there |
+|---|---|
+| `$0000-$008F` | Zero page, the language's: the linker's zero page. `$0090-$00FF` is the MOS's and the filing system's. |
+| `$0100-$01FF` | The stack, the MOS's: the start-up code leaves S as `*RUN` entered it. |
+| `$0200-$03FF` | The MOS's vectors and workspace. bbc.lth writes only BRKV (`$0202`), and puts it back. |
+| `$0400` | Where the start-up code keeps the stack pointer (`exit return $0400`, `bbc.KEEP`). |
+| `$0401-$06FF` | Variables (`more data`), used when the main range is full. |
+| `$0700-$07FF` | The command line (BASIC's input buffer; the emulator's `--bbc-command`): left alone, so that the tail stays where OSARGS points while the program runs. |
+| `$0800-$18FF` | The MOS's and the DFS's workspace, up to PAGE. |
+| `$1900-$6BFF` | Code (`bbc.env`): the file is loaded at PAGE, `$1900`, and entered there. |
+| `$6C00-$7BFF` | Variables, up to HIMEM in mode 7 (`$7C00` is the screen). |
+| `$8000-$BFFF` | The sideways ROM or RAM in the window; `$C000-$FFFF` the MOS. |
+
+- **The file** is the code bytes from `$1900` (`output raw`). The build writes `NAME.inf` beside it (`NAME 00001900 00001900 LENGTH`), which gives `*RUN` the load and execution addresses; the driver copies both into `DIR` under the program's name without its extension, and takes them away after the run.
+- **The split** between code and variables is fixed by the environment file: `bbc.env` gives 21,248 bytes to code and 4,096 to variables, with 767 more at `$0401-$06FF`, which every end-to-end case fits. A program with more variables needs its own file, as `../src/compiler-bbc.env` (code `$1900-$51FF`, variables `$5200-$7BFF`) is for the compiler's test programs.
+- **The arguments** are the tail of the command, read with OSARGS (A=1, Y=0), as a real BBC gives it to a program run with `*RUN NAME ARGS`. `bbc.lth` splits it at spaces; `"..."` is one argument, which may be empty or hold spaces, with `""` for a quote inside it. The driver quotes an argument only when it must. A line holds at most 254 characters, CR not among them.
+- **Output** is OSWRCH, and standard input OSRDCH; in the emulator they are its standard output and input.
+- **The line end.** The BBC ends a line with CR (`$0D`): the Return key gives CR, and OSNEWL writes LF CR, which the screen needs (LF moves down, CR back to the start). A Lathe program writes and reads LF (`$0A`). So `put_byte(10)` is OSNEWL (LF CR), every other byte is written as it is, and `read_byte` gives a CR from the keyboard as LF. The driver gives each LF CR of the emulator's output back as LF, so that it compares with the default machine's. Files are never translated: `read` and `write` (OSBGET, OSBPUT) move bytes exactly, so object files and binary data copy as they are.
+- **Error output** goes where output goes: the BBC has no second stream. The driver's error output is only a MOS error's message.
+- **The end.** `main` returning, or `exit(0)` from any depth, returns to the MOS: the start-up code begins with `TSX` / `STX $0400`, and `exit` puts S back from there and returns. `exit(N)` with N not 0 raises a MOS error: BRK, the error number N and the message `Exit N`. The emulator prints the message and ends with status 1, and the driver gives N back as the status; a real BBC's language (BASIC) reports it as any error, with `ERR` = N. Both forms close every file first (OSFIND 0 with Y=0, as `CLOSE#0`). There is no exit status on the BBC: an error is the least that is honest.
+- **Files.** OSFIND with the name ended by CR. A missing file is 0, as the MOS gives it; an error the filing system raises instead (`Bad name`, `Too many open files`) is caught for the call through BRKV and is 0 too, so that `open` keeps host's contract. At the end of a file `read` gives the carry set, and keeps giving it without calling OSBGET again, which would raise the error `EOF`. Names are passed as they are: the emulator takes any name without `/` or `..`; a real DFS takes seven characters and uses `.` for its directory.
+- **The program's memory only.** Every run in the tests uses `--bbc-strict`, which stops a program at its first write to memory the MOS owns.
+
+How the interface of `../rt/host.lth` is given (`../rt/bbc.lth`):
+
+| host.lth | The MOS |
+|---|---|
+| `put_byte`, `put_error` | OSWRCH; `$0A` is OSNEWL. Both are asm functions with the character in A, as host's, so asm can call them. |
+| `read_byte` | OSRDCH. CR is given as LF; an error or Escape (the emulator gives Escape at the end of its input) is the end, and Escape is acknowledged with OSBYTE 126. |
+| `open`, `open_out` | OSFIND `$40`, `$80`; an error is caught and is 0. |
+| `read`, `write`, `close` | OSBGET, OSBPUT, OSFIND 0. |
+| `argc`, `argv` | The tail from OSARGS 1, split again at each call (it stays at `$0700`). |
+| `exit` | OSFIND 0 with Y=0; then RTS with the kept S, or BRK `N` `Exit N`. |
+
+`../src/sys.lth` uses `bbc` with `define PORTS 2`, and a program that imports `host` gets `../rt/bbc/host.lth` (`boards.py`, `rt`: `build.py` looks in that directory before `../rt/`), host's functions over bbc, so a program written for the default machine, such as the end-to-end cases, runs on the BBC as it is. `bbc.lth` has no initial values, so it adds no `$init` to the other machines' builds, where `sys` imports it unused.
+
+What a byte costs through the MOS, in this emulator (2026-11-14): `bbc.read` 70 cycles, `bbc.write` 38, `put_byte` 31; a byte copied through `sys.read` and `sys.write` with `copytest`'s loop, 141. The emulator's MOS answers a call in 2 cycles of its own, so these are a floor: a real MOS and DFS take far more for each byte, and a real disc much more again.
 
 ## The VIA timer
 

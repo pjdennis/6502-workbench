@@ -22,7 +22,10 @@
    With --env wendy2disk (Wendy 2 with --disk) it runs the program on the files of the
    directory --disk DIR (a temporary, empty one without it; the arguments are in its file
    `args`, one a line), prints the file `out` the program wrote, copies `errors` to the error
-   output, and exits with the status in the file `status` (0 if there is none).
+   output, and exits with the status in the file `status` (0 if there is none). With --env bbc
+   (the BBC Model B+128) the build also writes OUT.bin.inf, the load and execution addresses,
+   and --run runs `*RUN NAME` through the MOS on the files of --disk DIR (or a temporary
+   directory), prints the output and exits with the program's status (boards.run_mos).
 
 --env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works, and runs
 on the board of the same name, if there is one, or else on the board its `define BOARD` and
@@ -42,6 +45,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -81,8 +85,13 @@ def imports_of(path):
     return out
 
 
+# Directories searched between the source's and lathe/rt/: those of the board being built for
+# (boards.Board.rt), set by build() while it runs, for its own thread.
+_building = threading.local()
+
+
 def find_module(name, main_dir):
-    for d in (main_dir, RT):
+    for d in [main_dir] + getattr(_building, 'dirs', []) + [RT]:
         p = os.path.join(d, name + '.lth')
         if os.path.isfile(p):
             return p
@@ -234,10 +243,20 @@ def naive_map(objects, env, main, map_path):
 
 def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, log=None, defines=()):
     """Builds source into the image out, with further defines (NAME or NAME=NUMBER) for the
-    compiler. Returns the work directory (removed later unless keep)."""
+    compiler. Returns the work directory (removed later unless keep). Modules are found beside
+    source, then in the board's own directories (boards.Board.rt), then in lathe/rt/."""
+    env = env_path(env)
+    board = boards.board_for(env)
+    _building.dirs = [os.path.join(RT, d) for d in (board.rt if board else ())]
+    try:
+        return build_with(source, out, env, use_asm, use_naive, keep, defines)
+    finally:
+        _building.dirs = []
+
+
+def build_with(source, out, env, use_asm, use_naive, keep, defines):
     work = os.path.abspath(keep) if keep else tempfile.mkdtemp(prefix='lathe-build-')
     os.makedirs(work, exist_ok=True)
-    env = env_path(env)
     order = module_order(source)
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
     described = mapenv.read_env(env)
@@ -257,13 +276,24 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
         if not use_asm:
             shutil.copyfile(link_bin, out)
             window_files(described, work, os.path.dirname(os.path.abspath(out)))
+            write_inf(out, env, described)
             return work
     else:
         naive_map(objects, env, main, map_path)
     asm_bin = os.path.join(work, main + '.asm.bin')
     assembler_image(objects, env, main, map_path, os.path.join(work, main + '.asm'), asm_bin)
     shutil.copyfile(asm_bin, out)
+    write_inf(out, env, described)
     return work
+
+
+def write_inf(out, env, described):
+    """For the BBC (a board with `mos`): OUT.inf beside OUT, the load and execution addresses
+    that *RUN reads (boards.inf_text), both the start of the code range."""
+    board = boards.board_for(env)
+    if board is not None and board.mos:
+        with open(out + '.inf', 'w') as fh:
+            fh.write(boards.inf_text(boards.bbc_name(out), described.code[0], os.path.getsize(out)))
 
 
 def run_image(image, args=(), stdin=None, cwd=None):
@@ -293,6 +323,11 @@ def run_program(image, env='host', args=(), stdin=None, disk=None):
     beside = os.path.dirname(os.path.abspath(image))     # where build() left the bank files
     if board is None:
         return run_image(image, args, stdin, beside if described.files else None)
+    if board.mos:
+        if disk is None:
+            with tempfile.TemporaryDirectory(prefix='lathe-bbc-') as d:
+                return run_program(image, env, args, stdin, d)
+        return boards.run_mos(board, image, disk, args, stdin)[:3]
     if board.disk:
         if disk is None:
             with tempfile.TemporaryDirectory(prefix='lathe-disk-') as d:
@@ -315,7 +350,7 @@ def main(argv):
     ap.add_argument('--asm', action='store_true', help='build the image by the assembler path')
     ap.add_argument('--naive', action='store_true', help='naive allocation instead of the linker')
     ap.add_argument('--keep', metavar='DIR')
-    ap.add_argument('--disk', metavar='DIR', help='with --env wendy2disk: the directory of '
+    ap.add_argument('--disk', metavar='DIR', help='with --env wendy2disk or bbc: the directory of '
                     'the program\'s files, which it reads and writes')
     ap.add_argument('--define', action='append', default=[], metavar='NAME[=NUMBER]',
                     help='a constant for #if, as the environment\'s define entries give')

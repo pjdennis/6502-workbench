@@ -4,6 +4,7 @@
 ;
 ; `$start` is the first thing in the code range and what the reset vector points at:
 ;
+;     TSX / STX addr              for `exit return addr`: the stack pointer it was entered with
 ;     LDX #stack / TXS            if the environment has a `stack` entry
 ;     CLD
 ;     LDA #<$banks / LDX #>$banks / JSR FARCALL.start
@@ -34,8 +35,8 @@
 ;   | range(1, length + 1)                 | for k = 1 to length               | the same        |
 module lk_boot
 
-import lk_envf (bank_file, bank_value, code_lo, exit_addr, EXIT_CALL, exit_kind, EXIT_LOOP,
-                EXIT_STOP, has_stack, is_overlay, placed, stack, text, win_lo, window)
+import lk_envf (bank_file, bank_value, code_lo, exit_addr, EXIT_CALL, exit_keeps, exit_kind,
+                EXIT_LOOP, EXIT_STOP, has_stack, is_overlay, placed, stack, text, win_lo, window)
 import lk_name (fc_call, fc_start)
 import lk_out (put, put_word, seek)
 import lk_scan (fn_bank)
@@ -69,6 +70,9 @@ pub func plan(): word
     init_len += 1
   end
   start_len = 4                 ; CLD and JSR main
+  if lk_envf.exit_keeps then
+    start_len += 4              ; TSX and STX absolute
+  end
   if lk_envf.has_stack then
     start_len += 3
   end
@@ -175,6 +179,11 @@ end
 pub func write(main_fn: word)
   var f: word
   lk_out.seek(start_addr)
+  if lk_envf.exit_keeps then
+    lk_out.put($BA)             ; TSX
+    lk_out.put($8E)             ; STX addr, absolute even in zero page
+    lk_out.put_word(lk_envf.exit_addr)
+  end
   if lk_envf.has_stack then
     lk_out.put($A2)             ; LDX #stack
     lk_out.put(lo(lk_envf.stack))

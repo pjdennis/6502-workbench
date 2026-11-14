@@ -48,16 +48,26 @@ import mapenv  # noqa: E402
 WIDTH = 100
 HEAP = 0xF000           # the name heap of the tool's compiles: any module fits without lists
 SRC = os.path.join(LATHE, 'src')
-COMPILER_ENVS = [os.path.join(SRC, e + '.env') for e in ('compiler', 'compiler-small', 'compiler-bank')]
+COMPILER_ENVS = [os.path.join(SRC, e + '.env') for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc')]
 LINKER_ENVS = [os.path.join(SRC, e + '.env') for e in ('linker', 'linker-bank')]
-BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env') for e in ('host', 'michael', 'wendy2', 'wendy2disk')]
+BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env') for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
 
 
 # Run-time modules built in only some of the environments: the board modules need `define
-# BOARD` (board.lth stops with #error without it), and disk.lth's file ports `define DISK`.
-RT_NEEDS = {'board.lth': 'BOARD', 'via.lth': 'BOARD', 'lcd.lth': 'BOARD', 'timer.lth': 'BOARD',
-            'disk.lth': 'DISK'}
+# BOARD` 1 or 2 (board.lth does not compile for any other value; 3, the BBC, has no LCD or VIA
+# of theirs), and disk.lth's file ports `define DISK`.
+BOARDS_WITH_LCD = (1, 2)
+RT_NEEDS = {'board.lth': ('BOARD', BOARDS_WITH_LCD), 'via.lth': ('BOARD', BOARDS_WITH_LCD),
+            'lcd.lth': ('BOARD', BOARDS_WITH_LCD), 'timer.lth': ('BOARD', BOARDS_WITH_LCD),
+            'disk.lth': ('DISK', None)}
+
+
+def built_in(name, env_path):
+    """Whether run-time module file NAME is built in the environment ENV_PATH."""
+    define, values = RT_NEEDS[name]
+    value = dict(mapenv.read_env(env_path).defines).get(define, 0)
+    return value in values if values else bool(value)
 
 
 def configs(path):
@@ -71,7 +81,7 @@ def configs(path):
         return COMPILER_ENVS
     every = BOARD_ENVS + COMPILER_ENVS + LINKER_ENVS
     if name in RT_NEEDS:
-        return [e for e in every if dict(mapenv.read_env(e).defines).get(RT_NEEDS[name], 0)]
+        return [e for e in every if built_in(name, e)]
     return every
 
 

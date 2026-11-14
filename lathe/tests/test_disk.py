@@ -109,6 +109,8 @@ class Interface(unittest.TestCase):
             defines = dict(build.mapenv.read_env(path).defines)
             self.assertIn('PORTS', defines, path)
             disk = defines.get('DISK', 0) != 0
+            if defines.get('BOARD') == 3:       # the BBC: lathe/tests/test_bbc_sys.py
+                continue
             self.assertEqual(defines['PORTS'], 1 if disk else 0, path)
 
 

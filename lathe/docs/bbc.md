@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-14): design, with the measurements it rests on. Nothing here is built yet except the emulator's machine, which is in progress (`emulator/`, `--machine bbcbplus`). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-14): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`) and step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -60,7 +60,9 @@ The symbol table is the piece that decides it: twelve columns, 9,520 bytes, fixe
 | Where | What |
 |---|---|
 | Zero page `$00-$8F` | the linker's zero page |
-| `$0400-$07FF` | data (`more data`) |
+| `$0400` | the stack pointer the start-up code keeps (`exit return $0400`) |
+| `$0401-$06FF` | data (`more data`) |
+| `$0700-$07FF` | the command line, where OSARGS 1 points while the tool runs (not `$0400-$07FF` as data, as first written: step 2) |
 | `$1900-$7BFF` | data, then the resident code and the stubs |
 | Module banks | code and constants; the image of the resident code, copied to RAM when the tool starts |
 | Sideways slot A | the name heap |
@@ -76,7 +78,7 @@ The symbol table is the piece that decides it: twelve columns, 9,520 bytes, fixe
 
 **The far-call module, `rt_bbc`.** The same interface as `rt_bank` (`call`, `back`, `map`, `unmap`, `start`). Selecting a module bank writes the module's slot to `$F4` and `$FE30` and reads `$BFF0+n`; selecting a sideways slot writes the slot. The module's latch keeps its bank while a sideways slot is in the window, so leaving a `with` block is one write. Both should cost far less than Wendy 2's 182 and 90 cycles; to be measured.
 
-**The MOS interface, `bbc.lth`.** The interface of `host.lth` and `disk.lth` over OSFIND, OSBGET, OSBPUT and OSWRCH. The arguments are the tail of the `*` command.
+**The MOS interface, `bbc.lth`.** The interface of `host.lth` and `disk.lth` over OSFIND, OSBGET, OSBPUT, OSWRCH and OSNEWL, OSRDCH and OSARGS. The arguments are the tail of the `*` command. Built in step 2.
 
 **The module image.** A host tool packs the bank files of the compiler and of the linker into one image. Every bank begins with the same sideways ROM header and the same few bytes of service code, so the MOS finds a valid ROM whichever bank the latch holds. That code answers only unknown commands and `*HELP`, selects bank 0 and goes on there. Bank 0 knows `*LATHE` and `*LLINK`: it copies the tool's resident code to main RAM and enters it.
 
@@ -84,11 +86,54 @@ The symbol table is the piece that decides it: twelve columns, 9,520 bytes, fixe
 
 ## Order of work
 
-1. The emulator's machine (in progress).
-2. Programs all in one on the BBC: `bbc.lth`, the environment file, the board in the test driver, the end-to-end cases.
+1. The emulator's machine. Done.
+2. Programs all in one on the BBC: `bbc.lth`, the environment file, the board in the test driver, the end-to-end cases. **Done (2026-11-14)**: below.
 3. Banked: `rt_bbc`, ROM banks and the kept functions in the linker, the image tool, the header and service code, the loader. The far-call and banked-data cases run on the BBC.
 4. The compiler: `expr` split, the placement, the budget measured. The symbol table behind accessors if that is what stands between. The test programs, then the compiler compiling itself.
 5. The linker in the same module, at the capacities that fit.
+
+## Step 2, as built
+
+`lathe/rt/bbc.lth`, `lathe/env/bbc.env`, the `bbc` board of `lathe/host/driver/boards.py` and the tests `lathe/tests/test_bbc*.py`; the recipe is in [`boards.md`](boards.md), "The BBC Micro".
+
+- **Arguments**: the tail of `*RUN NAME ARGS`, from OSARGS with A=1, Y=0, as a real MOS gives it; the emulator provides it, so no convention of this project's own was needed. Split at spaces, with `"..."` for an argument that is empty or holds a space.
+- **The end**: returning from `main`, or `exit(0)` from any depth, returns to the MOS. For the second the linker learnt one thing: `exit return ADDR`, whose start-up code begins with `TSX` / `STX ADDR` (here `$0400`), so that `exit` can put S back and return. `exit(N)` with N not 0 raises the MOS error N, `Exit N`: the emulator ends with status 1 and prints the message, a real BBC's language reports it. Both close every file (OSFIND 0, Y=0).
+- **Errors** go where output goes: the BBC has one stream.
+- **Line ends**: the BBC's is CR, and OSNEWL writes LF CR. `put_byte(10)` is OSNEWL, `read_byte` gives CR as LF, and files are never translated.
+- **Files**: an error OSFIND raises (`Bad name`, `Too many open files`) is caught through BRKV for the call and gives 0, as a missing file does; `read` remembers the end of a file, because OSBGET raises `EOF` when it is called again there.
+- **sys.lth** chooses `bbc` with `define PORTS 2`: each `#if PORTS` block is the `#else` of an `#if PORTS == 2`, and every other build is byte for byte what it was. `build.py` compiles every module an `import` line names, under any `#if`, and a module's `$init` is linked whether or not anything else of it is used: so `bbc.lth` has no initial values (argc and argv read the tail again at each call, which stays at `$0700`).
+- **The corpus**: 67 of the 69 end-to-end cases run on the BBC with `--bbc-strict` and give their expected output (their `import host` is `lathe/rt/bbc/host.lth`, host's interface over bbc). `asm_pointer` and `state` store at `$C800`, `$FA` and `$EFF8`, which are the MOS's there.
+- **The compiler's test programs**: `lextest`, `errtest`, `kerneltest` and `srctest` in the small build fit `$1900-$7BFF` (`lathe/src/compiler-bbc.env`) and give what their twins give, section by section. In the small build `kerneltest`'s normal run declares more names than the small name heap holds, so it ends with error 70, as its twin does.
+
+Measured (2026-11-14), code and constant data in bytes, each program linked with the small build's capacities on the default machine (zero page `$00-$FF`, host services) and on the BBC (zero page `$00-$8F`, bbc.lth); and the variables outside zero page:
+
+| Program | Code, default | Code, BBC | Variables, default | Variables, BBC | Fits `$1900-$7BFF` |
+|---|---|---|---|---|---|
+| copytest | 381 | 967 | 272 | 748 | yes |
+| errtest | 6,229 | 6,621 | 405 | 721 | yes |
+| srctest | 7,486 | 8,057 | 1,473 | 1,949 | yes |
+| typetest | 9,078 | 9,649 | 1,915 | 2,391 | yes |
+| foldtest | 9,480 | 10,051 | 1,739 | 2,215 | yes |
+| lktest1 | 9,826 | 10,412 | 1,048 | 1,524 | yes |
+| lextest | 10,758 | 11,335 | 3,277 | 3,753 | yes |
+| fbuftest | 11,510 | 12,081 | 3,575 | 4,051 | yes |
+| kerneltest | 12,883 | 13,463 | 7,977 | 8,453 | yes, by 3.4 KB |
+| outtest | 15,823 | 16,510 | 11,099 | 11,622 | no: 28.1 KB |
+| regtest | 25,044 | 25,922 | 13,209 | 13,769 | no |
+| asmtest | 25,869 | 27,021 | 14,200 | 14,798 | no |
+| condtest | 27,845 | 28,736 | 13,209 | 13,773 | no |
+| inlinetest | 43,783 | 45,282 | 15,129 | 15,727 | no |
+| gentest | 44,737 | 46,182 | 14,867 | 15,465 | no |
+
+- **bbc.lth costs 586 bytes of code and 476 of variables** (`copytest`: 381 bytes over `host.lth`'s fixed addresses, 967 over the MOS): the name for OSFIND, the arguments' text (256 bytes), the BRK block, the catching of errors.
+- **The smaller zero page costs little in these programs**: about the same 586 bytes for the small ones, about 860 more for `gentest`, 2% as for the banked compiler above.
+- `exprtest` and `lktest2` to `lktest4` need more than 16 KB of variables even at the small capacities, and the full builds of `lextest` (25.9 KB of variables) and `kerneltest` do not fit; `srctest` and `errtest` do at full size. Everything larger than `kerneltest` waits for the banks (steps 3 and 4).
+- **A byte through the MOS** in this emulator: `bbc.read` 70 cycles, `bbc.write` 38, `put_byte` 31; a byte copied by `copytest` through `sys`, 141. The emulator's MOS takes 2 cycles a call of its own, so these are a floor: the real MOS and DFS cost much more a byte, and the disc more again.
+
+What step 2 showed in the design:
+
+- `$0400-$07FF` is not all data: the command line `*RUN` was given is at `$0700` (BASIC's input buffer, and the emulator's `--bbc-command`), and the tool must leave it, or read it before anything of `$init` runs. The table above is corrected.
+- A program run with `*RUN` from BASIC and returning to the MOS returns into BASIC, whose zero page (`$00-$8F`) and workspace it has used. Whether BASIC survives that cannot be seen here (no BASIC ROM). The open question below, ending a tool by OSBYTE 142, stands, and applies to `*RUN` too.
 
 ## Open, for the owner
 

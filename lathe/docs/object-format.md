@@ -150,11 +150,12 @@ The linker keeps a function if an entry point reaches it by calls, or if kept co
 
 | Step | Code | When |
 |---|---|---|
+| Keep the stack pointer | `TSX` / `STX addr` (absolute, even for an address in zero page) | `exit return addr`: so that the program can put it back and return to its caller from any depth (`lathe/rt/bbc.lth`). `addr` must be outside the linker's zero page and the code, data and more ranges (link error 34). |
 | Stack | `LDX #n` / `TXS` | The environment has `stack n`. |
 | Decimal flag | `CLD` | Always. |
 | Initial values | `JSR $init` | Some module has initialisers. |
 | The program | `JSR mainmodule.main` | Always. |
-| Exit | `LDA #0` / `JMP addr`, or `JMP` to itself, or `RTS`, or `STP` | `exit call addr`, `exit loop`, `exit return`, `exit stop`. `STP` is the 65C02's `$DB`, so `exit stop` needs `cpu 65c02`. |
+| Exit | `LDA #0` / `JMP addr`, or `JMP` to itself, or `RTS`, or `STP` | `exit call addr`, `exit loop`, `exit return` (and `exit return addr`), `exit stop`. `STP` is the 65C02's `$DB`, so `exit stop` needs `cpu 65c02`. |
 
 `$init` follows `$start`, and the objects' functions follow that.
 

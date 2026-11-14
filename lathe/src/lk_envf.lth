@@ -9,7 +9,8 @@
 ;     data      $C000 $EFFF
 ;     more      data $F810 $FFF9  ; optional: a second range for variables
 ;     stack     $FF           ; optional: the start-up code sets the stack pointer to this
-;     exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`
+;     exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`;
+;                             ; `exit return ADDR` also keeps the stack pointer at ADDR first
 ;     output    image         ; the default: code start to $FFFF with the reset vector; or `raw`
 ;
 ;     window    WIN $8000 $EFFF       ; an address range whose contents are switched
@@ -106,7 +107,8 @@ pub var have: word = 0          ; HAVE_ bits of the entries given
 pub var has_stack: bool = false
 pub var stack: word = 0
 pub var exit_kind: byte = 0
-pub var exit_addr: word = 0
+pub var exit_addr: word = 0     ; `exit call`'s address, or where `exit return ADDR` keeps S
+pub var exit_keeps: bool = false        ; `exit return ADDR`: start-up keeps the stack pointer there
 pub var raw: bool = false       ; `output raw`: the file ends with the last byte placed
 pub var has_more: bool = false  ; `more data FIRST LAST`
 pub var more_lo: word = 0
@@ -244,15 +246,22 @@ func digit(c: byte, base: byte): byte, bool
 end
 
 ; Read a number: `$` and hex digits, or decimal digits. At most $FFFF.
+forward func token_number(): word
+
 func number(): word
+  if not read_token() then
+    bad()
+  end
+  return token_number()
+end
+
+; The number in token, which read_token has read.
+func token_number(): word
   var base: byte
   var i: byte
   var value: word
   var d: byte
   var ok: bool
-  if not read_token() then
-    bad()
-  end
   base = 10
   i = 0
   if token[0] == 36 then
@@ -296,6 +305,10 @@ func exit_entry()
     exit_kind = EXIT_LOOP
   of W_RETURN
     exit_kind = EXIT_RETURN
+    if read_token() then        ; `exit return ADDR`
+      exit_keeps = true
+      exit_addr = token_number()
+    end
   of W_STOP
     exit_kind = EXIT_STOP
   else
@@ -844,6 +857,15 @@ func check()
     ok = ok and more_lo <= more_hi and more_lo >= $100
     ok = ok and not overlaps(more_lo, more_hi, code_lo, code_hi)
     ok = ok and not overlaps(more_lo, more_hi, data_lo, data_hi)
+  end
+  if exit_keeps then
+    ; Where `exit return ADDR` keeps the stack pointer is no address the linker gives out.
+    ok = ok and not (exit_addr <= zp_hi and exit_addr >= zp_lo)
+    ok = ok and not overlaps(exit_addr, exit_addr, code_lo, code_hi)
+    ok = ok and not overlaps(exit_addr, exit_addr, data_lo, data_hi)
+    if has_more then
+      ok = ok and not overlaps(exit_addr, exit_addr, more_lo, more_hi)
+    end
   end
   if not ok then
     lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)

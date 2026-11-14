@@ -521,6 +521,11 @@ def start_function(env, has_init, main, r):
         nonlocal size
         lines.append(INDENT + text)
         size += n
+    kind, addr = env.exit
+    if kind == mapenv.EXIT_RETURN and addr is not None:
+        ins('TSX', 1)
+        lines.append(byte_line(bytes([0x8E, addr & 0xFF, addr >> 8]), f'STX ${addr:04X}'))
+        size += 3
     if env.stack is not None:
         ins(f'LDX #${env.stack:02X}', 2)
         ins('TXS', 1)
@@ -528,7 +533,6 @@ def start_function(env, has_init, main, r):
     if has_init:
         ins(f'JSR {mangle(INIT)}', 3)
     ins(f'JSR {mangle(main)}', 3)
-    kind, addr = env.exit
     if kind == mapenv.EXIT_CALL:
         ins('LDA #$00', 2)
         ins(f'JMP {r.literal(addr, 2)}', 3)

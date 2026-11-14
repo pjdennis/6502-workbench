@@ -1,0 +1,54 @@
+; The module `host` for a program built for the BBC (lathe/env/bbc.env): lathe/rt/host.lth's
+; functions, under the same names and types, over lathe/rt/bbc.lth, the MOS. build.py looks for a
+; module in this directory before lathe/rt/ when the environment is the BBC's
+; (lathe/host/driver/boards.py, `rt`), so that a program written for the default machine's host
+; services, such as the end-to-end cases, runs on the BBC as it is. Each function is inline (a
+; call is bbc's own) but for the two with registers.
+module host
+
+import bbc (argc, argv, close, exit, open, open_out, put_byte, read, read_byte, write)
+
+pub inline func read_byte(): byte, bool
+  return bbc.read_byte()
+end
+
+; Functions with registers, as host.lth's, so that asm can call them as it calls those.
+pub asm func put_byte(ch: byte in a)
+  JMP bbc.put_byte
+end
+
+pub asm func put_error(ch: byte in a)
+  JMP bbc.put_byte
+end
+
+pub inline func exit(code: byte)
+  bbc.exit(code)
+end
+
+pub inline func open(name: ^byte): byte
+  return bbc.open(name)
+end
+
+pub inline func close(handle: byte)
+  bbc.close(handle)
+end
+
+pub inline func read(handle: byte): byte, bool
+  return bbc.read(handle)
+end
+
+pub inline func open_out(name: ^byte): byte
+  return bbc.open_out(name)
+end
+
+pub inline func write(ch: byte, handle: byte)
+  bbc.write(ch, handle)
+end
+
+pub inline func argc(): byte
+  return bbc.argc()
+end
+
+pub inline func argv(i: byte): ^byte
+  return bbc.argv(i)
+end

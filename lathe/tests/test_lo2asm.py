@@ -426,9 +426,9 @@ class TestEnv(unittest.TestCase):
     def test_errors(self):
         for text, pattern in (
                 (env_text(exit=None), r'x\.env: no exit entry'),
-                (env_text(exit='exit call'), r'x\.env:6: exit takes call ADDR, loop, return or stop'),
-                (env_text(exit='exit jump $1234'), 'exit takes call ADDR, loop, return or stop'),
-                (env_text(exit='exit loop $1234'), 'exit takes call ADDR, loop, return or stop'),
+                (env_text(exit='exit call'), r'x\.env:6: exit takes call ADDR, loop, return \[ADDR\] or stop'),
+                (env_text(exit='exit jump $1234'), r'exit takes call ADDR, loop, return \[ADDR\] or stop'),
+                (env_text(exit='exit loop $1234'), r'exit takes call ADDR, loop, return \[ADDR\] or stop'),
                 (env_text(stack='stack $100'), r'x\.env:5: stack is one byte'),
                 (env_text(stack='stack'), 'stack is one byte'),
                 (env_text() + 'start host_start.start\n', r'x\.env:7: start is no longer an entry'),

@@ -36,7 +36,8 @@ class Env:
     code: tuple = (0x0200, 0xBFFF)
     data: tuple = (0xC000, 0xEFFF)
     stack: Optional[int] = None      # stack n: the start-up code sets S to n
-    exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), or (EXIT_LOOP / EXIT_RETURN / EXIT_STOP, None)
+    exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), (EXIT_RETURN, addr) for `exit return
+                                       # addr`, or (EXIT_LOOP / EXIT_RETURN / EXIT_STOP, None)
     output: str = OUTPUT_IMAGE       # OUTPUT_IMAGE: code start to $FFFF and the reset vector;
                                      # OUTPUT_RAW: code start to the last byte placed
     defines: list = field(default_factory=list)  # `define NAME [VALUE]`: (NAME, VALUE or None)
@@ -87,10 +88,12 @@ def parse_env(text, path='<env>'):
             form = [a.lower() for a in args]
             if len(form) == 2 and form[0] == EXIT_CALL and 0 <= _number(args[1], where) <= 0xFFFF:
                 env.exit = (EXIT_CALL, _number(args[1], where))
+            elif len(form) == 2 and form[0] == EXIT_RETURN and 0 <= _number(args[1], where) <= 0xFFFF:
+                env.exit = (EXIT_RETURN, _number(args[1], where))
             elif form in ([EXIT_LOOP], [EXIT_RETURN], [EXIT_STOP]):
                 env.exit = (form[0], None)
             else:
-                raise FormatError(f'{where}: exit takes call ADDR, loop, return or stop')
+                raise FormatError(f'{where}: exit takes call ADDR, loop, return [ADDR] or stop')
         elif key == 'output':
             form = [a.lower() for a in args]
             if form not in ([OUTPUT_IMAGE], [OUTPUT_RAW]):

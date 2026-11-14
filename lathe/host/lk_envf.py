@@ -7,7 +7,8 @@
     data      $C000 $EFFF
     more      data $F810 $FFF9  ; optional: a second range for variables
     stack     $FF           ; optional: the start-up code sets the stack pointer to this
-    exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`
+    exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`;
+                            ; `exit return ADDR` also keeps the stack pointer at ADDR first
     output    image         ; the default: code start to $FFFF with the reset vector; or `raw`
 
     window    WIN $8000 $EFFF       ; an address range whose contents are switched
@@ -87,7 +88,8 @@ have = 0                            # HAVE_ bits of the entries given
 has_stack = False
 stack = 0
 exit_kind = 0
-exit_addr = 0
+exit_addr = 0                       # `exit call`'s address, or where `exit return ADDR` keeps S
+exit_keeps = False                  # `exit return ADDR`: start-up keeps the stack pointer there
 raw = False                         # `output raw`: the file ends with the last byte placed
 has_more = False                    # `more data FIRST LAST`
 more_lo = 0
@@ -214,6 +216,11 @@ def number():
     """Read a number: `$` and hex digits, or decimal digits. At most $FFFF."""
     if not read_token():
         bad()
+    return token_number()
+
+
+def token_number():
+    """The number in token, which read_token has read."""
     base = 10
     i = 0
     if token[0] == 36:
@@ -241,7 +248,7 @@ def once(entry_bit):
 
 def exit_entry():
     """The rest of an `exit` line."""
-    global exit_kind, exit_addr
+    global exit_kind, exit_addr, exit_keeps
     once(HAVE_EXIT)
     if not read_token():
         bad()
@@ -253,6 +260,9 @@ def exit_entry():
         exit_kind = EXIT_LOOP
     elif which == W_RETURN:
         exit_kind = EXIT_RETURN
+        if read_token():            # `exit return ADDR`
+            exit_keeps = True
+            exit_addr = token_number()
     elif which == W_STOP:
         exit_kind = EXIT_STOP
     else:
@@ -698,6 +708,13 @@ def check():
         ok = ok and more_lo <= more_hi and more_lo >= 0x100
         ok = ok and not overlaps(more_lo, more_hi, code_lo, code_hi)
         ok = ok and not overlaps(more_lo, more_hi, data_lo, data_hi)
+    if exit_keeps:
+        # Where `exit return ADDR` keeps the stack pointer is no address the linker gives out.
+        ok = ok and not (exit_addr <= zp_hi and exit_addr >= zp_lo)
+        ok = ok and not overlaps(exit_addr, exit_addr, code_lo, code_hi)
+        ok = ok and not overlaps(exit_addr, exit_addr, data_lo, data_hi)
+        if has_more:
+            ok = ok and not overlaps(exit_addr, exit_addr, more_lo, more_hi)
     if not ok:
         lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
     check_windows()

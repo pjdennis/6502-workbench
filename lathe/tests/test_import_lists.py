@@ -151,7 +151,8 @@ class LargeTest(ToolBase):
 def listed_files():
     """The modules whose imports have the lists the tool writes."""
     src = os.path.join(support.LATHE, 'src')
-    return sorted(glob.glob(os.path.join(src, '*.lth')) + glob.glob(os.path.join(support.LATHE, 'rt', '*.lth')))
+    return sorted(glob.glob(os.path.join(src, '*.lth')) + glob.glob(os.path.join(support.LATHE, 'rt', '*.lth'))
+                  + glob.glob(os.path.join(support.LATHE, 'rt', '*', '*.lth')))
 
 
 class ListsTest(unittest.TestCase):

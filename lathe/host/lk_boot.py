@@ -3,6 +3,7 @@ and the table of banks or overlays.
 
 `$start` is the first thing in the code range and what the reset vector points at:
 
+    TSX / STX addr              for `exit return addr`: the stack pointer it was entered with
     LDX #stack / TXS            if the environment has a `stack` entry
     CLD
     LDA #<$banks / LDX #>$banks / JSR FARCALL.start
@@ -48,6 +49,8 @@ def plan():
     if init_len != 0:
         init_len += 1
     start_len = 4                   # CLD and JSR main
+    if lk_envf.exit_keeps:
+        start_len += 4              # TSX and STX absolute
     if lk_envf.has_stack:
         start_len += 3
     table_len = 0
@@ -125,6 +128,10 @@ def write_stubs():
 def write(main_fn):
     """Write both to the image. main_fn is the program's main function."""
     lk_out.seek(start_addr)
+    if lk_envf.exit_keeps:
+        lk_out.put(0xBA)            # TSX
+        lk_out.put(0x8E)            # STX addr, absolute even in zero page
+        lk_out.put_word(lk_envf.exit_addr)
     if lk_envf.has_stack:
         lk_out.put(0xA2)            # LDX #stack
         lk_out.put(lk_envf.stack)

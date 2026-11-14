@@ -15,6 +15,13 @@
 ; (lathe/docs/boards.md, "Wendy 2 with files"). Neither machine's standard input is used here:
 ; disk has none (no read_byte).
 ;
+; The BBC. With `define PORTS 2` (lathe/env/bbc.env) the services are those of lathe/rt/bbc.lth,
+; the MOS of a BBC Micro: each `#if PORTS` above is the `#else` of an `#if PORTS == 2` whose
+; first part is the same text with bbc for disk (lathe/tests/test_bbc_sys.py checks it), so that
+; PORTS 0 and 1 compile exactly what they did. The arguments are the command line's tail, the
+; error output is the output, and a status other than 0 is the MOS error "Exit N"
+; (lathe/docs/boards.md, "The BBC Micro").
+;
 ; Pointers. The Python models memory as env.mem, 64 KB of bytes, and a pointer as an int that
 ; indexes it. Here a pointer is a real address, and the convention throughout lathe/src/ is:
 ;
@@ -46,16 +53,25 @@
 ;   | functions                              | host service's own          |                        |
 module sys
 
+#if PORTS == 2
+import bbc (argc, argv, close, exit, open, open_out, put_byte, put_error, read, write)
+#else
 #if PORTS
 import disk
 #else
 import host (argc, argv, close, exit, open, open_out, put_byte, put_error, read, write)
+#end
 #end
 
 const MAX_FILES = 16
 var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
 
 ; Number of program arguments.
+#if PORTS == 2
+pub inline func argc(): byte
+  return bbc.argc()
+end
+#else
 #if PORTS
 pub inline func argc(): byte
   return disk.argc()
@@ -65,15 +81,20 @@ pub inline func argc(): byte
   return host.argc()
 end
 #end
+#end
 
 ; Copy argument i to p[...] with a terminating zero; return its length.
 pub func arg_copy(i: byte, p: ^byte): byte
   var a: ^byte
   var n: byte = 0
+#if PORTS == 2
+  a = bbc.argv(i)
+#else
 #if PORTS
   a = disk.argv(i)
 #else
   a = host.argv(i)
+#end
 #end
   while a[n] != 0 do
     p[n] = a[n]
@@ -95,29 +116,41 @@ func keep(handle: byte): byte
       return handle
     end
   end
+#if PORTS == 2
+  bbc.close(handle)
+#else
 #if PORTS
   disk.close(handle)
 #else
   host.close(handle)
+#end
 #end
   return 0
 end
 
 ; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
 pub func open_in(p: ^byte): byte
+#if PORTS == 2
+  return keep(bbc.open(p))
+#else
 #if PORTS
   return keep(disk.open(p))
 #else
   return keep(host.open(p))
 #end
+#end
 end
 
 ; Create the file named at p for writing. Returns a handle, or 0.
 pub func open_out(p: ^byte): byte
+#if PORTS == 2
+  return keep(bbc.open_out(p))
+#else
 #if PORTS
   return keep(disk.open_out(p))
 #else
   return keep(host.open_out(p))
+#end
 #end
 end
 
@@ -128,26 +161,39 @@ pub func close(handle: byte)
       files[h] = 0
     end
   end
+#if PORTS == 2
+  bbc.close(handle)
+#else
 #if PORTS
   disk.close(handle)
 #else
   host.close(handle)
+#end
 #end
 end
 
 ; Next byte of the file and false, or 0 and true at the end of the file.
 pub func read(handle: byte): byte, bool
   var b: byte
+#if PORTS == 2
+  if bbc.read(handle) -> b then
+#else
 #if PORTS
   if disk.read(handle) -> b then
 #else
   if host.read(handle) -> b then
+#end
 #end
     return 0, true
   end
   return b, false
 end
 
+#if PORTS == 2
+pub inline func write(handle: byte, b: byte)
+  bbc.write(b, handle)
+end
+#else
 #if PORTS
 pub inline func write(handle: byte, b: byte)
   disk.write(b, handle)
@@ -157,8 +203,14 @@ pub inline func write(handle: byte, b: byte)
   host.write(b, handle)
 end
 #end
+#end
 
 ; One byte to standard output.
+#if PORTS == 2
+pub inline func put_byte(b: byte)
+  bbc.put_byte(b)
+end
+#else
 #if PORTS
 pub inline func put_byte(b: byte)
   disk.put_byte(b)
@@ -168,8 +220,14 @@ pub inline func put_byte(b: byte)
   host.put_byte(b)
 end
 #end
+#end
 
 ; One byte to the error output.
+#if PORTS == 2
+pub inline func put_error(b: byte)
+  bbc.put_error(b)
+end
+#else
 #if PORTS
 pub inline func put_error(b: byte)
   disk.put_error(b)
@@ -179,23 +237,32 @@ pub inline func put_error(b: byte)
   host.put_error(b)
 end
 #end
+#end
 
 ; End the program. Does not return.
 pub func exit(code: byte)
   var h: byte
   for h = 1 to MAX_FILES - 1 do
     if files[h] != 0 then
+#if PORTS == 2
+      bbc.close(files[h])
+#else
 #if PORTS
       disk.close(files[h])
 #else
       host.close(files[h])
 #end
+#end
       files[h] = 0
     end
   end
+#if PORTS == 2
+  bbc.exit(code)
+#else
 #if PORTS
   disk.exit(code)
 #else
   host.exit(code)
+#end
 #end
 end

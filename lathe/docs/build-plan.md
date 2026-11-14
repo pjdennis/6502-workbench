@@ -123,6 +123,7 @@ Runs after stage 9, on the host only.
 ### Stage 12. A period machine
 
 - **Chosen machine and design (2026-11-14):** a BBC Model B+128, with the compiler and linker in a banked ROM module in one sideways socket and the tables in sideways RAM: [`bbc.md`](bbc.md), with the measurements that say what fits. The emulator's machine for it is being built.
+- **Programs all in one on the BBC (2026-11-14):** step 2 of [`bbc.md`](bbc.md) is done: `lathe/rt/bbc.lth` over the MOS, `lathe/env/bbc.env`, the `bbc` board of the test driver (`*RUN` with `--bbc-strict`); 67 of the 69 end-to-end cases and `lextest`, `errtest`, `kerneltest` and `srctest` in the small build run there and agree with the default machine and the twins.
 - **Spike first:** L8 (disk traffic).
 - **Work:** An environment module and description for the first period machine, with its file interface and output format. A way to test it, which the emulator here does not yet provide.
 - **Gate:** The compiler runs on that machine and compiles a program there.

@@ -14,15 +14,15 @@ from test_lk_identity import frames_program, loop_program  # noqa: E402
 BOARD = 'cpu 65c02\nzeropage $00 $FF\ncode $2000 $3EFF\ndata $0200 $1FFF\nstack $FF\n'
 
 
-def simple():
-    o = Obj('t', cpu=1)
+def simple(cpu=1):
+    o = Obj('t', cpu=cpu)
     o.func('main', b'\x60')
     return o
 
 
-def with_data():
+def with_data(cpu=1):
     """main, a constant after it and a second function: the raw file ends with the function."""
-    o = Obj('t', cpu=1)
+    o = Obj('t', cpu=cpu)
     c = o.code()
     c.abs(0xAD, o.d('t.$1')).abs(0x20, o.f('t.f')).raw(0x60)
     o.func('main', c, calls=[(o.f('t.f'), 0, 0xFFFF)])
@@ -96,6 +96,58 @@ class OutputRaw(unittest.TestCase):
         r = link([o], BOARD.replace('$2000 $3EFF', '$FFF0 $FFFF') + 'exit stop\noutput raw\n')
         self.assertEqual((r.status, r.errors), (0, ''))
         self.assertEqual(len(r.image), 16)
+
+
+class ExitReturnKeeping(unittest.TestCase):
+    """`exit return ADDR`: the start-up code first keeps the stack pointer it was entered with
+    at ADDR (TSX, STX), so that a program can return to its caller from any depth by putting
+    it back (lathe/rt/bbc.lth, the BBC's MOS); it ends with RTS as `exit return` does."""
+    BBC = 'cpu 6502\nzeropage $00 $8F\ncode $1900 $5FFF\ndata $6000 $7BFF\noutput raw\n'
+
+    def test_absolute(self):
+        r = link([simple(0)], self.BBC + 'exit return $0400\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        # TSX / STX $0400 / CLD / JSR main / RTS
+        self.assertEqual(r.image, bytes.fromhex('BA 8E0004 D8 200919 60 60'))
+        self.assertEqual(r.map_text, 'F 1900 0009 $start\nF 1909 0001 t.main\n')
+
+    def test_zero_page(self):
+        r = link([simple(0)], self.BBC.replace('$8F', '$7F') + 'exit return $8F\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        # TSX / STX $008F (absolute) / CLD / JSR main / RTS
+        self.assertEqual(r.image, bytes.fromhex('BA 8E8F00 D8 200919 60 60'))
+
+    def test_before_the_stack_entry(self):
+        r = link([simple(0)], self.BBC + 'stack $FF\nexit return $0400\n')
+        self.assertEqual(r.image, bytes.fromhex('BA 8E0004 A2FF9A D8 200C19 60 60'))
+
+    def test_return_alone_is_unchanged(self):
+        r = link([simple(0)], self.BBC + 'exit return\n')
+        self.assertEqual(r.image, bytes.fromhex('D8 200519 60 60'))
+
+    def test_not_in_a_range_the_linker_uses(self):
+        for where in ('$0050', '$1900', '$5FFF', '$6000', '$7BFF', '$10000'):
+            r = link([simple(0)], self.BBC + 'exit return %s\n' % where)
+            self.assertEqual(r.status, 1, where)
+            self.assertTrue(r.errors.startswith(('link error 34: ', 'link error 3: ')), r.errors)
+        r = link([simple(0)], self.BBC + 'more data $0400 $06FF\nexit return $0400\n')
+        self.assertTrue(r.errors.startswith('link error 34: '), r.errors)
+
+    def test_by_the_assembler_path(self):
+        for env in (self.BBC + 'exit return $0400\n', self.BBC.replace('$8F', '$7F') + 'exit return $8F\n'):
+            r = link([with_data(0)], env, asm=True)
+            self.assertEqual((r.status, r.errors), (0, ''))
+            self.assertEqual(r.image, r.asm_image, r.asm_text)
+
+    def test_the_drivers_reader(self):
+        import tempfile
+        import mapenv
+        with tempfile.NamedTemporaryFile('w', suffix='.env', delete=False) as fh:
+            fh.write(self.BBC + 'exit return $0400\n')
+        try:
+            self.assertEqual(mapenv.read_env(fh.name).exit, ('return', 0x0400))
+        finally:
+            os.unlink(fh.name)
 
 
 class Identity(unittest.TestCase):
