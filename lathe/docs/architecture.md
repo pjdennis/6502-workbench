@@ -159,7 +159,7 @@ In stage A the Slots and Calls records were to be written to the `.lfm` file in 
 
 ## The linker
 
-**Pass 1** never reads code. It reads the files twice: once for the tables (of the Fix-ups it notes only what each function or table names), and once, after allocation, for the sizes (step 5), from the Fix-ups alone.
+**Pass 1** never reads code. It reads the files quietly for the names worth keeping, once for the tables (of the Fix-ups it only checks the entries), again for what kept code and data name, and once, after allocation, for the sizes (step 5), from the Fix-ups alone ("Memory in the linker" lists the readings).
 
 1. Build the call graph, with one node per pointer class standing for its parameter block. Find the functions reachable from `main` and from each interrupt handler, and the variables, constants and functions whose address what is kept names ([`object-format.md`](object-format.md), "What the linker keeps"), and drop the rest.
 2. Check cycles against the `recursive` attribute.
@@ -167,7 +167,7 @@ In stage A the Slots and Calls records were to be written to the `.lfm` file in 
 4. Allocate frames and module-level variables in zero page and main memory ([`code-model.md`](code-model.md)).
 5. Compute each function's final size: its written size less one byte for each fix-up marked "can shrink" whose address is in zero page. Place code and constants in their regions, and create stubs for calls that cross windows.
 
-**Pass 2** reads each file once more, in order, with one stream: it holds a function's Fix-ups until its Code arrives (a table's until its bytes arrive), applies the addresses, shrinks, and writes the image or images and the map file. A function copied for several contexts has its Code read again for each further copy.
+**Pass 2** reads each file once more, in order, with one stream: it holds a function's Fix-ups until its Code arrives (a table's until its bytes arrive), applies the addresses, shrinks, and writes the image or images and the map file's slot lines. A function copied for several contexts has its Code read again for each further copy. The map's other lines are written by readings of their own, which read the names again.
 
 ### Shrinking instructions
 
@@ -183,55 +183,59 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 
 ### Memory in the linker
 
-**Budget.** The linker must run beside its own code (about 12 KB in Lathe) and a stack on a machine with less than 60 KB free, linking the compiler itself: about 700 functions, 3,500 slots and 3,000 calls in 30 to 40 object files. Its tables together get at most 24 KB. `lathe/tests/lk_memory_report.py` prints what the host linker's tables would take laid out as Lathe lays them out (2 bytes a row for a word column, 1 for a byte column), and the peak use of each over the corpus and over `lk_synthetic.py`, the stand-in for the compiler; `test_lk_memory.py` keeps the total within the limit it states.
+**Budget.** The linker must run beside its own code (about 12 KB in Lathe) and a stack on a machine with less than 60 KB free, linking the compiler itself: about 700 functions, 3,500 slots and 3,000 calls in 30 to 40 object files. Its tables together were given 24 KB. `lathe/tests/lk_memory_report.py` prints what the host linker's tables take laid out as Lathe lays them out (2 bytes a row for a word column, 1 for a byte column), the peak use of each over the corpus and over `lk_synthetic.py`, the stand-in for the compiler, and how often each file is opened; `test_lk_memory.py` keeps the total within the ceiling it states, which only comes down.
 
 **Rules the design follows.**
 
-- *A table lives only in the phases that use it.* Scratch of one phase shares storage with the scratch of another: the work area holds Tarjan's columns while the graph is built, the layout's columns while storage is allocated, and the fix-ups of one function while the image is written.
-- *Reading a file again is cheap; memory is not.* What can be found again in the object files is read again when it is needed, not held: what fix-ups name, now; most names, in the plan below.
+- *A table lives only in the phases that use it.* Scratch of one phase shares storage with the scratch of another, in one work area (`lk_tab.work`).
+- *Reading a file again is cheap; memory is not.* What can be found again in the object files is read again when it is needed, not held: what fix-ups name, names, the sizes of copies.
 - *Rows are as narrow as their values*: byte columns where a value fits a byte, flags packed beside small numbers, columns derived instead of stored.
 
-**Passes over the object files, and what each holds.** Each pass reads each object file once, from start to end (`lk_rec`); a function linked for several contexts has its `CODE` read again for each further copy, in the image pass, which reopens the file and skips to it.
+**Symbols and names.** There is no table of symbols. A symbol is a reference (`lk_sym`): its kind in the top three bits and the row of what defines it, in the functions, the variables and constants, or the classes; a symbol nothing defines has `UNDEF` and a number of its own. `lk_name.local` holds, for each object file, the reference each of its symbol numbers stands for. Names are held only while the files are first read, and only those that more than one `SYM` record names. The first reading of all (`lk_name.mark_all`) is quiet, so that every error is still found by the reading that found it before; it marks in 8,192 bits the hash of every name some file has a `SYM` record for and does not define, of every class, and of every name two definitions share (32,768 bits of names defined, for that). While the files are read for the tables a marked name is kept in a heap and found through chains, compared in full, and an unmarked one makes a new symbol and is forgotten; a false match only keeps a name that need not have been. Every symbol has a number and two words at the top of the work area: what it stands for so far, and the weight given to a variable before it is defined. Once the files are read, every number in `local`, the calls and the members is replaced by what it stands for (`lk_name.resolve`), and heap and words are dropped. The compiler and the object format are unchanged: a flag in `SYM` saying a name is exported would only save the first reading, and the test for names that two files define would still be needed. A name that is written is read again from the files: for an error message from the first file with a `SYM` record for the symbol (`lk_name.error_name`); for the map by a reading of each file, which holds the names its lines need (`lk_map`).
+
+**Calls.** The calls of a function or class are a run of rows, from its `fn_edge` or `cls_edge` to the next one's, in the order the chains of the earlier design walked them, newest first. While the files are read a function's own calls are a run in the order read, and a call made while another function's arguments wait takes two rows at the top of the table, with whether its caller's own calls were read before it. Once they are read, runs and waiting calls become chains in the work area, the classes' calls are added, and the chains become runs again (`lk_tab.build_chains`, `chains_to_runs`).
+
+**Nodes.** Node f is the first copy of function f, a hole if f is not kept; the further copies follow the functions, in function then context order, and the class blocks follow them. Every walk that chooses a root or can report an error goes in the order the copies are placed in (`lk_tab.first_in_order`, `next_in_order`).
+
+**Passes over the object files, and what each holds.** Each reading reads a file from start to end (`lk_rec`); a function linked for several contexts has its `CODE` read again for each further copy, in the image pass, which reopens the file and skips to it.
 
 | Pass | Reads | Holds besides the tables |
 |---|---|---|
-| 1 Tables (`lk_scan`) | every record; `FIX` and `DFIX` only checked | — |
-| 2 What is kept (`lk_graph.keep_referenced`) | `FUNC`, `FIX`, `DFIX`, the symbol of `DATA`; once per reading until one keeps nothing new | one `DFIX` record's entries until its `DATA` |
+| 0 Names to keep (`lk_name.mark_all`), quiet | `SYM` and the symbol of `FUNC`, `VAR` and `DATA` | a hash of each name of the file being read, in `local`; the marks, in the work area |
+| 1 Tables (`lk_scan`) | every record; `FIX` and `DFIX` only checked | the names marked and the symbols' words, in the work area |
+| 2 What is kept (`lk_graph.keep_referenced`) | `FUNC`, `FIX`, `DFIX`, the symbol of `DATA`: every file, then again each file with something kept after a reading passed it | one `DFIX` record's entries until its `DATA` |
 | 3 Sizes and placement (`lk_place`) | `FUNC`, `FIX`, `CODE` length, `DATA` | — |
-| 4 Image and map (`lk_emit`) | every record | one function's or table's fix-ups |
+| 4 Map: F, D and V lines (`lk_map`) | `SYM`, and `FUNC`, `FIX` and the length of `CODE`, or `DATA`, or `VAR`: a reading for each kind of line, of the files that have such lines | the names the file's lines need |
+| 5 Image and map: S lines (`lk_emit`) | every record | one function's or table's fix-ups; the names of the file's kept functions that have slots |
+| 6 Map: C lines (`lk_map.cparams`), if a class is live | `SYM`, `CLAS`, `FUNC`, `SLOT` of the files that name a class or have the function that names a class's parameters | the names of classes and their parameters |
 
-`lextest` reads each of its 8 files 6 times (3 readings in pass 2); `lk_synthetic`'s 30 files are opened 212 times in all (2 readings in pass 2, 62 reopenings for copies). Every pass is linear in the size of the files. The graph and the layouts are linear in nodes and calls, as before; pass 2 replaces a table of references by readings.
+`lextest` opens its 8 files 62 times in all, 5 to 10 times each (before: 48, 6 each); `lk_synthetic`'s 30 files are opened 340 times (before: 212), 62 of them reopenings for copies. By pass, before and after, `lextest`: tables 8 and 8, what is kept 24 and 13, placement 8 and 8, image 8 and 8, and new, names 8, map F 7, map D and V 10. `lk_synthetic`: what is kept 60 and 55, image 92 and 92, and new, names 30, map F 30, map D and V 55, map C 18. Every pass is linear in the size of the files; the graph and the layouts are linear in nodes and calls.
 
-**The work area.** `lk_tab.work`, eight words per node, holds what one phase needs and the next does not: while the graph is built, Tarjan's columns (stack, edge cursor, found, discovery, low), the set number and the order of each node; while storage is allocated, the layout's columns (base, end of set, size of set, depth below, call chain for an error), the set number, the order and the zero page size; while code is placed and written, the fix-ups held and each node's address and length.
+**The work area.** `lk_tab.work`, seven words per node and three node columns, holds what one phase needs and the next does not. While the files are read: the weights waiting, the marks, the chains and heap of kept names, and the symbols' words at the top. Once they are read: the waiting calls and the chains (`lk_tab.W_WCALLER`...). While the graph is built: the stack of `reach`, the entries of a `DFIX` record, the files a reading of what is kept must read, then Tarjan's columns (stack, edge cursor, found, discovery, low), the set number and the order of each node. While storage is allocated: the layout's columns (base, end of set, size of set, depth below, which holds the call chain of an error), the zero page size, the set number and the order; promotion's count of candidates of each weight and its list of what was taken since the last layout, in the column of main memory bases, which nothing has yet. While code is placed and written: the fix-ups held, each copy's address, a slot name and the names of one file; for the C lines, the names of classes and their parameters. From `lk_graph.make_nodes` on: each node's function or class, its context and zero page base, and its main memory base.
 
-**Rows, before and after** (bytes per row; the capacity in brackets). The capacities are now the compiler's sizing.
+**Rows, before and after** (bytes per row; the capacity in brackets). The capacities are the compiler's sizing.
 
 | Table | Before (main, 2026-11-14) | Now |
 |---|---|---|
-| symbols | 11 (2,048) + names 16,384 | 11 (1,600) + names 12,288 |
+| symbols | 11 (2,048) + names 16,384 | none: a symbol is a reference to the row of what defines it; while the files are read, two words each and the names more than one `SYM` record names, in the work area (1,600 symbols) |
 | symbols in object files | 2 (4,096) | 2 (4,000) |
-| functions | 10 (1,024) | 10 (800) |
-| slots | 4 (8,192) | 3: size in a byte, 255 and over aside (4,000, and 64 large) |
-| calls | 5 (8,192) | 4: the flags in the top three bits of the callee (3,600) |
-| nodes | 15 fixed + 12 graph + 10 storage (1,280) | 6 fixed + 16 in the work area (900) |
-| references named by fix-ups | 4 (2,048) | none: read again (pass 2) |
+| functions | 10 (1,024) | 9: the first call instead of the symbol; the number of slots from the next function's first (800) |
+| slots | 4 (8,192) | 2: size in four bits, 15 bytes and over aside, beside the class, whether a parameter and whether in zero page; the weight (4,000, and 64 large) |
+| calls | 5 (8,192) | 2: the flags in the top three bits of the callee; a function's or class's calls are a run (3,600) |
+| nodes | 15 fixed + 12 graph + 10 storage (1,280) | 6 + 14 in the work area (900) |
+| references named by fix-ups | 4 (2,048) | none: read again |
 | fix-ups held | 9 (1,024) | 12 in the work area (512) |
-| variables and constants | 2 (1,024) | 2 (800) |
-| classes, parameters, members | 12 (64), 8 (256), 4 (256) | the same rows (32, 128, 128) |
-| weights waiting | 5 (256) | 5 (64) |
-| **total** | **204,338** | **97,442** |
+| variables and constants | 2 (1,024) | 5: address (a variable's weight until it has one), size, flags (800) |
+| classes, parameters, members | 12 (64), 8 (256), 4 (256) | 14 (32), 6 (128), 4 (128) |
+| weights waiting | 5 (256) | none: in the work area while the files are read (64) |
+| candidates by weight | 512 | none: in the work area while promotion works |
+| **total** | **204,338** | **53,118** |
 
-Peak use over the 77 programs of the corpus (the end-to-end cases on the three machines and `lextest`): objects 8, symbols in object files 376, symbols 312, names 3,736 bytes, functions 220, slots 1,085, calls 419, nodes 215, defs 200, classes 3, class parameters 8, members 7, contexts 3, weights waiting 7, fix-ups held 348. `lk_synthetic` (30 files, 703 functions): 3,430 symbols in object files, 827 symbols, 6,564 bytes of names, 3,644 slots, 3,225 calls, 727 nodes, 121 defs, 210 fix-ups held; the host linker takes 0.44 s.
+The work area is 18,000 bytes of it: 7 × 900 + 3 × 900 words. Peak use over the 78 programs of the corpus (the end-to-end cases on the three machines and `lextest`): objects 8, symbols in object files 376, symbols 312, names kept 856 bytes, functions 220, slots 1,085, calls 419, nodes 220, defs 200, classes 3, class parameters 8, members 7, contexts 3, weights waiting 7, fix-ups held 348. `lk_synthetic` (30 files, 703 functions): 3,430 symbols in object files, 827 symbols, 8,474 bytes of names kept, 3,644 slots, 3,225 calls, 768 nodes, 121 defs, 210 fix-ups held; the host linker takes 0.7 s.
 
-**The rest of the way to 24 KB.** In order of what each saves at the capacities above:
+**Choosing what goes in zero page.** The rule ([`code-model.md`](code-model.md), "What goes in zero page") is greedy: candidates heaviest first, each taken if the deepest chain still fits with it. If they all fit, one layout shows it. Otherwise `lk_alloc.judge` decides most items without a new layout. After a layout L it keeps a list of the copies taken since, each with the longest chain through its node in L. A chain through copies x1..xk is no longer than the shortest of their chains plus the sum of their sizes, so the deepest chain of a context is now at most the largest, over the chains t of the list, of t plus the sizes of the copies whose chain is t or more. An item fits if zero page fits with it at that bound; it does not fit if it does not fit with L alone, since more in zero page never makes a chain need less. Only an item between the two takes a new layout, after which it is judged exactly. The choices are those of laying out after every item taken (`test_lk_promotion.py` links both ways and compares). Layouts, before and after: `lextest` with 16, 32, 48, 64 and 96 bytes of zero page 103, 109, 120, 108, 80 and 23, 18, 17, 13, 10; `lk_synthetic` with 112, 128, 160, 192 and 224 bytes 927, 869, 759, 616, 280 and 123, 106, 61, 41, 29. Judging an item reads the list, which a layout empties when it reaches 128 entries (more saved no layouts on the corpus or the synthetic program).
 
-1. *Names only where another module needs them.* A flag in `SYM` (format version 3; `out.symbol` writes it for `pub` names and for the names it imports) says whether another module can name the symbol. Only those names, and `MAIN.main`, go into the heap; `$init` becomes a function flag found while the name is read. The map's F, D and V lines are written by a reading each, which holds the names of the object being read; a name in an error message is read from the first object file that has the symbol. Saves about 15 KB (the heap, `sym_name`, `sym_next`).
-2. *Symbols dissolved into references.* Once every file is read, each entry of `local` holds what its symbol is (kind, defined, and a row of `fn_`, `cls_` or a table of variables and constants), and the symbol columns go: about 8 KB.
-3. *Calls as a run per function*, filled from the end so that a walk sees them newest first as the chains do now, with the calls made while another function's arguments wait, the calls into class blocks and the merged classes' runs placed where the chains put them: `edge_next` goes, 7 KB.
-4. *Slots in two bytes*: the size in a nibble with an escape, and the zero page class, the kind and the choice in the other: 4 KB. *Pending weights* go once a first reading counts each function's slots.
-5. *A function's first copy is the node of the same number*, extra copies and class blocks after them: `node_own` and `fn_node`, 3.4 KB; the zero page layout in 9-bit values, 2.7 KB.
-
-That brings the tables at the compiler's size (the synthetic program) to about 30 KB while storage is allocated, which is the peak: zero page promotion needs every candidate's weight and size and every call, because it lays the program out again after each accepted item. The last 6 KB need one of: dropping the symbol tables while storage is allocated and rebuilding them afterwards from a table of hashed exported names (the few hashes that collide keep their names); or reading the candidates of promotion from the files in bands of weights, each band a reading. Choosing what goes in zero page still lays the program out again after each item accepted when zero page is short: one layout per item (`lextest` with 64 bytes of zero page: 108 layouts). A cheaper step would update the layout in place: the item's node grows, the nodes below it move up and the chains above it get deeper, but each is a walk over the graph from that node, which costs nearly as much as laying out the whole again.
+**Why not 24 KB, or 30.** While storage is allocated nearly everything above is live at once, and at the compiler's capacities that is 53 KB: the symbols in object files (8,000 bytes, needed again by placement and the image, and only names could rebuild them), calls (7,200), slots (8,000), functions (7,200), variables and constants (4,000), classes and the rest (2,000), and the work area (18,000: the layout's seven columns and the node columns). The steps left that keep every choice and every text the same are small: the zero page layout in 9-bit values and Tarjan's discovery number kept in the set column (two columns, 3,600 bytes, with the S lines read by a pass of their own to leave room for one file's names while the image is written); the members in the work area (512). Going further means giving something up: dropping `local` while storage is allocated and rebuilding it afterwards, which needs the names again; reading the slots that promotion judges from the files in bands of weights, a reading per band; or lower capacities.
 
 ## The environment description
 

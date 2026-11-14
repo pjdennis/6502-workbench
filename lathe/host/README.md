@@ -211,6 +211,8 @@ A new error takes the next free number of its group.
 | Far calls | `test_farcall.py` | `lathe/rt/rt_bank.lth` and `rt_ovl.lth`, compiled and linked with `tests/spike_l5/l5main.lth`, with spike L5's program, stubs and tables assembled around them by `spike_l5/l5build.py`: the spike's output banked on Wendy 2 and with overlays on the default machine, its cycles and sizes, and status 255 for a missing bank file. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
+| Zero page promotion | `test_lk_promotion.py` | The synthetic program and random ones, linked as the linker links and with every candidate judged on a fresh layout: the maps must be the same, and the layouts fewer. |
+| Memory | `test_lk_memory.py` | The linker's tables, laid out as Lathe lays them out, within a ceiling that only comes down (`lk_memory_report.py`). |
 
 `lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not; in stage 2b, once its statements used arrays and pointers, one more (a word in A and X stored into an element whose index needs X).
 

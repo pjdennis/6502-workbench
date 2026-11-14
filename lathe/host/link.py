@@ -25,29 +25,27 @@ import lk_envf
 import lk_err
 import lk_file
 import lk_graph
+import lk_name
 import lk_place
 import lk_scan
 import lk_sym
-
-MAIN_SUFFIX = b".main"
-
+import lk_tab
 
 def find_main():
-    """The function MAINMODULE.main, which some object file must define."""
-    size = lk_file.arg_length(lk_file.ARG_MAIN)
-    lk_sym.name_begin()
-    for i in range(0, size):
-        c = env.mem[lk_file.PATH + i]
-        if c >= 65 and c <= 90:
-            c += 32
-        lk_sym.name_add(c)
-    for i in range(0, len(MAIN_SUFFIX)):
-        lk_sym.name_add(MAIN_SUFFIX[i])
-    s, found = lk_sym.find()
-    if not found or lk_sym.kind_of(s) != lk_sym.FUNCTION or not lk_sym.is_defined(s):
+    """The function MAINMODULE.main, which some object file must define. lk_name noted the
+    symbol of that name while the files were read."""
+    s = lk_name.main_sym
+    if s == lk_tab.NONE or lk_sym.kind_of(s) != lk_sym.FUNCTION or not lk_sym.is_defined(s):
         lk_err.begin(lk_err.E_NO_MAIN)
         lk_err.colon()
-        lk_sym.error_pending()
+        size = lk_file.arg_length(lk_file.ARG_MAIN)
+        for i in range(0, size):
+            c = env.mem[lk_file.PATH + i]
+            if c >= 65 and c <= 90:
+                c += 32
+            lk_err.put(c)
+        for i in range(0, len(lk_name.MAIN_SUFFIX)):
+            lk_err.put(lk_name.MAIN_SUFFIX[i])
         lk_err.finish()
     return s
 
@@ -61,7 +59,7 @@ def main():
     lk_graph.build(main_sym)
     lk_alloc.allocate()
     lk_place.place()
-    lk_emit.write(lk_sym.sym_a[main_sym])
+    lk_emit.write(lk_sym.row_of(main_sym))
     env.exit(0)
 
 

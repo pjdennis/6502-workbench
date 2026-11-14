@@ -24,6 +24,7 @@ Calls that only place storage (E_PENDING, E_VIA) do not make anything reachable.
 """
 import lk_boot
 import lk_err
+import lk_name
 import lk_rec
 import lk_scan
 import lk_sym
@@ -50,13 +51,19 @@ e_sym = 0
 e_slot = 0
 found_top = 0
 discovered = 0                      # Tarjan: nodes discovered so far
+# keep_referenced: which object files a reading must read. In lk_tab.work, a byte per object.
+NOW = 2 * lk_tab.MAX_NODES          # this reading: the file has something kept not yet read since
+LATER = NOW + lk_name.MAX_OBJECTS   # the next reading: the same, for what this one had passed
+reading = False                     # a reading is under way
+cur_obj = 0                         # the file it reads
+fn_passed = 0                       # functions whose FUNC record it has passed
 
 
 def edge_target(e):
     """The symbol edge e calls: a function, or the class standing for the class named."""
     target = lk_tab.edge_sym(e)
     if lk_sym.kind_of(target) == lk_sym.CLASS:
-        return lk_tab.cls_sym[lk_tab.class_of(lk_sym.sym_a[target])]
+        return lk_tab.cls_ref(lk_tab.class_of(lk_sym.row_of(target)))
     return target
 
 
@@ -66,15 +73,20 @@ def mark(target, ctx):
     """Note that context ctx reaches a symbol. True if that is news."""
     bit = 1 << ctx
     if lk_sym.kind_of(target) == lk_sym.CLASS:
-        k = lk_sym.sym_a[target]
+        k = lk_sym.row_of(target)
         if (lk_tab.cls_reach[k] & bit) != 0:
             return False
         lk_tab.cls_reach[k] |= bit
         return True
-    f = lk_sym.sym_a[target]
+    f = lk_sym.row_of(target)
     if (lk_tab.fn_ctx[f] & bit) != 0:
         return False
     lk_tab.fn_ctx[f] |= bit
+    if reading:
+        obj = 0
+        while f >= lk_name.obj_fn[obj + 1]:
+            obj += 1
+        to_read(obj, obj == cur_obj and f < fn_passed)
     return True
 
 
@@ -86,38 +98,43 @@ def reach(root, ctx):
     lk_tab.work[STACK + 0] = root
     while top > 0:
         top -= 1
-        e = lk_sym.sym_b[lk_tab.work[STACK + top]]
+        source = lk_tab.work[STACK + top]
+        e = lk_tab.first_call(source)
         while e != 0:
             if (lk_tab.edge_flag(e - 1) & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0:
                 # Kept code calls it, so it must be defined.
                 if not lk_sym.is_defined(lk_tab.edge_sym(e - 1)):
-                    lk_sym.fail(lk_err.E_UNDEFINED, lk_tab.edge_sym(e - 1))
+                    lk_name.fail(lk_err.E_UNDEFINED, lk_tab.edge_sym(e - 1))
                 target = edge_target(e - 1)
                 if mark(target, ctx):
                     if top == lk_tab.MAX_NODES:
                         lk_err.fail(lk_err.E_COPIES)
                     lk_tab.work[STACK + top] = target
                     top += 1
-            e = lk_tab.edge_next[e - 1]
+            e = lk_tab.next_call(source, e)
 
 
 def is_kept(s):
     """True if the function, variable or constant data that is symbol s is kept so far."""
     if lk_sym.kind_of(s) == lk_sym.FUNCTION:
-        return lk_tab.fn_ctx[lk_sym.sym_a[s]] != 0
-    return (lk_sym.sym_f[s] & lk_sym.KEPT) != 0
+        return lk_tab.fn_ctx[lk_sym.row_of(s)] != 0
+    return lk_tab.is_kept_def(lk_sym.row_of(s))
 
 
 def keep_target(source, target):
     """Kept `source` refers to `target`. True if that keeps something new."""
     if not lk_sym.is_defined(target):
-        lk_sym.fail(lk_err.E_UNDEFINED, target)
+        lk_name.fail(lk_err.E_UNDEFINED, target)
     if is_kept(target):
         return False
     if lk_sym.kind_of(target) == lk_sym.FUNCTION:
         reach(target, 0)
     else:
-        lk_sym.sym_f[target] |= lk_sym.KEPT
+        d = lk_sym.row_of(target)
+        lk_tab.def_f[d] |= lk_tab.D_KEPT
+        if lk_sym.kind_of(target) == lk_sym.CONSTANT:
+            # Until it is placed, constant data has the number of its file in def_a (lk_scan).
+            to_read(lk_tab.def_a[d], (lk_tab.def_f[d] & lk_tab.D_PASSED) != 0)
     return True
 
 
@@ -145,32 +162,32 @@ def read_entry(obj):
     global e_kind, e_sym, e_slot
     lk_rec.get_word()
     e_kind = lk_rec.get_byte()
-    e_sym = lk_scan.global_sym(obj, lk_rec.get_word())
+    e_sym = lk_name.global_sym(obj, lk_rec.get_word())
     e_slot = lk_rec.get_byte()
     lk_rec.get_word()
 
 
 def keep_in_object(obj):
-    """One reading of object obj: what the fix-ups of what is kept so far name is kept. True
-    if that kept something new.
+    """One reading of object obj: what the fix-ups of what is kept so far name is kept.
 
     A DFIX record's entries belong to the DATA record after it, which says whose they are:
     they wait in the work area (above what reach() uses) until it comes."""
-    changed = False
+    global fn_passed
     source = lk_tab.NONE
     named_count = 0
     lk_rec.open_object(obj)
     kind = lk_rec.advance()
     while kind != lk_rec.R_END:
         if kind == lk_rec.R_FUNC:
-            source = lk_scan.global_sym(obj, lk_rec.get_word())
+            source = lk_name.global_sym(obj, lk_rec.get_word())
+            fn_passed = lk_sym.row_of(source) + 1
         elif kind == lk_rec.R_ENDF:
             source = lk_tab.NONE
         elif kind == lk_rec.R_FIX and is_kept(source):
             while lk_rec.left() > 0:
                 read_entry(obj)
-                if keeps(obj, source, e_kind, e_sym, e_slot) and keep_target(source, e_sym):
-                    changed = True
+                if keeps(obj, source, e_kind, e_sym, e_slot):
+                    keep_target(source, e_sym)
         elif kind == lk_rec.R_DFIX:
             named_count = 0
             while lk_rec.left() > 0:
@@ -181,32 +198,64 @@ def keep_in_object(obj):
                         lk_tab.work[NAMED + named_count] = e_sym
                     named_count += 1
         elif kind == lk_rec.R_DATA:
-            data = lk_scan.global_sym(obj, lk_rec.get_word())
+            data = lk_name.global_sym(obj, lk_rec.get_word())
             if is_kept(data):
                 if named_count > lk_tab.MAX_FIXES:
                     lk_err.fail(lk_err.E_FIXES)
                 for i in range(0, named_count):
-                    if keep_target(data, lk_tab.work[NAMED + i]):
-                        changed = True
+                    keep_target(data, lk_tab.work[NAMED + i])
+            lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
             named_count = 0
         kind = lk_rec.advance()
     lk_rec.close()
-    return changed
+
+
+def to_read(obj, behind):
+    """Something in object file obj was kept during a reading, which has passed it (`behind`)
+    or not."""
+    if obj < cur_obj or behind:
+        lk_tab.work[LATER + obj] = 1
+    elif obj > cur_obj:
+        lk_tab.work[NOW + obj] = 1
 
 
 def keep_referenced():
-    """Keep what the fix-ups of kept code and kept constant data name, reading every object file
-    again until a reading keeps nothing new.
+    """Keep what the fix-ups of kept code and kept constant data name, reading the object files
+    again until each kept function and table has been read since it was kept.
 
-    A variable or constant is kept; a function whose address is taken and that nothing
-    reached is reached from context 0. Only now must a symbol be defined: one that nothing
-    kept refers to may be missing."""
-    changed = True
-    while changed:
-        changed = False
-        for obj in range(0, lk_scan.object_count):
-            if keep_in_object(obj):
-                changed = True
+    The first reading reads every file. A reading reads the fix-ups of everything kept that it
+    passes, so what is kept before the reading passes it is read by the same reading; a file
+    with something kept after the reading passed it is read again by the next (to_read). The
+    files a reading leaves out hold nothing that was not read since it was kept: reading them
+    would keep nothing and find no error. A variable or constant is kept; a function whose
+    address is taken and that nothing reached is reached from context 0. Only now must a symbol
+    be defined: one that nothing kept refers to may be missing."""
+    global reading, cur_obj, fn_passed
+    for obj in range(0, lk_name.object_count):
+        lk_tab.work[NOW + obj] = 1
+        lk_tab.work[LATER + obj] = 0
+    more = True
+    while more:
+        reading = True
+        unpass()
+        for obj in range(0, lk_name.object_count):
+            cur_obj = obj
+            fn_passed = 0
+            if lk_tab.work[NOW + obj] != 0:
+                keep_in_object(obj)
+        reading = False
+        more = False
+        for obj in range(0, lk_name.object_count):
+            lk_tab.work[NOW + obj] = lk_tab.work[LATER + obj]
+            lk_tab.work[LATER + obj] = 0
+            if lk_tab.work[NOW + obj] != 0:
+                more = True
+    unpass()
+
+
+def unpass():
+    for d in range(0, lk_tab.def_count):
+        lk_tab.def_f[d] &= 0xFF ^ lk_tab.D_PASSED
 
 
 def find_contexts(main_sym):
@@ -214,13 +263,13 @@ def find_contexts(main_sym):
     reach(main_sym, 0)
     for f in range(0, lk_tab.fn_count):
         if lk_boot.is_init(f):
-            reach(lk_tab.fn_sym[f], 0)
+            reach(lk_tab.fn_ref(f), 0)
     lk_tab.ctx_count = 1
     for f in range(0, lk_tab.fn_count):
         if (lk_tab.fn_flags[f] & lk_tab.F_INTERRUPT) != 0:
             if lk_tab.ctx_count == lk_tab.MAX_CONTEXTS:
                 lk_err.fail(lk_err.E_CONTEXTS)
-            reach(lk_tab.fn_sym[f], lk_tab.ctx_count)
+            reach(lk_tab.fn_ref(f), lk_tab.ctx_count)
             lk_tab.ctx_count += 1
     keep_referenced()
 
@@ -229,25 +278,25 @@ def find_contexts(main_sym):
 
 def pointer_caller(k, ctx):
     """A function of context ctx that calls through class k."""
-    block = lk_tab.cls_sym[k]
+    block = lk_tab.cls_ref(k)
     for f in range(0, lk_tab.fn_count):
         if lk_tab.has_copy(f, ctx):
-            e = lk_sym.sym_b[lk_tab.fn_sym[f]]
+            e = lk_tab.first_call(lk_tab.fn_ref(f))
             while e != 0:
                 if lk_tab.edge_flag(e - 1) <= lk_tab.E_NOSAVE and edge_target(e - 1) == block:
-                    return lk_tab.fn_sym[f]
-                e = lk_tab.edge_next[e - 1]
+                    return lk_tab.fn_ref(f)
+                e = lk_tab.next_call(lk_tab.fn_ref(f), e)
     return block
 
 
 def fail_two_contexts(k, first, second):
     lk_err.begin(lk_err.E_CLASS_CONTEXTS)
     lk_err.colon()
-    lk_sym.error_name(lk_tab.cls_sym[k])
+    lk_name.error_name(lk_tab.cls_ref(k))
     lk_err.comma()
-    lk_sym.error_name(pointer_caller(k, first))
+    lk_name.error_name(pointer_caller(k, first))
     lk_err.comma()
-    lk_sym.error_name(pointer_caller(k, second))
+    lk_name.error_name(pointer_caller(k, second))
     lk_err.finish()
 
 
@@ -278,15 +327,15 @@ def fit_member(k, f):
     np = lk_tab.cls_np[k]
     first = lk_tab.fn_slot[f]
     params = 0
-    while params < lk_tab.fn_nslots[f] and lk_tab.slot_kind(first + params) == 0:
+    while params < lk_tab.fn_nslots(f) and lk_tab.slot_is_param(first + params):
         params += 1
     if params != np:
-        lk_sym.fail(lk_err.E_MEMBER, lk_tab.fn_sym[f])
+        lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
     for i in range(0, np):
         p = lk_tab.cls_par[k] + i
         if lk_tab.slot_bytes(first + i) != lk_tab.cp_size[p]:
-            lk_sym.fail(lk_err.E_MEMBER, lk_tab.fn_sym[f])
-        lk_tab.cp_info[p] = stricter(lk_tab.cp_info[p], lk_tab.slot_info[first + i] & lk_tab.S_CLASS)
+            lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
+        lk_tab.cp_info[p] = stricter(lk_tab.cp_info[p], lk_tab.slot_class(first + i))
         weight = lk_tab.cp_weight[p] + lk_tab.slot_weight[first + i]
         if weight > 255:
             weight = 255
@@ -295,19 +344,28 @@ def fit_member(k, f):
 
 def fit_members():
     for i in range(0, lk_tab.memb_count):
-        k = lk_tab.class_of(lk_sym.sym_a[lk_tab.memb_class[i]])
-        fit_member(k, lk_sym.sym_a[lk_tab.memb_func[i]])
+        k = lk_tab.class_of(lk_sym.row_of(lk_tab.memb_class[i]))
+        fit_member(k, lk_sym.row_of(lk_tab.memb_func[i]))
 
 
 # ---- nodes
 
 def make_nodes():
-    """One node per copy of a kept function, in placement order, then one per live class."""
+    """A node per copy of a kept function: node f the first copy of f, and the further copies
+    after the functions, in function then context order; then one per live class."""
+    lk_tab.node_count = lk_tab.fn_count
     for f in range(0, lk_tab.fn_count):
-        lk_tab.fn_node[f] = lk_tab.node_count
+        for ctx in range(lk_tab.ctx_count - 1, -1, -1):
+            if lk_tab.has_copy(f, ctx):
+                lk_tab.work[lk_tab.W_CTXZ + f] = ctx << 8
+    for f in range(0, lk_tab.fn_count):
+        first = True
         for ctx in range(0, lk_tab.ctx_count):
             if lk_tab.has_copy(f, ctx):
-                lk_tab.new_node(f, ctx)
+                if not first:
+                    lk_tab.new_node(f, ctx)
+                first = False
+    lk_tab.extra_end = lk_tab.node_count
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
             lk_tab.cls_node[k] = lk_tab.node_count
@@ -316,11 +374,12 @@ def make_nodes():
 
 def first_edge(n):
     """The first edge of node n + 1, or 0: the start of a walk with edge_node and next_edge."""
-    return lk_sym.sym_b[lk_tab.node_sym(n)]
+    return lk_tab.first_call(lk_tab.node_sym(n))
 
 
-def next_edge(e):
-    return lk_tab.edge_next[e - 1]
+def next_edge(n, e):
+    """The edge of node n after edge e + 1, + 1, or 0."""
+    return lk_tab.next_call(lk_tab.node_sym(n), e)
 
 
 def edge_node(n, e):
@@ -329,18 +388,18 @@ def edge_node(n, e):
     An edge joins symbols; here it becomes an edge between copies in n's context. It does not
     apply if the target has nothing in that context: a class block lives in one context only,
     and elsewhere a member is an ordinary function."""
-    ctx = lk_tab.node_ctx[n]
+    ctx = lk_tab.ctx_of(n)
     # Only a call that places storage can name a symbol nothing defines (lk_scan.rec_call):
     # what that call is in was dropped.
     if not lk_sym.is_defined(lk_tab.edge_sym(e - 1)):
         return 0, False
     target = edge_target(e - 1)
     if lk_sym.kind_of(target) == lk_sym.CLASS:
-        k = lk_sym.sym_a[target]
+        k = lk_sym.row_of(target)
         if lk_tab.cls_reach[k] != 0 and lk_tab.cls_ctx[k] == ctx:
             return lk_tab.cls_node[k], True
         return 0, False
-    f = lk_sym.sym_a[target]
+    f = lk_sym.row_of(target)
     if lk_tab.has_copy(f, ctx):
         return lk_tab.copy_node(f, ctx), True
     return 0, False
@@ -383,7 +442,7 @@ def search(root):
         n = lk_tab.work[STACK + stack_top - 1]
         e = lk_tab.work[STACK_EDGE + stack_top - 1]
         if e != 0:
-            lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(e)
+            lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(n, e)
             target, applies = edge_node(n, e)
             if applies:
                 if lk_tab.work[SEEN + target] == 0:
@@ -403,16 +462,18 @@ def search(root):
 def find_sets():
     for n in range(0, lk_tab.node_count):
         lk_tab.work[SEEN + n] = 0
-    for n in range(0, lk_tab.node_count):
+    n = lk_tab.first_in_order()
+    while n != lk_tab.NONE:
         if lk_tab.work[SEEN + n] == 0:
             search(n)
+        n = lk_tab.next_in_order(n)
 
 
 def is_recursive(n):
     """A class block is only storage: what must be `recursive` is the functions around it."""
     if lk_tab.node_is_class(n):
         return True
-    return (lk_tab.fn_flags[lk_tab.node_own[n]] & lk_tab.F_RECURSIVE) != 0
+    return (lk_tab.fn_flags[lk_tab.own_of(n)] & lk_tab.F_RECURSIVE) != 0
 
 
 def fail_cycle(source, target):
@@ -435,7 +496,7 @@ def fail_cycle(source, target):
                 lk_tab.work[SEEN + reached] = n + 1
                 lk_tab.work[STACK + tail] = reached
                 tail += 1
-            e = next_edge(e)
+            e = next_edge(n, e)
     # Walk back from source to target, then print it forwards.
     count = 0
     n = source
@@ -445,12 +506,12 @@ def fail_cycle(source, target):
         n = lk_tab.work[SEEN + n] - 1
     lk_err.begin(lk_err.E_CYCLE)
     lk_err.colon()
-    lk_tab.error_node(source)
+    lk_name.error_node(source)
     lk_err.arrow()
-    lk_tab.error_node(target)
+    lk_name.error_node(target)
     for i in range(count - 1, -1, -1):
         lk_err.arrow()
-        lk_tab.error_node(lk_tab.work[FOUND + i])
+        lk_name.error_node(lk_tab.work[FOUND + i])
     lk_err.finish()
 
 
@@ -465,25 +526,25 @@ def fail_member_call(n, target, e):
     k = lk_tab.node_class(target)
     lk_err.begin(lk_err.E_MEMBER_CYCLE)
     lk_err.colon()
-    lk_tab.error_node(n)
+    lk_name.error_node(n)
     lk_err.arrow()
-    callee = lk_tab.cls_sym[k]
+    callee = lk_tab.cls_ref(k)
     if (lk_tab.edge_flag(e - 1) & lk_tab.E_VIA) != 0:
         other = first_edge(n)
         while other != 0:
             s = lk_tab.edge_sym(other - 1)
             if (lk_tab.edge_flag(other - 1) & lk_tab.E_VIA) == 0 and lk_sym.kind_of(s) == lk_sym.FUNCTION \
-                    and lk_sym.is_defined(s) and is_member(lk_sym.sym_a[s], k):
+                    and lk_sym.is_defined(s) and is_member(lk_sym.row_of(s), k):
                 callee = s
-            other = next_edge(other)
-    lk_sym.error_name(callee)
-    if callee == lk_tab.cls_sym[k]:
+            other = next_edge(n, other)
+    lk_name.error_name(callee)
+    if callee == lk_tab.cls_ref(k):
         for i in range(0, len(OWN_CLASS)):
             lk_err.put(OWN_CLASS[i])
     else:
         for i in range(0, len(IN_CLASS)):
             lk_err.put(IN_CLASS[i])
-        lk_sym.error_name(lk_tab.cls_sym[k])
+        lk_name.error_name(lk_tab.cls_ref(k))
     lk_err.finish()
 
 
@@ -495,7 +556,8 @@ def check_cycles():
     "Recursion"). The checks therefore fall on the real calls into and out of the block. A
     member's call into its own class's block, of another member or through the class, is
     reported as that: the two share their parameters (language.md, "Members calling members")."""
-    for n in range(0, lk_tab.node_count):
+    n = lk_tab.first_in_order()
+    while n != lk_tab.NONE:
         e = first_edge(n)
         while e != 0:
             target, applies = edge_node(n, e)
@@ -503,10 +565,11 @@ def check_cycles():
                 saves = (lk_tab.edge_flag(e - 1) & lk_tab.E_NOSAVE) == 0
                 if not (saves and is_recursive(n) and is_recursive(target)):
                     if not lk_tab.node_is_class(n) and lk_tab.node_is_class(target) \
-                            and is_member(lk_tab.node_own[n], lk_tab.node_class(target)):
+                            and is_member(lk_tab.own_of(n), lk_tab.node_class(target)):
                         fail_member_call(n, target, e)
                     fail_cycle(n, target)
-            e = next_edge(e)
+            e = next_edge(n, e)
+        n = lk_tab.next_in_order(n)
 
 
 def build(main_sym):

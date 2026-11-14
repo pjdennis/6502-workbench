@@ -6,6 +6,10 @@ interface has no seek. Everything the linker needs before a record comes before 
 reads each file once, in order, and one stream is all there is. The one exception: a function
 linked for several contexts is written once for each, and the stream goes back to its code, by
 the number of the record, for each copy after the first.
+
+A quiet reading (open_quiet) reports nothing: a file that cannot be opened is not read, and one
+that ends too early ends there. The first reading of all, before the tables (lk_name.mark_all),
+is quiet, so that every error is still found, and reported, by the reading that finds it now.
 """
 import env
 import lk_err
@@ -35,16 +39,34 @@ handle = 0
 cur_object = 0          # object number + 1; 0 when the stream is closed
 cur_recno = 0           # records started so far: the number of the current record
 cur_left = 0            # bytes of the current record's body not yet read
+quiet = False           # this reading reports nothing (open_quiet)
+ended = False           # a quiet reading came to the end of the file
 
 
 def open_object(obj):
     """Start the stream at the beginning of object file obj."""
-    global handle, cur_object, cur_recno, cur_left
+    global handle, cur_object, cur_recno, cur_left, quiet
     close()
     handle = lk_file.open_in(lk_file.ARG_OBJECT + obj)
     cur_object = obj + 1
     cur_recno = 0
     cur_left = 0
+    quiet = False
+
+
+def open_quiet(obj):
+    """Start a quiet reading of object file obj. False if it cannot be opened."""
+    global handle, cur_object, cur_recno, cur_left, quiet, ended
+    close()
+    handle = lk_file.open_in_quiet(lk_file.ARG_OBJECT + obj)
+    if handle == 0:
+        return False
+    cur_object = obj + 1
+    cur_recno = 0
+    cur_left = 0
+    quiet = True
+    ended = False
+    return True
 
 
 def close():
@@ -61,9 +83,13 @@ def damaged():
 
 def raw():
     """The next byte of the file. A file never ends inside a record or before its END record."""
+    global ended
     b, at_end = env.read(handle)
     if at_end:
-        damaged()
+        if not quiet:
+            damaged()
+        ended = True
+        return 0
     return b
 
 
@@ -77,6 +103,9 @@ def advance():
     low = raw()
     cur_left = low | (raw() << 8)
     cur_recno = (cur_recno + 1) & 0xFFFF
+    if quiet and ended:
+        cur_left = 0
+        return R_END
     return kind
 
 
@@ -92,9 +121,12 @@ def recno():
 
 def get_byte():
     """The next byte of the current record."""
-    global cur_left
+    global cur_left, ended
     if cur_left == 0:
-        damaged()
+        if not quiet:
+            damaged()
+        ended = True
+        return 0
     cur_left -= 1
     return raw()
 

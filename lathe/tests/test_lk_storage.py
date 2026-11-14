@@ -529,6 +529,18 @@ class LargeSlots(unittest.TestCase):
         self.assertEqual((r.size('S', 't.main', 0), r.size('S', 't.main', 1)), (300, 255))
         self.assertEqual((r.addr('S', 't.main', 1), r.addr('S', 't.main', 2)), (base + 300, base + 555))
 
+    def test_slots_either_side_of_15_bytes(self):
+        # A slot's size is kept in four bits beside its class; those of 15 bytes or more aside.
+        sizes = [14, 15, 16, 1, 254, 15]
+        o = Obj('t')
+        o.func('main', b'\x60', slots=[(n, NEVER, 0, LOCAL, 's%d' % i) for i, n in enumerate(sizes)])
+        r = link([o])
+        self.assertEqual(r.errors, '')
+        base = r.addr('S', 't.main', 0)
+        at = [base + sum(sizes[:i]) for i in range(len(sizes))]
+        self.assertEqual([r.addr('S', 't.main', i) for i in range(len(sizes))], at)
+        self.assertEqual([r.size('S', 't.main', i) for i in range(len(sizes))], sizes)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -32,18 +32,18 @@ HOST = os.path.join(LATHE, 'host')
 sys.path.insert(0, HOST)
 
 BUDGET = 24 * 1024                  # the goal (architecture.md, "Memory in the linker")
-CEILING = 96 * 1024                 # what the linker takes now must not grow past this
+CEILING = 53118                    # what the linker takes now must not grow past this
 
-MODULES = ['lk_err', 'lk_file', 'lk_op', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_scan',
+MODULES = ['lk_err', 'lk_file', 'lk_op', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
            'lk_out', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit']
 
 # The use of each table at the end of a link: name -> (module, expression for the rows used,
 # expression for the capacity). The expressions are evaluated with the linker's modules as names.
 USAGE = [
-    ('objects', 'lk_scan', 'lk_scan.object_count', 'lk_scan.MAX_OBJECTS'),
-    ('locals', 'lk_scan', 'lk_scan.local_count', 'lk_scan.MAX_LOCALS'),
+    ('objects', 'lk_name', 'lk_name.object_count', 'lk_name.MAX_OBJECTS'),
+    ('locals', 'lk_name', 'lk_name.local_count', 'lk_name.MAX_LOCALS'),
     ('symbols', 'lk_sym', 'lk_sym.count', 'lk_sym.MAX_SYMS'),
-    ('name heap', 'lk_sym', 'lk_sym.heap_top', 'lk_sym.HEAP_SIZE'),
+    ('names kept', 'lk_name', 'lk_name.heap_top - lk_name.HEAP_START', 'lk_name.HEAP_END - lk_name.HEAP_START'),
     ('functions', 'lk_tab', 'lk_tab.fn_count', 'lk_tab.MAX_FUNCS'),
     ('slots', 'lk_tab', 'lk_tab.slot_count', 'lk_tab.MAX_SLOTS'),
     ('calls', 'lk_tab', 'lk_tab.edge_count', 'lk_tab.MAX_EDGES'),
@@ -125,6 +125,18 @@ def corpus_sources():
     return cases
 
 
+def defines(path):
+    """--define options for the `; defines` lines of a case, as test_cases.py reads them."""
+    found = []
+    with open(path, encoding='latin-1') as f:
+        for line in f:
+            if line.startswith('module'):
+                break
+            if line.startswith('; defines '):
+                found += ['--define=' + d for d in line[len('; defines '):].split()]
+    return found
+
+
 def build_corpus(cache):
     """Compile every program of the corpus into cache/NAME/ once. Returns the names."""
     sys.path.insert(0, os.path.join(HOST, 'driver'))
@@ -143,7 +155,7 @@ def build_corpus(cache):
                        LATHE_LINKER=rec)
         with tempfile.TemporaryDirectory() as t:
             r = subprocess.run([sys.executable, os.path.join(HOST, 'driver', 'build.py'), path,
-                                '-o', os.path.join(t, 'o.bin'), '--env', env], env=environ,
+                                '-o', os.path.join(t, 'o.bin'), '--env', env] + defines(path), env=environ,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if r.returncode != 0:
                 print('build failed:', name, r.stderr.decode()[-300:])
@@ -171,6 +183,16 @@ def probe(args):
         peak[0] = max(peak[0], lk_fix.fix_count)
         return r
     lk_fix.hold = counting_hold
+    import lk_rec
+    opens = {}
+
+    def counting(real):
+        def opened(obj):
+            opens[obj] = opens.get(obj, 0) + 1
+            return real(obj)
+        return opened
+    lk_rec.open_object = counting(lk_rec.open_object)
+    lk_rec.open_quiet = counting(lk_rec.open_quiet)
     names = dict(modules())
     real_exit = env.exit
 
@@ -178,7 +200,8 @@ def probe(args):
         values = dict(names, PEAK_FIXES=peak[0])
         use = {t: [eval(u, values), eval(c, values)] for t, _, u, c in USAGE}
         with open(os.environ['LK_PROBE_OUT'], 'a') as f:
-            f.write(json.dumps({'status': code, 'use': use}) + '\n')
+            f.write(json.dumps({'status': code, 'use': use, 'opens': sorted(opens.items()),
+                                'name': os.environ.get('LK_PROBE_NAME')}) + '\n')
         real_exit(code)
     env.exit = recording_exit
     env.start(args)
@@ -195,13 +218,16 @@ def corpus_peaks(cache):
             continue
         with tempfile.TemporaryDirectory() as t:
             subprocess.run([sys.executable, os.path.abspath(__file__), '--probe'] + link_args(cache, name, t),
-                           env=dict(os.environ, LK_PROBE_OUT=out))
+                           env=dict(os.environ, LK_PROBE_OUT=out, LK_PROBE_NAME=name))
     peaks = {}
     count = 0
     with open(out) as f:
         for line in f:
             j = json.loads(line)
             count += 1
+            if j.get('name') == 'src_lextest':
+                print('lextest: each of its %d files opened %s times'
+                      % (len(j['opens']), sorted(set(n for _, n in j['opens']))))
             for t, (u, c) in j['use'].items():
                 p = peaks.setdefault(t, [0, c])
                 p[0] = max(p[0], u)
@@ -236,8 +262,10 @@ def synthetic_peaks():
         with open(out) as f:
             j = json.loads(f.readline())
         size = sum(os.path.getsize(p) for p in paths)
-    print('\nsynthetic program: %d object files, %d bytes; status %d; host linker %.2f s'
-          % (len(paths), size, j['status'], took))
+    opens = [n for _, n in j['opens']]
+    print('\nsynthetic program: %d object files, %d bytes; status %d; host linker %.2f s; '
+          'files opened %d times in all, each %d to %d times'
+          % (len(paths), size, j['status'], took, sum(opens), min(opens), max(opens)))
     for t, _, _, _ in USAGE:
         print('    %-16s %6d of %6d' % (t, j['use'][t][0], j['use'][t][1]))
 

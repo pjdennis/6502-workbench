@@ -45,6 +45,12 @@ def open_in(i):
     return handle
 
 
+def open_in_quiet(i):
+    """Open the file named by argument i for reading, or return 0 if it cannot be opened."""
+    arg_length(i)
+    return env.open_in(PATH)
+
+
 def open_out(i):
     """Create the file named by argument i."""
     arg_length(i)

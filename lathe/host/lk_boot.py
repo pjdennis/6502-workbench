@@ -14,10 +14,7 @@ puts a module's initialisers: one JSR for each, in the order of the object files
 """
 import lk_envf
 import lk_out
-import lk_sym
 import lk_tab
-
-INIT_SUFFIX = b".$init"
 
 start_addr = 0
 start_len = 0
@@ -26,15 +23,8 @@ init_len = 0                        # 0 if no module has initialisers
 
 
 def is_init(f):
-    """True if function f is some module's `$init`."""
-    pos = lk_sym.sym_name[lk_tab.fn_sym[f]]
-    size = lk_sym.heap[pos]
-    if size < len(INIT_SUFFIX):
-        return False
-    for i in range(0, len(INIT_SUFFIX)):
-        if lk_sym.heap[pos + 1 + size - len(INIT_SUFFIX) + i] != INIT_SUFFIX[i]:
-            return False
-    return True
+    """True if function f is some module's `$init`: its name ends in `.$init` (lk_name)."""
+    return (lk_tab.fn_flags[f] & lk_tab.F_INIT) != 0
 
 
 def plan():

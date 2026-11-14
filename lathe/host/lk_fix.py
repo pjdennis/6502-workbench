@@ -12,8 +12,8 @@ The fix-ups of one function are the only thing about its code the linker ever ho
 """
 import lk_alloc
 import lk_err
+import lk_name
 import lk_rec
-import lk_scan
 import lk_sym
 import lk_tab
 
@@ -53,14 +53,16 @@ cur_sym = 0                         # its symbol, or that of the constant data b
 
 def bad():
     """A fix-up of the current function or constant makes no sense."""
-    lk_sym.fail(lk_err.E_FIXUP, cur_sym)
+    lk_name.fail(lk_err.E_FIXUP, cur_sym)
 
 
 def begin(f):
-    """Start on function f."""
+    """Start on function f, which has no fix-up that shrinks until count_shrinks finds some."""
     global cur_fn, cur_sym
     cur_fn = f
-    cur_sym = lk_tab.fn_sym[f]
+    cur_sym = lk_tab.fn_ref(f)
+    for ctx in range(0, lk_tab.ctx_count):
+        shrink_count[ctx] = 0
 
 
 def begin_data(sym):
@@ -79,7 +81,7 @@ def read_entry(obj):
     global e_at, e_kind, e_sym, e_slot, e_add
     e_at = lk_rec.get_word()
     e_kind = lk_rec.get_byte()
-    e_sym = lk_scan.global_sym(obj, lk_rec.get_word())
+    e_sym = lk_name.global_sym(obj, lk_rec.get_word())
     e_slot = lk_rec.get_byte()
     e_add = lk_rec.get_word()
 
@@ -108,7 +110,7 @@ def hold(obj, in_code):
     while lk_rec.left() > 0:
         if fix_count == MAX_FIXES:
             if in_code:
-                lk_sym.fail(lk_err.E_FIXES, cur_sym)
+                lk_name.fail(lk_err.E_FIXES, cur_sym)
             lk_err.fail(lk_err.E_FIXES)
         read_entry(obj)
         lk_tab.work[FX_AT + fix_count] = e_at
@@ -167,7 +169,7 @@ def address_copy(f):
     k, live = lk_tab.member_class(f)
     if live and lk_tab.has_copy(f, lk_tab.cls_ctx[k]):
         return lk_tab.copy_node(f, lk_tab.cls_ctx[k]), True
-    return lk_tab.fn_node[f], True
+    return lk_tab.first_node(f), True
 
 
 def target(ctx, sym, slot, is_call):
@@ -178,30 +180,30 @@ def target(ctx, sym, slot, is_call):
     parameter of a class that no kept function calls through."""
     kind = lk_sym.kind_of(sym)
     if not lk_sym.is_defined(sym):
-        lk_sym.fail(lk_err.E_UNDEFINED, sym)
+        lk_name.fail(lk_err.E_UNDEFINED, sym)
     if kind == lk_sym.VARIABLE or kind == lk_sym.CONSTANT:
         if slot != 0xFF:
             bad()
-        return lk_sym.sym_a[sym]
+        return lk_tab.def_a[lk_sym.row_of(sym)]
     if kind == lk_sym.CLASS:
-        k = lk_tab.class_of(lk_sym.sym_a[sym])
+        k = lk_tab.class_of(lk_sym.row_of(sym))
         if slot >= lk_tab.cls_np[k]:
             bad()
         if lk_tab.cls_reach[k] == 0:
             return 0
         return lk_tab.cp_addr[lk_tab.cls_par[k] + slot]
-    f = lk_sym.sym_a[sym]
+    f = lk_sym.row_of(sym)
     if slot == 0xFF:
         if is_call:
             # A call goes to the callee's copy in the caller's own context.
             if ctx == NO_CONTEXT or not lk_tab.has_copy(f, ctx):
-                lk_sym.fail_in(lk_err.E_NOT_LINKED, sym, cur_sym)
+                lk_name.fail_in(lk_err.E_NOT_LINKED, sym, cur_sym)
             return lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(f, ctx)]
         n, kept = address_copy(f)
         if not kept:
             return 0
         return lk_tab.work[lk_tab.W_ADDR + n]
-    if slot >= lk_tab.fn_nslots[f]:
+    if slot >= lk_tab.fn_nslots(f):
         bad()
     if ctx != NO_CONTEXT and lk_tab.has_copy(f, ctx):
         return lk_alloc.slot_addr(lk_tab.copy_node(f, ctx), slot)
@@ -217,7 +219,7 @@ def part(value, kind):
         return value >> 8
     if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-        lk_sym.fail_in(lk_err.E_NOT_ZP, lk_tab.work[FX_SYM + cursor], cur_sym)
+        lk_name.fail_in(lk_err.E_NOT_ZP, lk_tab.work[FX_SYM + cursor], cur_sym)
     return value & 0xFF
 
 
@@ -232,7 +234,7 @@ def zp_contexts(sym, slot, addend):
     if kind == lk_sym.CONSTANT or (kind == lk_sym.FUNCTION and slot == 0xFF):
         return 0
     if kind == lk_sym.VARIABLE:
-        if ((lk_sym.sym_a[sym] + addend) & 0xFFFF) < 0x100:
+        if ((lk_tab.def_a[lk_sym.row_of(sym)] + addend) & 0xFFFF) < 0x100:
             return lk_tab.fn_ctx[cur_fn]
         return 0
     bits = 0
@@ -246,6 +248,15 @@ def zp_contexts(sym, slot, addend):
 def shrinks(i, ctx):
     """True if the instruction of held fix-up i shrinks in the copy for context ctx."""
     return (lk_tab.work[FX_ZP + i] & (1 << ctx)) != 0
+
+
+def shrunk(ctx):
+    """Bytes the copy for context ctx loses, from the fix-ups held."""
+    count = 0
+    for i in range(0, fix_count):
+        if shrinks(i, ctx):
+            count += 1
+    return count
 
 
 def removed_before(pos, ctx):

@@ -413,9 +413,14 @@ class Capacities(ErrorTest):
         self.assertEqual(link(objs, ENV).errors, 'link error 8: too many object files\n')
 
     def test_symbols(self):
+        # Mostly symbols the file defines itself: the linker does not keep their names, so the
+        # symbols run out before the room for names does.
         o = simple()
-        for i in range(2048):
-            o.v('v%d' % i)
+        for i in range(799):
+            o.func('f%d' % i, b'\x60')
+            o.var('v%d' % i, 1)
+        for i in range(20):
+            o.v('elsewhere.v%d' % i)
         self.assertEqual(link([o], ENV).errors, 'link error 9: too many symbols\n')
 
     def test_names(self):
@@ -498,9 +503,9 @@ class Capacities(ErrorTest):
 
     def test_local_symbols(self):
         objs = [simple()]
-        for m in range(3):
+        for m in range(8):
             o = Obj('m%d' % m)
-            for i in range(1400):
+            for i in range(600):
                 o.v('t.v%d' % i)
             objs.append(o)
         self.assertEqual(link(objs, ENV).errors, 'link error 33: too many symbols in the object files together\n')

@@ -109,14 +109,16 @@ Because `CODE` holds only instructions, the linker and the text renderer find in
 
 ## What the linker reads
 
-Each pass reads every object file once, from start to end; there is no seek. Reading a file again costs less than holding what it says: what the linker can find again in the files it does not keep.
+Each step reads the object files from start to end; there is no seek. Reading a file again costs less than holding what it says: what the linker can find again in the files it does not keep.
 
 | Step | Reads | Holds |
 |---|---|---|
-| Pass 1, the tables | Every record but the bytes of `CODE` and `DATA`: symbols, variables and their weights, functions with their slots and calls, classes, members, `WGT`. `FIX` and `DFIX` are only checked. | A few bytes per symbol, function, slot, call and class parameter; a weight for a slot of a function not read yet, until the end. |
-| Pass 1, what is kept | `FUNC`, `FIX`, `DFIX` and the symbol of `DATA`, once per reading, until a reading keeps nothing new (two or three). | The entries of one `DFIX` record until its `DATA` says whose they are. |
+| Pass 1, the names to keep | `SYM`, and the symbol of `FUNC`, `VAR` and `DATA`. Reports nothing: an error is found by the step that finds it without this one. | A hash of each name of one file; which hashes are those of names more than one `SYM` record names. |
+| Pass 1, the tables | Every record but the bytes of `CODE` and `DATA`: symbols, variables and their weights, functions with their slots and calls, classes, members, `WGT`. `FIX` and `DFIX` are only checked. | A few bytes per function, slot, call, variable and class parameter, and per symbol of each file; while the files are read, the names of the symbols more than one record names, and a weight for a slot of a function not read yet. |
+| Pass 1, what is kept | `FUNC`, `FIX`, `DFIX` and the symbol of `DATA`: every file, then each file again that has something kept after the reading passed it. | The entries of one `DFIX` record until its `DATA` says whose they are. |
 | Pass 1, sizes and placement | `FUNC`, `FIX` (counting the kind 5 entries whose address is in zero page, per context), the length of `CODE`, and `DATA` for its size. | Nothing about a function once it is placed. |
-| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one function or one table (at most 512). |
+| The map | `SYM` and the records of the map's lines: a reading of each file for the functions, one for the constant data and one for the variables, of the files that have some; after the image, of the files that name a class, for the class parameters. | The names one file's lines need. |
+| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one function or one table (at most 512); the names of the file's kept functions that have slots, for the map. |
 
 A function linked for several contexts is written once for each, its `CODE` record read again for each copy after the first: the only time a file is read twice in one pass.
 

@@ -248,6 +248,21 @@ class Shrinking(unittest.TestCase):
         self.assertEqual(r.code('t.main'),
                          bytes.fromhex('9009 A500 8D00C0 E600 E8 EA C600 D0F3 F0F9 60'))
 
+    def test_a_function_without_fix_ups_shrinks_nothing(self):
+        # Its FIX record may be left out; it does not take the shrinking of the function before.
+        o = Obj('t')
+        v = o.var('z', 1, MUST)
+        o.func('main', o.code().abs(0xAD, v).abs(0x20, o.f('plain')).raw(0x60),
+               calls=[(o.f('plain'), 0, NOBODY)])
+        n = o.f('plain')
+        o.raw(7, bytes((n, 0, 0)))
+        o.raw(11, b'\xEA\x60')
+        o.raw(12)
+        r = link([o], self.ENV + 'zeropage $10 $1F\n')
+        self.assertEqual(r.errors, '')
+        self.assertEqual((r.size('F', 't.main'), r.size('F', 't.plain')), (6, 2))
+        self.assertEqual(r.code('t.plain'), bytes.fromhex('EA60'))
+
     def test_65c02_opcodes_shrink_only_for_a_65c02(self):
         o = Obj('t', cpu=1)
         v = o.var('z', 1, MUST)

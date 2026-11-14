@@ -10,8 +10,8 @@ import lk_boot
 import lk_envf
 import lk_err
 import lk_fix
+import lk_name
 import lk_rec
-import lk_scan
 import lk_sym
 import lk_tab
 
@@ -40,8 +40,7 @@ def place_copies(f, written):
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx):
             n = lk_tab.copy_node(f, ctx)
-            lk_tab.work[lk_tab.W_LEN + n] = written - lk_fix.shrink_count[ctx]
-            lk_tab.work[lk_tab.W_ADDR + n] = take(lk_tab.work[lk_tab.W_LEN + n])
+            lk_tab.work[lk_tab.W_ADDR + n] = take(written - lk_fix.shrink_count[ctx])
 
 
 def place_object(obj):
@@ -52,7 +51,7 @@ def place_object(obj):
     kind = lk_rec.advance()
     while kind != lk_rec.R_END:
         if kind == lk_rec.R_FUNC:
-            f = lk_sym.sym_a[lk_scan.global_sym(obj, lk_rec.get_word())]
+            f = lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word()))
             kept = lk_tab.fn_ctx[f] != 0
             written = 0
             if kept:
@@ -65,9 +64,10 @@ def place_object(obj):
             place_copies(f, written)
             kept = False
         elif kind == lk_rec.R_DATA:
-            s = lk_scan.global_sym(obj, lk_rec.get_word())
-            if lk_sym.is_kept(s):
-                lk_sym.sym_a[s] = take(lk_sym.sym_b[s])
+            s = lk_name.global_sym(obj, lk_rec.get_word())
+            d = lk_sym.row_of(s)
+            if lk_tab.is_kept_def(d):
+                lk_tab.def_a[d] = take(lk_tab.def_b[d])
         kind = lk_rec.advance()
     lk_rec.close()
 
@@ -78,7 +78,7 @@ def place():
     code_used = 0
     code_wrapped = False
     take(lk_boot.plan())
-    for obj in range(0, lk_scan.object_count):
+    for obj in range(0, lk_name.object_count):
         place_object(obj)
     room = lk_envf.code_hi - lk_envf.code_lo + 1
     if code_wrapped or code_used > room:
