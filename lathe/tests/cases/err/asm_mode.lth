@@ -1,0 +1,7 @@
+; error 57 5 9
+module asm_mode
+pub func main()
+  asm
+    STA #1
+  end
+end

@@ -8,6 +8,7 @@ the interface file is in README.md.
 
 So far a declaration is an `extern` function or a function without parameters or results.
 """
+import asmblock
 import err
 import expr
 import gen
@@ -23,6 +24,7 @@ LI_VERSION = 1
 LI_END = 0              # entry kinds
 LI_FUNC = 1
 LI_EXTERN = 1           # function flag: at a fixed address, which follows the flags
+LI_ASM = 4              # function flag: an `asm` function, called like an extern one
 LI_POINTER = 0x10       # type: a pointer to the type that follows; a basic type is its number
 
 MAX_DIRS = 8
@@ -112,6 +114,8 @@ def write_function(stream, s):
     if kernel.sym_flags[s] & kernel.SF_EXTERN != 0:
         kernel.put(stream, LI_EXTERN)
         kernel.put_word(stream, kernel.sym_value[s])
+    elif kernel.sym_flags[s] & kernel.SF_ASM != 0:
+        kernel.put(stream, LI_ASM)
     else:
         kernel.put(stream, 0)
     write_members(stream, kernel.sym_members[s], kernel.sym_params[s])
@@ -176,6 +180,8 @@ def read_function(stream, scope):
     if flags & LI_EXTERN != 0:
         kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_EXTERN
         kernel.sym_value[s] = kernel.get_word(stream)
+    if flags & LI_ASM != 0:
+        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_ASM
     kernel.sym_params[s] = read_members(stream)
     kernel.sym_results[s] = read_members(stream)
 
@@ -386,6 +392,8 @@ def declaration():
         extern_declaration(flags)
     elif lex.tok == lex.T_FUNC:
         function_declaration(flags)
+    elif lex.tok == lex.T_ASM:
+        asm_function_declaration(flags)
     elif starts_later_declaration(lex.tok):
         err.fatal(err.E_UNSUPPORTED)
     else:
@@ -401,3 +409,22 @@ def unit():
         import_line()
     while lex.tok != lex.T_EOF:
         declaration()
+
+
+def asm_function_declaration(flags):
+    """"asm" regHead NL { asmLine NL } "end" NL: a function whose body is assembly, with its
+    parameters and results in registers and no slots."""
+    lex.next()
+    lex.expect(lex.T_FUNC, err.E_FUNC_EXPECTED)
+    s = function_symbol(flags | kernel.SF_ASM)
+    lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+    kernel.sym_params[s] = register_parameters()
+    kernel.sym_results[s] = register_results()
+    symbol = gen.object_symbol(s)
+    kernel.scope_begin()                # the names of its labels go when it ends
+    gen.function_begin()
+    asmblock.function_body()
+    gen.function_end(symbol, object_flags(s) | out.FUNC_REGISTERS)
+    kernel.scope_end()
+    lex.next()
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)

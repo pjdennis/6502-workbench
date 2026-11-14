@@ -1,0 +1,7 @@
+; error 56 5 10
+module asm_range
+pub func main()
+  asm
+    LDA ($100),Y
+  end
+end

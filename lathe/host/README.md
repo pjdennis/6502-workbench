@@ -49,10 +49,10 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 | `fbuf.py` | FBUF: the function buffer and branch lengths. |
 | `out.py` | OUT: the object file writer. |
 | `gen.py` | GEN: the stack of lazy operands, instruction selection and register tracking. |
+| `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. |
 | `expr.py` | EXPR: expressions and written types, parsed into operands on GEN's stack. |
 | `stmt.py` | STMT. |
 | `decl.py` | DECL, and reading and writing interface files. |
-| `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. |
 | `lathec.py` | The compiler's main program. |
 | `link.py` | The linker's main program (with its own modules as it grows). |
 | `driver/` | Ordinary Python, not ported: `lo.py` (read and write object files), `lodump.py` (print one), `lo2asm.py` (render as asm17 text), `build.py` (build and run a whole program). |

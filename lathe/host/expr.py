@@ -198,6 +198,8 @@ def call():
     lex.next()
     first = gen.depth
     arguments(f)
+    if kernel.sym_flags[f] & kernel.SF_ASM != 0:
+        load_registers(f, first)
     if kernel.sym_flags[f] & kernel.SF_EXTERN != 0:
         load_registers(f, first)
         gen.call_address(kernel.sym_value[f])

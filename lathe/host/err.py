@@ -53,6 +53,13 @@ E_MODULE_NAME = 49
 E_NO_INTERFACE = 50
 E_BAD_INTERFACE = 51
 E_SELF_IMPORT = 52
+E_ASM_BRANCH = 53
+E_ASM_LABEL_USE = 54
+E_ASM_NO_LABEL = 55
+E_ASM_RANGE = 56
+E_ASM_MODE = 57
+E_ASM_DIRECTIVE = 58
+E_ASM_MNEMONIC = 59
 
 # The command line and files
 E_USAGE = 60
@@ -117,6 +124,13 @@ MESSAGES = (
     b"50 no interface file for this module\n"
     b"51 not an interface file of this version\n"
     b"52 a module cannot import itself\n"
+    b"53 a branch must go to a label of this asm block\n"
+    b"54 a label of an asm block can only be the target of a branch or JMP\n"
+    b"55 label not defined in this asm block\n"
+    b"56 operand out of range\n"
+    b"57 addressing mode not available for this instruction\n"
+    b"58 directives such as .byte are not allowed in asm\n"
+    b"59 unknown instruction\n"
     b"60 usage: lathec SOURCE.lth OUTDIR [IMPORTDIR...]\n"
     b"61 source file must be called NAME.lth\n"
     b"62 cannot open the source file\n"

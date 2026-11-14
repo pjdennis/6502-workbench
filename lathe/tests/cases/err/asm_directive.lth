@@ -1,0 +1,7 @@
+; error 58 5 5
+module asm_directive
+pub func main()
+  asm
+    .byte 1, 2
+  end
+end

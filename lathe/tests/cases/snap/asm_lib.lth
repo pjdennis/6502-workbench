@@ -1,0 +1,6 @@
+; A module that exports an asm function, called by asm_user.
+module asm_lib
+
+pub asm func twice(v: byte in a): byte in a, bool in c
+  ASL A
+end

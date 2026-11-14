@@ -1,0 +1,7 @@
+; error 53 5 9
+module asm_branch_to_function
+pub func main()
+  asm
+    BCC main
+  end
+end

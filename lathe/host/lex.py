@@ -472,3 +472,13 @@ def expect(token, number):
     if tok != token:
         err.fatal(number)
     next()
+
+
+def resume(token, at_line, at_col):
+    """Make `token`, found at that place, the current token. ASM reads the lines of an `asm`
+    block itself and gives back the `end` that closes it, with the source just after it."""
+    global tok, line, col
+    tok = token
+    line = at_line
+    col = at_col
+    err.position(line, col)

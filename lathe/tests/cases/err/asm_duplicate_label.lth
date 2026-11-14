@@ -1,0 +1,7 @@
+; error 41 6 2
+module asm_duplicate_label
+asm func f()
+.twice
+  NOP
+ .twice: RTS
+end

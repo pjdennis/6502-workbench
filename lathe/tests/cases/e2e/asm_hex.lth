@@ -1,0 +1,48 @@
+; asm functions do what stage 1's language cannot: compute with the carry flag and pass a
+; result in A from one to another. Prints 3CA7, 09F0 and a new line.
+module asm_hex
+
+import host
+
+; Print the low four bits of A as a hexadecimal digit. Above 9 the carry is set by CMP, so
+; ADC #6 adds 7: from 10 to 'A' - '0'.
+asm func put_digit(v: byte in a)
+  AND #$0F
+  CMP #10
+  BCC .digit
+  ADC #6
+.digit
+  ADC #'0'              ; the carry is clear on both paths here
+  JMP host.put_byte
+end
+
+; Print A as two hexadecimal digits.
+asm func put_hex(v: byte in a)
+  PHA
+  LSR A
+  LSR A
+  LSR A
+  LSR A
+  JSR put_digit
+  PLA
+  JMP put_digit
+end
+
+; Swap the nibbles of A with the carry as the ninth bit, then print the result.
+asm func put_swapped(v: byte in a)
+  ASL A
+  ADC #$80
+  ROL A
+  ASL A
+  ADC #$80
+  ROL A
+  JSR put_hex
+end
+
+pub func main()
+  put_hex($3C)
+  put_swapped($7A)
+  put_hex(9)
+  put_swapped($0F)
+  host.put_byte(10)
+end

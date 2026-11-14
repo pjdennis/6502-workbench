@@ -1,0 +1,4 @@
+; error 30 5 1
+module asm_no_end
+asm func f()
+  RTS

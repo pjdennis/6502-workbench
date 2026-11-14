@@ -1,0 +1,42 @@
+; asm functions: registers in, registers out; RTS added unless the code ends in RTS, RTI or
+; JMP; called like extern functions, but through a fix-up and a CALL record.
+module asm_func
+
+import host
+
+asm func swap_nibbles(v: byte in a): byte in a
+  ASL A
+  ADC #$80
+  ROL A
+  ASL
+  ADC #$80
+  ROL A
+end
+
+pub asm func plot(column: byte in x, row: byte in y, ch: byte in a)
+  JMP host.put_byte
+end
+
+asm func ends_with_rts()
+  rts
+end
+
+asm func pair(w: word in ax, flag: bool in c)
+  BCC .no
+  TXA
+.no
+end
+
+asm func calls_another()
+  LDA #$21
+  JSR swap_nibbles
+  JMP pair
+end
+
+pub func main()
+  swap_nibbles($12)
+  plot(1, 2, 'x')
+  pair($1234, true)
+  ends_with_rts()
+  calls_another()
+end

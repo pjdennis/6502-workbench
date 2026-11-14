@@ -1,0 +1,75 @@
+; An asm block inside a function: a loop with local labels, a call of an extern function
+; and of a Lathe function, and a branch that has to be widened. Prints ABCDE, then 12, then
+; a new line.
+module asm_inline
+
+import host
+
+func one_two()
+  host.put_byte('1')
+  host.put_byte('2')
+end
+
+pub func main()
+  asm
+    LDA #'A'
+.next
+    PHA
+    JSR host.put_byte
+    PLA
+    CLC
+    ADC #1
+    CMP #'F'
+    BNE .next
+    BEQ .call             ; too far: the compiler writes BNE round a JMP
+    JMP .never
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+.never
+    BRK
+.call
+    JSR one_two
+  end
+  host.put_byte(10)
+end

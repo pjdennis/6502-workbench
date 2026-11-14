@@ -1,0 +1,119 @@
+; asm blocks inside functions: every kind of operand stage 1 has, local labels forward and
+; backward, a branch too far that is widened, and a label name used again in another block.
+module asm_block
+
+import host
+
+func helper()
+end
+
+pub func main()
+  host.put_byte(65)
+  asm
+    LDA #'A'
+.again: LDX #$10
+    STX $D020
+    STA $12,X
+    LDA ($FE),Y
+    DEX
+    BNE .again
+    JSR helper
+    LDA #<helper+1
+    LDY #>helper
+    JSR host.put_byte   ; an extern function is its address
+    LDA #true
+    BEQ .far
+    JMP .done
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    LDA $1234           ; with the JMP and the NOPs, .far is 129 bytes past the BEQ
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+    LDA $1234
+.far
+    nop
+.done
+  end
+  host.put_byte(65)
+  asm
+.done                   ; the same name in another block is another label
+    INC $0300
+    BCS .done
+  end
+end

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lathec_support as support  # noqa: E402
 
 # Lowest first: the order of the table in lathe/host/README.md.
-LAYERS = ['env', 'err', 'kernel', 'src', 'lex', 'typetab', 'fbuf', 'out', 'gen', 'expr', 'stmt',
+LAYERS = ['env', 'err', 'kernel', 'src', 'lex', 'typetab', 'fbuf', 'out', 'gen', 'asmblock', 'expr', 'stmt',
           'decl', 'lathec']
 
 

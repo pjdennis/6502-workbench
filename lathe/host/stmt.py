@@ -4,6 +4,7 @@ Owns the parsing of a function's body. So far a statement is a call or `return`;
 other statements of docs/language.md gets a function here, chosen in statement() by its
 first token.
 """
+import asmblock
 import err
 import expr
 import gen
@@ -55,6 +56,8 @@ def statement():
         name_statement()
     elif lex.tok == lex.T_RETURN:
         return_statement()
+    elif lex.tok == lex.T_ASM:
+        asmblock.block()
     elif starts_later_statement(lex.tok):
         err.fatal(err.E_UNSUPPORTED)
     else:

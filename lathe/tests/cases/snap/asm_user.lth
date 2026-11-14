@@ -1,0 +1,12 @@
+; Calling an asm function of another module: its interface entry carries the registers.
+module asm_user
+
+import asm_lib
+
+pub func main()
+  asm_lib.twice(21)
+  asm
+    LDA #4
+    JSR asm_lib.twice
+  end
+end

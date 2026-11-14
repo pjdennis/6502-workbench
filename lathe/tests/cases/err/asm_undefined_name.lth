@@ -1,0 +1,7 @@
+; error 40 5 9
+module asm_undefined_name
+pub func main()
+  asm
+    JSR nowhere
+  end
+end

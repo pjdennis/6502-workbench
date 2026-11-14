@@ -1,0 +1,5 @@
+; error 55 4 7
+module asm_no_label
+asm func f()
+  BNE .missing
+end

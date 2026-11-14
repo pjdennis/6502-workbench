@@ -1,0 +1,8 @@
+; error 54 6 9
+module asm_label_use
+pub func main()
+  asm
+.here
+    LDA .here
+  end
+end

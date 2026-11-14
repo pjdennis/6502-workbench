@@ -423,3 +423,6 @@ def init():
     local_names = name_top
     member_count = 0
     module_count = 0
+
+
+SF_ASM = 4                  # an `asm` function: parameters and results in registers
