@@ -1,0 +1,8 @@
+; error 42 7 10
+module pointer_arguments
+type Handler = func(a: byte, b: byte): byte
+var h: Handler
+var x: byte
+func f()
+  x = h(1)
+end

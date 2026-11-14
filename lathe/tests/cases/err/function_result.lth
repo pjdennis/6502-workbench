@@ -1,0 +1,7 @@
+; error 151 7 24
+module function_result
+type Handler = func(a: byte): bool
+func f(a: byte): byte
+  return a
+end
+const T: [1]Handler = [@f]

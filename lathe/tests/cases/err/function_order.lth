@@ -1,0 +1,9 @@
+; error 44 8 9
+module function_order
+type Handler = func()
+var h: Handler
+var g: Handler
+var b: bool
+func f()
+  b = h < g
+end

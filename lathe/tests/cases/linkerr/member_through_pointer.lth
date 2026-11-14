@@ -1,0 +1,20 @@
+; link error 40
+; says member_through_pointer.visit -> member_through_pointer.visitor, its own pointer class
+; A recursive function that calls back through its own class: the type is not recursive, so
+; the call does not save the parameters, which are the class's.
+module member_through_pointer
+
+type Visitor = func(n: byte)
+
+var next: Visitor
+
+recursive func visit(n: byte)
+  if n != 0 then
+    next(n - 1)
+  end
+end
+
+pub func main()
+  next = @visit
+  next(3)
+end

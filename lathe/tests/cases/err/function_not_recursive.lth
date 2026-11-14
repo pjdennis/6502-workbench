@@ -1,0 +1,10 @@
+; error 152 9 5
+module function_not_recursive
+type Visit = recursive func(a: byte)
+func f(a: byte)
+end
+func g(v: Visit)
+end
+func h()
+  g(@f)
+end

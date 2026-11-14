@@ -1,0 +1,9 @@
+; error 100 8 12
+module pointer_in_its_arguments
+type Handler = func(a: byte, b: byte): byte
+var h: Handler
+var g: Handler
+var x: byte
+func f()
+  x = h(1, g(2, 3))
+end

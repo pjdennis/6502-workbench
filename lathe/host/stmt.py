@@ -263,6 +263,7 @@ def pair_assignment(line, col):
     line = lex.line
     col = lex.col
     expr.designator()
+    expr.callee()
     i = reg.depth - 1
     if reg.op_kind[i] != reg.O_FUNC or kernel.sym_results[reg.op_var[i]] != 2:
         err.position(line, col)
@@ -281,6 +282,7 @@ def name_statement():
     line = lex.line
     col = lex.col
     expr.designator()
+    expr.callee()
     if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
         if lex.tok != lex.T_LPAREN:
             err.fatal(err.E_LPAREN_EXPECTED)

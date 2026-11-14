@@ -1,0 +1,7 @@
+; error 153 6 10
+module function_address_add
+type Handler = func()
+var w: word
+func f()
+  w = @f + 1
+end

@@ -1,0 +1,8 @@
+; error 57 7 6
+module forward_recursive
+forward recursive func f()
+func g()
+  f()
+end
+func f()
+end

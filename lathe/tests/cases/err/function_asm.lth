@@ -1,0 +1,7 @@
+; error 154 7 18
+module function_asm
+type Handler = func(a: byte)
+asm func f(a: byte in a)
+  RTS
+end
+var h: Handler = @f

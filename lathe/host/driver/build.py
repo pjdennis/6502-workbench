@@ -7,7 +7,9 @@
 1. Finds the modules the program imports: `import NAME` lines; NAME.lth beside SOURCE, then in
    lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory,
    with the options compiler_options() gives: the environment's `cpu` and `define` entries,
-   and each --define.
+   and each --define. Then the modules that the objects import without an `import` line (the
+   IMP record the compiler writes for a run-time module its code calls, such as rt_frame),
+   found and compiled the same way, after the others.
 2. Links with lathe/host/link.py (ENV MAIN OUT.bin OUT.map OBJECTS...), if it exists.
 3. With --asm, or when there is no linker: renders the objects and a map as asm17 text
    (lo2asm program mode) and assembles it with asm/pyasm.py. The map is the linker's when there
@@ -108,10 +110,14 @@ def env_path(env):
 
 
 def run(cmd, what, cwd=None):
+    """Run a tool. If it fails, the BuildError says what failed and holds what the tool wrote
+    to its error output, such as the compiler's `FILE:LINE:COL: error N: text` or the
+    linker's `link error N: text`."""
     r = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if r.returncode != 0:
-        sys.stderr.buffer.write(r.stdout + r.stderr)
-        raise BuildError(f'{what} failed (status {r.returncode})')
+        sys.stderr.buffer.write(r.stdout)
+        said = r.stderr.decode('latin-1').strip()
+        raise BuildError(f'{what} failed (status {r.returncode})' + (f':\n{said}' if said else ''))
     return r
 
 
@@ -136,6 +142,25 @@ def compile_all(order, outdir, options=()):
         if not os.path.isfile(obj):
             raise BuildError(f'the compiler did not write {obj}')
         objects.append(obj)
+    return objects
+
+
+def compile_implicit(order, outdir, options=(), main_dir='.'):
+    """Compile the modules that the compiled ones import without an `import` line: the
+    compiler writes an IMP record for each run-time module its code calls (rt_frame, for the
+    calls that save a recursive function's frame). They are found as imports are, and their own
+    imports with them. Returns their objects, which go after the others."""
+    done = {name for name, _ in order}
+    objects = []
+    waiting = [os.path.join(outdir, name + '.lo') for name, _ in order]
+    while waiting:
+        for name in lo.load(waiting.pop(0)).imports:
+            if name not in done:
+                more = [(n, p) for n, p in module_order(find_module(name, main_dir)) if n not in done]
+                done.update(n for n, _ in more)
+                made = compile_all(more, outdir, options)
+                objects += made
+                waiting += made
     return objects
 
 
@@ -169,7 +194,9 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
     env = env_path(env)
     order = module_order(source)
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
-    objects = compile_all(order, work, compiler_options(mapenv.read_env(env), defines))
+    options = compiler_options(mapenv.read_env(env), defines)
+    objects = compile_all(order, work, options)
+    objects += compile_implicit(order, work, options, os.path.dirname(os.path.abspath(source)))
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
     if have_linker:

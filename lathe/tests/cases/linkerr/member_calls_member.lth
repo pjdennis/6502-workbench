@@ -1,0 +1,25 @@
+; link error 40
+; says member_calls_member.flash -> member_calls_member.beep, both in the pointer class member_calls_member.handler
+; beep and flash are both Handlers, so their parameters are the same bytes: flash's call of
+; beep would overwrite its own.
+module member_calls_member
+
+type Handler = func(code: byte)
+
+var on_key: Handler
+var count: byte
+
+func beep(code: byte)
+  count += code
+end
+
+func flash(code: byte)
+  beep(code + 1)
+  count += code
+end
+
+pub func main()
+  on_key = @beep
+  on_key = @flash
+  on_key(1)
+end

@@ -5,6 +5,10 @@
     cases/e2e/NAME.lth    The program's output on the emulator equals NAME.expected.out (and it
                           exits with status 0). Once lathe/host/link.py exists it is built both
                           ways, linker and assembler path, and the two images must be identical.
+    cases/linkerr/NAME.lth
+                          The first line is `; link error N`: the program compiles, and linking it
+                          fails with that error, which build.py reports. Each later line before
+                          `module` that starts with `; says ` gives text the message must hold.
     cases/e2e-michael/NAME.lth, cases/e2e-wendy2/NAME.lth
                           The same on a board (lathe/docs/boards.md): built with lathe/env/BOARD.env
                           both ways, run through build.run_program, and NAME.expected.out holds
@@ -106,6 +110,25 @@ class TestCases(unittest.TestCase):
                             f'(rebuild with build.py --keep DIR, with and without --asm, to compare)')
 
 
+    def check_link_error(self, source):
+        with open(source) as fh:
+            head = fh.readline().split()
+            says = []
+            for line in fh:
+                if line.startswith('module'):
+                    break
+                if line.startswith('; says '):
+                    says.append(line[len('; says '):].rstrip('\n'))
+        self.assertEqual(head[:3], [';', 'link', 'error'], f'{source}: the first line must be `; link error N`')
+        with self.assertRaises(build.BuildError) as caught:
+            build.build(source, os.path.join(self.dir, 'x.bin'), keep=os.path.join(self.dir, 'w'))
+        message = str(caught.exception)
+        self.assertTrue(message.startswith('linking failed'), message)
+        self.assertIn(f'\nlink error {head[3]}: ', message)
+        for text in says:
+            self.assertIn(text, message)
+
+
 # The end-to-end kinds: case directory -> environment (a board's, for e2e-BOARD).
 E2E = {'e2e': 'host', 'e2e-michael': 'michael', 'e2e-wendy2': 'wendy2'}
 
@@ -119,6 +142,7 @@ def _add(kind, check):
 
 
 _add('snap', TestCases.check_snap)
+_add('linkerr', TestCases.check_link_error)
 for _kind, _env in E2E.items():
     _add(_kind, lambda self, path, env=_env: TestCases.check_e2e(self, path, env))
 

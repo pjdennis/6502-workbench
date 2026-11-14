@@ -30,8 +30,10 @@ LI_VAR = 3
 LI_TYPE = 4             # a named type: flags, then its type
 LI_RECORD = 5           # a record type declared here: flags, number of fields, each a name and a type
 LI_ENUM = 6             # an enumeration declared here: flags. Its constants follow as constants
-LI_PUB = 1              # flag of those three: exported (the others are there for the types of what is)
+LI_FUNC_TYPE = 7        # a function type declared here: flags, then parameters and results
+LI_PUB = 1              # flag of those four: exported (the others are there for the types of what is)
 LI_EXTERN = 1           # function flag: at a fixed address, which follows the flags
+LI_RECURSIVE = 2        # function and function type flag: declared `recursive`
 LI_ASM = 4              # function flag: an `asm` function, called like an extern one
 LI_AT = 1               # what a variable's placement byte can be: at a fixed address, which
 LI_ZP = 2               # follows it; declared `zp`; declared `nozp`; or 0
@@ -39,7 +41,8 @@ LI_NOZP = 4
 LI_POINTER = 0x10       # type: a pointer to the type that follows; a basic type is its number
 LI_ARRAY = 0x11         # type: an array, stored by column: its length (2), then its element type
 LI_ROWS = 0x12          # the same, stored by row
-LI_NAMED = 0x13         # type: a record or an enumeration, as the name of its module and its own name
+LI_NAMED = 0x13         # type: a record, an enumeration or a function type, as the name of its
+#                         module and its own name
 
 MAX_DIRS = 8
 C_SLASH = 0x2F
@@ -133,7 +136,7 @@ def write_type(stream, t):
             kernel.put(stream, LI_ARRAY + typetab.form[t] - typetab.FORM_ARRAY)
             kernel.put_word(stream, typetab.length(t))
         t = typetab.base(t)
-    if typetab.is_record(t) or typetab.is_enum(t):
+    if typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t):
         s = typetab.base(t)
         kernel.put(stream, LI_NAMED)
         kernel.put_name(stream, kernel.module_name[kernel.sym_scope[s]])
@@ -143,23 +146,27 @@ def write_type(stream, t):
 
 
 def write_named_type(stream, s):
-    """A type entry: a record or an enumeration that `s` declares, or another name for a type.
-    Every record and enumeration is written, so that what is exported can use them; one not
-    `pub` is known to an importer but cannot be named there. Another name for a type is
-    written only if it is `pub`."""
+    """A type entry: a record, an enumeration or a function type that `s` declares, or another
+    name for a type. Every record, enumeration and function type is written, so that what is
+    exported can use them; one not `pub` is known to an importer but cannot be named there.
+    Another name for a type is written only if it is `pub`."""
     t = kernel.sym_type[s]
     kind = LI_TYPE
-    if (typetab.is_record(t) or typetab.is_enum(t)) and typetab.base(t) == s:
+    if (typetab.is_record(t) or typetab.is_enum(t) or typetab.is_func(t)) and typetab.base(t) == s:
         kind = LI_RECORD + typetab.form[t] - typetab.FORM_RECORD
     elif kernel.sym_flags[s] & kernel.SF_PUB == 0:
         return
     kernel.put(stream, kind)
     kernel.put_name(stream, kernel.sym_name[s])
+    flags = 0
     if kernel.sym_flags[s] & kernel.SF_PUB != 0:
-        kernel.put(stream, LI_PUB)
-    else:
-        kernel.put(stream, 0)
-    if kind == LI_TYPE:
+        flags = LI_PUB
+    if kind == LI_FUNC_TYPE and typetab.is_recursive(t):
+        flags = flags | LI_RECURSIVE
+    kernel.put(stream, flags)
+    if kind == LI_FUNC_TYPE:
+        write_signature(stream, s)
+    elif kind == LI_TYPE:
         write_type(stream, t)
     elif kind == LI_RECORD:
         kernel.put(stream, kernel.sym_params[s])
@@ -175,6 +182,12 @@ def write_members(stream, first, count):
         kernel.put(stream, kernel.member_value[m])
 
 
+def write_signature(stream, s):
+    """The parameters and results of function or function type `s`."""
+    write_members(stream, kernel.sym_members[s], kernel.sym_params[s])
+    write_members(stream, kernel.sym_members[s] + kernel.sym_params[s], kernel.sym_results[s])
+
+
 def write_function(stream, s):
     kernel.put(stream, LI_FUNC)
     kernel.put_name(stream, kernel.sym_name[s])
@@ -183,10 +196,11 @@ def write_function(stream, s):
         kernel.put_word(stream, kernel.sym_value[s])
     elif kernel.sym_flags[s] & kernel.SF_ASM != 0:
         kernel.put(stream, LI_ASM)
+    elif kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0:
+        kernel.put(stream, LI_RECURSIVE)
     else:
         kernel.put(stream, 0)
-    write_members(stream, kernel.sym_members[s], kernel.sym_params[s])
-    write_members(stream, kernel.sym_members[s] + kernel.sym_params[s], kernel.sym_results[s])
+    write_signature(stream, s)
 
 
 def write_constant(stream, s):
@@ -262,7 +276,7 @@ def read_type(stream):
 
 
 def imported_type(stream):
-    """A record or an enumeration given by the name of its module and its own: the module must
+    """A record, an enumeration or a function type given by the name of its module and its own: the module must
     have been imported already, and is in a scope of its own number."""
     name = read_name(stream)
     scope = 1
@@ -277,7 +291,7 @@ def imported_type(stream):
 
 
 def read_named_type(stream, scope, kind):
-    """A type entry of kind LI_TYPE, LI_RECORD or LI_ENUM."""
+    """A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE."""
     s = kernel.sym_add(scope, read_name(stream), kernel.K_TYPE)
     flags, _ = kernel.get(stream)
     if flags & LI_PUB != 0:
@@ -287,6 +301,11 @@ def read_named_type(stream, scope, kind):
         return
     t = typetab.declared(typetab.FORM_RECORD + kind - LI_RECORD, s)
     kernel.sym_type[s] = t
+    if kind == LI_FUNC_TYPE:
+        if flags & LI_RECURSIVE != 0:
+            typetab.make_recursive(t)
+        read_signature(stream, s)
+        return
     if kind == LI_ENUM:
         return
     count, _ = kernel.get(stream)
@@ -314,6 +333,12 @@ def read_members(stream):
     return count
 
 
+def read_signature(stream, s):
+    """The parameters and results of function or function type `s`, the newest symbol."""
+    kernel.sym_params[s] = read_members(stream)
+    kernel.sym_results[s] = read_members(stream)
+
+
 def read_function(stream, scope):
     s = kernel.sym_add(scope, read_name(stream), kernel.K_FUNC)
     flags, _ = kernel.get(stream)
@@ -323,8 +348,9 @@ def read_function(stream, scope):
         kernel.sym_value[s] = kernel.get_word(stream)
     if flags & LI_ASM != 0:
         kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_ASM
-    kernel.sym_params[s] = read_members(stream)
-    kernel.sym_results[s] = read_members(stream)
+    if flags & LI_RECURSIVE != 0:
+        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_RECURSIVE
+    read_signature(stream, s)
 
 
 def read_constant(stream, scope):
@@ -372,7 +398,7 @@ def read_interface(number):
         err.fatal(err.E_BAD_INTERFACE)
     while True:
         kind, at_end = kernel.get(stream)
-        if at_end or kind > LI_ENUM:
+        if at_end or kind > LI_FUNC_TYPE:
             err.fatal(err.E_BAD_INTERFACE)      # a file cut short has no LI_END
         if kind == LI_END:
             break
@@ -428,6 +454,8 @@ def function_symbol(flags):
     s, found = kernel.sym_find(kernel.SCOPE_MODULE, lex.value)
     if found and kernel.sym_kind[s] == kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_FORWARD != 0 \
             and flags & kernel.SF_FORWARD == 0:
+        if (kernel.sym_flags[s] ^ flags) & kernel.SF_RECURSIVE != 0:
+            err.fatal(err.E_FORWARD)
         kernel.sym_flags[s] = flags
         lex.next()
         return s, False
@@ -539,9 +567,12 @@ def asm_function_declaration(flags):
 
 def object_flags(s):
     """The flags of function `s` as its FUNC record has them."""
+    flags = 0
     if kernel.sym_flags[s] & kernel.SF_PUB != 0:
-        return out.FUNC_EXPORTED
-    return 0
+        flags = out.FUNC_EXPORTED
+    if kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0:
+        flags = flags | out.FUNC_RECURSIVE
+    return flags
 
 
 def member(s, fresh, index, where):
@@ -644,6 +675,7 @@ def function_declaration(flags):
     # been read: every name made from here on is a parameter's or a local's.
     kernel.scope_begin()
     gen.function_begin(gen.object_symbol(s))
+    gen.saves_frame = kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0
     head(s, fresh)
     if flags & kernel.SF_FORWARD != 0:
         kernel.scope_end()
@@ -733,7 +765,7 @@ def check_bodies():
 
 def starts_later_declaration(token):
     """True for the first token of a declaration not done yet."""
-    return token == lex.T_INLINE or token == lex.T_RECURSIVE or token == lex.T_INTERRUPT
+    return token == lex.T_INLINE or token == lex.T_INTERRUPT
 
 
 def type_symbol(name, flags):
@@ -766,14 +798,45 @@ def record_type(s):
     lex.next()
 
 
+def function_type(s):
+    """funcType = [ "recursive" ] "func" "(" [ param { "," param } ] ")" [ ":" type [ "," "bool" ] ],
+    for the type that `s` declares: its parameters and results are the members of `s`, as a
+    function's are. The names of the parameters are only read."""
+    t = typetab.declared(typetab.FORM_FUNC, s)
+    kernel.sym_type[s] = t
+    if lex.tok == lex.T_RECURSIVE:
+        typetab.make_recursive(t)
+        lex.next()
+        if lex.tok != lex.T_FUNC:
+            err.fatal(err.E_FUNC_EXPECTED)
+    lex.next()
+    lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+    count = 0
+    if lex.tok != lex.T_RPAREN:
+        while True:
+            if lex.tok != lex.T_NAME:
+                err.fatal(err.E_NAME_EXPECTED)
+            lex.next()
+            lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
+            member(s, True, count, gen.REG_NONE)
+            count += 1
+            if lex.tok != lex.T_COMMA:
+                break
+            lex.next()
+    lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+    kernel.sym_params[s] = count
+    kernel.sym_results[s] = results(s, True, count)
+
+
 def type_declaration(flags):
-    """typeDecl = "type" name "=" type NL, where the type can be a record. Function types
-    come later."""
+    """typeDecl = "type" name "=" ( type | recordType | funcType ) NL."""
     lex.next()
     name = expr.new_name(kernel.SCOPE_MODULE)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
     if lex.tok == lex.T_RECORD:
         record_type(type_symbol(name, flags))
+    elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE:
+        function_type(type_symbol(name, flags))
     else:
         line = lex.line
         col = lex.col
@@ -821,14 +884,24 @@ def declaration():
     flags = 0
     if lex.tok == lex.T_FORWARD:
         lex.next()
+        if lex.tok == lex.T_RECURSIVE:
+            flags = kernel.SF_RECURSIVE
+            lex.next()
         if lex.tok != lex.T_FUNC:
             err.fatal(err.E_FUNC_EXPECTED)
-        function_declaration(kernel.SF_FORWARD)
+        function_declaration(kernel.SF_FORWARD | flags)
         return
     if lex.tok == lex.T_PUB:
         flags = kernel.SF_PUB
         lex.next()
-    if lex.tok == lex.T_EXTERN:
+    if lex.tok == lex.T_RECURSIVE:
+        lex.next()
+        if lex.tok == lex.T_EXTERN or lex.tok == lex.T_ASM:
+            err.fatal(err.E_RECURSIVE_BODY)
+        if lex.tok != lex.T_FUNC:
+            err.fatal(err.E_FUNC_EXPECTED)
+        function_declaration(flags | kernel.SF_RECURSIVE)
+    elif lex.tok == lex.T_EXTERN:
         extern_declaration(flags)
     elif lex.tok == lex.T_FUNC:
         function_declaration(flags)

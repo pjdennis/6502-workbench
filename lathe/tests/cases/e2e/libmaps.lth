@@ -1,0 +1,23 @@
+; A function type and functions of it, for fp_callback: another module's function type, a
+; table of its functions, and a function that gives one of them.
+module libmaps
+
+pub type Map = func(b: byte): byte
+
+pub func invert(b: byte): byte
+  return ~b
+end
+
+func halve(b: byte): byte
+  return b >> 1
+end
+
+func clear_low(b: byte): byte
+  return b & $F0
+end
+
+const CHOICES: [2]Map = [@halve, @clear_low]
+
+pub func chosen(i: byte): Map
+  return CHOICES[i]
+end

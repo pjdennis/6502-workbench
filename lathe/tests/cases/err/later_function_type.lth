@@ -1,3 +1,0 @@
-; error 39 3 10
-module later_function_type
-type H = func(a: byte)

@@ -13,6 +13,8 @@ import lo  # noqa: E402
 
 ENV = 'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $EFFF\nexit return\n'
 CYCLE = 'link error 21: recursion through a call or function not marked recursive: '
+MEMBER = ('link error 40: functions of one pointer class share their parameters: one that calls another '
+          'must be recursive, as must the one it calls, or the function type it calls through: ')
 
 
 def member(o, name, local, zp_class=NEVER, calls=(), flags=0, classes=(NEVER, NEVER), weights=(0, 0),
@@ -216,7 +218,17 @@ class ClassCycles(unittest.TestCase):
         member(o, 'flash', 1)
         o.memb('handler', 'beep')
         o.memb('handler', 'flash')
-        self.assertEqual(link([o], ENV).errors, CYCLE + 't.beep -> t.handler -> t.beep\n')
+        self.assertEqual(link([o], ENV).errors, MEMBER + 't.beep -> t.flash, both in the pointer class t.handler\n')
+
+    def test_members_that_call_each_other_directly_are_a_plain_cycle_first(self):
+        o = Obj('t')
+        o.clas('handler', [1, 2])
+        routine(o, 'main', (), [('handler', POINTER, None)])
+        member(o, 'beep', 1, calls=[('flash', SAVES, None)], flags=RECURSIVE)
+        member(o, 'flash', 1, calls=['beep'])
+        o.memb('handler', 'beep')
+        o.memb('handler', 'flash')
+        self.assertEqual(link([o], ENV).errors, CYCLE + 't.beep -> t.flash -> t.beep\n')
 
     def test_a_member_that_calls_through_its_own_class(self):
         o = Obj('t')
@@ -224,7 +236,7 @@ class ClassCycles(unittest.TestCase):
         routine(o, 'main', (), [('handler', POINTER, None)])
         member(o, 'beep', 1, calls=[('handler', POINTER, None)])
         o.memb('handler', 'beep')
-        self.assertEqual(link([o], ENV).errors, CYCLE + 't.beep -> t.handler -> t.beep\n')
+        self.assertEqual(link([o], ENV).errors, MEMBER + 't.beep -> t.handler, its own pointer class\n')
 
     def test_a_callback_that_calls_back_into_the_walker(self):
         o = Obj('t')
@@ -269,7 +281,7 @@ class ClassCycles(unittest.TestCase):
         routine(o, 'main', (), [('handler', POINTER, None)])
         member(o, 'walk', 1, calls=[('handler', POINTER, None)], flags=RECURSIVE)
         o.memb('handler', 'walk')
-        self.assertEqual(link([o], ENV).errors, CYCLE + 't.walk -> t.handler -> t.walk\n')
+        self.assertEqual(link([o], ENV).errors, MEMBER + 't.walk -> t.handler, its own pointer class\n')
 
 
 class PendingWithClasses(unittest.TestCase):

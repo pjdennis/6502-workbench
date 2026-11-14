@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lathec_support as support  # noqa: E402
 
-END, MOD, IMP, SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF = 0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12
+END, MOD, IMP, SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF, CLAS, MEMB = 0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14
 HOST_LTH = os.path.join(support.LATHE, 'rt', 'host.lth')
 HELLO_LTH = os.path.join(support.CASES, 'e2e', 'hello.lth')
 
@@ -533,11 +533,87 @@ class InterfaceTest(CompileTest):
         head = b'LI\x01' + string(b'lib')
         for damaged in (head + b'\x03' + string(b'v') + b'\x13' + string(b'lib') + string(b'none') + b'\x00\x00',
                         head + b'\x04' + string(b'x') + b'\x01\x09',          # an unknown type
-                        head + b'\x07' + string(b'x') + b'\x00'):              # an unknown kind of entry
+                        head + b'\x08' + string(b'x') + b'\x00'):              # an unknown kind of entry
             with open(os.path.join(self.out, 'lib.li'), 'wb') as f:
                 f.write(damaged)
             self.assertEqual(support.run_lathec(user, self.out),
                              (1, user + ':2:8: error 51: not an interface file of this version\n'))
+
+
+class FunctionTypesTest(CompileTest):
+    """Function types in interface files and object files; recursive functions."""
+    LIB = ('module lib\n'
+           'pub type Handler = func(code: byte, arg: word): bool\n'
+           'pub type Visit = recursive func(n: ^byte)\n'
+           'type Hidden = func()\n'
+           'pub type Other = Handler\n'
+           'pub var on: Handler\n'
+           'pub recursive func walk(n: ^byte)\n'
+           'end\n'
+           'pub func beep(code: byte, arg: word): bool\n'
+           '  return true\n'
+           'end\n')
+    USER = ('module user\n'
+            'import lib\n'
+            'var h: lib.Other\n'
+            'var v: lib.Visit\n'
+            'recursive func walk2(n: ^byte)\n'
+            '  v(n)\n'
+            'end\n'
+            'func f(): bool\n'
+            '  h = @lib.beep\n'
+            '  v = @walk2\n'
+            '  return h(1, 2)\n'
+            'end\n')
+
+    def test_function_types_and_recursive_functions_are_in_the_interface(self):
+        self.compile(self.source('lib.lth', self.LIB))
+        handler = b'\x13' + string(b'lib') + string(b'handler')
+        self.assertEqual(self.interface('lib'), b''.join([
+            b'LI\x01', string(b'lib'),
+            b'\x07', string(b'handler'), b'\x01', b'\x02\x01\x00\x03\x00', b'\x01\x05\x07',
+            b'\x07', string(b'visit'), b'\x03', b'\x01\x10\x01\x00', b'\x00',   # pub and recursive
+            b'\x07', string(b'hidden'), b'\x00', b'\x00', b'\x00',                # written, not pub
+            b'\x04', string(b'other'), b'\x01', handler,                        # another name for it
+            b'\x03', string(b'on'), handler, b'\x00',
+            b'\x01', string(b'walk'), b'\x02', b'\x01\x10\x01\x00', b'\x00',    # a recursive function
+            b'\x01', string(b'beep'), b'\x00', b'\x02\x01\x00\x03\x00', b'\x01\x05\x07',
+            b'\x00']))
+
+    def test_an_importer_calls_through_them_with_classes_and_members(self):
+        self.compile(self.source('lib.lth', self.LIB))
+        self.compile(self.source('user.lth', self.USER))
+        records = self.records('user')
+        self.assertIn((IMP, string(b'rt_frame')), records)      # walk2 saves its frame
+        self.assertIn((SYM, b'\x04' + string(b'lib.visit')), records)
+        self.assertIn((SYM, b'\x04' + string(b'lib.handler')), records)
+        self.assertIn((CLAS, b'\x05\x00\x01\x01\x02\x00'), records)            # lib.visit: recursive
+        self.assertIn((CLAS, b'\x08\x00\x00\x02\x01\x00\x02\x00'), records)    # lib.handler: 1 and 2 bytes
+        self.assertIn((MEMB, b'\x08\x00\x07\x00'), records)                      # lib.beep in lib.handler
+        self.assertIn((MEMB, b'\x05\x00\x02\x00'), records)                      # user.walk2 in lib.visit
+        self.assertIn((CALL, b'\x05\x00\x03\xff\xff'), records)                  # saves, through a pointer
+        self.assertIn((CALL, b'\x08\x00\x02\xff\xff'), records)
+        self.assertIn((FUNC, b'\x02\x00\x01'), records)                          # walk2 is recursive
+        self.assertEqual(self.code('user')[1][-3:], b'\x6c\x00\x00')              # return h(1, 2): JMP (h)
+
+    def test_the_same_function_taken_twice_is_one_member_record(self):
+        self.compile(self.source('t.lth', 'module t\ntype H = func()\nvar a: H\nvar b: H\n'
+                                 'func f()\nend\nfunc g()\n  a = @f\n  b = @f\nend\n'))
+        self.assertEqual(len([r for r in self.records('t') if r[0] == MEMB]), 1)
+
+    def test_a_module_that_imports_rt_frame_itself_uses_its_symbols(self):
+        self.compile(os.path.join(support.LATHE, 'rt', 'rt_frame.lth'))
+        self.compile(self.source('t.lth', 'module t\nimport rt_frame\nrecursive func f(n: byte)\n'
+                                 '  rt_frame.push(n)\n  f(n)\nend\n'))
+        syms = [body for kind, body in self.records('t') if kind == SYM]
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.push')), 1)
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.pop_y')), 1)
+        self.assertEqual([body for kind, body in self.records('t') if kind == IMP], [string(b'rt_frame')])
+
+    def test_a_recursive_function_must_be_declared_so_in_its_forward_declaration(self):
+        path = self.source('t.lth', 'module t\nforward func f()\nrecursive func f()\nend\n')
+        self.assertEqual(support.run_lathec(path, self.out),
+                         (1, path + ':3:16: error 57: differs from the forward declaration\n'))
 
 
 class ImportTest(CompileTest):

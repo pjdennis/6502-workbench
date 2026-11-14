@@ -123,7 +123,9 @@ A call `t = sum(@buf, 10)`:
 
 ### Calls inside arguments
 
-In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion. A call of `g` itself inside `g`'s arguments, as in `g(a, g(b, c))`, would overwrite the arguments already stored, so the compiler reports it as an error: the inner result must go through a variable.
+In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion. A call of `g` itself inside `g`'s arguments, as in `g(a, g(b, c))`, would overwrite the arguments already stored, so the compiler reports it as an error: the inner result must go through a variable. The same holds for two calls through pointers of one function type, whose arguments share the class's block.
+
+The arguments of a saving call (see Recursion) wait in the caller's own temporaries instead, so none of this applies to them: a recursive function can write `nest(a - 1, nest(a - 1, b))`. A saving call inside the arguments of a plain one is still a pending call: in `times(v, primary(d))`, with `primary` recursive and able to reach `times`, the linker reports the cycle `times -> primary -> times`, and the remedy is again a variable.
 
 ### Functions called through a pointer
 
@@ -150,7 +152,8 @@ Consequences:
 
 - **Members calling members.** If one member calls another, the callee's arguments would overwrite the caller's parameters. In the graph this is a cycle through the block, so the linker's cycle check reports it, and the remedy is the one for recursion. If this proves common, the linker can instead give such a function a small entry stub that copies the block into slots of its own.
 - **Slot classes.** A block slot takes the strictest zero page class any member needs, and the sum of the members' weights.
-- **The call itself.** The 6502 has no indirect `JSR`. The call is a `JSR` to a three-byte `JMP (pointer)`, which works because the pointer variable has a fixed address. On an NMOS 6502 the linker keeps such a variable from straddling a page boundary. A pointer taken from a table is copied to a temporary first.
+- **The call itself.** The 6502 has no indirect `JSR`. The call is a `JSR` to a three-byte `JMP (pointer)`, which works because the pointer variable has a fixed address. On an NMOS 6502 the linker keeps such a variable from straddling a page boundary. The `JMP (pointer)` is code of the calling function, placed after its last instruction where nothing runs into it, one for each pointer the function calls through, however often. The pointer must be a whole two-byte variable: of the module, a parameter, a local, a temporary, or one at a fixed address (whose placement is the programmer's). Anything else, an element of an array, a field of a record (which can lie across a page boundary inside the record) or what a pointer points at, is copied to a temporary first, before the arguments are worked out. A call through a pointer whose results are returned, `return h(x)`, is a `JMP (pointer)`.
+- **Members are ordinary functions.** A member's code is compiled as any function's, with its parameters in its own slots; it does not know that it is a member, and its address may be taken after it was compiled or in another module. The linker, which sees the `MEMB` records, puts those slots in the class block (`object-format.md`, "Pointer classes").
 
 ### Register arguments for ordinary calls
 
@@ -158,21 +161,46 @@ Passing one argument in A would save a store at each call and cost one in each f
 
 ## Recursion
 
-A function marked `recursive` may be active more than once. The cost is paid only on calls between `recursive` functions:
+A function marked `recursive` may be active more than once. The cost is paid only on calls between `recursive` functions, direct or through a function type marked `recursive`. Such a call is a **saving call**:
 
-1. The caller pushes its whole frame onto a recursion stack kept by the run-time library.
-2. It computes the arguments into temporaries, then moves them into the callee's slots. Two steps are needed because the callee's slots may be the caller's own.
-3. It calls the function.
-4. It pops its frame back, keeping the result in the registers.
+1. The arguments are worked out into temporaries of the caller, one for each parameter.
+2. Every byte of the caller's frame that can be live is pushed onto the frame stack, one run-time call per byte: `LDA slot` / `JSR rt_frame.push`. That is the caller's parameters (in its class block, if it is a member), its locals declared so far, and the temporaries in use other than the arguments just worked out and the copy of a pointer called through.
+3. The argument temporaries are moved into the callee's parameters (`LDA` / `STA`), which may be the caller's own.
+4. `JSR` to the callee, or to the `JMP (pointer)`.
+5. The saved bytes are popped in reverse order: `JSR rt_frame.pop_y` / `STY slot`. `pop_y` leaves A, X and the carry flag as they are, so the results are where a direct call leaves them.
 
-Calls into a `recursive` function from outside, and everything inside its body, are unchanged: variables keep their fixed addresses and fast addressing.
+```
+        LDA nest.a          ; the arguments, into temporaries
+        SBC #1 ...
+        STA nest.$t3
+        LDA nest.a          ; push the caller's frame
+        JSR rt_frame.push
+        LDA nest.b
+        JSR rt_frame.push
+        LDA nest.$t3        ; the arguments, into the parameters
+        STA nest.a
+        JSR nest
+        JSR rt_frame.pop_y  ; and the frame back, last byte first
+        STY nest.b
+        JSR rt_frame.pop_y
+        STY nest.a          ; the result is still in A
+```
+
+Calls into a `recursive` function from outside, calls from it to functions that are not `recursive`, calls through unmarked function types, and everything else inside its body are unchanged: variables keep their fixed addresses and fast addressing. A saving call is never made a `JMP`, because the pops follow it.
+
+**Cost.** Each saved byte costs 12 bytes of code at each saving call (10 when the slot is in zero page) and about 40 cycles: `LDA` and `JSR push` before, `JSR pop_y` and `STY` after. Each argument byte costs one `LDA` / `STA` more than a direct call's. The evaluator in `tests/cases/e2e/rec_eval.lth`, whose functions save 3 to 6 bytes at a call, saves 12 bytes for each level of parentheses.
+
+**The frame stack** is the module `rt_frame` (`lathe/rt/rt_frame.lth`), which the compiler imports by itself when a module has a saving call: its `IMP` record tells the build which module to add. It is 256 bytes of main memory, of which 255 hold frames; its comment says how to make it larger. A push that would overflow it stores nothing and stops the program, with interrupts off, in the endless loop at `rt_frame.overflow`, which the map names. Each level of recursion also takes two bytes of the 6502's own stack for its `JSR`, so a recursion of more than about 120 levels runs out of that first, whatever its frames. An interrupt handler can use the frame stack too: it pops what it pushes before it returns, and the routines read and write the stack pointer once each.
 
 Rules that follow:
 
 - **Through a pointer** the compiler cannot see the callee, so the function type decides. A call through a type marked `recursive`, made from a `recursive` function, saves the caller's frame, including its parameters if they are in a class block. A call through an unmarked type never saves. A recursive tree walker can therefore call a plain callback at no extra cost, as long as the callbacks never call back into the walker; if one does, the cycle check below reports it.
 - `recursive` functions that can call each other do not share storage.
 - The linker checks every cycle in the call graph. A cycle through a function not marked `recursive` is an error.
-- A pointer to a local of a `recursive` function points at the slot, not at one activation. Passing such a pointer down a recursive call is an error the compiler cannot always catch; this is documented, as it was for Turbo Pascal.
+- **Members calling members.** A member of a pointer class that calls another member of its class, or calls through its own class, is a cycle through the class block. It is allowed only as a saving call: both functions `recursive`, or the function type `recursive` for a call through it. Otherwise the link fails with error 40, which names the caller, the member it calls and the class.
+- A local declared after a saving call in the source has no slot yet when the call is compiled, so the call does not save it. Its value is lost across the call, which matters only in a loop that reads it before giving it a value: declare it first.
+- A local array or record is saved byte by byte like any other local. Keep large ones out of `recursive` functions: make them `static`, or module-level.
+- A pointer to a local of a `recursive` function points at the slot, not at one activation. Passing such a pointer down a recursive call is an error the compiler cannot always catch; this is documented, as it was for Turbo Pascal: it is the programmer's risk.
 
 The compiler's own expression parser is the main user of this feature.
 
@@ -238,7 +266,7 @@ Written in Lathe with assembly where needed, and linked function by function lik
 | Area | Routines |
 |---|---|
 | Arithmetic | multiply, divide and remainder for 8 and 16 bits; variable shifts for 16 bits (`lathe/rt/rt_math.lth`, below) |
-| Recursion | push and pop of a frame |
+| Recursion | `rt_frame`: push and pop of one byte of a frame (see Recursion) |
 | Far calls | one routine per banking or overlay scheme, supplied by the environment module |
 | Start-up | set the stack, copy initialised data, call `main`, exit |
 | Environment | a module per machine wrapping its console, file and banking services |

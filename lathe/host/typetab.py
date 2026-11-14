@@ -4,9 +4,11 @@ Owns the types of the module being compiled. A type is known by its number in th
 basic types have fixed numbers; a type made from others (a pointer or an array) gets the next
 free one, and is made only once, so two types are the same type exactly when their numbers are
 equal. An array is stored by column or, if declared `rows`, by row (docs/language.md, "Arrays
-and their layout"): the two are different types. A record or an enumeration is a new type each
-time one is declared, known by the symbol that declares it; its fields are symbols too (DECL).
-A named type that is neither is only another name for its type, and needs no entry here.
+and their layout"): the two are different types. A record, an enumeration or a function type is
+a new type each time one is declared, known by the symbol that declares it; the fields of a
+record are symbols too, and the parameters and results of a function type are that symbol's
+members, as a function's are (DECL). A named type that is none of these is only another name
+for its type, and needs no entry here.
 
 This is the component docs name `types`; the file cannot be called types.py, which would hide
 Python's own module of that name from everything else on the path.
@@ -32,6 +34,7 @@ FORM_ARRAY = 2          # base: the element type; length: how many. Stored by co
 FORM_ROWS = 3           # the same, declared `rows`: each element's bytes together
 FORM_RECORD = 4         # base: the symbol of the type that declares it; size: of its fields so far
 FORM_ENUM = 5           # base: the same. One byte
+FORM_FUNC = 6           # base: the same; length: 1 if declared `recursive`, else 0. Two bytes
 
 form = [0] * MAX_TYPES
 base_type = [0] * MAX_TYPES
@@ -84,9 +87,23 @@ def is_enum(t):
     return form[t] == FORM_ENUM
 
 
+def is_func(t):
+    """True for a function type: a pointer to a function of its signature."""
+    return form[t] == FORM_FUNC
+
+
+def is_recursive(t):
+    """True for a function type declared `recursive`."""
+    return form[t] == FORM_FUNC and type_length[t] != 0
+
+
+def make_recursive(t):
+    type_length[t] = 1
+
+
 def base(t):
     """The type a pointer type points to, the element type of an array, or the symbol that
-    declares a record or an enumeration."""
+    declares a record, an enumeration or a function type."""
     return base_type[t]
 
 
@@ -128,15 +145,15 @@ def made(kind, t, n):
 
 
 def declared(kind, s):
-    """A new record type (FORM_RECORD) with no fields yet, or enumeration (FORM_ENUM), which
-    symbol `s` declares."""
+    """A new record type (FORM_RECORD) with no fields yet, enumeration (FORM_ENUM) or function
+    type (FORM_FUNC, not `recursive` until made so), which symbol `s` declares."""
     global count
     if count == MAX_TYPES:
         err.fatal(err.E_TYPES_FULL)
     form[count] = kind
     base_type[count] = s
     type_length[count] = 0
-    type_size[count] = kind - FORM_RECORD       # 0, or 1 for an enumeration
+    type_size[count] = kind - FORM_RECORD       # 0, 1 for an enumeration, 2 for a function type
     count += 1
     return count - 1
 

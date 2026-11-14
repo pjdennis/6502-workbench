@@ -17,7 +17,7 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 | Type | Name | Body |
 |---|---|---|
 | `$01` | `MOD` | version (1 byte, value 1), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
-| `$02` | `IMP` | Name of an imported module (string). |
+| `$02` | `IMP` | Name of an imported module (string). Also written for a run-time module the code calls without an `import` (`rt_frame`, at the first call that saves a frame), so it can come after other records. |
 | `$03` | `SYM` | Kind (1 byte), name (string). Kinds: 1 function, 2 variable, 3 constant data, 4 pointer class. |
 | `$04` | `VAR` | Defines a module-level variable: symbol (2), size (2), class (1), weight (1), flags (1). A variable is storage only; it has no initial value in the object file. |
 | `$05` | `DATA` | Defines constant data: symbol (2), then the bytes. |
@@ -33,6 +33,14 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 | `$00` | `END` | Last record. Empty body. |
 
 Order within a function: `FUNC`, every `SLOT`, every `CALL`, `FIX`, `CODE`, `ENDF`. Everything the linker's first pass needs comes before the code.
+
+### Pointer classes
+
+A function type is a pointer class, named `module.type` after the module that declares the type. Each module whose code or data uses the class, by a call through it, a fix-up to one of its parameters or a `MEMB` record, writes its `CLAS` record (after the class's `SYM` record, when it first uses it), and the descriptions must agree. `CLAS` gives only the number and sizes of the parameters: the map names a class's parameters after those of the first function recorded as its member.
+
+- **A call through a pointer** has a `CALL` record with the "through a pointer" flag whose callee is the class. Its arguments are stored by fix-ups that name the class and the parameter number (`slot`), and it is a `JSR` to a label of the caller, a fix-up naming the caller itself with the label's offset as addend, where the caller has a `JMP (pointer)`.
+- **A member** is an ordinary function. It declares its parameter `SLOT` records, kind 0, as any function does, and its code reaches them by fix-ups that name itself and the slot number, whether or not it is a member, so that its address can be taken after it was compiled or by another module. The `MEMB` record of whichever module takes its address as the class tells the linker, which then gives those parameter slots, in the copy of the function for the context that calls through the class, the addresses of the class block's parameters: every fix-up to them, the member's own and its direct callers', lands there. The member's parameters must have the class's number and sizes (link error 24 otherwise). A function taken as two classes makes them one.
+- **The `recursive` flag** of `CLAS` says the function type was declared `recursive`. The linker does not need it: the block counts as recursive, and the checks fall on the real calls into and out of it, whose `CALL` records say whether they save.
 
 ### Field values
 
@@ -62,7 +70,7 @@ The **target** of a fix-up is given by its symbol and slot fields:
 
 | Symbol is | Slot | Target |
 |---|---|---|
-| a function | `$FF` | The function's entry. If the function is the one being defined, the addend is an offset into its code: a label. |
+| a function | `$FF` | The function's entry. If the function is the one being defined, the addend is an offset into its code: a label, the target of a `JMP`, or of the `JSR` of a call through a pointer. |
 | a function | 0 to 254 | That slot of the function's frame. |
 | a pointer class | 0 to 254 | That parameter of the class's shared block. |
 | a variable or constant data | `$FF` | Its address. |

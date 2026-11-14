@@ -45,8 +45,8 @@ class ErrTest(unittest.TestCase):
         self.assertEqual(out, b'')
 
     def test_every_error_number_in_a_file(self):
-        for number in range(0, 160):
-            self.check(number, 'dir/some.lth', number * 7, number * 400)
+        for number in range(0, 170):
+            self.check(number, 'dir/some.lth', number * 7, number * 380)
 
     def test_without_a_file_the_tool_is_named(self):
         for number in (1, 60, 99, 147, 150):

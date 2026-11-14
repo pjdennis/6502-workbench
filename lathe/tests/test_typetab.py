@@ -188,6 +188,22 @@ class TypeTableTest(unittest.TestCase):
         self.assertEqual(typetab.pointer_to(r), typetab.pointer_to(r))
         self.assertNotEqual(typetab.pointer_to(r), typetab.pointer_to(typetab.declared(typetab.FORM_RECORD, 1)))
 
+    def test_a_function_type_is_two_bytes_known_by_its_symbol_and_new_each_time(self):
+        f = typetab.declared(typetab.FORM_FUNC, 5)
+        self.assertTrue(typetab.is_func(f))
+        self.assertEqual((typetab.size(f), typetab.base(f)), (2, 5))
+        self.assertFalse(typetab.is_pointer(f) or typetab.is_record(f) or typetab.is_number(f))
+        self.assertNotEqual(typetab.declared(typetab.FORM_FUNC, 5), f)
+        self.assertFalse(typetab.is_func(typetab.pointer_to(f)))
+        self.assertEqual(typetab.size(typetab.array_of(f, 3, False)), 6)
+
+    def test_a_function_type_can_be_made_recursive(self):
+        f = typetab.declared(typetab.FORM_FUNC, 5)
+        g = typetab.declared(typetab.FORM_FUNC, 6)
+        typetab.make_recursive(g)
+        self.assertEqual((typetab.is_recursive(f), typetab.is_recursive(g)), (False, True))
+        self.assertFalse(typetab.is_recursive(typetab.WORD_TYPE))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,4 @@
+; error 155 3 11
+module recursive_asm
+recursive asm func f()
+end

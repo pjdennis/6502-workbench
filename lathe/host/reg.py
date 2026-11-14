@@ -22,6 +22,7 @@ IMMEDIATE_FORM less.
 import err
 import fbuf
 import kernel
+import out
 import typetab
 
 # ---- Operands ----------------------------------------------------------------------------
@@ -1081,9 +1082,51 @@ def has_copy(holder_entry, n):
 
 def accepts(actual, t):
     """True if a value of type `actual` can be given to something of type `t` as it is: the
-    same type, a `byte` where a `word` is wanted, or `nil` where a pointer is."""
+    same type, a `byte` where a `word` is wanted, or `nil` where a pointer or a function type is."""
     return actual == t or (actual == typetab.BYTE_TYPE and t == typetab.WORD_TYPE) \
-        or (actual == typetab.NIL_TYPE and typetab.is_pointer(t))
+        or (actual == typetab.NIL_TYPE and (typetab.is_pointer(t) or typetab.is_func(t)))
+
+
+def is_function_address(i):
+    """True if operand `i` is `@f` that has not been given a type yet."""
+    return op_kind[i] == O_ADDR and op_type[i] == typetab.NO_TYPE
+
+
+def class_symbol(s):
+    """The object-file symbol of the pointer class of function type `s`, the symbol that
+    declares it. The first use writes its SYM record and its CLAS record."""
+    if kernel.sym_obj[s] == kernel.NO_OBJ:
+        kernel.sym_obj[s] = out.symbol(out.SYM_CLASS, kernel.module_name[kernel.sym_scope[s]], 0,
+                                       kernel.sym_name[s])
+        flags = 0
+        if typetab.is_recursive(kernel.sym_type[s]):
+            flags = out.CLASS_RECURSIVE
+        out.pointer_class(kernel.sym_obj[s], flags, kernel.sym_params[s])
+        for m in range(kernel.sym_members[s], kernel.sym_members[s] + kernel.sym_params[s]):
+            out.class_parameter(typetab.size(kernel.member_type[m]))
+    return kernel.sym_obj[s]
+
+
+def fit_function(i, t):
+    """Operand `i`, `@f`, is given to something of type `t`, which must be a function type
+    with f's parameters and results, and `recursive` only if f is. f then joins the type's
+    pointer class: a MEMB record says so."""
+    if not typetab.is_func(t):
+        err.fatal(err.E_FUNC_ADDRESS)
+    f = op_var[i]
+    s = typetab.base(t)
+    if kernel.sym_flags[f] & kernel.SF_ASM != 0:
+        err.fatal(err.E_REGISTER_FUNC)
+    if kernel.sym_params[f] != kernel.sym_params[s] or kernel.sym_results[f] != kernel.sym_results[s]:
+        err.fatal(err.E_SIGNATURE)
+    for m in range(0, kernel.sym_params[f] + kernel.sym_results[f]):
+        if kernel.member_type[kernel.sym_members[f] + m] != kernel.member_type[kernel.sym_members[s] + m] \
+                or kernel.member_value[kernel.sym_members[f] + m] != kernel.member_value[kernel.sym_members[s] + m]:
+            err.fatal(err.E_SIGNATURE)
+    if typetab.is_recursive(t) and kernel.sym_flags[f] & kernel.SF_RECURSIVE == 0:
+        err.fatal(err.E_NOT_RECURSIVE)
+    out.member(class_symbol(s), op_symbol[i])
+    op_type[i] = t
 
 
 def fit(i, t):
@@ -1102,7 +1145,9 @@ def assignable(i, t):
     An array cannot: it is not a value."""
     if typetab.is_array(t) or typetab.is_array(op_type[i]):
         err.fatal(err.E_ARRAY_VALUE)
-    if typetab.is_untyped(op_type[i]):
+    if is_function_address(i):
+        fit_function(i, t)
+    elif typetab.is_untyped(op_type[i]):
         fit(i, t)
     elif not accepts(op_type[i], t):
         err.fatal(err.E_TYPE)
@@ -1116,6 +1161,10 @@ def unify(left, right):
         err.fatal(err.E_ARRAY_VALUE)
     if typetab.is_record(op_type[left]) or typetab.is_record(op_type[right]):
         err.fatal(err.E_TYPE)
+    if is_function_address(left):
+        fit_function(left, op_type[right])
+    elif is_function_address(right):
+        fit_function(right, op_type[left])
     if typetab.is_untyped(op_type[left]):
         if typetab.is_untyped(op_type[right]):
             return typetab.NUMBER_TYPE

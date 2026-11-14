@@ -305,7 +305,7 @@ K_CONST = 3                 # type and value
 K_VAR = 4                   # a variable that lives for the whole program; value: address if SF_AT
 K_LOCAL = 5                 # a parameter or local of the function being compiled; value: its slot
 K_BUILTIN = 6               # a function the language declares; value: which one
-K_TYPE = 7                  # a named type: type
+K_TYPE = 7                  # a named type: type; a function type's also has members, as K_FUNC
 K_FIELD = 8                 # a field of a record: type, and value: its offset in the record
 
 SF_PUB = 1                  # exported
@@ -316,6 +316,7 @@ SF_ZP = 16                  # a variable declared `zp`
 SF_NOZP = 32                # a variable declared `nozp`
 SF_ASM = 64                 # an `asm` function: parameters and results in registers, no slots
 SF_ROWS = 128               # a variable declared `rows` (while its declaration is read)
+SF_RECURSIVE = 128          # a function declared `recursive` (the bit SF_ROWS has on a variable)
 
 sym_name = [0] * MAX_SYMS
 sym_scope = [0] * MAX_SYMS

@@ -1,0 +1,20 @@
+; link error 21
+; says half_recursive.step -> half_recursive.walk -> half_recursive.step
+; A cycle through a function not marked recursive is an error even if the others are.
+module half_recursive
+
+forward recursive func walk(n: byte)
+
+func step(n: byte)
+  walk(n - 1)
+end
+
+recursive func walk(n: byte)
+  if n != 0 then
+    step(n)
+  end
+end
+
+pub func main()
+  walk(3)
+end

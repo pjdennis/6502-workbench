@@ -1,0 +1,52 @@
+; Saving calls (lathe/docs/code-model.md, "Recursion"). A call from a recursive function to
+; a recursive function, directly or through a recursive function type, works out its
+; arguments into temporaries; pushes the caller's parameters, its locals and the temporaries
+; in use, a byte at a time (LDA / JSR rt_frame.push); moves the arguments to the callee's
+; parameters; calls; and pops what it pushed, last byte first (JSR rt_frame.pop_y / STY), which
+; leaves the results in A, X and the carry flag. The CALL record says it saves. A call of
+; another recursive function inside the arguments needs no variable: the arguments wait in
+; the caller's own temporaries. Every other call is an ordinary one: from a recursive
+; function to a plain one or through an unmarked type, and into a recursive function from
+; outside.
+module recursion
+
+type Stepper = recursive func(n: byte): byte
+type Simple = func(n: byte): byte
+
+var step: Stepper
+var plain: Simple
+var total: word
+
+func twice(n: byte): byte
+  return n + n
+end
+
+recursive func down(n: byte, w: word): word
+  var keep: byte = n
+  if n == 0 then
+    return w
+  end
+  total = w + down(n - 1, w + keep)
+  return total
+end
+
+recursive func nest(a: byte, b: byte): byte
+  if a == 0 then
+    return b
+  end
+  return nest(a - 1, nest(a - 1, b))
+end
+
+recursive func both(n: byte): byte
+  var x: byte = twice(n)
+  x = plain(x)
+  return step(x) + x
+end
+
+recursive func empty(): bool
+  return empty()
+end
+
+func outside(): word
+  return down(3, 4)
+end

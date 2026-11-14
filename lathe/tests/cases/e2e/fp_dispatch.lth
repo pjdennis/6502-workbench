@@ -1,0 +1,114 @@
+; A dispatch table of handlers called in a loop with different arguments: one function type
+; whose functions give a value and a status, one that gives a bool; a handler variable
+; reassigned between calls, compared with nil and with another; a handler in a record field
+; and in a local. Prints
+;   0007T 0000F 01F4T 0006T 0000F
+;   FTTFT
+;   N=TF 05 2C 0B T
+module fp_dispatch
+
+import libout
+
+type Arith = func(a: word, b: byte): word, bool
+type Probe = func(code: byte): bool
+
+type Button = record
+  key: byte
+  pressed: Probe
+end
+
+func add(a: word, b: byte): word, bool
+  return a + b, true
+end
+
+; a - b, and false if that would go below zero
+func sub(a: word, b: byte): word, bool
+  if a < b then
+    return 0, false
+  end
+  return a - b, true
+end
+
+func mul(a: word, b: byte): word, bool
+  var r: word = 0
+  var i: byte
+  for i = 1 to b do
+    r += a
+  end
+  return r, true
+end
+
+; a / b, and false for b == 0
+func div(a: word, b: byte): word, bool
+  var q: word = 0
+  if b == 0 then
+    return 0, false
+  end
+  while a >= b do
+    a -= b
+    q += 1
+  end
+  return q, true
+end
+
+func is_odd(code: byte): bool
+  return code & 1 != 0
+end
+
+func is_big(code: byte): bool
+  return code >= 100
+end
+
+const OPS: [5]Arith = [@add, @sub, @mul, @div, @div]
+const AS: [5]word = [3, 2, 100, 30, 40]
+const BS: [5]byte = [4, 9, 5, 5, 0]
+
+var test: Probe
+var other: Probe
+var buttons: [2]Button
+
+pub func main()
+  var i: byte
+  var r: word
+  var ok: bool
+  var op: Arith
+  for i = 0 to 4 do
+    r, ok = OPS[i](AS[i], BS[i])
+    libout.hexw(r)
+    libout.truth(ok)
+    libout.space()
+  end
+  libout.nl()
+  test = @is_odd
+  libout.truth(test(4))
+  libout.truth(test(7))
+  test = @is_big
+  libout.truth(test(200))
+  libout.truth(test(99))
+  buttons[1].key = 3
+  buttons[1].pressed = @is_odd
+  libout.truth(buttons[1].pressed(buttons[1].key))
+  libout.nl()
+  other = nil
+  libout.char('N')
+  libout.char('=')
+  libout.truth(other == nil)
+  libout.truth(other == test)
+  libout.space()
+  op = @add
+  if op(2, 3) -> r then
+    libout.hex(lo(r))
+  end
+  libout.space()
+  op = OPS[2]
+  r, ok = op(11, 4)
+  libout.hex(lo(r))
+  libout.space()
+  op = @div
+  r, ok = op(r, 4)
+  libout.hex(lo(r))
+  libout.space()
+  other = @is_big
+  libout.truth(other == test)
+  libout.nl()
+end

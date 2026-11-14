@@ -1,0 +1,82 @@
+; A callback passed down two levels to a function that applies it to every element of an
+; array, in place, and one that folds an array with it; the callbacks are of this module and
+; of another (libmaps), whose function types this module uses too.
+module fp_callback
+
+import libout
+import libmaps
+
+type Combine = func(total: word, b: byte): word
+
+func double(b: byte): byte
+  return b + b
+end
+
+func plus_seven(b: byte): byte
+  return b + 7
+end
+
+func sum(total: word, b: byte): word
+  return total + b
+end
+
+func biggest(total: word, b: byte): word
+  if b > total then
+    return b
+  end
+  return total
+end
+
+; each element of a[0..n-1] becomes f(element)
+func apply(f: libmaps.Map, a: ^byte, n: byte)
+  var i: byte
+  for i = 0 to n - 1 do
+    a[i] = f(a[i])
+  end
+end
+
+func apply_twice(f: libmaps.Map, a: ^byte, n: byte)
+  apply(f, a, n)
+  apply(f, a, n)
+end
+
+func fold(f: Combine, a: ^byte, n: byte, start: word): word
+  var i: byte
+  var total: word = start
+  for i = 0 to n - 1 do
+    total = f(total, a[i])
+  end
+  return total
+end
+
+func show(a: ^byte, n: byte)
+  var i: byte
+  for i = 0 to n - 1 do
+    libout.hex(a[i])
+  end
+  libout.space()
+end
+
+var data: [6]byte = [1, 2, 3, 40, 100, 255]
+
+pub func main()
+  show(@data, 6)
+  apply(@double, @data, 6)
+  show(@data, 6)
+  apply_twice(@plus_seven, @data, 6)
+  show(@data, 6)
+  apply(@libmaps.invert, @data, 3)
+  show(@data, 6)
+  libout.nl()
+  apply(libmaps.chosen(1), @data, 6)
+  show(@data, 6)
+  apply(libmaps.chosen(0), @data, 6)
+  show(@data, 6)
+  libout.nl()
+  libout.hexw(fold(@sum, @data, 6, 0))
+  libout.space()
+  libout.hexw(fold(@sum, @data, 6, 1000))
+  libout.space()
+  libout.hexw(fold(@biggest, @data, 6, 0))
+  libout.nl()
+end

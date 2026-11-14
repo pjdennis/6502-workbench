@@ -30,6 +30,8 @@ FAKE_COMPILER = textwrap.dedent('''\
         fh.write(' '.join([name] + options) + '\\n')
     first = open(src).readline()
     b = lo.Builder(name)
+    if first.startswith('; uses '):
+        b.imp(first.split()[2])         # as the compiler does for a module its code calls
     if first.startswith('; prints '):
         f = b.func(name + '.main')
         for ch in first[len('; prints '):].rstrip('\\n').encode() + b'\\n':
@@ -108,6 +110,48 @@ class TestDiscovery(Sources):
 
 
 @unittest.skipUnless(os.path.isfile(build.EMULATOR), 'emulator/emulator.out is not built (run make)')
+class TestImplicitImports(Sources):
+    def test_a_module_an_object_imports_is_compiled_after_the_others(self):
+        self.source('extra.lth', '; uses deeper\nmodule extra\n')
+        self.source('deeper.lth', 'module deeper\n')
+        self.source('lib.lth', '; uses extra\nmodule lib\n')
+        main = self.source('main.lth', '; uses extra\nmodule main\nimport lib\n')
+        order = build.module_order(main)
+        objects = build.compile_all(order, self.dir)
+        objects += build.compile_implicit(order, self.dir, (), self.dir)
+        self.assertEqual([os.path.basename(p) for p in objects], ['lib.lo', 'main.lo', 'extra.lo', 'deeper.lo'])
+        with open(os.path.join(self.dir, 'compiled.log')) as fh:
+            self.assertEqual(fh.read().split(), ['lib', 'main', 'extra', 'deeper'])
+
+    def test_a_run_time_module_is_found_in_lathe_rt(self):
+        main = self.source('main.lth', '; uses rt_frame\nmodule main\n')
+        order = build.module_order(main)
+        build.compile_all(order, self.dir)
+        objects = build.compile_implicit(order, self.dir, (), self.dir)
+        self.assertEqual([os.path.basename(p) for p in objects], ['rt_frame.lo'])
+
+
+class TestLinkErrors(unittest.TestCase):
+    def test_the_build_error_holds_the_linker_message(self):
+        sys.path.insert(0, HERE)
+        from test_lk_support import Obj, routine, INTERRUPT, POINTER
+        o = Obj('t')
+        o.clas('handler', [1])
+        routine(o, 'main', (), [('handler', POINTER, None)])
+        routine(o, 'irq', (), [('handler', POINTER, None)], flags=INTERRUPT)
+        work = tempfile.mkdtemp(prefix='lathe-build-test-')
+        self.addCleanup(shutil.rmtree, work, True)
+        obj = os.path.join(work, 't.lo')
+        with open(obj, 'wb') as fh:
+            fh.write(o.to_bytes())
+        linker = os.path.join(ROOT, 'lathe', 'host', 'link.py')
+        with self.assertRaises(build.BuildError) as caught:
+            build.run([sys.executable, linker, build.env_path('host'), 't', os.path.join(work, 'x.bin'),
+                       os.path.join(work, 'x.map'), obj], 'linking')
+        self.assertEqual(str(caught.exception), 'linking failed (status 1):\nlink error 22: pointer class '
+                         'called through pointers from two contexts: t.handler, t.main, t.irq')
+
+
 class TestBuild(Sources):
     def test_build_and_run(self):
         main = self.source('hi.lth', '; prints HI\nmodule hi\nimport host\n')

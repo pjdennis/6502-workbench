@@ -45,6 +45,7 @@ E_DEFS = 36
 E_SIZE = 37
 E_ADDRS = 38
 E_STOP_6502 = 39
+E_MEMBER_CYCLE = 40
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -87,6 +88,7 @@ MESSAGES = (
     b"internal error: a function is not the size that was planned\n"
     b"too many functions whose address a fix-up takes\n"
     b"environment file: exit stop needs cpu 65c02\n"
+    b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
 )
 
 PREFIX = b"link error "

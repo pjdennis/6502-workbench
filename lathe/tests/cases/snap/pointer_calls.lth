@@ -1,0 +1,56 @@
+; Calls through pointers. The arguments go to the class's parameters, then a JSR to a
+; JMP (pointer) after the function's code, one for each pointer the function calls through.
+; A pointer that is a whole variable (of the module, a parameter, a local, or at a fixed
+; address) is used where it is; one in an element, a field or what a pointer points at is
+; copied to a temporary first. A call through a pointer inside a call's arguments, and a
+; call inside the arguments of one through a pointer, name the outer one in their CALL
+; records. A call through a pointer whose results are returned is a JMP (pointer).
+module pointer_calls
+
+type Handler = func(code: byte, arg: word): bool
+type Pick = func(i: byte): byte, bool
+
+type Node = record
+  next: ^Node
+  visit: Pick
+end
+
+var on_key: Handler
+var fixed: Handler at $C800
+var table: [4]Pick
+var ok: bool
+var b: byte
+
+func mix(a: byte, w: word): byte
+  return a
+end
+
+func through_variables(h: Handler)
+  var local: Handler = h
+  ok = on_key(1, 2)
+  ok = on_key(3, 4)
+  ok = h(5, 6)
+  ok = local(7, 8)
+  ok = fixed(9, 10)
+end
+
+func through_copies(i: byte, n: ^Node)
+  b, ok = table[i](i)
+  if n.visit(2) -> b then
+    ok = true
+  end
+  b, ok = n.next.visit(3)
+end
+
+func in_arguments(i: byte)
+  b = mix(i, word(on_key(i, 1)))
+  ok = on_key(i, mix(2, 3))
+end
+
+func passed_on(i: byte): byte, bool
+  return table[i](i)
+end
+
+func last(h: Handler): bool
+  return h(1, 2)
+end

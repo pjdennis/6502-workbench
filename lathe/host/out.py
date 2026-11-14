@@ -27,8 +27,8 @@ R_CALL = 0x09
 R_FIX = 0x0A
 R_CODE = 0x0B
 R_ENDF = 0x0C
-R_CLAS = 0x0D               # not written yet: pointer classes
-R_MEMB = 0x0E               # not written yet: members of pointer classes
+R_CLAS = 0x0D
+R_MEMB = 0x0E
 
 # Symbol kinds
 SYM_FUNCTION = 1
@@ -47,7 +47,11 @@ CALL_SAVES = 1
 CALL_POINTER = 2
 NO_OUTER = 0xFFFF
 
+# CLAS flags
+CLASS_RECURSIVE = 1
+
 MAX_CALLS = 64
+MAX_MEMBERS = 64            # MEMB records of one module
 MAX_TABLE = 2048            # bytes of a constant table being made
 MAX_TABLE_FIXES = 128
 C_DOT = 0x2E
@@ -58,6 +62,9 @@ call_callee = [0] * MAX_CALLS
 call_flags = [0] * MAX_CALLS
 call_outer = [0] * MAX_CALLS
 call_count = 0
+member_class = [0] * MAX_MEMBERS    # the MEMB records written, so that each is written once
+member_function = [0] * MAX_MEMBERS
+member_count = 0
 table = bytearray(MAX_TABLE)        # a constant table: its bytes, and its fix-ups, until it ends
 table_fix_offset = [0] * MAX_TABLE_FIXES
 table_fix_kind = [0] * MAX_TABLE_FIXES
@@ -68,9 +75,10 @@ table_fix_count = 0
 
 
 def init():
-    global symbol_count, call_count
+    global symbol_count, call_count, member_count
     symbol_count = 0
     call_count = 0
+    member_count = 0
 
 
 def open(name):
@@ -201,6 +209,36 @@ def call(callee, flags, outer):
     call_flags[call_count] = flags
     call_outer[call_count] = outer
     call_count += 1
+
+
+def pointer_class(symbol_number, flags, count):
+    """Describe the pointer class `symbol_number`, which has `count` parameters: as many calls
+    of class_parameter() follow, with their sizes in order."""
+    begin_record(R_CLAS, 4 + 2 * count)
+    kernel.put_word(stream, symbol_number)
+    kernel.put(stream, flags)
+    kernel.put(stream, count)
+
+
+def class_parameter(size):
+    kernel.put_word(stream, size)
+
+
+def member(class_number, function_number):
+    """The module takes the address of function `function_number` as pointer class
+    `class_number`. Said once, however often it is done."""
+    global member_count
+    for i in range(0, member_count):
+        if member_class[i] == class_number and member_function[i] == function_number:
+            return
+    if member_count == MAX_MEMBERS:
+        err.fatal(err.E_CLASS_MEMBERS_FULL)
+    member_class[member_count] = class_number
+    member_function[member_count] = function_number
+    member_count += 1
+    begin_record(R_MEMB, 4)
+    kernel.put_word(stream, class_number)
+    kernel.put_word(stream, function_number)
 
 
 def function_begin(symbol_number, flags):

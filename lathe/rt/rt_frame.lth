@@ -1,0 +1,58 @@
+; The frame stack of recursive functions (lathe/docs/code-model.md, "Recursion").
+;
+; A call from a `recursive` function to a `recursive` function saves the caller's frame
+; here: before the call, `LDA slot` / `JSR rt_frame.push` for each byte; after it,
+; `JSR rt_frame.pop_y` / `STY slot` for each, last byte first. The compiler writes the calls and
+; imports this module itself when a module has such a call.
+;
+; The stack is SIZE bytes of main memory, of which SIZE - 1 can be used. SIZE can be anything
+; from 2 to 256: `sp` is a byte, the index of the next free byte. A larger stack needs a
+; second page and a word index (push and pop_y would then step a zero page pointer), at about
+; twice the cost per byte; until a program needs it, a deeper recursion needs a smaller frame.
+;
+; Overflow: a push that would fill the stack does not store anything. It stops the program
+; with interrupts off in the loop at `overflow`, which the map file names, so that nothing
+; past the stack is ever overwritten and a run that never ends shows where it is.
+;
+; An interrupt handler can use the stack too: each routine reads and writes `sp` once, and a
+; handler pops everything it pushes before it returns.
+module rt_frame
+
+const SIZE = 256
+const LIMIT = SIZE - 1          ; the most bytes the stack holds
+
+var stack: [SIZE]byte
+var sp: byte = 0
+
+; Where a program stops when the stack is full.
+pub asm func overflow()
+  SEI
+.stop
+  JMP .stop
+end
+
+; Push the byte in A. Changes Y and the flags.
+pub asm func push(v: byte in a)
+  LDY sp
+  CPY #LIMIT
+  BEQ .full
+  STA stack,Y
+  INY
+  STY sp
+  RTS
+.full
+  JMP overflow
+end
+
+; Pop the byte pushed last into Y. A, X and the carry flag are left as they were: they hold
+; the results of the call the frame was saved around.
+pub asm func pop_y(): byte in y
+  PHA
+  LDY sp
+  DEY
+  STY sp
+  LDA stack,Y
+  TAY
+  PLA
+  RTS
+end

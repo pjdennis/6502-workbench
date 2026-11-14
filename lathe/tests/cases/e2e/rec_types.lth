@@ -1,0 +1,61 @@
+; A `recursive` function type: its functions call each other through a variable of the type
+; and directly, which saves the caller's frame, parameters in the class block included
+; (lathe/docs/code-model.md, "Recursion"). Prints the sums 0 + 1 + ... + n for n = 0 to 10,
+; then a count of the calls of the ping-pong pair for n = 0 to 7.
+module rec_types
+
+import libout
+
+type Count = recursive func(n: byte): word
+
+var next: Count
+var calls: word
+
+; n + (n - 1) + ... + 0, through `next`, which is this function
+recursive func triangle(n: byte): word
+  var mine: byte = n
+  if n == 0 then
+    return 0
+  end
+  return next(n - 1) + mine
+end
+
+forward recursive func pong(n: byte): word
+
+; members of Count, which call each other directly and through `next`
+recursive func ping(n: byte): word
+  calls += 1
+  if n == 0 then
+    return 1
+  end
+  return pong(n - 1) + n
+end
+
+recursive func pong(n: byte): word
+  var a: word
+  calls += 1
+  if n == 0 then
+    return 2
+  end
+  a = next(n - 1)
+  return a + ping(n - 1)
+end
+
+pub func main()
+  var i: byte
+  next = @triangle
+  for i = 0 to 10 do
+    libout.dec(next(i))
+    libout.space()
+  end
+  libout.nl()
+  next = @ping
+  for i = 0 to 7 do
+    calls = 0
+    libout.dec(pong(i))
+    libout.char('/')
+    libout.dec(calls)
+    libout.space()
+  end
+  libout.nl()
+end

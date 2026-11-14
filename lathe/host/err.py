@@ -18,7 +18,8 @@ The numbers are grouped by what the error is about:
      99         a fault in the compiler itself
     100 to 139  meaning, continued: 110 to 119 statements, 120 to 127 arrays, strings and
                 pointers, 128 to 139 records, enumerations and named types
-    140 to 159  `asm` blocks and `asm` functions
+    140 to 149  `asm` blocks and `asm` functions
+    150 to 164  function types, calls through pointers, and recursion
 
 A number is never reused for another error; a new one takes the next free number of its group.
 """
@@ -146,6 +147,15 @@ E_ASM_DIRECTIVE = 145
 E_ASM_MNEMONIC = 146
 E_ASM_NOT_ZP = 147
 
+# Function types, calls through pointers, and recursion
+E_FUNC_TYPE_PLACE = 150
+E_SIGNATURE = 151
+E_NOT_RECURSIVE = 152
+E_FUNC_ADDRESS = 153
+E_REGISTER_FUNC = 154
+E_RECURSIVE_BODY = 155
+E_CLASS_MEMBERS_FULL = 156
+
 MESSAGES = (
     b"1 character not allowed here\n"
     b"2 digits expected\n"
@@ -251,6 +261,13 @@ MESSAGES = (
     b"145 directives such as .byte are not allowed in asm\n"
     b"146 unknown instruction\n"
     b"147 cannot be made to be in zero page: declared nozp, or another module's and not zp\n"
+    b"150 a function type is written only in a type declaration\n"
+    b"151 the function does not have the parameters and results of the function type\n"
+    b"152 a recursive function type takes only functions declared recursive\n"
+    b"153 the address of a function is a value only where a function type is wanted\n"
+    b"154 an asm function cannot be called through a pointer: its parameters are in registers\n"
+    b"155 only a function with a body in Lathe can be recursive\n"
+    b"156 too many functions taken as function types in one module\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "

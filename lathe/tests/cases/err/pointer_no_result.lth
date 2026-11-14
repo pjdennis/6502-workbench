@@ -1,0 +1,8 @@
+; error 56 7 7
+module pointer_no_result
+type Handler = func(a: byte)
+var h: Handler
+var x: byte
+func f()
+  x = h(1)
+end

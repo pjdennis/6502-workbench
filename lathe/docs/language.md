@@ -158,14 +158,14 @@ end
 - **Testing a status directly.** In a condition, `next() -> ch` calls the function, stores the value in `ch` and gives the status: `while next() -> ch do … end`.
 - **Passing results on.** `return f(…)` is allowed when `f` has the same results as the function returning; both results pass through, and the call becomes a jump.
 - A call used as a statement may ignore its results.
-- A name must be declared before use. For functions that call each other, declare one first: `forward func expr(): byte`.
+- A name must be declared before use. For functions that call each other, declare one first: `forward func expr(): byte`. A forward declaration of a `recursive` function says so too, `forward recursive func expr(): byte`, so that the calls made before its body are compiled as calls of a recursive function.
 
 ### Function attributes
 
 | Attribute | Meaning |
 |---|---|
 | `inline` | The body is expanded at each call. It cannot be recursive and its address cannot be taken. |
-| `recursive` | The function may be active more than once. Calls between `recursive` functions save and restore the caller's storage. A cycle of calls through any function not marked `recursive` is a link error. |
+| `recursive` | The function may be active more than once. Calls between `recursive` functions save and restore the caller's storage. A cycle of calls through any function not marked `recursive` is a link error. Only a function with a body in Lathe can be `recursive`, and its `forward` declaration says so too. |
 | `interrupt` | An interrupt handler: no parameters, no result. It saves the registers and returns with `RTI`. Everything it calls gets storage separate from the main program's. |
 | `extern … at` | A routine at a fixed address, with parameters and results in named registers. |
 | `asm` | A function whose whole body is assembly, with parameters and results in named registers. |
@@ -199,7 +199,10 @@ on_key = @beep            ; beep must have exactly Handler's parameters and resu
 ok = on_key(3, 500)       ; call through the pointer
 ```
 
-- A function type is written only in a `type` declaration, so it always has a name. It lists parameters with names, like a function header. `@f` can be assigned wherever a function type with `f`'s exact signature is expected.
+- A function type is written only in a `type` declaration, so it always has a name. It lists parameters with names, like a function header. `@f` can be assigned wherever a function type with `f`'s exact signature is expected: assigned, passed, returned, as an initial value or an element of a constant table (`const KEYS: [3]Handler = [@beep, @flash, @beep]`), or compared. Exact means the same number of parameters and results with the same types, in order; the names do not matter.
+- **Values of a function type** are two bytes, and can be variables, parameters, results, record fields and array elements. They can be assigned, passed and returned, compared with `==` and `!=` with each other and with `nil`, which fits every function type, and converted to a number, `word(h)`. There is no arithmetic on them and no conversion to them: a function type's value always comes from `@f`, which is what makes `f` a member of its class. Calling `nil` is the programmer's error.
+- **`@f` on its own** has no type until it is given to something of a function type. `word(@f)` is the function's address as a number, which is what an interrupt vector needs. `@f` of an `extern` function is the number its `at` gives. An `asm` function has its parameters in registers and cannot be given to a function type.
+- **A call through a pointer** is written as a call: `on_key(3, 500)`, `handlers[i](3, 500)`, `p.visit(n)`, with every form of result a direct call has (`ok = h(x)`, `v, ok = h(x)`, `h(x) -> v`, `return h(x)`).
 - **Class.** Each function type is a class of its own. A function joins a class when its address is used as that type. A function used as two types makes the linker merge those classes.
 - **Any number of parameters.** All functions in a class have their parameters at the same addresses, chosen by the linker, so a call through a pointer stores its arguments exactly as a direct call does ([`code-model.md`](code-model.md)).
 - **What the linker assumes.** A call through a pointer may reach every function in the pointer's class. Named types keep that assumption narrow.
@@ -322,7 +325,7 @@ A variable can be placed in a named memory region from the environment descripti
 unit        = "module" name NL { "import" name NL } { declaration } .
 
 declaration = [ "pub" ] ( constDecl | typeDecl | enumDecl | varDecl | funcDecl | externDecl )
-            | "forward" funcHead NL .
+            | "forward" [ "recursive" ] funcHead NL .
 
 constDecl   = "const" name [ ":" type ] "=" initialiser NL .
 enumDecl    = "enum" name NL { name [ "=" constExpr ] NL } "end" NL .
@@ -386,6 +389,7 @@ Notes on the grammar:
 - A statement that starts with a name is an assignment, a two-result call or a plain call; the token after the designator decides.
 - A conversion to a named type, such as `SymPtr(w)`, is parsed as a call. The symbol table says whether the name is a type.
 - In `type` the name is a named type, a record or an enumeration, of this module or, after a ".", of an imported one.
+- A designator whose value is of a function type, followed by `arguments`, is a call through that pointer.
 - `true`, `false` and `nil` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
 - A `constExpr` is an expression the compiler can evaluate; anything else is an error.
 - `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar. (The parser works out the condition of `#if` where a declaration, `import` or statement can start, and tells the lexer what to skip.)

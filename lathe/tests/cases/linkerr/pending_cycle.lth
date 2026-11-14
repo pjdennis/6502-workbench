@@ -1,0 +1,29 @@
+; link error 21
+; says pending_cycle.times
+; A recursive call inside the arguments of a plain function: times(v, primary()) stores v in
+; times's frame, and primary can call times, which would overwrite it (lathe/docs/code-model.md,
+; "Calls inside arguments"). Store the result in a variable first.
+module pending_cycle
+
+var pos: byte
+
+func times(a: word, b: word): word
+  var r: word = 0
+  while b != 0 do
+    r += a
+    b -= 1
+  end
+  return r
+end
+
+recursive func primary(depth: byte): word
+  var v: word = 2
+  if depth < 3 then
+    v = times(v, primary(depth + 1))
+  end
+  return times(v, 3)
+end
+
+pub func main()
+  pos = lo(primary(0))
+end

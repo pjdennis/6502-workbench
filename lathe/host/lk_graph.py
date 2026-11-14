@@ -37,6 +37,8 @@ found = [0] * lk_tab.MAX_NODES      # Tarjan: nodes found and not yet given a se
 seen = [0] * lk_tab.MAX_NODES       # Tarjan: order of discovery + 1; path search: came from + 1
 low = [0] * lk_tab.MAX_NODES        # Tarjan: earliest node reachable
 ON_STACK = 0xFFFF                   # node_scc of a node in `found`
+IN_CLASS = b", both in the pointer class "
+OWN_CLASS = b", its own pointer class"
 stack_top = 0
 found_top = 0
 discovered = 0                      # Tarjan: nodes discovered so far
@@ -343,12 +345,47 @@ def fail_cycle(source, target):
     lk_err.finish()
 
 
+def is_member(f, k):
+    """True if function f is a member of class k."""
+    return lk_tab.fn_class[f] != 0 and lk_tab.class_of(lk_tab.fn_class[f] - 1) == k
+
+
+def fail_member_call(n, target, e):
+    """Report the call by edge e + 1 of node n, a function, into the block of its own class,
+    node target: as the call of the member it is (E_VIA), or as the call through the class."""
+    k = lk_tab.node_class(target)
+    lk_err.begin(lk_err.E_MEMBER_CYCLE)
+    lk_err.colon()
+    lk_tab.error_node(n)
+    lk_err.arrow()
+    callee = lk_tab.cls_sym[k]
+    if (lk_tab.edge_flags[e - 1] & lk_tab.E_VIA) != 0:
+        other = first_edge(n)
+        while other != 0:
+            s = lk_tab.edge_to[other - 1]
+            if (lk_tab.edge_flags[other - 1] & lk_tab.E_VIA) == 0 and lk_sym.kind_of(s) == lk_sym.FUNCTION \
+                    and is_member(lk_sym.sym_a[s], k):
+                callee = s
+            other = next_edge(other)
+    lk_sym.error_name(callee)
+    if callee == lk_tab.cls_sym[k]:
+        for i in range(0, len(OWN_CLASS)):
+            lk_err.put(OWN_CLASS[i])
+    else:
+        for i in range(0, len(IN_CLASS)):
+            lk_err.put(IN_CLASS[i])
+        lk_sym.error_name(lk_tab.cls_sym[k])
+    lk_err.finish()
+
+
 def check_cycles():
     """Every call between two nodes of one set is recursion and must be marked as such.
 
     A class block counts as `recursive`, and its edge to a member as saving, because a member
     that saves its frame saves its parameters in the block with it (code-model.md,
-    "Recursion"). The checks therefore fall on the real calls into and out of the block."""
+    "Recursion"). The checks therefore fall on the real calls into and out of the block. A
+    member's call into its own class's block, of another member or through the class, is
+    reported as that: the two share their parameters (language.md, "Members calling members")."""
     for n in range(0, lk_tab.node_count):
         e = first_edge(n)
         while e != 0:
@@ -356,6 +393,9 @@ def check_cycles():
             if applies and lk_tab.node_scc[target] == lk_tab.node_scc[n]:
                 saves = (lk_tab.edge_flags[e - 1] & lk_tab.E_NOSAVE) == 0
                 if not (saves and is_recursive(n) and is_recursive(target)):
+                    if not lk_tab.node_is_class(n) and lk_tab.node_is_class(target) \
+                            and is_member(lk_tab.node_own[n], lk_tab.node_class(target)):
+                        fail_member_call(n, target, e)
                     fail_cycle(n, target)
             e = next_edge(e)
 

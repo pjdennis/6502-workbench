@@ -1,0 +1,8 @@
+; error 44 7 7
+module function_extern
+type Handler = func()
+extern func f() at $F009
+var h: Handler
+func g()
+  h = @f
+end

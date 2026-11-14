@@ -54,11 +54,17 @@ OP_TAX = 0xAA
 OP_RTS = 0x60
 OP_LDA = 0xAD
 OP_STA = 0x8D
+OP_STY = 0x8C
 C_DOLLAR = 0x24
 C_ZERO = 0x30
 
 MAX_INITS = 64
 INIT_FLUSH = 32         # DECL writes the list out between declarations when it is this long
+MAX_STUBS = 16          # pointers called through in one function
+MAX_ARGUMENTS = 32      # arguments of saving calls waiting in temporaries
+FRAME_MODULE = b"rt_frame"      # the run-time module that keeps the frames of recursive functions
+PUSH_NAME = b"push"             # push(v: byte in a)
+POP_NAME = b"pop_y"             # pop_y(): byte in y, which leaves A, X and the carry flag alone
 
 cpu = 0                 # 0 6502, 1 65C02; from the environment description, when that is read
 pend_op = 0             # the pending operation (a fold.ADD to fold.SHR), or 0
@@ -76,13 +82,28 @@ init_count = 0
 data_count = 0                      # how many symbols of anonymous constant data there are
 init_part = kernel.NO_OBJ           # the function that sets the values written out earlier
 
+stub_label = [0] * MAX_STUBS        # for each pointer called through: the label of its
+stub_symbol = [0] * MAX_STUBS       # JMP (pointer) at the end of the function, and the pointer
+stub_slot = [0] * MAX_STUBS         # as for reg.push_memory
+stub_value = [0] * MAX_STUBS
+stub_count = 0
+saves_frame = False                 # the function being compiled is `recursive`
+argument_slot = [0] * MAX_ARGUMENTS # the temporaries the arguments of saving calls wait in
+argument_count = 0
+saved_slot = [0] * reg.SLOTS        # the slots a saving call pushes, in order
+saved_count = 0
+frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and rt_frame.pop_y, once used
+frame_pop = kernel.NO_OBJ
+
 
 def init():
-    global cpu, init_count, init_part, data_count
+    global cpu, init_count, init_part, data_count, frame_push, frame_pop
     cpu = 0
     init_count = 0
     data_count = 0
     init_part = kernel.NO_OBJ
+    frame_push = kernel.NO_OBJ
+    frame_pop = kernel.NO_OBJ
 
 
 # ---- Pushing operands --------------------------------------------------------------------
@@ -128,9 +149,28 @@ def function(s):
     reg.op_var[reg.depth - 1] = s
 
 
+def function_address():
+    """`@f`: the newest operand, the function `f` it names, becomes its address. That has no
+    type until it is given to something of a function type, which must have f's signature
+    (reg.fit_function), or converted to a number. That of an `extern` function is the number
+    its `at` gives."""
+    settle()
+    i = reg.depth - 1
+    f = reg.op_var[i]
+    if kernel.sym_flags[f] & kernel.SF_EXTERN != 0:
+        reg.describe(i, reg.O_CONST, typetab.NUMBER_TYPE)
+        reg.op_value[i] = kernel.sym_value[f]
+        return
+    reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
+    reg.op_symbol[i] = object_symbol(f)
+    reg.op_var[i] = f
+
+
 def object_symbol(s):
-    """The object-file number of function or variable `s`, which gets its SYM record when it
-    is first used."""
+    """The object-file number of function or variable `s`, or of the pointer class of function
+    type `s`, which gets its SYM record when it is first used."""
+    if kernel.sym_kind[s] == kernel.K_TYPE:
+        return reg.class_symbol(s)
     if kernel.sym_obj[s] == kernel.NO_OBJ:
         kind = out.SYM_FUNCTION
         if kernel.sym_kind[s] == kernel.K_VAR:
@@ -172,9 +212,18 @@ def local(t, slot):
 
 def parameter(f, i):
     """Push parameter `i` of function `f`, for an argument to be stored in. From the second
-    one on, an argument is waiting in `f`'s frame while the next is worked out."""
-    global outer
+    one on, an argument is waiting in `f`'s frame while the next is worked out. The arguments
+    of a saving call wait in temporaries of the caller instead (saving())."""
+    global outer, argument_count
     settle()
+    t = kernel.member_type[kernel.sym_members[f] + i]
+    if saving(f):
+        if argument_count == MAX_ARGUMENTS:
+            err.fatal(err.E_OPERANDS_FULL)
+        argument_slot[argument_count] = reg.temp(typetab.size(t))
+        reg.push_memory(t, reg.own, argument_slot[argument_count], 0, 0, kernel.NO_SYM)
+        argument_count += 1
+        return
     reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], object_symbol(f), i, 0, 0,
                     kernel.NO_SYM)
     if i > 0:
@@ -747,8 +796,8 @@ def convert(t):
     settle()
     i = reg.depth - 1
     source = reg.op_type[i]
-    if typetab.is_record(source) or typetab.is_record(t):
-        err.fatal(err.E_TYPE)
+    if typetab.is_record(source) or typetab.is_record(t) or typetab.is_func(t):
+        err.fatal(err.E_TYPE)       # a function type's value comes from @f, which joins its class
     if t == typetab.BOOL_TYPE:
         if source != typetab.BOOL_TYPE:
             reg.push(reg.O_CONST, typetab.NUMBER_TYPE, 0)
@@ -984,10 +1033,16 @@ def field(place, t):
 def to_zero_page(i):
     """Operand `i`, a pointer that cannot be used through (zp),Y as it is, is copied to a zero
     page temporary, which it becomes."""
+    to_temporary(i, True)
+
+
+def to_temporary(i, in_zero_page):
+    """Operand `i`, a word, is copied to a temporary, in zero page if `in_zero_page`, which it becomes."""
     t = reg.op_type[i]
     j = reg.depth
     reg.describe_temp(j, t)
-    reg.zero_page(j)
+    if in_zero_page:
+        reg.zero_page(j)
     reg.release(i)
     reg.put(i, 0, j, 0)
     reg.put(i, 1, j, 1)
@@ -1180,23 +1235,178 @@ def by_registers(f):
     return kernel.sym_flags[f] & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
 
 
+def through_pointer():
+    """The newest operand, a value of a function type, is to be called through. It becomes the
+    callee, as an O_FUNC whose op_var is the symbol that declares the type, and stays under
+    the arguments until the call, which is a JSR to a JMP (pointer). The pointer must be a
+    two-byte variable, which the linker keeps from lying across a page boundary, where the
+    NMOS 6502 would read the JMP's address wrongly: anything else (an element, a field, what a
+    pointer points at) is copied to a temporary first."""
+    settle()
+    i = reg.depth - 1
+    t = reg.op_type[i]
+    s = reg.op_var[i]
+    whole = reg.op_symbol[i] == kernel.NO_OBJ or (reg.op_value[i] == 0 and (
+        reg.op_flags[i] & reg.F_TEMP != 0 or (reg.op_symbol[i] == reg.own and reg.slot_size[reg.op_slot[i]] == 2)
+        or (s != kernel.NO_SYM and typetab.size(kernel.sym_type[s]) == 2)))
+    if reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or not whole:
+        to_temporary(i, False)
+    reg.use(i)
+    reg.op_kind[i] = reg.O_FUNC
+    reg.op_var[i] = typetab.base(t)
+
+
+def through(f):
+    """True if `f` is a function type: a call of it is through a pointer."""
+    return kernel.sym_kind[f] == kernel.K_TYPE
+
+
+def stub(i):
+    """The label of the JMP (pointer) for the callee operand `i`, a call through a pointer:
+    one per pointer in each function, written after its code (function_end())."""
+    global stub_count
+    for n in range(0, stub_count):
+        if stub_symbol[n] == reg.op_symbol[i] and stub_slot[n] == reg.op_slot[i] \
+                and stub_value[n] == reg.op_value[i]:
+            return stub_label[n]
+    if stub_count == MAX_STUBS:
+        err.fatal(err.E_CALLS_FULL)
+    stub_label[stub_count] = fbuf.new_label()
+    stub_symbol[stub_count] = reg.op_symbol[i]
+    stub_slot[stub_count] = reg.op_slot[i]
+    stub_value[stub_count] = reg.op_value[i]
+    stub_count += 1
+    return stub_label[stub_count - 1]
+
+
+def saving(f):
+    """True if a call of `f` saves the caller's frame (docs/code-model.md, "Recursion"): the
+    caller is `recursive`, and so is `f`, a function, or the function type `f`."""
+    if not saves_frame:
+        return False
+    if through(f):
+        return typetab.is_recursive(kernel.sym_type[f])
+    return kernel.sym_flags[f] & kernel.SF_RECURSIVE != 0
+
+
+def frame_routines():
+    """The symbols of rt_frame.push and rt_frame.pop_y, and the IMP record of rt_frame, which
+    the first saving call of the module writes: the build finds the module from it. A module
+    that imports rt_frame itself has the symbols already."""
+    global frame_push, frame_pop
+    if frame_push != kernel.NO_OBJ:
+        return
+    module_name = fixed_name(FRAME_MODULE)
+    for scope in range(1, kernel.module_count):
+        if kernel.module_name[scope] == module_name:
+            s, _ = kernel.sym_find(scope, fixed_name(PUSH_NAME))
+            frame_push = object_symbol(s)
+            s, _ = kernel.sym_find(scope, fixed_name(POP_NAME))
+            frame_pop = object_symbol(s)
+            return
+    out.imported(module_name)
+    frame_push = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(PUSH_NAME))
+    frame_pop = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(POP_NAME))
+
+
+def fixed_name(text):
+    kernel.name_begin()
+    for i in range(0, len(text)):
+        kernel.name_add(text[i])
+    return kernel.name_end()
+
+
+def slot_byte(opcode, symbol, slot, k):
+    """The instruction `opcode` (absolute form) on byte `k` of slot `slot` of function `symbol`."""
+    j = reg.depth
+    reg.describe(j, reg.O_VAR, typetab.BYTE_TYPE)
+    reg.op_symbol[j] = symbol
+    reg.op_slot[j] = slot
+    reg.op_value[j] = k
+    if symbol == reg.own and reg.slot_class[slot] == reg.CLASS_ZP:
+        reg.op_flags[j] = reg.F_ZP
+    reg.direct(opcode, j, 0)
+
+
+def is_argument(n, first):
+    for a in range(first, argument_count):
+        if argument_slot[a] == n:
+            return True
+    return False
+
+
+def save_frame(f, first):
+    """A saving call of `f` is next; its arguments wait in temporaries. Push every byte of the
+    frame that can be live: the parameters and locals, and the temporaries in use but for
+    those arguments and the copy of the pointer called through, if there is one. Then move
+    the arguments to `f`'s parameters, which can be the caller's own."""
+    global saved_count, argument_count
+    frame_routines()
+    skip = fbuf.NO_SLOT
+    if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0:
+        skip = reg.op_slot[first - 1]
+    base = argument_count - kernel.sym_params[f]
+    saved_count = 0
+    for n in range(0, fbuf.FIRST_TEMP + reg.temp_count):
+        if n < reg.local_count or (n >= fbuf.FIRST_TEMP and reg.slot_busy[n] and n != skip
+                                   and not is_argument(n, base)):
+            saved_slot[saved_count] = n
+            saved_count += 1
+            for k in range(0, reg.slot_size[n]):
+                slot_byte(OP_LDA, reg.own, n, k)
+                fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
+    if saved_count > 0:
+        out.call(frame_push, 0, outer)
+    for p in range(0, kernel.sym_params[f]):
+        n = argument_slot[base + p]
+        for k in range(0, reg.slot_size[n]):
+            slot_byte(OP_LDA, reg.own, n, k)
+            slot_byte(OP_STA, object_symbol(f), p, k)
+        reg.slot_busy[n] = False
+    argument_count = base
+
+
+def restore_frame():
+    """After a saving call: pop what save_frame() pushed, last byte first, through Y."""
+    if saved_count > 0:
+        out.call(frame_pop, 0, outer)
+    for i in range(saved_count - 1, -1, -1):
+        n = saved_slot[i]
+        for k in range(reg.slot_size[n] - 1, -1, -1):
+            fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
+            slot_byte(OP_STY, reg.own, n, k)
+
+
 def call(f, first, wanted):
     """Call function `f`. The arguments of an `extern` or `asm` function are the operands from
-    `first` on; those of any other are in its frame already. Pushes result(f) if it is
-    `wanted`. An `extern` function is at a fixed address; any other is reached through its
-    symbol, with a CALL record."""
+    `first` on; those of any other are in its frame already, or, for a saving call, in
+    temporaries. Pushes result(f) if it is `wanted`. An `extern` function is at a fixed
+    address; any other is reached through its symbol, with a CALL record. A call through a
+    pointer (`f` a function type) has the pointer under the arguments, as through_pointer()
+    left it."""
     if by_registers(f):
         load_registers(f, first)
         while reg.depth > first:
             reg.pop()
     reg.clobber()
+    flags = 0
+    if saving(f):
+        save_frame(f, first)
+        flags = out.CALL_SAVES
     if kernel.sym_flags[f] & kernel.SF_EXTERN != 0:
         fbuf.op_word(fbuf.OP_JSR, kernel.sym_value[f])
+    elif through(f):
+        fbuf.call_label(stub(first - 1))
+        out.call(object_symbol(f), flags | out.CALL_POINTER, outer)
     else:
         callee = object_symbol(f)
         fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, callee, fbuf.NO_SLOT, 0)
-        out.call(callee, 0, outer)
+        out.call(callee, flags, outer)
+    if flags != 0:
+        restore_frame()
     reg.forget()
+    if through(f):
+        reg.pop()
     if wanted:
         result(f)
 
@@ -1289,11 +1499,14 @@ def loop_end():
 
 def function_begin(symbol):
     """Start generating the function whose object-file symbol is `symbol`."""
-    global pend_op, outer
+    global pend_op, outer, stub_count, saves_frame, argument_count
     fbuf.begin()
     reg.begin(symbol)
     pend_op = 0
     outer = out.NO_OUTER
+    stub_count = 0
+    saves_frame = False
+    argument_count = 0
 
 
 def slots(first, count):
@@ -1307,6 +1520,12 @@ def function_end(flags):
     temporaries, then its code."""
     if fbuf.runs_on():
         ret()
+    for n in range(0, stub_count):
+        reg.label(stub_label[n])        # reached only by the JSRs of pointer calls: nothing is known
+        if stub_symbol[n] == kernel.NO_OBJ:
+            fbuf.op_word(fbuf.OP_JMP_INDIRECT, stub_value[n])
+        else:
+            fbuf.op_fix(fbuf.OP_JMP_INDIRECT, fbuf.FIX_ADDRESS, stub_symbol[n], stub_slot[n], stub_value[n])
     fbuf.finish(reg.own, reg.local_count)
     out.function_begin(reg.own, flags)
     slots(0, reg.local_count)

@@ -1,4 +1,4 @@
-; error 39 5 7
+; error 153 5 7
 module address_of_function
 var p: ^byte
 func f()

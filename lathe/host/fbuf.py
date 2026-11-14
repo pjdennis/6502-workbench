@@ -48,7 +48,8 @@ I_FAR = 4                   # opcode, label: a branch that does not reach
 I_JUMP = 5                  # label: a JMP to a label
 I_LABEL = 6                 # label: the label is here
 I_KEPT_JUMP = 7             # label: a JMP an `asm` block wrote, kept as it is
-I_FIX = 8                   # I_FIX + fix-up kind: opcode, symbol (2), slot, addend (2)
+I_CALL = 8                  # label: a JSR to a label
+I_FIX = 9                   # I_FIX + fix-up kind: opcode, symbol (2), slot, addend (2)
 
 OP_JSR = 0x20
 OP_RTI = 0x40
@@ -270,6 +271,13 @@ def jump(label):
     add(label)
 
 
+def call_label(label):
+    """A JSR to `label`: a call through a pointer goes to a JMP (pointer) of this function."""
+    label_uses[same(label)] += 1
+    add_entry(I_CALL)
+    add(label)
+
+
 def as_written(on):
     """From now on, if `on`, the instructions are those of an `asm` block, which are kept as
     they are written: none is left out as unreached, and no branch is fused or taken out."""
@@ -292,6 +300,9 @@ def tail_call():
     if used == 0 or newest == kept:
         return False
     kind = buffer[newest]
+    if kind == I_CALL:
+        buffer[newest] = I_JUMP
+        return True
     if (kind != I_WORD and kind != I_FIX + FIX_ADDRESS) or buffer[newest + 1] != OP_JSR:
         return False
     buffer[newest + 1] = OP_JMP
@@ -302,7 +313,7 @@ def runs_on():
     """True if the processor can run on from the newest instruction into whatever is added
     next. False after a return or a jump, until a label gives another way in. If the newest
     entry is not known, a branch has just been taken out, which could be reached."""
-    if used == 0 or newest >= used or buffer[newest] == I_LABEL:
+    if used == 0 or newest >= used or buffer[newest] == I_LABEL or buffer[newest] == I_CALL:
         return True
     if buffer[newest] == I_JUMP or buffer[newest] == I_KEPT_JUMP:
         return False
@@ -427,7 +438,12 @@ def fix(kind, symbol, slot, addend):
 
 def emit_jump(own, goal):
     """JMP to offset `goal` of this function, whose symbol is `own`."""
-    emit(OP_JMP)
+    emit_to(OP_JMP, own, goal)
+
+
+def emit_to(opcode, own, goal):
+    """JMP or JSR to offset `goal` of this function, whose symbol is `own`."""
+    emit(opcode)
     fix(FIX_ADDRESS, own, NO_SLOT, goal)
     emit(0)
     emit(0)
@@ -440,6 +456,9 @@ def emit_entry(entry, own):
         return
     if kind == I_JUMP or kind == I_KEPT_JUMP:
         emit_jump(own, target(buffer[entry + 1]))
+        return
+    if kind == I_CALL:
+        emit_to(OP_JSR, own, target(buffer[entry + 1]))
         return
     opcode = buffer[entry + 1]
     if kind == I_FAR:

@@ -1,0 +1,115 @@
+; A recursive-descent evaluator of + - * and parentheses over a string, in the shape of the
+; compiler's own expression parser: sum, product and primary call each other, with
+; parameters, locals and temporaries live across the recursive calls. Words wrap. Prints each
+; value in decimal and the deepest nesting it reached.
+module rec_eval
+
+import libout
+
+const EXPRS: [12]^byte = [
+  "1+2*3",
+  "(1+2)*3",
+  "2*(3+4)*5",
+  "10-4-3",
+  "-(2+3)*4",
+  "((((((((7))))))))",
+  "(((((((1+2)*3)+4)*5)+6)*7)+8)",
+  "100*(2+(3*(4+(5*(6+(7*(8+9)))))))",
+  "1+2+3+4+5+6+7+8+9+10",
+  "2*2*2*2*2*2*2*2*2*2*2*2*2*2*2*2",
+  "(1-(2-(3-(4-(5-(6-(7-(8-9))))))))",
+  "12*(34+56)-(78-(9*10))"
+]
+
+var text: ^byte
+var pos: byte
+var deepest: byte
+
+; a * b, by shifts and adds
+func times(a: word, b: word): word
+  var r: word = 0
+  while b != 0 do
+    if lo(b) & 1 != 0 then
+      r += a
+    end
+    a = a << 1
+    b = b >> 1
+  end
+  return r
+end
+
+func is_digit(c: byte): bool
+  return c >= '0' and c <= '9'
+end
+
+; 0, but the compiler cannot know it: its result waits in a temporary across a call
+func bias(depth: byte): word
+  return depth >> 7
+end
+
+forward recursive func sum(depth: byte): word
+
+recursive func primary(depth: byte): word
+  var c: byte = text[pos]
+  var v: word
+  if depth > deepest then
+    deepest = depth
+  end
+  if c == '(' then
+    pos += 1
+    v = sum(depth + 1)
+    pos += 1                    ; the ")"
+    return v
+  end
+  if c == '-' then
+    pos += 1
+    return 0 - primary(depth + 1)
+  end
+  v = 0
+  while is_digit(text[pos]) do
+    v = times(v, 10) + (text[pos] - '0')
+    pos += 1
+  end
+  return v
+end
+
+recursive func product(depth: byte): word
+  var v: word = primary(depth)
+  var w: word
+  while text[pos] == '*' do
+    pos += 1
+    w = primary(depth)
+    v = times(v, w)
+  end
+  return v
+end
+
+recursive func sum(depth: byte): word
+  var v: word = product(depth)
+  var op: byte
+  loop
+    op = text[pos]
+    if op == '+' then
+      pos += 1
+      v = (v + bias(depth)) + product(depth)
+    elif op == '-' then
+      pos += 1
+      v = v - product(depth)
+    else
+      return v
+    end
+  end
+end
+
+pub func main()
+  var i: byte
+  for i = 0 to len(EXPRS) - 1 do
+    text = EXPRS[i]
+    pos = 0
+    deepest = 0
+    libout.dec(sum(1))
+    libout.space()
+    libout.hex(deepest)
+    libout.nl()
+  end
+end

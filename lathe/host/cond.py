@@ -437,7 +437,7 @@ def compare(op):
     reg.apart(first, second)
     reg.apart(second, first)
     t = reg.unify(first, second)
-    if t == typetab.BOOL_TYPE and op > fold.NE:
+    if (t == typetab.BOOL_TYPE or typetab.is_func(t)) and op > fold.NE:
         err.fatal(err.E_TYPE)
     if reg.op_kind[first] == reg.O_CONST and reg.op_kind[second] == reg.O_CONST:
         known(fold.compare(op, reg.op_value[first], is_negative(first),

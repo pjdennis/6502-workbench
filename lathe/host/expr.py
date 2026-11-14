@@ -88,8 +88,8 @@ def type_spec():
         t = kernel.sym_type[s]
     elif lex.tok == lex.T_RECORD:
         err.fatal(err.E_RECORD_PLACE)
-    elif lex.tok == lex.T_FUNC:
-        err.fatal(err.E_UNSUPPORTED)
+    elif lex.tok == lex.T_FUNC or lex.tok == lex.T_RECURSIVE:
+        err.fatal(err.E_FUNC_TYPE_PLACE)
     else:
         err.fatal(err.E_TYPE_EXPECTED)
     return typetab.build(t, mark)
@@ -259,7 +259,7 @@ def arguments(f):
                 break
             if by_register:
                 gen.hold()
-            elif count == 1:
+            elif count == 1 and not gen.saving(f):
                 add_pending(f)
             lex.next()
     if lex.tok != lex.T_RPAREN:
@@ -295,7 +295,8 @@ def call(wanted):
     gen.result() pushes."""
     global passing
     f = reg.op_var[reg.depth - 1]
-    reg.pop()
+    if not gen.through(f):
+        reg.pop()               # a pointer called through stays until the call
     lex.next()
     first = reg.depth
     saved = passing
@@ -303,6 +304,14 @@ def call(wanted):
     arguments(f)
     passing = saved
     gen.call(f, first, wanted)
+
+
+def callee():
+    """The designator just parsed is called through if it is a value of a function type and
+    a "(" follows: it becomes the callee."""
+    i = reg.depth - 1
+    if lex.tok == lex.T_LPAREN and reg.op_kind[i] != reg.O_FUNC and typetab.is_func(reg.op_type[i]):
+        gen.through_pointer()
 
 
 def call_value(line, col):
@@ -368,6 +377,7 @@ def primary():
         conversion(type_spec(), line, col)
     elif lex.tok == lex.T_NAME:
         designator()
+        callee()
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
             call_value(line, col)
     elif lex.tok == lex.T_STRING:
@@ -398,8 +408,9 @@ def factor():
         designator()
         err.position(line, col)
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
-            err.fatal(err.E_UNSUPPORTED)        # function pointers come later
-        gen.address()
+            gen.function_address()
+        else:
+            gen.address()
         err.position(lex.line, lex.col)
     else:
         primary()

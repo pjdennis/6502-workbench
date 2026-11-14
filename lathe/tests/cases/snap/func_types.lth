@@ -1,0 +1,50 @@
+; Function types: variables, a parameter, a record field and array elements of one; @f
+; given where the type is wanted (an assignment, an argument, an initial value, a constant
+; table); comparisons with nil and with each other; and the address of a function as a word.
+; Each function whose address is taken as a type joins its class: a MEMB record, once.
+module func_types
+
+type Handler = func(code: byte, arg: word): bool
+type Action = func()
+
+type Key = record
+  code: byte
+  press: Action
+end
+
+func beep(code: byte, arg: word): bool
+  return code == 3
+end
+
+func flash(c: byte, a: word): bool
+  return false
+end
+
+func idle()
+end
+
+var on_key: Handler = @beep
+var keys: [4]Key
+var actions: [3]Action
+var same: bool
+var where: word
+
+const HANDLERS: [3]Handler = [@beep, @flash, @beep]
+
+func take(h: Handler)
+  on_key = h
+end
+
+func set_up(i: byte)
+  var local: Action = @idle
+  keys[i].press = local
+  actions[i] = @idle
+  take(@flash)
+  on_key = HANDLERS[i]
+  same = on_key == HANDLERS[2]
+  if actions[i] != nil then
+    same = local == @idle
+  end
+  where = word(@idle)
+  on_key = nil
+end

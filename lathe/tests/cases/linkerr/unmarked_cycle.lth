@@ -1,0 +1,19 @@
+; link error 21
+; says recursion through a call or function not marked recursive: unmarked_cycle.down -> unmarked_cycle.up -> unmarked_cycle.down
+module unmarked_cycle
+
+forward func up(n: byte)
+
+func down(n: byte)
+  if n != 0 then
+    up(n - 1)
+  end
+end
+
+func up(n: byte)
+  down(n)
+end
+
+pub func main()
+  down(3)
+end

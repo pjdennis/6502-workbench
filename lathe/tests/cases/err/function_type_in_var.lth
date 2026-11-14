@@ -1,0 +1,3 @@
+; error 150 3 8
+module function_type_in_var
+var h: func(a: byte)

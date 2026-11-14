@@ -375,7 +375,7 @@ pub const K_CONST = 3           ; type and value
 pub const K_VAR = 4             ; a variable that lives for the whole program; value: address if SF_AT
 pub const K_LOCAL = 5           ; a parameter or local of the function being compiled; value: its slot
 pub const K_BUILTIN = 6         ; a function the language declares; value: which one
-pub const K_TYPE = 7            ; a named type: type
+pub const K_TYPE = 7            ; a named type: type; a function type's also has members, as K_FUNC
 pub const K_FIELD = 8           ; a field of a record: type, and value: its offset in the record
 
 pub const SF_PUB = 1            ; exported
@@ -386,6 +386,7 @@ pub const SF_ZP = 16            ; a variable declared `zp`
 pub const SF_NOZP = 32          ; a variable declared `nozp`
 pub const SF_ASM = 64           ; an `asm` function: parameters and results in registers, no slots
 pub const SF_ROWS = 128         ; a variable declared `rows` (while its declaration is read)
+pub const SF_RECURSIVE = 128    ; a function declared `recursive` (the bit SF_ROWS has on a variable)
 
 pub var sym_name: [MAX_SYMS]word rows
 pub var sym_scope: [MAX_SYMS]byte nozp

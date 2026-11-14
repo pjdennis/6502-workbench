@@ -1,0 +1,10 @@
+; error 151 9 7
+module function_signature
+type Handler = func(a: byte): bool
+var h: Handler
+func f(a: word): bool
+  return true
+end
+func g()
+  h = @f
+end

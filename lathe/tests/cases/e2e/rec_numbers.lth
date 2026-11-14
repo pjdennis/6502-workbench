@@ -1,0 +1,65 @@
+; Recursive functions on words: factorial, Fibonacci, and the mutual recursion of is_even
+; and is_odd, declared with `forward recursive`. Prints the factorials of 0 to 8, the
+; Fibonacci numbers 0 to 20, and E or O for 0 to 12.
+module rec_numbers
+
+import libout
+
+recursive func factorial(n: word): word
+  var r: word
+  var i: word
+  var s: word = 0
+  if n <= 1 then
+    return 1
+  end
+  r = factorial(n - 1)
+  for i = 1 to n do
+    s += r
+  end
+  return s
+end
+
+recursive func fibonacci(n: word): word
+  if n < 2 then
+    return n
+  end
+  return fibonacci(n - 1) + fibonacci(n - 2)
+end
+
+forward recursive func is_odd(n: byte): bool
+
+recursive func is_even(n: byte): bool
+  if n == 0 then
+    return true
+  end
+  return is_odd(n - 1)
+end
+
+recursive func is_odd(n: byte): bool
+  if n == 0 then
+    return false
+  end
+  return is_even(n - 1)
+end
+
+pub func main()
+  var i: byte
+  for i = 0 to 8 do
+    libout.dec(factorial(i))
+    libout.space()
+  end
+  libout.nl()
+  for i = 0 to 20 do
+    libout.dec(fibonacci(i))
+    libout.space()
+  end
+  libout.nl()
+  for i = 0 to 12 do
+    if is_even(i) then
+      libout.char('E')
+    elif is_odd(i) then
+      libout.char('O')
+    end
+  end
+  libout.nl()
+end

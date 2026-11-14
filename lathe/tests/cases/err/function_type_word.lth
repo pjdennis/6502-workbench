@@ -1,0 +1,8 @@
+; error 44 7 7
+module function_type_word
+type Handler = func()
+var h: Handler
+var w: word
+func f()
+  h = w
+end
