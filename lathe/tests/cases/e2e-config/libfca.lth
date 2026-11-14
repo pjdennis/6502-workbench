@@ -1,0 +1,28 @@
+; imported by farcall.lth and farirq.lth: spike L5's module A, in bank 1.
+module libfca
+
+import libfct
+import libfcb
+
+; M -> A -> B -> A: what libfcb.mid gives, through two returns.
+pub func entry(n: byte): word, bool
+  var w: word
+  var ok: bool
+  w, ok = libfcb.mid(n)
+  return w, ok
+end
+
+; The other half of libfcb.rec, through libfct.to_b.
+pub recursive func rec(n: byte): word
+  if n == 0 then
+    return 0
+  end
+  return libfct.to_b(n - 1) + n
+end
+
+; Calls the function libfct.fp points at with x.
+pub func ptrcall(x: byte): word, bool
+  var f: libfct.Fn
+  f = libfct.fp
+  return f(x)
+end

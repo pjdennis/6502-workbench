@@ -1,0 +1,13 @@
+; imported by inbank.lth: placed in bank 1 by inbank.env.
+module libinbank
+
+import disk
+
+func digit(n: byte): byte
+  return '0' + n
+end
+
+pub func show()
+  disk.put_byte(digit(4))
+  disk.put_byte('!')
+end

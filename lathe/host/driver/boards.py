@@ -66,9 +66,19 @@ ROW_RE = re.compile(r'^\s*\|(.*)\|\s*$')
 
 
 def board_for(env_name):
-    """The board for an environment name or .env path, or None (the default machine)."""
+    """The board for an environment name or .env path, or None (the default machine): the
+    board of the same name, or else, for a file, the one its `define BOARD N` entry names
+    (1 Michael, 2 Wendy 2; Wendy 2 with files if it also has `define DISK` not 0)."""
     name = os.path.splitext(os.path.basename(env_name))[0].lower()
-    return BOARDS.get(name)
+    if name in BOARDS or not os.path.isfile(env_name):
+        return BOARDS.get(name)
+    defines = dict(mapenv.read_env(env_name).defines)
+    board = defines.get('BOARD')
+    if board == 1:
+        return BOARDS['michael']
+    if board == 2:
+        return BOARDS['wendy2disk' if 'DISK' in defines and defines['DISK'] != 0 else 'wendy2']
+    return None
 
 
 def command(board, image, load, disk=None):

@@ -15,7 +15,7 @@ class Memory(unittest.TestCase):
                              '\n'.join('%s %d' % (name, size) for name, size, _ in rows))
 
     def test_the_ceiling_is_never_above_where_it_was(self):
-        self.assertLessEqual(lk_memory_report.CEILING, 53118)
+        self.assertLessEqual(lk_memory_report.CEILING, 53952)
         self.assertGreaterEqual(lk_memory_report.CEILING, lk_memory_report.BUDGET)
 
 

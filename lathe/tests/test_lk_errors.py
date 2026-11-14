@@ -111,7 +111,7 @@ class EnvironmentFile(ErrorTest):
 
     def test_comments_blank_lines_case_and_unknown_entries_are_accepted(self):
         env = ('; a machine\n\nCPU 65C02 ; comment\n  zeropage\t$10 $1f\ncode 512 $BFFF\n'
-               'data $c000 $efff\ndefine HAS_LCD\ndefine SIZE $10\nregion LOW $0200-$7FFF ram fixed\nexit Return')
+               'data $c000 $efff\ndefine HAS_LCD\ndefine SIZE $10\nvectors $FFFA ram fixed\nexit Return')
         r = link([simple()], env)
         self.assertEqual((r.status, r.errors), (0, ''))
         self.assertEqual(r.map_text, 'F 0200 0005 $start\nF 0205 0001 t.main\n')

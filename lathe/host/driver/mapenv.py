@@ -41,6 +41,14 @@ class Env:
                                      # OUTPUT_RAW: code start to the last byte placed
     defines: list = field(default_factory=list)  # `define NAME [VALUE]`: (NAME, VALUE or None)
     path: str = ''
+    # Version 2 (configurations.md), as far as the driver needs it; the linker checks the rest.
+    places: list = field(default_factory=list)   # `place MODULE WIN N`: the modules placed
+    files: list = field(default_factory=list)    # the file of each `bank` or `overlay` that has one
+    farcall: Optional[str] = None                # `farcall MODULE`
+
+    def banked(self):
+        """True if some module's code is in a window: the link makes far calls."""
+        return bool(self.places)
 
 
 def read_env(path):
@@ -93,6 +101,14 @@ def parse_env(text, path='<env>'):
             if value is not None and not 0 <= value <= 0xFFFF:
                 raise FormatError(f'{where}: a define\'s number is 0 to 65535')
             env.defines.append((args[0], value))
+        elif key == 'place' and args:
+            env.places.append(args[0].lower())
+        elif key == 'bank' and len(args) == 4:
+            env.files.append(args[3])
+        elif key == 'overlay' and len(args) == 3:
+            env.files.append(args[2])
+        elif key == 'farcall' and len(args) == 1:
+            env.farcall = args[0].lower()
         elif key == 'start':
             raise FormatError(f'{where}: start is no longer an entry: the linker makes $start '
                               f'(lathe/docs/object-format.md, "Initial values and start-up")')
@@ -105,6 +121,7 @@ def parse_env(text, path='<env>'):
 
 # Map file kinds.
 M_FUNC, M_DATA, M_VAR, M_SLOT, M_CLASS = 'F', 'D', 'V', 'S', 'C'
+M_WINDOW, M_STUB = 'W', 'T'     # a bank's or overlay's contents (number, file); a stub
 
 
 @dataclass
@@ -116,13 +133,18 @@ class MapEntry:
     number: Optional[int] = None      # slot or parameter number (S, C)
     part: Optional[str] = None        # slot or parameter name (S, C)
     context: int = 0                  # F: the context the function copy is for
+    bank: Optional[int] = None        # F, D, V: the bank or overlay it is in (b=N)
 
     def format(self):
+        if self.kind == M_WINDOW:
+            return f'{self.kind} {self.addr:04X} {self.size:04X} {self.number} {self.name}'
         s = f'{self.kind} {self.addr:04X} {self.size:04X} {self.name}'
         if self.number is not None:
             s += f' {self.number} {self.part}'
         if self.kind == M_FUNC and self.context != 0 and '@' not in self.name:
             s += f' {self.context}'
+        if self.bank is not None:
+            s += f' b={self.bank}'
         return s
 
     def base(self):
@@ -135,6 +157,24 @@ def parse_map(text, path='<map>'):
     for n, words in _lines(text):
         where = f'{path}:{n}'
         kind = words[0]
+        if kind == M_WINDOW or kind == M_STUB:
+            want = 5 if kind == M_WINDOW else 4
+            if len(words) != want:
+                raise FormatError(f'{where}: a {kind} line has {want} fields')
+            try:
+                addr, size = int(words[1], 16), int(words[2], 16)
+                number = int(words[3]) if kind == M_WINDOW else None
+            except ValueError:
+                raise FormatError(f'{where}: bad number') from None
+            out.append(MapEntry(kind, addr, size, words[-1], number))
+            continue
+        bank = None
+        if kind in (M_FUNC, M_DATA, M_VAR) and len(words) > 4 and words[-1].startswith('b='):
+            try:
+                bank = int(words[-1][2:])
+            except ValueError:
+                raise FormatError(f'{where}: bad number') from None
+            words = words[:-1]
         if kind not in (M_FUNC, M_DATA, M_VAR, M_SLOT, M_CLASS):
             raise FormatError(f'{where}: unknown map line kind {kind}')
         want = 6 if kind in (M_SLOT, M_CLASS) else 4
@@ -154,7 +194,7 @@ def parse_map(text, path='<map>'):
             raise FormatError(f'{where}: bad number') from None
         if kind == M_FUNC and (copy or len(words) == 5) and context == 0:
             raise FormatError(f'{where}: context 0 is not written')
-        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None, context))
+        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None, context, bank))
     return out
 
 

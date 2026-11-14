@@ -1,0 +1,53 @@
+; config farcall_banks.env
+; config farcall_flat.env
+; Spike L5's timer test in Lathe: a VIA timer interrupt every 1,000 cycles while the main
+; program makes far calls, nested and through a pointer, 512 times; the handler makes a far
+; call of its own into bank 2 (libfcb.mark), wherever the main program is. No call may come
+; back wrong, and the handler must have run at least 100 times.
+module farirq
+
+import libfco
+import libfct
+import libfca
+import libfcb
+import timer
+
+var bad_irq: byte
+
+interrupt func handler()
+  timer.acknowledge()
+  if libfcb.mark() != $B2 then
+    bad_irq += 1
+  end
+end
+
+pub func main()
+  var i: byte
+  var j: byte
+  var bad: byte
+  var w: word
+  var ok: bool
+  bad = 0
+  bad_irq = 0
+  libfct.fp = @libfcb.dbl
+  timer.start_with(1000, @handler)
+  for j = 1 to 2 do
+    for i = 1 to 255 do
+      w, ok = libfca.entry(5)
+      if w != $A106 or not ok then
+        bad += 1
+      end
+      w, ok = libfca.ptrcall($11)
+      if w != $B222 or ok then
+        bad += 1
+      end
+    end
+  end
+  timer.stop()
+  libfco.text("irq ")
+  if bad == 0 and bad_irq == 0 and timer.ticks() >= 100 then
+    libfco.text("ok\n")
+  else
+    libfco.text("fail\n")
+  end
+end

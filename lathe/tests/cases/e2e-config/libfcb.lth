@@ -1,0 +1,30 @@
+; imported by farcall.lth and farirq.lth: spike L5's module B, in bank 2.
+module libfcb
+
+import libfct
+import libfcc
+
+const SIG: [1]byte = [$B2]          ; bank 2's mark
+
+; Back into bank 1, by a jump to the stub (`return f(...)` is a JMP).
+pub func mid(n: byte): word, bool
+  return libfcc.leaf(n)
+end
+
+; 2x in A, the mark in X, the carry clear.
+pub func dbl(x: byte): word, bool
+  return word(SIG[0]) * 256 + word(x) * 2, false
+end
+
+; B's mark, read from this module's own memory: wrong if another bank is in the window.
+pub func mark(): byte
+  return SIG[0]
+end
+
+; n + (n - 1) + ... + 0, every level a far call into the other bank, through libfct.to_a.
+pub recursive func rec(n: byte): word
+  if n == 0 then
+    return 0
+  end
+  return libfct.to_a(n - 1) + n
+end

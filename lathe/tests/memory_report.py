@@ -241,7 +241,8 @@ def corpus():
 
 def options_of(path, env_name=None):
     """The compiler options a case asks for, and those of the environment it is built for:
-    the board's for a case of e2e-BOARD, else host.env's."""
+    the board's for a case of e2e-BOARD, the first `; config` environment's for one of
+    e2e-config, else host.env's."""
     import build
     import mapenv
     d = os.path.basename(os.path.dirname(path))
@@ -252,12 +253,29 @@ def options_of(path, env_name=None):
         for line in f:
             if line.startswith('module'):
                 break
+            if line.startswith('; config ') and d == 'e2e-config' and env_name == 'config':
+                # The first configuration's environment, beside the case or in lathe/env/.
+                env_name = line.split()[2]
+                if os.path.isfile(os.path.join(os.path.dirname(path), env_name)):
+                    env_name = os.path.join(os.path.dirname(path), env_name)
             if line.startswith('; options '):
                 words += line[len('; options '):].split()
             if line.startswith('; defines '):
                 words += ['-d' + w for w in line[len('; defines '):].split()]
     if d == 'err':
         return words
+    if env_name == 'config':
+        # A module e2e-config cases import: the environment of the first case it names.
+        env_name = 'host'
+        with open(path, encoding='latin-1') as f:
+            first = f.readline().split()
+        if first[1:3] == ['imported', 'by']:
+            case = os.path.join(os.path.dirname(path), first[3].rstrip(',:'))
+            with open(case, encoding='latin-1') as f:
+                for line in f:
+                    if line.startswith('; config '):
+                        env_name = os.path.join(os.path.dirname(path), line.split()[2])
+                        break
     return build.compiler_options(mapenv.read_env(build.env_path(env_name)), ()) + words
 
 

@@ -1,0 +1,32 @@
+; config inbank.env
+; Code in a bank, called only from its own bank (stage 11, step 4): libinbank's code is placed
+; in bank 1 of Wendy 2's window by inbank.env. main selects the bank and loads its file itself,
+; then calls libinbank.show, which calls a function of its own bank and one of fixed memory.
+module inbank
+
+import disk
+import rt_bank
+import libinbank
+
+const BANK1: byte = $11             ; bank 1 in the window, $0000-$7FFF as they are
+
+pub func main()
+  var h: byte
+  var b: byte
+  var p: ^byte
+  var old: byte
+  old = rt_bank.select(BANK1)
+  h = disk.open("INBANK.BIN")
+  p = ^byte($8000)
+  loop
+    if disk.read(h) -> b then
+      break
+    end
+    p[0] = b
+    p += 1
+  end
+  disk.close(h)
+  libinbank.show()
+  rt_bank.select(old)
+  disk.put_byte(10)
+end

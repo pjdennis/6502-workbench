@@ -1,0 +1,10 @@
+; imported by farcall.lth and farirq.lth: the function types and the pointers, in fixed memory.
+module libfct
+
+; A, X and carry: a word in A (low) and X (high), and a status in the carry.
+pub type Fn = func(x: byte): word, bool
+pub type RecFn = recursive func(n: byte): word
+
+pub var fp: Fn
+pub var to_a: RecFn                 ; libfca.rec, in bank 1
+pub var to_b: RecFn                 ; libfcb.rec, in bank 2

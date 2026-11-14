@@ -1,0 +1,17 @@
+; config bankdata_banks.env
+; config farcall_flat.env
+; config farcall_host.env
+; config bankdata_ovl.env
+; same libbkd
+; Constants and a variable of a module in a window (stage 11, step 8): libbkd's table and its
+; variable go in its bank (the variable stays fixed in an overlay), and a string whose address
+; it passes on stays in fixed memory. The same output in every configuration.
+module bankdata
+
+import libfco
+import libbkd
+
+pub func main()
+  libbkd.sums(2)
+  libbkd.sums(4)
+end

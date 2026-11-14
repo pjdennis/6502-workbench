@@ -14,8 +14,10 @@ import lk_alloc
 import lk_err
 import lk_name
 import lk_rec
+import lk_scan
 import lk_sym
 import lk_tab
+import lk_win
 
 MAX_FIXES = lk_tab.MAX_FIXES
 NO_CONTEXT = 0xFF                   # the context of a fix-up in constant data
@@ -195,13 +197,20 @@ def target(ctx, sym, slot, is_call):
     f = lk_sym.row_of(sym)
     if slot == 0xFF:
         if is_call:
-            # A call goes to the callee's copy in the caller's own context.
+            # A call goes to the callee's copy in the caller's own context: through its stub
+            # if the callee is in a window and the caller is not in the same bank or overlay.
             if ctx == NO_CONTEXT or not lk_tab.has_copy(f, ctx):
                 lk_name.fail_in(lk_err.E_NOT_LINKED, sym, cur_sym)
-            return lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(f, ctx)]
+            n = lk_tab.copy_node(f, ctx)
+            if lk_win.has_stub(f) and lk_scan.fn_bank(f) != lk_scan.fn_bank(cur_fn):
+                return lk_win.stub_addr(n)
+            return lk_tab.work[lk_tab.W_ADDR + n]
         n, kept = address_copy(f)
         if not kept:
             return 0
+        # `@f` of a function in a window is its stub, wherever it is taken.
+        if lk_win.has_stub(f):
+            return lk_win.stub_addr(n)
         return lk_tab.work[lk_tab.W_ADDR + n]
     if slot >= lk_tab.fn_nslots(f):
         bad()

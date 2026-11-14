@@ -23,6 +23,7 @@ import lk_tab
 MAX_PENDING = 64                    # weights for slots of functions not read yet
 
 obj_cpu = bytearray(lk_name.MAX_OBJECTS)        # its CPU, and OBJ_CLASSES
+obj_bank = bytearray(lk_name.MAX_OBJECTS)       # the bank its code is placed in + 1, or 0
 OBJ_CLASSES = 0x80                  # the file names a pointer class (lk_map.cparams)
 
 cur_fn = lk_tab.NONE                # the function whose records are being read
@@ -122,7 +123,7 @@ def rec_func(obj):
         damaged()
     s = read_sym(obj, lk_sym.FUNCTION)
     define(s)
-    flags = lk_rec.get_byte() & (0xFF ^ (lk_tab.F_INIT | lk_tab.F_HELD))
+    flags = lk_rec.get_byte() & (0xFF ^ (lk_tab.F_INIT | lk_tab.F_HELD | lk_tab.F_STUB | lk_tab.F_ADDR))
     if lk_name.is_init_sym(s):
         flags |= lk_tab.F_INIT
     cur_fn = lk_tab.new_func(flags)
@@ -312,6 +313,54 @@ def take_record(obj, kind):
         damaged()
 
 
+def module_place(obj):
+    """The MOD record's module name: if the environment file places the module, its code goes
+    in that bank or overlay. The name is read into lk_envf's token, which a longer name than
+    any entry can hold does not match."""
+    size = lk_rec.get_byte()
+    for i in range(0, size):
+        c = lk_rec.get_byte()
+        if i < lk_envf.TOKEN_SIZE:
+            lk_envf.token[i] = c
+    obj_bank[obj] = 0
+    if size > lk_envf.TOKEN_SIZE:
+        return
+    lk_envf.token_len = size
+    for i in range(0, lk_envf.place_count):
+        if lk_envf.is_token(lk_envf.place_name[i]):
+            obj_bank[obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
+            lk_envf.place_bank[i] |= lk_envf.P_LINKED
+
+
+def check_places():
+    """Every module the environment file places must be linked."""
+    for i in range(0, lk_envf.place_count):
+        if (lk_envf.place_bank[i] & lk_envf.P_LINKED) == 0:
+            lk_envf.fail_text(lk_err.E_PLACE_UNLINKED, lk_envf.place_name[i])
+
+
+def object_of(f):
+    """The object file that defines function f."""
+    obj = 0
+    while f >= lk_name.obj_fn[obj + 1]:
+        obj += 1
+    return obj
+
+
+def fn_bank(f):
+    """The bank or overlay function f's code is placed in + 1, or 0 for fixed memory."""
+    return obj_bank[object_of(f)]
+
+
+def def_bank(d):
+    """The bank or overlay the code of the module that defines variable or constant d is
+    placed in + 1, or 0."""
+    obj = 0
+    while d >= lk_name.obj_def[obj + 1]:
+        obj += 1
+    return obj_bank[obj]
+
+
 def scan(obj):
     """Read object file obj."""
     global cur_fn, dfix_read
@@ -325,6 +374,7 @@ def scan(obj):
     obj_cpu[obj] = lk_rec.get_byte()
     if obj_cpu[obj] > lk_envf.cpu:
         lk_file.fail(lk_err.E_NEEDS_65C02, lk_file.ARG_OBJECT + obj)
+    module_place(obj)
     cur_fn = lk_tab.NONE
     dfix_read = False
     kind = lk_rec.advance()
@@ -348,6 +398,7 @@ def scan_all():
     lk_name.begin()
     for obj in range(0, lk_name.object_count):
         scan(obj)
+    check_places()
     finish()
 
 
@@ -449,4 +500,41 @@ def finish():
         add_via_edges(lk_tab.fn_ref(f))
     for k in range(0, lk_tab.cls_count):
         add_via_edges(lk_tab.cls_ref(k))
+    add_far_edges()
     lk_tab.chains_to_runs()
+
+
+def crosses(source, target, flags):
+    """True if a call of function source, with these edge flags, of `target` is a far call:
+    a call (not an edge that only places storage) of a function in a window from code that is
+    not in the same bank or overlay."""
+    if (flags & (lk_tab.E_PENDING | lk_tab.E_VIA)) != 0:
+        return False
+    if lk_sym.kind_of(target) != lk_sym.FUNCTION or not lk_sym.is_defined(target):
+        return False
+    b = fn_bank(lk_sym.row_of(target))
+    return b != 0 and b != fn_bank(source)
+
+
+def add_far_edges():
+    """A far call is a call of the far-call module's `call` (configurations.md, "The stub"):
+    a function that makes one calls it, and so does the block of a class with a member in a
+    window, whose calls go through the member's stub. Its storage, and that of what it calls
+    (rt_ovl.load), is then never shared with the caller's."""
+    if not lk_envf.placed():
+        return
+    call = lk_name.fc_call
+    if call == lk_tab.NONE or lk_name.fc_start == lk_tab.NONE:
+        lk_envf.fail_text(lk_err.E_NO_FARCALL, lk_envf.farcall)
+    for f in range(0, lk_tab.fn_count):
+        e = lk_tab.head_of(lk_tab.fn_ref(f))
+        while e != 0:
+            if crosses(f, lk_tab.edge_sym(e - 1), lk_tab.edge_flag(e - 1)):
+                lk_tab.add_edge(lk_tab.fn_ref(f), call, lk_tab.E_NOSAVE)
+                e = 0
+            else:
+                e = lk_tab.chain_next(e)
+    for i in range(0, lk_tab.memb_count):
+        if fn_bank(lk_sym.row_of(lk_tab.memb_func[i])) != 0:
+            k = lk_tab.class_of(lk_sym.row_of(lk_tab.memb_class[i]))
+            lk_tab.add_edge(lk_tab.cls_ref(k), call, lk_tab.E_NOSAVE)

@@ -14,7 +14,7 @@ HOST = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'host'))
 
 # Lowest first.
 LAYERS = ['env', 'lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
-          'lk_out', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit', 'link']
+          'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit', 'link']
 
 
 def source(module):

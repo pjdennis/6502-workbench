@@ -48,6 +48,8 @@ NONE = 0xFFFF
 # FUNC record flags, and the linker's own.
 F_RECURSIVE = 1
 F_INTERRUPT = 2
+F_STUB = 0x10                       # lk_win: the function's copies each have a stub
+F_ADDR = 0x20                       # lk_graph: kept code or constant data takes its address
 F_HELD = 0x40                       # lk_map: a line of the file being read needs its name
 F_INIT = 0x80                       # the function is some module's `$init` (lk_boot)
 
@@ -123,6 +125,8 @@ def_b = [0] * MAX_DEFS              # its size
 def_f = bytearray(MAX_DEFS)         # D_ flags
 D_CLASS = 0x03                      # a variable's zero page class
 D_CONST = 0x04                      # constant data, not a variable
+D_FIXED = 0x08                      # lk_graph: named from outside its module's bank, or its
+                                    # address taken: fixed even if its module is in a window
 D_HELD = 0x10                       # lk_map: a line of the file being read needs its name
 D_PASSED = 0x20                     # lk_graph: the reading passed its DATA record
 D_KEPT = 0x40                       # something kept uses it (lk_graph)

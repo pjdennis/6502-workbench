@@ -90,7 +90,9 @@ python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [-
 
 Finds the modules a program imports (in `lathe/rt/` and beside the source; an `import` inside `#if` is found and compiled whatever the condition), and the run-time modules the compiled objects import without an `import` line (an `IMP` record the compiler writes, such as `rt_frame` for a module with calls that save a recursive function's frame; they are compiled after the others and linked last), compiles them in dependency order with `-c` from the environment's `cpu` entry, `-d` for each of its `define` entries and for each `--define`, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
 
-`--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. With `--env wendy2disk`, `--run` runs the program with `--disk` on the directory `--disk DIR` (a temporary one without it), whose file `args` holds the arguments, one a line; it prints the file `out` the program wrote, copies `errors` to the error output and exits with the status in the file `status` (`../docs/boards.md`, "Wendy 2 with files"). What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range.
+An environment that places code in a window (below) makes `build.py` compile and link the far-call module its `farcall` entry names, as it does `rt_frame`, and copy the bank or overlay files the linker wrote beside the image; `--run` puts them in the `--disk` directory, or runs the default machine in the image's directory, where overlays are loaded from. Such a program cannot be built by the assembler path: `--asm` is an error.
+
+`--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. With `--env wendy2disk`, `--run` runs the program with `--disk` on the directory `--disk DIR` (a temporary one without it), whose file `args` holds the arguments, one a line; it prints the file `out` the program wrote, copies `errors` to the error output and exits with the status in the file `status` (`../docs/boards.md`, "Wendy 2 with files"). What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range. An environment file of another name runs on the board its `define BOARD` names (1 Michael, 2 Wendy 2, Wendy 2 with files if it also has `define DISK` not 0), or on the default machine if it has none.
 
 ## The environment file
 
@@ -109,6 +111,30 @@ define    LEVEL $10     ; or a number, 0 to $FFFF
 ```
 
 The ranges are checked (link error 34): each the right way round, `zeropage` within `$00`–`$FF`, `code` and `data` at `$100` or above and sharing no address. Everything the linker places lies wholly inside its range; when the items of a range do not fit, the link error says by how many bytes (`zero page is full, 3 bytes over: a.main -> a.f`), counting the bytes skipped so that no two-byte item in main memory crosses a page on an NMOS 6502.
+
+Version 2 adds the entries for code in windows (`../docs/configurations.md`, section 5, has the design and the decisions as built):
+
+```
+more      data $F810 $FFF9      ; a second range for variables
+window    WIN $8000 $EFFF       ; an address range whose contents are switched
+switch    WIN bank $F000 $1F    ; by the bits $1F of the register at $F000 (rt_bank's); or
+                                ; `switch WIN overlay`: by loading a file
+bank      WIN 1 $11 LATHE1.BIN  ; bank 1 (1 to 255), its register value, and its file
+bank      WIN 4 $14             ; a bank without a file: no code may be placed in it
+overlay   OVL 1 L5OV1.BIN       ; in a window switched by `overlay`: overlay 1 and its file
+place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
+region    NAMES WIN 4           ; or `region NAMES fixed`: read and checked, not yet used
+farcall   rt_bank               ; the far-call module: rt_bank (banks) or rt_ovl (overlays)
+```
+
+- A window comes before its `switch`, which comes before the window's `bank` or `overlay` entries, which come before the `place` and `region` entries that name them. Names are folded to lower case; file names are kept as written.
+- A window must lie at `$100` or above and share no address with `code`, `data`, `more` or another window (error 34). Code may be placed in one window only (50); its overlays are numbered from 1 with none missing (52); with a `place` entry there must be a `farcall` entry (54), whose module must be fixed (49), linked, and define `call` and `start` (46). Every placed module must be linked (44).
+- With `more`, the frames are laid out first in `data`, and then each variable goes in `data` if it still fits there, else in `more`, in order.
+- A module's code, and each copy of its functions for a context, goes in its bank or overlay, from the window's first address, in object order. A call from outside that bank or overlay, `@f` anywhere, and the start-up code's calls of `main` and of a module's `$init` go through a 6-byte stub in fixed memory (`JSR FARCALL.call`, the bank's value or the overlay's number, the function's address less one); a call inside the bank is a plain `JSR`. The stubs follow `$start` and `$init`, then the table `$banks` or `$overlays` that `FARCALL.start` reads, which `$start` calls before `$init`. A constant or variable of a placed module goes in its bank if only that bank's code names it and nothing takes its address (variables at the top of the bank, and never in an overlay); otherwise it is fixed. Frames are always fixed.
+- A bank's contents are judged for the fit check by their size before shrinking, every variable that may go in it counted, so that whether a program links does not depend on zero page (45 says by how much it is over).
+- An interrupt function must not be in a window (47) and must not reach a function in an overlay (48).
+- Each bank or overlay that has a file in the window code is placed in is written to that file in the directory of `OUT.bin`: its bytes from the window's first address through the last byte of code or constant data placed in it.
+- With no `place` entry, nothing is placed in a window and the output is what version 1 gives.
 
 `define` is for the compiler only: `build.py` passes it on as `-dNAME` or `-dNAME=NUMBER`, and the linker skips it, as it skips any entry it does not know. The linker writes the start-up code from the other entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39.
 
@@ -145,6 +171,10 @@ V C000 0001 demo.count            ; module-level variable
 S 0010 0002 demo.spaces 0 s       ; slot 0 of demo.spaces
 S 0020 0002 demo.spaces@1 0 s     ; slot 0 of its copy for context 1
 C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
+D 021C 0011 $banks                ; the table of banks ($overlays), after $init's line
+F 8000 0006 lib.show b=1          ; a function in bank or overlay 1 (D and V lines too)
+T 4016 0006 lib.show              ; its stub, after its F line (a copy's: lib.show@1)
+W 8000 0013 1 INBANK.BIN          ; bank or overlay 1: the bytes of its file, and the file
 ```
 
 A C line names the parameter by its name in the class's `CLAS` records; one they leave unnamed (the compiler does not yet write the names) takes the name of the parameter of the class's first member, or `pN`.
@@ -208,7 +238,9 @@ A new error takes the next free number of its group.
 | End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed, and an empty line for an empty row. These use the board modules of `lathe/rt/`; a Wendy 2 case whose source is the Michael one is a link to it. |
 | End to end with files | `tests/cases/e2e-wendy2disk/NAME.lth` | Built with `wendy2disk.env` both ways and run on a directory holding a copy of `NAME.disk/` (its input files; the arguments in `args`). The file `out` it writes equals `NAME.expected.out`, `errors` equals `NAME.expected.err` (or is empty), the status is the `; status N` line before `module` (default 0), and each `; same IN OUT` line names an output that must hold exactly the bytes of input `IN`. |
 | Files on Wendy 2 | `test_disk.py` | `lathe/rt/disk.lth` has the functions of `host.lth` that `sys.lth` uses, with the same types; `sys.lth` with `host` renamed `disk` runs `copytest.lth` on Wendy 2 as `test_src_sys.py` runs it on the default machine. |
-| Far calls | `test_farcall.py` | `lathe/rt/rt_bank.lth` and `rt_ovl.lth`, compiled and linked with `tests/spike_l5/l5main.lth`, with spike L5's program, stubs and tables assembled around them by `spike_l5/l5build.py`: the spike's output banked on Wendy 2 and with overlays on the default machine, its cycles and sizes, and status 255 for a missing bank file. |
+| Configurations | `tests/cases/e2e-config/NAME.lth` | One program linked in several configurations: each line `; config ENV` before `module` names an environment file beside the case (or in `lathe/env/`), and the program runs on the machine that environment names. The output equals `NAME.ENV.expected.out` if there is one, else `NAME.expected.out`; a configuration that places no code in a window is also built by the assembler path, with identical images required; each `; same MODULE...` line names modules whose objects must be the same in every configuration (but for the CPU byte of the `MOD` record). The cases are spike L5's program in Lathe (`farcall.lth`) and its timer test (`farirq.lth`), banked, in overlays and all in one; a module in a bank called only from its bank (`inbank.lth`); constants and a variable in a bank (`bankdata.lth`). |
+| Far calls | `test_farcall.py` | `farcall.lth` with the linker's stubs and tables: a far call costs 182 cycles more than a call into a bank and 82 into the overlay in the window, against the same objects all in one; the program makes 49 overlay loads; the routines' and stubs' sizes; status 255 for a missing bank or overlay file; where `bankdata.lth`'s constants and variable went. |
+| Windows | `test_lk_windows.py` | Environment version 2 on objects built by hand: every new link error, `more`, placement in a bank and its file, a bank judged before shrinking and whatever zero page takes, stubs for interrupt contexts, and which constants and variables go in a bank. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
 | Zero page promotion | `test_lk_promotion.py` | The synthetic program and random ones, linked as the linker links and with every candidate judged on a fresh layout: the maps must be the same, and the layouts fewer. |

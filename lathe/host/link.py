@@ -11,8 +11,9 @@ Pass 1 never reads code, and holds a few bytes for each function, slot, call and
                 keeps by naming it, which it finds by reading the fix-ups again, as often as
                 that keeps something new (usually twice); recursion
     lk_alloc    zero page and main memory for every slot and variable
+    lk_win      with code in a window: which functions have stubs
     lk_place    the size of each function after shrinking, from its fix-ups, and where its
-                code goes
+                code goes, in fixed memory or in its bank
 
 Pass 2 (lk_emit, with lk_fix, lk_boot, lk_out and lk_map) reads each file once more, in order,
 holding one function's or one table's fix-ups at a time, and writes the image and the map. A
@@ -30,6 +31,7 @@ import lk_place
 import lk_scan
 import lk_sym
 import lk_tab
+import lk_win
 
 def find_main():
     """The function MAINMODULE.main, which some object file must define. lk_name noted the
@@ -57,6 +59,8 @@ def main():
     lk_scan.scan_all()
     main_sym = find_main()
     lk_graph.build(main_sym)
+    lk_win.check_interrupts()
+    lk_win.mark_stubs(lk_sym.row_of(main_sym))
     lk_alloc.allocate()
     lk_place.place()
     lk_emit.write(lk_sym.row_of(main_sym))

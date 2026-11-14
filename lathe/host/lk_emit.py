@@ -8,8 +8,14 @@ is written once for each, its code read again for each copy after the first. Con
 written with the fix-ups held from the DFIX record before it.
 
 The map's slot lines are written on the way, because slot names are only in the files.
+
+With code placed in a window, the image is written by the first reading of the files, and the
+file of each bank or overlay by a reading of its own, of the files of the modules placed there:
+one file is written at a time, in address order (lk_out). The slot lines are written by the
+first.
 """
 import lk_boot
+import lk_envf
 import lk_err
 import lk_fix
 import lk_map
@@ -20,6 +26,7 @@ import lk_rec
 import lk_scan
 import lk_sym
 import lk_tab
+import lk_win
 
 
 def value(n, op):
@@ -117,10 +124,11 @@ def emit_copies(obj, f):
             first = False
 
 
-def emit_data(obj):
-    """MAIN is at a DATA record: write the constant with the fix-ups held, if it is kept."""
+def emit_data(obj, dest):
+    """MAIN is at a DATA record: write the constant with the fix-ups held, if it is kept and
+    is in the file being written, dest (lk_win.def_dest)."""
     s = lk_name.global_sym(obj, lk_rec.get_word())
-    if not lk_tab.is_kept_def(lk_sym.row_of(s)):
+    if not lk_tab.is_kept_def(lk_sym.row_of(s)) or lk_win.def_dest(lk_sym.row_of(s)) != dest:
         lk_fix.drop()
         return
     lk_fix.begin_data(s)
@@ -164,10 +172,12 @@ def slot_line(f, number, i):
     lk_map.slot(f, number, i, 2 * lk_tab.W_SNAME)
 
 
-def emit_object(obj):
-    """Write what object file obj has kept. The names of its kept functions that have slots are
-    held as the file is read, for the S lines (lk_map)."""
-    some = lk_map.mark_functions(obj, True, True)
+def emit_object(obj, dest):
+    """Write what object file obj has kept in file dest: 0 the image, or a bank + 1. With the
+    image, the S lines: the names of its kept functions that have slots are held as the file is
+    read (lk_map)."""
+    some = dest == 0 and lk_map.mark_functions(obj, True, True)
+    here = dest == lk_scan.obj_bank[obj]   # its functions are in this file
     if some:
         lk_map.hold_begin(obj, lk_map.W_HELD, lk_tab.W_OWN)
     lk_rec.open_object(obj)
@@ -190,19 +200,19 @@ def emit_object(obj):
             lk_fix.drop()
             if kept:
                 lk_fix.begin(f)
-        elif kind == lk_rec.R_SLOT and kept:
+        elif kind == lk_rec.R_SLOT and kept and dest == 0:
             slot_line(f, number, slots)
             slots += 1
-        elif kind == lk_rec.R_FIX and kept:
+        elif kind == lk_rec.R_FIX and kept and here:
             lk_fix.hold(obj, True)
-        elif kind == lk_rec.R_CODE and kept:
+        elif kind == lk_rec.R_CODE and kept and here:
             emit_copies(obj, f)
         elif kind == lk_rec.R_ENDF:
             kept = False
         elif kind == lk_rec.R_DFIX:
             lk_fix.hold(obj, False)
         elif kind == lk_rec.R_DATA:
-            emit_data(obj)
+            emit_data(obj, dest)
         kind = lk_rec.advance()
     lk_rec.close()
     if some:
@@ -218,7 +228,15 @@ def write(main_fn):
     lk_out.open_image()
     lk_boot.write(main_fn)
     for obj in range(0, lk_name.object_count):
-        emit_object(obj)
+        emit_object(obj, 0)
     lk_out.close_image(lk_boot.start_addr)
+    if lk_envf.placed():
+        for b in range(0, lk_envf.bank_count):
+            if lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0:
+                lk_out.open_bank(b)
+                for obj in range(0, lk_name.object_count):
+                    if lk_scan.obj_bank[obj] == b + 1:
+                        emit_object(obj, b + 1)
+                lk_out.close_image(0)
     lk_map.cparams()
     lk_map.close_map()

@@ -23,6 +23,7 @@ read from the first object file that has a SYM record for the symbol (error_name
 reading of each file that holds the names of that file (lk_map).
 """
 import env
+import lk_envf
 import lk_err
 import lk_file
 import lk_rec
@@ -49,7 +50,9 @@ HEAP_START = 2 * HEAP               # in bytes
 HEAP_END = 2 * lk_tab.WORK_SIZE     # without the symbols' words
 ENTRY = 5                           # a kept name: next in its chain + 1 (2), symbol (2),
                                     # length (1), then the characters
-X_LOW = 0x3FFF                      # in a symbol's second word: its first call + 1, or a weight
+X_LOW = 0x0FFF                      # in a symbol's second word: a variable's weight so far
+X_FSTART = 0x1000                   # named FARCALL.start, the far-call module's (lk_envf.farcall)
+X_FCALL = 0x2000                    # named FARCALL.call
 X_INIT = 0x4000                     # a function named `module.$init`
 X_MAIN = 0x8000                     # named MAINMODULE.main
 
@@ -62,9 +65,13 @@ pending = 0                         # length of the name being read, at heap_top
 pend_hash = 0                       # its hash so far
 main_length = 0                     # MAINMODULE.main is at HEAP_START
 main_sym = lk_tab.NONE              # what it stands for, once something defines it
+fc_call = lk_tab.NONE               # what FARCALL.call and FARCALL.start stand for, once defined
+fc_start = lk_tab.NONE
 
 MAIN_SUFFIX = b".main"
 INIT_SUFFIX = b".$init"
+CALL_SUFFIX = b".call"
+START_SUFFIX = b".start"
 
 
 # ---- bytes and bits in the work area
@@ -156,7 +163,7 @@ def mark_all():
 
 def begin():
     """Before the tables are read: no name kept yet, and MAINMODULE.main to look out for."""
-    global heap_top, main_length, main_sym
+    global heap_top, main_length, main_sym, fc_call, fc_start
     for i in range(0, 512):
         lk_tab.work[HEADS + i] = 0
     main_length = lk_file.arg_length(lk_file.ARG_MAIN)
@@ -170,6 +177,8 @@ def begin():
     main_length += len(MAIN_SUFFIX)
     heap_top = HEAP_START + main_length
     main_sym = lk_tab.NONE
+    fc_call = lk_tab.NONE
+    fc_start = lk_tab.NONE
 
 
 # ---- the name being read
@@ -230,6 +239,23 @@ def is_init():
     return True
 
 
+def is_farcall(suffix):
+    """True if the pending name is the far-call module's name followed by `suffix`."""
+    f = lk_envf.farcall
+    if f == 0:
+        return False
+    size = lk_envf.text[f - 1]
+    if pending != size + len(suffix):
+        return False
+    for i in range(0, size):
+        if pending_char(i) != lk_envf.text[f + i]:
+            return False
+    for i in range(0, len(suffix)):
+        if pending_char(size + i) != suffix[i]:
+            return False
+    return True
+
+
 def chain():
     """The chain of the pending name: an index into HEADS."""
     return (pend_hash ^ (pend_hash >> 7)) & 0x1FF
@@ -258,6 +284,10 @@ def symbol(kind):
     flags = 0
     if kind == lk_sym.FUNCTION and is_init():
         flags = X_INIT
+    if kind == lk_sym.FUNCTION and is_farcall(CALL_SUFFIX):
+        flags = X_FCALL
+    if kind == lk_sym.FUNCTION and is_farcall(START_SUFFIX):
+        flags = X_FSTART
     if is_main():
         flags |= X_MAIN
     s = lk_sym.ref(kind, lk_sym.UNDEF | lk_sym.new_number())
@@ -294,10 +324,14 @@ def now(s):
 
 def bind(s, r):
     """Symbol s is defined: it stands for r."""
-    global main_sym
+    global main_sym, fc_call, fc_start
     lk_tab.work[ref_at(s)] = r
     if (lk_tab.work[ref_at(s) - 1] & X_MAIN) != 0:
         main_sym = r
+    if (lk_tab.work[ref_at(s) - 1] & X_FCALL) != 0:
+        fc_call = r
+    if (lk_tab.work[ref_at(s) - 1] & X_FSTART) != 0:
+        fc_start = r
 
 
 def more(s):

@@ -134,6 +134,8 @@ The ports are in fixed RAM, so they are reached from every bank.
 | `errors` | What it wrote with `put_error`. Created only if it writes something. |
 | `status` | `exit(code)` writes the code in decimal and a line feed, then stops with STP. No file: `main` returned, status 0. |
 
+**Code in banks.** An environment like `wendy2disk.env` with `code $4000 $7FFF`, a `window WIN $8000 $EFFF`, `switch WIN bank $F000 $1F`, `bank WIN N $1N FILE` entries and `place` entries puts the code of the modules placed in banks of the window, with `farcall rt_bank` ([`configurations.md`](configurations.md), section 5). The linker writes each bank's file beside the image, the build copies it into `DIR`, and the start-up code loads it through the ports before `main`. `../tests/cases/e2e-config/farcall_banks.env` is one. The default machine takes overlays the same way (`switch WIN overlay`, `farcall rt_ovl`), loaded through the host services from the emulator's working directory.
+
 `build.py --env wendy2disk --run [--disk DIR]` runs the program on `DIR` (a temporary empty directory without it), prints `out`, copies `errors` to the error output and exits with the status. `driver/boards.py` (`run_disk`) and `build.run_program(..., disk=DIR)` do the same for the tests; the cases are in `../tests/cases/e2e-wendy2disk/`.
 
 ## The VIA timer

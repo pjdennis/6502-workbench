@@ -7,6 +7,10 @@
     V C000 0001 demo.count            module-level variable
     S 0010 0002 demo.spaces 0 s       slot 0 of demo.spaces, named s
     C 0012 0001 demo.handler 0 code   parameter 0 of a pointer class
+    F 8000 0010 a.leaf b=1            a function in bank or overlay 1 of the window (D lines too)
+    W 8000 0123 1 LATHE1.BIN          the contents of bank or overlay 1 and its file
+    T 0230 0006 a.leaf                the stub of a function in a window, after its F line
+    D 0236 0019 $banks                the table of banks ($overlays), after the line of $init
 
 A class parameter is named by its CLAS records (object-format.md); one they leave unnamed takes
 the name of the parameter of the first function recorded as the class's member, or p0, p1...
@@ -15,17 +19,22 @@ for a class without members.
 import env
 import lk_alloc
 import lk_boot
+import lk_envf
 import lk_err
 import lk_file
 import lk_fix
 import lk_name
+import lk_place
 import lk_rec
 import lk_scan
 import lk_sym
 import lk_tab
+import lk_win
 
 START_NAME = b"$start"
 INIT_NAME = b"$init"
+BANKS_NAME = b"$banks"
+OVERLAYS_NAME = b"$overlays"
 HEX = b"0123456789ABCDEF"
 
 handle = 0
@@ -188,13 +197,45 @@ def copy_lines(f, number, written):
             if not lk_tab.is_extra_copy(n) and ctx != 0:
                 put(32)
                 decimal(ctx)
+            in_bank(lk_scan.fn_bank(f))
             put(10)
+            if lk_win.has_stub(f):
+                begin(84, lk_win.stub_addr(n), lk_win.STUB_SIZE)
+                copy_name(n, number)
+                put(10)
+
+
+def in_bank(dest):
+    """` b=N` after an item in bank or overlay dest - 1, N its number; nothing for 0."""
+    if dest != 0:
+        put(32)
+        put(98)
+        put(61)
+        decimal(lk_envf.bank_n[dest - 1])
 
 
 def symbol_line(letter, s, number):
-    begin(letter, lk_tab.def_a[lk_sym.row_of(s)], lk_tab.def_b[lk_sym.row_of(s)])
+    d = lk_sym.row_of(s)
+    begin(letter, lk_tab.def_a[d], lk_tab.def_b[d])
     write_name(number)
+    in_bank(lk_win.def_dest(d))
     put(10)
+
+
+def window_lines():
+    """A W line for each bank or overlay of the window code is placed in that has a file: the
+    window's first address, the bytes placed, its number and its file."""
+    if not lk_envf.placed():
+        return
+    for b in range(0, lk_envf.bank_count):
+        name = lk_envf.bank_file[b]
+        if lk_envf.bank_win[b] == lk_envf.window() and name != 0:
+            begin(87, lk_envf.win_lo[lk_envf.bank_win[b]], lk_place.bank_used[b])
+            decimal(lk_envf.bank_n[b])
+            put(32)
+            for i in range(1, lk_envf.text[name - 1] + 1):
+                put(lk_envf.text[name - 1 + i])
+            put(10)
 
 
 def functions():
@@ -209,10 +250,20 @@ def functions():
         for i in range(0, len(INIT_NAME)):
             put(INIT_NAME[i])
         put(10)
+    if lk_boot.table_len != 0:
+        begin(68, lk_boot.table_addr, lk_boot.table_len)
+        if lk_envf.is_overlay():
+            for i in range(0, len(OVERLAYS_NAME)):
+                put(OVERLAYS_NAME[i])
+        else:
+            for i in range(0, len(BANKS_NAME)):
+                put(BANKS_NAME[i])
+        put(10)
     for obj in range(0, lk_name.object_count):
         if mark_functions(obj, True, False):
             lines(obj, lk_rec.R_FUNC)
             mark_functions(obj, False, False)
+    window_lines()
 
 
 def symbols(kind, letter):

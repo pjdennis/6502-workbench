@@ -1,0 +1,41 @@
+; config farcall_banks.env
+; config farcall_flat.env
+; config farcall_host.env
+; config farcall_ovl.env
+; same libfca libfcb libfcc libfct
+; Spike L5's three-module program in Lathe (lathe/docs/spikes.md, "Result of L5"): main is
+; fixed; libfca and libfcc are in bank 1 and libfcb in bank 2 with farcall_banks.env, and all
+; in one with farcall_flat.env and farcall_host.env, and in overlays 1 and 2 with farcall_ovl.env.
+; All give the same output.
+module farcall
+
+import libfco
+import libfct
+import libfca
+import libfcb
+import libfcc
+
+pub func main()
+  var w: word
+  var ok: bool
+  var f: libfct.Fn
+  libfco.text("nest ")               ; M -> A -> B -> A
+  w, ok = libfca.entry(5)
+  libfco.show(w, ok)
+  libfco.text("rec ")                ; recursion across the banks, 20 levels
+  libfct.to_a = @libfca.rec
+  libfct.to_b = @libfcb.rec
+  libfco.word4(libfca.rec(20))
+  libfco.text("ptr1 ")               ; M through a pointer to B
+  libfct.fp = @libfcb.dbl
+  f = libfct.fp
+  w, ok = f($21)
+  libfco.show(w, ok)
+  libfco.text("ptr2 ")               ; A through a pointer to B
+  w, ok = libfca.ptrcall($22)
+  libfco.show(w, ok)
+  libfco.text("ptr3 ")               ; A through a pointer to its own bank
+  libfct.fp = @libfcc.leaf
+  w, ok = libfca.ptrcall($30)
+  libfco.show(w, ok)
+end

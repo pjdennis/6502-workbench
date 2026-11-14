@@ -1,0 +1,55 @@
+; imported by farcall.lth and farirq.lth: a byte to the program's output, on the default
+; machine (host) or on Wendy 2 with files (disk). Every configuration defines PORTS: 1 for the file ports
+; of Wendy 2, 0 for the host services. (Not DISK: once `disk` is imported, that name is the
+; module.)
+module libfco
+
+#if PORTS
+import disk
+#else
+import host
+#end
+
+pub func put(c: byte)
+#if PORTS
+  disk.put_byte(c)
+#else
+  host.put_byte(c)
+#end
+end
+
+pub func text(s: ^byte)
+  var i: byte
+  i = 0
+  while s[i] != 0 do
+    put(s[i])
+    i += 1
+  end
+end
+
+const DIGITS: [16]byte = "0123456789ABCDEF"
+
+pub func hex(b: byte)
+  put(DIGITS[b >> 4])
+  put(DIGITS[b & 15])
+end
+
+; "AA XX C" and a new line: the low byte of w (A), its high byte (X) and the status (carry).
+pub func show(w: word, c: bool)
+  hex(byte(w & $FF))
+  put(' ')
+  hex(byte(w >> 8))
+  put(' ')
+  if c then
+    put('1')
+  else
+    put('0')
+  end
+  put(10)
+end
+
+pub func word4(w: word)
+  hex(byte(w >> 8))
+  hex(byte(w & $FF))
+  put(10)
+end

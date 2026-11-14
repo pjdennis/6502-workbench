@@ -22,6 +22,17 @@
                           line `; status N` before `module` gives the status it must leave in the
                           file `status` (default 0), and each line `; same IN OUT` an output file
                           OUT that must hold exactly the bytes of the input IN.
+    cases/e2e-config/NAME.lth
+                          One program linked in several configurations (lathe/docs/configurations.md):
+                          each line `; config ENV` before `module` names an environment file beside
+                          the case (or in lathe/env/), and the program is built and run with each,
+                          on the machine the environment names (build.run_program; Wendy 2 with
+                          files as in e2e-wendy2disk). The output must equal NAME.ENV.expected.out
+                          if there is one, else NAME.expected.out. A configuration that places no
+                          code in a window is also built by the assembler path, and the images
+                          must be identical. Each line `; same MODULE...` names modules whose
+                          object files must be the same in every configuration, but for the
+                          CPU byte of the MOD record where the configurations' CPUs differ.
 
 A case can import modules that lie beside it; one called lib*.lth, or whose first line starts
 with `; imported by`, is only that, and not a case. A comment line `; defines NAME NAME=NUMBER ...` before the `module` line gives the
@@ -149,6 +160,48 @@ class TestCases(unittest.TestCase):
                             f'{words[1]} differs from {words[0]}')
         return status, out, err
 
+    def check_config(self, source):
+        here = os.path.dirname(source)
+        objects = {}
+        configs = [w[0] for w in headers(source, 'config')]
+        self.assertTrue(configs, f'{source}: no `; config ENV` line')
+        for env in configs:
+            env_file = os.path.join(here, env) if os.path.isfile(os.path.join(here, env)) else env
+            tag = os.path.splitext(os.path.basename(env))[0]
+            work = os.path.join(self.dir, tag)
+            os.makedirs(work)
+            image = os.path.join(work, 'image.bin')
+            build.build(source, image, env_file, keep=os.path.join(work, 'build'), defines=defines(source))
+            for words in headers(source, 'same'):
+                for name in words:
+                    with open(os.path.join(work, 'build', name + '.lo'), 'rb') as fh:
+                        data = bytearray(fh.read())
+                    data[4] = 0         # the MOD record's CPU byte: a 6502 and a 65C02 configuration
+                    objects.setdefault(name, {})[tag] = bytes(data)
+            if build.boards.board_for(build.env_path(env_file)) is not None and \
+                    build.boards.board_for(build.env_path(env_file)).disk:
+                disk = os.path.join(work, 'disk')
+                os.makedirs(disk)
+                status, out, err = build.run_program(image, env_file, disk=disk)
+            else:
+                status, out, err = build.run_program(image, env_file)
+            base = os.path.splitext(source)[0]
+            expected = base + '.' + tag + '.expected.out'
+            if not os.path.isfile(expected):
+                expected = base + '.expected.out'
+            self.assertEqual(out, _read(expected, 'rb'), f'{os.path.relpath(source, ROOT)} with {env}: output')
+            self.assertEqual(status, 0, f'{env}: exit status; error output: {err!r}')
+            if not build.mapenv.read_env(build.env_path(env_file)).banked():
+                other = os.path.join(work, 'asm.bin')
+                build.build(source, other, env_file, use_asm=True, keep=os.path.join(work, 'asm'),
+                            defines=defines(source))
+                self.assertTrue(_read(image, 'rb') == _read(other, 'rb'),
+                                f'{env}: the linker and the assembler path give different images')
+        for name, by_config in objects.items():
+            first = list(by_config.values())[0]
+            for tag, data in by_config.items():
+                self.assertTrue(data == first, f'{name}.lo differs in configuration {tag}')
+
     def check_link_error(self, source):
         with open(source) as fh:
             head = fh.readline().split()
@@ -184,6 +237,7 @@ def _add(kind, check):
 
 _add('snap', TestCases.check_snap)
 _add('linkerr', TestCases.check_link_error)
+_add('e2e-config', TestCases.check_config)
 for _kind, _env in E2E.items():
     _add(_kind, lambda self, path, env=_env: TestCases.check_e2e(self, path, env))
 

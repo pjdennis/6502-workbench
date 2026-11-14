@@ -267,6 +267,8 @@ A module's code can be assigned to a bank or to an overlay. The compiler emits a
 
 With banks, "make available" writes a bank register. With overlays, it loads a file into the window if it is not already there. The program and the linker see no difference; only the run-time routine and its speed differ. Arguments cross without help because slots are always in fixed memory.
 
+`@f` of a function in a window is the address of its stub, wherever it is taken. A constant or variable of a module in a window goes into its bank only if nothing outside the bank names it and nothing takes its address; a variable never goes into an overlay. An interrupt function is always fixed; what it calls may be in a bank, never in an overlay. A placement is by module, in the environment file ([`configurations.md`](configurations.md), section 5, has the rules as built).
+
 ### Data in windows
 
 Frames and ordinary variables are always in fixed memory. A variable declared `in REGION` is placed in that region; if the region is a bank, the program switches it in with a run-time call before use. Two checks are made at link time:

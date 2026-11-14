@@ -233,6 +233,7 @@ class Result:
 
     def __init__(self, status, errors, image, map_text, code_lo):
         self.asm_image = None       # the image by the assembler path, if asked for
+        self.files = {}             # the other files the linker wrote: banks and overlays
         self.asm_text = ''
         self.status = status
         self.errors = errors
@@ -310,6 +311,11 @@ def link(objects, env=HOST_ENV, main=None, args=None, asm=False):
             if len(parts) > 1 and parts[0].lower() == 'code' and run.returncode == 0:
                 code_lo = int(parts[1][1:], 16) if parts[1][0] == '$' else int(parts[1])
         result = Result(run.returncode, run.stderr.decode('latin-1'), image, map_text, code_lo)
+        known = {'test.env', 'out.bin', 'out.map'} | {os.path.basename(p) for p in paths}
+        for name in sorted(os.listdir(tmp)):
+            if name not in known:
+                with open(os.path.join(tmp, name), 'rb') as f:
+                    result.files[name] = f.read()
         if asm and run.returncode == 0:
             import build
             asm_bin = os.path.join(tmp, 'asm.bin')

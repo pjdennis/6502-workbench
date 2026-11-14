@@ -110,11 +110,13 @@ One source, three ways to link the compiler (goal 16).
 |---|---|---|
 | **All in one** | 64 KB of RAM, small or medium programs | Compiler, allocator and linker are one program. For a small program the object stream is a memory buffer, so nothing touches the disk between source and image, as in Turbo Pascal. |
 | **Banked** | Wendy 2, a BBC Micro with sideways RAM, an Apple IIe with 128 KB | The kernel and data are in fixed memory. Phases, and if needed the parts of the front end, are in banks. The symbol heap can be a banked data region. |
-| **Chained** | 32 KB machines with a disk | Compiler, linker pass 1 and linker pass 2 are separate programs run in order. They share nothing in memory; the files are the interface. |
+| **Chained** | 32 KB machines with a disk | Compiler, linker pass 1 and linker pass 2 are separate programs run in order. They share nothing in memory; the files are the interface. The compiler itself is not divided further: banks make that pointless, and on a machine without banks it does not save enough ([`configurations.md`](configurations.md)). |
 
 All three use the far-call mechanism of [`code-model.md`](code-model.md), so the compiler is its own test of banking and overlays.
 
-If the front end alone exceeds what a chained configuration can hold, it has to be divided in time: a first program turns source into a token file and a second compiles the tokens. That is a fallback, not the plan; L4 in [`spikes.md`](spikes.md) decides whether it is needed.
+Dividing the front end in time was the fallback of L4; [`configurations.md`](configurations.md) shows it would save about 4.5 KB, not enough to matter.
+
+The linker builds the banked form from the environment file alone: a module's code goes in a bank or an overlay by a `place` entry, calls that cross go through 6-byte stubs in fixed memory, and the same object files link all in one when there is no such entry ([`configurations.md`](configurations.md), section 5, "As built").
 
 ### Size estimates
 
@@ -229,46 +231,63 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 | classes, parameters, members | 12 (64), 8 (256), 4 (256) | 14 (32), 6 (128), 4 (128) |
 | weights waiting | 5 (256) | none: in the work area while the files are read (64) |
 | candidates by weight | 512 | none: in the work area while promotion works |
-| **total** | **204,338** | **53,118** |
+| windows, banks, places (stage 11) | | 834, below |
+| **total** | **204,338** | **53,952** (53,118 before stage 11) |
+
+**What stage 11 added**, 834 bytes, all sized by the environment and none by the program, beside the work area that the earlier phases already share: the environment's names (`lk_envf.text`, 384 bytes: window, module, region and file names as length and characters, enough for placement D's 9 modules, 4 file names and some regions); 4 windows at 10 bytes (name, first, last, register, switch kind, mask: 40); 16 banks or overlays at 5 (window, number, value, file name: 80); 32 places at 3 (module name, bank: 96); 16 regions at 3 (48); the bank each object file's code is in (`lk_scan.obj_bank`, 40) and the first stub of each object's functions (`lk_win.obj_stub`, 82); and for each bank, the bytes given out and the bytes judged for the fit check (`lk_place.bank_used`, `bank_judged`: 64). There is no table of stubs: a function that has them has a flag in `fn_flags`, and a stub's place is counted from the functions of its object file. Which function is in which bank is found from its object file, and whether a constant or variable may go in its bank is a flag in `def_f`.
 
 The work area is 18,000 bytes of it: 7 × 900 + 3 × 900 words. Peak use over the 78 programs of the corpus (the end-to-end cases on the three machines and `lextest`): objects 8, symbols in object files 376, symbols 312, names kept 856 bytes, functions 220, slots 1,085, calls 419, nodes 220, defs 200, classes 3, class parameters 8, members 7, contexts 3, weights waiting 7, fix-ups held 348. `lk_synthetic` (30 files, 703 functions): 3,430 symbols in object files, 827 symbols, 8,474 bytes of names kept, 3,644 slots, 3,225 calls, 768 nodes, 121 defs, 210 fix-ups held; the host linker takes 0.7 s.
 
 **Choosing what goes in zero page.** The rule ([`code-model.md`](code-model.md), "What goes in zero page") is greedy: candidates heaviest first, each taken if the deepest chain still fits with it. If they all fit, one layout shows it. Otherwise `lk_alloc.judge` decides most items without a new layout. After a layout L it keeps a list of the copies taken since, each with the longest chain through its node in L. A chain through copies x1..xk is no longer than the shortest of their chains plus the sum of their sizes, so the deepest chain of a context is now at most the largest, over the chains t of the list, of t plus the sizes of the copies whose chain is t or more. An item fits if zero page fits with it at that bound; it does not fit if it does not fit with L alone, since more in zero page never makes a chain need less. Only an item between the two takes a new layout, after which it is judged exactly. The choices are those of laying out after every item taken (`test_lk_promotion.py` links both ways and compares). Layouts, before and after: `lextest` with 16, 32, 48, 64 and 96 bytes of zero page 103, 109, 120, 108, 80 and 23, 18, 17, 13, 10; `lk_synthetic` with 112, 128, 160, 192 and 224 bytes 927, 869, 759, 616, 280 and 123, 106, 61, 41, 29. Judging an item reads the list, which a layout empties when it reaches 128 entries (more saved no layouts on the corpus or the synthetic program).
 
-**Why not 24 KB, or 30.** While storage is allocated nearly everything above is live at once, and at the compiler's capacities that is 53 KB: the symbols in object files (8,000 bytes, needed again by placement and the image, and only names could rebuild them), calls (7,200), slots (8,000), functions (7,200), variables and constants (4,000), classes and the rest (2,000), and the work area (18,000: the layout's seven columns and the node columns). The steps left that keep every choice and every text the same are small: the zero page layout in 9-bit values and Tarjan's discovery number kept in the set column (two columns, 3,600 bytes, with the S lines read by a pass of their own to leave room for one file's names while the image is written); the members in the work area (512). Going further means giving something up: dropping `local` while storage is allocated and rebuilding it afterwards, which needs the names again; reading the slots that promotion judges from the files in bands of weights, a reading per band; or lower capacities.
+**Why not 24 KB, or 30.** While storage is allocated nearly everything above is live at once, and at the compiler's capacities that is 53 KB (54 KB with stage 11's tables): the symbols in object files (8,000 bytes, needed again by placement and the image, and only names could rebuild them), calls (7,200), slots (8,000), functions (7,200), variables and constants (4,000), classes and the rest (2,000), and the work area (18,000: the layout's seven columns and the node columns). The steps left that keep every choice and every text the same are small: the zero page layout in 9-bit values and Tarjan's discovery number kept in the set column (two columns, 3,600 bytes, with the S lines read by a pass of their own to leave room for one file's names while the image is written); the members in the work area (512). Going further means giving something up: dropping `local` while storage is allocated and rebuilding it afterwards, which needs the names again; reading the slots that promotion judges from the files in bands of weights, a reading per band; or lower capacities.
 
 ## The environment description
 
-A text file per machine and configuration, read by the linker and, for a few constants, by the compiler. A sketch for Wendy 2:
+A text file per machine and configuration, read by the linker and, for a few constants, by the compiler (`lathe/host/README.md`, "The environment file", has every entry as built). For the compiler on Wendy 2, banked:
 
 ```
+; wendy2bank.env: the compiler on Wendy 2, banked
 cpu       65c02
-zeropage  $10-$EF
-region    LOW    $0200-$7FFF  ram  fixed
-region    WIN    $8000-$EFFF  ram  window  banks 1-15
-region    HIGH   $F800-$FFF9  ram  fixed
-define    HAS_LCD
-
-place     code           LOW
-place     data           LOW
-place     module symtab  code  WIN 1
-place     region SYMBANK       WIN 2
-
-farcall   wendy2_farcall
-output    binary
+zeropage  $00 $FF
+code      $0200 $3DFF            ; fixed: code, stubs, the far-call routine, fixed constants
+data      $3E00 $7FFF            ; fixed: variables, frames, fixed tables
+more      data $F810 $FFF9       ; a second fixed range for variables
 stack     $FF
-exit      loop
+exit      stop
+output    raw
+
+window    WIN $8000 $EFFF        ; an address range whose contents are switched
+switch    WIN bank $F000 $1F     ; switched by the bank register at $F000, bits $1F
+bank      WIN 1 $11 LATHE1.BIN   ; bank 1: the register's value, and the file written for it
+bank      WIN 2 $12 LATHE2.BIN
+bank      WIN 3 $13 LATHE3.BIN
+place     lathec WIN 1           ; a module's code goes in bank 1 of WIN
+place     decl WIN 1
+place     expr WIN 1
+place     inline WIN 1
+place     gen WIN 2
+place     reg WIN 2
+place     cond WIN 2
+place     out WIN 2
+place     asmblock WIN 3
+farcall   rt_bank                ; the run-time module for far calls and for loading banks
+define    BOARD 2
+define    DISK 1
 ```
 
 | Entry | Meaning |
 |---|---|
 | `cpu` | 6502 or 65C02. Sets the `bool` constant `cpu_65c02` that the source can test with `#if`. |
-| `zeropage` | The ranges the linker may allocate. |
-| `region` | A named address range: RAM or ROM, fixed or a window, and its banks. |
+| `zeropage`, `code`, `data` | The ranges the linker may allocate in: zero page, fixed code and constants, fixed variables. |
+| `more data FIRST LAST` | A second range for variables, used when the first is full. |
 | `define` | A constant for `#if`: `define NAME` is the `bool` `true`, `define NAME VALUE` a number. |
-| `place` | Where a segment goes, by default or for one module. |
-| `farcall` | The run-time routine for calls that cross windows: a bank switch or an overlay loader. |
-| `output` | The image format: raw binary, a Commodore `PRG`, one file per bank, and so on. |
+| `window NAME FIRST LAST` | An address range whose contents change. It must not overlap `code`, `data`, `more` or another window. |
+| `switch NAME bank ADDR MASK`, `switch NAME overlay` | How the window is switched: by the bits `MASK` of the register at `ADDR`, or by loading a file. |
+| `bank NAME N VALUE [FILE]`, `overlay NAME N FILE` | Bank or overlay `N` of the window, the register value, and the file the linker writes with its contents. |
+| `place MODULE NAME N` | The module's code goes in bank or overlay `N`. By module only. |
+| `farcall MODULE` | The run-time module for calls that cross windows: `rt_bank` (a bank switch) or `rt_ovl` (an overlay loader). |
+| `output` | The image format: `image` (to `$FFFF`, with the reset vector) or `raw`. Each bank or overlay is a raw file of its own. |
 | `stack`, `exit` | What the start-up code the linker writes does before and after `main`. |
 
 A period machine with little zero page, no banks and a disk is the same file with different numbers and an overlay loader in place of the bank switch.

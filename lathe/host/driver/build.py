@@ -25,7 +25,14 @@
    output, and exits with the status in the file `status` (0 if there is none).
 
 --env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works, and runs
-on the board of the same name, if there is one.
+on the board of the same name, if there is one, or else on the board its `define BOARD` and
+`define DISK` entries name (boards.board_for).
+
+An environment that places code in a window (lathe/docs/configurations.md) makes build add the
+far-call module its `farcall` entry names, as it adds rt_frame; the linker writes a file for each
+bank or overlay, which build copies beside OUT.bin and --run puts where the program reads it
+(the --disk directory, or the default machine's working directory). Such a program cannot be
+built by the assembler path (--asm).
 --keep DIR keeps the objects, map and assembler text in DIR (default: a temporary directory).
 """
 import argparse
@@ -155,9 +162,14 @@ def compile_implicit(order, outdir, options=(), main_dir='.'):
     compiler writes an IMP record for each run-time module its code calls (rt_frame, for the
     calls that save a recursive function's frame). They are found as imports are, and their own
     imports with them. Returns their objects, which go after the others."""
-    done = {name for name, _ in order}
+    return implicit_of([os.path.join(outdir, name + '.lo') for name, _ in order],
+                       {name for name, _ in order}, outdir, options, main_dir)
+
+
+def implicit_of(waiting, done, outdir, options, main_dir):
+    """compile_implicit for the objects `waiting`, with the modules in `done` compiled
+    already."""
     objects = []
-    waiting = [os.path.join(outdir, name + '.lo') for name, _ in order]
     while waiting:
         for name in lo.load(waiting.pop(0)).imports:
             if name not in done:
@@ -167,6 +179,29 @@ def compile_implicit(order, outdir, options=(), main_dir='.'):
                 objects += made
                 waiting += made
     return objects
+
+
+def compile_farcall(env, order, objects, outdir, options=(), main_dir='.'):
+    """The far-call module an environment that places code in a window names (`farcall
+    rt_bank`): compiled with its imports, as compile_implicit compiles rt_frame, if the program
+    does not already have it. Returns its objects, which go after the others."""
+    if not env.banked() or not env.farcall:
+        return []
+    done = {os.path.splitext(os.path.basename(p))[0] for p in objects}
+    if env.farcall in done:
+        return []
+    more = [(n, p) for n, p in module_order(find_module(env.farcall, main_dir)) if n not in done]
+    made = compile_all(more, outdir, options)
+    return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir)
+
+
+def window_files(env, from_dir, to_dir):
+    """Copy the files of the banks and overlays (env.files) that the linker wrote in from_dir
+    to to_dir."""
+    for name in env.files:
+        src = os.path.join(from_dir, name)
+        if os.path.isfile(src) and os.path.abspath(from_dir) != os.path.abspath(to_dir):
+            shutil.copyfile(src, os.path.join(to_dir, name))
 
 
 def assemble(asm_path, bin_path):
@@ -199,9 +234,15 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
     env = env_path(env)
     order = module_order(source)
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
-    options = compiler_options(mapenv.read_env(env), defines)
+    described = mapenv.read_env(env)
+    if described.banked() and (use_asm or use_naive):
+        raise BuildError(f'{env} places code in a window: the assembler path renders only '
+                         f'programs linked all in one')
+    options = compiler_options(described, defines)
+    main_dir = os.path.dirname(os.path.abspath(source))
     objects = compile_all(order, work, options)
-    objects += compile_implicit(order, work, options, os.path.dirname(os.path.abspath(source)))
+    objects += compile_implicit(order, work, options, main_dir)
+    objects += compile_farcall(described, order, objects, work, options, main_dir)
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
     if have_linker:
@@ -209,6 +250,7 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
         run([sys.executable, LINKER, env, main, link_bin, map_path] + objects, 'linking')
         if not use_asm:
             shutil.copyfile(link_bin, out)
+            window_files(described, work, os.path.dirname(os.path.abspath(out)))
             return work
     else:
         naive_map(objects, env, main, map_path)
@@ -218,12 +260,13 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
     return work
 
 
-def run_image(image, args=(), stdin=None):
-    """Runs an image on the emulator's default machine. Returns (status, stdout bytes, stderr bytes)."""
+def run_image(image, args=(), stdin=None, cwd=None):
+    """Runs an image on the emulator's default machine, in the directory cwd (overlays are
+    files there). Returns (status, stdout bytes, stderr bytes)."""
     if not os.path.isfile(EMULATOR):
         raise BuildError('emulator/emulator.out is missing: run make at the repository root')
     cmd = [EMULATOR, os.path.abspath(image), '--output', '-', '--no-dump'] + list(args)
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=stdin)
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=stdin, cwd=cwd)
     # The emulator reports the cycle count on its error output; keep anything else.
     err = b''.join(line for line in r.stderr.splitlines(True) if b' executed ' not in line)
     return r.returncode, r.stdout, err
@@ -239,9 +282,11 @@ def run_program(image, env='host', args=(), stdin=None, disk=None):
     are written to its file `args`, one a line. The output is the file `out`, the error output
     the file `errors` and the status the file `status` (boards.run_disk); any other file the
     program wrote is left in disk for the caller to read."""
-    board = boards.board_for(env)
+    board = boards.board_for(env_path(env))
+    described = mapenv.read_env(env_path(env))
+    beside = os.path.dirname(os.path.abspath(image))     # where build() left the bank files
     if board is None:
-        return run_image(image, args, stdin)
+        return run_image(image, args, stdin, beside if described.files else None)
     if board.disk:
         if disk is None:
             with tempfile.TemporaryDirectory(prefix='lathe-disk-') as d:
@@ -249,7 +294,8 @@ def run_program(image, env='host', args=(), stdin=None, disk=None):
         if args:
             with open(os.path.join(disk, boards.ARGS_FILE), 'wb') as fh:
                 fh.write(b''.join(a.encode('latin-1') + b'\n' for a in args))
-        return boards.run_disk(board, image, mapenv.read_env(env_path(env)), disk)
+        window_files(described, beside, disk)
+        return boards.run_disk(board, image, described, disk)
     text = boards.run(board, image, mapenv.read_env(env_path(env)))
     return 0, text.encode('latin-1'), b''
 

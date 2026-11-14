@@ -32,6 +32,7 @@ import lk_name
 import lk_op
 import lk_sym
 import lk_tab
+import lk_win
 
 POOL_ZP = 0
 POOL_MAIN = 1
@@ -600,10 +601,22 @@ def assign_zp():
             lk_tab.set_zbase(n, (ctx_bottom[lk_tab.ctx_of(n)] + lk_tab.work[LAY_BASE + n]) & 0xFF)
 
 
+def in_bank(d):
+    """True if variable d, not in zero page, goes in its module's bank (lk_win.bank_def).
+    Until lk_place puts it there, its address is the window's first: not zero page, so what
+    shrinks is known."""
+    if lk_win.bank_def(d) == 0:
+        return False
+    lk_tab.def_a[d] = lk_envf.win_lo[lk_envf.window()]
+    return True
+
+
 def place_vars():
     """Give main memory to the variables that are not in zero page. Returns where they end."""
     pos = 0
     for d in range(0, lk_tab.def_count):
+        if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 and in_bank(d):
+            continue
         if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0:
             pos = main_item(pos, lk_tab.def_b[d])
             lk_tab.def_a[d] = (lk_envf.data_lo + pos) & 0xFFFF
@@ -611,10 +624,47 @@ def place_vars():
     return pos
 
 
+def more_item(pos, size):
+    """main_item for the `more` range."""
+    if straddles((lk_envf.more_lo + pos) & 0xFFFF, size):
+        return pos + 1
+    return pos
+
+
+def place_vars_more(pos):
+    """With a `more` range: the variables that are not in zero page after the frames, which
+    end at `pos`, in `data` while each fits there, and the others in `more`, in order."""
+    room = lk_envf.data_hi - lk_envf.data_lo + 1
+    more_room = lk_envf.more_hi - lk_envf.more_lo + 1
+    mpos = 0
+    over = 0
+    for d in range(0, lk_tab.def_count):
+        if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 and not in_bank(d):
+            size = lk_tab.def_b[d]
+            spot = main_item(pos, size)
+            if size <= room and spot <= room - size:
+                lk_tab.def_a[d] = (lk_envf.data_lo + spot) & 0xFFFF
+                pos = spot + size
+            else:
+                spot = more_item(mpos, size)
+                if size <= more_room and spot <= more_room - size:
+                    lk_tab.def_a[d] = (lk_envf.more_lo + spot) & 0xFFFF
+                    mpos = spot + size
+                else:
+                    over = lk_tab.add16(over, size)
+    if over != 0:
+        lk_err.begin(lk_err.E_DATA_FULL)
+        lk_err.over(over, lk_tab.overflow)
+        lk_err.finish()
+
+
 def assign_main():
-    """Lay out main memory: the variables, then each context."""
+    """Lay out main memory: the variables, then each context. With a `more` range the frames
+    come first and the variables after them, in `data` and then in `more`."""
     lk_tab.overflow = False
-    pos = place_vars()
+    pos = 0
+    if not lk_envf.has_more:
+        pos = place_vars()
     for ctx in range(0, lk_tab.ctx_count):
         ctx_bottom[ctx] = pos
         pos = layout(POOL_MAIN, ctx)
@@ -625,6 +675,8 @@ def assign_main():
     for n in range(0, lk_tab.node_count):
         if lk_tab.is_node(n):
             lk_tab.work[lk_tab.W_MBASE + n] = (lk_envf.data_lo + lk_tab.work[LAY_BASE + n]) & 0xFFFF
+    if lk_envf.has_more:
+        place_vars_more(pos)
 
 
 def assign_cparams():

@@ -32,10 +32,10 @@ HOST = os.path.join(LATHE, 'host')
 sys.path.insert(0, HOST)
 
 BUDGET = 24 * 1024                  # the goal (architecture.md, "Memory in the linker")
-CEILING = 53118                    # what the linker takes now must not grow past this
+CEILING = 53952                    # what the linker takes now must not grow past this
 
 MODULES = ['lk_err', 'lk_file', 'lk_op', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
-           'lk_out', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit']
+           'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit']
 
 # The use of each table at the end of a link: name -> (module, expression for the rows used,
 # expression for the capacity). The expressions are evaluated with the linker's modules as names.

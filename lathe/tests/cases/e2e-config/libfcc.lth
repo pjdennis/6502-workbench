@@ -1,0 +1,9 @@
+; imported by farcall.lth and farirq.lth: spike L5's leaf, in bank 1 with libfca.
+module libfcc
+
+const SIG: [1]byte = [$A1]          ; bank 1's mark, read from this module's own memory
+
+; n + 1 in A, the mark in X, the carry set.
+pub func leaf(n: byte): word, bool
+  return word(SIG[0]) * 256 + word(n) + 1, true
+end

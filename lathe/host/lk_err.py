@@ -47,6 +47,19 @@ E_REFS = 38                         # no longer reported: what fix-ups name is n
 E_STOP_6502 = 39
 E_MEMBER_CYCLE = 40
 E_WEIGHTS = 41
+E_ENV_UNKNOWN = 42
+E_ENV_TWICE = 43
+E_PLACE_UNLINKED = 44
+E_BANK_FULL = 45
+E_NO_FARCALL = 46
+E_IRQ_PLACED = 47
+E_IRQ_OVERLAY = 48
+E_FARCALL_PLACED = 49
+E_TWO_WINDOWS = 50
+E_NO_FILE = 51
+E_OVERLAY_NUMBERS = 52
+E_ENV_FULL = 53
+E_FARCALL_MISSING = 54
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -91,6 +104,19 @@ MESSAGES = (
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
     b"too many weights for slots of functions not read yet\n"
+    b"environment file: no such window, bank or overlay\n"
+    b"environment file: named twice\n"
+    b"a module the environment file places is not linked\n"
+    b"code and data do not fit in a bank\n"
+    b"the far-call module is not linked, or does not define call and start\n"
+    b"an interrupt function cannot be in a window\n"
+    b"an interrupt function reaches a function in an overlay\n"
+    b"environment file: the far-call module must be in fixed memory\n"
+    b"environment file: code is placed in two windows, and far calls serve one\n"
+    b"environment file: a module is placed in a bank that has no file\n"
+    b"environment file: overlays must be numbered from 1 with none missing\n"
+    b"environment file: too many windows, banks, overlays, places or regions, or too many names\n"
+    b"environment file: code is placed in a window, and no farcall entry names the module for far calls\n"
 )
 
 PREFIX = b"link error "

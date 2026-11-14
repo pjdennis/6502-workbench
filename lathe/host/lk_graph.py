@@ -23,6 +23,7 @@ which lk_alloc lays out storage, read backwards.
 Calls that only place storage (E_PENDING, E_VIA) do not make anything reachable.
 """
 import lk_boot
+import lk_envf
 import lk_err
 import lk_name
 import lk_rec
@@ -49,6 +50,7 @@ stack_top = 0
 e_kind = 0                          # the fix-up entry read last (read_entry)
 e_sym = 0
 e_slot = 0
+e_add = 0
 found_top = 0
 discovered = 0                      # Tarjan: nodes discovered so far
 # keep_referenced: which object files a reading must read. In lk_tab.work, a byte per object.
@@ -158,13 +160,43 @@ def keeps(obj, source, kind, s, slot):
 
 
 def read_entry(obj):
-    """Read the next fix-up entry of the record being read: its kind, symbol and slot."""
-    global e_kind, e_sym, e_slot
+    """Read the next fix-up entry of the record being read: its kind, symbol, slot and
+    addend."""
+    global e_kind, e_sym, e_slot, e_add
     lk_rec.get_word()
     e_kind = lk_rec.get_byte()
     e_sym = lk_name.global_sym(obj, lk_rec.get_word())
     e_slot = lk_rec.get_byte()
-    lk_rec.get_word()
+    e_add = lk_rec.get_word()
+
+
+def note_named(source, kind, s):
+    """A fix-up entry of kept `source` (NONE for constant data) names s. A variable or
+    constant of a module in a window goes into its bank only if every fix-up that names it is
+    in that bank's code and none takes its address (configurations.md, "Constants and
+    variables of a module in a window"); otherwise it is fixed (lk_tab.D_FIXED)."""
+    sk = lk_sym.kind_of(s)
+    if (sk != lk_sym.VARIABLE and sk != lk_sym.CONSTANT) or not lk_sym.is_defined(s):
+        return
+    d = lk_sym.row_of(s)
+    if source == lk_tab.NONE or kind == 2 or kind == 3 \
+            or lk_scan.fn_bank(lk_sym.row_of(source)) != lk_scan.def_bank(d):
+        lk_tab.def_f[d] |= lk_tab.D_FIXED
+
+
+def note_address(source, kind, s, slot, add):
+    """A fix-up entry of kept `source` (NONE for constant data): if it takes the address of a
+    function, mark the function (lk_tab.F_ADDR), whose address is then its stub's if it is in a
+    window (lk_win). That is what keeps() keeps, and also `@f` inside f, which a fix-up of f's
+    own symbol without an addend gives in one byte (lk_emit.value): with an addend, or in two
+    bytes, f's own symbol is a label."""
+    if lk_sym.kind_of(s) != lk_sym.FUNCTION or slot != 0xFF or not lk_sym.is_defined(s):
+        return
+    taken = source == lk_tab.NONE or (s != source and kind != 1)
+    if s == source and (kind == 2 or kind == 3) and add == 0:
+        taken = True
+    if taken:
+        lk_tab.fn_flags[lk_sym.row_of(s)] |= lk_tab.F_ADDR
 
 
 def keep_in_object(obj):
@@ -188,6 +220,8 @@ def keep_in_object(obj):
                 read_entry(obj)
                 if keeps(obj, source, e_kind, e_sym, e_slot):
                     keep_target(source, e_sym)
+                note_address(source, e_kind, e_sym, e_slot, e_add)
+                note_named(source, e_kind, e_sym)
         elif kind == lk_rec.R_DFIX:
             named_count = 0
             while lk_rec.left() > 0:
@@ -204,6 +238,8 @@ def keep_in_object(obj):
                     lk_err.fail(lk_err.E_FIXES)
                 for i in range(0, named_count):
                     keep_target(data, lk_tab.work[NAMED + i])
+                    note_address(lk_tab.NONE, 1, lk_tab.work[NAMED + i], 0xFF, 0)
+                    note_named(lk_tab.NONE, 1, lk_tab.work[NAMED + i])
             lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
             named_count = 0
         kind = lk_rec.advance()
@@ -264,6 +300,10 @@ def find_contexts(main_sym):
     for f in range(0, lk_tab.fn_count):
         if lk_boot.is_init(f):
             reach(lk_tab.fn_ref(f), 0)
+    if lk_envf.placed():
+        # $start calls the far-call module's start, and a stub its call (configurations.md).
+        reach(lk_name.fc_start, 0)
+        reach(lk_name.fc_call, 0)
     lk_tab.ctx_count = 1
     for f in range(0, lk_tab.fn_count):
         if (lk_tab.fn_flags[f] & lk_tab.F_INTERRUPT) != 0:

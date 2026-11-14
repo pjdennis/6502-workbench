@@ -1,0 +1,25 @@
+; imported by bankdata.lth: a module whose constants and variable can go in its bank.
+module libbkd
+
+import libfco
+
+const SQUARES: [5]byte = [0, 1, 4, 9, 16]   ; read only here: in the bank
+var calls: byte nozp = 0                    ; used only here: in the bank (fixed in an overlay);
+                                            ; set by libbkd.$init, in the bank too
+
+; The sum of the squares to n, and how often this was called; the text is a string whose
+; address is passed to libfco.text, in fixed code, so it is in fixed memory.
+pub func sums(n: byte)
+  var i: byte
+  var total: byte
+  calls += 1
+  total = 0
+  for i = 0 to n do
+    total += SQUARES[i]
+  end
+  libfco.text("squares ")
+  libfco.hex(total)
+  libfco.put(' ')
+  libfco.hex(calls)
+  libfco.put(10)
+end
