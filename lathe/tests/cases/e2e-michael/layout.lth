@@ -1,0 +1,26 @@
+; Text on every row, placed with goto: each row's label, a decimal word with zeros inside it, a
+; hexadecimal byte at the end of the first row, the largest word ending at the last column of the
+; second, and 0 on the last row. The positions come from board.LCD_ROWS and board.LCD_COLS, so
+; the same source serves both boards (cases/e2e-wendy2/layout.lth is a link to this file).
+module layout
+
+import board
+import lcd
+
+pub func main()
+  var row: byte
+  lcd.init()
+  for row = 0 to board.LCD_ROWS - 1 do
+    lcd.goto(row, 0)
+    lcd.print("ROW ")
+    lcd.put('0' + row)
+  end
+  lcd.goto(0, 6)
+  lcd.print_dec(300)
+  lcd.goto(0, board.LCD_COLS - 2)
+  lcd.print_hex($A7)
+  lcd.goto(1, board.LCD_COLS - 5)
+  lcd.print_dec(65535)
+  lcd.goto(board.LCD_ROWS - 1, 6)
+  lcd.print_dec(0)
+end

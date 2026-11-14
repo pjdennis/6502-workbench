@@ -123,3 +123,23 @@ The steps:
 5. `CLI`.
 
 The handler reads T1CL to acknowledge the interrupt, then ends with `RTI`.
+
+## Board modules
+
+Lathe modules in `../rt/` that run a program on either board with no edit to its source. The environment file names the board, `define BOARD 1` in `michael.env` and `define BOARD 2` in `wendy2.env`. `board.lth` turns that number into the facts in this document, and the other modules read them from it. `build.py --env michael` or `--env wendy2` picks the board. These modules do not compile for `host.env`, which has no `BOARD`.
+
+| Module | What it gives |
+|---|---|
+| `board.lth` | Constants: `MICHAEL`, `WENDY2`, `VIA` (the base), `CLOCK_KHZ`, `LCD_ROWS`, `LCD_COLS`, `LCD_4BIT`, and `IRQ_JMP` with `IRQ_VECTOR` (`$3F00` takes `JMP handler`; `$FFFE` takes the handler's address). `delay(units)`, an `asm` function, waits at least `units` times 100 microseconds. |
+| `via.lth` | The VIA's sixteen registers as variables at fixed addresses (`via.portb`, `via.porta`, `via.ddrb`, `via.ddra`, `via.t1cl` … `via.ier`, `via.porta_nh`), and the bits `ACR_T1_MASK`, `ACR_T1_FREE_RUN`, `IRQ_T1`, `IER_SET`. |
+| `lcd.lth` | `init()`, `clear()`, `home()`, `goto(row, col)`, `put(ch)`, `print(s)`, `print_hex(b)`, `print_dec(w)`, and `command(c)` with the `CMD_` constants. |
+| `timer.lth` | `start(period)` sets up an interrupt from timer 1 every `period` CPU cycles (latch `period - 2`), sets the count to 0, and runs `CLI`. `stop()` disables timer 1's interrupt. `ticks()` gives the count, read inside `critical`. |
+
+How the modules treat the hardware:
+
+- **The LCD** is started by instruction, as the data sheet says: 15 ms, then three function sets with 4.1 ms and 100 µs between them, then the switch to 4 bits on Wendy 2. `board.delay` gives those waits. After that, every transfer waits for the busy flag, on both boards, as `../../firmware/lib/lcd/` does. The emulator never sets the busy flag, so the waits end at once there. (On Wendy 2 nothing drives the data pins during a read, and they read 0.)
+- **Port B on Wendy 2.** A pulse on E reads port B, changes bit 5 and writes the byte back, inside `critical`. No shadow copy is kept. For an output pin, the 6522 reads back its output register, so the bank bits come back exactly as they were last written, whoever wrote them.
+- **Port A on Michael** is set up as `../../firmware/boards/michael/michael_ports.inc` does it: first `$18` (SOEB and SOLB high, so the keyboard's shift register stays off port B), then direction `$FE`. The Michael section above gives `$EE`, which leaves SOEB (PA4) as an input. The firmware drives it.
+- **The timer's handler** is an `asm func` written by hand: it saves A, reads T1CL, counts, restores A and ends with `RTI`. It is hand-written because `interrupt` functions are not implemented yet. `start()` stores the handler's address at the vector from an `asm` block, because `@f` of a function is not implemented either.
+
+The cases in `../tests/cases/e2e-michael/` and `e2e-wendy2/` use these modules. Each Wendy 2 case is a link to the Michael case of the same name. Only the expected text differs.

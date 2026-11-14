@@ -1,0 +1,63 @@
+; What a program needs to know about the board it runs on (lathe/docs/boards.md), and a delay.
+;
+; How one source serves both boards. The environment file names the board with a define,
+; `define BOARD 1` in lathe/env/michael.env and `define BOARD 2` in wendy2.env, which the
+; compiler predeclares as the constant BOARD. This module is the one place that turns that number
+; into facts: the VIA's address, the clock, the LCD's size and wiring, where the IRQ vector is.
+; Every other board module (via, lcd, timer) imports this one and reads `board.VIA`,
+; `board.LCD_4BIT` and so on, in `at` placements, in constant expressions and in `#if`; so a
+; program built with `build.py --env michael` or `--env wendy2` needs no edit and no define of its
+; own. The facts live here in Lathe and not as more defines in the environment files because
+; they belong together, and their names then read as `board.NAME` wherever they are used.
+;
+; Built for any other environment (host.env has no BOARD), this module does not compile: a board
+; module is for a board.
+module board
+
+pub const MICHAEL = 1
+pub const WENDY2 = 2
+
+#if BOARD == MICHAEL
+; Michael (v2): a 65C02 at 2 MHz (firmware/boards/michael/base_config_v2.inc).
+pub const VIA = $6000
+pub const CLOCK_KHZ = 2000
+pub const LCD_ROWS = 4
+pub const LCD_COLS = 20
+pub const LCD_4BIT = false          ; 8-bit: data on port B, E RW RS on PA7 PA6 PA5
+pub const IRQ_JMP = true            ; the IRQ vector points at IRQ_VECTOR: store JMP handler there
+pub const IRQ_VECTOR = $3F00
+#else
+#if BOARD == WENDY2
+; Wendy 2 (rev c): a W65C02S at 9.72 MHz (firmware/boards/wendy2/base_config_wendy2c.inc).
+pub const VIA = $F000
+pub const CLOCK_KHZ = 9720
+pub const LCD_ROWS = 2
+pub const LCD_COLS = 16
+pub const LCD_4BIT = true           ; 4-bit: D4-D7 on PA4-PA7, RS PA0, RW PA3, E on PB5
+pub const IRQ_JMP = false           ; the IRQ vector is RAM: store the handler's address there
+pub const IRQ_VECTOR = $FFFE
+#else
+; There is no `#error`: a constant that does not fit stops the build here, under this name.
+const BOARD_MUST_BE_1_MICHAEL_OR_2_WENDY2: byte = 256
+#end
+#end
+
+; The number of 5-cycle loops in 100 microseconds.
+const DELAY_LOOPS = CLOCK_KHZ / 50
+
+; Wait at least `units` times 100 microseconds (0 does not wait), as the firmware's
+; delay_10_thousandths does (firmware/lib/core/delay_routines.inc). Each unit is 5 * DELAY_LOOPS
+; + 6 cycles: 206 cycles (103 us) on Michael, 976 (100.4 us) on Wendy 2. An interrupt only makes
+; it longer. Uses A, X and Y.
+pub asm func delay(units: byte in a)
+  TAX
+  BEQ .done
+.unit
+  LDY #DELAY_LOOPS
+.loop
+  DEY
+  BNE .loop
+  DEX
+  BNE .unit
+.done
+end

@@ -1,0 +1,10 @@
+; The LCD started from scratch and a string on its first row. The same source is the Wendy 2
+; case (cases/e2e-wendy2/hello.lth is a link to this file).
+module hello
+
+import lcd
+
+pub func main()
+  lcd.init()
+  lcd.print("HELLO, LATHE!")
+end

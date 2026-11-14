@@ -1,0 +1,33 @@
+; Lines added at the bottom, as a terminal shows them: twelve lines "LINE n", and after each the
+; display is cleared and the last board.LCD_ROWS lines are drawn again, one row each. Then home
+; and "TOP" over the start of the first row: home keeps the text, and new characters replace
+; old ones. The same source serves both boards (cases/e2e-wendy2/scroll.lth is a link to it).
+module scroll
+
+import board
+import lcd
+
+const LINES = 12
+
+pub func main()
+  var last: byte
+  var first: byte
+  var row: byte
+  lcd.init()
+  for last = 1 to LINES do
+    lcd.clear()
+    first = 1
+    if last > board.LCD_ROWS then
+      first = last - board.LCD_ROWS + 1
+    end
+    row = 0
+    while first + row <= last do
+      lcd.goto(row, 0)
+      lcd.print("LINE ")
+      lcd.print_dec(first + row)
+      row += 1
+    end
+  end
+  lcd.home()
+  lcd.print("TOP")
+end

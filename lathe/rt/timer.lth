@@ -1,0 +1,84 @@
+; A periodic interrupt from the VIA's timer 1, counted (lathe/docs/boards.md, "The VIA timer").
+;
+; The handler is hand-written assembly because the language's `interrupt` functions are not
+; implemented yet. It is an `asm func` that saves A, acknowledges the interrupt by reading T1CL,
+; adds one to `count` and returns with RTI; start() stores its address at the board's vector. It
+; will be replaced by an `interrupt func` in Lathe, which saves the registers itself, gets its
+; own storage for what it calls, and returns with RTI; and, once `@f` of a function is
+; implemented, by storing `@tick` from Lathe instead of from an asm block.
+;
+; Uses timer 1 and its interrupt only: the other bits of ACR and IER are left as they were.
+module timer
+
+import board
+import via
+
+var count: word                     ; interrupts since start(); written by the handler
+
+asm func handler()
+  PHA
+  LDA via.t1cl                      ; acknowledges timer 1's interrupt
+  INC count
+  BNE .counted
+  INC count+1
+.counted
+  PLA
+  RTI
+end
+
+asm func disable_interrupts()
+  SEI
+end
+
+asm func enable_interrupts()
+  CLI
+end
+
+; Start counting an interrupt every `period` CPU cycles (3 to 65537; 2000 is 1 ms on Michael,
+; about 0.2 ms on Wendy 2), from 0, and enable interrupts. Timer 1 runs free: it counts down
+; from its latch, which is period - 2, interrupts at the end and reloads.
+pub func start(period: word)
+  var latch: word = period - 2
+  disable_interrupts()
+#if board.IRQ_JMP
+  ; Michael: the IRQ vector points at IRQ_VECTOR, which gets JMP handler.
+  asm
+    LDA #$4C
+    STA board.IRQ_VECTOR
+    LDA #<handler
+    STA board.IRQ_VECTOR+1
+    LDA #>handler
+    STA board.IRQ_VECTOR+2
+  end
+#else
+  ; Wendy 2: the IRQ vector is RAM and gets the handler's address.
+  asm
+    LDA #<handler
+    STA board.IRQ_VECTOR
+    LDA #>handler
+    STA board.IRQ_VECTOR+1
+  end
+#end
+  count = 0
+  via.acr = (via.acr & ~via.ACR_T1_MASK) | via.ACR_T1_FREE_RUN
+  via.t1cl = lo(latch)
+  via.t1ch = hi(latch)              ; loads the counter from the latch and starts it
+  via.ier = via.IER_SET | via.IRQ_T1
+  enable_interrupts()
+end
+
+; Stop the interrupts. The count stays as it is; interrupts stay enabled for anything else.
+pub func stop()
+  via.ier = via.IRQ_T1              ; without IER_SET: disables timer 1's interrupt
+  via.ifr = via.IRQ_T1              ; and drops one that is pending
+end
+
+; The number of interrupts since start(). The two bytes are read with interrupts disabled, so
+; the handler cannot change the count between them.
+pub func ticks(): word
+  var t: word
+  critical
+    t = count
+  end
+  return t
+end

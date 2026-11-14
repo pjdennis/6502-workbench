@@ -122,8 +122,10 @@ Environment files are in `lathe/env/`:
 | File | Machine |
 |---|---|
 | `host.env` | The emulator's default machine, with host services (`output image`, `exit call $F00F`). |
-| `michael.env` | Michael, loaded at `$2000` (`output raw`, `exit stop`). |
-| `wendy2.env` | Wendy 2, loaded at `$4000` (`output raw`, `exit stop`). |
+| `michael.env` | Michael, loaded at `$2000` (`output raw`, `exit stop`, `define BOARD 1`). |
+| `wendy2.env` | Wendy 2, loaded at `$4000` (`output raw`, `exit stop`, `define BOARD 2`). |
+
+`BOARD` is read by `lathe/rt/board.lth`, the source of what the board modules (`via`, `lcd`, `timer`) know about each board (`../docs/boards.md`, "Board modules").
 
 `../docs/boards.md` describes the three machines.
 
@@ -194,7 +196,7 @@ A new error takes the next free number of its group.
 | Snapshot | `tests/cases/snap/NAME.lth` | `lo2asm` of the compiled module equals `NAME.expected.asm`. |
 | Error | `tests/cases/err/NAME.lth` | The first line is `; error N LINE COL`; the compiler must report exactly that. A line `; options ...` before `module` gives the compiler options. |
 | End to end | `tests/cases/e2e/NAME.lth` | The program's output on the emulator equals `NAME.expected.out`. Built both ways (linker, and assembler path) once the linker exists; the two images must be identical. |
-| End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed. |
+| End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed, and an empty line for an empty row. These use the board modules of `lathe/rt/`; a Wendy 2 case whose source is the Michael one is a link to it. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
 

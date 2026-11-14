@@ -1,0 +1,85 @@
+; The sieve of Eratosthenes below 1000, in a byte array of more than 256 elements indexed by a
+; word. The first row gives how many primes there are; the rows below fill with the largest,
+; from 997 down, as many to a row as fit with a space between them, until the display is full.
+; The same source serves both boards (cases/e2e-wendy2/primes.lth is a link to this file).
+module primes
+
+import board
+import lcd
+
+const LIMIT = 1000
+
+var composite: [LIMIT]byte
+
+; Sieve; gives the number of primes below LIMIT.
+func sieve(): word
+  var i: word
+  var j: word
+  var count: word = 0
+  for i = 0 to LIMIT - 1 do
+    composite[i] = 0
+  end
+  for i = 2 to LIMIT - 1 do
+    if composite[i] == 0 then
+      count += 1
+      j = i + i
+      while j < LIMIT do
+        composite[j] = 1
+        j += i
+      end
+    end
+  end
+  return count
+end
+
+; The number of decimal digits of n.
+func digits(n: word): byte
+  if n >= 10000 then
+    return 5
+  elif n >= 1000 then
+    return 4
+  elif n >= 100 then
+    return 3
+  elif n >= 10 then
+    return 2
+  end
+  return 1
+end
+
+pub func main()
+  var n: word
+  var row: byte = 1
+  var col: byte = 0
+  var width: byte
+  lcd.init()
+  lcd.print_dec(sieve())
+  lcd.print(" BELOW ")
+  lcd.print_dec(LIMIT)
+  n = LIMIT - 1
+  loop
+    if composite[n] == 0 then
+      width = digits(n)
+      if col != 0 then
+        width += 1
+      end
+      if col + width > board.LCD_COLS then
+        row += 1
+        col = 0
+        if row == board.LCD_ROWS then
+          break
+        end
+        width = digits(n)
+      end
+      lcd.goto(row, col)
+      if col != 0 then
+        lcd.put(' ')
+      end
+      lcd.print_dec(n)
+      col += width
+    end
+    n -= 1
+    if n < 2 then
+      break
+    end
+  end
+end

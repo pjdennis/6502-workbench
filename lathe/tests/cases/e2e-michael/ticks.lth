@@ -1,0 +1,23 @@
+; Timer 1's interrupt, counted by lathe/rt/timer.lth's handler: start it with a period of 2000
+; cycles, wait for ten interrupts, stop it, and show the count; then wait as long again as ten
+; periods would take and show the count once more, to see that no interrupt came after stop().
+; The same source serves both boards (cases/e2e-wendy2/ticks.lth is a link to this file).
+module ticks
+
+import board
+import lcd
+import timer
+
+pub func main()
+  lcd.init()
+  timer.start(2000)
+  while timer.ticks() < 10 do
+  end
+  timer.stop()
+  lcd.print("TICKS ")
+  lcd.print_dec(timer.ticks())
+  board.delay(250)                  ; 25 ms: 25 periods on Michael, 120 on Wendy 2
+  lcd.goto(1, 0)
+  lcd.print("AFTER STOP ")
+  lcd.print_dec(timer.ticks())
+end

@@ -1,0 +1,258 @@
+; The board's HD44780 character LCD: 20x4 in 8-bit mode on Michael, 16x2 in 4-bit mode on
+; Wendy 2 (lathe/docs/boards.md). One interface for both; the board is chosen as lathe/rt/board.lth
+; explains, and only the lowest layer (port set-up, the busy wait, sending a byte) differs, under
+; `#if board.LCD_4BIT`.
+;
+; Written for the real boards, after firmware/lib/lcd/:
+;
+; - init() starts the display by instruction, as the data sheet says and
+;   display_routines_4bit.inc does: 15 ms, three function sets 8 bits wide with 4.1 ms and
+;   100 us between them, then (on Wendy 2) the switch to 4 bits. Until then the busy flag cannot
+;   be read, so those waits are board.delay(). This also brings back a display left in any
+;   state, half-way through a 4-bit byte included.
+; - After that, every transfer first waits for the busy flag, on both boards, as the firmware
+;   does; so there are no fixed delays, and clear() waits as long as the display needs.
+; - The emulator's LCD needs neither: its busy flag is never set (on Michael it answers the
+;   read with the flag clear; on Wendy 2 nothing answers and the input pins read 0), so the waits
+;   end at once, and the delays only cost cycles at start-up.
+; - Each E pulse is inside `critical`, as display_routines_8bit.inc disables interrupts around
+;   its strobes: a handler that drives the same ports cannot cut in mid-transfer.
+;
+; Wendy 2's port B. Bits 0-4 select the memory bank and E is bit 5, so a pulse on E must leave
+; bits 0-4 alone. This module reads port B, changes E and writes it back (inside `critical`), and
+; keeps no shadow copy: the 6522 reads back its output register for the pins that are outputs, so
+; the bank bits read back exactly as they were last written, by whoever wrote them. A shadow kept
+; here would be wrong as soon as anything else switched banks. (The 65C02's TSB and TRB would do
+; the same in one instruction each, but asm blocks have only the NMOS instructions so far.)
+; Port A's other pins (Michael: the keyboard's shift registers, the LED; Wendy 2: PA1, PA2) are
+; kept the same way.
+;
+; The cursor moves right after each character; the display does not move it from one row to the
+; next in row order (on 20x4, row 0 runs on into row 2), so a program places each row with goto.
+module lcd
+
+import board
+import via
+
+; Commands (firmware/lib/lcd/display_parameters.inc).
+pub const CMD_CLEAR: byte = $01
+pub const CMD_HOME: byte = $02
+pub const CMD_ENTRY: byte = $06             ; entry mode: move right, do not shift the display
+pub const CMD_OFF: byte = $08               ; display, cursor and blink off
+pub const CMD_ON: byte = $0C                ; display on, cursor and blink off
+pub const CMD_CURSOR: byte = $0E            ; display and cursor on
+const CMD_ADDRESS: byte = $80               ; set the display memory address
+const BUSY: byte = $80                      ; the busy flag, D7
+
+; The display memory address of each row's first character.
+const ROW_START: [4]byte = [$00, $40, board.LCD_COLS, $40 + board.LCD_COLS]
+
+const HEX: [16]byte = "0123456789ABCDEF"
+const POWERS: [5]word = [10000, 1000, 100, 10, 1]
+
+#if board.LCD_4BIT
+; ---- Wendy 2: D4-D7 on PA4-PA7, RW on PA3, RS on PA0; E on PB5 ----------------------------
+
+const E: byte = $20
+const RS: byte = $01
+const RW: byte = $08
+const DATA: byte = $F0
+const LINES: byte = DATA | RW | RS          ; port A's pins that are the LCD's
+const FUNCTION: byte = $28                  ; 4 bits, two lines, 5x8 dots
+
+; One pulse on E, keeping port B's other bits.
+func pulse()
+  critical
+    via.portb |= E
+    via.portb &= ~E
+  end
+end
+
+; Send the high four bits of `bits`, with `rs` (RS or 0), as one nibble.
+func nibble(bits: byte, rs: byte)
+  critical
+    via.porta = (via.porta & ~LINES) | (bits & DATA) | rs
+    via.portb |= E
+    via.portb &= ~E
+  end
+end
+
+; Wait while the busy flag is set. A read in 4-bit mode takes two pulses; the flag is in the
+; first nibble.
+func wait()
+  var status: byte
+  via.ddra &= ~DATA
+  via.porta = (via.porta & ~LINES) | RW
+  loop
+    critical
+      via.portb |= E
+      status = via.porta
+      via.portb &= ~E
+    end
+    pulse()
+  until status & BUSY == 0
+  via.porta &= ~LINES
+  via.ddra |= DATA
+end
+
+; Send a byte: a command with rs 0, a character with RS.
+func send(b: byte, rs: byte)
+  wait()
+  nibble(b, rs)
+  nibble(b << 4, rs)
+  via.porta &= ~LINES
+end
+
+; The ports, and the start of the reset by instruction: three function sets in 8-bit form,
+; then 4 bits, each one nibble with the waits the busy flag cannot give yet.
+func start()
+  critical
+    via.portb &= ~E
+    via.ddrb |= E
+  end
+  via.porta &= ~LINES
+  via.ddra |= LINES
+  board.delay(150)
+  nibble($30, 0)
+  board.delay(41)
+  nibble($30, 0)
+  board.delay(1)
+  nibble($30, 0)
+  board.delay(1)
+  nibble($20, 0)
+  board.delay(1)
+end
+
+#else
+; ---- Michael: D0-D7 on port B; E, RW, RS on PA7, PA6, PA5 ----------------------------------
+
+const E: byte = $80
+const RW: byte = $40
+const RS: byte = $20
+; Port A as firmware/boards/michael/michael_ports.inc leaves it: SOEB and SOLB (PA4, PA3) high,
+; so the keyboard's input shift register does not drive port B; the LED and the FPGA bus's strobe
+; low; and all but PA0 outputs. SOEB is high before it becomes an output.
+const PORTA_IDLE: byte = $18
+const PORTA_OUTPUTS: byte = $FE
+const FUNCTION: byte = $38                  ; 8 bits, two lines, 5x8 dots
+
+; Put `b` on port B and pulse E, with `rs` (RS or 0).
+func write(b: byte, rs: byte)
+  via.portb = b
+  critical
+    via.porta |= rs
+    via.porta |= E
+    via.porta &= ~E
+    via.porta &= ~RS
+  end
+end
+
+; Wait while the busy flag is set.
+func wait()
+  var status: byte
+  via.ddrb = 0
+  via.porta |= RW
+  loop
+    critical
+      via.porta |= E
+      status = via.portb
+      via.porta &= ~E
+    end
+  until status & BUSY == 0
+  via.porta &= ~RW
+  via.ddrb = $FF
+end
+
+; Send a byte: a command with rs 0, a character with RS.
+func send(b: byte, rs: byte)
+  wait()
+  write(b, rs)
+end
+
+; The ports, and the start of the reset by instruction: three function sets, with the waits the
+; busy flag cannot give yet.
+func start()
+  via.porta = PORTA_IDLE
+  via.ddra = PORTA_OUTPUTS
+  via.ddrb = $FF
+  board.delay(150)
+  write($30, 0)
+  board.delay(41)
+  write($30, 0)
+  board.delay(1)
+  write($30, 0)
+  board.delay(1)
+end
+#end
+
+; ---- Both boards ---------------------------------------------------------------------------
+
+; Send a command (the CMD_ constants, or any other the HD44780 has).
+pub func command(c: byte)
+  send(c, 0)
+end
+
+; Set up the ports and the display: two lines, display on, no cursor, cleared, cursor at row 0
+; column 0.
+pub func init()
+  start()
+  command(FUNCTION)
+  command(CMD_OFF)
+  command(CMD_CLEAR)
+  command(CMD_ENTRY)
+  command(CMD_ON)
+end
+
+; Blank the display and put the cursor at row 0, column 0.
+pub func clear()
+  command(CMD_CLEAR)
+end
+
+; Put the cursor at row 0, column 0, keeping the text.
+pub func home()
+  command(CMD_HOME)
+end
+
+; Put the cursor at `row` (0 to board.LCD_ROWS - 1) and `col` (0 to board.LCD_COLS - 1).
+pub func goto(row: byte, col: byte)
+  command(CMD_ADDRESS | (ROW_START[row & 3] + col))
+end
+
+; Show a character at the cursor, and move the cursor right.
+pub func put(ch: byte)
+  send(ch, RS)
+end
+
+; Show a zero-terminated string (of fewer than 256 characters).
+pub func print(s: ^byte)
+  var i: byte = 0
+  while s[i] != 0 do
+    put(s[i])
+    i += 1
+  end
+end
+
+; Show a byte as two hexadecimal digits.
+pub func print_hex(b: byte)
+  put(HEX[b >> 4])
+  put(HEX[b & 15])
+end
+
+; Show a word in decimal, without leading zeros. Each digit is counted by subtracting its power
+; of ten: there is no division yet.
+pub func print_dec(n: word)
+  var i: byte
+  var digit: byte
+  var started: bool = false
+  for i = 0 to 4 do
+    digit = '0'
+    while n >= POWERS[i] do
+      n -= POWERS[i]
+      digit += 1
+    end
+    if digit != '0' or started or i == 4 then
+      put(digit)
+      started = true
+    end
+  end
+end

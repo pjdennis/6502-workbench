@@ -1,0 +1,37 @@
+; The 6522 VIA's registers, as variables at fixed addresses (never kept in a register, so every
+; read and write reaches the chip), and the bits of its timer and interrupt registers.
+;
+; The VIA is at $6000 on Michael and at $F000 on Wendy 2. A variable `at` an address needs a
+; constant, and the language has no way yet to pass a module a constant from outside except the
+; environment's `define` entries, so the base comes from lathe/rt/board.lth, which reads the
+; environment's `define BOARD` (that file explains the arrangement): the same source, unedited,
+; builds for either board. One module per board (via_michael, via_wendy2) would have made every
+; program that uses the VIA name its board in an `import`, and so differ between the boards.
+module via
+
+import board
+
+pub var portb: byte at board.VIA            ; output / input register B
+pub var porta: byte at board.VIA + $1       ; output / input register A (with handshake)
+pub var ddrb: byte at board.VIA + $2        ; data direction B: 1 is an output
+pub var ddra: byte at board.VIA + $3        ; data direction A
+pub var t1cl: byte at board.VIA + $4        ; timer 1 counter low; reading it acknowledges T1
+pub var t1ch: byte at board.VIA + $5        ; timer 1 counter high; writing it starts T1
+pub var t1ll: byte at board.VIA + $6        ; timer 1 latch low
+pub var t1lh: byte at board.VIA + $7        ; timer 1 latch high
+pub var t2cl: byte at board.VIA + $8        ; timer 2 counter low
+pub var t2ch: byte at board.VIA + $9        ; timer 2 counter high
+pub var sr: byte at board.VIA + $A          ; shift register
+pub var acr: byte at board.VIA + $B         ; auxiliary control
+pub var pcr: byte at board.VIA + $C         ; peripheral control
+pub var ifr: byte at board.VIA + $D         ; interrupt flags; writing a 1 clears that flag
+pub var ier: byte at board.VIA + $E         ; interrupt enable
+pub var porta_nh: byte at board.VIA + $F    ; register A without handshake
+
+; ACR: timer 1's mode, bits 6 and 7.
+pub const ACR_T1_MASK: byte = $C0
+pub const ACR_T1_FREE_RUN: byte = $40       ; interrupt each time it reaches 0, reload from latch
+
+; IFR and IER bits.
+pub const IRQ_T1: byte = $40
+pub const IER_SET: byte = $80               ; with the bits to enable; without it they are disabled
