@@ -104,7 +104,8 @@ Runs after stage 9, on the host only.
 
 ### Stage 11. Configurations
 
-- **Spike first:** L5 (far calls three ways).
+- **Spike first:** L5 (far calls three ways). Done: [`spikes.md`](spikes.md), "Result of L5".
+- **Design and order of work:** [`configurations.md`](configurations.md), eleven steps, each ending in a test. The banked configuration now comes before the gate of stage 7, because the Lathe-written compiler does not fit 64 KB all in one.
 - **Work:** Regions, windows and `place` in the environment description. Stubs for calls that cross windows. Far-call routines for Wendy 2 banks and for overlays loaded from disk. Banked data regions. The compiler linked all in one, banked and chained.
 - **Gate:** The compiler, linked each of the three ways, rebuilds itself identically. In the banked and chained forms no more than 16 KB of compiler code is resident at once.
 
@@ -151,7 +152,7 @@ Things found during the work that are not part of a stage's gate. Remove each wh
 - **Memory for tables (measured 2026-11-14): the main obstacle to self-hosting.** Laid out as Lathe would lay them out, the host linker's tables took 204 KB at their capacities and the compiler's 72 KB, beside about 55 KB of compiler code. Neither fits a 64 KB machine. State now:
   - *Linker:* 97 KB at capacities that can link the compiler (about 800 functions); the second part of the redesign, toward 30 KB, is in progress ([`architecture.md`](architecture.md), "Memory in the linker").
   - *Compiler:* 42 KB, against a budget of 20 KB that is not met (`lathe/tests/test_memory.py` keeps it as an expected failure and fails if the total grows). The function buffer keeps no code array, and an import costs a symbol only for what the module names. What is left is the text of names, a module's own and its imports'. At these capacities every module written so far compiles, but `gen`, `expr` and `decl` would need about 48 KB, and the test programs of the Lathe twins nearly fill the emulator's 60 KB. The ways on are listed in [`architecture.md`](architecture.md), "What stays in memory": import only what is named, fewer exports, one shared heap, symbols as rows, messages on disk.
-- **Compiler size (spike L4, revised 2026-11-14).** See [`spikes.md`](spikes.md), "L4 revised". With ten of sixteen modules written in Lathe, the projection is 55 to 61 KB of code for the compiler, against a target of 32 KB. The owner's decision is needed on how to close the gap: banks or chained phases, a compact code form for the parts that need not be fast, or a smaller compiler.
+- **Compiler size (spike L4, revised 2026-11-14).** See [`spikes.md`](spikes.md), "L4 revised". With ten of sixteen modules written in Lathe, the projection is 55 to 61 KB of code for the compiler, against a target of 32 KB. The owner's decision is needed on how to close the gap: banks, a compact code form for the parts that need not be fast, or a smaller compiler. Spike L5 measured the bank option: 13.9 KB resident and about 6 far calls a source line on Wendy 2 ([`configurations.md`](configurations.md)). It also showed that chaining phases inside the compiler does not help, so a machine without banks needs one of the other two.
 - **Gaps found by the board modules:** no 65C02 instructions in `asm` (`TSB`, `TRB`, `STZ`, `PHX`, `PHY`, `BRA`); a module's constant tables are always linked, used or not.
 - **Found by the arithmetic library:** the linker keeps a module variable nothing uses; uses inside an `asm` loop get no loop weight; an `asm` block cannot name another function's parameter slots.
 - **Recursion depth.** The software stack for saved frames is 256 bytes, and each level also uses two bytes of the 6502's own stack, so about 120 levels is the limit whatever the frame size.
