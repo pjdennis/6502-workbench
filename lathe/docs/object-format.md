@@ -89,6 +89,14 @@ The compiler cannot know whether a variable will be in zero page. The rule is th
 
 Because `CODE` holds only instructions, the linker and the text renderer find instruction boundaries by decoding opcodes.
 
+## What the linker keeps
+
+The linker keeps a function if an entry point reaches it by calls, or if kept code or kept constant data takes its address ([`code-model.md`](code-model.md), "Sharing frames"). It keeps a variable or a piece of constant data only if a fix-up of kept code (any copy) or of kept constant data names it. A kept table of pointers therefore keeps the tables, variables and functions it points to; a table nothing kept names keeps nothing, not even the functions in it. What is not kept gets no address and no map line, and takes no storage, zero page included.
+
+- `module.$init` is always kept, so a variable given an initial value is kept, whether or not anything else reads it.
+- A symbol need only be defined if something kept names it: by a call, a fix-up or a `MEMB` record (which is not inside a function, so always counts). A name only dropped code or dropped data uses may be missing from every object file. Otherwise the link fails with error 18.
+- The records of what is dropped are read once, for the sizes and the names, and not checked further: a bad fix-up in a dropped table is not found.
+
 ## Initial values and start-up
 
 **Rule: whether a program links never depends on where the linker puts a variable.** A variable may land in zero page or main memory; both must work. So variables carry no initial bytes.
@@ -122,6 +130,6 @@ The host tool `lo2asm` turns object files into asm17 source.
 | `DATA` | `.byte` lines. |
 | An instruction the NMOS 6502 does not have (`STP`, `WAI`) | `.byte` and its opcode, the mnemonic in a comment: asm17 has no 65C02 mnemonics. Only one-byte instructions are written so far; `lo2asm` refuses one with an operand. |
 
-Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then `$start` and `$init` as the linker makes them (the `STP` of `exit stop` as `.byte $DB`), then the functions the linker kept, in the same order the linker places them, and for `output image` the reset vector at `$FFFC`. For `output raw` there are no vectors: the assembler's output runs from the origin to the last byte written. Assembling that text must give the same bytes as the linker's own file.
+Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot the map lists first, then `$start` and `$init` as the linker makes them (the `STP` of `exit stop` as `.byte $DB`), then the functions and constant data the map lists, in the same order the linker places them, and for `output image` the reset vector at `$FFFC`. For `output raw` there are no vectors: the assembler's output runs from the origin to the last byte written. Assembling that text must give the same bytes as the linker's own file.
 
 A function the linker copies for several contexts is rendered once per copy the map lists, `mod.f@N` as label `mod__fX40N` with slots `mod__fX40N__slotname`. In a copy for context N, a `JSR` or `JMP` to a function, and a slot of a function that has a copy for N, mean that copy. Every other reference to a function, and every reference from constant data, means the copy its address stands for (`code-model.md`, "Interrupts"): the one in the context that calls through its pointer class, or else its first copy. Variables, constant data and class blocks are never copied.

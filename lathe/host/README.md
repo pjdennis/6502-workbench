@@ -108,6 +108,8 @@ define    FAST          ; any number of these: a constant for #if, the bool true
 define    LEVEL $10     ; or a number, 0 to $FFFF
 ```
 
+The ranges are checked (link error 34): each the right way round, `zeropage` within `$00`–`$FF`, `code` and `data` at `$100` or above and sharing no address. Everything the linker places lies wholly inside its range; when the items of a range do not fit, the link error says by how many bytes (`zero page is full, 3 bytes over: a.main -> a.f`), counting the bytes skipped so that no two-byte item in main memory crosses a page on an NMOS 6502.
+
 `define` is for the compiler only: `build.py` passes it on as `-dNAME` or `-dNAME=NUMBER`, and the linker skips it, as it skips any entry it does not know. The linker writes the start-up code from the other entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39.
 
 The output file:
@@ -144,7 +146,7 @@ S 0020 0002 demo.spaces@1 0 s     ; slot 0 of its copy for context 1
 C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
 ```
 
-Only functions the linker kept are listed: those reachable from an entry point, and those whose address kept code or constant data takes (`../docs/code-model.md`, "Sharing frames"). A function reachable from several contexts (`../docs/code-model.md`, "Interrupts") has one F line and one set of S lines per copy. Its first copy, for the lowest of those contexts, has the function's name; each further copy, for context N, is `name@N`. Context 0 is the main program and 1, 2… the interrupt functions in object order. An F line of a first copy whose context is not 0 (a function only interrupt contexts reach) ends with that context's number, so that every copy's context is known.
+Only what the linker kept is listed: functions reachable from an entry point, and those whose address kept code or kept constant data takes (`../docs/code-model.md`, "Sharing frames"); variables and constant data that kept code or kept constant data names (`../docs/object-format.md`, "What the linker keeps"). A function reachable from several contexts (`../docs/code-model.md`, "Interrupts") has one F line and one set of S lines per copy. Its first copy, for the lowest of those contexts, has the function's name; each further copy, for context N, is `name@N`. Context 0 is the main program and 1, 2… the interrupt functions in object order. An F line of a first copy whose context is not 0 (a function only interrupt contexts reach) ends with that context's number, so that every copy's context is known.
 
 ## The interface file
 

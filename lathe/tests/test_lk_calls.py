@@ -175,8 +175,8 @@ class Recursion(unittest.TestCase):
         routine(o, 'a', one(2, MUST), [('b', SAVES, None)], flags=RECURSIVE)
         routine(o, 'b', one(2, MUST), [('a', SAVES, None)], flags=RECURSIVE)
         r = link([o], ENV.replace('$00 $FF', '$00 $03'))
-        self.assertIn(r.errors, ('link error 25: zero page is full: t.main -> t.a -> t.b\n',
-                                 'link error 25: zero page is full: t.main -> t.b -> t.a\n'))
+        self.assertIn(r.errors, ('link error 25: zero page is full, 1 byte over: t.main -> t.a -> t.b\n',
+                                 'link error 25: zero page is full, 1 byte over: t.main -> t.b -> t.a\n'))
 
 
 if __name__ == '__main__':

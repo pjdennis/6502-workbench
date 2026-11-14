@@ -8,8 +8,10 @@ of functions the linker places.
             leads to the class that stands for the set, and only that row is used afterwards.
     cp_     the parameters of the classes: the slots of a class's shared block.
     memb_   which functions have their address taken as which class.
-    adr_    which functions have their address taken by a fix-up, and by what: a function, or
-            constant data. Taking a function's address keeps it (lk_graph).
+    ref_    what fix-ups refer to, and from where: a row for each symbol named by the fix-ups
+            of one function or one piece of constant data, if it is a variable, constant data,
+            or a function whose address is taken. What something kept refers to is kept too
+            (lk_graph); nothing else is.
     edge_   calls. The calls of a function or class are a chain starting at its symbol's sym_b.
     node_   what gets storage: one row per copy of a kept function (a function has one copy
             for each context that reaches it, in a run of rows in context order) and one row
@@ -33,7 +35,7 @@ MAX_EDGES = 8192
 MAX_NODES = 1280
 MAX_CONTEXTS = 8                    # a context is a bit in a byte
 MAX_DEFS = 1024
-MAX_ADDRS = 1024
+MAX_REFS = 2048
 NONE = 0xFFFF
 
 # FUNC record flags.
@@ -86,10 +88,10 @@ memb_count = 0
 memb_class = [0] * MAX_MEMBERS      # symbols
 memb_func = [0] * MAX_MEMBERS
 
-adr_count = 0
-adr_from = [0] * MAX_ADDRS          # the function that takes the address, or NONE for data
-adr_to = [0] * MAX_ADDRS            # the symbol of the function whose address is taken
-adr_mark = 0                        # first row of the record being read
+ref_count = 0
+ref_from = [0] * MAX_REFS           # the symbol of the function or constant data that refers
+ref_to = [0] * MAX_REFS             # the symbol it refers to
+ref_mark = 0                        # first row of the record being read
 
 edge_count = 0
 edge_to = [0] * MAX_EDGES           # symbol called
@@ -178,24 +180,24 @@ def new_member(class_sym, func_sym):
     memb_count += 1
 
 
-def begin_addrs():
-    """A FIX or DFIX record starts: what it takes is noted once per record."""
-    global adr_mark
-    adr_mark = adr_count
+def begin_refs():
+    """A FIX or DFIX record starts: each symbol it refers to is noted once per record."""
+    global ref_mark
+    ref_mark = ref_count
 
 
-def new_addr(source, f):
-    """Function `source` (or constant data, for NONE) takes the address of function symbol f,
-    which may not be defined yet."""
-    global adr_count
-    for i in range(adr_mark, adr_count):
-        if adr_to[i] == f:
+def new_ref(source, target):
+    """Symbol `source`, a function or constant data, refers to symbol `target`, which may not
+    be defined yet."""
+    global ref_count
+    for i in range(ref_mark, ref_count):
+        if ref_to[i] == target:
             return
-    if adr_count == MAX_ADDRS:
-        lk_err.fail(lk_err.E_ADDRS)
-    adr_from[adr_count] = source
-    adr_to[adr_count] = f
-    adr_count += 1
+    if ref_count == MAX_REFS:
+        lk_err.fail(lk_err.E_REFS)
+    ref_from[ref_count] = source
+    ref_to[ref_count] = target
+    ref_count += 1
 
 
 def new_def(sym):

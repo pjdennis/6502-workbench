@@ -131,9 +131,9 @@ In stage A the Slots and Calls records are written to the `.lfm` file in the sam
 
 ## The linker
 
-**Pass 1** reads every record except Code and Fix-ups.
+**Pass 1** reads every record except Code; of the Fix-ups it notes only what each function or table names.
 
-1. Build the call graph, with one node per pointer class standing for its parameter block. Find the functions reachable from `main` and from each interrupt handler, and drop the rest.
+1. Build the call graph, with one node per pointer class standing for its parameter block. Find the functions reachable from `main` and from each interrupt handler, and the variables, constants and functions whose address what is kept names ([`object-format.md`](object-format.md), "What the linker keeps"), and drop the rest.
 2. Check cycles against the `recursive` attribute.
 3. Find functions used by more than one context and plan their copies. Check that each pointer class is called through pointers from one context only.
 4. Allocate frames and module-level variables in zero page and main memory ([`code-model.md`](code-model.md)).
@@ -155,7 +155,7 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 
 ### Memory in the linker
 
-Pass 1 holds one entry per function and per module-level symbol across the whole program, with names hashed. At about 20 bytes each, 800 functions and symbols need 16 KB. Code is never held in memory: pass 2 streams it.
+Pass 1 holds one entry per function and per module-level symbol across the whole program, with names hashed. At about 20 bytes each, 800 functions and symbols need 16 KB. To know what is kept it also holds four bytes for each symbol a function or table names (once per function or table, however often it names it): about 530 rows for `lextest`. Code is never held in memory: pass 2 streams it.
 
 ## The environment description
 

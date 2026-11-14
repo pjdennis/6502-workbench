@@ -117,6 +117,8 @@ def target(ctx, sym, slot, is_call):
     with address 0 is storage nothing kept can use: a slot of a dropped function, or a
     parameter of a class that no kept function calls through."""
     kind = lk_sym.kind_of(sym)
+    if not lk_sym.is_defined(sym):
+        lk_sym.fail(lk_err.E_UNDEFINED, sym)
     if kind == lk_sym.VARIABLE or kind == lk_sym.CONSTANT:
         if slot != 0xFF:
             bad()

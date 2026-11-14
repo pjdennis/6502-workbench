@@ -7,7 +7,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import (Obj, link, routine, NEVER, MUST, EITHER, LOCAL, PARAM,  # noqa: E402
+from test_lk_support import (Obj, link, keep, routine, NEVER, MUST, EITHER, LOCAL, PARAM,  # noqa: E402
                              INTERRUPT, RECURSIVE, SAVES, POINTER, NOBODY)
 import lo  # noqa: E402
 
@@ -343,6 +343,7 @@ class ClassesAndContexts(unittest.TestCase):
         o.memb('handler', 'beep')
         o.memb('handler', 'flash')
         o.data('$table', b'\0\0', fixes=[(0, 1, beep, 0xFF, 0)])
+        keep(o, '$table')
         return o
 
     def test_the_block_is_in_the_context_that_calls_through_the_class(self):

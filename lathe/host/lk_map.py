@@ -94,10 +94,10 @@ def functions():
 
 
 def symbols(kind, letter):
-    """The D or V lines, in the order the symbols are defined."""
+    """The D or V lines of what is kept, in the order the symbols are defined."""
     for d in range(0, lk_tab.def_count):
         s = lk_tab.def_sym[d]
-        if lk_sym.kind_of(s) == kind:
+        if lk_sym.kind_of(s) == kind and lk_sym.is_kept(s):
             begin(letter, lk_sym.sym_a[s], lk_sym.sym_b[s])
             lk_sym.write_name(handle, s)
             put(10)

@@ -622,6 +622,25 @@ class TestProgramMode(Work):
         self.assertNotIn('* = $C0', text)          # variables have no bytes in the image
         self.assertIn('v__p__p0 = $C004\n', text)
 
+    def test_only_what_the_map_lists_is_rendered(self):
+        # The linker drops variables and constant data nothing kept names: their map lines go,
+        # and so do their equates and bytes in the text. What kept code names must be listed.
+        b = lo.Builder('v')
+        b.var('v.used', 1, cls=2)
+        b.var('v.idle', 2, cls=2)
+        b.data('v.unused', b'xyz')
+        f = b.func('v.main')
+        f.op('LDA', 'abs', 'v.used').op('RTS')
+        modules = [b.module()]
+        entries = [e for e in naive.allocate(modules, self.env, 'v') if e.name not in ('v.idle', 'v.unused')]
+        text, image = self.assemble(modules, entries, 'v')
+        self.assertNotIn('v__idle', text)
+        self.assertNotIn('v__unused', text)
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'v'))
+        entries = [e for e in entries if e.name != 'v.used']
+        with self.assertRaisesRegex(lo2asm.RenderError, 'v: v.used is not in the map'):
+            lo2asm.render_program(modules, entries, self.env, 'v')
+
     def test_size_mismatch(self):
         entries = map_lines(MAP_A.replace('F 020F 0023', 'F 020F 0026'))
         with self.assertRaisesRegex(lo2asm.RenderError, 'size \\$0026, the rule gives \\$0023'):

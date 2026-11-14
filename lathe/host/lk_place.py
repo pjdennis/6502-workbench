@@ -2,8 +2,8 @@
 
 The object files are read once more, in order. A function's final size is its written size less
 one byte for each instruction that shrinks (lk_fix), which is known now that every slot and
-variable has its address. Code and constant data are placed in object order, then record order,
-after the linker's own start-up code; the copies of a function follow one another.
+variable has its address. Code and the constant data kept are placed in object order, then record
+order, after the linker's own start-up code; the copies of a function follow one another.
 """
 import lk_boot
 import lk_envf
@@ -15,15 +15,21 @@ import lk_sym
 import lk_tab
 
 code_used = 0                       # bytes of the code range given out so far
+code_wrapped = False                # more than 16 bits can count were asked for
 
 
 def take(size):
-    """Give out the next `size` bytes of the code range. Returns their address."""
-    global code_used
-    if size > lk_envf.code_hi - lk_envf.code_lo + 1 - code_used:
-        lk_err.fail(lk_err.E_CODE_FULL)
-    addr = lk_envf.code_lo + code_used
-    code_used += size
+    """Give out the next `size` bytes of the code range. Returns their address.
+
+    Whether it all fits is checked once everything is placed (place), so that the error can
+    say by how much it does not."""
+    global code_used, code_wrapped
+    addr = (lk_envf.code_lo + code_used) & 0xFFFF
+    if size > 0xFFFF - code_used:
+        code_wrapped = True
+        code_used = 0xFFFF
+    else:
+        code_used += size
     return addr
 
 
@@ -56,15 +62,22 @@ def place_object(obj):
             kept = False
         elif kind == lk_rec.R_DATA:
             s = lk_scan.global_sym(obj, lk_rec.get_word(lk_rec.MAIN))
-            lk_sym.sym_a[s] = take(lk_sym.sym_b[s])
+            if lk_sym.is_kept(s):
+                lk_sym.sym_a[s] = take(lk_sym.sym_b[s])
         kind = lk_rec.advance(lk_rec.MAIN)
     lk_rec.close(lk_rec.MAIN)
 
 
 def place():
     """Place the start-up code, then everything in the object files."""
-    global code_used
+    global code_used, code_wrapped
     code_used = 0
+    code_wrapped = False
     take(lk_boot.plan())
     for obj in range(0, lk_scan.object_count):
         place_object(obj)
+    room = lk_envf.code_hi - lk_envf.code_lo + 1
+    if code_wrapped or code_used > room:
+        lk_err.begin(lk_err.E_CODE_FULL)
+        lk_err.over(code_used - room, code_wrapped)
+        lk_err.finish()

@@ -25,7 +25,7 @@ Two functions can use the same addresses if neither is ever active while the oth
 
 1. Each function's frame starts just above the frames of everything that could be active when it is called. That is the largest "end of frame" among its callers.
 2. A function with no callers (the entry point) starts at the bottom.
-3. Functions that are not reachable from an entry point are dropped. Taking a function's address, in code that is kept or in constant data, makes it reachable: if nothing else reaches it, it is an entry point of the main program.
+3. Functions that are not reachable from an entry point are dropped. Taking a function's address, in code that is kept or in constant data that is kept, makes it reachable: if nothing else reaches it, it is an entry point of the main program. Module-level variables and constant data that nothing kept names are dropped too, and take no storage ([`object-format.md`](object-format.md), "What the linker keeps").
 
 For a program whose call chain is `main → parse → lookup → hash`, plus `main → emit`, the frames of `parse` and `emit` start at the same address, and `emit` reuses what `lookup` and `hash` used. The storage needed is that of the deepest chain, not the sum of all functions.
 

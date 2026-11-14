@@ -250,8 +250,10 @@ def check():
     ok = zp_lo <= zp_hi and zp_hi <= 0xFF and code_lo <= code_hi and data_lo <= data_hi
     # Code below $100 would make the size of an instruction depend on where code is placed.
     ok = ok and code_lo >= 0x100
-    # A range's size must fit in 16 bits.
-    ok = ok and data_hi - data_lo != 0xFFFF
+    # Data below $100 would be zero page that the linker does not count as zero page.
+    ok = ok and data_lo >= 0x100
+    # Code and data must not share an address.
+    ok = ok and (data_hi < code_lo or code_hi < data_lo)
     if not ok:
         lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
     if exit_kind == EXIT_STOP and cpu != lk_op.CPU_65C02:

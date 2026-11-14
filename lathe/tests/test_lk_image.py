@@ -7,7 +7,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import (Obj, link, HOST_ENV, MUST, EITHER, NEVER, PARAM, LOCAL, NOBODY)  # noqa: E402
+from test_lk_support import (Obj, link, keep, HOST_ENV, MUST, EITHER, NEVER, PARAM, LOCAL, NOBODY)  # noqa: E402
 
 START = bytes.fromhex('A2FF9AD8200C02A9004C0FF0')     # host.env, main at $020C
 
@@ -88,9 +88,10 @@ class Placement(unittest.TestCase):
         b = Obj('b')
         b.data('$1', b'\x01\x02\x03')
         b.func('f', b'\xEA\x60')
+        keep(b, 'a.$1', '$1')
         r = link([a, b])
         self.assertEqual(r.map_text,
-                         'F 0200 000C $start\nF 020C 0004 a.main\nF 0215 0002 b.f\n'
+                         'F 0200 000C $start\nF 020C 0004 a.main\nF 0215 0002 b.f\nF 0217 0007 b.keep 1\n'
                          'D 0210 0002 a.$1\nD 0212 0003 b.$1\n')
         self.assertEqual(r.at(0x020C, 9), bytes.fromhex('201502 60') + b'hi\x01\x02\x03')
         self.assertEqual(r.at(0x0215, 2), b'\xEA\x60')
@@ -145,6 +146,7 @@ class FixUps(unittest.TestCase):
         o.data('$1', b'\xEE\0\0\xEE\0\0\0\0\xEE',
                fixes=[(1, 1, f, 0xFF, 0), (3, 2, v, 0xFF, 1), (4, 3, v, 0xFF, 1), (5, 1, d, 0xFF, 2)])
         o.data('$2', b'xyz')
+        keep(o, '$1')
         r = link([o])
         # main at $020C; $1 at $020D (9 bytes); $2 at $0216; x at $C000.
         self.assertEqual(r.at(0x020D, 9), bytes.fromhex('EE 0C02 01 C0 1802 00 EE'))
@@ -178,6 +180,7 @@ def loop_program():
     c.raw(0x60)
     o.func('main', c, slots=[(1, EITHER, 5, LOCAL, 'i')])
     o.var('held', 1, MUST)
+    keep(o, 'held')
     return o
 
 

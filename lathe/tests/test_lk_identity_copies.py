@@ -26,6 +26,15 @@ def word(r, addr):
     return int.from_bytes(r.at(addr, 2), 'little')
 
 
+def keep(b, *names):
+    """An interrupt function t.keep that reads each constant or variable named, so that the
+    linker keeps them; it has no slots and comes last, so it moves nothing else."""
+    f = b.func('t.keep', lo.F_INTERRUPT)
+    for name in names:
+        f.op('LDA', 'abs', name)
+    f.op('RTI')
+
+
 def shared_program():
     """main and the interrupt function irq both call t.s; t.s calls t.s2, which both share.
 
@@ -77,6 +86,7 @@ def shared_program():
     # The block weighs more than t.s's own p, so it is the first to get zero page.
     b.memb('t.cb', 't.s')
     b.memb('t.cb', 't.alt')
+    keep(b, 't.$1')
     return b
 
 
@@ -141,16 +151,20 @@ def class_program():
     b.memb('t.handler', 't.flash')
     d = b.data('t.$table', bytes(4))
     d.fix(0, lo.FX_WORD, 't.beep').fix(2, lo.FX_WORD, ('t.beep', 'x'))
+    keep(b, 't.$table')
     return b
 
 
 def dropped_program():
-    """Addresses of functions nothing calls, taken from kept code, kept data and dropped code."""
+    """Addresses of functions nothing calls, taken from kept code, kept data, dropped code and
+    dropped data; and variables and constants that only dropped code and data name."""
     b = lo.Builder('t')
     b.var('t.vec', 2, EITHER, 2)
+    b.var('t.idle', 2, MUST)
+    b.var('t.by_lost', 1, EITHER, 9)
     f = b.func('t.main')
     f.op('LDA', '#<', 't.lonely').op('STA', 'abs', 't.vec').op('LDA', '#>', 't.lonely')
-    f.op('STA', 'abs', 't.vec', 1).op('RTS')
+    f.op('STA', 'abs', 't.vec', 1).op('LDA', 'abs', 't.$tab').op('RTS')
     f = b.func('t.lonely')
     f.slot('l', 1, EITHER, 2)
     f.op('LDA', '#<', 't.deeper').op('STA', 'abs', ('t.lonely', 'l')).op('RTS')
@@ -158,7 +172,7 @@ def dropped_program():
     f.slot('d', 1, EITHER, 2)
     f.op('INC', 'abs', ('t.deeper', 'd')).op('RTS')
     f = b.func('t.unused')
-    f.op('LDA', '#<', 't.never').op('RTS')
+    f.op('LDA', '#<', 't.never').op('LDA', 'abs', 't.$lost').op('INC', 'abs', 't.by_lost').op('RTS')
     f = b.func('t.never')
     f.op('RTS')
     f = b.func('t.orphan')
@@ -170,6 +184,10 @@ def dropped_program():
     f.op('RTS')
     d = b.data('t.$tab', bytes(2))
     d.fix(0, lo.FX_WORD, 't.orphan')
+    d = b.data('t.$lost', bytes(4))
+    d.fix(0, lo.FX_WORD, 't.lost').fix(2, lo.FX_WORD, 't.by_lost')
+    f = b.func('t.lost')
+    f.op('RTS')
     return b
 
 
@@ -262,6 +280,18 @@ class DroppedAddress(Identity):
         self.assertEqual((r.at(main + 1), r.at(main + 5)), (bytes((lonely & 0xFF,)), bytes((lonely >> 8,))))
         self.assertEqual(word(r, r.addr('D', 't.$tab')), r.addr('F', 't.orphan'))
         self.assertEqual(r.at(r.addr('F', 't.tick') + 1), bytes((r.addr('F', 't.byirq') >> 8,)))
+
+    def test_what_only_dropped_code_and_data_name_is_dropped(self):
+        # t.$lost is named only by t.unused, which is dropped; so are t.lost, whose address
+        # only t.$lost takes, and the variables only they name.
+        r = self.identical([dropped_program()], env())
+        self.assertEqual([m[3] for m in r.map if m[0] in 'DV'], ['t.$tab', 't.vec'])
+        self.assertFalse(r.has('F', 't.lost'))
+
+    def test_a_dropped_variable_needs_no_zero_page(self):
+        # t.idle is "must" and two bytes: kept, it would not fit.
+        r = self.identical([dropped_program()], env('$40 $40'))
+        self.assertFalse(r.has('V', 't.idle'))
 
     def test_a_kept_address_is_in_the_main_program(self):
         # Kept only for its address, a function is a root of context 0: its frame is shared

@@ -2,12 +2,14 @@
 
     python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
 
-Pass 1 reads everything but the code, and holds a few bytes for each function, slot, call and
-symbol, never code:
+Pass 1 reads everything but the code, and holds a few bytes for each function, slot, call,
+symbol and symbol a fix-up names, never code:
 
     lk_envf     the environment file
-    lk_scan     symbols, functions, slots, calls and classes into tables (lk_sym, lk_tab)
-    lk_graph    what is reachable from main and from each interrupt function; recursion
+    lk_scan     symbols, functions, slots, calls, classes and what fix-ups name into tables
+                (lk_sym, lk_tab)
+    lk_graph    what is reachable from main and from each interrupt function, and what that
+                keeps by naming it; recursion
     lk_alloc    zero page and main memory for every slot and variable
     lk_place    the size of each function after shrinking, and where its code goes
 
@@ -41,7 +43,7 @@ def find_main():
     for i in range(0, len(MAIN_SUFFIX)):
         lk_sym.name_add(MAIN_SUFFIX[i])
     s, found = lk_sym.find()
-    if not found or lk_sym.kind_of(s) != lk_sym.FUNCTION:
+    if not found or lk_sym.kind_of(s) != lk_sym.FUNCTION or not lk_sym.is_defined(s):
         lk_err.begin(lk_err.E_NO_MAIN)
         lk_err.colon()
         lk_sym.error_pending()

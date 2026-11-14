@@ -10,8 +10,8 @@ What the columns hold:
     kind          sym_a                 sym_b                       sym_f, sym_w
     function      row in lk_tab.fn_     first call (lk_tab.edge_)   -
     class         row in lk_tab.cls_    first call                  -
-    variable      address               size                        V_ flags, weight
-    constant data address               size                        -
+    variable      address               size                        V_ flags and KEPT, weight
+    constant data address               size                        KEPT, -
 """
 import env
 import lk_err
@@ -29,6 +29,7 @@ DEFINED = 0x80                      # some object file defines the symbol
 
 V_CLASS = 0x03                      # sym_f of a variable: its zero page class,
 V_ZP = 0x80                         # and whether the linker put it in zero page
+KEPT = 0x40                         # sym_f of a variable or constant data: something kept uses it
 
 heap = bytearray(HEAP_SIZE)
 heap_top = 0
@@ -123,6 +124,15 @@ def kind_of(s):
 
 def is_defined(s):
     return (sym_kind[s] & DEFINED) != 0
+
+
+def is_kept(s):
+    """True for a variable or constant data that something kept refers to (lk_graph)."""
+    return (sym_f[s] & KEPT) != 0
+
+
+def is_kept_var(s):
+    return kind_of(s) == VARIABLE and (sym_f[s] & KEPT) != 0
 
 
 def write_name(handle, s):

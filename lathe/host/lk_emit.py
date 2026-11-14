@@ -111,8 +111,10 @@ def emit_copies(obj, f):
 
 
 def emit_data(obj):
-    """MAIN is at a DATA record: write the constant with its fix-ups."""
+    """MAIN is at a DATA record: write the constant with its fix-ups, if it is kept."""
     s = lk_scan.global_sym(obj, lk_rec.get_word(lk_rec.MAIN))
+    if not lk_sym.is_kept(s):
+        return
     lk_fix.begin_data(s)
     lk_out.seek(lk_sym.sym_a[s])
     lk_fix.no_entries()

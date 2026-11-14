@@ -7,7 +7,8 @@ build() does the linker's steps between reading and allocating:
    bit in fn_ctx per context that reaches it; a function with no bit is dropped. A function
    whose address is taken by constant data or by a kept function is kept too: if nothing else
    reaches it, it is a further root of context 0. So no address in the image is that of a
-   function the linker dropped.
+   function the linker dropped. In the same way a variable or constant data is kept only if
+   kept code or kept constant data refers to it; the rest get no address.
 2. Pointer classes. A class is live if some kept function calls through it, and all those
    calls must be in one context. Its block's parameters take the strictest zero page class and
    the summed weight of its members' parameters.
@@ -81,6 +82,9 @@ def reach(root, ctx):
         e = lk_sym.sym_b[stack[top]]
         while e != 0:
             if (lk_tab.edge_flags[e - 1] & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0:
+                # Kept code calls it, so it must be defined.
+                if not lk_sym.is_defined(lk_tab.edge_to[e - 1]):
+                    lk_sym.fail(lk_err.E_UNDEFINED, lk_tab.edge_to[e - 1])
                 target = edge_target(e - 1)
                 if mark(target, ctx):
                     if top == lk_tab.MAX_NODES:
@@ -90,18 +94,35 @@ def reach(root, ctx):
             e = lk_tab.edge_next[e - 1]
 
 
-def keep_addresses():
-    """Reach, from context 0, every function whose address something kept takes and nothing
-    reached. What such a function takes is then kept too, so go round until nothing changes."""
+def is_kept(s):
+    """True if the function, variable or constant data that is symbol s is kept so far."""
+    if lk_sym.kind_of(s) == lk_sym.FUNCTION:
+        return lk_tab.fn_ctx[lk_sym.sym_a[s]] != 0
+    return (lk_sym.sym_f[s] & lk_sym.KEPT) != 0
+
+
+def keep_referenced():
+    """Keep what the fix-ups of kept code and kept constant data refer to (lk_tab.ref_).
+
+    A variable or constant is kept; a function whose address is taken and that nothing
+    reached is reached from context 0. What that keeps refers to more, so go round until
+    nothing changes. Only now must a symbol be defined: one that nothing kept refers to may
+    be missing."""
     changed = True
     while changed:
         changed = False
-        for i in range(0, lk_tab.adr_count):
-            source = lk_tab.adr_from[i]
-            f = lk_sym.sym_a[lk_tab.adr_to[i]]
-            if lk_tab.fn_ctx[f] == 0 and (source == lk_tab.NONE or lk_tab.fn_ctx[source] != 0):
-                reach(lk_tab.adr_to[i], 0)
-                changed = True
+        for i in range(0, lk_tab.ref_count):
+            source = lk_tab.ref_from[i]
+            target = lk_tab.ref_to[i]
+            if is_kept(source):
+                if not lk_sym.is_defined(target):
+                    lk_sym.fail(lk_err.E_UNDEFINED, target)
+                if not is_kept(target):
+                    if lk_sym.kind_of(target) == lk_sym.FUNCTION:
+                        reach(target, 0)
+                    else:
+                        lk_sym.sym_f[target] |= lk_sym.KEPT
+                    changed = True
 
 
 def find_contexts(main_sym):
@@ -117,7 +138,7 @@ def find_contexts(main_sym):
                 lk_err.fail(lk_err.E_CONTEXTS)
             reach(lk_tab.fn_sym[f], lk_tab.ctx_count)
             lk_tab.ctx_count += 1
-    keep_addresses()
+    keep_referenced()
 
 
 # ---- pointer classes
@@ -225,6 +246,10 @@ def edge_node(n, e):
     apply if the target has nothing in that context: a class block lives in one context only,
     and elsewhere a member is an ordinary function."""
     ctx = lk_tab.node_ctx[n]
+    # Only a call that places storage can name a symbol nothing defines (lk_scan.rec_call):
+    # what that call is in was dropped.
+    if not lk_sym.is_defined(lk_tab.edge_to[e - 1]):
+        return 0, False
     target = edge_target(e - 1)
     if lk_sym.kind_of(target) == lk_sym.CLASS:
         k = lk_sym.sym_a[target]
@@ -364,7 +389,7 @@ def fail_member_call(n, target, e):
         while other != 0:
             s = lk_tab.edge_to[other - 1]
             if (lk_tab.edge_flags[other - 1] & lk_tab.E_VIA) == 0 and lk_sym.kind_of(s) == lk_sym.FUNCTION \
-                    and is_member(lk_sym.sym_a[s], k):
+                    and lk_sym.is_defined(s) and is_member(lk_sym.sym_a[s], k):
                 callee = s
             other = next_edge(other)
     lk_sym.error_name(callee)

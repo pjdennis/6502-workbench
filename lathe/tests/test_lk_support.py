@@ -199,6 +199,18 @@ def routine(o, name, slots=(), calls=(), flags=0):
     o.func(name, c, slots=slots, calls=records, flags=flags)
 
 
+def keep(o, *names):
+    """Add to Obj o an interrupt function `keep` that reads each variable or constant data
+    named (a name whose last part starts with `$` is constant data), so that the linker keeps
+    them. It is a root of a context of its own and has no slots, so it moves nothing that comes
+    before it; give it last."""
+    c = o.code()
+    for name in names:
+        c.abs(0xAD, o.d(name) if name.split('.')[-1].startswith('$') else o.v(name))
+    c.raw(0x40)
+    o.func('keep', c, flags=INTERRUPT)
+
+
 class Result:
     """What a run of the linker left behind."""
 

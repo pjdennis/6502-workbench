@@ -1,12 +1,14 @@
 """The first reading of the object files: symbols, variables, functions with their slots and
-calls, and pointer classes go into the tables. Code is skipped; of the fix-ups only those that
-take the address of a function are noted, because taking it keeps the function (lk_graph).
+calls, and pointer classes go into the tables. Code is skipped; of the fix-ups only the variables,
+constant data and function addresses they name are noted, once for each function or table that
+names them, because naming them from what is kept keeps them (lk_graph).
 
 An object file numbers its symbols from 0. `local` keeps, for every object file, the global
 symbol each of its numbers stands for, so later readings of a file need no name lookups.
 
-Once every file is read, finish() checks that every symbol is defined, merges pointer classes
-that share a member, and adds the calls that only exist because of classes.
+Once every file is read, finish() merges pointer classes that share a member and adds the calls
+that only exist because of classes. A symbol need not be defined unless something kept uses
+it, which lk_graph checks as it finds what is kept.
 """
 import lk_envf
 import lk_err
@@ -25,6 +27,7 @@ local = [0] * MAX_LOCALS
 local_count = 0
 
 cur_fn = lk_tab.NONE                # the function whose records are being read
+cur_data = lk_tab.NONE              # the constant data just read, whose DFIX may follow
 
 
 def damaged():
@@ -92,10 +95,12 @@ def rec_var(obj):
 
 
 def rec_data(obj):
+    global cur_data
     s = read_sym(obj, lk_sym.CONSTANT)
     define(s)
     lk_sym.sym_b[s] = lk_rec.left(lk_rec.MAIN)
     lk_tab.new_def(s)
+    cur_data = s
 
 
 def rec_func(obj):
@@ -170,34 +175,41 @@ def rec_memb(obj):
     lk_tab.new_member(k, read_sym(obj, lk_sym.FUNCTION))
 
 
-def rec_fixes(obj, source):
-    """A FIX or DFIX record: note each function whose address it takes.
+def rec_fixes(obj, source, in_code):
+    """A FIX or DFIX record of symbol `source`, a function or constant data: note what it
+    refers to that is kept only if something kept refers to it (lk_graph).
 
-    In code (source is a function) an address is taken by its low or high byte, `#<f` and
-    `#>f`. A two-byte fix-up naming a function there is the operand of a JSR or JMP, a call,
-    which needs a CALL record of its own; without one the call is an error (lk_fix.target), and
-    must not quietly keep the callee. A function's fix-ups naming itself are its labels or its
-    own address and keep nothing. In constant data every fix-up naming a function takes its
-    address."""
+    That is every variable and piece of constant data it names, and every function whose
+    address it takes. In code an address is taken by its low or high byte, `#<f` and `#>f`. A
+    two-byte fix-up naming a function there is the operand of a JSR or JMP, a call, which needs
+    a CALL record of its own; without one the call is an error (lk_fix.target), and must not
+    quietly keep the callee. A function's fix-ups naming itself are its labels or its own
+    address and keep nothing. In constant data every fix-up naming a function takes its
+    address. Slots and class parameters are kept with their function or class."""
     if lk_rec.left(lk_rec.MAIN) % 8 != 0:
         damaged()
-    lk_tab.begin_addrs()
+    lk_tab.begin_refs()
     while lk_rec.left(lk_rec.MAIN) > 0:
         lk_rec.get_word(lk_rec.MAIN)
         kind = lk_rec.get_byte(lk_rec.MAIN)
         s = global_sym(obj, lk_rec.get_word(lk_rec.MAIN))
         slot = lk_rec.get_byte(lk_rec.MAIN)
         lk_rec.get_word(lk_rec.MAIN)
-        if lk_sym.kind_of(s) == lk_sym.FUNCTION and slot == 0xFF:
-            if source == lk_tab.NONE:
-                lk_tab.new_addr(source, s)
-            elif s != lk_tab.fn_sym[source] and (kind == 2 or kind == 3):
-                lk_tab.new_addr(source, s)
+        sk = lk_sym.kind_of(s)
+        if sk == lk_sym.VARIABLE or sk == lk_sym.CONSTANT:
+            lk_tab.new_ref(source, s)
+        elif sk == lk_sym.FUNCTION and slot == 0xFF:
+            if not in_code:
+                lk_tab.new_ref(source, s)
+            elif s != source and (kind == 2 or kind == 3):
+                lk_tab.new_ref(source, s)
 
 
 def take_record(obj, kind):
     """Take in one record of object file obj."""
-    global cur_fn
+    global cur_fn, cur_data
+    data = cur_data
+    cur_data = lk_tab.NONE
     if kind == lk_rec.R_SYM:
         rec_sym(obj)
     elif kind == lk_rec.R_VAR:
@@ -219,16 +231,19 @@ def take_record(obj, kind):
     elif kind == lk_rec.R_FIX:
         if cur_fn == lk_tab.NONE:
             damaged()
-        rec_fixes(obj, cur_fn)
+        rec_fixes(obj, lk_tab.fn_sym[cur_fn], True)
     elif kind == lk_rec.R_DFIX:
-        rec_fixes(obj, lk_tab.NONE)
+        # A DFIX belongs to the DATA record just before it (object-format.md).
+        if data == lk_tab.NONE:
+            damaged()
+        rec_fixes(obj, data, False)
     elif kind != lk_rec.R_IMP and kind != lk_rec.R_CODE:
         damaged()
 
 
 def scan(obj):
     """Read object file obj."""
-    global cur_fn
+    global cur_fn, cur_data
     lk_rec.open_object(lk_rec.MAIN, obj)
     obj_first[obj] = local_count
     obj_first[obj + 1] = local_count
@@ -238,6 +253,7 @@ def scan(obj):
     if obj_cpu[obj] > lk_envf.cpu:
         lk_file.fail(lk_err.E_NEEDS_65C02, lk_file.ARG_OBJECT + obj)
     cur_fn = lk_tab.NONE
+    cur_data = lk_tab.NONE
     kind = lk_rec.advance(lk_rec.MAIN)
     while kind != lk_rec.R_END:
         take_record(obj, kind)
@@ -258,12 +274,6 @@ def scan_all():
     finish()
 
 
-def check_defined():
-    for s in range(0, lk_sym.count):
-        if not lk_sym.is_defined(s):
-            lk_sym.fail(lk_err.E_UNDEFINED, s)
-
-
 def merge(a, b):
     """Classes a and b share a member, so they are one class from now on."""
     if a == b:
@@ -282,6 +292,11 @@ def merge(a, b):
 def join_members():
     """Give every member its class, merging the classes of a function that is in two."""
     for i in range(0, lk_tab.memb_count):
+        # A MEMB record is not inside a function: what it names must be there, kept or not.
+        if not lk_sym.is_defined(lk_tab.memb_func[i]):
+            lk_sym.fail(lk_err.E_UNDEFINED, lk_tab.memb_func[i])
+        if not lk_sym.is_defined(lk_tab.memb_class[i]):
+            lk_sym.fail(lk_err.E_UNDEFINED, lk_tab.memb_class[i])
         f = lk_sym.sym_a[lk_tab.memb_func[i]]
         k = lk_tab.class_of(lk_sym.sym_a[lk_tab.memb_class[i]])
         if lk_tab.fn_class[f] == 0:
@@ -320,7 +335,8 @@ def add_via_edges(source):
         target = lk_tab.edge_to[e - 1]
         flags = lk_tab.edge_flags[e - 1]
         e = lk_tab.edge_next[e - 1]
-        if (flags & lk_tab.E_VIA) == 0 and lk_sym.kind_of(target) == lk_sym.FUNCTION:
+        if (flags & lk_tab.E_VIA) == 0 and lk_sym.kind_of(target) == lk_sym.FUNCTION \
+                and lk_sym.is_defined(target):
             f = lk_sym.sym_a[target]
             if lk_tab.fn_class[f] != 0:
                 block = lk_tab.cls_sym[lk_tab.class_of(lk_tab.fn_class[f] - 1)]
@@ -331,11 +347,10 @@ def add_via_edges(source):
 
 def finish():
     """What can only be done once every object file has been read."""
-    check_defined()
     join_members()
     move_edges()
     add_block_edges()
     for s in range(0, lk_sym.count):
         kind = lk_sym.kind_of(s)
-        if kind == lk_sym.FUNCTION or kind == lk_sym.CLASS:
+        if (kind == lk_sym.FUNCTION or kind == lk_sym.CLASS) and lk_sym.is_defined(s):
             add_via_edges(s)

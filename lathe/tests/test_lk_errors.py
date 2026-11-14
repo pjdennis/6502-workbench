@@ -6,7 +6,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import (Obj, link, record, word, string, HOST_ENV, MUST, EITHER, NEVER,  # noqa: E402
+from test_lk_support import (Obj, link, keep, record, word, string, HOST_ENV, MUST, EITHER, NEVER,  # noqa: E402
                              PARAM, LOCAL, NOBODY, INTERRUPT, POINTER)
 
 ENV = 'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $EFFF\nexit return\n'
@@ -94,6 +94,20 @@ class EnvironmentFile(ErrorTest):
         for old, new in (('$00 $FF', '$80 $7F'), ('$00 $FF', '$00 $100'), ('$0200 $BFFF', '$0080 $BFFF'),
                          ('$C000 $EFFF', '$C000 $BFFF'), ('$C000 $EFFF', '$0000 $FFFF')):
             self.assertError(link([simple()], ENV.replace(old, new)), 34, 'environment file: bad address range')
+
+    def test_data_must_be_above_zero_page(self):
+        # Data below $100 would be zero page the linker does not count: a "never" variable
+        # there, items overlapping the zero page pool, and on a 65C02 a word at $FF.
+        for data in ('$0000 $1FFF', '$00F0 $01FF', '$00FF $0FFF'):
+            self.assertError(link([simple()], ENV.replace('$C000 $EFFF', data)), 34,
+                             'environment file: bad address range')
+
+    def test_code_and_data_must_not_overlap(self):
+        for data in ('$0200 $02FF', '$BFFF $C0FF', '$0100 $0200', '$0100 $FFFF'):
+            self.assertError(link([simple()], ENV.replace('$C000 $EFFF', data)), 34,
+                             'environment file: bad address range')
+        for data in ('$0100 $01FF', '$C000 $FFFF'):
+            self.assertEqual(link([simple()], ENV.replace('$C000 $EFFF', data)).status, 0, data)
 
     def test_comments_blank_lines_case_and_unknown_entries_are_accepted(self):
         env = ('; a machine\n\nCPU 65C02 ; comment\n  zeropage\t$10 $1f\ncode 512 $BFFF\n'
@@ -184,44 +198,69 @@ class Storage(ErrorTest):
         caller(o, 'b', [], [(2, MUST, 0, LOCAL, 'y')])
         caller(o, 'c', [], [(3, MUST, 0, LOCAL, 'z')])
         r = link([o], ENV.replace('$00 $FF', '$00 $03'))
-        self.assertEqual(r.errors, 'link error 25: zero page is full: t.main -> t.a -> t.b\n')
+        self.assertEqual(r.errors, 'link error 25: zero page is full, 1 byte over: t.main -> t.a -> t.b\n')
         self.assertEqual(link([o], ENV.replace('$00 $FF', '$00 $04')).status, 0)
 
     def test_zero_page_full_of_variables(self):
         o = simple()
         o.var('a', 2, MUST)
         o.var('b', 2, MUST)
+        keep(o, 'a', 'b')
         r = link([o], ENV.replace('$00 $FF', '$00 $02'))
-        self.assertEqual(r.errors, 'link error 25: zero page is full\n')
+        self.assertEqual(r.errors, 'link error 25: zero page is full, 1 byte over\n')
 
     def test_one_item_larger_than_zero_page(self):
         o = simple()
         o.var('huge', 300, MUST)
-        self.assertEqual(link([o], ENV).errors, 'link error 25: zero page is full: t.huge\n')
+        keep(o, 'huge')
+        self.assertEqual(link([o], ENV).errors, 'link error 25: zero page is full, 44 bytes over: t.huge\n')
 
     def test_data_range_full(self):
         o = Obj('t')
         o.var('v', 6, NEVER)
         caller(o, 'main', ['f'], [(4, NEVER, 0, LOCAL, 'm')])
         caller(o, 'f', [], [(7, NEVER, 0, LOCAL, 'x')])
+        keep(o, 'v')
         r = link([o], ENV.replace('$C000 $EFFF', '$C000 $C00F'))
-        self.assertEqual(r.errors, 'link error 26: variables do not fit in the data range: t.main -> t.f\n')
+        self.assertEqual(r.errors, 'link error 26: variables do not fit in the data range, 1 byte over: t.main -> t.f\n')
         self.assertEqual(link([o], ENV.replace('$C000 $EFFF', '$C000 $C010')).status, 0)
 
     def test_more_data_than_64k(self):
         o = Obj('t')
         caller(o, 'main', ['f'], [(40000, NEVER, 0, LOCAL, 'm')])
         caller(o, 'f', [], [(40000, NEVER, 0, LOCAL, 'x')])
-        self.assertError(link([o], ENV), 26, 'variables do not fit in the data range')
+        self.assertError(link([o], ENV), 26, 'variables do not fit in the data range, more than 64K in all')
 
     def test_code_range_full(self):
         o = Obj('t')
-        o.func('main', bytes(11) + b'\x60')
+        o.func('main', o.code().abs(0xAD, o.d('$1')).raw(*bytes(8)).raw(0x60))
         o.data('$1', bytes(5))
         # $start is 5 bytes here, main 12, the constant 5: 22 bytes.
         self.assertEqual(link([o], ENV.replace('$0200 $BFFF', '$0200 $0214')).errors,
-                         'link error 27: code does not fit in the code range\n')
+                         'link error 27: code does not fit in the code range, 1 byte over\n')
         self.assertEqual(link([o], ENV.replace('$0200 $BFFF', '$0200 $0215')).status, 0)
+
+
+    def test_code_over_by_more_than_one_item(self):
+        o = Obj('t')
+        o.func('main', o.code().abs(0xAD, o.d('$1')).abs(0xAD, o.d('$2')).raw(*bytes(5)).raw(0x60))
+        o.data('$1', bytes(5))
+        o.data('$2', bytes(300))
+        self.assertEqual(link([o], ENV.replace('$0200 $BFFF', '$0200 $0214')).errors,
+                         'link error 27: code does not fit in the code range, 301 bytes over\n')
+
+    def test_code_over_by_more_than_64k(self):
+        objects = []
+        for i in range(3):
+            o = Obj('m%d' % i)
+            if i == 0:
+                c = o.code()
+                for j in range(3):
+                    c.abs(0xAD, o.d('m%d.big' % j))
+                o.func('main', c.raw(0x60))
+            o.data('big', bytes(30000))
+            objects.append(o)
+        self.assertError(link(objects, ENV), 27, 'code does not fit in the code range, more than 64K in all')
 
 
 class FixUps(ErrorTest):
@@ -276,6 +315,7 @@ class FixUps(ErrorTest):
         o = simple()
         v = o.var('x', 1, NEVER)
         o.data('$1', b'\0\0', fixes=[(1, 1, v, 0xFF, 0)])
+        keep(o, '$1')
         self.assertEqual(link([o], ENV).errors, 'link error 29: bad fix-up: t.$1\n')
 
     def test_instruction_cut_off(self):
@@ -303,6 +343,7 @@ class FixUps(ErrorTest):
         o.func('main', o.code().byte(0xA9, 2, f).byte(0xA2, 3, f).raw(0x60))
         o.func('f', b'\x60')
         o.data('$1', b'\0\0', fixes=[(0, 1, f, 0xFF, 0)])
+        keep(o, '$1')
         r = link([o], ENV)
         self.assertEqual(r.addr('F', 't.f'), 0x020A)
         self.assertEqual(r.code('t.main'), bytes.fromhex('A90A A202 60'))
@@ -431,16 +472,16 @@ class Capacities(ErrorTest):
         self.assertEqual(link([o], ENV).errors, 'link error 36: too many variables and constants\n')
 
     def test_addresses_taken(self):
-        # Each record notes a function once; 35 records naming the same 30 is 1050 notes.
+        # Each record notes a symbol once; 70 records naming the same 30 is 2100 notes.
         o = simple()
         names = ['f%d' % i for i in range(30)]
         for name in names:
             o.func(name, b'\x60')
         fixes = [(2 * i, 1, o.f(name), 0xFF, 0) for i, name in enumerate(names)]
-        for i in range(35):
+        for i in range(70):
             o.data('$%d' % i, bytes(60), fixes=fixes)
         self.assertEqual(link([o], ENV).errors,
-                         'link error 38: too many functions whose address a fix-up takes\n')
+                         'link error 38: too many symbols named by fix-ups\n')
 
 
 if __name__ == '__main__':

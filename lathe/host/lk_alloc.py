@@ -233,8 +233,9 @@ def caller_below(n):
     return 0, False
 
 
-def fail_full(error):
-    """Report a pool that is too small, with the call chain that needs the most of it."""
+def fail_full(error, amount, wrapped):
+    """Report a pool that is too small, by how much, and the call chain that needs the most of
+    it."""
     count = 0
     n, more = deepest_node(deepest_context())
     while more:
@@ -244,6 +245,7 @@ def fail_full(error):
                 count += 1
         n, more = caller_below(n)
     lk_err.begin(error)
+    lk_err.over(amount, wrapped)
     for i in range(count - 1, -1, -1):
         if i == count - 1:
             lk_err.colon()
@@ -251,6 +253,10 @@ def fail_full(error):
             lk_err.arrow()
         lk_tab.error_node(chain[i])
     lk_err.finish()
+
+
+def fail_zp():
+    fail_full(lk_err.E_ZP_FULL, zp_used - zp_cap, lk_tab.overflow)
 
 
 # ---- choosing what goes in zero page
@@ -263,7 +269,11 @@ def is_candidate(info, size):
 def must_fit(size, sym):
     """A class 0 item larger than all of zero page can be reported at once."""
     if size > zp_cap:
-        lk_sym.fail(lk_err.E_ZP_FULL, sym)
+        lk_err.begin(lk_err.E_ZP_FULL)
+        lk_err.over(size - zp_cap, False)
+        lk_err.colon()
+        lk_sym.error_name(sym)
+        lk_err.finish()
 
 
 def start_choices():
@@ -290,12 +300,12 @@ def start_choices():
     zp_vars = 0
     for d in range(0, lk_tab.def_count):
         s = lk_tab.def_sym[d]
-        if lk_sym.kind_of(s) == lk_sym.VARIABLE:
-            if lk_sym.sym_f[s] == 0:
+        if lk_sym.is_kept_var(s):
+            if (lk_sym.sym_f[s] & lk_sym.V_CLASS) == 0:
                 must_fit(lk_sym.sym_b[s], s)
                 lk_sym.sym_f[s] |= lk_sym.V_ZP
                 zp_vars += lk_sym.sym_b[s]
-            elif lk_sym.sym_f[s] == 1 and lk_sym.sym_b[s] <= zp_cap:
+            elif (lk_sym.sym_f[s] & lk_sym.V_CLASS) == 1 and lk_sym.sym_b[s] <= zp_cap:
                 weight_count[lk_sym.sym_w[s]] += 1
 
 
@@ -351,7 +361,7 @@ def move_var(s, into):
 
 
 def var_is_candidate(s, weight):
-    return lk_sym.kind_of(s) == lk_sym.VARIABLE and (lk_sym.sym_f[s] & lk_sym.V_CLASS) == 1 \
+    return lk_sym.is_kept_var(s) and (lk_sym.sym_f[s] & lk_sym.V_CLASS) == 1 \
         and lk_sym.sym_w[s] == weight and lk_sym.sym_b[s] <= zp_cap
 
 
@@ -428,7 +438,7 @@ def assign_zp():
     pos = lk_envf.zp_lo
     for d in range(0, lk_tab.def_count):
         s = lk_tab.def_sym[d]
-        if lk_sym.kind_of(s) == lk_sym.VARIABLE and (lk_sym.sym_f[s] & lk_sym.V_ZP) != 0:
+        if lk_sym.is_kept_var(s) and (lk_sym.sym_f[s] & lk_sym.V_ZP) != 0:
             lk_sym.sym_a[s] = pos
             pos += lk_sym.sym_b[s]
     for ctx in range(0, lk_tab.ctx_count):
@@ -443,7 +453,7 @@ def place_vars():
     pos = 0
     for d in range(0, lk_tab.def_count):
         s = lk_tab.def_sym[d]
-        if lk_sym.kind_of(s) == lk_sym.VARIABLE and (lk_sym.sym_f[s] & lk_sym.V_ZP) == 0:
+        if lk_sym.is_kept_var(s) and (lk_sym.sym_f[s] & lk_sym.V_ZP) == 0:
             pos = main_item(pos, lk_sym.sym_b[s])
             lk_sym.sym_a[s] = (lk_envf.data_lo + pos) & 0xFFFF
             pos = lk_tab.add16(pos, lk_sym.sym_b[s])
@@ -458,8 +468,9 @@ def assign_main():
         ctx_bottom[ctx] = pos
         pos = layout(POOL_MAIN, ctx)
         ctx_depth[ctx] = pos - ctx_bottom[ctx]
-    if lk_tab.overflow or pos > lk_envf.data_hi - lk_envf.data_lo + 1:
-        fail_full(lk_err.E_DATA_FULL)
+    room = lk_envf.data_hi - lk_envf.data_lo + 1
+    if lk_tab.overflow or pos > room:
+        fail_full(lk_err.E_DATA_FULL, pos - room, lk_tab.overflow)
     for n in range(0, lk_tab.node_count):
         lk_tab.node_mbase[n] = (lk_envf.data_lo + lay_base[n]) & 0xFFFF
 
@@ -513,11 +524,11 @@ def allocate():
     for n in range(0, lk_tab.node_count):
         lk_tab.node_zsize[n] = zp_size(n)
     if not layout_zp():
-        fail_full(lk_err.E_ZP_FULL)
+        fail_zp()
     promote()
     # promote() only moved in what it had worked out would fit. Make sure of it.
     if not layout_zp():
-        fail_full(lk_err.E_ZP_FULL)
+        fail_zp()
     assign_zp()
     assign_main()
     assign_cparams()

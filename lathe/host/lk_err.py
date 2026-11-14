@@ -43,7 +43,7 @@ E_ENV_RANGE = 34
 E_MEMBERS = 35
 E_DEFS = 36
 E_SIZE = 37
-E_ADDRS = 38
+E_REFS = 38
 E_STOP_6502 = 39
 E_MEMBER_CYCLE = 40
 
@@ -86,7 +86,7 @@ MESSAGES = (
     b"too many functions whose address is taken\n"
     b"too many variables and constants\n"
     b"internal error: a function is not the size that was planned\n"
-    b"too many functions whose address a fix-up takes\n"
+    b"too many symbols named by fix-ups\n"
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
 )
@@ -106,6 +106,42 @@ def put_number(n):
     if n >= 10:
         put(48 + (n // 10) % 10)
     put(48 + n % 10)
+
+
+def put_word(n):
+    """n, 0 to 65535, in decimal."""
+    div = 10000
+    started = False
+    while div > 1:
+        if started or n >= div:
+            put(48 + (n // div) % 10)
+            started = True
+        div = div // 10
+    put(48 + n % 10)
+
+
+OVER_TEXT = b" over"
+BYTES_TEXT = b" bytes"
+WRAP_TEXT = b", more than 64K in all"
+
+
+def over(amount, wrapped):
+    """After a message about a range that is too small: by how much, or that what it needs
+    is more than 16 bits can count."""
+    if wrapped:
+        for i in range(0, len(WRAP_TEXT)):
+            put(WRAP_TEXT[i])
+        return
+    put(44)
+    put(32)
+    put_word(amount)
+    size = len(BYTES_TEXT)
+    if amount == 1:
+        size -= 1
+    for i in range(0, size):
+        put(BYTES_TEXT[i])
+    for i in range(0, len(OVER_TEXT)):
+        put(OVER_TEXT[i])
 
 
 def begin(n):

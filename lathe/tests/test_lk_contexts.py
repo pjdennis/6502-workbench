@@ -10,7 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import (Obj, link, routine, NEVER, MUST, EITHER, LOCAL, INTERRUPT, NOBODY)  # noqa: E402
+from test_lk_support import (Obj, link, keep, routine, NEVER, MUST, EITHER, LOCAL, INTERRUPT, NOBODY)  # noqa: E402
 
 ENV = 'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $EFFF\nexit return\n'
 
@@ -54,6 +54,7 @@ class TwoContexts(unittest.TestCase):
     def test_variables_are_below_both_contexts(self):
         o = shared()
         o.var('v', 2, MUST)
+        keep(o, 'v')
         r = link([o], ENV.replace('$00 $FF', '$20 $2F'))
         self.assertEqual((r.addr('V', 't.v'), r.addr('S', 't.main', 0), r.addr('S', 't.irq', 0)),
                          (0x20, 0x22, 0x25))
@@ -113,6 +114,7 @@ class Copies(unittest.TestCase):
         self.worker(o)
         routine(o, 'irq', one(1), ['f'], flags=INTERRUPT)
         routine(o, 'nmi', (), ['f'], flags=INTERRUPT)
+        keep(o, '$1')
         return o
 
     def test_every_copy_has_its_own_slots_branches_and_labels(self):
@@ -157,7 +159,7 @@ class Copies(unittest.TestCase):
         routine(o, 'irq', one(1), ['g'], flags=INTERRUPT)
         routine(o, 'g', one(1), ['f'])
         r = link([o], ENV.replace('$00 $FF', '$00 $03'))
-        self.assertEqual(r.errors, 'link error 25: zero page is full: t.irq -> t.g -> t.f@1\n')
+        self.assertEqual(r.errors, 'link error 25: zero page is full, 1 byte over: t.irq -> t.g -> t.f@1\n')
 
 
 if __name__ == '__main__':
