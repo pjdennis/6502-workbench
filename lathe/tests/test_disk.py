@@ -6,8 +6,9 @@ The end-to-end cases in cases/e2e-wendy2disk/ use disk directly. Here:
   same name, with the same parameter and result types in the same order. host.lth binds them to
   registers; a Lathe function of disk.lth gets the same registers from the calling convention
   (lathe/docs/code-model.md, "Convention"), which the run below shows.
-- sys over disk: lathe/src/sys.lth with `host` replaced by `disk` and nothing else changed,
-  under lathe/src/copytest.lth, run on Wendy 2 with --disk: the cases of test_src_sys.py.
+- sys over disk: lathe/src/sys.lth chooses `disk` or `host` with `#if PORTS`; every call it
+  makes of one is made of the other in the same place. lathe/src/copytest.lth, built with
+  wendy2disk.env (PORTS 1) and run on Wendy 2 with --disk, gives the cases of test_src_sys.py.
 """
 import os
 import re
@@ -51,10 +52,25 @@ def signatures(path):
     return found
 
 
+def code_of(path):
+    """A module's text without its comments."""
+    return '\n'.join(line.split(';', 1)[0] for line in _read(path).splitlines())
+
+
+def calls(code, module):
+    """The functions of `module` that `code` calls, in order of appearance."""
+    return re.findall(r'\b%s\.(\w+)' % module, code)
+
+
+def branches(code):
+    """[(PORTS branch, other branch)] of each `#if PORTS` ... `#else` ... `#end` in code."""
+    return re.findall(r'^#if PORTS\n(.*?)^#else\n(.*?)^#end\n', code, re.M | re.S)
+
+
 class Interface(unittest.TestCase):
     def test_disk_has_what_sys_uses_of_host(self):
-        code = '\n'.join(line.split(';', 1)[0] for line in _read(os.path.join(SRC, 'sys.lth')).splitlines())
-        used = sorted(set(re.findall(r'\bhost\.(\w+)', code)))
+        code = code_of(os.path.join(SRC, 'sys.lth'))
+        used = sorted(set(calls(code, 'host')))
         self.assertEqual(used, ['argc', 'argv', 'close', 'exit', 'open', 'open_out', 'put_byte',
                                 'put_error', 'read', 'write'])
         host = signatures(os.path.join(RT, 'host.lth'))
@@ -67,16 +83,31 @@ class Interface(unittest.TestCase):
         host = signatures(os.path.join(RT, 'host.lth'))
         disk = signatures(os.path.join(RT, 'disk.lth'))
         self.assertEqual(sorted(set(host) - set(disk)), ['read_byte'])
+        self.assertNotIn('read_byte', calls(code_of(os.path.join(SRC, 'sys.lth')), 'host'))
 
+    def test_sys_chooses_with_ports(self):
+        """Each use of host is in the #else of an `#if PORTS` whose first branch is the same
+        text with disk for host."""
+        code = code_of(os.path.join(SRC, 'sys.lth'))
+        found = branches(code)
+        self.assertTrue(found)
+        for ports, other in found:
+            self.assertEqual(ports.replace('disk', 'host'), other)
+            self.assertNotIn('host', ports)
+            self.assertNotIn('disk', other)
+        outside = re.sub(r'^#if PORTS\n.*?^#end\n', '', code, flags=re.M | re.S)
+        self.assertEqual(calls(outside, 'host') + calls(outside, 'disk'), [])
+        self.assertEqual(sorted(set(calls(code, 'disk'))), sorted(set(calls(code, 'host'))))
 
-def sys_over_disk(work):
-    """lathe/src/sys.lth with the module host replaced by disk, and copytest.lth beside it."""
-    text = _read(os.path.join(SRC, 'sys.lth'))
-    changed = re.sub(r'\bhost\b(?=\.)', 'disk', text.replace('\nimport host\n', '\nimport disk\n'))
-    with open(os.path.join(work, 'sys.lth'), 'w') as fh:
-        fh.write(changed)
-    shutil.copy(os.path.join(SRC, 'copytest.lth'), work)
-    return os.path.join(work, 'copytest.lth'), text, changed
+    def test_every_environment_of_the_compiler_defines_ports(self):
+        """`#if PORTS` is an error where PORTS is not defined."""
+        envs = [os.path.join(ROOT, 'lathe', 'env', n + '.env') for n in ('wendy2disk',)]
+        envs += [os.path.join(SRC, f) for f in os.listdir(SRC) if f.endswith('.env')]
+        for path in envs:
+            defines = dict(build.mapenv.read_env(path).defines)
+            self.assertIn('PORTS', defines, path)
+            disk = defines.get('DISK', 0) != 0
+            self.assertEqual(defines['PORTS'], 1 if disk else 0, path)
 
 
 @unittest.skipUnless(os.path.isfile(boards.EMULATOR) and os.path.isfile(build.COMPILER),
@@ -88,9 +119,9 @@ class SysOverDisk(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.work = tempfile.mkdtemp(prefix='lathe-disk-')
-        source, cls.before, cls.after = sys_over_disk(cls.work)
         cls.image = os.path.join(cls.work, 'copytest.bin')
-        build.build(source, cls.image, 'wendy2disk', keep=os.path.join(cls.work, 'build'))
+        build.build(os.path.join(SRC, 'copytest.lth'), cls.image, 'wendy2disk',
+                    keep=os.path.join(cls.work, 'build'))
 
     @classmethod
     def tearDownClass(cls):
@@ -103,11 +134,11 @@ class SysOverDisk(unittest.TestCase):
     def run_with(self, args):
         return build.run_program(self.image, 'wendy2disk', args, disk=self.disk)
 
-    def test_only_the_module_name_changed(self):
-        lines = [(a, b) for a, b in zip(self.before.splitlines(), self.after.splitlines()) if a != b]
-        self.assertTrue(lines)
-        for a, b in lines:
-            self.assertEqual(a.replace('host', 'disk'), b)
+    def test_the_build_uses_disk_not_host(self):
+        with open(os.path.join(self.work, 'build', 'copytest.map')) as fh:
+            kept = [line.split()[3] for line in fh if line.startswith('F ')]
+        self.assertIn('disk.read', kept)
+        self.assertIn('sys.read', kept)
 
     def test_a_file_is_copied_byte_for_byte(self):
         data = bytes(range(256)) * 5 + b'end'

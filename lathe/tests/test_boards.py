@@ -243,7 +243,7 @@ class Environments(unittest.TestCase):
 
     def test_disk_environment(self):
         env = mapenv.read_env(os.path.join(ENVS, 'wendy2disk.env'))
-        self.assertEqual(env.defines, [('BOARD', 2), ('DISK', 1)])
+        self.assertEqual(env.defines, [('BOARD', 2), ('DISK', 1), ('PORTS', 1)])
 
     def test_host_environment_is_unchanged(self):
         env = mapenv.read_env(os.path.join(ENVS, 'host.env'))

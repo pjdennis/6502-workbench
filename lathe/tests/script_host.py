@@ -231,27 +231,44 @@ def host_run(main, args, small=False):
     return status, env._out.getvalue(), env._err.getvalue()
 
 
-def check_script(test, image, main, name, work, outputs=0, extra=(), small=False):
+def check_script(test, image, main, name, work, outputs=0, extra=(), small=False, banked=False,
+                 chosen=None):
     """Run every section of script NAME with the Lathe program `image` and with the twin
     `main`, and check that the status, the output and the error output are the same, and the
     files the two write: the program gets the script and then `outputs` names of files to
     write (ending in L for the Lathe, P for the host). `extra` adds sections, (title, text),
     that the test makes itself. `small`: the program is the small build, and the host is run
-    with its capacities. The Lathe runs are made in parallel."""
+    with its capacities. The Lathe runs are made in parallel.
+
+    `banked`: the program is the banked build (src_support.build_banked), run on Wendy 2 by
+    src_support.run_banked, which gives it its files by their base names; the host is then run
+    in the directory `work` with the same base names, so that messages naming a file agree.
+    `chosen(n)`, if given, says which sections (numbered from 0) are run. Returns the number of
+    sections run."""
     found = sections(name) + list(extra)
     runs = []
     for n, (title, text) in enumerate(found):
+        if chosen is not None and not chosen(n):
+            continue
         path = os.path.join(work, '%s-%d.txt' % (name, n))
         with open(path, 'wb') as f:
             f.write(text)
         files = [os.path.join(work, '%s-%d-%d' % (name, n, k)) for k in range(outputs)]
         runs.append((title, text, path, files))
+    run = support.run_banked if banked else support.run
     with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
-        lathe = list(pool.map(lambda r: support.run(image, [r[2]] + [f + 'L' for f in r[3]],
-                                                    timeout=600), runs))
+        lathe = list(pool.map(lambda r: run(image, [r[2]] + [f + 'L' for f in r[3]], timeout=600),
+                              runs))
+    named = os.path.basename if banked else (lambda p: p)
     for (title, text, path, files), (status, out, err, _) in zip(runs, lathe):
         with test.subTest(section=title.decode()):
-            host = host_run(main, [path] + [f + 'P' for f in files], small)
+            here = os.getcwd()
+            if banked:
+                os.chdir(work)
+            try:
+                host = host_run(main, [named(path)] + [named(f) + 'P' for f in files], small)
+            finally:
+                os.chdir(here)
             if out != host[1]:
                 test.fail(first_difference(text, out, host[1]))
             test.assertEqual((status, err), (host[0], host[2]))
@@ -260,7 +277,7 @@ def check_script(test, image, main, name, work, outputs=0, extra=(), small=False
                 if os.path.exists(f + 'P'):
                     with open(f + 'L', 'rb') as a, open(f + 'P', 'rb') as b:
                         test.assertEqual(a.read(), b.read(), 'file %s' % f)
-    return len(found)
+    return len(runs)
 
 
 def first_difference(text, lathe_out, host_out):

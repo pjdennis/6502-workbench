@@ -1,6 +1,6 @@
 # Lathe: configurations (stage 11)
 
-Status (2026-11-14): design, after spike L5, and code in banks and overlays built. Built so far: the spike in `lathe/tests/spike_l5/`, and steps 1 to 8 of the order of work: files on Wendy 2 (section 1), the far-call run-time modules, and the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"). Steps 9 to 11 (banked data, the compiler's own placement, the gate) are not done. Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
+Status (2026-11-14): design, after spike L5, and code in banks and overlays built. Built so far: the spike in `lathe/tests/spike_l5/`, and steps 1 to 8 of the order of work: files on Wendy 2 (section 1), the far-call run-time modules, and the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"). Steps 9 to 11 (banked data, the compiler's own placement, the gate) are not done, but for the code half of step 10: the compiler's test programs run banked on Wendy 2 ("Measured on the compiler's test programs"). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
 
 A KB here is 1,024 bytes.
 
@@ -52,7 +52,7 @@ The `$F800` ports (`syscall_ports.h`): write a file name byte by byte to `$F800`
 | `--disk` makes the emulator change directory before it opens `--wendy2-prog`. | Give the program's path as an absolute path. |
 | `lathe/env/wendy2.env` and `boards.md` say Wendy 2 has no host services. | A new environment `wendy2disk.env` and a board entry that passes `--disk` (stage 11, step 1). |
 
-**Built (step 1).** `lathe/rt/disk.lth` does all of the above over the ports, with the functions of `host.lth` that `sys.lth` uses under the same names and types (`open`, `open_out`, `close`, `read`, `write`, `argc`, `argv`, `put_byte`, `put_error`, `exit`); it has no `read_byte`, because there is no standard input. `boards.md`, "Wendy 2 with files", has the recipe; `lathe/tests/test_disk.py` runs `sys.lth`, with `host` renamed `disk`, on Wendy 2.
+**Built (step 1).** `lathe/rt/disk.lth` does all of the above over the ports, with the functions of `host.lth` that `sys.lth` uses under the same names and types (`open`, `open_out`, `close`, `read`, `write`, `argc`, `argv`, `put_byte`, `put_error`, `exit`); it has no `read_byte`, because there is no standard input. `boards.md`, "Wendy 2 with files", has the recipe; `lathe/src/sys.lth` chooses between `disk` and `host` with `#if PORTS` (every environment that compiles it defines `PORTS`, 1 for the file ports, 0 for the host services; not `DISK`, which names the module once it is imported), and `lathe/tests/test_disk.py` runs it on Wendy 2. `sys` uses no standard input on either machine, so `disk`'s lack of `read_byte` costs nothing.
 
 ### Changes to the emulator the owner may choose (none is required)
 
@@ -374,12 +374,60 @@ Each step ends in a test that fails before it and passes after. The first three 
 | 10 | The compiler's own placement: `kernel.names`, `fbuf.buffer` and `err`'s messages `in` regions, `lex` mapping around a whole name; `wendy2bank.env` as above. | The ten twins' test programs pass when linked banked on Wendy 2; the map shows at most 16 KB of resident code. |
 | 11 | The gate of stage 11 (and of stage 7): the Lathe-written compiler, linked banked, compiles itself on Wendy 2 with `--disk`, and its objects equal the host compiler's. | The identity test, opt-in like `P1_WENDY_SELFHOST` if it is slow. |
 
+Step 10's code half is done ahead of step 9 (below): the test programs of `outtest`, `regtest`, `condtest` and `gentest` run banked on Wendy 2 with the small tables, all in fixed memory.
+
+## Measured on the compiler's test programs
+
+Measured 2026-11-14 by `lathe/tests/bank_report.py` (maps and emulator runs) on the four test programs that hold code generation, built by `src_support.build_banked` with `lathe/src/compiler-bank.env`, and checked against the Python twins section by section by `lathe/tests/test_src_banked.py` (`lathe/host/README.md`, "The banked build"). The first banked link of anything large, about 38 KB of code.
+
+**The placement.** Fixed: err, kernel, src, lex, typetab, fold, fbuf, sys, disk, rt_bank, rt_math (and rt_frame where linked). Bank 1, the front end's place: the test drivers, `script`, `listing`, `regcmd` and the test's main module; they call down into banks 2 and 3 and into fixed memory, and nothing below calls them, as will be true of `lathec`, `decl` and `expr`. Bank 2: gen, reg, out. Bank 3: cond. That is **placement E, not D**: with cond in bank 2, gentest's bank 2 is judged 1,437 bytes over 28 KB (link error 45). As placed it would hold 25,795 bytes (gen, reg, out and cond: 23,824 of code and constants, 1,971 of variables), but the linker judges a bank by its contents as written, before zero page shrinks them ("As built", "Sizes"), and for these modules that is 30,109 bytes: 4,314 more (17%). And `gen` measures 12,322 bytes of code, above the 12,117 that section 3 estimated at most. So bank 2 with cond in it does not fit, now or later, unless the judged size comes closer to the placed one.
+
+**What `gentest` takes** (the largest; the small tables):
+
+| | Bytes | |
+|---|---|---|
+| resident code | 10,108 | measured: err 464, kernel 3,041, fbuf 3,158, fold 1,299, typetab 812, sys 190, disk 485, rt_bank 303, rt_math 310, `$start` and `$init` 46 |
+| stubs | 864 | 144 stubs |
+| resident code and stubs | **10,972** | against the 16 KB goal and section 3's 13,862 for the whole compiler, which counts 2,530 of lex and src that gentest does not link, and 96 stubs |
+| resident constants | 6,194 | 4,882 of them err's messages, 943 the command words of two drivers (their address is taken, so fixed) |
+| fixed variables and slots | 13,025 | `$0200-$34E0` |
+| free fixed memory | 4,091 | 1,311 below the code (`$3A00`), 754 above it, 2,026 at `$F810-$FFF9` (the `more` range, unused) |
+| bank 1 | 4,585 file, 250 variables | gentest, script, listing, regcmd |
+| bank 2 | 21,371 file, 1,970 variables | gen, reg, out |
+| bank 3 | 2,453 file, 1 variable | cond |
+
+The other three: resident code and stubs 8,831 (regtest, 69 stubs), 9,025 (condtest, 80), 7,036 (outtest, 21); their banks 2 hold 7,821 (reg, out) and 2,128 bytes (out).
+
+**Stubs.** 144, against the 96 estimated for the whole compiler. The drivers in bank 1 call many more functions of reg, gen and out than the host's front end does (`regcmd` reaches most of reg), and every copy of a function in a bank gets a stub when one does. The front end's own count will be known when `expr` and `decl` are linked.
+
+**Far calls and cycles, all 113 sections of `gen.txt`** (each section a run of its own, the banks loaded again each time):
+
+| Build | CPU cycles |
+|---|---|
+| all in one, default machine (`compiler-small.env`) | 42,793,503 |
+| all in one, Wendy 2 (`compiler-bank.env` without its window entries) | 44,038,227 |
+| banked, Wendy 2 | 269,839,982 |
+
+- **3,460 far calls** in all, counted by a copy of `rt_bank.call` that adds to a counter (`bank_report.py`): 30 a section, 141 at most. At 182 cycles they cost 629,720 cycles, 1.4% of the all-in-one run.
+- **Loading the banks at start-up**: 28,409 bytes in 1,991,131 cycles, **70 cycles a byte** (an empty script banked, less the same all in one on Wendy 2, less its 12 far calls). That is 225 million of the 270 million cycles: the tests pay it 113 times, a compile once.
+- What is left, 803,952 cycles less the far calls' 629,720, is the difference of layout: the banked link puts other variables in zero page. In `regtest` (46 sections of `reg.txt`, 1,043 far calls) the remainder is 189,444 cycles against 189,826 for the far calls, so the count and the cost agree.
+- `condtest`, 20 sections of `cond.txt`: 1,270 far calls; `outtest`, 9 sections of `out.txt`: 232.
+
+**What the first large banked link showed.**
+
+- **No fault** in the linker's stubs, placement, data of banked modules or context copies, in `rt_bank` or in `disk`: every section of the four scripts gave the Python's output the first time it ran.
+- **The judged size is the limit, not the placed size** (above). Placement D needs either cond out of bank 2 (E, as built) or a judged size closer to the placed one.
+- **`place` of a module the program does not link is an error** (44), so one environment cannot serve programs that link different parts of the compiler. The test harness writes an environment for each program, without the `place` lines of modules it does not link and with one for its main module. The compiler itself links all its modules, so `wendy2bank.env` is not affected.
+- **A bank with a file and nothing placed** in it (bank 3 of `regtest`) gets an empty file, which `start` opens and loads: harmless.
+- **Fixed memory is the constraint**, as section 4 foresaw. At the small capacities gentest leaves 4 KB; `lex` and `src` will take 2.5 KB of it, and the full-size tables cannot fit until the data bank of step 9 takes `kernel.names` and `fbuf.buffer`. The `outtest` sections that test a full table of 2,048 bytes (out.txt sections 3 to 6) give error 87 banked, as the Python does at the small capacities: they are compared, but they test the small limit.
+- **`#if` in an `inline` function is error 168**, so `sys`'s choice of `disk` or `host` writes each inline function twice, whole.
+
 ## Decisions for the owner
 
 | Decision | Recommendation |
 |---|---|
 | Change the emulator? | Not required. If yes, only the exit status of `$F80F` (about ten lines in `emu_wendy2c.c` and a chip test). |
-| Placement D, with E as the fallback if bank 2 overflows. | Accept. It meets 16 KB with 2.5 KB to spare. |
+| Placement D, with E as the fallback if bank 2 overflows. | Accept. It meets 16 KB with 2.5 KB to spare. Bank 2 does overflow as the linker judges it (measured on gentest, "Measured on the compiler's test programs"), so the test programs use E. |
 | The 6-byte stub (182 cycles) against the 12-byte stub (130). | The 6-byte stub: about 530 bytes less resident (stubs and routine), about 300 cycles a line more. |
 | `with REGION do … end` as the form of explicit banked data. | Accept, or name another word; `map` would clash with names already used (`libmaps.Map`). |
 | Interrupt handlers may far-call into banks. | Allow (measured safe); forbid overlays and `with` in them. |

@@ -1,7 +1,7 @@
 ; Files on emulated Wendy 2 run with `--disk DIR` (lathe/env/wendy2disk.env), through the
 ; emulator's file ports at $F800-$F80F (emulator/chips/syscall_ports.h), with the interface of
 ; the functions of lathe/rt/host.lth that lathe/src/sys.lth uses: the same names, parameters,
-; results and registers, so that sys can choose between the two modules with `#if DISK`.
+; results and registers, so that sys can choose between the two modules with `#if PORTS`.
 ; lathe/docs/boards.md, "Wendy 2 with files", has the recipe.
 ;
 ; The ports. A file name is written to $F800 a byte at a time ($F801 clears it). Reading $F802

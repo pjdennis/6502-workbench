@@ -3,6 +3,18 @@
 ; (asm/17/environment.asm, declared in lathe/rt/host.lth). Everything else in lathe/src/ reaches
 ; files, arguments and the console only through the functions here.
 ;
+; The machine. With `define PORTS 1` in the environment (lathe/src/compiler-bank.env,
+; lathe/env/wendy2disk.env) the services are those of lathe/rt/disk.lth, the file ports of
+; Wendy 2 run with --disk: the same functions under the same names and types, so each call is
+; written twice, once under `#if PORTS` for disk and once under `#else` for host, and the two
+; differ only in the module's name (lathe/tests/test_disk.py checks it). Every environment that
+; compiles this module defines PORTS, 0 or 1: `#if` of a name not defined is an error. (Not
+; DISK, which the boards' environments define: once `disk` is imported, that name is the
+; module.) On Wendy 2 the arguments are the lines of the file `args`, standard output is the
+; file `out`, the error output the file `errors` and the exit status the file `status`
+; (lathe/docs/boards.md, "Wendy 2 with files"). Neither machine's standard input is used here:
+; disk has none (no read_byte).
+;
 ; Pointers. The Python models memory as env.mem, 64 KB of bytes, and a pointer as an int that
 ; indexes it. Here a pointer is a real address, and the convention throughout lathe/src/ is:
 ;
@@ -34,21 +46,35 @@
 ;   | functions                              | host service's own          |                        |
 module sys
 
+#if PORTS
+import disk
+#else
 import host
+#end
 
 const MAX_FILES = 16
 var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
 
 ; Number of program arguments.
+#if PORTS
+pub inline func argc(): byte
+  return disk.argc()
+end
+#else
 pub inline func argc(): byte
   return host.argc()
 end
+#end
 
 ; Copy argument i to p[...] with a terminating zero; return its length.
 pub func arg_copy(i: byte, p: ^byte): byte
   var a: ^byte
   var n: byte = 0
+#if PORTS
+  a = disk.argv(i)
+#else
   a = host.argv(i)
+#end
   while a[n] != 0 do
     p[n] = a[n]
     n += 1
@@ -69,18 +95,30 @@ func keep(handle: byte): byte
       return handle
     end
   end
+#if PORTS
+  disk.close(handle)
+#else
   host.close(handle)
+#end
   return 0
 end
 
 ; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
 pub func open_in(p: ^byte): byte
+#if PORTS
+  return keep(disk.open(p))
+#else
   return keep(host.open(p))
+#end
 end
 
 ; Create the file named at p for writing. Returns a handle, or 0.
 pub func open_out(p: ^byte): byte
+#if PORTS
+  return keep(disk.open_out(p))
+#else
   return keep(host.open_out(p))
+#end
 end
 
 pub func close(handle: byte)
@@ -90,40 +128,74 @@ pub func close(handle: byte)
       files[h] = 0
     end
   end
+#if PORTS
+  disk.close(handle)
+#else
   host.close(handle)
+#end
 end
 
 ; Next byte of the file and false, or 0 and true at the end of the file.
 pub func read(handle: byte): byte, bool
   var b: byte
+#if PORTS
+  if disk.read(handle) -> b then
+#else
   if host.read(handle) -> b then
+#end
     return 0, true
   end
   return b, false
 end
 
+#if PORTS
+pub inline func write(handle: byte, b: byte)
+  disk.write(b, handle)
+end
+#else
 pub inline func write(handle: byte, b: byte)
   host.write(b, handle)
 end
+#end
 
 ; One byte to standard output.
+#if PORTS
+pub inline func put_byte(b: byte)
+  disk.put_byte(b)
+end
+#else
 pub inline func put_byte(b: byte)
   host.put_byte(b)
 end
+#end
 
 ; One byte to the error output.
+#if PORTS
+pub inline func put_error(b: byte)
+  disk.put_error(b)
+end
+#else
 pub inline func put_error(b: byte)
   host.put_error(b)
 end
+#end
 
 ; End the program. Does not return.
 pub func exit(code: byte)
   var h: byte
   for h = 1 to MAX_FILES - 1 do
     if files[h] != 0 then
+#if PORTS
+      disk.close(files[h])
+#else
       host.close(files[h])
+#end
       files[h] = 0
     end
   end
+#if PORTS
+  disk.exit(code)
+#else
   host.exit(code)
+#end
 end
