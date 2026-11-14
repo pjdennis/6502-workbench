@@ -109,12 +109,13 @@ T_WHILE = 109
 T_WORD = 110
 T_ZP = 111
 T_LONG = 112            # reserved for later
+T_WITH = 113            # provisional (2026-11-14): `with REGION do ... end`
 
 KEYWORDS = (
     b"and asm at bool break byte case const continue critical do downto elif else end enum "
     b"extern for forward func if import in inline int interrupt loop mod module not nozp of "
     b"or pub record recursive return rows sbyte static then to type until var while word zp "
-    b"long "
+    b"long with "
 )
 ERROR_WORD = b"error"   # the directive #error, which is not a keyword
 

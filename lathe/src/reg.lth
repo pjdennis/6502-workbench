@@ -1331,6 +1331,15 @@ pub func object_symbol(s: word): word
     kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
         kernel.sym_name[s])
   end
+  if kernel.sym_kind[s] != kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_IN != 0 then
+    ; In a region: only inside a `with` block of that region, whose bank it names.
+    if kernel.sym_value[s] != out.with_region then
+      err.fatal(err.E_REGION_USE)
+    end
+    if out.with_used == kernel.NO_OBJ then
+      out.with_used = kernel.sym_obj[s]
+    end
+  end
   return kernel.sym_obj[s]
 end
 

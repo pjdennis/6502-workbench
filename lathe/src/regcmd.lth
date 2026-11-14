@@ -16,7 +16,7 @@ import script
 import sys
 import typetab
 
-pub const WORDS = "begin slot temp var func ftype ptr const wraps mem pslot preg addr faddr index mode pop swap squeeze dup keep become dtemp load lconst force store put pconst imm alu cmp cmpc acc modify stepx test testb implied transfer spill take intomem apart unaliased zp deref clobber claim release forget direct use loops label place looplabel branch jump join accepts assignable fit unify fitf class show state same offset constb isdirect finish end arr symweight slots inregs value retype "
+pub const WORDS = "begin slot temp var func ftype ptr const wraps mem pslot preg addr faddr index mode pop swap squeeze dup keep become dtemp load lconst force store put pconst imm alu cmp cmpc acc modify stepx test testb implied transfer spill take intomem apart unaliased zp deref clobber claim release forget direct use loops label place looplabel branch jump join accepts assignable fit unify fitf class show state same offset constb isdirect finish end arr symweight slots inregs value retype inside used "
 
 pub var own: word
 
@@ -379,5 +379,10 @@ func run_more(c: byte)
   of 79
     a = script.small()
     reg.op_type[a] = script.small()
+  of 80
+    out.with_region = script.number()   ; inside the `with` block of a region (0: none)
+    out.with_used = kernel.NO_OBJ
+  of 81
+    script.show_word(out.with_used)
   end
 end

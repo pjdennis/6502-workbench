@@ -15,7 +15,7 @@ import kernel
 import out
 
 COMMANDS = (b"init open module import sym sym3 var data bytes table tset tfix tend call class param "
-            b"member func slot fend ksym end fbegin op fix finish ")
+            b"member func slot fend ksym end fbegin op fix finish region inside ")
 
 
 def main():
@@ -117,6 +117,10 @@ def main():
         elif c == 25:
             d = script.number()
             fbuf.finish(d, script.small())
+        elif c == 26:
+            out.region(script.name())
+        elif c == 27:
+            out.with_region = script.number()
         script.end_line()
     env.exit(0)
 

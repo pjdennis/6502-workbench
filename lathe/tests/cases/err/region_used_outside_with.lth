@@ -1,0 +1,6 @@
+; error 118 5 3
+module region_used_outside_with
+var t: [4]byte in r
+func f()
+  t[0] = 1
+end

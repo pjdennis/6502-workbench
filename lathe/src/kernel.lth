@@ -419,6 +419,8 @@ pub const SF_NOZP = 32          ; a variable declared `nozp`
 pub const SF_ASM = 64           ; an `asm` function: parameters and results in registers, no slots
 pub const SF_ROWS = 128         ; a variable declared `rows` (while its declaration is read)
 pub const SF_RECURSIVE = 128    ; a function declared `recursive` (the bit SF_ROWS has on a variable)
+pub const SF_IN = 2             ; a variable or constant table `in REGION` (provisional, 2026-11-14):
+                                ; its value is the region's name (the bit SF_EXTERN has on a function)
 
 pub var sym_name: [MAX_SYMS]word rows
 pub var sym_scope: [MAX_SYMS]byte nozp

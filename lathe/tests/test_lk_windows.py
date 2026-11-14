@@ -7,7 +7,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import Obj, link, MUST, EITHER, NEVER, NOBODY, INTERRUPT  # noqa: E402
+from test_lk_support import Obj, link, string, MUST, EITHER, NEVER, NOBODY, INTERRUPT  # noqa: E402
 from test_lk_errors import ErrorTest  # noqa: E402
 
 ENV = 'cpu 6502\nzeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit return\n'
@@ -98,7 +98,7 @@ class EnvironmentEntries(ErrorTest):
 
     def test_code_placed_without_a_farcall_entry(self):
         self.assertError(link([simple(), Obj('a')], ENV + WINDOW + 'place a WIN 1\n'), 54,
-                         'environment file: code is placed in a window, and no farcall entry')
+                         'environment file: code or a region is placed in a window, and no farcall entry')
 
     def test_the_far_call_module_must_be_fixed(self):
         line = self.assertError(link([simple(), farcall()], ENV + WINDOW + 'place fc WIN 1\nfarcall fc\n'),
@@ -354,6 +354,147 @@ class More(ErrorTest):
         env = ENV.replace('$C000 $EFFF', '$C000 $C0FF') + 'more data $F800 $F80F\n'
         self.assertError(link([self.program([250, 20, 3])], env), 26,
                          'variables do not fit in the data range, 20 bytes over')
+
+
+
+# Stage 11, step 9: regions (`region NAME WIN N`), the RGN record before a VAR or DATA record,
+# fix-up kind 6 and the CALL flag of a call inside a `with` block (provisional, 2026-11-14).
+REGION_BANKS = 'bank WIN 4 $14\nbank WIN 5 $15 DATA5.BIN\n'
+REGIONS = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 5\nfarcall fc\n'
+WITH = 4                                # CALL flag: inside a `with` block
+
+
+def farcall_with(name='fc'):
+    """A far-call module with map and unmap besides call, back and start."""
+    o = farcall(name)
+    o.func('map', b'\x60')
+    o.func('unmap', b'\x60')
+    return o
+
+
+def user(calls=(), size=2):
+    """Module t: a variable and a constant in regions, and main, which maps the bank of `t.v`
+    (LDA #bank: kind 6), stores into it and puts the bank back, calling rt_with.map and unmap,
+    which the linker reads as the far-call module's."""
+    t = Obj('t')
+    t.v('v')                            # the SYM records first: a RGN record comes just before
+    t.d('k')                            # its VAR or DATA record
+    t.raw(16, string('work'))
+    t.var('v', size, NEVER)
+    t.raw(16, string('text'))
+    t.data('k', b'\x11\x22\x33')
+    c = t.code()
+    c.byte(0xA9, 6, t.v('v'))
+    c.abs(0x20, t.f('rt_with.map'))
+    c.abs(0xAD, t.d('k'))
+    c.abs(0x8D, t.v('v'))
+    for callee in calls:
+        c.abs(0x20, t.f(callee))
+    c.abs(0x20, t.f('rt_with.unmap'))
+    c.raw(0x60)
+    t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY)] + [(t.f(x), WITH, NOBODY) for x in calls]
+           + [(t.f('rt_with.unmap'), 0, NOBODY)])
+    return t
+
+
+class Regions(ErrorTest):
+    def test_variables_and_constants_go_in_their_region_s_bank(self):
+        r = link([user(), farcall_with()], REGIONS)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertIn('V 9FFE 0002 t.v b=4\n', r.map_text)          # at the top of its bank
+        self.assertIn('D 8000 0003 t.k b=5\n', r.map_text)          # from the window's first address
+        self.assertIn('W 8000 0000 4 -\n', r.map_text)               # variables only: no file
+        self.assertIn('W 8000 0003 5 DATA5.BIN\n', r.map_text)
+        self.assertEqual(r.files, {'BANK1.BIN': b'', 'DATA5.BIN': b'\x11\x22\x33'})  # bank 1 is empty
+        code = r.code('t.main')
+        self.assertEqual(code[:2], b'\xa9\x14')                   # LDA #$14: bank 4's register value
+        self.assertEqual(code[3] | code[4] << 8, r.addr('F', 'fc.map'))    # rt_with.map is fc.map
+        self.assertTrue(r.has('D', '$banks'))                       # start-up loads bank 5's file
+
+    def test_a_region_in_fixed_memory_or_with_no_entry_is_ordinary_memory(self):
+        flat = Obj('rt_with')
+        flat.func('map', b'\x60')
+        flat.func('unmap', b'\x60')
+        plain = link([user(), flat], ENV)
+        self.assertEqual((plain.status, plain.errors), (0, ''))
+        self.assertEqual(plain.code('t.main')[:2], b'\xa9\x00')     # LDA #0: nothing to map
+        fixed = link([user(), flat], ENV + 'region work fixed\nregion text fixed\n')
+        self.assertEqual((fixed.image, fixed.map_text), (plain.image, plain.map_text))
+        self.assertNotIn('b=', plain.map_text)
+
+    def test_a_function_with_a_with_block_cannot_be_in_a_window(self):
+        line = self.assertError(link([user(), farcall_with()], REGIONS + 'place t WIN 1\n'), 55,
+                                'a function with a with block cannot be in a window')
+        self.assertTrue(line.endswith(': t.main'), line)
+
+    def test_a_call_inside_a_with_block_must_not_reach_a_window(self):
+        line = self.assertError(link([user(calls=['a.f']), banked(), farcall_with()],
+                                     REGIONS + 'place a WIN 1\n'), 56,
+                                'a call inside a with block reaches a function in a window')
+        self.assertTrue(line.endswith(': t.main, a.f'), line)
+        r = link([user(calls=['a.f']), banked(), farcall_with()], REGIONS)
+        self.assertEqual((r.status, r.errors), (0, ''))         # a.f fixed: allowed
+
+    def test_an_interrupt_function_must_not_reach_a_with_block(self):
+        t = user()
+        c = t.code()
+        c.abs(0x20, t.f('main'))
+        c.raw(0x40)
+        t.func('tick', c, calls=[(t.f('main'), 0, NOBODY)], flags=INTERRUPT)
+        line = self.assertError(link([t, farcall_with()], REGIONS), 57,
+                                'an interrupt function reaches a function with a with block')
+        self.assertTrue(line.endswith(': t.tick, t.main'), line)
+
+    def test_a_region_in_an_overlay_or_another_window(self):
+        env = (ENV + 'window OVL $A000 $AFFF\nswitch OVL overlay\noverlay OVL 1 O1.BIN\n'
+               'region work OVL 1\nfarcall fc\n')
+        line = self.assertError(link([user(), farcall_with()], env), 58,
+                                'environment file: a region is in an overlay, or in another window')
+        self.assertTrue(line.endswith(': work'), line)
+        env = REGIONS + 'window W2 $A000 $AFFF\nswitch W2 bank $F000 $1F\nbank W2 1 $11 X.BIN\nregion r2 W2 1\n'
+        self.assertError(link([user(), farcall_with()], env), 58, 'environment file: a region')
+        env = REGIONS + 'window W2 $A000 $AFFF\nswitch W2 bank $F000 $1F\nbank W2 1 $11 X.BIN\nplace a W2 1\n'
+        self.assertError(link([user(), banked(), farcall_with()], env), 58, 'environment file: a region')
+
+    def test_a_region_in_a_bank_needs_a_farcall_entry(self):
+        self.assertError(link([user()], ENV + WINDOW + REGION_BANKS + 'region work WIN 4\n'), 54,
+                         'environment file: code or a region is placed in a window, and no farcall')
+
+    def test_constants_in_a_bank_without_a_file(self):
+        env = ENV + WINDOW + REGION_BANKS + 'region work WIN 4\nregion text WIN 4\nfarcall fc\n'
+        line = self.assertError(link([user(), farcall_with()], env), 59,
+                                'constant data in a region is in a bank that has no file')
+        self.assertTrue(line.endswith(': t.k'), line)
+
+    def test_a_region_that_overflows_its_bank(self):
+        line = self.assertError(link([user(size=0x2002), farcall_with()], REGIONS), 45,
+                                'code and data do not fit in a bank')
+        self.assertTrue(line.endswith(': win 4, 2 bytes over'), line)
+        r = link([user(size=0x2000), farcall_with()], REGIONS)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertIn('V 8000 2000 t.v b=4\n', r.map_text)
+
+    def test_a_damaged_region_record(self):
+        def program(*records):
+            t = Obj('t')
+            for kind, body in records:
+                t.raw(kind, body)
+            t.func('main', b'\x60')
+            return t
+        for t in (program((16, string('work'))),                    # then FUNC
+                  program((16, b'\x00')),                           # an empty name
+                  program((16, string('work') + b'x'))):            # bytes after it
+            self.assertError(link([t], ENV), 6, 'object file is damaged')
+        t = Obj('t')
+        t.v('v')
+        t.raw(16, string('work'))
+        t.var('v', 1, EITHER)                   # a variable in a region is never in zero page
+        t.func('main', b'\x60')
+        self.assertError(link([t], ENV), 6, 'object file is damaged')
+        t = Obj('t')
+        t.data('k', b'\x00', fixes=[(0, 6, t.d('k'), 0xFF, 0)])      # kind 6 in constant data
+        t.func('main', b'\x60')
+        self.assertError(link([t], ENV), 6, 'object file is damaged')
 
 
 if __name__ == '__main__':

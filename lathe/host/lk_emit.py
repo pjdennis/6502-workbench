@@ -22,6 +22,7 @@ import lk_map
 import lk_name
 import lk_op
 import lk_out
+import lk_place
 import lk_rec
 import lk_scan
 import lk_sym
@@ -87,9 +88,15 @@ def instruction(obj, n, pos):
     for k in range(1, size):
         b = lk_rec.get_byte()
         if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + lk_fix.cursor] == pos + k:
-            if lk_fix.is_word(lk_tab.work[lk_fix.FX_KIND + lk_fix.cursor]):
+            kind = lk_tab.work[lk_fix.FX_KIND + lk_fix.cursor]
+            if lk_fix.is_word(kind):
                 lk_fix.bad()
-            b = lk_fix.part(value(n, op), lk_tab.work[lk_fix.FX_KIND + lk_fix.cursor])
+            if kind == lk_fix.K_BANK:
+                b = lk_fix.bank_value(lk_tab.work[lk_fix.FX_SYM + lk_fix.cursor])
+                if b > 0xFF:
+                    lk_fix.bad()
+            else:
+                b = lk_fix.part(value(n, op), kind)
             lk_fix.next_fix()
         elif k == size - 1 and lk_op.is_branch(op, lk_scan.cpu_of(obj)):
             b = branch(pos + size, b, ctx)
@@ -142,6 +149,8 @@ def emit_data(obj, dest):
         if lk_fix.more() and lk_tab.work[lk_fix.FX_AT + i] == pos:
             address = lk_fix.target(lk_fix.NO_CONTEXT, lk_tab.work[lk_fix.FX_SYM + i], lk_tab.work[lk_fix.FX_SLOT + i], False)
             address = (address + lk_tab.work[lk_fix.FX_ADD + i]) & 0xFFFF
+            if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_BANK:
+                lk_fix.bad()            # the bank of a region is for `with` blocks, in code
             if lk_tab.work[lk_fix.FX_KIND + i] == lk_fix.K_WORD:
                 if lk_rec.left() == 0:
                     lk_fix.bad()
@@ -235,7 +244,7 @@ def write(main_fn):
             if lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0:
                 lk_out.open_bank(b)
                 for obj in range(0, lk_name.object_count):
-                    if lk_scan.obj_bank[obj] == b + 1:
+                    if lk_scan.obj_bank[obj] == b + 1 or lk_place.holds_region_data(obj, b):
                         emit_object(obj, b + 1)
                 lk_out.close_image(0)
     lk_map.cparams()

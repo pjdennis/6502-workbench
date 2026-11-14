@@ -15,7 +15,7 @@
     bank      WIN 1 $11 LATHE1.BIN  ; bank 1: the register's value, and the file written for it
     overlay   WIN 1 L5OV1.BIN       ; (a window switched by `overlay`) overlay 1 and its file
     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
-    region    NAMES WIN 4           ; read and checked; not yet used (`region NAMES fixed` too)
+    region    NAMES WIN 4           ; the source's `in NAMES` is bank 4 of WIN; or `fixed`
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
 
 A window, its banks or overlays and the switch must come before the entries that name them.
@@ -131,6 +131,7 @@ MAX_REGIONS = 16
 region_count = 0
 region_name = [0] * MAX_REGIONS
 region_bank = bytearray(MAX_REGIONS)    # the bank + 1, or 0 for fixed memory
+region_used = 0                     # lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 TOKEN_SIZE = 64
 token = bytearray(TOKEN_SIZE)       # the word being read, in lower case
@@ -565,6 +566,7 @@ def check_windows():
             lk_err.fail(lk_err.E_TWO_WINDOWS)
     if place_count != 0 and farcall == 0:
         lk_err.fail(lk_err.E_FARCALL_MISSING)
+    check_regions()
     for i in range(0, place_count):
         if text[farcall - 1] == text[place_name[i] - 1]:
             same = True
@@ -575,13 +577,41 @@ def check_windows():
                 fail_text(lk_err.E_FARCALL_PLACED, farcall)
 
 
+def check_regions():
+    """A region in a bank is in a window switched by banks, the one code is placed in if any
+    is, and the same for every region; with it there must be a farcall entry, whose module maps
+    the bank (configurations.md, "The rule of one window")."""
+    w = 0xFF
+    if place_count != 0:
+        w = bank_win[place_bank[0] & P_BANK]
+    for i in range(0, region_count):
+        if region_bank[i] != 0:
+            v = bank_win[region_bank[i] - 1]
+            if win_switch[v] != SWITCH_BANK or (w != 0xFF and v != w):
+                fail_text(lk_err.E_REGION_WINDOW, region_name[i])
+            w = v
+            if farcall == 0:
+                lk_err.fail(lk_err.E_FARCALL_MISSING)
+
+
+def find_region():
+    """The region named by the token, or MAX_REGIONS."""
+    for i in range(0, region_count):
+        if is_token(region_name[i]):
+            return i
+    return MAX_REGIONS
+
+
 def placed():
-    """True if some module's code is placed in a window: the program makes far calls."""
-    return place_count != 0
+    """True if some module's code is placed in a window, or some variable or constant is in a
+    region in a bank: the program uses the far-call module, which start-up calls."""
+    return place_count != 0 or region_used != 0
 
 
 def window():
-    """The window code is placed in. Only when placed()."""
+    """The window code is placed in, or the window of the regions. Only when placed()."""
+    if place_count == 0:
+        return bank_win[region_used - 1]
     return bank_win[place_bank[0] & P_BANK]
 
 

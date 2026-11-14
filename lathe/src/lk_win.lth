@@ -54,6 +54,11 @@ pub var table_count: byte = 0   ; banks or overlays in the table
 ; code, if no fix-up outside that bank names it and none takes its address (lk_graph.note_named).
 ; A variable goes in a bank, never an overlay, which is loaded again from its file.
 pub func bank_def(d: word): byte
+  var r: byte
+  r = lk_scan.region_of(d)
+  if r != 0 then
+    return r
+  end
   if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0 then
     return 0
   end
@@ -66,7 +71,12 @@ end
 ; The file constant data d is written to, or where variable d is: 0 the image or fixed memory, or
 ; its bank + 1. Only once it is placed.
 pub func def_dest(d: word): byte
+  var r: byte
   if lk_envf.placed() and lk_envf.in_window(lk_tab.def_a[d]) then
+    r = lk_scan.region_of(d)
+    if r != 0 then
+      return r
+    end
     return lk_scan.def_bank(d)
   end
   return 0

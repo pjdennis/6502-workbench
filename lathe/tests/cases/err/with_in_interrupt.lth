@@ -1,0 +1,8 @@
+; error 119 5 3
+module with_in_interrupt
+var t: byte in r
+interrupt func tick()
+  with r do
+    t = 1
+  end
+end

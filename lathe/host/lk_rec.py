@@ -32,8 +32,9 @@ R_ENDF = 12
 R_CLAS = 13
 R_MEMB = 14
 R_WGT = 15
+R_RGN = 16              # the VAR or DATA record after it is in a region
 
-VERSION = 2             # of the object format
+VERSION = 3             # of the object format
 
 handle = 0
 cur_object = 0          # object number + 1; 0 when the stream is closed

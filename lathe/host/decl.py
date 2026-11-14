@@ -34,6 +34,7 @@ LI_RECORD = 5           # a record type declared here: flags, number of fields, 
 LI_ENUM = 6             # an enumeration declared here: flags. Its constants follow as constants
 LI_FUNC_TYPE = 7        # a function type declared here: flags, then parameters and results
 LI_MODULE = 8           # a module this one imports, which its exported inline functions can name
+LI_CONST_IN = 9         # a constant table `in REGION`: as LI_CONST, then the region's name
 LI_PUB = 1              # flag of those four: exported (the others are there for the types of what is)
 LI_EXTERN = 1           # function flag: at a fixed address, which follows the flags
 LI_RECURSIVE = 2        # function and function type flag: declared `recursive`
@@ -43,6 +44,7 @@ LI_INTERRUPT = 16       # function flag: an `interrupt` function, which cannot b
 LI_AT = 1               # what a variable's placement byte can be: at a fixed address, which
 LI_ZP = 2               # follows it; declared `zp`; declared `nozp`; or 0
 LI_NOZP = 4
+LI_IN = 8               # `in REGION` (and so never in zero page): the region's name follows
 LI_POINTER = 0x10       # type: a pointer to the type that follows; a basic type is its number
 LI_ARRAY = 0x11         # type: an array, stored by column: its length (2), then its element type
 LI_ROWS = 0x12          # the same, stored by row
@@ -223,6 +225,13 @@ def write_function(stream, s):
 
 
 def write_constant(stream, s):
+    if kernel.sym_flags[s] & kernel.SF_IN != 0:
+        kernel.put(stream, LI_CONST_IN)
+        kernel.put_name(stream, kernel.sym_name[s])
+        write_type(stream, kernel.sym_type[s])
+        kernel.put_word(stream, 0)
+        kernel.put_name(stream, kernel.sym_value[s])
+        return
     kernel.put(stream, LI_CONST)
     kernel.put_name(stream, kernel.sym_name[s])
     write_type(stream, kernel.sym_type[s])
@@ -236,6 +245,9 @@ def write_variable(stream, s):
     if kernel.sym_flags[s] & kernel.SF_AT != 0:
         kernel.put(stream, LI_AT)
         kernel.put_word(stream, kernel.sym_value[s])
+    elif kernel.sym_flags[s] & kernel.SF_IN != 0:
+        kernel.put(stream, LI_IN)
+        kernel.put_name(stream, kernel.sym_value[s])
     elif kernel.sym_flags[s] & kernel.SF_ZP != 0:
         kernel.put(stream, LI_ZP)
     elif kernel.sym_flags[s] & kernel.SF_NOZP != 0:
@@ -429,12 +441,18 @@ def read_function(stream, scope):
     freeze(scope, kernel.K_FUNC, symbol_flags, 0, value, params, results)
 
 
-def read_constant(stream, scope):
+def read_constant(stream, scope, in_region):
+    """A constant entry; `in_region` for a table in a region, whose name follows its value."""
     global entry_members
     read_entry_name(stream)
     t = read_type(stream)
     entry_members = 0
-    freeze(scope, kernel.K_CONST, kernel.SF_PUB, t, kernel.get_word(stream), 0, 0)
+    value = kernel.get_word(stream)
+    flags = kernel.SF_PUB
+    if in_region:
+        flags = kernel.SF_PUB | kernel.SF_IN
+        value = inline.read_name(stream)
+    freeze(scope, kernel.K_CONST, flags, t, value, 0, 0)
 
 
 def read_variable(stream, scope):
@@ -451,6 +469,9 @@ def read_variable(stream, scope):
         symbol_flags = kernel.SF_PUB | kernel.SF_ZP
     elif placement == LI_NOZP:
         symbol_flags = kernel.SF_PUB | kernel.SF_NOZP
+    elif placement == LI_IN:
+        symbol_flags = kernel.SF_PUB | kernel.SF_NOZP | kernel.SF_IN
+        value = inline.read_name(stream)
     elif placement != 0:
         err.fatal(err.E_BAD_INTERFACE)
     entry_members = 0
@@ -493,14 +514,14 @@ def read_interface(number):
         err.fatal(err.E_BAD_INTERFACE)
     while True:
         kind, at_end = kernel.get(stream)
-        if at_end or kind > LI_MODULE:
+        if at_end or kind > LI_CONST_IN:
             err.fatal(err.E_BAD_INTERFACE)      # a file cut short has no LI_END
         if kind == LI_END:
             break
         if kind == LI_FUNC:
             read_function(stream, number)
-        elif kind == LI_CONST:
-            read_constant(stream, number)
+        elif kind == LI_CONST or kind == LI_CONST_IN:
+            read_constant(stream, number, kind == LI_CONST_IN)
         elif kind == LI_VAR:
             read_variable(stream, number)
         elif kind == LI_MODULE:
@@ -764,6 +785,8 @@ def lasting_variables(first, scope):
     for s in range(first, kernel.sym_count):
         if kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] == scope \
                 and kernel.sym_flags[s] & kernel.SF_AT == 0:
+            if kernel.sym_flags[s] & kernel.SF_IN != 0:
+                out.region(kernel.sym_value[s])
             out.variable(kernel.sym_obj[s], typetab.size(kernel.sym_type[s]),
                          expr.zp_class(kernel.sym_flags[s]), kernel.sym_weight[s])
 
@@ -853,19 +876,29 @@ def constant_declaration(flags):
         t = expr.type_spec()
         err.position(line, col)
         expr.layout(t)
+    region = 0
+    if lex.tok == lex.T_IN:
+        region = expr.region_name()
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
     expr.no_record(t)
     if t == typetab.NO_TYPE and lex.tok == lex.T_STRING:
         t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, False)
     if typetab.is_array(t):
         symbol = out.symbol(out.SYM_DATA, kernel.module_name[0], 0, name)
+        expr.data_region = region
         expr.table_data(t, symbol)
+        expr.data_region = 0
         s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
         kernel.sym_flags[s] = flags
         kernel.sym_type[s] = t
         kernel.sym_obj[s] = symbol
+        if region != 0:
+            kernel.sym_flags[s] = flags | kernel.SF_IN
+            kernel.sym_value[s] = region
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
         return
+    if region != 0:
+        expr.not_in_region()
     line = lex.line
     col = lex.col
     expr.constant(t)

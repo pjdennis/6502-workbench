@@ -126,6 +126,41 @@ pub asm func select(value: byte in a): byte in a
   PLP
 end
 
+; The `with` blocks' entries (provisional, 2026-11-14; configurations.md, "The far-call run-time
+; modules"). The compiler calls them as rt_with.map and rt_with.unmap, which the linker reads as
+; this module's when the environment file says `farcall rt_bank`:
+;
+;     LDA #bank(REGION)            ; the region's bank: its register value (fix-up kind 6)
+;     JSR rt_with.map              ; maps it, and gives the bank it replaces
+;     STA temporary                ; a temporary of the function
+;     ...
+;     LDY temporary                ; at the end, and at each return, break or continue that
+;     JSR rt_with.unmap            ; leaves the block: the bank found there, put back
+;
+; Both disable interrupts while they change the port, so a handler that far-calls into a bank
+; while the main program is inside a block finds the port as the block left it, and puts it
+; back when it returns.
+
+; Map bank `value` into the window, keeping bits 5-7; give the bank that was there. select().
+pub asm func map(value: byte in a): byte in a
+  JMP select
+end
+
+; Put back bank `value`, which map() gave, keeping bits 5-7. A, X, Y and the flags are kept, so
+; that a result on its way out of the block (A, X, the carry) is not lost.
+pub asm func unmap(value: byte in y)
+  PHP
+  SEI
+  PHA
+  STY bank
+  LDA PORT
+  AND #KEEP_BITS
+  ORA bank
+  STA PORT
+  PLA
+  PLP
+end
+
 ; Load the file named at `name` to `dest` and on, to its end. Returns true if it cannot be opened.
 func load(name: ^byte, dest: ^byte): bool
   var h: byte

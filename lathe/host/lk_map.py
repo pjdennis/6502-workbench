@@ -224,7 +224,8 @@ def symbol_line(letter, s, number):
 
 def window_lines():
     """A W line for each bank or overlay of the window code is placed in that has a file: the
-    window's first address, the bytes placed, its number and its file."""
+    window's first address, the bytes placed, its number and its file; and for a bank without a
+    file that holds variables of a region, with no bytes and `-` for the file."""
     if not lk_envf.placed():
         return
     for b in range(0, lk_envf.bank_count):
@@ -235,6 +236,12 @@ def window_lines():
             put(32)
             for i in range(1, lk_envf.text[name - 1] + 1):
                 put(lk_envf.text[name - 1 + i])
+            put(10)
+        elif lk_envf.bank_win[b] == lk_envf.window() and lk_place.region_bank(b):
+            begin(87, lk_envf.win_lo[lk_envf.bank_win[b]], 0)
+            decimal(lk_envf.bank_n[b])
+            put(32)
+            put(45)
             put(10)
 
 

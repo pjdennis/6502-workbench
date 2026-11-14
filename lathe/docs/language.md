@@ -46,7 +46,7 @@ end
 - **Numbers.** Decimal `123`, hexadecimal `$7F`, binary `%1010`, character `'A'`. A number literal has no type of its own; it takes the type its context needs, and it is an error if it does not fit.
 - **Strings.** `"TEXT"` is a zero-terminated sequence of bytes. Escapes: `\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`, `\xHH`. Adjacent strings are joined into one: `"abc" "def"` is `"abcdef"`, and so is a string at the end of a line followed by one at the start of the next, with only blanks, comments and blank lines between, so a long text can be written in pieces, one per line. A string holds at most 2048 bytes, as much as a constant table (error 7, and error 87 for a table); one in the body of an `inline` function at most 255.
 - **Statements end at the end of the line.** A line continues onto the next when it ends with a binary operator or a comma, or while a `(` or `[` is open. This rule is applied by the lexer alone.
-- **Keywords**: `and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module not nozp of or pub record recursive return rows sbyte static then to type until var while word zp`. Reserved for later: `long`.
+- **Keywords**: `and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module not nozp of or pub record recursive return rows sbyte static then to type until var while with word zp`. Reserved for later: `long`. (`with` is provisional, 2026-11-14: see "Banked data".)
 
 ## Types
 
@@ -134,7 +134,8 @@ var cursor: ^byte zp                   ; must be in zero page (arrays too, if as
 var big: [512]byte nozp                ; must not be in zero page
 var border: byte at $D020              ; fixed address, never cached in a register
 var total: word = 0                    ; initialised when the program starts
-var nodes: [1000]Node rows in SYMBANK  ; in a named memory region (see banking)
+var nodes: [1000]Node rows in SYMBANK  ; in a named memory region: see Banked data
+const HELP: [6]byte in TEXTS = "usage" ; a constant table in a region
 ```
 
 - **Module-level variables** live for the whole program.
@@ -240,6 +241,7 @@ else
 end
 
 critical … end                       ; interrupts disabled inside, restored after
+with REGION do … end                 ; the region's bank mapped inside, restored after
 
 asm                                  ; inline assembly
   LDA count
@@ -251,6 +253,7 @@ end
 - `for i = first until limit` runs the body for every value from `first` up to but not including `limit`, and not at all when `first >= limit`: `for i = 0 until n` runs `n` times, also when `n` is 0, where `for i = 0 to n - 1` would run 256 times. The test, `i < limit`, is at the top, before each pass; the limit is evaluated as `to`'s is (once, unless it is a constant or a plain variable), and `continue` goes to the step before the test. A loop that runs leaves the variable equal to the limit, unless `break` left it; one that does not run leaves it equal to `first`. There is no downward form.
 - `loop … until` is the tightest loop on a 6502: one branch per pass.
 - `case` takes a selector of one byte (`byte`, `sbyte` or `bool`; a `word` selector is an error for now), evaluated once. The constants after `of` take its type, and each may appear only once in a `case`. With no `else`, a value that no `of` names does nothing. The compiler makes a chain of compares; with dense constants it may later make a jump table.
+- `with REGION do … end` makes the variables and tables declared `in REGION` usable inside it, and only there; see "Banked data".
 - `critical` saves the interrupt flag, disables interrupts, and restores the flag at `end`. Use it around any access to a multi-byte variable shared with an interrupt handler. A `break`, `continue` or `return` that leaves the block restores the flag on its way out. A `return` that gives a status (a `bool` result) cannot be inside `critical`, because restoring the flags would change the carry that holds it: keep the status in a variable and return after `end`.
 
 ### Inline assembly
@@ -327,7 +330,27 @@ The condition is a constant expression over the constants declared before it. It
 
 ## Banked data
 
-A variable can be placed in a named memory region from the environment description with `in REGION`. If the region is a bank, the program must have that bank switched in when it uses the variable; the run-time library provides the call. The linker rejects a function that uses a banked variable if the function's own code is placed in the same window. See [`code-model.md`](code-model.md).
+**Provisional (2026-11-14), awaiting the owner's agreement**: the words `in REGION` and `with REGION do … end` are the form built in stage 11, step 9, and may be renamed. The compiler knows them in `expr.py` (`placements`, `region_name`, `with_statement`), `decl.py` (constants and the interface file) and `lex.py` (the keyword); [`configurations.md`](configurations.md) has the design.
+
+```
+var names: [12800]byte in NAMES          ; a variable in the region NAMES
+const MSGS: [3]^byte in TEXTS = ["a", "b", "c"]   ; a constant table in the region TEXTS
+pub const BANNER in TEXTS = "lathe"      ; a string in it
+
+func name_char(i: word): byte
+  with NAMES do
+    return names[i]                      ; usable only inside a block of its region
+  end
+end
+```
+
+- **`in REGION`** goes on a variable of the module, a `static` variable, or a constant table or string (after its type, before the `=`). A region is a name of its own, not a symbol: the environment file says where it is (`region NAMES WIN 4`, a bank of a window; `region NAMES fixed`; no entry is fixed memory too). A variable in a region is never in zero page. It cannot be declared `zp` or `at`, cannot have an initial value, and cannot be a local; a number constant cannot be in a region (error 182 for each). The strings of a table in a region are not in it; only the table is.
+- **`with REGION do … end`** maps the region's bank into the window, keeps the bank it replaces in a temporary of the function, and puts it back at its `end` and at every `return`, `break` or `continue` that leaves it. A `return` keeps its result: A, X and the carry pass through, so a status can be returned from inside (unlike `critical`).
+- **Only inside.** A variable or table of a region can be used, or have its address taken, only inside a `with` block of that region (error 118), also in an `asm` block and in the body of an `inline` function expanded there. An address taken inside and used after the block points at whatever the window then holds: that is the programmer's responsibility.
+- **Nesting.** A block inside a block of the same region costs nothing. A block of another region maps its own bank, and inside it only that region's names can be used: there is one window. A block in which nothing of its region is used is error 183.
+- **Not in interrupt functions** (error 119), nor in what an interrupt function calls (link error 57). Not in an `inline` function (168; see the note in `lathe/host/README.md`).
+- **The linker checks** that a function with a `with` block is in fixed memory (55), and that no call made inside a block goes to a function in a window (56). Calls of fixed functions are allowed inside.
+- **Interfaces** carry `in REGION`, so an importer is held to the same rule.
 
 ## Grammar
 
@@ -339,7 +362,7 @@ unit        = "module" name NL { "import" name NL } { declaration } .
 declaration = [ "pub" ] ( constDecl | typeDecl | enumDecl | varDecl | funcDecl | externDecl )
             | "forward" [ "recursive" ] funcHead NL .
 
-constDecl   = "const" name [ ":" type ] "=" initialiser NL .
+constDecl   = "const" name [ ":" type ] [ "in" name ] "=" initialiser NL .
 enumDecl    = "enum" name NL { name [ "=" constExpr ] NL } "end" NL .
 varDecl     = [ "static" ] "var" name ":" type { placement } [ "=" initialiser ] NL .
 placement   = "zp" | "nozp" | "rows" | "at" constExpr | "in" name .
@@ -375,6 +398,7 @@ statement   = designator ( assignOp expression | "," designator "=" call | argum
             | "case" expression NL { "of" constExpr { "," constExpr } NL body }
                  [ "else" NL body ] "end" NL
             | "critical" NL body "end" NL
+            | "with" name "do" NL body "end" NL
             | "asm" NL { asmLine NL } "end" NL
             | "break" NL | "continue" NL
             | "return" [ expression [ "," expression ] ] NL .

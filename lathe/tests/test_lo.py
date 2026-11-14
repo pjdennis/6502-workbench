@@ -21,7 +21,7 @@ def string(s):
     return bytes((len(s),)) + s.encode('latin-1')
 
 
-MOD = rec(lo.R_MOD, b'\x02\x00' + string('m'))
+MOD = rec(lo.R_MOD, b'\x03\x00' + string('m'))
 END = rec(lo.R_END)
 
 
@@ -71,7 +71,7 @@ class TestWrite(unittest.TestCase):
     def test_hello_bytes(self):
         code = bytes((0xA9, 0x48, 0x20, 0x09, 0xF0, 0xA9, 0x49, 0x20, 0x09, 0xF0,
                       0xA9, 0x0A, 0x20, 0x09, 0xF0, 0x60))
-        want = (rec(lo.R_MOD, b'\x02\x00' + string('hello')) + rec(lo.R_IMP, string('host'))
+        want = (rec(lo.R_MOD, b'\x03\x00' + string('hello')) + rec(lo.R_IMP, string('host'))
                 + sym(1, 'hello.main')
                 + func(0, rec(lo.R_FIX), rec(lo.R_CODE, code)) + END)
         self.assertEqual(hello().bytes(), want)
@@ -212,12 +212,12 @@ class TestReadErrors(unittest.TestCase):
         self.bad(rec(lo.R_IMP, string('a')) + END, 'first record must be MOD')
 
     def test_version(self):
-        self.bad(rec(lo.R_MOD, b'\x01\x00' + string('m')) + END,
-                 'unsupported object format version 1: this reader takes version 2 only')
-        self.bad(rec(lo.R_MOD, b'\x03\x00' + string('m')) + END, 'version 3')
+        self.bad(rec(lo.R_MOD, b'\x02\x00' + string('m')) + END,
+                 'unsupported object format version 2: this reader takes version 3 only')
+        self.bad(rec(lo.R_MOD, b'\x04\x00' + string('m')) + END, 'version 4')
 
     def test_cpu(self):
-        self.bad(rec(lo.R_MOD, b'\x02\x05' + string('m')) + END, 'CPU 5')
+        self.bad(rec(lo.R_MOD, b'\x03\x05' + string('m')) + END, 'CPU 5')
 
     def test_missing_end(self):
         self.bad(MOD, 'no END record')
@@ -334,7 +334,7 @@ class TestReadErrors(unittest.TestCase):
     def test_var_has_no_initial_value(self):
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 1) + b'\x01\x02')
         self.bad(MOD + sym(2, 'm.v') + v + END,
-                 r'VAR m\.v: flag bit 0 \(initial value\) is not in format version 2: '
+                 r'VAR m\.v: flag bit 0 \(initial value\) is not in format version 3: '
                  r'variables have no initial values; the compiler sets them in module\.\$init')
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 0x80))
         self.bad(MOD + sym(2, 'm.v') + v + END, r'VAR m\.v: unknown flags \$80')
@@ -344,6 +344,30 @@ class TestReadErrors(unittest.TestCase):
     def test_builder_var_takes_no_initial_value(self):
         with self.assertRaises(TypeError):
             lo.Builder('m').var('m.v', 1, 1, 0, b'\x01')
+
+    def test_regions(self):
+        b = lo.Builder('m')
+        b.var('m.v', 4, region='names')
+        b.data('m.d', b'\0\0', region='msgs').fix(0, lo.FX_WORD, 'm.v')
+        f = b.func('m.f')
+        f.op('LDA', '#bank', 'm.v').op('RTS')
+        data = b.bytes()
+        m = lo.read(data)
+        self.assertEqual([(type(x).__name__, x.region) for x in m.items if not isinstance(x, lo.Func)],
+                         [('Var', 'names'), ('Data', 'msgs')])
+        self.assertEqual(m.items[0].cls, 2)
+        self.assertEqual(lo.write(m), data)
+        self.assertEqual(m.functions()[0].fixes[0].kind, lo.FX_BANK)
+        rgn = rec(lo.R_RGN, string('r'))
+        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 2, 0, 0))
+        self.bad(MOD + rgn + sym(2, 'm.v') + v + END, 'RGN record not just before a VAR, DFIX or DATA')
+        self.bad(MOD + sym(2, 'm.v') + rgn + END, 'RGN record not just before')
+        self.bad(MOD + sym(2, 'm.v') + rec(lo.R_RGN, string('')) + v + END, 'RGN record with an empty name')
+        self.bad(MOD + sym(2, 'm.v') + rgn + rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 0)) + END,
+                 'a variable in a region has class 2')
+        d = rec(lo.R_DATA, b'\x00\x00\x00')
+        self.bad(MOD + sym(3, 'm.d') + rec(lo.R_DFIX, fix_entry(0, 6, 0, 0xFF, 0)) + d + END,
+                 'kind 6 .* in constant data')
 
     def test_record_length(self):
         self.bad(MOD + sym(1, 'm.f') + rec(lo.R_FUNC, b'\x00\x00\x00') + rec(lo.R_CODE, b'\x60')
@@ -368,7 +392,7 @@ class TestLodump(unittest.TestCase):
         r = self.run_dump(hello().bytes())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines(), [
-            '0000  MOD   version 2, cpu 6502, module hello',
+            '0000  MOD   version 3, cpu 6502, module hello',
             '000B  IMP   host',
             '0013  SYM   #0 function hello.main',
             '0022  FUNC  hello.main  flags: -',
@@ -406,7 +430,7 @@ class TestLodump(unittest.TestCase):
     def test_invalid_file(self):
         r = self.run_dump(MOD)
         self.assertEqual(r.returncode, 1)
-        self.assertIn('MOD   version 2', r.stdout)
+        self.assertIn('MOD   version 3', r.stdout)
         self.assertIn('no END record', r.stderr)
 
 

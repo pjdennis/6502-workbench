@@ -47,6 +47,15 @@ pub const OBJ_CLASSES = $80     ; the file names a pointer class (lk_map.cparams
 var cur_fn: word = lk_tab.NONE  ; the function whose records are being read
 var cur_sym: word = 0           ; its symbol
 var dfix_read: bool = false     ; a DFIX record was just read: a DATA record must follow
+var rgn_read: bool = false      ; a RGN record was read: a VAR, or a DFIX and DATA, must follow
+var rgn_bank: byte = 0          ; the bank + 1 of its region, or 0 if the region is fixed
+
+; The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
+; they are defined. Those of a region in fixed memory are ordinary ones and are not here.
+const MAX_REGION_DEFS = 64
+pub var rdef_count: byte = 0
+var rdef_def: [MAX_REGION_DEFS]word
+pub var rdef_bank: [MAX_REGION_DEFS]byte    ; the bank + 1
 
 ; The weights waiting, in lk_tab.work, which nothing else uses while the files are read: where
 ; each column starts.
@@ -124,6 +133,64 @@ end
 
 forward func heavier(weight: word, amount: byte): byte
 
+; A RGN record: the region of the VAR or DATA record that follows. A name the environment file
+; has no `region` entry for is a region in fixed memory, as is one given as `fixed`.
+func rec_rgn()
+  var size: byte
+  var i: byte
+  var c: byte
+  var r: byte
+  size = lk_rec.get_byte()
+  for i = 0 until size do
+    c = lk_rec.get_byte()
+    if i < lk_envf.TOKEN_SIZE then
+      lk_envf.token[i] = c
+    end
+  end
+  if size == 0 or lk_rec.left() != 0 then
+    damaged()
+  end
+  rgn_read = true
+  rgn_bank = 0
+  if size > lk_envf.TOKEN_SIZE then
+    return
+  end
+  lk_envf.token_len = size
+  r = lk_envf.find_region()
+  if r != lk_envf.MAX_REGIONS then
+    rgn_bank = lk_envf.region_bank[r]
+  end
+end
+
+; Variable or constant d is defined: if a RGN record came before it, it is in that region.
+func in_region(d: word)
+  if not rgn_read then
+    return
+  end
+  rgn_read = false
+  if rgn_bank == 0 then
+    return
+  end
+  if rdef_count == MAX_REGION_DEFS then
+    lk_err.fail(lk_err.E_DEFS)
+  end
+  rdef_def[rdef_count] = d
+  rdef_bank[rdef_count] = rgn_bank
+  rdef_count += 1
+  lk_envf.region_used = rgn_bank
+end
+
+; The bank + 1 of the region variable or constant d is in, or 0 for fixed memory.
+pub func region_of(d: word): byte
+  var i: byte
+  for i = 0 until rdef_count do
+    if rdef_def[i] == d then
+      return rdef_bank[i]
+    end
+  end
+  return 0
+end
+
 func rec_var(obj: byte)
   var s: word
   var size: word
@@ -144,7 +211,11 @@ func rec_var(obj: byte)
   if (flags & 1) != 0 then
     lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
   end
+  if rgn_read and zp_class != 2 then
+    damaged()                   ; a variable in a region is never in zero page
+  end
   d = lk_tab.new_def(zp_class)
+  in_region(d)
   lk_tab.def_b[d] = size
   ; Other modules' WGT records may have come first.
   lk_tab.def_a[d] = heavier(lk_name.more(s), weight)    ; the weight, for now (lk_tab.def_w)
@@ -157,6 +228,7 @@ func rec_data(obj: byte)
   s = read_sym(obj, lk_sym.CONSTANT)
   define(s)
   d = lk_tab.new_def(lk_tab.D_CONST)
+  in_region(d)
   lk_tab.def_a[d] = obj         ; until it is placed (lk_graph.keep_referenced)
   lk_tab.def_b[d] = lk_rec.left()
   lk_name.bind(s, lk_tab.def_ref(d))
@@ -170,7 +242,7 @@ func rec_func(obj: byte)
   end
   s = read_sym(obj, lk_sym.FUNCTION)
   define(s)
-  flags = lk_rec.get_byte() & ($FF ^ (lk_tab.F_INIT | lk_tab.F_HELD | lk_tab.F_STUB | lk_tab.F_ADDR))
+  flags = lk_rec.get_byte() & (lk_tab.F_RECURSIVE | lk_tab.F_INTERRUPT)
   if lk_name.is_init_sym(s) then
     flags |= lk_tab.F_INIT
   end
@@ -373,7 +445,12 @@ func rec_fixes(obj: byte)
   end
   while lk_rec.left() > 0 do
     lk_rec.get_word()
-    lk_rec.get_byte()
+    if lk_rec.get_byte() == 6 then
+      if cur_fn == lk_tab.NONE then
+        damaged()
+      end
+      lk_tab.fn_flags[cur_fn] |= lk_tab.F_WITH
+    end
     lk_name.global_sym(obj, lk_rec.get_word())
     lk_rec.get_byte()
     lk_rec.get_word()
@@ -387,6 +464,9 @@ func take_record(obj: byte, kind: byte)
   dfix_read = false
   if fixed and kind != lk_rec.R_DATA then
     damaged()                   ; a DFIX belongs to the DATA record just after it
+  end
+  if rgn_read and kind != lk_rec.R_VAR and kind != lk_rec.R_DFIX and kind != lk_rec.R_DATA then
+    damaged()                   ; a RGN record belongs to the VAR or DATA record after it
   end
   case kind
   of lk_rec.R_SYM
@@ -420,6 +500,11 @@ func take_record(obj: byte, kind: byte)
     end
     rec_fixes(obj)
     dfix_read = true
+  of lk_rec.R_RGN
+    if cur_fn != lk_tab.NONE or rgn_read then
+      damaged()
+    end
+    rec_rgn()
   of lk_rec.R_IMP, lk_rec.R_CODE
   else
     damaged()
@@ -505,12 +590,13 @@ func scan(obj: byte)
   module_place(obj)
   cur_fn = lk_tab.NONE
   dfix_read = false
+  rgn_read = false
   kind = lk_rec.advance()
   while kind != lk_rec.R_END do
     take_record(obj, kind)
     kind = lk_rec.advance()
   end
-  if cur_fn != lk_tab.NONE or dfix_read then
+  if cur_fn != lk_tab.NONE or dfix_read or rgn_read then
     damaged()
   end
   lk_rec.close()
@@ -524,6 +610,8 @@ forward func finish()
 ; (lk_name.mark_all), once for the tables.
 pub func scan_all()
   var obj: byte
+  rdef_count = 0
+  lk_envf.region_used = 0
   lk_name.object_count = lk_file.arg_count() - lk_file.ARG_OBJECT
   if lk_name.object_count > lk_name.MAX_OBJECTS then
     lk_err.fail(lk_err.E_OBJECTS)

@@ -148,6 +148,7 @@ pub const MAX_REGIONS = 16
 pub var region_count: byte = 0
 pub var region_name: [MAX_REGIONS]word
 pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
+pub var region_used: byte = 0       ; lk_scan: a bank + 1 that a variable or constant is in, or 0
 
 pub const TOKEN_SIZE = 64
 pub var token: [TOKEN_SIZE]byte ; the word being read, in lower case
@@ -635,6 +636,8 @@ func overlaps(lo1: word, hi1: word, lo2: word, hi2: word): bool
   return not (hi1 < lo2 or hi2 < lo1)
 end
 
+forward func check_regions()
+
 ; Windows lie above zero page and the stack's page, the right way round, and share no address
 ; with code, data, more or each other. Code goes in at most one window, the far-call module is
 ; fixed, and the overlays of a window are numbered from 1 with none missing.
@@ -683,6 +686,7 @@ func check_windows()
   if place_count != 0 and farcall == 0 then
     lk_err.fail(lk_err.E_FARCALL_MISSING)
   end
+  check_regions()
   for i = 0 until place_count do
     if text[farcall - 1] == text[place_name[i] - 1] then
       same = true
@@ -699,12 +703,53 @@ func check_windows()
 end
 
 ; True if some module's code is placed in a window: the program makes far calls.
-pub func placed(): bool
-  return place_count != 0
+; A region in a bank is in a window switched by banks, the one code is placed in if any
+; is, and the same for every region; with it there must be a farcall entry, whose module maps
+; the bank (configurations.md, "The rule of one window").
+func check_regions()
+  var w: byte
+  var v: byte
+  var i: byte
+  w = $FF
+  if place_count != 0 then
+    w = bank_win[place_bank[0] & P_BANK]
+  end
+  for i = 0 until region_count do
+    if region_bank[i] != 0 then
+      v = bank_win[region_bank[i] - 1]
+      if win_switch[v] != SWITCH_BANK or (w != $FF and v != w) then
+        fail_text(lk_err.E_REGION_WINDOW, region_name[i])
+      end
+      w = v
+      if farcall == 0 then
+        lk_err.fail(lk_err.E_FARCALL_MISSING)
+      end
+    end
+  end
 end
 
-; The window code is placed in. Only when placed().
+; The region named by the token, or MAX_REGIONS.
+pub func find_region(): byte
+  var i: byte
+  for i = 0 until region_count do
+    if is_token(region_name[i]) then
+      return i
+    end
+  end
+  return MAX_REGIONS
+end
+
+; True if some module's code is placed in a window, or some variable or constant is in a
+; region in a bank: the program uses the far-call module, which start-up calls.
+pub func placed(): bool
+  return place_count != 0 or region_used != 0
+end
+
+; The window code is placed in, or the window of the regions. Only when placed().
 pub func window(): byte
+  if place_count == 0 then
+    return bank_win[region_used - 1]
+  end
   return bank_win[place_bank[0] & P_BANK]
 end
 

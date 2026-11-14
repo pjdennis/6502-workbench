@@ -101,6 +101,11 @@ pub const MAIN_SUFFIX: [5]byte = ".main"
 const INIT_SUFFIX: [6]byte = ".$init"
 const CALL_SUFFIX: [5]byte = ".call"
 const START_SUFFIX: [6]byte = ".start"
+; The compiler names the far-call module's map and unmap `rt_with.map` and `rt_with.unmap`
+; (`with` blocks, configurations.md). With a `farcall MODULE` entry, a name that starts so is
+; read as MODULE's: `rt_bank.map`. With none, the module `rt_with` itself defines them.
+const FARCALL_PREFIX: [8]byte = "rt_with."
+const C_DOT = 46
 
 forward func fail_pending(n: byte)
 forward func ref_at(s: word): word
@@ -151,6 +156,19 @@ end
 
 ; Mark what object file obj makes worth keeping. `local` holds, for each of its SYM records, the
 ; hash of its name and whether the file defines it.
+; The hash of the far-call module's name and a dot, which `rt_with.` stands for.
+func farcall_hash(): word
+  var f: word
+  var h: word
+  var i: byte
+  f = lk_envf.farcall
+  h = 0
+  for i = 0 until lk_envf.text[f - 1] do
+    h = step(h, lk_envf.text[f + i])
+  end
+  return step(h, C_DOT)
+end
+
 func mark_object(obj: byte)
   var count: word
   var kind: byte
@@ -159,6 +177,9 @@ func mark_object(obj: byte)
   var h: word
   var i: word
   var n: word
+  var alias: bool
+  var other: word
+  var c: byte
   if not lk_rec.open_quiet(obj) then
     return
   end
@@ -173,8 +194,22 @@ func mark_object(obj: byte)
       sym_kind = lk_rec.get_byte()
       size = lk_rec.get_byte()
       h = 0
+      alias = lk_envf.farcall != 0 and size > len(FARCALL_PREFIX)
+      other = 0                 ; the hash of the name as the far-call module's
+      if alias then
+        other = farcall_hash()
+      end
       for i = 0 until size do
-        h = step(h, lk_rec.get_byte())
+        c = lk_rec.get_byte()
+        h = step(h, c)
+        if i < len(FARCALL_PREFIX) then
+          alias = alias and c == FARCALL_PREFIX[byte(i)]
+        else
+          other = step(other, c)
+        end
+      end
+      if alias then
+        h = other
       end
       if count < MAX_LOCALS then
         local[count] = h & L_HASH
@@ -359,6 +394,51 @@ func find(): word, bool
 end
 
 ; The symbol a SYM record of this kind with the pending name stands for, made if new.
+; If the pending name is `rt_with.NAME` and the environment file names a far-call module, make
+; it that module's NAME (FARCALL_PREFIX).
+func rename_farcall()
+  var f: word
+  var size: byte
+  var i: byte
+  var m: byte
+  var rest: byte
+  var top: word
+  f = lk_envf.farcall
+  size = len(FARCALL_PREFIX)
+  if f == 0 or pending <= size then
+    return
+  end
+  for i = 0 until size do
+    if pending_char(i) != FARCALL_PREFIX[i] then
+      return
+    end
+  end
+  m = lk_envf.text[f - 1]
+  rest = pending - size
+  top = heap_top + ENTRY
+  if word(m) + 1 + rest > 255 or top + m + 1 + rest > heap_limit() then
+    lk_err.fail(lk_err.E_NAMES)
+  end
+  if m + 1 > size then
+    for i = rest - 1 downto 0 do
+      put_b(top + m + 1 + i, get_b(top + size + i))
+    end
+  else
+    for i = 0 until rest do
+      put_b(top + m + 1 + i, get_b(top + size + i))
+    end
+  end
+  for i = 0 until m do
+    put_b(top + i, lk_envf.text[f + i])
+  end
+  put_b(top + m, C_DOT)
+  pending = m + 1 + rest
+  pend_hash = 0
+  for i = 0 until pending do
+    pend_hash = step(pend_hash, pending_char(i))
+  end
+end
+
 pub func symbol(kind: byte): word
   var keep: bool
   var s: word
@@ -366,6 +446,7 @@ pub func symbol(kind: byte): word
   var flags: word
   var pos: word
   var h: word
+  rename_farcall()
   keep = kind == lk_sym.CLASS or get_bit(MARKS, pend_hash & $1FFF)
   if keep then
     s, found = find()

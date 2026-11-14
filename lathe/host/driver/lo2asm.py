@@ -133,8 +133,8 @@ def decode_function(m, f):
         width = ins.length - 1
         if lo.FIX_WIDTH[fx.kind] != width:
             raise RenderError(f'{where}: kind {fx.kind} on a {width}-byte operand ({ins.mnemonic})')
-        if ins.mode == cpu6502.IMM and fx.kind not in (lo.FX_LO, lo.FX_HI):
-            raise RenderError(f'{where}: an immediate operand takes kind 2 or 3, not {fx.kind}')
+        if ins.mode == cpu6502.IMM and fx.kind not in (lo.FX_LO, lo.FX_HI, lo.FX_BANK):
+            raise RenderError(f'{where}: an immediate operand takes kind 2, 3 or 6, not {fx.kind}')
         ins.fix = fx
         if fx.sym == f.sym and fx.slot == lo.NO_SLOT:
             labels.add(fx.addend)
@@ -346,6 +346,10 @@ class Renderer:
         if mode == cpu6502.REL:
             return f'{INDENT}{mn} {local_label(x.target)}'
         width = x.length - 1
+        if x.fix is not None and x.fix.kind == lo.FX_BANK:
+            # The register value of a region's bank: 0 for a region in fixed memory, which is
+            # where every region is in a program this text is assembled for (all in one).
+            return f'{INDENT}{mn} #$00{"":<{max(1, 18 - len(mn))}}; bank of {self.target_text(m, x.fix, current)}'
         if x.fix is not None:
             e = self.target_text(m, x.fix, current, ctx, is_call(x))
             if x.fix.kind == lo.FX_LO:
@@ -451,7 +455,8 @@ def function_comment(m, f):
     if not f.slots:
         lines.append(';   no slots')
     for c in f.calls:
-        bits = _flag_text(c.flags, ((lo.C_SAVES, 'saves frame'), (lo.C_POINTER, 'through pointer')))
+        bits = _flag_text(c.flags, ((lo.C_SAVES, 'saves frame'), (lo.C_POINTER, 'through pointer'),
+                                    (lo.C_WITH, 'inside with')))
         outer = '' if c.outer == lo.NO_OUTER else f'; outer {m.sym_name(c.outer)}'
         lines.append(f';   calls {m.sym_name(c.callee)}' + (f' ({bits})' if bits else '') + outer)
     return lines
@@ -459,7 +464,7 @@ def function_comment(m, f):
 
 def var_comment(m, v):
     return (f'; variable {m.sym_name(v.sym)}: size {v.size}, class {v.cls} ({CLASS_NAMES[v.cls]}), '
-            f'weight {v.weight}')
+            f'weight {v.weight}' + (f', in region {v.region}' if v.region else ''))
 
 
 def render_module(m, others=()):
@@ -475,7 +480,8 @@ def render_module(m, others=()):
         elif isinstance(x, lo.Var):
             body.append(var_comment(m, x))
         elif isinstance(x, lo.Data):
-            body.append(f'; data {m.sym_name(x.sym)}: {len(x.data)} bytes')
+            body.append(f'; data {m.sym_name(x.sym)}: {len(x.data)} bytes'
+                        + (f', in region {x.region}' if x.region else ''))
             body.append(mangle(m.sym_name(x.sym)))
             body += r.data_lines(m, x.data, x.fixes)
         elif isinstance(x, lo.Clas):

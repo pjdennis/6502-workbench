@@ -1,0 +1,3 @@
+; error 182 3 13
+module in_with_at
+var t: byte in r at $1000

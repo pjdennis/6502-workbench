@@ -328,6 +328,8 @@ SF_NOZP = 32                # a variable declared `nozp`
 SF_ASM = 64                 # an `asm` function: parameters and results in registers, no slots
 SF_ROWS = 128               # a variable declared `rows` (while its declaration is read)
 SF_RECURSIVE = 128          # a function declared `recursive` (the bit SF_ROWS has on a variable)
+SF_IN = 2                   # a variable or constant table `in REGION` (provisional, 2026-11-14):
+                            # its value is the region's name (the bit SF_EXTERN has on a function)
 
 sym_name = [0] * MAX_SYMS
 sym_scope = bytearray(MAX_SYMS)

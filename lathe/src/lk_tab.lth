@@ -59,8 +59,8 @@ import lk_sym
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
 #if LKSMALL
 pub const MAX_FUNCS = 320
-pub const MAX_SLOTS = 1600
-pub const MAX_EDGES = 1440
+pub const MAX_SLOTS = 1280
+pub const MAX_EDGES = 1200
 pub const MAX_NODES = 360
 pub const MAX_DEFS = 320
 pub const MAX_FIXES = 256
@@ -82,6 +82,7 @@ pub const NONE = $FFFF
 ; FUNC record flags, and the linker's own.
 pub const F_RECURSIVE = 1
 pub const F_INTERRUPT = 2
+pub const F_WITH = 4             ; lk_scan: it has a `with` block (a kind 6 fix-up)
 pub const F_STUB = $10          ; lk_win: the function's copies each have a stub
 pub const F_ADDR = $20          ; lk_graph: kept code or constant data takes its address
 pub const F_HELD = $40          ; lk_map: a line of the file being read needs its name

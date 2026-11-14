@@ -118,6 +118,8 @@ E_DIRECTIVE = 114
 E_NO_IF = 115
 E_IF_OPEN = 116
 E_IF_DEEP = 117
+E_REGION_USE = 118      # provisional (2026-11-14), as `in REGION` and `with` are
+E_WITH_INTERRUPT = 119
 
 # Arrays, strings and pointers
 E_BYTE_INDEX = 120
@@ -171,6 +173,8 @@ E_INTERRUPT_CALL = 173
 # Functions and directives, continued
 E_NO_RETURN = 180
 E_ERROR_DIRECTIVE = 181
+E_IN_HERE = 182
+E_WITH_UNUSED = 183
 
 MESSAGES = (
     b"1 character not allowed here\n"
@@ -252,6 +256,8 @@ MESSAGES = (
     b"115 #else or #end without its #if\n"
     b"116 #if without #end\n"
     b"117 #if nested too deeply\n"
+    b"118 a variable or constant in a region can be used only inside a with block of its region\n"
+    b"119 with cannot be used in an interrupt function\n"
     b"120 an array of at most 256 elements, and a pointer, take a byte index\n"
     b"121 an array is not a value: use a pointer to it, or copy it with a loop\n"
     b"122 has no address: not a variable, or an element of an array stored by column\n"
@@ -287,7 +293,7 @@ MESSAGES = (
     b"165 too many saved tokens of inline functions in this module\n"
     b"166 inline calls nested too deeply\n"
     b"167 an inline function cannot call itself, directly or through other inline functions\n"
-    b"168 an inline function cannot have asm, static or #if\n"
+    b"168 an inline function cannot have asm, static, with or #if\n"
     b"169 an inline function has no address\n"
     b"170 an exported inline function can use only exported names of its module\n"
     b"171 inline and interrupt go with neither each other, nor asm, nor a forward declaration\n"
@@ -295,6 +301,8 @@ MESSAGES = (
     b"173 an interrupt function cannot be called: store its address, @name, where the board wants it\n"
     b"180 the end of a function that has a result can be reached: return a value there\n"
     b"181 #error\n"
+    b"182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table\n"
+    b"183 nothing in this region is used inside the with block\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "

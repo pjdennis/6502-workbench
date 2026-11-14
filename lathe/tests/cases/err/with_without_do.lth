@@ -1,0 +1,7 @@
+; error 38 5 10
+module with_without_do
+var t: byte in r
+func f()
+  with r then
+  end
+end

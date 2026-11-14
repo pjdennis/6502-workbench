@@ -40,11 +40,11 @@ class OutTest(unittest.TestCase):
 
     def test_a_module_with_nothing_in_it(self):
         out.begin_module(0, name(b'host'))
-        self.assertEqual(self.written(), [(MOD, b'\x02\x00\x04host'), (END, b'')])
+        self.assertEqual(self.written(), [(MOD, b'\x03\x00\x04host'), (END, b'')])
 
     def test_the_cpu_is_in_the_module_record(self):
         out.begin_module(1, name(b'm'))
-        self.assertEqual(self.written()[0], (MOD, b'\x02\x01\x01m'))
+        self.assertEqual(self.written()[0], (MOD, b'\x03\x01\x01m'))
 
     def test_an_import_names_the_module(self):
         out.begin_module(0, name(b'hello'))

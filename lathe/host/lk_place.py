@@ -30,6 +30,57 @@ bank_used = [0] * lk_envf.MAX_BANKS     # bytes of each bank or overlay given ou
 bank_judged = [0] * lk_envf.MAX_BANKS   # the same as written, before shrinking: the fit check
 
 
+def check_with():
+    """A function with a `with` block (lk_tab.F_WITH, from its kind 6 fix-ups) maps a bank of
+    data into the window, so its own code must be fixed (55); and it must not run in an
+    interrupt context (57): code-model.md, "Data in windows"."""
+    for f in range(0, lk_tab.fn_count):
+        if (lk_tab.fn_flags[f] & lk_tab.F_WITH) != 0 and lk_tab.fn_ctx[f] != 0:
+            if lk_scan.fn_bank(f) != 0:
+                lk_name.fail(lk_err.E_WITH_PLACED, lk_tab.fn_ref(f))
+            if (lk_tab.fn_ctx[f] & 0xFE) != 0:
+                ctx = 0
+                for h in range(0, lk_tab.fn_count):
+                    if (lk_tab.fn_flags[h] & lk_tab.F_INTERRUPT) != 0:
+                        ctx += 1
+                        if lk_tab.has_copy(f, ctx):
+                            lk_name.fail_in(lk_err.E_WITH_IRQ, lk_tab.fn_ref(h), lk_tab.fn_ref(f))
+
+
+def check_with_call(f, callee, flags):
+    """Kept function f makes a call with these CALL flags of callee: one made inside a `with`
+    block (flag 4) must not reach a function in a window, whose code would replace the data
+    mapped (56). Only the call itself is checked, not what the callee calls: a far call from
+    fixed code puts the data's bank back when it returns."""
+    if (flags & 4) == 0:
+        return
+    if (flags & 2) == 0:
+        if lk_sym.is_defined(callee) and lk_scan.fn_bank(lk_sym.row_of(callee)) != 0:
+            lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), callee)
+        return
+    k = lk_tab.class_of(lk_sym.row_of(callee))
+    for i in range(0, lk_tab.memb_count):
+        g = lk_sym.row_of(lk_tab.memb_func[i])
+        if lk_tab.class_of(lk_sym.row_of(lk_tab.memb_class[i])) == k and lk_scan.fn_bank(g) != 0:
+            lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), lk_tab.fn_ref(g))
+
+
+def holds_region_data(obj, b):
+    """True if object file obj defines constant data of a region that is in bank b."""
+    for d in range(lk_name.obj_def[obj], lk_name.obj_def[obj + 1]):
+        if (lk_tab.def_f[d] & lk_tab.D_CONST) != 0 and lk_scan.region_of(d) == b + 1:
+            return True
+    return False
+
+
+def region_bank(b):
+    """True if some variable or constant of the program is in a region in bank b."""
+    for i in range(0, lk_scan.rdef_count):
+        if lk_scan.rdef_bank[i] == b + 1:
+            return True
+    return False
+
+
 def take(size):
     """Give out the next `size` bytes of the code range. Returns their address.
 
@@ -82,6 +133,9 @@ def place_object(obj):
                 lk_fix.begin(f)
         elif kind == lk_rec.R_FIX and kept:
             lk_fix.count_shrinks(obj)
+        elif kind == lk_rec.R_CALL and kept:
+            callee = lk_name.global_sym(obj, lk_rec.get_word())
+            check_with_call(f, callee, lk_rec.get_byte())
         elif kind == lk_rec.R_CODE:
             written = lk_rec.left()
         elif kind == lk_rec.R_ENDF and kept:
@@ -91,6 +145,8 @@ def place_object(obj):
             s = lk_name.global_sym(obj, lk_rec.get_word())
             d = lk_sym.row_of(s)
             bank = lk_win.bank_def(d)
+            if lk_tab.is_kept_def(d) and bank != 0 and lk_envf.bank_file[bank - 1] == 0:
+                lk_name.fail(lk_err.E_REGION_NO_FILE, s)    # only a region's can be: lk_envf
             if lk_tab.is_kept_def(d) and bank != 0:
                 lk_tab.def_a[d] = take_bank(bank - 1, lk_tab.def_b[d], lk_tab.def_b[d])
             elif lk_tab.is_kept_def(d):

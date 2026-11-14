@@ -29,6 +29,15 @@ OBJ_CLASSES = 0x80                  # the file names a pointer class (lk_map.cpa
 cur_fn = lk_tab.NONE                # the function whose records are being read
 cur_sym = 0                         # its symbol
 dfix_read = False                   # a DFIX record was just read: a DATA record must follow
+rgn_read = False                    # a RGN record was read: a VAR, or a DFIX and DATA, must follow
+rgn_bank = 0                        # the bank + 1 of its region, or 0 if the region is fixed
+
+# The variables and constants in a region that is in a bank (lk_envf.region_bank), in the order
+# they are defined. Those of a region in fixed memory are ordinary ones and are not here.
+MAX_REGION_DEFS = 64
+rdef_count = 0
+rdef_def = [0] * MAX_REGION_DEFS
+rdef_bank = bytearray(MAX_REGION_DEFS)  # the bank + 1
 
 # The weights waiting, in lk_tab.work, which nothing else uses while the files are read: where
 # each column starts.
@@ -69,6 +78,51 @@ def skip_string():
         lk_rec.get_byte()
 
 
+def rec_rgn():
+    """A RGN record: the region of the VAR or DATA record that follows. A name the environment
+    file has no `region` entry for is a region in fixed memory, as is one given as `fixed`."""
+    global rgn_read, rgn_bank
+    size = lk_rec.get_byte()
+    for i in range(0, size):
+        c = lk_rec.get_byte()
+        if i < lk_envf.TOKEN_SIZE:
+            lk_envf.token[i] = c
+    if size == 0 or lk_rec.left() != 0:
+        damaged()
+    rgn_read = True
+    rgn_bank = 0
+    if size > lk_envf.TOKEN_SIZE:
+        return
+    lk_envf.token_len = size
+    r = lk_envf.find_region()
+    if r != lk_envf.MAX_REGIONS:
+        rgn_bank = lk_envf.region_bank[r]
+
+
+def in_region(d):
+    """Variable or constant d is defined: if a RGN record came before it, it is in that region."""
+    global rgn_read, rdef_count
+    if not rgn_read:
+        return
+    rgn_read = False
+    if rgn_bank == 0:
+        return
+    if rdef_count == MAX_REGION_DEFS:
+        lk_err.fail(lk_err.E_DEFS)
+    rdef_def[rdef_count] = d
+    rdef_bank[rdef_count] = rgn_bank
+    rdef_count += 1
+    lk_envf.region_used = rgn_bank
+
+
+def region_of(d):
+    """The bank + 1 of the region variable or constant d is in, or 0 for fixed memory."""
+    for i in range(0, rdef_count):
+        if rdef_def[i] == d:
+            return rdef_bank[i]
+    return 0
+
+
 def define(s):
     """Symbol s is defined by the record being read: it must not have been before."""
     if lk_sym.is_defined(lk_name.now(s)):
@@ -101,7 +155,10 @@ def rec_var(obj):
     # Flag bit 0 once meant "an initial value follows". Initialisers are code now (lk_boot).
     if (flags & 1) != 0:
         lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
+    if rgn_read and zp_class != 2:
+        damaged()                   # a variable in a region is never in zero page
     d = lk_tab.new_def(zp_class)
+    in_region(d)
     lk_tab.def_b[d] = size
     # Other modules' WGT records may have come first.
     lk_tab.def_a[d] = heavier(lk_name.more(s), weight)       # the weight, for now (lk_tab.def_w)
@@ -112,6 +169,7 @@ def rec_data(obj):
     s = read_sym(obj, lk_sym.CONSTANT)
     define(s)
     d = lk_tab.new_def(lk_tab.D_CONST)
+    in_region(d)
     lk_tab.def_a[d] = obj           # until it is placed (lk_graph.keep_referenced)
     lk_tab.def_b[d] = lk_rec.left()
     lk_name.bind(s, lk_tab.def_ref(d))
@@ -123,7 +181,7 @@ def rec_func(obj):
         damaged()
     s = read_sym(obj, lk_sym.FUNCTION)
     define(s)
-    flags = lk_rec.get_byte() & (0xFF ^ (lk_tab.F_INIT | lk_tab.F_HELD | lk_tab.F_STUB | lk_tab.F_ADDR))
+    flags = lk_rec.get_byte() & (lk_tab.F_RECURSIVE | lk_tab.F_INTERRUPT)
     if lk_name.is_init_sym(s):
         flags |= lk_tab.F_INIT
     cur_fn = lk_tab.new_func(flags)
@@ -262,12 +320,16 @@ def add_pending_weights():
 
 def rec_fixes(obj):
     """A FIX or DFIX record: check its entries. What they keep is worked out later, by reading
-    them again (lk_graph.keep_referenced)."""
+    them again (lk_graph.keep_referenced). A function with a kind 6 fix-up, the bank of a region
+    for `with`, is marked (lk_tab.F_WITH); constant data has none."""
     if lk_rec.left() % 8 != 0:
         damaged()
     while lk_rec.left() > 0:
         lk_rec.get_word()
-        lk_rec.get_byte()
+        if lk_rec.get_byte() == 6:
+            if cur_fn == lk_tab.NONE:
+                damaged()
+            lk_tab.fn_flags[cur_fn] |= lk_tab.F_WITH
         lk_name.global_sym(obj, lk_rec.get_word())
         lk_rec.get_byte()
         lk_rec.get_word()
@@ -280,6 +342,8 @@ def take_record(obj, kind):
     dfix_read = False
     if fixed and kind != lk_rec.R_DATA:
         damaged()               # a DFIX belongs to the DATA record just after it
+    if rgn_read and kind != lk_rec.R_VAR and kind != lk_rec.R_DFIX and kind != lk_rec.R_DATA:
+        damaged()               # a RGN record belongs to the VAR or DATA record after it
     if kind == lk_rec.R_SYM:
         rec_sym(obj)
     elif kind == lk_rec.R_VAR:
@@ -309,6 +373,10 @@ def take_record(obj, kind):
             damaged()
         rec_fixes(obj)
         dfix_read = True
+    elif kind == lk_rec.R_RGN:
+        if cur_fn != lk_tab.NONE or rgn_read:
+            damaged()
+        rec_rgn()
     elif kind != lk_rec.R_IMP and kind != lk_rec.R_CODE:
         damaged()
 
@@ -363,7 +431,7 @@ def def_bank(d):
 
 def scan(obj):
     """Read object file obj."""
-    global cur_fn, dfix_read
+    global cur_fn, dfix_read, rgn_read
     lk_rec.open_object(obj)
     lk_name.obj_first[obj] = lk_name.local_count
     lk_name.obj_first[obj + 1] = lk_name.local_count
@@ -377,11 +445,12 @@ def scan(obj):
     module_place(obj)
     cur_fn = lk_tab.NONE
     dfix_read = False
+    rgn_read = False
     kind = lk_rec.advance()
     while kind != lk_rec.R_END:
         take_record(obj, kind)
         kind = lk_rec.advance()
-    if cur_fn != lk_tab.NONE or dfix_read:
+    if cur_fn != lk_tab.NONE or dfix_read or rgn_read:
         damaged()
     lk_rec.close()
     lk_name.obj_fn[obj + 1] = lk_tab.fn_count
@@ -391,6 +460,9 @@ def scan(obj):
 def scan_all():
     """Read every object file named on the command line: once quietly for the names to keep
     (lk_name.mark_all), once for the tables."""
+    global rdef_count
+    rdef_count = 0
+    lk_envf.region_used = 0
     lk_name.object_count = lk_file.arg_count() - lk_file.ARG_OBJECT
     if lk_name.object_count > lk_name.MAX_OBJECTS:
         lk_err.fail(lk_err.E_OBJECTS)

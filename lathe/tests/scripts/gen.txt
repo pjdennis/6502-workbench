@@ -2146,3 +2146,23 @@ slot 2 1 1 w
 call 0 0 0
 fend 1
 end
+== a variable in a region, inside a block of its region: the first one used names the bank (with_used); calls are flagged
+var 1 2 0 77 rv
+var 1 2 0 77 rw
+inside 77
+used
+gvar 1
+used
+gvar 0
+used
+show 1
+func g 0 0 0 0
+call 2 0 0
+inside 0
+call 2 0 0
+fend 0
+end
+== a variable in a region used outside a block of its region is error 118
+var 1 2 0 77 rv
+inside 78
+gvar 0

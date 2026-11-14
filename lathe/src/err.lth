@@ -129,6 +129,8 @@ pub const E_DIRECTIVE = 114
 pub const E_NO_IF = 115
 pub const E_IF_OPEN = 116
 pub const E_IF_DEEP = 117
+pub const E_REGION_USE = 118
+pub const E_WITH_INTERRUPT = 119
 
 ; Arrays, strings and pointers
 pub const E_BYTE_INDEX = 120
@@ -182,8 +184,10 @@ pub const E_INTERRUPT_CALL = 173
 ; Functions and directives, continued
 pub const E_NO_RETURN = 180
 pub const E_ERROR_DIRECTIVE = 181
+pub const E_IN_HERE = 182
+pub const E_WITH_UNUSED = 183
 
-const MESSAGES: [122]^byte = [
+const MESSAGES: [126]^byte = [
   "1 character not allowed here",
   "2 digits expected",
   "3 number above 65535",
@@ -263,6 +267,8 @@ const MESSAGES: [122]^byte = [
   "115 #else or #end without its #if",
   "116 #if without #end",
   "117 #if nested too deeply",
+  "118 a variable or constant in a region can be used only inside a with block of its region",
+  "119 with cannot be used in an interrupt function",
   "120 an array of at most 256 elements, and a pointer, take a byte index",
   "121 an array is not a value: use a pointer to it, or copy it with a loop",
   "122 has no address: not a variable, or an element of an array stored by column",
@@ -298,14 +304,16 @@ const MESSAGES: [122]^byte = [
   "165 too many saved tokens of inline functions in this module",
   "166 inline calls nested too deeply",
   "167 an inline function cannot call itself, directly or through other inline functions",
-  "168 an inline function cannot have asm, static or #if",
+  "168 an inline function cannot have asm, static, with or #if",
   "169 an inline function has no address",
   "170 an exported inline function can use only exported names of its module",
   "171 inline and interrupt go with neither each other, nor asm, nor a forward declaration",
   "172 an interrupt function has no parameters and no results",
   "173 an interrupt function cannot be called: store its address, @name, where the board wants it",
   "180 the end of a function that has a result can be reached: return a value there",
-  "181 #error"
+  "181 #error",
+  "182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table",
+  "183 nothing in this region is used inside the with block"
 ]
 const TOOL: [6]byte = "lathec"
 const ERROR: [8]byte = ": error "

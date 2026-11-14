@@ -1,0 +1,81 @@
+; imported by regions.lth: variables and constants in regions (stage 11, step 9; provisional,
+; 2026-11-14), used inside `with` blocks: a table of variables, a string and a table of
+; constants. Each function is fixed code, and leaves its blocks every way a block can be left.
+module libreg
+
+import libfco
+
+var table: [16]byte in work                 ; variables: a bank with no file
+var last: byte in work
+const GREETING in text = "sums of a table"  ; constants: a bank with a file, loaded at start-up
+const STEPS: [4]byte in text = [1, 2, 3, 5]
+var calls: byte
+
+; Fill the table: element i is the sum of the steps of the elements before it, cycling through
+; STEPS; one in four is skipped (continue) and the loop ends at n (break).
+pub func fill(n: byte)
+  var i: byte
+  var sum: byte
+  sum = 0
+  for i = 0 to 15 do
+    with work do
+      table[i] = 0
+      if i >= n then
+        break
+      end
+      if i & 3 == 3 then
+        continue
+      end
+      with text do
+        sum += STEPS[i & 3]
+      end
+      table[i] = sum
+      last = i
+    end
+  end
+end
+
+; Element i, returned from inside the block.
+pub func get(i: byte): byte
+  with work do
+    calls += 1
+    return table[i]
+  end
+end
+
+; Element i and whether it is not 0: a value and a status returned from inside two blocks.
+pub func nonzero(i: byte): byte, bool
+  with work do
+    with work do
+      if table[i] != 0 then
+        return table[i], true
+      end
+    end
+  end
+  return 0, false
+end
+
+; The string, written from inside its block: calls of fixed code are allowed there.
+pub func greet()
+  var i: byte
+  with text do
+    i = 0
+    while GREETING[i] != 0 do
+      libfco.put(GREETING[i])
+      i += 1
+    end
+  end
+  libfco.put(10)
+end
+
+; How many times get() was called, and the last element filled.
+pub func report()
+  var n: byte
+  with work do
+    n = last
+  end
+  libfco.hex(calls)
+  libfco.put(' ')
+  libfco.hex(n)
+  libfco.put(10)
+end

@@ -1,0 +1,11 @@
+; error 118 8 11
+module region_in_inner_with
+var t: byte in r
+var u: byte in s
+func f()
+  with r do
+    with s do
+      u = t
+    end
+  end
+end

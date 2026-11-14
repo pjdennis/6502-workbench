@@ -1,0 +1,6 @@
+; error 21 4 8
+module with_region_not_a_name
+func f()
+  with 3 do
+  end
+end

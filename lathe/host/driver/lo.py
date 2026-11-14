@@ -1,4 +1,4 @@
-"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 2).
+"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 3).
 
     m = lo.load('hello.lo')          # -> Module; raises LoError with file and offset on bad input
     data = lo.write(m)               # -> bytes
@@ -14,8 +14,11 @@
 Operands for Builder ops: an int (a literal), a symbol name, (function name, slot name or
 number), (class name, parameter number), or a label name of the function being built (for
 branches, and for JMP/JSR/immediates, which then get a fix-up to the function itself with the
-label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups. A
-two-byte operand gets kind 5 if the instruction has a zero page form and kind 1 if not.
+label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups, and
+'#bank' one with a kind 6 fix-up (the register value of the region of the variable or constant
+named). A two-byte operand gets kind 5 if the instruction has a zero page form and kind 1 if not.
+`var(..., region='r')` and `data(..., region='r')` put a variable or constant in a region (a
+RGN record before it).
 """
 import struct
 from dataclasses import dataclass, field
@@ -23,19 +26,20 @@ from typing import List
 
 import cpu6502
 
-VERSION = 2
+VERSION = 3
 
 R_END, R_MOD, R_IMP, R_SYM, R_VAR, R_DATA, R_DFIX, R_FUNC, R_SLOT, R_CALL, R_FIX, R_CODE, R_ENDF, \
-    R_CLAS, R_MEMB, R_WGT = range(16)
+    R_CLAS, R_MEMB, R_WGT, R_RGN = range(17)
 RECORD_NAMES = {R_END: 'END', R_MOD: 'MOD', R_IMP: 'IMP', R_SYM: 'SYM', R_VAR: 'VAR', R_DATA: 'DATA',
                 R_DFIX: 'DFIX', R_FUNC: 'FUNC', R_SLOT: 'SLOT', R_CALL: 'CALL', R_FIX: 'FIX',
-                R_CODE: 'CODE', R_ENDF: 'ENDF', R_CLAS: 'CLAS', R_MEMB: 'MEMB', R_WGT: 'WGT'}
+                R_CODE: 'CODE', R_ENDF: 'ENDF', R_CLAS: 'CLAS', R_MEMB: 'MEMB', R_WGT: 'WGT',
+                R_RGN: 'RGN'}
 
 K_FUNC, K_VAR, K_DATA, K_CLASS = 1, 2, 3, 4
 KIND_NAMES = {K_FUNC: 'function', K_VAR: 'variable', K_DATA: 'constant data', K_CLASS: 'pointer class'}
 
-FX_WORD, FX_LO, FX_HI, FX_ZP, FX_SHRINK = 1, 2, 3, 4, 5
-FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1, FX_SHRINK: 2}
+FX_WORD, FX_LO, FX_HI, FX_ZP, FX_SHRINK, FX_BANK = 1, 2, 3, 4, 5, 6
+FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1, FX_SHRINK: 2, FX_BANK: 1}
 
 SK_PARAM, SK_LOCAL, SK_TEMP = 0, 1, 2
 SLOT_KIND_NAMES = {SK_PARAM: 'param', SK_LOCAL: 'local', SK_TEMP: 'temp'}
@@ -43,7 +47,7 @@ SLOT_KIND_NAMES = {SK_PARAM: 'param', SK_LOCAL: 'local', SK_TEMP: 'temp'}
 F_RECURSIVE, F_INTERRUPT, F_EXPORTED, F_REGISTERS = 1, 2, 4, 8
 FUNC_FLAG_NAMES = ((F_RECURSIVE, 'recursive'), (F_INTERRUPT, 'interrupt'), (F_EXPORTED, 'exported'),
                    (F_REGISTERS, 'registers'))
-C_SAVES, C_POINTER = 1, 2
+C_SAVES, C_POINTER, C_WITH = 1, 2, 4
 CLAS_RECURSIVE = 1
 VAR_OLD_INIT = 1       # flag bit 0 meant "initial value follows" before initial values moved to code
 
@@ -104,6 +108,7 @@ class Var:
     cls: int = 1
     weight: int = 0
     flags: int = 0
+    region: str = ''                        # `in REGION`: a RGN record comes before the VAR
 
 
 @dataclass
@@ -111,6 +116,7 @@ class Data:
     sym: int
     data: bytes
     fixes: List[Fix] = field(default_factory=list)
+    region: str = ''                        # `in REGION`: a RGN record comes before its DFIX or DATA
 
 
 @dataclass
@@ -251,6 +257,7 @@ def read(data, filename='<object>'):
     func = None                   # Func being read
     func_stage = 0                # 0 after FUNC, 1 SLOT, 2 CALL, 3 FIX, 4 CODE
     dfix = None                   # the fix-ups of a DFIX record, for the DATA record after it
+    region = None                 # the region of a RGN record, for the VAR or DATA record after it
     pending = []                  # (Fix, owner description, pos) checked at END
     ended = False
 
@@ -277,6 +284,11 @@ def read(data, filename='<object>'):
                 r.fail(f'{what}: fix-up at offset ${x.offset:04X} runs past the end of the code or data')
             if x.kind == FX_SHRINK and code is None:
                 r.fail(f'{what}: fix-up kind 5 at offset ${x.offset:04X} in constant data')
+            if x.kind == FX_BANK and code is None:
+                r.fail(f'{what}: fix-up kind 6 at offset ${x.offset:04X} in constant data')
+            if x.kind == FX_BANK and sym_ref(x.sym, what).kind not in (K_VAR, K_DATA):
+                r.fail(f'{what}: fix-up kind 6 at offset ${x.offset:04X} names a '
+                       f'{KIND_NAMES[m.symbols[x.sym].kind]}, not a variable or constant data')
             if x.kind in (FX_WORD, FX_SHRINK) and code is not None and x.offset > 0:
                 entry = cpu6502.decode_table(m.cpu).get(code[x.offset - 1])
                 if entry is not None:
@@ -326,6 +338,8 @@ def read(data, filename='<object>'):
 
         if dfix is not None and rtype != R_DATA:
             r.fail('DFIX record not just before a DATA record')
+        if region is not None and rtype not in (R_VAR, R_DFIX, R_DATA):
+            r.fail('RGN record not just before a VAR, DFIX or DATA record')
         if func is not None:
             order = {R_SLOT: 1, R_CALL: 2, R_FIX: 3, R_CODE: 4}
             if rtype in order:
@@ -392,6 +406,10 @@ def read(data, filename='<object>'):
                        f'variables have no initial values; the compiler sets them in module.$init')
             if v.flags:
                 r.fail(f'VAR {vname}: unknown flags ${v.flags:02X}')
+            if region is not None:
+                if v.cls != 2:
+                    r.fail(f'VAR {vname}: a variable in a region has class 2, not {v.cls}')
+                v.region, region = region, None
             m.items.append(v)
         elif rtype == R_DATA:
             x = Data(body.u16(), b'')
@@ -401,7 +419,13 @@ def read(data, filename='<object>'):
                 x.fixes = dfix
                 check_fixes(x.fixes, len(x.data), m.sym_name(x.sym))
                 dfix = None
+            if region is not None:
+                x.region, region = region, None
             m.items.append(x)
+        elif rtype == R_RGN:
+            region = body.string()
+            if not region:
+                r.fail('RGN record with an empty name')
         elif rtype == R_DFIX:
             dfix = _fix_entries(body, r)
         elif rtype == R_FUNC:
@@ -453,6 +477,8 @@ def read(data, filename='<object>'):
         r.fail('no END record')
     if dfix is not None:
         r.fail('DFIX record not just before a DATA record')
+    if region is not None:
+        r.fail('RGN record not just before a VAR, DFIX or DATA record')
 
     # Slot numbers can be checked once every local definition is known.
     for x, what, pos in pending:
@@ -514,8 +540,12 @@ def write(m):
             out.append(_rec(R_CODE, x.code))
             out.append(_rec(R_ENDF))
         elif isinstance(x, Var):
+            if x.region:
+                out.append(_rec(R_RGN, _str(x.region)))
             out.append(_rec(R_VAR, struct.pack('<HHBBB', x.sym, x.size, x.cls, x.weight, x.flags)))
         elif isinstance(x, Data):
+            if x.region:
+                out.append(_rec(R_RGN, _str(x.region)))
             if x.fixes:
                 out.append(_rec(R_DFIX, _fixes(x.fixes)))
             out.append(_rec(R_DATA, struct.pack('<H', x.sym) + x.data))
@@ -595,8 +625,8 @@ class FuncBuilder:
 
     def op(self, mnemonic, mode=cpu6502.IMP, operand=None, addend=0):
         part = None
-        if mode in ('#<', '#>'):
-            part, mode = (FX_LO if mode == '#<' else FX_HI), cpu6502.IMM
+        if mode in ('#<', '#>', '#bank'):
+            part, mode = {'#<': FX_LO, '#>': FX_HI, '#bank': FX_BANK}[mode], cpu6502.IMM
         modes = cpu6502.table(self.b.module_.cpu).get(mnemonic.upper())
         if modes is None:
             raise LoError(f'unknown mnemonic {mnemonic}')
@@ -678,13 +708,14 @@ class Builder:
         self.parts.append(fb)
         return fb
 
-    def var(self, name, size, cls=1, weight=0):
+    def var(self, name, size, cls=1, weight=0, *, region=''):
         """A variable: storage only. Initial values are code, in a function module.$init."""
-        self.module_.items.append(Var(self.extern(name, K_VAR), size, cls, weight))
+        self.module_.items.append(Var(self.extern(name, K_VAR), size, 2 if region else cls, weight,
+                                      region=region))
         return self
 
-    def data(self, name, data):
-        x = Data(self.extern(name, K_DATA), bytes(data))
+    def data(self, name, data, *, region=''):
+        x = Data(self.extern(name, K_DATA), bytes(data), region=region)
         self.module_.items.append(x)
         p = _Fixable(self, x, len(x.data))
         self.parts.append(p)

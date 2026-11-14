@@ -50,10 +50,12 @@ pending_count = 0               # with at least one stored already: the outermos
 
 
 def init():
-    global passing, passed, pending_count
+    global passing, passed, pending_count, map_symbol, unmap_symbol
     passing = False
     passed = reg.NONE
     pending_count = 0
+    map_symbol = kernel.NO_OBJ
+    unmap_symbol = kernel.NO_OBJ
 
 
 # ---- Types and names ---------------------------------------------------------------------
@@ -188,13 +190,17 @@ def designator():
     if kind == kernel.K_FUNC:
         gen.function(s)
     elif kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]):
+        err.position(line, col)         # a table in a region is used only inside `with`
         gen.table(s)
+        err.position(lex.line, lex.col)
     elif kind == kernel.K_CONST:
         gen.constant(kernel.sym_type[s], kernel.sym_value[s])
     elif kind == kernel.K_LOCAL:
         gen.local(kernel.sym_type[s], kernel.sym_value[s])
     elif kind == kernel.K_VAR:
+        err.position(line, col)
         gen.variable(s)
+        err.position(lex.line, lex.col)
     elif kind == kernel.K_TYPE:
         conversion(kernel.sym_type[s], line, col)
     else:
@@ -679,6 +685,25 @@ next_label = reg.NONE   # where `continue` goes: to that loop's next pass
 placed_at = 0           # the address after "at" in the declaration being parsed
 critical_depth = 0      # how many `critical` blocks the statement being compiled is inside
 critical_inner = 0      # how many of those are inside the nearest loop
+# `with REGION do ... end` (provisional, 2026-11-14): the temporaries that hold the bank found
+# when the outermost `with` block of the function, and the outermost inside the nearest loop,
+# mapped theirs; fbuf.NO_SLOT for none. Unmapping it puts back what was there before them all.
+with_function = fbuf.NO_SLOT
+with_loop = fbuf.NO_SLOT
+with_entry = reg.NONE   # map(): the buffer entry of its LDA #bank, whose symbol comes later
+placed_region = 0       # the name after "in" in the declaration being parsed
+data_region = 0         # the region of the table table_data() writes, or 0
+in_line = 0             # and where the "in" is
+in_col = 0
+FARCALL_MODULE = b"rt_with"     # the far-call module, as the linker resolves it (configurations.md)
+MAP_NAME = b"map"               # map(value: byte in a): byte in a, the old value
+UNMAP_NAME = b"unmap"           # unmap(value: byte in y), which keeps A, X, Y and the flags
+map_symbol = kernel.NO_OBJ      # their object-file symbols, once used
+unmap_symbol = kernel.NO_OBJ
+FIX_BANK = 6                    # fix-up kind 6: the register value of a symbol's region
+OP_LDA_IMMEDIATE = 0xA9
+OP_STA = 0x8D
+OP_LDY = 0xAC
 
 MAX_CASE = 256
 case_value = bytearray(MAX_CASE)    # the constants of the `case` statements being compiled
@@ -692,9 +717,9 @@ OP_SEI = 0x78
 # ---- Variables ---------------------------------------------------------------------------
 
 def placements():
-    """{ "zp" | "nozp" | "rows" | "at" constExpr }. Returns them as symbol flags; the address
-    is left in `placed_at`."""
-    global placed_at
+    """{ "zp" | "nozp" | "rows" | "at" constExpr | "in" name }. Returns them as symbol flags;
+    the address is left in `placed_at`, the region in `placed_region`."""
+    global placed_at, placed_region, in_line, in_col
     flags = 0
     while True:
         if lex.tok == lex.T_ZP:
@@ -711,12 +736,32 @@ def placements():
             flags = flags | kernel.SF_ROWS
             lex.next()
         elif lex.tok == lex.T_IN:
-            err.fatal(err.E_UNSUPPORTED)
+            flags = flags | kernel.SF_IN
+            placed_region = region_name()
         else:
             break
     if flags & kernel.SF_ZP != 0 and flags & kernel.SF_NOZP != 0:
         err.fatal(err.E_SYNTAX)
     return flags
+
+
+def region_name():
+    """"in" name: the region's name. Where the "in" is is kept for an error."""
+    global in_line, in_col
+    in_line = lex.line
+    in_col = lex.col
+    lex.next()
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    name = lex.value
+    lex.next()
+    return name
+
+
+def not_in_region():
+    """`in REGION` was given where it is not allowed."""
+    err.position(in_line, in_col)
+    err.fatal(err.E_IN_HERE)
 
 
 def zp_class(flags):
@@ -742,6 +787,8 @@ def lasting_variable(scope, name, t, flags, level):
     else:
         kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, kernel.module_name[0],
                                        kernel.sym_name[function], name)
+    if flags & kernel.SF_IN != 0:
+        kernel.sym_value[s] = placed_region
     return s
 
 
@@ -777,6 +824,11 @@ def variable(more, level):
     col = lex.col
     t = type_spec()
     flags = placements() | more
+    if flags & kernel.SF_IN != 0:
+        # In a region: in its bank, never in zero page, with no initial value, and not a slot.
+        if flags & (kernel.SF_AT | kernel.SF_ZP) != 0 or level == LEVEL_LOCAL or lex.tok == lex.T_ASSIGN:
+            not_in_region()
+        flags = flags | kernel.SF_NOZP
     err.position(line, col)
     if flags & kernel.SF_ROWS != 0:
         if not typetab.is_array(t):
@@ -884,6 +936,8 @@ def table_data(t, symbol):
                 break
             lex.next()
         lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+    if data_region != 0:
+        out.region(data_region)
     out.table_end(symbol, total)
 
 
@@ -1005,11 +1059,13 @@ def if_statement():
 
 def while_statement():
     """"while" expression "do" NL body "end"."""
-    global exit_label, next_label, critical_inner
+    global exit_label, next_label, critical_inner, with_loop
     saved_exit = exit_label
     saved_next = next_label
     saved_inner = critical_inner
     critical_inner = 0
+    saved_with = with_loop
+    with_loop = fbuf.NO_SLOT
     lex.next()
     top = fbuf.new_label()
     reg.loop_label(top)
@@ -1027,16 +1083,19 @@ def while_statement():
     exit_label = saved_exit
     next_label = saved_next
     critical_inner = saved_inner
+    with_loop = saved_with
 
 
 def loop_statement():
     """"loop" NL body ( "end" | "until" expression ). `continue` goes to the test of `until`,
     or to the top if there is none."""
-    global exit_label, next_label, critical_inner
+    global exit_label, next_label, critical_inner, with_loop
     saved_exit = exit_label
     saved_next = next_label
     saved_inner = critical_inner
     critical_inner = 0
+    saved_with = with_loop
+    with_loop = fbuf.NO_SLOT
     lex.next()
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
     top = fbuf.new_label()
@@ -1059,6 +1118,7 @@ def loop_statement():
     exit_label = saved_exit
     next_label = saved_next
     critical_inner = saved_inner
+    with_loop = saved_with
 
 
 def loop_variable():
@@ -1128,11 +1188,13 @@ def for_statement():
     the test is at the bottom: the variable is compared with the limit before each step
     (docs/codegen.md, "Statements"). With `until` the test, variable < limit, is at the top
     instead. A limit that is a variable is not copied: it is read at each test."""
-    global exit_label, next_label, critical_inner
+    global exit_label, next_label, critical_inner, with_loop
     saved_exit = exit_label
     saved_next = next_label
     saved_inner = critical_inner
     critical_inner = 0
+    saved_with = with_loop
+    with_loop = fbuf.NO_SLOT
     lex.next()
     s = loop_variable()
     t = kernel.sym_type[s]
@@ -1187,6 +1249,7 @@ def for_statement():
     exit_label = saved_exit
     next_label = saved_next
     critical_inner = saved_inner
+    with_loop = saved_with
 
 
 def case_constants(selector, chosen, base):
@@ -1296,6 +1359,105 @@ def critical_statement():
     restore_flags(1)
 
 
+def farcall_symbols():
+    """The symbols of rt_with.map and rt_with.unmap, and the IMP record of `rt_with`, which the
+    first `with` block of the module writes. The linker gives these names to the environment's
+    far-call module, or, with none, to the module `rt_with` that maps nothing."""
+    global map_symbol, unmap_symbol
+    if map_symbol != kernel.NO_OBJ:
+        return
+    module_name = gen.fixed_name(FARCALL_MODULE)
+    out.imported(module_name)
+    map_symbol = out.symbol(out.SYM_FUNCTION, module_name, 0, gen.fixed_name(MAP_NAME))
+    unmap_symbol = out.symbol(out.SYM_FUNCTION, module_name, 0, gen.fixed_name(UNMAP_NAME))
+
+
+def map_bank():
+    """LDA #bank(REGION) / JSR rt_with.map / STA temporary: the region's bank in the window,
+    and the bank it replaces kept. Returns the temporary; with_entry is the buffer entry of the
+    LDA, whose fix-up names a symbol of the region once the block has used one (reg.NONE if
+    the code cannot be reached)."""
+    global with_entry
+    farcall_symbols()
+    reg.clobber()
+    fbuf.op_fix(OP_LDA_IMMEDIATE, FIX_BANK, 0, fbuf.NO_SLOT, 0)
+    with_entry = reg.NONE
+    if not fbuf.unreached:
+        with_entry = fbuf.newest
+    fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, map_symbol, fbuf.NO_SLOT, 0)
+    out.call(map_symbol, 0, out.NO_OUTER)
+    temp = reg.temp(1)
+    fbuf.op_fix(OP_STA, fbuf.FIX_ADDRESS, reg.own, temp, 0)
+    reg.use_slot(temp)
+    reg.forget()
+    return temp
+
+
+def unmap_bank(temp):
+    """LDY temporary / JSR rt_with.unmap: the bank that was in the window before the block
+    that kept it in `temp`. A, X and the carry are kept, so a result can be on its way."""
+    fbuf.op_fix(OP_LDY, fbuf.FIX_ADDRESS, reg.own, temp, 0)
+    reg.use_slot(temp)
+    fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, unmap_symbol, fbuf.NO_SLOT, 0)
+    out.call(unmap_symbol, 0, out.NO_OUTER)
+    reg.forget()
+
+
+def with_statement():
+    """"with" name "do" NL body "end" (provisional, 2026-11-14): inside it the variables and
+    tables `in` that region can be used. Its bank is mapped at the start and the bank found
+    there put back at the end, and by a `return`, `break` or `continue` that leaves it. A block
+    inside a block of the same region costs nothing; one of another region maps its own, and
+    the outer region's names cannot be used in it."""
+    global with_function, with_loop
+    line = lex.line
+    col = lex.col
+    if kernel.sym_flags[function] & inline.SF_INTERRUPT != 0:
+        err.fatal(err.E_WITH_INTERRUPT)
+    if inline.level > 0:
+        err.fatal(err.E_INLINE_NOT_HERE)
+    lex.next()
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    region = lex.value
+    lex.next()
+    lex.expect(lex.T_DO, err.E_DO_EXPECTED)
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    outer_region = out.with_region
+    outer_used = out.with_used
+    saved_function = with_function
+    saved_loop = with_loop
+    temp = fbuf.NO_SLOT
+    entry = reg.NONE
+    if region != outer_region:
+        temp = map_bank()
+        entry = with_entry
+        if with_function == fbuf.NO_SLOT:
+            with_function = temp
+        if with_loop == fbuf.NO_SLOT:
+            with_loop = temp
+    out.with_region = region
+    out.with_used = kernel.NO_OBJ
+    body()
+    end_of_block()
+    used = out.with_used
+    if used == kernel.NO_OBJ:
+        err.position(line, col)
+        err.fatal(err.E_WITH_UNUSED)
+    out.with_region = outer_region
+    out.with_used = outer_used
+    if temp != fbuf.NO_SLOT:
+        if entry != reg.NONE:
+            fbuf.buffer[entry + 2] = used & 0xFF
+            fbuf.buffer[entry + 3] = used >> 8
+        unmap_bank(temp)
+        reg.slot_busy[temp] = False
+    elif outer_used == kernel.NO_OBJ:
+        out.with_used = used
+    with_function = saved_function
+    with_loop = saved_loop
+
+
 def directive():
     """"#if" constExpr NL. LEX passes over what is not to be compiled. The condition is a
     `bool`, or a number, which is true unless it is 0 (docs/language.md, "Conditional
@@ -1324,6 +1486,8 @@ def jump_statement(target):
         err.fatal(err.E_NO_LOOP)
     lex.next()
     restore_flags(critical_inner)
+    if with_loop != fbuf.NO_SLOT:
+        unmap_bank(with_loop)
     reg.jump(target)
 
 
@@ -1394,6 +1558,8 @@ def return_statement():
         if not keep and t != typetab.BOOL_TYPE:
             gen.load_result()
     restore_flags(critical_depth)
+    if with_function != fbuf.NO_SLOT:
+        unmap_bank(with_function)
     if keep:
         inline.lazy[inline.level] = True
     elif inline.level > 0:
@@ -1434,6 +1600,8 @@ def statement():
         case_statement()
     elif lex.tok == lex.T_CRITICAL:
         critical_statement()
+    elif lex.tok == lex.T_WITH:
+        with_statement()
     elif lex.tok == lex.T_HASH_IF:
         directive()
     else:
@@ -1473,7 +1641,7 @@ def expand(f, wanted):
     functions"). A `return` goes to the end of the expansion, where the result is left as a
     call leaves it, if it is `wanted`; or, from the last statement, it may leave its value
     as the operand it is. The token after the ")" is the current one at the end."""
-    global function, exit_label, next_label, critical_depth, critical_inner
+    global function, exit_label, next_label, critical_depth, critical_inner, with_function, with_loop
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
@@ -1496,11 +1664,15 @@ def expand(f, wanted):
     saved_next = next_label
     saved_depth = critical_depth
     saved_inner = critical_inner
+    saved_with_function = with_function
+    saved_with_loop = with_loop
     function = f
     exit_label = reg.NONE
     next_label = reg.NONE
     critical_depth = 0
     critical_inner = 0
+    with_function = fbuf.NO_SLOT        # its `return` is a jump inside the caller's blocks
+    with_loop = fbuf.NO_SLOT
     lex.open_brackets = 0
     inline.body_begin(f)
     lex.next()
@@ -1513,6 +1685,8 @@ def expand(f, wanted):
     next_label = saved_next
     critical_depth = saved_depth
     critical_inner = saved_inner
+    with_function = saved_with_function
+    with_loop = saved_with_loop
     lex.open_brackets = brackets
     lex.resume(lex.T_RPAREN, line, col)
     if not inline.lazy[inline.depth]:
@@ -1527,12 +1701,15 @@ def function_body(f):
     """The body of function `f`, whose parameters are declared. If `f` has a result, its end
     must not be reached: the code before it returns or jumps, or it is an `asm` block, which
     the programmer has made return by itself."""
-    global function, exit_label, next_label, critical_depth, critical_inner, asm_last
+    global function, exit_label, next_label, critical_depth, critical_inner, asm_last, \
+        with_function, with_loop
     function = f
     exit_label = reg.NONE
     next_label = reg.NONE
     critical_depth = 0
     critical_inner = 0
+    with_function = fbuf.NO_SLOT
+    with_loop = fbuf.NO_SLOT
     asm_last = False
     body()
     if kernel.sym_results[f] != 0 and fbuf.runs_on() and not asm_last:

@@ -72,6 +72,11 @@ MAIN_SUFFIX = b".main"
 INIT_SUFFIX = b".$init"
 CALL_SUFFIX = b".call"
 START_SUFFIX = b".start"
+# The compiler names the far-call module's map and unmap `rt_with.map` and `rt_with.unmap`
+# (`with` blocks, configurations.md). With a `farcall MODULE` entry, a name that starts so is
+# read as MODULE's: `rt_bank.map`. With none, the module `rt_with` itself defines them.
+FARCALL_PREFIX = b"rt_with."
+C_DOT = 46
 
 
 # ---- bytes and bits in the work area
@@ -114,6 +119,15 @@ def global_sym(obj, number):
 
 # ---- the names to keep
 
+def farcall_hash():
+    """The hash of the far-call module's name and a dot, which `rt_with.` stands for."""
+    f = lk_envf.farcall
+    h = 0
+    for i in range(0, lk_envf.text[f - 1]):
+        h = step(h, lk_envf.text[f + i])
+    return step(h, C_DOT)
+
+
 def mark_object(obj):
     """Mark what object file obj makes worth keeping. `local` holds, for each of its SYM
     records, the hash of its name and whether the file defines it."""
@@ -129,8 +143,19 @@ def mark_object(obj):
             sym_kind = lk_rec.get_byte()
             size = lk_rec.get_byte()
             h = 0
+            alias = lk_envf.farcall != 0 and size > len(FARCALL_PREFIX)
+            other = 0                   # the hash of the name as the far-call module's
+            if alias:
+                other = farcall_hash()
             for i in range(0, size):
-                h = step(h, lk_rec.get_byte())
+                c = lk_rec.get_byte()
+                h = step(h, c)
+                if i < len(FARCALL_PREFIX):
+                    alias = alias and c == FARCALL_PREFIX[i]
+                else:
+                    other = step(other, c)
+            if alias:
+                h = other
             if count < MAX_LOCALS:
                 local[count] = h & L_HASH
                 # A pointer class is described by every file that uses it, defined by none.
@@ -256,6 +281,37 @@ def is_farcall(suffix):
     return True
 
 
+def rename_farcall():
+    """If the pending name is `rt_with.NAME` and the environment file names a far-call module,
+    make it that module's NAME (FARCALL_PREFIX)."""
+    global pending, pend_hash
+    f = lk_envf.farcall
+    size = len(FARCALL_PREFIX)
+    if f == 0 or pending <= size:
+        return
+    for i in range(0, size):
+        if pending_char(i) != FARCALL_PREFIX[i]:
+            return
+    m = lk_envf.text[f - 1]
+    rest = pending - size
+    top = heap_top + ENTRY
+    if m + 1 + rest > 255 or top + m + 1 + rest > heap_limit():
+        lk_err.fail(lk_err.E_NAMES)
+    if m + 1 > size:
+        for i in range(rest - 1, -1, -1):
+            put_b(top + m + 1 + i, get_b(top + size + i))
+    else:
+        for i in range(0, rest):
+            put_b(top + m + 1 + i, get_b(top + size + i))
+    for i in range(0, m):
+        put_b(top + i, lk_envf.text[f + i])
+    put_b(top + m, C_DOT)
+    pending = m + 1 + rest
+    pend_hash = 0
+    for i in range(0, pending):
+        pend_hash = step(pend_hash, pending_char(i))
+
+
 def chain():
     """The chain of the pending name: an index into HEADS."""
     return (pend_hash ^ (pend_hash >> 7)) & 0x1FF
@@ -274,6 +330,7 @@ def find():
 def symbol(kind):
     """The symbol a SYM record of this kind with the pending name stands for, made if new."""
     global heap_top
+    rename_farcall()
     keep = kind == lk_sym.CLASS or get_bit(MARKS, pend_hash & 0x1FFF)
     if keep:
         s, found = find()

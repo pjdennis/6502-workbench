@@ -1,0 +1,24 @@
+; The far-call module of a program with no `farcall` entry in its environment file: every
+; region is in fixed memory, so a `with` block has nothing to map (provisional, 2026-11-14;
+; lathe/docs/configurations.md, "The far-call run-time modules").
+;
+; The compiler calls `rt_with.map` at the start of each `with REGION do ... end` and
+; `rt_with.unmap` where the block is left. With a `farcall MODULE` entry the linker reads those
+; names as MODULE's (rt_bank.map, rt_bank.unmap); with none, build.py links this module, as it
+; links rt_frame, and they are these: a lone RTS each.
+;
+;     LDA #bank(REGION)        ; 0: the region is fixed
+;     JSR rt_with.map          ; gives the old bank in A: here, A as it was
+;     STA temporary
+;     ...
+;     LDY temporary
+;     JSR rt_with.unmap        ; keeps A, X, Y and the flags
+module rt_with
+
+; Map the bank `value` into the window; give the bank that was there.
+pub asm func map(value: byte in a): byte in a
+end
+
+; Put back the bank `value`, which map() gave. A, X, Y and the flags are kept.
+pub asm func unmap(value: byte in y)
+end

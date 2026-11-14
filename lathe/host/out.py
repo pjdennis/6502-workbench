@@ -11,7 +11,7 @@ import err
 import fbuf
 import kernel
 
-VERSION = 2
+VERSION = 3
 
 # Record types
 R_END = 0x00
@@ -30,6 +30,7 @@ R_ENDF = 0x0C
 R_CLAS = 0x0D
 R_MEMB = 0x0E
 R_WGT = 0x0F
+R_RGN = 0x10            # the VAR or DATA record after it is in a region (provisional, 2026-11-14)
 
 # Symbol kinds
 SYM_FUNCTION = 1
@@ -46,6 +47,7 @@ FUNC_REGISTERS = 8
 # CALL flags, and the `outer` of a call made while no arguments were being stored
 CALL_SAVES = 1
 CALL_POINTER = 2
+CALL_WITH = 4           # the call is made inside a `with` block
 NO_OUTER = 0xFFFF
 
 # CLAS flags
@@ -73,13 +75,16 @@ table_fix_symbol = [0] * MAX_TABLE_FIXES
 table_fix_slot = bytearray(MAX_TABLE_FIXES)
 table_fix_addend = [0] * MAX_TABLE_FIXES
 table_fix_count = 0
+with_region = 0                     # the region of the innermost `with` block being compiled, or 0
+with_used = kernel.NO_OBJ           # the first variable or table of it used there (reg.object_symbol)
 
 
 def init():
-    global symbol_count, call_count, member_count
+    global symbol_count, call_count, member_count, with_region
     symbol_count = 0
     call_count = 0
     member_count = 0
+    with_region = 0
 
 
 def open(name):
@@ -106,6 +111,12 @@ def begin_module(cpu, name):
 def imported(name):
     """The module imports the module called `name`."""
     begin_record(R_IMP, 1 + kernel.name_length(name))
+    kernel.put_name(stream, name)
+
+
+def region(name):
+    """The VAR record, or the DFIX or DATA record, written next is in the region `name`."""
+    begin_record(R_RGN, 1 + kernel.name_length(name))
     kernel.put_name(stream, name)
 
 
@@ -198,8 +209,10 @@ def table_end(symbol_number, length):
 
 def call(callee, flags, outer):
     """Note that the function being compiled calls `callee`. The linker wants each different
-    call once, however often the function makes it."""
+    call once, however often the function makes it. A call inside a `with` block says so."""
     global call_count
+    if with_region != 0:
+        flags = flags | CALL_WITH
     for i in range(0, call_count):
         if call_callee[i] == callee and call_flags[i] == flags and call_outer[i] == outer:
             return

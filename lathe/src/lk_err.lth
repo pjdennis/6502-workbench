@@ -86,14 +86,19 @@ pub const E_NO_FILE = 51
 pub const E_OVERLAY_NUMBERS = 52
 pub const E_ENV_FULL = 53
 pub const E_FARCALL_MISSING = 54
+pub const E_WITH_PLACED = 55
+pub const E_WITH_FAR = 56
+pub const E_WITH_IRQ = 57
+pub const E_REGION_WINDOW = 58
+pub const E_REGION_NO_FILE = 59
 
 ; One message per error, in the order of the numbers above.
-const MESSAGES: [54]^byte = [
+const MESSAGES: [59]^byte = [
   "usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...",
   "cannot open file",
   "environment file: bad entry",
   "environment file: zeropage, code, data and exit must all be given",
-  "unsupported object version: this linker reads version 2",
+  "unsupported object version: this linker reads version 3",
   "object file is damaged",
   "object file needs a 65C02 and the environment has a 6502",
   "too many object files",
@@ -142,7 +147,12 @@ const MESSAGES: [54]^byte = [
   "environment file: a module is placed in a bank that has no file",
   "environment file: overlays must be numbered from 1 with none missing",
   "environment file: too many windows, banks, overlays, places or regions, or too many names",
-  "environment file: code is placed in a window, and no farcall entry names the module for far calls"
+  "environment file: code or a region is placed in a window, and no farcall entry names the module for far calls",
+  "a function with a with block cannot be in a window",
+  "a call inside a with block reaches a function in a window",
+  "an interrupt function reaches a function with a with block",
+  "environment file: a region is in an overlay, or in another window than code is",
+  "constant data in a region is in a bank that has no file"
 ]
 
 const PREFIX: [11]byte = "link error "

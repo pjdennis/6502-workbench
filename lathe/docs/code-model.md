@@ -271,10 +271,22 @@ With banks, "make available" writes a bank register. With overlays, it loads a f
 
 ### Data in windows
 
-Frames and ordinary variables are always in fixed memory. A variable declared `in REGION` is placed in that region; if the region is a bank, the program switches it in with a run-time call before use. Two checks are made at link time:
+Frames and ordinary variables are always in fixed memory. A variable or constant table declared `in REGION` is placed in that region (built in stage 11, step 9; the form is provisional, 2026-11-14, awaiting the owner's agreement). The program uses it inside `with REGION do … end`, which maps the bank and maps back what was there ([`language.md`](language.md), "Banked data"):
 
-- A function that uses a banked variable must not have its code in the same window.
-- Interrupt contexts must not use banked variables.
+```
+    LDA #bank(REGION)       ; fix-up kind 6: the bank's register value, 0 for fixed memory
+    JSR rt_with.map         ; the far-call module's map: gives the bank it replaces in A
+    STA temporary           ; a temporary of the function
+    ...                     ; the block
+    LDY temporary           ; at the end, and at each return, break or continue leaving it
+    JSR rt_with.unmap       ; keeps A, X, Y and the flags: a result passes through
+```
+
+A block inside a block of the same region costs nothing; leaving several blocks at once puts back the bank the outermost one left kept. With every region fixed (all in one), `rt_with.map` and `unmap` are a lone `RTS` each: a block costs 24 cycles and 12 bytes as the last statement of a function, where `JMP rt_with.unmap` replaces the function's `RTS` (measured on the default machine; 14 bytes with the temporary outside zero page), and about 33 elsewhere *(estimated: a JSR and an RTS more)*. Banked, with `rt_bank`, 90 cycles as the last statement (measured on Wendy 2) and about 99 elsewhere *(estimated)*; `rt_bank.map` and `unmap` are 21 bytes. The checks:
+
+- **Compile time**: names of a region only inside its block (error 118); no `with` in an interrupt function (119).
+- **Link time**: a function with a `with` block (one with a kind 6 fix-up) is fixed (link error 55), and no interrupt context reaches it (57); no call made inside a block (CALL flag bit 2) goes to a function in a window (56). A fixed function called inside a block may far-call into a bank: the far call puts back what it found.
+- An interrupt that arrives inside a block may far-call into a bank: `rt_bank`'s routines disable interrupts while they change the port, and the far call restores the port's bank bits before the handler returns (`lathe/tests/cases/e2e-config/withirq.lth`).
 
 This is the arrangement `p1` reached on Wendy 2: code in fixed memory, symbol tables in a bank.
 

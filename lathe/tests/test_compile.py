@@ -56,7 +56,7 @@ class CompileTest(unittest.TestCase):
 class HelloTest(CompileTest):
     def test_a_module_of_extern_declarations_has_an_object_file_with_no_functions(self):
         self.compile(HOST_LTH)
-        self.assertEqual(self.records('host'), [(MOD, b'\x02\x00' + string(b'host')), (END, b'')])
+        self.assertEqual(self.records('host'), [(MOD, b'\x03\x00' + string(b'host')), (END, b'')])
 
     def test_its_interface_lists_what_it_exports(self):
         self.compile(HOST_LTH)
@@ -83,7 +83,7 @@ class HelloTest(CompileTest):
         self.compile(HOST_LTH)
         self.compile(HELLO_LTH)
         self.assertEqual(self.records('hello'), [
-            (MOD, b'\x02\x00' + string(b'hello')),
+            (MOD, b'\x03\x00' + string(b'hello')),
             (IMP, string(b'host')),
             (SYM, b'\x01' + string(b'hello.main')),
             (FUNC, b'\x00\x00\x04'),                      # symbol 0, exported
@@ -144,7 +144,7 @@ class LanguageTest(CompileTest):
         jsr = b'\x20\x00\x00'
         jmp = b'\x4c\x00\x00'           # a call that a return follows
         self.assertEqual(self.records('app'), [
-            (MOD, b'\x02\x00' + string(b'app')),
+            (MOD, b'\x03\x00' + string(b'app')),
             (IMP, string(b'util')),
             (SYM, b'\x01' + string(b'app.local')),
             (SYM, b'\x01' + string(b'util.beep')),
@@ -707,7 +707,7 @@ class CommandLineTest(CompileTest):
         for options, cpu in (((), 0), (('-c6502',), 0), (('-c65C02',), 1), (('-c65c02', '-c6502'), 0)):
             with self.subTest(options=options):
                 self.assertEqual(support.run_lathec(*options, path, self.out), (0, ''))
-                self.assertEqual(self.records('prog')[0], (MOD, bytes([2, cpu]) + string(b'prog')))
+                self.assertEqual(self.records('prog')[0], (MOD, bytes([3, cpu]) + string(b'prog')))
 
     def test_options_predeclare_constants(self):
         path = self.source('prog.lth', 'module prog\n'

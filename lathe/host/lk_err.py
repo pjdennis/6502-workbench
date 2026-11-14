@@ -60,6 +60,11 @@ E_NO_FILE = 51
 E_OVERLAY_NUMBERS = 52
 E_ENV_FULL = 53
 E_FARCALL_MISSING = 54
+E_WITH_PLACED = 55
+E_WITH_FAR = 56
+E_WITH_IRQ = 57
+E_REGION_WINDOW = 58
+E_REGION_NO_FILE = 59
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -67,7 +72,7 @@ MESSAGES = (
     b"cannot open file\n"
     b"environment file: bad entry\n"
     b"environment file: zeropage, code, data and exit must all be given\n"
-    b"unsupported object version: this linker reads version 2\n"
+    b"unsupported object version: this linker reads version 3\n"
     b"object file is damaged\n"
     b"object file needs a 65C02 and the environment has a 6502\n"
     b"too many object files\n"
@@ -116,7 +121,12 @@ MESSAGES = (
     b"environment file: a module is placed in a bank that has no file\n"
     b"environment file: overlays must be numbered from 1 with none missing\n"
     b"environment file: too many windows, banks, overlays, places or regions, or too many names\n"
-    b"environment file: code is placed in a window, and no farcall entry names the module for far calls\n"
+    b"environment file: code or a region is placed in a window, and no farcall entry names the module for far calls\n"
+    b"a function with a with block cannot be in a window\n"
+    b"a call inside a with block reaches a function in a window\n"
+    b"an interrupt function reaches a function with a with block\n"
+    b"environment file: a region is in an overlay, or in another window than code is\n"
+    b"constant data in a region is in a bank that has no file\n"
 )
 
 PREFIX = b"link error "

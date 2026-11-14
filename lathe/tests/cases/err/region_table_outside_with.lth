@@ -1,0 +1,6 @@
+; error 118 5 10
+module region_table_outside_with
+const NAMES: [3]byte in r = "abc"
+func f(i: byte): byte
+  return NAMES[i]
+end

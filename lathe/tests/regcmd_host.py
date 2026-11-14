@@ -14,7 +14,7 @@ WORDS = (b"begin slot temp var func ftype ptr const wraps mem pslot preg addr fa
          b"modify stepx test testb implied transfer spill take intomem apart unaliased zp deref "
          b"clobber claim release forget direct use loops label place looplabel branch jump join "
          b"accepts assignable fit unify fitf class show state same offset constb isdirect finish end "
-         b"arr symweight slots inregs value retype ")
+         b"arr symweight slots inregs value retype inside used ")
 
 own = 0
 
@@ -342,6 +342,11 @@ def run(c):
     elif c == 79:
         a = s_()
         reg.op_type[a] = s_()
+    elif c == 80:
+        out.with_region = n_()          # inside the `with` block of a region (0: none)
+        out.with_used = kernel.NO_OBJ
+    elif c == 81:
+        script.show_word(out.with_used)
 
 
 def main():

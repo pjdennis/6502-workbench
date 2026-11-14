@@ -60,6 +60,7 @@ def main():
     main_sym = find_main()
     lk_graph.build(main_sym)
     lk_win.check_interrupts()
+    lk_place.check_with()
     lk_win.mark_stubs(lk_sym.row_of(main_sym))
     lk_alloc.allocate()
     lk_place.place()

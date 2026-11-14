@@ -164,3 +164,13 @@ end
 pub func loads(): word
   return count
 end
+
+; The `with` blocks' entries (provisional, 2026-11-14), which the compiler calls as rt_with.map
+; and rt_with.unmap. A region cannot be in an overlay (link error 58: an overlay is loaded again
+; from its file, which would lose its variables), so with this module every region is in fixed
+; memory and there is nothing to map: a lone RTS each, as in lathe/rt/rt_with.lth.
+pub asm func map(value: byte in a): byte in a
+end
+
+pub asm func unmap(value: byte in y)
+end

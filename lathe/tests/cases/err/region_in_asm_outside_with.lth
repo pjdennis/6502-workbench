@@ -1,0 +1,8 @@
+; error 118 6 9
+module region_in_asm_outside_with
+var t: byte in r
+func f()
+  asm
+    LDA t
+  end
+end

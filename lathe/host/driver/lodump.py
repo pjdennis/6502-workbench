@@ -16,7 +16,7 @@ import cpu6502  # noqa: E402
 import lo  # noqa: E402
 
 CPU_NAMES = {0: '6502', 1: '65c02'}
-FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp', 5: 'abs'}
+FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp', 5: 'abs', 6: 'bank'}
 
 
 def records(data):
@@ -104,7 +104,8 @@ def dump(data, out):
             elif t == lo.R_CALL:
                 callee, flags, outer = struct.unpack('<HBH', body[:5])
                 o = '-' if outer == lo.NO_OUTER else name(outer)
-                f = _flags(flags, ((lo.C_SAVES, 'saves frame'), (lo.C_POINTER, 'through pointer')))
+                f = _flags(flags, ((lo.C_SAVES, 'saves frame'), (lo.C_POINTER, 'through pointer'),
+                                   (lo.C_WITH, 'inside with')))
                 out.write(f'{head}{name(callee)}  flags: {f}  outer: {o}\n')
             elif t == lo.R_CODE:
                 out.write(f'{head}{len(body)} bytes\n')
@@ -123,6 +124,8 @@ def dump(data, out):
                 for i in range(0, len(body) - 3, 4):
                     sym, slot, weight = struct.unpack('<HBB', body[i:i + 4])
                     out.write(f'{pad}{target(sym, slot)}: weight {weight}\n')
+            elif t == lo.R_RGN:
+                out.write(f'{head}in region {_str(body, 0)[0]}\n')
             elif t == lo.R_MEMB:
                 c, f = struct.unpack('<HH', body[:4])
                 out.write(f'{head}{name(f)} in class {name(c)}\n')

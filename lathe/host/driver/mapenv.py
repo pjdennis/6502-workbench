@@ -45,10 +45,12 @@ class Env:
     places: list = field(default_factory=list)   # `place MODULE WIN N`: the modules placed
     files: list = field(default_factory=list)    # the file of each `bank` or `overlay` that has one
     farcall: Optional[str] = None                # `farcall MODULE`
+    regions: list = field(default_factory=list)  # `region NAME WIN N`: the regions in a bank
 
     def banked(self):
-        """True if some module's code is in a window: the link makes far calls."""
-        return bool(self.places)
+        """True if some module's code is in a window, or a region is in a bank: the link uses
+        the far-call module, and the program cannot be built by the assembler path."""
+        return bool(self.places) or bool(self.regions)
 
 
 def read_env(path):
@@ -107,6 +109,8 @@ def parse_env(text, path='<env>'):
             env.files.append(args[3])
         elif key == 'overlay' and len(args) == 3:
             env.files.append(args[2])
+        elif key == 'region' and len(args) == 3:
+            env.regions.append(args[0].lower())
         elif key == 'farcall' and len(args) == 1:
             env.farcall = args[0].lower()
         elif key == 'start':

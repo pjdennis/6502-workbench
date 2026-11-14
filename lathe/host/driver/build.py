@@ -60,6 +60,7 @@ LINKER = os.environ.get('LATHE_LINKER') or os.path.join(LATHE, 'host', 'link.py'
 RT = os.path.join(LATHE, 'rt')
 ENVS = os.path.join(LATHE, 'env')
 PYASM = os.path.join(ROOT, 'asm', 'pyasm.py')
+FARCALL = 'rt_with'    # the module name the compiler gives the far-call module (with blocks)
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 
 IMPORT_RE = re.compile(r'^\s*import\s+([A-Za-z_][A-Za-z0-9_]*)', re.IGNORECASE)
@@ -157,21 +158,25 @@ def compile_all(order, outdir, options=()):
     return objects
 
 
-def compile_implicit(order, outdir, options=(), main_dir='.'):
+def compile_implicit(order, outdir, options=(), main_dir='.', farcall=None):
     """Compile the modules that the compiled ones import without an `import` line: the
     compiler writes an IMP record for each run-time module its code calls (rt_frame, for the
-    calls that save a recursive function's frame). They are found as imports are, and their own
-    imports with them. Returns their objects, which go after the others."""
+    calls that save a recursive function's frame; `rt_with`, for `with` blocks, which is the
+    environment's far-call module if it names one, and lathe/rt/rt_with.lth if not).
+    They are found as imports are, and their own imports with them. Returns their objects,
+    which go after the others."""
     return implicit_of([os.path.join(outdir, name + '.lo') for name, _ in order],
-                       {name for name, _ in order}, outdir, options, main_dir)
+                       {name for name, _ in order}, outdir, options, main_dir, farcall)
 
 
-def implicit_of(waiting, done, outdir, options, main_dir):
+def implicit_of(waiting, done, outdir, options, main_dir, farcall=None):
     """compile_implicit for the objects `waiting`, with the modules in `done` compiled
     already."""
     objects = []
     while waiting:
         for name in lo.load(waiting.pop(0)).imports:
+            if name == FARCALL and farcall:
+                name = farcall
             if name not in done:
                 more = [(n, p) for n, p in module_order(find_module(name, main_dir)) if n not in done]
                 done.update(n for n, _ in more)
@@ -192,7 +197,8 @@ def compile_farcall(env, order, objects, outdir, options=(), main_dir='.'):
         return []
     more = [(n, p) for n, p in module_order(find_module(env.farcall, main_dir)) if n not in done]
     made = compile_all(more, outdir, options)
-    return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir)
+    return made + implicit_of(list(made), done | {n for n, _ in more}, outdir, options, main_dir,
+                              env.farcall)
 
 
 def window_files(env, from_dir, to_dir):
@@ -236,12 +242,12 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
     described = mapenv.read_env(env)
     if described.banked() and (use_asm or use_naive):
-        raise BuildError(f'{env} places code in a window: the assembler path renders only '
-                         f'programs linked all in one')
+        raise BuildError(f'{env} places code or a region in a window: the assembler path renders '
+                         f'only programs linked all in one')
     options = compiler_options(described, defines)
     main_dir = os.path.dirname(os.path.abspath(source))
     objects = compile_all(order, work, options)
-    objects += compile_implicit(order, work, options, main_dir)
+    objects += compile_implicit(order, work, options, main_dir, described.farcall)
     objects += compile_farcall(described, order, objects, work, options, main_dir)
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive

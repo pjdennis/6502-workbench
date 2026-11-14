@@ -11,6 +11,7 @@ context in which its instruction shrinks.
 The fix-ups of one function are the only thing about its code the linker ever holds.
 """
 import lk_alloc
+import lk_envf
 import lk_err
 import lk_name
 import lk_rec
@@ -28,6 +29,7 @@ K_LOW = 2
 K_HIGH = 3
 K_ZP = 4
 K_SHRINK = 5
+K_BANK = 6                          # one byte: the register value of a region's bank (lk_win)
 
 # The entry read last.
 e_at = 0
@@ -141,7 +143,7 @@ def more():
 def next_fix():
     """The fix-up at the cursor is applied: go on to the next."""
     global cursor
-    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_SHRINK:
+    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_BANK:
         bad()
     cursor += 1
     if cursor < fix_count:
@@ -220,6 +222,18 @@ def target(ctx, sym, slot, is_call):
     if not kept:
         return 0
     return lk_alloc.slot_addr(n, slot)
+
+
+def bank_value(s):
+    """What a kind 6 fix-up naming symbol s stands for: the register value of the bank of the
+    region s is in, or 0 if the region is in fixed memory."""
+    k = lk_sym.kind_of(s)
+    if (k != lk_sym.VARIABLE and k != lk_sym.CONSTANT) or not lk_sym.is_defined(s):
+        return 0x100                    # not a variable or constant data: a bad fix-up
+    r = lk_scan.region_of(lk_sym.row_of(s))
+    if r == 0:
+        return 0
+    return lk_envf.bank_value[r - 1]
 
 
 def part(value, kind):

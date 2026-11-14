@@ -1,0 +1,5 @@
+; error 182 4 15
+module in_on_a_local
+func f()
+  var t: byte in r
+end

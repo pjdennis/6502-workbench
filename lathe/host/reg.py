@@ -1140,6 +1140,12 @@ def object_symbol(s):
             kind = out.SYM_DATA
         kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
                                        kernel.sym_name[s])
+    if kernel.sym_kind[s] != kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_IN != 0:
+        # In a region: only inside a `with` block of that region, whose bank it names.
+        if kernel.sym_value[s] != out.with_region:
+            err.fatal(err.E_REGION_USE)
+        if out.with_used == kernel.NO_OBJ:
+            out.with_used = kernel.sym_obj[s]
     return kernel.sym_obj[s]
 
 

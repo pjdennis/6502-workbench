@@ -36,9 +36,12 @@ table_count = 0                     # banks or overlays in the table
 
 def bank_def(d):
     """The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its
-    module's code, if no fix-up outside that bank names it and none takes its address
-    (lk_graph.note_named). A variable goes in a bank, never an overlay, which is loaded again
-    from its file."""
+    region, if it is `in` a region in a bank; else that of its module's code, if no fix-up
+    outside that bank names it and none takes its address (lk_graph.note_named). A variable
+    goes in a bank, never an overlay, which is loaded again from its file."""
+    r = lk_scan.region_of(d)
+    if r != 0:
+        return r
     if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0:
         return 0
     if (lk_tab.def_f[d] & lk_tab.D_CONST) == 0 and lk_envf.is_overlay():
@@ -50,6 +53,9 @@ def def_dest(d):
     """The file constant data d is written to, or where variable d is: 0 the image or fixed
     memory, or its bank + 1. Only once it is placed."""
     if lk_envf.placed() and lk_envf.in_window(lk_tab.def_a[d]):
+        r = lk_scan.region_of(d)
+        if r != 0:
+            return r
         return lk_scan.def_bank(d)
     return 0
 

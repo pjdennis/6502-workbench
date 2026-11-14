@@ -1,0 +1,9 @@
+; error 118 7 9
+module region_of_another_with
+var t: byte in r
+var u: byte in s
+func f()
+  with s do
+    u = t
+  end
+end

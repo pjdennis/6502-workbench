@@ -27,7 +27,7 @@ pub func main()
   script.open()
   object = kernel.keep_argument(1)
   while script.next() do
-    case script.command("init open module import sym sym3 var data bytes table tset tfix tend call class param member func slot fend ksym end fbegin op fix finish ")
+    case script.command("init open module import sym sym3 var data bytes table tset tfix tend call class param member func slot fend ksym end fbegin op fix finish region inside ")
     of 0
       out.init()
     of 1
@@ -119,6 +119,10 @@ pub func main()
     of 25
       d = script.number()
       fbuf.finish(d, script.small())
+    of 26
+      out.region(script.name())
+    of 27
+      out.with_region = script.number()
     end
     script.end_line()
   end

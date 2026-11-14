@@ -1,0 +1,7 @@
+; error 118 6 8
+module region_address_outside_with
+var t: byte in r
+var p: ^byte
+func f()
+  p = @t
+end

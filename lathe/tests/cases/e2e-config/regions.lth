@@ -1,0 +1,33 @@
+; config regions_banks.env
+; config farcall_flat.env
+; config farcall_host.env
+; same libreg
+; Banked data (stage 11, step 9; provisional, 2026-11-14): libreg's variables in a bank of data
+; with no file, its constants in a bank whose file start-up loads, all its code fixed; and these
+; objects linked all in one, where every region is in fixed memory. The output is the same.
+module regions
+
+import libfco
+import libreg
+
+pub func main()
+  var i: byte
+  var v: byte
+  libreg.greet()
+  libreg.fill(10)
+  for i = 0 to 10 do
+    libfco.hex(libreg.get(i))
+    libfco.put(' ')
+  end
+  libfco.put(10)
+  for i = 2 to 4 do
+    if libreg.nonzero(i) -> v then
+      libfco.hex(v)
+    else
+      libfco.text("--")
+    end
+    libfco.put(' ')
+  end
+  libfco.put(10)
+  libreg.report()
+end

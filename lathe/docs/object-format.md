@@ -1,6 +1,8 @@
-# Lathe: object files, version 2
+# Lathe: object files, version 3
 
-Status (2026-11-14): specification for stages 1 to 5. It will grow (regions, banks, far calls) and the version byte changes when it does. Version 2 replaced version 1 on 2026-11-14: a fix-up kind for instructions that shrink, `DFIX` before its `DATA`, parameter names in `CLAS` and the `WGT` record. Nothing reads version 1 any more; a module in it is compiled again.
+Status (2026-11-14): specification for stages 1 to 5 and stage 11. Version 3 replaced version 2 on 2026-11-14 for banked data (stage 11, step 9; the source form is provisional): the `RGN` record, fix-up kind 6 and `CALL` flag bit 2. A module with neither `in` nor `with` is the same as in version 2 but for the version byte. Version 2 had replaced version 1: a fix-up kind for instructions that shrink, `DFIX` before its `DATA`, parameter names in `CLAS` and the `WGT` record. Nothing reads an older version; a module in one is compiled again.
+
+**Why a record, not a flag.** The design (configurations.md, "Changes to the object format") put the region behind a flag bit in `VAR` and `DATA`. `DATA` has no flag byte, and giving it one would change every object file; one record before either keeps every other record as it was and serves both.
 
 The compiler writes one object file (`.lo`) per module. The linker reads all of them. A host tool can also render them as asm17 text, which is how the linker is checked ([`architecture.md`](architecture.md)).
 
@@ -17,7 +19,7 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 
 | Type | Name | Body |
 |---|---|---|
-| `$01` | `MOD` | version (1 byte, value 2), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
+| `$01` | `MOD` | version (1 byte, value 3), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
 | `$02` | `IMP` | Name of an imported module (string). Also written for a run-time module the code calls without an `import` (`rt_frame`, at the first call that saves a frame), so it can come after other records. |
 | `$03` | `SYM` | Kind (1 byte), name (string). Kinds: 1 function, 2 variable, 3 constant data, 4 pointer class. |
 | `$04` | `VAR` | Defines a module-level variable: symbol (2), size (2), class (1), weight (1), flags (1). A variable is storage only; it has no initial value in the object file. |
@@ -32,6 +34,7 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 | `$0D` | `CLAS` | A pointer class this module uses: symbol (2), flags (1), number of parameters (1), then for each parameter its size (2) and its name (string, empty if not known). |
 | `$0E` | `MEMB` | This module takes a function's address as a class: class symbol (2), function symbol (2). |
 | `$0F` | `WGT` | Weight this module adds to storage its own records do not hold: entries of 4 bytes, symbol (2), slot (1), weight (1). Outside functions. See "Weights". |
+| `$10` | `RGN` | The region's name (string, not empty). The `VAR` record, or the `DFIX` and `DATA` records, just after it define a variable or constant data `in` that region. A variable in a region has class 2. Outside functions. |
 | `$00` | `END` | Last record. Empty body. |
 
 Order within a function: `FUNC`, every `SLOT`, every `CALL`, `FIX`, `CODE`, `ENDF`. Everything the linker needs about a function comes before its code.
@@ -65,7 +68,7 @@ The linker adds every entry to what the defining records say, and a weight stops
 | Slot **kind** | 0 parameter, 1 local, 2 temporary. Parameters come first, in order. |
 | `VAR` **flags** | None yet; the byte is 0. |
 | `FUNC` **flags** | bit 0 `recursive`; bit 1 `interrupt`; bit 2 exported; bit 3 parameters and results are in registers (`asm` functions). |
-| `CALL` **flags** | bit 0: the caller saves its frame around this call; bit 1: the call is through a pointer and the callee symbol is a class. |
+| `CALL` **flags** | bit 0: the caller saves its frame around this call; bit 1: the call is through a pointer and the callee symbol is a class; bit 2: the call is made inside a `with` block (the linker checks that it does not reach a window). |
 | `CALL` **outer** | The function or class whose arguments were being stored when this call was made, or `$FFFF` ([`code-model.md`](code-model.md), "Calls inside arguments"). |
 | `CLAS` **flags** | bit 0 `recursive`. |
 
@@ -80,6 +83,7 @@ A fix-up says: put the address of a target, plus the addend, at this offset in t
 | 3 | One byte: the high byte of the address. |
 | 4 | One byte: the address, which must be in zero page. Used for `(zp),Y`, `(zp,X)` and slots already known to be in zero page. |
 | 5 | Two bytes: the address, in an instruction that has a zero page form, which it takes if and only if the final address, addend included, is below `$100`. Only in code. |
+| 6 | One byte: the register value of the bank of the region that the variable or constant data named is in, or 0 if the region is in fixed memory (the operand of `LDA #bank` in a `with` block). Only in code. A function with one is a function with a `with` block. |
 
 In code, a two-byte address is kind 5 exactly when its instruction has a zero page form, and kind 1 otherwise: `JSR`, `JMP`, `JMP (abs)`, and the `abs,Y` instructions with no `zp,Y` twin (all but `LDX`). In constant data a two-byte address is always kind 1. A kind that does not suit the opcode is a bad fix-up (link error 29).
 
@@ -164,6 +168,8 @@ The host tool `lo2asm` turns object files into asm17 source.
 | A fix-up | The label, with `+addend` if not zero, and `<` or `>` for kinds 2 and 3. Kinds 1 and 5 look the same: the assembler chooses the zero page form by the value, as the linker does for kind 5. |
 | `DATA` | `.byte` lines. |
 | `WGT` | Nothing: it is only for the linker's choice of zero page. |
+| `RGN` | `, in region NAME` in the comment of the variable or data. |
+| Fix-up kind 6 | `#$00` and `; bank of LABEL`: the text of a whole program is made only for links all in one, where every region is fixed. |
 | An instruction the NMOS 6502 does not have (`STP`, `WAI`) | `.byte` and its opcode, the mnemonic in a comment: asm17 has no 65C02 mnemonics. Only one-byte instructions are written so far; `lo2asm` refuses one with an operand. |
 
 Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot the map lists first, then `$start` and `$init` as the linker makes them (the `STP` of `exit stop` as `.byte $DB`), then the functions and constant data the map lists, in the same order the linker places them, and for `output image` the reset vector at `$FFFC`. For `output raw` there are no vectors: the assembler's output runs from the origin to the last byte written. Assembling that text must give the same bytes as the linker's own file.

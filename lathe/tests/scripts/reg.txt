@@ -16,6 +16,7 @@
 ; Types: accepts T T; assignable I T; fit I T; unify I J; fitf I T; class SYMBOL.
 ; Looking: show I; state; same I J; offset I K; constb I K; isdirect I; inregs I; slots;
 ; symweight SYMBOL; value I V (its op_value); retype I T (its op_type); finish (the code, fix-ups, weights and frame); end (the object file).
+; Regions: inside V (out.with_region: inside a `with` block of region V, 0 none); used (out.with_used).
 ;
 ; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative, 8 nil.
 ; Kinds: 1 const, 2 func, 3 var, 4 A, 5 AX, 6 cond, 7 address. Modes: 0 direct, 1 indexed,
