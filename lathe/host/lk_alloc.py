@@ -35,11 +35,13 @@ import lk_tab
 POOL_ZP = 0
 POOL_MAIN = 1
 
-# The layout of one pool, a row per node. Addresses here count from the start of the pool.
-lay_base = [0] * lk_tab.MAX_NODES   # where the node starts
-lay_end = [0] * lk_tab.MAX_NODES    # where its set ends
-lay_size = [0] * lk_tab.MAX_NODES   # the size of its set
-lay_down = [0] * lk_tab.MAX_NODES   # the most storage any chain of calls needs above its set
+# The layout of one pool, a row per node, in lk_tab.work: where each column starts. Addresses
+# here count from the start of the pool.
+LAY_BASE = 0                        # where the node starts
+LAY_END = lk_tab.MAX_NODES          # where its set ends
+LAY_SIZE = 2 * lk_tab.MAX_NODES     # the size of its set
+LAY_DOWN = 3 * lk_tab.MAX_NODES     # the most storage any chain of calls needs above its set
+CHAIN = 4 * lk_tab.MAX_NODES        # the nodes of a call chain, for an error message
 
 ctx_bottom = [0] * lk_tab.MAX_CONTEXTS  # where a context's storage starts in the pool
 ctx_depth = [0] * lk_tab.MAX_CONTEXTS   # how much its deepest chain needs
@@ -51,7 +53,6 @@ zp_used = 0                         # and variables and all contexts this many
 WEIGHTS = 256
 weight_count = [0] * WEIGHTS        # how many class 1 candidates have each weight
 
-chain = [0] * lk_tab.MAX_NODES      # the nodes of a call chain, for an error message
 
 
 def straddles(addr, size):
@@ -75,7 +76,7 @@ def zp_size(n):
     for i in range(0, lk_tab.fn_nslots[f]):
         s = lk_tab.fn_slot[f] + i
         if (lk_tab.slot_info[s] & lk_tab.S_ZP) != 0 and lk_tab.in_frame(f, i, blocked):
-            total += lk_tab.slot_size[s]
+            total += lk_tab.slot_bytes(s)
     return total
 
 
@@ -99,13 +100,13 @@ def main_end(n, pos):
     for i in range(0, lk_tab.fn_nslots[f]):
         s = lk_tab.fn_slot[f] + i
         if (lk_tab.slot_info[s] & lk_tab.S_ZP) == 0 and lk_tab.in_frame(f, i, blocked):
-            pos = lk_tab.add16(main_item(pos, lk_tab.slot_size[s]), lk_tab.slot_size[s])
+            pos = lk_tab.add16(main_item(pos, lk_tab.slot_bytes(s)), lk_tab.slot_bytes(s))
     return pos
 
 
 def node_end(pool, n, pos):
     if pool == POOL_ZP:
-        return lk_tab.add16(pos, lk_tab.node_zsize[n])
+        return lk_tab.add16(pos, lk_tab.work[lk_tab.W_ZSIZE + n])
     return main_end(n, pos)
 
 
@@ -116,25 +117,25 @@ def raise_callees(n, top):
     e = lk_graph.first_edge(n)
     while e != 0:
         target, applies = lk_graph.edge_node(n, e)
-        if applies and lk_tab.node_scc[target] != lk_tab.node_scc[n] and lay_base[target] < top:
-            lay_base[target] = top
+        if applies and lk_tab.work[lk_tab.W_SCC + target] != lk_tab.work[lk_tab.W_SCC + n] and lk_tab.work[LAY_BASE + target] < top:
+            lk_tab.work[LAY_BASE + target] = top
         e = lk_graph.next_edge(e)
 
 
 def layout_set(pool, first, limit):
-    """Lay out the set that is lk_graph.order[first..limit-1]. Returns where it ends."""
+    """Lay out the set that is lk_tab.work[lk_tab.W_ORDER + first..limit-1]. Returns where it ends."""
     start = 0
     for i in range(first, limit):
-        if lay_base[lk_graph.order[i]] > start:
-            start = lay_base[lk_graph.order[i]]
+        if lk_tab.work[LAY_BASE + lk_tab.work[lk_tab.W_ORDER + i]] > start:
+            start = lk_tab.work[LAY_BASE + lk_tab.work[lk_tab.W_ORDER + i]]
     pos = start
     for i in range(first, limit):
-        lay_base[lk_graph.order[i]] = pos
-        pos = node_end(pool, lk_graph.order[i], pos)
+        lk_tab.work[LAY_BASE + lk_tab.work[lk_tab.W_ORDER + i]] = pos
+        pos = node_end(pool, lk_tab.work[lk_tab.W_ORDER + i], pos)
     for i in range(first, limit):
-        lay_end[lk_graph.order[i]] = pos
-        lay_size[lk_graph.order[i]] = pos - start
-        raise_callees(lk_graph.order[i], pos)
+        lk_tab.work[LAY_END + lk_tab.work[lk_tab.W_ORDER + i]] = pos
+        lk_tab.work[LAY_SIZE + lk_tab.work[lk_tab.W_ORDER + i]] = pos - start
+        raise_callees(lk_tab.work[lk_tab.W_ORDER + i], pos)
     return pos
 
 
@@ -146,14 +147,14 @@ def layout(pool, ctx):
     top = ctx_bottom[ctx]
     for n in range(0, lk_tab.node_count):
         if lk_tab.node_ctx[n] == ctx:
-            lay_base[n] = ctx_bottom[ctx]
+            lk_tab.work[LAY_BASE + n] = ctx_bottom[ctx]
     limit = lk_graph.order_count
     while limit > 0:
         first = limit - 1
-        scc = lk_tab.node_scc[lk_graph.order[first]]
-        while first > 0 and lk_tab.node_scc[lk_graph.order[first - 1]] == scc:
+        scc = lk_tab.work[lk_tab.W_SCC + lk_tab.work[lk_tab.W_ORDER + first]]
+        while first > 0 and lk_tab.work[lk_tab.W_SCC + lk_tab.work[lk_tab.W_ORDER + first - 1]] == scc:
             first -= 1
-        if lk_tab.node_ctx[lk_graph.order[first]] == ctx:
+        if lk_tab.node_ctx[lk_tab.work[lk_tab.W_ORDER + first]] == ctx:
             set_end = layout_set(pool, first, limit)
             if set_end > top:
                 top = set_end
@@ -165,23 +166,23 @@ def deepen():
     """Work out lay_down, callees first: the deepest chain of storage above each set."""
     first = 0
     while first < lk_graph.order_count:
-        scc = lk_tab.node_scc[lk_graph.order[first]]
+        scc = lk_tab.work[lk_tab.W_SCC + lk_tab.work[lk_tab.W_ORDER + first]]
         limit = first + 1
-        while limit < lk_graph.order_count and lk_tab.node_scc[lk_graph.order[limit]] == scc:
+        while limit < lk_graph.order_count and lk_tab.work[lk_tab.W_SCC + lk_tab.work[lk_tab.W_ORDER + limit]] == scc:
             limit += 1
         down = 0
         for i in range(first, limit):
-            n = lk_graph.order[i]
+            n = lk_tab.work[lk_tab.W_ORDER + i]
             e = lk_graph.first_edge(n)
             while e != 0:
                 target, applies = lk_graph.edge_node(n, e)
-                if applies and lk_tab.node_scc[target] != scc:
-                    below = lk_tab.add16(lay_size[target], lay_down[target])
+                if applies and lk_tab.work[lk_tab.W_SCC + target] != scc:
+                    below = lk_tab.add16(lk_tab.work[LAY_SIZE + target], lk_tab.work[LAY_DOWN + target])
                     if below > down:
                         down = below
                 e = lk_graph.next_edge(e)
         for i in range(first, limit):
-            lay_down[lk_graph.order[i]] = down
+            lk_tab.work[LAY_DOWN + lk_tab.work[lk_tab.W_ORDER + i]] = down
         first = limit
 
 
@@ -213,21 +214,21 @@ def deepest_node(ctx):
     if ctx_depth[ctx] == 0:
         return 0, False
     for n in range(0, lk_tab.node_count):
-        if lk_tab.node_ctx[n] == ctx and lay_end[n] - ctx_bottom[ctx] == ctx_depth[ctx]:
+        if lk_tab.node_ctx[n] == ctx and lk_tab.work[LAY_END + n] - ctx_bottom[ctx] == ctx_depth[ctx]:
             return n, True
     return 0, False
 
 
 def caller_below(n):
     """A caller of node n's set whose own set ends where n's starts, and whether there is one."""
-    start = lay_end[n] - lay_size[n]
+    start = lk_tab.work[LAY_END + n] - lk_tab.work[LAY_SIZE + n]
     for caller in range(0, lk_tab.node_count):
-        if lk_tab.node_ctx[caller] == lk_tab.node_ctx[n] and lay_end[caller] == start \
-                and lk_tab.node_scc[caller] != lk_tab.node_scc[n]:
+        if lk_tab.node_ctx[caller] == lk_tab.node_ctx[n] and lk_tab.work[LAY_END + caller] == start \
+                and lk_tab.work[lk_tab.W_SCC + caller] != lk_tab.work[lk_tab.W_SCC + n]:
             e = lk_graph.first_edge(caller)
             while e != 0:
                 target, applies = lk_graph.edge_node(caller, e)
-                if applies and lk_tab.node_scc[target] == lk_tab.node_scc[n]:
+                if applies and lk_tab.work[lk_tab.W_SCC + target] == lk_tab.work[lk_tab.W_SCC + n]:
                     return caller, True
                 e = lk_graph.next_edge(e)
     return 0, False
@@ -240,8 +241,8 @@ def fail_full(error, amount, wrapped):
     n, more = deepest_node(deepest_context())
     while more:
         for member in range(0, lk_tab.node_count):
-            if lk_tab.node_scc[member] == lk_tab.node_scc[n]:
-                chain[count] = member
+            if lk_tab.work[lk_tab.W_SCC + member] == lk_tab.work[lk_tab.W_SCC + n]:
+                lk_tab.work[CHAIN + count] = member
                 count += 1
         n, more = caller_below(n)
     lk_err.begin(error)
@@ -251,7 +252,7 @@ def fail_full(error, amount, wrapped):
             lk_err.colon()
         else:
             lk_err.arrow()
-        lk_tab.error_node(chain[i])
+        lk_tab.error_node(lk_tab.work[CHAIN + i])
     lk_err.finish()
 
 
@@ -285,9 +286,9 @@ def start_choices():
         if lk_tab.fn_ctx[f] != 0:
             for s in range(lk_tab.fn_slot[f], lk_tab.fn_slot[f] + lk_tab.fn_nslots[f]):
                 if (lk_tab.slot_info[s] & lk_tab.S_CLASS) == 0:
-                    must_fit(lk_tab.slot_size[s], lk_tab.fn_sym[f])
+                    must_fit(lk_tab.slot_bytes(s), lk_tab.fn_sym[f])
                     lk_tab.slot_info[s] |= lk_tab.S_ZP
-                elif is_candidate(lk_tab.slot_info[s], lk_tab.slot_size[s]):
+                elif is_candidate(lk_tab.slot_info[s], lk_tab.slot_bytes(s)):
                     weight_count[lk_tab.slot_weight[s]] += 1
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
@@ -311,7 +312,7 @@ def start_choices():
 
 def growth(n, size):
     """How much deeper node n's context gets if its node needs `size` more bytes."""
-    top = lk_tab.add16(lk_tab.add16(lay_end[n], size), lay_down[n])
+    top = lk_tab.add16(lk_tab.add16(lk_tab.work[LAY_END + n], size), lk_tab.work[LAY_DOWN + n])
     if top > ctx_depth[lk_tab.node_ctx[n]]:
         return top - ctx_depth[lk_tab.node_ctx[n]]
     return 0
@@ -326,7 +327,7 @@ def slot_growth(f, i):
     need = 0
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
-            need = lk_tab.add16(need, growth(lk_tab.copy_node(f, ctx), lk_tab.slot_size[lk_tab.fn_slot[f] + i]))
+            need = lk_tab.add16(need, growth(lk_tab.copy_node(f, ctx), lk_tab.slot_bytes(lk_tab.fn_slot[f] + i)))
     return need
 
 
@@ -338,17 +339,17 @@ def move_slot(f, i, into):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
             n = lk_tab.copy_node(f, ctx)
             if into:
-                lk_tab.node_zsize[n] += lk_tab.slot_size[s]
+                lk_tab.work[lk_tab.W_ZSIZE + n] += lk_tab.slot_bytes(s)
             else:
-                lk_tab.node_zsize[n] -= lk_tab.slot_size[s]
+                lk_tab.work[lk_tab.W_ZSIZE + n] -= lk_tab.slot_bytes(s)
 
 
 def move_cparam(k, p, into):
     lk_tab.cp_info[p] ^= lk_tab.S_ZP
     if into:
-        lk_tab.node_zsize[lk_tab.cls_node[k]] += lk_tab.cp_size[p]
+        lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] += lk_tab.cp_size[p]
     else:
-        lk_tab.node_zsize[lk_tab.cls_node[k]] -= lk_tab.cp_size[p]
+        lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] -= lk_tab.cp_size[p]
 
 
 def move_var(s, into):
@@ -371,7 +372,7 @@ def move_weight(weight, into):
         if lk_tab.fn_ctx[f] != 0:
             for i in range(0, lk_tab.fn_nslots[f]):
                 s = lk_tab.fn_slot[f] + i
-                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_info[s], lk_tab.slot_size[s]):
+                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_info[s], lk_tab.slot_bytes(s)):
                     move_slot(f, i, into)
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
@@ -388,7 +389,7 @@ def try_slots(weight):
         if lk_tab.fn_ctx[f] != 0:
             for i in range(0, lk_tab.fn_nslots[f]):
                 s = lk_tab.fn_slot[f] + i
-                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_info[s], lk_tab.slot_size[s]):
+                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_info[s], lk_tab.slot_bytes(s)):
                     lk_tab.overflow = False
                     if fits(slot_growth(f, i)):
                         move_slot(f, i, True)
@@ -466,7 +467,7 @@ def assign_zp():
         ctx_bottom[ctx] = pos
         pos += ctx_depth[ctx]
     for n in range(0, lk_tab.node_count):
-        lk_tab.node_zbase[n] = ctx_bottom[lk_tab.node_ctx[n]] + lay_base[n]
+        lk_tab.node_zbase[n] = (ctx_bottom[lk_tab.node_ctx[n]] + lk_tab.work[LAY_BASE + n]) & 0xFF
 
 
 def place_vars():
@@ -493,7 +494,7 @@ def assign_main():
     if lk_tab.overflow or pos > room:
         fail_full(lk_err.E_DATA_FULL, pos - room, lk_tab.overflow)
     for n in range(0, lk_tab.node_count):
-        lk_tab.node_mbase[n] = (lk_envf.data_lo + lay_base[n]) & 0xFFFF
+        lk_tab.node_mbase[n] = (lk_envf.data_lo + lk_tab.work[LAY_BASE + n]) & 0xFFFF
 
 
 def assign_cparams():
@@ -528,12 +529,12 @@ def slot_addr(n, i):
             s = lk_tab.fn_slot[f] + j
             if (lk_tab.slot_info[s] & lk_tab.S_ZP) != 0:
                 addr = zp_at
-                zp_at += lk_tab.slot_size[s]
+                zp_at += lk_tab.slot_bytes(s)
             else:
-                if straddles(main_at, lk_tab.slot_size[s]):
+                if straddles(main_at, lk_tab.slot_bytes(s)):
                     main_at += 1
                 addr = main_at
-                main_at = (main_at + lk_tab.slot_size[s]) & 0xFFFF
+                main_at = (main_at + lk_tab.slot_bytes(s)) & 0xFFFF
     return addr
 
 
@@ -543,7 +544,7 @@ def allocate():
     zp_cap = lk_envf.zp_hi - lk_envf.zp_lo + 1
     start_choices()
     for n in range(0, lk_tab.node_count):
-        lk_tab.node_zsize[n] = zp_size(n)
+        lk_tab.work[lk_tab.W_ZSIZE + n] = zp_size(n)
     if not layout_zp():
         fail_zp()
     promote()

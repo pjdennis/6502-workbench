@@ -8,10 +8,6 @@ of functions the linker places.
             leads to the class that stands for the set, and only that row is used afterwards.
     cp_     the parameters of the classes: the slots of a class's shared block.
     memb_   which functions have their address taken as which class.
-    ref_    what fix-ups refer to, and from where: a row for each symbol named by the fix-ups
-            of one function or one piece of constant data, if it is a variable, constant data,
-            or a function whose address is taken. What something kept refers to is kept too
-            (lk_graph); nothing else is.
     edge_   calls. The calls of a function or class are a chain starting at its symbol's sym_b.
     node_   what gets storage: one row per copy of a kept function (a function has one copy
             for each context that reaches it, in a run of rows in context order) and one row
@@ -26,23 +22,27 @@ makes the same calls.
 import lk_err
 import lk_sym
 
-MAX_FUNCS = 1024
-MAX_SLOTS = 8192
-MAX_CLASSES = 64
-MAX_CPARAMS = 256
-MAX_MEMBERS = 256
-MAX_EDGES = 8192
-MAX_NODES = 1280
+# Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
+MAX_FUNCS = 800
+MAX_SLOTS = 4000
+MAX_BIG_SLOTS = 64                  # slots of 255 bytes or more
+MAX_CLASSES = 32
+MAX_CPARAMS = 128
+MAX_MEMBERS = 128
+MAX_EDGES = 3600
+MAX_NODES = 900
 MAX_CONTEXTS = 8                    # a context is a bit in a byte
-MAX_DEFS = 1024
-MAX_REFS = 2048
+MAX_DEFS = 800
 NONE = 0xFFFF
 
 # FUNC record flags.
 F_RECURSIVE = 1
 F_INTERRUPT = 2
 
-# edge_flags.
+# Edge flags: the top three bits of edge_word, above the symbol called (lk_sym.MAX_SYMS fits
+# in the 13 below them).
+SYM_BITS = 0x1FFF
+FLAG_SHIFT = 13
 E_NOSAVE = 1                        # some call on this edge does not save the caller's frame
 E_PENDING = 2                       # not a call: the target ran while the source's arguments waited
 E_VIA = 4                           # to a class block, for a direct call of one of its members
@@ -63,7 +63,10 @@ fn_class = bytearray(MAX_FUNCS)     # a class the function is a member of + 1, o
 fn_node = [0] * MAX_FUNCS           # the first of its copies
 
 slot_count = 0
-slot_size = [0] * MAX_SLOTS
+slot_size = bytearray(MAX_SLOTS)    # its size, or 255: the size is in big_size
+big_count = 0
+big_slot = [0] * MAX_BIG_SLOTS      # slots of 255 bytes or more, in slot order
+big_size = [0] * MAX_BIG_SLOTS
 slot_info = bytearray(MAX_SLOTS)
 slot_weight = bytearray(MAX_SLOTS)
 
@@ -88,31 +91,36 @@ memb_count = 0
 memb_class = [0] * MAX_MEMBERS      # symbols
 memb_func = [0] * MAX_MEMBERS
 
-ref_count = 0
-ref_from = [0] * MAX_REFS           # the symbol of the function or constant data that refers
-ref_to = [0] * MAX_REFS             # the symbol it refers to
-ref_mark = 0                        # first row of the record being read
-
 edge_count = 0
-edge_to = [0] * MAX_EDGES           # symbol called
+edge_word = [0] * MAX_EDGES         # symbol called, and the flags above it
 edge_next = [0] * MAX_EDGES         # next edge of the same caller + 1, or 0
-edge_flags = bytearray(MAX_EDGES)
 
 node_count = 0
 node_own = [0] * MAX_NODES          # a row in fn_, or NODE_CLASS + a row in cls_
 node_ctx = bytearray(MAX_NODES)
-node_scc = [0] * MAX_NODES          # nodes on one cycle of calls have the same number
-node_zsize = [0] * MAX_NODES        # bytes of zero page its frame or block needs
-node_zbase = [0] * MAX_NODES        # where its zero page bytes start
+node_zbase = bytearray(MAX_NODES)   # where its zero page bytes start (low byte: one past $FF
+                                    # is only that of a node with none)
 node_mbase = [0] * MAX_NODES        # where its main memory bytes start
-node_addr = [0] * MAX_NODES         # where a function copy's code is placed
-node_len = [0] * MAX_NODES          # the size of that code after shrinking
 CLASS_NODE = 0x8000
 
 ctx_count = 0
 
 def_count = 0
 def_sym = [0] * MAX_DEFS
+
+# The work area: storage that one phase uses and the next reuses. lk_graph's searches use it
+# while the graph is built, lk_alloc's layouts while storage is allocated, and lk_fix's held
+# fix-ups while the image is written; each module names where its columns start.
+# Node columns that only the graph and storage need live here too, above the scratch of both;
+# the node columns of placement replace them, above the fix-ups held.
+MAX_FIXES = 512                     # fix-ups of one function or one piece of constant data
+W_SCC = 5 * MAX_NODES               # graph, storage: nodes on one cycle of calls have one number
+W_ORDER = 6 * MAX_NODES             # graph, storage: lk_graph's order of the nodes
+W_ZSIZE = 7 * MAX_NODES             # storage: bytes of zero page a node's frame or block needs
+W_ADDR = 6 * MAX_FIXES              # placement, image: where a function copy's code is placed
+W_LEN = W_ADDR + MAX_NODES          # placement, image: the size of that code after shrinking
+WORK_SIZE = 8 * MAX_NODES           # which holds W_LEN's column too
+work = [0] * WORK_SIZE
 
 overflow = False                    # set when add16 could not hold its result
 
@@ -143,6 +151,14 @@ def new_slot(f, size, info, weight):
     global slot_count
     if slot_count == MAX_SLOTS:
         lk_err.fail(lk_err.E_SLOTS)
+    global big_count
+    if size >= 255:
+        if big_count == MAX_BIG_SLOTS:
+            lk_err.fail(lk_err.E_SLOTS)
+        big_slot[big_count] = slot_count
+        big_size[big_count] = size
+        big_count += 1
+        size = 255
     slot_size[slot_count] = size
     slot_info[slot_count] = info
     slot_weight[slot_count] = weight
@@ -180,33 +196,6 @@ def new_member(class_sym, func_sym):
     memb_count += 1
 
 
-def begin_refs():
-    """A FIX or DFIX record starts: each symbol it refers to is noted once per record."""
-    global ref_mark
-    ref_mark = ref_count
-
-
-def new_ref(source, target):
-    """Symbol `source`, a function or constant data, refers to symbol `target`, which may not
-    be defined yet."""
-    global ref_count
-    for i in range(ref_mark, ref_count):
-        if ref_to[i] == target:
-            return
-    if ref_count == MAX_REFS:
-        lk_err.fail(lk_err.E_REFS)
-    ref_from[ref_count] = source
-    ref_to[ref_count] = target
-    ref_count += 1
-
-
-def claim_refs(source):
-    """What the record read last refers to, a DFIX record, is what `source` refers to: the
-    DATA record that follows it."""
-    for i in range(ref_mark, ref_count):
-        ref_from[i] = source
-
-
 def new_def(sym):
     global def_count
     if def_count == MAX_DEFS:
@@ -231,17 +220,36 @@ def add_edge(source, target, flags):
     kind = flags & (E_PENDING | E_VIA)
     e = lk_sym.sym_b[source]
     while e != 0:
-        if edge_to[e - 1] == target and (edge_flags[e - 1] & (E_PENDING | E_VIA)) == kind:
-            edge_flags[e - 1] |= flags
+        if edge_sym(e - 1) == target and (edge_flag(e - 1) & (E_PENDING | E_VIA)) == kind:
+            edge_word[e - 1] |= flags << FLAG_SHIFT
             return
         e = edge_next[e - 1]
     if edge_count == MAX_EDGES:
         lk_err.fail(lk_err.E_CALLS)
-    edge_to[edge_count] = target
-    edge_flags[edge_count] = flags
+    edge_word[edge_count] = target | (flags << FLAG_SHIFT)
     edge_next[edge_count] = lk_sym.sym_b[source]
     edge_count += 1
     lk_sym.sym_b[source] = edge_count
+
+
+def edge_sym(e):
+    """The symbol edge e calls."""
+    return edge_word[e] & SYM_BITS
+
+
+def edge_flag(e):
+    """The E_ flags of edge e."""
+    return edge_word[e] >> FLAG_SHIFT
+
+
+def slot_bytes(s):
+    """The size of slot s."""
+    if slot_size[s] != 255:
+        return slot_size[s]
+    i = 0
+    while big_slot[i] != s:
+        i += 1
+    return big_size[i]
 
 
 def new_node(own, ctx):

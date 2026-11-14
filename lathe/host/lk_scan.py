@@ -20,9 +20,9 @@ import lk_rec
 import lk_sym
 import lk_tab
 
-MAX_OBJECTS = 64
-MAX_LOCALS = 4096                   # SYM records in all object files together
-MAX_PENDING = 256                   # weights for slots of functions not read yet
+MAX_OBJECTS = 40
+MAX_LOCALS = 4000                   # SYM records in all object files together
+MAX_PENDING = 64                    # weights for slots of functions not read yet
 
 object_count = 0
 obj_first = [0] * (MAX_OBJECTS + 1) # row in `local` of each object's symbol 0
@@ -105,14 +105,11 @@ def rec_var(obj):
     lk_tab.new_def(s)
 
 
-def rec_data(obj, fixed):
-    """`fixed`: a DFIX record came just before, whose references are this data's."""
+def rec_data(obj):
     s = read_sym(obj, lk_sym.CONSTANT)
     define(s)
     lk_sym.sym_b[s] = lk_rec.left()
     lk_tab.new_def(s)
-    if fixed:
-        lk_tab.claim_refs(s)
 
 
 def rec_func(obj):
@@ -249,36 +246,17 @@ def add_pending_weights():
             lk_tab.slot_weight[slot] = heavier(lk_tab.slot_weight[slot], pend_weight[i])
 
 
-def rec_fixes(obj, source, in_code):
-    """A FIX or DFIX record of symbol `source`, a function or constant data: note what it
-    refers to that is kept only if something kept refers to it (lk_graph).
-
-    That is every variable and piece of constant data it names, and every function whose
-    address it takes. In code an address is taken by its low or high byte, `#<f` and `#>f`,
-    or by an instruction that reads it (kind 5, `LDA f,X`). A kind 1 fix-up naming a function
-    there is the operand of a JSR or JMP, a call, which needs a CALL record of its own; without
-    one the call is an error (lk_fix.target), and must not quietly keep the callee. A
-    function's fix-ups naming itself are its labels or its own address and keep nothing. In
-    constant data every fix-up naming a function takes its address. Slots and class parameters
-    are kept with their function or class. The source of a DFIX record is not known until its
-    DATA record (lk_tab.claim_refs)."""
+def rec_fixes(obj):
+    """A FIX or DFIX record: check its entries. What they keep is worked out later, by reading
+    them again (lk_graph.keep_referenced)."""
     if lk_rec.left() % 8 != 0:
         damaged()
-    lk_tab.begin_refs()
     while lk_rec.left() > 0:
         lk_rec.get_word()
-        kind = lk_rec.get_byte()
-        s = global_sym(obj, lk_rec.get_word())
-        slot = lk_rec.get_byte()
+        lk_rec.get_byte()
+        global_sym(obj, lk_rec.get_word())
+        lk_rec.get_byte()
         lk_rec.get_word()
-        sk = lk_sym.kind_of(s)
-        if sk == lk_sym.VARIABLE or sk == lk_sym.CONSTANT:
-            lk_tab.new_ref(source, s)
-        elif sk == lk_sym.FUNCTION and slot == 0xFF:
-            if not in_code:
-                lk_tab.new_ref(source, s)
-            elif s != source and kind != 1:
-                lk_tab.new_ref(source, s)
 
 
 def take_record(obj, kind):
@@ -293,7 +271,7 @@ def take_record(obj, kind):
     elif kind == lk_rec.R_VAR:
         rec_var(obj)
     elif kind == lk_rec.R_DATA:
-        rec_data(obj, fixed)
+        rec_data(obj)
     elif kind == lk_rec.R_FUNC:
         rec_func(obj)
     elif kind == lk_rec.R_SLOT:
@@ -311,11 +289,11 @@ def take_record(obj, kind):
     elif kind == lk_rec.R_FIX:
         if cur_fn == lk_tab.NONE:
             damaged()
-        rec_fixes(obj, lk_tab.fn_sym[cur_fn], True)
+        rec_fixes(obj)
     elif kind == lk_rec.R_DFIX:
         if cur_fn != lk_tab.NONE:
             damaged()
-        rec_fixes(obj, lk_tab.NONE, False)
+        rec_fixes(obj)
         dfix_read = True
     elif kind != lk_rec.R_IMP and kind != lk_rec.R_CODE:
         damaged()
@@ -425,8 +403,8 @@ def add_via_edges(source):
     parameters are there (code-model.md, "Functions called through a pointer")."""
     e = lk_sym.sym_b[source]
     while e != 0:
-        target = lk_tab.edge_to[e - 1]
-        flags = lk_tab.edge_flags[e - 1]
+        target = lk_tab.edge_sym(e - 1)
+        flags = lk_tab.edge_flag(e - 1)
         e = lk_tab.edge_next[e - 1]
         if (flags & lk_tab.E_VIA) == 0 and lk_sym.kind_of(target) == lk_sym.FUNCTION \
                 and lk_sym.is_defined(target):

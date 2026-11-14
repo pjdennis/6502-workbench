@@ -43,7 +43,7 @@ E_ENV_RANGE = 34
 E_MEMBERS = 35
 E_DEFS = 36
 E_SIZE = 37
-E_REFS = 38
+E_REFS = 38                         # no longer reported: what fix-ups name is not held
 E_STOP_6502 = 39
 E_MEMBER_CYCLE = 40
 E_WEIGHTS = 41
@@ -87,7 +87,7 @@ MESSAGES = (
     b"too many functions whose address is taken\n"
     b"too many variables and constants\n"
     b"internal error: a function is not the size that was planned\n"
-    b"too many symbols named by fix-ups\n"
+    b"too many symbols named by fix-ups\n"                  # 38: no longer reported
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
     b"too many weights for slots of functions not read yet\n"

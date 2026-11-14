@@ -517,5 +517,18 @@ class PageBoundary(unittest.TestCase):
         self.assertEqual(r.addr('S', 't.f', 0), 0xC100)
 
 
+class LargeSlots(unittest.TestCase):
+    def test_slots_of_255_bytes_and_more(self):
+        # The linker keeps a slot's size in a byte, and those of 255 bytes or more aside.
+        o = Obj('t')
+        o.func('main', b'\x60', slots=[(300, NEVER, 0, LOCAL, 'big'), (255, NEVER, 0, LOCAL, 'mid'),
+                                        (1, NEVER, 0, LOCAL, 'one')])
+        r = link([o])
+        self.assertEqual(r.errors, '')
+        base = r.addr('S', 't.main', 0)
+        self.assertEqual((r.size('S', 't.main', 0), r.size('S', 't.main', 1)), (300, 255))
+        self.assertEqual((r.addr('S', 't.main', 1), r.addr('S', 't.main', 2)), (base + 300, base + 555))
+
+
 if __name__ == '__main__':
     unittest.main()

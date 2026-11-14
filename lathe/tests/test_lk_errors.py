@@ -518,8 +518,9 @@ class Capacities(ErrorTest):
             o.var('v%d' % i, 1)
         self.assertEqual(link([o], ENV).errors, 'link error 36: too many variables and constants\n')
 
-    def test_addresses_taken(self):
-        # Each record notes a symbol once; 70 records naming the same 30 is 2100 notes.
+    def test_addresses_taken_have_no_limit(self):
+        # Error 38 is no longer reported: what fix-ups name is read again from the files, not
+        # held. 70 tables naming the same 30 functions were 2100 notes when it was.
         o = simple()
         names = ['f%d' % i for i in range(30)]
         for name in names:
@@ -527,8 +528,10 @@ class Capacities(ErrorTest):
         fixes = [(2 * i, 1, o.f(name), 0xFF, 0) for i, name in enumerate(names)]
         for i in range(70):
             o.data('$%d' % i, bytes(60), fixes=fixes)
-        self.assertEqual(link([o], ENV).errors,
-                         'link error 38: too many symbols named by fix-ups\n')
+        keep(o, '$0')
+        r = link([o], ENV)
+        self.assertEqual(r.errors, '')
+        self.assertTrue(r.has('F', 't.f29'))
 
 
 if __name__ == '__main__':

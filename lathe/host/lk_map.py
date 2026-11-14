@@ -86,7 +86,7 @@ def functions():
         put(10)
     for n in range(0, lk_tab.node_count):
         if not lk_tab.node_is_class(n):
-            begin(70, lk_tab.node_addr[n], lk_tab.node_len[n])
+            begin(70, lk_tab.work[lk_tab.W_ADDR + n], lk_tab.work[lk_tab.W_LEN + n])
             copy_name(n)
             if not lk_tab.is_extra_copy(n) and lk_tab.node_ctx[n] != 0:
                 put(32)
@@ -110,7 +110,7 @@ def slot(f, i):
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx):
             n = lk_tab.copy_node(f, ctx)
-            begin(83, lk_alloc.slot_addr(n, i), lk_tab.slot_size[s])
+            begin(83, lk_alloc.slot_addr(n, i), lk_tab.slot_bytes(s))
             copy_name(n)
             put(32)
             decimal(i)

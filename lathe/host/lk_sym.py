@@ -16,8 +16,8 @@ What the columns hold:
 import env
 import lk_err
 
-HEAP_SIZE = 16384
-MAX_SYMS = 2048
+HEAP_SIZE = 12288
+MAX_SYMS = 1600                     # below 8192: lk_tab.edge_word holds one in 13 bits
 HASH_SIZE = 256                     # a power of two
 
 FUNCTION = 1

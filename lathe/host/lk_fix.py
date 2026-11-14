@@ -17,7 +17,7 @@ import lk_scan
 import lk_sym
 import lk_tab
 
-MAX_FIXES = 1024                    # fix-ups of one function or one piece of constant data
+MAX_FIXES = lk_tab.MAX_FIXES
 NO_CONTEXT = 0xFF                   # the context of a fix-up in constant data
 
 # Fix-up kinds.
@@ -34,14 +34,15 @@ e_sym = 0
 e_slot = 0
 e_add = 0
 
-# The fix-ups held, in the order of the file, which is the order of offset.
+# The fix-ups held, in the order of the file, which is the order of offset: columns of
+# lk_tab.work, which nothing else uses while code is written.
 fix_count = 0
-fx_at = [0] * MAX_FIXES             # offset in the code as written, or in the data
-fx_kind = bytearray(MAX_FIXES)
-fx_sym = [0] * MAX_FIXES
-fx_slot = bytearray(MAX_FIXES)
-fx_add = [0] * MAX_FIXES
-fx_zp = bytearray(MAX_FIXES)        # a bit per context in which the instruction shrinks
+FX_AT = 0                           # offset in the code as written, or in the data
+FX_KIND = MAX_FIXES
+FX_SYM = 2 * MAX_FIXES
+FX_SLOT = 3 * MAX_FIXES
+FX_ADD = 4 * MAX_FIXES
+FX_ZP = 5 * MAX_FIXES               # a bit per context in which the instruction shrinks
 cursor = 0                          # the next fix-up to apply
 
 shrink_count = [0] * lk_tab.MAX_CONTEXTS    # pass 1: bytes each copy of cur_fn loses
@@ -110,14 +111,14 @@ def hold(obj, in_code):
                 lk_sym.fail(lk_err.E_FIXES, cur_sym)
             lk_err.fail(lk_err.E_FIXES)
         read_entry(obj)
-        fx_at[fix_count] = e_at
-        fx_kind[fix_count] = e_kind
-        fx_sym[fix_count] = e_sym
-        fx_slot[fix_count] = e_slot
-        fx_add[fix_count] = e_add
-        fx_zp[fix_count] = 0
+        lk_tab.work[FX_AT + fix_count] = e_at
+        lk_tab.work[FX_KIND + fix_count] = e_kind
+        lk_tab.work[FX_SYM + fix_count] = e_sym
+        lk_tab.work[FX_SLOT + fix_count] = e_slot
+        lk_tab.work[FX_ADD + fix_count] = e_add
+        lk_tab.work[FX_ZP + fix_count] = 0
         if in_code and e_kind == K_SHRINK:
-            fx_zp[fix_count] = zp_contexts(e_sym, e_slot, e_add)
+            lk_tab.work[FX_ZP + fix_count] = zp_contexts(e_sym, e_slot, e_add)
         fix_count += 1
 
 
@@ -136,15 +137,15 @@ def more():
 def next_fix():
     """The fix-up at the cursor is applied: go on to the next."""
     global cursor
-    if fx_kind[cursor] < K_WORD or fx_kind[cursor] > K_SHRINK:
+    if lk_tab.work[FX_KIND + cursor] < K_WORD or lk_tab.work[FX_KIND + cursor] > K_SHRINK:
         bad()
     cursor += 1
     if cursor < fix_count:
         # Fix-ups are sorted by offset, and do not overlap.
-        after = fx_at[cursor - 1] + 1
-        if is_word(fx_kind[cursor - 1]):
+        after = lk_tab.work[FX_AT + cursor - 1] + 1
+        if is_word(lk_tab.work[FX_KIND + cursor - 1]):
             after += 1
-        if fx_at[cursor] < after:
+        if lk_tab.work[FX_AT + cursor] < after:
             bad()
 
 
@@ -195,11 +196,11 @@ def target(ctx, sym, slot, is_call):
             # A call goes to the callee's copy in the caller's own context.
             if ctx == NO_CONTEXT or not lk_tab.has_copy(f, ctx):
                 lk_sym.fail_in(lk_err.E_NOT_LINKED, sym, cur_sym)
-            return lk_tab.node_addr[lk_tab.copy_node(f, ctx)]
+            return lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(f, ctx)]
         n, kept = address_copy(f)
         if not kept:
             return 0
-        return lk_tab.node_addr[n]
+        return lk_tab.work[lk_tab.W_ADDR + n]
     if slot >= lk_tab.fn_nslots[f]:
         bad()
     if ctx != NO_CONTEXT and lk_tab.has_copy(f, ctx):
@@ -216,7 +217,7 @@ def part(value, kind):
         return value >> 8
     if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-        lk_sym.fail_in(lk_err.E_NOT_ZP, fx_sym[cursor], cur_sym)
+        lk_sym.fail_in(lk_err.E_NOT_ZP, lk_tab.work[FX_SYM + cursor], cur_sym)
     return value & 0xFF
 
 
@@ -244,7 +245,7 @@ def zp_contexts(sym, slot, addend):
 
 def shrinks(i, ctx):
     """True if the instruction of held fix-up i shrinks in the copy for context ctx."""
-    return (fx_zp[i] & (1 << ctx)) != 0
+    return (lk_tab.work[FX_ZP + i] & (1 << ctx)) != 0
 
 
 def removed_before(pos, ctx):
@@ -253,7 +254,7 @@ def removed_before(pos, ctx):
     A fix-up is at the offset of an operand's low byte; the byte removed is the one after it."""
     count = 0
     for i in range(0, fix_count):
-        if fx_at[i] >= pos:
+        if lk_tab.work[FX_AT + i] >= pos:
             return count
         if shrinks(i, ctx):
             count += 1

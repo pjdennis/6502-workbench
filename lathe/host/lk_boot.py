@@ -77,7 +77,7 @@ def write(main_fn):
     lk_out.put(0xD8)                # CLD
     if init_len != 0:
         jsr(init_addr)
-    jsr(lk_tab.node_addr[lk_tab.copy_node(main_fn, 0)])
+    jsr(lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(main_fn, 0)])
     if lk_envf.exit_kind == lk_envf.EXIT_CALL:
         lk_out.put(0xA9)            # LDA #$00
         lk_out.put(0)
@@ -93,5 +93,5 @@ def write(main_fn):
     if init_len != 0:
         for f in range(0, lk_tab.fn_count):
             if is_init(f):
-                jsr(lk_tab.node_addr[lk_tab.copy_node(f, 0)])
+                jsr(lk_tab.work[lk_tab.W_ADDR + lk_tab.copy_node(f, 0)])
         lk_out.put(0x60)            # RTS

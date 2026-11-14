@@ -109,13 +109,14 @@ Because `CODE` holds only instructions, the linker and the text renderer find in
 
 ## What the linker reads
 
-Each pass reads every object file once, from start to end; there is no seek.
+Each pass reads every object file once, from start to end; there is no seek. Reading a file again costs less than holding what it says: what the linker can find again in the files it does not keep.
 
 | Step | Reads | Holds |
 |---|---|---|
-| Pass 1, the tables | Every record but the bytes of `CODE` and `DATA`: symbols, variables and their weights, functions with their slots and calls, classes, members, `WGT`. Of `FIX` and `DFIX` only what each function or table names. | A few bytes per symbol, function, slot, call, class parameter, and symbol a function or table names; a weight for a slot of a function not read yet, until the end. |
+| Pass 1, the tables | Every record but the bytes of `CODE` and `DATA`: symbols, variables and their weights, functions with their slots and calls, classes, members, `WGT`. `FIX` and `DFIX` are only checked. | A few bytes per symbol, function, slot, call and class parameter; a weight for a slot of a function not read yet, until the end. |
+| Pass 1, what is kept | `FUNC`, `FIX`, `DFIX` and the symbol of `DATA`, once per reading, until a reading keeps nothing new (two or three). | The entries of one `DFIX` record until its `DATA` says whose they are. |
 | Pass 1, sizes and placement | `FUNC`, `FIX` (counting the kind 5 entries whose address is in zero page, per context), the length of `CODE`, and `DATA` for its size. | Nothing about a function once it is placed. |
-| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one function or one table (at most 1024). |
+| Pass 2 | Every record. A kept function's `FIX` entries are held while its `CODE` is written, a `DFIX` record's while its `DATA` is written. | The fix-ups of one function or one table (at most 512). |
 
 A function linked for several contexts is written once for each, its `CODE` record read again for each copy after the first: the only time a file is read twice in one pass.
 

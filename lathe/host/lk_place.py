@@ -40,8 +40,8 @@ def place_copies(f, written):
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx):
             n = lk_tab.copy_node(f, ctx)
-            lk_tab.node_len[n] = written - lk_fix.shrink_count[ctx]
-            lk_tab.node_addr[n] = take(lk_tab.node_len[n])
+            lk_tab.work[lk_tab.W_LEN + n] = written - lk_fix.shrink_count[ctx]
+            lk_tab.work[lk_tab.W_ADDR + n] = take(lk_tab.work[lk_tab.W_LEN + n])
 
 
 def place_object(obj):

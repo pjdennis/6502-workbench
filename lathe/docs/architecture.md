@@ -157,9 +157,55 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 
 ### Memory in the linker
 
-Pass 1 holds one entry per function and per module-level symbol across the whole program, with names hashed. At about 20 bytes each, 800 functions and symbols need 16 KB. To know what is kept it also holds four bytes for each symbol a function or table names (once per function or table, however often it names it): about 530 rows for `lextest`; and four bytes for each weight a module gives a slot of a function not read yet (at most 256), until every file is read. Code is never held in memory: pass 2 streams it, holding only the fix-ups of the function or table being written, 9 bytes each and at most 1024 (9 KB at most; a few hundred bytes for a typical function).
+**Budget.** The linker must run beside its own code (about 12 KB in Lathe) and a stack on a machine with less than 60 KB free, linking the compiler itself: about 700 functions, 3,500 slots and 3,000 calls in 30 to 40 object files. Its tables together get at most 24 KB. `lathe/tests/lk_memory_report.py` prints what the host linker's tables would take laid out as Lathe lays them out (2 bytes a row for a word column, 1 for a byte column), and the peak use of each over the corpus and over `lk_synthetic.py`, the stand-in for the compiler; `test_lk_memory.py` keeps the total within the limit it states.
 
-Choosing what goes in zero page lays the program's storage out again each time a candidate is accepted. Two shortcuts keep that rare: every candidate is first tried at once, and when they all fit one layout does the work (`lextest`: 3 layouts in all, where one per weight took 44); the candidates of one weight are tried together, a lone one by itself. When zero page is short it is still one layout per item accepted (`lextest` with 64 bytes of zero page: 110). A cheaper step would update the layout in place: the item's node grows, the nodes below it move up and the chains above it get deeper, but each is a walk over the graph from that node, which costs nearly as much as laying out the whole again.
+**Rules the design follows.**
+
+- *A table lives only in the phases that use it.* Scratch of one phase shares storage with the scratch of another: the work area holds Tarjan's columns while the graph is built, the layout's columns while storage is allocated, and the fix-ups of one function while the image is written.
+- *Reading a file again is cheap; memory is not.* What can be found again in the object files is read again when it is needed, not held: what fix-ups name, now; most names, in the plan below.
+- *Rows are as narrow as their values*: byte columns where a value fits a byte, flags packed beside small numbers, columns derived instead of stored.
+
+**Passes over the object files, and what each holds.** Each pass reads each object file once, from start to end (`lk_rec`); a function linked for several contexts has its `CODE` read again for each further copy, in the image pass, which reopens the file and skips to it.
+
+| Pass | Reads | Holds besides the tables |
+|---|---|---|
+| 1 Tables (`lk_scan`) | every record; `FIX` and `DFIX` only checked | — |
+| 2 What is kept (`lk_graph.keep_referenced`) | `FUNC`, `FIX`, `DFIX`, the symbol of `DATA`; once per reading until one keeps nothing new | one `DFIX` record's entries until its `DATA` |
+| 3 Sizes and placement (`lk_place`) | `FUNC`, `FIX`, `CODE` length, `DATA` | — |
+| 4 Image and map (`lk_emit`) | every record | one function's or table's fix-ups |
+
+`lextest` reads each of its 8 files 6 times (3 readings in pass 2); `lk_synthetic`'s 30 files are opened 212 times in all (2 readings in pass 2, 62 reopenings for copies). Every pass is linear in the size of the files. The graph and the layouts are linear in nodes and calls, as before; pass 2 replaces a table of references by readings.
+
+**The work area.** `lk_tab.work`, eight words per node, holds what one phase needs and the next does not: while the graph is built, Tarjan's columns (stack, edge cursor, found, discovery, low), the set number and the order of each node; while storage is allocated, the layout's columns (base, end of set, size of set, depth below, call chain for an error), the set number, the order and the zero page size; while code is placed and written, the fix-ups held and each node's address and length.
+
+**Rows, before and after** (bytes per row; the capacity in brackets). The capacities are now the compiler's sizing.
+
+| Table | Before (main, 2026-11-14) | Now |
+|---|---|---|
+| symbols | 11 (2,048) + names 16,384 | 11 (1,600) + names 12,288 |
+| symbols in object files | 2 (4,096) | 2 (4,000) |
+| functions | 10 (1,024) | 10 (800) |
+| slots | 4 (8,192) | 3: size in a byte, 255 and over aside (4,000, and 64 large) |
+| calls | 5 (8,192) | 4: the flags in the top three bits of the callee (3,600) |
+| nodes | 15 fixed + 12 graph + 10 storage (1,280) | 6 fixed + 16 in the work area (900) |
+| references named by fix-ups | 4 (2,048) | none: read again (pass 2) |
+| fix-ups held | 9 (1,024) | 12 in the work area (512) |
+| variables and constants | 2 (1,024) | 2 (800) |
+| classes, parameters, members | 12 (64), 8 (256), 4 (256) | the same rows (32, 128, 128) |
+| weights waiting | 5 (256) | 5 (64) |
+| **total** | **204,338** | **97,442** |
+
+Peak use over the 77 programs of the corpus (the end-to-end cases on the three machines and `lextest`): objects 8, symbols in object files 376, symbols 312, names 3,736 bytes, functions 220, slots 1,085, calls 419, nodes 215, defs 200, classes 3, class parameters 8, members 7, contexts 3, weights waiting 7, fix-ups held 348. `lk_synthetic` (30 files, 703 functions): 3,430 symbols in object files, 827 symbols, 6,564 bytes of names, 3,644 slots, 3,225 calls, 727 nodes, 121 defs, 210 fix-ups held; the host linker takes 0.44 s.
+
+**The rest of the way to 24 KB.** In order of what each saves at the capacities above:
+
+1. *Names only where another module needs them.* A flag in `SYM` (format version 3; `out.symbol` writes it for `pub` names and for the names it imports) says whether another module can name the symbol. Only those names, and `MAIN.main`, go into the heap; `$init` becomes a function flag found while the name is read. The map's F, D and V lines are written by a reading each, which holds the names of the object being read; a name in an error message is read from the first object file that has the symbol. Saves about 15 KB (the heap, `sym_name`, `sym_next`).
+2. *Symbols dissolved into references.* Once every file is read, each entry of `local` holds what its symbol is (kind, defined, and a row of `fn_`, `cls_` or a table of variables and constants), and the symbol columns go: about 8 KB.
+3. *Calls as a run per function*, filled from the end so that a walk sees them newest first as the chains do now, with the calls made while another function's arguments wait, the calls into class blocks and the merged classes' runs placed where the chains put them: `edge_next` goes, 7 KB.
+4. *Slots in two bytes*: the size in a nibble with an escape, and the zero page class, the kind and the choice in the other: 4 KB. *Pending weights* go once a first reading counts each function's slots.
+5. *A function's first copy is the node of the same number*, extra copies and class blocks after them: `node_own` and `fn_node`, 3.4 KB; the zero page layout in 9-bit values, 2.7 KB.
+
+That brings the tables at the compiler's size (the synthetic program) to about 30 KB while storage is allocated, which is the peak: zero page promotion needs every candidate's weight and size and every call, because it lays the program out again after each accepted item. The last 6 KB need one of: dropping the symbol tables while storage is allocated and rebuilding them afterwards from a table of hashed exported names (the few hashes that collide keep their names); or reading the candidates of promotion from the files in bands of weights, each band a reading. Choosing what goes in zero page still lays the program out again after each item accepted when zero page is short: one layout per item (`lextest` with 64 bytes of zero page: 108 layouts). A cheaper step would update the layout in place: the item's node grows, the nodes below it move up and the chains above it get deeper, but each is a walk over the graph from that node, which costs nearly as much as laying out the whole again.
 
 ## The environment description
 

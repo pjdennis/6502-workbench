@@ -2,14 +2,14 @@
 
     python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
 
-Pass 1 never reads code, and holds a few bytes for each function, slot, call, symbol and
-symbol a fix-up names:
+Pass 1 never reads code, and holds a few bytes for each function, slot, call and symbol:
 
     lk_envf     the environment file
-    lk_scan     symbols, functions, slots, calls, classes, weights and what fix-ups name into
-                tables (lk_sym, lk_tab)
+    lk_scan     symbols, functions, slots, calls, classes and weights into tables (lk_sym,
+                lk_tab); fix-ups are only checked
     lk_graph    what is reachable from main and from each interrupt function, and what that
-                keeps by naming it; recursion
+                keeps by naming it, which it finds by reading the fix-ups again, as often as
+                that keeps something new (usually twice); recursion
     lk_alloc    zero page and main memory for every slot and variable
     lk_place    the size of each function after shrinking, from its fix-ups, and where its
                 code goes
