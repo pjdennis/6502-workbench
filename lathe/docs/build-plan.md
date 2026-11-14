@@ -141,3 +141,13 @@ Points where a decision is needed before work continues.
 | L4 | Accept the compiler's projected size, or cut features, or plan the front-end split. |
 | L3 | Automatic zero page in stage B, or classes fixed at compile time. |
 | Stage 10 | Choose the first period machine. |
+
+## Open items
+
+Things found during the work that are not part of a stage's gate. Remove each when done.
+
+- **Object format, next version.** Suggested by the linker work: a fix-up kind meaning "two bytes, and the opcode has a zero page form", so the linker's first pass need not read code to know final sizes; `DFIX` before `DATA`; parameter names in `CLAS`; drop the unused `CLAS` flags.
+- **Text rendering of copies.** `lo2asm` cannot yet render the per-context copies of a function (`name@N` in the map), or the address of a function the linker dropped.
+- **Linker speed on the target.** Zero page promotion lays the program out again after each success (639 layouts for a 34 KB program). Fine on the host; the Lathe version needs an incremental layout.
+- **Spikes L1 and L2** were folded into building the compiler and the linker. Their measurements (code size against `p8c`, promotion rules compared) are still to be recorded in `spikes.md`.
+- **vasm** cannot be downloaded in the development container, so only the `lathe` and `asm` suites run there; CI runs the rest.
