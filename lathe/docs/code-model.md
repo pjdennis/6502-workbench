@@ -249,13 +249,13 @@ The compiler has no syntax tree and no optimiser pass. Code quality comes from f
 
 1. **Lazy operands.** Parsing an operand produces a description, not code: a constant, a variable at an address, a value now in A, a value in A and X, a condition held in the flags, an indexed element. Code is emitted only when an operator needs its operands somewhere. Constant folding, `INC` for `x += 1`, compare-and-branch for conditions and indexed addressing all fall out of this. It is the method of Wirth's one-pass compilers.
 2. **Destination passing.** An assignment parses its left side first, so the right side knows where its result goes. A 16-bit `x = y + z` adds the low bytes into `x` and then the high bytes into `x+1`, never loading the pair into registers.
-3. **Register tracking.** Within straight-line code the compiler remembers what A, X and Y hold, as a constant or a copy of a variable, and skips loads that would change nothing. The memory is cleared at every label and call.
+3. **Register tracking.** Within straight-line code the compiler remembers what A, X and Y hold, as a constant or a copy of a variable, and skips loads that would change nothing. The memory is cleared at every call and loop head; at a label that only forward branches reach it keeps what every way in agrees on.
 4. **Operand order.** When the left operand is simple and the right is not, the right is evaluated first and the left used as a memory operand. When both are complex, the left is saved in a frame temporary.
 5. **Short branches first.** A function's code is held in a buffer until the function ends. Forward branches are emitted short, and only those that turn out not to reach are widened to a reversed branch around a `JMP`. `p8c` widened every one.
 
 Spike S3 hand-compiled four existing routines by these rules and got 1.47 times the size of the hand-written originals, with inner loops between 1.1 and 1.85 times the cycles. It also named the refinements worth adding once the basics work, in order of gain:
 
-- Keep register knowledge across a label reached only by forward branches, by keeping what every incoming branch agreed on.
+- Keep register knowledge across a label reached only by forward branches, by keeping what every incoming branch agreed on. (Done: `codegen.md`, "Remembering register contents".)
 - Remember that A holds an indexed element such as `a[i]` while its index register is unchanged.
 - Turn a loop tested at the top into one tested at the bottom.
 - Keep a loop counter in X or Y when the body allows.
@@ -264,7 +264,7 @@ The 65C02's extra instructions (`STZ`, `BRA`, `INC A`, `PHX` and the rest) are u
 
 ## Known costs
 
-- An argument stored into a slot and then loaded again by the callee costs more than a register would for tiny functions. `inline` is the remedy.
+- An argument stored into a slot and then loaded again by the callee costs more than a register would for tiny functions. `inline` is the remedy. What registers would save over a whole program is measured in [`spikes.md`](spikes.md) ("Result of L4").
 - Calls between `recursive` functions copy a frame each way.
 - A function used from two contexts is linked twice.
 - Two functions in one pointer class cannot call each other without the cost of recursion.

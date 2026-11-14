@@ -176,28 +176,27 @@ for_loops__words
 .L0023
     LDA for_loops__v
     STA for_loops__w
-    LDA for_loops__v+$01
-    STA for_loops__w+$01
-    LDA for_loops__w
+    LDX for_loops__v+$01
+    STX for_loops__w+$01
     CMP #$01
-    LDA for_loops__w+$01
+    TXA
     SBC #$00
-    BCC .L0058
-.L003B
+    BCC .L0053
+.L0036
     INC for_loops__r
     LDA for_loops__w
     CMP #$01
-    BNE .L004A
+    BNE .L0045
     LDA for_loops__w+$01
-    BEQ .L0058
-.L004A
+    BEQ .L0053
+.L0045
     LDA for_loops__w
-    BNE .L0052
+    BNE .L004D
     DEC for_loops__w+$01
-.L0052
+.L004D
     DEC for_loops__w
-    JMP .L003B
-.L0058
+    JMP .L0036
+.L0053
     LDA #$01
     STA for_loops__w
     LDA #$00
@@ -213,21 +212,21 @@ for_loops__words
     CMP #$01
     LDA for_loops__words__St1+$01
     SBC #$00
-    BCC .L009C
-.L007F
+    BCC .L0097
+.L007A
     INC for_loops__r
     LDA for_loops__w
     CMP for_loops__words__St1
-    BNE .L0092
+    BNE .L008D
     LDA for_loops__w+$01
     CMP for_loops__words__St1+$01
-    BEQ .L009C
-.L0092
+    BEQ .L0097
+.L008D
     INC for_loops__w
-    BNE .L007F
+    BNE .L007A
     INC for_loops__w+$01
-    BNE .L007F
-.L009C
+    BNE .L007A
+.L0097
     RTS
 
 ; function for_loops.word_with_a_byte_limit
@@ -338,15 +337,15 @@ for_loops__nested
 for_loops__empty
     LDA #$05
     STA for_loops__i
-    JMP .L0017
-.L0008
+    RTS
+.L0006
     INC for_loops__r
     LDA for_loops__i
     CMP #$04
-    BEQ .L0017
+    BEQ .L0015
     INC for_loops__i
-    BNE .L0008
-.L0017
+    BNE .L0006
+.L0015
     RTS
 
 ; variable for_loops.i: size 1, class 1 (either), weight 119
@@ -357,7 +356,7 @@ for_loops__empty
 
 ; variable for_loops.s: size 1, class 1 (either), weight 18
 
-; variable for_loops.w: size 2, class 1 (either), weight 82
+; variable for_loops.w: size 2, class 1 (either), weight 80
 
 ; variable for_loops.v: size 2, class 1 (either), weight 4
 

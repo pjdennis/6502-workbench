@@ -1,0 +1,172 @@
+; What is known about the registers at a label that only forward branches reach is what every
+; way in agrees on (docs/codegen.md, "Remembering register contents"). Each function is run
+; with inputs that take every way in: a value that differs on the ways in, the same value on
+; all of them, a branch round a call, an asm block or a critical block on one way, case chains
+; whose bodies change A, and loops whose labels are reached by forward and backward branches.
+module arrivals
+
+import libout
+
+var g: byte
+var h: byte
+
+; A is 7 on one way, the selector on another, 5 on the third: r must be loaded.
+func differ(c: byte): byte
+  var r: byte = 5
+  if c == 1 then
+    r = 7
+  elif c == 2 then
+    r = 5
+  end
+  return r
+end
+
+; A holds 9, a copy of r, on both ways.
+func agree(c: byte): byte
+  var r: byte
+  if c == 1 then
+    r = 9
+  else
+    h = c
+    r = 9
+  end
+  return r + h
+end
+
+func touch()
+  g += 10
+  asm
+    LDA #$77
+    LDX #$66
+  end
+end
+
+; A holds g where the branch goes round the call, and not after it.
+func round_call(c: byte): byte
+  g = 3
+  if c == 1 then
+    touch()
+  end
+  return g
+end
+
+; A holds g on the way round the asm block, which changes A.
+func round_asm(c: byte): byte
+  g = c
+  if c == 2 then
+    asm
+      LDA #$44
+      LDY #$44
+    end
+  end
+  return g
+end
+
+; A holds g on the way round the store, inside a critical block.
+func in_critical(c: byte): byte
+  g = c
+  critical
+    if c == 0 then
+      g = 1
+    end
+  end
+  return g
+end
+
+; The selector is in A on the way into each body and to each next `of`; the bodies change A.
+func chain(c: byte): byte
+  var r: byte = 0
+  h = 0
+  case c
+  of 1, 2
+    r = 10
+  of 3
+    h = 4
+  of 4, 5, 6
+    r = c + 1
+    h = r
+  else
+    r = c
+  end
+  return r + h
+end
+
+; `continue` goes forward to the test of `until`, the test back to the top.
+func until_loop(n: byte): byte
+  var i: byte = 0
+  var t: byte = 0
+  loop
+    i += 1
+    if i == 3 then
+      t = i
+      continue
+    end
+    t += 1
+  until i >= n
+  return t
+end
+
+; `continue` goes back to the top, `break` forward to the end.
+func plain_loop(n: byte): byte
+  var i: byte = 0
+  var t: byte = 0
+  loop
+    i += 1
+    if i == 2 then
+      continue
+    end
+    if i > n then
+      break
+    end
+    t += i
+  end
+  return t
+end
+
+; `continue` and `break` in a for loop, whose end is reached by the test before the loop.
+func for_loop(a: byte, b: byte): byte
+  var t: byte = a
+  var i: byte
+  for i = a to b do
+    if i == 4 then
+      continue
+    end
+    t = i
+    if t == 6 then
+      break
+    end
+  end
+  return t
+end
+
+func show(v: byte)
+  libout.hex(v)
+  libout.space()
+end
+
+pub func main()
+  var c: byte
+  for c = 0 to 3 do
+    show(differ(c))
+    show(agree(c))
+    show(round_call(c))
+    show(round_asm(c))
+    show(in_critical(c))
+  end
+  libout.nl()
+  for c = 0 to 8 do
+    show(chain(c))
+  end
+  libout.nl()
+  for c = 0 to 5 do
+    show(until_loop(c))
+    show(plain_loop(c))
+  end
+  libout.nl()
+  show(for_loop(0, 3))
+  show(for_loop(3, 5))
+  show(for_loop(2, 9))
+  show(for_loop(7, 2))
+  show(for_loop(4, 4))
+  libout.nl()
+end

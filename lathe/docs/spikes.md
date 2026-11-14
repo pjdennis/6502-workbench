@@ -204,3 +204,17 @@ Where the bytes go in the three largest functions, and what would save them:
 | Symbol tables of at most 256 entries, so every access is `LDA table,X` | 13 to 22 bytes at each access to a 512-entry table |
 
 Together these are estimated to recover 10 to 25%.
+
+**Measured (2026-11-14).** Four of them are now in the host compiler (`codegen.md` has the rules), measured on `lextest` with `lathe/tests/size_report.py`. Bytes are of code; "layers" is err, kernel, src and lex (3,707 before), "program" all of `lextest` (4,824 before). Compiler lines are lines of code in `lathe/host`, without comments and docstrings.
+
+| Improvement | Layers saved | Program saved | Compiler lines |
+|---|---|---|---|
+| Register memory across a label that only forward branches reach | 80 (2.2%) | 96 (2.0%) | +79 |
+| `JMP` to an `RTS` becomes `RTS` (a `JMP` to a `JMP` saved nothing) | 16 (0.4%) | 16 (0.3%) | +21 |
+| A word copied between variables keeps its low byte in A (its high byte goes through X) | 15 (0.4%) | 15 (0.3%) | +4 |
+| A word shifted by 8 to 15 places moves a byte | 31 (0.8%) | 82 (1.7%) | +12 |
+| **All four** | **142 (3.8%): 3,565** | **209 (4.3%): 4,615** | **+116** |
+
+- **"A value just stored is not reloaded"** was already true. Nothing in `lextest` loads a value a register still holds from its store; the reloads that looked like it (`STA lex__line` … `LDA lex__line` in `lex.scan`) come from A being used for the next byte of a word, which the copy through X answers where the word is used next.
+- **A pointer into a big array built again** for a neighbouring element (`names[offset]`, `names[offset + 1]`) happens 5 times in `lextest` (in `kernel.name_word`, `name_set_word`, `name_end`, `sym_lookup`), each 15 bytes where `LDY #1` would do: about 65 bytes. It needs a memory of what a pointer temporary holds, with its own rules for when that ends and for sharing the temporary between operands, so it is left for now. The 512-entry tables cost more in the same way: the index is shifted again for every table (`s << 1` five times in `kernel.sym_add`).
+- **Byte arguments in registers** (not done; `lathe/tests/arg_report.py` counts it from the object files). `lextest` has 137 calls of functions with parameters, which spend 480 bytes storing arguments. Against that, with each callee storing the registers into its slots on entry: the first byte parameter in A saves 144 net; the first three byte parameters in A, X, Y 180; the first parameter in A, or A and X for a word or pointer, 200; that and A, X, Y for bytes when the first parameter is a byte, 236 (6.6% of the layers). A callee whose first instruction loads that parameter gains 2 more each (+28 to +46). `err.fatal` (25 calls), `lex.followed_by` (10 calls of three constants) and `err.position` (8 calls of two words) are most of it.

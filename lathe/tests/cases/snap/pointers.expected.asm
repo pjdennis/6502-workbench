@@ -5,7 +5,7 @@ abs_f009 = $F009
 
 ; function pointers.length
 ;   slot 0 s: size 2, class 0 (zp), param, weight 4
-;   slot 1 i: size 1, class 1 (either), local, weight 10
+;   slot 1 i: size 1, class 1 (either), local, weight 9
 pointers__length
     LDA #$00
     STA pointers__length__i
@@ -16,7 +16,7 @@ pointers__length
     INC pointers__length__i
     JMP .L0005
 .L0012
-    LDA pointers__length__i
+    TYA
     RTS
 
 ; function pointers.sum
@@ -97,8 +97,8 @@ pointers__stores
 pointers__copies
     LDA pointers__far
     STA pointers__copies__St1
-    LDA pointers__far+$01
-    STA pointers__copies__St1+$01
+    LDX pointers__far+$01
+    STX pointers__copies__St1+$01
     LDY #$00
     LDA (pointers__copies__St1),Y
     STA pointers__n
@@ -139,7 +139,6 @@ pointers__arithmetic
     INC pointers__p+$01
 .L002B
     SEC
-    LDA pointers__p
     SBC #<pointers__buffer
     STA pointers__w
     LDA pointers__p+$01
@@ -147,26 +146,26 @@ pointers__arithmetic
     STA pointers__w+$01
     LDA pointers__p
     ORA pointers__p+$01
-    BNE .L004E
+    BNE .L004B
     LDA #<pointers__S1
     STA pointers__p
     LDA #>pointers__S1
     STA pointers__p+$01
-.L004E
+.L004B
     LDA pointers__p
     CMP #<pointers__buffer+$10
     LDA pointers__p+$01
     SBC #>pointers__buffer+$10
-    BCC .L0064
+    BCC .L0061
     LDA #$00
     STA pointers__p
     LDA #$C0
     STA pointers__p+$01
-.L0064
+.L0061
     LDA pointers__p
     STA pointers__w
-    LDA pointers__p+$01
-    STA pointers__w+$01
+    LDX pointers__p+$01
+    STX pointers__w+$01
     RTS
 
 ; function pointers.through_module
@@ -222,7 +221,7 @@ pointers__main
 
 ; variable pointers.words: size 16, class 2 (not zp), weight 0
 
-; variable pointers.p: size 2, class 0 (zp), weight 24
+; variable pointers.p: size 2, class 0 (zp), weight 23
 
 ; variable pointers.far: size 2, class 2 (not zp), weight 2
 

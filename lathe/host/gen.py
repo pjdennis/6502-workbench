@@ -395,11 +395,11 @@ def variable_shift(op, t):
     reg.test(reg.X)
     done = fbuf.new_label()
     again = fbuf.new_label()
-    fbuf.branch(OP_BEQ, done)
+    reg.branch(OP_BEQ, done)
     reg.loop_label(again)
     shift_a(op, op == fold.SHR and typetab.is_signed(t))
     reg.step_x(reg.OP_DEX)
-    fbuf.branch(OP_BNE, again)
+    reg.branch(OP_BNE, again)
     reg.label(done)
     reg.pop()
     reg.pop()
@@ -485,13 +485,13 @@ def ripple(op, k, target):
     change it: INC or DEC it if there is one."""
     skip = fbuf.new_label()
     if op == fold.ADD:
-        fbuf.branch(OP_BCC, skip)
+        reg.branch(OP_BCC, skip)
         if target == REGISTERS:
             reg.step_x(reg.OP_INX)
         else:
             reg.modify(reg.OP_INC, target, k)
     else:
-        fbuf.branch(OP_BCS, skip)
+        reg.branch(OP_BCS, skip)
         if target == REGISTERS:
             reg.step_x(reg.OP_DEX)
         else:
@@ -547,14 +547,14 @@ def step(op, count, target):
     elif op == fold.ADD:
         skip = fbuf.new_label()
         reg.modify(reg.OP_INC, target, 0)
-        fbuf.branch(OP_BNE, skip)
+        reg.branch(OP_BNE, skip)
         reg.modify(reg.OP_INC, target, 1)
         reg.label(skip)
     else:
         skip = fbuf.new_label()
         reg.load(reg.A, target, 0)
         reg.test(reg.A)
-        fbuf.branch(OP_BNE, skip)
+        reg.branch(OP_BNE, skip)
         reg.modify(reg.OP_DEC, target, 1)
         reg.label(skip)
         reg.modify(reg.OP_DEC, target, 0)
@@ -609,11 +609,27 @@ def shift(op, t, first, amount, target):
         if target != REGISTERS:
             reg.store(reg.A, target, 0)
         return
+    if count == 2 and amount >= 8 and amount < 16 and not signed:
+        shift_bytes(op, first, amount - 8, target)
+        return
     if not reg.same_place(first, target):
         shift_copy(op, signed, first, target)
         amount -= 1
     for n in range(0, amount):
         shift_memory(op, signed, target, count)
+
+
+def shift_bytes(op, first, amount, target):
+    """A word shifted by 8 and then `amount` more places, to memory operand `target`: the byte
+    that stays moves to the other, shifted on the way, and the byte it leaves is 0."""
+    k = 0
+    if op == fold.SHR:
+        k = 1
+    reg.load(reg.A, first, k)
+    for n in range(0, amount):
+        shift_a(op, False)
+    reg.store(reg.A, target, 1 - k)
+    reg.put_const(0, target, k)
 
 
 def operate(op, t, first, second, target):
@@ -713,7 +729,7 @@ def sign_extend(i):
     reg.load(reg.A, i, 0)
     reg.test(reg.A)
     plus = fbuf.new_label()
-    fbuf.branch(OP_BPL, plus)
+    reg.branch(OP_BPL, plus)
     reg.step_x(reg.OP_DEX)
     reg.label(plus)
     t = reg.op_type[i]
@@ -1087,7 +1103,7 @@ def copy_array(symbol, size):
                 reg.step_x(reg.OP_INX)
             else:
                 reg.step_x(reg.OP_DEX)
-            fbuf.branch(OP_BNE, top)
+            reg.branch(OP_BNE, top)
     reg.op_value[target] = start
     reg.forget()
     reg.pop()

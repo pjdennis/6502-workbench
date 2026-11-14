@@ -15,8 +15,8 @@ asm_vars_zp__first
 asm_vars_zp__walk
     LDA asm_vars_zp__table
     STA asm_vars_zp__walk__cursor
-    LDA asm_vars_zp__table+$01
-    STA asm_vars_zp__walk__cursor+$01
+    LDX asm_vars_zp__table+$01
+    STX asm_vars_zp__walk__cursor+$01
     LDA asm_vars_zp__walk__count
     STA asm_vars_zp__low
     LDX #$00

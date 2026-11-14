@@ -10,8 +10,8 @@ assign__plain
     STA assign__a
     LDA assign__v
     STA assign__w
-    LDA assign__v+$01
-    STA assign__w+$01
+    LDX assign__v+$01
+    STX assign__w+$01
     LDA assign__a
     STA assign__w
     LDA #$00
@@ -84,14 +84,12 @@ assign__words
     INC assign__w+$01
 .L0022
     SEC
-    LDA assign__w
     SBC assign__a
     STA assign__w
-    BCS .L0031
+    BCS .L002E
     DEC assign__w+$01
-.L0031
+.L002E
     CLC
-    LDA assign__w
     ADC #$2C
     STA assign__w
     LDA assign__w+$01
@@ -169,6 +167,6 @@ assign__fixed
 
 ; variable assign.b: size 1, class 1 (either), weight 8
 
-; variable assign.w: size 2, class 1 (either), weight 37
+; variable assign.w: size 2, class 1 (either), weight 35
 
 ; variable assign.v: size 2, class 1 (either), weight 7

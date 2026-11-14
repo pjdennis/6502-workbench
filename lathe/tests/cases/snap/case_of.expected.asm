@@ -7,25 +7,24 @@ abs_d000 = $D000
 case_of__kinds
     LDA case_of__k
     CMP #$01
-    BNE .L000F
+    BNE .L000D
     LDA #$0A
     STA case_of__r
-    JMP .L0028
-.L000F
+    RTS
+.L000D
     CMP #$02
-    BEQ .L001B
+    BEQ .L0019
     CMP #$03
-    BEQ .L001B
+    BEQ .L0019
     CMP #$04
-    BNE .L0023
-.L001B
+    BNE .L001F
+.L0019
     LDA #$14
     STA case_of__r
-    JMP .L0028
-.L0023
+    RTS
+.L001F
     LDA #$1E
     STA case_of__r
-.L0028
     RTS
 
 ; function case_of.pick
@@ -52,16 +51,16 @@ case_of__worked_out
     LDA case_of__k
     AND #$07
     STA case_of__worked_out__St1
-    BNE .L0012
+    BNE .L0010
     LDA #$01
     STA case_of__r
-    JMP .L001B
-.L0012
+    RTS
+.L0010
     CMP #$07
-    BNE .L001B
+    BNE .L0019
     LDA #$02
     STA case_of__r
-.L001B
+.L0019
     RTS
 
 ; function case_of.device
@@ -70,16 +69,16 @@ case_of__device
     LDA abs_d000
     STA case_of__device__St1
     CMP #$80
-    BNE .L0012
+    BNE .L0010
     LDA #$01
     STA case_of__r
-    JMP .L001B
-.L0012
+    RTS
+.L0010
     CMP #$40
-    BNE .L001B
+    BNE .L0019
     LDA #$02
     STA case_of__r
-.L001B
+.L0019
     RTS
 
 ; function case_of.reload
@@ -87,27 +86,27 @@ case_of__device
 case_of__reload
     LDA case_of__k
     CMP #$01
-    BNE .L000F
+    BNE .L000D
     LDA #$05
     STA case_of__r
-    JMP .L002E
-.L000F
+    RTS
+.L000D
     CMP #$02
-    BNE .L0019
+    BNE .L0015
     STA case_of__r
-    JMP .L002E
-.L0019
+    RTS
+.L0015
     CMP #$03
-    BNE .L0025
+    BNE .L001F
     LDA #$00
     STA case_of__k
-    JMP .L002E
-.L0025
+    RTS
+.L001F
     CMP #$04
-    BNE .L002E
+    BNE .L0028
     LDA #$01
     STA case_of__r
-.L002E
+.L0028
     RTS
 
 ; function case_of.signs
@@ -130,14 +129,13 @@ case_of__signs
 .L001C
     LDA case_of__f
     CMP #$01
-    BNE .L002B
+    BNE .L0029
     LDA #$03
     STA case_of__r
-    JMP .L0030
-.L002B
+    RTS
+.L0029
     LDA #$04
     STA case_of__r
-.L0030
     RTS
 
 ; function case_of.runs_on

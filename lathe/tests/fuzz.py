@@ -403,7 +403,7 @@ class Statements:
             return x, px, True
         x, px, _ = self.wexpr(depth - 1)
         if r.random() < 0.12:
-            n = r.randrange(0, 5)
+            n = r.choice([0, 1, 2, 3, 4, 8, 9, 12, 15])
             op = r.choice(['<<', '>>'])
             if not any(v in x for v in BV + WV):
                 x = px = r.choice(WV)
@@ -415,6 +415,20 @@ class Statements:
         return '(%s %s %s)' % (x, op, y), '((%s %s %s) & 65535)' % (px, op, py), True
 
     def cond(self):
+        """A test, sometimes made of two with `and` or `or`, or with `not`: (lathe, python)."""
+        r = self.r
+        k = r.random()
+        if k < 0.12:
+            x, px = self.simple_cond()
+            y, py = self.simple_cond()
+            op = r.choice(['and', 'or'])
+            return '(%s) %s (%s)' % (x, op, y), '(%s) %s (%s)' % (px, op, py)
+        if k < 0.17:
+            x, px = self.simple_cond()
+            return 'not (%s)' % x, 'not (%s)' % px
+        return self.simple_cond()
+
+    def simple_cond(self):
         r = self.r
         op = r.choice(['==', '!=', '<', '>=', '>', '<='])
         if r.random() < 0.6:
@@ -427,19 +441,25 @@ class Statements:
         y, py, kind = self.wleaf()
         return '%s %s %s' % (x, op, y), '%s %s %s' % (x, op, py)
 
-    def stmt(self, depth, ind, lathe, py, loops):
+    def body(self, depth, ind, lathe, py, loops, inner, most):
+        for _ in range(self.r.randrange(1, most)):
+            self.stmt(depth, ind, lathe, py, loops, inner)
+
+    def stmt(self, depth, ind, lathe, py, loops, inner=''):
+        """One statement. `inner` is the kind of the loop it is in ('for', 'loop' or ''): break
+        leaves any loop, continue only a `for` (the other loops count down at their end)."""
         r = self.r
         pad = '  ' * ind
         ppad = '    ' * (ind - 1)
         kind = r.random()
-        if kind < 0.22:
+        if kind < 0.20:
             d = pd = r.choice(BV)
             if r.random() < 0.3:
                 d, pd = self.element(False)
             x, px = self.bexpr(r.randrange(0, 3))
             lathe.append('%s%s = %s\n' % (pad, d, x))
             py.append('%s%s = %s\n' % (ppad, pd, px))
-        elif kind < 0.30:
+        elif kind < 0.27:
             d, pd = self.element(r.random() < 0.5)
             op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
             mask = 65535 if pd.startswith(('aw', 'ar', 'ra_w', 'rr_w')) else 255
@@ -451,19 +471,19 @@ class Statements:
                 x = px = '1'
             lathe.append('%s%s %s= %s\n' % (pad, d, op, x))
             py.append('%s%s = (%s %s %s) & %d\n' % (ppad, pd, pd, op, px, mask))
-        elif kind < 0.33:
+        elif kind < 0.30:
             d = r.choice(BV)
             x, px = self.bexpr(r.randrange(0, 3))
             lathe.append('%s%s = %s\n' % (pad, d, x))
             py.append('%s%s = %s\n' % (ppad, d, px))
-        elif kind < 0.40:
+        elif kind < 0.37:
             d = pd = r.choice(WV)
             if r.random() < 0.3:
                 d, pd = self.element(True)
             x, px, _ = self.wexpr(r.randrange(0, 3))
             lathe.append('%s%s = %s\n' % (pad, d, x))
             py.append('%s%s = %s\n' % (ppad, pd, px))
-        elif kind < 0.55:
+        elif kind < 0.50:
             d = r.choice(BV)
             op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
             x, px = self.bleaf()
@@ -471,7 +491,7 @@ class Statements:
                 x = px = '1'
             lathe.append('%s%s %s= %s\n' % (pad, d, op, x))
             py.append('%s%s = (%s %s %s) & 255\n' % (ppad, d, d, op, px))
-        elif kind < 0.68:
+        elif kind < 0.61:
             d = r.choice(WV)
             op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
             x, px, k = self.wleaf()
@@ -479,7 +499,7 @@ class Statements:
                 x = px = '1'
             lathe.append('%s%s %s= %s\n' % (pad, d, op, x))
             py.append('%s%s = (%s %s %s) & 65535\n' % (ppad, d, d, op, px))
-        elif kind < 0.74:
+        elif kind < 0.66:
             d = r.choice(WV)
             x, px = self.bexpr(1)
             if r.random() < 0.5:
@@ -488,27 +508,82 @@ class Statements:
             else:
                 lathe.append('%shi(%s) = %s\n' % (pad, d, x))
                 py.append('%s%s = (%s & 0x00FF) | (%s << 8)\n' % (ppad, d, d, px))
-        elif kind < 0.79:
+        elif kind < 0.70:
             d = r.choice(BV + WV)
             n = r.randrange(0, 4)
+            if d in WV and r.random() < 0.4:
+                n = r.choice([8, 9, 15])
             op = r.choice(['<<', '>>'])
             mask = 255 if d in BV else 65535
             lathe.append('%s%s %s= %d\n' % (pad, d, op, n))
             py.append('%s%s = (%s %s %d) & %d\n' % (ppad, d, d, op, n, mask))
-        elif kind < 0.84:
+        elif kind < 0.74:
             lathe.append('%stouch()\n' % pad)
             py.append('%sb3 = (b3 + 1) & 255; w2 = (w2 ^ b0) & 65535\n' % ppad)
-        elif kind < 0.94 and depth > 0:
+        elif kind < 0.76:
+            # An asm block: what the registers held before it is not what they hold after.
+            lathe.append('%sasm\n%s  LDA #$5A\n%s  LDX #$03\n%s  LDY #$07\n%s  INC b2\n%send\n'
+                         % (pad, pad, pad, pad, pad, pad))
+            py.append('%sb2 = (b2 + 1) & 255\n' % ppad)
+        elif kind < 0.79 and inner:
+            c, pc = self.cond()
+            word = 'break'
+            if inner == 'for' and r.random() < 0.5:
+                word = 'continue'
+            lathe.append('%sif %s then\n%s  %s\n%send\n' % (pad, c, pad, word, pad))
+            py.append('%sif %s:\n%s    %s\n' % (ppad, pc, ppad, word))
+        elif kind < 0.87 and depth > 0:
             c, pc = self.cond()
             lathe.append('%sif %s then\n' % (pad, c))
             py.append('%sif %s:\n' % (ppad, pc))
-            for _ in range(r.randrange(1, 4)):
-                self.stmt(depth - 1, ind + 1, lathe, py, loops)
+            self.body(depth - 1, ind + 1, lathe, py, loops, inner, 4)
+            while r.random() < 0.3:
+                c, pc = self.cond()
+                lathe.append('%selif %s then\n' % (pad, c))
+                py.append('%selif %s:\n' % (ppad, pc))
+                self.body(depth - 1, ind + 1, lathe, py, loops, inner, 3)
             if r.random() < 0.5:
                 lathe.append('%selse\n' % pad)
                 py.append('%selse:\n' % ppad)
-                for _ in range(r.randrange(1, 3)):
-                    self.stmt(depth - 1, ind + 1, lathe, py, loops)
+                self.body(depth - 1, ind + 1, lathe, py, loops, inner, 3)
+            lathe.append('%send\n' % pad)
+        elif kind < 0.91 and depth > 0:
+            sel = psel = r.choice(BV)
+            if r.random() < 0.5:
+                sel = psel = '(%s & 3)' % r.choice(BV)
+            name = '_s%d' % ind
+            lathe.append('%scase %s\n' % (pad, sel))
+            py.append('%s%s = %s\n' % (ppad, name, psel))
+            values = r.sample([0, 1, 2, 3, 200, 255], r.randrange(1, 6))
+            first = True
+            while values:
+                some = values[:r.randrange(1, 3)]
+                values = values[len(some):]
+                lathe.append('%sof %s\n' % (pad, ', '.join(str(v) for v in some)))
+                py.append('%s%s %s in (%s,):\n' % (ppad, 'if' if first else 'elif', name,
+                                                    ', '.join(str(v) for v in some)))
+                first = False
+                self.body(depth - 1, ind + 1, lathe, py, loops, inner, 3)
+            if r.random() < 0.5:
+                lathe.append('%selse\n' % pad)
+                py.append('%selse:\n' % ppad)
+                self.body(depth - 1, ind + 1, lathe, py, loops, inner, 3)
+            lathe.append('%send\n' % pad)
+        elif kind < 0.93 and depth > 0:
+            lathe.append('%scritical\n' % pad)
+            py.append('%sif True:\n' % ppad)
+            self.body(depth - 1, ind + 1, lathe, py, loops, inner, 3)
+            lathe.append('%send\n' % pad)
+        elif depth > 0 and loops < 2 and r.random() < 0.35:
+            c = CV[loops]
+            a, b = r.randrange(0, 5), r.randrange(0, 5)
+            if r.random() < 0.5:
+                lathe.append('%sfor %s = %d to %d do\n' % (pad, c, a, b))
+                py.append('%s%s = %d\n%sfor %s in range(%d, %d):\n' % (ppad, c, a, ppad, c, a, b + 1))
+            else:
+                lathe.append('%sfor %s = %d downto %d do\n' % (pad, c, a, b))
+                py.append('%s%s = %d\n%sfor %s in range(%d, %d, -1):\n' % (ppad, c, a, ppad, c, a, b - 1))
+            self.body(depth - 1, ind + 1, lathe, py, loops + 1, 'for', 4)
             lathe.append('%send\n' % pad)
         elif depth > 0 and loops < 2:
             c = CV[loops]
@@ -516,19 +591,17 @@ class Statements:
             if r.random() < 0.5:
                 lathe.append('%s%s = %d\n%swhile %s != 0 do\n' % (pad, c, n, pad, c))
                 py.append('%s%s = %d\n%swhile %s != 0:\n' % (ppad, c, n, ppad, c))
-                for _ in range(r.randrange(1, 4)):
-                    self.stmt(depth - 1, ind + 1, lathe, py, loops + 1)
+                self.body(depth - 1, ind + 1, lathe, py, loops + 1, 'loop', 4)
                 lathe.append('%s  %s -= 1\n%send\n' % (pad, c, pad))
                 py.append('%s    %s -= 1\n' % (ppad, c))
             else:
                 lathe.append('%s%s = %d\n%sloop\n' % (pad, c, n + 1, pad))
                 py.append('%s%s = %d\n%swhile True:\n' % (ppad, c, n + 1, ppad))
-                for _ in range(r.randrange(1, 4)):
-                    self.stmt(depth - 1, ind + 1, lathe, py, loops + 1)
+                self.body(depth - 1, ind + 1, lathe, py, loops + 1, 'loop', 4)
                 lathe.append('%s  %s -= 1\n%suntil %s == 0\n' % (pad, c, pad, c))
                 py.append('%s    %s -= 1\n%s    if %s == 0:\n%s        break\n' % (ppad, c, ppad, c, ppad))
         else:
-            self.stmt(0, ind, lathe, py, loops)
+            self.stmt(0, ind, lathe, py, loops, inner)
 
 
 STATEMENT_HEAD = '''module fuzz

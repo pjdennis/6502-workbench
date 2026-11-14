@@ -95,10 +95,10 @@ convert__sign_extension
     STA convert__i
     STX convert__i+$01
     LDX #$00
-    LDA convert__s
-    BPL .L0016
+    CMP #$00
+    BPL .L0015
     DEX
-.L0016
+.L0015
     CLC
     ADC #$01
     STA convert__i
@@ -107,9 +107,9 @@ convert__sign_extension
     STA convert__i+$01
     LDX #$00
     LDA convert__s
-    BPL .L002A
+    BPL .L0029
     DEX
-.L002A
+.L0029
     STA convert__w
     STX convert__w+$01
     RTS
@@ -122,12 +122,10 @@ convert__reinterpreting
     STA convert__b
     LDA convert__w
     STA convert__i
-    LDA convert__w+$01
-    STA convert__i+$01
-    LDA convert__i
+    LDX convert__w+$01
+    STX convert__i+$01
     STA convert__w
-    LDA convert__i+$01
-    STA convert__w+$01
+    STX convert__w+$01
     RTS
 
 ; function convert.bools
@@ -213,10 +211,10 @@ convert__mixing
 
 ; variable convert.c: size 1, class 1 (either), weight 4
 
-; variable convert.s: size 1, class 1 (either), weight 6
+; variable convert.s: size 1, class 1 (either), weight 5
 
 ; variable convert.w: size 2, class 1 (either), weight 32
 
-; variable convert.i: size 2, class 1 (either), weight 20
+; variable convert.i: size 2, class 1 (either), weight 18
 
 ; variable convert.f: size 1, class 1 (either), weight 4

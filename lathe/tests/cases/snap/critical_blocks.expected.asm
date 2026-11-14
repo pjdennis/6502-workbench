@@ -7,11 +7,9 @@ critical_blocks__read_ticks
     SEI
     LDA critical_blocks__ticks
     STA critical_blocks__copy
-    LDA critical_blocks__ticks+$01
-    STA critical_blocks__copy+$01
+    LDX critical_blocks__ticks+$01
+    STX critical_blocks__copy+$01
     PLP
-    TAX
-    LDA critical_blocks__copy
     RTS
 
 ; function critical_blocks.early
@@ -52,16 +50,16 @@ critical_blocks__loops
 .L0012
     PHP
     SEI
-    LDA critical_blocks__n
-    BNE .L001E
+    CMP #$00
+    BNE .L001D
     PLP
     PLP
-    JMP .L0023
-.L001E
+    JMP .L0022
+.L001D
     PLP
     PLP
     JMP .L0002
-.L0023
+.L0022
     PLP
     RTS
 
@@ -91,6 +89,6 @@ critical_blocks__ends_with_return
 
 ; variable critical_blocks.ticks: size 2, class 1 (either), weight 6
 
-; variable critical_blocks.copy: size 2, class 1 (either), weight 3
+; variable critical_blocks.copy: size 2, class 1 (either), weight 2
 
-; variable critical_blocks.n: size 1, class 1 (either), weight 17
+; variable critical_blocks.n: size 1, class 1 (either), weight 13

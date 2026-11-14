@@ -78,7 +78,7 @@ A two-byte operation needs somewhere to put its low byte while it computes the h
 - **An operand of a larger expression** uses a word temporary as the destination.
 - `w += 1` is `INC w` / `BNE` / `INC w+1`. `w += b` with `b` a byte is an 8-bit add and `BCC` / `INC w+1`. `w -= 1` is `LDA w` / `BNE` / `DEC w+1` / `DEC w`.
 - A `byte` operand in a word operation has a high byte of constant 0, and operations with a zero operand byte are simplified as for bytes.
-- Shifts are `ASL lo` / `ROL hi` and `LSR hi` / `ROR lo`, in memory.
+- Shifts are `ASL lo` / `ROL hi` and `LSR hi` / `ROR lo`, in memory. A shift by 8 to 15 places, except a signed shift right, moves a byte instead: `w << 8` is `LDA w` / `STA` hi / `LDA #0` / `STA` lo, `w >> 8` the mirror image, and each place beyond 8 is one `ASL A` or `LSR A` on the byte that moves (`lathe/tests/cases/snap/shift_bytes.lth`).
 
 ## Comparisons and conditions
 
@@ -107,11 +107,11 @@ A two-byte operation needs somewhere to put its low byte while it computes the h
 | `loop … until c` | Label; body; test; branch on false to the label. |
 | `for i = a to b` | `i = a`; unless the test is known, skip the loop if `a > b`, with `a` the constant if it is one (`for i = 0 to n` needs no test); label; body; the point `continue` goes to; if `i == limit` exit; `INC i`; `JMP` label. The limit is copied to a temporary unless it is a constant or a plain variable, which is read at each test: a body that changes it changes the loop (this costs nothing, where a copy costs a store and a temporary in every loop). The way back is a `BNE` instead of the `JMP` where the step cannot give 0: an unsigned count up (`i` is below the limit, so never 255 or $FFFF), and a byte count down to a constant from 1 to 127. A word counts up as `INC i` / `BNE` label / `INC i+1` / `BNE` (or `JMP`) label. `downto` mirrors this with `DEC`; `downto 0` on a byte is `LDA i` / `BEQ` exit / `DEC i` / `JMP` label, and `DEC i` / `BPL` would be wrong for values above 127. |
 | `break`, `continue` | A `PLP` for each `critical` block inside the loop that it leaves; `JMP` to the exit or to the point where the next pass begins. A branch around nothing but a `JMP` is fused into one branch. |
-| `case` | The selector is loaded into A (stored in a temporary first unless it is a variable; a variable at a fixed address is copied too, since it may be a device, and so is an element, which the register memory cannot remember in A). For each `of`: `CMP #c` / `BEQ body` for each constant but the last, `CMP #c` / `BNE next` for the last; body; `JMP` end, left out after the last `of` when there is no `else`. Every way into a body and into `next` has the selector in A, so the register memory knows it there and it is reloaded only where the body before changed A. `CMP #0` just after the load is left out. |
+| `case` | The selector is loaded into A (stored in a temporary first unless it is a variable; a variable at a fixed address is copied too, since it may be a device, and so is an element, which the register memory cannot remember in A). For each `of`: `CMP #c` / `BEQ body` for each constant but the last, `CMP #c` / `BNE next` for the last; body; `JMP` end, left out after the last `of` when there is no `else`. Every way into a body and into `next` has the selector in A, so the register memory knows it there (by the rule for labels that only forward branches reach) and it is reloaded only where the body before changed A. `CMP #0` just after the load is left out. |
 | `critical` | `PHP` / `SEI`; body; `PLP`. After a `PLP` nothing is known about the flags. |
 | `return` | Result into A, A and X, or carry; a `PLP` for each `critical` block it is inside; then `RTS`, or a `JMP` to the function's exit code if it has any. `return f(…)` with matching results is `JMP f`, except inside `critical`. A status cannot be returned from inside `critical`: the `PLP` would change the carry. |
 
-A `JSR` followed directly by `RTS`, with no label between them, becomes a `JMP`.
+A `JSR` followed directly by `RTS`, with no label between them, becomes a `JMP`. When the function ends, a `JMP` to a label whose next instruction is an `RTS` becomes that `RTS` (a branch to one stays a branch; a `JMP` an `asm` block wrote stays as written). Threading a `JMP` to a `JMP` was tried and saved nothing on `lextest`.
 
 ## Calls
 
@@ -128,9 +128,11 @@ For a call between `recursive` functions the caller's frame is pushed first, the
 
 - After a load or store, the compiler remembers that A, X or Y holds a given constant or a copy of a given Variable, and that the N and Z flags reflect A.
 - A load of what a register already holds is skipped. If another register holds it, a transfer (`TAX`, `TAY`, `TXA`, `TYA`) is used.
+- A store remembers too: after `STA v`, A holds `v`. What usually spoils this is the next byte: a word copied from memory to memory goes through A twice, so its low byte is gone by the time it is used again. So the high byte of such a copy goes through X (`LDA y` / `STA x` / `LDX y+1` / `STX x+1`) when no operand is in the registers: A and X then hold the whole word, as an argument or a result wants it.
 - A store to a variable forgets every register that held a copy of a variable that might be the same memory: the same variable at an overlapping offset, any Element of the same array, and, after a store through a pointer, everything except constants.
 - What an Element or a Target holds is never remembered, but its index is: `a[i] = b[i]` loads X once, and an index that A holds is moved by `TAX` or `TAY`.
-- Everything is forgotten at a label and at a call.
+- Everything is forgotten at a call, and at a label that a later branch will reach (the top of a loop).
+- **At a label that only forward branches reach**, the compiler has seen every way in when it places the label. Each branch or `JMP` to a label still to be placed keeps what the registers hold at that point, as one of a few saved states (eight); a second branch to the same label keeps only what the two agree on, and so does joining two labels. At the label, what is known is what the saved state and the code falling in from above agree on, or the saved state alone if the code above ends in a jump or return. Only constants and copies held on every way in survive; the flags are forgotten. With no saved state free, nothing is known at that label. The common case: `CMP #$28` / `BNE` .L1 / `LDA #$05` / `RTS` / .L1: A still holds what it was compared from, so it is not loaded again. Only REG adds branches, jumps and joins outside `asm` blocks, so no way in is missed (`lathe/tests/test_reg.py`).
 
 ## Weights
 

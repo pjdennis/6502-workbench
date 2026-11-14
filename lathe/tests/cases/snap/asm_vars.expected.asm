@@ -8,12 +8,12 @@ zp_81 = $81
 ; function asm_vars.add
 ;   slot 0 amount: size 1, class 1 (either), param, weight 1
 ;   slot 1 scale: size 2, class 1 (either), param, weight 2
-;   slot 2 acc: size 2, class 1 (either), local, weight 8
+;   slot 2 acc: size 2, class 1 (either), local, weight 7
 asm_vars__add
     LDA asm_vars__add__scale
     STA asm_vars__add__acc
-    LDA asm_vars__add__scale+$01
-    STA asm_vars__add__acc+$01
+    LDX asm_vars__add__scale+$01
+    STX asm_vars__add__acc+$01
     INC asm_vars__add__calls
     CLC
     LDA asm_vars__add__acc
@@ -24,10 +24,8 @@ asm_vars__add
 .L001E
     LDA asm_vars__add__acc
     STA asm_vars__total
-    LDA asm_vars__add__acc+$01
-    STA asm_vars__total+$01
-    TAX
-    LDA asm_vars__add__acc
+    LDX asm_vars__add__acc+$01
+    STX asm_vars__total+$01
     RTS
 
 ; variable asm_vars.add.calls: size 1, class 1 (either), weight 1
@@ -38,8 +36,8 @@ asm_vars__add
 asm_vars__indirect
     LDA asm_vars__ptr
     STA asm_vars__indirect__p
-    LDA asm_vars__ptr+$01
-    STA asm_vars__indirect__p+$01
+    LDX asm_vars__ptr+$01
+    STX asm_vars__indirect__p+$01
     LDY asm_vars__indirect__index
     LDA (asm_vars__indirect__p),Y
     STA (asm_vars__ptr),Y

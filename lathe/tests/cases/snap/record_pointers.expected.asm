@@ -68,8 +68,8 @@ record_pointers__through
     STA (record_pointers__through__St2),Y
     LDA record_pointers__far
     STA record_pointers__through__St1
-    LDA record_pointers__far+$01
-    STA record_pointers__through__St1+$01
+    LDX record_pointers__far+$01
+    STX record_pointers__through__St1+$01
     LDA (record_pointers__through__St1),Y
     STA record_pointers__b
     LDA record_pointers__i
@@ -140,12 +140,12 @@ record_pointers__in_rows
     STA record_pointers__in_rows__St2+$01
     LDA record_pointers__in_rows__St2
     STA record_pointers__p
-    LDA record_pointers__in_rows__St2+$01
-    STA record_pointers__p+$01
+    LDX record_pointers__in_rows__St2+$01
+    STX record_pointers__p+$01
     LDA record_pointers__nodes+$1A
     STA record_pointers__w
-    LDA record_pointers__nodes+$1B
-    STA record_pointers__w+$01
+    LDX record_pointers__nodes+$1B
+    STX record_pointers__w+$01
     LDA record_pointers__i
     ASL
     STA record_pointers__in_rows__St1

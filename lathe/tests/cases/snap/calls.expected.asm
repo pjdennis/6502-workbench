@@ -22,8 +22,8 @@ calls__three
     STA calls__r
     LDA calls__three__q
     STA calls__w
-    LDA calls__three__q+$01
-    STA calls__w+$01
+    LDX calls__three__q+$01
+    STX calls__w+$01
     RTS
 
 ; function calls.double
@@ -106,8 +106,8 @@ calls__nested
     STA calls__three__p
     LDA calls__w
     STA calls__sum__p
-    LDA calls__w+$01
-    STA calls__sum__p+$01
+    LDX calls__w+$01
+    STX calls__sum__p+$01
     LDA #$01
     STA calls__sum__q
     LDA #$00
@@ -143,12 +143,10 @@ calls__results
     STA calls__r
     LDA calls__w
     STA calls__sum__p
-    LDA calls__w+$01
-    STA calls__sum__p+$01
-    LDA calls__w
+    LDX calls__w+$01
+    STX calls__sum__p+$01
     STA calls__sum__q
-    LDA calls__w+$01
-    STA calls__sum__q+$01
+    STX calls__sum__q+$01
     JSR calls__sum
     STA calls__w
     STX calls__w+$01
@@ -168,10 +166,10 @@ calls__results
     STA calls__double__n
     JSR calls__double
     CMP #$04
-    BNE .L005F
+    BNE .L0059
     LDA #$00
     STA calls__r
-.L005F
+.L0059
     RTS
 
 ; function calls.kept
@@ -259,6 +257,6 @@ calls__last
 
 ; variable calls.b: size 1, class 1 (either), weight 9
 
-; variable calls.w: size 2, class 1 (either), weight 18
+; variable calls.w: size 2, class 1 (either), weight 16
 
 ; variable calls.r: size 1, class 1 (either), weight 8

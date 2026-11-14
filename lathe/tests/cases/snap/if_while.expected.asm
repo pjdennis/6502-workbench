@@ -16,28 +16,25 @@ if_while__simple
 if_while__parts
     LDA if_while__a
     CMP #$01
-    BNE .L000F
+    BNE .L000D
     LDA #$0A
     STA if_while__r
-    JMP .L0032
-.L000F
-    LDA if_while__a
+    RTS
+.L000D
     CMP #$02
-    BNE .L001E
+    BNE .L0017
     LDA #$14
     STA if_while__r
-    JMP .L0032
-.L001E
-    LDA if_while__a
+    RTS
+.L0017
     CMP #$03
-    BNE .L002D
+    BNE .L0021
     LDA #$1E
     STA if_while__r
-    JMP .L0032
-.L002D
+    RTS
+.L0021
     LDA #$00
     STA if_while__r
-.L0032
     RTS
 
 ; function if_while.returns
@@ -55,16 +52,16 @@ if_while__returns
 ;   no slots
 if_while__nested
     LDA if_while__a
-    BEQ .L0017
+    BEQ .L0015
     LDA if_while__b
-    BEQ .L0012
+    BEQ .L0010
     LDA #$01
     STA if_while__r
-    JMP .L0017
-.L0012
+    RTS
+.L0010
     LDA #$02
     STA if_while__r
-.L0017
+.L0015
     RTS
 
 ; function if_while.counting
@@ -124,7 +121,7 @@ if_while__two_levels
 .L0026
     RTS
 
-; variable if_while.a: size 1, class 1 (either), weight 31
+; variable if_while.a: size 1, class 1 (either), weight 29
 
 ; variable if_while.b: size 1, class 1 (either), weight 40
 

@@ -35,22 +35,20 @@ modules__variables
 .L0017
     LDA modules__w
     STA libshared__pointer
-    LDA modules__w+$01
-    STA libshared__pointer+$01
-    LDA libshared__pointer
+    LDX modules__w+$01
+    STX libshared__pointer+$01
     STA libshared__buffer_end
-    LDA libshared__pointer+$01
-    STA libshared__buffer_end+$01
+    STX libshared__buffer_end+$01
     LDA #$01
     STA abs_d020
     LDA modules__b
     STA zp_40
-    BNE .L003B
+    BNE .L0037
     LDA #$01
-    BNE .L003D
-.L003B
+    BNE .L0039
+.L0037
     LDA #$00
-.L003D
+.L0039
     STA libshared__busy
     RTS
 
@@ -67,8 +65,8 @@ modules__calls
     JSR libshared__add
     LDA modules__w
     STA libshared__scaled__value
-    LDA modules__w+$01
-    STA libshared__scaled__value+$01
+    LDX modules__w+$01
+    STX libshared__scaled__value+$01
     LDA #$03
     STA libshared__scaled__shift
     JSR libshared__scaled

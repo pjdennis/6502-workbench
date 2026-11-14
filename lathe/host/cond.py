@@ -60,9 +60,9 @@ def opposite(branch):
 def go(branch, target):
     """Go to label `target` when `branch` would be taken."""
     if branch == ALWAYS:
-        fbuf.jump(target)
+        reg.jump(target)
     elif branch != NEVER:
-        fbuf.branch(branch, target)
+        reg.branch(branch, target)
 
 
 def joined(target, other):
@@ -70,7 +70,7 @@ def joined(target, other):
     if target == reg.NONE:
         return other
     if other != reg.NONE:
-        fbuf.join(target, other)
+        reg.join(target, other)
     return target
 
 
@@ -198,7 +198,7 @@ def value():
         no = jump_false()
         done = fbuf.new_label()
         reg.force(reg.A, 1)
-        fbuf.branch(OP_BNE, done)               # always taken: A is 1
+        reg.branch(OP_BNE, done)               # always taken: A is 1
         reg.label(no)
         reg.force(reg.A, 0)
         reg.label(done)
@@ -221,26 +221,26 @@ def carry(i):
         reg.accumulator(reg.OP_LSR)
     elif is_plain(i) and reg.op_value[i] == OP_BEQ and reg.op_flags[i] & F_COMPARED != 0:
         done = fbuf.new_label()                 # equal: the CMP has set the carry as well
-        fbuf.branch(OP_BEQ, done)
+        reg.branch(OP_BEQ, done)
         reg.implied(reg.OP_CLC)
         reg.label(done)
     elif reg.op_value[i] != OP_BCS or (reg.op_true[i] != reg.NONE and reg.op_false[i] != reg.NONE):
         yes = away(i, False)
         done = fbuf.new_label()
         reg.implied(reg.OP_CLC)
-        fbuf.branch(OP_BCC, done)               # always taken
+        reg.branch(OP_BCC, done)               # always taken
         reg.label(yes)
         reg.implied(reg.OP_SEC)
         reg.label(done)
     elif reg.op_false[i] != reg.NONE:
         done = fbuf.new_label()                 # the flag is right already, except for those
-        fbuf.branch(OP_BCS, done)               # who branched away because the answer is false
+        reg.branch(OP_BCS, done)               # who branched away because the answer is false
         reg.label(reg.op_false[i])
         reg.implied(reg.OP_CLC)
         reg.label(done)
     elif reg.op_true[i] != reg.NONE:
         done = fbuf.new_label()
-        fbuf.branch(OP_BCC, done)
+        reg.branch(OP_BCC, done)
         reg.label(reg.op_true[i])
         reg.implied(reg.OP_SEC)
         reg.label(done)
@@ -327,7 +327,7 @@ def equality(op, t):
     for k in range(0, count):
         if k == 1:
             differ = fbuf.new_label()
-            fbuf.branch(OP_BNE, differ)
+            reg.branch(OP_BNE, differ)
         compared = equal_bytes(first, second, k)
     if op == fold.EQ:
         result(OP_BEQ)
@@ -359,7 +359,7 @@ def subtract(count, signed, one_more):
         reg.alu(reg.OP_SBC, second, 1)
     if signed:
         same = fbuf.new_label()
-        fbuf.branch(OP_BVC, same)       # after an overflow the sign is the wrong way round
+        reg.branch(OP_BVC, same)       # after an overflow the sign is the wrong way round
         reg.immediate(reg.OP_EOR, SIGN_BIT)
         reg.label(same)
 

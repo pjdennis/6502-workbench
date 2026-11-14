@@ -69,7 +69,6 @@ columns__compare
     CLC
     RTS
 .L000D
-    LDX columns__i
     LDA columns__s,X
     LDX columns__j
     CMP columns__s,X
@@ -77,15 +76,15 @@ columns__compare
     LDA columns__s+$0A,X
     LDX columns__j
     SBC columns__s+$0A,X
-    BVC .L0029
+    BVC .L0026
     EOR #$80
-.L0029
-    BMI .L002E
+.L0026
+    BMI .L002B
     CLC
-    BCC .L002F
-.L002E
+    BCC .L002C
+.L002B
     SEC
-.L002F
+.L002C
     RTS
 
 ; function columns.through
@@ -138,8 +137,8 @@ columns__in_registers
     STA columns__w+$0A,X
     LDA columns__total
     STA columns__same__v
-    LDA columns__total+$01
-    STA columns__same__v+$01
+    LDX columns__total+$01
+    STX columns__same__v+$01
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
@@ -153,8 +152,8 @@ columns__in_registers
     STA columns__total+$01
     LDA columns__total
     STA columns__same__v
-    LDA columns__total+$01
-    STA columns__same__v+$01
+    LDX columns__total+$01
+    STX columns__same__v+$01
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
@@ -180,7 +179,7 @@ columns__in_registers
 
 ; variable columns.grid: size 12, class 2 (not zp), weight 3
 
-; variable columns.i: size 1, class 1 (either), weight 12
+; variable columns.i: size 1, class 1 (either), weight 11
 
 ; variable columns.j: size 1, class 1 (either), weight 7
 

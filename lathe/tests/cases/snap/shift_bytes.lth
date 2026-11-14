@@ -1,0 +1,31 @@
+; A word shifted by 8 to 15 places without a sign is a byte move, and the rest of the shifts
+; on that one byte (docs/codegen.md, "Words"); a signed shift right by 8 is shifted as before.
+module shift_bytes
+
+var v: word
+var w: word
+var b: byte
+var i: int
+var j: int
+var aw: [4]word
+var k: byte
+
+func up(x: word): word
+  return x << 8
+end
+
+func down(x: word): word
+  return (x >> 10) + 1
+end
+
+func plain()
+  w = v << 8
+  w = v >> 8
+  w = word(b) << 8
+  w <<= 9
+  w = v >> 12
+  i = j << 8
+  i = j >> 8
+  aw[k] = aw[k + 1] << 8
+  b = lo(v >> 8)
+end

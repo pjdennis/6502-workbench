@@ -459,7 +459,7 @@ class ElementsTest(support.GenTest):
         gen.constant(NUMBER, 3)
         gen.index()
         gen.store()
-        self.assertEqual(self.listing(), ['LDA g1+3', 'STA s0', 'LDA g1+13', 'STA s0+1', 'RTS'])
+        self.assertEqual(self.listing(), ['LDA g1+3', 'STA s0', 'LDX g1+13', 'STX s0+1', 'RTS'])
 
     def test_a_variable_index_and_a_constant_added_to_it(self):
         self.local(BYTE, b'n')

@@ -8,21 +8,18 @@ named_types__names
     STA named_types__b
     LDA named_types__q
     STA named_types__p
-    LDA named_types__q+$01
-    STA named_types__p+$01
-    LDA named_types__p
+    LDX named_types__q+$01
+    STX named_types__p+$01
     STA named_types__t+$01
-    LDA named_types__p+$01
-    STA named_types__t+$04
+    STX named_types__t+$04
     LDA named_types__w
     STA named_types__p
-    LDA named_types__w+$01
-    STA named_types__p+$01
+    LDX named_types__w+$01
+    STX named_types__p+$01
     CLC
-    LDA named_types__p
     ADC #$06
     TAY
-    LDA named_types__p+$01
+    TXA
     ADC #$00
     TAX
     TYA
@@ -38,8 +35,8 @@ named_types__names
     STA named_types__s+$03
     LDA named_types__s+$02
     STA named_types__names__St1
-    LDA named_types__s+$03
-    STA named_types__names__St1+$01
+    LDX named_types__s+$03
+    STX named_types__names__St1+$01
     LDA #$00
     TAY
     STA (named_types__names__St1),Y
@@ -92,13 +89,13 @@ named_types__imported
 .L0064
     LDA named_types__w
     STA named_types__it
-    LDA named_types__w+$01
-    STA named_types__it+$01
+    LDX named_types__w+$01
+    STX named_types__it+$01
     RTS
 
 ; variable named_types.b: size 1, class 1 (either), weight 3
 
-; variable named_types.p: size 2, class 1 (either), weight 8
+; variable named_types.p: size 2, class 1 (either), weight 4
 
 ; variable named_types.q: size 2, class 1 (either), weight 2
 

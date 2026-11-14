@@ -10,13 +10,12 @@ records__fields
     STA records__s+$03
     LDA records__w
     STA records__s+$04
-    LDA records__w+$01
-    STA records__s+$05
+    LDX records__w+$01
+    STX records__s+$05
     CLC
-    LDA records__s+$04
     ADC #$01
     STA records__w
-    LDA records__s+$05
+    TXA
     ADC #$00
     STA records__w+$01
     LDA #$00
@@ -59,7 +58,7 @@ records__addresses
     RTS
 
 ; function records.copy
-;   slot 0 local: size 2, class 2 (not zp), local, weight 4
+;   slot 0 local: size 2, class 2 (not zp), local, weight 2
 records__copy
     LDA records__s
     STA records__t
@@ -89,12 +88,10 @@ records__copy
     STA records__t+$0C
     LDA records__s+$02
     STA records__copy__local
-    LDA records__s+$03
-    STA records__copy__local+$01
-    LDA records__copy__local
+    LDX records__s+$03
+    STX records__copy__local+$01
     STA records__t+$02
-    LDA records__copy__local+$01
-    STA records__t+$03
+    STX records__t+$03
     RTS
 
 ; function records.compare
@@ -114,7 +111,7 @@ records__compare
 .L0018
     RTS
 
-; variable records.s: size 13, class 2 (not zp), weight 31
+; variable records.s: size 13, class 2 (not zp), weight 29
 
 ; variable records.t: size 13, class 2 (not zp), weight 19
 

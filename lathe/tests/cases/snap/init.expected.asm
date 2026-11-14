@@ -17,12 +17,11 @@ init__placements
     BNE .L0013
     INC init__quick+$01
 .L0013
-    LDA #$00
     STA abs_d020
     LDA init__slow
     STA zp_fe
-    LDA init__slow+$01
-    STA zp_ff
+    LDX init__slow+$01
+    STX zp_ff
     RTS
 
 ; function init.locals

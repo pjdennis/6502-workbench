@@ -106,12 +106,20 @@ IN_MEMORY = 4                   # as `flags`: the flags show a byte of memory, n
 COPY_COUNT = 2                      # how many bytes of memory a register is remembered to equal:
 #                                 after `x = y`, A is a copy of both
 
-reg_known = [False] * 3         # the register holds the constant reg_const
-reg_const = [0] * 3
-reg_copy = [False] * (3 * COPY_COUNT)       # entry r * COPY_COUNT + n: register r holds a copy of the
-reg_symbol = [0] * (3 * COPY_COUNT)         # byte of memory that the fix-up reg_symbol, reg_slot,
-reg_slot = [0] * (3 * COPY_COUNT)           # reg_offset reaches. The newest of a register's
-reg_offset = [0] * (3 * COPY_COUNT)         # entries is its first
+# What the registers hold is a state: state 0 is what they hold now, the others what they
+# hold on every way to a label still to be placed that has been branched to so far.
+STATES = 9
+reg_known = [False] * (3 * STATES)          # entry 3 * state + r: register r holds the
+reg_const = [0] * (3 * STATES)              # constant reg_const
+reg_copy = [False] * (3 * COPY_COUNT * STATES)  # entry (3 * state + r) * COPY_COUNT + n: register r
+reg_symbol = [0] * (3 * COPY_COUNT * STATES)    # holds a copy of the byte of memory that the fix-up
+reg_slot = [0] * (3 * COPY_COUNT * STATES)      # reg_symbol, reg_slot, reg_offset reaches. The newest
+reg_offset = [0] * (3 * COPY_COUNT * STATES)    # of a register's entries is its first
+state_busy = [False] * STATES
+NOTHING = 0                     # as fbuf.label_note: no way to the label is known yet;
+LOST = 0xFF                     # nothing is kept for it: a way to it could not be, or it is
+#                                 placed and what goes there now is a loop. 1 to STATES - 1:
+#                                 the state kept for it
 flags = NO_REG                  # the register whose value the N and Z flags show, or
 flags_symbol = 0                # IN_MEMORY for the byte that the fix-up flags_symbol,
 flags_slot = 0                  # flags_slot, flags_offset reaches: the one an INC, DEC or
@@ -160,6 +168,8 @@ def begin(symbol):
     own = symbol
     loop_depth = 0
     forget()
+    for n in range(1, STATES):
+        state_busy[n] = False
 
 
 # ---- The operand stack -------------------------------------------------------------------
@@ -831,6 +841,10 @@ def put(i, k, target, target_k):
     if op_kind[i] == O_AX and op_mode[target] == M_INDEXED:
         spill(i)
     r = holder(i, k)
+    if r == NO_REG and k == 1 and op_size[i] == 2 and op_kind[i] == O_VAR and is_direct(i) \
+            and is_direct(target) and owner == NONE:
+        load(X, i, k)                   # A may hold the byte below: keep it there
+        r = X
     if r == NO_REG or not is_direct(target):
         load(A, i, k)
         r = A
@@ -946,18 +960,121 @@ def test_byte(i, k):
 
 
 def label(target):
-    """Put a label that only earlier instructions go to here. What the registers hold is
-    still known if none does, unless the code before it could not be reached: what that
-    seemed to leave in the registers was never there."""
-    unreached = not fbuf.runs_on()
-    if fbuf.arrive(target) or unreached:
-        forget()
+    """Put a label that only earlier instructions go to here. What the registers hold there
+    is what every way in agrees on: each branch and jump to it (arrival() kept that), and the
+    code before it, unless that cannot be reached: what it seemed to leave in the registers
+    was never there. Nothing is known if a way in was not kept."""
+    global flags
+    t = fbuf.same(target)
+    s = fbuf.label_note[t]
+    fbuf.label_note[t] = LOST
+    falls = fbuf.runs_on()
+    if fbuf.arrive(target) or not falls:        # else nothing goes there: all is still known
+        if s == NOTHING or s == LOST:
+            forget()
+        elif falls:
+            meet(0, s)
+        else:
+            copy_state(s, 0)
+        flags = NO_REG
+    drop_state(s)
 
 
 def loop_label(target):
     """Put a label here that later instructions will go to."""
+    t = fbuf.same(target)
+    drop_state(fbuf.label_note[t])
+    fbuf.label_note[t] = LOST
     fbuf.place(target)
     forget()
+
+
+def arrival(target):
+    """A branch or jump to `target` is being added: keep what the registers hold now as one
+    way into it, unless it is placed already. Without room for that, nothing is known there."""
+    t = fbuf.same(target)
+    s = fbuf.label_note[t]
+    if s == NOTHING:
+        s = LOST
+        for n in range(1, STATES):
+            if not state_busy[n] and s == LOST:
+                s = n
+        fbuf.label_note[t] = s
+        if s != LOST:
+            state_busy[s] = True
+            copy_state(0, s)
+    elif s != LOST:
+        meet(s, 0)
+
+
+def branch(opcode, target):
+    """A conditional branch (or BRA) to label `target`."""
+    arrival(target)
+    fbuf.branch(opcode, target)
+
+
+def jump(target):
+    """A JMP to label `target`."""
+    arrival(target)
+    fbuf.jump(target)
+
+
+def join(target, other):
+    """Make label `other`, which has not been placed, the same place as `target`: what is
+    known there is what the ways into both agree on."""
+    t = fbuf.same(target)
+    o = fbuf.same(other)
+    first = fbuf.label_note[t]
+    second = fbuf.label_note[o]
+    fbuf.join(target, other)
+    if t == o or second == NOTHING:
+        return
+    if first == NOTHING:
+        fbuf.label_note[t] = second
+        return
+    drop_state(second)
+    if second == LOST:
+        drop_state(first)
+        fbuf.label_note[t] = LOST
+    elif first != LOST:
+        meet(first, second)
+
+
+def drop_state(s):
+    """State `s`, if it is one, is free again."""
+    if s != NOTHING and s < STATES:
+        state_busy[s] = False
+
+
+def copy_state(source, target):
+    """State `target` is what state `source` is."""
+    for r in range(0, 3):
+        reg_known[3 * target + r] = reg_known[3 * source + r]
+        reg_const[3 * target + r] = reg_const[3 * source + r]
+    for n in range(0, 3 * COPY_COUNT):
+        copy_knowledge(3 * COPY_COUNT * source + n, 3 * COPY_COUNT * target + n)
+
+
+def meet(target, other):
+    """State `target` keeps only what state `other` agrees with."""
+    for r in range(0, 3):
+        mine = 3 * target + r
+        theirs = 3 * other + r
+        if not reg_known[theirs] or reg_const[theirs] != reg_const[mine]:
+            reg_known[mine] = False
+        for n in range(mine * COPY_COUNT, mine * COPY_COUNT + COPY_COUNT):
+            if reg_copy[n] and not has_copy(theirs, n):
+                reg_copy[n] = False
+
+
+def has_copy(holder_entry, n):
+    """True if entry `holder_entry` of reg_known (a register in a state) has the copy that
+    entry `n` of the copies has."""
+    for m in range(holder_entry * COPY_COUNT, holder_entry * COPY_COUNT + COPY_COUNT):
+        if reg_copy[m] and reg_symbol[m] == reg_symbol[n] and reg_slot[m] == reg_slot[n] \
+                and reg_offset[m] == reg_offset[n]:
+            return True
+    return False
 
 
 # ---- Types of operands -------------------------------------------------------------------

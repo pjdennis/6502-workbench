@@ -202,4 +202,6 @@ A new error takes the next free number of its group.
 
 `lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not; in stage 2b, once its statements used arrays and pointers, one more (a word in A and X stored into an element whose index needs X).
 
+`lathe/tests/size_report.py [DIR]` builds `lathe/src/lextest.lth` and prints its code bytes per module and its largest functions: the measure for changes to code generation. `lathe/tests/arg_report.py DIR` reads that build's objects and counts what passing arguments in registers would save.
+
 A snapshot or end-to-end case can import modules that lie beside it, and a line `; defines NAME NAME=NUMBER ...` before its `module` line builds it with those defines. A file called `lib*.lth`, or whose first line starts with `; imported by`, is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.

@@ -1,0 +1,92 @@
+; Words shifted by 8 to 15 places, which move a byte (docs/codegen.md, "Words"): into a
+; variable, in place, into A and X for a result, in an element and through a pointer, and a
+; byte widened to a word. Signed shifts right by 8 and more keep the sign.
+module shift_bytes
+
+import libout
+
+var aw: [3]word
+var ar: [3]word rows
+
+func up(x: word, n: byte): word
+  case n
+  of 8
+    return x << 8
+  of 9
+    return x << 9
+  of 12
+    return x << 12
+  end
+  return x << 15
+end
+
+func down(x: word, n: byte): word
+  case n
+  of 8
+    return x >> 8
+  of 9
+    return x >> 9
+  of 12
+    return x >> 12
+  end
+  return x >> 15
+end
+
+func signed_down(x: int): int
+  return x >> 9
+end
+
+pub func main()
+  var w: word
+  var b: byte
+  var p: ^word
+  var n: byte
+  var k: byte
+  for n = 8 to 15 do
+    if n == 8 or n == 9 or n == 12 or n == 15 then
+      libout.hexw(up($A5C3, n))
+      libout.space()
+      libout.hexw(down($A5C3, n))
+      libout.space()
+    end
+  end
+  libout.nl()
+  w = $1234
+  w <<= 8
+  libout.hexw(w)
+  libout.space()
+  w = $8765
+  w >>= 10
+  libout.hexw(w)
+  libout.space()
+  b = $9C
+  w = word(b) << 8
+  libout.hexw(w)
+  libout.space()
+  w = word(b) << 13
+  libout.hexw(w)
+  libout.space()
+  libout.hexw(word(signed_down(-1000)))
+  libout.nl()
+  aw[0] = $1111
+  aw[1] = $ABCD
+  aw[2] = $2222
+  k = 0
+  aw[k] = aw[k + 1] << 8
+  aw[k + 2] = aw[1] >> 11
+  libout.hexw(aw[0])
+  libout.space()
+  libout.hexw(aw[1])
+  libout.space()
+  libout.hexw(aw[2])
+  libout.space()
+  ar[0] = $FEDC
+  ar[1] = $0F0F
+  p = @ar[0]
+  p[1] = p[0] >> 8
+  p[0] <<= 9
+  libout.hexw(ar[0])
+  libout.space()
+  libout.hexw(ar[1])
+  libout.nl()
+end

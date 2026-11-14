@@ -331,7 +331,7 @@ def if_statement():
         if fbuf.runs_on():
             if done == reg.NONE:
                 done = fbuf.new_label()
-            fbuf.jump(done)
+            reg.jump(done)
         reg.label(skip)
         if lex.tok == lex.T_ELSE:
             lex.next()
@@ -361,7 +361,7 @@ def while_statement():
     body()
     end_of_block()
     if fbuf.runs_on():
-        fbuf.jump(top)
+        reg.jump(top)
     reg.label(exit_label)
     gen.loop_end()
     exit_label = saved_exit
@@ -388,12 +388,12 @@ def loop_statement():
     if lex.tok == lex.T_UNTIL:
         lex.next()
         reg.label(next_label)
-        fbuf.join(top, test())          # when the test is false: round again
+        reg.join(top, test())          # when the test is false: round again
     else:
         end_of_block()
-        fbuf.join(top, next_label)
+        reg.join(top, next_label)
         if fbuf.runs_on():
-            fbuf.jump(top)
+            reg.jump(top)
     reg.label(exit_label)
     gen.loop_end()
     exit_label = saved_exit
@@ -453,12 +453,12 @@ def step_back(s, down, limit, top):
     else:
         reg.modify(reg.OP_INC, i, 0)
         if size == 2:
-            fbuf.branch(gen.OP_BNE, top)
+            reg.branch(gen.OP_BNE, top)
             reg.modify(reg.OP_INC, i, 1)
     if back:
-        fbuf.branch(gen.OP_BNE, top)
+        reg.branch(gen.OP_BNE, top)
     else:
-        fbuf.jump(top)
+        reg.jump(top)
     reg.pop()
 
 
@@ -512,7 +512,7 @@ def for_statement():
     end_of_block()
     reg.label(next_label)
     push_variable(s)
-    fbuf.join(exit_label, compare_limit(limit, fold.NE))
+    reg.join(exit_label, compare_limit(limit, fold.NE))
     step_back(s, down, limit, top)
     gen.loop_end()
     reg.label(exit_label)
@@ -548,17 +548,10 @@ def case_constants(selector, chosen, base):
         if lex.tok != lex.T_COMMA:
             break
         lex.next()
-        fbuf.branch(gen.OP_BEQ, chosen)
+        reg.branch(gen.OP_BEQ, chosen)
     other = fbuf.new_label()
-    fbuf.branch(gen.OP_BNE, other)
+    reg.branch(gen.OP_BNE, other)
     return other
-
-
-def arrive_with(target, selector):
-    """Put label `target` here, where every way in has the selector, operand `selector`, in A."""
-    reg.label(target)
-    if reg.op_kind[selector] == reg.O_VAR:
-        reg.remember(reg.A, selector, 0)
 
 
 def case_statement():
@@ -594,14 +587,14 @@ def case_statement():
         chosen = fbuf.new_label()
         other = case_constants(selector, chosen, base)
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
-        arrive_with(chosen, selector)
+        reg.label(chosen)               # the selector is in A on every way in
         body()
         if lex.tok == lex.T_END:
             reg.label(other)            # the body runs on to here: A may hold anything
         else:
             if fbuf.runs_on():
-                fbuf.jump(done)
-            arrive_with(other, selector)
+                reg.jump(done)
+            reg.label(other)
     if lex.tok == lex.T_ELSE:
         lex.next()
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -664,7 +657,7 @@ def jump_statement(target):
         err.fatal(err.E_NO_LOOP)
     lex.next()
     restore_flags(critical_inner)
-    fbuf.jump(target)
+    reg.jump(target)
 
 
 def status():

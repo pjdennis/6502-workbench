@@ -47,6 +47,7 @@ I_BRANCH = 3                # opcode, label: a branch taken to reach, until show
 I_FAR = 4                   # opcode, label: a branch that does not reach
 I_JUMP = 5                  # label: a JMP to a label
 I_LABEL = 6                 # label: the label is here
+I_KEPT_JUMP = 7             # label: a JMP an `asm` block wrote, kept as it is
 I_FIX = 8                   # I_FIX + fix-up kind: opcode, symbol (2), slot, addend (2)
 
 OP_JSR = 0x20
@@ -68,6 +69,7 @@ written = False                         # True while an `asm` block is written: 
 label_offset = [0] * MAX_LABELS         # where each label is in the written layout
 label_alias = [0] * MAX_LABELS          # the label this one was joined to, or itself
 label_uses = [0] * MAX_LABELS           # how many branches and jumps go to it
+label_note = bytearray(MAX_LABELS)      # kept for REG: what it knows of the ways to it
 label_count = 0
 temp_base = 0                           # the slot number the first temporary gets
 
@@ -164,6 +166,7 @@ def new_label():
     label_offset[label_count] = UNPLACED
     label_alias[label_count] = label_count
     label_uses[label_count] = 0
+    label_note[label_count] = 0
     label_count += 1
     return label_count - 1
 
@@ -260,7 +263,10 @@ def branch(opcode, label):
 def jump(label):
     """A JMP to `label`."""
     label_uses[same(label)] += 1
-    add_entry(I_JUMP)
+    if written:
+        add_entry(I_KEPT_JUMP)
+    else:
+        add_entry(I_JUMP)
     add(label)
 
 
@@ -298,7 +304,7 @@ def runs_on():
     entry is not known, a branch has just been taken out, which could be reached."""
     if used == 0 or newest >= used or buffer[newest] == I_LABEL:
         return True
-    if buffer[newest] == I_JUMP:
+    if buffer[newest] == I_JUMP or buffer[newest] == I_KEPT_JUMP:
         return False
     opcode = buffer[newest + 1]
     return opcode != OP_RTS and opcode != OP_JMP and opcode != OP_BRA and opcode != OP_RTI \
@@ -306,6 +312,26 @@ def runs_on():
 
 
 # ---- Settling the layout -----------------------------------------------------------------
+
+def thread():
+    """A JMP to an RTS becomes an RTS, which is shorter. A JMP an `asm` block wrote is left as
+    it is. label_offset holds where in the buffer each label is until layout() is first run."""
+    entry = 0
+    while entry < used:
+        if buffer[entry] == I_LABEL:
+            label_offset[buffer[entry + 1]] = entry
+        entry += entry_size(buffer[entry])
+    entry = 0
+    while entry < used:
+        if buffer[entry] == I_JUMP:
+            goal = label_offset[same(buffer[entry + 1])]
+            while goal < used and buffer[goal] == I_LABEL:
+                goal += 2
+            if goal < used and buffer[goal] == I_PLAIN and buffer[goal + 1] == OP_RTS:
+                buffer[entry] = I_PLAIN
+                buffer[entry + 1] = OP_RTS
+        entry += entry_size(buffer[entry])
+
 
 def entry_size(kind):
     """Bytes of buffer an entry of this kind takes."""
@@ -412,7 +438,7 @@ def emit_entry(entry, own):
     kind = buffer[entry]
     if kind == I_LABEL:
         return
-    if kind == I_JUMP:
+    if kind == I_JUMP or kind == I_KEPT_JUMP:
         emit_jump(own, target(buffer[entry + 1]))
         return
     opcode = buffer[entry + 1]
@@ -446,6 +472,7 @@ def finish(own, base):
     `code` and the fix-ups. Its temporaries get the slot numbers from `base` on."""
     global code_length, fix_count, temp_base
     temp_base = base
+    thread()
     while True:
         size = layout()
         if not widen():

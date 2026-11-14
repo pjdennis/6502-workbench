@@ -594,3 +594,49 @@ class CapacityTest(FbufTest):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ThreadTest(FbufTest):
+    """At the end of the function, a JMP to an RTS becomes an RTS."""
+
+    def test_a_jump_to_a_return_becomes_a_return_whatever_labels_are_between(self):
+        done, also, other = fbuf.new_label(), fbuf.new_label(), fbuf.new_label()
+        fbuf.branch(BNE, other)
+        fbuf.op(NOP)
+        fbuf.jump(done)
+        fbuf.place(other)
+        fbuf.op(NOP)
+        fbuf.place(done)
+        fbuf.place(also)
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([BNE, 2, NOP, RTS, NOP, RTS]))
+
+    def test_a_backward_jump_to_a_return_too(self):
+        back, other = fbuf.new_label(), fbuf.new_label()
+        fbuf.branch(BEQ, other)
+        fbuf.place(back)
+        fbuf.op(RTS)
+        fbuf.place(other)
+        fbuf.op(NOP)
+        fbuf.jump(back)
+        self.assertEqual(code(), bytes([BEQ, 1, RTS, NOP, RTS]))
+
+    def test_a_branch_to_a_return_and_a_jump_to_anything_else_stay(self):
+        done, loop = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(loop)
+        fbuf.op(NOP)
+        fbuf.branch(BEQ, done)
+        fbuf.op(NOP)
+        fbuf.jump(loop)
+        fbuf.place(done)
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([NOP, BEQ, 4, NOP, JMP, 0, 0, RTS]))
+
+    def test_a_jump_an_asm_block_wrote_stays(self):
+        done = fbuf.new_label()
+        fbuf.as_written(True)
+        fbuf.jump(done)
+        fbuf.place(done)
+        fbuf.op(RTS)
+        fbuf.as_written(False)
+        self.assertEqual(code(), bytes([JMP, 0, 0, RTS]))

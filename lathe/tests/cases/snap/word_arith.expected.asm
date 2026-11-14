@@ -126,21 +126,21 @@ word_arith__with_constant
     STA word_arith__x+$01
     LDA #$00
     STA word_arith__x
-    LDA word_arith__y+$01
-    STA word_arith__x+$01
+    LDX word_arith__y+$01
+    STX word_arith__x+$01
     LDA word_arith__y
     STA word_arith__x
     LDA #$00
     STA word_arith__x+$01
     LDA word_arith__y
     STA word_arith__x
-    LDA word_arith__y+$01
+    TXA
     ORA #$80
     STA word_arith__x+$01
     LDA word_arith__y
     EOR #$FF
     STA word_arith__x
-    LDA word_arith__y+$01
+    TXA
     EOR #$FF
     STA word_arith__x+$01
     RTS
@@ -163,12 +163,11 @@ word_arith__in_place
     INC word_arith__x+$01
 .L0022
     SEC
-    LDA word_arith__x
     SBC word_arith__b
     STA word_arith__x
-    BCS .L0031
+    BCS .L002E
     DEC word_arith__x+$01
-.L0031
+.L002E
     CLC
     LDA word_arith__x+$01
     ADC #$01
@@ -232,9 +231,9 @@ word_arith__of_result
     STA word_arith__x+$01
     RTS
 
-; variable word_arith.x: size 2, class 1 (either), weight 59
+; variable word_arith.x: size 2, class 1 (either), weight 58
 
-; variable word_arith.y: size 2, class 1 (either), weight 40
+; variable word_arith.y: size 2, class 1 (either), weight 38
 
 ; variable word_arith.z: size 2, class 1 (either), weight 12
 

@@ -240,6 +240,173 @@ class RegisterMemoryTest(RegTest):
                                           'STY g5', 'RTS'])
 
 
+class ArrivalTest(RegTest):
+    """What is known at a label that only forward branches reach: what every way in agrees on."""
+
+    def test_what_the_branch_and_the_code_before_agree_on_is_kept(self):
+        v = self.memory(BYTE)
+        skip = fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.load_const(X, 4)
+        reg.branch(0xF0, skip)
+        reg.implied(reg.OP_CLC)
+        reg.label(skip)
+        reg.load(A, v, 0)
+        reg.load_const(X, 4)
+        self.assertEqual(self.listing(), ['LDA g5', 'LDX #$04', 'BEQ @8', 'CLC', 'RTS'])
+
+    def test_a_value_that_differs_on_two_ways_in_is_forgotten(self):
+        v, w = self.memory(BYTE, 5), self.memory(BYTE, 6)
+        skip = fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.load_const(X, 4)
+        reg.branch(0xF0, skip)
+        reg.load(A, w, 0)
+        reg.load_const(X, 5)
+        reg.label(skip)
+        reg.load(A, v, 0)
+        reg.load_const(X, 5)
+        self.assertEqual(self.listing(), ['LDA g5', 'LDX #$04', 'BEQ @12', 'LDA g6', 'LDX #$05',
+                                          'LDA g5', 'LDX #$05', 'RTS'])
+
+    def test_a_copy_must_be_on_every_way_in_and_the_flags_are_forgotten(self):
+        v, w = self.memory(BYTE, 5), self.memory(BYTE, 6)
+        skip = fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.store(A, w, 0)
+        reg.branch(0xF0, skip)
+        reg.load(A, w, 0)               # held already: A is a copy of both
+        reg.load_const(Y, 1)
+        reg.store(Y, v, 0)              # v changes: A is no longer a copy of it
+        reg.label(skip)
+        reg.load(A, w, 0)
+        reg.load(A, v, 0)
+        reg.test(A)
+        self.assertEqual(self.listing(), ['LDA g5', 'STA g6', 'BEQ @13', 'LDY #$01', 'STY g5',
+                                          'LDA g5', 'RTS'])
+
+    def test_after_code_that_cannot_be_reached_the_branches_alone_count(self):
+        v, w = self.memory(BYTE, 5), self.memory(BYTE, 6)
+        skip = fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.branch(0xF0, skip)
+        fbuf.op(fbuf.OP_RTS)
+        reg.load(A, w, 0)               # never run, and never loaded
+        reg.label(skip)
+        reg.load(A, v, 0)
+        reg.load(A, w, 0)
+        self.assertEqual(self.listing(), ['LDA g5', 'BEQ @6', 'RTS', 'LDA g6', 'RTS'])
+
+    def test_a_jump_and_a_branch_both_count(self):
+        v = self.memory(BYTE)
+        done, other = fbuf.new_label(), fbuf.new_label()
+        reg.load_const(A, 1)
+        reg.branch(0xF0, other)
+        reg.jump(done)
+        reg.label(other)
+        reg.load(A, v, 0)
+        reg.label(done)
+        reg.load_const(A, 1)
+        self.assertEqual(self.listing(), ['LDA #$01', 'BNE @7', 'LDA g5', 'LDA #$01', 'RTS'])
+
+    def test_joined_labels_keep_what_the_ways_into_both_agree_on(self):
+        v = self.memory(BYTE)
+        first, second = fbuf.new_label(), fbuf.new_label()
+        reg.load_const(A, 1)
+        reg.load_const(X, 2)
+        reg.branch(0xF0, first)
+        reg.load_const(X, 3)
+        reg.branch(0xF0, second)
+        reg.join(first, second)
+        reg.load(A, v, 0)
+        fbuf.op(fbuf.OP_RTS)
+        reg.label(first)
+        reg.load_const(A, 1)
+        reg.load_const(X, 2)
+        self.assertEqual(self.listing(), ['LDA #$01', 'LDX #$02', 'BEQ @14', 'LDX #$03', 'BEQ @14',
+                                          'LDA g5', 'RTS', 'LDX #$02', 'RTS'])
+
+    def test_a_branch_back_to_a_loop_keeps_nothing_and_the_loop_knows_nothing(self):
+        v = self.memory(BYTE)
+        top = fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.loop_label(top)
+        reg.load(A, v, 0)
+        reg.branch(0xD0, top)
+        self.assertEqual(fbuf.label_note[top], reg.LOST)
+        self.assertEqual(self.listing(), ['LDA g5', 'LDA g5', 'BNE @3', 'RTS'])
+
+    def test_a_label_joined_to_a_placed_loop_label_keeps_nothing(self):
+        top, later = fbuf.new_label(), fbuf.new_label()
+        reg.loop_label(top)
+        reg.load_const(A, 1)
+        reg.branch(0xD0, later)
+        reg.join(top, later)
+        self.assertEqual(fbuf.label_note[fbuf.same(later)], reg.LOST)
+        self.assertNotIn(True, reg.state_busy[1:])
+
+    def test_without_room_for_another_label_nothing_is_known_there(self):
+        labels = [fbuf.new_label() for _ in range(reg.STATES)]
+        reg.load_const(A, 7)
+        for n in labels:
+            reg.branch(0xF0, n)
+        self.assertEqual(fbuf.label_note[labels[-1]], reg.LOST)
+        reg.implied(reg.OP_CLC)
+        for n in labels[:-1]:
+            reg.label(n)
+        self.assertNotIn(True, reg.state_busy[1:])
+        reg.load_const(A, 7)
+        reg.label(labels[-1])
+        reg.load_const(A, 7)
+        listing = self.listing()
+        self.assertEqual(listing[0], 'LDA #$07')
+        self.assertEqual(listing[-3:], ['CLC', 'LDA #$07', 'RTS'])
+
+    def test_a_branch_round_a_jump_that_is_fused_still_arrives_with_what_it_knew(self):
+        # BNE skip / JMP far / skip: becomes BEQ far / skip:, which runs on into skip.
+        v = self.memory(BYTE)
+        skip, far = fbuf.new_label(), fbuf.new_label()
+        reg.load(A, v, 0)
+        reg.branch(0xD0, skip)
+        reg.jump(far)
+        reg.label(skip)
+        reg.load(A, v, 0)
+        reg.label(far)
+        reg.load(A, v, 0)
+        self.assertEqual(self.listing(), ['LDA g5', 'BEQ @5', 'RTS'])
+
+    def test_only_reg_adds_branches_jumps_and_joins_outside_asm_blocks(self):
+        # A branch added past REG would arrive at a label with nothing kept for it.
+        host = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'host')
+        for name in sorted(os.listdir(host)):
+            if name.endswith('.py') and name not in ('fbuf.py', 'reg.py', 'asmblock.py'):
+                with open(os.path.join(host, name)) as f:
+                    text = f.read()
+                for call in ('fbuf.branch(', 'fbuf.jump(', 'fbuf.join(', 'fbuf.place(', 'fbuf.arrive('):
+                    self.assertNotIn(call, text, name)
+
+
+class WordCopyTest(RegTest):
+    def test_the_high_byte_of_a_word_copy_goes_through_x_so_a_keeps_the_low_byte(self):
+        v, w = self.memory(WORD, 5), self.memory(WORD, 6)
+        reg.put(v, 0, w, 0)
+        reg.put(v, 1, w, 1)
+        reg.load(A, w, 0)
+        reg.load(X, v, 1)
+        self.assertEqual(self.listing(), ['LDA g5', 'STA g6', 'LDX g5+1', 'STX g6+1', 'RTS'])
+
+    def test_not_while_an_operand_is_in_the_registers_nor_for_a_widened_byte(self):
+        v, w = self.memory(WORD, 5), self.memory(WORD, 6)
+        reg.push_register(BYTE)
+        reg.put(v, 1, w, 1)
+        reg.pop()
+        b = self.memory(BYTE, 7)
+        reg.op_type[b] = WORD
+        reg.put(b, 1, w, 1)
+        listing = self.listing()
+        self.assertEqual(listing[1:], ['LDA g5+1', 'STA g6+1', 'LDA #$00', 'STA g6+1', 'RTS'])
+
+
 class FlagsTest(RegTest):
     def test_no_compare_with_zero_after_a_load_of_that_register(self):
         v = self.memory(BYTE)
