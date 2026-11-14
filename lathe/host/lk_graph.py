@@ -4,7 +4,10 @@ build() does the linker's steps between reading and allocating:
 
 1. Contexts. Context 0 is the main program, rooted at main and at every module's `$init`
    (lk_boot); every interrupt function is the root of a context of its own. A function gets one
-   bit in fn_ctx per context that reaches it; a function with no bit is dropped.
+   bit in fn_ctx per context that reaches it; a function with no bit is dropped. A function
+   whose address is taken by constant data or by a kept function is kept too: if nothing else
+   reaches it, it is a further root of context 0. So no address in the image is that of a
+   function the linker dropped.
 2. Pointer classes. A class is live if some kept function calls through it, and all those
    calls must be in one context. Its block's parameters take the strictest zero page class and
    the summed weight of its members' parameters.
@@ -85,6 +88,20 @@ def reach(root, ctx):
             e = lk_tab.edge_next[e - 1]
 
 
+def keep_addresses():
+    """Reach, from context 0, every function whose address something kept takes and nothing
+    reached. What such a function takes is then kept too, so go round until nothing changes."""
+    changed = True
+    while changed:
+        changed = False
+        for i in range(0, lk_tab.adr_count):
+            source = lk_tab.adr_from[i]
+            f = lk_sym.sym_a[lk_tab.adr_to[i]]
+            if lk_tab.fn_ctx[f] == 0 and (source == lk_tab.NONE or lk_tab.fn_ctx[source] != 0):
+                reach(lk_tab.adr_to[i], 0)
+                changed = True
+
+
 def find_contexts(main_sym):
     """Number the contexts and mark what each reaches."""
     reach(main_sym, 0)
@@ -98,6 +115,7 @@ def find_contexts(main_sym):
                 lk_err.fail(lk_err.E_CONTEXTS)
             reach(lk_tab.fn_sym[f], lk_tab.ctx_count)
             lk_tab.ctx_count += 1
+    keep_addresses()
 
 
 # ---- pointer classes

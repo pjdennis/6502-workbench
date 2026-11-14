@@ -296,15 +296,26 @@ class FixUps(ErrorTest):
         self.assertEqual(link([o], ENV).errors,
                          'link error 31: call of a function that was not linked: t.f, t.main\n')
 
-    def test_address_of_a_dropped_function_is_zero(self):
+    def test_the_address_of_a_function_keeps_it(self):
+        # Nothing calls f, but main takes its address: f is kept, so the address is real.
         o = Obj('t')
         f = o.f('f')
         o.func('main', o.code().byte(0xA9, 2, f).byte(0xA2, 3, f).raw(0x60))
         o.func('f', b'\x60')
         o.data('$1', b'\0\0', fixes=[(0, 1, f, 0xFF, 0)])
         r = link([o], ENV)
-        self.assertEqual(r.code('t.main'), bytes.fromhex('A900 A200 60'))
-        self.assertEqual(r.at(r.addr('D', 't.$1'), 2), b'\0\0')
+        self.assertEqual(r.addr('F', 't.f'), 0x020A)
+        self.assertEqual(r.code('t.main'), bytes.fromhex('A90A A202 60'))
+        self.assertEqual(r.at(r.addr('D', 't.$1'), 2), b'\x0a\x02')
+
+    def test_but_a_jsr_without_a_call_record_keeps_nothing_in_another_context(self):
+        o = Obj('t')
+        f = o.f('f')
+        o.func('main', o.code().byte(0xA9, 2, f).raw(0x60))
+        o.func('irq', o.code().abs(0x20, f).raw(0x40), flags=INTERRUPT)
+        o.func('f', b'\x60')
+        self.assertEqual(link([o], ENV).errors,
+                         'link error 31: call of a function that was not linked: t.f, t.irq\n')
 
     def test_vector_overwritten_by_code(self):
         o = Obj('t')
@@ -418,6 +429,18 @@ class Capacities(ErrorTest):
         for i in range(1025):
             o.var('v%d' % i, 1)
         self.assertEqual(link([o], ENV).errors, 'link error 36: too many variables and constants\n')
+
+    def test_addresses_taken(self):
+        # Each record notes a function once; 35 records naming the same 30 is 1050 notes.
+        o = simple()
+        names = ['f%d' % i for i in range(30)]
+        for name in names:
+            o.func(name, b'\x60')
+        fixes = [(2 * i, 1, o.f(name), 0xFF, 0) for i, name in enumerate(names)]
+        for i in range(35):
+            o.data('$%d' % i, bytes(60), fixes=fixes)
+        self.assertEqual(link([o], ENV).errors,
+                         'link error 38: too many functions whose address a fix-up takes\n')
 
 
 if __name__ == '__main__':

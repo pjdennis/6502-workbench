@@ -8,7 +8,9 @@
         Program mode: one asm17 source for the whole program. Assembled (asm/pyasm.py or asm17)
         it gives the image the linker gives: code start to $FFFF, reset vector at $FFFC.
         $start and $init are written as the linker makes them (object-format.md, "Initial
-        values and start-up"), labelled Sstart and Sinit.
+        values and start-up"), labelled Sstart and Sinit. Each copy of a function that the
+        map lists (mod.f, mod.f@1, ...) is rendered as a function of its own, label mod__fX401,
+        whose references resolve to the copies of its own context (class Copies).
 
 Names: symbol mod.name is label mod__name; slot s of mod.f is mod__f__s; parameter n of class
 mod.c is mod__c__pN (CLAS records carry no parameter names); a label inside a function is .L
@@ -179,37 +181,139 @@ class Program:
         return d[1] if d and isinstance(d[1], lo.Func) else None
 
 
+class Copies:
+    """The function copies a map lists, and which copy each reference means, by the linker's
+    rules (code-model.md, "Interrupts"; lathe/host/lk_fix.py, target):
+
+    - A call (JSR or JMP absolute) goes to the callee's copy in the caller's own context.
+    - A slot of a function that has a copy in the referring copy's context is that copy's slot.
+    - Any other reference to a function, and every reference from constant data, means the copy
+      its address stands for: the one in the context that calls through the function's pointer
+      class, or else its first copy (the lowest context that has it).
+    - Variables, constant data and class parameters exist once and are never copied.
+    """
+
+    def __init__(self, funcs, program):
+        self.names = {}            # function -> {context: name of its copy in the map}
+        for e in funcs:
+            self.names.setdefault(e.base(), {})[e.context] = e.name
+        # Classes that share a member are one class; a class is live in the contexts whose
+        # kept functions call through it.
+        self.rep = {}
+        self.member_of = {}
+        for m in program.modules:
+            for x in m.of_type(lo.Memb):
+                k, f = self.find(m.sym_name(x.cls)), m.sym_name(x.func)
+                if f in self.member_of:
+                    other = self.find(self.member_of[f])
+                    if other != k:
+                        self.rep[other] = k
+                else:
+                    self.member_of[f] = k
+        self.live = {}
+        for base, copies in self.names.items():
+            d = program.defs.get(base)
+            if d is None or not isinstance(d[1], lo.Func):
+                continue
+            m, f = d
+            for c in f.calls:
+                if c.flags & lo.C_POINTER:
+                    self.live.setdefault(self.find(m.sym_name(c.callee)), set()).update(copies)
+
+    def find(self, k):
+        while self.rep.get(k, k) != k:
+            k = self.rep[k]
+        return k
+
+    def in_context(self, name, ctx):
+        """The copy of function `name` for context ctx, or None."""
+        return self.names.get(name, {}).get(ctx)
+
+    def address_copy(self, name):
+        """The copy that @name means, or None if the function was not kept."""
+        copies = self.names.get(name)
+        if not copies:
+            return None
+        k = self.member_of.get(name)
+        ctxs = self.live.get(self.find(k)) if k is not None else None
+        if ctxs and len(ctxs) == 1 and min(ctxs) in copies:
+            return copies[min(ctxs)]
+        return copies[min(copies)]
+
+
+# Renderer.ref says what a fix-up stands for: ('label', offset), ('item', name),
+# ('slot', function or copy, number, slot name or None) or ('param', class, number).
+
 class Renderer:
-    def __init__(self, program):
+    def __init__(self, program, copies=None):
         self.program = program
+        self.copies = copies       # program mode: a Copies; module mode: None
         self.equates = {}          # name -> value, for literal operands
 
-    def target_text(self, m, fx, current):
+    def slot_name(self, m, fn, number):
+        f = self.program.func(fn)
+        if f is None:
+            return None
+        if number >= len(f.slots):
+            raise RenderError(f'{m.name}: fix-up names slot {number} of {fn}, '
+                              f'which has {len(f.slots)} slots')
+        return f.slots[number].name
+
+    def ref(self, m, fx, current, ctx=None, call=False):
+        """What fix-up fx of module m stands for, seen from function `current` (None for
+        constant data) in context ctx; `call` says the instruction is a JSR or JMP absolute."""
         s = m.symbols[fx.sym]
         if s.kind == lo.K_FUNC and fx.slot == lo.NO_SLOT:
-            if current is not None and fx.sym == current.sym:
-                return local_label(fx.addend)
-            return with_addend(mangle(s.name), fx.addend)
+            # A function's fix-up to itself is a label, except a one-byte part of its own
+            # address, which like any @f may mean another context's copy.
+            own = current is not None and fx.sym == current.sym
+            if own and (self.copies is None or fx.kind == lo.FX_WORD or fx.addend != 0):
+                return ('label', fx.addend)
+            return ('item', self.copy_of(m, s.name, ctx, call))
         if s.kind == lo.K_FUNC:
-            f = self.program.func(s.name)
-            if f is not None:
-                if fx.slot >= len(f.slots):
-                    raise RenderError(f'{m.name}: fix-up names slot {fx.slot} of {s.name}, '
-                                      f'which has {len(f.slots)} slots')
-                text = slot_label(s.name, f.slots[fx.slot].name)
-            else:
-                text = f'{mangle(s.name)}__{fx.slot}'
-            return with_addend(text, fx.addend)
+            copy = s.name
+            if self.copies is not None:
+                copy = (self.copies.in_context(s.name, ctx) if ctx is not None else None) \
+                    or self.copies.address_copy(s.name)
+                if copy is None:
+                    raise RenderError(f'{m.name}: {s.name} slot {fx.slot} is not in the map')
+            return ('slot', copy, fx.slot, self.slot_name(m, s.name, fx.slot))
         if s.kind == lo.K_CLASS:
-            return with_addend(param_label(s.name, fx.slot), fx.addend)
-        return with_addend(mangle(s.name), fx.addend)
+            return ('param', s.name, fx.slot)
+        return ('item', s.name)
+
+    def copy_of(self, m, name, ctx, call):
+        """The copy of function `name` that a reference to its entry means."""
+        if self.copies is None:
+            return name
+        if call and ctx is not None:
+            copy = self.copies.in_context(name, ctx)
+            if copy is None:
+                raise RenderError(f'{m.name}: call of {name}, which has no copy for context {ctx}')
+            return copy
+        copy = self.copies.address_copy(name)
+        if copy is None:
+            raise RenderError(f'{m.name}: {name} is not in the map')
+        return copy
+
+    def target_text(self, m, fx, current, ctx=None, call=False):
+        r = self.ref(m, fx, current, ctx, call)
+        if r[0] == 'label':
+            return local_label(r[1])
+        if r[0] == 'slot':
+            _, copy, number, name = r
+            text = slot_label(copy, name) if name is not None else f'{mangle(copy)}__{number}'
+            return with_addend(text, fx.addend)
+        if r[0] == 'param':
+            return with_addend(param_label(r[1], r[2]), fx.addend)
+        return with_addend(mangle(r[1]), fx.addend)
 
     def literal(self, value, width):
         name = f'abs_{value:04x}' if width == 2 else f'zp_{value:02x}'
         self.equates[name] = value
         return name
 
-    def instruction(self, m, x, current):
+    def instruction(self, m, x, current, ctx=None):
         mn, mode = x.mnemonic, x.mode
         if mode == cpu6502.IMP:
             return f'{INDENT}{mn}'
@@ -217,7 +321,7 @@ class Renderer:
             return f'{INDENT}{mn} {local_label(x.target)}'
         width = x.length - 1
         if x.fix is not None:
-            e = self.target_text(m, x.fix, current)
+            e = self.target_text(m, x.fix, current, ctx, is_call(x))
             if x.fix.kind == lo.FX_LO:
                 e = '<' + e
             elif x.fix.kind == lo.FX_HI:
@@ -234,17 +338,20 @@ class Renderer:
             return f'{INDENT}{mn} #{e}'
         return f'{INDENT}{mn} {_mode_text(mode, e)}'
 
-    def function(self, m, f, comment=True):
+    def function(self, m, f, comment=True, copy=None, ctx=None):
+        """The text of function f; in program mode, of its copy named `copy`, for context ctx."""
         lines = []
         name = m.sym_name(f.sym)
         if comment:
             lines += function_comment(m, f)
+            if copy is not None and ctx:
+                lines.append(f';   this copy is for context {ctx}')
         ins, labels = decode_function(m, f)
-        lines.append(mangle(name))
+        lines.append(mangle(copy or name))
         for x in ins:
             if x.offset in labels:
                 lines.append(local_label(x.offset))
-            lines.append(self.instruction(m, x, f))
+            lines.append(self.instruction(m, x, f, ctx))
         if len(f.code) in labels:
             lines.append(local_label(len(f.code)))
         return lines
@@ -281,6 +388,11 @@ class Renderer:
     def equate_lines(self):
         return [f'{n} = ${v:02X}' if n.startswith('zp_') else f'{n} = ${v:04X}'
                 for n, v in sorted(self.equates.items())]
+
+
+def is_call(x):
+    """A JSR or JMP absolute: the linker sends it to the callee's copy in the caller's context."""
+    return x.mode == cpu6502.ABS and x.mnemonic in ('JSR', 'JMP')
 
 
 def _mode_text(mode, e):
@@ -400,6 +512,22 @@ class Addresses:
                 self.items[e.name] = e.addr
         self.program = program
 
+    def in_copy(self, renderer, ctx, current):
+        """A resolver for final_size: addresses as the copy of `current` for context ctx sees
+        them. Code is never in zero page, so a function's entry resolves to None."""
+        def resolve(m, fx):
+            r = renderer.ref(m, fx, current, ctx)
+            if r[0] == 'label' or (r[0] == 'item' and m.symbols[fx.sym].kind == lo.K_FUNC):
+                return None
+            if r[0] == 'item':
+                a, what = self.items.get(r[1]), r[1]
+            else:
+                a, what = self.parts.get((r[1], r[2])), f'{r[1]} slot {r[2]}'
+            if a is None:
+                raise RenderError(f'{m.name}: {what} is not in the map')
+            return a
+        return resolve
+
     def __call__(self, m, fx):
         s = m.symbols[fx.sym]
         if fx.slot == lo.NO_SLOT:
@@ -415,7 +543,8 @@ class Addresses:
 def render_program(modules, entries, env, main_module):
     """Program mode: one asm17 source. modules in link order; entries from the map."""
     program = Program(modules)
-    r = Renderer(program)
+    funcs = [e for e in entries if e.kind == mapenv.M_FUNC]
+    r = Renderer(program, Copies([e for e in funcs if e.name not in (START, INIT)], program))
     addr = Addresses(entries, program)
     main = f'{main_module}.main'
     code_start = env.code[0]
@@ -428,7 +557,7 @@ def render_program(modules, entries, env, main_module):
     equates = ['; slots and variables, from the map']
     for e in entries:
         if e.kind == mapenv.M_SLOT:
-            f = program.func(e.name)
+            f = program.func(e.base())
             if f is not None and e.number < len(f.slots):
                 label = slot_label(e.name, f.slots[e.number].name)
             else:
@@ -439,7 +568,6 @@ def render_program(modules, entries, env, main_module):
         elif e.kind == mapenv.M_VAR:
             equates.append(f'{mangle(e.name)} = ${e.addr:04X}')
 
-    funcs = [e for e in entries if e.kind == mapenv.M_FUNC]
     names = [e.name for e in funcs]
     if START not in names:
         raise RenderError(f'the map does not place {START}')
@@ -468,12 +596,12 @@ def render_program(modules, entries, env, main_module):
                                   f'the map has it at ${e.addr:04X}')
             lines, size = init_function(inits)
         else:
-            d = program.defs.get(e.name)
+            d = program.defs.get(e.base())
             if d is None or not isinstance(d[1], lo.Func):
                 raise RenderError(f'map lists function {e.name}, which no object defines')
             m, f = d
-            lines = r.function(m, f)
-            size = final_size(m, f, addr)
+            lines = r.function(m, f, copy=e.name, ctx=e.context)
+            size = final_size(m, f, addr.in_copy(r, e.context, f))
         if size != e.size:
             raise RenderError(f'map gives {e.name} size ${e.size:04X}, the rule gives ${size:04X}')
         placed.append((e.addr, size, lines))

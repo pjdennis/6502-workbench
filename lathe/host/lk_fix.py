@@ -113,7 +113,9 @@ def address_copy(f):
 def target(ctx, sym, slot, is_call):
     """The address a fix-up stands for, before the addend, seen from context ctx.
 
-    Something the linker dropped has address 0: nothing that was kept can reach it."""
+    A function whose address something kept takes is kept itself (lk_graph), so what is left
+    with address 0 is storage nothing kept can use: a slot of a dropped function, or a
+    parameter of a class that no kept function calls through."""
     kind = lk_sym.kind_of(sym)
     if kind == lk_sym.VARIABLE or kind == lk_sym.CONSTANT:
         if slot != 0xFF:

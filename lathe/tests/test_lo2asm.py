@@ -403,6 +403,29 @@ class TestEnv(unittest.TestCase):
                 self.parse(text)
 
 
+class TestMapCopies(unittest.TestCase):
+    """F lines of function copies (lathe/host/README.md, "The map file")."""
+    TEXT = ('F 0200 0010 t.main\nF 0210 0004 t.irq 1\nF 0214 0003 t.f\nF 0217 0003 t.f@2\n'
+            'S 0010 0001 t.f@2 0 a\n')
+
+    def test_contexts(self):
+        entries = mapenv.parse_map(self.TEXT)
+        self.assertEqual([(e.name, e.base(), e.context) for e in entries],
+                         [('t.main', 't.main', 0), ('t.irq', 't.irq', 1), ('t.f', 't.f', 0),
+                          ('t.f@2', 't.f', 2), ('t.f@2', 't.f', 0)])
+
+    def test_written_back_the_same(self):
+        self.assertEqual(''.join(e.format() + '\n' for e in mapenv.parse_map(self.TEXT)), self.TEXT)
+
+    def test_errors(self):
+        for text, pattern in (('F 0200 0010 t.f@1 1\n', 'a F line has 4 fields'),
+                              ('F 0200 0010 t.f 0\n', 'context 0 is not written'),
+                              ('F 0200 0010 t.f@0\n', 'context 0 is not written'),
+                              ('F 0200 0010 t.f x\n', 'bad number')):
+            with self.assertRaisesRegex(mapenv.FormatError, pattern, msg=text):
+                mapenv.parse_map(text)
+
+
 class TestStartup(Work):
     """$start for each form of the environment, assembled, against hand-written bytes."""
 

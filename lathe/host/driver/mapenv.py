@@ -96,12 +96,19 @@ class MapEntry:
     name: str
     number: Optional[int] = None      # slot or parameter number (S, C)
     part: Optional[str] = None        # slot or parameter name (S, C)
+    context: int = 0                  # F: the context the function copy is for
 
     def format(self):
         s = f'{self.kind} {self.addr:04X} {self.size:04X} {self.name}'
         if self.number is not None:
             s += f' {self.number} {self.part}'
+        if self.kind == M_FUNC and self.context != 0 and '@' not in self.name:
+            s += f' {self.context}'
         return s
+
+    def base(self):
+        """The function an F or S line belongs to: its name without the @N of a copy."""
+        return self.name.split('@', 1)[0]
 
 
 def parse_map(text, path='<map>'):
@@ -112,14 +119,23 @@ def parse_map(text, path='<map>'):
         if kind not in (M_FUNC, M_DATA, M_VAR, M_SLOT, M_CLASS):
             raise FormatError(f'{where}: unknown map line kind {kind}')
         want = 6 if kind in (M_SLOT, M_CLASS) else 4
-        if len(words) != want:
-            raise FormatError(f'{where}: a {kind} line has {want} fields')
+        copy = kind == M_FUNC and '@' in words[3] if len(words) > 3 else False
+        if len(words) != want and not (kind == M_FUNC and not copy and len(words) == 5):
+            raise FormatError(f'{where}: a {kind} line has {want} fields'
+                              + (' (5 for a first copy outside context 0)' if kind == M_FUNC else ''))
         try:
             addr, size = int(words[1], 16), int(words[2], 16)
             number = int(words[4]) if want == 6 else None
+            context = 0
+            if copy:
+                context = int(words[3].split('@', 1)[1])
+            elif kind == M_FUNC and len(words) == 5:
+                context = int(words[4])
         except ValueError:
             raise FormatError(f'{where}: bad number') from None
-        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None))
+        if kind == M_FUNC and (copy or len(words) == 5) and context == 0:
+            raise FormatError(f'{where}: context 0 is not written')
+        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None, context))
     return out
 
 

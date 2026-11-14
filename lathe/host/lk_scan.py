@@ -1,5 +1,6 @@
 """The first reading of the object files: symbols, variables, functions with their slots and
-calls, and pointer classes go into the tables. Code and fix-ups are skipped.
+calls, and pointer classes go into the tables. Code is skipped; of the fix-ups only those that
+take the address of a function are noted, because taking it keeps the function (lk_graph).
 
 An object file numbers its symbols from 0. `local` keeps, for every object file, the global
 symbol each of its numbers stands for, so later readings of a file need no name lookups.
@@ -169,6 +170,31 @@ def rec_memb(obj):
     lk_tab.new_member(k, read_sym(obj, lk_sym.FUNCTION))
 
 
+def rec_fixes(obj, source):
+    """A FIX or DFIX record: note each function whose address it takes.
+
+    In code (source is a function) an address is taken by its low or high byte, `#<f` and
+    `#>f`. A two-byte fix-up naming a function there is the operand of a JSR or JMP, a call,
+    which needs a CALL record of its own; without one the call is an error (lk_fix.target), and
+    must not quietly keep the callee. A function's fix-ups naming itself are its labels or its
+    own address and keep nothing. In constant data every fix-up naming a function takes its
+    address."""
+    if lk_rec.left(lk_rec.MAIN) % 8 != 0:
+        damaged()
+    lk_tab.begin_addrs()
+    while lk_rec.left(lk_rec.MAIN) > 0:
+        lk_rec.get_word(lk_rec.MAIN)
+        kind = lk_rec.get_byte(lk_rec.MAIN)
+        s = global_sym(obj, lk_rec.get_word(lk_rec.MAIN))
+        slot = lk_rec.get_byte(lk_rec.MAIN)
+        lk_rec.get_word(lk_rec.MAIN)
+        if lk_sym.kind_of(s) == lk_sym.FUNCTION and slot == 0xFF:
+            if source == lk_tab.NONE:
+                lk_tab.new_addr(source, s)
+            elif s != lk_tab.fn_sym[source] and (kind == 2 or kind == 3):
+                lk_tab.new_addr(source, s)
+
+
 def take_record(obj, kind):
     """Take in one record of object file obj."""
     global cur_fn
@@ -190,7 +216,13 @@ def take_record(obj, kind):
         rec_clas(obj)
     elif kind == lk_rec.R_MEMB:
         rec_memb(obj)
-    elif kind != lk_rec.R_IMP and kind != lk_rec.R_DFIX and kind != lk_rec.R_FIX and kind != lk_rec.R_CODE:
+    elif kind == lk_rec.R_FIX:
+        if cur_fn == lk_tab.NONE:
+            damaged()
+        rec_fixes(obj, cur_fn)
+    elif kind == lk_rec.R_DFIX:
+        rec_fixes(obj, lk_tab.NONE)
+    elif kind != lk_rec.R_IMP and kind != lk_rec.R_CODE:
         damaged()
 
 

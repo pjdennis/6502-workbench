@@ -2,8 +2,8 @@
 main program's, and a function reached from two contexts is linked once for each
 (lathe/docs/code-model.md, "Interrupts").
 
-A function's first copy has the function's name in the map; a further copy, for context N,
-is `name@N`.
+A function's first copy has the function's name in the map, followed by its context if that is
+not 0; a further copy, for context N, is `name@N`.
 """
 import os
 import sys
@@ -33,7 +33,7 @@ class TwoContexts(unittest.TestCase):
         r = link([shared()], ENV)
         self.assertEqual(r.map_text.splitlines()[:5],
                          ['F 0200 0005 $start', 'F 0205 0004 t.main', 'F 0209 0001 t.f',
-                          'F 020A 0001 t.f@1', 'F 020B 0004 t.irq'])
+                          'F 020A 0001 t.f@1', 'F 020B 0004 t.irq 1'])
 
     def test_each_caller_calls_the_copy_of_its_own_context(self):
         r = link([shared()], ENV)

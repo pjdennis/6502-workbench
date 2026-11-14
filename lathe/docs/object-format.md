@@ -112,3 +112,5 @@ The host tool `lo2asm` turns object files into asm17 source.
 | `DATA` | `.byte` lines. |
 
 Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then `$start` and `$init` as the linker makes them, then the functions the linker kept, in the same order the linker places them. Assembling that text must give the same bytes as the linker's own image.
+
+A function the linker copies for several contexts is rendered once per copy the map lists, `mod.f@N` as label `mod__fX40N` with slots `mod__fX40N__slotname`. In a copy for context N, a `JSR` or `JMP` to a function, and a slot of a function that has a copy for N, mean that copy. Every other reference to a function, and every reference from constant data, means the copy its address stands for (`code-model.md`, "Interrupts"): the one in the context that calls through its pointer class, or else its first copy. Variables, constant data and class blocks are never copied.

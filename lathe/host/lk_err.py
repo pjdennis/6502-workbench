@@ -43,6 +43,7 @@ E_ENV_RANGE = 34
 E_MEMBERS = 35
 E_DEFS = 36
 E_SIZE = 37
+E_ADDRS = 38
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -83,6 +84,7 @@ MESSAGES = (
     b"too many functions whose address is taken\n"
     b"too many variables and constants\n"
     b"internal error: a function is not the size that was planned\n"
+    b"too many functions whose address a fix-up takes\n"
 )
 
 PREFIX = b"link error "

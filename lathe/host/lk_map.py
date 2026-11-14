@@ -2,7 +2,8 @@
 
     F 0200 0012 hello.main            function, in placement order
     F 0212 0012 hello.main@1          a further copy of it, for context 1
-    D 0224 0006 hello.$1              constant data
+    F 0224 0008 hello.tick 1          a first copy for a context other than 0: its number follows
+    D 022C 0006 hello.$1              constant data
     V C000 0001 demo.count            module-level variable
     S 0010 0002 demo.spaces 0 s       slot 0 of demo.spaces, named s
     C 0012 0001 demo.handler 0 code   parameter 0 of a pointer class
@@ -86,6 +87,9 @@ def functions():
         if not lk_tab.node_is_class(n):
             begin(70, lk_tab.node_addr[n], lk_tab.node_len[n])
             copy_name(n)
+            if not lk_tab.is_extra_copy(n) and lk_tab.node_ctx[n] != 0:
+                put(32)
+                decimal(lk_tab.node_ctx[n])
             put(10)
 
 

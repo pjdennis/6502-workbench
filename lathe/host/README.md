@@ -100,13 +100,16 @@ Text, one item per line: kind, address and size in four hex digits, name; a slot
 
 ```
 F 0200 0012 hello.main            ; function, in placement order
-D 0212 0006 hello.$1              ; constant data
+F 0212 0012 hello.main@1          ; a further copy of it, for context 1
+F 0224 0008 hello.tick 1          ; a first copy for a context other than 0
+D 022C 0006 hello.$1              ; constant data
 V C000 0001 demo.count            ; module-level variable
 S 0010 0002 demo.spaces 0 s       ; slot 0 of demo.spaces
+S 0020 0002 demo.spaces@1 0 s     ; slot 0 of its copy for context 1
 C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
 ```
 
-Only functions the linker kept are listed.
+Only functions the linker kept are listed: those reachable from an entry point, and those whose address kept code or constant data takes (`../docs/code-model.md`, "Sharing frames"). A function reachable from several contexts (`../docs/code-model.md`, "Interrupts") has one F line and one set of S lines per copy. Its first copy, for the lowest of those contexts, has the function's name; each further copy, for context N, is `name@N`. Context 0 is the main program and 1, 2… the interrupt functions in object order. An F line of a first copy whose context is not 0 (a function only interrupt contexts reach) ends with that context's number, so that every copy's context is known.
 
 ## The interface file
 
