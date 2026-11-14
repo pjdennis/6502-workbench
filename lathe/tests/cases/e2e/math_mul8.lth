@@ -1,0 +1,41 @@
+; rt_math.mul8 and rt_math.mul8x8 on every pair of bytes, as checksums (libsum), and on the
+; pairs of a few edge values printed one by one. lathe/tests/test_rt_math.py gives the output.
+module math_mul8
+
+import libout
+import libsum
+import rt_math
+
+const V: [7]byte = [0, 1, 2, $7F, $80, $AB, $FF]
+
+pub func main()
+  var i: byte
+  var j: byte
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(rt_math.mul8(i, j))
+    end
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(rt_math.mul8x8(i, j))
+    end
+  end
+  libsum.show()
+  libout.nl()
+  for i = 0 to len(V) - 1 do
+    for j = 0 to len(V) - 1 do
+      libout.hex(rt_math.mul8(V[i], V[j]))
+      libout.space()
+    end
+  end
+  libout.nl()
+  for i = 0 to len(V) - 1 do
+    for j = 0 to len(V) - 1 do
+      libout.hexw(rt_math.mul8x8(V[i], V[j]))
+      libout.space()
+    end
+  end
+  libout.nl()
+end

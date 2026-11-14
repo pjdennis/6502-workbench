@@ -1,0 +1,21 @@
+; imported by the math_* cases: a checksum of a stream of results. Each result is added after
+; the sum is rotated left one place, so the checksum is a one-to-one function of any one result
+; in the stream: a single wrong result always changes it. lathe/tests/test_rt_math.py computes
+; the same in Python.
+module libsum
+
+import libout
+
+pub var sum: word = 0
+
+pub func add(v: word)
+  sum = (sum << 1) | (sum >> 15)
+  sum += v
+end
+
+; the sum in hexadecimal and a space; the next sum starts from 0
+pub func show()
+  libout.hexw(sum)
+  libout.space()
+  sum = 0
+end

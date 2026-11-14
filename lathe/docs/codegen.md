@@ -65,7 +65,7 @@ For `a OP b` with the result in A:
 - `+` is `CLC` / `ADC`; `-` is `SEC` / `SBC`; `& | ^` are `AND`, `ORA`, `EOR`.
 - Adding or subtracting the constant 1 to a Variable or Element that is also the destination is `INC` or `DEC` on memory. Operations whose constant operand changes nothing (`+ 0`, `| 0`, `& $FF`, `^ 0`) emit nothing.
 - A shift by a constant is that many `ASL A` or `LSR A`, or `ASL`/`LSR` on memory when the destination is the left operand. A shift by a variable is a counted loop.
-- `*`, `/` and `mod` by a constant power of two are shifts and masks. Otherwise they are calls to the run-time module `rt_math`.
+- `*`, `/` and `mod` by a constant power of two are shifts and masks. Otherwise they are calls to the run-time module `rt_math` ([`code-model.md`](code-model.md), "Run-time arithmetic"), not yet made (error 54): `*` is `rt_math.mul8` for any two bytes, signed or not (`mul8x8` gives the whole product when a word is wanted); `/` and `mod` are `div8` and `mod8` on `byte`, `sdiv8` and `smod8` on `sbyte`. The operands go into the slots in order, the left one first, and the result comes back in A.
 - Unary `-` is `EOR #$FF` / `CLC` / `ADC #1`; `~` is `EOR #$FF`.
 
 ## Words
@@ -79,6 +79,7 @@ A two-byte operation needs somewhere to put its low byte while it computes the h
 - `w += 1` is `INC w` / `BNE` / `INC w+1`. `w += b` with `b` a byte is an 8-bit add and `BCC` / `INC w+1`. `w -= 1` is `LDA w` / `BNE` / `DEC w+1` / `DEC w`.
 - A `byte` operand in a word operation has a high byte of constant 0, and operations with a zero operand byte are simplified as for bytes.
 - Shifts are `ASL lo` / `ROL hi` and `LSR hi` / `ROR lo`, in memory. A shift by 8 to 15 places, except a signed shift right, moves a byte instead: `w << 8` is `LDA w` / `STA` hi / `LDA #0` / `STA` lo, `w >> 8` the mirror image, and each place beyond 8 is one `ASL A` or `LSR A` on the byte that moves (`lathe/tests/cases/snap/shift_bytes.lth`).
+- `*` on words is `rt_math.mul16`, signed or not; it is quicker with the smaller operand second, so a constant or a widened byte goes second (multiplication commutes). `/` and `mod` are `div16` and `mod16` on `word`, `sdiv16` and `smod16` on `int`. A shift of a word by a variable is `shl16`, `shr16` on `word` and `sar16` on `int`, the count a byte. Results come back in A and X.
 
 ## Comparisons and conditions
 

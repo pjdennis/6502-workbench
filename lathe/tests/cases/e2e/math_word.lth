@@ -1,0 +1,89 @@
+; rt_math's word multiply and divides: mul16, div16, mod16, sdiv16, smod16 and the remainder
+; the divides leave. For each operation in turn, a checksum (libsum) of its results on 3000
+; pairs from a pseudo-random generator, then one of its results on every pair of 26 edge values
+; (0, 1, powers of two, $7FFF, $8000, $FFFF and others, so also equal operands, divisors larger
+; than the dividend, division by zero and signed operands of every sign), then a line of its
+; results on the pairs of 7 of them. lathe/tests/test_rt_math.py gives the output.
+module math_word
+
+import libout
+import libsum
+import rt_math
+
+const OPS = 7
+const PAIRS = 3000
+
+const E: [26]word = [0, 1, 2, 3, 4, 7, 8, 10, $10, $80, $FF, $100, $101, $400, $1000, $1234,
+                     $4000, $7FFE, $7FFF, $8000, $8001, $C000, $FF00, $FFF9, $FFFE, $FFFF]
+const S: [7]word = [0, 1, 7, $7FFF, $8000, $FFF9, $FFFF]
+
+; The divisor of a random pair keeps 16 - k of its bits, k random, so that quotients of
+; every size are tried.
+const MASKS: [16]word = [$FFFF, $7FFF, $3FFF, $1FFF, $0FFF, $07FF, $03FF, $01FF,
+                         $00FF, $007F, $003F, $001F, $000F, $0007, $0003, $0001]
+
+var seed: word
+
+; xorshift with shifts 7, 9, 8: every value but 0 once in 65535 steps
+func next(): word
+  seed ^= seed << 7
+  seed ^= seed >> 9
+  seed ^= seed << 8
+  return seed
+end
+
+; operation `op` on a and b; the signed ones take a and b as ints and give their result's bits
+func result(op: byte, a: word, b: word): word
+  case op
+  of 0
+    return rt_math.mul16(a, b)
+  of 1
+    return rt_math.div16(a, b)
+  of 2
+    return rt_math.mod16(a, b)
+  of 3
+    rt_math.div16(a, b)
+    return rt_math.remainder
+  of 4
+    return word(rt_math.sdiv16(int(a), int(b)))
+  of 5
+    return word(rt_math.smod16(int(a), int(b)))
+  end
+  rt_math.sdiv16(int(a), int(b))
+  return rt_math.remainder
+end
+
+pub func main()
+  var op: byte
+  var k: word
+  var a: word
+  var b: word
+  var i: byte
+  var j: byte
+  for op = 0 to OPS - 1 do
+    seed = 1
+    for k = 1 to PAIRS do
+      a = next()
+      b = next()
+      b &= MASKS[lo(next()) & 15]
+      libsum.add(result(op, a, b))
+    end
+    libsum.show()
+    for i = 0 to len(E) - 1 do
+      for j = 0 to len(E) - 1 do
+        libsum.add(result(op, E[i], E[j]))
+      end
+    end
+    libsum.show()
+    libout.nl()
+  end
+  for op = 0 to OPS - 1 do
+    for i = 0 to len(S) - 1 do
+      for j = 0 to len(S) - 1 do
+        libout.hexw(result(op, S[i], S[j]))
+        libout.space()
+      end
+    end
+    libout.nl()
+  end
+end

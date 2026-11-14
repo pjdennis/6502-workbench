@@ -1,0 +1,44 @@
+; rt_math.shl16, shr16 and sar16: for each, a checksum (libsum) of its results on 10 words
+; shifted by every count from 0 to 255, then a line of its results on those words shifted by
+; 0, 1, 7, 8, 9, 15, 16, 17 and 255. lathe/tests/test_rt_math.py gives the output.
+module math_shift
+
+import libout
+import libsum
+import rt_math
+
+const W: [10]word = [0, 1, $8000, $FFFF, $1234, $8001, $7FFF, $5A5A, $00FF, $FF00]
+const COUNTS: [9]byte = [0, 1, 7, 8, 9, 15, 16, 17, 255]
+
+func result(op: byte, w: word, n: byte): word
+  if op == 0 then
+    return rt_math.shl16(w, n)
+  elif op == 1 then
+    return rt_math.shr16(w, n)
+  end
+  return word(rt_math.sar16(int(w), n))
+end
+
+pub func main()
+  var op: byte
+  var i: byte
+  var n: byte
+  for op = 0 to 2 do
+    for i = 0 to len(W) - 1 do
+      for n = 0 to 255 do
+        libsum.add(result(op, W[i], n))
+      end
+    end
+    libsum.show()
+  end
+  libout.nl()
+  for op = 0 to 2 do
+    for i = 0 to len(W) - 1 do
+      for n = 0 to len(COUNTS) - 1 do
+        libout.hexw(result(op, W[i], COUNTS[n]))
+        libout.space()
+      end
+    end
+    libout.nl()
+  end
+end

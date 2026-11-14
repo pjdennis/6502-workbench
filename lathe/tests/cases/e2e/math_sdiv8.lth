@@ -1,0 +1,45 @@
+; rt_math.sdiv8 and rt_math.smod8 on every pair of signed bytes, divisor 0 included, as
+; checksums (libsum) of the results' bytes, with the remainder of the magnitudes that sdiv8
+; leaves; then the pairs of a few edge values printed one by one, in hexadecimal.
+; lathe/tests/test_rt_math.py gives the output.
+module math_sdiv8
+
+import libout
+import libsum
+import rt_math
+
+const V: [8]sbyte = [0, 1, -1, 7, -7, 127, -127, -128]
+
+pub func main()
+  var i: byte
+  var j: byte
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(byte(rt_math.sdiv8(sbyte(i), sbyte(j))))
+    end
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(byte(rt_math.smod8(sbyte(i), sbyte(j))))
+    end
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      rt_math.sdiv8(sbyte(i), sbyte(j))
+      libsum.add(rt_math.remainder)
+    end
+  end
+  libsum.show()
+  libout.nl()
+  for i = 0 to len(V) - 1 do
+    for j = 0 to len(V) - 1 do
+      libout.hex(byte(rt_math.sdiv8(V[i], V[j])))
+      libout.char('r')
+      libout.hex(byte(rt_math.smod8(V[i], V[j])))
+      libout.space()
+    end
+  end
+  libout.nl()
+end

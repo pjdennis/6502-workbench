@@ -237,11 +237,40 @@ Written in Lathe with assembly where needed, and linked function by function lik
 
 | Area | Routines |
 |---|---|
-| Arithmetic | multiply, divide and remainder for 8 and 16 bits; variable shifts for 16 bits |
+| Arithmetic | multiply, divide and remainder for 8 and 16 bits; variable shifts for 16 bits (`lathe/rt/rt_math.lth`, below) |
 | Recursion | push and pop of a frame |
 | Far calls | one routine per banking or overlay scheme, supplied by the environment module |
 | Start-up | set the stack, copy initialised data, call `main`, exit |
 | Environment | a module per machine wrapping its console, file and banking services |
+
+### Run-time arithmetic
+
+The module `rt_math` (`lathe/rt/rt_math.lth`). Its functions are ordinary exported Lathe functions: arguments in their parameter slots, results in A or in A and X, temporaries in their own slots, so an interrupt handler that divides gets its own copy like any other function. Each stands alone, except that the signed divides call the unsigned ones, so a program links only what it uses. Bytes are code with every slot in zero page; cycles are from `JSR` to the end of `RTS`, a typical call being the mean over random operands (for the shifts, counts 0 to 15; for the divides, divisors not 0).
+
+| Function | Gives | Bytes | Cycles: typical, worst |
+|---|---|---|---|
+| `mul8(a: byte, b: byte): byte` | the low 8 bits of a × b, signed or unsigned | 16 | 139, 168 |
+| `mul8x8(a: byte, b: byte): word` | the whole unsigned product | 21 | 159, 175 |
+| `mul16(a: word, b: word): word` | the low 16 bits of a × b, signed or unsigned | 43 | 562, 697 (b < 256: at most 368) |
+| `div8(a: byte, b: byte): byte` | a / b unsigned; leaves a mod b in `remainder` | 25 | 171, 222 |
+| `mod8(a: byte, b: byte): byte` | a mod b unsigned | 19 | 162, 213 |
+| `div16(a: word, b: word): word` | a / b unsigned; leaves a mod b in `remainder` | 52 | 687, 931 |
+| `mod16(a: word, b: word): word` | a mod b unsigned | 44 | 674, 919 |
+| `sdiv8(a: sbyte, b: sbyte): sbyte` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 54 | 238, 289 |
+| `smod8(a: sbyte, b: sbyte): sbyte` | a mod b signed | 50 | 224, 278 |
+| `sdiv16(a: int, b: int): int` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 83 | 782, 1021 |
+| `smod16(a: int, b: int): int` | a mod b signed | 79 | 761, 1017 |
+| `shl16(w: word, n: byte): word` | w << n | 23 | 121, 227 |
+| `shr16(w: word, n: byte): word` | w >> n, unsigned | 23 | 128, 227 |
+| `sar16(w: int, n: byte): int` | w >> n, keeping the sign | 25 | 144, 259 |
+
+- **Division by zero** gives a quotient of all ones and a remainder equal to the dividend: what the shift-and-subtract loop gives with no test. The signed divides divide the magnitudes by that rule, so a signed quotient by zero is -1 for a dividend of 0 or more and 1 for a negative one, and the signed remainder is the dividend.
+- **Signed division truncates toward zero, and the remainder takes the sign of the dividend**, as in C: -7 / 2 = -3, -7 mod 2 = -1, 7 / -2 = -3, 7 mod -2 = 1, so a = (a / b) × b + a mod b. -128 / -1 and -32768 / -1 wrap to themselves.
+- **Shifts** by 16 or more give 0, or all sign bits for `sar16`.
+- **The remainder.** `div8`, `div16`, `sdiv8` and `sdiv16` also leave a remainder in the exported word `remainder` (`div8` with a high byte of 0; the signed ones that of the magnitudes, to be given the sign of the dividend), so a program that needs a quotient and its remainder divides once. `mod8` and `mod16` do not go through `remainder`: each has its own copy of the loop and keeps everything in its own slots. `remainder` is one variable for the whole program, so a remainder passed through it could be changed by an interrupt handler that divides between the store and the load; the operator `mod` must not have that hole, and the copy costs only a program that uses both `/` and `mod` (19 or 44 bytes), nothing in one that uses one of them. A program that reads `remainder` while a handler divides reads it inside the `critical` block that holds the divide.
+- **Speed.** `mul16` takes 8 passes instead of 16 when its second operand is below 256, so a caller with one small or constant operand passes it second. Every other routine's time depends only on its operand values, never on where they come from.
+
+Measured against `lathe/src/num.lth`, the stand-in the Lathe-written lexer uses: `lextest` built with `num.mul`, `num.div` and `num.rem` replaced by `rt_math.mul16`, `div16` and `mod16` is 86 bytes smaller (139 bytes of arithmetic instead of 225), and lexing every `.lth` file in `lathe/` takes 4.7% fewer cycles (38% fewer on a file of 2000 lines of numbers).
 
 ## Generating the code
 

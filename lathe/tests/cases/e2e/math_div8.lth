@@ -1,0 +1,52 @@
+; rt_math.div8 and rt_math.mod8 on every pair of bytes, divisor 0 included, as checksums
+; (libsum), with the remainder div8 leaves; then the pairs of a few edge values printed one by
+; one. lathe/tests/test_rt_math.py gives the output.
+module math_div8
+
+import libout
+import libsum
+import rt_math
+
+const V: [8]byte = [0, 1, 2, 7, $7F, $80, $AB, $FF]
+
+pub func main()
+  var i: byte
+  var j: byte
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(rt_math.div8(i, j))
+    end
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      libsum.add(rt_math.mod8(i, j))
+    end
+  end
+  libsum.show()
+  rt_math.div16($FFFF, 0)       ; remainder $FFFF: div8 must set both bytes
+  for i = 0 to 255 do
+    for j = 0 to 255 do
+      rt_math.div8(i, j)
+      libsum.add(rt_math.remainder)
+    end
+  end
+  libsum.show()
+  libout.nl()
+  for i = 0 to len(V) - 1 do
+    for j = 0 to len(V) - 1 do
+      libout.hex(rt_math.div8(V[i], V[j]))
+      libout.char('r')
+      libout.hexw(rt_math.remainder)
+      libout.space()
+    end
+  end
+  libout.nl()
+  for i = 0 to len(V) - 1 do
+    for j = 0 to len(V) - 1 do
+      libout.hex(rt_math.mod8(V[i], V[j]))
+      libout.space()
+    end
+  end
+  libout.nl()
+end

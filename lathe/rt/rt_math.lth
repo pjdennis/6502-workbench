@@ -1,0 +1,369 @@
+; Run-time arithmetic: the multiplies, divides, remainders and variable word shifts that the
+; operators `*`, `/`, `mod`, `<<` and `>>` need (lathe/docs/code-model.md, "Run-time
+; arithmetic"). Ordinary Lathe functions: arguments in their parameter slots, a byte result
+; in A, a word result in A (low) and X (high). Written for size first and speed second.
+;
+; Rules
+; - Multiplies give the low bits of the product: the same bits for signed and unsigned
+;   operands, so mul8 and mul16 serve both. mul8x8 gives the whole unsigned 16-bit product.
+; - Division by zero gives a quotient of all ones and a remainder equal to the dividend
+;   ($FF and a for div8, mod8; $FFFF and a for div16, mod16). The signed divides divide the
+;   magnitudes by the same rule, so a signed quotient by zero is -1 for a dividend of 0 or
+;   more and 1 for one below 0, and a signed remainder by zero is the dividend.
+; - Signed division truncates toward zero, and the remainder takes the sign of the dividend:
+;   -7 / 2 = -3 and -7 mod 2 = -1; 7 / -2 = -3 and 7 mod -2 = 1. So a = (a / b) * b + a mod b
+;   always. The one quotient that does not fit, -128 / -1 (or -32768 / -1), wraps to itself.
+; - Shifts by a count of 16 or more give 0, or 16 copies of the sign bit for sar16.
+;
+; The remainder. div8 and div16 also leave the remainder in `remainder` (div8 with a high
+; byte of 0), so a program that needs both a / b and a mod b divides once: q = div16(a, b),
+; then r = remainder. The signed divides leave there the remainder of the magnitudes,
+; |a| mod |b|: give it the sign of a for the signed remainder. `remainder` is one variable for the whole program:
+; an interrupt handler that divides changes it, so read it straight after the divide, or
+; inside the same `critical` block if a handler divides. mod8 and mod16 do not use it: each
+; has its own copy of the loop and keeps everything in its own slots, so like every function
+; here it is safe to call from an interrupt handler, which the linker gives its own copy.
+; That costs the size of one loop in a program that uses both `/` and `mod`, and nothing
+; in one that uses only one of them; and a remainder that is not passed through shared
+; storage is what the operator `mod` must have.
+;
+; Each function stands alone except the signed divides, which call the unsigned ones, so a
+; program links only what it uses. The parameters are not called `a` or `x`: in an asm block
+; those are registers.
+;
+; The asm blocks end with their own RTS, the result in A or in A and X: an ordinary function
+; has no exit code, so this is what `return` would give, without storing the result in a slot
+; to load it again. (Lathe has no way yet to say "the result is in A" after an asm block.)
+module rt_math
+
+pub var remainder: word         ; what the last div8, div16, sdiv8 or sdiv16 left
+
+; ---- Multiplies ----------------------------------------------------------------------------
+
+; The low 8 bits of m * n. Shifts n right and adds m, shifted left, for each 1 bit; stops when
+; no 1 bits are left in n.
+pub func mul8(m: byte, n: byte): byte
+  asm
+    LDA #0
+    BEQ .test
+.add
+    CLC
+    ADC m
+.next
+    ASL m
+.test
+    LSR n               ; C: the bit, Z: no bits left
+    BCS .add
+    BNE .next
+    RTS
+  end
+end
+
+; The whole unsigned product m * n. The product's high byte grows in A and its low byte
+; replaces n as n is shifted out, one bit per pass.
+pub func mul8x8(m: byte, n: byte): word
+  asm
+    LDA #0
+    LDX #8
+    LSR n
+.loop
+    BCC .shift
+    CLC
+    ADC m
+.shift
+    ROR A
+    ROR n
+    DEX
+    BNE .loop
+    TAX
+    LDA n
+    RTS
+  end
+end
+
+; The low 16 bits of m * n. The product, high byte in A, is shifted left and m added for each
+; bit of n from the top. An n below 256 takes 8 passes instead of 16, so a caller with one
+; small operand passes it as n.
+pub func mul16(m: word, n: word): word
+  var r: byte                   ; the product's low byte
+  asm
+    LDX #16
+    LDA n+1
+    BNE .start
+    LDA n                       ; n's top 8 bits are 0: start 8 places on
+    STA n+1
+    LDX #8
+.start
+    LDA #0
+    STA r
+.loop
+    ASL r
+    ROL A
+    ASL n
+    ROL n+1
+    BCC .next
+    TAY
+    CLC
+    LDA r
+    ADC m
+    STA r
+    TYA                         ; TYA keeps the carry
+    ADC m+1
+.next
+    DEX
+    BNE .loop
+    TAX
+    LDA r
+    RTS
+  end
+end
+
+; ---- Unsigned divides ----------------------------------------------------------------------
+; Shift and subtract: the dividend n is shifted left into the remainder one bit per pass, and
+; each quotient bit goes into the place in n that the shift has emptied. A divisor of 0 is
+; subtracted every time, which gives the rule above. After k passes the remainder holds at most
+; k bits, so no bit is ever shifted out of its top.
+
+; n / d, leaving n mod d in `remainder`.
+pub func div8(n: byte, d: byte): byte
+  asm
+    LDA #0
+    LDX #8
+.loop
+    ASL n
+    ROL A
+    CMP d
+    BCC .next
+    SBC d               ; the carry is set
+    INC n
+.next
+    DEX
+    BNE .loop
+    STA remainder
+    STX remainder+1     ; X is 0
+    LDA n
+    RTS
+  end
+end
+
+; n mod d: the loop of div8.
+pub func mod8(n: byte, d: byte): byte
+  asm
+    LDA #0
+    LDX #8
+.loop
+    ASL n
+    ROL A
+    CMP d
+    BCC .next
+    SBC d               ; the carry is set
+    INC n
+.next
+    DEX
+    BNE .loop
+    RTS
+  end
+end
+
+; n / d, leaving n mod d in `remainder`.
+pub func div16(n: word, d: word): word
+  var r: word
+  asm
+    LDA #0
+    STA r
+    STA r+1
+    LDX #16
+.loop
+    ASL n
+    ROL n+1
+    ROL r
+    ROL r+1
+    LDA r
+    CMP d
+    LDA r+1
+    SBC d+1
+    BCC .next           ; r < d
+    STA r+1
+    LDA r
+    SBC d               ; the carry is set
+    STA r
+    INC n
+.next
+    DEX
+    BNE .loop
+    LDA r
+    STA remainder
+    LDA r+1
+    STA remainder+1
+    LDA n
+    LDX n+1
+    RTS
+  end
+end
+
+; n mod d: the loop of div16.
+pub func mod16(n: word, d: word): word
+  var r: word
+  asm
+    LDA #0
+    STA r
+    STA r+1
+    LDX #16
+.loop
+    ASL n
+    ROL n+1
+    ROL r
+    ROL r+1
+    LDA r
+    CMP d
+    LDA r+1
+    SBC d+1
+    BCC .next           ; r < d
+    STA r+1
+    LDA r
+    SBC d               ; the carry is set
+    STA r
+    INC n
+.next
+    DEX
+    BNE .loop
+    LDA r
+    LDX r+1
+    RTS
+  end
+end
+
+; ---- Signed divides ------------------------------------------------------------------------
+; The unsigned divide of the magnitudes, and the signs put back: the quotient is negative when
+; the operands' signs differ, the remainder when the dividend is negative. The magnitude of
+; -128 is 128 as a byte, and of -32768 is 32768 as a word, so every pair divides correctly.
+
+pub func sdiv8(n: sbyte, d: sbyte): sbyte
+  var s: sbyte = n ^ d          ; negative when the quotient is
+  if n < 0 then
+    n = -n
+  end
+  if d < 0 then
+    d = -d
+  end
+  n = sbyte(div8(byte(n), byte(d)))
+  if s < 0 then
+    return -n
+  end
+  return n
+end
+
+pub func smod8(n: sbyte, d: sbyte): sbyte
+  var s: sbyte = n              ; negative when the remainder is
+  if n < 0 then
+    n = -n
+  end
+  if d < 0 then
+    d = -d
+  end
+  n = sbyte(mod8(byte(n), byte(d)))
+  if s < 0 then
+    return -n
+  end
+  return n
+end
+
+pub func sdiv16(n: int, d: int): int
+  var s: sbyte = sbyte(hi(n) ^ hi(d))   ; negative when the quotient is
+  if n < 0 then
+    n = -n
+  end
+  if d < 0 then
+    d = -d
+  end
+  n = int(div16(word(n), word(d)))
+  if s < 0 then
+    return -n
+  end
+  return n
+end
+
+pub func smod16(n: int, d: int): int
+  var s: sbyte = sbyte(hi(n))   ; negative when the remainder is
+  if n < 0 then
+    n = -n
+  end
+  if d < 0 then
+    d = -d
+  end
+  n = int(mod16(word(n), word(d)))
+  if s < 0 then
+    return -n
+  end
+  return n
+end
+
+; ---- Shifts by a variable count ------------------------------------------------------------
+; The count is cut to 16, which shifts every bit out; the high byte is shifted in A.
+
+pub func shl16(w: word, n: byte): word
+  asm
+    LDX n
+    CPX #16
+    BCC .count
+    LDX #16
+.count
+    LDA w+1
+    INX                 ; at most 17, so not 0
+    BNE .test
+.loop
+    ASL w
+    ROL A
+.test
+    DEX
+    BNE .loop
+    TAX
+    LDA w
+    RTS
+  end
+end
+
+pub func shr16(w: word, n: byte): word
+  asm
+    LDX n
+    CPX #16
+    BCC .count
+    LDX #16
+.count
+    LDA w+1
+    INX
+    BNE .test
+.loop
+    LSR A
+    ROR w
+.test
+    DEX
+    BNE .loop
+    TAX
+    LDA w
+    RTS
+  end
+end
+
+pub func sar16(w: int, n: byte): int
+  asm
+    LDX n
+    CPX #16
+    BCC .count
+    LDX #16
+.count
+    LDA w+1
+    INX
+    BNE .test
+.loop
+    CMP #$80            ; the carry is the sign bit
+    ROR A
+    ROR w
+.test
+    DEX
+    BNE .loop
+    TAX
+    LDA w
+    RTS
+  end
+end
