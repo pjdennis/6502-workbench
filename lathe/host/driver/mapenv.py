@@ -23,8 +23,9 @@ def _lines(text):
             yield n, line.split()
 
 
-EXIT_CALL, EXIT_LOOP, EXIT_RETURN = 'call', 'loop', 'return'
-KNOWN = ('cpu', 'zeropage', 'code', 'data', 'stack', 'exit')
+EXIT_CALL, EXIT_LOOP, EXIT_RETURN, EXIT_STOP = 'call', 'loop', 'return', 'stop'
+OUTPUT_IMAGE, OUTPUT_RAW = 'image', 'raw'
+KNOWN = ('cpu', 'zeropage', 'code', 'data', 'stack', 'exit', 'output')
 
 
 @dataclass
@@ -34,7 +35,9 @@ class Env:
     code: tuple = (0x0200, 0xBFFF)
     data: tuple = (0xC000, 0xEFFF)
     stack: Optional[int] = None      # stack n: the start-up code sets S to n
-    exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), (EXIT_LOOP, None) or (EXIT_RETURN, None)
+    exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), or (EXIT_LOOP / EXIT_RETURN / EXIT_STOP, None)
+    output: str = OUTPUT_IMAGE       # OUTPUT_IMAGE: code start to $FFFF and the reset vector;
+                                     # OUTPUT_RAW: code start to the last byte placed
     path: str = ''
 
 
@@ -56,7 +59,7 @@ def parse_env(text, path='<env>'):
         if key == 'cpu':
             if len(args) != 1 or args[0].lower() not in ('6502', '65c02'):
                 raise FormatError(f'{where}: cpu is 6502 or 65c02')
-            env.cpu = 0 if args[0] == '6502' else 1
+            env.cpu = 0 if args[0].lower() == '6502' else 1
         elif key in ('zeropage', 'code', 'data'):
             if len(args) != 2:
                 raise FormatError(f'{where}: {key} takes a first and a last address')
@@ -72,15 +75,22 @@ def parse_env(text, path='<env>'):
             form = [a.lower() for a in args]
             if len(form) == 2 and form[0] == EXIT_CALL and 0 <= _number(args[1], where) <= 0xFFFF:
                 env.exit = (EXIT_CALL, _number(args[1], where))
-            elif form in ([EXIT_LOOP], [EXIT_RETURN]):
+            elif form in ([EXIT_LOOP], [EXIT_RETURN], [EXIT_STOP]):
                 env.exit = (form[0], None)
             else:
-                raise FormatError(f'{where}: exit takes call ADDR, loop or return')
+                raise FormatError(f'{where}: exit takes call ADDR, loop, return or stop')
+        elif key == 'output':
+            form = [a.lower() for a in args]
+            if form not in ([OUTPUT_IMAGE], [OUTPUT_RAW]):
+                raise FormatError(f'{where}: output is image or raw')
+            env.output = form[0]
         elif key == 'start':
             raise FormatError(f'{where}: start is no longer an entry: the linker makes $start '
                               f'(lathe/docs/object-format.md, "Initial values and start-up")')
     if 'exit' not in seen:
-        raise FormatError(f'{path}: no exit entry (exit call ADDR, exit loop or exit return)')
+        raise FormatError(f'{path}: no exit entry (exit call ADDR, exit loop, exit return or exit stop)')
+    if env.exit[0] == EXIT_STOP and env.cpu != 1:
+        raise FormatError(f'{path}: exit stop needs cpu 65c02 (STP is a 65C02 instruction)')
     return env
 
 

@@ -5,11 +5,13 @@
     code      $0200 $BFFF
     data      $C000 $EFFF
     stack     $FF           ; optional: the start-up code sets the stack pointer to this
-    exit      call $F00F    ; what follows main: or `exit loop`, or `exit return`
+    exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`
+    output    image         ; the default: code start to $FFFF with the reset vector; or `raw`
 
 Entries this version does not know are skipped, because the file is to grow (architecture.md)
 and the compiler reads it too. An entry given twice is an error, and so is `start`, which an
 earlier version of the file had: the linker makes the start-up code itself now (lk_boot).
+`exit stop` (the 65C02's STP) needs `cpu 65c02`, wherever in the file the two are.
 """
 import env
 import lk_err
@@ -17,7 +19,7 @@ import lk_file
 import lk_op
 
 # The words the linker knows, each followed by a space; a word's number is its place, from 1.
-WORDS = b"cpu zeropage code data stack exit 6502 65c02 call loop return start "
+WORDS = b"cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
 W_CPU = 1
 W_ZEROPAGE = 2
 W_CODE = 3
@@ -30,6 +32,10 @@ W_CALL = 9
 W_LOOP = 10
 W_RETURN = 11
 W_START = 12
+W_OUTPUT = 13
+W_IMAGE = 14
+W_RAW = 15
+W_STOP = 16
 
 HAVE_ZEROPAGE = 1
 HAVE_CODE = 2
@@ -37,11 +43,13 @@ HAVE_DATA = 4
 HAVE_EXIT = 8
 HAVE_CPU = 16
 HAVE_STACK = 32
+HAVE_OUTPUT = 64
 NEEDED = 15                         # the entries a file must have
 
 EXIT_CALL = 1                       # LDA #0 and jump to exit_addr
 EXIT_LOOP = 2                       # jump to itself for ever
 EXIT_RETURN = 3                     # RTS
+EXIT_STOP = 4                       # STP (65C02)
 
 cpu = lk_op.CPU_6502
 zp_lo = 0
@@ -55,6 +63,7 @@ has_stack = False
 stack = 0
 exit_kind = 0
 exit_addr = 0
+raw = False                         # `output raw`: the file ends with the last byte placed
 
 TOKEN_SIZE = 64
 token = bytearray(TOKEN_SIZE)       # the word being read, in lower case
@@ -170,7 +179,26 @@ def exit_entry():
         exit_kind = EXIT_LOOP
     elif which == W_RETURN:
         exit_kind = EXIT_RETURN
+    elif which == W_STOP:
+        exit_kind = EXIT_STOP
     else:
+        bad()
+
+
+def output_entry():
+    """The rest of an `output` line."""
+    global raw
+    once(HAVE_OUTPUT)
+    if not read_token():
+        bad()
+    which = keyword()
+    if which == W_IMAGE:
+        raw = False
+    elif which == W_RAW:
+        raw = True
+    else:
+        bad()
+    if read_token():
         bad()
 
 
@@ -209,6 +237,8 @@ def entry():
             bad()
     elif which == W_EXIT:
         exit_entry()
+    elif which == W_OUTPUT:
+        output_entry()
     elif which == W_START:
         bad()
 
@@ -224,6 +254,8 @@ def check():
     ok = ok and data_hi - data_lo != 0xFFFF
     if not ok:
         lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
+    if exit_kind == EXIT_STOP and cpu != lk_op.CPU_65C02:
+        lk_file.fail(lk_err.E_STOP_6502, lk_file.ARG_ENV)
 
 
 def read():

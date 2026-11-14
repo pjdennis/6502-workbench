@@ -7,7 +7,7 @@
     JSR $init                   if there is one
     JSR MAINMODULE.main
     LDA #$00 / JMP addr         for `exit call addr`; a JMP to itself for `exit loop`;
-                                RTS for `exit return`
+                                RTS for `exit return`; STP ($DB, 65C02) for `exit stop`
 
 `$init` follows it if any module has a function `MODULE.$init`, which is where the compiler
 puts a module's initialisers: one JSR for each, in the order of the object files, and an RTS.
@@ -56,7 +56,7 @@ def plan():
     elif lk_envf.exit_kind == lk_envf.EXIT_LOOP:
         start_len += 3
     else:
-        start_len += 1
+        start_len += 1              # RTS or STP
     start_addr = lk_envf.code_lo
     init_addr = start_addr + start_len
     return start_len + init_len
@@ -86,6 +86,8 @@ def write(main_fn):
     elif lk_envf.exit_kind == lk_envf.EXIT_LOOP:
         lk_out.put(0x4C)            # JMP to this JMP
         lk_out.put_word(start_addr + start_len - 3)
+    elif lk_envf.exit_kind == lk_envf.EXIT_STOP:
+        lk_out.put(0xDB)            # STP
     else:
         lk_out.put(0x60)            # RTS
     if init_len != 0:

@@ -165,6 +165,9 @@ def reference_image(modules, entries, env, main_module):
                 else:
                     data[fx.offset] = (v >> 8) if fx.kind == lo.FX_HI else v & 0xFF
             put(e.addr, data)
+    if env.output == mapenv.OUTPUT_RAW:
+        end = max(e.addr + e.size for e in entries if e.kind in (mapenv.M_FUNC, mapenv.M_DATA))
+        return bytes(image[:end - env.code[0]])
     put(0xFFFC, addr.items['$start'].to_bytes(2, 'little') + b'\x00\x00')
     return bytes(image)
 
@@ -184,6 +187,8 @@ def reference_start(env, at, init, main):
     elif kind == 'loop':
         here = at + len(code)
         code += bytes((0x4C, here & 0xFF, here >> 8))
+    elif kind == 'stop':
+        code.append(0xDB)
     else:
         code.append(0x60)
     return bytes(code)
@@ -299,6 +304,19 @@ class TestModuleMode(unittest.TestCase):
         self.assertIn('    JMP (abs_0300)\n', text)
         self.assertIn('abs_0300 = $0300\nzp_34 = $34\n', text)
 
+    def test_65c02_only_instruction_is_bytes(self):
+        """asm17 has no 65C02 mnemonics: STP and WAI are written as .byte."""
+        b = lo.Builder('m', cpu6502.CPU_65C02)
+        f = b.func('m.f')
+        f.op('WAI').op('NOP').op('STP')
+        text = lo2asm.render_module(b.module())
+        self.assertIn('    .byte $CB                   ; WAI\n    NOP\n    .byte $DB                   ; STP\n',
+                      text)
+
+    def test_6502_has_no_stp(self):
+        with self.assertRaisesRegex(lo.LoError, 'unknown mnemonic STP'):
+            lo.Builder('m').func('m.f').op('STP')
+
     def test_addends_and_names(self):
         b = lo.Builder('m')
         b.extern('o.f', lo.K_FUNC)
@@ -387,18 +405,29 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(self.parse(env_text(exit='exit loop')).exit, ('loop', None))
         self.assertEqual(self.parse(env_text(exit='exit return')).exit, ('return', None))
         self.assertEqual(self.parse(env_text(exit='exit call $1234')).exit, ('call', 0x1234))
+        c02 = env_text(exit='exit stop').replace('6502', '65c02')
+        self.assertEqual(self.parse(c02).exit, ('stop', None))
+        self.assertEqual(self.parse(env_text()).output, 'image')
+        self.assertEqual(self.parse(env_text() + 'output image\n').output, 'image')
+        self.assertEqual(self.parse(env_text() + 'OUTPUT Raw\n').output, 'raw')
+        self.assertEqual(self.parse('exit stop\n' + c02.replace('exit stop\n', '')).exit, ('stop', None))
 
     def test_errors(self):
         for text, pattern in (
                 (env_text(exit=None), r'x\.env: no exit entry'),
-                (env_text(exit='exit call'), r'x\.env:6: exit takes call ADDR, loop or return'),
-                (env_text(exit='exit jump $1234'), 'exit takes call ADDR, loop or return'),
-                (env_text(exit='exit loop $1234'), 'exit takes call ADDR, loop or return'),
+                (env_text(exit='exit call'), r'x\.env:6: exit takes call ADDR, loop, return or stop'),
+                (env_text(exit='exit jump $1234'), 'exit takes call ADDR, loop, return or stop'),
+                (env_text(exit='exit loop $1234'), 'exit takes call ADDR, loop, return or stop'),
                 (env_text(stack='stack $100'), r'x\.env:5: stack is one byte'),
                 (env_text(stack='stack'), 'stack is one byte'),
                 (env_text() + 'start host_start.start\n', r'x\.env:7: start is no longer an entry'),
                 (env_text() + 'stack $10\n', 'second stack entry'),
-                (env_text().replace('cpu 6502', 'cpu 6809'), 'cpu is 6502 or 65c02')):
+                (env_text().replace('cpu 6502', 'cpu 6809'), 'cpu is 6502 or 65c02'),
+                (env_text(exit='exit stop'), r'x\.env: exit stop needs cpu 65c02'),
+                (env_text() + 'output rom\n', r'x\.env:7: output is image or raw'),
+                (env_text() + 'output\n', 'output is image or raw'),
+                (env_text() + 'output raw image\n', 'output is image or raw'),
+                (env_text() + 'output raw\noutput raw\n', 'second output entry')):
             with self.assertRaisesRegex(mapenv.FormatError, pattern, msg=text):
                 self.parse(text)
 
@@ -450,6 +479,25 @@ class TestStartup(Work):
     def test_stack_return(self):
         self.assertEqual(self.start_bytes('stack $7F', 'exit return'),
                          bytes((0xA2, 0x7F, 0x9A, 0xD8, 0x20, 0x08, 0x02, 0x60)))
+
+    def test_stop(self):
+        self.env = mapenv.parse_env(env_text('stack $FF', 'exit stop').replace('6502', '65c02'), 'x.env')
+        modules = [host_module(), hello_module()]
+        entries = naive.allocate(modules, self.env, 'hello')
+        text, image = self.assemble(modules, entries, 'hello')
+        self.assertIn('    .byte $DB                   ; STP\n', text)
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'hello'))
+        self.assertEqual(self.at(image, 0x0200, entries[0].size),
+                         bytes((0xA2, 0xFF, 0x9A, 0xD8, 0x20, 0x08, 0x02, 0xDB)))
+
+    def test_raw(self):
+        self.env = mapenv.parse_env(env_text() + 'output raw\n', 'x.env')
+        modules = [host_module(), hello_module()]
+        entries = naive.allocate(modules, self.env, 'hello')
+        text, image = self.assemble(modules, entries, 'hello')
+        self.assertNotIn('$FFFC', text)
+        self.assertEqual(len(image), 12 + 16)
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'hello'))
 
     def test_no_stack_call_elsewhere(self):
         self.assertEqual(self.start_bytes(None, 'exit call $1234'),

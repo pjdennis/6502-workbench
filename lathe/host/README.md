@@ -55,7 +55,7 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 | `decl.py` | DECL, and reading and writing interface files. |
 | `lathec.py` | The compiler's main program. |
 | `link.py` | The linker's main program (with its own modules as it grows). |
-| `driver/` | Ordinary Python, not ported: `lo.py` (read and write object files), `lodump.py` (print one), `lo2asm.py` (render as asm17 text), `build.py` (build and run a whole program). |
+| `driver/` | Ordinary Python, not ported: `lo.py` (read and write object files), `lodump.py` (print one), `lo2asm.py` (render as asm17 text), `build.py` (build and run a whole program), `boards.py` (run a program on an emulated board and read its LCD). |
 
 ## Command lines
 
@@ -77,6 +77,8 @@ python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [-
 
 Finds the modules a program imports (in `lathe/rt/` and beside the source), compiles them in dependency order, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
 
+`--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range.
+
 ## The environment file
 
 Text, one entry per line, `;` starts a comment. Version 1 (it grows towards the form in `../docs/architecture.md`):
@@ -87,12 +89,28 @@ zeropage  $00 $FF       ; first and last address the linker may use
 code      $0200 $BFFF   ; where code and constant data go
 data      $C000 $EFFF   ; where variables go
 stack     $FF           ; optional: the start-up code sets the stack pointer
-exit      call $F00F    ; when main returns: call ADDR with A = 0, or `loop`, or `return`
+exit      call $F00F    ; when main returns: call ADDR with A = 0, or `loop`, `return` or `stop`
+output    image         ; optional: `image` (the default) or `raw`
 ```
 
-The linker writes the start-up code from these entries (`../docs/object-format.md`, "Initial values and start-up").
+The linker writes the start-up code from these entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39.
 
-The image runs from the start of `code` to `$FFFF`, with the reset vector at `$FFFC`, which is what the emulator's default machine loads. Environment files are in `lathe/env/`; `host.env` describes that machine.
+The output file:
+
+| Entry | The file holds |
+|---|---|
+| `output image` | Memory from the start of `code` to `$FFFF`, with the reset vector at `$FFFC` pointing at `$start`. This is what the emulator's default machine loads. |
+| `output raw` | The bytes from the start of `code` through the last byte the linker placed there. No padding and no vectors. `$start` is first, so the load address is the entry. |
+
+Environment files are in `lathe/env/`:
+
+| File | Machine |
+|---|---|
+| `host.env` | The emulator's default machine, with host services (`output image`, `exit call $F00F`). |
+| `michael.env` | Michael, loaded at `$2000` (`output raw`, `exit stop`). |
+| `wendy2.env` | Wendy 2, loaded at `$4000` (`output raw`, `exit stop`). |
+
+`../docs/boards.md` describes the three machines.
 
 ## The map file
 
@@ -146,3 +164,6 @@ Every error has a number; `err.py` lists them with their texts. 1 to 19 are abou
 | Snapshot | `tests/cases/snap/NAME.lth` | `lo2asm` of the compiled module equals `NAME.expected.asm`. |
 | Error | `tests/cases/err/NAME.lth` | The first line is `; error N LINE COL`; the compiler must report exactly that. |
 | End to end | `tests/cases/e2e/NAME.lth` | The program's output on the emulator equals `NAME.expected.out`. Built both ways (linker, and assembler path) once the linker exists; the two images must be identical. |
+| End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed. |
+| Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
+| Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |

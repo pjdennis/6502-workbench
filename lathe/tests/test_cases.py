@@ -5,8 +5,13 @@
     cases/e2e/NAME.lth    The program's output on the emulator equals NAME.expected.out (and it
                           exits with status 0). Once lathe/host/link.py exists it is built both
                           ways, linker and assembler path, and the two images must be identical.
+    cases/e2e-michael/NAME.lth, cases/e2e-wendy2/NAME.lth
+                          The same on a board (lathe/docs/boards.md): built with lathe/env/BOARD.env
+                          both ways, run through build.run_program, and NAME.expected.out holds
+                          the text the LCD shows at the STP, one line per row with trailing spaces
+                          removed.
 
-Each case is its own test method (test_snap_NAME, test_e2e_NAME). Everything is skipped while
+Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME, ...). Everything is skipped while
 lathe/host/lathec.py does not exist. Error cases (cases/err/) are tested with the compiler.
 """
 import glob
@@ -66,19 +71,23 @@ class TestCases(unittest.TestCase):
         self.assertEqual(text, _read(expected), f'{os.path.relpath(source, ROOT)}: lo2asm output '
                          'differs from the expected file (LATHE_UPDATE=1 rewrites it)')
 
-    def check_e2e(self, source):
+    def check_e2e(self, source, env='host'):
         expected = os.path.splitext(source)[0] + '.expected.out'
         image = os.path.join(self.dir, 'default.bin')
-        build.build(source, image, keep=os.path.join(self.dir, 'default'))
-        status, out, err = build.run_image(image)
+        build.build(source, image, env, keep=os.path.join(self.dir, 'default'))
+        status, out, err = build.run_program(image, env)
         self.assertEqual(out, _read(expected, 'rb'), f'{os.path.relpath(source, ROOT)}: output')
         self.assertEqual(status, 0, f'exit status; error output: {err!r}')
         if os.path.isfile(build.LINKER):
             other = os.path.join(self.dir, 'asm.bin')
-            build.build(source, other, use_asm=True, keep=os.path.join(self.dir, 'asm'))
+            build.build(source, other, env, use_asm=True, keep=os.path.join(self.dir, 'asm'))
             self.assertTrue(_read(image, 'rb') == _read(other, 'rb'),
                             'the linker and the assembler path give different images '
                             f'(rebuild with build.py --keep DIR, with and without --asm, to compare)')
+
+
+# The end-to-end kinds: case directory -> environment (a board's, for e2e-BOARD).
+E2E = {'e2e': 'host', 'e2e-michael': 'michael', 'e2e-wendy2': 'wendy2'}
 
 
 def _add(kind, check):
@@ -86,19 +95,25 @@ def _add(kind, check):
         def test(self, path=path):
             check(self, path)
         test.__doc__ = os.path.relpath(path, ROOT)
-        setattr(TestCases, f'test_{kind}_{_name(path)}', test)
+        setattr(TestCases, f'test_{kind.replace("-", "_")}_{_name(path)}', test)
 
 
 _add('snap', TestCases.check_snap)
-_add('e2e', TestCases.check_e2e)
+for _kind, _env in E2E.items():
+    _add(_kind, lambda self, path, env=_env: TestCases.check_e2e(self, path, env))
 
 
 class TestHarness(unittest.TestCase):
     """Runs without the compiler: the cases are well formed."""
 
     def test_e2e_cases_have_expected_output(self):
-        for path in cases('e2e'):
-            self.assertTrue(os.path.isfile(os.path.splitext(path)[0] + '.expected.out'), path)
+        for kind in E2E:
+            for path in cases(kind):
+                self.assertTrue(os.path.isfile(os.path.splitext(path)[0] + '.expected.out'), path)
+
+    def test_every_board_has_its_environment(self):
+        for env in E2E.values():
+            self.assertTrue(os.path.isfile(build.env_path(env)), env)
 
     def test_there_is_a_case(self):
         self.assertTrue(cases('e2e'), 'no end-to-end cases in lathe/tests/cases/e2e')

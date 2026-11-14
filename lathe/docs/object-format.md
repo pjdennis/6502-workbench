@@ -95,9 +95,11 @@ Because `CODE` holds only instructions, the linker and the text renderer find in
 | Decimal flag | `CLD` | Always. |
 | Initial values | `JSR $init` | Some module has initialisers. |
 | The program | `JSR mainmodule.main` | Always. |
-| Exit | `LDA #0` / `JMP addr`, or `JMP` to itself, or `RTS` | `exit call addr`, `exit loop`, `exit return`. |
+| Exit | `LDA #0` / `JMP addr`, or `JMP` to itself, or `RTS`, or `STP` | `exit call addr`, `exit loop`, `exit return`, `exit stop`. `STP` is the 65C02's `$DB`, so `exit stop` needs `cpu 65c02`. |
 
-`$init` follows `$start`, and the objects' functions follow that. The reset vector holds the address of `$start`.
+`$init` follows `$start`, and the objects' functions follow that.
+
+The environment's `output` entry says what the file holds. With `output image`, the default, it is memory from the start of the code range to `$FFFF`, and the reset vector holds the address of `$start`. With `output raw` it is the bytes from the start of the code range through the last byte the linker placed there, with no padding and no vectors; `$start` is first, so the load address is the entry.
 
 ## Rendering as assembler text
 
@@ -110,7 +112,8 @@ The host tool `lo2asm` turns object files into asm17 source.
 | A label inside a function | Local label `.L` followed by the written offset in hex. |
 | A fix-up | The label, with `+addend` if not zero, and `<` or `>` for kinds 2 and 3. |
 | `DATA` | `.byte` lines. |
+| An instruction the NMOS 6502 does not have (`STP`, `WAI`) | `.byte` and its opcode, the mnemonic in a comment: asm17 has no 65C02 mnemonics. Only one-byte instructions are written so far; `lo2asm` refuses one with an operand. |
 
-Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then `$start` and `$init` as the linker makes them, then the functions the linker kept, in the same order the linker places them. Assembling that text must give the same bytes as the linker's own image.
+Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then `$start` and `$init` as the linker makes them (the `STP` of `exit stop` as `.byte $DB`), then the functions the linker kept, in the same order the linker places them, and for `output image` the reset vector at `$FFFC`. For `output raw` there are no vectors: the assembler's output runs from the origin to the last byte written. Assembling that text must give the same bytes as the linker's own file.
 
 A function the linker copies for several contexts is rendered once per copy the map lists, `mod.f@N` as label `mod__fX40N` with slots `mod__fX40N__slotname`. In a copy for context N, a `JSR` or `JMP` to a function, and a slot of a function that has a copy for N, mean that copy. Every other reference to a function, and every reference from constant data, means the copy its address stands for (`code-model.md`, "Interrupts"): the one in the context that calls through its pointer class, or else its first copy. Variables, constant data and class blocks are never copied.

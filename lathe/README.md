@@ -20,6 +20,7 @@ Read them in this order.
 | [`docs/codegen.md`](docs/codegen.md) | The rules the compiler follows to turn expressions, statements and calls into instructions. |
 | [`docs/architecture.md`](docs/architecture.md) | How the compiler is built: phases, object files, the linker, environment configuration, memory budgets, and the constraints of starting on asm17. |
 | [`docs/object-format.md`](docs/object-format.md) | The object file format, and how object files are rendered as assembler text. |
+| [`docs/boards.md`](docs/boards.md) | The machines a program runs on (the emulator's default machine, Michael, Wendy 2): how each is run, its memory map, how output is read and how a timer interrupt is set up. |
 | [`docs/spikes.md`](docs/spikes.md) | Experiments to run before and during implementation, each with the question it answers and the decision it informs. |
 | [`docs/build-plan.md`](docs/build-plan.md) | The incremental build: stages, the test gate for each, and how the tests are organised. |
 

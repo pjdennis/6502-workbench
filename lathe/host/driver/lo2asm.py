@@ -6,7 +6,9 @@
 
     lo2asm.py --map OUT.map --env ENV --main MODULE -o OUT.asm A.lo B.lo ...
         Program mode: one asm17 source for the whole program. Assembled (asm/pyasm.py or asm17)
-        it gives the image the linker gives: code start to $FFFF, reset vector at $FFFC.
+        it gives the file the linker gives: for `output image`, code start to $FFFF with the
+        reset vector at $FFFC; for `output raw`, code start to the last byte placed and no
+        vectors (pyasm's output runs from the lowest address written to the highest).
         $start and $init are written as the linker makes them (object-format.md, "Initial
         values and start-up"), labelled Sstart and Sinit. Each copy of a function that the
         map lists (mod.f, mod.f@1, ...) is rendered as a function of its own, label mod__fX401,
@@ -20,6 +22,11 @@ case, so these cannot collide with a user's name. Literal memory operands are wr
 equates (abs_f009 = $F009, zp_12 = $12) because asm17 forces a literal to absolute after a
 forward reference; an absolute instruction whose literal operand is below $100 (which asm17
 would shrink) is written as .byte with the instruction in a comment.
+
+asm17 has no 65C02 mnemonics, so an instruction the NMOS 6502 does not have (STP, WAI; and the
+STP that `exit stop` puts at the end of $start) is written the same way: .byte and its opcode,
+the mnemonic in a comment. Only one-byte instructions can be written so far: one with an operand
+would need its fix-up or branch written as an expression, and lo2asm refuses it.
 """
 import argparse
 import os
@@ -315,6 +322,12 @@ class Renderer:
 
     def instruction(self, m, x, current, ctx=None):
         mn, mode = x.mnemonic, x.mode
+        if not asm17_has(mn, mode):
+            if x.length != 1:
+                raise RenderError(f'{m.name}: function {m.sym_name(current.sym)}: {mn} at '
+                                  f'${x.offset:04X}: asm17 has no 65C02 instructions, and only '
+                                  f'one-byte ones can be written as .byte')
+            return byte_line(current.code[x.offset:x.offset + 1], mn)
         if mode == cpu6502.IMP:
             return f'{INDENT}{mn}'
         if mode == cpu6502.REL:
@@ -329,9 +342,8 @@ class Renderer:
         elif mode == cpu6502.IMM:
             return f'{INDENT}{mn} #${x.operand:02X}'
         elif width == 2 and x.operand < 0x100 and cpu6502.shrinks(m.cpu, mn, mode):
-            raw = ', '.join(f'${b:02X}' for b in current.code[x.offset:x.offset + 3])
-            line = f'{INDENT}.byte {raw}'
-            return f'{line:<31} ; {mn} {_mode_text(mode, f"${x.operand:04X}")}'
+            return byte_line(current.code[x.offset:x.offset + 3],
+                             f'{mn} {_mode_text(mode, f"${x.operand:04X}")}')
         else:
             e = self.literal(x.operand, width)
         if mode == cpu6502.IMM:
@@ -388,6 +400,17 @@ class Renderer:
     def equate_lines(self):
         return [f'{n} = ${v:02X}' if n.startswith('zp_') else f'{n} = ${v:04X}'
                 for n, v in sorted(self.equates.items())]
+
+
+def asm17_has(mnemonic, mode):
+    """True if asm17 can write this instruction: the NMOS 6502 has it."""
+    return mode in cpu6502.NMOS.get(mnemonic, {})
+
+
+def byte_line(data, comment):
+    """Bytes written as .byte, with what they are in a comment."""
+    line = f'{INDENT}.byte ' + ', '.join(f'${b:02X}' for b in data)
+    return f'{line:<31} ; {comment}'
 
 
 def is_call(x):
@@ -487,6 +510,9 @@ def start_function(env, has_init, main, r):
     elif kind == mapenv.EXIT_LOOP:
         lines.append(local_label(size))
         ins(f'JMP {local_label(size)}', 3)
+    elif kind == mapenv.EXIT_STOP:
+        lines.append(byte_line(b'\xDB', 'STP'))
+        size += 1
     else:
         ins('RTS', 1)
     return lines, size
@@ -631,10 +657,13 @@ def render_program(modules, entries, env, main_module):
             body.append(f'* = ${a:04X}')
         body += lines
         pc = a + size
-    if pc > 0xFFFC:
-        raise RenderError(f'the program reaches ${pc:04X}, over the reset vector')
-    body += ['', f'; vectors: reset to {START}; no interrupt handler',
-             '* = $FFFC', f'{INDENT}.word {mangle(START)}', f'{INDENT}.word $0000']
+    if env.output == mapenv.OUTPUT_IMAGE:
+        if pc > 0xFFFC:
+            raise RenderError(f'the program reaches ${pc:04X}, over the reset vector')
+        body += ['', f'; vectors: reset to {START}; no interrupt handler',
+                 '* = $FFFC', f'{INDENT}.word {mangle(START)}', f'{INDENT}.word $0000']
+    else:
+        body += ['', '; output raw: the file ends here, with no vectors']
     eq = r.equate_lines()
     if eq:
         equates += ['', '; literal addresses'] + eq

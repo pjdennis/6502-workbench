@@ -1,5 +1,7 @@
 """The image file: memory from the start of the `code` range to $FFFF, written in address order.
 
+With `output raw` the file ends with the last byte the linker placed, and has no vectors.
+
 Nothing of the image is held in memory. Whatever is written must come at or after what was
 written before it; the gaps are filled with zeros.
 """
@@ -38,7 +40,12 @@ def put_word(value):
 
 
 def close_image(reset):
-    """Put the address `reset` in the reset vector, fill the image to $FFFF and close it."""
+    """Put the address `reset` in the reset vector, fill the image to $FFFF and close it.
+
+    With `output raw`, only close it."""
+    if lk_envf.raw:
+        env.close(handle)
+        return
     seek(0xFFFC)
     put_word(reset)
     while written != (0 - lk_envf.code_lo) & 0xFFFF:

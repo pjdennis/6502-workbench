@@ -10,10 +10,13 @@
 3. With --asm, or when there is no linker: renders the objects and a map as asm17 text
    (lo2asm program mode) and assembles it with asm/pyasm.py. The map is the linker's when there
    is a linker, otherwise (or with --naive) naive.py's allocation.
-4. With --run, runs the image on the emulator and copies its output; the exit status is the
-   program's.
+4. With --run, runs the image on the emulator. With --env host (the default machine) it copies
+   the program's output, and the exit status is the program's. With the environment of a board
+   (--env michael, --env wendy2; boards.py) it prints the board's LCD, one line per row with
+   trailing spaces removed; a run that does not end at the STP of `exit stop` is an error.
 
---env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works.
+--env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works, and runs
+on the board of the same name, if there is one.
 --keep DIR keeps the objects, map and assembler text in DIR (default: a temporary directory).
 """
 import argparse
@@ -27,6 +30,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import boards  # noqa: E402
 import lo  # noqa: E402
 import lo2asm  # noqa: E402
 import mapenv  # noqa: E402
@@ -179,6 +183,17 @@ def run_image(image, args=(), stdin=None):
     return r.returncode, r.stdout, err
 
 
+def run_program(image, env='host', args=(), stdin=None):
+    """Runs an image built for environment env: on its board (boards.py), or else on the
+    default machine (run_image). Returns (status, output bytes, error output bytes); a board's
+    output is its LCD text."""
+    board = boards.board_for(env)
+    if board is None:
+        return run_image(image, args, stdin)
+    text = boards.run(board, image, mapenv.read_env(env_path(env)))
+    return 0, text.encode('latin-1'), b''
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog='build.py', description='Build and run a Lathe program.')
     ap.add_argument('source')
@@ -193,12 +208,12 @@ def main(argv):
     try:
         work = build(a.source, a.out, a.env, a.asm, a.naive, a.keep)
         if a.run:
-            status, out, err = run_image(a.out)
+            status, out, err = run_program(a.out, a.env)
             sys.stdout.buffer.write(out)
             sys.stdout.flush()
             sys.stderr.buffer.write(err)
             return status
-    except (BuildError, lo.LoError, lo2asm.RenderError, mapenv.FormatError, naive.AllocError, OSError) as e:
+    except (BuildError, boards.RunError, lo.LoError, lo2asm.RenderError, mapenv.FormatError, naive.AllocError, OSError) as e:
         sys.stderr.write(f'build: {e}\n')
         return 1
     finally:
