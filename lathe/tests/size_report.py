@@ -43,10 +43,9 @@ SMALL = ('regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')    # the sma
 
 
 LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
-          'lk_out')
-LINKER_PROGRAMS = ('lktest1', 'lktest2')
-LINKER_LATER = ('lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit',
-                'link')
+          'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc')
+LINKER_PROGRAMS = ('lktest1', 'lktest2', 'lktest3', 'lktest4')
+LINKER_LATER = ('lk_fix', 'lk_place', 'lk_map', 'lk_emit', 'link')
 
 
 def build(name, out_dir, env=None):

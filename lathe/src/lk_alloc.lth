@@ -1,0 +1,1049 @@
+; Storage: lathe/host/lk_alloc.py in Lathe.
+;
+; An address for every variable, slot and class parameter (code-model.md, "Storage").
+;
+; There are two pools, zero page and main memory (the environment's `zeropage` and `data`
+; ranges). In each, from the bottom:
+;
+;     module-level variables, which are never shared
+;     the frames and class blocks of context 0
+;     those of context 1, and so on: a handler never touches what it interrupted
+;
+; Within a context a node (a function copy's frame, or a class block) starts where the storage of
+; everything that can be active when it is called ends: the largest end among its callers. Nodes
+; that can reach each other by recursion form a set (lk_graph) that is laid out as one piece, its
+; members side by side, with every callee of any member above all of it.
+;
+; Zero page. Class 0 slots are in zero page and class 2 never. The class 1 slots, variables and
+; class parameters of the whole program are then taken heaviest weight first, in the order slots,
+; class parameters, variables within a weight, and each is moved into zero page if the deepest
+; chain of calls still fits with it there; one that does not fit is left in main memory and the
+; next is tried. If every candidate fits, one layout shows it. Otherwise most items are judged
+; from bounds, without a new layout (judge).
+;
+; A slot's choice holds for every copy of its function. A member's parameter slots are not in the
+; frame of the copy in its class's context: they are the class block.
+;
+; Main memory on an NMOS 6502: no two-byte item is placed across a page boundary, because
+; `JMP (pointer)` reads the wrong high byte there and any pointer may be called through.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | addresses, sizes, nodes, counts: ints| words; a context, a pool, a weight| the type is the |
+;   |                                      | of a slot or class parameter, a   | storage         |
+;   |                                      | slot's number in its function, a  |                 |
+;   |                                      | class, a class parameter: bytes   |                 |
+;   | MAX_TAKEN                            | smaller under `#if LKSMALL`       | the list must   |
+;   |                                      |                                   | end inside the  |
+;   |                                      |                                   | work area       |
+;   | addr & 0xFF == 0xFF; x & 0xFF        | lo(addr) == $FF; lo(x)            |                 |
+;   | (... & 0xFFFF) on an address         | the word, which wraps             | the same        |
+;   | fits: need <= zp_cap - zp_used, which| zp_used <= zp_cap and need <=     | a word does not |
+;   | is false when zp_used > zp_cap       | zp_cap - zp_used                  | go below 0      |
+;   | list entry >> 12 == ctx; ctx << 12   | byte(... >> 12); word(ctx) << 12  | lk_tab.lth      |
+;   | deepest_node, caller_below: (n, ok)  | a value and a status              | the same        |
+;   | range(count - 1, -1, -1)             | a while loop counting down        | count can be 0  |
+;   | range(1, WEIGHTS); range(WEIGHTS - 1,| 1 to 255; 255 downto 1            | a byte weight   |
+;   | 0, -1)                               |                                   |                 |
+;   | range(0, i + 1)                      | 0 to i                            | the same        |
+;   | range(0, fn_nslots(f)), a slot's     | 0 until lo(fn_nslots(f))          | a function has  |
+;   | number                               |                                   | at most 255     |
+;   |                                      |                                   | (lk_scan)       |
+;   | `\` continuations                    | conditions that go on after `and` | a line goes on  |
+;   |                                      |                                   | after `and`     |
+module lk_alloc
+
+import lk_envf
+import lk_err
+import lk_graph
+import lk_name
+import lk_op
+import lk_sym
+import lk_tab
+import lk_win
+
+const POOL_ZP = 0
+const POOL_MAIN = 1
+
+; The layout of one pool, a row per node, in lk_tab.work: where each column starts. Addresses here
+; count from the start of the pool.
+pub const LAY_BASE = 0                  ; where the node starts
+pub const LAY_END = lk_tab.MAX_NODES    ; where its set ends
+pub const LAY_SIZE = 2 * lk_tab.MAX_NODES       ; the size of its set
+pub const LAY_DOWN = 3 * lk_tab.MAX_NODES       ; the most storage any chain of calls needs above
+                                                ; its set
+const CHAIN = LAY_DOWN                  ; the nodes of a call chain, for an error message, which
+                                        ; needs no depths
+const WEIGHTS = 256
+const WEIGHT_COUNT = lk_tab.W_MBASE     ; while promote() works, before nodes have main memory: how
+                                        ; many class 1 candidates have each weight
+
+pub var ctx_bottom: [lk_tab.MAX_CONTEXTS]word   ; where a context's storage starts in the pool
+pub var ctx_depth: [lk_tab.MAX_CONTEXTS]word    ; how much its deepest chain needs
+
+pub var zp_cap: word = 0        ; bytes of zero page the linker may use
+pub var zp_vars: word = 0       ; of which module-level variables have this many
+pub var zp_used: word = 0       ; and variables and all contexts this many
+pub var layouts: word = 0       ; how often zero page has been laid out: a measure
+
+; True if a two-byte item at addr would lie across a page boundary and must not.
+func straddles(addr: word, size: word): bool
+  return lk_envf.cpu == lk_op.CPU_6502 and size == 2 and lo(addr) == $FF
+end
+
+; ---- the size of a node
+
+; Bytes of zero page node n needs, from the choices made so far.
+pub func zp_size(n: word): word
+  var total: word
+  var k: byte
+  var p: byte
+  var f: word
+  var blocked: bool
+  var i: byte
+  var s: word
+  total = 0
+  if lk_tab.node_is_class(n) then
+    k = lk_tab.node_class(n)
+    for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+      if (lk_tab.cp_info[p] & lk_tab.S_ZP) != 0 then
+        total += lk_tab.cp_size[p]
+      end
+    end
+    return total
+  end
+  f = lk_tab.own_of(n)
+  blocked = lk_tab.in_block(f, lk_tab.ctx_of(n))
+  for i = 0 until lo(lk_tab.fn_nslots(f)) do
+    s = lk_tab.fn_slot[f] + i
+    if lk_tab.slot_in_zp(s) and lk_tab.in_frame(f, i, blocked) then
+      total += lk_tab.slot_bytes(s)
+    end
+  end
+  return total
+end
+
+; Where the next main memory item of this size starts if the last one ended at `pos`.
+func main_item(pos: word, size: word): word
+  if straddles(lk_envf.data_lo + pos, size) then
+    return lk_tab.add16(pos, 1)
+  end
+  return pos
+end
+
+; Where node n's main memory ends if it starts at `pos`.
+func main_end(n: word, pos: word): word
+  var k: byte
+  var p: byte
+  var f: word
+  var blocked: bool
+  var i: byte
+  var s: word
+  if lk_tab.node_is_class(n) then
+    k = lk_tab.node_class(n)
+    for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+      if (lk_tab.cp_info[p] & lk_tab.S_ZP) == 0 then
+        pos = lk_tab.add16(main_item(pos, lk_tab.cp_size[p]), lk_tab.cp_size[p])
+      end
+    end
+    return pos
+  end
+  f = lk_tab.own_of(n)
+  blocked = lk_tab.in_block(f, lk_tab.ctx_of(n))
+  for i = 0 until lo(lk_tab.fn_nslots(f)) do
+    s = lk_tab.fn_slot[f] + i
+    if not lk_tab.slot_in_zp(s) and lk_tab.in_frame(f, i, blocked) then
+      pos = lk_tab.add16(main_item(pos, lk_tab.slot_bytes(s)), lk_tab.slot_bytes(s))
+    end
+  end
+  return pos
+end
+
+func node_end(pool: byte, n: word, pos: word): word
+  if pool == POOL_ZP then
+    return lk_tab.add16(pos, lk_tab.work[lk_tab.W_ZSIZE + n])
+  end
+  return main_end(n, pos)
+end
+
+; ---- laying out one pool
+
+; Where node n starts (LAY_BASE).
+pub func base_of(n: word): word
+  return lk_tab.work[LAY_BASE + n]
+end
+
+; Where node n's set ends (LAY_END).
+pub func end_of(n: word): word
+  return lk_tab.work[LAY_END + n]
+end
+
+; The size of node n's set (LAY_SIZE).
+pub func size_of(n: word): word
+  return lk_tab.work[LAY_SIZE + n]
+end
+
+; The most storage a chain of calls needs above node n's set (LAY_DOWN).
+pub func down_of(n: word): word
+  return lk_tab.work[LAY_DOWN + n]
+end
+
+; Nothing node n calls outside its set may start below `top`.
+func raise_callees(n: word, top: word)
+  var e: word
+  var target: word
+  var applies: bool
+  e = lk_graph.first_edge(n)
+  while e != 0 do
+    target, applies = lk_graph.edge_node(n, e)
+    if applies and lk_graph.scc_of(target) != lk_graph.scc_of(n) and
+        base_of(target) < top then
+      lk_tab.work[LAY_BASE + target] = top
+    end
+    e = lk_graph.next_edge(n, e)
+  end
+end
+
+; Lay out the set that is lk_graph.order_at(first..limit-1). Returns where it ends.
+func layout_set(pool: byte, first: word, limit: word): word
+  var start: word
+  var i: word
+  var pos: word
+  start = 0
+  for i = first until limit do
+    if base_of(lk_graph.order_at(i)) > start then
+      start = base_of(lk_graph.order_at(i))
+    end
+  end
+  pos = start
+  for i = first until limit do
+    lk_tab.work[LAY_BASE + lk_graph.order_at(i)] = pos
+    pos = node_end(pool, lk_graph.order_at(i), pos)
+  end
+  for i = first until limit do
+    lk_tab.work[LAY_END + lk_graph.order_at(i)] = pos
+    lk_tab.work[LAY_SIZE + lk_graph.order_at(i)] = pos - start
+    raise_callees(lk_graph.order_at(i), pos)
+  end
+  return pos
+end
+
+; Lay out the nodes of one context from ctx_bottom up. Returns where the context ends.
+;
+; lk_graph.order has callees first, so going through it backwards meets every caller of a set
+; before the set itself.
+func layout(pool: byte, ctx: byte): word
+  var top: word
+  var n: word
+  var limit: word
+  var first: word
+  var scc: word
+  var set_end: word
+  top = ctx_bottom[ctx]
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) and lk_tab.ctx_of(n) == ctx then
+      lk_tab.work[LAY_BASE + n] = ctx_bottom[ctx]
+    end
+  end
+  limit = lk_graph.order_count
+  while limit > 0 do
+    first = limit - 1
+    scc = lk_graph.scc_of(lk_graph.order_at(first))
+    while first > 0 and lk_graph.scc_of(lk_graph.order_at(first - 1)) == scc do
+      first -= 1
+    end
+    if lk_tab.ctx_of(lk_graph.order_at(first)) == ctx then
+      set_end = layout_set(pool, first, limit)
+      if set_end > top then
+        top = set_end
+      end
+    end
+    limit = first
+  end
+  return top
+end
+
+; Work out lay_down, callees first: the deepest chain of storage above each set.
+func deepen()
+  var first: word
+  var scc: word
+  var limit: word
+  var down: word
+  var i: word
+  var n: word
+  var e: word
+  var target: word
+  var applies: bool
+  var below: word
+  first = 0
+  while first < lk_graph.order_count do
+    scc = lk_graph.scc_of(lk_graph.order_at(first))
+    limit = first + 1
+    while limit < lk_graph.order_count and
+        lk_graph.scc_of(lk_graph.order_at(limit)) == scc do
+      limit += 1
+    end
+    down = 0
+    for i = first until limit do
+      n = lk_graph.order_at(i)
+      e = lk_graph.first_edge(n)
+      while e != 0 do
+        target, applies = lk_graph.edge_node(n, e)
+        if applies and lk_graph.scc_of(target) != scc then
+          below = lk_tab.add16(size_of(target), down_of(target))
+          if below > down then
+            down = below
+          end
+        end
+        e = lk_graph.next_edge(n, e)
+      end
+    end
+    for i = first until limit do
+      lk_tab.work[LAY_DOWN + lk_graph.order_at(i)] = down
+    end
+    first = limit
+  end
+end
+
+; Lay out zero page with the choices made so far. True if it all fits.
+pub func layout_zp(): bool
+  var ctx: byte
+  layouts += 1
+  lk_tab.overflow = false
+  zp_used = zp_vars
+  for ctx = 0 until lk_tab.ctx_count do
+    ctx_bottom[ctx] = 0
+    ctx_depth[ctx] = layout(POOL_ZP, ctx)
+    zp_used = lk_tab.add16(zp_used, ctx_depth[ctx])
+  end
+  deepen()
+  return not lk_tab.overflow and zp_used <= zp_cap
+end
+
+; ---- errors that name a call chain
+
+func deepest_context(): byte
+  var ctx: byte
+  var c: byte
+  ctx = 0
+  for c = 1 until lk_tab.ctx_count do
+    if ctx_depth[c] > ctx_depth[ctx] then
+      ctx = c
+    end
+  end
+  return ctx
+end
+
+; A node of the context whose set ends at the context's top, and whether there is one.
+func deepest_node(ctx: byte): word, bool
+  var n: word
+  if ctx_depth[ctx] == 0 then
+    return 0, false
+  end
+  n = lk_tab.first_in_order()
+  while n != lk_tab.NONE do
+    if lk_tab.ctx_of(n) == ctx and end_of(n) - ctx_bottom[ctx] == ctx_depth[ctx] then
+      return n, true
+    end
+    n = lk_tab.next_in_order(n)
+  end
+  return 0, false
+end
+
+; A caller of node n's set whose own set ends where n's starts, and whether there is one.
+func caller_below(n: word): word, bool
+  var start: word
+  var caller: word
+  var e: word
+  var target: word
+  var applies: bool
+  start = end_of(n) - size_of(n)
+  caller = lk_tab.first_in_order()
+  while caller != lk_tab.NONE do
+    if lk_tab.ctx_of(caller) == lk_tab.ctx_of(n) and end_of(caller) == start and
+        lk_graph.scc_of(caller) != lk_graph.scc_of(n) then
+      e = lk_graph.first_edge(caller)
+      while e != 0 do
+        target, applies = lk_graph.edge_node(caller, e)
+        if applies and lk_graph.scc_of(target) == lk_graph.scc_of(n) then
+          return caller, true
+        end
+        e = lk_graph.next_edge(caller, e)
+      end
+    end
+    caller = lk_tab.next_in_order(caller)
+  end
+  return 0, false
+end
+
+; Report a pool that is too small, by how much, and the call chain that needs the most of it.
+func fail_full(error: byte, amount: word, wrapped: bool)
+  var count: word
+  var n: word
+  var more: bool
+  var member: word
+  var i: word
+  count = 0
+  n, more = deepest_node(deepest_context())
+  while more do
+    member = lk_tab.first_in_order()
+    while member != lk_tab.NONE do
+      if lk_graph.scc_of(member) == lk_graph.scc_of(n) then
+        lk_tab.work[CHAIN + count] = member
+        count += 1
+      end
+      member = lk_tab.next_in_order(member)
+    end
+    n, more = caller_below(n)
+  end
+  lk_err.begin(error)
+  lk_err.over(amount, wrapped)
+  i = count
+  while i > 0 do
+    i -= 1
+    if i == count - 1 then
+      lk_err.colon()
+    else
+      lk_err.arrow()
+    end
+    lk_name.error_node(lk_tab.work[CHAIN + i])
+  end
+  lk_err.finish()
+end
+
+func fail_zp()
+  fail_full(lk_err.E_ZP_FULL, zp_used - zp_cap, lk_tab.overflow)
+end
+
+; ---- choosing what goes in zero page
+
+; True for a class 1 item small enough to be worth trying.
+func is_candidate(zp_class: byte, size: word): bool
+  return zp_class == 1 and size <= zp_cap
+end
+
+; A class 0 item larger than all of zero page can be reported at once.
+func must_fit(size: word, sym: word)
+  if size > zp_cap then
+    lk_err.begin(lk_err.E_ZP_FULL)
+    lk_err.over(size - zp_cap, false)
+    lk_err.colon()
+    lk_name.error_name(sym)
+    lk_err.finish()
+  end
+end
+
+; Class 0 goes in zero page. Count the class 1 candidates by weight.
+func start_choices()
+  var w: word
+  var f: word
+  var s: word
+  var k: byte
+  var p: byte
+  var d: word
+  for w = 0 until WEIGHTS do
+    lk_tab.work[WEIGHT_COUNT + w] = 0
+  end
+  for f = 0 until lk_tab.fn_count do
+    if lk_tab.fn_ctx[f] != 0 then
+      for s = lk_tab.fn_slot[f] until lk_tab.fn_slot[f] + lk_tab.fn_nslots(f) do
+        if lk_tab.slot_class(s) == 0 then
+          must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
+          lk_tab.slot_sz[s] |= lk_tab.SL_ZP
+        elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
+          lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight[s]] += 1
+        end
+      end
+    end
+  end
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+        if (lk_tab.cp_info[p] & lk_tab.S_CLASS) == 0 then
+          must_fit(lk_tab.cp_size[p], lk_tab.cls_ref(k))
+          lk_tab.cp_info[p] |= lk_tab.S_ZP
+        elif is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
+          lk_tab.work[WEIGHT_COUNT + lk_tab.cp_weight[p]] += 1
+        end
+      end
+    end
+  end
+  zp_vars = 0
+  for d = 0 until lk_tab.def_count do
+    if lk_tab.is_kept_var(d) then
+      if (lk_tab.def_f[d] & lk_tab.D_CLASS) == 0 then
+        must_fit(lk_tab.def_b[d], lk_tab.def_ref(d))
+        lk_tab.def_f[d] |= lk_tab.D_ZP
+        zp_vars += lk_tab.def_b[d]
+      elif (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and lk_tab.def_b[d] <= zp_cap then
+        lk_tab.work[WEIGHT_COUNT + lk_tab.def_w(d)] += 1
+      end
+    end
+  end
+end
+
+; How much deeper node n's context gets if its node needs `size` more bytes.
+func growth(n: word, size: word): word
+  var top: word
+  top = lk_tab.add16(lk_tab.add16(end_of(n), size), down_of(n))
+  if top > ctx_depth[lk_tab.ctx_of(n)] then
+    return top - ctx_depth[lk_tab.ctx_of(n)]
+  end
+  return 0
+end
+
+func fits(need: word): bool
+  return not lk_tab.overflow and zp_used <= zp_cap and need <= zp_cap - zp_used
+end
+
+; Put slot i of f in zero page, or take it out again.
+func move_slot(f: word, i: byte, into: bool)
+  var s: word
+  var ctx: byte
+  var n: word
+  s = lk_tab.fn_slot[f] + i
+  lk_tab.slot_sz[s] ^= lk_tab.SL_ZP
+  for ctx = 0 until lk_tab.ctx_count do
+    if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
+      n = lk_tab.copy_node(f, ctx)
+      if into then
+        lk_tab.work[lk_tab.W_ZSIZE + n] += lk_tab.slot_bytes(s)
+      else
+        lk_tab.work[lk_tab.W_ZSIZE + n] -= lk_tab.slot_bytes(s)
+      end
+    end
+  end
+end
+
+func move_cparam(k: byte, p: byte, into: bool)
+  lk_tab.cp_info[p] ^= lk_tab.S_ZP
+  if into then
+    lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] += lk_tab.cp_size[p]
+  else
+    lk_tab.work[lk_tab.W_ZSIZE + lk_tab.cls_node[k]] -= lk_tab.cp_size[p]
+  end
+end
+
+func move_var(d: word, into: bool)
+  lk_tab.def_f[d] ^= lk_tab.D_ZP
+  if into then
+    zp_vars += lk_tab.def_b[d]
+  else
+    zp_vars -= lk_tab.def_b[d]
+  end
+end
+
+func var_is_candidate(d: word, weight: byte): bool
+  return lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_CLASS) == 1 and
+      lk_tab.def_w(d) == weight and lk_tab.def_b[d] <= zp_cap
+end
+
+; Move every candidate of this weight into zero page, or all of them out again.
+func move_weight(weight: byte, into: bool)
+  var f: word
+  var i: byte
+  var s: word
+  var k: byte
+  var p: byte
+  var d: word
+  for f = 0 until lk_tab.fn_count do
+    if lk_tab.fn_ctx[f] != 0 then
+      for i = 0 until lo(lk_tab.fn_nslots(f)) do
+        s = lk_tab.fn_slot[f] + i
+        if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
+          move_slot(f, i, into)
+        end
+      end
+    end
+  end
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+        if lk_tab.cp_weight[p] == weight and
+            is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
+          move_cparam(k, p, into)
+        end
+      end
+    end
+  end
+  for d = 0 until lk_tab.def_count do
+    if var_is_candidate(d, weight) then
+      move_var(d, into)
+    end
+  end
+end
+
+; Promotion decides most items without laying the program out again. After a layout L, what was
+; accepted since is a list of the copies it went into, each with its context, its size and the
+; longest chain through its node in L (`through`). A chain of calls that passes through copies
+; x1..xk is no longer than the shortest of their throughs plus the sum of their sizes, so the
+; deepest chain of a context is now at most the largest, over the throughs t of the list in that
+; context, of t plus the sizes of the copies whose through is t or more (bound). An item fits if
+; zero page fits with it at that bound; it does not fit if it does not fit with L alone, since
+; more in zero page never makes a chain need less. Only an item between the two needs a new
+; layout, after which it is judged exactly. The choices are those of laying out after every item
+; accepted.
+const CAND = WEIGHT_COUNT + WEIGHTS     ; while promote() works: the copies of the item judged,
+const LIST = CAND + lk_tab.MAX_CONTEXTS ; then the list, two words a copy (through; size, and
+                                        ; context << 12), throughs largest first
+#if LKSMALL
+const MAX_TAKEN = 32
+#else
+const MAX_TAKEN = 128           ; a list longer than this takes a layout instead: judging an item
+                                ; reads it, and longer lists saved no layouts on the corpus
+#end
+var taken: word = 0
+var taken_vars: word = 0        ; bytes of variables accepted since L
+var cand_count: byte = 0
+var cand_size: word = 0
+
+; Lay zero page out again with the choices made so far.
+func lay_out()
+  layout_zp()
+  taken = 0
+  taken_vars = 0
+end
+
+; The longest chain through node n's set in the last layout.
+func through(n: word): word
+  return lk_tab.add16(end_of(n), down_of(n))
+end
+
+; At most how deep context ctx is now, with the item judged if `extra` is a node of its.
+func deepest(ctx: byte, extra: word): word
+  var deep: word
+  var total: word
+  var used: bool
+  var i: word
+  var t: word
+  deep = ctx_depth[ctx]
+  total = 0
+  used = extra == lk_tab.NONE
+  for i = 0 until taken do
+    t = lk_tab.work[LIST + 2 * i]
+    if not used and through(extra) >= t then
+      total = lk_tab.add16(total, cand_size)
+      used = true
+      if lk_tab.add16(through(extra), total) > deep then
+        deep = lk_tab.add16(through(extra), total)
+      end
+    end
+    if byte(lk_tab.work[LIST + 2 * i + 1] >> 12) == ctx then
+      total = lk_tab.add16(total, lk_tab.work[LIST + 2 * i + 1] & $FFF)
+      if lk_tab.add16(t, total) > deep then
+        deep = lk_tab.add16(t, total)
+      end
+    end
+  end
+  if not used then
+    total = lk_tab.add16(total, cand_size)
+    if lk_tab.add16(through(extra), total) > deep then
+      deep = lk_tab.add16(through(extra), total)
+    end
+  end
+  return deep
+end
+
+; At most how much zero page the program needs now with the item judged in it.
+func bound(var_size: word): word
+  var used: word
+  var ctx: byte
+  var extra: word
+  var c: byte
+  used = lk_tab.add16(lk_tab.add16(zp_used, taken_vars), var_size)
+  for ctx = 0 until lk_tab.ctx_count do
+    extra = lk_tab.NONE
+    for c = 0 until cand_count do
+      if lk_tab.ctx_of(lk_tab.work[CAND + c]) == ctx then
+        extra = lk_tab.work[CAND + c]
+      end
+    end
+    used = lk_tab.add16(used, deepest(ctx, extra) - ctx_depth[ctx])
+  end
+  return used
+end
+
+; Add the copies of the item judged to the list. False if there is no room.
+func take(): bool
+  var c: byte
+  var n: word
+  var t: word
+  var i: word
+  if taken + cand_count > MAX_TAKEN then
+    return false
+  end
+  for c = 0 until cand_count do
+    n = lk_tab.work[CAND + c]
+    t = through(n)
+    i = taken
+    while i > 0 and lk_tab.work[LIST + 2 * (i - 1)] < t do
+      lk_tab.work[LIST + 2 * i] = lk_tab.work[LIST + 2 * (i - 1)]
+      lk_tab.work[LIST + 2 * i + 1] = lk_tab.work[LIST + 2 * (i - 1) + 1]
+      i -= 1
+    end
+    lk_tab.work[LIST + 2 * i] = t
+    lk_tab.work[LIST + 2 * i + 1] = cand_size | (word(lk_tab.ctx_of(n)) << 12)
+    taken += 1
+  end
+  return true
+end
+
+; At least how much more zero page the item judged needs: as much as with L alone.
+func least(): word
+  var need: word
+  var c: byte
+  need = 0
+  for c = 0 until cand_count do
+    need = lk_tab.add16(need, growth(lk_tab.work[CAND + c], cand_size))
+  end
+  return need
+end
+
+; True if the item judged, its copies at CAND, or a variable of var_size bytes, is taken into zero
+; page.
+func judge(var_size: word): bool
+  var most: word
+  lk_tab.overflow = false
+  if not fits(lk_tab.add16(least(), var_size)) then
+    return false
+  end
+  lk_tab.overflow = false
+  most = bound(var_size)
+  if lk_tab.overflow or most > zp_cap or not take() then
+    lay_out()
+    lk_tab.overflow = false
+    if not fits(lk_tab.add16(least(), var_size)) then
+      return false
+    end
+    take()
+  end
+  taken_vars += var_size
+  return true
+end
+
+func try_slot(f: word, i: byte)
+  var ctx: byte
+  cand_count = 0
+  cand_size = lk_tab.slot_bytes(lk_tab.fn_slot[f] + i)
+  for ctx = 0 until lk_tab.ctx_count do
+    if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
+      lk_tab.work[CAND + cand_count] = lk_tab.copy_node(f, ctx)
+      cand_count += 1
+    end
+  end
+  if judge(0) then
+    move_slot(f, i, true)
+  end
+end
+
+func try_cparam(k: byte, p: byte)
+  cand_count = 1
+  lk_tab.work[CAND + 0] = lk_tab.cls_node[k]
+  cand_size = lk_tab.cp_size[p]
+  if judge(0) then
+    move_cparam(k, p, true)
+  end
+end
+
+func try_var(d: word)
+  cand_count = 0
+  if judge(lk_tab.def_b[d]) then
+    move_var(d, true)
+  end
+end
+
+func try_slots(weight: byte)
+  var f: word
+  var i: byte
+  var s: word
+  for f = 0 until lk_tab.fn_count do
+    if lk_tab.fn_ctx[f] != 0 then
+      for i = 0 until lo(lk_tab.fn_nslots(f)) do
+        s = lk_tab.fn_slot[f] + i
+        if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
+          try_slot(f, i)
+        end
+      end
+    end
+  end
+end
+
+func try_cparams(weight: byte)
+  var k: byte
+  var p: byte
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+        if lk_tab.cp_weight[p] == weight and
+            is_candidate(lk_tab.cp_info[p] & lk_tab.S_CLASS, lk_tab.cp_size[p]) then
+          try_cparam(k, p)
+        end
+      end
+    end
+  end
+end
+
+func try_vars(weight: byte)
+  var d: word
+  for d = 0 until lk_tab.def_count do
+    if var_is_candidate(d, weight) then
+      try_var(d)
+    end
+  end
+end
+
+; Move every candidate of weight 1 or more into zero page, or out again.
+func move_all(into: bool)
+  var weight: byte
+  for weight = 1 to WEIGHTS - 1 do
+    if lk_tab.work[WEIGHT_COUNT + weight] != 0 then
+      move_weight(weight, into)
+    end
+  end
+end
+
+; Move class 1 items into zero page, heaviest first, while the deepest chain still fits.
+;
+; An item of weight 0 gains nothing from zero page and is left where it is.
+;
+; First every candidate is tried at once. More in zero page never makes a chain need less, so if
+; they all fit, each would have been taken one at a time too: one layout does the work. Otherwise
+; each is judged in turn (judge).
+func promote()
+  var weight: byte
+  move_all(true)
+  if layout_zp() then
+    return
+  end
+  move_all(false)
+  lay_out()
+  for weight = WEIGHTS - 1 downto 1 do
+    if lk_tab.work[WEIGHT_COUNT + weight] != 0 then
+      try_slots(weight)
+      try_cparams(weight)
+      try_vars(weight)
+    end
+  end
+end
+
+; ---- addresses
+
+; Turn the zero page layout into addresses: variables, then each context.
+func assign_zp()
+  var pos: word
+  var d: word
+  var ctx: byte
+  var n: word
+  pos = lk_envf.zp_lo
+  for d = 0 until lk_tab.def_count do
+    if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) != 0 then
+      lk_tab.def_a[d] = pos
+      pos += lk_tab.def_b[d]
+    end
+  end
+  for ctx = 0 until lk_tab.ctx_count do
+    ctx_bottom[ctx] = pos
+    pos += ctx_depth[ctx]
+  end
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) then
+      lk_tab.set_zbase(n, lo(ctx_bottom[lk_tab.ctx_of(n)] + base_of(n)))
+    end
+  end
+end
+
+; True if variable d, not in zero page, goes in its module's bank (lk_win.bank_def). Until
+; lk_place puts it there, its address is the window's first: not zero page, so what shrinks is
+; known.
+func in_bank(d: word): bool
+  if lk_win.bank_def(d) == 0 then
+    return false
+  end
+  lk_tab.def_a[d] = lk_envf.win_lo[lk_envf.window()]
+  return true
+end
+
+; Give main memory to the variables that are not in zero page. Returns where they end.
+func place_vars(): word
+  var pos: word
+  var d: word
+  pos = 0
+  for d = 0 until lk_tab.def_count do
+    if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 and in_bank(d) then
+      continue
+    end
+    if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 then
+      pos = main_item(pos, lk_tab.def_b[d])
+      lk_tab.def_a[d] = lk_envf.data_lo + pos
+      pos = lk_tab.add16(pos, lk_tab.def_b[d])
+    end
+  end
+  return pos
+end
+
+; main_item for the `more` range.
+func more_item(pos: word, size: word): word
+  if straddles(lk_envf.more_lo + pos, size) then
+    return pos + 1
+  end
+  return pos
+end
+
+; With a `more` range: the variables that are not in zero page after the frames, which end at
+; `pos`, in `data` while each fits there, and the others in `more`, in order.
+func place_vars_more(pos: word)
+  var room: word
+  var more_room: word
+  var mpos: word
+  var over: word
+  var d: word
+  var size: word
+  var spot: word
+  room = lk_envf.data_hi - lk_envf.data_lo + 1
+  more_room = lk_envf.more_hi - lk_envf.more_lo + 1
+  mpos = 0
+  over = 0
+  for d = 0 until lk_tab.def_count do
+    if lk_tab.is_kept_var(d) and (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 and not in_bank(d) then
+      size = lk_tab.def_b[d]
+      spot = main_item(pos, size)
+      if size <= room and spot <= room - size then
+        lk_tab.def_a[d] = lk_envf.data_lo + spot
+        pos = spot + size
+      else
+        spot = more_item(mpos, size)
+        if size <= more_room and spot <= more_room - size then
+          lk_tab.def_a[d] = lk_envf.more_lo + spot
+          mpos = spot + size
+        else
+          over = lk_tab.add16(over, size)
+        end
+      end
+    end
+  end
+  if over != 0 then
+    lk_err.begin(lk_err.E_DATA_FULL)
+    lk_err.over(over, lk_tab.overflow)
+    lk_err.finish()
+  end
+end
+
+; Lay out main memory: the variables, then each context. With a `more` range the frames come
+; first and the variables after them, in `data` and then in `more`.
+func assign_main()
+  var pos: word
+  var ctx: byte
+  var room: word
+  var n: word
+  lk_tab.overflow = false
+  pos = 0
+  if not lk_envf.has_more then
+    pos = place_vars()
+  end
+  for ctx = 0 until lk_tab.ctx_count do
+    ctx_bottom[ctx] = pos
+    pos = layout(POOL_MAIN, ctx)
+    ctx_depth[ctx] = pos - ctx_bottom[ctx]
+  end
+  room = lk_envf.data_hi - lk_envf.data_lo + 1
+  if lk_tab.overflow or pos > room then
+    fail_full(lk_err.E_DATA_FULL, pos - room, lk_tab.overflow)
+  end
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) then
+      lk_tab.work[lk_tab.W_MBASE + n] = lk_envf.data_lo + base_of(n)
+    end
+  end
+  if lk_envf.has_more then
+    place_vars_more(pos)
+  end
+end
+
+; The address of every parameter of every live class block.
+func assign_cparams()
+  var k: byte
+  var zp_at: word
+  var main_at: word
+  var p: byte
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      zp_at = lk_tab.zbase_of(lk_tab.cls_node[k])
+      main_at = lk_tab.mbase_of(lk_tab.cls_node[k])
+      for p = lo(lk_tab.cls_par[k]) until lo(lk_tab.cls_par[k]) + lk_tab.cls_np[k] do
+        if (lk_tab.cp_info[p] & lk_tab.S_ZP) != 0 then
+          lk_tab.cp_addr[p] = zp_at
+          zp_at += lk_tab.cp_size[p]
+        else
+          if straddles(main_at, lk_tab.cp_size[p]) then
+            main_at += 1
+          end
+          lk_tab.cp_addr[p] = main_at
+          main_at = main_at + lk_tab.cp_size[p]
+        end
+      end
+    end
+  end
+end
+
+; The address of slot i of the function copy that is node n.
+pub func slot_addr(n: word, i: byte): word
+  var f: word
+  var blocked: bool
+  var k: byte
+  var live: bool
+  var zp_at: word
+  var main_at: word
+  var addr: word
+  var j: byte
+  var s: word
+  f = lk_tab.own_of(n)
+  blocked = lk_tab.in_block(f, lk_tab.ctx_of(n))
+  if not lk_tab.in_frame(f, i, blocked) then
+    k, live = lk_tab.member_class(f)
+    return lk_tab.cp_addr[lo(lk_tab.cls_par[k]) + i]
+  end
+  zp_at = lk_tab.zbase_of(n)
+  main_at = lk_tab.mbase_of(n)
+  addr = 0
+  for j = 0 to i do
+    if lk_tab.in_frame(f, j, blocked) then
+      s = lk_tab.fn_slot[f] + j
+      if lk_tab.slot_in_zp(s) then
+        addr = zp_at
+        zp_at += lk_tab.slot_bytes(s)
+      else
+        if straddles(main_at, lk_tab.slot_bytes(s)) then
+          main_at += 1
+        end
+        addr = main_at
+        main_at = main_at + lk_tab.slot_bytes(s)
+      end
+    end
+  end
+  return addr
+end
+
+; Choose what goes in zero page and give everything its address.
+pub func allocate()
+  var n: word
+  zp_cap = lk_envf.zp_hi - lk_envf.zp_lo + 1
+  start_choices()
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) then
+      lk_tab.work[lk_tab.W_ZSIZE + n] = zp_size(n)
+    end
+  end
+  if not layout_zp() then
+    fail_zp()
+  end
+  promote()
+  ; promote() only moved in what it had worked out would fit. Make sure of it.
+  if not layout_zp() then
+    fail_zp()
+  end
+  assign_zp()
+  assign_main()
+  assign_cparams()
+end

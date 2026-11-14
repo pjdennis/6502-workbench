@@ -58,11 +58,11 @@ import lk_sym
 
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
 #if LKSMALL
-pub const MAX_FUNCS = 400
-pub const MAX_SLOTS = 2000
-pub const MAX_EDGES = 1800
-pub const MAX_NODES = 450
-pub const MAX_DEFS = 400
+pub const MAX_FUNCS = 320
+pub const MAX_SLOTS = 1600
+pub const MAX_EDGES = 1440
+pub const MAX_NODES = 360
+pub const MAX_DEFS = 320
 pub const MAX_FIXES = 256
 #else
 pub const MAX_FUNCS = 800

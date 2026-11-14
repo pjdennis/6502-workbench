@@ -1,0 +1,195 @@
+; A test of the linker's call graph, stubs and start-up code: lk_graph, lk_win and lk_boot (with
+; the layers below them). lktest4 tests storage.
+;
+;     lktest3 ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
+;
+; takes the linker's own command line and runs its phases as lathe/host/link.py does, up to the
+; stubs: the environment file, the first reading of the object files, the main function, the call
+; graph, the interrupt rules and the stubs. After each it prints what the phase computed: the
+; contexts and nodes, the sets and their order, each node's edges; the stubs. A link error ends it
+; as it would end the linker. Then it gives each copy a made-up address and writes `$start`,
+; `$init`, the stubs and the table to OUT.bin (lk_boot). The two programs are apart because
+; together they do not fit the machine beside the small build's tables.
+;
+; lathe/tests/test_src_lk.py runs it and its twin over the host modules, at the capacities of the
+; small build (LKSMALL), and compares what they print, their error output, their exit status and
+; the files they write.
+module lktest3
+
+import lk_boot
+import lk_envf
+import lk_err
+import lk_file
+import lk_graph
+import lk_name
+import lk_out
+import lk_scan
+import lk_sym
+import lk_tab
+import lk_win
+import lkshow
+import sys
+
+; lathe/host/link.py's find_main: the function MAINMODULE.main, which some object file must
+; define.
+func find_main(): word
+  var s: word
+  var size: byte
+  var i: byte
+  var c: byte
+  s = lk_name.main_sym
+  if s == lk_tab.NONE or lk_sym.kind_of(s) != lk_sym.FUNCTION or not lk_sym.is_defined(s) then
+    lk_err.begin(lk_err.E_NO_MAIN)
+    lk_err.colon()
+    size = lk_file.arg_length(lk_file.ARG_MAIN)
+    for i = 0 until size do
+      c = lk_file.path[i]
+      if c >= 65 and c <= 90 then
+        c += 32
+      end
+      lk_err.put(c)
+    end
+    for i = 0 until len(lk_name.MAIN_SUFFIX) do
+      lk_err.put(lk_name.MAIN_SUFFIX[i])
+    end
+    lk_err.finish()
+  end
+  return s
+end
+
+func show_graph()
+  var f: word
+  var k: byte
+  var p: byte
+  var d: word
+  var n: word
+  var e: word
+  var target: word
+  var applies: bool
+  lkshow.label('g')
+  lkshow.show_byte(lk_tab.ctx_count)
+  lkshow.show_word(lk_tab.node_count)
+  lkshow.show_word(lk_tab.extra_end)
+  lkshow.show_word(lk_graph.order_count)
+  lkshow.show_word(lk_graph.scc_count)
+  lkshow.end_line()
+  lkshow.label('f')
+  for f = 0 until lk_tab.fn_count do
+    lkshow.show_byte(lk_tab.fn_ctx[f])
+    lkshow.show_byte(lk_tab.fn_flags[f])
+  end
+  lkshow.end_line()
+  for k = 0 until lk_tab.cls_count do
+    lkshow.label('k')
+    lkshow.show_byte(lk_tab.cls_reach[k])
+    if lk_tab.cls_reach[k] != 0 then
+      lkshow.show_byte(lk_tab.cls_ctx[k])
+      lkshow.show_word(lk_tab.cls_node[k])
+    end
+    lkshow.end_line()
+  end
+  lkshow.label('c')
+  for p = 0 until lk_tab.cp_count do
+    lkshow.show_byte(lk_tab.cp_info[p])
+    lkshow.show_byte(lk_tab.cp_weight[p])
+  end
+  lkshow.end_line()
+  lkshow.label('d')
+  for d = 0 until lk_tab.def_count do
+    lkshow.show_byte(lk_tab.def_f[d])
+  end
+  lkshow.end_line()
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) then
+      lkshow.label('n')
+      lkshow.show_word(n)
+      lkshow.show_word(lk_tab.own_of(n))
+      lkshow.show_byte(lk_tab.ctx_of(n))
+      lkshow.show_word(lk_tab.work[lk_tab.W_SCC + n])
+      lkshow.label(':')
+      e = lk_graph.first_edge(n)
+      while e != 0 do
+        target, applies = lk_graph.edge_node(n, e)
+        if applies then
+          lkshow.show_word(target)
+        else
+          lkshow.label('-')
+        end
+        e = lk_graph.next_edge(n, e)
+      end
+      lkshow.end_line()
+    end
+  end
+  lkshow.label('o')
+  for n = 0 until lk_graph.order_count do
+    lkshow.show_word(lk_tab.work[lk_tab.W_ORDER + n])
+  end
+  lkshow.end_line()
+end
+
+func show_stubs()
+  var obj: byte
+  var f: word
+  lkshow.label('s')
+  lkshow.show_word(lk_win.stub_count)
+  for obj = 0 to lk_name.object_count do
+    lkshow.show_word(lk_win.obj_stub[obj])
+  end
+  lkshow.label(':')
+  for f = 0 until lk_tab.fn_count do
+    if lk_win.has_stub(f) then
+      lkshow.show_word(f)
+      lkshow.show_byte(lk_win.copies(f))
+    end
+  end
+  lkshow.end_line()
+end
+
+; Each copy at a made-up address, then what lk_boot plans and writes.
+func show_boot(main_fn: word)
+  var n: word
+  var i: byte
+  for n = 0 until lk_tab.node_count do
+    lk_tab.work[lk_tab.W_ADDR + n] = lk_envf.code_lo + $100 + 7 * n
+  end
+  lkshow.label('b')
+  lkshow.show_word(lk_boot.plan())
+  lkshow.show_word(lk_boot.start_addr)
+  lkshow.show_word(lk_boot.start_len)
+  lkshow.show_word(lk_boot.init_addr)
+  lkshow.show_word(lk_boot.init_len)
+  lkshow.show_word(lk_boot.table_addr)
+  lkshow.show_word(lk_boot.table_len)
+  lkshow.show_word(lk_win.stub_base)
+  lkshow.show_byte(lk_win.table_count)
+  for i = 0 until lk_win.table_count do
+    lkshow.show_byte(lk_win.table_bank(i))
+  end
+  lkshow.label(':')
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) and not lk_tab.node_is_class(n) and lk_win.has_stub(lk_tab.own_of(n)) then
+      lkshow.show_word(lk_win.stub_addr(n))
+    end
+  end
+  lkshow.end_line()
+  lk_out.open_image()
+  lk_boot.write(main_fn)
+  lk_out.close_image(lk_boot.start_addr)
+end
+
+pub func main()
+  var main_sym: word
+  if lk_file.arg_count() <= lk_file.ARG_OBJECT then
+    lk_err.fail(lk_err.E_USAGE)
+  end
+  lk_envf.read()
+  lk_scan.scan_all()
+  main_sym = find_main()
+  lk_graph.build(main_sym)
+  show_graph()
+  lk_win.check_interrupts()
+  lk_win.mark_stubs(lk_sym.row_of(main_sym))
+  show_stubs()
+  show_boot(lk_sym.row_of(main_sym))
+  sys.exit(0)
+end

@@ -1,0 +1,847 @@
+; The call graph: lathe/host/lk_graph.py in Lathe.
+;
+; What is reachable, in which contexts, and where recursion is. build() does the linker's steps
+; between reading and allocating:
+;
+; 1. Contexts. Context 0 is the main program, rooted at main and at every module's `$init`
+;    (lk_boot); every interrupt function is the root of a context of its own. A function gets one
+;    bit in fn_ctx per context that reaches it; a function with no bit is dropped. A function
+;    whose address is taken by constant data or by a kept function is kept too: if nothing else
+;    reaches it, it is a further root of context 0. So no address in the image is that of a
+;    function the linker dropped. In the same way a variable or constant data is kept only if
+;    kept code or kept constant data refers to it; the rest get no address.
+; 2. Pointer classes. A class is live if some kept function calls through it, and all those
+;    calls must be in one context. Its block's parameters take the strictest zero page class and
+;    the summed weight of its members' parameters.
+; 3. Nodes: a copy of each function per context that reaches it, and a node per live class.
+; 4. Cycles. The nodes are grouped into sets that can reach each other (lk_tab.W_SCC), by Tarjan's
+;    algorithm with its own stack in place of recursion. A call inside such a set is recursion:
+;    it must save the caller's frame, and both ends must be `recursive`.
+;
+; `order` lists the nodes callees first, with the nodes of a set next to each other: the order in
+; which lk_alloc lays out storage, read backwards.
+;
+; Calls that only place storage (E_PENDING, E_VIA) do not make anything reachable.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | counts, nodes, symbols: ints         | words; a context, a class, an     | the type is the |
+;   |                                      | object file, a fix-up's kind and  | storage         |
+;   |                                      | slot, a class parameter: bytes    |                 |
+;   | 1 << ctx                             | byte(1) << ctx                    | lk_tab.lth      |
+;   | class_of(row_of(...)), cls_reach[k]  | class_of(byte(row_of(...)))       | a 32-row table  |
+;   | with k = row_of(...)                 |                                   | takes a byte    |
+;   | class_contexts: `first` NONE or a    | a word, given to fail_two_contexts| NONE is a word  |
+;   | context                              | and cls_ctx as lo(first)          |                 |
+;   | fit_member: weight > 255 stops at 255| a word, stored as lo(weight)      | as lk_scan      |
+;   | keep_target: to_read(def_a[d], ...)  | to_read(lo(def_a[d]), ...)        | a file number in|
+;   |                                      |                                   | a word column   |
+;   | edge_node, member pairs: (n, ok)     | a value and a status              | the same        |
+;   | range(ctx_count - 1, -1, -1)         | ctx_count - 1 downto 0            | ctx_count is at |
+;   |                                      |                                   | least 1         |
+;   | fail_cycle: range(count - 1, -1, -1) | a while loop counting down        | count is 0 for a|
+;   |                                      |                                   | call of itself  |
+;   | IN_CLASS, OWN_CLASS: b"..."          | tables of their length            | lk_err.lth      |
+;   | `\` continuations                    | conditions that go on after `and` | a line goes on  |
+;   |                                      |                                   | after `and`     |
+;   | to_read used before it is defined    | a forward declaration             | declare before  |
+;   |                                      |                                   | use             |
+module lk_graph
+
+import lk_boot
+import lk_envf
+import lk_err
+import lk_name
+import lk_rec
+import lk_scan
+import lk_sym
+import lk_tab
+
+; lk_tab.work[lk_tab.W_ORDER...]: the nodes, callees before their callers
+pub var order_count: word = 0
+pub var scc_count: word = 0
+
+; Work columns for the searches, one row per node (or per symbol while there are no nodes), in
+; lk_tab.work: where each starts.
+const STACK = 0                         ; nodes or symbols still to finish
+const STACK_EDGE = lk_tab.MAX_NODES     ; for each, the next edge to follow + 1
+const FOUND = 2 * lk_tab.MAX_NODES      ; Tarjan: nodes found and not yet given a set
+const SEEN = 3 * lk_tab.MAX_NODES       ; Tarjan: order of discovery + 1; path search: came from + 1
+const LOW = 4 * lk_tab.MAX_NODES        ; Tarjan: earliest node reachable
+const NAMED = lk_tab.MAX_NODES          ; keep_in_object: what a DFIX record names, until its DATA
+pub const ON_STACK = $FFFF              ; the set number of a node in `found`
+const IN_CLASS: [28]byte = ", both in the pointer class "
+const OWN_CLASS: [23]byte = ", its own pointer class"
+var stack_top: word = 0
+var e_kind: byte = 0                    ; the fix-up entry read last (read_entry)
+var e_sym: word = 0
+var e_slot: byte = 0
+var e_add: word = 0
+var found_top: word = 0
+var discovered: word = 0                ; Tarjan: nodes discovered so far
+; keep_referenced: which object files a reading must read. In lk_tab.work, a byte per object.
+const NOW = 2 * lk_tab.MAX_NODES        ; this reading: the file has something kept not yet read
+                                        ; since
+const LATER = NOW + lk_name.MAX_OBJECTS ; the next reading: the same, for what this one had passed
+var reading: bool = false               ; a reading is under way
+var cur_obj: byte = 0                   ; the file it reads
+var fn_passed: word = 0                 ; functions whose FUNC record it has passed
+
+forward func to_read(obj: byte, behind: bool)
+
+; The symbol edge e calls: a function, or the class standing for the class named.
+pub func edge_target(e: word): word
+  var target: word
+  target = lk_tab.edge_sym(e)
+  if lk_sym.kind_of(target) == lk_sym.CLASS then
+    return lk_tab.cls_ref(lk_tab.class_of(byte(lk_sym.row_of(target))))
+  end
+  return target
+end
+
+; ---- the work columns, read through a function each: a call is shorter than the access
+
+; The set node n is in (lk_tab.W_SCC).
+pub func scc_of(n: word): word
+  return lk_tab.work[lk_tab.W_SCC + n]
+end
+
+; Entry i of `order` (lk_tab.W_ORDER).
+pub func order_at(i: word): word
+  return lk_tab.work[lk_tab.W_ORDER + i]
+end
+
+func seen_of(n: word): word
+  return lk_tab.work[SEEN + n]
+end
+
+func low_of(n: word): word
+  return lk_tab.work[LOW + n]
+end
+
+; ---- contexts and reachability
+
+; Note that context ctx reaches a symbol. True if that is news.
+func mark(target: word, ctx: byte): bool
+  var bit: byte
+  var k: byte
+  var f: word
+  var obj: byte
+  bit = byte(1) << ctx
+  if lk_sym.kind_of(target) == lk_sym.CLASS then
+    k = byte(lk_sym.row_of(target))
+    if (lk_tab.cls_reach[k] & bit) != 0 then
+      return false
+    end
+    lk_tab.cls_reach[k] |= bit
+    return true
+  end
+  f = lk_sym.row_of(target)
+  if (lk_tab.fn_ctx[f] & bit) != 0 then
+    return false
+  end
+  lk_tab.fn_ctx[f] |= bit
+  if reading then
+    obj = 0
+    while f >= lk_name.obj_fn[obj + 1] do
+      obj += 1
+    end
+    to_read(obj, obj == cur_obj and f < fn_passed)
+  end
+  return true
+end
+
+; Mark everything function symbol `root` can call as reached by context ctx.
+func reach(root: word, ctx: byte)
+  var top: word
+  var source: word
+  var e: word
+  var target: word
+  if not mark(root, ctx) then
+    return
+  end
+  top = 1
+  lk_tab.work[STACK + 0] = root
+  while top > 0 do
+    top -= 1
+    source = lk_tab.work[STACK + top]
+    e = lk_tab.first_call(source)
+    while e != 0 do
+      if (lk_tab.edge_flag(e - 1) & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0 then
+        ; Kept code calls it, so it must be defined.
+        if not lk_sym.is_defined(lk_tab.edge_sym(e - 1)) then
+          lk_name.fail(lk_err.E_UNDEFINED, lk_tab.edge_sym(e - 1))
+        end
+        target = edge_target(e - 1)
+        if mark(target, ctx) then
+          if top == lk_tab.MAX_NODES then
+            lk_err.fail(lk_err.E_COPIES)
+          end
+          lk_tab.work[STACK + top] = target
+          top += 1
+        end
+      end
+      e = lk_tab.next_call(source, e)
+    end
+  end
+end
+
+; True if the function, variable or constant data that is symbol s is kept so far.
+func is_kept(s: word): bool
+  if lk_sym.kind_of(s) == lk_sym.FUNCTION then
+    return lk_tab.fn_ctx[lk_sym.row_of(s)] != 0
+  end
+  return lk_tab.is_kept_def(lk_sym.row_of(s))
+end
+
+; Kept `source` refers to `target`. True if that keeps something new.
+func keep_target(source: word, target: word): bool
+  var d: word
+  if not lk_sym.is_defined(target) then
+    lk_name.fail(lk_err.E_UNDEFINED, target)
+  end
+  if is_kept(target) then
+    return false
+  end
+  if lk_sym.kind_of(target) == lk_sym.FUNCTION then
+    reach(target, 0)
+  else
+    d = lk_sym.row_of(target)
+    lk_tab.def_f[d] |= lk_tab.D_KEPT
+    if lk_sym.kind_of(target) == lk_sym.CONSTANT then
+      ; Until it is placed, constant data has the number of its file in def_a (lk_scan).
+      to_read(lo(lk_tab.def_a[d]), (lk_tab.def_f[d] & lk_tab.D_PASSED) != 0)
+    end
+  end
+  return true
+end
+
+; True if a fix-up entry of `source` keeps what it names, symbol s, if `source` is kept.
+;
+; That is every variable and piece of constant data it names, and every function whose address
+; it takes. In code an address is taken by its low or high byte, `#<f` and `#>f`, or by an
+; instruction that reads it (kind 5, `LDA f,X`). A kind 1 fix-up naming a function there is the
+; operand of a JSR or JMP, a call, which needs a CALL record of its own; without one the call is
+; an error (lk_fix.target), and must not quietly keep the callee. A function's fix-ups naming
+; itself are its labels or its own address and keep nothing. In constant data (source NONE) every
+; fix-up naming a function takes its address. Slots and class parameters are kept with their
+; function or class.
+func keeps(obj: byte, source: word, kind: byte, s: word, slot: byte): bool
+  var sk: byte
+  sk = lk_sym.kind_of(s)
+  if sk == lk_sym.VARIABLE or sk == lk_sym.CONSTANT then
+    return true
+  end
+  if sk != lk_sym.FUNCTION or slot != $FF then
+    return false
+  end
+  return source == lk_tab.NONE or (s != source and kind != 1)
+end
+
+; Read the next fix-up entry of the record being read: its kind, symbol, slot and addend.
+func read_entry(obj: byte)
+  lk_rec.get_word()
+  e_kind = lk_rec.get_byte()
+  e_sym = lk_name.global_sym(obj, lk_rec.get_word())
+  e_slot = lk_rec.get_byte()
+  e_add = lk_rec.get_word()
+end
+
+; A fix-up entry of kept `source` (NONE for constant data) names s. A variable or constant of a
+; module in a window goes into its bank only if every fix-up that names it is in that bank's code
+; and none takes its address (configurations.md, "Constants and variables of a module in a
+; window"); otherwise it is fixed (lk_tab.D_FIXED).
+func note_named(source: word, kind: byte, s: word)
+  var sk: byte
+  var d: word
+  sk = lk_sym.kind_of(s)
+  if (sk != lk_sym.VARIABLE and sk != lk_sym.CONSTANT) or not lk_sym.is_defined(s) then
+    return
+  end
+  d = lk_sym.row_of(s)
+  if source == lk_tab.NONE or kind == 2 or kind == 3 or
+      lk_scan.fn_bank(lk_sym.row_of(source)) != lk_scan.def_bank(d) then
+    lk_tab.def_f[d] |= lk_tab.D_FIXED
+  end
+end
+
+; A fix-up entry of kept `source` (NONE for constant data): if it takes the address of a function,
+; mark the function (lk_tab.F_ADDR), whose address is then its stub's if it is in a window
+; (lk_win). That is what keeps() keeps, and also `@f` inside f, which a fix-up of f's own symbol
+; without an addend gives in one byte (lk_emit.value): with an addend, or in two bytes, f's own
+; symbol is a label.
+func note_address(source: word, kind: byte, s: word, slot: byte, add: word)
+  var taken: bool
+  if lk_sym.kind_of(s) != lk_sym.FUNCTION or slot != $FF or not lk_sym.is_defined(s) then
+    return
+  end
+  taken = source == lk_tab.NONE or (s != source and kind != 1)
+  if s == source and (kind == 2 or kind == 3) and add == 0 then
+    taken = true
+  end
+  if taken then
+    lk_tab.fn_flags[lk_sym.row_of(s)] |= lk_tab.F_ADDR
+  end
+end
+
+; One reading of object obj: what the fix-ups of what is kept so far name is kept.
+;
+; A DFIX record's entries belong to the DATA record after it, which says whose they are: they wait
+; in the work area (above what reach() uses) until it comes.
+func keep_in_object(obj: byte)
+  var source: word
+  var named_count: word
+  var kind: byte
+  var data: word
+  var i: word
+  source = lk_tab.NONE
+  named_count = 0
+  lk_rec.open_object(obj)
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_FUNC then
+      source = lk_name.global_sym(obj, lk_rec.get_word())
+      fn_passed = lk_sym.row_of(source) + 1
+    elif kind == lk_rec.R_ENDF then
+      source = lk_tab.NONE
+    elif kind == lk_rec.R_FIX and is_kept(source) then
+      while lk_rec.left() > 0 do
+        read_entry(obj)
+        if keeps(obj, source, e_kind, e_sym, e_slot) then
+          keep_target(source, e_sym)
+        end
+        note_address(source, e_kind, e_sym, e_slot, e_add)
+        note_named(source, e_kind, e_sym)
+      end
+    elif kind == lk_rec.R_DFIX then
+      named_count = 0
+      while lk_rec.left() > 0 do
+        read_entry(obj)
+        if keeps(obj, lk_tab.NONE, e_kind, e_sym, e_slot) then
+          ; More than a table may have: an error if the table is kept (lk_emit).
+          if named_count < lk_tab.MAX_FIXES then
+            lk_tab.work[NAMED + named_count] = e_sym
+          end
+          named_count += 1
+        end
+      end
+    elif kind == lk_rec.R_DATA then
+      data = lk_name.global_sym(obj, lk_rec.get_word())
+      if is_kept(data) then
+        if named_count > lk_tab.MAX_FIXES then
+          lk_err.fail(lk_err.E_FIXES)
+        end
+        for i = 0 until named_count do
+          keep_target(data, lk_tab.work[NAMED + i])
+          note_address(lk_tab.NONE, 1, lk_tab.work[NAMED + i], $FF, 0)
+          note_named(lk_tab.NONE, 1, lk_tab.work[NAMED + i])
+        end
+      end
+      lk_tab.def_f[lk_sym.row_of(data)] |= lk_tab.D_PASSED
+      named_count = 0
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+end
+
+; Something in object file obj was kept during a reading, which has passed it (`behind`) or not.
+func to_read(obj: byte, behind: bool)
+  if obj < cur_obj or behind then
+    lk_tab.work[LATER + obj] = 1
+  elif obj > cur_obj then
+    lk_tab.work[NOW + obj] = 1
+  end
+end
+
+func unpass()
+  var d: word
+  for d = 0 until lk_tab.def_count do
+    lk_tab.def_f[d] &= $FF ^ lk_tab.D_PASSED
+  end
+end
+
+; Keep what the fix-ups of kept code and kept constant data name, reading the object files again
+; until each kept function and table has been read since it was kept.
+;
+; The first reading reads every file. A reading reads the fix-ups of everything kept that it
+; passes, so what is kept before the reading passes it is read by the same reading; a file with
+; something kept after the reading passed it is read again by the next (to_read). The files a
+; reading leaves out hold nothing that was not read since it was kept: reading them would keep
+; nothing and find no error. A variable or constant is kept; a function whose address is taken
+; and that nothing reached is reached from context 0. Only now must a symbol be defined: one that
+; nothing kept refers to may be missing.
+func keep_referenced()
+  var obj: byte
+  var more: bool
+  for obj = 0 until lk_name.object_count do
+    lk_tab.work[NOW + obj] = 1
+    lk_tab.work[LATER + obj] = 0
+  end
+  more = true
+  while more do
+    reading = true
+    unpass()
+    for obj = 0 until lk_name.object_count do
+      cur_obj = obj
+      fn_passed = 0
+      if lk_tab.work[NOW + obj] != 0 then
+        keep_in_object(obj)
+      end
+    end
+    reading = false
+    more = false
+    for obj = 0 until lk_name.object_count do
+      lk_tab.work[NOW + obj] = lk_tab.work[LATER + obj]
+      lk_tab.work[LATER + obj] = 0
+      if lk_tab.work[NOW + obj] != 0 then
+        more = true
+      end
+    end
+  end
+  unpass()
+end
+
+; Number the contexts and mark what each reaches.
+func find_contexts(main_sym: word)
+  var f: word
+  reach(main_sym, 0)
+  for f = 0 until lk_tab.fn_count do
+    if lk_boot.is_init(f) then
+      reach(lk_tab.fn_ref(f), 0)
+    end
+  end
+  if lk_envf.placed() then
+    ; $start calls the far-call module's start, and a stub its call (configurations.md).
+    reach(lk_name.fc_start, 0)
+    reach(lk_name.fc_call, 0)
+  end
+  lk_tab.ctx_count = 1
+  for f = 0 until lk_tab.fn_count do
+    if (lk_tab.fn_flags[f] & lk_tab.F_INTERRUPT) != 0 then
+      if lk_tab.ctx_count == lk_tab.MAX_CONTEXTS then
+        lk_err.fail(lk_err.E_CONTEXTS)
+      end
+      reach(lk_tab.fn_ref(f), lk_tab.ctx_count)
+      lk_tab.ctx_count += 1
+    end
+  end
+  keep_referenced()
+end
+
+; ---- pointer classes
+
+; A function of context ctx that calls through class k.
+func pointer_caller(k: byte, ctx: byte): word
+  var block: word
+  var f: word
+  var e: word
+  block = lk_tab.cls_ref(k)
+  for f = 0 until lk_tab.fn_count do
+    if lk_tab.has_copy(f, ctx) then
+      e = lk_tab.first_call(lk_tab.fn_ref(f))
+      while e != 0 do
+        if lk_tab.edge_flag(e - 1) <= lk_tab.E_NOSAVE and edge_target(e - 1) == block then
+          return lk_tab.fn_ref(f)
+        end
+        e = lk_tab.next_call(lk_tab.fn_ref(f), e)
+      end
+    end
+  end
+  return block
+end
+
+func fail_two_contexts(k: byte, first: byte, second: byte)
+  lk_err.begin(lk_err.E_CLASS_CONTEXTS)
+  lk_err.colon()
+  lk_name.error_name(lk_tab.cls_ref(k))
+  lk_err.comma()
+  lk_name.error_name(pointer_caller(k, first))
+  lk_err.comma()
+  lk_name.error_name(pointer_caller(k, second))
+  lk_err.finish()
+end
+
+; Each live class is called through pointers from exactly one context.
+func class_contexts()
+  var k: byte
+  var first: word
+  var ctx: byte
+  for k = 0 until lk_tab.cls_count do
+    first = lk_tab.NONE
+    for ctx = 0 until lk_tab.ctx_count do
+      if (lk_tab.cls_reach[k] & (byte(1) << ctx)) != 0 then
+        if first != lk_tab.NONE then
+          fail_two_contexts(k, lo(first), ctx)
+        end
+        first = ctx
+      end
+    end
+    if first != lk_tab.NONE then
+      lk_tab.cls_ctx[k] = lo(first)
+    end
+  end
+end
+
+; The zero page class that satisfies both: must (0) beats never (2) beats either (1).
+func stricter(a: byte, b: byte): byte
+  if a == 0 or b == 0 then
+    return 0
+  end
+  if a == 2 or b == 2 then
+    return 2
+  end
+  return 1
+end
+
+; Member f's parameters are the block's: check they match and add what they ask for.
+func fit_member(k: byte, f: word)
+  var np: byte
+  var first: word
+  var params: word
+  var i: byte
+  var p: byte
+  var weight: word
+  np = lk_tab.cls_np[k]
+  first = lk_tab.fn_slot[f]
+  params = 0
+  while params < lk_tab.fn_nslots(f) and lk_tab.slot_is_param(first + params) do
+    params += 1
+  end
+  if params != np then
+    lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
+  end
+  for i = 0 until np do
+    p = lo(lk_tab.cls_par[k]) + i
+    if lk_tab.slot_bytes(first + i) != lk_tab.cp_size[p] then
+      lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
+    end
+    lk_tab.cp_info[p] = stricter(lk_tab.cp_info[p], lk_tab.slot_class(first + i))
+    weight = word(lk_tab.cp_weight[p]) + lk_tab.slot_weight[first + i]
+    if weight > 255 then
+      weight = 255
+    end
+    lk_tab.cp_weight[p] = lo(weight)
+  end
+end
+
+func fit_members()
+  var i: byte
+  var k: byte
+  for i = 0 until lk_tab.memb_count do
+    k = lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i])))
+    fit_member(k, lk_sym.row_of(lk_tab.memb_func[i]))
+  end
+end
+
+; ---- nodes
+
+; A node per copy of a kept function: node f the first copy of f, and the further copies after the
+; functions, in function then context order; then one per live class.
+func make_nodes()
+  var f: word
+  var ctx: byte
+  var first: bool
+  var k: byte
+  lk_tab.node_count = lk_tab.fn_count
+  for f = 0 until lk_tab.fn_count do
+    for ctx = lk_tab.ctx_count - 1 downto 0 do
+      if lk_tab.has_copy(f, ctx) then
+        lk_tab.work[lk_tab.W_CTXZ + f] = word(ctx) << 8
+      end
+    end
+  end
+  for f = 0 until lk_tab.fn_count do
+    first = true
+    for ctx = 0 until lk_tab.ctx_count do
+      if lk_tab.has_copy(f, ctx) then
+        if not first then
+          lk_tab.new_node(f, ctx)
+        end
+        first = false
+      end
+    end
+  end
+  lk_tab.extra_end = lk_tab.node_count
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      lk_tab.cls_node[k] = lk_tab.node_count
+      lk_tab.new_node(lk_tab.CLASS_NODE + k, lk_tab.cls_ctx[k])
+    end
+  end
+end
+
+; The first edge of node n + 1, or 0: the start of a walk with edge_node and next_edge.
+pub func first_edge(n: word): word
+  return lk_tab.first_call(lk_tab.node_sym(n))
+end
+
+; The edge of node n after edge e + 1, + 1, or 0.
+pub func next_edge(n: word, e: word): word
+  return lk_tab.next_call(lk_tab.node_sym(n), e)
+end
+
+; The node that node n calls by edge e + 1, and whether the edge applies to n at all.
+;
+; An edge joins symbols; here it becomes an edge between copies in n's context. It does not apply
+; if the target has nothing in that context: a class block lives in one context only, and
+; elsewhere a member is an ordinary function.
+pub func edge_node(n: word, e: word): word, bool
+  var ctx: byte
+  var target: word
+  var k: byte
+  var f: word
+  ctx = lk_tab.ctx_of(n)
+  ; Only a call that places storage can name a symbol nothing defines (lk_scan.rec_call): what
+  ; that call is in was dropped.
+  if not lk_sym.is_defined(lk_tab.edge_sym(e - 1)) then
+    return 0, false
+  end
+  target = edge_target(e - 1)
+  if lk_sym.kind_of(target) == lk_sym.CLASS then
+    k = byte(lk_sym.row_of(target))
+    if lk_tab.cls_reach[k] != 0 and lk_tab.cls_ctx[k] == ctx then
+      return lk_tab.cls_node[k], true
+    end
+    return 0, false
+  end
+  f = lk_sym.row_of(target)
+  if lk_tab.has_copy(f, ctx) then
+    return lk_tab.copy_node(f, ctx), true
+  end
+  return 0, false
+end
+
+; ---- cycles
+
+; Tarjan: node n is discovered.
+func push(n: word)
+  discovered += 1
+  lk_tab.work[lk_tab.W_SCC + n] = ON_STACK
+  lk_tab.work[SEEN + n] = discovered
+  lk_tab.work[LOW + n] = discovered
+  lk_tab.work[FOUND + found_top] = n
+  found_top += 1
+  lk_tab.work[STACK + stack_top] = n
+  lk_tab.work[STACK_EDGE + stack_top] = first_edge(n)
+  stack_top += 1
+end
+
+; Tarjan: n is the first-found node of a set; everything found since belongs to it.
+func close_set(n: word)
+  var member: word
+  member = lk_tab.NONE
+  while member != n do
+    found_top -= 1
+    member = lk_tab.work[FOUND + found_top]
+    lk_tab.work[lk_tab.W_SCC + member] = scc_count
+    lk_tab.work[lk_tab.W_ORDER + order_count] = member
+    order_count += 1
+  end
+  scc_count += 1
+end
+
+; Tarjan's algorithm from an undiscovered node.
+func search(root: word)
+  var n: word
+  var e: word
+  var target: word
+  var applies: bool
+  var caller: word
+  push(root)
+  while stack_top > 0 do
+    n = lk_tab.work[STACK + stack_top - 1]
+    e = lk_tab.work[STACK_EDGE + stack_top - 1]
+    if e != 0 then
+      lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(n, e)
+      target, applies = edge_node(n, e)
+      if applies then
+        if seen_of(target) == 0 then
+          push(target)
+        elif scc_of(target) == ON_STACK and
+            seen_of(target) < low_of(n) then
+          lk_tab.work[LOW + n] = seen_of(target)
+        end
+      end
+    else
+      stack_top -= 1
+      if low_of(n) == seen_of(n) then
+        close_set(n)
+      end
+      if stack_top > 0 then
+        caller = lk_tab.work[STACK + stack_top - 1]
+        if low_of(n) < low_of(caller) then
+          lk_tab.work[LOW + caller] = low_of(n)
+        end
+      end
+    end
+  end
+end
+
+func find_sets()
+  var n: word
+  for n = 0 until lk_tab.node_count do
+    lk_tab.work[SEEN + n] = 0
+  end
+  n = lk_tab.first_in_order()
+  while n != lk_tab.NONE do
+    if seen_of(n) == 0 then
+      search(n)
+    end
+    n = lk_tab.next_in_order(n)
+  end
+end
+
+; A class block is only storage: what must be `recursive` is the functions around it.
+func is_recursive(n: word): bool
+  if lk_tab.node_is_class(n) then
+    return true
+  end
+  return (lk_tab.fn_flags[lk_tab.own_of(n)] & lk_tab.F_RECURSIVE) != 0
+end
+
+; Report the cycle that the call source -> target closes.
+func fail_cycle(source: word, target: word)
+  var n: word
+  var head: word
+  var tail: word
+  var e: word
+  var reached: word
+  var applies: bool
+  var count: word
+  var i: word
+  ; Find a way back from target to source inside their set, breadth first; seen_of()
+  ; holds the node each node was reached from, + 1.
+  for n = 0 until lk_tab.node_count do
+    lk_tab.work[SEEN + n] = 0
+  end
+  head = 0
+  tail = 1
+  lk_tab.work[STACK + 0] = target
+  lk_tab.work[SEEN + target] = target + 1
+  while head < tail and seen_of(source) == 0 do
+    n = lk_tab.work[STACK + head]
+    head += 1
+    e = first_edge(n)
+    while e != 0 do
+      reached, applies = edge_node(n, e)
+      if applies and seen_of(reached) == 0 and
+          scc_of(reached) == scc_of(n) then
+        lk_tab.work[SEEN + reached] = n + 1
+        lk_tab.work[STACK + tail] = reached
+        tail += 1
+      end
+      e = next_edge(n, e)
+    end
+  end
+  ; Walk back from source to target, then print it forwards.
+  count = 0
+  n = source
+  while n != target do
+    lk_tab.work[FOUND + count] = n
+    count += 1
+    n = seen_of(n) - 1
+  end
+  lk_err.begin(lk_err.E_CYCLE)
+  lk_err.colon()
+  lk_name.error_node(source)
+  lk_err.arrow()
+  lk_name.error_node(target)
+  i = count
+  while i > 0 do
+    i -= 1
+    lk_err.arrow()
+    lk_name.error_node(lk_tab.work[FOUND + i])
+  end
+  lk_err.finish()
+end
+
+; True if function f is a member of class k.
+func is_member(f: word, k: byte): bool
+  return lk_tab.fn_class[f] != 0 and lk_tab.class_of(lk_tab.fn_class[f] - 1) == k
+end
+
+; Report the call by edge e + 1 of node n, a function, into the block of its own class, node
+; target: as the call of the member it is (E_VIA), or as the call through the class.
+func fail_member_call(n: word, target: word, e: word)
+  var k: byte
+  var callee: word
+  var other: word
+  var s: word
+  var i: byte
+  k = lk_tab.node_class(target)
+  lk_err.begin(lk_err.E_MEMBER_CYCLE)
+  lk_err.colon()
+  lk_name.error_node(n)
+  lk_err.arrow()
+  callee = lk_tab.cls_ref(k)
+  if (lk_tab.edge_flag(e - 1) & lk_tab.E_VIA) != 0 then
+    other = first_edge(n)
+    while other != 0 do
+      s = lk_tab.edge_sym(other - 1)
+      if (lk_tab.edge_flag(other - 1) & lk_tab.E_VIA) == 0 and lk_sym.kind_of(s) == lk_sym.FUNCTION and
+          lk_sym.is_defined(s) and is_member(lk_sym.row_of(s), k) then
+        callee = s
+      end
+      other = next_edge(n, other)
+    end
+  end
+  lk_name.error_name(callee)
+  if callee == lk_tab.cls_ref(k) then
+    for i = 0 until len(OWN_CLASS) do
+      lk_err.put(OWN_CLASS[i])
+    end
+  else
+    for i = 0 until len(IN_CLASS) do
+      lk_err.put(IN_CLASS[i])
+    end
+    lk_name.error_name(lk_tab.cls_ref(k))
+  end
+  lk_err.finish()
+end
+
+; Every call between two nodes of one set is recursion and must be marked as such.
+;
+; A class block counts as `recursive`, and its edge to a member as saving, because a member that
+; saves its frame saves its parameters in the block with it (code-model.md, "Recursion"). The
+; checks therefore fall on the real calls into and out of the block. A member's call into its own
+; class's block, of another member or through the class, is reported as that: the two share their
+; parameters (language.md, "Members calling members").
+func check_cycles()
+  var n: word
+  var e: word
+  var target: word
+  var applies: bool
+  var saves: bool
+  n = lk_tab.first_in_order()
+  while n != lk_tab.NONE do
+    e = first_edge(n)
+    while e != 0 do
+      target, applies = edge_node(n, e)
+      if applies and scc_of(target) == scc_of(n) then
+        saves = (lk_tab.edge_flag(e - 1) & lk_tab.E_NOSAVE) == 0
+        if not (saves and is_recursive(n) and is_recursive(target)) then
+          if not lk_tab.node_is_class(n) and lk_tab.node_is_class(target) and
+              is_member(lk_tab.own_of(n), lk_tab.node_class(target)) then
+            fail_member_call(n, target, e)
+          end
+          fail_cycle(n, target)
+        end
+      end
+      e = next_edge(n, e)
+    end
+    n = lk_tab.next_in_order(n)
+  end
+end
+
+; From the tables of lk_scan to nodes, sets and the order to allocate in.
+pub func build(main_sym: word)
+  find_contexts(main_sym)
+  class_contexts()
+  fit_members()
+  make_nodes()
+  find_sets()
+  check_cycles()
+end

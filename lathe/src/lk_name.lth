@@ -57,7 +57,7 @@ import sys
 
 pub const MAX_OBJECTS = 40
 #if LKSMALL
-pub const MAX_LOCALS = 2000
+pub const MAX_LOCALS = 1600
 #else
 pub const MAX_LOCALS = 4000     ; SYM records in all object files together
 #end

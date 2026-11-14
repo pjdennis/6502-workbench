@@ -1,0 +1,133 @@
+; A test of the linker's storage allocation: lk_alloc (with the layers below it).
+;
+;     lktest4 ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
+;
+; takes the linker's own command line and runs its phases as lathe/host/link.py does, up to and
+; including storage allocation: the environment file, the first reading of the object files, the
+; main function, the call graph, the interrupt rules and the stubs, and storage. Then it prints
+; what allocation computed: zero page and main memory, each context's bottom and depth, each
+; node's layout, every slot's address and every variable's, what promotion put in zero page and
+; how often it laid zero page out. A link error ends it as it would end the linker. lktest3 prints
+; what the phases before allocation computed.
+;
+; lathe/tests/test_src_lk.py runs it and its twin over the host modules, at the capacities of the
+; small build (LKSMALL), and compares what they print, their error output and their exit status.
+module lktest4
+
+import lk_alloc
+import lk_envf
+import lk_err
+import lk_file
+import lk_graph
+import lk_name
+import lk_scan
+import lk_sym
+import lk_tab
+import lk_win
+import lkshow
+import sys
+
+; lathe/host/link.py's find_main: the function MAINMODULE.main, which some object file must
+; define.
+func find_main(): word
+  var s: word
+  var size: byte
+  var i: byte
+  var c: byte
+  s = lk_name.main_sym
+  if s == lk_tab.NONE or lk_sym.kind_of(s) != lk_sym.FUNCTION or not lk_sym.is_defined(s) then
+    lk_err.begin(lk_err.E_NO_MAIN)
+    lk_err.colon()
+    size = lk_file.arg_length(lk_file.ARG_MAIN)
+    for i = 0 until size do
+      c = lk_file.path[i]
+      if c >= 65 and c <= 90 then
+        c += 32
+      end
+      lk_err.put(c)
+    end
+    for i = 0 until len(lk_name.MAIN_SUFFIX) do
+      lk_err.put(lk_name.MAIN_SUFFIX[i])
+    end
+    lk_err.finish()
+  end
+  return s
+end
+
+func show_storage()
+  var ctx: byte
+  var n: word
+  var f: word
+  var i: byte
+  var s: word
+  var p: byte
+  var d: word
+  lkshow.label('z')
+  lkshow.show_word(lk_alloc.zp_cap)
+  lkshow.show_word(lk_alloc.zp_vars)
+  lkshow.show_word(lk_alloc.zp_used)
+  lkshow.show_word(lk_alloc.layouts)
+  for ctx = 0 until lk_tab.ctx_count do
+    lkshow.show_word(lk_alloc.ctx_bottom[ctx])
+    lkshow.show_word(lk_alloc.ctx_depth[ctx])
+  end
+  lkshow.end_line()
+  for n = 0 until lk_tab.node_count do
+    if lk_tab.is_node(n) then
+      lkshow.label('v')
+      lkshow.show_byte(lk_tab.zbase_of(n))
+      lkshow.show_word(lk_tab.mbase_of(n))
+      lkshow.show_word(lk_tab.work[lk_tab.W_ZSIZE + n])
+      lkshow.show_word(lk_tab.work[lk_alloc.LAY_BASE + n])
+      lkshow.show_word(lk_tab.work[lk_alloc.LAY_END + n])
+      lkshow.show_word(lk_tab.work[lk_alloc.LAY_SIZE + n])
+      lkshow.show_word(lk_tab.work[lk_alloc.LAY_DOWN + n])
+      lkshow.show_word(lk_alloc.zp_size(n))
+      if not lk_tab.node_is_class(n) then
+        lkshow.label(':')
+        f = lk_tab.own_of(n)
+        for i = 0 until lo(lk_tab.fn_nslots(f)) do
+          lkshow.show_word(lk_alloc.slot_addr(n, i))
+        end
+      end
+      lkshow.end_line()
+    end
+  end
+  lkshow.label('t')
+  for s = 0 until lk_tab.slot_count do
+    lkshow.show_byte(lk_tab.slot_sz[s])
+  end
+  lkshow.end_line()
+  lkshow.label('p')
+  for p = 0 until lk_tab.cp_count do
+    lkshow.show_byte(lk_tab.cp_info[p])
+    lkshow.show_word(lk_tab.cp_addr[p])
+  end
+  lkshow.end_line()
+  lkshow.label('a')
+  for d = 0 until lk_tab.def_count do
+    lkshow.show_byte(lk_tab.def_f[d])
+    if lk_tab.is_kept_var(d) then
+      lkshow.show_word(lk_tab.def_a[d])
+      lkshow.show_byte(lk_win.bank_def(d))
+      lkshow.show_byte(lk_win.def_dest(d))
+    end
+  end
+  lkshow.end_line()
+end
+
+pub func main()
+  var main_sym: word
+  if lk_file.arg_count() <= lk_file.ARG_OBJECT then
+    lk_err.fail(lk_err.E_USAGE)
+  end
+  lk_envf.read()
+  lk_scan.scan_all()
+  main_sym = find_main()
+  lk_graph.build(main_sym)
+  lk_win.check_interrupts()
+  lk_win.mark_stubs(lk_sym.row_of(main_sym))
+  lk_alloc.allocate()
+  show_storage()
+  sys.exit(0)
+end

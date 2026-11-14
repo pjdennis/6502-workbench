@@ -69,6 +69,26 @@ def edge_target(e):
     return target
 
 
+# ---- the work columns, read through a function each: a call is shorter than the access
+
+def scc_of(n):
+    """The set node n is in (lk_tab.W_SCC)."""
+    return lk_tab.work[lk_tab.W_SCC + n]
+
+
+def order_at(i):
+    """Entry i of `order` (lk_tab.W_ORDER)."""
+    return lk_tab.work[lk_tab.W_ORDER + i]
+
+
+def seen_of(n):
+    return lk_tab.work[SEEN + n]
+
+
+def low_of(n):
+    return lk_tab.work[LOW + n]
+
+
 # ---- contexts and reachability
 
 def mark(target, ctx):
@@ -485,18 +505,18 @@ def search(root):
             lk_tab.work[STACK_EDGE + stack_top - 1] = next_edge(n, e)
             target, applies = edge_node(n, e)
             if applies:
-                if lk_tab.work[SEEN + target] == 0:
+                if seen_of(target) == 0:
                     push(target)
-                elif lk_tab.work[lk_tab.W_SCC + target] == ON_STACK and lk_tab.work[SEEN + target] < lk_tab.work[LOW + n]:
-                    lk_tab.work[LOW + n] = lk_tab.work[SEEN + target]
+                elif scc_of(target) == ON_STACK and seen_of(target) < low_of(n):
+                    lk_tab.work[LOW + n] = seen_of(target)
         else:
             stack_top -= 1
-            if lk_tab.work[LOW + n] == lk_tab.work[SEEN + n]:
+            if low_of(n) == seen_of(n):
                 close_set(n)
             if stack_top > 0:
                 caller = lk_tab.work[STACK + stack_top - 1]
-                if lk_tab.work[LOW + n] < lk_tab.work[LOW + caller]:
-                    lk_tab.work[LOW + caller] = lk_tab.work[LOW + n]
+                if low_of(n) < low_of(caller):
+                    lk_tab.work[LOW + caller] = low_of(n)
 
 
 def find_sets():
@@ -504,7 +524,7 @@ def find_sets():
         lk_tab.work[SEEN + n] = 0
     n = lk_tab.first_in_order()
     while n != lk_tab.NONE:
-        if lk_tab.work[SEEN + n] == 0:
+        if seen_of(n) == 0:
             search(n)
         n = lk_tab.next_in_order(n)
 
@@ -518,7 +538,7 @@ def is_recursive(n):
 
 def fail_cycle(source, target):
     """Report the cycle that the call source -> target closes."""
-    # Find a way back from target to source inside their set, breadth first; lk_tab.work[SEEN + ] holds the
+    # Find a way back from target to source inside their set, breadth first; seen_of() holds the
     # node each node was reached from, + 1.
     for n in range(0, lk_tab.node_count):
         lk_tab.work[SEEN + n] = 0
@@ -526,13 +546,13 @@ def fail_cycle(source, target):
     tail = 1
     lk_tab.work[STACK + 0] = target
     lk_tab.work[SEEN + target] = target + 1
-    while head < tail and lk_tab.work[SEEN + source] == 0:
+    while head < tail and seen_of(source) == 0:
         n = lk_tab.work[STACK + head]
         head += 1
         e = first_edge(n)
         while e != 0:
             reached, applies = edge_node(n, e)
-            if applies and lk_tab.work[SEEN + reached] == 0 and lk_tab.work[lk_tab.W_SCC + reached] == lk_tab.work[lk_tab.W_SCC + n]:
+            if applies and seen_of(reached) == 0 and scc_of(reached) == scc_of(n):
                 lk_tab.work[SEEN + reached] = n + 1
                 lk_tab.work[STACK + tail] = reached
                 tail += 1
@@ -543,7 +563,7 @@ def fail_cycle(source, target):
     while n != target:
         lk_tab.work[FOUND + count] = n
         count += 1
-        n = lk_tab.work[SEEN + n] - 1
+        n = seen_of(n) - 1
     lk_err.begin(lk_err.E_CYCLE)
     lk_err.colon()
     lk_name.error_node(source)
@@ -601,7 +621,7 @@ def check_cycles():
         e = first_edge(n)
         while e != 0:
             target, applies = edge_node(n, e)
-            if applies and lk_tab.work[lk_tab.W_SCC + target] == lk_tab.work[lk_tab.W_SCC + n]:
+            if applies and scc_of(target) == scc_of(n):
                 saves = (lk_tab.edge_flag(e - 1) & lk_tab.E_NOSAVE) == 0
                 if not (saves and is_recursive(n) and is_recursive(target)):
                     if not lk_tab.node_is_class(n) and lk_tab.node_is_class(target) \

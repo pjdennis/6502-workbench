@@ -35,9 +35,13 @@ import src_support as support
 import lathec_support
 import lk_small
 import env
+import link
+import lk_alloc
+import lk_boot
 import lk_envf
 import lk_err
 import lk_file
+import lk_graph
 import lk_name
 import lk_op
 import lk_out
@@ -45,6 +49,7 @@ import lk_rec
 import lk_scan
 import lk_sym
 import lk_tab
+import lk_win
 
 ENV = os.path.join(support.SRC, 'linker.env')
 
@@ -530,6 +535,178 @@ def lktest2():
     env.exit(0)
 
 
+# ---- lktest3.lth and lktest4.lth ---------------------------------------------------------
+
+def find_main():
+    """lktest3.lth's find_main is a copy of link.find_main."""
+    return link.find_main()
+
+
+def show_graph():
+    label('g')
+    show_byte(lk_tab.ctx_count)
+    show_word(lk_tab.node_count)
+    show_word(lk_tab.extra_end)
+    show_word(lk_graph.order_count)
+    show_word(lk_graph.scc_count)
+    end_line()
+    label('f')
+    for f in range(0, lk_tab.fn_count):
+        show_byte(lk_tab.fn_ctx[f])
+        show_byte(lk_tab.fn_flags[f])
+    end_line()
+    for k in range(0, lk_tab.cls_count):
+        label('k')
+        show_byte(lk_tab.cls_reach[k])
+        if lk_tab.cls_reach[k] != 0:
+            show_byte(lk_tab.cls_ctx[k])
+            show_word(lk_tab.cls_node[k])
+        end_line()
+    label('c')
+    for p in range(0, lk_tab.cp_count):
+        show_byte(lk_tab.cp_info[p])
+        show_byte(lk_tab.cp_weight[p])
+    end_line()
+    label('d')
+    for d in range(0, lk_tab.def_count):
+        show_byte(lk_tab.def_f[d])
+    end_line()
+    for n in range(0, lk_tab.node_count):
+        if lk_tab.is_node(n):
+            label('n')
+            show_word(n)
+            show_word(lk_tab.own_of(n))
+            show_byte(lk_tab.ctx_of(n))
+            show_word(lk_tab.work[lk_tab.W_SCC + n])
+            label(':')
+            e = lk_graph.first_edge(n)
+            while e != 0:
+                target, applies = lk_graph.edge_node(n, e)
+                if applies:
+                    show_word(target)
+                else:
+                    label('-')
+                e = lk_graph.next_edge(n, e)
+            end_line()
+    label('o')
+    for n in range(0, lk_graph.order_count):
+        show_word(lk_tab.work[lk_tab.W_ORDER + n])
+    end_line()
+
+
+def show_stubs():
+    label('s')
+    show_word(lk_win.stub_count)
+    for obj in range(0, lk_name.object_count + 1):
+        show_word(lk_win.obj_stub[obj])
+    label(':')
+    for f in range(0, lk_tab.fn_count):
+        if lk_win.has_stub(f):
+            show_word(f)
+            show_byte(lk_win.copies(f))
+    end_line()
+
+
+def show_boot(main_fn):
+    for n in range(0, lk_tab.node_count):
+        lk_tab.work[lk_tab.W_ADDR + n] = (lk_envf.code_lo + 0x100 + 7 * n) & 0xFFFF
+    label('b')
+    show_word(lk_boot.plan())
+    show_word(lk_boot.start_addr)
+    show_word(lk_boot.start_len)
+    show_word(lk_boot.init_addr)
+    show_word(lk_boot.init_len)
+    show_word(lk_boot.table_addr)
+    show_word(lk_boot.table_len)
+    show_word(lk_win.stub_base)
+    show_byte(lk_win.table_count)
+    for i in range(0, lk_win.table_count):
+        show_byte(lk_win.table_bank(i))
+    label(':')
+    for n in range(0, lk_tab.node_count):
+        if lk_tab.is_node(n) and not lk_tab.node_is_class(n) and lk_win.has_stub(lk_tab.own_of(n)):
+            show_word(lk_win.stub_addr(n))
+    end_line()
+    lk_out.open_image()
+    lk_boot.write(main_fn)
+    lk_out.close_image(lk_boot.start_addr)
+
+
+def lktest3():
+    if lk_file.arg_count() <= lk_file.ARG_OBJECT:
+        lk_err.fail(lk_err.E_USAGE)
+    lk_envf.read()
+    lk_scan.scan_all()
+    main_sym = find_main()
+    lk_graph.build(main_sym)
+    show_graph()
+    lk_win.check_interrupts()
+    lk_win.mark_stubs(lk_sym.row_of(main_sym))
+    show_stubs()
+    show_boot(lk_sym.row_of(main_sym))
+    env.exit(0)
+
+
+def show_storage():
+    label('z')
+    show_word(lk_alloc.zp_cap)
+    show_word(lk_alloc.zp_vars)
+    show_word(lk_alloc.zp_used)
+    show_word(lk_alloc.layouts)
+    for ctx in range(0, lk_tab.ctx_count):
+        show_word(lk_alloc.ctx_bottom[ctx])
+        show_word(lk_alloc.ctx_depth[ctx])
+    end_line()
+    for n in range(0, lk_tab.node_count):
+        if lk_tab.is_node(n):
+            label('v')
+            show_byte(lk_tab.zbase_of(n))
+            show_word(lk_tab.mbase_of(n))
+            show_word(lk_tab.work[lk_tab.W_ZSIZE + n])
+            show_word(lk_tab.work[lk_alloc.LAY_BASE + n])
+            show_word(lk_tab.work[lk_alloc.LAY_END + n])
+            show_word(lk_tab.work[lk_alloc.LAY_SIZE + n])
+            show_word(lk_tab.work[lk_alloc.LAY_DOWN + n])
+            show_word(lk_alloc.zp_size(n))
+            if not lk_tab.node_is_class(n):
+                label(':')
+                f = lk_tab.own_of(n)
+                for i in range(0, lk_tab.fn_nslots(f) & 0xFF):
+                    show_word(lk_alloc.slot_addr(n, i))
+            end_line()
+    label('t')
+    for s in range(0, lk_tab.slot_count):
+        show_byte(lk_tab.slot_sz[s])
+    end_line()
+    label('p')
+    for p in range(0, lk_tab.cp_count):
+        show_byte(lk_tab.cp_info[p])
+        show_word(lk_tab.cp_addr[p])
+    end_line()
+    label('a')
+    for d in range(0, lk_tab.def_count):
+        show_byte(lk_tab.def_f[d])
+        if lk_tab.is_kept_var(d):
+            show_word(lk_tab.def_a[d])
+            show_byte(lk_win.bank_def(d))
+            show_byte(lk_win.def_dest(d))
+    end_line()
+
+
+def lktest4():
+    if lk_file.arg_count() <= lk_file.ARG_OBJECT:
+        lk_err.fail(lk_err.E_USAGE)
+    lk_envf.read()
+    lk_scan.scan_all()
+    main_sym = find_main()
+    lk_graph.build(main_sym)
+    lk_win.check_interrupts()
+    lk_win.mark_stubs(lk_sym.row_of(main_sym))
+    lk_alloc.allocate()
+    show_storage()
+    env.exit(0)
+
+
 # ---- running both ------------------------------------------------------------------------
 
 def host_run(main, args, cwd):
@@ -786,6 +963,64 @@ def hand_made_links():
     return found
 
 
+def graph_links():
+    """Links for what the graph and storage reach that the linker's tests do not: [(title, env,
+    objects, main)]."""
+    from test_lk_support import (HOST_ENV, Obj, routine, EITHER, NEVER, PARAM, INTERRUPT,
+                                 POINTER)
+    found = []
+
+    def case(title, env_text, *objects):
+        found.append((title, env_text, [o.to_bytes() for o in objects], objects[0].name))
+
+    o = Obj('t')
+    c = o.code()
+    c.byte(0xA9, 2, o.f('main'))            # LDA #<main, inside main: its address is taken
+    c.raw(0x60)
+    o.func('main', c)
+    case('a function that takes its own address', HOST_ENV, o)
+
+    o = Obj('t')
+    o.clas('k', [1])
+    routine(o, 'g', slots=[(1, EITHER, 0, PARAM, 'p')])
+    routine(o, 'irq', calls=['g'], flags=INTERRUPT)
+    routine(o, 'main', calls=[('k', POINTER, None)])
+    o.memb('k', 'g')
+    case('a member called directly from a context that does not call through its class', HOST_ENV, o)
+
+    o = Obj('t')
+    routine(o, 'h')
+    routine(o, 'g', slots=[(1, EITHER, 0, PARAM, 'p')])
+    routine(o, 'irq', calls=['g'], flags=INTERRUPT)
+    routine(o, 'main', calls=[('h', 0, 'g'), 'g'])
+    case('a call made while the arguments of a function of two contexts wait', HOST_ENV, o)
+
+    o = Obj('t')
+    routine(o, 'g', slots=[(1, EITHER, 0, PARAM, 'p')])
+    routine(o, 'dropped', calls=[('nothing', 0, 'g'), 'g'])
+    routine(o, 'main', calls=['g'])
+    case('a dropped function that calls what nothing defines while arguments wait', HOST_ENV, o)
+
+    o = Obj('t')
+    o.var('w', 2, zp_class=NEVER)
+    c = o.code()
+    c.abs(0xAD, o.v('w'))
+    c.raw(0x60)
+    o.func('main', c)
+    case('a two-byte variable at the end of a page of the more range',
+         'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $C000\nmore data $F8FF $F9FF\n'
+         'exit loop\n', o)
+
+    o = Obj('t')
+    o.clas('k', [2])
+    routine(o, 'g', slots=[(2, NEVER, 0, PARAM, 'p')])
+    routine(o, 'main', calls=[('k', POINTER, None)])
+    o.memb('k', 'g')
+    case('a two-byte class parameter at the end of a page',
+         'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C0FF $EFFF\nexit loop\n', o)
+    return found
+
+
 # Programs whose objects are linked by lktest2: (source, environment).
 PROGRAMS = [
     ('src/lextest.lth', 'src/compiler.env'),
@@ -861,11 +1096,47 @@ def synthetic_case(per_module):
                 ['e.env', 'p00', 'out.bin', 'out.map'] + names)
 
 
-# lk_synthetic's program with 11 functions a module of its 30 has 355 functions, 1,786 slots,
-# 1,495 calls, 1,750 symbols in object files and 4,324 bytes of names kept, which the small build
-# links; with 12 the names kept and the symbols' words outgrow the work area (link error 10).
-SYNTHETIC_FITS = 11
-SYNTHETIC_OVER = 12
+# lk_synthetic's program with 7 functions a module of its 30 has 239 functions, 1,086 slots,
+# 1,038 calls, 1,243 symbols in object files and 2,883 bytes of names kept, which the small build
+# links; with 8 the names kept and the symbols' words outgrow the work area (link error 10).
+SYNTHETIC_FITS = 7
+SYNTHETIC_OVER = 8
+
+# Zero page sizes at which lktest4 allocates each program: promotion must choose at the smaller
+# ones; each program's edge, where every candidate just fits, and one byte less are added.
+ZP_SIZES = (16, 32, 64, 96)
+ZP_PROGRAMS = ('src/lextest.lth', 'tests/cases/e2e/rec_eval.lth', 'tests/cases/e2e/fp_dispatch.lth',
+               'tests/cases/e2e/fp_callback.lth', 'tests/cases/e2e-michael/irq_shared.lth',
+               'tests/cases/e2e-config/bankdata.lth')
+
+
+def with_zeropage(case, size):
+    """The case with `size` bytes of zero page from the start its environment gives."""
+    files = dict(case.files)
+    name = case.args[0]
+    lines = files[name].decode('latin-1').split('\n')
+    for i, line in enumerate(lines):
+        parts = line.split()
+        if parts and parts[0] == 'zeropage':
+            lo = int(parts[1].lstrip('$'), 16)
+            lines[i] = 'zeropage $%02X $%02X' % (lo, min(0xFF, lo + size - 1))
+    files[name] = '\n'.join(lines).encode('latin-1')
+    return Case('%s, %d bytes of zero page' % (case.title, size), files, case.args)
+
+
+def zp_edge(case, work):
+    """The zero page every candidate of the case's program needs, or None if they do not all fit
+    in 256 bytes: lktest4's twin at the most zero page, where allocate lays out three times."""
+    d = tempfile.mkdtemp(dir=work)
+    big = with_zeropage(case, 256)
+    for name, data in big.files.items():
+        with open(os.path.join(d, name), 'wb') as f:
+            f.write(data)
+    status, out, _ = host_run(lktest4, big.args, d)
+    z = out.split(b'\n')[0].split()
+    if status != 0 or int(z[4], 16) != 3:
+        return None
+    return int(z[3], 16)
 
 BAD_ENVS = [
     'cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $EFFF\n',
@@ -939,10 +1210,12 @@ class LinkerTwins(unittest.TestCase):
             build.build(os.path.join(support.SRC, name + '.lth'), image, env=ENV,
                         keep=os.path.join(where, 'work'))
             images[name] = image
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(make, ('lktest1', 'lktest2')))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(make, ('lktest1', 'lktest2', 'lktest3', 'lktest4')))
         cls.lktest1 = images['lktest1']
         cls.lktest2 = images['lktest2']
+        cls.lktest3 = images['lktest3']
+        cls.lktest4 = images['lktest4']
         cls.links = recorded_links()
         cls.trace = Coverage() if os.environ.get('LATHE_LK_COVERAGE') else None
         if cls.trace:
@@ -965,11 +1238,29 @@ class LinkerTwins(unittest.TestCase):
             for module, values in lk_small.capacities().items():
                 for name, value in values.items():
                     self.assertEqual(getattr(sys.modules[module], name), value)
-            self.assertEqual(lk_tab.MAX_FUNCS, 400)
+            self.assertEqual(lk_tab.MAX_FUNCS, 320)
             self.assertEqual(len(lk_tab.work), lk_tab.WORK_SIZE)
         finally:
             lk_small.load(False)
         self.assertEqual(lk_tab.MAX_FUNCS, 800)
+
+    def test_the_work_columns_of_the_graph_and_storage_do_not_overlap(self):
+        for small in (True, False):
+            lk_small.load(small)
+            n = lk_tab.MAX_NODES
+            # While what is kept is found: reach's stack, a DFIX record's entries, the files to read.
+            self.assertLessEqual(lk_graph.NAMED + lk_tab.MAX_FIXES, lk_graph.NOW)
+            self.assertLessEqual(lk_graph.LATER + lk_name.MAX_OBJECTS, lk_tab.W_SCC)
+            # Tarjan's columns, then the set and the order, below the node columns.
+            self.assertLessEqual(lk_graph.LOW + n, lk_tab.W_SCC)
+            self.assertEqual(lk_tab.W_ORDER + n, lk_tab.W_OWN)
+            # Storage: the layout, the zero page sizes, and promotion's counts, candidates and
+            # list in the column of main memory bases, which ends the work area.
+            self.assertLessEqual(lk_alloc.LAY_DOWN + n, lk_tab.W_ZSIZE)
+            self.assertLessEqual(lk_tab.W_ZSIZE + n, lk_tab.W_SCC)
+            self.assertEqual(lk_alloc.WEIGHT_COUNT, lk_tab.W_MBASE)
+            self.assertLessEqual(lk_alloc.LIST + 2 * lk_alloc.MAX_TAKEN, lk_tab.WORK_SIZE)
+        lk_small.load(False)
 
     def test_opcodes_numbers_messages_and_arguments(self):
         cases = [Case('tables', {}, ['x.env', 'aon', 'out.bin']),
@@ -1007,13 +1298,56 @@ class LinkerTwins(unittest.TestCase):
                           ['e.env', 'm', 'out.bin', 'out.map', 'none.lo']))
         self.assertGreater(lathe_and_host(self, self.lktest2, lktest2, cases, self.work()), 30)
 
+    @classmethod
+    def programs(cls):
+        """The cases of PROGRAMS and of lk_synthetic, built once."""
+        if not hasattr(cls, 'program_cases'):
+            work = tempfile.mkdtemp(dir=cls.dir)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+                cls.program_cases = list(pool.map(lambda p: program_case(p[0], p[1], work), PROGRAMS))
+            cls.program_cases.append(synthetic_case(SYNTHETIC_FITS))
+            cls.program_cases.append(synthetic_case(SYNTHETIC_OVER))
+        return cls.program_cases
+
     def test_programs(self):
-        work = self.work()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
-            cases = list(pool.map(lambda p: program_case(p[0], p[1], work), PROGRAMS))
-        cases.append(synthetic_case(SYNTHETIC_FITS))
-        cases.append(synthetic_case(SYNTHETIC_OVER))
+        cases = self.programs()
         self.assertEqual(lathe_and_host(self, self.lktest2, lktest2, cases, self.work()), len(PROGRAMS) + 2)
+
+    # lktest3 and lktest4: the call graph, the stubs, the start-up code and storage.
+
+    def test_graph_and_storage_of_every_link_of_the_linkers_tests(self):
+        cases = [link_case('link %d' % i, e, objects, main, args)
+                 for i, (e, objects, main, args) in enumerate(self.links)]
+        self.assertGreater(lathe_and_host(self, self.lktest3, lktest3, cases, self.work()), 200)
+        self.assertGreater(lathe_and_host(self, self.lktest4, lktest4, cases, self.work()), 200)
+
+    def test_graph_and_storage_of_links_made_by_hand(self):
+        from test_lk_support import HOST_ENV
+        cases = [link_case(title, HOST_ENV, objects, main) for title, objects, main in hand_made_links()]
+        cases += [link_case(title, e, objects, main) for title, e, objects, main in graph_links()]
+        self.assertGreater(lathe_and_host(self, self.lktest3, lktest3, cases, self.work()), 35)
+        self.assertGreater(lathe_and_host(self, self.lktest4, lktest4, cases, self.work()), 35)
+
+    def test_graph_and_storage_of_programs(self):
+        cases = self.programs()
+        self.assertEqual(lathe_and_host(self, self.lktest3, lktest3, cases, self.work()), len(PROGRAMS) + 2)
+        self.assertEqual(lathe_and_host(self, self.lktest4, lktest4, cases, self.work()), len(PROGRAMS) + 2)
+
+    def test_storage_in_zero_pages_of_several_sizes(self):
+        work = self.work()
+        chosen = [c for c in self.programs() if c.title.split()[0] in ZP_PROGRAMS]
+        chosen.append(self.programs()[-2])
+        cases = []
+        edges = 0
+        for case in chosen:
+            sizes = list(ZP_SIZES)
+            edge = zp_edge(case, work)
+            if edge is not None:
+                sizes += [edge, edge - 1]
+                edges += 1
+            cases += [with_zeropage(case, size) for size in sizes]
+        self.assertGreater(edges, 3)
+        self.assertEqual(lathe_and_host(self, self.lktest4, lktest4, cases, self.work()), len(cases))
 
 
 # ---- what the host runs reach ------------------------------------------------------------
