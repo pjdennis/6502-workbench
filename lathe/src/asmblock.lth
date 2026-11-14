@@ -1,0 +1,921 @@
+; ASM: the embedded assembler, for `asm` blocks and `asm` functions.
+; lathe/host/asmblock.py in Lathe.
+;
+; Owns
+; - the instruction table of the NMOS 6502;
+; - the line mode of an `asm` block: LEX hands over at the end of the line that opens the block,
+;   ASM reads the source a line at a time until a line whose first word is `end`, and hands
+;   that `end` back to LEX (docs/language.md, "Inline assembly");
+; - the block's local labels;
+; - the meaning of a Lathe name used as an operand, in name_operand(), the one place that has
+;   to learn each new kind of name.
+;
+; Instructions go to FBUF like those GEN chooses, so a branch that does not reach is widened
+; like any other, and the sizes follow docs/object-format.md: a numeric address below $100 takes
+; the zero page form, a variable or slot is written in the absolute form with a two-byte fix-up
+; for the linker to shrink, and the indirect modes, which exist only in zero page, take a
+; one-byte fix-up and require the variable or slot to be in zero page.
+;
+; The table. Every instruction belongs to a class, and the instructions of a class differ only in
+; a base opcode: the opcode for an addressing mode is the base plus the class's offset for that
+; mode. So the table is the mnemonics (three letters each), a base and a class for each, and an
+; offset for every class and mode: 462 bytes for the 56 instructions and 151 opcodes. The 65C02's
+; instructions are to go after the NMOS ones, with classes of their own and, for the modes it
+; adds to old instructions, offsets of its own, all used only when gen.cpu is 1.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | MNEMONICS, BASE, CLASS, MODE_OFFSET, | constant tables of bytes          | a table is not  |
+;   | END_WORD: byte strings               |                                   | a value         |
+;   | (BASE[m] + offset) & 0xFF            | BASE[m] + offset                  | a byte wraps    |
+;   | op, _ = opcode(...)                  | op, ok = ...                      | no `_`          |
+;   | kernel.sym_find(kernel.sym_value[s], | lo(kernel.sym_value[s])           | a scope is a    |
+;   | member)                              |                                   | byte            |
+;   | kernel.sym_value[s] & 0xFFFF         | kernel.sym_value[s]               | a word is 16    |
+;   |                                      |                                   | bits            |
+;   | found_slot = kernel.sym_value[s]     | lo(kernel.sym_value[s])           | a slot is a     |
+;   |                                      |                                   | byte            |
+;   | storage, a slot when below           | lo(storage) where it is given to  | (the same)      |
+;   | VARIABLE_STORAGE                     | reg as a slot                     |                 |
+;   | label_number[x_value]                | label_number[lo(x_value)]         | x_value is a    |
+;   |                                      |                                   | word; a label a |
+;   |                                      |                                   | byte            |
+;   | (value >> 8) & 0xFF                  | hi(value)                         |                 |
+;   | fbuf.op_byte(op, value) of a value   | lo(value)                         | the operand is  |
+;   | checked to be below $100             |                                   | a byte          |
+;   | `while asm_line(): pass`             | `while asm_line() do end`         |                 |
+;   | `return 0` after err.fatal()         | the same                          | the end of a    |
+;   |                                      |                                   | function with a |
+;   |                                      |                                   | result must not |
+;   |                                      |                                   | be reachable    |
+module asmblock
+
+import err
+import fbuf
+import kernel
+import lex
+import out
+import reg
+import src
+import typetab
+
+; ---- The instruction table ---------------------------------------------------------------
+
+; Addressing modes. The absolute form of a zero page mode is that mode + ZP_TO_ABS.
+const M_IMP = 0           ; implied
+const M_ACC = 1           ; accumulator: ASL A, or ASL
+const M_IMM = 2           ; #value
+const M_ZP = 3
+const M_ZPX = 4
+const M_ZPY = 5
+const M_ABS = 6
+const M_ABSX = 7
+const M_ABSY = 8
+const M_INDX = 9          ; (zp,X)
+const M_INDY = 10         ; (zp),Y
+const M_IND = 11          ; (abs), for JMP
+const M_REL = 12          ; a branch
+const MODES = 13
+const ZP_TO_ABS = 3
+const NO_MODE = $FF
+
+const MNEMONICS: [168]byte = "adcandaslbccbcsbeqbitbmibnebplbrkbvcbvsclccldcliclvcmpcpxcpydecdexdeyeorinc"
+    "inxinyjmpjsrldaldxldylsrnoporaphaphpplaplprolrorrtirtssbcsecsedseistastxsty"
+    "taxtaytsxtxatxstya"
+const NMOS_COUNT = 56
+
+; For each mnemonic, in the order of MNEMONICS: the base opcode, and the class.
+const BASE: [56]byte = [$61, $21, $02, $90, $B0, $F0, $20, $30, $D0, $10, $00, $50, $70, $18,
+    $D8, $58, $B8, $C1, $E0, $C0, $C2, $CA, $88, $41, $E2, $E8, $C8, $4C,
+    $20, $A1, $A2, $A0, $42, $EA, $01, $48, $08, $68, $28, $22, $62, $40,
+    $60, $E1, $38, $F8, $78, $81, $82, $80, $AA, $A8, $BA, $8A, $9A, $98]
+const CLASS: [56]byte = [$02, $02, $04, $01, $01, $01, $0B, $01, $01, $01, $00, $01, $01, $00,
+    $00, $00, $00, $02, $0A, $0A, $05, $00, $00, $02, $05, $00, $00, $0C,
+    $0D, $02, $06, $08, $04, $00, $02, $00, $00, $00, $00, $04, $04, $00,
+    $00, $02, $00, $00, $00, $03, $07, $09, $00, $00, $00, $00, $00, $00]
+
+; For each class, the offset from the base for each mode, or NO_MODE.
+;    IMP  ACC  IMM  ZP   ZPX  ZPY  ABS  ABX  ABY  INX  INY  IND  REL
+const MODE_OFFSET: [182]byte = [
+    $00, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,    ; 0 implied
+    $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $00,    ; 1 branches
+    $FF, $FF, $08, $04, $14, $FF, $0C, $1C, $18, $00, $10, $FF, $FF,    ; 2 ADC AND CMP EOR LDA ORA SBC
+    $FF, $FF, $FF, $04, $14, $FF, $0C, $1C, $18, $00, $10, $FF, $FF,    ; 3 STA
+    $FF, $08, $FF, $04, $14, $FF, $0C, $1C, $FF, $FF, $FF, $FF, $FF,    ; 4 ASL LSR ROL ROR
+    $FF, $FF, $FF, $04, $14, $FF, $0C, $1C, $FF, $FF, $FF, $FF, $FF,    ; 5 DEC INC
+    $FF, $FF, $00, $04, $FF, $14, $0C, $FF, $1C, $FF, $FF, $FF, $FF,    ; 6 LDX
+    $FF, $FF, $FF, $04, $FF, $14, $0C, $FF, $FF, $FF, $FF, $FF, $FF,    ; 7 STX
+    $FF, $FF, $00, $04, $14, $FF, $0C, $1C, $FF, $FF, $FF, $FF, $FF,    ; 8 LDY
+    $FF, $FF, $FF, $04, $14, $FF, $0C, $FF, $FF, $FF, $FF, $FF, $FF,    ; 9 STY
+    $FF, $FF, $00, $04, $FF, $FF, $0C, $FF, $FF, $FF, $FF, $FF, $FF,    ; 10 CPX CPY
+    $FF, $FF, $FF, $04, $FF, $FF, $0C, $FF, $FF, $FF, $FF, $FF, $FF,    ; 11 BIT
+    $FF, $FF, $FF, $FF, $FF, $FF, $00, $FF, $FF, $FF, $FF, $20, $FF,    ; 12 JMP
+    $FF, $FF, $FF, $FF, $FF, $FF, $00, $FF, $FF, $FF, $FF, $FF, $FF]    ; 13 JSR
+
+const OP_JMP = $4C
+const OP_JSR = $20
+
+; How many instructions the CPU being compiled for has.
+func instruction_count(): byte
+  return NMOS_COUNT
+end
+
+; The opcode of instruction `m` in addressing mode `mode`, and whether it has that mode.
+func opcode(m: byte, mode: byte): byte, bool
+  var offset: byte
+  offset = MODE_OFFSET[CLASS[m] * MODES + mode]
+  if offset == NO_MODE then
+    return 0, false
+  end
+  return BASE[m] + offset, true
+end
+
+func has_mode(m: byte, mode: byte): bool
+  var op: byte
+  var ok: bool
+  op, ok = opcode(m, mode)
+  return ok
+end
+
+; ---- Characters and words ----------------------------------------------------------------
+
+const C_TAB = $09
+const C_LF = $0A
+const C_CR = $0D
+const C_SPACE = $20
+const C_HASH = $23
+const C_DOLLAR = $24
+const C_PERCENT = $25
+const C_QUOTE = $27
+const C_LPAREN = $28
+const C_RPAREN = $29
+const C_PLUS = $2B
+const C_COMMA = $2C
+const C_MINUS = $2D
+const C_DOT = $2E
+const C_COLON = $3A
+const C_SEMICOLON = $3B
+const C_LESS = $3C
+const C_GREATER = $3E
+const C_UNDERSCORE = $5F
+const C_A = $61
+const C_X = $78
+const C_Y = $79
+const END_WORD: [3]byte = "end"
+
+const MAX_SPELLING = 31
+var spelling: [MAX_SPELLING]byte        ; the word just read, in lower case
+var spelling_length: byte = 0
+
+; True at the end of the line: its line feed, a comment, or the end of the source.
+func at_line_end(): bool
+  return src.eof or src.ch == C_LF or src.ch == C_SEMICOLON
+end
+
+func skip_blanks()
+  while not src.eof and (src.ch == C_SPACE or src.ch == C_TAB or src.ch == C_CR) do
+    src.advance()
+  end
+end
+
+; Pass over the rest of the line and its line feed.
+func skip_line()
+  while not src.eof and src.ch != C_LF do
+    src.advance()
+  end
+  src.advance()
+end
+
+func is_word_char(c: byte): bool
+  return lex.is_letter(c) or lex.is_digit(c) or c == C_UNDERSCORE
+end
+
+; Read the letters, digits and underscores here into `spelling`. There may be none.
+func read_word()
+  spelling_length = 0
+  while not src.eof and is_word_char(src.ch) do
+    if spelling_length < MAX_SPELLING then
+      spelling[spelling_length] = lex.fold(src.ch)
+      spelling_length += 1
+    end
+    src.advance()
+  end
+end
+
+; True if the word just read is the one letter `letter` (in lower case).
+func word_is_letter(letter: byte): bool
+  return spelling_length == 1 and spelling[0] == letter
+end
+
+; The word just read, as a name in the kernel's heap.
+func word_name(): word
+  var i: byte
+  kernel.name_begin()
+  for i = 0 until spelling_length do
+    kernel.name_add(spelling[i])
+  end
+  return kernel.name_end()
+end
+
+; The instruction the word just read names, and whether it names one.
+func find_mnemonic(): byte, bool
+  var m: byte
+  if spelling_length != 3 then
+    return 0, false
+  end
+  for m = 0 until instruction_count() do
+    if MNEMONICS[3 * m] == spelling[0] and MNEMONICS[3 * m + 1] == spelling[1] and
+        MNEMONICS[3 * m + 2] == spelling[2] then
+      return m, true
+    end
+  end
+  return 0, false
+end
+
+func is_end_word(): bool
+  var i: byte
+  if spelling_length != len(END_WORD) then
+    return false
+  end
+  for i = 0 until len(END_WORD) do
+    if spelling[i] != END_WORD[i] then
+      return false
+    end
+  end
+  return true
+end
+
+func fail_at(at_line: word, at_col: word, number: byte)
+  err.position(at_line, at_col)
+  err.fatal(number)
+end
+
+; ---- Local labels ------------------------------------------------------------------------
+
+const MAX_BLOCK_LABELS = 64
+
+var label_name: [MAX_BLOCK_LABELS]word          ; the name, without its dot
+var label_number: [MAX_BLOCK_LABELS]byte        ; the FBUF label
+var label_defined: [MAX_BLOCK_LABELS]bool
+var label_line: [MAX_BLOCK_LABELS]word          ; where it was first used, for the error if never defined
+var label_col: [MAX_BLOCK_LABELS]word
+var label_count: byte = 0
+
+; The block's label called `name`, made if it is new.
+func label_find(name: word, at_line: word, at_col: word): byte
+  var i: byte
+  for i = 0 until label_count do
+    if label_name[i] == name then
+      return i
+    end
+  end
+  if label_count == MAX_BLOCK_LABELS then
+    err.fatal(err.E_LABELS_FULL)
+  end
+  label_name[label_count] = name
+  label_number[label_count] = fbuf.new_label()
+  label_defined[label_count] = false
+  label_line[label_count] = at_line
+  label_col[label_count] = at_col
+  label_count += 1
+  return label_count - 1
+end
+
+; The label called `name` is here.
+func label_define(name: word, at_line: word, at_col: word)
+  var i: byte
+  i = label_find(name, at_line, at_col)
+  if label_defined[i] then
+    fail_at(at_line, at_col, err.E_DUPLICATE)
+  end
+  label_defined[i] = true
+  fbuf.place(label_number[i])
+end
+
+; Every label the block used must be defined in it.
+func labels_check()
+  var i: byte
+  for i = 0 until label_count do
+    if not label_defined[i] then
+      fail_at(label_line[i], label_col[i], err.E_ASM_NO_LABEL)
+    end
+  end
+end
+
+; ---- Lathe names -------------------------------------------------------------------------
+
+; What a name, or an expression, is
+const X_NUMBER = 1        ; x_value
+const X_LABEL = 2         ; x_value: the block's label
+const X_ADDRESS = 3       ; an address the linker fills in: x_symbol, x_slot, and x_value the addend
+
+const NO_STORAGE = $FFFF
+const VARIABLE_STORAGE = 256    ; a storage number below this is a slot (one byte); from it on, a variable
+
+; Set by name_operand()
+var found_value: word = 0       ; X_NUMBER: the number
+var found_symbol: word = 0      ; X_ADDRESS: the object-file symbol
+var found_slot: byte = 0        ; X_ADDRESS: the slot of that function, or fbuf.NO_SLOT
+var found_storage: word = 0     ; X_ADDRESS: the variable or slot, for storage_used(), or NO_STORAGE
+var found_function: bool = false ; X_ADDRESS: the address is a function's entry, so JSR and JMP are calls
+
+; What the Lathe name `name`, or `name.member` if `member` is not 0, means as an operand.
+; Returns X_NUMBER or X_ADDRESS, with the found_ variables set; an undefined name is an error
+; at the current position.
+;
+; - A constant is its value; an `extern` function, and a variable at a fixed address, its
+;   address. A constant table is its address, through a fix-up.
+; - A function of this or another module is its entry, through a fix-up.
+; - A variable that lives for the whole program (of this module, a `static` one of the
+;   function, or one of another module) is its address: found_symbol is its symbol,
+;   found_slot NO_SLOT, found_storage VARIABLE_STORAGE + its kernel symbol.
+; - A parameter or local of the function being compiled is a slot: found_symbol is the
+;   function's symbol, and found_slot and found_storage the slot's number. The parameters
+;   of an `asm` function are in registers and have no names here.
+func name_operand(name: word, member: word): byte
+  var s: word
+  var found: bool
+  var kind: byte
+  s, found = kernel.sym_lookup(name)
+  if not found then
+    err.fatal(err.E_UNDEFINED)
+  end
+  if kernel.sym_kind[s] == kernel.K_MODULE then
+    if member == 0 then
+      err.fatal(err.E_DOT_EXPECTED)
+    end
+    s, found = kernel.sym_find(lo(kernel.sym_value[s]), member)
+    if not found then
+      err.fatal(err.E_UNDEFINED)
+    end
+  elif member != 0 then
+    err.fatal(err.E_SYNTAX)
+  end
+  found_storage = NO_STORAGE
+  found_function = false
+  found_slot = fbuf.NO_SLOT
+  kind = kernel.sym_kind[s]
+  if kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]) then
+    found_symbol = reg.object_symbol(s)
+    return X_ADDRESS
+  end
+  if kind == kernel.K_CONST then
+    found_value = kernel.sym_value[s]
+    return X_NUMBER
+  end
+  if kind == kernel.K_LOCAL then
+    found_symbol = reg.own
+    found_slot = lo(kernel.sym_value[s])
+    found_storage = found_slot
+    return X_ADDRESS
+  end
+  if kind == kernel.K_VAR then
+    if kernel.sym_flags[s] & kernel.SF_AT != 0 then
+      found_value = kernel.sym_value[s]
+      return X_NUMBER
+    end
+    found_symbol = reg.object_symbol(s)
+    found_storage = VARIABLE_STORAGE + s
+    return X_ADDRESS
+  end
+  if kind != kernel.K_FUNC then
+    err.fatal(err.E_TYPE)
+  end
+  if kernel.sym_flags[s] & kernel.SF_EXTERN != 0 then
+    found_value = kernel.sym_value[s]
+    return X_NUMBER
+  end
+  found_symbol = reg.object_symbol(s)
+  found_function = true
+  return X_ADDRESS
+end
+
+; An instruction uses variable or slot `storage` (found by name_operand): add to its
+; weight as a use by compiled code adds (docs/codegen.md, "Weights"), and if `zero_page`
+; make its class 0, "must be in zero page". Only an `asm` block can do that. A variable or
+; slot declared `nozp` cannot be made so, nor can a variable of another module, whose class
+; its own module wrote: that one must have been declared `zp`.
+func storage_used(storage: word, zero_page: bool)
+  var s: word
+  if storage < VARIABLE_STORAGE then
+    reg.use_slot(lo(storage))
+    if zero_page then
+      if reg.slot_class[lo(storage)] == reg.CLASS_NOT_ZP then
+        err.fatal(err.E_ASM_NOT_ZP)
+      end
+      reg.slot_class[lo(storage)] = reg.CLASS_ZP
+    end
+    return
+  end
+  s = storage - VARIABLE_STORAGE
+  reg.use_variable(s)
+  if not zero_page or kernel.sym_flags[s] & kernel.SF_ZP != 0 then
+    return
+  end
+  if kernel.sym_flags[s] & kernel.SF_NOZP != 0 then
+    err.fatal(err.E_ASM_NOT_ZP)
+  end
+  if kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL then
+    err.fatal(err.E_ASM_NOT_ZP)
+  end
+  kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
+end
+
+; ---- Expressions -------------------------------------------------------------------------
+
+var x_kind: byte = 0
+var x_value: word = 0
+var x_symbol: word = 0
+var x_slot: byte = 0
+var x_storage: word = 0
+var x_function: bool = false
+var x_line: word = 0            ; where the expression starts
+var x_col: word = 0
+
+; A number: $hex, %binary, decimal or a character. Returns its value.
+func number_term(): word
+  err.position(src.line, src.col)
+  if src.ch == C_DOLLAR then
+    src.advance()
+    return lex.number(16)
+  end
+  if src.ch == C_PERCENT then
+    src.advance()
+    return lex.number(2)
+  end
+  if src.ch == C_QUOTE then
+    src.advance()
+    return lex.character()
+  end
+  if lex.is_digit(src.ch) then
+    return lex.number(10)
+  end
+  err.fatal(err.E_EXPR_EXPECTED)
+  return 0
+end
+
+; name [ "." name ], whose first word has been read.
+func name_term()
+  var first: word
+  var member: word
+  first = word_name()
+  member = 0
+  if src.ch == C_DOT then
+    src.advance()
+    read_word()
+    if spelling_length == 0 then
+      fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+    end
+    member = word_name()
+  end
+  err.position(x_line, x_col)
+  x_kind = name_operand(first, member)
+  x_value = found_value
+  x_symbol = found_symbol
+  x_slot = found_slot
+  x_storage = found_storage
+  x_function = found_function
+  if x_kind == X_ADDRESS then
+    x_value = 0
+  end
+end
+
+; A number, a local label or a Lathe name. If `have_word`, the name's first word has been
+; read already.
+func term(have_word: bool)
+  if have_word then
+    name_term()
+  elif src.ch == C_DOT then
+    src.advance()
+    read_word()
+    if spelling_length == 0 then
+      fail_at(x_line, x_col, err.E_NAME_EXPECTED)
+    end
+    x_kind = X_LABEL
+    x_value = label_find(word_name(), x_line, x_col)
+  elif lex.is_letter(src.ch) then
+    read_word()
+    name_term()
+  else
+    x_kind = X_NUMBER
+    x_value = number_term()
+  end
+end
+
+; expr = term { ( "+" | "-" ) number }. The result is in the x_ variables.
+func expression(have_word: bool)
+  var adding: bool
+  var n: word
+  term(have_word)
+  skip_blanks()
+  while src.ch == C_PLUS or src.ch == C_MINUS do
+    adding = src.ch == C_PLUS
+    src.advance()
+    skip_blanks()
+    n = number_term()
+    if x_kind == X_LABEL then
+      fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+    end
+    if x_kind == X_NUMBER and adding and n > $FFFF - x_value then
+      fail_at(x_line, x_col, err.E_ASM_RANGE)
+    end
+    if x_kind == X_NUMBER and not adding and n > x_value then
+      fail_at(x_line, x_col, err.E_ASM_RANGE)
+    end
+    if adding then
+      x_value = x_value + n
+    else
+      x_value = x_value - n
+    end
+    skip_blanks()
+  end
+end
+
+; Note where the expression about to be read starts.
+func expression_here()
+  x_line = src.line
+  x_col = src.col
+end
+
+; ---- Instructions ------------------------------------------------------------------------
+
+func fail_mode()
+  fail_at(x_line, x_col, err.E_ASM_MODE)
+end
+
+func use_storage(zero_page: bool)
+  if x_storage != NO_STORAGE then
+    err.position(x_line, x_col)
+    storage_used(x_storage, zero_page)
+  end
+end
+
+; The instruction `op` with the address expression as its operand, through a fix-up.
+func address_fix(op: byte, kind: byte)
+  fbuf.op_fix(op, kind, x_symbol, x_slot, x_value)
+end
+
+; No operand: implied, or the accumulator.
+func implied(m: byte)
+  var op: byte
+  var ok: bool
+  op, ok = opcode(m, M_IMP)
+  if not ok then
+    op, ok = opcode(m, M_ACC)
+  end
+  if not ok then
+    fail_mode()
+  end
+  fbuf.op(op)
+end
+
+func accumulator(m: byte)
+  var op: byte
+  var ok: bool
+  op, ok = opcode(m, M_ACC)
+  if not ok then
+    fail_mode()
+  end
+  fbuf.op(op)
+end
+
+func branch(m: byte)
+  var op: byte
+  var ok: bool
+  expression(false)
+  op, ok = opcode(m, M_REL)
+  if x_kind != X_LABEL then
+    fail_at(x_line, x_col, err.E_ASM_BRANCH)
+  end
+  fbuf.branch(op, label_number[lo(x_value)])
+end
+
+; #expr, #<expr or #>expr, after the "#".
+func immediate(m: byte)
+  var op: byte
+  var ok: bool
+  var selector: byte
+  var value: word
+  op, ok = opcode(m, M_IMM)
+  if not ok then
+    fail_mode()
+  end
+  selector = 0
+  if src.ch == C_LESS or src.ch == C_GREATER then
+    selector = src.ch
+    src.advance()
+    skip_blanks()
+  end
+  expression_here()
+  expression(false)
+  if x_kind == X_LABEL then
+    fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+  end
+  if x_kind == X_ADDRESS then
+    if selector == C_LESS then
+      address_fix(op, fbuf.FIX_LOW)
+    elif selector == C_GREATER then
+      address_fix(op, fbuf.FIX_HIGH)
+    else
+      fail_at(x_line, x_col, err.E_ASM_RANGE)
+    end
+    return
+  end
+  value = x_value
+  if selector == C_LESS then
+    value = value & $FF
+  elif selector == C_GREATER then
+    value = hi(value)
+  elif value > $FF then
+    fail_at(x_line, x_col, err.E_ASM_RANGE)
+  end
+  fbuf.op_byte(op, lo(value))
+end
+
+; "X" or "Y", after a comma. Returns the letter.
+func index_register(): byte
+  skip_blanks()
+  read_word()
+  if not word_is_letter(C_X) and not word_is_letter(C_Y) then
+    err.position(src.line, src.col)
+    err.fatal(err.E_SYNTAX)
+  end
+  skip_blanks()
+  return spelling[0]
+end
+
+func expect_char(c: byte, number: byte)
+  skip_blanks()
+  if src.ch != c then
+    err.position(src.line, src.col)
+    err.fatal(number)
+  end
+  src.advance()
+  skip_blanks()
+end
+
+; (expr,X), (expr),Y or (expr), after the "(".
+func indirect(m: byte)
+  var mode: byte
+  var op: byte
+  var ok: bool
+  skip_blanks()
+  expression_here()
+  expression(false)
+  mode = M_IND
+  if src.ch == C_COMMA then
+    src.advance()
+    if index_register() != C_X then
+      fail_mode()
+    end
+    expect_char(C_RPAREN, err.E_RPAREN_EXPECTED)
+    mode = M_INDX
+  else
+    expect_char(C_RPAREN, err.E_RPAREN_EXPECTED)
+    if src.ch == C_COMMA then
+      src.advance()
+      if index_register() != C_Y then
+        fail_mode()
+      end
+      mode = M_INDY
+    end
+  end
+  op, ok = opcode(m, mode)
+  if not ok then
+    fail_mode()
+  end
+  if x_kind == X_LABEL then
+    fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+  end
+  if mode == M_IND then
+    if x_kind == X_NUMBER then
+      fbuf.op_word(op, x_value)
+    else
+      address_fix(op, fbuf.FIX_ADDRESS)
+      use_storage(false)
+    end
+    return
+  end
+  if x_kind == X_NUMBER then
+    if x_value > $FF then
+      fail_at(x_line, x_col, err.E_ASM_RANGE)
+    end
+    fbuf.op_byte(op, lo(x_value))
+  elif x_storage == NO_STORAGE then
+    fail_at(x_line, x_col, err.E_ASM_RANGE)       ; a function is never in zero page
+  else
+    address_fix(op, fbuf.FIX_ZERO_PAGE)
+    use_storage(true)
+  end
+end
+
+; expr, expr,X or expr,Y. If `have_word`, the expression's first word has been read.
+func direct(m: byte, have_word: bool)
+  var zp_mode: byte
+  var zp_op: byte
+  var has_zp: bool
+  var abs_op: byte
+  var has_abs: bool
+  expression(have_word)
+  zp_mode = M_ZP
+  if src.ch == C_COMMA then
+    src.advance()
+    if index_register() == C_X then
+      zp_mode = M_ZPX
+    else
+      zp_mode = M_ZPY
+    end
+  end
+  zp_op, has_zp = opcode(m, zp_mode)
+  abs_op, has_abs = opcode(m, zp_mode + ZP_TO_ABS)
+  if not has_zp and not has_abs then
+    fail_mode()
+  end
+  if x_kind == X_LABEL then
+    if abs_op != OP_JMP or zp_mode != M_ZP then
+      fail_at(x_line, x_col, err.E_ASM_LABEL_USE)
+    end
+    fbuf.jump(label_number[lo(x_value)])
+  elif x_kind == X_NUMBER then
+    if has_zp and x_value < $100 then
+      fbuf.op_byte(zp_op, lo(x_value))
+    elif has_abs then
+      fbuf.op_word(abs_op, x_value)
+    else
+      fail_at(x_line, x_col, err.E_ASM_RANGE)
+    end
+  elif has_abs then
+    address_fix(abs_op, fbuf.FIX_ADDRESS)
+    use_storage(false)
+    if x_function and (abs_op == OP_JSR or abs_op == OP_JMP) then
+      out.call(x_symbol, 0, out.NO_OUTER)
+    end
+  elif x_storage == NO_STORAGE then
+    fail_at(x_line, x_col, err.E_ASM_RANGE)
+  else
+    ; STX zp,Y and STY zp,X have no absolute form: the operand must be in zero page.
+    address_fix(zp_op, fbuf.FIX_ZERO_PAGE)
+    use_storage(true)
+  end
+end
+
+; The operand of instruction `m`, if it has one, and its code.
+func instruction(m: byte)
+  skip_blanks()
+  expression_here()
+  if at_line_end() then
+    implied(m)
+  elif has_mode(m, M_REL) then
+    branch(m)
+  elif src.ch == C_HASH then
+    src.advance()
+    skip_blanks()
+    immediate(m)
+  elif src.ch == C_LPAREN then
+    src.advance()
+    indirect(m)
+  elif lex.is_letter(src.ch) then
+    read_word()
+    skip_blanks()
+    if word_is_letter(C_A) and at_line_end() and has_mode(m, M_ACC) then
+      accumulator(m)
+    else
+      direct(m, true)
+    end
+  else
+    direct(m, false)
+  end
+  skip_blanks()
+  if not at_line_end() then
+    fail_at(src.line, src.col, err.E_NL_EXPECTED)
+  end
+end
+
+; ---- Lines -------------------------------------------------------------------------------
+
+var end_line: word = 0          ; where the `end` that closed the block is
+var end_col: word = 0
+
+; The instruction the word just read names; if none, an error at the word.
+func mnemonic_here(at_line: word, at_col: word): byte
+  var m: byte
+  var ok: bool
+  m, ok = find_mnemonic()
+  if not ok then
+    fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+  end
+  return m
+end
+
+; A line that starts with a dot: a label, alone or before an instruction, or a directive,
+; which blocks do not have. The dot has been passed over.
+func label_line_rest(at_line: word, at_col: word)
+  var name: word
+  var colon: bool
+  var word_line: word
+  var word_col: word
+  var m: byte
+  var ok: bool
+  read_word()
+  if spelling_length == 0 then
+    fail_at(at_line, at_col, err.E_NAME_EXPECTED)
+  end
+  name = word_name()
+  colon = src.ch == C_COLON
+  if colon then
+    src.advance()
+  end
+  skip_blanks()
+  if at_line_end() then
+    label_define(name, at_line, at_col)
+    return
+  end
+  word_line = src.line
+  word_col = src.col
+  if not lex.is_letter(src.ch) then
+    fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+  end
+  read_word()
+  m, ok = find_mnemonic()
+  if not ok and not colon then
+    fail_at(at_line, at_col, err.E_ASM_DIRECTIVE)
+  end
+  if not ok then
+    fail_at(word_line, word_col, err.E_ASM_MNEMONIC)
+  end
+  label_define(name, at_line, at_col)
+  instruction(m)
+end
+
+; One line of the block. Returns false for the line that ends it, whose `end` has been
+; read; true for any other, which has been passed over with its line feed.
+func asm_line(): bool
+  var at_line: word
+  var at_col: word
+  skip_blanks()
+  if src.eof then
+    fail_at(src.line, src.col, err.E_END_EXPECTED)
+  end
+  if at_line_end() then
+    skip_line()
+    return true
+  end
+  at_line = src.line
+  at_col = src.col
+  err.position(at_line, at_col)
+  if src.ch == C_DOT then
+    src.advance()
+    label_line_rest(at_line, at_col)
+  else
+    if not lex.is_letter(src.ch) then
+      fail_at(at_line, at_col, err.E_ASM_MNEMONIC)
+    end
+    read_word()
+    if is_end_word() then
+      end_line = at_line
+      end_col = at_col
+      return false
+    end
+    instruction(mnemonic_here(at_line, at_col))
+  end
+  skip_line()
+  return true
+end
+
+; The lines of a block, after the line that opens it, up to and including its `end`,
+; which is given back to LEX as the current token.
+func lines()
+  if lex.tok != lex.T_NL then
+    err.fatal(err.E_NL_EXPECTED)
+  end
+  label_count = 0
+  fbuf.as_written(true)
+  while asm_line() do
+  end
+  fbuf.as_written(false)
+  labels_check()
+  lex.resume(lex.T_END, end_line, end_col)
+end
+
+; The statement "asm" NL { asmLine NL } "end". The token is "asm"; what follows the `end`
+; is left to the caller. A, X and Y hold nothing known before or after it.
+pub func block()
+  lex.next()
+  reg.forget()
+  lines()
+  fbuf.keep_as_written()
+  reg.forget()
+  lex.next()
+end
+
+; The lines of an `asm` function, after its head, whose line end is the token, up to its
+; `end`, which is the token after. If the code can run on past its last line, an RTS ends
+; it: the last instruction is never made a jump, as a tail call in compiled code is.
+pub func function_body()
+  lines()
+  if fbuf.runs_on() then
+    fbuf.op(fbuf.OP_RTS)
+  end
+end

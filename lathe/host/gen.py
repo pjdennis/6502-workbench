@@ -186,24 +186,8 @@ def function_address():
         reg.op_value[i] = kernel.sym_value[f]
         return
     reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
-    reg.op_symbol[i] = object_symbol(f)
+    reg.op_symbol[i] = reg.object_symbol(f)
     reg.op_var[i] = f
-
-
-def object_symbol(s):
-    """The object-file number of function or variable `s`, or of the pointer class of function
-    type `s`, which gets its SYM record when it is first used."""
-    if kernel.sym_kind[s] == kernel.K_TYPE:
-        return reg.class_symbol(s)
-    if kernel.sym_obj[s] == kernel.NO_OBJ:
-        kind = out.SYM_FUNCTION
-        if kernel.sym_kind[s] == kernel.K_VAR:
-            kind = out.SYM_VARIABLE
-        elif kernel.sym_kind[s] == kernel.K_CONST:
-            kind = out.SYM_DATA
-        kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
-                                       kernel.sym_name[s])
-    return kernel.sym_obj[s]
 
 
 def variable(s):
@@ -213,13 +197,13 @@ def variable(s):
         reg.push_memory(kernel.sym_type[s], kernel.NO_OBJ, fbuf.NO_SLOT, kernel.sym_value[s], 0,
                         kernel.NO_SYM)
     else:
-        reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+        reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
 
 
 def table(s):
     """Push the constant table `s`: constant data, which can be read but not assigned to."""
     settle()
-    reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+    reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 
 
 def zp_flag(s):
@@ -248,10 +232,10 @@ def parameter(f, i):
         reg.push_memory(t, reg.own, argument_slot[argument_count], 0, 0, kernel.NO_SYM)
         argument_count += 1
         return
-    reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], object_symbol(f), i, 0, 0,
+    reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], reg.object_symbol(f), i, 0, 0,
                     kernel.NO_SYM)
     if i > 0 and not in_register(f, i - 1):
-        outer = object_symbol(f)
+        outer = reg.object_symbol(f)
 
 
 def arguments_end(saved):
@@ -1558,9 +1542,9 @@ def frame_routines():
     for scope in range(1, kernel.module_count):
         if kernel.module_name[scope] == module_name:
             s, _ = kernel.sym_find(scope, fixed_name(PUSH_NAME))
-            frame_push = object_symbol(s)
+            frame_push = reg.object_symbol(s)
             s, _ = kernel.sym_find(scope, fixed_name(POP_NAME))
-            frame_pop = object_symbol(s)
+            frame_pop = reg.object_symbol(s)
             return
     out.imported(module_name)
     frame_push = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(PUSH_NAME))
@@ -1620,7 +1604,7 @@ def save_frame(f, first):
         n = argument_slot[base + p]
         for k in range(0, reg.slot_size[n]):
             slot_byte(OP_LDA, reg.own, n, k)
-            slot_byte(OP_STA, object_symbol(f), p, k)
+            slot_byte(OP_STA, reg.object_symbol(f), p, k)
     for r in range(reg.Y, reg.A - 1, -1):      # the registers last: nothing may change them
         for p in range(0, count):
             k = REGISTER_BYTES[register_of(f, p) * 3 + r]
@@ -1668,9 +1652,9 @@ def call(f, first, wanted):
         fbuf.op_word(fbuf.OP_JSR, kernel.sym_value[f])
     elif through(f):
         fbuf.call_label(stub(first - 1))
-        out.call(object_symbol(f), flags | out.CALL_POINTER, outer)
+        out.call(reg.object_symbol(f), flags | out.CALL_POINTER, outer)
     else:
-        callee = object_symbol(f)
+        callee = reg.object_symbol(f)
         fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, callee, fbuf.NO_SLOT, 0)
         out.call(callee, flags, outer)
     if flags != 0:
@@ -1687,7 +1671,7 @@ def code_address(s):
     `^byte`."""
     reg.pop()
     reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
-    reg.op_symbol[reg.depth - 1] = object_symbol(s)
+    reg.op_symbol[reg.depth - 1] = reg.object_symbol(s)
 
 
 def mark():

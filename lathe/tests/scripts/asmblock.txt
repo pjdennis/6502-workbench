@@ -1,0 +1,1412 @@
+; Scripts for lathe/src/asmtest.lth and its twin in lathe/tests/test_src_asmblock.py. Each
+; section is a script, a line `--`, and a piece of Lathe source that the script reads. The
+; commands:
+;   var T FLAGS SCOPE VALUE NAME (a variable); func NAME SCOPE FLAGS VALUE (a function, at
+;   VALUE if FLAGS has 2, extern); const NAME T VALUE; table NAME LENGTH (a constant table of
+;   bytes); module NAME N (an imported module, number N); scope (kernel.scope_begin);
+;   local NAME SIZE CLASS KIND (a parameter or local: a slot of m.f); static NAME (a `static`
+;   word of m.f); type NAME (a named type); loops N (reg.loop_depth); weight S V (a symbol's
+;   weight); lconst R V (reg.load_const: A is 0, X 1, Y 2); source (open the section's source);
+;   block (pass over line ends to an `asm` token and read the block: then the token, its line
+;   and column); asmfunc (pass over line ends and the next line, an `asm func` head, and read
+;   the function's lines: then the token, its line and column); finish (fbuf.finish, then the
+;   code, fix-ups and weights, and the frame); symweight S (a symbol's weight and flags);
+;   end (write the object file); begin (fbuf.begin and reg.begin: a new function m.f).
+; Those that make a symbol print its number.
+; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number. Symbol flags: 2 extern, 8 at,
+; 16 zp, 32 nozp. Slot classes: 0 zero page, 1 either, 2 not zero page; kinds 0 parameter,
+; 1 local. Tokens: 1 line end, 2 name, 78 end.
+; Fix-up kinds: 1 address, 2 low byte, 3 high byte, 4 zero page, 5 address that may shrink.
+; Errors are reported in the section's source file: line 1 is the line after `--`.
+
+== every instruction in every mode, ADC to JMP
+source
+block
+finish
+end
+--
+asm
+  ADC #$12
+  ADC $12
+  ADC $12,X
+  ADC $1234
+  ADC $1234,X
+  ADC $1234,Y
+  ADC ($12,X)
+  ADC ($12),Y
+  AND #$12
+  AND $12
+  AND $12,X
+  AND $1234
+  AND $1234,X
+  AND $1234,Y
+  AND ($12,X)
+  AND ($12),Y
+  ASL A
+  ASL $12
+  ASL $12,X
+  ASL $1234
+  ASL $1234,X
+.b3
+  BCC .b3
+.b4
+  BCS .b4
+.b5
+  BEQ .b5
+  BIT $12
+  BIT $1234
+.b7
+  BMI .b7
+.b8
+  BNE .b8
+.b9
+  BPL .b9
+  BRK
+.b11
+  BVC .b11
+.b12
+  BVS .b12
+  CLC
+  CLD
+  CLI
+  CLV
+  CMP #$12
+  CMP $12
+  CMP $12,X
+  CMP $1234
+  CMP $1234,X
+  CMP $1234,Y
+  CMP ($12,X)
+  CMP ($12),Y
+  CPX #$12
+  CPX $12
+  CPX $1234
+  CPY #$12
+  CPY $12
+  CPY $1234
+  DEC $12
+  DEC $12,X
+  DEC $1234
+  DEC $1234,X
+  DEX
+  DEY
+  EOR #$12
+  EOR $12
+  EOR $12,X
+  EOR $1234
+  EOR $1234,X
+  EOR $1234,Y
+  EOR ($12,X)
+  EOR ($12),Y
+  INC $12
+  INC $12,X
+  INC $1234
+  INC $1234,X
+  INX
+  INY
+  JMP $1234
+  JMP ($1234)
+end
+
+== every instruction in every mode, JSR to TYA
+source
+block
+finish
+end
+--
+asm
+  JSR $1234
+  LDA #$12
+  LDA $12
+  LDA $12,X
+  LDA $1234
+  LDA $1234,X
+  LDA $1234,Y
+  LDA ($12,X)
+  LDA ($12),Y
+  LDX #$12
+  LDX $12
+  LDX $12,Y
+  LDX $1234
+  LDX $1234,Y
+  LDY #$12
+  LDY $12
+  LDY $12,X
+  LDY $1234
+  LDY $1234,X
+  LSR A
+  LSR $12
+  LSR $12,X
+  LSR $1234
+  LSR $1234,X
+  NOP
+  ORA #$12
+  ORA $12
+  ORA $12,X
+  ORA $1234
+  ORA $1234,X
+  ORA $1234,Y
+  ORA ($12,X)
+  ORA ($12),Y
+  PHA
+  PHP
+  PLA
+  PLP
+  ROL A
+  ROL $12
+  ROL $12,X
+  ROL $1234
+  ROL $1234,X
+  ROR A
+  ROR $12
+  ROR $12,X
+  ROR $1234
+  ROR $1234,X
+  RTI
+  RTS
+  SBC #$12
+  SBC $12
+  SBC $12,X
+  SBC $1234
+  SBC $1234,X
+  SBC $1234,Y
+  SBC ($12,X)
+  SBC ($12),Y
+  SEC
+  SED
+  SEI
+  STA $12
+  STA $12,X
+  STA $1234
+  STA $1234,X
+  STA $1234,Y
+  STA ($12,X)
+  STA ($12),Y
+  STX $12
+  STX $12,Y
+  STX $1234
+  STY $12
+  STY $12,X
+  STY $1234
+  TAX
+  TAY
+  TSX
+  TXA
+  TXS
+  TYA
+end
+
+== a bare shift and a shift of A are both the accumulator form
+source
+block
+finish
+--
+asm
+  ASL
+  lsr a
+  ROL A ; comment
+end
+
+== blank and comment lines are skipped, case does not matter, the end is given back
+source
+block
+block
+block
+finish
+end
+--
+asm
+
+  ; nothing
+
+  lDa #1
+  Rts
+  END ; done
+asm
+  NOP
+    end x
+asm
+.a
+  BNE .a
+end
+
+== an asm function ends with an RTS if its code can run on past its last line
+source
+asmfunc
+finish
+begin
+asmfunc
+finish
+begin
+asmfunc
+finish
+end
+--
+asm func twice(v: byte in a): byte in a
+  ASL A
+end
+asm func ret(v: byte in a): byte in a
+  TAX
+  RTS
+end
+asm func jump()
+  JMP $1234
+end
+
+== no end is error 30
+source
+block
+--
+asm
+  NOP
+
+== text after asm is error 22
+source
+block
+--
+asm NOP
+end
+
+== text after an operand is error 22
+source
+block
+--
+asm
+  LDA #1 2
+end
+
+== an unknown mnemonic is error 146 at the word
+source
+block
+--
+asm
+  NOP
+   LDQ #1
+end
+
+== a word that is no mnemonic, before a colon, is error 146
+source
+block
+--
+asm
+  foo: NOP
+end
+
+== a line that starts with neither a letter nor a dot is error 146
+source
+block
+--
+asm
+  * = $1000
+end
+
+== a mnemonic of two letters is error 146
+source
+block
+--
+asm
+  LD #1
+end
+
+== a directive is error 145
+source
+block
+--
+asm
+  .byte 1, 2
+end
+
+== a directive with a name is error 145
+source
+block
+--
+asm
+  .word label
+end
+
+== a label with a colon before what is not a mnemonic is error 146 at the word
+source
+block
+--
+asm
+  .a: foo
+end
+
+== a dot with no name is error 21
+source
+block
+--
+asm
+  . NOP
+end
+
+== A, X and Y are forgotten before and after the block
+lconst 0 5
+lconst 1 6
+source
+block
+lconst 0 5
+lconst 1 6
+finish
+--
+asm
+  TAX
+end
+
+== numbers in every base and characters
+source
+block
+finish
+--
+asm
+  LDA #$1f
+  LDA #%101
+  LDA #10
+  LDA #'A'
+  LDA #'\n'
+end
+
+== an expression adds and subtracts numbers from left to right
+source
+block
+finish
+--
+asm
+  LDA #$10 + 2 - $01
+  STA $D000+$20
+  LDA $FFFF-$FFFF+%11
+end
+
+== selectors take the low or high byte of the whole expression
+source
+block
+finish
+--
+asm
+  LDA #<$1234+1
+  LDX #>$12FF+1
+  LDY #< $FF
+end
+
+== a numeric address below 256 takes the zero page form
+source
+block
+finish
+--
+asm
+  LDA $FF
+  LDA $100
+  LDA $0012,X
+  LDA $12,Y
+end
+
+== JSR and JMP always take the absolute form
+source
+block
+finish
+--
+asm
+  JSR $12
+  JMP $34
+end
+
+== spaces are allowed inside operands
+source
+block
+finish
+--
+asm
+  LDA ( $12 ) , y
+  STA ( $10 , x )
+  LDA $20 , X
+  JMP ( $1234 )
+end
+
+== a constant is its value
+const border 3 $D020
+const seven 6 7
+const abcdefghijklmnopqrstuvwxyzabcde 6 9
+source
+block
+finish
+--
+asm
+  LDA #seven+1
+  STA border
+  STA seven
+  LDA #<BORDER
+  LDX #abcdefghijklmnopqrstuvwxyzabcdefghij
+end
+
+== an extern function is its address
+func put 0 2 $F009
+source
+block
+finish
+end
+--
+asm
+  JSR put
+  LDA #>put
+end
+
+== a function is its entry through a fix-up and a call is noted
+func g 0 0 0
+source
+block
+finish
+end
+--
+asm
+  JSR g
+  LDA #<g+1
+  LDX #>g
+  JMP g
+end
+
+== a function of another module
+module util 1
+func go 1 0 0
+source
+block
+finish
+end
+--
+asm
+  JSR util.go
+  jmp UTIL .GO
+end
+
+== a constant table is its address through a fix-up
+table tab 8
+source
+block
+finish
+end
+--
+asm
+  LDA tab,X
+  LDA #<tab
+  LDA #>tab+7
+end
+
+== a constant table cannot be in zero page
+table tab 8
+source
+block
+--
+asm
+  LDA (tab),Y
+end
+
+== a function cannot be in zero page
+func g 0 0 0
+source
+block
+--
+asm
+  LDA (g),Y
+end
+
+== a function has no zero page form either
+func g 0 0 0
+source
+block
+--
+asm
+  STX g,Y
+end
+
+== an address needs a selector in an immediate
+func g 0 0 0
+source
+block
+--
+asm
+  LDA #g
+end
+
+== an undefined name is error 40
+source
+block
+--
+asm
+  LDA nothing
+end
+
+== an undefined name after a selector is error 40 at the name
+source
+block
+--
+asm
+  LDA #<nothing
+end
+
+== a module needs a member
+module util 1
+source
+block
+--
+asm
+  LDA util
+end
+
+== an undefined member of a module is error 40
+module util 1
+source
+block
+--
+asm
+  LDA util.nothing
+end
+
+== a member of what is not a module is error 20
+var 3 0 0 0 v
+source
+block
+--
+asm
+  LDA v.x
+end
+
+== a dot with no member is error 21 at the operand
+module util 1
+source
+block
+--
+asm
+  LDA util.
+end
+
+== a named type is no operand
+type t
+source
+block
+--
+asm
+  LDA t
+end
+
+== an immediate out of range is error 143
+source
+block
+--
+asm
+  LDA #$100
+end
+
+== an indirect address out of zero page is error 143
+source
+block
+--
+asm
+  LDA ($100),Y
+end
+
+== STX abs,Y does not exist: error 143
+source
+block
+--
+asm
+  STX $1234,Y
+end
+
+== an address above $FFFF is error 143
+source
+block
+--
+asm
+  LDA $FFFF+1
+end
+
+== an address below 0 is error 143
+source
+block
+--
+asm
+  LDA 1-2
+end
+
+== what follows + must be a number
+source
+block
+--
+asm
+  LDA #1+x
+end
+
+== a bad number is reported by LEX
+source
+block
+--
+asm
+  LDA #$
+end
+
+== STA has no immediate mode: error 144
+source
+block
+--
+asm
+  STA #1
+end
+
+== LDA needs an operand: error 144
+source
+block
+--
+asm
+  LDA
+end
+
+== JMP has no (zp),Y mode: error 144
+source
+block
+--
+asm
+  JMP ($12),Y
+end
+
+== (zp,Y) does not exist: error 144
+source
+block
+--
+asm
+  LDA ($12,Y)
+end
+
+== (zp),X does not exist: error 144
+source
+block
+--
+asm
+  LDA ($12),X
+end
+
+== INX has no operand: error 144
+source
+block
+--
+asm
+  INX $12
+end
+
+== JMP has no indexed mode: error 144
+source
+block
+--
+asm
+  JMP $1234,X
+end
+
+== an index register is X or Y: error 20
+source
+block
+--
+asm
+  LDA $12,Z
+end
+
+== an indirect operand needs its parenthesis: error 24
+source
+block
+--
+asm
+  LDA ($12,X
+end
+
+== an indirect operand needs its parenthesis after the address: error 24
+source
+block
+--
+asm
+  JMP ($1234
+end
+
+== branches backward and forward, labels with and without a colon
+source
+block
+finish
+--
+asm
+.loop
+  DEX
+  BNE .loop
+  BCC .done
+  INX
+.done: RTS
+  BEQ .x
+.x INX
+.y:
+  JMP .y
+end
+
+== a branch that does not reach is widened
+source
+block
+finish
+--
+asm
+.back
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  BNE .back
+  BEQ .ahead
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+  NOP
+.ahead
+end
+
+== an undefined label is error 142 at its first use
+source
+block
+--
+asm
+  NOP
+  BNE .gone
+  BEQ .gone
+end
+
+== a label defined twice is error 41
+source
+block
+--
+asm
+.a
+  NOP
+ .a: NOP
+end
+
+== a branch to a function is error 140
+func g 0 0 0
+source
+block
+--
+asm
+  BNE g
+end
+
+== a branch to an address is error 140
+source
+block
+--
+asm
+  BNE $0200
+end
+
+== a label loaded is error 141
+source
+block
+--
+asm
+.a
+  LDA .a
+end
+
+== a label called is error 141
+source
+block
+--
+asm
+.a
+  JSR .a
+end
+
+== a label as an immediate is error 141
+source
+block
+--
+asm
+.a
+  LDA #<.a
+end
+
+== a label in a sum is error 141
+source
+block
+--
+asm
+.a
+  JMP .a+1
+end
+
+== a label as an indirect address is error 141
+source
+block
+--
+asm
+.a
+  JMP (.a)
+end
+
+== a label indexed is error 141
+source
+block
+--
+asm
+.a
+  LDA .a,X
+end
+
+== a label with no name in an operand is error 21
+source
+block
+--
+asm
+  BNE .
+end
+
+== a block has at most 64 labels: error 76
+; The names are those already in the small build's name heap (the keywords, m, util, f) and
+; letters, so that the heap does not fill first.
+source
+block
+--
+asm
+.and
+.asm
+.at
+.bool
+.break
+.byte
+.case
+.const
+.continue
+.critical
+.do
+.downto
+.elif
+.else
+.end
+.enum
+.extern
+.for
+.forward
+.func
+.if
+.import
+.in
+.inline
+.int
+.interrupt
+.loop
+.mod
+.module
+.not
+.nozp
+.of
+.or
+.pub
+.record
+.recursive
+.return
+.rows
+.sbyte
+.static
+.then
+.to
+.type
+.until
+.var
+.while
+.word
+.zp
+.long
+.m
+.util
+.f
+.a
+.b
+.c
+.d
+.e
+.g
+.h
+.i
+.j
+.k
+.l
+.n
+.o
+end
+
+== a module variable is its symbol through a two-byte fix-up, and its uses are counted
+var 3 0 0 0 v
+var 3 0 0 0 a
+source
+block
+finish
+symweight 0
+symweight 1
+end
+--
+asm
+  LDA v
+  STA v+1,X
+  LDA v,Y
+  LDA v-1
+  JMP (v)
+  JSR v
+  ASL a
+  ASL a,X
+end
+
+== an indirect mode makes a module variable class 0
+var 3 0 0 0 v
+var 3 0 0 0 w
+source
+block
+finish
+symweight 0
+symweight 1
+end
+--
+asm
+  LDA (v),Y
+  STA (v+2,X)
+  STX w,Y
+end
+
+== immediates of an address are its low and high byte, and are no use
+var 3 0 0 0 v
+scope
+local s 2 1 1
+source
+block
+finish
+symweight 0
+end
+--
+asm
+  LDA #<v
+  LDX #>s+1
+end
+
+== a static variable is its own symbol
+scope
+static st
+source
+block
+finish
+symweight 0
+end
+--
+asm
+  INC st
+  LDA (st),Y
+end
+
+== a variable at a fixed address is its address
+var 3 8 0 $80 hw
+source
+block
+finish
+symweight 0
+--
+asm
+  LDA hw+1
+  STA (hw),Y
+end
+
+== a parameter and a local are slots of the function
+scope
+local p 2 1 0
+local q 2 1 1
+source
+block
+finish
+end
+--
+asm
+  LDA p
+  STA q+1
+  INC p
+  LDX q+1,Y
+end
+
+== a zero page only instruction makes a slot class 0
+scope
+local p 2 1 1
+local q 2 1 1
+source
+block
+finish
+--
+asm
+  STX p,Y
+  LDA (p),Y
+  STY q,X
+end
+
+== a use inside loops weighs as compiled code does
+scope
+local p 2 1 1
+var 3 0 0 0 v
+loops 2
+source
+block
+finish
+symweight 1
+end
+--
+asm
+  LDA p
+  LDA p
+  STA v
+end
+
+== weights stop at 255
+var 3 0 0 0 v
+weight 0 250
+scope
+local p 2 1 1
+loops 3
+source
+block
+finish
+symweight 0
+--
+asm
+  LDA v
+  LDA v
+  LDA v
+  LDA v
+  LDA v
+  LDA v
+  LDA p
+  LDA p
+  LDA p
+  LDA p
+  LDA p
+end
+
+== a variable of another module is its symbol
+module util 1
+var 1 0 1 0 w
+var 1 16 1 0 z
+source
+block
+finish
+symweight 1
+symweight 2
+end
+--
+asm
+  LDA util.w
+  STA util.w+1
+  LDA (util.z),Y
+end
+
+== a variable of another module not zp cannot be made class 0
+module util 1
+var 1 0 1 0 w
+source
+block
+--
+asm
+  LDA (util.w),Y
+end
+
+== a nozp variable cannot be made class 0
+var 3 32 0 0 v
+source
+block
+--
+asm
+  NOP
+  LDA (v),Y
+end
+
+== a nozp variable can be used directly
+var 3 32 0 0 v
+source
+block
+finish
+symweight 0
+--
+asm
+  LDA v
+  LDX v,Y
+end
+
+== a nozp slot cannot be made class 0
+scope
+local p 2 2 1
+source
+block
+--
+asm
+  STY p,X
+end
+
+== a nozp slot can be used directly
+scope
+local p 2 2 1
+source
+block
+finish
+--
+asm
+  LDA p
+end
+
+== a variable declared zp is used indirectly as it is
+var 3 16 0 0 v
+source
+block
+finish
+symweight 0
+--
+asm
+  LDA (v),Y
+end

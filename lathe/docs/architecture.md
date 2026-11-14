@@ -84,8 +84,8 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Operand stack, frame, register state | reg | | 2,569 | slots 136 of 192 | locals below 128, then 64 temporaries |
 | Types | typetab | 64 × 7 + 16 × 3 | 496 | 35 | |
 | Initial values, stubs, saving calls | gen | | 744 | 22 inits of 32 | |
-| ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,408 | | |
-| **Total** | | | **45,751** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+| ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,344 | | |
+| **Total** | | | **45,687** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
 
 What changed, and what each change saved:
 

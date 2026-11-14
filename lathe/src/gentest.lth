@@ -53,7 +53,7 @@ func run(c: byte)
   of 6
     gen.function_address()
   of 7
-    script.show_word(gen.object_symbol(script.number()))
+    script.show_word(reg.object_symbol(script.number()))
   of 8
     gen.variable(script.number())
   of 9

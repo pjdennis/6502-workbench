@@ -14,6 +14,7 @@ import script_host as script
 import regcmd_host
 import env
 import cond
+import reg
 import err
 import gen
 import kernel
@@ -55,7 +56,7 @@ def run(c):
     elif c == 6:
         gen.function_address()
     elif c == 7:
-        script.show_word(gen.object_symbol(n_()))
+        script.show_word(reg.object_symbol(n_()))
     elif c == 8:
         gen.variable(n_())
     elif c == 9:

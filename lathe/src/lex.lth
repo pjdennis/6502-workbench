@@ -309,7 +309,7 @@ func name_or_keyword()
 end
 
 ; The value of the digits here, of which there must be one or more.
-func number(base: byte): word
+pub func number(base: byte): word
   var n: word = 0
   var count: byte = 0
   var digit: byte
@@ -384,7 +384,7 @@ func literal_char(): byte
 end
 
 ; The value of a character constant, after its opening quote.
-func character(): byte
+pub func character(): byte
   var c: byte
   if src.eof or src.ch == C_LF or src.ch == C_QUOTE then
     err.fatal(err.E_BAD_CHAR_CONST)

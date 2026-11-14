@@ -1,0 +1,189 @@
+; A test of asmblock: asmtest SCRIPT OBJECT SOURCE runs the commands of a script. They declare
+; the names that `asm` blocks use (variables, constants, tables, functions, modules, slots) in
+; a module `m` (number 0) that imports `util` (number 1), whose function `m.f`, object symbol
+; 0, is being generated, as regcmd.lth sets up; then they read the blocks and `asm` functions
+; of the Lathe source SOURCE through LEX and SRC, as EXPR and DECL do, and print what FBUF
+; finished, the frame and the symbols' weights. The object file it writes is compared too.
+; lathe/tests/test_src_asmblock.py runs the same script with asmblock.py and compares; its
+; sections are in lathe/tests/scripts/asmblock.txt, each with its source after a line `--`.
+; It is built with the small capacities (compiler-small.env), as regtest is.
+module asmtest
+
+import asmblock
+import err
+import fbuf
+import kernel
+import lex
+import listing
+import out
+import reg
+import script
+import src
+import sys
+import typetab
+
+const WORDS = "var func const table module local static type scope loops weight lconst source block asmfunc finish symweight end begin "
+
+var own: word
+var module_m: word
+var name_f: word
+
+; Set up the module and the function, as regcmd.init() does, and LEX and SRC.
+func init()
+  err.init()
+  kernel.init()
+  lex.init()
+  src.init()
+  typetab.init()
+  out.init()
+  if not out.open(kernel.keep_argument(1)) then
+    sys.exit(2)
+  end
+  module_m = script.name_of("m")
+  kernel.module_add(module_m)
+  kernel.module_add(script.name_of("util"))
+  name_f = script.name_of("f")
+  own = out.symbol(out.SYM_FUNCTION, module_m, 0, name_f)
+  fbuf.begin()
+  reg.begin(own)
+end
+
+func show_slot(n: byte)
+  script.show_byte(n)
+  script.show_word(reg.slot_size[n])
+  script.show_byte(reg.slot_class[n])
+  script.show_byte(reg.slot_weight[n])
+  script.show_byte(reg.slot_kind[n])
+  script.show_word(reg.slot_name[n])
+  script.show_bool(reg.slot_busy[n])
+  sys.put_byte(',')
+end
+
+; A symbol of the module being compiled: its kind, type and value.
+func symbol(scope: byte, name: word, kind: byte, t: byte, value: word): word
+  var s: word
+  s = kernel.sym_add(scope, name, kind)
+  kernel.sym_type[s] = t
+  kernel.sym_value[s] = value
+  script.show_word(s)
+  return s
+end
+
+; Pass over the line ends before the next token.
+func next_token()
+  loop
+    lex.next()
+    if lex.tok != lex.T_NL then
+      return
+    end
+  end
+end
+
+func show_token()
+  script.show_byte(lex.tok)
+  script.show_word(lex.line)
+  script.show_word(lex.col)
+end
+
+; Run command `c`, a number in WORDS, with its arguments.
+func run(c: byte)
+  var a: byte
+  var b: byte
+  var d: byte
+  var v: word
+  var n: word
+  var s: word
+  case c
+  of 0
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    v = script.number()
+    s = symbol(d, script.name(), kernel.K_VAR, a, v)
+    kernel.sym_flags[s] = b
+  of 1
+    n = script.name()
+    a = script.small()
+    b = script.small()
+    s = symbol(a, n, kernel.K_FUNC, typetab.NO_TYPE, script.number())
+    kernel.sym_flags[s] = b
+  of 2
+    n = script.name()
+    a = script.small()
+    s = symbol(kernel.SCOPE_MODULE, n, kernel.K_CONST, a, script.number())
+  of 3
+    n = script.name()
+    a = typetab.array_of(typetab.BYTE_TYPE, script.number(), false)
+    s = symbol(kernel.SCOPE_MODULE, n, kernel.K_CONST, a, 0)
+  of 4
+    n = script.name()
+    s = symbol(kernel.SCOPE_MODULE, n, kernel.K_MODULE, typetab.NO_TYPE, script.number())
+  of 5
+    n = script.name()
+    v = script.number()
+    a = script.small()
+    b = script.small()
+    d = reg.new_slot(v, a, b, n)
+    s = symbol(kernel.SCOPE_LOCAL, n, kernel.K_LOCAL, typetab.WORD_TYPE, d)
+  of 6
+    n = script.name()
+    s = symbol(kernel.SCOPE_LOCAL, n, kernel.K_VAR, typetab.WORD_TYPE, 0)
+    kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, module_m, name_f, n)
+  of 7
+    s = symbol(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE, typetab.NO_TYPE, 0)
+  of 8
+    kernel.scope_begin()
+  of 9
+    reg.loop_depth = script.small()
+  of 10
+    s = script.number()
+    kernel.sym_weight[s] = script.small()
+  of 11
+    a = script.small()
+    reg.load_const(a, script.small())
+  of 12
+    if not src.open_file(kernel.keep_argument(2)) then
+      sys.exit(2)
+    end
+  of 13
+    next_token()
+    if lex.tok != lex.T_ASM then
+      sys.exit(4)
+    end
+    asmblock.block()
+    show_token()
+  of 14
+    next_token()
+    while lex.tok != lex.T_NL do
+      lex.next()
+    end
+    asmblock.function_body()
+    show_token()
+  of 15
+    fbuf.finish(own, reg.local_count)
+    listing.show_finished()
+    sys.put_byte('|')
+    for a = 0 until reg.local_count do
+      show_slot(a)
+    end
+  of 16
+    s = script.number()
+    script.show_byte(kernel.sym_weight[s])
+    script.show_byte(kernel.sym_flags[s])
+  of 17
+    out.end_module()
+  of 18
+    fbuf.begin()
+    reg.begin(own)
+  end
+end
+
+pub func main()
+  init()
+  script.open()
+  while script.next() do
+    run(script.command(@WORDS))
+    script.end_line()
+  end
+  sys.exit(0)
+end

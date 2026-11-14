@@ -6,10 +6,10 @@ import unittest
 
 import memory_report as report
 
-TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen')
+TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen', 'asmblock')
 VAR = re.compile(r'^(?:pub )?var (\w+): \[[^\]]+\](\^?\w+)', re.M)
 # Arrays of a twin that are not arrays of its host module, and why.
-CEILING = 45751             # the total of lathe/docs/architecture.md, "What stays in memory"
+CEILING = 45687             # the total of lathe/docs/architecture.md, "What stays in memory"
 TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.mem'}
 
 

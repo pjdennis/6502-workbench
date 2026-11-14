@@ -252,7 +252,7 @@ A new error takes the next free number of its group.
 
 ### The small build
 
-The test programs of the Lathe twins (`lathe/src/*test.lth`) run on the emulator's default machine, 60 KB for code and variables. At the compiler's full capacities, those with more than 24 KB of code (`regtest`, `condtest`, `gentest`) do not fit beside the tables, so they are built small:
+The test programs of the Lathe twins (`lathe/src/*test.lth`) run on the emulator's default machine, 60 KB for code and variables. At the compiler's full capacities, those with more than 24 KB of code (`regtest`, `condtest`, `gentest`) do not fit beside the tables, so they are built small, and so is `asmtest`, whose variables are about 100 bytes too many otherwise:
 
 - Each twin declares its big tables' capacities under `#if SMALL`: the name heap and the symbol rows and members (`kernel`), the function buffer (`fbuf`), the constant table and its fix-ups (`out`), the string being read (`lex`). An array of more than 256 elements stays above 256, because its index is a `word`.
 - `lathe/src/compiler.env` defines `SMALL 0`, `compiler-small.env` defines `SMALL 1` and moves the split between code and variables up (`src_support.build_program(name, dir, small=True)`). `#if SMALL` is an error where `SMALL` is not defined, so every environment that compiles the twins defines it; `memory_report.py` compiles the modules of `lathe/src/` with `compiler.env`'s options.

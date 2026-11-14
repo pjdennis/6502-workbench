@@ -1127,6 +1127,22 @@ def class_symbol(s):
     return kernel.sym_obj[s]
 
 
+def object_symbol(s):
+    """The object-file number of function or variable `s`, or of the pointer class of function
+    type `s`, which gets its SYM record when it is first used."""
+    if kernel.sym_kind[s] == kernel.K_TYPE:
+        return class_symbol(s)
+    if kernel.sym_obj[s] == kernel.NO_OBJ:
+        kind = out.SYM_FUNCTION
+        if kernel.sym_kind[s] == kernel.K_VAR:
+            kind = out.SYM_VARIABLE
+        elif kernel.sym_kind[s] == kernel.K_CONST:
+            kind = out.SYM_DATA
+        kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
+                                       kernel.sym_name[s])
+    return kernel.sym_obj[s]
+
+
 def fit_function(i, t):
     """Operand `i`, `@f`, is given to something of type `t`, which must be a function type
     with f's parameters and results, and `recursive` only if f is. f then joins the type's

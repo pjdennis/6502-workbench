@@ -156,7 +156,6 @@ var math_used: bool = false             ; the IMP record of rt_math is written
 forward func resolve(in_memory: bool)
 forward func operate(op: byte, t: byte, first: byte, second: byte, target: word)
 forward func is_shift(op: byte): bool
-forward func object_symbol(s: word): word
 forward func zp_flag(s: word): byte
 forward func saving(f: word): bool
 forward func in_register(f: word, i: byte): bool
@@ -258,28 +257,8 @@ pub func function_address()
     return
   end
   reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
-  reg.op_symbol[i] = object_symbol(f)
+  reg.op_symbol[i] = reg.object_symbol(f)
   reg.op_var[i] = f
-end
-
-; The object-file number of function or variable `s`, or of the pointer class of function
-; type `s`, which gets its SYM record when it is first used.
-pub func object_symbol(s: word): word
-  var kind: byte
-  if kernel.sym_kind[s] == kernel.K_TYPE then
-    return reg.class_symbol(s)
-  end
-  if kernel.sym_obj[s] == kernel.NO_OBJ then
-    kind = out.SYM_FUNCTION
-    if kernel.sym_kind[s] == kernel.K_VAR then
-      kind = out.SYM_VARIABLE
-    elif kernel.sym_kind[s] == kernel.K_CONST then
-      kind = out.SYM_DATA
-    end
-    kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
-        kernel.sym_name[s])
-  end
-  return kernel.sym_obj[s]
 end
 
 ; Push variable `s`, which lives for the whole program or is at a fixed address.
@@ -289,14 +268,14 @@ pub func variable(s: word)
     reg.push_memory(kernel.sym_type[s], kernel.NO_OBJ, fbuf.NO_SLOT, kernel.sym_value[s], 0,
         kernel.NO_SYM)
   else
-    reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+    reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
   end
 end
 
 ; Push the constant table `s`: constant data, which can be read but not assigned to.
 pub func table(s: word)
   settle()
-  reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+  reg.push_memory(kernel.sym_type[s], reg.object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 end
 
 func zp_flag(s: word): byte
@@ -328,10 +307,10 @@ pub func parameter(f: word, i: byte)
     argument_count += 1
     return
   end
-  reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], object_symbol(f), i, 0, 0,
+  reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], reg.object_symbol(f), i, 0, 0,
       kernel.NO_SYM)
   if i > 0 and not in_register(f, i - 1) then
-    outer = object_symbol(f)
+    outer = reg.object_symbol(f)
   end
 end
 
@@ -1972,9 +1951,9 @@ func frame_routines()
   for scope = 1 until kernel.module_count do
     if kernel.module_name[scope] == module_name then
       s, found = kernel.sym_find(scope, fixed_name(@PUSH_NAME))
-      frame_push = object_symbol(s)
+      frame_push = reg.object_symbol(s)
       s, found = kernel.sym_find(scope, fixed_name(@POP_NAME))
-      frame_pop = object_symbol(s)
+      frame_pop = reg.object_symbol(s)
       return
     end
   end
@@ -2056,7 +2035,7 @@ func save_frame(f: word, first: byte)
     n = argument_slot[base + p]
     for k = 0 until reg.slot_size[n] do
       slot_byte(OP_LDA, reg.own, n, k)
-      slot_byte(OP_STA, object_symbol(f), p, k)
+      slot_byte(OP_STA, reg.object_symbol(f), p, k)
     end
   end
   for r = reg.Y downto reg.A do  ; the registers last: nothing may change them
@@ -2122,9 +2101,9 @@ pub func call(f: word, first: byte, wanted: bool)
     fbuf.op_word(fbuf.OP_JSR, kernel.sym_value[f])
   elif through(f) then
     fbuf.call_label(stub(first - 1))
-    out.call(object_symbol(f), flags | out.CALL_POINTER, outer)
+    out.call(reg.object_symbol(f), flags | out.CALL_POINTER, outer)
   else
-    callee = object_symbol(f)
+    callee = reg.object_symbol(f)
     fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, callee, fbuf.NO_SLOT, 0)
     out.call(callee, flags, outer)
   end
@@ -2145,7 +2124,7 @@ end
 pub func code_address(s: word)
   reg.pop()
   reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
-  reg.op_symbol[reg.depth - 1] = object_symbol(s)
+  reg.op_symbol[reg.depth - 1] = reg.object_symbol(s)
 end
 
 ; A number that changes with every instruction generated.

@@ -656,7 +656,7 @@ def asm_function_declaration(flags):
     kernel.sym_params[s] = register_parameters()
     kernel.sym_results[s] = register_results()
     kernel.scope_begin()                # the names of its labels go when it ends
-    gen.function_begin(gen.object_symbol(s))
+    gen.function_begin(reg.object_symbol(s))
     asmblock.function_body()
     gen.function_end(object_flags(s) | out.FUNC_REGISTERS)
     kernel.scope_end()
@@ -779,7 +779,7 @@ def function_declaration(flags):
     # The scope begins once the function's own name is declared and the token after it has
     # been read: every name made from here on is a parameter's or a local's.
     kernel.scope_begin()
-    gen.function_begin(gen.object_symbol(s))
+    gen.function_begin(reg.object_symbol(s))
     gen.saves_frame = kernel.sym_flags[s] & kernel.SF_RECURSIVE != 0
     head(s, fresh)
     if flags & kernel.SF_FORWARD != 0:

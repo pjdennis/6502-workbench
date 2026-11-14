@@ -24,7 +24,6 @@ adds to old instructions, offsets of its own, all used only when gen.cpu is 1.
 """
 import err
 import fbuf
-import gen
 import kernel
 import lex
 import out
@@ -218,7 +217,7 @@ def fail_at(at_line, at_col, number):
 MAX_BLOCK_LABELS = 64
 
 label_name = [0] * MAX_BLOCK_LABELS        # the name, without its dot
-label_number = [0] * MAX_BLOCK_LABELS      # the FBUF label
+label_number = bytearray(MAX_BLOCK_LABELS)  # the FBUF label
 label_defined = [False] * MAX_BLOCK_LABELS
 label_line = [0] * MAX_BLOCK_LABELS        # where it was first used, for the error if never defined
 label_col = [0] * MAX_BLOCK_LABELS
@@ -307,7 +306,7 @@ def name_operand(name, member):
     found_slot = fbuf.NO_SLOT
     kind = kernel.sym_kind[s]
     if kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]):
-        found_symbol = gen.object_symbol(s)
+        found_symbol = reg.object_symbol(s)
         return X_ADDRESS
     if kind == kernel.K_CONST:
         found_value = kernel.sym_value[s] & 0xFFFF
@@ -321,7 +320,7 @@ def name_operand(name, member):
         if kernel.sym_flags[s] & kernel.SF_AT != 0:
             found_value = kernel.sym_value[s]
             return X_NUMBER
-        found_symbol = gen.object_symbol(s)
+        found_symbol = reg.object_symbol(s)
         found_storage = VARIABLE_STORAGE + s
         return X_ADDRESS
     if kind != kernel.K_FUNC:
@@ -329,7 +328,7 @@ def name_operand(name, member):
     if kernel.sym_flags[s] & kernel.SF_EXTERN != 0:
         found_value = kernel.sym_value[s]
         return X_NUMBER
-    found_symbol = gen.object_symbol(s)
+    found_symbol = reg.object_symbol(s)
     found_function = True
     return X_ADDRESS
 
@@ -397,7 +396,7 @@ def name_term():
         src.advance()
         read_word()
         if spelling_length == 0:
-            err.fatal(err.E_NAME_EXPECTED)
+            fail_at(x_line, x_col, err.E_NAME_EXPECTED)
         member = word_name()
     err.position(x_line, x_col)
     x_kind = name_operand(first, member)

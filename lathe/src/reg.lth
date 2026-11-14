@@ -1314,6 +1314,26 @@ pub func class_symbol(s: word): word
   return kernel.sym_obj[s]
 end
 
+; The object-file number of function or variable `s`, or of the pointer class of function
+; type `s`, which gets its SYM record when it is first used.
+pub func object_symbol(s: word): word
+  var kind: byte
+  if kernel.sym_kind[s] == kernel.K_TYPE then
+    return class_symbol(s)
+  end
+  if kernel.sym_obj[s] == kernel.NO_OBJ then
+    kind = out.SYM_FUNCTION
+    if kernel.sym_kind[s] == kernel.K_VAR then
+      kind = out.SYM_VARIABLE
+    elif kernel.sym_kind[s] == kernel.K_CONST then
+      kind = out.SYM_DATA
+    end
+    kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
+        kernel.sym_name[s])
+  end
+  return kernel.sym_obj[s]
+end
+
 ; Operand `i`, `@f`, is given to something of type `t`, which must be a function type
 ; with f's parameters and results, and `recursive` only if f is. f then joins the type's
 ; pointer class: a MEMB record says so.

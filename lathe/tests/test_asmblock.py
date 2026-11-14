@@ -487,6 +487,13 @@ class NameOperandTest(AsmTest):
         self.assertEqual((asmblock.found_symbol, asmblock.found_slot, asmblock.found_storage,
                           asmblock.found_function), (1, fbuf.NO_SLOT, asmblock.NO_STORAGE, True))
 
+    def test_a_dot_with_no_member_is_error_21_at_the_operand(self):
+        kernel.module_add(name(b'util'))
+        s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
+        kernel.sym_value[s] = 1
+        self.fails(b'  LDA util.\n', err.E_NAME_EXPECTED, 2, 7)
+        self.fails(b'  LDA #<util. \n', err.E_NAME_EXPECTED, 2, 9)
+
     def test_a_module_needs_a_member(self):
         kernel.module_add(name(b'util'))
         s = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
