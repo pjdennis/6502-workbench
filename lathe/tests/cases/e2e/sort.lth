@@ -1,0 +1,105 @@
+; Insertion sort of an array of words, stored by column, and of signed ints; then a binary
+; search of the sorted words.
+module sort
+
+import libout
+
+const N = 24
+
+var w: [N]word
+var s: [N]int
+var seed: word
+
+; a 16-bit linear congruential generator, multiplied by shifts: seed * 5 + 13849
+func next(): word
+  seed = (seed << 2) + seed + 13849
+  return seed
+end
+
+func sort_words()
+  var i: byte = 1
+  var j: byte
+  var v: word
+  while i < N do
+    v = w[i]
+    j = i
+    while j > 0 and w[j - 1] > v do
+      w[j] = w[j - 1]
+      j -= 1
+    end
+    w[j] = v
+    i += 1
+  end
+end
+
+func sort_ints()
+  var i: byte = 1
+  var j: byte
+  var v: int
+  while i < N do
+    v = s[i]
+    j = i
+    while j > 0 and s[j - 1] > v do
+      s[j] = s[j - 1]
+      j -= 1
+    end
+    s[j] = v
+    i += 1
+  end
+end
+
+; the index of v in w, and whether it is there
+func find(v: word): byte, bool
+  var low: byte = 0
+  var high: byte = N
+  var middle: byte
+  while low < high do
+    middle = (low + high) >> 1
+    if w[middle] == v then
+      return middle, true
+    end
+    if w[middle] < v then
+      low = middle + 1
+    else
+      high = middle
+    end
+  end
+  return 0, false
+end
+
+func look(v: word)
+  var at_index: byte
+  libout.hexw(v)
+  libout.space()
+  if find(v) -> at_index then
+    libout.dec(at_index)
+  else
+    libout.char('-')
+  end
+  libout.nl()
+end
+
+pub func main()
+  var i: byte = 0
+  seed = 1
+  while i < N do
+    w[i] = next()
+    s[i] = int(next())
+    i += 1
+  end
+  sort_words()
+  sort_ints()
+  i = 0
+  while i < N do
+    libout.hexw(w[i])
+    libout.space()
+    libout.sdec(s[i])
+    libout.nl()
+    i += 1
+  end
+  look(w[0])
+  look(w[N - 1])
+  look(w[11])
+  look(w[11] + 1)
+  look(0)
+end

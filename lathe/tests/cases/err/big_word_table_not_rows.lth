@@ -1,0 +1,3 @@
+; error 123 3 10
+module big_word_table_not_rows
+const W: [300]word = [1]

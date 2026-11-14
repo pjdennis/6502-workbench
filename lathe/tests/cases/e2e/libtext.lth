@@ -1,0 +1,36 @@
+; Tables and pointers for another module (lathe/tests/cases/e2e/modules2.lth): an exported
+; constant table, an array variable, a pointer declared zp, and functions that take and give
+; pointers.
+module libtext
+
+import host
+
+pub const HEX: [16]byte = "0123456789abcdef"
+pub const WORDS: [3]word = [$0102, $0304, $0506]
+pub const LABELS: [3]^byte = ["red", "green", "blue"]
+
+pub var line: [32]byte
+pub var cursor: ^byte zp
+pub var used: byte
+
+pub func print(s: ^byte)
+  var i: byte = 0
+  while s[i] != 0 do
+    host.put_byte(s[i])
+    i += 1
+  end
+end
+
+; the end of the string s: a pointer to its zero
+pub func end_of(s: ^byte): ^byte
+  while s[0] != 0 do
+    s += 1
+  end
+  return s
+end
+
+pub func add(c: byte)
+  line[used] = c
+  used += 1
+  line[used] = 0
+end

@@ -1,0 +1,6 @@
+; error 44 5 4
+module index_of_bool
+var a: [4]byte
+func f()
+  a[true] = 1
+end

@@ -1,0 +1,64 @@
+; Arrays of elements larger than a byte are stored by column: byte k of element i is at
+; base + k * N + i, and one load of X serves every byte (docs/language.md, "Arrays and their
+; layout").
+module columns
+
+var w: [10]word
+var s: [10]int
+var ptrs: [4]^byte
+var grid: [3][4]byte
+var i: byte
+var j: byte
+var total: word
+var b: byte
+
+; a word element: one LDX, then the two bytes ten apart
+func read(): word
+  return w[i]
+end
+
+; destination passing into an element, and an element as an operand
+func arithmetic()
+  w[i] = w[j] + total
+  total += w[i]
+  w[3] = w[i] - 1
+  w[i] += 1
+  w[j] = b
+end
+
+; lo and hi of an element, and a constant index folded in
+func halves()
+  b = hi(w[i])
+  lo(w[i + 1]) = b
+  hi(w[9]) = 0
+end
+
+; comparisons of elements
+func compare(): bool
+  if w[i] == 0 then
+    return false
+  end
+  return s[i] < s[j]
+end
+
+; a pointer element is copied to zero page before it is dereferenced
+func through(): byte
+  return ptrs[i][j]
+end
+
+; an array of arrays: grid[i] is a column-stored element of 4 bytes, three apart
+func arrays_of_arrays()
+  grid[i][2] = grid[1][3]
+  b = grid[2][3]
+end
+
+; a word in A and X is stored in a temporary before an element's index needs X
+func same(v: word): word
+  return v
+end
+
+func in_registers(): bool
+  w[i] = (word(b) ^ $8000) + total
+  total = same(total) + w[j]
+  return same(total) == w[i]
+end

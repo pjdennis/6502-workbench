@@ -33,6 +33,8 @@ LI_AT = 1               # what a variable's placement byte can be: at a fixed ad
 LI_ZP = 2               # follows it; declared `zp`; declared `nozp`; or 0
 LI_NOZP = 4
 LI_POINTER = 0x10       # type: a pointer to the type that follows; a basic type is its number
+LI_ARRAY = 0x11         # type: an array, stored by column: its length (2), then its element type
+LI_ROWS = 0x12          # the same, stored by row
 
 MAX_DIRS = 8
 C_SLASH = 0x2F
@@ -46,7 +48,7 @@ directory_count = 0
 # ---- Predeclared names -------------------------------------------------------------------
 
 REGISTERS = b"a x y ax ay xy c "            # in the order of gen.REG_A to gen.REG_C
-CONSTANTS = b"false true "                  # the bool constants, in the order of their values
+CONSTANTS = b"false true nil "              # the bool constants in the order of their values, nil
 BUILTINS = b"lo hi sizeof len "             # in the order of expr.B_LO to expr.B_LEN
 INIT_NAME = b"$init"                        # no source name can be this
 REGISTER_COUNT = 8
@@ -78,6 +80,9 @@ def init():
             s = kernel.sym_add(kernel.SCOPE_PREDECLARED, kernel.name_end(), kernel.K_CONST)
             kernel.sym_type[s] = typetab.BOOL_TYPE
             kernel.sym_value[s] = value
+            if value == 2:
+                kernel.sym_type[s] = typetab.NIL_TYPE
+                kernel.sym_value[s] = 0
             value += 1
             kernel.name_begin()
         else:
@@ -116,8 +121,12 @@ def interface_path(directory_name, module_name):
 # ---- Writing the interface ---------------------------------------------------------------
 
 def write_type(stream, t):
-    while typetab.is_pointer(t):
-        kernel.put(stream, LI_POINTER)
+    while typetab.is_pointer(t) or typetab.is_array(t):
+        if typetab.is_pointer(t):
+            kernel.put(stream, LI_POINTER)
+        else:
+            kernel.put(stream, LI_ARRAY + typetab.form[t] - typetab.FORM_ARRAY)
+            kernel.put_word(stream, typetab.length(t))
         t = typetab.base(t)
     kernel.put(stream, t)
 
@@ -146,7 +155,7 @@ def write_function(stream, s):
 def write_constant(stream, s):
     kernel.put(stream, LI_CONST)
     kernel.put_name(stream, kernel.sym_name[s])
-    kernel.put(stream, kernel.sym_type[s])
+    write_type(stream, kernel.sym_type[s])
     kernel.put_word(stream, kernel.sym_value[s])
 
 
@@ -198,17 +207,17 @@ def read_name(stream):
 
 
 def read_type(stream):
-    pointers = 0
+    mark = typetab.prefix_count
     t, _ = kernel.get(stream)
-    while t == LI_POINTER:
-        pointers += 1
+    while t == LI_POINTER or t == LI_ARRAY or t == LI_ROWS:
+        if t == LI_POINTER:
+            typetab.prefix(typetab.FORM_POINTER, 0)
+        else:
+            typetab.prefix(typetab.FORM_ARRAY + t - LI_ARRAY, kernel.get_word(stream))
         t, _ = kernel.get(stream)
-    if t < typetab.BYTE_TYPE or t > typetab.BOOL_TYPE:
+    if t < typetab.BYTE_TYPE or t > typetab.NIL_TYPE:
         err.fatal(err.E_BAD_INTERFACE)
-    while pointers > 0:
-        t = typetab.pointer_to(t)
-        pointers -= 1
-    return t
+    return typetab.build(t, mark)
 
 
 def read_members(stream):
@@ -236,11 +245,8 @@ def read_function(stream, scope):
 
 def read_constant(stream, scope):
     s = kernel.sym_add(scope, read_name(stream), kernel.K_CONST)
-    t, _ = kernel.get(stream)
-    if t < typetab.BYTE_TYPE or t > typetab.NEGATIVE_TYPE:
-        err.fatal(err.E_BAD_INTERFACE)
     kernel.sym_flags[s] = kernel.SF_PUB
-    kernel.sym_type[s] = t
+    kernel.sym_type[s] = read_type(stream)
     kernel.sym_value[s] = kernel.get_word(stream)
 
 
@@ -458,7 +464,7 @@ def member(s, fresh, index, where):
     this must be what the forward declaration said. Returns the type."""
     line = lex.line
     col = lex.col
-    t = expr.scalar_type()
+    t = expr.value_type()
     if where != gen.REG_NONE:
         where = result_register(t)
     if fresh:
@@ -571,15 +577,36 @@ def function_declaration(flags):
 # ---- Constants, and what the end of the module writes ------------------------------------
 
 def constant_declaration(flags):
-    """constDecl = "const" name [ ":" type ] "=" constExpr NL. Constant tables come later."""
+    """constDecl = "const" name [ ":" type ] "=" initialiser NL. A constant of an array type,
+    or one that is a string, is a table: constant data with the constant's name."""
     lex.next()
     name = expr.new_name(kernel.SCOPE_MODULE)
     t = typetab.NO_TYPE
     if lex.tok == lex.T_COLON:
         lex.next()
-        t = expr.scalar_type()
+        line = lex.line
+        col = lex.col
+        t = expr.type_spec()
+        err.position(line, col)
+        stmt.layout(t)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
+    if t == typetab.NO_TYPE and lex.tok == lex.T_STRING:
+        t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, False)
+    if typetab.is_array(t):
+        symbol = out.symbol(out.SYM_DATA, kernel.module_name[0], 0, name)
+        stmt.table_data(t, symbol)
+        s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
+        kernel.sym_flags[s] = flags
+        kernel.sym_type[s] = t
+        kernel.sym_obj[s] = symbol
+        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+        return
+    line = lex.line
+    col = lex.col
     expr.constant(t)
+    if reg.op_kind[reg.depth - 1] != reg.O_CONST:
+        err.position(line, col)
+        err.fatal(err.E_NOT_CONST)
     s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
     kernel.sym_flags[s] = flags
     kernel.sym_type[s] = reg.op_type[reg.depth - 1]

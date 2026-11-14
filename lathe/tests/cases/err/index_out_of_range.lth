@@ -1,0 +1,6 @@
+; error 43 5 4
+module index_out_of_range
+var a: [10]byte
+func f()
+  a[10] = 1
+end

@@ -434,6 +434,8 @@ def compare(op):
     value()
     first = reg.depth - 2
     second = reg.depth - 1
+    reg.apart(first, second)
+    reg.apart(second, first)
     t = reg.unify(first, second)
     if t == typetab.BOOL_TYPE and op > fold.NE:
         err.fatal(err.E_TYPE)

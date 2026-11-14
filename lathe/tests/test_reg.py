@@ -12,6 +12,7 @@ import err  # noqa: E402
 import fbuf  # noqa: E402
 import kernel  # noqa: E402
 import reg  # noqa: E402
+import typetab  # noqa: E402
 
 A, X, Y = reg.A, reg.X, reg.Y
 
@@ -460,6 +461,157 @@ class TypingTest(RegTest):
         self.assertFatal(err.E_TYPE, lambda: reg.unify(self.memory(BYTE), self.memory(SBYTE)))
         support.support.fresh()
         self.assertFatal(err.E_TYPE, lambda: reg.unify(self.memory(INT), self.memory(WORD)))
+
+
+class ElementTest(RegTest):
+    """Elements (absolute,X) and what pointers point at ((zp),Y), and what the registers are
+    known to hold about them (docs/codegen.md, "Operands", "Remembering register contents")."""
+
+    def element(self, t=BYTE, symbol=5, index_slot=0, value=0, stride=1):
+        """An element of the array `symbol`, indexed by the byte in slot `index_slot`."""
+        i = self.memory(t, symbol, fbuf.NO_SLOT, value)
+        reg.push_slot(BYTE, index_slot)
+        reg.take_index(i)
+        reg.op_mode[i] = reg.M_INDEXED
+        reg.op_stride[i] = stride
+        return i
+
+    def target(self, t=BYTE, pointer_slot=1, index=None):
+        """What the zero page pointer in slot `pointer_slot` points at, at the constant `index`
+        or the byte in slot 0."""
+        reg.push_slot(t, pointer_slot)
+        i = reg.depth - 1
+        reg.zero_page(i)
+        if index is None:
+            reg.push_slot(BYTE, 0)
+        else:
+            reg.push(reg.O_CONST, BYTE, index)
+        reg.take_index(i)
+        reg.op_mode[i] = reg.M_POINTER
+        return i
+
+    def slots(self):
+        self.slot(BYTE, b'i')
+        self.slot(WORD, b'p', 0)
+
+    def test_an_element_loads_its_index_into_x_once(self):
+        self.slots()
+        e = self.element(WORD, stride=10)
+        reg.load(A, e, 0)
+        reg.store(A, self.memory(BYTE, 6), 0)
+        reg.load(A, e, 1)
+        self.assertEqual(self.listing(), ['LDX s0', 'LDA g5,X', 'STA g6', 'LDA g5+10,X', 'RTS'])
+
+    def test_an_index_that_a_holds_is_transferred(self):
+        self.slots()
+        reg.load(A, self.memory(BYTE, self.own, 0), 0)
+        reg.load(A, self.element(), 0)
+        self.assertEqual(self.listing(), ['LDA s0', 'TAX', 'LDA g5,X', 'RTS'])
+
+    def test_x_is_loaded_from_an_element_with_the_index_in_y(self):
+        self.slots()
+        reg.load(X, self.element(), 0)
+        self.assertEqual(self.listing(), ['LDY s0', 'LDX g5,Y', 'RTS'])
+
+    def test_an_element_is_never_held_and_a_store_to_one_forgets_its_array(self):
+        self.slots()
+        whole = self.memory(BYTE, 5, fbuf.NO_SLOT, 3)
+        reg.load(A, whole, 0)
+        self.assertFalse(reg.holds(A, self.element(), 0))
+        reg.load(Y, self.memory(BYTE, 7), 0)
+        reg.store(A, reg.depth - 2, 0)
+        self.assertFalse(reg.copies(A, whole, 0))
+        self.assertTrue(reg.copies(Y, reg.depth - 1, 0))
+
+    def test_what_a_pointer_points_at_is_reached_through_y(self):
+        self.slots()
+        t = self.target(WORD)
+        reg.load(A, t, 0)
+        reg.load(A, t, 1)
+        reg.load(A, self.target(BYTE, 1, 4), 0)
+        self.assertEqual(self.listing(), ['LDY s0', 'LDA (zp:s1),Y', 'INY', 'LDA (zp:s1),Y', 'LDY #$04',
+                                          'LDA (zp:s1),Y', 'RTS'])
+
+    def test_x_is_loaded_from_what_a_pointer_points_at_through_a(self):
+        self.slots()
+        reg.load(X, self.target(), 0)
+        self.assertEqual(self.listing(), ['LDY s0', 'LDA (zp:s1),Y', 'TAX', 'RTS'])
+
+    def test_a_store_through_a_pointer_forgets_everything_but_constants(self):
+        self.slots()
+        v = self.memory(BYTE, 6)
+        reg.load(X, v, 0)
+        reg.load_const(A, 9)
+        reg.store(A, self.target(BYTE, 1, 0), 0)
+        self.assertFalse(reg.copies(X, v, 0))
+        self.assertTrue(reg.reg_known[A] and reg.reg_known[Y])
+
+    def test_only_a_is_stored_through_a_pointer(self):
+        self.slots()
+        reg.load_const(X, 3)
+        reg.store(X, self.target(BYTE, 1, 0), 0)
+        self.assertEqual(self.listing(), ['LDX #$03', 'TXA', 'LDY #$00', 'STA (zp:s1),Y', 'RTS'])
+
+    def test_inc_through_a_pointer_is_done_in_a(self):
+        self.slots()
+        reg.modify(reg.OP_INC, self.target(BYTE, 1, 2), 0)
+        self.assertEqual(self.listing(), ['LDY #$02', 'LDA (zp:s1),Y', 'CLC', 'ADC #$01', 'STA (zp:s1),Y', 'RTS'])
+
+    def test_inc_of_an_element_is_in_memory_and_the_flags_show_nothing_known(self):
+        self.slots()
+        e = self.element()
+        reg.modify(reg.OP_INC, e, 0)
+        self.assertFalse(reg.shows(e, 0))
+        self.assertEqual(self.listing(), ['LDX s0', 'INC g5,X', 'RTS'])
+
+    def test_an_address_is_an_immediate_with_a_low_or_high_fix_up(self):
+        reg.push(reg.O_ADDR, WORD, 3)
+        reg.op_symbol[0] = 5
+        reg.load(A, 0, 0)
+        reg.load(X, 0, 1)
+        reg.alu(reg.OP_ADC, 0, 1)
+        self.assertFalse(reg.holds(A, 0, 0))
+        self.assertEqual(self.listing(), ['LDA #<g5+3', 'LDX #>g5+3', 'ADC #>g5+3', 'RTS'])
+
+    def test_a_pointer_that_is_dereferenced_becomes_class_0(self):
+        self.slots()
+        reg.push_slot(WORD, 1)
+        self.assertTrue(reg.dereferenced(0))
+        self.assertEqual(reg.slot_class[1], reg.CLASS_ZP)
+
+    def test_a_pointer_declared_nozp_or_of_another_module_is_not_used_as_it_is(self):
+        reg.new_slot(2, reg.CLASS_NOT_ZP, reg.SLOT_LOCAL, support.name(b'q'))
+        reg.push_slot(WORD, 0)
+        self.assertFalse(reg.dereferenced(0))
+        s = self.variable(WORD, b'other', 0, 0, 1)
+        reg.push_memory(WORD, 9, fbuf.NO_SLOT, 0, 0, s)
+        self.assertFalse(reg.dereferenced(1))
+        mine = self.variable(WORD, b'mine')
+        reg.push_memory(WORD, 10, fbuf.NO_SLOT, 0, 0, mine)
+        self.assertTrue(reg.dereferenced(2))
+        self.assertTrue(kernel.sym_flags[mine] & kernel.SF_ZP)
+
+    def test_an_index_temporary_is_free_again_when_its_element_is_popped(self):
+        self.slots()
+        i = self.memory(BYTE, 5)
+        reg.push_register(BYTE)
+        reg.into_memory(1)
+        slot = reg.op_slot[1]
+        reg.take_index(i)
+        reg.op_mode[i] = reg.M_INDEXED
+        self.assertTrue(reg.slot_busy[slot])
+        reg.pop()
+        self.assertFalse(reg.slot_busy[slot])
+
+    def test_an_array_is_not_a_value(self):
+        a = self.memory(typetab.array_of(BYTE, 4, False))
+        self.assertFatal(err.E_ARRAY_VALUE, lambda: reg.assignable(a, BYTE))
+
+    def test_nil_fits_any_pointer(self):
+        p = typetab.pointer_to(BYTE)
+        reg.push(reg.O_CONST, typetab.NIL_TYPE, 0)
+        reg.assignable(0, p)
+        self.assertEqual(reg.op_type[0], p)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,7 @@
+; error 121 6 9
+module array_in_arithmetic
+var a: [4]byte
+var n: byte
+func f()
+  n = a + 1
+end

@@ -1,0 +1,7 @@
+; error 121 6 12
+module array_compared
+var a: [4]byte
+var b: [4]byte
+func f(): bool
+  return a == b
+end

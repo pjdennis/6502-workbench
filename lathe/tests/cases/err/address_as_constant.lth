@@ -1,0 +1,4 @@
+; error 46 4 11
+module address_as_constant
+var x: byte
+const P = @x

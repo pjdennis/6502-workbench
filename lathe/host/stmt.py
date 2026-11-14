@@ -46,8 +46,8 @@ OP_SEI = 0x78
 # ---- Variables ---------------------------------------------------------------------------
 
 def placements():
-    """{ "zp" | "nozp" | "at" constExpr }. Returns them as symbol flags; the address is left
-    in `placed_at`."""
+    """{ "zp" | "nozp" | "rows" | "at" constExpr }. Returns them as symbol flags; the address
+    is left in `placed_at`."""
     global placed_at
     flags = 0
     while True:
@@ -61,7 +61,10 @@ def placements():
             flags = flags | kernel.SF_AT
             lex.next()
             placed_at = expr.constant_number()
-        elif lex.tok == lex.T_ROWS or lex.tok == lex.T_IN:
+        elif lex.tok == lex.T_ROWS:
+            flags = flags | kernel.SF_ROWS
+            lex.next()
+        elif lex.tok == lex.T_IN:
             err.fatal(err.E_UNSUPPORTED)
         else:
             break
@@ -124,8 +127,19 @@ def variable(more, level):
         scope = kernel.SCOPE_MODULE
     name = expr.new_name(scope)
     lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
-    t = expr.scalar_type()
+    line = lex.line
+    col = lex.col
+    t = expr.type_spec()
     flags = placements() | more
+    err.position(line, col)
+    if flags & kernel.SF_ROWS != 0:
+        if not typetab.is_array(t):
+            err.fatal(err.E_TYPE)
+        t = typetab.array_of(typetab.base(t), typetab.length(t), True)
+    layout(t)
+    if typetab.is_array(t) and flags & kernel.SF_ZP == 0:
+        flags = flags | kernel.SF_NOZP          # an array is never in zero page unless asked
+    err.position(lex.line, lex.col)
     if level == LEVEL_LOCAL and flags & kernel.SF_AT == 0:
         s = kernel.sym_add(scope, name, kernel.K_LOCAL)
         kernel.sym_type[s] = t
@@ -135,12 +149,77 @@ def variable(more, level):
     if lex.tok != lex.T_ASSIGN:
         return
     lex.next()
-    if level == LEVEL_LOCAL:
+    if typetab.is_array(t):
+        data = gen.anonymous()
+        table_data(t, data)
+        if level == LEVEL_LOCAL:
+            push_variable(s)
+            gen.copy_array(data, typetab.size(t))
+            reg.pop()
+        else:
+            gen.initial(s, data, 0, 0)
+    elif level == LEVEL_LOCAL:
         initial_assignment(s)
     else:
         expr.constant(t)
-        gen.initial(s, reg.op_value[reg.depth - 1])
+        i = reg.depth - 1
+        if reg.op_kind[i] == reg.O_ADDR:
+            gen.initial(s, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
+        else:
+            gen.initial(s, kernel.NO_OBJ, 0, reg.op_value[i])
         reg.pop()
+
+
+def layout(t):
+    """Check that the elements of array type `t`, and of the arrays it is made of, can be
+    reached: one of more than 256 elements larger than a byte must be stored by row, and an
+    element stored by row must have a size that is a power of two."""
+    while typetab.is_array(t):
+        size = typetab.size(typetab.base(t))
+        if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t):
+            err.fatal(err.E_NEEDS_ROWS)
+        if typetab.is_rows(t) and size & (size - 1) != 0:
+            err.fatal(err.E_ELEMENT_SIZE)
+        t = typetab.base(t)
+
+
+def table_data(t, symbol):
+    """initialiser = "[" constExpr { "," constExpr } "]", or a string, for an array of type
+    `t`: write it as the constant data `symbol`, laid out as the array is. Elements not given
+    are 0; a string fills a byte array and is followed by a zero if there is room."""
+    n = typetab.length(t)
+    e = typetab.base(t)
+    total = typetab.size(t)
+    spacing = typetab.size(e)           # how far apart the elements start; their bytes: step
+    step = 1
+    if typetab.is_column(t):
+        spacing = 1
+        step = n
+    if typetab.is_array(e):
+        err.fatal(err.E_UNSUPPORTED)
+    out.table_begin(total)
+    if lex.tok == lex.T_STRING:
+        if e != typetab.BYTE_TYPE:
+            err.fatal(err.E_TYPE)
+        if lex.string_length > n:
+            err.fatal(err.E_TOO_MANY)
+        for i in range(0, lex.string_length):
+            out.table[i] = lex.string[i]
+        lex.next()
+    else:
+        lex.expect(lex.T_LBRACKET, err.E_SYNTAX)
+        count = 0
+        while True:
+            if count == n:
+                err.fatal(err.E_TOO_MANY)
+            expr.constant(e)
+            gen.table_element(count * spacing, step)
+            count += 1
+            if lex.tok != lex.T_COMMA:
+                break
+            lex.next()
+        lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+    out.table_end(symbol, total)
 
 
 # ---- Assignments and calls ---------------------------------------------------------------

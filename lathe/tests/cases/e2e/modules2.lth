@@ -1,0 +1,36 @@
+; Tables and pointers across two modules: another module's constant tables, its array, its
+; zp pointer used through (zp),Y here, and its functions that take and give pointers.
+module modules2
+
+import libout
+import libtext
+
+func hex(b: byte)
+  libtext.add(libtext.HEX[b >> 4])
+  libtext.add(libtext.HEX[b & 15])
+end
+
+pub func main()
+  var i: byte = 0
+  var p: ^byte
+  while i < len(libtext.LABELS) do
+    libtext.print(libtext.LABELS[i])
+    libout.space()
+    hex(hi(libtext.WORDS[i]))
+    hex(lo(libtext.WORDS[i]))
+    libtext.add(' ')
+    i += 1
+  end
+  libtext.print(@libtext.line)
+  libout.nl()
+  p = libtext.end_of(libtext.LABELS[1])
+  libout.dec(p - libtext.LABELS[1])
+  libout.space()
+  libtext.cursor = @libtext.line[5]
+  libtext.cursor[0] = '-'
+  libtext.cursor[2] = libtext.cursor[1]
+  libtext.print(libtext.cursor)
+  libout.space()
+  libout.dec(libtext.end_of(@libtext.line) - @libtext.line)
+  libout.nl()
+end

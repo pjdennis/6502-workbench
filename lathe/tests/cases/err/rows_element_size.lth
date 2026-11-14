@@ -1,0 +1,3 @@
+; error 124 3 8
+module rows_element_size
+var r: [10][3]byte rows

@@ -87,6 +87,62 @@ class TypeTableTest(unittest.TestCase):
                 t = typetab.pointer_to(t)
         self.assertIn('error 74:', support.error_text())
 
+    def test_an_array_knows_its_length_its_elements_and_its_size(self):
+        a = typetab.array_of(typetab.WORD_TYPE, 10, False)
+        self.assertTrue(typetab.is_array(a))
+        self.assertFalse(typetab.is_array(typetab.WORD_TYPE))
+        self.assertFalse(typetab.is_pointer(a))
+        self.assertEqual((typetab.length(a), typetab.base(a), typetab.size(a)), (10, typetab.WORD_TYPE, 20))
+
+    def test_an_array_of_bytes_is_not_stored_by_column_and_one_of_words_is(self):
+        self.assertFalse(typetab.is_column(typetab.array_of(typetab.BYTE_TYPE, 10, False)))
+        self.assertTrue(typetab.is_column(typetab.array_of(typetab.WORD_TYPE, 10, False)))
+        self.assertTrue(typetab.is_column(typetab.array_of(typetab.pointer_to(typetab.BYTE_TYPE), 4, False)))
+
+    def test_an_array_declared_rows_is_another_type_not_stored_by_column(self):
+        a = typetab.array_of(typetab.WORD_TYPE, 10, False)
+        r = typetab.array_of(typetab.WORD_TYPE, 10, True)
+        self.assertNotEqual(a, r)
+        self.assertTrue(typetab.is_rows(r))
+        self.assertFalse(typetab.is_column(r))
+        self.assertTrue(typetab.is_array(r))
+        self.assertEqual(typetab.size(r), 20)
+
+    def test_the_same_array_type_is_made_once(self):
+        a = typetab.array_of(typetab.BYTE_TYPE, 8, False)
+        self.assertEqual(typetab.array_of(typetab.BYTE_TYPE, 8, False), a)
+        self.assertNotEqual(typetab.array_of(typetab.BYTE_TYPE, 9, False), a)
+        self.assertNotEqual(typetab.pointer_to(typetab.BYTE_TYPE), a)
+
+    def test_arrays_of_arrays_multiply_their_sizes(self):
+        inner = typetab.array_of(typetab.WORD_TYPE, 4, False)
+        self.assertEqual(typetab.size(typetab.array_of(inner, 3, False)), 24)
+
+    def test_an_array_larger_than_64k_is_error_43(self):
+        with self.assertRaises(SystemExit):
+            typetab.array_of(typetab.WORD_TYPE, 40000, False)
+        self.assertIn('error 43:', support.error_text())
+
+    def test_prefixes_are_built_from_the_inside_out(self):
+        mark = typetab.prefix_count
+        typetab.prefix(typetab.FORM_POINTER, 0)            # ^[3]word
+        typetab.prefix(typetab.FORM_ARRAY, 3)
+        t = typetab.build(typetab.WORD_TYPE, mark)
+        self.assertEqual(t, typetab.pointer_to(typetab.array_of(typetab.WORD_TYPE, 3, False)))
+        self.assertEqual(typetab.prefix_count, mark)
+
+    def test_prefixes_of_a_type_inside_another_are_kept_apart(self):
+        outer = typetab.prefix_count
+        typetab.prefix(typetab.FORM_ARRAY, 2)
+        inner = typetab.prefix_count
+        typetab.prefix(typetab.FORM_POINTER, 0)
+        self.assertEqual(typetab.build(typetab.BYTE_TYPE, inner), typetab.pointer_to(typetab.BYTE_TYPE))
+        self.assertEqual(typetab.build(typetab.BYTE_TYPE, outer), typetab.array_of(typetab.BYTE_TYPE, 2, False))
+
+    def test_nil_is_two_bytes_and_not_a_pointer_type_itself(self):
+        self.assertEqual(typetab.size(typetab.NIL_TYPE), 2)
+        self.assertFalse(typetab.is_pointer(typetab.NIL_TYPE))
+
 
 if __name__ == '__main__':
     unittest.main()

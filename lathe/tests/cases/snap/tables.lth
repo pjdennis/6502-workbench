@@ -1,0 +1,51 @@
+; Constant tables and strings are constant data: DATA records, with DFIX when an element is an
+; address. Array initialisers are copied by `module.$init` from constant data, a local's on
+; every entry (docs/codegen.md, "Initial values" and "Naming").
+module tables
+
+var buffer: [8]byte = [1, 2, 3]
+const DIGITS: [16]byte = "0123456789ABCDEF"
+const GREETING = "hello"
+pub const SQUARES: [6]word = [0, 1, 4, 9, 16, 25]
+const NAMES: [3]^byte = ["one", "two", @buffer[2]]
+
+var message: [300]byte = "big"
+var table: [4]word = [$1234, 5]
+var cursor: ^byte = "start"
+var counts: [4]byte zp = [9, 8, 7, 6]
+var i: byte
+var w: word
+var p: ^byte
+
+; a table lookup is LDX i / LDA t,X
+func digit(): byte
+  return DIGITS[i]
+end
+
+; a word table: one LDX, two indexed loads
+func square()
+  w = SQUARES[i]
+end
+
+; a table of pointers, a string's address, and a table's
+func addresses()
+  p = NAMES[i]
+  p = @GREETING
+  p = @GREETING[1]
+  p = "inline"
+  i = len(NAMES)
+end
+
+; a local array with an initialiser is copied on every entry
+func local_copy(): byte
+  var scratch: [5]byte = "abcd"
+  scratch[0] = i
+  return scratch[i]
+end
+
+; a static one keeps its value, and is copied once at the start
+func counter(): byte
+  static var seen: [2]byte = [100, 200]
+  seen[0] += 1
+  return seen[0]
+end

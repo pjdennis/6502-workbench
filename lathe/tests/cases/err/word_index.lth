@@ -1,0 +1,7 @@
+; error 120 6 4
+module word_index
+var a: [10]byte
+var w: word
+func f()
+  a[w] = 1
+end

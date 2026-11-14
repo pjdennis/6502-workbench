@@ -1,0 +1,6 @@
+; error 44 5 7
+module pointer_into_word
+var n: word
+func f()
+  n = ^byte(n)
+end

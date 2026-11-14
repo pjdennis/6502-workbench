@@ -1,0 +1,66 @@
+; Byte arrays: constant and variable indexes, a constant folded into the base, an index that
+; has to be worked out, and what the registers are known to hold (docs/codegen.md, "Operands").
+module arrays
+
+var a: [16]byte
+var b: [16]byte
+var i: byte
+var j: byte
+var n: byte
+
+; a constant index is part of the address
+func constant_index()
+  a[0] = 1
+  a[15] = a[3]
+end
+
+; a variable index is in X, which is loaded once for both
+func variable_index()
+  a[i] = b[i]
+  n = a[i] + b[i]
+end
+
+; a[i + 1] and a[i - 1] add the constant to the address
+func folded()
+  a[i + 1] = a[i - 1]
+end
+
+; an index worked out first goes through a temporary; A holds it, so X is loaded by TAX
+func computed()
+  n = a[i + j]
+  n = a[b[i]]
+end
+
+; INC and DEC work on an element where it is
+func in_place()
+  a[i] += 1
+  b[j] -= 1
+  a[i] <<= 1
+end
+
+; a store to an element forgets what was known about the whole array, but not about i
+func forgetting()
+  n = a[3]
+  a[i] = 0
+  n = a[3]
+  j = i
+  a[i] = n
+end
+
+; elements in conditions and loops
+func search(v: byte): byte
+  var k: byte = 0
+  while k < 16 do
+    if a[k] == v then
+      return k
+    end
+    k += 1
+  end
+  return 255
+end
+
+; len and sizeof
+func sizes()
+  n = len(a)
+  n = sizeof([4]word)
+end

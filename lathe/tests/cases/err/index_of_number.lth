@@ -1,0 +1,6 @@
+; error 127 5 8
+module index_of_number
+var n: byte
+func f()
+  n = n[1]
+end

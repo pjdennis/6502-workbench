@@ -1,0 +1,7 @@
+; error 122 6 7
+module address_of_constant
+const N = 4
+var p: ^byte
+func f()
+  p = @N
+end

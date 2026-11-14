@@ -30,6 +30,7 @@ import lex
 import out
 import reg
 import src
+import typetab
 
 # ---- The instruction table ---------------------------------------------------------------
 
@@ -281,7 +282,7 @@ def name_operand(name, member):
     at the current position.
 
     - A constant is its value; an `extern` function, and a variable at a fixed address, its
-      address.
+      address. A constant table is its address, through a fix-up.
     - A function of this or another module is its entry, through a fix-up.
     - A variable that lives for the whole program (of this module, a `static` one of the
       function, or one of another module) is its address: found_symbol is its symbol,
@@ -305,6 +306,9 @@ def name_operand(name, member):
     found_function = False
     found_slot = fbuf.NO_SLOT
     kind = kernel.sym_kind[s]
+    if kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]):
+        found_symbol = gen.object_symbol(s)
+        return X_ADDRESS
     if kind == kernel.K_CONST:
         found_value = kernel.sym_value[s] & 0xFFFF
         return X_NUMBER

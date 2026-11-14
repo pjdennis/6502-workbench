@@ -1,0 +1,54 @@
+; Byte arrays of more than 256 elements take a word index and are reached through a zero
+; page pointer: fill, add up, shift along by one, and a running sum, on 1000 bytes.
+module bigarray
+
+import libout
+
+const SIZE = 1000
+
+var data: [SIZE]byte
+
+func checksum(): word
+  var i: word = 0
+  var total: word = 0
+  while i < SIZE do
+    total += data[i]
+    i += 1
+  end
+  return total
+end
+
+pub func main()
+  var i: word = 0
+  var big: [600]byte
+  while i < SIZE do
+    data[i] = lo(i) ^ hi(i)
+    i += 1
+  end
+  libout.hexw(checksum())
+  libout.space()
+  libout.hex(data[0])
+  libout.hex(data[255])
+  libout.hex(data[256])
+  libout.hex(data[999])
+  libout.nl()
+  ; shift everything one place down
+  i = 0
+  while i < SIZE - 1 do
+    data[i] = data[i + 1]
+    i += 1
+  end
+  libout.hexw(checksum())
+  libout.nl()
+  ; a local one: each byte the low byte of the sum of those before it
+  big[0] = 1
+  i = 1
+  while i < 600 do
+    big[i] = big[i - 1] + data[i]
+    i += 1
+  end
+  libout.hex(big[1])
+  libout.hex(big[299])
+  libout.hex(big[599])
+  libout.nl()
+end

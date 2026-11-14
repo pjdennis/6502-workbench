@@ -92,17 +92,24 @@ end
 - **An array of at most 256 elements is indexed by a `byte`.** A `word` index on such an array is an error.
 - **Elements larger than one byte are stored by column.** An array of words is stored as all the low bytes, then all the high bytes. An array of records is stored as one byte array per byte of the record. `syms[i].kind` and `table[i]` are then single indexed loads with no multiply.
 - **A column-stored element has no address.** `@syms[i]` is an error, and assigning a whole element copies it field by field.
-- **`rows` keeps elements together**, as in C: `var nodes: [1000]Node rows`. It is required for arrays of more than 256 elements. The element size must then be a power of two, so the index is scaled by shifts; any other size is an error, to be fixed by padding the record.
+- **`rows` keeps elements together**, as in C: `var nodes: [1000]Node rows`. It is required for arrays of more than 256 elements larger than a byte. The element size must then be a power of two, so the index is scaled by shifts; any other size is an error, to be fixed by padding the record. `rows` is part of the array's type: `[1000]word rows` and `[1000]word` are different types.
+- **A byte array of more than 256 elements is indexed by a `word`** (a `byte` is widened). Such an array, and any `rows` array of elements larger than a byte, is reached through a pointer the compiler works out in zero page, so a variable index costs an addition.
+- **Arrays of arrays.** `[3][4]byte` is three elements of `[4]byte`; stored by column, element `i`'s byte `j` is at `j * 3 + i`. Only one index of an element can be a variable, and only the first one, unless the array is declared `rows`: `grid[i][2]` and `grid[1][2]` are allowed, `grid[1][j]` is not.
+- **A constant index must be inside the array**, `0` to `N - 1`; there is no element one past the end.
+- **An array is not a value.** Assigning a whole array, passing it as an argument or returning it is an error: pass a pointer, or copy it with a loop.
+- **Initial values.** `var a: [8]byte = [1, 2, 3]` gives the first elements; the others are 0. A string fills a byte array, followed by a zero if there is room: `const DIGITS: [16]byte = "0123456789ABCDEF"` has none. `const NAME = "text"` without a type is a `[5]byte`. A variable's initial value is copied from constant data as long as the whole array.
 
 ### Pointers
 
-- `@x` is the address of a variable, a `rows` array element or a function. The address of an array is a pointer to its first element.
+- `@x` is the address of a variable, an element of an array of bytes or a `rows` array, or a function. The address of an array is a pointer to its first element: `@a` of a `[10]byte` is a `^byte`, and `@grid[1]` of a `[3][4]byte rows` is a `^byte` too. An array stored by column has no such pointer: `@words` of a `[10]word` is an error, like `@words[i]`.
 - `p.field` reads a field of the record `p` points to.
 - `p[i]` is element `i` after the address in `p`, with a `byte` index. For a `^byte` this is the 6502's `(zp),Y` addressing and costs the same as an array access. For a larger element the size must be 2, 4 or 8, the index is scaled by shifts, and the scaled index must stay below 256. `p[0]` is what `p` points to, for any type.
 - Pointer arithmetic is in bytes and written out: `p + sizeof(Sym)`. A pointer plus or minus an integer is a pointer; the difference of two pointers is a `word`. Pointers compare as unsigned numbers.
 - `nil` is the pointer with value 0 and fits any pointer type. `^T(x)` converts a number to a pointer.
 - A record field may be a pointer to the record being declared: `next: ^Link`.
-- A string literal used as a value is a `^byte` to a constant.
+- A string literal used as a value is a `^byte` to a constant. A constant table is not a value: `p = @NAME`.
+- **The pointer of `p[i]` must be in zero page.** A pointer variable of this module, a parameter or a local that is dereferenced becomes "must be in zero page" ([`code-model.md`](code-model.md)); any other (declared `nozp`, another module's not declared `zp`, an element, a call result) is copied to a zero page temporary first.
+- Only identical pointer types can be assigned to each other, and `nil` to any of them. `word(p)` and `^T(w)` convert.
 
 ## Declarations
 

@@ -1,0 +1,7 @@
+; error 120 6 4
+module word_index_of_pointer
+var p: ^byte
+var w: word
+func f()
+  p[w] = 1
+end

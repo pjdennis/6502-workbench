@@ -1,0 +1,7 @@
+; error 44 6 7
+module pointer_of_other_type
+var p: ^byte
+var q: ^word
+func f()
+  p = q
+end

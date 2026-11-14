@@ -1,0 +1,4 @@
+; error 46 4 21
+module variable_in_table
+var n: byte
+const T: [2]byte = [n, 1]

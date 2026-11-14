@@ -157,19 +157,19 @@ end      a 0 byte
 | Kind | Entry | After the name |
 |---|---|---|
 | 1 | Function | flags (1); if flag bit 0 is set, the address (2); number of parameters (1) and that many members; number of results (1) and that many members. |
-| 2 | Constant | type (1 byte, as below, or 6 for a number that has no type yet and 7 for such a number below zero); value (2), in two's complement, sign-extended if the type is signed. |
+| 2 | Constant | type (as below, or 6 for a number that has no type yet, 7 for such a number below zero, 8 for `nil`); value (2), in two's complement, sign-extended if the type is signed. A constant of an array type is a table: its value is 0, and it is the constant data `module.name`. |
 | 3 | Variable | type; placement (1): 0 none, 1 at a fixed address, which follows (2), 2 declared `zp`, 4 declared `nozp`. |
 
 - **Function flags:** bit 0 `extern`: a routine at a fixed address; bit 2 `asm`: a function whose body is assembly, called like an `extern` one (parameters and results in registers, no slots) but through its symbol. The other bits are kept for `recursive` and `inline`.
 - **A member** is a type and a register (1 byte): 0 none, 1 `a`, 2 `x`, 3 `y`, 4 `ax`, 5 `ay`, 6 `xy`, 7 `c`. A parameter with register 0 is the callee's slot of the same number. A result always has its register: for a Lathe function that is `a` for a one-byte value, `ax` for a two-byte one and `c` for a `bool`.
-- **A type** is 1 `byte`, 2 `sbyte`, 3 `word`, 4 `int`, 5 `bool`, or `$10` followed by a type: a pointer to it. Arrays, records and named types will take further codes.
+- **A type** is 1 `byte`, 2 `sbyte`, 3 `word`, 4 `int`, 5 `bool`; `$10` followed by a type: a pointer to it; `$11`, the number of elements (2) and a type: an array of them, stored by column; or `$12` and the same: an array declared `rows`. Records and named types will take further codes.
 - **A variable** that is neither `zp` nor at a fixed address is used through instructions in the absolute form, which the linker shrinks if it lands in zero page; one declared `zp` is used through zero page instructions from the start. One at a fixed address has no symbol in any object file.
 
 Entries are in the order of the declarations. Kinds still to come: types (their definition, before any entry that uses them) and `inline` functions (the function entry, then its saved tokens with their length in front). A reader that meets a kind or version it does not know stops with error 51.
 
 ## Errors
 
-Every error has a number; `err.py` lists them with their texts. 1 to 19 are about characters and tokens, 20 to 39 syntax (39 is "not implemented yet"), 40 to 59 meaning, 60 to 69 the command line and files, 70 to 98 a capacity of the compiler that was exceeded, 99 a fault in the compiler itself, 100 to 139 meaning again (40 to 59 filled up), and 140 to 159 `asm` blocks and functions; the top of `err.py` has the table. A lexical error is reported at the character it was found at or at the start of its token; any other error at the start of the token that is wrong. For a value of the wrong type or out of range that means:
+Every error has a number; `err.py` lists them with their texts. 1 to 19 are about characters and tokens, 20 to 39 syntax (39 is "not implemented yet"), 40 to 59 meaning, 60 to 69 the command line and files, 70 to 98 a capacity of the compiler that was exceeded, 99 a fault in the compiler itself, 100 to 139 meaning again (40 to 59 filled up; 120 to 139 are arrays, strings and pointers), and 140 to 159 `asm` blocks and functions; the top of `err.py` has the table. A lexical error is reported at the character it was found at or at the start of its token; any other error at the start of the token that is wrong. For a value of the wrong type or out of range that means:
 
 - operands that do not suit an operator: at the operator;
 - a value that does not suit what it is given to (an assignment, an argument, a `return`, an initial value, a constant's type): at the first token of the value;
@@ -193,6 +193,6 @@ A new error takes the next free number of its group.
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
 
-`lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not.
+`lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not; in stage 2b, once its statements used arrays and pointers, one more (a word in A and X stored into an element whose index needs X).
 
 A snapshot or end-to-end case can import modules that lie beside it, and a line `; defines NAME NAME=NUMBER ...` before its `module` line builds it with those defines. A file called `lib*.lth` is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.

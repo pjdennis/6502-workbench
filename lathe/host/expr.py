@@ -58,28 +58,41 @@ def basic_type(token):
 
 
 def type_spec():
-    """type = typeKw | "^" type. Returns the type. Named types, arrays and records come later."""
-    pointers = 0
-    while lex.tok == lex.T_CARET:
-        pointers += 1
-        lex.next()
+    """type = typeKw | "^" type | "[" constExpr "]" type. Returns the type. Named types and
+    records come later."""
+    mark = typetab.prefix_count
+    while lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET:
+        if lex.tok == lex.T_CARET:
+            lex.next()
+            typetab.prefix(typetab.FORM_POINTER, 0)
+        else:
+            lex.next()
+            line = lex.line
+            col = lex.col
+            n = constant_number()
+            if n == 0:
+                err.position(line, col)
+                err.fatal(err.E_RANGE)
+            lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+            typetab.prefix(typetab.FORM_ARRAY, n)
     t = basic_type(lex.tok)
     if t == typetab.NO_TYPE:
-        if lex.tok == lex.T_NAME or lex.tok == lex.T_LBRACKET or lex.tok == lex.T_RECORD:
+        if lex.tok == lex.T_NAME or lex.tok == lex.T_RECORD or lex.tok == lex.T_FUNC:
             err.fatal(err.E_UNSUPPORTED)
         err.fatal(err.E_TYPE_EXPECTED)
     lex.next()
-    while pointers > 0:
-        t = typetab.pointer_to(t)
-        pointers -= 1
+    return typetab.build(t, mark)
+
+
+def value_type():
+    """The type of a parameter or a result: not an array, which is not a value."""
+    line = lex.line
+    col = lex.col
+    t = type_spec()
+    if typetab.is_array(t):
+        err.position(line, col)
+        err.fatal(err.E_ARRAY_VALUE)
     return t
-
-
-def scalar_type():
-    """The type of a variable, parameter, result or constant: so far one of the basic types."""
-    if lex.tok == lex.T_CARET:
-        err.fatal(err.E_UNSUPPORTED)
-    return type_spec()
 
 
 def new_name(scope):
@@ -117,29 +130,32 @@ def named_symbol():
 # ---- Designators and calls ---------------------------------------------------------------
 
 def builtin(which):
-    """`lo(x)`, `hi(x)` or `sizeof(type)`, after its name."""
+    """`lo(x)`, `hi(x)`, `len(a)` or `sizeof(type)`, after its name."""
     lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
     if which == B_SIZEOF:
         gen.size_of(type_spec())
-    elif which == B_LEN:
-        err.fatal(err.E_UNSUPPORTED)
     else:
         line = lex.line
         col = lex.col
         expression()
         err.position(line, col)
-        gen.part(which)
+        if which == B_LEN:
+            gen.length()
+        else:
+            gen.part(which)
         err.position(lex.line, lex.col)
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 
 
 def designator():
     """designator = name { "." name | "[" expression "]" }. Pushes an operand for what it
-    names. Fields and elements come later."""
+    names. Fields come later."""
     s = named_symbol()
     kind = kernel.sym_kind[s]
     if kind == kernel.K_FUNC:
         gen.function(s)
+    elif kind == kernel.K_CONST and typetab.is_array(kernel.sym_type[s]):
+        gen.table(s)
     elif kind == kernel.K_CONST:
         gen.constant(kernel.sym_type[s], kernel.sym_value[s])
     elif kind == kernel.K_LOCAL:
@@ -148,7 +164,16 @@ def designator():
         gen.variable(s)
     else:
         builtin(kernel.sym_value[s])
-    if lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT:
+    while lex.tok == lex.T_LBRACKET:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        expression()
+        lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+        err.position(line, col)
+        gen.index()
+        err.position(lex.line, lex.col)
+    if lex.tok == lex.T_DOT:
         err.fatal(err.E_UNSUPPORTED)
 
 
@@ -156,7 +181,8 @@ def target(line, col):
     """Check that the newest operand, which the designator at `line`, `col` gave, is a variable
     that can be assigned to."""
     i = reg.depth - 1
-    if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_TEMP != 0:
+    if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_DATA != 0 \
+            or (reg.op_flags[i] & reg.F_TEMP != 0 and reg.op_mode[i] != reg.M_POINTER):
         err.position(line, col)
         err.fatal(err.E_NOT_VAR)
 
@@ -275,10 +301,8 @@ def call_value(line, col):
 
 # ---- Expressions -------------------------------------------------------------------------
 
-def conversion(line, col):
-    """typeKw "(" expression ")"."""
-    t = basic_type(lex.tok)
-    lex.next()
+def conversion(t, line, col):
+    """"(" expression ")" after typeKw, or after "^" type: a conversion to type `t`."""
     lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
     expression()
     err.position(line, col)
@@ -288,8 +312,9 @@ def conversion(line, col):
 
 
 def primary():
-    """primary = number | "(" expression ")" | typeKw "(" expression ")"
-    | designator [ arguments [ "->" designator ] ]. Pushes its operand."""
+    """primary = number | string | "(" expression ")" | typeKw "(" expression ")"
+    | "^" type "(" expression ")" | designator [ arguments [ "->" designator ] ]. Pushes its
+    operand."""
     line = lex.line
     col = lex.col
     if lex.tok == lex.T_NUMBER:
@@ -300,12 +325,19 @@ def primary():
         expression()
         lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
     elif basic_type(lex.tok) != typetab.NO_TYPE:
-        conversion(line, col)
+        t = basic_type(lex.tok)
+        lex.next()
+        conversion(t, line, col)
+    elif lex.tok == lex.T_CARET:
+        conversion(type_spec(), line, col)
     elif lex.tok == lex.T_NAME:
         designator()
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
             call_value(line, col)
-    elif lex.tok == lex.T_STRING or lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET:
+    elif lex.tok == lex.T_STRING:
+        gen.string()
+        lex.next()
+    elif lex.tok == lex.T_LBRACKET:
         err.fatal(err.E_UNSUPPORTED)
     else:
         err.fatal(err.E_EXPR_EXPECTED)
@@ -326,7 +358,13 @@ def factor():
             gen.complement()
         err.position(lex.line, lex.col)
     elif lex.tok == lex.T_ADDRESS:
-        err.fatal(err.E_UNSUPPORTED)
+        lex.next()
+        designator()
+        err.position(line, col)
+        if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
+            err.fatal(err.E_UNSUPPORTED)        # function pointers come later
+        gen.address()
+        err.position(lex.line, lex.col)
     else:
         primary()
 
@@ -490,14 +528,15 @@ def results_expression():
 # ---- Constants ---------------------------------------------------------------------------
 
 def constant(t):
-    """constExpr: an expression that is known now. Unless `t` is typetab.NO_TYPE it must be
-    one a `t` can be given, and takes that type. The constant is left on the stack."""
+    """constExpr: an expression that is known now, a number or an address. Unless `t` is
+    typetab.NO_TYPE it must be one a `t` can be given, and takes that type. The constant is
+    left on the stack."""
     line = lex.line
     col = lex.col
     expression()
     err.position(line, col)
     gen.as_value()
-    if reg.op_kind[reg.depth - 1] != reg.O_CONST:
+    if reg.op_kind[reg.depth - 1] != reg.O_CONST and reg.op_kind[reg.depth - 1] != reg.O_ADDR:
         err.fatal(err.E_NOT_CONST)
     if t != typetab.NO_TYPE:
         reg.assignable(reg.depth - 1, t)
@@ -512,6 +551,8 @@ def constant_number():
     constant(typetab.NO_TYPE)
     i = reg.depth - 1
     err.position(line, col)
+    if reg.op_kind[i] != reg.O_CONST:
+        err.fatal(err.E_NOT_CONST)
     if reg.op_type[i] == typetab.BOOL_TYPE:
         err.fatal(err.E_TYPE)
     if typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= 0x8000:

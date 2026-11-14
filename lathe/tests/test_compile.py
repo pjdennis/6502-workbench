@@ -391,6 +391,40 @@ class InterfaceTest(CompileTest):
             user = self.source('user.lth', 'module user\nimport lib\nvar n: byte\nfunc f()\n  n = lib.%s\nend\n' % name)
             self.assertEqual(support.run_lathec(user, self.out), (1, user + ':5:11: error 40: undefined name\n'))
 
+    def test_arrays_pointers_and_tables_are_in_the_interface(self):
+        self.compile(self.source('lib.lth',
+                                 'module lib\n'
+                                 'pub const T: [2]word = [1, 2]\n'
+                                 'pub var a: [3]byte\n'
+                                 'pub var r: [4]word rows\n'
+                                 'pub var p: ^^byte\n'
+                                 'pub const NOTHING = nil\n'
+                                 'pub func f(q: ^[2]byte): ^int\n'
+                                 '  return nil\n'
+                                 'end\n'))
+        self.assertEqual(self.interface('lib'), b''.join([
+            b'LI\x01', string(b'lib'),
+            b'\x02', string(b't'), b'\x11\x02\x00\x03', b'\x00\x00',     # a table: [2]word
+            b'\x03', string(b'a'), b'\x11\x03\x00\x01', b'\x04',         # an array is never in zero page
+            b'\x03', string(b'r'), b'\x12\x04\x00\x03', b'\x04',         # stored by row
+            b'\x03', string(b'p'), b'\x10\x10\x01', b'\x00',
+            b'\x02', string(b'nothing'), b'\x08', b'\x00\x00',
+            b'\x01', string(b'f'), b'\x00', b'\x01\x10\x11\x02\x00\x01\x00', b'\x01\x10\x04\x04',
+            b'\x00']))
+        self.compile(self.source('user.lth',
+                                 'module user\n'
+                                 'import lib\n'
+                                 'var w: word\n'
+                                 'func g(i: byte)\n'
+                                 '  w = lib.T[i]\n'
+                                 '  lib.a[i] = 1\n'
+                                 '  lib.p = nil\n'
+                                 '  w = word(lib.f(nil))\n'
+                                 'end\n'))
+        syms = [body for kind, body in self.records('user') if kind == SYM]
+        self.assertIn(b'\x03' + string(b'lib.t'), syms)                  # constant data
+        self.assertIn(b'\x02' + string(b'lib.a'), syms)
+
     def test_a_damaged_constant_or_variable_is_error_51(self):
         user = self.source('user.lth', 'module user\nimport lib\n')
         head = b'LI\x01' + string(b'lib')

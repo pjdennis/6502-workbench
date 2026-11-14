@@ -1,6 +1,0 @@
-; error 39 5 8
-module later_element
-var n: byte
-func f()
-  n = n[1]
-end

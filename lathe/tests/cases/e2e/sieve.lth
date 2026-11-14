@@ -1,0 +1,43 @@
+; The sieve of Eratosthenes over a byte array: the primes below 250, ten to a line.
+module sieve
+
+import libout
+
+const LIMIT = 250
+
+var composite: [LIMIT]byte
+
+pub func main()
+  var i: byte
+  var j: word
+  var count: byte = 0
+  i = 0
+  loop
+    composite[i] = 0
+    i += 1
+    if i == LIMIT then
+      break
+    end
+  end
+  i = 2
+  while i < LIMIT do
+    if composite[i] == 0 then
+      libout.dec(i)
+      count += 1
+      if count & 7 == 0 then
+        libout.nl()
+      else
+        libout.space()
+      end
+      j = word(i) + i
+      while j < LIMIT do
+        composite[byte(j)] = 1
+        j += i
+      end
+    end
+    i += 1
+  end
+  libout.nl()
+  libout.dec(count)
+  libout.nl()
+end

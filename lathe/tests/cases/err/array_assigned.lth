@@ -1,0 +1,7 @@
+; error 121 6 7
+module array_assigned
+var a: [4]byte
+var b: [4]byte
+func f()
+  a = b
+end

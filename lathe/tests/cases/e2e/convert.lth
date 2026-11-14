@@ -1,0 +1,100 @@
+; Table-driven conversions: a word to decimal by a table of powers of ten, to any base by a
+; table of digits, and digits spelled out through a table of pointers to strings.
+module convert
+
+import host
+import libout
+
+const DIGITS: [16]byte = "0123456789ABCDEF"
+const POWERS: [5]word = [10000, 1000, 100, 10, 1]
+const NAMES: [10]^byte = ["zero", "one", "two", "three", "four", "five", "six", "seven",
+                          "eight", "nine"]
+
+var text: [17]byte
+
+func print(s: ^byte)
+  var i: byte = 0
+  while s[i] != 0 do
+    host.put_byte(s[i])
+    i += 1
+  end
+end
+
+; n in decimal, without leading zeros, into text
+func decimal(n: word)
+  var place: byte = 0
+  var out: byte = 0
+  var d: byte
+  while place < len(POWERS) do
+    d = 0
+    while n >= POWERS[place] do
+      n -= POWERS[place]
+      d += 1
+    end
+    if d != 0 or out != 0 or place == len(POWERS) - 1 then
+      text[out] = DIGITS[d]
+      out += 1
+    end
+    place += 1
+  end
+  text[out] = 0
+end
+
+; n in a base that is a power of two, given as its shift, into text
+func in_base(n: word, shift: byte)
+  var out: byte = 16
+  var mask: byte
+  var k: byte
+  mask = (byte(1) << shift) - 1
+  text[out] = 0
+  loop
+    out -= 1
+    text[out] = DIGITS[lo(n) & mask]
+    k = shift
+    while k != 0 do
+      n >>= 1
+      k -= 1
+    end
+    if n == 0 then
+      break
+    end
+  end
+  print(@text[out])
+end
+
+func spell(n: word)
+  var i: byte = 0
+  decimal(n)
+  while text[i] != 0 do
+    if i != 0 then
+      libout.char('-')
+    end
+    print(NAMES[text[i] - '0'])
+    i += 1
+  end
+end
+
+func show(n: word)
+  decimal(n)
+  print(@text)
+  libout.space()
+  in_base(n, 4)
+  libout.space()
+  in_base(n, 3)
+  libout.space()
+  in_base(n, 1)
+  libout.space()
+  spell(n)
+  libout.nl()
+end
+
+pub func main()
+  show(0)
+  show(7)
+  show(10)
+  show(255)
+  show(1000)
+  show(4097)
+  show(31415)
+  show(65535)
+end

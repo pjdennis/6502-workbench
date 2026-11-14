@@ -1,0 +1,7 @@
+; error 125 6 10
+module variable_second_index_by_column
+var grid: [4][4]byte
+var j: byte
+func f()
+  grid[1][j] = 1
+end

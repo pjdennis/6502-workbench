@@ -1,0 +1,8 @@
+; error 121 7 5
+module array_argument
+var a: [4]byte
+func g(p: ^byte)
+end
+func f()
+  g(a)
+end

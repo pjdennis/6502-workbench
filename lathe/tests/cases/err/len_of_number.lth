@@ -1,5 +1,5 @@
-; error 39 5 11
-module later_len
+; error 44 5 11
+module len_of_number
 var n: byte
 func f()
   n = len(n)

@@ -1,0 +1,84 @@
+; Pointers: (zp),Y through a pointer that becomes "must be in zero page", copies to a zero page
+; temporary for every other pointer, scaled indexes, pointer arithmetic and comparisons, nil,
+; conversions and addresses (docs/codegen.md, "Operands" and "Never forcing zero page").
+module pointers
+
+import host
+
+var buffer: [32]byte
+var words: [8]word rows
+var p: ^byte
+var far: ^byte nozp
+var table: [4]^byte
+var n: byte
+var w: word
+
+; a byte through a parameter: LDY i / LDA (s),Y; the parameter must be in zero page
+func length(s: ^byte): byte
+  var i: byte = 0
+  while s[i] != 0 do
+    i += 1
+  end
+  return i
+end
+
+; the sum of the code-model example: A holds i, so TAY
+func sum(q: ^byte, count: byte): word
+  var total: word
+  var i: byte
+  total = 0
+  i = 0
+  while i < count do
+    total += q[i]
+    i += 1
+  end
+  return total
+end
+
+; a word through a pointer: the index is doubled, and INY reaches the high byte
+func word_at(q: ^word, i: byte): word
+  return q[i] + q[0]
+end
+
+; a store through a pointer forgets everything but constants
+func stores(q: ^byte)
+  n = 5
+  q[0] = n
+  q[1] = 0
+  n = q[2]
+  q[n] = 7
+end
+
+; pointers that are not in zero page are copied to a zero page temporary first
+func copies(i: byte)
+  n = far[0]
+  n = table[i][1]
+end
+
+; addresses, pointer arithmetic and comparisons
+func arithmetic()
+  p = @buffer
+  p = @buffer[3]
+  p = p + 1
+  p += n
+  w = p - @buffer
+  if p == nil then
+    p = "text"
+  end
+  if p >= @buffer[16] then
+    p = ^byte($C000)
+  end
+  w = word(p)
+end
+
+; a module-level pointer that is dereferenced becomes class 0 too
+func through_module()
+  n = p[n]
+  p[0] += 1
+end
+
+pub func main()
+  host.put_byte(length("abc"))
+  w = sum(@buffer, 4)
+  w = word_at(@words[1], 2)
+end

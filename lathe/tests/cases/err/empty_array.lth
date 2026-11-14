@@ -1,0 +1,3 @@
+; error 43 3 9
+module empty_array
+var a: [0]byte

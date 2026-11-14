@@ -19,8 +19,8 @@ R_MOD = 0x01
 R_IMP = 0x02
 R_SYM = 0x03
 R_VAR = 0x04
-R_DATA = 0x05               # not written yet: constant data
-R_DFIX = 0x06               # not written yet: fix-ups in data
+R_DATA = 0x05
+R_DFIX = 0x06
 R_FUNC = 0x07
 R_SLOT = 0x08
 R_CALL = 0x09
@@ -48,6 +48,8 @@ CALL_POINTER = 2
 NO_OUTER = 0xFFFF
 
 MAX_CALLS = 64
+MAX_TABLE = 2048            # bytes of a constant table being made
+MAX_TABLE_FIXES = 128
 C_DOT = 0x2E
 
 stream = 0
@@ -56,6 +58,13 @@ call_callee = [0] * MAX_CALLS
 call_flags = [0] * MAX_CALLS
 call_outer = [0] * MAX_CALLS
 call_count = 0
+table = bytearray(MAX_TABLE)        # a constant table: its bytes, and its fix-ups, until it ends
+table_fix_offset = [0] * MAX_TABLE_FIXES
+table_fix_kind = [0] * MAX_TABLE_FIXES
+table_fix_symbol = [0] * MAX_TABLE_FIXES
+table_fix_slot = [0] * MAX_TABLE_FIXES
+table_fix_addend = [0] * MAX_TABLE_FIXES
+table_fix_count = 0
 
 
 def init():
@@ -125,6 +134,58 @@ def variable(symbol_number, size, zp_class, weight):
     kernel.put(stream, zp_class)
     kernel.put(stream, weight)
     kernel.put(stream, 0)
+
+
+def data(symbol_number, length):
+    """Begin the constant data `symbol_number`: `length` calls of byte() follow."""
+    begin_record(R_DATA, 2 + length)
+    kernel.put_word(stream, symbol_number)
+
+
+def data_byte(value):
+    kernel.put(stream, value)
+
+
+def table_begin(length):
+    """Start a constant table of `length` bytes, all 0 until they are given."""
+    global table_fix_count
+    if length > MAX_TABLE:
+        err.fatal(err.E_DATA_FULL)
+    for i in range(0, length):
+        table[i] = 0
+    table_fix_count = 0
+
+
+def table_fix(offset, kind, symbol_number, slot, addend):
+    """Byte `offset` of the table is a byte of an address, which the linker fills in."""
+    global table_fix_count
+    if table_fix_count == MAX_TABLE_FIXES:
+        err.fatal(err.E_DATA_FULL)
+    table_fix_offset[table_fix_count] = offset
+    table_fix_kind[table_fix_count] = kind
+    table_fix_symbol[table_fix_count] = symbol_number
+    table_fix_slot[table_fix_count] = slot
+    table_fix_addend[table_fix_count] = addend
+    table_fix_count += 1
+
+
+def table_end(symbol_number, length):
+    """Write the table as the constant data `symbol_number`, with its fix-ups, in order of
+    offset: the table is filled element by element, and by column."""
+    data(symbol_number, length)
+    for i in range(0, length):
+        data_byte(table[i])
+    if table_fix_count == 0:
+        return
+    begin_record(R_DFIX, 8 * table_fix_count)
+    for where in range(0, length):
+        for i in range(0, table_fix_count):
+            if table_fix_offset[i] == where:
+                kernel.put_word(stream, where)
+                kernel.put(stream, table_fix_kind[i])
+                kernel.put_word(stream, table_fix_symbol[i])
+                kernel.put(stream, table_fix_slot[i])
+                kernel.put_word(stream, table_fix_addend[i])
 
 
 def call(callee, flags, outer):

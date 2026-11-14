@@ -10,6 +10,7 @@ listing() ends the function and gives one string for each instruction:
     LDA zp:s0       a zero page instruction with a fix-up
     LDA $D020       a fixed address
     BNE @12         a branch to offset 12; `JMP @12` likewise
+    LDA g2,X        indexed; `LDA (zp:s0),Y` through a pointer
 """
 import os
 import sys
@@ -76,6 +77,12 @@ def decode(own):
             text = '%s #$%02X' % (mnemonic, value)
         else:
             text = '%s $%0*X' % (mnemonic, 2 * (size - 1), value)
+        if mode in (cpu6502.ABSX, cpu6502.ZPX):
+            text += ',X'
+        elif mode in (cpu6502.ABSY, cpu6502.ZPY):
+            text += ',Y'
+        elif mode == cpu6502.INDY:
+            text = '%s (%s),Y' % (mnemonic, text.split(' ', 1)[1])
         lines.append(text)
         at += size
     return lines

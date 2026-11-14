@@ -1,0 +1,8 @@
+; error 125 7 10
+module two_variable_indexes
+var grid: [4][4]byte
+var i: byte
+var j: byte
+func f()
+  grid[i][j] = 1
+end

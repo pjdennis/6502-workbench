@@ -1,0 +1,80 @@
+; Pointer walks over arrays declared `rows`: words of a 300-element array, and four-byte
+; elements reached as a pointer to an array.
+module walk
+
+import libout
+
+var cells: [300]word rows
+var quads: [40][4]byte rows
+
+func fill()
+  var i: word = 0
+  var b: byte = 0
+  while i < 300 do
+    cells[i] = i * 4 + 3
+    i += 1
+  end
+  while b < 40 do
+    quads[b][0] = b
+    quads[b][1] = b + b
+    quads[b][2] = 255 - b
+    quads[b][3] = b ^ $55
+    b += 1
+  end
+end
+
+; the sum of the words from p up to but not including stop
+func sum(p: ^word, stop: ^word): word
+  var total: word = 0
+  while p < stop do
+    total += p[0]
+    p += sizeof(word)
+  end
+  return total
+end
+
+; the sum of byte k of each element from p on, `count` of them
+func column(p: ^[4]byte, k: byte, count: byte): word
+  var total: word = 0
+  while count != 0 do
+    total += p[0][k]
+    p += sizeof([4]byte)
+    count -= 1
+  end
+  return total
+end
+
+; every second word, read through a pointer with a variable index
+func evens(p: ^word): word
+  var total: word = 0
+  var i: byte = 0
+  while i < 100 do
+    total += p[i]
+    i += 2
+  end
+  return total
+end
+
+pub func main()
+  var k: byte = 0
+  fill()
+  libout.hexw(sum(@cells[0], @cells[10]))
+  libout.space()
+  libout.hexw(sum(@cells[100], @cells[299]))
+  libout.space()
+  libout.hexw(sum(@cells[299], @cells[299]))
+  libout.space()
+  libout.hexw(evens(@cells[200]))
+  libout.nl()
+  while k < 4 do
+    libout.hexw(column(@quads, k, 40))
+    libout.space()
+    libout.hexw(column(@quads + 10 * sizeof([4]byte), k, 5))
+    libout.nl()
+    k += 1
+  end
+  libout.hexw(cells[299])
+  libout.space()
+  libout.hex(quads[39][3])
+  libout.nl()
+end

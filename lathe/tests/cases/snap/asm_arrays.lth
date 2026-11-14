@@ -1,0 +1,24 @@
+; In an asm block, an array or a constant table is its address (docs/language.md, "Inline
+; assembly"): elements are offsets from it, and indexed modes work as written.
+module asm_arrays
+
+const DIGITS: [16]byte = "0123456789ABCDEF"
+
+var buffer: [8]byte
+var words: [4]word
+
+func copy_digits(): byte
+  var local: [4]byte
+  asm
+    LDX #7
+.loop
+    LDA DIGITS,X
+    STA buffer,X
+    DEX
+    BPL .loop
+    LDA DIGITS+15
+    STA words+4
+    STA local+3
+  end
+  return local[3]
+end

@@ -16,6 +16,7 @@ import gen  # noqa: E402
 import kernel  # noqa: E402
 import out  # noqa: E402
 import reg  # noqa: E402
+import typetab  # noqa: E402
 
 SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF = 3, 4, 7, 8, 9, 10, 11, 12
 
@@ -413,10 +414,10 @@ class InitialValuesTest(support.GenTest):
 
     def test_the_function_stores_each_value_and_loads_equal_ones_once(self):
         gen.function_end(0)
-        gen.initial(self.variable_with_symbol(BYTE, b'a'), 0)
-        gen.initial(self.variable_with_symbol(WORD, b'w'), 0)
-        gen.initial(self.variable_with_symbol(BYTE, b'z', kernel.SF_ZP), 7)
-        gen.initial(self.variable_with_symbol(BYTE, b'port', kernel.SF_AT, 0xD020), 7)
+        gen.initial(self.variable_with_symbol(BYTE, b'a'), kernel.NO_OBJ, 0, 0)
+        gen.initial(self.variable_with_symbol(WORD, b'w'), kernel.NO_OBJ, 0, 0)
+        gen.initial(self.variable_with_symbol(BYTE, b'z', kernel.SF_ZP), kernel.NO_OBJ, 0, 7)
+        gen.initial(self.variable_with_symbol(BYTE, b'port', kernel.SF_AT, 0xD020), kernel.NO_OBJ, 0, 7)
         symbol = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init'))
         gen.init_function(symbol)
         self.assertEqual(support.decode(symbol), ['LDA #$00', 'STA g1', 'STA g2', 'STA g2+1', 'LDA #$07',
@@ -425,10 +426,10 @@ class InitialValuesTest(support.GenTest):
 
     def test_a_later_function_calls_the_one_written_before(self):
         gen.function_end(0)
-        gen.initial(self.variable_with_symbol(BYTE, b'a'), 1)
+        gen.initial(self.variable_with_symbol(BYTE, b'a'), kernel.NO_OBJ, 0, 1)
         first = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init1'))
         gen.init_function(first)
-        gen.initial(self.variable_with_symbol(BYTE, b'b'), 2)
+        gen.initial(self.variable_with_symbol(BYTE, b'b'), kernel.NO_OBJ, 0, 2)
         last = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init'))
         gen.init_function(last)
         self.assertEqual(support.decode(last), ['JSR g%d' % first, 'LDA #$02', 'STA g3', 'RTS'])
@@ -439,8 +440,93 @@ class InitialValuesTest(support.GenTest):
 
         def fill():
             for _ in range(gen.MAX_INITS + 1):
-                gen.initial(v, 0)
+                gen.initial(v, kernel.NO_OBJ, 0, 0)
         self.assertFatal(err.E_INITS_FULL, fill)
+
+
+class ElementsTest(support.GenTest):
+    """Indexing, addresses and pointer arithmetic (docs/codegen.md, "Operands")."""
+
+    def array(self, t, n, text=b'a', rows=False):
+        """Push a module-level array variable of n elements of type t."""
+        s = self.variable(typetab.array_of(t, n, rows), text)
+        gen.variable(s)
+        return s
+
+    def test_a_constant_index_is_added_to_the_address(self):
+        self.local(WORD)
+        self.array(WORD, 10)
+        gen.constant(NUMBER, 3)
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA g1+3', 'STA s0', 'LDA g1+13', 'STA s0+1', 'RTS'])
+
+    def test_a_variable_index_and_a_constant_added_to_it(self):
+        self.local(BYTE, b'n')
+        self.array(BYTE, 10)
+        self.local(BYTE, b'i')
+        gen.constant(NUMBER, 2)
+        gen.binary(fold.SUB)
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['LDX s1', 'LDA g1+65534,X', 'STA s0', 'RTS'])
+
+    def test_a_word_index_on_a_small_array_is_error_120(self):
+        self.array(BYTE, 10)
+        self.local(WORD)
+        self.assertFatal(err.E_BYTE_INDEX, gen.index)
+
+    def test_a_big_array_is_reached_through_a_pointer_in_zero_page(self):
+        self.local(BYTE, b'n')
+        self.array(BYTE, 1000)
+        self.local(WORD, b'i')
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['CLC', 'LDA s1', 'ADC #<g1', 'STA s2', 'LDA s1+1', 'ADC #>g1',
+                                          'STA s2+1', 'LDY #$00', 'LDA (zp:s2),Y', 'STA s0', 'RTS'])
+        self.assertEqual(reg.slot_class[fbuf.FIRST_TEMP], reg.CLASS_ZP)
+
+    def test_a_pointer_index_is_scaled_by_the_element_size(self):
+        self.local(WORD, b'w')
+        self.local(typetab.pointer_to(WORD), b'p')
+        self.local(BYTE, b'i')
+        gen.index()
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA s2', 'ASL', 'STA s3', 'TAY', 'LDA (zp:s1),Y', 'STA s0', 'INY',
+                                          'LDA (zp:s1),Y', 'STA s0+1', 'RTS'])
+
+    def test_the_address_of_an_array_is_a_pointer_to_its_first_element(self):
+        self.array(BYTE, 10)
+        gen.address()
+        self.assertEqual((reg.op_kind[0], reg.op_type[0]), (reg.O_ADDR, typetab.pointer_to(BYTE)))
+
+    def test_a_column_stored_array_has_no_address(self):
+        self.array(WORD, 10)
+        self.assertFatal(err.E_NO_ADDRESS, gen.address)
+
+    def test_a_pointer_plus_a_number_is_a_pointer_and_two_pointers_differ_by_a_word(self):
+        p = typetab.pointer_to(BYTE)
+        self.local(p, b'p')
+        gen.constant(NUMBER, 1)
+        gen.binary(fold.ADD)
+        self.assertEqual(gen.pend_type, p)
+        gen.settle()
+        self.local(p, b'q')
+        gen.binary(fold.SUB)
+        self.assertEqual(gen.pend_type, WORD)
+
+    def test_a_pointer_cannot_be_multiplied(self):
+        self.local(typetab.pointer_to(BYTE))
+        gen.constant(NUMBER, 2)
+        self.assertFatal(err.E_TYPE, lambda: gen.binary(fold.MUL))
+
+    def test_an_array_is_copied_a_page_at_a_time_then_counting_down(self):
+        s = self.variable(typetab.array_of(BYTE, 300, False), b'big')
+        gen.variable(s)
+        gen.copy_array(9, 300)
+        reg.pop()
+        self.assertEqual(self.listing(), ['LDX #$00', 'LDA g9,X', 'STA g1,X', 'INX', 'BNE @2', 'LDX #$2C',
+                                          'LDA g9+255,X', 'STA g1+255,X', 'DEX', 'BNE @13', 'RTS'])
 
 
 if __name__ == '__main__':

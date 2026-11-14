@@ -1,0 +1,4 @@
+; error 121 3 11
+module array_result
+func f(): [4]byte
+end

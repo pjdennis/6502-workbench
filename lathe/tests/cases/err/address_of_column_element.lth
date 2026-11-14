@@ -1,0 +1,8 @@
+; error 122 7 7
+module address_of_column_element
+var w: [4]word
+var p: ^word
+var i: byte
+func f()
+  p = @w[i]
+end

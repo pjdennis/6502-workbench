@@ -1,0 +1,46 @@
+; Arrays the index registers cannot reach: `rows` arrays keep each element's bytes together and
+; scale the index by shifts, and a byte array of more than 256 elements takes a word index;
+; both reach the element through a zero page pointer temporary, then (zp),Y.
+module by_rows
+
+var big: [1000]byte
+var cells: [300]word rows
+var small: [20]word rows
+var lines: [50][8]byte rows
+var screen: [1000]byte at $0400
+var i: word
+var k: byte
+var j: byte
+var v: word
+
+; base + index in a zero page temporary, then (zp),Y with Y = 0
+func bytes()
+  big[i] = big[i + 1]
+  big[999] = 1
+  screen[i] = big[k]
+end
+
+; the index is doubled for words; INY reaches the high byte
+func words()
+  v = cells[i]
+  cells[k] += 1
+  v = small[k]
+end
+
+; the first index makes the pointer, the second is Y
+func line_of_bytes()
+  lines[k][j] = lines[k][7]
+  lines[3][j] = 0
+end
+
+; a pointer walk over a rows array
+func walk(): word
+  var p: ^word
+  var total: word = 0
+  p = @cells[0]
+  while p <= @cells[299] do
+    total += p[0]
+    p += 2
+  end
+  return total
+end

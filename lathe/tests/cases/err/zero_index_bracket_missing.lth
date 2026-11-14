@@ -1,0 +1,6 @@
+; error 20 5 7
+module zero_index_bracket_missing
+var a: [4]byte
+func f()
+  a[1 = 2
+end

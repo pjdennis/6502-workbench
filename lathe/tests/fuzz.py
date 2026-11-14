@@ -12,8 +12,9 @@ be made again), each of SIZE statements.
   shifts, conversions, comparisons, `and` `or` `not`, calls in arguments - assigned, returned,
   returned with a status or used as a test. It prints each value.
 - `stmt`: a sequence of assignments, compound assignments, halves of words, `if`, `while`,
-  `loop ... until` and calls on seven variables, which prints their final values. This is
-  aimed at what the compiler remembers about the registers and the flags.
+  `loop ... until` and calls on seven variables and the elements of three arrays (bytes, words
+  by column, words by row) read and written directly and through pointers, which prints their
+  final values. This is aimed at what the compiler remembers about the registers and the flags.
 
 The true results come from the same program worked out in Python while it is generated. A
 program that prints something else, or does not compile, is kept in a directory that is
@@ -302,12 +303,45 @@ class Statements:
     def __init__(self, rng):
         self.r = rng
 
+    def index(self):
+        """An index of one of the arrays, which have 8 elements: (lathe, python)."""
+        r = self.r
+        k = r.random()
+        if k < 0.3:
+            n = str(r.randrange(0, 8))
+            return n, n
+        if k < 0.5:
+            c = r.choice(CV)
+            return c, c
+        if k < 0.65:
+            c = r.choice(CV)
+            n = r.randrange(1, 4)
+            return '%s + %d' % (c, n), '%s + %d' % (c, n)
+        v = '(%s & 7)' % r.choice(BV)
+        return v, v
+
+    def element(self, word):
+        """An element: (lathe, python)."""
+        i, pi = self.index()
+        if word:
+            name = self.r.choice(['aw', 'ar', 'pw'])
+            return '%s[%s]' % (name, i), '%s[%s]' % ({'pw': 'ar'}.get(name, name), pi)
+        name = self.r.choice(['ab', 'pb'])
+        return '%s[%s]' % (name, i), 'ab[%s]' % pi
+
     def bleaf(self):
         r = self.r
         k = r.random()
-        if k < 0.55:
+        if k < 0.45:
             v = r.choice(BV)
             return v, v
+        if k < 0.55:
+            if r.random() < 0.6:
+                return self.element(False)
+            x, px = self.element(True)
+            if r.random() < 0.5:
+                return 'lo(%s)' % x, '(%s & 255)' % px
+            return 'hi(%s)' % x, '(%s >> 8)' % px
         if k < 0.7:
             w = r.choice(WV)
             if r.random() < 0.5:
@@ -342,9 +376,12 @@ class Statements:
     def wleaf(self):
         r = self.r
         k = r.random()
-        if k < 0.6:
+        if k < 0.5:
             v = r.choice(WV)
             return v, v, True
+        if k < 0.6:
+            x, px = self.element(True)
+            return x, px, True
         if k < 0.8:
             v = r.choice(BV)
             return v, v, False          # a byte, widened
@@ -393,15 +430,36 @@ class Statements:
         ppad = '    ' * (ind - 1)
         kind = r.random()
         if kind < 0.22:
+            d = pd = r.choice(BV)
+            if r.random() < 0.3:
+                d, pd = self.element(False)
+            x, px = self.bexpr(r.randrange(0, 3))
+            lathe.append('%s%s = %s\n' % (pad, d, x))
+            py.append('%s%s = %s\n' % (ppad, pd, px))
+        elif kind < 0.30:
+            d, pd = self.element(r.random() < 0.5)
+            op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
+            mask = 65535 if pd.startswith('a') and not pd.startswith('ab') else 255
+            if mask == 255:
+                x, px = self.bleaf()
+            else:
+                x, px, _ = self.wleaf()
+            if r.random() < 0.4:
+                x = px = '1'
+            lathe.append('%s%s %s= %s\n' % (pad, d, op, x))
+            py.append('%s%s = (%s %s %s) & %d\n' % (ppad, pd, pd, op, px, mask))
+        elif kind < 0.33:
             d = r.choice(BV)
             x, px = self.bexpr(r.randrange(0, 3))
             lathe.append('%s%s = %s\n' % (pad, d, x))
             py.append('%s%s = %s\n' % (ppad, d, px))
         elif kind < 0.40:
-            d = r.choice(WV)
+            d = pd = r.choice(WV)
+            if r.random() < 0.3:
+                d, pd = self.element(True)
             x, px, _ = self.wexpr(r.randrange(0, 3))
             lathe.append('%s%s = %s\n' % (pad, d, x))
-            py.append('%s%s = %s\n' % (ppad, d, px))
+            py.append('%s%s = %s\n' % (ppad, pd, px))
         elif kind < 0.55:
             d = r.choice(BV)
             op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
@@ -481,6 +539,11 @@ var w1: word = 65535
 var w2: word = 0
 var c0: byte
 var c1: byte
+var ab: [8]byte = [1, 2, 3, 4, 250, 251, 252, 253]
+var aw: [8]word = [0, 1, 255, 256, 32767, 32768, 65534, 65535]
+var ar: [8]word rows = [7, 300, 0, 65535, 1, 2, 3, 4]
+var pb: ^byte = @ab
+var pw: ^word = @ar
 func digit(n: byte)
   if n < 10 then
     host.put_byte('0' + n)
@@ -515,10 +578,13 @@ def statement_program(seed, count):
     lathe, py = [], []
     for _ in range(count):
         g.stmt(2, 1, lathe, py, 0)
-    tail = ''.join('  out(%s)\n' % v for v in BV + WV) + 'end\n'
-    env = dict(b0=3, b1=200, b2=0, b3=255, w0=300, w1=65535, w2=0, c0=0, c1=0)
+    shown = BV + WV + ['%s[%d]' % (a, i) for a in ('ab', 'aw', 'ar') for i in range(8)]
+    tail = ''.join('  out(%s)\n' % v for v in shown) + 'end\n'
+    env = dict(b0=3, b1=200, b2=0, b3=255, w0=300, w1=65535, w2=0, c0=0, c1=0,
+               ab=[1, 2, 3, 4, 250, 251, 252, 253], aw=[0, 1, 255, 256, 32767, 32768, 65534, 65535],
+               ar=[7, 300, 0, 65535, 1, 2, 3, 4])
     exec(''.join(py), {}, env)
-    want = ''.join('%04X\n' % env[v] for v in BV + WV)
+    want = ''.join('%04X\n' % eval(v, {}, env) for v in shown)
     return STATEMENT_HEAD + ''.join(lathe) + tail, want
 
 

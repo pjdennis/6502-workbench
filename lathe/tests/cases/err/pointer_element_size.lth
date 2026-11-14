@@ -1,0 +1,7 @@
+; error 124 6 4
+module pointer_element_size
+var p: ^[3]byte
+var i: byte
+func f()
+  p[i][0] = 1
+end

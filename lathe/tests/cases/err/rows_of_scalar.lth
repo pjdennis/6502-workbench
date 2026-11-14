@@ -1,0 +1,3 @@
+; error 44 3 8
+module rows_of_scalar
+var n: byte rows

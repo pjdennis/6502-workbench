@@ -100,6 +100,7 @@ E_PATH_LONG = 83
 E_DIRS_FULL = 84
 E_SLOTS_FULL = 85
 E_INITS_FULL = 86
+E_DATA_FULL = 87
 E_INTERNAL = 99
 
 # Meaning, continued (40 to 59 are full)
@@ -112,6 +113,16 @@ E_DIRECTIVE = 114
 E_NO_IF = 115
 E_IF_OPEN = 116
 E_IF_DEEP = 117
+
+# Arrays, strings and pointers
+E_BYTE_INDEX = 120
+E_ARRAY_VALUE = 121
+E_NO_ADDRESS = 122
+E_NEEDS_ROWS = 123
+E_ELEMENT_SIZE = 124
+E_TWO_INDEXES = 125
+E_TOO_MANY = 126
+E_NOT_INDEXED = 127
 
 # asm blocks and asm functions
 E_ASM_BRANCH = 140
@@ -192,6 +203,7 @@ MESSAGES = (
     b"84 too many directories\n"
     b"85 too many variables in one function\n"
     b"86 too many initial values\n"
+    b"87 too much constant data in one table\n"
     b"99 compiler error\n"
     b"100 a call of this function inside its own arguments: use a variable\n"
     b"110 \"to\" or \"downto\" expected\n"
@@ -202,6 +214,14 @@ MESSAGES = (
     b"115 #else or #end without its #if\n"
     b"116 #if without #end\n"
     b"117 #if nested too deeply\n"
+    b"120 an array of at most 256 elements, and a pointer, take a byte index\n"
+    b"121 an array is not a value: use a pointer to it, or copy it with a loop\n"
+    b"122 has no address: not a variable, or an element of an array stored by column\n"
+    b"123 an array of more than 256 elements larger than a byte must be declared rows\n"
+    b"124 element size must be a power of two here (1, 2, 4 or 8 through a pointer)\n"
+    b"125 only one index can be a variable, and only the first unless the array is declared rows\n"
+    b"126 more values than the array has elements\n"
+    b"127 not an array or a pointer\n"
     b"140 a branch must go to a label of this asm block\n"
     b"141 a label of an asm block can only be the target of a branch or JMP\n"
     b"142 label not defined in this asm block\n"

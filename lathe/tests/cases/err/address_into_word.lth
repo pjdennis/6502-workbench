@@ -1,5 +1,5 @@
-; error 39 6 7
-module later_address_of
+; error 44 6 7
+module address_into_word
 var n: byte
 var w: word
 func f()

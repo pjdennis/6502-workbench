@@ -1,0 +1,6 @@
+; error 44 5 7
+module pointer_assigned_number
+var p: ^byte
+func f()
+  p = 0
+end

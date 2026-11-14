@@ -1,5 +1,5 @@
-; error 39 5 17
-module later_string
+; error 44 5 17
+module string_into_byte
 import host
 pub func main()
   host.put_byte("x")

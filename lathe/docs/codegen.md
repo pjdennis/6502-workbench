@@ -24,6 +24,10 @@ Rules for building them:
 - **Computed index.** If the index is not a constant or a plain variable, it is evaluated and stored in a byte temporary, which then serves as the index variable. A constant added to or subtracted from a variable index is folded into the base: `a[i + 1]` is `LDX i` / `LDA a+1,X`.
 - **Pointers.** The pointer of a Target must be a zero page variable. A local or module-level pointer variable that is dereferenced becomes "must be in zero page". Any other pointer value (a field, an element, a call result, a variable of another module not declared `zp`) is first copied to a zero page temporary.
 - **Arrays use X, pointers use Y.** Absolute,X exists for every instruction that takes memory, including `INC` and `ASL`; `(zp),Y` is the only practical indirect form.
+- **One description for all three.** An Element and a Target are Variables with a mode (absolute,X or (zp),Y) and an index, which is itself a constant or a byte Variable. Byte *k* of a Variable is at its offset plus *k* times a stride: 1, or *N* for an element of an array stored by column. A constant index adds to the offset (for a Target, to the offset added to Y), so `grid[1][2]` and `hi(w[i])` are found the same way.
+- **Which index register.** X, except for `LDX`, which has only absolute,Y: a word element goes to A and X as `LDX i` / `LDA a,X` / `LDY i` / `LDX a+N,Y`. A word in A and X that is stored in an element goes through a temporary, because the element's index needs X. Only A is loaded from or stored through a pointer; `INC`, `DEC` and the shifts of what a pointer points at are done in A (`INC` as `CLC` / `ADC #1`). Byte *k* of a Target with a variable index is `LDY i` and *k* `INY`s.
+- **Big arrays.** A variable index into a byte array of more than 256 elements, or into a `rows` array of elements larger than a byte, is shifted by the element size and added to the array's address, in a word temporary that becomes "must be in zero page"; the element is then a Target with Y = 0. A constant added to such an index is folded into the address as for small arrays.
+- **Address.** `@x` is an Address, whose bytes are immediates with a low or high byte fix-up (`LDA #<x+3`). `@` of an element with a variable index adds the index to the Address, in the usual way.
 
 ## Never forcing zero page
 
@@ -122,6 +126,7 @@ For a call between `recursive` functions the caller's frame is pushed first, the
 - After a load or store, the compiler remembers that A, X or Y holds a given constant or a copy of a given Variable, and that the N and Z flags reflect A.
 - A load of what a register already holds is skipped. If another register holds it, a transfer (`TAX`, `TAY`, `TXA`, `TYA`) is used.
 - A store to a variable forgets every register that held a copy of a variable that might be the same memory: the same variable at an overlapping offset, any Element of the same array, and, after a store through a pointer, everything except constants.
+- What an Element or a Target holds is never remembered, but its index is: `a[i] = b[i]` loads X once, and an index that A holds is moved by `TAX` or `TAY`.
 - Everything is forgotten at a label and at a call.
 
 ## Weights
@@ -131,6 +136,8 @@ Every use of a slot or module-level variable in an instruction adds to its weigh
 ## Initial values
 
 A module-level or `static` variable with an initialiser is recorded as it is declared (the variable and its constant value, or the constant data to copy for an array). At the end of the module the compiler writes the function `module.$init` from that list: `LDA #` / `STA` for scalars, with the usual register memory so that equal values are loaded once, and a copy loop from constant data for arrays. If the list fills up, the compiler writes what it has as `module.$init` part functions and chains them.
+
+The copy loop moves whole pages with `LDX #0` / `LDA data,X` / `STA var,X` (one pair per page) / `INX` / `BNE`, then the rest with `LDX #n` / `LDA data+p-1,X` / `STA var+p-1,X` / `DEX` / `BNE`. A local array with an initialiser gets the same loop on every entry to its function. The constant data is a `DATA` record laid out as the array is (by column if its elements are larger than a byte), and so is a constant table: `DFIX` entries fill in the elements that are addresses.
 
 ## Naming
 

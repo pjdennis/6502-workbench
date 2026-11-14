@@ -1,6 +1,0 @@
-; error 39 5 7
-module later_pointer_conversion
-var n: word
-func f()
-  n = ^byte(n)
-end

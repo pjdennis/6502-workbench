@@ -38,21 +38,36 @@ O_A = 4                 # a one-byte value that is in A
 O_AX = 5                # a two-byte value in A (low) and X (high)
 O_COND = 6              # a bool in the flags. op_value: the opcode of the branch taken when it
 #                         is true; op_true, op_false: labels that parts of it already branch to
+O_ADDR = 7              # an address: op_symbol, op_slot and op_value as for O_VAR. Byte k is
+#                         an immediate with a fix-up for its low or high byte
+
+# How a memory operand (O_VAR) is reached: its mode, and its index, which is the description
+# at entry i + INDEX (a constant or a byte variable in memory). Byte k of an operand is at
+# op_value + k * op_stride: an element of an array stored by column has its bytes N apart.
+M_DIRECT = 0            # absolute, or zero page when known
+M_INDEXED = 1           # an array element: the index in X (in Y for LDX), then absolute,X
+M_POINTER = 2           # what a pointer points at: op_symbol and op_slot are the pointer, in zero
+#                         page; Y is the index plus op_value + k * op_stride, then (zp),Y
 
 F_TEMP = 1              # the memory is a temporary, free again when the operand is popped
 F_ZP = 2                # the memory is known to be in zero page
+F_DATA = 8              # constant data: it cannot be assigned to (4 is cond.F_COMPARED)
 
-op_kind = [0] * (MAX_OPERANDS + 1)      # one more than the stack: swap() needs a spare
-op_type = [0] * (MAX_OPERANDS + 1)
-op_size = [0] * (MAX_OPERANDS + 1)      # bytes it really has: a byte widened to a word has 1,
+INDEX = MAX_OPERANDS + 1                # entry i + INDEX describes the index of operand i
+ENTRIES = 2 * INDEX                     # one more than the stack, for swap(), and their indexes
+op_kind = [0] * ENTRIES
+op_type = [0] * ENTRIES
+op_size = [0] * ENTRIES                 # bytes it really has: a byte widened to a word has 1,
 #                                         and the bytes above read as 0
-op_value = [0] * (MAX_OPERANDS + 1)
-op_symbol = [0] * (MAX_OPERANDS + 1)
-op_slot = [0] * (MAX_OPERANDS + 1)
-op_flags = [0] * (MAX_OPERANDS + 1)
-op_var = [0] * (MAX_OPERANDS + 1)       # the kernel symbol whose weight a use adds to, or NO_SYM
-op_true = [0] * (MAX_OPERANDS + 1)
-op_false = [0] * (MAX_OPERANDS + 1)
+op_value = [0] * ENTRIES
+op_symbol = [0] * ENTRIES
+op_slot = [0] * ENTRIES
+op_flags = [0] * ENTRIES
+op_var = [0] * ENTRIES                  # the kernel symbol whose weight a use adds to, or NO_SYM
+op_true = [0] * ENTRIES
+op_false = [0] * ENTRIES
+op_mode = [0] * ENTRIES
+op_stride = [0] * ENTRIES
 depth = 0               # operands on the stack; the newest is depth - 1
 owner = NONE            # the operand that is O_A or O_AX, if there is one
 
@@ -120,6 +135,10 @@ OP_CLC = 0x18
 OP_SEC = 0x38
 OP_DEX = 0xCA
 OP_INX = 0xE8
+OP_INY = 0xC8
+OP_LDX = 0xAE
+INDEXED_FORM = 0x10             # absolute,X (absolute,Y for LDX) is the absolute form + this
+POINTER_FORM = 4                # (zp),Y is the absolute form + this
 LOAD_ABSOLUTE = b"\xAD\xAE\xAC"                  # LDA, LDX, LDY
 LOAD_IMMEDIATE = b"\xA9\xA2\xA0"
 STORE_ABSOLUTE = b"\x8D\x8E\x8C"                 # STA, STX, STY
@@ -171,6 +190,9 @@ def describe(i, kind, t):
     op_var[i] = kernel.NO_SYM
     op_true[i] = NONE
     op_false[i] = NONE
+    op_mode[i] = M_DIRECT
+    op_stride[i] = 1
+    op_kind[i + INDEX] = 0
 
 
 def push_memory(t, symbol, slot, value, more, variable):
@@ -203,20 +225,26 @@ def push_register(t):
 
 
 def pop():
-    """Take the newest operand off the stack. Its temporary, if it has one, is free again."""
+    """Take the newest operand off the stack. Its temporaries, if it has any, are free again."""
     global depth, owner
     depth -= 1
     if owner == depth:
         owner = NONE
-    if op_flags[depth] & F_TEMP != 0:
-        slot_busy[op_slot[depth]] = False
+    free(depth)
+
+
+def free(i):
+    """The temporaries of operand `i`, its own and its index's, are free again."""
+    if op_flags[i] & F_TEMP != 0:
+        slot_busy[op_slot[i]] = False
+    if op_kind[i + INDEX] == O_VAR and op_flags[i + INDEX] & F_TEMP != 0:
+        slot_busy[op_slot[i + INDEX]] = False
 
 
 def become(i, kind, t):
     """Operand `i` is from now on of this kind and type: its value has been moved."""
     global owner
-    if op_flags[i] & F_TEMP != 0:
-        slot_busy[op_slot[i]] = False
+    free(i)
     if owner == i:
         owner = NONE
     describe(i, kind, t)
@@ -225,6 +253,12 @@ def become(i, kind, t):
 
 
 def copy(source, target):
+    """Entry `target` describes what entry `source` does, index and all."""
+    copy_entry(source, target)
+    copy_entry(source + INDEX, target + INDEX)
+
+
+def copy_entry(source, target):
     op_kind[target] = op_kind[source]
     op_type[target] = op_type[source]
     op_size[target] = op_size[source]
@@ -235,6 +269,8 @@ def copy(source, target):
     op_var[target] = op_var[source]
     op_true[target] = op_true[source]
     op_false[target] = op_false[source]
+    op_mode[target] = op_mode[source]
+    op_stride[target] = op_stride[source]
 
 
 def swap():
@@ -264,15 +300,36 @@ def duplicate(i):
     if depth == MAX_OPERANDS:
         err.fatal(err.E_OPERANDS_FULL)
     copy(i, depth)
-    op_flags[depth] = op_flags[depth] & F_ZP
+    op_flags[depth] = op_flags[depth] & ~F_TEMP
+    op_flags[depth + INDEX] = op_flags[depth + INDEX] & ~F_TEMP
     depth += 1
 
 
 def keep(i):
-    """Add the operand described at entry `i`, which is at or above the top of the stack."""
+    """Add the operand described at entry `i`, which is at or above the top of the stack, or
+    is an index (whose temporary, if it has one, the new operand takes over)."""
     global depth
-    copy(i, depth)
+    if depth == MAX_OPERANDS:
+        err.fatal(err.E_OPERANDS_FULL)
+    copy_entry(i, depth)
+    op_kind[depth + INDEX] = 0
+    if i >= INDEX:
+        op_kind[i] = 0
     depth += 1
+
+
+def take_index(i):
+    """The newest operand, a constant or a byte in memory, becomes the index of operand `i`
+    and leaves the stack."""
+    global depth
+    depth -= 1
+    copy_entry(depth, i + INDEX)
+
+
+def offset(i, k):
+    """The offset of byte `k` of memory operand `i` from its fix-up or address; for one reached
+    through a pointer, the offset added to the index in Y."""
+    return (op_value[i] + k * op_stride[i]) & 0xFFFF
 
 
 def in_registers(i):
@@ -292,8 +349,21 @@ def const_byte(i, k):
 
 def same_place(i, j):
     """True if operands `i` and `j` are the same memory."""
+    return same_entry(i, j) and op_mode[i] == op_mode[j] and op_stride[i] == op_stride[j] \
+        and (op_mode[i] == M_DIRECT or same_entry(i + INDEX, j + INDEX))
+
+
+def same_entry(i, j):
+    """True if entries `i` and `j` are the same memory, or the same constant."""
+    if op_kind[i] == O_CONST:
+        return op_kind[j] == O_CONST and op_value[i] == op_value[j]
     return op_kind[i] == O_VAR and op_kind[j] == O_VAR and op_symbol[i] == op_symbol[j] \
         and op_slot[i] == op_slot[j] and op_value[i] == op_value[j]
+
+
+def is_direct(i):
+    """True unless operand `i` is memory reached through an index register."""
+    return op_kind[i] != O_VAR or op_mode[i] == M_DIRECT
 
 
 # ---- The frame ---------------------------------------------------------------------------
@@ -407,9 +477,69 @@ def spill(i):
     op_symbol[i] = own
     op_slot[i] = temp(size)
     op_flags[i] = F_TEMP
-    store(A, i, 0)
+    store_direct(A, i, 0)
     if high:
-        store(X, i, 1)
+        store_direct(X, i, 1)
+
+
+def take(i):
+    """If operand `i` is in an element or where a pointer points, load it into A, or A and X.
+    The index of an element is in X, so its high byte is loaded last, by Y."""
+    if is_direct(i):
+        return
+    release(i)
+    kind = O_A
+    if op_size[i] == 2:
+        kind = O_AX
+    if kind == O_AX and op_mode[i] == M_POINTER:
+        load(X, i, 1)
+    load(A, i, 0)
+    if kind == O_AX and op_mode[i] == M_INDEXED:
+        load(X, i, 1)
+    become(i, kind, op_type[i])
+
+
+def into_memory(i):
+    """Make the byte operand `i`, which is not a constant, a variable that needs no index."""
+    take(i)
+    if in_registers(i):
+        spill(i)
+
+
+def apart(i, j):
+    """Operand `i` is used with operand `j`: if `i` is in A and X and `j` an element, whose
+    index needs X, store `i` in a temporary first."""
+    if op_kind[i] == O_AX and op_kind[j] == O_VAR and op_mode[j] == M_INDEXED:
+        spill(i)
+
+
+def zero_page(i):
+    """Operand `i` is a temporary or a slot of this function, which must be in zero page."""
+    slot_class[op_slot[i]] = CLASS_ZP
+    op_flags[i] = op_flags[i] | F_ZP
+
+
+def dereferenced(i):
+    """Operand `i`, a pointer, is to be used through (zp),Y. True if it can be as it is: a
+    variable of this module or a slot of this function, which becomes "must be in zero page"
+    unless it was declared `nozp`, or another module's variable declared `zp`."""
+    if op_kind[i] != O_VAR or op_mode[i] != M_DIRECT or op_value[i] != 0 \
+            or op_symbol[i] == kernel.NO_OBJ:
+        return False
+    if op_flags[i] & F_ZP != 0:
+        return True
+    s = op_var[i]
+    if op_symbol[i] == own and op_slot[i] != fbuf.NO_SLOT:
+        if slot_class[op_slot[i]] == CLASS_NOT_ZP:
+            return False
+        zero_page(i)
+        return True
+    if s == kernel.NO_SYM or kernel.sym_flags[s] & kernel.SF_NOZP != 0 \
+            or (kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL):
+        return False
+    kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
+    op_flags[i] = op_flags[i] | F_ZP
+    return True
 
 
 def clobber():
@@ -439,9 +569,12 @@ def forget():
 
 
 def is_copy(n, i, k):
-    """True if entry `n` of the copies says its register holds byte `k` of memory operand `i`."""
-    return reg_copy[n] and reg_symbol[n] == op_symbol[i] and reg_slot[n] == op_slot[i] \
-        and reg_offset[n] == (op_value[i] + k) & 0xFFFF
+    """True if entry `n` of the copies says its register holds byte `k` of memory operand `i`,
+    or for an element, a byte of the same array, and for what a pointer points at, anything."""
+    if not reg_copy[n] or op_mode[i] == M_POINTER:
+        return reg_copy[n]
+    return reg_symbol[n] == op_symbol[i] and reg_slot[n] == op_slot[i] \
+        and (reg_offset[n] == offset(i, k) or op_mode[i] == M_INDEXED)
 
 
 def copies(r, i, k):
@@ -458,7 +591,7 @@ def holds(r, i, k):
         return reg_known[r] and reg_const[r] == const_byte(i, k)
     if in_registers(i):
         return (k == 0 and r == A) or (k == 1 and r == X)
-    return copies(r, i, k)
+    return op_kind[i] == O_VAR and op_mode[i] == M_DIRECT and copies(r, i, k)
 
 
 def holder(i, k):
@@ -471,15 +604,15 @@ def holder(i, k):
 
 def remember(r, i, k):
     """Register `r` now holds a copy of byte `k` of memory operand `i`. A fixed address is
-    never remembered: it may be a device."""
-    if op_symbol[i] != kernel.NO_OBJ and not copies(r, i, k):
+    never remembered: it may be a device. Nor is an element or what a pointer points at."""
+    if op_symbol[i] != kernel.NO_OBJ and op_mode[i] == M_DIRECT and not copies(r, i, k):
         n = r * COPY_COUNT
         for older in range(n + COPY_COUNT - 1, n, -1):
             copy_knowledge(older - 1, older)
         reg_copy[n] = True
         reg_symbol[n] = op_symbol[i]
         reg_slot[n] = op_slot[i]
-        reg_offset[n] = (op_value[i] + k) & 0xFFFF
+        reg_offset[n] = offset(i, k)
 
 
 def copy_knowledge(source, target):
@@ -492,8 +625,13 @@ def copy_knowledge(source, target):
 
 def changed(i, k, keeper):
     """Byte `k` of memory operand `i` has changed: no register holds a copy of it now, except
-    `keeper` if that is the register it was stored from, and the flags do not show it."""
+    `keeper` if that is the register it was stored from, and the flags do not show it. An
+    element may be any of its array, and what a pointer points at anything but a constant."""
     global flags
+    if op_mode[i] != M_DIRECT:
+        keeper = NO_REG
+        if flags == IN_MEMORY:
+            flags = NO_REG
     for n in range(0, 3 * COPY_COUNT):
         if is_copy(n, i, k) and n // COPY_COUNT != keeper:
             reg_copy[n] = False
@@ -503,8 +641,8 @@ def changed(i, k, keeper):
 
 def shows_memory(i, k):
     """True if the flags show byte `k` of memory operand `i` because it was just changed."""
-    return flags == IN_MEMORY and op_kind[i] == O_VAR and flags_symbol == op_symbol[i] \
-        and flags_slot == op_slot[i] and flags_offset == (op_value[i] + k) & 0xFFFF
+    return flags == IN_MEMORY and op_kind[i] == O_VAR and op_mode[i] == M_DIRECT \
+        and flags_symbol == op_symbol[i] and flags_slot == op_slot[i] and flags_offset == offset(i, k)
 
 
 def shows(i, k):
@@ -522,18 +660,54 @@ def implied(opcode):
 
 
 def memory(opcode, i, k):
-    """The instruction `opcode` (absolute form) on byte `k` of memory operand `i`."""
+    """The instruction `opcode` (absolute form) on byte `k` of operand `i`: memory, reached as
+    its mode says, or an address, as an immediate. An element's index goes to X (to Y for
+    LDX), and the index of what a pointer points at to Y."""
+    if op_kind[i] == O_ADDR:
+        fbuf.op_fix(opcode - IMMEDIATE_FORM, fbuf.FIX_LOW + k, op_symbol[i], op_slot[i], op_value[i])
+        return
+    if op_mode[i] == M_POINTER:
+        point(i, k)
+        use(i)
+        fbuf.op_fix(opcode + POINTER_FORM, fbuf.FIX_ZERO_PAGE, op_symbol[i], op_slot[i], 0)
+        return
+    if op_mode[i] == M_INDEXED:
+        r = X
+        if opcode == OP_LDX:
+            r = Y
+        load_direct(r, i + INDEX, 0)
+        opcode += INDEXED_FORM
+    direct(opcode, i, k)
+
+
+def point(i, k):
+    """Make Y the index of byte `k` of what a pointer points at: its index plus its offset."""
+    global flags
+    n = offset(i, k)
+    if op_kind[i + INDEX] == O_CONST:
+        load_const(Y, (op_value[i + INDEX] + n) & 0xFF)
+        return
+    load_direct(Y, i + INDEX, 0)
+    for m in range(0, n):
+        fbuf.op(OP_INY)
+        forget_register(Y)
+        flags = Y
+
+
+def direct(opcode, i, k):
+    """The instruction `opcode` (absolute form, or absolute indexed) on byte `k` of memory
+    operand `i`, with the operand's address."""
     use(i)
-    offset = (op_value[i] + k) & 0xFFFF
+    place = offset(i, k)
     if op_symbol[i] == kernel.NO_OBJ:
-        if offset < 0x100:
-            fbuf.op_byte(opcode - ZERO_PAGE_FORM, offset)    # the linker shrinks only fix-ups
+        if place < 0x100:
+            fbuf.op_byte(opcode - ZERO_PAGE_FORM, place)    # the linker shrinks only fix-ups
         else:
-            fbuf.op_word(opcode, offset)
+            fbuf.op_word(opcode, place)
     elif op_flags[i] & F_ZP != 0:
-        fbuf.op_fix(opcode - ZERO_PAGE_FORM, fbuf.FIX_ZERO_PAGE, op_symbol[i], op_slot[i], offset)
+        fbuf.op_fix(opcode - ZERO_PAGE_FORM, fbuf.FIX_ZERO_PAGE, op_symbol[i], op_slot[i], place)
     else:
-        fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, op_symbol[i], op_slot[i], offset)
+        fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, op_symbol[i], op_slot[i], place)
 
 
 def transfer(source, target):
@@ -580,7 +754,24 @@ def load_const(r, value):
 
 
 def load(r, i, k):
-    """Make register `r` hold byte `k` of operand `i`."""
+    """Make register `r` hold byte `k` of operand `i`. What a pointer points at can only be
+    loaded into A, and goes on from there."""
+    global flags
+    if is_direct(i) or is_const_byte(i, k):
+        load_direct(r, i, k)
+        return
+    wanted = r
+    if op_mode[i] == M_POINTER:
+        r = A
+    claim(r)
+    memory(LOAD_ABSOLUTE[r], i, k)
+    forget_register(r)
+    flags = r
+    transfer(r, wanted)
+
+
+def load_direct(r, i, k):
+    """load() of an operand that needs no index register."""
     global flags
     if is_const_byte(i, k):
         load_const(r, const_byte(i, k))
@@ -591,27 +782,45 @@ def load(r, i, k):
     if from_other(r, source):
         transfer(source, r)
         return
-    if op_kind[i] != O_VAR:
-        err.fatal(err.E_INTERNAL)
     claim(r)
-    memory(LOAD_ABSOLUTE[r], i, k)
-    forget_register(r)
-    remember(r, i, k)
+    if op_kind[i] == O_ADDR:
+        fbuf.op_fix(LOAD_IMMEDIATE[r], fbuf.FIX_LOW + k, op_symbol[i], op_slot[i], op_value[i])
+        forget_register(r)
+    elif op_kind[i] == O_VAR:
+        direct(LOAD_ABSOLUTE[r], i, k)
+        forget_register(r)
+        remember(r, i, k)
+    else:
+        err.fatal(err.E_INTERNAL)
     flags = r
 
 
 def store(r, i, k):
-    """Store register `r` in byte `k` of memory operand `i`."""
+    """Store register `r` in byte `k` of memory operand `i`. Only A is stored in an element
+    or through a pointer."""
+    if not is_direct(i) and r != A:
+        transfer(r, A)
+        r = A
     memory(STORE_ABSOLUTE[r], i, k)
+    changed(i, k, r)
+    remember(r, i, k)
+
+
+def store_direct(r, i, k):
+    """store() in a temporary, which needs no index."""
+    direct(STORE_ABSOLUTE[r], i, k)
     changed(i, k, r)
     remember(r, i, k)
 
 
 def put(i, k, target, target_k):
     """Store byte `k` of operand `i` in byte `target_k` of memory operand `target`, from
-    whichever register holds it already, or else through A."""
+    whichever register holds it already, or else through A. A value in A and X is stored in
+    a temporary first if the target is an element, whose index needs X."""
+    if op_kind[i] == O_AX and op_mode[target] == M_INDEXED:
+        spill(i)
     r = holder(i, k)
-    if r == NO_REG:
+    if r == NO_REG or not is_direct(target):
         load(A, i, k)
         r = A
     store(r, target, target_k)
@@ -621,7 +830,7 @@ def put_const(value, target, target_k):
     """Store a constant byte in byte `target_k` of memory operand `target`."""
     r = A
     for other in range(0, 3):
-        if reg_known[other] and reg_const[other] == value:
+        if reg_known[other] and reg_const[other] == value and is_direct(target):
             r = other
     load_const(r, value)
     store(r, target, target_k)
@@ -677,16 +886,30 @@ def accumulator(opcode):
 
 def modify(opcode, i, k):
     """INC, DEC, ASL, LSR, ROL or ROR of byte `k` of memory operand `i`. The flags then show
-    that byte, unless it is at a fixed address, which may be a device."""
+    that byte, unless it is at a fixed address, which may be a device, or an element. What a
+    pointer points at is changed in A, which has no INC: there that is an ADC, which changes
+    the carry flag too."""
     global flags, flags_symbol, flags_slot, flags_offset
+    if op_mode[i] == M_POINTER:
+        load(A, i, k)
+        if opcode == OP_INC:
+            implied(OP_CLC)
+            immediate(OP_ADC, 1)
+        elif opcode == OP_DEC:
+            implied(OP_SEC)
+            immediate(OP_SBC, 1)
+        else:
+            accumulator(opcode)
+        store(A, i, k)
+        return
     memory(opcode, i, k)
     changed(i, k, NO_REG)
     flags = NO_REG
-    if op_symbol[i] != kernel.NO_OBJ:
+    if op_symbol[i] != kernel.NO_OBJ and op_mode[i] == M_DIRECT:
         flags = IN_MEMORY
         flags_symbol = op_symbol[i]
         flags_slot = op_slot[i]
-        flags_offset = (op_value[i] + k) & 0xFFFF
+        flags_offset = offset(i, k)
 
 
 def step_x(opcode):
@@ -730,8 +953,9 @@ def loop_label(target):
 
 def accepts(actual, t):
     """True if a value of type `actual` can be given to something of type `t` as it is: the
-    same type, or a `byte` where a `word` is wanted."""
-    return actual == t or (actual == typetab.BYTE_TYPE and t == typetab.WORD_TYPE)
+    same type, a `byte` where a `word` is wanted, or `nil` where a pointer is."""
+    return actual == t or (actual == typetab.BYTE_TYPE and t == typetab.WORD_TYPE) \
+        or (actual == typetab.NIL_TYPE and typetab.is_pointer(t))
 
 
 def fit(i, t):
@@ -746,7 +970,10 @@ def fit(i, t):
 
 
 def assignable(i, t):
-    """Check that operand `i` can be given to something of type `t`, and give it that type."""
+    """Check that operand `i` can be given to something of type `t`, and give it that type.
+    An array cannot: it is not a value."""
+    if typetab.is_array(t) or typetab.is_array(op_type[i]):
+        err.fatal(err.E_ARRAY_VALUE)
     if typetab.is_untyped(op_type[i]):
         fit(i, t)
     elif not accepts(op_type[i], t):
@@ -757,6 +984,8 @@ def assignable(i, t):
 def unify(left, right):
     """The type in which an operator works on operands `left` and `right`, which both take
     it. typetab.NUMBER_TYPE if neither has a type: they are then constants."""
+    if typetab.is_array(op_type[left]) or typetab.is_array(op_type[right]):
+        err.fatal(err.E_ARRAY_VALUE)
     if typetab.is_untyped(op_type[left]):
         if typetab.is_untyped(op_type[right]):
             return typetab.NUMBER_TYPE

@@ -1,0 +1,7 @@
+; error 122 6 7
+module address_of_column_array
+var w: [4]word
+var p: ^word
+func f()
+  p = @w
+end

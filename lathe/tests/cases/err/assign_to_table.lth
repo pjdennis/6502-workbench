@@ -1,0 +1,6 @@
+; error 53 5 3
+module assign_to_table
+const T: [2]byte = [1, 2]
+func f()
+  T[0] = 1
+end

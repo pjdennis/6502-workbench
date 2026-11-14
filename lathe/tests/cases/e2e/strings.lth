@@ -1,0 +1,120 @@
+; A small string library on zero-terminated strings: length, compare, copy, append, reverse,
+; and a print that walks the string with a pointer.
+module strings
+
+import host
+import libout
+
+var buffer: [64]byte
+var other: [64]byte
+
+func print(s: ^byte)
+  loop
+    if s[0] == 0 then
+      break
+    end
+    host.put_byte(s[0])
+    s += 1
+  end
+end
+
+func length(s: ^byte): byte
+  var i: byte = 0
+  while s[i] != 0 do
+    i += 1
+  end
+  return i
+end
+
+; -1, 0 or 1 as a is below, equal to or above b
+func compare(a: ^byte, b: ^byte): sbyte
+  var i: byte = 0
+  loop
+    if a[i] != b[i] then
+      if a[i] < b[i] then
+        return -1
+      end
+      return 1
+    end
+    if a[i] == 0 then
+      return 0
+    end
+    i += 1
+  end
+end
+
+func copy(target: ^byte, source: ^byte)
+  var i: byte = 0
+  loop
+    target[i] = source[i]
+    if source[i] == 0 then
+      return
+    end
+    i += 1
+  end
+end
+
+func append(target: ^byte, source: ^byte)
+  copy(target + length(target), source)
+end
+
+func reverse(s: ^byte)
+  var i: byte = 0
+  var j: byte
+  var c: byte
+  j = length(s)
+  while i + 1 < j do
+    j -= 1
+    c = s[i]
+    s[i] = s[j]
+    s[j] = c
+    i += 1
+  end
+end
+
+func show_compare(a: ^byte, b: ^byte)
+  print(a)
+  libout.space()
+  print(b)
+  libout.space()
+  libout.sdec(int(compare(a, b)))
+  libout.nl()
+end
+
+pub func main()
+  print("Hello, strings")
+  libout.nl()
+  libout.dec(length(""))
+  libout.space()
+  libout.dec(length("a"))
+  libout.space()
+  libout.dec(length("twelve chars"))
+  libout.nl()
+  show_compare("abc", "abd")
+  show_compare("abd", "abc")
+  show_compare("same", "same")
+  show_compare("ab", "abc")
+  show_compare("", "x")
+  copy(@buffer, "copied")
+  print(@buffer)
+  libout.nl()
+  append(@buffer, " and appended")
+  print(@buffer)
+  libout.space()
+  libout.dec(length(@buffer))
+  libout.nl()
+  copy(@other, @buffer)
+  reverse(@other)
+  print(@other)
+  libout.nl()
+  reverse(@other[4])
+  print(@other)
+  libout.nl()
+  copy(@other, "ab")
+  reverse(@other)
+  print(@other)
+  copy(@other, "x")
+  reverse(@other)
+  print(@other)
+  libout.nl()
+end

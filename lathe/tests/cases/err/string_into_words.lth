@@ -1,0 +1,3 @@
+; error 44 3 18
+module string_into_words
+var a: [3]word = "ab"

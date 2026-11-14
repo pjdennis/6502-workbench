@@ -1,3 +1,0 @@
-; error 39 3 13
-module later_rows
-var n: byte rows

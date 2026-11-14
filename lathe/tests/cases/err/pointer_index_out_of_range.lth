@@ -1,0 +1,6 @@
+; error 43 5 4
+module pointer_index_out_of_range
+var p: ^word
+func f()
+  p[128] = 1
+end

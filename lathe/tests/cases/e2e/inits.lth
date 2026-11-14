@@ -1,0 +1,73 @@
+; Initial values of arrays and strings: module-level, `zp`, `static` and local, copied from
+; constant data, and scalars that start as addresses.
+module inits
+
+import host
+import libout
+
+var bytes: [6]byte = [1, 2, 3]
+var words: [4]word = [$1234, $FFFF, 7]
+var text: [20]byte = "initial"
+var full: [3]byte = "abc"
+var fast: [4]byte zp = [10, 20, 30, 40]
+var page: [600]byte = "a long one"
+var start: ^byte = "pointer"
+var middle: ^byte = @text[2]
+
+func print(s: ^byte)
+  while s[0] != 0 do
+    host.put_byte(s[0])
+    s += 1
+  end
+end
+
+; a static array keeps its values from call to call
+func counter(): byte
+  static var seen: [2]byte = [100, 200]
+  seen[0] += 1
+  seen[1] -= 1
+  return seen[0] + seen[1]
+end
+
+; a local one is set again on every entry
+func local_copy(change: bool): byte
+  var scratch: [5]byte = "abcd"
+  if change then
+    scratch[1] = 'X'
+  end
+  print(@scratch)
+  return scratch[1]
+end
+
+pub func main()
+  var i: byte = 0
+  while i < len(bytes) do
+    libout.hex(bytes[i])
+    i += 1
+  end
+  libout.space()
+  i = 0
+  while i < len(words) do
+    libout.hexw(words[i])
+    i += 1
+  end
+  libout.nl()
+  print(@text)
+  libout.space()
+  libout.char(full[2])
+  libout.hex(fast[0] + fast[3])
+  libout.space()
+  print(@page)
+  libout.hex(page[599])
+  libout.nl()
+  print(start)
+  libout.space()
+  print(middle)
+  libout.nl()
+  libout.hex(counter())
+  libout.hex(counter())
+  libout.space()
+  libout.char(local_copy(true))
+  libout.char(local_copy(false))
+  libout.nl()
+end

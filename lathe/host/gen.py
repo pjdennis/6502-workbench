@@ -19,6 +19,7 @@ import err
 import fbuf
 import fold
 import kernel
+import lex
 import out
 import reg
 import typetab
@@ -51,6 +52,10 @@ OP_TXA = 0x8A
 OP_TYA = 0x98
 OP_TAX = 0xAA
 OP_RTS = 0x60
+OP_LDA = 0xAD
+OP_STA = 0x8D
+C_DOLLAR = 0x24
+C_ZERO = 0x30
 
 MAX_INITS = 64
 INIT_FLUSH = 32         # DECL writes the list out between declarations when it is this long
@@ -65,14 +70,18 @@ init_address = [0] * MAX_INITS
 init_flags = [0] * MAX_INITS
 init_type = [0] * MAX_INITS
 init_value = [0] * MAX_INITS
+init_source = [0] * MAX_INITS       # NO_OBJ for a number; else the symbol of an address, or of
+init_slot = [0] * MAX_INITS         # the data an array is copied from
 init_count = 0
+data_count = 0                      # how many symbols of anonymous constant data there are
 init_part = kernel.NO_OBJ           # the function that sets the values written out earlier
 
 
 def init():
-    global cpu, init_count, init_part
+    global cpu, init_count, init_part, data_count
     cpu = 0
     init_count = 0
+    data_count = 0
     init_part = kernel.NO_OBJ
 
 
@@ -93,7 +102,8 @@ def resolve(in_memory):
     op = pend_op
     pend_op = 0
     first = reg.depth - 2
-    if typetab.size(pend_type) == 2 and (in_memory or is_shift(op)):
+    if typetab.size(pend_type) == 2 and (in_memory or is_shift(op) or reg.op_mode[first] == reg.M_POINTER
+                                         or reg.op_mode[first + 1] == reg.M_POINTER):
         reg.describe_temp(reg.depth, pend_type)     # a word is also shifted in memory
         operate(op, pend_type, first, first + 1, first + 2)
         reg.pop()
@@ -125,6 +135,8 @@ def object_symbol(s):
         kind = out.SYM_FUNCTION
         if kernel.sym_kind[s] == kernel.K_VAR:
             kind = out.SYM_VARIABLE
+        elif kernel.sym_kind[s] == kernel.K_CONST:
+            kind = out.SYM_DATA
         kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
                                        kernel.sym_name[s])
     return kernel.sym_obj[s]
@@ -138,6 +150,12 @@ def variable(s):
                         kernel.NO_SYM)
     else:
         reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+
+
+def table(s):
+    """Push the constant table `s`: constant data, which can be read but not assigned to."""
+    settle()
+    reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
 
 
 def zp_flag(s):
@@ -193,9 +211,40 @@ def operation_type(op):
         if typetab.is_untyped(t) and reg.op_kind[second] != reg.O_CONST:
             err.fatal(err.E_TYPE)       # a number shifted by a variable: of which size?
     else:
-        t = reg.unify(first, second)
-    if not typetab.is_number(t) and not typetab.is_untyped(t):
+        t = pointer_type(op)
+        if t == typetab.NO_TYPE:
+            t = reg.unify(first, second)
+    if not typetab.is_number(t) and not typetab.is_untyped(t) and not typetab.is_pointer(t):
         err.fatal(err.E_TYPE)
+    return t
+
+
+def pointer_type(op):
+    """If an operand of `op` is a pointer, the type of the result: a pointer plus or minus a
+    number is a pointer, and the difference of two pointers of one type a word. The other
+    operand is then added as a word. typetab.NO_TYPE if neither is a pointer."""
+    first = reg.depth - 2
+    second = reg.depth - 1
+    pointer = first
+    other = second
+    if typetab.is_pointer(reg.op_type[second]):
+        pointer = second
+        other = first
+    t = reg.op_type[pointer]
+    if not typetab.is_pointer(t):
+        return typetab.NO_TYPE
+    if op == fold.SUB and reg.op_type[other] == t:
+        reg.op_type[pointer] = typetab.WORD_TYPE
+        reg.op_type[other] = typetab.WORD_TYPE
+        return typetab.WORD_TYPE
+    if op != fold.ADD and (op != fold.SUB or pointer == second):
+        err.fatal(err.E_TYPE)
+    if reg.op_type[other] == typetab.NEGATIVE_TYPE:
+        reg.fit(other, typetab.INT_TYPE)
+    elif typetab.is_untyped(reg.op_type[other]):
+        reg.fit(other, typetab.WORD_TYPE)
+    if reg.op_type[other] != typetab.INT_TYPE:
+        reg.assignable(other, typetab.WORD_TYPE)
     return t
 
 
@@ -334,6 +383,7 @@ def variable_shift(op, t):
     second = reg.depth - 1
     if typetab.size(t) != 1:
         err.fatal(err.E_NEEDS_RT)
+    reg.take(first)                     # an element would need X, which counts
     if reg.in_registers(second):
         reg.release(second)
         reg.load(reg.X, second, 0)
@@ -464,6 +514,11 @@ def combine(op, count, first, second, target):
             ripple(op, k, target)
         else:
             reg.claim(reg.A)            # what must be stored first is stored before the CLC
+            # An element on the right is loaded first, which can take its index from A.
+            turned = not chained and target != REGISTERS and commutes(op) and reg.op_kind[first] == reg.O_VAR \
+                and reg.is_direct(first) and not reg.is_direct(second)
+            if turned:
+                reg.load(reg.A, second, k)
             if not chained and op == fold.ADD:
                 reg.implied(reg.OP_CLC)
             elif not chained and op == fold.SUB:
@@ -471,8 +526,11 @@ def combine(op, count, first, second, target):
             chained = True
             if k == 1 and target == REGISTERS:
                 reg.transfer(reg.A, reg.Y)
-            reg.load(reg.A, first, k)
-            reg.alu(alu_opcode(op), second, k)
+            if turned:
+                reg.alu(alu_opcode(op), first, k)
+            else:
+                reg.load(reg.A, first, k)
+                reg.alu(alu_opcode(op), second, k)
             if target != REGISTERS:
                 reg.store(reg.A, target, k)
             elif k == 1:
@@ -561,6 +619,9 @@ def shift(op, t, first, amount, target):
 def operate(op, t, first, second, target):
     """Generate `first op second` in type `t`. `target` is the memory operand the result goes
     to, or REGISTERS."""
+    reg.apart(first, second)
+    if target != REGISTERS:
+        reg.apart(first, target)
     reg.release(first)
     reg.release(second)
     if is_shift(op):
@@ -643,6 +704,7 @@ def store_pair():
 
 def sign_extend(i):
     """Make the signed byte operand `i` a two-byte value in A and X."""
+    reg.take(i)
     reg.release(i)
     reg.load_const(reg.X, 0)
     reg.load(reg.A, i, 0)
@@ -672,8 +734,8 @@ def convert(t):
             cond.compare(fold.NE)
         return
     cond.value()
-    if not typetab.is_number(source) and not typetab.is_untyped(source) and source != typetab.BOOL_TYPE:
-        err.fatal(err.E_TYPE)
+    if typetab.is_array(source):
+        err.fatal(err.E_ARRAY_VALUE)
     if reg.op_kind[i] == reg.O_CONST:
         reg.op_value[i] = typetab.narrow(reg.op_value[i], t)
         reg.op_size[i] = typetab.size(t)
@@ -691,15 +753,21 @@ def part(k):
     is a variable, and can be assigned to."""
     settle()
     i = reg.depth - 1
-    if not typetab.is_number(reg.op_type[i]) and not typetab.is_untyped(reg.op_type[i]):
+    t = reg.op_type[i]
+    if not typetab.is_number(t) and not typetab.is_untyped(t) and not typetab.is_pointer(t):
         err.fatal(err.E_TYPE)
+    if reg.op_kind[i] == reg.O_ADDR:
+        reg.release(i)
+        reg.load(reg.X, i, 1)
+        reg.load(reg.A, i, 0)
+        reg.become(i, reg.O_AX, t)
     if reg.is_const_byte(i, k):
         value = reg.const_byte(i, k)
         reg.pop()
         reg.push(reg.O_CONST, typetab.BYTE_TYPE, value)
         return
     if reg.op_kind[i] == reg.O_VAR:
-        reg.op_value[i] = (reg.op_value[i] + k) & 0xFFFF
+        reg.op_value[i] = reg.offset(i, k)
     elif reg.op_kind[i] == reg.O_AX:
         reg.release(i)
         reg.load(reg.A, i, k)
@@ -710,6 +778,284 @@ def part(k):
 
 def size_of(t):
     constant(typetab.NUMBER_TYPE, typetab.size(t))
+
+
+def length():
+    """`len(a)`: the newest operand, an array, is replaced by how many elements it has."""
+    settle()
+    t = reg.op_type[reg.depth - 1]
+    if not typetab.is_array(t):
+        err.fatal(err.E_TYPE)
+    reg.pop()
+    reg.push(reg.O_CONST, typetab.NUMBER_TYPE, typetab.length(t))
+
+
+# ---- Elements, pointers and addresses -----------------------------------------------------
+
+def index():
+    """`a[i]` or `p[i]`: the newest operand is the index and the one under it is indexed, an
+    array in memory or a pointer. They become one operand: the element (docs/codegen.md,
+    "Operands")."""
+    base = reg.depth - 2
+    if pend_op != 0:
+        base = reg.depth - 3            # the index is an operation still to be done
+    t = reg.op_type[base]
+    if typetab.is_array(t):
+        array_index(base, t)
+        return
+    if not typetab.is_pointer(t):
+        err.fatal(err.E_NOT_INDEXED)
+    e = typetab.base(t)
+    size = typetab.size(e)
+    shift = exponent(size)
+    i = index_value(False)
+    if shift > 3 and (reg.op_kind[i] != reg.O_CONST or reg.op_value[i] != 0):
+        err.fatal(err.E_ELEMENT_SIZE)
+    if reg.op_kind[i] == reg.O_CONST:
+        if reg.op_value[i] > (256 - size) // size:
+            err.fatal(err.E_RANGE)
+        reg.op_value[i] = reg.op_value[i] * size
+    else:
+        if shift > 0:
+            constant(typetab.BYTE_TYPE, shift)
+            binary(fold.SHL)
+            settle()
+        reg.into_memory(i)
+    if not reg.dereferenced(base):
+        to_zero_page(base)
+    pointed(base, e)
+
+
+def index_value(big):
+    """The newest operand is an index: settle it, and check that it is a `byte`, or if `big`
+    a `word`. Returns where it is."""
+    settle()
+    cond.value()
+    i = reg.depth - 1
+    t = reg.op_type[i]
+    if big:
+        if typetab.is_untyped(t):
+            reg.fit(i, typetab.WORD_TYPE)
+        reg.assignable(i, typetab.WORD_TYPE)
+    elif typetab.is_untyped(t):
+        reg.fit(i, typetab.BYTE_TYPE)
+    elif t == typetab.WORD_TYPE or t == typetab.INT_TYPE:
+        err.fatal(err.E_BYTE_INDEX)
+    elif t != typetab.BYTE_TYPE:
+        err.fatal(err.E_TYPE)
+    return i
+
+
+def array_index(base, t):
+    """An element of the array `base`. A constant index is added to its address; a variable
+    one is in X; a big array is reached through a pointer worked out in zero page. `a[i + c]`
+    and `a[i - c]` add the constant to the address too."""
+    global pend_op
+    n = typetab.length(t)
+    e = typetab.base(t)
+    size = typetab.size(e)
+    step = reg.op_stride[base]          # from one element to the next
+    if typetab.is_rows(t):
+        step = size * step
+    big = n > 256 or (typetab.is_rows(t) and size > 1)
+    top = reg.depth - 1
+    if (pend_op == fold.ADD or pend_op == fold.SUB) and (pend_type == typetab.BYTE_TYPE or big) \
+            and (step == 1 or big) and reg.op_mode[base] == reg.M_DIRECT and reg.op_kind[top] == reg.O_CONST \
+            and reg.op_kind[top - 1] == reg.O_VAR and reg.is_direct(top - 1):
+        folded = reg.op_value[top] * step
+        if pend_op == fold.SUB:
+            folded = 0 - folded
+        reg.op_value[base] = (reg.op_value[base] + folded) & 0xFFFF
+        pend_op = 0
+        reg.pop()
+    i = index_value(big)
+    mode = reg.op_mode[base]
+    if reg.op_kind[i] == reg.O_CONST:
+        if reg.op_value[i] >= n:
+            err.fatal(err.E_RANGE)
+        reg.op_value[base] = (reg.op_value[base] + reg.op_value[i] * step) & 0xFFFF
+        reg.pop()
+    elif big and mode == reg.M_DIRECT:
+        element_pointer(base, e)
+    elif step != 1 or big or (mode == reg.M_INDEXED) or (mode == reg.M_POINTER and (
+            reg.op_kind[base + reg.INDEX] != reg.O_CONST or reg.offset(base, 0) + reg.op_value[base + reg.INDEX] != 0)):
+        err.fatal(err.E_TWO_INDEXES)
+    else:
+        reg.into_memory(i)              # in X, or in Y after what a pointer points at
+        reg.take_index(base)
+        if mode == reg.M_DIRECT:
+            reg.op_mode[base] = reg.M_INDEXED
+    reg.op_type[base] = e
+    reg.op_size[base] = size
+    if typetab.is_column(t):
+        reg.op_stride[base] = n * reg.op_stride[base]
+
+
+def element_pointer(base, e):
+    """The newest operand, a word, is the index of an element of the array `base` that the
+    index registers cannot reach: work out its address in a zero page temporary."""
+    size = typetab.size(e)
+    if exponent(size) > 15:
+        err.fatal(err.E_ELEMENT_SIZE)
+    if size > 1:
+        constant(typetab.BYTE_TYPE, exponent(size))
+        binary(fold.SHL)
+    settle()
+    reg.duplicate(base)
+    i = reg.depth - 1
+    reg.op_kind[i] = reg.O_ADDR
+    if reg.op_symbol[i] == kernel.NO_OBJ:
+        reg.op_kind[i] = reg.O_CONST
+    reg.op_type[i] = typetab.pointer_to(e)
+    reg.op_size[i] = 2
+    binary(fold.ADD)
+    resolve(True)
+    i = reg.depth - 1
+    reg.zero_page(i)
+    reg.copy(i, base)
+    reg.op_flags[i] = 0
+    reg.pop()
+    reg.push(reg.O_CONST, typetab.BYTE_TYPE, 0)
+    pointed(base, e)
+
+
+def pointed(base, e):
+    """Operand `base`, a pointer in zero page, becomes the `e` it points at, at the index that
+    is the newest operand, which leaves the stack."""
+    reg.take_index(base)
+    reg.op_mode[base] = reg.M_POINTER
+    reg.op_type[base] = e
+    reg.op_size[base] = typetab.size(e)
+    reg.op_value[base] = 0
+    reg.op_stride[base] = 1
+
+
+def to_zero_page(i):
+    """Operand `i`, a pointer that cannot be used through (zp),Y as it is, is copied to a zero
+    page temporary, which it becomes."""
+    t = reg.op_type[i]
+    j = reg.depth
+    reg.describe_temp(j, t)
+    reg.zero_page(j)
+    reg.release(i)
+    reg.put(i, 0, j, 0)
+    reg.put(i, 1, j, 1)
+    reg.become(i, reg.O_VAR, t)
+    reg.copy(j, i)
+
+
+def address():
+    """`@x`: the newest operand, a variable or an element of an array, is replaced by its
+    address. That of an array is a pointer to its first element. An array stored by column
+    has no such pointer, and its elements have no address."""
+    settle()
+    i = reg.depth - 1
+    t = reg.op_type[i]
+    mode = reg.op_mode[i]
+    if reg.op_kind[i] != reg.O_VAR or (reg.op_flags[i] & reg.F_TEMP != 0 and mode != reg.M_POINTER) \
+            or (typetab.size(t) > 1 and reg.op_stride[i] > 1) or typetab.is_column(t):
+        err.fatal(err.E_NO_ADDRESS)
+    if typetab.is_array(t):
+        t = typetab.base(t)
+    disp = 0
+    if mode == reg.M_POINTER:
+        disp = reg.op_value[i]          # the pointer itself, and what is added to it
+        reg.op_value[i] = 0
+    elif reg.op_symbol[i] == kernel.NO_OBJ:
+        reg.op_kind[i] = reg.O_CONST
+    else:
+        reg.op_kind[i] = reg.O_ADDR
+    reg.op_mode[i] = reg.M_DIRECT
+    reg.op_type[i] = typetab.pointer_to(t)
+    reg.op_size[i] = 2
+    reg.op_stride[i] = 1
+    if mode != reg.M_DIRECT:
+        reg.keep(i + reg.INDEX)
+        binary(fold.ADD)
+    if disp != 0:
+        constant(typetab.NUMBER_TYPE, disp)
+        binary(fold.ADD)
+
+
+def anonymous():
+    """A new symbol of constant data with no name of its own: `module.$1`, `module.$2`, ..."""
+    global data_count
+    data_count += 1
+    kernel.name_begin()
+    kernel.name_add(C_DOLLAR)
+    place = 10000
+    started = False
+    while place > 0:
+        digit = (data_count // place) % 10
+        if digit != 0 or started or place == 1:
+            kernel.name_add(C_ZERO + digit)
+            started = True
+        place = place // 10
+    return out.symbol(out.SYM_DATA, kernel.module_name[0], 0, kernel.name_end())
+
+
+def string():
+    """The string LEX has just read, used as a value: a `^byte` to constant data that holds
+    it, with a zero after it."""
+    settle()
+    symbol = anonymous()
+    out.data(symbol, lex.string_length + 1)
+    for i in range(0, lex.string_length):
+        out.data_byte(lex.string[i])
+    out.data_byte(0)
+    reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
+    reg.op_symbol[reg.depth - 1] = symbol
+
+
+def table_element(where, step):
+    """The newest operand, a constant or an address, is an element of the constant table
+    being made: its byte k goes to byte `where` + k * `step` of the table."""
+    i = reg.depth - 1
+    for k in range(0, typetab.size(reg.op_type[i])):
+        if reg.op_kind[i] == reg.O_ADDR:
+            out.table_fix(where + k * step, fbuf.FIX_LOW + k, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
+        else:
+            out.table[where + k * step] = reg.const_byte(i, k)
+    reg.pop()
+
+
+def copy_array(symbol, size):
+    """Copy `size` bytes of the constant data `symbol` to the newest operand, an array: a page
+    at a time with X counting up, then what is left with X counting down to 1."""
+    target = reg.depth - 1
+    reg.push_memory(typetab.BYTE_TYPE, symbol, fbuf.NO_SLOT, 0, 0, kernel.NO_SYM)
+    source = reg.depth - 1
+    start = reg.op_value[target]
+    reg.op_flags[target] = reg.op_flags[target] & ~reg.F_ZP     # an address below it may be out of zero page
+    pages = size >> 8
+    if pages > 0:
+        reg.load_const(reg.X, 0)
+    for part_number in range(0, 2):
+        count = pages
+        first = 0
+        if part_number == 1:
+            count = 1
+            first = (pages << 8) - 1
+            if size & 0xFF == 0:
+                count = 0
+            else:
+                reg.load_const(reg.X, size & 0xFF)
+        if count > 0:
+            top = fbuf.new_label()
+            reg.loop_label(top)
+            for p in range(0, count):
+                reg.op_value[source] = (first + (p << 8)) & 0xFFFF
+                reg.op_value[target] = (start + first + (p << 8)) & 0xFFFF
+                reg.direct(OP_LDA + reg.INDEXED_FORM, source, 0)
+                reg.direct(OP_STA + reg.INDEXED_FORM, target, 0)
+            if part_number == 0:
+                reg.step_x(reg.OP_INX)
+            else:
+                reg.step_x(reg.OP_DEX)
+            fbuf.branch(OP_BNE, top)
+    reg.op_value[target] = start
+    reg.forget()
+    reg.pop()
 
 
 # ---- Calls -------------------------------------------------------------------------------
@@ -738,6 +1084,9 @@ def load_registers(f, first):
         return
     if kernel.member_value[members + count - 1] != REG_C:
         cond.value()
+    for i in range(first, first + count):
+        if count > 1 and not reg.is_direct(i):
+            reg.into_memory(i)          # its index register could be another's
     for i in range(0, count):
         if kernel.member_value[members + i] == REG_C:
             cond.carry(first + i)
@@ -863,6 +1212,7 @@ def load_result():
     """Use up the newest operand by loading it into A, or A and X. The carry flag is left
     alone, so a status can be there already."""
     i = reg.depth - 1
+    reg.take(i)
     reg.release(i)
     if typetab.size(reg.op_type[i]) == 2:
         reg.load(reg.X, i, 1)
@@ -915,11 +1265,15 @@ def function_end(flags):
 
 # ---- Initial values ----------------------------------------------------------------------
 
-def initial(s, value):
-    """Variable `s` starts with the constant `value`."""
+def initial(s, source, slot, value):
+    """Variable `s` starts with the constant `value`, or if `source` is not kernel.NO_OBJ, the
+    address `value` after the symbol `source` (and its slot `slot`); an array is copied from
+    the constant data `source`."""
     global init_count
     if init_count == MAX_INITS:
         err.fatal(err.E_INITS_FULL)
+    init_source[init_count] = source
+    init_slot[init_count] = slot
     init_symbol[init_count] = kernel.sym_obj[s]
     init_address[init_count] = 0
     if kernel.sym_flags[s] & kernel.SF_AT != 0:
@@ -940,10 +1294,19 @@ def init_function(symbol):
         fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, init_part, fbuf.NO_SLOT, 0)
         out.call(init_part, 0, out.NO_OUTER)
     for n in range(0, init_count):
-        reg.push_memory(init_type[n], init_symbol[n], fbuf.NO_SLOT, init_address[n], init_flags[n],
-                        kernel.NO_SYM)
-        reg.push(reg.O_CONST, init_type[n], init_value[n])
-        store()
+        t = init_type[n]
+        reg.push_memory(t, init_symbol[n], fbuf.NO_SLOT, init_address[n], init_flags[n], kernel.NO_SYM)
+        if typetab.is_array(t):
+            copy_array(init_source[n], typetab.size(t))
+            reg.pop()
+        else:
+            if init_source[n] == kernel.NO_OBJ:
+                reg.push(reg.O_CONST, t, init_value[n])
+            else:
+                reg.push(reg.O_ADDR, t, init_value[n])
+                reg.op_symbol[reg.depth - 1] = init_source[n]
+                reg.op_slot[reg.depth - 1] = init_slot[n]
+            store()
     init_count = 0
     init_part = symbol
     function_end(0)

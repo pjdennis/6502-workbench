@@ -312,6 +312,7 @@ SF_AT = 8                   # a variable at a fixed address
 SF_ZP = 16                  # a variable declared `zp`
 SF_NOZP = 32                # a variable declared `nozp`
 SF_ASM = 64                 # an `asm` function: parameters and results in registers, no slots
+SF_ROWS = 128               # a variable declared `rows` (while its declaration is read)
 
 sym_name = [0] * MAX_SYMS
 sym_scope = [0] * MAX_SYMS
