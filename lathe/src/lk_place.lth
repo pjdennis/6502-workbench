@@ -1,0 +1,288 @@
+; Sizes and placement: lathe/host/lk_place.py in Lathe.
+;
+; Where every function copy and constant goes in the `code` range, or in the bank or overlay its
+; module is placed in.
+;
+; The object files are read once more, in order. A function's final size is its written size, the
+; length of its CODE record, less one byte for each of its kind 5 fix-ups whose address is in zero
+; page (lk_fix.count_shrinks), which is known now that every slot and variable has its address.
+; The code itself is not read. Code and the constant data kept are placed in object order, then
+; record order, after the linker's own start-up code; the copies of a function follow one another.
+;
+; A bank or overlay is filled the same way, from the window's first address. Whether its contents
+; fit is judged by their size as written, before any instruction shrinks: zero page only makes
+; code smaller, so the contents placed are never larger than that, and whether a program links
+; cannot depend on what zero page promotion chose (configurations.md, "Sizes").
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | sizes, addresses, counts: ints       | words; a context, an object file, | the type is the |
+;   |                                      | a bank, CALL flags: bytes         | storage         |
+;   | class_of(row_of(memb_class[i]))      | class_of(byte(row_of(...)))       | a 32-row table  |
+;   |                                      |                                   | takes a byte    |
+;   | `& 0xFFFF` on an address             | the word, which wraps             | the same        |
+;   | take: size > 0xFFFF - code_used      | the same                          | no word wraps   |
+;   | room = hi - lo + 1, code_used > room,| the same, in words; a room of     | a whole 64 KB   |
+;   | code_used - room                     | 65536 is 0 and cannot be: lk_envf | range cannot be |
+;   |                                      | keeps code at $100 or above       | given           |
+;   | top -= 1 after (top - size) & 0xFFFF | the word, which wraps             | the same        |
+module lk_place
+
+import lk_alloc
+import lk_boot
+import lk_envf
+import lk_err
+import lk_fix
+import lk_name
+import lk_rec
+import lk_scan
+import lk_sym
+import lk_tab
+import lk_win
+
+var code_used: word = 0                 ; bytes of the code range given out so far
+var code_wrapped: bool = false          ; more than 16 bits can count were asked for
+pub var bank_used: [lk_envf.MAX_BANKS]word      ; bytes of each bank or overlay given out so far
+var bank_judged: [lk_envf.MAX_BANKS]word        ; the same as written, before shrinking: the fit
+                                                ; check
+
+; A function with a `with` block (lk_tab.F_WITH, from its kind 6 fix-ups) maps a bank of data into
+; the window, so its own code must be fixed (55); and it must not run in an interrupt context
+; (57): code-model.md, "Data in windows".
+pub func check_with()
+  var f: word
+  var h: word
+  var ctx: byte
+  for f = 0 until lk_tab.fn_count do
+    if (lk_tab.fn_flags[f] & lk_tab.F_WITH) != 0 and lk_tab.fn_ctx[f] != 0 then
+      if lk_scan.fn_bank(f) != 0 then
+        lk_name.fail(lk_err.E_WITH_PLACED, lk_tab.fn_ref(f))
+      end
+      if (lk_tab.fn_ctx[f] & $FE) != 0 then
+        ctx = 0
+        for h = 0 until lk_tab.fn_count do
+          if (lk_tab.fn_flags[h] & lk_tab.F_INTERRUPT) != 0 then
+            ctx += 1
+            if lk_tab.has_copy(f, ctx) then
+              lk_name.fail_in(lk_err.E_WITH_IRQ, lk_tab.fn_ref(h), lk_tab.fn_ref(f))
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+; Kept function f makes a call with these CALL flags of callee: one made inside a `with` block
+; (flag 4) must not reach a function in a window, whose code would replace the data mapped (56).
+; Only the call itself is checked, not what the callee calls: a far call from fixed code puts the
+; data's bank back when it returns.
+func check_with_call(f: word, callee: word, flags: byte)
+  var k: byte
+  var i: byte
+  var g: word
+  if (flags & 4) == 0 then
+    return
+  end
+  if (flags & 2) == 0 then
+    if lk_sym.is_defined(callee) and lk_scan.fn_bank(lk_sym.row_of(callee)) != 0 then
+      lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), callee)
+    end
+    return
+  end
+  k = lk_tab.class_of(byte(lk_sym.row_of(callee)))
+  for i = 0 until lk_tab.memb_count do
+    g = lk_sym.row_of(lk_tab.memb_func[i])
+    if lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i]))) == k and lk_scan.fn_bank(g) != 0 then
+      lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), lk_tab.fn_ref(g))
+    end
+  end
+end
+
+; True if object file obj defines constant data of a region that is in bank b.
+pub func holds_region_data(obj: byte, b: byte): bool
+  var d: word
+  for d = lk_name.obj_def[obj] until lk_name.obj_def[obj + 1] do
+    if (lk_tab.def_f[d] & lk_tab.D_CONST) != 0 and lk_scan.region_of(d) == b + 1 then
+      return true
+    end
+  end
+  return false
+end
+
+; True if some variable or constant of the program is in a region in bank b.
+pub func region_bank(b: byte): bool
+  var i: byte
+  for i = 0 until lk_scan.rdef_count do
+    if lk_scan.rdef_bank[i] == b + 1 then
+      return true
+    end
+  end
+  return false
+end
+
+; Give out the next `size` bytes of the code range. Returns their address.
+;
+; Whether it all fits is checked once everything is placed (place), so that the error can say by
+; how much it does not.
+func take(size: word): word
+  var addr: word
+  addr = lk_envf.code_lo + code_used
+  if size > $FFFF - code_used then
+    code_wrapped = true
+    code_used = $FFFF
+  else
+    code_used += size
+  end
+  return addr
+end
+
+; Give out the next `size` bytes of bank or overlay b, which are `written` bytes as written.
+; Returns their address.
+func take_bank(b: byte, size: word, written: word): word
+  var addr: word
+  addr = lk_envf.win_lo[lk_envf.bank_win[b]] + bank_used[b]
+  bank_used[b] = lk_tab.add16(bank_used[b], size)
+  bank_judged[b] = lk_tab.add16(bank_judged[b], written)
+  return addr
+end
+
+; Size and place every copy of function f, whose code as written is `written` bytes and whose
+; fix-ups lk_fix has just counted, in fixed memory or in bank + 1.
+func place_copies(f: word, written: word, bank: byte)
+  var ctx: byte
+  var n: word
+  var size: word
+  for ctx = 0 until lk_tab.ctx_count do
+    if lk_tab.has_copy(f, ctx) then
+      n = lk_tab.copy_node(f, ctx)
+      size = written - lk_fix.shrink_count[ctx]
+      if bank != 0 then
+        lk_tab.work[lk_tab.W_ADDR + n] = take_bank(bank - 1, size, written)
+      else
+        lk_tab.work[lk_tab.W_ADDR + n] = take(size)
+      end
+    end
+  end
+end
+
+func place_object(obj: byte)
+  var f: word
+  var kept: bool
+  var written: word
+  var kind: byte
+  var callee: word
+  var s: word
+  var d: word
+  var bank: byte
+  lk_rec.open_object(obj)
+  f = 0
+  kept = false
+  written = 0
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_FUNC then
+      f = lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word()))
+      kept = lk_tab.fn_ctx[f] != 0
+      written = 0
+      if kept then
+        lk_fix.begin(f)
+      end
+    elif kind == lk_rec.R_FIX and kept then
+      lk_fix.count_shrinks(obj)
+    elif kind == lk_rec.R_CALL and kept then
+      callee = lk_name.global_sym(obj, lk_rec.get_word())
+      check_with_call(f, callee, lk_rec.get_byte())
+    elif kind == lk_rec.R_CODE then
+      written = lk_rec.left()
+    elif kind == lk_rec.R_ENDF and kept then
+      place_copies(f, written, lk_scan.obj_bank[obj])
+      kept = false
+    elif kind == lk_rec.R_DATA then
+      s = lk_name.global_sym(obj, lk_rec.get_word())
+      d = lk_sym.row_of(s)
+      bank = lk_win.bank_def(d)
+      if lk_tab.is_kept_def(d) and bank != 0 and lk_envf.bank_file[bank - 1] == 0 then
+        lk_name.fail(lk_err.E_REGION_NO_FILE, s)        ; only a region's can be: lk_envf
+      end
+      if lk_tab.is_kept_def(d) and bank != 0 then
+        lk_tab.def_a[d] = take_bank(bank - 1, lk_tab.def_b[d], lk_tab.def_b[d])
+      elif lk_tab.is_kept_def(d) then
+        lk_tab.def_a[d] = take(lk_tab.def_b[d])
+      end
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+end
+
+; The variables that go in a bank (lk_win.bank_def), at its top, going down, in the order they
+; are defined; a word is not put across a page on an NMOS 6502. For the fit check every such
+; variable counts, in zero page or not, with a byte for the page: whether it fits cannot depend
+; on what zero page took.
+func place_bank_vars()
+  var b: byte
+  var top: word
+  var d: word
+  var size: word
+  var extra: word
+  for b = 0 until lk_envf.bank_count do
+    top = lk_envf.win_hi[lk_envf.bank_win[b]] + 1
+    for d = 0 until lk_tab.def_count do
+      if lk_tab.is_kept_var(d) and lk_win.bank_def(d) == b + 1 then
+        size = lk_tab.def_b[d]
+        extra = 0
+        if lk_alloc.straddles($FF, size) then
+          extra = 1
+        end
+        bank_judged[b] = lk_tab.add16(bank_judged[b], size + extra)
+        if (lk_tab.def_f[d] & lk_tab.D_ZP) == 0 then
+          top = top - size
+          if lk_alloc.straddles(top, size) then
+            top -= 1
+          end
+          lk_tab.def_a[d] = top
+        end
+      end
+    end
+  end
+end
+
+; Place the start-up code, then everything in the object files.
+pub func place()
+  var b: byte
+  var obj: byte
+  var room: word
+  var w: byte
+  code_used = 0
+  code_wrapped = false
+  for b = 0 until lk_envf.MAX_BANKS do
+    bank_used[b] = 0
+    bank_judged[b] = 0
+  end
+  take(lk_boot.plan())
+  lk_tab.overflow = false
+  for obj = 0 until lk_name.object_count do
+    place_object(obj)
+  end
+  place_bank_vars()
+  room = lk_envf.code_hi - lk_envf.code_lo + 1
+  if code_wrapped or code_used > room then
+    lk_err.begin(lk_err.E_CODE_FULL)
+    lk_err.over(code_used - room, code_wrapped)
+    lk_err.finish()
+  end
+  for b = 0 until lk_envf.bank_count do
+    w = lk_envf.bank_win[b]
+    room = lk_envf.win_hi[w] - lk_envf.win_lo[w] + 1
+    if bank_judged[b] > room then
+      lk_err.begin(lk_err.E_BANK_FULL)
+      lk_err.colon()
+      lk_envf.put_bank(b)
+      lk_err.over(bank_judged[b] - room, lk_tab.overflow and bank_judged[b] == $FFFF)
+      lk_err.finish()
+    end
+  end
+end

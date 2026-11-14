@@ -1,0 +1,558 @@
+; The map file: lathe/host/lk_map.py in Lathe.
+;
+; One line for everything the linker gave an address (lathe/host/README.md):
+;
+;     F 0200 0012 hello.main            function, in placement order
+;     F 0212 0012 hello.main@1          a further copy of it, for context 1
+;     F 0224 0008 hello.tick 1          a first copy for a context other than 0: its number follows
+;     D 022C 0006 hello.$1              constant data
+;     V C000 0001 demo.count            module-level variable
+;     S 0010 0002 demo.spaces 0 s       slot 0 of demo.spaces, named s
+;     C 0012 0001 demo.handler 0 code   parameter 0 of a pointer class
+;     F 8000 0010 a.leaf b=1            a function in bank or overlay 1 of the window (D lines too)
+;     W 8000 0123 1 LATHE1.BIN          the contents of bank or overlay 1 and its file
+;     T 0230 0006 a.leaf                the stub of a function in a window, after its F line
+;     D 0236 0019 $banks                the table of banks ($overlays), after the line of $init
+;
+; A class parameter is named by its CLAS records (object-format.md); one they leave unnamed takes
+; the name of the parameter of the first function recorded as the class's member, or p0, p1... for
+; a class without members.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | START_NAME...: b"..."                | tables of their length            | lk_err.lth      |
+;   | handle, a letter, a kind, an object  | bytes; addresses, sizes, symbol   | the type is the |
+;   | file, a context, a bank, a class, a  | numbers, places in the work area: | storage         |
+;   | slot's number: ints                  | words                             |                 |
+;   | env.write, env.close                 | sys.write, sys.close              | lathe/src/sys   |
+;   | hex4: value >> 12                    | hi(value) >> 4                    | the same digit  |
+;   | decimal: n // 100, n // 10 % 10,     | lo(n / 100), lo(n / 10 mod 10),   | n is a word     |
+;   | n % 10                               | lo(n mod 10)                      | below 1000      |
+;   | `&= 0xFF ^ F_HELD`                   | the same, on a byte               |                 |
+;   | class_names_object: k = row_of(...); | k = byte(row_of(...)); namer a    | a 32-row table  |
+;   | namer a class or NONE                | word, its class lo(namer)         | takes a byte    |
+;   | cls_namer[k] == f + 1                | the same, in words                |                 |
+;   | cparams: i over C_HELD words, then   | i a word, then j a byte           | the types differ|
+;   | over a class's parameters            |                                   |                 |
+;   | cp_addr[p], cp_size[p], p a word     | cp_addr[lo(p)], cp_size[lo(p)]    | 128-row tables  |
+;   | `\` continuations                    | conditions that go on after `and` | a line goes on  |
+;   |                                      |                                   | after `and`     |
+;   | copy_name, symbol_line, in_bank used | forward declarations              | declare before  |
+;   | before they are defined              |                                   | use             |
+module lk_map
+
+import lk_alloc
+import lk_boot
+import lk_envf
+import lk_err
+import lk_file
+import lk_fix
+import lk_name
+import lk_place
+import lk_rec
+import lk_scan
+import lk_sym
+import lk_tab
+import lk_win
+import sys
+
+const START_NAME: [6]byte = "$start"
+const INIT_NAME: [5]byte = "$init"
+const BANKS_NAME: [6]byte = "$banks"
+const OVERLAYS_NAME: [9]byte = "$overlays"
+const HEX: [16]byte = "0123456789ABCDEF"
+
+var handle: byte = 0
+
+forward func copy_lines(f: word, number: word, written: word)
+forward func symbol_line(letter: byte, s: word, number: word)
+forward func copy_name(n: word, number: word)
+forward func in_bank(dest: byte)
+
+pub func open_map()
+  handle = lk_file.open_out(lk_file.ARG_MAP)
+end
+
+pub func close_map()
+  sys.close(handle)
+end
+
+func put(ch: byte)
+  sys.write(handle, ch)
+end
+
+func hex4(value: word)
+  put(HEX[hi(value) >> 4])
+  put(HEX[hi(value) & 15])
+  put(HEX[lo(value) >> 4])
+  put(HEX[lo(value) & 15])
+end
+
+; n in decimal; n is below 1000.
+func decimal(n: word)
+  if n >= 100 then
+    put(48 + lo(n / 100))
+  end
+  if n >= 10 then
+    put(48 + lo(n / 10 mod 10))
+  end
+  put(48 + lo(n mod 10))
+end
+
+; Start a line: its kind, address and size.
+func begin(letter: byte, addr: word, size: word)
+  put(letter)
+  put(32)
+  hex4(addr)
+  put(32)
+  hex4(size)
+  put(32)
+end
+
+; The names of one object file are held in the work area (lk_name's buffer) while it is read: from
+; index_at, where the name of each of its symbol numbers is held + 1, or 0; then the names. Only
+; the names of symbols marked HELD are held. Before the image is written they take the first
+; W_ADDR words; while it is written the words from W_HELD, above the slot name (W_SNAME).
+pub const W_HELD = lk_tab.W_SNAME + 128
+var index_at: word = 0
+
+; True if the function, variable or constant data s is marked (lk_tab.F_HELD, D_HELD).
+func is_held(s: word): bool
+  var kind: byte
+  kind = lk_sym.kind_of(s)
+  if not lk_sym.is_defined(s) or kind == lk_sym.CLASS then
+    return false
+  end
+  if kind == lk_sym.FUNCTION then
+    return (lk_tab.fn_flags[lk_sym.row_of(s)] & lk_tab.F_HELD) != 0
+  end
+  return (lk_tab.def_f[lk_sym.row_of(s)] & lk_tab.D_HELD) != 0
+end
+
+; Hold names of object file obj in words start to limit of the work area.
+pub func hold_begin(obj: byte, start: word, limit: word)
+  var count: word
+  var i: word
+  index_at = start
+  count = lk_name.obj_first[obj + 1] - lk_name.obj_first[obj]
+  if start + count > limit then
+    lk_err.fail(lk_err.E_NAMES)
+  end
+  for i = 0 until count do
+    lk_tab.work[start + i] = 0
+  end
+  lk_name.buf_begin(2 * (start + count), 2 * limit)
+end
+
+; MAIN is at SYM record `number` of object file obj, after its kind: hold its name if the symbol
+; is marked.
+pub func hold(obj: byte, number: word)
+  if is_held(lk_name.global_sym(obj, number)) then
+    lk_tab.work[index_at + number] = lk_name.buf_keep() + 1
+  end
+end
+
+; The name of the symbol the object being read numbers `number`, held earlier.
+func write_name(number: word)
+  lk_name.write_held(handle, lk_tab.work[index_at + number] - 1)
+end
+
+; Mark the kept functions of object file obj, or only those with slots, or unmark them. True if
+; there are some.
+pub func mark_functions(obj: byte, on: bool, slotted: bool): bool
+  var some: bool
+  var f: word
+  some = false
+  for f = lk_name.obj_fn[obj] until lk_name.obj_fn[obj + 1] do
+    if lk_tab.fn_ctx[f] != 0 and (not slotted or lk_tab.fn_nslots(f) != 0) then
+      if on then
+        lk_tab.fn_flags[f] |= lk_tab.F_HELD
+      else
+        lk_tab.fn_flags[f] &= $FF ^ lk_tab.F_HELD
+      end
+      some = true
+    end
+  end
+  return some
+end
+
+; Read object file obj, holding the names of the symbols marked HELD, and at each FUNC, DATA or
+; VAR record (`wanted`) whose symbol is marked write its lines. A function's lines are written at
+; its ENDF, when its size is known: the length of its code less what its fix-ups shrink
+; (lk_fix.count_shrinks), as lk_place found it.
+func lines(obj: byte, wanted: byte)
+  var number: word
+  var held: bool                        ; the function being read has lines
+  var f: word
+  var fn_number: word
+  var written: word
+  var kind: byte
+  var n: word
+  var s: word
+  hold_begin(obj, 0, lk_tab.W_ADDR)
+  lk_rec.open_object(obj)
+  number = 0
+  held = false
+  f = 0
+  fn_number = 0
+  written = 0
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_SYM then
+      lk_rec.get_byte()
+      hold(obj, number)
+      number += 1
+    elif kind == wanted then
+      n = lk_rec.get_word()
+      s = lk_name.global_sym(obj, n)
+      if is_held(s) then
+        if kind == lk_rec.R_FUNC then
+          held = true
+          f = lk_sym.row_of(s)
+          fn_number = n
+          written = 0
+          lk_fix.begin(f)
+        elif kind == lk_rec.R_DATA then
+          symbol_line(68, s, n)
+        else
+          symbol_line(86, s, n)
+        end
+      end
+    elif kind == lk_rec.R_FIX and held then
+      lk_fix.count_shrinks(obj)
+    elif kind == lk_rec.R_CODE and held then
+      written = lk_rec.left()
+    elif kind == lk_rec.R_ENDF and held then
+      copy_lines(f, fn_number, written)
+      held = false
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+end
+
+; The name of the function copy that is node n, whose symbol has this number.
+func copy_name(n: word, number: word)
+  write_name(number)
+  if lk_tab.is_extra_copy(n) then
+    put(64)
+    decimal(lk_tab.ctx_of(n))
+  end
+end
+
+; The F lines of the copies of kept function f, whose symbol has this number and whose code as
+; written is `written` bytes.
+func copy_lines(f: word, number: word, written: word)
+  var ctx: byte
+  var n: word
+  for ctx = 0 until lk_tab.ctx_count do
+    if lk_tab.has_copy(f, ctx) then
+      n = lk_tab.copy_node(f, ctx)
+      begin(70, lk_tab.work[lk_tab.W_ADDR + n], written - lk_fix.shrink_count[ctx])
+      copy_name(n, number)
+      if not lk_tab.is_extra_copy(n) and ctx != 0 then
+        put(32)
+        decimal(ctx)
+      end
+      in_bank(lk_scan.fn_bank(f))
+      put(10)
+      if lk_win.has_stub(f) then
+        begin(84, lk_win.stub_addr(n), lk_win.STUB_SIZE)
+        copy_name(n, number)
+        put(10)
+      end
+    end
+  end
+end
+
+; ` b=N` after an item in bank or overlay dest - 1, N its number; nothing for 0.
+func in_bank(dest: byte)
+  if dest != 0 then
+    put(32)
+    put(98)
+    put(61)
+    decimal(lk_envf.bank_n[dest - 1])
+  end
+end
+
+func symbol_line(letter: byte, s: word, number: word)
+  var d: word
+  d = lk_sym.row_of(s)
+  begin(letter, lk_tab.def_a[d], lk_tab.def_b[d])
+  write_name(number)
+  in_bank(lk_win.def_dest(d))
+  put(10)
+end
+
+; A W line for each bank or overlay of the window code is placed in that has a file: the window's
+; first address, the bytes placed, its number and its file; and for a bank without a file that
+; holds variables of a region, with no bytes and `-` for the file.
+func window_lines()
+  var b: byte
+  var name: word
+  var i: byte
+  if not lk_envf.placed() then
+    return
+  end
+  for b = 0 until lk_envf.bank_count do
+    name = lk_envf.bank_file[b]
+    if lk_envf.bank_win[b] == lk_envf.window() and name != 0 then
+      begin(87, lk_envf.win_lo[lk_envf.bank_win[b]], lk_place.bank_used[b])
+      decimal(lk_envf.bank_n[b])
+      put(32)
+      for i = 1 to lk_envf.text[name - 1] do
+        put(lk_envf.text[name - 1 + i])
+      end
+      put(10)
+    elif lk_envf.bank_win[b] == lk_envf.window() and lk_place.region_bank(b) then
+      begin(87, lk_envf.win_lo[lk_envf.bank_win[b]], 0)
+      decimal(lk_envf.bank_n[b])
+      put(32)
+      put(45)
+      put(10)
+    end
+  end
+end
+
+; The F lines, in placement order: the linker's own code, then the copies kept, read from each
+; object file that has some.
+pub func functions()
+  var i: byte
+  var obj: byte
+  begin(70, lk_boot.start_addr, lk_boot.start_len)
+  for i = 0 until len(START_NAME) do
+    put(START_NAME[i])
+  end
+  put(10)
+  if lk_boot.init_len != 0 then
+    begin(70, lk_boot.init_addr, lk_boot.init_len)
+    for i = 0 until len(INIT_NAME) do
+      put(INIT_NAME[i])
+    end
+    put(10)
+  end
+  if lk_boot.table_len != 0 then
+    begin(68, lk_boot.table_addr, lk_boot.table_len)
+    if lk_envf.is_overlay() then
+      for i = 0 until len(OVERLAYS_NAME) do
+        put(OVERLAYS_NAME[i])
+      end
+    else
+      for i = 0 until len(BANKS_NAME) do
+        put(BANKS_NAME[i])
+      end
+    end
+    put(10)
+  end
+  for obj = 0 until lk_name.object_count do
+    if mark_functions(obj, true, false) then
+      lines(obj, lk_rec.R_FUNC)
+      mark_functions(obj, false, false)
+    end
+  end
+  window_lines()
+end
+
+; The D or V lines of what is kept, in the order the symbols are defined, read from each object
+; file that has some.
+pub func symbols(kind: byte, letter: byte)
+  var wanted: byte
+  var obj: byte
+  var some: bool
+  var d: word
+  wanted = lk_rec.R_VAR
+  if kind == lk_sym.CONSTANT then
+    wanted = lk_rec.R_DATA
+  end
+  for obj = 0 until lk_name.object_count do
+    some = false
+    for d = lk_name.obj_def[obj] until lk_name.obj_def[obj + 1] do
+      if lk_sym.kind_of(lk_tab.def_ref(d)) == kind and lk_tab.is_kept_def(d) then
+        lk_tab.def_f[d] |= lk_tab.D_HELD
+        some = true
+      end
+    end
+    if some then
+      lines(obj, wanted)
+      for d = lk_name.obj_def[obj] until lk_name.obj_def[obj + 1] do
+        lk_tab.def_f[d] &= $FF ^ lk_tab.D_HELD
+      end
+    end
+  end
+end
+
+; The S lines of slot i of kept function f, one per copy: f's symbol has this number in the object
+; being read, and the slot's name is held at `name`.
+pub func slot(f: word, number: word, i: byte, name: word)
+  var s: word
+  var ctx: byte
+  var n: word
+  s = lk_tab.fn_slot[f] + i
+  for ctx = 0 until lk_tab.ctx_count do
+    if lk_tab.has_copy(f, ctx) then
+      n = lk_tab.copy_node(f, ctx)
+      begin(83, lk_alloc.slot_addr(n, i), lk_tab.slot_bytes(s))
+      copy_name(n, number)
+      put(32)
+      decimal(i)
+      put(32)
+      lk_name.write_held(handle, name)
+      put(10)
+    end
+  end
+end
+
+; ---- the C lines, after the image: the names of classes and their parameters are read from the
+; files again. In lk_tab.work: from CN, where the name of each class is held + 1, or 0; from CPN,
+; that of each class parameter, the first a CLAS record gives; from NM, that of each parameter of a
+; class standing for others, from its namer's slot; then the names.
+const CN = 0
+const CPN = CN + lk_tab.MAX_CLASSES
+const NM = CPN + lk_tab.MAX_CPARAMS
+const C_HELD = NM + lk_tab.MAX_CPARAMS
+
+; Hold the class names, parameter names and namers' slot names object file obj gives.
+func class_names_object(obj: byte)
+  var number: word
+  var namer: word                       ; the live class whose namer is being read
+  var slots: byte
+  var kind: byte
+  var s: word
+  var k: byte
+  var np: byte
+  var i: byte
+  var p: word
+  var pos: word
+  var f: word
+  var live: bool
+  lk_rec.open_object(obj)
+  number = 0
+  namer = lk_tab.NONE
+  slots = 0
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_SYM then
+      lk_rec.get_byte()
+      s = lk_name.global_sym(obj, number)
+      if lk_sym.kind_of(s) == lk_sym.CLASS and lk_sym.is_defined(s) and
+          lk_tab.work[CN + lk_sym.row_of(s)] == 0 then
+        lk_tab.work[CN + lk_sym.row_of(s)] = lk_name.buf_keep() + 1
+      end
+      number += 1
+    elif kind == lk_rec.R_CLAS then
+      k = byte(lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word())))
+      lk_rec.get_byte()
+      np = lk_rec.get_byte()
+      for i = 0 until np do
+        lk_rec.get_word()
+        p = lk_tab.cls_par[k] + i
+        pos = lk_name.buf_keep()
+        if lk_tab.work[CPN + p] == 0 and lk_name.get_b(pos) != 0 then
+          lk_tab.work[CPN + p] = pos + 1
+        else
+          lk_name.buf_top = pos         ; not needed: no longer held
+        end
+      end
+    elif kind == lk_rec.R_FUNC then
+      f = lk_sym.row_of(lk_name.global_sym(obj, lk_rec.get_word()))
+      namer = lk_tab.NONE
+      slots = 0
+      k, live = lk_tab.member_class(f)
+      if live and lk_tab.cls_namer[k] == f + 1 and lk_tab.fn_ctx[f] != 0 then
+        namer = k
+      end
+    elif kind == lk_rec.R_SLOT and namer != lk_tab.NONE then
+      if slots < lk_tab.cls_np[lo(namer)] then
+        lk_rec.get_word()
+        lk_rec.get_word()
+        lk_rec.get_byte()
+        lk_tab.work[NM + lk_tab.cls_par[lo(namer)] + slots] = lk_name.buf_keep() + 1
+      end
+      slots += 1
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+end
+
+; Where the name of parameter i of live class rep is held + 1, or 0: the first a CLAS record of the
+; class gives, else the first of a class merged into it (lk_scan.merge), else that of the namer's
+; slot.
+func param_name(rep: byte, i: byte): word
+  var p: word
+  var k: byte
+  p = lk_tab.cls_par[rep] + i
+  if lk_tab.work[CPN + p] != 0 then
+    return lk_tab.work[CPN + p]
+  end
+  for k = 0 until lk_tab.cls_count do
+    if k != rep and lk_tab.class_of(k) == rep and lk_tab.work[CPN + lk_tab.cls_par[k] + i] != 0 then
+      return lk_tab.work[CPN + lk_tab.cls_par[k] + i]
+    end
+  end
+  return lk_tab.work[NM + p]
+end
+
+; The C lines: the parameters of every live class, under each name the class has. The names are
+; read again, if there is a live class, from the files that have them.
+pub func cparams()
+  var live: bool
+  var k: byte
+  var i: word
+  var obj: byte
+  var wanted: bool
+  var f: word
+  var rep: byte
+  var j: byte
+  var p: word
+  var name: word
+  live = false
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[lk_tab.class_of(k)] != 0 then
+      live = true
+    end
+  end
+  if not live then
+    return
+  end
+  for i = 0 until C_HELD do
+    lk_tab.work[i] = 0
+  end
+  lk_name.buf_begin(2 * C_HELD, 2 * lk_tab.W_OWN)
+  ; The files that name a class, and those of the functions that name class parameters.
+  for obj = 0 until lk_name.object_count do
+    wanted = (lk_scan.obj_cpu[obj] & lk_scan.OBJ_CLASSES) != 0
+    for f = lk_name.obj_fn[obj] until lk_name.obj_fn[obj + 1] do
+      k, live = lk_tab.member_class(f)
+      if live and lk_tab.cls_namer[k] == f + 1 then
+        wanted = true
+      end
+    end
+    if wanted then
+      class_names_object(obj)
+    end
+  end
+  for k = 0 until lk_tab.cls_count do
+    rep = lk_tab.class_of(k)
+    if lk_tab.cls_reach[rep] != 0 then
+      for j = 0 until lk_tab.cls_np[rep] do
+        p = lk_tab.cls_par[rep] + j
+        begin(67, lk_tab.cp_addr[lo(p)], lk_tab.cp_size[lo(p)])
+        lk_name.write_held(handle, lk_tab.work[CN + k] - 1)
+        put(32)
+        decimal(j)
+        put(32)
+        name = param_name(rep, j)
+        if name != 0 then
+          lk_name.write_held(handle, name - 1)
+        else
+          put(112)
+          decimal(j)
+        end
+        put(10)
+      end
+    end
+  end
+end

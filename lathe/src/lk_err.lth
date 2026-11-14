@@ -20,12 +20,13 @@
 ;
 ;   | Python                                | Lathe                           | Why               |
 ;   |---------------------------------------|---------------------------------|-------------------|
-;   | MESSAGES: one byte string, a line per | MESSAGES: a table of strings,   | a string or table |
-;   | error, ended by LF                    | one per error, each ended by    | holds at most     |
-;   |                                       | its zero                        | 2048 bytes; the   |
-;   |                                       |                                 | texts are 2386    |
-;   | begin() walks to the line of error n  | begin() takes MESSAGES[n - 1]   | follows from the  |
-;   |                                       |                                 | table             |
+;   | MESSAGES: one byte string, a line per | two, MESSAGES and MESSAGES2, the | a string or table |
+;   | error, ended by LF                    | lines of errors 1 to SECOND - 1 | holds at most     |
+;   |                                       | and of the rest                 | 2048 bytes; the   |
+;   |                                       |                                 | texts are 2701    |
+;   | begin() walks to the line of error n  | the same, in the one that holds | follows from the  |
+;   |                                       | it, from its first error        | tables            |
+;   | begin(): range(0, len(PREFIX)) by i   | by a byte k; i a word           | the types differ  |
 ;   | `put_number` divides an int           | a byte: every number it is given| (as left)         |
 ;   |                                       | is one                          |                   |
 module lk_err
@@ -92,68 +93,68 @@ pub const E_WITH_IRQ = 57
 pub const E_REGION_WINDOW = 58
 pub const E_REGION_NO_FILE = 59
 
-; One message per error, in the order of the numbers above.
-const MESSAGES: [59]^byte = [
-  "usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...",
-  "cannot open file",
-  "environment file: bad entry",
-  "environment file: zeropage, code, data and exit must all be given",
-  "unsupported object version: this linker reads version 3",
-  "object file is damaged",
-  "object file needs a 65C02 and the environment has a 6502",
-  "too many object files",
-  "too many symbols",
-  "too many or too long names",
-  "too many functions",
-  "too many slots",
-  "too many calls",
-  "too many pointer classes or class parameters",
-  "too many functions and copies of functions",
-  "too many interrupt functions",
-  "symbol defined twice",
-  "undefined symbol",
-  "symbol used as two kinds of thing",
-  "no main function",
-  "recursion through a call or function not marked recursive",
-  "pointer class called through pointers from two contexts",
-  "pointer class declared with different parameters",
-  "function does not have the parameters of its pointer class",
-  "zero page is full",
-  "variables do not fit in the data range",
-  "code does not fit in the code range",
-  "too many fix-ups in one function or table",
-  "bad fix-up",
-  "address must be in zero page",
-  "call of a function that was not linked",
-  "parts of the image overlap",
-  "too many symbols in the object files together",
-  "environment file: bad address range",
-  "too many functions whose address is taken",
-  "too many variables and constants",
-  "internal error: a function is not the size that was planned",
-  "too many symbols named by fix-ups",
-  "environment file: exit stop needs cpu 65c02",
-  "functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through",
-  "too many weights for slots of functions not read yet",
-  "environment file: no such window, bank or overlay",
-  "environment file: named twice",
-  "a module the environment file places is not linked",
-  "code and data do not fit in a bank",
-  "the far-call module is not linked, or does not define call and start",
-  "an interrupt function cannot be in a window",
-  "an interrupt function reaches a function in an overlay",
-  "environment file: the far-call module must be in fixed memory",
-  "environment file: code is placed in two windows, and far calls serve one",
-  "environment file: a module is placed in a bank that has no file",
-  "environment file: overlays must be numbered from 1 with none missing",
-  "environment file: too many windows, banks, overlays, places or regions, or too many names",
-  "environment file: code or a region is placed in a window, and no farcall entry names the module for far calls",
-  "a function with a with block cannot be in a window",
-  "a call inside a with block reaches a function in a window",
-  "an interrupt function reaches a function with a with block",
-  "environment file: a region is in an overlay, or in another window than code is",
-  "constant data in a region is in a bank that has no file"
-]
+; One message per line, in the order of the numbers above: errors 1 to SECOND - 1 in MESSAGES,
+; the rest in MESSAGES2.
+const SECOND = 30
+const MESSAGES = "usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...\n"
+                 "cannot open file\n"
+                 "environment file: bad entry\n"
+                 "environment file: zeropage, code, data and exit must all be given\n"
+                 "unsupported object version: this linker reads version 3\n"
+                 "object file is damaged\n"
+                 "object file needs a 65C02 and the environment has a 6502\n"
+                 "too many object files\n"
+                 "too many symbols\n"
+                 "too many or too long names\n"
+                 "too many functions\n"
+                 "too many slots\n"
+                 "too many calls\n"
+                 "too many pointer classes or class parameters\n"
+                 "too many functions and copies of functions\n"
+                 "too many interrupt functions\n"
+                 "symbol defined twice\n"
+                 "undefined symbol\n"
+                 "symbol used as two kinds of thing\n"
+                 "no main function\n"
+                 "recursion through a call or function not marked recursive\n"
+                 "pointer class called through pointers from two contexts\n"
+                 "pointer class declared with different parameters\n"
+                 "function does not have the parameters of its pointer class\n"
+                 "zero page is full\n"
+                 "variables do not fit in the data range\n"
+                 "code does not fit in the code range\n"
+                 "too many fix-ups in one function or table\n"
+                 "bad fix-up\n"
+const MESSAGES2 = "address must be in zero page\n"
+                  "call of a function that was not linked\n"
+                  "parts of the image overlap\n"
+                  "too many symbols in the object files together\n"
+                  "environment file: bad address range\n"
+                  "too many functions whose address is taken\n"
+                  "too many variables and constants\n"
+                  "internal error: a function is not the size that was planned\n"
+                  "too many symbols named by fix-ups\n"
+                  "environment file: exit stop needs cpu 65c02\n"
+                  "functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
+                  "too many weights for slots of functions not read yet\n"
+                  "environment file: no such window, bank or overlay\n"
+                  "environment file: named twice\n"
+                  "a module the environment file places is not linked\n"
+                  "code and data do not fit in a bank\n"
+                  "the far-call module is not linked, or does not define call and start\n"
+                  "an interrupt function cannot be in a window\n"
+                  "an interrupt function reaches a function in an overlay\n"
+                  "environment file: the far-call module must be in fixed memory\n"
+                  "environment file: code is placed in two windows, and far calls serve one\n"
+                  "environment file: a module is placed in a bank that has no file\n"
+                  "environment file: overlays must be numbered from 1 with none missing\n"
+                  "environment file: too many windows, banks, overlays, places or regions, or too many names\n"
+                  "environment file: code or a region is placed in a window, and no farcall entry names the module for far calls\n"
+                  "a function with a with block cannot be in a window\n"
+                  "a call inside a with block reaches a function in a window\n"
+                  "an interrupt function reaches a function with a with block\n"
+                  "environment file: a region is in an overlay, or in another window than code is\n"
+                  "constant data in a region is in a bank that has no file\n"
 
 const PREFIX: [11]byte = "link error "
 
@@ -219,18 +220,40 @@ end
 
 ; Start error n: `link error N: text`.
 pub func begin(n: byte)
-  var i: byte
-  var p: ^byte
-  for i = 0 until len(PREFIX) do
-    put(PREFIX[i])
+  var k: byte
+  var i: word
+  var line: byte
+  for k = 0 until len(PREFIX) do
+    put(PREFIX[k])
   end
   put_number(n)
   put(58)
   put(32)
-  p = MESSAGES[n - 1]
-  while p[0] != 0 do
-    put(p[0])
-    p += 1
+  i = 0
+  if n < SECOND then
+    line = 1
+    while line < n do
+      if MESSAGES[i] == 10 then
+        line += 1
+      end
+      i += 1
+    end
+    while MESSAGES[i] != 10 do
+      put(MESSAGES[i])
+      i += 1
+    end
+    return
+  end
+  line = SECOND
+  while line < n do
+    if MESSAGES2[i] == 10 then
+      line += 1
+    end
+    i += 1
+  end
+  while MESSAGES2[i] != 10 do
+    put(MESSAGES2[i])
+    i += 1
   end
 end
 

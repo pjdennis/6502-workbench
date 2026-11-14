@@ -157,6 +157,12 @@ class SysOverDisk(unittest.TestCase):
         status, out, _ = self.run_with(['a', 'bcd', 'ef'])
         self.assertEqual((status, out), (2, b'3 1 3 2\n'))     # no file called a
 
+    def test_the_linkers_44_arguments_are_all_given(self):
+        """The linker takes 4 arguments and up to 40 object files (lathe/src/link.lth)."""
+        args = ['x%d' % i for i in range(44)]
+        status, out, _ = self.run_with(args)
+        self.assertEqual((status, out), (2, bytes([48 + 44]) + b' 2' * 10 + b' 3' * 34 + b'\n'))
+
     def test_an_output_that_cannot_be_created_is_status_3(self):
         open(os.path.join(self.disk, 'g'), 'wb').close()
         self.assertEqual(self.run_with(['g', 'no/such'])[0], 3)

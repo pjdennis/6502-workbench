@@ -26,7 +26,7 @@ import lk_file
 import sys
 
 var handle: byte = 0
-var written: word = 0           ; bytes written so far: the next address is base + written
+pub var written: word = 0       ; bytes written so far: the next address is base + written
 var base: word = 0              ; the address of the file's first byte
 var is_bank: bool = false       ; the file is a bank's or an overlay's
 

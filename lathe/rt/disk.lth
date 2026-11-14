@@ -119,7 +119,7 @@ end
 
 ; ---- Arguments: the lines of the file `args` -----------------------------------------------
 
-const MAX_ARGS = 16
+const MAX_ARGS = 48                 ; the linker takes 4 and up to 40 object files
 const ARGS_SIZE = 256               ; bytes of text, each argument's terminating zero included
 const LF: byte = 10
 const CR: byte = 13

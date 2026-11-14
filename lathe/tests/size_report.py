@@ -44,9 +44,12 @@ BANKED = ('exprtest',)          # the banked build on Wendy 2: too large for the
 
 
 LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
-          'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc')
-LINKER_PROGRAMS = ('lktest1', 'lktest2', 'lktest3', 'lktest4')
-LINKER_LATER = ('lk_fix', 'lk_place', 'lk_map', 'lk_emit', 'link')
+          'lk_out', 'lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map',
+          'lk_emit', 'link')
+# The test programs, and the whole linker, built banked with linker-bank.env (LINKER_ENV).
+LINKER_PROGRAMS = ('lktest1', 'lktest2', 'lktest3', 'lktest4', 'link')
+LINKER_ENV = {'link': 'linker-bank.env'}
+LINKER_LATER = ()               # the twins still to write
 
 
 def build(name, out_dir, env=None):
@@ -213,8 +216,8 @@ def report(out_dir):
 def linker_report(out_dir):
     """The linker's twins, measured over its test programs."""
     import lo
-    env = os.path.join(support.SRC, 'linker.env')
-    maps = {name: read_map(build(name, out_dir, env)) for name in LINKER_PROGRAMS}
+    maps = {name: read_map(build(name, out_dir, os.path.join(support.SRC, LINKER_ENV.get(name, 'linker.env'))))
+            for name in LINKER_PROGRAMS}
     function_size = {}
     for items in maps.values():
         for kind, address, size, name in items:
@@ -245,12 +248,13 @@ def linker_report(out_dir):
     print('%-9s %6d %6d %6d %6.2f %6.2f' % ('total', sums[0], sums[1], sums[2], sums[0] / sums[1],
                                            sums[0] / sums[2]))
     print('not kept by any program: %s' % (' '.join(sorted(unkept)) or '-'))
-    later = [python_lines(m) for m in LINKER_LATER]
-    later_code = sum(c for _, c in later)
-    per = sums[0] / sums[2]
-    print('the rest of the linker (%s): %d lines of code; at %.2f bytes a line %d bytes, '
-          'so %d in all' % (' '.join(LINKER_LATER), later_code, per, later_code * per,
-                            sums[0] + later_code * per))
+    if LINKER_LATER:
+        later = [python_lines(m) for m in LINKER_LATER]
+        later_code = sum(c for _, c in later)
+        per = sums[0] / sums[2]
+        print('the rest of the linker (%s): %d lines of code; at %.2f bytes a line %d bytes, '
+              'so %d in all' % (' '.join(LINKER_LATER), later_code, per, later_code * per,
+                                sums[0] + later_code * per))
     print()
     print('The ten largest functions')
     for name, size in sorted(function_size.items(), key=lambda x: -x[1])[:10]:

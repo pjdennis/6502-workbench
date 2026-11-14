@@ -89,7 +89,7 @@ pub var zp_used: word = 0       ; and variables and all contexts this many
 pub var layouts: word = 0       ; how often zero page has been laid out: a measure
 
 ; True if a two-byte item at addr would lie across a page boundary and must not.
-func straddles(addr: word, size: word): bool
+pub func straddles(addr: word, size: word): bool
   return lk_envf.cpu == lk_op.CPU_6502 and size == 2 and lo(addr) == $FF
 end
 

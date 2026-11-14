@@ -190,7 +190,7 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 
 ### Memory in the linker
 
-**Budget.** The linker must run beside its own code (about 12 KB in Lathe was assumed; its fourteen layers written in Lathe so far project 43 to 45 KB: [`spikes.md`](spikes.md)) and a stack on a machine with less than 60 KB free, linking the compiler itself: about 700 functions, 3,500 slots and 3,000 calls in 30 to 40 object files. Its tables together were given 24 KB. `lathe/tests/lk_memory_report.py` prints what the host linker's tables take laid out as Lathe lays them out (2 bytes a row for a word column, 1 for a byte column), the peak use of each over the corpus and over `lk_synthetic.py`, the stand-in for the compiler, and how often each file is opened; `test_lk_memory.py` keeps the total within the ceiling it states, which only comes down.
+**Budget.** The linker must run beside its own code (about 12 KB in Lathe was assumed; written in Lathe it is 45.4 KB, and runs banked on Wendy 2 with 9.9 KB resident: [`spikes.md`](spikes.md)) and a stack on a machine with less than 60 KB free, linking the compiler itself: about 700 functions, 3,500 slots and 3,000 calls in 30 to 40 object files. Its tables together were given 24 KB. `lathe/tests/lk_memory_report.py` prints what the host linker's tables take laid out as Lathe lays them out (2 bytes a row for a word column, 1 for a byte column), the peak use of each over the corpus and over `lk_synthetic.py`, the stand-in for the compiler, and how often each file is opened; `test_lk_memory.py` keeps the total within the ceiling it states, which only comes down.
 
 **Rules the design follows.**
 
