@@ -153,7 +153,6 @@ Things found during the work that are not part of a stage's gate. Remove each wh
 - **Gaps found by the board modules:** no 65C02 instructions in `asm` (`TSB`, `TRB`, `STZ`, `PHX`, `PHY`, `BRA`); `b = ~$20` is rejected because an untyped constant is negated at full width; no `#error`; a module's constant tables are always linked, used or not.
 - **Found by the arithmetic library:** falling off the end of a function that has a result is not reported; the linker keeps a module variable nothing uses; uses inside an `asm` loop get no loop weight; an `asm` block cannot name another function's parameter slots.
 - **Arguments in registers.** Measured at 6.6% net on the Lathe-written layers (first argument in A, or A and X; further bytes in X and Y). To be adopted after stage 5 merges.
-- **A word at zero page `$FF`.** The linker can place a two-byte item at `$FF`, where a pointer would be broken because `(zp),Y` wraps to `$00`. It must place around it.
 - **Recursion depth.** The software stack for saved frames is 256 bytes, and each level also uses two bytes of the 6502's own stack, so about 120 levels is the limit whatever the frame size.
 - **Weights across modules.** Uses of an imported variable, and stores into a callee's parameter slots, are not counted in the weight the linker sees.
 - **Addresses given with `at`** are in no object record, so the linker cannot check that the environment's ranges avoid them.
