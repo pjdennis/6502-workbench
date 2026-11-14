@@ -1,0 +1,8 @@
+; error 43 6 11
+module case_out_of_range
+var k: byte
+func f()
+  case k
+  of 255, 256
+  end
+end

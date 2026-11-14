@@ -1,0 +1,158 @@
+; `case` with one and several constants in an `of`, with and without `else`, with bodies that
+; return or run on, inside a case and inside a loop, on sbyte values below zero and on a bool.
+; Each selector is tried with every value of its type.
+module cases
+
+import libout
+
+func classify(v: byte): byte
+  case v
+  of 0
+    return 1
+  of 1, 2, 3
+    return 2
+  of 'a', 'e', 'i', 'o', 'u'
+    return 3
+  of 255, 128
+    return 4
+  else
+    return 5
+  end
+end
+
+func signed_class(v: sbyte): byte
+  var r: byte = 0
+  case v
+  of -1
+    r = 1
+  of -128, 127, 0
+    r = 2
+  of 5, -5
+    r = 3
+  end
+  return r
+end
+
+func nested(a: byte, b: byte): byte
+  case a
+  of 1
+    case b
+    of 1
+      return 11
+    of 2
+      return 12
+    end
+    return 10
+  of 2
+    case b
+    else
+      return 29
+    end
+  end
+  return 0
+end
+
+func looped(): word
+  var i: byte = 0
+  var total: word = 0
+  loop
+    i += 1
+    case i & 3
+    of 0
+      continue
+    of 1
+      total += i
+    of 2
+      if i > 50 then
+        break
+      end
+      total += 1000
+    else
+      total += 1
+    end
+  end
+  return total
+end
+
+func truth(f: bool): byte
+  case f
+  of false
+    return 'F'
+  of true
+    return 'T'
+  end
+  return '?'
+end
+
+; the selector is worked out once, though the bodies change what it was worked out from
+func once(): byte
+  var n: byte = 3
+  var r: byte = 0
+  case n + 1
+  of 4
+    n = 0
+    r += 1
+  of 1
+    r += 10
+  end
+  return r
+end
+
+; the last `of` runs on to the end: A does not hold the selector there
+func runs_on(k: byte): byte
+  var r: byte = 0
+  case k
+  of 1
+    r = 5
+  end
+  return k + r
+end
+
+pub func main()
+  var v: byte
+  var s: sbyte
+  var a: byte
+  var b: byte
+  var counts: word
+  var k: byte
+  for k = 0 to 5 do
+    counts = 0
+    for v = 0 to 255 do
+      if classify(v) == k then
+        counts += 1
+      end
+    end
+    libout.dec(counts)
+    libout.space()
+  end
+  libout.nl()
+  for k = 0 to 3 do
+    counts = 0
+    for s = -128 to 127 do
+      if signed_class(s) == k then
+        counts += 1
+      end
+    end
+    libout.dec(counts)
+    libout.space()
+  end
+  libout.nl()
+  for a = 0 to 3 do
+    for b = 0 to 3 do
+      libout.dec(nested(a, b))
+      libout.space()
+    end
+  end
+  libout.nl()
+  libout.dec(looped())
+  libout.space()
+  libout.char(truth(false))
+  libout.char(truth(true))
+  libout.space()
+  libout.dec(once())
+  libout.space()
+  libout.dec(runs_on(1))
+  libout.space()
+  libout.dec(runs_on(2))
+  libout.nl()
+end

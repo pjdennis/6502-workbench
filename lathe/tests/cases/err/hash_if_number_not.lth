@@ -1,0 +1,5 @@
+; error 44 4 5
+; options -dLEVEL=2
+module hash_if_number_not
+#if not LEVEL
+#end

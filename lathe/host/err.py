@@ -104,6 +104,14 @@ E_INTERNAL = 99
 
 # Meaning, continued (40 to 59 are full)
 E_CALL_IN_ARGUMENTS = 100
+E_TO_EXPECTED = 110
+E_CASE_SELECTOR = 111
+E_CASE_TWICE = 112
+E_STATUS_IN_CRITICAL = 113
+E_DIRECTIVE = 114
+E_NO_IF = 115
+E_IF_OPEN = 116
+E_IF_DEEP = 117
 
 # asm blocks and asm functions
 E_ASM_BRANCH = 140
@@ -163,7 +171,7 @@ MESSAGES = (
     b"57 differs from the forward declaration\n"
     b"58 function declared forward has no body\n"
     b"59 division by zero\n"
-    b"60 usage: lathec SOURCE.lth OUTDIR [IMPORTDIR...]\n"
+    b"60 usage: lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]\n"
     b"61 source file must be called NAME.lth\n"
     b"62 cannot open the source file\n"
     b"63 cannot create the output file\n"
@@ -186,6 +194,14 @@ MESSAGES = (
     b"86 too many initial values\n"
     b"99 compiler error\n"
     b"100 a call of this function inside its own arguments: use a variable\n"
+    b"110 \"to\" or \"downto\" expected\n"
+    b"111 a case selector must be a byte, sbyte or bool\n"
+    b"112 constant already used in this case\n"
+    b"113 a status cannot be returned from inside critical: return after its end\n"
+    b"114 #if, #else or #end expected at the start of a line\n"
+    b"115 #else or #end without its #if\n"
+    b"116 #if without #end\n"
+    b"117 #if nested too deeply\n"
     b"140 a branch must go to a label of this asm block\n"
     b"141 a label of an asm block can only be the target of a branch or JMP\n"
     b"142 label not defined in this asm block\n"

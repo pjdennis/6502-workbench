@@ -63,10 +63,20 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 ## Command lines
 
 ```bash
-python3 lathe/host/lathec.py SOURCE.lth OUTDIR [IMPORTDIR...]
+python3 lathe/host/lathec.py [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]
 ```
 
 Compiles one module. The module name is the file name without `.lth`, in lower case. Writes `OUTDIR/name.lo` (object file, `../docs/object-format.md`) and `OUTDIR/name.li` (interface). `import x` reads `x.li` from `OUTDIR`, then from each `IMPORTDIR`. On an error it prints `FILE:LINE:COL: error N: text` to the error output and exits with status 1.
+
+The options come before the source file, in any order; a later `-c` wins. They give the constants that `#if` tests (`../docs/language.md`, "Conditional compilation"), predeclared like `true`, so a module's own declaration of the same name hides them:
+
+| Option | Means |
+|---|---|
+| `-c6502`, `-c65c02` | The CPU the module is for: the CPU byte of its `MOD` record, and the instructions `asm` accepts. Predeclares the `bool` constant `cpu_65c02`, which is `false` without the option. |
+| `-dNAME` | Predeclares the constant `NAME` (a name the language allows, not a keyword; case is folded) as the `bool` `true`. |
+| `-dNAME=NUMBER` | Predeclares `NAME` as the decimal `NUMBER`, 0 to 65535, a number of no type yet (like `const NAME = NUMBER`). |
+
+Anything else that starts with `-`, a name given twice, or a missing file name is error 60 (or 41 for the name).
 
 ```bash
 python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
@@ -75,10 +85,10 @@ python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
 Links a program whose entry is `MAINMODULE.main`. Objects are placed in the order given.
 
 ```bash
-python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm]
+python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm] [--define NAME[=NUMBER]]...
 ```
 
-Finds the modules a program imports (in `lathe/rt/` and beside the source), compiles them in dependency order, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
+Finds the modules a program imports (in `lathe/rt/` and beside the source; an `import` inside `#if` is found and compiled whatever the condition), compiles them in dependency order with `-c` from the environment's `cpu` entry, `-d` for each of its `define` entries and for each `--define`, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
 
 `--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range.
 
@@ -94,9 +104,11 @@ data      $C000 $EFFF   ; where variables go
 stack     $FF           ; optional: the start-up code sets the stack pointer
 exit      call $F00F    ; when main returns: call ADDR with A = 0, or `loop`, `return` or `stop`
 output    image         ; optional: `image` (the default) or `raw`
+define    FAST          ; any number of these: a constant for #if, the bool true
+define    LEVEL $10     ; or a number, 0 to $FFFF
 ```
 
-The linker writes the start-up code from these entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39.
+`define` is for the compiler only: `build.py` passes it on as `-dNAME` or `-dNAME=NUMBER`, and the linker skips it, as it skips any entry it does not know. The linker writes the start-up code from the other entries (`../docs/object-format.md`, "Initial values and start-up"). `exit stop` ends it with `STP` (`$DB`), which only the 65C02 has: it needs `cpu 65c02`, or the link fails with error 39.
 
 The output file:
 
@@ -175,7 +187,7 @@ A new error takes the next free number of its group.
 | Unit | in the test file | One host module's functions. |
 | Shape | `test_shape.py` | The rule above. |
 | Snapshot | `tests/cases/snap/NAME.lth` | `lo2asm` of the compiled module equals `NAME.expected.asm`. |
-| Error | `tests/cases/err/NAME.lth` | The first line is `; error N LINE COL`; the compiler must report exactly that. |
+| Error | `tests/cases/err/NAME.lth` | The first line is `; error N LINE COL`; the compiler must report exactly that. A line `; options ...` before `module` gives the compiler options. |
 | End to end | `tests/cases/e2e/NAME.lth` | The program's output on the emulator equals `NAME.expected.out`. Built both ways (linker, and assembler path) once the linker exists; the two images must be identical. |
 | End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
@@ -183,4 +195,4 @@ A new error takes the next free number of its group.
 
 `lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not.
 
-A snapshot or end-to-end case can import modules that lie beside it. A file called `lib*.lth` is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.
+A snapshot or end-to-end case can import modules that lie beside it, and a line `; defines NAME NAME=NUMBER ...` before its `module` line builds it with those defines. A file called `lib*.lth` is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.

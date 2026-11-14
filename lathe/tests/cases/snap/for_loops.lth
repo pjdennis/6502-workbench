@@ -1,0 +1,128 @@
+; `for` (docs/codegen.md, "Statements"): the variable is set, the loop is skipped unless the
+; first value is known not to be past the limit, and the test is at the bottom: the variable
+; is compared with the limit before each step.
+module for_loops
+
+var i: byte
+var n: byte
+var r: byte
+var s: sbyte
+var w: word
+var v: word
+var k: int
+
+; constant bounds: no test before the loop; counting up without a sign goes back with a BNE
+func constant_bounds()
+  for i = 1 to 10 do
+    r += i
+  end
+end
+
+; to 255 ends: the test is before the INC
+func to_the_top()
+  for i = 0 to 255 do
+    r += 1
+  end
+end
+
+; a limit that is a variable is read at each test; with a first value of 0, nothing is past it
+func to_a_variable()
+  for i = 0 to n do
+    r += i
+  end
+end
+
+; a first value that is a variable: the loop is skipped if it is past the limit
+func from_a_variable()
+  for i = n to 200 do
+    r += i
+  end
+end
+
+; a limit that is worked out is copied to a temporary
+func to_an_expression()
+  for i = r to n - 1 do
+    r += 1
+  end
+end
+
+; downto 0: LDA / BEQ is the test; a DEC can reach 0, so the way back is a JMP
+func down_to_zero()
+  for i = n downto 0 do
+    r += i
+  end
+end
+
+; down to a constant from 1 to 127: the DEC never gives 0, so the way back is a BNE
+func down_to_one()
+  for i = n downto 1 do
+    r += i
+  end
+end
+
+; a signed byte: the test before the loop is signed, and the way back a JMP
+func signed_byte()
+  for s = -5 to 5 do
+    r += 1
+  end
+  for s = 10 downto -10 do
+    r -= 1
+  end
+end
+
+; a word: INC of the low byte, and of the high byte only when that gives 0
+func words()
+  for w = 0 to 1000 do
+    r += 1
+  end
+  for w = v downto 1 do
+    r += 1
+  end
+  for w = 1 to v + 10 do
+    r += 1
+  end
+end
+
+; a byte limit for a word variable has a high byte of 0
+func word_with_a_byte_limit()
+  for w = 300 downto n do
+    r += 1
+  end
+end
+
+; an int counts up with a JMP back, since INC of the high byte can give 0
+func ints()
+  for k = -100 to 100 do
+    r += 1
+  end
+end
+
+; break leaves the loop, continue goes to the test at the bottom
+func leaving()
+  for i = 0 to n do
+    if i == 7 then
+      continue
+    end
+    if r == 0 then
+      break
+    end
+    r -= 1
+  end
+end
+
+; loops inside loops, and a parameter and a local as variable and limit
+func nested(top: byte)
+  var j: byte
+  for i = 0 to top do
+    for j = i to top do
+      r += j
+    end
+  end
+end
+
+; bounds known to make the loop empty: a JMP over it
+func empty()
+  for i = 5 to 4 do
+    r += 1
+  end
+end

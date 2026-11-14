@@ -1,8 +1,0 @@
-; error 39 5 3
-module later_case
-var i: byte
-func f()
-  case i
-  of 1
-  end
-end

@@ -160,6 +160,18 @@ class LogicTest(CondTest):
         self.assertEqual(reg.op_kind[0], reg.O_VAR)
         self.assertEqual(self.listing()[0], 'STA s1')
 
+    def test_a_left_side_that_is_known_to_be_the_answer_makes_a_constant(self):
+        for wanted, left, answer in ((True, 0, 0), (False, 1, 1)):     # false and x, true or x
+            gen.function_begin(self.own)
+            reg.implied(reg.OP_CLC)
+            gen.constant(BOOL, left)
+            cond.left(wanted)
+            self.local(BOOL)
+            cond.right()
+            self.assertEqual((reg.depth, reg.op_kind[0], reg.op_value[0]), (1, reg.O_CONST, answer))
+            reg.pop()
+            self.assertEqual(self.listing(), ['CLC', 'RTS'])     # the JMP round x is taken out
+
     def test_and_needs_bools(self):
         self.local(BYTE)
         self.assertFatal(err.E_TYPE, lambda: cond.left(True))

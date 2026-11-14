@@ -1,0 +1,6 @@
+; error 40 4 7
+module for_undefined
+func f()
+  for nothing = 0 to 9 do
+  end
+end

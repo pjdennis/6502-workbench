@@ -1,0 +1,36 @@
+; error 117 19 5
+module hash_if_too_deep
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#if true
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end
+#end

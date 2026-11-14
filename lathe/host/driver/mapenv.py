@@ -1,5 +1,6 @@
 """The environment file and the map file (lathe/host/README.md)."""
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -38,6 +39,7 @@ class Env:
     exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), or (EXIT_LOOP / EXIT_RETURN / EXIT_STOP, None)
     output: str = OUTPUT_IMAGE       # OUTPUT_IMAGE: code start to $FFFF and the reset vector;
                                      # OUTPUT_RAW: code start to the last byte placed
+    defines: list = field(default_factory=list)  # `define NAME [VALUE]`: (NAME, VALUE or None)
     path: str = ''
 
 
@@ -84,6 +86,13 @@ def parse_env(text, path='<env>'):
             if form not in ([OUTPUT_IMAGE], [OUTPUT_RAW]):
                 raise FormatError(f'{where}: output is image or raw')
             env.output = form[0]
+        elif key == 'define':
+            if not 1 <= len(args) <= 2 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', args[0]):
+                raise FormatError(f'{where}: define takes a name and, if it is not a bool, a number')
+            value = _number(args[1], where) if len(args) == 2 else None
+            if value is not None and not 0 <= value <= 0xFFFF:
+                raise FormatError(f'{where}: a define\'s number is 0 to 65535')
+            env.defines.append((args[0], value))
         elif key == 'start':
             raise FormatError(f'{where}: start is no longer an entry: the linker makes $start '
                               f'(lathe/docs/object-format.md, "Initial values and start-up")')

@@ -224,10 +224,10 @@ asm                                  ; inline assembly
 end
 ```
 
-- `for` evaluates `last` once. The loop variable is a `byte` or `word` declared beforehand. The body runs for every value from `first` to `last` inclusive, and not at all if `first` is already past `last`. The test is at the bottom, so a loop to 255 or down to 0 ends correctly. Counting `downto 0` gives the shortest loop.
+- `for` evaluates `last` once, unless it is a plain variable: that is read at each test, so a body that changes it changes the loop. The loop variable is a `byte`, `sbyte`, `word` or `int` declared beforehand. The body runs for every value from `first` to `last` inclusive, and not at all if `first` is already past `last`. The test is at the bottom, so a loop to 255 or down to 0 ends correctly. A loop that runs to its end leaves the variable equal to `last`; one that does not run at all leaves it equal to `first`. `continue` goes to the test at the bottom. Counting `downto 0` gives the shortest loop.
 - `loop … until` is the tightest loop on a 6502: one branch per pass.
-- `case` with dense constants becomes a jump table; otherwise a chain of compares.
-- `critical` saves the interrupt flag, disables interrupts, and restores the flag at `end`. Use it around any access to a multi-byte variable shared with an interrupt handler.
+- `case` takes a selector of one byte (`byte`, `sbyte` or `bool`; a `word` selector is an error for now), evaluated once. The constants after `of` take its type, and each may appear only once in a `case`. With no `else`, a value that no `of` names does nothing. The compiler makes a chain of compares; with dense constants it may later make a jump table.
+- `critical` saves the interrupt flag, disables interrupts, and restores the flag at `end`. Use it around any access to a multi-byte variable shared with an interrupt handler. A `break`, `continue` or `return` that leaves the block restores the flag on its way out. A `return` that gives a status (a `bool` result) cannot be inside `critical`, because restoring the flags would change the carry that holds it: keep the status in a variable and return after `end`.
 
 ### Inline assembly
 
@@ -281,14 +281,16 @@ import strings
 ## Conditional compilation
 
 ```
-#if CPU_65C02
+#if cpu_65c02
   …
 #else
   …
 #end
 ```
 
-The condition is a constant expression. Constants such as `CPU_65C02` come from the environment description. The skipped lines are not compiled, so they may use names that do not exist in this configuration.
+The condition is a constant expression over the constants declared before it. It is true if it is a `bool` that is true or a number that is not 0. Constants such as `cpu_65c02` come from the environment description ([`architecture.md`](architecture.md)): the compiler predeclares `cpu_65c02`, a `bool`, from its `cpu` entry, and a constant for each `define` entry, the `bool` `true` for `define NAME` and a number for `define NAME VALUE`. A name the condition uses must be declared, so a setting that only some environments want is given a value by all of them: `define FAST 0` in the others, tested as `#if FAST`.
+
+The skipped lines are not compiled and not even read as tokens, so they may hold anything, names that do not exist in this configuration included. The lexer only looks for lines that start with `#`, to match `#if` inside them with their `#end`. A directive stands at the start of a line, blanks before it allowed, with nothing but a comment after it. `#if` can start any line where a declaration, an `import` or a statement can start, in a module or in a function; `#else` and `#end` can start any line. Inside an `asm` block a line is assembly, so directives are not recognised there.
 
 ## Banked data
 
@@ -367,7 +369,7 @@ Notes on the grammar:
 - A conversion to a named type, such as `SymPtr(w)`, is parsed as a call. The symbol table says whether the name is a type.
 - `true`, `false` and `nil` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
 - A `constExpr` is an expression the compiler can evaluate; anything else is an error.
-- `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar.
+- `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar. (The parser works out the condition of `#if` where a declaration, `import` or statement can start, and tells the lexer what to skip.)
 - Inside an `asm` block the lexer passes whole lines through. The block ends at a line whose first word is `end`.
 
 ## A larger example

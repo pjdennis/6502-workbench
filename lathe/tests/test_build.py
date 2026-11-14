@@ -23,10 +23,11 @@ FAKE_COMPILER = textwrap.dedent('''\
     import os, sys
     sys.path.insert(0, {driver!r})
     import lo
-    src, outdir = sys.argv[1], sys.argv[2]
+    options = [a for a in sys.argv[1:] if a.startswith('-')]
+    src, outdir = [a for a in sys.argv[1:] if not a.startswith('-')][:2]
     name = os.path.splitext(os.path.basename(src))[0].lower()
     with open(os.path.join(outdir, 'compiled.log'), 'a') as fh:
-        fh.write(name + '\\n')
+        fh.write(' '.join([name] + options) + '\\n')
     first = open(src).readline()
     b = lo.Builder(name)
     if first.startswith('; prints '):
@@ -114,11 +115,33 @@ class TestBuild(Sources):
         keep = os.path.join(self.dir, 'keep')
         build.build(main, out, keep=keep)
         with open(os.path.join(keep, 'compiled.log')) as fh:
-            self.assertEqual(fh.read(), 'host\nhi\n')
+            self.assertEqual(fh.read(), 'host -c6502\nhi -c6502\n')
         for f in ('host.lo', 'hi.lo', 'hi.map', 'hi.asm'):
             self.assertTrue(os.path.isfile(os.path.join(keep, f)), f)
         self.assertEqual(os.path.getsize(out), 0x10000 - 0x0200)
         self.assertEqual(build.run_image(out), (0, b'HI\n', b''))
+
+    def test_the_environment_and_defines_give_the_compiler_options(self):
+        main = self.source('hi.lth', '; prints HI\nmodule hi\n')
+        env = self.source('x.env', 'cpu 65c02\ncode $0200 $BFFF\ndefine FAST\ndefine size $10\n'
+                          'exit call $F00F\n')
+        keep = os.path.join(self.dir, 'keep')
+        build.build(main, os.path.join(self.dir, 'hi.bin'), env, keep=keep, defines=['X=3', 'Y'])
+        with open(os.path.join(keep, 'compiled.log')) as fh:
+            self.assertEqual(fh.read(), 'hi -c65c02 -dFAST -dsize=16 -dX=3 -dY\n')
+        self.assertEqual(build.compiler_options(), [])
+        self.assertEqual(build.compiler_options(None, ['A=1']), ['-dA=1'])
+
+    def test_cli_defines(self):
+        main = self.source('hi.lth', '; prints HI\nmodule hi\n')
+        keep = os.path.join(self.dir, 'keep')
+        env = dict(os.environ, LATHE_COMPILER=self.compiler, LATHE_LINKER=build.LINKER)
+        r = subprocess.run([sys.executable, os.path.join(DRIVER, 'build.py'), main, '-o',
+                            os.path.join(self.dir, 'hi.bin'), '--keep', keep, '--define', 'A',
+                            '--define', 'B=2'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        self.assertEqual((r.returncode, r.stderr), (0, b''))
+        with open(os.path.join(keep, 'compiled.log')) as fh:
+            self.assertEqual(fh.read(), 'hi -c6502 -dA -dB=2\n')
 
     def test_cli(self):
         main = self.source('ok.lth', '; prints OK\nmodule ok\nimport host\n')

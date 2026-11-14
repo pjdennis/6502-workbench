@@ -1,0 +1,8 @@
+; error 30 7 3
+module for_end_expected
+var i: byte
+func f()
+  for i = 0 to 9 do
+    i = i
+  until i == 3
+end

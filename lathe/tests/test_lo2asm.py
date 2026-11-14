@@ -412,6 +412,15 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(self.parse(env_text() + 'OUTPUT Raw\n').output, 'raw')
         self.assertEqual(self.parse('exit stop\n' + c02.replace('exit stop\n', '')).exit, ('stop', None))
 
+    def test_defines(self):
+        self.assertEqual(self.parse(env_text()).defines, [])
+        env = self.parse(env_text() + 'define HAS_LCD\nDEFINE size $10 ; sixteen\ndefine Level 3\n')
+        self.assertEqual(env.defines, [('HAS_LCD', None), ('size', 16), ('Level', 3)])
+        for entry in ('define', 'define 9a', 'define a-b', 'define a 1 2', 'define a $10000', 'define a x'):
+            with self.subTest(entry=entry):
+                with self.assertRaises(mapenv.FormatError):
+                    self.parse(env_text() + entry + '\n')
+
     def test_errors(self):
         for text, pattern in (
                 (env_text(exit=None), r'x\.env: no exit entry'),

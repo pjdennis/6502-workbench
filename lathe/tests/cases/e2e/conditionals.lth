@@ -1,0 +1,51 @@
+; `#if` chooses what is compiled, from the constants the environment and the build give:
+; cpu_65c02 from the environment's cpu entry (host.env: 6502), and FAST and LEVEL from
+; the `defines` line below (build.py --define).
+; defines FAST LEVEL=3
+module conditionals
+
+import libout
+
+#if LEVEL >= 3
+const NAME = 'H'
+#else
+const NAME = 'L'
+#end
+
+func speed(): byte
+#if FAST
+  return 'F'
+#else
+  return 'S'
+#end
+end
+
+func cpu(): byte
+  #if cpu_65c02
+  return 'C'
+  #else
+  return '6'
+  #end
+end
+
+pub func main()
+  var i: byte
+  libout.char(NAME)
+  libout.char(speed())
+  libout.char(cpu())
+  #if LEVEL == 3 and not cpu_65c02
+  for i = 1 to LEVEL do
+    libout.char('0' + i)
+  end
+  #else
+  libout.char('?')
+  #end
+  #if LEVEL > 100 or LEVEL > 2
+  #if LEVEL - 3
+  libout.char('x')
+  #else
+  libout.char('y')
+  #end
+  #end
+  libout.nl()
+end

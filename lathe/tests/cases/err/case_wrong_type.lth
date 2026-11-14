@@ -1,0 +1,8 @@
+; error 44 6 6
+module case_wrong_type
+var k: byte
+func f()
+  case k
+  of true
+  end
+end

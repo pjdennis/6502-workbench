@@ -1,0 +1,8 @@
+; error 30 6 3
+module case_of_outside
+var k: byte
+func f()
+  if k == 1 then
+  of 1
+  end
+end

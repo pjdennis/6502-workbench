@@ -1,3 +1,0 @@
-; error 39 3 1
-module later_conditional
-#if CPU_65C02

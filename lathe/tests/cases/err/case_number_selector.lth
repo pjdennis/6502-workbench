@@ -1,0 +1,7 @@
+; error 111 4 8
+module case_number_selector
+func f()
+  case 3
+  of 3
+  end
+end

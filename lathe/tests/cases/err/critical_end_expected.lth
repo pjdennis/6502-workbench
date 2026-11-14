@@ -1,0 +1,6 @@
+; error 30 5 3
+module critical_end_expected
+func f()
+  critical
+  else
+end

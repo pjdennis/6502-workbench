@@ -1,0 +1,8 @@
+; error 111 5 8
+module case_word_selector
+var w: word
+func f()
+  case w
+  of 1
+  end
+end

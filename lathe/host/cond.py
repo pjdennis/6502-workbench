@@ -32,6 +32,7 @@ FLIP = 0x20         # the bit that differs between a branch and its opposite
 SIGN_BIT = 0x80
 F_COMPARED = 4          # a flag of a Condition, beside reg.F_TEMP and reg.F_ZP: it is "Z set"
 #                         after a CMP, which has set the carry flag too if it is true
+F_DECIDED = 8           # the left side of `and` or `or` is a constant that is the answer
 
 for_carry = False       # True while the test being compiled is wanted in the carry flag: a
 #                         comparison then prefers the form that is true with the carry set
@@ -135,9 +136,12 @@ def left(wanted):
     make(i)
     if reg.op_value[i] <= ALWAYS:
         reg.claim(reg.A)        # the right side may never be run: it cannot be what stores A
+    decided = is_plain(i) and reg.op_value[i] == int_of(not wanted)
     target = leave(i, wanted)
     reg.op_true[i] = reg.NONE
     reg.op_false[i] = reg.NONE
+    if decided:
+        reg.op_flags[i] = F_DECIDED
     if wanted:
         reg.op_value[i] = ALWAYS
         reg.op_false[i] = target
@@ -151,6 +155,14 @@ def right():
     it: the result is the right side, with the left side's label joined to its own."""
     i = reg.depth - 1
     make(i)
+    if reg.op_flags[i - 1] & F_DECIDED != 0:
+        answer = reg.op_value[i - 1] ^ ALWAYS
+        target = joined(reg.op_true[i - 1], reg.op_false[i - 1])
+        reg.label(joined(target, joined(reg.op_true[i], reg.op_false[i])))
+        reg.pop()               # the right side, jumped over: the answer is the left side's
+        reg.describe(i - 1, reg.O_CONST, typetab.BOOL_TYPE)
+        reg.op_value[i - 1] = answer
+        return
     reg.op_true[i] = joined(reg.op_true[i - 1], reg.op_true[i])
     reg.op_false[i] = joined(reg.op_false[i - 1], reg.op_false[i])
     reg.squeeze()

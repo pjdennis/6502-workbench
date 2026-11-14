@@ -1,0 +1,10 @@
+; error 113 7 7
+module critical_value_and_status
+var n: byte
+func f(): byte, bool
+  loop
+    critical
+      return n, true
+    end
+  end
+end

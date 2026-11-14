@@ -338,9 +338,80 @@ class ExpectTest(LexTest):
         self.assertEqual((err.line, err.col), (1, 4))
 
 
-class LaterTest(LexTest):
-    def test_conditional_compilation_is_not_implemented_yet(self):
-        self.assertError('a\n#if X', err.E_UNSUPPORTED, 2, 1)
+def conditional(text, truth):
+    """The tokens of `text`, which starts with an `#if` line, when its condition is `truth`:
+    as the parser does, the `#if` token and the line end after it are read, then choose()."""
+    start(text)
+    lex.next()
+    assert lex.tok == lex.T_HASH_IF, lex.tok
+    lex.next()
+    assert lex.tok == lex.T_NL, lex.tok
+    lex.choose(truth)
+    found = []
+    lex.next()
+    while lex.tok != lex.T_EOF:
+        found.append(lex.tok)
+        lex.next()
+    return found
+
+
+NAME_LINE = [lex.T_NAME, lex.T_NL]
+NUMBER_LINE = [lex.T_NUMBER, lex.T_NL]
+
+
+class ConditionalTest(LexTest):
+    def assertConditionalError(self, text, truth, number, line, col):
+        with self.assertRaises(SystemExit):
+            conditional(text, truth)
+        self.assertIn('error %d:' % number, support.error_text())
+        self.assertEqual((err.line, err.col), (line, col))
+
+    def test_if_is_a_token_and_its_condition_follows(self):
+        self.assertEqual(tokens('a\n#if X\n'), [lex.T_NAME, lex.T_NL, lex.T_HASH_IF, lex.T_NAME, lex.T_NL])
+        self.assertEqual(tokens('  #IF x'), [lex.T_HASH_IF, lex.T_NAME, lex.T_NL])
+
+    def test_the_part_chosen_is_compiled(self):
+        text = '#if\na\n#else\n9\n#end\n'
+        self.assertEqual(conditional(text, True), NAME_LINE)
+        self.assertEqual(conditional(text, False), NUMBER_LINE)
+        self.assertEqual(conditional('#if\na\n#end\n9', False), NUMBER_LINE)
+        self.assertEqual(conditional('#if\na\n  #end  ; done\n9', True), NAME_LINE + NUMBER_LINE)
+
+    def test_skipped_lines_need_not_lex(self):
+        self.assertEqual(conditional('#if\n"open ` \\q\n$$ #else\n#elsewhere\n#end\na', False), NAME_LINE)
+
+    def test_nesting_is_followed_in_skipped_lines(self):
+        text = '#if\n#if\nx\n#else\nx\n#end\n#else\n9\n#end\n'
+        self.assertEqual(conditional(text, False), NUMBER_LINE)
+        self.assertEqual(conditional('#if\na\n#else\n#if\n#else\n#end\n#end\n9', True),
+                         NAME_LINE + NUMBER_LINE)
+
+    def test_a_directive_must_start_its_line(self):
+        self.assertError('a #end', err.E_DIRECTIVE, 1, 3)
+        self.assertError('#define', err.E_DIRECTIVE, 1, 1)
+        self.assertError('# if', err.E_DIRECTIVE, 1, 1)
+        self.assertConditionalError('#if\n#end b', True, err.E_DIRECTIVE, 2, 6)
+        self.assertConditionalError('#if\n#else b\n#end', False, err.E_DIRECTIVE, 2, 7)
+
+    def test_else_and_end_need_their_if(self):
+        self.assertError('#else', err.E_NO_IF, 1, 1)
+        self.assertError('a\n  #end', err.E_NO_IF, 2, 3)
+        self.assertConditionalError('#if\n#end\n#end', True, err.E_NO_IF, 3, 1)
+        self.assertConditionalError('#if\n#else\n#else\n#end', False, err.E_NO_IF, 3, 1)
+        self.assertConditionalError('#if\n#else\n#else\n#end', True, err.E_NO_IF, 3, 1)
+
+    def test_an_if_needs_its_end(self):
+        self.assertConditionalError('#if\na\n', True, err.E_IF_OPEN, 3, 1)
+        self.assertConditionalError('#if\na\n#else\n', False, err.E_IF_OPEN, 4, 1)
+        self.assertConditionalError('#if\na\n#else\n', True, err.E_IF_OPEN, 4, 1)
+
+    def test_nesting_has_a_limit(self):
+        start('')
+        for i in range(lex.MAX_NESTING):
+            lex.choose(True)
+        with self.assertRaises(SystemExit):
+            lex.choose(True)
+        self.assertIn('error %d:' % err.E_IF_DEEP, support.error_text())
 
 
 if __name__ == '__main__':

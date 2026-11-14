@@ -455,7 +455,38 @@ class CommandLineTest(CompileTest):
     def test_too_few_arguments_is_error_60(self):
         status, errors = support.run_lathec(HOST_LTH)
         self.assertEqual(status, 1)
-        self.assertEqual(errors, 'lathec: error 60: usage: lathec SOURCE.lth OUTDIR [IMPORTDIR...]\n')
+        self.assertEqual(errors, 'lathec: error 60: usage: lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... '
+                                 'SOURCE.lth OUTDIR [IMPORTDIR...]\n')
+
+    def test_options_must_be_ones_it_knows(self):
+        path = self.source('prog.lth', 'module prog\n')
+        for option in ('-x', '-c', '-c6800', '-c65c02x', '-d', '-d9a', '-da-b', '-dx=', '-dx=1a',
+                       '-dx=65536', '-dend', '-'):
+            with self.subTest(option=option):
+                status, errors = support.run_lathec(option, path, self.out)
+                self.assertEqual(status, 1)
+                self.assertTrue(errors.startswith('lathec: error 60: usage'), errors)
+        self.assertEqual(support.run_lathec('-dx', '-dX', path, self.out),
+                         (1, 'lathec: error 41: name already declared\n'))
+        self.assertEqual(support.run_lathec('-c6502', path)[0], 1)
+
+    def test_the_cpu_option_sets_the_cpu_of_the_module(self):
+        path = self.source('prog.lth', 'module prog\n')
+        for options, cpu in (((), 0), (('-c6502',), 0), (('-c65C02',), 1), (('-c65c02', '-c6502'), 0)):
+            with self.subTest(options=options):
+                self.assertEqual(support.run_lathec(*options, path, self.out), (0, ''))
+                self.assertEqual(self.records('prog')[0], (MOD, bytes([1, cpu]) + string(b'prog')))
+
+    def test_options_predeclare_constants(self):
+        path = self.source('prog.lth', 'module prog\n'
+                           '#if cpu_65c02 and LEVEL < 2\nconst A = 1\n#else\nconst A = 2\n#end\n'
+                           'pub const B: word = SIZE + A\n')
+        for options, b in ((('-dSIZE=1000', '-dlevel=1'), 1002), (('-c65c02', '-dSize=0', '-dLEVEL=1'), 1),
+                           (('-dlevel=2', '-c65c02', '-dsize=65533'), 65535)):
+            with self.subTest(options=options):
+                self.assertEqual(support.run_lathec(*options, path, self.out), (0, ''))
+                self.assertEqual(self.interface('prog'), b'LI\x01' + string(b'prog') + b'\x02'
+                                 + string(b'b') + bytes([3, b & 0xFF, b >> 8, 0]))
 
     def test_a_source_file_not_called_lth_is_error_61(self):
         for name in ('prog.txt', 'prog', '.lth', '9lives.lth', 'my-prog.lth'):

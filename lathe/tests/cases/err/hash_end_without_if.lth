@@ -1,0 +1,4 @@
+; error 115 4 3
+module hash_end_without_if
+const A = 1
+  #end

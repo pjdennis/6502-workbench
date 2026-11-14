@@ -1,0 +1,132 @@
+; `critical` sets the interrupt flag inside and gives back the one before at its end, and on
+; every way out: break, continue and return, from one block or from blocks inside blocks.
+; Each test prints the flag inside and after, as 1 or 0, once with interrupts enabled before
+; it and once with them disabled.
+module criticals
+
+import libout
+
+asm func status(): byte in a
+  PHP
+  PLA
+end
+
+asm func enable()
+  CLI
+end
+
+asm func disable()
+  SEI
+end
+
+var inside: byte
+
+func flag(): byte
+  return (status() >> 2) & 1
+end
+
+func show()
+  libout.dec(inside)
+  libout.dec(flag())
+  libout.space()
+end
+
+func plain()
+  critical
+    inside = flag()
+  end
+  show()
+end
+
+func breaking()
+  var i: byte
+  for i = 0 to 9 do
+    critical
+      inside = flag()
+      if i == 2 then
+        break
+      end
+    end
+  end
+  show()
+end
+
+func continuing()
+  var i: byte
+  var n: byte = 0
+  for i = 0 to 3 do
+    critical
+      critical
+        n += 1
+        if n < 4 then
+          continue
+        end
+        inside = flag()
+      end
+    end
+  end
+  show()
+end
+
+func value(): word
+  critical
+    inside = flag()
+    if inside == 1 then
+      return 1234
+    end
+  end
+  return 0
+end
+
+func returning()
+  var w: word
+  w = value()
+  show()
+  libout.dec(w)
+  libout.space()
+end
+
+; a loop inside the block: break leaves the loop, not the block
+func loop_inside()
+  var i: byte
+  critical
+    for i = 0 to 9 do
+      if i == 5 then
+        break
+      end
+    end
+    inside = flag()
+  end
+  show()
+end
+
+func nested_return(): byte
+  loop
+    critical
+      loop
+        critical
+          inside = flag()
+          return 7
+        end
+      end
+    end
+  end
+end
+
+func all()
+  plain()
+  breaking()
+  continuing()
+  returning()
+  loop_inside()
+  libout.dec(nested_return())
+  show()
+  libout.nl()
+end
+
+pub func main()
+  enable()
+  all()
+  disable()
+  all()
+end

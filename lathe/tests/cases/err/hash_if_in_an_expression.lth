@@ -1,0 +1,9 @@
+; error 35 6 1
+module hash_if_in_an_expression
+var n: byte
+func f()
+  n = 1 +
+#if true
+  2
+#end
+end

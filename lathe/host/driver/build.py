@@ -2,10 +2,12 @@
 """Build (and run) a Lathe program.
 
     python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm]
-                                       [--naive] [--keep DIR]
+                                       [--naive] [--keep DIR] [--define NAME[=NUMBER]]...
 
 1. Finds the modules the program imports: `import NAME` lines; NAME.lth beside SOURCE, then in
-   lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory.
+   lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory,
+   with the options compiler_options() gives: the environment's `cpu` and `define` entries,
+   and each --define.
 2. Links with lathe/host/link.py (ENV MAIN OUT.bin OUT.map OBJECTS...), if it exists.
 3. With --asm, or when there is no linker: renders the objects and a map as asm17 text
    (lo2asm program mode) and assembles it with asm/pyasm.py. The map is the linker's when there
@@ -113,12 +115,23 @@ def run(cmd, what, cwd=None):
     return r
 
 
-def compile_all(order, outdir):
+def compiler_options(env=None, defines=()):
+    """lathec's options (lathe/host/README.md, "Command lines") for an environment (a
+    mapenv.Env, or None for none) and further defines, each NAME or NAME=NUMBER."""
+    options = []
+    if env is not None:
+        options.append('-c65c02' if env.cpu else '-c6502')
+        options += ['-d' + name + ('' if value is None else f'={value}') for name, value in env.defines]
+    return options + ['-d' + d for d in defines]
+
+
+def compile_all(order, outdir, options=()):
     if not os.path.isfile(COMPILER):
         raise BuildError(f'the compiler {os.path.relpath(COMPILER, ROOT)} does not exist yet')
     objects = []
     for name, path in order:
-        run([sys.executable, COMPILER, path, outdir], f'compiling {os.path.relpath(path, ROOT)}')
+        run([sys.executable, COMPILER] + list(options) + [path, outdir],
+            f'compiling {os.path.relpath(path, ROOT)}')
         obj = os.path.join(outdir, name + '.lo')
         if not os.path.isfile(obj):
             raise BuildError(f'the compiler did not write {obj}')
@@ -148,14 +161,15 @@ def naive_map(objects, env, main, map_path):
     mapenv.write_map(map_path, naive.allocate(modules, mapenv.read_env(env), main))
 
 
-def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, log=None):
-    """Builds source into the image out. Returns the work directory (removed later unless keep)."""
+def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, log=None, defines=()):
+    """Builds source into the image out, with further defines (NAME or NAME=NUMBER) for the
+    compiler. Returns the work directory (removed later unless keep)."""
     work = os.path.abspath(keep) if keep else tempfile.mkdtemp(prefix='lathe-build-')
     os.makedirs(work, exist_ok=True)
     env = env_path(env)
     order = module_order(source)
     main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
-    objects = compile_all(order, work)
+    objects = compile_all(order, work, compiler_options(mapenv.read_env(env), defines))
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
     if have_linker:
@@ -203,10 +217,12 @@ def main(argv):
     ap.add_argument('--asm', action='store_true', help='build the image by the assembler path')
     ap.add_argument('--naive', action='store_true', help='naive allocation instead of the linker')
     ap.add_argument('--keep', metavar='DIR')
+    ap.add_argument('--define', action='append', default=[], metavar='NAME[=NUMBER]',
+                    help='a constant for #if, as the environment\'s define entries give')
     a = ap.parse_args(argv)
     work = None
     try:
-        work = build(a.source, a.out, a.env, a.asm, a.naive, a.keep)
+        work = build(a.source, a.out, a.env, a.asm, a.naive, a.keep, defines=a.define)
         if a.run:
             status, out, err = run_program(a.out, a.env)
             sys.stdout.buffer.write(out)

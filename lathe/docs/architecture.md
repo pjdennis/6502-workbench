@@ -182,10 +182,10 @@ exit      loop
 
 | Entry | Meaning |
 |---|---|
-| `cpu` | 6502 or 65C02. Sets a constant the compiler and source can test. |
+| `cpu` | 6502 or 65C02. Sets the `bool` constant `cpu_65c02` that the source can test with `#if`. |
 | `zeropage` | The ranges the linker may allocate. |
 | `region` | A named address range: RAM or ROM, fixed or a window, and its banks. |
-| `define` | A constant for `#if`. |
+| `define` | A constant for `#if`: `define NAME` is the `bool` `true`, `define NAME VALUE` a number. |
 | `place` | Where a segment goes, by default or for one module. |
 | `farcall` | The run-time routine for calls that cross windows: a bank switch or an overlay loader. |
 | `output` | The image format: raw binary, a Commodore `PRG`, one file per bank, and so on. |

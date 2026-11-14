@@ -1,0 +1,4 @@
+; error 22 3 11
+module hash_if_nl_expected
+#if (true)) 
+#end

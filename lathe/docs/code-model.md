@@ -184,7 +184,7 @@ An `interrupt` function is the root of its own context.
 - **Functions used by two contexts.** A function reachable from both the main program and a handler, or from two handlers, is linked once per context, each copy with its own frame. The map file lists the copies. This covers the run-time library: a handler that multiplies gets its own multiply routine.
 - **Entry and exit.** The handler saves A, X and Y on the stack and returns with `RTI`.
 - **Pointer calls.** A pointer class may be called through pointers from one context only. `@f` then means that context's copy of `f`, and the class's parameter block is in that context's storage. Other contexts can still call `f` directly and get their own copy. A class called through pointers from two contexts is a link error naming both calls. The pointer variable is shared data like any other.
-- **Shared variables.** A module-level variable used by a handler and by the main program is the programmer's responsibility. A single byte needs no care. Anything longer must be read and written inside `critical … end` in the main program.
+- **Shared variables.** A module-level variable used by a handler and by the main program is the programmer's responsibility. A single byte needs no care. Anything longer must be read and written inside `critical … end` in the main program, which is `PHP` / `SEI` … `PLP`: the flag is as it was before the block after its end and after any `break`, `continue` or `return` that leaves it.
 - **Placement.** Code in an interrupt context is always placed in fixed memory, never in a window.
 - **Vectors.** Installing a handler is done by the environment module for the machine, using `@handler`.
 

@@ -1,0 +1,7 @@
+; error 53 5 7
+module for_not_a_variable
+const C = 1
+func f()
+  for C = 0 to 9 do
+  end
+end

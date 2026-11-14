@@ -1,0 +1,63 @@
+; `critical` (docs/codegen.md, "Statements"): PHP / SEI, the body, PLP. A `break`, `continue`
+; or `return` that leaves the block has a PLP for each block it leaves before its jump.
+module critical_blocks
+
+var ticks: word
+var copy: word
+var n: byte
+
+; a word shared with an interrupt handler is read inside the block
+func read_ticks(): word
+  critical
+    copy = ticks
+  end
+  return copy
+end
+
+; return with a value leaves the block: PLP after the value is in A and X, before the RTS
+func early(): word
+  critical
+    if n == 0 then
+      return ticks
+    end
+    ticks += 1
+  end
+  return 0
+end
+
+; break and continue leave the blocks inside the loop, not those outside it
+func loops()
+  critical
+    loop
+      critical
+        n -= 1
+        if n == 3 then
+          continue
+        end
+        critical
+          if n == 0 then
+            break
+          end
+        end
+      end
+    end
+  end
+end
+
+; the flags are not known after PLP: the test loads n again
+func flags_after()
+  n -= 1
+  critical
+  end
+  if n == 0 then
+    n = 1
+  end
+end
+
+; a block that ends with return needs no PLP of its own
+func ends_with_return()
+  critical
+    n = 0
+    return
+  end
+end

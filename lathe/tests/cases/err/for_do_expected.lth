@@ -1,0 +1,7 @@
+; error 38 5 17
+module for_do_expected
+var i: byte
+func f()
+  for i = 0 to 9
+  end
+end

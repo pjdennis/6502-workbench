@@ -1,0 +1,8 @@
+; error 112 6 13
+module case_twice_signed
+var s: sbyte
+func f()
+  case s
+  of -1, 1, -1
+  end
+end

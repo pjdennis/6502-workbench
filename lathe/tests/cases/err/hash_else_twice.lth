@@ -1,0 +1,6 @@
+; error 115 5 1
+module hash_else_twice
+#if false
+#else
+#else
+#end

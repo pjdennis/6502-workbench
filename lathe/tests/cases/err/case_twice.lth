@@ -1,0 +1,9 @@
+; error 112 7 9
+module case_twice
+var k: byte
+func f()
+  case k
+  of 1, 2
+  of 3, 2 + 0
+  end
+end

@@ -12,7 +12,8 @@
                           removed.
 
 A case can import modules that lie beside it; one called lib*.lth is only that, and not a
-case. Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME,
+case. A comment line `; defines NAME NAME=NUMBER ...` before the `module` line gives the
+compiler those defines (build.py --define), for `#if`. Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME,
 ...). Everything is skipped while
 lathe/host/lathec.py does not exist. Error cases (cases/err/) are tested with the compiler.
 """
@@ -43,6 +44,18 @@ def cases(kind):
                   if not os.path.basename(p).startswith('lib'))
 
 
+def defines(path):
+    """The defines a case asks for: the words of its `; defines` lines before `module`."""
+    found = []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith('module'):
+                break
+            if line.startswith('; defines '):
+                found += line[len('; defines '):].split()
+    return found
+
+
 def _name(path):
     return os.path.splitext(os.path.basename(path))[0]
 
@@ -64,7 +77,8 @@ class TestCases(unittest.TestCase):
 
     def check_snap(self, source):
         expected = os.path.splitext(source)[0] + '.expected.asm'
-        objects = build.compile_all(build.module_order(source), self.dir)
+        objects = build.compile_all(build.module_order(source), self.dir,
+                                    build.compiler_options(None, defines(source)))
         text = lo2asm.render_module(lo.load(objects[-1]), [lo.load(p) for p in objects[:-1]])
         if UPDATE:
             with open(expected, 'w') as fh:
@@ -79,13 +93,14 @@ class TestCases(unittest.TestCase):
     def check_e2e(self, source, env='host'):
         expected = os.path.splitext(source)[0] + '.expected.out'
         image = os.path.join(self.dir, 'default.bin')
-        build.build(source, image, env, keep=os.path.join(self.dir, 'default'))
+        build.build(source, image, env, keep=os.path.join(self.dir, 'default'), defines=defines(source))
         status, out, err = build.run_program(image, env)
         self.assertEqual(out, _read(expected, 'rb'), f'{os.path.relpath(source, ROOT)}: output')
         self.assertEqual(status, 0, f'exit status; error output: {err!r}')
         if os.path.isfile(build.LINKER):
             other = os.path.join(self.dir, 'asm.bin')
-            build.build(source, other, env, use_asm=True, keep=os.path.join(self.dir, 'asm'))
+            build.build(source, other, env, use_asm=True, keep=os.path.join(self.dir, 'asm'),
+                        defines=defines(source))
             self.assertTrue(_read(image, 'rb') == _read(other, 'rb'),
                             'the linker and the assembler path give different images '
                             f'(rebuild with build.py --keep DIR, with and without --asm, to compare)')
@@ -106,6 +121,18 @@ def _add(kind, check):
 _add('snap', TestCases.check_snap)
 for _kind, _env in E2E.items():
     _add(_kind, lambda self, path, env=_env: TestCases.check_e2e(self, path, env))
+
+
+@unittest.skipUnless(os.path.isfile(build.COMPILER), NO_COMPILER)
+class TestDefines(unittest.TestCase):
+    def test_other_defines_choose_other_parts(self):
+        """cases/e2e/conditionals.lth built with defines other than those it names."""
+        work = tempfile.mkdtemp(prefix='lathe-case-')
+        self.addCleanup(shutil.rmtree, work, True)
+        source = os.path.join(CASES, 'e2e', 'conditionals.lth')
+        image = os.path.join(work, 'other.bin')
+        build.build(source, image, keep=os.path.join(work, 'other'), defines=['FAST=0', 'LEVEL=1'])
+        self.assertEqual(build.run_program(image), (0, b'LS6?\n', b''))
 
 
 class TestHarness(unittest.TestCase):

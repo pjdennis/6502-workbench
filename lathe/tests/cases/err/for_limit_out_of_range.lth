@@ -1,0 +1,7 @@
+; error 43 5 16
+module for_limit_out_of_range
+var i: byte
+func f()
+  for i = 0 to 256 do
+  end
+end

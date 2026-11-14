@@ -1,0 +1,3756 @@
+; `for` over every interesting range of each type of loop variable: empty, one pass, up
+; to the largest value and down to the smallest, signed ranges across zero; with constant
+; bounds, variables and a limit worked out; with break and continue. Each loop prints
+; its number of passes, the sum of the values it saw and the variable afterwards. Made
+; by a script from a list of loops, with the expected output from a model in Python.
+module for_ranges
+
+import libout
+
+func report(count: word, total: word, last: word)
+  libout.hexw(count)
+  libout.space()
+  libout.hexw(total)
+  libout.space()
+  libout.hexw(last)
+  libout.nl()
+end
+
+; byte 0 to 9, const, plain
+func t1()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 0 to 9 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 9, var, continue
+func t2()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 9
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 9, cvar, break
+func t3()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 9
+  for i = 0 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 9, expr, plain
+func t4()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 12
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 5 to 5, const, continue
+func t5()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 5 to 5 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 5 to 5, var, break
+func t6()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = 5
+  for i = first to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 5 to 5, cvar, plain
+func t7()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 5
+  for i = 5 to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 5 to 5, expr, continue
+func t8()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = 8
+  for i = first to limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 6 to 5, const, break
+func t9()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 6 to 5 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 6 to 5, var, plain
+func t10()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 6
+  limit = 5
+  for i = first to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 6 to 5, cvar, continue
+func t11()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 5
+  for i = 6 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 6 to 5, expr, break
+func t12()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 6
+  limit = 8
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 250 to 255, const, plain
+func t13()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 250 to 255 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 250 to 255, var, continue
+func t14()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 250
+  limit = 255
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 250 to 255, cvar, break
+func t15()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 255
+  for i = 250 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 250 to 255, expr, plain
+func t16()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 250
+  limit = 252
+  for i = first to limit + 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 255, const, continue
+func t17()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 0 to 255 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 255, var, break
+func t18()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 255
+  for i = first to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 255, cvar, plain
+func t19()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 255
+  for i = 0 to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 to 255, expr, continue
+func t20()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 252
+  for i = first to limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 255 to 255, const, break
+func t21()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 255 to 255 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 255 to 255, var, plain
+func t22()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 255
+  for i = first to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 255 to 255, cvar, continue
+func t23()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 255
+  for i = 255 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 255 to 255, expr, break
+func t24()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 252
+  for i = first to limit + 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 255 downto 0, const, plain
+func t25()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 255 downto 0 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 255 downto 0, var, continue
+func t26()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 0
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 255 downto 0, cvar, break
+func t27()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 255 downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 255 downto 0, expr, plain
+func t28()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 3
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 10 downto 0, const, continue
+func t29()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 10 downto 0 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 10 downto 0, var, break
+func t30()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 10
+  limit = 0
+  for i = first downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 10 downto 0, cvar, plain
+func t31()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 10 downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 10 downto 0, expr, continue
+func t32()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 10
+  limit = 3
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 3 downto 1, const, break
+func t33()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 3 downto 1 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 3 downto 1, var, plain
+func t34()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 3
+  limit = 1
+  for i = first downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 3 downto 1, cvar, continue
+func t35()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = 3 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 3 downto 1, expr, break
+func t36()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 3
+  limit = 4
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 1, const, plain
+func t37()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 0 downto 1 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 1, var, continue
+func t38()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 1
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 1, cvar, break
+func t39()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = 0 downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 1, expr, plain
+func t40()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 4
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 0, const, continue
+func t41()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 0 downto 0 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 0, var, break
+func t42()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 0
+  for i = first downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 0, cvar, plain
+func t43()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 0 downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 0 downto 0, expr, continue
+func t44()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 3
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 200 downto 128, const, break
+func t45()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 200 downto 128 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 200 downto 128, var, plain
+func t46()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 200
+  limit = 128
+  for i = first downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 200 downto 128, cvar, continue
+func t47()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 128
+  for i = 200 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 200 downto 128, expr, break
+func t48()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 200
+  limit = 131
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 127 to 129, const, plain
+func t49()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  for i = 127 to 129 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 127 to 129, var, continue
+func t50()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 127
+  limit = 129
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; byte 127 to 129, cvar, break
+func t51()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  limit = 129
+  for i = 127 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; byte 127 to 129, expr, plain
+func t52()
+  var i: byte
+  var first: byte
+  var limit: byte
+  var count: word = 0
+  var total: word = 0
+  first = 127
+  limit = 132
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; sbyte -5 to 5, const, plain
+func t53()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -5 to 5 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 to 5, var, continue
+func t54()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -5
+  limit = 5
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 to 5, cvar, break
+func t55()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 5
+  for i = -5 to limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 to 5, expr, plain
+func t56()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -5
+  limit = 8
+  for i = first to limit - 3 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 120 to 127, const, continue
+func t57()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 120 to 127 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 120 to 127, var, break
+func t58()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 120
+  limit = 127
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 120 to 127, cvar, plain
+func t59()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 127
+  for i = 120 to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 120 to 127, expr, continue
+func t60()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 120
+  limit = 124
+  for i = first to limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to -120, const, break
+func t61()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -128 to -120 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to -120, var, plain
+func t62()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -128
+  limit = -120
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to -120, cvar, continue
+func t63()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = -120
+  for i = -128 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to -120, expr, break
+func t64()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -128
+  limit = -117
+  for i = first to limit - 3 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 127 downto -128, const, plain
+func t65()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 127 downto -128 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 127 downto -128, var, continue
+func t66()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 127
+  limit = -128
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 127 downto -128, cvar, break
+func t67()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = -128
+  for i = 127 downto limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 127 downto -128, expr, plain
+func t68()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 127
+  limit = -125
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to 127, const, continue
+func t69()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -128 to 127 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to 127, var, break
+func t70()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -128
+  limit = 127
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to 127, cvar, plain
+func t71()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 127
+  for i = -128 to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -128 to 127, expr, continue
+func t72()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -128
+  limit = 124
+  for i = first to limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 downto -1, const, break
+func t73()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -1 downto -1 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 downto -1, var, plain
+func t74()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = -1
+  for i = first downto limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 downto -1, cvar, continue
+func t75()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = -1
+  for i = -1 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 downto -1, expr, break
+func t76()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 2
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 0 downto -1, const, plain
+func t77()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 0 downto -1 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 0 downto -1, var, continue
+func t78()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = -1
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 0 downto -1, cvar, break
+func t79()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = -1
+  for i = 0 downto limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 0 downto -1, expr, plain
+func t80()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 2
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 5 to -5, const, continue
+func t81()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 5 to -5 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 5 to -5, var, break
+func t82()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = -5
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 5 to -5, cvar, plain
+func t83()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = -5
+  for i = 5 to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 5 to -5, expr, continue
+func t84()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = -2
+  for i = first to limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 downto 5, const, break
+func t85()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -5 downto 5 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 downto 5, var, plain
+func t86()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -5
+  limit = 5
+  for i = first downto limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 downto 5, cvar, continue
+func t87()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 5
+  for i = -5 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -5 downto 5, expr, break
+func t88()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -5
+  limit = 8
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 3 downto 1, const, plain
+func t89()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 3 downto 1 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 3 downto 1, var, continue
+func t90()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 3
+  limit = 1
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 3 downto 1, cvar, break
+func t91()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = 3 downto limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 3 downto 1, expr, plain
+func t92()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 3
+  limit = 4
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 to 1, const, continue
+func t93()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = -1 to 1 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 to 1, var, break
+func t94()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 1
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 to 1, cvar, plain
+func t95()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = -1 to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte -1 to 1, expr, continue
+func t96()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 4
+  for i = first to limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 126 to 127, const, break
+func t97()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  for i = 126 to 127 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 126 to 127, var, plain
+func t98()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 126
+  limit = 127
+  for i = first to limit do
+    count += 1
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 126 to 127, cvar, continue
+func t99()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  limit = 127
+  for i = 126 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(int(i))
+  end
+  report(count, total, word(int(i)))
+end
+
+; sbyte 126 to 127, expr, break
+func t100()
+  var i: sbyte
+  var first: sbyte
+  var limit: sbyte
+  var count: word = 0
+  var total: word = 0
+  first = 126
+  limit = 124
+  for i = first to limit + 3 do
+    count += 1
+    total += word(int(i))
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(int(i)))
+end
+
+; word 0 to 1000, const, plain
+func t101()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 0 to 1000 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 1000, var, continue
+func t102()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 1000
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 1000, cvar, break
+func t103()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 1000
+  for i = 0 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 0 to 1000, expr, plain
+func t104()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 1003
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65530 to 65535, const, continue
+func t105()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 65530 to 65535 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65530 to 65535, var, break
+func t106()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65530
+  limit = 65535
+  for i = first to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 65530 to 65535, cvar, plain
+func t107()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 65535
+  for i = 65530 to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65530 to 65535, expr, continue
+func t108()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65530
+  limit = 65532
+  for i = first to limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65530, const, break
+func t109()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 65535 downto 65530 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65530, var, plain
+func t110()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65535
+  limit = 65530
+  for i = first downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65530, cvar, continue
+func t111()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 65530
+  for i = 65535 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65530, expr, break
+func t112()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65535
+  limit = 65533
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 300 downto 250, const, plain
+func t113()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 300 downto 250 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 300 downto 250, var, continue
+func t114()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 300
+  limit = 250
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 300 downto 250, cvar, break
+func t115()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 250
+  for i = 300 downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 300 downto 250, expr, plain
+func t116()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 300
+  limit = 253
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 5 downto 0, const, continue
+func t117()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 5 downto 0 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 5 downto 0, var, break
+func t118()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = 0
+  for i = first downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 5 downto 0, cvar, plain
+func t119()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 5 downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 5 downto 0, expr, continue
+func t120()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 5
+  limit = 3
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 0, const, break
+func t121()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 0 to 0 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 0 to 0, var, plain
+func t122()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 0
+  for i = first to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 0, cvar, continue
+func t123()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 0 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 0, expr, break
+func t124()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 3
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 1 to 0, const, plain
+func t125()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 1 to 0 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 1 to 0, var, continue
+func t126()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 1
+  limit = 0
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 1 to 0, cvar, break
+func t127()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 1 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 1 to 0, expr, plain
+func t128()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 1
+  limit = 3
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 250 to 260, const, continue
+func t129()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 250 to 260 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 250 to 260, var, break
+func t130()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 250
+  limit = 260
+  for i = first to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 250 to 260, cvar, plain
+func t131()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 260
+  for i = 250 to limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 250 to 260, expr, continue
+func t132()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 250
+  limit = 263
+  for i = first to limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 260 downto 250, const, break
+func t133()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 260 downto 250 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 260 downto 250, var, plain
+func t134()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 260
+  limit = 250
+  for i = first downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 260 downto 250, cvar, continue
+func t135()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 250
+  for i = 260 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 260 downto 250, expr, break
+func t136()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 260
+  limit = 253
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 0 to 300, const, plain
+func t137()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 0 to 300 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 300, var, continue
+func t138()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 300
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 0 to 300, cvar, break
+func t139()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 300
+  for i = 0 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 0 to 300, expr, plain
+func t140()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 303
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65535, const, continue
+func t141()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 65535 downto 65535 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65535, var, break
+func t142()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65535
+  limit = 65535
+  for i = first downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65535, cvar, plain
+func t143()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 65535
+  for i = 65535 downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 65535 downto 65535, expr, continue
+func t144()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 65535
+  limit = 65532
+  for i = first downto limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 2 downto 1, const, break
+func t145()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 2 downto 1 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 2 downto 1, var, plain
+func t146()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 2
+  limit = 1
+  for i = first downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 2 downto 1, cvar, continue
+func t147()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = 2 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 2 downto 1, expr, break
+func t148()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 2
+  limit = 4
+  for i = first downto limit - 3 do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 255 to 256, const, plain
+func t149()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 255 to 256 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 255 to 256, var, continue
+func t150()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 256
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 255 to 256, cvar, break
+func t151()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 256
+  for i = 255 to limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 255 to 256, expr, plain
+func t152()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 255
+  limit = 259
+  for i = first to limit - 3 do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 256 downto 255, const, continue
+func t153()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  for i = 256 downto 255 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 256 downto 255, var, break
+func t154()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 256
+  limit = 255
+  for i = first downto limit do
+    count += 1
+    total += i
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, i)
+end
+
+; word 256 downto 255, cvar, plain
+func t155()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  limit = 255
+  for i = 256 downto limit do
+    count += 1
+    total += i
+  end
+  report(count, total, i)
+end
+
+; word 256 downto 255, expr, continue
+func t156()
+  var i: word
+  var first: word
+  var limit: word
+  var count: word = 0
+  var total: word = 0
+  first = 256
+  limit = 258
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += i
+  end
+  report(count, total, i)
+end
+
+; int -300 to 300, const, plain
+func t157()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -300 to 300 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -300 to 300, var, continue
+func t158()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -300
+  limit = 300
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -300 to 300, cvar, break
+func t159()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = 300
+  for i = -300 to limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -300 to 300, expr, plain
+func t160()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -300
+  limit = 303
+  for i = first to limit - 3 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32760 to 32767, const, continue
+func t161()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = 32760 to 32767 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32760 to 32767, var, break
+func t162()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 32760
+  limit = 32767
+  for i = first to limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 32760 to 32767, cvar, plain
+func t163()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = 32767
+  for i = 32760 to limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32760 to 32767, expr, continue
+func t164()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 32760
+  limit = 32764
+  for i = first to limit + 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32768 to -32760, const, break
+func t165()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -32768 to -32760 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -32768 to -32760, var, plain
+func t166()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -32768
+  limit = -32760
+  for i = first to limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32768 to -32760, cvar, continue
+func t167()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -32760
+  for i = -32768 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32768 to -32760, expr, break
+func t168()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -32768
+  limit = -32757
+  for i = first to limit - 3 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 10 downto -10, const, plain
+func t169()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = 10 downto -10 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 10 downto -10, var, continue
+func t170()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 10
+  limit = -10
+  for i = first downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 10 downto -10, cvar, break
+func t171()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -10
+  for i = 10 downto limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 10 downto -10, expr, plain
+func t172()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 10
+  limit = -7
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32760 downto -32768, const, continue
+func t173()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -32760 downto -32768 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32760 downto -32768, var, break
+func t174()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -32760
+  limit = -32768
+  for i = first downto limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -32760 downto -32768, cvar, plain
+func t175()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -32768
+  for i = -32760 downto limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -32760 downto -32768, expr, continue
+func t176()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -32760
+  limit = -32765
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 1 to -1, const, break
+func t177()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = 1 to -1 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 1 to -1, var, plain
+func t178()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 1
+  limit = -1
+  for i = first to limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 1 to -1, cvar, continue
+func t179()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -1
+  for i = 1 to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 1 to -1, expr, break
+func t180()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 1
+  limit = 2
+  for i = first to limit - 3 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to 1, const, plain
+func t181()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -1 to 1 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to 1, var, continue
+func t182()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 1
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to 1, cvar, break
+func t183()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = 1
+  for i = -1 to limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to 1, expr, plain
+func t184()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 4
+  for i = first to limit - 3 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to -1, const, continue
+func t185()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -1 to -1 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to -1, var, break
+func t186()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = -1
+  for i = first to limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to -1, cvar, plain
+func t187()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -1
+  for i = -1 to limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -1 to -1, expr, continue
+func t188()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -1
+  limit = 2
+  for i = first to limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 0 downto 0, const, break
+func t189()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = 0 downto 0 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 0 downto 0, var, plain
+func t190()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 0
+  for i = first downto limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 0 downto 0, cvar, continue
+func t191()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = 0
+  for i = 0 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 0 downto 0, expr, break
+func t192()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 0
+  limit = 3
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -256 to -255, const, plain
+func t193()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -256 to -255 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -256 to -255, var, continue
+func t194()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -256
+  limit = -255
+  for i = first to limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -256 to -255, cvar, break
+func t195()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -255
+  for i = -256 to limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -256 to -255, expr, plain
+func t196()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -256
+  limit = -252
+  for i = first to limit - 3 do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -255 downto -257, const, continue
+func t197()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = -255 downto -257 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -255 downto -257, var, break
+func t198()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -255
+  limit = -257
+  for i = first downto limit do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int -255 downto -257, cvar, plain
+func t199()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = -257
+  for i = -255 downto limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int -255 downto -257, expr, continue
+func t200()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = -255
+  limit = -254
+  for i = first downto limit - 3 do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32767 downto 32760, const, break
+func t201()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  for i = 32767 downto 32760 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+; int 32767 downto 32760, var, plain
+func t202()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 32767
+  limit = 32760
+  for i = first downto limit do
+    count += 1
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32767 downto 32760, cvar, continue
+func t203()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  limit = 32760
+  for i = 32767 downto limit do
+    count += 1
+    if lo(i) & 1 == 1 then
+      continue
+    end
+    total += word(i)
+  end
+  report(count, total, word(i))
+end
+
+; int 32767 downto 32760, expr, break
+func t204()
+  var i: int
+  var first: int
+  var limit: int
+  var count: word = 0
+  var total: word = 0
+  first = 32767
+  limit = 32763
+  for i = first downto limit - 3 do
+    count += 1
+    total += word(i)
+    if count == 3 then
+      break
+    end
+  end
+  report(count, total, word(i))
+end
+
+func all_byte()
+  t1()
+  t2()
+  t3()
+  t4()
+  t5()
+  t6()
+  t7()
+  t8()
+  t9()
+  t10()
+  t11()
+  t12()
+  t13()
+  t14()
+  t15()
+  t16()
+  t17()
+  t18()
+  t19()
+  t20()
+  t21()
+  t22()
+  t23()
+  t24()
+  t25()
+  t26()
+  t27()
+  t28()
+  t29()
+  t30()
+  t31()
+  t32()
+  t33()
+  t34()
+  t35()
+  t36()
+  t37()
+  t38()
+  t39()
+  t40()
+  t41()
+  t42()
+  t43()
+  t44()
+  t45()
+  t46()
+  t47()
+  t48()
+  t49()
+  t50()
+  t51()
+  t52()
+end
+
+func all_sbyte()
+  t53()
+  t54()
+  t55()
+  t56()
+  t57()
+  t58()
+  t59()
+  t60()
+  t61()
+  t62()
+  t63()
+  t64()
+  t65()
+  t66()
+  t67()
+  t68()
+  t69()
+  t70()
+  t71()
+  t72()
+  t73()
+  t74()
+  t75()
+  t76()
+  t77()
+  t78()
+  t79()
+  t80()
+  t81()
+  t82()
+  t83()
+  t84()
+  t85()
+  t86()
+  t87()
+  t88()
+  t89()
+  t90()
+  t91()
+  t92()
+  t93()
+  t94()
+  t95()
+  t96()
+  t97()
+  t98()
+  t99()
+  t100()
+end
+
+func all_word()
+  t101()
+  t102()
+  t103()
+  t104()
+  t105()
+  t106()
+  t107()
+  t108()
+  t109()
+  t110()
+  t111()
+  t112()
+  t113()
+  t114()
+  t115()
+  t116()
+  t117()
+  t118()
+  t119()
+  t120()
+  t121()
+  t122()
+  t123()
+  t124()
+  t125()
+  t126()
+  t127()
+  t128()
+  t129()
+  t130()
+  t131()
+  t132()
+  t133()
+  t134()
+  t135()
+  t136()
+  t137()
+  t138()
+  t139()
+  t140()
+  t141()
+  t142()
+  t143()
+  t144()
+  t145()
+  t146()
+  t147()
+  t148()
+  t149()
+  t150()
+  t151()
+  t152()
+  t153()
+  t154()
+  t155()
+  t156()
+end
+
+func all_int()
+  t157()
+  t158()
+  t159()
+  t160()
+  t161()
+  t162()
+  t163()
+  t164()
+  t165()
+  t166()
+  t167()
+  t168()
+  t169()
+  t170()
+  t171()
+  t172()
+  t173()
+  t174()
+  t175()
+  t176()
+  t177()
+  t178()
+  t179()
+  t180()
+  t181()
+  t182()
+  t183()
+  t184()
+  t185()
+  t186()
+  t187()
+  t188()
+  t189()
+  t190()
+  t191()
+  t192()
+  t193()
+  t194()
+  t195()
+  t196()
+  t197()
+  t198()
+  t199()
+  t200()
+  t201()
+  t202()
+  t203()
+  t204()
+end
+
+pub func main()
+  all_byte()
+  all_sbyte()
+  all_word()
+  all_int()
+end

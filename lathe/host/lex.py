@@ -5,9 +5,9 @@ lexical rules of docs/language.md say: case folding, numbers, strings, comments,
 line ends. The parser sees one T_NL at the end of each statement and never a blank line: the
 continuation rule is applied here and nowhere else.
 
-Two more jobs belong here and are not done yet: conditional compilation (`#if`, see
-directive()) and the line mode of `asm` blocks, where whole lines pass through until a line
-whose first word is `end`.
+Conditional compilation is done here too: the lines of a part that is not compiled never
+become tokens (directive()). The line mode of `asm` blocks, where whole lines pass through
+until a line whose first word is `end`, is ASM's: it reads the source itself.
 """
 import err
 import kernel
@@ -56,6 +56,7 @@ T_LT = 34
 T_LE = 35
 T_GT = 36
 T_GE = 37
+T_HASH_IF = 38          # `#if`: the parser works out its condition and calls choose()
 
 # Keywords, numbered in the order of KEYWORDS.
 T_AND = 64
@@ -174,12 +175,18 @@ string = bytearray(MAX_STRING)
 string_length = 0
 open_brackets = 0       # how many ( and [ are open: no line ends inside them
 
+MAX_NESTING = 16
+nesting = 0             # how many `#if` are open around the line being read
+else_parts = 0          # bit n set: the `#if` at depth n + 1 is in its `#else` part
+
 
 def init():
     """Give the keywords their tokens. Needs a new name heap."""
-    global tok, open_brackets
+    global tok, open_brackets, nesting, else_parts
     tok = T_NL
     open_brackets = 0
+    nesting = 0
+    else_parts = 0
     token = T_AND
     kernel.name_begin()
     for i in range(0, len(KEYWORDS)):
@@ -336,10 +343,94 @@ def string_token():
     src.advance()
 
 
+def directive_word():
+    """The word after a `#`, which has been passed over, as a token: T_IF, T_ELSE, T_END or
+    another."""
+    name_or_keyword()
+    return tok
+
+
+def line_end():
+    """The rest of a directive's line must be blank or a comment: pass over it and its end."""
+    skip_blanks()
+    if not src.eof:
+        if src.ch != C_LF:
+            fail_here(err.E_DIRECTIVE)
+        src.advance()
+
+
+def skip_part(to_else):
+    """Pass over the lines of a part that is not compiled, without making tokens of them, up
+    to the `#end` that closes it or, if `to_else`, its `#else`; and that directive's line.
+    Only a line that starts with `#` is looked at, for the nesting of `#if`. Returns True if
+    it stopped at an `#else`."""
+    depth = 0
+    while True:
+        while src.ch == C_SPACE or src.ch == C_TAB:
+            src.advance()
+        if src.eof:
+            fail_here(err.E_IF_OPEN)
+        if src.ch == C_HASH:
+            err.position(src.line, src.col)
+            src.advance()
+            found = directive_word()
+            if found == T_IF:
+                depth += 1
+            elif depth > 0 and found == T_END:
+                depth -= 1
+            elif depth == 0 and found == T_END:
+                line_end()
+                return False
+            elif depth == 0 and found == T_ELSE:
+                if not to_else:
+                    err.fatal(err.E_NO_IF)          # a second #else
+                line_end()
+                return True
+        while not src.eof and src.ch != C_LF:
+            src.advance()
+        src.advance()
+
+
+def choose(yes):
+    """The parser has worked out the condition of an `#if` and read its line to the end:
+    what follows is compiled if `yes`, and otherwise only its `#else` part, if it has one."""
+    global tok, nesting, else_parts
+    if nesting == MAX_NESTING:
+        err.fatal(err.E_IF_DEEP)
+    nesting += 1
+    if not yes:
+        if skip_part(True):
+            else_parts = else_parts | (1 << (nesting - 1))
+        else:
+            nesting -= 1
+        tok = T_NL                  # skip_part() read the directives' words as tokens
+
+
 def directive():
-    """`#if`, `#else` and `#end` are dealt with here, so the parser never sees a skipped line
-    (docs/language.md, "Conditional compilation"). Not done yet."""
-    err.fatal(err.E_UNSUPPORTED)
+    """A directive, whose `#` has been passed over, which must start its line (docs/language.md,
+    "Conditional compilation"). `#if` is a token: the parser works out its condition and calls
+    choose(). `#else` ends the part being compiled, and the lines up to its `#end` are passed
+    over. `#else` and `#end` leave a T_NL, as a blank line would, so the parser never sees them."""
+    global tok, nesting, else_parts
+    if tok != T_NL:
+        err.fatal(err.E_DIRECTIVE)
+    found = directive_word()
+    if found == T_IF:
+        tok = T_HASH_IF
+        return
+    if found != T_ELSE and found != T_END:
+        err.fatal(err.E_DIRECTIVE)
+    if nesting == 0:
+        err.fatal(err.E_NO_IF)
+    bit = 1 << (nesting - 1)
+    if found == T_ELSE and else_parts & bit != 0:
+        err.fatal(err.E_NO_IF)
+    line_end()
+    if found == T_ELSE:
+        skip_part(False)
+    nesting -= 1
+    else_parts = else_parts & (~bit & 0xFFFF)
+    tok = T_NL
 
 
 def followed_by(c, yes, no):
@@ -414,6 +505,8 @@ def scan():
     col = src.col
     err.position(line, col)
     if src.eof:
+        if nesting != 0:
+            err.fatal(err.E_IF_OPEN)
         tok = T_EOF
         return
     c = src.ch

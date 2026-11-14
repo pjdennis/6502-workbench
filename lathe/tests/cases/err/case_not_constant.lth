@@ -1,0 +1,8 @@
+; error 46 6 6
+module case_not_constant
+var k: byte
+func f()
+  case k
+  of k
+  end
+end

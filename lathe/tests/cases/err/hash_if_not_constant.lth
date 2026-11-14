@@ -1,0 +1,5 @@
+; error 46 4 5
+module hash_if_not_constant
+var n: byte
+#if n == 0
+#end

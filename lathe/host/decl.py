@@ -648,6 +648,9 @@ def declaration():
     elif lex.tok == lex.T_VAR:
         stmt.variable(flags, stmt.LEVEL_MODULE)
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    elif lex.tok == lex.T_HASH_IF:
+        stmt.directive()
+        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
     elif starts_later_declaration(lex.tok) or lex.tok == lex.T_STATIC:
         err.fatal(err.E_UNSUPPORTED)
     else:
@@ -659,8 +662,11 @@ def unit():
     has just been opened, to its end."""
     lex.next()
     module_line()
-    while lex.tok == lex.T_IMPORT:
-        import_line()
+    while lex.tok == lex.T_IMPORT or lex.tok == lex.T_HASH_IF:
+        if lex.tok == lex.T_IMPORT:
+            import_line()
+        else:
+            declaration()
     while lex.tok != lex.T_EOF:
         if gen.init_count >= gen.INIT_FLUSH:
             init_early()

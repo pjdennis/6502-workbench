@@ -1,0 +1,7 @@
+; error 110 5 13
+module for_to_expected
+var i: byte
+func f()
+  for i = 0 upto 9 do
+  end
+end

@@ -1,0 +1,8 @@
+; error 44 6 20
+module for_limit_of_wrong_type
+var i: byte
+var s: sbyte
+func f()
+  for i = 0 downto s do
+  end
+end

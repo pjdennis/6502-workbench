@@ -1,5 +1,6 @@
 """Error cases: every cases/err/NAME.lth starts with `; error N LINE COL`, and the compiler
-must report exactly that error at exactly that place, and end with status 1.
+must report exactly that error at exactly that place, and end with status 1. A line
+`; options ...` before the `module` line gives the compiler those options.
 
 A case may `import host`: the interface of lathe/rt/host.lth is compiled first.
 """
@@ -35,7 +36,14 @@ class ErrorCasesTest(unittest.TestCase):
                     expected = FIRST_LINE.fullmatch(f.readline())
                 self.assertIsNotNone(expected, 'the first line must be "; error N LINE COL"')
                 number, line, col = expected.groups()
-                status, errors = support.run_lathec(path, self.tmp.name)
+                options = []
+                with open(path) as f:
+                    for text in f:
+                        if text.startswith('module'):
+                            break
+                        if text.startswith('; options '):
+                            options += text[len('; options '):].split()
+                status, errors = support.run_lathec(*options, path, self.tmp.name)
                 self.assertEqual(status, 1)
                 self.assertEqual(errors.count('\n'), 1, errors)
                 self.assertTrue(errors.startswith('%s:%s:%s: error %s: ' % (path, line, col, number)),

@@ -1,0 +1,6 @@
+; error 116 7 1
+module hash_if_skipped_without_end
+#if false
+#if true
+#end
+const A = 1

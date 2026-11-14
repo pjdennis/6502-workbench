@@ -148,7 +148,7 @@ class OnTheBoards(unittest.TestCase):
         with open(compiler, 'w') as fh:
             fh.write('import os, sys\nsys.path.insert(0, %r)\nsys.path.insert(0, %r)\n'
                      'import test_boards\n'
-                     'test_boards.michael_hi().save(os.path.join(sys.argv[2], "hi.lo"))\n'
+                     'test_boards.michael_hi().save(os.path.join(sys.argv[-1], "hi.lo"))\n'
                      % (os.path.dirname(build.__file__), HERE))
         source = os.path.join(self.tmp.name, 'hi.lth')
         with open(source, 'w') as fh:

@@ -1,0 +1,4 @@
+; error 114 4 6
+module directive_junk
+#if true
+#end if

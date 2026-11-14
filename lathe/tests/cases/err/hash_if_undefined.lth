@@ -1,0 +1,4 @@
+; error 40 3 5
+module hash_if_undefined
+#if HAS_LCD
+#end

@@ -1,0 +1,4 @@
+; error 116 5 1
+module hash_if_without_end
+#if true
+const A = 1

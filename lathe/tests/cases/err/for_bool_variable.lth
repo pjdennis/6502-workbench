@@ -1,0 +1,7 @@
+; error 44 5 7
+module for_bool_variable
+var b: bool
+func f()
+  for b = false to true do
+  end
+end

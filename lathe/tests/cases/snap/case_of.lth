@@ -1,0 +1,120 @@
+; `case` (docs/codegen.md, "Statements"): the selector in A, CMP #c / BEQ for each constant of
+; an `of` but the last, CMP #c / BNE to the next `of` for the last, the body, JMP to the end.
+module case_of
+
+var k: byte
+var r: byte
+var s: sbyte
+var f: bool
+var port: byte at $D000
+
+; a variable is the selector itself, and A still holds it at each `of`
+func kinds()
+  case k
+  of 1
+    r = 10
+  of 2, 3, 4
+    r = 20
+  else
+    r = 30
+  end
+end
+
+; with no `else` the last `of` falls through to the end; a body that returns needs no JMP
+func pick(): byte
+  case k
+  of 0
+    return 7
+  of 'a', 'b'
+    r += 1
+  end
+  return 0
+end
+
+; a selector that is worked out is stored in a temporary
+func worked_out()
+  case k & 7
+  of 0
+    r = 1
+  of 7
+    r = 2
+  end
+end
+
+; a variable at a fixed address may be a device: it is read once
+func device()
+  case port
+  of $80
+    r = 1
+  of $40
+    r = 2
+  end
+end
+
+; a body that loads A: the selector is loaded again at the next `of`
+func reload()
+  case k
+  of 1
+    r = 5
+  of 2
+    r = k
+  of 3
+    k = 0
+  of 4
+    r = 1
+  end
+end
+
+; signed constants, and a bool selector
+func signs()
+  case s
+  of -1
+    r = 1
+  of -128, 127
+    r = 2
+  end
+  case f
+  of true
+    r = 3
+  else
+    r = 4
+  end
+end
+
+; the last body runs on to the end, so what A holds there is not known
+func runs_on()
+  case k
+  of 1
+    r = 5
+  end
+  r = k
+end
+
+; empty bodies are branches to the end
+func empty()
+  case k
+  of 1
+  of 2
+  else
+    r = 1
+  end
+end
+
+; a case inside a case, and inside a loop with break and continue
+func nested()
+  loop
+    case k
+    of 1
+      case r
+      of 1
+        break
+      of 2
+        continue
+      end
+      k = 0
+    of 2
+      r = 0
+    end
+    k += 1
+  end
+end

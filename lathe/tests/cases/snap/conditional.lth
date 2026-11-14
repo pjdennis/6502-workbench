@@ -1,0 +1,45 @@
+; `#if`, `#else` and `#end` (docs/language.md, "Conditional compilation"): only the part
+; chosen is compiled. The condition is a bool, or a number that is true unless it is 0.
+; defines FAST LEVEL=2
+module conditional
+
+#if cpu_65c02
+import libshared
+#end
+
+var n: byte
+
+#if FAST and LEVEL > 1
+const STEP = 4
+#else
+const STEP = 1
+#if this is not compiled, nor its nesting
+#else
+#end
+#end
+
+func f()
+  #if LEVEL
+  n += STEP
+  #else
+  n = undefined_here(
+  #end
+  #if not FAST
+  n = 0
+  #elif means nothing in a part that is not compiled
+  #end
+  if n == 4 then
+#if LEVEL == 2
+    n = 1
+#else
+    n = 2
+#end
+  elif n == 3 then
+    n = 3
+  end
+end
+
+#if cpu_65c02 or LEVEL < 2
+func g()
+end
+#end
