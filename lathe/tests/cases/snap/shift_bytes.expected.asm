@@ -1,10 +1,11 @@
 ; module shift_bytes, cpu 6502
 
 ; function shift_bytes.up
-;   slot 0 x: size 2, class 1 (either), param, weight 1
+;   slot 0 x: size 2, class 1 (either), param, weight 2
 ;   slot 1 $t1: size 2, class 1 (either), temp, weight 3
 shift_bytes__up
-    LDA shift_bytes__up__x
+    STA shift_bytes__up__x
+    STX shift_bytes__up__x+$01
     STA shift_bytes__up__St1+$01
     LDA #$00
     STA shift_bytes__up__St1
@@ -12,10 +13,12 @@ shift_bytes__up
     RTS
 
 ; function shift_bytes.down
-;   slot 0 x: size 2, class 1 (either), param, weight 1
+;   slot 0 x: size 2, class 1 (either), param, weight 2
 ;   slot 1 $t1: size 2, class 1 (either), temp, weight 4
 shift_bytes__down
-    LDA shift_bytes__down__x+$01
+    STA shift_bytes__down__x
+    STX shift_bytes__down__x+$01
+    TXA
     LSR
     LSR
     STA shift_bytes__down__St1

@@ -302,34 +302,35 @@ for_loops__leaving
     RTS
 
 ; function for_loops.nested
-;   slot 0 top: size 1, class 1 (either), param, weight 24
+;   slot 0 top: size 1, class 1 (either), param, weight 25
 ;   slot 1 j: size 1, class 1 (either), local, weight 56
 for_loops__nested
+    STA for_loops__nested__top
     LDA #$00
     STA for_loops__i
-.L0005
+.L0008
     LDA for_loops__i
     STA for_loops__nested__j
     LDA for_loops__nested__top
     CMP for_loops__nested__j
-    BCC .L002A
-.L0013
+    BCC .L002D
+.L0016
     CLC
     LDA for_loops__r
     ADC for_loops__nested__j
     STA for_loops__r
     LDA for_loops__nested__j
     CMP for_loops__nested__top
-    BEQ .L002A
+    BEQ .L002D
     INC for_loops__nested__j
-    BNE .L0013
-.L002A
+    BNE .L0016
+.L002D
     LDA for_loops__i
     CMP for_loops__nested__top
-    BEQ .L0037
+    BEQ .L003A
     INC for_loops__i
-    BNE .L0005
-.L0037
+    BNE .L0008
+.L003A
     RTS
 
 ; function for_loops.empty

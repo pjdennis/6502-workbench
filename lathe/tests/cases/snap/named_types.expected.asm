@@ -62,10 +62,8 @@ named_types__imported
     STA named_types__items+$18,X
     LDA named_types__it+$01
     STA named_types__items+$20,X
+    LDX #>libtypes__first
     LDA #<libtypes__first
-    STA libtypes__count_of__p
-    LDA #>libtypes__first
-    STA libtypes__count_of__p+$01
     JSR libtypes__count_of
     CLC
     ADC named_types__counts+$03
@@ -74,7 +72,7 @@ named_types__imported
     ADC named_types__counts+$07
     STA named_types__w+$01
     LDA libtypes__first
-    BNE .L0064
+    BNE .L005E
     LDX named_types__b
     LDA named_types__items,X
     STA libtypes__first
@@ -86,7 +84,7 @@ named_types__imported
     STA libtypes__first+$03
     LDA named_types__items+$20,X
     STA libtypes__first+$04
-.L0064
+.L005E
     LDA named_types__w
     STA named_types__it
     LDX named_types__w+$01

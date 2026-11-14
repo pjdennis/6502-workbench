@@ -1,0 +1,218 @@
+; Arguments in registers (lathe/docs/code-model.md, "Convention"), on the risky paths: arguments
+; whose evaluation needs the registers that hold earlier ones (an element's index in X, a
+; pointer's in Y), arguments that are calls, elements indexed by another argument, every
+; register argument computed, calls through pointers and between recursive functions with each
+; shape, a function that changes its parameters, an asm block that reads one by name, and an
+; argument taken before a later argument's call changes its variable. The expected output is
+; worked out in Python by lathe/tests/test_reg_args.py, which checks the file against it.
+module reg_args
+
+import libout
+
+type Mixer = func(a: byte, b: byte, c: byte): byte
+type Joiner = func(w: word, b: byte): word
+type Folder = recursive func(n: byte, w: word, step: byte): word
+
+var k: byte = 5
+var kw: word = 1000
+var bytes: [8]byte = [3, 1, 4, 1, 5, 9, 2, 6]
+var words: [4]word = [$1111, $2222, $3333, $4444]
+var cells: [4]word rows = [$0102, $0304, $0506, $0708]
+var p: ^byte = @bytes
+var pw: ^word = @cells
+var to_mix: Mixer
+var to_join: Joiner
+var to_fold: Folder
+
+func show(w: word)
+  libout.hexw(w)
+  libout.space()
+end
+
+func showb(b: byte)
+  libout.hex(b)
+  libout.space()
+end
+
+; a value of every argument, each its own weight, so that a wrong order or a lost one shows
+func mix(a: byte, b: byte, c: byte): byte
+  return a + (b << 2) + (c << 5)
+end
+
+func mix2(a: byte, b: byte): byte
+  return a + (b << 4)
+end
+
+func join(w: word, b: byte): word
+  return w + (word(b) << 8)
+end
+
+func join2(b: byte, w: word): word
+  return (w << 1) + b
+end
+
+func four(a: byte, b: byte, c: byte, d: byte): byte
+  return a + (b << 1) + (c << 2) + (d << 3)
+end
+
+func words4(w: word, v: word, b: byte, c: byte): word
+  return (w ^ v) + b - c
+end
+
+func pick(t: bool, a: byte, b: byte): byte
+  if t then
+    return a
+  end
+  return b
+end
+
+func fetch(q: ^byte, i: byte): byte
+  return q[i]
+end
+
+func fetch_word(q: ^word, i: byte): word
+  return q[i]
+end
+
+func widen(w: word): word
+  return w
+end
+
+func bump(): byte
+  k += 1
+  kw += 1
+  return k
+end
+
+; parameters are variables: changed, and changed again through the registers' copies
+func changes(a: byte, b: byte, c: byte): byte
+  a += 1
+  b = a + b
+  c ^= b
+  return a + b + c
+end
+
+func changes_word(w: word, b: byte): word
+  b += 1
+  w += b
+  w += b
+  return w
+end
+
+; an asm block reads parameters passed in A, X and Y by name
+func asm_sum(a: byte, b: byte, c: byte): byte
+  var r: byte
+  asm
+    LDA a
+    CLC
+    ADC b
+    SEC
+    SBC c
+    STA r
+  end
+  return r
+end
+
+func asm_word(w: word, b: byte): byte
+  var r: byte
+  asm
+    LDA w+1
+    EOR w
+    EOR b
+    STA r
+  end
+  return r
+end
+
+recursive func fold(n: byte, w: word, step: byte): word
+  if n == 0 then
+    return w
+  end
+  return fold(n - 1, w + step, step + 1) + n
+end
+
+recursive func depth(a: byte, b: byte, c: byte): byte
+  if a == 0 then
+    return b + c
+  end
+  return depth(a - 1, depth(a - 1, b, c) + 1, c ^ a)
+end
+
+recursive func fold_through(n: byte, w: word, step: byte): word
+  if n == 0 then
+    return w
+  end
+  return to_fold(n - 1, w + step, step + 2) + 1
+end
+
+func registers_in_use()
+  var i: byte = 2
+  var j: byte = 5
+  showb(mix(i, bytes[i], bytes[j]))           ; elements indexed by another argument
+  showb(mix(bytes[i], bytes[i + 1], i))
+  showb(mix(p[i], j, p[j]))                   ; through a pointer: its index in Y
+  showb(mix2(j, p[i]))
+  showb(mix(i + j, bytes[j] - i, p[i] ^ j))  ; every argument computed
+  show(join(words[i], bytes[j]))
+  show(join(cells[i], j))
+  show(join(pw[i], bytes[i]))
+  show(join2(bytes[j], words[i]))
+  show(widen(words[i + 1]))
+  show(widen(pw[j - 4]))
+  show(widen(bytes[j]))                       ; a byte for a word: its high byte is 0
+  showb(fetch(@bytes[1], i))
+  show(fetch_word(@cells[1], i))
+  libout.nl()
+end
+
+func calls_in_arguments()
+  showb(mix(mix2(1, 2), mix2(3, 4), mix2(5, 6)))
+  showb(mix2(1, mix2(2, mix2(3, 1))))         ; a call of itself inside its own arguments
+  showb(mix(k, bump(), k))                    ; k is taken before bump changes it
+  show(join(kw, bump()))
+  show(join2(k, bump() + kw))
+  showb(four(k, bump(), k, bump()))
+  show(words4(kw, kw, bump(), k))
+  showb(pick(k > 7, bump(), k))
+  showb(pick(bytes[1] == 1, fetch(p, 2), fetch(p, 3)))
+  showb(four(mix2(k, 1), k + 1, fetch(p, k & 7), four(1, 2, 3, 4)))
+  libout.nl()
+end
+
+func through_pointers()
+  to_mix = @mix
+  to_join = @join
+  showb(to_mix(1, 2, 3))
+  showb(to_mix(k, bump(), bytes[k & 7]))
+  showb(to_mix(mix2(1, 1), to_mix(2, 2, 2), 3))
+  show(to_join($1234, 2))
+  show(to_join(words[1], bytes[2]))
+  show(to_join(to_join($0100, 1), mix2(2, 3)))
+  libout.nl()
+end
+
+func recursion()
+  to_fold = @fold_through
+  show(fold(4, 100, 3))
+  showb(depth(3, 1, 2))
+  show(fold_through(5, 7, 1))
+  libout.nl()
+end
+
+func parameters_changed()
+  showb(changes(1, 2, 3))
+  showb(changes(k, k + 1, bump()))
+  show(changes_word($1000, $10))
+  showb(asm_sum(10, 20, 3))
+  showb(asm_sum(k, bytes[3], k + 1))
+  showb(asm_word($1234, $56))
+  libout.nl()
+end
+
+pub func main()
+  registers_in_use()
+  calls_in_arguments()
+  through_pointers()
+  recursion()
+  parameters_changed()
+end

@@ -4,7 +4,8 @@
 ;   slot 0 k: size 1, class 1 (either), param, weight 10
 ;   slot 1 v: size 1, class 1 (either), local, weight 2
 inline_basic__inlined
-    LDX inline_basic__inlined__k
+    STA inline_basic__inlined__k
+    TAX
     LDA inline_basic__table,X
     STA inline_basic__inlined__v
     CLC
@@ -30,22 +31,23 @@ inline_basic__inlined
     STA inline_basic__table+$02
     LDA inline_basic__g
     CMP inline_basic__inlined__k
-    BCS .L004A
+    BCS .L004B
     STY inline_basic__g
-.L004A
+.L004B
     LDA inline_basic__inlined__k
     CMP #$09
-    BCS .L0057
+    BCS .L0058
     INC inline_basic__inlined__k
-    JMP .L004A
-.L0057
+    JMP .L004B
+.L0058
     RTS
 
 ; function inline_basic.in_place
 ;   slot 0 k: size 1, class 1 (either), param, weight 10
 ;   slot 1 v: size 1, class 1 (either), local, weight 2
 inline_basic__in_place
-    LDX inline_basic__in_place__k
+    STA inline_basic__in_place__k
+    TAX
     LDA inline_basic__table,X
     STA inline_basic__in_place__v
     CLC
@@ -71,15 +73,15 @@ inline_basic__in_place
     STA inline_basic__table+$02
     LDA inline_basic__g
     CMP inline_basic__in_place__k
-    BCS .L004A
+    BCS .L004B
     STY inline_basic__g
-.L004A
+.L004B
     LDA inline_basic__in_place__k
     CMP #$09
-    BCS .L0057
+    BCS .L0058
     INC inline_basic__in_place__k
-    JMP .L004A
-.L0057
+    JMP .L004B
+.L0058
     RTS
 
 ; function inline_basic.not_plain
@@ -87,7 +89,8 @@ inline_basic__in_place
 ;   slot 1 $t1: size 1, class 1 (either), temp, weight 1
 ;   slot 2 $t2: size 2, class 1 (either), temp, weight 2
 inline_basic__not_plain
-    LDX inline_basic__not_plain__k
+    STA inline_basic__not_plain__k
+    TAX
     LDA inline_basic__table,X
     STA inline_basic__not_plain__St1
     TAX

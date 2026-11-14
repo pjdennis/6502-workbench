@@ -58,29 +58,18 @@ modules__variables
 ;   calls libshared.scaled
 modules__calls
     LDA #$05
-    STA libshared__add__amount
     JSR libshared__add
     LDA modules__b
-    STA libshared__add__amount
     JSR libshared__add
-    LDA modules__w
-    STA libshared__scaled__value
+    LDY #$03
     LDX modules__w+$01
-    STX libshared__scaled__value+$01
-    LDA #$03
-    STA libshared__scaled__shift
+    LDA modules__w
     JSR libshared__scaled
     STA modules__w
     STX modules__w+$01
-    STA libshared__scaled__value
-    STX libshared__scaled__value+$01
-    LDA #$01
-    STA libshared__scaled__shift
+    LDY #$01
     JSR libshared__scaled
-    STA libshared__scaled__value
-    STX libshared__scaled__value+$01
-    LDA modules__b
-    STA libshared__scaled__shift
+    LDY modules__b
     JSR libshared__scaled
     STA modules__w
     STX modules__w+$01

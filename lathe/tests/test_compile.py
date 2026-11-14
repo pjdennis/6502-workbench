@@ -322,7 +322,7 @@ class RecordsTest(CompileTest):
         self.assertEqual([body for kind, body in records if kind == SYM],
                          [b'\x01' + string(b'ahead.later'), b'\x01' + string(b'ahead.first')])
         self.assertEqual([body for kind, body in records if kind == FUNC], [b'\x01\x00\x00', b'\x00\x00\x04'])
-        self.assertEqual(self.code('ahead')[0], bytes([0xA9, 3, 0x8D, 0, 0, 0x4C, 0, 0]))
+        self.assertEqual(self.code('ahead')[0], bytes([0xA9, 3, 0x4C, 0, 0]))   # the argument in A
         self.assertEqual(self.interface('ahead'), b'LI\x01' + string(b'ahead') + b'\x01' + string(b'later')
                          + b'\x00\x01\x01\x00\x01\x01\x01' + b'\x00')
 
@@ -384,16 +384,15 @@ class InterfaceTest(CompileTest):
             b'\x02' + string(b'lib.count'), b'\x02' + string(b'lib.total'), b'\x01' + string(b'lib.take')])
         self.assertEqual([body for kind, body in records if kind == VAR],     # only its own
                          [b'\x00\x00\x02\x00\x01\x02\x00', b'\x01\x00\x01\x00\x01\x01\x00'])
-        self.assertEqual(self.code('user')[0][:23], bytes([
+        self.assertEqual(self.code('user')[0][:24], bytes([
             0xA9, 0x07, 0x8D, 0, 0,                         # LDA #7 / STA lib.count
             0xA9, 0x2C, 0x85, 0, 0xA9, 0x01, 0x85, 0,       # lib.total is zp: STA zero page, twice
             0xAD, 0, 0, 0x8D, 0x20, 0xD0,                   # LDA lib.count / STA $D020
-            0x8D, 0, 0,                                     # A still holds lib.count: the argument
-            0xA5]))
-        fixes = [body for kind, body in records if kind == FIX][0]
+            0xA5, 0, 0x8D, 0, 0]))                          # the byte waits for A; the word goes
+        fixes = [body for kind, body in records if kind == FIX][0]          # to its slot
         self.assertEqual(fixes[:32], fixup(3, 1, 3, 0xFF, 0) + fixup(8, 4, 4, 0xFF, 0) + fixup(12, 4, 4, 0xFF, 1)
                          + fixup(14, 1, 3, 0xFF, 0))
-        self.assertEqual(fixes[32:40], fixup(20, 1, 5, 0, 0))               # slot 0 of lib.take
+        self.assertEqual(fixes[32:48], fixup(20, 4, 4, 0xFF, 0) + fixup(22, 1, 5, 1, 0))  # slot 1 of lib.take
 
     def test_what_is_not_pub_is_not_there(self):
         self.compile(self.source('lib.lth', self.LIB))

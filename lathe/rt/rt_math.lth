@@ -1,7 +1,8 @@
 ; Run-time arithmetic: the multiplies, divides, remainders and variable word shifts that the
 ; operators `*`, `/`, `mod`, `<<` and `>>` need (lathe/docs/code-model.md, "Run-time
-; arithmetic"). Ordinary Lathe functions: arguments in their parameter slots, a byte result
-; in A, a word result in A (low) and X (high). Written for size first and speed second.
+; arithmetic"). Ordinary Lathe functions: arguments as for any function (the first in
+; registers, stored in their slots on entry), a byte result in A, a word result in A (low)
+; and X (high). Written for size first and speed second.
 ;
 ; Rules
 ; - Multiplies give the low bits of the product: the same bits for signed and unsigned

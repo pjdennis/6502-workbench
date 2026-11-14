@@ -4,13 +4,13 @@
 ; function recursion.twice
 ;   slot 0 n: size 1, class 1 (either), param, weight 2
 recursion__twice
+    STA recursion__twice__n
     CLC
-    LDA recursion__twice__n
     ADC recursion__twice__n
     RTS
 
 ; function recursion.down: recursive
-;   slot 0 n: size 1, class 1 (either), param, weight 4
+;   slot 0 n: size 1, class 1 (either), param, weight 3
 ;   slot 1 w: size 2, class 1 (either), param, weight 12
 ;   slot 2 keep: size 1, class 1 (either), local, weight 4
 ;   slot 3 $t1: size 1, class 1 (either), temp, weight 2
@@ -20,13 +20,14 @@ recursion__twice
 ;   calls rt_frame.pop_y
 recursion__down
 .L0000
-    LDA recursion__down__n
+    STA recursion__down__n
     STA recursion__down__keep
-    BNE .L000F
+    CMP #$00
+    BNE .L0011
     LDX recursion__down__w+$01
     LDA recursion__down__w
     RTS
-.L000F
+.L0011
     SEC
     SBC #$01
     STA recursion__down__St1
@@ -45,12 +46,11 @@ recursion__down
     JSR rt_frame__push
     LDA recursion__down__keep
     JSR rt_frame__push
-    LDA recursion__down__St1
-    STA recursion__down__n
     LDA recursion__down__St2
     STA recursion__down__w
     LDA recursion__down__St2+$01
     STA recursion__down__w+$01
+    LDA recursion__down__St1
     JSR .L0000
     JSR rt_frame__pop_y
     STY recursion__down__keep
@@ -71,8 +71,8 @@ recursion__down
     RTS
 
 ; function recursion.nest: recursive
-;   slot 0 a: size 1, class 1 (either), param, weight 8
-;   slot 1 b: size 1, class 1 (either), param, weight 8
+;   slot 0 a: size 1, class 1 (either), param, weight 6
+;   slot 1 b: size 1, class 1 (either), param, weight 5
 ;   slot 2 $t1: size 1, class 1 (either), temp, weight 4
 ;   slot 3 $t2: size 1, class 1 (either), temp, weight 4
 ;   slot 4 $t3: size 1, class 1 (either), temp, weight 2
@@ -82,11 +82,13 @@ recursion__down
 ;   calls rt_frame.pop_y
 recursion__nest
 .L0000
-    LDA recursion__nest__a
-    BNE .L0009
-    LDA recursion__nest__b
+    STA recursion__nest__a
+    STX recursion__nest__b
+    CMP #$00
+    BNE .L000C
+    TXA
     RTS
-.L0009
+.L000C
     SEC
     SBC #$01
     STA recursion__nest__St1
@@ -94,8 +96,7 @@ recursion__nest
     LDA recursion__nest__a
     SBC #$01
     STA recursion__nest__St3
-    LDA recursion__nest__b
-    STA recursion__nest__St4
+    STX recursion__nest__St4
     LDA recursion__nest__a
     JSR rt_frame__push
     LDA recursion__nest__b
@@ -104,10 +105,8 @@ recursion__nest
     JSR rt_frame__push
     LDA recursion__nest__St2
     JSR rt_frame__push
+    LDX recursion__nest__St4
     LDA recursion__nest__St3
-    STA recursion__nest__a
-    LDA recursion__nest__St4
-    STA recursion__nest__b
     JSR .L0000
     JSR rt_frame__pop_y
     STY recursion__nest__St2
@@ -122,10 +121,8 @@ recursion__nest
     JSR rt_frame__push
     LDA recursion__nest__b
     JSR rt_frame__push
+    LDX recursion__nest__St2
     LDA recursion__nest__St1
-    STA recursion__nest__a
-    LDA recursion__nest__St2
-    STA recursion__nest__b
     JSR .L0000
     JSR rt_frame__pop_y
     STY recursion__nest__b
@@ -147,12 +144,10 @@ recursion__nest
 ;   calls recursion.stepper (saves frame, through pointer)
 ;   calls rt_frame.pop_y
 recursion__both
-    LDA recursion__both__n
-    STA recursion__twice__n
+    STA recursion__both__n
     JSR recursion__twice
     STA recursion__both__x
-    STA recursion__simple__p0
-    JSR .L003E
+    JSR .L0035
     STA recursion__both__x
     STA recursion__both__St1
     LDA recursion__both__n
@@ -160,8 +155,7 @@ recursion__both
     LDA recursion__both__x
     JSR rt_frame__push
     LDA recursion__both__St1
-    STA recursion__stepper__p0
-    JSR .L0041
+    JSR .L0038
     JSR rt_frame__pop_y
     STY recursion__both__x
     JSR rt_frame__pop_y
@@ -169,9 +163,9 @@ recursion__both
     CLC
     ADC recursion__both__x
     RTS
-.L003E
+.L0035
     JMP (recursion__plain)
-.L0041
+.L0038
     JMP (recursion__step)
 
 ; function recursion.empty: recursive
@@ -185,12 +179,11 @@ recursion__empty
 ;   no slots
 ;   calls recursion.down
 recursion__outside
-    LDA #$03
-    STA recursion__down__n
     LDA #$04
     STA recursion__down__w
     LDA #$00
     STA recursion__down__w+$01
+    LDA #$03
     JMP recursion__down
 
 ; variable recursion.step: size 2, class 1 (either), weight 1

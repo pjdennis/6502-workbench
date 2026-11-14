@@ -256,10 +256,9 @@ def argument(t, stored):
 
 def arguments(f):
     """[ expression { "," expression } ] ")", after the "(". Each argument goes straight to
-    its parameter in the frame of function `f`; those of an `extern` or `asm` function stay on the
-    stack, in order, for GEN to put in the registers."""
+    its parameter in the frame of function `f`, except those passed in registers (all of an
+    `extern` or `asm` function's), which stay on the stack, in order, for GEN to load at the call."""
     global pending_count
-    by_register = gen.by_registers(f)
     saved = gen.outer
     saved_pending = pending_count
     count = 0
@@ -267,6 +266,7 @@ def arguments(f):
         while True:
             if count == kernel.sym_params[f]:
                 err.fatal(err.E_ARG_COUNT)
+            by_register = gen.in_register(f, count)
             if not by_register:
                 gen.parameter(f, count)
             argument(kernel.member_type[kernel.sym_members[f] + count], not by_register)
@@ -275,8 +275,8 @@ def arguments(f):
                 break
             if by_register:
                 gen.hold()
-            elif count == 1 and not gen.saving(f):
-                add_pending(f)
+            elif not gen.saving(f) and (count == 1 or gen.in_register(f, count - 2)):
+                add_pending(f)      # the first argument stored in the frame
             lex.next()
     if lex.tok != lex.T_RPAREN:
         err.fatal(err.E_RPAREN_EXPECTED)

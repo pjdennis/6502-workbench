@@ -245,33 +245,58 @@ class CallsTest(support.GenTest):
         symbols = [body for kind, body in self.records() if kind == SYM]
         self.assertEqual(symbols, [b'\x01\x03m.f', b'\x01\x0butil.helper', b'\x01\x07m.other'])
 
-    def test_an_argument_is_stored_in_the_callees_slot(self):
+    def test_the_first_argument_waits_for_a_and_the_next_is_stored_in_the_callees_slot(self):
         g = self.function(b'g', [(BYTE, 0), (WORD, 0)])
-        gen.parameter(g, 0)
+        self.assertEqual([gen.in_register(g, 0), gen.in_register(g, 1)], [True, False])
         gen.constant(NUMBER, 5)
-        gen.store()
+        gen.accept(BYTE)
+        gen.hold()
         gen.parameter(g, 1)
         self.local(BYTE)
         gen.store()
         gen.arguments_end(out.NO_OUTER)
         gen.call(g, 0, False)
-        self.assertEqual(self.listing(), ['LDA #$05', 'STA f1.0', 'LDA s0', 'STA f1.1', 'LDA #$00', 'STA f1.1+1',
-                                          'JMP g1'])
+        self.assertEqual(self.listing(), ['LDA s0', 'STA f1.1', 'LDA #$00', 'STA f1.1+1', 'LDA #$05', 'JMP g1'])
+
+    def test_which_parameters_are_passed_in_registers(self):
+        names = iter([b'g1', b'g2', b'g3', b'g4', b'g5'])
+
+        def where(*types):
+            f = self.function(next(names), [(t, 0) for t in types])
+            return [gen.register_of(f, i) for i in range(len(types))]
+        A, X, Y, AX, NONE = gen.REG_A, gen.REG_X, gen.REG_Y, gen.REG_AX, gen.REG_NONE
+        self.assertEqual(where(BYTE, BOOL, BYTE, BYTE), [A, X, Y, NONE])
+        self.assertEqual(where(WORD, BYTE, BYTE), [AX, Y, NONE])
+        self.assertEqual(where(BYTE, WORD, BYTE), [A, NONE, NONE])
+        self.assertEqual(where(WORD, WORD), [AX, NONE])
+        self.assertEqual(where(BYTE, BYTE, WORD), [A, X, NONE])
+
+    def test_the_callee_stores_the_registers_in_its_slots_and_they_still_hold_them(self):
+        self.slot(WORD)
+        self.slot(BYTE)
+        gen.receive(self.function(b'g', [(WORD, 0), (BYTE, 0)]))
+        self.local(WORD)
+        gen.local(WORD, 0)
+        gen.store()                     # s2 = s0: A and X hold it already
+        self.assertEqual(self.listing(), ['STA s0', 'STX s0+1', 'STY s1', 'STA s2', 'STX s2+1', 'RTS'])
 
     def test_a_call_made_while_arguments_wait_names_their_function_as_outer(self):
-        g = self.function(b'g', [(BYTE, 0), (BYTE, 0)])
+        g = self.function(b'g', [(WORD, 0), (WORD, 0), (WORD, 0)])
         h = self.function(b'h', [], [(BYTE, gen.REG_A)])
-        gen.parameter(g, 0)
-        gen.call(h, reg.depth, True)        # in the first argument: nothing waits yet
-        gen.store()
+        gen.call(h, reg.depth, True)        # in the first argument, for A and X: nothing waits
+        gen.accept(WORD)
+        gen.hold()
         gen.parameter(g, 1)
-        gen.call(h, reg.depth, True)        # in the second: the first is in g's frame
+        gen.call(h, reg.depth, True)        # in the second, for g's frame: nothing waits there yet
+        gen.store()
+        gen.parameter(g, 2)
+        gen.call(h, reg.depth, True)        # in the third: the second is in g's frame
         gen.store()
         gen.arguments_end(out.NO_OUTER)
         gen.call(g, 0, False)
         self.listing()
         calls = [body for kind, body in self.records() if kind == CALL]
-        self.assertEqual(calls, [b'\x02\x00\x00\xff\xff', b'\x02\x00\x00\x01\x00', b'\x01\x00\x00\xff\xff'])
+        self.assertEqual(calls, [b'\x01\x00\x00\xff\xff', b'\x01\x00\x00\x02\x00', b'\x02\x00\x00\xff\xff'])
 
     def test_a_call_that_a_return_follows_is_a_jump(self):
         gen.call(self.function(b'helper'), 0, False)
@@ -316,6 +341,21 @@ class ExternTest(support.GenTest):
         gen.constant(WORD, 0x5678)
         gen.call(self.function(b'xy', [(WORD, gen.REG_XY)], flags=kernel.SF_EXTERN, address=0x2000), 0, False)
         self.assertEqual(self.listing(), ['LDY #$12', 'LDA #$34', 'JSR $1000', 'LDY #$56', 'LDX #$78', 'JMP $2000'])
+
+    def test_an_element_for_a_pair_is_loaded_low_byte_first_and_its_index_is_not_lost(self):
+        f = self.extern((WORD, gen.REG_AX))
+        words = self.variable(typetab.array_of(WORD, 4, False), b'w')
+        gen.variable(words)
+        self.local(BYTE)
+        gen.index()
+        gen.call(f, 0, False)
+        gen.variable(self.variable(typetab.array_of(BYTE, 4, False), b'b'))
+        self.local(BYTE)
+        gen.index()
+        gen.accept(WORD)
+        gen.call(f, 0, False)
+        self.assertEqual(self.listing(), ['LDX s0', 'LDA g1,X', 'LDY s0', 'LDX g1+4,Y', 'JSR $1234',
+                                          'LDX s1', 'LDA g2,X', 'LDX #$00', 'JMP $1234'])
 
     def test_an_argument_computed_into_a_goes_from_there(self):
         f = self.extern((BYTE, gen.REG_X), (BYTE, gen.REG_A))

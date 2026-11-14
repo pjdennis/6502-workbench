@@ -4,7 +4,7 @@
 ;   slot 0 code: size 1, class 1 (either), param, weight 1
 ;   slot 1 arg: size 2, class 1 (either), param, weight 0
 func_types__beep
-    LDA func_types__beep__code
+    STA func_types__beep__code
     CMP #$03
     BEQ .L0008
     CLC
@@ -12,9 +12,10 @@ func_types__beep
     RTS
 
 ; function func_types.flash
-;   slot 0 c: size 1, class 1 (either), param, weight 0
+;   slot 0 c: size 1, class 1 (either), param, weight 1
 ;   slot 1 a: size 2, class 1 (either), param, weight 0
 func_types__flash
+    STA func_types__flash__c
     CLC
     RTS
 
@@ -41,9 +42,9 @@ func_types__handlers
 ; function func_types.take
 ;   slot 0 h: size 2, class 1 (either), param, weight 2
 func_types__take
-    LDA func_types__take__h
+    STA func_types__take__h
+    STX func_types__take__h+$01
     STA func_types__on_key
-    LDX func_types__take__h+$01
     STX func_types__on_key+$01
     RTS
 
@@ -52,10 +53,11 @@ func_types__take
 ; func_types.idle is a member of class func_types.action
 
 ; function func_types.set_up
-;   slot 0 i: size 1, class 1 (either), param, weight 2
+;   slot 0 i: size 1, class 1 (either), param, weight 3
 ;   slot 1 local: size 2, class 1 (either), local, weight 6
 ;   calls func_types.take
 func_types__set_up
+    STA func_types__set_up__i
     LDA #<func_types__idle
     STA func_types__set_up__local
     LDA #>func_types__idle
@@ -69,10 +71,8 @@ func_types__set_up
     STA func_types__actions,X
     LDA #>func_types__idle
     STA func_types__actions+$03,X
+    LDX #>func_types__flash
     LDA #<func_types__flash
-    STA func_types__take__h
-    LDA #>func_types__flash
-    STA func_types__take__h+$01
     JSR func_types__take
     LDX func_types__set_up__i
     LDA func_types__handlers,X
@@ -81,32 +81,32 @@ func_types__set_up
     STA func_types__on_key+$01
     LDA func_types__on_key
     CMP func_types__handlers+$02
-    BNE .L0053
+    BNE .L0050
     LDA func_types__on_key+$01
     CMP func_types__handlers+$05
-    BNE .L0053
+    BNE .L0050
     LDA #$01
-    BNE .L0055
-.L0053
+    BNE .L0052
+.L0050
     LDA #$00
-.L0055
+.L0052
     STA func_types__same
     LDA func_types__actions,X
     ORA func_types__actions+$03,X
-    BEQ .L0077
+    BEQ .L0074
     LDA func_types__set_up__local
     CMP #<func_types__idle
-    BNE .L0072
+    BNE .L006F
     LDA func_types__set_up__local+$01
     CMP #>func_types__idle
-    BNE .L0072
+    BNE .L006F
     LDA #$01
-    BNE .L0074
-.L0072
+    BNE .L0071
+.L006F
     LDA #$00
-.L0074
+.L0071
     STA func_types__same
-.L0077
+.L0074
     LDA #<func_types__idle
     STA func_types__where
     LDA #>func_types__idle

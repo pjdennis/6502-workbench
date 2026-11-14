@@ -9,7 +9,7 @@ abs_ff06 = $FF06
 ; function calls.one
 ;   slot 0 n: size 1, class 1 (either), param, weight 1
 calls__one
-    LDA calls__one__n
+    STA calls__one__n
     STA calls__r
     RTS
 
@@ -18,7 +18,7 @@ calls__one
 ;   slot 1 q: size 2, class 1 (either), param, weight 2
 ;   slot 2 on: size 1, class 1 (either), param, weight 0
 calls__three
-    LDA calls__three__p
+    STA calls__three__p
     STA calls__r
     LDA calls__three__q
     STA calls__w
@@ -29,8 +29,8 @@ calls__three
 ; function calls.double
 ;   slot 0 n: size 1, class 1 (either), param, weight 2
 calls__double
+    STA calls__double__n
     CLC
-    LDA calls__double__n
     ADC calls__double__n
     RTS
 
@@ -38,11 +38,12 @@ calls__double
 ;   slot 0 p: size 2, class 1 (either), param, weight 2
 ;   slot 1 q: size 2, class 1 (either), param, weight 2
 calls__sum
+    STA calls__sum__p
+    STX calls__sum__p+$01
     CLC
-    LDA calls__sum__p
     ADC calls__sum__q
     TAY
-    LDA calls__sum__p+$01
+    TXA
     ADC calls__sum__q+$01
     TAX
     TYA
@@ -54,18 +55,13 @@ calls__sum
 ;   calls calls.three
 calls__arguments
     LDA #$05
-    STA calls__one__n
     JSR calls__one
     LDA calls__a
-    STA calls__one__n
     JSR calls__one
     CLC
     LDA calls__a
     ADC calls__b
-    STA calls__one__n
     JSR calls__one
-    LDA calls__a
-    STA calls__three__p
     CLC
     LDA calls__w
     ADC #$01
@@ -79,9 +75,8 @@ calls__arguments
     ROL
     EOR #$01
     STA calls__three__on
+    LDA calls__a
     JSR calls__three
-    LDA #$01
-    STA calls__three__p
     LDA calls__a
     STA calls__three__q
     LDA #$00
@@ -91,41 +86,35 @@ calls__arguments
     JMP calls__three
 
 ; function calls.nested
-;   slot 0 $t1: size 1, class 1 (either), temp, weight 2
+;   slot 0 $t1: size 1, class 1 (either), temp, weight 4
 ;   calls calls.double
 ;   calls calls.one
-;   calls calls.sum; outer calls.three
+;   calls calls.sum
 ;   calls calls.three
 calls__nested
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
-    STA calls__one__n
     JSR calls__one
     LDA calls__a
-    STA calls__three__p
-    LDA calls__w
-    STA calls__sum__p
-    LDX calls__w+$01
-    STX calls__sum__p+$01
+    STA calls__nested__St1
     LDA #$01
     STA calls__sum__q
     LDA #$00
     STA calls__sum__q+$01
+    LDX calls__w+$01
+    LDA calls__w
     JSR calls__sum
     STA calls__three__q
     STX calls__three__q+$01
     LDA #$00
     STA calls__three__on
+    LDA calls__nested__St1
     JSR calls__three
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
-    STA calls__double__n
     JSR calls__double
     STA calls__nested__St1
     LDA calls__b
-    STA calls__double__n
     JSR calls__double
     CLC
     ADC calls__nested__St1
@@ -138,38 +127,32 @@ calls__nested
 ;   calls calls.sum
 calls__results
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
     STA calls__r
     LDA calls__w
-    STA calls__sum__p
-    LDX calls__w+$01
-    STX calls__sum__p+$01
     STA calls__sum__q
+    LDX calls__w+$01
     STX calls__sum__q+$01
     JSR calls__sum
     STA calls__w
     STX calls__w+$01
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
     STA calls__w
     LDA #$00
     STA calls__w+$01
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
     CLC
     ADC #$01
     STA calls__r
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
     CMP #$04
-    BNE .L0059
+    BNE .L0047
     LDA #$00
     STA calls__r
-.L0059
+.L0047
     RTS
 
 ; function calls.kept
@@ -177,17 +160,14 @@ calls__results
 ;   calls calls.double
 calls__kept
     LDA calls__a
-    STA calls__double__n
     JSR calls__double
     STA calls__kept__St1
     LDA calls__b
-    STA calls__double__n
     JSR calls__double
     CLC
     ADC calls__kept__St1
     STA calls__r
     LDA calls__b
-    STA calls__double__n
     JSR calls__double
     CLC
     ADC calls__a
@@ -247,10 +227,8 @@ calls__externs
 ;   calls calls.one
 calls__last
     LDA #$01
-    STA calls__one__n
     JSR calls__one
     LDA #$02
-    STA calls__one__n
     JMP calls__one
 
 ; variable calls.a: size 1, class 1 (either), weight 20

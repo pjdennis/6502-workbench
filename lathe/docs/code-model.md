@@ -57,7 +57,8 @@ Temporaries for expression evaluation are slots in the frame of the function tha
 
 | Item | Where |
 |---|---|
-| Arguments | The caller stores each one directly into the callee's parameter slot. |
+| First arguments | In registers, if the first parameter is one byte (`byte`, `sbyte`, `bool`, an enumeration): it in A, a second one-byte parameter directly after it in X, a third directly after that in Y. If the first parameter is two bytes (`word`, `int`, a pointer, a function type): it in A (low) and X (high), and a one-byte parameter directly after it in Y. |
+| Other arguments | The caller stores each one directly into the callee's parameter slot. |
 | `byte`, `sbyte` result | A. |
 | `word`, `int`, pointer result | A (low byte) and X (high byte). |
 | `bool` result, alone or as a status | The carry flag: set for `true`. |
@@ -65,7 +66,9 @@ Temporaries for expression evaluation are slots in the frame of the function tha
 
 The pair A and X matches the host interface in `asm/17/environment.asm`, which passes pointers the same way.
 
-A call is a `JSR`. There is no entry or exit code in an ordinary function, and no stack frame to build. A call whose results are returned unchanged (`return f(…)`, or a call as the last statement) is a `JMP`.
+A call is a `JSR`. The only entry code of an ordinary function stores the parameters that came in registers into their slots (`STA`, `STX`, `STY`, absolute or zero page), so every parameter has its slot as before, for the body, for `asm` blocks that name it, for a saving call's frame and for a pointer class's block. The registers still hold those values, and the compiler knows it, so a body that uses a parameter at once does not load it. There is no exit code and no stack frame to build. A call whose results are returned unchanged (`return f(…)`, or a call as the last statement) is a `JMP`.
+
+`extern` and `asm` functions keep the registers their declarations bind; `inline` functions are expanded and `interrupt` functions are not called, so the convention does not apply to them.
 
 ### Example
 
@@ -86,7 +89,10 @@ end
 The code to aim for, with `sum.p` in zero page. Slot names are shown as `sum.total` for reading; in asm17 text they are written `sum__total`.
 
 ```
-sum:    LDA #$00
+sum:    STA sum.p           ; the arguments, from A, X and Y
+        STX sum.p+1
+        STY sum.n
+        LDA #$00
         STA sum.total
         STA sum.total+1     ; A is known to hold 0
         STA sum.i
@@ -110,38 +116,38 @@ sum:    LDA #$00
 A call `t = sum(@buf, 10)`:
 
 ```
+        LDY #10
+        LDX #>buf
         LDA #<buf
-        STA sum.p
-        LDA #>buf
-        STA sum.p+1
-        LDA #10
-        STA sum.n
         JSR sum
         STA t
         STX t+1
 ```
 
+The register arguments are evaluated in order like the others, but loaded last, just before the `JSR`: a constant or a plain variable stays an operand until then, and one that had to be worked out stays where it is, or in a temporary of the caller if a later argument needs its register. Y is loaded first, then X, then A, so that a value already in A can go to X or Y. An element or what a pointer points at, which needs X or Y as an index, is copied to a temporary first when two or more arguments go in registers.
+
 ### Calls inside arguments
 
-In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion. A call of `g` itself inside `g`'s arguments, as in `g(a, g(b, c))`, would overwrite the arguments already stored, so the compiler reports it as an error: the inner result must go through a variable. The same holds for two calls through pointers of one function type, whose arguments share the class's block.
+An argument for a register waits in the caller until the `JSR`: no slot of the callee holds it yet, so a call in a later argument cannot destroy it. A value worked out into A is stored in a temporary of the caller when the call needs A, as for any operand. A variable waiting as an operand is copied to a temporary before such a call, or before the expansion of an `inline` function that may change variables, so that arguments are still taken from left to right: in `g(k, bump())`, `g` gets `k` as it was before `bump` changed it.
 
-The arguments of a saving call (see Recursion) wait in the caller's own temporaries instead, so none of this applies to them: a recursive function can write `nest(a - 1, nest(a - 1, b))`. A saving call inside the arguments of a plain one is still a pending call: in `times(v, primary(d))`, with `primary` recursive and able to reach `times`, the linker reports the cycle `times -> primary -> times`, and the remedy is again a variable.
+Arguments in slots are different. With `func g(x: word, y: word, z: byte)`, in `g(a, b + 1, h(c))` the second argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion. A call of `g` itself in a later argument, as in `g(1, 2, g(3, 4, 5))`, would overwrite the arguments already stored, so the compiler reports it as an error (100): the inner result must go through a variable. The same holds for two calls through pointers of one function type, whose arguments share the class's block. A function whose arguments all go in registers, or whose only slot argument is the last, never has arguments pending: `mix2(1, mix2(2, 3))` is allowed.
+
+The arguments of a saving call (see Recursion) wait in the caller's own temporaries instead, so none of this applies to them: a recursive function can write `nest(a - 1, nest(a - 1, b))`. A saving call inside the arguments of a plain one is still a pending call: in `times(0, v, primary(d))`, with `primary` recursive and able to reach `times`, the linker reports the cycle `times -> primary -> times`, and the remedy is again a variable.
 
 ### Functions called through a pointer
 
 The caller does not know which function it is calling, but the linker chooses every address, so it makes the question unnecessary: **all functions in a pointer class have their parameters at the same addresses.** (Classes are defined in [`language.md`](language.md).)
 
 - The linker allocates one block of parameter slots per class. Each member's parameters are names for that block.
-- A call through a pointer stores its arguments into the block with ordinary instructions and costs the same as a direct call. The callee has no entry code.
+- A call through a pointer passes its arguments as a direct call does, the first in registers and the others stored into the block, and costs the same. The callee's entry code stores the registers into the block.
 - A function whose address is never taken joins no class, and nothing changes for it.
 
 ```
-        LDA #3
-        STA Handler.code      ; the same address as beep.code, flash.code, ...
         LDA #<500
-        STA Handler.arg
+        STA Handler.arg       ; the same address as beep.arg, flash.arg, ...
         LDA #>500
         STA Handler.arg+1
+        LDA #3                ; code, in A
         JSR .call             ; .call: JMP (on_key)
         STA ok
 ```
@@ -157,7 +163,15 @@ Consequences:
 
 ### Register arguments for ordinary calls
 
-Passing one argument in A would save a store at each call and cost one in each function. `p1`'s notes measured this on its own source at about 300 bytes saved in 58 KB. It is left out of the first version and listed as a measurement to repeat ([`spikes.md`](spikes.md), L1).
+The first version stored every argument in its slot. Passing the first ones in registers saves the stores at every call and costs one store per register byte in each function, which also leaves the register holding the parameter for the body's first use. Measured on the Lathe-written compiler layers (`lathe/tests/size_report.py`, [`spikes.md`](spikes.md), "Result of L4"), the convention above saves 222 bytes of 3,734 (5.9%); the first parameter alone in A or in A and X would save 184 (4.9%). A typical call of a function of two bytes with two variables, `LDX c` / `LDA b` / `JSR f` and `STA f.x` / `STX f.y` on entry, takes 6 bytes less at the call, 3 more in the function, and 4 cycles less, since the function's first use of `x` needs no load.
+
+What it changes:
+
+- **Order.** Arguments are still evaluated from left to right: see "Calls inside arguments".
+- **Pending arguments.** Only arguments stored in slots are pending; error 100 and the `outer` field of `CALL` records are about them alone.
+- **Pointer classes.** The registers follow from the parameters' types, which every member of a class shares, so a call through a pointer loads them as a direct call does.
+- **Saving calls.** The arguments are worked out into temporaries as before; after the frame is pushed and the slot arguments are stored, the register arguments are loaded from their temporaries, last, just before the `JSR`.
+- **Interrupts.** Nothing: a function used by two contexts stores its registers into the slots of its own copy.
 
 ## Recursion
 
@@ -165,7 +179,7 @@ A function marked `recursive` may be active more than once. The cost is paid onl
 
 1. The arguments are worked out into temporaries of the caller, one for each parameter.
 2. Every byte of the caller's frame that can be live is pushed onto the frame stack, one run-time call per byte: `LDA slot` / `JSR rt_frame.push`. That is the caller's parameters (in its class block, if it is a member), its locals declared so far, and the temporaries in use other than the arguments just worked out and the copy of a pointer called through.
-3. The argument temporaries are moved into the callee's parameters (`LDA` / `STA`), which may be the caller's own.
+3. The argument temporaries are moved into the callee's parameters (`LDA` / `STA`), which may be the caller's own; those of the parameters passed in registers are loaded into Y, X and A, last.
 4. `JSR` to the callee, or to the `JMP (pointer)`.
 5. The saved bytes are popped in reverse order: `JSR rt_frame.pop_y` / `STY slot`. `pop_y` leaves A, X and the carry flag as they are, so the results are where a direct call leaves them.
 
@@ -173,12 +187,13 @@ A function marked `recursive` may be active more than once. The cost is paid onl
         LDA nest.a          ; the arguments, into temporaries
         SBC #1 ...
         STA nest.$t3
+        STX nest.$t4        ; b is still in X
         LDA nest.a          ; push the caller's frame
         JSR rt_frame.push
         LDA nest.b
         JSR rt_frame.push
-        LDA nest.$t3        ; the arguments, into the parameters
-        STA nest.a
+        LDX nest.$t4        ; the arguments, into X and A
+        LDA nest.$t3
         JSR nest
         JSR rt_frame.pop_y  ; and the frame back, last byte first
         STY nest.b
@@ -188,7 +203,7 @@ A function marked `recursive` may be active more than once. The cost is paid onl
 
 Calls into a `recursive` function from outside, calls from it to functions that are not `recursive`, calls through unmarked function types, and everything else inside its body are unchanged: variables keep their fixed addresses and fast addressing. A saving call is never made a `JMP`, because the pops follow it.
 
-**Cost.** Each saved byte costs 12 bytes of code at each saving call (10 when the slot is in zero page) and about 40 cycles: `LDA` and `JSR push` before, `JSR pop_y` and `STY` after. Each argument byte costs one `LDA` / `STA` more than a direct call's. The evaluator in `tests/cases/e2e/rec_eval.lth`, whose functions save 3 to 6 bytes at a call, saves 12 bytes for each level of parentheses.
+**Cost.** Each saved byte costs 12 bytes of code at each saving call (10 when the slot is in zero page) and about 40 cycles: `LDA` and `JSR push` before, `JSR pop_y` and `STY` after. Each argument byte costs one `LDA` / `STA` more than a direct call's (one `STA` more for a register argument). The evaluator in `tests/cases/e2e/rec_eval.lth`, whose functions save 3 to 6 bytes at a call, saves 12 bytes for each level of parentheses.
 
 **The frame stack** is the module `rt_frame` (`lathe/rt/rt_frame.lth`), which the compiler imports by itself when a module has a saving call: its `IMP` record tells the build which module to add. It is 256 bytes of main memory, of which 255 hold frames; its comment says how to make it larger. A push that would overflow it stores nothing and stops the program, with interrupts off, in the endless loop at `rt_frame.overflow`, which the map names. Each level of recursion also takes two bytes of the 6502's own stack for its `JSR`, so a recursion of more than about 120 levels runs out of that first, whatever its frames. An interrupt handler can use the frame stack too: it pops what it pushes before it returns, and the routines read and write the stack pointer once each.
 
@@ -275,29 +290,29 @@ Written in Lathe with assembly where needed, and linked function by function lik
 
 ### Run-time arithmetic
 
-The module `rt_math` (`lathe/rt/rt_math.lth`). Its functions are ordinary exported Lathe functions: arguments in their parameter slots, results in A or in A and X, temporaries in their own slots, so an interrupt handler that divides gets its own copy like any other function. Each stands alone, except that the signed divides call the unsigned ones, so a program links only what it uses. Bytes are code with every slot in zero page; cycles are from `JSR` to the end of `RTS`, a typical call being the mean over random operands (for the shifts, counts 0 to 15; for the divides, divisors not 0).
+The module `rt_math` (`lathe/rt/rt_math.lth`). Its functions are ordinary exported Lathe functions: arguments as for any function (the first in registers, which each function stores in its slots), results in A or in A and X, temporaries in their own slots, so an interrupt handler that divides gets its own copy like any other function. Each stands alone, except that the signed divides call the unsigned ones, so a program links only what it uses. Bytes are code with every slot in zero page; cycles are from `JSR` to the end of `RTS`, a typical call being the mean over random operands (for the shifts, counts 0 to 15; for the divides, divisors not 0). The cycles were measured before arguments went in registers: each function now spends 3 more on storing each register byte on entry (6 for two bytes, 9 for the shifts), which its callers save and more.
 
 | Function | Gives | Bytes | Cycles: typical, worst |
 |---|---|---|---|
-| `mul8(a: byte, b: byte): byte` | the low 8 bits of a × b, signed or unsigned | 16 | 139, 168 |
-| `mul8x8(a: byte, b: byte): word` | the whole unsigned product | 21 | 159, 175 |
-| `mul16(a: word, b: word): word` | the low 16 bits of a × b, signed or unsigned | 43 | 562, 697 (b < 256: at most 368) |
-| `div8(a: byte, b: byte): byte` | a / b unsigned; leaves a mod b in `remainder` | 25 | 171, 222 |
-| `mod8(a: byte, b: byte): byte` | a mod b unsigned | 19 | 162, 213 |
-| `div16(a: word, b: word): word` | a / b unsigned; leaves a mod b in `remainder` | 52 | 687, 931 |
-| `mod16(a: word, b: word): word` | a mod b unsigned | 44 | 674, 919 |
-| `sdiv8(a: sbyte, b: sbyte): sbyte` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 54 | 238, 289 |
-| `smod8(a: sbyte, b: sbyte): sbyte` | a mod b signed | 50 | 224, 278 |
-| `sdiv16(a: int, b: int): int` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 83 | 782, 1021 |
-| `smod16(a: int, b: int): int` | a mod b signed | 79 | 761, 1017 |
-| `shl16(w: word, n: byte): word` | w << n | 23 | 121, 227 |
-| `shr16(w: word, n: byte): word` | w >> n, unsigned | 23 | 128, 227 |
-| `sar16(w: int, n: byte): int` | w >> n, keeping the sign | 25 | 144, 259 |
+| `mul8(a: byte, b: byte): byte` | the low 8 bits of a × b, signed or unsigned | 20 | 139, 168 |
+| `mul8x8(a: byte, b: byte): word` | the whole unsigned product | 25 | 159, 175 |
+| `mul16(a: word, b: word): word` | the low 16 bits of a × b, signed or unsigned | 47 | 562, 697 (b < 256: at most 368) |
+| `div8(a: byte, b: byte): byte` | a / b unsigned; leaves a mod b in `remainder` | 29 | 171, 222 |
+| `mod8(a: byte, b: byte): byte` | a mod b unsigned | 23 | 162, 213 |
+| `div16(a: word, b: word): word` | a / b unsigned; leaves a mod b in `remainder` | 56 | 687, 931 |
+| `mod16(a: word, b: word): word` | a mod b unsigned | 48 | 674, 919 |
+| `sdiv8(a: sbyte, b: sbyte): sbyte` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 50 | 238, 289 |
+| `smod8(a: sbyte, b: sbyte): sbyte` | a mod b signed | 48 | 224, 278 |
+| `sdiv16(a: int, b: int): int` | a / b signed; leaves \|a\| mod \|b\| in `remainder` | 81 | 782, 1021 |
+| `smod16(a: int, b: int): int` | a mod b signed | 78 | 761, 1017 |
+| `shl16(w: word, n: byte): word` | w << n | 29 | 121, 227 |
+| `shr16(w: word, n: byte): word` | w >> n, unsigned | 29 | 128, 227 |
+| `sar16(w: int, n: byte): int` | w >> n, keeping the sign | 31 | 144, 259 |
 
 - **Division by zero** gives a quotient of all ones and a remainder equal to the dividend: what the shift-and-subtract loop gives with no test. The signed divides divide the magnitudes by that rule, so a signed quotient by zero is -1 for a dividend of 0 or more and 1 for a negative one, and the signed remainder is the dividend.
 - **Signed division truncates toward zero, and the remainder takes the sign of the dividend**, as in C: -7 / 2 = -3, -7 mod 2 = -1, 7 / -2 = -3, 7 mod -2 = 1, so a = (a / b) × b + a mod b. -128 / -1 and -32768 / -1 wrap to themselves.
 - **Shifts** by 16 or more give 0, or all sign bits for `sar16`.
-- **The remainder.** `div8`, `div16`, `sdiv8` and `sdiv16` also leave a remainder in the exported word `remainder` (`div8` with a high byte of 0; the signed ones that of the magnitudes, to be given the sign of the dividend), so a program that needs a quotient and its remainder divides once. `mod8` and `mod16` do not go through `remainder`: each has its own copy of the loop and keeps everything in its own slots. `remainder` is one variable for the whole program, so a remainder passed through it could be changed by an interrupt handler that divides between the store and the load; the operator `mod` must not have that hole, and the copy costs only a program that uses both `/` and `mod` (19 or 44 bytes), nothing in one that uses one of them. A program that reads `remainder` while a handler divides reads it inside the `critical` block that holds the divide.
+- **The remainder.** `div8`, `div16`, `sdiv8` and `sdiv16` also leave a remainder in the exported word `remainder` (`div8` with a high byte of 0; the signed ones that of the magnitudes, to be given the sign of the dividend), so a program that needs a quotient and its remainder divides once. `mod8` and `mod16` do not go through `remainder`: each has its own copy of the loop and keeps everything in its own slots. `remainder` is one variable for the whole program, so a remainder passed through it could be changed by an interrupt handler that divides between the store and the load; the operator `mod` must not have that hole, and the copy costs only a program that uses both `/` and `mod` (23 or 48 bytes), nothing in one that uses one of them. A program that reads `remainder` while a handler divides reads it inside the `critical` block that holds the divide.
 - **Speed.** `mul16` takes 8 passes instead of 16 when its second operand is below 256, so a caller with one small or constant operand passes it second. Every other routine's time depends only on its operand values, never on where they come from.
 
 Measured against `lathe/src/num.lth`, the stand-in the Lathe-written lexer uses: `lextest` built with `num.mul`, `num.div` and `num.rem` replaced by `rt_math.mul16`, `div16` and `mod16` is 86 bytes smaller (139 bytes of arithmetic instead of 225), and lexing every `.lth` file in `lathe/` takes 4.7% fewer cycles (38% fewer on a file of 2000 lines of numbers).
@@ -323,7 +338,7 @@ The 65C02's extra instructions (`STZ`, `BRA`, `INC A`, `PHX` and the rest) are u
 
 ## Known costs
 
-- An argument stored into a slot and then loaded again by the callee costs more than a register would for tiny functions. `inline` is the remedy. What registers would save over a whole program is measured in [`spikes.md`](spikes.md) ("Result of L4").
+- A parameter passed in a register is stored in its slot on entry even if the body never reads it again, and arguments after the first three bytes are stored into slots and loaded again by the callee. `inline` is the remedy for tiny functions. What the registers save over a whole program is measured in [`spikes.md`](spikes.md) ("Result of L4").
 - Calls between `recursive` functions copy a frame each way.
 - A function used from two contexts is linked twice.
 - Two functions in one pointer class cannot call each other without the cost of recursion.

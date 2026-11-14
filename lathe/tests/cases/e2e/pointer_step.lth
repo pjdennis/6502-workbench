@@ -1,0 +1,42 @@
+; A word that a pointer points at, with a variable index, stepped by 1: the branch over the
+; high byte must test the low byte, not the flags that finding the index again in Y leaves
+; (found by `fuzz.py stmt 167`). Prints 0100 0006 00FF 0100 0100 and a new line.
+module pointer_step
+
+import libout
+
+type R = record
+  b: byte
+  c: byte
+  w: word
+end
+
+var rr: [8]R rows
+var pr: ^R
+var i: byte
+
+func show(w: word)
+  libout.hexw(w)
+  libout.space()
+end
+
+pub func main()
+  pr = @rr[0]
+  i = 2
+  rr[2].w = $00FF
+  pr[i].w += 1
+  show(rr[2].w)
+  rr[2].w = $0005
+  pr[i].w += 1
+  show(rr[2].w)
+  rr[2].w = $0100
+  pr[i].w -= 1
+  show(rr[2].w)
+  rr[2].w = $00FF
+  pr[2].w += 1
+  show(rr[2].w)
+  rr[i + 1].w = $00FF
+  pr[i + 1].w += 1
+  libout.hexw(rr[3].w)
+  libout.nl()
+end

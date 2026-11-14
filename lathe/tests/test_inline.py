@@ -310,11 +310,11 @@ end
 
     def test_errors_in_an_imported_expansion_name_the_inline_function_s_file(self):
         """The body's call of g is inside g's own arguments (error 100) only where it is expanded."""
-        self.compile('module lib\npub func g(a: byte, b: byte)\nend\npub inline func h(x: byte): byte\n'
-                     '  g(x, 1)\n  return x\nend\n', 'lib')
+        self.compile('module lib\npub func g(a: word, b: word, c: byte)\nend\npub inline func h(x: byte): byte\n'
+                     '  g(x, 1, 2)\n  return x\nend\n', 'lib')
         path = os.path.join(self.tmp.name, 'm.lth')
         with open(path, 'w') as f:
-            f.write('module m\nimport lib\nfunc f()\n  lib.g(1, lib.h(2))\nend\n')
+            f.write('module m\nimport lib\nfunc f()\n  lib.g(1, 2, lib.h(3))\nend\n')
         status, errors = support.run_lathec(path, self.tmp.name)
         self.assertEqual(status, 1)
         self.assertTrue(errors.startswith('%s:5:3: error 100: ' % os.path.join(self.tmp.name, 'lib.lth')),

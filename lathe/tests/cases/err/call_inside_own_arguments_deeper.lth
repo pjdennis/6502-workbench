@@ -1,12 +1,12 @@
-; error 100 11 18
+; error 100 11 21
 module call_inside_own_arguments_deeper
-var b: byte
-func g(x: byte, y: byte): byte
-  return x + y
+var b: word
+func g(x: word, y: word, z: byte): word
+  return x + y + z
 end
-func h(x: byte): byte
+func h(x: word): word
   return x
 end
 func f()
-  b = g(1, h(2 + g(3, 4)))
+  b = g(1, 2, h(3 + g(4, 5, 6)))
 end

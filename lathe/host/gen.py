@@ -62,6 +62,7 @@ MAX_INITS = 64
 INIT_FLUSH = 32         # DECL writes the list out between declarations when it is this long
 MAX_STUBS = 16          # pointers called through in one function
 MAX_ARGUMENTS = 32      # arguments of saving calls waiting in temporaries
+MAX_HELD = 16           # arguments waiting as operands for registers, with more to follow
 FRAME_MODULE = b"rt_frame"      # the run-time module that keeps the frames of recursive functions
 PUSH_NAME = b"push"             # push(v: byte in a)
 POP_NAME = b"pop_y"             # pop_y(): byte in y, which leaves A, X and the carry flag alone
@@ -91,6 +92,8 @@ stub_count = 0
 saves_frame = False                 # the function being compiled is `recursive`
 argument_slot = [0] * MAX_ARGUMENTS # the temporaries the arguments of saving calls wait in
 argument_count = 0
+held_operand = [0] * MAX_HELD       # the operands of those arguments, oldest first
+held_count = 0
 saved_slot = [0] * reg.SLOTS        # the slots a saving call pushes, in order
 saved_count = 0
 frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and rt_frame.pop_y, once used
@@ -212,8 +215,8 @@ def local(t, slot):
 
 
 def parameter(f, i):
-    """Push parameter `i` of function `f`, for an argument to be stored in. From the second
-    one on, an argument is waiting in `f`'s frame while the next is worked out. The arguments
+    """Push parameter `i` of function `f`, for an argument to be stored in. After the first
+    one stored, an argument is waiting in `f`'s frame while the next is worked out. The arguments
     of a saving call wait in temporaries of the caller instead (saving())."""
     global outer, argument_count
     settle()
@@ -227,7 +230,7 @@ def parameter(f, i):
         return
     reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], object_symbol(f), i, 0, 0,
                     kernel.NO_SYM)
-    if i > 0:
+    if i > 0 and not in_register(f, i - 1):
         outer = object_symbol(f)
 
 
@@ -597,6 +600,8 @@ def step(op, count, target):
     elif op == fold.ADD:
         skip = fbuf.new_label()
         reg.modify(reg.OP_INC, target, 0)
+        if reg.op_mode[target] == reg.M_POINTER:
+            reg.test(reg.A)             # finding the index again in Y changed the flags
         reg.branch(OP_BNE, skip)
         reg.modify(reg.OP_INC, target, 1)
         reg.label(skip)
@@ -1038,15 +1043,15 @@ def to_zero_page(i):
 
 
 def to_temporary(i, in_zero_page):
-    """Operand `i`, a word, is copied to a temporary, in zero page if `in_zero_page`, which it becomes."""
+    """Operand `i` is copied to a temporary, in zero page if `in_zero_page`, which it becomes."""
     t = reg.op_type[i]
     j = reg.depth
     reg.describe_temp(j, t)
     if in_zero_page:
         reg.zero_page(j)
     reg.release(i)
-    reg.put(i, 0, j, 0)
-    reg.put(i, 1, j, 1)
+    for k in range(0, typetab.size(t)):
+        reg.put(i, k, j, k)
     reg.become(i, reg.O_VAR, t)
     reg.copy(j, i)
 
@@ -1176,37 +1181,104 @@ def accept(t):
 def hold():
     """The newest operand is an argument for a register and another argument follows. It
     may wait in A, or A and X, until one of those is needed, but not in the flags."""
+    global held_count
     settle()
     cond.value()
+    if held_count == MAX_HELD:
+        err.fatal(err.E_OPERANDS_FULL)
+    held_operand[held_count] = reg.depth - 1
+    held_count += 1
 
 
-def load_registers(f, first):
-    """Put the arguments of `extern` or `asm` function `f`, the operands from `first` on, where its
-    parameters are: the carry flag first, because finding it can take A, then Y, X and A.
-    An argument that is still in A can go from there to where it belongs."""
-    members = kernel.sym_members[f]
-    count = kernel.sym_params[f]
+def protect():
+    """A call is about to be made, or an expansion that may change variables to begin: each
+    argument waiting for a register that is memory such code could change is copied to a
+    temporary, so that arguments are still taken from left to right."""
+    for n in range(0, held_count):
+        i = held_operand[n]
+        if reg.op_kind[i] == reg.O_VAR and (reg.op_mode[i] != reg.M_DIRECT
+                                            or reg.op_flags[i] & (reg.F_TEMP | reg.F_DATA) == 0):
+            to_temporary(i, False)
+
+
+def register_of(f, i):
+    """Where parameter `i` of function or function type `f` is passed (docs/code-model.md,
+    "Convention"): its binding, for an `extern` or `asm` function; otherwise A, X, Y for the
+    first three if they are bytes, or A and X for a first word and Y for a byte after it."""
+    m = kernel.sym_members[f]
+    if by_registers(f):
+        return kernel.member_value[m + i]
+    wide = typetab.size(kernel.member_type[m]) == 2
+    if i == 0 and wide:
+        return REG_AX
+    if i > 2 or (wide and i > 1):
+        return REG_NONE
+    for j in range(1, i + 1):
+        if typetab.size(kernel.member_type[m + j]) != 1:
+            return REG_NONE
+    if wide:
+        return REG_Y
+    return REG_A + i
+
+
+def in_register(f, i):
+    """True if the argument for parameter `i` of `f` waits as an operand to be loaded into
+    registers at the call: always so for `extern` and `asm` functions, never for a saving call."""
+    return by_registers(f) or (not saving(f) and register_of(f, i) != REG_NONE)
+
+
+def register_count(f):
+    """How many of `f`'s parameters, from the first, are passed in registers."""
+    n = 0
+    while n < kernel.sym_params[f] and register_of(f, n) != REG_NONE:
+        n += 1
+    return n
+
+
+def load_registers(f, first, count):
+    """Put the arguments of `f` for its first `count` parameters, the operands from `first`
+    on, where those parameters are: the carry flag first, because finding it can take A,
+    then Y, X and A. An argument that is still in A can go from there to where it belongs."""
     settle()
     if count == 0:
         return
-    if kernel.member_value[members + count - 1] != REG_C:
+    if register_of(f, count - 1) != REG_C:
         cond.value()
     for i in range(first, first + count):
-        if count > 1 and not reg.is_direct(i):
+        where = register_of(f, i - first)
+        if reg.is_direct(i) or (count == 1 and where != REG_AX and where != REG_AY and where != REG_XY):
+            continue
+        if count == 1 and where == REG_AX:
+            reg.take(i)                 # the low byte first: an element's index is in X
+        else:
             reg.into_memory(i)          # its index register could be another's
     for i in range(0, count):
-        if kernel.member_value[members + i] == REG_C:
+        if register_of(f, i) == REG_C:
             cond.carry(first + i)
     held = reg.owner
     if held != reg.NONE and held >= first:
-        if reg.op_kind[held] == reg.O_AX and kernel.member_value[members + held - first] != REG_AX:
+        if reg.op_kind[held] == reg.O_AX and register_of(f, held - first) != REG_AX:
             reg.spill(held)
         reg.release(held)
     for r in range(reg.Y, reg.A - 1, -1):
         for i in range(0, count):
-            k = REGISTER_BYTES[kernel.member_value[members + i] * 3 + r]
+            k = REGISTER_BYTES[register_of(f, i) * 3 + r]
             if k != NO_BYTE:
                 reg.load(r, first + i, k)
+
+
+def receive(f):
+    """The entry of ordinary function `f`: store the parameters passed in registers in their
+    slots, which then hold them as any variable does. The registers still hold copies."""
+    for i in range(0, register_count(f)):
+        where = register_of(f, i)
+        reg.push_slot(kernel.member_type[kernel.sym_members[f] + i], i)
+        if where == REG_AX:
+            reg.store(reg.A, reg.depth - 1, 0)
+            reg.store(reg.X, reg.depth - 1, 1)
+        else:
+            reg.store(where - REG_A, reg.depth - 1, 0)
+        reg.pop()
 
 
 def result(f):
@@ -1358,12 +1430,19 @@ def save_frame(f, first):
                 fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
     if saved_count > 0:
         out.call(frame_push, 0, outer)
-    for p in range(0, kernel.sym_params[f]):
+    count = register_count(f)
+    for p in range(count, kernel.sym_params[f]):
         n = argument_slot[base + p]
         for k in range(0, reg.slot_size[n]):
             slot_byte(OP_LDA, reg.own, n, k)
             slot_byte(OP_STA, object_symbol(f), p, k)
-        reg.slot_busy[n] = False
+    for r in range(reg.Y, reg.A - 1, -1):      # the registers last: nothing may change them
+        for p in range(0, count):
+            k = REGISTER_BYTES[register_of(f, p) * 3 + r]
+            if k != NO_BYTE:
+                slot_byte(reg.LOAD_ABSOLUTE[r], reg.own, argument_slot[base + p], k)
+    for p in range(0, kernel.sym_params[f]):
+        reg.slot_busy[argument_slot[base + p]] = False
     argument_count = base
 
 
@@ -1379,14 +1458,20 @@ def restore_frame():
 
 
 def call(f, first, wanted):
-    """Call function `f`. The arguments of an `extern` or `asm` function are the operands from
-    `first` on; those of any other are in its frame already, or, for a saving call, in
-    temporaries. Pushes result(f) if it is `wanted`. An `extern` function is at a fixed
+    """Call function `f`. The arguments passed in registers (all of an `extern` or `asm`
+    function's) are the operands from `first` on; the others are in its frame already. Those of
+    a saving call are all in temporaries. Pushes result(f) if it is `wanted`. An `extern` function is at a fixed
     address; any other is reached through its symbol, with a CALL record. A call through a
     pointer (`f` a function type) has the pointer under the arguments, as through_pointer()
     left it."""
-    if by_registers(f):
-        load_registers(f, first)
+    global held_count
+    settle()
+    while held_count > 0 and held_operand[held_count - 1] >= first:
+        held_count -= 1
+    if reg.owner != reg.NONE and reg.owner < first:
+        reg.spill(reg.owner)            # before the arguments are loaded over it
+    if kernel.sym_params[f] > 0 and in_register(f, 0):
+        load_registers(f, first, reg.depth - first)
         while reg.depth > first:
             reg.pop()
     reg.clobber()
@@ -1545,7 +1630,7 @@ def loop_end():
 
 def function_begin(symbol):
     """Start generating the function whose object-file symbol is `symbol`."""
-    global pend_op, outer, leave, stub_count, saves_frame, argument_count
+    global pend_op, outer, leave, stub_count, saves_frame, argument_count, held_count
     fbuf.begin()
     reg.begin(symbol)
     pend_op = 0
@@ -1554,6 +1639,7 @@ def function_begin(symbol):
     stub_count = 0
     saves_frame = False
     argument_count = 0
+    held_count = 0
 
 
 def slots(first, count):

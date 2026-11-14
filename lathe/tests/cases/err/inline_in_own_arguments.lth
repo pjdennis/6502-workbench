@@ -1,11 +1,11 @@
 ; error 100 6 3
 module inline_in_own_arguments
-func h(a: byte, b: byte)
+func h(a: word, b: word, c: byte)
 end
 inline func f(v: byte): byte
-  h(v, v)
+  h(v, v, v)
   return v
 end
 func g()
-  h(1, f(2))
+  h(1, 2, f(3))
 end

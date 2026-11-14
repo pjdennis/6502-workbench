@@ -9,40 +9,41 @@ inline_params__tick
     RTS
 
 ; function inline_params.cases
-;   slot 0 k: size 1, class 1 (either), param, weight 3
+;   slot 0 k: size 1, class 1 (either), param, weight 4
 ;   slot 1 local: size 1, class 1 (either), local, weight 2
 ;   slot 2 $t1: size 1, class 1 (either), temp, weight 24
 ;   slot 3 $t2: size 1, class 1 (either), temp, weight 12
 ;   calls inline_params.tick
 inline_params__cases
+    STA inline_params__cases__k
     LDA #$01
     STA inline_params__cases__local
     LDA inline_params__cases__k
     STA inline_params__cases__St1
     LDA #$00
     STA inline_params__cases__St2
-.L0010
+.L0013
     LDA inline_params__cases__St1
     CMP #$01
-    BCC .L0020
+    BCC .L0023
     DEC inline_params__cases__St1
     INC inline_params__cases__St2
-    JMP .L0010
-.L0020
+    JMP .L0013
+.L0023
     LDA inline_params__cases__St2
     STA inline_params__g
     LDA #$05
     STA inline_params__cases__St1
     LDA #$00
     STA inline_params__cases__St2
-.L0030
+.L0033
     LDA inline_params__cases__St1
     CMP #$01
-    BCC .L0040
+    BCC .L0043
     DEC inline_params__cases__St1
     INC inline_params__cases__St2
-    JMP .L0030
-.L0040
+    JMP .L0033
+.L0043
     LDA inline_params__cases__St2
     STA inline_params__g
     LDA inline_params__cases__local
@@ -76,8 +77,8 @@ inline_params__cases
 ;   slot 1 $t1: size 1, class 1 (either), temp, weight 24
 ;   slot 2 $t2: size 1, class 1 (either), temp, weight 12
 inline_params__later
+    STA inline_params__later__k
     CLC
-    LDA inline_params__later__k
     ADC #$01
     STA inline_params__later__St1
     CLC

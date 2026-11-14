@@ -30,8 +30,8 @@ init__placements
 ;   slot 2 w: size 2, class 1 (either), local, weight 3
 ;   slot 3 p: size 1, class 0 (zp), local, weight 1
 init__locals
+    STA init__locals__n
     CLC
-    LDA init__locals__n
     ADC #$01
     STA init__locals__i
     STA init__locals__w

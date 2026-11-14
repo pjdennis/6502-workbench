@@ -725,6 +725,7 @@ def function_declaration(flags):
             err.position(line, col)
             err.fatal(err.E_INTERRUPT_HEAD)
         gen.interrupt_entry()
+    gen.receive(s)
     expr.function_body(s)
     if lex.tok != lex.T_END:
         err.fatal(err.E_END_EXPECTED)

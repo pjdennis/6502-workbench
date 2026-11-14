@@ -6,10 +6,11 @@ zp_80 = $80
 zp_81 = $81
 
 ; function asm_vars.add
-;   slot 0 amount: size 1, class 1 (either), param, weight 1
+;   slot 0 amount: size 1, class 1 (either), param, weight 2
 ;   slot 1 scale: size 2, class 1 (either), param, weight 2
 ;   slot 2 acc: size 2, class 1 (either), local, weight 7
 asm_vars__add
+    STA asm_vars__add__amount
     LDA asm_vars__add__scale
     STA asm_vars__add__acc
     LDX asm_vars__add__scale+$01
@@ -19,9 +20,9 @@ asm_vars__add
     LDA asm_vars__add__acc
     ADC asm_vars__add__amount
     STA asm_vars__add__acc
-    BCC .L001E
+    BCC .L0021
     INC asm_vars__add__acc+$01
-.L001E
+.L0021
     LDA asm_vars__add__acc
     STA asm_vars__total
     LDX asm_vars__add__acc+$01
@@ -31,9 +32,10 @@ asm_vars__add
 ; variable asm_vars.add.calls: size 1, class 1 (either), weight 1
 
 ; function asm_vars.indirect
-;   slot 0 index: size 1, class 1 (either), param, weight 1
+;   slot 0 index: size 1, class 1 (either), param, weight 2
 ;   slot 1 p: size 2, class 0 (zp), local, weight 3
 asm_vars__indirect
+    STA asm_vars__indirect__index
     LDA asm_vars__ptr
     STA asm_vars__indirect__p
     LDX asm_vars__ptr+$01
@@ -57,14 +59,15 @@ asm_vars__other
     RTS
 
 ; function asm_vars.loops
-;   slot 0 n: size 1, class 1 (either), param, weight 8
+;   slot 0 n: size 1, class 1 (either), param, weight 9
 asm_vars__loops
-.L0000
+    STA asm_vars__loops__n
+.L0003
     LDA asm_vars__loops__n
-    BEQ .L000B
+    BEQ .L000E
     DEC asm_vars__loops__n
-    JMP .L0000
-.L000B
+    JMP .L0003
+.L000E
     RTS
 
 ; function asm_vars.main: exported
@@ -74,21 +77,18 @@ asm_vars__loops
 ;   calls asm_vars.other
 ;   calls asm_vars.loops
 asm_vars__main
-    LDA #$01
-    STA asm_vars__add__amount
     LDA #$02
     STA asm_vars__add__scale
     LDA #$00
     STA asm_vars__add__scale+$01
+    LDA #$01
     JSR asm_vars__add
     STA asm_vars__total
     STX asm_vars__total+$01
     LDA #$03
-    STA asm_vars__indirect__index
     JSR asm_vars__indirect
     JSR asm_vars__other
     LDA #$04
-    STA asm_vars__loops__n
     JMP asm_vars__loops
 
 ; variable asm_vars.total: size 2, class 1 (either), weight 4

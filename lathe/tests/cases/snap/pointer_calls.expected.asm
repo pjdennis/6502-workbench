@@ -6,7 +6,7 @@ abs_c800 = $C800
 ;   slot 0 a: size 1, class 1 (either), param, weight 1
 ;   slot 1 w: size 2, class 1 (either), param, weight 0
 pointer_calls__mix
-    LDA pointer_calls__mix__a
+    STA pointer_calls__mix__a
     RTS
 
 ; class pointer_calls.handler: parameter sizes 1, 2
@@ -16,68 +16,63 @@ pointer_calls__mix
 ;   slot 1 local: size 2, class 1 (either), local, weight 3
 ;   calls pointer_calls.handler (through pointer)
 pointer_calls__through_variables
-    LDA pointer_calls__through_variables__h
+    STA pointer_calls__through_variables__h
+    STX pointer_calls__through_variables__h+$01
     STA pointer_calls__through_variables__local
-    LDX pointer_calls__through_variables__h+$01
     STX pointer_calls__through_variables__local+$01
-    LDA #$01
-    STA pointer_calls__handler__p0
     LDA #$02
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L0085
+    LDA #$01
+    JSR .L0076
     LDA #$00
     ROL
     STA pointer_calls__ok
-    LDA #$03
-    STA pointer_calls__handler__p0
     LDA #$04
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L0085
+    LDA #$03
+    JSR .L0076
     LDA #$00
     ROL
     STA pointer_calls__ok
-    LDA #$05
-    STA pointer_calls__handler__p0
     LDA #$06
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L0088
+    LDA #$05
+    JSR .L0079
     LDA #$00
     ROL
     STA pointer_calls__ok
-    LDA #$07
-    STA pointer_calls__handler__p0
     LDA #$08
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L008B
+    LDA #$07
+    JSR .L007C
     LDA #$00
     ROL
     STA pointer_calls__ok
-    LDA #$09
-    STA pointer_calls__handler__p0
     LDA #$0A
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L008E
+    LDA #$09
+    JSR .L007F
     LDA #$00
     ROL
     STA pointer_calls__ok
     RTS
-.L0085
+.L0076
     JMP (pointer_calls__on_key)
-.L0088
+.L0079
     JMP (pointer_calls__through_variables__h)
-.L008B
+.L007C
     JMP (pointer_calls__through_variables__local)
-.L008E
+.L007F
     JMP (abs_c800)
 
 ; class pointer_calls.pick: parameter sizes 1
@@ -89,13 +84,14 @@ pointer_calls__through_variables
 ;   slot 3 $t2: size 2, class 1 (either), temp, weight 3
 ;   calls pointer_calls.pick (through pointer)
 pointer_calls__through_copies
-    LDX pointer_calls__through_copies__i
+    STA pointer_calls__through_copies__i
+    TAX
     LDA pointer_calls__table,X
     STA pointer_calls__through_copies__St1
     LDA pointer_calls__table+$04,X
     STA pointer_calls__through_copies__St1+$01
-    STX pointer_calls__pick__p0
-    JSR .L0068
+    TXA
+    JSR .L0062
     STA pointer_calls__b
     LDA #$00
     ROL
@@ -107,13 +103,12 @@ pointer_calls__through_copies
     LDA (pointer_calls__through_copies__n),Y
     STA pointer_calls__through_copies__St1+$01
     LDA #$02
-    STA pointer_calls__pick__p0
-    JSR .L0068
+    JSR .L0062
     STA pointer_calls__b
-    BCC .L003E
+    BCC .L003A
     LDA #$01
     STA pointer_calls__ok
-.L003E
+.L003A
     LDY #$00
     LDA (pointer_calls__through_copies__n),Y
     STA pointer_calls__through_copies__St1
@@ -126,58 +121,58 @@ pointer_calls__through_copies
     LDY #$03
     LDA (pointer_calls__through_copies__St1),Y
     STA pointer_calls__through_copies__St2+$01
-    STY pointer_calls__pick__p0
-    JSR .L006B
+    TYA
+    JSR .L0065
     STA pointer_calls__b
     LDA #$00
     ROL
     STA pointer_calls__ok
     RTS
-.L0068
+.L0062
     JMP (pointer_calls__through_copies__St1)
-.L006B
+.L0065
     JMP (pointer_calls__through_copies__St2)
 
 ; function pointer_calls.in_arguments
-;   slot 0 i: size 1, class 1 (either), param, weight 2
-;   calls pointer_calls.handler (through pointer); outer pointer_calls.mix
-;   calls pointer_calls.mix
-;   calls pointer_calls.mix; outer pointer_calls.handler
+;   slot 0 i: size 1, class 1 (either), param, weight 3
+;   slot 1 $t1: size 1, class 1 (either), temp, weight 4
 ;   calls pointer_calls.handler (through pointer)
+;   calls pointer_calls.mix
 pointer_calls__in_arguments
-    LDA pointer_calls__in_arguments__i
-    STA pointer_calls__mix__a
-    STA pointer_calls__handler__p0
+    STA pointer_calls__in_arguments__i
+    STA pointer_calls__in_arguments__St1
     LDA #$01
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L0051
+    LDA pointer_calls__in_arguments__i
+    JSR .L0054
     LDA #$00
     ROL
     STA pointer_calls__mix__w
     LDA #$00
     STA pointer_calls__mix__w+$01
+    LDA pointer_calls__in_arguments__St1
     JSR pointer_calls__mix
     STA pointer_calls__b
     LDA pointer_calls__in_arguments__i
-    STA pointer_calls__handler__p0
-    LDA #$02
-    STA pointer_calls__mix__a
+    STA pointer_calls__in_arguments__St1
     LDA #$03
     STA pointer_calls__mix__w
     LDA #$00
     STA pointer_calls__mix__w+$01
+    LDA #$02
     JSR pointer_calls__mix
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
-    JSR .L0051
+    LDA pointer_calls__in_arguments__St1
+    JSR .L0054
     LDA #$00
     ROL
     STA pointer_calls__ok
     RTS
-.L0051
+.L0054
     JMP (pointer_calls__on_key)
 
 ; function pointer_calls.passed_on
@@ -185,24 +180,26 @@ pointer_calls__in_arguments
 ;   slot 1 $t1: size 2, class 1 (either), temp, weight 3
 ;   calls pointer_calls.pick (through pointer)
 pointer_calls__passed_on
-    LDX pointer_calls__passed_on__i
+    STA pointer_calls__passed_on__i
+    TAX
     LDA pointer_calls__table,X
     STA pointer_calls__passed_on__St1
     LDA pointer_calls__table+$04,X
     STA pointer_calls__passed_on__St1+$01
-    STX pointer_calls__pick__p0
+    TXA
     JMP (pointer_calls__passed_on__St1)
 
 ; function pointer_calls.last
-;   slot 0 h: size 2, class 1 (either), param, weight 1
+;   slot 0 h: size 2, class 1 (either), param, weight 3
 ;   calls pointer_calls.handler (through pointer)
 pointer_calls__last
-    LDA #$01
-    STA pointer_calls__handler__p0
+    STA pointer_calls__last__h
+    STX pointer_calls__last__h+$01
     LDA #$02
     STA pointer_calls__handler__p1
     LDA #$00
     STA pointer_calls__handler__p1+$01
+    LDA #$01
     JMP (pointer_calls__last__h)
 
 ; variable pointer_calls.on_key: size 2, class 1 (either), weight 4

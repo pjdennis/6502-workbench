@@ -4,14 +4,15 @@ abs_fffe = $FFFE
 abs_ffff = $FFFF
 
 ; function interrupts.spend
-;   slot 0 n: size 1, class 1 (either), param, weight 2
+;   slot 0 n: size 1, class 1 (either), param, weight 3
 interrupts__spend
+    STA interrupts__spend__n
     LDA interrupts__budget
     CMP interrupts__spend__n
-    BCS .L000A
+    BCS .L000D
     CLC
     RTS
-.L000A
+.L000D
     SEC
     SBC interrupts__spend__n
     STA interrupts__budget
@@ -34,20 +35,18 @@ interrupts__handler
     BNE .L0013
     INC interrupts__ticks+$01
 .L0013
-    STA interrupts__spend__n
     JSR interrupts__spend
-    BCC .L002E
+    BCC .L0028
     PHP
     SEI
     INC interrupts__ticks
-    BNE .L0025
+    BNE .L0022
     INC interrupts__ticks+$01
-.L0025
+.L0022
     PLP
     LDA #$01
-    STA interrupts__spend__n
     JSR interrupts__spend
-.L002E
+.L0028
     PLA
     TAY
     PLA

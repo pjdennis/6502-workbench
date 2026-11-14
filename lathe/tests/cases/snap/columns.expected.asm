@@ -112,8 +112,8 @@ columns__arrays_of_arrays
 ; function columns.same
 ;   slot 0 v: size 2, class 1 (either), param, weight 2
 columns__same
-    LDX columns__same__v+$01
-    LDA columns__same__v
+    STA columns__same__v
+    STX columns__same__v+$01
     RTS
 
 ; function columns.in_registers
@@ -135,10 +135,8 @@ columns__in_registers
     LDA columns__in_registers__St1+$01
     ADC columns__total+$01
     STA columns__w+$0A,X
-    LDA columns__total
-    STA columns__same__v
     LDX columns__total+$01
-    STX columns__same__v+$01
+    LDA columns__total
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
@@ -150,25 +148,23 @@ columns__in_registers
     LDA columns__in_registers__St1+$01
     ADC columns__w+$0A,X
     STA columns__total+$01
+    TAX
     LDA columns__total
-    STA columns__same__v
-    LDX columns__total+$01
-    STX columns__same__v+$01
     JSR columns__same
     STA columns__in_registers__St1
     STX columns__in_registers__St1+$01
     LDX columns__i
     CMP columns__w,X
-    BNE .L0073
+    BNE .L0065
     LDA columns__in_registers__St1+$01
     CMP columns__w+$0A,X
-    BEQ .L0076
-.L0073
+    BEQ .L0068
+.L0065
     CLC
-    BCC .L0077
-.L0076
+    BCC .L0069
+.L0068
     SEC
-.L0077
+.L0069
     RTS
 
 ; variable columns.w: size 20, class 2 (not zp), weight 27
@@ -183,6 +179,6 @@ columns__in_registers
 
 ; variable columns.j: size 1, class 1 (either), weight 7
 
-; variable columns.total: size 2, class 1 (either), weight 14
+; variable columns.total: size 2, class 1 (either), weight 13
 
 ; variable columns.b: size 1, class 1 (either), weight 4

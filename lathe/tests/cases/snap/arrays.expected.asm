@@ -73,25 +73,26 @@ arrays__forgetting
     RTS
 
 ; function arrays.search
-;   slot 0 v: size 1, class 1 (either), param, weight 4
+;   slot 0 v: size 1, class 1 (either), param, weight 5
 ;   slot 1 k: size 1, class 1 (either), local, weight 9
 arrays__search
+    STA arrays__search__v
     LDA #$00
     STA arrays__search__k
-.L0005
+.L0008
     LDA arrays__search__k
     CMP #$10
-    BCS .L001D
+    BCS .L0020
     TAX
     LDA arrays__a,X
     CMP arrays__search__v
-    BNE .L0017
+    BNE .L001A
     TXA
     RTS
-.L0017
+.L001A
     INC arrays__search__k
-    JMP .L0005
-.L001D
+    JMP .L0008
+.L0020
     LDA #$FF
     RTS
 

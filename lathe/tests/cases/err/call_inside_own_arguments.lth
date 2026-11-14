@@ -1,9 +1,9 @@
-; error 100 8 12
+; error 100 8 15
 module call_inside_own_arguments
-var b: byte
-func g(x: byte, y: byte): byte
-  return x + y
+var b: word
+func g(x: word, y: word, z: byte): word
+  return x + y + z
 end
 func f()
-  b = g(1, g(2, 3))
+  b = g(1, 2, g(3, 4, 5))
 end

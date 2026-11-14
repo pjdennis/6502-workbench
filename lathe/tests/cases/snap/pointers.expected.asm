@@ -4,57 +4,65 @@
 abs_f009 = $F009
 
 ; function pointers.length
-;   slot 0 s: size 2, class 0 (zp), param, weight 4
+;   slot 0 s: size 2, class 0 (zp), param, weight 6
 ;   slot 1 i: size 1, class 1 (either), local, weight 9
 pointers__length
+    STA pointers__length__s
+    STX pointers__length__s+$01
     LDA #$00
     STA pointers__length__i
-.L0005
+.L000B
     LDY pointers__length__i
     LDA (pointers__length__s),Y
-    BEQ .L0012
+    BEQ .L0018
     INC pointers__length__i
-    JMP .L0005
-.L0012
+    JMP .L000B
+.L0018
     TYA
     RTS
 
 ; function pointers.sum
-;   slot 0 q: size 2, class 0 (zp), param, weight 4
-;   slot 1 count: size 1, class 1 (either), param, weight 4
+;   slot 0 q: size 2, class 0 (zp), param, weight 6
+;   slot 1 count: size 1, class 1 (either), param, weight 5
 ;   slot 2 total: size 2, class 1 (either), local, weight 16
 ;   slot 3 i: size 1, class 1 (either), local, weight 9
 pointers__sum
+    STA pointers__sum__q
+    STX pointers__sum__q+$01
+    STY pointers__sum__count
     LDA #$00
     STA pointers__sum__total
     STA pointers__sum__total+$01
     STA pointers__sum__i
-.L000B
+.L0014
     LDA pointers__sum__i
     CMP pointers__sum__count
-    BCS .L0028
+    BCS .L0031
     TAY
     LDA (pointers__sum__q),Y
     CLC
     ADC pointers__sum__total
     STA pointers__sum__total
-    BCC .L0022
+    BCC .L002B
     INC pointers__sum__total+$01
-.L0022
+.L002B
     INC pointers__sum__i
-    JMP .L000B
-.L0028
+    JMP .L0014
+.L0031
     LDX pointers__sum__total+$01
     LDA pointers__sum__total
     RTS
 
 ; function pointers.word_at
-;   slot 0 q: size 2, class 0 (zp), param, weight 4
+;   slot 0 q: size 2, class 0 (zp), param, weight 6
 ;   slot 1 i: size 1, class 1 (either), param, weight 1
 ;   slot 2 $t1: size 1, class 1 (either), temp, weight 2
 ;   slot 3 $t2: size 2, class 1 (either), temp, weight 3
 pointers__word_at
-    LDA pointers__word_at__i
+    STA pointers__word_at__q
+    STX pointers__word_at__q+$01
+    STY pointers__word_at__i
+    TYA
     ASL
     STA pointers__word_at__St1
     CLC
@@ -74,8 +82,10 @@ pointers__word_at
     RTS
 
 ; function pointers.stores
-;   slot 0 q: size 2, class 0 (zp), param, weight 4
+;   slot 0 q: size 2, class 0 (zp), param, weight 6
 pointers__stores
+    STA pointers__stores__q
+    STX pointers__stores__q+$01
     LDA #$05
     STA pointers__n
     LDY #$00
@@ -92,9 +102,10 @@ pointers__stores
     RTS
 
 ; function pointers.copies
-;   slot 0 i: size 1, class 1 (either), param, weight 1
+;   slot 0 i: size 1, class 1 (either), param, weight 2
 ;   slot 1 $t1: size 2, class 0 (zp), temp, weight 6
 pointers__copies
+    STA pointers__copies__i
     LDA pointers__far
     STA pointers__copies__St1
     LDX pointers__far+$01
@@ -191,27 +202,19 @@ pointers__S2
 ;   calls pointers.sum
 ;   calls pointers.word_at
 pointers__main
+    LDX #>pointers__S2
     LDA #<pointers__S2
-    STA pointers__length__s
-    LDA #>pointers__S2
-    STA pointers__length__s+$01
     JSR pointers__length
     JSR abs_f009
+    LDY #$04
+    LDX #>pointers__buffer
     LDA #<pointers__buffer
-    STA pointers__sum__q
-    LDA #>pointers__buffer
-    STA pointers__sum__q+$01
-    LDA #$04
-    STA pointers__sum__count
     JSR pointers__sum
     STA pointers__w
     STX pointers__w+$01
+    LDY #$02
+    LDX #>pointers__words+$02
     LDA #<pointers__words+$02
-    STA pointers__word_at__q
-    LDA #>pointers__words+$02
-    STA pointers__word_at__q+$01
-    LDA #$02
-    STA pointers__word_at__i
     JSR pointers__word_at
     STA pointers__w
     STX pointers__w+$01

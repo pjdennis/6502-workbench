@@ -87,4 +87,4 @@ Accepted by the owner on 2026-11-13.
 | Q2 | Case | Names and keywords are not case sensitive. |
 | Q3 | Characters outside `$20`–`$5F` | `\|` and `~` stay. Alternate spellings wait until an editor on a Commodore 64 or Apple II+ is a real target. |
 | Q4 | First period machine | The BBC Micro, after the emulator's default machine, Michael and Wendy 2. |
-| Q5 | Calling convention | Arguments go straight into the callee's storage; results return in registers. Passing one argument in a register stays a measured experiment. |
+| Q5 | Calling convention | Arguments go straight into the callee's storage; results return in registers. Passing one argument in a register stays a measured experiment. **Revised 2026-11-14 after measurement on Lathe code:** the first arguments go in registers (a first byte in A, then bytes in X and Y; a first word in A and X, then a byte in Y), which the callee stores in its slots on entry. It saves 222 bytes of 3,734 (5.9%) on the Lathe-written compiler layers, 272 of 4,759 (5.7%) on the whole `lextest` program, for 65 lines of compiler code ([`code-model.md`](code-model.md), "Register arguments for ordinary calls"). |

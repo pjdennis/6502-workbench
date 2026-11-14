@@ -73,7 +73,7 @@ For `a OP b` with the result in A:
 A two-byte operation needs somewhere to put its low byte while it computes the high one, so it is always given a destination.
 
 - **Assignment** passes its left side as the destination: `x = y + z` is `CLC` / `LDA y` / `ADC z` / `STA x` / `LDA y+1` / `ADC z+1` / `STA x+1`.
-- **An argument** passes the callee's parameter slot as the destination.
+- **An argument** passes the callee's parameter slot as the destination, unless it goes in registers.
 - **`return`** and anything else with no memory destination uses A and X, holding the low byte in Y meanwhile: `… ADC z` / `TAY` / `LDA y+1` / `ADC z+1` / `TAX` / `TYA`.
 - **An operand of a larger expression** uses a word temporary as the destination.
 - `w += 1` is `INC w` / `BNE` / `INC w+1`. `w += b` with `b` a byte is an 8-bit add and `BCC` / `INC w+1`. `w -= 1` is `LDA w` / `BNE` / `DEC w+1` / `DEC w`.
@@ -116,16 +116,20 @@ A `JSR` followed directly by `RTS`, with no label between them, becomes a `JMP`.
 
 ## Calls
 
-1. Each argument is evaluated with the callee's parameter slot as its destination, in order.
-2. While arguments are pending, any other call records the outer callee in its `CALL` record ([`object-format.md`](object-format.md)).
-3. `JSR`. Everything known about the registers is forgotten.
-4. The result is an operand: In A, In A and X, or a Condition "C set".
+1. Each argument is evaluated in order. One for a parameter passed in a register (`code-model.md`, "Convention": A, X, Y for the first three if they are bytes; A and X for a first word, and Y for a byte after it) stays on the operand stack as it is: a Constant or a Variable, or a value In A, which the ownership rule stores in a temporary if a later argument needs A, as it does a Condition turned into 0 or 1 first. Every other argument is evaluated with the callee's parameter slot as its destination.
+2. While arguments stored in slots are pending, any other call records the outer callee in its `CALL` record ([`object-format.md`](object-format.md)). A call of the callee itself then is error 100.
+3. Before a call, or the expansion of an `inline` function that is not pure or assigns to a variable, inside the arguments: each argument waiting for a register that is memory such code could change (anything but a temporary or constant data reached directly) is copied to a temporary, so that the arguments are taken from left to right.
+4. The register arguments are loaded: Y, then X, then A, each from where the operand is (a transfer if another register holds it). An element or what a pointer points at, whose index register could be another argument's, is copied to a temporary first when two or more arguments go in registers; one passed alone in A and X is loaded low byte first, so that an element's index in X is not lost. An operand that owns A below the arguments is stored first.
+5. `JSR`. Everything known about the registers is forgotten.
+6. The result is an operand: In A, In A and X, or a Condition "C set".
 
-For `extern` and `asm` functions the arguments go in registers: each argument is evaluated; one that is not a Constant or Variable is stored in a temporary; then Y, X and A are loaded, in that order.
+At the start of an ordinary function, each parameter passed in a register is stored in its slot (`STA`, `STX`, `STY`: all have absolute and zero page forms, so this forces nothing into zero page), and REG remembers that the register holds a copy of it.
+
+For `extern` and `asm` functions every argument goes in the register its declaration binds, by the same steps; the carry flag is set up before the registers, because finding it can take A.
 
 **Through a pointer.** A value of a function type followed by `(` is the callee. Unless it is a whole two-byte variable it is copied to a word temporary first; it then waits under the arguments, which go to the parameters of the type's pointer class: fix-ups naming the class symbol and the parameter number. The call is a `JSR` to a label after the function's last instruction, where a `JMP (pointer)` is written when the function ends, one per pointer. Its `CALL` record names the class and has the "through a pointer" flag. `return h(x)` turns the `JSR` into a `JMP` to that label, and where the `JMP (pointer)` follows at once the `JMP` goes away: the function ends with the `JMP (pointer)`.
 
-**Saving calls.** A call from a `recursive` function to a `recursive` function, or through a `recursive` function type, works each argument out into a new temporary of the caller instead of the callee's parameter, so no arguments are pending and nothing is recorded as `outer` for the calls inside them. Then, at the call: the registers' owner is stored as for any call; each byte of the parameters and locals, and of each temporary in use that is not one of this call's arguments or the copy of its pointer, is `LDA` / `JSR rt_frame.push`, in slot order; the argument temporaries are moved to the parameters and freed; the `JSR`; then `JSR rt_frame.pop_y` / `STY` for each pushed byte, in the opposite order. The `CALL` record has the "saves the caller's frame" flag, and `rt_frame.push` and `rt_frame.pop_y` have `CALL` records of their own. The first saving call of a module writes the `IMP` record of `rt_frame`, and the `SYM` records of the two routines (`code-model.md`, "Recursion").
+**Saving calls.** A call from a `recursive` function to a `recursive` function, or through a `recursive` function type, works each argument out into a new temporary of the caller instead of the callee's parameter, so no arguments are pending and nothing is recorded as `outer` for the calls inside them. Then, at the call: the registers' owner is stored as for any call; each byte of the parameters and locals, and of each temporary in use that is not one of this call's arguments or the copy of its pointer, is `LDA` / `JSR rt_frame.push`, in slot order; the argument temporaries of the parameters in slots are moved to the parameters; those of the parameters passed in registers are loaded into Y, X and A, and nothing comes between them and the `JSR`; the argument temporaries are freed; the `JSR`; then `JSR rt_frame.pop_y` / `STY` for each pushed byte, in the opposite order. The `CALL` record has the "saves the caller's frame" flag, and `rt_frame.push` and `rt_frame.pop_y` have `CALL` records of their own. The first saving call of a module writes the `IMP` record of `rt_frame`, and the `SYM` records of the two routines (`code-model.md`, "Recursion").
 
 ## Remembering register contents
 

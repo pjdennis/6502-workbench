@@ -217,4 +217,23 @@ Together these are estimated to recover 10 to 25%.
 
 - **"A value just stored is not reloaded"** was already true. Nothing in `lextest` loads a value a register still holds from its store; the reloads that looked like it (`STA lex__line` … `LDA lex__line` in `lex.scan`) come from A being used for the next byte of a word, which the copy through X answers where the word is used next.
 - **A pointer into a big array built again** for a neighbouring element (`names[offset]`, `names[offset + 1]`) happens 5 times in `lextest` (in `kernel.name_word`, `name_set_word`, `name_end`, `sym_lookup`), each 15 bytes where `LDY #1` would do: about 65 bytes. It needs a memory of what a pointer temporary holds, with its own rules for when that ends and for sharing the temporary between operands, so it is left for now. The 512-entry tables cost more in the same way: the index is shifted again for every table (`s << 1` five times in `kernel.sym_add`).
-- **Byte arguments in registers** (not done; `lathe/tests/arg_report.py` counts it from the object files). `lextest` has 137 calls of functions with parameters, which spend 480 bytes storing arguments. Against that, with each callee storing the registers into its slots on entry: the first byte parameter in A saves 144 net; the first three byte parameters in A, X, Y 180; the first parameter in A, or A and X for a word or pointer, 200; that and A, X, Y for bytes when the first parameter is a byte, 236 (6.6% of the layers). A callee whose first instruction loads that parameter gains 2 more each (+28 to +46). `err.fatal` (25 calls), `lex.followed_by` (10 calls of three constants) and `err.position` (8 calls of two words) are most of it.
+- **Byte arguments in registers** (done since: see "Arguments in registers, measured" below; `lathe/tests/arg_report.py` counts it from the object files). `lextest` has 137 calls of functions with parameters, which spend 480 bytes storing arguments. Against that, with each callee storing the registers into its slots on entry: the first byte parameter in A saves 144 net; the first three byte parameters in A, X, Y 180; the first parameter in A, or A and X for a word or pointer, 200; that and A, X, Y for bytes when the first parameter is a byte, 236 (6.6% of the layers). A callee whose first instruction loads that parameter gains 2 more each (+28 to +46). `err.fatal` (25 calls), `lex.followed_by` (10 calls of three constants) and `err.position` (8 calls of two words) are most of it.
+
+**Arguments in registers, measured (2026-11-14).** Convention (d) above, as `code-model.md` ("Convention") now has it: a first byte parameter in A, a second and third byte directly after it in X and Y; a first word in A and X, and a byte directly after it in Y; each function stores them in its slots on entry. Measured with `lathe/tests/size_report.py` against the compiler as it was just before (layers 3,734, program 4,759):
+
+| Module | Before | After | Saved |
+|---|---|---|---|
+| err | 512 | 477 | 35 (6.8%) |
+| kernel | 965 | 946 | 19 (2.0%) |
+| src | 254 | 240 | 14 (5.5%) |
+| lex | 2003 | 1849 | 154 (7.7%) |
+| **layers** | **3734** | **3512** | **222 (5.9%)** |
+| lextest | 619 | 559 | 60 |
+| sys | 153 | 155 | -2 |
+| num | 225 | 233 | -8 |
+| **program** | **4759** | **4487** | **272 (5.7%)** |
+
+- `arg_report.py` predicted 209 net for the layers' code, 249 with the callee's first load credited; the result, 222, is in between. `lex.mark` (62 bytes), `lex.scan` (20) and `err.fatal` (10) gain most; functions with three byte parameters, such as `lex.followed_by`, grow by the stores on entry (5 bytes) and save them back at each call.
+- The first parameter alone (A, or A and X) gives 184 (4.9%) of the 222: the rest of the convention is a few lines more in the compiler, so it was kept whole.
+- Compiler: 65 lines of code more in `gen.py`, 1 each in `decl.py` and `inline.py` (without comments and docstrings). Arguments still run from left to right: one waiting for a register is copied to a temporary before a call in a later argument (exempting the caller's own slots saved nothing on `lextest`).
+- `rt_math`'s functions, ordinary Lathe functions written in `asm`, grow by 4 bytes (6 for the shifts) for their stores on entry; the signed divides shrink by 1 to 4, since they call the unsigned ones with registers.

@@ -555,8 +555,10 @@ def argument_symbol(f, i):
 def copy_aliases():
     """A call is about to be made, or an expansion to begin, while the arguments of inline calls
     are being read: it could change a variable that a parameter already stands for. Each such
-    parameter becomes a slot that holds the variable's value now."""
+    parameter becomes a slot that holds the variable's value now. So does each argument that
+    waits for a register (gen.protect())."""
     global alias_count
+    gen.protect()
     for n in range(0, alias_count):
         s = alias[n]
         t = kernel.sym_type[s]

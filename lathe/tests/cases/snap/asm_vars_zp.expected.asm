@@ -9,10 +9,11 @@ asm_vars_zp__first
     RTS
 
 ; function asm_vars_zp.walk
-;   slot 0 count: size 1, class 1 (either), param, weight 1
+;   slot 0 count: size 1, class 1 (either), param, weight 2
 ;   slot 1 cursor: size 2, class 0 (zp), local, weight 6
 ;   calls asm_vars_zp.first
 asm_vars_zp__walk
+    STA asm_vars_zp__walk__count
     LDA asm_vars_zp__table
     STA asm_vars_zp__walk__cursor
     LDX asm_vars_zp__table+$01
@@ -25,9 +26,9 @@ asm_vars_zp__walk
     LDA asm_vars_zp__walk__cursor
     ADC asm_vars_zp__low
     STA asm_vars_zp__walk__cursor
-    BCC .L0020
+    BCC .L0023
     INC asm_vars_zp__walk__cursor+$01
-.L0020
+.L0023
     JSR asm_vars_zp__first
     STA asm_vars_zp__low
     RTS
@@ -37,7 +38,6 @@ asm_vars_zp__walk
 ;   calls asm_vars_zp.walk
 asm_vars_zp__main
     LDA #$02
-    STA asm_vars_zp__walk__count
     JSR asm_vars_zp__walk
     INC asm_vars_zp__low
     RTS

@@ -1,0 +1,148 @@
+; Arguments in registers (lathe/docs/code-model.md, "Convention"): each shape of parameter list,
+; how the callee stores the registers on entry and uses them at once, and calls with constant,
+; variable, computed and nested arguments, in conditions, through a pointer and between
+; recursive functions.
+module reg_args
+
+type Pair = func(a: byte, w: word): byte
+type Stepper = recursive func(n: byte, w: word): word
+
+var a: byte
+var b: byte
+var c: byte
+var w: word
+var v: word
+var p: ^byte
+var h: Pair
+var table: [8]byte
+var s: sbyte
+var on: bool
+
+func one(x: byte): byte
+  return x + 1
+end
+
+func two(x: byte, y: byte): byte
+  return x - y
+end
+
+func three(x: byte, y: byte, z: byte): byte
+  return x ^ y ^ z
+end
+
+func wide(x: word): word
+  return x + 1
+end
+
+func word_byte(x: word, y: byte): word
+  return x + y
+end
+
+func byte_word(x: byte, y: word): word
+  return y - x
+end
+
+func four(x: byte, y: byte, z: byte, q: byte): byte
+  return x + y + z + q
+end
+
+func signed(x: sbyte, t: bool): sbyte
+  if t then
+    return -x
+  end
+  return x
+end
+
+func pointed(q: ^byte, i: byte): byte
+  return q[i]
+end
+
+func mix(x: byte, y: word): byte
+  return x + lo(y)
+end
+
+; constants and variables are loaded last, Y and X before A
+func constants()
+  a = one(5)
+  a = two(1, 2)
+  a = three(1, 2, 3)
+  w = wide(1000)
+  w = word_byte($1234, 7)
+  w = byte_word(7, $1234)
+  a = four(1, 2, 3, 4)
+  s = signed(-3, true)
+  a = pointed(@table, 3)
+end
+
+func variables()
+  a = two(b, c)
+  a = three(c, b, a)
+  w = word_byte(v, b)
+  w = byte_word(b, v)
+  a = pointed(p, b)
+  a = two(table[b], c)
+end
+
+; a computed argument stays in A if nothing after it needs A; otherwise it waits in a temporary
+func computed()
+  a = one(b + c)
+  a = two(b, b + c)
+  a = two(b + c, b - c)
+  a = three(b + 1, c + 1, a + 1)
+  w = wide(v + w)
+  w = word_byte(v + w, b + 1)
+  a = four(b + 1, 2, 3, c + 1)
+end
+
+; a call in the arguments: an argument waiting as a variable is copied first, since the call
+; could change the variable
+func nested()
+  a = two(one(b), one(c))
+  a = two(b, one(c))
+  a = three(one(a), b, two(b, c))
+  w = word_byte(wide(v), one(b))
+  a = four(b, c, one(a), two(1, 2))
+end
+
+func conditions()
+  if one(a) == 3 and two(b, c) > 1 then
+    a = 0
+  end
+  while three(a, b, c) != 0 do
+    a -= 1
+  end
+end
+
+func through()
+  h = @mix
+  a = h(b, w)
+  a = h(b + 1, wide(w))
+  a = h(table[c], v)
+end
+
+recursive func walk(n: byte, x: word): word
+  if n == 0 then
+    return x
+  end
+  return walk(n - 1, x + n) + walk(n - 1, x)
+end
+
+recursive func walk_through(n: byte, x: word): word
+  var g: Stepper
+  g = @walk_through
+  if n == 0 then
+    return x
+  end
+  return g(n - 1, x + 1)
+end
+
+pub func main()
+  constants()
+  variables()
+  computed()
+  nested()
+  conditions()
+  through()
+  w = walk(3, 10)
+  w = walk_through(3, 10)
+end

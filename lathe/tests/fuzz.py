@@ -370,11 +370,35 @@ class Statements:
             if not any(v in x for v in BV + WV):
                 x = px = r.choice(BV)
             return 'idb(%s)' % x, '(%s)' % px
+        if kind < 0.3:
+            return self.call(depth - 1, False)
         y, py = self.bexpr(depth - 1)
         if not any(v in x for v in BV + WV) and not any(v in y for v in BV + WV):
             x = px = r.choice(BV)
         op = r.choice(['+', '-', '&', '|', '^'])
         return '(%s %s %s)' % (x, op, y), '((%s %s %s) & 255)' % (px, op, py)
+
+    def call(self, depth, word):
+        """A call of one of the functions with parameters in registers and in slots, with
+        computed arguments, which can be calls themselves: (lathe, python). The arguments of
+        one whose arguments wait in its frame make no calls (error 100 for the same function)."""
+        r = self.r
+        name = r.choice(['f4', 'f5', 'f6'] if word else ['bump', 'f1', 'f2', 'f3', 'f7'])
+        inner = depth if name in ('f1', 'f2', 'f3', 'f4') else 0
+        out, pout = [], []
+        for n, t in enumerate(CALLS[name]):
+            k = r.random()
+            if k < 0.3:                 # what a later argument changes
+                x = px = 'k0' if t == 'b' else 'k1'
+            elif k < 0.55 and n > 0 and t == 'b':
+                x = px = 'bump()'
+            elif t == 'b':
+                x, px = self.bexpr(max(inner, 0))
+            else:
+                x, px, _ = self.wexpr(max(inner, 0))
+            out.append(x)
+            pout.append(px)
+        return '%s(%s)' % (name, ', '.join(out)), '%s(%s)' % (name, ', '.join(pout))
 
     def wleaf(self):
         r = self.r
@@ -402,6 +426,9 @@ class Statements:
                 return 'word(%s)' % x, px, True
             return x, px, True
         x, px, _ = self.wexpr(depth - 1)
+        if r.random() < 0.08:
+            x, px = self.call(depth - 1, True)
+            return x, px, True
         if r.random() < 0.12:
             n = r.choice([0, 1, 2, 3, 4, 8, 9, 12, 15])
             op = r.choice(['<<', '>>'])
@@ -517,6 +544,12 @@ class Statements:
             mask = 255 if d in BV else 65535
             lathe.append('%s%s %s= %d\n' % (pad, d, op, n))
             py.append('%s%s = (%s %s %d) & %d\n' % (ppad, d, d, op, n, mask))
+        elif kind < 0.72:
+            word = r.random() < 0.4
+            d = pd = r.choice(WV if word else BV)
+            x, px = self.call(1, word)
+            lathe.append('%s%s = %s\n' % (pad, d, x))
+            py.append('%s%s = %s\n' % (ppad, pd, px))
         elif kind < 0.74:
             lathe.append('%stouch()\n' % pad)
             py.append('%sb3 = (b3 + 1) & 255; w2 = (w2 ^ b0) & 65535\n' % ppad)
@@ -615,6 +648,8 @@ var w1: word = 65535
 var w2: word = 0
 var c0: byte
 var c1: byte
+var k0: byte = 7
+var k1: word = 1000
 var ab: [8]byte = [1, 2, 3, 4, 250, 251, 252, 253]
 var aw: [8]word = [0, 1, 255, 256, 32767, 32768, 65534, 65535]
 var ar: [8]word rows = [7, 300, 0, 65535, 1, 2, 3, 4]
@@ -651,8 +686,53 @@ func touch()
   b3 += 1
   w2 ^= b0
 end
+; parameters of every shape: in A, X and Y; in A and X, then Y; in A, then slots; in slots
+func bump(): byte
+  k0 += 1
+  k1 += 1
+  return k0
+end
+func f1(a: byte): byte
+  return a ^ $5A
+end
+func f2(a: byte, b: byte): byte
+  return a - b
+end
+func f3(a: byte, b: byte, c: byte): byte
+  a += b
+  return a ^ c
+end
+func f4(w: word, b: byte): word
+  return w + b
+end
+func f5(b: byte, w: word): word
+  w -= b
+  return w
+end
+func f6(w: word, v: word, b: byte, c: byte): word
+  return (w ^ v) + b - c
+end
+func f7(a: byte, b: byte, w: word, c: byte): byte
+  return (a + b + lo(w) + hi(w)) ^ c
+end
 pub func main()
 '''
+
+# The parameters of the functions above ('b' a byte, 'w' a word), and what they compute in
+# Python. `bump` changes k0 and k1, which are used only as arguments: an argument before a call
+# of it must have been taken before the call.
+CALLS = {'bump': '', 'f1': 'b', 'f2': 'bb', 'f3': 'bbb', 'f4': 'wb', 'f5': 'bw', 'f6': 'wwbb', 'f7': 'bbwb'}
+
+
+def python_calls(env):
+    def bump():
+        env['k0'] = (env['k0'] + 1) & 255
+        env['k1'] = (env['k1'] + 1) & 65535
+        return env['k0']
+    return dict(bump=bump, f1=lambda a: a ^ 0x5A, f2=lambda a, b: (a - b) & 255,
+                f3=lambda a, b, c: ((a + b) & 255) ^ c, f4=lambda w, b: (w + b) & 65535,
+                f5=lambda b, w: (w - b) & 65535, f6=lambda w, v, b, c: ((w ^ v) + b - c) & 65535,
+                f7=lambda a, b, w, c: ((a + b + (w & 255) + (w >> 8)) & 255) ^ c)
 
 
 def statement_program(seed, count):
@@ -663,10 +743,10 @@ def statement_program(seed, count):
     for _ in range(count):
         g.stmt(2, 1, lathe, py, 0)
     fields = ('ra[%d].b', 'ra[%d].w', 'rr[%d].b', 'rr[%d].c', 'rr[%d].w')
-    shown = BV + WV + ['%s[%d]' % (a, i) for a in ('ab', 'aw', 'ar') for i in range(8)] \
+    shown = BV + WV + ['k0', 'k1'] + ['%s[%d]' % (a, i) for a in ('ab', 'aw', 'ar') for i in range(8)] \
         + [f % i for f in fields for i in range(8)]
     tail = ''.join('  out(%s)\n' % v for v in shown) + 'end\n'
-    env = dict(b0=3, b1=200, b2=0, b3=255, w0=300, w1=65535, w2=0, c0=0, c1=0,
+    env = dict(b0=3, b1=200, b2=0, b3=255, w0=300, w1=65535, w2=0, c0=0, c1=0, k0=7, k1=1000,
                ab=[1, 2, 3, 4, 250, 251, 252, 253], aw=[0, 1, 255, 256, 32767, 32768, 65534, 65535],
                ar=[7, 300, 0, 65535, 1, 2, 3, 4])
     head = '  pr = @rr[0]\n'
@@ -675,7 +755,7 @@ def statement_program(seed, count):
         env[python] = [(37 * n + 91 * i) % 256 if f.endswith(('b', 'c')) else (4999 * (n + i) + 255 * i) % 65536
                        for i in range(8)]
         head += ''.join('  %s = %d\n' % (f % i, env[python][i]) for i in range(8))
-    exec(''.join(py), {}, env)
+    exec(''.join(py), python_calls(env), env)
     want = ''.join('%04X\n' % eval(_python(v), {}, env) for v in shown)
     return STATEMENT_HEAD + head + ''.join(lathe) + tail, want
 
