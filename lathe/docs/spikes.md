@@ -237,3 +237,18 @@ Together these are estimated to recover 10 to 25%.
 - The first parameter alone (A, or A and X) gives 184 (4.9%) of the 222: the rest of the convention is a few lines more in the compiler, so it was kept whole.
 - Compiler: 65 lines of code more in `gen.py`, 1 each in `decl.py` and `inline.py` (without comments and docstrings). Arguments still run from left to right: one waiting for a register is copied to a temporary before a call in a later argument (exempting the caller's own slots saved nothing on `lextest`).
 - `rt_math`'s functions, ordinary Lathe functions written in `asm`, grow by 4 bytes (6 for the shifts) for their stores on entry; the signed divides shrink by 1 to 4, since they call the unsigned ones with registers.
+
+## L4 revised: ten modules measured (2026-11-14)
+
+With the middle layers also written in Lathe (types, constant folding, the function buffer, the object writer, register memory, conditions), the first projection was too low.
+
+| Modules | Code bytes | Tables | Bytes of code per line of host code |
+|---|---|---|---|
+| err, kernel, src, lex | 5,435 | 22,375 | 4.4 |
+| typetab, fold, fbuf, out, reg, cond | 17,244 | 31,523 | 7.4 to 9.5 |
+| **The ten** | **22,679** | **53,898** | 6.9 |
+
+- **The middle layers cost twice as much per line as the lowest ones.** They are word arithmetic, tables of more than 256 entries, and calls with several arguments, where the lexer is byte handling.
+- **Projection for the whole compiler.** The six modules still to do have 4,563 lines of code. At 6.9 to 8.4 bytes per line they are 31 to 38 KB, so the compiler would be **55 to 61 KB of code, with 54 KB of tables**. The target was 32 KB. It cannot run in 64 KB as it stands.
+- **The host compiler cannot compile `reg.lth` within its own limits**, because an import brings in every exported name.
+- **Where the code is bigger than it should be**, by estimated saving in the six middle modules: arrays of more than 256 entries (142 address computations of about 13 bytes; rows reached through a pointer would save 550 bytes here and several KB overall); the function buffer walked by an index, not a pointer (740); the address of `buffer[e + k]` recomputed each time (260); a word built from two bytes through a temporary (25 bytes a time against 10); index registers reloaded when two indexes alternate (250); chains of tests that could be tables; loops tested at the top (29 loops).
