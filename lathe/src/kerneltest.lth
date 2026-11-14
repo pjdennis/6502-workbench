@@ -199,6 +199,11 @@ func streams(input: ^byte, output: ^byte)
   end
   put_word(count)
   put_word(sum)
+  put_word(kernel.get_word(s))          ; past the end: zeros, and the end again
+  b, at_end = kernel.get(s)
+  if at_end then
+    sys.put_byte('E')
+  end
   kernel.close(s)
   s, ok = kernel.open_out(output)
   put_hex(s)

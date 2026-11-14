@@ -20,14 +20,13 @@
 ;
 ;   | Python                               | Lathe                             | Why             |
 ;   |--------------------------------------|-----------------------------------|-----------------|
-;   | text memory is env.mem from TEXT_BASE| the array `text`, TEXT_SIZE bytes;| memory is real: |
-;   | $0100 to TEXT_END $4000 (16128 bytes)| TEXT_END is @text + TEXT_SIZE     | $0100 is the    |
-;   |                                      |                                   | stack. 1024     |
-;   |                                      |                                   | bytes hold the  |
-;   |                                      |                                   | path and every  |
-;   |                                      |                                   | argument the    |
-;   |                                      |                                   | machine can give|
-;   |                                      |                                   | ($FE00-$FFDF)   |
+;   | text memory is env.mem from TEXT_BASE| the array `text`, TEXT_SIZE bytes,| memory is real: |
+;   | $0100, TEXT_SIZE (4096) bytes        | 4096 as the host's (1280 in the   | $0100 is the    |
+;   |                                      | small build, under `#if SMALL`)   | stack. It holds |
+;   |                                      |                                   | the path, the   |
+;   |                                      |                                   | arguments and   |
+;   |                                      |                                   | INLINE's saved  |
+;   |                                      |                                   | tokens          |
 ;   | keep_argument copies, then checks    | the same, so an argument that     | (as left)       |
 ;   |                                      | does not fit is written past the  |                 |
 ;   |                                      | array before error 82: it cannot  |                 |
@@ -44,8 +43,8 @@
 ;   | column widths: ints                  | byte where every value fits (see  | the type is the |
 ;   |                                      | each column), else word; the      | storage         |
 ;   |                                      | 384-element word columns `rows`   | (error 123)     |
-;   | name_word, name_set_word, name_token,| `inline`; `names` and N_TOKEN are | smaller code; an|
-;   | name_set_token: functions            | exported                          | exported inline |
+;   | name_word, name_set_word, name_token,| `inline`; `names`, N_SYMBOL and   | smaller code; an|
+;   | name_set_token: functions            | N_TOKEN are exported              | exported inline |
 ;   |                                      |                                   | function uses   |
 ;   |                                      |                                   | exported names  |
 ;   | name_is_new, spelling_hash,          | a pointer to the entry, `q[k]`    | (zp),Y: no      |
@@ -58,7 +57,11 @@ import sys
 
 ; ---- Text memory -------------------------------------------------------------------------
 
-const TEXT_SIZE = 1024
+#if SMALL
+const TEXT_SIZE = 1280          ; (SMALL: the test programs' small build)
+#else
+const TEXT_SIZE = 4096
+#end
 const PATH_SIZE = 256
 
 var text: [TEXT_SIZE]byte nozp
@@ -132,6 +135,9 @@ pub const STREAM_FREE = 0
 pub const STREAM_IN = 1             ; a file being read
 pub const STREAM_OUT = 2            ; a file being written
 pub const STREAM_MEMORY = 3         ; bytes of memory being read
+pub const STREAM_ENDED = 4          ; a file being read whose end has been read: the machine
+                                    ; would give its first byte again (the emulator rewinds a
+                                    ; file at its end)
 
 var stream_kind: [MAX_STREAMS]byte
 var stream_handle: [MAX_STREAMS]byte        ; the system's handle of a file
@@ -195,6 +201,8 @@ end
 ; The stream's next byte and false, or 0 and true at its end.
 pub func get(s: byte): byte, bool
   var p: ^byte
+  var b: byte
+  var at_end: bool
   if stream_kind[s] == STREAM_MEMORY then
     if stream_next[s] == stream_limit[s] then
       return 0, true
@@ -203,7 +211,14 @@ pub func get(s: byte): byte, bool
     stream_next[s] = p + 1
     return p[0], false
   end
-  return sys.read(stream_handle[s])
+  if stream_kind[s] == STREAM_ENDED then
+    return 0, true
+  end
+  b, at_end = sys.read(stream_handle[s])
+  if at_end then
+    stream_kind[s] = STREAM_ENDED
+  end
+  return b, at_end
 end
 
 ; The next two bytes as a number. Bytes past the end read as zero.
@@ -248,13 +263,13 @@ end
 #if SMALL
 const NAME_HEAP_SIZE = 1024      ; (SMALL: the test programs' small build)
 #else
-const NAME_HEAP_SIZE = 14848
+const NAME_HEAP_SIZE = 15872
 #end
 const NAME_BUCKETS = 64         ; a power of two
 const MAX_NAME = 31             ; significant characters
 
 const N_LINK = 0
-const N_SYMBOL = 2
+pub const N_SYMBOL = 2
 pub const N_TOKEN = 4
 const N_LENGTH = 5
 const N_TEXT = 6
@@ -268,11 +283,11 @@ pub var name_top: word = 1
 var new_length: byte
 var new_hash: byte
 
-inline func name_word(offset: word): word
+pub inline func name_word(offset: word): word
   return word(names[offset]) | (word(names[offset + 1]) << 8)
 end
 
-inline func name_set_word(offset: word, value: word)
+pub inline func name_set_word(offset: word, value: word)
   names[offset] = lo(value)
   names[offset + 1] = hi(value)
 end

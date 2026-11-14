@@ -22,7 +22,7 @@ import err
 
 TEXT_BASE = 0x0100          # not 0: a pointer of 0 means "none"
 TEXT_SIZE = 0x1000          # bytes of text memory
-TEXT_END = TEXT_BASE + TEXT_SIZE
+TEXT_END = TEXT_BASE + TEXT_SIZE   # (the checks below add TEXT_SIZE, which the small build's tests lower)
 PATH_SIZE = 256
 
 text_top = TEXT_BASE
@@ -33,7 +33,7 @@ path_length = 0
 def text_reserve(size):
     """Pointer to `size` bytes of text memory that stay reserved."""
     global text_top
-    if text_top + size > TEXT_END:
+    if text_top + size > TEXT_BASE + TEXT_SIZE:
         err.fatal(err.E_TEXT_FULL)
     start = text_top
     text_top += size
@@ -45,7 +45,7 @@ def keep_argument(i):
     global text_top
     start = text_top
     length = env.arg_copy(i, start)
-    if start + length + 1 > TEXT_END:
+    if start + length + 1 > TEXT_BASE + TEXT_SIZE:
         err.fatal(err.E_TEXT_FULL)
     text_top += length + 1
     return start
@@ -88,6 +88,8 @@ STREAM_FREE = 0
 STREAM_IN = 1               # a file being read
 STREAM_OUT = 2              # a file being written
 STREAM_MEMORY = 3           # bytes of env.mem being read
+STREAM_ENDED = 4            # a file being read whose end has been read: the machine would give
+                            # its first byte again (the emulator rewinds a file at its end)
 
 stream_kind = bytearray(MAX_STREAMS)
 stream_handle = bytearray(MAX_STREAMS)       # the system's handle of a file
@@ -147,7 +149,12 @@ def get(s):
             return 0, True
         stream_next[s] += 1
         return env.mem[stream_next[s] - 1], False
-    return env.read(stream_handle[s])
+    if stream_kind[s] == STREAM_ENDED:
+        return 0, True
+    b, at_end = env.read(stream_handle[s])
+    if at_end:
+        stream_kind[s] = STREAM_ENDED
+    return b, at_end
 
 
 def get_word(s):
@@ -184,7 +191,7 @@ def put_name(s, name):
 # A name is built in place above the heap's top, one character at a time, and only kept if
 # it is new, so looking a name up copies nothing.
 
-NAME_HEAP_SIZE = 14848
+NAME_HEAP_SIZE = 15872
 NAME_BUCKETS = 64           # a power of two
 MAX_NAME = 31               # significant characters
 

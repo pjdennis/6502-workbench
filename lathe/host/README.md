@@ -53,7 +53,7 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 | `cond.py` | GEN, middle part: comparisons and conditions. |
 | `gen.py` | GEN, top part: arithmetic with destination passing, stores, conversions, calls, the function being compiled, initial values. |
 | `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. It reaches variables and slots through the symbol table and REG's frame. |
-| `inline.py` | The saved tokens of `inline` functions (SRC replays them, LEX reads them), what is found out about each body, the scope names in an expansion are looked up in, and the parameters and slots of the expansions under way. |
+| `inline.py` | (Its twin is `lathe/src/inlines.lth`, module `inlines`: `inline` is a keyword.) The saved tokens of `inline` functions (SRC replays them, LEX reads them), what is found out about each body, the scope names in an expansion are looked up in, and the parameters and slots of the expansions under way. |
 | `expr.py` | EXPR and STMT: expressions and written types, parsed into operands on GEN's stack; statements, and variable declarations (a body has them too). One file, because an `inline` call in an expression compiles statements. |
 | `decl.py` | DECL, and reading and writing interface files. |
 | `lathec.py` | The compiler's main program. |
@@ -272,9 +272,9 @@ The small build halves what grows with the program: 400 functions, 2,000 slots, 
 
 ### The small build
 
-The test programs of the Lathe twins (`lathe/src/*test.lth`) run on the emulator's default machine, 60 KB for code and variables. At the compiler's full capacities, those with more than 24 KB of code (`regtest`, `condtest`, `gentest`) do not fit beside the tables, so they are built small, and so is `asmtest`, whose variables are about 100 bytes too many otherwise:
+The test programs of the Lathe twins (`lathe/src/*test.lth`) run on the emulator's default machine, 60 KB for code and variables. At the compiler's full capacities, those with more than 20 KB of code (`regtest`, `condtest`, `gentest`, `asmtest`, `inlinetest`) do not fit beside the tables, so they are built small:
 
-- Each twin declares its big tables' capacities under `#if SMALL`: the name heap and the symbol rows and members (`kernel`), the function buffer (`fbuf`), the constant table and its fix-ups (`out`), the string being read (`lex`). An array of more than 256 elements stays above 256, because its index is a `word`.
+- Each twin declares its big tables' capacities under `#if SMALL`: the name heap, the symbol rows and members and the text memory (`kernel`), the function buffer (`fbuf`), the constant table and its fix-ups (`out`), the string being read (`lex`), the saved tokens (`inline`). An array of more than 256 elements stays above 256, because its index is a `word`.
 - `lathe/src/compiler.env` defines `SMALL 0`, `compiler-small.env` defines `SMALL 1` and moves the split between code and variables up (`src_support.build_program(name, dir, small=True)`). `#if SMALL` is an error where `SMALL` is not defined, so every environment that compiles the twins defines it; `memory_report.py` compiles the modules of `lathe/src/` with `compiler.env`'s options.
 - The Python side runs with the same capacities: `script_host.SMALL` lists them, and `check_script(..., small=True)` sets them in the host modules while each section runs (the host's arrays stay at full size; only the limits are checked). `test_memory.py` checks that `script_host.SMALL` and the twins' `#if SMALL` constants agree, and that the twins' other value is the host's own.
 

@@ -1,0 +1,801 @@
+; INLINE: the saved tokens of `inline` functions, and the state of the expansions under way.
+; lathe/host/inline.py in Lathe.
+;
+; Owns
+; - the saved tokens (docs/code-model.md, "Inline functions"): an `inline` function's body is
+;   not compiled where it is declared. save() reads it as tokens up to its `end` and keeps them,
+;   for the whole module, in a buffer of SAVED_SIZE bytes of text memory, in the form lex.lth
+;   describes at SAVED_LINE. A name is kept as its name: DECL keeps every name the declaration
+;   made (it does not release them as a function's scope ends), so it stays valid. An imported
+;   `inline` function's tokens come from its module's interface (read()), where the names are
+;   written as text (write());
+; - what save() finds out about the body by looking at its tokens, once: which parameters it
+;   assigns to, whether it is "pure" (makes no call, takes no address, and assigns to nothing but
+;   its own parameters and locals and one variable of the program, by name), and whether its only
+;   `return` is its last statement;
+; - the expansions under way: EXPR replays the tokens at each call (expr.expand()). Each
+;   expansion is a level; its parameters and locals are symbols of the scope SCOPE_INLINE + level,
+;   and names in its body are looked up in that scope, then in the scope of the module that
+;   declared the function (lookup()), never in the caller's;
+; - how a parameter is given its argument (argument_symbol()), and the slots of the caller's
+;   frame that an expansion owns: temporaries, free again when it ends.
+;
+; The record of an inline function, at sym_value of its symbol, in the buffer:
+;     R_END       pointer past its tokens (2)
+;     R_LINE      the line of its first token (2)
+;     R_FILE      pointer to the name of the file it was read from (2)
+;     R_FLAGS     PURE, LAST_RETURN (1)
+;     R_WRITTEN   the variable of the program that a pure body assigns to, by its name (2), or 0
+;     R_PARAMS    for each parameter: its name (2), and 1 if the body assigns to it, else 0 (1)
+;     then the tokens.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | the module `inline` (inline.py)      | the module `inlines`, this file   | `inline` is a   |
+;   |                                      | (EXPR and DECL will import it so) | keyword         |
+;   | env.mem[p], with p a number          | p[k] through a pointer; a record  | lathe/src/      |
+;   |                                      | is ^byte(kernel.sym_value[f])     | sys.lth,        |
+;   |                                      | (kept in a local `r` or `q` where | "Pointers"; an  |
+;   |                                      | the Python indexes env.mem with   | element of a    |
+;   |                                      | an expression)                    | call is not a   |
+;   |                                      |                                   | designator      |
+;   | saved_start, saved_top: numbers      | ^byte                             | (the same)      |
+;   | param(f, i): i * PARAM_SIZE          | word(i) * PARAM_SIZE              | no byte wraps   |
+;   | blocks in save(): an int, below 0    | sbyte                             | `> 0` must see  |
+;   | after a stray `until`                |                                   | -1 (a body      |
+;   |                                      |                                   | nests at most   |
+;   |                                      |                                   | 127 blocks)     |
+;   | scan_index, scan_close, returns:     | word                              | a statement can |
+;   | ints                                 |                                   | have more than  |
+;   |                                      |                                   | 255 tokens      |
+;   | write(): env.mem[p + 2 + i]          | q = p + 2 + i, then q[0]          | a pointer's     |
+;   |                                      |                                   | index is a byte |
+;   | `x, _ = f()`                         | a variable `at_end` or `found`    | no `_`          |
+;   | `while True:`                        | `loop`                            |                 |
+;   | copy_aliases() used before it is     | a forward declaration             | declare before  |
+;   | defined                              |                                   | use             |
+;   | SAVED_SIZE                           | under `#if SMALL` (384) as well   | the small build |
+module inlines
+
+import err
+import fbuf
+import gen
+import kernel
+import src                      ; before lex, whose interface imports it too
+import lex
+import reg
+import typetab
+
+#if SMALL
+pub const SAVED_SIZE = 384      ; (SMALL: the test programs' small build)
+#else
+pub const SAVED_SIZE = 2048     ; bytes of saved tokens in one module
+#end
+pub const MAX_DEPTH = 6         ; inline calls inside inline calls: below src.MAX_SOURCES
+const MAX_LOCALS = 32           ; names of locals one body can declare
+const MAX_OWNED = 64            ; slots of the caller's frame the expansions under way own
+const MAX_ALIASES = 16          ; parameters that stand for a variable while arguments are read
+
+pub const SCOPE_INLINE = $F0    ; plus a level: the parameters and locals of that expansion
+pub const K_ALIAS = 9           ; a parameter that stands for the variable that is its value
+pub const SF_INLINE = kernel.SF_ZP      ; function flags: `inline` and `interrupt`. These bits are
+pub const SF_INTERRUPT = kernel.SF_NOZP ; variables' own, and mean these for a function
+
+pub const R_END = 0
+pub const R_LINE = 2
+pub const R_FILE = 4
+pub const R_FLAGS = 6
+pub const R_WRITTEN = 7
+pub const R_PARAMS = 9
+pub const PARAM_SIZE = 3
+pub const PURE = 1
+pub const LAST_RETURN = 2
+const C_DOLLAR = $24
+const C_ZERO = $30
+
+pub var saved_start: ^byte      ; the buffer, in text memory
+pub var saved_top: ^byte
+
+var local_name: [MAX_LOCALS]word        ; while save() reads a body: the locals it declares
+var local_count: byte
+var scan_flags: byte            ; and what the record's flags will be
+var scan_written: word          ; the variable it assigns to, if it is pure
+var scan_index: word            ; the place of the current token in its statement
+var scan_first: byte            ; the statement's first token, and its value
+var scan_first_value: word
+var scan_brackets: byte         ; how many "[" are open in the statement
+var scan_close: word            ; where the "]" closing a "[" at place 1 is, or 0
+
+pub var level: byte             ; the expansion whose body is being compiled; 0 for none
+pub var depth: byte             ; expansions under way: level, or more while arguments are read
+pub var expanding: [MAX_DEPTH + 1]word  ; by level: the function
+pub var wanted: [MAX_DEPTH + 1]bool     ; its results are used
+pub var done: [MAX_DEPTH + 1]byte       ; the label at its end
+pub var lazy: [MAX_DEPTH + 1]bool       ; its `return` left the value as it was, as the result
+pub var sym_base: [MAX_DEPTH + 1]word   ; the first of its symbols
+pub var owned_base: [MAX_DEPTH + 1]byte ; the first of its slots in `owned`
+pub var alias_base: [MAX_DEPTH + 1]byte ; the first of its parameters in `alias`
+pub var outer: [MAX_DEPTH + 1]byte      ; the level when it began, to go back to at its end
+pub var owned: [MAX_OWNED]byte          ; slot numbers
+pub var owned_count: byte
+pub var alias: [MAX_ALIASES]word        ; parameters standing for a variable whose arguments are still read
+pub var alias_count: byte
+
+pub func init()
+  saved_start = kernel.text_reserve(SAVED_SIZE)
+  saved_top = saved_start
+  level = 0
+  depth = 0
+  owned_count = 0
+  alias_count = 0
+end
+
+pub func word_at(p: ^byte): word
+  return word(p[0]) | (word(p[1]) << 8)
+end
+
+pub func set_word_at(p: ^byte, value: word)
+  p[0] = lo(value)
+  p[1] = hi(value)
+end
+
+; Add a byte to the saved tokens.
+func put(value: byte)
+  if saved_top == saved_start + SAVED_SIZE then
+    err.fatal(err.E_INLINE_FULL)
+  end
+  saved_top[0] = value
+  saved_top += 1
+end
+
+func put_word(value: word)
+  put(lo(value))
+  put(hi(value))
+end
+
+; Where the record of inline function `f` has its parameter `i`.
+pub func param(f: word, i: byte): ^byte
+  return ^byte(kernel.sym_value[f]) + R_PARAMS + word(i) * PARAM_SIZE
+end
+
+; Start the record of inline function `f`, whose tokens follow.
+func begin_record(f: word, line: word, file_name: ^byte)
+  var i: byte
+  kernel.sym_value[f] = word(saved_top)
+  put_word(0)
+  put_word(line)
+  put_word(word(file_name))
+  put(0)
+  put_word(0)
+  for i = 0 until kernel.sym_params[f] do
+    put_word(0)
+    put(0)
+  end
+end
+
+; ---- Saving a body -----------------------------------------------------------------------
+
+; The number of the parameter of `f` called `name`, or $FF.
+func parameter_number(f: word, name: word): byte
+  var i: byte
+  for i = 0 until kernel.sym_params[f] do
+    if word_at(param(f, i)) == name then
+      return i
+    end
+  end
+  return $FF
+end
+
+; True if `name` is a parameter of `f` or a local its body has declared so far.
+func is_own(f: word, name: word): bool
+  var i: byte
+  if parameter_number(f, name) != $FF then
+    return true
+  end
+  for i = 0 until local_count do
+    if local_name[i] == name then
+      return true
+    end
+  end
+  return false
+end
+
+; The body assigns to `name`: mark it if it is a parameter.
+func assigns(f: word, name: word)
+  var i: byte
+  var q: ^byte
+  i = parameter_number(f, name)
+  if i != $FF then
+    q = param(f, i)
+    q[2] = 1
+  end
+end
+
+; A name the body uses that is not its own: it must be declared, and if `f` is exported,
+; exported too (or an imported module), because an importer expands the body.
+func check_name(f: word, name: word)
+  var s: word
+  var found: bool
+  s, found = kernel.sym_lookup(name)
+  if not found then
+    err.fatal(err.E_UNDEFINED)
+  end
+  if kernel.sym_flags[f] & kernel.SF_PUB != 0 and kernel.sym_scope[s] == kernel.SCOPE_MODULE and
+      kernel.sym_kind[s] != kernel.K_MODULE and kernel.sym_flags[s] & kernel.SF_PUB == 0 then
+    err.fatal(err.E_INLINE_PRIVATE)
+  end
+end
+
+; True if `name` followed by "(" is a call: it names a function (not a type or `lo`).
+func calls(name: word): bool
+  var s: word
+  var found: bool
+  s, found = kernel.sym_lookup(name)
+  return found and kernel.sym_kind[s] == kernel.K_FUNC
+end
+
+; The current token is an assignment operator, after `before` (with `before_value`). If the
+; assigned variable is not a parameter or local, named alone, nor a variable of the program
+; named alone or with one index (not a pointer's), or not the only such, the body is not pure.
+func assignment(f: word, before: byte, before_value: word)
+  var target: word
+  var indexed: bool
+  var s: word
+  var found: bool
+  if before == lex.T_NAME then
+    assigns(f, before_value)
+  end
+  if scan_first == lex.T_VAR then
+    return                          ; a local's initial value
+  end
+  target = 0
+  indexed = false
+  if scan_first == lex.T_NAME and scan_index == 1 then
+    target = scan_first_value
+  elif scan_first == lex.T_NAME and scan_close != 0 and scan_close == scan_index - 1 then
+    target = scan_first_value
+    indexed = true
+  elif scan_first == lex.T_FOR and scan_index == 2 then
+    target = before_value
+  end
+  if target == 0 or is_own(f, target) then
+    if target == 0 or indexed then
+      scan_flags = scan_flags & ~PURE
+    end
+    return
+  end
+  s, found = kernel.sym_lookup(target)      ; check_name() has found it
+  if kernel.sym_kind[s] != kernel.K_VAR or (indexed and typetab.is_pointer(kernel.sym_type[s])) or
+      (scan_written != 0 and scan_written != target) then
+    scan_flags = scan_flags & ~PURE
+  else
+    scan_written = target
+  end
+end
+
+func opens_block(token: byte): bool
+  return token == lex.T_IF or token == lex.T_WHILE or token == lex.T_LOOP or token == lex.T_FOR or
+      token == lex.T_CASE or token == lex.T_CRITICAL
+end
+
+; Save the current token, which is on line `at_line` or later. Returns its line.
+func save_token(at_line: word): word
+  var step: word
+  var i: byte
+  while lex.line > at_line do
+    step = lex.line - at_line
+    if step > $FF then
+      step = $FF
+    end
+    put(lex.SAVED_LINE)
+    put(lo(step))
+    at_line += step
+  end
+  put(lex.tok)
+  if lex.col > lex.MAX_COLUMN then
+    put(lex.MAX_COLUMN)
+  else
+    put(lo(lex.col))
+  end
+  if lex.tok == lex.T_NAME or lex.tok == lex.T_NUMBER then
+    put_word(lex.value)
+  elif lex.tok == lex.T_STRING then
+    if lex.string_length > $FF then
+      err.fatal(err.E_STRING_LONG)        ; a saved string has a length of one byte
+    end
+    put(lo(lex.string_length))
+    for i = 0 until lo(lex.string_length) do
+      put(lex.string[i])
+    end
+  end
+  return at_line
+end
+
+; Save the body of inline function `f`, whose parameters are declared: its tokens from the
+; current one up to the `end` that closes it, which is left as the current token. Looks at
+; each token with the two before it, for what the record's flags and parameters say:
+; - a parameter is assigned to if it is followed by an assignment operator, or is the first
+;   token of a statement and is followed by ",", or follows `for`, `->` or `@`;
+; - the body is pure unless it has a name that is a function followed by "(", or a name after
+;   "." followed by "(", or `@`, or an assignment (outside a `var` declaration) to something
+;   other than a parameter or local named alone, or than one variable of the program named
+;   alone or with one index (`n = `, `t[i] += `, not a pointer's: assignment());
+; - its last statement is its only `return` if it has one `return`, and the last statement
+;   at the outermost level starts with it.
+; `asm`, `static` and `#if` are not allowed: ASM reads lines, not tokens, and the condition
+; of an `#if` would have to be worked out as the tokens are read.
+pub func save(f: word)
+  var i: byte
+  var at_line: word
+  var blocks: sbyte             ; how many blocks are open
+  var last: byte                ; the first token of the last statement at the outermost level
+  var before: byte              ; the token before the current one, and its value
+  var before_value: word
+  var earlier: byte             ; the one before that
+  var returns: word
+  var token: byte
+  var r: ^byte
+  begin_record(f, lex.line, src.name)
+  for i = 0 until kernel.sym_params[f] do
+    set_word_at(param(f, i), kernel.sym_name[kernel.local_base + i])
+  end
+  local_count = 0
+  scan_flags = PURE
+  scan_written = 0
+  scan_index = 0
+  at_line = lex.line
+  blocks = 0
+  last = lex.T_NL
+  before = lex.T_NL
+  before_value = 0
+  earlier = lex.T_NL
+  returns = 0
+  while lex.tok != lex.T_END or blocks > 0 do
+    token = lex.tok
+    if token == lex.T_EOF then
+      err.fatal(err.E_END_EXPECTED)
+    end
+    if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF then
+      err.fatal(err.E_INLINE_NOT_HERE)
+    end
+    if scan_index == 0 then
+      scan_first = token
+      scan_first_value = lex.value
+      scan_brackets = 0
+      scan_close = 0
+      if blocks == 0 then
+        last = token
+      end
+    end
+    if token == lex.T_NAME and before != lex.T_DOT then
+      if before == lex.T_VAR then
+        if local_count == MAX_LOCALS then
+          err.fatal(err.E_SLOTS_FULL)
+        end
+        local_name[local_count] = lex.value
+        local_count += 1
+      elif not is_own(f, lex.value) then
+        check_name(f, lex.value)
+      elif before == lex.T_FOR or before == lex.T_ARROW or before == lex.T_ADDRESS then
+        assigns(f, lex.value)
+      end
+    elif token >= lex.T_ASSIGN and token <= lex.T_SHR_ASSIGN then
+      assignment(f, before, before_value)
+    elif token == lex.T_COMMA and scan_index == 1 and before == lex.T_NAME then
+      assigns(f, before_value)
+    elif token == lex.T_LPAREN and before == lex.T_NAME then
+      if earlier == lex.T_DOT or calls(before_value) then
+        scan_flags = scan_flags & ~PURE
+      end
+    elif token == lex.T_ADDRESS then
+      scan_flags = scan_flags & ~PURE
+    elif token == lex.T_RETURN then
+      returns += 1
+    elif token == lex.T_LBRACKET then
+      scan_brackets += 1
+    elif token == lex.T_RBRACKET then
+      scan_brackets -= 1
+      if scan_brackets == 0 and scan_close == 0 then
+        scan_close = scan_index
+      end
+    elif opens_block(token) then
+      blocks += 1
+    elif token == lex.T_END or token == lex.T_UNTIL then
+      blocks -= 1
+    end
+    at_line = save_token(at_line)
+    scan_index += 1
+    if token == lex.T_NL then
+      scan_index = 0
+    end
+    earlier = before
+    before = token
+    before_value = lex.value
+    lex.next()
+  end
+  if returns == 1 and last == lex.T_RETURN then
+    scan_flags = scan_flags | LAST_RETURN
+  end
+  r = ^byte(kernel.sym_value[f])
+  set_word_at(r + R_END, word(saved_top))
+  r[R_FLAGS] = scan_flags
+  if scan_flags & PURE != 0 then
+    set_word_at(r + R_WRITTEN, scan_written)
+  end
+end
+
+; ---- Interfaces --------------------------------------------------------------------------
+
+; A name written as a string: its length, then its characters.
+pub func read_name(stream: byte): word
+  var length: byte
+  var ch: byte
+  var at_end: bool
+  var i: byte
+  length, at_end = kernel.get(stream)
+  kernel.name_begin()
+  for i = 0 until length do
+    ch, at_end = kernel.get(stream)
+    kernel.name_add(ch)
+  end
+  return kernel.name_end()
+end
+
+; Write the record of exported inline function `f` after its entry in the interface: the
+; file name as a string, the line, the flags, each parameter's name and whether it is
+; assigned to, then the tokens with each name as a string, and T_EOF.
+pub func write(stream: byte, f: word)
+  var r: ^byte
+  var name: ^byte
+  var length: byte
+  var i: byte
+  var p: ^byte
+  var q: ^byte
+  var token: byte
+  var size: word
+  var k: word
+  r = ^byte(kernel.sym_value[f])
+  name = ^byte(word_at(r + R_FILE))
+  length = 0
+  while name[length] != 0 do
+    length += 1
+  end
+  kernel.put(stream, length)
+  for i = 0 until length do
+    kernel.put(stream, name[i])
+  end
+  kernel.put_word(stream, word_at(r + R_LINE))
+  kernel.put(stream, r[R_FLAGS])
+  if word_at(r + R_WRITTEN) == 0 then
+    kernel.put(stream, 0)
+  else
+    kernel.put(stream, 1)
+    kernel.put_name(stream, word_at(r + R_WRITTEN))
+  end
+  for i = 0 until kernel.sym_params[f] do
+    kernel.put_name(stream, word_at(param(f, i)))
+    q = param(f, i)
+    kernel.put(stream, q[2])
+  end
+  p = r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE
+  while p < ^byte(word_at(r + R_END)) do
+    token = p[0]
+    kernel.put(stream, token)
+    kernel.put(stream, p[1])
+    size = 0
+    if token == lex.T_NAME then
+      kernel.put_name(stream, word_at(p + 2))
+      size = 2
+    elif token == lex.T_NUMBER then
+      size = 2
+    elif token == lex.T_STRING then
+      size = 1 + word(p[2])
+    end
+    for k = 0 until size do
+      if token != lex.T_NAME then
+        q = p + 2 + k
+        kernel.put(stream, q[0])
+      end
+    end
+    p += 2 + size
+  end
+  kernel.put(stream, lex.T_EOF)
+end
+
+; Read the record that write() wrote for function `f`, which an import declares.
+pub func read(stream: byte, f: word)
+  var length: byte
+  var name: ^byte
+  var i: byte
+  var at_end: bool
+  var written: byte
+  var token: byte
+  var b: byte
+  var r: ^byte
+  var q: ^byte
+  length, at_end = kernel.get(stream)
+  name = kernel.text_reserve(word(length) + 1)
+  for i = 0 until length do
+    name[i], at_end = kernel.get(stream)
+  end
+  name[length] = 0
+  begin_record(f, kernel.get_word(stream), name)
+  r = ^byte(kernel.sym_value[f])
+  r[R_FLAGS], at_end = kernel.get(stream)
+  written, at_end = kernel.get(stream)
+  if written != 0 then
+    set_word_at(r + R_WRITTEN, read_name(stream))
+  end
+  for i = 0 until kernel.sym_params[f] do
+    set_word_at(param(f, i), read_name(stream))
+    q = param(f, i)
+    q[2], at_end = kernel.get(stream)
+  end
+  loop
+    token, at_end = kernel.get(stream)
+    if at_end or token > lex.SAVED_LINE then
+      err.fatal(err.E_BAD_INTERFACE)
+    end
+    if token == lex.T_EOF then
+      break
+    end
+    put(token)
+    b, at_end = kernel.get(stream)
+    put(b)
+    if token == lex.T_NAME then
+      put_word(read_name(stream))
+    elif token == lex.T_NUMBER then
+      put_word(kernel.get_word(stream))
+    elif token == lex.T_STRING then
+      length, at_end = kernel.get(stream)
+      put(length)
+      for i = 0 until length do
+        b, at_end = kernel.get(stream)
+        put(b)
+      end
+    end
+  end
+  set_word_at(r + R_END, word(saved_top))
+end
+
+; ---- Expansions --------------------------------------------------------------------------
+
+; What a plain `name` means here (kernel.sym_lookup, as seen from an expansion's body): a
+; parameter or local of the expansion, else a symbol of the module that declared its function
+; (for an imported one, what its interface declares: what it exports, and the modules it
+; imports, decl.imported_module()), or one the language declares. A parameter that stands for
+; a variable means that variable.
+pub func lookup(name: word): word, bool
+  var scope: byte
+  var home: byte
+  var s: word
+  var t: word
+  var found: bool
+  if level == 0 then
+    return kernel.sym_lookup(name)
+  end
+  scope = SCOPE_INLINE + level
+  home = kernel.sym_scope[expanding[level]]
+  s = kernel.name_word(name + kernel.N_SYMBOL)
+  while s != kernel.NO_SYM and kernel.sym_scope[s] != scope and kernel.sym_scope[s] != home and
+      kernel.sym_scope[s] != kernel.SCOPE_PREDECLARED do
+    s = kernel.sym_link[s]
+  end
+  if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.sym_scope[s] == kernel.SCOPE_PREDECLARED) then
+    ; An imported module's symbol may be frozen, or thawed under another entry of the name.
+    t, found = kernel.sym_find(home, name)
+    if found then
+      s = t
+    end
+  end
+  if s != kernel.NO_SYM and kernel.sym_kind[s] == K_ALIAS then
+    s = kernel.sym_value[s]
+  end
+  return s, s != kernel.NO_SYM
+end
+
+; The scope a local declared now goes to.
+pub func local_scope(): byte
+  if level == 0 then
+    return kernel.SCOPE_LOCAL
+  end
+  return SCOPE_INLINE + level
+end
+
+; A temporary of the caller's frame, owned by the newest expansion until it ends.
+pub func own_slot(size: word): byte
+  var n: byte
+  if owned_count == MAX_OWNED then
+    err.fatal(err.E_SLOTS_FULL)
+  end
+  n = reg.temp(size)
+  owned[owned_count] = n
+  owned_count += 1
+  return n
+end
+
+; The name of slot `n`, a local `name` of an inline function at one of its expansions:
+; `name$n`, which no source name can be and no other slot has.
+pub func slot_name(name: word, n: byte): word
+  var i: byte
+  kernel.name_begin()
+  for i = 0 until kernel.name_length(name) do
+    kernel.name_add(kernel.name_char(name, i))
+  end
+  kernel.name_add(C_DOLLAR)
+  if n >= 100 then
+    kernel.name_add(C_ZERO + n / 100)
+  end
+  if n >= 10 then
+    kernel.name_add(C_ZERO + n / 10 mod 10)
+  end
+  kernel.name_add(C_ZERO + n mod 10)
+  return kernel.name_end()
+end
+
+forward func copy_aliases()
+
+; A call of inline function `f` begins; its arguments are read next. Unless its body is
+; pure and assigns to no variable of the program, it could change variables that parameters
+; of the calls whose arguments are being read stand for. Only expansions whose bodies are
+; being compiled count for recursion: `f(f(x))` is two calls, one inside the other's arguments.
+pub func enter(f: word, results_wanted: bool)
+  var r: ^byte
+  var d: byte
+  r = ^byte(kernel.sym_value[f])
+  if r[R_FLAGS] & PURE == 0 or word_at(r + R_WRITTEN) != 0 then
+    copy_aliases()
+  end
+  d = level
+  while d > 0 do
+    if expanding[d] == f then
+      err.fatal(err.E_INLINE_RECURSIVE)
+    end
+    d = outer[d]
+  end
+  if depth == MAX_DEPTH then
+    err.fatal(err.E_INLINE_DEEP)
+  end
+  depth += 1
+  outer[depth] = level
+  expanding[depth] = f
+  wanted[depth] = results_wanted
+  lazy[depth] = false
+  done[depth] = fbuf.new_label()
+  sym_base[depth] = kernel.sym_count
+  owned_base[depth] = owned_count
+  alias_base[depth] = alias_count
+end
+
+; The argument for parameter `i` of the newest expansion is the newest operand, a value
+; that can be given to it: make the parameter's symbol. Where the body does not assign to it,
+; the parameter stands for the argument if that is a constant, a slot of the caller's frame,
+; or (if the body is pure and does not assign to it) a variable of the program, which must
+; not be at a fixed address; a variable must be of the parameter's own type. It is the
+; constant, or that variable, and no slot is used. Otherwise it is a slot that the newest
+; expansion owns, and the argument is stored there. The operand is used up.
+pub func argument_symbol(f: word, i: byte)
+  var r: ^byte
+  var q: ^byte
+  var t: byte
+  var j: byte
+  var kind: byte
+  var value: word
+  var stands: bool              ; for a variable
+  var s: word
+  r = ^byte(kernel.sym_value[f])
+  t = kernel.member_type[kernel.sym_members[f] + i]
+  j = reg.depth - 1
+  kind = kernel.K_LOCAL
+  value = 0
+  stands = false
+  q = param(f, i)
+  if q[2] == 0 then
+    if reg.op_kind[j] == reg.O_CONST then
+      kind = kernel.K_CONST
+      value = reg.op_value[j]
+    elif reg.op_kind[j] == reg.O_VAR and reg.op_mode[j] == reg.M_DIRECT and reg.op_value[j] == 0 and
+        reg.op_flags[j] & (reg.F_TEMP | reg.F_DATA) == 0 and reg.op_type[j] == t and
+        reg.op_symbol[j] != kernel.NO_OBJ and reg.op_kind[j + reg.INDEX] == 0 then
+      if reg.op_symbol[j] == reg.own and reg.op_slot[j] != fbuf.NO_SLOT then
+        value = reg.op_slot[j]
+        stands = true
+      elif reg.op_var[j] != kernel.NO_SYM and r[R_FLAGS] & PURE != 0 and
+          kernel.sym_name[reg.op_var[j]] != word_at(r + R_WRITTEN) then
+        kind = K_ALIAS
+        value = reg.op_var[j]
+        stands = true
+      end
+    end
+  end
+  if kind == kernel.K_LOCAL and not stands then
+    value = own_slot(typetab.size(t))
+    gen.local(t, lo(value))
+    reg.swap()
+    gen.store()
+  else
+    reg.pop()
+  end
+  s = kernel.sym_add(SCOPE_INLINE + depth, word_at(param(f, i)), kind)
+  kernel.sym_type[s] = t
+  kernel.sym_value[s] = value
+  if stands then
+    if alias_count == MAX_ALIASES then
+      err.fatal(err.E_OPERANDS_FULL)
+    end
+    alias[alias_count] = s
+    alias_count += 1
+  end
+end
+
+; A call is about to be made, or an expansion to begin, while the arguments of inline calls
+; are being read: it could change a variable that a parameter already stands for. Each such
+; parameter becomes a slot that holds the variable's value now. So does each argument that
+; waits for a register (gen.protect()).
+pub func copy_aliases()
+  var n: byte
+  var s: word
+  var t: byte
+  var slot: byte
+  gen.protect()
+  for n = 0 until alias_count do
+    s = alias[n]
+    t = kernel.sym_type[s]
+    slot = own_slot(typetab.size(t))
+    gen.local(t, slot)
+    if kernel.sym_kind[s] == K_ALIAS then
+      gen.variable(kernel.sym_value[s])
+    else
+      gen.local(t, lo(kernel.sym_value[s]))
+    end
+    gen.store()
+    kernel.sym_kind[s] = kernel.K_LOCAL
+    kernel.sym_value[s] = slot
+  end
+  alias_count = 0
+end
+
+; True if copy_aliases() would copy something.
+pub func copies_due(): bool
+  return alias_count > 0 or gen.must_protect()
+end
+
+; The arguments of the newest expansion are read: replay the body of `f`.
+pub func body_begin(f: word)
+  var r: ^byte
+  alias_count = alias_base[depth]
+  level = depth
+  r = ^byte(kernel.sym_value[f])
+  src.open_saved(r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE, ^byte(word_at(r + R_END)),
+      ^byte(word_at(r + R_FILE)), word_at(r + R_LINE))
+end
+
+; At a `return` of the newest expansion: true if its value may stay as the operand it is,
+; which is then the expansion's result, with no load and no jump. That is so if the results
+; are wanted, there is one, and this `return` is the body's last statement and its only one,
+; and the expansion owns no slot that the operand could use.
+pub func leaves_operand(): bool
+  var f: word
+  var r: ^byte
+  f = expanding[level]
+  r = ^byte(kernel.sym_value[f])
+  return wanted[level] and kernel.sym_results[f] == 1 and r[R_FLAGS] & LAST_RETURN != 0 and
+      owned_count == owned_base[level]
+end
+
+; The newest expansion has ended: its symbols go, and its slots are free again.
+pub func leave()
+  while kernel.sym_count > sym_base[depth] do
+    kernel.sym_count -= 1
+    kernel.name_set_word(kernel.sym_name[kernel.sym_count] + kernel.N_SYMBOL,
+        kernel.sym_link[kernel.sym_count])
+  end
+  while owned_count > owned_base[depth] do
+    owned_count -= 1
+    reg.slot_busy[owned[owned_count]] = false
+  end
+  level = outer[depth]
+  depth -= 1
+end

@@ -35,10 +35,11 @@ import script_host
 
 LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen',
-           'asmblock')
+           'asmblock', 'inline')
+TWIN = {'inline': 'inlines'}    # a twin whose module has another name: `inline` is a keyword
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
-            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest')
-SMALL = ('regtest', 'condtest', 'gentest', 'asmtest')   # the small build (src_support.build_program)
+            'outtest', 'regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')
+SMALL = ('regtest', 'condtest', 'gentest', 'asmtest', 'inlinetest')    # the small build (src_support.build_program)
 
 
 LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
@@ -152,9 +153,10 @@ def show_program(name, map_path, show_all):
 def report(out_dir):
     maps = {name: read_map(build(name, out_dir)) for name in PROGRAMS}
     function_size = {}
+    twins = [TWIN.get(m, m) for m in MODULES]
     for items in maps.values():
         for kind, address, size, name in items:
-            if kind == 'F' and module_of(name) in MODULES and '@' not in name:
+            if kind == 'F' and module_of(name) in twins and '@' not in name:
                 function_size[name] = max(size, function_size.get(name, 0))
     data_size = {}
     var_size = {}
@@ -173,7 +175,8 @@ def report(out_dir):
                                                 'b/line', 'b/code'))
     sums = [0] * 6
     for m in MODULES:
-        code, data, var = total(function_size, m), total(data_size, m), total(var_size, m)
+        twin = TWIN.get(m, m)
+        code, data, var = total(function_size, twin), total(data_size, twin), total(var_size, twin)
         lines, code_lines = python_lines(m)
         print('%-9s %6d %6d %6d %6d %6d %6.2f %6.2f' % (m, code, data, var, lines, code_lines,
                                                        code / lines, code / code_lines))
@@ -191,7 +194,7 @@ def report(out_dir):
     print()
     print('Functions no test program keeps (bytes in the object file, before zero page forms)')
     import lo
-    for m in MODULES:
+    for m in twins:
         for name, items in maps.items():
             path = os.path.join(out_dir, name, 'work', m + '.lo')
             if os.path.exists(path):

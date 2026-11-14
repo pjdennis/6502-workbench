@@ -109,6 +109,15 @@ def number():
     return value
 
 
+def next_char():
+    """The next character of the line, and True; or False at its end (script.lth)."""
+    global _at
+    if _at == len(_line):
+        return 0, False
+    _at += 1
+    return _line[_at - 1], True
+
+
 def small():
     return number() & 0xFF
 
@@ -205,7 +214,8 @@ def sections(name):
 # the same; test_memory.py checks that the twins agree.
 SMALL = (('kernel', 'NAME_HEAP_SIZE', 1024), ('kernel', 'MAX_SYMS', 264), ('kernel', 'MAX_MEMBERS', 264),
          ('fbuf', 'BUFFER_SIZE', 1024), ('out', 'MAX_TABLE', 264), ('out', 'MAX_TABLE_FIXES', 32),
-         ('lex', 'MAX_STRING', 264))
+         ('lex', 'MAX_STRING', 264),
+         ('kernel', 'TEXT_SIZE', 1280), ('inline', 'SAVED_SIZE', 384))
 
 
 def host_run(main, args, small=False):

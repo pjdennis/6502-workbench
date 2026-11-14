@@ -6,16 +6,18 @@ import unittest
 
 import memory_report as report
 
-TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen', 'asmblock')
+TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen', 'asmblock',
+         'inline')
+TWIN_FILE = {'inline': 'inlines'}     # a twin whose module has another name: `inline` is a keyword
 VAR = re.compile(r'^(?:pub )?var (\w+): \[[^\]]+\](\^?\w+)', re.M)
 # Arrays of a twin that are not arrays of its host module, and why.
-CEILING = 45687             # the total of lathe/docs/architecture.md, "What stays in memory"
+CEILING = 46619             # the total of lathe/docs/architecture.md, "What stays in memory"
 TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.mem'}
 
 
 def twin_arrays(module):
     """{name: bytes per element} of the module-level arrays of lathe/src/MODULE.lth."""
-    with open(os.path.join(report.LATHE, 'src', module + '.lth')) as f:
+    with open(os.path.join(report.LATHE, 'src', TWIN_FILE.get(module, module) + '.lth')) as f:
         text = f.read()
     return {name: 1 if t in ('byte', 'sbyte', 'bool') else 2 for name, t in VAR.findall(text)}
 
@@ -26,7 +28,7 @@ CONST = re.compile(r'^(?:pub )?const (\w+) = (\d+)', re.M)
 
 def twin_small(module):
     """{name: (small, full)} of the constants lathe/src/MODULE.lth declares under `#if SMALL`."""
-    with open(os.path.join(report.LATHE, 'src', module + '.lth')) as f:
+    with open(os.path.join(report.LATHE, 'src', TWIN_FILE.get(module, module) + '.lth')) as f:
         text = f.read()
     found = {}
     for small, full in SMALL_BLOCK.findall(text):

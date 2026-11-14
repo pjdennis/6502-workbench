@@ -1,0 +1,925 @@
+; Scripts for lathe/src/inlinetest.lth and its twin in lathe/tests/test_src_inline.py, which test
+; INLINE (lathe/host/inline.py, lathe/src/inlines.lth). Commands:
+;   line TEXT (the rest of the line, and a line end, added to the source); text TEXT (without
+;   the line end); blank N (N line ends); open (read the source from its start, in the
+;   script's file: the first token); next (the next token);
+;   func NAME SCOPE FLAGS P R (TYPE REG)... (a function symbol); params F NAME... (a function
+;   scope begins with F's parameters, as DECL's head() declares them); save F (inline.save(),
+;   then the scope ends; the record); record F;
+;   sym KIND SCOPE FLAGS TYPE VALUE NAME (a symbol); freeze SCOPE KIND FLAGS TYPE VALUE NAME
+;   (a frozen symbol of an imported module); module NAME; ptr T (a pointer type);
+;   write F (to the interface file); read F (from it; then the text memory it took);
+;   iface BYTE... (the interface file holds these);
+;   enter F WANTED; arg F I (argument_symbol(), the newest operand); begin F (body_begin());
+;   tokens (each token replayed to the end, and for a name lookup()'s answer); leave;
+;   lookup NAME; lscope (local_scope()); own SIZE (own_slot()); slotname NAME N;
+;   copy (copy_aliases()); due (copies_due()); leaves (leaves_operand());
+;   istate (level, depth, owned_count, alias_count, saved bytes, each level, owned, alias);
+;   isyms FIRST (symbols from FIRST on: name, scope, kind, type, value);
+;   gconst T V; glocal T SLOT; gvar S; binary OP; asvalue; accept T; preg T; pop;
+;   slot SIZE CLASS KIND NAME; fend FLAGS (gen.function_end(), then the code).
+; A token is printed as its number, line, column, and its value (a name, a number) or its
+; length and bytes (a string). A record: its place in the buffer, its end, its line, whether
+; it has a file name, its flags (1 pure, 2 last return), the variable it writes, each
+; parameter's name and whether it is assigned, then its token bytes.
+; Kinds: 1 module, 2 function, 3 constant, 4 variable, 5 local, 6 built-in, 7 type, 9 alias.
+; Scopes: 0 the module, 1 the module util (regcmd's), $FE predeclared, $FF local, $F0 + level
+; an expansion. Symbol flags: 1 pub, 8 at, 16 inline. Types: 1 byte, 2 sbyte, 3 word, 4 int,
+; 5 bool; 9 and up made by ptr. Slot classes: 0 zp, 1 either, 2 not zp; kinds 0 parameter,
+; 1 local. Operators: 1 + 2 -. Symbols are numbered from 0 in each section; each section's
+; source starts empty.
+
+== a body is saved and replayed: a local, a constant and a slot as arguments
+line   var t: byte = a + 1     ; a local and its initial value
+line   t += b
+line   return t
+line end
+func g 0 16 2 1 1 0 1 0 1 0     ; 0: g(a: byte, b: byte): byte
+params 0 a b
+open
+save 0
+istate
+enter 0 1
+gconst 1 7
+arg 0 0
+slot 1 1 1 v
+glocal 1 0
+arg 0 1
+istate
+isyms 1
+begin 0
+istate
+tokens
+leave
+istate
+fend 0
+
+== tokens of every kind: numbers, operators, assignments, comments and blank lines
+sym 4 0 0 1 0 total             ; 0
+func h 0 0 0 0                  ; 1
+sym 1 0 0 0 1 util              ; 2: the module util
+sym 6 $FE 0 0 0 lo              ; 3: built-in functions
+sym 6 $FE 0 0 1 hi              ; 4
+sym 3 $FE 0 5 1 true            ; 5, 6: what the language declares
+sym 3 $FE 0 3 0 nil
+func g 0 16 2 1 1 0 3 0 1 0     ; 7: g(a: byte, b: word): byte
+params 7 a b
+line   var t: [4]byte
+line   t[0] = $7F + %101 - 'A' * 3 / 2 mod 7 & 1 | 2 ^ 3 << 1 >> 2
+line   t[1] += ~a               ; and the other assignments
+line   t[2] -= a
+line   t[3] &= a
+line   t[0] |= a
+line   t[1] ^= a
+line   t[2] <<= a
+line   t[3] >>= a
+line   total = byte(b) - lo(b) + hi(b)
+line
+blank 3
+line   return a
+line end
+open
+save 7
+enter 7 1
+gconst 1 1
+arg 7 0
+gconst 3 1000
+arg 7 1
+begin 7
+tokens
+leave
+istate
+
+== tokens of every kind: blocks, conditions, strings, a call
+sym 4 0 0 1 0 total             ; 0
+func h 0 0 0 0                  ; 1
+sym 1 0 0 0 1 util              ; 2: the module util
+sym 6 $FE 0 0 0 lo              ; 3: built-in functions
+sym 6 $FE 0 0 1 hi              ; 4
+sym 3 $FE 0 5 1 true            ; 5, 6: what the language declares
+sym 3 $FE 0 3 0 nil
+func g 0 16 2 1 1 0 3 0 1 0     ; 7: g(a: byte, b: word): byte
+params 7 a b
+line   if a == 1 and not (a != 2) or a < 3 and a <= 4 or a > 5 and a >= 6 then
+line     h()
+line     util.thing(@total, -a, "a\"b\n\x41" "cd",
+line         "joined", nil)
+line   elif true then
+line     critical
+line     end
+line   else
+line     case a
+line     of 1, 2
+line       loop
+line         break
+line       until a == 0
+line     end
+line   end
+line   while a < 3 do
+line     continue
+line   end
+line   for b = 0 downto 0 do
+line   end
+line   return a
+line end
+open
+save 7
+enter 7 1
+gconst 1 1
+arg 7 0
+gconst 3 1000
+arg 7 1
+begin 7
+tokens
+leave
+istate
+
+== tokens on lines far apart
+func g 0 16 2 1 1 0 1 0 1 0
+params 0 a b
+line   var t: byte
+blank 300
+line   t = a
+line   return t
+line end
+open
+save 0
+enter 0 1
+gconst 1 1
+arg 0 0
+gconst 1 2
+arg 0 1
+begin 0
+tokens
+leave
+
+== tokens at columns past 255
+func g 0 16 2 1 1 0 1 0 1 0
+params 0 a b
+text   return a                                                                                                                                                                                                +
+text   1                                                                                                                                       +
+line                                b
+line end
+open
+save 0
+enter 0 1
+gconst 1 1
+arg 0 0
+gconst 1 2
+arg 0 1
+begin 0
+tokens
+leave
+
+== a string of 255 bytes is saved, and replayed
+func g 0 16 2 1 1 0 1 0 1 0
+params 0 a b
+line   return "ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJ"
+line          "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde"
+line end
+open
+save 0
+enter 0 0
+gconst 1 1
+arg 0 0
+gconst 1 2
+arg 0 1
+begin 0
+tokens
+leave
+
+== what a body assigns to, and whether it is pure (1): a parameter assigned alone; one variable of the program, twice; two variables of the program; an element of a variable of the program; an element of a pointer; a parameter as the variable of for
+sym 4 0 0 1 0 total             ; 0
+sym 4 0 0 1 0 count             ; 1
+sym 4 0 0 1 0 table             ; 2
+ptr 1
+sym 4 0 0 9 0 p                 ; 3: a pointer
+func h 0 0 0 1 1 1              ; 4: h(): byte
+func h2 0 0 0 1 1 1             ; 5
+sym 1 0 0 0 1 util              ; 6
+sym 6 $FE 0 0 0 lo              ; 7
+sym 7 0 0 1 0 small             ; 8: a named type
+sym 4 0 0 1 0 x                 ; 9
+func f0 0 16 2 1 1 0 1 0 1 0    ; 10
+func f1 0 16 2 1 1 0 1 0 1 0    ; 11
+func f2 0 16 2 1 1 0 1 0 1 0    ; 12
+func f3 0 16 2 1 1 0 1 0 1 0    ; 13
+func f4 0 16 2 1 1 0 1 0 1 0    ; 14
+func f5 0 16 2 1 1 0 1 0 1 0    ; 15
+line   a = 1
+line end
+line   total = a
+line   total += b
+line end
+line   total = a
+line   count = a
+line end
+line   table[a + b] = 0
+line   table[0] -= 1
+line end
+line   p[a] = 0
+line end
+line   for a = 0 to 3 do
+line   end
+line end
+params 10 a b
+open
+save 10
+next
+next
+params 11 a b
+save 11
+next
+next
+params 12 a b
+save 12
+next
+next
+params 13 a b
+save 13
+next
+next
+params 14 a b
+save 14
+next
+next
+params 15 a b
+save 15
+istate
+
+== what a body assigns to, and whether it is pure (2): a call, and -> to a parameter; two results to two parameters; the address of a parameter; lo() and a conversion are not calls; one return, last; two returns; a call of an imported function
+sym 4 0 0 1 0 total             ; 0
+sym 4 0 0 1 0 count             ; 1
+sym 4 0 0 1 0 table             ; 2
+ptr 1
+sym 4 0 0 9 0 p                 ; 3: a pointer
+func h 0 0 0 1 1 1              ; 4: h(): byte
+func h2 0 0 0 1 1 1             ; 5
+sym 1 0 0 0 1 util              ; 6
+sym 6 $FE 0 0 0 lo              ; 7
+sym 7 0 0 1 0 small             ; 8: a named type
+sym 4 0 0 1 0 x                 ; 9
+func f0 0 16 2 1 1 0 1 0 1 0    ; 10
+func f1 0 16 2 1 1 0 1 0 1 0    ; 11
+func f2 0 16 2 1 1 0 1 0 1 0    ; 12
+func f3 0 16 2 1 1 0 1 0 1 0    ; 13
+func f4 0 16 2 1 1 0 1 0 1 0    ; 14
+func f5 0 16 2 1 1 0 1 0 1 0    ; 15
+line   h() -> a
+line end
+line   a, b = h2()
+line end
+line   total = @b
+line end
+line   return lo(a) + small(b)
+line end
+line   if a == 0 then
+line     return 1
+line   end
+line   return 2
+line end
+line   return util.k(a)
+line end
+params 10 a b
+open
+save 10
+next
+next
+params 11 a b
+save 11
+next
+next
+params 12 a b
+save 12
+next
+next
+params 13 a b
+save 13
+next
+next
+params 14 a b
+save 14
+next
+next
+params 15 a b
+save 15
+istate
+
+== what a body assigns to, and whether it is pure (3): a local, its initial value and an assignment; a variable of the program as the variable of for; an element of an element; a stray until, then the last return; a field of a variable; a return not last
+sym 4 0 0 1 0 total             ; 0
+sym 4 0 0 1 0 count             ; 1
+sym 4 0 0 1 0 table             ; 2
+ptr 1
+sym 4 0 0 9 0 p                 ; 3: a pointer
+func h 0 0 0 1 1 1              ; 4: h(): byte
+func h2 0 0 0 1 1 1             ; 5
+sym 1 0 0 0 1 util              ; 6
+sym 6 $FE 0 0 0 lo              ; 7
+sym 7 0 0 1 0 small             ; 8: a named type
+sym 4 0 0 1 0 x                 ; 9
+func f0 0 16 2 1 1 0 1 0 1 0    ; 10
+func f1 0 16 2 1 1 0 1 0 1 0    ; 11
+func f2 0 16 2 1 1 0 1 0 1 0    ; 12
+func f3 0 16 2 1 1 0 1 0 1 0    ; 13
+func f4 0 16 2 1 1 0 1 0 1 0    ; 14
+func f5 0 16 2 1 1 0 1 0 1 0    ; 15
+line   var v: byte = a
+line   v = 2
+line   return v
+line end
+line   for total = 0 to a do
+line   end
+line end
+line   total[a][b] = 1
+line end
+line   until
+line   return a
+line end
+line   x.y = a
+line end
+line   return a
+line   a = 1
+line end
+params 10 a b
+open
+save 10
+next
+next
+params 11 a b
+save 11
+next
+next
+params 12 a b
+save 12
+next
+next
+params 13 a b
+save 13
+next
+next
+params 14 a b
+save 14
+next
+next
+params 15 a b
+save 15
+istate
+
+== an exported body: what it names must be exported, or a module
+sym 4 0 1 1 0 total             ; 0: pub
+sym 1 0 0 0 1 util              ; 1: a module, which need not be pub
+sym 3 $FE 0 5 1 true            ; 2
+func g 0 17 1 1 1 0 1 0         ; 3: pub inline g(a: byte): byte
+params 3 a
+line   total = util.k + a
+line   return true
+line end
+open
+save 3
+
+== an exported body may not name what the module does not export
+sym 4 0 0 1 0 total
+func g 0 17 1 1 1 0 1 0
+params 1 a
+line   return total
+line end
+open
+save 1
+
+== a name the body uses must be declared
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   return a + nothing
+line end
+open
+save 0
+
+== a saved string has at most 255 bytes
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   return "ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJ"
+line          "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdef"
+line end
+open
+save 0
+
+== a body must end
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   if a == 0 then
+line     return 1
+line   end
+open
+save 0
+
+== asm is not allowed in a body
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   asm
+line   end
+line end
+open
+save 0
+
+== static is not allowed in a body
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   static var n: byte
+line end
+open
+save 0
+
+== #if is not allowed in a body
+sym 3 $FE 0 5 1 true
+func g 0 16 1 1 1 0 1 0
+params 1 a
+line   #if true
+line   #end
+line end
+open
+save 1
+
+== a body declares at most 32 locals
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line var v var v var v
+line end
+open
+save 0
+
+== the saved tokens fill their buffer
+func g 0 16 1 1 1 0 1 0
+func g2 0 16 1 1 1 0 1 0
+params 0 a
+line   return "ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJ"
+line end
+open
+save 0
+params 1 a
+open
+save 1
+
+== an interface carries a body: written, read back and replayed
+sym 4 0 1 1 0 total             ; 0
+sym 1 0 0 0 1 util              ; 1
+func g 0 17 2 1 1 0 3 0 1 0     ; 2: g(a: byte, b: word): byte
+params 2 a b
+line   total = a
+line   b += 1
+line   return util.k + a + "xyz" + 300
+line end
+open
+save 2
+write 2
+func u 1 16 2 1 1 0 3 0 1 0     ; 3: an inline function of util
+read 3
+record 3
+freeze 1 4 0 1 0 total          ; util.total, frozen
+enter 3 1
+gconst 1 5
+arg 3 0
+gconst 3 6
+arg 3 1
+begin 3
+tokens
+leave
+fend 0
+
+== an interface whose body has no file name, and nothing written
+func g 0 16 0 1 1 0             ; 0
+line   return 1
+line end
+open
+save 0
+write 0
+iface 0 3 0 0 0 3 2 1 0 9 0 0
+read 0
+record 0
+func g2 0 16 0 1 1 0            ; 1: pure, and assigns to x
+iface 0 3 0 1 1 1 120 3 2 1 0 0
+read 1
+record 1
+
+== an interface with a token that is not one
+func g 0 16 0 1 1 0
+iface 0 1 0 0 0 $80
+read 0
+
+== an interface cut short
+func g 0 16 0 1 1 0
+iface 0 1 0 0 0 3 4
+read 0
+
+== arguments: which parameters stand for their argument, and which are slots
+sym 4 0 0 1 0 total             ; 0: byte
+sym 4 0 0 3 0 big               ; 1: word
+sym 4 0 8 1 $D020 border        ; 2: at a fixed address
+sym 4 0 0 1 0 written           ; 3
+func g 0 16 8 1 1 0 3 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0     ; 4: b a word, pure
+params 4 a b c d e f2 h k
+line   written = a + b + c + d + e + f2 + h + k
+line   return written
+line end
+open
+save 4
+slot 1 1 1 v
+slot 2 1 1 w
+enter 4 1
+due
+gvar 0
+arg 4 0
+due
+gvar 0
+accept 3
+arg 4 1
+gvar 2
+arg 4 2
+gvar 3
+arg 4 3
+glocal 1 0
+arg 4 4
+glocal 1 0
+gconst 1 1
+binary 1
+asvalue
+arg 4 5
+preg 1
+arg 4 6
+gconst 1 9
+arg 4 7
+istate
+isyms 5
+due
+begin 4
+tokens
+leave
+fend 0
+
+== a parameter the body assigns to is a slot, whatever its argument
+sym 4 0 0 1 0 total
+func g 0 16 2 1 1 0 1 0 1 0     ; 1
+params 1 a b
+line   a += b
+line   return a
+line end
+open
+save 1
+enter 1 1
+gconst 1 3
+arg 1 0
+gvar 0
+arg 1 1
+isyms 2
+istate
+begin 1
+lookup a
+lookup b
+leaves
+tokens
+leave
+fend 0
+
+== a body that is not pure: a variable is copied before it begins, and before a call
+sym 4 0 0 1 0 total             ; 0
+sym 4 0 0 3 0 big               ; 1
+func h 0 0 0 0                  ; 2
+func pure 0 16 2 1 1 0 3 0 1 0  ; 3
+func impure 0 16 0 1 1 0        ; 4
+params 3 a b
+line   return a
+line end
+line   h()
+line   return 1
+line end
+open
+save 3
+next
+next
+params 4
+save 4
+slot 1 1 1 v
+enter 3 1
+gvar 0
+arg 3 0
+istate
+due
+enter 4 1
+istate
+isyms 5
+due
+begin 4
+tokens
+leave
+istate
+gvar 1
+copy
+istate
+pop
+glocal 1 0
+arg 3 1
+istate
+isyms 5
+fend 0
+
+== a parameter that stands for a slot of the caller is copied too
+sym 4 0 0 1 0 total             ; 0
+func pure 0 16 2 1 1 0 1 0 1 0  ; 1
+func impure 0 16 0 1 1 0        ; 2
+params 1 a b
+line   return a + b
+line end
+line   total = 1
+line   total = 2
+line   return 1
+line end
+open
+save 1
+next
+next
+params 2
+save 2
+slot 1 1 1 v
+enter 1 1
+glocal 1 0
+arg 1 0
+gvar 0
+arg 1 1
+istate
+isyms 3
+enter 2 1
+istate
+isyms 3
+fend 0
+
+== a pure body that assigns to a variable also copies
+sym 4 0 0 1 0 total
+func pure 0 16 1 1 1 0 1 0      ; 1
+func writes 0 16 0 1 1 0        ; 2
+params 1 a
+line   return a
+line end
+line   total = 1
+line   return total
+line end
+open
+save 1
+next
+next
+params 2
+save 2
+enter 1 1
+gvar 0
+arg 1 0
+enter 2 1
+istate
+isyms 3
+fend 0
+
+== nested expansions: levels, scopes, and the names each body sees
+sym 4 0 0 1 0 total             ; 0
+sym 4 $FF 0 1 0 mine            ; 1: a local of the caller, which no body sees
+func f 0 16 1 1 1 0 1 0         ; 2
+func g 0 16 1 1 1 0 1 0         ; 3
+params 2 a
+line   var t: byte
+line   return a + total
+line end
+line   return a + total
+line end
+open
+save 2
+next
+next
+params 3 a
+save 3
+lookup a
+lookup mine
+lscope
+enter 2 1
+gconst 1 1
+arg 2 0
+lookup a
+lscope
+begin 2
+lscope
+lookup a
+lookup mine
+lookup total
+enter 3 1
+gconst 1 2
+arg 3 0
+istate
+lookup a
+begin 3
+lscope
+lookup a
+tokens
+leave
+lookup a
+istate
+tokens
+leave
+lookup a
+istate
+fend 0
+
+== f(f(x)) is two calls, one inside the other's arguments
+func f 0 16 1 1 1 0 1 0
+params 0 a
+line   return a
+line end
+open
+save 0
+enter 0 1
+enter 0 1
+gconst 1 1
+arg 0 0
+begin 0
+tokens
+leave
+gconst 1 2
+arg 0 0
+begin 0
+tokens
+leave
+istate
+fend 0
+
+== an inline function cannot call itself
+func f 0 16 1 1 1 0 1 0
+func g 0 16 1 1 1 0 1 0
+params 0 a
+line   return a
+line end
+open
+save 0
+params 1 a
+open
+save 1
+enter 0 1
+gconst 1 1
+arg 0 0
+begin 0
+enter 1 1
+gconst 1 1
+arg 1 0
+begin 1
+enter 0 1
+
+== inline calls nest six deep
+func f 0 16 1 1 1 0 1 0
+params 0 a
+line   return a
+line end
+open
+save 0
+enter 0 1
+enter 0 1
+enter 0 1
+enter 0 1
+enter 0 1
+enter 0 1
+istate
+enter 0 1
+
+== a result left as the operand it is
+func g 0 16 1 1 1 0 1 0         ; 0
+func h 0 16 1 1 1 0 1 0         ; 1
+func k 0 16 1 0 1 0             ; 2: no result
+params 0 a
+line   return a + 1
+line end
+line   if a == 0 then
+line     return 1
+line   end
+line   return a
+line end
+line   return
+line end
+open
+save 0
+next
+next
+params 1 a
+save 1
+next
+next
+params 2 a
+save 2
+enter 0 1
+gconst 1 1
+arg 0 0
+begin 0
+leaves
+own 1
+leaves
+tokens
+leave
+enter 0 0
+gconst 1 1
+arg 0 0
+begin 0
+leaves
+tokens
+leave
+enter 1 1
+gconst 1 1
+arg 1 0
+begin 1
+leaves
+tokens
+leave
+enter 2 1
+gconst 1 1
+arg 2 0
+begin 2
+leaves
+tokens
+leave
+istate
+
+== slot names, and slots owned
+slotname total 0
+slotname total 9
+slotname total 10
+slotname total 99
+slotname total 100
+slotname total 255
+lscope
+own 1
+own 2
+own 1
+istate
+
+== at most 16 parameters stand for a variable while arguments are read
+func g 0 16 17 1 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+params 0 a b c d e f2 h k l m n o p q r s t
+line   return a
+line end
+open
+save 0
+slot 1 1 1 v
+enter 0 1
+glocal 1 0
+arg 0 0
+glocal 1 0
+arg 0 1
+glocal 1 0
+arg 0 2
+glocal 1 0
+arg 0 3
+glocal 1 0
+arg 0 4
+glocal 1 0
+arg 0 5
+glocal 1 0
+arg 0 6
+glocal 1 0
+arg 0 7
+glocal 1 0
+arg 0 8
+glocal 1 0
+arg 0 9
+glocal 1 0
+arg 0 10
+glocal 1 0
+arg 0 11
+glocal 1 0
+arg 0 12
+glocal 1 0
+arg 0 13
+glocal 1 0
+arg 0 14
+glocal 1 0
+arg 0 15
+istate
+glocal 1 0
+arg 0 16
+
+== a body of an imported module sees that module's names, frozen or not
+sym 4 1 0 1 0 seen              ; 0: util.seen
+sym 4 0 0 1 0 total             ; 1: m.total, which util's body does not see
+sym 3 $FE 0 5 1 true            ; 2
+func u 1 16 1 1 1 0             ; 3: an inline function of util
+freeze 1 3 0 1 5 frozen         ; util.frozen = 5
+iface 0 1 0 0 0 1 97 0 100 3 2 10 4 115 101 101 110 23 15 2 17 6 102 114 111 122 101 110 23 24 2 26 5 116 111 116 97 108 23 32 2 34 4 116 114 117 101 23 39 2 41 1 97 1 42 0
+read 3
+record 3
+enter 3 1
+gconst 1 1
+arg 3 0
+begin 3
+tokens
+leave
+lookup frozen
+fend 0

@@ -1,0 +1,378 @@
+; A test of inlines (INLINE): inlinetest SCRIPT OBJECT INTERFACE runs the commands of a script,
+; which build a piece of Lathe source, save the bodies of inline functions from it, write and
+; read them as an interface does, and expand them: begin an expansion, give its arguments as
+; operands pushed through GEN, replay its body and print each token with what its name means
+; there, and end it. It prints what each command gives, and the code where an argument is
+; stored. lathe/tests/test_src_inline.py runs the same script with inline.py and compares. The
+; scripts are in lathe/tests/scripts/inline.txt. It is built with the small capacities
+; (compiler-small.env), as gentest is: GEN is in it.
+module inlinetest
+
+import gen
+import inlines
+import sys                      ; sys and src before kernel and lex, whose interfaces import
+import src                      ; them too: a module is imported again if named after that
+import kernel
+import lex
+import listing
+import reg
+import regcmd
+import script
+import typetab
+
+const WORDS = "line text blank open next func params save record sym enter arg begin tokens leave lookup lscope own slotname copy due leaves istate isyms gconst glocal gvar binary asvalue accept preg slot fend write read iface ptr freeze module pop "
+const SOURCE_SIZE = 512
+
+var source: [SOURCE_SIZE]byte nozp     ; the source the script builds
+var source_length: word
+var file: ^byte                 ; the name the source is read under: the script's
+var iface: ^byte                ; the interface file's name
+
+; Set up as regcmd does (a module `m`, its object file, and a function `m.f` being generated),
+; and GEN, LEX, SRC and INLINE.
+func init()
+  regcmd.init()
+  gen.init()
+  gen.function_begin(regcmd.own)
+  src.init()
+  lex.init()
+  file = kernel.keep_argument(0)
+  iface = kernel.keep_argument(2)
+  inlines.init()
+  source_length = 0
+end
+
+func add(c: byte)
+  if source_length == SOURCE_SIZE then
+    sys.exit(4)
+  end
+  source[source_length] = c
+  source_length += 1
+end
+
+; The rest of the line, added to the source.
+func add_rest()
+  var ch: byte
+  var more: bool
+  if script.more() then
+    loop
+      ch, more = script.next_char()
+      if not more then
+        break
+      end
+      add(ch)
+    end
+  end
+end
+
+func show_token()
+  var i: byte
+  script.show_byte(lex.tok)
+  script.show_word(lex.line)
+  script.show_word(lex.col)
+  if lex.tok == lex.T_NAME or lex.tok == lex.T_NUMBER then
+    script.show_word(lex.value)
+  elif lex.tok == lex.T_STRING then
+    script.show_word(lex.string_length)
+    for i = 0 until lo(lex.string_length) do
+      script.show_byte(lex.string[i])
+    end
+  end
+end
+
+; The record of inline function `f`: where it is in the buffer, its end, line, whether it has a
+; file name, flags, the variable it writes, each parameter, then its tokens.
+func show_record(f: word)
+  var r: ^byte
+  var p: ^byte
+  var i: byte
+  r = ^byte(kernel.sym_value[f])
+  script.show_word(r - inlines.saved_start)
+  script.show_word(^byte(inlines.word_at(r + inlines.R_END)) - inlines.saved_start)
+  script.show_word(inlines.word_at(r + inlines.R_LINE))
+  script.show_bool(inlines.word_at(r + inlines.R_FILE) != 0)
+  sys.put_byte(' ')
+  script.show_byte(r[inlines.R_FLAGS])
+  script.show_word(inlines.word_at(r + inlines.R_WRITTEN))
+  for i = 0 until kernel.sym_params[f] do
+    p = inlines.param(f, i)
+    script.show_word(inlines.word_at(p))
+    script.show_byte(p[2])
+  end
+  sys.put_byte('|')
+  p = r + inlines.R_PARAMS + word(kernel.sym_params[f]) * inlines.PARAM_SIZE
+  while p < ^byte(inlines.word_at(r + inlines.R_END)) do
+    script.show_byte(p[0])
+    p += 1
+  end
+end
+
+; The members of a function being declared: the counts of its parameters and results, then
+; a type and a register for each.
+func members(s: word)
+  var p: byte
+  var r: byte
+  var n: byte
+  var t: byte
+  p = script.small()
+  r = script.small()
+  for n = 1 to p + r do
+    t = script.small()
+    kernel.member_add(t, script.small())
+  end
+  kernel.sym_params[s] = p
+  kernel.sym_results[s] = r
+end
+
+func show_found(s: word, found: bool)
+  script.show_word(s)
+  script.show_bool(found)
+end
+
+; Each token of the body being replayed up to its end, and for a name what it means there.
+func tokens()
+  var s: word
+  var found: bool
+  loop
+    lex.next()
+    if lex.tok == lex.T_EOF then
+      break
+    end
+    show_token()
+    if lex.tok == lex.T_NAME then
+      s, found = inlines.lookup(lex.value)
+      show_found(s, found)
+    end
+    sys.put_byte(',')
+  end
+  src.close()
+end
+
+func show_state()
+  var d: byte
+  var n: byte
+  script.show_byte(inlines.level)
+  script.show_byte(inlines.depth)
+  script.show_byte(inlines.owned_count)
+  script.show_byte(inlines.alias_count)
+  script.show_word(inlines.saved_top - inlines.saved_start)
+  for d = 1 to inlines.depth do
+    sys.put_byte('|')
+    script.show_word(inlines.expanding[d])
+    script.show_bool(inlines.wanted[d])
+    sys.put_byte(' ')
+    script.show_byte(inlines.done[d])
+    script.show_bool(inlines.lazy[d])
+    sys.put_byte(' ')
+    script.show_word(inlines.sym_base[d])
+    script.show_byte(inlines.owned_base[d])
+    script.show_byte(inlines.alias_base[d])
+    script.show_byte(inlines.outer[d])
+  end
+  sys.put_byte('|')
+  for n = 0 until inlines.owned_count do
+    script.show_byte(inlines.owned[n])
+  end
+  sys.put_byte('|')
+  for n = 0 until inlines.alias_count do
+    script.show_word(inlines.alias[n])
+  end
+end
+
+func show_symbols(first: word)
+  var s: word
+  for s = first until kernel.sym_count do
+    script.show_word(kernel.sym_name[s])
+    script.show_byte(kernel.sym_scope[s])
+    script.show_byte(kernel.sym_kind[s])
+    script.show_byte(kernel.sym_type[s])
+    script.show_word(kernel.sym_value[s])
+    sys.put_byte(',')
+  end
+end
+
+forward func run_more(c: byte)
+
+; Run command `c`, a number in WORDS, with its arguments.
+func run(c: byte)
+  var a: byte
+  var b: byte
+  var d: byte
+  var e: byte
+  var n: word
+  var s: word
+  var v: word
+  var found: bool
+  case c
+  of 0
+    add_rest()
+    add($0A)
+  of 1
+    add_rest()
+  of 2
+    for n = 1 to script.number() do
+      add($0A)
+    end
+  of 3
+    lex.tok = lex.T_NL
+    lex.open_brackets = 0
+    src.push(kernel.open_memory(@source, @source + source_length), file)
+    lex.next()
+    show_token()
+  of 4
+    lex.next()
+    show_token()
+  of 5
+    n = script.name()
+    a = script.small()
+    b = script.small()
+    s = kernel.sym_add(a, n, kernel.K_FUNC)
+    kernel.sym_flags[s] = b
+    members(s)
+    script.show_word(s)
+  of 6
+    s = script.number()
+    kernel.scope_begin()
+    for a = 0 until kernel.sym_params[s] do
+      v = kernel.sym_add(kernel.SCOPE_LOCAL, script.name(), kernel.K_LOCAL)
+      kernel.sym_type[v] = kernel.member_type[kernel.sym_members[s] + a]
+    end
+  of 7
+    s = script.number()
+    inlines.save(s)
+    kernel.local_names = kernel.name_top
+    kernel.scope_end()
+    show_record(s)
+  of 8
+    show_record(script.number())
+  of 9
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    e = script.small()
+    v = script.number()
+    s = kernel.sym_add(b, script.name(), a)
+    kernel.sym_flags[s] = d
+    kernel.sym_type[s] = e
+    kernel.sym_value[s] = v
+    script.show_word(s)
+  of 10
+    s = script.number()
+    inlines.enter(s, script.flag())
+  of 11
+    s = script.number()
+    inlines.argument_symbol(s, script.small())
+  of 12
+    inlines.body_begin(script.number())
+  of 13
+    tokens()
+  of 14
+    inlines.leave()
+  of 15
+    s, found = inlines.lookup(script.name())
+    show_found(s, found)
+  of 16
+    script.show_byte(inlines.local_scope())
+  of 17
+    script.show_byte(inlines.own_slot(script.number()))
+  of 18
+    n = script.name()
+    script.show_word(inlines.slot_name(n, script.small()))
+  of 19
+    inlines.copy_aliases()
+  of 20
+    script.show_bool(inlines.copies_due())
+  of 21
+    script.show_bool(inlines.leaves_operand())
+  of 22
+    show_state()
+  else
+    run_more(c)
+  end
+end
+
+func run_more(c: byte)
+  var a: byte
+  var b: byte
+  var d: byte
+  var e: byte
+  var i: byte
+  var n: word
+  var s: word
+  var v: word
+  var stream: byte
+  var ok: bool
+  var p: ^byte
+  case c
+  of 23
+    show_symbols(script.number())
+  of 24
+    a = script.small()
+    gen.constant(a, script.number())
+  of 25
+    a = script.small()
+    gen.local(a, script.small())
+  of 26
+    gen.variable(script.number())
+  of 27
+    gen.binary(script.small())
+  of 28
+    gen.as_value()
+  of 29
+    gen.accept(script.small())
+  of 30
+    reg.push_register(script.small())
+  of 31
+    v = script.number()
+    a = script.small()
+    b = script.small()
+    script.show_byte(reg.new_slot(v, a, b, script.name()))
+  of 32
+    gen.function_end(script.small())
+    listing.show_finished()
+  of 33
+    stream, ok = kernel.open_out(iface)
+    inlines.write(stream, script.number())
+    kernel.close(stream)
+  of 34
+    stream, ok = kernel.open_in(iface)
+    p = kernel.text_top
+    inlines.read(stream, script.number())
+    kernel.close(stream)
+    script.show_word(kernel.text_top - p)
+  of 35
+    stream, ok = kernel.open_out(iface)
+    while script.more() do
+      kernel.put(stream, script.small())
+    end
+    kernel.close(stream)
+  of 36
+    script.show_byte(typetab.pointer_to(script.small()))
+  of 37
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    e = script.small()
+    v = script.number()
+    n = script.name()
+    kernel.name_begin()
+    for i = 0 until kernel.name_length(n) do
+      kernel.name_add(kernel.name_char(n, i))
+    end
+    kernel.freeze(a, b, d, e, v, 0, 0)
+  of 38
+    script.show_byte(kernel.module_add(script.name()))
+  of 39
+    reg.pop()
+  end
+end
+
+pub func main()
+  init()
+  script.open()
+  while script.next() do
+    run(script.command(@WORDS))
+    script.end_line()
+  end
+  sys.exit(0)
+end

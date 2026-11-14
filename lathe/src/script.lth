@@ -169,6 +169,16 @@ pub func number(): word
   return value
 end
 
+; The next character of the line, and true; or false at its end. A text argument, which may
+; hold blanks, is the rest of the line read so.
+pub func next_char(): byte, bool
+  if pos == length then
+    return 0, false
+  end
+  pos += 1
+  return text[pos - 1], true
+end
+
 ; The next argument as one byte.
 pub func small(): byte
   return lo(number())

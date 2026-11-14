@@ -157,6 +157,10 @@ def streams(given, made):
         total += b
     put_word(count & 0xFFFF)
     put_word(total & 0xFFFF)
+    put_word(kernel.get_word(s))
+    b, at_end = kernel.get(s)
+    if at_end:
+        env.put_byte(ord('E'))
     kernel.close(s)
     s, ok = kernel.open_out(made)
     put_hex(s)
