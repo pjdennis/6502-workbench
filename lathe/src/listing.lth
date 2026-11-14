@@ -8,21 +8,27 @@ import script
 import sys
 
 pub func show_finished()
-  var i: word
+  var i: byte
   var w: byte
   script.show_word(fbuf.code_length)
   sys.put_byte(':')
-  for i = 0 until fbuf.code_length do
-    script.show_byte(fbuf.code[i])
+  fbuf.walk_begin()
+  while fbuf.walk_next() do
+    for i = 0 until fbuf.piece_length do
+      script.show_byte(fbuf.piece[i])
+    end
   end
   sys.put_byte('|')
-  for i = 0 until fbuf.fix_count do
-    script.show_word(fbuf.fix_offset[i])
-    script.show_byte(fbuf.fix_kind[i])
-    script.show_word(fbuf.fix_symbol[i])
-    script.show_byte(fbuf.fix_slot[i])
-    script.show_word(fbuf.fix_addend[i])
-    sys.put_byte(',')
+  fbuf.walk_begin()
+  while fbuf.walk_next() do
+    if fbuf.piece_fixed then
+      script.show_word(fbuf.fix_offset)
+      script.show_byte(fbuf.fix_kind)
+      script.show_word(fbuf.fix_symbol)
+      script.show_byte(fbuf.fix_slot)
+      script.show_word(fbuf.fix_addend)
+      sys.put_byte(',')
+    end
   end
   sys.put_byte('|')
   for w = 0 until fbuf.weight_count do

@@ -157,16 +157,20 @@ def show_finished():
     import fbuf
     show_word(fbuf.code_length)
     env.put_byte(ord(':'))
-    for i in range(fbuf.code_length):
-        show_byte(fbuf.code[i])
+    fbuf.walk_begin()
+    while fbuf.walk_next():
+        for i in range(fbuf.piece_length):
+            show_byte(fbuf.piece[i])
     env.put_byte(ord('|'))
-    for i in range(fbuf.fix_count):
-        show_word(fbuf.fix_offset[i])
-        show_byte(fbuf.fix_kind[i])
-        show_word(fbuf.fix_symbol[i])
-        show_byte(fbuf.fix_slot[i])
-        show_word(fbuf.fix_addend[i])
-        env.put_byte(ord(','))
+    fbuf.walk_begin()
+    while fbuf.walk_next():
+        if fbuf.piece_fixed:
+            show_word(fbuf.fix_offset)
+            show_byte(fbuf.fix_kind)
+            show_word(fbuf.fix_symbol)
+            show_byte(fbuf.fix_slot)
+            show_word(fbuf.fix_addend)
+            env.put_byte(ord(','))
     env.put_byte(ord('|'))
     for w in range(fbuf.weight_count):
         show_word(fbuf.weight_symbol[w])
@@ -176,71 +180,6 @@ def show_finished():
 
 
 # ---- Running a script both ways ----------------------------------------------------------
-
-# Capacities made smaller, in both the Lathe and the host modules, for the test programs of
-# REG and COND, which do not fit the emulator's 64 KB at full size (lathe/tests/test_src_reg.py).
-# Each is (module, name, full size, size in the test).
-SCALED = (('fbuf', 'BUFFER_SIZE', 8192, 2048), ('fbuf', 'MAX_CODE', 4096, 2048),
-          ('fbuf', 'MAX_FIXUPS', 1024, 512), ('kernel', 'NAME_HEAP_SIZE', 8192, 4096))
-# Their split between code and variables: 29 KB of code, 31 KB of variables.
-SCALED_ENV = """cpu       6502
-zeropage  $00 $FF
-code      $0200 $73FF
-data      $7400 $EFFF
-stack     $FF
-exit      call $F00F
-"""
-
-
-def build_scaled(name, out_dir):
-    """Build lathe/src/NAME.lth as build_program() does, but from a copy of lathe/src/ with the
-    capacities in SCALED made smaller, and with lathe/tests/big_lathec.py as the compiler."""
-    import shutil
-    import build
-    src = os.path.join(out_dir, 'src')
-    os.makedirs(src, exist_ok=True)
-    for f in os.listdir(support.SRC):
-        if f.endswith('.lth'):
-            shutil.copy(os.path.join(support.SRC, f), src)
-    for module, const, full, small in SCALED:
-        path = os.path.join(src, module + '.lth')
-        with open(path) as fh:
-            text = fh.read()
-        old = 'const %s = %d' % (const, full)
-        if old not in text:
-            raise AssertionError('%s.lth has no %r' % (module, old))
-        with open(path, 'w') as fh:
-            fh.write(text.replace(old, 'const %s = %d' % (const, small)))
-    env_path = os.path.join(out_dir, 'scaled.env')
-    with open(env_path, 'w') as fh:
-        fh.write(SCALED_ENV)
-    image = os.path.join(out_dir, name + '.bin')
-    saved = build.COMPILER
-    build.COMPILER = os.path.join(support.HERE, 'big_lathec.py')
-    try:
-        build.build(os.path.join(src, name + '.lth'), image, env=env_path,
-                    keep=os.path.join(out_dir, 'work'))
-    finally:
-        build.COMPILER = saved
-    return image
-
-
-def scaled(main):
-    """main() of a twin, run with the host modules' capacities in SCALED made smaller."""
-    def run():
-        import importlib
-        saved = []
-        for module, const, full, small in SCALED:
-            m = importlib.import_module(module)
-            saved.append((m, const, getattr(m, const)))
-            setattr(m, const, small)
-        try:
-            main()
-        finally:
-            for m, const, value in saved:
-                setattr(m, const, value)
-    return run
-
 
 def sections(name):
     """The sections of lathe/tests/scripts/NAME.txt, which lines that start with `==` divide:

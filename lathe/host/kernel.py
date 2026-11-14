@@ -8,7 +8,10 @@ Owns
 - the name heap: every name is stored once and is known everywhere by its offset there;
 - the symbol table: one column per attribute, indexed by symbol number. Module-level symbols
   come first; the symbols of the function being compiled lie above them and are released when
-  it ends. What the columns mean for each kind of symbol is DECL's business.
+  it ends. What the columns mean for each kind of symbol is DECL's business;
+- the frozen symbols: the functions, constants and variables an imported module exports, kept
+  in the name heap in a compact form and made symbols (thawed) only when the importer names
+  one. Thawed symbols are numbered down from the top of the table and are never released.
 
 Reports errors through err.py, which is the kernel's other half.
 """
@@ -18,7 +21,8 @@ import err
 # ---- Text memory -------------------------------------------------------------------------
 
 TEXT_BASE = 0x0100          # not 0: a pointer of 0 means "none"
-TEXT_END = 0x4000
+TEXT_SIZE = 0x1000          # bytes of text memory
+TEXT_END = TEXT_BASE + TEXT_SIZE
 PATH_SIZE = 256
 
 text_top = TEXT_BASE
@@ -85,8 +89,8 @@ STREAM_IN = 1               # a file being read
 STREAM_OUT = 2              # a file being written
 STREAM_MEMORY = 3           # bytes of env.mem being read
 
-stream_kind = [0] * MAX_STREAMS
-stream_handle = [0] * MAX_STREAMS       # the system's handle of a file
+stream_kind = bytearray(MAX_STREAMS)
+stream_handle = bytearray(MAX_STREAMS)       # the system's handle of a file
 stream_next = [0] * MAX_STREAMS         # memory: pointer to the next byte
 stream_limit = [0] * MAX_STREAMS        # memory: pointer past the last byte
 
@@ -180,7 +184,7 @@ def put_name(s, name):
 # A name is built in place above the heap's top, one character at a time, and only kept if
 # it is new, so looking a name up copies nothing.
 
-NAME_HEAP_SIZE = 8192
+NAME_HEAP_SIZE = 12800
 NAME_BUCKETS = 64           # a power of two
 MAX_NAME = 31               # significant characters
 
@@ -287,8 +291,8 @@ def names_release(mark):
 # straight to its symbols and the table needs no hash of its own. The chains are short:
 # one symbol per module that has the name, and the local that hides it.
 
-MAX_SYMS = 512
-MAX_MEMBERS = 1024
+MAX_SYMS = 384
+MAX_MEMBERS = 320
 MAX_MODULES = 16            # the module being compiled and those it imports
 
 NO_SYM = 0xFFFF
@@ -319,35 +323,64 @@ SF_ROWS = 128               # a variable declared `rows` (while its declaration 
 SF_RECURSIVE = 128          # a function declared `recursive` (the bit SF_ROWS has on a variable)
 
 sym_name = [0] * MAX_SYMS
-sym_scope = [0] * MAX_SYMS
-sym_kind = [0] * MAX_SYMS
-sym_flags = [0] * MAX_SYMS
-sym_type = [0] * MAX_SYMS
+sym_scope = bytearray(MAX_SYMS)
+sym_kind = bytearray(MAX_SYMS)
+sym_flags = bytearray(MAX_SYMS)
+sym_type = bytearray(MAX_SYMS)
 sym_value = [0] * MAX_SYMS
 sym_obj = [0] * MAX_SYMS        # its number in the object file, NO_OBJ until it is used there
-sym_weight = [0] * MAX_SYMS     # a variable: how much it gains from zero page (docs/codegen.md)
+sym_weight = bytearray(MAX_SYMS)     # a variable: how much it gains from zero page (docs/codegen.md)
 sym_members = [0] * MAX_SYMS    # the first of its members
-sym_params = [0] * MAX_SYMS     # how many members are parameters
-sym_results = [0] * MAX_SYMS    # how many more are results
+sym_params = bytearray(MAX_SYMS)     # how many members are parameters
+sym_results = bytearray(MAX_SYMS)    # how many more are results
 sym_link = [0] * MAX_SYMS       # the next older symbol with the same name
 sym_count = 0
+thaw_top = MAX_SYMS             # the lowest thawed symbol: they lie from here to MAX_SYMS - 1
 local_base = 0                  # the first symbol of the function being compiled
 local_names = 0                 # name_top when that function began
 
-member_type = [0] * MAX_MEMBERS
-member_value = [0] * MAX_MEMBERS    # a parameter's or result's register
+member_type = bytearray(MAX_MEMBERS)
+member_value = bytearray(MAX_MEMBERS)    # a parameter's or result's register
 member_count = 0
 
 module_name = [0] * MAX_MODULES
 module_count = 0
 
 
-def sym_find(scope, name):
-    """The symbol called `name` in exactly this scope, and whether there is one."""
+def chain_find(scope, name):
+    """The symbol of `scope` on the chain of name entry `name`, or NO_SYM."""
     s = name_word(name + N_SYMBOL)
     while s != NO_SYM and sym_scope[s] != scope:
         s = sym_link[s]
-    return s, s != NO_SYM
+    return s
+
+
+def sym_find(scope, name):
+    """The symbol called `name` in exactly this scope, and whether there is one. A frozen
+    symbol of an imported module is thawed: from then on it is a symbol like another."""
+    s = chain_find(scope, name)
+    if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS:
+        return s, s != NO_SYM
+    # Thawed already, on the chain of another entry with the same spelling (thaw())?
+    n = name_bucket[spelling_hash(name) & (NAME_BUCKETS - 1)]
+    while n != 0:
+        if n != name and same_spelling(n, name):
+            s = chain_find(scope, n)
+            if s != NO_SYM:
+                return s, True
+        n = name_word(n + N_LINK)
+    before = 0
+    f = module_frozen[scope]
+    while f != 0 and not same_spelling(f, name):
+        before = f
+        f = name_word(f + N_LINK)
+    if f == 0:
+        return NO_SYM, False
+    if before == 0:
+        module_frozen[scope] = name_word(f + N_LINK)
+    else:
+        name_set_word(before + N_LINK, name_word(f + N_LINK))
+    return thaw(scope, f), True
 
 
 def sym_lookup(name):
@@ -360,16 +393,9 @@ def sym_lookup(name):
     return s, s != NO_SYM
 
 
-def sym_add(scope, name, kind):
-    """Declare `name` in `scope`. The other columns start empty."""
-    global sym_count
-    _, found = sym_find(scope, name)
-    if found:
-        err.fatal(err.E_DUPLICATE)
-    if sym_count == MAX_SYMS:
-        err.fatal(err.E_SYMS_FULL)
-    s = sym_count
-    sym_count += 1
+def sym_new(s, scope, name, kind):
+    """Make `s` the symbol called `name` in `scope`, the newest on its name's chain. The other
+    columns start empty."""
     sym_name[s] = name
     sym_scope[s] = scope
     sym_kind[s] = kind
@@ -383,6 +409,140 @@ def sym_add(scope, name, kind):
     sym_results[s] = 0
     sym_link[s] = name_word(name + N_SYMBOL)
     name_set_word(name + N_SYMBOL, s)
+
+
+def sym_add(scope, name, kind):
+    """Declare `name` in `scope`. The other columns start empty."""
+    global sym_count
+    _, found = sym_find(scope, name)
+    if found:
+        err.fatal(err.E_DUPLICATE)
+    if sym_count == thaw_top:
+        err.fatal(err.E_SYMS_FULL)
+    sym_count += 1
+    sym_new(sym_count - 1, scope, name, kind)
+    return sym_count - 1
+
+
+# ---- Frozen symbols ----------------------------------------------------------------------
+#
+# What an imported module exports, but for its types and its inline functions, is not entered
+# in the symbol table when the interface is read: each function, constant and variable is a
+# frozen entry in the name heap, on a list of its module's (module_frozen). An entry has the
+# form of a name entry that is not yet in its hash bucket: its link is the next entry of the
+# list, and where a name has its symbol and its token the entry has the symbol's kind, flags
+# and type. After the name's characters come its value (2), and for a function its parameters,
+# its results and for each member its type and its register. sym_find() thaws an entry when the
+# importer first names it: the entry becomes the symbol's name, in its bucket.
+
+F_KIND = 2                  # from the start of the entry
+F_FLAGS = 3
+F_TYPE = 4
+F_VALUE = 0                 # from the end of the name's characters
+F_SIZE = 2                  # what a constant or a variable has there
+F_PARAMS = 2                # a function's
+F_RESULTS = 3
+F_MEMBERS = 4               # the size of what a function has there before its members
+
+module_frozen = [0] * MAX_MODULES     # each module's first frozen entry, or 0
+
+
+def spelling_hash(n):
+    """The hash name_add() gives the spelling of entry `n`."""
+    h = 0
+    for i in range(0, names[n + N_LENGTH]):
+        h = (((h << 1) | (h >> 7)) ^ names[n + N_TEXT + i]) & 0xFF
+    return h
+
+
+def same_spelling(a, b):
+    """True if name entries `a` and `b` spell the same name."""
+    if names[a + N_LENGTH] != names[b + N_LENGTH]:
+        return False
+    for i in range(0, names[a + N_LENGTH]):
+        if names[a + N_TEXT + i] != names[b + N_TEXT + i]:
+            return False
+    return True
+
+
+def freeze(scope, kind, flags, t, value, params, results):
+    """Make the name being built (name_begin(), name_add()) a frozen symbol of imported module
+    `scope` with these columns. Its members follow, with freeze_member(). A name the module
+    already has is error 41, as sym_add() would give."""
+    global name_top
+    size = F_SIZE
+    if kind == K_FUNC:
+        size = F_MEMBERS + 2 * (params + results)
+    if name_top + N_TEXT + new_length + size > NAME_HEAP_SIZE:
+        err.fatal(err.E_NAMES_FULL)
+    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
+    while n != 0:
+        if not name_is_new(n) and chain_find(scope, n) != NO_SYM:
+            err.fatal(err.E_DUPLICATE)
+        n = name_word(n + N_LINK)
+    n = module_frozen[scope]
+    while n != 0:
+        if not name_is_new(n):
+            err.fatal(err.E_DUPLICATE)
+        n = name_word(n + N_LINK)
+    n = name_top
+    name_set_word(n + N_LINK, module_frozen[scope])
+    names[n + F_KIND] = kind
+    names[n + F_FLAGS] = flags
+    names[n + F_TYPE] = t
+    names[n + N_LENGTH] = new_length
+    module_frozen[scope] = n
+    p = n + N_TEXT + new_length
+    name_set_word(p + F_VALUE, value)
+    name_top = p + F_SIZE
+    if kind == K_FUNC:
+        names[p + F_PARAMS] = params
+        names[p + F_RESULTS] = results
+        name_top = p + F_MEMBERS
+
+
+def freeze_member(t, value):
+    """The next member of the newest frozen symbol."""
+    global name_top
+    names[name_top] = t
+    names[name_top + 1] = value
+    name_top += 2
+
+
+def thaw(scope, f):
+    """Make frozen entry `f`, taken off its module's list, a symbol of `scope`, numbered from
+    the top of the table. The entry is put in its bucket, in its place by age, so that
+    names_release() still finds the newest names first; the symbol is on its chain."""
+    global thaw_top
+    if thaw_top == sym_count:
+        err.fatal(err.E_SYMS_FULL)
+    thaw_top -= 1
+    s = thaw_top
+    p = f + N_TEXT + names[f + N_LENGTH]
+    kind = names[f + F_KIND]                # read before the entry is made a name
+    flags = names[f + F_FLAGS]
+    t = names[f + F_TYPE]
+    name_set_word(f + N_SYMBOL, NO_SYM)
+    names[f + N_TOKEN] = 0
+    sym_new(s, scope, f, kind)
+    sym_flags[s] = flags
+    sym_type[s] = t
+    sym_value[s] = name_word(p + F_VALUE)
+    if kind == K_FUNC:
+        sym_params[s] = names[p + F_PARAMS]
+        sym_results[s] = names[p + F_RESULTS]
+        for i in range(0, sym_params[s] + sym_results[s]):
+            member_add(names[p + F_MEMBERS + 2 * i], names[p + F_MEMBERS + 2 * i + 1])
+    bucket = spelling_hash(f) & (NAME_BUCKETS - 1)
+    n = name_bucket[bucket]
+    if n < f:
+        name_set_word(f + N_LINK, n)
+        name_bucket[bucket] = f
+        return s
+    while name_word(n + N_LINK) > f:
+        n = name_word(n + N_LINK)
+    name_set_word(f + N_LINK, name_word(n + N_LINK))
+    name_set_word(n + N_LINK, f)
     return s
 
 
@@ -425,7 +585,8 @@ def module_add(name):
 
 
 def init():
-    global text_top, path, name_top, sym_count, local_base, local_names, member_count, module_count
+    global text_top, path, name_top, sym_count, thaw_top, local_base, local_names, member_count, \
+        module_count
     text_top = TEXT_BASE
     path = text_reserve(PATH_SIZE)
     for s in range(0, MAX_STREAMS):
@@ -434,7 +595,10 @@ def init():
         name_bucket[bucket] = 0
     name_top = 1
     sym_count = 0
+    thaw_top = MAX_SYMS
     local_base = 0
     local_names = name_top
+    for m in range(0, MAX_MODULES):
+        module_frozen[m] = 0
     member_count = 0
     module_count = 0

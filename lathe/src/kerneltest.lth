@@ -2,7 +2,8 @@
 ; memory, streams, the name heap and the symbol table and prints what they give, in
 ; hexadecimal. lathe/tests/test_src_kernel.py does the same with kernel.py and compares.
 ; MODE is a letter: n, the normal run; f, fill the name heap (error 70); s, fill the symbol
-; table (error 71); d, declare a name twice (error 41); p, a path too long (error 83).
+; table (error 71); d, declare a name twice (error 41); p, a path too long (error 83); u,
+; freeze a name twice (error 41).
 module kerneltest
 
 import err
@@ -126,6 +127,48 @@ func symbols()
   nl()
 end
 
+func frozen_name(p: ^byte)
+  kernel.name_begin()
+  while p[0] != 0 do
+    kernel.name_add(p[0])
+    p += 1
+  end
+end
+
+; Frozen symbols of module 3, thawed when they are found.
+func frozen()
+  var n: word
+  var s: word
+  var found: bool
+  n = name("count")
+  frozen_name("count")
+  kernel.freeze(3, kernel.K_CONST, kernel.SF_PUB, 5, $1234, 0, 0)
+  frozen_name("fun")
+  kernel.freeze(3, kernel.K_FUNC, kernel.SF_PUB, 0, 0, 1, 1)
+  kernel.freeze_member(1, 1)
+  kernel.freeze_member(3, 4)
+  put_word(kernel.name_top)
+  s, found = kernel.sym_find(3, n)
+  put_word(s)
+  put_hex(kernel.sym_type[s])
+  put_word(kernel.sym_value[s])
+  put_word(kernel.thaw_top)
+  s, found = kernel.sym_find(3, n)
+  put_word(s)
+  s, found = kernel.sym_find(3, name("count"))
+  put_word(s)
+  s, found = kernel.sym_find(3, name("fun"))
+  put_word(s)
+  put_hex(kernel.sym_params[s])
+  put_hex(kernel.member_value[kernel.sym_members[s] + 1])
+  s, found = kernel.sym_find(3, name("none"))
+  put_word(s)
+  if found then
+    sys.put_byte('?')
+  end
+  nl()
+end
+
 func streams(input: ^byte, output: ^byte)
   var s: byte
   var b: byte
@@ -223,9 +266,15 @@ pub func main()
     loop
       kernel.path_add('x')
     end
+  elif mode[0] == 'u' then
+    frozen_name("twice")
+    kernel.freeze(3, kernel.K_CONST, kernel.SF_PUB, 1, 0, 0, 0)
+    frozen_name("twice")
+    kernel.freeze(3, kernel.K_VAR, kernel.SF_PUB, 1, 0, 0, 0)
   end
   names()
   symbols()
+  frozen()
   streams(input, output)
   paths(input)
   sys.exit(0)

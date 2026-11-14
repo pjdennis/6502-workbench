@@ -6,15 +6,13 @@
 
 With no --program: builds lathe/src/lextest.lth, the measurement program for code generation,
 and prints its code bytes per module and its largest functions (the 15 largest; --all, every
-one). --program builds the test programs named instead (regtest and condtest are built at the
-reduced scale their tests use, lathe/tests/script_host.py) and reports on each in turn: code,
-constant data and variables per module, the zero page it uses, and the largest functions.
+one). --program builds the test programs named instead and reports on each in turn: code, constant
+data and variables per module, the zero page it uses, and the largest functions.
 
 --report builds every test program and reports on the compiler's modules, each measured over
 all of them: a function's size is the largest any map gives it, and a module's is the sum over
-every function of it that some program keeps. Its tables are what the maps give; the modules
-are all measured at full size except that regtest and condtest have FBUF's buffers and the
-name heap made smaller. Then the lines of each Python module (all, and code only, without
+every function of it that some program keeps. Its tables are what the maps give, at full size.
+Then the lines of each Python module (all, and code only, without
 blank lines, comments and docstrings) against the bytes of code, and the ten largest functions.
 
 OUT_DIR (default: a temporary directory) keeps each build in OUT_DIR/NAME, its objects and map
@@ -33,17 +31,13 @@ LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
 MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond')
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
             'outtest', 'regtest', 'condtest')
-SCALED = ('regtest', 'condtest')
 
 
 def build(name, out_dir):
     """Build test program NAME in OUT_DIR/NAME. Returns its map's path."""
     where = os.path.join(out_dir, name)
     os.makedirs(where, exist_ok=True)
-    if name in SCALED:
-        script_host.build_scaled(name, where)
-    else:
-        support.build_program(name, where)
+    support.build_program(name, where)
     work = os.path.join(where, 'work')
     return os.path.join(work, [f for f in os.listdir(work) if f.endswith('.map')][0])
 

@@ -4,8 +4,10 @@
 ; with their operands still symbolic, because two things are not known until the function ends:
 ; how far each forward branch has to go, and so which branches need the long form.
 ;
-; finish() settles the branches and leaves, for OUT to write, the function's code in the
-; written layout of docs/object-format.md and its fix-ups in order of offset:
+; finish() settles the branches and counts the code and the fix-ups. The code is not kept: OUT
+; walks the buffer twice (walk_begin(), walk_next()), once for the fix-ups and once for the code,
+; and writes each instruction as it is made. That gives the function's code in the written layout
+; of docs/object-format.md and its fix-ups in order of offset:
 ; - an operand that is an address to be filled in is written as zero bytes with a fix-up; an
 ;   instruction that may later shrink to its zero page form is written in its absolute form;
 ; - a branch is written with its final displacement, or, if its target is too far, as the
@@ -20,7 +22,8 @@
 ;   adds to a weight in a small table (weight_*) that OUT writes as a WGT record: its own module
 ;   counts the uses of a slot only in the function it belongs to. A use adds 1, 4, 16 or 64 by
 ;   how many loops it is inside, as REG counts (docs/codegen.md, "Weights"); a loop here is the
-;   code from a label back to the last branch or jump that goes back to it.
+;   code from a label back to the last branch or jump that goes back to it. The weights are
+;   counted by finish(), so they are known when the records are written.
 ;
 ; Small improvements are made as the instructions arrive, because each needs only the newest
 ; entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
@@ -43,19 +46,21 @@
 ;   |                                      |                                   | array takes a   |
 ;   |                                      |                                   | byte index      |
 ;   | columns: ints                        | byte where every value fits, else | the type is the |
-;   |                                      | word; the 1024-element word       | storage         |
-;   |                                      | columns `rows`                    | (error 123)     |
+;   |                                      | word                              | storage         |
 ;   | (x) & 0xFF of a displacement         | lo(x)                             | (the same)      |
 ;   | b | (b1 << 8)                        | word(b) | (word(b1) << 8)         | bytes stay bytes|
 ;   | `while True:` ... `break`            | loop ... end                      |                 |
+;   | buffer[entry + k] in the walks of    | a pointer to the entry, `e[k]`,   | (zp),Y: no      |
+;   | the settled function                 | beside the index                  | 16-bit index    |
 module fbuf
 
 import err
 
-const BUFFER_SIZE = 8192        ; bytes of entries
+const BUFFER_SIZE = 4096        ; bytes of entries
 const MAX_CODE = 4096           ; bytes of code in one function
-const MAX_LABELS = 256          ; a label's number is stored in one byte
-const MAX_FIXUPS = 1024
+const MAX_LABELS = 192          ; a label's number is stored in one byte
+const MAX_FIXUPS = 512          ; fix-ups of one function
+const PIECE_SIZE = 5            ; bytes of code one entry can become: a branch round a JMP
 const MAX_WEIGHTS = 64          ; slots of other functions one function uses; more are not counted
 const LOOP_WEIGHTS: [4]byte = [$01, $04, $10, $40]  ; what one use adds, by how many loops it is inside
 
@@ -103,15 +108,20 @@ pub var label_note: [MAX_LABELS]byte    ; kept for REG: what it knows of the way
 var label_count: word = 0
 var temp_base: byte = 0                 ; the slot number the first temporary gets
 
-pub var code: [MAX_CODE]byte nozp
-pub var code_length: word = 0
-pub var fix_offset: [MAX_FIXUPS]word rows
-pub var fix_kind: [MAX_FIXUPS]byte nozp
-pub var fix_symbol: [MAX_FIXUPS]word rows
-pub var fix_slot: [MAX_FIXUPS]byte nozp
-pub var fix_addend: [MAX_FIXUPS]word rows
+var own: word = 0                       ; the object-file symbol of the function being finished
+pub var code_length: word = 0           ; bytes of code it has, and fix-ups
 pub var fix_count: word = 0
-var loop_end: [MAX_LABELS]word          ; a label: the offset after the last branch back to it, or 0
+var counting: bool = false              ; true while finish() counts: weights are counted then
+var walk_entry: word = 0                ; the entry walk_next() makes the piece of next
+var offset_now: word = 0                ; the offset in the code of the next byte of the piece
+pub var piece: [PIECE_SIZE]byte         ; the code of one instruction, and its one fix-up
+pub var piece_length: byte = 0
+pub var piece_fixed: bool = false
+pub var fix_offset: word = 0
+pub var fix_kind: byte = 0
+pub var fix_symbol: word = 0
+pub var fix_slot: byte = 0
+pub var fix_addend: word = 0
 pub var weight_symbol: [MAX_WEIGHTS]word    ; the uses of other functions' slots, by slot
 pub var weight_slot: [MAX_WEIGHTS]byte
 pub var weight_value: [MAX_WEIGHTS]byte
@@ -119,7 +129,7 @@ pub var weight_count: byte = 0
 
 forward func runs_on(): bool
 forward func entry_size(kind: byte): byte
-forward func emit_to(opcode: byte, own: word, goal: word)
+forward func emit_to(opcode: byte, goal: word)
 
 ; Start a function with no instructions and no labels.
 pub func begin()
@@ -382,25 +392,36 @@ end
 func thread()
   var entry: word = 0
   var goal: word
+  var e: ^byte
+  var g: ^byte
+  var size: byte
+  e = @buffer
   while entry < used do
-    if buffer[entry] == I_LABEL then
-      label_offset[buffer[entry + 1]] = entry
+    if e[0] == I_LABEL then
+      label_offset[e[1]] = entry
     end
-    entry += entry_size(buffer[entry])
+    size = entry_size(e[0])
+    entry += size
+    e += size
   end
   entry = 0
+  e = @buffer
   while entry < used do
-    if buffer[entry] == I_JUMP then
-      goal = label_offset[same(buffer[entry + 1])]
-      while goal < used and buffer[goal] == I_LABEL do
+    if e[0] == I_JUMP then
+      goal = label_offset[same(e[1])]
+      g = @buffer + goal
+      while goal < used and g[0] == I_LABEL do
         goal += 2
+        g += 2
       end
-      if goal < used and buffer[goal] == I_PLAIN and buffer[goal + 1] == OP_RTS then
-        buffer[entry] = I_PLAIN
-        buffer[entry + 1] = OP_RTS
+      if goal < used and g[0] == I_PLAIN and g[1] == OP_RTS then
+        e[0] = I_PLAIN
+        e[1] = OP_RTS
       end
     end
-    entry += entry_size(buffer[entry])
+    size = entry_size(e[0])
+    entry += size
+    e += size
   end
 end
 
@@ -421,7 +442,9 @@ end
 ; Bytes of code the entry that starts at buffer[entry] becomes.
 func code_size(entry: word): byte
   var kind: byte
-  kind = buffer[entry]
+  var e: ^byte
+  e = @buffer + entry
+  kind = e[0]
   if kind == I_LABEL then
     return 0
   end
@@ -431,7 +454,7 @@ func code_size(entry: word): byte
   if kind == I_BYTE or kind == I_BRANCH then
     return 2
   end
-  if kind == I_FAR and buffer[entry + 1] != OP_BRA then
+  if kind == I_FAR and e[1] != OP_BRA then
     return 5
   end
   if kind > I_FIX and kind != I_FIX + FIX_ADDRESS then
@@ -445,12 +468,17 @@ end
 func layout(): word
   var entry: word = 0
   var offset: word = 0
+  var e: ^byte
+  var size: byte
+  e = @buffer
   while entry < used do
-    if buffer[entry] == I_LABEL then
-      label_offset[buffer[entry + 1]] = offset
+    if e[0] == I_LABEL then
+      label_offset[e[1]] = offset
     end
     offset += code_size(entry)
-    entry += entry_size(buffer[entry])
+    size = entry_size(e[0])
+    entry += size
+    e += size
   end
   return offset
 end
@@ -479,14 +507,18 @@ func widen(): bool
   var entry: word = 0
   var offset: word = 0
   var size: byte
+  var e: ^byte
+  e = @buffer
   while entry < used do
     size = code_size(entry)
-    if buffer[entry] == I_BRANCH and not reaches(offset + 2, target(buffer[entry + 2])) then
-      buffer[entry] = I_FAR
+    if e[0] == I_BRANCH and not reaches(offset + 2, target(e[2])) then
+      e[0] = I_FAR
       changed = true
     end
     offset += size
-    entry += entry_size(buffer[entry])
+    size = entry_size(e[0])
+    entry += size
+    e += size
   end
   return changed
 end
@@ -511,7 +543,9 @@ func has_zero_page_form(opcode: byte): bool
       high != $0F
 end
 
-; loop_end of every label that a branch or jump goes back to.
+; The end of every loop: for each label that a branch or jump goes back to, the offset
+; after the last such branch, in label_uses, which are not needed once the layout is settled;
+; 0 for a label that no branch goes back to.
 func find_loops()
   var label: word
   var entry: word = 0
@@ -519,23 +553,27 @@ func find_loops()
   var kind: byte
   var size: byte
   var goal: word
+  var e: ^byte
   for label = 0 until label_count do
-    loop_end[byte(label)] = 0
+    label_uses[byte(label)] = 0
   end
+  e = @buffer
   while entry < used do
-    kind = buffer[entry]
+    kind = e[0]
     size = code_size(entry)
     goal = UNPLACED
     if kind == I_BRANCH or kind == I_FAR then
-      goal = same(buffer[entry + 2])
+      goal = same(e[2])
     elif kind == I_JUMP or kind == I_KEPT_JUMP then
-      goal = same(buffer[entry + 1])
+      goal = same(e[1])
     end
     if goal != UNPLACED and label_offset[byte(goal)] <= offset then
-      loop_end[byte(goal)] = offset + size
+      label_uses[byte(goal)] = offset + size
     end
     offset += size
-    entry += entry_size(kind)
+    size = entry_size(kind)
+    entry += size
+    e += size
   end
 end
 
@@ -544,7 +582,7 @@ func use_weight(offset: word): byte
   var depth: byte = 0
   var label: word
   for label = 0 until label_count do
-    if label_offset[byte(label)] <= offset and offset < loop_end[byte(label)] then
+    if label_offset[byte(label)] <= offset and offset < label_uses[byte(label)] then
       depth += 1
     end
   end
@@ -578,87 +616,88 @@ func count_use(symbol: word, slot: byte, offset: word)
   weight_count += 1
 end
 
+; A byte of the piece being made.
 func emit(value: byte)
-  code[code_length] = value
-  code_length += 1
+  piece[piece_length] = value
+  piece_length += 1
+  offset_now += 1
 end
 
-; Note a fix-up for the operand about to be emitted.
+; Note a fix-up for the operand about to be emitted: the piece's one fix-up.
 func fix(kind: byte, symbol: word, slot: byte, addend: word)
-  if fix_count == MAX_FIXUPS then
-    err.fatal(err.E_FIXUPS_FULL)
-  end
-  fix_offset[fix_count] = code_length
-  fix_kind[fix_count] = kind
-  fix_symbol[fix_count] = symbol
-  fix_slot[fix_count] = slot
-  fix_addend[fix_count] = addend
-  fix_count += 1
+  piece_fixed = true
+  fix_offset = offset_now
+  fix_kind = kind
+  fix_symbol = symbol
+  fix_slot = slot
+  fix_addend = addend
 end
 
-; JMP to offset `goal` of this function, whose symbol is `own`.
-func emit_jump(own: word, goal: word)
-  emit_to(OP_JMP, own, goal)
+; JMP to offset `goal` of this function.
+func emit_jump(goal: word)
+  emit_to(OP_JMP, goal)
 end
 
 ; JMP or JSR to offset `goal` of this function, whose symbol is `own`.
-func emit_to(opcode: byte, own: word, goal: word)
+func emit_to(opcode: byte, goal: word)
   emit(opcode)
   fix(FIX_ADDRESS, own, NO_SLOT, goal)
   emit(0)
   emit(0)
 end
 
-; The code of the entry that starts at buffer[entry].
-func emit_entry(entry: word, own: word)
+; The code of the entry that starts at buffer[entry], as the piece.
+func emit_entry(entry: word)
   var kind: byte
   var opcode: byte
   var symbol: word
   var slot: byte
   var part: byte
-  kind = buffer[entry]
+  var e: ^byte
+  e = @buffer + entry
+  kind = e[0]
   if kind == I_LABEL then
     return
   end
   if kind == I_JUMP or kind == I_KEPT_JUMP then
-    emit_jump(own, target(buffer[entry + 1]))
+    emit_jump(target(e[1]))
     return
   end
   if kind == I_CALL then
-    emit_to(OP_JSR, own, target(buffer[entry + 1]))
+    emit_to(OP_JSR, target(e[1]))
     return
   end
-  opcode = buffer[entry + 1]
+  opcode = e[1]
   if kind == I_FAR then
     if opcode != OP_BRA then
       emit(opcode ^ OPPOSITE)
       emit(3)
     end
-    emit_jump(own, target(buffer[entry + 2]))
+    emit_jump(target(e[2]))
     return
   end
   emit(opcode)
   if kind == I_BYTE then
-    emit(buffer[entry + 2])
+    emit(e[2])
   elif kind == I_WORD then
-    emit(buffer[entry + 2])
-    emit(buffer[entry + 3])
+    emit(e[2])
+    emit(e[3])
   elif kind == I_BRANCH then
-    emit(lo(target(buffer[entry + 2]) - (code_length + 1)))
+    emit(lo(target(e[2]) - (offset_now + 1)))
   elif kind > I_FIX then
-    symbol = word(buffer[entry + 2]) | (word(buffer[entry + 3]) << 8)
-    slot = buffer[entry + 4]
+    symbol = word(e[2]) | (word(e[3]) << 8)
+    slot = e[4]
     if symbol == own and slot >= FIRST_TEMP and slot != NO_SLOT then
       slot = slot - FIRST_TEMP + temp_base
     end
     part = kind - I_FIX
     if part == FIX_ADDRESS and has_zero_page_form(opcode) then
       part = FIX_SHRINKS
-      if symbol != own and slot != NO_SLOT then
-        count_use(symbol, slot, code_length - 1)
+      if counting and symbol != own and slot != NO_SLOT then
+        count_use(symbol, slot, offset_now - 1)
       end
     end
-    fix(part, symbol, slot, word(buffer[entry + 5]) | (word(buffer[entry + 6]) << 8))
+    fix(part, symbol, slot, word(e[5]) | (word(e[6]) << 8))
     emit(0)
     if kind == I_FIX + FIX_ADDRESS then
       emit(0)
@@ -666,11 +705,35 @@ func emit_entry(entry: word, own: word)
   end
 end
 
-; End the function, whose object-file symbol is `own`: settle its branches and build
-; `code` and the fix-ups. Its temporaries get the slot numbers from `base` on.
-pub func finish(own: word, base: byte)
+; Go back to the first instruction of the finished function.
+pub func walk_begin()
+  walk_entry = 0
+  offset_now = 0
+end
+
+; Make the code of the next instruction the piece: piece_length bytes of `piece`, and if
+; piece_fixed, its fix-up (fix_offset, fix_kind, fix_symbol, fix_slot, fix_addend). False when
+; no instruction is left.
+pub func walk_next(): bool
+  while walk_entry < used do
+    piece_length = 0
+    piece_fixed = false
+    emit_entry(walk_entry)
+    walk_entry += entry_size(buffer[walk_entry])
+    if piece_length != 0 then
+      return true
+    end
+  end
+  return false
+end
+
+; End the function, whose object-file symbol is `symbol`: settle its branches, and count
+; its code, its fix-ups and the weights it gives other functions' slots. OUT then walks it
+; (walk_begin(), walk_next()) for the fix-ups and again for the code. Its temporaries get the
+; slot numbers from `base` on.
+pub func finish(symbol: word, base: byte)
   var size: word
-  var entry: word = 0
+  own = symbol
   temp_base = base
   thread()
   loop
@@ -683,11 +746,18 @@ pub func finish(own: word, base: byte)
     err.fatal(err.E_FUNC_BIG)
   end
   find_loops()
-  code_length = 0
+  code_length = size
   fix_count = 0
   weight_count = 0
-  while entry < used do
-    emit_entry(entry, own)
-    entry += entry_size(buffer[entry])
+  counting = true
+  walk_begin()
+  while walk_next() do
+    if piece_fixed then
+      if fix_count == MAX_FIXUPS then
+        err.fatal(err.E_FIXUPS_FULL)
+      end
+      fix_count += 1
+    end
   end
+  counting = false
 end

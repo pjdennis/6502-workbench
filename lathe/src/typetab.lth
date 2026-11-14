@@ -24,7 +24,7 @@ module typetab
 
 import err
 
-pub const MAX_TYPES = 128
+pub const MAX_TYPES = 64
 
 pub const NO_TYPE = 0               ; no type
 pub const BYTE_TYPE = 1

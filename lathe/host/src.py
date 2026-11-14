@@ -25,9 +25,9 @@ name = 0            # pointer to its file name, 0 if it has none
 replaying = False   # True if the top source is a saved token run
 
 # The sources below the top one, as they were when the one above was opened.
-below_stream = [0] * MAX_SOURCES
+below_stream = bytearray(MAX_SOURCES)
 below_name = [0] * MAX_SOURCES
-below_ch = [0] * MAX_SOURCES
+below_ch = bytearray(MAX_SOURCES)
 below_eof = [False] * MAX_SOURCES
 below_line = [0] * MAX_SOURCES
 below_col = [0] * MAX_SOURCES

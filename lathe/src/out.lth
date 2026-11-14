@@ -314,23 +314,30 @@ func calls()
   call_count = 0
 end
 
+; The FIX record of the function FBUF finished: a walk of its instructions.
 func fixups()
-  var i: word
   begin_record(R_FIX, 8 * fbuf.fix_count)
-  for i = 0 until fbuf.fix_count do
-    kernel.put_word(stream, fbuf.fix_offset[i])
-    kernel.put(stream, fbuf.fix_kind[i])
-    kernel.put_word(stream, fbuf.fix_symbol[i])
-    kernel.put(stream, fbuf.fix_slot[i])
-    kernel.put_word(stream, fbuf.fix_addend[i])
+  fbuf.walk_begin()
+  while fbuf.walk_next() do
+    if fbuf.piece_fixed then
+      kernel.put_word(stream, fbuf.fix_offset)
+      kernel.put(stream, fbuf.fix_kind)
+      kernel.put_word(stream, fbuf.fix_symbol)
+      kernel.put(stream, fbuf.fix_slot)
+      kernel.put_word(stream, fbuf.fix_addend)
+    end
   end
 end
 
+; Its CODE record: a second walk.
 func code()
-  var i: word
+  var i: byte
   begin_record(R_CODE, fbuf.code_length)
-  for i = 0 until fbuf.code_length do
-    kernel.put(stream, fbuf.code[i])
+  fbuf.walk_begin()
+  while fbuf.walk_next() do
+    for i = 0 until fbuf.piece_length do
+      kernel.put(stream, fbuf.piece[i])
+    end
   end
 end
 
@@ -366,10 +373,27 @@ end
 
 ; A WGT record of the weight this module's uses gave the variables of other modules, if
 ; it used any.
+; The weight of variable `s` in the WGT record.
+func foreign_weight(s: word)
+  kernel.put_word(stream, kernel.sym_obj[s])
+  kernel.put(stream, fbuf.NO_SLOT)
+  kernel.put(stream, kernel.sym_weight[s])
+end
+
+; A WGT record of the weight this module's uses gave the variables of other modules, if
+; it used any: in the order their modules' interfaces declare them. A thawed symbol's name
+; is its frozen entry, and the entries were made in that order (kernel.thaw()).
 func foreign_weights()
   var count: word = 0
   var s: word
+  var best: word
+  var after: word = 0
   for s = 0 until kernel.sym_count do
+    if is_foreign_variable(s) then
+      count += 1
+    end
+  end
+  for s = kernel.thaw_top until kernel.MAX_SYMS do
     if is_foreign_variable(s) then
       count += 1
     end
@@ -380,10 +404,22 @@ func foreign_weights()
   begin_record(R_WGT, 4 * count)
   for s = 0 until kernel.sym_count do
     if is_foreign_variable(s) then
-      kernel.put_word(stream, kernel.sym_obj[s])
-      kernel.put(stream, fbuf.NO_SLOT)
-      kernel.put(stream, kernel.sym_weight[s])
+      foreign_weight(s)
     end
+  end
+  loop
+    best = kernel.NO_SYM
+    for s = kernel.thaw_top until kernel.MAX_SYMS do
+      if is_foreign_variable(s) and kernel.sym_name[s] > after and
+          (best == kernel.NO_SYM or kernel.sym_name[s] < kernel.sym_name[best]) then
+        best = s
+      end
+    end
+    if best == kernel.NO_SYM then
+      break
+    end
+    foreign_weight(best)
+    after = kernel.sym_name[best]
   end
 end
 

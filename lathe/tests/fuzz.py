@@ -6,7 +6,8 @@ lathe/verify.sh: run it after changing how code is generated.
     python3 lathe/tests/fuzz.py stmt SEED COUNT [SIZE]
 
 Compiles and runs COUNT programs, made from the seeds SEED, SEED + 1, ... (so a failure can
-be made again), each of SIZE statements.
+be made again), each of SIZE statements (30 for `expr`, 15 for `stmt`: a `stmt` program of 30
+nested statements is a `main` larger than FBUF's 4 KB buffer, error 75).
 
 - `expr`: each statement is a random expression of one of the scalar types - arithmetic
   with `*`, `/` and `mod` among it, shifts by constants and by variables, conversions, comparisons, `and` `or` `not`, calls in arguments - assigned, returned,
@@ -867,7 +868,7 @@ def main(argv):
         return 2
     make = expression_program if argv[0] == 'expr' else statement_program
     first, count = int(argv[1]), int(argv[2])
-    size = int(argv[3]) if len(argv) > 3 else 30
+    size = int(argv[3]) if len(argv) > 3 else 30 if argv[0] == 'expr' else 15
     bad = 0
     for seed in range(first, first + count):
         text, want = make(seed, size)

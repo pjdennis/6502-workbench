@@ -1,4 +1,4 @@
-; error 165 209 7
+; error 165 107 3
 module inline_full
 var x: byte
 inline func f()

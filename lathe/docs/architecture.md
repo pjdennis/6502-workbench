@@ -64,17 +64,43 @@ Two rules keep this configurable:
 
 ## What stays in memory
 
-Because there is no syntax tree, memory holds only:
+Because there is no syntax tree, memory holds only tables, and each lives no longer than it must: the module's symbols and names for the whole module, the current function's symbols, names and instructions until the function ends, a string or a constant table until it is written. Source size is unlimited. The limits are the number of names a module has and imports, and the size of one function; both are raised by splitting a module.
 
-| Item | Lifetime | Estimate |
-|---|---|---|
-| Symbol heap: module-level names, types, imported interfaces | whole module | 8–16 KB |
-| Symbols of the current function | until the function ends, then released | under 1 KB |
-| Function buffer | until the function ends | 2–4 KB |
-| Saved tokens of `inline` functions | whole module | small (the host compiler keeps 4 KB, `inline.SAVED_SIZE`: about 20 bytes a line) |
-| Stream buffers | — | 256 bytes each |
+`lathe/tests/memory_report.py` counts every module-level array of the compiler's host modules as Lathe lays it out (2 bytes an element of a list, 1 of a `bytearray` or a list of `bool`; `test_memory.py` checks that the Lathe twins agree), adds the text memory, and with `--corpus` compiles every module under `lathe/src/`, `lathe/rt/` and `lathe/tests/cases/` and reports each table's peak use. Revised 2026-11-14 after that measurement:
 
-Source size is unlimited. The limits are the number of module-level names, and the size of one function. Both are raised by splitting a module.
+| Table | Owner | Rows × bytes | Bytes | Peak on the corpus | Why this size |
+|---|---|---|---|---|---|
+| Name heap: names, frozen imports | kernel | 12,800 × 1 | 12,800 | 11,923 (`regcmd`, 9 imports) | `reg.lth` 11,036. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function) |
+| Symbol columns | kernel | 384 × 17 | 6,528 | 295 (`reg.lth`) | own symbols, locals, and the imported symbols the module names |
+| Members (parameters, results) | kernel | 320 × 2 | 640 | 285 (`reg.lth`) | |
+| Name buckets, streams, modules | kernel | | 252 | | |
+| Text memory: file name, arguments, saved tokens | kernel | 4,096 × 1 | 4,096 | 3,383 (saved tokens 520 of 2,048) | host only: the Lathe twin has 1,024 until INLINE is ported |
+| String being read | lex | 2,048 × 1 | 2,048 | 2,048 | the language allows a 2,048-byte string |
+| Function buffer | fbuf | 4,096 × 1 | 4,096 | 3,357 (`kernel.lth`) | about 1.3 bytes an instruction byte |
+| Labels (offset, alias, uses / loop end, note) | fbuf | 192 × 6 | 1,152 | 115 | a label is one byte; `label_uses` is the loop ends once the layout is settled |
+| Weights of other functions' slots | fbuf | 64 × 4 | 261 | 23 | |
+| Constant table and its fix-ups | out | 2,048 + 256 × 8 | 4,096 | 600; 244 fix-ups (`err.MESSAGES`) | the language allows a 2,048-byte table |
+| Calls, class members | out | 64 × 5 + 64 × 4 | 576 | 56, 6 | |
+| Operand stack, frame, register state | reg | | 2,569 | slots 136 of 192 | locals below 128, then 64 temporaries |
+| Types | typetab | 64 × 7 + 16 × 3 | 496 | 35 | |
+| Initial values, stubs, saving calls | gen | | 920 | 22 inits of 32 | |
+| ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,408 | | |
+| **Total** | | | **42,023** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+
+What changed, and what each change saved:
+
+- **FBUF keeps no code.** It held a function as entries and then built `code` (4 KB) and five fix-up columns (8 KB) before OUT wrote them. Now `finish()` settles the branches and counts the code, the fix-ups and the weights in one walk of the entries; OUT walks them twice more (`walk_begin()`, `walk_next()`, one instruction at a time), once for the FIX record and once for the CODE record, which the object format wants in that order. Saved 12.8 KB. The buffer was then sized to its use (8 KB to 4 KB).
+- **Imports are frozen.** Reading an interface used to make every exported name a symbol: `reg` needed 578 symbols, 367 of them imported, of which it named 75. Now a module's types and inline functions are still entered as symbols when the interface is read (they are few, and their order and the type table's must not change), but each function, constant and variable is a *frozen entry* in the name heap: a name entry not yet in its hash bucket, on its module's list, whose symbol, token and following bytes hold the symbol's kind, flags, type, value and members (`kernel.freeze()`). `kernel.sym_find(module, name)`, which every `module.name` goes through, thaws an entry the first time it is named: the entry becomes the name, in its bucket, and the symbol is numbered down from the top of the table, so it outlives the function it was first named in. Later uses find it on the name's chain, or on the chain of the other entry of the same spelling when the name was made before the thaw. The cost of an import is now about 8 bytes plus the name per exported constant or variable (an import of `err`, 136 names: 2.8 KB, where it was 4.8 KB) and a symbol row only for what is named. `reg.lth` compiles with the real compiler: 295 symbols, 11 KB of names.
+- **Capacities sized to the corpus**, with a margin: symbols 512 to 384, members 1,024 to 320, labels 256 to 192, slots 256 to 192, types 128 to 64, initial values 64 to 32, saved tokens 4 KB to 2 KB, host text memory 16 KB to 4 KB.
+
+**The 20 KB budget is not met** (`test_memory.py` keeps the budget test as an expected failure, and fails if the total grows). What remains is the name text: every name a module has, and every name its imports export, frozen or not, about 16 bytes each. Sized by the twins: `reg` (1,196 lines of Python, 5 imports with 6.1 KB of interfaces) peaks at 11.0 KB of names and 295 symbols; `gen` has as many top-level names as `reg` and imports nine modules whose twins' interfaces hold 10.0 KB, so it would need about 15.5 KB of names and 500 symbols; `expr` (12 imports, about 12 KB of interfaces) about 16 KB and 480; `decl` about 16 KB and 360. At those sizes the tables would take about 48 KB, and the twins' test programs, whose code is 28 KB, would not fit the emulator's 60 KB, so the capacities are set by the corpus and the larger modules wait for one of these:
+
+- **Import only what is named.** Read the source once before compiling, collecting each `module.name`, and freeze only those entries (about half the name heap of `reg` or `gen`), at the cost of reading the source twice. An exported `inline` function's body can name what the importer does not, so the interface would have to list what each body names: a change to the interface format.
+- **Fewer exports.** The twins export what other modules use, and `err`'s 125 error numbers are a fifth of every importer's names: numbering errors by module, or passing a small number with a module prefix, would leave each module a few names.
+- **One heap for the name heap, the function buffer, the string and the constant table**, which are rarely all full at once: names growing up, the function buffer down, so that one module's many names and another's long function share the slack.
+- **Symbols as rows reached through a pointer**, not 384-row columns: the same memory, but `LDY #offset` / `LDA (row),Y` for each field where a column access now computes a 16-bit address (`kernel.thaw`, which fills a row, is 631 bytes of code; the twins of KERNEL and FBUF already reach the entries of the name heap and the function buffer through a pointer in the functions that read them most).
+- **Messages on disk.** `err`'s 122 message texts are 5.1 KB of constant data with their table; kept in a file read only when an error is reported, they would leave about 5 KB of code space.
+- **Stream buffers.** On the target each open stream needs a buffer (the emulator's host calls need none): the files open at once are the source, the object file and an interface (two while an interface brings in a module it names), so about 1 KB of text memory at 256 bytes each.
 
 ## Configurations
 

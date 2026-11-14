@@ -100,6 +100,40 @@ def symbols():
     nl()
 
 
+def frozen_name(text):
+    kernel.name_begin()
+    for c in text:
+        kernel.name_add(c)
+
+
+def frozen():
+    """Frozen symbols of module 3, thawed when they are found."""
+    n = name(b'count')
+    frozen_name(b'count')
+    kernel.freeze(3, kernel.K_CONST, kernel.SF_PUB, 5, 0x1234, 0, 0)
+    frozen_name(b'fun')
+    kernel.freeze(3, kernel.K_FUNC, kernel.SF_PUB, 0, 0, 1, 1)
+    kernel.freeze_member(1, 1)
+    kernel.freeze_member(3, 4)
+    put_word(kernel.name_top)
+    s, found = kernel.sym_find(3, n)
+    put_word(s)
+    put_hex(kernel.sym_type[s])
+    put_word(kernel.sym_value[s])
+    put_word(kernel.thaw_top)
+    put_word(kernel.sym_find(3, n)[0])
+    put_word(kernel.sym_find(3, name(b'count'))[0])
+    s, found = kernel.sym_find(3, name(b'fun'))
+    put_word(s)
+    put_hex(kernel.sym_params[s])
+    put_hex(kernel.member_value[kernel.sym_members[s] + 1])
+    s, found = kernel.sym_find(3, name(b'none'))
+    put_word(s)
+    if found:
+        env.put_byte(ord('?'))
+    nl()
+
+
 def streams(given, made):
     text, _ = lathec_support.put_text(TEXT, TEXT_AT)
     s = kernel.open_memory(text, text + 3)
@@ -176,8 +210,14 @@ def main():
         kernel.path_begin()
         while True:
             kernel.path_add(ord('x'))
+    elif env.mem[mode] == ord('u'):
+        frozen_name(b'twice')
+        kernel.freeze(3, kernel.K_CONST, kernel.SF_PUB, 1, 0, 0, 0)
+        frozen_name(b'twice')
+        kernel.freeze(3, kernel.K_VAR, kernel.SF_PUB, 1, 0, 0, 0)
     names()
     symbols()
+    frozen()
     streams(given, made)
     paths(given)
     env.exit(0)
@@ -233,6 +273,9 @@ class KernelTest(unittest.TestCase):
 
     def test_a_path_too_long(self):
         self.assertEqual(self.check('p'), 1)
+
+    def test_a_name_frozen_twice(self):
+        self.assertEqual(self.check('u'), 1)
 
 
 if __name__ == '__main__':

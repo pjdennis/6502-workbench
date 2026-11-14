@@ -57,3 +57,18 @@ def records(path):
         found.append((data[at], data[at + 3:at + 3 + size]))
         at += 3 + size
     return found
+
+
+def finished():
+    """What FBUF finished, walked as OUT walks it: (code bytes, [fix-ups as (offset, kind, symbol,
+    slot, addend)])."""
+    import fbuf
+    code, fixes = bytearray(), []
+    fbuf.walk_begin()
+    while fbuf.walk_next():
+        if fbuf.piece_fixed:
+            fixes.append((fbuf.fix_offset, fbuf.fix_kind, fbuf.fix_symbol, fbuf.fix_slot,
+                          fbuf.fix_addend))
+        code += bytes(fbuf.piece[i] for i in range(fbuf.piece_length))
+    assert len(code) == fbuf.code_length and len(fixes) == fbuf.fix_count
+    return bytes(code), fixes

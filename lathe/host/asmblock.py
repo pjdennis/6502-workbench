@@ -266,7 +266,7 @@ X_LABEL = 2         # x_value: the block's label
 X_ADDRESS = 3       # an address the linker fills in: x_symbol, x_slot, and x_value the addend
 
 NO_STORAGE = 0xFFFF
-VARIABLE_STORAGE = reg.SLOTS    # a storage number below this is a slot; from it on, a variable
+VARIABLE_STORAGE = 256          # a storage number below this is a slot (one byte); from it on, a variable
 
 # Set by name_operand()
 found_value = 0         # X_NUMBER: the number

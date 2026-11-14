@@ -4,8 +4,10 @@ Owns the instructions of the function being compiled, from begin() to finish(). 
 with their operands still symbolic, because two things are not known until the function ends:
 how far each forward branch has to go, and so which branches need the long form.
 
-finish() settles the branches and leaves, for OUT to write, the function's code in the
-written layout of docs/object-format.md and its fix-ups in order of offset:
+finish() settles the branches and counts the code and the fix-ups. The code is not kept: OUT
+walks the buffer twice (walk_begin(), walk_next()), once for the fix-ups and once for the code,
+and writes each instruction as it is made. That gives the function's code in the written layout
+of docs/object-format.md and its fix-ups in order of offset:
 - an operand that is an address to be filled in is written as zero bytes with a fix-up; an
   instruction that may later shrink to its zero page form is written in its absolute form;
 - a branch is written with its final displacement, or, if its target is too far, as the
@@ -20,7 +22,8 @@ written layout of docs/object-format.md and its fix-ups in order of offset:
   adds to a weight in a small table (weight_*) that OUT writes as a WGT record: its own module
   counts the uses of a slot only in the function it belongs to. A use adds 1, 4, 16 or 64 by
   how many loops it is inside, as REG counts (docs/codegen.md, "Weights"); a loop here is the
-  code from a label back to the last branch or jump that goes back to it.
+  code from a label back to the last branch or jump that goes back to it. The weights are
+  counted by finish(), so they are known when the records are written.
 
 Small improvements are made as the instructions arrive, because each needs only the newest
 entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
@@ -33,10 +36,11 @@ compact because it is the largest thing the compiler keeps in memory on the targ
 """
 import err
 
-BUFFER_SIZE = 8192          # bytes of entries
+BUFFER_SIZE = 4096          # bytes of entries
 MAX_CODE = 4096            # bytes of code in one function
-MAX_LABELS = 256            # a label's number is stored in one byte
-MAX_FIXUPS = 1024
+MAX_LABELS = 192            # a label's number is stored in one byte
+MAX_FIXUPS = 512            # fix-ups of one function
+PIECE_SIZE = 5              # bytes of code one entry can become: a branch round a JMP
 MAX_WEIGHTS = 64            # slots of other functions one function uses; more are not counted
 LOOP_WEIGHTS = b"\x01\x04\x10\x40"     # what one use adds, by how many loops it is inside
 
@@ -78,21 +82,26 @@ unreached = False                       # True while the entry being made is bei
 kept = UNPLACED                         # an entry an `asm` block wrote last: never a tail call
 written = False                         # True while an `asm` block is written: kept as it is
 label_offset = [0] * MAX_LABELS         # where each label is in the written layout
-label_alias = [0] * MAX_LABELS          # the label this one was joined to, or itself
+label_alias = bytearray(MAX_LABELS)          # the label this one was joined to, or itself
 label_uses = [0] * MAX_LABELS           # how many branches and jumps go to it
 label_note = bytearray(MAX_LABELS)      # kept for REG: what it knows of the ways to it
 label_count = 0
 temp_base = 0                           # the slot number the first temporary gets
 
-code = bytearray(MAX_CODE)
-code_length = 0
-fix_offset = [0] * MAX_FIXUPS
-fix_kind = [0] * MAX_FIXUPS
-fix_symbol = [0] * MAX_FIXUPS
-fix_slot = [0] * MAX_FIXUPS
-fix_addend = [0] * MAX_FIXUPS
+own = 0                                 # the object-file symbol of the function being finished
+code_length = 0                         # bytes of code it has, and fix-ups
 fix_count = 0
-loop_end = [0] * MAX_LABELS             # a label: the offset after the last branch back to it, or 0
+counting = False                        # True while finish() counts: weights are counted then
+walk_entry = 0                          # the entry walk_next() makes the piece of next
+offset_now = 0                          # the offset in the code of the next byte of the piece
+piece = bytearray(PIECE_SIZE)           # the code of one instruction, and its one fix-up
+piece_length = 0
+piece_fixed = False
+fix_offset = 0
+fix_kind = 0
+fix_symbol = 0
+fix_slot = 0
+fix_addend = 0
 weight_symbol = [0] * MAX_WEIGHTS       # the uses of other functions' slots, by slot
 weight_slot = bytearray(MAX_WEIGHTS)
 weight_value = bytearray(MAX_WEIGHTS)
@@ -447,9 +456,11 @@ def has_zero_page_form(opcode):
 
 
 def find_loops():
-    """loop_end of every label that a branch or jump goes back to."""
+    """The end of every loop: for each label that a branch or jump goes back to, the offset
+    after the last such branch, in label_uses, which are not needed once the layout is settled;
+    0 for a label that no branch goes back to."""
     for label in range(0, label_count):
-        loop_end[label] = 0
+        label_uses[label] = 0
     entry = 0
     offset = 0
     while entry < used:
@@ -461,7 +472,7 @@ def find_loops():
         elif kind == I_JUMP or kind == I_KEPT_JUMP:
             label = same(buffer[entry + 1])
         if label != UNPLACED and label_offset[label] <= offset:
-            loop_end[label] = offset + size
+            label_uses[label] = offset + size
         offset += size
         entry += entry_size(kind)
 
@@ -470,7 +481,7 @@ def use_weight(offset):
     """What a use by the instruction at `offset` adds, by how many loops it is inside."""
     depth = 0
     for label in range(0, label_count):
-        if label_offset[label] <= offset and offset < loop_end[label]:
+        if label_offset[label] <= offset and offset < label_uses[label]:
             depth += 1
     if depth > 3:
         depth = 3
@@ -497,30 +508,30 @@ def count_use(symbol, slot, offset):
 
 
 def emit(value):
-    global code_length
-    code[code_length] = value
-    code_length += 1
+    """A byte of the piece being made."""
+    global piece_length, offset_now
+    piece[piece_length] = value
+    piece_length += 1
+    offset_now += 1
 
 
 def fix(kind, symbol, slot, addend):
-    """Note a fix-up for the operand about to be emitted."""
-    global fix_count
-    if fix_count == MAX_FIXUPS:
-        err.fatal(err.E_FIXUPS_FULL)
-    fix_offset[fix_count] = code_length
-    fix_kind[fix_count] = kind
-    fix_symbol[fix_count] = symbol
-    fix_slot[fix_count] = slot
-    fix_addend[fix_count] = addend
-    fix_count += 1
+    """Note a fix-up for the operand about to be emitted: the piece's one fix-up."""
+    global piece_fixed, fix_offset, fix_kind, fix_symbol, fix_slot, fix_addend
+    piece_fixed = True
+    fix_offset = offset_now
+    fix_kind = kind
+    fix_symbol = symbol
+    fix_slot = slot
+    fix_addend = addend
 
 
-def emit_jump(own, goal):
-    """JMP to offset `goal` of this function, whose symbol is `own`."""
-    emit_to(OP_JMP, own, goal)
+def emit_jump(goal):
+    """JMP to offset `goal` of this function."""
+    emit_to(OP_JMP, goal)
 
 
-def emit_to(opcode, own, goal):
+def emit_to(opcode, goal):
     """JMP or JSR to offset `goal` of this function, whose symbol is `own`."""
     emit(opcode)
     fix(FIX_ADDRESS, own, NO_SLOT, goal)
@@ -528,23 +539,23 @@ def emit_to(opcode, own, goal):
     emit(0)
 
 
-def emit_entry(entry, own):
-    """The code of the entry that starts at buffer[entry]."""
+def emit_entry(entry):
+    """The code of the entry that starts at buffer[entry], as the piece."""
     kind = buffer[entry]
     if kind == I_LABEL:
         return
     if kind == I_JUMP or kind == I_KEPT_JUMP:
-        emit_jump(own, target(buffer[entry + 1]))
+        emit_jump(target(buffer[entry + 1]))
         return
     if kind == I_CALL:
-        emit_to(OP_JSR, own, target(buffer[entry + 1]))
+        emit_to(OP_JSR, target(buffer[entry + 1]))
         return
     opcode = buffer[entry + 1]
     if kind == I_FAR:
         if opcode != OP_BRA:
             emit(opcode ^ OPPOSITE)
             emit(3)
-        emit_jump(own, target(buffer[entry + 2]))
+        emit_jump(target(buffer[entry + 2]))
         return
     emit(opcode)
     if kind == I_BYTE:
@@ -553,7 +564,7 @@ def emit_entry(entry, own):
         emit(buffer[entry + 2])
         emit(buffer[entry + 3])
     elif kind == I_BRANCH:
-        emit((target(buffer[entry + 2]) - (code_length + 1)) & 0xFF)
+        emit((target(buffer[entry + 2]) - (offset_now + 1)) & 0xFF)
     elif kind > I_FIX:
         symbol = buffer[entry + 2] | (buffer[entry + 3] << 8)
         slot = buffer[entry + 4]
@@ -562,18 +573,43 @@ def emit_entry(entry, own):
         part = kind - I_FIX
         if part == FIX_ADDRESS and has_zero_page_form(opcode):
             part = FIX_SHRINKS
-            if symbol != own and slot != NO_SLOT:
-                count_use(symbol, slot, code_length - 1)
+            if counting and symbol != own and slot != NO_SLOT:
+                count_use(symbol, slot, offset_now - 1)
         fix(part, symbol, slot, buffer[entry + 5] | (buffer[entry + 6] << 8))
         emit(0)
         if kind == I_FIX + FIX_ADDRESS:
             emit(0)
 
 
-def finish(own, base):
-    """End the function, whose object-file symbol is `own`: settle its branches and build
-    `code` and the fix-ups. Its temporaries get the slot numbers from `base` on."""
-    global code_length, fix_count, temp_base, weight_count
+def walk_begin():
+    """Go back to the first instruction of the finished function."""
+    global walk_entry, offset_now
+    walk_entry = 0
+    offset_now = 0
+
+
+def walk_next():
+    """Make the code of the next instruction the piece: piece_length bytes of `piece`, and if
+    piece_fixed, its fix-up (fix_offset, fix_kind, fix_symbol, fix_slot, fix_addend). False when
+    no instruction is left."""
+    global walk_entry, piece_length, piece_fixed
+    while walk_entry < used:
+        piece_length = 0
+        piece_fixed = False
+        emit_entry(walk_entry)
+        walk_entry += entry_size(buffer[walk_entry])
+        if piece_length != 0:
+            return True
+    return False
+
+
+def finish(symbol, base):
+    """End the function, whose object-file symbol is `symbol`: settle its branches, and count
+    its code, its fix-ups and the weights it gives other functions' slots. OUT then walks it
+    (walk_begin(), walk_next()) for the fix-ups and again for the code. Its temporaries get the
+    slot numbers from `base` on."""
+    global code_length, fix_count, temp_base, weight_count, own, counting
+    own = symbol
     temp_base = base
     thread()
     while True:
@@ -583,10 +619,14 @@ def finish(own, base):
     if size > MAX_CODE:
         err.fatal(err.E_FUNC_BIG)
     find_loops()
-    code_length = 0
+    code_length = size
     fix_count = 0
     weight_count = 0
-    entry = 0
-    while entry < used:
-        emit_entry(entry, own)
-        entry += entry_size(buffer[entry])
+    counting = True
+    walk_begin()
+    while walk_next():
+        if piece_fixed:
+            if fix_count == MAX_FIXUPS:
+                err.fatal(err.E_FIXUPS_FULL)
+            fix_count += 1
+    counting = False

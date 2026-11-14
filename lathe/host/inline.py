@@ -38,7 +38,7 @@ import reg
 import src
 import typetab
 
-SAVED_SIZE = 4096           # bytes of saved tokens in one module
+SAVED_SIZE = 2048           # bytes of saved tokens in one module
 MAX_DEPTH = 6               # inline calls inside inline calls: below src.MAX_SOURCES
 MAX_LOCALS = 32             # names of locals one body can declare
 MAX_OWNED = 64              # slots of the caller's frame the expansions under way own
@@ -443,6 +443,11 @@ def lookup(name):
     while s != kernel.NO_SYM and kernel.sym_scope[s] != scope and kernel.sym_scope[s] != home \
             and kernel.sym_scope[s] != kernel.SCOPE_PREDECLARED:
         s = kernel.sym_link[s]
+    if home != kernel.SCOPE_MODULE and (s == kernel.NO_SYM or kernel.sym_scope[s] == kernel.SCOPE_PREDECLARED):
+        # An imported module's symbol may be frozen, or thawed under another entry of the name.
+        t, found = kernel.sym_find(home, name)
+        if found:
+            s = t
     if s != kernel.NO_SYM and kernel.sym_kind[s] == K_ALIAS:
         s = kernel.sym_value[s]
     return s, s != kernel.NO_SYM

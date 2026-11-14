@@ -59,7 +59,7 @@ C_SPACE = 0x20
 C_DOLLAR = 0x24
 C_ZERO = 0x30
 
-MAX_INITS = 64
+MAX_INITS = 32
 INIT_FLUSH = 32         # DECL writes the list out between declarations when it is this long
 MAX_STUBS = 16          # pointers called through in one function
 MAX_ARGUMENTS = 32      # arguments of saving calls waiting in temporaries
@@ -109,7 +109,7 @@ argument_slot = [0] * MAX_ARGUMENTS # the temporaries the arguments of saving ca
 argument_count = 0
 held_operand = [0] * MAX_HELD       # the operands of those arguments, oldest first
 held_count = 0
-saved_slot = [0] * reg.SLOTS        # the slots a saving call pushes, in order
+saved_slot = bytearray(reg.SLOTS)       # the slots a saving call pushes, in order
 saved_count = 0
 frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and rt_frame.pop_y, once used
 frame_pop = kernel.NO_OBJ

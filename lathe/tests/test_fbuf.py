@@ -22,13 +22,12 @@ def nops(n):
 
 def code():
     fbuf.finish(OWN, 0)
-    return bytes(fbuf.code[i] for i in range(fbuf.code_length))
+    return support.finished()[0]
 
 
 def fixups():
     """The fix-ups as (offset, kind, symbol, slot, addend)."""
-    return [(fbuf.fix_offset[i], fbuf.fix_kind[i], fbuf.fix_symbol[i], fbuf.fix_slot[i],
-             fbuf.fix_addend[i]) for i in range(fbuf.fix_count)]
+    return support.finished()[1]
 
 
 class FbufTest(unittest.TestCase):
@@ -624,9 +623,9 @@ class CapacityTest(FbufTest):
             fbuf.finish(OWN, 0)
         self.assertFatal(err.E_FUNC_BIG, fill)
 
-    def test_a_function_can_fill_the_code_buffer(self):
-        nops(fbuf.MAX_CODE)
-        self.assertEqual(len(code()), fbuf.MAX_CODE)
+    def test_a_function_can_fill_the_buffer(self):
+        nops(fbuf.BUFFER_SIZE // 2)
+        self.assertEqual(len(code()), fbuf.BUFFER_SIZE // 2)
 
     def test_a_function_with_too_many_instructions_is_error_75(self):
         def fill():

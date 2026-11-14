@@ -58,6 +58,14 @@ ENDING = b".li"
 directory = [0] * MAX_DIRS      # pointers to the names of the directories to look in, in order
 directory_count = 0
 
+# The entry being read, until it is frozen (kernel.freeze()): its name, and its members
+MAX_ENTRY_MEMBERS = 64
+entry_name = bytearray(kernel.MAX_NAME)
+entry_length = 0
+entry_type = bytearray(MAX_ENTRY_MEMBERS)
+entry_register = bytearray(MAX_ENTRY_MEMBERS)
+entry_members = 0
+
 # ---- Predeclared names -------------------------------------------------------------------
 
 REGISTERS = b"a x y ax ay xy c "            # in the order of gen.REG_A to gen.REG_C
@@ -350,46 +358,103 @@ def read_signature(stream, s):
     kernel.sym_results[s] = read_members(stream)
 
 
+def read_entry_name(stream):
+    """The name of an entry, which is not made a name yet: its characters are kept in
+    entry_name, the first kernel.MAX_NAME of them, as a name keeps them."""
+    global entry_length
+    length, _ = kernel.get(stream)
+    entry_length = 0
+    for i in range(0, length):
+        ch, _ = kernel.get(stream)
+        if entry_length < kernel.MAX_NAME:
+            entry_name[entry_length] = ch
+            entry_length += 1
+
+
+def entry_name_begin():
+    """Build the entry's name in the name heap (kernel.name_begin())."""
+    kernel.name_begin()
+    for i in range(0, entry_length):
+        kernel.name_add(entry_name[i])
+
+
+def read_entry_members(stream):
+    """Read parameters or results into the entry's members. Returns how many."""
+    global entry_members
+    count, _ = kernel.get(stream)
+    for i in range(0, count):
+        if entry_members == MAX_ENTRY_MEMBERS:
+            err.fatal(err.E_MEMBERS_FULL)
+        entry_type[entry_members] = read_type(stream)
+        register, _ = kernel.get(stream)
+        entry_register[entry_members] = register
+        entry_members += 1
+    return count
+
+
+def freeze(scope, kind, flags, t, value, params, results):
+    """The entry read becomes a frozen symbol of module `scope` (kernel.freeze())."""
+    entry_name_begin()
+    kernel.freeze(scope, kind, flags, t, value, params, results)
+    for i in range(0, entry_members):
+        kernel.freeze_member(entry_type[i], entry_register[i])
+
+
 def read_function(stream, scope):
-    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_FUNC)
+    """A function entry: frozen, unless it is `inline`, whose saved tokens are read now."""
+    global entry_members
+    read_entry_name(stream)
     flags, _ = kernel.get(stream)
-    kernel.sym_flags[s] = kernel.SF_PUB
-    if flags & LI_EXTERN != 0:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_EXTERN
-        kernel.sym_value[s] = kernel.get_word(stream)
-    if flags & LI_ASM != 0:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_ASM
-    if flags & LI_RECURSIVE != 0:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_RECURSIVE
-    read_signature(stream, s)
     if flags & LI_INLINE != 0:
+        entry_name_begin()
+        s = kernel.sym_add(scope, kernel.name_end(), kernel.K_FUNC)
         kernel.sym_flags[s] = kernel.SF_PUB | inline.SF_INLINE
+        read_signature(stream, s)
         inline.read(stream, s)
+        return
+    symbol_flags = kernel.SF_PUB
+    value = 0
+    if flags & LI_EXTERN != 0:
+        symbol_flags = kernel.SF_PUB | kernel.SF_EXTERN
+        value = kernel.get_word(stream)
+    if flags & LI_ASM != 0:
+        symbol_flags = kernel.SF_PUB | kernel.SF_ASM
+    if flags & LI_RECURSIVE != 0:
+        symbol_flags = kernel.SF_PUB | kernel.SF_RECURSIVE
     if flags & LI_INTERRUPT != 0:
-        kernel.sym_flags[s] = kernel.SF_PUB | inline.SF_INTERRUPT
+        symbol_flags = kernel.SF_PUB | inline.SF_INTERRUPT
+    entry_members = 0
+    params = read_entry_members(stream)
+    results = read_entry_members(stream)
+    freeze(scope, kernel.K_FUNC, symbol_flags, 0, value, params, results)
 
 
 def read_constant(stream, scope):
-    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_CONST)
-    kernel.sym_flags[s] = kernel.SF_PUB
-    kernel.sym_type[s] = read_type(stream)
-    kernel.sym_value[s] = kernel.get_word(stream)
+    global entry_members
+    read_entry_name(stream)
+    t = read_type(stream)
+    entry_members = 0
+    freeze(scope, kernel.K_CONST, kernel.SF_PUB, t, kernel.get_word(stream), 0, 0)
 
 
 def read_variable(stream, scope):
-    s = kernel.sym_add(scope, inline.read_name(stream), kernel.K_VAR)
-    kernel.sym_type[s] = read_type(stream)
+    global entry_members
+    read_entry_name(stream)
+    t = read_type(stream)
     placement, _ = kernel.get(stream)
-    kernel.sym_flags[s] = kernel.SF_PUB
+    symbol_flags = kernel.SF_PUB
+    value = 0
     if placement == LI_AT:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_AT
-        kernel.sym_value[s] = kernel.get_word(stream)
+        symbol_flags = kernel.SF_PUB | kernel.SF_AT
+        value = kernel.get_word(stream)
     elif placement == LI_ZP:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_ZP
+        symbol_flags = kernel.SF_PUB | kernel.SF_ZP
     elif placement == LI_NOZP:
-        kernel.sym_flags[s] = kernel.SF_PUB | kernel.SF_NOZP
+        symbol_flags = kernel.SF_PUB | kernel.SF_NOZP
     elif placement != 0:
         err.fatal(err.E_BAD_INTERFACE)
+    entry_members = 0
+    freeze(scope, kernel.K_VAR, symbol_flags, t, value, 0, 0)
 
 
 def imported_module(stream, scope):

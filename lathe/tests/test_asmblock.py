@@ -109,9 +109,8 @@ class AsmTest(unittest.TestCase):
         self.calls = [out.call_callee[i] for i in range(out.call_count)]
         self.after_block()
         gen.function_end(0)
-        self.fixups = [(fbuf.fix_offset[i], fbuf.fix_kind[i], fbuf.fix_symbol[i], fbuf.fix_slot[i],
-                        fbuf.fix_addend[i]) for i in range(fbuf.fix_count)]
-        return bytes(fbuf.code[i] for i in range(fbuf.code_length))
+        code, self.fixups = support.finished()
+        return code
 
     def after_block(self):
         pass
@@ -371,7 +370,7 @@ class LabelTest(AsmTest):
         lex.next()
         asmblock.block()
         gen.function_end(0)
-        self.assertEqual(bytes(fbuf.code[:fbuf.code_length]), b'\xd0\xfe\xd0\xfe\x60')
+        self.assertEqual(support.finished()[0], b'\xd0\xfe\xd0\xfe\x60')
 
     def test_an_undefined_label_is_error_142_at_its_first_use(self):
         self.fails(b'  NOP\n  BNE .gone\n  BEQ .gone\n', err.E_ASM_NO_LABEL, 3, 7)

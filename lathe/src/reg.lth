@@ -108,7 +108,7 @@ pub var owner: word = NONE      ; the operand that is O_A or O_AX, if there is o
 ; ---- The frame ---------------------------------------------------------------------------
 
 const MAX_TEMPS = 64
-pub const SLOTS = 256           ; slot numbers are one byte
+pub const SLOTS = 192           ; parameters and locals below fbuf.FIRST_TEMP, then MAX_TEMPS temporaries
 const WEIGHTS: [4]byte = [$01, $04, $10, $40]   ; what one use adds, by how many loops it is inside
 
 pub const CLASS_ZP = 0          ; slot and variable classes (docs/object-format.md)
@@ -619,9 +619,12 @@ pub func unaliased(i: byte, target: byte, keep: bool)
   end
 end
 
-; Operand `i` is a temporary or a slot of this function, which must be in zero page.
+; Operand `i` is a temporary or a slot of this function, which must be in zero page (or
+; a variable, NO_SLOT, which has no slot to mark: the test scripts make one).
 pub func zero_page(i: byte)
-  slot_class[op_slot[i]] = CLASS_ZP
+  if op_slot[i] != fbuf.NO_SLOT then
+    slot_class[op_slot[i]] = CLASS_ZP
+  end
   op_flags[i] = op_flags[i] | F_ZP
 end
 

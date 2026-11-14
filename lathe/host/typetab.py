@@ -15,7 +15,7 @@ Python's own module of that name from everything else on the path.
 """
 import err
 
-MAX_TYPES = 128
+MAX_TYPES = 64
 
 NO_TYPE = 0                # no type
 BYTE_TYPE = 1
@@ -36,7 +36,7 @@ FORM_RECORD = 4         # base: the symbol of the type that declares it; size: o
 FORM_ENUM = 5           # base: the same. One byte
 FORM_FUNC = 6           # base: the same; length: 1 if declared `recursive`, else 0. Two bytes
 
-form = [0] * MAX_TYPES
+form = bytearray(MAX_TYPES)
 base_type = [0] * MAX_TYPES
 type_length = [0] * MAX_TYPES
 type_size = [0] * MAX_TYPES
@@ -45,7 +45,7 @@ count = FIRST_MADE
 # A type written as prefixes, `^` and `[n]`, before what they apply to is built from the inside
 # out: the prefixes wait here, and build() applies them.
 MAX_PREFIXES = 16
-prefix_form = [0] * MAX_PREFIXES
+prefix_form = bytearray(MAX_PREFIXES)
 prefix_length = [0] * MAX_PREFIXES
 prefix_count = 0
 

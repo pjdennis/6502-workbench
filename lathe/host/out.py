@@ -60,7 +60,7 @@ C_DOT = 0x2E
 stream = 0
 symbol_count = 0
 call_callee = [0] * MAX_CALLS
-call_flags = [0] * MAX_CALLS
+call_flags = bytearray(MAX_CALLS)
 call_outer = [0] * MAX_CALLS
 call_count = 0
 member_class = [0] * MAX_MEMBERS    # the MEMB records written, so that each is written once
@@ -68,9 +68,9 @@ member_function = [0] * MAX_MEMBERS
 member_count = 0
 table = bytearray(MAX_TABLE)        # a constant table: its bytes, and its fix-ups, until it ends
 table_fix_offset = [0] * MAX_TABLE_FIXES
-table_fix_kind = [0] * MAX_TABLE_FIXES
+table_fix_kind = bytearray(MAX_TABLE_FIXES)
 table_fix_symbol = [0] * MAX_TABLE_FIXES
-table_fix_slot = [0] * MAX_TABLE_FIXES
+table_fix_slot = bytearray(MAX_TABLE_FIXES)
 table_fix_addend = [0] * MAX_TABLE_FIXES
 table_fix_count = 0
 
@@ -272,19 +272,25 @@ def calls():
 
 
 def fixups():
+    """The FIX record of the function FBUF finished: a walk of its instructions."""
     begin_record(R_FIX, 8 * fbuf.fix_count)
-    for i in range(0, fbuf.fix_count):
-        kernel.put_word(stream, fbuf.fix_offset[i])
-        kernel.put(stream, fbuf.fix_kind[i])
-        kernel.put_word(stream, fbuf.fix_symbol[i])
-        kernel.put(stream, fbuf.fix_slot[i])
-        kernel.put_word(stream, fbuf.fix_addend[i])
+    fbuf.walk_begin()
+    while fbuf.walk_next():
+        if fbuf.piece_fixed:
+            kernel.put_word(stream, fbuf.fix_offset)
+            kernel.put(stream, fbuf.fix_kind)
+            kernel.put_word(stream, fbuf.fix_symbol)
+            kernel.put(stream, fbuf.fix_slot)
+            kernel.put_word(stream, fbuf.fix_addend)
 
 
 def code():
+    """Its CODE record: a second walk."""
     begin_record(R_CODE, fbuf.code_length)
-    for i in range(0, fbuf.code_length):
-        kernel.put(stream, fbuf.code[i])
+    fbuf.walk_begin()
+    while fbuf.walk_next():
+        for i in range(0, fbuf.piece_length):
+            kernel.put(stream, fbuf.piece[i])
 
 
 def weights():
@@ -314,11 +320,22 @@ def is_foreign_variable(s):
         and kernel.sym_weight[s] != 0
 
 
+def foreign_weight(s):
+    """The weight of variable `s` in the WGT record."""
+    kernel.put_word(stream, kernel.sym_obj[s])
+    kernel.put(stream, fbuf.NO_SLOT)
+    kernel.put(stream, kernel.sym_weight[s])
+
+
 def foreign_weights():
     """A WGT record of the weight this module's uses gave the variables of other modules, if
-    it used any."""
+    it used any: in the order their modules' interfaces declare them. A thawed symbol's name
+    is its frozen entry, and the entries were made in that order (kernel.thaw())."""
     count = 0
     for s in range(0, kernel.sym_count):
+        if is_foreign_variable(s):
+            count += 1
+    for s in range(kernel.thaw_top, kernel.MAX_SYMS):
         if is_foreign_variable(s):
             count += 1
     if count == 0:
@@ -326,9 +343,18 @@ def foreign_weights():
     begin_record(R_WGT, 4 * count)
     for s in range(0, kernel.sym_count):
         if is_foreign_variable(s):
-            kernel.put_word(stream, kernel.sym_obj[s])
-            kernel.put(stream, fbuf.NO_SLOT)
-            kernel.put(stream, kernel.sym_weight[s])
+            foreign_weight(s)
+    after = 0
+    while True:
+        best = kernel.NO_SYM
+        for s in range(kernel.thaw_top, kernel.MAX_SYMS):
+            if is_foreign_variable(s) and kernel.sym_name[s] > after \
+                    and (best == kernel.NO_SYM or kernel.sym_name[s] < kernel.sym_name[best]):
+                best = s
+        if best == kernel.NO_SYM:
+            break
+        foreign_weight(best)
+        after = kernel.sym_name[best]
 
 
 def end_module():

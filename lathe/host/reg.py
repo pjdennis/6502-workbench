@@ -58,18 +58,18 @@ F_WRAPS = 16            # a number below 0 that `~` or unary `-` made of a numbe
 
 INDEX = MAX_OPERANDS + 1                # entry i + INDEX describes the index of operand i
 ENTRIES = 2 * INDEX                     # one more than the stack, for swap(), and their indexes
-op_kind = [0] * ENTRIES
-op_type = [0] * ENTRIES
+op_kind = bytearray(ENTRIES)
+op_type = bytearray(ENTRIES)
 op_size = [0] * ENTRIES                 # bytes it really has: a byte widened to a word has 1,
 #                                         and the bytes above read as 0
 op_value = [0] * ENTRIES
 op_symbol = [0] * ENTRIES
-op_slot = [0] * ENTRIES
-op_flags = [0] * ENTRIES
+op_slot = bytearray(ENTRIES)
+op_flags = bytearray(ENTRIES)
 op_var = [0] * ENTRIES                  # the kernel symbol whose weight a use adds to, or NO_SYM
 op_true = [0] * ENTRIES
 op_false = [0] * ENTRIES
-op_mode = [0] * ENTRIES
+op_mode = bytearray(ENTRIES)
 op_stride = [0] * ENTRIES
 depth = 0               # operands on the stack; the newest is depth - 1
 owner = NONE            # the operand that is O_A or O_AX, if there is one
@@ -77,7 +77,7 @@ owner = NONE            # the operand that is O_A or O_AX, if there is one
 # ---- The frame ---------------------------------------------------------------------------
 
 MAX_TEMPS = 64
-SLOTS = 256             # slot numbers are one byte
+SLOTS = 192             # parameters and locals below fbuf.FIRST_TEMP, then MAX_TEMPS temporaries
 WEIGHTS = b"\x01\x04\x10\x40"           # what one use adds, by how many loops it is inside
 
 CLASS_ZP = 0            # slot and variable classes (docs/object-format.md)
@@ -88,9 +88,9 @@ SLOT_LOCAL = 1
 SLOT_TEMPORARY = 2
 
 slot_size = [0] * SLOTS
-slot_class = [0] * SLOTS
-slot_weight = [0] * SLOTS
-slot_kind = [0] * SLOTS
+slot_class = bytearray(SLOTS)
+slot_weight = bytearray(SLOTS)
+slot_kind = bytearray(SLOTS)
 slot_name = [0] * SLOTS
 slot_busy = [False] * SLOTS             # a temporary: in use
 local_count = 0         # parameters and locals
@@ -113,10 +113,10 @@ COPY_COUNT = 2                      # how many bytes of memory a register is rem
 # hold on every way to a label still to be placed that has been branched to so far.
 STATES = 9
 reg_known = [False] * (3 * STATES)          # entry 3 * state + r: register r holds the
-reg_const = [0] * (3 * STATES)              # constant reg_const
+reg_const = bytearray((3 * STATES))              # constant reg_const
 reg_copy = [False] * (3 * COPY_COUNT * STATES)  # entry (3 * state + r) * COPY_COUNT + n: register r
 reg_symbol = [0] * (3 * COPY_COUNT * STATES)    # holds a copy of the byte of memory that the fix-up
-reg_slot = [0] * (3 * COPY_COUNT * STATES)      # reg_symbol, reg_slot, reg_offset reaches. The newest
+reg_slot = bytearray((3 * COPY_COUNT * STATES))      # reg_symbol, reg_slot, reg_offset reaches. The newest
 reg_offset = [0] * (3 * COPY_COUNT * STATES)    # of a register's entries is its first
 state_busy = [False] * STATES
 NOTHING = 0                     # as fbuf.label_note: no way to the label is known yet;
@@ -538,8 +538,10 @@ def unaliased(i, target, keep):
 
 
 def zero_page(i):
-    """Operand `i` is a temporary or a slot of this function, which must be in zero page."""
-    slot_class[op_slot[i]] = CLASS_ZP
+    """Operand `i` is a temporary or a slot of this function, which must be in zero page (or
+    a variable, NO_SLOT, which has no slot to mark: the test scripts make one)."""
+    if op_slot[i] != fbuf.NO_SLOT:
+        slot_class[op_slot[i]] = CLASS_ZP
     op_flags[i] = op_flags[i] | F_ZP
 
 

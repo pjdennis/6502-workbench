@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lathec_support as support  # noqa: E402
+import gen  # noqa: E402
 
 END, MOD, IMP, SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF, CLAS, MEMB, WGT = 0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15
 HOST_LTH = os.path.join(support.LATHE, 'rt', 'host.lth')
@@ -297,10 +298,11 @@ class RecordsTest(CompileTest):
                          [b'\x20\x00\x00\xff\xff', b'\x41\x00\x00\xff\xff'])
 
     def test_too_many_initial_values_in_one_function_is_error_86(self):
-        text = 'module full\nfunc f()\n' + ''.join('  static var v%d: byte = 1\n' % i for i in range(65)) + 'end\n'
+        n = gen.MAX_INITS + 1
+        text = 'module full\nfunc f()\n' + ''.join('  static var v%d: byte = 1\n' % i for i in range(n)) + 'end\n'
         status, errors = support.run_lathec(self.source('full.lth', text), self.out)
         self.assertEqual(status, 1)
-        self.assertRegex(errors, r'full\.lth:67:\d+: error 86: too many initial values\n$')
+        self.assertRegex(errors, r'full\.lth:%d:\d+: error 86: too many initial values\n$' % (n + 2))
 
     def test_too_many_locals_is_error_85(self):
         text = 'module wide\nfunc f()\n' + ''.join('  var v%d: byte\n' % i for i in range(129)) + 'end\n'

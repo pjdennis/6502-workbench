@@ -58,9 +58,8 @@ def _target(fix, own):
 
 def decode(own):
     """The finished function in FBUF as a list of instruction texts."""
-    code = bytes(fbuf.code[i] for i in range(fbuf.code_length))
-    fixes = {fbuf.fix_offset[i]: (fbuf.fix_offset[i], fbuf.fix_kind[i], fbuf.fix_symbol[i],
-                                  fbuf.fix_slot[i], fbuf.fix_addend[i]) for i in range(fbuf.fix_count)}
+    code, fix_list = support.finished()
+    fixes = {f[0]: f for f in fix_list}
     lines, at = [], 0
     while at < len(code):
         mnemonic, mode, size = cpu6502.decode(0, code, at)
