@@ -367,9 +367,9 @@ def call_value(line, col):
         err.position(lex.line, lex.col)
     elif kernel.sym_results[f] == 2 and passing:
         passed = gen.mark()
-    elif kernel.sym_results[f] != 1:
+    elif kernel.sym_results[f] == 0:
         err.position(line, col)
-        err.fatal(err.E_RESULTS)
+        err.fatal(err.E_RESULTS)        # a status beside a value may be ignored: v = f()
 
 
 # ---- Expressions -------------------------------------------------------------------------
@@ -650,6 +650,7 @@ LEVEL_LOCAL = 1         # in a function: a slot of its frame
 LEVEL_STATIC = 2        # in a function, but it lives for the whole program
 
 function = 0            # the function being compiled: its symbol in the kernel's table
+asm_last = False        # the statement compiled last is an `asm` block
 exit_label = reg.NONE   # where `break` goes: after the nearest loop
 next_label = reg.NONE   # where `continue` goes: to that loop's next pass
 placed_at = 0           # the address after "at" in the declaration being parsed
@@ -1099,11 +1100,11 @@ def step_back(s, down, limit, top):
 
 
 def for_statement():
-    """"for" name "=" expression ( "to" | "downto" ) expression "do" NL body "end". The
-    variable is set to the first value, the loop is skipped if that is past the limit, and
+    """"for" name "=" expression ( "to" | "downto" | "until" ) expression "do" NL body "end".
+    The variable is set to the first value, the loop is skipped if that is past the limit, and
     the test is at the bottom: the variable is compared with the limit before each step
-    (docs/codegen.md, "Statements"). A limit that is a variable is not copied: it is read
-    at each test."""
+    (docs/codegen.md, "Statements"). With `until` the test, variable < limit, is at the top
+    instead. A limit that is a variable is not copied: it is read at each test."""
     global exit_label, next_label, critical_inner
     saved_exit = exit_label
     saved_next = next_label
@@ -1124,9 +1125,10 @@ def for_statement():
     first = reg.op_value[reg.depth - 1]
     gen.store()
     err.position(lex.line, lex.col)
-    if lex.tok != lex.T_TO and lex.tok != lex.T_DOWNTO:
+    if lex.tok != lex.T_TO and lex.tok != lex.T_DOWNTO and lex.tok != lex.T_UNTIL:
         err.fatal(err.E_TO_EXPECTED)
     down = lex.tok == lex.T_DOWNTO
+    exclusive = lex.tok == lex.T_UNTIL
     lex.next()
     limit_value(t)
     limit = reg.depth - 1
@@ -1135,20 +1137,26 @@ def for_statement():
     op = fold.LE
     if down:
         op = fold.GE
-    if known:
-        gen.constant(t, first)          # a constant first value can make the test known
-    else:
-        push_variable(s)
-    exit_label = compare_limit(limit, op)
     top = fbuf.new_label()
-    reg.loop_label(top)
+    if exclusive:
+        reg.loop_label(top)             # `until`: the test is at the top
+        push_variable(s)
+        exit_label = compare_limit(limit, fold.LT)
+    else:
+        if known:
+            gen.constant(t, first)      # a constant first value can make the test known
+        else:
+            push_variable(s)
+        exit_label = compare_limit(limit, op)
+        reg.loop_label(top)
     gen.loop_begin()
     next_label = fbuf.new_label()
     body()
     end_of_block()
     reg.label(next_label)
-    push_variable(s)
-    reg.join(exit_label, compare_limit(limit, fold.NE))
+    if not exclusive:
+        push_variable(s)
+        reg.join(exit_label, compare_limit(limit, fold.NE))
     step_back(s, down, limit, top)
     gen.loop_end()
     reg.label(exit_label)
@@ -1372,6 +1380,8 @@ def return_statement():
 
 
 def statement():
+    global asm_last
+    asm_last = lex.tok == lex.T_ASM
     if lex.tok == lex.T_NAME:
         name_statement()
     elif lex.tok == lex.T_RETURN:
@@ -1491,11 +1501,16 @@ def expand(f, wanted):
 
 
 def function_body(f):
-    """The body of function `f`, whose parameters are declared."""
-    global function, exit_label, next_label, critical_depth, critical_inner
+    """The body of function `f`, whose parameters are declared. If `f` has a result, its end
+    must not be reached: the code before it returns or jumps, or it is an `asm` block, which
+    the programmer has made return by itself."""
+    global function, exit_label, next_label, critical_depth, critical_inner, asm_last
     function = f
     exit_label = reg.NONE
     next_label = reg.NONE
     critical_depth = 0
     critical_inner = 0
+    asm_last = False
     body()
+    if kernel.sym_results[f] != 0 and fbuf.runs_on() and not asm_last:
+        err.fatal(err.E_NO_RETURN)

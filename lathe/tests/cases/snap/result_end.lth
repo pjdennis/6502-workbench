@@ -1,0 +1,54 @@
+; The end of a function that has a result must not be reachable (error 180): these end in a
+; return on every way, a loop that only `return` leaves, or an `asm` block, which returns by
+; itself (docs/language.md, "Functions").
+module result_end
+
+var n: byte
+
+func both(a: byte): byte
+  if a > 3 then
+    return 1
+  else
+    return 2
+  end
+end
+
+func chain(a: byte): byte
+  if a == 0 then
+    return 1
+  elif a == 1 then
+    return 2
+  else
+    return 3
+  end
+end
+
+func cases(a: byte): byte
+  case a
+  of 1
+    return 10
+  else
+    return 20
+  end
+end
+
+func forever(): byte
+  loop
+    n += 1
+    if n == 10 then
+      return n
+    end
+  end
+end
+
+func by_hand(a: byte): byte
+  asm
+    LDA a
+    ASL A
+    RTS
+  end
+end
+
+func status(): byte, bool
+  return n, n > 2
+end

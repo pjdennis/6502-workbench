@@ -98,14 +98,28 @@ class PendingTest(support.GenTest):
         self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0]), (0, 1, reg.O_A))
         self.assertEqual(self.listing(), ['EOR #$FF', 'SEC', 'ADC s0', 'RTS'])
 
-    def test_multiplying_by_a_power_of_two_is_a_shift_and_anything_else_error_54(self):
+    def test_multiplying_by_a_power_of_two_is_a_shift(self):
         self.local(BYTE)
         gen.constant(NUMBER, 8)
         gen.binary(fold.MUL)
         self.assertEqual((gen.pend_op, reg.op_value[1]), (fold.SHL, 3))
+
+    def test_multiplying_two_variables_calls_mul8_with_the_operands_in_a_and_x(self):
+        self.local(BYTE)
+        self.local(BYTE)
+        gen.binary(fold.MUL)
+        self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0], reg.op_type[0]), (0, 1, reg.O_A, BYTE))
+        self.assertEqual(self.listing(), ['LDX s1', 'LDA s0', 'JMP g1'])
+
+    def test_a_right_operand_in_a_goes_to_its_slot_first(self):
+        self.local(WORD)
+        self.local(WORD)
+        self.local(WORD)
+        gen.binary(fold.ADD)
         gen.settle()
-        gen.constant(NUMBER, 3)
-        self.assertFatal(err.E_NEEDS_RT, lambda: gen.binary(fold.MUL))
+        gen.binary(fold.DIV)
+        self.assertEqual((reg.depth, reg.op_kind[0], reg.op_type[0]), (1, reg.O_AX, WORD))
+        self.assertEqual(self.listing()[8:], ['STA f1.1', 'STX f1.1+1', 'LDX s0+1', 'LDA s0', 'JMP g1'])
 
     def test_a_remainder_by_a_power_of_two_is_a_mask(self):
         self.local(WORD)

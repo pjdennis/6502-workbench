@@ -1,7 +1,0 @@
-; error 54 6 9
-module word_shifted_by_variable
-var n: byte
-var w: word
-func f()
-  w = w << n
-end

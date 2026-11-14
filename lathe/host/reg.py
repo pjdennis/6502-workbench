@@ -53,6 +53,8 @@ M_POINTER = 2           # what a pointer points at: op_symbol and op_slot are th
 F_TEMP = 1              # the memory is a temporary, free again when the operand is popped
 F_ZP = 2                # the memory is known to be in zero page
 F_DATA = 8              # constant data: it cannot be assigned to (4 is cond.F_COMPARED)
+F_WRAPS = 16            # a number below 0 that `~` or unary `-` made of a number without a type:
+#                         given an unsigned type, it is cut to that type's width
 
 INDEX = MAX_OPERANDS + 1                # entry i + INDEX describes the index of operand i
 ENTRIES = 2 * INDEX                     # one more than the stack, for swap(), and their indexes
@@ -1130,10 +1132,14 @@ def fit_function(i, t):
 
 
 def fit(i, t):
-    """Operand `i`, a number without a type, takes type `t`, which it must fit."""
+    """Operand `i`, a number without a type, takes type `t`, which it must fit. One that `~` or
+    unary `-` made below 0 fits an unsigned type as its bits do, if it is at least -256 for a
+    byte: `~$20` is $DF as a byte."""
     if not typetab.is_number(t):
         err.fatal(err.E_TYPE)
-    if not typetab.number_fits(op_value[i], op_type[i] == typetab.NEGATIVE_TYPE, t):
+    wraps = op_flags[i] & F_WRAPS != 0 and op_type[i] == typetab.NEGATIVE_TYPE and not typetab.is_signed(t) \
+        and (typetab.size(t) == 2 or op_value[i] >= 0xFF00)
+    if not wraps and not typetab.number_fits(op_value[i], op_type[i] == typetab.NEGATIVE_TYPE, t):
         err.fatal(err.E_RANGE)
     op_type[i] = t
     op_size[i] = typetab.size(t)
@@ -1154,6 +1160,14 @@ def assignable(i, t):
     op_type[i] = t
 
 
+def widen(i, number):
+    """Operand `i`, a `byte`, is used with the number without a type `number`: if that does
+    not fit a byte, `i` is widened to a word, as a byte is wherever a word is needed."""
+    if op_type[i] == typetab.BYTE_TYPE and op_flags[number] & F_WRAPS == 0 \
+            and not typetab.number_fits(op_value[number], op_type[number] == typetab.NEGATIVE_TYPE, typetab.BYTE_TYPE):
+        op_type[i] = typetab.WORD_TYPE
+
+
 def unify(left, right):
     """The type in which an operator works on operands `left` and `right`, which both take
     it. typetab.NUMBER_TYPE if neither has a type: they are then constants."""
@@ -1168,8 +1182,10 @@ def unify(left, right):
     if typetab.is_untyped(op_type[left]):
         if typetab.is_untyped(op_type[right]):
             return typetab.NUMBER_TYPE
+        widen(right, left)
         fit(left, op_type[right])
     elif typetab.is_untyped(op_type[right]):
+        widen(left, right)
         fit(right, op_type[left])
     elif accepts(op_type[left], op_type[right]):
         op_type[left] = op_type[right]

@@ -21,6 +21,8 @@ The numbers are grouped by what the error is about:
     140 to 149  `asm` blocks and `asm` functions
     150 to 164  function types, calls through pointers, and recursion
     165 to 179  `inline` and `interrupt` functions (165 is a capacity)
+    180 to 199  functions and directives, continued: the end of a function with a result,
+                `#error`
 
 A number is never reused for another error; a new one takes the next free number of its group.
 """
@@ -166,6 +168,9 @@ E_INLINE_PRIVATE = 170
 E_ATTRIBUTES = 171
 E_INTERRUPT_HEAD = 172
 E_INTERRUPT_CALL = 173
+# Functions and directives, continued
+E_NO_RETURN = 180
+E_ERROR_DIRECTIVE = 181
 
 MESSAGES = (
     b"1 character not allowed here\n"
@@ -239,7 +244,7 @@ MESSAGES = (
     b"87 too much constant data in one table\n"
     b"99 compiler error\n"
     b"100 a call of this function inside its own arguments: use a variable\n"
-    b"110 \"to\" or \"downto\" expected\n"
+    b"110 \"to\", \"downto\" or \"until\" expected\n"
     b"111 a case selector must be a byte, sbyte or bool\n"
     b"112 constant already used in this case\n"
     b"113 a status cannot be returned from inside critical: return after its end\n"
@@ -288,6 +293,8 @@ MESSAGES = (
     b"171 inline and interrupt go with neither each other, nor asm, nor a forward declaration\n"
     b"172 an interrupt function has no parameters and no results\n"
     b"173 an interrupt function cannot be called: store its address, @name, where the board wants it\n"
+    b"180 the end of a function that has a result can be reached: return a value there\n"
+    b"181 #error\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "
@@ -382,6 +389,22 @@ def fatal_value(number, value):
 
 def fatal(number):
     """Report error `number` at the current place and end the program."""
+    fatal_start(number)
+    fatal_end()
+
+
+def put_char(c):
+    """A character of more text after the error's, between fatal_start() and fatal_end()."""
+    env.put_error(c)
+
+
+def fatal_end():
+    env.put_error(C_LF)
+    env.exit(1)
+
+
+def fatal_start(number):
+    """fatal(), up to the end of the line it writes: more text can follow (put_char())."""
     put_place()
     for i in range(0, len(ERROR)):
         env.put_error(ERROR[i])
@@ -395,5 +418,3 @@ def fatal(number):
     if shown != NO_VALUE:
         env.put_error(C_SPACE)
         put_decimal(shown)
-    env.put_error(C_LF)
-    env.exit(1)

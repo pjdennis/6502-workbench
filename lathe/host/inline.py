@@ -237,6 +237,8 @@ def save_token(at_line):
     if lex.tok == lex.T_NAME or lex.tok == lex.T_NUMBER:
         put_word(lex.value)
     elif lex.tok == lex.T_STRING:
+        if lex.string_length > 0xFF:
+            err.fatal(err.E_STRING_LONG)        # a saved string has a length of one byte
         put(lex.string_length)
         for i in range(0, lex.string_length):
             put(lex.string[i])

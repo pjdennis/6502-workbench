@@ -1,0 +1,8 @@
+; error 180 8 1
+module result_if_without_else
+func f(a: byte): byte
+  if a > 3 then
+    return 1
+  end
+  ; a <= 3 runs on to the end
+end

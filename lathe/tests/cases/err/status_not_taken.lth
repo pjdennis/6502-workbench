@@ -1,9 +1,0 @@
-; error 56 8 7
-module status_not_taken
-var n: byte
-func g(): byte, bool
-  return 0, true
-end
-func f()
-  n = g()
-end

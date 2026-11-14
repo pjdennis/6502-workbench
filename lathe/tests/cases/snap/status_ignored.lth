@@ -1,0 +1,25 @@
+; A status may be ignored (docs/language.md, "Functions"): `v = f()` of a function that gives
+; a value and a status takes the value, a call used as a value anywhere else takes it too,
+; and a call used as a statement may ignore both.
+module status_ignored
+
+var n: byte
+var w: word
+
+func next(): byte, bool
+  n += 1
+  return n, n < 10
+end
+
+func wide(): word, bool
+  return w, true
+end
+
+func f()
+  var v: byte
+  v = next()
+  w = wide()
+  v = next() + 1
+  next()
+  wide()
+end

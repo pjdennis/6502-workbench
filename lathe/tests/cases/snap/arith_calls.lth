@@ -1,0 +1,51 @@
+; `*`, `/` and `mod` by the run-time library (docs/codegen.md, "Bytes" and "Words"): the
+; left operand goes to the first parameter, an operand computed into A is stored first, a
+; word multiply has its smaller operand second, two numbers below 256 multiplied into a word
+; are mul8x8, and a signed divide by a power of two is a call too.
+module arith_calls
+
+var a: byte
+var b: byte
+var s: sbyte
+var t: sbyte
+var u: word
+var v: word
+var i: int
+var j: int
+var tab: [10]byte
+
+func bytes()
+  a = a * b
+  a = b / a
+  a = a mod 7
+  a = 100 / b
+  s = s * t
+  s = s / t
+  s = s mod t
+  s = s / 4
+end
+
+func words()
+  u = u * v
+  u = u / v
+  u = u mod 1000
+  u = 3 * u
+  u = u * word(a)
+  u = word(a) * u
+  u = word(a) * word(b)
+  u = word(a) * 300
+  u = u * 300
+  i = i * j
+  i = i / j
+  i = i mod j
+  i = i / 2
+end
+
+func used(): byte
+  a = (a * b) + (b * a)
+  a = tab[a * 11 mod 10]
+  if a / b == 2 then
+    return a mod b
+  end
+  return a * (a + b)
+end

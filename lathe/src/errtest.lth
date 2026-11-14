@@ -3,7 +3,6 @@
 module errtest
 
 import err
-import num
 import sys
 
 var text: [256]byte
@@ -15,7 +14,7 @@ func argument(i: byte): word
   var length: byte
   length = sys.arg_copy(i, @text)
   while k < length do
-    n = num.mul(n, 10) + text[k] - '0'
+    n = n * 10 + text[k] - '0'
     k += 1
   end
   return n

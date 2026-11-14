@@ -1,0 +1,7 @@
+; error 43 6 7
+module width_divide_drops_wrap
+var b: byte
+func f()
+  ; / keeps the exact value: -16 / 2 is -8, which is no byte
+  b = -16 / 2
+end

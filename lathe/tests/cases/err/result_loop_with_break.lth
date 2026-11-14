@@ -1,0 +1,11 @@
+; error 180 11 1
+module result_loop_with_break
+var n: byte
+func f(): byte
+  loop
+    n += 1
+    if n == 10 then
+      break
+    end
+  end
+end

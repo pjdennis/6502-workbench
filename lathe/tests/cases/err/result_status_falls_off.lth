@@ -1,0 +1,6 @@
+; error 180 6 1
+module result_status_falls_off
+var n: byte
+func f(): byte, bool
+  n += 1
+end

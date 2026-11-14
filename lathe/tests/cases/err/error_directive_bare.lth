@@ -1,0 +1,7 @@
+; error 181 5 3
+module error_directive_bare
+func f()
+  #if not false
+  #error
+  #end
+end

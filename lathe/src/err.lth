@@ -17,6 +17,8 @@
 ;     140 to 149  `asm` blocks and `asm` functions
 ;     150 to 164  function types, calls through pointers, and recursion
 ;     165 to 179  `inline` and `interrupt` functions (165 is a capacity)
+;     180 to 199  functions and directives, continued: the end of a function with a result,
+;                 `#error`
 ;
 ; A number is never reused for another error; a new one takes the next free number of its group.
 ;
@@ -24,22 +26,17 @@
 ;
 ;   | Python                                | Lathe                           | Why               |
 ;   |---------------------------------------|---------------------------------|-------------------|
-;   | MESSAGES: one byte string, a line of  | MESSAGES and MORE_MESSAGES:     | a string literal  |
-;   | `number text` per error, ended by LF  | tables of strings, one `number  | holds at most 255 |
-;   |                                       | text` each, ended by its zero;  | bytes (error 7),  |
-;   |                                       | message(m) reads them as one    | and a table at    |
-;   |                                       |                                 | most 64 addresses |
-;   |                                       |                                 | (MAX_TABLE_FIXES) |
+;   | MESSAGES: one byte string, a line of  | MESSAGES: a table of strings,   | a string or table |
+;   | `number text` per error, ended by LF  | one `number text` each, ended   | holds at most     |
+;   |                                       | by its zero                     | 2048 bytes; the   |
+;   |                                       |                                 | texts are 4790    |
 ;   | message_start() gives an index into   | gives a pointer to the text, or | follows from the  |
 ;   | MESSAGES, len(MESSAGES) for none      | nil for none                    | table             |
 ;   | fatal() walks to the LF               | walks to the zero               | the same          |
-;   | n % 10, n // 10, n * 10               | num.rem, num.div, num.mul       | no run-time       |
-;   |                                       |                                 | library yet       |
 ;   | env.mem[i] for the file name          | file[0] through a ^byte stepped | lathe/src/sys.lth |
 ;   |                                       | along it                        | "Pointers"        |
 module err
 
-import num
 import sys
 
 ; Characters and tokens
@@ -182,7 +179,11 @@ pub const E_ATTRIBUTES = 171
 pub const E_INTERRUPT_HEAD = 172
 pub const E_INTERRUPT_CALL = 173
 
-const MESSAGES: [60]^byte = [
+; Functions and directives, continued
+pub const E_NO_RETURN = 180
+pub const E_ERROR_DIRECTIVE = 181
+
+const MESSAGES: [122]^byte = [
   "1 character not allowed here",
   "2 digits expected",
   "3 number above 65535",
@@ -242,9 +243,7 @@ const MESSAGES: [60]^byte = [
   "75 function too large",
   "76 too many labels in one function",
   "77 too many references in one function",
-  "78 too many calls in one function"
-]
-const MORE_MESSAGES: [60]^byte = [
+  "78 too many calls in one function",
   "79 expression too complex",
   "80 too many open files",
   "81 sources nested too deeply",
@@ -256,7 +255,7 @@ const MORE_MESSAGES: [60]^byte = [
   "87 too much constant data in one table",
   "99 compiler error",
   "100 a call of this function inside its own arguments: use a variable",
-  "110 \"to\" or \"downto\" expected",
+  "110 \"to\", \"downto\" or \"until\" expected",
   "111 a case selector must be a byte, sbyte or bool",
   "112 constant already used in this case",
   "113 a status cannot be returned from inside critical: return after its end",
@@ -304,7 +303,9 @@ const MORE_MESSAGES: [60]^byte = [
   "170 an exported inline function can use only exported names of its module",
   "171 inline and interrupt go with neither each other, nor asm, nor a forward declaration",
   "172 an interrupt function has no parameters and no results",
-  "173 an interrupt function cannot be called: store its address, @name, where the board wants it"
+  "173 an interrupt function cannot be called: store its address, @name, where the board wants it",
+  "180 the end of a function that has a result can be reached: return a value there",
+  "181 #error"
 ]
 const TOOL: [6]byte = "lathec"
 const ERROR: [8]byte = ": error "
@@ -344,9 +345,9 @@ pub func put_decimal(n: word)
   var count: byte = 0
   var i: byte
   loop
-    digits[count] = C_ZERO + byte(num.rem(n, 10))
+    digits[count] = C_ZERO + byte(n mod 10)
     count += 1
-    n = num.div(n, 10)
+    n = n / 10
   until n == 0
   for i = count - 1 downto 0 do
     sys.put_error(digits[i])
@@ -357,7 +358,7 @@ pub func put_place()
   var i: ^byte
   var k: byte
   if file == nil then
-    for k = 0 to len(TOOL) - 1 do
+    for k = 0 until len(TOOL) do
       sys.put_error(TOOL[k])
     end
     return
@@ -375,24 +376,16 @@ pub func put_place()
   end
 end
 
-; Entry m of MESSAGES and MORE_MESSAGES taken as one table.
-func message(m: byte): ^byte
-  if m < len(MESSAGES) then
-    return MESSAGES[m]
-  end
-  return MORE_MESSAGES[m - len(MESSAGES)]
-end
-
 ; The text of error `number`, or nil if it has none.
 pub func message_start(number: byte): ^byte
   var m: byte
   var i: ^byte
   var n: word
-  for m = 0 to len(MESSAGES) + len(MORE_MESSAGES) - 1 do
-    i = message(m)
+  for m = 0 until len(MESSAGES) do
+    i = MESSAGES[m]
     n = 0
     while i[0] != C_SPACE do
-      n = num.mul(n, 10) + i[0] - C_ZERO
+      n = n * 10 + i[0] - C_ZERO
       i += 1
     end
     i += 1
@@ -407,12 +400,22 @@ const NO_VALUE = $FFFF
 
 var shown: word = NO_VALUE    ; a number that fatal() writes after the text of the error
 
-; Report error `number` at the current place and end the program.
-pub func fatal(number: byte)
+; A character of more text after the error's, between fatal_start() and fatal_end().
+pub func put_char(c: byte)
+  sys.put_error(c)
+end
+
+pub func fatal_end()
+  sys.put_error(C_LF)
+  sys.exit(1)
+end
+
+; fatal(), up to the end of the line it writes: more text can follow (put_char()).
+pub func fatal_start(number: byte)
   var i: ^byte
   var k: byte
   put_place()
-  for k = 0 to len(ERROR) - 1 do
+  for k = 0 until len(ERROR) do
     sys.put_error(ERROR[k])
   end
   put_decimal(number)
@@ -427,8 +430,12 @@ pub func fatal(number: byte)
     sys.put_error(C_SPACE)
     put_decimal(shown)
   end
-  sys.put_error(C_LF)
-  sys.exit(1)
+end
+
+; Report error `number` at the current place and end the program.
+pub func fatal(number: byte)
+  fatal_start(number)
+  fatal_end()
 end
 
 ; fatal(), with the number `value` written after the error's text.

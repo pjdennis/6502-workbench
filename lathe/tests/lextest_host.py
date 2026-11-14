@@ -50,7 +50,7 @@ def show():
         put_word(lex.value)
     elif lex.tok == lex.T_STRING:
         env.put_byte(0x20)
-        put_hex(lex.string_length)
+        put_word(lex.string_length)
         for i in range(lex.string_length):
             env.put_byte(0x20)
             put_hex(lex.string[i])

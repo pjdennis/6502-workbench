@@ -116,6 +116,7 @@ KEYWORDS = (
     b"or pub record recursive return rows sbyte static then to type until var while word zp "
     b"long "
 )
+ERROR_WORD = b"error"   # the directive #error, which is not a keyword
 
 # ---- Characters --------------------------------------------------------------------------
 
@@ -166,14 +167,15 @@ C_TILDE = 0x7E
 
 # A saved token run is, for each token: its token number, its column (one byte, at most 255),
 # and for T_NAME the name and for T_NUMBER the value (two bytes each), for T_STRING its length
-# and its bytes. Before a token on a later line than the one before it: SAVED_LINE and how many
-# lines later, one or more times (each at most 255). Every token number is below SAVED_LINE.
+# (one byte: INLINE does not save a longer string) and its bytes. Before a token on a later
+# line than the one before it: SAVED_LINE and how many lines later, one or more times (each at
+# most 255). Every token number is below SAVED_LINE.
 SAVED_LINE = 0x7F
 MAX_COLUMN = 0xFF
 
 # ---- The current token -------------------------------------------------------------------
 
-MAX_STRING = 255
+MAX_STRING = 2048       # as long as a constant table can be (out.MAX_TABLE)
 
 tok = T_NL              # T_NL before the first token: a file begins at the start of a line
 value = 0
@@ -182,6 +184,8 @@ col = 0
 string = bytearray(MAX_STRING)
 string_length = 0
 open_brackets = 0       # how many ( and [ are open: no line ends inside them
+end_line = 0            # where a line end is that the lexer passed over looking for a further
+end_col = 0             # piece of a string, and must still give as a token; line 0: none
 
 MAX_NESTING = 16
 nesting = 0             # how many `#if` are open around the line being read
@@ -190,9 +194,10 @@ else_parts = 0          # bit n set: the `#if` at depth n + 1 is in its `#else` 
 
 def init():
     """Give the keywords their tokens. Needs a new name heap."""
-    global tok, open_brackets, nesting, else_parts
+    global tok, open_brackets, nesting, else_parts, end_line
     tok = T_NL
     open_brackets = 0
+    end_line = 0
     nesting = 0
     else_parts = 0
     token = T_AND
@@ -337,9 +342,8 @@ def character():
 
 
 def string_token():
-    """Collect a string, after its opening quote, into `string`."""
+    """Collect a string, after its opening quote, into `string`, after what is there."""
     global string_length
-    string_length = 0
     while src.ch != C_DQUOTE:
         if src.eof or src.ch == C_LF:
             err.fatal(err.E_OPEN_STRING)
@@ -349,6 +353,25 @@ def string_token():
         string[string_length] = c
         string_length += 1
     src.advance()
+
+
+def string_pieces():
+    """After a string: the strings that follow it, on its line or at the start of later lines,
+    with nothing but blanks, comments and line ends between, are joined to it. A line end
+    passed over is the next token if no string follows."""
+    global end_line, end_col
+    while True:
+        skip_blanks()
+        if src.eof or (src.ch != C_DQUOTE and src.ch != C_LF):
+            return
+        if src.ch == C_LF and end_line == 0:
+            end_line = src.line
+            end_col = src.col
+        if src.ch == C_DQUOTE:
+            end_line = 0
+        src.advance()
+        if end_line == 0:
+            string_token()
 
 
 def directive_word():
@@ -426,6 +449,8 @@ def directive():
     if found == T_IF:
         tok = T_HASH_IF
         return
+    if found == T_NAME and is_error_word(value):
+        error_directive()
     if found != T_ELSE and found != T_END:
         err.fatal(err.E_DIRECTIVE)
     if nesting == 0:
@@ -439,6 +464,35 @@ def directive():
     nesting -= 1
     else_parts = else_parts & (~bit & 0xFFFF)
     tok = T_NL
+
+
+def is_error_word(name):
+    """True if `name` is `error`, which is not a keyword: it means something only after `#`."""
+    if kernel.name_length(name) != len(ERROR_WORD):
+        return False
+    for i in range(0, len(ERROR_WORD)):
+        if kernel.name_char(name, i) != ERROR_WORD[i]:
+            return False
+    return True
+
+
+def error_directive():
+    """`#error`, with a string after it or nothing, in a part that is compiled: error 181 at the
+    `#`, with ": " and the string's text after the error's."""
+    global string_length
+    skip_blanks()
+    string_length = 0
+    if not src.eof and src.ch == C_DQUOTE:
+        src.advance()
+        string_token()
+    err.position(line, col)
+    err.fatal_start(err.E_ERROR_DIRECTIVE)
+    if string_length > 0:
+        err.put_char(C_COLON)
+        err.put_char(C_SPACE)
+    for i in range(0, string_length):
+        err.put_char(string[i])
+    err.fatal_end()
 
 
 def followed_by(c, yes, no):
@@ -530,9 +584,16 @@ def saved_token():
 
 def scan():
     """Read one token, taking every line end as a token."""
-    global tok, value, line, col
+    global tok, value, line, col, string_length, end_line
     if src.replaying:
         saved_token()
+        return
+    if end_line != 0:
+        tok = T_NL
+        line = end_line
+        col = end_col
+        end_line = 0
+        err.position(line, col)
         return
     skip_blanks()
     line = src.line
@@ -565,7 +626,9 @@ def scan():
         value = character()
     elif c == C_DQUOTE:
         tok = T_STRING
+        string_length = 0
         string_token()
+        string_pieces()
     elif c == C_HASH:
         directive()
     else:

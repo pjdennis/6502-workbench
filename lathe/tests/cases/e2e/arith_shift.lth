@@ -1,0 +1,42 @@
+; Words and ints shifted by a variable count, every count from 0 to 20, with `<<`, `>>`,
+; `<<=` and `>>=`; lathe/tests/test_operators.py gives the output.
+module arith_shift
+
+import libout
+import libsum
+
+const WV: [8]word = [0, 1, $8000, $FFFF, $1234, $8001, $7FFF, $5A5A]
+
+pub func main()
+  var k: byte
+  var n: byte
+  var w: word
+  var v: word
+  var i: int
+  for k = 0 to len(WV) - 1 do
+    for n = 0 to 20 do
+      w = WV[k]
+      i = int(w)
+      libsum.add(w << n)
+      libsum.add(w >> n)
+      libsum.add(word(i >> n))
+      libsum.add(word(i << n))
+      v = w
+      v <<= n
+      libsum.add(v)
+      v = w
+      v >>= n
+      libsum.add(v)
+    end
+    libsum.show()
+  end
+  libout.nl()
+  w = $8421
+  for n = 0 to 20 do
+    libout.hexw(w >> n)
+    libout.space()
+    libout.hexw(word(int(w) >> n))
+    libout.space()
+  end
+  libout.nl()
+end

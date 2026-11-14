@@ -1,0 +1,18 @@
+; A word shifted by a count that is not a constant is a call of rt_math: shl16, shr16 on a
+; word and sar16 on an int, the count a byte (docs/codegen.md, "Words").
+module word_shift_calls
+
+var n: byte
+var w: word
+var i: int
+var b: byte
+
+func f(): word
+  w = w << n
+  w >>= n
+  i = i >> n
+  i = i << n
+  w = word(b) << n
+  w = w << (n + 1)
+  return (w >> n) + 1
+end

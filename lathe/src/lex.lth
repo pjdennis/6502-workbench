@@ -14,16 +14,14 @@
 ;
 ;   | Python                              | Lathe                              | Why            |
 ;   |-------------------------------------|------------------------------------|----------------|
-;   | KEYWORDS: one byte string           | KEYWORDS: a table of two strings,  | a string holds |
-;   |                                     | each ending with a space; init()   | at most 255    |
-;   |                                     | walks each to its zero             | bytes          |
-;   | n * base, (0xFFFF - digit) // base  | num.mul, num.div                   | no run-time    |
-;   |                                     |                                    | library yet    |
-;   | 1 << (nesting - 1)                  | NESTING_BIT[nesting - 1]           | a word shifted |
-;   |                                     |                                    | by a variable  |
-;   |                                     |                                    | needs the      |
-;   |                                     |                                    | run-time       |
-;   |                                     |                                    | library        |
+;   | KEYWORDS: one byte string           | KEYWORDS: a table of two strings,  | 12 bytes less  |
+;   |                                     | each ending with a space; init()   | code than one  |
+;   |                                     | walks each to its zero             | table of 262,  |
+;   |                                     |                                    | which takes a  |
+;   |                                     |                                    | word index     |
+;   | 1 << (nesting - 1)                  | NESTING_BIT[nesting - 1]           | 44 bytes less  |
+;   |                                     |                                    | than calls of  |
+;   |                                     |                                    | rt_math.shl16  |
 ;   | ~bit & 0xFFFF                       | ~bit                               | a word wraps   |
 ;   | `while True:` ... `break`           | loop ... end                       |                |
 ;   | is_digit(): a function              | `inline`; C_0 and C_9 exported     | smaller code   |
@@ -31,7 +29,6 @@ module lex
 
 import err
 import kernel
-import num
 import src
 
 ; ---- Tokens ------------------------------------------------------------------------------
@@ -134,6 +131,7 @@ const KEYWORDS: [2]^byte = [
   "and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module ",
   "not nozp of or pub record recursive return rows sbyte static then to type until var while word zp long "
 ]
+const ERROR_WORD: [5]byte = "error"     ; the directive #error, which is not a keyword
 
 ; ---- Characters --------------------------------------------------------------------------
 
@@ -184,22 +182,25 @@ const C_TILDE = $7E
 
 ; A saved token run is, for each token: its token number, its column (one byte, at most 255),
 ; and for T_NAME the name and for T_NUMBER the value (two bytes each), for T_STRING its length
-; and its bytes. Before a token on a later line than the one before it: SAVED_LINE and how many
-; lines later, one or more times (each at most 255). Every token number is below SAVED_LINE.
+; (one byte: INLINE does not save a longer string) and its bytes. Before a token on a later
+; line than the one before it: SAVED_LINE and how many lines later, one or more times (each at
+; most 255). Every token number is below SAVED_LINE.
 pub const SAVED_LINE = $7F
 pub const MAX_COLUMN = $FF
 
 ; ---- The current token -------------------------------------------------------------------
 
-const MAX_STRING = 255
+const MAX_STRING = 2048         ; as long as a constant table can be (out.MAX_TABLE)
 
 pub var tok: byte = T_NL        ; T_NL before the first token: a file begins at the start of a line
 pub var value: word
 pub var line: word              ; where the token's first character is
 pub var col: word
 pub var string: [MAX_STRING]byte
-pub var string_length: byte
+pub var string_length: word
 pub var open_brackets: byte     ; how many ( and [ are open: no line ends inside them
+var end_line: word              ; where a line end is that the lexer passed over looking for a
+var end_col: word               ; further piece of a string, and must still give as a token; line 0: none
 
 const MAX_NESTING = 16
 pub var nesting: byte           ; how many `#if` are open around the line being read
@@ -217,11 +218,12 @@ pub func init()
   var p: ^byte
   tok = T_NL
   open_brackets = 0
+  end_line = 0
   nesting = 0
   else_parts = 0
   token = T_AND
   kernel.name_begin()
-  for k = 0 to len(KEYWORDS) - 1 do
+  for k = 0 until len(KEYWORDS) do
     p = KEYWORDS[k]
     while p[0] != 0 do
       if p[0] == C_SPACE then
@@ -313,10 +315,10 @@ func number(base: byte): word
     if not ok or digit >= base then
       break
     end
-    if n > num.div($FFFF - word(digit), base) then
+    if n > ($FFFF - digit) / base then
       err.fatal(err.E_NUMBER_RANGE)
     end
-    n = num.mul(n, base) + digit
+    n = n * base + digit
     count += 1
     src.advance()
   end
@@ -391,10 +393,9 @@ func character(): byte
   return c
 end
 
-; Collect a string, after its opening quote, into `string`.
+; Collect a string, after its opening quote, into `string`, after what is there.
 func string_token()
   var c: byte
-  string_length = 0
   while src.ch != C_DQUOTE do
     if src.eof or src.ch == C_LF then
       err.fatal(err.E_OPEN_STRING)
@@ -407,6 +408,29 @@ func string_token()
     string_length += 1
   end
   src.advance()
+end
+
+; After a string: the strings that follow it, on its line or at the start of later lines,
+; with nothing but blanks, comments and line ends between, are joined to it. A line end
+; passed over is the next token if no string follows.
+func string_pieces()
+  loop
+    skip_blanks()
+    if src.eof or (src.ch != C_DQUOTE and src.ch != C_LF) then
+      return
+    end
+    if src.ch == C_LF and end_line == 0 then
+      end_line = src.line
+      end_col = src.col
+    end
+    if src.ch == C_DQUOTE then
+      end_line = 0
+    end
+    src.advance()
+    if end_line == 0 then
+      string_token()
+    end
+  end
 end
 
 ; The word after a `#`, which has been passed over, as a token: T_IF, T_ELSE, T_END or
@@ -484,6 +508,42 @@ pub func choose(yes: bool)
   end
 end
 
+; True if `name` is `error`, which is not a keyword: it means something only after `#`.
+func is_error_word(name: word): bool
+  var i: byte
+  if kernel.name_length(name) != len(ERROR_WORD) then
+    return false
+  end
+  for i = 0 until len(ERROR_WORD) do
+    if kernel.name_char(name, i) != ERROR_WORD[i] then
+      return false
+    end
+  end
+  return true
+end
+
+; `#error`, with a string after it or nothing, in a part that is compiled: error 181 at the
+; `#`, with ": " and the string's text after the error's.
+func error_directive()
+  var i: word
+  skip_blanks()
+  string_length = 0
+  if not src.eof and src.ch == C_DQUOTE then
+    src.advance()
+    string_token()
+  end
+  err.position(line, col)
+  err.fatal_start(err.E_ERROR_DIRECTIVE)
+  if string_length > 0 then
+    err.put_char(C_COLON)
+    err.put_char(C_SPACE)
+  end
+  for i = 0 until string_length do
+    err.put_char(string[i])
+  end
+  err.fatal_end()
+end
+
 ; A directive, whose `#` has been passed over, which must start its line (docs/language.md,
 ; "Conditional compilation"). `#if` is a token: the parser works out its condition and calls
 ; choose(). `#else` ends the part being compiled, and the lines up to its `#end` are passed
@@ -498,6 +558,9 @@ func directive()
   if found == T_IF then
     tok = T_HASH_IF
     return
+  end
+  if found == T_NAME and is_error_word(value) then
+    error_directive()
   end
   if found != T_ELSE and found != T_END then
     err.fatal(err.E_DIRECTIVE)
@@ -606,11 +669,10 @@ func mark(c: byte): byte
   return T_EOF
 end
 
-; Read one token, taking every line end as a token.
 ; Read one token from the saved token run that is the top source. Its end is T_EOF, at the
 ; place of the token before it.
 func saved_token()
-  var i: byte
+  var i: word
   while not src.eof and src.ch == SAVED_LINE do
     src.next_byte()
     src.line += src.next_byte()
@@ -628,18 +690,25 @@ func saved_token()
     value = value | (word(src.next_byte()) << 8)
   elif tok == T_STRING then
     string_length = src.next_byte()
-    i = 0
-    while i < string_length do
+    for i = 0 until string_length do
       string[i] = src.next_byte()
-      i += 1
     end
   end
 end
 
+; Read one token, taking every line end as a token.
 func scan()
   var c: byte
   if src.replaying then
     saved_token()
+    return
+  end
+  if end_line != 0 then
+    tok = T_NL
+    line = end_line
+    col = end_col
+    end_line = 0
+    err.position(line, col)
     return
   end
   skip_blanks()
@@ -677,7 +746,9 @@ func scan()
     value = character()
   elif c == C_DQUOTE then
     tok = T_STRING
+    string_length = 0
     string_token()
+    string_pieces()
   elif c == C_HASH then
     directive()
   else

@@ -1,0 +1,7 @@
+; error 43 6 9
+module width_signed_not_widened
+var s: sbyte
+func f()
+  ; $FF does not fit an sbyte, and an sbyte is not widened by itself
+  s = s + $FF
+end

@@ -44,7 +44,7 @@ end
 - **Comments** run from `;` to the end of the line.
 - **Names** start with a letter and continue with letters, digits and `_`. The first 31 characters are significant.
 - **Numbers.** Decimal `123`, hexadecimal `$7F`, binary `%1010`, character `'A'`. A number literal has no type of its own; it takes the type its context needs, and it is an error if it does not fit.
-- **Strings.** `"TEXT"` is a zero-terminated sequence of bytes. Escapes: `\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`, `\xHH`.
+- **Strings.** `"TEXT"` is a zero-terminated sequence of bytes. Escapes: `\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`, `\xHH`. Adjacent strings are joined into one: `"abc" "def"` is `"abcdef"`, and so is a string at the end of a line followed by one at the start of the next, with only blanks, comments and blank lines between, so a long text can be written in pieces, one per line. A string holds at most 2048 bytes, as much as a constant table (error 7, and error 87 for a table); one in the body of an `inline` function at most 255.
 - **Statements end at the end of the line.** A line continues onto the next when it ends with a binary operator or a comma, or while a `(` or `[` is open. This rule is applied by the lexer alone.
 - **Keywords**: `and asm at bool break byte case const continue critical do downto elif else end enum extern for forward func if import in inline int interrupt loop mod module not nozp of or pub record recursive return rows sbyte static then to type until var while word zp`. Reserved for later: `long`.
 
@@ -92,6 +92,7 @@ end
 
 - **A `byte` operation gives a `byte`** and wraps. `a + b` on two bytes is an 8-bit add.
 - **Widening is implicit, narrowing is not.** A `byte` becomes a `word` wherever a `word` is needed, with a zero high byte. Going the other way needs `byte(x)`, `lo(x)` or `hi(x)`.
+- **A number without a type takes the type of what it is used with**, which it must fit (error 43), with two allowances. If it is combined with a `byte` and does not fit a byte, the byte is widened to a `word`, as the rule above allows, and the operation is a word one: `$FFFF - digit` is a word, and `b + 300` is a word too. And a number below zero that `~` or unary `-` made of a number without a type fits an unsigned type by its bits, if it is at least -256 for a byte: `b = ~$20` stores `$DF`, `b & ~BIT` clears a bit, `w = -1` stores `$FFFF`. The mark is kept by `+`, `-`, `*`, `&`, `|`, `^` and `<<` of two such numbers (`~$20 & ~$40` is `$9F` as a byte), and dropped by `/`, `mod` and `>>`, whose low bits depend on the high ones. Everything else stays exact and is an error where it does not fit: `b = 0 - 1`, `b = ~$100`, `s = s + $FF` on an `sbyte` (a signed byte is not widened by itself). A constant declared without a type keeps its exact value, so `const MASK = ~$20` is -33 and no byte; `const MASK: byte = ~$20` is `$DF`.
 - **Signed and unsigned do not mix** without a conversion. Signed comparisons cost more code than unsigned ones; the type makes that visible.
 - **Conditions are `bool`.** There is no "non-zero is true": write `if n != 0 then`.
 - **Conversions** are written as a call of the type name: `byte(w)`, `word(b)`, `int(w)`, a named pointer type such as `SymPtr(w)`, or an enumeration, `Kind(b)`. A record cannot be converted.
@@ -157,7 +158,8 @@ end
 - **A `bool` result travels in the carry flag**, whether it is the only result or the status beside a value. This is the 6502's usual way to report "found" or "end of input", and a test of it is one branch.
 - **Testing a status directly.** In a condition, `next() -> ch` calls the function, stores the value in `ch` and gives the status: `while next() -> ch do … end`.
 - **Passing results on.** `return f(…)` is allowed when `f` has the same results as the function returning; both results pass through, and the call becomes a jump.
-- A call used as a statement may ignore its results.
+- **A status may be ignored.** A call of a function that gives a value and a status, used as a value, gives the value and drops the status: `v = next()`, `next() + 1`, `put(next())`. A call used as a statement may ignore both results. Only `return f()` passes both on, and only `ch, ok = f()` and `f() -> ch` take the status.
+- **The end of a function that has a result must not be reachable** (error 180, reported at its `end`): every way through the body ends in a `return`, or in a `loop … end` that only `return` leaves. A body whose last statement is an `asm` block counts as returning: the block must end in its own `RTS` with the result in A, or A and X, as the functions of `rt_math` do. The test is on the code: an `if` without `else` after which nothing returns, a `case` without `else`, or a loop with a `break` can reach the end.
 - A name must be declared before use. For functions that call each other, declare one first: `forward func expr(): byte`. A forward declaration of a `recursive` function says so too, `forward recursive func expr(): byte`, so that the calls made before its body are compiled as calls of a recursive function.
 
 ### Function attributes
@@ -223,6 +225,7 @@ while cond do … end
 loop … end                           ; forever; leave with break or return
 loop … until cond                    ; test at the bottom: the body runs at least once
 for i = first to last do … end       ; also downto; i is a declared variable
+for i = first until limit do … end   ; first up to limit - 1; not at all if first >= limit
 break                                ; leave the nearest loop
 continue                             ; next iteration of the nearest loop
 return [expr [, status]]
@@ -245,6 +248,7 @@ end
 ```
 
 - `for` evaluates `last` once, unless it is a plain variable: that is read at each test, so a body that changes it changes the loop. The loop variable is a `byte`, `sbyte`, `word` or `int` declared beforehand. The body runs for every value from `first` to `last` inclusive, and not at all if `first` is already past `last`. The test is at the bottom, so a loop to 255 or down to 0 ends correctly. A loop that runs to its end leaves the variable equal to `last`; one that does not run at all leaves it equal to `first`. `continue` goes to the test at the bottom. Counting `downto 0` gives the shortest loop.
+- `for i = first until limit` runs the body for every value from `first` up to but not including `limit`, and not at all when `first >= limit`: `for i = 0 until n` runs `n` times, also when `n` is 0, where `for i = 0 to n - 1` would run 256 times. The test, `i < limit`, is at the top, before each pass; the limit is evaluated as `to`'s is (once, unless it is a constant or a plain variable), and `continue` goes to the step before the test. A loop that runs leaves the variable equal to the limit, unless `break` left it; one that does not run leaves it equal to `first`. There is no downward form.
 - `loop … until` is the tightest loop on a 6502: one branch per pass.
 - `case` takes a selector of one byte (`byte`, `sbyte` or `bool`; a `word` selector is an error for now), evaluated once. The constants after `of` take its type, and each may appear only once in a `case`. With no `else`, a value that no `of` names does nothing. The compiler makes a chain of compares; with dense constants it may later make a jump table.
 - `critical` saves the interrupt flag, disables interrupts, and restores the flag at `end`. Use it around any access to a multi-byte variable shared with an interrupt handler. A `break`, `continue` or `return` that leaves the block restores the flag on its way out. A `return` that gives a status (a `bool` result) cannot be inside `critical`, because restoring the flags would change the carry that holds it: keep the status in a variable and return after `end`.
@@ -277,7 +281,7 @@ Bitwise operators bind tighter than comparisons, so `flags & MASK != 0` means wh
 
 **Operators that call the run-time library.** These are the only ones:
 
-- `*`, `/` and `mod`, unless one operand is a constant power of two.
+- `*`, `/` and `mod`, unless one operand is a constant power of two (for `/` and `mod`, the right one, and only on unsigned types: a shift would round a negative number the wrong way). The library is linked by itself, without an `import`. Division by zero is an error (59) only in a constant expression, two constants divided by the constant 0; anything else gives a quotient of all ones and the dividend as the remainder ([`code-model.md`](code-model.md), "Run-time arithmetic").
 - `<<` and `>>` by an amount that is not a constant (a loop is generated in line for bytes).
 
 Constant expressions are evaluated by the compiler wherever a constant is required, and folded elsewhere.
@@ -311,7 +315,15 @@ import strings
 
 The condition is a constant expression over the constants declared before it. It is true if it is a `bool` that is true or a number that is not 0. Constants such as `cpu_65c02` come from the environment description ([`architecture.md`](architecture.md)): the compiler predeclares `cpu_65c02`, a `bool`, from its `cpu` entry, and a constant for each `define` entry, the `bool` `true` for `define NAME` and a number for `define NAME VALUE`. A name the condition uses must be declared, so a setting that only some environments want is given a value by all of them: `define FAST 0` in the others, tested as `#if FAST`.
 
-The skipped lines are not compiled and not even read as tokens, so they may hold anything, names that do not exist in this configuration included. The lexer only looks for lines that start with `#`, to match `#if` inside them with their `#end`. A directive stands at the start of a line, blanks before it allowed, with nothing but a comment after it. `#if` can start any line where a declaration, an `import` or a statement can start, in a module or in a function; `#else` and `#end` can start any line. Inside an `asm` block a line is assembly, so directives are not recognised there.
+`#error "text"` in a part that is compiled stops the compiler with error 181 at the `#`, followed by `: text` (the string may be left out). In a part that is skipped it is a line like any other, so a configuration that cannot work says so:
+
+```
+#if BOARD == 0
+#error "no board: build with --env michael or --env wendy2"
+#end
+```
+
+`error` is not a keyword; it has this meaning only after `#`. The skipped lines are not compiled and not even read as tokens, so they may hold anything, names that do not exist in this configuration included. The lexer only looks for lines that start with `#`, to match `#if` inside them with their `#end`. A directive stands at the start of a line, blanks before it allowed, with nothing but a comment after it. `#if` can start any line where a declaration, an `import` or a statement can start, in a module or in a function; `#else` and `#end` can start any line. Inside an `asm` block a line is assembly, so directives are not recognised there.
 
 ## Banked data
 
@@ -359,7 +371,7 @@ statement   = designator ( assignOp expression | "," designator "=" call | argum
                  { "elif" expression "then" NL body } [ "else" NL body ] "end" NL
             | "while" expression "do" NL body "end" NL
             | "loop" NL body ( "end" | "until" expression ) NL
-            | "for" name "=" expression ( "to" | "downto" ) expression "do" NL body "end" NL
+            | "for" name "=" expression ( "to" | "downto" | "until" ) expression "do" NL body "end" NL
             | "case" expression NL { "of" constExpr { "," constExpr } NL body }
                  [ "else" NL body ] "end" NL
             | "critical" NL body "end" NL
@@ -392,7 +404,7 @@ Notes on the grammar:
 - A designator whose value is of a function type, followed by `arguments`, is a call through that pointer.
 - `true`, `false` and `nil` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
 - A `constExpr` is an expression the compiler can evaluate; anything else is an error.
-- `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar. (The parser works out the condition of `#if` where a declaration, `import` or statement can start, and tells the lexer what to skip.)
+- `#if`, `#else`, `#end` and `#error` are handled by the lexer and do not appear in the grammar. (The parser works out the condition of `#if` where a declaration, `import` or statement can start, and tells the lexer what to skip.)
 - Inside an `asm` block the lexer passes whole lines through. The block ends at a line whose first word is `end`.
 
 ## A larger example

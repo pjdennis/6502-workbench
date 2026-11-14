@@ -111,7 +111,7 @@ BODY = '''\
 
 class SaveTest(InProcess):
     def test_a_replayed_body_gives_the_tokens_it_was_read_as(self):
-        source = 'module m\nfunc f(a: byte, b: ^byte): byte\nend\ninline func g(n: byte, s: ^byte): byte, bool\n' \
+        source = 'module m\nfunc f(a: byte, b: ^byte): byte\n  return a\nend\ninline func g(n: byte, s: ^byte): byte, bool\n' \
             + BODY + 'end\n'
         self.compile(source)
         g = self.function('g')
@@ -121,7 +121,7 @@ class SaveTest(InProcess):
         begin, end = support.put_text(BODY.encode(), 0xA000)
         direct = self.tokens_of(begin, end, 0)
         self.assertEqual([t[:2] for t in replayed], [t[:2] for t in direct])
-        self.assertEqual([(t[2] - 4, t[3]) for t in replayed], [t[2:] for t in direct])
+        self.assertEqual([(t[2] - 5, t[3]) for t in replayed], [t[2:] for t in direct])
         self.assertEqual(inline.word_at(r + inline.R_FILE), 0)      # read from memory: no file
         self.assertEqual([inline.word_at(inline.param(g, i)) for i in range(2)], [name('n'), name('s')])
 

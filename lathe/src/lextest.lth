@@ -4,7 +4,7 @@
 ;   KK LLLL CCCC [VALUE]
 ;
 ; the token number, line and column in hexadecimal, and for a name its spelling, for a number
-; its value in four hexadecimal digits, for a string its length in two and its bytes in two
+; its value in four hexadecimal digits, for a string its length in four and its bytes in two
 ; each, separated by spaces. A lexical error is reported as the compiler reports it, with
 ; status 1. lathe/tests/lextest_host.py is the same driver over lex.py, and
 ; lathe/tests/test_src_lex.py requires the two to print the same for every source it has.
@@ -45,6 +45,7 @@ end
 
 func show()
   var i: byte
+  var k: word
   if quiet then
     return
   end
@@ -65,12 +66,10 @@ func show()
     put_word(lex.value)
   elif lex.tok == lex.T_STRING then
     sys.put_byte(' ')
-    put_hex(lex.string_length)
-    i = 0
-    while i < lex.string_length do
+    put_word(lex.string_length)
+    for k = 0 until lex.string_length do
       sys.put_byte(' ')
-      put_hex(lex.string[i])
-      i += 1
+      put_hex(lex.string[k])
     end
   end
   sys.put_byte(C_LF)

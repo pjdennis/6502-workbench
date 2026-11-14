@@ -1,0 +1,7 @@
+; error 43 6 7
+module width_complement_too_wide
+var b: byte
+func f()
+  ; ~$100 is -257: its bits do not fit a byte
+  b = ~$100
+end

@@ -54,7 +54,7 @@ CLASS_RECURSIVE = 1
 MAX_CALLS = 64
 MAX_MEMBERS = 64            # MEMB records of one module
 MAX_TABLE = 2048            # bytes of a constant table being made
-MAX_TABLE_FIXES = 128
+MAX_TABLE_FIXES = 256         # addresses in one constant table
 C_DOT = 0x2E
 
 stream = 0

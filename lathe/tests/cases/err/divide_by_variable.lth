@@ -1,6 +1,0 @@
-; error 54 5 11
-module divide_by_variable
-var n: word
-func f()
-  n = 100 / n
-end

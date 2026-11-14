@@ -1,0 +1,7 @@
+; error 43 6 7
+module width_subtract_below_zero
+var b: byte
+func f()
+  ; a subtraction of two numbers is exact: below 0, it fits no unsigned type
+  b = 0 - 1
+end

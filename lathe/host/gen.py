@@ -55,6 +55,7 @@ OP_RTS = 0x60
 OP_LDA = 0xAD
 OP_STA = 0x8D
 OP_STY = 0x8C
+C_SPACE = 0x20
 C_DOLLAR = 0x24
 C_ZERO = 0x30
 
@@ -66,6 +67,20 @@ MAX_HELD = 16           # arguments waiting as operands for registers, with more
 FRAME_MODULE = b"rt_frame"      # the run-time module that keeps the frames of recursive functions
 PUSH_NAME = b"push"             # push(v: byte in a)
 POP_NAME = b"pop_y"             # pop_y(): byte in y, which leaves A, X and the carry flag alone
+MATH_MODULE = b"rt_math"        # the run-time module of `*`, `/`, `mod` and word shifts by a variable
+# Its functions that operators call, each name ended by a space, and for each the types of its
+# two parameters and its result (docs/code-model.md, "Run-time arithmetic").
+MATH_NAMES = b"mul8 mul8x8 mul16 div8 mod8 sdiv8 smod8 div16 mod16 sdiv16 smod16 shl16 shr16 sar16 "
+MATH_TYPES = (b"\x01\x01\x01" b"\x01\x01\x03" b"\x03\x03\x03" b"\x01\x01\x01" b"\x01\x01\x01"
+              b"\x02\x02\x02" b"\x02\x02\x02" b"\x03\x03\x03" b"\x03\x03\x03" b"\x04\x04\x04"
+              b"\x04\x04\x04" b"\x03\x01\x03" b"\x03\x01\x03" b"\x04\x01\x04")
+M_MUL8 = 0
+M_MUL8X8 = 1
+M_MUL16 = 2
+M_DIV8 = 3              # then mod8, sdiv8, smod8, and the same four on words
+M_SHL16 = 11            # then shr16, sar16
+MATH_COUNT = 14
+MATH_SCOPE = 0xFD       # the scope of rt_math's functions when the module does not import it
 
 cpu = 0                 # 0 6502, 1 65C02; from the environment description, when that is read
 pend_op = 0             # the pending operation (a fold.ADD to fold.SHR), or 0
@@ -98,11 +113,17 @@ saved_slot = [0] * reg.SLOTS        # the slots a saving call pushes, in order
 saved_count = 0
 frame_push = kernel.NO_OBJ          # the symbols of rt_frame.push and rt_frame.pop_y, once used
 frame_pop = kernel.NO_OBJ
+math_obj = [0] * MATH_COUNT         # the object-file symbols of rt_math's functions, once used
+math_member = [0] * MATH_COUNT      # and their parameters and result as members
+math_used = False                   # the IMP record of rt_math is written
 
 
 def init():
-    global cpu, init_count, init_part, data_count, frame_push, frame_pop
+    global cpu, init_count, init_part, data_count, frame_push, frame_pop, math_used
     cpu = 0
+    math_used = False
+    for n in range(0, MATH_COUNT):
+        math_obj[n] = kernel.NO_OBJ
     init_count = 0
     data_count = 0
     init_part = kernel.NO_OBJ
@@ -302,9 +323,14 @@ def pointer_type(op):
 
 
 def fold_constants(op, t):
-    """Replace the two newest operands, both constants, by what `op` gives for them."""
+    """Replace the two newest operands, both constants, by what `op` gives for them. A result
+    without a type keeps the mark of a number made by `~` or unary `-` (reg.F_WRAPS) unless
+    `op` is one whose low bits depend on the high bits of its operands: `/`, `mod`, `>>`."""
     first = reg.depth - 2
     second = reg.depth - 1
+    wrapped = (reg.op_flags[first] | reg.op_flags[second]) & reg.F_WRAPS
+    if op == fold.DIV or op == fold.REM or op == fold.SHR:
+        wrapped = 0
     if typetab.is_untyped(t):
         value, negative = fold.exact(op, reg.op_value[first], reg.op_type[first] == typetab.NEGATIVE_TYPE,
                                      reg.op_value[second], reg.op_type[second] == typetab.NEGATIVE_TYPE)
@@ -313,9 +339,11 @@ def fold_constants(op, t):
             t = typetab.NEGATIVE_TYPE
     else:
         value = fold.typed(op, t, reg.op_value[first], reg.op_value[second])
+        wrapped = 0
     reg.pop()
     reg.pop()
     reg.push(reg.O_CONST, t, value)
+    reg.op_flags[reg.depth - 1] = wrapped
 
 
 def exponent(value):
@@ -328,19 +356,23 @@ def exponent(value):
 
 def reduce(op, t):
     """Turn `*`, `/` or `mod` by a constant power of two into a shift or a mask, by changing
-    the constant. Returns the operator to use. Anything else is for the run-time library."""
+    the constant. Returns the operator to use, or 0 if a call of the run-time library has
+    replaced the operands by the result. A divisor known to be 0 is a call too: only a constant
+    divided by the constant 0 is an error (FOLD)."""
     if op == fold.MUL and reg.op_kind[reg.depth - 2] == reg.O_CONST:
         reg.swap()
     second = reg.depth - 1
-    if reg.op_kind[second] != reg.O_CONST:
-        err.fatal(err.E_NEEDS_RT)
-    n = exponent(reg.op_value[second])
-    if op == fold.MUL and reg.op_value[second] == 0:
-        return fold.BAND                # x * 0 is x & 0
-    if op != fold.MUL and reg.op_value[second] == 0:
-        err.fatal(err.E_DIV_ZERO)
+    n = reg.NONE
+    if reg.op_kind[second] == reg.O_CONST:
+        n = exponent(reg.op_value[second])
+        if op == fold.MUL and reg.op_value[second] == 0:
+            return fold.BAND            # x * 0 is x & 0
+    if n == reg.NONE and op == fold.MUL and typetab.size(t) == 1 and reg.op_kind[second] == reg.O_CONST \
+            and short_multiply(t):
+        return 0
     if n == reg.NONE or (op != fold.MUL and typetab.is_signed(t)):
-        err.fatal(err.E_NEEDS_RT)       # a shift rounds a negative number the wrong way
+        arithmetic(op, t)               # a shift rounds a negative number the wrong way
+        return 0
     if op == fold.REM:
         reg.op_value[second] -= 1
         return fold.BAND
@@ -349,6 +381,28 @@ def reduce(op, t):
     if op == fold.MUL:
         return fold.SHL
     return fold.SHR
+
+
+def short_multiply(t):
+    """A byte variable times 3, the constant on top of the stack: `LDA x` / `ASL A` / `CLC` /
+    `ADC x`, never larger than the call (`LDA x` / `LDX #3` / `JSR`), smaller in zero page,
+    about 130 cycles quicker, and without the library (docs/codegen.md, "Bytes"). True if done.
+    Any other constant, and a byte that is not a plain variable (one in A, an element, one
+    that may be a device, at a fixed address or through a pointer), is a call."""
+    second = reg.depth - 1
+    i = second - 1
+    if reg.op_value[second] != 3 or reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT \
+            or reg.op_symbol[i] == kernel.NO_OBJ:
+        return False
+    reg.pop()
+    reg.release(i)
+    reg.load(reg.A, i, 0)
+    reg.accumulator(reg.OP_ASL)
+    reg.implied(reg.OP_CLC)
+    reg.alu(reg.OP_ADC, i, 0)
+    reg.pop()
+    reg.push_register(t)
+    return True
 
 
 def changes_nothing(op, t, value):
@@ -378,6 +432,8 @@ def binary(op):
         return
     if op >= fold.MUL:
         op = reduce(op, t)
+        if op == 0:
+            return
     if commutes(op) and reg.op_kind[reg.depth - 2] == reg.O_CONST:
         reg.swap()
     second = reg.depth - 1
@@ -431,11 +487,18 @@ def shift_a(op, signed):
 
 
 def variable_shift(op, t):
-    """A byte shifted by a count that is not a constant: a loop counted in X."""
+    """A value shifted by a count that is not a constant: for a byte, a loop counted in X; for
+    a word, a call of rt_math."""
     first = reg.depth - 2
     second = reg.depth - 1
     if typetab.size(t) != 1:
-        err.fatal(err.E_NEEDS_RT)
+        n = M_SHL16
+        if op == fold.SHR:
+            n = M_SHL16 + 1
+            if typetab.is_signed(t):
+                n = M_SHL16 + 2
+        library(n, t)
+        return
     reg.take(first)                     # an element would need X, which counts
     if reg.in_registers(second):
         reg.release(second)
@@ -459,6 +522,104 @@ def variable_shift(op, t):
     reg.push_register(t)
 
 
+def small(i):
+    """True if operand `i` is below 256: a constant, or a widened byte."""
+    return reg.is_const_byte(i, 1) and reg.const_byte(i, 1) == 0
+
+
+def arithmetic(op, t):
+    """`*`, `/` or `mod` in type `t` on the two newest operands by the run-time library. A
+    multiply of two numbers below 256 into a word is mul8x8; mul16 is quicker with the smaller
+    operand second."""
+    first = reg.depth - 2
+    n = M_DIV8 + op - fold.DIV
+    if typetab.is_signed(t):
+        n += 2
+    if typetab.size(t) == 2:
+        n += 4
+    if op == fold.MUL:
+        n = M_MUL8
+        if typetab.size(t) == 2 and small(first) and small(first + 1):
+            n = M_MUL8X8
+        elif typetab.size(t) == 2:
+            n = M_MUL16
+            if small(first):
+                reg.swap()
+    library(n, t)
+
+
+def library(n, t):
+    """The two newest operands are the arguments of function `n` of rt_math, the left one for
+    its first parameter: call it, as any call is made (call()): an argument for a parameter
+    passed in a register stays on the stack, and one for a parameter in the frame is stored
+    there first. The result, of type `t`, replaces them in A, or A and X."""
+    saved = outer
+    f = math_function(n)
+    first = reg.depth - 2
+    as_parameter(f, 0, first)
+    as_parameter(f, 1, first + 1)
+    if not in_register(f, 1):
+        parameter(f, 1)
+        reg.swap()
+        store()
+    arguments_end(saved)
+    call(f, first, True)
+    reg.op_type[reg.depth - 1] = t
+
+
+def as_parameter(f, p, i):
+    """Operand `i` is taken as a value of the type of parameter `p` of `f`, which has its size."""
+    t = kernel.member_type[kernel.sym_members[f] + p]
+    if typetab.size(t) == 1:
+        reg.op_size[i] = 1              # a widened byte as the byte it is
+    reg.op_type[i] = t
+
+
+def math_function(n):
+    """The symbol of function `n` of rt_math, as rt_math declares it. Unless the module imports
+    rt_math, the symbol is made in a scope of its own, again in each function that uses it
+    (the function's symbols go when it ends), and the first one used writes the IMP record of
+    rt_math, which the build finds the module from."""
+    global math_used
+    module_name = fixed_name(MATH_MODULE)
+    kernel.name_begin()
+    i = 0
+    for k in range(0, n):
+        while MATH_NAMES[i] != C_SPACE:
+            i += 1
+        i += 1
+    while MATH_NAMES[i] != C_SPACE:
+        kernel.name_add(MATH_NAMES[i])
+        i += 1
+    name = kernel.name_end()
+    for scope in range(1, kernel.module_count):
+        if kernel.module_name[scope] == module_name:
+            s, _ = kernel.sym_find(scope, name)
+            return s
+    s, found = kernel.sym_find(MATH_SCOPE, name)
+    if found:
+        return s
+    s = kernel.sym_add(MATH_SCOPE, name, kernel.K_FUNC)
+    if math_obj[n] == kernel.NO_OBJ:
+        if not math_used:
+            out.imported(module_name)
+            math_used = True
+        math_obj[n] = out.symbol(out.SYM_FUNCTION, module_name, 0, name)
+        math_member[n] = kernel.member_count
+        for k in range(0, 3):
+            where = REG_NONE
+            if k == 2 and typetab.size(MATH_TYPES[3 * n + k]) == 1:
+                where = REG_A
+            elif k == 2:
+                where = REG_AX
+            kernel.member_add(MATH_TYPES[3 * n + k], where)
+    kernel.sym_obj[s] = math_obj[n]
+    kernel.sym_members[s] = math_member[n]
+    kernel.sym_params[s] = 2
+    kernel.sym_results[s] = 1
+    return s
+
+
 def negate():
     """Unary `-` of the newest operand: 0 minus it."""
     settle()
@@ -468,6 +629,14 @@ def negate():
     reg.push(reg.O_CONST, t, 0)
     reg.swap()
     binary(fold.SUB)
+    wraps(t)
+
+
+def wraps(t):
+    """The newest operand is what `~` or unary `-` made of an operand of type `t`: if that was a
+    number without a type, the result fits an unsigned type by its bits (reg.fit)."""
+    if typetab.is_untyped(t):
+        reg.op_flags[reg.depth - 1] = reg.F_WRAPS
 
 
 def complement():
@@ -479,6 +648,7 @@ def complement():
     else:
         reg.push(reg.O_CONST, t, typetab.narrow(0xFFFF, t))
     binary(fold.BXOR)
+    wraps(t)
 
 
 # ---- Computing an operation into its destination -----------------------------------------

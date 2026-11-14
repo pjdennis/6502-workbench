@@ -1,0 +1,8 @@
+; error 43 7 7
+module width_named_constant
+const MASK = ~$20
+var b: byte
+func f()
+  ; a constant declared without a type keeps its exact value, -33: declare it `: byte`
+  b = MASK
+end

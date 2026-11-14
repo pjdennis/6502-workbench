@@ -1,0 +1,159 @@
+; The operators `*`, `/` and `mod` on every integer type and operand shape: variable by
+; variable, by a constant on either side, byte and word mixed, signed with every sign
+; combination, division by zero, and the results used in expressions, conditions, arguments
+; and indexes; then a decimal printer written with `/` and `mod`. Checksums (libsum) of the
+; results; lathe/tests/test_operators.py gives the output.
+module arith_ops
+
+import libout
+import libsum
+
+const BV: [13]byte = [0, 1, 2, 3, 5, 7, 10, 16, 100, 127, 128, 200, 255]
+const SV: [10]sbyte = [0, 1, -1, 2, -2, 3, -7, 127, -128, 100]
+const WV: [12]word = [0, 1, 2, 3, 7, 10, 255, 256, 1000, $7FFF, $8000, $FFFF]
+const IV: [10]int = [0, 1, -1, 2, -2, 7, -7, 32767, -32768, -1000]
+
+var tab: [16]byte = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3]
+
+func twice(b: byte): byte
+  return b + b
+end
+
+; n in decimal, by `/` and `mod`
+func dec(n: word)
+  var d: [5]byte
+  var k: byte = 0
+  loop
+    d[k] = byte(n mod 10)
+    k += 1
+    n = n / 10
+  until n == 0
+  loop
+    k -= 1
+    libout.char('0' + d[k])
+  until k == 0
+  libout.space()
+end
+
+pub func main()
+  var i: byte
+  var j: byte
+  var k: byte
+  var m: byte
+  var n: byte
+  var s: sbyte
+  var t: sbyte
+  var u: word
+  var v: word
+  var x: int
+  var y: int
+  for i = 0 to 255 do
+    for k = 0 to len(BV) - 1 do
+      j = BV[k]
+      libsum.add(i * j)
+      libsum.add(i / j)
+      libsum.add(i mod j)
+    end
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    libsum.add(i * 7)
+    libsum.add(7 * i)
+    libsum.add(i * 200)
+    libsum.add(i / 7)
+    libsum.add(200 / i)
+    libsum.add(i mod 7)
+    libsum.add(255 mod i)
+    libsum.add(i mod 0)         ; a divisor known to be 0: the library's result
+    libsum.add(i / (0 & i))
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    s = sbyte(i)
+    for k = 0 to len(SV) - 1 do
+      t = SV[k]
+      libsum.add(byte(s * t))
+      libsum.add(byte(s / t))
+      libsum.add(byte(s mod t))
+    end
+    libsum.add(byte(s / 4))
+    libsum.add(byte(s mod 4))
+    libsum.add(byte(s / -4))
+    libsum.add(byte(-100 / s))
+    libsum.add(byte(s * -3))
+  end
+  libsum.show()
+  libout.nl()
+  for m = 0 to len(WV) - 1 do
+    u = WV[m]
+    for n = 0 to len(WV) - 1 do
+      v = WV[n]
+      libsum.add(u * v)
+      libsum.add(u / v)
+      libsum.add(u mod v)
+    end
+    libsum.add(u * 300)
+    libsum.add(300 * u)
+    libsum.add(u / 1000)
+    libsum.add(u mod 1000)
+    libsum.add(60000 / u)
+  end
+  libsum.show()
+  for m = 0 to len(IV) - 1 do
+    x = IV[m]
+    for n = 0 to len(IV) - 1 do
+      y = IV[n]
+      libsum.add(word(x * y))
+      libsum.add(word(x / y))
+      libsum.add(word(x mod y))
+    end
+    libsum.add(word(x / 2))
+    libsum.add(word(x mod 2))
+    libsum.add(word(x / -3))
+    libsum.add(word(x mod 256))
+    libsum.add(word(-30000 / x))
+  end
+  libsum.show()
+  for i = 0 to 255 do
+    for k = 0 to len(BV) - 1 do
+      j = BV[k]
+      for m = 0 to len(WV) - 1 do
+        u = WV[m]
+        libsum.add(u * i)
+        libsum.add(i * u)
+        libsum.add(u / i)
+        libsum.add(u mod j)
+      end
+      libsum.add(word(i) * word(j))
+      libsum.add(word(i) * 300)
+    end
+  end
+  libsum.show()
+  libout.nl()
+  n = 0
+  for i = 0 to 255 do
+    for k = 0 to len(BV) - 1 do
+      j = BV[k]
+      libsum.add((i * j) + (j * i))
+      libsum.add(twice(i * j))
+      libsum.add(tab[i * 5 mod 16])
+      if i / j == 2 then
+        n += 1
+      end
+      if i mod 3 == j mod 3 then
+        n += 1
+      end
+    end
+  end
+  libsum.show()
+  libout.hex(n)
+  libout.nl()
+  dec(0)
+  dec(7)
+  dec(10)
+  dec(255)
+  dec(1000)
+  dec(12345)
+  dec(65535)
+  libout.nl()
+end

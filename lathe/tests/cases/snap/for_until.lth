@@ -1,0 +1,41 @@
+; `for i = first until limit`: the test, i < limit, is at the top, so the body does not run
+; when first >= limit; `continue` goes to the step (docs/codegen.md, "Statements").
+module for_until
+
+var n: byte
+var total: word
+var a: [10]byte
+var w: word
+var k: int
+var s: sbyte
+
+func f()
+  var i: byte
+  for i = 0 until n do
+    total += a[i]
+  end
+  for i = 2 until 10 do
+    if a[i] == 0 then
+      continue
+    end
+    if a[i] == 9 then
+      break
+    end
+    a[i] = 1
+  end
+  for i = n until n + 3 do
+    total += 1
+  end
+end
+
+func g()
+  for w = 0 until total do
+    n += 1
+  end
+  for k = -5 until 5 do
+    n += 1
+  end
+  for s = -3 until 3 do
+    n += 1
+  end
+end

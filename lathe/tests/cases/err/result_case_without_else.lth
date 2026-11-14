@@ -1,0 +1,8 @@
+; error 180 8 1
+module result_case_without_else
+func f(a: byte): byte
+  case a
+  of 1
+    return 10
+  end
+end

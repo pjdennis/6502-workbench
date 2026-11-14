@@ -1,0 +1,7 @@
+; error 180 7 1
+module result_falls_off
+var n: byte
+; nothing returns the result
+func f(): byte
+  n += 1
+end

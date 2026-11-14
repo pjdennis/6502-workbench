@@ -1,0 +1,5 @@
+; error 87 5 538
+module table_too_many_addresses
+; 129 addresses of two bytes: 258 fix-ups, two more than a table may have (out.MAX_TABLE_FIXES)
+var v: byte
+const T: [129]^byte = [@v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v, @v]

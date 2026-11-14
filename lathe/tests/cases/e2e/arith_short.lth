@@ -1,0 +1,44 @@
+; A byte times 3, 5, 6, 7, 9, 10 and 12 (times 3 of a variable written out as a shift and an
+; add, the others calls) against an explicit call of rt_math.mul8 for all 256 values, from a
+; variable, an element and a value computed into A, and a signed byte; prints the number of
+; differences (none) and a checksum of the products.
+; lathe/tests/test_operators.py gives the output.
+module arith_short
+
+import libout
+import libsum
+import rt_math
+
+const CV: [7]byte = [3, 5, 6, 7, 9, 10, 12]
+
+var bad: byte = 0
+var tab: [1]byte
+
+func check(product: byte, k: byte, i: byte)
+  if product != rt_math.mul8(i, CV[k]) then
+    bad += 1
+  end
+  libsum.add(product)
+end
+
+pub func main()
+  var i: byte
+  var z: byte = 0
+  for i = 0 to 255 do
+    tab[z] = i
+    check(i * 3, 0, i)
+    check(i * 5, 1, i)
+    check(6 * i, 2, i)
+    check(i * 7, 3, i)
+    check(i * 9, 4, i)
+    check(i * 10, 5, i)
+    check(i * 12, 6, i)
+    check(tab[z] * 10, 5, i)
+    check((i + z) * 7, 3, i)
+    check(byte(sbyte(i) * 3), 0, i)
+    libsum.add(i * 11)          ; a call of the rt_math this module imports
+  end
+  libsum.show()
+  libout.hex(bad)
+  libout.nl()
+end

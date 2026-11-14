@@ -34,9 +34,6 @@
 ;   | symbol table, used by name_end()     |                                   | use             |
 ;   | name_length, name_char used before   | forward declarations              | declare before  |
 ;   | they are defined                     |                                   | use             |
-;   | for i in range(0, n), n a variable   | while i < n                       | `for i = 0 to   |
-;   |                                      |                                   | n - 1` runs 256 |
-;   |                                      |                                   | times for n = 0 |
 ;   | `low, _ = get(s)`                    | a variable `at_end` for the `_`   | no `_`          |
 ;   | name_word(): b | (b1 << 8)           | word(b) | (word(b1) << 8)         | bytes stay bytes|
 ;   | path_length + 1 >= PATH_SIZE         | word(path_length) + 1 >= ...      | PATH_SIZE (256) |
@@ -110,10 +107,9 @@ pub func path_add_text(t: ^byte)
 end
 
 pub func path_add_name(name: word)
-  var i: byte = 0
-  while i < name_length(name) do
+  var i: byte
+  for i = 0 until name_length(name) do
     path_add(name_char(name, i))
-    i += 1
   end
 end
 
@@ -138,7 +134,7 @@ var stream_limit: [MAX_STREAMS]^byte        ; memory: pointer past the last byte
 
 func stream_new(kind: byte): byte
   var s: byte
-  for s = 0 to MAX_STREAMS - 1 do
+  for s = 0 until MAX_STREAMS do
     if stream_kind[s] == STREAM_FREE then
       stream_kind[s] = kind
       return s
@@ -227,11 +223,10 @@ end
 
 ; Write a name as a string: its length, then its characters.
 pub func put_name(s: byte, name: word)
-  var i: byte = 0
+  var i: byte
   put(s, name_length(name))
-  while i < name_length(name) do
+  for i = 0 until name_length(name) do
     put(s, name_char(name, i))
-    i += 1
   end
 end
 
@@ -292,15 +287,14 @@ end
 
 ; True unless entry `n` spells the name being built.
 func name_is_new(n: word): bool
-  var i: byte = 0
+  var i: byte
   if names[n + N_LENGTH] != new_length then
     return true
   end
-  while i < new_length do
+  for i = 0 until new_length do
     if names[n + N_TEXT + i] != names[name_top + N_TEXT + i] then
       return true
     end
-    i += 1
   end
   return false
 end
@@ -348,7 +342,7 @@ end
 pub func names_release(mark: word)
   var bucket: byte
   var n: word
-  for bucket = 0 to NAME_BUCKETS - 1 do
+  for bucket = 0 until NAME_BUCKETS do
     n = name_bucket[bucket]
     while n >= mark do                  ; the newest names are first in each bucket
       n = name_word(n + N_LINK)
@@ -508,10 +502,10 @@ pub func init()
   var bucket: byte
   text_top = @text
   path = text_reserve(PATH_SIZE)
-  for s = 0 to MAX_STREAMS - 1 do
+  for s = 0 until MAX_STREAMS do
     stream_kind[s] = STREAM_FREE
   end
-  for bucket = 0 to NAME_BUCKETS - 1 do
+  for bucket = 0 until NAME_BUCKETS do
     name_bucket[bucket] = 0
   end
   name_top = 1

@@ -1,0 +1,5 @@
+; error 181 4 1
+module error_directive
+#if true
+#error "this configuration is not supported"
+#end

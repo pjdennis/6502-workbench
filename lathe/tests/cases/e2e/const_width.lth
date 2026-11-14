@@ -1,0 +1,52 @@
+; Numbers without a type at the width they are used: `~` and unary `-` of them given to
+; unsigned types, and a number too large for a byte widening the byte it is used with.
+; lathe/tests/test_operators.py gives the output.
+module const_width
+
+import libout
+
+const BIT = $20
+const LOW: byte = ~$0F
+
+func digit_room(n: word, digit: byte, base: byte): bool
+  return n <= ($FFFF - digit) / base
+end
+
+pub func main()
+  var b: byte
+  var w: word
+  var d: byte
+  b = ~$20
+  libout.hex(b)
+  libout.space()
+  b = $F7 & ~BIT
+  libout.hex(b)
+  libout.space()
+  libout.hex(~(BIT | 1))
+  libout.space()
+  libout.hex(b + -2)
+  libout.space()
+  libout.hex(LOW)
+  libout.space()
+  w = -1
+  libout.hexw(w)
+  libout.space()
+  w = ~$20
+  libout.hexw(w)
+  libout.nl()
+  for d = 0 until 16 do
+    w = $FFFF - d
+    libout.hexw(w)
+    libout.space()
+    libout.truth(digit_room(6553, d, 10))
+    libout.space()
+  end
+  libout.nl()
+  d = 200
+  libout.hexw(d + 1000)
+  libout.space()
+  libout.truth(d < 300)
+  libout.space()
+  libout.hexw(60000 - 59999 + d)
+  libout.nl()
+end

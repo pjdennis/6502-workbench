@@ -1,0 +1,6 @@
+; error 33 6 3
+module string_line_end
+; the line end after a string, passed over looking for a further piece, is still a line end
+const S = "abc"
+  ; a comment
+  oops

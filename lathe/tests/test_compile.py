@@ -613,6 +613,22 @@ class FunctionTypesTest(CompileTest):
         self.assertEqual(syms.count(b'\x01' + string(b'rt_frame.pop_y')), 1)
         self.assertEqual([body for kind, body in self.records('t') if kind == IMP], [string(b'rt_frame')])
 
+    def test_operators_write_the_imp_record_and_symbols_of_rt_math_once(self):
+        self.compile(self.source('t.lth', 'module t\nvar a: byte\nvar w: word\nfunc f()\n  a = a * a\n'
+                                 '  a = a / a\nend\nfunc g()\n  a = a * a\n  w = w / w\nend\n'))
+        syms = [body for kind, body in self.records('t') if kind == SYM]
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_math.mul8')), 1)
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_math.div16')), 1)
+        self.assertEqual([body for kind, body in self.records('t') if kind == IMP], [string(b'rt_math')])
+
+    def test_a_module_that_imports_rt_math_itself_has_its_operators_call_its_symbols(self):
+        self.compile(os.path.join(support.LATHE, 'rt', 'rt_math.lth'))
+        self.compile(self.source('t.lth', 'module t\nimport rt_math\nvar a: byte\nfunc f()\n'
+                                 '  a = rt_math.mul8(a, a) + a * a\nend\n'))
+        syms = [body for kind, body in self.records('t') if kind == SYM]
+        self.assertEqual(syms.count(b'\x01' + string(b'rt_math.mul8')), 1)
+        self.assertEqual([body for kind, body in self.records('t') if kind == IMP], [string(b'rt_math')])
+
     def test_a_recursive_function_must_be_declared_so_in_its_forward_declaration(self):
         path = self.source('t.lth', 'module t\nforward func f()\nrecursive func f()\nend\n')
         self.assertEqual(support.run_lathec(path, self.out),

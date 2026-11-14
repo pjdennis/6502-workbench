@@ -8,13 +8,19 @@ lathe/verify.sh: run it after changing how code is generated.
 Compiles and runs COUNT programs, made from the seeds SEED, SEED + 1, ... (so a failure can
 be made again), each of SIZE statements.
 
-- `expr`: each statement is a random expression of one of the scalar types - arithmetic,
-  shifts, conversions, comparisons, `and` `or` `not`, calls in arguments - assigned, returned,
+- `expr`: each statement is a random expression of one of the scalar types - arithmetic
+  with `*`, `/` and `mod` among it, shifts by constants and by variables, conversions, comparisons, `and` `or` `not`, calls in arguments - assigned, returned,
   returned with a status or used as a test. It prints each value.
 - `stmt`: a sequence of assignments, compound assignments, halves of words, `if`, `while`,
   `loop ... until` and calls on seven variables, the elements of three arrays (bytes, words
   by column, words by row) and the fields of two arrays of records (by column and by row),
-  read and written directly and through pointers, which prints their final values. This is aimed at what the compiler remembers about the registers and the flags.
+  read and written directly and through pointers, which prints their final values, with
+  `*`, `/`, `mod` and shifts by a variable among the operations. This is aimed at what the
+  compiler remembers about the registers and the flags.
+
+Division by zero is not avoided: it has a defined result (docs/code-model.md, "Run-time
+arithmetic"). Only in `expr`, where both operands can be constants, a divisor of 0 is a
+variable that holds 0: two constants divided by the constant 0 are error 59.
 
 The true results come from the same program worked out in Python while it is generated. A
 program that prints something else, or does not compile, is kept in a directory that is
@@ -29,6 +35,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'host', 'driver'))
 import build  # noqa: E402
+sys.path.insert(0, HERE)
+from test_rt_math import sar16, sdiv, shl16, shr16, udiv  # noqa: E402
 
 # ---------------------------------------------------------------------------------------------
 # Expressions
@@ -37,10 +45,26 @@ B, S, W, I, BOOL = 'byte', 'sbyte', 'word', 'int', 'bool'
 BITS = {B: 8, S: 8, W: 16, I: 16}
 SIGNED = {S, I}
 VARS = {B: {'a': 0x35, 'b': 0xC8, 'c': 0x01, 'z': 0x00, 'm': 0xFF},
-        S: {'s': -100, 't': 77, 'u': -1},
-        W: {'w': 0x1234, 'v': 0xFEDC, 'x': 0x00FF, 'y': 0x8000},
-        I: {'i': -1000, 'j': 12345, 'k': -32768},
+        S: {'s': -100, 't': 77, 'u': -1, 'h': 0},
+        W: {'w': 0x1234, 'v': 0xFEDC, 'x': 0x00FF, 'y': 0x8000, 'o': 0},
+        I: {'i': -1000, 'j': 12345, 'k': -32768, 'e': 0},
         BOOL: {'yes': 1, 'no': 0}}
+
+
+ZERO = {B: 'z', S: 'h', W: 'o', I: 'e'}     # a variable that holds 0, for a divisor
+
+
+def arith(t, op, a, b):
+    """`a op b` for `*`, `/` and `mod` in type t, as the run-time library gives it."""
+    bits = BITS[t]
+    mask = (1 << bits) - 1
+    if op == '*':
+        return wrap(t, a * b)
+    if t in SIGNED:
+        q, rem, _ = sdiv(a & mask, b & mask, bits)
+    else:
+        q, rem = udiv(a & mask, b & mask, bits)
+    return wrap(t, q if op == '/' else rem)
 
 
 def wrap(t, v):
@@ -80,7 +104,8 @@ class Expressions:
         r = self.r
         if depth <= 0 or r.random() < 0.15:
             return self.leaf(t)
-        kind = r.choice(['bin', 'bin', 'bin', 'bin', 'shift', 'unary', 'conv', 'call', 'vshift', 'cond', 'paren'])
+        kind = r.choice(['bin', 'bin', 'bin', 'bin', 'mul', 'shift', 'unary', 'conv', 'call', 'vshift', 'cond',
+                         'paren'])
         if kind == 'bin':
             op = r.choice(['+', '-', '&', '|', '^'])
             lt, lv, lc, ln = self.operand(t, depth - 1)
@@ -94,6 +119,19 @@ class Expressions:
             # a bare constant must fit the type of the other side
             v = {'+': lv + rv, '-': lv - rv, '&': lv & rv, '|': lv | rv, '^': lv ^ rv}[op]
             return ('(%s %s %s)' % (lt, op, rt), wrap(t, v), False)
+        if kind == 'mul':
+            op = r.choice(['*', '/', 'mod'])
+            lt, lv, lc, ln = self.operand(t, depth - 1)
+            rt, rv, rc, rn = self.operand(t, depth - 1)
+            if op != '*' and rv == 0:
+                rt, rc, rn = ZERO[t], False, False      # not the constant 0, which is error 59
+            if lc and (rc or rn):
+                lt = '%s(%s)' % (t, lt)
+            if rc and ln:
+                rt = '%s(%s)' % (t, rt)
+            if ln and rn:
+                lt = '%s(%s)' % (t, lt)
+            return ('(%s %s %s)' % (lt, op, rt), arith(t, op, lv, rv), False)
         if kind == 'shift':
             x, xv, xc = self.expr(t, depth - 1)
             n = r.randrange(0, BITS[t] + 2)
@@ -112,6 +150,18 @@ class Expressions:
             if r.random() < 0.5:
                 return ('(%s << %s)' % (x, n), wrap(t, xv << nv), False)
             return ('(%s >> %s)' % (x, n), wrap(t, xv >> nv) if t in SIGNED else (xv & 0xFF) >> nv, False)
+        if kind == 'vshift':
+            x, xv, xc = self.expr(t, depth - 1)
+            if xc:
+                x = '%s(%s)' % (t, x)
+            n, nv, _ = self.expr(B, depth - 2)
+            n = '(%s & 31)' % n
+            nv &= 31
+            if r.random() < 0.5:
+                return ('(%s << %s)' % (x, n), wrap(t, shl16(xv & 0xFFFF, nv)), False)
+            if t in SIGNED:
+                return ('(%s >> %s)' % (x, n), wrap(t, sar16(xv & 0xFFFF, nv)), False)
+            return ('(%s >> %s)' % (x, n), shr16(xv & 0xFFFF, nv), False)
         if kind == 'unary':
             x, xv, xc = self.expr(t, depth - 1)
             if xc:
@@ -373,6 +423,12 @@ class Statements:
         if kind < 0.3:
             return self.call(depth - 1, False)
         y, py = self.bexpr(depth - 1)
+        if kind < 0.4:
+            op = r.choice(['*', '/', 'mod'])
+            if not any(v in x for v in BV + WV) and not any(v in y for v in BV + WV):
+                x = px = r.choice(BV)
+            fn = {'*': 'ml8', '/': 'dv8', 'mod': 'md8'}[op]
+            return '(%s %s %s)' % (x, op, y), '%s(%s, %s)' % (fn, px, py)
         if not any(v in x for v in BV + WV) and not any(v in y for v in BV + WV):
             x = px = r.choice(BV)
         op = r.choice(['+', '-', '&', '|', '^'])
@@ -435,7 +491,19 @@ class Statements:
             if not any(v in x for v in BV + WV):
                 x = px = r.choice(WV)
             return '(%s %s %d)' % (x, op, n), '((%s %s %d) & 65535)' % (px, op, n), True
+        if r.random() < 0.08:
+            n, pn = self.bexpr(0)
+            if not any(v in x for v in BV + WV):
+                x = px = r.choice(WV)
+            op = r.choice(['<<', '>>'])
+            return '(%s %s (%s & 31))' % (x, op, n), '%s(%s, %s & 31)' % ('sl16' if op == '<<' else 'sr16', px, pn), True
         y, py, kind = self.wleaf()
+        if r.random() < 0.15:
+            op = r.choice(['*', '/', 'mod'])
+            if not any(v in x for v in BV + WV) and kind is not True:
+                x = px = r.choice(WV)
+            fn = {'*': 'ml16', '/': 'dv16', 'mod': 'md16'}[op]
+            return '(%s %s %s)' % (x, op, y), '%s(%s, %s)' % (fn, px, py), True
         if not any(v in x for v in BV + WV) and kind is not True:
             x = px = r.choice(WV)
         op = r.choice(['+', '-', '&', '|', '^'])
@@ -729,7 +797,10 @@ def python_calls(env):
         env['k0'] = (env['k0'] + 1) & 255
         env['k1'] = (env['k1'] + 1) & 65535
         return env['k0']
-    return dict(bump=bump, f1=lambda a: a ^ 0x5A, f2=lambda a, b: (a - b) & 255,
+    return dict(ml8=lambda a, b: a * b & 255, dv8=lambda a, b: udiv(a, b, 8)[0], md8=lambda a, b: udiv(a, b, 8)[1],
+                ml16=lambda a, b: a * b & 65535, dv16=lambda a, b: udiv(a, b, 16)[0],
+                md16=lambda a, b: udiv(a, b, 16)[1], sl16=shl16, sr16=shr16,
+                bump=bump, f1=lambda a: a ^ 0x5A, f2=lambda a, b: (a - b) & 255,
                 f3=lambda a, b, c: ((a + b) & 255) ^ c, f4=lambda w, b: (w + b) & 65535,
                 f5=lambda b, w: (w - b) & 65535, f6=lambda w, v, b, c: ((w ^ v) + b - c) & 65535,
                 f7=lambda a, b, w, c: ((a + b + (w & 255) + (w >> 8)) & 255) ^ c)
