@@ -1,6 +1,6 @@
 # Lathe: spikes
 
-Status (2026-11-14): the small spikes S1 to S7 and the larger spike L4 are done; results are at the end. L1 and L2 were folded into building the compiler and the linker. L3 (shrinking in the linker) is answered by the linker itself, which shrinks in one streaming pass and matches the assembler byte for byte.
+Status (2026-11-14): the small spikes S1 to S7 and the larger spikes L4 and L5 are done; results are at the end. L1 and L2 were folded into building the compiler and the linker. L3 (shrinking in the linker) is answered by the linker itself, which shrinks in one streaming pass and matches the assembler byte for byte.
 
 A spike is a short experiment that answers one question and is then thrown away. Its output is a number or a yes or no, written back into the design documents. Spike code does not become the compiler.
 
@@ -252,3 +252,54 @@ With the middle layers also written in Lathe (types, constant folding, the funct
 - **Projection for the whole compiler.** The six modules still to do have 4,563 lines of code. At 6.9 to 8.4 bytes per line they are 31 to 38 KB, so the compiler would be **55 to 61 KB of code, with 54 KB of tables**. The target was 32 KB. It cannot run in 64 KB as it stands.
 - **The host compiler cannot compile `reg.lth` within its own limits**, because an import brings in every exported name.
 - **Where the code is bigger than it should be**, by estimated saving in the six middle modules: arrays of more than 256 entries (142 address computations of about 13 bytes; rows reached through a pointer would save 550 bytes here and several KB overall); the function buffer walked by an index, not a pointer (740); the address of `buffer[e + k]` recomputed each time (260); a word built from two bytes through a temporary (25 bytes a time against 10); index registers reloaded when two indexes alternate (250); chains of tests that could be tables; loops tested at the top (29 loops).
+
+## Result of L5: far calls three ways (2026-11-14)
+
+The question: does one stub mechanism serve fixed memory, banks and disk overlays, and what does each cost? **Yes.** One stub form, written by the linker, serves banks and overlays; only the run-time routine differs. In the all-fixed case the stub disappears and the call is a plain `JSR`.
+
+**Method.** Three modules written by hand in assembler (`lathe/tests/spike_l5/`): M (main, always fixed), A and B. The same module text is placed four ways by `l5build.py`, the spike's stand-in for the linker: all fixed on the emulator's default machine and on Wendy 2; A and B in banks 1 and 2 of Wendy 2 (`--machine wendy2c --disk DIR`, with each bank loaded from its own file at start-up through the `$F800` file ports); A and B in overlays 1 and 2 of a 4 KB window at `$8000` on the default machine, loaded through the host file services (`$F012`, `$F018`). `asm/pyasm.py` assembles each image, again until no address changes. `lathe/tests/test_spike_l5.py` builds and runs all of them and checks the output and the numbers below.
+
+Every configuration prints the same results, and Wendy 2 adds two lines:
+
+| Case | What it checks |
+|---|---|
+| nest | M → A → B → A: the result in A, X and carry comes back through three return paths. |
+| rec | Mutual recursion between A and B, 20 levels, the argument saved on the stack. |
+| ptr1, ptr2, ptr3 | Calls through a function pointer: M to B, A to B, and A to A through A's own stub. |
+| irq (Wendy 2) | A VIA timer interrupt every 307 cycles, 512 times through a loop of far calls; the handler makes a far call of its own into bank B. No call comes back wrong. |
+| port (Wendy 2) | Port B bits 5-7 (the LCD's E, an LED, PB7) are as set before the far calls. |
+| loads (overlays) | 49 loads for the run. |
+
+Arguments in static slots need nothing: `b_mid` keeps its parameter at `$0200`, in fixed memory, seen from every bank.
+
+**The stub** (6 bytes, in fixed memory, one per function in a window that is called from outside its bank or whose address is taken):
+
+```
+STUB_f  JSR fc_call
+        .byte BANK          ; port B bits 0-4 for a bank; the overlay's number for an overlay
+        .word f-1
+```
+
+**The bank routine** (`rt_bank.s`, NMOS instructions only, 101 bytes). `fc_call` reads the stub's three bytes through its return address, puts on the stack the address of `fc_back` and the bank now in the window, switches port B (keeping bits 5-7) and enters `f` by `RTS` with A, X, Y and the flags as the caller left them. `fc_back` puts the old bank back and returns with A, X and the carry as `f` left them. The bank to restore is on the stack, never in a variable, so nesting, recursion and far calls from an interrupt handler are safe. Its scratch bytes are used only between `PHP` / `SEI` and `PLP`.
+
+**A faster stub** (`rt_bankf.s`, 12 bytes: `PHA` / `LDA #BANK` / `JSR fc_enter` / `JSR f` / `JMP fc_leave`) makes the call itself, so the routine reads nothing through the return address (62 bytes).
+
+**The overlay routine** (`rt_ovl.s`, 107 bytes and a 30-byte loader). If the overlay is in the window already, it enters `f` directly and `f` returns straight to the caller. Otherwise it loads the overlay and `f` returns into `fc_back`, which loads again the overlay that was in the window at the call. The loader is not reentrant: an interrupt handler must not reach an overlay.
+
+**Measured** (exact CPU cycles from the emulator; "far call" is the cost over a plain `JSR` and `RTS`, which cost 12):
+
+| | All fixed | Banks, 6-byte stub | Banks, 12-byte stub | Overlays |
+|---|---|---|---|---|
+| Bytes per stub | 0 | 6 | 12 | 6 |
+| Bytes of the routine | 0 | 101 | 62 | 107 + 30 (loader) + the board's file reader |
+| Cycles a far call and its return add | 0 | 182 | 130 | 82 with the overlay in the window |
+| Two nested far calls (M → B → A) | 0 | 364 | 260 | 2 loads |
+| Loading | none | 21 cycles a byte at start-up (`$F800` ports) | the same | 43 cycles a byte at each load (host services), about 200 more a load |
+| Extra hardware stack per far call | 0 | 3 bytes | 3 bytes | 3 bytes (0 when in the window) |
+
+- **The stub mechanism is one mechanism.** The program text is identical in all four builds; only the linker's choice of what a name means (the function or its stub) changes.
+- **The 6-byte stub is the better choice for the compiler.** It costs 52 cycles more a call than the 12-byte one, but the compiler needs about 95 stubs (`configurations.md`): 570 + 101 bytes resident against 1,140 + 62. At about 6 far calls a source line the difference is about 300 cycles a line.
+- **Overlays are cheap only while the window holds the right overlay.** A call into the other overlay and back costs two loads: 2,100 cycles for 45 bytes here, about a million for a 24 KB overlay. Overlays suit code used rarely, never code called from the other side of the window several times a line.
+- **Interrupts and banks work together** with the reentrant routine: in the timer test the handler ran, and made its far call, at least 256 times (the test requires it; the run's 3.9 million cycles at one interrupt every 307 suggest about 12,000), at many different points inside the main loop's far calls, without a fault. A 65C02-only routine (`PHX`, `PLY`) would save perhaps 10 to 15 cycles a call *(estimate)*; the NMOS routine was kept so that one routine serves every board.
+- **The emulator needs no change** for this: Wendy 2 with `--disk` has the file ports, and the default machine has host files ([`configurations.md`](configurations.md), "Where the banked compiler can run").
+- **Decided by this spike:** the `farcall` entry of the environment names a routine of one of two kinds, bank or overlay, with this 6-byte stub; `place` is by module. How the compiler's modules may call each other across banks is in [`configurations.md`](configurations.md).
