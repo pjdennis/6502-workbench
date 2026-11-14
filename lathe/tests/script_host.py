@@ -200,25 +200,44 @@ def sections(name):
     return found
 
 
-def host_run(main, args):
-    """main() of a Python twin, with program arguments: (status, output, error output)."""
+# The small build (lathe/host/README.md, "The small build"): the capacities the twins declare
+# under `#if SMALL`, as (host module, name, size). host_run(small=True) gives the host modules
+# the same; test_memory.py checks that the twins agree.
+SMALL = (('kernel', 'NAME_HEAP_SIZE', 1024), ('kernel', 'MAX_SYMS', 264), ('kernel', 'MAX_MEMBERS', 264),
+         ('fbuf', 'BUFFER_SIZE', 1024), ('out', 'MAX_TABLE', 264), ('out', 'MAX_TABLE_FIXES', 32),
+         ('lex', 'MAX_STRING', 264))
+
+
+def host_run(main, args, small=False):
+    """main() of a Python twin, with program arguments: (status, output, error output). With
+    `small`, the host modules have the capacities of the small build while it runs."""
+    import importlib
     lathec_support.fresh()
     env._out = io.BytesIO()
     env.start(args)
     status = 0
+    saved = []
+    for module, const, size in SMALL if small else ():
+        m = importlib.import_module(module)
+        saved.append((m, const, getattr(m, const)))
+        setattr(m, const, size)
     try:
         main()
     except SystemExit as e:
         status = e.code
+    finally:
+        for m, const, size in saved:
+            setattr(m, const, size)
     return status, env._out.getvalue(), env._err.getvalue()
 
 
-def check_script(test, image, main, name, work, outputs=0, extra=()):
+def check_script(test, image, main, name, work, outputs=0, extra=(), small=False):
     """Run every section of script NAME with the Lathe program `image` and with the twin
     `main`, and check that the status, the output and the error output are the same, and the
     files the two write: the program gets the script and then `outputs` names of files to
     write (ending in L for the Lathe, P for the host). `extra` adds sections, (title, text),
-    that the test makes itself. The Lathe runs are made in parallel."""
+    that the test makes itself. `small`: the program is the small build, and the host is run
+    with its capacities. The Lathe runs are made in parallel."""
     found = sections(name) + list(extra)
     runs = []
     for n, (title, text) in enumerate(found):
@@ -232,7 +251,7 @@ def check_script(test, image, main, name, work, outputs=0, extra=()):
                                                     timeout=600), runs))
     for (title, text, path, files), (status, out, err, _) in zip(runs, lathe):
         with test.subTest(section=title.decode()):
-            host = host_run(main, [path] + [f + 'P' for f in files])
+            host = host_run(main, [path] + [f + 'P' for f in files], small)
             if out != host[1]:
                 test.fail(first_difference(text, out, host[1]))
             test.assertEqual((status, err), (host[0], host[2]))

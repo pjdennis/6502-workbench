@@ -3,7 +3,7 @@ lathe/tests/scripts/cond.txt, which compare operands of every type and make test
 the carry flag of Conditions joined by `and`, `or` and `not`, and prints what each gives and
 the function's code, fix-ups and frame; main() below does the same with cond.py (and the
 commands of regcmd_host.py), and the outputs, error reports, exit statuses and object files
-must be identical."""
+must be identical. The program is the small build (lathe/host/README.md, "The small build")."""
 import shutil
 import tempfile
 import unittest
@@ -96,7 +96,7 @@ class CondTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp(prefix='lathe-src-cond-')
-        cls.image = script.support.build_program('condtest', cls.dir)
+        cls.image = script.support.build_program('condtest', cls.dir, small=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -104,7 +104,8 @@ class CondTest(unittest.TestCase):
 
     def test_every_script(self):
         self.assertGreater(script.check_script(self, self.image, main, 'cond',
-                                               self.dir, outputs=1, extra=grid_sections()), 5)
+                                               self.dir, outputs=1, extra=grid_sections(),
+                                               small=True), 5)
 
 
 if __name__ == '__main__':

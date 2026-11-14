@@ -384,6 +384,20 @@ def conversion(t, line, col):
     lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
 
 
+def string():
+    """The string LEX has just read, used as a value: a `^byte` to constant data that holds
+    it, with a zero after it. (Here and not in GEN, which then need not import LEX: its names
+    would take 2 KB of GEN's name heap.)"""
+    gen.settle()
+    symbol = gen.anonymous()
+    out.data(symbol, lex.string_length + 1)
+    for i in range(0, lex.string_length):
+        out.data_byte(lex.string[i])
+    out.data_byte(0)
+    reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
+    reg.op_symbol[reg.depth - 1] = symbol
+
+
 def primary():
     """primary = number | string | "(" expression ")" | typeKw "(" expression ")"
     | "^" type "(" expression ")" | designator [ arguments [ "->" designator ] ]. Pushes its
@@ -409,7 +423,7 @@ def primary():
         if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
             call_value(line, col)
     elif lex.tok == lex.T_STRING:
-        gen.string()
+        string()
         lex.next()
     elif lex.tok == lex.T_LBRACKET:
         err.fatal(err.E_UNSUPPORTED)
@@ -564,6 +578,15 @@ def test_operator(wanted, line, col, is_left):
     """One side of the `and` (`wanted` True) or `or` (False) at `line`, `col` is complete."""
     err.position(line, col)
     if is_left:
+        if inline.copies_due():
+            # The right side may not be run, so a call in it must not be what copies an
+            # argument waiting for a register, or a variable an inline parameter stands for, to
+            # its temporary: they are copied now, on both ways, keeping the flags, which hold
+            # the left side's test.
+            fbuf.op(OP_PHP)
+            inline.copy_aliases()
+            fbuf.op(OP_PLP)
+            reg.flags = reg.NO_REG
         gen.test_left(wanted)
     else:
         gen.test_right()

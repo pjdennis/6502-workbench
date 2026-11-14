@@ -11,7 +11,8 @@ data and variables per module, the zero page it uses, and the largest functions.
 
 --report builds every test program and reports on the compiler's modules, each measured over
 all of them: a function's size is the largest any map gives it, and a module's is the sum over
-every function of it that some program keeps. Its tables are what the maps give, at full size.
+every function of it that some program keeps. Its tables are what the maps give, at full size
+(regtest, condtest and gentest are the small build, the others are not).
 Then the lines of each Python module (all, and code only, without
 blank lines, comments and docstrings) against the bytes of code, and the ten largest functions.
 
@@ -28,16 +29,17 @@ import src_support as support
 import script_host
 
 LAYERS = ('err', 'kernel', 'src', 'lex')         # measured first, by lextest
-MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond')
+MODULES = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen')
 PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest', 'fbuftest',
-            'outtest', 'regtest', 'condtest')
+            'outtest', 'regtest', 'condtest', 'gentest')
+SMALL = ('regtest', 'condtest', 'gentest')      # the small build (src_support.build_program)
 
 
 def build(name, out_dir):
     """Build test program NAME in OUT_DIR/NAME. Returns its map's path."""
     where = os.path.join(out_dir, name)
     os.makedirs(where, exist_ok=True)
-    support.build_program(name, where)
+    support.build_program(name, where, small=name in SMALL)
     work = os.path.join(where, 'work')
     return os.path.join(work, [f for f in os.listdir(work) if f.endswith('.map')][0])
 

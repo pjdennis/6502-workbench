@@ -1,0 +1,2381 @@
+; GEN: instruction selection (the top one of its three files; REG and COND are below).
+; lathe/host/gen.py in Lathe.
+;
+; Owns
+; - arithmetic. An operator on two operands is not turned into code at once: it stays pending,
+;   with its operands as the two newest on the stack, until what follows shows where the
+;   result must go. An assignment or an argument then computes it straight into its
+;   destination, which gives `x = y + z` on words in seven instructions and `i = i + 1` as one
+;   INC; anything else takes it into A, or A and X (docs/codegen.md, "Bytes" and "Words").
+;   Only one operation is pending at a time: pushing the next operand settles it;
+; - stores, conversions, calls and returns;
+; - the function being compiled, from its first instruction to its records in the object file;
+; - the list of initial values, which becomes the function `module.$init`.
+;
+; EXPR, STMT and DECL push operands only through this file, so that a pending operation is
+; settled first; they read the stack in REG.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | a target: an operand, or REGISTERS   | a word; byte(target) where it is  | REGISTERS is    |
+;   | (reg.NONE)                           | given to reg as an operand        | reg.NONE, not a |
+;   |                                      |                                   | byte (as owner  |
+;   |                                      |                                   | in reg.lth)     |
+;   | a label, or reg.NONE (leave)         | a word; byte(leave) for reg       | (the same)      |
+;   | typetab.size(t) as a count of bytes  | lo(typetab.size(t))               | a byte loop, as |
+;   |                                      |                                   | in cond.lth: REG|
+;   |                                      |                                   | takes byte k as |
+;   |                                      |                                   | a byte. (A      |
+;   |                                      |                                   | record of 256   |
+;   |                                      |                                   | bytes or more   |
+;   |                                      |                                   | assigned whole  |
+;   |                                      |                                   | is not copied   |
+;   |                                      |                                   | right yet)      |
+;   | typetab.base(t) as a type            | byte(typetab.base(t))             | base is a word: |
+;   |                                      |                                   | a type or a     |
+;   |                                      |                                   | symbol          |
+;   | exponent() returns n or reg.NONE     | a word                            | (the same)      |
+;   | 1 << n                               | word(1) << n                      | a number of no  |
+;   |                                      |                                   | type cannot be  |
+;   |                                      |                                   | shifted by a    |
+;   |                                      |                                   | variable        |
+;   | s, _ = kernel.sym_find(...)          | s, found = ...                    | no `_`          |
+;   | FRAME_MODULE and the other names:    | strings ended by a zero, given to | a table is not  |
+;   | b"..." and len(text)                 | fixed_name() as @NAME, which      | a value         |
+;   |                                      | walks to the zero                 |                 |
+;   | REGISTER_BYTES, MATH_TYPES, ENTRY_   | tables of bytes                   | (the same)      |
+;   | 6502 and the others: byte strings    |                                   |                 |
+;   | the functions used before they are   | forward declarations              | declare before  |
+;   | defined                              |                                   | use             |
+module gen
+
+import cond
+import err
+import fbuf
+import fold
+import kernel
+import out
+import reg
+import typetab
+
+; Where a parameter or result of an `extern` or `asm` function is. Pairs are low byte first.
+pub const REG_NONE = 0
+pub const REG_A = 1
+pub const REG_X = 2
+pub const REG_Y = 3
+pub const REG_AX = 4
+pub const REG_AY = 5
+pub const REG_XY = 6
+pub const REG_C = 7             ; a bool in the carry flag
+
+; For each of those, which byte of the value A, X and Y get: 0, 1 or NO_BYTE.
+const REGISTER_BYTES: [24]byte = [$FF, $FF, $FF, $00, $FF, $FF, $FF, $00, $FF, $FF, $FF, $00,
+    $00, $01, $FF, $00, $FF, $01, $FF, $00, $01, $FF, $FF, $FF]
+const NO_BYTE = $FF
+
+const REGISTERS = reg.NONE      ; as the target of an operation: A, or A and X
+
+const OP_BCC = $90
+const OP_BCS = $B0
+pub const OP_BNE = $D0
+pub const OP_BEQ = $F0
+const OP_BPL = $10
+const OP_PHA = $48
+const OP_PLA = $68
+const OP_TXA = $8A
+const OP_TYA = $98
+const OP_TAX = $AA
+const OP_RTS = $60
+const OP_LDA = $AD
+const OP_STA = $8D
+const OP_STY = $8C
+const C_SPACE = $20
+const C_DOLLAR = $24
+const C_ZERO = $30
+
+const MAX_INITS = 32
+pub const INIT_FLUSH = 32       ; DECL writes the list out between declarations when it is this long
+const MAX_STUBS = 16            ; pointers called through in one function
+const MAX_ARGUMENTS = 32        ; arguments of saving calls waiting in temporaries
+const MAX_HELD = 16             ; arguments waiting as operands for registers, with more to follow
+const FRAME_MODULE = "rt_frame" ; the run-time module that keeps the frames of recursive functions
+const PUSH_NAME = "push"        ; push(v: byte in a)
+const POP_NAME = "pop_y"        ; pop_y(): byte in y, which leaves A, X and the carry flag alone
+const MATH_MODULE = "rt_math"   ; the run-time module of `*`, `/`, `mod` and word shifts by a variable
+; Its functions that operators call, each name ended by a space, and for each the types of its
+; two parameters and its result (docs/code-model.md, "Run-time arithmetic").
+const MATH_NAMES = "mul8 mul8x8 mul16 div8 mod8 sdiv8 smod8 div16 mod16 sdiv16 smod16 shl16 shr16 sar16 "
+const MATH_TYPES: [42]byte = [$01, $01, $01, $01, $01, $03, $03, $03, $03, $01, $01, $01, $01,
+    $01, $01, $02, $02, $02, $02, $02, $02, $03, $03, $03, $03, $03, $03, $04, $04, $04, $04,
+    $04, $04, $03, $01, $03, $03, $01, $03, $04, $01, $04]
+const M_MUL8 = 0
+const M_MUL8X8 = 1
+const M_MUL16 = 2
+const M_DIV8 = 3                ; then mod8, sdiv8, smod8, and the same four on words
+const M_SHL16 = 11              ; then shr16, sar16
+const MATH_COUNT = 14
+const MATH_SCOPE = $FD          ; the scope of rt_math's functions when the module does not import it
+
+pub var cpu: byte = 0           ; 0 6502, 1 65C02; from the environment description, when that is read
+pub var pend_op: byte = 0       ; the pending operation (a fold.ADD to fold.SHR), or 0
+pub var pend_type: byte = 0     ; the type of its result
+pub var outer: word = out.NO_OUTER  ; the function whose arguments are being stored, as CALL records name it
+var leave: word = reg.NONE      ; in an interrupt function: the label of its exit code
+
+var init_symbol: [MAX_INITS]word        ; the variables with initial values: as for reg.push_memory
+var init_address: [MAX_INITS]word
+var init_flags: [MAX_INITS]byte
+var init_type: [MAX_INITS]byte
+var init_value: [MAX_INITS]word
+var init_source: [MAX_INITS]word        ; NO_OBJ for a number; else the symbol of an address, or of
+var init_slot: [MAX_INITS]byte          ; the data an array is copied from
+pub var init_count: byte = 0
+var data_count: word = 0                ; how many symbols of anonymous constant data there are
+var init_part: word = kernel.NO_OBJ     ; the function that sets the values written out earlier
+
+var stub_label: [MAX_STUBS]byte         ; for each pointer called through: the label of its
+var stub_symbol: [MAX_STUBS]word        ; JMP (pointer) at the end of the function, and the pointer
+var stub_slot: [MAX_STUBS]byte          ; as for reg.push_memory
+var stub_value: [MAX_STUBS]word
+var stub_count: byte = 0
+pub var saves_frame: bool = false       ; the function being compiled is `recursive`
+var argument_slot: [MAX_ARGUMENTS]byte  ; the temporaries the arguments of saving calls wait in
+var argument_count: byte = 0
+var held_operand: [MAX_HELD]byte        ; the operands of those arguments, oldest first
+var held_count: byte = 0
+var saved_slot: [reg.SLOTS]byte         ; the slots a saving call pushes, in order
+var saved_count: byte = 0
+var frame_push: word = kernel.NO_OBJ    ; the symbols of rt_frame.push and rt_frame.pop_y, once used
+var frame_pop: word = kernel.NO_OBJ
+var math_obj: [MATH_COUNT]word          ; the object-file symbols of rt_math's functions, once used
+var math_member: [MATH_COUNT]word       ; and their parameters and result as members
+var math_used: bool = false             ; the IMP record of rt_math is written
+
+forward func resolve(in_memory: bool)
+forward func operate(op: byte, t: byte, first: byte, second: byte, target: word)
+forward func is_shift(op: byte): bool
+forward func object_symbol(s: word): word
+forward func zp_flag(s: word): byte
+forward func saving(f: word): bool
+forward func in_register(f: word, i: byte): bool
+forward func pointer_type(op: byte): byte
+forward func short_multiply(t: byte): bool
+forward func arithmetic(op: byte, t: byte)
+forward func variable_shift(op: byte, t: byte)
+forward func reverse_subtract(t: byte)
+forward func library(n: byte, t: byte)
+forward func math_function(n: byte): word
+forward func as_parameter(f: word, p: byte, i: byte)
+forward func call(f: word, first: byte, wanted: bool)
+forward func store()
+forward func fixed_name(text: ^byte): word
+forward func wraps(t: byte)
+forward func shift_bytes(op: byte, first: byte, amount: word, target: byte)
+forward func index_value(big: bool): byte
+forward func pointed(base: byte, e: byte)
+forward func array_index(base: byte, t: byte)
+forward func to_zero_page(i: byte)
+forward func element_pointer(base: byte, e: byte)
+forward func to_temporary(i: byte, in_zero_page: bool)
+forward func exposed(i: byte): bool
+forward func by_registers(f: word): bool
+
+pub func init()
+  var n: byte
+  cpu = 0
+  math_used = false
+  for n = 0 until MATH_COUNT do
+    math_obj[n] = kernel.NO_OBJ
+  end
+  init_count = 0
+  data_count = 0
+  init_part = kernel.NO_OBJ
+  frame_push = kernel.NO_OBJ
+  frame_pop = kernel.NO_OBJ
+end
+
+; ---- Pushing operands --------------------------------------------------------------------
+
+; Nothing may stay pending: compute the pending operation into the registers.
+pub func settle()
+  resolve(false)
+end
+
+; Compute the pending operation, if there is one: into a temporary if it is a word and
+; that is asked for, because the result must be an instruction's operand, and otherwise
+; into the registers.
+pub func resolve(in_memory: bool)
+  var op: byte
+  var first: byte
+  if pend_op == 0 then
+    return
+  end
+  op = pend_op
+  pend_op = 0
+  first = reg.depth - 2
+  if typetab.size(pend_type) == 2 and (in_memory or is_shift(op) or reg.op_mode[first] == reg.M_POINTER or
+      reg.op_mode[first + 1] == reg.M_POINTER) then
+    reg.describe_temp(reg.depth, pend_type)  ; a word is also shifted in memory
+    operate(op, pend_type, first, first + 1, first + 2)
+    reg.pop()
+    reg.pop()
+    reg.keep(first + 2)
+  else
+    operate(op, pend_type, first, first + 1, REGISTERS)
+    reg.pop()
+    reg.pop()
+    reg.push_register(pend_type)
+  end
+end
+
+pub func constant(t: byte, value: word)
+  settle()
+  reg.push(reg.O_CONST, t, value)
+end
+
+; Push function `s` by name; a call must follow.
+pub func function(s: word)
+  settle()
+  reg.push(reg.O_FUNC, typetab.NO_TYPE, 0)
+  reg.op_var[reg.depth - 1] = s
+end
+
+; `@f`: the newest operand, the function `f` it names, becomes its address. That has no
+; type until it is given to something of a function type, which must have f's signature
+; (reg.fit_function), or converted to a number. That of an `extern` function is the number
+; its `at` gives.
+pub func function_address()
+  var i: byte
+  var f: word
+  settle()
+  i = reg.depth - 1
+  f = reg.op_var[i]
+  if kernel.sym_flags[f] & kernel.SF_EXTERN != 0 then
+    reg.describe(i, reg.O_CONST, typetab.NUMBER_TYPE)
+    reg.op_value[i] = kernel.sym_value[f]
+    return
+  end
+  reg.describe(i, reg.O_ADDR, typetab.NO_TYPE)
+  reg.op_symbol[i] = object_symbol(f)
+  reg.op_var[i] = f
+end
+
+; The object-file number of function or variable `s`, or of the pointer class of function
+; type `s`, which gets its SYM record when it is first used.
+pub func object_symbol(s: word): word
+  var kind: byte
+  if kernel.sym_kind[s] == kernel.K_TYPE then
+    return reg.class_symbol(s)
+  end
+  if kernel.sym_obj[s] == kernel.NO_OBJ then
+    kind = out.SYM_FUNCTION
+    if kernel.sym_kind[s] == kernel.K_VAR then
+      kind = out.SYM_VARIABLE
+    elif kernel.sym_kind[s] == kernel.K_CONST then
+      kind = out.SYM_DATA
+    end
+    kernel.sym_obj[s] = out.symbol(kind, kernel.module_name[kernel.sym_scope[s]], 0,
+        kernel.sym_name[s])
+  end
+  return kernel.sym_obj[s]
+end
+
+; Push variable `s`, which lives for the whole program or is at a fixed address.
+pub func variable(s: word)
+  settle()
+  if kernel.sym_flags[s] & kernel.SF_AT != 0 then
+    reg.push_memory(kernel.sym_type[s], kernel.NO_OBJ, fbuf.NO_SLOT, kernel.sym_value[s], 0,
+        kernel.NO_SYM)
+  else
+    reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, zp_flag(s), s)
+  end
+end
+
+; Push the constant table `s`: constant data, which can be read but not assigned to.
+pub func table(s: word)
+  settle()
+  reg.push_memory(kernel.sym_type[s], object_symbol(s), fbuf.NO_SLOT, 0, reg.F_DATA, kernel.NO_SYM)
+end
+
+func zp_flag(s: word): byte
+  if kernel.sym_flags[s] & kernel.SF_ZP != 0 then
+    return reg.F_ZP
+  end
+  return 0
+end
+
+; Push a parameter or local of the function being compiled.
+pub func local(t: byte, slot: byte)
+  settle()
+  reg.push_slot(t, slot)
+end
+
+; Push parameter `i` of function `f`, for an argument to be stored in. After the first
+; one stored, an argument is waiting in `f`'s frame while the next is worked out. The arguments
+; of a saving call wait in temporaries of the caller instead (saving()).
+pub func parameter(f: word, i: byte)
+  var t: byte
+  settle()
+  t = kernel.member_type[kernel.sym_members[f] + i]
+  if saving(f) then
+    if argument_count == MAX_ARGUMENTS then
+      err.fatal(err.E_OPERANDS_FULL)
+    end
+    argument_slot[argument_count] = reg.temp(typetab.size(t))
+    reg.push_memory(t, reg.own, argument_slot[argument_count], 0, 0, kernel.NO_SYM)
+    argument_count += 1
+    return
+  end
+  reg.push_memory(kernel.member_type[kernel.sym_members[f] + i], object_symbol(f), i, 0, 0,
+      kernel.NO_SYM)
+  if i > 0 and not in_register(f, i - 1) then
+    outer = object_symbol(f)
+  end
+end
+
+; The arguments of a call are all stored: `saved` is what `outer` was before them.
+pub func arguments_end(saved: word)
+  outer = saved
+end
+
+; ---- Arithmetic --------------------------------------------------------------------------
+
+func is_shift(op: byte): bool
+  return op == fold.SHL or op == fold.SHR
+end
+
+func commutes(op: byte): bool
+  return op == fold.ADD or op == fold.BAND or op == fold.BOR or op == fold.BXOR
+end
+
+; The type of `op` on the two newest operands, which take it. Without a type if both
+; are numbers without one.
+func operation_type(op: byte): byte
+  var first: byte
+  var second: byte
+  var t: byte
+  first = reg.depth - 2
+  second = reg.depth - 1
+  t = reg.op_type[first]
+  if is_shift(op) then
+    if typetab.is_untyped(reg.op_type[second]) then
+      reg.fit(second, typetab.BYTE_TYPE)
+    end
+    if reg.op_type[second] != typetab.BYTE_TYPE then
+      err.fatal(err.E_TYPE)
+    end
+    if typetab.is_untyped(t) and reg.op_kind[second] != reg.O_CONST then
+      err.fatal(err.E_TYPE)  ; a number shifted by a variable: of which size?
+    end
+  else
+    t = pointer_type(op)
+    if t == typetab.NO_TYPE then
+      t = reg.unify(first, second)
+    end
+  end
+  if not typetab.is_number(t) and not typetab.is_untyped(t) and not typetab.is_pointer(t) then
+    err.fatal(err.E_TYPE)
+  end
+  return t
+end
+
+; If an operand of `op` is a pointer, the type of the result: a pointer plus or minus a
+; number is a pointer, and the difference of two pointers of one type a word. The other
+; operand is then added as a word. typetab.NO_TYPE if neither is a pointer.
+func pointer_type(op: byte): byte
+  var first: byte
+  var second: byte
+  var pointer: byte
+  var other: byte
+  var t: byte
+  first = reg.depth - 2
+  second = reg.depth - 1
+  pointer = first
+  other = second
+  if typetab.is_pointer(reg.op_type[second]) then
+    pointer = second
+    other = first
+  end
+  t = reg.op_type[pointer]
+  if not typetab.is_pointer(t) then
+    return typetab.NO_TYPE
+  end
+  if op == fold.SUB and reg.op_type[other] == t then
+    reg.op_type[pointer] = typetab.WORD_TYPE
+    reg.op_type[other] = typetab.WORD_TYPE
+    return typetab.WORD_TYPE
+  end
+  if op != fold.ADD and (op != fold.SUB or pointer == second) then
+    err.fatal(err.E_TYPE)
+  end
+  if reg.op_type[other] == typetab.NEGATIVE_TYPE then
+    reg.fit(other, typetab.INT_TYPE)
+  elif typetab.is_untyped(reg.op_type[other]) then
+    reg.fit(other, typetab.WORD_TYPE)
+  end
+  if reg.op_type[other] != typetab.INT_TYPE then
+    reg.assignable(other, typetab.WORD_TYPE)
+  end
+  return t
+end
+
+; Replace the two newest operands, both constants, by what `op` gives for them. A result
+; without a type keeps the mark of a number made by `~` or unary `-` (reg.F_WRAPS) unless
+; `op` is one whose low bits depend on the high bits of its operands: `/`, `mod`, `>>`.
+func fold_constants(op: byte, t: byte)
+  var first: byte
+  var second: byte
+  var wrapped: byte
+  var value: word
+  var negative: bool
+  first = reg.depth - 2
+  second = reg.depth - 1
+  wrapped = (reg.op_flags[first] | reg.op_flags[second]) & reg.F_WRAPS
+  if op == fold.DIV or op == fold.REM or op == fold.SHR then
+    wrapped = 0
+  end
+  if typetab.is_untyped(t) then
+    value, negative = fold.exact(op, reg.op_value[first], reg.op_type[first] == typetab.NEGATIVE_TYPE,
+        reg.op_value[second], reg.op_type[second] == typetab.NEGATIVE_TYPE)
+    t = typetab.NUMBER_TYPE
+    if negative then
+      t = typetab.NEGATIVE_TYPE
+    end
+  else
+    value = fold.typed(op, t, reg.op_value[first], reg.op_value[second])
+    wrapped = 0
+  end
+  reg.pop()
+  reg.pop()
+  reg.push(reg.O_CONST, t, value)
+  reg.op_flags[reg.depth - 1] = wrapped
+end
+
+; n if `value` is 2 to the power n, or reg.NONE.
+func exponent(value: word): word
+  var n: byte
+  for n = 0 until 16 do
+    if value == word(1) << n then
+      return n
+    end
+  end
+  return reg.NONE
+end
+
+; Turn `*`, `/` or `mod` by a constant power of two into a shift or a mask, by changing
+; the constant. Returns the operator to use, or 0 if a call of the run-time library has
+; replaced the operands by the result. A divisor known to be 0 is a call too: only a constant
+; divided by the constant 0 is an error (FOLD).
+func reduce(op: byte, t: byte): byte
+  var second: byte
+  var n: word
+  if op == fold.MUL and reg.op_kind[reg.depth - 2] == reg.O_CONST then
+    reg.swap()
+  end
+  second = reg.depth - 1
+  n = reg.NONE
+  if reg.op_kind[second] == reg.O_CONST then
+    n = exponent(reg.op_value[second])
+    if op == fold.MUL and reg.op_value[second] == 0 then
+      return fold.BAND  ; x * 0 is x & 0
+    end
+  end
+  if n == reg.NONE and op == fold.MUL and typetab.size(t) == 1 and reg.op_kind[second] == reg.O_CONST and
+      short_multiply(t) then
+    return 0
+  end
+  if n == reg.NONE or (op != fold.MUL and typetab.is_signed(t)) then
+    arithmetic(op, t)  ; a shift rounds a negative number the wrong way
+    return 0
+  end
+  if op == fold.REM then
+    reg.op_value[second] -= 1
+    return fold.BAND
+  end
+  reg.op_value[second] = n
+  reg.op_type[second] = typetab.BYTE_TYPE
+  if op == fold.MUL then
+    return fold.SHL
+  end
+  return fold.SHR
+end
+
+; A byte variable times 3, the constant on top of the stack: `LDA x` / `ASL A` / `CLC` /
+; `ADC x`, never larger than the call (`LDA x` / `LDX #3` / `JSR`), smaller in zero page,
+; about 130 cycles quicker, and without the library (docs/codegen.md, "Bytes"). True if done.
+; Any other constant, and a byte that is not a plain variable (one in A, an element, one
+; that may be a device, at a fixed address or through a pointer), is a call.
+func short_multiply(t: byte): bool
+  var second: byte
+  var i: byte
+  second = reg.depth - 1
+  i = second - 1
+  if reg.op_value[second] != 3 or reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or
+      reg.op_symbol[i] == kernel.NO_OBJ then
+    return false
+  end
+  reg.pop()
+  reg.release(i)
+  reg.load(reg.A, i, 0)
+  reg.accumulator(reg.OP_ASL)
+  reg.implied(reg.OP_CLC)
+  reg.alu(reg.OP_ADC, i, 0)
+  reg.pop()
+  reg.push_register(t)
+  return true
+end
+
+; True if `op` with the constant `value` on its right gives its left operand.
+func changes_nothing(op: byte, t: byte, value: word): bool
+  if op == fold.BAND then
+    return typetab.narrow(value, t) == typetab.narrow($FFFF, t)
+  end
+  return value == 0
+end
+
+; True if `op` with the constant `value` on its right gives 0 whatever is on its left.
+func gives_zero(op: byte, t: byte, value: word): bool
+  if op == fold.BAND then
+    return value == 0
+  end
+  if op == fold.SHL or (op == fold.SHR and not typetab.is_signed(t)) then
+    return value >= 8 * typetab.size(t)
+  end
+  return false
+end
+
+; An arithmetic operator on the two newest operands. The result replaces them: at once
+; if no code or only code for a byte in A is needed, and otherwise as the pending operation.
+pub func binary(op: byte)
+  var t: byte
+  var second: byte
+  resolve(not commutes(op))
+  t = operation_type(op)
+  if reg.op_kind[reg.depth - 2] == reg.O_CONST and reg.op_kind[reg.depth - 1] == reg.O_CONST then
+    fold_constants(op, t)
+    return
+  end
+  if op >= fold.MUL then
+    op = reduce(op, t)
+    if op == 0 then
+      return
+    end
+  end
+  if commutes(op) and reg.op_kind[reg.depth - 2] == reg.O_CONST then
+    reg.swap()
+  end
+  second = reg.depth - 1
+  if reg.op_kind[second] == reg.O_CONST then
+    if changes_nothing(op, t, reg.op_value[second]) then
+      reg.pop()
+      reg.op_type[reg.depth - 1] = t
+      return
+    end
+    if gives_zero(op, t, reg.op_value[second]) then
+      reg.pop()
+      reg.pop()
+      reg.push(reg.O_CONST, t, 0)
+      return
+    end
+    if is_shift(op) and reg.op_value[second] >= 8 * typetab.size(t) then
+      reg.op_value[second] = 8 * typetab.size(t) - 1  ; signed: only the sign is left
+    end
+  elif is_shift(op) then
+    variable_shift(op, t)
+    return
+  end
+  if reg.in_registers(second) then
+    if commutes(op) then
+      reg.swap()
+    elif typetab.size(t) == 1 then
+      reverse_subtract(t)
+      return
+    else
+      reg.spill(second)
+    end
+  end
+  pend_op = op
+  pend_type = t
+end
+
+; A byte subtraction whose right side is in A: add the left side to its complement.
+func reverse_subtract(t: byte)
+  reg.release(reg.depth - 1)
+  reg.immediate(reg.OP_EOR, $FF)
+  reg.implied(reg.OP_SEC)
+  reg.alu(reg.OP_ADC, reg.depth - 2, 0)
+  reg.pop()
+  reg.pop()
+  reg.push_register(t)
+end
+
+; Shift A by one place.
+func shift_a(op: byte, signed: bool)
+  if op == fold.SHL then
+    reg.accumulator(reg.OP_ASL)
+  elif signed then
+    reg.compare_const($80)  ; the sign into the carry flag, to be shifted back in
+    reg.accumulator(reg.OP_ROR)
+  else
+    reg.accumulator(reg.OP_LSR)
+  end
+end
+
+; A value shifted by a count that is not a constant: for a byte, a loop counted in X; for
+; a word, a call of rt_math.
+func variable_shift(op: byte, t: byte)
+  var first: byte
+  var second: byte
+  var n: byte
+  var done: byte
+  var again: byte
+  first = reg.depth - 2
+  second = reg.depth - 1
+  if typetab.size(t) != 1 then
+    n = M_SHL16
+    if op == fold.SHR then
+      n = M_SHL16 + 1
+      if typetab.is_signed(t) then
+        n = M_SHL16 + 2
+      end
+    end
+    library(n, t)
+    return
+  end
+  reg.take(first)  ; an element would need X, which counts
+  if reg.in_registers(second) then
+    reg.release(second)
+    reg.load(reg.X, second, 0)
+    reg.load(reg.A, first, 0)
+  else
+    reg.release(first)
+    reg.load(reg.A, first, 0)
+    reg.load(reg.X, second, 0)
+  end
+  reg.test(reg.X)
+  done = fbuf.new_label()
+  again = fbuf.new_label()
+  reg.branch(OP_BEQ, done)
+  reg.loop_label(again)
+  shift_a(op, op == fold.SHR and typetab.is_signed(t))
+  reg.step_x(reg.OP_DEX)
+  reg.branch(OP_BNE, again)
+  reg.label(done)
+  reg.pop()
+  reg.pop()
+  reg.push_register(t)
+end
+
+; True if operand `i` is below 256: a constant, or a widened byte.
+func small(i: byte): bool
+  return reg.is_const_byte(i, 1) and reg.const_byte(i, 1) == 0
+end
+
+; `*`, `/` or `mod` in type `t` on the two newest operands by the run-time library. A
+; multiply of two numbers below 256 into a word is mul8x8; mul16 is quicker with the smaller
+; operand second.
+func arithmetic(op: byte, t: byte)
+  var first: byte
+  var n: byte
+  first = reg.depth - 2
+  n = M_DIV8 + op - fold.DIV
+  if typetab.is_signed(t) then
+    n += 2
+  end
+  if typetab.size(t) == 2 then
+    n += 4
+  end
+  if op == fold.MUL then
+    n = M_MUL8
+    if typetab.size(t) == 2 and small(first) and small(first + 1) then
+      n = M_MUL8X8
+    elif typetab.size(t) == 2 then
+      n = M_MUL16
+      if small(first) then
+        reg.swap()
+      end
+    end
+  end
+  library(n, t)
+end
+
+; The two newest operands are the arguments of function `n` of rt_math, the left one for
+; its first parameter: call it, as any call is made (call()): an argument for a parameter
+; passed in a register stays on the stack, and one for a parameter in the frame is stored
+; there first. The result, of type `t`, replaces them in A, or A and X.
+func library(n: byte, t: byte)
+  var saved: word
+  var f: word
+  var first: byte
+  saved = outer
+  f = math_function(n)
+  first = reg.depth - 2
+  as_parameter(f, 0, first)
+  as_parameter(f, 1, first + 1)
+  if not in_register(f, 1) then
+    parameter(f, 1)
+    reg.swap()
+    store()
+  end
+  arguments_end(saved)
+  call(f, first, true)
+  reg.op_type[reg.depth - 1] = t
+end
+
+; Operand `i` is taken as a value of the type of parameter `p` of `f`, which has its size.
+func as_parameter(f: word, p: byte, i: byte)
+  var t: byte
+  t = kernel.member_type[kernel.sym_members[f] + p]
+  if typetab.size(t) == 1 then
+    reg.op_size[i] = 1  ; a widened byte as the byte it is
+  end
+  reg.op_type[i] = t
+end
+
+; The symbol of function `n` of rt_math, as rt_math declares it. Unless the module imports
+; rt_math, the symbol is made in a scope of its own, again in each function that uses it
+; (the function's symbols go when it ends), and the first one used writes the IMP record of
+; rt_math, which the build finds the module from.
+func math_function(n: byte): word
+  var module_name: word
+  var i: byte
+  var k: byte
+  var name: word
+  var scope: byte
+  var s: word
+  var found: bool
+  var where: byte
+  module_name = fixed_name(@MATH_MODULE)
+  kernel.name_begin()
+  i = 0
+  for k = 0 until n do
+    while MATH_NAMES[i] != C_SPACE do
+      i += 1
+    end
+    i += 1
+  end
+  while MATH_NAMES[i] != C_SPACE do
+    kernel.name_add(MATH_NAMES[i])
+    i += 1
+  end
+  name = kernel.name_end()
+  for scope = 1 until kernel.module_count do
+    if kernel.module_name[scope] == module_name then
+      s, found = kernel.sym_find(scope, name)
+      return s
+    end
+  end
+  s, found = kernel.sym_find(MATH_SCOPE, name)
+  if found then
+    return s
+  end
+  s = kernel.sym_add(MATH_SCOPE, name, kernel.K_FUNC)
+  if math_obj[n] == kernel.NO_OBJ then
+    if not math_used then
+      out.imported(module_name)
+      math_used = true
+    end
+    math_obj[n] = out.symbol(out.SYM_FUNCTION, module_name, 0, name)
+    math_member[n] = kernel.member_count
+    for k = 0 until 3 do
+      where = REG_NONE
+      if k == 2 and typetab.size(MATH_TYPES[3 * n + k]) == 1 then
+        where = REG_A
+      elif k == 2 then
+        where = REG_AX
+      end
+      kernel.member_add(MATH_TYPES[3 * n + k], where)
+    end
+  end
+  kernel.sym_obj[s] = math_obj[n]
+  kernel.sym_members[s] = math_member[n]
+  kernel.sym_params[s] = 2
+  kernel.sym_results[s] = 1
+  return s
+end
+
+; Unary `-` of the newest operand: 0 minus it.
+pub func negate()
+  var t: byte
+  settle()
+  t = reg.op_type[reg.depth - 1]
+  if typetab.is_untyped(t) then
+    t = typetab.NUMBER_TYPE
+  end
+  reg.push(reg.O_CONST, t, 0)
+  reg.swap()
+  binary(fold.SUB)
+  wraps(t)
+end
+
+; The newest operand is what `~` or unary `-` made of an operand of type `t`: if that was a
+; number without a type, the result fits an unsigned type by its bits (reg.fit).
+func wraps(t: byte)
+  if typetab.is_untyped(t) then
+    reg.op_flags[reg.depth - 1] = reg.F_WRAPS
+  end
+end
+
+; Unary `~` of the newest operand: it exclusive-or all ones.
+pub func complement()
+  var t: byte
+  settle()
+  t = reg.op_type[reg.depth - 1]
+  if typetab.is_untyped(t) then
+    reg.push(reg.O_CONST, typetab.NEGATIVE_TYPE, $FFFF)
+  else
+    reg.push(reg.O_CONST, t, typetab.narrow($FFFF, t))
+  end
+  binary(fold.BXOR)
+  wraps(t)
+end
+
+; ---- Computing an operation into its destination -----------------------------------------
+
+func alu_opcode(op: byte): byte
+  if op == fold.ADD then
+    return reg.OP_ADC
+  end
+  if op == fold.SUB then
+    return reg.OP_SBC
+  end
+  if op == fold.BAND then
+    return reg.OP_AND
+  end
+  if op == fold.BOR then
+    return reg.OP_ORA
+  end
+  return reg.OP_EOR
+end
+
+; True if the result, of two bytes, goes where the left operand is.
+func in_place(first: byte, target: word): bool
+  if target == REGISTERS then
+    return reg.op_kind[first] == reg.O_AX
+  end
+  return reg.same_place(first, byte(target))
+end
+
+; True if `op` with the constant byte `value` gives the byte on its left unchanged. For `+`
+; and `-` that also needs no carry or borrow to be on its way from the bytes below.
+func leaves(op: byte, value: byte, chained: bool): bool
+  if op == fold.BAND then
+    return value == $FF
+  end
+  if op == fold.ADD or op == fold.SUB then
+    return value == 0 and not chained
+  end
+  return value == 0
+end
+
+; Byte `k` of the result is value `k` of the left operand.
+func move(first: byte, k: byte, target: word)
+  if target != REGISTERS then
+    if not reg.same_place(first, byte(target)) then
+      reg.put(first, k, byte(target), k)
+    end
+  elif k == 0 then
+    reg.load(reg.A, first, 0)
+  else
+    reg.load(reg.X, first, 1)
+  end
+end
+
+; Byte `k` of the result is 0.
+func zero(k: byte, target: word)
+  if target != REGISTERS then
+    reg.put_const(0, byte(target), k)
+  elif k == 0 then
+    reg.load_const(reg.A, 0)
+  else
+    reg.load_const(reg.X, 0)
+  end
+end
+
+; Byte `k` of the result is where its left operand is and only a carry or borrow can
+; change it: INC or DEC it if there is one.
+func ripple(op: byte, k: byte, target: word)
+  var skip: byte
+  skip = fbuf.new_label()
+  if op == fold.ADD then
+    reg.branch(OP_BCC, skip)
+    if target == REGISTERS then
+      reg.step_x(reg.OP_INX)
+    else
+      reg.modify(reg.OP_INC, byte(target), k)
+    end
+  else
+    reg.branch(OP_BCS, skip)
+    if target == REGISTERS then
+      reg.step_x(reg.OP_DEX)
+    else
+      reg.modify(reg.OP_DEC, byte(target), k)
+    end
+  end
+  reg.label(skip)
+end
+
+; `+ - & | ^` byte by byte, low byte first. With the registers as target, the low byte
+; waits in Y while the high byte is worked out in A.
+func combine(op: byte, count: byte, first: byte, second: byte, target: word)
+  var chained: bool
+  var k: byte
+  var fixed: bool
+  var value: byte
+  var turned: bool
+  chained = false
+  for k = 0 until count do
+    fixed = reg.is_const_byte(second, k)
+    value = reg.const_byte(second, k)
+    if fixed and leaves(op, value, chained) then
+      move(first, k, target)
+    elif fixed and op == fold.BAND and value == 0 then
+      zero(k, target)
+    elif fixed and chained and value == 0 and k == 1 and in_place(first, target) then
+      ripple(op, k, target)
+    else
+      reg.claim(reg.A)  ; what must be stored first is stored before the CLC
+      ; An element on the right is loaded first, which can take its index from A.
+      turned = not chained and target != REGISTERS and commutes(op) and reg.op_kind[first] == reg.O_VAR and
+          reg.is_direct(first) and not reg.is_direct(second)
+      if turned then
+        reg.load(reg.A, second, k)
+      end
+      if not chained and op == fold.ADD then
+        reg.implied(reg.OP_CLC)
+      elif not chained and op == fold.SUB then
+        reg.implied(reg.OP_SEC)
+      end
+      chained = true
+      if k == 1 and target == REGISTERS then
+        reg.transfer(reg.A, reg.Y)
+      end
+      if turned then
+        reg.alu(alu_opcode(op), first, k)
+      else
+        reg.load(reg.A, first, k)
+        reg.alu(alu_opcode(op), second, k)
+      end
+      if target != REGISTERS then
+        reg.store(reg.A, byte(target), k)
+      elif k == 1 then
+        reg.transfer(reg.A, reg.X)
+        reg.transfer(reg.Y, reg.A)
+      end
+    end
+  end
+end
+
+; Add 1 to or subtract 1 from memory operand `target`, where it is.
+pub func step(op: byte, count: byte, target: byte)
+  var skip: byte
+  if count == 1 and op == fold.ADD then
+    reg.modify(reg.OP_INC, target, 0)
+  elif count == 1 then
+    reg.modify(reg.OP_DEC, target, 0)
+  elif op == fold.ADD then
+    skip = fbuf.new_label()
+    reg.modify(reg.OP_INC, target, 0)
+    if reg.op_mode[target] == reg.M_POINTER then
+      reg.test(reg.A)  ; finding the index again in Y changed the flags
+    end
+    reg.branch(OP_BNE, skip)
+    reg.modify(reg.OP_INC, target, 1)
+    reg.label(skip)
+  else
+    skip = fbuf.new_label()
+    reg.load(reg.A, target, 0)
+    reg.test(reg.A)
+    reg.branch(OP_BNE, skip)
+    reg.modify(reg.OP_DEC, target, 1)
+    reg.label(skip)
+    reg.modify(reg.OP_DEC, target, 0)
+  end
+end
+
+; Shift memory operand `target`, of `count` bytes, by one place.
+func shift_memory(op: byte, signed: bool, target: byte, count: byte)
+  if op == fold.SHL then
+    reg.modify(reg.OP_ASL, target, 0)
+    if count == 2 then
+      reg.modify(reg.OP_ROL, target, 1)
+    end
+    return
+  end
+  if signed then
+    reg.load(reg.A, target, count - 1)
+    reg.accumulator(reg.OP_ASL)  ; the sign into the carry flag, to be shifted back in
+    reg.modify(reg.OP_ROR, target, count - 1)
+  else
+    reg.modify(reg.OP_LSR, target, count - 1)
+  end
+  if count == 2 then
+    reg.modify(reg.OP_ROR, target, 0)
+  end
+end
+
+; Copy the word `first` to memory operand `target`, shifting it by one place on the way.
+func shift_copy(op: byte, signed: bool, first: byte, target: byte)
+  if op == fold.SHL then
+    reg.load(reg.A, first, 0)
+    reg.accumulator(reg.OP_ASL)
+    reg.store(reg.A, target, 0)
+    reg.load(reg.A, first, 1)
+    reg.accumulator(reg.OP_ROL)
+    reg.store(reg.A, target, 1)
+    return
+  end
+  if reg.in_registers(first) then
+    reg.spill(first)  ; the high byte goes first, and would take A
+  end
+  reg.load(reg.A, first, 1)
+  shift_a(op, signed)
+  reg.store(reg.A, target, 1)
+  reg.load(reg.A, first, 0)
+  reg.accumulator(reg.OP_ROR)
+  reg.store(reg.A, target, 0)
+end
+
+; Shift `first` by the constant `amount`: in memory if that is where the result goes,
+; otherwise a byte in A and a word on its way to the target.
+func shift(op: byte, t: byte, first: byte, amount: word, target: word)
+  var signed: bool
+  var count: byte
+  var n: word
+  signed = op == fold.SHR and typetab.is_signed(t)
+  count = lo(typetab.size(t))
+  if target == REGISTERS or (count == 1 and not reg.same_place(first, byte(target))) then
+    reg.load(reg.A, first, 0)
+    for n = 0 until amount do
+      shift_a(op, signed)
+    end
+    if target != REGISTERS then
+      reg.store(reg.A, byte(target), 0)
+    end
+    return
+  end
+  if count == 2 and amount >= 8 and amount < 16 and not signed then
+    shift_bytes(op, first, amount - 8, byte(target))
+    return
+  end
+  if not reg.same_place(first, byte(target)) then
+    shift_copy(op, signed, first, byte(target))
+    amount -= 1
+  end
+  for n = 0 until amount do
+    shift_memory(op, signed, byte(target), count)
+  end
+end
+
+; A word shifted by 8 and then `amount` more places, to memory operand `target`: the byte
+; that stays moves to the other, shifted on the way, and the byte it leaves is 0.
+func shift_bytes(op: byte, first: byte, amount: word, target: byte)
+  var k: byte
+  var n: word
+  k = 0
+  if op == fold.SHR then
+    k = 1
+  end
+  reg.load(reg.A, first, k)
+  for n = 0 until amount do
+    shift_a(op, false)
+  end
+  reg.store(reg.A, target, 1 - k)
+  reg.put_const(0, target, k)
+end
+
+; Generate `first op second` in type `t`. `target` is the memory operand the result goes
+; to, or REGISTERS.
+func operate(op: byte, t: byte, first: byte, second: byte, target: word)
+  reg.apart(first, second)
+  if target != REGISTERS then
+    reg.apart(first, byte(target))
+  end
+  reg.release(first)
+  reg.release(second)
+  if is_shift(op) then
+    shift(op, t, first, reg.op_value[second], target)
+  elif (op == fold.ADD or op == fold.SUB) and target != REGISTERS and reg.same_place(first, byte(target)) and
+      reg.op_kind[second] == reg.O_CONST and reg.op_value[second] == 1 then
+    step(op, lo(typetab.size(t)), byte(target))
+  else
+    combine(op, lo(typetab.size(t)), first, second, target)
+  end
+end
+
+; ---- Stores ------------------------------------------------------------------------------
+
+; Store the newest operand in the memory operand under it. Both are used up.
+func copy_value()
+  var target: byte
+  var source: byte
+  var k: byte
+  target = reg.depth - 2
+  source = reg.depth - 1
+  reg.assignable(source, reg.op_type[target])
+  reg.unaliased(source, target, true)
+  reg.release(source)
+  if not reg.same_place(source, target) then
+    for k = 0 until lo(typetab.size(reg.op_type[target])) do
+      reg.put(source, k, target, k)
+    end
+  end
+  reg.pop()
+  reg.pop()
+end
+
+; Store the value on top of the stack, which may be the pending operation, in the memory
+; operand under it: an assignment, or an argument on its way to a parameter.
+pub func store()
+  var op: byte
+  var target: byte
+  var k: byte
+  if pend_op == 0 then
+    cond.value()
+    copy_value()
+    return
+  end
+  op = pend_op
+  pend_op = 0
+  target = reg.depth - 3
+  if not reg.accepts(pend_type, reg.op_type[target]) then
+    err.fatal(err.E_TYPE)
+  end
+  reg.unaliased(target + 1, target, false)
+  reg.unaliased(target + 2, target, false)
+  operate(op, pend_type, target + 1, target + 2, target)
+  for k = lo(typetab.size(pend_type)) until lo(typetab.size(reg.op_type[target])) do
+    reg.put_const(0, target, k)
+  end
+  reg.pop()
+  reg.pop()
+  reg.pop()
+end
+
+; `target op= value`: the value is on top of the stack and the target under it.
+pub func assign(op: byte)
+  settle()
+  reg.duplicate(reg.depth - 2)
+  reg.swap()
+  binary(op)
+  store()
+end
+
+; `f() -> v`: the value a call left is under the newest operand, the variable `v`. Store
+; it there and leave the status, which is still in the carry flag, as a Condition.
+pub func store_arrow()
+  reg.swap()
+  copy_value()
+  cond.push(OP_BCS)
+end
+
+; `v, ok = f()`: `v`, `ok` and the value the call left are the three newest operands.
+pub func store_pair()
+  var source: byte
+  var target: byte
+  var k: byte
+  source = reg.depth - 1
+  target = reg.depth - 3
+  reg.assignable(source, reg.op_type[target])
+  reg.release(source)
+  for k = 0 until lo(typetab.size(reg.op_type[target])) do
+    reg.put(source, k, target, k)  ; STA and STX leave the carry flag alone
+  end
+  reg.pop()
+  cond.push(OP_BCS)
+  store()
+  reg.pop()
+end
+
+; ---- Conversions -------------------------------------------------------------------------
+
+; Make the signed byte operand `i` a two-byte value in A and X.
+func sign_extend(i: byte)
+  var plus: byte
+  var t: byte
+  reg.take(i)
+  reg.release(i)
+  reg.load_const(reg.X, 0)
+  reg.load(reg.A, i, 0)
+  reg.test(reg.A)
+  plus = fbuf.new_label()
+  reg.branch(OP_BPL, plus)
+  reg.step_x(reg.OP_DEX)
+  reg.label(plus)
+  t = reg.op_type[i]
+  reg.become(i, reg.O_AX, t)
+end
+
+; `t(value)`: the newest operand is given type `t`. Narrowing keeps the low byte; a
+; signed byte made wider keeps its sign; `bool(x)` is `x != 0`.
+pub func convert(t: byte)
+  var i: byte
+  var source: byte
+  if pend_op != 0 and pend_op != fold.SHR and typetab.is_number(t) and
+      typetab.size(t) <= typetab.size(pend_type) then
+    pend_type = t  ; the low byte of these needs only the low bytes
+    return
+  end
+  settle()
+  i = reg.depth - 1
+  source = reg.op_type[i]
+  if typetab.is_record(source) or typetab.is_record(t) or typetab.is_func(t) then
+    err.fatal(err.E_TYPE)  ; a function type's value comes from @f, which joins its class
+  end
+  if t == typetab.BOOL_TYPE then
+    if source != typetab.BOOL_TYPE then
+      reg.push(reg.O_CONST, typetab.NUMBER_TYPE, 0)
+      cond.compare(fold.NE)
+    end
+    return
+  end
+  cond.value()
+  if typetab.is_array(source) then
+    err.fatal(err.E_ARRAY_VALUE)
+  end
+  if reg.op_kind[i] == reg.O_CONST then
+    reg.op_value[i] = typetab.narrow(reg.op_value[i], t)
+    reg.op_size[i] = typetab.size(t)
+  elif typetab.size(t) == 1 then
+    if reg.op_kind[i] == reg.O_AX then
+      reg.op_kind[i] = reg.O_A
+    end
+    reg.op_size[i] = 1
+  elif source == typetab.SBYTE_TYPE then
+    sign_extend(i)  ; an unsigned byte made wider has a high byte of 0
+  end
+  reg.op_type[i] = t
+end
+
+; `lo(x)` (k is 0) or `hi(x)` (k is 1) of the newest operand: a byte. Of a variable it
+; is a variable, and can be assigned to.
+pub func part(k: byte)
+  var i: byte
+  var t: byte
+  var value: byte
+  settle()
+  i = reg.depth - 1
+  t = reg.op_type[i]
+  if not typetab.is_number(t) and not typetab.is_untyped(t) and not typetab.is_pointer(t) then
+    err.fatal(err.E_TYPE)
+  end
+  if reg.op_kind[i] == reg.O_ADDR then
+    reg.release(i)
+    reg.load(reg.X, i, 1)
+    reg.load(reg.A, i, 0)
+    reg.become(i, reg.O_AX, t)
+  end
+  if reg.is_const_byte(i, k) then
+    value = reg.const_byte(i, k)
+    reg.pop()
+    reg.push(reg.O_CONST, typetab.BYTE_TYPE, value)
+    return
+  end
+  if reg.op_kind[i] == reg.O_VAR then
+    reg.op_value[i] = reg.offset(i, k)
+  elif reg.op_kind[i] == reg.O_AX then
+    reg.release(i)
+    reg.load(reg.A, i, k)
+    reg.become(i, reg.O_A, typetab.BYTE_TYPE)
+  end
+  reg.op_type[i] = typetab.BYTE_TYPE
+  reg.op_size[i] = 1
+end
+
+pub func size_of(t: byte)
+  constant(typetab.NUMBER_TYPE, typetab.size(t))
+end
+
+; `len(a)`: the newest operand, an array, is replaced by how many elements it has.
+pub func length()
+  var t: byte
+  settle()
+  t = reg.op_type[reg.depth - 1]
+  if not typetab.is_array(t) then
+    err.fatal(err.E_TYPE)
+  end
+  reg.pop()
+  reg.push(reg.O_CONST, typetab.NUMBER_TYPE, typetab.length(t))
+end
+
+; ---- Elements, pointers and addresses -----------------------------------------------------
+
+; `a[i]` or `p[i]`: the newest operand is the index and the one under it is indexed, an
+; array in memory or a pointer. They become one operand: the element (docs/codegen.md,
+; "Operands").
+pub func index()
+  var base: byte
+  var t: byte
+  var e: byte
+  var size: word
+  var shift: word
+  var i: byte
+  base = reg.depth - 2
+  if pend_op != 0 then
+    base = reg.depth - 3  ; the index is an operation still to be done
+  end
+  t = reg.op_type[base]
+  if typetab.is_array(t) then
+    array_index(base, t)
+    return
+  end
+  if not typetab.is_pointer(t) then
+    err.fatal(err.E_NOT_INDEXED)
+  end
+  e = byte(typetab.base(t))
+  size = typetab.size(e)
+  shift = exponent(size)
+  i = index_value(false)
+  if shift > 3 and (reg.op_kind[i] != reg.O_CONST or reg.op_value[i] != 0) then
+    err.fatal(err.E_ELEMENT_SIZE)
+  end
+  if reg.op_kind[i] == reg.O_CONST then
+    if reg.op_value[i] != 0 and (size > 256 or reg.op_value[i] > (256 - size) / size) then
+      err.fatal(err.E_RANGE)
+    end
+    reg.op_value[i] = reg.op_value[i] * size
+  else
+    if shift > 0 then
+      constant(typetab.BYTE_TYPE, shift)
+      binary(fold.SHL)
+      settle()
+    end
+    reg.into_memory(i)
+  end
+  if not reg.dereferenced(base) then
+    to_zero_page(base)
+  end
+  pointed(base, e)
+end
+
+; The newest operand is an index: settle it, and check that it is a `byte`, or if `big`
+; a `word`. Returns where it is.
+func index_value(big: bool): byte
+  var i: byte
+  var t: byte
+  settle()
+  cond.value()
+  i = reg.depth - 1
+  t = reg.op_type[i]
+  if big then
+    if typetab.is_untyped(t) then
+      reg.fit(i, typetab.WORD_TYPE)
+    end
+    reg.assignable(i, typetab.WORD_TYPE)
+  elif typetab.is_untyped(t) then
+    reg.fit(i, typetab.BYTE_TYPE)
+  elif t == typetab.WORD_TYPE or t == typetab.INT_TYPE then
+    err.fatal(err.E_BYTE_INDEX)
+  elif t != typetab.BYTE_TYPE then
+    err.fatal(err.E_TYPE)
+  end
+  return i
+end
+
+; An element of the array `base`. A constant index is added to its address; a variable
+; one is in X; a big array is reached through a pointer worked out in zero page. `a[i + c]`
+; and `a[i - c]` add the constant to the address too.
+func array_index(base: byte, t: byte)
+  var n: word
+  var e: byte
+  var size: word
+  var step: word
+  var big: bool
+  var top: byte
+  var folded: word
+  var i: byte
+  var mode: byte
+  n = typetab.length(t)
+  e = byte(typetab.base(t))
+  size = typetab.size(e)
+  step = reg.op_stride[base]  ; from one element to the next
+  if typetab.is_rows(t) then
+    step = size * step
+  end
+  big = n > 256 or (typetab.is_rows(t) and size > 1)
+  top = reg.depth - 1
+  if (pend_op == fold.ADD or pend_op == fold.SUB) and (pend_type == typetab.BYTE_TYPE or big) and
+      (step == 1 or big) and reg.op_mode[base] == reg.M_DIRECT and reg.op_kind[top] == reg.O_CONST and
+      reg.op_kind[top - 1] == reg.O_VAR and reg.is_direct(top - 1) then
+    folded = reg.op_value[top] * step
+    if pend_op == fold.SUB then
+      folded = 0 - folded
+    end
+    reg.op_value[base] = reg.op_value[base] + folded
+    pend_op = 0
+    reg.pop()
+  end
+  i = index_value(big)
+  mode = reg.op_mode[base]
+  if reg.op_kind[i] == reg.O_CONST then
+    if reg.op_value[i] >= n then
+      err.fatal(err.E_RANGE)
+    end
+    reg.op_value[base] = reg.op_value[base] + reg.op_value[i] * step
+    reg.pop()
+  elif big and mode == reg.M_DIRECT then
+    element_pointer(base, e)
+  elif step != 1 or big or mode == reg.M_INDEXED or (mode == reg.M_POINTER and reg.op_kind[base + reg.INDEX] != reg.O_CONST) then
+    err.fatal(err.E_TWO_INDEXES)
+  else
+    if mode == reg.M_POINTER then  ; Y is the index plus where the array is: `p.marks[i]`
+      constant(typetab.BYTE_TYPE, (reg.offset(base, 0) + reg.op_value[base + reg.INDEX]) & $FF)
+      binary(fold.ADD)
+      settle()
+      reg.op_value[base] = 0
+    end
+    reg.into_memory(i)  ; in X, or in Y after what a pointer points at
+    reg.take_index(base)
+    if mode == reg.M_DIRECT then
+      reg.op_mode[base] = reg.M_INDEXED
+    end
+  end
+  reg.op_type[base] = e
+  reg.op_size[base] = size
+  if typetab.is_column(t) then
+    reg.op_stride[base] = n * reg.op_stride[base]
+  end
+end
+
+; The newest operand, a word, is the index of an element of the array `base` that the
+; index registers cannot reach. The index is shifted by the element size; the pointer, a
+; zero page temporary, is the array's address plus 256 times the high byte of that, and the
+; low byte is the index in Y, which (zp),Y adds with its carry. A word's second byte is then
+; an INY away (the low byte is even). Elements of more than two bytes, whose fields are
+; reached by Y, have the whole index added to the pointer and Y = 0.
+func element_pointer(base: byte, e: byte)
+  var size: word
+  var shift: word
+  var i: byte
+  var whole: bool
+  var a: byte
+  size = typetab.size(e)
+  shift = exponent(size)
+  if shift > 15 then
+    err.fatal(err.E_ELEMENT_SIZE)
+  end
+  if shift > 0 then
+    constant(typetab.BYTE_TYPE, shift)
+    binary(fold.SHL)
+  end
+  settle()
+  i = reg.depth - 1
+  reg.into_memory(i)
+  whole = shift > 1 or typetab.is_array(e)  ; Y reaches the parts: all of i is added
+  reg.duplicate(base)
+  a = reg.depth - 1
+  reg.op_kind[a] = reg.O_ADDR
+  if reg.op_symbol[a] == kernel.NO_OBJ then
+    reg.op_kind[a] = reg.O_CONST
+  end
+  reg.describe_temp(a + 1, typetab.pointer_to(e))
+  reg.zero_page(a + 1)
+  reg.implied(reg.OP_CLC)
+  if whole then
+    reg.load(reg.A, i, 0)
+    reg.alu(reg.OP_ADC, a, 0)
+    reg.store(reg.A, a + 1, 0)
+  end
+  reg.load(reg.A, i, 1)
+  reg.alu(reg.OP_ADC, a, 1)
+  reg.store(reg.A, a + 1, 1)
+  if not whole then
+    reg.load(reg.A, a, 0)
+    reg.store(reg.A, a + 1, 0)
+  end
+  reg.pop()
+  reg.copy(a + 1, base)
+  reg.op_size[i] = 1
+  if whole then
+    reg.become(i, reg.O_CONST, typetab.BYTE_TYPE)
+  end
+  pointed(base, e)
+end
+
+; Operand `base`, a pointer in zero page, becomes the `e` it points at, at the index that
+; is the newest operand, which leaves the stack.
+func pointed(base: byte, e: byte)
+  reg.take_index(base)
+  reg.op_mode[base] = reg.M_POINTER
+  reg.op_type[base] = e
+  reg.op_size[base] = typetab.size(e)
+  reg.op_value[base] = 0
+  reg.op_stride[base] = 1
+end
+
+; A field of the newest operand is wanted: if it is a pointer to a record, it becomes
+; the record it points at (p[0]). Returns the record's type.
+pub func record_of(): byte
+  var i: byte
+  var t: byte
+  settle()
+  i = reg.depth - 1
+  t = reg.op_type[i]
+  if typetab.is_pointer(t) and typetab.is_record(byte(typetab.base(t))) then
+    constant(typetab.BYTE_TYPE, 0)
+    index()
+  end
+  if reg.op_kind[i] != reg.O_VAR or not typetab.is_record(reg.op_type[i]) then
+    err.fatal(err.E_NOT_RECORD)
+  end
+  return reg.op_type[i]
+end
+
+; The newest operand, a record, becomes its field of type `t` that is `place` bytes into
+; it: as for a constant index, byte k of the field is byte `place` + k of the record. Through
+; a pointer, every byte must be within reach of Y.
+pub func field(place: word, t: byte)
+  var i: byte
+  i = reg.depth - 1
+  reg.op_value[i] = reg.offset(i, place)
+  reg.op_type[i] = t
+  reg.op_size[i] = typetab.size(t)
+  if reg.op_mode[i] == reg.M_POINTER and reg.op_value[i] + typetab.size(t) > 256 then
+    err.fatal(err.E_RANGE)
+  end
+end
+
+; Operand `i`, a pointer that cannot be used through (zp),Y as it is, is copied to a zero
+; page temporary, which it becomes.
+func to_zero_page(i: byte)
+  to_temporary(i, true)
+end
+
+; Operand `i` is copied to a temporary, in zero page if `in_zero_page`, which it becomes.
+func to_temporary(i: byte, in_zero_page: bool)
+  var t: byte
+  var j: byte
+  var k: byte
+  t = reg.op_type[i]
+  j = reg.depth
+  reg.describe_temp(j, t)
+  if in_zero_page then
+    reg.zero_page(j)
+  end
+  reg.release(i)
+  for k = 0 until lo(typetab.size(t)) do
+    reg.put(i, k, j, k)
+  end
+  reg.become(i, reg.O_VAR, t)
+  reg.copy(j, i)
+end
+
+; `@x`: the newest operand, a variable or an element of an array, is replaced by its
+; address. That of an array is a pointer to its first element. An array stored by column
+; has no such pointer, and its elements have no address.
+pub func address()
+  var i: byte
+  var t: byte
+  var mode: byte
+  var disp: word
+  settle()
+  i = reg.depth - 1
+  t = reg.op_type[i]
+  mode = reg.op_mode[i]
+  if reg.op_kind[i] != reg.O_VAR or (reg.op_flags[i] & reg.F_TEMP != 0 and mode != reg.M_POINTER) or
+      (typetab.size(t) > 1 and reg.op_stride[i] > 1) or typetab.is_column(t) then
+    err.fatal(err.E_NO_ADDRESS)
+  end
+  if typetab.is_array(t) then
+    t = byte(typetab.base(t))
+  end
+  disp = 0
+  if mode == reg.M_POINTER then
+    disp = reg.op_value[i]  ; the pointer itself, and what is added to it
+    reg.op_value[i] = 0
+  elif reg.op_symbol[i] == kernel.NO_OBJ then
+    reg.op_kind[i] = reg.O_CONST
+  else
+    reg.op_kind[i] = reg.O_ADDR
+  end
+  reg.op_mode[i] = reg.M_DIRECT
+  reg.op_type[i] = typetab.pointer_to(t)
+  reg.op_size[i] = 2
+  reg.op_stride[i] = 1
+  if mode != reg.M_DIRECT then
+    reg.keep(i + reg.INDEX)
+    binary(fold.ADD)
+  end
+  if disp != 0 then
+    constant(typetab.NUMBER_TYPE, disp)
+    binary(fold.ADD)
+  end
+end
+
+; A new symbol of constant data with no name of its own: `module.$1`, `module.$2`, ...
+pub func anonymous(): word
+  var place: word
+  var started: bool
+  var digit: byte
+  data_count += 1
+  kernel.name_begin()
+  kernel.name_add(C_DOLLAR)
+  place = 10000
+  started = false
+  while place > 0 do
+    digit = byte((data_count / place) mod 10)
+    if digit != 0 or started or place == 1 then
+      kernel.name_add(C_ZERO + digit)
+      started = true
+    end
+    place = place / 10
+  end
+  return out.symbol(out.SYM_DATA, kernel.module_name[0], 0, kernel.name_end())
+end
+
+; The newest operand, a constant or an address, is an element of the constant table
+; being made: its byte k goes to byte `where` + k * `step` of the table.
+pub func table_element(where: word, step: word)
+  var i: byte
+  var k: byte
+  i = reg.depth - 1
+  for k = 0 until lo(typetab.size(reg.op_type[i])) do
+    if reg.op_kind[i] == reg.O_ADDR then
+      out.table_fix(where + k * step, fbuf.FIX_LOW + k, reg.op_symbol[i], reg.op_slot[i], reg.op_value[i])
+    else
+      out.table[where + k * step] = reg.const_byte(i, k)
+    end
+  end
+  reg.pop()
+end
+
+; Copy `size` bytes of the constant data `symbol` to the newest operand, an array: a page
+; at a time with X counting up, then what is left with X counting down to 1.
+pub func copy_array(symbol: word, size: word)
+  var target: byte
+  var source: byte
+  var start: word
+  var pages: word
+  var part_number: byte
+  var count: word
+  var first: word
+  var top: byte
+  var p: word
+  target = reg.depth - 1
+  reg.push_memory(typetab.BYTE_TYPE, symbol, fbuf.NO_SLOT, 0, 0, kernel.NO_SYM)
+  source = reg.depth - 1
+  start = reg.op_value[target]
+  reg.op_flags[target] = reg.op_flags[target] & ~reg.F_ZP  ; an address below it may be out of zero page
+  pages = size >> 8
+  if pages > 0 then
+    reg.load_const(reg.X, 0)
+  end
+  for part_number = 0 until 2 do
+    count = pages
+    first = 0
+    if part_number == 1 then
+      count = 1
+      first = (pages << 8) - 1
+      if size & $FF == 0 then
+        count = 0
+      else
+        reg.load_const(reg.X, lo(size))
+      end
+    end
+    if count > 0 then
+      top = fbuf.new_label()
+      reg.loop_label(top)
+      for p = 0 until count do
+        reg.op_value[source] = first + (p << 8)
+        reg.op_value[target] = start + first + (p << 8)
+        reg.direct(OP_LDA + reg.INDEXED_FORM, source, 0)
+        reg.direct(OP_STA + reg.INDEXED_FORM, target, 0)
+      end
+      if part_number == 0 then
+        reg.step_x(reg.OP_INX)
+      else
+        reg.step_x(reg.OP_DEX)
+      end
+      reg.branch(OP_BNE, top)
+    end
+  end
+  reg.op_value[target] = start
+  reg.forget()
+  reg.pop()
+end
+
+; ---- Calls -------------------------------------------------------------------------------
+
+; Check that the newest operand can be given to something of type `t`.
+pub func accept(t: byte)
+  settle()
+  reg.assignable(reg.depth - 1, t)
+end
+
+; The newest operand is an argument for a register and another argument follows. It
+; may wait in A, or A and X, until one of those is needed, but not in the flags.
+pub func hold()
+  settle()
+  cond.value()
+  if held_count == MAX_HELD then
+    err.fatal(err.E_OPERANDS_FULL)
+  end
+  held_operand[held_count] = reg.depth - 1
+  held_count += 1
+end
+
+; A call is about to be made, or an expansion that may change variables to begin: each
+; argument waiting for a register that is memory such code could change is copied to a
+; temporary, so that arguments are still taken from left to right.
+pub func protect()
+  var n: byte
+  var i: byte
+  for n = 0 until held_count do
+    i = held_operand[n]
+    if exposed(i) then
+      to_temporary(i, false)
+    end
+  end
+end
+
+; True if operand `i`, an argument waiting for a register, is memory that a call could change.
+func exposed(i: byte): bool
+  return reg.op_kind[i] == reg.O_VAR and (reg.op_mode[i] != reg.M_DIRECT or
+      reg.op_flags[i] & (reg.F_TEMP | reg.F_DATA) == 0)
+end
+
+; True if protect() would copy an argument to a temporary.
+pub func must_protect(): bool
+  var n: byte
+  for n = 0 until held_count do
+    if exposed(held_operand[n]) then
+      return true
+    end
+  end
+  return false
+end
+
+; Where parameter `i` of function or function type `f` is passed (docs/code-model.md,
+; "Convention"): its binding, for an `extern` or `asm` function; otherwise A, X, Y for the
+; first three if they are bytes, or A and X for a first word and Y for a byte after it.
+func register_of(f: word, i: byte): byte
+  var m: word
+  var wide: bool
+  var j: byte
+  m = kernel.sym_members[f]
+  if by_registers(f) then
+    return kernel.member_value[m + i]
+  end
+  wide = typetab.size(kernel.member_type[m]) == 2
+  if i == 0 and wide then
+    return REG_AX
+  end
+  if i > 2 or (wide and i > 1) then
+    return REG_NONE
+  end
+  for j = 1 until i + 1 do
+    if typetab.size(kernel.member_type[m + j]) != 1 then
+      return REG_NONE
+    end
+  end
+  if wide then
+    return REG_Y
+  end
+  return REG_A + i
+end
+
+; True if the argument for parameter `i` of `f` waits as an operand to be loaded into
+; registers at the call: always so for `extern` and `asm` functions, never for a saving call.
+pub func in_register(f: word, i: byte): bool
+  return by_registers(f) or (not saving(f) and register_of(f, i) != REG_NONE)
+end
+
+; How many of `f`'s parameters, from the first, are passed in registers.
+func register_count(f: word): byte
+  var n: byte
+  n = 0
+  while n < kernel.sym_params[f] and register_of(f, n) != REG_NONE do
+    n += 1
+  end
+  return n
+end
+
+; Put the arguments of `f` for its first `count` parameters, the operands from `first`
+; on, where those parameters are: the carry flag first, because finding it can take A,
+; then Y, X and A. An argument that is still in A can go from there to where it belongs.
+func load_registers(f: word, first: byte, count: byte)
+  var i: byte
+  var where: byte
+  var held: word
+  var r: byte
+  var k: byte
+  settle()
+  if count == 0 then
+    return
+  end
+  if register_of(f, count - 1) != REG_C then
+    cond.value()
+  end
+  for i = first until first + count do
+    where = register_of(f, i - first)
+    if reg.is_direct(i) or (count == 1 and where != REG_AX and where != REG_AY and where != REG_XY) then
+      continue
+    end
+    if count == 1 and where == REG_AX then
+      reg.take(i)  ; the low byte first: an element's index is in X
+    else
+      reg.into_memory(i)  ; its index register could be another's
+    end
+  end
+  for i = 0 until count do
+    if register_of(f, i) == REG_C then
+      cond.carry(first + i)
+    end
+  end
+  held = reg.owner
+  if held != reg.NONE and held >= first then
+    if reg.op_kind[byte(held)] == reg.O_AX and register_of(f, byte(held) - first) != REG_AX then
+      reg.spill(byte(held))
+    end
+    reg.release(byte(held))
+  end
+  for r = reg.Y downto reg.A do
+    for i = 0 until count do
+      k = REGISTER_BYTES[register_of(f, i) * 3 + r]
+      if k != NO_BYTE then
+        reg.load(r, first + i, k)
+      end
+    end
+  end
+end
+
+; The entry of ordinary function `f`: store the parameters passed in registers in their
+; slots, which then hold them as any variable does. The registers still hold copies.
+pub func receive(f: word)
+  var i: byte
+  var where: byte
+  for i = 0 until register_count(f) do
+    where = register_of(f, i)
+    reg.push_slot(kernel.member_type[kernel.sym_members[f] + i], i)
+    if where == REG_AX then
+      reg.store(reg.A, reg.depth - 1, 0)
+      reg.store(reg.X, reg.depth - 1, 1)
+    else
+      reg.store(where - REG_A, reg.depth - 1, 0)
+    end
+    reg.pop()
+  end
+end
+
+; Push what a call of `f` left: its value, now in A or in A and X, or else its status as
+; a Condition. Nothing if it has no results.
+pub func result(f: word)
+  var m: word
+  var where: byte
+  if kernel.sym_results[f] == 0 then
+    return
+  end
+  m = kernel.sym_members[f] + kernel.sym_params[f]
+  where = kernel.member_value[m]
+  if where == REG_C then
+    cond.push(OP_BCS)
+    return
+  end
+  if where == REG_XY or where == REG_X then
+    fbuf.op(OP_TXA)
+  end
+  if where == REG_Y then
+    fbuf.op(OP_TYA)
+  end
+  if where == REG_AY or where == REG_XY then
+    fbuf.op(OP_PHA)  ; the high byte goes from Y to X by way of A
+    fbuf.op(OP_TYA)
+    fbuf.op(OP_TAX)
+    fbuf.op(OP_PLA)
+  end
+  reg.push_register(kernel.member_type[m])
+end
+
+; True if function `f` takes its arguments in registers: an `extern` or `asm` function.
+func by_registers(f: word): bool
+  return kernel.sym_flags[f] & (kernel.SF_EXTERN | kernel.SF_ASM) != 0
+end
+
+; The newest operand, a value of a function type, is to be called through. It becomes the
+; callee, as an O_FUNC whose op_var is the symbol that declares the type, and stays under
+; the arguments until the call, which is a JSR to a JMP (pointer). The pointer must be a
+; two-byte variable, which the linker keeps from lying across a page boundary, where the
+; NMOS 6502 would read the JMP's address wrongly: anything else (an element, a field, what a
+; pointer points at) is copied to a temporary first.
+pub func through_pointer()
+  var i: byte
+  var t: byte
+  var s: word
+  var whole: bool
+  settle()
+  i = reg.depth - 1
+  t = reg.op_type[i]
+  s = reg.op_var[i]
+  whole = reg.op_symbol[i] == kernel.NO_OBJ or (reg.op_value[i] == 0 and (
+      reg.op_flags[i] & reg.F_TEMP != 0 or (reg.op_symbol[i] == reg.own and reg.slot_size[reg.op_slot[i]] == 2) or
+      (s != kernel.NO_SYM and typetab.size(kernel.sym_type[s]) == 2)))
+  if reg.op_kind[i] != reg.O_VAR or reg.op_mode[i] != reg.M_DIRECT or not whole then
+    to_temporary(i, false)
+  end
+  reg.use(i)
+  reg.op_kind[i] = reg.O_FUNC
+  reg.op_var[i] = typetab.base(t)
+end
+
+; True if `f` is a function type: a call of it is through a pointer.
+pub func through(f: word): bool
+  return kernel.sym_kind[f] == kernel.K_TYPE
+end
+
+; The label of the JMP (pointer) for the callee operand `i`, a call through a pointer:
+; one per pointer in each function, written after its code (function_end()).
+func stub(i: byte): byte
+  var n: byte
+  for n = 0 until stub_count do
+    if stub_symbol[n] == reg.op_symbol[i] and stub_slot[n] == reg.op_slot[i] and
+        stub_value[n] == reg.op_value[i] then
+      return stub_label[n]
+    end
+  end
+  if stub_count == MAX_STUBS then
+    err.fatal(err.E_CALLS_FULL)
+  end
+  stub_label[stub_count] = fbuf.new_label()
+  stub_symbol[stub_count] = reg.op_symbol[i]
+  stub_slot[stub_count] = reg.op_slot[i]
+  stub_value[stub_count] = reg.op_value[i]
+  stub_count += 1
+  return stub_label[stub_count - 1]
+end
+
+; True if a call of `f` saves the caller's frame (docs/code-model.md, "Recursion"): the
+; caller is `recursive`, and so is `f`, a function, or the function type `f`.
+pub func saving(f: word): bool
+  if not saves_frame then
+    return false
+  end
+  if through(f) then
+    return typetab.is_recursive(kernel.sym_type[f])
+  end
+  return kernel.sym_flags[f] & kernel.SF_RECURSIVE != 0
+end
+
+; The symbols of rt_frame.push and rt_frame.pop_y, and the IMP record of rt_frame, which
+; the first saving call of the module writes: the build finds the module from it. A module
+; that imports rt_frame itself has the symbols already.
+func frame_routines()
+  var module_name: word
+  var scope: byte
+  var s: word
+  var found: bool
+  if frame_push != kernel.NO_OBJ then
+    return
+  end
+  module_name = fixed_name(@FRAME_MODULE)
+  for scope = 1 until kernel.module_count do
+    if kernel.module_name[scope] == module_name then
+      s, found = kernel.sym_find(scope, fixed_name(@PUSH_NAME))
+      frame_push = object_symbol(s)
+      s, found = kernel.sym_find(scope, fixed_name(@POP_NAME))
+      frame_pop = object_symbol(s)
+      return
+    end
+  end
+  out.imported(module_name)
+  frame_push = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(@PUSH_NAME))
+  frame_pop = out.symbol(out.SYM_FUNCTION, module_name, 0, fixed_name(@POP_NAME))
+end
+
+func fixed_name(text: ^byte): word
+  var i: byte
+  kernel.name_begin()
+  i = 0
+  while text[i] != 0 do
+    kernel.name_add(text[i])
+    i += 1
+  end
+  return kernel.name_end()
+end
+
+; The instruction `opcode` (absolute form) on byte `k` of slot `slot` of function `symbol`.
+func slot_byte(opcode: byte, symbol: word, slot: byte, k: word)
+  var j: byte
+  j = reg.depth
+  reg.describe(j, reg.O_VAR, typetab.BYTE_TYPE)
+  reg.op_symbol[j] = symbol
+  reg.op_slot[j] = slot
+  reg.op_value[j] = k
+  if symbol == reg.own and reg.slot_class[slot] == reg.CLASS_ZP then
+    reg.op_flags[j] = reg.F_ZP
+  end
+  reg.direct(opcode, j, 0)
+end
+
+func is_argument(n: byte, first: byte): bool
+  var a: byte
+  for a = first until argument_count do
+    if argument_slot[a] == n then
+      return true
+    end
+  end
+  return false
+end
+
+; A saving call of `f` is next; its arguments wait in temporaries. Push every byte of the
+; frame that can be live: the parameters and locals, and the temporaries in use but for
+; those arguments and the copy of the pointer called through, if there is one. Then move
+; the arguments to `f`'s parameters, which can be the caller's own.
+func save_frame(f: word, first: byte)
+  var skip: byte
+  var base: byte
+  var n: byte
+  var k: word
+  var count: byte
+  var p: byte
+  var r: byte
+  frame_routines()
+  skip = fbuf.NO_SLOT
+  if through(f) and reg.op_flags[first - 1] & reg.F_TEMP != 0 then
+    skip = reg.op_slot[first - 1]
+  end
+  base = argument_count - kernel.sym_params[f]
+  saved_count = 0
+  for n = 0 until fbuf.FIRST_TEMP + reg.temp_count do
+    if n < reg.local_count or (n >= fbuf.FIRST_TEMP and reg.slot_busy[n] and n != skip and
+        not is_argument(n, base)) then
+      saved_slot[saved_count] = n
+      saved_count += 1
+      for k = 0 until reg.slot_size[n] do
+        slot_byte(OP_LDA, reg.own, n, k)
+        fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_push, fbuf.NO_SLOT, 0)
+      end
+    end
+  end
+  if saved_count > 0 then
+    out.call(frame_push, 0, outer)
+  end
+  count = register_count(f)
+  for p = count until kernel.sym_params[f] do
+    n = argument_slot[base + p]
+    for k = 0 until reg.slot_size[n] do
+      slot_byte(OP_LDA, reg.own, n, k)
+      slot_byte(OP_STA, object_symbol(f), p, k)
+    end
+  end
+  for r = reg.Y downto reg.A do  ; the registers last: nothing may change them
+    for p = 0 until count do
+      k = REGISTER_BYTES[register_of(f, p) * 3 + r]
+      if k != NO_BYTE then
+        slot_byte(reg.LOAD_ABSOLUTE[r], reg.own, argument_slot[base + p], k)
+      end
+    end
+  end
+  for p = 0 until kernel.sym_params[f] do
+    reg.slot_busy[argument_slot[base + p]] = false
+  end
+  argument_count = base
+end
+
+; After a saving call: pop what save_frame() pushed, last byte first, through Y.
+func restore_frame()
+  var i: byte
+  var n: byte
+  var k: word
+  if saved_count > 0 then
+    out.call(frame_pop, 0, outer)
+    for i = saved_count - 1 downto 0 do
+      n = saved_slot[i]
+      for k = reg.slot_size[n] - 1 downto 0 do
+        fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
+        slot_byte(OP_STY, reg.own, n, k)
+      end
+    end
+  end
+end
+
+; Call function `f`. The arguments passed in registers (all of an `extern` or `asm`
+; function's) are the operands from `first` on; the others are in its frame already. Those of
+; a saving call are all in temporaries. Pushes result(f) if it is `wanted`. An `extern` function is at a fixed
+; address; any other is reached through its symbol, with a CALL record. A call through a
+; pointer (`f` a function type) has the pointer under the arguments, as through_pointer()
+; left it.
+pub func call(f: word, first: byte, wanted: bool)
+  var flags: byte
+  var callee: word
+  settle()
+  while held_count > 0 and held_operand[held_count - 1] >= first do
+    held_count -= 1
+  end
+  if reg.owner != reg.NONE and reg.owner < first then
+    reg.spill(byte(reg.owner))  ; before the arguments are loaded over it
+  end
+  if kernel.sym_params[f] > 0 and in_register(f, 0) then
+    load_registers(f, first, reg.depth - first)
+    while reg.depth > first do
+      reg.pop()
+    end
+  end
+  reg.clobber()
+  flags = 0
+  if saving(f) then
+    save_frame(f, first)
+    flags = out.CALL_SAVES
+  end
+  if kernel.sym_flags[f] & kernel.SF_EXTERN != 0 then
+    fbuf.op_word(fbuf.OP_JSR, kernel.sym_value[f])
+  elif through(f) then
+    fbuf.call_label(stub(first - 1))
+    out.call(object_symbol(f), flags | out.CALL_POINTER, outer)
+  else
+    callee = object_symbol(f)
+    fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, callee, fbuf.NO_SLOT, 0)
+    out.call(callee, flags, outer)
+  end
+  if flags != 0 then
+    restore_frame()
+  end
+  reg.forget()
+  if through(f) then
+    reg.pop()
+  end
+  if wanted then
+    result(f)
+  end
+end
+
+; `@f`, where the newest operand is function `s`, an interrupt function: its address, a
+; `^byte`.
+pub func code_address(s: word)
+  reg.pop()
+  reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
+  reg.op_symbol[reg.depth - 1] = object_symbol(s)
+end
+
+; A number that changes with every instruction generated.
+pub func mark(): word
+  return fbuf.used
+end
+
+; ---- Conditions ---------------------------------------------------------------------------
+
+; A comparison of the two newest operands.
+pub func compare(op: byte)
+  resolve(op == fold.LT or op == fold.GE)  ; these have the right side as CMP's operand
+  cond.compare(op)
+end
+
+; The newest operand is complete and another will be worked out before it is used: a
+; Condition cannot wait in the flags.
+pub func as_value()
+  settle()
+  cond.value()
+end
+
+; The left side of `and` (`wanted` True) or `or` (False) is complete.
+pub func test_left(wanted: bool)
+  settle()
+  cond.left(wanted)
+end
+
+pub func test_right()
+  settle()
+  cond.right()
+end
+
+pub func invert()
+  settle()
+  cond.invert()
+end
+
+; ---- Statements --------------------------------------------------------------------------
+
+; Use up the newest operand as the test of a statement. Returns the label gone to when
+; it is false.
+pub func jump_false(): word
+  settle()
+  return cond.jump_false()
+end
+
+; The expression about to be parsed is a status: carry() will follow.
+pub func carry_wanted()
+  cond.wanted_in_carry(true)
+end
+
+; Use up the newest operand, a `bool`, by putting it in the carry flag.
+pub func carry()
+  cond.wanted_in_carry(false)
+  settle()
+  cond.carry(reg.depth - 1)
+  reg.pop()
+end
+
+; Use up the newest operand by loading it into A, or A and X. The carry flag is left
+; alone, so a status can be there already.
+pub func load_result()
+  var i: byte
+  i = reg.depth - 1
+  reg.take(i)
+  reg.release(i)
+  if typetab.size(reg.op_type[i]) == 2 then
+    reg.load(reg.X, i, 1)
+  end
+  reg.load(reg.A, i, 0)
+  reg.pop()
+end
+
+; Return from the function. A call just made returns for it instead. An interrupt
+; function goes to its exit code.
+pub func ret()
+  if leave != reg.NONE then
+    reg.jump(byte(leave))
+  elif not fbuf.tail_call() then
+    fbuf.op(OP_RTS)
+  end
+end
+
+; What an interrupt function does on entry and on exit (docs/code-model.md, "Interrupts"): save
+; A, X and Y on the stack, and clear the decimal flag, which an NMOS 6502 does not clear on an
+; interrupt; restore them, and RTI. The 65C02 pushes X and Y without A, and clears the flag itself.
+const ENTRY_6502: [6]byte = [$48, $8A, $48, $98, $48, $D8]     ; PHA TXA PHA TYA PHA CLD
+const EXIT_6502: [6]byte = [$68, $A8, $68, $AA, $68, $40]      ; PLA TAY PLA TAX PLA RTI
+const ENTRY_65C02: [3]byte = [$48, $DA, $5A]                   ; PHA PHX PHY
+const EXIT_65C02: [4]byte = [$7A, $FA, $68, $40]               ; PLY PLX PLA RTI
+
+; The function being compiled is an interrupt function: its entry code, here.
+pub func interrupt_entry()
+  var i: byte
+  leave = fbuf.new_label()
+  if cpu == 0 then
+    for i = 0 until len(ENTRY_6502) do
+      fbuf.op(ENTRY_6502[i])
+    end
+  else
+    for i = 0 until len(ENTRY_65C02) do
+      fbuf.op(ENTRY_65C02[i])
+    end
+  end
+end
+
+; The exit code of an interrupt function, where its body ends and every `return` goes.
+func interrupt_exit()
+  var i: byte
+  reg.label(byte(leave))
+  leave = reg.NONE
+  if cpu == 0 then
+    for i = 0 until len(EXIT_6502) do
+      fbuf.op(EXIT_6502[i])
+    end
+  else
+    for i = 0 until len(EXIT_65C02) do
+      fbuf.op(EXIT_65C02[i])
+    end
+  end
+end
+
+pub func loop_begin()
+  reg.loop_depth += 1
+end
+
+pub func loop_end()
+  reg.loop_depth -= 1
+end
+
+; ---- Functions ---------------------------------------------------------------------------
+
+; Start generating the function whose object-file symbol is `symbol`.
+pub func function_begin(symbol: word)
+  fbuf.begin()
+  reg.begin(symbol)
+  pend_op = 0
+  outer = out.NO_OUTER
+  leave = reg.NONE
+  stub_count = 0
+  saves_frame = false
+  argument_count = 0
+  held_count = 0
+end
+
+func slots(first: byte, count: byte)
+  var n: byte
+  for n = first until first + count do
+    out.slot(reg.slot_size[n], reg.slot_class[n], reg.slot_weight[n], reg.slot_kind[n],
+        reg.slot_name[n])
+  end
+end
+
+; End the function and write it to the object file: its parameters and locals, then its
+; temporaries, then its code.
+pub func function_end(flags: byte)
+  var n: byte
+  if leave != reg.NONE then
+    interrupt_exit()
+  elif fbuf.runs_on() then
+    ret()
+  end
+  for n = 0 until stub_count do
+    reg.label(stub_label[n])  ; reached only by the JSRs of pointer calls: nothing is known
+    if stub_symbol[n] == kernel.NO_OBJ then
+      fbuf.op_word(fbuf.OP_JMP_INDIRECT, stub_value[n])
+    else
+      fbuf.op_fix(fbuf.OP_JMP_INDIRECT, fbuf.FIX_ADDRESS, stub_symbol[n], stub_slot[n], stub_value[n])
+    end
+  end
+  fbuf.finish(reg.own, reg.local_count)
+  out.function_begin(reg.own, flags)
+  slots(0, reg.local_count)
+  slots(fbuf.FIRST_TEMP, reg.temp_count)
+  out.function_end()
+end
+
+; ---- Initial values ----------------------------------------------------------------------
+
+; Variable `s` starts with the constant `value`, or if `source` is not kernel.NO_OBJ, the
+; address `value` after the symbol `source` (and its slot `slot`); an array is copied from
+; the constant data `source`.
+pub func initial(s: word, source: word, slot: byte, value: word)
+  if init_count == MAX_INITS then
+    err.fatal(err.E_INITS_FULL)
+  end
+  init_source[init_count] = source
+  init_slot[init_count] = slot
+  init_symbol[init_count] = kernel.sym_obj[s]
+  init_address[init_count] = 0
+  if kernel.sym_flags[s] & kernel.SF_AT != 0 then
+    init_address[init_count] = kernel.sym_value[s]
+  end
+  init_flags[init_count] = zp_flag(s)
+  init_type[init_count] = kernel.sym_type[s]
+  init_value[init_count] = value
+  init_count += 1
+end
+
+; Write the function `symbol` that sets the initial values listed so far, after calling
+; the function that sets those written out before. The register memory loads each value
+; once for the variables that follow each other with the same one.
+pub func init_function(symbol: word)
+  var n: byte
+  var t: byte
+  function_begin(symbol)
+  if init_part != kernel.NO_OBJ then
+    fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, init_part, fbuf.NO_SLOT, 0)
+    out.call(init_part, 0, out.NO_OUTER)
+  end
+  for n = 0 until init_count do
+    t = init_type[n]
+    reg.push_memory(t, init_symbol[n], fbuf.NO_SLOT, init_address[n], init_flags[n], kernel.NO_SYM)
+    if typetab.is_array(t) then
+      copy_array(init_source[n], typetab.size(t))
+      reg.pop()
+    else
+      if init_source[n] == kernel.NO_OBJ then
+        reg.push(reg.O_CONST, t, init_value[n])
+      else
+        reg.push(reg.O_ADDR, t, init_value[n])
+        reg.op_symbol[reg.depth - 1] = init_source[n]
+        reg.op_slot[reg.depth - 1] = init_slot[n]
+      end
+      store()
+    end
+  end
+  init_count = 0
+  init_part = symbol
+  function_end(0)
+end
+

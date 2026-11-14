@@ -184,7 +184,7 @@ def put_name(s, name):
 # A name is built in place above the heap's top, one character at a time, and only kept if
 # it is new, so looking a name up copies nothing.
 
-NAME_HEAP_SIZE = 12800
+NAME_HEAP_SIZE = 14848
 NAME_BUCKETS = 64           # a power of two
 MAX_NAME = 31               # significant characters
 
@@ -291,8 +291,8 @@ def names_release(mark):
 # straight to its symbols and the table needs no hash of its own. The chains are short:
 # one symbol per module that has the name, and the local that hides it.
 
-MAX_SYMS = 384
-MAX_MEMBERS = 320
+MAX_SYMS = 480
+MAX_MEMBERS = 432
 MAX_MODULES = 16            # the module being compiled and those it imports
 
 NO_SYM = 0xFFFF

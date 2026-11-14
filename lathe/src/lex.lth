@@ -190,7 +190,11 @@ pub const MAX_COLUMN = $FF
 
 ; ---- The current token -------------------------------------------------------------------
 
+#if SMALL
+const MAX_STRING = 264          ; (SMALL: the test programs' small build)
+#else
 const MAX_STRING = 2048         ; as long as a constant table can be (out.MAX_TABLE)
+#end
 
 pub var tok: byte = T_NL        ; T_NL before the first token: a file begins at the start of a line
 pub var value: word

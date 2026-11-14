@@ -250,4 +250,14 @@ A new error takes the next free number of its group.
 
 `lathe/tests/memory_report.py [--corpus]` counts the bytes the compiler's tables take as Lathe lays them out, and with `--corpus` compiles every module of `lathe/src/`, `lathe/rt/` and `lathe/tests/cases/` and prints each table's peak use (`test_memory.py` checks the total). `lathe/tests/size_report.py [DIR]` builds `lathe/src/lextest.lth` and prints its code bytes per module and its largest functions: the measure for changes to code generation. `lathe/tests/arg_report.py DIR` reads that build's objects and counts what passing arguments in registers would save.
 
+### The small build
+
+The test programs of the Lathe twins (`lathe/src/*test.lth`) run on the emulator's default machine, 60 KB for code and variables. At the compiler's full capacities, those with more than 24 KB of code (`regtest`, `condtest`, `gentest`) do not fit beside the tables, so they are built small:
+
+- Each twin declares its big tables' capacities under `#if SMALL`: the name heap and the symbol rows and members (`kernel`), the function buffer (`fbuf`), the constant table and its fix-ups (`out`), the string being read (`lex`). An array of more than 256 elements stays above 256, because its index is a `word`.
+- `lathe/src/compiler.env` defines `SMALL 0`, `compiler-small.env` defines `SMALL 1` and moves the split between code and variables up (`src_support.build_program(name, dir, small=True)`). `#if SMALL` is an error where `SMALL` is not defined, so every environment that compiles the twins defines it; `memory_report.py` compiles the modules of `lathe/src/` with `compiler.env`'s options.
+- The Python side runs with the same capacities: `script_host.SMALL` lists them, and `check_script(..., small=True)` sets them in the host modules while each section runs (the host's arrays stay at full size; only the limits are checked). `test_memory.py` checks that `script_host.SMALL` and the twins' `#if SMALL` constants agree, and that the twins' other value is the host's own.
+
+The scripts do not come near these tables' limits but for the sections written to (`out.txt`'s table of 2,048 bytes is why `outtest` stays at full size).
+
 A snapshot or end-to-end case can import modules that lie beside it, and a line `; defines NAME NAME=NUMBER ...` before its `module` line builds it with those defines. A file called `lib*.lth`, or whose first line starts with `; imported by`, is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.

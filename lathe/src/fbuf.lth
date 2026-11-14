@@ -56,7 +56,11 @@ module fbuf
 
 import err
 
+#if SMALL
+const BUFFER_SIZE = 1024        ; bytes of entries (SMALL: the test programs' small build)
+#else
 const BUFFER_SIZE = 4096        ; bytes of entries
+#end
 const MAX_CODE = 4096           ; bytes of code in one function
 const MAX_LABELS = 192          ; a label's number is stored in one byte
 const MAX_FIXUPS = 512          ; fix-ups of one function

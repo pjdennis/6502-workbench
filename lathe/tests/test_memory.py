@@ -6,10 +6,10 @@ import unittest
 
 import memory_report as report
 
-TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond')
+TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg', 'cond', 'gen')
 VAR = re.compile(r'^(?:pub )?var (\w+): \[[^\]]+\](\^?\w+)', re.M)
 # Arrays of a twin that are not arrays of its host module, and why.
-CEILING = 42023             # the total of lathe/docs/architecture.md, "What stays in memory"
+CEILING = 45751             # the total of lathe/docs/architecture.md, "What stays in memory"
 TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.mem'}
 
 
@@ -20,7 +20,36 @@ def twin_arrays(module):
     return {name: 1 if t in ('byte', 'sbyte', 'bool') else 2 for name, t in VAR.findall(text)}
 
 
+SMALL_BLOCK = re.compile(r'^#if SMALL\n(.*?)^#else\n(.*?)^#end\n', re.M | re.S)
+CONST = re.compile(r'^(?:pub )?const (\w+) = (\d+)', re.M)
+
+
+def twin_small(module):
+    """{name: (small, full)} of the constants lathe/src/MODULE.lth declares under `#if SMALL`."""
+    with open(os.path.join(report.LATHE, 'src', module + '.lth')) as f:
+        text = f.read()
+    found = {}
+    for small, full in SMALL_BLOCK.findall(text):
+        full = dict(CONST.findall(full))
+        for name, value in CONST.findall(small):
+            found[name] = (int(value), int(full[name]))
+    return found
+
+
 class MemoryTest(unittest.TestCase):
+    def test_the_small_build_has_the_same_capacities_in_the_twins_and_the_host_test(self):
+        """lathe/host/README.md, "The small build": each twin's `#if SMALL` constants are those
+        script_host.SMALL gives the host modules, and the others are the host's own."""
+        import importlib
+        import script_host
+        wanted = {(m, name): size for m, name, size in script_host.SMALL}
+        found = {}
+        for module in TWINS:
+            for name, (small, full) in twin_small(module).items():
+                found[(module, name)] = small
+                self.assertEqual(full, getattr(importlib.import_module(module), name), name)
+        self.assertEqual(found, wanted)
+
     def test_each_twin_lays_out_its_arrays_as_the_host_counts_them(self):
         for module in TWINS:
             host = {name: width for name, n, width in report.arrays(module)}

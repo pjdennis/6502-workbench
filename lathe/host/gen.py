@@ -19,7 +19,6 @@ import err
 import fbuf
 import fold
 import kernel
-import lex
 import out
 import reg
 import typetab
@@ -90,24 +89,24 @@ leave = reg.NONE        # in an interrupt function: the label of its exit code
 
 init_symbol = [0] * MAX_INITS       # the variables with initial values: as for reg.push_memory
 init_address = [0] * MAX_INITS
-init_flags = [0] * MAX_INITS
-init_type = [0] * MAX_INITS
+init_flags = bytearray(MAX_INITS)
+init_type = bytearray(MAX_INITS)
 init_value = [0] * MAX_INITS
 init_source = [0] * MAX_INITS       # NO_OBJ for a number; else the symbol of an address, or of
-init_slot = [0] * MAX_INITS         # the data an array is copied from
+init_slot = bytearray(MAX_INITS)    # the data an array is copied from
 init_count = 0
 data_count = 0                      # how many symbols of anonymous constant data there are
 init_part = kernel.NO_OBJ           # the function that sets the values written out earlier
 
-stub_label = [0] * MAX_STUBS        # for each pointer called through: the label of its
+stub_label = bytearray(MAX_STUBS)   # for each pointer called through: the label of its
 stub_symbol = [0] * MAX_STUBS       # JMP (pointer) at the end of the function, and the pointer
-stub_slot = [0] * MAX_STUBS         # as for reg.push_memory
+stub_slot = bytearray(MAX_STUBS)    # as for reg.push_memory
 stub_value = [0] * MAX_STUBS
 stub_count = 0
 saves_frame = False                 # the function being compiled is `recursive`
-argument_slot = [0] * MAX_ARGUMENTS # the temporaries the arguments of saving calls wait in
+argument_slot = bytearray(MAX_ARGUMENTS) # the temporaries the arguments of saving calls wait in
 argument_count = 0
-held_operand = [0] * MAX_HELD       # the operands of those arguments, oldest first
+held_operand = bytearray(MAX_HELD)  # the operands of those arguments, oldest first
 held_count = 0
 saved_slot = bytearray(reg.SLOTS)       # the slots a saving call pushes, in order
 saved_count = 0
@@ -1292,19 +1291,6 @@ def anonymous():
     return out.symbol(out.SYM_DATA, kernel.module_name[0], 0, kernel.name_end())
 
 
-def string():
-    """The string LEX has just read, used as a value: a `^byte` to constant data that holds
-    it, with a zero after it."""
-    settle()
-    symbol = anonymous()
-    out.data(symbol, lex.string_length + 1)
-    for i in range(0, lex.string_length):
-        out.data_byte(lex.string[i])
-    out.data_byte(0)
-    reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
-    reg.op_symbol[reg.depth - 1] = symbol
-
-
 def table_element(where, step):
     """The newest operand, a constant or an address, is an element of the constant table
     being made: its byte k goes to byte `where` + k * `step` of the table."""
@@ -1382,9 +1368,22 @@ def protect():
     temporary, so that arguments are still taken from left to right."""
     for n in range(0, held_count):
         i = held_operand[n]
-        if reg.op_kind[i] == reg.O_VAR and (reg.op_mode[i] != reg.M_DIRECT
-                                            or reg.op_flags[i] & (reg.F_TEMP | reg.F_DATA) == 0):
+        if exposed(i):
             to_temporary(i, False)
+
+
+def exposed(i):
+    """True if operand `i`, an argument waiting for a register, is memory that a call could change."""
+    return reg.op_kind[i] == reg.O_VAR and (reg.op_mode[i] != reg.M_DIRECT
+                                            or reg.op_flags[i] & (reg.F_TEMP | reg.F_DATA) == 0)
+
+
+def must_protect():
+    """True if protect() would copy an argument to a temporary."""
+    for n in range(0, held_count):
+        if exposed(held_operand[n]):
+            return True
+    return False
 
 
 def register_of(f, i):
@@ -1636,11 +1635,11 @@ def restore_frame():
     """After a saving call: pop what save_frame() pushed, last byte first, through Y."""
     if saved_count > 0:
         out.call(frame_pop, 0, outer)
-    for i in range(saved_count - 1, -1, -1):
-        n = saved_slot[i]
-        for k in range(reg.slot_size[n] - 1, -1, -1):
-            fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
-            slot_byte(OP_STY, reg.own, n, k)
+        for i in range(saved_count - 1, -1, -1):
+            n = saved_slot[i]
+            for k in range(reg.slot_size[n] - 1, -1, -1):
+                fbuf.op_fix(fbuf.OP_JSR, fbuf.FIX_ADDRESS, frame_pop, fbuf.NO_SLOT, 0)
+                slot_byte(OP_STY, reg.own, n, k)
 
 
 def call(f, first, wanted):

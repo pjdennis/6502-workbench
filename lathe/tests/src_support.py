@@ -12,6 +12,7 @@ SRC = os.path.join(LATHE, 'src')
 DRIVER = os.path.join(LATHE, 'host', 'driver')
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 ENV = os.path.join(SRC, 'compiler.env')     # where code and variables go
+SMALL_ENV = os.path.join(SRC, 'compiler-small.env')     # the same with SMALL: the small build
 
 if DRIVER not in sys.path:
     sys.path.append(DRIVER)
@@ -23,11 +24,13 @@ import build  # noqa: E402
 REPORT = re.compile(rb'(?:Exit code -?\d+; )?[Ee]xecuted (\d+) cycles[^\n]*\n?\Z')
 
 
-def build_program(name, out_dir):
+def build_program(name, out_dir, small=False):
     """Build lathe/src/NAME.lth into OUT_DIR/NAME.bin, keeping the work files (the map, the
-    objects) in OUT_DIR/work. Returns the image's path."""
+    objects) in OUT_DIR/work. Returns the image's path. With `small`, the small build
+    (compiler-small.env: lathe/host/README.md, "The small build")."""
     image = os.path.join(out_dir, name + '.bin')
-    build.build(os.path.join(SRC, name + '.lth'), image, env=ENV, keep=os.path.join(out_dir, 'work'))
+    build.build(os.path.join(SRC, name + '.lth'), image, env=SMALL_ENV if small else ENV,
+                keep=os.path.join(out_dir, 'work'))
     return image
 
 

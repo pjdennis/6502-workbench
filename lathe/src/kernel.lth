@@ -245,7 +245,11 @@ end
 ; A name is built in place above the heap's top, one character at a time, and only kept if
 ; it is new, so looking a name up copies nothing.
 
-const NAME_HEAP_SIZE = 12800
+#if SMALL
+const NAME_HEAP_SIZE = 1024      ; (SMALL: the test programs' small build)
+#else
+const NAME_HEAP_SIZE = 14848
+#end
 const NAME_BUCKETS = 64         ; a power of two
 const MAX_NAME = 31             ; significant characters
 
@@ -368,8 +372,13 @@ end
 ; straight to its symbols and the table needs no hash of its own. The chains are short:
 ; one symbol per module that has the name, and the local that hides it.
 
-pub const MAX_SYMS = 384
-const MAX_MEMBERS = 320
+#if SMALL
+pub const MAX_SYMS = 264        ; (SMALL: the test programs' small build; above 256, which
+const MAX_MEMBERS = 264         ; a word index needs)
+#else
+pub const MAX_SYMS = 480
+const MAX_MEMBERS = 432
+#end
 const MAX_MODULES = 16          ; the module being compiled and those it imports
 
 pub const SCOPE_MODULE = 0      ; the module being compiled; 1 and up are imported modules

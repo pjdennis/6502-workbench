@@ -581,6 +581,11 @@ def copy_aliases():
     alias_count = 0
 
 
+def copies_due():
+    """True if copy_aliases() would copy something."""
+    return alias_count > 0 or gen.must_protect()
+
+
 def body_begin(f):
     """The arguments of the newest expansion are read: replay the body of `f`."""
     global level, alias_count

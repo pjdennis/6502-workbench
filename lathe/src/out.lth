@@ -72,8 +72,13 @@ pub const CLASS_RECURSIVE = 1
 
 const MAX_CALLS = 64
 const MAX_MEMBERS = 64          ; MEMB records of one module
+#if SMALL
+pub const MAX_TABLE = 264       ; (SMALL: the test programs' small build)
+const MAX_TABLE_FIXES = 32
+#else
 pub const MAX_TABLE = 2048      ; bytes of a constant table being made
 const MAX_TABLE_FIXES = 256     ; addresses in one constant table
+#end
 const C_DOT = $2E
 
 var stream: byte = 0

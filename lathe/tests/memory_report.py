@@ -242,12 +242,15 @@ def corpus():
 def options_of(path, env_name=None):
     """The compiler options a case asks for, and those of the environment it is built for:
     the board's for a case of e2e-BOARD, the first `; config` environment's for one of
-    e2e-config, else host.env's."""
+    e2e-config, lathe/src/compiler.env's for a module of lathe/src/ (which defines SMALL 0:
+    the compiler's tables at full size), else host.env's."""
     import build
     import mapenv
     d = os.path.basename(os.path.dirname(path))
     if env_name is None:
         env_name = d[len('e2e-'):] if d.startswith('e2e-') else 'host'
+        if os.path.dirname(os.path.abspath(path)) == os.path.join(LATHE, 'src'):
+            env_name = os.path.join(LATHE, 'src', 'compiler.env')
     words = []
     with open(path, encoding='latin-1') as f:
         for line in f:

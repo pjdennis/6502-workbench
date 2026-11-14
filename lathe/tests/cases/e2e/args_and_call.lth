@@ -1,0 +1,60 @@
+; An argument that waits for a register while a later argument is worked out, where that
+; argument is an `and` or an `or` whose right side makes a call: the waiting argument, a
+; variable the call could change, was copied to a temporary only on the way through the call,
+; and read from the temporary on both ways (found by lathe/tests/test_src_gen.py: gen.lth's
+; variable_shift() gave shift_a() the wrong operator). The same for the parameter of an inline
+; function that stands for a variable.
+module args_and_call
+
+import libout
+
+var count: byte
+
+func show(op: byte, flag: bool)
+  libout.hex(op)
+  if flag then
+    libout.char('T')
+  else
+    libout.char('F')
+  end
+  libout.space()
+end
+
+func is_two(t: byte): bool
+  count += 1
+  return t == 2
+end
+
+func both(op: byte, t: byte)
+  show(op, op == 7 and is_two(t))
+  show(op, op == 7 or is_two(t))
+  show(t, not (op != 7 and is_two(t)))
+  libout.nl()
+end
+
+inline func pick(a: byte, flag: bool): byte
+  if flag then
+    return a
+  end
+  return a + 1
+end
+
+func picks(t: byte)
+  var v: byte
+  v = t
+  libout.hex(pick(v, v == 7 and is_two(t)))
+  libout.hex(pick(v, v != 7 or is_two(t)))
+  libout.nl()
+end
+
+pub func main()
+  both(6, 1)
+  both(7, 1)
+  both(6, 2)
+  both(7, 2)
+  picks(1)
+  picks(2)
+  picks(7)
+  libout.hex(count)
+  libout.nl()
+end

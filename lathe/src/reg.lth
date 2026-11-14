@@ -403,7 +403,7 @@ end
 
 ; The offset of byte `k` of memory operand `i` from its fix-up or address; for one reached
 ; through a pointer, the offset added to the index in Y.
-pub func offset(i: byte, k: byte): word
+pub func offset(i: byte, k: word): word
   return op_value[i] + k * op_stride[i]
 end
 

@@ -1,0 +1,243 @@
+; A test of gen: gentest SCRIPT OBJECT runs the commands of a script: those of
+; lathe/src/regcmd.lth, and the commands below, which call GEN. It prints what they give and
+; the code of the functions they make; the object file it writes is compared too.
+; lathe/tests/test_src_gen.py runs the same script with gen.py and compares. The scripts are
+; in lathe/tests/scripts/gen.txt. It is built with the small capacities (compiler-small.env):
+; with GEN in it, the program does not fit the emulator's machine at full size.
+module gentest
+
+import cond
+import err
+import gen
+import kernel
+import listing
+import out
+import reg
+import regcmd
+import script
+import sys
+import typetab
+
+const WORDS = "ginit gbegin settle resolve gconst gfunc gfaddr objsym gvar gtable glocal param argsend binary negate compl gstore assign arrow pair convert part sizeof len gindex record field address anon tbegin telem tend copyarr accept hold protect inreg receive result tptr through call saving caddr mark gcompare asvalue tleft tright ginvert gjump cwanted gcarry lresult ret ientry loopb loope fend initial initfn cpu saves gstate kconst module at gstep rtype mustp symval "
+
+; Set up as regcmd does, and GEN.
+func init()
+  regcmd.init()
+  gen.init()
+  gen.function_begin(regcmd.own)
+  gen.pend_type = 0               ; as at the start: neither gen.init() nor function_begin() sets it
+  cond.wanted_in_carry(false)
+end
+
+forward func run_more(c: byte)
+
+; Run command `c`, a number in WORDS, with its arguments.
+func run(c: byte)
+  var a: byte
+  var s: word
+  var v: word
+  case c
+  of 0
+    gen.init()
+  of 1
+    gen.function_begin(regcmd.own)
+  of 2
+    gen.settle()
+  of 3
+    gen.resolve(script.flag())
+  of 4
+    a = script.small()
+    gen.constant(a, script.number())
+  of 5
+    gen.function(script.number())
+  of 6
+    gen.function_address()
+  of 7
+    script.show_word(gen.object_symbol(script.number()))
+  of 8
+    gen.variable(script.number())
+  of 9
+    gen.table(script.number())
+  of 10
+    a = script.small()
+    gen.local(a, script.small())
+  of 11
+    s = script.number()
+    gen.parameter(s, script.small())
+  of 12
+    gen.arguments_end(script.number())
+  of 13
+    gen.binary(script.small())
+  of 14
+    gen.negate()
+  of 15
+    gen.complement()
+  of 16
+    gen.store()
+  of 17
+    gen.assign(script.small())
+  of 18
+    gen.store_arrow()
+  of 19
+    gen.store_pair()
+  of 20
+    gen.convert(script.small())
+  of 21
+    gen.part(script.small())
+  of 22
+    gen.size_of(script.small())
+  of 23
+    gen.length()
+  of 24
+    gen.index()
+  of 25
+    script.show_byte(gen.record_of())
+  of 26
+    v = script.number()
+    gen.field(v, script.small())
+  of 27
+    gen.address()
+  of 28
+    script.show_word(gen.anonymous())
+  of 29
+    out.table_begin(script.number())
+  of 30
+    v = script.number()
+    gen.table_element(v, script.number())
+  of 31
+    s = script.number()
+    out.table_end(s, script.number())
+  of 32
+    s = script.number()
+    gen.copy_array(s, script.number())
+  else
+    run_more(c)
+  end
+end
+
+func run_more(c: byte)
+  var a: byte
+  var b: byte
+  var s: word
+  var v: word
+  case c
+  of 33
+    gen.accept(script.small())
+  of 34
+    gen.hold()
+  of 35
+    gen.protect()
+  of 36
+    s = script.number()
+    script.show_bool(gen.in_register(s, script.small()))
+  of 37
+    gen.receive(script.number())
+  of 38
+    gen.result(script.number())
+  of 39
+    gen.through_pointer()
+  of 40
+    script.show_bool(gen.through(script.number()))
+  of 41
+    s = script.number()
+    a = script.small()
+    gen.call(s, a, script.flag())
+  of 42
+    script.show_bool(gen.saving(script.number()))
+  of 43
+    gen.code_address(script.number())
+  of 44
+    script.show_word(gen.mark())
+  of 45
+    gen.compare(script.small())
+  of 46
+    gen.as_value()
+  of 47
+    gen.test_left(script.flag())
+  of 48
+    gen.test_right()
+  of 49
+    gen.invert()
+  of 50
+    script.show_word(gen.jump_false())
+  of 51
+    gen.carry_wanted()
+  of 52
+    gen.carry()
+  of 53
+    gen.load_result()
+  of 54
+    gen.ret()
+  of 55
+    gen.interrupt_entry()
+  of 56
+    gen.loop_begin()
+  of 57
+    gen.loop_end()
+  of 58
+    gen.function_end(script.small())
+    listing.show_finished()
+  of 59
+    s = script.number()
+    v = script.number()
+    a = script.small()
+    gen.initial(s, v, a, script.number())
+  of 60
+    s = script.number()
+    gen.init_function(s)
+    listing.show_finished()
+  of 61
+    gen.cpu = script.small()
+  of 62
+    gen.saves_frame = script.flag()
+  of 63
+    script.show_byte(gen.pend_op)
+    script.show_byte(gen.pend_type)
+    script.show_word(gen.outer)
+    script.show_byte(gen.init_count)
+    script.show_bool(gen.saves_frame)
+  of 64
+    a = script.small()
+    s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_CONST)
+    kernel.sym_type[s] = a
+    script.show_word(s)
+  of 65
+    script.show_byte(kernel.module_add(script.name()))
+  of 66
+    v = script.number()
+    err.set_file(kernel.keep_argument(0))
+    err.position(v, script.number())
+  of 67
+    a = script.small()
+    b = script.small()
+    gen.step(a, b, script.small())
+  of 68
+    s = kernel.sym_add(kernel.SCOPE_MODULE, script.name(), kernel.K_TYPE)
+    a = typetab.declared(typetab.FORM_RECORD, s)
+    kernel.sym_type[s] = a
+    v = typetab.grow(a, script.number())
+    script.show_word(s)
+    script.show_byte(a)
+  of 69
+    script.show_bool(gen.must_protect())
+  of 70
+    s = script.number()
+    kernel.sym_value[s] = script.number()
+  end
+end
+
+pub func main()
+  var c: byte
+  init()
+  script.open()
+  while script.next() do
+    c = script.find(@WORDS)
+    if c == script.NOT_FOUND then
+      regcmd.run(script.command(@regcmd.WORDS))
+    else
+      run(c)
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

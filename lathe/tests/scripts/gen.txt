@@ -1,0 +1,2148 @@
+; Scripts for lathe/src/gentest.lth and its twin in lathe/tests/test_src_gen.py: the commands
+; of lathe/tests/scripts/reg.txt (lathe/src/regcmd.lth), and these, which call GEN:
+;   ginit; gbegin (function_begin of m.f); settle; resolve F; gconst T V; gfunc S; gfaddr;
+;   objsym S; gvar S; gtable S; glocal T SLOT; param F I; argsend OUTER; binary OP; negate;
+;   compl; gstore; assign OP; arrow; pair; convert T; part K; sizeof T; len; gindex; record;
+;   field PLACE T; address; anon; tbegin LENGTH; telem WHERE STEP; tend SYMBOL LENGTH;
+;   copyarr SYMBOL SIZE; accept T; hold; protect; inreg F I; receive F; result F; tptr;
+;   through F; call F FIRST WANTED; saving F; caddr S; mark; gcompare OP; asvalue; tleft W;
+;   tright; ginvert; gjump; cwanted; gcarry; lresult; ret; ientry; loopb; loope;
+;   fend FLAGS (function_end, then the code, fix-ups and weights); initial S SOURCE SLOT VALUE;
+;   initfn SYMBOL (init_function, then the code); cpu N; saves F (saves_frame); gstate
+;   (pend_op, pend_type, outer, init_count, saves_frame); kconst T NAME (a constant symbol);
+;   module NAME; at LINE COL (errors are reported there, in the script's file);
+;   gstep OP COUNT TARGET; rtype NAME SIZE (a record type); mustp (must_protect);
+;   symval SYMBOL VALUE (a kernel symbol's value: an extern function's address).
+; Operators: 1 + 2 - 3 & 4 | 5 ^ 6 << 7 >> 8 * 9 / 10 mod; 11 == 12 != 13 < 14 >= 15 > 16 <=.
+; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative, 8 nil; the types a
+; section makes are numbered from 9 in order (ptr, arr, ftype, rtype print them).
+; Registers of members: 0 none, 1 a, 2 x, 3 y, 4 ax, 5 ay, 6 xy, 7 c.
+; Symbol flags: 1 pub, 2 extern, 8 at, 16 zp, 32 nozp, 64 asm, 128 recursive.
+; Each section starts afresh, with m.f begun; `fend 0` ends it and `end` writes the object.
+
+== a byte operation computed into A when the next operand comes
+slot 1 1 1 a
+slot 1 1 1 b
+glocal 1 0
+glocal 1 1
+binary 1
+gstate
+gconst 6 1
+state
+show 0
+pop
+pop
+fend 0
+slots
+end
+== a word into A and X, the low byte waiting in Y
+slot 2 1 1 a
+slot 2 1 1 b
+glocal 3 0
+glocal 3 1
+binary 1
+settle
+show 0
+pop
+fend 0
+== a store computes straight into the destination
+slot 2 1 1 x
+slot 2 1 1 y
+slot 2 1 1 z
+glocal 3 0
+glocal 3 1
+glocal 3 2
+binary 1
+gstore
+state
+fend 0
+end
+== adding one to the destination is INC, of a word INC and BNE
+slot 1 1 1 i
+slot 2 1 1 w
+glocal 1 0
+glocal 1 0
+gconst 6 1
+binary 1
+gstore
+glocal 3 1
+gconst 6 1
+assign 1
+glocal 3 1
+gconst 6 1
+assign 2
+glocal 1 0
+gconst 6 1
+assign 2
+fend 0
+== constants are folded, and ~ and unary - mark a number that wraps
+gconst 6 6
+gconst 6 7
+binary 8
+negate
+show 0
+gconst 6 $20
+compl
+show 1
+gconst 6 $40
+compl
+binary 3
+show 1
+gconst 6 2
+binary 9
+show 1
+gconst 1 200
+gconst 1 100
+binary 1
+show 2
+gconst 1 5
+compl
+show 3
+gconst 2 5
+negate
+show 4
+gconst 7 3
+gconst 6 1
+binary 7
+show 5
+fend 0
+== an operation that changes nothing leaves its left operand
+slot 1 1 1 a
+slot 2 1 1 w
+glocal 1 0
+gconst 6 0
+binary 1
+show 0
+glocal 1 0
+gconst 6 $FF
+binary 3
+show 1
+glocal 3 1
+gconst 6 $FFFF
+binary 3
+show 2
+gconst 6 0
+glocal 1 0
+binary 4
+show 3
+glocal 1 0
+gconst 6 0
+binary 6
+show 4
+gstate
+fend 0
+== an operation that gives zero is the constant 0
+slot 1 1 1 a
+slot 2 1 1 s
+glocal 1 0
+gconst 6 0
+binary 3
+show 0
+glocal 1 0
+gconst 6 8
+binary 6
+show 1
+glocal 3 1
+gconst 6 16
+binary 7
+show 2
+glocal 1 0
+gconst 6 9
+binary 7
+show 3
+fend 0
+== a signed shift by more than its width keeps only the sign
+slot 1 1 1 s
+slot 2 1 1 t
+glocal 2 0
+gconst 6 12
+binary 7
+show 1
+gstate
+settle
+glocal 4 1
+gconst 6 20
+binary 7
+show 2
+gstate
+settle
+fend 0
+== a right side in A is exchanged with the left if the operator commutes
+slot 1 1 1 a
+glocal 1 0
+preg 1
+binary 3
+settle
+show 0
+fend 0
+== a byte minus what is in A adds the complement
+slot 1 1 1 a
+glocal 1 0
+preg 1
+binary 2
+state
+show 0
+fend 0
+== a word minus what is in A and X stores the right side first
+slot 2 1 1 a
+glocal 3 0
+preg 3
+binary 2
+settle
+show 0
+slots
+fend 0
+== multiplying by a power of two is a shift, and by a constant on the left too
+slot 1 1 1 a
+glocal 1 0
+gconst 6 8
+binary 8
+gstate
+show 1
+settle
+gconst 6 4
+glocal 1 0
+binary 8
+gstate
+settle
+glocal 1 0
+gconst 6 0
+binary 8
+show 3
+fend 0
+== a byte times 3 is a shift and an add
+slot 1 1 1 a
+glocal 1 0
+gconst 6 3
+binary 8
+show 0
+pop
+glocal 1 0
+gconst 6 5
+binary 8
+show 0
+fend 0
+end
+== a remainder by a power of two is a mask, a quotient a shift
+slot 2 1 1 w
+glocal 3 0
+gconst 6 256
+binary 10
+gstate
+show 1
+settle
+glocal 3 0
+gconst 6 16
+binary 9
+gstate
+show 1
+settle
+fend 0
+== multiplying two bytes calls mul8, with the operands in A and X
+slot 1 1 1 a
+slot 1 1 1 b
+glocal 1 0
+glocal 1 1
+binary 8
+gstate
+state
+show 0
+fend 0
+end
+== a word quotient calls div16: the right operand goes to its slot
+slot 2 1 1 a
+slot 2 1 1 b
+slot 2 1 1 c
+glocal 3 0
+glocal 3 1
+glocal 3 2
+binary 1
+settle
+binary 9
+show 0
+fend 0
+end
+== every function of rt_math that operators call
+slot 1 1 1 a
+slot 1 1 1 b
+slot 1 1 1 sa
+slot 1 1 1 sb
+slot 2 1 1 w
+slot 2 1 1 v
+slot 2 1 1 i
+slot 2 1 1 j
+glocal 1 0
+glocal 1 1
+binary 9
+pop
+glocal 1 0
+glocal 1 1
+binary 10
+pop
+glocal 2 2
+glocal 2 3
+binary 9
+pop
+glocal 2 2
+glocal 2 3
+binary 10
+pop
+glocal 3 4
+glocal 3 5
+binary 10
+pop
+glocal 4 6
+glocal 4 7
+binary 9
+pop
+glocal 4 6
+glocal 4 7
+binary 10
+pop
+glocal 4 6
+gconst 6 4
+binary 9
+pop
+glocal 3 4
+glocal 3 5
+binary 8
+pop
+glocal 3 4
+glocal 1 0
+binary 6
+pop
+glocal 3 4
+glocal 1 0
+binary 7
+pop
+glocal 4 6
+glocal 1 0
+binary 7
+pop
+fend 0
+end
+== mul8x8 for two bytes widened to words; mul16 with the smaller operand second
+slot 1 1 1 a
+slot 1 1 1 b
+slot 2 1 1 w
+glocal 1 0
+convert 3
+glocal 1 1
+convert 3
+binary 8
+pop
+gconst 3 10
+glocal 3 2
+binary 8
+pop
+glocal 3 2
+gconst 6 1000
+binary 8
+pop
+fend 0
+end
+== a byte shifted by a variable is a loop counted in X
+slot 1 1 1 a
+slot 1 1 1 n
+slot 1 1 1 s
+glocal 1 0
+glocal 1 1
+binary 6
+show 0
+pop
+glocal 2 2
+glocal 1 1
+binary 7
+pop
+glocal 1 0
+preg 1
+binary 7
+pop
+fend 0
+== a number shifted by a variable is error 44
+at 12 34
+slot 1 1 1 n
+gconst 6 1
+glocal 1 0
+binary 6
+== a shift by a word is error 44
+slot 2 1 1 w
+slot 1 1 1 a
+glocal 1 1
+glocal 3 0
+binary 6
+== a bool is not a number: error 44
+slot 1 1 1 a
+gconst 5 1
+glocal 1 0
+binary 1
+== the rt_math functions of a module that imports rt_math
+module rt_math
+func mul8 2 0 2 1 1 0 1 0 1 1
+func div16 2 0 2 1 3 0 3 0 3 4
+slot 1 1 1 a
+slot 1 1 1 b
+slot 2 1 1 w
+glocal 1 0
+glocal 1 1
+binary 8
+pop
+glocal 3 2
+glocal 3 2
+binary 9
+pop
+fend 0
+end
+== a function of rt_math used twice is the same symbol
+slot 1 1 1 a
+glocal 1 0
+glocal 1 0
+binary 8
+pop
+glocal 1 0
+glocal 1 0
+binary 8
+pop
+fend 0
+gbegin
+slot 1 1 1 b
+glocal 1 0
+glocal 1 0
+binary 8
+pop
+fend 0
+end
+== pointer arithmetic: plus and minus a number, the difference of two pointers
+ptr 1
+slot 2 1 1 p
+slot 2 1 1 q
+slot 1 1 1 i
+slot 2 1 1 d
+glocal 9 1
+glocal 9 0
+gconst 6 3
+binary 1
+gstate
+gstore
+glocal 9 0
+gconst 7 $FFFE
+binary 1
+gstate
+settle
+show 0
+pop
+glocal 9 0
+glocal 9 1
+binary 2
+gstate
+settle
+show 0
+pop
+glocal 1 2
+glocal 9 0
+binary 1
+gstate
+settle
+pop
+glocal 9 0
+glocal 1 2
+binary 2
+gstate
+settle
+pop
+glocal 9 0
+glocal 4 3
+binary 1
+settle
+pop
+fend 0
+== a pointer minus a pointer of another type, or times a number, is error 44
+ptr 1
+ptr 3
+slot 2 1 1 p
+slot 2 1 1 q
+glocal 9 0
+glocal 10 1
+binary 2
+== a number minus a pointer is error 44
+ptr 1
+slot 2 1 1 p
+gconst 6 1
+glocal 9 0
+binary 2
+== a pointer times a number is error 44
+ptr 1
+slot 2 1 1 p
+glocal 9 0
+gconst 6 2
+binary 8
+== a word in A and X plus a byte carries into X
+slot 1 1 1 a
+preg 3
+glocal 1 0
+binary 1
+settle
+show 0
+fend 0
+== a byte in A minus a word has a high byte of 0 to borrow from
+preg 1
+gconst 3 255
+binary 2
+settle
+show 0
+fend 0
+== a word with a constant byte: AND by 0 and $FF, OR and EOR by 0, into memory
+slot 2 1 1 w
+slot 2 1 1 v
+glocal 3 1
+glocal 3 0
+gconst 6 $FF00
+binary 3
+gstore
+glocal 3 1
+glocal 3 0
+gconst 6 $00FF
+binary 3
+gstore
+glocal 3 1
+glocal 3 0
+gconst 6 $1200
+binary 4
+gstore
+glocal 3 1
+glocal 3 0
+gconst 6 $0034
+binary 5
+gstore
+glocal 3 1
+glocal 3 1
+gconst 6 $0005
+binary 1
+gstore
+glocal 3 1
+glocal 3 1
+gconst 6 $0005
+binary 2
+gstore
+glocal 3 0
+gconst 6 $0300
+binary 1
+settle
+pop
+fend 0
+== an element on the right is loaded first, where its index can come from A
+arr 1 10 0
+slot 1 1 1 i
+slot 1 1 1 x
+var 9 0 0 0 t
+glocal 1 1
+glocal 1 1
+gvar 0
+glocal 1 0
+gindex
+binary 1
+gstore
+fend 0
+== shifts by a constant: a byte in A, a word in memory, by 8 and more, signed
+slot 1 1 1 b
+slot 2 1 1 w
+slot 2 1 1 v
+slot 2 1 1 i
+glocal 1 0
+gconst 6 2
+binary 6
+settle
+pop
+glocal 3 1
+gconst 6 1
+assign 6
+glocal 3 1
+gconst 6 2
+assign 7
+glocal 4 3
+gconst 6 2
+assign 7
+glocal 3 2
+glocal 3 1
+gconst 6 9
+binary 7
+gstore
+glocal 3 2
+glocal 3 1
+gconst 6 10
+binary 6
+gstore
+glocal 3 2
+glocal 3 1
+gconst 6 3
+binary 6
+gstore
+glocal 3 2
+glocal 3 1
+gconst 6 3
+binary 7
+gstore
+glocal 4 3
+glocal 4 3
+gconst 6 3
+binary 7
+gstore
+glocal 1 0
+glocal 1 0
+gconst 6 3
+binary 6
+gstore
+glocal 1 0
+glocal 3 1
+convert 1
+gconst 6 3
+binary 7
+gstore
+fend 0
+== a word shift copied from A and X stores the high byte first
+slot 2 1 1 w
+slot 2 1 1 v
+glocal 3 1
+glocal 3 0
+glocal 3 1
+binary 1
+settle
+gconst 6 2
+binary 7
+gstore
+glocal 3 1
+glocal 3 0
+glocal 3 1
+binary 1
+settle
+gconst 6 2
+binary 6
+gstore
+fend 0
+== a pending word into memory when asked: resolve 1, and a word shift pending
+slot 2 1 1 w
+slot 2 1 1 v
+glocal 3 0
+glocal 3 1
+binary 1
+resolve 1
+show 0
+gstate
+pop
+glocal 3 0
+gconst 6 2
+binary 6
+gstate
+settle
+show 0
+pop
+resolve 0
+fend 0
+slots
+== a pending operation through a pointer goes to a temporary
+ptr 3
+slot 2 1 1 p
+slot 2 1 1 w
+slot 1 1 1 i
+glocal 9 0
+glocal 1 2
+gindex
+glocal 3 1
+binary 1
+settle
+show 0
+fend 0
+== stores: a byte in a word, a word from A and X, a condition, a variable in itself
+slot 2 1 1 w
+slot 1 1 1 b
+slot 1 1 1 f
+glocal 3 0
+glocal 1 1
+gstore
+glocal 3 0
+preg 3
+gstore
+glocal 5 2
+glocal 1 1
+glocal 1 1
+gcompare 13
+gstore
+glocal 1 1
+glocal 1 1
+gstore
+state
+fend 0
+== a word does not go into a byte: error 44
+at 7 9
+slot 1 1 1 b
+slot 2 1 1 w
+glocal 1 0
+glocal 3 1
+gstore
+== nor does a pending word operation: error 44
+at 3 1
+slot 1 1 1 b
+slot 2 1 1 w
+glocal 1 0
+glocal 3 1
+gconst 6 1
+binary 1
+gstore
+== compound assignments of every operator
+slot 1 1 1 b
+slot 2 1 1 w
+slot 1 1 1 c
+glocal 1 0
+glocal 1 2
+assign 1
+glocal 1 0
+glocal 1 2
+assign 2
+glocal 1 0
+glocal 1 2
+assign 3
+glocal 1 0
+glocal 1 2
+assign 4
+glocal 1 0
+glocal 1 2
+assign 5
+glocal 1 0
+glocal 1 2
+assign 6
+glocal 1 0
+glocal 1 2
+assign 7
+glocal 3 1
+glocal 1 2
+assign 1
+glocal 3 1
+glocal 3 1
+assign 2
+glocal 3 1
+glocal 1 2
+assign 8
+fend 0
+end
+== f() -> v and v, ok = f(): the status stays in the carry flag
+func next 0 0 0 2 1 1 5 7
+slot 1 1 1 v
+slot 1 1 1 ok
+slot 2 1 1 w
+call 0 0 1
+glocal 1 0
+arrow
+gjump
+implied $EA
+place 0
+glocal 1 0
+glocal 5 1
+call 0 2 1
+pair
+glocal 3 2
+glocal 5 1
+call 0 2 1
+pair
+state
+fend 0
+== conversions: narrowing, widening, signed bytes, constants
+slot 2 1 1 w
+slot 2 1 1 v
+slot 1 1 1 s
+slot 1 1 1 b
+glocal 3 0
+convert 1
+show 0
+pop
+glocal 3 0
+glocal 3 1
+binary 1
+convert 1
+gstate
+settle
+show 0
+pop
+glocal 3 0
+gconst 6 3
+binary 7
+convert 1
+gstate
+settle
+pop
+glocal 1 3
+convert 4
+show 0
+convert 3
+show 0
+pop
+glocal 2 2
+convert 4
+show 0
+pop
+gconst 6 $1234
+convert 1
+show 0
+gconst 6 $FE
+convert 2
+convert 4
+show 1
+pop
+pop
+preg 3
+convert 1
+show 0
+pop
+gconst 6 300
+convert 5
+show 0
+pop
+glocal 1 3
+convert 5
+show 0
+gjump
+place 1
+glocal 1 3
+glocal 1 3
+gcompare 11
+convert 5
+show 0
+pop
+fend 0
+== a record is not converted: error 44
+rtype r 4
+var 9 0 0 0 v
+gvar 1
+convert 1
+== nor converted to: error 44
+rtype r 4
+slot 1 1 1 b
+glocal 1 0
+convert 9
+== a function type has no conversion: error 44
+ftype h 0 0 0
+slot 2 1 1 w
+glocal 3 0
+convert 9
+== an array is not a value: error 121
+arr 1 4 0
+var 9 0 0 0 a
+gvar 0
+convert 3
+== lo and hi: of a variable, a constant, A and X, an address
+slot 2 1 1 w
+var 3 0 0 0 g
+glocal 3 0
+part 1
+show 0
+pop
+gconst 6 $1234
+part 0
+show 0
+pop
+gconst 6 $1234
+part 1
+show 0
+pop
+preg 3
+part 1
+show 0
+pop
+gvar 0
+address
+part 1
+show 0
+pop
+gvar 0
+address
+part 0
+show 0
+pop
+glocal 1 0
+part 1
+show 0
+pop
+fend 0
+== lo of a bool is error 44
+gconst 5 1
+part 0
+== sizeof and len
+arr 3 40 0
+var 9 0 0 0 a
+sizeof 9
+show 0
+gvar 0
+len
+show 1
+fend 0
+== len of a number is error 44
+slot 1 1 1 b
+glocal 1 0
+len
+== elements of an array: a constant index, a variable one in X, a[i + 1] and a[i - 2]
+arr 1 10 0
+var 9 0 0 0 a
+slot 1 1 1 i
+slot 1 1 1 x
+glocal 1 1
+gvar 0
+gconst 6 3
+gindex
+show 1
+gstore
+glocal 1 1
+gvar 0
+glocal 1 0
+gindex
+show 1
+gstore
+glocal 1 1
+gvar 0
+glocal 1 0
+gconst 6 1
+binary 1
+gindex
+show 1
+gstore
+glocal 1 1
+gvar 0
+glocal 1 0
+gconst 6 2
+binary 2
+gindex
+show 1
+gstore
+gvar 0
+glocal 1 0
+glocal 1 1
+binary 1
+gindex
+show 0
+glocal 1 1
+gstore
+fend 0
+end
+== words stored by column, arrays of arrays, and rows
+arr 3 10 0
+arr 1 4 0
+arr 10 3 0
+arr 10 3 1
+var 9 0 0 0 w
+var 11 0 0 0 g
+var 12 0 0 0 r
+slot 1 1 1 i
+slot 2 1 1 v
+glocal 3 1
+gvar 0
+glocal 1 0
+gindex
+show 1
+gstore
+gvar 1
+glocal 1 0
+gindex
+gconst 6 2
+gindex
+show 0
+pop
+gvar 1
+gconst 6 1
+gindex
+gconst 6 2
+gindex
+show 0
+pop
+gvar 2
+glocal 1 0
+gindex
+gconst 6 2
+gindex
+show 0
+pop
+fend 0
+== a second variable index is error 125
+arr 1 4 0
+arr 9 3 0
+var 10 0 0 0 g
+slot 1 1 1 i
+slot 1 1 1 j
+gvar 0
+glocal 1 0
+gindex
+glocal 1 1
+gindex
+== a constant index past the end is error 43
+arr 1 4 0
+var 9 0 0 0 a
+gvar 0
+gconst 6 4
+gindex
+== a word index on a small array is error 120
+arr 1 4 0
+var 9 0 0 0 a
+slot 2 1 1 w
+gvar 0
+glocal 3 0
+gindex
+== an sbyte index is error 44
+arr 1 4 0
+var 9 0 0 0 a
+slot 1 1 1 s
+gvar 0
+glocal 2 0
+gindex
+== a byte is not indexed: error 127
+slot 1 1 1 b
+glocal 1 0
+gconst 6 0
+gindex
+== big arrays: a pointer worked out in zero page, Y the low byte of the index
+arr 1 300 0
+arr 3 300 0
+rtype r 4
+arr 11 100 1
+var 9 0 0 0 b
+var 10 0 0 0 w
+var 12 0 0 0 rs
+slot 2 1 1 i
+slot 1 1 1 x
+glocal 1 1
+gvar 1
+glocal 3 0
+gindex
+show 1
+gstore
+glocal 3 0
+gvar 2
+glocal 3 0
+gindex
+show 1
+gstore
+gvar 3
+glocal 1 1
+gindex
+show 0
+field 2 1
+glocal 1 1
+gstore
+gvar 1
+gconst 6 299
+gindex
+show 0
+pop
+gvar 1
+glocal 3 0
+gconst 6 5
+binary 1
+gindex
+show 0
+pop
+gvar 2
+glocal 1 1
+gconst 6 5
+binary 2
+gindex
+show 0
+pop
+fend 0
+slots
+end
+== a big array of 3-byte elements is error 124
+rtype r 3
+arr 9 100 1
+var 10 0 0 0 rs
+slot 1 1 1 i
+gvar 1
+glocal 1 0
+gindex
+== what a pointer points at: p[i], a word p[i], p[3], from a pointer not in zero page
+ptr 1
+ptr 3
+slot 2 1 1 p
+slot 2 1 1 q
+slot 1 1 1 i
+var 9 0 1 0 far
+glocal 1 2
+glocal 9 0
+glocal 1 2
+gindex
+show 1
+gstore
+glocal 10 1
+glocal 1 2
+gindex
+show 0
+glocal 10 1
+gconst 6 3
+gindex
+show 1
+gstore
+gvar 0
+glocal 1 2
+gindex
+show 0
+glocal 1 2
+gstore
+glocal 10 1
+glocal 1 2
+gconst 6 1
+binary 1
+gindex
+gconst 6 1
+assign 1
+fend 0
+slots
+end
+== a pointer index out of reach is error 43
+ptr 3
+slot 2 1 1 p
+glocal 9 0
+gconst 6 200
+gindex
+== a pointer to an element of 16 bytes takes no variable index: error 124
+arr 1 16 0
+ptr 9
+slot 2 1 1 p
+slot 1 1 1 i
+glocal 10 0
+glocal 1 1
+gindex
+== an array that a pointer points at: p[0][i]
+arr 1 10 0
+ptr 9
+slot 2 1 1 p
+slot 1 1 1 i
+glocal 10 0
+gconst 6 0
+gindex
+glocal 1 1
+gindex
+show 0
+pop
+glocal 10 0
+gconst 6 0
+gindex
+gconst 6 4
+gindex
+show 0
+pop
+fend 0
+== records: a field of a variable, through a pointer
+rtype r 5
+ptr 9
+var 9 0 0 0 rv
+slot 2 1 1 p
+slot 2 1 1 w
+glocal 3 1
+gvar 1
+record
+field 3 3
+show 1
+gstore
+glocal 10 0
+record
+field 1 1
+show 0
+gconst 6 7
+gstore
+fend 0
+== a field beyond the reach of Y is error 43
+rtype r 300
+ptr 9
+slot 2 1 1 p
+glocal 10 0
+record
+field 290 3
+== a field of a byte is error 128
+slot 1 1 1 b
+glocal 1 0
+record
+== addresses: of a variable, a fixed one, an array, an element, what a pointer points at
+arr 1 10 0
+ptr 1
+var 1 0 0 0 v
+var 1 8 0 $D020 border
+var 9 0 0 0 a
+slot 2 1 1 p
+slot 1 1 1 i
+slot 2 1 1 q
+glocal 10 2
+gvar 0
+address
+show 1
+gstore
+glocal 10 2
+gvar 1
+address
+show 1
+gstore
+glocal 10 2
+gvar 2
+address
+show 1
+gstore
+glocal 10 2
+gvar 2
+glocal 1 1
+gindex
+address
+gstate
+gstore
+glocal 10 2
+gvar 2
+gconst 6 4
+gindex
+address
+show 1
+gstore
+glocal 10 2
+glocal 10 0
+glocal 1 1
+gindex
+address
+gstate
+gstore
+glocal 10 2
+glocal 10 0
+gconst 6 5
+gindex
+address
+show 1
+gstore
+fend 0
+end
+== words stored by column have no address: error 122
+arr 3 10 0
+var 9 0 0 0 w
+gvar 0
+address
+== a value in A has no address: error 122
+preg 1
+address
+== constant data with no name: $1, $2 and on
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+anon
+fend 0
+end
+== a constant table: numbers, words by column, addresses
+var 1 0 0 0 v
+anon
+tbegin 8
+gconst 1 5
+telem 0 1
+gconst 3 $1234
+telem 1 2
+gconst 6 $77
+telem 7 1
+gvar 0
+address
+telem 4 2
+addr 9 0 3 2
+telem 5 1
+tend 1 8
+fend 0
+end
+== an array copied from constant data: less than a page, pages, pages and more
+arr 1 10 0
+arr 1 256 0
+arr 1 300 0
+arr 1 512 0
+var 9 16 0 0 a
+var 10 0 0 0 b
+var 11 0 0 0 c
+var 12 0 0 0 d
+anon
+gvar 0
+copyarr 1 10
+pop
+gvar 1
+copyarr 1 256
+pop
+gvar 2
+copyarr 1 300
+pop
+gvar 3
+copyarr 1 512
+pop
+state
+fend 0
+end
+== a call is a JSR with a CALL record; a function gets its symbol when first used
+func helper 1 0 0 0
+func other 0 0 0 0
+call 0 0 0
+call 1 0 0
+call 0 0 0
+implied $18
+fend 0
+end
+== the first argument waits for A, the next is stored in the callee's slot
+func g 0 0 2 0 1 0 3 0
+slot 1 1 1 b
+inreg 0 0
+inreg 0 1
+gconst 6 5
+accept 1
+hold
+param 0 1
+glocal 1 0
+gstore
+argsend $FFFF
+call 0 0 0
+fend 0
+end
+== which parameters are passed in registers
+func g1 0 0 4 0 1 0 5 0 1 0 1 0
+func g2 0 0 3 0 3 0 1 0 1 0
+func g3 0 0 3 0 1 0 3 0 1 0
+func g4 0 0 2 0 3 0 3 0
+func g5 0 0 3 0 1 0 1 0 3 0
+func x1 0 2 2 0 1 6 3 3
+inreg 0 0
+inreg 0 1
+inreg 0 2
+inreg 0 3
+inreg 1 0
+inreg 1 1
+inreg 1 2
+inreg 2 0
+inreg 2 1
+inreg 2 2
+inreg 3 0
+inreg 3 1
+inreg 4 0
+inreg 4 1
+inreg 4 2
+inreg 5 0
+inreg 5 1
+== the callee stores the registers in its slots, and they still hold them
+func g 0 0 2 0 3 0 1 0
+func h 0 0 3 0 1 0 1 0 1 0
+slot 2 0 0 a
+slot 1 0 0 b
+slot 2 1 1 c
+receive 0
+glocal 3 2
+glocal 3 0
+gstore
+fend 0
+gbegin
+slot 1 0 0 p
+slot 1 0 0 q
+slot 1 0 0 r
+receive 1
+fend 0
+== a call made while arguments wait names their function as outer
+func g 0 0 3 0 3 0 3 0 3 0
+func h 0 0 0 1 1 1
+call 1 0 1
+accept 3
+hold
+param 0 1
+call 1 2 1
+gstore
+param 0 2
+call 1 2 1
+gstore
+argsend $FFFF
+call 0 0 0
+gstate
+fend 0
+end
+== a call that a return follows is a jump
+func helper 0 0 0 0
+call 0 0 0
+ret
+fend 0
+== results: a value in A, in A and X, a status; an extern function's in X, Y, AY, XY
+func value 0 0 0 1 1 1
+func wide 0 0 0 1 3 4
+func status 0 0 0 1 5 7
+func ex 0 2 0 1 1 2
+func ey 0 2 0 1 1 3
+func eay 0 2 0 1 3 5
+func exy 0 2 0 1 3 6
+symval 3 $F000
+symval 4 $F003
+symval 5 $F006
+symval 6 $F009
+call 0 0 1
+call 1 1 1
+call 2 2 1
+show 2
+pop
+call 3 2 1
+call 4 3 1
+call 5 4 1
+call 6 5 1
+state
+show 5
+fend 0
+end
+== an extern function's arguments in registers: A and X, the carry, X and Y, A and Y
+func put 0 2 2 0 1 1 1 2
+func setc 0 2 1 0 5 7
+func pxy 0 2 1 0 3 6
+func pay 0 2 2 0 3 5 1 2
+symval 0 $F010
+symval 1 $F020
+symval 2 $F030
+symval 3 $F040
+slot 1 1 1 b
+slot 1 1 1 c
+slot 2 1 1 w
+gconst 6 1
+accept 1
+hold
+gconst 6 2
+accept 1
+call 0 0 0
+glocal 1 0
+glocal 1 1
+gcompare 13
+accept 5
+call 1 0 0
+glocal 3 2
+accept 3
+call 2 0 0
+glocal 3 2
+glocal 3 2
+binary 1
+accept 3
+hold
+glocal 1 1
+accept 1
+call 3 0 0
+fend 0
+== an argument in A and X for a register pair not A and X is stored first
+func f 0 2 2 0 3 6 1 1
+slot 2 1 1 w
+slot 2 1 1 v
+glocal 3 0
+glocal 3 1
+binary 1
+accept 3
+hold
+gconst 6 7
+accept 1
+call 0 0 0
+fend 0
+slots
+== an element as the one argument in A and X is taken low byte first
+func pw 0 2 1 0 3 4
+arr 3 10 0
+var 9 0 0 0 t
+slot 1 1 1 i
+gvar 1
+glocal 1 0
+gindex
+accept 3
+call 0 0 0
+gvar 1
+glocal 1 0
+gindex
+glocal 1 0
+gconst 6 1
+binary 1
+accept 3
+hold
+mark
+fend 0
+== what A holds below the arguments is stored before they are loaded
+func h 0 0 1 0 1 0
+slot 1 1 1 b
+preg 1
+glocal 1 0
+accept 1
+call 0 1 0
+show 0
+fend 0
+== waiting arguments a call could change are copied to temporaries
+func g 0 0 3 0 1 0 1 0 1 0
+var 1 0 0 0 v
+slot 1 1 1 b
+slot 1 1 1 c
+gvar 1
+accept 1
+hold
+mustp
+glocal 1 0
+accept 1
+hold
+protect
+mustp
+show 0
+show 1
+gconst 6 4
+accept 1
+call 0 0 0
+fend 0
+slots
+== calls through pointers: a variable, one at a fixed address, an element, twice the same
+ftype h 0 1 0 1 0
+var 9 0 0 0 hp
+var 9 8 0 $0300 vec
+arr 9 4 0
+var 10 0 0 0 table
+slot 1 1 1 i
+through 0
+through 1
+gvar 1
+tptr
+gconst 6 5
+accept 1
+call 0 1 0
+gvar 2
+tptr
+gconst 6 6
+accept 1
+call 0 1 0
+gvar 3
+glocal 1 0
+gindex
+tptr
+show 0
+gconst 6 7
+accept 1
+call 0 1 0
+gvar 1
+tptr
+gconst 6 8
+accept 1
+call 0 1 0
+fend 0
+end
+== a pointer with a result called through, and its value returned
+ftype h 0 0 1 1 1
+var 9 0 0 0 hp
+slot 2 1 1 p
+gvar 1
+tptr
+call 0 1 1
+show 0
+lresult
+glocal 9 0
+tptr
+call 0 1 1
+fend 0
+end
+== too many pointers called through is error 78
+ftype h 0 0 0
+var 9 0 0 0 p0
+var 9 0 0 0 p1
+var 9 0 0 0 p2
+var 9 0 0 0 p3
+var 9 0 0 0 p4
+var 9 0 0 0 p5
+var 9 0 0 0 p6
+var 9 0 0 0 p7
+var 9 0 0 0 p8
+var 9 0 0 0 p9
+var 9 0 0 0 pa
+var 9 0 0 0 pb
+var 9 0 0 0 pc
+var 9 0 0 0 pd
+var 9 0 0 0 pe
+var 9 0 0 0 pf
+var 9 0 0 0 pg
+gvar 1
+tptr
+call 0 1 0
+gvar 2
+tptr
+call 0 1 0
+gvar 3
+tptr
+call 0 1 0
+gvar 4
+tptr
+call 0 1 0
+gvar 5
+tptr
+call 0 1 0
+gvar 6
+tptr
+call 0 1 0
+gvar 7
+tptr
+call 0 1 0
+gvar 8
+tptr
+call 0 1 0
+gvar 9
+tptr
+call 0 1 0
+gvar 10
+tptr
+call 0 1 0
+gvar 11
+tptr
+call 0 1 0
+gvar 12
+tptr
+call 0 1 0
+gvar 13
+tptr
+call 0 1 0
+gvar 14
+tptr
+call 0 1 0
+gvar 15
+tptr
+call 0 1 0
+gvar 16
+tptr
+call 0 1 0
+gvar 17
+tptr
+call 0 1 0
+== a recursive function's calls of recursive functions save its frame
+func r 0 128 2 1 1 0 3 0 1 1
+func plain 0 0 1 0 1 0
+saves 1
+saving 0
+saving 1
+slot 1 1 1 a
+slot 2 1 1 w
+temp 2
+param 0 0
+glocal 1 0
+gstore
+param 0 1
+glocal 3 1
+gstore
+argsend $FFFF
+call 0 0 1
+show 0
+gconst 6 3
+accept 1
+call 1 0 0
+fend 1
+slots
+end
+== a saving call with its arguments in registers and in the frame
+func r 0 128 3 0 1 0 1 0 3 0
+saves 1
+slot 1 1 1 a
+slot 1 1 1 b
+param 0 0
+gconst 6 1
+gstore
+param 0 1
+gconst 6 2
+gstore
+param 0 2
+glocal 1 1
+gstore
+argsend $FFFF
+call 0 0 0
+param 0 0
+gconst 6 9
+gstore
+param 0 1
+gconst 6 9
+gstore
+param 0 2
+gconst 6 9
+gstore
+argsend $FFFF
+call 0 0 0
+fend 1
+end
+== a module that imports rt_frame has its push and pop_y already
+module rt_frame
+func push 2 64 1 0 1 1
+func pop_y 2 64 0 1 1 3
+func r 0 128 0 0
+saves 1
+slot 1 1 1 a
+call 2 0 0
+fend 1
+end
+== through a recursive function type, from a recursive function, the pointer copied
+ftype h 1 1 0 1 0
+arr 9 4 0
+var 10 0 0 0 table
+slot 1 1 1 a
+slot 1 1 1 i
+saves 1
+saving 0
+gvar 1
+glocal 1 1
+gindex
+tptr
+param 0 0
+glocal 1 0
+gstore
+argsend $FFFF
+call 0 1 0
+fend 1
+end
+== too many arguments of saving calls waiting is error 79
+func r 0 128 1 0 1 0
+saves 1
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+param 0 0
+gconst 6 1
+gstore
+== addresses of functions: a function, an extern one, an interrupt one
+func f 0 0 0 0
+func ex 0 2 0 0
+func irq 0 0 0 0
+symval 1 $F012
+gfunc 0
+gfaddr
+show 0
+gfunc 1
+gfaddr
+show 1
+gfunc 2
+caddr 2
+show 2
+objsym 0
+objsym 2
+fend 0
+end
+== object symbols of a variable, a constant table, a pointer class; tables and variables pushed
+ftype h 0 1 0 1 0
+arr 1 4 0
+kconst 10 tab
+var 1 0 0 0 v
+var 1 16 0 0 z
+var 1 8 0 $D020 border
+objsym 3
+objsym 1
+objsym 0
+gtable 1
+show 0
+gvar 2
+show 1
+gvar 3
+show 2
+gvar 4
+show 3
+fend 0
+end
+== comparisons: < and >= compute a pending word into memory first
+slot 2 1 1 w
+slot 2 1 1 v
+slot 1 1 1 b
+glocal 3 0
+glocal 3 1
+binary 1
+glocal 3 1
+gcompare 13
+gjump
+implied $EA
+place 0
+glocal 3 0
+glocal 3 1
+binary 1
+glocal 3 1
+gcompare 11
+gjump
+implied $EA
+place 1
+glocal 1 2
+glocal 1 2
+gconst 6 1
+binary 1
+gcompare 15
+asvalue
+show 0
+pop
+fend 0
+slots
+== and, or and not of conditions
+slot 1 1 1 a
+slot 1 1 1 b
+slot 5 1 1 f
+glocal 5 2
+glocal 1 0
+glocal 1 1
+gcompare 11
+tleft 1
+glocal 1 0
+gconst 6 3
+gcompare 12
+tright
+ginvert
+gstore
+glocal 1 0
+gconst 6 1
+gcompare 14
+tleft 0
+glocal 5 2
+tright
+gjump
+implied $EA
+place 4
+fend 0
+== a status in the carry flag: wanted, then made
+slot 1 1 1 a
+cwanted
+glocal 1 0
+gconst 6 5
+gcompare 13
+gcarry
+state
+cwanted
+gconst 5 1
+gcarry
+fend 0
+== a result loaded into A, or A and X, leaving the carry
+slot 1 1 1 a
+slot 2 1 1 w
+glocal 1 0
+lresult
+glocal 3 1
+lresult
+glocal 3 1
+glocal 3 1
+binary 1
+lresult
+ret
+fend 0
+== an interrupt function: its entry and exit on the 6502, return going to the exit
+slot 1 1 1 a
+ientry
+glocal 1 0
+gconst 6 1
+assign 1
+ret
+glocal 1 0
+gconst 6 2
+assign 1
+fend 2
+end
+== an interrupt function on the 65C02
+cpu 1
+ientry
+ret
+fend 2
+end
+== a function that runs on to its end returns; one whose end is not reached does not
+func f 0 0 0 0
+slot 1 1 1 a
+glocal 1 0
+gconst 6 1
+gstore
+fend 0
+gbegin
+label
+looplabel 0
+jump 0
+fend 0
+gbegin
+call 0 0 0
+fend 0
+end
+== uses inside loops weigh more
+slot 1 1 1 a
+var 1 0 0 0 v
+loopb
+glocal 1 0
+gvar 0
+gstore
+loopb
+glocal 1 0
+gvar 0
+gstore
+loope
+loope
+glocal 1 0
+gvar 0
+gstore
+state
+symweight 0
+fend 0
+slots
+== gstep: a word through a pointer, INC and the flags found again
+ptr 3
+slot 2 1 1 p
+slot 1 1 1 i
+glocal 9 0
+glocal 1 1
+gindex
+gstep 1 2 2
+gstep 2 2 2
+gstep 1 1 2
+pop
+fend 0
+== initial values: numbers, an address, a fixed address, zero page, an array
+arr 1 10 0
+var 1 0 0 0 a
+var 3 0 0 0 w
+var 9 0 0 0 t
+var 1 8 0 $D020 border
+var 1 16 0 0 z
+var 1 0 0 0 b
+objsym 0
+objsym 1
+objsym 2
+objsym 4
+objsym 5
+anon
+initial 0 $FFFF $FF 7
+initial 5 $FFFF $FF 7
+initial 1 $FFFF $FF $1234
+initial 3 $FFFF $FF 2
+initial 4 $FFFF $FF 3
+initial 1 0 $FF 5
+initial 2 6 $FF 0
+gstate
+initfn 7
+gstate
+initial 0 $FFFF $FF 9
+initfn 8
+fend 0
+end
+== too many initial values is error 86
+var 1 0 0 0 a
+objsym 0
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+initial 0 $FFFF $FF 1
+gstate
+initial 0 $FFFF $FF 1
+== ginit starts the module afresh: no rt_math used, no data
+slot 1 1 1 a
+glocal 1 0
+glocal 1 0
+binary 8
+pop
+anon
+ginit
+cpu 0
+anon
+glocal 1 0
+glocal 1 0
+binary 8
+pop
+fend 0
+end
+== a bool shifted is error 44
+slot 1 1 1 f
+glocal 5 0
+gconst 6 1
+binary 6
+== a word into A and X: a high byte that stays, one that is 0, a borrow into X
+slot 2 1 1 w
+slot 1 1 1 b
+glocal 3 0
+gconst 6 $0012
+binary 4
+settle
+pop
+glocal 3 0
+gconst 6 $FF00
+binary 3
+settle
+pop
+preg 3
+glocal 1 1
+binary 2
+settle
+pop
+glocal 1 1
+convert 3
+glocal 3 0
+binary 8
+pop
+fend 0
+end
+== a pending byte operation stored in a word gets a zero high byte
+slot 2 1 1 w
+slot 1 1 1 a
+slot 1 1 1 b
+glocal 3 0
+glocal 1 1
+glocal 1 2
+binary 1
+gstore
+fend 0
+== a big array at a fixed address
+arr 1 300 0
+var 9 8 0 $2000 big
+slot 2 1 1 i
+slot 1 1 1 x
+glocal 1 1
+gvar 0
+glocal 3 0
+gindex
+gstore
+fend 0
+== the address of a field of what a pointer points at
+rtype r 6
+ptr 9
+ptr 1
+slot 2 1 1 p
+slot 2 1 1 q
+glocal 11 1
+glocal 10 0
+record
+field 3 1
+address
+show 1
+gstore
+fend 0
+== an extern call with no argument yet, with an element among two, a result not wanted
+func ex 0 2 1 0 1 1
+func put2 0 2 2 0 1 1 1 2
+func none 0 0 0 0
+arr 1 10 0
+var 9 0 0 0 t
+slot 1 1 1 i
+call 0 0 0
+gvar 3
+glocal 1 0
+gindex
+accept 1
+hold
+gconst 6 1
+accept 1
+call 1 0 0
+call 2 0 1
+state
+fend 0
+== a saving call pushes and pops a slot in zero page by its zero page form
+func r 0 128 0 0
+saves 1
+slot 1 0 1 a
+slot 2 1 1 w
+call 0 0 0
+fend 1
+end

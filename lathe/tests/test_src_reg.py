@@ -2,8 +2,8 @@
 lathe/tests/scripts/reg.txt, which push operands, load, store, spill, test, branch and join and
 finish the function, and prints what each gives and the function's code, fix-ups and frame;
 regcmd_host.main() does the same with reg.py, command for command. The outputs, error reports,
-exit statuses and the object files written must be identical. The program is built with the
-compiler's tables at their full size (lathe/src/compiler.env)."""
+exit statuses and the object files written must be identical. The program is the small build
+(lathe/host/README.md, "The small build"): at full size it no longer fits."""
 import shutil
 import tempfile
 import unittest
@@ -16,7 +16,7 @@ class RegTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp(prefix='lathe-src-reg-')
-        cls.image = script.support.build_program('regtest', cls.dir)
+        cls.image = script.support.build_program('regtest', cls.dir, small=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -24,7 +24,7 @@ class RegTest(unittest.TestCase):
 
     def test_every_script(self):
         self.assertGreater(script.check_script(self, self.image, regcmd_host.main,
-                                               'reg', self.dir, outputs=1), 5)
+                                               'reg', self.dir, outputs=1, small=True), 5)
 
 
 if __name__ == '__main__':
