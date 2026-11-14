@@ -1,6 +1,6 @@
 # Lathe: configurations (stage 11)
 
-Status (2026-11-14): design, after spike L5, and code in banks and overlays built. Built so far: the spike in `lathe/tests/spike_l5/`, and steps 1 to 9 of the order of work: files on Wendy 2 (section 1), the far-call run-time modules, the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"), and banked data, `in REGION` and `with REGION do … end` ("As built: banked data"; the form is provisional, 2026-11-14, awaiting the owner's agreement). Steps 10 and 11 (the compiler's own placement, the gate) are not done, but for the code half of step 10: the compiler's test programs run banked on Wendy 2 ("Measured on the compiler's test programs"). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
+Status (2026-11-14): design, after spike L5, and steps 1 to 10 of the order of work built: the spike in `lathe/tests/spike_l5/`; files on Wendy 2 (section 1), the far-call run-time modules, the linker's side, which links the same object files all in one, with code in banks on Wendy 2, or with code in overlays on the default machine (section 5, "As built"); banked data, `in REGION` and `with REGION do … end` ("As built: banked data"; the form is provisional, 2026-11-14, awaiting the owner's agreement); and the compiler's own placement with its big tables in data banks at full size ("Step 10: the tables in data banks"). The gate of step 11 is met: the Lathe-written compiler, banked on Wendy 2 at full capacities, compiles its own sixteen modules and `sys` byte-identically to the host compiler (`test_src_selfhost.py`). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
 
 A KB here is 1,024 bytes.
 
@@ -385,8 +385,8 @@ Each step ends in a test that fails before it and passes after. The first three 
 | 7 (done) | Overlays: the same program with `switch overlay`, on the default machine. | Same output; the number of loads is as computed (49). |
 | 8 (done) | Constants and variables of a module in a window, by the rule above. | A constant used only by its bank's code lands in the bank (map); one whose address is taken lands in fixed memory; both run (`bankdata.lth`). |
 | 9 (done) | Banked data: `in REGION` and `with REGION do … end` in the compiler (host first); object format version 3; the linker's region placement and checks. | Error cases (use outside `with`; `with` in a function placed in a window; a call to a window inside `with`); an end-to-end case with a table in a data bank, linked banked and all in one (`regions.lth`, `withirq.lth`). |
-| 10 | The compiler's own placement: `kernel.names`, `fbuf.buffer` and `err`'s messages `in` regions, `lex` mapping around a whole name; `wendy2bank.env` as above. | The ten twins' test programs pass when linked banked on Wendy 2; the map shows at most 16 KB of resident code. |
-| 11 | The gate of stage 11 (and of stage 7): the Lathe-written compiler, linked banked, compiles itself on Wendy 2 with `--disk`, and its objects equal the host compiler's. | The identity test, opt-in like `P1_WENDY_SELFHOST` if it is slow. |
+| 10 (done) | The compiler's own placement: `kernel.names`, `fbuf.buffer` and `err`'s messages `in` regions, `lex` mapping around a whole name; `wendy2bank.env` as above. | The ten twins' test programs pass when linked banked on Wendy 2; the map shows at most 16 KB of resident code. |
+| 11 (done) | The gate of stage 11 (and of stage 7): the Lathe-written compiler, linked banked, compiles itself on Wendy 2 with `--disk`, and its objects equal the host compiler's. | The identity test, opt-in like `P1_WENDY_SELFHOST` if it is slow. |
 
 Step 10's code half is done ahead of step 9 (below): the test programs of `outtest`, `regtest`, `condtest` and `gentest` run banked on Wendy 2 with the small tables, all in fixed memory.
 
@@ -485,7 +485,105 @@ In all 74,092 bytes of code, 72,653 of them the sixteen modules (`size_report.py
 
 Beyond the start-up, compiling takes about 20,000 cycles a source line of ordinary code (compare.lth: 3.6 million cycles for 182 lines), and the far calls 3 % of it: about 8 a line where EXPR, GEN and REG work together, against the 6 that spike L5 estimated.
 
-**What it compiles.** Every input of `test_src_lathec.py` gives the host compiler's status, output, error output and files, byte for byte: 681 inputs (the 632 modules of the corpus and 49 made for what the corpus lacks: command lines, damaged interfaces, each capacity of the small build). With the small build's tables (name heap 1,536 bytes, 264 symbols, a function buffer of 1,024, text memory of 896), 393 of 395 error cases, 89 of 116 end-to-end modules, 55 of 56 snapshot cases and all 11 run-time modules fit; of the 54 modules of `lathe/src/`, 2 do (`sys`, `lk_op`): 47 stop at the name heap (error 70) and 5 at the text memory (82), whose arguments and the file names of imported inline functions leave too little beside the 384 bytes of saved tokens and the 256 of the path. Those that do not fit stop at the same capacity error, at the same place, on both. The tables at full size are 50 KB: they fit only when the data bank of step 10 takes the name heap, the function buffer and the messages.
+**What it compiles.** Every input of `test_src_lathec.py` gives the host compiler's status, output, error output and files, byte for byte: 681 inputs (the 632 modules of the corpus and 49 made for what the corpus lacks: command lines, damaged interfaces, each capacity of the small build). With the small build's tables (name heap 1,536 bytes, 264 symbols, a function buffer of 1,024, text memory of 896), 393 of 395 error cases, 89 of 116 end-to-end modules, 55 of 56 snapshot cases and all 11 run-time modules fit; of the 54 modules of `lathe/src/`, 2 do (`sys`, `lk_op`): 47 stop at the name heap (error 70) and 5 at the text memory (82), whose arguments and the file names of imported inline functions leave too little beside the 384 bytes of saved tokens and the 256 of the path. Those that do not fit stop at the same capacity error, at the same place, on both. The tables at full size are 50 KB: they fit since step 10 put the name heap, the function buffer, the string, the saved tokens and the messages in data banks ("Step 10: the tables in data banks, and the compiler compiling itself", below).
+
+## Step 10: the tables in data banks, and the compiler compiling itself
+
+Built and measured 2026-11-14. `lathe/src/compiler-bank.env` now defines `SMALL 0`: the banked compiler and its test programs have the full capacities (`test_src_banked.py` checks each table's size in the map against the host's).
+
+**What is in which region, and why.**
+
+| Region | Bank | What | Bytes | Used inside blocks of |
+|---|---|---|---|---|
+| `NAMES` | 4, variables only (no file) | `kernel.names`, the name heap | 18,944 | kernel; LEX's block around a name (`kernel.name_put`, an exported inline function) |
+| `MSGS` | 6, its file loaded at start-up | `err.MESSAGES_1` to `_3`: the texts as three strings of lines (a string holds 2,048 bytes; the strings of a table in a region are not in it, so a table of 127 strings would have left the texts fixed) | 5,259 | `err.fatal_start` |
+| `FUNCBUF` | 6 | `fbuf.buffer`, `label_offset`, `label_uses` | 4,864 | fbuf |
+| `STRING` | 6 | `lex.string` | 2,048 | lex (`lex.string_byte()` for EXPR and INLINE) |
+| `TOKENS` | 6 | `kernel.tokens`, INLINE's saved tokens, out of the text memory | 2,048 | kernel (`token_byte`, `set_token_byte`, and `get` on a memory stream) |
+
+Names have a bank of their own because they are the table that grows: the heap went from 17,920 to 18,944 bytes in this step (`expr.lth` needs 18,122 with the names this step exports, measured by `memory_report.py --corpus`), and bank 4 can take it to 28 KB. Everything else shares bank 6 (14,219 bytes), which then needs a file for the messages. Nothing copies between regions, so two banks cost nothing but one more file: a block of another region inside a block only happens through calls (`err.fatal` inside an FBUF block; `src.next_byte`, which maps TOKENS, inside LEX's STRING block for a saved string), and those map their own bank and put back the one they found.
+
+**The rest of fixed memory, and what had to move.** With these out, fixed memory was still about 1.3 KB short at full size (the estimate of the brief, confirmed by the links), and more when the merged compiler raised `MAX_SYMS` to 560. Moved, by measurement on the maps:
+
+- the saved tokens (2 KB) left the text memory for the token memory (`TOKENS`): text memory 4,096 to 2,048 bytes in host and twin (768 and 384 in the small build); INLINE reaches its records only through `kernel.token_byte()` and `set_token_byte()` (a refactor of `inline.py`, its behaviour the same);
+- `lex.string` (2 KB) into `STRING`;
+- `fbuf.label_offset` and `label_uses` (768) into `FUNCBUF`;
+- `out.table` (2 KB) did **not** go into OUT's bank, though only bank 5 names it once EXPR fills a table through `out.table_byte()`: a 2,048-byte array is indexed by a `word`, which the compiler does with `LDA #<table` / `#>table` (fix-up kinds 2 and 3), and the linker's rule counts those as taking its address (section 5, "The rule"). The same keeps every array of more than 256 bytes in fixed memory if code in two banks names it, or its own bank's code indexes it by a word: in practice only byte-indexed tables follow their module into a bank. Whether the rule should look at what the address is used for is the owner's decision;
+- `reg.slot_size`, `slot_name`, `slot_weight` and `slot_kind` (1,152) are in bank 2 in the compiler; the test driver `regcmd` (bank 1) named them, which put them in fixed memory in the test programs, so it reads them through `lathe/src/slotview.lth`, four accessors placed in bank 2 (not a twin: the Python driver reads the columns itself);
+- `fold` stays in bank 3 (the stopgap): fixed memory has no room for its 1,299 bytes. It is called by GEN (bank 2) and COND (bank 3) only when both operands are constants; in bank 2 beside GEN it fits the test programs, but not with the merged placement;
+- `typetab` (935 bytes of code) goes into bank 2 beside GEN and REG, its busiest callers: `exprtest` does not fit otherwise, at any split (measured: its 2,048-byte `out.table` must be whole in one range, `$F810-$FFF9` holds 2,026, and with it in the lower range the code no longer fits). The compiler alone (`lathec`) would fit with typetab fixed;
+- the split between variables and fixed code moves to `$4280`, and `compiler.env`'s (the default machine) to `$4400` for the larger name heap.
+
+**The final layout** (`lathec`, the compiler, from its map, `bank_report.map_report`):
+
+| | Bytes | |
+|---|---|---|
+| resident code | 13,358 | err, kernel, src, lex, fbuf, sys, disk, rt_bank, rt_math, rt_frame, `$start`, `$init` |
+| stubs | 1,230 | 205 |
+| resident code and stubs | **14,588** | under the 16 KB goal by 1,796 |
+| resident constants | 479 | none of them err's messages now |
+| fixed variables and slots | 16,512 + 1,083 | `$0200-$427F`, and `$F810-$FE5A` |
+| free fixed memory | 1,620 | 0 below the code (`$4280`), 677 above it, 943 at `$F810-$FFF9` |
+| bank 1 | 17,659 file, 419 variables | lathec, expr |
+| bank 2 | 21,408 file, 2,871 variables | gen, reg, typetab |
+| bank 3 | 12,589 file, 773 variables | cond, asmblock, inlines, fold |
+| bank 4 | 18,944 variables, no file | the name heap |
+| bank 5 | 10,792 file, 2,825 variables | decl, out |
+| bank 6 | 5,259 file, 8,960 variables | the messages; the function buffer and labels, the string, the saved tokens |
+
+`exprtest`, the largest test program: resident code and stubs 13,848 (12,612 and 206 stubs), 713 bytes free above the code and 899 at `$F810`, none below.
+
+**The granularity of the blocks.** A block costs 12 bytes and about 90 cycles banked, so each maps around a whole operation of the fixed module that owns the table, not around a byte: KERNEL around each name operation (`name_end`, `sym_find` with its thawing, `freeze`, `put_name`, `names_release`), LEX around the characters of a name (with `kernel.name_put`, an inline function that only a block can expand) and around all the keywords in `init`, FBUF around an entry added (entries are now built in a fixed stage of 7 bytes and put in the buffer at once by `end_entry()`: a refactor of `fbuf.py`), around `finish` and around each of OUT's walks (`fbuf.put_fixups`, `put_code`, the loops OUT had, moved into FBUF in the Python too), ERR around a whole message. Helpers that read a table through a pointer the block passes them (`name_is_new`, `chain_find`, `spelling_hash`, `same_spelling`, `entry_runs_on`, `skips_jump`, `code_size`, `emit_entry`, `walk_step`, `thread`, `layout`, `widen`, `find_loops`, `message_start`) have no block of their own. Counted by the counting copy of `rt_bank.map` (`bank_report.py`) and, for where they come from, by counting the same calls in the host over `expr.txt` (a profile, not kept): in the test programs most blocks are start-up (LEX's keywords, entered once a run until `init` was given one block for all of them) and the drivers' walks of the function buffer (`listing`, a block per instruction), not compiling.
+
+**Pointers into a region.** Nothing checks that a pointer into a region is used only inside its block, so every one was found by reading: each `@names`, `@buffer`, `@tokens`, `@MESSAGES_n` and `@string` is taken inside a block, the pointer-taking helpers above are called only inside blocks (checked mechanically: a script lists every call of them outside a `with` block of the calling function, and the only ones are calls from other helpers of the list), and no such pointer is stored in a variable that outlives its block, returned, or passed to code outside the owning module, but one: `kernel.token_start()` returns `@tokens`, which INLINE keeps as `saved_start` and in records (`sym_value` of an inline function) and reads only through `kernel.token_byte()`, inside that function's block; `inlines.lth` and `inlinetest.lth` were read for every dereference (`p[k]`), and those that remain are of file names in the text memory.
+
+**The cost.** All in one (where a block is two calls of a lone `RTS`, 24 cycles): `lextest`'s code grows from 4,810 to 5,160 bytes (`size_report.py`: err 461 to 540, kernel 996 to 1,065, lex 2,184 to 2,392), and the 115 sections of `gen.txt` on the default machine (`compiler-small.env`) take 45,227,169 cycles against 44,255,258 before step 10: 2.2 % more, the blocks and the staged entries of FBUF. Banked, measured by `bank_report.py`:
+
+| | before step 10 | after |
+|---|---|---|
+| `gen.txt`, 115 sections | 287,128,144 cycles, 3,501 far calls | 338,501,318 cycles, 4,595 far calls, 11,635 blocks (1.0 million cycles) |
+| `expr.txt` | 166 sections, 698,946,711 cycles, 12,568 far calls | 177 sections, 848,009,261 cycles, 17,682 far calls, 49,770 blocks (4.5 million cycles) |
+| start-up (an empty `expr.txt` section) | 3,869,121 cycles | 4,411,576 cycles: bank 6's 5,259 bytes of messages loaded too |
+
+Most of the growth is start-up, paid once a section: the messages' file (about 370,000 cycles a run) and, after the merge, a fifth code bank. The far calls grew with typetab and out in banks.
+
+**The compiler compiling itself** (`lathe/tests/test_src_selfhost.py`, all with `LATHE_SELFHOST=1`; the counts by `bank_report.py`'s counting copies; each compile is a run of its own that loads the 92,000 bytes of bank files first). Every object and interface file equals the host compiler's, byte for byte:
+
+| Module | Lines | CPU cycles | Far calls | `with` blocks |
+|---|---|---|---|---|
+| err | 473 | 19,413,203 | 9,270 | 10,778 |
+| kernel | 864 | 43,448,164 | 10,265 | 19,615 |
+| src | 137 | 13,615,521 | 1,631 | 5,829 |
+| lex | 830 | 35,698,345 | 11,226 | 17,117 |
+| typetab | 272 | 16,483,758 | 3,800 | 6,729 |
+| fold | 248 | 18,781,362 | 4,387 | 7,691 |
+| fbuf | 911 | 39,852,970 | 10,937 | 17,142 |
+| out | 440 | 27,980,674 | 6,250 | 12,366 |
+| reg | 1,470 | 74,161,644 | 23,675 | 34,225 |
+| cond | 571 | 33,267,794 | 8,515 | 15,055 |
+| gen | 2,360 | 119,180,214 | 36,657 | 54,150 |
+| asmblock | 921 | 50,119,580 | 13,454 | 22,608 |
+| inlines | 792 | 53,391,956 | 12,730 | 24,406 |
+| expr | 2,190 | 119,230,234 | 28,563 | 51,288 |
+| decl | 1,449 | 85,009,081 | 22,121 | 38,942 |
+| lathec | 266 | 23,452,050 | 4,229 | 12,424 |
+| sys | 201 | 8,436,697 | 1,165 | 2,148 |
+| **total** | **14,395** | **781,523,247** | **208,875** | **352,513** |
+
+(the cycles are those of the counting build, a few hundred cycles a run more than `test_src_selfhost.py`'s 775,864,658.) About 54,000 cycles a line, the start-up of each run included (about 5 million cycles a run, *estimated* from exprtest's empty section and the larger bank files: some 85 million of the 782); the far calls 14.5 a line (2,640 cycles, 4.9 %), the blocks 24.5 a line (2,200 cycles, 4.1 %). The whole self-compile is 6.5 minutes of a 2 MHz Wendy 2.
+
+**And the corpus.** `test_src_lathec.py` with `LATHE_LATHEC_FULL=1 LATHE_BANKED_ALL=1` runs the banked compiler at full size against the host at full size on all 687 inputs (the corpus, with the twins, and the inputs made for it): every one fits and every one is the same. By default the test keeps comparing at the small capacities (`src_support.build_program(..., small=True, banked=True)` writes `define SMALL 1`), where the inputs it was written for reach the small limits.
+
+**Faults found.** One, in the compiler: a region read from an interface and the frozen entry of an exported variable of the same spelling (`kernel.names in NAMES`) are two name entries, and once a function has thawed the variable the lexer gives the region's word as the thawed entry; the region was compared by entry, so the next `with NAMES` block in that module was error 118. Regions are now compared by spelling (`reg.same_region()`, in `reg.object_symbol` and EXPR's `with` statement, host and twins); `test_banked_data.py`, "a region spelled like an imported variable is one region", is the smallest program that showed it. A section of `gen.txt` that stood for "another region" with a number that spelled nothing now uses no region.
+
+**The form of `with`, for the owner.**
+
+- **A block must use a name of its region** (error 183), so a fixed function that reaches a region only through a pointer it is given needs a use for nothing but the bank symbol: `kernel.token_byte(p)` is `tokens[p - @tokens]`, where `p[0]` would do. A block naming its region by name alone (`with TOKENS do return p[0] end`) would need the bank symbol from elsewhere, perhaps the region's first variable in the environment.
+- **`inline` functions cannot hold a block**, but an inline function that uses a region and is expanded inside a block works, and is the tool for a busy accessor (`kernel.name_put`); it must be exported with the names it uses, which costs every importer name-heap bytes.
+- **A pointer into a region is unchecked**, as the language says; here it was manageable by keeping such pointers in the owning module's functions and parameters.
+- No result was needed from inside a block that a `return` could not give; nesting through calls of fixed functions of another region worked unchanged.
+
+**What stands beyond step 11.** The gate of stage 7 is met by this test. The name heap is the capacity to watch: `expr.lth` needs 18,122 of the 18,944 bytes (4 % spare), with room in bank 4 for 28 KB. Fixed memory has 1,620 bytes free in the compiler and none to speak of in `exprtest`, so a further fixed table or resident function needs something moved first (the candidates: the drivers' command words, 711 bytes of fixed constants in exprtest because their address is taken; `out.table` if the linker's rule changed).
 
 ## Decisions for the owner
 

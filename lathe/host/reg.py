@@ -1127,6 +1127,20 @@ def class_symbol(s):
     return kernel.sym_obj[s]
 
 
+def same_region(one, other):
+    """True if regions `one` and `other`, names or 0 for none, are one: the same entry, or two
+    of one spelling (a thawed entry and a name made before it was thawed, as kernel.sym_find()
+    finds: a region named like an imported variable in it is read as either)."""
+    if one == other:
+        return True
+    if one == 0 or other == 0 or kernel.name_length(one) != kernel.name_length(other):
+        return False
+    for i in range(0, kernel.name_length(one)):
+        if kernel.name_char(one, i) != kernel.name_char(other, i):
+            return False
+    return True
+
+
 def object_symbol(s):
     """The object-file number of function or variable `s`, or of the pointer class of function
     type `s`, which gets its SYM record when it is first used."""
@@ -1142,7 +1156,7 @@ def object_symbol(s):
                                        kernel.sym_name[s])
     if kernel.sym_kind[s] != kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_IN != 0:
         # In a region: only inside a `with` block of that region, whose bank it names.
-        if kernel.sym_value[s] != out.with_region:
+        if not same_region(kernel.sym_value[s], out.with_region):
             err.fatal(err.E_REGION_USE)
         if out.with_used == kernel.NO_OBJ:
             out.with_used = kernel.sym_obj[s]

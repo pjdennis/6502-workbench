@@ -28,15 +28,17 @@ of docs/object-format.md and its fix-ups in order of offset:
 Small improvements are made as the instructions arrive, because each needs only the newest
 entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
 dropped (tidy()), a JSR that a return follows becomes a JMP (tail_call()), and an
-instruction that cannot be reached is left out (add_entry()). Two labels can be made one
+instruction that cannot be reached is left out (end_entry()). Two labels can be made one
 place (join()).
 
 The buffer is a run of entries, each a kind byte and the fields that kind has. It is this
 compact because it is the largest thing the compiler keeps in memory on the target.
 """
 import err
+import kernel
 
 BUFFER_SIZE = 4096          # bytes of entries
+MAX_ENTRY = 7              # bytes of the largest entry
 MAX_CODE = 4096            # bytes of code in one function
 MAX_LABELS = 192            # a label's number is stored in one byte
 MAX_FIXUPS = 512            # fix-ups of one function
@@ -76,6 +78,8 @@ UNPLACED = 0xFFFF
 
 buffer = bytearray(BUFFER_SIZE)
 used = 0
+stage = bytearray(MAX_ENTRY)           # the entry being made, until end_entry() adds it
+stage_length = 0
 newest = 0                              # the entry added last, if used is not 0
 older = 0                               # the entry before it, if it is below `newest`
 unreached = False                       # True while the entry being made is being left out
@@ -126,13 +130,9 @@ def begin():
 
 def add(value):
     """Add one byte to the entry being made."""
-    global used
-    if unreached:
-        return
-    if used == BUFFER_SIZE:
-        err.fatal(err.E_FUNC_BIG)
-    buffer[used] = value
-    used += 1
+    global stage_length
+    stage[stage_length] = value
+    stage_length += 1
 
 
 def add_word(value):
@@ -141,21 +141,33 @@ def add_word(value):
 
 
 def add_entry(kind):
-    """Begin an entry. Its fields follow with add(). An instruction that the processor
+    """Begin an entry. Its fields follow with add(), and end_entry() puts it in the buffer."""
+    global stage_length
+    stage_length = 0
+    add(kind)
+
+
+def end_entry():
+    """Put the entry made since add_entry() in the buffer. An instruction that the processor
     cannot reach, because it follows a jump or a return with no label between, is left out."""
-    global newest, older, unreached
-    unreached = kind != I_LABEL and not written and not runs_on()
+    global newest, older, unreached, used
+    unreached = stage[0] != I_LABEL and not written and not runs_on()
     if unreached:
         return
+    if used + stage_length > BUFFER_SIZE:
+        err.fatal(err.E_FUNC_BIG)
     older = newest
     newest = used
-    add(kind)
+    for i in range(0, stage_length):
+        buffer[used + i] = stage[i]
+    used += stage_length
 
 
 def op(opcode):
     """An instruction with no operand."""
     add_entry(I_PLAIN)
     add(opcode)
+    end_entry()
 
 
 def op_byte(opcode, operand):
@@ -163,6 +175,7 @@ def op_byte(opcode, operand):
     add_entry(I_BYTE)
     add(opcode)
     add(operand)
+    end_entry()
 
 
 def op_word(opcode, operand):
@@ -170,6 +183,7 @@ def op_word(opcode, operand):
     add_entry(I_WORD)
     add(opcode)
     add_word(operand)
+    end_entry()
 
 
 def op_fix(opcode, kind, symbol, slot, addend):
@@ -181,6 +195,13 @@ def op_fix(opcode, kind, symbol, slot, addend):
     add_word(symbol)
     add(slot)
     add_word(addend)
+    end_entry()
+
+
+def set_symbol(entry, symbol):
+    """Make `symbol` the symbol of the instruction at `entry`, one made by op_fix()."""
+    buffer[entry + 2] = symbol & 0xFF
+    buffer[entry + 3] = symbol >> 8
 
 
 def new_label():
@@ -263,6 +284,7 @@ def place(label):
     tidy(label)
     add_entry(I_LABEL)
     add(label)
+    end_entry()
 
 
 def arrive(label):
@@ -274,6 +296,7 @@ def arrive(label):
         return False
     add_entry(I_LABEL)
     add(label)
+    end_entry()
     return True
 
 
@@ -283,6 +306,7 @@ def branch(opcode, label):
     add_entry(I_BRANCH)
     add(opcode)
     add(label)
+    end_entry()
 
 
 def jump(label):
@@ -293,6 +317,7 @@ def jump(label):
     else:
         add_entry(I_JUMP)
     add(label)
+    end_entry()
 
 
 def call_label(label):
@@ -300,6 +325,7 @@ def call_label(label):
     label_uses[same(label)] += 1
     add_entry(I_CALL)
     add(label)
+    end_entry()
 
 
 def as_written(on):
@@ -601,6 +627,27 @@ def walk_next():
         if piece_length != 0:
             return True
     return False
+
+
+def put_fixups(stream):
+    """Write the fix-ups of the finished function to `stream`, as its FIX record holds them: a
+    walk of its instructions."""
+    walk_begin()
+    while walk_next():
+        if piece_fixed:
+            kernel.put_word(stream, fix_offset)
+            kernel.put(stream, fix_kind)
+            kernel.put_word(stream, fix_symbol)
+            kernel.put(stream, fix_slot)
+            kernel.put_word(stream, fix_addend)
+
+
+def put_code(stream):
+    """Write its code to `stream`, as its CODE record holds it: a second walk."""
+    walk_begin()
+    while walk_next():
+        for i in range(0, piece_length):
+            kernel.put(stream, piece[i])
 
 
 def finish(symbol, base):

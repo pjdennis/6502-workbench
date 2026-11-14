@@ -1314,6 +1314,25 @@ pub func class_symbol(s: word): word
   return kernel.sym_obj[s]
 end
 
+; True if regions `one` and `other`, names or 0 for none, are one: the same entry, or two of one
+; spelling (a thawed entry and a name made before it was thawed, as kernel.sym_find() finds: a
+; region named like an imported variable in it is read as either).
+pub func same_region(one: word, other: word): bool
+  var i: byte
+  if one == other then
+    return true
+  end
+  if one == 0 or other == 0 or kernel.name_length(one) != kernel.name_length(other) then
+    return false
+  end
+  for i = 0 until kernel.name_length(one) do
+    if kernel.name_char(one, i) != kernel.name_char(other, i) then
+      return false
+    end
+  end
+  return true
+end
+
 ; The object-file number of function or variable `s`, or of the pointer class of function
 ; type `s`, which gets its SYM record when it is first used.
 pub func object_symbol(s: word): word
@@ -1333,7 +1352,7 @@ pub func object_symbol(s: word): word
   end
   if kernel.sym_kind[s] != kernel.K_FUNC and kernel.sym_flags[s] & kernel.SF_IN != 0 then
     ; In a region: only inside a `with` block of that region, whose bank it names.
-    if kernel.sym_value[s] != out.with_region then
+    if not same_region(kernel.sym_value[s], out.with_region) then
       err.fatal(err.E_REGION_USE)
     end
     if out.with_used == kernel.NO_OBJ then

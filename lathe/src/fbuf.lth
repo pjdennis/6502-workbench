@@ -28,7 +28,7 @@
 ; Small improvements are made as the instructions arrive, because each needs only the newest
 ; entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
 ; dropped (tidy()), a JSR that a return follows becomes a JMP (tail_call()), and an
-; instruction that cannot be reached is left out (add_entry()). Two labels can be made one
+; instruction that cannot be reached is left out (end_entry()). Two labels can be made one
 ; place (join()).
 ;
 ; The buffer is a run of entries, each a kind byte and the fields that kind has. It is this
@@ -38,8 +38,8 @@
 ;
 ;   | Python                               | Lathe                             | Why             |
 ;   |--------------------------------------|-----------------------------------|-----------------|
-;   | runs_on, entry_size, emit_to used    | forward declarations              | declare before  |
-;   | before they are defined              |                                   | use             |
+;   | entry_size, emit_to used before they | forward declarations              | declare before  |
+;   | are defined                          |                                   | use             |
 ;   | label_count, loops over the labels   | label_count is a word (it can be  | a byte cannot   |
 ;   | (range(0, label_count))              | 256); the loops count with a word | hold 256, and a |
 ;   |                                      | and index with byte(label)        | 256-element     |
@@ -52,15 +52,43 @@
 ;   | `while True:` ... `break`            | loop ... end                      |                 |
 ;   | buffer[entry + k] in the walks of    | a pointer to the entry, `e[k]`,   | (zp),Y: no      |
 ;   | the settled function                 | beside the index                  | 16-bit index    |
+;   | buffer, label_offset, label_uses:    | `in FUNCBUF`, a region (lathe/    | they are in a   |
+;   | arrays                               | docs/language.md, "Banked data"): | data bank when  |
+;   |                                      | used only inside `with FUNCBUF do | banked          |
+;   |                                      | ... end`, one block around each   | (configurations |
+;   |                                      | whole operation: an entry added   | .md, step 10)   |
+;   |                                      | (end_entry), tidy, tail_call,     |                 |
+;   |                                      | runs_on, set_symbol, finish, each |                 |
+;   |                                      | walk (walk_next, put_fixups,      |                 |
+;   |                                      | put_code); and new_label, join,   |                 |
+;   |                                      | is_used, target, use_weight and   |                 |
+;   |                                      | the passes of finish, for the     |                 |
+;   |                                      | labels (inside finish's block,    |                 |
+;   |                                      | the same bank again)              |                 |
+;   | label_uses[same(label)] += 1 in      | use_label(label), with its block  | one block       |
+;   | branch, jump, call_label             |                                   |                 |
+;   | thread, layout, widen, find_loops,   | take the buffer's address, or the | no block of     |
+;   | code_size, emit_entry, skips_jump,   | entry's, from the block that calls| their own to pay|
+;   | skips_nothing read buffer[...]       | them, and have no block of their  | for: called only|
+;   |                                      | own; walk_next is walk_step(@     | inside one      |
+;   |                                      | buffer) in a block, and finish and|                 |
+;   |                                      | the writers call walk_step        |                 |
+;   | runs_on()                            | entry_runs_on(e) for the newest   | end_entry() maps|
+;   |                                      | entry, also called by end_entry   | once            |
+;   | tidy(): skips_jump() and             | tested before the block: with     | no block when   |
+;   | skips_nothing() test whether both    | written, or either entry unknown, | there is nothing|
+;   | entries are known                    | there is nothing to tidy          | to tidy         |
 module fbuf
 
 import err
+import kernel
 
 #if SMALL
 const BUFFER_SIZE = 1024        ; bytes of entries (SMALL: the test programs' small build)
 #else
 const BUFFER_SIZE = 4096        ; bytes of entries
 #end
+const MAX_ENTRY = 7            ; bytes of the largest entry
 const MAX_CODE = 4096           ; bytes of code in one function
 #if SMALL
 const MAX_LABELS = 128          ; (SMALL: the test programs' small build)
@@ -106,16 +134,18 @@ const OP_BRA = $80              ; 65C02: the one branch with no opposite
 const OPPOSITE = $20            ; the bit that differs between a branch and its opposite
 const UNPLACED = $FFFF
 
-pub var buffer: [BUFFER_SIZE]byte nozp
+var buffer: [BUFFER_SIZE]byte in FUNCBUF
 pub var used: word = 0
-pub var newest: word = 0                    ; the entry added last, if used is not 0
+var stage: [MAX_ENTRY]byte             ; the entry being made, until end_entry() adds it
+var stage_length: byte = 0
+pub var newest: word = 0                ; the entry added last, if used is not 0
 var older: word = 0                     ; the entry before it, if it is below `newest`
 pub var unreached: bool = false             ; true while the entry being made is being left out
 var kept: word = UNPLACED               ; an entry an `asm` block wrote last: never a tail call
 var written: bool = false               ; true while an `asm` block is written: kept as it is
-var label_offset: [MAX_LABELS]word      ; where each label is in the written layout
+var label_offset: [MAX_LABELS]word in FUNCBUF  ; where each label is in the written layout
 var label_alias: [MAX_LABELS]byte       ; the label this one was joined to, or itself
-var label_uses: [MAX_LABELS]word        ; how many branches and jumps go to it
+var label_uses: [MAX_LABELS]word in FUNCBUF    ; how many branches and jumps go to it
 pub var label_note: [MAX_LABELS]byte    ; kept for REG: what it knows of the ways to it
 var label_count: word = 0
 var temp_base: byte = 0                 ; the slot number the first temporary gets
@@ -139,7 +169,6 @@ pub var weight_slot: [MAX_WEIGHTS]byte
 pub var weight_value: [MAX_WEIGHTS]byte
 pub var weight_count: byte = 0
 
-forward func runs_on(): bool
 forward func entry_size(kind: byte): byte
 forward func emit_to(opcode: byte, goal: word)
 
@@ -160,14 +189,8 @@ end
 
 ; Add one byte to the entry being made.
 func add(value: byte)
-  if unreached then
-    return
-  end
-  if used == BUFFER_SIZE then
-    err.fatal(err.E_FUNC_BIG)
-  end
-  buffer[used] = value
-  used += 1
+  stage[stage_length] = value
+  stage_length += 1
 end
 
 func add_word(value: word)
@@ -175,22 +198,57 @@ func add_word(value: word)
   add(hi(value))
 end
 
-; Begin an entry. Its fields follow with add(). An instruction that the processor
-; cannot reach, because it follows a jump or a return with no label between, is left out.
+; Begin an entry. Its fields follow with add(), and end_entry() puts it in the buffer.
 func add_entry(kind: byte)
-  unreached = kind != I_LABEL and not written and not runs_on()
-  if unreached then
-    return
-  end
-  older = newest
-  newest = used
+  stage_length = 0
   add(kind)
+end
+
+; True if the processor can run on from the instruction at `e` into the next, given that `e`
+; is the newest entry and is known (runs_on()). `e` points into FUNCBUF: called only inside a
+; block of it.
+func entry_runs_on(e: ^byte): bool
+  var opcode: byte
+  if e[0] == I_LABEL or e[0] == I_CALL then
+    return true
+  end
+  if e[0] == I_JUMP or e[0] == I_KEPT_JUMP then
+    return false
+  end
+  opcode = e[1]
+  return opcode != OP_RTS and opcode != OP_JMP and opcode != OP_BRA and opcode != OP_RTI and
+      opcode != OP_JMP_INDIRECT
+end
+
+; Put the entry made since add_entry() in the buffer. An instruction that the processor
+; cannot reach, because it follows a jump or a return with no label between, is left out.
+func end_entry()
+  var i: byte
+  var e: ^byte
+  with FUNCBUF do
+    unreached = stage[0] != I_LABEL and not written and
+        not (used == 0 or newest >= used or entry_runs_on(@buffer + newest))
+    if unreached then
+      return
+    end
+    if used + stage_length > BUFFER_SIZE then
+      err.fatal(err.E_FUNC_BIG)
+    end
+    older = newest
+    newest = used
+    e = @buffer + used
+    for i = 0 until stage_length do
+      e[i] = stage[i]
+    end
+  end
+  used += stage_length
 end
 
 ; An instruction with no operand.
 pub func op(opcode: byte)
   add_entry(I_PLAIN)
   add(opcode)
+  end_entry()
 end
 
 ; An instruction with a one-byte operand that is already known.
@@ -198,6 +256,7 @@ pub func op_byte(opcode: byte, operand: byte)
   add_entry(I_BYTE)
   add(opcode)
   add(operand)
+  end_entry()
 end
 
 ; An instruction with a two-byte operand that is already known.
@@ -205,6 +264,7 @@ pub func op_word(opcode: byte, operand: word)
   add_entry(I_WORD)
   add(opcode)
   add_word(operand)
+  end_entry()
 end
 
 ; An instruction whose operand the linker fills in: the address of `symbol`, or of its
@@ -216,6 +276,17 @@ pub func op_fix(opcode: byte, kind: byte, symbol: word, slot: byte, addend: word
   add_word(symbol)
   add(slot)
   add_word(addend)
+  end_entry()
+end
+
+; Make `symbol` the symbol of the instruction at `entry`, one made by op_fix().
+pub func set_symbol(entry: word, symbol: word)
+  var e: ^byte
+  with FUNCBUF do
+    e = @buffer + entry
+    e[2] = lo(symbol)
+    e[3] = hi(symbol)
+  end
 end
 
 ; A label of this function, to be put somewhere with place().
@@ -225,9 +296,11 @@ pub func new_label(): byte
     err.fatal(err.E_LABELS_FULL)
   end
   label = byte(label_count)
-  label_offset[label] = UNPLACED
+  with FUNCBUF do
+    label_offset[label] = UNPLACED
+    label_uses[label] = 0
+  end
   label_alias[label] = label
-  label_uses[label] = 0
   label_note[label] = 0
   label_count += 1
   return label
@@ -247,57 +320,68 @@ pub func join(label: byte, other: byte)
   other = same(other)
   if other != label then
     label_alias[other] = label
-    label_uses[label] += label_uses[other]
+    with FUNCBUF do
+      label_uses[label] += label_uses[other]
+    end
   end
 end
 
 ; True if a branch or jump added so far goes to `label`.
 func is_used(label: byte): bool
-  return label_uses[same(label)] != 0
+  with FUNCBUF do
+    return label_uses[same(label)] != 0
+  end
 end
 
-; True if the two newest entries are a branch to `label` and a JMP.
-func skips_jump(label: byte): bool
-  if older >= newest or newest >= used then
-    return false
+; One more branch or jump goes to `label`.
+func use_label(label: byte)
+  with FUNCBUF do
+    label_uses[same(label)] += 1
   end
-  return buffer[newest] == I_JUMP and buffer[older] == I_BRANCH and buffer[older + 1] != OP_BRA and
-      same(buffer[older + 2]) == same(label)
 end
 
-; True if the newest entry is a branch or a JMP to `label`, and the entry before it is
-; known.
-func skips_nothing(label: byte): bool
-  if older >= newest or newest >= used then
-    return false
+; True if the two newest entries, at `o` and `n`, are a branch to `label` and a JMP. They
+; point into FUNCBUF: called only inside a block of it, when both entries are known.
+func skips_jump(label: byte, o: ^byte, n: ^byte): bool
+  return n[0] == I_JUMP and o[0] == I_BRANCH and o[1] != OP_BRA and same(o[2]) == same(label)
+end
+
+; True if the newest entry, at `n`, is a branch or a JMP to `label` (the entry before it being
+; known). `n` points into FUNCBUF: called only inside a block of it.
+func skips_nothing(label: byte, n: ^byte): bool
+  if n[0] == I_BRANCH then
+    return same(n[2]) == same(label)
   end
-  if buffer[newest] == I_BRANCH then
-    return same(buffer[newest + 2]) == same(label)
-  end
-  return buffer[newest] == I_JUMP and same(buffer[newest + 1]) == same(label)
+  return n[0] == I_JUMP and same(n[1]) == same(label)
 end
 
 ; `label` is about to be put here. A branch to here round nothing but a JMP becomes the
 ; opposite branch to where the JMP went, and a branch to here round nothing at all is
 ; taken out; so are both if the JMP comes here too.
 func tidy(label: byte)
-  if written then
-    return
+  var o: ^byte
+  var n: ^byte
+  if written or older >= newest or newest >= used then
+    return                          ; nothing to tidy: skips_jump() and skips_nothing() are false
   end
-  if skips_jump(label) and same(buffer[newest + 1]) == same(label) then
-    label_uses[same(label)] -= 2
-    used = older
-    newest = used                   ; the entry before them is not known: see runs_on()
-  elif skips_jump(label) then
-    buffer[older + 1] = buffer[older + 1] ^ OPPOSITE
-    buffer[older + 2] = buffer[newest + 1]
-    label_uses[same(label)] -= 1
-    used = newest
-    newest = older
-  elif skips_nothing(label) then
-    label_uses[same(label)] -= 1
-    used = newest
-    newest = older
+  with FUNCBUF do
+    o = @buffer + older
+    n = @buffer + newest
+    if skips_jump(label, o, n) and same(n[1]) == same(label) then
+      label_uses[same(label)] -= 2
+      used = older
+      newest = used                 ; the entry before them is not known: see runs_on()
+    elif skips_jump(label, o, n) then
+      o[1] = o[1] ^ OPPOSITE
+      o[2] = n[1]
+      label_uses[same(label)] -= 1
+      used = newest
+      newest = older
+    elif skips_nothing(label, n) then
+      label_uses[same(label)] -= 1
+      used = newest
+      newest = older
+    end
   end
 end
 
@@ -306,6 +390,7 @@ pub func place(label: byte)
   tidy(label)
   add_entry(I_LABEL)
   add(label)
+  end_entry()
 end
 
 ; Put `label` here if any instruction goes to it; none may be added that does. Returns
@@ -318,33 +403,37 @@ pub func arrive(label: byte): bool
   end
   add_entry(I_LABEL)
   add(label)
+  end_entry()
   return true
 end
 
 ; A conditional branch (or BRA) to `label`, which may be placed before or after it.
 pub func branch(opcode: byte, label: byte)
-  label_uses[same(label)] += 1
+  use_label(label)
   add_entry(I_BRANCH)
   add(opcode)
   add(label)
+  end_entry()
 end
 
 ; A JMP to `label`.
 pub func jump(label: byte)
-  label_uses[same(label)] += 1
+  use_label(label)
   if written then
     add_entry(I_KEPT_JUMP)
   else
     add_entry(I_JUMP)
   end
   add(label)
+  end_entry()
 end
 
 ; A JSR to `label`: a call through a pointer goes to a JMP (pointer) of this function.
 pub func call_label(label: byte)
-  label_uses[same(label)] += 1
+  use_label(label)
   add_entry(I_CALL)
   add(label)
+  end_entry()
 end
 
 ; From now on, if `on`, the instructions are those of an `asm` block, which are kept as
@@ -366,18 +455,22 @@ end
 ; this function. Returns whether it was one.
 pub func tail_call(): bool
   var kind: byte
+  var e: ^byte
   if used == 0 or newest == kept then
     return false
   end
-  kind = buffer[newest]
-  if kind == I_CALL then
-    buffer[newest] = I_JUMP
-    return true
+  with FUNCBUF do
+    e = @buffer + newest
+    kind = e[0]
+    if kind == I_CALL then
+      e[0] = I_JUMP
+      return true
+    end
+    if (kind != I_WORD and kind != I_FIX + FIX_ADDRESS) or e[1] != OP_JSR then
+      return false
+    end
+    e[1] = OP_JMP
   end
-  if (kind != I_WORD and kind != I_FIX + FIX_ADDRESS) or buffer[newest + 1] != OP_JSR then
-    return false
-  end
-  buffer[newest + 1] = OP_JMP
   return true
 end
 
@@ -385,55 +478,53 @@ end
 ; next. False after a return or a jump, until a label gives another way in. If the newest
 ; entry is not known, a branch has just been taken out, which could be reached.
 pub func runs_on(): bool
-  var opcode: byte
-  if used == 0 or newest >= used or buffer[newest] == I_LABEL or buffer[newest] == I_CALL then
+  if used == 0 or newest >= used then
     return true
   end
-  if buffer[newest] == I_JUMP or buffer[newest] == I_KEPT_JUMP then
-    return false
+  with FUNCBUF do
+    return entry_runs_on(@buffer + newest)
   end
-  opcode = buffer[newest + 1]
-  return opcode != OP_RTS and opcode != OP_JMP and opcode != OP_BRA and opcode != OP_RTI and
-      opcode != OP_JMP_INDIRECT
 end
 
 ; ---- Settling the layout -----------------------------------------------------------------
 
 ; A JMP to an RTS becomes an RTS, which is shorter. A JMP an `asm` block wrote is left as
 ; it is. label_offset holds where in the buffer each label is until layout() is first run.
-func thread()
+func thread(base: ^byte)
   var entry: word = 0
   var goal: word
   var e: ^byte
   var g: ^byte
   var size: byte
-  e = @buffer
-  while entry < used do
-    if e[0] == I_LABEL then
-      label_offset[e[1]] = entry
-    end
-    size = entry_size(e[0])
-    entry += size
-    e += size
-  end
-  entry = 0
-  e = @buffer
-  while entry < used do
-    if e[0] == I_JUMP then
-      goal = label_offset[same(e[1])]
-      g = @buffer + goal
-      while goal < used and g[0] == I_LABEL do
-        goal += 2
-        g += 2
+  with FUNCBUF do
+    e = base
+    while entry < used do
+      if e[0] == I_LABEL then
+        label_offset[e[1]] = entry
       end
-      if goal < used and g[0] == I_PLAIN and g[1] == OP_RTS then
-        e[0] = I_PLAIN
-        e[1] = OP_RTS
-      end
+      size = entry_size(e[0])
+      entry += size
+      e += size
     end
-    size = entry_size(e[0])
-    entry += size
-    e += size
+    entry = 0
+    e = base
+    while entry < used do
+      if e[0] == I_JUMP then
+        goal = label_offset[same(e[1])]
+        g = base + goal
+        while goal < used and g[0] == I_LABEL do
+          goal += 2
+          g += 2
+        end
+        if goal < used and g[0] == I_PLAIN and g[1] == OP_RTS then
+          e[0] = I_PLAIN
+          e[1] = OP_RTS
+        end
+      end
+      size = entry_size(e[0])
+      entry += size
+      e += size
+    end
   end
 end
 
@@ -451,11 +542,9 @@ func entry_size(kind: byte): byte
   return 2
 end
 
-; Bytes of code the entry that starts at buffer[entry] becomes.
-func code_size(entry: word): byte
+; Bytes of code the entry at `e` becomes.
+func code_size(e: ^byte): byte
   var kind: byte
-  var e: ^byte
-  e = @buffer + entry
   kind = e[0]
   if kind == I_LABEL then
     return 0
@@ -477,31 +566,35 @@ end
 
 ; Find where every label is, with the branches as long as they now are. Returns the
 ; length of the code.
-func layout(): word
+func layout(base: ^byte): word
   var entry: word = 0
   var offset: word = 0
   var e: ^byte
   var size: byte
-  e = @buffer
-  while entry < used do
-    if e[0] == I_LABEL then
-      label_offset[e[1]] = offset
+  with FUNCBUF do
+    e = base
+    while entry < used do
+      if e[0] == I_LABEL then
+        label_offset[e[1]] = offset
+      end
+      offset += code_size(e)
+      size = entry_size(e[0])
+      entry += size
+      e += size
     end
-    offset += code_size(entry)
-    size = entry_size(e[0])
-    entry += size
-    e += size
+    return offset
   end
-  return offset
 end
 
 ; The offset of a label that a branch or jump goes to.
 func target(label: byte): word
-  label = same(label)
-  if label_offset[label] == UNPLACED then
-    err.fatal(err.E_INTERNAL)
+  with FUNCBUF do
+    label = same(label)
+    if label_offset[label] == UNPLACED then
+      err.fatal(err.E_INTERNAL)
+    end
+    return label_offset[label]
   end
-  return label_offset[label]
 end
 
 ; True if a branch whose next instruction is at offset `after` can go to offset `goal`.
@@ -514,15 +607,15 @@ end
 
 ; Make long each short branch that does not reach in the layout just found. Returns true
 ; if there was one: the layout has then changed and other branches may no longer reach.
-func widen(): bool
+func widen(base: ^byte): bool
   var changed: bool = false
   var entry: word = 0
   var offset: word = 0
   var size: byte
   var e: ^byte
-  e = @buffer
+  e = base
   while entry < used do
-    size = code_size(entry)
+    size = code_size(e)
     if e[0] == I_BRANCH and not reaches(offset + 2, target(e[2])) then
       e[0] = I_FAR
       changed = true
@@ -558,7 +651,7 @@ end
 ; The end of every loop: for each label that a branch or jump goes back to, the offset
 ; after the last such branch, in label_uses, which are not needed once the layout is settled;
 ; 0 for a label that no branch goes back to.
-func find_loops()
+func find_loops(base: ^byte)
   var label: word
   var entry: word = 0
   var offset: word = 0
@@ -566,26 +659,28 @@ func find_loops()
   var size: byte
   var goal: word
   var e: ^byte
-  for label = 0 until label_count do
-    label_uses[byte(label)] = 0
-  end
-  e = @buffer
-  while entry < used do
-    kind = e[0]
-    size = code_size(entry)
-    goal = UNPLACED
-    if kind == I_BRANCH or kind == I_FAR then
-      goal = same(e[2])
-    elif kind == I_JUMP or kind == I_KEPT_JUMP then
-      goal = same(e[1])
+  with FUNCBUF do
+    for label = 0 until label_count do
+      label_uses[byte(label)] = 0
     end
-    if goal != UNPLACED and label_offset[byte(goal)] <= offset then
-      label_uses[byte(goal)] = offset + size
+    e = base
+    while entry < used do
+      kind = e[0]
+      size = code_size(e)
+      goal = UNPLACED
+      if kind == I_BRANCH or kind == I_FAR then
+        goal = same(e[2])
+      elif kind == I_JUMP or kind == I_KEPT_JUMP then
+        goal = same(e[1])
+      end
+      if goal != UNPLACED and label_offset[byte(goal)] <= offset then
+        label_uses[byte(goal)] = offset + size
+      end
+      offset += size
+      size = entry_size(kind)
+      entry += size
+      e += size
     end
-    offset += size
-    size = entry_size(kind)
-    entry += size
-    e += size
   end
 end
 
@@ -593,15 +688,17 @@ end
 func use_weight(offset: word): byte
   var depth: byte = 0
   var label: word
-  for label = 0 until label_count do
-    if label_offset[byte(label)] <= offset and offset < label_uses[byte(label)] then
-      depth += 1
+  with FUNCBUF do
+    for label = 0 until label_count do
+      if label_offset[byte(label)] <= offset and offset < label_uses[byte(label)] then
+        depth += 1
+      end
     end
+    if depth > 3 then
+      depth = 3
+    end
+    return LOOP_WEIGHTS[depth]
   end
-  if depth > 3 then
-    depth = 3
-  end
-  return LOOP_WEIGHTS[depth]
 end
 
 ; The instruction at `offset` uses slot `slot` of another function or class `symbol`.
@@ -658,15 +755,13 @@ func emit_to(opcode: byte, goal: word)
   emit(0)
 end
 
-; The code of the entry that starts at buffer[entry], as the piece.
-func emit_entry(entry: word)
+; The code of the entry at `e`, as the piece.
+func emit_entry(e: ^byte)
   var kind: byte
   var opcode: byte
   var symbol: word
   var slot: byte
   var part: byte
-  var e: ^byte
-  e = @buffer + entry
   kind = e[0]
   if kind == I_LABEL then
     return
@@ -723,20 +818,59 @@ pub func walk_begin()
   offset_now = 0
 end
 
-; Make the code of the next instruction the piece: piece_length bytes of `piece`, and if
-; piece_fixed, its fix-up (fix_offset, fix_kind, fix_symbol, fix_slot, fix_addend). False when
-; no instruction is left.
-pub func walk_next(): bool
+; walk_next() of the buffer at `base`, inside a block of FUNCBUF.
+func walk_step(base: ^byte): bool
+  var e: ^byte
   while walk_entry < used do
     piece_length = 0
     piece_fixed = false
-    emit_entry(walk_entry)
-    walk_entry += entry_size(buffer[walk_entry])
+    e = base + walk_entry
+    emit_entry(e)
+    walk_entry += entry_size(e[0])
     if piece_length != 0 then
       return true
     end
   end
   return false
+end
+
+; Make the code of the next instruction the piece: piece_length bytes of `piece`, and if
+; piece_fixed, its fix-up (fix_offset, fix_kind, fix_symbol, fix_slot, fix_addend). False when
+; no instruction is left.
+pub func walk_next(): bool
+  with FUNCBUF do
+    return walk_step(@buffer)
+  end
+end
+
+; Write the fix-ups of the finished function to `stream`, as its FIX record holds them: a
+; walk of its instructions.
+pub func put_fixups(stream: byte)
+  with FUNCBUF do
+    walk_begin()
+    while walk_step(@buffer) do
+      if piece_fixed then
+        kernel.put_word(stream, fix_offset)
+        kernel.put(stream, fix_kind)
+        kernel.put_word(stream, fix_symbol)
+        kernel.put(stream, fix_slot)
+        kernel.put_word(stream, fix_addend)
+      end
+    end
+  end
+end
+
+; Write its code to `stream`, as its CODE record holds it: a second walk.
+pub func put_code(stream: byte)
+  var i: byte
+  with FUNCBUF do
+    walk_begin()
+    while walk_step(@buffer) do
+      for i = 0 until piece_length do
+        kernel.put(stream, piece[i])
+      end
+    end
+  end
 end
 
 ; End the function, whose object-file symbol is `symbol`: settle its branches, and count
@@ -747,28 +881,30 @@ pub func finish(symbol: word, base: byte)
   var size: word
   own = symbol
   temp_base = base
-  thread()
-  loop
-    size = layout()
-    if not widen() then
-      break
-    end
-  end
-  if size > MAX_CODE then
-    err.fatal(err.E_FUNC_BIG)
-  end
-  find_loops()
-  code_length = size
-  fix_count = 0
-  weight_count = 0
-  counting = true
-  walk_begin()
-  while walk_next() do
-    if piece_fixed then
-      if fix_count == MAX_FIXUPS then
-        err.fatal(err.E_FIXUPS_FULL)
+  with FUNCBUF do
+    thread(@buffer)
+    loop
+      size = layout(@buffer)
+      if not widen(@buffer) then
+        break
       end
-      fix_count += 1
+    end
+    if size > MAX_CODE then
+      err.fatal(err.E_FUNC_BIG)
+    end
+    find_loops(@buffer)
+    code_length = size
+    fix_count = 0
+    weight_count = 0
+    counting = true
+    walk_begin()
+    while walk_step(@buffer) do
+      if piece_fixed then
+        if fix_count == MAX_FIXUPS then
+          err.fatal(err.E_FIXUPS_FULL)
+        end
+        fix_count += 1
+      end
     end
   end
   counting = false

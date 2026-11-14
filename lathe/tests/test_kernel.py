@@ -158,6 +158,28 @@ class SymbolTableTest(KernelTest):
         _, found = kernel.sym_lookup(again)
         self.assertFalse(found)
 
+    def test_a_name_leads_to_its_newest_symbol(self):
+        n = name(b'count')
+        self.assertEqual(kernel.name_symbol(n), kernel.NO_SYM)
+        outer = kernel.sym_add(kernel.SCOPE_MODULE, n, kernel.K_CONST)
+        self.assertEqual(kernel.name_symbol(n), outer)
+        kernel.scope_begin()
+        inner = kernel.sym_add(kernel.SCOPE_LOCAL, n, kernel.K_CONST)
+        self.assertEqual(kernel.name_symbol(n), inner)
+        self.assertEqual(kernel.sym_link[inner], outer)
+
+    def test_symbols_above_a_mark_can_be_released_and_their_names_kept(self):
+        a, b = name(b'a'), name(b'b')
+        outer = kernel.sym_add(kernel.SCOPE_MODULE, a, kernel.K_CONST)
+        mark = kernel.sym_count
+        kernel.sym_add(kernel.SCOPE_LOCAL, a, kernel.K_CONST)
+        kernel.sym_add(kernel.SCOPE_LOCAL, b, kernel.K_CONST)
+        names = kernel.name_top
+        kernel.sym_release(mark)
+        self.assertEqual((kernel.sym_count, kernel.name_top), (mark, names))
+        self.assertEqual(kernel.name_symbol(a), outer)
+        self.assertEqual(kernel.name_symbol(b), kernel.NO_SYM)
+
     def test_two_functions_may_use_the_same_local_name(self):
         for _ in range(2):
             kernel.scope_begin()
@@ -206,6 +228,15 @@ class TextMemoryTest(KernelTest):
     def test_arguments_longer_than_the_text_area_are_error_82(self):
         env.start(['x' * (kernel.TEXT_END - kernel.TEXT_BASE)])
         self.assertFatal(err.E_TEXT_FULL, kernel.keep_argument, 0)
+
+    def test_token_memory_is_apart_from_the_text_memory(self):
+        start = kernel.token_start()
+        self.assertTrue(start >= kernel.TEXT_BASE + kernel.TEXT_SIZE or
+                        start + kernel.TOKEN_SIZE <= kernel.TEXT_BASE)
+        kernel.set_token_byte(start + 5, 0x42)
+        self.assertEqual(kernel.token_byte(start + 5), 0x42)
+        s = kernel.open_memory(start + 5, start + 6)
+        self.assertEqual(kernel.get(s), (0x42, False))
 
     def test_a_path_is_built_from_a_directory_a_name_and_an_ending(self):
         directory, _ = support.put_text(b'build/out')

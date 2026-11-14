@@ -13,6 +13,7 @@ import listing
 import out
 import reg
 import script
+import slotview                 ; REG's slot columns, read in bank 2 when banked
 import sys
 import typetab
 
@@ -72,11 +73,11 @@ end
 
 func show_slot(n: byte)
   script.show_byte(n)
-  script.show_word(reg.slot_size[n])
+  script.show_word(slotview.size(n))
   script.show_byte(reg.slot_class[n])
-  script.show_byte(reg.slot_weight[n])
-  script.show_byte(reg.slot_kind[n])
-  script.show_word(reg.slot_name[n])
+  script.show_byte(slotview.weight(n))
+  script.show_byte(slotview.kind(n))
+  script.show_word(slotview.name(n))
   script.show_bool(reg.slot_busy[n])
   sys.put_byte(',')
 end

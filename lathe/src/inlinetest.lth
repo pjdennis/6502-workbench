@@ -75,7 +75,7 @@ func show_token()
   elif lex.tok == lex.T_STRING then
     script.show_word(lex.string_length)
     for i = 0 until lo(lex.string_length) do
-      script.show_byte(lex.string[i])
+      script.show_byte(lex.string_byte(i))
     end
   end
 end
@@ -92,17 +92,17 @@ func show_record(f: word)
   script.show_word(inlines.word_at(r + inlines.R_LINE))
   script.show_bool(inlines.word_at(r + inlines.R_FILE) != 0)
   sys.put_byte(' ')
-  script.show_byte(r[inlines.R_FLAGS])
+  script.show_byte(kernel.token_byte(r + inlines.R_FLAGS))
   script.show_word(inlines.word_at(r + inlines.R_WRITTEN))
   for i = 0 until kernel.sym_params[f] do
     p = inlines.param(f, i)
     script.show_word(inlines.word_at(p))
-    script.show_byte(p[2])
+    script.show_byte(kernel.token_byte(p + 2))
   end
   sys.put_byte('|')
   p = r + inlines.R_PARAMS + word(kernel.sym_params[f]) * inlines.PARAM_SIZE
   while p < ^byte(inlines.word_at(r + inlines.R_END)) do
-    script.show_byte(p[0])
+    script.show_byte(kernel.token_byte(p))
     p += 1
   end
 end

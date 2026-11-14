@@ -21,12 +21,11 @@
 ;   | Python                               | Lathe                             | Why             |
 ;   |--------------------------------------|-----------------------------------|-----------------|
 ;   | text memory is env.mem from TEXT_BASE| the array `text`, TEXT_SIZE bytes,| memory is real: |
-;   | $0100, TEXT_SIZE (4096) bytes        | 4096 as the host's (1280 in the   | $0100 is the    |
+;   | $0100, TEXT_SIZE (2048) bytes        | 2048 as the host's (768 in the    | $0100 is the    |
 ;   |                                      | small build, under `#if SMALL`)   | stack. It holds |
 ;   |                                      |                                   | the path, the   |
 ;   |                                      |                                   | arguments and   |
-;   |                                      |                                   | INLINE's saved  |
-;   |                                      |                                   | tokens          |
+;   |                                      |                                   | file names      |
 ;   | keep_argument copies, then checks    | the same, so an argument that     | (as left)       |
 ;   |                                      | does not fit is written past the  |                 |
 ;   |                                      | array before error 82: it cannot  |                 |
@@ -34,8 +33,15 @@
 ;   |                                      | PATH_SIZE + 480                   |                 |
 ;   | NO_SYM, NO_OBJ declared with the     | declared at the top               | declare before  |
 ;   | symbol table, used by name_end()     |                                   | use             |
-;   | name_length, name_char used before   | forward declarations              | declare before  |
-;   | they are defined                     |                                   | use             |
+;   | token memory: env.mem from TOKEN_BASE| the array `tokens`, `in TOKENS`;  | in a data bank  |
+;   |                                      | token_byte(p) is tokens[p -       | when banked;    |
+;   |                                      | @tokens] in a block; get() reads a| p - @tokens     |
+;   |                                      | memory stream inside a block too  | names the region|
+;   |                                      | (what it reads may be fixed       | (error 183)     |
+;   |                                      | memory: the address is p either   |                 |
+;   |                                      | way)                              |                 |
+;   | path_add_name, put_name: with the    | after the name heap               | declare before  |
+;   | text memory and the streams          |                                   | use             |
 ;   | `low, _ = get(s)`                    | a variable `at_end` for the `_`   | no `_`          |
 ;   | name_word(): b | (b1 << 8)           | word(b) | (word(b1) << 8)         | bytes stay bytes|
 ;   | path_length + 1 >= PATH_SIZE         | word(path_length) + 1 >= ...      | PATH_SIZE (256) |
@@ -43,13 +49,28 @@
 ;   | column widths: ints                  | byte where every value fits (see  | the type is the |
 ;   |                                      | each column), else word; the      | storage         |
 ;   |                                      | 384-element word columns `rows`   | (error 123)     |
-;   | name_word, name_set_word, name_token,| `inline`; `names`, N_SYMBOL and   | smaller code; an|
-;   | name_set_token: functions            | N_TOKEN are exported              | exported inline |
-;   |                                      |                                   | function uses   |
+;   | names: an array                      | `in NAMES`, a region (lathe/docs/ | the name heap is|
+;   |                                      | language.md, "Banked data"): used | in a data bank  |
+;   |                                      | only inside `with NAMES do ...    | when banked     |
+;   |                                      | end`, in the functions that read  | (configurations |
+;   |                                      | or write it, one block around a   | .md, step 10)   |
+;   |                                      | whole operation                   |                 |
+;   | name_word, name_set_word: functions  | `inline`, used only inside blocks | smaller code    |
+;   | name_token, name_set_token           | functions with a block, not inline| a block cannot  |
+;   |                                      |                                   | be inline       |
+;   | name_add()                           | the same, and `pub inline         | LEX maps once   |
+;   |                                      | name_put()`, its body without the | around a whole  |
+;   |                                      | block, for LEX's block; `names`,  | name; an        |
+;   |                                      | name_top, new_length, new_hash,   | exported inline |
+;   |                                      | N_TEXT and MAX_NAME exported      | function uses   |
 ;   |                                      |                                   | exported names  |
-;   | name_is_new, spelling_hash,          | a pointer to the entry, `q[k]`    | (zp),Y: no      |
-;   | same_spelling, freeze, thaw:         |                                   | 16-bit index    |
-;   | names[n + k]                         |                                   |                 |
+;   | name_is_new(n), spelling_hash(n),    | a pointer to the entry, `q[k]`,   | (zp),Y: no      |
+;   | same_spelling(a, b), chain_find(...  | passed in by the caller's block;  | 16-bit index; no|
+;   | n), freeze, thaw: names[n + k]       | these four have no block of their | block of their  |
+;   |                                      | own, and are called only inside   | own to pay for  |
+;   |                                      | one                               |                 |
+;   | path_add_name, put_name: name_length | the entry read in one block       | one mapping     |
+;   | and name_char for each character     |                                   |                 |
 module kernel
 
 import err
@@ -58,19 +79,43 @@ import sys
 ; ---- Text memory -------------------------------------------------------------------------
 
 #if SMALL
-const TEXT_SIZE = 896           ; (SMALL: the test programs' small build)
+const TEXT_SIZE = 768           ; (SMALL: the test programs' small build)
 #else
-const TEXT_SIZE = 4096
+const TEXT_SIZE = 2048
 #end
 const PATH_SIZE = 256
+#if SMALL
+const TOKEN_SIZE = 384          ; (SMALL: the test programs' small build)
+#else
+const TOKEN_SIZE = 2048         ; bytes of token memory: at least inlines.SAVED_SIZE
+#end
 
 var text: [TEXT_SIZE]byte nozp
 pub var text_top: ^byte
 pub var path: ^byte             ; the file name being built, PATH_SIZE bytes
 pub var path_length: byte
+var tokens: [TOKEN_SIZE]byte in TOKENS  ; the token memory: INLINE's saved tokens
 
-forward func name_length(n: word): byte
-forward func name_char(n: word, i: byte): byte
+; Pointer to the token memory, which is read and written only through token_byte(),
+; set_token_byte() and memory streams.
+pub func token_start(): ^byte
+  with TOKENS do
+    return @tokens
+  end
+end
+
+; The byte of token memory at `p`.
+pub func token_byte(p: ^byte): byte
+  with TOKENS do
+    return tokens[p - @tokens]
+  end
+end
+
+pub func set_token_byte(p: ^byte, value: byte)
+  with TOKENS do
+    tokens[p - @tokens] = value
+  end
+end
 
 ; Pointer to `size` bytes of text memory that stay reserved.
 pub func text_reserve(size: word): ^byte
@@ -112,13 +157,6 @@ pub func path_add_text(t: ^byte)
   while t[0] != 0 do
     path_add(t[0])
     t += 1
-  end
-end
-
-pub func path_add_name(name: word)
-  var i: byte
-  for i = 0 until name_length(name) do
-    path_add(name_char(name, i))
   end
 end
 
@@ -209,7 +247,9 @@ pub func get(s: byte): byte, bool
     end
     p = stream_next[s]
     stream_next[s] = p + 1
-    return p[0], false
+    with TOKENS do                      ; a stream may read the token memory
+      return tokens[p - @tokens], false
+    end
   end
   if stream_kind[s] == STREAM_ENDED then
     return 0, true
@@ -242,15 +282,6 @@ pub func put_word(s: byte, value: word)
   put(s, hi(value))
 end
 
-; Write a name as a string: its length, then its characters.
-pub func put_name(s: byte, name: word)
-  var i: byte
-  put(s, name_length(name))
-  for i = 0 until name_length(name) do
-    put(s, name_char(name, i))
-  end
-end
-
 ; ---- The name heap -----------------------------------------------------------------------
 ;
 ; An entry is: link to the next name in the same hash bucket (2 bytes), the newest symbol
@@ -263,31 +294,32 @@ end
 #if SMALL
 const NAME_HEAP_SIZE = 1536      ; (SMALL: the test programs' small build)
 #else
-const NAME_HEAP_SIZE = 17920
+const NAME_HEAP_SIZE = 18944
 #end
 const NAME_BUCKETS = 64         ; a power of two
 pub const MAX_NAME = 31         ; significant characters
 
 const N_LINK = 0
-pub const N_SYMBOL = 2
-pub const N_TOKEN = 4
+const N_SYMBOL = 2
+const N_TOKEN = 4
 const N_LENGTH = 5
-const N_TEXT = 6
+pub const N_TEXT = 6
 
 pub const NO_SYM = $FFFF        ; (with the symbol table below in the Python)
 pub const NO_OBJ = $FFFF
 
-pub var names: [NAME_HEAP_SIZE]byte nozp
+pub var names: [NAME_HEAP_SIZE]byte in NAMES
 var name_bucket: [NAME_BUCKETS]word
 pub var name_top: word = 1
-var new_length: byte
-var new_hash: byte
+pub var new_length: byte
+pub var new_hash: byte
 
-pub inline func name_word(offset: word): word
+; Used only inside a block of NAMES.
+inline func name_word(offset: word): word
   return word(names[offset]) | (word(names[offset + 1]) << 8)
 end
 
-pub inline func name_set_word(offset: word, value: word)
+inline func name_set_word(offset: word, value: word)
   names[offset] = lo(value)
   names[offset + 1] = hi(value)
 end
@@ -301,8 +333,8 @@ pub func name_begin()
   new_hash = 0
 end
 
-; Add a character to the name being built. Characters after the 31st are dropped.
-pub func name_add(ch: byte)
+; name_add() inside a block of NAMES: LEX maps the bank once around a whole name.
+pub inline func name_put(ch: byte)
   if new_length < MAX_NAME then
     names[name_top + N_TEXT + new_length] = ch
     new_length += 1
@@ -310,16 +342,20 @@ pub func name_add(ch: byte)
   end
 end
 
-; True unless entry `n` spells the name being built.
-func name_is_new(n: word): bool
+; Add a character to the name being built. Characters after the 31st are dropped.
+pub func name_add(ch: byte)
+  with NAMES do
+    name_put(ch)
+  end
+end
+
+; True unless the entry `p` points to spells the name being built, which `q` points to. Both
+; point into NAMES: called only inside a block of it.
+func name_is_new(p: ^byte, q: ^byte): bool
   var i: byte
-  var p: ^byte
-  var q: ^byte
-  p = @names + n
   if p[N_LENGTH] != new_length then
     return true
   end
-  q = @names + name_top
   for i = 0 until new_length do
     if p[N_TEXT + i] != q[N_TEXT + i] then
       return true
@@ -332,53 +368,92 @@ end
 pub func name_end(): word
   var bucket: byte
   var n: word
+  var q: ^byte
   bucket = new_hash & (NAME_BUCKETS - 1)
   n = name_bucket[bucket]
-  while n != 0 and name_is_new(n) do
-    n = name_word(n + N_LINK)
+  with NAMES do
+    q = @names + name_top
+    while n != 0 and name_is_new(@names + n, q) do
+      n = name_word(n + N_LINK)
+    end
+    if n != 0 then
+      return n
+    end
+    n = name_top
+    name_set_word(n + N_LINK, name_bucket[bucket])
+    name_set_word(n + N_SYMBOL, NO_SYM)
+    q[N_TOKEN] = 0
+    q[N_LENGTH] = new_length
   end
-  if n != 0 then
-    return n
-  end
-  n = name_top
-  name_set_word(n + N_LINK, name_bucket[bucket])
-  name_set_word(n + N_SYMBOL, NO_SYM)
-  names[n + N_TOKEN] = 0
-  names[n + N_LENGTH] = new_length
   name_bucket[bucket] = n
   name_top += N_TEXT + new_length
   return n
 end
 
 pub func name_length(n: word): byte
-  return names[n + N_LENGTH]
+  with NAMES do
+    return names[n + N_LENGTH]
+  end
 end
 
 pub func name_char(n: word, i: byte): byte
-  return names[n + N_TEXT + i]
+  with NAMES do
+    return names[n + N_TEXT + i]
+  end
 end
 
 ; The token number LEX gave this name: its keyword, or 0 for an ordinary name.
-pub inline func name_token(n: word): byte
-  return names[n + N_TOKEN]
+pub func name_token(n: word): byte
+  with NAMES do
+    return names[n + N_TOKEN]
+  end
 end
 
-pub inline func name_set_token(n: word, token: byte)
-  names[n + N_TOKEN] = token
+pub func name_set_token(n: word, token: byte)
+  with NAMES do
+    names[n + N_TOKEN] = token
+  end
 end
 
 ; Forget every name made since name_top was `mark`. None may still have a symbol.
 pub func names_release(mark: word)
   var bucket: byte
   var n: word
-  for bucket = 0 until NAME_BUCKETS do
-    n = name_bucket[bucket]
-    while n >= mark do                  ; the newest names are first in each bucket
-      n = name_word(n + N_LINK)
+  with NAMES do
+    for bucket = 0 until NAME_BUCKETS do
+      n = name_bucket[bucket]
+      while n >= mark do                ; the newest names are first in each bucket
+        n = name_word(n + N_LINK)
+      end
+      name_bucket[bucket] = n
     end
-    name_bucket[bucket] = n
   end
   name_top = mark
+end
+
+; (path_add_name() and put_name(), with the text memory and the streams in the Python.)
+pub func path_add_name(name: word)
+  var i: byte
+  var q: ^byte
+  with NAMES do
+    q = @names + name
+    for i = 0 until q[N_LENGTH] do
+      path_add(q[N_TEXT + i])
+    end
+  end
+end
+
+; Write a name as a string: its length, then its characters.
+pub func put_name(s: byte, name: word)
+  var i: byte
+  var q: ^byte
+  with NAMES do
+    q = @names + name
+    put(s, q[N_LENGTH])
+    for i = 0 until q[N_LENGTH] do
+      put(s, q[N_TEXT + i])
+    end
+  end
 end
 
 ; ---- The symbol table --------------------------------------------------------------------
@@ -450,35 +525,32 @@ var module_frozen: [MAX_MODULES]word    ; each module's first frozen entry, or 0
 
 forward func thaw(scope: byte, f: word): word
 
-; The symbol of `scope` on the chain of name entry `name`, or NO_SYM.
-func chain_find(scope: byte, name: word): word
+; The symbol of `scope` on the chain of the name entry `q` points to, or NO_SYM. `q` points
+; into NAMES: called only inside a block of it.
+func chain_find(scope: byte, q: ^byte): word
   var s: word
-  s = name_word(name + N_SYMBOL)
+  s = word(q[N_SYMBOL]) | (word(q[N_SYMBOL + 1]) << 8)
   while s != NO_SYM and sym_scope[s] != scope do
     s = sym_link[s]
   end
   return s
 end
 
-; The hash name_add() gives the spelling of entry `n`.
-func spelling_hash(n: word): byte
+; The hash name_add() gives the spelling of the entry `q` points to (into NAMES: called only
+; inside a block of it).
+func spelling_hash(q: ^byte): byte
   var h: byte = 0
   var i: byte
-  var q: ^byte
-  q = @names + n
   for i = 0 until q[N_LENGTH] do
     h = ((h << 1) | (h >> 7)) ^ q[N_TEXT + i]
   end
   return h
 end
 
-; True if name entries `a` and `b` spell the same name.
-func same_spelling(a: word, b: word): bool
+; True if the name entries `p` and `q` point to spell the same name (into NAMES: called only
+; inside a block of it).
+func same_spelling(p: ^byte, q: ^byte): bool
   var i: byte
-  var p: ^byte
-  var q: ^byte
-  p = @names + a
-  q = @names + b
   if p[N_LENGTH] != q[N_LENGTH] then
     return false
   end
@@ -497,42 +569,53 @@ pub func sym_find(scope: byte, name: word): word, bool
   var n: word
   var before: word = 0
   var f: word
-  s = chain_find(scope, name)
-  if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS then
-    return s, s != NO_SYM
-  end
-  ; Thawed already, on the chain of another entry with the same spelling (thaw())?
-  n = name_bucket[spelling_hash(name) & (NAME_BUCKETS - 1)]
-  while n != 0 do
-    if n != name and same_spelling(n, name) then
-      s = chain_find(scope, n)
-      if s != NO_SYM then
-        return s, true
-      end
+  var q: ^byte
+  with NAMES do
+    q = @names + name
+    s = chain_find(scope, q)
+    if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS then
+      return s, s != NO_SYM
     end
-    n = name_word(n + N_LINK)
-  end
-  f = module_frozen[scope]
-  while f != 0 and not same_spelling(f, name) do
-    before = f
-    f = name_word(f + N_LINK)
-  end
-  if f == 0 then
-    return NO_SYM, false
-  end
-  if before == 0 then
-    module_frozen[scope] = name_word(f + N_LINK)
-  else
-    name_set_word(before + N_LINK, name_word(f + N_LINK))
+    ; Thawed already, on the chain of another entry with the same spelling (thaw())?
+    n = name_bucket[spelling_hash(q) & (NAME_BUCKETS - 1)]
+    while n != 0 do
+      if n != name and same_spelling(@names + n, q) then
+        s = chain_find(scope, @names + n)
+        if s != NO_SYM then
+          return s, true
+        end
+      end
+      n = name_word(n + N_LINK)
+    end
+    f = module_frozen[scope]
+    while f != 0 and not same_spelling(@names + f, q) do
+      before = f
+      f = name_word(f + N_LINK)
+    end
+    if f == 0 then
+      return NO_SYM, false
+    end
+    if before == 0 then
+      module_frozen[scope] = name_word(f + N_LINK)
+    else
+      name_set_word(before + N_LINK, name_word(f + N_LINK))
+    end
   end
   return thaw(scope, f), true
+end
+
+; The newest symbol called `name`, or NO_SYM: the first on its chain (sym_link).
+pub func name_symbol(name: word): word
+  with NAMES do
+    return name_word(name + N_SYMBOL)
+  end
 end
 
 ; What a plain `name` means here: a local, else a module-level symbol, else a predeclared
 ; one. Symbols of imported modules are skipped: those are written module.name.
 pub func sym_lookup(name: word): word, bool
   var s: word
-  s = name_word(name + N_SYMBOL)
+  s = name_symbol(name)
   while s != NO_SYM and sym_scope[s] != SCOPE_LOCAL and sym_scope[s] != SCOPE_MODULE and
       sym_scope[s] != SCOPE_PREDECLARED do
     s = sym_link[s]
@@ -553,8 +636,10 @@ func sym_new(s: word, scope: byte, name: word, kind: byte)
   sym_members[s] = member_count
   sym_params[s] = 0
   sym_results[s] = 0
-  sym_link[s] = name_word(name + N_SYMBOL)
-  name_set_word(name + N_SYMBOL, s)
+  with NAMES do
+    sym_link[s] = name_word(name + N_SYMBOL)
+    name_set_word(name + N_SYMBOL, s)
+  end
 end
 
 pub func sym_add(scope: byte, name: word, kind: byte): word
@@ -579,12 +664,20 @@ pub func scope_begin()
 end
 
 ; The function ends: release its symbols and the names only it used.
-pub func scope_end()
-  while sym_count > local_base do
-    sym_count -= 1
-    ; Symbols are released newest first, so each is the first on its name's chain.
-    name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
+; Release the symbols from `base` up. Their names stay.
+pub func sym_release(base: word)
+  with NAMES do
+    while sym_count > base do
+      sym_count -= 1
+      ; Symbols are released newest first, so each is the first on its name's chain.
+      name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
+    end
   end
+end
+
+; The function ends: release its symbols and the names only it used.
+pub func scope_end()
+  sym_release(local_base)
   names_release(local_names)
 end
 
@@ -634,44 +727,48 @@ pub func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, para
   if name_top + N_TEXT + new_length + size > NAME_HEAP_SIZE then
     err.fatal(err.E_NAMES_FULL)
   end
-  n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
-  while n != 0 do
-    if not name_is_new(n) and chain_find(scope, n) != NO_SYM then
-      err.fatal(err.E_DUPLICATE)
+  with NAMES do
+    q = @names + name_top
+    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
+    while n != 0 do
+      if not name_is_new(@names + n, q) and chain_find(scope, @names + n) != NO_SYM then
+        err.fatal(err.E_DUPLICATE)
+      end
+      n = name_word(n + N_LINK)
     end
-    n = name_word(n + N_LINK)
-  end
-  n = module_frozen[scope]
-  while n != 0 do
-    if not name_is_new(n) then
-      err.fatal(err.E_DUPLICATE)
+    n = module_frozen[scope]
+    while n != 0 do
+      if not name_is_new(@names + n, q) then
+        err.fatal(err.E_DUPLICATE)
+      end
+      n = name_word(n + N_LINK)
     end
-    n = name_word(n + N_LINK)
-  end
-  n = name_top
-  q = @names + n
-  q[N_LINK] = lo(module_frozen[scope])
-  q[N_LINK + 1] = hi(module_frozen[scope])
-  q[F_KIND] = kind
-  q[F_FLAGS] = flags
-  q[F_TYPE] = t
-  q[N_LENGTH] = new_length
-  module_frozen[scope] = n
-  r = q + N_TEXT + new_length
-  r[F_VALUE] = lo(value)
-  r[F_VALUE + 1] = hi(value)
-  name_top = n + N_TEXT + new_length + F_SIZE
-  if kind == K_FUNC then
-    r[F_PARAMS] = params
-    r[F_RESULTS] = results
-    name_top = n + N_TEXT + new_length + F_MEMBERS
+    n = name_top
+    q[N_LINK] = lo(module_frozen[scope])
+    q[N_LINK + 1] = hi(module_frozen[scope])
+    q[F_KIND] = kind
+    q[F_FLAGS] = flags
+    q[F_TYPE] = t
+    q[N_LENGTH] = new_length
+    module_frozen[scope] = n
+    r = q + N_TEXT + new_length
+    r[F_VALUE] = lo(value)
+    r[F_VALUE + 1] = hi(value)
+    name_top = n + N_TEXT + new_length + F_SIZE
+    if kind == K_FUNC then
+      r[F_PARAMS] = params
+      r[F_RESULTS] = results
+      name_top = n + N_TEXT + new_length + F_MEMBERS
+    end
   end
 end
 
 ; The next member of the newest frozen symbol.
 pub func freeze_member(t: byte, value: byte)
-  names[name_top] = t
-  names[name_top + 1] = value
+  with NAMES do
+    names[name_top] = t
+    names[name_top + 1] = value
+  end
   name_top += 2
 end
 
@@ -694,40 +791,42 @@ func thaw(scope: byte, f: word): word
   end
   thaw_top -= 1
   s = thaw_top
-  q = @names + f
-  r = q + N_TEXT + q[N_LENGTH]
-  kind = q[F_KIND]                      ; read before the entry is made a name
-  flags = q[F_FLAGS]
-  t = q[F_TYPE]
-  q[N_SYMBOL] = lo(NO_SYM)
-  q[N_SYMBOL + 1] = hi(NO_SYM)
-  q[N_TOKEN] = 0
-  sym_new(s, scope, f, kind)
-  sym_flags[s] = flags
-  sym_type[s] = t
-  sym_value[s] = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
-  if kind == K_FUNC then
-    count = r[F_PARAMS] + r[F_RESULTS]
-    sym_params[s] = r[F_PARAMS]
-    sym_results[s] = r[F_RESULTS]
-    r += F_MEMBERS
-    for i = 0 until count do
-      member_add(r[0], r[1])
-      r += 2
+  with NAMES do
+    q = @names + f
+    r = q + N_TEXT + q[N_LENGTH]
+    kind = q[F_KIND]                    ; read before the entry is made a name
+    flags = q[F_FLAGS]
+    t = q[F_TYPE]
+    q[N_SYMBOL] = lo(NO_SYM)
+    q[N_SYMBOL + 1] = hi(NO_SYM)
+    q[N_TOKEN] = 0
+    sym_new(s, scope, f, kind)
+    sym_flags[s] = flags
+    sym_type[s] = t
+    sym_value[s] = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
+    if kind == K_FUNC then
+      count = r[F_PARAMS] + r[F_RESULTS]
+      sym_params[s] = r[F_PARAMS]
+      sym_results[s] = r[F_RESULTS]
+      r += F_MEMBERS
+      for i = 0 until count do
+        member_add(r[0], r[1])
+        r += 2
+      end
     end
+    bucket = spelling_hash(q) & (NAME_BUCKETS - 1)
+    n = name_bucket[bucket]
+    if n < f then
+      name_set_word(f + N_LINK, n)
+      name_bucket[bucket] = f
+      return s
+    end
+    while name_word(n + N_LINK) > f do
+      n = name_word(n + N_LINK)
+    end
+    name_set_word(f + N_LINK, name_word(n + N_LINK))
+    name_set_word(n + N_LINK, f)
   end
-  bucket = spelling_hash(f) & (NAME_BUCKETS - 1)
-  n = name_bucket[bucket]
-  if n < f then
-    name_set_word(f + N_LINK, n)
-    name_bucket[bucket] = f
-    return s
-  end
-  while name_word(n + N_LINK) > f do
-    n = name_word(n + N_LINK)
-  end
-  name_set_word(f + N_LINK, name_word(n + N_LINK))
-  name_set_word(n + N_LINK, f)
   return s
 end
 

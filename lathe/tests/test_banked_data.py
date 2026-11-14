@@ -260,6 +260,32 @@ class BankedDataTest(unittest.TestCase):
             self.assertIn('error 118', errors)
         self.compile('user', 'module user\nimport lib\nfunc f()\n  lib.plain = 1\nend\n')
 
+    def test_a_region_spelled_like_an_imported_variable_is_one_region(self):
+        """Found by stage 11, step 10 (kernel.names in NAMES): the region's name is read from
+        the interface before the variable's frozen entry of the same spelling is made, so once
+        a function has thawed the variable the lexer gives the region's word as the thawed
+        entry, another name entry than the one the variable holds. A region is its spelling."""
+        self.compile('lib', 'module lib\n'
+                     'pub var names: [4]byte in names\n')
+        m = self.compile('user', 'module user\n'
+                         'import lib\n'
+                         'func f(): byte\n'
+                         '  with names do\n'
+                         '    return lib.names[0]\n'
+                         '  end\n'
+                         'end\n'
+                         'func g()\n'
+                         '  with names do\n'
+                         '    lib.names[1] = 2\n'
+                         '    with names do\n'
+                         '      lib.names[2] = 3\n'
+                         '    end\n'
+                         '  end\n'
+                         'end\n')
+        g = m.definition(m.sym_index('user.g'))
+        self.assertEqual([m.sym_name(x.sym) for x in g.fixes if x.kind == lo.FX_BANK], ['lib.names'])
+        self.assertEqual([name for name, flags in self.calls(m, 'user.g')], ['rt_with.map', 'rt_with.unmap'])
+
     def test_a_module_with_no_region_has_no_rt_with_import(self):
         m = self.compile('w', 'module w\nvar n: byte\nfunc f()\n  n = 1\nend\n')
         self.assertEqual(m.imports, [])

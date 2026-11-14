@@ -11,8 +11,9 @@ TWINS = ('err', 'kernel', 'src', 'lex', 'typetab', 'fold', 'fbuf', 'out', 'reg',
 TWIN_FILE = {'inline': 'inlines'}     # a twin whose module has another name: `inline` is a keyword
 VAR = re.compile(r'^(?:pub )?var (\w+): \[[^\]]+\](\^?\w+)', re.M)
 # Arrays of a twin that are not arrays of its host module, and why.
-CEILING = 50132             # the total of lathe/docs/architecture.md, "What stays in memory"
-TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.mem'}
+CEILING = 51163             # the total of lathe/docs/architecture.md, "What stays in memory"
+TWIN_ONLY = {('kernel', 'text'): 'the text memory, which the host keeps in env.mem',
+             ('kernel', 'tokens'): 'the token memory, which the host keeps in env.mem'}
 
 
 def twin_arrays(module):

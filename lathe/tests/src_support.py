@@ -28,9 +28,10 @@ def build_program(name, out_dir, small=False, banked=False):
     """Build lathe/src/NAME.lth into OUT_DIR/NAME.bin, keeping the work files (the map, the
     objects) in OUT_DIR/work. Returns the image's path. With `small`, the small build
     (compiler-small.env: lathe/host/README.md, "The small build"). With `banked`, the banked
-    build on Wendy 2 (build_banked, below), which run_banked runs."""
+    build on Wendy 2 (build_banked, below), which run_banked runs; with both, the banked build
+    at the small capacities."""
     if banked:
-        return build_banked(name, out_dir)
+        return build_banked(name, out_dir, small)
     image = os.path.join(out_dir, name + '.bin')
     build.build(os.path.join(SRC, name + '.lth'), image, env=SMALL_ENV if small else ENV,
                 keep=os.path.join(out_dir, 'work'))
@@ -68,11 +69,12 @@ BANKED_CYCLE_CAP = 400000000    # oscillator ticks, 2 a CPU cycle: 200 million c
 PLACE_RE = re.compile(r'^place\s+(\w+)\s', re.IGNORECASE)
 
 
-def banked_env(name, path):
+def banked_env(name, path, small=False):
     """Write to PATH the environment of test program NAME banked: compiler-bank.env with
     `place NAME WIN 1` before its first `place` line (the test's main module stands in for the
     front end) and without the `place` lines of modules the program does not link (an unlinked
-    placed module is link error 44). Returns PATH."""
+    placed module is link error 44). With `small`, `define SMALL 1`: the banked build at the
+    small build's capacities. Returns PATH."""
     linked = {n for n, _ in build.module_order(os.path.join(SRC, name + '.lth'))}
     lines = []
     placed = False
@@ -84,18 +86,20 @@ def banked_env(name, path):
                 placed = True
             if m and m.group(1).lower() not in linked:
                 continue
+            if small and re.match(r'^define\s+SMALL\s', line, re.IGNORECASE):
+                line = 'define    SMALL 1     ; the small build (src_support.banked_env)\n'
             lines.append(line)
     with open(path, 'w') as f:
         f.write(''.join(lines))
     return path
 
 
-def build_banked(name, out_dir):
+def build_banked(name, out_dir, small=False):
     """Build lathe/src/NAME.lth banked into OUT_DIR/NAME.bin, its bank files beside it, its
     environment in OUT_DIR/NAME.env (banked_env) and the work files in OUT_DIR/work. Returns
     the image's path, which run_banked() runs."""
     image = os.path.join(out_dir, name + '.bin')
-    env = banked_env(name, os.path.join(out_dir, name + '.env'))
+    env = banked_env(name, os.path.join(out_dir, name + '.env'), small)
     build.build(os.path.join(SRC, name + '.lth'), image, env=env,
                 keep=os.path.join(out_dir, 'work'))
     return image

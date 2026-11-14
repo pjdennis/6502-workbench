@@ -42,6 +42,7 @@ import src_support as support
 import script_host
 
 FAR_CALL = 182      # cycles more than a JSR and RTS (test_farcall.py)
+WITH_BLOCK = 90     # cycles of a `with` block banked (configurations.md, "As built: banked data")
 
 COUNTING_CALL = '''pub asm func call()
   PHP
@@ -54,12 +55,25 @@ COUNTING_CALL = '''pub asm func call()
 .counted
 '''
 
+COUNTING_MAP = '''pub asm func map(value: byte in a): byte in a
+  INC disk.withs
+  BNE .counted
+  INC disk.withs+1
+  BNE .counted
+  INC disk.withs+2
+.counted
+  JMP select
+'''
+
 SOURCES = ('exprtest',)     # programs whose sections are commands, a line `--`, and Lathe source
 
 COUNTING_EXIT = '''  h = open_out(argv(%d))              ; the far calls, for lathe/tests/bank_report.py
   write(farcalls[2], h)
   write(farcalls[1], h)
   write(farcalls[0], h)
+  write(withs[2], h)                  ; and the with blocks entered
+  write(withs[1], h)
+  write(withs[0], h)
   close(h)
   for h = 1 to MAX_HANDLE do
 '''
@@ -74,6 +88,9 @@ def counting_copies(where, count_argument=2):
     with open(os.path.join(support.LATHE, 'rt', 'rt_bank.lth')) as f:
         text = f.read()
     assert 'pub asm func call()\n  PHP\n  SEI\n' in text
+    marker = 'pub asm func map(value: byte in a): byte in a\n  JMP select\n'
+    assert marker in text
+    text = text.replace(marker, COUNTING_MAP)
     with open(os.path.join(where, 'rt_bank.lth'), 'w') as f:
         f.write(text.replace('pub asm func call()\n  PHP\n  SEI\n', COUNTING_CALL))
     with open(os.path.join(support.LATHE, 'rt', 'disk.lth')) as f:
@@ -81,8 +98,24 @@ def counting_copies(where, count_argument=2):
     marker = '  for h = 1 to MAX_HANDLE do\n'
     assert text.count(marker) == 1 and '\nmodule disk\n' in text
     text = text.replace(marker, COUNTING_EXIT % count_argument)
-    text = text.replace('\nmodule disk\n', '\nmodule disk\n\npub var farcalls: [3]byte\n')
+    text = text.replace('\nmodule disk\n', '\nmodule disk\n\npub var farcalls: [3]byte\npub var withs: [3]byte\n')
     with open(os.path.join(where, 'disk.lth'), 'w') as f:
+        f.write(text)
+
+
+COUNTING_ROOM = 0x20     # bytes of fixed code the counters add, taken from the variables' range
+
+
+def lower_split(path, room):
+    """Move the split between the variables and the fixed code of the environment at PATH
+    down by ROOM bytes: the counting copies' code is larger, and exprtest leaves little room."""
+    with open(path) as f:
+        text = f.read()
+    m = re.search(r'(?m)^code\s+\$(\w+) \$7FFF', text)
+    split = int(m.group(1), 16) - room
+    text = re.sub(r'(?m)^code\s+\$\w+ \$7FFF', 'code      $%04X $7FFF' % split, text)
+    text = re.sub(r'(?m)^data\s+\$0200 \$\w+', 'data      $0200 $%04X' % (split - 1), text)
+    with open(path, 'w') as f:
         f.write(text)
 
 
@@ -90,7 +123,7 @@ def flat_wendy_env(name, path):
     """compiler-bank.env for NAME without the window entries: all in one on Wendy 2."""
     support.banked_env(name, path)
     with open(path) as f:
-        lines = [l for l in f if not re.match(r'^(window|switch|bank|place|farcall)\s', l)]
+        lines = [l for l in f if not re.match(r'^(window|switch|bank|place|region|farcall)\s', l)]
     lines = [re.sub(r'^code\s+\$(\w+) \$7FFF', r'code      $\1 $EFFF', l) for l in lines]
     with open(path, 'w') as f:
         f.write(''.join(lines))
@@ -112,7 +145,7 @@ def map_report(path):
     code = sum(i[2] for i in fixed if i[0] == 'F')
     stubs = [i for i in fixed if i[0] == 'T']
     data = sum(i[2] for i in fixed if i[0] == 'D')
-    messages = sum(i[2] for i in fixed if i[0] == 'D' and i[3].startswith('err.$'))
+    messages = sum(i[2] for i in fixed if i[0] == 'D' and i[3].startswith(('err.$', 'err.messages_')))
     print('resident: code %d, stubs %d (%d bytes), constant data %d (%d of it err\'s messages)'
           % (code, len(stubs), 6 * len(stubs), data, messages))
     print('resident code, stubs and constants but the messages: %d bytes' % (code + 6 * len(stubs) + data - messages))
@@ -134,7 +167,7 @@ def map_report(path):
 
 
 def runs(image, run, sections, work, tag, extra=False, sources=False):
-    """[(cycles, far calls)] of every section."""
+    """[(cycles, far calls, with blocks entered)] of every section."""
     found = []
     for n, (title, text) in enumerate(sections):
         path = os.path.join(work, '%s-%d.txt' % (tag, n))
@@ -150,11 +183,12 @@ def runs(image, run, sections, work, tag, extra=False, sources=False):
         if extra:
             args.append(count)
         status, out, err, cycles = run(image, args)
-        far = 0
+        far = withs = 0
         if extra and os.path.isfile(count):
             with open(count, 'rb') as f:
-                far = int.from_bytes(f.read(), 'big')
-        found.append((cycles, far))
+                data = f.read()
+            far, withs = int.from_bytes(data[:3], 'big'), int.from_bytes(data[3:6], 'big')
+        found.append((cycles, far, withs))
     return found
 
 
@@ -229,6 +263,7 @@ def main(argv):
     counting_copies(counting, 3 if sources else 2)
     cimage = os.path.join(counting, name + '.bin')
     support.banked_env(name, os.path.join(counting, name + '.env'))
+    lower_split(os.path.join(counting, name + '.env'), COUNTING_ROOM)
     support.build.build(os.path.join(counting, name + '.lth'), cimage,
                         env=os.path.join(counting, name + '.env'), keep=os.path.join(counting, 'work'))
 
@@ -237,9 +272,11 @@ def main(argv):
         c = runs(cimage, support.run_banked, sections + empty, counting, 'c', extra=True, sources=True)
         n = len(sections)
         far = sum(x[1] for x in c[:n])
+        withs = sum(x[2] for x in c[:n])
         print('%s, %d sections of %s.txt:' % (name, n, script))
-        print('  banked on Wendy 2: %d cycles, %d far calls (%d at %d cycles)'
-              % (sum(x[0] for x in b[:n]), far, far * FAR_CALL, FAR_CALL))
+        print('  banked on Wendy 2: %d cycles, %d far calls (%d at %d cycles), %d with blocks (%d at %d)'
+              % (sum(x[0] for x in b[:n]), far, far * FAR_CALL, FAR_CALL, withs, withs * WITH_BLOCK,
+                 WITH_BLOCK))
         print('  an empty script: %d cycles, %d far calls' % (b[n][0], c[n][1]))
         worst = max(range(n), key=lambda i: c[i][1])
         print('  most far calls in a section: %d (section %d, %d cycles banked); %.0f a section'
@@ -253,21 +290,27 @@ def main(argv):
     os.makedirs(wendy, exist_ok=True)
     wimage = os.path.join(wendy, name + '.bin')
     flat_wendy_env(name, os.path.join(wendy, name + '.env'))
-    support.build.build(os.path.join(support.SRC, name + '.lth'), wimage,
-                        env=os.path.join(wendy, name + '.env'), keep=os.path.join(wendy, 'work'))
+    try:
+        support.build.build(os.path.join(support.SRC, name + '.lth'), wimage,
+                            env=os.path.join(wendy, name + '.env'), keep=os.path.join(wendy, 'work'))
+    except support.build.BuildError as e:     # gentest no longer fits Wendy 2 all in one
+        print('all in one on Wendy 2: not built (%s)' % str(e).splitlines()[-1])
+        wimage = None
 
     b = runs(image, support.run_banked, sections + empty, banked, 'b')
     c = runs(cimage, support.run_banked, sections + empty, counting, 'c', extra=True)
     f = runs(fimage, support.run, sections + empty, flat, 'f')
-    w = runs(wimage, support.run_banked, sections + empty, wendy, 'w')
+    w = runs(wimage, support.run_banked, sections + empty, wendy, 'w') if wimage else None
     n = len(sections)
-    bc, cc, fc, wc = (sum(x[0] for x in r[:n]) for r in (b, c, f, w))
+    bc, cc, fc, wc = (sum(x[0] for x in r[:n]) if r else 0 for r in (b, c, f, w))
     far = sum(x[1] for x in c[:n])
+    withs = sum(x[2] for x in c[:n])
     print('%s, %d sections of %s.txt:' % (name, n, script))
-    print('  banked on Wendy 2:      %12d cycles, %d far calls (%d at %d cycles)'
-          % (bc, far, far * FAR_CALL, FAR_CALL))
-    print('  all in one, Wendy 2:    %12d cycles' % wc)
+    print('  banked on Wendy 2:      %12d cycles, %d far calls (%d at %d cycles), %d with blocks (%d at %d)'
+          % (bc, far, far * FAR_CALL, FAR_CALL, withs, withs * WITH_BLOCK, WITH_BLOCK))
     print('  all in one, default:    %12d cycles' % fc)
+    if w is None:
+        return
     load = b[n][0] - w[n][0] - c[n][1] * FAR_CALL
     with open(os.path.join(banked, 'work', name + '.map')) as fh:
         banks = sum(int(l.split()[2], 16) for l in fh if l.startswith('W '))

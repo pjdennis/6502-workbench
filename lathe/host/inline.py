@@ -3,7 +3,7 @@
 Owns
 - the saved tokens (docs/code-model.md, "Inline functions"): an `inline` function's body is
   not compiled where it is declared. save() reads it as tokens up to its `end` and keeps them,
-  for the whole module, in a buffer of SAVED_SIZE bytes of text memory, in the form lex.py
+  for the whole module, in a buffer of SAVED_SIZE bytes of token memory, in the form lex.py
   describes at SAVED_LINE. A name is kept as its name: DECL keeps every name the declaration
   made (it does not release them as a function's scope ends), so it stays valid. An imported
   `inline` function's tokens come from its module's interface (read()), where the names are
@@ -61,7 +61,7 @@ LAST_RETURN = 2
 C_DOLLAR = 0x24
 C_ZERO = 0x30
 
-saved_start = 0             # the buffer, in text memory
+saved_start = 0             # the buffer, in token memory (kernel.token_byte())
 saved_top = 0
 
 local_name = [0] * MAX_LOCALS       # while save() reads a body: the locals it declares
@@ -92,7 +92,7 @@ alias_count = 0
 
 def init():
     global saved_start, saved_top, level, depth, owned_count, alias_count
-    saved_start = kernel.text_reserve(SAVED_SIZE)
+    saved_start = kernel.token_start()
     saved_top = saved_start
     level = 0
     depth = 0
@@ -101,12 +101,12 @@ def init():
 
 
 def word_at(p):
-    return env.mem[p] | (env.mem[p + 1] << 8)
+    return kernel.token_byte(p) | (kernel.token_byte(p + 1) << 8)
 
 
 def set_word_at(p, value):
-    env.mem[p] = value & 0xFF
-    env.mem[p + 1] = (value >> 8) & 0xFF
+    kernel.set_token_byte(p, value & 0xFF)
+    kernel.set_token_byte(p + 1, (value >> 8) & 0xFF)
 
 
 def put(value):
@@ -114,7 +114,7 @@ def put(value):
     global saved_top
     if saved_top == saved_start + SAVED_SIZE:
         err.fatal(err.E_INLINE_FULL)
-    env.mem[saved_top] = value
+    kernel.set_token_byte(saved_top, value)
     saved_top += 1
 
 
@@ -165,7 +165,7 @@ def assigns(f, name):
     """The body assigns to `name`: mark it if it is a parameter."""
     i = parameter_number(f, name)
     if i != 0xFF:
-        env.mem[param(f, i) + 2] = 1
+        kernel.set_token_byte(param(f, i) + 2, 1)
 
 
 def check_name(f, name):
@@ -241,7 +241,7 @@ def save_token(at_line):
             err.fatal(err.E_STRING_LONG)        # a saved string has a length of one byte
         put(lex.string_length)
         for i in range(0, lex.string_length):
-            put(lex.string[i])
+            put(lex.string_byte(i))
     return at_line
 
 
@@ -332,7 +332,7 @@ def save(f):
         scan_flags = scan_flags | LAST_RETURN
     r = kernel.sym_value[f]
     set_word_at(r + R_END, saved_top)
-    env.mem[r + R_FLAGS] = scan_flags
+    kernel.set_token_byte(r + R_FLAGS, scan_flags)
     if scan_flags & PURE != 0:
         set_word_at(r + R_WRITTEN, scan_written)
 
@@ -362,7 +362,7 @@ def write(stream, f):
     for i in range(0, length):
         kernel.put(stream, env.mem[name + i])
     kernel.put_word(stream, word_at(r + R_LINE))
-    kernel.put(stream, env.mem[r + R_FLAGS])
+    kernel.put(stream, kernel.token_byte(r + R_FLAGS))
     if word_at(r + R_WRITTEN) == 0:
         kernel.put(stream, 0)
     else:
@@ -370,12 +370,12 @@ def write(stream, f):
         kernel.put_name(stream, word_at(r + R_WRITTEN))
     for i in range(0, kernel.sym_params[f]):
         kernel.put_name(stream, word_at(param(f, i)))
-        kernel.put(stream, env.mem[param(f, i) + 2])
+        kernel.put(stream, kernel.token_byte(param(f, i) + 2))
     p = r + R_PARAMS + kernel.sym_params[f] * PARAM_SIZE
     while p < word_at(r + R_END):
-        token = env.mem[p]
+        token = kernel.token_byte(p)
         kernel.put(stream, token)
-        kernel.put(stream, env.mem[p + 1])
+        kernel.put(stream, kernel.token_byte(p + 1))
         size = 0
         if token == lex.T_NAME:
             kernel.put_name(stream, word_at(p + 2))
@@ -383,10 +383,10 @@ def write(stream, f):
         elif token == lex.T_NUMBER:
             size = 2
         elif token == lex.T_STRING:
-            size = 1 + env.mem[p + 2]
+            size = 1 + kernel.token_byte(p + 2)
         for i in range(0, size):
             if token != lex.T_NAME:
-                kernel.put(stream, env.mem[p + 2 + i])
+                kernel.put(stream, kernel.token_byte(p + 2 + i))
         p += 2 + size
     kernel.put(stream, lex.T_EOF)
 
@@ -399,13 +399,15 @@ def read(stream, f):
         env.mem[name + i], _ = kernel.get(stream)
     env.mem[name + length] = 0
     begin_record(f, kernel.get_word(stream), name)
-    env.mem[kernel.sym_value[f] + R_FLAGS], _ = kernel.get(stream)
+    flags, _ = kernel.get(stream)
+    kernel.set_token_byte(kernel.sym_value[f] + R_FLAGS, flags)
     written, _ = kernel.get(stream)
     if written != 0:
         set_word_at(kernel.sym_value[f] + R_WRITTEN, read_name(stream))
     for i in range(0, kernel.sym_params[f]):
         set_word_at(param(f, i), read_name(stream))
-        env.mem[param(f, i) + 2], _ = kernel.get(stream)
+        assigned, _ = kernel.get(stream)
+        kernel.set_token_byte(param(f, i) + 2, assigned)
     while True:
         token, at_end = kernel.get(stream)
         if at_end or token > lex.SAVED_LINE:
@@ -440,7 +442,7 @@ def lookup(name):
         return kernel.sym_lookup(name)
     scope = SCOPE_INLINE + level
     home = kernel.sym_scope[expanding[level]]
-    s = kernel.name_word(name + kernel.N_SYMBOL)
+    s = kernel.name_symbol(name)
     while s != kernel.NO_SYM and kernel.sym_scope[s] != scope and kernel.sym_scope[s] != home \
             and kernel.sym_scope[s] != kernel.SCOPE_PREDECLARED:
         s = kernel.sym_link[s]
@@ -493,7 +495,7 @@ def enter(f, results_wanted):
     of the calls whose arguments are being read stand for. Only expansions whose bodies are
     being compiled count for recursion: `f(f(x))` is two calls, one inside the other's arguments."""
     global depth
-    if env.mem[kernel.sym_value[f] + R_FLAGS] & PURE == 0 or word_at(kernel.sym_value[f] + R_WRITTEN) != 0:
+    if kernel.token_byte(kernel.sym_value[f] + R_FLAGS) & PURE == 0 or word_at(kernel.sym_value[f] + R_WRITTEN) != 0:
         copy_aliases()
     d = level
     while d > 0:
@@ -528,7 +530,7 @@ def argument_symbol(f, i):
     kind = kernel.K_LOCAL
     value = 0
     stands = False              # for a variable
-    if env.mem[param(f, i) + 2] == 0:
+    if kernel.token_byte(param(f, i) + 2) == 0:
         if reg.op_kind[j] == reg.O_CONST:
             kind = kernel.K_CONST
             value = reg.op_value[j]
@@ -538,7 +540,7 @@ def argument_symbol(f, i):
             if reg.op_symbol[j] == reg.own and reg.op_slot[j] != fbuf.NO_SLOT:
                 value = reg.op_slot[j]
                 stands = True
-            elif reg.op_var[j] != kernel.NO_SYM and env.mem[r + R_FLAGS] & PURE != 0 \
+            elif reg.op_var[j] != kernel.NO_SYM and kernel.token_byte(r + R_FLAGS) & PURE != 0 \
                     and kernel.sym_name[reg.op_var[j]] != word_at(r + R_WRITTEN):
                 kind = K_ALIAS
                 value = reg.op_var[j]
@@ -604,17 +606,14 @@ def leaves_operand():
     and the expansion owns no slot that the operand could use."""
     f = expanding[level]
     return wanted[level] and kernel.sym_results[f] == 1 \
-        and env.mem[kernel.sym_value[f] + R_FLAGS] & LAST_RETURN != 0 \
+        and kernel.token_byte(kernel.sym_value[f] + R_FLAGS) & LAST_RETURN != 0 \
         and owned_count == owned_base[level]
 
 
 def leave():
     """The newest expansion has ended: its symbols go, and its slots are free again."""
     global level, depth, owned_count
-    while kernel.sym_count > sym_base[depth]:
-        kernel.sym_count -= 1
-        kernel.name_set_word(kernel.sym_name[kernel.sym_count] + kernel.N_SYMBOL,
-                             kernel.sym_link[kernel.sym_count])
+    kernel.sym_release(sym_base[depth])
     while owned_count > owned_base[depth]:
         owned_count -= 1
         reg.slot_busy[owned[owned_count]] = False

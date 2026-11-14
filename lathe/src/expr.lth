@@ -61,7 +61,6 @@
 ;   | functions                            |                                   | them            |
 ;   | map_symbol and unmap_symbol, set by  | declared above init()             | declare before  |
 ;   | init() and declared with `with`      |                                   | use             |
-;   | fbuf.buffer[entry + 2] = used & 0xFF | lo(used), hi(used)                |                 |
 module expr
 
 import asmblock
@@ -560,7 +559,7 @@ func string()
   symbol = gen.anonymous()
   out.data(symbol, lex.string_length + 1)
   for i = 0 until lex.string_length do
-    out.data_byte(lex.string[i])
+    out.data_byte(lex.string_byte(i))
   end
   out.data_byte(0)
   reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
@@ -1215,7 +1214,7 @@ pub recursive func table_data(t: byte, symbol: word)
     end
     var i: word
     for i = 0 until lex.string_length do
-      out.table[i] = lex.string[i]
+      out.table_byte(i, lex.string_byte(i))
     end
     lex.next()
   else
@@ -1839,7 +1838,7 @@ recursive func with_statement()
   saved_loop = with_loop
   temp = fbuf.NO_SLOT
   entry = reg.NONE
-  if region != outer_region then
+  if not reg.same_region(region, outer_region) then
     temp = map_bank()
     entry = with_entry
     if with_function == fbuf.NO_SLOT then
@@ -1863,8 +1862,7 @@ recursive func with_statement()
   out.with_used = outer_used
   if temp != fbuf.NO_SLOT then
     if entry != reg.NONE then
-      fbuf.buffer[entry + 2] = lo(used)
-      fbuf.buffer[entry + 3] = hi(used)
+      fbuf.set_symbol(entry, used)
     end
     unmap_bank(temp)
     reg.slot_busy[temp] = false

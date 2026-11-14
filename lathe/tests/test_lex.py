@@ -62,7 +62,7 @@ def spelling(name):
 def string(text):
     token, _ = first(text)
     assert token == lex.T_STRING, token
-    return bytes(lex.string[i] for i in range(lex.string_length))
+    return bytes(lex.string_byte(i) for i in range(lex.string_length))
 
 
 class LexTest(unittest.TestCase):

@@ -170,6 +170,15 @@ class OutTest(unittest.TestCase):
         self.assertEqual(self.written()[2:], [(DFIX, b'\x01\x00\x01\x00\x00\xff\x02\x00'),
                                               (DATA, b'\x00\x00\x00\x00\x00'), (END, b'')])
 
+    def test_the_bytes_of_a_table_are_given_one_by_one(self):
+        out.begin_module(0, name(b'm'))
+        t = out.symbol(out.SYM_DATA, name(b'm'), 0, name(b't'))
+        out.table_begin(3)
+        out.table_byte(0, 0x41)
+        out.table_byte(2, 0x43)
+        out.table_end(t, 3)
+        self.assertEqual(self.written()[2:], [(DATA, b'\x00\x00\x41\x00\x43'), (END, b'')])
+
     def test_a_file_that_cannot_be_created_does_not_open(self):
         pointer, _ = support.put_text(b'/nonexistent/dir/m.lo')
         self.assertFalse(out.open(pointer))

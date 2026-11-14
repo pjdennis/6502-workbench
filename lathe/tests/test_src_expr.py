@@ -10,8 +10,8 @@ error output and status of a section that ends with an error. main() below does 
 expr.py.
 
 The program has EXPR, GEN and everything below them, about 50 KB of code: it is built banked on
-Wendy 2 (lathe/host/README.md, "The banked build"), with the small build's capacities, and the
-host is run at those capacities. By default a representative part of the sections is run (every
+Wendy 2 (lathe/host/README.md, "The banked build"), at the compiler's full capacities, as the
+host is run. By default a representative part of the sections is run (every
 third, the first and last included); LATHE_BANKED_ALL=1 runs all of them.
 
 With LATHE_EXPR_COVERAGE=1 the test of the lines reached prints the statements of expr.py that
@@ -285,7 +285,7 @@ def reached_lines(found):
     sys.settrace(tracer)
     try:
         for title, commands, txt, lth in found:
-            script.host_run(main, [txt, txt[:-4] + '.loP', lth], True)
+            script.host_run(main, [txt, txt[:-4] + '.loP', lth])
     finally:
         sys.settrace(old)
     return hit
@@ -333,7 +333,7 @@ class ExprTest(unittest.TestCase):
                 os.chdir(self.dir)
                 try:
                     base = os.path.basename(txt)[:-4]
-                    host = script.host_run(main, [base + '.txt', base + '.loP', base + '.lth'], True)
+                    host = script.host_run(main, [base + '.txt', base + '.loP', base + '.lth'])
                 finally:
                     os.chdir(here)
                 if output != host[1]:

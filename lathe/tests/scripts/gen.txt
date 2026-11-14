@@ -2164,5 +2164,5 @@ fend 0
 end
 == a variable in a region used outside a block of its region is error 118
 var 1 2 0 77 rv
-inside 78
+inside 0
 gvar 0

@@ -3,6 +3,9 @@
 Owns
 - the text memory: the part of env.mem that holds what the system must see as zero-terminated
   text (the program's arguments and the name of the file being opened);
+- the token memory: another part of env.mem, where INLINE keeps its saved tokens, read and
+  written only through token_byte() and set_token_byte() and memory streams (it is in a data
+  bank when the compiler is banked: lathe/docs/configurations.md, step 10);
 - streams: bytes read or written in order, from a file or from memory, so that no phase knows
   which it has;
 - the name heap: every name is stored once and is known everywhere by its offset there;
@@ -21,9 +24,11 @@ import err
 # ---- Text memory -------------------------------------------------------------------------
 
 TEXT_BASE = 0x0100          # not 0: a pointer of 0 means "none"
-TEXT_SIZE = 0x1000          # bytes of text memory
+TEXT_SIZE = 0x0800          # bytes of text memory
 TEXT_END = TEXT_BASE + TEXT_SIZE   # (the checks below add TEXT_SIZE, which the small build's tests lower)
 PATH_SIZE = 256
+TOKEN_BASE = 0x1100         # the token memory, after the text memory however large that is made
+TOKEN_SIZE = 0x0800         # bytes of token memory: at least inline.SAVED_SIZE
 
 text_top = TEXT_BASE
 path = 0                    # the file name being built, PATH_SIZE bytes
@@ -38,6 +43,20 @@ def text_reserve(size):
     start = text_top
     text_top += size
     return start
+
+
+def token_start():
+    """Pointer to the token memory."""
+    return TOKEN_BASE
+
+
+def token_byte(p):
+    """The byte of token memory at `p`."""
+    return env.mem[p]
+
+
+def set_token_byte(p, value):
+    env.mem[p] = value
 
 
 def keep_argument(i):
@@ -191,7 +210,7 @@ def put_name(s, name):
 # A name is built in place above the heap's top, one character at a time, and only kept if
 # it is new, so looking a name up copies nothing.
 
-NAME_HEAP_SIZE = 17920
+NAME_HEAP_SIZE = 18944
 NAME_BUCKETS = 64           # a power of two
 MAX_NAME = 31               # significant characters
 
@@ -392,6 +411,11 @@ def sym_find(scope, name):
     return thaw(scope, f), True
 
 
+def name_symbol(name):
+    """The newest symbol called `name`, or NO_SYM: the first on its chain (sym_link)."""
+    return name_word(name + N_SYMBOL)
+
+
 def sym_lookup(name):
     """What a plain `name` means here: a local, else a module-level symbol, else a predeclared
     one. Symbols of imported modules are skipped: those are written module.name."""
@@ -562,13 +586,18 @@ def scope_begin():
     local_names = name_top
 
 
-def scope_end():
-    """The function ends: release its symbols and the names only it used."""
+def sym_release(base):
+    """Release the symbols from `base` up. Their names stay."""
     global sym_count
-    while sym_count > local_base:
+    while sym_count > base:
         sym_count -= 1
         # Symbols are released newest first, so each is the first on its name's chain.
         name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
+
+
+def scope_end():
+    """The function ends: release its symbols and the names only it used."""
+    sym_release(local_base)
     names_release(local_names)
 
 

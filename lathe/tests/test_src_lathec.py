@@ -1,6 +1,6 @@
 """The compiler written in Lathe: lathe/src/lathec.lth, the main module, with the twins of all
-sixteen host modules, built banked on Wendy 2 with --disk (lathe/src/compiler-bank.env, the
-small build's capacities) and run on the emulator over the corpus, against the host compiler
+sixteen host modules, built banked on Wendy 2 with --disk (lathe/src/compiler-bank.env with
+SMALL 1: the small build's capacities; test_src_selfhost.py runs it at full size) and run on the emulator over the corpus, against the host compiler
 (lathe/host/lathec.py) at the same capacities (lathec_small.py, script_host.SMALL).
 
 The inputs are every module of the corpus memory_report.py compiles: the snapshot cases
@@ -33,6 +33,10 @@ import src_support as support
 import memory_report
 
 ALL = os.environ.get('LATHE_BANKED_ALL') == '1'
+# LATHE_LATHEC_FULL=1: the banked build at full size against the host compiler at full size
+# (stage 11, step 10), over the same inputs; the checks of what the small inputs reach are not
+# made then.
+FULL = os.environ.get('LATHE_LATHEC_FULL') == '1'
 HERE = os.path.dirname(os.path.abspath(__file__))
 LATHE = os.path.dirname(HERE)
 SMALL_LATHEC = os.path.join(HERE, 'lathec_small.py')
@@ -124,7 +128,7 @@ MADE = [
                                                  + b'\x00') for c in LETTERS[:10]])),
     ('text memory full (82): the file names of imported inline functions', ['m.lth', '.'],
      {'m.lth': b'module m\nimport bad\n', 'bad.li': LI + b''.join(
-         b'\x01\x01%c\x08\x00\x00\x64' % c + b'f' * 100 + b'\x01\x00\x00\x00\x00' for c in b'ghk') + b'\x00'}),
+         b'\x01\x01%c\x08\x00\x00\x64' % c + b'f' * 100 + b'\x01\x00\x00\x00\x00' for c in b'ghknpq') + b'\x00'}),
     ('a file name too long (83)', ['m.lth', '.', 'd' * 240],
      {'m.lth': b'module m\nimport abcdefghijklmnopqrstuvwxyz01234\n'}),
     ('too many locals in an inline function (85)', ['m.lth', '.'],
@@ -257,7 +261,8 @@ def run_host(item, work):
     kind, path, args, files = item
     with tempfile.TemporaryDirectory(dir=work) as disk:
         before = fill(disk, files)
-        done = subprocess.run([sys.executable, SMALL_LATHEC] + args, cwd=disk, capture_output=True)
+        oracle = os.path.join(LATHE, 'host', 'lathec.py') if FULL else SMALL_LATHEC
+        done = subprocess.run([sys.executable, oracle] + args, cwd=disk, capture_output=True)
         return done.returncode, done.stdout, done.stderr, outputs(disk, before)
 
 
@@ -307,7 +312,7 @@ class LathecTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.mkdtemp(prefix='lathe-src-lathec-')
-        cls.image = support.build_program('lathec', cls.dir, banked=True)
+        cls.image = support.build_program('lathec', cls.dir, small=not FULL, banked=True)
         cls.corpus = Corpus(os.path.join(cls.dir, 'corpus'))
         with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
             cls.host = list(pool.map(lambda i: run_host(i, cls.dir), cls.corpus.items))
@@ -354,6 +359,7 @@ class LathecTest(unittest.TestCase):
             print('%d of %d inputs compared' % (len(picked), len(self.corpus.items)))
         self.assertGreater(sum(1 for n in picked if fits(self.corpus.items[n], self.host[n])), 0)
 
+    @unittest.skipIf(FULL, 'the inputs are sized for the small build')
     def test_every_error_number_is_reached_by_an_input_that_fits(self):
         """Each error the compiler can report (err.py's E_ numbers) is the error of some input
         that fits, but those in NOT_REPORTED."""
@@ -369,6 +375,7 @@ class LathecTest(unittest.TestCase):
                   % (len(numbers & reached), len(numbers), sorted(numbers - reached)))
         self.assertEqual(sorted(numbers - reached), sorted(NOT_REPORTED))
 
+    @unittest.skipIf(FULL, 'the inputs are sized for the small build')
     def test_the_inputs_that_fit_reach_the_statements_of_decl_and_lathec(self):
         """The statements of decl.py and lathec.py that the inputs which fit run on the host
         side, at the small capacities: those the Lathe-written compiler is tested on. With

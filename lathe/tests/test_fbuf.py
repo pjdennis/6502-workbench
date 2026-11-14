@@ -1,13 +1,16 @@
 """fbuf.py: the function buffer gives code in the written layout and fix-ups sorted by offset
 (docs/object-format.md, "Code and fix-ups"), with branches short where they reach."""
 import os
+import struct
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lathec_support as support  # noqa: E402
 import err  # noqa: E402
 import fbuf  # noqa: E402
+import kernel  # noqa: E402
 
 NOP, RTS, JMP, JSR = 0xEA, 0x60, 0x4C, 0x20
 LDA_IMM, LDA_ABS, LDA_IND_Y, STA_ABS = 0xA9, 0xAD, 0xB1, 0x8D
@@ -701,3 +704,48 @@ class ThreadTest(FbufTest):
         fbuf.op(RTS)
         fbuf.as_written(False)
         self.assertEqual(code(), bytes([JMP, 0, 0, RTS]))
+
+
+class WritingTest(FbufTest):
+    """put_fixups() and put_code() write what the walks give, as OUT's FIX and CODE records hold
+    it; set_symbol() changes the symbol of an instruction's fix-up after it was added."""
+    def finished_function(self):
+        top = fbuf.new_label()
+        fbuf.place(top)
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, 5, fbuf.NO_SLOT, 1)
+        fbuf.op_fix(LDA_IMM, fbuf.FIX_LOW, 0x123, 2, 0)
+        fbuf.branch(BNE, top)
+        fbuf.op(RTS)
+        fbuf.finish(OWN, 0)
+
+    def written(self, put):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, _ = support.put_text(os.path.join(tmp, 'x.bin').encode())
+            out, ok = kernel.open_out(path)
+            self.assertTrue(ok)
+            put(out)
+            kernel.close(out)
+            with open(os.path.join(tmp, 'x.bin'), 'rb') as f:
+                return f.read()
+
+    def test_the_fix_ups_are_written_in_order(self):
+        kernel.init()
+        self.finished_function()
+        expected = b''.join(struct.pack('<HBHBH', *f) for f in fixups())
+        self.assertEqual(self.written(fbuf.put_fixups), expected)
+        self.assertEqual(len(expected), 8 * fbuf.fix_count)
+
+    def test_the_code_is_written_as_the_walk_gives_it(self):
+        kernel.init()
+        self.finished_function()
+        self.assertEqual(self.written(fbuf.put_code),
+                         bytes([LDA_ABS, 0, 0, LDA_IMM, 0, BNE, 0xF9, RTS]))
+
+    def test_the_symbol_of_a_fix_up_can_be_changed(self):
+        fbuf.op(NOP)
+        entry = fbuf.used
+        fbuf.op_fix(LDA_IMM, fbuf.FIX_LOW, 0x123, fbuf.NO_SLOT, 4)
+        fbuf.op(RTS)
+        fbuf.set_symbol(entry, 0x456)
+        code()
+        self.assertEqual(fixups(), [(2, fbuf.FIX_LOW, 0x456, fbuf.NO_SLOT, 4)])

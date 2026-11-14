@@ -1883,7 +1883,7 @@ fend 0
 --
 var a: byte zp nozp
 
-== a variable in a region is error 39 for now
+== a local variable in a region is error 182
 func f 0 0 0 0
 source
 first

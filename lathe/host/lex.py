@@ -193,6 +193,11 @@ nesting = 0             # how many `#if` are open around the line being read
 else_parts = 0          # bit n set: the `#if` at depth n + 1 is in its `#else` part
 
 
+def string_byte(i):
+    """Byte `i` of the string just read."""
+    return string[i]
+
+
 def init():
     """Give the keywords their tokens. Needs a new name heap."""
     global tok, open_brackets, nesting, else_parts, end_line

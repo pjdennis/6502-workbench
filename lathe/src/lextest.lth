@@ -69,7 +69,7 @@ func show()
     put_word(lex.string_length)
     for k = 0 until lex.string_length do
       sys.put_byte(' ')
-      put_hex(lex.string[k])
+      put_hex(lex.string_byte(k))
     end
   end
   sys.put_byte(C_LF)

@@ -70,13 +70,14 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 
 | Table | Owner | Rows × bytes | Bytes | Peak on the corpus | Why this size |
 |---|---|---|---|---|---|
-| Name heap: names, frozen imports | kernel | 17,920 × 1 | 17,920 | 17,875 (`expr.lth`, 12 imports) | `expr.lth` (17,096 before `with`); `decl.lth` 16,970, `lathec.lth` 13,034; `inlines.lth` 14,971, `gen.lth` 14,149, `inlinetest` 14,698, `regcmd` 11,923, `reg.lth` 11,085. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function) |
+| Name heap: names, frozen imports | kernel | 18,944 × 1 | 18,944 | 18,122 (`expr.lth`, 12 imports) | in a data bank when banked (`NAMES`, bank 4). `expr.lth` (17,875 before step 10 exported `kernel.name_put` and the other accessors of the regions, 17,096 before `with`); `decl.lth` 16,970, `lathec.lth` 13,034; `inlines.lth` 14,971, `gen.lth` 14,149, `inlinetest` 14,698, `regcmd` 11,923, `reg.lth` 11,085. A name is 6 + its length; a frozen import is 8 + its length (+ 2 + 2 a member for a function) |
 | Symbol columns | kernel | 560 × 17 | 9,520 | 539 (`expr.lth`) | own symbols, locals, and the imported symbols the module names; `gen.lth` 462, `decl.lth` 366, `reg.lth` 298, `lathec.lth` 113 |
 | Members (parameters, results) | kernel | 432 × 2 | 864 | 409 (`gen.lth`) | `reg.lth` 285 |
 | Name buckets, streams, modules | kernel | | 252 | | |
-| Text memory: file name, arguments, saved tokens | kernel | 4,096 × 1 | 4,096 | 3,383 (saved tokens 520 of 2,048) | the Lathe twin has the same since INLINE is ported (1,280, with 384 of saved tokens, in the small build) |
-| String being read | lex | 2,048 × 1 | 2,048 | 2,048 | the language allows a 2,048-byte string |
-| Function buffer | fbuf | 4,096 × 1 | 4,096 | 3,357 (`kernel.lth`) | about 1.3 bytes an instruction byte |
+| Text memory: file name, arguments, file names of inline functions | kernel | 2,048 × 1 | 2,048 | about 1,350 | fixed: the system reads names from it (768 in the small build) |
+| Token memory: INLINE's saved tokens | kernel | 2,048 × 1 | 2,048 | 520 | out of the text memory since step 10, reached through `kernel.token_byte()`; in a data bank when banked (`TOKENS`, bank 6; 384 in the small build) |
+| String being read | lex | 2,048 × 1 | 2,048 | 2,048 | the language allows a 2,048-byte string; in a data bank when banked (`STRING`, bank 6), read by others through `lex.string_byte()` |
+| Function buffer | fbuf | 4,096 × 1 | 4,096 | 3,357 (`kernel.lth`) | about 1.3 bytes an instruction byte; in a data bank when banked (`FUNCBUF`, bank 6), with `label_offset` and `label_uses` |
 | Labels (offset, alias, uses / loop end, note) | fbuf | 192 × 6 | 1,152 | 115 | a label is one byte; `label_uses` is the loop ends once the layout is settled |
 | Weights of other functions' slots | fbuf | 64 × 4 | 261 | 23 | |
 | Constant table and its fix-ups | out | 2,048 + 256 × 8 | 4,096 | 600; 244 fix-ups (`err.MESSAGES`) | the language allows a 2,048-byte table |
@@ -85,7 +86,7 @@ Because there is no syntax tree, memory holds only tables, and each lives no lon
 | Types | typetab | 64 × 7 + 16 × 3 | 496 | 35 | |
 | Initial values, stubs, saving calls | gen | | 744 | 22 inits of 32 | |
 | ASM labels; inline expansions; `case` values; interface entry | asmblock, inline, expr, decl | | 1,343 | | ASMBLOCK's label numbers and INLINE's byte columns are bytearrays (1,408 to 1,252); what `expr.expand()` keeps for each expansion, 91 bytes, which `expr.lth` would otherwise push on rt_frame's stack |
-| **Total** | | | **50,132** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
+| **Total** | | | **51,163** | | at the start of this revision **71,843** (55,715 without the 16,128 bytes of host text memory) |
 
 What changed, and what each change saved:
 

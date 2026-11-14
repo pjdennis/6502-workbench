@@ -25,6 +25,15 @@
 ;   | ~bit & 0xFFFF                       | ~bit                               | a word wraps   |
 ;   | `while True:` ... `break`           | loop ... end                       |                |
 ;   | is_digit(): a function              | `inline`; C_0 and C_9 exported     | smaller code   |
+;   | string: an array                    | `in STRING`, a region (lathe/docs/ | in a data bank |
+;   |                                     | language.md, "Banked data"), not   | when banked    |
+;   |                                     | exported: used inside `with STRING | (configurations|
+;   |                                     | do ... end` around each loop over  | .md, step 10)  |
+;   |                                     | it and in string_byte()            |                |
+;   | name_or_keyword(), init():          | kernel.name_put() inside           | the name heap  |
+;   | kernel.name_add() for each character| `with NAMES do ... end` around the | is in a data   |
+;   |                                     | characters of a whole name (init():| bank: one      |
+;   |                                     | around all the keywords)           | mapping a name |
 module lex
 
 import err
@@ -201,11 +210,18 @@ pub var tok: byte = T_NL        ; T_NL before the first token: a file begins at 
 pub var value: word
 pub var line: word              ; where the token's first character is
 pub var col: word
-pub var string: [MAX_STRING]byte
+var string: [MAX_STRING]byte in STRING
 pub var string_length: word
 pub var open_brackets: byte     ; how many ( and [ are open: no line ends inside them
 var end_line: word              ; where a line end is that the lexer passed over looking for a
 var end_col: word               ; further piece of a string, and must still give as a token; line 0: none
+
+; Byte `i` of the string just read.
+pub func string_byte(i: word): byte
+  with STRING do
+    return string[i]
+  end
+end
 
 const MAX_NESTING = 16
 pub var nesting: byte           ; how many `#if` are open around the line being read
@@ -228,17 +244,19 @@ pub func init()
   else_parts = 0
   token = T_AND
   kernel.name_begin()
-  for k = 0 until len(KEYWORDS) do
-    p = KEYWORDS[k]
-    while p[0] != 0 do
-      if p[0] == C_SPACE then
-        kernel.name_set_token(kernel.name_end(), token)
-        token += 1
-        kernel.name_begin()
-      else
-        kernel.name_add(p[0])
+  with NAMES do
+    for k = 0 until len(KEYWORDS) do
+      p = KEYWORDS[k]
+      while p[0] != 0 do
+        if p[0] == C_SPACE then
+          kernel.name_set_token(kernel.name_end(), token)
+          token += 1
+          kernel.name_begin()
+        else
+          kernel.name_put(p[0])
+        end
+        p += 1
       end
-      p += 1
     end
   end
 end
@@ -297,9 +315,11 @@ end
 func name_or_keyword()
   var name: word
   kernel.name_begin()
-  while is_letter(src.ch) or is_digit(src.ch) or src.ch == C_UNDERSCORE do
-    kernel.name_add(fold(src.ch))
-    src.advance()
+  with NAMES do
+    while is_letter(src.ch) or is_digit(src.ch) or src.ch == C_UNDERSCORE do
+      kernel.name_put(fold(src.ch))
+      src.advance()
+    end
   end
   name = kernel.name_end()
   tok = kernel.name_token(name)
@@ -401,16 +421,18 @@ end
 ; Collect a string, after its opening quote, into `string`, after what is there.
 func string_token()
   var c: byte
-  while src.ch != C_DQUOTE do
-    if src.eof or src.ch == C_LF then
-      err.fatal(err.E_OPEN_STRING)
+  with STRING do
+    while src.ch != C_DQUOTE do
+      if src.eof or src.ch == C_LF then
+        err.fatal(err.E_OPEN_STRING)
+      end
+      c = literal_char()
+      if string_length == MAX_STRING then
+        err.fatal(err.E_STRING_LONG)
+      end
+      string[string_length] = c
+      string_length += 1
     end
-    c = literal_char()
-    if string_length == MAX_STRING then
-      err.fatal(err.E_STRING_LONG)
-    end
-    string[string_length] = c
-    string_length += 1
   end
   src.advance()
 end
@@ -543,8 +565,10 @@ func error_directive()
     err.put_char(C_COLON)
     err.put_char(C_SPACE)
   end
-  for i = 0 until string_length do
-    err.put_char(string[i])
+  with STRING do
+    for i = 0 until string_length do
+      err.put_char(string[i])
+    end
   end
   err.fatal_end()
 end
@@ -695,8 +719,10 @@ func saved_token()
     value = value | (word(src.next_byte()) << 8)
   elif tok == T_STRING then
     string_length = src.next_byte()
-    for i = 0 until string_length do
-      string[i] = src.next_byte()
+    with STRING do
+      for i = 0 until string_length do
+        string[i] = src.next_byte()
+      end
     end
   end
 end

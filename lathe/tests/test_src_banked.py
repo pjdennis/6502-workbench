@@ -1,9 +1,10 @@
 """The test programs of the compiler's twins banked on Wendy 2 (lathe/host/README.md, "The
 banked build"): outtest, regtest, condtest and gentest built with lathe/src/compiler-bank.env
-(placement D's fallback E of lathe/docs/configurations.md, the small tables) by
+(the code in three banks, the big tables in two data banks, the full capacities:
+lathe/docs/configurations.md, "Measured on the compiler's test programs") by
 src_support.build_banked, and run with --disk on Wendy 2 by src_support.run_banked. Each
 section of their scripts must give what the Python twins give, as on the default machine
-(test_src_out.py and the others): the same comparison, with the host at the small capacities.
+(test_src_out.py and the others): the same comparison, with the host at its own capacities.
 
 By default a representative part of each script is run: every section of reg.txt, cond.txt and
 out.txt, and every fourth section of gen.txt (its first and last included). LATHE_BANKED_ALL=1
@@ -35,6 +36,16 @@ def read_map(path):
     return items
 
 
+# The tables the small build makes smaller (script_host.SMALL), as (host module, capacity, bytes
+# an element, the array's name in the map) for one array each capacity sizes.
+FULL_TABLES = (('kernel', 'NAME_HEAP_SIZE', 1, 'kernel.names'), ('kernel', 'MAX_SYMS', 1, 'kernel.sym_kind'),
+               ('kernel', 'MAX_MEMBERS', 1, 'kernel.member_type'), ('kernel', 'TEXT_SIZE', 1, 'kernel.text'),
+               ('kernel', 'TOKEN_SIZE', 1, 'kernel.tokens'), ('fbuf', 'BUFFER_SIZE', 1, 'fbuf.buffer'),
+               ('fbuf', 'MAX_LABELS', 1, 'fbuf.label_note'), ('fbuf', 'MAX_WEIGHTS', 1, 'fbuf.weight_slot'),
+               ('out', 'MAX_TABLE', 1, 'out.table'), ('out', 'MAX_TABLE_FIXES', 1, 'out.table_fix_kind'),
+               ('lex', 'MAX_STRING', 1, 'lex.string'), ('typetab', 'MAX_TYPES', 1, 'typetab.form'))
+
+
 class Banked(unittest.TestCase):
     """One program: NAME is built banked in setUpClass."""
     NAME = None
@@ -63,16 +74,40 @@ class Banked(unittest.TestCase):
         in banks 2, 3 and 5; the lower layers fixed."""
         self.assertEqual(self.bank_of(self.NAME), {1})
         self.assertEqual(self.bank_of('script'), {1})
-        for module, bank in (('out', 5), ('reg', 2), ('gen', 2), ('cond', 3), ('listing', 1),
-                             ('regcmd', 1), ('kernel', 0), ('err', 0), ('fbuf', 0), ('sys', 0),
+        for module, bank in (('out', 5), ('reg', 2), ('gen', 2), ('fold', 3), ('cond', 3), ('listing', 1),
+                             ('regcmd', 1), ('typetab', 2), ('kernel', 0), ('err', 0), ('fbuf', 0), ('sys', 0),
                              ('disk', 0), ('rt_bank', 0)):
             self.assertIn(self.bank_of(module), (set(), {bank}), module)
+
+    def test_the_tables_have_the_full_capacities(self):
+        """compiler-bank.env builds the twins with SMALL 0, and each table the small build makes
+        smaller (script_host.SMALL) has its full size in the map: the host's own capacity."""
+        import importlib
+        import mapenv
+        self.assertIn(dict((n.lower(), v) for n, v in mapenv.read_env(support.BANK_ENV).defines)['small'],
+                      (0, '0'))
+        sizes = {name: size for kind, address, size, name, rest in self.map if kind == 'V'}
+        checked = 0
+        for module, const, width, table in FULL_TABLES:
+            if table in sizes:
+                full = getattr(importlib.import_module(module), const)
+                self.assertEqual(sizes[table], full * width, table)
+                checked += 1
+        self.assertGreater(checked, 8)
+
+    def test_the_big_tables_are_in_the_data_banks(self):
+        banks = {name: [r for r in rest if r.startswith('b=')] for kind, address, size, name, rest
+                 in self.map if kind in 'VD'}
+        for table, bank in (('kernel.names', 'b=4'), ('fbuf.buffer', 'b=6'), ('lex.string', 'b=6'),
+                            ('kernel.tokens', 'b=6'), ('err.messages_1', 'b=6')):
+            if table in banks:
+                self.assertEqual(banks[table], [bank], table)
 
     def test_resident_code_is_within_the_goal(self):
         """Fixed code, constant data that is not err's messages, and the stubs."""
         resident = sum(size for kind, address, size, name, rest in self.map
                        if kind in 'FDT' and address < 0x8000 and not any(r.startswith('b=') for r in rest)
-                       and not name.startswith('err.$'))
+                       and not name.startswith(('err.$', 'err.messages_')))
         self.assertLess(resident, RESIDENT_GOAL)
 
 
@@ -81,7 +116,7 @@ class OutBanked(Banked):
 
     def test_every_script(self):
         self.assertGreater(script.check_script(self, self.image, test_src_out.main, 'out', self.dir,
-                                               outputs=1, small=True, banked=True), 3)
+                                               outputs=1, banked=True), 3)
 
 
 class RegBanked(Banked):
@@ -89,7 +124,7 @@ class RegBanked(Banked):
 
     def test_every_script(self):
         self.assertGreater(script.check_script(self, self.image, regcmd_host.main, 'reg', self.dir,
-                                               outputs=1, small=True, banked=True), 5)
+                                               outputs=1, banked=True), 5)
 
 
 class CondBanked(Banked):
@@ -98,7 +133,7 @@ class CondBanked(Banked):
     def test_every_script(self):
         self.assertGreater(script.check_script(self, self.image, test_src_cond.main, 'cond',
                                                self.dir, outputs=1,
-                                               extra=test_src_cond.grid_sections(), small=True,
+                                               extra=test_src_cond.grid_sections(),
                                                banked=True), 5)
 
 
@@ -109,7 +144,7 @@ class GenBanked(Banked):
         last = len(script.sections('gen')) - 1
         chosen = None if ALL else (lambda n: n % 4 == 0 or n == last)
         self.assertGreater(script.check_script(self, self.image, test_src_gen.main, 'gen', self.dir,
-                                               outputs=1, small=True, banked=True, chosen=chosen),
+                                               outputs=1, banked=True, chosen=chosen),
                            5)
 
 

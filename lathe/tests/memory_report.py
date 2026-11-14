@@ -7,7 +7,7 @@ Counts every module-level array of the compiler's host modules (lathe/host/ but 
 linker and driver/): a list is 2 bytes an element, a bytearray or a list of bools 1, as a Lathe
 `word`, `byte` and `bool` array are. A table that holds only bytes is a bytearray in the host, so that the count and
 the Lathe twin agree (test_memory.py checks the twins). Then the text memory, kernel.TEXT_SIZE
-bytes. Constant data (b"..." texts and tables) is code-side and not counted.
+bytes, and the token memory, kernel.TOKEN_SIZE. Constant data (b"..." texts and tables) is code-side and not counted.
 
 --corpus compiles every module of the corpus (each .lth under lathe/src/, lathe/rt/ and
 lathe/tests/cases/, with the modules it imports first) with the host compiler, in this process,
@@ -58,8 +58,9 @@ def arrays(name):
 
 
 def text_size():
+    """The text memory and the token memory (INLINE's saved tokens)."""
     import kernel
-    return kernel.TEXT_SIZE
+    return kernel.TEXT_SIZE + kernel.TOKEN_SIZE
 
 
 def table_bytes():
@@ -385,14 +386,14 @@ def main(argv):
                 print('%-9s %-22s %6d %3d %6d %s' % (name, attr, n, w, n * w, peak), end='')
                 print('  ' + os.path.relpath(where[(name, attr)], LATHE) if peaks and peaks[(name, attr)] else '')
         print('%-9s %-22s %6s %3s %6d' % (name, '(all)', '', '', size))
-    text = text_size()
-    grand += text
+    import kernel
+    grand += text_size()
     peak = '%6d' % peaks[('kernel', 'text')] if peaks else ''
-    print('%-9s %-22s %6d %3d %6d %s' % ('kernel', 'text memory', text, 1, text, peak))
-    if peaks:
-        import inline
-        print('%-9s %-22s %6d %3s %6s %6d  (in the text memory)' % (
-            'inline', 'saved tokens', inline.SAVED_SIZE, '', '', peaks[('inline', 'saved tokens')]))
+    print('%-9s %-22s %6d %3d %6d %s' % ('kernel', 'text memory', kernel.TEXT_SIZE, 1, kernel.TEXT_SIZE,
+                                         peak))
+    peak = '%6d' % peaks[('inline', 'saved tokens')] if peaks else ''
+    print('%-9s %-22s %6d %3d %6d %s  (INLINE\'s saved tokens)' % (
+        'kernel', 'token memory', kernel.TOKEN_SIZE, 1, kernel.TOKEN_SIZE, peak))
     print('%-9s %-22s %6s %3s %6d  (budget %d)' % ('total', '', '', '', grand, BUDGET))
     if peaks is not None:
         print()

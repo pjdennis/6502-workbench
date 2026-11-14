@@ -176,6 +176,11 @@ def table_begin(length):
     table_fix_count = 0
 
 
+def table_byte(i, value):
+    """Make byte `i` of the table `value`."""
+    table[i] = value
+
+
 def table_fix(offset, kind, symbol_number, slot, addend):
     """Byte `offset` of the table is a byte of an address, which the linker fills in."""
     global table_fix_count
@@ -287,23 +292,13 @@ def calls():
 def fixups():
     """The FIX record of the function FBUF finished: a walk of its instructions."""
     begin_record(R_FIX, 8 * fbuf.fix_count)
-    fbuf.walk_begin()
-    while fbuf.walk_next():
-        if fbuf.piece_fixed:
-            kernel.put_word(stream, fbuf.fix_offset)
-            kernel.put(stream, fbuf.fix_kind)
-            kernel.put_word(stream, fbuf.fix_symbol)
-            kernel.put(stream, fbuf.fix_slot)
-            kernel.put_word(stream, fbuf.fix_addend)
+    fbuf.put_fixups(stream)
 
 
 def code():
     """Its CODE record: a second walk."""
     begin_record(R_CODE, fbuf.code_length)
-    fbuf.walk_begin()
-    while fbuf.walk_next():
-        for i in range(0, fbuf.piece_length):
-            kernel.put(stream, fbuf.piece[i])
+    fbuf.put_code(stream)
 
 
 def weights():

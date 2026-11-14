@@ -1,0 +1,24 @@
+; imported by regcmd.lth: REG's slot columns read for its `show` (stage 11, step 10). In the
+; banked build (compiler-bank.env) this module is in bank 2 with REG and GEN, so that only code
+; of bank 2 names these columns and the linker puts them in that bank, not in fixed memory,
+; which has no room for them beside the full tables. Not a twin: regcmd_host.py reads the
+; columns itself.
+module slotview
+
+import reg
+
+pub func size(n: byte): word
+  return reg.slot_size[n]
+end
+
+pub func weight(n: byte): byte
+  return reg.slot_weight[n]
+end
+
+pub func kind(n: byte): byte
+  return reg.slot_kind[n]
+end
+
+pub func name(n: byte): word
+  return reg.slot_name[n]
+end

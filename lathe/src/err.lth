@@ -26,13 +26,18 @@
 ;
 ;   | Python                                | Lathe                           | Why               |
 ;   |---------------------------------------|---------------------------------|-------------------|
-;   | MESSAGES: one byte string, a line of  | MESSAGES: a table of strings,   | a string or table |
-;   | `number text` per error, ended by LF  | one `number text` each, ended   | holds at most     |
-;   |                                       | by its zero                     | 2048 bytes; the   |
-;   |                                       |                                 | texts are 4790    |
-;   | message_start() gives an index into   | gives a pointer to the text, or | follows from the  |
-;   | MESSAGES, len(MESSAGES) for none      | nil for none                    | table             |
-;   | fatal() walks to the LF               | walks to the zero               | the same          |
+;   | MESSAGES: one byte string, a line of  | MESSAGES_1 to MESSAGES_3: three | a string holds at |
+;   | `number text` per error, ended by LF  | strings of such lines, `in MSGS`| most 2048 bytes;  |
+;   |                                       | (a region: lathe/docs/language  | the texts are     |
+;   |                                       | .md, "Banked data"), read only  | 5140; MSGS is in a|
+;   |                                       | inside `with MSGS do ... end` in| data bank when    |
+;   |                                       | fatal_start()                   | banked            |
+;   | message_start(number) gives an index  | message_start(number, text), not| the three strings;|
+;   | into MESSAGES, len(MESSAGES) for none | exported, gives a pointer into  | a pointer into    |
+;   |                                       | one string, or nil for none;    | MSGS is used only |
+;   |                                       | fatal_start() tries each        | inside the block  |
+;   | fatal_start() prints to the LF        | the same (it printed to the zero| (the same)        |
+;   |                                       | of the text's own string)       |                   |
 ;   | env.mem[i] for the file name          | file[0] through a ^byte stepped | lathe/src/sys.lth |
 ;   |                                       | along it                        | "Pointers"        |
 module err
@@ -188,135 +193,136 @@ pub const E_ERROR_DIRECTIVE = 181
 pub const E_IN_HERE = 182
 pub const E_WITH_UNUSED = 183
 
-const MESSAGES: [127]^byte = [
-  "1 character not allowed here",
-  "2 digits expected",
-  "3 number above 65535",
-  "4 character constant not closed",
-  "5 string not closed",
-  "6 unknown escape",
-  "7 string too long",
-  "20 syntax error",
-  "21 name expected",
-  "22 end of line expected",
-  "23 \"(\" expected",
-  "24 \")\" expected",
-  "25 \":\" expected",
-  "26 \"module\" expected",
-  "27 \"func\" expected",
-  "28 \"in\" expected",
-  "29 \"at\" expected",
-  "30 \"end\" expected",
-  "31 register expected: a x y ax ay xy c",
-  "32 type expected",
-  "33 declaration expected",
-  "34 statement expected",
-  "35 expression expected",
-  "36 \".\" expected",
-  "37 \"then\" expected",
-  "38 \"do\" expected",
-  "39 not implemented yet",
-  "40 undefined name",
-  "41 name already declared",
-  "42 wrong number of arguments",
-  "43 value out of range",
-  "44 wrong type",
-  "45 not a function",
-  "46 constant expected",
-  "47 register does not suit the type",
-  "48 register used twice",
-  "49 module name differs from the file name",
-  "50 no interface file for this module",
-  "51 not an interface file of this version",
-  "52 a module cannot import itself",
-  "53 not a variable that can be assigned to",
-  "54 needs the run-time library, not available yet",
-  "55 not inside a loop",
-  "56 wrong number of results",
-  "57 differs from the forward declaration",
-  "58 function declared forward has no body",
-  "59 division by zero",
-  "60 usage: lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]",
-  "61 source file must be called NAME.lth",
-  "62 cannot open the source file",
-  "63 cannot create the output file",
-  "70 too many names",
-  "71 too many symbols",
-  "72 too many parameters",
-  "73 too many imports",
-  "74 too many types",
-  "75 function too large",
-  "76 too many labels in one function",
-  "77 too many references in one function",
-  "78 too many calls in one function",
-  "79 expression too complex",
-  "80 too many open files",
-  "81 sources nested too deeply",
-  "82 arguments too long",
-  "83 file name too long",
-  "84 too many directories",
-  "85 too many variables in one function",
-  "86 too many initial values",
-  "87 too much constant data in one table",
-  "88 expressions and blocks nested too deeply",
-  "99 compiler error",
-  "100 a call of this function inside its own arguments: use a variable",
-  "110 \"to\", \"downto\" or \"until\" expected",
-  "111 a case selector must be a byte, sbyte or bool",
-  "112 constant already used in this case",
-  "113 a status cannot be returned from inside critical: return after its end",
-  "114 #if, #else or #end expected at the start of a line",
-  "115 #else or #end without its #if",
-  "116 #if without #end",
-  "117 #if nested too deeply",
-  "118 a variable or constant in a region can be used only inside a with block of its region",
-  "119 with cannot be used in an interrupt function",
-  "120 an array of at most 256 elements, and a pointer, take a byte index",
-  "121 an array is not a value: use a pointer to it, or copy it with a loop",
-  "122 has no address: not a variable, or an element of an array stored by column",
-  "123 an array of more than 256 elements larger than a byte must be declared rows",
-  "124 element size must be a power of two here (1, 2, 4 or 8 through a pointer)",
-  "125 only one index can be a variable, and only the first unless the array is declared rows",
-  "126 more values than the array has elements",
-  "127 not an array or a pointer",
-  "128 not a record or a pointer to one",
-  "129 the record has no field of this name",
-  "130 a record is not a value here: pass a pointer to it",
-  "131 a record cannot have an initial value yet",
-  "132 a record cannot contain itself: a pointer to it is allowed",
-  "133 a record needs a field",
-  "134 a record type is written only in a type declaration",
-  "135 an imported module uses the types of a module not imported yet: import that one first",
-  "136 a record in an array declared rows must be padded to a size that is a power of two; its size is",
-  "140 a branch must go to a label of this asm block",
-  "141 a label of an asm block can only be the target of a branch or JMP",
-  "142 label not defined in this asm block",
-  "143 operand out of range",
-  "144 addressing mode not available for this instruction",
-  "145 directives such as .byte are not allowed in asm",
-  "146 unknown instruction",
-  "147 cannot be made to be in zero page: declared nozp, or another module's and not zp",
-  "150 a function type is written only in a type declaration",
-  "151 the function does not have the parameters and results of the function type",
-  "152 a recursive function type takes only functions declared recursive",
-  "153 the address of a function is a value only where a function type is wanted",
-  "154 an asm function cannot be called through a pointer: its parameters are in registers",
-  "155 only a function with a body in Lathe can be recursive",
-  "156 too many functions taken as function types in one module",
-  "165 too many saved tokens of inline functions in this module",
-  "166 inline calls nested too deeply",
-  "167 an inline function cannot call itself, directly or through other inline functions",
-  "168 an inline function cannot have asm, static, with or #if",
-  "169 an inline function has no address",
-  "170 an exported inline function can use only exported names of its module",
-  "171 inline and interrupt go with neither each other, nor asm, nor a forward declaration",
-  "172 an interrupt function has no parameters and no results",
-  "173 an interrupt function cannot be called: store its address, @name, where the board wants it",
-  "180 the end of a function that has a result can be reached: return a value there",
-  "181 #error",
-  "182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table",
-  "183 nothing in this region is used inside the with block"
-]
+; The texts, a line `number text` each, in three strings (a string holds at most 2048 bytes)
+; in the region MSGS: read only by fatal_start(), inside `with MSGS do ... end`.
+const MESSAGES_1 in MSGS = "1 character not allowed here\n"
+  "2 digits expected\n"
+  "3 number above 65535\n"
+  "4 character constant not closed\n"
+  "5 string not closed\n"
+  "6 unknown escape\n"
+  "7 string too long\n"
+  "20 syntax error\n"
+  "21 name expected\n"
+  "22 end of line expected\n"
+  "23 \"(\" expected\n"
+  "24 \")\" expected\n"
+  "25 \":\" expected\n"
+  "26 \"module\" expected\n"
+  "27 \"func\" expected\n"
+  "28 \"in\" expected\n"
+  "29 \"at\" expected\n"
+  "30 \"end\" expected\n"
+  "31 register expected: a x y ax ay xy c\n"
+  "32 type expected\n"
+  "33 declaration expected\n"
+  "34 statement expected\n"
+  "35 expression expected\n"
+  "36 \".\" expected\n"
+  "37 \"then\" expected\n"
+  "38 \"do\" expected\n"
+  "39 not implemented yet\n"
+  "40 undefined name\n"
+  "41 name already declared\n"
+  "42 wrong number of arguments\n"
+  "43 value out of range\n"
+  "44 wrong type\n"
+  "45 not a function\n"
+  "46 constant expected\n"
+  "47 register does not suit the type\n"
+  "48 register used twice\n"
+  "49 module name differs from the file name\n"
+  "50 no interface file for this module\n"
+  "51 not an interface file of this version\n"
+  "52 a module cannot import itself\n"
+  "53 not a variable that can be assigned to\n"
+  "54 needs the run-time library, not available yet\n"
+  "55 not inside a loop\n"
+  "56 wrong number of results\n"
+  "57 differs from the forward declaration\n"
+  "58 function declared forward has no body\n"
+  "59 division by zero\n"
+  "60 usage: lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]\n"
+  "61 source file must be called NAME.lth\n"
+  "62 cannot open the source file\n"
+  "63 cannot create the output file\n"
+  "70 too many names\n"
+  "71 too many symbols\n"
+  "72 too many parameters\n"
+  "73 too many imports\n"
+  "74 too many types\n"
+  "75 function too large\n"
+  "76 too many labels in one function\n"
+  "77 too many references in one function\n"
+  "78 too many calls in one function\n"
+  "79 expression too complex\n"
+  "80 too many open files\n"
+  "81 sources nested too deeply\n"
+  "82 arguments too long\n"
+  "83 file name too long\n"
+  "84 too many directories\n"
+  "85 too many variables in one function\n"
+  "86 too many initial values\n"
+  "87 too much constant data in one table\n"
+  "88 expressions and blocks nested too deeply\n"
+  "99 compiler error\n"
+  "100 a call of this function inside its own arguments: use a variable\n"
+  "110 \"to\", \"downto\" or \"until\" expected\n"
+  "111 a case selector must be a byte, sbyte or bool\n"
+const MESSAGES_2 in MSGS = "112 constant already used in this case\n"
+  "113 a status cannot be returned from inside critical: return after its end\n"
+  "114 #if, #else or #end expected at the start of a line\n"
+  "115 #else or #end without its #if\n"
+  "116 #if without #end\n"
+  "117 #if nested too deeply\n"
+  "118 a variable or constant in a region can be used only inside a with block of its region\n"
+  "119 with cannot be used in an interrupt function\n"
+  "120 an array of at most 256 elements, and a pointer, take a byte index\n"
+  "121 an array is not a value: use a pointer to it, or copy it with a loop\n"
+  "122 has no address: not a variable, or an element of an array stored by column\n"
+  "123 an array of more than 256 elements larger than a byte must be declared rows\n"
+  "124 element size must be a power of two here (1, 2, 4 or 8 through a pointer)\n"
+  "125 only one index can be a variable, and only the first unless the array is declared rows\n"
+  "126 more values than the array has elements\n"
+  "127 not an array or a pointer\n"
+  "128 not a record or a pointer to one\n"
+  "129 the record has no field of this name\n"
+  "130 a record is not a value here: pass a pointer to it\n"
+  "131 a record cannot have an initial value yet\n"
+  "132 a record cannot contain itself: a pointer to it is allowed\n"
+  "133 a record needs a field\n"
+  "134 a record type is written only in a type declaration\n"
+  "135 an imported module uses the types of a module not imported yet: import that one first\n"
+  "136 a record in an array declared rows must be padded to a size that is a power of two; its size is\n"
+  "140 a branch must go to a label of this asm block\n"
+  "141 a label of an asm block can only be the target of a branch or JMP\n"
+  "142 label not defined in this asm block\n"
+  "143 operand out of range\n"
+  "144 addressing mode not available for this instruction\n"
+  "145 directives such as .byte are not allowed in asm\n"
+  "146 unknown instruction\n"
+  "147 cannot be made to be in zero page: declared nozp, or another module's and not zp\n"
+  "150 a function type is written only in a type declaration\n"
+  "151 the function does not have the parameters and results of the function type\n"
+const MESSAGES_3 in MSGS = "152 a recursive function type takes only functions declared recursive\n"
+  "153 the address of a function is a value only where a function type is wanted\n"
+  "154 an asm function cannot be called through a pointer: its parameters are in registers\n"
+  "155 only a function with a body in Lathe can be recursive\n"
+  "156 too many functions taken as function types in one module\n"
+  "165 too many saved tokens of inline functions in this module\n"
+  "166 inline calls nested too deeply\n"
+  "167 an inline function cannot call itself, directly or through other inline functions\n"
+  "168 an inline function cannot have asm, static, with or #if\n"
+  "169 an inline function has no address\n"
+  "170 an exported inline function can use only exported names of its module\n"
+  "171 inline and interrupt go with neither each other, nor asm, nor a forward declaration\n"
+  "172 an interrupt function has no parameters and no results\n"
+  "173 an interrupt function cannot be called: store its address, @name, where the board wants it\n"
+  "180 the end of a function that has a result can be reached: return a value there\n"
+  "181 #error\n"
+  "182 in REGION goes only on a variable of the module or a static one, without zp, at or an initial value, or on a constant table\n"
+  "183 nothing in this region is used inside the with block\n"
+
 const TOOL: [6]byte = "lathec"
 const ERROR: [8]byte = ": error "
 
@@ -386,13 +392,13 @@ pub func put_place()
   end
 end
 
-; The text of error `number`, or nil if it has none.
-pub func message_start(number: byte): ^byte
-  var m: byte
+; The text of error `number` in `text`, lines `number text` ended by a zero, or nil if it has
+; none there. `text` points into MSGS: called only inside a block of it.
+func message_start(number: byte, text: ^byte): ^byte
   var i: ^byte
   var n: word
-  for m = 0 until len(MESSAGES) do
-    i = MESSAGES[m]
+  i = text
+  while i[0] != 0 do
     n = 0
     while i[0] != C_SPACE do
       n = n * 10 + i[0] - C_ZERO
@@ -402,6 +408,10 @@ pub func message_start(number: byte): ^byte
     if n == number then
       return i
     end
+    while i[0] != C_LF do
+      i += 1
+    end
+    i += 1
   end
   return nil
 end
@@ -431,10 +441,18 @@ pub func fatal_start(number: byte)
   put_decimal(number)
   sys.put_error(C_COLON)
   sys.put_error(C_SPACE)
-  i = message_start(number)
-  while i != nil and i[0] != 0 do
-    sys.put_error(i[0])
-    i += 1
+  with MSGS do
+    i = message_start(number, @MESSAGES_1)
+    if i == nil then
+      i = message_start(number, @MESSAGES_2)
+    end
+    if i == nil then
+      i = message_start(number, @MESSAGES_3)
+    end
+    while i != nil and i[0] != C_LF do
+      sys.put_error(i[0])
+      i += 1
+    end
   end
   if shown != NO_VALUE then
     sys.put_error(C_SPACE)

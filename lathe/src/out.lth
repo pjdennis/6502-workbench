@@ -208,6 +208,11 @@ pub func table_begin(length: word)
   table_fix_count = 0
 end
 
+; Make byte `i` of the table `value`.
+pub func table_byte(i: word, value: byte)
+  table[i] = value
+end
+
 ; Byte `offset` of the table is a byte of an address, which the linker fills in.
 pub func table_fix(offset: word, kind: byte, symbol_number: word, slot: byte, addend: word)
   var i: byte
@@ -336,28 +341,13 @@ end
 ; The FIX record of the function FBUF finished: a walk of its instructions.
 func fixups()
   begin_record(R_FIX, 8 * fbuf.fix_count)
-  fbuf.walk_begin()
-  while fbuf.walk_next() do
-    if fbuf.piece_fixed then
-      kernel.put_word(stream, fbuf.fix_offset)
-      kernel.put(stream, fbuf.fix_kind)
-      kernel.put_word(stream, fbuf.fix_symbol)
-      kernel.put(stream, fbuf.fix_slot)
-      kernel.put_word(stream, fbuf.fix_addend)
-    end
-  end
+  fbuf.put_fixups(stream)
 end
 
 ; Its CODE record: a second walk.
 func code()
-  var i: byte
   begin_record(R_CODE, fbuf.code_length)
-  fbuf.walk_begin()
-  while fbuf.walk_next() do
-    for i = 0 until fbuf.piece_length do
-      kernel.put(stream, fbuf.piece[i])
-    end
-  end
+  fbuf.put_code(stream)
 end
 
 ; A WGT record of the weights FBUF counted for other functions' slots, if it counted any.

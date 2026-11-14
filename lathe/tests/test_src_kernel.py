@@ -91,6 +91,12 @@ def symbols():
     put_word(t)
     put_word(kernel.sym_lookup(n)[0])
     put_word(kernel.name_top - mark)
+    put_word(kernel.name_symbol(n))
+    t = kernel.sym_count
+    kernel.sym_add(kernel.SCOPE_LOCAL, name(b'j'), kernel.K_LOCAL)
+    kernel.sym_release(t)
+    put_word(kernel.name_symbol(name(b'j')))
+    put_word(kernel.sym_count)
     kernel.scope_end()
     put_word(kernel.sym_lookup(n)[0])
     put_word(kernel.name_top - mark)

@@ -35,12 +35,12 @@
 ;   |--------------------------------------|-----------------------------------|-----------------|
 ;   | the module `inline` (inline.py)      | the module `inlines`, this file   | `inline` is a   |
 ;   |                                      | (EXPR and DECL will import it so) | keyword         |
-;   | env.mem[p], with p a number          | p[k] through a pointer; a record  | lathe/src/      |
-;   |                                      | is ^byte(kernel.sym_value[f])     | sys.lth,        |
-;   |                                      | (kept in a local `r` or `q` where | "Pointers"; an  |
-;   |                                      | the Python indexes env.mem with   | element of a    |
-;   |                                      | an expression)                    | call is not a   |
-;   |                                      |                                   | designator      |
+;   | env.mem[p] for a file name in text   | p[k] through a pointer            | lathe/src/      |
+;   | memory, with p a number              |                                   | sys.lth,        |
+;   |                                      |                                   | "Pointers"      |
+;   | kernel.token_byte(p): p a number     | p a ^byte; a record is ^byte(     | (the same)      |
+;   |                                      | kernel.sym_value[f]), kept in a   |                 |
+;   |                                      | local `r` or `q`                  |                 |
 ;   | saved_start, saved_top: numbers      | ^byte                             | (the same)      |
 ;   | param(f, i): i * PARAM_SIZE          | word(i) * PARAM_SIZE              | no byte wraps   |
 ;   | blocks in save(): an int, below 0    | sbyte                             | `> 0` must see  |
@@ -50,8 +50,6 @@
 ;   | scan_index, scan_close, returns:     | word                              | a statement can |
 ;   | ints                                 |                                   | have more than  |
 ;   |                                      |                                   | 255 tokens      |
-;   | write(): env.mem[p + 2 + i]          | q = p + 2 + i, then q[0]          | a pointer's     |
-;   |                                      |                                   | index is a byte |
 ;   | `x, _ = f()`                         | a variable `at_end` or `found`    | no `_`          |
 ;   | `while True:`                        | `loop`                            |                 |
 ;   | copy_aliases() used before it is     | a forward declaration             | declare before  |
@@ -95,7 +93,7 @@ const LAST_RETURN = 2
 const C_DOLLAR = $24
 const C_ZERO = $30
 
-pub var saved_start: ^byte      ; the buffer, in text memory
+pub var saved_start: ^byte      ; the buffer, in token memory (kernel.token_byte())
 pub var saved_top: ^byte
 
 var local_name: [MAX_LOCALS]word        ; while save() reads a body: the locals it declares
@@ -124,7 +122,7 @@ pub var alias: [MAX_ALIASES]word        ; parameters standing for a variable who
 pub var alias_count: byte
 
 pub func init()
-  saved_start = kernel.text_reserve(SAVED_SIZE)
+  saved_start = kernel.token_start()
   saved_top = saved_start
   level = 0
   depth = 0
@@ -133,12 +131,12 @@ pub func init()
 end
 
 pub func word_at(p: ^byte): word
-  return word(p[0]) | (word(p[1]) << 8)
+  return word(kernel.token_byte(p)) | (word(kernel.token_byte(p + 1)) << 8)
 end
 
 func set_word_at(p: ^byte, value: word)
-  p[0] = lo(value)
-  p[1] = hi(value)
+  kernel.set_token_byte(p, lo(value))
+  kernel.set_token_byte(p + 1, hi(value))
 end
 
 ; Add a byte to the saved tokens.
@@ -146,7 +144,7 @@ func put(value: byte)
   if saved_top == saved_start + SAVED_SIZE then
     err.fatal(err.E_INLINE_FULL)
   end
-  saved_top[0] = value
+  kernel.set_token_byte(saved_top, value)
   saved_top += 1
 end
 
@@ -205,11 +203,9 @@ end
 ; The body assigns to `name`: mark it if it is a parameter.
 func assigns(f: word, name: word)
   var i: byte
-  var q: ^byte
   i = parameter_number(f, name)
   if i != $FF then
-    q = param(f, i)
-    q[2] = 1
+    kernel.set_token_byte(param(f, i) + 2, 1)
   end
 end
 
@@ -307,7 +303,7 @@ func save_token(at_line: word): word
     end
     put(lo(lex.string_length))
     for i = 0 until lo(lex.string_length) do
-      put(lex.string[i])
+      put(lex.string_byte(i))
     end
   end
   return at_line
@@ -421,7 +417,7 @@ pub func save(f: word)
   end
   r = ^byte(kernel.sym_value[f])
   set_word_at(r + R_END, word(saved_top))
-  r[R_FLAGS] = scan_flags
+  kernel.set_token_byte(r + R_FLAGS, scan_flags)
   if scan_flags & PURE != 0 then
     set_word_at(r + R_WRITTEN, scan_written)
   end
@@ -468,7 +464,7 @@ pub func write(stream: byte, f: word)
     kernel.put(stream, name[i])
   end
   kernel.put_word(stream, word_at(r + R_LINE))
-  kernel.put(stream, r[R_FLAGS])
+  kernel.put(stream, kernel.token_byte(r + R_FLAGS))
   if word_at(r + R_WRITTEN) == 0 then
     kernel.put(stream, 0)
   else
@@ -477,14 +473,13 @@ pub func write(stream: byte, f: word)
   end
   for i = 0 until kernel.sym_params[f] do
     kernel.put_name(stream, word_at(param(f, i)))
-    q = param(f, i)
-    kernel.put(stream, q[2])
+    kernel.put(stream, kernel.token_byte(param(f, i) + 2))
   end
   p = r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE
   while p < ^byte(word_at(r + R_END)) do
-    token = p[0]
+    token = kernel.token_byte(p)
     kernel.put(stream, token)
-    kernel.put(stream, p[1])
+    kernel.put(stream, kernel.token_byte(p + 1))
     size = 0
     if token == lex.T_NAME then
       kernel.put_name(stream, word_at(p + 2))
@@ -492,12 +487,11 @@ pub func write(stream: byte, f: word)
     elif token == lex.T_NUMBER then
       size = 2
     elif token == lex.T_STRING then
-      size = 1 + word(p[2])
+      size = 1 + word(kernel.token_byte(p + 2))
     end
     for k = 0 until size do
       if token != lex.T_NAME then
-        q = p + 2 + k
-        kernel.put(stream, q[0])
+        kernel.put(stream, kernel.token_byte(p + 2 + k))
       end
     end
     p += 2 + size
@@ -515,7 +509,6 @@ pub func read(stream: byte, f: word)
   var token: byte
   var b: byte
   var r: ^byte
-  var q: ^byte
   length, at_end = kernel.get(stream)
   name = kernel.text_reserve(word(length) + 1)
   for i = 0 until length do
@@ -524,15 +517,16 @@ pub func read(stream: byte, f: word)
   name[length] = 0
   begin_record(f, kernel.get_word(stream), name)
   r = ^byte(kernel.sym_value[f])
-  r[R_FLAGS], at_end = kernel.get(stream)
+  b, at_end = kernel.get(stream)
+  kernel.set_token_byte(r + R_FLAGS, b)
   written, at_end = kernel.get(stream)
   if written != 0 then
     set_word_at(r + R_WRITTEN, read_name(stream))
   end
   for i = 0 until kernel.sym_params[f] do
     set_word_at(param(f, i), read_name(stream))
-    q = param(f, i)
-    q[2], at_end = kernel.get(stream)
+    b, at_end = kernel.get(stream)
+    kernel.set_token_byte(param(f, i) + 2, b)
   end
   loop
     token, at_end = kernel.get(stream)
@@ -579,7 +573,7 @@ pub func lookup(name: word): word, bool
   end
   scope = SCOPE_INLINE + level
   home = kernel.sym_scope[expanding[level]]
-  s = kernel.name_word(name + kernel.N_SYMBOL)
+  s = kernel.name_symbol(name)
   while s != kernel.NO_SYM and kernel.sym_scope[s] != scope and kernel.sym_scope[s] != home and
       kernel.sym_scope[s] != kernel.SCOPE_PREDECLARED do
     s = kernel.sym_link[s]
@@ -646,7 +640,7 @@ pub func enter(f: word, results_wanted: bool)
   var r: ^byte
   var d: byte
   r = ^byte(kernel.sym_value[f])
-  if r[R_FLAGS] & PURE == 0 or word_at(r + R_WRITTEN) != 0 then
+  if kernel.token_byte(r + R_FLAGS) & PURE == 0 or word_at(r + R_WRITTEN) != 0 then
     copy_aliases()
   end
   d = level
@@ -693,7 +687,7 @@ pub func argument_symbol(f: word, i: byte)
   value = 0
   stands = false
   q = param(f, i)
-  if q[2] == 0 then
+  if kernel.token_byte(q + 2) == 0 then
     if reg.op_kind[j] == reg.O_CONST then
       kind = kernel.K_CONST
       value = reg.op_value[j]
@@ -703,7 +697,7 @@ pub func argument_symbol(f: word, i: byte)
       if reg.op_symbol[j] == reg.own and reg.op_slot[j] != fbuf.NO_SLOT then
         value = reg.op_slot[j]
         stands = true
-      elif reg.op_var[j] != kernel.NO_SYM and r[R_FLAGS] & PURE != 0 and
+      elif reg.op_var[j] != kernel.NO_SYM and kernel.token_byte(r + R_FLAGS) & PURE != 0 and
           kernel.sym_name[reg.op_var[j]] != word_at(r + R_WRITTEN) then
         kind = K_ALIAS
         value = reg.op_var[j]
@@ -782,17 +776,13 @@ pub func leaves_operand(): bool
   var r: ^byte
   f = expanding[level]
   r = ^byte(kernel.sym_value[f])
-  return wanted[level] and kernel.sym_results[f] == 1 and r[R_FLAGS] & LAST_RETURN != 0 and
+  return wanted[level] and kernel.sym_results[f] == 1 and kernel.token_byte(r + R_FLAGS) & LAST_RETURN != 0 and
       owned_count == owned_base[level]
 end
 
 ; The newest expansion has ended: its symbols go, and its slots are free again.
 pub func leave()
-  while kernel.sym_count > sym_base[depth] do
-    kernel.sym_count -= 1
-    kernel.name_set_word(kernel.sym_name[kernel.sym_count] + kernel.N_SYMBOL,
-        kernel.sym_link[kernel.sym_count])
-  end
+  kernel.sym_release(sym_base[depth])
   while owned_count > owned_base[depth] do
     owned_count -= 1
     reg.slot_busy[owned[owned_count]] = false

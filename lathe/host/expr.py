@@ -423,7 +423,7 @@ def string():
     symbol = gen.anonymous()
     out.data(symbol, lex.string_length + 1)
     for i in range(0, lex.string_length):
-        out.data_byte(lex.string[i])
+        out.data_byte(lex.string_byte(i))
     out.data_byte(0)
     reg.push(reg.O_ADDR, typetab.pointer_to(typetab.BYTE_TYPE), 0)
     reg.op_symbol[reg.depth - 1] = symbol
@@ -959,7 +959,7 @@ def table_data(t, symbol):
         if lex.string_length > n:
             err.fatal(err.E_TOO_MANY)
         for i in range(0, lex.string_length):
-            out.table[i] = lex.string[i]
+            out.table_byte(i, lex.string_byte(i))
         lex.next()
     else:
         lex.expect(lex.T_LBRACKET, err.E_SYNTAX)
@@ -1469,7 +1469,7 @@ def with_statement():
     saved_loop = with_loop
     temp = fbuf.NO_SLOT
     entry = reg.NONE
-    if region != outer_region:
+    if not reg.same_region(region, outer_region):
         temp = map_bank()
         entry = with_entry
         if with_function == fbuf.NO_SLOT:
@@ -1488,8 +1488,7 @@ def with_statement():
     out.with_used = outer_used
     if temp != fbuf.NO_SLOT:
         if entry != reg.NONE:
-            fbuf.buffer[entry + 2] = used & 0xFF
-            fbuf.buffer[entry + 3] = used >> 8
+            fbuf.set_symbol(entry, used)
         unmap_bank(temp)
         reg.slot_busy[temp] = False
     elif outer_used == kernel.NO_OBJ:
