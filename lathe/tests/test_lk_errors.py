@@ -119,9 +119,11 @@ class EnvironmentFile(ErrorTest):
 
 class ObjectFiles(ErrorTest):
     def test_wrong_version(self):
-        o = Obj('t', version=2)
-        o.func('main', b'\x60')
-        self.assertError(link([o], ENV), 5, 'unsupported object version', 'm0.lo')
+        for version in (1, 3):
+            o = Obj('t', version=version)
+            o.func('main', b'\x60')
+            self.assertError(link([o], ENV), 5, 'unsupported object version: this linker reads version 2',
+                             'm0.lo')
 
     def test_not_an_object_file(self):
         self.assertError(link([b'hello, world'], ENV, main='t'), 5, 'unsupported object version')
@@ -135,6 +137,36 @@ class ObjectFiles(ErrorTest):
         data = simple().to_bytes()
         for cut in (len(data) - 3, len(data) - 1, 9):
             self.assertError(link([data[:cut]], ENV, main='t'), 6, 'object file is damaged', 'm0.lo')
+
+    def test_dfix_must_be_just_before_data(self):
+        o = simple()
+        o.raw(6, word(0) + bytes((2,)) + word(0) + bytes((0xFF,)) + word(0))
+        o.var('v', 1)
+        self.assertError(link([o], ENV), 6, 'object file is damaged')
+        o = simple()
+        o.raw(6, b'')
+        self.assertError(link([o], ENV), 6, 'object file is damaged')
+
+    def test_weights_that_make_no_sense(self):
+        for entry in ((1, 0xFF, 1), (0, 0xFF, 1), (0, 5, 1)):         # a constant, main itself, no slot 5
+            o = simple()
+            o.d('$1')
+            o.wgt(entry)
+            self.assertError(link([o], ENV), 6, 'object file is damaged')
+        o = simple()
+        o.raw(15, b'\x00\x00\xff')
+        self.assertError(link([o], ENV), 6, 'object file is damaged')
+        o = simple()
+        o.wgt((o.f('later'), 3, 9))           # waits for t.later, which has no slot 3
+        o.func('later', b'\x60')
+        self.assertError(link([o], ENV), 6, 'object file is damaged', 'm0.lo')
+
+    def test_weights_for_functions_not_read_yet(self):
+        o = simple()
+        for i in range(257):
+            o.wgt((o.f('f%d' % i), 0, 1))
+        self.assertEqual(link([o], ENV).errors,
+                         'link error 41: too many weights for slots of functions not read yet\n')
 
     def test_unknown_record(self):
         o = simple()
@@ -349,6 +381,16 @@ class FixUps(ErrorTest):
         self.assertEqual(r.code('t.main'), bytes.fromhex('A90A A202 60'))
         self.assertEqual(r.at(r.addr('D', 't.$1'), 2), b'\x0a\x02')
 
+    def test_reading_a_function_s_code_keeps_it(self):
+        # LDA f,X (kind 5) takes f's address as #<f does; in version 1 it was a kind 1 fix-up
+        # that kept nothing, and read from address 0.
+        o = Obj('t')
+        f = o.f('f')
+        o.func('main', o.code().abs(0xBD, f).raw(0x60))
+        o.func('f', b'\x60')
+        r = link([o], ENV)
+        self.assertEqual(r.code('t.main'), bytes.fromhex('BD0902 60'))
+
     def test_but_a_jsr_without_a_call_record_keeps_nothing_in_another_context(self):
         o = Obj('t')
         f = o.f('f')
@@ -438,16 +480,21 @@ class Capacities(ErrorTest):
             o.func('irq%d' % i, b'\x40', flags=INTERRUPT)
         self.assertEqual(link([o], ENV).errors, 'link error 16: too many interrupt functions\n')
 
-    def test_sites(self):
+    def test_fixes(self):
         o = Obj('t')
-        v = o.var('z', 1, MUST)
+        v = o.var('z', 1, NEVER)
         c = o.code()
         for i in range(1025):
             c.abs(0xEE, v)
         c.raw(0x60)
         o.func('main', c)
         self.assertEqual(link([o], ENV).errors,
-                         'link error 28: too many zero page operands in one function: t.main\n')
+                         'link error 28: too many fix-ups in one function or table: t.main\n')
+        o = simple()
+        v = o.var('z', 1, NEVER)
+        o.data('$1', bytes(1025), fixes=[(i, 2, v, 0xFF, 0) for i in range(1025)])
+        keep(o, '$1')
+        self.assertEqual(link([o], ENV).errors, 'link error 28: too many fix-ups in one function or table\n')
 
     def test_local_symbols(self):
         objs = [simple()]

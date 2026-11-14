@@ -8,8 +8,9 @@
     S 0010 0002 demo.spaces 0 s       slot 0 of demo.spaces, named s
     C 0012 0001 demo.handler 0 code   parameter 0 of a pointer class
 
-A class has no parameter names of its own (object-format.md): the map shows those of the
-first function recorded as its member, or p0, p1... for a class without members.
+A class parameter is named by its CLAS records (object-format.md); one they leave unnamed takes
+the name of the parameter of the first function recorded as the class's member, or p0, p1...
+for a class without members.
 """
 import env
 import lk_alloc
@@ -118,7 +119,8 @@ def slot(f, i):
             put(10)
     # Remember the name if this slot is what names a class parameter.
     k, live = lk_tab.member_class(f)
-    if live and lk_tab.cls_namer[k] == f + 1 and i < lk_tab.cls_np[k]:
+    if live and lk_tab.cls_namer[k] == f + 1 and i < lk_tab.cls_np[k] \
+            and lk_tab.cp_name[lk_tab.cls_par[k] + i] == 0:
         lk_tab.cp_name[lk_tab.cls_par[k] + i] = lk_sym.name_keep() + 1
 
 

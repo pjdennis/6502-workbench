@@ -111,43 +111,45 @@ Written when a module is compiled, read by `import`. It lists each exported name
 
 ## The object file (stage B)
 
-A stream of records, each a type byte, a length and a body. The order is fixed so the linker's first pass can stop reading a function before its code.
+A stream of records, each a type byte, a length and a body; the format as built is [`object-format.md`](object-format.md) (version 2). The order is fixed so that what the linker needs about a function or a table comes before its bytes: each pass reads each file once, in order.
 
 | Record | Contents |
 |---|---|
 | Module | Name, CPU variant, format version. |
 | Import | A module this one refers to. |
-| Symbol | A module-level variable, constant table or string: segment, size, zero page class, weight, region if any, and initial bytes for data. |
-| Function header | Name, attributes (`recursive`, `interrupt`), code size. |
-| Class | A pointer class: its signature, whether it is `recursive`, and the functions this module adds to it. |
+| Symbol | The name and kind of each module-level symbol the module defines or uses. |
+| Variable | A module-level variable: size, zero page class, weight. No initial value: initialisers are code. |
+| Data | A constant table or string, its fix-ups first. |
+| Function header | Name, attributes (`recursive`, `interrupt`). |
+| Class | A pointer class: the sizes and names of its parameters, whether it is `recursive`; and the functions this module adds to it. |
 | Slots | For each slot of the frame: size, zero page class, weight. |
 | Calls | For each call: the callee or, for a call through a pointer, the class; whether it saves the caller's frame; and any call made while its arguments were pending. |
-| Sites | Offsets in the code where an operand may shrink from absolute to zero page, and the positions of branches that cross them. |
+| Fix-ups | Offsets in the code to fill with the address of a symbol, slot or function, with an addend and a part (low byte, high byte, or both); a two-byte one says whether its instruction can shrink to the zero page form. Before the code. |
 | Code | The instruction bytes. |
-| Fix-ups | Offsets in the code to fill with the address of a symbol, slot or function, with an addend and a part (low byte, high byte or both). |
+| Weights | Weight this module adds to other modules' variables and to slots of functions other than the one using them. |
 | End | End of module. |
 
-In stage A the Slots and Calls records are written to the `.lfm` file in the same form, so the allocator is the first half of the future linker.
+In stage A the Slots and Calls records were to be written to the `.lfm` file in the same form, so the allocator is the first half of the linker.
 
 ## The linker
 
-**Pass 1** reads every record except Code; of the Fix-ups it notes only what each function or table names.
+**Pass 1** never reads code. It reads the files twice: once for the tables (of the Fix-ups it notes only what each function or table names), and once, after allocation, for the sizes (step 5), from the Fix-ups alone.
 
 1. Build the call graph, with one node per pointer class standing for its parameter block. Find the functions reachable from `main` and from each interrupt handler, and the variables, constants and functions whose address what is kept names ([`object-format.md`](object-format.md), "What the linker keeps"), and drop the rest.
 2. Check cycles against the `recursive` attribute.
 3. Find functions used by more than one context and plan their copies. Check that each pointer class is called through pointers from one context only.
 4. Allocate frames and module-level variables in zero page and main memory ([`code-model.md`](code-model.md)).
-5. Compute each function's final size, place code and constants in their regions, and create stubs for calls that cross windows.
+5. Compute each function's final size: its written size less one byte for each fix-up marked "can shrink" whose address is in zero page. Place code and constants in their regions, and create stubs for calls that cross windows.
 
-**Pass 2** reads the Code and Fix-up records, applies the addresses, and writes the image or images and the map file.
+**Pass 2** reads each file once more, in order, with one stream: it holds a function's Fix-ups until its Code arrives (a table's until its bytes arrive), applies the addresses, shrinks, and writes the image or images and the map file. A function copied for several contexts has its Code read again for each further copy.
 
 ### Shrinking instructions
 
 The compiler does not know whether an "either" slot will land in zero page, so it does not know whether `LDA slot` is two bytes or three. In stage A asm17 decides, because the allocation is assembled first. In stage B:
 
-- The compiler emits the three-byte form and records the site.
+- The compiler emits the three-byte form, and marks its fix-up as one that can shrink (kind 5) when the instruction has a zero page form; `JSR`, `JMP`, `JMP (v)` and `LDA v,Y` cannot.
 - Branch lengths are fixed assuming three bytes everywhere. Shrinking only brings a branch and its target closer, so a branch that reached still reaches.
-- The linker, knowing the allocation, removes the extra byte at each site that landed in zero page, and adjusts the offsets of branches that cross it using the Sites record.
+- The linker, knowing the allocation, removes the extra byte at each such fix-up whose address landed in zero page, and adjusts the branches and labels that cross it. The fix-ups are all it needs: the sizes in pass 1 come from them without reading code, and in pass 2 they are held before the code they patch arrives.
 
 A slot declared `zp`, and every dereferenced pointer, is two bytes from the start and never appears as a site.
 
@@ -155,7 +157,9 @@ This is the largest piece of new mechanism in stage B and has its own spike (L3)
 
 ### Memory in the linker
 
-Pass 1 holds one entry per function and per module-level symbol across the whole program, with names hashed. At about 20 bytes each, 800 functions and symbols need 16 KB. To know what is kept it also holds four bytes for each symbol a function or table names (once per function or table, however often it names it): about 530 rows for `lextest`. Code is never held in memory: pass 2 streams it.
+Pass 1 holds one entry per function and per module-level symbol across the whole program, with names hashed. At about 20 bytes each, 800 functions and symbols need 16 KB. To know what is kept it also holds four bytes for each symbol a function or table names (once per function or table, however often it names it): about 530 rows for `lextest`; and four bytes for each weight a module gives a slot of a function not read yet (at most 256), until every file is read. Code is never held in memory: pass 2 streams it, holding only the fix-ups of the function or table being written, 9 bytes each and at most 1024 (9 KB at most; a few hundred bytes for a typical function).
+
+Choosing what goes in zero page lays the program's storage out again each time a candidate is accepted. Two shortcuts keep that rare: every candidate is first tried at once, and when they all fit one layout does the work (`lextest`: 3 layouts in all, where one per weight took 44); the candidates of one weight are tried together, a lone one by itself. When zero page is short it is still one layout per item accepted (`lextest` with 64 bytes of zero page: 110). A cheaper step would update the layout in place: the item's node grows, the nodes below it move up and the chains above it get deeper, but each is a walk over the graph from that node, which costs nearly as much as laying out the whole again.
 
 ## The environment description
 

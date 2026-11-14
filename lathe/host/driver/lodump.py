@@ -16,7 +16,7 @@ import cpu6502  # noqa: E402
 import lo  # noqa: E402
 
 CPU_NAMES = {0: '6502', 1: '65c02'}
-FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp'}
+FIX_KIND_NAMES = {1: 'word', 2: 'low', 3: 'high', 4: 'zp', 5: 'abs'}
 
 
 def records(data):
@@ -111,9 +111,18 @@ def dump(data, out):
                 _disassemble(body, cpu, pad, out)
             elif t == lo.R_CLAS:
                 sym, flags, n = struct.unpack('<HBB', body[:4])
-                sizes = struct.unpack(f'<{n}H', body[4:4 + 2 * n])
+                params, i = [], 4
+                for _ in range(n):
+                    size = struct.unpack('<H', body[i:i + 2])[0]
+                    pname, i = _str(body, i + 2)
+                    params.append(f'{pname or "?"} ({size})')
                 rec = ', recursive' if flags & lo.CLAS_RECURSIVE else ''
-                out.write(f'{head}{name(sym)}: parameter sizes {list(sizes)}{rec}\n')
+                out.write(f'{head}{name(sym)}: parameters {", ".join(params) or "none"}{rec}\n')
+            elif t == lo.R_WGT:
+                out.write(f'{head}{len(body) // 4} entries\n')
+                for i in range(0, len(body) - 3, 4):
+                    sym, slot, weight = struct.unpack('<HBB', body[i:i + 4])
+                    out.write(f'{pad}{target(sym, slot)}: weight {weight}\n')
             elif t == lo.R_MEMB:
                 c, f = struct.unpack('<HH', body[:4])
                 out.write(f'{head}{name(f)} in class {name(c)}\n')

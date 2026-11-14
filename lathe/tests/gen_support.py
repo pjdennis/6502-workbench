@@ -71,7 +71,7 @@ def decode(own):
         elif mode == cpu6502.REL:
             text = '%s @%d' % (mnemonic, at + 2 + (value - 256 if value > 127 else value))
         elif fix is not None:
-            prefix = {1: '', 2: '#<', 3: '#>', 4: 'zp:'}[fix[1]]
+            prefix = {1: '', 2: '#<', 3: '#>', 4: 'zp:', 5: ''}[fix[1]]
             text = '%s %s%s' % (mnemonic, prefix, _target(fix, own))
         elif mode == cpu6502.IMM:
             text = '%s #$%02X' % (mnemonic, value)

@@ -200,6 +200,13 @@ def new_ref(source, target):
     ref_count += 1
 
 
+def claim_refs(source):
+    """What the record read last refers to, a DFIX record, is what `source` refers to: the
+    DATA record that follows it."""
+    for i in range(ref_mark, ref_count):
+        ref_from[i] = source
+
+
 def new_def(sym):
     global def_count
     if def_count == MAX_DEFS:

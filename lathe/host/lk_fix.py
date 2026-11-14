@@ -1,44 +1,53 @@
 """Fix-ups: what address a fix-up stands for, and which instructions of a function shrink.
 
-An instruction shrinks if its operand is a two-byte fix-up, its opcode has a zero page form,
-and the address with the addend is below $100 (object-format.md, "The size of an instruction").
-A function's FIX record comes before its CODE record, so finding its sites takes two steps on
-the stream that reads the file in order: collect() notes the two-byte fix-ups whose address is
-in zero page, and confirm() keeps those whose opcode can shrink. A copy of a function for
-another context has other slot addresses, so each site carries one bit per context.
+An instruction shrinks if its fix-up is of kind 5 and the address with the addend is below $100
+(object-format.md, "The size of an instruction"), so a function's fix-ups alone say how much it
+shrinks. Pass 1 counts, for each context, the fix-ups of a function that shrink (count_shrinks).
+Pass 2 holds the fix-ups of one function or one piece of constant data (hold), which come
+before its code or data in the file, and applies them as the bytes go by (lk_emit). A copy of a
+function for another context has other slot addresses, so each held fix-up carries one bit per
+context in which its instruction shrinks.
 
-The list of sites of one function is all that pass 2 needs to correct branches and labels, and
-is the only thing about a function's code the linker ever holds.
+The fix-ups of one function are the only thing about its code the linker ever holds.
 """
 import lk_alloc
 import lk_err
-import lk_op
 import lk_rec
 import lk_scan
 import lk_sym
 import lk_tab
 
-MAX_SITES = 1024
+MAX_FIXES = 1024                    # fix-ups of one function or one piece of constant data
 NO_CONTEXT = 0xFF                   # the context of a fix-up in constant data
 
-site_count = 0
-site_at = [0] * MAX_SITES           # written offset of the operand
-site_ctx = bytearray(MAX_SITES)     # a bit per context in which the instruction shrinks
+# Fix-up kinds.
+K_WORD = 1
+K_LOW = 2
+K_HIGH = 3
+K_ZP = 4
+K_SHRINK = 5
+
+# The entry read last.
+e_at = 0
+e_kind = 0
+e_sym = 0
+e_slot = 0
+e_add = 0
+
+# The fix-ups held, in the order of the file, which is the order of offset.
+fix_count = 0
+fx_at = [0] * MAX_FIXES             # offset in the code as written, or in the data
+fx_kind = bytearray(MAX_FIXES)
+fx_sym = [0] * MAX_FIXES
+fx_slot = bytearray(MAX_FIXES)
+fx_add = [0] * MAX_FIXES
+fx_zp = bytearray(MAX_FIXES)        # a bit per context in which the instruction shrinks
+cursor = 0                          # the next fix-up to apply
+
+shrink_count = [0] * lk_tab.MAX_CONTEXTS    # pass 1: bytes each copy of cur_fn loses
 
 cur_fn = 0                          # the function whose records are being read
 cur_sym = 0                         # its symbol, or that of the constant data being written
-written = 0                         # the size of its code as written
-fix_record = 0                      # number of its FIX record in the file, or 0
-code_record = 0                     # number of its CODE record, or 0
-
-# The fix-up entry read last.
-fx_more = False                     # False once a record's entries are used up
-fx_at = 0
-fx_kind = 0
-fx_sym = 0
-fx_slot = 0
-fx_add = 0
-fx_after = 0                        # entries must be at or after this offset: they are sorted
 
 
 def bad():
@@ -48,13 +57,9 @@ def bad():
 
 def begin(f):
     """Start on function f."""
-    global cur_fn, cur_sym, site_count, written, fix_record, code_record
+    global cur_fn, cur_sym
     cur_fn = f
     cur_sym = lk_tab.fn_sym[f]
-    site_count = 0
-    written = 0
-    fix_record = 0
-    code_record = 0
 
 
 def begin_data(sym):
@@ -63,36 +68,90 @@ def begin_data(sym):
     cur_sym = sym
 
 
-def first_entry(s, obj):
-    """Read the first fix-up entry of the record stream s is at."""
-    global fx_after
-    fx_after = 0
-    next_entry(s, obj)
+def is_word(kind):
+    """True for the kinds that fill two bytes."""
+    return kind == K_WORD or kind == K_SHRINK
 
 
-def no_entries():
-    """There is no fix-up record to read."""
-    global fx_more
-    fx_more = False
+def read_entry(obj):
+    """Read the next fix-up entry of the record MAIN is in, of object file obj."""
+    global e_at, e_kind, e_sym, e_slot, e_add
+    e_at = lk_rec.get_word()
+    e_kind = lk_rec.get_byte()
+    e_sym = lk_scan.global_sym(obj, lk_rec.get_word())
+    e_slot = lk_rec.get_byte()
+    e_add = lk_rec.get_word()
 
 
-def next_entry(s, obj):
-    """Read the next fix-up entry from stream s, which reads object file obj."""
-    global fx_more, fx_at, fx_kind, fx_sym, fx_slot, fx_add, fx_after
-    if lk_rec.left(s) == 0:
-        fx_more = False
-        return
-    fx_more = True
-    fx_at = lk_rec.get_word(s)
-    fx_kind = lk_rec.get_byte(s)
-    fx_sym = lk_scan.global_sym(obj, lk_rec.get_word(s))
-    fx_slot = lk_rec.get_byte(s)
-    fx_add = lk_rec.get_word(s)
-    if fx_kind < 1 or fx_kind > 4 or fx_at < fx_after:
+def count_shrinks(obj):
+    """Pass 1. MAIN is at cur_fn's FIX record: count, for each context, its fix-ups that
+    shrink."""
+    for ctx in range(0, lk_tab.ctx_count):
+        shrink_count[ctx] = 0
+    while lk_rec.left() > 0:
+        read_entry(obj)
+        if e_kind == K_SHRINK:
+            bits = zp_contexts(e_sym, e_slot, e_add)
+            for ctx in range(0, lk_tab.ctx_count):
+                if (bits & (1 << ctx)) != 0:
+                    shrink_count[ctx] += 1
+
+
+def hold(obj, in_code):
+    """Pass 2. MAIN is at a FIX record of cur_fn, or at a DFIX record: hold its entries.
+
+    Whether they make sense is checked as they are applied."""
+    global fix_count, cursor
+    fix_count = 0
+    cursor = 0
+    while lk_rec.left() > 0:
+        if fix_count == MAX_FIXES:
+            if in_code:
+                lk_sym.fail(lk_err.E_FIXES, cur_sym)
+            lk_err.fail(lk_err.E_FIXES)
+        read_entry(obj)
+        fx_at[fix_count] = e_at
+        fx_kind[fix_count] = e_kind
+        fx_sym[fix_count] = e_sym
+        fx_slot[fix_count] = e_slot
+        fx_add[fix_count] = e_add
+        fx_zp[fix_count] = 0
+        if in_code and e_kind == K_SHRINK:
+            fx_zp[fix_count] = zp_contexts(e_sym, e_slot, e_add)
+        fix_count += 1
+
+
+def drop():
+    """No fix-ups are held."""
+    global fix_count, cursor
+    fix_count = 0
+    cursor = 0
+
+
+def more():
+    """True while some held fix-up is still to be applied."""
+    return cursor < fix_count
+
+
+def next_fix():
+    """The fix-up at the cursor is applied: go on to the next."""
+    global cursor
+    if fx_kind[cursor] < K_WORD or fx_kind[cursor] > K_SHRINK:
         bad()
-    fx_after = fx_at + 1
-    if fx_kind == 1:
-        fx_after = fx_at + 2
+    cursor += 1
+    if cursor < fix_count:
+        # Fix-ups are sorted by offset, and do not overlap.
+        after = fx_at[cursor - 1] + 1
+        if is_word(fx_kind[cursor - 1]):
+            after += 1
+        if fx_at[cursor] < after:
+            bad()
+
+
+def rewind():
+    """Apply the held fix-ups again, to the next copy of the function."""
+    global cursor
+    cursor = 0
 
 
 # ---- what a fix-up points at
@@ -153,15 +212,15 @@ def target(ctx, sym, slot, is_call):
 
 def part(value, kind):
     """The byte a one-byte fix-up of this kind puts in the code."""
-    if kind == 3:
+    if kind == K_HIGH:
         return value >> 8
-    if kind == 4 and value > 0xFF:
+    if kind == K_ZP and value > 0xFF:
         # Only a class 0 slot is always in zero page; the compiler must not ask this of others.
-        lk_sym.fail_in(lk_err.E_NOT_ZP, fx_sym, cur_sym)
+        lk_sym.fail_in(lk_err.E_NOT_ZP, fx_sym[cursor], cur_sym)
     return value & 0xFF
 
 
-# ---- sites
+# ---- what shrinks
 
 def zp_contexts(sym, slot, addend):
     """The contexts, as bits, in which the address of a fix-up of cur_fn is below $100.
@@ -183,67 +242,19 @@ def zp_contexts(sym, slot, addend):
     return bits
 
 
-def collect(obj):
-    """MAIN is at cur_fn's FIX record: note the two-byte fix-ups that land in zero page."""
-    global site_count, fix_record
-    fix_record = lk_rec.recno(lk_rec.MAIN)
-    first_entry(lk_rec.MAIN, obj)
-    while fx_more:
-        if fx_kind == 1:
-            if fx_at == 0:
-                bad()               # an operand cannot be the first byte of the code
-            bits = zp_contexts(fx_sym, fx_slot, fx_add)
-            if bits != 0:
-                if site_count == MAX_SITES:
-                    lk_sym.fail(lk_err.E_SITES, cur_sym)
-                site_at[site_count] = fx_at
-                site_ctx[site_count] = bits
-                site_count += 1
-        next_entry(lk_rec.MAIN, obj)
-
-
-def confirm(cpu):
-    """MAIN is at cur_fn's CODE record: keep the sites whose opcode has a zero page form."""
-    global site_count, written, code_record
-    code_record = lk_rec.recno(lk_rec.MAIN)
-    written = lk_rec.left(lk_rec.MAIN)
-    kept = 0
-    candidate = 0
-    for pos in range(0, written):
-        op = lk_rec.get_byte(lk_rec.MAIN)
-        if candidate < site_count and site_at[candidate] == pos + 1:
-            form, shrinks = lk_op.zp_opcode(op, cpu)
-            if shrinks:
-                site_at[kept] = site_at[candidate]
-                site_ctx[kept] = site_ctx[candidate]
-                kept += 1
-            candidate += 1
-    site_count = kept
-
-
-def shrunk(ctx):
-    """How many bytes cur_fn's copy for context ctx loses."""
-    count = 0
-    for i in range(0, site_count):
-        if (site_ctx[i] & (1 << ctx)) != 0:
-            count += 1
-    return count
+def shrinks(i, ctx):
+    """True if the instruction of held fix-up i shrinks in the copy for context ctx."""
+    return (fx_zp[i] & (1 << ctx)) != 0
 
 
 def removed_before(pos, ctx):
     """How many bytes are removed before written offset `pos` in the copy for context ctx.
 
-    A site is the offset of an operand's low byte; the byte removed is the one after it."""
+    A fix-up is at the offset of an operand's low byte; the byte removed is the one after it."""
     count = 0
-    for i in range(0, site_count):
-        if site_at[i] < pos and (site_ctx[i] & (1 << ctx)) != 0:
+    for i in range(0, fix_count):
+        if fx_at[i] >= pos:
+            return count
+        if shrinks(i, ctx):
             count += 1
     return count
-
-
-def is_site(pos, ctx):
-    """True if the operand at written offset `pos` shrinks in the copy for context ctx."""
-    for i in range(0, site_count):
-        if site_at[i] == pos:
-            return (site_ctx[i] & (1 << ctx)) != 0
-    return False

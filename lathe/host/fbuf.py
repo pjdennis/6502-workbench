@@ -13,7 +13,14 @@ written layout of docs/object-format.md and its fix-ups in order of offset:
 - a label is the function's own symbol plus the label's offset, so a JMP inside the function
   is a fix-up like any other;
 - the function's temporaries, which are numbered from FIRST_TEMP while it is compiled, get the
-  slot numbers that follow its parameters and locals.
+  slot numbers that follow its parameters and locals;
+- a two-byte address whose instruction has a zero page form is a fix-up of kind 5, which the
+  linker shrinks if the address lands in zero page; any other two-byte address is kind 1;
+- each use, by such an instruction, of a slot of another function or a parameter of a class
+  adds to a weight in a small table (weight_*) that OUT writes as a WGT record: its own module
+  counts the uses of a slot only in the function it belongs to. A use adds 1, 4, 16 or 64 by
+  how many loops it is inside, as REG counts (docs/codegen.md, "Weights"); a loop here is the
+  code from a label back to the last branch or jump that goes back to it.
 
 Small improvements are made as the instructions arrive, because each needs only the newest
 entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
@@ -30,12 +37,15 @@ BUFFER_SIZE = 8192          # bytes of entries
 MAX_CODE = 4096            # bytes of code in one function
 MAX_LABELS = 256            # a label's number is stored in one byte
 MAX_FIXUPS = 1024
+MAX_WEIGHTS = 64            # slots of other functions one function uses; more are not counted
+LOOP_WEIGHTS = b"\x01\x04\x10\x40"     # what one use adds, by how many loops it is inside
 
 # Fix-up kinds (docs/object-format.md)
 FIX_ADDRESS = 1             # two bytes
 FIX_LOW = 2                 # one byte: the low byte of the address
 FIX_HIGH = 3                # one byte: the high byte
 FIX_ZERO_PAGE = 4           # one byte: an address known to be in zero page
+FIX_SHRINKS = 5             # two bytes, of an instruction that has a zero page form
 NO_SLOT = 0xFF              # in a fix-up's slot field: the symbol itself, not one of its slots
 FIRST_TEMP = 0x80           # slot numbers from here to NO_SLOT - 1 are the function's temporaries
 
@@ -82,6 +92,11 @@ fix_symbol = [0] * MAX_FIXUPS
 fix_slot = [0] * MAX_FIXUPS
 fix_addend = [0] * MAX_FIXUPS
 fix_count = 0
+loop_end = [0] * MAX_LABELS             # a label: the offset after the last branch back to it, or 0
+weight_symbol = [0] * MAX_WEIGHTS       # the uses of other functions' slots, by slot
+weight_slot = bytearray(MAX_WEIGHTS)
+weight_value = bytearray(MAX_WEIGHTS)
+weight_count = 0
 
 
 def begin():
@@ -417,6 +432,70 @@ def widen():
 
 # ---- Writing the code --------------------------------------------------------------------
 
+def has_zero_page_form(opcode):
+    """True if an instruction with a two-byte address has a form with a one-byte address:
+    the absolute and absolute,X instructions but JMP, JSR and (on the 65C02) JMP (abs,X) and
+    the NOPs, and LDX abs,Y (docs/object-format.md, "The size of an instruction")."""
+    low = opcode & 0x0F
+    if low == 0x0D or low == 0x0E:
+        return True
+    if low != 0x0C:
+        return False
+    high = opcode >> 4
+    return high != 0x04 and high != 0x05 and high != 0x06 and high != 0x07 and high != 0x0D \
+        and high != 0x0F
+
+
+def find_loops():
+    """loop_end of every label that a branch or jump goes back to."""
+    for label in range(0, label_count):
+        loop_end[label] = 0
+    entry = 0
+    offset = 0
+    while entry < used:
+        kind = buffer[entry]
+        size = code_size(entry)
+        label = UNPLACED
+        if kind == I_BRANCH or kind == I_FAR:
+            label = same(buffer[entry + 2])
+        elif kind == I_JUMP or kind == I_KEPT_JUMP:
+            label = same(buffer[entry + 1])
+        if label != UNPLACED and label_offset[label] <= offset:
+            loop_end[label] = offset + size
+        offset += size
+        entry += entry_size(kind)
+
+
+def use_weight(offset):
+    """What a use by the instruction at `offset` adds, by how many loops it is inside."""
+    depth = 0
+    for label in range(0, label_count):
+        if label_offset[label] <= offset and offset < loop_end[label]:
+            depth += 1
+    if depth > 3:
+        depth = 3
+    return LOOP_WEIGHTS[depth]
+
+
+def count_use(symbol, slot, offset):
+    """The instruction at `offset` uses slot `slot` of another function or class `symbol`."""
+    global weight_count
+    amount = use_weight(offset)
+    for i in range(0, weight_count):
+        if weight_symbol[i] == symbol and weight_slot[i] == slot:
+            if weight_value[i] + amount > 255:
+                weight_value[i] = 255
+            else:
+                weight_value[i] += amount
+            return
+    if weight_count == MAX_WEIGHTS:
+        return
+    weight_symbol[weight_count] = symbol
+    weight_slot[weight_count] = slot
+    weight_value[weight_count] = amount
+    weight_count += 1
+
+
 def emit(value):
     global code_length
     code[code_length] = value
@@ -480,7 +559,12 @@ def emit_entry(entry, own):
         slot = buffer[entry + 4]
         if symbol == own and slot >= FIRST_TEMP and slot != NO_SLOT:
             slot = slot - FIRST_TEMP + temp_base
-        fix(kind - I_FIX, symbol, slot, buffer[entry + 5] | (buffer[entry + 6] << 8))
+        part = kind - I_FIX
+        if part == FIX_ADDRESS and has_zero_page_form(opcode):
+            part = FIX_SHRINKS
+            if symbol != own and slot != NO_SLOT:
+                count_use(symbol, slot, code_length - 1)
+        fix(part, symbol, slot, buffer[entry + 5] | (buffer[entry + 6] << 8))
         emit(0)
         if kind == I_FIX + FIX_ADDRESS:
             emit(0)
@@ -489,7 +573,7 @@ def emit_entry(entry, own):
 def finish(own, base):
     """End the function, whose object-file symbol is `own`: settle its branches and build
     `code` and the fix-ups. Its temporaries get the slot numbers from `base` on."""
-    global code_length, fix_count, temp_base
+    global code_length, fix_count, temp_base, weight_count
     temp_base = base
     thread()
     while True:
@@ -498,8 +582,10 @@ def finish(own, base):
             break
     if size > MAX_CODE:
         err.fatal(err.E_FUNC_BIG)
+    find_loops()
     code_length = 0
     fix_count = 0
+    weight_count = 0
     entry = 0
     while entry < used:
         emit_entry(entry, own)

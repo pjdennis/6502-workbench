@@ -49,7 +49,7 @@ def allocate(modules, env, main_module):
 
     for m in modules:
         for x in m.items:
-            name = m.sym_name(x.sym) if not isinstance(x, lo.Memb) else None
+            name = m.sym_name(x.sym) if not isinstance(x, (lo.Memb, lo.Wgt)) else None
             if isinstance(x, lo.Func):
                 for n, s in enumerate(x.slots):
                     r = zp if s.cls == 0 else data

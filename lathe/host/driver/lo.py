@@ -1,4 +1,4 @@
-"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 1).
+"""Read, write and build Lathe object files (lathe/docs/object-format.md, version 2).
 
     m = lo.load('hello.lo')          # -> Module; raises LoError with file and offset on bad input
     data = lo.write(m)               # -> bytes
@@ -14,7 +14,8 @@
 Operands for Builder ops: an int (a literal), a symbol name, (function name, slot name or
 number), (class name, parameter number), or a label name of the function being built (for
 branches, and for JMP/JSR/immediates, which then get a fix-up to the function itself with the
-label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups.
+label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3 fix-ups. A
+two-byte operand gets kind 5 if the instruction has a zero page form and kind 1 if not.
 """
 import struct
 from dataclasses import dataclass, field
@@ -22,19 +23,19 @@ from typing import List
 
 import cpu6502
 
-VERSION = 1
+VERSION = 2
 
 R_END, R_MOD, R_IMP, R_SYM, R_VAR, R_DATA, R_DFIX, R_FUNC, R_SLOT, R_CALL, R_FIX, R_CODE, R_ENDF, \
-    R_CLAS, R_MEMB = range(15)
+    R_CLAS, R_MEMB, R_WGT = range(16)
 RECORD_NAMES = {R_END: 'END', R_MOD: 'MOD', R_IMP: 'IMP', R_SYM: 'SYM', R_VAR: 'VAR', R_DATA: 'DATA',
                 R_DFIX: 'DFIX', R_FUNC: 'FUNC', R_SLOT: 'SLOT', R_CALL: 'CALL', R_FIX: 'FIX',
-                R_CODE: 'CODE', R_ENDF: 'ENDF', R_CLAS: 'CLAS', R_MEMB: 'MEMB'}
+                R_CODE: 'CODE', R_ENDF: 'ENDF', R_CLAS: 'CLAS', R_MEMB: 'MEMB', R_WGT: 'WGT'}
 
 K_FUNC, K_VAR, K_DATA, K_CLASS = 1, 2, 3, 4
 KIND_NAMES = {K_FUNC: 'function', K_VAR: 'variable', K_DATA: 'constant data', K_CLASS: 'pointer class'}
 
-FX_WORD, FX_LO, FX_HI, FX_ZP = 1, 2, 3, 4
-FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1}
+FX_WORD, FX_LO, FX_HI, FX_ZP, FX_SHRINK = 1, 2, 3, 4, 5
+FIX_WIDTH = {FX_WORD: 2, FX_LO: 1, FX_HI: 1, FX_ZP: 1, FX_SHRINK: 2}
 
 SK_PARAM, SK_LOCAL, SK_TEMP = 0, 1, 2
 SLOT_KIND_NAMES = {SK_PARAM: 'param', SK_LOCAL: 'local', SK_TEMP: 'temp'}
@@ -116,7 +117,28 @@ class Data:
 class Clas:
     sym: int
     flags: int
-    params: List[int]
+    params: List[int]                       # the size of each parameter
+    names: List[str] = None                 # the name of each ('' if not known); None: all ''
+
+    def __post_init__(self):
+        if self.names is None:
+            self.names = [''] * len(self.params)
+        if len(self.names) != len(self.params):
+            raise LoError('a class needs one name for each parameter')
+
+
+@dataclass
+class Weight:
+    """Weight a module adds to a variable it does not define (slot $FF), or to a slot of a
+    function or a parameter of a class."""
+    sym: int
+    slot: int
+    weight: int
+
+
+@dataclass
+class Wgt:
+    entries: List[Weight] = field(default_factory=list)
 
 
 @dataclass
@@ -132,7 +154,7 @@ class Module:
     version: int = VERSION
     imports: List[str] = field(default_factory=list)
     symbols: List[Symbol] = field(default_factory=list)
-    items: list = field(default_factory=list)      # Func, Var, Data, Clas, Memb in file order
+    items: list = field(default_factory=list)      # Func, Var, Data, Clas, Memb, Wgt in file order
 
     def sym_name(self, i):
         return self.symbols[i].name
@@ -152,7 +174,7 @@ class Module:
     def definition(self, i):
         """The Func, Var, Data or Clas that defines symbol i here, or None."""
         for x in self.items:
-            if not isinstance(x, Memb) and x.sym == i:
+            if not isinstance(x, (Memb, Wgt)) and x.sym == i:
                 return x
         return None
 
@@ -228,7 +250,7 @@ def read(data, filename='<object>'):
     defined = {}                  # symbol -> description of where
     func = None                   # Func being read
     func_stage = 0                # 0 after FUNC, 1 SLOT, 2 CALL, 3 FIX, 4 CODE
-    last_data = None              # the DATA record just read (for DFIX)
+    dfix = None                   # the fix-ups of a DFIX record, for the DATA record after it
     pending = []                  # (Fix, owner description, pos) checked at END
     ended = False
 
@@ -246,12 +268,25 @@ def read(data, filename='<object>'):
             r.fail(f'symbol {i} ({m.symbols[i].name}) defined twice')
         defined[i] = what
 
-    def check_fixes(fixes, size, what):
+    def check_fixes(fixes, size, what, code=None):
+        """code: the function's code, to check kinds 1 and 5 against; None for constant data."""
         for x in fixes:
             if x.kind not in FIX_WIDTH:
                 r.fail(f'{what}: unknown fix-up kind {x.kind}')
             if x.offset + FIX_WIDTH[x.kind] > size:
                 r.fail(f'{what}: fix-up at offset ${x.offset:04X} runs past the end of the code or data')
+            if x.kind == FX_SHRINK and code is None:
+                r.fail(f'{what}: fix-up kind 5 at offset ${x.offset:04X} in constant data')
+            if x.kind in (FX_WORD, FX_SHRINK) and code is not None and x.offset > 0:
+                entry = cpu6502.decode_table(m.cpu).get(code[x.offset - 1])
+                if entry is not None:
+                    has_zp = cpu6502.shrinks(m.cpu, entry[0], entry[1]) is not None
+                    if has_zp and x.kind == FX_WORD:
+                        r.fail(f'{what}: fix-up kind 1 at offset ${x.offset:04X} on {entry[0]} {entry[1]}, '
+                               f'which has a zero page form: it takes kind 5')
+                    if not has_zp and x.kind == FX_SHRINK:
+                        r.fail(f'{what}: fix-up kind 5 at offset ${x.offset:04X} on {entry[0]} {entry[1]}, '
+                               f'which has no zero page form: it takes kind 1')
             s = sym_ref(x.sym, f'{what}: fix-up at ${x.offset:04X}')
             if s.kind in (K_VAR, K_DATA) and x.slot != NO_SLOT:
                 r.fail(f'{what}: fix-up names slot {x.slot} of {s.name}, a {KIND_NAMES[s.kind]}')
@@ -279,7 +314,8 @@ def read(data, filename='<object>'):
                 r.fail(f'first record must be MOD, not {name}')
             version = body.u8()
             if version != VERSION:
-                r.fail(f'unsupported object format version {version}')
+                r.fail(f'unsupported object format version {version}: this reader takes version '
+                       f'{VERSION} only; compile the module again')
             cpu = body.u8()
             if cpu not in (cpu6502.CPU_6502, cpu6502.CPU_65C02):
                 r.fail(f'unknown CPU {cpu}')
@@ -288,7 +324,8 @@ def read(data, filename='<object>'):
             r.pos += 3 + length
             continue
 
-        prev_data, last_data = last_data, None
+        if dfix is not None and rtype != R_DATA:
+            r.fail('DFIX record not just before a DATA record')
         if func is not None:
             order = {R_SLOT: 1, R_CALL: 2, R_FIX: 3, R_CODE: 4}
             if rtype in order:
@@ -320,7 +357,7 @@ def read(data, filename='<object>'):
                     func.fixes = _fix_entries(body, r)
                 else:
                     func.code = body.rest()
-                    check_fixes(func.fixes, len(func.code), f'function {m.sym_name(func.sym)}')
+                    check_fixes(func.fixes, len(func.code), f'function {m.sym_name(func.sym)}', func.code)
                 body.done()
             elif rtype == R_ENDF:
                 if length:
@@ -351,7 +388,7 @@ def read(data, filename='<object>'):
             if v.cls > 2:
                 r.fail(f'VAR {vname} has class {v.cls}')
             if v.flags & VAR_OLD_INIT:
-                r.fail(f'VAR {vname}: flag bit 0 (initial value) is not in format version 1: '
+                r.fail(f'VAR {vname}: flag bit 0 (initial value) is not in format version {VERSION}: '
                        f'variables have no initial values; the compiler sets them in module.$init')
             if v.flags:
                 r.fail(f'VAR {vname}: unknown flags ${v.flags:02X}')
@@ -360,13 +397,13 @@ def read(data, filename='<object>'):
             x = Data(body.u16(), b'')
             define(x.sym, 'DATA', K_DATA)
             x.data = body.rest()
+            if dfix is not None:
+                x.fixes = dfix
+                check_fixes(x.fixes, len(x.data), m.sym_name(x.sym))
+                dfix = None
             m.items.append(x)
-            last_data = x
         elif rtype == R_DFIX:
-            if prev_data is None:
-                r.fail('DFIX record not just after a DATA record')
-            prev_data.fixes = _fix_entries(body, r)
-            check_fixes(prev_data.fixes, len(prev_data.data), m.sym_name(prev_data.sym))
+            dfix = _fix_entries(body, r)
         elif rtype == R_FUNC:
             func = Func(body.u16(), body.u8())
             define(func.sym, 'FUNC', K_FUNC)
@@ -375,13 +412,30 @@ def read(data, filename='<object>'):
             c = Clas(body.u16(), body.u8(), [])
             define(c.sym, 'CLAS', K_CLASS)
             n = body.u8()
-            c.params = [body.u16() for _ in range(n)]
+            c.params, c.names = [], []
+            for _ in range(n):
+                c.params.append(body.u16())
+                c.names.append(body.string())
             m.items.append(c)
         elif rtype == R_MEMB:
             mb = Memb(body.u16(), body.u16())
             sym_ref(mb.cls, 'MEMB', (K_CLASS,))
             sym_ref(mb.func, 'MEMB', (K_FUNC,))
             m.items.append(mb)
+        elif rtype == R_WGT:
+            raw = body.rest()
+            if len(raw) % 4:
+                r.fail(f'WGT body length {len(raw)} is not a multiple of 4')
+            w = Wgt()
+            for i in range(0, len(raw), 4):
+                e = Weight(*struct.unpack('<HBB', raw[i:i + 4]))
+                s = sym_ref(e.sym, 'WGT', (K_FUNC, K_VAR, K_CLASS))
+                if (s.kind == K_VAR) != (e.slot == NO_SLOT):
+                    r.fail(f'WGT: {s.name} is a {KIND_NAMES[s.kind]}: '
+                           + ('a weight for it names no slot' if s.kind == K_VAR else 'a weight names one of its slots'))
+                pending.append((Fix(0, 0, e.sym, e.slot), 'WGT', r.pos))
+                w.entries.append(e)
+            m.items.append(w)
         elif rtype == R_END:
             if length:
                 r.fail(f'END record has body length {length}, expected 0')
@@ -397,13 +451,18 @@ def read(data, filename='<object>'):
         r.fail(f'function {m.sym_name(func.sym)} not closed by ENDF (end of file)')
     if not ended:
         r.fail('no END record')
+    if dfix is not None:
+        r.fail('DFIX record not just before a DATA record')
 
     # Slot numbers can be checked once every local definition is known.
     for x, what, pos in pending:
-        if x.slot == NO_SLOT:
-            continue
         s = m.symbols[x.sym]
         target = m.definition(x.sym)
+        if what == 'WGT' and isinstance(target, Var):
+            r.pos = pos
+            r.fail(f'WGT: {s.name} is defined here; its own VAR record has its weight')
+        if x.slot == NO_SLOT:
+            continue
         if s.kind == K_FUNC and isinstance(target, Func) and x.slot >= len(target.slots):
             r.pos = pos
             r.fail(f'{what}: fix-up names slot {x.slot} of {s.name}, which has {len(target.slots)} slots')
@@ -457,12 +516,14 @@ def write(m):
         elif isinstance(x, Var):
             out.append(_rec(R_VAR, struct.pack('<HHBBB', x.sym, x.size, x.cls, x.weight, x.flags)))
         elif isinstance(x, Data):
-            out.append(_rec(R_DATA, struct.pack('<H', x.sym) + x.data))
             if x.fixes:
                 out.append(_rec(R_DFIX, _fixes(x.fixes)))
+            out.append(_rec(R_DATA, struct.pack('<H', x.sym) + x.data))
         elif isinstance(x, Clas):
             out.append(_rec(R_CLAS, struct.pack('<HBB', x.sym, x.flags, len(x.params))
-                            + b''.join(struct.pack('<H', p) for p in x.params)))
+                            + b''.join(struct.pack('<H', p) + _str(n) for p, n in zip(x.params, x.names))))
+        elif isinstance(x, Wgt):
+            out.append(_rec(R_WGT, b''.join(struct.pack('<HBB', e.sym, e.slot, e.weight) for e in x.entries)))
         elif isinstance(x, Memb):
             out.append(_rec(R_MEMB, struct.pack('<HH', x.cls, x.func)))
         else:
@@ -558,7 +619,7 @@ class FuncBuilder:
             self.code += operand.to_bytes(width, 'little')
             return self
         if width == 2:
-            kind = FX_WORD
+            kind = FX_SHRINK if cpu6502.shrinks(self.b.module_.cpu, mnemonic.upper(), mode) else FX_WORD
         elif part is not None:
             kind = part
         elif mode == cpu6502.IMM:
@@ -629,8 +690,18 @@ class Builder:
         self.parts.append(p)
         return p
 
-    def clas(self, name, params, flags=0):
-        self.module_.items.append(Clas(self.extern(name, K_CLASS), flags, list(params)))
+    def clas(self, name, params, flags=0, names=None):
+        names = None if names is None else list(names)
+        self.module_.items.append(Clas(self.extern(name, K_CLASS), flags, list(params), names))
+        return self
+
+    def wgt(self, target, weight):
+        """A WGT record of one entry: the target is a variable name or (function or class name,
+        slot or parameter number)."""
+        slot = NO_SLOT
+        if isinstance(target, tuple):
+            target, slot = target
+        self.module_.items.append(Wgt([Weight(self._sym(target), slot, weight)]))
         return self
 
     def memb(self, cls, func):

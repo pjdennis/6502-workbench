@@ -59,7 +59,17 @@ class InstructionsTest(FbufTest):
         fbuf.op(NOP)
         fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, 5, 2, 1)
         self.assertEqual(code(), bytes([NOP, LDA_ABS, 0, 0]))
-        self.assertEqual(fixups(), [(2, 1, 5, 2, 1)])
+        self.assertEqual(fixups(), [(2, 5, 5, 2, 1)])
+
+    def test_kind_5_is_for_an_instruction_with_a_zero_page_form(self):
+        for opcode in (0xAD, 0xBD, 0x8D, 0x9D, 0xEE, 0xFE, 0xAE, 0xBE, 0xAC, 0xBC, 0x2C, 0xCC, 0xEC,
+                       0x6D, 0x0E, 0x9C, 0x9E, 0x0C, 0x1C, 0x3C):
+            fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, 1, 0xFF, 0)
+        for opcode in (JSR, 0xB9, 0x99, 0x19, JMP):
+            fbuf.op_fix(opcode, fbuf.FIX_ADDRESS, 1, 0xFF, 0)
+        code()
+        self.assertEqual([f[1] for f in fixups()], [5] * 20 + [1] * 5)
+        self.assertFalse(any(fbuf.has_zero_page_form(op) for op in (0x6C, 0x7C, 0x5C, 0xDC, 0xFC)))
 
     def test_low_high_and_zero_page_fix_ups_take_one_byte(self):
         fbuf.op_fix(LDA_IMM, fbuf.FIX_LOW, 3, 0xFF, 0)
@@ -74,7 +84,7 @@ class InstructionsTest(FbufTest):
         fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 2, 1, 0)
         fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, 1, 0xFF, 0)
         code()
-        self.assertEqual(fixups(), [(1, 1, 300, 0xFF, 0), (6, 1, 2, 1, 0), (9, 1, 1, 0xFF, 0)])
+        self.assertEqual(fixups(), [(1, 1, 300, 0xFF, 0), (6, 5, 2, 1, 0), (9, 1, 1, 0xFF, 0)])
 
     def test_begin_starts_again_from_nothing(self):
         label = fbuf.new_label()
@@ -86,6 +96,58 @@ class InstructionsTest(FbufTest):
         fbuf.op(RTS)
         self.assertEqual(code(), bytes([RTS]))
         self.assertEqual(fixups(), [])
+
+
+def weights():
+    """The weights counted for other functions' slots, as (symbol, slot, weight)."""
+    return [(fbuf.weight_symbol[i], fbuf.weight_slot[i], fbuf.weight_value[i]) for i in range(fbuf.weight_count)]
+
+
+class WeightTest(FbufTest):
+    def test_uses_of_other_functions_slots_are_counted(self):
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 0)        # another function's slot
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 1)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 4, 1, 0)        # a class parameter, or a slot
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, OWN, 0, 0)      # its own: REG counts those
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, 5, 0xFF, 0)     # a variable: OUT counts those
+        fbuf.op_fix(LDA_IND_Y, fbuf.FIX_ZERO_PAGE, 3, 2, 0)    # always in zero page
+        fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        fbuf.op(RTS)
+        code()
+        self.assertEqual(weights(), [(3, 0, 2), (4, 1, 1)])
+
+    def test_a_use_inside_loops_weighs_more(self):
+        outer = fbuf.new_label()
+        inner = fbuf.new_label()
+        fbuf.place(outer)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 0)        # 4
+        fbuf.place(inner)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 0)        # 16
+        fbuf.branch(BNE, inner)
+        fbuf.branch(BCC, outer)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 0)        # 1
+        fbuf.op(RTS)
+        code()
+        self.assertEqual(weights(), [(3, 0, 21)])
+
+    def test_a_jump_back_is_a_loop_too_and_weights_stop_at_255(self):
+        top = fbuf.new_label()
+        fbuf.place(top)
+        for _ in range(70):
+            fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0, 0)
+        fbuf.jump(top)
+        code()
+        self.assertEqual(weights(), [(3, 0, 255)])
+
+    def test_the_table_is_per_function_and_what_does_not_fit_is_not_counted(self):
+        for n in range(fbuf.MAX_WEIGHTS + 1):
+            fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 100 + n, 0, 0)
+        code()
+        self.assertEqual(len(weights()), fbuf.MAX_WEIGHTS)
+        fbuf.begin()
+        fbuf.op(RTS)
+        code()
+        self.assertEqual(weights(), [])
 
 
 class RunsOnTest(FbufTest):

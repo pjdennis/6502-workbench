@@ -28,6 +28,12 @@ RECURSIVE, INTERRUPT = 1, 2             # FUNC flags
 SAVES, POINTER = 1, 2                   # CALL flags
 NOBODY = 0xFFFF
 
+# The instructions with a two-byte address that have a zero page form (object-format.md, "The
+# size of an instruction"): a fix-up of their address is of kind 5, any other two-byte one of kind 1.
+SHRINKABLE = frozenset(
+    [0x0D + 0x10 * h for h in range(16)] + [0x0E + 0x10 * h for h in range(16)]
+    + [0x0C, 0x1C, 0x2C, 0x3C, 0x8C, 0x9C, 0xAC, 0xBC, 0xCC, 0xEC])
+
 
 def word(n):
     return bytes((n & 0xFF, (n >> 8) & 0xFF))
@@ -59,10 +65,13 @@ class Code:
     def _fix(self, kind, sym, slot, add):
         self.fixes.append((len(self.bytes), kind, sym, slot, add & 0xFFFF))
 
-    def abs(self, op, sym, slot=0xFF, add=0):
-        """A three-byte instruction whose operand is a two-byte fix-up."""
+    def abs(self, op, sym, slot=0xFF, add=0, kind=None):
+        """A three-byte instruction whose operand is a two-byte fix-up: of kind 5 if the
+        instruction has a zero page form, else of kind 1, unless `kind` says otherwise."""
         self.bytes.append(op)
-        self._fix(1, sym, slot, add)
+        if kind is None:
+            kind = 5 if op in SHRINKABLE else 1
+        self._fix(kind, sym, slot, add)
         self.bytes += b'\0\0'
         return self
 
@@ -83,7 +92,7 @@ class Code:
 class Obj:
     """One object file under construction."""
 
-    def __init__(self, name, cpu=0, version=1):
+    def __init__(self, name, cpu=0, version=2):
         self.name = name
         self.records = [record(1, bytes((version, cpu)) + string(name))]
         self.numbers = {}
@@ -124,9 +133,9 @@ class Obj:
 
     def data(self, name, content, fixes=()):
         n = self.d(name)
-        self.records.append(record(5, word(n) + bytes(content)))
         if fixes:
             self.records.append(record(6, self._fixes(fixes)))
+        self.records.append(record(5, word(n) + bytes(content)))
         return n
 
     def code(self):
@@ -153,10 +162,18 @@ class Obj:
         self.records.append(record(12))
         return n
 
-    def clas(self, name, sizes, flags=0):
+    def clas(self, name, sizes, flags=0, names=None):
+        """names: the parameters' names; empty, unknown, if not given."""
         n = self.k(name)
-        self.records.append(record(13, word(n) + bytes((flags, len(sizes))) + b''.join(word(s) for s in sizes)))
+        if names is None:
+            names = [''] * len(sizes)
+        self.records.append(record(13, word(n) + bytes((flags, len(sizes)))
+                                   + b''.join(word(s) + string(p) for s, p in zip(sizes, names))))
         return n
+
+    def wgt(self, *entries):
+        """A WGT record: entries (symbol number, slot or 0xFF, weight)."""
+        self.records.append(record(15, b''.join(word(sym) + bytes((slot, weight)) for sym, slot, weight in entries)))
 
     def memb(self, class_name, func_name):
         self.records.append(record(14, word(self.k(class_name)) + word(self.f(func_name))))

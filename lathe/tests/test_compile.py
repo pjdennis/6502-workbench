@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lathec_support as support  # noqa: E402
 
-END, MOD, IMP, SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF, CLAS, MEMB = 0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14
+END, MOD, IMP, SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF, CLAS, MEMB, WGT = 0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15
 HOST_LTH = os.path.join(support.LATHE, 'rt', 'host.lth')
 HELLO_LTH = os.path.join(support.CASES, 'e2e', 'hello.lth')
 
@@ -55,7 +55,7 @@ class CompileTest(unittest.TestCase):
 class HelloTest(CompileTest):
     def test_a_module_of_extern_declarations_has_an_object_file_with_no_functions(self):
         self.compile(HOST_LTH)
-        self.assertEqual(self.records('host'), [(MOD, b'\x01\x00' + string(b'host')), (END, b'')])
+        self.assertEqual(self.records('host'), [(MOD, b'\x02\x00' + string(b'host')), (END, b'')])
 
     def test_its_interface_lists_what_it_exports(self):
         self.compile(HOST_LTH)
@@ -82,7 +82,7 @@ class HelloTest(CompileTest):
         self.compile(HOST_LTH)
         self.compile(HELLO_LTH)
         self.assertEqual(self.records('hello'), [
-            (MOD, b'\x01\x00' + string(b'hello')),
+            (MOD, b'\x02\x00' + string(b'hello')),
             (IMP, string(b'host')),
             (SYM, b'\x01' + string(b'hello.main')),
             (FUNC, b'\x00\x00\x04'),                      # symbol 0, exported
@@ -143,7 +143,7 @@ class LanguageTest(CompileTest):
         jsr = b'\x20\x00\x00'
         jmp = b'\x4c\x00\x00'           # a call that a return follows
         self.assertEqual(self.records('app'), [
-            (MOD, b'\x01\x00' + string(b'app')),
+            (MOD, b'\x02\x00' + string(b'app')),
             (IMP, string(b'util')),
             (SYM, b'\x01' + string(b'app.local')),
             (SYM, b'\x01' + string(b'util.beep')),
@@ -275,7 +275,7 @@ class RecordsTest(CompileTest):
         self.assertEqual(records[-6:], [
             (SYM, b'\x01' + string(b'start.$init')),
             (FUNC, b'\x03\x00\x00'),
-            (FIX, fixup(3, 1, 0, 0xFF, 0) + fixup(6, 1, 1, 0xFF, 0) + fixup(11, 1, 1, 0xFF, 1)),
+            (FIX, fixup(3, 5, 0, 0xFF, 0) + fixup(6, 5, 1, 0xFF, 0) + fixup(11, 5, 1, 0xFF, 1)),
             (CODE, bytes([0xA9, 7, 0x8D, 0, 0, 0x8D, 0, 0, 0xA9, 0, 0x8D, 0, 0, 0x60])),
             (ENDF, b''),
             (END, b'')])
@@ -390,9 +390,13 @@ class InterfaceTest(CompileTest):
             0xAD, 0, 0, 0x8D, 0x20, 0xD0,                   # LDA lib.count / STA $D020
             0xA5, 0, 0x8D, 0, 0]))                          # the byte waits for A; the word goes
         fixes = [body for kind, body in records if kind == FIX][0]          # to its slot
-        self.assertEqual(fixes[:32], fixup(3, 1, 3, 0xFF, 0) + fixup(8, 4, 4, 0xFF, 0) + fixup(12, 4, 4, 0xFF, 1)
-                         + fixup(14, 1, 3, 0xFF, 0))
-        self.assertEqual(fixes[32:48], fixup(20, 4, 4, 0xFF, 0) + fixup(22, 1, 5, 1, 0))  # slot 1 of lib.take
+        self.assertEqual(fixes[:32], fixup(3, 5, 3, 0xFF, 0) + fixup(8, 4, 4, 0xFF, 0) + fixup(12, 4, 4, 0xFF, 1)
+                         + fixup(14, 5, 3, 0xFF, 0))
+        self.assertEqual(fixes[32:48], fixup(20, 4, 4, 0xFF, 0) + fixup(22, 5, 5, 1, 0))  # slot 1 of lib.take
+        # The weights this module adds to lib.take's slot 1 (w, by two bytes; n travels in A),
+        # after f, and to lib.count and lib.total, at the end: lib's own records cannot hold them.
+        self.assertEqual([body for kind, body in records if kind == WGT],
+                         [b'\x05\x00\x01\x02', b'\x03\x00\xff\x03\x04\x00\xff\x04'])
 
     def test_what_is_not_pub_is_not_there(self):
         self.compile(self.source('lib.lth', self.LIB))
@@ -586,8 +590,8 @@ class FunctionTypesTest(CompileTest):
         self.assertIn((IMP, string(b'rt_frame')), records)      # walk2 saves its frame
         self.assertIn((SYM, b'\x04' + string(b'lib.visit')), records)
         self.assertIn((SYM, b'\x04' + string(b'lib.handler')), records)
-        self.assertIn((CLAS, b'\x05\x00\x01\x01\x02\x00'), records)            # lib.visit: recursive
-        self.assertIn((CLAS, b'\x08\x00\x00\x02\x01\x00\x02\x00'), records)    # lib.handler: 1 and 2 bytes
+        self.assertIn((CLAS, b'\x05\x00\x01\x01\x02\x00\x00'), records)            # lib.visit: recursive
+        self.assertIn((CLAS, b'\x08\x00\x00\x02\x01\x00\x00\x02\x00\x00'), records)    # lib.handler: 1 and 2 bytes
         self.assertIn((MEMB, b'\x08\x00\x07\x00'), records)                      # lib.beep in lib.handler
         self.assertIn((MEMB, b'\x05\x00\x02\x00'), records)                      # user.walk2 in lib.visit
         self.assertIn((CALL, b'\x05\x00\x03\xff\xff'), records)                  # saves, through a pointer
@@ -685,7 +689,7 @@ class CommandLineTest(CompileTest):
         for options, cpu in (((), 0), (('-c6502',), 0), (('-c65C02',), 1), (('-c65c02', '-c6502'), 0)):
             with self.subTest(options=options):
                 self.assertEqual(support.run_lathec(*options, path, self.out), (0, ''))
-                self.assertEqual(self.records('prog')[0], (MOD, bytes([1, cpu]) + string(b'prog')))
+                self.assertEqual(self.records('prog')[0], (MOD, bytes([2, cpu]) + string(b'prog')))
 
     def test_options_predeclare_constants(self):
         path = self.source('prog.lth', 'module prog\n'

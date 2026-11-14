@@ -145,5 +145,106 @@ class Identity(unittest.TestCase):
         self.identical([frames_program()], env(code='$E000 $FFF0').replace('$C000 $EFFF', '$0400 $04FF'))
 
 
+class FormatTwo(Identity):
+    """What version 2 of the object format says about fix-ups, checked the same way."""
+
+    def test_only_kind_5_shrinks(self):
+        b = lo.Builder('t')
+        b.var('t.z', 2, MUST)
+        f = b.func('t.main')
+        f.label('top')
+        f.op('LDA', 'abs,y', 't.z')             # no zero page form for LDA abs,Y: kind 1
+        f.op('BEQ', 'rel', 'last')
+        f.op('LDX', 'abs,y', 't.z')             # LDX abs,Y has one: kind 5
+        f.op('JSR', 'abs', 't.z', 1)            # a call into zero page is still three bytes
+        f.op('STA', 'abs,x', 't.z')
+        f.op('BNE', 'rel', 'top')
+        f.label('last').op('JMP', '(abs)', 't.z')
+        b.module()
+        self.assertEqual([x.kind for x in f.func.fixes], [1, 5, 1, 5, 1])
+        r = self.identical([b], env())
+        self.assertEqual(r.addr('V', 't.z'), 0)
+        self.assertEqual(r.code('t.main'), bytes.fromhex('B90000 F009 B600 200100 9500 D0F2 6C0000'))
+
+    def test_a_kind_that_does_not_suit_the_opcode_is_a_bad_fix_up(self):
+        for op, kind in ((0xAD, 1), (0xB9, 5), (0x6C, 5), (0x20, 5)):
+            b = lo.Builder('t')
+            b.var('t.z', 2, MUST)
+            f = b.func('t.main')
+            f.raw(op, 0, 0, 0x60)
+            f.func.fixes = [lo.Fix(1, kind, 0)]
+            f.finished = True
+            f.func.code = bytes(f.code)
+            r = link([lo.write(b.module_)], env(), main='t')
+            self.assertEqual(r.errors, 'link error 29: bad fix-up: t.main\n', (op, kind))
+
+    def test_kind_5_in_constant_data_is_a_bad_fix_up(self):
+        b = lo.Builder('t')
+        b.var('t.v', 2)
+        b.func('t.main').op('LDA', 'abs', 't.$1').op('RTS')
+        b.data('t.$1', bytes(2))
+        m = b.module()
+        m.items[-1].fixes = [lo.Fix(0, lo.FX_SHRINK, m.sym_index('t.v'))]
+        r = link([lo.write(m)], env(), main='t')
+        self.assertEqual(r.errors, 'link error 29: bad fix-up: t.$1\n')
+
+    def test_class_parameters_are_named_by_the_class(self):
+        b = lo.Builder('t')
+        b.var('t.on_key', 2, EITHER, 4)
+        b.clas('t.handler', [1, 2], names=['code', ''])
+        f = b.func('t.main')
+        f.op('LDA', '#<', 't.beep').op('STA', 'abs', 't.on_key')
+        f.op('LDA', '#>', 't.beep').op('STA', 'abs', 't.on_key', 1)
+        f.op('LDA', '#', 3).op('STA', 'abs', ('t.handler', 0)).op('STA', 'abs', ('t.handler', 1))
+        f.call('t.handler', lo.C_POINTER).op('JSR', 'abs', 'call').op('RTS')
+        f.label('call').op('JMP', '(abs)', 't.on_key')
+        f = b.func('t.beep')
+        f.slot('c', 1, EITHER, 6, lo.SK_PARAM)
+        f.slot('a', 2, EITHER, 2, lo.SK_PARAM)
+        f.op('LDA', 'abs', ('t.beep', 'c')).op('INC', 'abs', ('t.beep', 'a')).op('RTS')
+        b.memb('t.handler', 't.beep')
+        r = self.identical([b], env())
+        # The class names its first parameter; the second takes its member's name.
+        self.assertEqual([m[5] for m in r.map if m[0] == 'C'], ['code', 'a'])
+        self.assertIn('t__handler__code = $', r.asm_text)
+        self.assertIn('STA t__handler__code', r.asm_text)
+        self.assertIn('t__handler__p1 = $', r.asm_text)
+
+    def weights_program(self, weights):
+        """Module a stores into b.f's parameter and reads b.v; b's own records give them no
+        weight. Each of `weights` is a WGT entry of a: (target, weight)."""
+        a = lo.Builder('a')
+        f = a.func('a.main')
+        f.label('top').op('LDA', 'abs', 'b.v').op('STA', 'abs', ('b.f', 0))
+        f.call('b.f').op('JSR', 'abs', 'b.f').op('BNE', 'rel', 'top').op('RTS')
+        a.extern('b.v', lo.K_VAR)
+        a.extern('b.f', lo.K_FUNC)
+        for target, weight in weights:
+            a.wgt(target, weight)
+        b = lo.Builder('b')
+        b.var('b.v', 1, EITHER, 0)
+        b.var('b.w', 1, EITHER, 3)
+        f = b.func('b.f')
+        f.slot('n', 1, EITHER, 2, lo.SK_PARAM)
+        f.op('LDA', 'abs', ('b.f', 'n')).op('ORA', 'abs', 'b.w').op('RTS')
+        return a, b
+
+    def test_weights_from_another_module_change_what_goes_in_zero_page(self):
+        # Two bytes of zero page: b.w (3) and b.f's n (2) without the weights a adds.
+        r = self.identical(list(self.weights_program([])), env('$10 $11'))
+        self.assertEqual((r.addr('V', 'b.w'), r.addr('S', 'b.f', 0), r.addr('V', 'b.v')), (0x10, 0x11, 0xC000))
+        # a uses b.v and n in a loop: b.v (8) and n (2 + 8) go first, and b.w is left out.
+        r = self.identical(list(self.weights_program([('b.v', 8), (('b.f', 0), 8)])), env('$10 $11'))
+        self.assertEqual((r.addr('V', 'b.v'), r.addr('S', 'b.f', 0), r.addr('V', 'b.w')), (0x10, 0x11, 0xC000))
+
+    def test_a_weight_for_a_function_not_read_yet_waits_and_weights_stop_at_255(self):
+        a, b = self.weights_program([(('b.f', 0), 200), (('b.f', 0), 200), ('b.v', 255)])
+        r = self.identical([a, b], env('$10 $10'))
+        self.assertEqual(r.addr('S', 'b.f', 0), 0x10)        # 2 + 400, stopped at 255: before b.v
+        a, b = self.weights_program([(('b.f', 0), 1), ('b.v', 255)])
+        r = self.identical([a, b], env('$10 $10'))
+        self.assertEqual(r.addr('V', 'b.v'), 0x10)
+
+
 if __name__ == '__main__':
     unittest.main()

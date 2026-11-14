@@ -146,6 +146,8 @@ S 0020 0002 demo.spaces@1 0 s     ; slot 0 of its copy for context 1
 C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
 ```
 
+A C line names the parameter by its name in the class's `CLAS` records; one they leave unnamed (the compiler does not yet write the names) takes the name of the parameter of the class's first member, or `pN`.
+
 Only what the linker kept is listed: functions reachable from an entry point, and those whose address kept code or kept constant data takes (`../docs/code-model.md`, "Sharing frames"); variables and constant data that kept code or kept constant data names (`../docs/object-format.md`, "What the linker keeps"). A function reachable from several contexts (`../docs/code-model.md`, "Interrupts") has one F line and one set of S lines per copy. Its first copy, for the lowest of those contexts, has the function's name; each further copy, for context N, is `name@N`. Context 0 is the main program and 1, 2… the interrupt functions in object order. An F line of a first copy whose context is not 0 (a function only interrupt contexts reach) ends with that context's number, so that every copy's context is known.
 
 ## The interface file

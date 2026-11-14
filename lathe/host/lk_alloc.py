@@ -416,12 +416,29 @@ def try_vars(weight):
                 layout_zp()
 
 
+def move_all(into):
+    """Move every candidate of weight 1 or more into zero page, or out again."""
+    for weight in range(1, WEIGHTS):
+        if weight_count[weight] != 0:
+            move_weight(weight, into)
+
+
 def promote():
     """Move class 1 items into zero page, heaviest first, while the deepest chain still fits.
 
-    An item of weight 0 gains nothing from zero page and is left where it is."""
+    An item of weight 0 gains nothing from zero page and is left where it is. Trying the
+    candidates of a weight together saves layouts only when there are several: a lone one is
+    tried by itself at once, which needs a layout only if it fits.
+
+    First every candidate is tried at once. More in zero page never makes a chain need less, so
+    if they all fit, each would have been taken one at a time too: one layout does the work."""
+    move_all(True)
+    if layout_zp():
+        return
+    move_all(False)
+    layout_zp()
     for weight in range(WEIGHTS - 1, 0, -1):
-        if weight_count[weight] != 0:
+        if weight_count[weight] > 1:
             move_weight(weight, True)
             if not layout_zp():
                 move_weight(weight, False)
@@ -429,6 +446,10 @@ def promote():
                 try_slots(weight)
                 try_cparams(weight)
                 try_vars(weight)
+        elif weight_count[weight] == 1:
+            try_slots(weight)
+            try_cparams(weight)
+            try_vars(weight)
 
 
 # ---- addresses

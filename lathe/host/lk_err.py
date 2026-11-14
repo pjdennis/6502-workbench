@@ -33,7 +33,7 @@ E_MEMBER = 24
 E_ZP_FULL = 25
 E_DATA_FULL = 26
 E_CODE_FULL = 27
-E_SITES = 28
+E_FIXES = 28
 E_FIXUP = 29
 E_NOT_ZP = 30
 E_NOT_LINKED = 31
@@ -46,6 +46,7 @@ E_SIZE = 37
 E_REFS = 38
 E_STOP_6502 = 39
 E_MEMBER_CYCLE = 40
+E_WEIGHTS = 41
 
 # One message per line, in the order of the numbers above.
 MESSAGES = (
@@ -53,7 +54,7 @@ MESSAGES = (
     b"cannot open file\n"
     b"environment file: bad entry\n"
     b"environment file: zeropage, code, data and exit must all be given\n"
-    b"unsupported object version\n"
+    b"unsupported object version: this linker reads version 2\n"
     b"object file is damaged\n"
     b"object file needs a 65C02 and the environment has a 6502\n"
     b"too many object files\n"
@@ -76,7 +77,7 @@ MESSAGES = (
     b"zero page is full\n"
     b"variables do not fit in the data range\n"
     b"code does not fit in the code range\n"
-    b"too many zero page operands in one function\n"
+    b"too many fix-ups in one function or table\n"
     b"bad fix-up\n"
     b"address must be in zero page\n"
     b"call of a function that was not linked\n"
@@ -89,6 +90,7 @@ MESSAGES = (
     b"too many symbols named by fix-ups\n"
     b"environment file: exit stop needs cpu 65c02\n"
     b"functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through\n"
+    b"too many weights for slots of functions not read yet\n"
 )
 
 PREFIX = b"link error "

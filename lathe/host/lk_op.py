@@ -1,5 +1,5 @@
 """What the linker knows about 6502 opcodes: how long an instruction is, which absolute
-instructions have a zero page form, and which instructions are relative branches.
+instructions have a zero page form and what it is, and which instructions are relative branches.
 
 The linker finds instruction boundaries by decoding opcodes (object-format.md, "The size of an
 instruction"), so OP_LEN covers all 256 values. Opcodes the NMOS 6502 does not define have the
@@ -28,28 +28,6 @@ OP_LEN = (
     b"\x02\x02\x02\x01\x02\x02\x02\x02\x01\x03\x01\x01\x03\x03\x03\x03"
 )
 
-# Indexed by an absolute, absolute,X or absolute,Y opcode of the NMOS 6502: the opcode of the
-# same instruction with a zero page operand, or 0 if there is none. JMP and JSR have none, and
-# of the absolute,Y instructions only LDX has one (there is no STX absolute,Y to shrink).
-ZP_FORM = (
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x06\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x15\x16\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x24\x25\x26\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x35\x36\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x45\x46\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x55\x56\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x65\x66\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x75\x76\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x84\x85\x86\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x95\x00\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xa4\xa5\xa6\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xb4\xb5\xb6\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xc4\xc5\xc6\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xd5\xd6\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xe4\xe5\xe6\x00"
-    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf5\xf6\x00"
-)
-
 OP_JSR = 0x20
 OP_JMP = 0x4C
 
@@ -59,20 +37,28 @@ def length(op):
     return OP_LEN[op]
 
 
-def zp_opcode(op, cpu):
-    """The zero page opcode for an absolute one, and whether there is one."""
-    z = ZP_FORM[op]
-    if z != 0:
-        return z, True
-    if cpu == CPU_65C02:
-        # The absolute instructions the 65C02 adds: TSB, TRB, BIT abs,X, STZ and STZ abs,X.
-        if op == 0x0C or op == 0x1C or op == 0x3C:
-            return op - 8, True
-        if op == 0x9C:
-            return 0x64, True
-        if op == 0x9E:
-            return 0x74, True
-    return 0, False
+def can_shrink(op):
+    """True if the instruction has a zero page form: an absolute or absolute,X instruction
+    other than JMP, JSR and (on the 65C02) JMP (abs,X), or LDX abs,Y. A fix-up of kind 5 must
+    be in one of these and a fix-up of kind 1 in none (object-format.md)."""
+    low = op & 0x0F
+    if low == 0x0D or low == 0x0E:
+        return True
+    if low != 0x0C:
+        return False
+    high = op >> 4
+    return high != 0x04 and high != 0x05 and high != 0x06 and high != 0x07 and high != 0x0D \
+        and high != 0x0F
+
+
+def zp_opcode(op):
+    """The zero page opcode of an instruction that can_shrink: 8 less, except STZ on the 65C02,
+    whose absolute forms are $9C and $9E and zero page forms $64 and $74."""
+    if op == 0x9C:
+        return 0x64
+    if op == 0x9E:
+        return 0x74
+    return op - 8
 
 
 def is_branch(op, cpu):

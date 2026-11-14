@@ -36,6 +36,8 @@ def hello_module():
         f.op('LDA', '#', ch)
         f.op('JSR', 'abs', 0xF009)
     f.op('RTS')
+    b.extern('host.v', lo.K_VAR)
+    b.wgt('host.v', 1)            # a record no rendering or naive allocation looks at
     return b.module()
 
 
@@ -146,7 +148,7 @@ def reference_image(modules, entries, env, main_module):
                     if lo2asm.shrinks(m, x, addr):
                         op = cpu6502.table(m.cpu)[x.mnemonic][cpu6502.shrinks(m.cpu, x.mnemonic, x.mode)]
                         operand = bytes((v,))
-                    elif fx.kind == lo.FX_WORD:
+                    elif lo.FIX_WIDTH[fx.kind] == 2:
                         operand = v.to_bytes(2, 'little')
                     elif fx.kind == lo.FX_HI:
                         operand = bytes((v >> 8,))

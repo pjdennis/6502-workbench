@@ -11,7 +11,7 @@ import fbuf  # noqa: E402
 import kernel  # noqa: E402
 import out  # noqa: E402
 
-END, MOD, IMP, SYM, FUNC, SLOT, CALL, FIX, CODE, ENDF = 0, 1, 2, 3, 7, 8, 9, 10, 11, 12
+END, MOD, IMP, SYM, DATA, DFIX, FUNC, SLOT, CALL, FIX, CODE, ENDF, CLAS, WGT = 0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15
 
 
 def name(text):
@@ -40,11 +40,11 @@ class OutTest(unittest.TestCase):
 
     def test_a_module_with_nothing_in_it(self):
         out.begin_module(0, name(b'host'))
-        self.assertEqual(self.written(), [(MOD, b'\x01\x00\x04host'), (END, b'')])
+        self.assertEqual(self.written(), [(MOD, b'\x02\x00\x04host'), (END, b'')])
 
     def test_the_cpu_is_in_the_module_record(self):
         out.begin_module(1, name(b'm'))
-        self.assertEqual(self.written()[0], (MOD, b'\x01\x01\x01m'))
+        self.assertEqual(self.written()[0], (MOD, b'\x02\x01\x01m'))
 
     def test_an_import_names_the_module(self):
         out.begin_module(0, name(b'hello'))
@@ -88,7 +88,7 @@ class OutTest(unittest.TestCase):
             (SLOT, b'\x02\x00\x01\x09\x00\x01p'),
             (SLOT, b'\x01\x00\x02\x00\x01\x01i'),
             (CALL, b'\x00\x00\x00\xff\xff'),
-            (FIX, b'\x01\x00\x01\x00\x00\xff\x00\x00' b'\x04\x00\x01\x01\x00\x00\x01\x00'),
+            (FIX, b'\x01\x00\x01\x00\x00\xff\x00\x00' b'\x04\x00\x05\x01\x00\x00\x01\x00'),
             (CODE, b'\x20\x00\x00\x8d\x00\x00\x60'),
             (ENDF, b''),
             (END, b''),
@@ -126,6 +126,49 @@ class OutTest(unittest.TestCase):
             for callee in range(out.MAX_CALLS + 1):
                 out.call(callee, 0, out.NO_OUTER)
         self.assertIn('error 78:', support.error_text())
+
+    def test_uses_of_another_functions_slots_are_a_wgt_record_after_the_function(self):
+        out.begin_module(0, name(b'm'))
+        f = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
+        g = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'g'))
+        fbuf.op_fix(0x8D, fbuf.FIX_ADDRESS, f, 1, 0)
+        fbuf.op_fix(0x8D, fbuf.FIX_ADDRESS, f, 1, 0)
+        fbuf.op(0x60)
+        fbuf.finish(g, 0)
+        out.function_begin(g, 0)
+        out.function_end()
+        self.assertEqual(self.written()[-3:], [(ENDF, b''), (WGT, b'\x00\x00\x01\x02'), (END, b'')])
+
+    def test_uses_of_another_modules_variables_are_a_wgt_record_at_the_end(self):
+        out.begin_module(0, name(b'm'))
+        kernel.module_add(name(b'm'))
+        util = kernel.module_add(name(b'util'))
+        v = kernel.sym_add(util, name(b'v'), kernel.K_VAR)
+        kernel.sym_obj[v] = out.symbol(out.SYM_VARIABLE, name(b'util'), 0, name(b'v'))
+        kernel.sym_weight[v] = 17
+        w = kernel.sym_add(util, name(b'w'), kernel.K_VAR)          # imported, not used: no symbol
+        kernel.sym_weight[w] = 0
+        own = kernel.sym_add(kernel.SCOPE_MODULE, name(b'x'), kernel.K_VAR)
+        kernel.sym_obj[own] = out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(b'x'))
+        kernel.sym_weight[own] = 5                              # in its own VAR record
+        self.assertEqual(self.written()[-2:], [(WGT, b'\x00\x00\xff\x11'), (END, b'')])
+
+    def test_a_class_gives_each_parameter_its_size_and_an_empty_name(self):
+        out.begin_module(0, name(b'm'))
+        k = out.symbol(out.SYM_CLASS, name(b'm'), 0, name(b'k'))
+        out.pointer_class(k, out.CLASS_RECURSIVE, 2)
+        out.class_parameter(2)
+        out.class_parameter(1)
+        self.assertEqual(self.written()[2], (CLAS, b'\x00\x00\x01\x02' b'\x02\x00\x00' b'\x01\x00\x00'))
+
+    def test_a_table_is_its_fix_ups_then_its_data(self):
+        out.begin_module(0, name(b'm'))
+        t = out.symbol(out.SYM_DATA, name(b'm'), 0, name(b't'))
+        out.table_begin(3)
+        out.table_fix(1, fbuf.FIX_ADDRESS, t, fbuf.NO_SLOT, 2)
+        out.table_end(t, 3)
+        self.assertEqual(self.written()[2:], [(DFIX, b'\x01\x00\x01\x00\x00\xff\x02\x00'),
+                                              (DATA, b'\x00\x00\x00\x00\x00'), (END, b'')])
 
     def test_a_file_that_cannot_be_created_does_not_open(self):
         pointer, _ = support.put_text(b'/nonexistent/dir/m.lo')

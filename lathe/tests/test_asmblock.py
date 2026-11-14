@@ -427,13 +427,13 @@ class StorageTest(AsmTest):
     def test_a_variable_is_written_absolute_with_a_two_byte_fix_up_and_counts_a_use(self):
         code = self.assemble(b'  LDA v\n  STA v+1,X\n  LDA v,Y\n')
         self.assertEqual(code, b'\xad\x00\x00\x9d\x00\x00\xb9\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 1, 7, 0xFF, 0), (4, 1, 7, 0xFF, 1), (7, 1, 7, 0xFF, 0)])
+        self.assertEqual(self.fixups, [(1, 5, 7, 0xFF, 0), (4, 5, 7, 0xFF, 1), (7, 1, 7, 0xFF, 0)])
         self.assertEqual(self.uses, [(30, False)] * 3)
 
     def test_a_slot_is_its_function_and_number(self):
         code = self.assemble(b'  INC s\n  LDX s+1,Y\n')
         self.assertEqual(code, b'\xee\x00\x00\xbe\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 1, self.own, 2, 0), (4, 1, self.own, 2, 1)])
+        self.assertEqual(self.fixups, [(1, 5, self.own, 2, 0), (4, 5, self.own, 2, 1)])
         self.assertEqual(self.uses, [(31, False)] * 2)
 
     def test_the_indirect_modes_are_zero_page_fix_ups_and_need_zero_page(self):
@@ -529,8 +529,8 @@ class TablesTest(AsmTest):
         v = self.variable(b'v')
         code = self.assemble(b'  LDA v\n  STA v+1\n')
         self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 1, kernel.sym_obj[v], fbuf.NO_SLOT, 0),
-                                       (4, 1, kernel.sym_obj[v], fbuf.NO_SLOT, 1)])
+        self.assertEqual(self.fixups, [(1, 5, kernel.sym_obj[v], fbuf.NO_SLOT, 0),
+                                       (4, 5, kernel.sym_obj[v], fbuf.NO_SLOT, 1)])
         self.assertEqual(kernel.sym_weight[v], 2)
         self.assertEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
 
@@ -556,7 +556,7 @@ class TablesTest(AsmTest):
     def test_a_static_variable_is_its_own_symbol(self):
         code = self.assemble(b'  INC st\n', before=self.make_static)
         self.assertEqual(code, b'\xee\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 1, self.static_obj, fbuf.NO_SLOT, 0)])
+        self.assertEqual(self.fixups, [(1, 5, self.static_obj, fbuf.NO_SLOT, 0)])
 
     def make_static(self):
         kernel.scope_begin()
@@ -576,7 +576,7 @@ class TablesTest(AsmTest):
             self.q = self.slot(b'q')
         code = self.assemble(b'  LDA p\n  STA q+1\n', before=frame)
         self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
-        self.assertEqual(self.fixups, [(1, 1, self.own, 0, 0), (4, 1, self.own, 1, 1)])
+        self.assertEqual(self.fixups, [(1, 5, self.own, 0, 0), (4, 5, self.own, 1, 1)])
         self.assertEqual((reg.slot_weight[0], reg.slot_weight[1]), (1, 1))
         self.assertEqual((reg.slot_class[0], reg.slot_class[1]), (reg.CLASS_EITHER, reg.CLASS_EITHER))
 
@@ -607,7 +607,7 @@ class TablesTest(AsmTest):
         self.imported(b'w')
         code = self.assemble(b'  LDA util.w\n  STA util.w+1\n')
         self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
-        self.assertEqual([f[1:] for f in self.fixups], [(1, 1, fbuf.NO_SLOT, 0), (1, 1, fbuf.NO_SLOT, 1)])
+        self.assertEqual([f[1:] for f in self.fixups], [(5, 1, fbuf.NO_SLOT, 0), (5, 1, fbuf.NO_SLOT, 1)])
         self.assertEqual(self.fixups[0][2], self.fixups[1][2])
 
     def test_a_variable_of_another_module_declared_zp_can_be_used_indirectly(self):

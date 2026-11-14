@@ -15,7 +15,8 @@
         whose references resolve to the copies of its own context (class Copies).
 
 Names: symbol mod.name is label mod__name; slot s of mod.f is mod__f__s; parameter n of class
-mod.c is mod__c__pN (CLAS records carry no parameter names); a label inside a function is .L
+mod.c is mod__c__name, its name in the CLAS records, or mod__c__pN where they give it none; a
+label inside a function is .L
 and its written offset in four hex digits. Characters asm17 does not allow in a name ($ in
 compiler-made names such as hello.$1) are written S, or X and two hex digits; names are lower
 case, so these cannot collide with a user's name. Literal memory operands are written through
@@ -69,8 +70,9 @@ def slot_label(func_name, slot_name):
     return f'{mangle(func_name)}__{mangle(slot_name)}'
 
 
-def param_label(class_name, n):
-    return f'{mangle(class_name)}__p{n}'
+def param_label(class_name, n, name=''):
+    """The label of parameter n of a class, called `name` in its CLAS records, or nothing."""
+    return f'{mangle(class_name)}__{name or f"p{n}"}'
 
 
 def local_label(offset):
@@ -161,9 +163,9 @@ def final_size(m, f, resolve):
 
 
 def shrinks(m, x, resolve):
-    if x.fix is None or x.fix.kind != lo.FX_WORD:
-        return False
-    if cpu6502.shrinks(m.cpu, x.mnemonic, x.mode) is None:
+    """True if the instruction takes its zero page form: its fix-up is of kind 5 (lo.read has
+    checked that the instruction has such a form) and its address is in zero page."""
+    if x.fix is None or x.fix.kind != lo.FX_SHRINK:
         return False
     addr = resolve(m, x.fix)
     return addr is not None and (addr + x.fix.addend) & 0xFFFF < 0x100
@@ -178,10 +180,21 @@ class Program:
     def __init__(self, modules):
         self.modules = modules
         self.defs = {}             # name -> (module, item)
+        self.param_names = {}      # class name -> the names of its parameters ('' if none)
         for m in modules:
             for x in m.items:
                 if isinstance(x, (lo.Func, lo.Var, lo.Data)):
                     self.defs.setdefault(m.sym_name(x.sym), (m, x))
+                elif isinstance(x, lo.Clas):
+                    # The first name a CLAS record gives a parameter is its name (lk_scan).
+                    names = self.param_names.setdefault(m.sym_name(x.sym), list(x.names))
+                    for i, n in enumerate(x.names):
+                        if i < len(names) and not names[i]:
+                            names[i] = n
+
+    def param_label(self, class_name, n):
+        names = self.param_names.get(class_name, [])
+        return param_label(class_name, n, names[n] if n < len(names) else '')
 
     def func(self, name):
         d = self.defs.get(name)
@@ -274,7 +287,7 @@ class Renderer:
             # A function's fix-up to itself is a label, except a one-byte part of its own
             # address, which like any @f may mean another context's copy.
             own = current is not None and fx.sym == current.sym
-            if own and (self.copies is None or fx.kind == lo.FX_WORD or fx.addend != 0):
+            if own and (self.copies is None or lo.FIX_WIDTH[fx.kind] == 2 or fx.addend != 0):
                 return ('label', fx.addend)
             return ('item', self.copy_of(m, s.name, ctx, call))
         if s.kind == lo.K_FUNC:
@@ -312,7 +325,7 @@ class Renderer:
             text = slot_label(copy, name) if name is not None else f'{mangle(copy)}__{number}'
             return with_addend(text, fx.addend)
         if r[0] == 'param':
-            return with_addend(param_label(r[1], r[2]), fx.addend)
+            return with_addend(self.program.param_label(r[1], r[2]), fx.addend)
         return with_addend(mangle(r[1]), fx.addend)
 
     def literal(self, value, width):
@@ -454,6 +467,8 @@ def render_module(m, others=()):
     r = Renderer(Program([m] + list(others)))
     body = []
     for x in m.items:
+        if isinstance(x, lo.Wgt):
+            continue                # weights are for the linker's choice of zero page
         body.append('')
         if isinstance(x, lo.Func):
             body += r.function(m, x)
@@ -465,8 +480,12 @@ def render_module(m, others=()):
             body += r.data_lines(m, x.data, x.fixes)
         elif isinstance(x, lo.Clas):
             rec = '; recursive' if x.flags & lo.CLAS_RECURSIVE else ''
-            sizes = ', '.join(str(p) for p in x.params) or 'none'
-            body.append(f'; class {m.sym_name(x.sym)}: parameter sizes {sizes}{rec}')
+            if any(x.names):
+                params = ', '.join(f'{n or "p%d" % i} ({p})' for i, (p, n) in enumerate(zip(x.params, x.names)))
+                body.append(f'; class {m.sym_name(x.sym)}: parameters {params}{rec}')
+            else:
+                sizes = ', '.join(str(p) for p in x.params) or 'none'
+                body.append(f'; class {m.sym_name(x.sym)}: parameter sizes {sizes}{rec}')
         elif isinstance(x, lo.Memb):
             body.append(f'; {m.sym_name(x.func)} is a member of class {m.sym_name(x.cls)}')
     head = [f'; module {m.name}, cpu {"65c02" if m.cpu else "6502"}']
@@ -590,7 +609,7 @@ def render_program(modules, entries, env, main_module):
                 label = slot_label(e.name, e.part)
             equates.append(f'{label} = ${e.addr:04X}')
         elif e.kind == mapenv.M_CLASS:
-            equates.append(f'{param_label(e.name, e.number)} = ${e.addr:04X}')
+            equates.append(f'{program.param_label(e.name, e.number)} = ${e.addr:04X}')
         elif e.kind == mapenv.M_VAR:
             equates.append(f'{mangle(e.name)} = ${e.addr:04X}')
 

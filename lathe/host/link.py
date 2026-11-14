@@ -2,20 +2,21 @@
 
     python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
 
-Pass 1 reads everything but the code, and holds a few bytes for each function, slot, call,
-symbol and symbol a fix-up names, never code:
+Pass 1 never reads code, and holds a few bytes for each function, slot, call, symbol and
+symbol a fix-up names:
 
     lk_envf     the environment file
-    lk_scan     symbols, functions, slots, calls, classes and what fix-ups name into tables
-                (lk_sym, lk_tab)
+    lk_scan     symbols, functions, slots, calls, classes, weights and what fix-ups name into
+                tables (lk_sym, lk_tab)
     lk_graph    what is reachable from main and from each interrupt function, and what that
                 keeps by naming it; recursion
     lk_alloc    zero page and main memory for every slot and variable
-    lk_place    the size of each function after shrinking, and where its code goes
+    lk_place    the size of each function after shrinking, from its fix-ups, and where its
+                code goes
 
-Pass 2 (lk_emit, with lk_fix, lk_boot, lk_out and lk_map) reads the code and the fix-ups and
-writes the image and the map. A link error ends the program from wherever it is found
-(lk_err), with exit status 1.
+Pass 2 (lk_emit, with lk_fix, lk_boot, lk_out and lk_map) reads each file once more, in order,
+holding one function's or one table's fix-ups at a time, and writes the image and the map. A
+link error ends the program from wherever it is found (lk_err), with exit status 1.
 """
 import env
 import lk_alloc

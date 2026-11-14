@@ -145,6 +145,8 @@ For `extern` and `asm` functions every argument goes in the register its declara
 
 Every use of a slot or module-level variable in an instruction adds to its weight: 1 outside loops, 4 inside one loop, 16 inside two, 64 inside three or more. The weight stops at 255.
 
+A module's own records can only hold the weight of its own variables and of each function's own slots. The uses of an imported variable, and of another function's slots (the stores of arguments into a callee's parameters, or into a class's), are counted too and written as `WGT` records ([`object-format.md`](object-format.md), "Weights"), which the linker adds in. FBUF counts the slots, by the instructions that zero page would shrink; a loop there is the code from a label back to the last branch or jump that returns to it.
+
 ## Initial values
 
 A module-level or `static` variable with an initialiser is recorded as it is declared (the variable and its constant value, or the constant data to copy for an array). At the end of the module the compiler writes the function `module.$init` from that list: `LDA #` / `STA` for scalars, with the usual register memory so that equal values are loaded once, and a copy loop from constant data for arrays. If the list fills up, the compiler writes what it has as `module.$init` part functions and chains them.

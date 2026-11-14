@@ -11,7 +11,7 @@ import err
 import fbuf
 import kernel
 
-VERSION = 1
+VERSION = 2
 
 # Record types
 R_END = 0x00
@@ -29,6 +29,7 @@ R_CODE = 0x0B
 R_ENDF = 0x0C
 R_CLAS = 0x0D
 R_MEMB = 0x0E
+R_WGT = 0x0F
 
 # Symbol kinds
 SYM_FUNCTION = 1
@@ -178,22 +179,21 @@ def table_fix(offset, kind, symbol_number, slot, addend):
 
 
 def table_end(symbol_number, length):
-    """Write the table as the constant data `symbol_number`, with its fix-ups, in order of
-    offset: the table is filled element by element, and by column."""
+    """Write the table as the constant data `symbol_number`, after its fix-ups, which are in
+    order of offset: the table is filled element by element, and by column."""
+    if table_fix_count != 0:
+        begin_record(R_DFIX, 8 * table_fix_count)
+        for where in range(0, length):
+            for i in range(0, table_fix_count):
+                if table_fix_offset[i] == where:
+                    kernel.put_word(stream, where)
+                    kernel.put(stream, table_fix_kind[i])
+                    kernel.put_word(stream, table_fix_symbol[i])
+                    kernel.put(stream, table_fix_slot[i])
+                    kernel.put_word(stream, table_fix_addend[i])
     data(symbol_number, length)
     for i in range(0, length):
         data_byte(table[i])
-    if table_fix_count == 0:
-        return
-    begin_record(R_DFIX, 8 * table_fix_count)
-    for where in range(0, length):
-        for i in range(0, table_fix_count):
-            if table_fix_offset[i] == where:
-                kernel.put_word(stream, where)
-                kernel.put(stream, table_fix_kind[i])
-                kernel.put_word(stream, table_fix_symbol[i])
-                kernel.put(stream, table_fix_slot[i])
-                kernel.put_word(stream, table_fix_addend[i])
 
 
 def call(callee, flags, outer):
@@ -214,14 +214,17 @@ def call(callee, flags, outer):
 def pointer_class(symbol_number, flags, count):
     """Describe the pointer class `symbol_number`, which has `count` parameters: as many calls
     of class_parameter() follow, with their sizes in order."""
-    begin_record(R_CLAS, 4 + 2 * count)
+    begin_record(R_CLAS, 4 + 3 * count)
     kernel.put_word(stream, symbol_number)
     kernel.put(stream, flags)
     kernel.put(stream, count)
 
 
 def class_parameter(size):
+    """A parameter's size, and its name, which is empty: the compiler does not keep the names
+    of a function type's parameters."""
     kernel.put_word(stream, size)
+    kernel.put(stream, 0)
 
 
 def member(class_number, function_number):
@@ -284,15 +287,52 @@ def code():
         kernel.put(stream, fbuf.code[i])
 
 
+def weights():
+    """A WGT record of the weights FBUF counted for other functions' slots, if it counted any."""
+    if fbuf.weight_count == 0:
+        return
+    begin_record(R_WGT, 4 * fbuf.weight_count)
+    for i in range(0, fbuf.weight_count):
+        kernel.put_word(stream, fbuf.weight_symbol[i])
+        kernel.put(stream, fbuf.weight_slot[i])
+        kernel.put(stream, fbuf.weight_value[i])
+
+
 def function_end():
     """The rest of the function's records: the calls noted, and what FBUF finished."""
     calls()
     fixups()
     code()
     begin_record(R_ENDF, 0)
+    weights()
+
+
+def is_foreign_variable(s):
+    """True if kernel symbol `s` is a variable of another module that this one used."""
+    return kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] != kernel.SCOPE_MODULE \
+        and kernel.sym_scope[s] != kernel.SCOPE_LOCAL and kernel.sym_obj[s] != kernel.NO_OBJ \
+        and kernel.sym_weight[s] != 0
+
+
+def foreign_weights():
+    """A WGT record of the weight this module's uses gave the variables of other modules, if
+    it used any."""
+    count = 0
+    for s in range(0, kernel.sym_count):
+        if is_foreign_variable(s):
+            count += 1
+    if count == 0:
+        return
+    begin_record(R_WGT, 4 * count)
+    for s in range(0, kernel.sym_count):
+        if is_foreign_variable(s):
+            kernel.put_word(stream, kernel.sym_obj[s])
+            kernel.put(stream, fbuf.NO_SLOT)
+            kernel.put(stream, kernel.sym_weight[s])
 
 
 def end_module():
-    """The last record. Closes the file."""
+    """The weights of other modules' variables, and the last record. Closes the file."""
+    foreign_weights()
     begin_record(R_END, 0)
     kernel.close(stream)

@@ -21,7 +21,7 @@ def string(s):
     return bytes((len(s),)) + s.encode('latin-1')
 
 
-MOD = rec(lo.R_MOD, b'\x01\x00' + string('m'))
+MOD = rec(lo.R_MOD, b'\x02\x00' + string('m'))
 END = rec(lo.R_END)
 
 
@@ -71,7 +71,7 @@ class TestWrite(unittest.TestCase):
     def test_hello_bytes(self):
         code = bytes((0xA9, 0x48, 0x20, 0x09, 0xF0, 0xA9, 0x49, 0x20, 0x09, 0xF0,
                       0xA9, 0x0A, 0x20, 0x09, 0xF0, 0x60))
-        want = (rec(lo.R_MOD, b'\x01\x00' + string('hello')) + rec(lo.R_IMP, string('host'))
+        want = (rec(lo.R_MOD, b'\x02\x00' + string('hello')) + rec(lo.R_IMP, string('host'))
                 + sym(1, 'hello.main')
                 + func(0, rec(lo.R_FIX), rec(lo.R_CODE, code)) + END)
         self.assertEqual(hello().bytes(), want)
@@ -90,7 +90,7 @@ class TestWrite(unittest.TestCase):
         b = lo.Builder('demo', cpu=1)
         b.extern('util.f', lo.K_FUNC)
         b.extern('util.ptr', lo.K_CLASS)
-        b.clas('util.ptr', [2, 1], flags=1)
+        b.clas('util.ptr', [2, 1], flags=1, names=['code', ''])
         b.var('demo.count', 2, cls=1, weight=7)
         b.var('demo.big', 300, cls=2, weight=0)
         d = b.data('demo.msg', b'hi\x00\x00\x00')
@@ -106,6 +106,7 @@ class TestWrite(unittest.TestCase):
         f.op('JMP', 'abs', 'top')
         f.op('RTS')
         b.memb('util.ptr', 'demo.main')
+        b.wgt(('util.f', 0), 9).wgt(('util.ptr', 1), 255)
         m = lo.read(b.bytes())
         self.assertEqual(m, b.module())
         self.assertEqual(m.cpu, 1)
@@ -113,9 +114,35 @@ class TestWrite(unittest.TestCase):
         self.assertEqual([s.name for s in fn.slots], ['a', 't'])
         self.assertEqual(fn.calls, [lo.Call(m.sym_index('util.f'), 1, m.sym_index('util.ptr'))])
         self.assertEqual([(x.offset, x.kind, x.slot, x.addend) for x in fn.fixes],
-                         [(1, 1, 0, 0), (4, 1, 0, 1), (9, 1, 0xFF, 0)])
+                         [(1, 5, 0, 0), (4, 5, 0, 1), (9, 1, 0xFF, 0)])
         self.assertEqual(fn.code, bytes((0xAD, 0, 0, 0x8D, 0, 0, 0xD0, 0xF8, 0x4C, 0, 0, 0x60)))
-        self.assertEqual(m.items[-1], lo.Memb(m.sym_index('util.ptr'), m.sym_index('demo.main')))
+        self.assertEqual(m.items[-3], lo.Memb(m.sym_index('util.ptr'), m.sym_index('demo.main')))
+        self.assertEqual(m.items[-1], lo.Wgt([lo.Weight(m.sym_index('util.ptr'), 1, 255)]))
+        self.assertEqual(m.items[0].names, ['code', ''])
+        self.assertEqual(m.of_type(lo.Data)[0].fixes, [lo.Fix(3, 1, m.sym_index('demo.main'))])
+
+    def test_dfix_comes_before_its_data(self):
+        b = lo.Builder('m')
+        b.data('m.t', b'\0\0').fix(0, lo.FX_WORD, 'm.t')
+        data = b.bytes()
+        dfix = rec(lo.R_DFIX, fix_entry(0, 1, 0, 0xFF, 0))
+        self.assertIn(dfix + rec(lo.R_DATA, b'\x00\x00\x00\x00'), data)
+
+    def test_clas_names(self):
+        b = lo.Builder('m')
+        b.clas('m.k', [2, 1], names=['code', 'arg'])
+        self.assertIn(rec(lo.R_CLAS, b'\x00\x00\x00\x02' + b'\x02\x00' + string('code')
+                          + b'\x01\x00' + string('arg')), b.bytes())
+        self.assertEqual(lo.read(b.bytes()).items[0].names, ['code', 'arg'])
+        b = lo.Builder('m').clas('m.k', [2])
+        self.assertEqual(lo.read(b.bytes()).items[0].names, [''])
+
+    def test_wgt_bytes(self):
+        b = lo.Builder('m')
+        b.extern('o.v', lo.K_VAR)
+        b.extern('o.f', lo.K_FUNC)
+        b.wgt(('o.v'), 3).wgt(('o.f', 1), 64)
+        self.assertIn(rec(lo.R_WGT, b'\x00\x00\xff\x03') + rec(lo.R_WGT, b'\x01\x00\x01\x40'), b.bytes())
 
 
 class TestBuilder(unittest.TestCase):
@@ -138,7 +165,18 @@ class TestBuilder(unittest.TestCase):
         self.assertEqual(fn.code, bytes((0xA9, 0, 0xA2, 0, 0xB1, 0, 0xA5, 0x12, 0x0A,
                                          0xF0, 0x03, 0xBD, 0, 0, 0x60)))
         self.assertEqual([(x.offset, x.kind, x.slot, x.addend) for x in fn.fixes],
-                         [(1, 2, 0xFF, 0), (3, 3, 0xFF, 2), (5, 4, 0, 0), (12, 1, 0xFF, 0)])
+                         [(1, 2, 0xFF, 0), (3, 3, 0xFF, 2), (5, 4, 0, 0), (12, 5, 0xFF, 0)])
+
+    def test_kind_5_only_where_there_is_a_zero_page_form(self):
+        b = lo.Builder('t')
+        b.var('t.v', 2)
+        f = b.func('t.f')
+        for mnemonic, mode in (('LDA', 'abs'), ('LDA', 'abs,x'), ('LDA', 'abs,y'), ('LDX', 'abs,y'),
+                               ('STA', 'abs,y'), ('JMP', '(abs)'), ('JMP', 'abs'), ('JSR', 'abs'),
+                               ('INC', 'abs,x'), ('BIT', 'abs')):
+            f.op(mnemonic, mode, 't.v')
+        b.module()
+        self.assertEqual([x.kind for x in f.func.fixes], [5, 5, 1, 5, 1, 1, 1, 1, 5, 5])
 
     def test_branch_out_of_range(self):
         f = lo.Builder('t').func('t.f')
@@ -174,10 +212,12 @@ class TestReadErrors(unittest.TestCase):
         self.bad(rec(lo.R_IMP, string('a')) + END, 'first record must be MOD')
 
     def test_version(self):
-        self.bad(rec(lo.R_MOD, b'\x02\x00' + string('m')) + END, 'version 2')
+        self.bad(rec(lo.R_MOD, b'\x01\x00' + string('m')) + END,
+                 'unsupported object format version 1: this reader takes version 2 only')
+        self.bad(rec(lo.R_MOD, b'\x03\x00' + string('m')) + END, 'version 3')
 
     def test_cpu(self):
-        self.bad(rec(lo.R_MOD, b'\x01\x05' + string('m')) + END, 'CPU 5')
+        self.bad(rec(lo.R_MOD, b'\x02\x05' + string('m')) + END, 'CPU 5')
 
     def test_missing_end(self):
         self.bad(MOD, 'no END record')
@@ -245,27 +285,56 @@ class TestReadErrors(unittest.TestCase):
         fx = rec(lo.R_FIX, fix_entry(1, 7, 0, 0xFF, 0))
         self.bad(MOD + sym(1, 'm.f') + func(0, fx, rec(lo.R_CODE, b'\x20\x00\x00')) + END, 'fix-up kind 7')
 
+    def test_kinds_1_and_5_follow_the_opcode(self):
+        fx = rec(lo.R_FIX, fix_entry(1, 5, 0, 0xFF, 0))
+        self.bad(MOD + sym(1, 'm.f') + func(0, fx, rec(lo.R_CODE, b'\x20\x00\x00')) + END,
+                 'kind 5 .* JSR abs, which has no zero page form: it takes kind 1')
+        self.bad(MOD + sym(1, 'm.f') + func(0, fx, rec(lo.R_CODE, b'\xB9\x00\x00')) + END,
+                 'kind 5 .* LDA abs,y, which has no zero page form')
+        fx = rec(lo.R_FIX, fix_entry(1, 1, 0, 0xFF, 0))
+        self.bad(MOD + sym(1, 'm.f') + func(0, fx, rec(lo.R_CODE, b'\xAD\x00\x00')) + END,
+                 'kind 1 .* LDA abs, which has a zero page form: it takes kind 5')
+        dfix = rec(lo.R_DFIX, fix_entry(0, 5, 0, 0xFF, 0))
+        self.bad(MOD + sym(3, 'm.d') + dfix + rec(lo.R_DATA, b'\x00\x00\x00\x00') + END,
+                 'kind 5 at offset .* in constant data')
+
+    def test_wgt(self):
+        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 1, 1, 0, 0))
+        self.bad(MOD + sym(2, 'm.v') + v + rec(lo.R_WGT, b'\x00\x00\xff\x01') + END,
+                 'WGT: m.v is defined here')
+        self.bad(MOD + sym(2, 'o.v') + rec(lo.R_WGT, b'\x00\x00\x00\x01') + END, 'names no slot')
+        self.bad(MOD + sym(1, 'o.f') + rec(lo.R_WGT, b'\x00\x00\xff\x01') + END, 'names one of its slots')
+        self.bad(MOD + sym(3, 'o.d') + rec(lo.R_WGT, b'\x00\x00\xff\x01') + END, 'constant data')
+        self.bad(MOD + sym(1, 'o.f') + rec(lo.R_WGT, b'\x00\x00\x00') + END, 'multiple of 4')
+        self.bad(MOD + sym(1, 'm.f') + func(0, rec(lo.R_CODE, b'\x60')) + rec(lo.R_WGT, b'\x00\x00\x00\x01')
+                 + END, 'slot 0 .*has 0 slots')
+        self.bad(MOD + sym(1, 'm.f') + rec(lo.R_FUNC, b'\x00\x00\x00') + rec(lo.R_WGT) + END,
+                 'not closed by ENDF')
+
     def test_fixup_target_slot(self):
         fx = rec(lo.R_FIX, fix_entry(1, 1, 1, 0, 0))
         self.bad(MOD + sym(1, 'm.f') + sym(2, 'm.v') + func(0, fx, rec(lo.R_CODE, b'\x20\x00\x00')) + END,
                  'slot 0 of .*m.v')
-        fx = rec(lo.R_FIX, fix_entry(1, 1, 0, 3, 0))
+        fx = rec(lo.R_FIX, fix_entry(1, 5, 0, 3, 0))
         self.bad(MOD + sym(1, 'm.f') + func(0, fx, rec(lo.R_CODE, b'\xAD\x00\x00')) + END,
                  'slot 3 .*has 0 slots')
-        fx = rec(lo.R_FIX, fix_entry(1, 1, 0, 0xFF, 0))
+        fx = rec(lo.R_FIX, fix_entry(1, 5, 0, 0xFF, 0))
         self.bad(MOD + sym(4, 'm.c') + sym(1, 'm.f') + func(1, fx, rec(lo.R_CODE, b'\xAD\x00\x00')) + END,
                  'class .* needs a parameter')
 
     def test_dfix_placement(self):
-        self.bad(MOD + rec(lo.R_DFIX) + END, 'DFIX record not just after a DATA record')
+        self.bad(MOD + rec(lo.R_DFIX) + END, 'DFIX record not just before a DATA record')
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 1, 1, 0, 0))
-        self.bad(MOD + sym(2, 'm.v') + v + rec(lo.R_DFIX, fix_entry(0, 2, 0, 0xFF, 0)) + END,
-                 'DFIX record not just after a DATA record')
+        self.bad(MOD + sym(2, 'm.v') + rec(lo.R_DFIX, fix_entry(0, 2, 0, 0xFF, 0)) + v + END,
+                 'DFIX record not just before a DATA record')
+        d = rec(lo.R_DATA, b'\x00\x00\x00')
+        self.bad(MOD + sym(3, 'm.d') + d + rec(lo.R_DFIX, fix_entry(0, 2, 0, 0xFF, 0)) + END,
+                 'DFIX record not just before a DATA record')
 
     def test_var_has_no_initial_value(self):
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 1) + b'\x01\x02')
         self.bad(MOD + sym(2, 'm.v') + v + END,
-                 r'VAR m\.v: flag bit 0 \(initial value\) is not in format version 1: '
+                 r'VAR m\.v: flag bit 0 \(initial value\) is not in format version 2: '
                  r'variables have no initial values; the compiler sets them in module\.\$init')
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 0x80))
         self.bad(MOD + sym(2, 'm.v') + v + END, r'VAR m\.v: unknown flags \$80')
@@ -299,7 +368,7 @@ class TestLodump(unittest.TestCase):
         r = self.run_dump(hello().bytes())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines(), [
-            '0000  MOD   version 1, cpu 6502, module hello',
+            '0000  MOD   version 2, cpu 6502, module hello',
             '000B  IMP   host',
             '0013  SYM   #0 function hello.main',
             '0022  FUNC  hello.main  flags: -',
@@ -315,10 +384,29 @@ class TestLodump(unittest.TestCase):
             '003E  ENDF',
             '0041  END'])
 
+    def test_version_2_records(self):
+        b = lo.Builder('m')
+        b.clas('m.k', [2, 1], names=['code', ''])
+        b.extern('o.v', lo.K_VAR)
+        b.wgt('o.v', 9)
+        b.wgt(('m.k', 1), 4)
+        b.data('m.t', b'\0\0').fix(0, lo.FX_WORD, 'o.v')
+        f = b.func('m.f')
+        f.op('LDA', 'abs', 'o.v').op('RTS')
+        r = self.run_dump(b.bytes())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = [line[6:] for line in r.stdout.splitlines()]
+        self.assertIn('CLAS  m.k: parameters code (2), ? (1)', lines)
+        self.assertIn('WGT   1 entries', lines)
+        self.assertIn('      o.v: weight 9', lines)
+        self.assertIn('      m.k param 1: weight 4', lines)
+        self.assertEqual(lines[lines.index('DFIX  1 entries') + 2][:4], 'DATA')
+        self.assertIn('      0001  kind 5 abs   o.v', lines)
+
     def test_invalid_file(self):
         r = self.run_dump(MOD)
         self.assertEqual(r.returncode, 1)
-        self.assertIn('MOD   version 1', r.stdout)
+        self.assertIn('MOD   version 2', r.stdout)
         self.assertIn('no END record', r.stderr)
 
 
