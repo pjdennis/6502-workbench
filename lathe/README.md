@@ -2,7 +2,7 @@
 
 A high-level language and compiler for the 6502, meant to compile on the machine it targets: the boards in this repository, and period machines such as the BBC Micro, Apple II and Commodore 64.
 
-**Status (2026-11-13): implementation under way.** The small spikes are done and the first build stage is in progress; [`docs/build-plan.md`](docs/build-plan.md) has the stages and their order.
+**Status (2026-11-14): implementation under way.** The walking skeleton works: a one-function program compiles to an object file and runs on the emulator. The core language and the linker are being built; [`docs/build-plan.md`](docs/build-plan.md) has the stages and their order.
 
 ## In one paragraph
 

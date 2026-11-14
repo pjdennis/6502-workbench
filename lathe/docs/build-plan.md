@@ -1,6 +1,6 @@
 # Lathe: incremental build plan
 
-Status (2026-11-13): stage 0 done; stage 1 in progress.
+Status (2026-11-14): stages 0 and 1 done. Stage 2 (core language) and the linker (the storage part of stage 3 and the image part of stage 9) are in progress in parallel. The embedded assembler of stage 10 is now part of stage 2, because the compiler writes object files from the start.
 
 **Order of work, changed after spike S2.** asm17 runs out of symbol memory at about 15 to 20 KB of compiler-shaped code, so it cannot assemble the Lathe-written compiler on the target. The stages keep their numbers but run in this order: 0 to 6, then 9 and 10 on the host, then 7, 8 and 11. The compiler written in Lathe then emits object code from its first day, and the on-target tool chain is the compiler and the linker with no assembler. On the host, large programs in stage A are assembled with `asm/pyasm.py`, the Python work-alike of asm17, which has no such limit.
 
