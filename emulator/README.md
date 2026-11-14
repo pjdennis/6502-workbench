@@ -1,6 +1,6 @@
 # `emulator/`
 
-A three-machine 6502 emulator:
+A four-machine 6502 emulator:
 
 - **`nmos-default`** — the original direct-memory NMOS 6502 used by the
   assembler bootstrap and the editor. Memory-mapped I/O at
@@ -24,6 +24,13 @@ A three-machine 6502 emulator:
   strobes whose lines weren't driven, and spells of two devices driving
   PORTB at once. `--live` runs it in the terminal and `--web` in the
   browser (see [`--web` mode](#--web-mode)).
+- **`bbcbplus`** — an Acorn BBC Model B+128 as far as a batch tool needs
+  it: an NMOS 6502, the B+ memory map with sideways RAM and ROM slots, a
+  banked ROM module in one slot (the Computer Concepts 128K carrier's
+  switching, or a sixteen-bank scheme of this project's), and a MOS the
+  emulator implements behind the documented entry points, with the
+  filing system on a host directory. Selected with `--machine bbcbplus`;
+  see [bbcbplus](#bbcbplus-the-bbc-model-b128).
 
 The default machine is `nmos-default`; nothing about the assembler
 bootstrap chain changed when the wendy2c work landed.
@@ -38,17 +45,18 @@ make                     # build emulator/emulator.out
 make test                # C unit tests + every end-to-end target below
 make michael-goldens     # just the michael end-to-end tests
 make wendy2c-goldens     # just the wendy2c end-to-end tests
+make bbcbplus-goldens    # just the bbcbplus end-to-end tests (no vasm needed)
 make sanitizers          # most C tests again under ASan/UBSan/LSan
 make harte               # Tom-Harte ProcessorTests (opt-in; needs data)
 ```
 
 `make test` runs the end-to-end targets first (they are its prerequisites),
 then the C unit tests (written with the greatest framework). The end-to-end
-targets are (`compile-and-run`, `michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
+targets are (`bbcbplus-goldens`, `compile-and-run`, `michael-goldens`, `michael-web`, `michael-display-web`, `wendy2c-goldens`,
 `wendy2c-lcd-trace`, `wendy2c-merge-sort`, `wendy2c-serial-link`,
 `wendy2c-live-sigint`, `wendy2c-web`, `wendy2c-lcd5x10`, `web-machine-switch`,
 `web-audio-buffer`, `timer2-cycles`).
-All but `timer2-cycles` and `web-audio-buffer` skip with a warning if
+All but `bbcbplus-goldens`, `timer2-cycles` and `web-audio-buffer` skip with a warning if
 `vasm6502_oldstyle` isn't on `PATH`, and the web tests also if Playwright
 is missing (`web-audio-buffer` needs only Playwright); `timer2-cycles`
 needs vasm.
@@ -67,8 +75,8 @@ Common options (run `emulator.out` with no arguments for the full list):
 
 | Option | Notes |
 |---|---|
-| `--machine <name>` | `nmos-default` (default), `wendy2c` or `michael` |
-| `--cpu <variant>` | `nmos` or `65c02` (wendy2c and michael force `65c02`) |
+| `--machine <name>` | `nmos-default` (default), `wendy2c`, `michael` or `bbcbplus` |
+| `--cpu <variant>` | `nmos` or `65c02` (wendy2c and michael force `65c02`, bbcbplus `nmos`) |
 | `--rom <path>` | wendy2c: ROM image; falls back to the positional code file. michael: ROM image; with `--load` the code file goes into RAM, without it the code file is the ROM |
 | `--kbd-scancodes <list>` | michael: comma-separated hex bytes the keyboard sends once the program has set it up |
 | `--keys <path>` | michael: keys to type once the program has set up the keyboard -- text, control codes and ANSI key sequences (see `ps2_keys.h`) |
@@ -90,7 +98,8 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--rows N` / `--cols N` | terminal-size overrides |
 | `--direct-io` | the program calls the `scr_*` screen vectors and `con_read` returns key codes; the emulator converts to and from ANSI (`direct_io.c`) |
 | `--wendy2-prog <path>` | wendy2c: preload a raw program into RAM at `--load` (default `$4000`) and start it there, skipping the serial boot |
-| `--disk <dir>` | wendy2c: host directory behind the `$F800-$F80F` file-I/O port block (`chips/syscall_ports.h`) |
+| `--disk <dir>` | wendy2c: host directory behind the `$F800-$F80F` file-I/O port block (`chips/syscall_ports.h`). bbcbplus: the directory the MOS's filing system works in |
+| `--bbc-*` | bbcbplus: see [bbcbplus](#bbcbplus-the-bbc-model-b128) |
 | `--serial-link <path>` | wendy2c: Unix socket on which a client drives the serial RX line bit by bit (`wendy2c_emu_link.py`) |
 | `--web` / `--web-port N` / `--web-bind ADDR` / `--web-root PATH` | wendy2c, michael: browser UI over HTTP + WebSocket (see [`--web` mode](#--web-mode) and `web/README.md`) |
 | `--audio` / `--wav <path>` | wendy2c: play the PB7 piezo line live, or record it to a WAV |
@@ -99,6 +108,217 @@ Common options (run `emulator.out` with no arguments for the full list):
 | `--lcd-panel <type>` | wendy2c: `16x2` (default) or `16x1-5x10` render layout |
 | `--show-repaints` | debug: flash repainted cells in `--console` / `--terminal` |
 | `--strict-api` | test hook: each `$F006` call keeps only what its contract (`asm/17/environment.asm`) says. The flags it does not return come back inverted, and the screen calls change A and Y, so a program that relies on more fails its tests here rather than on a board. The server takes it as `API strict` / `API standard` |
+
+## bbcbplus: the BBC Model B+128
+
+`--machine bbcbplus` is an Acorn BBC Model B+128 as far as a batch tool
+needs it: an NMOS 6502 at 2 MHz, the B+ memory map with its sideways
+slots, a banked ROM module in one slot, and a MOS that the emulator
+implements behind the documented entry points. No Acorn ROM is in the
+repository or needed. It is batch only (`--live` and `--web` are refused)
+and has no screen, keyboard or interrupts. `NOTES-bbcbplus.md` lists every
+fact about the real machine and MOS this relies on, and which were checked
+against a source.
+
+```sh
+# a program: loaded at --load and entered there; its RTS ends the run (status 0)
+emulator/emulator.out prog.bin --machine bbcbplus --load 1900 --disk disk
+
+# a * command, passed to OSCLI after reset ("*" and leading spaces optional)
+emulator/emulator.out --machine bbcbplus --disk disk --bbc-command "RUN TOOL args"
+emulator/emulator.out --machine bbcbplus --bbc-module tool.rom --bbc-command "TOOL args"
+
+# the developer's form: the module holds RAM, filled from disk by a loader
+emulator/emulator.out --machine bbcbplus --bbc-module-ram --disk disk --bbc-command LOADER
+```
+
+With `--bbc-command` no code file is needed (the first argument may be an
+option). The run ends with exit status 0 when the command or program
+returns, 1 when an error reaches the default BRKV handler (its message goes
+to standard error), on a fault (below) or a failed `--bbc-strict` check,
+and 2 at `--cycle-cap` (CPU cycles here). `--exit-report` prints the
+cycles, the PC and how the run ended, ROMSEL and `$F4`, the module's slot,
+scheme, form, bank and bank switches, and the checks with the first few
+offenders.
+
+| Option | Notes |
+|---|---|
+| `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be) |
+| `<code file> --load HEX` | without `--bbc-command`: the file put in main RAM at HEX and entered there (with both, the file is loaded and the command run) |
+| `--disk DIR` | the host directory the MOS's filing system works in |
+| `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`) |
+| `--bbc-rom N=FILE` | a plain 16 KB ROM image in slot N (repeatable); in a sideways RAM slot it is loaded into the RAM |
+| `--bbc-module FILE` | the module's image, bank 0 first: up to 131072 bytes (`cc128`) or 262144 (`direct16`) |
+| `--bbc-module-slot N` | the module's slot (default 4; it may not be a sideways RAM slot or one given `--bbc-rom`) |
+| `--bbc-module-bank N` | the module's bank at power on (default 0; the real latch powers up undefined): 0-7, or 0-15 for `direct16` |
+| `--bbc-module-scheme S` | `cc128` (default) or `direct16`, below |
+| `--bbc-module-ram` | the developer's form: the module holds RAM |
+| `--bbc-shadow` | OSBYTE 132 (HIMEM) answers `$8000` instead of `$7C00` (mode 7); the shadow screen RAM itself is not modelled |
+| `--bbc-page HEX` | OSBYTE 131 (OSHWM, PAGE) answers HEX instead of `$1900` |
+| `--bbc-strict` | a write to MOS memory or a ROMSEL unlike `$F4` at a MOS call ends the run (status 1) |
+
+### What is modelled
+
+- **CPU**: the emulator's NMOS core (`cpu_core.c`, as `--cpu nmos`), with
+  its cycle counts. The core runs an instruction at a time and makes the
+  reads and writes the instruction needs, but none of the NMOS 6502's
+  dummy accesses (an indexed read's read of the unfixed address, the
+  byte after a one-byte opcode, a read-modify-write's second write). The
+  1 MHz bus stretching for slow I/O is not modelled, nor is the 6512A's
+  two-phase clock.
+- **Memory**: `$0000-$7FFF` main RAM; `$8000-$BFFF` the sideways window,
+  selected by ROMSEL (write only, at `$FE30` and its mirror `$FE38`;
+  bits 0-3 the slot); with ROMSEL bit 7 set, `$8000-$AFFF` is the B+'s
+  12 KB private RAM and `$B000-$BFFF` still the selected slot;
+  `$C000-$FFFF` the MOS ROM, with `$FC00-$FEFF` I/O. Sideways RAM is
+  written through the window while its slot is selected. An empty slot,
+  and unmodelled I/O, read as the open bus: the last byte the data bus
+  carried. ROM slots and the MOS ignore writes. Shadow screen RAM and
+  `$FE34` (its select) are not modelled; neither are the VIAs, the video,
+  the sound, the keyboard, the ADC, Econet, the Tube or any disc
+  hardware.
+- **The module** (`chips/bbc_module.c`): eight (`cc128`) or sixteen
+  (`direct16`) 16 KB banks behind one socket. A ROM socket has no write
+  line, so the module switches on reads of addresses at the top of its
+  window. It sees only accesses made while its slot is selected and the
+  private RAM does not cover the address, which leaves `$B000-$BFFF`,
+  where the switching addresses are, even with ROMSEL bit 7 set.
+  - `cc128` is the Computer Concepts 128K ROM carrier (SpellMaster's,
+    1987), as MAME models it (`src/devices/bus/bbc/rom/pal.cpp`,
+    `bbc_ccispell_device`): with `offset = address - $8000`, a read of
+    `$3FE0` selects bank 0 from any bank; only while the bank is 0, a
+    read in `$3FC0-$3FDF` selects bank 1, `$3FA0-$3FBF` bank 2, ...,
+    `$3F00-$3F1F` bank 7. The byte returned is the newly selected bank's.
+  - `direct16` is this project's own design in the same manner: a read
+    of `$BFF0+n` selects bank n, from any bank; no other address switches.
+  - Writes never switch. In the ROM form they are ignored. In the RAM form
+    (`--bbc-module-ram`), the developer's form, as someone would use to
+    iterate without burning a ROM, a write to `$8000-$BFFF` while the slot
+    is selected writes the selected bank. It starts empty unless
+    `--bbc-module` preloads it; a loader fills it bank by bank (select the
+    bank, then write the window, for example with OSGBPB) and enters its
+    type in the ROM type table (`$02A1+slot`) as sideways RAM loaders do.
+  - Switching changes the code under the CPU, so module code switches
+    banks from main RAM (copy a trampoline there) or from code that is the
+    same in both banks. Mind the reads the CPU makes: an indexed read can
+    land in a switching zone, and a real NMOS 6502 also reads the byte
+    after each one-byte instruction and the unfixed address of an indexed
+    read, which this emulator's core does not (a test pins that an `RTS`
+    at `$BFEF` does not select bank 0 here). Code that must run on a real
+    machine must not end within a byte of a zone, nor index across one.
+  - The MOS calls a ROM's service entry at `$8003` in whatever bank is
+    selected, so a module meant for a real carrier keeps a header and a
+    way back to bank 0 in every bank (the latch powers up undefined).
+- **The MOS** is a 6502 ROM, `bbc_mos_rom.asm`, assembled with the
+  repository's own assembler (`asm/pyasm.py`, the work-alike of `asm/17`)
+  by `bbc_mos_to_c.py` into `bbc_mos_rom_generated.h`, which is checked
+  in (the Makefile rebuilds it when the source changes; the end-to-end
+  test checks that it matches). The entry points sit at their real
+  addresses (`$FFB9` OSRDRM to `$FFF7` OSCLI, and the `$FFB6` length and
+  `$FFB7` address of the default vector table), each jumping through its
+  vector in page 2 as the real MOS does, so a program that replaces a
+  vector, or chains to the old one, works. Reset sets the vectors,
+  builds the ROM type table at `$02A1` from each slot's header (a slot is
+  a ROM if `\0(C)` is at the offset given at `$8007`), selects the
+  highest language ROM (`$028C`), or slot 15 if there is none, writes
+  `$F4` and ROMSEL, clears the Escape flag (`$FF`), and runs the command
+  or the program, with the run's end as its return address.
+- **How a call reaches C (the trap)**: each default handler ends in the
+  byte `$02` (a JAM opcode, which halts a real NMOS 6502) right after a
+  NOP. The run loop serves it only when the instruction it has just run
+  is that NOP, which happens only by falling into it from the MOS's own
+  handler or by entering the handler from its vector. Reaching a trap
+  byte in any other way (a `JMP` into the middle of the MOS) ends the run
+  as a fault, as does a JAM opcode anywhere else; no write to any
+  address and no opcode outside the MOS can trigger a trap. The trap
+  counts two cycles; the C work takes no emulated time.
+- **Character I/O**: OSWRCH writes the byte to standard output unchanged
+  (VDU codes pass through; OSNEWL and OSASCI's CR write `LF CR`). OSRDCH
+  reads a byte from standard input; at its end it returns Escape (`A=$1B`,
+  C set) and sets the Escape flag. OSWORD 0 reads a line from standard
+  input without echo: a host newline ends it (stored as CR), DEL or
+  backspace removes a character, characters outside the block's range and
+  beyond its length are dropped; at the end of input with nothing read it
+  returns Escape (C set). OSWORD 1 reads the clock, five bytes of
+  centiseconds since reset, from the cycle count at 2 MHz; OSWORD 2 sets
+  it. Other OSWORDs go to the ROMs as service call 8.
+- **OSBYTE**: 0 (X=0: the error "OS 2.00", 247; else X=2, the B+), 126
+  (acknowledge Escape), 127 (end of file X), 130 (X=Y=`$FF`), 131 (PAGE),
+  132 (HIMEM), 142 (enter the language in slot X: select it, record it at
+  `$028C`, enter `$8000` with A=1; an empty slot does nothing, a ROM
+  without a language entry is the error "This is not a language"), 143
+  (a service call: X the call, Y its argument; X=0 on return if claimed),
+  170 (the ROM type table's address). Any other is offered to the ROMs as
+  service call 7 with A, X and Y in `$EF`, `$F0` and `$F1`; unclaimed it
+  returns X=`$FF` with V set. A language never returns on a real
+  machine; here the MOS enters it with the stack reset and the run's end
+  as its return address, so a tool that ends either by returning from its
+  service call or by OSBYTE 142 and then returning from the language ends
+  the run with status 0.
+- **Service calls** go to every ROM whose type has bit 7 set, slot 15 down
+  to 0, each selected in `$F4` and ROMSEL, with A the call, X the slot and
+  Y the argument; a ROM claims a call by returning A=0, and the slot
+  selected before is selected again.
+- **OSCLI** stores the line's address in `$F2/$F3` and skips spaces and
+  `*`s; `|` starts a comment. Built in: `RUN name` (or `/name`): load the
+  file at its load address and enter its execution address (the code's
+  RTS returns to OSCLI's caller; OSARGS 1 gives the command line tail),
+  `LOAD name [addr]`, `SAVE name start end|+length [exec [reload]]`.
+  Anything else is offered to the ROMs as service call 4, with A=4 and Y
+  the offset of the command from `($F2)`; unclaimed, a file of that name
+  is run as by `*RUN`, and otherwise it is the error "Bad command" (254).
+  Abbreviations (`*R.`) and the MOS's other commands (`*FX`, `*KEY`,
+  `*TV`, ...) are not there.
+- **The filing system** works in `--disk DIR` (without it a file call is
+  the error "No disk (--disk)"). Load and execution addresses live in
+  `.inf` files beside the data (`NAME LOAD EXEC [LENGTH]`, hex), as BBC
+  tools write them; a file without one has zero addresses. Names are used
+  as given, case and length included (no DFS seven-character limit, no
+  `$.` directory), ended by CR or a space; a name with `/` or `..` is the
+  error "Bad name". OSFIND opens (`$40` input, `$80` output, `$C0` update)
+  up to 15 files, handles `$11`-`$1F`, and returns 0 for a file that
+  can't be opened; A=0 closes Y (0: all). OSBGET returns C set and
+  `A=$FE` at the end of the file and the error "EOF" on reading again
+  there; OSBPUT to a file opened for input is the error "Read only".
+  OSARGS: Y=0 A=0 the filing system (4, the DFS's), A=1 the command line
+  tail's address, A=`$FF` flush; Y a handle: read PTR, write PTR, read
+  EXT, flush. OSGBPB 1-4 (C set when the count is not used up; A=0).
+  OSFILE `$FF` load (at the block's address if its execution address's
+  low byte is 0), 0 save (writing the `.inf`), 1-4 write catalogue
+  information (4 is accepted and ignored), 5 read it, 6 delete; a missing
+  file is an error only for load. Errors use the DFS's numbers.
+- **Errors** are raised as the MOS raises them: a BRK followed by the
+  number and a zero-terminated message. The BRK handler, as MOS 1.20's,
+  sets `$FD/$FE` to the error number, `$024A` to the ROM selected, `$F0`
+  to the stack pointer, offers service call 6, selects the language ROM
+  again and jumps through BRKV. The default BRKV handler prints the
+  message (read from the ROM that raised it, if it is in the window) to
+  standard error and ends the run with status 1.
+- **Not in this MOS**: interrupts of any kind (no 100 Hz tick, no
+  vertical sync, no events; IRQ1V and IRQ2V exist and are never
+  entered), the screen and VDU drivers, the keyboard and its buffer,
+  `*FX`, GSINIT/GSREAD, OSEVEN and VDUCHR (they raise the error 255 "Not
+  in this emulator's MOS"), FSCV (its default just returns), service calls
+  1 and 2 (workspace claims) and the others the MOS issues at reset,
+  duplicate-ROM detection, printing the language's title, the Tube, and
+  `--input`/`--output` (standard input and output are used).
+
+### Checks
+
+Two things a real MOS punishes are counted and shown by `--exit-report`;
+`--bbc-strict` ends the run at the first with a message and status 1:
+
+- writes by code outside the MOS (any PC outside `$C000-$FBFF` and
+  `$FF00-$FFFF`) to memory the MOS owns: zero page `$90-$FF` except `$F4`
+  (the ROMSEL copy, which code paging a ROM writes), `$F6/$F7` (OSRDRM's
+  input pointer) and `$A8-$AF` (documented as workspace for * commands);
+  `$0200-$03FF` except the vectors (`$0200-$0235`, which programs may
+  replace) and the ROM type table (`$02A1-$02B0`, which sideways RAM
+  loaders write); and `$0800` up to PAGE. `$0400-$07FF` (the language's
+  workspace), the stack and the rest of RAM are not checked. The MOS's own
+  writes, and the C side's, are not checked.
+- a ROMSEL value that differs from `$F4` when code outside the MOS calls a
+  MOS entry point.
 
 ## wendy2c demo
 
@@ -234,6 +454,10 @@ emulator/
 ├── emu_run.{c,h}           emu_run_default loop (nmos-default)
 ├── emu_wendy2c.{c,h}       wendy2c machine: chip wiring, run loops, --live renderer
 ├── emu_michael.{c,h}       michael machine: chip wiring, run loops, --live renderer
+├── emu_bbcbplus.{c,h}      bbcbplus machine: slots, module and program from the options, --exit-report
+├── bbc_mos.{c,h}           bbcbplus: the CPU on the B+ map, the MOS's traps and calls, the checks
+├── bbc_mos_rom.asm, bbc_mos_to_c.py, bbc_mos_rom_generated.h
+│                           bbcbplus: the MOS ROM's source, its generator, the generated header
 ├── bus.{c,h}               chip vtable + bus walk
 ├── cpu_core.{c,h}          fake6502-derived CPU; NMOS + 65C02 variants
 ├── stubs.{c,h}, file_io.{c,h}, console.{c,h}, direct_io.{c,h}
@@ -340,6 +564,9 @@ mappings, including that all 32 configs are distinct.
   cycle pacing.
 - `INVESTIGATION-wendy2c.md` — pre-phase-0 notes on the 22V10 PLD
   decode, serial RX timing, RAM bank ordering, and LCD pin map.
+- `NOTES-bbcbplus.md` — the facts about the real B+128 and its MOS that
+  the bbcbplus machine relies on, each marked checked (and against what)
+  or from memory.
 - `NOTES-timing-accuracy.md` — where CPU and VIA cycle timing still
   differs from the W65C02S / W65C22 (instruction-atomic CPU, free
   interrupt entry, SR-under-T2 shift rate, unmodelled VIA features)

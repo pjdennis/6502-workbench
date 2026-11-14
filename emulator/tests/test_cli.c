@@ -5,6 +5,9 @@
 
 #include "greatest.h"
 #include "../cli.h"
+#include "../cpu_core.h"
+
+#define CPU_NMOS_VARIANT_FOR_TEST CPU_NMOS
 
 /* Redirect stderr to a captured pipe for assertions on diagnostic text. */
 static int saved_stderr_fd = -1;
@@ -597,6 +600,120 @@ TEST cli_pace_polls_must_be_positive(void) {
     PASS();
 }
 
+
+/* ---- --machine bbcbplus ---- */
+
+static int bbc_error(char **argv, const char *text) {
+    struct emu_opts opts;
+    char buf[2048] = {0};
+    capture_stderr_begin();
+    int rc = parse(argv, &opts);
+    capture_stderr_end(buf, sizeof(buf));
+    if (rc != 1 || strstr(buf, text) == NULL) {
+        fprintf(stderr, "expected '%s', got rc=%d: %s\n", text, rc, buf);
+        return 0;
+    }
+    return 1;
+}
+
+TEST cli_bbcbplus_defaults(void) {
+    char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "HELLO", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_EQ(MACHINE_BBCBPLUS, opts.machine);
+    ASSERT_EQ(NULL, opts.code_filename);         /* a command needs no code file */
+    ASSERT_STR_EQ("HELLO", opts.bbc_command);
+    ASSERT_STR_EQ("0,1,12,13", opts.bbc_sideways_ram);
+    ASSERT_EQ(4, opts.bbc_module_slot);
+    ASSERT_EQ(0, opts.bbc_module_bank);
+    ASSERT_EQ(BBC_SCHEME_CC128, opts.bbc_module_scheme);
+    ASSERT_EQ(-1L, opts.bbc_page);
+    ASSERT_EQ(0, opts.bbc_shadow);
+    ASSERT_EQ(0, opts.bbc_strict);
+    ASSERT_EQ(0, opts.bbc_module_ram);
+    ASSERT_EQ(CPU_NMOS_VARIANT_FOR_TEST, opts.cpu_variant_opt);
+    PASS();
+}
+
+TEST cli_bbcbplus_options_parsed(void) {
+    char *argv[] = {"emulator", "prog.bin", "--machine", "bbcbplus", "--load", "1900",
+                    "--bbc-sideways-ram", "12,13", "--bbc-rom", "3=a.rom", "--bbc-rom", "15=b.rom",
+                    "--bbc-module", "m.bin", "--bbc-module-slot", "5", "--bbc-module-bank", "12",
+                    "--bbc-module-scheme", "direct16", "--bbc-module-ram", "--bbc-shadow", "--bbc-page", "e00",
+                    "--bbc-strict", "--disk", "d", "--exit-report", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_STR_EQ("prog.bin", opts.code_filename);
+    ASSERT_EQ(0x1900, opts.load_address);
+    ASSERT_STR_EQ("12,13", opts.bbc_sideways_ram);
+    ASSERT_STR_EQ("a.rom", opts.bbc_roms[3]);
+    ASSERT_STR_EQ("b.rom", opts.bbc_roms[15]);
+    ASSERT_EQ(NULL, opts.bbc_roms[4]);
+    ASSERT_STR_EQ("m.bin", opts.bbc_module_filename);
+    ASSERT_EQ(5, opts.bbc_module_slot);
+    ASSERT_EQ(12, opts.bbc_module_bank);
+    ASSERT_EQ(BBC_SCHEME_DIRECT16, opts.bbc_module_scheme);
+    ASSERT_EQ(1, opts.bbc_module_ram);
+    ASSERT_EQ(1, opts.bbc_shadow);
+    ASSERT_EQ(0x0E00L, opts.bbc_page);
+    ASSERT_EQ(1, opts.bbc_strict);
+    ASSERT_STR_EQ("d", opts.disk_dir);
+    ASSERT_EQ(1, opts.exit_report);
+    PASS();
+}
+
+TEST cli_bbcbplus_errors(void) {
+    char *live[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--live", NULL};
+    ASSERT(bbc_error(live, "bbcbplus runs batch only"));
+    char *web[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--web", NULL};
+    ASSERT(bbc_error(web, "bbcbplus runs batch only"));
+    char *c02[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--cpu", "65c02", NULL};
+    ASSERT(bbc_error(c02, "bbcbplus requires --cpu nmos"));
+    char *nothing[] = {"emulator", "--machine", "bbcbplus", NULL};
+    ASSERT(bbc_error(nothing, "needs --bbc-command or a code file with --load"));
+    char *noload[] = {"emulator", "p.bin", "--machine", "bbcbplus", NULL};
+    ASSERT(bbc_error(noload, "needs --bbc-command or a code file with --load"));
+    char *other[] = {"emulator", "p.bin", "--bbc-strict", NULL};
+    ASSERT(bbc_error(other, "--bbc-* options require --machine bbcbplus"));
+    char *nofile[] = {"emulator", "--machine", "wendy2c", NULL};
+    ASSERT(bbc_error(nofile, "a code file is needed"));
+    char *badrom[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "16=a", NULL};
+    ASSERT(bbc_error(badrom, "--bbc-rom must be N=FILE"));
+    char *badrom2[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-rom", "3", NULL};
+    ASSERT(bbc_error(badrom2, "--bbc-rom must be N=FILE"));
+    char *badram[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-sideways-ram", "0,x", NULL};
+    ASSERT(bbc_error(badram, "--bbc-sideways-ram"));
+    char *bank[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
+                    "--bbc-module-bank", "8", NULL};
+    ASSERT(bbc_error(bank, "--bbc-module-bank must be 0 to 7"));
+    char *bank16[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
+                      "--bbc-module-scheme", "direct16", "--bbc-module-bank", "16", NULL};
+    ASSERT(bbc_error(bank16, "--bbc-module-bank must be 0 to 15"));
+    char *scheme[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module", "m",
+                      "--bbc-module-scheme", "spell", NULL};
+    ASSERT(bbc_error(scheme, "--bbc-module-scheme must be"));
+    char *nomod[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module-slot", "3", NULL};
+    ASSERT(bbc_error(nomod, "need --bbc-module or --bbc-module-ram"));
+    char *clash[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module-ram",
+                     "--bbc-module-slot", "12", NULL};
+    ASSERT(bbc_error(clash, "slot 12 is sideways RAM"));
+    char *romclash[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-module-ram",
+                        "--bbc-rom", "4=a", NULL};
+    ASSERT(bbc_error(romclash, "slot 4 holds the module"));
+    char *page[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-page", "8000", NULL};
+    ASSERT(bbc_error(page, "--bbc-page"));
+    PASS();
+}
+
+TEST cli_bbcbplus_sideways_ram_none(void) {
+    char *argv[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "X", "--bbc-sideways-ram", "none",
+                    "--bbc-module-ram", "--bbc-module-slot", "0", NULL};
+    struct emu_opts opts;
+    ASSERT_EQ_FMT(0, parse(argv, &opts), "%d");
+    ASSERT_STR_EQ("none", opts.bbc_sideways_ram);
+    PASS();
+}
+
 SUITE(cli_suite) {
     RUN_TEST(cli_pace_options_parsed);
     RUN_TEST(cli_pace_defaults);
@@ -642,6 +759,10 @@ SUITE(cli_suite) {
     RUN_TEST(cli_ram_parsed_for_michael);
     RUN_TEST(cli_unknown_ram_rejected);
     RUN_TEST(cli_ram_requires_michael);
+    RUN_TEST(cli_bbcbplus_defaults);
+    RUN_TEST(cli_bbcbplus_options_parsed);
+    RUN_TEST(cli_bbcbplus_errors);
+    RUN_TEST(cli_bbcbplus_sideways_ram_none);
 }
 
 GREATEST_MAIN_DEFS();

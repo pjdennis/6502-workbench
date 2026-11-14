@@ -1,0 +1,939 @@
+/* The bbcbplus machine's MOS (bbc_mos.h): reset, the traps, each MOS call,
+ * errors through BRKV, service calls to ROMs, the filing system over a host
+ * directory, and the checks. Each test runs a small 6502 program, assembled
+ * here by the macros below, at PAGE ($1900). */
+
+#define _GNU_SOURCE
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "greatest.h"
+#include "../cpu_core.h"
+#include "../bbc_mos.h"
+#include "../bbc_mos_rom_generated.h"
+
+uint8_t read6502(uint16_t address) { (void)address; return 0; }
+void write6502(uint16_t address, uint8_t value) { (void)address; (void)value; }
+
+/* ---- a few instructions ---- */
+#define LO(v) ((uint8_t)((v) & 0xFF))
+#define HI(v) ((uint8_t)(((v) >> 8) & 0xFF))
+#define LDA_IMM(v) 0xA9, LO(v)
+#define LDX_IMM(v) 0xA2, LO(v)
+#define LDY_IMM(v) 0xA0, LO(v)
+#define LDA_ZP(z) 0xA5, (z)
+#define STA_ZP(z) 0x85, (z)
+#define STX_ZP(z) 0x86, (z)
+#define STY_ZP(z) 0x84, (z)
+#define STA_ABS(v) 0x8D, LO(v), HI(v)
+#define LDA_ABS(v) 0xAD, LO(v), HI(v)
+#define INC_ZP(z) 0xE6, (z)
+#define JSR(v) 0x20, LO(v), HI(v)
+#define JMP(v) 0x4C, LO(v), HI(v)
+#define JMP_IND(v) 0x6C, LO(v), HI(v)
+#define PHP 0x08
+#define PLA 0x68
+#define RTS 0x60
+#define BRK 0x00
+#define NOP 0xEA
+
+#define OSWRCH 0xFFEE
+#define OSASCI 0xFFE3
+#define OSNEWL 0xFFE7
+#define OSRDCH 0xFFE0
+#define OSBYTE 0xFFF4
+#define OSWORD 0xFFF1
+#define OSCLI 0xFFF7
+#define OSFILE 0xFFDD
+#define OSFIND 0xFFCE
+#define OSBGET 0xFFD7
+#define OSBPUT 0xFFD4
+#define OSARGS 0xFFDA
+#define OSGBPB 0xFFD1
+#define WRCHV 0x020E
+#define BRKV 0x0202
+
+#define PAGE 0x1900
+
+static struct bbc_memory_state mem;
+static struct bbc_module_state mod;
+static struct bbc_machine m;
+static struct chip mem_chip, mod_chip;
+static char *out_text, *err_text;
+static size_t out_len, err_len;
+static char disk[64];
+static int status_code;
+
+static void fresh(void) {
+    bbc_memory_init(&mem_chip, &mem);
+    free(out_text);
+    free(err_text);
+    out_text = err_text = NULL;
+}
+
+/* Run code at PAGE (or the command) with input; out_text and err_text hold
+ * what it printed. */
+static int run(const uint8_t *code, size_t n, const char *input, const char *command, struct bbc_config *extra) {
+    struct bbc_config cfg = { 0 };
+    if (extra) cfg = *extra;
+    free(out_text);
+    free(err_text);
+    out_text = err_text = NULL;
+    FILE *out = open_memstream(&out_text, &out_len), *err = open_memstream(&err_text, &err_len);
+    FILE *in = fmemopen((void *)(input ? input : ""), input ? strlen(input) : 0, "r");
+    if (!input) { fclose(in); in = fopen("/dev/null", "r"); }
+    cfg.out = out;
+    cfg.err = err;
+    cfg.in = in;
+    cfg.command = command;
+    cfg.entry = PAGE;
+    if (!cfg.disk_dir && disk[0]) cfg.disk_dir = disk;
+    bbc_machine_init(&m, &cfg, &mem, mem.kind[4] == BBC_SLOT_MODULE ? &mod : NULL);
+    for (size_t i = 0; i < n; i++) mem.ram[PAGE + i] = code[i];
+    status_code = bbc_machine_run(&m, 10000000);
+    bbc_machine_close(&m);
+    fclose(out);
+    fclose(err);
+    fclose(in);
+    return status_code;
+}
+
+#define RUN(code, input, command) run(code, sizeof code, input, command, NULL)
+
+static void make_disk(void) {
+    strcpy(disk, "/tmp/bbc_mos_diskXXXXXX");
+    if (!mkdtemp(disk)) disk[0] = 0;
+}
+
+static void remove_disk(void) {
+    char cmd[128];
+    snprintf(cmd, sizeof cmd, "rm -rf %s", disk);
+    if (system(cmd) != 0) { /* best effort */ }
+    disk[0] = 0;
+}
+
+static void write_host(const char *name, const void *data, size_t n) {
+    char path[256];
+    snprintf(path, sizeof path, "%s/%s", disk, name);
+    FILE *f = fopen(path, "wb");
+    fwrite(data, 1, n, f);
+    fclose(f);
+}
+
+static long read_host(const char *name, char *buf, size_t size) {
+    char path[256];
+    snprintf(path, sizeof path, "%s/%s", disk, name);
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    long n = (long)fread(buf, 1, size - 1, f);
+    buf[n] = 0;
+    fclose(f);
+    return n;
+}
+
+static void put_text(uint16_t addr, const char *s) {
+    memcpy(mem.ram + addr, s, strlen(s));
+    mem.ram[addr + strlen(s)] = 0x0D;
+}
+
+/* A sideways ROM image in slot: header, then code at $8020 (the service
+ * entry), title "T" */
+static void rom_in_slot(int slot, uint8_t type, const uint8_t *service, size_t n) {
+    mem.kind[slot] = BBC_SLOT_ROM;
+    uint8_t *r = mem.slot[slot];
+    memset(r, 0xFF, BBC_SLOT_SIZE);
+    r[0] = 0x4C; r[1] = 0x40; r[2] = 0x80;  /* language entry: JMP $8040 */
+    r[3] = 0x4C; r[4] = 0x20; r[5] = 0x80;  /* service entry: JMP $8020 */
+    r[6] = type;
+    r[7] = 0x0B;                             /* copyright offset */
+    r[8] = 0x01;                             /* version */
+    r[9] = 'T'; r[10] = 0;
+    memcpy(r + 0x0B, "\0(C)X", 6);
+    memcpy(r + 0x20, service, n);
+}
+
+/* ---- reset ---- */
+
+TEST reset_sets_the_vectors_and_returns_with_status_0(void) {
+    fresh();
+    static const uint8_t code[] = { RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(BBC_END_RETURNED, m.end);
+    for (int i = 0; i < 0x36; i++) ASSERT_EQ(bbc_mos_rom[BBC_MOS_VECTAB - 0xC000 + i], mem.ram[0x200 + i]);
+    ASSERT_EQ(LO(BBC_MOS_WRCH_DEFAULT), mem.ram[WRCHV]);
+    ASSERT_EQ(HI(BBC_MOS_WRCH_DEFAULT), mem.ram[WRCHV + 1]);
+    ASSERT(clockticks6502 > 0);
+    PASS();
+}
+
+TEST reset_fills_the_rom_type_table_from_the_headers(void) {
+    fresh();
+    static const uint8_t svc[] = { RTS };
+    rom_in_slot(3, 0x82, svc, sizeof svc);
+    rom_in_slot(9, 0xC2, svc, sizeof svc);
+    mem.kind[5] = BBC_SLOT_ROM;              /* no "(C)": not a ROM */
+    memset(mem.slot[5], 0x11, BBC_SLOT_SIZE);
+    mem.kind[0] = BBC_SLOT_RAM;              /* empty sideways RAM */
+    static const uint8_t code[] = { RTS };
+    RUN(code, NULL, NULL);
+    for (int s = 0; s < 16; s++) ASSERT_EQ_FMT(s == 3 ? 0x82 : s == 9 ? 0xC2 : 0, mem.ram[0x2A1 + s], "%02X");
+    ASSERT_EQ(9, mem.ram[0xF4]);             /* the language ROM is selected */
+    ASSERT_EQ(9, mem.romsel);
+    ASSERT_EQ(9, mem.ram[0x28C]);
+    PASS();
+}
+
+/* ---- character I/O ---- */
+
+TEST oswrch_osasci_osnewl_write_bytes_unchanged(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM('H'), JSR(OSWRCH), LDA_IMM(0x07), JSR(OSWRCH), LDA_IMM(0x0D), JSR(OSASCI),
+        LDA_IMM('i'), JSR(OSASCI), JSR(OSNEWL), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(7, (int)out_len);
+    ASSERT_MEM_EQ("H\x07\n\ri\n\r", out_text, 7);
+    PASS();
+}
+
+TEST a_replaced_vector_is_used_and_can_chain(void) {
+    fresh();
+    /* WRCHV -> PAGE+$40: INC $70, JMP (old) */
+    static const uint8_t code[] = {
+        LDA_ABS(WRCHV), STA_ZP(0x72), LDA_ABS(WRCHV + 1), STA_ZP(0x73),
+        LDA_IMM(LO(PAGE + 0x40)), STA_ABS(WRCHV), LDA_IMM(HI(PAGE + 0x40)), STA_ABS(WRCHV + 1),
+        LDA_IMM('x'), JSR(OSWRCH), JSR(OSNEWL), RTS };
+    uint8_t prog[0x50] = { 0 };
+    memcpy(prog, code, sizeof code);
+    const uint8_t handler[] = { INC_ZP(0x70), JMP_IND(0x0072) };
+    memcpy(prog + 0x40, handler, sizeof handler);
+    ASSERT_EQ(0, run(prog, sizeof prog, NULL, NULL, NULL));
+    ASSERT_EQ(3, mem.ram[0x70]);             /* x, LF, CR */
+    ASSERT_MEM_EQ("x\n\r", out_text, 3);
+    ASSERT_EQ(0, (int)m.mos_writes);         /* the vectors are the program's to replace */
+    PASS();
+}
+
+TEST osrdch_reads_standard_input_then_escape_at_its_end(void) {
+    fresh();
+    static const uint8_t code[] = {
+        JSR(OSRDCH), STA_ZP(0x70), PHP, PLA, STA_ZP(0x71),
+        JSR(OSRDCH), STA_ZP(0x72), PHP, PLA, STA_ZP(0x73), RTS };
+    ASSERT_EQ(0, RUN(code, "A", NULL));
+    ASSERT_EQ('A', mem.ram[0x70]);
+    ASSERT_EQ(0, mem.ram[0x71] & 1);
+    ASSERT_EQ(0x1B, mem.ram[0x72]);
+    ASSERT_EQ(1, mem.ram[0x73] & 1);
+    ASSERT_EQ(0x80, mem.ram[0xFF] & 0x80);   /* the Escape flag */
+    PASS();
+}
+
+/* ---- OSBYTE ---- */
+
+TEST osbyte_version_page_himem_and_high_address(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(0), LDX_IMM(1), JSR(OSBYTE), STX_ZP(0x70),
+        LDA_IMM(131), JSR(OSBYTE), STX_ZP(0x71), STY_ZP(0x72),
+        LDA_IMM(132), JSR(OSBYTE), STX_ZP(0x73), STY_ZP(0x74),
+        LDA_IMM(130), JSR(OSBYTE), STX_ZP(0x75), STY_ZP(0x76),
+        LDA_IMM(170), JSR(OSBYTE), STX_ZP(0x77), STY_ZP(0x78), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(2, mem.ram[0x70]);
+    ASSERT_EQ(0x00, mem.ram[0x71]);
+    ASSERT_EQ(0x19, mem.ram[0x72]);
+    ASSERT_EQ(0x00, mem.ram[0x73]);
+    ASSERT_EQ(0x7C, mem.ram[0x74]);
+    ASSERT_EQ(0xFF, mem.ram[0x75]);
+    ASSERT_EQ(0xFF, mem.ram[0x76]);
+    ASSERT_EQ(0xA1, mem.ram[0x77]);
+    ASSERT_EQ(0x02, mem.ram[0x78]);
+    struct bbc_config cfg = { .shadow = 1, .page = 0x0E00 };
+    fresh();
+    run(code, sizeof code, NULL, NULL, &cfg);
+    ASSERT_EQ(0x0E, mem.ram[0x72]);
+    ASSERT_EQ(0x80, mem.ram[0x74]);
+    PASS();
+}
+
+TEST osbyte_0_with_x_0_is_an_error_through_brkv(void) {
+    fresh();
+    static const uint8_t code[] = { LDA_IMM(0), LDX_IMM(0), JSR(OSBYTE), RTS };
+    ASSERT_EQ(1, RUN(code, NULL, NULL));
+    ASSERT_EQ(BBC_END_ERROR, m.end);
+    ASSERT_STR_EQ("OS 2.00\n", err_text);
+    ASSERT_EQ(LO(BBC_MOS_E_OS + 1), mem.ram[0xFD]);   /* $FD/$FE: the error number */
+    ASSERT_EQ(HI(BBC_MOS_E_OS + 1), mem.ram[0xFE]);
+    PASS();
+}
+
+TEST osbyte_126_acknowledges_escape(void) {
+    fresh();
+    static const uint8_t code[] = {
+        JSR(OSRDCH),                         /* end of input: Escape */
+        LDA_IMM(126), JSR(OSBYTE), STX_ZP(0x70),
+        LDA_IMM(126), JSR(OSBYTE), STX_ZP(0x71), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0xFF, mem.ram[0x70]);
+    ASSERT_EQ(0x00, mem.ram[0x71]);
+    ASSERT_EQ(0, mem.ram[0xFF] & 0x80);
+    PASS();
+}
+
+TEST osbyte_unknown_returns_x_ff_with_v_set(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(99), LDX_IMM(0x12), LDY_IMM(0x34), JSR(OSBYTE),
+        STA_ZP(0x70), STX_ZP(0x71), STY_ZP(0x72), PHP, PLA, STA_ZP(0x73), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(99, mem.ram[0x70]);
+    ASSERT_EQ(0xFF, mem.ram[0x71]);          /* no ROM claimed it */
+    ASSERT_EQ(0x34, mem.ram[0x72]);
+    ASSERT_EQ(0x40, mem.ram[0x73] & 0x40);
+    ASSERT_EQ(99, mem.ram[0xEF]);            /* A, X, Y kept at $EF-$F1 */
+    ASSERT_EQ(0x12, mem.ram[0xF0]);
+    ASSERT_EQ(0x34, mem.ram[0xF1]);
+    PASS();
+}
+
+/* A ROM in slot 6 that counts each service call in $0400+A and claims 254 */
+static void counting_rom(void) {
+    static const uint8_t svc[] = {
+        0xAA,                                /* TAX */
+        0xFE, 0x00, 0x04,                    /* INC $0400,X */
+        0x8A,                                /* TXA */
+        0xA6, 0xF4,                          /* LDX $F4 */
+        0xC9, 0xFE,                          /* CMP #254 */
+        0xD0, 0x02,                          /* BNE +2 */
+        LDA_IMM(0),                          /* claimed */
+        RTS };
+    rom_in_slot(6, 0x82, svc, sizeof svc);
+}
+
+TEST osbyte_143_offers_a_service_call_to_the_roms(void) {
+    fresh();
+    counting_rom();
+    static const uint8_t svc[] = { 0xA6, 0xF4, STX_ZP(0x7E), RTS };   /* slot 2 notes it ran, does not claim */
+    rom_in_slot(2, 0x82, svc, sizeof svc);
+    static const uint8_t code[] = {
+        LDA_IMM(143), LDX_IMM(254), LDY_IMM(0), JSR(OSBYTE), STX_ZP(0x70),
+        LDA_IMM(143), LDX_IMM(50), LDY_IMM(0), JSR(OSBYTE), STX_ZP(0x71), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0, mem.ram[0x70]);             /* claimed */
+    ASSERT_EQ(1, mem.ram[0x400 + 254]);
+    ASSERT_EQ(50, mem.ram[0x71]);            /* not claimed: X = the call */
+    ASSERT_EQ(1, mem.ram[0x400 + 50]);
+    ASSERT_EQ(2, mem.ram[0x7E]);             /* slot 2 was offered 50 after slot 6 */
+    ASSERT_EQ(15, mem.ram[0xF4]);            /* the ROM selected before, again */
+    ASSERT_EQ(15, mem.romsel);
+    PASS();
+}
+
+TEST osbyte_142_enters_a_language_and_its_return_ends_the_run(void) {
+    fresh();
+    static const uint8_t svc[] = { RTS };
+    rom_in_slot(7, 0xC2, svc, sizeof svc);
+    /* the language at $8040: STA $70 (A = 1), print "L", RTS */
+    const uint8_t lang[] = { STA_ZP(0x70), LDA_IMM('L'), JSR(OSWRCH), RTS };
+    memcpy(mem.slot[7] + 0x40, lang, sizeof lang);
+    rom_in_slot(3, 0x82, svc, sizeof svc);
+    static const uint8_t code[] = { LDA_IMM(142), LDX_IMM(7), JSR(OSBYTE), LDA_IMM('X'), JSR(OSWRCH), RTS };
+    mem.ram[0x28C] = 0;
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(1, mem.ram[0x70]);
+    ASSERT_EQ(7, mem.ram[0x28C]);
+    ASSERT_EQ(7, mem.ram[0xF4]);
+    ASSERT_EQ(7, mem.romsel);
+    ASSERT_EQ(1, (int)out_len);
+    ASSERT_EQ('L', out_text[0]);
+    static const uint8_t not_lang[] = { LDA_IMM(142), LDX_IMM(3), JSR(OSBYTE), RTS };
+    ASSERT_EQ(1, RUN(not_lang, NULL, NULL));
+    ASSERT_STR_EQ("This is not a language\n", err_text);
+    static const uint8_t empty[] = { LDA_IMM(142), LDX_IMM(9), JSR(OSBYTE), LDA_IMM('e'), JSR(OSWRCH), RTS };
+    ASSERT_EQ(0, RUN(empty, NULL, NULL));    /* an empty slot: no effect */
+    ASSERT_STR_EQ("e", out_text);
+    PASS();
+}
+
+/* ---- OSWORD ---- */
+
+TEST osword_0_reads_a_line(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(0x00), STA_ZP(0x70), LDA_IMM(0x04), STA_ZP(0x71),   /* buffer $0400 */
+        LDA_IMM(5), STA_ZP(0x72), LDA_IMM(' '), STA_ZP(0x73), LDA_IMM('z'), STA_ZP(0x74),
+        LDA_IMM(0), LDX_IMM(0x70), LDY_IMM(0), JSR(OSWORD), STY_ZP(0x75), PHP, PLA, STA_ZP(0x76),
+        LDA_IMM(0x00), STA_ZP(0x71), LDA_IMM(0x05), STA_ZP(0x71),
+        LDA_IMM(0), LDX_IMM(0x70), LDY_IMM(0), JSR(OSWORD), STY_ZP(0x77), PHP, PLA, STA_ZP(0x78),
+        RTS };
+    /* "ab~cdefg" with '~' out of range and a 5-character limit */
+    ASSERT_EQ(0, RUN(code, "ab~c\x7F" "defgh\n", NULL));
+    ASSERT_EQ(5, mem.ram[0x75]);
+    ASSERT_MEM_EQ("abdef\r", (char *)mem.ram + 0x400, 6);
+    ASSERT_EQ(0, mem.ram[0x76] & 1);
+    ASSERT_EQ(1, mem.ram[0x78] & 1);         /* then the end of input: Escape */
+    PASS();
+}
+
+TEST osword_1_reads_the_clock_and_2_sets_it(void) {
+    fresh();
+    /* spin about 200000 cycles (10 cs), read the clock into $70 */
+    static const uint8_t code[] = {
+        LDX_IMM(0), LDY_IMM(160),
+        0xCA, 0xD0, 0xFD, 0x88, 0xD0, 0xFA,   /* DEX/BNE, DEY/BNE */
+        LDA_IMM(1), LDX_IMM(0x70), LDY_IMM(0), JSR(OSWORD),
+        LDA_IMM(0x00), STA_ZP(0x78), STA_ZP(0x79), STA_ZP(0x7A), STA_ZP(0x7B), LDA_IMM(0x10), STA_ZP(0x7C),
+        LDA_IMM(2), LDX_IMM(0x78), LDY_IMM(0), JSR(OSWORD),
+        LDA_IMM(1), LDX_IMM(0x78), LDY_IMM(0), JSR(OSWORD), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT(mem.ram[0x70] >= 9 && mem.ram[0x70] <= 12);
+    ASSERT_EQ(0, mem.ram[0x71]);
+    ASSERT_EQ(0x00, mem.ram[0x78]);
+    ASSERT_EQ(0x10, mem.ram[0x7C]);          /* set to $10 00000000 and read back */
+    PASS();
+}
+
+/* ---- errors ---- */
+
+TEST a_program_brk_goes_through_brkv_with_fd_fe_set(void) {
+    fresh();
+    /* BRKV -> PAGE+$30: LDY #1; LDA ($FD),Y; STA $70; RTS... not allowed: a BRK handler
+       never returns; it records and ends by RTS from the program's stack, which we
+       don't rely on: it prints "!" and returns to the exit through the stack's top */
+    uint8_t prog[0x50] = {
+        LDA_IMM(LO(PAGE + 0x30)), STA_ABS(BRKV), LDA_IMM(HI(PAGE + 0x30)), STA_ABS(BRKV + 1),
+        BRK, 42, 'N', 'o', 0 };
+    const uint8_t handler[] = {
+        LDA_ZP(0xFD), STA_ZP(0x70), LDA_ZP(0xFE), STA_ZP(0x71),
+        0xA0, 0x01, 0xB1, 0xFD, STA_ZP(0x72),       /* LDY #1; LDA ($FD),Y */
+        0xA2, 0xFD, 0x9A,                           /* LDX #$FD; TXS: the exit's return is at $1FE */
+        RTS };
+    memcpy(prog + 0x30, handler, sizeof handler);
+    ASSERT_EQ(0, run(prog, sizeof prog, NULL, NULL, NULL));
+    ASSERT_EQ(LO(PAGE + 11), mem.ram[0x70]);   /* the error number's address */
+    ASSERT_EQ(HI(PAGE + 11), mem.ram[0x71]);
+    ASSERT_EQ('N', mem.ram[0x72]);
+    PASS();
+}
+
+TEST the_default_brkv_prints_the_message_and_ends_with_status_1(void) {
+    fresh();
+    static const uint8_t code[] = { LDA_IMM('a'), JSR(OSWRCH), BRK, 17, 'O', 'o', 'p', 's', 0 };
+    ASSERT_EQ(1, RUN(code, NULL, NULL));
+    ASSERT_STR_EQ("Oops\n", err_text);
+    ASSERT_EQ('a', out_text[0]);
+    PASS();
+}
+
+TEST an_error_in_a_rom_selects_the_language_and_is_reported_from_the_rom(void) {
+    fresh();
+    /* service call 50: an error (CMP #50; BNE out; BRK ...; out: RTS) */
+    static const uint8_t svc[] = { 0xC9, 50, 0xD0, 0x06, BRK, 99, 'R', 'o', 'm', 0, RTS };
+    rom_in_slot(6, 0x82, svc, sizeof svc);
+    static const uint8_t lang[] = { RTS };
+    rom_in_slot(9, 0xC2, lang, sizeof lang);
+    static const uint8_t code[] = { LDA_IMM(143), LDX_IMM(50), LDY_IMM(0), JSR(OSBYTE), RTS };
+    ASSERT_EQ(1, RUN(code, NULL, NULL));
+    ASSERT_STR_EQ("Rom\n", err_text);
+    ASSERT_EQ(6, mem.ram[0x24A]);            /* the ROM selected at the BRK */
+    ASSERT_EQ(9, mem.romsel);                /* the language, selected again */
+    ASSERT_EQ(9, mem.ram[0xF4]);
+    ASSERT_EQ(0x25, mem.ram[0xFD]);          /* $8025: the error number */
+    ASSERT_EQ(0x80, mem.ram[0xFE]);
+    PASS();
+}
+
+/* ---- OSCLI ---- */
+
+TEST oscli_unknown_command_is_bad_command(void) {
+    fresh();
+    ASSERT_EQ(1, run(NULL, 0, NULL, "NOSUCH", NULL));
+    ASSERT_STR_EQ("Bad command\n", err_text);
+    ASSERT_EQ(254, bbc_mos_rom[(mem.ram[0xFE] << 8 | mem.ram[0xFD]) - 0xC000]);
+    fresh();
+    ASSERT_EQ(0, run(NULL, 0, NULL, "  *|a comment", NULL));
+    ASSERT_EQ(0, run(NULL, 0, NULL, "", NULL));
+    PASS();
+}
+
+/* A ROM in slot 5 that claims *HI: prints "hi" and, from Y, the rest */
+static void hi_rom(void) {
+    static const uint8_t svc[] = {
+        0xC9, 0x04, 0xD0, 0x1C,              /* CMP #4; BNE out (+28) */
+        0xB1, 0xF2, 0xC9, 'H', 0xD0, 0x16,   /* LDA ($F2),Y; CMP #'H'; BNE out */
+        0xC8, 0xB1, 0xF2, 0xC9, 'I', 0xD0, 0x0F, /* INY; LDA ($F2),Y; CMP #'I'; BNE out */
+        STY_ZP(0x70),
+        LDA_IMM('h'), JSR(OSWRCH), LDA_IMM('i'), JSR(OSWRCH),
+        LDA_IMM(0), RTS,
+        /* out: */ 0xA9, 0x04, RTS };
+    rom_in_slot(5, 0x82, svc, sizeof svc);
+}
+
+TEST oscli_offers_service_call_4_from_slot_15_down(void) {
+    fresh();
+    hi_rom();
+    counting_rom();                          /* slot 6 sees the call first and does not claim it */
+    ASSERT_EQ(0, run(NULL, 0, NULL, " **HI", NULL));
+    ASSERT_STR_EQ("hi", out_text);
+    ASSERT_EQ(4, mem.ram[0x70]);             /* Y was 3 (the offset from ($F2)), then INY */
+    ASSERT_EQ(LO(BBC_COMMAND_BUFFER), mem.ram[0xF2]);
+    ASSERT_EQ(HI(BBC_COMMAND_BUFFER), mem.ram[0xF3]);
+    ASSERT_EQ(1, mem.ram[0x404]);            /* slot 6 saw call 4 once */
+    PASS();
+}
+
+TEST oscli_run_and_star_name_run_a_file_from_disk(void) {
+    fresh();
+    make_disk();
+    static const uint8_t prog[] = { LDA_IMM('r'), JSR(OSWRCH), RTS };
+    write_host("PROG", prog, sizeof prog);
+    write_host("PROG.inf", "PROG 00003000 00003000 00000006\n", 32);
+    ASSERT_EQ(0, run(NULL, 0, NULL, "RUN PROG  tail", NULL));
+    ASSERT_STR_EQ("r", out_text);
+    fresh();
+    ASSERT_EQ(0, run(NULL, 0, NULL, "PROG", NULL));
+    ASSERT_STR_EQ("r", out_text);
+    fresh();
+    ASSERT_EQ(0, run(NULL, 0, NULL, "*/PROG", NULL));   /* "/" runs a file, as *RUN does */
+    ASSERT_STR_EQ("r", out_text);
+    fresh();
+    ASSERT_EQ(1, run(NULL, 0, NULL, "RUN NONE", NULL));
+    ASSERT_STR_EQ("File not found\n", err_text);
+    fresh();
+    ASSERT_EQ(1, run(NULL, 0, NULL, "NONE", NULL));
+    ASSERT_STR_EQ("Bad command\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+TEST oscli_run_passes_the_command_tail_to_osargs(void) {
+    fresh();
+    make_disk();
+    static const uint8_t prog[] = { LDA_IMM(1), LDX_IMM(0x70), LDY_IMM(0), JSR(OSARGS), RTS };
+    write_host("T", prog, sizeof prog);
+    write_host("T.inf", "T 3000 3000\n", 12);
+    ASSERT_EQ(0, run(NULL, 0, NULL, "RUN T  some args", NULL));
+    ASSERT_EQ(LO(BBC_COMMAND_BUFFER + 7), mem.ram[0x70]);
+    ASSERT_EQ(HI(BBC_COMMAND_BUFFER + 7), mem.ram[0x71]);
+    ASSERT_MEM_EQ("some args\r", (char *)mem.ram + BBC_COMMAND_BUFFER + 7, 10);
+    remove_disk();
+    PASS();
+}
+
+TEST oscli_save_and_load(void) {
+    fresh();
+    make_disk();
+    memcpy(mem.ram + 0x3000, "HELLO", 5);
+    ASSERT_EQ(0, run(NULL, 0, NULL, "SAVE DATA 3000 +5 3001 2000", NULL));
+    char buf[64];
+    ASSERT_EQ(5, read_host("DATA", buf, sizeof buf));
+    ASSERT_STR_EQ("HELLO", buf);
+    read_host("DATA.inf", buf, sizeof buf);
+    ASSERT_STR_EQ("DATA 00002000 00003001 00000005\n", buf);
+    fresh();
+    ASSERT_EQ(0, run(NULL, 0, NULL, "LOAD DATA", NULL));
+    ASSERT_MEM_EQ("HELLO", (char *)mem.ram + 0x2000, 5);
+    ASSERT_EQ(0, run(NULL, 0, NULL, "LOAD DATA 4100", NULL));
+    ASSERT_MEM_EQ("HELLO", (char *)mem.ram + 0x4100, 5);
+    ASSERT_EQ(1, run(NULL, 0, NULL, "SAVE X", NULL));
+    ASSERT_STR_EQ("Bad address\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+/* ---- OSFILE ---- */
+
+/* The OSFILE block at $0380 is not the program's ($0200-$03FF is the MOS's): use $70 */
+static uint8_t osfile_code[] = {
+    LDA_ZP(0x6F), LDX_IMM(0x70), LDY_IMM(0x00), JSR(OSFILE), STA_ZP(0x6E), RTS };
+
+static void osfile_block(uint8_t call, uint16_t name, uint32_t load, uint32_t exec, uint32_t s, uint32_t e) {
+    mem.ram[0x6F] = call;
+    mem.ram[0x70] = LO(name);
+    mem.ram[0x71] = HI(name);
+    uint32_t v[4] = { load, exec, s, e };
+    for (int k = 0; k < 4; k++)
+        for (int i = 0; i < 4; i++) mem.ram[0x72 + 4 * k + i] = (uint8_t)(v[k] >> (8 * i));
+}
+
+static uint32_t block32(int off) {
+    uint32_t v = 0;
+    for (int i = 3; i >= 0; i--) v = v << 8 | mem.ram[0x70 + off + i];
+    return v;
+}
+
+TEST osfile_save_load_info_and_delete(void) {
+    make_disk();
+    fresh();
+    memcpy(mem.ram + 0x5000, "0123456789", 10);
+    put_text(0x0400, "F1");
+    osfile_block(0x00, 0x0400, 0xFFFF5000, 0xFFFF5002, 0x5000, 0x500A);
+    ASSERT_EQ(0, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    char buf[64];
+    ASSERT_EQ(10, read_host("F1", buf, sizeof buf));
+    read_host("F1.inf", buf, sizeof buf);
+    ASSERT_STR_EQ("F1 FFFF5000 FFFF5002 0000000A\n", buf);
+
+    fresh();                                 /* load at its own address (exec byte non-zero) */
+    put_text(0x0400, "F1");
+    osfile_block(0xFF, 0x0400, 0, 1, 0, 0);
+    ASSERT_EQ(0, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_MEM_EQ("0123456789", (char *)mem.ram + 0x5000, 10);
+    ASSERT_EQ(0xFFFF5000u, block32(2));
+    ASSERT_EQ(0xFFFF5002u, block32(6));
+    ASSERT_EQ(10u, block32(10));
+
+    fresh();                                 /* load at the address given */
+    put_text(0x0400, "F1");
+    osfile_block(0xFF, 0x0400, 0x6000, 0, 0, 0);
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    ASSERT_MEM_EQ("0123456789", (char *)mem.ram + 0x6000, 10);
+
+    fresh();                                 /* read the catalogue information */
+    put_text(0x0400, "F1");
+    osfile_block(5, 0x0400, 0, 0, 0, 0);
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(0xFFFF5000u, block32(2));
+    ASSERT_EQ(10u, block32(10));
+
+    fresh();                                 /* write the load address */
+    put_text(0x0400, "F1");
+    osfile_block(2, 0x0400, 0x1234, 0, 0, 0);
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    read_host("F1.inf", buf, sizeof buf);
+    ASSERT_STR_EQ("F1 00001234 FFFF5002 0000000A\n", buf);
+
+    fresh();                                 /* delete */
+    put_text(0x0400, "F1");
+    osfile_block(6, 0x0400, 0, 0, 0, 0);
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    ASSERT_EQ(1, mem.ram[0x6E]);
+    ASSERT_EQ(-1, read_host("F1", buf, sizeof buf));
+    ASSERT_EQ(-1, read_host("F1.inf", buf, sizeof buf));
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    ASSERT_EQ(0, mem.ram[0x6E]);             /* gone: A = 0 */
+
+    fresh();                                 /* a missing file: File not found */
+    put_text(0x0400, "F1");
+    osfile_block(0xFF, 0x0400, 0x6000, 0, 0, 0);
+    ASSERT_EQ(1, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    ASSERT_STR_EQ("File not found\n", err_text);
+
+    fresh();                                 /* no .inf: zero addresses */
+    write_host("RAW", "xy", 2);
+    put_text(0x0400, "RAW");
+    osfile_block(5, 0x0400, 9, 9, 0, 0);
+    run(osfile_code, sizeof osfile_code, NULL, NULL, NULL);
+    ASSERT_EQ(0u, block32(2));
+    ASSERT_EQ(0u, block32(6));
+    ASSERT_EQ(2u, block32(10));
+    remove_disk();
+    PASS();
+}
+
+TEST file_names_with_slash_or_dotdot_are_refused(void) {
+    make_disk();
+    const char *bad[] = { "a/b", "..", "x..y", "/etc" };
+    for (int i = 0; i < 4; i++) {
+        fresh();
+        put_text(0x0400, bad[i]);
+        osfile_block(5, 0x0400, 0, 0, 0, 0);
+        ASSERT_EQ(1, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+        ASSERT_STR_EQ("Bad name\n", err_text);
+    }
+    fresh();                                 /* long names are fine */
+    put_text(0x0400, "a_name_much_longer_than_seven_characters");
+    osfile_block(5, 0x0400, 0, 0, 0, 0);
+    ASSERT_EQ(0, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    remove_disk();
+    PASS();
+}
+
+TEST file_calls_without_a_disk_raise_an_error(void) {
+    fresh();
+    disk[0] = 0;
+    put_text(0x0400, "F");
+    osfile_block(5, 0x0400, 0, 0, 0, 0);
+    ASSERT_EQ(1, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    ASSERT_STR_EQ("No disk (--disk)\n", err_text);
+    PASS();
+}
+
+/* ---- OSFIND, OSBGET, OSBPUT, OSARGS, OSGBPB ---- */
+
+TEST osfind_bget_bput_copy_a_file_and_report_eof(void) {
+    make_disk();
+    fresh();
+    write_host("IN", "abc", 3);
+    put_text(0x0400, "IN");
+    put_text(0x0410, "OUT");
+    static const uint8_t code[] = {
+        LDA_IMM(0x40), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x70),
+        LDA_IMM(0x80), LDX_IMM(0x10), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x71),
+        /* loop: */ 0xA4, 0x70, JSR(OSBGET), 0xB0, 0x07,     /* LDY $70; JSR OSBGET; BCS done */
+        0xA4, 0x71, JSR(OSBPUT), 0x90, 0xF2,                 /* LDY $71; JSR OSBPUT; BCC loop */
+        /* done: */ STA_ZP(0x72),
+        LDA_IMM(0), LDY_IMM(0), JSR(OSFIND), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0x11, mem.ram[0x70]);
+    ASSERT_EQ(0x12, mem.ram[0x71]);
+    ASSERT_EQ(0xFE, mem.ram[0x72]);
+    char buf[16];
+    ASSERT_EQ(3, read_host("OUT", buf, sizeof buf));
+    ASSERT_STR_EQ("abc", buf);
+    remove_disk();
+    PASS();
+}
+
+TEST osfind_missing_file_returns_0_and_bget_twice_at_eof_is_an_error(void) {
+    make_disk();
+    fresh();
+    put_text(0x0400, "NONE");
+    static const uint8_t code[] = { LDA_IMM(0x40), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x70),
+                                    LDA_IMM(0xC0), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x71), RTS };
+    mem.ram[0x70] = mem.ram[0x71] = 0x55;
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0, mem.ram[0x70]);
+    ASSERT_EQ(0, mem.ram[0x71]);
+
+    fresh();
+    write_host("E", "", 0);
+    put_text(0x0400, "E");
+    static const uint8_t eof[] = { LDA_IMM(0x40), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), 0xA8,   /* TAY */
+                                   JSR(OSBGET), 0xA0, 0x11, JSR(OSBGET), RTS };
+    ASSERT_EQ(1, RUN(eof, NULL, NULL));
+    ASSERT_STR_EQ("EOF\n", err_text);
+
+    fresh();
+    static const uint8_t channel[] = { LDY_IMM(0x30), JSR(OSBGET), RTS };
+    ASSERT_EQ(1, RUN(channel, NULL, NULL));
+    ASSERT_STR_EQ("Channel\n", err_text);
+
+    fresh();
+    write_host("R", "r", 1);
+    put_text(0x0400, "R");
+    static const uint8_t ro[] = { LDA_IMM(0x40), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), 0xA8,
+                                  JSR(OSBPUT), RTS };
+    ASSERT_EQ(1, RUN(ro, NULL, NULL));
+    ASSERT_STR_EQ("Read only\n", err_text);
+    remove_disk();
+    PASS();
+}
+
+TEST osargs_reads_and_writes_ptr_and_reads_ext(void) {
+    make_disk();
+    fresh();
+    write_host("A", "0123456789", 10);
+    put_text(0x0400, "A");
+    static const uint8_t code[] = {
+        LDA_IMM(0xC0), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x60),
+        LDA_IMM(2), LDX_IMM(0x70), 0xA4, 0x60, JSR(OSARGS),          /* EXT -> $70 */
+        LDA_IMM(6), STA_ZP(0x74), LDA_IMM(0), STA_ZP(0x75), STA_ZP(0x76), STA_ZP(0x77),
+        LDA_IMM(1), LDX_IMM(0x74), 0xA4, 0x60, JSR(OSARGS),          /* PTR = 6 */
+        0xA4, 0x60, JSR(OSBGET), STA_ZP(0x78),                       /* '6' */
+        LDA_IMM('X'), 0xA4, 0x60, JSR(OSBPUT),                       /* at 7 */
+        LDA_IMM(0), LDX_IMM(0x7C), 0xA4, 0x60, JSR(OSARGS),          /* PTR -> $7C: 8 */
+        LDA_IMM(0), LDX_IMM(0x6C), LDY_IMM(0), JSR(OSARGS), STA_ZP(0x6B),  /* the filing system */
+        LDA_IMM(127), 0xA6, 0x60, JSR(OSBYTE), STX_ZP(0x6A),         /* not at EOF */
+        LDA_IMM(0), 0xA4, 0x60, JSR(OSFIND), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(10, mem.ram[0x70]);
+    ASSERT_EQ('6', mem.ram[0x78]);
+    ASSERT_EQ(8, mem.ram[0x7C]);
+    ASSERT_EQ(4, mem.ram[0x6B]);
+    ASSERT_EQ(0, mem.ram[0x6A]);
+    char buf[16];
+    read_host("A", buf, sizeof buf);
+    ASSERT_STR_EQ("0123456X89", buf);
+    remove_disk();
+    PASS();
+}
+
+TEST osgbpb_reads_and_writes_blocks(void) {
+    make_disk();
+    fresh();
+    write_host("G", "abcdefghij", 10);
+    put_text(0x0400, "G");
+    /* block at $70: handle, address $5000, count 4, PTR 3: read (A=3) */
+    static const uint8_t code[] = {
+        LDA_IMM(0xC0), LDX_IMM(0x00), LDY_IMM(0x04), JSR(OSFIND), STA_ZP(0x70),
+        LDA_IMM(3), LDX_IMM(0x70), LDY_IMM(0), JSR(OSGBPB), PHP, PLA, STA_ZP(0x60),
+        /* read 10 more at the current PTR (A=4): only 3 left */
+        LDA_IMM(10), STA_ZP(0x75), LDA_IMM(4), LDX_IMM(0x70), LDY_IMM(0), JSR(OSGBPB), PHP, PLA, STA_ZP(0x61),
+        /* write "ab" from $5000 at PTR 0 (A=1) */
+        LDA_IMM(0x00), STA_ZP(0x71), LDA_IMM(2), STA_ZP(0x75), LDA_IMM(0), STA_ZP(0x79),
+        LDA_IMM(1), LDX_IMM(0x70), LDY_IMM(0), JSR(OSGBPB),
+        LDA_IMM(0), 0xA4, 0x70, JSR(OSFIND), RTS };
+    mem.ram[0x71] = 0x00; mem.ram[0x72] = 0x50; mem.ram[0x73] = 0; mem.ram[0x74] = 0;
+    mem.ram[0x75] = 4; mem.ram[0x76] = mem.ram[0x77] = mem.ram[0x78] = 0;
+    mem.ram[0x79] = 3; mem.ram[0x7A] = mem.ram[0x7B] = mem.ram[0x7C] = 0;
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_MEM_EQ("defghij", (char *)mem.ram + 0x5000, 7);
+    ASSERT_EQ(0, mem.ram[0x60] & 1);         /* all 4 */
+    ASSERT_EQ(1, mem.ram[0x61] & 1);         /* not all 10 */
+    ASSERT_EQ(0x02, mem.ram[0x71]);          /* the address moved on by 2 */
+    ASSERT_EQ(0, mem.ram[0x75]);             /* nothing left */
+    ASSERT_EQ(2, mem.ram[0x79]);             /* PTR */
+    char buf[16];
+    read_host("G", buf, sizeof buf);
+    ASSERT_STR_EQ("decdefghij", buf);
+    remove_disk();
+    PASS();
+}
+
+/* ---- the trap and the checks ---- */
+
+TEST jumping_straight_to_a_trap_is_a_fault(void) {
+    fresh();
+    static const uint8_t code[] = { LDA_IMM('x'), JMP(BBC_MOS_T_WRCH) };
+    ASSERT_EQ(1, RUN(code, NULL, NULL));
+    ASSERT_EQ(BBC_END_FAULT, m.end);
+    ASSERT_EQ(0, (int)out_len);
+    ASSERT(strstr(m.fault, "trap") != NULL);
+    PASS();
+}
+
+TEST a_jam_opcode_is_a_fault(void) {
+    fresh();
+    static const uint8_t code[] = { NOP, 0x02 };
+    ASSERT_EQ(1, RUN(code, NULL, NULL));
+    ASSERT_EQ(BBC_END_FAULT, m.end);
+    ASSERT(strstr(m.fault, "jammed") != NULL);
+    PASS();
+}
+
+TEST writes_to_mos_memory_are_counted(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(1), STA_ZP(0x70), STA_ZP(0x8F), STA_ZP(0xF4), STA_ZP(0xA8), STA_ZP(0xF6),   /* allowed */
+        STA_ABS(0x0200), STA_ABS(0x02A5), STA_ABS(0x0400), STA_ABS(0x07FF), STA_ABS(0x1900),
+        STA_ZP(0x90), STA_ZP(0xFF), STA_ABS(0x0236), STA_ABS(0x03FF), STA_ABS(0x0800), STA_ABS(0x18FF),
+        LDA_IMM(15), STA_ZP(0xF4), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(6, (int)m.mos_writes);
+    ASSERT_EQ(0x0090, m.first_writes[0].addr);
+    ASSERT_EQ(PAGE + 27, m.first_writes[0].pc);
+    ASSERT_EQ(0x18FF, m.first_writes[5].addr);
+    struct bbc_config strict = { .strict = 1 };
+    fresh();
+    ASSERT_EQ(1, run(code, sizeof code, NULL, NULL, &strict));
+    ASSERT_EQ(BBC_END_STRICT, m.end);
+    ASSERT_EQ(1, (int)m.mos_writes);
+    PASS();
+}
+
+TEST romsel_differing_from_f4_at_a_mos_call_is_counted(void) {
+    fresh();
+    static const uint8_t code[] = {
+        LDA_IMM(3), STA_ABS(0xFE30), LDA_IMM('a'), JSR(OSWRCH),   /* $F4 is 15 */
+        LDA_IMM(3), STA_ZP(0xF4), LDA_IMM('b'), JSR(OSWRCH),       /* agreed */
+        LDA_IMM(15), STA_ZP(0xF4), STA_ABS(0xFE30), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(1, (int)m.romsel_mismatches);
+    ASSERT_EQ(OSWRCH, m.first_mismatches[0].addr);
+    ASSERT_STR_EQ("ab", out_text);
+    struct bbc_config strict = { .strict = 1 };
+    fresh();
+    ASSERT_EQ(1, run(code, sizeof code, NULL, NULL, &strict));
+    ASSERT_EQ(BBC_END_STRICT, m.end);
+    ASSERT_EQ(0, (int)out_len);
+    PASS();
+}
+
+TEST mos_internal_calls_are_not_checked(void) {
+    fresh();
+    /* OSNEWL calls OSWRCH from inside the MOS; a service call writes $F4 and ROMSEL */
+    counting_rom();
+    static const uint8_t code[] = { JSR(OSNEWL), LDA_IMM(143), LDX_IMM(9), LDY_IMM(0), JSR(OSBYTE), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0, (int)m.romsel_mismatches);
+    ASSERT_EQ(0, (int)m.mos_writes);
+    PASS();
+}
+
+TEST the_cycle_cap_ends_the_run_with_status_2(void) {
+    fresh();
+    static const uint8_t code[] = { JMP(PAGE) };
+    struct bbc_config cfg = { 0 };
+    FILE *dn = fopen("/dev/null", "w");
+    cfg.out = cfg.err = dn;
+    cfg.entry = PAGE;
+    bbc_machine_init(&m, &cfg, &mem, NULL);
+    memcpy(mem.ram + PAGE, code, sizeof code);
+    ASSERT_EQ(2, bbc_machine_run(&m, 1000));
+    ASSERT_EQ(BBC_END_CAP, m.end);
+    ASSERT(clockticks6502 >= 1000 && clockticks6502 < 1010);
+    fclose(dn);
+    PASS();
+}
+
+/* ---- the module through the machine ---- */
+
+TEST a_module_in_slot_4_switches_banks_under_the_cpu(void) {
+    fresh();
+    bbc_module_init(&mod_chip, &mod, BBC_MODULE_CC128, 0, 0);
+    mem.kind[4] = BBC_SLOT_MODULE;
+    mod.data[3 * BBC_MODULE_BANK_SIZE + 0x100] = 0x33;
+    static const uint8_t code[] = {
+        LDA_IMM(4), STA_ZP(0xF4), STA_ABS(0xFE30),
+        LDA_ABS(0xBF80), LDA_ABS(0x8100), STA_ZP(0x70), LDA_ABS(0xBFE0),
+        LDA_IMM(15), STA_ZP(0xF4), STA_ABS(0xFE30), RTS };
+    ASSERT_EQ(0, RUN(code, NULL, NULL));
+    ASSERT_EQ(0x33, mem.ram[0x70]);
+    ASSERT_EQ(2, (int)mod.switches);
+    ASSERT_EQ(0, mod.bank);
+    mem.kind[4] = BBC_SLOT_EMPTY;
+    PASS();
+}
+
+SUITE(bbc_mos_suite) {
+    RUN_TEST(reset_sets_the_vectors_and_returns_with_status_0);
+    RUN_TEST(reset_fills_the_rom_type_table_from_the_headers);
+    RUN_TEST(oswrch_osasci_osnewl_write_bytes_unchanged);
+    RUN_TEST(a_replaced_vector_is_used_and_can_chain);
+    RUN_TEST(osrdch_reads_standard_input_then_escape_at_its_end);
+    RUN_TEST(osbyte_version_page_himem_and_high_address);
+    RUN_TEST(osbyte_0_with_x_0_is_an_error_through_brkv);
+    RUN_TEST(osbyte_126_acknowledges_escape);
+    RUN_TEST(osbyte_unknown_returns_x_ff_with_v_set);
+    RUN_TEST(osbyte_143_offers_a_service_call_to_the_roms);
+    RUN_TEST(osbyte_142_enters_a_language_and_its_return_ends_the_run);
+    RUN_TEST(osword_0_reads_a_line);
+    RUN_TEST(osword_1_reads_the_clock_and_2_sets_it);
+    RUN_TEST(a_program_brk_goes_through_brkv_with_fd_fe_set);
+    RUN_TEST(the_default_brkv_prints_the_message_and_ends_with_status_1);
+    RUN_TEST(an_error_in_a_rom_selects_the_language_and_is_reported_from_the_rom);
+    RUN_TEST(oscli_unknown_command_is_bad_command);
+    RUN_TEST(oscli_offers_service_call_4_from_slot_15_down);
+    RUN_TEST(oscli_run_and_star_name_run_a_file_from_disk);
+    RUN_TEST(oscli_run_passes_the_command_tail_to_osargs);
+    RUN_TEST(oscli_save_and_load);
+    RUN_TEST(osfile_save_load_info_and_delete);
+    RUN_TEST(file_names_with_slash_or_dotdot_are_refused);
+    RUN_TEST(file_calls_without_a_disk_raise_an_error);
+    RUN_TEST(osfind_bget_bput_copy_a_file_and_report_eof);
+    RUN_TEST(osfind_missing_file_returns_0_and_bget_twice_at_eof_is_an_error);
+    RUN_TEST(osargs_reads_and_writes_ptr_and_reads_ext);
+    RUN_TEST(osgbpb_reads_and_writes_blocks);
+    RUN_TEST(jumping_straight_to_a_trap_is_a_fault);
+    RUN_TEST(a_jam_opcode_is_a_fault);
+    RUN_TEST(writes_to_mos_memory_are_counted);
+    RUN_TEST(romsel_differing_from_f4_at_a_mos_call_is_counted);
+    RUN_TEST(mos_internal_calls_are_not_checked);
+    RUN_TEST(the_cycle_cap_ends_the_run_with_status_2);
+    RUN_TEST(a_module_in_slot_4_switches_banks_under_the_cpu);
+}
+
+GREATEST_MAIN_DEFS();
+
+int main(int argc, char **argv) {
+    GREATEST_MAIN_BEGIN();
+    RUN_SUITE(bbc_mos_suite);
+    GREATEST_MAIN_END();
+}

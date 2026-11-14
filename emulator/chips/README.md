@@ -1,7 +1,7 @@
 # `chips/`
 
-The chip models behind the bus-model machines (`--machine wendy2c` and
-`--machine michael`). Each module fills in a `struct chip` (`bus.h`): a
+The chip models behind the bus-model machines (`--machine wendy2c`,
+`--machine michael` and `--machine bbcbplus`). Each module fills in a `struct chip` (`bus.h`): a
 `tick`, `read`, `write` and `reset` method, any of which may be NULL.
 `bus_step()` calls every chip's `tick` once per oscillator tick;
 `bus_read`/`bus_write` offer an access to the chips in registration order
@@ -31,8 +31,12 @@ uses it.
 | `gal_spi` | Michael's GAL20RA10 SPI interface and its 74HC299 (`hardware/michael/spi-interface/gal/spi-control.pld`), a tick per Phi2 cycle, in place of the FPGA board (`--add gal-spi`) | michael |
 | `w5500` | the W5500 Ethernet controller as an SPI device, on the FPGA's network device or the GAL interface (its chip select on PA0): frames, the register and buffer memory, and TCP sockets toward a peer on the network (`--add w5500`) | michael |
 | `net_client` | a client on the network for the W5500's TCP sockets: connects once a socket listens, sends a request, keeps the reply (`--net-request`) | michael |
+| `bbc_memory` | the BBC B+128's memory map: main RAM, ROMSEL (`$FE30`, mirrored at `$FE38`), the sixteen sideways slots (empty, ROM or sideways RAM), the 12 KB private RAM under ROMSEL bit 7, the MOS ROM; decodes which accesses the module answers | bbcbplus |
+| `bbc_module` | a banked ROM module in one sideways socket, switched by reads: the Computer Concepts 128K carrier (`cc128`, as MAME's `bbc_ccispell_device`) or sixteen banks selected by reads of `$BFF0+n` (`direct16`); a ROM or a RAM form | bbcbplus |
 | `osc` | the crystal frequency only; no machine registers it (it is only exercised by `tests/test_chip_osc.c`) | tests |
 
-Most modules have a matching `tests/test_chip_*.c` or `tests/test_*.c`
+`bbc_memory` and `bbc_module` are tested by `tests/test_chip_bbc_memory.c`
+and `tests/test_chip_bbc_module.c`; the bbcbplus MOS, which is not a chip,
+lives in `../bbc_mos.c`. Most modules have a matching `tests/test_chip_*.c` or `tests/test_*.c`
 (see `../tests/README.md`); `glue_michael`, `ps2_keyboard_board` and
 `syscall_ports` have no unit test of their own and are exercised by the end-to-end tests.

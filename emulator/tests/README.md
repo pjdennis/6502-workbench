@@ -18,12 +18,16 @@ test goes in both. It currently leaves out `test_stubs`, `test_serial_link`,
   Dormann binaries; see `dormann/README.md`).
 - Bus and chips: `test_bus`, `test_chip_*` (clock, rom, ram, via, lcd,
   serial_usb, led_buttons, osc, cpu_65c02, fpga_bus with text mode's
-  renderer, ili9341, gal_spi, w5500), `test_pld_literal` and
+  renderer, ili9341, gal_spi, w5500, bbc_memory, bbc_module), `test_pld_literal` and
   `test_pld_config_map` (the PLD equations and the per-config memory map),
   `test_hd44780_font`.
 - Machines and front ends: `test_machine_dispatch`, `test_emu_run`,
   `test_cli`, `test_serial_link`, `test_ps2_keys`, `test_audio`,
   `test_web_json`, `test_web_smoke`, `test_web_snapshot`, `test_web_display`.
+- bbcbplus: `test_bbc_mos` (reset, every MOS call, errors through BRKV,
+  service calls, the filing system on a temporary directory, the traps and
+  the checks, each with a small 6502 program assembled by C macros), with
+  `test_chip_bbc_memory` and `test_chip_bbc_module` above.
 - nmos-default services: `test_console`, `test_file_io`, `test_stubs`,
   `test_trace`, `test_direct_io`, `test_smoke`.
 
@@ -31,11 +35,13 @@ test goes in both. It currently leaves out `test_stubs`, `test_serial_link`,
 
 The shell and Python tests below assemble firmware with `firmware/vasm`
 and SKIP (exit 0) when `vasm6502_oldstyle` is missing, except
-`timer2_cycles_test.py`, which needs it; the Playwright ones also SKIP
+`timer2_cycles_test.py`, which needs it, and `bbcbplus_test.py`, which
+uses the repository's own assembler; the Playwright ones also SKIP
 without `playwright`.
 
 | Make target | Script | What it checks |
 |---|---|---|
+| `bbcbplus-goldens` | `bbcbplus_test.py` | bbcbplus programs built from `bbcbplus/` by `bbcbplus/build.py` (with `asm/pyasm.py`, so it never skips): one printing through OSWRCH; `*COPY`, a file copied through OSFIND/OSBGET/OSBPUT, and its error for a missing file; a module image (in both switching schemes) whose service handler claims `*HELLO` and prints from bank 3 through a trampoline in main RAM; the same image loaded bank by bank into the module's RAM form by a loader run from disk; all under `--bbc-strict`. Also: the MOS header regenerates from its source byte for byte, `--live`/`--web` are refused, the cycle cap's status |
 | `compile-and-run` | `compile_and_run_test.sh` | `emulator/compile_and_run.sh`: a program for each board uploaded through its ROM's loader and run headless to the expected LCD, its usage and assembly errors (a Michael program without `start`), and the web page served by default, the run ending quietly |
 | `michael-goldens` | `michael_goldens.sh` | Michael programs loaded into RAM leave the expected final LCD frame (`--exit-report`), a run without it prints nothing, and the EEPROM loader boots from a ROM image to its ready screen |
 | `michael-web` | `michael_web_playwright_test.py` | michael's `--web` page in headless Chromium: the 20x4 LCD and pin table, keys typed and pasted on the page reaching the program through the PS/2 keyboard, reset, the PA2 LED |

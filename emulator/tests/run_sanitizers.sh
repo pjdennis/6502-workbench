@@ -66,12 +66,15 @@ test_chip_lcd|emulator/tests/test_chip_lcd.c emulator/chips/lcd_hd44780.c emulat
 test_chip_serial_usb|emulator/tests/test_chip_serial_usb.c emulator/chips/serial_usb.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_led_buttons|emulator/tests/test_chip_led_buttons.c emulator/chips/led_buttons.c emulator/chips/via_6522.c emulator/bus.c|
 test_chip_ili9341|emulator/tests/test_chip_ili9341.c emulator/chips/ili9341.c|
-test_chip_fpga_bus|emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c|
+test_chip_fpga_bus|emulator/tests/test_chip_fpga_bus.c emulator/chips/fpga_bus.c emulator/chips/w5500.c emulator/chips/fpga_text.c emulator/chips/fpga_text_render.c emulator/chips/ili9341.c emulator/chips/via_6522.c emulator/bus.c|
 test_audio|emulator/tests/test_audio.c emulator/audio.c|$AUDIO_LDLIBS
 test_web_json|emulator/tests/test_web_json.c emulator/web_json.c|
 test_web_smoke|emulator/tests/test_web_smoke.c emulator/web_server.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c|
 test_web_snapshot|emulator/tests/test_web_snapshot.c emulator/web_server.c emulator/web_json.c emulator/web_display.c emulator/chips/ili9341.c|
 test_web_display|emulator/tests/test_web_display.c emulator/web_display.c|
+test_bbc_mos|emulator/tests/test_bbc_mos.c emulator/bbc_mos.c emulator/chips/bbc_memory.c emulator/chips/bbc_module.c emulator/cpu_core.c emulator/bus.c|-Wno-unused-function
+test_chip_bbc_memory|emulator/tests/test_chip_bbc_memory.c emulator/chips/bbc_memory.c emulator/chips/bbc_module.c emulator/bus.c|
+test_chip_bbc_module|emulator/tests/test_chip_bbc_module.c emulator/chips/bbc_module.c emulator/cpu_core.c emulator/bus.c|-Wno-unused-function
 "
 
 # ASan + UBSan options. detect_leaks is on by default on Linux; explicit

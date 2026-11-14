@@ -47,6 +47,19 @@ void emu_opts_init(struct emu_opts *opts) {
     opts->keys_filename = NULL;
     opts->key_interval_ms = 0;
     opts->disk_dir = NULL;
+    opts->bbc_sideways_ram = "0,1,12,13";
+    for (int k = 0; k < 16; k++) opts->bbc_roms[k] = NULL;
+    opts->bbc_module_filename = NULL;
+    opts->bbc_module_ram = 0;
+    opts->bbc_module_slot = 4;
+    opts->bbc_module_bank = 0;
+    opts->bbc_module_scheme = BBC_SCHEME_CC128;
+    opts->bbc_module_options = 0;
+    opts->bbc_shadow = 0;
+    opts->bbc_page = -1;
+    opts->bbc_command = NULL;
+    opts->bbc_strict = 0;
+    opts->bbc_options = 0;
     opts->cycle_cap = 200000000ULL;
     opts->cycle_cap_set = 0;
     opts->live = 0;
@@ -74,6 +87,7 @@ void emu_opts_usage(FILE *fp) {
     fprintf(fp,
 "usage: emulator <code file> [options] [<arguments>]\n"
 "   or: emulator --server\n"
+"   or: emulator --machine bbcbplus --bbc-command <text> [options]\n"
 "\n"
 "options:\n"
 "  --load <hex addr>      load address for the code file (hexadecimal)\n"
@@ -112,8 +126,9 @@ void emu_opts_usage(FILE *fp) {
 "  --pace-polls N         polls per pause (default 2000)\n"
 "  --rows N               override terminal rows\n"
 "  --cols N               override terminal cols\n"
-"  --machine <name>       'nmos-default' (default), 'wendy2c' or 'michael'\n"
-"  --cpu <variant>        'nmos' or '65c02' (wendy2c and michael force '65c02')\n"
+"  --machine <name>       'nmos-default' (default), 'wendy2c', 'michael' or 'bbcbplus'\n"
+"  --cpu <variant>        'nmos' or '65c02' (wendy2c and michael force '65c02',\n"
+"                         bbcbplus 'nmos')\n"
 "  --rom <path>           wendy2c: ROM image (else falls back to <code file>)\n"
 "                         michael: ROM image; with --load, <code file> goes into RAM\n"
 "                         there (and without --rom the ROM holds only the vectors:\n"
@@ -124,6 +139,21 @@ void emu_opts_usage(FILE *fp) {
 "                         (default $4000), bank $01 mapped, start there --\n"
 "                         skips the slow serial boot for big programs\n"
 "  --disk <dir>           wendy2c: host dir backing the $F800+ file-I/O OS calls\n"
+"                         bbcbplus: the directory the MOS's filing system uses\n"
+"bbcbplus (the BBC Model B+128 with the emulator's own MOS; batch only):\n"
+"  --bbc-command TEXT     pass TEXT to OSCLI after reset (else run <code file> at --load)\n"
+"  --bbc-sideways-ram L   slots of sideways RAM (default 0,1,12,13; 'none')\n"
+"  --bbc-rom N=FILE       a 16 KB ROM image in slot N (repeatable)\n"
+"  --bbc-module FILE      the banked module's image, bank 0 first\n"
+"  --bbc-module-ram       the module holds RAM, written through the window\n"
+"  --bbc-module-slot N    the module's slot (default 4)\n"
+"  --bbc-module-bank N    the module's bank at power on (default 0)\n"
+"  --bbc-module-scheme S  cc128 (the Computer Concepts 128K carrier, default) or\n"
+"                         direct16 (sixteen banks, a read of $BFF0+n selects n)\n"
+"  --bbc-shadow           OSBYTE 132 (HIMEM) answers $8000, not $7C00\n"
+"  --bbc-page HEX         OSBYTE 131 (PAGE) answers HEX (default 1900)\n"
+"  --bbc-strict           a write to MOS memory or a ROMSEL unlike $F4 at a MOS\n"
+"                         call ends the run (status 1)\n"
 "  --kbd-scancodes <list> michael: comma-separated hex bytes the PS/2 keyboard sends\n"
 "                         once the program has set it up (e.g. 1c,f0,1c types 'a')\n"
 "  --keys <path>          michael: type these keys once the program has set up the\n"
@@ -159,6 +189,7 @@ void emu_opts_usage(FILE *fp) {
 "                         pulses at emulated-time resolution; see wendy2c_emu_link.py.\n"
 "                         Compatible with --web, --live, both, or neither.\n"
 "  --cycle-cap N          max cycles before forced exit (decimal; default 200000000;\n"
+"                         bbcbplus: CPU cycles, and the run ends with status 2;\n"
 "                         no cap under --live or --web unless this is given explicitly).\n"
 "                         For wendy2c this is oscillator ticks (~2 per CPU cycle);\n"
 "                         for nmos-default and --server it is CPU cycles.\n"
@@ -240,6 +271,142 @@ static int take_int_in(int argc, char **argv, int *idx, const char *flag, long l
     return 0;
 }
 
+int bbc_slot_list(const char *list, unsigned *slots) {
+    unsigned mask = 0;
+    if (strcmp(list, "none") != 0 && *list) {
+        const char *p = list;
+        for (;;) {
+            char *end;
+            long n = strtol(p, &end, 10);
+            if (end == p || n < 0 || n > 15 || (*end && *end != ',')) return -1;
+            mask |= 1u << n;
+            if (!*end) break;
+            p = end + 1;
+        }
+    }
+    if (slots) *slots = mask;
+    return 0;
+}
+
+/* A --bbc-* option (bbcbplus) */
+static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
+    const char *arg = argv[*i], *value;
+    opts->bbc_options = 1;
+    if (strncmp(arg, "--bbc-module-", 13) == 0 && strcmp(arg, "--bbc-module-ram") != 0) opts->bbc_module_options = 1;
+    if (strcmp(arg, "--bbc-shadow") == 0) {
+        opts->bbc_shadow = 1;
+        (*i)++;
+    } else if (strcmp(arg, "--bbc-strict") == 0) {
+        opts->bbc_strict = 1;
+        (*i)++;
+    } else if (strcmp(arg, "--bbc-module-ram") == 0) {
+        opts->bbc_module_ram = 1;
+        (*i)++;
+    } else if (strcmp(arg, "--bbc-command") == 0) {
+        if (take_str_value(argc, argv, i, arg, &opts->bbc_command)) return 1;
+    } else if (strcmp(arg, "--bbc-module") == 0) {
+        if (take_str_value(argc, argv, i, arg, &opts->bbc_module_filename)) return 1;
+    } else if (strcmp(arg, "--bbc-sideways-ram") == 0) {
+        if (take_str_value(argc, argv, i, arg, &opts->bbc_sideways_ram)) return 1;
+        if (bbc_slot_list(opts->bbc_sideways_ram, NULL) != 0) {
+            fprintf(stderr, "error: --bbc-sideways-ram must be slots 0 to 15, comma separated, or 'none'\n");
+            return 1;
+        }
+    } else if (strcmp(arg, "--bbc-rom") == 0) {
+        if (take_str_value(argc, argv, i, arg, &value)) return 1;
+        char *end;
+        long slot = strtol(value, &end, 10);
+        if (end == value || *end != '=' || !end[1] || slot < 0 || slot > 15) {
+            fprintf(stderr, "error: --bbc-rom must be N=FILE, N a slot 0 to 15\n");
+            return 1;
+        }
+        opts->bbc_roms[slot] = end + 1;
+    } else if (strcmp(arg, "--bbc-module-slot") == 0) {
+        if (take_int_in(argc, argv, i, arg, 0, 15, "0 to 15", &opts->bbc_module_slot)) return 1;
+    } else if (strcmp(arg, "--bbc-module-bank") == 0) {
+        if (take_int_in(argc, argv, i, arg, 0, 15, "0 to 15", &opts->bbc_module_bank)) return 1;
+    } else if (strcmp(arg, "--bbc-module-scheme") == 0) {
+        if (take_str_value(argc, argv, i, arg, &value)) return 1;
+        if (strcmp(value, "cc128") == 0) opts->bbc_module_scheme = BBC_SCHEME_CC128;
+        else if (strcmp(value, "direct16") == 0) opts->bbc_module_scheme = BBC_SCHEME_DIRECT16;
+        else {
+            fprintf(stderr, "error: --bbc-module-scheme must be 'cc128' or 'direct16'\n");
+            return 1;
+        }
+    } else if (strcmp(arg, "--bbc-page") == 0) {
+        if (take_str_value(argc, argv, i, arg, &value)) return 1;
+        char *end;
+        long page = strtol(value, &end, 16);
+        if (end == value || *end || page < 0x0800 || page > 0x7C00) {
+            fprintf(stderr, "error: --bbc-page must be hexadecimal, 800 to 7C00\n");
+            return 1;
+        }
+        opts->bbc_page = page;
+    } else {
+        fprintf(stderr, "error: unknown option %s\n", arg);
+        return 1;
+    }
+    return 0;
+}
+
+/* The bbcbplus options together */
+static int bbc_check(struct emu_opts *opts) {
+    if (opts->machine != MACHINE_BBCBPLUS) {
+        if (opts->bbc_options) {
+            fprintf(stderr, "error: --bbc-* options require --machine bbcbplus\n");
+            return 1;
+        }
+        return 0;
+    }
+    if (opts->live || opts->web) {
+        fprintf(stderr, "error: --machine bbcbplus runs batch only: --live and --web are not supported\n");
+        return 1;
+    }
+    if (opts->cpu_variant_opt == CPU_65C02) {
+        fprintf(stderr, "error: --machine bbcbplus requires --cpu nmos (the B+'s 6512A)\n");
+        return 1;
+    }
+    opts->cpu_variant_opt = CPU_NMOS;
+    if (!opts->bbc_command && !(opts->code_filename && opts->load_address >= 0)) {
+        fprintf(stderr, "error: --machine bbcbplus needs --bbc-command or a code file with --load\n");
+        return 1;
+    }
+    if (opts->code_filename && opts->load_address < 0) {
+        fprintf(stderr, "error: --machine bbcbplus needs --bbc-command or a code file with --load"
+                        " (a code file needs --load)\n");
+        return 1;
+    }
+    if (opts->lcd_trace_filename || opts->serial_input_filename || opts->rom_filename) {
+        fprintf(stderr, "error: --machine bbcbplus takes neither --lcd-trace, --serial-input nor --rom\n");
+        return 1;
+    }
+    int module = opts->bbc_module_filename || opts->bbc_module_ram;
+    if (opts->bbc_module_options && !module) {
+        fprintf(stderr, "error: the --bbc-module-* options need --bbc-module or --bbc-module-ram\n");
+        return 1;
+    }
+    int banks = opts->bbc_module_scheme == BBC_SCHEME_DIRECT16 ? 16 : 8;
+    if (opts->bbc_module_bank >= banks) {
+        fprintf(stderr, "error: --bbc-module-bank must be 0 to %d for --bbc-module-scheme %s\n", banks - 1,
+                banks == 16 ? "direct16" : "cc128");
+        return 1;
+    }
+    if (module) {
+        unsigned ram;
+        bbc_slot_list(opts->bbc_sideways_ram, &ram);
+        if (ram & (1u << opts->bbc_module_slot)) {
+            fprintf(stderr, "error: slot %d is sideways RAM; take it out of --bbc-sideways-ram to put the module"
+                            " there\n", opts->bbc_module_slot);
+            return 1;
+        }
+        if (opts->bbc_roms[opts->bbc_module_slot]) {
+            fprintf(stderr, "error: slot %d holds the module; --bbc-rom can't use it\n", opts->bbc_module_slot);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int parse_args(int argc, char **argv, struct emu_opts *opts) {
     int net_options = 0;   /* --net-response, --net-port, --net-connections or --net-idle given */
     emu_opts_init(opts);
@@ -256,9 +423,13 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 0;
     }
 
-    opts->code_filename = argv[1];
-
-    int i = 2;
+    /* A first argument that is an option: no code file (bbcbplus with
+     * --bbc-command needs none; the other machines refuse it below) */
+    int i = 1;
+    if (strncmp(argv[1], "--", 2) != 0) {
+        opts->code_filename = argv[1];
+        i = 2;
+    }
     while (i < argc && strncmp(argv[i], "--", 2) == 0) {
         if (strcmp(argv[i], "--console") == 0) {
             opts->console_mode = 1;
@@ -381,8 +552,9 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
             if (strcmp(m, "nmos-default") == 0) opts->machine = MACHINE_NMOS_DEFAULT;
             else if (strcmp(m, "wendy2c") == 0) opts->machine = MACHINE_WENDY2C;
             else if (strcmp(m, "michael") == 0) opts->machine = MACHINE_MICHAEL;
+            else if (strcmp(m, "bbcbplus") == 0) opts->machine = MACHINE_BBCBPLUS;
             else {
-                fprintf(stderr, "error: --machine value must be 'nmos-default', 'wendy2c' or 'michael'\n");
+                fprintf(stderr, "error: --machine value must be 'nmos-default', 'wendy2c', 'michael' or 'bbcbplus'\n");
                 return 1;
             }
             i += 2;
@@ -421,6 +593,8 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
                 fprintf(stderr, "error: --ram value must be '16k', 'eater', 'full' or 'mirror8k'\n");
                 return 1;
             }
+        } else if (strncmp(argv[i], "--bbc-", 6) == 0) {
+            if (bbc_option(argc, argv, &i, opts)) return 1;
         } else if (strcmp(argv[i], "--disk") == 0) {
             if (take_str_value(argc, argv, &i, "--disk", &opts->disk_dir)) return 1;
         } else if (strcmp(argv[i], "--live") == 0) {
@@ -658,9 +832,15 @@ int parse_args(int argc, char **argv, struct emu_opts *opts) {
         return 1;
     }
 
+    if (bbc_check(opts)) return 1;
+    if (!opts->code_filename && opts->machine != MACHINE_BBCBPLUS) {
+        fprintf(stderr, "error: a code file is needed (the first argument)\n");
+        return 1;
+    }
+
     /* The bus-model machines are 65C02 boards: --cpu defaults to 65c02
      * and nmos is invalid. */
-    if (opts->machine != MACHINE_NMOS_DEFAULT) {
+    if (opts->machine != MACHINE_NMOS_DEFAULT && opts->machine != MACHINE_BBCBPLUS) {
         if (opts->cpu_variant_opt == CPU_VARIANT_UNSET) opts->cpu_variant_opt = CPU_65C02;
         if (opts->cpu_variant_opt == CPU_NMOS) {
             fprintf(stderr, "error: --machine %s requires --cpu 65c02\n",

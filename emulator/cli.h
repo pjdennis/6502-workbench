@@ -10,6 +10,11 @@
 #define MACHINE_NMOS_DEFAULT  0
 #define MACHINE_WENDY2C       1
 #define MACHINE_MICHAEL       2
+#define MACHINE_BBCBPLUS      3   /* the BBC Model B+128 with the emulator's MOS (emu_bbcbplus.h) */
+
+/* --bbc-module-scheme: how the banked module switches (chips/bbc_module.h) */
+#define BBC_SCHEME_CC128    0
+#define BBC_SCHEME_DIRECT16 1
 
 /* LCD panel selection for the wendy2c web/live render. Defaults to
  * the standard 16x2 5x8 module shipped on the breadboard; the 16x1
@@ -34,7 +39,8 @@
 #define MICHAEL_ADD_W5500_CS_RC 0x04u   /* a 10 nF capacitor on the W5500's chip select: it changes 20 us late */
 
 struct emu_opts {
-    const char *code_filename;          /* positional argv[1], NULL if missing */
+    const char *code_filename;          /* positional argv[1], NULL if missing (argv[1] an option:
+                                         * bbcbplus with --bbc-command needs no code file) */
     long load_address;                  /* --load HEX; -1 if not specified */
     const char *input_filename;         /* --input PATH; default "/dev/null" */
     const char *output_filename;        /* --output PATH; default "/dev/null" */
@@ -67,7 +73,7 @@ struct emu_opts {
     int pace_polls;                     /* --pace-polls N; default 2000 */
     int arg_base;                       /* index in argv where positional args begin */
     int server_main_dispatch;           /* 1 if argv[1] == "--server" */
-    int machine;                        /* --machine; MACHINE_NMOS_DEFAULT, MACHINE_WENDY2C or MACHINE_MICHAEL */
+    int machine;                        /* --machine; MACHINE_NMOS_DEFAULT, MACHINE_WENDY2C, MACHINE_MICHAEL or MACHINE_BBCBPLUS */
     int cpu_variant_opt;                /* --cpu; CPU_NMOS or CPU_65C02 (from cpu_core.h) */
     const char *rom_filename;           /* --rom PATH; wendy2c: NULL falls back to code_filename;
                                          * michael: NULL means a ROM holding only the vectors */
@@ -112,10 +118,28 @@ struct emu_opts {
                                          * terminal sends (see ps2_keys.h) */
     int key_interval_ms;                /* --key-interval MS (michael): gap between typed keys;
                                          * 0 = the keyboard board's default */
+    /* --machine bbcbplus (emu_bbcbplus.h) */
+    const char *bbc_sideways_ram;       /* --bbc-sideways-ram LIST: slots of sideways RAM; default "0,1,12,13" */
+    const char *bbc_roms[16];           /* --bbc-rom N=FILE: a 16 KB ROM image in slot N */
+    const char *bbc_module_filename;    /* --bbc-module FILE: the module's image, bank 0 first */
+    int bbc_module_ram;                 /* --bbc-module-ram: the module holds RAM */
+    int bbc_module_slot;                /* --bbc-module-slot N; default 4 */
+    int bbc_module_bank;                /* --bbc-module-bank N: the bank at power on; default 0 */
+    int bbc_module_scheme;              /* --bbc-module-scheme: BBC_SCHEME_* */
+    int bbc_module_options;             /* set when a --bbc-module-* option was given */
+    int bbc_shadow;                     /* --bbc-shadow: OSBYTE 132 answers $8000 */
+    long bbc_page;                      /* --bbc-page HEX: OSBYTE 131; -1 = $1900 */
+    const char *bbc_command;            /* --bbc-command TEXT: passed to OSCLI after reset */
+    int bbc_strict;                     /* --bbc-strict: a failed check ends the run */
+    int bbc_options;                    /* set when any --bbc-* option was given */
     const char *disk_dir;               /* --disk DIR (wendy2c only): host directory backing the
                                          * $F800+ file-I/O OS calls (the simulated SPI "disk").
                                          * NULL = the OS-call port chip is not installed. */
 };
+
+/* --bbc-sideways-ram's list ("0,1,12,13", "none" or "") as a mask of
+ * slots in *slots (if not NULL). Returns 0, or -1 if it is malformed. */
+int bbc_slot_list(const char *list, unsigned *slots);
 
 /* Initialize an emu_opts with the documented defaults. */
 void emu_opts_init(struct emu_opts *opts);

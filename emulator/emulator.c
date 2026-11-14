@@ -18,6 +18,7 @@
 #include "cli.h"
 #include "emu_run.h"
 #include "emu_wendy2c.h"
+#include "emu_bbcbplus.h"
 #include "emu_michael.h"
 #include "stubs.h"
 #include "direct_io.h"
@@ -644,6 +645,9 @@ int main(int argc, char **argv) {
     }
     if (opts.machine == MACHINE_MICHAEL) {
         return emu_run_michael(&opts);
+    }
+    if (opts.machine == MACHINE_BBCBPLUS) {
+        return emu_run_bbcbplus(&opts);
     }
 
     /* Mirror parsed values into the existing globals/locals so the rest

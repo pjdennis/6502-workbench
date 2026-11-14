@@ -95,7 +95,7 @@ class LayoutTest(unittest.TestCase):
     def test_check_and_build_scripts_use_the_new_names(self):
         with open(os.path.join(ROOT, 'tools', 'check_all.sh')) as f:
             check = f.read()
-        self.assertIn('suites=(firmware asm editor emulator)', check)
+        self.assertIn('suites=(firmware asm editor emulator lathe)', check)
         self.assertIn('prog8() {', check)  # run by name, as CI does
         self.assertNotIn('asm1', check)
         with open(os.path.join(ROOT, 'tools', 'build_all.sh')) as f:
