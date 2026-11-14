@@ -4,9 +4,11 @@
     lo2asm.py FILE.lo [-o OUT.asm]
         Module mode: one module, no addresses. The text the snapshot tests compare.
 
-    lo2asm.py --map OUT.map --env ENV [--main MODULE] -o OUT.asm A.lo B.lo ...
+    lo2asm.py --map OUT.map --env ENV --main MODULE -o OUT.asm A.lo B.lo ...
         Program mode: one asm17 source for the whole program. Assembled (asm/pyasm.py or asm17)
         it gives the image the linker gives: code start to $FFFF, reset vector at $FFFC.
+        $start and $init are written as the linker makes them (object-format.md, "Initial
+        values and start-up"), labelled Sstart and Sinit.
 
 Names: symbol mod.name is label mod__name; slot s of mod.f is mod__f__s; parameter n of class
 mod.c is mod__c__pN (CLAS records carry no parameter names); a label inside a function is .L
@@ -29,8 +31,8 @@ import mapenv  # noqa: E402
 
 INDENT = '    '
 CLASS_NAMES = {0: 'zp', 1: 'either', 2: 'not zp'}
-STARTUP_SIZE = 12
-HOST_EXIT = 0xF00F
+START = '$start'      # the start-up function the linker makes (object-format.md, "Initial values and start-up")
+INIT = '$init'        # the function that calls every module.$init
 
 
 class RenderError(Exception):
@@ -308,9 +310,8 @@ def function_comment(m, f):
 
 
 def var_comment(m, v):
-    init = ', initialised' if v.init is not None else ''
     return (f'; variable {m.sym_name(v.sym)}: size {v.size}, class {v.cls} ({CLASS_NAMES[v.cls]}), '
-            f'weight {v.weight}{init}')
+            f'weight {v.weight}')
 
 
 def render_module(m, others=()):
@@ -323,9 +324,6 @@ def render_module(m, others=()):
             body += r.function(m, x)
         elif isinstance(x, lo.Var):
             body.append(var_comment(m, x))
-            if x.init is not None:
-                body.append(mangle(m.sym_name(x.sym)))
-                body += r.data_lines(m, x.init, x.fixes)
         elif isinstance(x, lo.Data):
             body.append(f'; data {m.sym_name(x.sym)}: {len(x.data)} bytes')
             body.append(mangle(m.sym_name(x.sym)))
@@ -348,16 +346,45 @@ def render_module(m, others=()):
 # ---------------------------------------------------------------------------------------------
 # Program mode
 
-def startup_lines(start, main):
-    return [f'; {start}: start-up code made by lo2asm, because no object defines {start}',
-            ';   (stack, decimal mode off, call main, exit through the host call at $F00F)',
-            mangle(start),
-            f'{INDENT}LDX #$FF',
-            f'{INDENT}TXS',
-            f'{INDENT}CLD',
-            f'{INDENT}JSR {mangle(main)}',
-            f'{INDENT}LDA #$00',
-            f'{INDENT}JMP abs_{HOST_EXIT:04x}']
+def init_functions(program, modules):
+    """The module.$init functions, in object order."""
+    return [f'{m.name}.{INIT}' for m in modules if program.func(f'{m.name}.{INIT}') is not None]
+
+
+def start_function(env, has_init, main, r):
+    """$start as object-format.md's table gives it for env: (lines, size)."""
+    lines = [f'; {START}: start-up code for {os.path.basename(env.path) or "the environment"}',
+             mangle(START)]
+    size = 0
+
+    def ins(text, n):
+        nonlocal size
+        lines.append(INDENT + text)
+        size += n
+    if env.stack is not None:
+        ins(f'LDX #${env.stack:02X}', 2)
+        ins('TXS', 1)
+    ins('CLD', 1)
+    if has_init:
+        ins(f'JSR {mangle(INIT)}', 3)
+    ins(f'JSR {mangle(main)}', 3)
+    kind, addr = env.exit
+    if kind == mapenv.EXIT_CALL:
+        ins('LDA #$00', 2)
+        ins(f'JMP {r.literal(addr, 2)}', 3)
+    elif kind == mapenv.EXIT_LOOP:
+        lines.append(local_label(size))
+        ins(f'JMP {local_label(size)}', 3)
+    else:
+        ins('RTS', 1)
+    return lines, size
+
+
+def init_function(inits):
+    """$init: a JSR to each module.$init, then RTS: (lines, size)."""
+    lines = [f'; {INIT}: calls the initial-value code of each module', mangle(INIT)]
+    lines += [f'{INDENT}JSR {mangle(f)}' for f in inits] + [f'{INDENT}RTS']
+    return lines, 3 * len(inits) + 1
 
 
 class Addresses:
@@ -385,19 +412,20 @@ class Addresses:
         return a
 
 
-def render_program(modules, entries, env, main_module=None):
+def render_program(modules, entries, env, main_module):
     """Program mode: one asm17 source. modules in link order; entries from the map."""
     program = Program(modules)
     r = Renderer(program)
     addr = Addresses(entries, program)
-    if main_module is None:
-        main_module = modules[-1].name if modules else 'main'
     main = f'{main_module}.main'
     code_start = env.code[0]
     if code_start < 0x100:
         raise RenderError('code must start at $0100 or above')
+    if program.func(main) is None:
+        raise RenderError(f'no object defines {main}')
+    inits = init_functions(program, modules)
 
-    equates = ['; slots, variables and class parameters, from the map']
+    equates = ['; slots and variables, from the map']
     for e in entries:
         if e.kind == mapenv.M_SLOT:
             f = program.func(e.name)
@@ -411,21 +439,38 @@ def render_program(modules, entries, env, main_module=None):
         elif e.kind == mapenv.M_VAR:
             equates.append(f'{mangle(e.name)} = ${e.addr:04X}')
 
-    placed = []                    # (address, size, lines)
-    start_defined = program.func(env.start) is not None
     funcs = [e for e in entries if e.kind == mapenv.M_FUNC]
+    names = [e.name for e in funcs]
+    if START not in names:
+        raise RenderError(f'the map does not place {START}')
+    start = funcs[names.index(START)]
+    if start.addr != code_start:
+        raise RenderError(f'{START} must be first in the code range (${code_start:04X}), '
+                          f'the map has it at ${start.addr:04X}')
+    if inits and INIT not in names:
+        raise RenderError(f'{inits[0]} is defined, but the map has no {INIT}')
+    if INIT in names and not inits:
+        raise RenderError(f'map lists {INIT}, but no object defines a MODULE.{INIT}')
+    for f in inits:
+        if f not in names:
+            raise RenderError(f'{f} is not in the map: every MODULE.{INIT} is kept')
     for a, b in zip(funcs, funcs[1:]):
         if b.addr < a.addr:
             raise RenderError(f'map: {b.name} is placed below {a.name}')
+
+    placed = []                    # (address, size, lines)
     for e in funcs:
-        d = program.defs.get(e.name)
-        if d is None:
-            if e.name == env.start and not start_defined:
-                lines, size = startup_lines(env.start, main), STARTUP_SIZE
-                r.equates[f'abs_{HOST_EXIT:04x}'] = HOST_EXIT
-            else:
-                raise RenderError(f'map lists function {e.name}, which no object defines')
+        if e.name == START:
+            lines, size = start_function(env, bool(inits), main, r)
+        elif e.name == INIT:
+            if e.addr != start.addr + start.size:
+                raise RenderError(f'{INIT} must follow {START} (at ${start.addr + start.size:04X}), '
+                                  f'the map has it at ${e.addr:04X}')
+            lines, size = init_function(inits)
         else:
+            d = program.defs.get(e.name)
+            if d is None or not isinstance(d[1], lo.Func):
+                raise RenderError(f'map lists function {e.name}, which no object defines')
             m, f = d
             lines = r.function(m, f)
             size = final_size(m, f, addr)
@@ -433,25 +478,16 @@ def render_program(modules, entries, env, main_module=None):
             raise RenderError(f'map gives {e.name} size ${e.size:04X}, the rule gives ${size:04X}')
         placed.append((e.addr, size, lines))
     for e in entries:
-        if e.kind not in (mapenv.M_DATA, mapenv.M_VAR):
+        if e.kind != mapenv.M_DATA:
             continue
         d = program.defs.get(e.name)
-        if d is None:
-            raise RenderError(f'map lists {e.name}, which no object defines')
+        if d is None or not isinstance(d[1], lo.Data):
+            raise RenderError(f'map lists data {e.name}, which no object defines')
         m, x = d
-        if e.kind == mapenv.M_DATA:
-            if len(x.data) != e.size:
-                raise RenderError(f'map gives {e.name} size ${e.size:04X}, it has ${len(x.data):04X}')
-            placed.append((e.addr, e.size, [f'; data {e.name}: {e.size} bytes', mangle(e.name)]
-                           + r.data_lines(m, x.data, x.fixes)))
-        elif x.init is not None:
-            if e.addr < code_start:
-                raise RenderError(f'initialised variable {e.name} is at ${e.addr:04X}, '
-                                  f'below the image (code starts at ${code_start:04X})')
-            placed.append((e.addr, e.size, [var_comment(m, x) + f', at ${e.addr:04X}']
-                           + r.data_lines(m, x.init, x.fixes)))
-    if not start_defined and not any(e.name == env.start for e in funcs):
-        raise RenderError(f'no object defines {env.start} and the map does not place it')
+        if len(x.data) != e.size:
+            raise RenderError(f'map gives {e.name} size ${e.size:04X}, it has ${len(x.data):04X}')
+        placed.append((e.addr, e.size, [f'; data {e.name}: {e.size} bytes', mangle(e.name)]
+                       + r.data_lines(m, x.data, x.fixes)))
 
     placed.sort(key=lambda p: p[0])
     out = [f'; program for {os.path.basename(env.path) or "environment"}: '
@@ -469,8 +505,8 @@ def render_program(modules, entries, env, main_module=None):
         pc = a + size
     if pc > 0xFFFC:
         raise RenderError(f'the program reaches ${pc:04X}, over the reset vector')
-    body += ['', '; vectors: reset to the start function; no interrupt handler',
-             '* = $FFFC', f'{INDENT}.word {mangle(env.start)}', f'{INDENT}.word $0000']
+    body += ['', f'; vectors: reset to {START}; no interrupt handler',
+             '* = $FFFC', f'{INDENT}.word {mangle(START)}', f'{INDENT}.word $0000']
     eq = r.equate_lines()
     if eq:
         equates += ['', '; literal addresses'] + eq
@@ -482,14 +518,14 @@ def main(argv):
     ap.add_argument('objects', nargs='+')
     ap.add_argument('--map')
     ap.add_argument('--env')
-    ap.add_argument('--main', help='module whose main the start-up code calls (default: the last object)')
+    ap.add_argument('--main', help='program mode: the module whose main $start calls')
     ap.add_argument('-o', dest='out')
     a = ap.parse_args(argv)
     try:
         modules = [lo.load(p) for p in a.objects]
         if a.map or a.env:
-            if not (a.map and a.env and a.out):
-                ap.error('program mode needs --map, --env and -o')
+            if not (a.map and a.env and a.main and a.out):
+                ap.error('program mode needs --map, --env, --main and -o')
             text = render_program(modules, mapenv.read_map(a.map), mapenv.read_env(a.env), a.main)
         else:
             if len(modules) != 1:

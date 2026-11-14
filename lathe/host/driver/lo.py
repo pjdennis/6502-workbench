@@ -18,7 +18,7 @@ label's offset as the addend). Mode '#<' and '#>' are immediates with kind 2 / 3
 """
 import struct
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 import cpu6502
 
@@ -44,7 +44,7 @@ FUNC_FLAG_NAMES = ((F_RECURSIVE, 'recursive'), (F_INTERRUPT, 'interrupt'), (F_EX
                    (F_REGISTERS, 'registers'))
 C_SAVES, C_POINTER = 1, 2
 CLAS_RECURSIVE = 1
-VAR_INIT = 1
+VAR_OLD_INIT = 1       # flag bit 0 meant "initial value follows" before initial values moved to code
 
 NO_SLOT = 0xFF
 NO_OUTER = 0xFFFF
@@ -97,13 +97,12 @@ class Func:
 
 @dataclass
 class Var:
+    """Storage only: a variable has no initial value in the object file (module.$init sets it)."""
     sym: int
     size: int
     cls: int = 1
     weight: int = 0
     flags: int = 0
-    init: Optional[bytes] = None
-    fixes: List[Fix] = field(default_factory=list)
 
 
 @dataclass
@@ -229,7 +228,7 @@ def read(data, filename='<object>'):
     defined = {}                  # symbol -> description of where
     func = None                   # Func being read
     func_stage = 0                # 0 after FUNC, 1 SLOT, 2 CALL, 3 FIX, 4 CODE
-    last_fixable = None           # Data or Var just read (for DFIX)
+    last_data = None              # the DATA record just read (for DFIX)
     pending = []                  # (Fix, owner description, pos) checked at END
     ended = False
 
@@ -289,7 +288,7 @@ def read(data, filename='<object>'):
             r.pos += 3 + length
             continue
 
-        prev_fixable, last_fixable = last_fixable, None
+        prev_data, last_data = last_data, None
         if func is not None:
             order = {R_SLOT: 1, R_CALL: 2, R_FIX: 3, R_CODE: 4}
             if rtype in order:
@@ -348,32 +347,26 @@ def read(data, filename='<object>'):
         elif rtype == R_VAR:
             v = Var(body.u16(), body.u16(), body.u8(), body.u8(), body.u8())
             define(v.sym, 'VAR', K_VAR)
+            vname = m.sym_name(v.sym)
             if v.cls > 2:
-                r.fail(f'VAR {m.sym_name(v.sym)} has class {v.cls}')
-            if v.flags & VAR_INIT:
-                v.init = body.rest()
-                if len(v.init) != v.size:
-                    r.fail(f'VAR {m.sym_name(v.sym)}: initial value is {len(v.init)} bytes, size is {v.size}')
+                r.fail(f'VAR {vname} has class {v.cls}')
+            if v.flags & VAR_OLD_INIT:
+                r.fail(f'VAR {vname}: flag bit 0 (initial value) is not in format version 1: '
+                       f'variables have no initial values; the compiler sets them in module.$init')
+            if v.flags:
+                r.fail(f'VAR {vname}: unknown flags ${v.flags:02X}')
             m.items.append(v)
-            last_fixable = v
         elif rtype == R_DATA:
             x = Data(body.u16(), b'')
             define(x.sym, 'DATA', K_DATA)
             x.data = body.rest()
             m.items.append(x)
-            last_fixable = x
+            last_data = x
         elif rtype == R_DFIX:
-            if prev_fixable is None:
-                r.fail('DFIX record not just after a DATA or VAR record')
-            owner = m.sym_name(prev_fixable.sym)
-            if isinstance(prev_fixable, Var):
-                if prev_fixable.init is None:
-                    r.fail(f'DFIX for variable {owner}, which has no initial value')
-                size = len(prev_fixable.init)
-            else:
-                size = len(prev_fixable.data)
-            prev_fixable.fixes = _fix_entries(body, r)
-            check_fixes(prev_fixable.fixes, size, owner)
+            if prev_data is None:
+                r.fail('DFIX record not just after a DATA record')
+            prev_data.fixes = _fix_entries(body, r)
+            check_fixes(prev_data.fixes, len(prev_data.data), m.sym_name(prev_data.sym))
         elif rtype == R_FUNC:
             func = Func(body.u16(), body.u8())
             define(func.sym, 'FUNC', K_FUNC)
@@ -462,11 +455,7 @@ def write(m):
             out.append(_rec(R_CODE, x.code))
             out.append(_rec(R_ENDF))
         elif isinstance(x, Var):
-            flags = x.flags | (VAR_INIT if x.init is not None else 0)
-            out.append(_rec(R_VAR, struct.pack('<HHBBB', x.sym, x.size, x.cls, x.weight, flags)
-                            + (x.init or b'')))
-            if x.fixes:
-                out.append(_rec(R_DFIX, _fixes(x.fixes)))
+            out.append(_rec(R_VAR, struct.pack('<HHBBB', x.sym, x.size, x.cls, x.weight, x.flags)))
         elif isinstance(x, Data):
             out.append(_rec(R_DATA, struct.pack('<H', x.sym) + x.data))
             if x.fixes:
@@ -493,12 +482,14 @@ class _Pending:
 
 
 class _Fixable:
+    """Constant data being built: fix-ups by name, resolved when the module is finished."""
+
     def __init__(self, builder, item, size):
         self.b, self.item, self.size = builder, item, size
         self.pending = []
 
     def fix(self, offset, kind, target, addend=0):
-        """A fix-up in the data or initial value. target: name, or (name, slot)."""
+        """A fix-up in the data. target: name, or (name, slot)."""
         if offset + FIX_WIDTH[kind] > self.size:
             raise LoError(f'fix-up at {offset} runs past the end of the data')
         self.pending.append(_Pending(offset, kind, target, addend))
@@ -626,15 +617,10 @@ class Builder:
         self.parts.append(fb)
         return fb
 
-    def var(self, name, size, cls=1, weight=0, init=None):
-        if init is not None and len(init) != size:
-            raise LoError(f'{name}: initial value is {len(init)} bytes, size is {size}')
-        v = Var(self.extern(name, K_VAR), size, cls, weight, 0 if init is None else VAR_INIT,
-                None if init is None else bytes(init))
-        self.module_.items.append(v)
-        p = _Fixable(self, v, size if init is not None else 0)
-        self.parts.append(p)
-        return p
+    def var(self, name, size, cls=1, weight=0):
+        """A variable: storage only. Initial values are code, in a function module.$init."""
+        self.module_.items.append(Var(self.extern(name, K_VAR), size, cls, weight))
+        return self
 
     def data(self, name, data):
         x = Data(self.extern(name, K_DATA), bytes(data))

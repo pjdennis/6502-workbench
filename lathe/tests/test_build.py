@@ -144,6 +144,24 @@ class TestBuild(Sources):
         with self.assertRaisesRegex(build.BuildError, 'does not exist yet'):
             build.build(main, os.path.join(self.dir, 'm.bin'))
 
+    def test_linker_command_line(self):
+        """ENV MAINMODULE OUT.bin OUT.map OBJECT.lo... (lathe/host/README.md, "Command lines")."""
+        linker = os.path.join(self.dir, 'log_link.py')
+        log = os.path.join(self.dir, 'link.log')
+        with open(linker, 'w') as fh:
+            fh.write(f'import sys\nopen({log!r}, "w").write("\\n".join(sys.argv[1:]))\n'
+                     'open(sys.argv[3], "wb").write(b"x")\n')
+        build.LINKER = linker
+        self.source('lib.lth', 'module lib\nimport host\n')
+        main = self.source('Prog.lth', '; prints P\nmodule prog\nimport lib\n')
+        keep = os.path.join(self.dir, 'k')
+        build.build(main, os.path.join(self.dir, 'p.bin'), keep=keep)
+        with open(log) as fh:
+            self.assertEqual(fh.read().split('\n'), [
+                os.path.join(build.ENVS, 'host.env'), 'prog',
+                os.path.join(keep, 'prog.link.bin'), os.path.join(keep, 'prog.map'),
+                os.path.join(keep, 'host.lo'), os.path.join(keep, 'lib.lo'), os.path.join(keep, 'prog.lo')])
+
     def test_linker_used_when_present(self):
         """With a linker, the default path copies its image and --asm renders its map."""
         linker = os.path.join(self.dir, 'fake_link.py')

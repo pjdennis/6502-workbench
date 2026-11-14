@@ -83,7 +83,7 @@ def map_lines(text):
 
 # Two maps for three_class_module: A puts the class 1 slots in zero page, B in main memory.
 MAP_A = """
-F 0200 000C host_start.start
+F 0200 000C $start
 F 020C 0003 t.callee
 F 020F 0023 t.work
 F 0232 0004 t.main
@@ -94,7 +94,7 @@ S 0013 0001 t.work 1 e
 S C010 0002 t.work 2 n
 """
 MAP_B = """
-F 0200 000C host_start.start
+F 0200 000C $start
 F 020C 0004 t.callee
 F 0210 0026 t.work
 F 0236 0004 t.main
@@ -116,10 +116,11 @@ def reference_image(modules, entries, env, main_module):
 
     defs = lo2asm.Program(modules).defs
     for e in entries:
-        if e.kind == mapenv.M_FUNC and e.name not in defs:
-            main = addr.items[f'{main_module}.main']
-            put(e.addr, bytes((0xA2, 0xFF, 0x9A, 0xD8, 0x20, main & 0xFF, main >> 8,
-                               0xA9, 0x00, 0x4C, 0x0F, 0xF0)))
+        if e.kind == mapenv.M_FUNC and e.name == '$start':
+            put(e.addr, reference_start(env, e.addr, addr.items.get('$init'), addr.items[f'{main_module}.main']))
+        elif e.kind == mapenv.M_FUNC and e.name == '$init':
+            inits = [addr.items[f'{m.name}.$init'] for m in modules if f'{m.name}.$init' in defs]
+            put(e.addr, b''.join(bytes((0x20, a & 0xFF, a >> 8)) for a in inits) + b'\x60')
         elif e.kind == mapenv.M_FUNC:
             m, f = defs[e.name]
             ins, _ = lo2asm.decode_function(m, f)
@@ -154,11 +155,9 @@ def reference_image(modules, entries, env, main_module):
                 out += bytes((op,)) + operand
             assert len(out) == e.size, (e.name, len(out), e.size)
             put(e.addr, out)
-        elif e.kind in (mapenv.M_DATA, mapenv.M_VAR):
+        elif e.kind == mapenv.M_DATA:
             m, x = defs[e.name]
-            data = bytearray(x.data if e.kind == mapenv.M_DATA else (x.init or b''))
-            if e.kind == mapenv.M_VAR and x.init is None:
-                continue
+            data = bytearray(x.data)
             for fx in x.fixes:
                 v = (addr(m, fx) + fx.addend) & 0xFFFF
                 if fx.kind == lo.FX_WORD:
@@ -166,9 +165,53 @@ def reference_image(modules, entries, env, main_module):
                 else:
                     data[fx.offset] = (v >> 8) if fx.kind == lo.FX_HI else v & 0xFF
             put(e.addr, data)
-    start = addr.items[env.start]
-    put(0xFFFC, start.to_bytes(2, 'little') + b'\x00\x00')
+    put(0xFFFC, addr.items['$start'].to_bytes(2, 'little') + b'\x00\x00')
     return bytes(image)
+
+
+def reference_start(env, at, init, main):
+    """$start by the table in object-format.md, "Initial values and start-up"."""
+    code = bytearray()
+    if env.stack is not None:
+        code += bytes((0xA2, env.stack, 0x9A))         # LDX #n / TXS
+    code.append(0xD8)                                  # CLD
+    if init is not None:
+        code += bytes((0x20, init & 0xFF, init >> 8))  # JSR $init
+    code += bytes((0x20, main & 0xFF, main >> 8))      # JSR main
+    kind, a = env.exit
+    if kind == 'call':
+        code += bytes((0xA9, 0x00, 0x4C, a & 0xFF, a >> 8))
+    elif kind == 'loop':
+        here = at + len(code)
+        code += bytes((0x4C, here & 0xFF, here >> 8))
+    else:
+        code.append(0x60)
+    return bytes(code)
+
+
+def env_text(stack='stack $FF', exit='exit call $F00F'):
+    return ('cpu 6502\nzeropage $00 $FF\ncode $0200 $BFFF\ndata $C000 $EFFF\n'
+            + (stack + '\n' if stack else '') + (exit + '\n' if exit else ''))
+
+
+def init_modules(value_class):
+    """cfg sets cfg.value in cfg.$init; app.main prints it."""
+    c = lo.Builder('cfg')
+    c.var('cfg.value', 1, cls=value_class, weight=1)
+    i = c.func('cfg.$init')
+    i.op('LDA', '#', ord('Q'))
+    i.op('STA', 'abs', 'cfg.value')
+    i.op('RTS')
+    a = lo.Builder('app')
+    a.imp('cfg')
+    a.extern('cfg.value', lo.K_VAR)
+    f = a.func('app.main')
+    f.op('LDA', 'abs', 'cfg.value')
+    f.op('JSR', 'abs', 0xF009)
+    f.op('LDA', '#', 0x0A)
+    f.op('JSR', 'abs', 0xF009)
+    f.op('RTS')
+    return [host_module(), c.module(), a.module()]
 
 
 class Work(unittest.TestCase):
@@ -329,14 +372,76 @@ class TestDecodeErrors(unittest.TestCase):
         self.render(lambda b, f: f.raw(0xD0, 0x01, 0xAD, 0x00, 0x02), 'not at an instruction')
 
 
+class TestEnv(unittest.TestCase):
+    def parse(self, text):
+        return mapenv.parse_env(text, 'x.env')
+
+    def test_host(self):
+        env = mapenv.read_env(HOST_ENV)
+        self.assertEqual((env.cpu, env.zeropage, env.code, env.data, env.stack, env.exit),
+                         (0, (0, 0xFF), (0x0200, 0xBFFF), (0xC000, 0xEFFF), 0xFF, ('call', 0xF00F)))
+
+    def test_forms(self):
+        self.assertIsNone(self.parse(env_text(stack=None)).stack)
+        self.assertEqual(self.parse(env_text(stack='stack $7F')).stack, 0x7F)
+        self.assertEqual(self.parse(env_text(exit='exit loop')).exit, ('loop', None))
+        self.assertEqual(self.parse(env_text(exit='exit return')).exit, ('return', None))
+        self.assertEqual(self.parse(env_text(exit='exit call $1234')).exit, ('call', 0x1234))
+
+    def test_errors(self):
+        for text, pattern in (
+                (env_text(exit=None), r'x\.env: no exit entry'),
+                (env_text(exit='exit call'), r'x\.env:6: exit takes call ADDR, loop or return'),
+                (env_text(exit='exit jump $1234'), 'exit takes call ADDR, loop or return'),
+                (env_text(exit='exit loop $1234'), 'exit takes call ADDR, loop or return'),
+                (env_text(stack='stack $100'), r'x\.env:5: stack is one byte'),
+                (env_text(stack='stack'), 'stack is one byte'),
+                (env_text() + 'start host_start.start\n', r'x\.env:7: start is no longer an entry'),
+                (env_text() + 'stack $10\n', 'second stack entry'),
+                (env_text().replace('cpu 6502', 'cpu 6809'), 'cpu is 6502 or 65c02')):
+            with self.assertRaisesRegex(mapenv.FormatError, pattern, msg=text):
+                self.parse(text)
+
+
+class TestStartup(Work):
+    """$start for each form of the environment, assembled, against hand-written bytes."""
+
+    def start_bytes(self, stack, exit):
+        self.env = mapenv.parse_env(env_text(stack, exit), 'x.env')
+        modules = [host_module(), hello_module()]
+        entries = naive.allocate(modules, self.env, 'hello')
+        _, image = self.assemble(modules, entries, 'hello')
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'hello'))
+        self.assertEqual(entries[0].name, '$start')
+        self.assertEqual(self.at(image, 0xFFFC, 2), b'\x00\x02')
+        return self.at(image, 0x0200, entries[0].size)
+
+    def test_stack_and_call(self):
+        self.assertEqual(self.start_bytes('stack $FF', 'exit call $F00F'),
+                         bytes((0xA2, 0xFF, 0x9A, 0xD8, 0x20, 0x0C, 0x02, 0xA9, 0x00, 0x4C, 0x0F, 0xF0)))
+
+    def test_no_stack_loop(self):
+        self.assertEqual(self.start_bytes(None, 'exit loop'),
+                         bytes((0xD8, 0x20, 0x07, 0x02, 0x4C, 0x04, 0x02)))
+
+    def test_stack_return(self):
+        self.assertEqual(self.start_bytes('stack $7F', 'exit return'),
+                         bytes((0xA2, 0x7F, 0x9A, 0xD8, 0x20, 0x08, 0x02, 0x60)))
+
+    def test_no_stack_call_elsewhere(self):
+        self.assertEqual(self.start_bytes(None, 'exit call $1234'),
+                         bytes((0xD8, 0x20, 0x09, 0x02, 0xA9, 0x00, 0x4C, 0x34, 0x12)))
+
+
 class TestProgramMode(Work):
     def test_hello_runs(self):
         modules = [host_module(), hello_module()]
         entries = naive.allocate(modules, self.env, 'hello')
         self.assertEqual([e.format() for e in entries],
-                         ['F 0200 000C host_start.start', 'F 020C 0010 hello.main'])
+                         ['F 0200 000C $start', 'F 020C 0010 hello.main'])
         text, image = self.assemble(modules, entries, 'hello')
-        self.assertIn('no object defines host_start.start', text)
+        self.assertIn('\nSstart\n', text)
+        self.assertNotIn('Sinit', text)
         self.assertEqual(len(image), 0x10000 - CODE)
         self.assertEqual(image, reference_image(modules, entries, self.env, 'hello'))
         self.assertEqual(self.at(image, 0x0200, 12),
@@ -416,9 +521,8 @@ class TestProgramMode(Work):
         b.extern('v.p', lo.K_CLASS)
         b.clas('v.p', [2])
         b.var('v.zc', 1, cls=0)
-        b.var('v.count', 2, cls=1, init=b'\x34\x12')
-        v = b.var('v.ptr', 2, cls=2, init=b'\x00\x00')
-        v.fix(0, lo.FX_WORD, 'v.msg', addend=1)
+        b.var('v.count', 2, cls=1)
+        b.var('v.ptr', 2, cls=2)
         d = b.data('v.msg', b'ok\x00\x00\x00')
         d.fix(3, lo.FX_WORD, 'v.main')
         f = b.func('v.main')
@@ -429,13 +533,13 @@ class TestProgramMode(Work):
         modules = [b.module()]
         entries = naive.allocate(modules, self.env, 'v')
         self.assertEqual([e.format() for e in entries], [
-            'F 0200 000C host_start.start', 'F 020C 0009 v.main', 'D 0215 0005 v.msg',
+            'F 0200 000C $start', 'F 020C 0009 v.main', 'D 0215 0005 v.msg',
             'V 0000 0001 v.zc', 'V C000 0002 v.count', 'V C002 0002 v.ptr', 'C C004 0002 v.p 0 p0'])
         text, image = self.assemble(modules, entries, 'v')
         self.assertEqual(image, reference_image(modules, entries, self.env, 'v'))
         self.assertEqual(self.at(image, 0x020C, 9), bytes((0xA5, 0x00, 0x8D, 0x04, 0xC0, 0xAD, 0x00, 0xC0, 0x60)))
         self.assertEqual(self.at(image, 0x0215, 5), b'ok\x00\x0C\x02')
-        self.assertEqual(self.at(image, 0xC000, 4), b'\x34\x12\x16\x02')
+        self.assertNotIn('* = $C0', text)          # variables have no bytes in the image
         self.assertIn('v__p__p0 = $C004\n', text)
 
     def test_size_mismatch(self):
@@ -448,15 +552,80 @@ class TestProgramMode(Work):
         with self.assertRaisesRegex(lo2asm.RenderError, 't.work slot 1 is not in the map'):
             lo2asm.render_program([three_class_module()], entries, self.env, 't')
 
-    def test_zero_page_initialised_variable(self):
-        b = lo.Builder('v')
-        b.var('v.x', 1, cls=0, init=b'\x01')
-        b.func('v.main').op('RTS')
-        with self.assertRaisesRegex(naive.AllocError, 'initialised variable in zero page'):
-            naive.allocate([b.module()], self.env, 'v')
-        entries = map_lines('F 0200 000C host_start.start\nF 020C 0001 v.main\nV 0010 0001 v.x\n')
-        with self.assertRaisesRegex(lo2asm.RenderError, 'below the image'):
-            lo2asm.render_program([b.module()], entries, self.env, 'v')
+    def test_start_errors(self):
+        m = [host_module(), hello_module()]
+        for text, pattern in (
+                ('F 0200 0010 hello.main\n', r'the map does not place \$start'),
+                ('F 0200 0010 hello.main\nF 0210 000C $start\n',
+                 r'\$start must be first in the code range \(\$0200\)'),
+                ('F 0200 000D $start\nF 020D 0010 hello.main\n',
+                 r'map gives \$start size \$000D, the rule gives \$000C'),
+                ('F 0200 000C $start\nF 020C 0001 $init\nF 020D 0010 hello.main\n',
+                 r'map lists \$init, but no object defines a MODULE\.\$init')):
+            with self.assertRaisesRegex(lo2asm.RenderError, pattern):
+                lo2asm.render_program(m, map_lines(text), self.env, 'hello')
+        with self.assertRaisesRegex(lo2asm.RenderError, r'no object defines hello2\.main'):
+            lo2asm.render_program(m, map_lines('F 0200 000C $start\nF 020C 0010 hello.main\n'),
+                                  self.env, 'hello2')
+        modules = init_modules(1)
+        entries = [e for e in naive.allocate(modules, self.env, 'app') if e.name != '$init']
+        with self.assertRaisesRegex(lo2asm.RenderError, r'cfg\.\$init is defined, but the map has no \$init'):
+            lo2asm.render_program(modules, entries, self.env, 'app')
+
+    def test_init_order_in_map(self):
+        modules = init_modules(1)
+        entries = naive.allocate(modules, self.env, 'app')
+        self.assertEqual([e.format() for e in entries], [
+            'F 0200 000F $start', 'F 020F 0004 $init', 'F 0213 0006 cfg.$init', 'F 0219 000C app.main',
+            'V C000 0001 cfg.value'])
+
+    def run_init(self, entries, value_class):
+        modules = init_modules(value_class)
+        text, image = self.assemble(modules, entries, 'app')
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'app'))
+        self.assertIn('\nSinit\n    JSR cfg__Sinit\n    RTS\n', text)
+        self.assertLess(text.index('\nSstart\n'), text.index('\nSinit\n'))
+        self.assertLess(text.index('\nSinit\n'), text.index('\ncfg__Sinit\n'))
+        if not os.path.isfile(build.EMULATOR):
+            self.skipTest('emulator/emulator.out is not built (run make)')
+        path = os.path.join(self.dir, 'app.bin')
+        with open(path, 'wb') as fh:
+            fh.write(image)
+        self.assertEqual(build.run_image(path), (0, b'Q\n', b''))
+        return image
+
+    def test_init_variable_in_main_memory(self):
+        image = self.run_init(naive.allocate(init_modules(1), self.env, 'app'), 1)
+        self.assertEqual(self.at(image, 0x0200, 0x0F), bytes((
+            0xA2, 0xFF, 0x9A,                # LDX #$FF / TXS
+            0xD8,                            # CLD
+            0x20, 0x0F, 0x02,                # JSR $init
+            0x20, 0x19, 0x02,                # JSR app.main
+            0xA9, 0x00, 0x4C, 0x0F, 0xF0)))  # LDA #0 / JMP $F00F
+        self.assertEqual(self.at(image, 0x020F, 4), bytes((0x20, 0x13, 0x02, 0x60)))
+        self.assertEqual(self.at(image, 0x0213, 6), bytes((0xA9, 0x51, 0x8D, 0x00, 0xC0, 0x60)))
+
+    def test_init_variable_in_zero_page(self):
+        image = self.run_init(map_lines("""
+            F 0200 000F $start
+            F 020F 0004 $init
+            F 0213 0005 cfg.$init
+            F 0218 000B app.main
+            V 0010 0001 cfg.value
+            """), 1)
+        self.assertEqual(self.at(image, 0x0207, 3), bytes((0x20, 0x18, 0x02)))
+        self.assertEqual(self.at(image, 0x0213, 5), bytes((0xA9, 0x51, 0x85, 0x10, 0x60)))
+
+    def test_two_init_functions(self):
+        modules = init_modules(1)
+        b = lo.Builder('more')
+        b.func('more.$init').op('RTS')
+        b.func('more.main').op('RTS')
+        modules.insert(2, b.module())
+        entries = naive.allocate(modules, self.env, 'app')
+        text, image = self.assemble(modules, entries, 'app')
+        self.assertIn('\nSinit\n    JSR cfg__Sinit\n    JSR more__Sinit\n    RTS\n', text)
+        self.assertEqual(image, reference_image(modules, entries, self.env, 'app'))
 
     def test_cli(self):
         paths = []
@@ -467,7 +636,8 @@ class TestProgramMode(Work):
         mp = os.path.join(self.dir, 'hello.map')
         self.assertEqual(naive.main([HOST_ENV, 'hello', mp] + paths), 0)
         out = os.path.join(self.dir, 'hello.asm')
-        self.assertEqual(lo2asm.main(['--map', mp, '--env', HOST_ENV, '-o', out] + paths), 0)
+        self.assertEqual(lo2asm.main(['--map', mp, '--env', HOST_ENV, '--main', 'hello', '-o', out]
+                                     + paths), 0)
         with open(out) as fh:
             self.assertIn('    JSR hello__main\n', fh.read())
 

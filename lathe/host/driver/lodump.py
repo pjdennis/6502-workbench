@@ -80,10 +80,8 @@ def dump(data, out):
                 syms.append((body[0], s))
             elif t == lo.R_VAR:
                 sym, size, cls, weight, flags = struct.unpack('<HHBBB', body[:7])
-                out.write(f'{head}{name(sym)}: size {size}, class {cls}, weight {weight}'
-                          f'{", initialised" if flags & 1 else ""}\n')
-                if flags & 1:
-                    _hex(body[7:], pad, out)
+                extra = f', flags ${flags:02X}' if flags else ''
+                out.write(f'{head}{name(sym)}: size {size}, class {cls}, weight {weight}{extra}\n')
             elif t == lo.R_DATA:
                 sym = struct.unpack('<H', body[:2])[0]
                 out.write(f'{head}{name(sym)}: {len(body) - 2} bytes\n')

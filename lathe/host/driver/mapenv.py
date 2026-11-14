@@ -23,25 +23,34 @@ def _lines(text):
             yield n, line.split()
 
 
+EXIT_CALL, EXIT_LOOP, EXIT_RETURN = 'call', 'loop', 'return'
+KNOWN = ('cpu', 'zeropage', 'code', 'data', 'stack', 'exit')
+
+
 @dataclass
 class Env:
     cpu: int = 0
     zeropage: tuple = (0x00, 0xFF)
     code: tuple = (0x0200, 0xBFFF)
     data: tuple = (0xC000, 0xEFFF)
-    start: str = ''
+    stack: Optional[int] = None      # stack n: the start-up code sets S to n
+    exit: tuple = (EXIT_RETURN, None)  # (EXIT_CALL, addr), (EXIT_LOOP, None) or (EXIT_RETURN, None)
     path: str = ''
 
 
 def read_env(path):
-    """Parses an environment file. Unknown entries are ignored (the format grows)."""
     with open(path) as fh:
-        text = fh.read()
+        return parse_env(fh.read(), path)
+
+
+def parse_env(text, path='<env>'):
+    """Parses an environment file (lathe/host/README.md). Unknown entries are ignored, because the
+    format grows; `start`, which an earlier version had, is an error."""
     env = Env(path=path)
     seen = set()
     for n, words in _lines(text):
         key, args, where = words[0].lower(), words[1:], f'{path}:{n}'
-        if key in seen and key in ('cpu', 'zeropage', 'code', 'data', 'start'):
+        if key in seen and key in KNOWN:
             raise FormatError(f'{where}: second {key} entry')
         seen.add(key)
         if key == 'cpu':
@@ -55,12 +64,23 @@ def read_env(path):
             if not 0 <= lo <= hi <= 0xFFFF or (key == 'zeropage' and hi > 0xFF):
                 raise FormatError(f'{where}: bad {key} range')
             setattr(env, key, (lo, hi))
+        elif key == 'stack':
+            if len(args) != 1 or not 0 <= _number(args[0], where) <= 0xFF:
+                raise FormatError(f'{where}: stack is one byte, the value for the stack pointer: stack $FF')
+            env.stack = _number(args[0], where)
+        elif key == 'exit':
+            form = [a.lower() for a in args]
+            if len(form) == 2 and form[0] == EXIT_CALL and 0 <= _number(args[1], where) <= 0xFFFF:
+                env.exit = (EXIT_CALL, _number(args[1], where))
+            elif form in ([EXIT_LOOP], [EXIT_RETURN]):
+                env.exit = (form[0], None)
+            else:
+                raise FormatError(f'{where}: exit takes call ADDR, loop or return')
         elif key == 'start':
-            if len(args) != 1 or '.' not in args[0]:
-                raise FormatError(f'{where}: start takes a function name, module.name')
-            env.start = args[0].lower()
-    if not env.start:
-        raise FormatError(f'{path}: no start entry')
+            raise FormatError(f'{where}: start is no longer an entry: the linker makes $start '
+                              f'(lathe/docs/object-format.md, "Initial values and start-up")')
+    if 'exit' not in seen:
+        raise FormatError(f'{path}: no exit entry (exit call ADDR, exit loop or exit return)')
     return env
 
 

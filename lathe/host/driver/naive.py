@@ -4,10 +4,10 @@
     naive.py ENV MAINMODULE OUT.map OBJECT.lo...
 
 Every slot and variable gets its own address: class 0 in zero page, everything else (class 1
-and 2, initialised variables, class parameters) in the environment's data range. Every function
-is kept, in file order, from the start of the code range; constant data follows the code. If no
-object defines the environment's start function, a start-up function (lo2asm's, STARTUP_SIZE
-bytes) is placed first. Sizes follow the shrink rule, so lo2asm's program mode reproduces them.
+and 2, class parameters) in the environment's data range. The code range starts with $start, then
+$init if any module has a MODULE.$init function, then every function in file order (so every
+MODULE.$init is kept); constant data follows the code. Sizes follow the shrink rule and the
+start-up table of object-format.md, so lo2asm's program mode reproduces them.
 """
 import os
 import sys
@@ -35,7 +35,7 @@ class _Range:
         return a
 
 
-def allocate(modules, env, main_module=None):
+def allocate(modules, env, main_module):
     """Map entries for the program: F lines in placement order, then D, V, S and C."""
     if env.code[0] < 0x100:
         raise AllocError('code must start at $0100 or above')
@@ -57,8 +57,6 @@ def allocate(modules, env, main_module=None):
                     parts[(name, n)] = a
                     s_lines.append(mapenv.MapEntry(mapenv.M_SLOT, a, s.size, name, n, s.name))
             elif isinstance(x, lo.Var):
-                if x.cls == 0 and x.init is not None:
-                    raise AllocError(f'{name}: an initialised variable in zero page cannot be in the image')
                 r = zp if x.cls == 0 else data
                 a = r.take(x.size, name)
                 items[name] = a
@@ -83,9 +81,15 @@ def allocate(modules, env, main_module=None):
             raise AllocError(f'{m.name}: {s.name} slot {fx.slot} is not defined by any object')
         return a
 
-    if program.func(env.start) is None:
-        a = code.take(lo2asm.STARTUP_SIZE, env.start)
-        f_lines.append(mapenv.MapEntry(mapenv.M_FUNC, a, lo2asm.STARTUP_SIZE, env.start))
+    main = f'{main_module}.main'
+    if program.func(main) is None:
+        raise AllocError(f'no object defines {main}')
+    inits = lo2asm.init_functions(program, modules)
+    _, size = lo2asm.start_function(env, bool(inits), main, lo2asm.Renderer(program))
+    f_lines.append(mapenv.MapEntry(mapenv.M_FUNC, code.take(size, lo2asm.START), size, lo2asm.START))
+    if inits:
+        _, size = lo2asm.init_function(inits)
+        f_lines.append(mapenv.MapEntry(mapenv.M_FUNC, code.take(size, lo2asm.INIT), size, lo2asm.INIT))
     for m in modules:
         for f in m.functions():
             name = m.sym_name(f.sym)
@@ -95,9 +99,6 @@ def allocate(modules, env, main_module=None):
         for x in m.of_type(lo.Data):
             name = m.sym_name(x.sym)
             d_lines.append(mapenv.MapEntry(mapenv.M_DATA, code.take(len(x.data), name), len(x.data), name))
-    main = f'{main_module or (modules[-1].name if modules else "main")}.main'
-    if program.func(main) is None:
-        raise AllocError(f'no object defines {main}')
     return f_lines + d_lines + v_lines + s_lines + c_lines
 
 

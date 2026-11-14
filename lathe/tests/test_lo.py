@@ -91,8 +91,7 @@ class TestWrite(unittest.TestCase):
         b.extern('util.f', lo.K_FUNC)
         b.extern('util.ptr', lo.K_CLASS)
         b.clas('util.ptr', [2, 1], flags=1)
-        v = b.var('demo.count', 2, cls=1, weight=7, init=b'\x01\x02')
-        v.fix(0, lo.FX_LO, 'demo.msg')
+        b.var('demo.count', 2, cls=1, weight=7)
         b.var('demo.big', 300, cls=2, weight=0)
         d = b.data('demo.msg', b'hi\x00\x00\x00')
         d.fix(3, lo.FX_WORD, 'demo.main')
@@ -258,14 +257,24 @@ class TestReadErrors(unittest.TestCase):
                  'class .* needs a parameter')
 
     def test_dfix_placement(self):
-        self.bad(MOD + rec(lo.R_DFIX) + END, 'DFIX .*DATA or VAR')
+        self.bad(MOD + rec(lo.R_DFIX) + END, 'DFIX record not just after a DATA record')
         v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 1, 1, 0, 0))
         self.bad(MOD + sym(2, 'm.v') + v + rec(lo.R_DFIX, fix_entry(0, 2, 0, 0xFF, 0)) + END,
-                 'no initial value')
+                 'DFIX record not just after a DATA record')
 
-    def test_var_initial_value_length(self):
-        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 1) + b'\x01')
-        self.bad(MOD + sym(2, 'm.v') + v + END, 'initial value')
+    def test_var_has_no_initial_value(self):
+        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 1) + b'\x01\x02')
+        self.bad(MOD + sym(2, 'm.v') + v + END,
+                 r'VAR m\.v: flag bit 0 \(initial value\) is not in format version 1: '
+                 r'variables have no initial values; the compiler sets them in module\.\$init')
+        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 0x80))
+        self.bad(MOD + sym(2, 'm.v') + v + END, r'VAR m\.v: unknown flags \$80')
+        v = rec(lo.R_VAR, struct.pack('<HHBBB', 0, 2, 1, 0, 0) + b'\x01')
+        self.bad(MOD + sym(2, 'm.v') + v + END, 'VAR record has 1 unexpected bytes')
+
+    def test_builder_var_takes_no_initial_value(self):
+        with self.assertRaises(TypeError):
+            lo.Builder('m').var('m.v', 1, 1, 0, b'\x01')
 
     def test_record_length(self):
         self.bad(MOD + sym(1, 'm.f') + rec(lo.R_FUNC, b'\x00\x00\x00') + rec(lo.R_CODE, b'\x60')

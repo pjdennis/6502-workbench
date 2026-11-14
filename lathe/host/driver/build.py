@@ -150,7 +150,7 @@ def build(source, out, env='host', use_asm=False, use_naive=False, keep=None, lo
     os.makedirs(work, exist_ok=True)
     env = env_path(env)
     order = module_order(source)
-    main = order[-1][0]
+    main = module_name(source)          # the program is MAIN.main; the linker makes $start call it
     objects = compile_all(order, work)
     map_path = os.path.join(work, main + '.map')
     have_linker = os.path.isfile(LINKER) and not use_naive
