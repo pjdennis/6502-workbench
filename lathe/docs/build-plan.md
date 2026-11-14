@@ -1,6 +1,6 @@
 # Lathe: incremental build plan
 
-Status (2026-11-14): stages 0 and 1 done. Stage 2 (core language) and the linker (the storage part of stage 3 and the image part of stage 9) are in progress in parallel. The embedded assembler of stage 10 is now part of stage 2, because the compiler writes object files from the start.
+Status (2026-11-14): stages 0 and 1 done. Stage 2 so far: scalars, expressions, control flow, calls, initial values and the embedded assembler (the former stage 10). The linker is done on the host (the storage part of stage 3 and the image part of stage 9), with raw images and environments for Michael and Wendy 2. In progress: arrays, strings and pointers; `for`, `case`, `critical` and `#if`.
 
 **Order of work, changed after spike S2.** asm17 runs out of symbol memory at about 15 to 20 KB of compiler-shaped code, so it cannot assemble the Lathe-written compiler on the target. The stages keep their numbers but run in this order: 0 to 6, then 9 and 10 on the host, then 7, 8 and 11. The compiler written in Lathe then emits object code from its first day, and the on-target tool chain is the compiler and the linker with no assembler. On the host, large programs in stage A are assembled with `asm/pyasm.py`, the Python work-alike of asm17, which has no such limit.
 
@@ -148,5 +148,8 @@ Things found during the work that are not part of a stage's gate. Remove each wh
 
 - **Object format, next version.** Suggested by the linker work: a fix-up kind meaning "two bytes, and the opcode has a zero page form", so the linker's first pass need not read code to know final sizes; `DFIX` before `DATA`; parameter names in `CLAS`; drop the unused `CLAS` flags.
 - **Linker speed on the target.** Zero page promotion lays the program out again after each success (639 layouts for a 34 KB program). Fine on the host; the Lathe version needs an incremental layout.
+- **Compiler size, first reading (2026-11-14).** The test programs compile to about 10 bytes of code per source line. The compiler is about 7,000 lines of host Python (roughly 5,000 without comments and blank lines) before arrays, records and the function features, and the linker about 3,200. At that rate the compiler written in Lathe would be 50 KB or more, well over the 32 KB target and too large to run beside its data in 64 KB. Spike L4 will measure this properly on the lexer rewritten in Lathe once arrays and pointers are in; the owner decides then between a larger compiler that depends on banking, a simpler code generator, or denser generated code.
+- **Weights across modules.** Uses of an imported variable, and stores into a callee's parameter slots, are not counted in the weight the linker sees.
+- **Addresses given with `at`** are in no object record, so the linker cannot check that the environment's ranges avoid them.
 - **Spikes L1 and L2** were folded into building the compiler and the linker. Their measurements (code size against `p8c`, promotion rules compared) are still to be recorded in `spikes.md`.
 - **vasm** cannot be downloaded in the development container, so only the `lathe` and `asm` suites run there; CI runs the rest.
