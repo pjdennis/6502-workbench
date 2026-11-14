@@ -1,6 +1,6 @@
 # Lathe: spikes
 
-Status (2026-11-13): the small spikes S1 to S7 are done; results are at the end. The larger spikes have not run.
+Status (2026-11-14): the small spikes S1 to S7 and the larger spike L4 are done; results are at the end. L1 and L2 were folded into building the compiler and the linker. L3 (shrinking in the linker) is answered by the linker itself, which shrinks in one streaming pass and matches the assembler byte for byte.
 
 A spike is a short experiment that answers one question and is then thrown away. Its output is a number or a yes or no, written back into the design documents. Spike code does not become the compiler.
 
@@ -172,3 +172,35 @@ Estimated from `p8c`'s assembly for `p1` with a size calculator, not an assemble
 | BBC Micro | None in modes 0 to 6. Mode 7 shows `# [ \ ] ^ _ ~` as other glyphs. |
 
 This matches decision Q3: only `|` and `~` need alternate spellings, and only for the first two machines.
+
+## Result of L4: the size of the compiler (2026-11-14)
+
+The compiler's lowest layers were rewritten in Lathe under `lathe/src/` (system interface, errors, kernel, source stack, lexer), function for function from the host Python, and compiled by the host compiler. The Lathe lexer on the emulator and the Python lexer give identical output over all 367 `.lth` files in the repository.
+
+| Module | Code bytes | Constant data | Variables | Bytes of code per line of host code |
+|---|---|---|---|---|
+| sys | 172 | 0 | 16 | 2.9 |
+| err | 488 | 3388 (messages) | 11 | 1.8 |
+| kernel | 1052 | 0 | 20182 (tables) | 3.7 |
+| src | 230 | 0 | 46 | 3.2 |
+| lex | 1937 | 300 | 267 | 4.2 |
+| **err, kernel, src, lex** | **3707** | | | **3.4** (5.8 per line inside functions) |
+
+- **Projection.** The compiler has about 6,100 lines of code, 5,100 of them inside functions: 21 KB at 3.4 bytes per line, 30 KB at 5.8 per function line. The later modules use word tables of 512 entries and calls with several arguments, which cost more per line than the lexer's character handling. Estimate: **25 to 35 KB for the compiler, 8 to 11 KB for the linker**, before the improvements below. Confidence is low to moderate.
+- **Storage sharing works as designed.** The frames of every function sum to 212 bytes; shared through the call graph they take 49, all in zero page.
+- **Speed.** 553 emulated cycles per source byte for the lexer: about 0.6 seconds per kilobyte of source at 1 MHz.
+- **Memory for tables is the tighter limit.** The kernel's tables need 20 KB, which is why the test uses its own environment (`lathe/src/compiler.env`) with more room for data.
+- **No fault in the compiler was found** by this first 2,000-line program.
+
+Where the bytes go in the three largest functions, and what would save them:
+
+| Improvement | Saving seen |
+|---|---|
+| Keep what is known about A across a label reached only by forward branches | 40 of 355 bytes in `lex.mark`, 18 of 221 in `lex.scan` |
+| Pass byte arguments in registers | 48 bytes in `lex.mark` (eight calls with three constant arguments) |
+| A jump table for a dense `case` | about 60 bytes in `lex.mark` |
+| `JMP` to an `RTS` becomes `RTS`; a value just stored is not reloaded | 24 bytes in `lex.scan` |
+| A shift by 8 as a byte move | 28 bytes in `kernel.name_word` |
+| Symbol tables of at most 256 entries, so every access is `LDA table,X` | 13 to 22 bytes at each access to a 512-entry table |
+
+Together these are estimated to recover 10 to 25%.
