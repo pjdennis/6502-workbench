@@ -1,0 +1,12 @@
+; error 122 11 7
+module address_of_column_record
+type Rec = record
+  a: byte
+  b: byte
+end
+var rs: [4]Rec
+var p: ^Rec
+var i: byte
+func f()
+  p = @rs[i]
+end

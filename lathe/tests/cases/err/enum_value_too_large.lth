@@ -1,0 +1,6 @@
+; error 43 5 7
+module enum_value_too_large
+enum E
+  A = 200
+  B = 256
+end

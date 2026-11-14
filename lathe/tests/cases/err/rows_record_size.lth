@@ -1,0 +1,7 @@
+; error 136 7 8
+module rows_record_size
+type Rec = record
+  a: word
+  b: byte
+end
+var r: [4]Rec rows

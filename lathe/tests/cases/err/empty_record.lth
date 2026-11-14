@@ -1,0 +1,4 @@
+; error 133 4 1
+module empty_record
+type Rec = record
+end

@@ -38,6 +38,11 @@ class ErrorReportTest(unittest.TestCase):
         listed = [int(line.split(b' ')[0]) for line in err.MESSAGES.splitlines()]
         self.assertEqual(listed, numbers)
 
+    def test_a_value_can_follow_the_text(self):
+        with self.assertRaises(SystemExit):
+            err.fatal_value(err.E_ROWS_RECORD, 12)
+        self.assertTrue(support.error_text().endswith('its size is 12\n'))
+
     def test_a_number_with_no_message_still_reports(self):
         self.assertEqual(self.report(250), 'lathec: error 250: \n')
 

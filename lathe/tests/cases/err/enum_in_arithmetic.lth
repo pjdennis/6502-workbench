@@ -1,0 +1,10 @@
+; error 44 9 9
+module enum_in_arithmetic
+enum Kind
+  A
+  B
+end
+var e: Kind
+func f()
+  e = e + 1
+end

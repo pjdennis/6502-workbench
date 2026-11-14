@@ -1,0 +1,7 @@
+; error 41 6 3
+module duplicate_enum_constant
+var A: byte
+enum E
+  B
+  A
+end

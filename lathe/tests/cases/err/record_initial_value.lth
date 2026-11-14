@@ -1,0 +1,6 @@
+; error 131 6 14
+module record_initial_value
+type Rec = record
+  a: byte
+end
+var r: Rec = 0

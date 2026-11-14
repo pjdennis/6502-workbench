@@ -58,8 +58,8 @@ def basic_type(token):
 
 
 def type_spec():
-    """type = typeKw | "^" type | "[" constExpr "]" type. Returns the type. Named types and
-    records come later."""
+    """type = typeKw | name [ "." name ] | "^" type | "[" constExpr "]" type. Returns the
+    type. A record is written only in a type declaration (DECL)."""
     mark = typetab.prefix_count
     while lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET:
         if lex.tok == lex.T_CARET:
@@ -76,22 +76,36 @@ def type_spec():
             lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
             typetab.prefix(typetab.FORM_ARRAY, n)
     t = basic_type(lex.tok)
-    if t == typetab.NO_TYPE:
-        if lex.tok == lex.T_NAME or lex.tok == lex.T_RECORD or lex.tok == lex.T_FUNC:
-            err.fatal(err.E_UNSUPPORTED)
+    line = lex.line
+    col = lex.col
+    if t != typetab.NO_TYPE:
+        lex.next()
+    elif lex.tok == lex.T_NAME:
+        s = named_symbol()
+        if kernel.sym_kind[s] != kernel.K_TYPE:
+            err.position(line, col)
+            err.fatal(err.E_TYPE_EXPECTED)
+        t = kernel.sym_type[s]
+    elif lex.tok == lex.T_RECORD:
+        err.fatal(err.E_RECORD_PLACE)
+    elif lex.tok == lex.T_FUNC:
+        err.fatal(err.E_UNSUPPORTED)
+    else:
         err.fatal(err.E_TYPE_EXPECTED)
-    lex.next()
     return typetab.build(t, mark)
 
 
 def value_type():
-    """The type of a parameter or a result: not an array, which is not a value."""
+    """The type of a parameter or a result: not an array or a record, which are not values."""
     line = lex.line
     col = lex.col
     t = type_spec()
+    err.position(line, col)
     if typetab.is_array(t):
-        err.position(line, col)
         err.fatal(err.E_ARRAY_VALUE)
+    if typetab.is_record(t):
+        err.fatal(err.E_RECORD_VALUE)
+    err.position(lex.line, lex.col)
     return t
 
 
@@ -108,7 +122,8 @@ def new_name(scope):
 
 
 def named_symbol():
-    """name [ "." name ]: the symbol a name means here, or module.name means in that module."""
+    """name [ "." name ]: the symbol a name means here, or module.name means in that module,
+    which must export it (a type that it does not export is in its interface all the same)."""
     if lex.tok != lex.T_NAME:
         err.fatal(err.E_NAME_EXPECTED)
     s, found = kernel.sym_lookup(lex.value)
@@ -121,7 +136,7 @@ def named_symbol():
         if lex.tok != lex.T_NAME:
             err.fatal(err.E_NAME_EXPECTED)
         s, found = kernel.sym_find(scope, lex.value)
-        if not found:
+        if not found or kernel.sym_flags[s] & kernel.SF_PUB == 0:
             err.fatal(err.E_UNDEFINED)
         lex.next()
     return s
@@ -149,7 +164,9 @@ def builtin(which):
 
 def designator():
     """designator = name { "." name | "[" expression "]" }. Pushes an operand for what it
-    names. Fields come later."""
+    names. A named type followed by "(" is a conversion."""
+    line = lex.line
+    col = lex.col
     s = named_symbol()
     kind = kernel.sym_kind[s]
     if kind == kernel.K_FUNC:
@@ -162,19 +179,38 @@ def designator():
         gen.local(kernel.sym_type[s], kernel.sym_value[s])
     elif kind == kernel.K_VAR:
         gen.variable(s)
+    elif kind == kernel.K_TYPE:
+        conversion(kernel.sym_type[s], line, col)
     else:
         builtin(kernel.sym_value[s])
-    while lex.tok == lex.T_LBRACKET:
+    while lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT:
         line = lex.line
         col = lex.col
-        lex.next()
-        expression()
-        lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
-        err.position(line, col)
-        gen.index()
-        err.position(lex.line, lex.col)
-    if lex.tok == lex.T_DOT:
-        err.fatal(err.E_UNSUPPORTED)
+        if lex.tok == lex.T_DOT:
+            lex.next()
+            field(line, col)
+        else:
+            lex.next()
+            expression()
+            lex.expect(lex.T_RBRACKET, err.E_SYNTAX)
+            err.position(line, col)
+            gen.index()
+            err.position(lex.line, lex.col)
+
+
+def field(line, col):
+    """The name after the "." at `line`, `col`: a field of the record that the newest operand
+    is or points to."""
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    err.position(line, col)
+    t = gen.record_of()
+    err.position(lex.line, lex.col)
+    f, found = kernel.sym_find(kernel.SCOPE_FIELDS + t, lex.value)
+    if not found:
+        err.fatal(err.E_NO_FIELD)
+    gen.field(kernel.sym_value[f], kernel.sym_type[f])
+    lex.next()
 
 
 def target(line, col):

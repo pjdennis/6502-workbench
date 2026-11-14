@@ -1,0 +1,6 @@
+; error 131 6 16
+module record_constant
+type Rec = record
+  a: byte
+end
+const C: Rec = 1

@@ -59,7 +59,7 @@ end
 | `bool` | 1 | `true` or `false`, stored as 1 or 0. |
 | `^T` | 2 | Pointer to a `T`. |
 | `[N]T` | N × size of T | Array of `N` elements, indexed from 0. `N` is a constant. |
-| `record … end` | sum of fields | Fields in order, no padding. |
+| `record … end` | sum of fields | Fields in order, no padding. Written only in a `type` declaration. |
 | `func(…): T` | 2 | Pointer to a function (see Function pointers). |
 
 Named types are introduced with `type`. An enumeration introduces a `byte`-sized type and its constants:
@@ -78,13 +78,23 @@ enum Kind
 end
 ```
 
+### Named types, records and enumerations
+
+- **Another name for a type is that type.** After `type SymPtr = ^Sym`, `SymPtr` and `^Sym` can be used for each other, and so can two names for one type: names of types are structural.
+- **A record or an enumeration is a type of its own.** Each declaration makes a new type, different from every other even if their fields or constants are the same. Another module's is the same type wherever it is used: it is known by its module and its name.
+- **A record** is declared only in a `type` declaration, so it always has a name. Its fields are in order with no padding, and each has a type declared before, or a pointer to the record itself (`next: ^Link`); the record cannot contain itself or an array of itself. It has at least one field.
+- **What a record can do.** `r.field` and `p.field` (through a pointer) are variables of the field's type, which can be another record, an array or a pointer: `s.pos.x`, `s.marks[i]`, `syms[i].name`. A whole record can be assigned to a record of the same type, which copies it byte by byte. Records cannot be compared, converted or used in arithmetic, and are not parameters or results: pass a pointer. A record has no initial value yet. Like an array, a record variable is never in zero page unless it is declared `zp`.
+- **An enumeration** is a type of one byte, and its constants are its values: the first is 0 unless it is given one (`= constExpr`), and each other is one more than the one before. Every value must fit a byte; two constants may have the same value.
+- **What an enumeration can do.** It can be assigned, passed and returned, and compared, `==` and `!=` and the ordering comparisons, with a value of the same enumeration only. It is not a number: no arithmetic, and a number or a `byte` is not an enumeration. `byte(k)` gives its value, so `table[byte(k)]` indexes a table by it, and `Kind(b)` gives the enumeration whose value is `b`. A `case` on an enumeration takes its constants after `of`.
+- **`pub`** on a `type` or an `enum` exports the name; `pub enum` exports its constants too.
+
 ### Type rules
 
 - **A `byte` operation gives a `byte`** and wraps. `a + b` on two bytes is an 8-bit add.
 - **Widening is implicit, narrowing is not.** A `byte` becomes a `word` wherever a `word` is needed, with a zero high byte. Going the other way needs `byte(x)`, `lo(x)` or `hi(x)`.
 - **Signed and unsigned do not mix** without a conversion. Signed comparisons cost more code than unsigned ones; the type makes that visible.
 - **Conditions are `bool`.** There is no "non-zero is true": write `if n != 0 then`.
-- **Conversions** are written as a call of the type name: `byte(w)`, `word(b)`, `int(w)`, or a named pointer type such as `SymPtr(w)`.
+- **Conversions** are written as a call of the type name: `byte(w)`, `word(b)`, `int(w)`, a named pointer type such as `SymPtr(w)`, or an enumeration, `Kind(b)`. A record cannot be converted.
 - **Built-ins:** `lo(x)`, `hi(x)`, `sizeof(T)`, `len(array)`. `lo(x)` and `hi(x)` of a variable can also be assigned to: `hi(w) = 0`.
 
 ### Arrays and their layout
@@ -102,7 +112,7 @@ end
 ### Pointers
 
 - `@x` is the address of a variable, an element of an array of bytes or a `rows` array, or a function. The address of an array is a pointer to its first element: `@a` of a `[10]byte` is a `^byte`, and `@grid[1]` of a `[3][4]byte rows` is a `^byte` too. An array stored by column has no such pointer: `@words` of a `[10]word` is an error, like `@words[i]`.
-- `p.field` reads a field of the record `p` points to.
+- `p.field` is a field of the record `p` points to, to read or to assign: `p.field` is `p[0].field`. `p.next.value` reads `p.next` into a zero page pointer first. An array field takes a variable index: `p.marks[i]`.
 - `p[i]` is element `i` after the address in `p`, with a `byte` index. For a `^byte` this is the 6502's `(zp),Y` addressing and costs the same as an array access. For a larger element the size must be 2, 4 or 8, the index is scaled by shifts, and the scaled index must stay below 256. `p[0]` is what `p` points to, for any type.
 - Pointer arithmetic is in bytes and written out: `p + sizeof(Sym)`. A pointer plus or minus an integer is a pointer; the difference of two pointers is a `word`. Pointers compare as unsigned numbers.
 - `nil` is the pointer with value 0 and fits any pointer type. `^T(x)` converts a number to a pointer.
@@ -279,7 +289,8 @@ import strings
 ```
 
 - One module per source file. The module name is the file name.
-- Compiling a module writes its object file and an **interface file** listing what it exports. `import` reads the interface file, not the source.
+- Compiling a module writes its object file and an **interface file** listing what it exports. `import` reads the interface file, not the source. The interface holds every record and enumeration the module declares, `pub` or not, so that what it exports can use them; one that is not `pub` cannot be named by an importer.
+- **The modules whose types an interface uses are imported first.** If `geometry` exports `func area(b: ^shapes.Box): word`, a module that imports `geometry` imports `shapes` before it, even if it does not name `shapes` itself.
 - Imports cannot form a cycle. A module is compiled after the modules it imports.
 - Imported names are always written with the module name: `strings.equal(a, b)`.
 - The program starts at `pub func main()` in the module named when linking.
@@ -320,13 +331,13 @@ placement   = "zp" | "nozp" | "rows" | "at" constExpr | "in" name .
 initialiser = constExpr | "[" constExpr { "," constExpr } "]" .
 constExpr   = expression .
 
-typeDecl    = "type" name "=" ( type | funcType ) NL .
+typeDecl    = "type" name "=" ( type | recordType | funcType ) NL .
+recordType  = "record" NL { name ":" type NL } "end" .
 funcType    = [ "recursive" ] "func" "(" [ param { "," param } ] ")" [ ":" type [ "," "bool" ] ] .
 type        = typeKw
             | name [ "." name ]
             | "^" type
-            | "[" constExpr "]" type
-            | "record" NL { name ":" type NL } "end" .
+            | "[" constExpr "]" type .
 typeKw      = "byte" | "sbyte" | "word" | "int" | "bool" .
 
 funcDecl    = { "inline" | "recursive" | "interrupt" } funcHead NL body "end" NL
@@ -374,6 +385,7 @@ Notes on the grammar:
 
 - A statement that starts with a name is an assignment, a two-result call or a plain call; the token after the designator decides.
 - A conversion to a named type, such as `SymPtr(w)`, is parsed as a call. The symbol table says whether the name is a type.
+- In `type` the name is a named type, a record or an enumeration, of this module or, after a ".", of an imported one.
 - `true`, `false` and `nil` are predeclared constants, and `lo`, `hi`, `len` and `sizeof` are predeclared functions; none are keywords. `sizeof` takes a type as its argument.
 - A `constExpr` is an expression the compiler can evaluate; anything else is an error.
 - `#if`, `#else` and `#end` are handled by the lexer and do not appear in the grammar. (The parser works out the condition of `#if` where a declaration, `import` or statement can start, and tells the lexer what to skip.)
@@ -390,7 +402,7 @@ import strings
 
 const MAX_SYMS = 200
 
-enum Kind
+pub enum Kind                 ; pub: the callers of add need its constants
   K_CONST
   K_VAR
   K_FUNC

@@ -1,6 +1,6 @@
 ; A small string library on zero-terminated strings: length, compare, copy, append, reverse,
 ; and a print that walks the string with a pointer.
-module strings
+module string_library
 
 import host
 import libout

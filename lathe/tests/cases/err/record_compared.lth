@@ -1,0 +1,10 @@
+; error 44 9 12
+module record_compared
+type Rec = record
+  a: byte
+end
+var r: Rec
+var s: Rec
+func f(): bool
+  return r == s
+end

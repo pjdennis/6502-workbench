@@ -1,0 +1,6 @@
+; error 131 6 17
+module record_array_initial_value
+type Rec = record
+  a: byte
+end
+var r: [2]Rec = [1, 2]

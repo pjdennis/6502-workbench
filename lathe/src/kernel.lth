@@ -365,6 +365,7 @@ const MAX_MEMBERS = 1024
 const MAX_MODULES = 16          ; the module being compiled and those it imports
 
 pub const SCOPE_MODULE = 0      ; the module being compiled; 1 and up are imported modules
+pub const SCOPE_FIELDS = $40      ; plus a record type's number: the scope of that record's fields
 pub const SCOPE_PREDECLARED = $FE   ; what the language itself declares
 pub const SCOPE_LOCAL = $FF     ; the function being compiled
 
@@ -374,6 +375,8 @@ pub const K_CONST = 3           ; type and value
 pub const K_VAR = 4             ; a variable that lives for the whole program; value: address if SF_AT
 pub const K_LOCAL = 5           ; a parameter or local of the function being compiled; value: its slot
 pub const K_BUILTIN = 6         ; a function the language declares; value: which one
+pub const K_TYPE = 7            ; a named type: type
+pub const K_FIELD = 8           ; a field of a record: type, and value: its offset in the record
 
 pub const SF_PUB = 1            ; exported
 pub const SF_EXTERN = 2         ; a routine at a fixed address, parameters and results in registers

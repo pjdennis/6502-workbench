@@ -1,0 +1,6 @@
+; error 43 5 3
+module enum_counts_past_a_byte
+enum E
+  A = 255
+  B
+end

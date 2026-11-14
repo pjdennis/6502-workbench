@@ -1,0 +1,13 @@
+; error 44 12 7
+module records_of_other_types
+type Rec = record
+  a: byte
+end
+type Other = record
+  a: byte
+end
+var r: Rec
+var s: Other
+func f()
+  r = s
+end

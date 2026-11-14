@@ -1,0 +1,6 @@
+; error 41 5 3
+module duplicate_field
+type R = record
+  a: byte
+  a: word
+end

@@ -1,0 +1,9 @@
+; error 129 8 5
+module no_such_field
+type Rec = record
+  a: byte
+end
+var r: Rec
+func f()
+  r.b = 1
+end

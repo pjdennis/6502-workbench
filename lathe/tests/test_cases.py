@@ -11,8 +11,8 @@
                           the text the LCD shows at the STP, one line per row with trailing spaces
                           removed.
 
-A case can import modules that lie beside it; one called lib*.lth is only that, and not a
-case. A comment line `; defines NAME NAME=NUMBER ...` before the `module` line gives the
+A case can import modules that lie beside it; one called lib*.lth, or whose first line starts
+with `; imported by`, is only that, and not a case. A comment line `; defines NAME NAME=NUMBER ...` before the `module` line gives the
 compiler those defines (build.py --define), for `#if`. Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME,
 ...). Everything is skipped while
 lathe/host/lathec.py does not exist. Error cases (cases/err/) are tested with the compiler.
@@ -38,10 +38,10 @@ NO_COMPILER = f'{os.path.relpath(build.COMPILER, ROOT)} does not exist yet: snap
 
 
 def cases(kind):
-    """The cases of a kind. A module whose name starts with `lib` is not one: it is there for
-    cases to import."""
+    """The cases of a kind. A module whose name starts with `lib`, or whose first line starts
+    with `; imported by`, is not one: it is there for cases to import."""
     return sorted(p for p in glob.glob(os.path.join(CASES, kind, '*.lth'))
-                  if not os.path.basename(p).startswith('lib'))
+                  if not os.path.basename(p).startswith('lib') and not _read(p).startswith('; imported by'))
 
 
 def defines(path):

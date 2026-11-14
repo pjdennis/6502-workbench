@@ -1,0 +1,50 @@
+; Functions on another module's records, for shared_types.lth: pointers to libshapes.Box as
+; parameters and results, its enumeration, and a variable of its type.
+module libgeometry
+
+import libshapes
+
+pub var biggest: libshapes.Box
+pub var names: [3]libshapes.Name
+
+pub func area(b: libshapes.BoxPtr): word
+  var w: word
+  var h: word
+  var a: word = 0
+  w = b.high.x - b.low.x
+  h = b.high.y - b.low.y
+  while h != 0 do
+    a += w
+    h -= 1
+  end
+  return a
+end
+
+pub func inside(b: ^libshapes.Box, p: ^libshapes.Point): bool
+  return p.x >= b.low.x and p.x < b.high.x and p.y >= b.low.y and p.y < b.high.y
+end
+
+; the widest of a list of boxes, copied to biggest; nil if the list is empty
+pub func widest(list: ^libshapes.Box): libshapes.BoxPtr
+  var best: ^libshapes.Box = nil
+  while list != nil do
+    if best == nil or area(list) > area(best) then
+      best = list
+    end
+    list = list.next
+  end
+  if best != nil then
+    biggest = best[0]
+  end
+  return best
+end
+
+pub func colour_name(c: libshapes.Colour): ^byte
+  case c
+  of libshapes.RED
+    return "red"
+  of libshapes.GREEN
+    return "green"
+  end
+  return "blue"
+end

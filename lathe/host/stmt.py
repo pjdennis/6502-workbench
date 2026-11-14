@@ -137,8 +137,8 @@ def variable(more, level):
             err.fatal(err.E_TYPE)
         t = typetab.array_of(typetab.base(t), typetab.length(t), True)
     layout(t)
-    if typetab.is_array(t) and flags & kernel.SF_ZP == 0:
-        flags = flags | kernel.SF_NOZP          # an array is never in zero page unless asked
+    if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0:
+        flags = flags | kernel.SF_NOZP          # nor a record: never in zero page unless asked
     err.position(lex.line, lex.col)
     if level == LEVEL_LOCAL and flags & kernel.SF_AT == 0:
         s = kernel.sym_add(scope, name, kernel.K_LOCAL)
@@ -149,6 +149,7 @@ def variable(more, level):
     if lex.tok != lex.T_ASSIGN:
         return
     lex.next()
+    no_record(t)
     if typetab.is_array(t):
         data = gen.anonymous()
         table_data(t, data)
@@ -170,6 +171,13 @@ def variable(more, level):
         reg.pop()
 
 
+def no_record(t):
+    """Something of type `t` is given an initial value: it cannot be a record, or an array of
+    them, yet."""
+    if typetab.is_record(typetab.innermost(t)):
+        err.fatal(err.E_RECORD_INIT)
+
+
 def layout(t):
     """Check that the elements of array type `t`, and of the arrays it is made of, can be
     reached: one of more than 256 elements larger than a byte must be stored by row, and an
@@ -179,6 +187,8 @@ def layout(t):
         if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t):
             err.fatal(err.E_NEEDS_ROWS)
         if typetab.is_rows(t) and size & (size - 1) != 0:
+            if typetab.is_record(typetab.base(t)):
+                err.fatal_value(err.E_ROWS_RECORD, size)
             err.fatal(err.E_ELEMENT_SIZE)
         t = typetab.base(t)
 
@@ -555,7 +565,8 @@ def case_statement():
     """"case" expression NL { "of" constExpr { "," constExpr } NL body } [ "else" NL body ]
     "end". The selector is compared with the constants of each `of` in turn: it is a variable,
     or is stored in a temporary, so that it can be loaded again (docs/codegen.md,
-    "Statements"). A variable at a fixed address may be a device, and is read once."""
+    "Statements"). A variable at a fixed address may be a device, and is read once; an
+    element is copied too, so that the register memory knows A holds it."""
     global case_count
     lex.next()
     line = lex.line
@@ -567,7 +578,8 @@ def case_statement():
     t = reg.op_type[selector]
     if typetab.size(t) != 1 or typetab.is_untyped(t):
         err.fatal(err.E_CASE_SELECTOR)
-    if reg.op_kind[selector] == reg.O_VAR and reg.op_symbol[selector] == kernel.NO_OBJ:
+    if reg.op_kind[selector] == reg.O_VAR and (reg.op_symbol[selector] == kernel.NO_OBJ
+                                               or not reg.is_direct(selector)):
         reg.release(selector)
         reg.load(reg.A, selector, 0)
         reg.become(selector, reg.O_A, t)
@@ -587,7 +599,8 @@ def case_statement():
         if lex.tok == lex.T_END:
             reg.label(other)            # the body runs on to here: A may hold anything
         else:
-            fbuf.jump(done)
+            if fbuf.runs_on():
+                fbuf.jump(done)
             arrive_with(other, selector)
     if lex.tok == lex.T_ELSE:
         lex.next()

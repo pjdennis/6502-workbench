@@ -1,0 +1,7 @@
+; error 130 6 11
+module record_parameter
+type Rec = record
+  a: byte
+end
+func f(r: Rec)
+end

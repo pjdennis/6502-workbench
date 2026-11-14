@@ -1,0 +1,10 @@
+; error 44 9 7
+module record_converted
+type Rec = record
+  a: byte
+end
+var r: Rec
+var b: byte
+func f()
+  b = byte(r)
+end

@@ -1,0 +1,9 @@
+; error 21 8 5
+module field_name_expected
+type Rec = record
+  a: byte
+end
+var r: Rec
+func f()
+  r.(1) = 1
+end

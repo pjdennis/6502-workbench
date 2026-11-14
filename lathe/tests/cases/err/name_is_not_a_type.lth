@@ -1,0 +1,4 @@
+; error 32 4 8
+module name_is_not_a_type
+var n: byte
+var m: n

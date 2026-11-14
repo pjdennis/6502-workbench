@@ -442,7 +442,98 @@ class InterfaceTest(CompileTest):
                         head + b'\x02' + string(b'c') + b'\x00\x00\x00\x00',
                         head + b'\x03' + string(b'v') + b'\x09\x00\x00',          # unknown type of variable
                         head + b'\x03' + string(b'v') + b'\x01\x03\x00',          # unknown placement
-                        head + b'\x04' + string(b'x') + b'\x00'):                 # unknown kind of entry
+                        head + b'\x09' + string(b'x') + b'\x00'):                 # unknown kind of entry
+            with open(os.path.join(self.out, 'lib.li'), 'wb') as f:
+                f.write(damaged)
+            self.assertEqual(support.run_lathec(user, self.out),
+                             (1, user + ':2:8: error 51: not an interface file of this version\n'))
+
+
+    TYPES = ('module lib\n'
+             'pub enum Kind\n'
+             '  K_A\n'
+             '  K_B = 7\n'
+             'end\n'
+             'pub type Node = record\n'
+             '  kind: Kind\n'
+             '  next: ^Node\n'
+             'end\n'
+             'pub type NodePtr = ^Node\n'
+             'type Hidden = record\n'
+             '  h: word\n'
+             'end\n'
+             'type Alias = byte\n'
+             'pub var nodes: [4]Node\n'
+             'pub var secret: ^Hidden\n'
+             'pub func first(): NodePtr\n'
+             '  return nil\n'
+             'end\n')
+
+    def test_types_are_in_the_interface_before_what_uses_them(self):
+        self.compile(self.source('lib.lth', self.TYPES))
+        node = b'\x13' + string(b'lib') + string(b'node')
+        self.assertEqual(self.interface('lib'), b''.join([
+            b'LI\x01', string(b'lib'),
+            b'\x06', string(b'kind'), b'\x01',                              # an enumeration, pub
+            b'\x02', string(b'k_a'), b'\x13' + string(b'lib') + string(b'kind'), b'\x00\x00',
+            b'\x02', string(b'k_b'), b'\x13' + string(b'lib') + string(b'kind'), b'\x07\x00',
+            b'\x05', string(b'node'), b'\x01', b'\x02',                      # a record of two fields
+            string(b'kind'), b'\x13' + string(b'lib') + string(b'kind'),
+            string(b'next'), b'\x10' + node,
+            b'\x04', string(b'nodeptr'), b'\x01', b'\x10' + node,          # another name for ^Node
+            b'\x05', string(b'hidden'), b'\x00', b'\x01', string(b'h'), b'\x03',   # not pub
+            b'\x03', string(b'nodes'), b'\x11\x04\x00' + node, b'\x04',    # the alias is not there
+            b'\x03', string(b'secret'), b'\x10\x13' + string(b'lib') + string(b'hidden'), b'\x00',
+            b'\x01', string(b'first'), b'\x00', b'\x00', b'\x01\x10' + node + b'\x04',
+            b'\x00']))
+
+    def test_an_importer_uses_the_records_and_enumerations_of_another_module(self):
+        self.compile(self.source('lib.lth', self.TYPES))
+        self.compile(self.source('user.lth',
+                                 'module user\n'
+                                 'import lib\n'
+                                 'var n: lib.Node\n'
+                                 'var p: lib.NodePtr\n'
+                                 'var k: lib.Kind\n'
+                                 'func f()\n'
+                                 '  n.kind = lib.K_B\n'
+                                 '  p = lib.first()\n'
+                                 '  p.next = @n\n'
+                                 '  lib.nodes[1] = n\n'
+                                 '  k = lib.nodes[2].kind\n'
+                                 '  lo(lib.secret.h) = 0\n'
+                                 'end\n'))
+        self.assertIn((VAR, b'\x00\x00\x03\x00\x02\x04\x00'), self.records('user'))   # n: 3 bytes, never in zero page
+
+    def test_a_type_a_module_does_not_export_cannot_be_named(self):
+        self.compile(self.source('lib.lth', self.TYPES))
+        for name in ('Hidden', 'Alias'):
+            user = self.source('user.lth', 'module user\nimport lib\nvar h: lib.%s\n' % name)
+            self.assertEqual(support.run_lathec(user, self.out), (1, user + ':3:12: error 40: undefined name\n'))
+
+    def test_an_importer_must_import_the_modules_whose_types_an_interface_uses(self):
+        self.compile(self.source('lib.lth', self.TYPES))
+        self.compile(self.source('mid.lth', 'module mid\nimport lib\npub var p: ^lib.Node\n'))
+        self.compile(self.source('ok.lth', 'module ok\nimport lib\nimport mid\nvar q: ^lib.Node\n'
+                                 'func f()\n  q = mid.p\nend\n'))
+        user = self.source('user.lth', 'module user\nimport mid\n')
+        self.assertEqual(support.run_lathec(user, self.out),
+                         (1, user + ':2:8: error 135: an imported module uses the types of a module '
+                                    'not imported yet: import that one first\n'))
+
+    def test_records_of_two_modules_are_different_types_even_with_the_same_fields(self):
+        self.compile(self.source('one.lth', 'module one\npub type R = record\n  a: byte\nend\n'))
+        self.compile(self.source('two.lth', 'module two\npub type R = record\n  a: byte\nend\n'))
+        user = self.source('user.lth', 'module user\nimport one\nimport two\nvar x: one.R\nvar y: two.R\n'
+                           'func f()\n  x = y\nend\n')
+        self.assertEqual(support.run_lathec(user, self.out), (1, user + ':7:7: error 44: wrong type\n'))
+
+    def test_a_damaged_type_entry_is_error_51(self):
+        user = self.source('user.lth', 'module user\nimport lib\n')
+        head = b'LI\x01' + string(b'lib')
+        for damaged in (head + b'\x03' + string(b'v') + b'\x13' + string(b'lib') + string(b'none') + b'\x00\x00',
+                        head + b'\x04' + string(b'x') + b'\x01\x09',          # an unknown type
+                        head + b'\x07' + string(b'x') + b'\x00'):              # an unknown kind of entry
             with open(os.path.join(self.out, 'lib.li'), 'wb') as f:
                 f.write(damaged)
             self.assertEqual(support.run_lathec(user, self.out),

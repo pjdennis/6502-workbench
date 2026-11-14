@@ -1,0 +1,13 @@
+; error 44 12 12
+module enums_of_other_types
+enum Kind
+  A
+end
+enum Mode
+  X
+end
+var e: Kind
+var g: Mode
+func f(): bool
+  return e < g
+end

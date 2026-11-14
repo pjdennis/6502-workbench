@@ -1,0 +1,51 @@
+; Enumerations: a byte-sized type and its constants, numbered from 0 or from a value given.
+; They are compared with constants of the same enumeration, ordered, used in `case`, and
+; converted to and from byte (docs/language.md, "Types").
+module enums
+
+enum Colour
+  RED
+  GREEN
+  BLUE = 10
+  CYAN
+end
+
+pub enum Size
+  SMALL = 1
+  LARGE = 255
+end
+
+const NAMES: [12]byte = "RG????????BC"
+
+var c: Colour
+var d: Colour
+var s: Size
+var b: byte
+var table: [4]Colour
+
+func next()
+  c = CYAN
+  d = c
+  c = Colour(b)
+  b = byte(c) + 1
+  b = NAMES[byte(c)]
+  table[byte(s)] = BLUE
+end
+
+func tests(): bool
+  if c == d or c != GREEN then
+    return c < BLUE
+  end
+  return s <= LARGE
+end
+
+func letter(): byte
+  case c
+  of RED
+    return 'R'
+  of GREEN, BLUE
+    return 'X'
+  else
+    return '?'
+  end
+end

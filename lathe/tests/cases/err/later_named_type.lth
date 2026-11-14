@@ -1,3 +1,0 @@
-; error 39 3 19
-module later_named_type
-extern func f(p: ^thing in ax) at 1

@@ -1,0 +1,17 @@
+; imported by symtab.lth and symbols.lth: what docs/language.md, "A larger example", needs of
+; a module of strings.
+module strings
+
+; true if the zero-terminated strings a and b are the same
+pub func equal(a: ^byte, b: ^byte): bool
+  var i: byte = 0
+  loop
+    if a[i] != b[i] then
+      return false
+    end
+    if a[i] == 0 then
+      return true
+    end
+    i += 1
+  end
+end

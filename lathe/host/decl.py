@@ -27,6 +27,10 @@ LI_END = 0              # entry kinds
 LI_FUNC = 1
 LI_CONST = 2
 LI_VAR = 3
+LI_TYPE = 4             # a named type: flags, then its type
+LI_RECORD = 5           # a record type declared here: flags, number of fields, each a name and a type
+LI_ENUM = 6             # an enumeration declared here: flags. Its constants follow as constants
+LI_PUB = 1              # flag of those three: exported (the others are there for the types of what is)
 LI_EXTERN = 1           # function flag: at a fixed address, which follows the flags
 LI_ASM = 4              # function flag: an `asm` function, called like an extern one
 LI_AT = 1               # what a variable's placement byte can be: at a fixed address, which
@@ -35,6 +39,7 @@ LI_NOZP = 4
 LI_POINTER = 0x10       # type: a pointer to the type that follows; a basic type is its number
 LI_ARRAY = 0x11         # type: an array, stored by column: its length (2), then its element type
 LI_ROWS = 0x12          # the same, stored by row
+LI_NAMED = 0x13         # type: a record or an enumeration, as the name of its module and its own name
 
 MAX_DIRS = 8
 C_SLASH = 0x2F
@@ -128,7 +133,39 @@ def write_type(stream, t):
             kernel.put(stream, LI_ARRAY + typetab.form[t] - typetab.FORM_ARRAY)
             kernel.put_word(stream, typetab.length(t))
         t = typetab.base(t)
-    kernel.put(stream, t)
+    if typetab.is_record(t) or typetab.is_enum(t):
+        s = typetab.base(t)
+        kernel.put(stream, LI_NAMED)
+        kernel.put_name(stream, kernel.module_name[kernel.sym_scope[s]])
+        kernel.put_name(stream, kernel.sym_name[s])
+    else:
+        kernel.put(stream, t)
+
+
+def write_named_type(stream, s):
+    """A type entry: a record or an enumeration that `s` declares, or another name for a type.
+    Every record and enumeration is written, so that what is exported can use them; one not
+    `pub` is known to an importer but cannot be named there. Another name for a type is
+    written only if it is `pub`."""
+    t = kernel.sym_type[s]
+    kind = LI_TYPE
+    if (typetab.is_record(t) or typetab.is_enum(t)) and typetab.base(t) == s:
+        kind = LI_RECORD + typetab.form[t] - typetab.FORM_RECORD
+    elif kernel.sym_flags[s] & kernel.SF_PUB == 0:
+        return
+    kernel.put(stream, kind)
+    kernel.put_name(stream, kernel.sym_name[s])
+    if kernel.sym_flags[s] & kernel.SF_PUB != 0:
+        kernel.put(stream, LI_PUB)
+    else:
+        kernel.put(stream, 0)
+    if kind == LI_TYPE:
+        write_type(stream, t)
+    elif kind == LI_RECORD:
+        kernel.put(stream, kernel.sym_params[s])
+        for f in range(s + 1, s + 1 + kernel.sym_params[s]):
+            kernel.put_name(stream, kernel.sym_name[f])
+            write_type(stream, kernel.sym_type[f])
 
 
 def write_members(stream, first, count):
@@ -184,7 +221,9 @@ def write_interface(directory_name):
     kernel.put(stream, LI_VERSION)
     kernel.put_name(stream, kernel.module_name[0])
     for s in range(0, kernel.sym_count):
-        if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_flags[s] & kernel.SF_PUB != 0:
+        if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_TYPE:
+            write_named_type(stream, s)
+        elif kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_flags[s] & kernel.SF_PUB != 0:
             if kernel.sym_kind[s] == kernel.K_FUNC:
                 write_function(stream, s)
             elif kernel.sym_kind[s] == kernel.K_CONST:
@@ -215,9 +254,54 @@ def read_type(stream):
         else:
             typetab.prefix(typetab.FORM_ARRAY + t - LI_ARRAY, kernel.get_word(stream))
         t, _ = kernel.get(stream)
-    if t < typetab.BYTE_TYPE or t > typetab.NIL_TYPE:
+    if t == LI_NAMED:
+        t = imported_type(stream)
+    elif t < typetab.BYTE_TYPE or t > typetab.NIL_TYPE:
         err.fatal(err.E_BAD_INTERFACE)
     return typetab.build(t, mark)
+
+
+def imported_type(stream):
+    """A record or an enumeration given by the name of its module and its own: the module must
+    have been imported already, and is in a scope of its own number."""
+    name = read_name(stream)
+    scope = 1
+    while scope < kernel.module_count and kernel.module_name[scope] != name:
+        scope += 1
+    if scope == kernel.module_count:
+        err.fatal(err.E_TYPE_MODULE)
+    s, found = kernel.sym_find(scope, read_name(stream))
+    if not found or kernel.sym_kind[s] != kernel.K_TYPE:
+        err.fatal(err.E_BAD_INTERFACE)
+    return kernel.sym_type[s]
+
+
+def read_named_type(stream, scope, kind):
+    """A type entry of kind LI_TYPE, LI_RECORD or LI_ENUM."""
+    s = kernel.sym_add(scope, read_name(stream), kernel.K_TYPE)
+    flags, _ = kernel.get(stream)
+    if flags & LI_PUB != 0:
+        kernel.sym_flags[s] = kernel.SF_PUB
+    if kind == LI_TYPE:
+        kernel.sym_type[s] = read_type(stream)
+        return
+    t = typetab.declared(typetab.FORM_RECORD + kind - LI_RECORD, s)
+    kernel.sym_type[s] = t
+    if kind == LI_ENUM:
+        return
+    count, _ = kernel.get(stream)
+    for i in range(0, count):
+        name = read_name(stream)
+        add_field(s, name, read_type(stream))
+
+
+def add_field(s, name, t):
+    """A field called `name` of type `t` after the others of the record that `s` declares."""
+    r = kernel.sym_type[s]
+    f = kernel.sym_add(kernel.SCOPE_FIELDS + r, name, kernel.K_FIELD)
+    kernel.sym_type[f] = t
+    kernel.sym_value[f] = typetab.grow(r, typetab.size(t))
+    kernel.sym_params[s] += 1
 
 
 def read_members(stream):
@@ -288,7 +372,7 @@ def read_interface(number):
         err.fatal(err.E_BAD_INTERFACE)
     while True:
         kind, at_end = kernel.get(stream)
-        if at_end or kind > LI_VAR:
+        if at_end or kind > LI_ENUM:
             err.fatal(err.E_BAD_INTERFACE)      # a file cut short has no LI_END
         if kind == LI_END:
             break
@@ -296,8 +380,10 @@ def read_interface(number):
             read_function(stream, number)
         elif kind == LI_CONST:
             read_constant(stream, number)
-        else:
+        elif kind == LI_VAR:
             read_variable(stream, number)
+        else:
+            read_named_type(stream, number, kind)
     kernel.close(stream)
 
 
@@ -374,7 +460,7 @@ def register_suits(r, t):
 def bound_member(used):
     """type "in" register: a parameter or result of the newest symbol. `used` says which of
     A, X, Y and carry are taken already; returns that with this member's added."""
-    t = expr.type_spec()
+    t = expr.value_type()
     lex.expect(lex.T_IN, err.E_IN_EXPECTED)
     r = register()
     if not register_suits(r, t):
@@ -590,6 +676,7 @@ def constant_declaration(flags):
         err.position(line, col)
         stmt.layout(t)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
+    stmt.no_record(t)
     if t == typetab.NO_TYPE and lex.tok == lex.T_STRING:
         t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, False)
     if typetab.is_array(t):
@@ -646,13 +733,90 @@ def check_bodies():
 
 def starts_later_declaration(token):
     """True for the first token of a declaration not done yet."""
-    if token == lex.T_TYPE or token == lex.T_ENUM:
-        return True
     return token == lex.T_INLINE or token == lex.T_RECURSIVE or token == lex.T_INTERRUPT
 
 
+def type_symbol(name, flags):
+    s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_TYPE)
+    kernel.sym_flags[s] = flags
+    return s
+
+
+def record_type(s):
+    """"record" NL { name ":" type NL } "end", for the type that `s` declares. Its symbol and
+    type exist before the fields are read, so a field can point to the record."""
+    t = typetab.declared(typetab.FORM_RECORD, s)
+    kernel.sym_type[s] = t
+    lex.next()
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    while lex.tok != lex.T_END:
+        name = expr.new_name(kernel.SCOPE_FIELDS + t)
+        lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
+        line = lex.line
+        col = lex.col
+        f = expr.type_spec()
+        err.position(line, col)
+        stmt.layout(f)
+        if typetab.innermost(f) == t:
+            err.fatal(err.E_RECORD_SELF)
+        add_field(s, name, f)
+        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    if typetab.size(t) == 0:
+        err.fatal(err.E_EMPTY_RECORD)
+    lex.next()
+
+
+def type_declaration(flags):
+    """typeDecl = "type" name "=" type NL, where the type can be a record. Function types
+    come later."""
+    lex.next()
+    name = expr.new_name(kernel.SCOPE_MODULE)
+    lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
+    if lex.tok == lex.T_RECORD:
+        record_type(type_symbol(name, flags))
+    else:
+        line = lex.line
+        col = lex.col
+        t = expr.type_spec()
+        err.position(line, col)
+        stmt.layout(t)
+        kernel.sym_type[type_symbol(name, flags)] = t
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
+def enum_declaration(flags):
+    """enumDecl = "enum" name NL { name [ "=" constExpr ] NL } "end" NL. The constants are
+    numbered on from the one before, from 0; each must fit a byte."""
+    lex.next()
+    s = type_symbol(expr.new_name(kernel.SCOPE_MODULE), flags)
+    t = typetab.declared(typetab.FORM_ENUM, s)
+    kernel.sym_type[s] = t
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    value = 0
+    while lex.tok != lex.T_END:
+        line = lex.line
+        col = lex.col
+        name = expr.new_name(kernel.SCOPE_MODULE)
+        if lex.tok == lex.T_ASSIGN:
+            lex.next()
+            line = lex.line
+            col = lex.col
+            value = expr.constant_number()
+        if value > 0xFF:
+            err.position(line, col)
+            err.fatal(err.E_RANGE)
+        c = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_CONST)
+        kernel.sym_flags[c] = flags
+        kernel.sym_type[c] = t
+        kernel.sym_value[c] = value
+        value += 1
+        lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+    lex.next()
+    lex.expect(lex.T_NL, err.E_NL_EXPECTED)
+
+
 def declaration():
-    """declaration = [ "pub" ] ( constDecl | varDecl | funcDecl | externDecl | asmFunc )
+    """declaration = [ "pub" ] ( constDecl | typeDecl | enumDecl | varDecl | funcDecl | externDecl | asmFunc )
     | "forward" funcHead NL."""
     flags = 0
     if lex.tok == lex.T_FORWARD:
@@ -672,6 +836,10 @@ def declaration():
         asm_function_declaration(flags)
     elif lex.tok == lex.T_CONST:
         constant_declaration(flags)
+    elif lex.tok == lex.T_TYPE:
+        type_declaration(flags)
+    elif lex.tok == lex.T_ENUM:
+        enum_declaration(flags)
     elif lex.tok == lex.T_VAR:
         stmt.variable(flags, stmt.LEVEL_MODULE)
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)

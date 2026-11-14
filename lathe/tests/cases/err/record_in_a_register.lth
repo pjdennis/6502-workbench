@@ -1,0 +1,6 @@
+; error 130 6 18
+module record_in_a_register
+type Rec = record
+  a: byte
+end
+extern func f(r: Rec in a) at $F000

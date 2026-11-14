@@ -1,0 +1,5 @@
+; error 132 4 9
+module record_contains_itself
+type Link = record
+  next: Link
+end

@@ -1,0 +1,9 @@
+; error 131 8 16
+module local_record_initial_value
+type Rec = record
+  a: byte
+end
+var s: Rec
+func f()
+  var r: Rec = s
+end

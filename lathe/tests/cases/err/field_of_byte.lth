@@ -1,5 +1,5 @@
-; error 39 5 8
-module later_field
+; error 128 5 8
+module field_of_byte
 var n: byte
 func f()
   n = n.low

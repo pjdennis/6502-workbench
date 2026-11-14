@@ -143,6 +143,51 @@ class TypeTableTest(unittest.TestCase):
         self.assertEqual(typetab.size(typetab.NIL_TYPE), 2)
         self.assertFalse(typetab.is_pointer(typetab.NIL_TYPE))
 
+    def test_a_record_is_a_new_type_each_time_it_is_declared(self):
+        r = typetab.declared(typetab.FORM_RECORD, 7)
+        q = typetab.declared(typetab.FORM_RECORD, 7)
+        self.assertNotEqual(r, q)
+        self.assertTrue(typetab.is_record(r))
+        self.assertFalse(typetab.is_record(typetab.WORD_TYPE))
+        self.assertFalse(typetab.is_enum(r))
+        self.assertEqual(typetab.base(r), 7)            # the symbol that declares it
+        self.assertEqual(typetab.size(r), 0)
+
+    def test_fields_make_a_record_larger_in_order_without_padding(self):
+        r = typetab.declared(typetab.FORM_RECORD, 1)
+        self.assertEqual(typetab.grow(r, 2), 0)
+        self.assertEqual(typetab.grow(r, 1), 2)
+        self.assertEqual(typetab.grow(r, 20), 3)
+        self.assertEqual(typetab.size(r), 23)
+        self.assertEqual(typetab.size(typetab.array_of(r, 10, False)), 230)
+        self.assertTrue(typetab.is_column(typetab.array_of(r, 10, False)))
+
+    def test_a_record_larger_than_64k_is_error_43(self):
+        r = typetab.declared(typetab.FORM_RECORD, 1)
+        typetab.grow(r, 0xFFFF)
+        with self.assertRaises(SystemExit):
+            typetab.grow(r, 1)
+        self.assertIn('error 43:', support.error_text())
+
+    def test_an_enumeration_is_a_byte_sized_type_that_is_not_a_number(self):
+        e = typetab.declared(typetab.FORM_ENUM, 3)
+        self.assertTrue(typetab.is_enum(e))
+        self.assertEqual(typetab.size(e), 1)
+        self.assertFalse(typetab.is_number(e))
+        self.assertEqual(typetab.limit(e), 0xFF)
+        self.assertNotEqual(typetab.declared(typetab.FORM_ENUM, 3), e)
+
+    def test_the_innermost_elements_of_arrays_of_arrays(self):
+        r = typetab.declared(typetab.FORM_RECORD, 1)
+        a = typetab.array_of(typetab.array_of(r, 2, False), 3, True)
+        self.assertEqual(typetab.innermost(a), r)
+        self.assertEqual(typetab.innermost(typetab.pointer_to(r)), typetab.pointer_to(r))
+
+    def test_pointers_and_arrays_of_a_record_are_made_once_like_any_other(self):
+        r = typetab.declared(typetab.FORM_RECORD, 1)
+        self.assertEqual(typetab.pointer_to(r), typetab.pointer_to(r))
+        self.assertNotEqual(typetab.pointer_to(r), typetab.pointer_to(typetab.declared(typetab.FORM_RECORD, 1)))
+
 
 if __name__ == '__main__':
     unittest.main()

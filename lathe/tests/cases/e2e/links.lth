@@ -1,0 +1,110 @@
+; A linked list of records through ^Node pointers, its nodes taken from a `rows` array: kept
+; in order as values are inserted, walked, summed, reversed, and its nodes visited through a
+; pointer as p[i].
+module links
+
+import libout
+
+type Node = record
+  next:  ^Node
+  value: word
+  tag:   byte
+  spare: [3]byte            ; eight bytes: the size of an element of `rows` is a power of two
+end
+
+const VALUES: [10]word = [500, 20, 7, 1000, 20, 65535, 0, 300, 42, 9999]
+
+var pool: [32]Node rows
+var used: byte
+var head: ^Node
+
+func new(v: word): ^Node
+  var p: ^Node
+  p = @pool[used]
+  used += 1
+  p.value = v
+  p.tag = used
+  p.next = nil
+  p.spare[used & 1] = '*'
+  return p
+end
+
+; insert in order of value; a value equal to others goes in front of them
+func insert(v: word)
+  var n: ^Node
+  var p: ^Node
+  n = new(v)
+  if head == nil or head.value >= v then
+    n.next = head
+    head = n
+    return
+  end
+  p = head
+  while p.next != nil and p.next.value < v do
+    p = p.next
+  end
+  n.next = p.next
+  p.next = n
+end
+
+func show()
+  var p: ^Node
+  p = head
+  while p != nil do
+    libout.dec(p.value)
+    libout.char('/')
+    libout.hex(p.tag)
+    libout.space()
+    p = p.next
+  end
+  libout.nl()
+end
+
+func sum(): word
+  var p: ^Node
+  var total: word = 0
+  p = head
+  while p != nil do
+    total += p.value
+    p = p.next
+  end
+  return total
+end
+
+func reverse()
+  var previous: ^Node = nil
+  var current: ^Node
+  var after: ^Node
+  current = head
+  while current != nil do
+    after = current.next
+    current.next = previous
+    previous = current
+    current = after
+  end
+  head = previous
+end
+
+pub func main()
+  var i: byte
+  var q: ^Node
+  for i = 0 to 9 do
+    insert(VALUES[i])
+  end
+  show()
+  libout.hexw(sum())
+  libout.nl()
+  reverse()
+  show()
+  libout.hexw(head.next.next.value)
+  libout.space()
+  libout.hex(head.next.tag)
+  libout.nl()
+  q = @pool[0]
+  for i = 0 to used - 1 do
+    libout.hex(q[i].tag)
+    libout.char(q[i].spare[1])
+    libout.char(pool[i].spare[0])
+  end
+  libout.nl()
+end

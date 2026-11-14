@@ -140,6 +140,16 @@ pub const E_ELEMENT_SIZE = 124
 pub const E_TWO_INDEXES = 125
 pub const E_TOO_MANY = 126
 pub const E_NOT_INDEXED = 127
+; Records, enumerations and named types
+pub const E_NOT_RECORD = 128
+pub const E_NO_FIELD = 129
+pub const E_RECORD_VALUE = 130
+pub const E_RECORD_INIT = 131
+pub const E_RECORD_SELF = 132
+pub const E_EMPTY_RECORD = 133
+pub const E_RECORD_PLACE = 134
+pub const E_TYPE_MODULE = 135
+pub const E_ROWS_RECORD = 136
 
 ; asm blocks and asm functions
 pub const E_ASM_BRANCH = 140
@@ -213,7 +223,7 @@ const MESSAGES: [60]^byte = [
   "77 too many references in one function",
   "78 too many calls in one function"
 ]
-const MORE_MESSAGES: [35]^byte = [
+const MORE_MESSAGES: [44]^byte = [
   "79 expression too complex",
   "80 too many open files",
   "81 sources nested too deeply",
@@ -241,6 +251,15 @@ const MORE_MESSAGES: [35]^byte = [
   "125 only one index can be a variable, and only the first unless the array is declared rows",
   "126 more values than the array has elements",
   "127 not an array or a pointer",
+  "128 not a record or a pointer to one",
+  "129 the record has no field of this name",
+  "130 a record is not a value here: pass a pointer to it",
+  "131 a record cannot have an initial value yet",
+  "132 a record cannot contain itself: a pointer to it is allowed",
+  "133 a record needs a field",
+  "134 a record type is written only in a type declaration",
+  "135 an imported module uses the types of a module not imported yet: import that one first",
+  "136 a record in an array declared rows must be padded to a size that is a power of two; its size is",
   "140 a branch must go to a label of this asm block",
   "141 a label of an asm block can only be the target of a branch or JMP",
   "142 label not defined in this asm block",
@@ -347,6 +366,10 @@ pub func message_start(number: byte): ^byte
   return nil
 end
 
+const NO_VALUE = $FFFF
+
+var shown: word = NO_VALUE    ; a number that fatal() writes after the text of the error
+
 ; Report error `number` at the current place and end the program.
 pub func fatal(number: byte)
   var i: ^byte
@@ -363,6 +386,16 @@ pub func fatal(number: byte)
     sys.put_error(i[0])
     i += 1
   end
+  if shown != NO_VALUE then
+    sys.put_error(C_SPACE)
+    put_decimal(shown)
+  end
   sys.put_error(C_LF)
   sys.exit(1)
+end
+
+; fatal(), with the number `value` written after the error's text.
+pub func fatal_value(number: byte, value: word)
+  shown = value
+  fatal(number)
 end

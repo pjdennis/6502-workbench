@@ -1,0 +1,62 @@
+; The symbol table of docs/language.md, "A larger example" (symtab.lth, as written there, with
+; strings.lth): a dozen names are added, names present and absent are looked for, each found
+; one is printed with its index and the storage it needs, and the table is filled up.
+module symbols
+
+import libout
+import strings
+import symtab
+
+const NAMES: [12]^byte = ["alpha", "beta", "gamma", "delta", "pi", "count", "main", "x",
+                          "line", "beta2", "a", "top"]
+const KINDS: [12]symtab.Kind = [symtab.K_CONST, symtab.K_VAR, symtab.K_FUNC, symtab.K_VAR,
+                                symtab.K_CONST, symtab.K_VAR, symtab.K_FUNC, symtab.K_VAR,
+                                symtab.K_VAR, symtab.K_CONST, symtab.K_VAR, symtab.K_FUNC]
+const VALUES: [12]word = [1, 2, $1234, 300, 31416, 7, $0200, 1, 128, 22, 65535, $C000]
+const PROBES: [8]^byte = ["beta", "top", "alpha", "zeta", "", "bet", "beta22", "x"]
+
+func show(name: ^byte)
+  var i: byte
+  var p: ^byte
+  p = name
+  while p[0] != 0 do
+    libout.char(p[0])
+    p += 1
+  end
+  libout.char('=')
+  if symtab.find(name) -> i then
+    libout.dec(i)
+    libout.space()
+    libout.dec(symtab.storage(i))
+  else
+    libout.char('-')
+  end
+  libout.nl()
+end
+
+pub func main()
+  var i: byte
+  var n: byte = 0
+  var total: word = 0
+  for i = 0 to 11 do
+    libout.truth(symtab.add(NAMES[i], KINDS[i], VALUES[i]))
+  end
+  libout.nl()
+  for i = 0 to 7 do
+    show(PROBES[i])
+  end
+  for i = 0 to 11 do
+    total += symtab.storage(i)
+  end
+  libout.dec(total)
+  libout.nl()
+  while symtab.add("more", symtab.K_FUNC, 0) do
+    n += 1
+  end
+  libout.dec(n)
+  libout.space()
+  libout.truth(strings.equal("more", "more"))
+  libout.nl()
+  show("more")
+  show("top")
+end

@@ -1,0 +1,28 @@
+; A module for named_types.lth to import: a record, an enumeration and other names for types,
+; and a variable and a function that use them.
+module libtypes
+
+pub enum Mode
+  M_OFF
+  M_ON
+end
+
+pub type Item = record
+  mode:  Mode
+  count: word
+  next:  ^Item
+end
+
+pub type ItemPtr = ^Item
+pub type Counts = [4]word
+
+type Hidden = record
+  secret: byte
+end
+
+pub var first: Item
+pub var spare: ^Hidden
+
+pub func count_of(p: ItemPtr): word
+  return p.count
+end

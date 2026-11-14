@@ -1,0 +1,10 @@
+; error 44 9 8
+module enum_as_index
+enum Kind
+  A
+end
+var e: Kind
+var table: [4]byte
+func f()
+  table[e] = 1
+end

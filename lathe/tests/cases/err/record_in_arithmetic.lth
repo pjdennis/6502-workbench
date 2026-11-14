@@ -1,0 +1,10 @@
+; error 44 9 9
+module record_in_arithmetic
+type Rec = record
+  a: byte
+end
+var r: Rec
+var s: Rec
+func f()
+  r = r + s
+end

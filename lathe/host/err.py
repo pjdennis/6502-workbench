@@ -16,7 +16,8 @@ The numbers are grouped by what the error is about:
      60 to 69   the command line and files
      70 to 98   a capacity of the compiler that was exceeded
      99         a fault in the compiler itself
-    100 to 139  meaning, continued: further errors about meaning go here
+    100 to 139  meaning, continued: 110 to 119 statements, 120 to 127 arrays, strings and
+                pointers, 128 to 139 records, enumerations and named types
     140 to 159  `asm` blocks and `asm` functions
 
 A number is never reused for another error; a new one takes the next free number of its group.
@@ -124,6 +125,17 @@ E_TWO_INDEXES = 125
 E_TOO_MANY = 126
 E_NOT_INDEXED = 127
 
+# Records, enumerations and named types
+E_NOT_RECORD = 128
+E_NO_FIELD = 129
+E_RECORD_VALUE = 130
+E_RECORD_INIT = 131
+E_RECORD_SELF = 132
+E_EMPTY_RECORD = 133
+E_RECORD_PLACE = 134
+E_TYPE_MODULE = 135
+E_ROWS_RECORD = 136
+
 # asm blocks and asm functions
 E_ASM_BRANCH = 140
 E_ASM_LABEL_USE = 141
@@ -222,6 +234,15 @@ MESSAGES = (
     b"125 only one index can be a variable, and only the first unless the array is declared rows\n"
     b"126 more values than the array has elements\n"
     b"127 not an array or a pointer\n"
+    b"128 not a record or a pointer to one\n"
+    b"129 the record has no field of this name\n"
+    b"130 a record is not a value here: pass a pointer to it\n"
+    b"131 a record cannot have an initial value yet\n"
+    b"132 a record cannot contain itself: a pointer to it is allowed\n"
+    b"133 a record needs a field\n"
+    b"134 a record type is written only in a type declaration\n"
+    b"135 an imported module uses the types of a module not imported yet: import that one first\n"
+    b"136 a record in an array declared rows must be padded to a size that is a power of two; its size is\n"
     b"140 a branch must go to a label of this asm block\n"
     b"141 a label of an asm block can only be the target of a branch or JMP\n"
     b"142 label not defined in this asm block\n"
@@ -242,12 +263,17 @@ C_COLON = 0x3A
 MAX_DIGITS = 5
 digits = bytearray(MAX_DIGITS)
 
+NO_VALUE = 0xFFFF
+
 file = 0        # pointer to the name of the file being read; 0 before there is one
+shown = NO_VALUE    # a number that fatal() writes after the text of the error
 line = 0        # where the error is: the token or character being looked at; 0 for nowhere
 col = 0
 
 
 def init():
+    global shown
+    shown = NO_VALUE
     set_file(0)
 
 
@@ -310,6 +336,13 @@ def message_start(number):
     return i
 
 
+def fatal_value(number, value):
+    """fatal(), with the number `value` written after the error's text."""
+    global shown
+    shown = value
+    fatal(number)
+
+
 def fatal(number):
     """Report error `number` at the current place and end the program."""
     put_place()
@@ -322,5 +355,8 @@ def fatal(number):
     while i < len(MESSAGES) and MESSAGES[i] != C_LF:
         env.put_error(MESSAGES[i])
         i += 1
+    if shown != NO_VALUE:
+        env.put_error(C_SPACE)
+        put_decimal(shown)
     env.put_error(C_LF)
     env.exit(1)

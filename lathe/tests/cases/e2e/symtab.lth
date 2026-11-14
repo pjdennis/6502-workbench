@@ -1,0 +1,58 @@
+; imported by symbols.lth: the symbol table of docs/language.md, "A larger example", as it
+; is written there.
+module symtab
+
+import strings
+
+const MAX_SYMS = 200
+
+pub enum Kind                 ; pub: the callers of add need its constants
+  K_CONST
+  K_VAR
+  K_FUNC
+end
+
+type Sym = record
+  name:  ^byte
+  kind:  Kind
+  value: word
+end
+
+var syms: [MAX_SYMS]Sym        ; five byte columns of 200 bytes each
+var used: byte
+
+; index of the symbol called name; status false if there is none
+pub func find(name: ^byte): byte, bool
+  var i: byte
+  i = used
+  while i != 0 do
+    i -= 1
+    if strings.equal(syms[i].name, name) then
+      return i, true
+    end
+  end
+  return 0, false
+end
+
+pub func add(name: ^byte, kind: Kind, value: word): bool
+  if used == MAX_SYMS then
+    return false
+  end
+  syms[used].name = name
+  syms[used].kind = kind
+  syms[used].value = value
+  used += 1
+  return true
+end
+
+; size in bytes of the storage a symbol needs
+pub func storage(i: byte): byte
+  case syms[i].kind
+  of K_CONST
+    return 0
+  of K_VAR
+    return lo(syms[i].value)
+  else
+    return 2
+  end
+end

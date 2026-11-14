@@ -1,0 +1,5 @@
+; error 134 3 8
+module record_outside_type
+var r: record
+  a: byte
+end

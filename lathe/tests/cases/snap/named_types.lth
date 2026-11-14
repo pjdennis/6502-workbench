@@ -1,0 +1,47 @@
+; Named types: another name for a type is that type, written where any type can be; a
+; conversion to a named type is written as a call of it; and another module's records,
+; enumerations and named types are used as module.Name (docs/language.md, "Types").
+module named_types
+
+import libtypes
+
+type Small = byte
+type Ptr = ^byte
+type Table = [3]Ptr
+type Sym = record
+  name: Ptr
+  link: ^Sym
+end
+
+var b: Small
+var p: Ptr
+var q: ^byte
+var t: Table
+var w: word
+var s: Sym
+var items: [8]libtypes.Item
+var it: libtypes.ItemPtr
+var counts: libtypes.Counts
+var m: libtypes.Mode
+
+func names()
+  b = 3
+  p = q               ; Ptr and ^byte are the same type
+  t[1] = p
+  p = Ptr(w)
+  w = word(p) + sizeof(Table) + sizeof(Sym)
+  s.link = @s
+  s.link.name = Ptr(0)
+end
+
+func imported()
+  it = @libtypes.first
+  m = it.mode
+  items[b].mode = libtypes.M_ON
+  items[b].next = it
+  w = libtypes.count_of(@libtypes.first) + counts[3]
+  if libtypes.first.mode == libtypes.M_OFF then
+    libtypes.first = items[b]
+  end
+  it = libtypes.ItemPtr(w)
+end

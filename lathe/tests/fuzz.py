@@ -12,9 +12,9 @@ be made again), each of SIZE statements.
   shifts, conversions, comparisons, `and` `or` `not`, calls in arguments - assigned, returned,
   returned with a status or used as a test. It prints each value.
 - `stmt`: a sequence of assignments, compound assignments, halves of words, `if`, `while`,
-  `loop ... until` and calls on seven variables and the elements of three arrays (bytes, words
-  by column, words by row) read and written directly and through pointers, which prints their
-  final values. This is aimed at what the compiler remembers about the registers and the flags.
+  `loop ... until` and calls on seven variables, the elements of three arrays (bytes, words
+  by column, words by row) and the fields of two arrays of records (by column and by row),
+  read and written directly and through pointers, which prints their final values. This is aimed at what the compiler remembers about the registers and the flags.
 
 The true results come from the same program worked out in Python while it is generated. A
 program that prints something else, or does not compile, is kept in a directory that is
@@ -321,13 +321,16 @@ class Statements:
         return v, v
 
     def element(self, word):
-        """An element: (lathe, python)."""
+        """An element, or a field of one: (lathe, python)."""
         i, pi = self.index()
         if word:
-            name = self.r.choice(['aw', 'ar', 'pw'])
-            return '%s[%s]' % (name, i), '%s[%s]' % ({'pw': 'ar'}.get(name, name), pi)
-        name = self.r.choice(['ab', 'pb'])
-        return '%s[%s]' % (name, i), 'ab[%s]' % pi
+            name = self.r.choice(['aw', 'ar', 'pw', 'ra%s.w', 'rr%s.w', 'pr%s.w'])
+        else:
+            name = self.r.choice(['ab', 'pb', 'ra%s.b', 'rr%s.c', 'pr%s.b'])
+        lathe = name + '[%s]' if '%' not in name else name.replace('%s', '[%s]')
+        python = {'pw': 'ar', 'pb': 'ab', 'pr%s.w': 'rr%s.w', 'pr%s.b': 'rr%s.b'}.get(name, name)
+        python = python.replace('%s.', '_').replace('%s', '') + '[%s]'
+        return lathe % i, python % pi
 
     def bleaf(self):
         r = self.r
@@ -439,7 +442,7 @@ class Statements:
         elif kind < 0.30:
             d, pd = self.element(r.random() < 0.5)
             op = r.choice(['+', '-', '&', '|', '^', '+', '-'])
-            mask = 65535 if pd.startswith('a') and not pd.startswith('ab') else 255
+            mask = 65535 if pd.startswith(('aw', 'ar', 'ra_w', 'rr_w')) else 255
             if mask == 255:
                 x, px = self.bleaf()
             else:
@@ -544,6 +547,14 @@ var aw: [8]word = [0, 1, 255, 256, 32767, 32768, 65534, 65535]
 var ar: [8]word rows = [7, 300, 0, 65535, 1, 2, 3, 4]
 var pb: ^byte = @ab
 var pw: ^word = @ar
+type R = record
+  b: byte
+  c: byte
+  w: word
+end
+var ra: [8]R
+var rr: [8]R rows
+var pr: ^R
 func digit(n: byte)
   if n < 10 then
     host.put_byte('0' + n)
@@ -578,14 +589,31 @@ def statement_program(seed, count):
     lathe, py = [], []
     for _ in range(count):
         g.stmt(2, 1, lathe, py, 0)
-    shown = BV + WV + ['%s[%d]' % (a, i) for a in ('ab', 'aw', 'ar') for i in range(8)]
+    fields = ('ra[%d].b', 'ra[%d].w', 'rr[%d].b', 'rr[%d].c', 'rr[%d].w')
+    shown = BV + WV + ['%s[%d]' % (a, i) for a in ('ab', 'aw', 'ar') for i in range(8)] \
+        + [f % i for f in fields for i in range(8)]
     tail = ''.join('  out(%s)\n' % v for v in shown) + 'end\n'
     env = dict(b0=3, b1=200, b2=0, b3=255, w0=300, w1=65535, w2=0, c0=0, c1=0,
                ab=[1, 2, 3, 4, 250, 251, 252, 253], aw=[0, 1, 255, 256, 32767, 32768, 65534, 65535],
                ar=[7, 300, 0, 65535, 1, 2, 3, 4])
+    head = '  pr = @rr[0]\n'
+    for n, f in enumerate(fields):          # records have no initial values: set them here
+        python = f.replace('[%d].', '_')
+        env[python] = [(37 * n + 91 * i) % 256 if f.endswith(('b', 'c')) else (4999 * (n + i) + 255 * i) % 65536
+                       for i in range(8)]
+        head += ''.join('  %s = %d\n' % (f % i, env[python][i]) for i in range(8))
     exec(''.join(py), {}, env)
-    want = ''.join('%04X\n' % eval(v, {}, env) for v in shown)
-    return STATEMENT_HEAD + ''.join(lathe) + tail, want
+    want = ''.join('%04X\n' % eval(_python(v), {}, env) for v in shown)
+    return STATEMENT_HEAD + head + ''.join(lathe) + tail, want
+
+
+def _python(v):
+    """The Python name of what `v` shows: ra[3].w is ra_w[3]."""
+    if '.' not in v:
+        return v
+    name, rest = v.split('[')
+    index, field = rest.split('].')
+    return '%s_%s[%s]' % (name, field, index)
 
 
 def run(text, want, seed):

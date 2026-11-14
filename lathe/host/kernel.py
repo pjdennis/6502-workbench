@@ -295,6 +295,7 @@ NO_SYM = 0xFFFF
 NO_OBJ = 0xFFFF
 
 SCOPE_MODULE = 0            # the module being compiled; 1 and up are imported modules
+SCOPE_FIELDS = 0x40         # plus a record type's number: the scope of that record's fields
 SCOPE_PREDECLARED = 0xFE    # what the language itself declares
 SCOPE_LOCAL = 0xFF          # the function being compiled
 
@@ -304,6 +305,8 @@ K_CONST = 3                 # type and value
 K_VAR = 4                   # a variable that lives for the whole program; value: address if SF_AT
 K_LOCAL = 5                 # a parameter or local of the function being compiled; value: its slot
 K_BUILTIN = 6               # a function the language declares; value: which one
+K_TYPE = 7                  # a named type: type
+K_FIELD = 8                 # a field of a record: type, and value: its offset in the record
 
 SF_PUB = 1                  # exported
 SF_EXTERN = 2               # a routine at a fixed address, parameters and results in registers

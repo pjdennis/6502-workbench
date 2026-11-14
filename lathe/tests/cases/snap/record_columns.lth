@@ -1,0 +1,60 @@
+; An array of records is stored as one byte column per byte of the record: byte k of element
+; i is at base + k * N + i, so each byte of a field is one LDX and one indexed access
+; (docs/language.md, "Arrays and their layout"). A whole element is copied byte by byte.
+module record_columns
+
+enum Kind
+  K_CONST
+  K_VAR
+  K_FUNC
+end
+
+type Sym = record
+  name:  ^byte
+  kind:  Kind
+  value: word
+end
+
+type Cell = record
+  marks: [2]byte
+  total: word
+end
+
+var syms: [200]Sym          ; five columns of 200 bytes
+var grid: [3]Cell           ; an array field inside an array of records
+var r: Sym
+var i: byte
+var j: byte
+var b: byte
+var w: word
+var n: ^byte
+var k: Kind
+
+func fields()
+  k = syms[i].kind
+  w = syms[i].value
+  n = syms[i].name
+  syms[i].value += 1
+  lo(syms[j + 1].value) = b
+  syms[3].kind = K_FUNC
+  b = hi(syms[199].value)
+end
+
+func copies()
+  syms[i] = r
+  r = syms[j]
+  syms[i] = syms[j]
+end
+
+func arrays_in_records()
+  grid[i].marks[1] = grid[2].marks[0]
+  grid[i].total = grid[1].total
+end
+
+func is_var(): bool
+  return syms[i].kind == K_VAR
+end
+
+func address(): ^Kind
+  return @syms[i].kind
+end

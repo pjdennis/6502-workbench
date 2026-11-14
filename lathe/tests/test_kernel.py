@@ -86,7 +86,8 @@ class SymbolTableTest(KernelTest):
         self.assertEqual(kernel.sym_flags[s], 0)
 
     def test_the_kinds_of_symbol_are_all_different(self):
-        kinds = [kernel.K_MODULE, kernel.K_FUNC, kernel.K_CONST, kernel.K_VAR, kernel.K_LOCAL, kernel.K_BUILTIN]
+        kinds = [kernel.K_MODULE, kernel.K_FUNC, kernel.K_CONST, kernel.K_VAR, kernel.K_LOCAL, kernel.K_BUILTIN,
+                 kernel.K_TYPE, kernel.K_FIELD]
         self.assertEqual(len(set(kinds)), len(kinds))
 
     def test_the_flags_of_a_symbol_are_separate_bits(self):

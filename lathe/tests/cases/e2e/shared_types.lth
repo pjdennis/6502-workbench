@@ -1,0 +1,63 @@
+; Types, records and enumerations shared by three modules: libshapes declares them,
+; libgeometry has functions on pointers to them, and this module has variables of them and
+; uses both.
+module shared_types
+
+import libout
+import libshapes
+import libgeometry
+
+var boxes: [4]libshapes.Box rows
+var spot: libshapes.Point
+var colours: [4]libshapes.Colour
+
+func print(s: ^byte)
+  while s[0] != 0 do
+    libout.char(s[0])
+    s += 1
+  end
+end
+
+pub func main()
+  var i: byte
+  var best: libshapes.BoxPtr
+  libshapes.make(@boxes[0], 10, 10, 5, libshapes.RED)
+  libshapes.make(@boxes[1], 0, 100, 30, libshapes.BLUE)
+  libshapes.make(@boxes[2], 300, 0, 2, libshapes.GREEN)
+  libshapes.make(@boxes[3], 1000, 1000, 20, libshapes.GREEN)
+  for i = 0 to 2 do
+    boxes[i].next = @boxes[i + 1]
+  end
+  boxes[2].next = nil              ; the fourth box is not in the list
+  for i = 0 to 3 do
+    libout.dec(libgeometry.area(@boxes[i]))
+    libout.space()
+    colours[i] = boxes[i].colour
+  end
+  libout.dec(libshapes.count)
+  libout.nl()
+  best = libgeometry.widest(@boxes[0])
+  libout.dec(best.high.x - best.low.x)
+  libout.space()
+  libout.dec(libgeometry.biggest.low.y)
+  libout.space()
+  print(libgeometry.colour_name(libgeometry.biggest.colour))
+  libout.nl()
+  spot.x = 12
+  spot.y = 14
+  libout.truth(libgeometry.inside(@boxes[0], @spot))
+  spot.y = 15
+  libout.truth(libgeometry.inside(@boxes[0], @spot))
+  libout.truth(libgeometry.inside(@libgeometry.biggest, @boxes[1].high))
+  boxes[3].low = boxes[3].high
+  libout.truth(libgeometry.inside(@boxes[3], @boxes[3].low))
+  libout.nl()
+  for i = 0 to 3 do
+    print(libgeometry.colour_name(colours[i]))
+    libout.space()
+  end
+  libgeometry.names[1][2] = 'X'
+  libout.char(libgeometry.names[1][2])
+  libout.dec(sizeof(libshapes.Box) + sizeof(libshapes.Name) + len(libgeometry.names))
+  libout.nl()
+end

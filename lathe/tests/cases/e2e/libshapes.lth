@@ -1,0 +1,37 @@
+; Types for shared_types.lth and libgeometry.lth: a record, an enumeration and other names
+; for types, declared here and used in the other two modules.
+module libshapes
+
+pub enum Colour
+  RED
+  GREEN
+  BLUE
+end
+
+pub type Point = record
+  x: word
+  y: word
+end
+
+pub type Box = record
+  low:    Point
+  high:   Point
+  colour: Colour
+  next:   ^Box
+  pad:    [5]byte          ; to sixteen bytes, for arrays declared rows
+end
+
+pub type BoxPtr = ^Box
+pub type Name = [8]byte
+
+pub var count: byte
+
+pub func make(b: BoxPtr, x: word, y: word, size: word, c: Colour)
+  b.low.x = x
+  b.low.y = y
+  b.high.x = x + size
+  b.high.y = y + size
+  b.colour = c
+  b.next = nil
+  count += 1
+end

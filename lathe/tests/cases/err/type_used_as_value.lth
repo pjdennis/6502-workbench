@@ -1,0 +1,7 @@
+; error 23 6 10
+module type_used_as_value
+type Tee = byte
+var b: byte
+func f()
+  b = Tee
+end

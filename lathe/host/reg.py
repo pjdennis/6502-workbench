@@ -513,6 +513,17 @@ def apart(i, j):
         spill(i)
 
 
+def unaliased(i, target, keep):
+    """Operand `i` is stored in memory operand `target`, or used to work out what is. If `i`
+    is reached through a pointer that is `target` (`p = p.next`), load it first, into the
+    registers if `keep`, else into a temporary: storing the low byte would change the pointer."""
+    if op_mode[i] == M_POINTER and op_symbol[i] == op_symbol[target] and op_slot[i] == op_slot[target] \
+            and op_mode[target] == M_DIRECT:
+        take(i)
+        if not keep:
+            spill(i)
+
+
 def zero_page(i):
     """Operand `i` is a temporary or a slot of this function, which must be in zero page."""
     slot_class[op_slot[i]] = CLASS_ZP
@@ -986,6 +997,8 @@ def unify(left, right):
     it. typetab.NUMBER_TYPE if neither has a type: they are then constants."""
     if typetab.is_array(op_type[left]) or typetab.is_array(op_type[right]):
         err.fatal(err.E_ARRAY_VALUE)
+    if typetab.is_record(op_type[left]) or typetab.is_record(op_type[right]):
+        err.fatal(err.E_TYPE)
     if typetab.is_untyped(op_type[left]):
         if typetab.is_untyped(op_type[right]):
             return typetab.NUMBER_TYPE

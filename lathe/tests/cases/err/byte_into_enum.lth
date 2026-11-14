@@ -1,0 +1,10 @@
+; error 44 9 7
+module byte_into_enum
+enum Kind
+  A
+end
+var e: Kind
+var b: byte
+func f()
+  e = b
+end

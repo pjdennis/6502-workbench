@@ -640,6 +640,7 @@ def copy_value():
     target = reg.depth - 2
     source = reg.depth - 1
     reg.assignable(source, reg.op_type[target])
+    reg.unaliased(source, target, True)
     reg.release(source)
     if not reg.same_place(source, target):
         for k in range(0, typetab.size(reg.op_type[target])):
@@ -661,6 +662,8 @@ def store():
     target = reg.depth - 3
     if not reg.accepts(pend_type, reg.op_type[target]):
         err.fatal(err.E_TYPE)
+    reg.unaliased(target + 1, target, False)
+    reg.unaliased(target + 2, target, False)
     operate(op, pend_type, target + 1, target + 2, target)
     for k in range(typetab.size(pend_type), typetab.size(reg.op_type[target])):
         reg.put_const(0, target, k)
@@ -728,6 +731,8 @@ def convert(t):
     settle()
     i = reg.depth - 1
     source = reg.op_type[i]
+    if typetab.is_record(source) or typetab.is_record(t):
+        err.fatal(err.E_TYPE)
     if t == typetab.BOOL_TYPE:
         if source != typetab.BOOL_TYPE:
             reg.push(reg.O_CONST, typetab.NUMBER_TYPE, 0)
@@ -812,7 +817,7 @@ def index():
     if shift > 3 and (reg.op_kind[i] != reg.O_CONST or reg.op_value[i] != 0):
         err.fatal(err.E_ELEMENT_SIZE)
     if reg.op_kind[i] == reg.O_CONST:
-        if reg.op_value[i] > (256 - size) // size:
+        if reg.op_value[i] != 0 and (size > 256 or reg.op_value[i] > (256 - size) // size):
             err.fatal(err.E_RANGE)
         reg.op_value[i] = reg.op_value[i] * size
     else:
@@ -877,10 +882,14 @@ def array_index(base, t):
         reg.pop()
     elif big and mode == reg.M_DIRECT:
         element_pointer(base, e)
-    elif step != 1 or big or (mode == reg.M_INDEXED) or (mode == reg.M_POINTER and (
-            reg.op_kind[base + reg.INDEX] != reg.O_CONST or reg.offset(base, 0) + reg.op_value[base + reg.INDEX] != 0)):
+    elif step != 1 or big or mode == reg.M_INDEXED or (mode == reg.M_POINTER and reg.op_kind[base + reg.INDEX] != reg.O_CONST):
         err.fatal(err.E_TWO_INDEXES)
     else:
+        if mode == reg.M_POINTER:       # Y is the index plus where the array is: `p.marks[i]`
+            constant(typetab.BYTE_TYPE, (reg.offset(base, 0) + reg.op_value[base + reg.INDEX]) & 0xFF)
+            binary(fold.ADD)
+            settle()
+            reg.op_value[base] = 0
         reg.into_memory(i)              # in X, or in Y after what a pointer points at
         reg.take_index(base)
         if mode == reg.M_DIRECT:
@@ -928,6 +937,32 @@ def pointed(base, e):
     reg.op_size[base] = typetab.size(e)
     reg.op_value[base] = 0
     reg.op_stride[base] = 1
+
+
+def record_of():
+    """A field of the newest operand is wanted: if it is a pointer to a record, it becomes
+    the record it points at (p[0]). Returns the record's type."""
+    settle()
+    i = reg.depth - 1
+    t = reg.op_type[i]
+    if typetab.is_pointer(t) and typetab.is_record(typetab.base(t)):
+        constant(typetab.BYTE_TYPE, 0)
+        index()
+    if reg.op_kind[i] != reg.O_VAR or not typetab.is_record(reg.op_type[i]):
+        err.fatal(err.E_NOT_RECORD)
+    return reg.op_type[i]
+
+
+def field(place, t):
+    """The newest operand, a record, becomes its field of type `t` that is `place` bytes into
+    it: as for a constant index, byte k of the field is byte `place` + k of the record. Through
+    a pointer, every byte must be within reach of Y."""
+    i = reg.depth - 1
+    reg.op_value[i] = reg.offset(i, place)
+    reg.op_type[i] = t
+    reg.op_size[i] = typetab.size(t)
+    if reg.op_mode[i] == reg.M_POINTER and reg.op_value[i] + typetab.size(t) > 256:
+        err.fatal(err.E_RANGE)
 
 
 def to_zero_page(i):

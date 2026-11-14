@@ -1,0 +1,55 @@
+; Records: fields at constant offsets folded into the address, nested records, array fields,
+; lo() and hi() of fields, addresses of records and fields, sizeof, and whole-record copies,
+; which go byte by byte (docs/language.md, "Types").
+module records
+
+type Point = record
+  x: byte
+  y: byte
+end
+
+type Shape = record
+  name:  ^byte
+  pos:   Point
+  size:  word
+  marks: [3]byte
+  sides: [2]word
+end
+
+var s: Shape
+var t: Shape
+var b: byte
+var w: word
+var i: byte
+var p: ^Point
+var q: ^byte
+
+func fields()
+  s.pos.x = 1
+  s.pos.y = s.pos.x + b
+  s.size = w
+  w = s.size + 1
+  hi(s.size) = 0
+  b = lo(t.size)
+  s.marks[2] = s.marks[i]
+  s.sides[i] = s.sides[1]
+  b = sizeof(Shape)
+end
+
+func addresses()
+  p = @s.pos
+  q = @s.marks[i]
+  q = @s.marks
+  w = word(@t)
+end
+
+func copy()
+  var local: Point
+  t = s
+  local = s.pos
+  t.pos = local
+end
+
+func compare(): bool
+  return s.pos.x == t.pos.y and s.size < t.size
+end

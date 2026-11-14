@@ -1,0 +1,10 @@
+; error 44 9 12
+module enum_compared_with_number
+enum Kind
+  A
+  B
+end
+var e: Kind
+func f(): bool
+  return e == 1
+end

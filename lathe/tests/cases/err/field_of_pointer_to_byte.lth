@@ -1,0 +1,6 @@
+; error 128 5 8
+module field_of_pointer_to_byte
+var p: ^byte
+func f()
+  p = p.next
+end

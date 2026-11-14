@@ -1,0 +1,6 @@
+; error 132 5 9
+module record_contains_array_of_itself
+type Link = record
+  a: byte
+  more: [2]Link
+end

@@ -1,0 +1,10 @@
+; error 43 9 5
+module field_out_of_reach
+type Big = record
+  a: [255]byte
+  b: word
+end
+var p: ^Big
+func f()
+  p.b = 1
+end

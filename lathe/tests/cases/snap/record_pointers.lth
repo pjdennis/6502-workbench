@@ -1,0 +1,57 @@
+; Pointers to records: p.field is LDY #offset / (p),Y, with p in zero page as for any
+; dereference; p.next.field goes through a zero page temporary; p[i].field scales the index;
+; p.marks[i] adds where the array is to the index; and the elements of a `rows` array of
+; records are together and have addresses
+; (docs/language.md, "Pointers").
+module record_pointers
+
+type Link = record
+  next:  ^Link
+  value: word
+  tag:   byte
+  spare: [3]byte            ; padding to eight bytes, for `rows` and p[i]
+end
+
+var p: ^Link
+var q: ^Link
+var far: ^Link nozp
+var nodes: [16]Link rows
+var b: byte
+var w: word
+var i: byte
+
+func through()
+  b = p.tag
+  p.tag = b
+  w = p.value
+  p.value = w + 1
+  p.value += 1
+  q = p.next
+  b = p.next.tag
+  p.next.next.tag = 0
+  b = far.tag
+  b = p[i].tag
+  b = p[1].spare[2]
+  p.spare[i] = p.spare[0]
+end
+
+func in_rows()
+  nodes[i].tag = b
+  p = @nodes[i]
+  w = nodes[3].value
+  nodes[i].next = @nodes[2]
+  nodes[i] = nodes[3]
+end
+
+func copy_through()
+  q[0] = p[0]
+end
+
+func count(): byte
+  var n: byte = 0
+  while p != nil do
+    n += 1
+    p = p.next
+  end
+  return n
+end

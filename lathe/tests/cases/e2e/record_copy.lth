@@ -1,0 +1,135 @@
+; A record with record, array and enumeration fields: filled in, copied whole between
+; variables, a local, elements of an array stored by column and through pointers, changed,
+; and compared field by field.
+module record_copy
+
+import libout
+
+enum Shade
+  LIGHT
+  DARK
+end
+
+type Point = record
+  x: int
+  y: int
+end
+
+type Shape = record
+  name:    ^byte
+  origin:  Point
+  corners: [3]Point
+  marks:   [4]byte
+  sides:   [2]word
+  shade:   Shade
+end
+
+var a: Shape
+var b: Shape
+var shapes: [5]Shape
+var differences: byte
+
+func differ(what: byte)
+  libout.char(what)
+  differences += 1
+end
+
+; field by field; one letter for each that differs
+func compare(p: ^Shape, q: ^Shape)
+  var i: byte
+  differences = 0
+  if p.name != q.name then
+    differ('n')
+  end
+  if p.origin.x != q.origin.x or p.origin.y != q.origin.y then
+    differ('o')
+  end
+  for i = 0 to 2 do
+    if p.corners[i].x != q.corners[i].x or p.corners[i].y != q.corners[i].y then
+      differ('0' + i)
+    end
+  end
+  for i = 0 to 3 do
+    if p.marks[i] != q.marks[i] then
+      differ('m')
+    end
+  end
+  if p.sides[0] != q.sides[0] or p.sides[1] != q.sides[1] then
+    differ('s')
+  end
+  if p.shade != q.shade then
+    differ('d')
+  end
+  libout.dec(differences)
+  libout.space()
+end
+
+func fill(s: ^Shape, seed: byte)
+  var i: byte
+  s.name = "shape"
+  s.origin.x = -int(seed)
+  s.origin.y = int(seed) * 4
+  for i = 0 to 2 do
+    s.corners[i].x = int(seed + i)
+    s.corners[i].y = -500 + int(i)
+  end
+  for i = 0 to 3 do
+    s.marks[i] = seed ^ i
+  end
+  s.sides[0] = word(seed) << 8
+  s.sides[1] = $FFFF - word(seed)
+  s.shade = Shade(seed & 1)
+end
+
+func print(s: ^Shape)
+  var i: byte
+  libout.sdec(s.origin.x)
+  libout.char(',')
+  libout.sdec(s.origin.y)
+  for i = 0 to 2 do
+    libout.space()
+    libout.sdec(s.corners[i].x)
+    libout.char(',')
+    libout.sdec(s.corners[i].y)
+  end
+  for i = 0 to 3 do
+    libout.space()
+    libout.hex(s.marks[i])
+  end
+  libout.space()
+  libout.hexw(s.sides[0])
+  libout.space()
+  libout.hexw(s.sides[1])
+  libout.space()
+  libout.dec(byte(s.shade))
+  libout.nl()
+end
+
+pub func main()
+  var local: Shape
+  var i: byte
+  fill(@a, 7)
+  print(@a)
+  b = a
+  compare(@a, @b)
+  b.corners[1].y = 3
+  b.marks[2] = 0
+  b.shade = DARK
+  compare(@a, @b)
+  libout.nl()
+  for i = 0 to 4 do
+    shapes[i] = a
+    shapes[i].marks[0] = i
+  end
+  local = shapes[3]
+  compare(@a, @local)
+  fill(@local, 200)
+  shapes[2] = local
+  b = shapes[2]
+  compare(@b, @local)
+  print(@b)
+  b.origin = a.origin
+  b.corners[0] = a.corners[2]
+  compare(@a, @b)
+  libout.nl()
+end

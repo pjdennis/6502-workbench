@@ -1,0 +1,11 @@
+; error 44 9 6
+module enum_case_with_number
+enum Kind
+  A
+end
+var e: Kind
+func f()
+  case e
+  of 1
+  end
+end
