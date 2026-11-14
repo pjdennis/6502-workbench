@@ -19,9 +19,9 @@ The compiler writes one object file (`.lo`) per module. The linker reads all of 
 | `$01` | `MOD` | version (1 byte, value 1), CPU (0 = 6502, 1 = 65C02), module name (string). First record. |
 | `$02` | `IMP` | Name of an imported module (string). |
 | `$03` | `SYM` | Kind (1 byte), name (string). Kinds: 1 function, 2 variable, 3 constant data, 4 pointer class. |
-| `$04` | `VAR` | Defines a module-level variable: symbol (2), size (2), class (1), weight (1), flags (1); then, if flag bit 0 is set, `size` bytes of initial value. |
+| `$04` | `VAR` | Defines a module-level variable: symbol (2), size (2), class (1), weight (1), flags (1). A variable is storage only; it has no initial value in the object file. |
 | `$05` | `DATA` | Defines constant data: symbol (2), then the bytes. |
-| `$06` | `DFIX` | Fix-ups for the `DATA` or `VAR` record just before it. Entries as in `FIX`. |
+| `$06` | `DFIX` | Fix-ups for the `DATA` record just before it. Entries as in `FIX`. |
 | `$07` | `FUNC` | Starts a function: symbol (2), flags (1). Followed by its `SLOT`, `CALL`, `FIX` and `CODE` records and closed by `ENDF`. |
 | `$08` | `SLOT` | One slot of the function, in slot-number order from 0: size (2), class (1), weight (1), kind (1), name (string). |
 | `$09` | `CALL` | One call the function makes: callee symbol (2), flags (1), outer symbol (2). |
@@ -41,7 +41,7 @@ Order within a function: `FUNC`, every `SLOT`, every `CALL`, `FIX`, `CODE`, `END
 | Slot and variable **class** | 0 must be in zero page; 1 either; 2 never in zero page. |
 | **Weight** | 0 to 255: how much the slot gains from zero page. Uses are counted, those in loops more heavily, and the count stops at 255. |
 | Slot **kind** | 0 parameter, 1 local, 2 temporary. Parameters come first, in order. |
-| `VAR` **flags** | bit 0: initial value follows. |
+| `VAR` **flags** | None yet; the byte is 0. |
 | `FUNC` **flags** | bit 0 `recursive`; bit 1 `interrupt`; bit 2 exported; bit 3 parameters and results are in registers (`asm` functions). |
 | `CALL` **flags** | bit 0: the caller saves its frame around this call; bit 1: the call is through a pointer and the callee symbol is a class. |
 | `CALL` **outer** | The function or class whose arguments were being stored when this call was made, or `$FFFF` ([`code-model.md`](code-model.md), "Calls inside arguments"). |
@@ -81,6 +81,24 @@ The compiler cannot know whether a variable will be in zero page. The rule is th
 
 Because `CODE` holds only instructions, the linker and the text renderer find instruction boundaries by decoding opcodes.
 
+## Initial values and start-up
+
+**Rule: whether a program links never depends on where the linker puts a variable.** A variable may land in zero page or main memory; both must work. So variables carry no initial bytes.
+
+- The compiler turns every initialiser of a module-level or `static` variable into code in a function named `module.$init`, written at the end of the module. A module with no initialisers has no such function.
+- The linker makes a function `$init`: a `JSR module.$init` for each module that has one, in the order the objects are given, then `RTS`.
+- The linker makes the start-up function `$start`, the first thing in the code range, from the environment file:
+
+| Step | Code | When |
+|---|---|---|
+| Stack | `LDX #n` / `TXS` | The environment has `stack n`. |
+| Decimal flag | `CLD` | Always. |
+| Initial values | `JSR $init` | Some module has initialisers. |
+| The program | `JSR mainmodule.main` | Always. |
+| Exit | `LDA #0` / `JMP addr`, or `JMP` to itself, or `RTS` | `exit call addr`, `exit loop`, `exit return`. |
+
+`$init` follows `$start`, and the objects' functions follow that. The reset vector holds the address of `$start`.
+
 ## Rendering as assembler text
 
 The host tool `lo2asm` turns object files into asm17 source.
@@ -91,6 +109,6 @@ The host tool `lo2asm` turns object files into asm17 source.
 | Slot `n` of `mod.func` | Label `mod__func__slotname`. |
 | A label inside a function | Local label `.L` followed by the written offset in hex. |
 | A fix-up | The label, with `+addend` if not zero, and `<` or `>` for kinds 2 and 3. |
-| `DATA` and initial values | `.byte` lines. |
+| `DATA` | `.byte` lines. |
 
-Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then the functions the linker kept, in the same order the linker places them. Assembling that text must give the same bytes as the linker's own image.
+Rendering one module needs no addresses and gives the text the snapshot tests compare. Rendering a whole program takes the object files in link order and the linker's map: it writes an equate for every variable and slot first, then `$start` and `$init` as the linker makes them, then the functions the linker kept, in the same order the linker places them. Assembling that text must give the same bytes as the linker's own image.

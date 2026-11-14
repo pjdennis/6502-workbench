@@ -176,6 +176,8 @@ place     region SYMBANK       WIN 2
 
 farcall   wendy2_farcall
 output    binary
+stack     $FF
+exit      loop
 ```
 
 | Entry | Meaning |
@@ -187,6 +189,7 @@ output    binary
 | `place` | Where a segment goes, by default or for one module. |
 | `farcall` | The run-time routine for calls that cross windows: a bank switch or an overlay loader. |
 | `output` | The image format: raw binary, a Commodore `PRG`, one file per bank, and so on. |
+| `stack`, `exit` | What the start-up code the linker writes does before and after `main`. |
 
 A period machine with little zero page, no banks and a disk is the same file with different numbers and an overlay loader in place of the bank switch.
 

@@ -200,15 +200,16 @@ At a call of an `inline` function the compiler replays the function's saved toke
 
 ## Segments, banking and overlays
 
-The compiler places everything it emits in one of five segments.
+The compiler places everything it emits in one of four segments.
 
 | Segment | Contents | In a ROM system |
 |---|---|---|
 | code | instructions | ROM |
 | constants | `const` tables and string literals | ROM |
-| initialised data | variables with an initial value | RAM, copied from ROM at start |
-| uninitialised data | all other variables and frames | RAM |
+| variables | all variables and frames | RAM |
 | zero page | whatever the linker placed there | RAM |
+
+**Initial values are set by code.** A variable declared with an initial value is assigned by a function the compiler writes for each module and the start-up code calls before `main`. There is no initialised-data segment to copy, so the output is ROMable as it stands, and a variable with an initial value can be placed anywhere, zero page included. Whether a program links never depends on a placement the linker chose. For a large table that never changes, use `const`, which costs no start-up code.
 
 Where each segment of each module goes is decided by the environment description and the link configuration ([`architecture.md`](architecture.md)), not by the source.
 

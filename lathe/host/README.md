@@ -81,8 +81,11 @@ cpu       6502          ; or 65c02
 zeropage  $00 $FF       ; first and last address the linker may use
 code      $0200 $BFFF   ; where code and constant data go
 data      $C000 $EFFF   ; where variables go
-start     host_start.start   ; the function the reset vector points at
+stack     $FF           ; optional: the start-up code sets the stack pointer
+exit      call $F00F    ; when main returns: call ADDR with A = 0, or `loop`, or `return`
 ```
+
+The linker writes the start-up code from these entries (`../docs/object-format.md`, "Initial values and start-up").
 
 The image runs from the start of `code` to `$FFFF`, with the reset vector at `$FFFC`, which is what the emulator's default machine loads. Environment files are in `lathe/env/`; `host.env` describes that machine.
 
