@@ -1,0 +1,52 @@
+; A test of sys: copy the file named by the first argument to the file named by the second,
+; and write the number of arguments and each argument's length to standard output. Exits with
+; status 2 if the input cannot be opened, 3 if the output cannot be created.
+; (lathe/tests/test_src_sys.py)
+module copytest
+
+import sys
+
+var name_in: [128]byte
+var name_out: [128]byte
+
+func digit(n: byte)
+  sys.put_byte('0' + n)
+end
+
+pub func main()
+  var i: byte
+  var n: byte
+  var input: byte
+  var output: byte
+  var b: byte
+  var at_end: bool
+  n = sys.argc()
+  digit(n)
+  i = 0
+  while i < n do
+    sys.put_byte(' ')
+    digit(sys.arg_copy(i, @name_in))
+    i += 1
+  end
+  sys.put_byte(10)
+  n = sys.arg_copy(0, @name_in)
+  n = sys.arg_copy(1, @name_out)
+  input = sys.open_in(@name_in)
+  if input == 0 then
+    sys.exit(2)
+  end
+  output = sys.open_out(@name_out)
+  if output == 0 then
+    sys.exit(3)
+  end
+  loop
+    b, at_end = sys.read(input)
+    if at_end then
+      break
+    end
+    sys.write(output, b)
+  end
+  sys.close(input)
+  sys.put_error('!')
+  sys.exit(0)        ; closes the output
+end

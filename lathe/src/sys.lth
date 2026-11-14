@@ -1,0 +1,127 @@
+; The outside world, as the compiler sees it: the Lathe counterpart of lathe/host/env.py, with
+; the same functions under the same names, on the services of the emulator's host interface
+; (asm/17/environment.asm, declared in lathe/rt/host.lth). Everything else in lathe/src/ reaches
+; files, arguments and the console only through the functions here.
+;
+; Pointers. The Python models memory as env.mem, 64 KB of bytes, and a pointer as an int that
+; indexes it. Here a pointer is a real address, and the convention throughout lathe/src/ is:
+;
+;   - A pointer is always held in a variable, element, parameter or result of type ^byte, never
+;     in a word. Where the Python has `p` holding an index into env.mem, the Lathe has `p: ^byte`.
+;   - The Python's pointer 0, "none", is nil.
+;   - env.mem[p] is p[0], env.mem[p + i] is p[i] for an i below 256, and `p += 1` steps it.
+;   - Limits are pointers too: a test such as `top + size > TEXT_END` compares two ^byte values,
+;     the end being worked out from the array that holds the memory (`@text + TEXT_SIZE`).
+;   - A pointer becomes a number only where the Python does arithmetic on it as a number, with
+;     word(p), and that is said where it happens.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                                 | Lathe                       | Why                    |
+;   |----------------------------------------|-----------------------------|------------------------|
+;   | mem, MEM_SIZE                          | (none)                      | memory is real         |
+;   | start(), is_program(), _name()         | (none)                      | the machine starts the |
+;   |                                        |                             | program and names are  |
+;   |                                        |                             | already in memory      |
+;   | _files[h] holds the file, h its index  | files[i] holds the system's | the system gives the   |
+;   |                                        | handle, which is returned   | handles; the table is  |
+;   |                                        |                             | kept only so that      |
+;   |                                        |                             | exit() can close them  |
+;   | write(handle, byte), put_byte(byte)    | parameter `b`               | `byte` is a keyword    |
+;   | read() returns 0 at the end            | sets 0 itself               | the service leaves A   |
+;   |                                        |                             | undefined at the end   |
+module sys
+
+import host
+
+const MAX_FILES = 16
+var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
+
+; Number of program arguments.
+pub func argc(): byte
+  return host.argc()
+end
+
+; Copy argument i to p[...] with a terminating zero; return its length.
+pub func arg_copy(i: byte, p: ^byte): byte
+  var a: ^byte
+  var n: byte = 0
+  a = host.argv(i)
+  while a[n] != 0 do
+    p[n] = a[n]
+    n += 1
+  end
+  p[n] = 0
+  return n
+end
+
+; Keep the handle the system gave, or give 0 if it gave none or the table is full.
+func keep(handle: byte): byte
+  var h: byte
+  if handle == 0 then
+    return 0
+  end
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] == 0 then
+      files[h] = handle
+      return handle
+    end
+  end
+  host.close(handle)
+  return 0
+end
+
+; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
+pub func open_in(p: ^byte): byte
+  return keep(host.open(p))
+end
+
+; Create the file named at p for writing. Returns a handle, or 0.
+pub func open_out(p: ^byte): byte
+  return keep(host.open_out(p))
+end
+
+pub func close(handle: byte)
+  var h: byte
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] == handle then
+      files[h] = 0
+    end
+  end
+  host.close(handle)
+end
+
+; Next byte of the file and false, or 0 and true at the end of the file.
+pub func read(handle: byte): byte, bool
+  var b: byte
+  if host.read(handle) -> b then
+    return 0, true
+  end
+  return b, false
+end
+
+pub func write(handle: byte, b: byte)
+  host.write(b, handle)
+end
+
+; One byte to standard output.
+pub func put_byte(b: byte)
+  host.put_byte(b)
+end
+
+; One byte to the error output.
+pub func put_error(b: byte)
+  host.put_error(b)
+end
+
+; End the program. Does not return.
+pub func exit(code: byte)
+  var h: byte
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] != 0 then
+      host.close(files[h])
+      files[h] = 0
+    end
+  end
+  host.exit(code)
+end

@@ -1,0 +1,232 @@
+; A test of kernel: kerneltest INPUT OUTPUT MODE runs a fixed set of operations on the text
+; memory, streams, the name heap and the symbol table and prints what they give, in
+; hexadecimal. lathe/tests/test_src_kernel.py does the same with kernel.py and compares.
+; MODE is a letter: n, the normal run; f, fill the name heap (error 70); s, fill the symbol
+; table (error 71); d, declare a name twice (error 41); p, a path too long (error 83).
+module kerneltest
+
+import err
+import kernel
+import sys
+
+const HEX: [16]byte = "0123456789ABCDEF"
+const TEXT = "Some text\n"
+
+func put_hex(b: byte)
+  sys.put_byte(HEX[b >> 4])
+  sys.put_byte(HEX[b & 15])
+end
+
+func put_word(w: word)
+  put_hex(hi(w))
+  put_hex(lo(w))
+  sys.put_byte(' ')
+end
+
+func nl()
+  sys.put_byte(10)
+end
+
+; The name spelt by the zero-terminated text at p.
+func name(p: ^byte): word
+  kernel.name_begin()
+  while p[0] != 0 do
+    kernel.name_add(p[0])
+    p += 1
+  end
+  return kernel.name_end()
+end
+
+; The name `n` and the three digits of k.
+func numbered(k: word): word
+  kernel.name_begin()
+  kernel.name_add('n')
+  kernel.name_add('0' + byte(k >> 8))
+  kernel.name_add('0' + byte((k >> 4) & 15))
+  kernel.name_add('0' + byte(k & 15))
+  return kernel.name_end()
+end
+
+func names()
+  var a: word
+  var k: word
+  var sum: word = 0
+  var again: word = 0
+  a = name("count")
+  put_word(a)
+  put_word(name("put_byte"))
+  put_word(name("count"))
+  put_word(kernel.name_top)
+  nl()
+  k = 0
+  while k < 300 do
+    sum += numbered(k)
+    k += 1
+  end
+  k = 0
+  while k < 300 do
+    again += numbered(k)
+    k += 1
+  end
+  put_word(sum)
+  put_word(again)
+  put_word(kernel.name_top)
+  a = name("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaxyz")
+  put_word(a)
+  put_word(name("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaq"))
+  put_hex(kernel.name_length(a))
+  sys.put_byte(' ')
+  put_hex(kernel.name_char(a, 30))
+  nl()
+  kernel.name_set_token(name("while"), 77)
+  put_hex(kernel.name_token(name("while")))
+  put_hex(kernel.name_token(name("count")))
+  nl()
+end
+
+func symbols()
+  var s: word
+  var t: word
+  var found: bool
+  var n: word
+  var mark: word
+  n = name("main")
+  s = kernel.sym_add(kernel.SCOPE_MODULE, n, kernel.K_FUNC)
+  put_word(s)
+  t = kernel.sym_add(1, n, kernel.K_VAR)
+  put_word(t)
+  s, found = kernel.sym_find(1, n)
+  put_word(s)
+  s, found = kernel.sym_find(2, n)
+  put_word(s)
+  if found then
+    sys.put_byte('?')
+  end
+  s, found = kernel.sym_lookup(n)
+  put_word(s)
+  put_word(kernel.member_add(3, 4))
+  put_word(kernel.member_add(5, 6))
+  nl()
+  kernel.scope_begin()
+  mark = kernel.name_top
+  s = kernel.sym_add(kernel.SCOPE_LOCAL, n, kernel.K_LOCAL)
+  t = kernel.sym_add(kernel.SCOPE_LOCAL, name("i"), kernel.K_LOCAL)
+  put_word(s)
+  put_word(t)
+  s, found = kernel.sym_lookup(n)
+  put_word(s)
+  put_word(kernel.name_top - mark)
+  kernel.scope_end()
+  s, found = kernel.sym_lookup(n)
+  put_word(s)
+  put_word(kernel.name_top - mark)
+  put_word(kernel.sym_count)
+  put_hex(kernel.module_add(n))
+  put_hex(kernel.module_add(name("other")))
+  nl()
+end
+
+func streams(input: ^byte, output: ^byte)
+  var s: byte
+  var b: byte
+  var at_end: bool
+  var count: word = 0
+  var sum: word = 0
+  var ok: bool
+  s = kernel.open_memory(@TEXT, @TEXT + 3)
+  put_hex(s)
+  put_word(kernel.get_word(s))
+  b, at_end = kernel.get(s)
+  put_hex(b)
+  b, at_end = kernel.get(s)
+  if at_end then
+    sys.put_byte('E')
+  end
+  put_word(kernel.get_word(s))
+  kernel.close(s)
+  s, ok = kernel.open_in(input)
+  put_hex(s)
+  loop
+    b, at_end = kernel.get(s)
+    if at_end then
+      break
+    end
+    count += 1
+    sum += b
+  end
+  put_word(count)
+  put_word(sum)
+  kernel.close(s)
+  s, ok = kernel.open_out(output)
+  put_hex(s)
+  kernel.put(s, 'A')
+  kernel.put_word(s, $1234)
+  kernel.put_name(s, name("main"))
+  kernel.close(s)
+  s, ok = kernel.open_in(@TEXT)        ; no such file
+  if not ok then
+    sys.put_byte('N')
+  end
+  nl()
+end
+
+func paths(input: ^byte)
+  var p: ^byte
+  kernel.path_begin()
+  kernel.path_add_text(input)
+  kernel.path_add('/')
+  kernel.path_add_name(name("module"))
+  p = kernel.path_end()
+  while p[0] != 0 do
+    sys.put_byte(p[0])
+    p += 1
+  end
+  put_word(word(kernel.text_reserve(10) - kernel.path))
+  nl()
+end
+
+pub func main()
+  var input: ^byte
+  var output: ^byte
+  var mode: ^byte
+  var k: word
+  err.init()
+  kernel.init()
+  input = kernel.keep_argument(0)
+  output = kernel.keep_argument(1)
+  mode = kernel.keep_argument(2)
+  put_word(word(output - input))
+  put_word(word(mode - input))
+  nl()
+  if mode[0] == 'f' then
+    k = 0
+    loop
+      k += 1
+      name("long_names_fill_the_heap_")
+      kernel.name_begin()
+      kernel.name_add('x')
+      kernel.name_add(lo(k))
+      kernel.name_add(hi(k))
+      kernel.name_end()
+    end
+  elif mode[0] == 's' then
+    k = 0
+    loop
+      put_word(kernel.sym_add(0, numbered(k), kernel.K_VAR))
+      k += 1
+    end
+  elif mode[0] == 'd' then
+    kernel.sym_add(0, name("twice"), kernel.K_VAR)
+    kernel.sym_add(0, name("twice"), kernel.K_VAR)
+  elif mode[0] == 'p' then
+    kernel.path_begin()
+    loop
+      kernel.path_add('x')
+    end
+  end
+  names()
+  symbols()
+  streams(input, output)
+  paths(input)
+  sys.exit(0)
+end

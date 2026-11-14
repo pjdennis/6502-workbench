@@ -1,0 +1,515 @@
+; The kernel: what every phase of the compiler needs. lathe/host/kernel.py in Lathe.
+;
+; Owns
+; - the text memory: what the system must see as zero-terminated text (the program's arguments
+;   and the name of the file being opened);
+; - streams: bytes read or written in order, from a file or from memory, so that no phase knows
+;   which it has;
+; - the name heap: every name is stored once and is known everywhere by its offset there;
+; - the symbol table: one column per attribute, indexed by symbol number. Module-level symbols
+;   come first; the symbols of the function being compiled lie above them and are released when
+;   it ends. What the columns mean for each kind of symbol is DECL's business.
+;
+; Reports errors through err, which is the kernel's other half. Pointers follow the convention
+; at the top of lathe/src/sys.lth.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | text memory is env.mem from TEXT_BASE| the array `text`, TEXT_SIZE bytes;| memory is real: |
+;   | $0100 to TEXT_END $4000 (16128 bytes)| TEXT_END is @text + TEXT_SIZE     | $0100 is the    |
+;   |                                      |                                   | stack. 1024     |
+;   |                                      |                                   | bytes hold the  |
+;   |                                      |                                   | path and every  |
+;   |                                      |                                   | argument the    |
+;   |                                      |                                   | machine can give|
+;   |                                      |                                   | ($FE00-$FFDF)   |
+;   | keep_argument copies, then checks    | the same, so an argument that     | (as left)       |
+;   |                                      | does not fit is written past the  |                 |
+;   |                                      | array before error 82: it cannot  |                 |
+;   |                                      | happen while TEXT_SIZE exceeds    |                 |
+;   |                                      | PATH_SIZE + 480                   |                 |
+;   | NO_SYM, NO_OBJ declared with the     | declared at the top               | declare before  |
+;   | symbol table, used by name_end()     |                                   | use             |
+;   | name_length, name_char used before   | forward declarations              | declare before  |
+;   | they are defined                     |                                   | use             |
+;   | for i in range(0, n), n a variable   | while i < n                       | `for i = 0 to   |
+;   |                                      |                                   | n - 1` runs 256 |
+;   |                                      |                                   | times for n = 0 |
+;   | `low, _ = get(s)`                    | a variable `at_end` for the `_`   | no `_`          |
+;   | name_word(): b | (b1 << 8)           | word(b) | (word(b1) << 8)         | bytes stay bytes|
+;   | path_length + 1 >= PATH_SIZE         | word(path_length) + 1 >= ...      | PATH_SIZE (256) |
+;   |                                      |                                   | is not a byte   |
+;   | column widths: ints                  | byte where every value fits (see  | the type is the |
+;   |                                      | each column), else word; the      | storage         |
+;   |                                      | 512-element word columns `rows`   | (error 123)     |
+module kernel
+
+import err
+import sys
+
+; ---- Text memory -------------------------------------------------------------------------
+
+const TEXT_SIZE = 1024
+const PATH_SIZE = 256
+
+var text: [TEXT_SIZE]byte nozp
+pub var text_top: ^byte
+pub var path: ^byte             ; the file name being built, PATH_SIZE bytes
+pub var path_length: byte
+
+forward func name_length(n: word): byte
+forward func name_char(n: word, i: byte): byte
+
+; Pointer to `size` bytes of text memory that stay reserved.
+pub func text_reserve(size: word): ^byte
+  var start: ^byte
+  if text_top + size > @text + TEXT_SIZE then
+    err.fatal(err.E_TEXT_FULL)
+  end
+  start = text_top
+  text_top += size
+  return start
+end
+
+; Pointer to program argument `i`, copied into text memory.
+pub func keep_argument(i: byte): ^byte
+  var start: ^byte
+  var length: byte
+  start = text_top
+  length = sys.arg_copy(i, start)
+  if start + length + 1 > @text + TEXT_SIZE then
+    err.fatal(err.E_TEXT_FULL)
+  end
+  text_top += length + 1
+  return start
+end
+
+pub func path_begin()
+  path_length = 0
+end
+
+pub func path_add(ch: byte)
+  if word(path_length) + 1 >= PATH_SIZE then        ; one byte is kept for the zero at the end
+    err.fatal(err.E_PATH_LONG)
+  end
+  path[path_length] = ch
+  path_length += 1
+end
+
+pub func path_add_text(t: ^byte)
+  while t[0] != 0 do
+    path_add(t[0])
+    t += 1
+  end
+end
+
+pub func path_add_name(name: word)
+  var i: byte = 0
+  while i < name_length(name) do
+    path_add(name_char(name, i))
+    i += 1
+  end
+end
+
+; Pointer to the finished file name.
+pub func path_end(): ^byte
+  path[path_length] = 0
+  return path
+end
+
+; ---- Streams -----------------------------------------------------------------------------
+
+const MAX_STREAMS = 6
+pub const STREAM_FREE = 0
+pub const STREAM_IN = 1             ; a file being read
+pub const STREAM_OUT = 2            ; a file being written
+pub const STREAM_MEMORY = 3         ; bytes of memory being read
+
+var stream_kind: [MAX_STREAMS]byte
+var stream_handle: [MAX_STREAMS]byte        ; the system's handle of a file
+var stream_next: [MAX_STREAMS]^byte         ; memory: pointer to the next byte
+var stream_limit: [MAX_STREAMS]^byte        ; memory: pointer past the last byte
+
+func stream_new(kind: byte): byte
+  var s: byte
+  for s = 0 to MAX_STREAMS - 1 do
+    if stream_kind[s] == STREAM_FREE then
+      stream_kind[s] = kind
+      return s
+    end
+  end
+  err.fatal(err.E_STREAMS_FULL)
+  return 0
+end
+
+func open_file(name: ^byte, kind: byte): byte, bool
+  var handle: byte
+  var s: byte
+  if kind == STREAM_IN then
+    handle = sys.open_in(name)
+  else
+    handle = sys.open_out(name)
+  end
+  if handle == 0 then
+    return 0, false
+  end
+  s = stream_new(kind)
+  stream_handle[s] = handle
+  return s, true
+end
+
+; Open the file whose name is at `name` for reading. Returns the stream and true, or false.
+pub func open_in(name: ^byte): byte, bool
+  return open_file(name, STREAM_IN)
+end
+
+; Create the file whose name is at `name`. Returns the stream and true, or false.
+pub func open_out(name: ^byte): byte, bool
+  return open_file(name, STREAM_OUT)
+end
+
+; A stream that reads memory from `start` up to but not including `limit`.
+pub func open_memory(start: ^byte, limit: ^byte): byte
+  var s: byte
+  s = stream_new(STREAM_MEMORY)
+  stream_next[s] = start
+  stream_limit[s] = limit
+  return s
+end
+
+pub func close(s: byte)
+  if stream_kind[s] != STREAM_MEMORY then
+    sys.close(stream_handle[s])
+  end
+  stream_kind[s] = STREAM_FREE
+end
+
+; The stream's next byte and false, or 0 and true at its end.
+pub func get(s: byte): byte, bool
+  var p: ^byte
+  if stream_kind[s] == STREAM_MEMORY then
+    if stream_next[s] == stream_limit[s] then
+      return 0, true
+    end
+    p = stream_next[s]
+    stream_next[s] = p + 1
+    return p[0], false
+  end
+  return sys.read(stream_handle[s])
+end
+
+; The next two bytes as a number. Bytes past the end read as zero.
+pub func get_word(s: byte): word
+  var low: byte
+  var high: byte
+  var at_end: bool
+  low, at_end = get(s)
+  high, at_end = get(s)
+  return word(low) | (word(high) << 8)
+end
+
+; Write one byte.
+pub func put(s: byte, value: byte)
+  sys.write(stream_handle[s], value)
+end
+
+; Write a number as two bytes, low byte first.
+pub func put_word(s: byte, value: word)
+  put(s, lo(value))
+  put(s, hi(value))
+end
+
+; Write a name as a string: its length, then its characters.
+pub func put_name(s: byte, name: word)
+  var i: byte = 0
+  put(s, name_length(name))
+  while i < name_length(name) do
+    put(s, name_char(name, i))
+    i += 1
+  end
+end
+
+; ---- The name heap -----------------------------------------------------------------------
+;
+; An entry is: link to the next name in the same hash bucket (2 bytes), the newest symbol
+; with this name (2), a token number (1), the length (1), the characters. A name is known
+; by the offset of its entry; 0 is no name.
+;
+; A name is built in place above the heap's top, one character at a time, and only kept if
+; it is new, so looking a name up copies nothing.
+
+const NAME_HEAP_SIZE = 8192
+const NAME_BUCKETS = 64         ; a power of two
+const MAX_NAME = 31             ; significant characters
+
+const N_LINK = 0
+const N_SYMBOL = 2
+const N_TOKEN = 4
+const N_LENGTH = 5
+const N_TEXT = 6
+
+pub const NO_SYM = $FFFF        ; (with the symbol table below in the Python)
+pub const NO_OBJ = $FFFF
+
+var names: [NAME_HEAP_SIZE]byte nozp
+var name_bucket: [NAME_BUCKETS]word
+pub var name_top: word = 1
+var new_length: byte
+var new_hash: byte
+
+func name_word(offset: word): word
+  return word(names[offset]) | (word(names[offset + 1]) << 8)
+end
+
+func name_set_word(offset: word, value: word)
+  names[offset] = lo(value)
+  names[offset + 1] = hi(value)
+end
+
+; Start building a name.
+pub func name_begin()
+  if name_top + N_TEXT + MAX_NAME > NAME_HEAP_SIZE then
+    err.fatal(err.E_NAMES_FULL)
+  end
+  new_length = 0
+  new_hash = 0
+end
+
+; Add a character to the name being built. Characters after the 31st are dropped.
+pub func name_add(ch: byte)
+  if new_length < MAX_NAME then
+    names[name_top + N_TEXT + new_length] = ch
+    new_length += 1
+    new_hash = ((new_hash << 1) | (new_hash >> 7)) ^ ch
+  end
+end
+
+; True unless entry `n` spells the name being built.
+func name_is_new(n: word): bool
+  var i: byte = 0
+  if names[n + N_LENGTH] != new_length then
+    return true
+  end
+  while i < new_length do
+    if names[n + N_TEXT + i] != names[name_top + N_TEXT + i] then
+      return true
+    end
+    i += 1
+  end
+  return false
+end
+
+; Finish the name being built. Returns the name, the same one for the same spelling.
+pub func name_end(): word
+  var bucket: byte
+  var n: word
+  bucket = new_hash & (NAME_BUCKETS - 1)
+  n = name_bucket[bucket]
+  while n != 0 and name_is_new(n) do
+    n = name_word(n + N_LINK)
+  end
+  if n != 0 then
+    return n
+  end
+  n = name_top
+  name_set_word(n + N_LINK, name_bucket[bucket])
+  name_set_word(n + N_SYMBOL, NO_SYM)
+  names[n + N_TOKEN] = 0
+  names[n + N_LENGTH] = new_length
+  name_bucket[bucket] = n
+  name_top += N_TEXT + new_length
+  return n
+end
+
+pub func name_length(n: word): byte
+  return names[n + N_LENGTH]
+end
+
+pub func name_char(n: word, i: byte): byte
+  return names[n + N_TEXT + i]
+end
+
+; The token number LEX gave this name: its keyword, or 0 for an ordinary name.
+pub func name_token(n: word): byte
+  return names[n + N_TOKEN]
+end
+
+pub func name_set_token(n: word, token: byte)
+  names[n + N_TOKEN] = token
+end
+
+; Forget every name made since name_top was `mark`. None may still have a symbol.
+pub func names_release(mark: word)
+  var bucket: byte
+  var n: word
+  for bucket = 0 to NAME_BUCKETS - 1 do
+    n = name_bucket[bucket]
+    while n >= mark do                  ; the newest names are first in each bucket
+      n = name_word(n + N_LINK)
+    end
+    name_bucket[bucket] = n
+  end
+  name_top = mark
+end
+
+; ---- The symbol table --------------------------------------------------------------------
+;
+; Symbols with the same name are chained from the name, newest first, so a name leads
+; straight to its symbols and the table needs no hash of its own. The chains are short:
+; one symbol per module that has the name, and the local that hides it.
+
+const MAX_SYMS = 512
+const MAX_MEMBERS = 1024
+const MAX_MODULES = 16          ; the module being compiled and those it imports
+
+pub const SCOPE_MODULE = 0      ; the module being compiled; 1 and up are imported modules
+pub const SCOPE_PREDECLARED = $FE   ; what the language itself declares
+pub const SCOPE_LOCAL = $FF     ; the function being compiled
+
+pub const K_MODULE = 1          ; value: the module's number
+pub const K_FUNC = 2            ; members: parameters, then results; value: address if extern
+pub const K_CONST = 3           ; type and value
+pub const K_VAR = 4             ; a variable that lives for the whole program; value: address if SF_AT
+pub const K_LOCAL = 5           ; a parameter or local of the function being compiled; value: its slot
+pub const K_BUILTIN = 6         ; a function the language declares; value: which one
+
+pub const SF_PUB = 1            ; exported
+pub const SF_EXTERN = 2         ; a routine at a fixed address, parameters and results in registers
+pub const SF_FORWARD = 4        ; a function declared `forward` whose body has not come yet
+pub const SF_AT = 8             ; a variable at a fixed address
+pub const SF_ZP = 16            ; a variable declared `zp`
+pub const SF_NOZP = 32          ; a variable declared `nozp`
+pub const SF_ASM = 64           ; an `asm` function: parameters and results in registers, no slots
+pub const SF_ROWS = 128         ; a variable declared `rows` (while its declaration is read)
+
+pub var sym_name: [MAX_SYMS]word rows
+pub var sym_scope: [MAX_SYMS]byte nozp
+pub var sym_kind: [MAX_SYMS]byte nozp
+pub var sym_flags: [MAX_SYMS]byte nozp
+pub var sym_type: [MAX_SYMS]byte nozp       ; a type number: typetab has MAX_TYPES = 64
+pub var sym_value: [MAX_SYMS]word rows
+pub var sym_obj: [MAX_SYMS]word rows        ; its number in the object file, NO_OBJ until it is used there
+pub var sym_weight: [MAX_SYMS]byte nozp     ; a variable: how much it gains from zero page (docs/codegen.md)
+pub var sym_members: [MAX_SYMS]word rows    ; the first of its members
+pub var sym_params: [MAX_SYMS]byte nozp     ; how many members are parameters
+pub var sym_results: [MAX_SYMS]byte nozp    ; how many more are results
+pub var sym_link: [MAX_SYMS]word rows       ; the next older symbol with the same name
+pub var sym_count: word
+pub var local_base: word        ; the first symbol of the function being compiled
+pub var local_names: word       ; name_top when that function began
+
+pub var member_type: [MAX_MEMBERS]byte nozp
+pub var member_value: [MAX_MEMBERS]byte nozp    ; a parameter's or result's register
+pub var member_count: word
+
+pub var module_name: [MAX_MODULES]word
+pub var module_count: byte
+
+; The symbol called `name` in exactly this scope, and whether there is one.
+pub func sym_find(scope: byte, name: word): word, bool
+  var s: word
+  s = name_word(name + N_SYMBOL)
+  while s != NO_SYM and sym_scope[s] != scope do
+    s = sym_link[s]
+  end
+  return s, s != NO_SYM
+end
+
+; What a plain `name` means here: a local, else a module-level symbol, else a predeclared
+; one. Symbols of imported modules are skipped: those are written module.name.
+pub func sym_lookup(name: word): word, bool
+  var s: word
+  s = name_word(name + N_SYMBOL)
+  while s != NO_SYM and sym_scope[s] != SCOPE_LOCAL and sym_scope[s] != SCOPE_MODULE and
+      sym_scope[s] != SCOPE_PREDECLARED do
+    s = sym_link[s]
+  end
+  return s, s != NO_SYM
+end
+
+; Declare `name` in `scope`. The other columns start empty.
+pub func sym_add(scope: byte, name: word, kind: byte): word
+  var s: word
+  var found: bool
+  s, found = sym_find(scope, name)
+  if found then
+    err.fatal(err.E_DUPLICATE)
+  end
+  if sym_count == MAX_SYMS then
+    err.fatal(err.E_SYMS_FULL)
+  end
+  s = sym_count
+  sym_count += 1
+  sym_name[s] = name
+  sym_scope[s] = scope
+  sym_kind[s] = kind
+  sym_flags[s] = 0
+  sym_type[s] = 0
+  sym_value[s] = 0
+  sym_obj[s] = NO_OBJ
+  sym_weight[s] = 0
+  sym_members[s] = member_count
+  sym_params[s] = 0
+  sym_results[s] = 0
+  sym_link[s] = name_word(name + N_SYMBOL)
+  name_set_word(name + N_SYMBOL, s)
+  return s
+end
+
+; A function begins: symbols and names made from now on are its own.
+pub func scope_begin()
+  local_base = sym_count
+  local_names = name_top
+end
+
+; The function ends: release its symbols and the names only it used.
+pub func scope_end()
+  while sym_count > local_base do
+    sym_count -= 1
+    ; Symbols are released newest first, so each is the first on its name's chain.
+    name_set_word(sym_name[sym_count] + N_SYMBOL, sym_link[sym_count])
+  end
+  names_release(local_names)
+end
+
+; Add a member to the newest symbol. Returns the member's number.
+pub func member_add(t: byte, value: byte): word
+  if member_count == MAX_MEMBERS then
+    err.fatal(err.E_MEMBERS_FULL)
+  end
+  member_type[member_count] = t
+  member_value[member_count] = value
+  member_count += 1
+  return member_count - 1
+end
+
+; Give the next module number to the module called `name`.
+pub func module_add(name: word): byte
+  if module_count == MAX_MODULES then
+    err.fatal(err.E_MODULES_FULL)
+  end
+  module_name[module_count] = name
+  module_count += 1
+  return module_count - 1
+end
+
+pub func init()
+  var s: byte
+  var bucket: byte
+  text_top = @text
+  path = text_reserve(PATH_SIZE)
+  for s = 0 to MAX_STREAMS - 1 do
+    stream_kind[s] = STREAM_FREE
+  end
+  for bucket = 0 to NAME_BUCKETS - 1 do
+    name_bucket[bucket] = 0
+  end
+  name_top = 1
+  sym_count = 0
+  local_base = 0
+  local_names = name_top
+  member_count = 0
+  module_count = 0
+end

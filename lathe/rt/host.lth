@@ -6,3 +6,15 @@ pub extern func read_byte(): byte in a, bool in c            at $F006
 pub extern func put_byte(ch: byte in a)                       at $F009
 pub extern func put_error(ch: byte in a)                      at $F00C
 pub extern func exit(code: byte in a)                         at $F00F
+
+; Files. A handle is never 0: open and open_out give 0 for a file that cannot be opened.
+; read gives the carry set at the end of the file, and then A holds nothing useful.
+pub extern func open(name: ^byte in ax): byte in a            at $F012
+pub extern func close(handle: byte in a)                      at $F015
+pub extern func read(handle: byte in a): byte in a, bool in c at $F018
+pub extern func open_out(name: ^byte in ax): byte in a        at $F021
+pub extern func write(ch: byte in a, handle: byte in x)       at $F024
+
+; Arguments: how many, and a pointer to argument i, a zero-terminated string.
+pub extern func argc(): byte in a                             at $F01B
+pub extern func argv(i: byte in a): ^byte in ax               at $F01E

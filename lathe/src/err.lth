@@ -1,0 +1,368 @@
+; Error numbers and reporting (part of the kernel): lathe/host/err.py in Lathe.
+;
+; Owns the list of error numbers with their texts, and the place in the source an error is
+; reported at. The compiler stops at the first error: fatal() writes
+; `FILE:LINE:COL: error N: text` to the error output and ends the program with status 1.
+; It never returns and nothing catches it.
+;
+; The numbers are grouped by what the error is about:
+;
+;       1 to 19   characters and tokens
+;      20 to 39   syntax (39 is "not implemented yet")
+;      40 to 59   meaning: names, types, values, statements and functions
+;      60 to 69   the command line and files
+;      70 to 98   a capacity of the compiler that was exceeded
+;      99         a fault in the compiler itself
+;     100 to 139  meaning, continued: further errors about meaning go here
+;     140 to 159  `asm` blocks and `asm` functions
+;
+; A number is never reused for another error; a new one takes the next free number of its group.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                                | Lathe                           | Why               |
+;   |---------------------------------------|---------------------------------|-------------------|
+;   | MESSAGES: one byte string, a line of  | MESSAGES and MORE_MESSAGES:     | a string literal  |
+;   | `number text` per error, ended by LF  | tables of strings, one `number  | holds at most 255 |
+;   |                                       | text` each, ended by its zero;  | bytes (error 7),  |
+;   |                                       | message(m) reads them as one    | and a table at    |
+;   |                                       |                                 | most 64 addresses |
+;   |                                       |                                 | (MAX_TABLE_FIXES) |
+;   | message_start() gives an index into   | gives a pointer to the text, or | follows from the  |
+;   | MESSAGES, len(MESSAGES) for none      | nil for none                    | table             |
+;   | fatal() walks to the LF               | walks to the zero               | the same          |
+;   | n % 10, n // 10, n * 10               | num.rem, num.div, num.mul       | no run-time       |
+;   |                                       |                                 | library yet       |
+;   | env.mem[i] for the file name          | file[0] through a ^byte stepped | lathe/src/sys.lth |
+;   |                                       | along it                        | "Pointers"        |
+module err
+
+import num
+import sys
+
+; Characters and tokens
+pub const E_BAD_CHAR = 1
+pub const E_BAD_NUMBER = 2
+pub const E_NUMBER_RANGE = 3
+pub const E_BAD_CHAR_CONST = 4
+pub const E_OPEN_STRING = 5
+pub const E_BAD_ESCAPE = 6
+pub const E_STRING_LONG = 7
+
+; Syntax
+pub const E_SYNTAX = 20
+pub const E_NAME_EXPECTED = 21
+pub const E_NL_EXPECTED = 22
+pub const E_LPAREN_EXPECTED = 23
+pub const E_RPAREN_EXPECTED = 24
+pub const E_COLON_EXPECTED = 25
+pub const E_MODULE_EXPECTED = 26
+pub const E_FUNC_EXPECTED = 27
+pub const E_IN_EXPECTED = 28
+pub const E_AT_EXPECTED = 29
+pub const E_END_EXPECTED = 30
+pub const E_REGISTER_EXPECTED = 31
+pub const E_TYPE_EXPECTED = 32
+pub const E_DECL_EXPECTED = 33
+pub const E_STMT_EXPECTED = 34
+pub const E_EXPR_EXPECTED = 35
+pub const E_DOT_EXPECTED = 36
+pub const E_THEN_EXPECTED = 37
+pub const E_DO_EXPECTED = 38
+pub const E_UNSUPPORTED = 39
+
+; Meaning
+pub const E_UNDEFINED = 40
+pub const E_DUPLICATE = 41
+pub const E_ARG_COUNT = 42
+pub const E_RANGE = 43
+pub const E_TYPE = 44
+pub const E_NOT_FUNC = 45
+pub const E_NOT_CONST = 46
+pub const E_REG_TYPE = 47
+pub const E_REG_USED = 48
+pub const E_MODULE_NAME = 49
+pub const E_NO_INTERFACE = 50
+pub const E_BAD_INTERFACE = 51
+pub const E_SELF_IMPORT = 52
+pub const E_NOT_VAR = 53
+pub const E_NEEDS_RT = 54
+pub const E_NO_LOOP = 55
+pub const E_RESULTS = 56
+pub const E_FORWARD = 57
+pub const E_NO_BODY = 58
+pub const E_DIV_ZERO = 59
+
+; The command line and files
+pub const E_USAGE = 60
+pub const E_SOURCE_NAME = 61
+pub const E_OPEN_SOURCE = 62
+pub const E_CREATE = 63
+
+; Capacities
+pub const E_NAMES_FULL = 70
+pub const E_SYMS_FULL = 71
+pub const E_MEMBERS_FULL = 72
+pub const E_MODULES_FULL = 73
+pub const E_TYPES_FULL = 74
+pub const E_FUNC_BIG = 75
+pub const E_LABELS_FULL = 76
+pub const E_FIXUPS_FULL = 77
+pub const E_CALLS_FULL = 78
+pub const E_OPERANDS_FULL = 79
+pub const E_STREAMS_FULL = 80
+pub const E_SOURCES_FULL = 81
+pub const E_TEXT_FULL = 82
+pub const E_PATH_LONG = 83
+pub const E_DIRS_FULL = 84
+pub const E_SLOTS_FULL = 85
+pub const E_INITS_FULL = 86
+pub const E_DATA_FULL = 87
+pub const E_INTERNAL = 99
+
+; Meaning, continued (40 to 59 are full)
+pub const E_CALL_IN_ARGUMENTS = 100
+pub const E_TO_EXPECTED = 110
+pub const E_CASE_SELECTOR = 111
+pub const E_CASE_TWICE = 112
+pub const E_STATUS_IN_CRITICAL = 113
+pub const E_DIRECTIVE = 114
+pub const E_NO_IF = 115
+pub const E_IF_OPEN = 116
+pub const E_IF_DEEP = 117
+
+; Arrays, strings and pointers
+pub const E_BYTE_INDEX = 120
+pub const E_ARRAY_VALUE = 121
+pub const E_NO_ADDRESS = 122
+pub const E_NEEDS_ROWS = 123
+pub const E_ELEMENT_SIZE = 124
+pub const E_TWO_INDEXES = 125
+pub const E_TOO_MANY = 126
+pub const E_NOT_INDEXED = 127
+
+; asm blocks and asm functions
+pub const E_ASM_BRANCH = 140
+pub const E_ASM_LABEL_USE = 141
+pub const E_ASM_NO_LABEL = 142
+pub const E_ASM_RANGE = 143
+pub const E_ASM_MODE = 144
+pub const E_ASM_DIRECTIVE = 145
+pub const E_ASM_MNEMONIC = 146
+pub const E_ASM_NOT_ZP = 147
+
+const MESSAGES: [60]^byte = [
+  "1 character not allowed here",
+  "2 digits expected",
+  "3 number above 65535",
+  "4 character constant not closed",
+  "5 string not closed",
+  "6 unknown escape",
+  "7 string too long",
+  "20 syntax error",
+  "21 name expected",
+  "22 end of line expected",
+  "23 \"(\" expected",
+  "24 \")\" expected",
+  "25 \":\" expected",
+  "26 \"module\" expected",
+  "27 \"func\" expected",
+  "28 \"in\" expected",
+  "29 \"at\" expected",
+  "30 \"end\" expected",
+  "31 register expected: a x y ax ay xy c",
+  "32 type expected",
+  "33 declaration expected",
+  "34 statement expected",
+  "35 expression expected",
+  "36 \".\" expected",
+  "37 \"then\" expected",
+  "38 \"do\" expected",
+  "39 not implemented yet",
+  "40 undefined name",
+  "41 name already declared",
+  "42 wrong number of arguments",
+  "43 value out of range",
+  "44 wrong type",
+  "45 not a function",
+  "46 constant expected",
+  "47 register does not suit the type",
+  "48 register used twice",
+  "49 module name differs from the file name",
+  "50 no interface file for this module",
+  "51 not an interface file of this version",
+  "52 a module cannot import itself",
+  "53 not a variable that can be assigned to",
+  "54 needs the run-time library, not available yet",
+  "55 not inside a loop",
+  "56 wrong number of results",
+  "57 differs from the forward declaration",
+  "58 function declared forward has no body",
+  "59 division by zero",
+  "60 usage: lathec [-c6502|-c65c02] [-dNAME[=NUMBER]]... SOURCE.lth OUTDIR [IMPORTDIR...]",
+  "61 source file must be called NAME.lth",
+  "62 cannot open the source file",
+  "63 cannot create the output file",
+  "70 too many names",
+  "71 too many symbols",
+  "72 too many parameters",
+  "73 too many imports",
+  "74 too many types",
+  "75 function too large",
+  "76 too many labels in one function",
+  "77 too many references in one function",
+  "78 too many calls in one function"
+]
+const MORE_MESSAGES: [35]^byte = [
+  "79 expression too complex",
+  "80 too many open files",
+  "81 sources nested too deeply",
+  "82 arguments too long",
+  "83 file name too long",
+  "84 too many directories",
+  "85 too many variables in one function",
+  "86 too many initial values",
+  "87 too much constant data in one table",
+  "99 compiler error",
+  "100 a call of this function inside its own arguments: use a variable",
+  "110 \"to\" or \"downto\" expected",
+  "111 a case selector must be a byte, sbyte or bool",
+  "112 constant already used in this case",
+  "113 a status cannot be returned from inside critical: return after its end",
+  "114 #if, #else or #end expected at the start of a line",
+  "115 #else or #end without its #if",
+  "116 #if without #end",
+  "117 #if nested too deeply",
+  "120 an array of at most 256 elements, and a pointer, take a byte index",
+  "121 an array is not a value: use a pointer to it, or copy it with a loop",
+  "122 has no address: not a variable, or an element of an array stored by column",
+  "123 an array of more than 256 elements larger than a byte must be declared rows",
+  "124 element size must be a power of two here (1, 2, 4 or 8 through a pointer)",
+  "125 only one index can be a variable, and only the first unless the array is declared rows",
+  "126 more values than the array has elements",
+  "127 not an array or a pointer",
+  "140 a branch must go to a label of this asm block",
+  "141 a label of an asm block can only be the target of a branch or JMP",
+  "142 label not defined in this asm block",
+  "143 operand out of range",
+  "144 addressing mode not available for this instruction",
+  "145 directives such as .byte are not allowed in asm",
+  "146 unknown instruction",
+  "147 cannot be made to be in zero page: declared nozp, or another module's and not zp"
+]
+const TOOL: [6]byte = "lathec"
+const ERROR: [8]byte = ": error "
+
+const C_LF = $0A
+const C_SPACE = $20
+const C_ZERO = $30
+const C_COLON = $3A
+
+const MAX_DIGITS = 5
+var digits: [MAX_DIGITS]byte
+
+pub var file: ^byte     ; the name of the file being read; nil before there is one
+pub var line: word      ; where the error is: the token or character being looked at; 0 for nowhere
+pub var col: word
+
+forward func set_file(name: ^byte)
+forward func position(new_line: word, new_col: word)
+
+pub func init()
+  set_file(nil)
+end
+
+; Name the file errors are in from now on. `name` points to its zero-terminated name.
+pub func set_file(name: ^byte)
+  file = name
+  position(0, 0)
+end
+
+; Say where an error found from now on is.
+pub func position(new_line: word, new_col: word)
+  line = new_line
+  col = new_col
+end
+
+pub func put_decimal(n: word)
+  var count: byte = 0
+  var i: byte
+  loop
+    digits[count] = C_ZERO + byte(num.rem(n, 10))
+    count += 1
+    n = num.div(n, 10)
+  until n == 0
+  for i = count - 1 downto 0 do
+    sys.put_error(digits[i])
+  end
+end
+
+pub func put_place()
+  var i: ^byte
+  var k: byte
+  if file == nil then
+    for k = 0 to len(TOOL) - 1 do
+      sys.put_error(TOOL[k])
+    end
+    return
+  end
+  i = file
+  while i[0] != 0 do
+    sys.put_error(i[0])
+    i += 1
+  end
+  if line != 0 then
+    sys.put_error(C_COLON)
+    put_decimal(line)
+    sys.put_error(C_COLON)
+    put_decimal(col)
+  end
+end
+
+; Entry m of MESSAGES and MORE_MESSAGES taken as one table.
+func message(m: byte): ^byte
+  if m < len(MESSAGES) then
+    return MESSAGES[m]
+  end
+  return MORE_MESSAGES[m - len(MESSAGES)]
+end
+
+; The text of error `number`, or nil if it has none.
+pub func message_start(number: byte): ^byte
+  var m: byte
+  var i: ^byte
+  var n: word
+  for m = 0 to len(MESSAGES) + len(MORE_MESSAGES) - 1 do
+    i = message(m)
+    n = 0
+    while i[0] != C_SPACE do
+      n = num.mul(n, 10) + i[0] - C_ZERO
+      i += 1
+    end
+    i += 1
+    if n == number then
+      return i
+    end
+  end
+  return nil
+end
+
+; Report error `number` at the current place and end the program.
+pub func fatal(number: byte)
+  var i: ^byte
+  var k: byte
+  put_place()
+  for k = 0 to len(ERROR) - 1 do
+    sys.put_error(ERROR[k])
+  end
+  put_decimal(number)
+  sys.put_error(C_COLON)
+  sys.put_error(C_SPACE)
+  i = message_start(number)
+  while i != nil and i[0] != 0 do
+    sys.put_error(i[0])
+    i += 1
+  end
+  sys.put_error(C_LF)
+  sys.exit(1)
+end

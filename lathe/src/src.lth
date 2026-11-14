@@ -1,0 +1,116 @@
+; SRC: the source stack. lathe/host/src.py in Lathe.
+;
+; Owns the stack of sources being read and gives LEX the top one, a character at a time, with
+; the line and column of that character. Today a source is a source file (or, for tests, text
+; in memory). The saved tokens of an `inline` function being replayed will be a third kind of
+; source, pushed on the same stack; an imported interface is not a source, because DECL reads
+; it straight into the symbol table.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                          | Lathe                             | Why                  |
+;   |---------------------------------|-----------------------------------|----------------------|
+;   | push() calls advance(), defined | a forward declaration of advance  | declare before use   |
+;   | after it                        |                                   |                      |
+;   | open_memory() reads env.mem     | reads memory through pointers     | lathe/src/sys.lth,   |
+;   |                                 |                                   | "Pointers"           |
+module src
+
+import err
+import kernel
+
+const MAX_SOURCES = 4
+const LAST_POSITION = $FFFF     ; lines and columns are counted this far and no further
+const C_LF = $0A
+
+pub var ch: byte                ; the character being looked at; 0 at the end
+pub var eof: bool = true        ; true when the top source has no more characters
+pub var line: word              ; where `ch` is, both counted from 1
+pub var col: word
+pub var depth: byte             ; how many sources are open
+
+pub var stream: byte            ; the top source's stream
+pub var name: ^byte             ; its file name, nil if it has none
+
+; The sources below the top one, as they were when the one above was opened.
+var below_stream: [MAX_SOURCES]byte
+var below_name: [MAX_SOURCES]^byte
+var below_ch: [MAX_SOURCES]byte
+var below_eof: [MAX_SOURCES]bool
+var below_line: [MAX_SOURCES]word
+var below_col: [MAX_SOURCES]word
+
+forward func advance()
+
+pub func init()
+  depth = 0
+  eof = true
+  ch = 0
+end
+
+; Make a new top source and look at its first character.
+pub func push(new_stream: byte, new_name: ^byte)
+  if depth == MAX_SOURCES then
+    err.fatal(err.E_SOURCES_FULL)
+  end
+  below_stream[depth] = stream
+  below_name[depth] = name
+  below_ch[depth] = ch
+  below_eof[depth] = eof
+  below_line[depth] = line
+  below_col[depth] = col
+  depth += 1
+  stream = new_stream
+  name = new_name
+  err.set_file(name)
+  line = 1
+  col = 0
+  ch = 0
+  eof = false
+  advance()
+end
+
+; Start reading the file whose name is at `file_name`. False if it cannot be opened.
+pub func open_file(file_name: ^byte): bool
+  var new_stream: byte
+  var ok: bool
+  new_stream, ok = kernel.open_in(file_name)
+  if ok then
+    push(new_stream, file_name)
+  end
+  return ok
+end
+
+; Start reading the text in memory from `start` up to but not including `limit`.
+pub func open_memory(start: ^byte, limit: ^byte)
+  push(kernel.open_memory(start, limit), nil)
+end
+
+; Look at the next character.
+pub func advance()
+  if eof then
+    return                  ; the end has one position however often it is asked for
+  end
+  if ch == C_LF then
+    if line < LAST_POSITION then
+      line += 1
+    end
+    col = 1
+  elif col < LAST_POSITION then
+    col += 1
+  end
+  ch, eof = kernel.get(stream)
+end
+
+; Stop reading the top source and go back to the one below it.
+pub func close()
+  kernel.close(stream)
+  depth -= 1
+  stream = below_stream[depth]
+  name = below_name[depth]
+  ch = below_ch[depth]
+  eof = below_eof[depth]
+  line = below_line[depth]
+  col = below_col[depth]
+  err.set_file(name)
+end

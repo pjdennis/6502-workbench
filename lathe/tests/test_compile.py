@@ -60,12 +60,22 @@ class HelloTest(CompileTest):
     def test_its_interface_lists_what_it_exports(self):
         self.compile(HOST_LTH)
         byte_in_a, bool_in_c = b'\x01\x01', b'\x05\x07'
+        pointer_in_ax = b'\x10\x01\x04'          # ^byte in ax
         self.assertEqual(self.interface('host'), b''.join([
             b'LI\x01', string(b'host'),
             b'\x01', string(b'read_byte'), b'\x01\x06\xf0', b'\x00', b'\x02', byte_in_a, bool_in_c,
             b'\x01', string(b'put_byte'), b'\x01\x09\xf0', b'\x01', byte_in_a, b'\x00',
             b'\x01', string(b'put_error'), b'\x01\x0c\xf0', b'\x01', byte_in_a, b'\x00',
             b'\x01', string(b'exit'), b'\x01\x0f\xf0', b'\x01', byte_in_a, b'\x00',
+            b'\x01', string(b'open'), b'\x01\x12\xf0', b'\x01', pointer_in_ax, b'\x01', byte_in_a,
+            b'\x01', string(b'close'), b'\x01\x15\xf0', b'\x01', byte_in_a, b'\x00',
+            b'\x01', string(b'read'), b'\x01\x18\xf0', b'\x01', byte_in_a, b'\x02', byte_in_a,
+            bool_in_c,
+            b'\x01', string(b'open_out'), b'\x01\x21\xf0', b'\x01', pointer_in_ax, b'\x01',
+            byte_in_a,
+            b'\x01', string(b'write'), b'\x01\x24\xf0', b'\x02', byte_in_a, b'\x01\x02', b'\x00',
+            b'\x01', string(b'argc'), b'\x01\x1b\xf0', b'\x00', b'\x01', byte_in_a,
+            b'\x01', string(b'argv'), b'\x01\x1e\xf0', b'\x01', byte_in_a, b'\x01', pointer_in_ax,
             b'\x00']))
 
     def test_hello_compiles_to_the_records_the_object_format_requires(self):

@@ -1,0 +1,156 @@
+; The lexer's test driver: lextest SOURCE.lth runs LEX over the file and prints one line per
+; token, up to and with the end of the file:
+;
+;   KK LLLL CCCC [VALUE]
+;
+; the token number, line and column in hexadecimal, and for a name its spelling, for a number
+; its value in four hexadecimal digits, for a string its length in two and its bytes in two
+; each, separated by spaces. A lexical error is reported as the compiler reports it, with
+; status 1. lathe/tests/lextest_host.py is the same driver over lex.py, and
+; lathe/tests/test_src_lex.py requires the two to print the same for every source it has.
+;
+; What a parser would do is done as simply as it can be:
+; - after the line end of an `#if`, choose() is called with false for the first `#if` of the
+;   file, true for the second, and so on alternately, so that both ways are taken;
+; - after the line end that follows an `asm` token (an `asm` statement or the head of an `asm`
+;   function), the lines are passed over as ASM would read them, up to the line whose first
+;   word is `end`, which is given back to LEX with resume(). Lines are not checked.
+;
+; `lextest SOURCE.lth q` prints nothing but an error: for timing the lexer alone.
+module lextest
+
+import err
+import kernel
+import lex
+import src
+import sys
+
+const HEX: [16]byte = "0123456789ABCDEF"
+const C_LF = $0A
+const MAX_WORD = 4
+
+var word_text: [MAX_WORD]byte   ; the start of the first word of an asm line, folded
+var word_length: byte
+var quiet: bool                 ; a second argument was given
+
+func put_hex(b: byte)
+  sys.put_byte(HEX[b >> 4])
+  sys.put_byte(HEX[b & 15])
+end
+
+func put_word(w: word)
+  put_hex(hi(w))
+  put_hex(lo(w))
+end
+
+func show()
+  var i: byte
+  if quiet then
+    return
+  end
+  put_hex(lex.tok)
+  sys.put_byte(' ')
+  put_word(lex.line)
+  sys.put_byte(' ')
+  put_word(lex.col)
+  if lex.tok == lex.T_NAME then
+    sys.put_byte(' ')
+    i = 0
+    while i < kernel.name_length(lex.value) do
+      sys.put_byte(kernel.name_char(lex.value, i))
+      i += 1
+    end
+  elif lex.tok == lex.T_NUMBER then
+    sys.put_byte(' ')
+    put_word(lex.value)
+  elif lex.tok == lex.T_STRING then
+    sys.put_byte(' ')
+    put_hex(lex.string_length)
+    i = 0
+    while i < lex.string_length do
+      sys.put_byte(' ')
+      put_hex(lex.string[i])
+      i += 1
+    end
+  end
+  sys.put_byte(C_LF)
+end
+
+; True if the word just read is `end`.
+func is_end(): bool
+  return word_length == 3 and word_text[0] == 'e' and word_text[1] == 'n' and word_text[2] == 'd'
+end
+
+; The lines of an asm block, as ASM passes over them, up to its `end`.
+func asm_lines()
+  var at_line: word
+  var at_col: word
+  loop
+    while not src.eof and (src.ch == ' ' or src.ch == 9 or src.ch == 13) do
+      src.advance()
+    end
+    if src.eof then
+      err.position(src.line, src.col)
+      err.fatal(err.E_END_EXPECTED)
+    end
+    at_line = src.line
+    at_col = src.col
+    word_length = 0
+    while not src.eof and (lex.is_letter(src.ch) or lex.is_digit(src.ch) or src.ch == '_') do
+      if word_length < MAX_WORD then
+        word_text[word_length] = lex.fold(src.ch)
+        word_length += 1
+      end
+      src.advance()
+    end
+    if is_end() then
+      lex.resume(lex.T_END, at_line, at_col)
+      return
+    end
+    while not src.eof and src.ch != C_LF do
+      src.advance()
+    end
+    src.advance()
+  end
+end
+
+pub func main()
+  var source: ^byte
+  var ifs: byte = 0
+  var if_open: bool = false
+  var asm_open: bool = false
+  err.init()
+  kernel.init()
+  src.init()
+  lex.init()
+  if sys.argc() == 0 then
+    err.fatal(err.E_USAGE)
+  end
+  source = kernel.keep_argument(0)
+  quiet = sys.argc() > 1
+  err.set_file(source)
+  if not src.open_file(source) then
+    err.fatal(err.E_OPEN_SOURCE)
+  end
+  loop
+    lex.next()
+    show()
+    if lex.tok == lex.T_EOF then
+      break
+    end
+    if lex.tok == lex.T_ASM then
+      asm_open = true
+    elif lex.tok == lex.T_HASH_IF then
+      if_open = true
+    elif lex.tok == lex.T_NL and if_open then
+      if_open = false
+      lex.choose(ifs & 1 == 1)
+      ifs += 1
+    elif lex.tok == lex.T_NL and asm_open then
+      asm_open = false
+      asm_lines()
+      show()
+    end
+  end
+  sys.exit(0)
+end

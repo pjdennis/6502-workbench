@@ -1,0 +1,37 @@
+; A test of err: errtest NUMBER [FILE [LINE COL]] reports error NUMBER, in FILE at LINE and
+; COL if they are given, as err.fatal does. (lathe/tests/test_src_err.py)
+module errtest
+
+import err
+import num
+import sys
+
+var text: [256]byte
+var file: [128]byte
+
+func argument(i: byte): word
+  var n: word = 0
+  var k: byte = 0
+  var length: byte
+  length = sys.arg_copy(i, @text)
+  while k < length do
+    n = num.mul(n, 10) + text[k] - '0'
+    k += 1
+  end
+  return n
+end
+
+pub func main()
+  var number: word
+  var length: byte
+  err.init()
+  number = argument(0)
+  if sys.argc() > 1 then
+    length = sys.arg_copy(1, @file)
+    err.set_file(@file)
+  end
+  if sys.argc() > 3 then
+    err.position(argument(2), argument(3))
+  end
+  err.fatal(byte(number))
+end

@@ -1,0 +1,92 @@
+; A test of src: srctest FILE MODE reads FILE through the source stack, with a source in memory
+; pushed on top of it for a while, and prints the characters with their places, in hexadecimal.
+; lathe/tests/test_src_src.py does the same with src.py and compares. MODE is a letter: n, the
+; normal run; o, too many sources (error 81); e, an error reported at the tenth character.
+module srctest
+
+import err
+import kernel
+import src
+import sys
+
+const HEX: [16]byte = "0123456789ABCDEF"
+const TEXT = "ab\ncd"
+
+func put_hex(b: byte)
+  sys.put_byte(HEX[b >> 4])
+  sys.put_byte(HEX[b & 15])
+end
+
+func put_word(w: word)
+  put_hex(hi(w))
+  put_hex(lo(w))
+end
+
+; The character being looked at and its place.
+func show()
+  put_hex(src.ch)
+  sys.put_byte(' ')
+  put_word(src.line)
+  sys.put_byte(' ')
+  put_word(src.col)
+  if src.eof then
+    sys.put_byte('E')
+  end
+  sys.put_byte(10)
+end
+
+pub func main()
+  var file: ^byte
+  var mode: ^byte
+  var k: byte
+  var sum: word = 0
+  err.init()
+  kernel.init()
+  src.init()
+  file = kernel.keep_argument(0)
+  mode = kernel.keep_argument(1)
+  if not src.open_file(file) then
+    err.fatal(err.E_OPEN_SOURCE)
+  end
+  for k = 1 to 5 do
+    show()
+    src.advance()
+  end
+  if mode[0] == 'e' then
+    for k = 1 to 5 do
+      src.advance()
+    end
+    err.position(src.line, src.col)
+    err.fatal(err.E_BAD_CHAR)
+  end
+  src.open_memory(@TEXT, @TEXT + 5)
+  if mode[0] == 'o' then
+    loop
+      src.open_memory(@TEXT, @TEXT + 5)
+    end
+  end
+  put_hex(src.depth)
+  sys.put_byte(10)
+  while not src.eof do
+    show()
+    src.advance()
+  end
+  show()
+  src.advance()
+  show()
+  src.close()
+  show()
+  while not src.eof do
+    sum += src.ch
+    sum ^= src.line
+    sum += src.col
+    src.advance()
+  end
+  put_word(sum)
+  sys.put_byte(10)
+  show()
+  src.close()
+  put_hex(src.depth)
+  sys.put_byte(10)
+  sys.exit(0)
+end
