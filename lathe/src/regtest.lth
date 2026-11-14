@@ -1,0 +1,20 @@
+; A test of reg: regtest SCRIPT OBJECT runs the commands of a script (lathe/src/script.lth,
+; the commands of lathe/src/regcmd.lth) that push operands, load, store, spill, branch and
+; join, and prints what they give and the code of the function they make; the object file it
+; writes is compared too. lathe/tests/test_src_reg.py runs the same script with reg.py and
+; compares. The scripts are in lathe/tests/scripts/reg.txt.
+module regtest
+
+import regcmd
+import script
+import sys
+
+pub func main()
+  regcmd.init()
+  script.open()
+  while script.next() do
+    regcmd.run(script.command(@regcmd.WORDS))
+    script.end_line()
+  end
+  sys.exit(0)
+end

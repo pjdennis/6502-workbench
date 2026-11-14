@@ -1,0 +1,564 @@
+; COND: comparisons and conditions (the middle one of GEN's three files).
+; lathe/host/cond.py in Lathe.
+;
+; Owns the code for everything that is a `bool` (docs/codegen.md, "Comparisons and
+; conditions"). A comparison leaves its answer in the flags and pushes a Condition: the branch
+; that is taken when it is true, and two labels that earlier parts of the test already go to,
+; one for true and one for false. `and`, `or` and `not` only move those labels about, so a
+; whole test becomes branches and nothing else. A Condition is used up at once: by a branch
+; (jump_false), or by becoming 0 or 1 in A (value) or the carry flag (carry). Whatever an
+; operation here has to store first is stored before its first branch, so that it is stored
+; on every path.
+;
+; A condition that is known when compiling is a Condition too, with ALWAYS or NEVER for its
+; branch, so no case below has to treat constants apart.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | a label, or reg.NONE, in an int      | a word; byte(label) where it is   | reg's labels are|
+;   |                                      | given to reg                      | bytes, NONE is  |
+;   |                                      |                                   | not one         |
+;   | bytes_compared() returns size(t)     | lo(typetab.size(t))               | it is 1 or 2    |
+;   | typetab.size(t) - 1 as a byte number | lo(typetab.size(t) - 1)           | (the same)      |
+;   | turned() returns (op, one_more)      | a value and a status              | (the same)      |
+;   | int_of used before it is defined     | a forward declaration             | declare before  |
+;   |                                      |                                   | use             |
+;   | a Condition's branch, reg.op_value   | lo(reg.op_value[i])               | an opcode is a  |
+;   |                                      |                                   | byte            |
+module cond
+
+import err
+import fbuf
+import fold
+import reg
+import typetab
+
+; The branch of a condition that is known without a test. Real branch opcodes are larger.
+pub const NEVER = 0
+pub const ALWAYS = 1
+
+pub const OP_BMI = $30
+pub const OP_BVC = $50
+pub const OP_BCC = $90
+pub const OP_BCS = $B0
+pub const OP_BNE = $D0
+pub const OP_BEQ = $F0
+const FLIP = $20            ; the bit that differs between a branch and its opposite
+const SIGN_BIT = $80
+pub const F_COMPARED = 4    ; a flag of a Condition, beside reg.F_TEMP and reg.F_ZP: it is "Z set"
+;                             after a CMP, which has set the carry flag too if it is true
+const F_DECIDED = 8         ; the left side of `and` or `or` is a constant that is the answer
+
+pub var for_carry: bool = false     ; true while the test being compiled is wanted in the carry flag: a
+;                                     comparison then prefers the form that is true with the carry set
+
+forward func int_of(truth: bool): byte
+
+; ---- Conditions --------------------------------------------------------------------------
+
+; Say whether the tests compiled from now on are wanted in the carry flag.
+pub func wanted_in_carry(yes: bool)
+  for_carry = yes
+end
+
+; Add a Condition that is true when `branch` would be taken.
+pub func push(branch: byte)
+  reg.push(reg.O_COND, typetab.BOOL_TYPE, branch)
+end
+
+func opposite(branch: byte): byte
+  if branch <= ALWAYS then
+    return branch ^ ALWAYS
+  end
+  return branch ^ FLIP
+end
+
+; Go to label `target` when `branch` would be taken.
+func go(branch: byte, target: word)
+  if branch == ALWAYS then
+    reg.jump(byte(target))
+  elif branch != NEVER then
+    reg.branch(branch, byte(target))
+  end
+end
+
+; One label for two that mean the same place; either may be reg.NONE.
+func joined(target: word, other: word): word
+  if target == reg.NONE then
+    return other
+  end
+  if other != reg.NONE then
+    reg.join(byte(target), byte(other))
+  end
+  return target
+end
+
+; Make operand `i`, which must be a `bool`, a Condition.
+func make(i: byte)
+  if reg.op_type[i] != typetab.BOOL_TYPE then
+    err.fatal(err.E_TYPE)
+  end
+  if reg.op_kind[i] == reg.O_CONST then
+    reg.op_kind[i] = reg.O_COND             ; NEVER and ALWAYS are false and true
+  elif reg.op_kind[i] != reg.O_COND then
+    reg.release(i)
+    reg.test_byte(i, 0)
+    reg.become(i, reg.O_COND, typetab.BOOL_TYPE)
+    reg.op_value[i] = OP_BNE
+  end
+end
+
+; True if Condition `i` is only a state of the flags: nothing branches for it yet.
+func is_plain(i: byte): bool
+  return reg.op_true[i] == reg.NONE and reg.op_false[i] == reg.NONE
+end
+
+; Branch away when Condition `i` is not `wanted`, and go on here when it is. Returns
+; the label branched to, which is still to be placed, or reg.NONE if nothing goes away:
+; the condition is known to be as wanted.
+func leave(i: byte, wanted: bool): word
+  var target: word
+  var here: word
+  var branch: byte
+  target = reg.op_true[i]
+  here = reg.op_false[i]
+  branch = lo(reg.op_value[i])
+  if wanted then
+    target = reg.op_false[i]
+    here = reg.op_true[i]
+    branch = opposite(branch)
+  end
+  if target == reg.NONE and branch != NEVER then
+    target = fbuf.new_label()
+  end
+  go(branch, target)
+  if here != reg.NONE then
+    reg.label(byte(here))
+  end
+  return target
+end
+
+; As leave(), but always returns a label.
+func away(i: byte, wanted: bool): word
+  var target: word
+  target = leave(i, wanted)
+  if target == reg.NONE then
+    target = fbuf.new_label()
+  end
+  return target
+end
+
+; Use up the newest operand as a test: go on here when it is true. Returns the label
+; that is gone to when it is false.
+pub func jump_false(): word
+  var target: word
+  make(reg.depth - 1)
+  target = away(reg.depth - 1, true)
+  reg.pop()
+  return target
+end
+
+; The left side of `and` (`wanted` true) or `or` (false) is the newest operand: go on
+; to the right side only when it is `wanted`. What is left on the stack remembers the label
+; for the other case.
+pub func left(wanted: bool)
+  var i: byte
+  var decided: bool
+  var target: word
+  i = reg.depth - 1
+  make(i)
+  if reg.op_value[i] <= ALWAYS then
+    reg.claim(reg.A)        ; the right side may never be run: it cannot be what stores A
+  end
+  decided = is_plain(i) and reg.op_value[i] == int_of(not wanted)
+  target = leave(i, wanted)
+  reg.op_true[i] = reg.NONE
+  reg.op_false[i] = reg.NONE
+  if decided then
+    reg.op_flags[i] = F_DECIDED
+  end
+  if wanted then
+    reg.op_value[i] = ALWAYS
+    reg.op_false[i] = target
+  else
+    reg.op_value[i] = NEVER
+    reg.op_true[i] = target
+  end
+end
+
+; The right side of `and` or `or` is the newest operand and what left() made is under
+; it: the result is the right side, with the left side's label joined to its own.
+pub func right()
+  var i: byte
+  var answer: word
+  var target: word
+  i = reg.depth - 1
+  make(i)
+  if reg.op_flags[i - 1] & F_DECIDED != 0 then
+    answer = reg.op_value[i - 1] ^ ALWAYS
+    target = joined(reg.op_true[i - 1], reg.op_false[i - 1])
+    reg.label(byte(joined(target, joined(reg.op_true[i], reg.op_false[i]))))
+    reg.pop()               ; the right side, jumped over: the answer is the left side's
+    reg.describe(i - 1, reg.O_CONST, typetab.BOOL_TYPE)
+    reg.op_value[i - 1] = answer
+    return
+  end
+  reg.op_true[i] = joined(reg.op_true[i - 1], reg.op_true[i])
+  reg.op_false[i] = joined(reg.op_false[i - 1], reg.op_false[i])
+  reg.squeeze()
+end
+
+; `not` of the newest operand: true and false change places.
+pub func invert()
+  var i: byte
+  var target: word
+  i = reg.depth - 1
+  make(i)
+  target = reg.op_true[i]
+  reg.op_true[i] = reg.op_false[i]
+  reg.op_false[i] = target
+  reg.op_value[i] = opposite(lo(reg.op_value[i]))
+end
+
+; If the newest operand is a Condition, make it a value: 0 or 1 in A, or a constant.
+pub func value()
+  var i: byte
+  var branch: byte
+  var no: word
+  var done: byte
+  i = reg.depth - 1
+  if reg.op_kind[i] != reg.O_COND then
+    return
+  end
+  branch = lo(reg.op_value[i])
+  if is_plain(i) and branch <= ALWAYS then
+    reg.op_kind[i] = reg.O_CONST
+    return
+  end
+  reg.claim(reg.A)                          ; before any branch: both ways need it done
+  if is_plain(i) and (branch == OP_BCS or branch == OP_BCC) then
+    reg.load_const(reg.A, 0)                ; leaves the carry flag alone
+    reg.accumulator(reg.OP_ROL)
+    if branch == OP_BCC then
+      reg.immediate(reg.OP_EOR, 1)
+    end
+    reg.become(i, reg.O_A, typetab.BOOL_TYPE)
+  else
+    no = jump_false()
+    done = fbuf.new_label()
+    reg.force(reg.A, 1)
+    reg.branch(OP_BNE, done)               ; always taken: A is 1
+    reg.label(byte(no))
+    reg.force(reg.A, 0)
+    reg.label(done)
+    reg.push_register(typetab.BOOL_TYPE)
+  end
+end
+
+; Put operand `i`, a `bool`, in the carry flag: set for true. A stays as it is unless
+; the operand is a variable. The operand is left for the caller to pop.
+pub func carry(i: byte)
+  var done: byte
+  var yes: word
+  if reg.op_type[i] != typetab.BOOL_TYPE then
+    err.fatal(err.E_TYPE)
+  end
+  if reg.op_kind[i] == reg.O_CONST then
+    if reg.op_value[i] != 0 then
+      reg.implied(reg.OP_SEC)
+    else
+      reg.implied(reg.OP_CLC)
+    end
+  elif reg.op_kind[i] != reg.O_COND then
+    reg.release(i)
+    reg.load(reg.A, i, 0)
+    reg.accumulator(reg.OP_LSR)
+  elif is_plain(i) and reg.op_value[i] == OP_BEQ and reg.op_flags[i] & F_COMPARED != 0 then
+    done = fbuf.new_label()                 ; equal: the CMP has set the carry as well
+    reg.branch(OP_BEQ, done)
+    reg.implied(reg.OP_CLC)
+    reg.label(done)
+  elif reg.op_value[i] != OP_BCS or (reg.op_true[i] != reg.NONE and reg.op_false[i] != reg.NONE) then
+    yes = away(i, false)
+    done = fbuf.new_label()
+    reg.implied(reg.OP_CLC)
+    reg.branch(OP_BCC, done)               ; always taken
+    reg.label(byte(yes))
+    reg.implied(reg.OP_SEC)
+    reg.label(done)
+  elif reg.op_false[i] != reg.NONE then
+    done = fbuf.new_label()                 ; the flag is right already, except for those
+    reg.branch(OP_BCS, done)               ; who branched away because the answer is false
+    reg.label(byte(reg.op_false[i]))
+    reg.implied(reg.OP_CLC)
+    reg.label(done)
+  elif reg.op_true[i] != reg.NONE then
+    done = fbuf.new_label()
+    reg.branch(OP_BCC, done)
+    reg.label(byte(reg.op_true[i]))
+    reg.implied(reg.OP_SEC)
+    reg.label(done)
+  end
+end
+
+; ---- Comparisons -------------------------------------------------------------------------
+
+; Replace the two operands compared by the Condition `branch`.
+func result(branch: byte)
+  reg.pop()
+  reg.pop()
+  push(branch)
+end
+
+; Replace the two operands compared by a constant: the answer needs no code.
+func known(truth: bool)
+  reg.pop()
+  reg.pop()
+  reg.push(reg.O_CONST, typetab.BOOL_TYPE, int_of(truth))
+end
+
+func int_of(truth: bool): byte
+  if truth then
+    return 1
+  end
+  return 0
+end
+
+; True if constant operand `i` is below zero.
+func is_negative(i: byte): bool
+  return typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= $8000
+end
+
+func is_zero(i: byte): bool
+  return reg.op_kind[i] == reg.O_CONST and reg.op_value[i] == 0
+end
+
+; The comparison that gives the same answer with its operands exchanged.
+func mirror(op: byte): byte
+  if op <= fold.GE then
+    return op + 2
+  end
+  return op - 2
+end
+
+; How many bytes a comparison in type `t` must look at: one if the high bytes are the
+; same constant.
+func bytes_compared(t: byte, first: byte, second: byte): byte
+  if typetab.size(t) == 2 and reg.is_const_byte(first, 1) and reg.is_const_byte(second, 1) and
+      reg.const_byte(first, 1) == reg.const_byte(second, 1) then
+    return 1
+  end
+  return lo(typetab.size(t))
+end
+
+; Set the Z flag if byte `k` of the two operands is equal. A byte that is known goes
+; on the right, where 0 needs no instruction at all. Returns true if a CMP did it: the
+; carry is then set too if they are equal.
+func equal_bytes(first: byte, second: byte, k: byte): bool
+  var other: byte
+  if reg.is_const_byte(first, k) and not reg.is_const_byte(second, k) then
+    other = first
+    first = second
+    second = other
+  end
+  if reg.is_const_byte(second, k) and reg.const_byte(second, k) == 0 then
+    reg.test_byte(first, k)
+    return false
+  end
+  reg.load(reg.A, first, k)
+  reg.compare(second, k)
+  return true
+end
+
+; `==` or `!=`: the answer is the Z flag. For two bytes, the low bytes decide alone if
+; they differ, and a branch for that is part of the Condition.
+func equality(op: byte, t: byte)
+  var first: byte
+  var second: byte
+  var count: byte
+  var differ: word
+  var compared: bool
+  var k: byte
+  if reg.op_kind[reg.depth - 2] == reg.O_CONST or reg.in_registers(reg.depth - 1) then
+    reg.swap()                      ; a constant goes right, what is in the registers left
+  end
+  first = reg.depth - 2
+  second = reg.depth - 1
+  count = bytes_compared(t, first, second)
+  reg.release(first)
+  differ = reg.NONE
+  compared = false
+  if count == 2 and is_zero(second) and reg.op_kind[first] == reg.O_VAR then
+    reg.load(reg.A, first, 0)
+    reg.alu(reg.OP_ORA, first, 1)
+    count = 0
+  end
+  for k = 0 until count do
+    if k == 1 then
+      differ = fbuf.new_label()
+      reg.branch(OP_BNE, byte(differ))
+    end
+    compared = equal_bytes(first, second, k)
+  end
+  if op == fold.EQ then
+    result(OP_BEQ)
+    reg.op_false[reg.depth - 1] = differ
+    if compared then
+      reg.op_flags[reg.depth - 1] = F_COMPARED
+    end
+  else
+    result(OP_BNE)
+    reg.op_true[reg.depth - 1] = differ
+  end
+end
+
+; Compare the operand under the newest one, through A, with the newest, by subtracting.
+; Afterwards carry clear, or for signed types N set, means it is the smaller; if `one_more`
+; is subtracted as well, carry clear means it is the smaller or equal.
+func subtract(count: byte, signed: bool, one_more: bool)
+  var first: byte
+  var second: byte
+  var same: byte
+  first = reg.depth - 2
+  second = reg.depth - 1
+  reg.load(reg.A, first, 0)
+  if one_more then
+    reg.implied(reg.OP_CLC)
+    reg.alu(reg.OP_SBC, second, 0)
+  elif count == 1 and signed then
+    reg.implied(reg.OP_SEC)
+    reg.alu(reg.OP_SBC, second, 0)
+  else
+    reg.compare(second, 0)
+  end
+  if count == 2 then
+    reg.load(reg.A, first, 1)
+    reg.alu(reg.OP_SBC, second, 1)
+  end
+  if signed then
+    same = fbuf.new_label()
+    reg.branch(OP_BVC, same)       ; after an overflow the sign is the wrong way round
+    reg.immediate(reg.OP_EOR, SIGN_BIT)
+    reg.label(same)
+  end
+end
+
+; Bring `<` `>=` `>` `<=` to `<` or `>=` with a constant, if there is one, on the right:
+; by exchanging the operands, or by adding 1 to the constant. Returns that operator, or 0 if
+; the answer needs no code and has replaced the operands.
+func arranged(op: byte, t: byte, signed: bool): byte
+  var second: byte
+  if reg.op_kind[reg.depth - 2] == reg.O_CONST then
+    reg.swap()
+    op = mirror(op)
+  end
+  second = reg.depth - 1
+  if reg.op_kind[second] != reg.O_CONST then
+    if op == fold.GT or op == fold.LE then
+      reg.swap()
+      op = mirror(op)
+    end
+    return op
+  end
+  if op == fold.GT or op == fold.LE then
+    if reg.op_value[second] == typetab.limit(t) then
+      known(op == fold.LE)
+      return 0
+    end
+    reg.op_value[second] = reg.op_value[second] + 1
+    if op == fold.GT then           ; > c is >= c + 1, <= c is < c + 1
+      op = fold.GE
+    else
+      op = fold.LT
+    end
+  end
+  if not signed and reg.op_value[second] == 0 then
+    known(op == fold.GE)
+    return 0
+  end
+  return op
+end
+
+; If the answer is wanted in the carry flag, turn an unsigned `<` round so that it is
+; true with the carry set: a < b is b - 1 >= a. Returns the operator, and true if the 1 is
+; still to be subtracted, which a constant has had done already.
+func turned(op: byte, signed: bool): byte, bool
+  var second: byte
+  var one_more: bool
+  second = reg.depth - 1
+  if not for_carry or op != fold.LT or signed or reg.in_registers(second - 1) then
+    return op, false
+  end
+  one_more = reg.op_kind[second] != reg.O_CONST
+  if not one_more then
+    reg.op_value[second] -= 1
+  end
+  reg.swap()
+  return fold.GE, one_more
+end
+
+; `<` `>=` `>` `<=`: the left operand goes through A and is compared with the right by
+; subtracting. The answer is the carry flag, or for signed types the sign.
+func ordering(op: byte, t: byte, signed: bool)
+  var one_more: bool
+  var second: byte
+  var branch: byte
+  op = arranged(op, t, signed)
+  if op == 0 then
+    return
+  end
+  op, one_more = turned(op, signed)
+  second = reg.depth - 1
+  if reg.in_registers(second) then
+    reg.spill(second)
+  end
+  reg.release(second - 1)
+  branch = OP_BCC
+  if signed then
+    branch = OP_BMI
+  end
+  if signed and is_zero(second) then
+    reg.test_byte(second - 1, lo(typetab.size(t) - 1))      ; the sign is all that matters
+  else
+    subtract(lo(typetab.size(t)), signed, one_more)
+  end
+  if op == fold.GE then
+    branch = branch ^ FLIP
+  end
+  result(branch)
+end
+
+; A comparison of the two newest operands. Leaves a Condition, or a constant.
+pub func compare(op: byte)
+  var first: byte
+  var second: byte
+  var t: byte
+  value()
+  first = reg.depth - 2
+  second = reg.depth - 1
+  reg.apart(first, second)
+  reg.apart(second, first)
+  t = reg.unify(first, second)
+  if (t == typetab.BOOL_TYPE or typetab.is_func(t)) and op > fold.NE then
+    err.fatal(err.E_TYPE)
+  end
+  if reg.op_kind[first] == reg.O_CONST and reg.op_kind[second] == reg.O_CONST then
+    known(fold.compare(op, reg.op_value[first], is_negative(first), reg.op_value[second],
+        is_negative(second)))
+  elif op > fold.NE then
+    ordering(op, t, typetab.is_signed(t))
+  elif for_carry and (is_zero(first) or is_zero(second)) then
+    if is_zero(first) then
+      reg.swap()
+    end
+    if op == fold.EQ then
+      ordering(fold.LE, t, false)       ; as unsigned numbers, == 0 is <= 0
+    else
+      ordering(fold.GT, t, false)       ; and != 0 is > 0: both end in the carry
+    end
+  else
+    equality(op, t)
+  end
+end

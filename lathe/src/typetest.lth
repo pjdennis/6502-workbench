@@ -1,0 +1,111 @@
+; A test of typetab: typetest SCRIPT runs the commands of a script (lathe/src/script.lth) on the
+; type table and prints what they give. lathe/tests/test_src_typetab.py runs the same script
+; with typetab.py and compares. The scripts are in lathe/tests/scripts/typetab.txt.
+module typetest
+
+import err
+import kernel
+import script
+import sys
+import typetab
+
+const EDGES: [14]word = [0, 1, $7E, $7F, $80, $FF, $100, $7FFF, $8000, $FF7F, $FF80, $FFFE, $FFFF,
+  $1234]
+
+; Everything the table says of type `t`.
+func show(t: byte)
+  script.show_byte(t)
+  script.show_word(typetab.size(t))
+  script.show_byte(typetab.form[t])
+  script.show_bool(typetab.is_pointer(t))
+  script.show_bool(typetab.is_array(t))
+  script.show_bool(typetab.is_rows(t))
+  script.show_bool(typetab.is_record(t))
+  script.show_bool(typetab.is_enum(t))
+  script.show_bool(typetab.is_func(t))
+  script.show_bool(typetab.is_recursive(t))
+  script.show_bool(typetab.is_column(t))
+  script.show_bool(typetab.is_number(t))
+  script.show_bool(typetab.is_untyped(t))
+  script.show_bool(typetab.is_signed(t))
+  sys.put_byte(' ')
+  script.show_word(typetab.base(t))
+  script.show_word(typetab.length(t))
+  script.show_byte(typetab.innermost(t))
+  script.show_word(typetab.limit(t))
+end
+
+; number_fits() and narrow() of each edge value for type `t`.
+func sweep(t: byte)
+  var i: byte
+  for i = 0 until 14 do
+    script.show_bool(typetab.number_fits(EDGES[i], false, t))
+    script.show_bool(typetab.number_fits(EDGES[i], true, t))
+    script.show_word(typetab.narrow(EDGES[i], t))
+  end
+end
+
+pub func main()
+  var t: byte
+  var n: word
+  err.init()
+  kernel.init()
+  typetab.init()
+  script.open()
+  while script.next() do
+    case script.command("init ptr arr decl grow rec prefix build show fits narrow sweep count fill ")
+    of 0
+      typetab.init()
+    of 1
+      t = typetab.pointer_to(script.small())
+      show(t)
+    of 2
+      t = script.small()
+      n = script.number()
+      t = typetab.array_of(t, n, script.flag())
+      show(t)
+    of 3
+      t = script.small()
+      t = typetab.declared(t, script.number())
+      show(t)
+    of 4
+      t = script.small()
+      script.show_word(typetab.grow(t, script.number()))
+      show(t)
+    of 5
+      t = script.small()
+      typetab.make_recursive(t)
+      show(t)
+    of 6
+      t = script.small()
+      script.show_byte(typetab.prefix(t, script.number()))
+    of 7
+      t = script.small()
+      t = typetab.build(t, script.small())
+      show(t)
+    of 8
+      while script.more() do
+        show(script.small())
+      end
+    of 9
+      n = script.number()
+      t = script.small()
+      script.show_bool(typetab.number_fits(n, t != 0, script.small()))
+    of 10
+      n = script.number()
+      script.show_word(typetab.narrow(n, script.small()))
+    of 11
+      sweep(script.small())
+    of 12
+      script.show_byte(typetab.count)
+      script.show_byte(typetab.prefix_count)
+    of 13
+      t = script.small()
+      loop
+        t = typetab.pointer_to(t)
+      end
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

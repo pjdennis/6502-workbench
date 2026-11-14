@@ -1,0 +1,268 @@
+; The type table: lathe/host/typetab.py in Lathe.
+;
+; Owns the types of the module being compiled. A type is known by its number in the table. The
+; basic types have fixed numbers; a type made from others (a pointer or an array) gets the next
+; free one, and is made only once, so two types are the same type exactly when their numbers are
+; equal. An array is stored by column or, if declared `rows`, by row (docs/language.md, "Arrays
+; and their layout"): the two are different types. A record, an enumeration or a function type is
+; a new type each time one is declared, known by the symbol that declares it; the fields of a
+; record are symbols too, and the parameters and results of a function type are that symbol's
+; members, as a function's are (DECL). A named type that is none of these is only another name
+; for its type, and needs no entry here.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | columns: ints                        | form: byte; base_type,            | the type is the |
+;   |                                      | type_length, type_size: word      | storage         |
+;   |                                      | (a base can be a symbol, 0-511)   |                 |
+;   | 0xFFFF // n                          | $FFFF / n                         | (the same)      |
+;   | form, prefix_count: module variables | `pub`                             | DECL and EXPR   |
+;   |                                      |                                   | read them       |
+module typetab
+
+import err
+
+pub const MAX_TYPES = 128
+
+pub const NO_TYPE = 0               ; no type
+pub const BYTE_TYPE = 1
+pub const SBYTE_TYPE = 2
+pub const WORD_TYPE = 3
+pub const INT_TYPE = 4
+pub const BOOL_TYPE = 5
+pub const NUMBER_TYPE = 6           ; a number of no type yet, zero or above: it takes the type its place needs
+pub const NEGATIVE_TYPE = 7         ; the same, below zero: held as 16 bits in two's complement
+pub const NIL_TYPE = 8              ; `nil`, which fits every pointer type
+pub const FIRST_MADE = 9
+
+pub const FORM_BASIC = 0
+pub const FORM_POINTER = 1          ; base: the type pointed to
+pub const FORM_ARRAY = 2            ; base: the element type; length: how many. Stored by column
+pub const FORM_ROWS = 3             ; the same, declared `rows`: each element's bytes together
+pub const FORM_RECORD = 4           ; base: the symbol of the type that declares it; size: of its fields so far
+pub const FORM_ENUM = 5             ; base: the same. One byte
+pub const FORM_FUNC = 6             ; base: the same; length: 1 if declared `recursive`, else 0. Two bytes
+
+pub var form: [MAX_TYPES]byte
+var base_type: [MAX_TYPES]word
+var type_length: [MAX_TYPES]word
+var type_size: [MAX_TYPES]word
+pub var count: byte = FIRST_MADE
+
+; A type written as prefixes, `^` and `[n]`, before what they apply to is built from the inside
+; out: the prefixes wait here, and build() applies them.
+const MAX_PREFIXES = 16
+var prefix_form: [MAX_PREFIXES]byte
+var prefix_length: [MAX_PREFIXES]word
+pub var prefix_count: byte = 0
+
+pub func init()
+  var t: byte
+  count = FIRST_MADE
+  prefix_count = 0
+  for t = 0 until FIRST_MADE do
+    form[t] = FORM_BASIC
+    type_size[t] = 2
+  end
+  type_size[BYTE_TYPE] = 1
+  type_size[SBYTE_TYPE] = 1
+  type_size[BOOL_TYPE] = 1
+end
+
+; Bytes a value of type `t` takes.
+pub func size(t: byte): word
+  return type_size[t]
+end
+
+pub func is_pointer(t: byte): bool
+  return form[t] == FORM_POINTER
+end
+
+pub func is_array(t: byte): bool
+  return form[t] == FORM_ARRAY or form[t] == FORM_ROWS
+end
+
+pub func is_rows(t: byte): bool
+  return form[t] == FORM_ROWS
+end
+
+pub func is_record(t: byte): bool
+  return form[t] == FORM_RECORD
+end
+
+pub func is_enum(t: byte): bool
+  return form[t] == FORM_ENUM
+end
+
+; True for a function type: a pointer to a function of its signature.
+pub func is_func(t: byte): bool
+  return form[t] == FORM_FUNC
+end
+
+; True for a function type declared `recursive`.
+pub func is_recursive(t: byte): bool
+  return form[t] == FORM_FUNC and type_length[t] != 0
+end
+
+pub func make_recursive(t: byte)
+  type_length[t] = 1
+end
+
+; The type a pointer type points to, the element type of an array, or the symbol that
+; declares a record, an enumeration or a function type.
+pub func base(t: byte): word
+  return base_type[t]
+end
+
+; The elements of the elements ... of array type `t` that are not arrays; or `t`.
+pub func innermost(t: byte): byte
+  while is_array(t) do
+    t = byte(base_type[t])
+  end
+  return t
+end
+
+; How many elements an array type has.
+pub func length(t: byte): word
+  return type_length[t]
+end
+
+; True for an array whose elements are stored by column: they are larger than a byte.
+pub func is_column(t: byte): bool
+  return form[t] == FORM_ARRAY and size(byte(base_type[t])) > 1
+end
+
+; The type of this form made from `t` (and `n` elements, for an array).
+func made(kind: byte, t: byte, n: word): byte
+  var p: byte
+  for p = FIRST_MADE until count do
+    if form[p] == kind and base_type[p] == t and type_length[p] == n then
+      return p
+    end
+  end
+  if count == MAX_TYPES then
+    err.fatal(err.E_TYPES_FULL)
+  end
+  if n != 0 and size(t) > $FFFF / n then
+    err.fatal(err.E_RANGE)
+  end
+  form[count] = kind
+  base_type[count] = t
+  type_length[count] = n
+  type_size[count] = 2
+  if kind != FORM_POINTER then
+    type_size[count] = n * size(t)
+  end
+  count += 1
+  return count - 1
+end
+
+; A new record type (FORM_RECORD) with no fields yet, enumeration (FORM_ENUM) or function
+; type (FORM_FUNC, not `recursive` until made so), which symbol `s` declares.
+pub func declared(kind: byte, s: word): byte
+  if count == MAX_TYPES then
+    err.fatal(err.E_TYPES_FULL)
+  end
+  form[count] = kind
+  base_type[count] = s
+  type_length[count] = 0
+  type_size[count] = kind - FORM_RECORD     ; 0, 1 for an enumeration, 2 for a function type
+  count += 1
+  return count - 1
+end
+
+; Record type `t` gets a field of `n` bytes after the others. Returns its offset.
+pub func grow(t: byte, n: word): word
+  if n > $FFFF - type_size[t] then
+    err.fatal(err.E_RANGE)
+  end
+  type_size[t] += n
+  return type_size[t] - n
+end
+
+; The type `^t`.
+pub func pointer_to(t: byte): byte
+  return made(FORM_POINTER, t, 0)
+end
+
+; A prefix of the type being read: FORM_POINTER, or FORM_ARRAY or FORM_ROWS of `n`
+; elements. Returns how many prefixes waited before it.
+pub func prefix(kind: byte, n: word): byte
+  if prefix_count == MAX_PREFIXES then
+    err.fatal(err.E_TYPES_FULL)
+  end
+  prefix_form[prefix_count] = kind
+  prefix_length[prefix_count] = n
+  prefix_count += 1
+  return prefix_count - 1
+end
+
+; The type that the prefixes from number `mark` on make of `t`. They are used up.
+pub func build(t: byte, mark: byte): byte
+  while prefix_count > mark do
+    prefix_count -= 1
+    t = made(prefix_form[prefix_count], t, prefix_length[prefix_count])
+  end
+  return t
+end
+
+; The type `[n]t`, stored by row if `by_row`.
+pub func array_of(t: byte, n: word, by_row: bool): byte
+  if by_row then
+    return made(FORM_ROWS, t, n)
+  end
+  return made(FORM_ARRAY, t, n)
+end
+
+; True for the types a number can be given to.
+pub func is_number(t: byte): bool
+  return t == BYTE_TYPE or t == SBYTE_TYPE or t == WORD_TYPE or t == INT_TYPE
+end
+
+; True for a constant that has not taken a type yet.
+pub func is_untyped(t: byte): bool
+  return t == NUMBER_TYPE or t == NEGATIVE_TYPE
+end
+
+; True for the types whose values can be below zero. Such a constant is held sign-extended
+; to 16 bits, whatever its size.
+pub func is_signed(t: byte): bool
+  return t == SBYTE_TYPE or t == INT_TYPE or t == NEGATIVE_TYPE
+end
+
+; The largest value of number type `t`, or of an enumeration.
+pub func limit(t: byte): word
+  if t == SBYTE_TYPE then
+    return $7F
+  end
+  if size(t) == 1 then
+    return $FF
+  end
+  if t == INT_TYPE then
+    return $7FFF
+  end
+  return $FFFF
+end
+
+; True if the untyped number `value`, which is below zero if `negative`, can be a `t`.
+pub func number_fits(value: word, negative: bool, t: byte): bool
+  if negative then
+    return t == INT_TYPE or (t == SBYTE_TYPE and value >= $FF80)
+  end
+  return is_number(t) and value <= limit(t)
+end
+
+; `value` cut to what a `t` holds: the low byte for the one-byte types, with the sign
+; carried up to 16 bits for `sbyte`.
+pub func narrow(value: word, t: byte): word
+  if size(t) == 2 then
+    return value
+  end
+  value = value & $FF
+  if t == SBYTE_TYPE and value >= $80 then
+    value = value | $FF00
+  end
+  return value
+end

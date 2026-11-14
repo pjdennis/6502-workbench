@@ -1,0 +1,764 @@
+; Scripts for lathe/src/outtest.lth and its twin in lathe/tests/test_src_out.py, which write
+; an object file (its name is the program's second argument) and compare it byte for byte.
+; open; module CPU NAME; import NAME; sym KIND MODULE NAME; sym3 KIND MODULE INNER NAME;
+; var SYMBOL SIZE CLASS WEIGHT; data SYMBOL LENGTH; bytes B...; table LENGTH;
+; tset OFFSET BYTE; tfix OFFSET KIND SYMBOL SLOT ADDEND; tend SYMBOL LENGTH;
+; call CALLEE FLAGS OUTER; class SYMBOL FLAGS COUNT; param SIZE; member CLASS FUNCTION;
+; func SYMBOL FLAGS; slot SIZE CLASS WEIGHT KIND NAME; fend; end;
+; ksym SCOPE KIND NAME OBJECT WEIGHT (a kernel symbol); fbegin; op OPCODE;
+; fix OPCODE KIND SYMBOL SLOT ADDEND; finish OWN TEMP_BASE (FBUF).
+; Symbol kinds: 1 function, 2 variable, 3 data, 4 class. Kernel kinds: 1 module, 2 function,
+; 4 variable. Scopes: 0 this module, 1 and up imported, $FE predeclared, $FF local.
+== a whole module: every record the writer has
+open
+module 0 demo
+import util
+import a_module_with_a_long_name_xyz
+sym 1 demo main
+sym 2 demo count
+sym 3 demo $1
+sym3 1 demo main inner_thing
+sym 4 demo handler
+sym 1 util put
+sym 2 util a_module_with_a_long_name_xyz
+sym3 2 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ccccccccccccccccccccccccccccccc
+var 1 2 1 5
+var 7 512 0 255
+var $FFFF $FFFF 2 0
+data 2 5
+bytes 1 2 3 4 255
+data 6 0
+table 6                     ; a table with fix-ups: DFIX first, in order of offset
+tset 0 $11
+tset 5 $55
+tfix 3 2 0 $FF 4
+tfix 1 3 0 $FF 0
+tfix 4 3 0 $FF 4
+tfix 2 2 0 $FF 0
+tend 2 6
+table 3                     ; and one without
+tset 2 7
+tend 3 3
+class 4 1 3
+param 1
+param 2
+param 512
+class 4 0 0
+member 4 0
+member 4 0                  ; written once
+member 4 1
+member 5 0
+call 5 0 $FFFF              ; calls are held until the function ends, each once
+call 5 0 $FFFF
+call 5 1 $FFFF
+call 5 1 3
+call 0 2 $FFFF
+fbegin
+fix $AD 1 0 0 0
+fix $8D 1 0 $80 0
+fix $AD 1 5 2 0             ; another function's slot: a weight
+fix $AD 1 5 2 0
+fix $20 1 5 $FF 0
+fix $A9 2 1 $FF 1
+fix $A5 4 0 1 0
+op $60
+finish 0 3
+func 0 5
+slot 1 1 0 0 a
+slot 2 0 17 1 bb
+slot 300 2 255 2 $t1
+fend
+fbegin
+op $60
+finish 3 0
+func 3 0
+fend                        ; no calls, fix-ups or weights
+ksym 1 4 seen 6 9           ; a variable of another module that was used: a weight
+ksym 1 4 unseen 7 0         ; no weight: not written
+ksym 1 4 noobj $FFFF 3      ; no object symbol: not written
+ksym 0 4 own 8 4            ; this module's: not written
+ksym 1 2 func 9 4           ; not a variable
+ksym 2 4 other 10 200
+end
+== a module with nothing in it: no WGT record at the end
+open
+module 1 empty
+end
+== the 65C02, and a CODE record of every function size
+open
+module 1 m
+sym 1 m f
+fbegin
+finish 0 0
+func 0 8
+fend
+end
+== a table of 2048 bytes, the largest
+open
+module 0 m
+sym 3 m $1
+table 2048
+tset 2047 9
+tfix 2046 2 0 $FF 0
+tend 0 2048
+end
+== a table of 2049 bytes is error 87
+open
+table 2049
+== 256 fix-ups in one table
+open
+module 0 m
+table 300
+tfix 0 2 0 $FF 0
+tfix 1 2 0 $FF 0
+tfix 2 2 0 $FF 0
+tfix 3 2 0 $FF 0
+tfix 4 2 0 $FF 0
+tfix 5 2 0 $FF 0
+tfix 6 2 0 $FF 0
+tfix 7 2 0 $FF 0
+tfix 8 2 0 $FF 0
+tfix 9 2 0 $FF 0
+tfix 10 2 0 $FF 0
+tfix 11 2 0 $FF 0
+tfix 12 2 0 $FF 0
+tfix 13 2 0 $FF 0
+tfix 14 2 0 $FF 0
+tfix 15 2 0 $FF 0
+tfix 16 2 0 $FF 0
+tfix 17 2 0 $FF 0
+tfix 18 2 0 $FF 0
+tfix 19 2 0 $FF 0
+tfix 20 2 0 $FF 0
+tfix 21 2 0 $FF 0
+tfix 22 2 0 $FF 0
+tfix 23 2 0 $FF 0
+tfix 24 2 0 $FF 0
+tfix 25 2 0 $FF 0
+tfix 26 2 0 $FF 0
+tfix 27 2 0 $FF 0
+tfix 28 2 0 $FF 0
+tfix 29 2 0 $FF 0
+tfix 30 2 0 $FF 0
+tfix 31 2 0 $FF 0
+tfix 32 2 0 $FF 0
+tfix 33 2 0 $FF 0
+tfix 34 2 0 $FF 0
+tfix 35 2 0 $FF 0
+tfix 36 2 0 $FF 0
+tfix 37 2 0 $FF 0
+tfix 38 2 0 $FF 0
+tfix 39 2 0 $FF 0
+tfix 40 2 0 $FF 0
+tfix 41 2 0 $FF 0
+tfix 42 2 0 $FF 0
+tfix 43 2 0 $FF 0
+tfix 44 2 0 $FF 0
+tfix 45 2 0 $FF 0
+tfix 46 2 0 $FF 0
+tfix 47 2 0 $FF 0
+tfix 48 2 0 $FF 0
+tfix 49 2 0 $FF 0
+tfix 50 2 0 $FF 0
+tfix 51 2 0 $FF 0
+tfix 52 2 0 $FF 0
+tfix 53 2 0 $FF 0
+tfix 54 2 0 $FF 0
+tfix 55 2 0 $FF 0
+tfix 56 2 0 $FF 0
+tfix 57 2 0 $FF 0
+tfix 58 2 0 $FF 0
+tfix 59 2 0 $FF 0
+tfix 60 2 0 $FF 0
+tfix 61 2 0 $FF 0
+tfix 62 2 0 $FF 0
+tfix 63 2 0 $FF 0
+tfix 64 2 0 $FF 0
+tfix 65 2 0 $FF 0
+tfix 66 2 0 $FF 0
+tfix 67 2 0 $FF 0
+tfix 68 2 0 $FF 0
+tfix 69 2 0 $FF 0
+tfix 70 2 0 $FF 0
+tfix 71 2 0 $FF 0
+tfix 72 2 0 $FF 0
+tfix 73 2 0 $FF 0
+tfix 74 2 0 $FF 0
+tfix 75 2 0 $FF 0
+tfix 76 2 0 $FF 0
+tfix 77 2 0 $FF 0
+tfix 78 2 0 $FF 0
+tfix 79 2 0 $FF 0
+tfix 80 2 0 $FF 0
+tfix 81 2 0 $FF 0
+tfix 82 2 0 $FF 0
+tfix 83 2 0 $FF 0
+tfix 84 2 0 $FF 0
+tfix 85 2 0 $FF 0
+tfix 86 2 0 $FF 0
+tfix 87 2 0 $FF 0
+tfix 88 2 0 $FF 0
+tfix 89 2 0 $FF 0
+tfix 90 2 0 $FF 0
+tfix 91 2 0 $FF 0
+tfix 92 2 0 $FF 0
+tfix 93 2 0 $FF 0
+tfix 94 2 0 $FF 0
+tfix 95 2 0 $FF 0
+tfix 96 2 0 $FF 0
+tfix 97 2 0 $FF 0
+tfix 98 2 0 $FF 0
+tfix 99 2 0 $FF 0
+tfix 100 2 0 $FF 0
+tfix 101 2 0 $FF 0
+tfix 102 2 0 $FF 0
+tfix 103 2 0 $FF 0
+tfix 104 2 0 $FF 0
+tfix 105 2 0 $FF 0
+tfix 106 2 0 $FF 0
+tfix 107 2 0 $FF 0
+tfix 108 2 0 $FF 0
+tfix 109 2 0 $FF 0
+tfix 110 2 0 $FF 0
+tfix 111 2 0 $FF 0
+tfix 112 2 0 $FF 0
+tfix 113 2 0 $FF 0
+tfix 114 2 0 $FF 0
+tfix 115 2 0 $FF 0
+tfix 116 2 0 $FF 0
+tfix 117 2 0 $FF 0
+tfix 118 2 0 $FF 0
+tfix 119 2 0 $FF 0
+tfix 120 2 0 $FF 0
+tfix 121 2 0 $FF 0
+tfix 122 2 0 $FF 0
+tfix 123 2 0 $FF 0
+tfix 124 2 0 $FF 0
+tfix 125 2 0 $FF 0
+tfix 126 2 0 $FF 0
+tfix 127 2 0 $FF 0
+tfix 128 2 0 $FF 0
+tfix 129 2 0 $FF 0
+tfix 130 2 0 $FF 0
+tfix 131 2 0 $FF 0
+tfix 132 2 0 $FF 0
+tfix 133 2 0 $FF 0
+tfix 134 2 0 $FF 0
+tfix 135 2 0 $FF 0
+tfix 136 2 0 $FF 0
+tfix 137 2 0 $FF 0
+tfix 138 2 0 $FF 0
+tfix 139 2 0 $FF 0
+tfix 140 2 0 $FF 0
+tfix 141 2 0 $FF 0
+tfix 142 2 0 $FF 0
+tfix 143 2 0 $FF 0
+tfix 144 2 0 $FF 0
+tfix 145 2 0 $FF 0
+tfix 146 2 0 $FF 0
+tfix 147 2 0 $FF 0
+tfix 148 2 0 $FF 0
+tfix 149 2 0 $FF 0
+tfix 150 2 0 $FF 0
+tfix 151 2 0 $FF 0
+tfix 152 2 0 $FF 0
+tfix 153 2 0 $FF 0
+tfix 154 2 0 $FF 0
+tfix 155 2 0 $FF 0
+tfix 156 2 0 $FF 0
+tfix 157 2 0 $FF 0
+tfix 158 2 0 $FF 0
+tfix 159 2 0 $FF 0
+tfix 160 2 0 $FF 0
+tfix 161 2 0 $FF 0
+tfix 162 2 0 $FF 0
+tfix 163 2 0 $FF 0
+tfix 164 2 0 $FF 0
+tfix 165 2 0 $FF 0
+tfix 166 2 0 $FF 0
+tfix 167 2 0 $FF 0
+tfix 168 2 0 $FF 0
+tfix 169 2 0 $FF 0
+tfix 170 2 0 $FF 0
+tfix 171 2 0 $FF 0
+tfix 172 2 0 $FF 0
+tfix 173 2 0 $FF 0
+tfix 174 2 0 $FF 0
+tfix 175 2 0 $FF 0
+tfix 176 2 0 $FF 0
+tfix 177 2 0 $FF 0
+tfix 178 2 0 $FF 0
+tfix 179 2 0 $FF 0
+tfix 180 2 0 $FF 0
+tfix 181 2 0 $FF 0
+tfix 182 2 0 $FF 0
+tfix 183 2 0 $FF 0
+tfix 184 2 0 $FF 0
+tfix 185 2 0 $FF 0
+tfix 186 2 0 $FF 0
+tfix 187 2 0 $FF 0
+tfix 188 2 0 $FF 0
+tfix 189 2 0 $FF 0
+tfix 190 2 0 $FF 0
+tfix 191 2 0 $FF 0
+tfix 192 2 0 $FF 0
+tfix 193 2 0 $FF 0
+tfix 194 2 0 $FF 0
+tfix 195 2 0 $FF 0
+tfix 196 2 0 $FF 0
+tfix 197 2 0 $FF 0
+tfix 198 2 0 $FF 0
+tfix 199 2 0 $FF 0
+tfix 200 2 0 $FF 0
+tfix 201 2 0 $FF 0
+tfix 202 2 0 $FF 0
+tfix 203 2 0 $FF 0
+tfix 204 2 0 $FF 0
+tfix 205 2 0 $FF 0
+tfix 206 2 0 $FF 0
+tfix 207 2 0 $FF 0
+tfix 208 2 0 $FF 0
+tfix 209 2 0 $FF 0
+tfix 210 2 0 $FF 0
+tfix 211 2 0 $FF 0
+tfix 212 2 0 $FF 0
+tfix 213 2 0 $FF 0
+tfix 214 2 0 $FF 0
+tfix 215 2 0 $FF 0
+tfix 216 2 0 $FF 0
+tfix 217 2 0 $FF 0
+tfix 218 2 0 $FF 0
+tfix 219 2 0 $FF 0
+tfix 220 2 0 $FF 0
+tfix 221 2 0 $FF 0
+tfix 222 2 0 $FF 0
+tfix 223 2 0 $FF 0
+tfix 224 2 0 $FF 0
+tfix 225 2 0 $FF 0
+tfix 226 2 0 $FF 0
+tfix 227 2 0 $FF 0
+tfix 228 2 0 $FF 0
+tfix 229 2 0 $FF 0
+tfix 230 2 0 $FF 0
+tfix 231 2 0 $FF 0
+tfix 232 2 0 $FF 0
+tfix 233 2 0 $FF 0
+tfix 234 2 0 $FF 0
+tfix 235 2 0 $FF 0
+tfix 236 2 0 $FF 0
+tfix 237 2 0 $FF 0
+tfix 238 2 0 $FF 0
+tfix 239 2 0 $FF 0
+tfix 240 2 0 $FF 0
+tfix 241 2 0 $FF 0
+tfix 242 2 0 $FF 0
+tfix 243 2 0 $FF 0
+tfix 244 2 0 $FF 0
+tfix 245 2 0 $FF 0
+tfix 246 2 0 $FF 0
+tfix 247 2 0 $FF 0
+tfix 248 2 0 $FF 0
+tfix 249 2 0 $FF 0
+tfix 250 2 0 $FF 0
+tfix 251 2 0 $FF 0
+tfix 252 2 0 $FF 0
+tfix 253 2 0 $FF 0
+tfix 254 2 0 $FF 0
+tfix 299 2 0 $FF 0           ; the 256th, out of order: written in order of offset
+tend 0 300
+end
+== the 257th fix-up of a table is error 87
+open
+table 300
+tfix 0 2 0 $FF 0
+tfix 1 2 0 $FF 0
+tfix 2 2 0 $FF 0
+tfix 3 2 0 $FF 0
+tfix 4 2 0 $FF 0
+tfix 5 2 0 $FF 0
+tfix 6 2 0 $FF 0
+tfix 7 2 0 $FF 0
+tfix 8 2 0 $FF 0
+tfix 9 2 0 $FF 0
+tfix 10 2 0 $FF 0
+tfix 11 2 0 $FF 0
+tfix 12 2 0 $FF 0
+tfix 13 2 0 $FF 0
+tfix 14 2 0 $FF 0
+tfix 15 2 0 $FF 0
+tfix 16 2 0 $FF 0
+tfix 17 2 0 $FF 0
+tfix 18 2 0 $FF 0
+tfix 19 2 0 $FF 0
+tfix 20 2 0 $FF 0
+tfix 21 2 0 $FF 0
+tfix 22 2 0 $FF 0
+tfix 23 2 0 $FF 0
+tfix 24 2 0 $FF 0
+tfix 25 2 0 $FF 0
+tfix 26 2 0 $FF 0
+tfix 27 2 0 $FF 0
+tfix 28 2 0 $FF 0
+tfix 29 2 0 $FF 0
+tfix 30 2 0 $FF 0
+tfix 31 2 0 $FF 0
+tfix 32 2 0 $FF 0
+tfix 33 2 0 $FF 0
+tfix 34 2 0 $FF 0
+tfix 35 2 0 $FF 0
+tfix 36 2 0 $FF 0
+tfix 37 2 0 $FF 0
+tfix 38 2 0 $FF 0
+tfix 39 2 0 $FF 0
+tfix 40 2 0 $FF 0
+tfix 41 2 0 $FF 0
+tfix 42 2 0 $FF 0
+tfix 43 2 0 $FF 0
+tfix 44 2 0 $FF 0
+tfix 45 2 0 $FF 0
+tfix 46 2 0 $FF 0
+tfix 47 2 0 $FF 0
+tfix 48 2 0 $FF 0
+tfix 49 2 0 $FF 0
+tfix 50 2 0 $FF 0
+tfix 51 2 0 $FF 0
+tfix 52 2 0 $FF 0
+tfix 53 2 0 $FF 0
+tfix 54 2 0 $FF 0
+tfix 55 2 0 $FF 0
+tfix 56 2 0 $FF 0
+tfix 57 2 0 $FF 0
+tfix 58 2 0 $FF 0
+tfix 59 2 0 $FF 0
+tfix 60 2 0 $FF 0
+tfix 61 2 0 $FF 0
+tfix 62 2 0 $FF 0
+tfix 63 2 0 $FF 0
+tfix 64 2 0 $FF 0
+tfix 65 2 0 $FF 0
+tfix 66 2 0 $FF 0
+tfix 67 2 0 $FF 0
+tfix 68 2 0 $FF 0
+tfix 69 2 0 $FF 0
+tfix 70 2 0 $FF 0
+tfix 71 2 0 $FF 0
+tfix 72 2 0 $FF 0
+tfix 73 2 0 $FF 0
+tfix 74 2 0 $FF 0
+tfix 75 2 0 $FF 0
+tfix 76 2 0 $FF 0
+tfix 77 2 0 $FF 0
+tfix 78 2 0 $FF 0
+tfix 79 2 0 $FF 0
+tfix 80 2 0 $FF 0
+tfix 81 2 0 $FF 0
+tfix 82 2 0 $FF 0
+tfix 83 2 0 $FF 0
+tfix 84 2 0 $FF 0
+tfix 85 2 0 $FF 0
+tfix 86 2 0 $FF 0
+tfix 87 2 0 $FF 0
+tfix 88 2 0 $FF 0
+tfix 89 2 0 $FF 0
+tfix 90 2 0 $FF 0
+tfix 91 2 0 $FF 0
+tfix 92 2 0 $FF 0
+tfix 93 2 0 $FF 0
+tfix 94 2 0 $FF 0
+tfix 95 2 0 $FF 0
+tfix 96 2 0 $FF 0
+tfix 97 2 0 $FF 0
+tfix 98 2 0 $FF 0
+tfix 99 2 0 $FF 0
+tfix 100 2 0 $FF 0
+tfix 101 2 0 $FF 0
+tfix 102 2 0 $FF 0
+tfix 103 2 0 $FF 0
+tfix 104 2 0 $FF 0
+tfix 105 2 0 $FF 0
+tfix 106 2 0 $FF 0
+tfix 107 2 0 $FF 0
+tfix 108 2 0 $FF 0
+tfix 109 2 0 $FF 0
+tfix 110 2 0 $FF 0
+tfix 111 2 0 $FF 0
+tfix 112 2 0 $FF 0
+tfix 113 2 0 $FF 0
+tfix 114 2 0 $FF 0
+tfix 115 2 0 $FF 0
+tfix 116 2 0 $FF 0
+tfix 117 2 0 $FF 0
+tfix 118 2 0 $FF 0
+tfix 119 2 0 $FF 0
+tfix 120 2 0 $FF 0
+tfix 121 2 0 $FF 0
+tfix 122 2 0 $FF 0
+tfix 123 2 0 $FF 0
+tfix 124 2 0 $FF 0
+tfix 125 2 0 $FF 0
+tfix 126 2 0 $FF 0
+tfix 127 2 0 $FF 0
+tfix 128 2 0 $FF 0
+tfix 129 2 0 $FF 0
+tfix 130 2 0 $FF 0
+tfix 131 2 0 $FF 0
+tfix 132 2 0 $FF 0
+tfix 133 2 0 $FF 0
+tfix 134 2 0 $FF 0
+tfix 135 2 0 $FF 0
+tfix 136 2 0 $FF 0
+tfix 137 2 0 $FF 0
+tfix 138 2 0 $FF 0
+tfix 139 2 0 $FF 0
+tfix 140 2 0 $FF 0
+tfix 141 2 0 $FF 0
+tfix 142 2 0 $FF 0
+tfix 143 2 0 $FF 0
+tfix 144 2 0 $FF 0
+tfix 145 2 0 $FF 0
+tfix 146 2 0 $FF 0
+tfix 147 2 0 $FF 0
+tfix 148 2 0 $FF 0
+tfix 149 2 0 $FF 0
+tfix 150 2 0 $FF 0
+tfix 151 2 0 $FF 0
+tfix 152 2 0 $FF 0
+tfix 153 2 0 $FF 0
+tfix 154 2 0 $FF 0
+tfix 155 2 0 $FF 0
+tfix 156 2 0 $FF 0
+tfix 157 2 0 $FF 0
+tfix 158 2 0 $FF 0
+tfix 159 2 0 $FF 0
+tfix 160 2 0 $FF 0
+tfix 161 2 0 $FF 0
+tfix 162 2 0 $FF 0
+tfix 163 2 0 $FF 0
+tfix 164 2 0 $FF 0
+tfix 165 2 0 $FF 0
+tfix 166 2 0 $FF 0
+tfix 167 2 0 $FF 0
+tfix 168 2 0 $FF 0
+tfix 169 2 0 $FF 0
+tfix 170 2 0 $FF 0
+tfix 171 2 0 $FF 0
+tfix 172 2 0 $FF 0
+tfix 173 2 0 $FF 0
+tfix 174 2 0 $FF 0
+tfix 175 2 0 $FF 0
+tfix 176 2 0 $FF 0
+tfix 177 2 0 $FF 0
+tfix 178 2 0 $FF 0
+tfix 179 2 0 $FF 0
+tfix 180 2 0 $FF 0
+tfix 181 2 0 $FF 0
+tfix 182 2 0 $FF 0
+tfix 183 2 0 $FF 0
+tfix 184 2 0 $FF 0
+tfix 185 2 0 $FF 0
+tfix 186 2 0 $FF 0
+tfix 187 2 0 $FF 0
+tfix 188 2 0 $FF 0
+tfix 189 2 0 $FF 0
+tfix 190 2 0 $FF 0
+tfix 191 2 0 $FF 0
+tfix 192 2 0 $FF 0
+tfix 193 2 0 $FF 0
+tfix 194 2 0 $FF 0
+tfix 195 2 0 $FF 0
+tfix 196 2 0 $FF 0
+tfix 197 2 0 $FF 0
+tfix 198 2 0 $FF 0
+tfix 199 2 0 $FF 0
+tfix 200 2 0 $FF 0
+tfix 201 2 0 $FF 0
+tfix 202 2 0 $FF 0
+tfix 203 2 0 $FF 0
+tfix 204 2 0 $FF 0
+tfix 205 2 0 $FF 0
+tfix 206 2 0 $FF 0
+tfix 207 2 0 $FF 0
+tfix 208 2 0 $FF 0
+tfix 209 2 0 $FF 0
+tfix 210 2 0 $FF 0
+tfix 211 2 0 $FF 0
+tfix 212 2 0 $FF 0
+tfix 213 2 0 $FF 0
+tfix 214 2 0 $FF 0
+tfix 215 2 0 $FF 0
+tfix 216 2 0 $FF 0
+tfix 217 2 0 $FF 0
+tfix 218 2 0 $FF 0
+tfix 219 2 0 $FF 0
+tfix 220 2 0 $FF 0
+tfix 221 2 0 $FF 0
+tfix 222 2 0 $FF 0
+tfix 223 2 0 $FF 0
+tfix 224 2 0 $FF 0
+tfix 225 2 0 $FF 0
+tfix 226 2 0 $FF 0
+tfix 227 2 0 $FF 0
+tfix 228 2 0 $FF 0
+tfix 229 2 0 $FF 0
+tfix 230 2 0 $FF 0
+tfix 231 2 0 $FF 0
+tfix 232 2 0 $FF 0
+tfix 233 2 0 $FF 0
+tfix 234 2 0 $FF 0
+tfix 235 2 0 $FF 0
+tfix 236 2 0 $FF 0
+tfix 237 2 0 $FF 0
+tfix 238 2 0 $FF 0
+tfix 239 2 0 $FF 0
+tfix 240 2 0 $FF 0
+tfix 241 2 0 $FF 0
+tfix 242 2 0 $FF 0
+tfix 243 2 0 $FF 0
+tfix 244 2 0 $FF 0
+tfix 245 2 0 $FF 0
+tfix 246 2 0 $FF 0
+tfix 247 2 0 $FF 0
+tfix 248 2 0 $FF 0
+tfix 249 2 0 $FF 0
+tfix 250 2 0 $FF 0
+tfix 251 2 0 $FF 0
+tfix 252 2 0 $FF 0
+tfix 253 2 0 $FF 0
+tfix 254 2 0 $FF 0
+tfix 255 2 0 $FF 0
+tfix 256 2 0 $FF 0
+== too many calls in one function is error 78
+call 0 0 0
+call 1 0 0
+call 2 0 0
+call 3 0 0
+call 4 0 0
+call 5 0 0
+call 6 0 0
+call 7 0 0
+call 8 0 0
+call 9 0 0
+call 10 0 0
+call 11 0 0
+call 12 0 0
+call 13 0 0
+call 14 0 0
+call 15 0 0
+call 16 0 0
+call 17 0 0
+call 18 0 0
+call 19 0 0
+call 20 0 0
+call 21 0 0
+call 22 0 0
+call 23 0 0
+call 24 0 0
+call 25 0 0
+call 26 0 0
+call 27 0 0
+call 28 0 0
+call 29 0 0
+call 30 0 0
+call 31 0 0
+call 32 0 0
+call 33 0 0
+call 34 0 0
+call 35 0 0
+call 36 0 0
+call 37 0 0
+call 38 0 0
+call 39 0 0
+call 40 0 0
+call 41 0 0
+call 42 0 0
+call 43 0 0
+call 44 0 0
+call 45 0 0
+call 46 0 0
+call 47 0 0
+call 48 0 0
+call 49 0 0
+call 50 0 0
+call 51 0 0
+call 52 0 0
+call 53 0 0
+call 54 0 0
+call 55 0 0
+call 56 0 0
+call 57 0 0
+call 58 0 0
+call 59 0 0
+call 60 0 0
+call 61 0 0
+call 62 0 0
+call 63 0 0
+call 0 0 0                  ; the same call again: not another
+call 64 0 0
+== too many members is error 156
+open
+member 0 0
+member 0 1
+member 0 2
+member 0 3
+member 0 4
+member 0 5
+member 0 6
+member 0 7
+member 0 8
+member 0 9
+member 0 10
+member 0 11
+member 0 12
+member 0 13
+member 0 14
+member 0 15
+member 0 16
+member 0 17
+member 0 18
+member 0 19
+member 0 20
+member 0 21
+member 0 22
+member 0 23
+member 0 24
+member 0 25
+member 0 26
+member 0 27
+member 0 28
+member 0 29
+member 0 30
+member 0 31
+member 0 32
+member 0 33
+member 0 34
+member 0 35
+member 0 36
+member 0 37
+member 0 38
+member 0 39
+member 0 40
+member 0 41
+member 0 42
+member 0 43
+member 0 44
+member 0 45
+member 0 46
+member 0 47
+member 0 48
+member 0 49
+member 0 50
+member 0 51
+member 0 52
+member 0 53
+member 0 54
+member 0 55
+member 0 56
+member 0 57
+member 0 58
+member 0 59
+member 0 60
+member 0 61
+member 0 62
+member 0 63
+member 0 0
+member 1 0

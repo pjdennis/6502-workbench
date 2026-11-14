@@ -1,0 +1,95 @@
+; A test of fbuf: fbuftest SCRIPT runs the commands of a script (lathe/src/script.lth) that
+; build functions in the function buffer, finish them and print their code, fix-ups and
+; weights. lathe/tests/test_src_fbuf.py runs the same script with fbuf.py and compares. The
+; scripts are in lathe/tests/scripts/fbuf.txt.
+module fbuftest
+
+import err
+import fbuf
+import kernel
+import listing
+import script
+import sys
+
+const OP_NOP = $EA
+const OP_LDA = $AD
+
+pub func main()
+  var a: byte
+  var b: byte
+  var c: byte
+  var d: word
+  var n: word
+  err.init()
+  kernel.init()
+  fbuf.begin()
+  script.open()
+  while script.next() do
+    case script.command("begin op opb opw fix label labels place arrive branch jump call join same written keep tail runs used finish nops fixes ")
+    of 0
+      fbuf.begin()
+    of 1
+      fbuf.op(script.small())
+    of 2
+      a = script.small()
+      fbuf.op_byte(a, script.small())
+    of 3
+      a = script.small()
+      fbuf.op_word(a, script.number())
+    of 4
+      a = script.small()
+      b = script.small()
+      d = script.number()
+      c = script.small()
+      fbuf.op_fix(a, b, d, c, script.number())
+    of 5
+      script.show_byte(fbuf.new_label())
+    of 6
+      for n = script.number() downto 1 do
+        a = fbuf.new_label()
+      end
+      script.show_byte(a)
+    of 7
+      fbuf.place(script.small())
+    of 8
+      script.show_bool(fbuf.arrive(script.small()))
+    of 9
+      a = script.small()
+      fbuf.branch(a, script.small())
+    of 10
+      fbuf.jump(script.small())
+    of 11
+      fbuf.call_label(script.small())
+    of 12
+      a = script.small()
+      fbuf.join(a, script.small())
+    of 13
+      script.show_byte(fbuf.same(script.small()))
+    of 14
+      fbuf.as_written(script.flag())
+    of 15
+      fbuf.keep_as_written()
+    of 16
+      script.show_bool(fbuf.tail_call())
+    of 17
+      script.show_bool(fbuf.runs_on())
+    of 18
+      script.show_word(fbuf.used)
+    of 19
+      d = script.number()
+      fbuf.finish(d, script.small())
+      listing.show_finished()
+    of 20
+      for n = script.number() downto 1 do
+        fbuf.op(OP_NOP)
+      end
+    of 21
+      d = script.number()
+      for n = 0 until d do
+        fbuf.op_fix(OP_LDA, fbuf.FIX_ADDRESS, 0, fbuf.NO_SLOT, n)
+      end
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

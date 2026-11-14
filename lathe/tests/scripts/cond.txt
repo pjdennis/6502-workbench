@@ -1,0 +1,392 @@
+; Scripts for lathe/src/condtest.lth and its twin in lathe/tests/test_src_cond.py: the commands
+; of lathe/tests/scripts/reg.txt (lathe/src/regcmd.lth), and
+;   wanted 0|1 (wanted_in_carry); compare OP; left WANTED; right; invert; value; carry I;
+;   jumpfalse (prints the label); cpush BRANCH; iffalse (jump_false, a CLC, the label).
+; Operators: 11 == 12 != 13 < 14 >= 15 > 16 <=. Branches: $F0 BEQ $D0 BNE $90 BCC $B0 BCS
+; $30 BMI. Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative.
+; test_src_cond.py adds a grid of sections of its own: every comparison of every number type
+; and a pointer, between variables, constants and A, used as a test, a value and the carry.
+
+== and: the left side leaves for the false label when it is false
+slot 1 1 1 a
+slot 1 1 1 b
+slot 1 1 1 c
+slot 1 1 1 d
+pslot 1 0
+pslot 1 1
+compare 13
+left 1
+pslot 1 2
+pslot 1 3
+compare 11
+right
+show 0
+iffalse
+implied $60
+finish
+== or: the left side leaves for the true label when it is true
+slot 1 1 1 a
+slot 1 1 1 b
+slot 1 1 1 c
+slot 1 1 1 d
+pslot 1 0
+pslot 1 1
+compare 13
+left 0
+pslot 1 2
+pslot 1 3
+compare 11
+right
+show 0
+iffalse
+implied $60
+finish
+== not exchanges the labels and the branch and generates nothing
+slot 2 1 1 a
+slot 2 1 1 b
+pslot 3 0
+pslot 3 1
+compare 11
+show 0
+invert
+show 0
+iffalse
+implied $60
+finish
+== a bool variable is true when it is not zero; a known test makes no branch
+slot 1 1 1 a
+pslot 5 0
+iffalse
+const 5 1
+iffalse
+const 5 0
+iffalse
+implied $60
+finish
+== a value in A is stored before a right side that is never run
+slot 1 1 1 b
+preg 1
+const 5 1
+left 0
+pslot 5 0
+right
+value
+show 0
+show 1
+state
+implied $60
+finish
+== a left side that is the answer makes a constant: false and x, true or x
+slot 1 1 1 x
+implied $18
+const 5 0
+left 1
+pslot 5 0
+right
+show 0
+pop
+implied $60
+finish
+begin
+slot 1 1 1 x
+implied $18
+const 5 1
+left 0
+pslot 5 0
+right
+show 0
+pop
+implied $60
+finish
+== a left side that is a constant but not the answer: true and x, false or x
+slot 1 1 1 x
+const 5 1
+left 1
+pslot 5 0
+right
+show 0
+iffalse
+const 5 0
+left 0
+pslot 5 0
+right
+show 0
+iffalse
+implied $60
+finish
+== longer chains: a < b and c == d or not e
+slot 1 1 1 a
+slot 1 1 1 b
+slot 1 1 1 c
+slot 1 1 1 d
+slot 1 1 1 e
+pslot 1 0
+pslot 1 1
+compare 13
+left 1
+pslot 1 2
+pslot 1 3
+compare 11
+right
+left 0
+pslot 5 4
+invert
+right
+show 0
+iffalse
+implied $60
+finish
+== (a or b) and (c or d), words
+slot 2 1 1 a
+slot 2 1 1 b
+slot 2 1 1 c
+slot 2 1 1 d
+pslot 3 0
+const 6 0
+compare 11
+left 0
+pslot 3 1
+const 6 $1234
+compare 12
+right
+left 1
+pslot 3 2
+pslot 3 3
+compare 14
+left 0
+pslot 3 3
+const 6 7
+compare 15
+right
+right
+show 0
+value
+show 0
+implied $60
+finish
+== values: the carry by ROL, turned over, or a branch round loads of 1 and 0
+slot 1 1 1 a
+slot 1 1 1 b
+pslot 1 0
+pslot 1 1
+compare 14
+value
+show 0
+state
+pop
+pslot 1 0
+pslot 1 1
+compare 13
+value
+pop
+pslot 1 0
+pslot 1 1
+compare 11
+value
+pop
+preg 1
+cpush $F0
+value
+show 0
+show 1
+pop
+pop
+const 5 0
+invert
+value
+show 0
+implied $60
+finish
+== the carry: set already, turned round, or branches to SEC and CLC
+slot 1 1 1 a
+slot 1 1 1 b
+slot 1 1 1 c
+slot 1 1 1 d
+pslot 1 0
+pslot 1 1
+compare 14
+carry 0
+pop
+wanted 1
+pslot 1 0
+pslot 1 1
+compare 13
+show 0
+pslot 1 2
+const 6 10
+compare 13
+show 1
+wanted 0
+pop
+pop
+wanted 1
+pslot 1 0
+const 6 0
+compare 11
+show 0
+pslot 1 1
+const 6 0
+compare 12
+show 1
+const 6 0
+pslot 1 2
+compare 11
+show 2
+wanted 0
+pop
+pop
+pop
+pslot 1 0
+pslot 1 1
+compare 11
+carry 0
+pop
+pslot 1 0
+pslot 1 1
+compare 14
+left 1
+pslot 1 2
+pslot 1 3
+compare 14
+right
+carry 0
+pop
+pslot 1 0
+pslot 1 1
+compare 14
+left 0
+pslot 1 2
+pslot 1 3
+compare 14
+right
+carry 0
+pop
+pslot 1 0
+pslot 1 1
+compare 12
+carry 0
+pop
+const 5 1
+carry 0
+pop
+const 5 0
+carry 0
+pop
+pslot 5 0
+carry 0
+pop
+implied $60
+finish
+== the carry of a word comparison with or, and of not
+slot 2 1 1 a
+slot 2 1 1 b
+pslot 3 0
+pslot 3 1
+compare 11
+carry 0
+pop
+pslot 3 0
+pslot 3 1
+compare 12
+invert
+carry 0
+pop
+pslot 3 0
+pslot 3 1
+compare 13
+left 0
+pslot 3 0
+const 6 5
+compare 11
+right
+carry 0
+pop
+implied $60
+finish
+== comparisons in A, and in A and X, with an element whose index needs X
+slot 1 1 1 i
+slot 2 1 1 w
+mem 3 8 $FF 0 0 $FFFF
+pslot 1 0
+index 0
+mode 0 1 10
+preg 3
+compare 11
+iffalse
+preg 1
+pslot 1 0
+compare 13
+iffalse
+pslot 1 0
+preg 1
+compare 13
+iffalse
+implied $60
+finish
+== constants compared when compiling
+const 6 3
+const 6 4
+compare 13
+show 0
+pop
+const 7 $FFFF
+const 6 0
+compare 13
+show 0
+pop
+const 4 $8000
+const 4 $7FFF
+compare 15
+show 0
+pop
+const 3 $8000
+const 3 $7FFF
+compare 15
+show 0
+pop
+const 5 1
+const 5 1
+compare 11
+show 0
+pop
+const 5 1
+const 5 0
+compare 12
+show 0
+iffalse
+implied $60
+finish
+== bools have no order: error 44
+slot 1 1 1 a
+pslot 5 0
+const 5 1
+compare 13
+== a bool and a number do not compare: error 44
+slot 1 1 1 a
+pslot 5 0
+const 6 1
+compare 11
+== and needs bools: error 44
+slot 1 1 1 a
+pslot 1 0
+left 1
+== the carry of a byte is error 44
+slot 1 1 1 a
+pslot 1 0
+carry 0
+== function types compare only for equality: error 44
+ftype handler 0 0 0
+slot 2 1 1 h
+pslot 9 0
+pslot 9 0
+compare 11
+show 0
+pop
+pslot 9 0
+const 8 0
+compare 12
+show 0
+pop
+pslot 9 0
+pslot 9 0
+compare 13

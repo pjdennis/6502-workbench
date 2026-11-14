@@ -1,0 +1,50 @@
+; A test of cond: condtest SCRIPT OBJECT runs the commands of a script: those of
+; lathe/src/regcmd.lth, and the commands below for comparisons and conditions. It prints what
+; they give and the code of the function they make; the object file it writes is compared too.
+; lathe/tests/test_src_cond.py runs the same script with cond.py and compares. The scripts are
+; in lathe/tests/scripts/cond.txt.
+module condtest
+
+import cond
+import reg
+import regcmd
+import script
+import sys
+
+pub func main()
+  var c: byte
+  var target: word
+  regcmd.init()
+  script.open()
+  while script.next() do
+    c = script.find("wanted compare left right invert value carry jumpfalse cpush iffalse ")
+    case c
+    of script.NOT_FOUND
+      regcmd.run(script.command(@regcmd.WORDS))
+    of 0
+      cond.wanted_in_carry(script.flag())
+    of 1
+      cond.compare(script.small())
+    of 2
+      cond.left(script.flag())
+    of 3
+      cond.right()
+    of 4
+      cond.invert()
+    of 5
+      cond.value()
+    of 6
+      cond.carry(script.small())
+    of 7
+      script.show_word(cond.jump_false())
+    of 8
+      cond.push(script.small())
+    of 9
+      target = cond.jump_false()
+      reg.implied(reg.OP_CLC)
+      reg.label(byte(target))
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

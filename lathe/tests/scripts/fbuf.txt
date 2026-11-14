@@ -1,0 +1,669 @@
+; Scripts for lathe/src/fbuftest.lth and its twin in lathe/tests/test_src_fbuf.py.
+; op OPCODE; opb OPCODE BYTE; opw OPCODE WORD; fix OPCODE KIND SYMBOL SLOT ADDEND;
+; label (prints its number); labels N (makes N, prints the last); place L; arrive L;
+; branch OPCODE L; jump L; call L; join L OTHER; same L; written 0|1; keep; tail; runs;
+; used; finish OWN TEMP_BASE (prints code length: code | fix-ups | weights); nops N;
+; fixes N (N LDA abs of symbol 0 plus 0, 1, ...).
+; Fix-up kinds: 1 address, 2 low, 3 high, 4 zero page (5, shrinks, is FBUF's own choice).
+; Opcodes: $AD LDA abs, $A9 LDA #, $8D STA abs, $20 JSR, $60 RTS, $4C JMP, $6C JMP (ind),
+; $40 RTI, $80 BRA, $D0 BNE, $F0 BEQ, $90 BCC, $B0 BCS, $10 BPL, $30 BMI, $50 BVC, $70 BVS.
+== plain instructions, and an empty function
+runs
+finish 0 0
+op $E8
+opb $A9 $12
+opw $AD $D020
+op $60
+used
+finish 0 0
+begin
+runs
+finish 3 0
+== fix-ups of every kind: 1 or 5 by the opcode
+fix $AD 1 7 $FF 0          ; LDA abs: kind 5
+fix $BD 1 7 $FF 2          ; LDA abs,X: 5
+fix $B9 1 7 $FF 3          ; LDA abs,Y: 1 (no zero page form but LDX)
+fix $BE 1 7 $FF 4          ; LDX abs,Y: 5
+fix $BC 1 7 $FF 5          ; LDY abs,X: 5
+fix $8C 1 7 $FF 0          ; STY abs: 5
+fix $2C 1 7 $FF 0          ; BIT abs: 5
+fix $EC 1 7 $FF 0          ; CPX abs: 5
+fix $CC 1 7 $FF 0          ; CPY abs: 5
+fix $EE 1 7 $FF 0          ; INC abs: 5
+fix $FE 1 7 $FF 0          ; INC abs,X: 5
+fix $0E 1 7 $FF 0          ; ASL abs: 5
+fix $9C 1 7 $FF 0          ; STZ abs (65C02): 5
+fix $1C 1 7 $FF 0          ; TRB abs (65C02): 5
+fix $20 1 7 $FF 0          ; JSR: 1
+fix $4C 1 7 $FF $1234      ; JMP: 1
+fix $6C 1 7 $FF 0          ; JMP (ind): 1
+fix $7C 1 7 $FF 0          ; JMP (abs,X): 1
+fix $DC 1 7 $FF 0          ; NOP abs (65C02): 1
+fix $FC 1 7 $FF 0
+fix $5C 1 7 $FF 0
+fix $A9 2 7 $FF 1          ; LDA #<
+fix $A2 3 7 $FF $FFFF      ; LDX #>
+fix $A5 4 7 2 0            ; LDA zp
+fix $B1 4 7 3 1            ; LDA (zp),Y
+op $60
+finish 0 0
+== temporaries of the function itself get the slot numbers after its locals
+fix $AD 1 0 $80 0
+fix $AD 1 0 $81 1
+fix $AD 1 0 $FE 0
+fix $AD 1 0 $FF 0          ; the symbol itself
+fix $AD 1 0 3 0            ; a local
+fix $AD 1 1 $80 0          ; another function's slot 128 is not a temporary of this one
+fix $A5 4 0 $82 0
+op $60
+finish 0 5
+== the uses of other functions' slots are counted, more inside loops
+fix $AD 1 9 0 0            ; slot 0 of function 9: 1
+fix $AD 1 9 0 1            ; again: 2
+fix $8D 1 9 1 0
+fix $20 1 9 0 0            ; a JSR has no zero page form: not counted
+fix $AD 1 0 0 0            ; its own slot: not counted
+fix $AD 1 9 $FF 0          ; a symbol, not a slot: not counted
+fix $A5 4 9 2 0            ; already zero page: not counted
+label
+place 0
+fix $AD 1 9 2 0            ; one loop: 4
+label
+place 1
+fix $AD 1 9 2 0            ; two loops: 16
+label
+place 2
+fix $EE 1 9 3 0            ; three loops: 64
+label
+place 3
+fix $EE 1 9 3 0            ; four: still 64
+branch $D0 3
+branch $D0 2
+branch $D0 1
+branch $D0 0
+fix $AD 1 9 4 0            ; after the loops: 1
+op $60
+finish 0 0
+== a jump back is a loop too, and weights stop at 255
+label
+place 0
+fix $AD 1 4 0 0
+fix $AD 1 4 0 0
+fix $AD 1 4 0 0
+fix $AD 1 4 0 0
+fix $AD 1 4 0 0
+jump 0
+finish 0 0
+begin
+label
+place 0
+label
+place 1
+label
+place 2
+label
+place 3
+fix $AD 1 4 1 0
+fix $AD 1 4 1 0
+fix $AD 1 4 1 0
+fix $AD 1 4 1 0
+fix $AD 1 4 1 0
+branch $D0 0
+branch $D0 1
+branch $D0 2
+branch $D0 3
+finish 0 0
+== the weight table is per function and what does not fit is not counted
+fix $AD 1 1 0 0
+fix $AD 1 1 1 0
+fix $AD 1 1 2 0
+fix $AD 1 1 3 0
+fix $AD 1 1 4 0
+fix $AD 1 1 5 0
+fix $AD 1 1 6 0
+fix $AD 1 1 7 0
+fix $AD 1 1 8 0
+fix $AD 1 1 9 0
+fix $AD 1 1 10 0
+fix $AD 1 1 11 0
+fix $AD 1 1 12 0
+fix $AD 1 1 13 0
+fix $AD 1 1 14 0
+fix $AD 1 1 15 0
+fix $AD 1 2 0 0
+fix $AD 1 2 1 0
+fix $AD 1 2 2 0
+fix $AD 1 2 3 0
+fix $AD 1 2 4 0
+fix $AD 1 2 5 0
+fix $AD 1 2 6 0
+fix $AD 1 2 7 0
+fix $AD 1 2 8 0
+fix $AD 1 2 9 0
+fix $AD 1 2 10 0
+fix $AD 1 2 11 0
+fix $AD 1 2 12 0
+fix $AD 1 2 13 0
+fix $AD 1 2 14 0
+fix $AD 1 2 15 0
+fix $AD 1 3 0 0
+fix $AD 1 3 1 0
+fix $AD 1 3 2 0
+fix $AD 1 3 3 0
+fix $AD 1 3 4 0
+fix $AD 1 3 5 0
+fix $AD 1 3 6 0
+fix $AD 1 3 7 0
+fix $AD 1 3 8 0
+fix $AD 1 3 9 0
+fix $AD 1 3 10 0
+fix $AD 1 3 11 0
+fix $AD 1 3 12 0
+fix $AD 1 3 13 0
+fix $AD 1 3 14 0
+fix $AD 1 3 15 0
+fix $AD 1 4 0 0
+fix $AD 1 4 1 0
+fix $AD 1 4 2 0
+fix $AD 1 4 3 0
+fix $AD 1 4 4 0
+fix $AD 1 4 5 0
+fix $AD 1 4 6 0
+fix $AD 1 4 7 0
+fix $AD 1 4 8 0
+fix $AD 1 4 9 0
+fix $AD 1 4 10 0
+fix $AD 1 4 11 0
+fix $AD 1 4 12 0
+fix $AD 1 4 13 0
+fix $AD 1 4 14 0
+fix $AD 1 4 15 0
+fix $AD 1 5 0 0            ; the 65th: not counted
+fix $AD 1 1 0 0            ; but one already there still is
+op $60
+finish 0 0
+begin
+fix $AD 1 6 0 0
+op $60
+finish 0 0
+== what runs on: returns, jumps, branches always and their look-alikes
+runs
+op $E8
+runs
+op $60
+runs
+label
+place 0
+runs
+op $40
+runs
+arrive 0
+runs
+opw $4C $1234
+runs
+label
+place 1
+fix $4C 1 3 $FF 0
+runs
+label
+place 2
+fix $6C 1 3 $FF 0
+runs
+label
+place 3
+branch $80 3
+runs
+label
+place 4
+jump 4
+runs
+label
+place 5
+call 5
+runs
+opb $A9 $60                ; an operand that looks like a return is not one
+runs
+opw $AD $0060
+runs
+fix $AD 1 $60 $60 $60
+runs
+finish 0 0
+== branches backward and forward, and to the next instruction
+label
+place 0
+op $E8
+branch $D0 0
+label
+branch $F0 1
+op $C8
+place 1
+op $60
+label
+branch $90 2
+place 2
+op $60
+label
+op $E8
+branch $B0 3
+place 3
+finish 0 0
+== a forward branch reaches 127 bytes, not 128
+label
+branch $D0 0
+nops 127
+place 0
+op $60
+finish 0 0
+begin
+label
+branch $D0 0
+nops 128
+place 0
+op $60
+finish 0 0
+== a backward branch reaches 128 bytes, not 129
+label
+place 0
+nops 126
+branch $D0 0
+finish 0 0
+begin
+label
+place 0
+nops 127
+branch $D0 0
+finish 0 0
+== every condition has its opposite, and BRA is just a jump
+label
+branch $10 0
+branch $30 0
+branch $50 0
+branch $70 0
+branch $90 0
+branch $B0 0
+branch $D0 0
+branch $F0 0
+branch $80 0
+label
+place 1
+nops 200
+place 0
+op $60
+finish 2 0
+== distances are measured in the written layout
+label
+branch $D0 0
+fix $AD 4 3 2 0            ; two bytes
+fix $AD 1 3 $FF 0          ; three
+fix $A9 2 3 $FF 0          ; two
+label
+place 1
+label
+place 2
+nops 118
+place 0
+finish 0 0
+== making one branch long can put another out of reach
+label
+label
+branch $D0 0
+branch $F0 1
+nops 124
+place 1
+nops 2
+place 0
+finish 0 0
+begin
+label
+label
+branch $D0 0
+branch $F0 1
+nops 125
+place 1
+nops 1
+place 0
+finish 0 0
+== a short branch over a long one counts its five bytes, backward too
+label
+label
+branch $D0 0
+branch $F0 1
+nops 120
+place 0
+nops 10
+place 1
+finish 0 0
+begin
+label
+label
+place 0
+nops 120
+label
+branch $F0 2
+branch $D0 0
+nops 200
+place 2
+finish 0 0
+== a label after a long branch is at its written offset
+label
+label
+branch $D0 0
+place 1
+nops 200
+jump 1
+place 0
+jump 1
+finish 4 0
+== two labels at one place, and joins
+label
+label
+label
+label
+label
+branch $D0 0
+branch $F0 1
+join 0 1
+same 1
+same 0
+op $E8
+place 0
+join 0 2                   ; 2 joined to one already placed: goes back there
+same 2
+branch $D0 2
+op $C8
+join 2 3                   ; 3, not placed, goes where 2 is
+join 3 4                   ; joins follow each other
+same 4
+branch $B0 4
+op $60
+finish 0 0
+== a label is used once a branch or jump goes to it or one joined to it
+label
+label
+label
+arrive 0
+branch $D0 1
+join 0 1
+op $E8
+arrive 0
+op $E8
+arrive 2
+jump 2
+place 2
+label
+label
+call 3
+join 4 3
+op $60
+place 4
+op $60
+finish 0 0
+== a branch to the next instruction is taken out, and a jump too
+label
+op $E8
+branch $D0 0
+place 0
+op $C8
+label
+jump 1
+place 1
+op $60
+used
+finish 0 0
+== a branch round a jump becomes the opposite branch
+label
+label
+place 1
+op $E8
+branch $D0 0
+jump 1
+place 0
+op $60
+finish 0 0
+begin
+label
+label
+op $E8
+branch $F0 0
+jump 1
+arrive 0                   ; that was its only branch: no longer used
+place 1
+op $60
+finish 0 0
+== a branch and a jump that both come here are both taken out
+label
+op $E8
+branch $D0 0
+jump 0
+place 0
+op $60
+used
+runs
+finish 0 0
+== a jump far away still gets there; anything between keeps them apart
+label
+label
+place 1
+nops 200
+op $E8
+branch $D0 0
+jump 1
+place 0
+op $60
+finish 0 0
+begin
+label
+label
+place 1
+op $E8
+branch $D0 0
+op $C8
+jump 1
+place 0
+op $60
+finish 0 0
+begin
+label
+label
+label
+place 1
+op $E8
+branch $D0 2               ; to another label: left alone
+jump 1
+place 0
+place 2
+op $60
+finish 0 0
+begin
+label
+label
+jump 1                     ; at the start of the function: not taken for a branch round it
+place 0
+place 1
+op $60
+finish 0 0
+begin
+label
+label
+branch $80 0               ; BRA has no opposite: left alone
+jump 1
+place 0
+op $E8
+place 1
+op $60
+finish 0 0
+== instructions after a return or a jump are left out until a label
+op $60
+op $E8
+opb $A9 1
+fix $AD 1 3 $FF 0
+label
+branch $D0 0
+jump 0
+call 0
+used
+place 0
+op $C8
+label
+jump 1
+op $E8
+place 1
+op $60
+used
+finish 0 0
+begin
+op $E8
+used
+== as written: instructions after a jump are kept, nothing is tidied
+written 1
+op $60
+op $E8
+label
+label
+branch $D0 0
+jump 1
+place 0
+branch $D0 1
+place 1
+jump 1
+runs
+written 0
+label
+branch $D0 2
+place 2
+op $60
+finish 0 0
+begin
+op $E8
+label
+branch $D0 0
+place 0
+op $60
+finish 0 0
+== tail calls
+opw $20 $FFD2
+tail
+tail
+finish 0 0
+begin
+fix $20 1 3 $FF 0
+tail
+finish 0 0
+begin
+label
+call 0
+tail
+place 0
+op $60
+finish 0 0
+begin
+tail
+op $E8
+tail
+opw $AD $1234
+tail
+fix $AD 1 3 $FF 0
+tail
+fix $20 4 3 $FF 0
+tail
+label
+fix $20 1 3 $FF 0
+place 0
+tail
+== a JSR kept as written stays a JSR
+written 1
+fix $20 1 3 $FF 0
+keep
+written 0
+tail
+op $E8
+fix $20 1 3 $FF 0
+tail
+begin
+written 1
+keep
+written 0
+opw $20 $1234
+tail
+begin
+fix $20 1 3 $FF 0
+keep
+begin
+tail
+opw $20 $1234
+tail
+finish 0 0
+== a jump to a return becomes a return, whatever labels are between
+label
+label
+label
+op $E8
+jump 0
+op $C8
+place 0
+place 1
+op $60
+place 2
+op $E8
+jump 2
+finish 0 0
+begin
+label
+label
+place 0
+op $60
+label
+place 2
+op $E8
+branch $D0 2
+jump 0                     ; backward, to the return
+op $E8
+place 1
+finish 0 0
+begin
+label
+label
+op $E8
+branch $D0 0               ; a branch to a return stays
+op $C8
+jump 1                     ; a jump to something else stays
+place 0
+op $60
+place 1
+op $E8
+op $60
+finish 0 0
+begin
+label
+written 1
+op $E8
+jump 0                     ; an asm block's jump to a return stays
+written 0
+place 0
+op $60
+finish 0 0
+== a function can fill the code buffer
+nops 4096
+finish 0 0
+== a function with too much code is error 75
+nops 4095
+fix $AD 1 0 $FF 0
+finish 0 0
+== a function with too many instructions is error 75
+nops 4096
+opb $A9 0
+nops 3000
+== too many labels is error 76
+labels 256
+label
+== a function can have 1024 fix-ups
+fixes 1024
+finish 0 0
+== too many fix-ups is error 77
+fixes 1025
+finish 0 0
+== a branch to a label never placed is error 99
+label
+branch $D0 0
+op $60
+finish 0 0

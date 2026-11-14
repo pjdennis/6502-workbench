@@ -1,0 +1,225 @@
+; Scripts for the test programs of lathe/src/ (typetest, outtest, fbuftest, foldtest, regtest,
+; condtest): each runs a script of commands, one per line, read from the file named by its
+; first argument, and prints what each command gives on one line of its own. Its Python twin
+; (lathe/tests/script_host.py and the test that drives it) reads the same script and calls the
+; host module the same way, so the outputs must be identical, and a scenario is added by adding
+; a line to the script, not by writing code twice.
+;
+; A line is a command word and its arguments, separated by spaces; `;` starts a comment, and a
+; line with no command is skipped. An argument is a number, decimal, `$` and hexadecimal, or
+; `-` and either, which is the two's complement; or a word (a name), which the test makes a name
+; of in the kernel's name heap. The output is in hexadecimal: show_byte() and show_word() each
+; write their value and a space, and end_line() ends the command's line.
+;
+; A command word that the program does not know ends it with status 3, and a missing file with
+; status 2. A script never runs on after an error the compiler reports: err.fatal() ends it.
+module script
+
+import kernel
+import sys
+
+const HEX: [16]byte = "0123456789ABCDEF"
+const MAX_LINE = 250
+pub const NOT_FOUND = $FF
+const C_SPACE = $20
+const C_TAB = $09
+const C_LF = $0A
+const C_CR = $0D
+const C_SEMICOLON = $3B
+const C_DOLLAR = $24
+const C_MINUS = $2D
+const C_0 = $30
+const C_9 = $39
+const C_UPPER_A = $41
+const C_UPPER_F = $46
+const C_A = $61
+const C_F = $66
+
+var text: [MAX_LINE]byte
+var length: byte
+var pos: byte
+var stream: byte
+
+; Open the script named by the program's first argument.
+pub func open()
+  var ok: bool
+  stream, ok = kernel.open_in(kernel.keep_argument(0))
+  if not ok then
+    sys.exit(2)
+  end
+end
+
+func is_blank(c: byte): bool
+  return c == C_SPACE or c == C_TAB or c == C_CR
+end
+
+func skip_blanks()
+  while pos < length and is_blank(text[pos]) do
+    pos += 1
+  end
+end
+
+; Read the next line that holds a command. False at the end of the script.
+pub func next(): bool
+  var c: byte
+  var at_end: bool
+  var comment: bool
+  loop
+    length = 0
+    comment = false
+    loop
+      c, at_end = kernel.get(stream)
+      if at_end or c == C_LF then
+        break
+      end
+      if c == C_SEMICOLON then
+        comment = true
+      end
+      if not comment and length < MAX_LINE then
+        text[length] = c
+        length += 1
+      end
+    end
+    pos = 0
+    skip_blanks()
+    if pos < length then
+      return true
+    end
+    if at_end then
+      return false
+    end
+  end
+end
+
+; True if the line has another argument.
+pub func more(): bool
+  skip_blanks()
+  return pos < length
+end
+
+; The number of the line's first word in `words`, a list of words each followed by a space,
+; which it then reads; or NOT_FOUND, and it is left to be read.
+pub func find(words: ^byte): byte
+  var n: byte = 0
+  var i: byte
+  skip_blanks()
+  loop
+    if words[0] == 0 then
+      return NOT_FOUND
+    end
+    i = 0
+    while words[i] != C_SPACE and pos + i < length and words[i] == text[pos + i] do
+      i += 1
+    end
+    if words[i] == C_SPACE and (pos + i == length or is_blank(text[pos + i])) then
+      pos += i
+      return n
+    end
+    while words[0] != C_SPACE do
+      words += 1
+    end
+    words += 1
+    n += 1
+  end
+end
+
+; As find(), but a word that is not in `words` ends the program with status 3.
+pub func command(words: ^byte): byte
+  var n: byte
+  n = find(words)
+  if n == NOT_FOUND then
+    sys.exit(3)
+  end
+  return n
+end
+
+; The next argument, a number.
+pub func number(): word
+  var value: word = 0
+  var negative: bool = false
+  var c: byte
+  skip_blanks()
+  if pos < length and text[pos] == C_MINUS then
+    negative = true
+    pos += 1
+  end
+  if pos < length and text[pos] == C_DOLLAR then
+    pos += 1
+    while pos < length and not is_blank(text[pos]) do
+      c = text[pos]
+      if c >= C_A and c <= C_F then
+        c = c - C_A + 10
+      elif c >= C_UPPER_A and c <= C_UPPER_F then
+        c = c - C_UPPER_A + 10
+      else
+        c = c - C_0
+      end
+      value = (value << 4) | c
+      pos += 1
+    end
+  else
+    while pos < length and not is_blank(text[pos]) do
+      value = value * 10 + (text[pos] - C_0)
+      pos += 1
+    end
+  end
+  if negative then
+    value = 0 - value
+  end
+  return value
+end
+
+; The next argument as one byte.
+pub func small(): byte
+  return lo(number())
+end
+
+; The next argument, `1` or `0`, as a bool.
+pub func flag(): bool
+  return number() != 0
+end
+
+; The next argument, a word, as a name in the kernel's name heap.
+pub func name(): word
+  skip_blanks()
+  kernel.name_begin()
+  while pos < length and not is_blank(text[pos]) do
+    kernel.name_add(text[pos])
+    pos += 1
+  end
+  return kernel.name_end()
+end
+
+; The name spelt by the zero-terminated text at p.
+pub func name_of(p: ^byte): word
+  kernel.name_begin()
+  while p[0] != 0 do
+    kernel.name_add(p[0])
+    p += 1
+  end
+  return kernel.name_end()
+end
+
+pub func show_byte(b: byte)
+  sys.put_byte(HEX[b >> 4])
+  sys.put_byte(HEX[b & 15])
+  sys.put_byte(C_SPACE)
+end
+
+pub func show_word(w: word)
+  sys.put_byte(HEX[hi(w) >> 4])
+  sys.put_byte(HEX[hi(w) & 15])
+  show_byte(lo(w))
+end
+
+pub func show_bool(f: bool)
+  if f then
+    sys.put_byte('T')
+  else
+    sys.put_byte('F')
+  end
+end
+
+pub func end_line()
+  sys.put_byte(C_LF)
+end

@@ -1,0 +1,92 @@
+; A test of fold: foldtest SCRIPT runs the commands of a script (lathe/src/script.lth) on the
+; constant arithmetic and prints what they give. lathe/tests/test_src_fold.py runs the same
+; script with fold.py and compares; it adds sections of its own that sweep exact() over a grid
+; of numbers, each one that is an error in a section by itself.
+module foldtest
+
+import err
+import fold
+import kernel
+import script
+import sys
+import typetab
+
+const EDGE_COUNT = 16
+const EDGES: [EDGE_COUNT]word = [0, 1, 2, 7, 15, 16, $7F, $80, $FF, $100, $7FFF, $8000, $FF80,
+  $FFF9, $FFFE, $FFFF]
+
+; typed() of every pair of edges, as `t` holds them. A division by 0 shows as `-`.
+func sweep_typed(op: byte, t: byte)
+  var i: byte
+  var j: byte
+  var a: word
+  var b: word
+  for i = 0 until EDGE_COUNT do
+    for j = 0 until EDGE_COUNT do
+      a = typetab.narrow(EDGES[i], t)
+      b = typetab.narrow(EDGES[j], t)
+      if b == 0 and (op == fold.DIV or op == fold.REM) then
+        sys.put_byte('-')
+      else
+        script.show_word(fold.typed(op, t, a, b))
+      end
+    end
+  end
+end
+
+; compare() of every pair of edges, each taken both as a number and as one below zero.
+func sweep_compare(op: byte)
+  var i: byte
+  var j: byte
+  var k: byte
+  for i = 0 until EDGE_COUNT do
+    for j = 0 until EDGE_COUNT do
+      for k = 0 until 4 do
+        script.show_bool(fold.compare(op, EDGES[i], k & 1 != 0, EDGES[j], k & 2 != 0))
+      end
+    end
+  end
+end
+
+pub func main()
+  var op: byte
+  var t: byte
+  var a: word
+  var b: word
+  var a_negative: bool
+  var negative: bool
+  err.init()
+  kernel.init()
+  typetab.init()
+  script.open()
+  while script.next() do
+    case script.command("exact typed compare sweep_typed sweep_compare ")
+    of 0
+      op = script.small()
+      a = script.number()
+      a_negative = script.flag()
+      b = script.number()
+      a, negative = fold.exact(op, a, a_negative, b, script.flag())
+      script.show_word(a)
+      script.show_bool(negative)
+    of 1
+      op = script.small()
+      t = script.small()
+      a = script.number()
+      script.show_word(fold.typed(op, t, a, script.number()))
+    of 2
+      op = script.small()
+      a = script.number()
+      a_negative = script.flag()
+      b = script.number()
+      script.show_bool(fold.compare(op, a, a_negative, b, script.flag()))
+    of 3
+      op = script.small()
+      sweep_typed(op, script.small())
+    of 4
+      sweep_compare(script.small())
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

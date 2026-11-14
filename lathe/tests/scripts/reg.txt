@@ -1,0 +1,908 @@
+; Scripts for lathe/src/regtest.lth (the commands of lathe/src/regcmd.lth) and their twin,
+; lathe/tests/regcmd_host.py. A module `m` that imports `util` is being written, with the
+; function `m.f` (object symbol 0) being generated; each section starts afresh.
+;
+; Set up: slot SIZE CLASS KIND NAME; temp SIZE; var TYPE FLAGS SCOPE ADDRESS NAME (a kernel
+; symbol); func NAME SCOPE FLAGS PARAMS RESULTS (TYPE REGISTER)...; ftype NAME FLAGS PARAMS
+; RESULTS (TYPE REGISTER)... (a function type; flags 1: recursive); ptr TYPE; arr TYPE N ROWS.
+; Operands: const TYPE VALUE; wraps; mem TYPE SYMBOL SLOT VALUE MORE VARIABLE; pslot TYPE SLOT;
+; preg TYPE; addr TYPE SYMBOL SLOT VALUE; faddr FUNCTION OBJECT; index I; mode I MODE STRIDE;
+; pop; swap; squeeze; dup I; keep I; become I KIND TYPE; dtemp I TYPE.
+; Code: load R I K; lconst R V; force R V; store R I K; put I K TARGET TK; pconst V TARGET TK;
+; imm OP V; alu OP I K; cmp I K; cmpc V; acc OP; modify OP I K; stepx OP; test R; testb I K;
+; implied OP; transfer R R; spill I; take I; intomem I; apart I J; unaliased I TARGET KEEP;
+; zp I; deref I; clobber; claim R; release I; forget; direct OP I K; use I; loops N.
+; Labels: label; place L (reg.label); looplabel L; branch OP L; jump L; join L OTHER.
+; Types: accepts T T; assignable I T; fit I T; unify I J; fitf I T; class SYMBOL.
+; Looking: show I; state; same I J; offset I K; constb I K; isdirect I; inregs I; slots;
+; symweight SYMBOL; value I V (its op_value); retype I T (its op_type); finish (the code, fix-ups, weights and frame); end (the object file).
+;
+; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative, 8 nil.
+; Kinds: 1 const, 2 func, 3 var, 4 A, 5 AX, 6 cond, 7 address. Modes: 0 direct, 1 indexed,
+; 2 pointer. Flags: 1 temp, 2 zp, 8 data, 16 wraps. Registers: 0 A, 1 X, 2 Y.
+; Opcodes (absolute forms): $AD LDA, $6D ADC, $ED SBC, $0D ORA, $2D AND, $4D EOR, $CD CMP,
+; $EE INC, $CE DEC, $0E ASL, $4E LSR, $2E ROL, $6E ROR; $18 CLC, $38 SEC, $E8 INX, $CA DEX,
+; $60 RTS; branches $F0 BEQ, $D0 BNE.
+; No variable: $FFFF. No object symbol (a fixed address): $FFFF. No slot: $FF.
+
+== the operand stack
+const 6 72
+const 5 1
+state
+show 0
+show 1
+pop
+show 0
+pop
+state
+const 7 7
+preg 1
+swap
+show 0
+show 1
+state
+const 6 1
+const 6 2
+const 6 3
+squeeze
+show 1
+state
+pop
+pop
+pop
+preg 3
+state
+const 3 $1234
+constb 1 0
+constb 1 1
+mem 1 5 $FF 0 0 $FFFF
+become 2 3 3
+constb 2 0
+constb 2 1
+show 2
+begin
+state
+== the same place
+mem 3 5 $FF 0 0 $FFFF
+mem 3 5 $FF 0 0 $FFFF
+mem 1 5 $FF 1 0 $FFFF
+mem 3 5 0 0 0 $FFFF
+const 6 0
+same 0 1
+same 0 2
+same 0 3
+same 0 4
+same 4 4
+mode 1 1 1
+same 0 1
+const 6 3
+index 0
+const 6 3
+index 1
+mode 0 1 1
+same 0 1
+const 6 4
+index 1
+same 0 1
+offset 0 1
+mode 0 1 10
+offset 0 1
+isdirect 0
+isdirect 4
+inregs 4
+== the frame: slots, temporaries and their names
+slot 1 1 0 a
+slot 2 0 0 b
+slot 300 2 1 c
+temp 1
+temp 2
+temp 1
+slots
+const 6 9
+dtemp 0 3
+show 0
+pop
+temp 2
+temp 2
+slots
+pslot 1 1
+pslot 1 0
+show 0
+show 1
+state
+finish
+== too many operands is error 79
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+const 6 1
+state
+const 6 1
+== too many temporaries is error 85
+temp 1
+temp 2
+temp 3
+temp 4
+temp 5
+temp 6
+temp 7
+temp 8
+temp 9
+temp 10
+temp 11
+temp 12
+temp 13
+temp 14
+temp 15
+temp 16
+temp 17
+temp 18
+temp 19
+temp 20
+temp 21
+temp 22
+temp 23
+temp 24
+temp 25
+temp 26
+temp 27
+temp 28
+temp 29
+temp 30
+temp 31
+temp 32
+temp 33
+temp 34
+temp 35
+temp 36
+temp 37
+temp 38
+temp 39
+temp 40
+temp 41
+temp 42
+temp 43
+temp 44
+temp 45
+temp 46
+temp 47
+temp 48
+temp 49
+temp 50
+temp 51
+temp 52
+temp 53
+temp 54
+temp 55
+temp 56
+temp 57
+temp 58
+temp 59
+temp 60
+temp 61
+temp 62
+temp 63
+temp 64
+slots
+temp 65
+== memory by fix-up, zero page fix-up or fixed address
+slot 1 1 1 a
+slot 1 1 1 b
+slot 2 1 1 c
+mem 1 5 $FF 0 0 $FFFF
+mem 3 0 2 0 0 $FFFF
+mem 1 6 $FF 0 2 $FFFF
+mem 1 $FFFF $FF $D020 0 $FFFF
+mem 1 $FFFF $FF $10 0 $FFFF
+load 0 0 0
+load 1 1 1
+load 2 2 0
+store 0 3 0
+store 0 4 0
+mem 3 $FFFF $FF $FF 0 $FFFF
+alu $6D 5 0
+alu $6D 5 1
+modify $EE 5 0
+implied $60
+finish
+== constants are immediates
+const 3 $1234
+load 0 0 0
+alu $6D 0 1
+cmp 0 0
+load 1 0 1
+load 2 0 0
+acc $0E
+acc $4E
+acc $2E
+acc $6E
+implied $18
+implied $38
+stepx $E8
+stepx $CA
+imm $2D $0F
+imm $0D $F0
+imm $4D $FF
+imm $ED 1
+cmpc 7
+implied $60
+finish
+== register memory: constants
+lconst 0 5
+lconst 0 5
+lconst 0 6
+lconst 1 6
+lconst 2 6
+lconst 1 7
+lconst 0 7
+lconst 2 7
+lconst 1 9
+lconst 2 9
+force 2 9
+force 0 7
+implied $60
+finish
+== register memory: copies of variables
+mem 3 5 $FF 0 0 $FFFF
+load 0 0 0
+load 0 0 0
+load 1 0 0
+load 0 0 1
+lconst 0 0
+store 0 0 0
+store 0 0 1
+load 0 0 1
+lconst 0 0
+mem 1 6 $FF 0 0 $FFFF
+load 1 1 0
+lconst 0 1
+store 0 1 0
+load 1 1 0
+modify $EE 1 0
+load 0 1 0
+alu $6D 1 0
+load 0 1 0
+mem 1 $FFFF $FF $D020 0 $FFFF
+load 0 2 0
+load 0 2 0
+store 0 2 0
+load 0 2 0
+implied $60
+finish
+== a register is a copy of at most two bytes, the newest first
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+load 0 0 0
+store 0 1 0
+store 0 2 0
+load 0 1 0
+load 0 2 0
+load 0 0 0
+transfer 0 1
+load 1 0 0
+load 1 2 0
+load 2 2 0
+transfer 0 2
+load 2 2 0
+transfer 2 0
+implied $60
+finish
+== labels: what is forgotten and what is kept
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+label
+load 0 0 0
+branch $F0 0
+implied $18
+place 0
+load 0 0 0
+label
+load 0 0 0
+jump 1
+load 0 1 0
+place 1
+load 0 1 0
+load 0 1 0
+label
+place 2
+load 0 1 0
+label
+looplabel 3
+load 0 1 0
+branch $D0 3
+implied $60
+finish
+== arrivals: what the branch and the code before agree on
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+label
+load 0 0 0
+lconst 1 4
+branch $F0 0
+implied $18
+place 0
+load 0 0 0
+lconst 1 4
+label
+load 0 0 0
+lconst 1 4
+branch $F0 1
+load 0 1 0
+lconst 1 5
+place 1
+load 0 0 0
+lconst 1 5
+label
+load 0 0 0
+store 0 1 0
+branch $F0 2
+load 0 1 0
+lconst 2 1
+store 2 0 0
+place 2
+load 0 1 0
+load 0 0 0
+test 0
+label
+load 0 0 0
+branch $F0 3
+implied $60
+load 0 1 0
+place 3
+load 0 0 0
+load 0 1 0
+implied $60
+finish
+== arrivals: jumps, joins, loops
+mem 1 5 $FF 0 0 $FFFF
+label
+label
+lconst 0 1
+branch $F0 1
+jump 0
+place 1
+load 0 0 0
+place 0
+lconst 0 1
+label
+label
+lconst 0 1
+lconst 1 2
+branch $F0 2
+lconst 1 3
+branch $F0 3
+join 2 3
+load 0 0 0
+implied $60
+place 2
+lconst 0 1
+lconst 1 2
+label
+load 0 0 0
+looplabel 4
+load 0 0 0
+branch $D0 4
+label
+label
+looplabel 5
+lconst 0 1
+branch $D0 6
+join 5 6
+state
+label
+label
+load 0 0 0
+branch $D0 7
+jump 8
+place 7
+load 0 0 0
+place 8
+load 0 0 0
+implied $60
+finish
+== without room for another state nothing is known at the label
+label
+label
+label
+label
+label
+label
+label
+label
+label
+lconst 0 7
+branch $F0 0
+branch $F0 1
+branch $F0 2
+branch $F0 3
+branch $F0 4
+branch $F0 5
+branch $F0 6
+branch $F0 7
+branch $F0 8
+implied $18
+place 0
+place 1
+place 2
+place 3
+place 4
+place 5
+place 6
+place 7
+lconst 0 7
+place 8
+lconst 0 7
+implied $60
+finish
+== joins that lose what they knew
+label
+label
+label
+lconst 0 3
+branch $F0 0
+lconst 0 4
+branch $F0 1
+join 1 0
+join 2 1
+looplabel 2
+lconst 0 3
+branch $D0 2
+lconst 0 3
+implied $60
+finish
+== put: from whichever register holds the byte
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+load 1 0 0
+put 0 0 1 0
+pconst 0 1 0
+lconst 2 9
+pconst 9 1 0
+const 6 9
+put 2 0 0 0
+pop
+mem 3 5 $FF 0 0 $FFFF
+mem 3 6 $FF 0 0 $FFFF
+put 2 0 3 0
+put 2 1 3 1
+load 0 3 0
+load 1 2 1
+preg 1
+put 2 1 3 1
+pop
+mem 1 7 $FF 0 0 $FFFF
+retype 4 3
+show 4
+put 4 1 3 1
+implied $60
+finish
+== the flags
+mem 1 5 $FF 0 0 $FFFF
+const 6 3
+const 6 4
+load 0 0 0
+test 0
+load 1 1 0
+test 0
+test 0
+test 1
+store 0 0 0
+test 0
+cmp 2 0
+test 0
+modify $CE 0 0
+test 0
+mem 3 6 $FF 0 0 $FFFF
+modify $CE 3 1
+testb 3 1
+testb 3 0
+modify $EE 0 0
+store 1 0 0
+testb 0 0
+modify $EE 0 0
+label
+looplabel 0
+testb 0 0
+load 0 0 0
+forget
+state
+implied $60
+finish
+== elements: the index goes to X, or Y for LDX
+mem 1 5 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 0
+mode 0 1 1
+show 0
+load 0 0 0
+load 1 0 0
+load 2 0 0
+store 0 0 0
+store 1 0 0
+alu $6D 0 0
+modify $EE 0 0
+mem 3 8 $FF 0 0 $FFFF
+const 6 3
+index 1
+mode 1 1 10
+take 1
+show 1
+state
+mem 3 8 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 2
+mode 2 1 10
+put 1 0 2 0
+put 1 1 2 1
+implied $60
+finish
+== a word in A and X is stored before an element that needs X
+mem 3 8 $FF 0 0 $FFFF
+mem 1 7 $FF 0 0 $FFFF
+index 0
+mode 0 1 10
+preg 3
+apart 1 0
+show 1
+pop
+preg 3
+put 1 0 0 0
+put 1 1 0 1
+state
+implied $60
+finish
+== pointers: (zp),Y, the index and the offset in Y
+slot 2 1 1 p
+pslot 3 0
+deref 0
+show 0
+slots
+const 6 0
+index 0
+mode 0 2 1
+show 0
+load 0 0 0
+load 0 0 1
+load 1 0 1
+store 0 0 1
+store 1 0 0
+modify $EE 0 0
+modify $CE 0 1
+modify $0E 0 0
+pslot 3 0
+mem 1 5 $FF 0 0 $FFFF
+index 1
+mode 1 2 1
+value 1 2
+load 0 1 1
+take 1
+show 1
+state
+implied $60
+finish
+== pointers: the offsets of a field step Y up
+slot 2 1 1 p
+pslot 3 0
+deref 0
+mem 1 5 $FF 0 0 $FFFF
+index 0
+mode 0 2 1
+value 0 3
+offset 0 1
+load 0 0 0
+load 0 0 1
+pslot 3 0
+deref 1
+const 6 250
+index 1
+mode 1 2 1
+load 0 1 0
+load 0 1 1
+implied $60
+finish
+== dereferenced: who can be a zero page pointer
+ptr 1
+slot 2 2 1 nozp
+slot 2 1 1 either
+var 9 32 0 0 nozp_var
+var 9 0 0 0 module_var
+var 9 0 1 0 foreign_var
+var 9 16 1 0 foreign_zp
+mem 9 0 0 0 0 $FFFF
+deref 0
+mem 9 0 1 0 0 $FFFF
+deref 1
+slots
+mem 9 3 $FF 0 0 0
+deref 2
+mem 9 3 $FF 0 0 1
+deref 3
+show 3
+symweight 1
+mem 9 3 $FF 0 0 2
+deref 4
+mem 9 3 $FF 0 2 3
+deref 5
+mem 9 3 $FF 2 0 1
+deref 6
+mem 9 $FFFF $FF 0 0 $FFFF
+deref 7
+mem 9 3 $FF 0 0 $FFFF
+deref 8
+const 6 0
+deref 9
+== unaliased: p = p.next
+slot 2 1 1 p
+pslot 3 0
+deref 0
+pslot 3 0
+const 6 0
+index 1
+mode 1 2 1
+unaliased 1 0 0
+show 1
+pslot 3 0
+const 6 2
+index 2
+mode 2 2 1
+unaliased 2 0 1
+show 2
+mem 3 5 $FF 0 0 $FFFF
+pslot 3 0
+const 6 0
+index 4
+mode 4 2 1
+unaliased 4 3 0
+show 4
+implied $60
+finish
+== claims and spills
+preg 1
+claim 1
+state
+claim 0
+show 0
+state
+preg 3
+claim 1
+show 1
+preg 1
+release 2
+claim 0
+state
+pop
+pop
+pop
+preg 3
+clobber
+show 0
+preg 1
+spill 1
+show 1
+preg 3
+intomem 2
+show 2
+mem 1 5 $FF 0 0 $FFFF
+mem 1 6 $FF 0 0 $FFFF
+index 3
+mode 3 1 1
+intomem 3
+show 3
+implied $60
+finish
+== duplicate, keep and become: temporaries go with their operands
+preg 3
+spill 0
+dup 0
+show 1
+pop
+show 0
+slots
+pop
+slots
+temp 2
+temp 1
+mem 1 5 $FF 0 0 $FFFF
+const 6 7
+index 0
+keep 17
+show 1
+pop
+pop
+preg 1
+spill 0
+become 0 1 1
+slots
+state
+== weights: uses in loops weigh more, and stop at 255
+slot 1 1 1 v
+var 1 0 0 0 g
+var 1 0 1 0 h
+pslot 1 0
+mem 1 5 $FF 0 0 1
+mem 1 6 $FF 0 0 0
+load 0 0 0
+loops 1
+load 0 1 0
+loops 2
+store 0 0 0
+loops 3
+store 0 1 0
+loops 7
+store 0 2 0
+store 0 2 0
+use 0
+use 1
+direct $AD 0 0
+slots
+symweight 1
+symweight 0
+loops 4
+use 0
+use 0
+use 0
+use 0
+use 0
+use 0
+use 0
+slots
+implied $60
+finish
+end
+== direct: zero page forms by fix-up and by address
+mem 3 5 $FF 0 2 $FFFF
+mem 3 $FFFF $FF $00FE 0 $FFFF
+mem 3 $FFFF $FF $1234 0 $FFFF
+direct $AD 0 0
+direct $AD 0 1
+direct $AD 1 0
+direct $AD 1 1
+direct $AD 2 0
+direct $8D 2 1
+zp 0
+addr 3 5 $FF 4
+load 0 3 0
+load 1 3 1
+load 2 3 0
+alu $6D 3 1
+cmp 3 0
+implied $60
+finish
+== types: accepts, fit, assignable, unify
+ptr 1
+accepts 1 1
+accepts 1 3
+accepts 3 1
+accepts 8 9
+accepts 8 3
+accepts 2 4
+const 6 200
+fit 0 1
+show 0
+const 6 300
+fit 1 3
+show 1
+const 7 $FFDF
+wraps
+fit 2 1
+show 2
+const 7 $FF80
+fit 3 2
+show 3
+const 7 $FFFF
+wraps
+fit 4 3
+show 4
+const 6 5
+assignable 5 4
+show 5
+mem 1 5 $FF 0 0 $FFFF
+const 6 300
+unify 6 7
+show 6
+show 7
+mem 1 5 $FF 0 0 $FFFF
+const 7 $FFDF
+wraps
+unify 8 9
+show 8
+show 9
+const 6 3
+const 6 4
+unify 10 11
+mem 1 5 $FF 0 0 $FFFF
+mem 3 6 $FF 0 0 $FFFF
+unify 12 13
+unify 13 12
+const 8 0
+mem 9 5 $FF 0 0 $FFFF
+unify 14 15
+show 14
+== fit: a number that does not fit is error 43
+const 6 256
+fit 0 1
+== fit: a number below zero does not fit an unsigned type unless ~ or - made it
+const 7 $FFFF
+fit 0 3
+== fit: -129 does not fit an sbyte
+const 7 $FF7F
+fit 0 2
+== fit: ~$100 does not fit a byte
+const 7 $FEFF
+wraps
+fit 0 1
+== fit: a bool is not a number: error 44
+const 6 1
+fit 0 5
+== assignable: an array is not a value: error 121
+arr 1 4 0
+const 6 1
+assignable 0 9
+== assignable: a word does not go to a byte: error 44
+mem 3 5 $FF 0 0 $FFFF
+assignable 0 1
+== unify: signed and unsigned do not mix
+mem 1 5 $FF 0 0 $FFFF
+mem 2 6 $FF 0 0 $FFFF
+unify 0 1
+== function types: @f fits a type with its signature, and a CLAS and MEMB are written
+ftype handler 0 2 1 1 1 3 0 5 7
+func beep 0 0 2 1 1 1 3 0 5 7
+func other 0 0 2 1 1 1 3 0 5 7
+faddr 1 7
+fitf 0 9
+show 0
+faddr 1 7
+fitf 1 9
+faddr 2 8
+assignable 2 9
+show 2
+class 0
+mem 9 5 $FF 0 0 $FFFF
+faddr 2 8
+unify 3 4
+show 4
+ftype rhandler 1 0 0
+func rf 0 128 0 0
+faddr 4 10
+fitf 5 10
+end
+== function types: an asm function cannot be one: error 154
+ftype handler 0 1 0 1 0
+func f2 0 64 1 0 1 1
+faddr 1 7
+fitf 0 9
+== function types: another signature is error 151
+ftype handler 0 1 0 1 0
+func f2 0 0 1 0 3 0
+faddr 1 7
+fitf 0 9
+== function types: another count is error 151
+ftype handler 0 1 0 1 0
+func f2 0 0 2 0 1 0 1 0
+faddr 1 7
+fitf 0 9
+== function types: a recursive type takes only recursive functions: error 152
+ftype handler 1 0 0
+func f2 0 0 0 0
+faddr 1 7
+fitf 0 9
+== function types: @f given to a number is error 153
+func f2 0 0 0 0
+faddr 0 7
+fitf 0 3
+== an unknown command
+frobnicate 1 2

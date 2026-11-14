@@ -1,0 +1,128 @@
+; Scripts for lathe/src/typetest.lth and its twin in lathe/tests/test_src_typetab.py.
+; Types: 1 byte, 2 sbyte, 3 word, 4 int, 5 bool, 6 number, 7 negative, 8 nil.
+; Forms: 1 pointer, 2 array, 3 rows, 4 record, 5 enum, 6 func.
+show 0 1 2 3 4 5 6 7 8
+sweep 0
+sweep 1
+sweep 2
+sweep 3
+sweep 4
+sweep 5
+sweep 6
+sweep 7
+sweep 8
+count
+ptr 1               ; ^byte
+ptr 1               ; made once
+ptr 3
+ptr 9               ; ^^byte
+ptr 8
+arr 1 10 0          ; [10]byte: not by column
+arr 3 10 0          ; [10]word: by column
+arr 3 10 1          ; [10]word rows: another type
+arr 3 10 0          ; made once
+arr 1 8 0
+arr 1 9 0
+arr 9 4 0           ; [4]^byte: by column
+arr 3 4 0
+arr 16 3 0          ; [3][4]word: 24 bytes
+arr 17 2 0          ; [2][3][4]word
+arr 18 2 1
+arr 2 0 0           ; no elements
+arr 1 65535 0       ; the largest
+arr 3 32767 0       ; 65534 bytes
+arr 1 1 1
+decl 4 300          ; a record declared by symbol 300
+grow 27 1
+grow 27 2
+grow 27 0
+grow 27 6
+decl 5 301          ; an enumeration
+decl 6 302          ; a function type
+rec 29
+decl 6 511
+ptr 27
+arr 27 3 0          ; an array of records: by column
+arr 28 3 0          ; of enumerations: one byte each
+arr 29 3 1
+show 27 28 29 30 31 32 33 34
+sweep 28
+sweep 9
+count
+prefix 1 0          ; ^[3]word
+prefix 2 3
+build 3 0
+count
+prefix 2 2          ; [2] ^byte, the ^ inside another type
+prefix 1 0
+build 1 1
+build 1 0
+count
+prefix 3 5
+prefix 2 7
+prefix 1 0
+build 4 0
+count
+fits 0 0 1
+fits 255 0 1
+fits 256 0 1
+fits $FFFF 1 2
+fits $FF80 1 2
+fits $FF7F 1 2
+fits $8000 1 4
+fits $8000 1 3
+fits 1 0 5
+fits 0 0 9
+fits $7FFF 0 4
+fits $8000 0 4
+fits $FFFF 0 3
+narrow $1234 1
+narrow $12FE 2
+narrow $127E 2
+narrow $1234 3
+narrow $FFFF 4
+narrow 1 5
+narrow $FF80 2
+narrow $0080 2
+init
+count
+ptr 1
+show 9
+== too many types: error 74
+fill 1
+== too many types by declaring them
+decl 4 0
+decl 4 1
+fill 3
+== an array larger than 64K: error 43
+arr 3 40000 0
+== an array of arrays larger than 64K
+arr 3 200 0
+arr 9 200 0
+== an array of 32768 words
+arr 3 32768 1
+== a record that grows past 64K: error 43
+decl 4 7
+grow 9 65000
+grow 9 535
+grow 9 1
+== too many prefixes: error 74
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+prefix 1 0
+== an unknown command
+nothing

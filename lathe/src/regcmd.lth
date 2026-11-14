@@ -1,0 +1,383 @@
+; The commands of the scripts that test REG (lathe/src/regtest.lth) and COND (condtest.lth):
+; a module `m` (number 0) that imports `util` (number 1), its object file being written to the
+; file named by the program's second argument, and a function `m.f`, object symbol 0, being
+; generated, as lathe/tests/gen_support.py sets up for the host's unit tests. Each command calls
+; REG, or sets up what it works on, and prints what it gives. lathe/tests/regcmd_host.py is its
+; twin; the commands are listed in lathe/tests/scripts/reg.txt.
+module regcmd
+
+import err
+import fbuf
+import kernel
+import listing
+import out
+import reg
+import script
+import sys
+import typetab
+
+pub const WORDS = "begin slot temp var func ftype ptr const wraps mem pslot preg addr faddr index mode pop swap squeeze dup keep become dtemp load lconst force store put pconst imm alu cmp cmpc acc modify stepx test testb implied transfer spill take intomem apart unaliased zp deref clobber claim release forget direct use loops label place looplabel branch jump join accepts assignable fit unify fitf class show state same offset constb isdirect finish end arr symweight slots inregs value retype "
+
+pub var own: word
+
+; Set up the module and the function.
+pub func init()
+  var m: word
+  err.init()
+  kernel.init()
+  typetab.init()
+  out.init()
+  if not out.open(kernel.keep_argument(1)) then
+    sys.exit(2)
+  end
+  m = script.name_of("m")
+  kernel.module_add(m)
+  kernel.module_add(script.name_of("util"))
+  own = out.symbol(out.SYM_FUNCTION, m, 0, script.name_of("f"))
+  fbuf.begin()
+  reg.begin(own)
+end
+
+; The members of a function or function type being declared: the counts of its parameters
+; and results, then a type and a register for each.
+func members(s: word)
+  var p: byte
+  var r: byte
+  var n: byte
+  var t: byte
+  p = script.small()
+  r = script.small()
+  for n = 1 to p + r do
+    t = script.small()
+    kernel.member_add(t, script.small())
+  end
+  kernel.sym_params[s] = p
+  kernel.sym_results[s] = r
+end
+
+func show_entry(i: byte)
+  script.show_byte(reg.op_kind[i])
+  script.show_byte(reg.op_type[i])
+  script.show_word(reg.op_size[i])
+  script.show_word(reg.op_value[i])
+  script.show_word(reg.op_symbol[i])
+  script.show_byte(reg.op_slot[i])
+  script.show_byte(reg.op_flags[i])
+  script.show_word(reg.op_var[i])
+  script.show_word(reg.op_true[i])
+  script.show_word(reg.op_false[i])
+  script.show_byte(reg.op_mode[i])
+  script.show_word(reg.op_stride[i])
+end
+
+func show_slot(n: byte)
+  script.show_byte(n)
+  script.show_word(reg.slot_size[n])
+  script.show_byte(reg.slot_class[n])
+  script.show_byte(reg.slot_weight[n])
+  script.show_byte(reg.slot_kind[n])
+  script.show_word(reg.slot_name[n])
+  script.show_bool(reg.slot_busy[n])
+  sys.put_byte(',')
+end
+
+func show_slots()
+  var n: byte
+  for n = 0 until reg.local_count do
+    show_slot(n)
+  end
+  for n = fbuf.FIRST_TEMP until fbuf.FIRST_TEMP + reg.temp_count do
+    show_slot(n)
+  end
+end
+
+forward func run_more(c: byte)
+
+; Run command `c`, a number in WORDS, with its arguments.
+pub func run(c: byte)
+  var a: byte
+  var b: byte
+  var d: byte
+  var e: byte
+  var v: word
+  var w: word
+  var s: word
+  var n: word
+  case c
+  of 0
+    fbuf.begin()
+    reg.begin(own)
+  of 1
+    v = script.number()
+    a = script.small()
+    b = script.small()
+    script.show_byte(reg.new_slot(v, a, b, script.name()))
+  of 2
+    script.show_byte(reg.temp(script.number()))
+  of 3
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    v = script.number()
+    s = kernel.sym_add(d, script.name(), kernel.K_VAR)
+    kernel.sym_type[s] = a
+    kernel.sym_flags[s] = b
+    kernel.sym_value[s] = v
+    script.show_word(s)
+  of 4
+    n = script.name()
+    a = script.small()
+    b = script.small()
+    s = kernel.sym_add(a, n, kernel.K_FUNC)
+    kernel.sym_flags[s] = b
+    members(s)
+    script.show_word(s)
+  of 5
+    n = script.name()
+    b = script.small()
+    s = kernel.sym_add(kernel.SCOPE_MODULE, n, kernel.K_TYPE)
+    members(s)
+    a = typetab.declared(typetab.FORM_FUNC, s)
+    kernel.sym_type[s] = a
+    if b & 1 != 0 then
+      typetab.make_recursive(a)
+    end
+    script.show_word(s)
+    script.show_byte(a)
+  of 6
+    script.show_byte(typetab.pointer_to(script.small()))
+  of 7
+    a = script.small()
+    reg.push(reg.O_CONST, a, script.number())
+  of 8
+    reg.op_flags[reg.depth - 1] = reg.op_flags[reg.depth - 1] | reg.F_WRAPS
+  of 9
+    a = script.small()
+    v = script.number()
+    b = script.small()
+    w = script.number()
+    d = script.small()
+    reg.push_memory(a, v, b, w, d, script.number())
+  of 10
+    a = script.small()
+    reg.push_slot(a, script.small())
+  of 11
+    reg.push_register(script.small())
+  of 12
+    a = script.small()
+    v = script.number()
+    b = script.small()
+    reg.push(reg.O_ADDR, a, script.number())
+    reg.op_symbol[reg.depth - 1] = v
+    reg.op_slot[reg.depth - 1] = b
+  of 13
+    v = script.number()
+    reg.push(reg.O_ADDR, typetab.NO_TYPE, 0)
+    reg.op_var[reg.depth - 1] = v
+    reg.op_symbol[reg.depth - 1] = script.number()
+  of 14
+    reg.take_index(script.small())
+  of 15
+    a = script.small()
+    reg.op_mode[a] = script.small()
+    reg.op_stride[a] = script.number()
+  of 16
+    reg.pop()
+  of 17
+    reg.swap()
+  of 18
+    reg.squeeze()
+  of 19
+    reg.duplicate(script.small())
+  of 20
+    reg.keep(script.small())
+  of 21
+    a = script.small()
+    b = script.small()
+    reg.become(a, b, script.small())
+  of 22
+    a = script.small()
+    reg.describe_temp(a, script.small())
+  of 23
+    a = script.small()
+    b = script.small()
+    reg.load(a, b, script.small())
+  of 24
+    a = script.small()
+    reg.load_const(a, script.small())
+  of 25
+    a = script.small()
+    reg.force(a, script.small())
+  of 26
+    a = script.small()
+    b = script.small()
+    reg.store(a, b, script.small())
+  of 27
+    a = script.small()
+    b = script.small()
+    d = script.small()
+    reg.put(a, b, d, script.small())
+  of 28
+    a = script.small()
+    b = script.small()
+    reg.put_const(a, b, script.small())
+  of 29
+    a = script.small()
+    reg.immediate(a, script.small())
+  of 30
+    a = script.small()
+    b = script.small()
+    reg.alu(a, b, script.small())
+  of 31
+    a = script.small()
+    reg.compare(a, script.small())
+  of 32
+    reg.compare_const(script.small())
+  of 33
+    reg.accumulator(script.small())
+  of 34
+    a = script.small()
+    b = script.small()
+    reg.modify(a, b, script.small())
+  of 35
+    reg.step_x(script.small())
+  of 36
+    reg.test(script.small())
+  of 37
+    a = script.small()
+    reg.test_byte(a, script.small())
+  of 38
+    reg.implied(script.small())
+  of 39
+    a = script.small()
+    reg.transfer(a, script.small())
+  else
+    run_more(c)
+  end
+end
+
+; The commands from `spill` on: a function makes at most 64 different calls.
+func run_more(c: byte)
+  var a: byte
+  var b: byte
+  var v: word
+  var s: word
+  case c
+  of 40
+    reg.spill(script.small())
+  of 41
+    reg.take(script.small())
+  of 42
+    reg.into_memory(script.small())
+  of 43
+    a = script.small()
+    reg.apart(a, script.small())
+  of 44
+    a = script.small()
+    b = script.small()
+    reg.unaliased(a, b, script.flag())
+  of 45
+    reg.zero_page(script.small())
+  of 46
+    script.show_bool(reg.dereferenced(script.small()))
+  of 47
+    reg.clobber()
+  of 48
+    reg.claim(script.small())
+  of 49
+    reg.release(script.small())
+  of 50
+    reg.forget()
+  of 51
+    a = script.small()
+    b = script.small()
+    reg.direct(a, b, script.small())
+  of 52
+    reg.use(script.small())
+  of 53
+    reg.loop_depth = script.small()
+  of 54
+    script.show_byte(fbuf.new_label())
+  of 55
+    reg.label(script.small())
+  of 56
+    reg.loop_label(script.small())
+  of 57
+    a = script.small()
+    reg.branch(a, script.small())
+  of 58
+    reg.jump(script.small())
+  of 59
+    a = script.small()
+    reg.join(a, script.small())
+  of 60
+    a = script.small()
+    script.show_bool(reg.accepts(a, script.small()))
+  of 61
+    a = script.small()
+    reg.assignable(a, script.small())
+  of 62
+    a = script.small()
+    reg.fit(a, script.small())
+  of 63
+    a = script.small()
+    script.show_byte(reg.unify(a, script.small()))
+  of 64
+    a = script.small()
+    reg.fit_function(a, script.small())
+  of 65
+    script.show_word(reg.class_symbol(script.number()))
+  of 66
+    a = script.small()
+    show_entry(a)
+    if reg.op_kind[a + reg.INDEX] != 0 then         ; else the index entry holds nothing
+      sys.put_byte('/')
+      show_entry(a + reg.INDEX)
+    end
+  of 67
+    script.show_byte(reg.depth)
+    script.show_word(reg.owner)
+    script.show_byte(reg.flags)
+    script.show_byte(reg.local_count)
+    script.show_byte(reg.temp_count)
+    script.show_byte(reg.loop_depth)
+  of 68
+    a = script.small()
+    script.show_bool(reg.same_place(a, script.small()))
+  of 69
+    a = script.small()
+    script.show_word(reg.offset(a, script.small()))
+  of 70
+    a = script.small()
+    b = script.small()
+    script.show_bool(reg.is_const_byte(a, b))
+    script.show_byte(reg.const_byte(a, b))
+  of 71
+    script.show_bool(reg.is_direct(script.small()))
+  of 72
+    fbuf.finish(own, reg.local_count)
+    listing.show_finished()
+    sys.put_byte('|')
+    show_slots()
+  of 73
+    out.end_module()
+  of 74
+    a = script.small()
+    v = script.number()
+    script.show_byte(typetab.array_of(a, v, script.flag()))
+  of 75
+    s = script.number()
+    script.show_byte(kernel.sym_weight[s])
+    script.show_byte(kernel.sym_flags[s])
+  of 76
+    show_slots()
+  of 77
+    script.show_bool(reg.in_registers(script.small()))
+  of 78
+    a = script.small()
+    reg.op_value[a] = script.number()
+  of 79
+    a = script.small()
+    reg.op_type[a] = script.small()
+  end
+end

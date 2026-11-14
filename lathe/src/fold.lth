@@ -1,0 +1,248 @@
+; FOLD: constant arithmetic. lathe/host/fold.py in Lathe.
+;
+; Owns the numbers of the operators, which EXPR gives to GEN, and what each operator gives for
+; two constants.
+;
+; A constant is 16 bits and a type. A number that has no type yet is exact: it is anywhere
+; from -32768 to 65535, a result outside that is an error, and whether it is below zero is told
+; by its type (typetab.NUMBER_TYPE or NEGATIVE_TYPE). A constant of a type wraps as a variable
+; of that type would. Values below zero are held in two's complement, sign-extended to 16 bits.
+; Exact arithmetic is done on sign and size, so nothing here needs more than 16 bits.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | (x) & 0xFFFF                         | x                                 | a word wraps    |
+;   | // and %                             | / and mod                         | (the same)      |
+;   | (~((~value & 0xFFFF) >> count))      | ~(~value >> count)                | a word wraps    |
+;   |  & 0xFFFF                            |                                   |                 |
+;   | value << count, value >> count       | value << byte(count), and >>      | the amount of a |
+;   | (count is at most 15 there)          |                                   | shift is a byte |
+module fold
+
+import err
+import typetab
+
+; Operators. ADD to SHR are in the order of the compound assignment tokens `+=` to `>>=`.
+pub const ADD = 1
+pub const SUB = 2
+pub const BAND = 3
+pub const BOR = 4
+pub const BXOR = 5
+pub const SHL = 6
+pub const SHR = 7
+pub const MUL = 8
+pub const DIV = 9
+pub const REM = 10
+pub const EQ = 11
+pub const NE = 12
+pub const LT = 13
+pub const GE = 14
+pub const GT = 15
+pub const LE = 16
+
+const SIGN = $8000
+
+; The size of a number without its sign.
+func magnitude(value: word, negative: bool): word
+  if negative then
+    return 0 - value
+  end
+  return value
+end
+
+; The exact number of this size and sign, and whether it is below zero.
+func signed_number(size: word, negative: bool): word, bool
+  if size == 0 then
+    return 0, false
+  end
+  if not negative then
+    return size, false
+  end
+  if size > SIGN then
+    err.fatal(err.E_RANGE)
+  end
+  return 0 - size, true
+end
+
+; The sum of two numbers given as size and sign.
+func sum_exact(size: word, negative: bool, other: word, other_negative: bool): word, bool
+  var total: word
+  if negative == other_negative then
+    total = size + other
+    if total < size then
+      err.fatal(err.E_RANGE)
+    end
+    return signed_number(total, negative)
+  end
+  if size >= other then
+    return signed_number(size - other, negative)
+  end
+  return signed_number(other - size, other_negative)
+end
+
+func product_exact(size: word, other: word, negative: bool): word, bool
+  if other != 0 and size > $FFFF / other then
+    err.fatal(err.E_RANGE)
+  end
+  return signed_number(size * other, negative)
+end
+
+; `size` divided by `other`, or what is left over: both without signs.
+func quotient(op: byte, size: word, other: word): word
+  if other == 0 then
+    err.fatal(err.E_DIV_ZERO)
+  end
+  if op == DIV then
+    return size / other
+  end
+  return size mod other
+end
+
+func bitwise(op: byte, left: word, right: word): word
+  if op == BAND then
+    return left & right
+  end
+  if op == BOR then
+    return left | right
+  end
+  return left ^ right
+end
+
+; Bit by bit, as if both numbers had endless sign bits.
+func bitwise_exact(op: byte, left: word, left_negative: bool, right: word,
+    right_negative: bool): word, bool
+  var result: word
+  var negative: bool
+  result = bitwise(op, left, right)
+  negative = left_negative != right_negative
+  if op == BAND then
+    negative = left_negative and right_negative
+  elif op == BOR then
+    negative = left_negative or right_negative
+  end
+  if negative and result < SIGN then
+    err.fatal(err.E_RANGE)          ; below -32768
+  end
+  return result, negative
+end
+
+func shifted_left(value: word, count: word): word
+  if count > 15 then
+    return 0
+  end
+  return value << byte(count)
+end
+
+; Shifted right with the sign kept: the number divided by a power of two, rounded down.
+func shifted_right(value: word, negative: bool, count: word): word
+  if negative then
+    if count > 15 then
+      return $FFFF
+    end
+    return ~(~value >> byte(count))
+  end
+  if count > 15 then
+    return 0
+  end
+  return value >> byte(count)
+end
+
+func shift_exact(op: byte, left: word, negative: bool, count: word): word, bool
+  var size: word
+  if op == SHR then
+    return shifted_right(left, negative, count), negative
+  end
+  size = magnitude(left, negative)
+  if size != 0 and (count > 15 or size > (word($FFFF) >> byte(count))) then
+    err.fatal(err.E_RANGE)
+  end
+  return signed_number(shifted_left(size, count), negative)
+end
+
+; `left op right` for two numbers without a type (for a shift, `right` is the count).
+; Returns the number and whether it is below zero.
+pub func exact(op: byte, left: word, left_negative: bool, right: word,
+    right_negative: bool): word, bool
+  var size: word
+  var other: word
+  if op == SHL or op == SHR then
+    return shift_exact(op, left, left_negative, right)
+  end
+  if op == BAND or op == BOR or op == BXOR then
+    return bitwise_exact(op, left, left_negative, right, right_negative)
+  end
+  size = magnitude(left, left_negative)
+  other = magnitude(right, right_negative)
+  if op == ADD then
+    return sum_exact(size, left_negative, other, right_negative)
+  end
+  if op == SUB then
+    return sum_exact(size, left_negative, other, not right_negative)
+  end
+  if op == MUL then
+    return product_exact(size, other, left_negative != right_negative)
+  end
+  if op == DIV then
+    return signed_number(quotient(op, size, other), left_negative != right_negative)
+  end
+  return signed_number(quotient(op, size, other), left_negative)
+end
+
+; `left op right` for two constants of type `t` (for a shift, `right` is the count).
+; Wraps as the type does.
+pub func typed(op: byte, t: byte, left: word, right: word): word
+  var left_negative: bool
+  var right_negative: bool
+  var result: word
+  left_negative = typetab.is_signed(t) and left >= SIGN
+  right_negative = typetab.is_signed(t) and right >= SIGN
+  if op == ADD then
+    result = left + right
+  elif op == SUB then
+    result = left - right
+  elif op == MUL then
+    result = left * right           ; the low 16 bits are those of a 16-bit multiply
+  elif op == SHL then
+    result = shifted_left(left, right)
+  elif op == SHR then
+    result = shifted_right(left, left_negative, right)
+  elif op == DIV or op == REM then
+    result = quotient(op, magnitude(left, left_negative), magnitude(right, right_negative))
+    if (op == DIV and left_negative != right_negative) or (op == REM and left_negative) then
+      result = 0 - result
+    end
+  else
+    result = bitwise(op, left, right)
+  end
+  return typetab.narrow(result, t)
+end
+
+; What a comparison of two constants gives.
+pub func compare(op: byte, left: word, left_negative: bool, right: word,
+    right_negative: bool): bool
+  var equal: bool
+  var less: bool
+  equal = left == right and left_negative == right_negative
+  less = left < right
+  if left_negative != right_negative then
+    less = left_negative
+  end
+  if op == EQ then
+    return equal
+  end
+  if op == NE then
+    return not equal
+  end
+  if op == LT then
+    return less
+  end
+  if op == GE then
+    return not less
+  end
+  if op == GT then
+    return not less and not equal
+  end
+  return less or equal
+end

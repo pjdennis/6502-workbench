@@ -1,0 +1,126 @@
+; A test of out: outtest SCRIPT OBJECT runs the commands of a script (lathe/src/script.lth)
+; that write the object file OBJECT, record by record, with functions finished by fbuf.
+; lathe/tests/test_src_out.py runs the same script with out.py and compares what is printed
+; and the files, byte for byte. The scripts are in lathe/tests/scripts/out.txt.
+module outtest
+
+import err
+import fbuf
+import kernel
+import out
+import script
+import sys
+
+pub func main()
+  var a: byte
+  var b: byte
+  var c: byte
+  var d: word
+  var e: word
+  var f: word
+  var s: word
+  var object: ^byte
+  err.init()
+  kernel.init()
+  out.init()
+  fbuf.begin()
+  script.open()
+  object = kernel.keep_argument(1)
+  while script.next() do
+    case script.command("init open module import sym sym3 var data bytes table tset tfix tend call class param member func slot fend ksym end fbegin op fix finish ")
+    of 0
+      out.init()
+    of 1
+      script.show_bool(out.open(object))
+    of 2
+      a = script.small()
+      out.begin_module(a, script.name())
+    of 3
+      out.imported(script.name())
+    of 4
+      a = script.small()
+      d = script.name()
+      script.show_word(out.symbol(a, d, 0, script.name()))
+    of 5
+      a = script.small()
+      d = script.name()
+      e = script.name()
+      script.show_word(out.symbol(a, d, e, script.name()))
+    of 6
+      d = script.number()
+      e = script.number()
+      a = script.small()
+      out.variable(d, e, a, script.small())
+    of 7
+      d = script.number()
+      out.data(d, script.number())
+    of 8
+      while script.more() do
+        out.data_byte(script.small())
+      end
+    of 9
+      out.table_begin(script.number())
+    of 10
+      d = script.number()
+      out.table[d] = script.small()
+    of 11
+      d = script.number()
+      a = script.small()
+      e = script.number()
+      b = script.small()
+      out.table_fix(d, a, e, b, script.number())
+    of 12
+      d = script.number()
+      out.table_end(d, script.number())
+    of 13
+      d = script.number()
+      a = script.small()
+      out.call(d, a, script.number())
+    of 14
+      d = script.number()
+      a = script.small()
+      out.pointer_class(d, a, script.small())
+    of 15
+      out.class_parameter(script.number())
+    of 16
+      d = script.number()
+      out.member(d, script.number())
+    of 17
+      d = script.number()
+      out.function_begin(d, script.small())
+    of 18
+      d = script.number()
+      a = script.small()
+      b = script.small()
+      c = script.small()
+      out.slot(d, a, b, c, script.name())
+    of 19
+      out.function_end()
+    of 20
+      a = script.small()
+      b = script.small()
+      d = script.name()
+      s = kernel.sym_add(a, d, b)
+      kernel.sym_obj[s] = script.number()
+      kernel.sym_weight[s] = script.small()
+      script.show_word(s)
+    of 21
+      out.end_module()
+    of 22
+      fbuf.begin()
+    of 23
+      fbuf.op(script.small())
+    of 24
+      a = script.small()
+      b = script.small()
+      d = script.number()
+      c = script.small()
+      fbuf.op_fix(a, b, d, c, script.number())
+    of 25
+      d = script.number()
+      fbuf.finish(d, script.small())
+    end
+    script.end_line()
+  end
+  sys.exit(0)
+end

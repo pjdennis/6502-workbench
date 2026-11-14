@@ -1,0 +1,34 @@
+; What FBUF finished, printed for the test programs (fbuftest, regtest, condtest): the code,
+; then each fix-up (offset, kind, symbol, slot, addend), then each weight (symbol, slot,
+; value), in hexadecimal. lathe/tests/script_host.py has its twin.
+module listing
+
+import fbuf
+import script
+import sys
+
+pub func show_finished()
+  var i: word
+  var w: byte
+  script.show_word(fbuf.code_length)
+  sys.put_byte(':')
+  for i = 0 until fbuf.code_length do
+    script.show_byte(fbuf.code[i])
+  end
+  sys.put_byte('|')
+  for i = 0 until fbuf.fix_count do
+    script.show_word(fbuf.fix_offset[i])
+    script.show_byte(fbuf.fix_kind[i])
+    script.show_word(fbuf.fix_symbol[i])
+    script.show_byte(fbuf.fix_slot[i])
+    script.show_word(fbuf.fix_addend[i])
+    sys.put_byte(',')
+  end
+  sys.put_byte('|')
+  for w = 0 until fbuf.weight_count do
+    script.show_word(fbuf.weight_symbol[w])
+    script.show_byte(fbuf.weight_slot[w])
+    script.show_byte(fbuf.weight_value[w])
+    sys.put_byte(',')
+  end
+end

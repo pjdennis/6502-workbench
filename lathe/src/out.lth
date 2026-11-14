@@ -1,0 +1,395 @@
+; OUT: the object file writer. lathe/host/out.py in Lathe.
+;
+; Owns the object file (docs/object-format.md): the stream it is written to, the numbering of
+; its symbols, and the calls noted for the function being compiled, which are held until the
+; function ends because its records come after every SYM record its code refers to.
+;
+; A record is a type byte, the length of its body in two bytes, and the body, so each writer
+; here works out the length first.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | table_fix_count, loops over the      | table_fix_count is a word (it can | a byte cannot   |
+;   | table's fix-ups                      | be 256); the loops count with a   | hold 256, and a |
+;   |                                      | word and index with byte(i)       | 256-element     |
+;   |                                      |                                   | array takes a   |
+;   |                                      |                                   | byte index      |
+;   | 4 * fbuf.weight_count                | 4 * word(fbuf.weight_count)       | 64 * 4 is 256:  |
+;   |                                      |                                   | a byte wraps    |
+;   | symbol(): `length` an int            | a byte                            | it is written as|
+;   |                                      |                                   | one (at most 95)|
+;   | columns: ints                        | byte where every value fits, else | the type is the |
+;   |                                      | word                              | storage         |
+;   | put_part used before it is defined   | a forward declaration             | declare before  |
+;   |                                      |                                   | use             |
+module out
+
+import err
+import fbuf
+import kernel
+
+const VERSION = 2
+
+; Record types
+const R_END = $00
+const R_MOD = $01
+const R_IMP = $02
+const R_SYM = $03
+const R_VAR = $04
+const R_DATA = $05
+const R_DFIX = $06
+const R_FUNC = $07
+const R_SLOT = $08
+const R_CALL = $09
+const R_FIX = $0A
+const R_CODE = $0B
+const R_ENDF = $0C
+const R_CLAS = $0D
+const R_MEMB = $0E
+const R_WGT = $0F
+
+; Symbol kinds
+pub const SYM_FUNCTION = 1
+pub const SYM_VARIABLE = 2
+pub const SYM_DATA = 3
+pub const SYM_CLASS = 4
+
+; FUNC flags
+pub const FUNC_RECURSIVE = 1
+pub const FUNC_INTERRUPT = 2
+pub const FUNC_EXPORTED = 4
+pub const FUNC_REGISTERS = 8
+
+; CALL flags, and the `outer` of a call made while no arguments were being stored
+pub const CALL_SAVES = 1
+pub const CALL_POINTER = 2
+pub const NO_OUTER = $FFFF
+
+; CLAS flags
+pub const CLASS_RECURSIVE = 1
+
+const MAX_CALLS = 64
+const MAX_MEMBERS = 64          ; MEMB records of one module
+pub const MAX_TABLE = 2048      ; bytes of a constant table being made
+const MAX_TABLE_FIXES = 256     ; addresses in one constant table
+const C_DOT = $2E
+
+var stream: byte = 0
+var symbol_count: word = 0
+var call_callee: [MAX_CALLS]word
+var call_flags: [MAX_CALLS]byte
+var call_outer: [MAX_CALLS]word
+var call_count: byte = 0
+var member_class: [MAX_MEMBERS]word     ; the MEMB records written, so that each is written once
+var member_function: [MAX_MEMBERS]word
+var member_count: byte = 0
+pub var table: [MAX_TABLE]byte nozp     ; a constant table: its bytes, and its fix-ups, until it ends
+var table_fix_offset: [MAX_TABLE_FIXES]word
+var table_fix_kind: [MAX_TABLE_FIXES]byte
+var table_fix_symbol: [MAX_TABLE_FIXES]word
+var table_fix_slot: [MAX_TABLE_FIXES]byte
+var table_fix_addend: [MAX_TABLE_FIXES]word
+var table_fix_count: word = 0
+
+forward func put_part(name: word)
+
+pub func init()
+  symbol_count = 0
+  call_count = 0
+  member_count = 0
+end
+
+; Create the object file whose name is at `name`. False if it cannot be created.
+pub func open(name: ^byte): bool
+  var ok: bool
+  stream, ok = kernel.open_out(name)
+  return ok
+end
+
+; Begin a record whose body is `length` bytes.
+func begin_record(kind: byte, length: word)
+  kernel.put(stream, kind)
+  kernel.put_word(stream, length)
+end
+
+; The first record: the module's name and the CPU it is compiled for (0 6502, 1 65C02).
+pub func begin_module(cpu: byte, name: word)
+  begin_record(R_MOD, 3 + kernel.name_length(name))
+  kernel.put(stream, VERSION)
+  kernel.put(stream, cpu)
+  kernel.put_name(stream, name)
+end
+
+; The module imports the module called `name`.
+pub func imported(name: word)
+  begin_record(R_IMP, 1 + kernel.name_length(name))
+  kernel.put_name(stream, name)
+end
+
+; Introduce the symbol `module_name.name`, or `module_name.inner.name` if `inner` is a
+; name and not 0, which the records after this one may refer to. Returns its number.
+pub func symbol(kind: byte, module_name: word, inner: word, name: word): word
+  var length: byte
+  var i: byte
+  length = kernel.name_length(module_name) + 1 + kernel.name_length(name)
+  if inner != 0 then
+    length += kernel.name_length(inner) + 1
+  end
+  begin_record(R_SYM, 2 + length)
+  kernel.put(stream, kind)
+  kernel.put(stream, length)
+  put_part(module_name)
+  if inner != 0 then
+    put_part(inner)
+  end
+  for i = 0 until kernel.name_length(name) do
+    kernel.put(stream, kernel.name_char(name, i))
+  end
+  symbol_count += 1
+  return symbol_count - 1
+end
+
+; A name and the dot that follows it in a longer one.
+func put_part(name: word)
+  var i: byte
+  for i = 0 until kernel.name_length(name) do
+    kernel.put(stream, kernel.name_char(name, i))
+  end
+  kernel.put(stream, C_DOT)
+end
+
+; Define a variable that lives for the whole program.
+pub func variable(symbol_number: word, size: word, zp_class: byte, weight: byte)
+  begin_record(R_VAR, 7)
+  kernel.put_word(stream, symbol_number)
+  kernel.put_word(stream, size)
+  kernel.put(stream, zp_class)
+  kernel.put(stream, weight)
+  kernel.put(stream, 0)
+end
+
+; Begin the constant data `symbol_number`: `length` calls of byte() follow.
+pub func data(symbol_number: word, length: word)
+  begin_record(R_DATA, 2 + length)
+  kernel.put_word(stream, symbol_number)
+end
+
+pub func data_byte(value: byte)
+  kernel.put(stream, value)
+end
+
+; Start a constant table of `length` bytes, all 0 until they are given.
+pub func table_begin(length: word)
+  var i: word
+  if length > MAX_TABLE then
+    err.fatal(err.E_DATA_FULL)
+  end
+  for i = 0 until length do
+    table[i] = 0
+  end
+  table_fix_count = 0
+end
+
+; Byte `offset` of the table is a byte of an address, which the linker fills in.
+pub func table_fix(offset: word, kind: byte, symbol_number: word, slot: byte, addend: word)
+  var i: byte
+  if table_fix_count == MAX_TABLE_FIXES then
+    err.fatal(err.E_DATA_FULL)
+  end
+  i = byte(table_fix_count)
+  table_fix_offset[i] = offset
+  table_fix_kind[i] = kind
+  table_fix_symbol[i] = symbol_number
+  table_fix_slot[i] = slot
+  table_fix_addend[i] = addend
+  table_fix_count += 1
+end
+
+; Write the table as the constant data `symbol_number`, after its fix-ups, which are in
+; order of offset: the table is filled element by element, and by column.
+pub func table_end(symbol_number: word, length: word)
+  var where: word
+  var i: word
+  if table_fix_count != 0 then
+    begin_record(R_DFIX, 8 * table_fix_count)
+    for where = 0 until length do
+      for i = 0 until table_fix_count do
+        if table_fix_offset[byte(i)] == where then
+          kernel.put_word(stream, where)
+          kernel.put(stream, table_fix_kind[byte(i)])
+          kernel.put_word(stream, table_fix_symbol[byte(i)])
+          kernel.put(stream, table_fix_slot[byte(i)])
+          kernel.put_word(stream, table_fix_addend[byte(i)])
+        end
+      end
+    end
+  end
+  data(symbol_number, length)
+  for i = 0 until length do
+    data_byte(table[i])
+  end
+end
+
+; Note that the function being compiled calls `callee`. The linker wants each different
+; call once, however often the function makes it.
+pub func call(callee: word, flags: byte, outer: word)
+  var i: byte
+  for i = 0 until call_count do
+    if call_callee[i] == callee and call_flags[i] == flags and call_outer[i] == outer then
+      return
+    end
+  end
+  if call_count == MAX_CALLS then
+    err.fatal(err.E_CALLS_FULL)
+  end
+  call_callee[call_count] = callee
+  call_flags[call_count] = flags
+  call_outer[call_count] = outer
+  call_count += 1
+end
+
+; Describe the pointer class `symbol_number`, which has `count` parameters: as many calls
+; of class_parameter() follow, with their sizes in order.
+pub func pointer_class(symbol_number: word, flags: byte, count: byte)
+  begin_record(R_CLAS, 4 + 3 * word(count))
+  kernel.put_word(stream, symbol_number)
+  kernel.put(stream, flags)
+  kernel.put(stream, count)
+end
+
+; A parameter's size, and its name, which is empty: the compiler does not keep the names
+; of a function type's parameters.
+pub func class_parameter(size: word)
+  kernel.put_word(stream, size)
+  kernel.put(stream, 0)
+end
+
+; The module takes the address of function `function_number` as pointer class
+; `class_number`. Said once, however often it is done.
+pub func member(class_number: word, function_number: word)
+  var i: byte
+  for i = 0 until member_count do
+    if member_class[i] == class_number and member_function[i] == function_number then
+      return
+    end
+  end
+  if member_count == MAX_MEMBERS then
+    err.fatal(err.E_CLASS_MEMBERS_FULL)
+  end
+  member_class[member_count] = class_number
+  member_function[member_count] = function_number
+  member_count += 1
+  begin_record(R_MEMB, 4)
+  kernel.put_word(stream, class_number)
+  kernel.put_word(stream, function_number)
+end
+
+; Begin the records of a finished function. Its slots follow, then function_end().
+pub func function_begin(symbol_number: word, flags: byte)
+  begin_record(R_FUNC, 3)
+  kernel.put_word(stream, symbol_number)
+  kernel.put(stream, flags)
+end
+
+; The next slot of the function's frame.
+pub func slot(size: word, zp_class: byte, weight: byte, kind: byte, name: word)
+  begin_record(R_SLOT, 6 + kernel.name_length(name))
+  kernel.put_word(stream, size)
+  kernel.put(stream, zp_class)
+  kernel.put(stream, weight)
+  kernel.put(stream, kind)
+  kernel.put_name(stream, name)
+end
+
+func calls()
+  var i: byte
+  for i = 0 until call_count do
+    begin_record(R_CALL, 5)
+    kernel.put_word(stream, call_callee[i])
+    kernel.put(stream, call_flags[i])
+    kernel.put_word(stream, call_outer[i])
+  end
+  call_count = 0
+end
+
+func fixups()
+  var i: word
+  begin_record(R_FIX, 8 * fbuf.fix_count)
+  for i = 0 until fbuf.fix_count do
+    kernel.put_word(stream, fbuf.fix_offset[i])
+    kernel.put(stream, fbuf.fix_kind[i])
+    kernel.put_word(stream, fbuf.fix_symbol[i])
+    kernel.put(stream, fbuf.fix_slot[i])
+    kernel.put_word(stream, fbuf.fix_addend[i])
+  end
+end
+
+func code()
+  var i: word
+  begin_record(R_CODE, fbuf.code_length)
+  for i = 0 until fbuf.code_length do
+    kernel.put(stream, fbuf.code[i])
+  end
+end
+
+; A WGT record of the weights FBUF counted for other functions' slots, if it counted any.
+func weights()
+  var i: byte
+  if fbuf.weight_count == 0 then
+    return
+  end
+  begin_record(R_WGT, 4 * word(fbuf.weight_count))
+  for i = 0 until fbuf.weight_count do
+    kernel.put_word(stream, fbuf.weight_symbol[i])
+    kernel.put(stream, fbuf.weight_slot[i])
+    kernel.put(stream, fbuf.weight_value[i])
+  end
+end
+
+; The rest of the function's records: the calls noted, and what FBUF finished.
+pub func function_end()
+  calls()
+  fixups()
+  code()
+  begin_record(R_ENDF, 0)
+  weights()
+end
+
+; True if kernel symbol `s` is a variable of another module that this one used.
+func is_foreign_variable(s: word): bool
+  return kernel.sym_kind[s] == kernel.K_VAR and kernel.sym_scope[s] != kernel.SCOPE_MODULE and
+      kernel.sym_scope[s] != kernel.SCOPE_LOCAL and kernel.sym_obj[s] != kernel.NO_OBJ and
+      kernel.sym_weight[s] != 0
+end
+
+; A WGT record of the weight this module's uses gave the variables of other modules, if
+; it used any.
+func foreign_weights()
+  var count: word = 0
+  var s: word
+  for s = 0 until kernel.sym_count do
+    if is_foreign_variable(s) then
+      count += 1
+    end
+  end
+  if count == 0 then
+    return
+  end
+  begin_record(R_WGT, 4 * count)
+  for s = 0 until kernel.sym_count do
+    if is_foreign_variable(s) then
+      kernel.put_word(stream, kernel.sym_obj[s])
+      kernel.put(stream, fbuf.NO_SLOT)
+      kernel.put(stream, kernel.sym_weight[s])
+    end
+  end
+end
+
+; The weights of other modules' variables, and the last record. Closes the file.
+pub func end_module()
+  foreign_weights()
+  begin_record(R_END, 0)
+  kernel.close(stream)
+end
