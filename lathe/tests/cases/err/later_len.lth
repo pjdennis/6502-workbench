@@ -1,0 +1,6 @@
+; error 39 5 11
+module later_len
+var n: byte
+func f()
+  n = len(n)
+end

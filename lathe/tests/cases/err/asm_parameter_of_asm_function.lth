@@ -1,0 +1,5 @@
+; error 40 4 7
+module asm_parameter_of_asm_function
+asm func f(v: byte in a)
+  STA v
+end

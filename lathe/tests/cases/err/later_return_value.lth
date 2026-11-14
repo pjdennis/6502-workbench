@@ -1,6 +1,0 @@
-; error 39 5 10
-module later_return_value
-import host
-pub func main()
-  return 1
-end

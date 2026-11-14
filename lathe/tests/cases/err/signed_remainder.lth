@@ -1,0 +1,6 @@
+; error 54 5 9
+module signed_remainder
+var n: sbyte
+func f()
+  n = n mod 4
+end

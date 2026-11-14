@@ -1,0 +1,77 @@
+; `if` and `while` (docs/codegen.md, "Statements").
+module if_while
+
+var a: byte
+var b: byte
+var i: byte
+var n: byte
+var r: byte
+
+; branch on false to the end
+func simple()
+  if a == b then
+    r = 1
+  end
+end
+
+; a JMP to the end after each part but the last
+func parts()
+  if a == 1 then
+    r = 10
+  elif a == 2 then
+    r = 20
+  elif a == 3 then
+    r = 30
+  else
+    r = 0
+  end
+end
+
+; no JMP after a part that cannot be run off
+func returns(): byte
+  if a < b then
+    return a
+  else
+    return b
+  end
+end
+
+func nested()
+  if a != 0 then
+    if b != 0 then
+      r = 1
+    else
+      r = 2
+    end
+  end
+end
+
+; label; test; branch on false to the exit; body; JMP to the label
+func counting()
+  i = 0
+  while i < n do
+    i += 1
+  end
+end
+
+; the registers are forgotten at the top of the loop, and at its end
+func summing(): byte
+  r = 0
+  i = n
+  while i != 0 do
+    r += i
+    i -= 1
+  end
+  return r
+end
+
+func two_levels()
+  a = 0
+  while a < n do
+    b = 0
+    while b < a do
+      b += 1
+    end
+    a += 1
+  end
+end

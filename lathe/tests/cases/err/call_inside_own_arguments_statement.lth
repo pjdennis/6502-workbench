@@ -1,0 +1,8 @@
+; error 100 7 8
+module call_inside_own_arguments_statement
+func g(x: byte, y: byte): byte
+  return x
+end
+func f()
+  g(1, g(2, 3))
+end

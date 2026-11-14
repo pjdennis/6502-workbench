@@ -1,0 +1,7 @@
+; error 39 6 7
+module later_address_of
+var n: byte
+var w: word
+func f()
+  w = @n
+end

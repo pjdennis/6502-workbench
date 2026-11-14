@@ -1,0 +1,5 @@
+; error 56 4 10
+module return_value_without_result
+func f()
+  return 1
+end

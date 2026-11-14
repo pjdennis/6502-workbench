@@ -1,0 +1,140 @@
+; Corners where the code generator once went wrong, or easily could: each was found by
+; generating random expressions and comparing what they gave with their true values.
+module corners
+
+import libout
+
+var yes: bool = true
+var no: bool = false
+var a: byte = $35
+var b: byte = $C8
+var m: byte = $FF
+var z: byte = 0
+var s: sbyte = -100
+var w: word = $1234
+var x: word = $00FF
+var y: word = $8000
+var rb: byte
+var rw: word
+var rf: bool
+
+func show(n: word)
+  libout.hexw(n)
+  libout.space()
+end
+
+func id(p: bool): bool
+  return p
+end
+
+func add(p: word, q: word): word
+  return p + q
+end
+
+; a value waiting in A while the right side of `or` or `and` is never run: it must be
+; stored before the jump round that side, not inside it
+func waiting()
+  rf = (s == s) != ((not (byte(128) >= 200)) or yes)
+  libout.truth(rf)
+  rf = (a < b) == (false and no)
+  libout.truth(rf)
+  rb = (a + b) & byte(true or yes)
+  libout.hex(rb)
+  rb = (a + b) | byte(no and false)
+  libout.hex(rb)
+  rb = (a + 1) ^ byte(false or (true and yes))
+  libout.hex(rb)
+  libout.space()
+end
+
+func waiting_word(): word, bool
+  return w | 1000, not ((word(257) < 65280 or no) != (a < b))
+end
+
+; code that cannot be reached leaves nothing in the registers
+func unreached()
+  if not (not (yes or byte(0) <= x)) then
+    rw = x
+  else
+    rw = 0
+  end
+  show(rw)
+  rb = a
+  if true then
+    rb = b
+  else
+    rb = 0
+  end
+  libout.hex(rb)
+  loop
+    rb = m
+    break
+    rb = z
+  end
+  libout.hex(rb)
+  while false do
+    rb = 1
+  end
+  libout.hex(rb)
+  libout.space()
+end
+
+func left_early(): byte
+  rb = 7
+  return rb
+  rb = 9
+  return rb
+end
+
+; a byte in A as the left side of a word operation has no high byte in X
+func byte_in_word(): word
+  return (b + m) - word(255)
+end
+
+func byte_plus_word(): word
+  return (b + m) + word(255)
+end
+
+func words()
+  show(byte_in_word())
+  show(byte_plus_word())
+  rw = (a + b) - x
+  show(rw)
+  rw = ((word(z << 7) - (b << 0)) + add(0, y))
+  rw ^= z
+  show(rw)
+  rw = (a & b) + y + (a | b)
+  show(rw)
+  show(add(a + b, x) - (a + b))
+  show(x - (a + b))
+  rw = word(int(m))
+  show(rw)
+  show(word(int(sbyte(m))))
+end
+
+; locals placed in zero page, and one that must not be
+func placed(n: byte): word
+  var p: word zp = n
+  var q: byte zp
+  var far: word nozp
+  q = n + 1
+  p += q
+  p <<= 1
+  far = p - 2
+  hi(far) += 1
+  return far + q
+end
+
+pub func main()
+  waiting()
+  rw, rf = waiting_word()
+  show(rw)
+  libout.truth(rf)
+  libout.nl()
+  unreached()
+  libout.hex(left_early())
+  libout.nl()
+  words()
+  show(placed(200))
+  libout.nl()
+end

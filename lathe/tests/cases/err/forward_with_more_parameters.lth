@@ -1,0 +1,5 @@
+; error 57 4 16
+module forward_with_more_parameters
+forward func f(a: byte, b: byte)
+func f(a: byte)
+end

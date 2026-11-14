@@ -1,0 +1,4 @@
+; error 41 4 5
+module duplicate_variable
+var n: byte
+var n: word

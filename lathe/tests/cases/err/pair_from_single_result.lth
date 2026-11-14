@@ -1,0 +1,10 @@
+; error 56 9 11
+module pair_from_single_result
+var n: byte
+var ok: bool
+func g(): byte
+  return 0
+end
+func f()
+  n, ok = g()
+end

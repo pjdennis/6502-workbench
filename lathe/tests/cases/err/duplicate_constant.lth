@@ -1,0 +1,4 @@
+; error 41 4 7
+module duplicate_constant
+const N = 1
+const N = 2

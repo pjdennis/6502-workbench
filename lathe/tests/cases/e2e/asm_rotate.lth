@@ -1,0 +1,70 @@
+; asm blocks reading and writing a function's parameters and locals and the module's
+; variables: a 17-bit rotate, a word and the carry, which Lathe has no operator for.
+; Prints 0002 0002 2340 F00F 000A and a new line: 17 rotations give the word back, and 10
+; ones have passed through the carry.
+module asm_rotate
+
+import host
+
+var shifted: word
+var carries: byte = 0
+
+; Print the low four bits of A as a hexadecimal digit.
+asm func put_digit(v: byte in a)
+  AND #$0F
+  CMP #10
+  BCC .digit
+  ADC #6
+.digit
+  ADC #'0'
+  JMP host.put_byte
+end
+
+asm func put_hex(v: byte in a)
+  PHA
+  LSR A
+  LSR A
+  LSR A
+  LSR A
+  JSR put_digit
+  PLA
+  JMP put_digit
+end
+
+func put_word(w: word)
+  put_hex(hi(w))
+  put_hex(lo(w))
+  host.put_byte(' ')
+end
+
+; Rotate `w` left `times` times (at least once) through the carry, which starts clear. Each
+; bit that goes into the carry is counted in `carries`. The result is also left in `shifted`.
+func rotate(w: word, times: byte): word
+  var r: word = w
+  var n: byte = times
+  asm
+    CLC
+.again
+    ROL r
+    ROL r+1
+    BCC .no
+    INC carries         ; INC and DEC leave the carry alone
+.no
+    DEC n
+    BNE .again
+    LDA r
+    STA shifted
+    LDA r+1
+    STA shifted+1
+  end
+  return r
+end
+
+pub func main()
+  put_word(rotate($8001, 1))
+  put_word(shifted)
+  put_word(rotate($1234, 4))
+  put_word(rotate($F00F, 17))
+  put_word(carries)
+  host.put_byte(10)
+end

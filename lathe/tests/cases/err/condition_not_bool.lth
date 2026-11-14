@@ -1,0 +1,7 @@
+; error 44 5 6
+module condition_not_bool
+var n: byte
+func f()
+  if n then
+  end
+end

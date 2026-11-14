@@ -1,0 +1,78 @@
+; `loop`, `until`, `break` and `continue` (docs/codegen.md, "Statements").
+module loops
+
+var i: byte
+var n: byte
+var r: byte
+
+; label; body; test; branch on false to the label: one branch for each pass
+func down()
+  i = n
+  loop
+    r += i
+    i -= 1
+  until i == 0
+end
+
+; forever: label; body; JMP to the label
+func forever()
+  loop
+    r += 1
+  end
+end
+
+; a branch round nothing but a JMP is one branch
+func leaving()
+  loop
+    if i == n then
+      break
+    end
+    i += 1
+  end
+end
+
+; `continue` in a `while` goes to the top, where the test is
+func skipping()
+  i = 0
+  while i < n do
+    i += 1
+    if i == 3 then
+      continue
+    end
+    r += i
+  end
+end
+
+; `continue` in `loop ... until` goes to the test at the bottom
+func skipping_until()
+  loop
+    i -= 1
+    if i == 3 then
+      continue
+    end
+    r += i
+  until i == 0
+end
+
+; an `until` made of two tests
+func until_both()
+  loop
+    i += 1
+  until i == n or r == 0
+end
+
+; `break` leaves the nearest loop only
+func inner()
+  loop
+    loop
+      if r == 0 then
+        break
+      end
+      r -= 1
+    end
+    i -= 1
+    if i == 0 then
+      break
+    end
+  end
+end

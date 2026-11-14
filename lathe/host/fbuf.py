@@ -11,7 +11,15 @@ written layout of docs/object-format.md and its fix-ups in order of offset:
 - a branch is written with its final displacement, or, if its target is too far, as the
   opposite branch round a JMP;
 - a label is the function's own symbol plus the label's offset, so a JMP inside the function
-  is a fix-up like any other.
+  is a fix-up like any other;
+- the function's temporaries, which are numbered from FIRST_TEMP while it is compiled, get the
+  slot numbers that follow its parameters and locals.
+
+Small improvements are made as the instructions arrive, because each needs only the newest
+entries: a branch round nothing but a JMP becomes one branch and a branch round nothing is
+dropped (tidy()), a JSR that a return follows becomes a JMP (tail_call()), and an
+instruction that cannot be reached is left out (add_entry()). Two labels can be made one
+place (join()).
 
 The buffer is a run of entries, each a kind byte and the fields that kind has. It is this
 compact because it is the largest thing the compiler keeps in memory on the target.
@@ -29,6 +37,7 @@ FIX_LOW = 2                 # one byte: the low byte of the address
 FIX_HIGH = 3                # one byte: the high byte
 FIX_ZERO_PAGE = 4           # one byte: an address known to be in zero page
 NO_SLOT = 0xFF              # in a fix-up's slot field: the symbol itself, not one of its slots
+FIRST_TEMP = 0x80           # slot numbers from here to NO_SLOT - 1 are the function's temporaries
 
 # Entry kinds, and the fields after the kind byte
 I_PLAIN = 0                 # opcode
@@ -40,6 +49,7 @@ I_JUMP = 5                  # label: a JMP to a label
 I_LABEL = 6                 # label: the label is here
 I_FIX = 8                   # I_FIX + fix-up kind: opcode, symbol (2), slot, addend (2)
 
+OP_JSR = 0x20
 OP_RTI = 0x40
 OP_JMP = 0x4C
 OP_RTS = 0x60
@@ -51,8 +61,15 @@ UNPLACED = 0xFFFF
 buffer = bytearray(BUFFER_SIZE)
 used = 0
 newest = 0                              # the entry added last, if used is not 0
+older = 0                               # the entry before it, if it is below `newest`
+unreached = False                       # True while the entry being made is being left out
+kept = UNPLACED                         # an entry an `asm` block wrote last: never a tail call
+written = False                         # True while an `asm` block is written: kept as it is
 label_offset = [0] * MAX_LABELS         # where each label is in the written layout
+label_alias = [0] * MAX_LABELS          # the label this one was joined to, or itself
+label_uses = [0] * MAX_LABELS           # how many branches and jumps go to it
 label_count = 0
+temp_base = 0                           # the slot number the first temporary gets
 
 code = bytearray(MAX_CODE)
 code_length = 0
@@ -66,8 +83,13 @@ fix_count = 0
 
 def begin():
     """Start a function with no instructions and no labels."""
-    global used, label_count, code_length, fix_count
+    global used, newest, older, unreached, kept, written, label_count, code_length, fix_count
+    unreached = False
+    kept = UNPLACED
+    written = False
     used = 0
+    newest = 0
+    older = 0
     label_count = 0
     code_length = 0
     fix_count = 0
@@ -78,6 +100,8 @@ def begin():
 def add(value):
     """Add one byte to the entry being made."""
     global used
+    if unreached:
+        return
     if used == BUFFER_SIZE:
         err.fatal(err.E_FUNC_BIG)
     buffer[used] = value
@@ -90,8 +114,13 @@ def add_word(value):
 
 
 def add_entry(kind):
-    """Begin an entry. Its fields follow with add()."""
-    global newest
+    """Begin an entry. Its fields follow with add(). An instruction that the processor
+    cannot reach, because it follows a jump or a return with no label between, is left out."""
+    global newest, older, unreached
+    unreached = kind != I_LABEL and not written and not runs_on()
+    if unreached:
+        return
+    older = newest
     newest = used
     add(kind)
 
@@ -133,18 +162,96 @@ def new_label():
     if label_count == MAX_LABELS:
         err.fatal(err.E_LABELS_FULL)
     label_offset[label_count] = UNPLACED
+    label_alias[label_count] = label_count
+    label_uses[label_count] = 0
     label_count += 1
     return label_count - 1
 
 
+def same(label):
+    """The label that stands for `label` after every join()."""
+    while label_alias[label] != label:
+        label = label_alias[label]
+    return label
+
+
+def join(label, other):
+    """Make `other`, which has not been placed, the same place as `label`."""
+    label = same(label)
+    other = same(other)
+    if other != label:
+        label_alias[other] = label
+        label_uses[label] += label_uses[other]
+
+
+def is_used(label):
+    """True if a branch or jump added so far goes to `label`."""
+    return label_uses[same(label)] != 0
+
+
+def skips_jump(label):
+    """True if the two newest entries are a branch to `label` and a JMP."""
+    if older >= newest or newest >= used:
+        return False
+    return buffer[newest] == I_JUMP and buffer[older] == I_BRANCH and buffer[older + 1] != OP_BRA \
+        and same(buffer[older + 2]) == same(label)
+
+
+def skips_nothing(label):
+    """True if the newest entry is a branch or a JMP to `label`, and the entry before it is
+    known."""
+    if older >= newest or newest >= used:
+        return False
+    if buffer[newest] == I_BRANCH:
+        return same(buffer[newest + 2]) == same(label)
+    return buffer[newest] == I_JUMP and same(buffer[newest + 1]) == same(label)
+
+
+def tidy(label):
+    """`label` is about to be put here. A branch to here round nothing but a JMP becomes the
+    opposite branch to where the JMP went, and a branch to here round nothing at all is
+    taken out; so are both if the JMP comes here too."""
+    global used, newest
+    if written:
+        return
+    if skips_jump(label) and same(buffer[newest + 1]) == same(label):
+        label_uses[same(label)] -= 2
+        used = older
+        newest = used                   # the entry before them is not known: see runs_on()
+    elif skips_jump(label):
+        buffer[older + 1] = buffer[older + 1] ^ OPPOSITE
+        buffer[older + 2] = buffer[newest + 1]
+        label_uses[same(label)] -= 1
+        used = newest
+        newest = older
+    elif skips_nothing(label):
+        label_uses[same(label)] -= 1
+        used = newest
+        newest = older
+
+
 def place(label):
     """Put `label` here, before the next instruction."""
+    tidy(label)
     add_entry(I_LABEL)
     add(label)
 
 
+def arrive(label):
+    """Put `label` here if any instruction goes to it; none may be added that does. Returns
+    whether one does. A label that is left out cannot stand between two instructions that
+    place() could make one."""
+    tidy(label)
+    if not is_used(label):
+        return False
+    add_entry(I_LABEL)
+    add(label)
+    return True
+
+
 def branch(opcode, label):
     """A conditional branch (or BRA) to `label`, which may be placed before or after it."""
+    label_uses[same(label)] += 1
     add_entry(I_BRANCH)
     add(opcode)
     add(label)
@@ -152,14 +259,44 @@ def branch(opcode, label):
 
 def jump(label):
     """A JMP to `label`."""
+    label_uses[same(label)] += 1
     add_entry(I_JUMP)
     add(label)
 
 
+def as_written(on):
+    """From now on, if `on`, the instructions are those of an `asm` block, which are kept as
+    they are written: none is left out as unreached, and no branch is fused or taken out."""
+    global written
+    written = on
+
+
+def keep_as_written():
+    """The newest instruction is the last one an `asm` block wrote: tail_call() leaves it as
+    it is, because the routine it calls may read its return address."""
+    global kept
+    kept = UNPLACED
+    if used != 0:
+        kept = newest
+
+
+def tail_call():
+    """If the newest instruction is a JSR, make it a JMP: the routine called then returns for
+    this function. Returns whether it was one."""
+    if used == 0 or newest == kept:
+        return False
+    kind = buffer[newest]
+    if (kind != I_WORD and kind != I_FIX + FIX_ADDRESS) or buffer[newest + 1] != OP_JSR:
+        return False
+    buffer[newest + 1] = OP_JMP
+    return True
+
+
 def runs_on():
     """True if the processor can run on from the newest instruction into whatever is added
-    next. False after a return or a jump, until a label gives another way in."""
-    if used == 0 or buffer[newest] == I_LABEL:
+    next. False after a return or a jump, until a label gives another way in. If the newest
+    entry is not known, a branch has just been taken out, which could be reached."""
+    if used == 0 or newest >= used or buffer[newest] == I_LABEL:
         return True
     if buffer[newest] == I_JUMP:
         return False
@@ -212,6 +349,7 @@ def layout():
 
 def target(label):
     """The offset of a label that a branch or jump goes to."""
+    label = same(label)
     if label_offset[label] == UNPLACED:
         err.fatal(err.E_INTERNAL)
     return label_offset[label]
@@ -293,17 +431,21 @@ def emit_entry(entry, own):
     elif kind == I_BRANCH:
         emit((target(buffer[entry + 2]) - (code_length + 1)) & 0xFF)
     elif kind > I_FIX:
-        fix(kind - I_FIX, buffer[entry + 2] | (buffer[entry + 3] << 8), buffer[entry + 4],
-            buffer[entry + 5] | (buffer[entry + 6] << 8))
+        symbol = buffer[entry + 2] | (buffer[entry + 3] << 8)
+        slot = buffer[entry + 4]
+        if symbol == own and slot >= FIRST_TEMP and slot != NO_SLOT:
+            slot = slot - FIRST_TEMP + temp_base
+        fix(kind - I_FIX, symbol, slot, buffer[entry + 5] | (buffer[entry + 6] << 8))
         emit(0)
         if kind == I_FIX + FIX_ADDRESS:
             emit(0)
 
 
-def finish(own):
+def finish(own, base):
     """End the function, whose object-file symbol is `own`: settle its branches and build
-    `code` and the fix-ups."""
-    global code_length, fix_count
+    `code` and the fix-ups. Its temporaries get the slot numbers from `base` on."""
+    global code_length, fix_count, temp_base
+    temp_base = base
     while True:
         size = layout()
         if not widen():

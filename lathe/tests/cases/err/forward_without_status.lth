@@ -1,0 +1,6 @@
+; error 57 4 17
+module forward_without_status
+forward func f(): byte
+func f(): byte, bool
+  return 0, true
+end

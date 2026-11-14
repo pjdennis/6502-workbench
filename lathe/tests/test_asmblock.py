@@ -15,11 +15,13 @@ import lathec_support as support  # noqa: E402
 import asmblock  # noqa: E402
 import decl  # noqa: E402
 import err  # noqa: E402
+import expr  # noqa: E402
 import fbuf  # noqa: E402
 import gen  # noqa: E402
 import kernel  # noqa: E402
 import lex  # noqa: E402
 import out  # noqa: E402
+import reg  # noqa: E402
 import src  # noqa: E402
 import typetab  # noqa: E402
 
@@ -78,6 +80,7 @@ class AsmTest(unittest.TestCase):
         lex.init()
         out.init()
         gen.init()
+        expr.init()
         decl.init()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -86,7 +89,7 @@ class AsmTest(unittest.TestCase):
         pointer, _ = support.put_text(self.path.encode())
         out.open(pointer)
         kernel.module_add(name(b'm'))
-        self.own = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'f'))
+        self.own = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
 
     def assemble(self, text, before=None):
         """Assemble `text` (bytes, its lines) as an asm block that is a function's whole body.
@@ -98,14 +101,14 @@ class AsmTest(unittest.TestCase):
         err.set_file(FILE_NAME)
         lex.next()
         self.assertEqual(lex.tok, lex.T_ASM)
-        gen.function_begin()
+        gen.function_begin(self.own)
         if before:
             before()
         asmblock.block()
         self.assertEqual(lex.tok, lex.T_NL)
         self.calls = [out.call_callee[i] for i in range(out.call_count)]
         self.after_block()
-        gen.function_end(self.own, 0)
+        gen.function_end(0)
         self.fixups = [(fbuf.fix_offset[i], fbuf.fix_kind[i], fbuf.fix_symbol[i], fbuf.fix_slot[i],
                         fbuf.fix_addend[i]) for i in range(fbuf.fix_count)]
         return bytes(fbuf.code[i] for i in range(fbuf.code_length))
@@ -206,7 +209,7 @@ class LineTest(AsmTest):
         start, stop = support.put_text(b'asm\n  NOP\n  END ; done\nreturn\n')
         src.open_memory(start, stop)
         lex.next()
-        gen.function_begin()
+        gen.function_begin(self.own)
         asmblock.block()
         self.assertEqual(lex.tok, lex.T_NL)
         lex.next()
@@ -216,7 +219,7 @@ class LineTest(AsmTest):
         start, stop = support.put_text(b'asm\n  NOP\n    end x\n')
         src.open_memory(start, stop)
         lex.next()
-        gen.function_begin()
+        gen.function_begin(self.own)
         asmblock.block()
         self.assertEqual((lex.tok, lex.line), (lex.T_NAME, 3))
 
@@ -224,7 +227,7 @@ class LineTest(AsmTest):
         start, stop = support.put_text(b'asm\n  NOP\n')
         src.open_memory(start, stop)
         lex.next()
-        gen.function_begin()
+        gen.function_begin(self.own)
         with self.assertRaises(SystemExit):
             asmblock.block()
         self.assertIn('error 30:', support.error_text())
@@ -233,7 +236,7 @@ class LineTest(AsmTest):
         start, stop = support.put_text(b'asm NOP\nend\n')
         src.open_memory(start, stop)
         lex.next()
-        gen.function_begin()
+        gen.function_begin(self.own)
         with self.assertRaises(SystemExit):
             asmblock.block()
         self.assertIn('error 22:', support.error_text())
@@ -241,22 +244,22 @@ class LineTest(AsmTest):
     def test_text_after_an_operand_is_error_22(self):
         self.fails(b'  LDA #1 2\n', err.E_NL_EXPECTED, 2, 10)
 
-    def test_an_unknown_mnemonic_is_error_59_at_the_word(self):
+    def test_an_unknown_mnemonic_is_error_146_at_the_word(self):
         self.fails(b'  NOP\n   LDQ #1\n', err.E_ASM_MNEMONIC, 3, 4)
         self.fails(b'  foo: NOP\n', err.E_ASM_MNEMONIC, 2, 3)
         self.fails(b'  * = $1000\n', err.E_ASM_MNEMONIC, 2, 3)
 
-    def test_a_directive_is_error_58(self):
+    def test_a_directive_is_error_145(self):
         self.fails(b'  .byte 1, 2\n', err.E_ASM_DIRECTIVE, 2, 3)
         self.fails(b'  .word label\n', err.E_ASM_DIRECTIVE, 2, 3)
 
     def test_registers_are_forgotten_after_the_block(self):
-        code = self.assemble(b'  TAX\n', before=lambda: gen.load_const(gen.A, 5))
+        code = self.assemble(b'  TAX\n', before=lambda: reg.load_const(reg.A, 5))
         self.assertEqual(code, b'\xa9\x05\xaa\xa9\x05\x60')
 
     def after_block(self):
         if self._testMethodName == 'test_registers_are_forgotten_after_the_block':
-            gen.load_const(gen.A, 5)
+            reg.load_const(reg.A, 5)
 
 
 class OperandTest(AsmTest):
@@ -322,14 +325,14 @@ class OperandTest(AsmTest):
         self.fails(b'  LDA nothing\n', err.E_UNDEFINED, 2, 7)
         self.fails(b'  LDA #<nothing\n', err.E_UNDEFINED, 2, 9)
 
-    def test_operands_out_of_range_are_error_56(self):
+    def test_operands_out_of_range_are_error_143(self):
         self.fails(b'  LDA #$100\n', err.E_ASM_RANGE, 2, 8)
         self.fails(b'  LDA ($100),Y\n', err.E_ASM_RANGE, 2, 8)
         self.fails(b'  STX $1234,Y\n', err.E_ASM_RANGE, 2, 7)
         self.fails(b'  LDA $FFFF+1\n', err.E_ASM_RANGE, 2, 7)
         self.fails(b'  LDA 1-2\n', err.E_ASM_RANGE, 2, 7)
 
-    def test_a_mode_the_instruction_lacks_is_error_57(self):
+    def test_a_mode_the_instruction_lacks_is_error_144(self):
         self.fails(b'  STA #1\n', err.E_ASM_MODE, 2, 7)
         self.fails(b'  LDA\n', err.E_ASM_MODE, 2, 6)
         self.fails(b'  JMP ($12),Y\n', err.E_ASM_MODE, 2, 8)
@@ -363,25 +366,25 @@ class LabelTest(AsmTest):
         start, stop = support.put_text(b'asm\n.a\n  BNE .a\nend\nasm\n.a\n  BNE .a\nend\n')
         src.open_memory(start, stop)
         lex.next()
-        gen.function_begin()
+        gen.function_begin(self.own)
         asmblock.block()
         lex.next()
         asmblock.block()
-        gen.function_end(self.own, 0)
+        gen.function_end(0)
         self.assertEqual(bytes(fbuf.code[:fbuf.code_length]), b'\xd0\xfe\xd0\xfe\x60')
 
-    def test_an_undefined_label_is_error_55_at_its_first_use(self):
+    def test_an_undefined_label_is_error_142_at_its_first_use(self):
         self.fails(b'  NOP\n  BNE .gone\n  BEQ .gone\n', err.E_ASM_NO_LABEL, 3, 7)
 
     def test_a_label_defined_twice_is_error_41(self):
         self.fails(b'.a\n  NOP\n .a: NOP\n', err.E_DUPLICATE, 4, 2)
 
-    def test_a_branch_to_anything_but_a_label_of_the_block_is_error_53(self):
+    def test_a_branch_to_anything_but_a_label_of_the_block_is_error_140(self):
         self.function(b'g')
         self.fails(b'  BNE g\n', err.E_ASM_BRANCH, 2, 7)
         self.fails(b'  BNE $0200\n', err.E_ASM_BRANCH, 2, 7)
 
-    def test_a_label_used_other_than_by_a_branch_or_jmp_is_error_54(self):
+    def test_a_label_used_other_than_by_a_branch_or_jmp_is_error_141(self):
         self.fails(b'.a\n  LDA .a\n', err.E_ASM_LABEL_USE, 3, 7)
         self.fails(b'.a\n  JSR .a\n', err.E_ASM_LABEL_USE, 3, 7)
         self.fails(b'.a\n  LDA #<.a\n', err.E_ASM_LABEL_USE, 3, 9)
@@ -390,9 +393,9 @@ class LabelTest(AsmTest):
 
 
 class StorageTest(AsmTest):
-    """Variables and slots, through test doubles of name_operand() and storage_used(): the
-    symbol table has neither yet. `v` is a module-level variable, symbol 7; `s` is slot 2 of
-    the function being compiled."""
+    """How instructions use variables and slots, through test doubles of name_operand() and
+    storage_used(), so that only the instruction forms are checked here (TablesTest has the
+    real ones). `v` is a module-level variable, symbol 7; `s` is slot 2 of the function."""
     VAR_SYMBOL = 7
     VAR_STORAGE = 30
     SLOT_STORAGE = 31
@@ -468,7 +471,7 @@ class StorageTest(AsmTest):
 
 
 class NameOperandTest(AsmTest):
-    """The real name_operand(), on what the symbol table has today."""
+    """The real name_operand(), on constants, functions and modules."""
 
     def test_a_constant(self):
         self.constant(b'k', 0x1234)
@@ -492,6 +495,147 @@ class NameOperandTest(AsmTest):
         with self.assertRaises(SystemExit):
             asmblock.name_operand(name(b'util'), 0)
         self.assertIn('error 36:', support.error_text())
+
+
+class TablesTest(AsmTest):
+    """name_operand() and storage_used() on the real symbol table and frame: module-level,
+    `static` and imported variables, parameters and locals, through stage 2a's columns."""
+
+    def variable(self, text, flags=0, scope=kernel.SCOPE_MODULE, inner=0):
+        s = kernel.sym_add(scope, name(text), kernel.K_VAR)
+        kernel.sym_type[s] = typetab.WORD_TYPE
+        kernel.sym_flags[s] = flags
+        if flags & kernel.SF_AT == 0:
+            kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, name(b'm'), inner, name(text))
+        return s
+
+    def slot(self, text, zp_class=reg.CLASS_EITHER, kind=reg.SLOT_LOCAL):
+        """A slot of the function, made once its frame has begun (from assemble's `before`)."""
+        s = kernel.sym_add(kernel.SCOPE_LOCAL, name(text), kernel.K_LOCAL)
+        kernel.sym_type[s] = typetab.WORD_TYPE
+        kernel.sym_value[s] = reg.new_slot(2, zp_class, kind, name(text))
+        return s
+
+    def imported(self, text, flags=0):
+        kernel.module_add(name(b'util'))
+        u = kernel.sym_add(kernel.SCOPE_MODULE, name(b'util'), kernel.K_MODULE)
+        kernel.sym_value[u] = 1
+        s = kernel.sym_add(1, name(text), kernel.K_VAR)
+        kernel.sym_type[s] = typetab.BYTE_TYPE
+        kernel.sym_flags[s] = flags
+        return s
+
+    def test_a_module_variable_is_its_symbol_through_a_two_byte_fix_up(self):
+        v = self.variable(b'v')
+        code = self.assemble(b'  LDA v\n  STA v+1\n')
+        self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
+        self.assertEqual(self.fixups, [(1, 1, kernel.sym_obj[v], fbuf.NO_SLOT, 0),
+                                       (4, 1, kernel.sym_obj[v], fbuf.NO_SLOT, 1)])
+        self.assertEqual(kernel.sym_weight[v], 2)
+        self.assertEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+
+    def test_name_operand_finds_a_variable_and_storage_used_counts_it(self):
+        v = self.variable(b'v')
+        self.assertEqual(asmblock.name_operand(name(b'v'), 0), asmblock.X_ADDRESS)
+        self.assertEqual((asmblock.found_symbol, asmblock.found_slot, asmblock.found_function),
+                         (kernel.sym_obj[v], fbuf.NO_SLOT, False))
+        self.assertNotEqual(asmblock.found_storage, asmblock.NO_STORAGE)
+        asmblock.storage_used(asmblock.found_storage, False)
+        self.assertEqual(kernel.sym_weight[v], 1)
+        asmblock.storage_used(asmblock.found_storage, True)
+        self.assertEqual(kernel.sym_weight[v], 2)
+        self.assertNotEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+
+    def test_an_indirect_mode_makes_a_module_variable_class_0(self):
+        v = self.variable(b'v')
+        code = self.assemble(b'  LDA (v),Y\n')
+        self.assertEqual(code, b'\xb1\x00\x60')
+        self.assertEqual(self.fixups, [(1, 4, kernel.sym_obj[v], fbuf.NO_SLOT, 0)])
+        self.assertNotEqual(kernel.sym_flags[v] & kernel.SF_ZP, 0)
+
+    def test_a_static_variable_is_its_own_symbol(self):
+        code = self.assemble(b'  INC st\n', before=self.make_static)
+        self.assertEqual(code, b'\xee\x00\x00\x60')
+        self.assertEqual(self.fixups, [(1, 1, self.static_obj, fbuf.NO_SLOT, 0)])
+
+    def make_static(self):
+        kernel.scope_begin()
+        s = self.variable(b'st', 0, kernel.SCOPE_LOCAL, name(b'f'))
+        self.static_obj = kernel.sym_obj[s]
+
+    def test_a_variable_at_a_fixed_address_is_its_address(self):
+        v = self.variable(b'hw', kernel.SF_AT)
+        kernel.sym_value[v] = 0x0080
+        self.assertEqual(self.assemble(b'  LDA hw+1\n  STA (hw),Y\n'), b'\xa5\x81\x91\x80\x60')
+        self.assertEqual(self.fixups, [])
+
+    def test_a_parameter_and_a_local_are_slots_of_the_function(self):
+        def frame():
+            kernel.scope_begin()
+            self.p = self.slot(b'p', reg.CLASS_EITHER, reg.SLOT_PARAMETER)
+            self.q = self.slot(b'q')
+        code = self.assemble(b'  LDA p\n  STA q+1\n', before=frame)
+        self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
+        self.assertEqual(self.fixups, [(1, 1, self.own, 0, 0), (4, 1, self.own, 1, 1)])
+        self.assertEqual((reg.slot_weight[0], reg.slot_weight[1]), (1, 1))
+        self.assertEqual((reg.slot_class[0], reg.slot_class[1]), (reg.CLASS_EITHER, reg.CLASS_EITHER))
+
+    def test_a_zero_page_only_instruction_makes_a_slot_class_0(self):
+        def frame():
+            kernel.scope_begin()
+            self.slot(b'p')
+        code = self.assemble(b'  STX p,Y\n  LDA (p),Y\n', before=frame)
+        self.assertEqual(code, b'\x96\x00\xb1\x00\x60')
+        self.assertEqual(self.fixups, [(1, 4, self.own, 0, 0), (3, 4, self.own, 0, 0)])
+        self.assertEqual(reg.slot_class[0], reg.CLASS_ZP)
+
+    def test_a_use_inside_loops_weighs_as_compiled_code_does(self):
+        def frame():
+            kernel.scope_begin()
+            self.slot(b'p')
+            reg.loop_depth = 2
+        self.assemble(b'  LDA p\n  LDA p\n', before=frame)
+        self.assertEqual(reg.slot_weight[0], 2 * reg.WEIGHTS[2])
+
+    def test_weights_stop_at_255(self):
+        v = self.variable(b'v')
+        kernel.sym_weight[v] = 250
+        self.assemble(b'  LDA v\n  LDA v\n  LDA v\n  LDA v\n  LDA v\n  LDA v\n')
+        self.assertEqual(kernel.sym_weight[v], 255)
+
+    def test_a_variable_of_another_module_is_its_symbol(self):
+        self.imported(b'w')
+        code = self.assemble(b'  LDA util.w\n  STA util.w+1\n')
+        self.assertEqual(code, b'\xad\x00\x00\x8d\x00\x00\x60')
+        self.assertEqual([f[1:] for f in self.fixups], [(1, 1, fbuf.NO_SLOT, 0), (1, 1, fbuf.NO_SLOT, 1)])
+        self.assertEqual(self.fixups[0][2], self.fixups[1][2])
+
+    def test_a_variable_of_another_module_declared_zp_can_be_used_indirectly(self):
+        self.imported(b'w', kernel.SF_ZP)
+        self.assertEqual(self.assemble(b'  LDA (util.w),Y\n'), b'\xb1\x00\x60')
+        self.assertEqual(self.fixups[0][1], 4)
+
+    def test_a_variable_of_another_module_not_zp_cannot_be_made_class_0(self):
+        self.imported(b'w')
+        self.fails(b'  LDA (util.w),Y\n', err.E_ASM_NOT_ZP, 2, 8)
+
+    def test_a_nozp_variable_cannot_be_made_class_0(self):
+        self.variable(b'v', kernel.SF_NOZP)
+        self.fails(b'  NOP\n  LDA (v),Y\n', err.E_ASM_NOT_ZP, 3, 8)
+
+    def test_a_nozp_slot_cannot_be_made_class_0(self):
+        def frame():
+            kernel.scope_begin()
+            self.slot(b'p', reg.CLASS_NOT_ZP)
+        before = len(support.error_text())
+        with self.assertRaises(SystemExit):
+            self.assemble(b'  STY p,X\n', before=frame)
+        self.assertIn('t.lth:2:7: error %d: ' % err.E_ASM_NOT_ZP, support.error_text()[before:])
+
+    def test_a_variable_used_as_a_function_is_not_a_call(self):
+        self.variable(b'v')
+        self.assemble(b'  JMP (v)\n  JSR v\n')
+        self.assertEqual(self.calls, [])
 
 
 class AsmFunctionFileTest(unittest.TestCase):

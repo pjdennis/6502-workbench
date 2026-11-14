@@ -1,0 +1,7 @@
+; error 44 6 7
+module sbyte_does_not_widen
+var s: sbyte
+var i: int
+func f()
+  i = s
+end

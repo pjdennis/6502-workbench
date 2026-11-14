@@ -1,0 +1,9 @@
+; error 100 8 12
+module call_inside_own_arguments
+var b: byte
+func g(x: byte, y: byte): byte
+  return x + y
+end
+func f()
+  b = g(1, g(2, 3))
+end

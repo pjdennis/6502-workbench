@@ -1,0 +1,9 @@
+; error 147 7 9
+module asm_nozp_local_made_zero_page
+func f(index: byte)
+  var v: byte nozp
+  asm
+    LDY index
+    STX v,Y
+  end
+end

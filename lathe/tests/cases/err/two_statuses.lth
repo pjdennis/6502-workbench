@@ -1,0 +1,5 @@
+; error 44 3 17
+module two_statuses
+func f(): bool, bool
+  return true, true
+end

@@ -1,0 +1,192 @@
+; Word arithmetic at the edges: carries and borrows between the two bytes, every operator,
+; bytes mixed in, shifts, and every destination a result can have.
+module words
+
+import libout
+
+var x: word
+var y: word
+var r: word
+var b: byte
+
+; eight values around the edges of a word and of its low byte
+func pick(i: byte): word
+  if i == 0 then
+    return 0
+  elif i == 1 then
+    return 1
+  elif i == 2 then
+    return $00FF
+  elif i == 3 then
+    return $0100
+  elif i == 4 then
+    return $7FFF
+  elif i == 5 then
+    return $8000
+  elif i == 6 then
+    return $FFFF
+  end
+  return $1234
+end
+
+func show(w: word)
+  libout.hexw(w)
+  libout.space()
+end
+
+; every operator on every pair, into a variable
+func operators()
+  var i: byte = 0
+  var j: byte
+  while i < 8 do
+    x = pick(i)
+    j = 0
+    while j < 8 do
+      y = pick(j)
+      r = x + y
+      show(r)
+      r = x - y
+      show(r)
+      r = x & y
+      show(r)
+      r = x | y
+      show(r)
+      r = x ^ y
+      show(r)
+      j += 1
+    end
+    libout.nl()
+    i += 1
+  end
+end
+
+; the same operators straight into an argument, and through A and X
+func sum(p: word, q: word): word
+  return p + q
+end
+
+func difference(p: word, q: word): word
+  return p - q
+end
+
+func destinations()
+  var i: byte = 0
+  while i < 8 do
+    x = pick(i)
+    y = pick(7 - i)
+    show(x + y)
+    show(sum(x, y))
+    show(difference(x, y))
+    show(sum(x + 1, y - 1))
+    show(sum(x, y) + difference(x, y))
+    show(x + y + x)
+    show(x - (y + x))
+    show((x & y) | (x ^ y))
+    libout.nl()
+    i += 1
+  end
+end
+
+; constants whose low or high byte is zero, and bytes as operands
+func constants()
+  var i: byte = 0
+  while i < 8 do
+    x = pick(i)
+    b = lo(x) | 1
+    show(x + 1)
+    show(x - 1)
+    show(x + $100)
+    show(x - $100)
+    show(x + $1234)
+    show(x & $FF00)
+    show(x & $00FF)
+    show(x | $8001)
+    show(x ^ $FFFF)
+    show(-x)
+    show(~x)
+    show(x + b)
+    show(b + x)
+    show(x - b)
+    show(b)
+    show(b + b)
+    show(word(b) + b)
+    libout.nl()
+    i += 1
+  end
+end
+
+; where the destination is the left operand: carries done with INC and DEC
+func in_place()
+  var i: byte = 0
+  while i < 8 do
+    r = pick(i)
+    b = $FF
+    r += 1
+    show(r)
+    r -= 1
+    show(r)
+    r -= 1
+    show(r)
+    r += b
+    show(r)
+    r -= b
+    show(r)
+    r -= b
+    show(r)
+    r += $0101
+    show(r)
+    r = r + r
+    show(r)
+    r &= $F0F0
+    show(r)
+    r |= $000F
+    show(r)
+    r ^= $FF00
+    show(r)
+    hi(r) = lo(r)
+    show(r)
+    lo(r) += 1
+    show(r)
+    libout.nl()
+    i += 1
+  end
+end
+
+; shifts, in place and on the way to another variable
+func shifts()
+  x = $B5E3
+  r = x << 1
+  show(r)
+  r = x >> 1
+  show(r)
+  r = x << 5
+  show(r)
+  r = x >> 5
+  show(r)
+  r = x << 8
+  show(r)
+  r = x >> 15
+  show(r)
+  r = x << 16
+  show(r)
+  r = x
+  r <<= 3
+  show(r)
+  r >>= 7
+  show(r)
+  show(x << 2)
+  show(x >> 9)
+  show((x + 1) << 1)
+  show(x * 4)
+  show(x / 8)
+  show(x mod 256)
+  libout.nl()
+end
+
+pub func main()
+  operators()
+  destinations()
+  constants()
+  in_place()
+  shifts()
+end

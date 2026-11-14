@@ -1,0 +1,47 @@
+; Another module's constants, variables and functions, written module.name.
+module modules
+
+import libshared
+
+var b: byte
+var w: word
+var i: int
+
+; constants are folded as the module's own are
+func constants()
+  w = libshared.LIMIT
+  b = libshared.SMALL + 1
+  i = libshared.BELOW
+  b = byte(libshared.ON)
+end
+
+; variables are fix-ups to the other module's symbols; one declared `zp` there is used with
+; zero page instructions, and one at a fixed address is that address
+func variables()
+  libshared.count = 3
+  b = libshared.count
+  libshared.total += b
+  libshared.pointer = w
+  libshared.buffer_end = libshared.pointer
+  libshared.border = 1
+  libshared.latch = b
+  libshared.busy = b == 0
+end
+
+; arguments go into the other module's frames
+func calls()
+  libshared.add(5)
+  libshared.add(b)
+  w = libshared.scaled(w, 3)
+  w = libshared.scaled(libshared.scaled(w, 1), b)
+end
+
+func statuses()
+  if libshared.is_empty() then
+    b = 0
+  end
+  while libshared.take() -> b do
+    w += b
+  end
+  b, libshared.busy = libshared.take()
+end

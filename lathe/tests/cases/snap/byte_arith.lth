@@ -1,0 +1,68 @@
+; Byte arithmetic (docs/codegen.md, "Bytes"): the result is made in A.
+module byte_arith
+
+var a: byte
+var b: byte
+var c: byte
+var r: byte
+
+; the right side can be addressed: load the left, operate with the right
+func direct()
+  r = a + b
+  r = a - b
+  r = a & b
+  r = a | b
+  r = a ^ b
+  r = a + 5
+  r = 5 - a
+end
+
+; a chain keeps its running value in A
+func chain()
+  r = a + b - c
+  r = (a & $0F) | $30
+end
+
+; the right side was computed into A and the operator commutes: operate with the left
+func right_computed()
+  r = a + (b & c)
+  r = a & (b + c)
+end
+
+; ... and when it does not commute, the left is added to the complement of the right
+func right_computed_minus()
+  r = a - (b & c)
+  r = 5 - (b + c)
+end
+
+; both sides computed: the left waits in a temporary
+func both_computed()
+  r = (a + b) & (b - c)
+  r = (a + b) - (b & c)
+end
+
+; operations whose constant changes nothing, or decides everything, cost nothing
+func nothing()
+  r = a + 0
+  r = a | 0
+  r = a & $FF
+  r = a ^ 0
+  r = a & 0
+  r = a * 1
+end
+
+; unary minus and complement
+func unary()
+  r = -a
+  r = ~a
+  r = -(a + b)
+  r = ~(a + b)
+end
+
+; multiply, divide and remainder by a power of two
+func powers()
+  r = a * 4
+  r = 8 * a
+  r = a / 2
+  r = a mod 16
+end

@@ -1,0 +1,35 @@
+; An asm block that stores through a local pointer, (p),Y, makes that slot "must be in zero
+; page": the linker puts it there, and the Lathe code after the block reads what was stored.
+; Prints ABCD and a new line.
+module asm_pointer
+
+import host
+
+var first: byte at $C800
+var second: byte at $C801
+
+; Store `count` letters from `letter` on at `where`.
+func fill(where: word, letter: byte, count: byte)
+  var p: word = where
+  asm
+    LDY #0
+    LDA letter
+.next
+    STA (p),Y
+    CLC
+    ADC #1
+    INY
+    CPY count
+    BNE .next
+  end
+end
+
+pub func main()
+  fill($C800, 'A', 4)
+  host.put_byte(first)
+  host.put_byte(second)
+  fill($C800, 'C', 2)
+  host.put_byte(first)
+  host.put_byte(second)
+  host.put_byte(10)
+end

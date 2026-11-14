@@ -1,0 +1,140 @@
+; Variables: initial values in two modules, statics, locals with initial values, every
+; placement, and another module's variables, constants and functions.
+module state
+
+import libout
+import libstate
+
+const OWN = libstate.SIZE * 2
+
+var first: byte = 1
+var second: word = $0203
+var third: sbyte = -4
+var flag: bool = true
+var later: byte
+var big: word nozp = 60000
+var quick: byte zp = 9
+var port: byte at $EFF8
+var vector: word at $FA = $BEEF
+
+func show(w: word)
+  libout.hexw(w)
+  libout.space()
+end
+
+func showb(b: byte)
+  libout.hex(b)
+  libout.space()
+end
+
+; the values the variables start with, before anything is assigned
+func initial()
+  showb(first)
+  show(second)
+  libout.sdec(int(third))
+  libout.space()
+  libout.truth(flag)
+  libout.space()
+  show(big)
+  showb(quick)
+  show(vector)
+  show(libstate.total)
+  libout.sdec(libstate.level)
+  libout.space()
+  libout.truth(libstate.ready)
+  libout.space()
+  showb(libstate.fast)
+  show(libstate.slow)
+  showb(libstate.fixed)
+  show(libstate.page_zero)
+  libout.nl()
+end
+
+; a local's initial value is an assignment made on every entry; a static's is set once
+func counter(step: byte): byte
+  var local: byte = 10
+  static var kept: byte = 10
+  local += step
+  kept += step
+  return local + kept
+end
+
+func statics()
+  showb(counter(1))
+  showb(counter(1))
+  showb(counter(5))
+  showb(libstate.ticket())
+  showb(libstate.ticket())
+  showb(libstate.ticket())
+  showb(libstate.called())
+  libout.nl()
+end
+
+; another module's variables, read and written here and there
+func shared()
+  var q: word
+  var ok: bool
+  libstate.add(10)
+  libstate.add(20)
+  libstate.total += libstate.count
+  show(libstate.total)
+  showb(libstate.count)
+  q, ok = libstate.average()
+  show(q)
+  libout.truth(ok)
+  libstate.reset()
+  if libstate.average() -> q then
+    libout.char('?')
+  end
+  show(q)
+  libstate.count = OWN
+  libstate.total = libstate.FIRST + OWN
+  if libstate.average() -> q then
+    show(q)
+  end
+  libstate.level += libstate.STEP
+  libout.sdec(libstate.level)
+  libout.space()
+  libstate.ready = not libstate.ready
+  libout.truth(libstate.ready)
+  libout.nl()
+end
+
+; placements: zero page, not zero page and fixed addresses all behave as variables
+func placements()
+  quick += 1
+  big += quick
+  port = quick
+  port += 1
+  vector += port
+  libstate.fast <<= 1
+  libstate.pair = big
+  libstate.pair += libstate.fast
+  libstate.slow = libstate.pair - 1
+  libstate.fixed ^= $FF
+  libstate.fixed_word = libstate.slow + libstate.fixed
+  libstate.page_zero -= 1
+  hi(libstate.page_zero) = lo(libstate.page_zero)
+  showb(quick)
+  show(big)
+  showb(port)
+  show(vector)
+  showb(libstate.fast)
+  show(libstate.pair)
+  show(libstate.slow)
+  showb(libstate.fixed)
+  show(libstate.fixed_word)
+  show(libstate.page_zero)
+  libout.nl()
+end
+
+pub func main()
+  initial()
+  later = first + 1
+  statics()
+  shared()
+  placements()
+  showb(later)
+  showb(libstate.called())
+  libout.nl()
+end

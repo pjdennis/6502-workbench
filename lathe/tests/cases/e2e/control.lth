@@ -1,0 +1,232 @@
+; Control flow: if, elif, else, while, loop, until, break, continue, nested, and the
+; short-circuit rules of `and`, `or` and `not`, shown by counting which tests were made.
+module control
+
+import libout
+
+var made: byte
+
+; a test with a visible effect: it prints its letter and counts
+func t(c: byte, answer: bool): bool
+  libout.char(c)
+  made += 1
+  return answer
+end
+
+func classify(n: byte): byte
+  if n < 10 then
+    return 'a'
+  elif n < 100 then
+    return 'b'
+  elif n == 100 then
+    return 'c'
+  else
+    return 'd'
+  end
+end
+
+func ifs()
+  libout.char(classify(0))
+  libout.char(classify(9))
+  libout.char(classify(10))
+  libout.char(classify(99))
+  libout.char(classify(100))
+  libout.char(classify(101))
+  libout.char(classify(255))
+  libout.nl()
+end
+
+; the greatest common divisor by subtraction
+func gcd(a: word, b: word): word
+  while a != b do
+    if a > b then
+      a -= b
+    else
+      b -= a
+    end
+  end
+  return a
+end
+
+; how many steps the 3n+1 sequence takes from n to 1
+func collatz(n: word): byte
+  var steps: byte = 0
+  while n != 1 do
+    if n & 1 == 0 then
+      n >>= 1
+    else
+      n = n + n + n + 1
+    end
+    steps += 1
+  end
+  return steps
+end
+
+func whiles()
+  libout.dec(gcd(1071, 462))
+  libout.space()
+  libout.dec(gcd(65535, 255))
+  libout.space()
+  libout.dec(gcd(17, 4096))
+  libout.space()
+  libout.dec(collatz(27))
+  libout.space()
+  libout.dec(collatz(97))
+  libout.space()
+  libout.dec(collatz(1))
+  libout.nl()
+end
+
+; Fibonacci numbers below 60000: a loop left from the middle
+func fibonacci()
+  var a: word = 0
+  var b: word = 1
+  var next: word
+  loop
+    libout.dec(a)
+    libout.space()
+    next = a + b
+    if next < b then
+      break
+    end
+    a = b
+    b = next
+  end
+  libout.nl()
+end
+
+; the primes below 60, by trial subtraction: three levels of loops, break and continue
+func primes()
+  var n: byte = 2
+  var d: byte
+  var r: byte
+  var prime: bool
+  loop
+    prime = true
+    d = 2
+    while d < n do
+      r = n
+      while r >= d do
+        r -= d
+      end
+      if r == 0 then
+        prime = false
+        break
+      end
+      d += 1
+    end
+    n += 1
+    if not prime then
+      continue
+    end
+    libout.dec(n - 1)
+    libout.space()
+  until n == 60
+  libout.nl()
+end
+
+; counting down to 0 and up through 255
+func edges()
+  var i: byte = 3
+  var n: word
+  loop
+    libout.hex(i)
+    i -= 1
+  until i == 0
+  libout.space()
+  i = 253
+  loop
+    libout.hex(i)
+    i += 1
+  until i == 0
+  libout.space()
+  i = 0
+  n = 0
+  loop
+    i -= 1
+    n += i
+  until i == 0
+  libout.dec(n)
+  libout.space()
+  n = 300
+  i = 0
+  while n > 250 do
+    n -= 1
+    if n & 7 != 0 then
+      continue
+    end
+    i += 1
+  end
+  libout.hex(i)
+  libout.nl()
+end
+
+; `and` and `or` make only the tests they need
+func show(answer: bool)
+  if answer then
+    libout.char('+')
+  else
+    libout.char('-')
+  end
+  libout.space()
+end
+
+func short_circuit()
+  show(t('a', true) and t('b', true))
+  show(t('a', true) and t('b', false))
+  show(t('a', false) and t('b', true))
+  show(t('a', true) or t('b', true))
+  show(t('a', false) or t('b', true))
+  show(t('a', false) or t('b', false))
+  libout.nl()
+  show(t('a', true) and t('b', true) and t('c', true))
+  show(t('a', true) and t('b', false) and t('c', true))
+  show(t('a', false) or t('b', false) or t('c', true))
+  show(t('a', false) and t('b', true) or t('c', true))
+  show(t('a', true) and t('b', true) or t('c', true))
+  show(t('a', true) or t('b', true) and t('c', false))
+  show(t('a', false) or t('b', true) and t('c', false))
+  show((t('a', false) or t('b', true)) and t('c', false))
+  libout.nl()
+  show(not t('a', true))
+  show(not (t('a', true) and t('b', false)))
+  show(not (t('a', false) or t('b', false)))
+  show(not t('a', false) and not t('b', false))
+  show(not (not t('a', true)))
+  show(t('a', true) == t('b', true))
+  show(t('a', true) != t('b', true))
+  show(t('a', false) == (t('b', true) and t('c', false)))
+  libout.nl()
+  libout.dec(made)
+  libout.nl()
+end
+
+; tests used as statements' conditions, not as values
+func conditions()
+  var n: byte = 0
+  if t('a', true) and t('b', false) or t('c', true) then
+    libout.char('1')
+  end
+  if t('a', false) or t('b', false) then
+    libout.char('2')
+  else
+    libout.char('3')
+  end
+  while t('w', n < 3) and not t('x', n == 2) do
+    n += 1
+  end
+  loop
+    n -= 1
+  until t('u', n == 0) or t('v', false)
+  libout.nl()
+end
+
+pub func main()
+  ifs()
+  whiles()
+  fibonacci()
+  primes()
+  edges()
+  short_circuit()
+  conditions()
+end

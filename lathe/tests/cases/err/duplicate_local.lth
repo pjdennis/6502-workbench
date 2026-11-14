@@ -1,0 +1,6 @@
+; error 41 5 14
+module duplicate_local
+func f()
+  var a: byte
+  static var a: byte
+end

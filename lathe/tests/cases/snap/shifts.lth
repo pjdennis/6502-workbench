@@ -1,0 +1,72 @@
+; Shifts (docs/codegen.md, "Bytes" and "Words").
+module shifts
+
+var a: byte
+var b: byte
+var n: byte
+var s: sbyte
+var w: word
+var v: word
+var i: int
+
+; a byte by a constant: that many ASL A or LSR A
+func byte_constant()
+  b = a << 3
+  b = a >> 2
+  b = (a + n) << 1
+end
+
+; in memory when the destination is the left operand
+func byte_in_place()
+  a = a << 1
+  a <<= 2
+  a >>= 1
+end
+
+; a signed byte keeps its sign: the sign is put in the carry and rotated back in
+func signed_byte()
+  s = s >> 1
+  s >>= 2
+  s = s << 1
+end
+
+; a byte by a variable: a loop counted in X
+func byte_variable()
+  b = a << n
+  b = a >> n
+  s = s >> n
+  b = a << (n + 1)
+end
+
+; a word is shifted in memory: the first place on the way to the destination
+func word_constant()
+  v = w << 1
+  v = w >> 1
+  v = w << 3
+end
+
+func word_in_place()
+  w = w << 1
+  w <<= 2
+  w >>= 1
+  i >>= 1
+end
+
+; with no memory destination, a word is shifted in a temporary
+func word_result(): word
+  return w << 2
+end
+
+; shifting everything out
+func out()
+  b = a << 8
+  b = a >> 9
+  s = s >> 9
+  v = w << 16
+end
+
+; a shift of a low byte needs only the low byte
+func narrow()
+  b = byte(w << 2)
+  b = lo(w) >> 2
+end

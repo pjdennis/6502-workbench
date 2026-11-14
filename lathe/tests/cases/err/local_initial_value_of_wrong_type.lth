@@ -1,0 +1,6 @@
+; error 44 5 17
+module local_initial_value_of_wrong_type
+var w: word
+func f()
+  var n: byte = w
+end

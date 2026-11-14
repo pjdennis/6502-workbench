@@ -1,0 +1,6 @@
+; error 43 5 7
+module int_out_of_range
+var n: int
+func f()
+  n = 32768
+end

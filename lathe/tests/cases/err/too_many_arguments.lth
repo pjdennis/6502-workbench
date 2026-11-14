@@ -1,6 +1,7 @@
-; error 42 5 20
+; error 42 6 8
 module too_many_arguments
-import host
-pub func main()
-  host.put_byte(1, 2)
+func g(a: byte)
+end
+func f()
+  g(1, 2)
 end

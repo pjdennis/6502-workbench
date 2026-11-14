@@ -235,7 +235,7 @@ end
 - Operands can name any Lathe variable, constant or function in scope. Fields and elements are written as offsets: `LDA sym+2`.
 - Labels are local to the block and start with `.`. Branches must stay inside the block.
 - A, X and Y are free to use and hold nothing useful on entry. The stack must be left as it was found.
-- An indirect mode, or an instruction that has only a zero page form (`STX v,Y`, `STY v,X`), on a variable makes that variable "must be in zero page", as declaring it `zp` would. Compiled code never does this on its own.
+- An indirect mode, or an instruction that has only a zero page form (`STX v,Y`, `STY v,X`), on a variable makes that variable "must be in zero page", as declaring it `zp` would. Compiled code never does this on its own. A variable declared `nozp`, or one of another module that was not declared `zp` there, cannot be made so: that is an error.
 - The decimal flag must be clear on exit.
 
 ## Expressions

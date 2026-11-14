@@ -1,0 +1,10 @@
+; error 53 9 6
+module status_stored_in_constant
+const LIMIT = 1
+var n: byte
+func g(): byte, bool
+  return 0, true
+end
+func f()
+  n, LIMIT = g()
+end

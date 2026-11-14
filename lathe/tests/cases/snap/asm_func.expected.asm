@@ -51,14 +51,13 @@ asm_func__calls_another
 asm_func__main
     LDA #$12
     JSR asm_func__swap_nibbles
-    LDX #$01
     LDY #$02
+    LDX #$01
     LDA #$78
     JSR asm_func__plot
-    LDA #$34
-    LDX #$12
     SEC
+    LDX #$12
+    LDA #$34
     JSR asm_func__pair
     JSR asm_func__ends_with_rts
-    JSR asm_func__calls_another
-    RTS
+    JMP asm_func__calls_another

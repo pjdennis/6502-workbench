@@ -1,6 +1,0 @@
-; error 39 5 8
-module later_assignment
-import host
-pub func main()
-  true = 1
-end

@@ -1,0 +1,8 @@
+; error 44 6 8
+module signed_and_unsigned_compared
+var w: word
+var i: int
+func f()
+  if w < i then
+  end
+end

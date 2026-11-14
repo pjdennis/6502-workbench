@@ -1,0 +1,57 @@
+; A module with state, for state.lth: exported constants, variables in every placement with
+; and without initial values, and functions that work on them.
+module libstate
+
+pub const SIZE = 5
+pub const FIRST: word = 1000
+pub const STEP = -3
+pub const ENABLED = true
+
+pub var total: word = FIRST
+pub var count: byte
+pub var level: int = STEP * 100
+pub var ready: bool = ENABLED
+pub var fast: byte zp = 7
+pub var pair: word zp
+pub var slow: word nozp = $ABCD
+pub var fixed: byte at $EFF0 = $5A
+pub var fixed_word: word at $EFF2
+pub var page_zero: word at $F8 = $1234
+
+var calls: byte = 0
+
+pub func add(n: byte)
+  total += n
+  count += 1
+  calls += 1
+end
+
+pub func average(): word, bool
+  var sum: word = total
+  var result: word = 0
+  if count == 0 then
+    return 0, false
+  end
+  while sum >= count do
+    sum -= count
+    result += 1
+  end
+  return result, true
+end
+
+; a static variable keeps its value between calls; its initial value is set once
+pub func ticket(): byte
+  static var last: byte = 100
+  last += 1
+  calls += 1
+  return last
+end
+
+pub func called(): byte
+  return calls
+end
+
+pub func reset()
+  total = 0
+  count = 0
+end

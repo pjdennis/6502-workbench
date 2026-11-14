@@ -1,0 +1,39 @@
+; A module for modules.lth to import: its interface carries constants, variables with their
+; placement, and function signatures.
+module libshared
+
+pub const LIMIT = 300
+pub const SMALL: byte = 7
+pub const BELOW = -1
+pub const ON = true
+
+pub var count: byte = 0
+pub var total: word
+pub var pointer: word zp
+pub var buffer_end: word nozp
+pub var border: byte at $D020
+pub var latch: byte at $40
+pub var busy: bool
+
+var hidden: byte
+
+pub func add(amount: byte)
+  total += amount
+  count += 1
+end
+
+pub func scaled(value: word, shift: byte): word
+  return value + shift
+end
+
+pub func take(): byte, bool
+  if count == 0 then
+    return 0, false
+  end
+  count -= 1
+  return count, true
+end
+
+pub func is_empty(): bool
+  return count == 0
+end

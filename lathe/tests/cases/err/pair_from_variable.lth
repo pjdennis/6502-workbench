@@ -1,0 +1,7 @@
+; error 56 6 11
+module pair_from_variable
+var n: byte
+var ok: bool
+func f()
+  n, ok = n
+end

@@ -85,6 +85,23 @@ class SymbolTableTest(KernelTest):
         self.assertEqual(kernel.sym_obj[s], kernel.NO_OBJ)
         self.assertEqual(kernel.sym_flags[s], 0)
 
+    def test_the_kinds_of_symbol_are_all_different(self):
+        kinds = [kernel.K_MODULE, kernel.K_FUNC, kernel.K_CONST, kernel.K_VAR, kernel.K_LOCAL, kernel.K_BUILTIN]
+        self.assertEqual(len(set(kinds)), len(kinds))
+
+    def test_the_flags_of_a_symbol_are_separate_bits(self):
+        flags = [kernel.SF_PUB, kernel.SF_EXTERN, kernel.SF_FORWARD, kernel.SF_AT, kernel.SF_ZP, kernel.SF_NOZP]
+        self.assertEqual(sum(flags), 63)
+        self.assertEqual(len(set(flags)), 6)
+
+    def test_a_symbol_starts_with_no_weight_even_where_another_was(self):
+        kernel.scope_begin()
+        s = kernel.sym_add(kernel.SCOPE_LOCAL, name(b'n'), kernel.K_VAR)
+        kernel.sym_weight[s] = 200
+        kernel.scope_end()
+        again = kernel.sym_add(kernel.SCOPE_MODULE, name(b'm'), kernel.K_VAR)
+        self.assertEqual((again, kernel.sym_weight[again]), (s, 0))
+
     def test_an_unknown_name_is_not_found(self):
         _, found = kernel.sym_find(kernel.SCOPE_MODULE, name(b'nothing'))
         self.assertFalse(found)

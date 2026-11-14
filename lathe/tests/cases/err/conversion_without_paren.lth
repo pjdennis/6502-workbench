@@ -1,0 +1,6 @@
+; error 23 5 12
+module conversion_without_paren
+var n: byte
+func f()
+  n = byte n
+end

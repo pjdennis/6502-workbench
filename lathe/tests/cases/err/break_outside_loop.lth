@@ -1,0 +1,5 @@
+; error 55 4 3
+module break_outside_loop
+func f()
+  break
+end

@@ -1,0 +1,8 @@
+; error 44 7 5
+module argument_of_wrong_type
+var w: word
+func g(a: byte)
+end
+func f()
+  g(w)
+end

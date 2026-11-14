@@ -1,0 +1,160 @@
+; Byte arithmetic at the edges: wrap-around, every operator, shifts by constants and by
+; variables, powers of two. Every result is printed in hexadecimal.
+module bytes
+
+import libout
+
+var x: byte
+var y: byte
+var r: byte
+
+; six values around the edges of a byte
+func pick(i: byte): byte
+  if i == 0 then
+    return 0
+  elif i == 1 then
+    return 1
+  elif i == 2 then
+    return $7F
+  elif i == 3 then
+    return $80
+  elif i == 4 then
+    return $FE
+  end
+  return $FF
+end
+
+func show(b: byte)
+  libout.hex(b)
+  libout.space()
+end
+
+; every operator on every pair
+func operators()
+  var i: byte = 0
+  var j: byte
+  while i < 6 do
+    x = pick(i)
+    j = 0
+    while j < 6 do
+      y = pick(j)
+      show(x + y)
+      show(x - y)
+      show(x & y)
+      show(x | y)
+      show(x ^ y)
+      j += 1
+    end
+    libout.nl()
+    i += 1
+  end
+end
+
+; with constants, on either side, and where nothing changes
+func constants()
+  var i: byte = 0
+  while i < 6 do
+    x = pick(i)
+    show(x + 1)
+    show(1 + x)
+    show(x - 1)
+    show(1 - x)
+    show(x + 0)
+    show(x & $0F)
+    show(x | $80)
+    show(x ^ $FF)
+    show(-x)
+    show(~x)
+    show(x * 2)
+    show(x * 16)
+    show(x / 4)
+    show(x mod 8)
+    libout.nl()
+    i += 1
+  end
+end
+
+; compound assignment, with INC and DEC through 255 and 0
+func compound()
+  r = $FE
+  r += 1
+  show(r)
+  r += 1
+  show(r)
+  r += 1
+  show(r)
+  r -= 1
+  show(r)
+  r -= 1
+  show(r)
+  r = $F0
+  r += $20
+  show(r)
+  r -= $40
+  show(r)
+  r &= $3C
+  show(r)
+  r |= $81
+  show(r)
+  r ^= $FF
+  show(r)
+  r <<= 2
+  show(r)
+  r >>= 3
+  show(r)
+  x = 3
+  r += x
+  show(r)
+  r -= x + x
+  show(r)
+  r = r + r
+  show(r)
+  libout.nl()
+end
+
+; shifts by constants and by variables, 0 to 9 places
+func shifts()
+  var n: byte = 0
+  x = $B5
+  while n < 10 do
+    show(x << n)
+    show(x >> n)
+    n += 1
+  end
+  libout.nl()
+  show(x << 0)
+  show(x << 1)
+  show(x << 4)
+  show(x << 7)
+  show(x << 8)
+  show(x >> 1)
+  show(x >> 4)
+  show(x >> 7)
+  show(x >> 8)
+  libout.nl()
+end
+
+; both sides computed, in every arrangement
+func nested()
+  x = $35
+  y = $0C
+  show((x + y) & (x - y))
+  show((x + y) - (x & y))
+  show(x - (y + 1))
+  show(x + (y & 7))
+  show((x & $F0) | (y & $0F))
+  show(100 - (x + y))
+  show(-(x + y))
+  show(~(x & y))
+  show((x + y) << 1)
+  show(((x << 1) + (y << 2)) - ((x >> 1) + (y >> 2)))
+  libout.nl()
+end
+
+pub func main()
+  operators()
+  constants()
+  compound()
+  shifts()
+  nested()
+end

@@ -1,0 +1,47 @@
+; Variables, where they are placed, and initial values (docs/codegen.md, "Initial values";
+; docs/object-format.md, "Initial values and start-up").
+module init
+
+var plain: byte
+var fast: byte zp
+var slow: word nozp
+var border: byte at $D020
+var vector: word at $FE
+
+var count: byte = 5
+var total: word = 0
+var limit: word = 1000
+var ready: bool = true
+var offset: int = -2
+var quick: word zp = 0
+pub var shared: byte = 5
+var screen: byte at $D021 = 0
+
+; a `zp` variable is used with zero page instructions from the start; a `nozp` one and one
+; the linker may place either way are written in the absolute form
+func placements()
+  fast = plain
+  slow = fast
+  quick += 1
+  border = 0
+  vector = slow
+end
+
+; locals: an initial value is an assignment made on every entry
+func locals(n: byte): byte
+  var i: byte = n + 1
+  var w: word
+  var p: byte zp
+  w = i
+  p = lo(w)
+  return p
+end
+
+; a `static` variable is a variable of the module, named after its function, and its
+; initial value is set once
+func counter(): byte
+  static var calls: byte = 0
+  static var step: byte = 1
+  calls += step
+  return calls
+end

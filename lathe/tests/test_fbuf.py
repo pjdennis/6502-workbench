@@ -21,7 +21,7 @@ def nops(n):
 
 
 def code():
-    fbuf.finish(OWN)
+    fbuf.finish(OWN, 0)
     return bytes(fbuf.code[i] for i in range(fbuf.code_length))
 
 
@@ -148,9 +148,11 @@ class BranchTest(FbufTest):
 
     def test_a_branch_to_the_next_instruction(self):
         here = fbuf.new_label()
-        fbuf.branch(BCC, here)
+        fbuf.op(NOP)
+        fbuf.op(NOP)
         fbuf.place(here)
-        self.assertEqual(code(), bytes([BCC, 0]))
+        fbuf.branch(BCC, here)
+        self.assertEqual(code(), bytes([NOP, NOP, BCC, 0xFE]))
 
     def test_a_label_at_the_end_of_the_function(self):
         end = fbuf.new_label()
@@ -205,6 +207,7 @@ class BranchTest(FbufTest):
     def test_a_branch_always_that_does_not_reach_is_just_a_jump(self):
         far = fbuf.new_label()
         fbuf.branch(BRA, far)
+        fbuf.place(fbuf.new_label())    # or what follows could not be reached, and would be left out
         nops(200)
         fbuf.place(far)
         self.assertEqual(code(), bytes([JMP, 0, 0] + [NOP] * 200))
@@ -276,9 +279,279 @@ class BranchTest(FbufTest):
         a, b = fbuf.new_label(), fbuf.new_label()
         fbuf.branch(BEQ, a)
         fbuf.branch(BNE, b)
+        fbuf.op(NOP)
         fbuf.place(a)
         fbuf.place(b)
-        self.assertEqual(code(), bytes([BEQ, 2, BNE, 0]))
+        self.assertEqual(code(), bytes([BEQ, 3, BNE, 1, NOP]))
+
+    def test_a_branch_to_the_next_instruction_is_taken_out(self):
+        a, b = fbuf.new_label(), fbuf.new_label()
+        fbuf.op(NOP)
+        fbuf.branch(BEQ, a)
+        fbuf.branch(BNE, b)
+        fbuf.place(b)
+        self.assertFalse(fbuf.is_used(b))
+        fbuf.place(a)                   # the entry before the BEQ is not known any more
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([NOP, BEQ, 0, RTS]))
+
+
+class JoinTest(FbufTest):
+    """Two labels made one place: both names lead to where the one that is placed is."""
+
+    def test_a_label_joined_to_one_placed_later_goes_there(self):
+        first, second = fbuf.new_label(), fbuf.new_label()
+        fbuf.branch(BEQ, second)
+        fbuf.join(first, second)
+        fbuf.op(NOP)
+        fbuf.place(first)
+        self.assertEqual(code(), bytes([BEQ, 1, NOP]))
+
+    def test_a_label_joined_to_one_already_placed_goes_back_to_it(self):
+        top, again = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.op(NOP)
+        fbuf.branch(BNE, again)
+        fbuf.join(top, again)
+        fbuf.jump(again)
+        self.assertEqual(code(), bytes([NOP, BNE, 0xFD, JMP, 0, 0]))
+        self.assertEqual(fixups(), [(4, 1, OWN, 0xFF, 0)])
+
+    def test_joins_can_follow_each_other(self):
+        a, b, c = fbuf.new_label(), fbuf.new_label(), fbuf.new_label()
+        fbuf.branch(BEQ, c)
+        fbuf.join(b, c)
+        fbuf.join(a, b)
+        fbuf.place(a)
+        self.assertEqual(code(), bytes([BEQ, 0]))
+
+    def test_a_label_is_used_once_a_branch_or_jump_goes_to_it_or_to_one_joined_to_it(self):
+        a, b, c = fbuf.new_label(), fbuf.new_label(), fbuf.new_label()
+        self.assertFalse(fbuf.is_used(a))
+        fbuf.branch(BEQ, b)
+        self.assertTrue(fbuf.is_used(b))
+        fbuf.join(a, b)
+        self.assertTrue(fbuf.is_used(a))
+        self.assertFalse(fbuf.is_used(c))
+        fbuf.jump(c)
+        self.assertTrue(fbuf.is_used(c))
+
+
+class FuseTest(FbufTest):
+    """A branch round nothing but a JMP is one branch (docs/codegen.md, "Statements")."""
+
+    def test_a_branch_round_a_jump_becomes_the_opposite_branch(self):
+        top, skip = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.op(NOP)
+        fbuf.branch(BNE, skip)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([NOP, BEQ, 0xFD, RTS]))
+        self.assertEqual(fixups(), [])
+
+    def test_the_label_is_no_longer_used_if_that_was_its_only_branch(self):
+        top, skip, other = fbuf.new_label(), fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.branch(BNE, skip)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        self.assertFalse(fbuf.is_used(skip))
+        fbuf.branch(BEQ, other)
+        fbuf.branch(BNE, other)
+        fbuf.jump(top)
+        fbuf.place(other)
+        self.assertTrue(fbuf.is_used(other))
+        self.assertEqual(code(), bytes([BEQ, 0xFE, BEQ, 2, BEQ, 0xFA]))
+
+    def test_a_branch_and_a_jump_that_both_come_here_are_both_taken_out(self):
+        skip = fbuf.new_label()
+        fbuf.op(NOP)
+        fbuf.branch(BEQ, skip)
+        fbuf.jump(skip)
+        self.assertFalse(fbuf.runs_on())
+        self.assertFalse(fbuf.arrive(skip))
+        self.assertTrue(fbuf.runs_on())
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([NOP, RTS]))
+
+    def test_a_jump_far_away_still_gets_there(self):
+        far, skip = fbuf.new_label(), fbuf.new_label()
+        fbuf.branch(BNE, skip)
+        fbuf.jump(far)
+        fbuf.place(skip)
+        nops(200)
+        fbuf.place(far)
+        self.assertEqual(code()[:5], bytes([BNE, 3, JMP, 0, 0]))
+
+    def test_anything_between_the_branch_and_the_jump_keeps_them_apart(self):
+        top, skip = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.branch(BNE, skip)
+        fbuf.op(NOP)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        self.assertEqual(code(), bytes([BNE, 4, NOP, JMP, 0, 0]))
+
+    def test_a_branch_to_another_label_is_left_alone(self):
+        top, skip, other = fbuf.new_label(), fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.branch(BNE, other)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        fbuf.place(other)
+        self.assertEqual(code(), bytes([BNE, 3, JMP, 0, 0]))
+
+    def test_a_jump_at_the_start_of_a_function_is_not_taken_for_one(self):
+        top, skip = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.branch(BNE, skip)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        code()
+        fbuf.begin()                    # the old entries are still in the buffer
+        again = fbuf.new_label()
+        fbuf.jump(again)
+        fbuf.place(fbuf.new_label())
+        fbuf.place(again)
+        self.assertEqual(code(), bytes([JMP, 0, 0]))
+
+
+class UnreachedTest(FbufTest):
+    """What follows a jump or a return, with no label between, is left out."""
+
+    def test_instructions_after_a_return_are_left_out_until_a_label(self):
+        skip = fbuf.new_label()
+        fbuf.branch(BEQ, skip)
+        fbuf.op(RTS)
+        fbuf.op(NOP)
+        fbuf.op_byte(LDA_IMM, 1)
+        fbuf.op_word(JSR, 0xF009)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        fbuf.branch(BNE, skip)
+        fbuf.jump(skip)
+        fbuf.place(skip)
+        fbuf.op(NOP)
+        self.assertEqual(code(), bytes([BEQ, 1, RTS, NOP]))
+        self.assertEqual(fixups(), [])
+
+    def test_instructions_after_a_jump_are_left_out(self):
+        top = fbuf.new_label()
+        fbuf.place(top)
+        fbuf.jump(top)
+        fbuf.op(NOP)
+        fbuf.op(RTS)
+        self.assertEqual(code(), bytes([JMP, 0, 0]))
+        self.assertFalse(fbuf.runs_on())
+
+    def test_a_new_function_can_be_reached_again(self):
+        fbuf.op(RTS)
+        fbuf.op(NOP)
+        fbuf.begin()
+        fbuf.op(NOP)
+        self.assertEqual(code(), bytes([NOP]))
+
+
+class AsWrittenTest(FbufTest):
+    """While an `asm` block is being written, its instructions are kept as written: nothing
+    is left out and no branch is fused or taken out."""
+
+    def setUp(self):
+        super().setUp()
+        fbuf.as_written(True)
+        self.addCleanup(fbuf.as_written, False)
+
+    def test_instructions_after_a_jump_are_kept(self):
+        top = fbuf.new_label()
+        fbuf.place(top)
+        fbuf.jump(top)
+        fbuf.op(NOP)
+        self.assertEqual(code(), bytes([JMP, 0, 0, NOP]))
+
+    def test_a_branch_round_a_jump_stays_two_instructions(self):
+        top, skip = fbuf.new_label(), fbuf.new_label()
+        fbuf.place(top)
+        fbuf.branch(BNE, skip)
+        fbuf.jump(top)
+        fbuf.place(skip)
+        self.assertEqual(code(), bytes([BNE, 3, JMP, 0, 0]))
+
+    def test_a_branch_round_nothing_stays(self):
+        skip = fbuf.new_label()
+        fbuf.branch(BNE, skip)
+        fbuf.place(skip)
+        self.assertEqual(code(), bytes([BNE, 0]))
+
+    def test_afterwards_code_is_tidied_again(self):
+        fbuf.op(RTS)
+        fbuf.as_written(False)
+        fbuf.op(NOP)
+        self.assertEqual(code(), bytes([RTS]))
+
+    def test_a_new_function_is_not_as_written(self):
+        fbuf.begin()
+        fbuf.op(RTS)
+        fbuf.op(NOP)
+        self.assertEqual(code(), bytes([RTS]))
+
+
+class TailCallTest(FbufTest):
+    """A JSR that a return follows becomes a JMP."""
+
+    def test_a_jsr_to_a_fixed_address_becomes_a_jmp(self):
+        fbuf.op_word(JSR, 0xF009)
+        self.assertTrue(fbuf.tail_call())
+        self.assertEqual(code(), bytes([JMP, 0x09, 0xF0]))
+        self.assertFalse(fbuf.runs_on())
+
+    def test_a_jsr_to_a_function_becomes_a_jmp_with_the_same_fix_up(self):
+        fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        self.assertTrue(fbuf.tail_call())
+        self.assertEqual(code(), bytes([JMP, 0, 0]))
+        self.assertEqual(fixups(), [(1, 1, 3, 0xFF, 0)])
+
+    def test_anything_else_is_left_alone(self):
+        self.assertFalse(fbuf.tail_call())
+        fbuf.op_fix(LDA_ABS, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        self.assertFalse(fbuf.tail_call())
+        fbuf.op_byte(LDA_IMM, JSR)
+        self.assertFalse(fbuf.tail_call())
+
+    def test_a_label_after_the_jsr_keeps_it(self):
+        fbuf.op_word(JSR, 0xF009)
+        fbuf.place(fbuf.new_label())
+        self.assertFalse(fbuf.tail_call())
+
+    def test_a_jsr_that_was_kept_as_written_stays_a_jsr(self):
+        fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        fbuf.keep_as_written()
+        self.assertFalse(fbuf.tail_call())
+        self.assertEqual(code(), bytes([JSR, 0, 0]))
+
+    def test_only_the_instruction_kept_is_kept(self):
+        fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, 3, 0xFF, 0)
+        fbuf.keep_as_written()
+        fbuf.op_word(JSR, 0xF009)
+        self.assertTrue(fbuf.tail_call())
+
+    def test_a_new_function_keeps_nothing(self):
+        fbuf.op_word(JSR, 0xF009)
+        fbuf.keep_as_written()
+        fbuf.begin()
+        fbuf.op_word(JSR, 0xF009)
+        self.assertTrue(fbuf.tail_call())
+
+
+class TemporariesTest(FbufTest):
+    def test_the_functions_own_temporaries_get_the_slot_numbers_after_its_locals(self):
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, 1, 0)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP, 0)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, OWN, fbuf.FIRST_TEMP + 2, 1)
+        fbuf.op_fix(STA_ABS, fbuf.FIX_ADDRESS, 9, fbuf.FIRST_TEMP, 0)       # another function's slot
+        fbuf.op_fix(JSR, fbuf.FIX_ADDRESS, OWN, fbuf.NO_SLOT, 0)
+        fbuf.finish(OWN, 3)
+        self.assertEqual([f[3] for f in fixups()], [1, 3, 5, fbuf.FIRST_TEMP, 0xFF])
 
 
 class CapacityTest(FbufTest):
@@ -286,7 +559,7 @@ class CapacityTest(FbufTest):
         def fill():
             for _ in range(fbuf.MAX_CODE // 3 + 1):
                 fbuf.op_word(JSR, 0xF009)
-            fbuf.finish(OWN)
+            fbuf.finish(OWN, 0)
         self.assertFatal(err.E_FUNC_BIG, fill)
 
     def test_a_function_can_fill_the_code_buffer(self):
@@ -309,13 +582,13 @@ class CapacityTest(FbufTest):
         def fill():
             for _ in range(fbuf.MAX_FIXUPS + 1):
                 fbuf.op_fix(LDA_IMM, fbuf.FIX_LOW, 1, 0xFF, 0)
-            fbuf.finish(OWN)
+            fbuf.finish(OWN, 0)
         self.assertFatal(err.E_FIXUPS_FULL, fill)
 
     def test_a_branch_to_a_label_that_was_never_placed_is_a_compiler_error(self):
         def lost():
             fbuf.branch(BEQ, fbuf.new_label())
-            fbuf.finish(OWN)
+            fbuf.finish(OWN, 0)
         self.assertFatal(err.E_INTERNAL, lost)
 
 

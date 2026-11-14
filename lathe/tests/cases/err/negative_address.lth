@@ -1,0 +1,3 @@
+; error 43 3 16
+module negative_address
+var n: byte at -1

@@ -1,0 +1,4 @@
+; error 46 4 16
+module address_not_constant
+var n: word
+var m: byte at n

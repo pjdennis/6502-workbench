@@ -1,0 +1,5 @@
+; error 41 4 7
+module local_named_as_parameter
+func f(a: byte)
+  var a: byte
+end

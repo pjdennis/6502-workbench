@@ -1,0 +1,6 @@
+; error 43 5 7
+module sbyte_out_of_range
+var n: sbyte
+func f()
+  n = -129
+end

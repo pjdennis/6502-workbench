@@ -1,0 +1,6 @@
+; error 43 5 7
+module byte_out_of_range
+var n: byte
+func f()
+  n = 256
+end

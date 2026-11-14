@@ -11,7 +11,9 @@
                           the text the LCD shows at the STP, one line per row with trailing spaces
                           removed.
 
-Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME, ...). Everything is skipped while
+A case can import modules that lie beside it; one called lib*.lth is only that, and not a
+case. Each case is its own test method (test_snap_NAME, test_e2e_NAME, test_e2e_michael_NAME,
+...). Everything is skipped while
 lathe/host/lathec.py does not exist. Error cases (cases/err/) are tested with the compiler.
 """
 import glob
@@ -35,7 +37,10 @@ NO_COMPILER = f'{os.path.relpath(build.COMPILER, ROOT)} does not exist yet: snap
 
 
 def cases(kind):
-    return sorted(glob.glob(os.path.join(CASES, kind, '*.lth')))
+    """The cases of a kind. A module whose name starts with `lib` is not one: it is there for
+    cases to import."""
+    return sorted(p for p in glob.glob(os.path.join(CASES, kind, '*.lth'))
+                  if not os.path.basename(p).startswith('lib'))
 
 
 def _name(path):

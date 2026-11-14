@@ -1,0 +1,7 @@
+; error 44 6 9
+module shift_count_not_byte
+var n: byte
+var w: word
+func f()
+  n = n << w
+end

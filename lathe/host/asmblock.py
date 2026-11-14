@@ -28,6 +28,7 @@ import gen
 import kernel
 import lex
 import out
+import reg
 import src
 
 # ---- The instruction table ---------------------------------------------------------------
@@ -264,6 +265,7 @@ X_LABEL = 2         # x_value: the block's label
 X_ADDRESS = 3       # an address the linker fills in: x_symbol, x_slot, and x_value the addend
 
 NO_STORAGE = 0xFFFF
+VARIABLE_STORAGE = reg.SLOTS    # a storage number below this is a slot; from it on, a variable
 
 # Set by name_operand()
 found_value = 0         # X_NUMBER: the number
@@ -278,12 +280,15 @@ def name_operand(name, member):
     Returns X_NUMBER or X_ADDRESS, with the found_ variables set; an undefined name is an error
     at the current position.
 
-    - A constant is its value; an `extern` function, its address.
+    - A constant is its value; an `extern` function, and a variable at a fixed address, its
+      address.
     - A function of this or another module is its entry, through a fix-up.
-    - A module-level variable is its address: found_symbol is its symbol, found_slot NO_SLOT.
-      A slot of the function being compiled is found_symbol that function's symbol and
-      found_slot its number. Either way found_storage names it for storage_used().
-      (Stage 2a: the symbol table has no variables or slots yet; this is where they go.)"""
+    - A variable that lives for the whole program (of this module, a `static` one of the
+      function, or one of another module) is its address: found_symbol is its symbol,
+      found_slot NO_SLOT, found_storage VARIABLE_STORAGE + its kernel symbol.
+    - A parameter or local of the function being compiled is a slot: found_symbol is the
+      function's symbol, and found_slot and found_storage the slot's number. The parameters
+      of an `asm` function are in registers and have no names here."""
     global found_value, found_symbol, found_slot, found_storage, found_function
     s, found = kernel.sym_lookup(name)
     if not found:
@@ -298,25 +303,55 @@ def name_operand(name, member):
         err.fatal(err.E_SYNTAX)
     found_storage = NO_STORAGE
     found_function = False
-    if kernel.sym_kind[s] == kernel.K_CONST:
+    found_slot = fbuf.NO_SLOT
+    kind = kernel.sym_kind[s]
+    if kind == kernel.K_CONST:
         found_value = kernel.sym_value[s] & 0xFFFF
         return X_NUMBER
-    if kernel.sym_kind[s] != kernel.K_FUNC:
+    if kind == kernel.K_LOCAL:
+        found_symbol = reg.own
+        found_slot = kernel.sym_value[s]
+        found_storage = found_slot
+        return X_ADDRESS
+    if kind == kernel.K_VAR:
+        if kernel.sym_flags[s] & kernel.SF_AT != 0:
+            found_value = kernel.sym_value[s]
+            return X_NUMBER
+        found_symbol = gen.object_symbol(s)
+        found_storage = VARIABLE_STORAGE + s
+        return X_ADDRESS
+    if kind != kernel.K_FUNC:
         err.fatal(err.E_TYPE)
     if kernel.sym_flags[s] & kernel.SF_EXTERN != 0:
         found_value = kernel.sym_value[s]
         return X_NUMBER
     found_symbol = gen.object_symbol(s)
-    found_slot = fbuf.NO_SLOT
     found_function = True
     return X_ADDRESS
 
 
 def storage_used(storage, zero_page):
     """An instruction uses variable or slot `storage` (found by name_operand): add to its
-    weight (docs/codegen.md, "Weights"), and if `zero_page`, make its class 0, "must be in
-    zero page". (Stage 2a: no name is storage yet, so this is not reached.)"""
-    err.fatal(err.E_INTERNAL)
+    weight as a use by compiled code adds (docs/codegen.md, "Weights"), and if `zero_page`
+    make its class 0, "must be in zero page". Only an `asm` block can do that. A variable or
+    slot declared `nozp` cannot be made so, nor can a variable of another module, whose class
+    its own module wrote: that one must have been declared `zp`."""
+    if storage < VARIABLE_STORAGE:
+        reg.use_slot(storage)
+        if zero_page:
+            if reg.slot_class[storage] == reg.CLASS_NOT_ZP:
+                err.fatal(err.E_ASM_NOT_ZP)
+            reg.slot_class[storage] = reg.CLASS_ZP
+        return
+    s = storage - VARIABLE_STORAGE
+    reg.use_variable(s)
+    if not zero_page or kernel.sym_flags[s] & kernel.SF_ZP != 0:
+        return
+    if kernel.sym_flags[s] & kernel.SF_NOZP != 0:
+        err.fatal(err.E_ASM_NOT_ZP)
+    if kernel.sym_scope[s] != kernel.SCOPE_MODULE and kernel.sym_scope[s] != kernel.SCOPE_LOCAL:
+        err.fatal(err.E_ASM_NOT_ZP)
+    kernel.sym_flags[s] = kernel.sym_flags[s] | kernel.SF_ZP
 
 
 # ---- Expressions -------------------------------------------------------------------------
@@ -430,6 +465,7 @@ def fail_mode():
 
 def use_storage(zero_page):
     if x_storage != NO_STORAGE:
+        err.position(x_line, x_col)
         storage_used(x_storage, zero_page)
 
 
@@ -702,8 +738,10 @@ def lines():
     if lex.tok != lex.T_NL:
         err.fatal(err.E_NL_EXPECTED)
     label_count = 0
+    fbuf.as_written(True)
     while asm_line():
         pass
+    fbuf.as_written(False)
     labels_check()
     lex.resume(lex.T_END, end_line, end_col)
 
@@ -712,13 +750,17 @@ def block():
     """The statement "asm" NL { asmLine NL } "end". The token is "asm"; what follows the `end`
     is left to the caller. A, X and Y hold nothing known before or after it."""
     lex.next()
-    gen.forget()
+    reg.forget()
     lines()
-    gen.forget()
+    fbuf.keep_as_written()
+    reg.forget()
     lex.next()
 
 
 def function_body():
     """The lines of an `asm` function, after its head, whose line end is the token, up to its
-    `end`, which is the token after."""
+    `end`, which is the token after. If the code can run on past its last line, an RTS ends
+    it: the last instruction is never made a jump, as a tail call in compiled code is."""
     lines()
+    if fbuf.runs_on():
+        fbuf.op(fbuf.OP_RTS)

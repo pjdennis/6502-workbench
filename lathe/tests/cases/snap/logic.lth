@@ -1,0 +1,93 @@
+; `and`, `or`, `not` and `bool` values (docs/codegen.md, "Comparisons and conditions").
+module logic
+
+var a: byte
+var b: byte
+var c: byte
+var r: byte
+var f: bool
+var g: bool
+
+; `and` branches to the false label as soon as one side is false
+func both()
+  if a < b and b < c then
+    r = 1
+  end
+end
+
+; `or` branches to the true label as soon as one side is true
+func either()
+  if a < b or b < c then
+    r = 1
+  end
+end
+
+; `not` exchanges the labels and the flag state: no code of its own
+func inverted()
+  if not (a < b) then
+    r = 1
+  end
+  if not (a < b and b < c) then
+    r = 2
+  end
+end
+
+; `and` binds tighter than `or`
+func mixed()
+  if a == 1 and b == 2 or c == 3 then
+    r = 1
+  end
+  if a == 1 and (b == 2 or c == 3) then
+    r = 2
+  end
+end
+
+; a bool variable is true when it is not 0
+func variables()
+  if f then
+    r = 1
+  end
+  if not f then
+    r = 2
+  end
+  if f and g then
+    r = 3
+  end
+end
+
+; a comparison stored as a value: from the carry by ROL, otherwise by two loads
+func values()
+  f = a >= b
+  f = a < b
+  f = a == b
+  f = a < b and b < c
+  f = not g
+  f = true
+end
+
+; bool variables compare as bytes
+func compared()
+  if f == g then
+    r = 1
+  end
+  if f != true then
+    r = 2
+  end
+  f = (a < b) == (b < c)
+end
+
+; a condition known when compiling leaves no test behind
+func known()
+  if true then
+    r = 1
+  end
+  if f or true then
+    r = 2
+  end
+  if f and false then
+    r = 3
+  end
+  while true do
+    r += 1
+  end
+end

@@ -1,4 +1,4 @@
-; error 56 5 10
+; error 143 5 10
 module asm_range
 pub func main()
   asm

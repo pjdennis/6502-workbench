@@ -1,0 +1,9 @@
+; error 21 8 6
+module second_target_missing
+var n: byte
+func g(): byte, bool
+  return 0, true
+end
+func f()
+  n, = g()
+end

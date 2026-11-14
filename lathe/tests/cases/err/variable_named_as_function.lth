@@ -1,0 +1,5 @@
+; error 41 5 5
+module variable_named_as_function
+func f()
+end
+var f: byte

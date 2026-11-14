@@ -1,0 +1,6 @@
+; error 43 5 7
+module negative_for_byte
+var n: byte
+func f()
+  n = -1
+end

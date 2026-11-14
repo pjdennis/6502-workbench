@@ -1,0 +1,5 @@
+; error 39 3 1
+module later_enum
+enum Kind
+  K_ONE
+end

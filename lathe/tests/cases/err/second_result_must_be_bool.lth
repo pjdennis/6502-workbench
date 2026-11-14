@@ -1,0 +1,5 @@
+; error 44 3 17
+module second_result_must_be_bool
+func f(): byte, byte
+  return 1, 2
+end

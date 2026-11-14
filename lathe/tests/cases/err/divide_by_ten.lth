@@ -1,0 +1,6 @@
+; error 54 5 9
+module divide_by_ten
+var n: word
+func f()
+  n = n / 10
+end

@@ -1,0 +1,4 @@
+; error 41 4 14
+module forward_twice
+forward func f()
+forward func f()

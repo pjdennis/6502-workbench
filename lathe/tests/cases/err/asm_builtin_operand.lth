@@ -1,0 +1,7 @@
+; error 44 5 9
+module asm_builtin_operand
+func f()
+  asm
+    LDA lo
+  end
+end

@@ -301,9 +301,17 @@ SCOPE_LOCAL = 0xFF          # the function being compiled
 K_MODULE = 1                # value: the module's number
 K_FUNC = 2                  # members: parameters, then results; value: address if extern
 K_CONST = 3                 # type and value
+K_VAR = 4                   # a variable that lives for the whole program; value: address if SF_AT
+K_LOCAL = 5                 # a parameter or local of the function being compiled; value: its slot
+K_BUILTIN = 6               # a function the language declares; value: which one
 
 SF_PUB = 1                  # exported
 SF_EXTERN = 2               # a routine at a fixed address, parameters and results in registers
+SF_FORWARD = 4              # a function declared `forward` whose body has not come yet
+SF_AT = 8                   # a variable at a fixed address
+SF_ZP = 16                  # a variable declared `zp`
+SF_NOZP = 32                # a variable declared `nozp`
+SF_ASM = 64                 # an `asm` function: parameters and results in registers, no slots
 
 sym_name = [0] * MAX_SYMS
 sym_scope = [0] * MAX_SYMS
@@ -312,6 +320,7 @@ sym_flags = [0] * MAX_SYMS
 sym_type = [0] * MAX_SYMS
 sym_value = [0] * MAX_SYMS
 sym_obj = [0] * MAX_SYMS        # its number in the object file, NO_OBJ until it is used there
+sym_weight = [0] * MAX_SYMS     # a variable: how much it gains from zero page (docs/codegen.md)
 sym_members = [0] * MAX_SYMS    # the first of its members
 sym_params = [0] * MAX_SYMS     # how many members are parameters
 sym_results = [0] * MAX_SYMS    # how many more are results
@@ -363,6 +372,7 @@ def sym_add(scope, name, kind):
     sym_type[s] = 0
     sym_value[s] = 0
     sym_obj[s] = NO_OBJ
+    sym_weight[s] = 0
     sym_members[s] = member_count
     sym_params[s] = 0
     sym_results[s] = 0
@@ -423,6 +433,3 @@ def init():
     local_names = name_top
     member_count = 0
     module_count = 0
-
-
-SF_ASM = 4                  # an `asm` function: parameters and results in registers

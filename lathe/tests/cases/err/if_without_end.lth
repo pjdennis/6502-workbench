@@ -1,0 +1,7 @@
+; error 30 8 1
+module if_without_end
+var n: byte
+func f()
+  if n == 0 then
+    n = 1
+end

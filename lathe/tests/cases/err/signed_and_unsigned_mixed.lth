@@ -1,0 +1,7 @@
+; error 44 6 9
+module signed_and_unsigned_mixed
+var n: byte
+var s: sbyte
+func f()
+  n = n + s
+end

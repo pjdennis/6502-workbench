@@ -1,0 +1,175 @@
+; Comparisons (docs/codegen.md, "Comparisons and conditions"). Each `if` shows the test
+; and the branch that leaves when it is false.
+module compare
+
+var a: byte
+var b: byte
+var s: sbyte
+var t: sbyte
+var w: word
+var v: word
+var i: int
+var j: int
+var r: byte
+
+; bytes: CMP, and Z or the carry
+func bytes()
+  if a == b then
+    r = 1
+  end
+  if a != b then
+    r = 2
+  end
+  if a < b then
+    r = 3
+  end
+  if a >= b then
+    r = 4
+  end
+end
+
+; > and <= exchange the operands
+func bytes_exchanged()
+  if a > b then
+    r = 1
+  end
+  if a <= b then
+    r = 2
+  end
+end
+
+; ... unless the right side is a constant, which grows by one
+func byte_constants()
+  if a > 5 then
+    r = 1
+  end
+  if a <= 5 then
+    r = 2
+  end
+  if a < 5 then
+    r = 3
+  end
+  if 5 < a then
+    r = 4
+  end
+  if a == 5 then
+    r = 5
+  end
+end
+
+; just after a value is loaded or computed, the flags show whether it is zero
+func zero()
+  if a == 0 then
+    r = 1
+  end
+  r = a + b
+  if r != 0 then
+    r = 2
+  end
+  if (a & $0F) == 0 then
+    r = 3
+  end
+end
+
+; signed bytes: subtract, then correct the sign if the subtraction overflowed
+func signed_bytes()
+  if s < t then
+    r = 1
+  end
+  if s >= t then
+    r = 2
+  end
+  if s > t then
+    r = 3
+  end
+  if s <= 5 then
+    r = 4
+  end
+end
+
+; a signed value against 0: its sign bit
+func signs()
+  if s < 0 then
+    r = 1
+  end
+  if s >= 0 then
+    r = 2
+  end
+  if i < 0 then
+    r = 3
+  end
+end
+
+; words: equality looks at the high bytes only if the low bytes are equal
+func words()
+  if w == v then
+    r = 1
+  end
+  if w != v then
+    r = 2
+  end
+  if w == 0 then
+    r = 3
+  end
+  if w != $1200 then
+    r = 4
+  end
+end
+
+; words: order is a subtraction that keeps only the carry
+func word_order()
+  if w < v then
+    r = 1
+  end
+  if w >= v then
+    r = 2
+  end
+  if w > v then
+    r = 3
+  end
+  if w <= 1000 then
+    r = 4
+  end
+  if i < j then
+    r = 5
+  end
+end
+
+; a byte against a word has a high byte of 0
+func mixed()
+  if a == w then
+    r = 1
+  end
+  if w < a then
+    r = 2
+  end
+end
+
+; a side that had to be computed
+func computed()
+  if a + 1 < b then
+    r = 1
+  end
+  if a < b + 1 then
+    r = 2
+  end
+  if a == b + 1 then
+    r = 3
+  end
+  if w + 1 < v then
+    r = 4
+  end
+  if w < v + 1 then
+    r = 5
+  end
+end
+
+; what is known when compiling costs nothing
+func known()
+  if a >= 0 then
+    r = 1
+  end
+  if a > 255 then
+    r = 2
+  end
+end

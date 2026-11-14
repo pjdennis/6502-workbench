@@ -1,0 +1,3 @@
+; error 43 3 18
+module typed_constant_out_of_range
+const N: sbyte = 128

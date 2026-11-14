@@ -1,0 +1,9 @@
+; error 147 7 10
+module asm_nozp_made_zero_page
+var p: word nozp
+func f()
+  asm
+    LDY #0
+    LDA (p),Y
+  end
+end

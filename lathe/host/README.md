@@ -19,7 +19,7 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 **Not allowed**
 
 - Classes, dicts, sets, tuples as data, list methods (`append`, `pop`, slices that copy), comprehensions, generators, lambdas, closures, decorators, `try` / `except` / `raise`, `with`, string formatting, Python `str` values at all outside `driver/` and `env.py`.
-- Recursion, except in functions named in `RECURSIVE` at the top of their module. Those become `recursive` functions in Lathe.
+- Recursion, except in functions named in `RECURSIVE` at the top of their module. Those become `recursive` functions in Lathe. (The list is a marker for the tests, not a variable: it is the one name that may be a Lathe keyword.)
 - Default arguments, keyword arguments, `*args`.
 - Arithmetic that relies on values wider than 16 bits.
 - A Lathe keyword as a name (`end`, `type`, `word`, `at`, …), or two names in one file that differ only in case: Lathe folds case, so `DIGITS` and `digits` would be one name. `../tests/test_names.py` checks the compiler's files.
@@ -46,12 +46,15 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 | `src.py` | SRC: the source stack. |
 | `lex.py` | LEX. |
 | `typetab.py` | The type table. (Not `types.py`: that name would hide Python's own `types` module from every program started in this directory.) |
+| `fold.py` | Constant arithmetic, and the numbers of the operators. |
 | `fbuf.py` | FBUF: the function buffer and branch lengths. |
 | `out.py` | OUT: the object file writer. |
-| `gen.py` | GEN: the stack of lazy operands, instruction selection and register tracking. |
-| `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. |
+| `reg.py` | GEN, lowest part: the stack of lazy operands, the frame, who owns the registers and what they are known to hold. |
+| `cond.py` | GEN, middle part: comparisons and conditions. |
+| `gen.py` | GEN, top part: arithmetic with destination passing, stores, conversions, calls, the function being compiled, initial values. |
+| `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. It reaches variables and slots through the symbol table and REG's frame. |
 | `expr.py` | EXPR: expressions and written types, parsed into operands on GEN's stack. |
-| `stmt.py` | STMT. |
+| `stmt.py` | STMT: statements, and variable declarations (a body has them too). |
 | `decl.py` | DECL, and reading and writing interface files. |
 | `lathec.py` | The compiler's main program. |
 | `link.py` | The linker's main program (with its own modules as it grows). |
@@ -142,16 +145,26 @@ end      a 0 byte
 | Kind | Entry | After the name |
 |---|---|---|
 | 1 | Function | flags (1); if flag bit 0 is set, the address (2); number of parameters (1) and that many members; number of results (1) and that many members. |
+| 2 | Constant | type (1 byte, as below, or 6 for a number that has no type yet and 7 for such a number below zero); value (2), in two's complement, sign-extended if the type is signed. |
+| 3 | Variable | type; placement (1): 0 none, 1 at a fixed address, which follows (2), 2 declared `zp`, 4 declared `nozp`. |
 
-- **Function flags:** bit 0 `extern`: a routine at a fixed address. The other bits are kept for `recursive`, `asm` and `inline`.
-- **A member** is a type and a register (1 byte): 0 none, 1 `a`, 2 `x`, 3 `y`, 4 `ax`, 5 `ay`, 6 `xy`, 7 `c`. A parameter with register 0 is the callee's slot of the same number.
+- **Function flags:** bit 0 `extern`: a routine at a fixed address; bit 2 `asm`: a function whose body is assembly, called like an `extern` one (parameters and results in registers, no slots) but through its symbol. The other bits are kept for `recursive` and `inline`.
+- **A member** is a type and a register (1 byte): 0 none, 1 `a`, 2 `x`, 3 `y`, 4 `ax`, 5 `ay`, 6 `xy`, 7 `c`. A parameter with register 0 is the callee's slot of the same number. A result always has its register: for a Lathe function that is `a` for a one-byte value, `ax` for a two-byte one and `c` for a `bool`.
 - **A type** is 1 `byte`, 2 `sbyte`, 3 `word`, 4 `int`, 5 `bool`, or `$10` followed by a type: a pointer to it. Arrays, records and named types will take further codes.
+- **A variable** that is neither `zp` nor at a fixed address is used through instructions in the absolute form, which the linker shrinks if it lands in zero page; one declared `zp` is used through zero page instructions from the start. One at a fixed address has no symbol in any object file.
 
-Entries are in the order of the declarations. Kinds still to come: constants (type and value), variables (type), types (their definition, before any entry that uses them) and `inline` functions (the function entry, then its saved tokens with their length in front). A reader that meets a kind or version it does not know stops with error 51.
+Entries are in the order of the declarations. Kinds still to come: types (their definition, before any entry that uses them) and `inline` functions (the function entry, then its saved tokens with their length in front). A reader that meets a kind or version it does not know stops with error 51.
 
 ## Errors
 
-Every error has a number; `err.py` lists them with their texts. 1 to 19 are about characters and tokens, 20 to 39 syntax (39 is "not implemented yet"), 40 to 59 meaning, 60 to 69 the command line and files, 70 to 98 a capacity of the compiler that was exceeded, and 99 is a fault in the compiler itself. A lexical error is reported at the character it was found at or at the start of its token; any other error at the start of the token that is wrong, except that an argument which does not fit its parameter is reported at the argument's first token.
+Every error has a number; `err.py` lists them with their texts. 1 to 19 are about characters and tokens, 20 to 39 syntax (39 is "not implemented yet"), 40 to 59 meaning, 60 to 69 the command line and files, 70 to 98 a capacity of the compiler that was exceeded, 99 a fault in the compiler itself, 100 to 139 meaning again (40 to 59 filled up), and 140 to 159 `asm` blocks and functions; the top of `err.py` has the table. A lexical error is reported at the character it was found at or at the start of its token; any other error at the start of the token that is wrong. For a value of the wrong type or out of range that means:
+
+- operands that do not suit an operator: at the operator;
+- a value that does not suit what it is given to (an assignment, an argument, a `return`, an initial value, a constant's type): at the first token of the value;
+- a test that is not a `bool`: at the first token of the test;
+- something that cannot be assigned to: at its first token.
+
+A new error takes the next free number of its group.
 
 ## Tests
 
@@ -167,3 +180,7 @@ Every error has a number; `err.py` lists them with their texts. 1 to 19 are abou
 | End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
+
+`lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not.
+
+A snapshot or end-to-end case can import modules that lie beside it. A file called `lib*.lth` is such a module and not a case. Each expected output in `e2e/` was first compared with the output of a separate Python model of the program, so it is what the program must print and not merely what the compiler made it print.

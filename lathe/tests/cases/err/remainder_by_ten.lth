@@ -1,0 +1,6 @@
+; error 54 5 9
+module remainder_by_ten
+var n: word
+func f()
+  n = n mod 10
+end

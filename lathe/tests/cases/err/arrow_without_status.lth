@@ -1,0 +1,10 @@
+; error 56 8 10
+module arrow_without_status
+var n: byte
+func g(): byte
+  return 0
+end
+func f()
+  if g() -> n then
+  end
+end

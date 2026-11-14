@@ -1,0 +1,5 @@
+; error 43 4 10
+module returned_value_out_of_range
+func f(): byte
+  return 256
+end

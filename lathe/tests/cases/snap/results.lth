@@ -1,0 +1,98 @@
+; Results (docs/code-model.md, "Convention"): a value in A or in A and X, a `bool` in the
+; carry flag, or both.
+module results
+
+var a: byte
+var b: byte
+var w: word
+var ok: bool
+var r: byte
+
+func byte_value(): byte
+  return a
+end
+
+func word_value(): word
+  return w
+end
+
+func widened(): word
+  return a
+end
+
+func constant(): word
+  return 1000
+end
+
+; a comparison that leaves its answer in the carry costs nothing more
+func at_least(): bool
+  return a >= b
+end
+
+; ... and `<` is turned round so that it does
+func less(): bool
+  return a < b
+end
+
+func less_than_ten(): bool
+  return a < 10
+end
+
+func equal(): bool
+  return a == b
+end
+
+func in_range(): bool
+  return a >= '0' and a <= '9'
+end
+
+func flag(): bool
+  return ok
+end
+
+func yes(): bool
+  return true
+end
+
+; a value and a status
+func next(): byte, bool
+  if a == 0 then
+    return 0, false
+  end
+  a -= 1
+  return a, true
+end
+
+; the status may need A: the value is loaded after it
+func checked(): byte, bool
+  return a + 1, a < b
+end
+
+func word_and_status(): word, bool
+  return w, ok
+end
+
+; both results of a call pass on, and the call is a jump
+func passed(): byte, bool
+  return next()
+end
+
+func passed_value(): byte
+  return byte_value()
+end
+
+; the caller: the value is stored, then the carry is used
+func callers()
+  r, ok = next()
+  if next() -> r then
+    b = r
+  end
+  while next() -> r do
+    b += r
+  end
+  if at_least() then
+    r = 1
+  end
+  ok = less()
+  next()
+end

@@ -1,0 +1,68 @@
+; Word arithmetic (docs/codegen.md, "Words"): an operation is given a destination.
+module word_arith
+
+var x: word
+var y: word
+var z: word
+var b: byte
+var n: int
+
+; assignment passes its left side as the destination: seven instructions
+func to_variable()
+  x = y + z
+  x = y - z
+  x = y & z
+end
+
+; no memory destination: A and X, with the low byte waiting in Y
+func to_registers(): word
+  return y + z
+end
+
+; an operand of a larger expression goes through A and X
+func larger()
+  x = y + z + x
+  x = y - (z + x)
+end
+
+; a byte in a word operation has a high byte of 0
+func with_byte()
+  x = y + b
+  x = b + y
+  x = y - b
+  x = b
+end
+
+; constants: a zero byte of the constant leaves that byte of the variable alone
+func with_constant()
+  x = y + 1
+  x = y + $100
+  x = y + $1234
+  x = y & $FF00
+  x = y & $00FF
+  x = y | $8000
+  x = y ^ $FFFF
+end
+
+; the destination is the left operand
+func in_place()
+  x = x + y
+  x = x + b
+  x = x - b
+  x = x + $100
+  x = x & $7FFF
+end
+
+; unary operators are a subtraction from 0 and an exclusive or with all ones
+func unary()
+  x = -y
+  x = ~y
+  n = -n
+end
+
+; a function result is in A and X already
+func of_result()
+  x = to_registers() + 1
+  x = to_registers() + y
+  x = y - to_registers()
+end

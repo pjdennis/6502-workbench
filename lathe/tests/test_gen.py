@@ -1,183 +1,446 @@
-"""gen.py: the operand stack, the instructions chosen for operands, and what the registers
-are known to hold."""
+"""gen.py: the pending operation and where its result goes, stores, conversions, calls, the
+function's records and the initial values (docs/codegen.md). The snapshot cases show the same
+rules on whole functions; here each is shown alone."""
 import os
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import lathec_support as support  # noqa: E402
+import gen_support as support  # noqa: E402
+from gen_support import BOOL, BYTE, INT, NEGATIVE, NUMBER, SBYTE, WORD, name  # noqa: E402
+import cond  # noqa: E402
 import err  # noqa: E402
 import fbuf  # noqa: E402
+import fold  # noqa: E402
 import gen  # noqa: E402
 import kernel  # noqa: E402
 import out  # noqa: E402
-import typetab  # noqa: E402
+import reg  # noqa: E402
 
-SYM, FUNC, CALL, FIX, CODE = 3, 7, 9, 10, 11
-
-
-def name(text):
-    kernel.name_begin()
-    for ch in text:
-        kernel.name_add(ch)
-    return kernel.name_end()
+SYM, VAR, FUNC, SLOT, CALL, FIX, CODE, ENDF = 3, 4, 7, 8, 9, 10, 11, 12
 
 
-class GenTest(unittest.TestCase):
-    def setUp(self):
-        support.fresh()
-        err.init()
-        kernel.init()
-        typetab.init()
-        out.init()
-        gen.init()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.path = os.path.join(self.tmp.name, 'm.lo')
-        pointer, _ = support.put_text(self.path.encode())
-        out.open(pointer)
-        kernel.module_add(name(b'm'))
-        kernel.module_add(name(b'util'))
-        self.own = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'f'))
-        gen.function_begin()
+class PendingTest(support.GenTest):
+    """An operator waits until what follows shows where its result must go."""
 
-    def code(self):
-        """End the function and give its code."""
-        gen.function_end(self.own, 0)
-        return bytes(fbuf.code[i] for i in range(fbuf.code_length))
+    def test_an_operator_generates_nothing_by_itself(self):
+        self.local(BYTE)
+        self.local(BYTE)
+        gen.binary(fold.ADD)
+        self.assertEqual((gen.pend_op, gen.pend_type, reg.depth), (fold.ADD, BYTE, 2))
+        self.assertEqual(fbuf.used, 0)
 
-    def records(self):
-        out.end_module()
-        return support.records(self.path)
+    def test_pushing_the_next_operand_computes_it_into_a(self):
+        self.local(BYTE)
+        self.local(BYTE)
+        gen.binary(fold.ADD)
+        gen.constant(NUMBER, 1)
+        self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0], reg.owner), (0, 2, reg.O_A, 0))
+        self.assertEqual(self.listing(), ['CLC', 'LDA s0', 'ADC s1', 'RTS'])
 
-    def constant(self, value):
-        gen.push(gen.O_CONST, typetab.NUMBER_TYPE, value)
-        return gen.depth - 1
+    def test_a_word_goes_to_a_and_x_with_the_low_byte_waiting_in_y(self):
+        self.local(WORD)
+        self.local(WORD)
+        gen.binary(fold.ADD)
+        gen.settle()
+        self.assertEqual(reg.op_kind[0], reg.O_AX)
+        self.assertEqual(self.listing(), ['CLC', 'LDA s0', 'ADC s1', 'TAY', 'LDA s0+1', 'ADC s1+1', 'TAX', 'TYA',
+                                          'RTS'])
 
+    def test_a_store_computes_it_straight_into_the_destination(self):
+        self.local(WORD, b'x')
+        self.local(WORD, b'y')
+        self.local(WORD, b'z')
+        gen.binary(fold.ADD)
+        gen.store()
+        self.assertEqual(reg.depth, 0)
+        self.assertEqual(self.listing(), ['CLC', 'LDA s1', 'ADC s2', 'STA s0', 'LDA s1+1', 'ADC s2+1', 'STA s0+1',
+                                          'RTS'])
 
-class OperandStackTest(GenTest):
-    def test_an_operand_is_described_by_kind_type_and_value(self):
-        gen.push(gen.O_CONST, typetab.NUMBER_TYPE, 72)
-        gen.push(gen.O_CONST, typetab.BOOL_TYPE, 1)
-        self.assertEqual(gen.depth, 2)
-        self.assertEqual((gen.op_kind[1], gen.op_type[1], gen.op_value[1]), (gen.O_CONST, typetab.BOOL_TYPE, 1))
-        gen.pop()
-        self.assertEqual((gen.op_kind[0], gen.op_type[0], gen.op_value[0]), (gen.O_CONST, typetab.NUMBER_TYPE, 72))
-        gen.pop()
-        self.assertEqual(gen.depth, 0)
+    def test_adding_one_to_the_destination_is_inc(self):
+        i = self.local(BYTE)
+        gen.local(BYTE, i)
+        gen.constant(NUMBER, 1)
+        gen.binary(fold.ADD)
+        gen.store()
+        w = self.local(WORD)
+        gen.constant(NUMBER, 1)
+        gen.assign(fold.ADD)
+        self.assertEqual(self.listing(), ['INC s0', 'INC s1', 'BNE @11', 'INC s1+1', 'RTS'])
 
-    def test_the_operand_kinds_are_all_different(self):
-        kinds = [gen.O_CONST, gen.O_FUNC, gen.O_VAR, gen.O_SLOT, gen.O_A, gen.O_AX,
-                 gen.O_FLAGS, gen.O_INDEXED]
-        self.assertEqual(len(set(kinds)), len(kinds))
+    def test_constants_are_folded_and_no_operation_is_pending(self):
+        gen.constant(NUMBER, 6)
+        gen.constant(NUMBER, 7)
+        gen.binary(fold.MUL)
+        self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0], reg.op_type[0], reg.op_value[0]),
+                         (0, 1, reg.O_CONST, NUMBER, 42))
+        gen.negate()
+        self.assertEqual((reg.op_type[0], reg.op_value[0]), (NEGATIVE, 0xFFD6))
 
-    def test_too_many_operands_is_error_79(self):
-        with self.assertRaises(SystemExit):
-            for _ in range(gen.MAX_OPERANDS + 1):
-                self.constant(0)
-        self.assertIn('error 79:', support.error_text())
+    def test_an_operation_that_changes_nothing_leaves_its_left_operand(self):
+        self.local(BYTE)
+        gen.constant(NUMBER, 0)
+        gen.binary(fold.ADD)
+        self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0]), (0, 1, reg.O_VAR))
 
-    def test_a_function_begins_with_no_operands(self):
-        self.constant(1)
-        gen.function_begin()
-        self.assertEqual(gen.depth, 0)
+    def test_a_right_side_in_a_is_exchanged_with_the_left_if_the_operator_commutes(self):
+        self.local(BYTE)
+        reg.push_register(BYTE)
+        gen.binary(fold.BAND)
+        gen.settle()
+        self.assertEqual(self.listing(), ['AND s0', 'RTS'])
 
+    def test_a_byte_minus_what_is_in_a_adds_the_complement(self):
+        self.local(BYTE)
+        reg.push_register(BYTE)
+        gen.binary(fold.SUB)
+        self.assertEqual((gen.pend_op, reg.depth, reg.op_kind[0]), (0, 1, reg.O_A))
+        self.assertEqual(self.listing(), ['EOR #$FF', 'SEC', 'ADC s0', 'RTS'])
 
-class RegistersTest(GenTest):
-    def test_a_constant_goes_into_each_single_register(self):
-        gen.load_register(gen.REG_A, self.constant(0x48))
-        gen.load_register(gen.REG_X, self.constant(1))
-        gen.load_register(gen.REG_Y, self.constant(2))
-        self.assertEqual(self.code(), bytes([0xA9, 0x48, 0xA2, 1, 0xA0, 2, 0x60]))
+    def test_multiplying_by_a_power_of_two_is_a_shift_and_anything_else_error_54(self):
+        self.local(BYTE)
+        gen.constant(NUMBER, 8)
+        gen.binary(fold.MUL)
+        self.assertEqual((gen.pend_op, reg.op_value[1]), (fold.SHL, 3))
+        gen.settle()
+        gen.constant(NUMBER, 3)
+        self.assertFatal(err.E_NEEDS_RT, lambda: gen.binary(fold.MUL))
 
-    def test_a_constant_goes_into_a_pair_low_byte_first(self):
-        gen.load_register(gen.REG_AX, self.constant(0x1234))
-        self.assertEqual(self.code(), bytes([0xA9, 0x34, 0xA2, 0x12, 0x60]))
-
-    def test_the_other_pairs(self):
-        gen.load_register(gen.REG_AY, self.constant(0x1234))
-        gen.forget()
-        gen.load_register(gen.REG_XY, self.constant(0x5678))
-        self.assertEqual(self.code(), bytes([0xA9, 0x34, 0xA0, 0x12, 0xA2, 0x78, 0xA0, 0x56, 0x60]))
-
-    def test_a_bool_goes_into_the_carry_flag(self):
-        gen.push(gen.O_CONST, typetab.BOOL_TYPE, 1)
-        gen.load_register(gen.REG_C, 0)
-        gen.push(gen.O_CONST, typetab.BOOL_TYPE, 0)
-        gen.load_register(gen.REG_C, 1)
-        self.assertEqual(self.code(), bytes([0x38, 0x18, 0x60]))
-
-    def test_a_register_that_already_holds_the_constant_is_not_loaded_again(self):
-        gen.load_register(gen.REG_A, self.constant(5))
-        gen.load_register(gen.REG_A, self.constant(5))
-        gen.load_register(gen.REG_X, self.constant(5))
-        gen.load_register(gen.REG_A, self.constant(6))
-        gen.load_register(gen.REG_AX, self.constant(0x0506))
-        self.assertEqual(self.code(), bytes([0xA9, 5, 0xA2, 5, 0xA9, 6, 0x60]))
-
-    def test_a_call_makes_the_registers_unknown(self):
-        gen.load_register(gen.REG_A, self.constant(5))
-        gen.call_address(0xF009)
-        gen.load_register(gen.REG_A, self.constant(5))
-        self.assertEqual(self.code(), bytes([0xA9, 5, 0x20, 0x09, 0xF0, 0xA9, 5, 0x60]))
-
-    def test_a_new_function_knows_nothing_about_the_registers(self):
-        gen.load_register(gen.REG_A, self.constant(5))
-        gen.function_begin()
-        gen.load_register(gen.REG_A, self.constant(5))
-        self.assertEqual(self.code(), bytes([0xA9, 5, 0x60]))
-
-    def test_only_constants_can_be_loaded_so_far(self):
-        gen.push(gen.O_A, typetab.BYTE_TYPE, 0)
-        with self.assertRaises(SystemExit):
-            gen.load_register(gen.REG_X, 0)
-        self.assertIn('error 39:', support.error_text())
+    def test_a_remainder_by_a_power_of_two_is_a_mask(self):
+        self.local(WORD)
+        gen.constant(NUMBER, 256)
+        gen.binary(fold.REM)
+        self.assertEqual((gen.pend_op, reg.op_value[1]), (fold.BAND, 255))
 
 
-class CallsTest(GenTest):
-    def function(self, scope, text):
-        return kernel.sym_add(scope, name(text), kernel.K_FUNC)
+class RegistersTargetTest(support.GenTest):
+    def test_a_word_in_a_and_x_plus_a_byte_carries_into_x(self):
+        reg.push_register(WORD)
+        self.local(BYTE)
+        gen.binary(fold.ADD)
+        gen.settle()
+        self.assertEqual(self.listing(), ['CLC', 'ADC s0', 'BCC @7', 'INX', 'RTS'])
 
-    def test_a_call_of_a_fixed_address_is_a_plain_jsr(self):
-        gen.call_address(0xF009)
-        self.assertEqual(self.code(), bytes([0x20, 0x09, 0xF0, 0x60]))
-        self.assertEqual(fbuf.fix_count, 0)
-        self.assertNotIn(CALL, [kind for kind, _ in self.records()])
+    def test_a_byte_in_a_has_no_high_byte_in_x_to_carry_into(self):
+        reg.push_register(BYTE)
+        gen.constant(WORD, 255)
+        gen.binary(fold.SUB)
+        gen.settle()
+        self.assertEqual(self.listing(), ['SEC', 'SBC #$FF', 'TAY', 'LDA #$00', 'SBC #$00', 'TAX', 'TYA', 'RTS'])
 
+
+class StoreTest(support.GenTest):
+    def test_a_byte_stored_in_a_word_gets_a_zero_high_byte(self):
+        self.local(WORD)
+        self.local(BYTE)
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA s1', 'STA s0', 'LDA #$00', 'STA s0+1', 'RTS'])
+
+    def test_a_word_in_a_and_x_is_stored_from_both(self):
+        self.local(WORD)
+        reg.push_register(WORD)
+        gen.store()
+        self.assertEqual(self.listing(), ['STA s0', 'STX s0+1', 'RTS'])
+
+    def test_a_condition_is_stored_as_0_or_1(self):
+        self.local(BOOL)
+        cond.push(cond.OP_BCS)
+        gen.store()
+        self.assertEqual(self.listing(), ['LDA #$00', 'ROL', 'STA s0', 'RTS'])
+
+    def test_storing_a_variable_in_itself_is_nothing(self):
+        n = self.local(BYTE)
+        gen.local(BYTE, n)
+        gen.store()
+        self.assertEqual(self.listing(), ['RTS'])
+
+    def test_a_word_does_not_go_into_a_byte(self):
+        self.local(BYTE)
+        self.local(WORD)
+        self.assertFatal(err.E_TYPE, gen.store)
+
+    def test_nor_does_a_pending_word_operation(self):
+        self.local(BYTE)
+        self.local(WORD)
+        gen.constant(NUMBER, 1)
+        gen.binary(fold.ADD)
+        self.assertFatal(err.E_TYPE, gen.store)
+
+
+class ConversionTest(support.GenTest):
+    def test_narrowing_a_variable_only_changes_its_type(self):
+        self.local(WORD)
+        gen.convert(BYTE)
+        self.assertEqual((reg.op_kind[0], reg.op_type[0], reg.op_size[0]), (reg.O_VAR, BYTE, 1))
+        self.assertEqual(fbuf.used, 0)
+
+    def test_narrowing_a_pending_operation_computes_only_its_low_byte(self):
+        self.local(WORD)
+        self.local(WORD)
+        gen.binary(fold.ADD)
+        gen.convert(BYTE)
+        gen.settle()
+        self.assertEqual(self.listing(), ['CLC', 'LDA s0', 'ADC s1', 'RTS'])
+
+    def test_widening_an_unsigned_byte_keeps_its_one_byte(self):
+        self.local(BYTE)
+        gen.convert(INT)
+        self.assertEqual((reg.op_type[0], reg.op_size[0]), (INT, 1))
+        self.assertEqual(fbuf.used, 0)
+
+    def test_widening_a_signed_byte_carries_its_sign_into_x(self):
+        self.local(SBYTE)
+        gen.convert(INT)
+        self.assertEqual((reg.op_kind[0], reg.op_type[0]), (reg.O_AX, INT))
+        self.assertEqual(self.listing(), ['LDX #$00', 'LDA s0', 'BPL @8', 'DEX', 'RTS'])
+
+    def test_a_byte_widened_to_a_signed_type_is_not_sign_extended_later(self):
+        self.local(BYTE)
+        gen.convert(INT)
+        gen.convert(WORD)
+        self.assertEqual((reg.op_kind[0], reg.op_type[0], reg.op_size[0]), (reg.O_VAR, WORD, 1))
+        self.assertEqual(fbuf.used, 0)
+
+    def test_a_constant_is_converted_when_compiling(self):
+        gen.constant(NUMBER, 0x1234)
+        gen.convert(BYTE)
+        self.assertEqual((reg.op_type[0], reg.op_value[0]), (BYTE, 0x34))
+        gen.constant(NUMBER, 0xFE)
+        gen.convert(SBYTE)
+        gen.convert(INT)
+        self.assertEqual((reg.op_type[1], reg.op_value[1]), (INT, 0xFFFE))
+
+    def test_lo_and_hi_of_a_variable_are_bytes_of_it(self):
+        self.local(WORD)
+        gen.part(1)
+        self.assertEqual((reg.op_kind[0], reg.op_type[0], reg.op_value[0]), (reg.O_VAR, BYTE, 1))
+        gen.constant(NUMBER, 0x1234)
+        gen.part(0)
+        self.assertEqual((reg.op_type[1], reg.op_value[1]), (BYTE, 0x34))
+
+    def test_hi_of_a_word_in_a_and_x_is_txa(self):
+        reg.push_register(WORD)
+        gen.part(1)
+        self.assertEqual(reg.op_kind[0], reg.O_A)
+        self.assertEqual(self.listing(), ['TXA', 'RTS'])
+
+
+class CallsTest(support.GenTest):
     def test_a_call_of_a_function_is_a_jsr_with_a_fix_up_and_a_call_record(self):
-        gen.call_function(self.function(1, b'helper'))
-        self.assertEqual(self.code(), bytes([0x20, 0, 0, 0x60]))
-        self.assertEqual((fbuf.fix_offset[0], fbuf.fix_kind[0], fbuf.fix_symbol[0], fbuf.fix_slot[0],
-                          fbuf.fix_addend[0]), (1, 1, 1, 0xFF, 0))
+        gen.call(self.function(b'helper', scope=1), 0, False)
+        reg.implied(reg.OP_CLC)
+        self.assertEqual(self.listing(), ['JSR g1', 'CLC', 'RTS'])
         records = self.records()
         self.assertIn((SYM, b'\x01\x0butil.helper'), records)
         self.assertIn((CALL, b'\x01\x00\x00\xff\xff'), records)
 
     def test_a_function_gets_its_object_symbol_when_first_used_and_keeps_it(self):
-        helper = self.function(1, b'helper')
-        other = self.function(kernel.SCOPE_MODULE, b'other')
-        gen.call_function(helper)
-        gen.call_function(other)
-        gen.call_function(helper)
+        helper = self.function(b'helper', scope=1)
+        other = self.function(b'other')
+        for f in (helper, other, helper):
+            gen.call(f, 0, False)
         self.assertEqual((kernel.sym_obj[helper], kernel.sym_obj[other]), (1, 2))
-        self.code()
+        self.listing()
         symbols = [body for kind, body in self.records() if kind == SYM]
         self.assertEqual(symbols, [b'\x01\x03m.f', b'\x01\x0butil.helper', b'\x01\x07m.other'])
 
-    def test_a_function_ends_with_rts(self):
-        self.assertEqual(self.code(), bytes([0x60]))
+    def test_an_argument_is_stored_in_the_callees_slot(self):
+        g = self.function(b'g', [(BYTE, 0), (WORD, 0)])
+        gen.parameter(g, 0)
+        gen.constant(NUMBER, 5)
+        gen.store()
+        gen.parameter(g, 1)
+        self.local(BYTE)
+        gen.store()
+        gen.arguments_end(out.NO_OUTER)
+        gen.call(g, 0, False)
+        self.assertEqual(self.listing(), ['LDA #$05', 'STA f1.0', 'LDA s0', 'STA f1.1', 'LDA #$00', 'STA f1.1+1',
+                                          'JMP g1'])
 
-    def test_no_second_rts_after_a_return_at_the_end(self):
-        gen.call_address(0xF009)
+    def test_a_call_made_while_arguments_wait_names_their_function_as_outer(self):
+        g = self.function(b'g', [(BYTE, 0), (BYTE, 0)])
+        h = self.function(b'h', [], [(BYTE, gen.REG_A)])
+        gen.parameter(g, 0)
+        gen.call(h, reg.depth, True)        # in the first argument: nothing waits yet
+        gen.store()
+        gen.parameter(g, 1)
+        gen.call(h, reg.depth, True)        # in the second: the first is in g's frame
+        gen.store()
+        gen.arguments_end(out.NO_OUTER)
+        gen.call(g, 0, False)
+        self.listing()
+        calls = [body for kind, body in self.records() if kind == CALL]
+        self.assertEqual(calls, [b'\x02\x00\x00\xff\xff', b'\x02\x00\x00\x01\x00', b'\x01\x00\x00\xff\xff'])
+
+    def test_a_call_that_a_return_follows_is_a_jump(self):
+        gen.call(self.function(b'helper'), 0, False)
         gen.ret()
-        self.assertEqual(self.code(), bytes([0x20, 0x09, 0xF0, 0x60]))
+        self.assertEqual(self.listing(), ['JMP g1'])
 
-    def test_the_function_is_written_to_the_object_file(self):
-        gen.call_address(0xF009)
-        gen.function_end(self.own, out.FUNC_EXPORTED)
-        self.assertEqual(self.records()[-5:-1],
-                         [(FUNC, b'\x00\x00\x04'), (FIX, b''), (CODE, b'\x20\x09\xf0\x60'), (12, b'')])
+    def test_results_are_operands(self):
+        value = self.function(b'value', [], [(BYTE, gen.REG_A)])
+        wide = self.function(b'wide', [], [(WORD, gen.REG_AX)])
+        status = self.function(b'status', [], [(BOOL, gen.REG_C)])
+        gen.call(value, 0, True)
+        self.assertEqual((reg.op_kind[0], reg.op_type[0], reg.owner), (reg.O_A, BYTE, 0))
+        gen.call(wide, 1, True)             # the byte in A is stored first
+        self.assertEqual((reg.op_kind[0], reg.op_kind[1], reg.owner), (reg.O_VAR, reg.O_AX, 1))
+        gen.call(status, 2, True)
+        self.assertEqual((reg.op_kind[2], reg.op_value[2]), (reg.O_COND, cond.OP_BCS))
+        self.assertEqual(self.listing()[:4], ['JSR g1', 'STA s0', 'JSR g2', 'STA s1'])
+
+    def test_a_call_forgets_what_the_registers_held(self):
+        reg.load_const(reg.A, 5)
+        gen.call(self.function(b'helper'), 0, False)
+        reg.load_const(reg.A, 5)
+        self.assertEqual(self.listing(), ['LDA #$05', 'JSR g1', 'LDA #$05', 'RTS'])
+
+
+class ExternTest(support.GenTest):
+    def extern(self, *params, results=()):
+        return self.function(b'x', params, results, flags=kernel.SF_EXTERN, address=0x1234)
+
+    def test_registers_are_loaded_in_the_order_y_x_a_after_the_carry(self):
+        f = self.extern((WORD, gen.REG_AX), (BYTE, gen.REG_Y), (BOOL, gen.REG_C))
+        gen.constant(WORD, 0xABCD)
+        gen.constant(BYTE, 7)
+        gen.constant(BOOL, 1)
+        gen.call(f, 0, False)
+        self.assertEqual(self.listing(), ['SEC', 'LDY #$07', 'LDX #$AB', 'LDA #$CD', 'JMP $1234'])
+        self.assertNotIn(CALL, [kind for kind, _ in self.records()])
+
+    def test_the_other_pairs(self):
+        gen.constant(WORD, 0x1234)
+        gen.call(self.function(b'ay', [(WORD, gen.REG_AY)], flags=kernel.SF_EXTERN, address=0x1000), 0, False)
+        gen.constant(WORD, 0x5678)
+        gen.call(self.function(b'xy', [(WORD, gen.REG_XY)], flags=kernel.SF_EXTERN, address=0x2000), 0, False)
+        self.assertEqual(self.listing(), ['LDY #$12', 'LDA #$34', 'JSR $1000', 'LDY #$56', 'LDX #$78', 'JMP $2000'])
+
+    def test_an_argument_computed_into_a_goes_from_there(self):
+        f = self.extern((BYTE, gen.REG_X), (BYTE, gen.REG_A))
+        reg.push_register(BYTE)
+        gen.hold()
+        self.local(BYTE)
+        gen.call(f, 0, False)
+        self.assertEqual(self.listing(), ['TAX', 'LDA s0', 'JMP $1234'])
+
+    def test_an_argument_in_a_is_stored_only_if_a_later_one_needs_a(self):
+        f = self.extern((BYTE, gen.REG_A), (BYTE, gen.REG_X))
+        reg.push_register(BYTE)
+        gen.hold()
+        self.local(BYTE)
+        self.local(BYTE)
+        gen.binary(fold.ADD)
+        gen.call(f, 0, False)
+        self.assertEqual(self.listing(), ['STA s2', 'CLC', 'LDA s0', 'ADC s1', 'TAX', 'LDA s2', 'JMP $1234'])
+
+    def test_a_byte_for_a_pair_has_a_zero_high_byte(self):
+        self.local(BYTE)
+        gen.accept(WORD)
+        gen.call(self.extern((WORD, gen.REG_AX)), 0, False)
+        self.assertEqual(self.listing(), ['LDX #$00', 'LDA s0', 'JMP $1234'])
+
+    def test_a_bool_variable_reaches_the_carry_through_a(self):
+        self.local(BOOL)
+        gen.call(self.extern((BOOL, gen.REG_C)), 0, False)
+        self.assertEqual(self.listing(), ['LDA s0', 'LSR', 'JMP $1234'])
+
+    def test_results_in_other_registers_are_moved_to_a_and_x(self):
+        gen.call(self.extern(results=[(BYTE, gen.REG_X)]), 0, True)
+        gen.call(self.function(b'y', [], [(WORD, gen.REG_AY)], flags=kernel.SF_EXTERN, address=0x1234), 1, True)
+        self.assertEqual(self.listing(), ['JSR $1234', 'TXA', 'STA s0', 'JSR $1234', 'PHA', 'TYA', 'TAX', 'PLA',
+                                          'RTS'])
+
+
+class ReturnTest(support.GenTest):
+    def test_a_value_is_loaded_into_a_or_into_a_and_x(self):
+        self.local(BYTE)
+        gen.accept(WORD)
+        gen.load_result()
+        gen.ret()
+        self.assertEqual(self.listing(), ['LDX #$00', 'LDA s0', 'RTS'])
+
+    def test_a_status_goes_to_the_carry_before_the_value_is_loaded(self):
+        self.local(BYTE)
+        gen.accept(BYTE)
+        gen.constant(BOOL, 0)
+        gen.carry()
+        gen.load_result()
+        gen.ret()
+        self.assertEqual(self.listing(), ['CLC', 'LDA s0', 'RTS'])
+
+    def test_a_function_ends_with_rts_once(self):
+        self.assertEqual(self.listing(), ['RTS'])
+        gen.function_begin(self.own)
+        gen.ret()
+        self.assertEqual(self.listing(), ['RTS'])
+
+
+class FunctionTest(support.GenTest):
+    def test_the_slots_are_written_parameters_and_locals_first_then_temporaries(self):
+        reg.new_slot(1, reg.CLASS_EITHER, reg.SLOT_PARAMETER, name(b'p'))
+        reg.push_register(WORD)
+        reg.spill(0)                        # a temporary, made before the local is declared
+        n = reg.new_slot(2, reg.CLASS_ZP, reg.SLOT_LOCAL, name(b'n'))
+        gen.local(WORD, n)
+        reg.load(reg.A, 1, 0)
+        gen.function_end(out.FUNC_EXPORTED)
+        self.assertEqual(support.decode(self.own), ['STA s2', 'STX s2+1', 'LDA zp:s1', 'RTS'])
+        records = self.records()
+        self.assertEqual(records[-8:-1], [
+            (FUNC, b'\x00\x00\x04'),
+            (SLOT, b'\x01\x00\x01\x00\x00\x01p'),
+            (SLOT, b'\x02\x00\x00\x01\x01\x01n'),
+            (SLOT, b'\x02\x00\x01\x02\x02\x03$t1'),
+            (FIX, records[-4][1]),
+            (CODE, b'\x8d\x00\x00\x8e\x00\x00\xa5\x00\x60'),
+            (ENDF, b'')])
+
+    def test_a_new_function_starts_with_nothing(self):
+        self.local(BYTE)
+        reg.load(reg.A, 0, 0)
+        gen.function_begin(self.own)
+        self.assertEqual((reg.depth, reg.local_count, reg.temp_count, gen.pend_op), (0, 0, 0, 0))
+        self.assertEqual(self.listing(), ['RTS'])
+
+
+class InitialValuesTest(support.GenTest):
+    def variable_with_symbol(self, t, text, flags=0, address=0):
+        s = self.variable(t, text, flags, address)
+        if flags & kernel.SF_AT == 0:
+            kernel.sym_obj[s] = out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(text))
+        return s
+
+    def test_the_function_stores_each_value_and_loads_equal_ones_once(self):
+        gen.function_end(0)
+        gen.initial(self.variable_with_symbol(BYTE, b'a'), 0)
+        gen.initial(self.variable_with_symbol(WORD, b'w'), 0)
+        gen.initial(self.variable_with_symbol(BYTE, b'z', kernel.SF_ZP), 7)
+        gen.initial(self.variable_with_symbol(BYTE, b'port', kernel.SF_AT, 0xD020), 7)
+        symbol = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init'))
+        gen.init_function(symbol)
+        self.assertEqual(support.decode(symbol), ['LDA #$00', 'STA g1', 'STA g2', 'STA g2+1', 'LDA #$07',
+                                                  'STA zp:g3', 'STA $D020', 'RTS'])
+        self.assertEqual((gen.init_count, gen.init_part), (0, symbol))
+
+    def test_a_later_function_calls_the_one_written_before(self):
+        gen.function_end(0)
+        gen.initial(self.variable_with_symbol(BYTE, b'a'), 1)
+        first = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init1'))
+        gen.init_function(first)
+        gen.initial(self.variable_with_symbol(BYTE, b'b'), 2)
+        last = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'$init'))
+        gen.init_function(last)
+        self.assertEqual(support.decode(last), ['JSR g%d' % first, 'LDA #$02', 'STA g3', 'RTS'])
+        self.assertIn((CALL, bytes([first, 0, 0, 0xFF, 0xFF])), self.records())
+
+    def test_too_many_initial_values_is_error_86(self):
+        v = self.variable_with_symbol(BYTE, b'a')
+
+        def fill():
+            for _ in range(gen.MAX_INITS + 1):
+                gen.initial(v, 0)
+        self.assertFatal(err.E_INITS_FULL, fill)
 
 
 if __name__ == '__main__':

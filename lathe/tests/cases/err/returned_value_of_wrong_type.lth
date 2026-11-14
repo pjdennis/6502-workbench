@@ -1,0 +1,6 @@
+; error 44 5 10
+module returned_value_of_wrong_type
+var w: word
+func f(): byte
+  return w
+end

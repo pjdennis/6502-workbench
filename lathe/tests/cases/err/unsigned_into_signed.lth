@@ -1,0 +1,7 @@
+; error 44 6 7
+module unsigned_into_signed
+var n: byte
+var s: sbyte
+func f()
+  s = n
+end

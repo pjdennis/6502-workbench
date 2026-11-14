@@ -1,0 +1,5 @@
+; error 57 4 11
+module forward_with_other_result
+forward func f(): byte
+func f(): word
+end

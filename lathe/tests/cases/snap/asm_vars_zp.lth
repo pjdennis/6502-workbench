@@ -1,0 +1,29 @@
+; Once an asm block has made a variable or slot class 0, the code compiled after it uses
+; zero page instructions on it, as it does on one declared `zp`; the code before it keeps
+; the absolute form, which the linker shrinks. An asm function can name module variables.
+module asm_vars_zp
+
+var low: byte
+var table: word
+
+asm func first(): byte in a
+  LDY #0
+  LDA (table),Y
+  STA low
+end
+
+func walk(count: byte)
+  var cursor: word = table
+  low = count
+  asm
+    LDX #0
+    STY cursor,X
+  end
+  cursor += low
+  low = first()
+end
+
+pub func main()
+  walk(2)
+  low += 1
+end

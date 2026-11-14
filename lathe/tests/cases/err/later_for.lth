@@ -1,0 +1,7 @@
+; error 39 5 3
+module later_for
+var i: byte
+func f()
+  for i = 0 to 9 do
+  end
+end

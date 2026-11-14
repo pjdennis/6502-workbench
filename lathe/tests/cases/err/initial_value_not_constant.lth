@@ -1,0 +1,4 @@
+; error 46 4 15
+module initial_value_not_constant
+var n: byte
+var m: byte = n

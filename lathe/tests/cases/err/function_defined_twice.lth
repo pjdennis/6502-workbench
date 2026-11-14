@@ -1,0 +1,7 @@
+; error 41 6 6
+module function_defined_twice
+forward func f()
+func f()
+end
+func f()
+end

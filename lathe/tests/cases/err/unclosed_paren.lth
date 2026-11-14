@@ -1,0 +1,6 @@
+; error 24 6 1
+module unclosed_paren
+var n: byte
+func f()
+  n = (n + 1
+end

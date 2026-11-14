@@ -1,0 +1,7 @@
+; error 54 6 9
+module word_shift_assigned_by_variable
+var n: byte
+var w: word
+func f()
+  w >>= n
+end

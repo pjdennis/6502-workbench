@@ -1,0 +1,10 @@
+; error 44 8 13
+module arrow_into_wrong_type
+var ok: bool
+func g(): word, bool
+  return 0, true
+end
+func f()
+  if g() -> ok then
+  end
+end

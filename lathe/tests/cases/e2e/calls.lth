@@ -1,0 +1,176 @@
+; Calls: several parameters of both sizes, calls in arguments, every kind of result, and the
+; ways a caller can use a value and a status.
+module calls
+
+import libout
+
+var count: byte
+var log: word
+
+func show(w: word)
+  libout.hexw(w)
+  libout.space()
+end
+
+func showb(b: byte)
+  libout.hex(b)
+  libout.space()
+end
+
+; parameters are variables: they can be changed, and keep nothing between calls
+func mix(a: byte, w: word, b: byte, v: word): word
+  w += a
+  v -= b
+  a = a ^ b
+  return w + v + a
+end
+
+func larger(a: byte, b: byte): byte
+  if a > b then
+    return a
+  end
+  return b
+end
+
+func twice(n: word): word
+  return n + n
+end
+
+func low_nibble(n: byte): byte
+  return n & $0F
+end
+
+; no result: it works through the module's variables
+func note(n: byte)
+  count += 1
+  log = (log << 1) ^ n
+end
+
+func is_even(n: byte): bool
+  return n & 1 == 0
+end
+
+func between(n: byte, low: byte, high: byte): bool
+  return n >= low and n <= high
+end
+
+func is_letter(c: byte): bool
+  return between(c, 'a', 'z') or between(c, 'A', 'Z')
+end
+
+; a value and a status: the quotient by subtraction, false if the divisor is 0
+func divide(n: word, d: word): word, bool
+  var q: word = 0
+  if d == 0 then
+    return $FFFF, false
+  end
+  while n >= d do
+    n -= d
+    q += 1
+  end
+  return q, true
+end
+
+; both results passed on
+func tenths(n: word): word, bool
+  return divide(n, 10)
+end
+
+; a status worked out after the value: the value has to wait
+func halve(n: byte): byte, bool
+  return n >> 1, is_even(n)
+end
+
+func arguments()
+  show(mix(1, 2, 3, 4))
+  show(mix($FF, $FFFF, $01, $0000))
+  show(mix(count + 1, twice(300), low_nibble($AB), 1000 - 1))
+  showb(larger(3, 7))
+  showb(larger(7, 3))
+  showb(larger(larger(1, 9), 5))
+  showb(larger(larger(1, 2), low_nibble($35) + 1) + larger(8, 6))
+  show(twice(twice(twice(1000))))
+  show(twice(twice(3) + twice(4)) + twice(5))
+  showb(low_nibble(lo(twice($1234))) + low_nibble(hi(twice($1234))))
+  libout.nl()
+end
+
+func statements()
+  count = 0
+  log = 0
+  note(1)
+  note(2)
+  note(larger(3, 4))
+  note(low_nibble($F5))
+  showb(count)
+  show(log)
+  libout.nl()
+end
+
+func statuses()
+  var i: byte = 0
+  var ok: bool
+  while i < 6 do
+    libout.truth(is_even(i))
+    libout.truth(not is_even(i))
+    libout.truth(between(i, 2, 4))
+    libout.truth(is_even(i) and between(i, 2, 4))
+    libout.truth(is_even(i) or between(i, 2, 4))
+    ok = between(i, 1, 3)
+    libout.truth(ok)
+    libout.truth(ok == is_even(i))
+    libout.space()
+    i += 1
+  end
+  libout.truth(is_letter('a'))
+  libout.truth(is_letter('Z'))
+  libout.truth(is_letter('@'))
+  libout.truth(is_letter('['))
+  libout.truth(is_letter('{'))
+  libout.nl()
+end
+
+func pairs()
+  var q: word
+  var b: byte
+  var ok: bool
+  q, ok = divide(1000, 7)
+  show(q)
+  libout.truth(ok)
+  q, ok = divide(1000, 0)
+  show(q)
+  libout.truth(ok)
+  if divide(65535, 255) -> q then
+    show(q)
+  end
+  if divide(5, 0) -> q then
+    libout.char('?')
+  else
+    show(q)
+  end
+  if tenths(12345) -> q and q > 1000 then
+    show(q)
+  end
+  q = 60000
+  while tenths(q) -> q and q != 0 do
+    show(q)
+  end
+  b, ok = halve(7)
+  showb(b)
+  libout.truth(ok)
+  b, ok = halve(200)
+  showb(b)
+  libout.truth(ok)
+  if halve(b) -> b then
+    showb(b)
+  end
+  divide(1, 1)
+  libout.nl()
+end
+
+pub func main()
+  arguments()
+  statements()
+  statuses()
+  pairs()
+end

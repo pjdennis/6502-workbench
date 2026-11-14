@@ -1,0 +1,8 @@
+; error 40 7 3
+module local_outside_its_function
+func f()
+  var a: byte
+end
+func g()
+  a = 1
+end

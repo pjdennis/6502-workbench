@@ -1,0 +1,7 @@
+; error 43 6 5
+module argument_out_of_range
+func g(a: byte)
+end
+func f()
+  g(256)
+end

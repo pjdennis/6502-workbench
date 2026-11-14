@@ -1,0 +1,6 @@
+; error 45 5 4
+module variable_called
+var n: byte
+func f()
+  n(1)
+end

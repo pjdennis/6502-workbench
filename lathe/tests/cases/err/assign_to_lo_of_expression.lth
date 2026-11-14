@@ -1,0 +1,6 @@
+; error 53 5 3
+module assign_to_lo_of_expression
+var w: word
+func f()
+  lo(w + 1) = 0
+end

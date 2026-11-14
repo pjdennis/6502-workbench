@@ -1,0 +1,6 @@
+; error 44 5 9
+module number_shifted_by_variable
+var n: byte
+func f()
+  n = 1 << n
+end

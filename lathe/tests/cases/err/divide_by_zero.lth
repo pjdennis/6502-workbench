@@ -1,0 +1,6 @@
+; error 59 5 9
+module divide_by_zero
+var n: byte
+func f()
+  n = n / 0
+end

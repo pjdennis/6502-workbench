@@ -1,0 +1,10 @@
+; error 53 8 13
+module arrow_into_constant
+const N = 1
+func g(): byte, bool
+  return 0, true
+end
+func f()
+  if g() -> N then
+  end
+end

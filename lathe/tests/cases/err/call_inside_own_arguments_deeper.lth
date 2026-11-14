@@ -1,0 +1,12 @@
+; error 100 11 18
+module call_inside_own_arguments_deeper
+var b: byte
+func g(x: byte, y: byte): byte
+  return x + y
+end
+func h(x: byte): byte
+  return x
+end
+func f()
+  b = g(1, h(2 + g(3, 4)))
+end

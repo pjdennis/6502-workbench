@@ -1,0 +1,8 @@
+; error 56 7 7
+module call_without_value
+var n: byte
+func g()
+end
+func f()
+  n = g()
+end

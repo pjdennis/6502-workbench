@@ -1,0 +1,94 @@
+; What the registers are known to hold (docs/codegen.md, "Remembering register contents").
+module regmem
+
+import host
+
+var a: byte
+var b: byte
+var c: byte
+var w: word
+var v: word
+
+; equal constants are loaded once
+func constants()
+  a = 0
+  b = 0
+  w = 0
+  c = 1
+  v = $0101
+end
+
+; a register that holds a copy of a variable is not loaded with it again
+func copies()
+  a = b
+  c = b
+  c = a
+  b = a + 1
+  c = b
+end
+
+; a store to a variable ends the copies of it
+func stores()
+  a = b
+  b = 5
+  c = b
+  c = a
+end
+
+; changing memory ends the copies of it, and the flags then show it
+func changed()
+  a = b
+  b += 1
+  c = b
+  if b == 0 then
+    c = 1
+  end
+end
+
+; the flags show A after a load or a calculation
+func flags()
+  a = b & 7
+  if a == 0 then
+    c = 1
+  end
+  if a != 0 then
+    c = 2
+  end
+end
+
+; ... but not after something else was compared or loaded
+func no_flags()
+  a = b
+  if c == 3 then
+    c = 0
+  end
+  if a == 0 then
+    c = 1
+  end
+end
+
+; another register that holds the value: a transfer
+func transfers(): word
+  a = 0
+  return 0
+end
+
+; everything is forgotten at a call and at a label that is gone to
+func forgotten()
+  a = b
+  host.put_byte(a)
+  c = b
+  if a == 1 then
+    c = 2
+  end
+  c = b
+end
+
+; a label nothing goes to forgets nothing
+func kept()
+  a = b
+  if true then
+    c = b
+  end
+  c = a
+end

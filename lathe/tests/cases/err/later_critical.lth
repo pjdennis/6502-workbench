@@ -1,0 +1,6 @@
+; error 39 4 3
+module later_critical
+func f()
+  critical
+  end
+end

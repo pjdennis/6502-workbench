@@ -1,0 +1,5 @@
+; error 53 4 3
+module assign_to_true
+func f()
+  true = 1
+end

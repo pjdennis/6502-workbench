@@ -1,0 +1,7 @@
+; error 43 5 8
+module comparison_out_of_range
+var n: byte
+func f()
+  if n == 300 then
+  end
+end

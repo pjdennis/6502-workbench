@@ -1,4 +1,4 @@
-; error 57 5 9
+; error 144 5 9
 module asm_mode
 pub func main()
   asm

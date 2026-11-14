@@ -1,0 +1,6 @@
+; error 43 5 7
+module negative_for_word
+var n: word
+func f()
+  n = 0 - 1
+end

@@ -1,0 +1,8 @@
+; error 44 6 8
+module bools_have_no_order
+var a: bool
+var b: bool
+func f()
+  if a < b then
+  end
+end

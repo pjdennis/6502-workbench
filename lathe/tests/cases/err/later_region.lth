@@ -1,0 +1,3 @@
+; error 39 3 13
+module later_region
+var n: byte in bank

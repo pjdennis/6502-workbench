@@ -1,0 +1,5 @@
+; error 44 4 13
+module status_not_bool
+func f(): byte, bool
+  return 1, 2
+end

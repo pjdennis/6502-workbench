@@ -1,0 +1,203 @@
+; Every comparison operator, both ways round, for unsigned and signed bytes and words,
+; with values on both sides of every edge. Each line is one left operand against all the
+; others, six answers a pair: == != < >= > <=.
+module compare
+
+import libout
+
+var bx: byte
+var by: byte
+var sx: sbyte
+var sy: sbyte
+var wx: word
+var wy: word
+var ix: int
+var iy: int
+
+func pick_byte(i: byte): byte
+  if i == 0 then
+    return 0
+  elif i == 1 then
+    return 1
+  elif i == 2 then
+    return $7F
+  elif i == 3 then
+    return $80
+  elif i == 4 then
+    return $81
+  end
+  return $FF
+end
+
+func pick_word(i: byte): word
+  if i == 0 then
+    return 0
+  elif i == 1 then
+    return $00FF
+  elif i == 2 then
+    return $0100
+  elif i == 3 then
+    return $7FFF
+  elif i == 4 then
+    return $8000
+  elif i == 5 then
+    return $80FF
+  elif i == 6 then
+    return $FF00
+  end
+  return $FFFF
+end
+
+func six(eq: bool, ne: bool, lt: bool, ge: bool, gt: bool, le: bool)
+  libout.truth(eq)
+  libout.truth(ne)
+  libout.truth(lt)
+  libout.truth(ge)
+  libout.truth(gt)
+  libout.truth(le)
+  libout.space()
+end
+
+; the answers as values
+func bytes()
+  var i: byte = 0
+  var j: byte
+  while i < 6 do
+    bx = pick_byte(i)
+    sx = sbyte(bx)
+    j = 0
+    while j < 6 do
+      by = pick_byte(j)
+      sy = sbyte(by)
+      six(bx == by, bx != by, bx < by, bx >= by, bx > by, bx <= by)
+      six(sx == sy, sx != sy, sx < sy, sx >= sy, sx > sy, sx <= sy)
+      j += 1
+    end
+    libout.nl()
+    i += 1
+  end
+end
+
+func words()
+  var i: byte = 0
+  var j: byte
+  while i < 8 do
+    wx = pick_word(i)
+    ix = int(wx)
+    j = 0
+    while j < 8 do
+      wy = pick_word(j)
+      iy = int(wy)
+      six(wx == wy, wx != wy, wx < wy, wx >= wy, wx > wy, wx <= wy)
+      six(ix == iy, ix != iy, ix < iy, ix >= iy, ix > iy, ix <= iy)
+      j += 1
+    end
+    libout.nl()
+    i += 1
+  end
+end
+
+; the answers as branches: a digit for each test that is true
+func mark(on: bool, c: byte)
+  if on then
+    libout.char(c)
+  else
+    libout.char('.')
+  end
+end
+
+func branches()
+  var i: byte = 0
+  var j: byte
+  while i < 6 do
+    bx = pick_byte(i)
+    sx = sbyte(bx)
+    j = 0
+    while j < 6 do
+      by = pick_byte(j)
+      sy = sbyte(by)
+      if bx == by then
+        libout.char('a')
+      end
+      if bx != by then
+        libout.char('b')
+      end
+      if bx < by then
+        libout.char('c')
+      end
+      if bx >= by then
+        libout.char('d')
+      end
+      if bx > by then
+        libout.char('e')
+      end
+      if bx <= by then
+        libout.char('f')
+      end
+      if sx < sy then
+        libout.char('g')
+      end
+      if sx >= sy then
+        libout.char('h')
+      end
+      if sx > sy then
+        libout.char('i')
+      end
+      if sx <= sy then
+        libout.char('j')
+      end
+      libout.space()
+      j += 1
+    end
+    libout.nl()
+    i += 1
+  end
+end
+
+; against constants, on either side, and against zero
+func constants()
+  var i: byte = 0
+  while i < 6 do
+    bx = pick_byte(i)
+    sx = sbyte(bx)
+    wx = pick_word(i + 1)
+    ix = int(wx)
+    six(bx == $80, bx != $80, bx < $80, bx >= $80, bx > $80, bx <= $80)
+    six($80 == bx, $80 != bx, $80 < bx, $80 >= bx, $80 > bx, $80 <= bx)
+    six(bx == 0, bx != 0, bx < 1, bx >= 1, bx > 254, bx <= 254)
+    six(sx == -1, sx != -1, sx < -1, sx >= -1, sx > -1, sx <= -1)
+    six(sx == 0, sx != 0, sx < 0, sx >= 0, sx > 0, sx <= 0)
+    six(-128 == sx, 127 != sx, 0 < sx, 0 >= sx, 127 > sx, -128 <= sx)
+    six(wx == $8000, wx != $8000, wx < $8000, wx >= $8000, wx > $8000, wx <= $8000)
+    six(wx == $0100, wx != 0, wx < $0100, wx >= $00FF, wx > $FF00, wx <= $7FFF)
+    six(ix == -256, ix != -256, ix < -256, ix >= -256, ix > -256, ix <= -256)
+    six(ix == 0, ix != 0, ix < 0, ix >= 0, ix > 0, ix <= 0)
+    six(1000 == ix, -1 != ix, 255 < ix, 256 >= ix, -32768 > ix, 32767 <= ix)
+    libout.nl()
+    i += 1
+  end
+end
+
+; a byte against a word, and sides that had to be computed
+func mixed()
+  var i: byte = 0
+  while i < 6 do
+    bx = pick_byte(i)
+    by = pick_byte(5 - i)
+    wx = pick_word(i)
+    six(bx == wx, bx != wx, bx < wx, bx >= wx, wx > bx, wx <= bx)
+    six(bx + 1 == by, bx != by + 1, bx + 1 < by, bx >= by + 1, bx + by > bx, bx <= bx + by)
+    six(wx + 1 == $100, wx != wx + 0, wx + bx < wx, wx >= wx + bx, wx + 1 > wx, wx - 1 <= wx)
+    six(lo(wx) == hi(wx), bx & 1 != 0, bx & $80 == 0, (bx ^ by) >= $80, bx >> 4 > 7, bx << 1 <= bx)
+    libout.nl()
+    i += 1
+  end
+end
+
+pub func main()
+  bytes()
+  words()
+  branches()
+  constants()
+  mixed()
+end

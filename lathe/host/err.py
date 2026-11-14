@@ -7,6 +7,19 @@ It never returns and nothing catches it.
 
 MESSAGES has one line per error, `number text`, so the texts can move to a file of their own
 when the compiler has to be smaller (docs/architecture.md, "Errors and debugging").
+
+The numbers are grouped by what the error is about:
+
+      1 to 19   characters and tokens
+     20 to 39   syntax (39 is "not implemented yet")
+     40 to 59   meaning: names, types, values, statements and functions
+     60 to 69   the command line and files
+     70 to 98   a capacity of the compiler that was exceeded
+     99         a fault in the compiler itself
+    100 to 139  meaning, continued: further errors about meaning go here
+    140 to 159  `asm` blocks and `asm` functions
+
+A number is never reused for another error; a new one takes the next free number of its group.
 """
 import env
 
@@ -37,6 +50,8 @@ E_DECL_EXPECTED = 33
 E_STMT_EXPECTED = 34
 E_EXPR_EXPECTED = 35
 E_DOT_EXPECTED = 36
+E_THEN_EXPECTED = 37
+E_DO_EXPECTED = 38
 E_UNSUPPORTED = 39
 
 # Meaning
@@ -53,13 +68,13 @@ E_MODULE_NAME = 49
 E_NO_INTERFACE = 50
 E_BAD_INTERFACE = 51
 E_SELF_IMPORT = 52
-E_ASM_BRANCH = 53
-E_ASM_LABEL_USE = 54
-E_ASM_NO_LABEL = 55
-E_ASM_RANGE = 56
-E_ASM_MODE = 57
-E_ASM_DIRECTIVE = 58
-E_ASM_MNEMONIC = 59
+E_NOT_VAR = 53
+E_NEEDS_RT = 54
+E_NO_LOOP = 55
+E_RESULTS = 56
+E_FORWARD = 57
+E_NO_BODY = 58
+E_DIV_ZERO = 59
 
 # The command line and files
 E_USAGE = 60
@@ -83,7 +98,22 @@ E_SOURCES_FULL = 81
 E_TEXT_FULL = 82
 E_PATH_LONG = 83
 E_DIRS_FULL = 84
+E_SLOTS_FULL = 85
+E_INITS_FULL = 86
 E_INTERNAL = 99
+
+# Meaning, continued (40 to 59 are full)
+E_CALL_IN_ARGUMENTS = 100
+
+# asm blocks and asm functions
+E_ASM_BRANCH = 140
+E_ASM_LABEL_USE = 141
+E_ASM_NO_LABEL = 142
+E_ASM_RANGE = 143
+E_ASM_MODE = 144
+E_ASM_DIRECTIVE = 145
+E_ASM_MNEMONIC = 146
+E_ASM_NOT_ZP = 147
 
 MESSAGES = (
     b"1 character not allowed here\n"
@@ -110,6 +140,8 @@ MESSAGES = (
     b"34 statement expected\n"
     b"35 expression expected\n"
     b"36 \".\" expected\n"
+    b"37 \"then\" expected\n"
+    b"38 \"do\" expected\n"
     b"39 not implemented yet\n"
     b"40 undefined name\n"
     b"41 name already declared\n"
@@ -124,13 +156,13 @@ MESSAGES = (
     b"50 no interface file for this module\n"
     b"51 not an interface file of this version\n"
     b"52 a module cannot import itself\n"
-    b"53 a branch must go to a label of this asm block\n"
-    b"54 a label of an asm block can only be the target of a branch or JMP\n"
-    b"55 label not defined in this asm block\n"
-    b"56 operand out of range\n"
-    b"57 addressing mode not available for this instruction\n"
-    b"58 directives such as .byte are not allowed in asm\n"
-    b"59 unknown instruction\n"
+    b"53 not a variable that can be assigned to\n"
+    b"54 needs the run-time library, not available yet\n"
+    b"55 not inside a loop\n"
+    b"56 wrong number of results\n"
+    b"57 differs from the forward declaration\n"
+    b"58 function declared forward has no body\n"
+    b"59 division by zero\n"
     b"60 usage: lathec SOURCE.lth OUTDIR [IMPORTDIR...]\n"
     b"61 source file must be called NAME.lth\n"
     b"62 cannot open the source file\n"
@@ -150,7 +182,18 @@ MESSAGES = (
     b"82 arguments too long\n"
     b"83 file name too long\n"
     b"84 too many directories\n"
+    b"85 too many variables in one function\n"
+    b"86 too many initial values\n"
     b"99 compiler error\n"
+    b"100 a call of this function inside its own arguments: use a variable\n"
+    b"140 a branch must go to a label of this asm block\n"
+    b"141 a label of an asm block can only be the target of a branch or JMP\n"
+    b"142 label not defined in this asm block\n"
+    b"143 operand out of range\n"
+    b"144 addressing mode not available for this instruction\n"
+    b"145 directives such as .byte are not allowed in asm\n"
+    b"146 unknown instruction\n"
+    b"147 cannot be made to be in zero page: declared nozp, or another module's and not zp\n"
 )
 TOOL = b"lathec"
 ERROR = b": error "

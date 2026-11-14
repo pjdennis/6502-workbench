@@ -123,7 +123,7 @@ A call `t = sum(@buf, 10)`:
 
 ### Calls inside arguments
 
-In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion.
+In `g(a + 1, h(b))`, the first argument is already stored in `g`'s slot when `h` runs. If `h` shared storage with `g`, it would destroy that argument. The compiler therefore records that `h` was called while `g`'s arguments were pending, and the linker treats this as if `g` called `h`: `h`'s frame is placed above `g`'s. If `h` can itself reach `g`, that is a cycle, and the linker reports it like any other recursion. A call of `g` itself inside `g`'s arguments, as in `g(a, g(b, c))`, would overwrite the arguments already stored, so the compiler reports it as an error: the inner result must go through a variable.
 
 ### Functions called through a pointer
 

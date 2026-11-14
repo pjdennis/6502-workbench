@@ -1,0 +1,4 @@
+; error 41 3 17
+module duplicate_parameter
+func f(a: byte, a: byte)
+end

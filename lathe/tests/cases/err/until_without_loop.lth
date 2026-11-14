@@ -1,0 +1,7 @@
+; error 30 6 3
+module until_without_loop
+var n: byte
+func f()
+  n = 1
+  until n == 0
+end

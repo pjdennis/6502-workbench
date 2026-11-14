@@ -1,0 +1,7 @@
+; error 30 5 3
+module elif_without_if
+var n: byte
+func f()
+  elif n == 0 then
+  end
+end

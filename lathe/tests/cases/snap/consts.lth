@@ -1,0 +1,76 @@
+; Constants are folded by the compiler: every function here stores constants only.
+module consts
+
+const TEN = 10
+const HUNDRED = TEN * TEN
+const MASK = $F0 | %1010
+const NEGATIVE = -TEN
+const LIMIT = 65535
+const BIG = HUNDRED * 300 + 5
+const LETTER = 'A' + 2
+const SHIFTED = 1 << 10
+const HALF = BIG / 2
+const REST = BIG mod 7
+const YES = TEN > 5
+const BOTH = YES and not false
+const TYPED: byte = 200
+const WRAPS = byte(TEN) - 20
+const LOW = lo($1234)
+const HIGH = hi($1234)
+const SIZE = sizeof(word) + sizeof(byte)
+
+var b: byte
+var s: sbyte
+var w: word
+var i: int
+var f: bool
+
+func numbers()
+  b = TEN
+  b = HUNDRED + TEN * 2
+  b = MASK
+  b = LETTER
+  b = WRAPS
+  b = TYPED + 100
+  b = LOW + HIGH
+  b = SIZE
+  b = 7 & ~2
+  b = (3 + 4) * 2 - 1
+end
+
+func words()
+  w = LIMIT
+  w = BIG
+  w = SHIFTED
+  w = HALF
+  w = REST
+  w = LIMIT - BIG - BIG
+end
+
+func signed()
+  s = NEGATIVE
+  s = -128
+  i = NEGATIVE * 100
+  i = -32768
+  i = NEGATIVE / 3
+  i = NEGATIVE mod 3
+  i = -1 >> 1
+  i = int(LIMIT)
+end
+
+func bools()
+  f = YES
+  f = BOTH
+  f = TEN == 10 and HUNDRED != 10
+  f = NEGATIVE < 0
+  f = bool(TEN)
+  b = byte(YES)
+end
+
+; a condition that is known leaves no test
+func decided(): byte
+  if TEN > 5 then
+    return 1
+  end
+  return 2
+end

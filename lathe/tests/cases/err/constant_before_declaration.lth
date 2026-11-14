@@ -1,0 +1,4 @@
+; error 40 3 11
+module constant_before_declaration
+const A = B + 1
+const B = 2

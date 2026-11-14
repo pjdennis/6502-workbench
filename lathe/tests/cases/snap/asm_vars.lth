@@ -1,0 +1,65 @@
+; asm blocks naming variables and slots: module-level variables, parameters, locals and a
+; `static` variable of the function, another module's variables, with offsets. Each is in
+; the absolute form with a two-byte fix-up; an indirect mode or STX v,Y makes the variable or
+; slot class 0, which its record shows; a variable at a fixed address is its address.
+module asm_vars
+
+import libshared
+
+var total: word
+var ptr: word
+var hw: byte at $80
+
+func add(amount: byte, scale: word): word
+  var acc: word = scale
+  static var calls: byte
+  asm
+    INC calls
+    CLC
+    LDA acc
+    ADC amount
+    STA acc
+    BCC .done
+    INC acc+1
+.done
+  end
+  total = acc
+  return acc
+end
+
+func indirect(index: byte)
+  var p: word = ptr
+  asm
+    LDY index
+    LDA (p),Y
+    STA (ptr),Y
+    LDX #0
+    STX hw,Y
+    STY hw+1
+  end
+end
+
+func other()
+  asm
+    LDA libshared.count
+    STA libshared.total+1
+    LDY #0
+    LDA (libshared.pointer),Y
+    STA libshared.border
+  end
+end
+
+func loops(n: byte)
+  while n != 0 do
+    asm
+      DEC n
+    end
+  end
+end
+
+pub func main()
+  total = add(1, 2)
+  indirect(3)
+  other()
+  loops(4)
+end

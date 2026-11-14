@@ -1,0 +1,8 @@
+; error 38 5 15
+module do_expected
+var n: byte
+func f()
+  while n != 0
+    n -= 1
+  end
+end

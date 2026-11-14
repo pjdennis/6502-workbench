@@ -1,0 +1,4 @@
+; error 46 4 15
+module constant_from_variable
+var n: byte
+const LIMIT = n + 1

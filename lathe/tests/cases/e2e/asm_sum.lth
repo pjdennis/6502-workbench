@@ -1,0 +1,79 @@
+; asm blocks that sum a parameter into a module variable, count calls in a `static`
+; variable, and work on a loop's locals from inside the loop. Prints 05 00 37 64 4E BB D3 and
+; a new line.
+module asm_sum
+
+import host
+
+var total: word = 0
+
+asm func put_digit(v: byte in a)
+  AND #$0F
+  CMP #10
+  BCC .digit
+  ADC #6
+.digit
+  ADC #'0'
+  JMP host.put_byte
+end
+
+asm func put_hex(v: byte in a)
+  PHA
+  LSR A
+  LSR A
+  LSR A
+  LSR A
+  JSR put_digit
+  PLA
+  JSR put_digit
+  LDA #' '
+  JMP host.put_byte
+end
+
+func put_word(w: word)
+  put_hex(hi(w))
+  put_hex(lo(w))
+end
+
+; Add `amount` to `total`. Returns how many times add has been called.
+func add(amount: byte): byte
+  static var calls: byte = 0
+  asm
+    CLC
+    LDA total
+    ADC amount
+    STA total
+    BCC .same
+    INC total+1
+.same
+    INC calls
+  end
+  return calls
+end
+
+; Add 1 to n to `total`. Returns how many of them are odd, counted by an asm block in the loop.
+func sum_to(n: byte): byte
+  var i: byte = 1
+  var odd: byte = 0
+  while i <= n do
+    add(i)
+    asm
+      LDA i
+      LSR A             ; the carry is bit 0 of i
+      LDA odd
+      ADC #0
+      STA odd
+    end
+    i += 1
+  end
+  return odd
+end
+
+pub func main()
+  put_hex(sum_to(10))
+  put_word(total)
+  put_hex(sum_to(200))
+  put_word(total)
+  put_hex(add(0))
+  host.put_byte(10)
+end

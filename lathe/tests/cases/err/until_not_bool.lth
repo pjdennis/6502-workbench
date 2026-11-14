@@ -1,0 +1,7 @@
+; error 44 6 9
+module until_not_bool
+var n: byte
+func f()
+  loop
+  until n
+end

@@ -1,0 +1,7 @@
+; error 40 6 10
+module parameter_outside_its_function
+func f(a: byte)
+end
+func g(): byte
+  return a
+end

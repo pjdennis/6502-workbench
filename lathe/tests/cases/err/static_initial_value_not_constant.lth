@@ -1,0 +1,5 @@
+; error 46 4 24
+module static_initial_value_not_constant
+func f(a: byte)
+  static var n: byte = a
+end

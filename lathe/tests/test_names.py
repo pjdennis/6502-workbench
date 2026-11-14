@@ -19,6 +19,10 @@ KEYWORDS = set(
     'long'.split())
 
 
+MARKER = 'RECURSIVE'    # not a variable: the list of a file's recursive functions that
+#                         lathe/host/README.md asks for, which become `recursive` functions
+
+
 def names_made(source):
     """Every name a file defines, as (name, line): functions, parameters and variables."""
     made = []
@@ -26,7 +30,7 @@ def names_made(source):
         if isinstance(node, ast.FunctionDef):
             made.append((node.name, node.lineno))
             made.extend((a.arg, node.lineno) for a in node.args.args)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id != MARKER:
             made.append((node.id, node.lineno))
     return made
 
@@ -35,6 +39,9 @@ class NamesTest(unittest.TestCase):
     def test_the_check_sees_functions_parameters_and_variables(self):
         made = names_made('end = 1\ndef word(at):\n    to = at\n    return to\n')
         self.assertEqual(sorted(name for name, _ in made), ['at', 'end', 'to', 'word'])
+
+    def test_the_list_of_recursive_functions_is_not_a_name(self):
+        self.assertEqual(names_made('RECURSIVE = ["f"]\ndef f():\n    f()\n'), [('f', 2)])
 
     def test_no_name_is_a_lathe_keyword(self):
         problems = []

@@ -1,0 +1,7 @@
+; error 37 5 12
+module comparisons_do_not_chain
+var n: byte
+func f()
+  if 1 < n < 3 then
+  end
+end

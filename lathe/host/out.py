@@ -18,7 +18,7 @@ R_END = 0x00
 R_MOD = 0x01
 R_IMP = 0x02
 R_SYM = 0x03
-R_VAR = 0x04                # not written yet: module-level variables
+R_VAR = 0x04
 R_DATA = 0x05               # not written yet: constant data
 R_DFIX = 0x06               # not written yet: fix-ups in data
 R_FUNC = 0x07
@@ -91,21 +91,40 @@ def imported(name):
     kernel.put_name(stream, name)
 
 
-def symbol(kind, module_name, name):
-    """Introduce the symbol `module_name.name`, which the records after this one may refer to.
-    Returns its number."""
+def symbol(kind, module_name, inner, name):
+    """Introduce the symbol `module_name.name`, or `module_name.inner.name` if `inner` is a
+    name and not 0, which the records after this one may refer to. Returns its number."""
     global symbol_count
     length = kernel.name_length(module_name) + 1 + kernel.name_length(name)
+    if inner != 0:
+        length += kernel.name_length(inner) + 1
     begin_record(R_SYM, 2 + length)
     kernel.put(stream, kind)
     kernel.put(stream, length)
-    for i in range(0, kernel.name_length(module_name)):
-        kernel.put(stream, kernel.name_char(module_name, i))
-    kernel.put(stream, C_DOT)
+    put_part(module_name)
+    if inner != 0:
+        put_part(inner)
     for i in range(0, kernel.name_length(name)):
         kernel.put(stream, kernel.name_char(name, i))
     symbol_count += 1
     return symbol_count - 1
+
+
+def put_part(name):
+    """A name and the dot that follows it in a longer one."""
+    for i in range(0, kernel.name_length(name)):
+        kernel.put(stream, kernel.name_char(name, i))
+    kernel.put(stream, C_DOT)
+
+
+def variable(symbol_number, size, zp_class, weight):
+    """Define a variable that lives for the whole program."""
+    begin_record(R_VAR, 7)
+    kernel.put_word(stream, symbol_number)
+    kernel.put_word(stream, size)
+    kernel.put(stream, zp_class)
+    kernel.put(stream, weight)
+    kernel.put(stream, 0)
 
 
 def call(callee, flags, outer):

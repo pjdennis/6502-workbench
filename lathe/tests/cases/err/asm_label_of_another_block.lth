@@ -1,4 +1,4 @@
-; error 55 8 9
+; error 142 8 9
 module asm_label_of_another_block
 pub func main()
   asm

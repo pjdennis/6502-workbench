@@ -1,22 +1,46 @@
 """EXPR: expressions, and types as they are written in the source.
 
-Owns the parsing of everything that can stand where a value is wanted. What it parses
-becomes operands on GEN's stack; no code is generated until an operand has to be somewhere,
-which is what makes a constant argument a single load and will make constant folding free.
+Owns the parsing of everything that can stand where a value is wanted: one function for each
+level of precedence in docs/language.md, from expression() down to primary(). What it parses
+becomes operands on GEN's stack; EXPR itself chooses no instruction. It says where an error
+in an operand's type is reported: at the operator, or at the start of the value.
 
-So far an expression is a number, a character or a named constant, and a call takes such
-values to an `extern` function's registers or calls a function without parameters. The
-operators of docs/language.md go into expression(), one function per level of precedence.
-
-Types are parsed here and not in DECL because conversions and `sizeof` will need them inside
+Types are parsed here and not in DECL because conversions and `sizeof` need them inside
 expressions, array types need a constant expression, and modules cannot import each other.
 """
 import err
+import fold
 import gen
 import kernel
 import lex
+import reg
 import typetab
 
+RECURSIVE = ["expression", "factor", "inverse"]
+
+# The functions the language declares, as decl.BUILTINS lists them
+B_LO = 0
+B_HI = 1
+B_SIZEOF = 2
+B_LEN = 3
+
+passing = False         # True while a call that gives a value and a status may stand without
+#                         `->`: in a `return` that passes both on
+passed = reg.NONE       # gen.mark() just after such a call, if there was one
+
+MAX_PENDING = 16
+pending = [0] * MAX_PENDING     # the functions whose arguments are being stored in their frames,
+pending_count = 0               # with at least one stored already: the outermost first
+
+
+def init():
+    global passing, passed, pending_count
+    passing = False
+    passed = reg.NONE
+    pending_count = 0
+
+
+# ---- Types and names ---------------------------------------------------------------------
 
 def basic_type(token):
     """The type a type keyword names, or typetab.NO_TYPE."""
@@ -51,6 +75,25 @@ def type_spec():
     return t
 
 
+def scalar_type():
+    """The type of a variable, parameter, result or constant: so far one of the basic types."""
+    if lex.tok == lex.T_CARET:
+        err.fatal(err.E_UNSUPPORTED)
+    return type_spec()
+
+
+def new_name(scope):
+    """The name being declared, which `scope` must not have yet. It is passed over."""
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    name = lex.value
+    _, found = kernel.sym_find(scope, name)
+    if found:
+        err.fatal(err.E_DUPLICATE)
+    lex.next()
+    return name
+
+
 def named_symbol():
     """name [ "." name ]: the symbol a name means here, or module.name means in that module."""
     if lex.tok != lex.T_NAME:
@@ -71,139 +114,408 @@ def named_symbol():
     return s
 
 
+# ---- Designators and calls ---------------------------------------------------------------
+
+def builtin(which):
+    """`lo(x)`, `hi(x)` or `sizeof(type)`, after its name."""
+    lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+    if which == B_SIZEOF:
+        gen.size_of(type_spec())
+    elif which == B_LEN:
+        err.fatal(err.E_UNSUPPORTED)
+    else:
+        line = lex.line
+        col = lex.col
+        expression()
+        err.position(line, col)
+        gen.part(which)
+        err.position(lex.line, lex.col)
+    lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+
+
 def designator():
     """designator = name { "." name | "[" expression "]" }. Pushes an operand for what it
     names. Fields and elements come later."""
     s = named_symbol()
-    if kernel.sym_kind[s] == kernel.K_FUNC:
-        gen.push(gen.O_FUNC, typetab.NO_TYPE, s)
+    kind = kernel.sym_kind[s]
+    if kind == kernel.K_FUNC:
+        gen.function(s)
+    elif kind == kernel.K_CONST:
+        gen.constant(kernel.sym_type[s], kernel.sym_value[s])
+    elif kind == kernel.K_LOCAL:
+        gen.local(kernel.sym_type[s], kernel.sym_value[s])
+    elif kind == kernel.K_VAR:
+        gen.variable(s)
     else:
-        gen.push(gen.O_CONST, kernel.sym_type[s], kernel.sym_value[s])
-
-
-def starts_expression(token):
-    """True for the tokens an expression can start with, other than a number or a name."""
-    if token == lex.T_STRING or token == lex.T_LPAREN or token == lex.T_MINUS:
-        return True
-    if token == lex.T_TILDE or token == lex.T_ADDRESS or token == lex.T_NOT:
-        return True
-    return token == lex.T_CARET or basic_type(token) != typetab.NO_TYPE
-
-
-def is_operator(token):
-    """True for a binary operator."""
-    return lex.joins_lines(token) and token != lex.T_COMMA
-
-
-def primary():
-    """primary = number | designator, so far. Pushes its operand."""
-    if lex.tok == lex.T_NUMBER:
-        gen.push(gen.O_CONST, typetab.NUMBER_TYPE, lex.value)
-        lex.next()
-    elif lex.tok == lex.T_NAME:
-        designator()
-        if gen.op_kind[gen.depth - 1] == gen.O_FUNC:
-            err.fatal(err.E_UNSUPPORTED)        # a call as a value
-    elif starts_expression(lex.tok):
-        err.fatal(err.E_UNSUPPORTED)
-    else:
-        err.fatal(err.E_EXPR_EXPECTED)
-
-
-def expression():
-    """Parse an expression. Its operand is left on GEN's stack."""
-    primary()
-    if is_operator(lex.tok):
+        builtin(kernel.sym_value[s])
+    if lex.tok == lex.T_LBRACKET or lex.tok == lex.T_DOT:
         err.fatal(err.E_UNSUPPORTED)
 
 
-def constant_number():
-    """constExpr where a number is wanted, as for an address. Returns its value."""
+def target(line, col):
+    """Check that the newest operand, which the designator at `line`, `col` gave, is a variable
+    that can be assigned to."""
+    i = reg.depth - 1
+    if reg.op_kind[i] != reg.O_VAR or reg.op_flags[i] & reg.F_TEMP != 0:
+        err.position(line, col)
+        err.fatal(err.E_NOT_VAR)
+
+
+def argument(t, stored):
+    """One argument for a parameter of type `t`. If `stored`, the parameter is the newest
+    operand and the argument is stored in it; if not, the argument is left on the stack. One
+    that does not fit is reported at its start."""
     line = lex.line
     col = lex.col
     expression()
-    operand = gen.depth - 1
-    if gen.op_kind[operand] != gen.O_CONST:
-        err.position(line, col)
-        err.fatal(err.E_NOT_CONST)
-    if gen.op_type[operand] != typetab.NUMBER_TYPE and not typetab.is_number(gen.op_type[operand]):
-        err.position(line, col)
-        err.fatal(err.E_TYPE)
-    gen.pop()
-    return gen.op_value[operand]
-
-
-def check_fits(operand, t):
-    """Check that operand number `operand` can be given to something of type `t`: a number as
-    written must be in the type's range, and anything else must have exactly that type.
-    The caller has set the position an error is reported at."""
-    actual = gen.op_type[operand]
-    if actual == typetab.NUMBER_TYPE and typetab.is_number(t):
-        if gen.op_kind[operand] == gen.O_CONST and not typetab.number_fits(gen.op_value[operand], t):
-            err.fatal(err.E_RANGE)
-    elif actual != t:
-        err.fatal(err.E_TYPE)
-
-
-def argument(t):
-    """One argument for a parameter of type `t`. Its operand is left on the stack."""
-    line = lex.line
-    col = lex.col
-    expression()
-    after_line = lex.line
-    after_col = lex.col
-    err.position(line, col)                 # an argument that does not fit is reported at its start
-    check_fits(gen.depth - 1, t)
-    err.position(after_line, after_col)
+    err.position(line, col)
+    if stored:
+        gen.store()
+    else:
+        gen.accept(t)
+    err.position(lex.line, lex.col)
 
 
 def arguments(f):
-    """[ expression { "," expression } ] ")", after the "(". Leaves one operand on the stack
-    for each parameter of function `f`, in order."""
+    """[ expression { "," expression } ] ")", after the "(". Each argument goes straight to
+    its parameter in the frame of function `f`; those of an `extern` or `asm` function stay on the
+    stack, in order, for GEN to put in the registers."""
+    global pending_count
+    by_register = gen.by_registers(f)
+    saved = gen.outer
+    saved_pending = pending_count
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
             if count == kernel.sym_params[f]:
                 err.fatal(err.E_ARG_COUNT)
-            argument(kernel.member_type[kernel.sym_members[f] + count])
+            if not by_register:
+                gen.parameter(f, count)
+            argument(kernel.member_type[kernel.sym_members[f] + count], not by_register)
             count += 1
             if lex.tok != lex.T_COMMA:
                 break
+            if by_register:
+                gen.hold()
+            elif count == 1:
+                add_pending(f)
             lex.next()
     if lex.tok != lex.T_RPAREN:
         err.fatal(err.E_RPAREN_EXPECTED)
     if count != kernel.sym_params[f]:
         err.fatal(err.E_ARG_COUNT)
+    pending_count = saved_pending
+    gen.arguments_end(saved)
     lex.next()
 
 
-def load_registers(f, first):
-    """Put the arguments of `extern` function `f`, which are the operands from number `first`
-    on, into the registers its parameters are bound to. The carry flag is set last, because
-    getting a value into a register will often change it."""
-    members = kernel.sym_members[f]
-    for i in range(0, kernel.sym_params[f]):
-        if kernel.member_value[members + i] != gen.REG_C:
-            gen.load_register(kernel.member_value[members + i], first + i)
-    for i in range(0, kernel.sym_params[f]):
-        if kernel.member_value[members + i] == gen.REG_C:
-            gen.load_register(gen.REG_C, first + i)
+def add_pending(f):
+    """An argument of `f` is in its frame, and the next is about to be worked out."""
+    global pending_count
+    if pending_count == MAX_PENDING:
+        err.fatal(err.E_OPERANDS_FULL)
+    pending[pending_count] = f
+    pending_count += 1
 
 
-def call():
+def check_not_pending(f):
+    """A call of `f` is about to be made: none of its own arguments may be waiting in its
+    frame, which the call's arguments would overwrite. (A call of another function is
+    allowed: its CALL record names the function whose arguments wait as `outer`.)"""
+    for i in range(0, pending_count):
+        if pending[i] == f:
+            err.fatal(err.E_CALL_IN_ARGUMENTS)
+
+
+def call(wanted):
     """arguments = "(" [ expression { "," expression } ] ")", for the function whose operand
-    is on top of the stack. Generates the call. The results are not yet made into an operand."""
-    f = gen.op_value[gen.depth - 1]
-    gen.pop()
+    is on top of the stack. Generates the call and, if its results are `wanted`, leaves what
+    gen.result() pushes."""
+    global passing
+    f = reg.op_var[reg.depth - 1]
+    reg.pop()
     lex.next()
-    first = gen.depth
+    first = reg.depth
+    saved = passing
+    passing = False             # a call inside an argument passes nothing on
     arguments(f)
-    if kernel.sym_flags[f] & kernel.SF_ASM != 0:
-        load_registers(f, first)
-    if kernel.sym_flags[f] & kernel.SF_EXTERN != 0:
-        load_registers(f, first)
-        gen.call_address(kernel.sym_value[f])
+    passing = saved
+    gen.call(f, first, wanted)
+
+
+def call_value(line, col):
+    """A call where a value is wanted, of the function whose operand is on top of the stack
+    and whose name is at `line`, `col`. One that gives a value and a status needs `-> v` after
+    it, which stores the value and leaves the status."""
+    global passed
+    f = reg.op_var[reg.depth - 1]
+    if lex.tok != lex.T_LPAREN:
+        err.fatal(err.E_LPAREN_EXPECTED)
+    err.position(line, col)
+    check_not_pending(f)
+    err.position(lex.line, lex.col)
+    call(True)
+    if lex.tok == lex.T_ARROW:
+        if kernel.sym_results[f] != 2:
+            err.fatal(err.E_RESULTS)
+        lex.next()
+        line = lex.line
+        col = lex.col
+        designator()
+        target(line, col)
+        err.position(line, col)
+        gen.store_arrow()
+        err.position(lex.line, lex.col)
+    elif kernel.sym_results[f] == 2 and passing:
+        passed = gen.mark()
+    elif kernel.sym_results[f] != 1:
+        err.position(line, col)
+        err.fatal(err.E_RESULTS)
+
+
+# ---- Expressions -------------------------------------------------------------------------
+
+def conversion(line, col):
+    """typeKw "(" expression ")"."""
+    t = basic_type(lex.tok)
+    lex.next()
+    lex.expect(lex.T_LPAREN, err.E_LPAREN_EXPECTED)
+    expression()
+    err.position(line, col)
+    gen.convert(t)
+    err.position(lex.line, lex.col)
+    lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+
+
+def primary():
+    """primary = number | "(" expression ")" | typeKw "(" expression ")"
+    | designator [ arguments [ "->" designator ] ]. Pushes its operand."""
+    line = lex.line
+    col = lex.col
+    if lex.tok == lex.T_NUMBER:
+        gen.constant(typetab.NUMBER_TYPE, lex.value)
+        lex.next()
+    elif lex.tok == lex.T_LPAREN:
+        lex.next()
+        expression()
+        lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+    elif basic_type(lex.tok) != typetab.NO_TYPE:
+        conversion(line, col)
+    elif lex.tok == lex.T_NAME:
+        designator()
+        if reg.op_kind[reg.depth - 1] == reg.O_FUNC:
+            call_value(line, col)
+    elif lex.tok == lex.T_STRING or lex.tok == lex.T_CARET or lex.tok == lex.T_LBRACKET:
+        err.fatal(err.E_UNSUPPORTED)
     else:
-        gen.call_function(f)
-    while gen.depth > first:
-        gen.pop()
+        err.fatal(err.E_EXPR_EXPECTED)
+
+
+def factor():
+    """factor = ( "-" | "~" ) factor | "@" designator | primary."""
+    line = lex.line
+    col = lex.col
+    if lex.tok == lex.T_MINUS or lex.tok == lex.T_TILDE:
+        minus = lex.tok == lex.T_MINUS
+        lex.next()
+        factor()
+        err.position(line, col)
+        if minus:
+            gen.negate()
+        else:
+            gen.complement()
+        err.position(lex.line, lex.col)
+    elif lex.tok == lex.T_ADDRESS:
+        err.fatal(err.E_UNSUPPORTED)
+    else:
+        primary()
+
+
+def term_operator(token):
+    """The operator a token of the `*` level stands for, or 0."""
+    if token == lex.T_STAR:
+        return fold.MUL
+    if token == lex.T_SLASH:
+        return fold.DIV
+    if token == lex.T_MOD:
+        return fold.REM
+    if token == lex.T_AMP:
+        return fold.BAND
+    if token == lex.T_SHL:
+        return fold.SHL
+    if token == lex.T_SHR:
+        return fold.SHR
+    return 0
+
+
+def sum_operator(token):
+    """The operator a token of the `+` level stands for, or 0."""
+    if token == lex.T_PLUS:
+        return fold.ADD
+    if token == lex.T_MINUS:
+        return fold.SUB
+    if token == lex.T_BAR:
+        return fold.BOR
+    if token == lex.T_CARET:
+        return fold.BXOR
+    return 0
+
+
+def relation_operator(token):
+    """The comparison a token stands for, or 0."""
+    if token == lex.T_EQ:
+        return fold.EQ
+    if token == lex.T_NE:
+        return fold.NE
+    if token == lex.T_LT:
+        return fold.LT
+    if token == lex.T_GE:
+        return fold.GE
+    if token == lex.T_GT:
+        return fold.GT
+    if token == lex.T_LE:
+        return fold.LE
+    return 0
+
+
+def apply(op, line, col):
+    """Do the operator `op`, which was at `line`, `col`, on the two newest operands. Operands
+    of the wrong type are reported there."""
+    err.position(line, col)
+    if op >= fold.EQ:
+        gen.compare(op)
+    else:
+        gen.binary(op)
+    err.position(lex.line, lex.col)
+
+
+def term():
+    """term = factor { ( "*" | "/" | "mod" | "&" | "<<" | ">>" ) factor }."""
+    factor()
+    op = term_operator(lex.tok)
+    while op != 0:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        factor()
+        apply(op, line, col)
+        op = term_operator(lex.tok)
+
+
+def addition():
+    """sum = term { ( "+" | "-" | "|" | "^" ) term }."""
+    term()
+    op = sum_operator(lex.tok)
+    while op != 0:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        term()
+        apply(op, line, col)
+        op = sum_operator(lex.tok)
+
+
+def relation():
+    """relation = sum [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) sum ]."""
+    addition()
+    op = relation_operator(lex.tok)
+    if op != 0:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        gen.as_value()             # a `bool` on the left cannot wait in the flags
+        addition()
+        apply(op, line, col)
+
+
+def inverse():
+    """notExpr = "not" notExpr | relation."""
+    if lex.tok != lex.T_NOT:
+        relation()
+        return
+    line = lex.line
+    col = lex.col
+    lex.next()
+    inverse()
+    err.position(line, col)
+    gen.invert()
+    err.position(lex.line, lex.col)
+
+
+def test_operator(wanted, line, col, is_left):
+    """One side of the `and` (`wanted` True) or `or` (False) at `line`, `col` is complete."""
+    err.position(line, col)
+    if is_left:
+        gen.test_left(wanted)
+    else:
+        gen.test_right()
+    err.position(lex.line, lex.col)
+
+
+def both():
+    """andExpr = notExpr { "and" notExpr }. The right side is reached only if the left is true."""
+    inverse()
+    while lex.tok == lex.T_AND:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        test_operator(True, line, col, True)
+        inverse()
+        test_operator(True, line, col, False)
+
+
+def expression():
+    """expression = andExpr { "or" andExpr }. Its operand is left on GEN's stack: a constant,
+    a variable, a value in the registers, a Condition, or GEN's pending operation."""
+    both()
+    while lex.tok == lex.T_OR:
+        line = lex.line
+        col = lex.col
+        lex.next()
+        test_operator(False, line, col, True)
+        both()
+        test_operator(False, line, col, False)
+
+
+def results_expression():
+    """An expression after `return` in a function that gives a value and a status: a call
+    that gives both may be all of it. `passed` then tells where that call ended."""
+    global passing, passed
+    passed = reg.NONE
+    passing = True
+    expression()
+    passing = False
+
+
+# ---- Constants ---------------------------------------------------------------------------
+
+def constant(t):
+    """constExpr: an expression that is known now. Unless `t` is typetab.NO_TYPE it must be
+    one a `t` can be given, and takes that type. The constant is left on the stack."""
+    line = lex.line
+    col = lex.col
+    expression()
+    err.position(line, col)
+    gen.as_value()
+    if reg.op_kind[reg.depth - 1] != reg.O_CONST:
+        err.fatal(err.E_NOT_CONST)
+    if t != typetab.NO_TYPE:
+        reg.assignable(reg.depth - 1, t)
+    err.position(lex.line, lex.col)
+
+
+def constant_number():
+    """constExpr where a number that is not below zero is wanted, as for an address. Returns
+    its value."""
+    line = lex.line
+    col = lex.col
+    constant(typetab.NO_TYPE)
+    i = reg.depth - 1
+    err.position(line, col)
+    if reg.op_type[i] == typetab.BOOL_TYPE:
+        err.fatal(err.E_TYPE)
+    if typetab.is_signed(reg.op_type[i]) and reg.op_value[i] >= 0x8000:
+        err.fatal(err.E_RANGE)
+    err.position(lex.line, lex.col)
+    reg.pop()
+    return reg.op_value[i]

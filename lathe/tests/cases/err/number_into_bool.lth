@@ -1,0 +1,6 @@
+; error 44 5 8
+module number_into_bool
+var ok: bool
+func f()
+  ok = 1
+end

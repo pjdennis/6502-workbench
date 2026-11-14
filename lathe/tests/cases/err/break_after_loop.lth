@@ -1,0 +1,8 @@
+; error 55 7 3
+module break_after_loop
+func f()
+  loop
+    break
+  end
+  break
+end

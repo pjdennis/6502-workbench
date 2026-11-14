@@ -1,0 +1,6 @@
+; error 43 5 9
+module operand_out_of_range
+var n: byte
+func f()
+  n = n + 256
+end

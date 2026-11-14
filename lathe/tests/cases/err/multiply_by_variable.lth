@@ -1,0 +1,6 @@
+; error 54 5 9
+module multiply_by_variable
+var n: byte
+func f()
+  n = n * n
+end

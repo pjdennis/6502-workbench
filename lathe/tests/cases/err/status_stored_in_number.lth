@@ -1,0 +1,10 @@
+; error 44 9 10
+module status_stored_in_number
+var n: byte
+var m: byte
+func g(): byte, bool
+  return 0, true
+end
+func f()
+  n, m = g()
+end

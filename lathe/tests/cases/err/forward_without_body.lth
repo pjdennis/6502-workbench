@@ -1,0 +1,6 @@
+; error 58 7 1
+module forward_without_body
+forward func f()
+func g()
+  f()
+end

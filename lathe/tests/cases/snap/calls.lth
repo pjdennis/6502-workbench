@@ -1,0 +1,81 @@
+; Calls (docs/codegen.md, "Calls"): arguments go straight into the callee's slots.
+module calls
+
+import host
+
+extern func port_out(value: byte in a, port: byte in x) at $FF00
+extern func block(address: word in ax, count: byte in y, clear: bool in c) at $FF03
+extern func ticks(): word in xy at $FF06
+
+var a: byte
+var b: byte
+var w: word
+var r: byte
+
+func one(n: byte)
+  r = n
+end
+
+func three(p: byte, q: word, on: bool)
+  r = p
+  w = q
+end
+
+func double(n: byte): byte
+  return n + n
+end
+
+func sum(p: word, q: word): word
+  return p + q
+end
+
+; each argument is evaluated with the parameter as its destination
+func arguments()
+  one(5)
+  one(a)
+  one(a + b)
+  three(a, w + 1, a < b)
+  three(1, a, true)
+end
+
+; a call inside an argument, after the first: the linker is told whose arguments wait
+func nested()
+  one(double(a))
+  three(a, sum(w, 1), false)
+  r = double(double(a)) + double(b)
+end
+
+; a result is in A, or in A and X
+func results()
+  r = double(a)
+  w = sum(w, w)
+  w = double(a)
+  r = double(a) + 1
+  if double(a) == 4 then
+    r = 0
+  end
+end
+
+; a value in A is stored in a temporary before the next call
+func kept()
+  r = double(a) + double(b)
+  r = a + double(b)
+end
+
+; register arguments: the carry first, then Y, X and A
+func externs()
+  port_out(1, 2)
+  port_out(a, b)
+  port_out(a + 1, b)
+  port_out(a, b + 1)
+  block(w, a, true)
+  block($1234, 0, a == b)
+  host.put_byte(a + '0')
+  w = ticks()
+end
+
+; a call that a return follows is a jump
+func last()
+  one(1)
+  one(2)
+end

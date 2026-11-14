@@ -1,0 +1,6 @@
+; error 20 5 4
+module name_alone
+var n: byte
+func f()
+  n
+end

@@ -1,0 +1,83 @@
+; Conversions and the type rules (docs/language.md, "Type rules").
+module convert
+
+var b: byte
+var c: byte
+var s: sbyte
+var w: word
+var i: int
+var f: bool
+
+func word_result(): word
+  return w
+end
+
+; narrowing keeps the low byte: of a variable that costs nothing
+func narrowing()
+  b = byte(w)
+  b = lo(w)
+  b = hi(w)
+  b = byte(i)
+  s = sbyte(w)
+  b = byte(word_result())
+  b = hi(word_result())
+end
+
+func i_as_word(): word
+  return word(i)
+end
+
+; of an operation, only the low byte is computed
+func narrowed_operations()
+  b = byte(w + 1)
+  b = byte(w - i_as_word())
+  b = byte(w & $0FF0)
+end
+
+; a byte widens to a word by itself, and to any wider type when asked: a zero high byte
+func widening()
+  w = b
+  w = word(b)
+  i = int(b)
+  w = b + c
+  w = word(b) + c
+end
+
+; a signed byte keeps its sign when it is made wider
+func sign_extension()
+  i = int(s)
+  i = int(s) + 1
+  w = word(s)
+end
+
+; the same size: only the type changes
+func reinterpreting()
+  s = sbyte(b)
+  b = byte(s)
+  i = int(w)
+  w = word(i)
+end
+
+; a `bool` is 0 or 1 as a number; a number is true when it is not 0
+func bools()
+  b = byte(f)
+  b = byte(b < c)
+  w = word(f)
+  f = bool(b)
+  f = bool(w)
+  if bool(b & 1) then
+    c = 0
+  end
+end
+
+; signed and unsigned do not mix without a conversion
+func mixing()
+  i = i + int(b)
+  w = w + word(i)
+  if int(w) < i then
+    b = 0
+  end
+  if s < sbyte(b) then
+    b = 1
+  end
+end

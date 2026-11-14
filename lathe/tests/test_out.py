@@ -53,20 +53,31 @@ class OutTest(unittest.TestCase):
 
     def test_symbols_are_numbered_from_zero_and_named_module_dot_name(self):
         out.begin_module(0, name(b'hello'))
-        first = out.symbol(out.SYM_FUNCTION, name(b'hello'), name(b'main'))
-        second = out.symbol(out.SYM_VARIABLE, name(b'util'), name(b'count'))
+        first = out.symbol(out.SYM_FUNCTION, name(b'hello'), 0, name(b'main'))
+        second = out.symbol(out.SYM_VARIABLE, name(b'util'), 0, name(b'count'))
         self.assertEqual((first, second), (0, 1))
         self.assertEqual(self.written()[1:3],
                          [(SYM, b'\x01\x0ahello.main'), (SYM, b'\x02\x0autil.count')])
 
+    def test_a_static_variable_is_named_module_dot_function_dot_name(self):
+        out.begin_module(0, name(b'm'))
+        self.assertEqual(out.symbol(out.SYM_VARIABLE, name(b'm'), name(b'f'), name(b'seen')), 0)
+        self.assertEqual(self.written()[1], (SYM, b'\x02\x08m.f.seen'))
+
+    def test_a_variable_record_has_size_class_weight_and_no_flags(self):
+        out.begin_module(0, name(b'm'))
+        v = out.symbol(out.SYM_VARIABLE, name(b'm'), 0, name(b'count'))
+        out.variable(v, 2, 0, 37)
+        self.assertEqual(self.written()[2], (4, b'\x00\x00\x02\x00\x00\x25\x00'))
+
     def test_a_function_is_its_records_in_the_order_the_linker_reads_them(self):
         out.begin_module(0, name(b'm'))
-        f = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'f'))
-        g = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'g'))
+        f = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
+        g = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'g'))
         fbuf.op_fix(0x20, fbuf.FIX_ADDRESS, f, fbuf.NO_SLOT, 0)
         fbuf.op_fix(0x8D, fbuf.FIX_ADDRESS, g, 0, 1)
         fbuf.op(0x60)
-        fbuf.finish(g)
+        fbuf.finish(g, 0)
         out.call(f, 0, out.NO_OUTER)
         out.function_begin(g, out.FUNC_EXPORTED)
         out.slot(2, 1, 9, 0, name(b'p'))
@@ -85,9 +96,9 @@ class OutTest(unittest.TestCase):
 
     def test_a_function_with_no_calls_or_fix_ups_still_has_fix_and_code_records(self):
         out.begin_module(0, name(b'm'))
-        f = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'f'))
+        f = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
         fbuf.op(0x60)
-        fbuf.finish(f)
+        fbuf.finish(f, 0)
         out.function_begin(f, 0)
         out.function_end()
         self.assertEqual(self.written()[2:],
@@ -95,8 +106,8 @@ class OutTest(unittest.TestCase):
 
     def test_the_same_call_is_recorded_once_and_calls_do_not_leak_into_the_next_function(self):
         out.begin_module(0, name(b'm'))
-        f = out.symbol(out.SYM_FUNCTION, name(b'm'), name(b'f'))
-        fbuf.finish(f)
+        f = out.symbol(out.SYM_FUNCTION, name(b'm'), 0, name(b'f'))
+        fbuf.finish(f, 0)
         out.call(5, 0, out.NO_OUTER)
         out.call(6, 0, out.NO_OUTER)
         out.call(5, 0, out.NO_OUTER)

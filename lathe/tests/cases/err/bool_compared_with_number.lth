@@ -1,0 +1,7 @@
+; error 44 5 8
+module bool_compared_with_number
+var a: bool
+func f()
+  if a == 1 then
+  end
+end

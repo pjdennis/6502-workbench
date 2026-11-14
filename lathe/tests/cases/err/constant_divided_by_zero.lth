@@ -1,0 +1,3 @@
+; error 59 3 14
+module constant_divided_by_zero
+const N = 10 / 0

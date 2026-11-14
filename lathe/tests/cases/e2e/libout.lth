@@ -1,0 +1,90 @@
+; Printing for the end-to-end cases: bytes and words in hexadecimal, words in decimal, bools.
+; (A module whose name starts with `lib` is not a case itself: lathe/tests/test_cases.py.)
+module libout
+
+import host
+
+pub func nl()
+  host.put_byte(10)
+end
+
+pub func space()
+  host.put_byte(' ')
+end
+
+pub func char(c: byte)
+  host.put_byte(c)
+end
+
+func digit(n: byte)
+  if n < 10 then
+    host.put_byte('0' + n)
+  else
+    host.put_byte('A' - 10 + n)
+  end
+end
+
+; two hexadecimal digits
+pub func hex(b: byte)
+  digit(b >> 4)
+  digit(b & 15)
+end
+
+; four hexadecimal digits
+pub func hexw(w: word)
+  hex(hi(w))
+  hex(lo(w))
+end
+
+; T or F
+pub func truth(f: bool)
+  if f then
+    host.put_byte('T')
+  else
+    host.put_byte('F')
+  end
+end
+
+; the next power of ten below `place`: there is no division yet
+func lower(place: word): word
+  if place == 10000 then
+    return 1000
+  elif place == 1000 then
+    return 100
+  elif place == 100 then
+    return 10
+  end
+  return 1
+end
+
+; a word in decimal, without leading zeros
+pub func dec(n: word)
+  var place: word = 10000
+  var d: byte
+  var started: bool = false
+  loop
+    d = 0
+    while n >= place do
+      n -= place
+      d += 1
+    end
+    if d != 0 or started or place == 1 then
+      host.put_byte('0' + d)
+      started = true
+    end
+    if place == 1 then
+      break
+    end
+    place = lower(place)
+  end
+end
+
+; an int in decimal, with its sign
+pub func sdec(n: int)
+  if n < 0 then
+    host.put_byte('-')
+    dec(word(-n))
+  else
+    dec(word(n))
+  end
+end

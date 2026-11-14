@@ -1,0 +1,74 @@
+; Assignment and compound assignment (docs/codegen.md, "Bytes" and "Words").
+module assign
+
+var a: byte
+var b: byte
+var w: word
+var v: word
+var port: byte at $D020
+var low: byte at $80
+
+func plain()
+  a = b
+  w = v
+  w = a
+  a = 7
+  w = $1234
+  w = $0707
+end
+
+; adding or subtracting 1 where the destination is the left operand: INC and DEC
+func by_one()
+  a += 1
+  a -= 1
+  a = a + 1
+  a = 1 + a
+  w += 1
+  w -= 1
+end
+
+func bytes()
+  a += b
+  a -= b
+  a &= $0F
+  a |= b
+  a ^= $FF
+  a += 2
+end
+
+; a byte added to a word: an 8-bit add, then the carry
+func words()
+  w += v
+  w += a
+  w -= a
+  w += 300
+  w &= $00FF
+  w |= $8000
+end
+
+; the right side was computed: it is in A, and the operator commutes
+func computed()
+  a += b & 3
+  a -= b & 3
+  w += v & $0F0F
+end
+
+; `lo` and `hi` of a variable are variables
+func halves()
+  lo(w) = a
+  hi(w) = 0
+  a = hi(w)
+  hi(w) += 1
+  b = lo(w) + hi(v)
+end
+
+; a fixed address: absolute, or zero page below $100, and never remembered
+func fixed()
+  port = 1
+  port = 1
+  a = port
+  b = port
+  low = a
+  low += 1
+  port |= $80
+end

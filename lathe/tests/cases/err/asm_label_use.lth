@@ -1,4 +1,4 @@
-; error 54 6 9
+; error 141 6 9
 module asm_label_use
 pub func main()
   asm

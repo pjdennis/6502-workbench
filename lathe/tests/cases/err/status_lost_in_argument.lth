@@ -1,0 +1,11 @@
+; error 56 10 12
+module status_lost_in_argument
+func g(): byte, bool
+  return 0, true
+end
+func h(a: byte): byte, bool
+  return a, true
+end
+func f(): byte, bool
+  return h(g())
+end

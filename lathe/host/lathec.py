@@ -10,6 +10,7 @@ and the order in which the components start.
 import decl
 import env
 import err
+import expr
 import gen
 import kernel
 import lex
@@ -71,6 +72,7 @@ def init():
     lex.init()
     out.init()
     gen.init()
+    expr.init()
     decl.init()
 
 

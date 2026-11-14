@@ -18,8 +18,9 @@ SBYTE_TYPE = 2
 WORD_TYPE = 3
 INT_TYPE = 4
 BOOL_TYPE = 5
-NUMBER_TYPE = 6              # a number written in the source, which takes the type its place needs
-FIRST_MADE = 7
+NUMBER_TYPE = 6            # a number of no type yet, zero or above: it takes the type its place needs
+NEGATIVE_TYPE = 7          # the same, below zero: held as 16 bits in two's complement
+FIRST_MADE = 8
 
 FORM_BASIC = 0
 FORM_POINTER = 1        # base: the type pointed to
@@ -71,12 +72,41 @@ def is_number(t):
     return t == BYTE_TYPE or t == SBYTE_TYPE or t == WORD_TYPE or t == INT_TYPE
 
 
-def number_fits(value, t):
-    """True if the number `value`, as written in the source, can be a `t`."""
+def is_untyped(t):
+    """True for a constant that has not taken a type yet."""
+    return t == NUMBER_TYPE or t == NEGATIVE_TYPE
+
+
+def is_signed(t):
+    """True for the types whose values can be below zero. Such a constant is held sign-extended
+    to 16 bits, whatever its size."""
+    return t == SBYTE_TYPE or t == INT_TYPE or t == NEGATIVE_TYPE
+
+
+def limit(t):
+    """The largest value of number type `t`."""
     if t == BYTE_TYPE:
-        return value <= 0xFF
+        return 0xFF
     if t == SBYTE_TYPE:
-        return value <= 0x7F
+        return 0x7F
     if t == INT_TYPE:
-        return value <= 0x7FFF
-    return t == WORD_TYPE
+        return 0x7FFF
+    return 0xFFFF
+
+
+def number_fits(value, negative, t):
+    """True if the untyped number `value`, which is below zero if `negative`, can be a `t`."""
+    if negative:
+        return t == INT_TYPE or (t == SBYTE_TYPE and value >= 0xFF80)
+    return is_number(t) and value <= limit(t)
+
+
+def narrow(value, t):
+    """`value` cut to what a `t` holds: the low byte for the one-byte types, with the sign
+    carried up to 16 bits for `sbyte`."""
+    if size(t) == 2:
+        return value & 0xFFFF
+    value = value & 0xFF
+    if t == SBYTE_TYPE and value >= 0x80:
+        value = value | 0xFF00
+    return value

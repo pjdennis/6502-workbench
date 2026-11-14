@@ -1,0 +1,6 @@
+; error 44 5 7
+module negated_bool
+var a: bool
+func f()
+  a = -a
+end

@@ -1,0 +1,8 @@
+; error 30 7 3
+module loop_without_end
+var n: byte
+func f()
+  loop
+    n += 1
+  else
+end

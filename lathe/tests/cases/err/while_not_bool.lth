@@ -1,0 +1,7 @@
+; error 44 5 9
+module while_not_bool
+var n: byte
+func f()
+  while n + 1 do
+  end
+end

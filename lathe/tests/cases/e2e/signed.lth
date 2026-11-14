@@ -1,0 +1,167 @@
+; Signed types and conversions: negative constants, negation, sign extension, shifts that
+; keep the sign, and what each conversion does to a value.
+module signed
+
+import libout
+
+const LOWEST = -128
+const BELOW = LOWEST - 1
+
+var s: sbyte
+var t: sbyte
+var i: int
+var j: int
+var b: byte
+var w: word
+
+func pick(n: byte): sbyte
+  if n == 0 then
+    return 0
+  elif n == 1 then
+    return 1
+  elif n == 2 then
+    return 127
+  elif n == 3 then
+    return -128
+  elif n == 4 then
+    return -2
+  end
+  return -1
+end
+
+func show(n: int)
+  libout.sdec(n)
+  libout.space()
+end
+
+; sign extension, and arithmetic that wraps as a byte does
+func bytes()
+  var n: byte = 0
+  var m: byte
+  while n < 6 do
+    s = pick(n)
+    show(int(s))
+    show(int(-s))
+    show(int(~s))
+    show(int(s + 1))
+    show(int(s - 1))
+    show(int(s >> 1))
+    show(int(s >> 3))
+    show(int(s << 1))
+    show(int(s * 4))
+    m = 0
+    while m < 6 do
+      t = pick(m)
+      show(int(s + t))
+      show(int(s - t))
+      m += 1
+    end
+    libout.nl()
+    n += 1
+  end
+end
+
+; 16-bit signed arithmetic
+func ints()
+  var n: byte = 0
+  while n < 6 do
+    i = int(pick(n))
+    j = i * 256
+    show(j)
+    show(-j)
+    show(j + i)
+    show(j - 1)
+    show(j >> 1)
+    show(j >> 4)
+    show(j >> 8)
+    show(j >> 15)
+    show(i - j)
+    show(~j)
+    show(j + 1000)
+    show(j - 1000)
+    libout.nl()
+    n += 1
+  end
+end
+
+; a shift count in a variable keeps the sign too
+func variable_shifts()
+  var n: byte = 0
+  s = -100
+  t = 100
+  while n < 9 do
+    show(int(s >> n))
+    show(int(t >> n))
+    show(int(s << n))
+    n += 1
+  end
+  libout.nl()
+end
+
+; what each conversion does
+func conversions()
+  w = $1280
+  i = -2
+  s = -3
+  b = $90
+  libout.hex(byte(w))
+  libout.space()
+  libout.hex(byte(i))
+  libout.space()
+  libout.hex(byte(s))
+  libout.space()
+  show(int(sbyte(w)))
+  show(int(sbyte(b)))
+  show(int(b))
+  libout.hexw(word(s))
+  libout.space()
+  libout.hexw(word(i))
+  libout.space()
+  libout.hexw(word(b))
+  libout.space()
+  show(int(w))
+  show(int(word(i) + 3))
+  show(int(byte(i) + 3))
+  libout.hex(byte(s == -3))
+  libout.hex(byte(s > 0))
+  libout.space()
+  libout.truth(bool(b))
+  libout.truth(bool(byte(w) - $80))
+  libout.truth(bool(w & $FF00))
+  libout.truth(bool(i + 2))
+  libout.nl()
+end
+
+; constants: folded exactly, then fitted to the type they are given to
+func constants()
+  show(LOWEST)
+  show(BELOW)
+  show(-32768)
+  show(32767)
+  show(-(-5))
+  show(7 - 10)
+  show(-7 / 2)
+  show(-7 mod 2)
+  show(-1 >> 1)
+  show(-4 * 3)
+  show(~0)
+  show(~-1)
+  show($7FFF & -2)
+  show(-256 | 15)
+  s = -128
+  show(int(s))
+  s = 127
+  show(int(s))
+  i = -32768
+  show(i)
+  show(i + 32767)
+  libout.nl()
+end
+
+pub func main()
+  bytes()
+  ints()
+  variable_shifts()
+  conversions()
+  constants()
+end
