@@ -1,0 +1,240 @@
+; Files on emulated Wendy 2 run with `--disk DIR` (lathe/env/wendy2disk.env), through the
+; emulator's file ports at $F800-$F80F (emulator/chips/syscall_ports.h), with the interface of
+; the functions of lathe/rt/host.lth that lathe/src/sys.lth uses: the same names, parameters,
+; results and registers, so that sys can choose between the two modules with `#if DISK`.
+; lathe/docs/boards.md, "Wendy 2 with files", has the recipe.
+;
+; The ports. A file name is written to $F800 a byte at a time ($F801 clears it). Reading $F802
+; opens the file named for reading, $F803 creates it for writing; each gives a handle, 1 to 16,
+; or 0 if it failed, and makes it the current handle. $F804 selects the current handle; $F805
+; reads a byte from it (0 at the end); $F806 gives bit 7 set at the end of the file, and then
+; rewinds it; $F807 writes a byte; $F808 closes it. The ports are in fixed RAM, so they are
+; reached from every bank.
+;
+; How this module does without what the ports lack (lathe/docs/configurations.md, section 1):
+;
+;   | The ports                          | Here                                               |
+;   |------------------------------------|----------------------------------------------------|
+;   | one current handle                 | every read, write and close selects its handle    |
+;   |                                    | first: up to 16 files open at once, as on the      |
+;   |                                    | default machine                                    |
+;   | $F805 gives 0 at the end           | read tests $F806 first, and sets the carry there   |
+;   | $F806 rewinds the file at the end  | read remembers, for each handle, that the file     |
+;   |                                    | ended; after that it gives the end without asking  |
+;   |                                    | the ports, so a stream that ended stays ended      |
+;   | no command line                    | the arguments are the lines of the file `args`,    |
+;   |                                    | read when argc or argv is first called             |
+;   | no output or error stream          | put_byte writes to the file `out`, put_error to    |
+;   |                                    | `errors`, each created at its first byte           |
+;   | no exit status ($F80F's code is    | exit writes its code in decimal and a line feed to |
+;   | not the emulator's status)         | the file `status`, then stops with STP             |
+;
+; Where it differs from host.lth: there is no read_byte (no standard input); a handle given to
+; read, write or close must be one that open or open_out gave; the arguments are at most
+; MAX_ARGS lines with ARGS_SIZE bytes of text in all, and what does not fit is dropped; exit
+; closes every handle of the ports, which includes the files sys has open.
+module disk
+
+var port_name: byte at $F800        ; write: the next byte of a file name
+var port_clear: byte at $F801       ; write: start a new file name
+var port_open_in: byte at $F802     ; read: open the file named for reading -> handle or 0
+var port_open_out: byte at $F803    ; read: create the file named for writing -> handle or 0
+var port_select: byte at $F804      ; write: the current handle
+var port_read: byte at $F805        ; read: the next byte of the current file (0 at the end)
+var port_end: byte at $F806         ; read: bit 7 set at the end of the file (which rewinds it)
+var port_write: byte at $F807       ; write: a byte to the current file
+var port_close: byte at $F808       ; write: close the current file
+
+const MAX_HANDLE = 16               ; the ports' handles are 1 to 16
+const AT_END: byte = $80            ; port_end's bit
+
+var ended: [MAX_HANDLE + 1]bool     ; the file of this handle has given its end
+var out_file: byte = 0              ; the handle of `out`, 0 until the first put_byte
+var error_file: byte = 0            ; the handle of `errors`
+
+; Send the zero-terminated name at p to the ports.
+func send_name(p: ^byte)
+  var i: byte
+  port_clear = 0
+  i = 0
+  while p[i] != 0 do
+    port_name = p[i]
+    i += 1
+  end
+end
+
+; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
+pub func open(name: ^byte): byte
+  var h: byte
+  send_name(name)
+  h = port_open_in
+  ended[h] = false                  ; ended[0] is never read
+  return h
+end
+
+; Create the file named at p for writing. Returns a handle, or 0.
+pub func open_out(name: ^byte): byte
+  send_name(name)
+  return port_open_out
+end
+
+pub func close(handle: byte)
+  port_select = handle
+  port_close = 0
+end
+
+; The next byte of the file and false, or true at the end of the file (when the byte is 0).
+pub func read(handle: byte): byte, bool
+  port_select = handle
+  if ended[handle] then
+    return 0, true
+  end
+  if port_end & AT_END != 0 then
+    ended[handle] = true
+    return 0, true
+  end
+  return port_read, false
+end
+
+pub func write(ch: byte, handle: byte)
+  port_select = handle
+  port_write = ch
+end
+
+; One byte to standard output: the file `out`.
+pub func put_byte(ch: byte)
+  if out_file == 0 then
+    out_file = open_out("out")
+  end
+  write(ch, out_file)
+end
+
+; One byte to the error output: the file `errors`.
+pub func put_error(ch: byte)
+  if error_file == 0 then
+    error_file = open_out("errors")
+  end
+  write(ch, error_file)
+end
+
+; ---- Arguments: the lines of the file `args` -----------------------------------------------
+
+const MAX_ARGS = 16
+const ARGS_SIZE = 256               ; bytes of text, each argument's terminating zero included
+const LF: byte = 10
+const CR: byte = 13
+
+var arg_text: [ARGS_SIZE]byte       ; the arguments, each followed by a zero
+var arg_start: [MAX_ARGS]byte       ; where each starts in arg_text
+var arg_count: byte = 0
+var args_read: bool = false
+
+; Read the file `args`: each line is an argument (a carriage return before the line feed is
+; dropped); a last line without a line feed counts if it is not empty. No file: no arguments.
+func read_args()
+  var h: byte
+  var ch: byte
+  var top: byte                     ; the next free byte of arg_text
+  var full: bool                    ; the last byte holds the zero of an argument
+  var line: bool                    ; an argument has been started
+  args_read = true
+  arg_count = 0
+  h = open("args")
+  if h == 0 then
+    return
+  end
+  top = 0
+  full = false
+  line = false
+  loop
+    if read(h) -> ch then
+      break
+    end
+    if not line then
+      if arg_count == MAX_ARGS or full then
+        break                       ; the rest is dropped
+      end
+      arg_start[arg_count] = top
+      arg_count += 1
+      line = true
+    end
+    if ch == LF then
+      arg_text[top] = 0
+      if top == ARGS_SIZE - 1 then
+        full = true
+      else
+        top += 1
+      end
+      line = false
+    elif ch != CR and top < ARGS_SIZE - 1 then
+      arg_text[top] = ch
+      top += 1
+    end
+  end
+  if line then
+    arg_text[top] = 0
+  end
+  close(h)
+end
+
+; Number of program arguments.
+pub func argc(): byte
+  if not args_read then
+    read_args()
+  end
+  return arg_count
+end
+
+; A pointer to argument i, a zero-terminated string; an empty string if there is no such
+; argument.
+pub func argv(i: byte): ^byte
+  if not args_read then
+    read_args()
+  end
+  if i >= arg_count then
+    return ""
+  end
+  return @arg_text + arg_start[i]
+end
+
+; ---- The end -------------------------------------------------------------------------------
+
+; STP ($DB), which only the 65C02 has. `asm` has no 65C02 instructions and no directive for a
+; byte, so the instruction is a constant, and stop() jumps to it.
+const STP_CODE: [1]byte = [$DB]
+
+asm func stop()
+  JMP STP_CODE
+end
+
+; End the program with status `code`: close every file, write the status to the file `status`
+; in decimal with a line feed, and stop. Does not return.
+pub func exit(code: byte)
+  var h: byte
+  var hundreds: byte
+  var tens: byte
+  for h = 1 to MAX_HANDLE do
+    close(h)                        ; closing a handle that is not open does nothing
+  end
+  hundreds = '0'                    ; the digits by subtraction: no division to link
+  while code >= 100 do
+    code -= 100
+    hundreds += 1
+  end
+  tens = '0'
+  while code >= 10 do
+    code -= 10
+    tens += 1
+  end
+  h = open_out("status")
+  if hundreds != '0' then
+    write(hundreds, h)
+  end
+  if hundreds != '0' or tens != '0' then
+    write(tens, h)
+  end
+  write('0' + code, h)
+  write(LF, h)
+  close(h)
+  stop()
+end

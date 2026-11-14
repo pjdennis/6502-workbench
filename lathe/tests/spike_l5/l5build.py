@@ -14,6 +14,15 @@ default machine. From that the builder
   to each other's addresses);
 - writes the fixed image and one file per bank or overlay.
 
+The configurations in LATHE_CONFIGS (stage 11, step 3: lathe/tests/test_farcall.py) take the
+far-call routine from lathe/rt/rt_bank.lth or rt_ovl.lth instead of rt_bank.s or rt_ovl.s:
+lathe_part() compiles lathe/tests/spike_l5/l5main.lth with that module and links it with the
+real linker at LATHE_ORG; the spike's fixed image then starts with JMP LATHE_ORG (the Lathe
+start-up code, which sets the initial values and calls l5main.main), JMP m_main (which
+l5main.main calls) and the address of the table that start() reads, and names the routine's
+entry from the Lathe part's map. The table (`$banks` or `$overlays`, lathe/docs/configurations.md,
+"The tables") is written here, by hand, as the stage 11 linker will write it.
+
 Run as a program it prints the measurements: python3 lathe/tests/spike_l5/l5build.py
 """
 import os
@@ -26,9 +35,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 EMULATOR = os.path.join(ROOT, 'emulator', 'emulator.out')
 sys.path.insert(0, os.path.join(ROOT, 'asm'))
+sys.path.insert(0, os.path.join(ROOT, 'lathe', 'host', 'driver'))
 
+import build as lathe_build  # noqa: E402
 import pyasm  # noqa: E402
 
+COMPILER = lathe_build.COMPILER
 FIXED_ORG = 0x0400
 WINDOW_ORG = 0x8000
 
@@ -40,7 +52,25 @@ CONFIGS = {
     'bank-wendy2': ('wendy2', {'a': 0x11, 'b': 0x12}, 'rt_bank.s', ['HAS_TIMER']),
     'bankfast-wendy2': ('wendy2', {'a': 0x11, 'b': 0x12}, 'rt_bankf.s', ['HAS_TIMER']),
 }
+# The same, with the routine of a Lathe module (the "run-time file" is the module's name).
+LATHE_CONFIGS = {
+    'lbank-wendy2': ('wendy2', {'a': 0x11, 'b': 0x12}, 'rt_bank', ['HAS_TIMER']),
+    'lovl-host': ('host', {'a': 1, 'b': 2}, 'rt_ovl', []),
+}
+ALL_CONFIGS = dict(CONFIGS, **LATHE_CONFIGS)
 FAST_STUBS = {'rt_bankf.s'}     # the run-time files whose stubs make the call themselves
+
+# The Lathe part: linked at LATHE_ORG, its variables at LATHE_DATA and on, its zero page from
+# $40 (the spike's own variables are at $10-$2E and $0200, vars.s).
+LATHE_ORG = 0x4000
+LATHE_DATA = 0x3000
+LATHE_ENV = {
+    'wendy2': ('cpu 65c02\nzeropage $40 $FF\ncode $4000 $7FFF\ndata $3000 $3FFF\nstack $FF\n'
+               'exit stop\noutput raw\n'),
+    'host': ('cpu 6502\nzeropage $40 $FF\ncode $4000 $7FFF\ndata $3000 $3FFF\nstack $FF\n'
+             'exit call $F00F\noutput image\n'),
+}
+_lathe_parts = {}
 MODULE_FILES = {'a': 'mod_a.s', 'b': 'mod_b.s'}
 
 LABEL_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*(?:;.*)?$')
@@ -95,8 +125,82 @@ class Built:
         self.sizes = {}          # image name -> bytes
 
 
-def generated_fixed(machine, place, values, fast):
-    """The part of the fixed image the linker writes: stubs, overlay names, bank loading."""
+class LathePart:
+    """The Lathe part of a LATHE_CONFIGS build: its image, and from its map each name's
+    address and size (F, D and V lines)."""
+
+    def __init__(self, image, addr, size):
+        self.image, self.addr, self.size = image, addr, size
+
+
+def lathe_part(config):
+    """Compiles and links lathe/tests/spike_l5/l5main.lth for a LATHE_CONFIGS configuration
+    (once for each). The overlay configuration defines OVERLAYS, which makes it use rt_ovl."""
+    if config in _lathe_parts:
+        return _lathe_parts[config]
+    machine = LATHE_CONFIGS[config][0]
+    with tempfile.TemporaryDirectory(prefix='l5lathe_') as d:
+        env = os.path.join(d, 'l5%s.env' % machine)
+        with open(env, 'w') as f:
+            f.write(LATHE_ENV[machine])
+        out = os.path.join(d, 'l5main.bin')
+        work = os.path.join(d, 'work')
+        lathe_build.build(os.path.join(HERE, 'l5main.lth'), out, env, keep=work,
+                          defines=['OVERLAYS=%d' % (machine == 'host')])
+        with open(out, 'rb') as f:
+            image = f.read()
+        addr, size = {}, {}
+        with open(os.path.join(work, 'l5main.map')) as f:
+            for line in f:
+                words = line.split()
+                if len(words) >= 4 and words[0] in ('F', 'D', 'V'):
+                    addr[words[3]] = int(words[1], 16)
+                    size[words[3]] = int(words[2], 16)
+    _lathe_parts[config] = LathePart(image, addr, size)
+    return _lathe_parts[config]
+
+
+def lathe_rt(config):
+    """For a LATHE_CONFIGS build: what the spike's main and env files need of a run-time file,
+    in place of rt_bank.s or rt_ovl.s. The routine is the Lathe module's; start() has been called
+    by l5main.main before the spike's main runs, so fc_init does nothing."""
+    machine, _, module, _ = LATHE_CONFIGS[config]
+    part = lathe_part(config)
+    lines = ['fc_call = $%04X' % part.addr[module + '.call'],
+             'fc_init', '    RTS',
+             'fc_report']
+    if machine == 'host':                           # carry set, A and X = the overlay loads
+        count = part.addr['rt_ovl.count']
+        lines += ['    LDA $%04X' % count, '    LDX $%04X' % (count + 1), '    SEC', '    RTS']
+    else:
+        lines += ['    CLC', '    RTS']
+    return '\n'.join(lines) + '\n'
+
+
+LATHE_HEADER = ('    JMP $%04X\n'       # FIXED_ORG: the Lathe part's start-up code
+                '    JMP m_main\n'      # FIXED_ORG + 3: l5main's extern spike()
+                '    .word fc_table\n'  # FIXED_ORG + 6: l5main's variable table
+                % LATHE_ORG)
+
+
+def lathe_table(machine, place):
+    """The table start() reads, as the stage 11 linker is to write it: `$banks` (the window's
+    first address, the number of banks with a file, and for each its register value and the
+    address of its file name) or `$overlays` (the window's first address, the number of
+    overlays, and the address of each one's file name, overlay 1 first)."""
+    banks = [(mod, place[mod]) for mod in ('a', 'b') if place[mod] is not None]
+    lines = ['fc_table', '    .word $%04X' % WINDOW_ORG, '    .byte $%02X' % len(banks)]
+    for i, (_, where) in enumerate(banks, 1):
+        if machine == 'wendy2':
+            lines += ['    .byte $%02X' % where, '    .word fc_n%d' % i]
+        else:
+            lines += ['    .word fc_n%d' % where]
+    return '\n'.join(lines) + '\n'
+
+
+def generated_fixed(machine, place, values, fast, lathe=False):
+    """The part of the fixed image the linker writes: stubs, overlay names, bank loading. With
+    lathe, the table of a LATHE_CONFIGS build instead of the overlay names and bank loading."""
     lines = []
     banks = []
     for mod in ('a', 'b'):
@@ -119,12 +223,14 @@ def generated_fixed(machine, place, values, fast):
                           '    .byte $%02X' % where,
                           '    .word $%04X' % ((real - 1) & 0xFFFF)]
     lines.append('STUBS_END')
-    if machine == 'host' and banks:                 # overlays: file names
+    if lathe:
+        lines.append(lathe_table(machine, place).rstrip('\n'))
+    elif machine == 'host' and banks:               # overlays: file names
         lines.append('ov_nlo')
         lines.append('    .byte $00' + ''.join(',<fc_n%d' % n for _, n in banks))
         lines.append('ov_nhi')
         lines.append('    .byte $00' + ''.join(',>fc_n%d' % n for _, n in banks))
-    if machine == 'wendy2' and banks:               # banks: start-up code loads each file
+    if machine == 'wendy2' and banks and not lathe:     # banks: start-up code loads each file
         lines.append('fc_init')
         for i, (_, value) in enumerate(banks, 1):
             lines += ['    LDA #$%02X' % (value & 0x1F),
@@ -160,12 +266,16 @@ def assemble(text, path, defines):
 def build(config, workdir, defines=(), pad=0):
     """Builds a configuration into workdir. pad adds that many bytes to the end of each module
     in a window, to measure what a load costs per byte."""
-    machine, place, rt, cdefines = CONFIGS[config]
+    machine, place, rt, cdefines = ALL_CONFIGS[config]
+    lathe = config in LATHE_CONFIGS
     defines = list(cdefines) + list(defines)
     out = Built(config, workdir)
     env = read('env_%s.s' % machine)
     vars_text = read('vars.s')
-    fixed_parts = [read('main.s'), env, read(rt)]
+    if lathe:
+        fixed_parts = [LATHE_HEADER + read('main.s'), env, lathe_rt(config)]
+    else:
+        fixed_parts = [read('main.s'), env, read(rt)]
     for mod in ('a', 'b'):
         if place[mod] is None:
             fixed_parts.append(read(MODULE_FILES[mod]))
@@ -176,7 +286,7 @@ def build(config, workdir, defines=(), pad=0):
     for _ in range(6):
         images = {}
         fixed_text = '\n'.join(fixed_parts) + generated_fixed(machine, place, values,
-                                                             rt in FAST_STUBS)
+                                                             rt in FAST_STUBS, lathe)
         images['fixed'] = (FIXED_ORG, fixed_text)
         for m in windows:
             body = read(MODULE_FILES[m])
@@ -215,7 +325,15 @@ def build(config, workdir, defines=(), pad=0):
     for name, (labels, data) in results.items():
         out.symbols[name] = labels
         out.sizes[name] = len(data)
-        if name == 'fixed':
+        if name == 'fixed' and lathe:
+            if FIXED_ORG + len(data) > LATHE_DATA:
+                raise RuntimeError('the spike\'s fixed image runs into the Lathe part\'s variables')
+            part = lathe_part(config).image
+            image = bytearray(LATHE_ORG - FIXED_ORG)
+            image[:len(data)] = data
+            data = bytes(image) + part      # host: the Lathe image runs to $FFFF, its vectors too
+            path = os.path.join(workdir, 'L5FIXED.BIN')
+        elif name == 'fixed':
             if machine == 'host':
                 image = bytearray(0x10000 - FIXED_ORG)
                 image[:len(data)] = data
@@ -238,7 +356,7 @@ CYCLES_WENDY = re.compile(rb'cpu_cycles=(\d+)')
 
 def run(built):
     """Runs a build. Returns (output text, CPU cycles)."""
-    machine = CONFIGS[built.config][0]
+    machine = ALL_CONFIGS[built.config][0]
     fixed = built.files['fixed']
     if machine == 'host':
         cmd = [EMULATOR, fixed, '--output', '-', '--no-dump', '--cycle-cap', '200000000']
@@ -303,7 +421,7 @@ def measure(config):
         r['stubs'] = n
         r['stub'] = (s['STUBS_END'] - s['STUB_a_leaf']) // n
         _, _, padded = run_config(config, ['MEASURE'], PAD)
-        if CONFIGS[config][0] == 'host':
+        if ALL_CONFIGS[config][0] == 'host':
             _, _, padded_mid = run_config(config, ['MEASURE', 'M_MID'], PAD)
             _, _, padded_half = run_config(config, ['MEASURE', 'M_MID', 'HALF'], PAD)
             r['per_byte'] = ((padded_mid - padded_half) / (LOOP // 2) - empty

@@ -205,6 +205,27 @@ class Reports(unittest.TestCase):
                          [image, '--machine', 'wendy2c', '--wendy2-prog', image, '--load', '4000',
                           '--cycle-cap', '4000000', '--exit-report'])
 
+    def test_disk_command(self):
+        image, disk = os.path.join(ROOT, 'x.bin'), os.path.join(ROOT, 'work')
+        board = boards.BOARDS['wendy2disk']
+        self.assertTrue(board.disk)
+        self.assertFalse(boards.BOARDS['wendy2'].disk)
+        self.assertEqual(boards.command(board, image, 0x4000, disk)[1:],
+                         [image, '--machine', 'wendy2c', '--wendy2-prog', image, '--load', '4000',
+                          '--disk', disk, '--cycle-cap', str(board.cycle_cap), '--exit-report'])
+
+    def test_disk_status(self):
+        """The status is the number in the file `status`; 0 when there is none (main returned)."""
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(boards.read_status(d), 0)
+            with open(os.path.join(d, 'status'), 'w') as fh:
+                fh.write('7\n')
+            self.assertEqual(boards.read_status(d), 7)
+            with open(os.path.join(d, 'status'), 'w') as fh:
+                fh.write('seven\n')
+            with self.assertRaisesRegex(boards.RunError, 'status'):
+                boards.read_status(d)
+
     def test_needs_raw_and_stop(self):
         env = mapenv.parse_env(env_text('michael').replace('output    raw', ''), 'michael.env')
         with self.assertRaisesRegex(boards.RunError, 'needs `output raw` and `exit stop`'):
@@ -214,10 +235,15 @@ class Reports(unittest.TestCase):
 class Environments(unittest.TestCase):
     def test_board_environments(self):
         for name, code, data in (('michael', (0x2000, 0x3EFF), (0x0200, 0x1FFF)),
-                                 ('wendy2', (0x4000, 0xEFFF), (0x0200, 0x3FFF))):
+                                 ('wendy2', (0x4000, 0xEFFF), (0x0200, 0x3FFF)),
+                                 ('wendy2disk', (0x4000, 0xEFFF), (0x0200, 0x3FFF))):
             env = mapenv.read_env(os.path.join(ENVS, name + '.env'))
             self.assertEqual((env.cpu, env.zeropage, env.code, env.data, env.stack, env.exit, env.output),
                              (1, (0, 0xFF), code, data, 0xFF, ('stop', None), 'raw'), name)
+
+    def test_disk_environment(self):
+        env = mapenv.read_env(os.path.join(ENVS, 'wendy2disk.env'))
+        self.assertEqual(env.defines, [('BOARD', 2), ('DISK', 1)])
 
     def test_host_environment_is_unchanged(self):
         env = mapenv.read_env(os.path.join(ENVS, 'host.env'))

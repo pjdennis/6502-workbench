@@ -14,6 +14,14 @@
                           both ways, run through build.run_program, and NAME.expected.out holds
                           the text the LCD shows at the STP, one line per row with trailing spaces
                           removed.
+    cases/e2e-wendy2disk/NAME.lth
+                          On Wendy 2 with --disk (lathe/env/wendy2disk.env): run on a directory
+                          that holds a copy of NAME.disk/ (its input files; the arguments in
+                          `args`, one a line). NAME.expected.out holds the file `out` it writes,
+                          NAME.expected.err (if there is one; else nothing) the file `errors`; a
+                          line `; status N` before `module` gives the status it must leave in the
+                          file `status` (default 0), and each line `; same IN OUT` an output file
+                          OUT that must hold exactly the bytes of the input IN.
 
 A case can import modules that lie beside it; one called lib*.lth, or whose first line starts
 with `; imported by`, is only that, and not a case. A comment line `; defines NAME NAME=NUMBER ...` before the `module` line gives the
@@ -48,16 +56,21 @@ def cases(kind):
                   if not os.path.basename(p).startswith('lib') and not _read(p).startswith('; imported by'))
 
 
-def defines(path):
-    """The defines a case asks for: the words of its `; defines` lines before `module`."""
+def headers(path, word):
+    """The words of each of a case's `; WORD ...` lines before `module`, one list per line."""
     found = []
     with open(path) as fh:
         for line in fh:
             if line.startswith('module'):
                 break
-            if line.startswith('; defines '):
-                found += line[len('; defines '):].split()
+            if line.startswith(f'; {word} '):
+                found.append(line[len(f'; {word} '):].split())
     return found
+
+
+def defines(path):
+    """The defines a case asks for: the words of its `; defines` lines before `module`."""
+    return [w for words in headers(path, 'defines') for w in words]
 
 
 def _name(path):
@@ -98,9 +111,13 @@ class TestCases(unittest.TestCase):
         expected = os.path.splitext(source)[0] + '.expected.out'
         image = os.path.join(self.dir, 'default.bin')
         build.build(source, image, env, keep=os.path.join(self.dir, 'default'), defines=defines(source))
-        status, out, err = build.run_program(image, env)
+        if env in DISK:
+            status, out, err = self.run_on_disk(source, image, env)
+        else:
+            status, out, err = build.run_program(image, env)
         self.assertEqual(out, _read(expected, 'rb'), f'{os.path.relpath(source, ROOT)}: output')
-        self.assertEqual(status, 0, f'exit status; error output: {err!r}')
+        want = int(headers(source, 'status')[0][0]) if headers(source, 'status') else 0
+        self.assertEqual(status, want, f'exit status; error output: {err!r}')
         if os.path.isfile(build.LINKER):
             other = os.path.join(self.dir, 'asm.bin')
             build.build(source, other, env, use_asm=True, keep=os.path.join(self.dir, 'asm'),
@@ -109,6 +126,28 @@ class TestCases(unittest.TestCase):
                             'the linker and the assembler path give different images '
                             f'(rebuild with build.py --keep DIR, with and without --asm, to compare)')
 
+
+    def run_on_disk(self, source, image, env):
+        """Runs a case on a disk board: NAME.disk/ holds its input files (its arguments in
+        `args`), copied to the directory it runs on. Afterwards the error output (the file
+        `errors`) must equal NAME.expected.err, or be empty if there is none, and for each line
+        `; same IN OUT` the file OUT it wrote must hold exactly the bytes of the input IN."""
+        base = os.path.splitext(source)[0]
+        disk = os.path.join(self.dir, 'disk')
+        inputs = base + '.disk'
+        if os.path.isdir(inputs):
+            shutil.copytree(inputs, disk)
+        else:
+            os.makedirs(disk)
+        status, out, err = build.run_program(image, env, disk=disk)
+        want_err = _read(base + '.expected.err', 'rb') if os.path.isfile(base + '.expected.err') else b''
+        self.assertEqual(err, want_err, f'{os.path.relpath(source, ROOT)}: error output')
+        for words in headers(source, 'same'):
+            got = os.path.join(disk, words[1])
+            self.assertTrue(os.path.isfile(got), f'{words[1]} was not written')
+            self.assertTrue(_read(got, 'rb') == _read(os.path.join(inputs, words[0]), 'rb'),
+                            f'{words[1]} differs from {words[0]}')
+        return status, out, err
 
     def check_link_error(self, source):
         with open(source) as fh:
@@ -130,7 +169,9 @@ class TestCases(unittest.TestCase):
 
 
 # The end-to-end kinds: case directory -> environment (a board's, for e2e-BOARD).
-E2E = {'e2e': 'host', 'e2e-michael': 'michael', 'e2e-wendy2': 'wendy2'}
+E2E = {'e2e': 'host', 'e2e-michael': 'michael', 'e2e-wendy2': 'wendy2',
+       'e2e-wendy2disk': 'wendy2disk'}
+DISK = {'wendy2disk'}       # the boards whose output is in files (boards.py, `disk`)
 
 
 def _add(kind, check):

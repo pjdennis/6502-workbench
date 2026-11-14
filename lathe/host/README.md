@@ -85,12 +85,12 @@ python3 lathe/host/link.py ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
 Links a program whose entry is `MAINMODULE.main`. Objects are placed in the order given.
 
 ```bash
-python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm] [--define NAME[=NUMBER]]...
+python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm] [--disk DIR] [--define NAME[=NUMBER]]...
 ```
 
 Finds the modules a program imports (in `lathe/rt/` and beside the source; an `import` inside `#if` is found and compiled whatever the condition), and the run-time modules the compiled objects import without an `import` line (an `IMP` record the compiler writes, such as `rt_frame` for a module with calls that save a recursive function's frame; they are compiled after the others and linked last), compiles them in dependency order with `-c` from the environment's `cpu` entry, `-d` for each of its `define` entries and for each `--define`, links, and with `--run` runs the image on the emulator. `--asm` builds the image by the assembler path instead: `lo2asm` renders the objects and the map as asm17 text and `asm/pyasm.py` assembles it.
 
-`--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range.
+`--env NAME` reads `lathe/env/NAME.env` (default `host`). With `--env host`, `--run` runs the image on the emulator's default machine, copies the program's output and exits with the program's status. With `--env michael` or `--env wendy2`, `--run` runs the program on that board (`../docs/boards.md`) and prints the text the LCD shows when it stops: one line per LCD row, trailing spaces removed, and nothing else. A run that reaches the cycle cap without stopping is an error. With `--env wendy2disk`, `--run` runs the program with `--disk` on the directory `--disk DIR` (a temporary one without it), whose file `args` holds the arguments, one a line; it prints the file `out` the program wrote, copies `errors` to the error output and exits with the status in the file `status` (`../docs/boards.md`, "Wendy 2 with files"). What the driver knows about each board (emulator options, cycle cap, how to read the result) is in `driver/boards.py`; the load address is the start of the environment's `code` range.
 
 ## The environment file
 
@@ -126,6 +126,7 @@ Environment files are in `lathe/env/`:
 | `host.env` | The emulator's default machine, with host services (`output image`, `exit call $F00F`). |
 | `michael.env` | Michael, loaded at `$2000` (`output raw`, `exit stop`, `define BOARD 1`). |
 | `wendy2.env` | Wendy 2, loaded at `$4000` (`output raw`, `exit stop`, `define BOARD 2`). |
+| `wendy2disk.env` | Wendy 2 run with `--disk DIR`: the same, and `define DISK 1`. Files through `lathe/rt/disk.lth`. |
 
 `BOARD` is read by `lathe/rt/board.lth`, the source of what the board modules (`via`, `lcd`, `timer`) know about each board (`../docs/boards.md`, "Board modules").
 
@@ -205,6 +206,9 @@ A new error takes the next free number of its group.
 | End to end | `tests/cases/e2e/NAME.lth` | The program's output on the emulator equals `NAME.expected.out`. Built both ways (linker, and assembler path) once the linker exists; the two images must be identical. |
 | Link error | `tests/cases/linkerr/NAME.lth` | The first line is `; link error N`: the program compiles, and `build.py` fails at linking with that error, the linker's message in its own. Each further line before `module` that starts with `; says ` gives text the message must hold. |
 | End to end on a board | `tests/cases/e2e-michael/NAME.lth`, `tests/cases/e2e-wendy2/NAME.lth` | Built with `michael.env` or `wendy2.env`, both ways, with identical files required. The text the board's LCD shows when the program stops equals `NAME.expected.out`: one line per row, trailing spaces removed, and an empty line for an empty row. These use the board modules of `lathe/rt/`; a Wendy 2 case whose source is the Michael one is a link to it. |
+| End to end with files | `tests/cases/e2e-wendy2disk/NAME.lth` | Built with `wendy2disk.env` both ways and run on a directory holding a copy of `NAME.disk/` (its input files; the arguments in `args`). The file `out` it writes equals `NAME.expected.out`, `errors` equals `NAME.expected.err` (or is empty), the status is the `; status N` line before `module` (default 0), and each `; same IN OUT` line names an output that must hold exactly the bytes of input `IN`. |
+| Files on Wendy 2 | `test_disk.py` | `lathe/rt/disk.lth` has the functions of `host.lth` that `sys.lth` uses, with the same types; `sys.lth` with `host` renamed `disk` runs `copytest.lth` on Wendy 2 as `test_src_sys.py` runs it on the default machine. |
+| Far calls | `test_farcall.py` | `lathe/rt/rt_bank.lth` and `rt_ovl.lth`, compiled and linked with `tests/spike_l5/l5main.lth`, with spike L5's program, stubs and tables assembled around them by `spike_l5/l5build.py`: the spike's output banked on Wendy 2 and with overlays on the default machine, its cycles and sizes, and status 255 for a missing bank file. |
 | Boards | `test_boards.py` | Object files built with `lo.Builder` that show `HI` on each board's LCD, linked, built by the assembler path and run as `build.py --run` runs them. |
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
 

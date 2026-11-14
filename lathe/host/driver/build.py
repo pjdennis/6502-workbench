@@ -2,7 +2,8 @@
 """Build (and run) a Lathe program.
 
     python3 lathe/host/driver/build.py SOURCE.lth -o OUT.bin [--env NAME] [--run] [--asm]
-                                       [--naive] [--keep DIR] [--define NAME[=NUMBER]]...
+                                       [--naive] [--keep DIR] [--disk DIR]
+                                       [--define NAME[=NUMBER]]...
 
 1. Finds the modules the program imports: `import NAME` lines; NAME.lth beside SOURCE, then in
    lathe/rt/. Compiles them in dependency order with lathe/host/lathec.py into one directory,
@@ -18,6 +19,10 @@
    the program's output, and the exit status is the program's. With the environment of a board
    (--env michael, --env wendy2; boards.py) it prints the board's LCD, one line per row with
    trailing spaces removed; a run that does not end at the STP of `exit stop` is an error.
+   With --env wendy2disk (Wendy 2 with --disk) it runs the program on the files of the
+   directory --disk DIR (a temporary, empty one without it; the arguments are in its file
+   `args`, one a line), prints the file `out` the program wrote, copies `errors` to the error
+   output, and exits with the status in the file `status` (0 if there is none).
 
 --env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works, and runs
 on the board of the same name, if there is one.
@@ -224,13 +229,27 @@ def run_image(image, args=(), stdin=None):
     return r.returncode, r.stdout, err
 
 
-def run_program(image, env='host', args=(), stdin=None):
+def run_program(image, env='host', args=(), stdin=None, disk=None):
     """Runs an image built for environment env: on its board (boards.py), or else on the
     default machine (run_image). Returns (status, output bytes, error output bytes); a board's
-    output is its LCD text."""
+    output is its LCD text.
+
+    On a disk board (wendy2disk) the program runs on the files of the directory disk (a
+    temporary one if None), which the caller may have filled with input files; args, if any,
+    are written to its file `args`, one a line. The output is the file `out`, the error output
+    the file `errors` and the status the file `status` (boards.run_disk); any other file the
+    program wrote is left in disk for the caller to read."""
     board = boards.board_for(env)
     if board is None:
         return run_image(image, args, stdin)
+    if board.disk:
+        if disk is None:
+            with tempfile.TemporaryDirectory(prefix='lathe-disk-') as d:
+                return run_program(image, env, args, stdin, d)
+        if args:
+            with open(os.path.join(disk, boards.ARGS_FILE), 'wb') as fh:
+                fh.write(b''.join(a.encode('latin-1') + b'\n' for a in args))
+        return boards.run_disk(board, image, mapenv.read_env(env_path(env)), disk)
     text = boards.run(board, image, mapenv.read_env(env_path(env)))
     return 0, text.encode('latin-1'), b''
 
@@ -244,6 +263,8 @@ def main(argv):
     ap.add_argument('--asm', action='store_true', help='build the image by the assembler path')
     ap.add_argument('--naive', action='store_true', help='naive allocation instead of the linker')
     ap.add_argument('--keep', metavar='DIR')
+    ap.add_argument('--disk', metavar='DIR', help='with --env wendy2disk: the directory of '
+                    'the program\'s files, which it reads and writes')
     ap.add_argument('--define', action='append', default=[], metavar='NAME[=NUMBER]',
                     help='a constant for #if, as the environment\'s define entries give')
     a = ap.parse_args(argv)
@@ -251,7 +272,7 @@ def main(argv):
     try:
         work = build(a.source, a.out, a.env, a.asm, a.naive, a.keep, defines=a.define)
         if a.run:
-            status, out, err = run_program(a.out, a.env)
+            status, out, err = run_program(a.out, a.env, disk=a.disk)
             sys.stdout.buffer.write(out)
             sys.stdout.flush()
             sys.stderr.buffer.write(err)

@@ -1,0 +1,26 @@
+; A file that cannot be opened, on Wendy 2 with --disk: a message to the error output (the file
+; `errors`), and the status 20, which disk.exit writes to the file `status`. What was written to
+; the output before is kept.
+; status 20
+module missing
+
+import disk
+
+func put_error_text(p: ^byte)
+  var i: byte
+  i = 0
+  while p[i] != 0 do
+    disk.put_error(p[i])
+    i += 1
+  end
+end
+
+pub func main()
+  disk.put_byte('?')
+  disk.put_byte(10)
+  if disk.open("nothing") == 0 then
+    put_error_text("cannot open nothing\n")
+    disk.exit(20)
+  end
+  disk.put_byte('!')
+end

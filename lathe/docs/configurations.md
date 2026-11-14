@@ -1,6 +1,6 @@
 # Lathe: configurations (stage 11)
 
-Status (2026-11-14): design, after spike L5. Nothing here is built yet, except the spike in `lathe/tests/spike_l5/`. Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
+Status (2026-11-14): design, after spike L5. Built so far: the spike in `lathe/tests/spike_l5/`, and steps 1 and 3 of the order of work (files on Wendy 2, section 1; the far-call run-time modules, section 5). Every number is marked **measured** (by a program in this repository, named) or **estimated** (worked out from measured numbers, with the method given).
 
 A KB here is 1,024 bytes.
 
@@ -44,13 +44,15 @@ The `$F800` ports (`syscall_ports.h`): write a file name byte by byte to `$F800`
 | Gap | Without changing the emulator |
 |---|---|
 | `--wendy2-prog` loads only into bank configuration `$01`. | The start-up code loads each bank's file through the ports, as the spike does: about 600,000 cycles for 28 KB *(estimated from 21 a byte)*. |
-| No command line. The compiler takes `SOURCE OUTDIR IMPORTDIR...`. | The Wendy 2 `sys` module reads its arguments from a file `args` in `DIR`, one a line, into text memory at start-up. |
-| No output or error stream. | Error messages go to a file (`errors`), and the test reads it. |
-| The exit code written to `$F80F` is not the emulator's exit status, and the exit report says "(cycle cap)" after it. | End with `STP` (the report then says "(STP)"); the status is the presence of `errors`. |
-| `$F805` gives 0 at the end; `$F806` rewinds at the end. | `sys.read` tests `$F806` first and sets the carry at the end, as the default machine's `read` does. After `$F806` has reported the end, the next read starts the file again, so a stream remembers that it ended. |
-| One current handle. | `sys.read` and `sys.write` select their handle (`$F804`) on every call: 4 cycles more a byte. |
+| No command line. The compiler takes `SOURCE OUTDIR IMPORTDIR...`. | `argc` and `argv` read the file `args` in `DIR` at their first call: one argument a line (a carriage return before the line feed is dropped; a last line without a line feed counts), at most 16 arguments and 256 bytes of text with their zeros. |
+| No output or error stream. | Standard output goes to a file `out`, error messages to a file `errors` (created at the first byte), and the test reads them. |
+| The exit code written to `$F80F` is not the emulator's exit status, and the exit report says "(cycle cap)" after it. | `exit(code)` writes the code in decimal and a line feed to a file `status` and ends with `STP` (the report then says "(STP)"). No `status` file means `main` returned: status 0. |
+| `$F805` gives 0 at the end; `$F806` rewinds at the end. | `read` tests `$F806` first and sets the carry at the end, as the default machine's `read` does. After `$F806` has reported the end, the next read would start the file again, so `read` keeps a flag for each handle that says the file ended, cleared by `open`. |
+| One current handle. | `read`, `write` and `close` select their handle (`$F804`) on every call: 4 cycles more a byte. Sixteen files can be open at once, so the compiler's source, interface files (one opening another) and object file can all be open together, as on the default machine: nothing is buffered or reopened. |
 | `--disk` makes the emulator change directory before it opens `--wendy2-prog`. | Give the program's path as an absolute path. |
 | `lathe/env/wendy2.env` and `boards.md` say Wendy 2 has no host services. | A new environment `wendy2disk.env` and a board entry that passes `--disk` (stage 11, step 1). |
+
+**Built (step 1).** `lathe/rt/disk.lth` does all of the above over the ports, with the functions of `host.lth` that `sys.lth` uses under the same names and types (`open`, `open_out`, `close`, `read`, `write`, `argc`, `argv`, `put_byte`, `put_error`, `exit`); it has no `read_byte`, because there is no standard input. `boards.md`, "Wendy 2 with files", has the recipe; `lathe/tests/test_disk.py` runs `sys.lth`, with `host` renamed `disk`, on Wendy 2.
 
 ### Changes to the emulator the owner may choose (none is required)
 
@@ -249,7 +251,7 @@ The compiler reads none of these (it reads `cpu` and `define` only), so an objec
 2. **Which calls cross.** A reference crosses windows when it names a function in a window and the code that holds it is not in the same bank or overlay: a `CALL` record's call (`JSR`, or `JMP` for `return f(...)`), or a fix-up of kind 2, 3 or 5 that takes the function's address, or any fix-up in constant data. The linker points it at the function's stub. A `JMP` to a stub works: the stub's frame restores the bank of the code that jumped, one switch more than needed.
 3. **Stubs.** One per function in a window that is called from outside its bank or whose address is taken anywhere. They are placed in fixed code after the far-call routine, in the order of the functions. A context copy has its own stub.
 4. **Sizes.** The window's contents are placed from the window's first address, per bank, in object order. A bank whose contents do not fit is a link error saying by how many bytes, as for the other ranges.
-5. **Start-up.** `$start` calls `farcall.start` before `$init`, which loads each bank's file (banks) or does nothing but set "no overlay" (overlays). The linker writes the table it reads: `$banks` (the number of banks with files; for each, the register value and the address of its file name) or `$overlays` (each overlay's file name).
+5. **Start-up.** `$start` sets the stack, then `LDA #<$banks` / `LDX #>$banks` / `JSR farcall.start` (or `$overlays`), before `$init`. `start` loads each bank's file (banks) or does nothing but set "no overlay" (overlays). The linker writes the table it reads, in fixed constant data (below, "The far-call run-time modules").
 6. **Output.**
 
 | Configuration | Files |
@@ -260,6 +262,39 @@ The compiler reads none of these (it reads `cpu` and `define` only), so an objec
 
    The raw form needs no load format: the window's address is in the environment and the program. A later machine whose loader wants a header (a Commodore `PRG`) gets it from an `output` option.
 7. **The map.** F lines of a function in a window end with `b=N` (bank or overlay). New lines: `W FIRST SIZE N FILE` for each bank or overlay's contents, and `T ADDRESS 0006 name` for each stub. `size_report.py` and the tools that read F lines keep working: they read the first four fields.
+
+### The far-call run-time modules
+
+Built in step 3: `lathe/rt/rt_bank.lth` (Wendy 2's banks, files through `disk`) and `lathe/rt/rt_ovl.lth` (overlays, files through `host`, so the default machine only). `call` and `back` are the spike's instructions as `asm` functions, the same bytes and cycles: 101 bytes and 182 cycles a far call for banks, 107 bytes and 82 cycles for overlays (measured, `lathe/tests/test_farcall.py`). What the linker of steps 5 to 7 uses:
+
+| Name | What it is |
+|---|---|
+| `farcall.call` | The entry of every stub's `JSR`. On entry the stack holds the stub's address + 2 (the JSR's return address) above the caller's return address; A, X, Y and the flags are the caller's arguments and go to the function as they are. It returns from the function to the caller with A, X and the carry as the function left them; Y and the other flags are lost. It is reached only from stubs, so the linker must keep it (and `back`, which `call` names) when it writes a stub. |
+| `farcall.back` | Where a function entered through `call` returns to. Not called by anything else. |
+| `farcall.start(table: ^byte)` | Called by `$start` with the table's address in A (low) and X (high), before `$init`. It must not use initial values: `rt_bank.start` uses only `disk.open`, `read`, `close` and `exit`, which need none. A bank or overlay file that cannot be opened stops the program with status 255. |
+| `rt_bank.select(value: byte in a): byte in a` | Sets the bank bits and gives the old ones. For the `with` blocks of step 9 (`map` and `unmap` can be built on it); not used by the stubs. |
+| `rt_ovl.load(n)`, `rt_ovl.loads()`, `rt_ovl.count` | Load overlay `n`; the number of loads so far. |
+
+**The stub**, 6 bytes in fixed code: `$20` (JSR) and the address of `farcall.call`; one byte, the bank's register value (`bank` entry) or the overlay's number (1 to 255); one word, the function's address less one. Because `rt_ovl.call` calls `rt_ovl.load`, a Lathe function with slots, the linker must count a call of a stub as a call of `farcall.call` (a `CALL` record of the stub, or the same effect), so that `load`'s slots are not shared with a function that is active across the far call.
+
+**The tables**, constant data in fixed memory, written by the linker:
+
+```
+$banks      .word WINDOW        ; the window's first address: where each file is loaded
+            .byte N             ; the number of banks that have a file
+            N times:
+            .byte VALUE         ; the bank's register value ($11 for bank 1 of Wendy 2)
+            .word NAME          ; the address of its file name, zero-terminated, fixed memory
+
+$overlays   .word WINDOW        ; the window's first address: where an overlay is loaded
+            .byte N             ; the number of overlays
+            N times, overlay 1 first:
+            .word NAME          ; the address of its file name
+```
+
+The window's address is in the table so that the module needs no constant from the environment. The bank register is not: `rt_bank` has Wendy 2's (`$F000`, bits `$1F`, keeping `$E0`) as constants, and the `switch WIN bank ADDR MASK` entry must name the same (the linker can check it; another board needs `#if` in `rt_bank`). `start` also makes the bank bits of port B outputs, since a program may start before anything has set the port's direction.
+
+**How it is tested until the linker writes stubs** (`lathe/tests/test_farcall.py`): `lathe/tests/spike_l5/l5main.lth` and the module are compiled and linked by the real tools at `$4000`; `l5build.py` assembles the spike's main program, modules A and B, the stubs and the table around them with `asm/pyasm.py`, naming `call` from the map. The test's `main` calls `start` itself, after `$init`.
 
 ### Function addresses and pointer classes
 

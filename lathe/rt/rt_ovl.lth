@@ -1,0 +1,166 @@
+; Far calls into overlays loaded from disk on the emulator's default machine
+; (lathe/docs/configurations.md, "The far call" and "The far-call run-time modules"): the
+; routine of spike L5 (lathe/tests/spike_l5/rt_ovl.s), its loader, and start().
+;
+; The environment entry `farcall rt_ovl` names this module. A stub has the form rt_bank's has,
+; written by the linker in fixed code:
+;
+;     stub    JSR rt_ovl.call       ; 3 bytes
+;             .byte N               ; the overlay's number, 1 to 255
+;             .word f-1             ; the function's address less one
+;
+; If overlay N is in the window already, call() enters f directly and f returns straight to the
+; caller: no frame, nothing to restore. Otherwise it loads overlay N, and f returns into back(),
+; which loads again the overlay that was in the window at the call (if there was one: none, 0,
+; means the caller is in fixed memory), so the caller's code is there when it returns. A, X, Y
+; and the flags reach f as the caller left them; A, X and the carry come back as f left them.
+; The overlay to restore is on the stack, so nesting and recursion are safe. The loader is not
+; reentrant: an interrupt handler must not make a far call into an overlay (a link error in the
+; design), and this routine does not disable interrupts.
+;
+; start(table) is called by the start-up code before the modules' initial values are set, with
+; the address of the table the linker writes, `$overlays` (configurations.md, "The tables"):
+;
+;     .word WINDOW                  ; the window's first address: where an overlay is loaded
+;     .byte N                       ; the number of overlays
+;     N times, overlay 1 first:
+;     .word NAME                    ; the address of its file name, zero-terminated, in fixed
+;                                   ; memory
+;
+; Files are read through the host services of lathe/rt/host.lth.
+module rt_ovl
+
+import host
+
+var stub: ^byte                     ; the stub's address + 2, as the JSR pushed it (zero page)
+var save_a: byte
+var save_x: byte
+var save_y: byte
+var wanted: byte                    ; the overlay asked for
+var flags: byte                     ; the flags of f's result, while an overlay is loaded again
+var current: byte                   ; the overlay in the window; 0 for none
+var count: word                     ; overlays loaded since start()
+var window: ^byte
+
+; The table's head, and each of its entries (a record is laid out field after field).
+type TableHead = record
+  window: ^byte
+  count: byte
+end
+
+type TableEntry = record
+  name: ^byte
+end
+
+var names: word                     ; the address of the table's first entry, overlay 1's
+
+const LOAD_FAILED: byte = 255       ; the status when an overlay's file cannot be opened
+
+; Load overlay n into the window, and count the load. A file that cannot be opened stops the
+; program with status 255.
+pub func load(n: byte)
+  var entry: ^TableEntry
+  var p: ^byte
+  var h: byte
+  var b: byte
+  current = n
+  count += 1
+  entry = ^TableEntry(names + word(n - 1) * sizeof(TableEntry))
+  h = host.open(entry.name)
+  if h == 0 then
+    host.exit(LOAD_FAILED)
+  end
+  p = window
+  loop
+    if host.read(h) -> b then
+      break
+    end
+    p[0] = b
+    p += 1
+  end
+  host.close(h)
+end
+
+; Where a function entered by call() from another overlay returns to: the stack holds the
+; overlay to restore, then the caller's return address.
+pub asm func back()
+  PHP
+  STA save_a
+  STX save_x
+  PLA
+  STA flags
+  PLA                               ; the overlay to restore
+  BEQ .keep                         ; none was loaded: the caller is in fixed memory
+  CMP current
+  BEQ .keep
+  JSR load
+.keep
+  LDA flags
+  PHA
+  LDA save_a
+  LDX save_x
+  PLP
+  RTS
+end
+
+; The far call. Entered by the stub's JSR: the stack holds the stub's address + 2, then the
+; caller's return address.
+pub asm func call()
+  STA save_a
+  STX save_x
+  STY save_y
+  TSX                               ; $0101,X and $0102,X = stub + 2
+  LDA $0101,X
+  STA stub
+  LDA $0102,X
+  STA stub+1
+  LDY #$01
+  LDA (stub),Y                      ; the overlay
+  CMP current
+  BNE .far
+  INY                               ; in the window: the return address becomes f-1, and go
+  LDA (stub),Y
+  STA $0101,X
+  INY
+  LDA (stub),Y
+  STA $0102,X
+  LDA save_a
+  LDX save_x
+  LDY save_y
+  RTS
+.far
+  STA wanted
+  LDA #<back-$01                    ; the frame: f-1 (2), back-1 (2), the overlay to restore
+  PHA
+  LDY #$03
+  LDA (stub),Y
+  PHA
+  DEY
+  LDA (stub),Y
+  PHA
+  LDA #>back-$01
+  STA $0101,X
+  LDA current
+  STA $0102,X
+  LDA wanted
+  JSR load
+  LDA save_a
+  LDX save_x
+  LDY save_y
+  RTS                               ; to f
+end
+
+; Take the table at `table` (above): no overlay is in the window yet, and none has been loaded.
+pub func start(table: ^byte)
+  var head: ^TableHead
+  head = ^TableHead(word(table))
+  window = head.window
+  names = word(table) + sizeof(TableHead)
+  current = 0
+  count = 0
+end
+
+; The number of overlays loaded since start().
+pub func loads(): word
+  return count
+end

@@ -1,0 +1,185 @@
+; Far calls into banks of Wendy 2's window (lathe/docs/configurations.md, "The far call" and
+; "The far-call run-time modules"): the routine of spike L5 (lathe/tests/spike_l5/rt_bank.s),
+; and start(), which loads each bank's file at start-up through lathe/rt/disk.lth.
+;
+; The environment entry `farcall rt_bank` names this module. The linker writes, in fixed code,
+; one stub for each function in a bank that is called from outside its bank or whose address
+; is taken, and points those calls at the stub:
+;
+;     stub    JSR rt_bank.call      ; 3 bytes
+;             .byte VALUE           ; the bank's register value: port B bits 0-4 ($11 for bank 1)
+;             .word f-1             ; the function's address less one
+;
+; call() reads the stub's three bytes through its return address, puts on the stack the
+; address of back() and the bank now in the window, switches the window to VALUE (keeping port
+; B bits 5-7: the LCD's E, the LED, PB7) and enters f by RTS with A, X, Y and the flags as the
+; caller left them. f returns into back(), which puts back the bank that was in the window at
+; the call and returns to the caller with A, X and the carry as f left them (Y is lost). The
+; bank to restore is on the stack, never in a variable, so nested and recursive far calls and
+; far calls from an interrupt handler are safe; the variables below are used only with
+; interrupts disabled. A far call takes 3 more bytes of the 6502's stack than a JSR.
+;
+; NMOS instructions only, so the same routine serves any board whose bank register is a port
+; that reads back what was written. The register and its bits are the constants below: the
+; environment's `switch WIN bank $F000 $1F` must name the same.
+;
+; start(table) is called by the start-up code before the modules' initial values are set, with
+; the address of the table the linker writes, `$banks` (configurations.md, "The tables"):
+;
+;     .word WINDOW                  ; the window's first address
+;     .byte N                       ; the number of banks that have a file
+;     N times:
+;     .byte VALUE                   ; the bank's register value
+;     .word NAME                    ; the address of its file name, zero-terminated, in fixed
+;                                   ; memory
+module rt_bank
+
+import disk
+
+const PORT = $F000                  ; the bank register: VIA port B
+const DDR = $F002                   ; its data direction register
+const BANK_BITS: byte = $1F         ; the bits that select the bank
+const KEEP_BITS: byte = $E0         ; the bits a switch keeps
+const FLAT: byte = $01              ; the configuration Wendy 2 starts in: all RAM, flat
+
+var stub: ^byte                     ; the stub's address + 2, as the JSR pushed it (zero page)
+var save_a: byte
+var save_x: byte
+var save_y: byte
+var bank: byte                      ; the bank asked for
+
+; Where a function entered by call() returns to: the stack holds the bank to restore, then the
+; caller's return address.
+pub asm func back()
+  PHP                               ; the carry of the function's result
+  SEI
+  STA save_a
+  STX save_x
+  TSX                               ; $0101,X = the flags, $0102,X = the bank
+  LDA PORT
+  AND #KEEP_BITS
+  ORA $0102,X
+  STA PORT
+  PLA                               ; the flags over the bank byte, for the PLP
+  STA $0102,X
+  LDX save_x
+  LDA save_a
+  PLP
+  RTS
+end
+
+; The far call. Entered by the stub's JSR: the stack holds the stub's address + 2, then the
+; caller's return address.
+pub asm func call()
+  PHP
+  SEI
+  STA save_a
+  STX save_x
+  STY save_y
+  TSX                               ; $0101,X = the flags, $0102,X and $0103,X = stub + 2
+  LDA $0102,X
+  STA stub
+  LDA $0103,X
+  STA stub+1
+  LDY #$01
+  LDA (stub),Y                      ; the bank
+  STA bank
+  LDY #$03
+  LDA (stub),Y                      ; f-1, high: pulled by the RTS below
+  PHA
+  DEY
+  LDA (stub),Y                      ; f-1, low
+  PHA
+  LDA $0101,X                       ; the flags, for the PLP below
+  PHA
+  LDA #<back-$01                    ; where f returns to
+  STA $0101,X
+  LDA #>back-$01
+  STA $0102,X
+  LDA PORT                          ; the bank now in the window, to restore
+  TAY
+  AND #BANK_BITS
+  STA $0103,X
+  TYA                               ; the switch keeps bits 5-7
+  AND #KEEP_BITS
+  ORA bank
+  STA PORT
+  LDA save_a
+  LDX save_x
+  LDY save_y
+  PLP                               ; the caller's flags, and its interrupt flag
+  RTS                               ; to f
+end
+
+; Set the bank register's bits 0-4 to `value`, keeping bits 5-7. Gives the old bits 0-4.
+pub asm func select(value: byte in a): byte in a
+  PHP
+  SEI
+  STA bank
+  LDA PORT
+  TAY
+  AND #KEEP_BITS
+  ORA bank
+  STA PORT
+  TYA
+  AND #BANK_BITS
+  PLP
+end
+
+; Load the file named at `name` to `dest` and on, to its end. Returns true if it cannot be opened.
+func load(name: ^byte, dest: ^byte): bool
+  var h: byte
+  var b: byte
+  h = disk.open(name)
+  if h == 0 then
+    return true
+  end
+  loop
+    if disk.read(h) -> b then
+      break
+    end
+    dest[0] = b
+    dest += 1
+  end
+  disk.close(h)
+  return false
+end
+
+var direction: byte at DDR          ; port B's data direction: 1 is an output
+
+const LOAD_FAILED: byte = 255       ; the status when a bank's file cannot be opened
+
+; The table's head, and each of its entries (a record is laid out field after field).
+type TableHead = record
+  window: ^byte
+  count: byte
+end
+
+type TableEntry = record
+  value: byte
+  name: ^byte
+end
+
+; Load each bank that has a file, as the table at `table` says (above), and leave the window as
+; it was found. The bank bits of the port are made outputs first. It runs before any initial
+; value is set (code in a bank may set some), so it uses only what needs none: disk's open,
+; read, close and exit. A file that cannot be opened stops the program with status 255.
+pub func start(table: ^byte)
+  var head: ^TableHead
+  var entry: ^TableEntry
+  var old: byte
+  var i: byte
+  direction = direction | BANK_BITS
+  head = ^TableHead(word(table))
+  entry = ^TableEntry(word(table) + sizeof(TableHead))
+  old = select(FLAT)                ; the bits now, put back at once
+  select(old)
+  for i = 1 to head.count do
+    select(entry.value)
+    if load(entry.name, head.window) then
+      disk.exit(LOAD_FAILED)
+    end
+    entry = ^TableEntry(word(entry) + sizeof(TableEntry))
+  end
+  select(old)
+end

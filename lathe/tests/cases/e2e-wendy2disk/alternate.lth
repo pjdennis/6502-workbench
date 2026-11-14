@@ -1,0 +1,42 @@
+; Two input files open together on Wendy 2 with --disk, read a byte from each in turn: a byte
+; read is written to the output, the end of a file as '-'. Then the end stays: the ports rewind a
+; file when they report its end, and disk.read must not start it again. A file opened again
+; starts at its first byte.
+module alternate
+
+import disk
+
+; The next byte of file h to the output, or '-' at its end. Returns true at the end.
+func show(h: byte): bool
+  var b: byte
+  if disk.read(h) -> b then
+    disk.put_byte('-')
+    return true
+  end
+  disk.put_byte(b)
+  return false
+end
+
+pub func main()
+  var one: byte
+  var two: byte
+  var b: byte
+  var end_one: bool
+  var end_two: bool
+  one = disk.open("one")
+  two = disk.open("two")
+  loop
+    end_one = show(one)
+    end_two = show(two)
+    if end_one and end_two then
+      break
+    end
+  end
+  disk.put_byte(10)
+  end_one = show(one)               ; still the end: '-'
+  end_two = show(two)
+  disk.close(one)
+  one = disk.open("one")
+  end_one = show(one)               ; 'a' again
+  disk.put_byte(10)
+end

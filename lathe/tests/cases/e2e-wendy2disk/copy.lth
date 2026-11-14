@@ -1,0 +1,62 @@
+; Copies files on Wendy 2 with --disk. The arguments are pairs: a file, and the name of its copy.
+; For each pair it writes the number of bytes copied and a line feed to the output. Both files
+; of a pair are open together. Exits with status 2 if an input cannot be opened, 3 if an output
+; cannot be created. The inputs: a short text, 700 bytes holding every byte value (0 and $FF
+; among them), and an empty file.
+; same small small.copy
+; same big big.copy
+; same empty empty.copy
+module copy
+
+import disk
+
+; n in decimal.
+func put_number(n: word)
+  var digits: [5]byte
+  var count: byte
+  count = 0
+  loop
+    digits[count] = '0' + lo(n mod 10)
+    count += 1
+    n = n / 10
+    if n == 0 then
+      break
+    end
+  end
+  while count > 0 do
+    count -= 1
+    disk.put_byte(digits[count])
+  end
+end
+
+pub func main()
+  var i: byte
+  var input: byte
+  var output: byte
+  var b: byte
+  var count: word
+  i = 0
+  while i + 1 < disk.argc() do
+    input = disk.open(disk.argv(i))
+    if input == 0 then
+      disk.exit(2)
+    end
+    output = disk.open_out(disk.argv(i + 1))
+    if output == 0 then
+      disk.exit(3)
+    end
+    count = 0
+    loop
+      if disk.read(input) -> b then
+        break
+      end
+      disk.write(b, output)
+      count += 1
+    end
+    disk.close(input)
+    disk.close(output)
+    put_number(count)
+    disk.put_byte(10)
+    i += 2
+  end
+end

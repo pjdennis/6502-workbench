@@ -1,0 +1,37 @@
+; The arguments on Wendy 2 with --disk: the lines of the file `args`. Writes their number, then
+; each with its length; then argument 5, which does not exist, is empty. The file has an empty
+; line (an empty argument), a carriage return before a line feed (dropped), and a last line
+; without a line feed.
+module args
+
+import disk
+
+func put_text(p: ^byte)
+  var i: byte
+  i = 0
+  while p[i] != 0 do
+    disk.put_byte(p[i])
+    i += 1
+  end
+end
+
+pub func main()
+  var i: byte
+  var p: ^byte
+  var n: byte
+  disk.put_byte('0' + disk.argc())
+  disk.put_byte(10)
+  for i = 0 to 5 do
+    p = disk.argv(i)
+    n = 0
+    while p[n] != 0 do
+      n += 1
+    end
+    disk.put_byte('0' + i)
+    disk.put_byte(' ')
+    disk.put_byte('0' + n)
+    put_text(" [")
+    put_text(p)
+    put_text("]\n")
+  end
+end

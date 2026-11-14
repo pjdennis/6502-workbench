@@ -1,6 +1,6 @@
 # Running on the boards
 
-A Lathe program can run on three machines of the emulator (`../../emulator/README.md`): the default machine, Michael and Wendy 2. Each has an environment file in `../env/`. This document gives the recipe for each: how the emulator is run, the memory map, what the file must hold, how output is read, and how a timer interrupt is set up.
+A Lathe program can run on three machines of the emulator (`../../emulator/README.md`): the default machine, Michael and Wendy 2, which can also be run with files (`wendy2disk`). Each has an environment file in `../env/`. This document gives the recipe for each: how the emulator is run, the memory map, what the file must hold, how output is read, and how a timer interrupt is set up.
 
 `build.py --env NAME --run` follows these recipes. What the driver knows about each board is in `../host/driver/boards.py`.
 
@@ -79,7 +79,7 @@ The positional file must be given, but its content is not used: pass the program
 | `$F800-$FFFF` | RAM, the vectors included. |
 
 - **The file** is the code bytes from the load address (`output raw`). It must stay below `$F000`.
-- **The end.** The run ends at `STP` or at the cycle cap. There are no host services.
+- **The end.** The run ends at `STP` or at the cycle cap. There are no host services, but there are files with `--disk` (below).
 - **Output** is the 16x2 LCD. `--exit-report` prints `exit osc_ticks=… cpu_cycles=… pc=$…. (STP)`, then `lcd:` and two lines `|................|`.
 - **The LCD** is in 4-bit mode.
 
@@ -101,6 +101,40 @@ PB0-PB4 select the memory bank and must stay `$01`. So every write to port B, su
 The details are in `../../prog8/WENDY2_BANKING_TARGET_PLAN.md`.
 
 **A timer interrupt.** Write the handler's address to `$FFFE` at run time. Then set up VIA timer 1 as below, and `CLI`.
+
+### Wendy 2 with files
+
+The emulator's `--disk DIR` adds file ports at `$F800-$F80F` to Wendy 2 (`../../emulator/chips/syscall_ports.h`); the files are those of the host directory `DIR`. Environment `wendy2disk.env`: the memory map of `wendy2.env`, and `define DISK 1`.
+
+```bash
+emulator/emulator.out /abs/PROG.bin --machine wendy2c --wendy2-prog /abs/PROG.bin --load 4000 --disk DIR --cycle-cap N --exit-report
+```
+
+The emulator changes to `DIR` before it opens the program, so the program's path must be absolute.
+
+| Port | What it does |
+|---|---|
+| `$F800` write | Appends a byte to the file name. `$F801` write clears it. |
+| `$F802` read | Opens the file named for reading: a handle, 1 to 16, or 0 if it failed. It becomes the current handle. |
+| `$F803` read | Creates the file named for writing, the same way. |
+| `$F804` write | Selects the current handle. Up to 16 files can be open at once. |
+| `$F805` read | The next byte of the current file; 0 at the end. |
+| `$F806` read | Bit 7 set at the end of the file, **and then the file is rewound**. |
+| `$F807` write | Writes a byte to the current file. `$F808` write closes it. |
+| `$F80F` write | Stops the emulator; the byte is not the process's exit status, and the report says "(cycle cap)". |
+
+The ports are in fixed RAM, so they are reached from every bank.
+
+`../rt/disk.lth` gives a Lathe program the interface of `../rt/host.lth` over the ports (the functions `../src/sys.lth` uses): `open`, `open_out`, `read` (the carry set at the end), `write`, `close`, `argc`, `argv`, `put_byte`, `put_error`, `exit`. Every call selects its handle, so many files can be open together; `read` remembers that a file ended, so the rewind does not start it again. What the default machine has as a command line, an output and an exit status are files of `DIR`:
+
+| File | Holds |
+|---|---|
+| `args` | The arguments, one a line, written by whoever runs the program. |
+| `out` | What the program wrote with `put_byte`. |
+| `errors` | What it wrote with `put_error`. Created only if it writes something. |
+| `status` | `exit(code)` writes the code in decimal and a line feed, then stops with STP. No file: `main` returned, status 0. |
+
+`build.py --env wendy2disk --run [--disk DIR]` runs the program on `DIR` (a temporary empty directory without it), prints `out`, copies `errors` to the error output and exits with the status. `driver/boards.py` (`run_disk`) and `build.run_program(..., disk=DIR)` do the same for the tests; the cases are in `../tests/cases/e2e-wendy2disk/`.
 
 ## The VIA timer
 
