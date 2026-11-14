@@ -1,0 +1,4 @@
+; error 30 5 1
+module end_expected
+pub func main()
+  return

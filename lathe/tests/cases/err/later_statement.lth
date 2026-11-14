@@ -1,0 +1,7 @@
+; error 39 5 3
+module later_statement
+import host
+pub func main()
+  if true then
+  end
+end

@@ -1,0 +1,2 @@
+; error 22 2 26
+module junk_after_module extra

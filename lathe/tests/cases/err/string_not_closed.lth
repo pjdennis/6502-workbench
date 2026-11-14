@@ -1,0 +1,6 @@
+; error 5 5 17
+module string_not_closed
+import host
+pub func main()
+  host.put_byte("abc)
+end

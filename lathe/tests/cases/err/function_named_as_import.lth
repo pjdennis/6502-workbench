@@ -1,0 +1,5 @@
+; error 41 4 6
+module function_named_as_import
+import host
+func host()
+end

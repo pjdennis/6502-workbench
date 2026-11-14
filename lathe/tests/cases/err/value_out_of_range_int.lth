@@ -1,0 +1,6 @@
+; error 43 5 5
+module value_out_of_range_int
+extern func f(v: int in ax) at 1
+pub func main()
+  f($8000)
+end

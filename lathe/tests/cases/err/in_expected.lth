@@ -1,0 +1,3 @@
+; error 28 3 24
+module in_expected
+extern func f(ch: byte a) at 1

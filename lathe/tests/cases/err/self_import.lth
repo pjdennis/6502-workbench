@@ -1,0 +1,3 @@
+; error 52 3 8
+module self_import
+import self_import

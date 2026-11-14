@@ -1,0 +1,3 @@
+; error 47 3 26
+module bool_result_in_pair
+extern func f(): bool in ax at 1

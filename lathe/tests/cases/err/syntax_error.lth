@@ -1,0 +1,6 @@
+; error 20 5 8
+module syntax_error
+import host
+pub func main()
+  true 5
+end

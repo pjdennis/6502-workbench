@@ -1,0 +1,6 @@
+; error 6 5 18
+module unknown_escape
+import host
+pub func main()
+  host.put_byte('\q')
+end

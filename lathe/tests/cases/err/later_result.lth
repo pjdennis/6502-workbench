@@ -1,0 +1,4 @@
+; error 39 3 9
+module later_result
+func f(): byte
+end

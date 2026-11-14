@@ -1,0 +1,6 @@
+; error 44 5 5
+module number_for_pointer
+extern func f(p: ^byte in ax) at $1000
+pub func main()
+  f(0)
+end

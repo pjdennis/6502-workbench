@@ -1,0 +1,3 @@
+; error 25 3 18
+module colon_expected
+extern func f(ch byte in a) at 1

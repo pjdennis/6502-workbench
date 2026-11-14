@@ -1,0 +1,4 @@
+; error 22 4 5
+module junk_after_end
+func f()
+end f

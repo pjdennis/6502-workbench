@@ -1,0 +1,4 @@
+; error 41 4 8
+module duplicate_import
+import host
+import host

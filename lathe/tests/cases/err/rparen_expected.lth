@@ -1,0 +1,6 @@
+; error 24 5 19
+module rparen_expected
+import host
+pub func main()
+  host.put_byte(1 2)
+end

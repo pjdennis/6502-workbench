@@ -1,0 +1,4 @@
+; error 39 3 8
+module later_parameters
+func f(a: byte)
+end

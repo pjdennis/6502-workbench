@@ -1,0 +1,6 @@
+; error 42 5 20
+module too_many_arguments
+import host
+pub func main()
+  host.put_byte(1, 2)
+end

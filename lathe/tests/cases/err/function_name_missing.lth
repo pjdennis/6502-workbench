@@ -1,0 +1,4 @@
+; error 21 3 6
+module function_name_missing
+func ()
+end

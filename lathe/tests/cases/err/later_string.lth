@@ -1,0 +1,6 @@
+; error 39 5 17
+module later_string
+import host
+pub func main()
+  host.put_byte("x")
+end

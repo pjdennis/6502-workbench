@@ -1,0 +1,6 @@
+; error 22 5 20
+module junk_after_statement
+import host
+pub func main()
+  host.put_byte(1) 2
+end

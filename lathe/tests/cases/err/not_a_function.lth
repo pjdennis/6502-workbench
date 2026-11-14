@@ -1,0 +1,6 @@
+; error 45 5 7
+module not_a_function
+import host
+pub func main()
+  true()
+end

@@ -1,0 +1,3 @@
+; error 31 3 27
+module register_is_not_a_number
+extern func f(ch: byte in 1) at 1

@@ -1,0 +1,6 @@
+; error 43 5 10
+module value_out_of_range_signed
+extern func f(n: byte in a, v: sbyte in x) at 1
+pub func main()
+  f(200, 128)
+end

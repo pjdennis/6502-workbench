@@ -1,0 +1,6 @@
+; error 40 5 3
+module undefined_name
+import host
+pub func main()
+  nothing()
+end

@@ -22,6 +22,7 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 - Recursion, except in functions named in `RECURSIVE` at the top of their module. Those become `recursive` functions in Lathe.
 - Default arguments, keyword arguments, `*args`.
 - Arithmetic that relies on values wider than 16 bits.
+- A Lathe keyword as a name (`end`, `type`, `word`, `at`, …), or two names in one file that differ only in case: Lathe folds case, so `DIGITS` and `digits` would be one name. `../tests/test_names.py` checks the compiler's files.
 
 **How records are held.** As parallel arrays indexed by a small int (`sym_kind[i]`, `sym_type[i]`), which is Lathe's column storage, or as byte ranges in a `bytearray` heap reached through accessor functions.
 
@@ -31,22 +32,26 @@ Every file here except those under `driver/` will be rewritten in Lathe, functio
 
 **The outside world** is reached only through `env.py`, which offers the calls of the emulator's host interface (`asm/17/environment.asm`): open, read a byte, write a byte, close, arguments, exit. On the target the same calls are `extern` declarations.
 
+**Starting.** A tool's file ends with `if env.is_program(__name__):` and a call of its `main()`. `env.is_program` takes the arguments from the command line; the tool itself holds no Python string.
+
+**Modules do not import each other.** Lathe forbids import cycles, so the host files do too: each of the compiler's files imports only files above it in the table below (`../tests/test_layers.py`).
+
 ## Files
 
 | File | Component (see `../docs/architecture.md`) |
 |---|---|
 | `env.py` | The host interface, in ordinary Python. Not ported: the target has the real thing. |
-| `kernel.py` | Streams, the symbol heap, name hashing. |
 | `err.py` | Error numbers and reporting. |
+| `kernel.py` | Text memory, streams, the name heap, the symbol table. |
 | `src.py` | SRC: the source stack. |
 | `lex.py` | LEX. |
-| `types.py` | The type table. |
-| `decl.py` | DECL, and reading and writing interface files. |
-| `stmt.py` | STMT. |
-| `expr.py` | EXPR: lazy operands. |
-| `gen.py` | GEN: instruction selection and register tracking. |
+| `typetab.py` | The type table. (Not `types.py`: that name would hide Python's own `types` module from every program started in this directory.) |
 | `fbuf.py` | FBUF: the function buffer and branch lengths. |
 | `out.py` | OUT: the object file writer. |
+| `gen.py` | GEN: the stack of lazy operands, instruction selection and register tracking. |
+| `expr.py` | EXPR: expressions and written types, parsed into operands on GEN's stack. |
+| `stmt.py` | STMT. |
+| `decl.py` | DECL, and reading and writing interface files. |
 | `asmblock.py` | ASM: the embedded assembler for `asm` blocks and functions. |
 | `lathec.py` | The compiler's main program. |
 | `link.py` | The linker's main program (with its own modules as it grows). |
@@ -103,9 +108,33 @@ C 0012 0001 demo.handler 0 code   ; parameter 0 of a pointer class
 
 Only functions the linker kept are listed.
 
+## The interface file
+
+`name.li` lists what a module exports. It is binary, and is read straight into the symbol table: no tokens, no parsing. Numbers are little-endian and a string is a length byte and its characters, as in object files.
+
+```
+header   "LI", version (1 byte, value 1), module name (string)
+entries  each: kind (1 byte, not 0), name (string), then what that kind has
+end      a 0 byte
+```
+
+| Kind | Entry | After the name |
+|---|---|---|
+| 1 | Function | flags (1); if flag bit 0 is set, the address (2); number of parameters (1) and that many members; number of results (1) and that many members. |
+
+- **Function flags:** bit 0 `extern`: a routine at a fixed address. The other bits are kept for `recursive`, `asm` and `inline`.
+- **A member** is a type and a register (1 byte): 0 none, 1 `a`, 2 `x`, 3 `y`, 4 `ax`, 5 `ay`, 6 `xy`, 7 `c`. A parameter with register 0 is the callee's slot of the same number.
+- **A type** is 1 `byte`, 2 `sbyte`, 3 `word`, 4 `int`, 5 `bool`, or `$10` followed by a type: a pointer to it. Arrays, records and named types will take further codes.
+
+Entries are in the order of the declarations. Kinds still to come: constants (type and value), variables (type), types (their definition, before any entry that uses them) and `inline` functions (the function entry, then its saved tokens with their length in front). A reader that meets a kind or version it does not know stops with error 51.
+
+## Errors
+
+Every error has a number; `err.py` lists them with their texts. 1 to 19 are about characters and tokens, 20 to 39 syntax (39 is "not implemented yet"), 40 to 59 meaning, 60 to 69 the command line and files, 70 to 98 a capacity of the compiler that was exceeded, and 99 is a fault in the compiler itself. A lexical error is reported at the character it was found at or at the start of its token; any other error at the start of the token that is wrong, except that an argument which does not fit its parameter is reported at the argument's first token.
+
 ## Tests
 
-`lathe/verify.sh` runs everything; `tools/check_all.sh lathe` calls it. Tests are Python `unittest` files in `lathe/tests/`, run from the repository root.
+`lathe/verify.sh` runs everything; `tools/check_all.sh lathe` calls it. Tests are Python `unittest` files in `lathe/tests/`, run from the repository root: `python3 -m unittest discover -s lathe/tests`.
 
 | Kind | Cases | Check |
 |---|---|---|

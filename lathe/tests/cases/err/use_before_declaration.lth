@@ -1,0 +1,7 @@
+; error 40 4 3
+module use_before_declaration
+pub func main()
+  later()
+end
+func later()
+end

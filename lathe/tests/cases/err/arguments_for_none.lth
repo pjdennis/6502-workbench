@@ -1,0 +1,7 @@
+; error 42 6 5
+module arguments_for_none
+func f()
+end
+pub func main()
+  f(1)
+end

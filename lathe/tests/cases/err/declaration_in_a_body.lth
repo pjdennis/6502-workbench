@@ -1,0 +1,5 @@
+; error 34 4 1
+module declaration_in_a_body
+func f()
+func g()
+end

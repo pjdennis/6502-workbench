@@ -23,9 +23,23 @@ _err = sys.stderr.buffer
 
 
 def start(args):
-    """Called once by a tool's `if __name__ == '__main__'` block with sys.argv[1:]."""
+    """Set the program arguments. is_program() calls this with sys.argv[1:]; tests call it directly."""
     global _args
     _args = [a.encode('latin-1') for a in args]
+
+
+def is_program(name):
+    """True if the module called `name` is the one Python was asked to run; the program
+    arguments are then taken from the command line.
+
+    A tool ends with `if env.is_program(__name__):` and a call of its main function. Those two
+    lines are all the start-up code a tool has, and they hold no Python string, which the tools
+    may not use (lathe/tests/test_shape.py).
+    """
+    if name != '__main__':
+        return False
+    start(sys.argv[1:])
+    return True
 
 
 def _name(ptr):

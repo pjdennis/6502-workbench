@@ -1,0 +1,6 @@
+; error 40 5 8
+module undefined_in_module
+import host
+pub func main()
+  host.nothing(1)
+end

@@ -1,0 +1,6 @@
+; error 34 5 3
+module statement_expected
+import host
+pub func main()
+  5
+end

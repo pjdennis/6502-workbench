@@ -1,0 +1,6 @@
+; error 39 5 19
+module later_operator
+import host
+pub func main()
+  host.put_byte(1 + 2)
+end

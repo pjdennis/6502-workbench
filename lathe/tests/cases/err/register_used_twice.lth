@@ -1,0 +1,3 @@
+; error 48 3 40
+module register_used_twice
+extern func f(a: byte in a, w: word in ax) at 1

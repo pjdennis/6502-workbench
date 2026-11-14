@@ -1,0 +1,4 @@
+; error 23 3 10
+module lparen_expected
+func main
+end

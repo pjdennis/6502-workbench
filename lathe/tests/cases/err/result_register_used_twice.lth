@@ -1,0 +1,3 @@
+; error 48 3 37
+module result_register_used_twice
+extern func f(): byte in x, byte in x at 1

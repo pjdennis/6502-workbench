@@ -1,0 +1,6 @@
+; error 36 5 8
+module dot_expected
+import host
+pub func main()
+  host put_byte(1)
+end

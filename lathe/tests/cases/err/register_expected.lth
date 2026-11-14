@@ -1,0 +1,3 @@
+; error 31 3 27
+module register_expected
+extern func f(ch: byte in q) at 1

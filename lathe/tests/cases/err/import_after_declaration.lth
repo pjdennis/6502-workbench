@@ -1,0 +1,5 @@
+; error 33 5 1
+module import_after_declaration
+func f()
+end
+import host

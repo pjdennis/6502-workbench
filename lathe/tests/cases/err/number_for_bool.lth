@@ -1,0 +1,6 @@
+; error 44 5 5
+module number_for_bool
+extern func f(on: bool in c) at $1000
+pub func main()
+  f(1)
+end

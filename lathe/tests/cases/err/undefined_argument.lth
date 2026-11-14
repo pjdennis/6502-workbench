@@ -1,0 +1,6 @@
+; error 40 5 17
+module undefined_argument
+import host
+pub func main()
+  host.put_byte(x)
+end

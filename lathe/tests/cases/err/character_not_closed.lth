@@ -1,0 +1,6 @@
+; error 4 5 17
+module character_not_closed
+import host
+pub func main()
+  host.put_byte('AB')
+end

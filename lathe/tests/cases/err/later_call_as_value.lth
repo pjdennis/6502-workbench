@@ -1,0 +1,8 @@
+; error 39 7 18
+module later_call_as_value
+import host
+func f()
+end
+pub func main()
+  host.put_byte(f())
+end

@@ -1,0 +1,6 @@
+; error 43 5 17
+module value_out_of_range
+import host
+pub func main()
+  host.put_byte(256)
+end

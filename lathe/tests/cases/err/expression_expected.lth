@@ -1,0 +1,6 @@
+; error 35 5 17
+module expression_expected
+import host
+pub func main()
+  host.put_byte(,)
+end

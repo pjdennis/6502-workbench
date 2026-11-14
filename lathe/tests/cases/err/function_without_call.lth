@@ -1,0 +1,6 @@
+; error 23 5 16
+module function_without_call
+import host
+pub func main()
+  host.put_byte
+end

@@ -1,0 +1,6 @@
+; error 41 5 6
+module duplicate_function
+func f()
+end
+func f()
+end

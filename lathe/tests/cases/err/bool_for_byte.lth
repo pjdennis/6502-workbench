@@ -1,0 +1,6 @@
+; error 44 5 17
+module bool_for_byte
+import host
+pub func main()
+  host.put_byte(true)
+end

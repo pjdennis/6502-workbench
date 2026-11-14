@@ -1,0 +1,4 @@
+; error 33 4 1
+module declaration_expected
+import host
+host.put_byte(1)

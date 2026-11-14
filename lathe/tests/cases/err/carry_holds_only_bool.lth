@@ -1,0 +1,3 @@
+; error 47 3 26
+module carry_holds_only_bool
+extern func f(b: byte in c) at 1
