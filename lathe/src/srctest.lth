@@ -4,10 +4,10 @@
 ; normal run; o, too many sources (error 81); e, an error reported at the tenth character.
 module srctest
 
-import err
-import kernel
-import src
-import sys
+import err (E_BAD_CHAR, E_OPEN_SOURCE, fatal, init, position)
+import kernel (init, keep_argument)
+import src (advance, ch, close, col, depth, eof, init, line, open_file, open_memory)
+import sys (exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
 const TEXT = "ab\ncd"

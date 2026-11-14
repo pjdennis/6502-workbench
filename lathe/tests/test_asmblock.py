@@ -661,7 +661,7 @@ class AsmFunctionFileTest(unittest.TestCase):
     def test_its_interface_entry_has_the_asm_flag_and_the_registers(self):
         with open(os.path.join(self.tmp.name, 'asm_lib.li'), 'rb') as f:
             li = f.read()
-        self.assertEqual(li, b'LI\x01\x07asm_lib' + b'\x01\x05twice' + bytes([decl.LI_ASM])
+        self.assertEqual(li, b'LI\x02\x07asm_lib' + b'\x01\x05twice' + bytes([decl.LI_ASM])
                          + b'\x01\x01\x01' + b'\x02\x01\x01\x05\x07' + b'\x00')
 
 

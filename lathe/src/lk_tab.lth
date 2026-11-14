@@ -53,8 +53,9 @@
 ;   | are defined                          |                                   | use             |
 module lk_tab
 
-import lk_err
-import lk_sym
+import lk_err (E_CALLS, E_CLASSES, E_COPIES, E_DEFS, E_FUNCTIONS, E_MEMBERS, E_SLOTS, fail)
+import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_of, ref, row_of,
+               VARIABLE)
 
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
 #if LKSMALL

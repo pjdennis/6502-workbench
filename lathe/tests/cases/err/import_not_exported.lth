@@ -1,0 +1,3 @@
+; error 102 3 24
+module import_not_exported
+import host (put_byte, put_word)

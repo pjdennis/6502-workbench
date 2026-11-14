@@ -5,7 +5,7 @@
 ; columns itself.
 module slotview
 
-import reg
+import reg (slot_kind, slot_name, slot_size, slot_weight)
 
 pub func size(n: byte): word
   return reg.slot_size[n]

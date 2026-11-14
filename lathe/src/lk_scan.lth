@@ -30,13 +30,26 @@
 ;   | they are defined                     |                                   | use             |
 module lk_scan
 
-import lk_envf
-import lk_err
-import lk_file
-import lk_name
-import lk_rec
-import lk_sym
-import lk_tab
+import lk_envf (cpu, fail_text, farcall, find_region, is_token, MAX_REGIONS, P_BANK, P_LINKED,
+                place_bank, place_count, place_name, placed, region_bank, region_used, token,
+                token_len, TOKEN_SIZE)
+import lk_err (E_CLASS_DIFFERS, E_DAMAGED, E_DEFS, E_DUPLICATE, E_LOCALS, E_NEEDS_65C02,
+               E_NO_FARCALL, E_OBJECTS, E_PLACE_UNLINKED, E_UNDEFINED, E_VERSION, E_WEIGHTS, fail)
+import lk_file (arg_count, ARG_OBJECT, fail)
+import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_init_sym, local, local_count,
+                mark_all, MAX_LOCALS, MAX_OBJECTS, more, name_add, name_begin, now, obj_def,
+                obj_first, obj_fn, object_count, resolve, set_more, symbol)
+import lk_rec (advance, close, damaged, get_byte, get_word, left, open_object, R_CALL, R_CLAS,
+               R_CODE, R_DATA, R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_IMP, R_MEMB, R_MOD, R_RGN,
+               R_SLOT, R_SYM, R_VAR, R_WGT, VERSION)
+import lk_sym (CLASS, CONSTANT, edge_bits, FUNCTION, is_defined, kind_of, row_of, VARIABLE)
+import lk_tab (add_edge, add_own, add_waiting, build_chains, chain_next, chains_to_runs, class_of,
+               cls_count, cls_edge, cls_namer, cls_np, cls_par, cls_ref, cls_rep, cp_size,
+               cp_weight, D_CONST, def_a, def_b, def_count, def_ref, def_w, E_NOSAVE, E_PENDING,
+               E_VIA, edge_flag, edge_sym, F_INIT, F_INTERRUPT, F_RECURSIVE, F_WITH, fn_class,
+               fn_count, fn_flags, fn_nslots, fn_ref, fn_slot, head_of, memb_class, memb_count,
+               memb_func, new_class, new_cparam, new_def, new_func, new_member, new_slot, NONE,
+               slot_weight, W_NEXT, work)
 
 const MAX_PENDING = 64          ; weights for slots of functions not read yet
 

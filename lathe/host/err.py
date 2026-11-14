@@ -107,10 +107,14 @@ E_SLOTS_FULL = 85
 E_INITS_FULL = 86
 E_DATA_FULL = 87
 E_NESTING = 88
+E_WANTS_FULL = 89
 E_INTERNAL = 99
 
 # Meaning, continued (40 to 59 are full)
 E_CALL_IN_ARGUMENTS = 100
+E_NOT_LISTED = 101
+E_NOT_EXPORTED = 102
+E_LISTED_TWICE = 103
 E_TO_EXPECTED = 110
 E_CASE_SELECTOR = 111
 E_CASE_TWICE = 112
@@ -249,8 +253,12 @@ MESSAGES = (
     b"86 too many initial values\n"
     b"87 too much constant data in one table\n"
     b"88 expressions and blocks nested too deeply\n"
+    b"89 too many names in import lists, or named by one exported inline function\n"
     b"99 compiler error\n"
     b"100 a call of this function inside its own arguments: use a variable\n"
+    b"101 not in the import list of its module\n"
+    b"102 the module does not export this name\n"
+    b"103 name already in this import list\n"
     b"110 \"to\", \"downto\" or \"until\" expected\n"
     b"111 a case selector must be a byte, sbyte or bool\n"
     b"112 constant already used in this case\n"

@@ -42,7 +42,7 @@
 ;   |                                       | along it                        | "Pointers"        |
 module err
 
-import sys
+import sys (exit, put_error)
 
 ; Characters and tokens
 pub const E_BAD_CHAR = 1
@@ -123,10 +123,14 @@ pub const E_SLOTS_FULL = 85
 pub const E_INITS_FULL = 86
 pub const E_DATA_FULL = 87
 pub const E_NESTING = 88
+pub const E_WANTS_FULL = 89
 pub const E_INTERNAL = 99
 
 ; Meaning, continued (40 to 59 are full)
 pub const E_CALL_IN_ARGUMENTS = 100
+pub const E_NOT_LISTED = 101
+pub const E_NOT_EXPORTED = 102
+pub const E_LISTED_TWICE = 103
 pub const E_TO_EXPECTED = 110
 pub const E_CASE_SELECTOR = 111
 pub const E_CASE_TWICE = 112
@@ -266,11 +270,15 @@ const MESSAGES_1 in MSGS = "1 character not allowed here\n"
   "86 too many initial values\n"
   "87 too much constant data in one table\n"
   "88 expressions and blocks nested too deeply\n"
-  "99 compiler error\n"
+  "89 too many names in import lists, or named by one exported inline function\n"
+const MESSAGES_2 in MSGS = "99 compiler error\n"
   "100 a call of this function inside its own arguments: use a variable\n"
+  "101 not in the import list of its module\n"
+  "102 the module does not export this name\n"
+  "103 name already in this import list\n"
   "110 \"to\", \"downto\" or \"until\" expected\n"
   "111 a case selector must be a byte, sbyte or bool\n"
-const MESSAGES_2 in MSGS = "112 constant already used in this case\n"
+  "112 constant already used in this case\n"
   "113 a status cannot be returned from inside critical: return after its end\n"
   "114 #if, #else or #end expected at the start of a line\n"
   "115 #else or #end without its #if\n"
@@ -301,11 +309,11 @@ const MESSAGES_2 in MSGS = "112 constant already used in this case\n"
   "143 operand out of range\n"
   "144 addressing mode not available for this instruction\n"
   "145 directives such as .byte are not allowed in asm\n"
-  "146 unknown instruction\n"
+const MESSAGES_3 in MSGS = "146 unknown instruction\n"
   "147 cannot be made to be in zero page: declared nozp, or another module's and not zp\n"
   "150 a function type is written only in a type declaration\n"
   "151 the function does not have the parameters and results of the function type\n"
-const MESSAGES_3 in MSGS = "152 a recursive function type takes only functions declared recursive\n"
+  "152 a recursive function type takes only functions declared recursive\n"
   "153 the address of a function is a value only where a function type is wanted\n"
   "154 an asm function cannot be called through a pointer: its parameters are in registers\n"
   "155 only a function with a body in Lathe can be recursive\n"

@@ -63,7 +63,7 @@ class HelloTest(CompileTest):
         byte_in_a, bool_in_c = b'\x01\x01', b'\x05\x07'
         pointer_in_ax = b'\x10\x01\x04'          # ^byte in ax
         self.assertEqual(self.interface('host'), b''.join([
-            b'LI\x01', string(b'host'),
+            b'LI\x02', string(b'host'),
             b'\x01', string(b'read_byte'), b'\x01\x06\xf0', b'\x00', b'\x02', byte_in_a, bool_in_c,
             b'\x01', string(b'put_byte'), b'\x01\x09\xf0', b'\x01', byte_in_a, b'\x00',
             b'\x01', string(b'put_error'), b'\x01\x0c\xf0', b'\x01', byte_in_a, b'\x00',
@@ -99,7 +99,7 @@ class HelloTest(CompileTest):
         self.compile(HOST_LTH)
         self.compile(HELLO_LTH)
         self.assertEqual(self.interface('hello'),
-                         b'LI\x01' + string(b'hello') + b'\x01' + string(b'main') + b'\x00\x00\x00' + b'\x00')
+                         b'LI\x02' + string(b'hello') + b'\x01' + string(b'main') + b'\x00\x00\x00' + b'\x00')
 
     def test_an_interface_is_also_looked_for_in_the_import_directories(self):
         with tempfile.TemporaryDirectory() as elsewhere, tempfile.TemporaryDirectory() as empty:
@@ -163,7 +163,7 @@ class LanguageTest(CompileTest):
             (END, b''),
         ])
         self.assertEqual(self.interface('util'),
-                         b'LI\x01' + string(b'util') + b'\x01' + string(b'beep') + b'\x00\x00\x00' + b'\x00')
+                         b'LI\x02' + string(b'util') + b'\x01' + string(b'beep') + b'\x00\x00\x00' + b'\x00')
 
     def test_arguments_go_to_the_registers_an_extern_function_names(self):
         self.compile(self.source('regs.lth',
@@ -180,14 +180,14 @@ class LanguageTest(CompileTest):
             0x18, 0xA0, 0x02, 0xA2, 0x01, 0x20, 0x00, 0x20,
             0x18, 0xA0, 0x00, 0xA2, 0x00, 0x8A, 0x4C, 0x34, 0x12])])        # TXA: X holds the 0
         self.assertEqual(self.interface('regs'),          # only what is `pub`
-                         b'LI\x01' + string(b'regs') + b'\x01' + string(b'main') + b'\x00\x00\x00' + b'\x00')
+                         b'LI\x02' + string(b'regs') + b'\x01' + string(b'main') + b'\x00\x00\x00' + b'\x00')
 
     def test_types_and_registers_of_an_extern_function_are_in_the_interface(self):
         self.compile(self.source('lib.lth',
                                  'module lib\n'
                                  'pub extern func g(w: int in xy, s: sbyte in a): ^^byte in ay, bool in c at $2000\n'))
         self.assertEqual(self.interface('lib'), b''.join([
-            b'LI\x01', string(b'lib'), b'\x01', string(b'g'), b'\x01\x00\x20',
+            b'LI\x02', string(b'lib'), b'\x01', string(b'g'), b'\x01\x00\x20',
             b'\x02', b'\x04\x06', b'\x02\x01',
             b'\x02', b'\x10\x10\x01\x05', b'\x05\x07',
             b'\x00']))
@@ -325,7 +325,7 @@ class RecordsTest(CompileTest):
                          [b'\x01' + string(b'ahead.later'), b'\x01' + string(b'ahead.first')])
         self.assertEqual([body for kind, body in records if kind == FUNC], [b'\x01\x00\x00', b'\x00\x00\x04'])
         self.assertEqual(self.code('ahead')[0], bytes([0xA9, 3, 0x4C, 0, 0]))   # the argument in A
-        self.assertEqual(self.interface('ahead'), b'LI\x01' + string(b'ahead') + b'\x01' + string(b'later')
+        self.assertEqual(self.interface('ahead'), b'LI\x02' + string(b'ahead') + b'\x01' + string(b'later')
                          + b'\x00\x01\x01\x00\x01\x01\x01' + b'\x00')
 
 
@@ -353,7 +353,7 @@ class InterfaceTest(CompileTest):
     def test_constants_variables_and_signatures_are_in_the_interface(self):
         self.compile(self.source('lib.lth', self.LIB))
         self.assertEqual(self.interface('lib'), b''.join([
-            b'LI\x01', string(b'lib'),
+            b'LI\x02', string(b'lib'),
             b'\x02', string(b'limit'), b'\x06\x2c\x01',           # a number without a type
             b'\x02', string(b'small'), b'\x01\x07\x00',           # a byte
             b'\x02', string(b'below'), b'\x07\xfe\xff',           # a number below zero
@@ -400,6 +400,17 @@ class InterfaceTest(CompileTest):
         self.assertEqual([body for kind, body in records if kind == WGT],
                          [b'\x05\x00\x01\x02', b'\x03\x00\xff\x03\x04\x00\xff\x04'])
 
+    def test_the_weights_of_other_modules_variables_are_in_the_order_they_were_first_used(self):
+        """Not by where their names are in the name heap, which an import list changes."""
+        self.compile(self.source('lib.lth', self.LIB))
+        self.compile(self.source('user.lth', 'module user\nimport lib\nfunc f()\n'
+                                 '  lib.total = 1\n  lib.count = 2\n  lib.table = 3\nend\n'))
+        wgt = [body for kind, body in self.records('user') if kind == WGT]
+        syms = [body for kind, body in self.records('user') if kind == SYM]
+        self.assertEqual(syms[1:], [b'\x02' + string(b'lib.total'), b'\x02' + string(b'lib.count'),
+                                    b'\x02' + string(b'lib.table')])
+        self.assertEqual(wgt, [b'\x01\x00\xff\x02\x02\x00\xff\x01\x03\x00\xff\x02'])
+
     def test_what_is_not_pub_is_not_there(self):
         self.compile(self.source('lib.lth', self.LIB))
         for name in ('SECRET', 'hidden'):
@@ -418,7 +429,7 @@ class InterfaceTest(CompileTest):
                                  '  return nil\n'
                                  'end\n'))
         self.assertEqual(self.interface('lib'), b''.join([
-            b'LI\x01', string(b'lib'),
+            b'LI\x02', string(b'lib'),
             b'\x02', string(b't'), b'\x11\x02\x00\x03', b'\x00\x00',     # a table: [2]word
             b'\x03', string(b'a'), b'\x11\x03\x00\x01', b'\x04',         # an array is never in zero page
             b'\x03', string(b'r'), b'\x12\x04\x00\x03', b'\x04',         # stored by row
@@ -442,7 +453,7 @@ class InterfaceTest(CompileTest):
 
     def test_a_damaged_constant_or_variable_is_error_51(self):
         user = self.source('user.lth', 'module user\nimport lib\n')
-        head = b'LI\x01' + string(b'lib')
+        head = b'LI\x02' + string(b'lib')
         for damaged in (head + b'\x02' + string(b'c') + b'\x09\x00\x00\x00',      # unknown type of constant
                         head + b'\x02' + string(b'c') + b'\x00\x00\x00\x00',
                         head + b'\x03' + string(b'v') + b'\x09\x00\x00',          # unknown type of variable
@@ -478,7 +489,7 @@ class InterfaceTest(CompileTest):
         self.compile(self.source('lib.lth', self.TYPES))
         node = b'\x13' + string(b'lib') + string(b'node')
         self.assertEqual(self.interface('lib'), b''.join([
-            b'LI\x01', string(b'lib'),
+            b'LI\x02', string(b'lib'),
             b'\x06', string(b'kind'), b'\x01',                              # an enumeration, pub
             b'\x02', string(b'k_a'), b'\x13' + string(b'lib') + string(b'kind'), b'\x00\x00',
             b'\x02', string(b'k_b'), b'\x13' + string(b'lib') + string(b'kind'), b'\x07\x00',
@@ -535,7 +546,7 @@ class InterfaceTest(CompileTest):
 
     def test_a_damaged_type_entry_is_error_51(self):
         user = self.source('user.lth', 'module user\nimport lib\n')
-        head = b'LI\x01' + string(b'lib')
+        head = b'LI\x02' + string(b'lib')
         for damaged in (head + b'\x03' + string(b'v') + b'\x13' + string(b'lib') + string(b'none') + b'\x00\x00',
                         head + b'\x04' + string(b'x') + b'\x01\x09',          # an unknown type
                         head + b'\x09' + string(b'x') + b'\x00'):              # an unknown kind of entry
@@ -575,7 +586,7 @@ class FunctionTypesTest(CompileTest):
         self.compile(self.source('lib.lth', self.LIB))
         handler = b'\x13' + string(b'lib') + string(b'handler')
         self.assertEqual(self.interface('lib'), b''.join([
-            b'LI\x01', string(b'lib'),
+            b'LI\x02', string(b'lib'),
             b'\x07', string(b'handler'), b'\x01', b'\x02\x01\x00\x03\x00', b'\x01\x05\x07',
             b'\x07', string(b'visit'), b'\x03', b'\x01\x10\x01\x00', b'\x00',   # pub and recursive
             b'\x07', string(b'hidden'), b'\x00', b'\x00', b'\x00',                # written, not pub
@@ -652,16 +663,28 @@ class ImportTest(CompileTest):
         app = self.source('app.lth', 'module app\nimport util\npub func main()\n  host.put_byte(1)\nend\n')
         self.fails(app, ':4:3: error 40: undefined name\n')
 
+    def test_a_thawed_name_does_not_hide_an_older_name_of_the_same_spelling(self):
+        """`init` is first a field name read from a's interface, then this module's function on
+        that name; thawing b.init must not put b's entry ahead of it, or the plain `init` after
+        it would find only b's symbol (a fault until 2026-11-14: error 40)."""
+        self.compile(self.source('a.lth', 'module a\npub type R = record\n  init: byte\nend\n'))
+        self.compile(self.source('b.lth', 'module b\npub func init()\nend\n'))
+        self.compile(self.source('m.lth', 'module m\nimport a\nimport b\nfunc init()\nend\n'
+                                 'func f()\n  b.init()\n  init()\nend\n'))
+        syms = [body for kind, body in self.records('m') if kind == SYM]
+        self.assertEqual(syms, [b'\x01' + string(b'm.init'), b'\x01' + string(b'm.f'),
+                                b'\x01' + string(b'b.init')])
+
     def test_a_damaged_interface_is_error_51(self):
         entry = b'\x01' + string(b'f')
         for damaged in (b'',
                         b'XX\x01' + string(b'host') + b'\x00',                      # not an interface
-                        b'LI\x02' + string(b'host') + b'\x00',                      # another version
-                        b'LI\x01' + string(b'other') + b'\x00',                     # another module's
-                        b'LI\x01' + string(b'host'),                                # cut short
-                        b'LI\x01' + string(b'host') + entry + b'\x00\x00',          # cut short in an entry
-                        b'LI\x01' + string(b'host') + b'\x09' + string(b'f'),       # unknown kind of entry
-                        b'LI\x01' + string(b'host') + entry + b'\x00\x01\x09\x01\x00\x00'):   # unknown type
+                        b'LI\x03' + string(b'host') + b'\x00',                      # another version
+                        b'LI\x02' + string(b'other') + b'\x00',                     # another module's
+                        b'LI\x02' + string(b'host'),                                # cut short
+                        b'LI\x02' + string(b'host') + entry + b'\x00\x00',          # cut short in an entry
+                        b'LI\x02' + string(b'host') + b'\x09' + string(b'f'),       # unknown kind of entry
+                        b'LI\x02' + string(b'host') + entry + b'\x00\x01\x09\x01\x00\x00'):   # unknown type
             with open(os.path.join(self.out, 'host.li'), 'wb') as f:
                 f.write(damaged)
             self.fails(HELLO_LTH, ':4:8: error 51: not an interface file of this version\n')
@@ -717,7 +740,7 @@ class CommandLineTest(CompileTest):
                            (('-dlevel=2', '-c65c02', '-dsize=65533'), 65535)):
             with self.subTest(options=options):
                 self.assertEqual(support.run_lathec(*options, path, self.out), (0, ''))
-                self.assertEqual(self.interface('prog'), b'LI\x01' + string(b'prog') + b'\x02'
+                self.assertEqual(self.interface('prog'), b'LI\x02' + string(b'prog') + b'\x02'
                                  + string(b'b') + bytes([3, b & 0xFF, b >> 8, 0]))
 
     def test_a_source_file_not_called_lth_is_error_61(self):

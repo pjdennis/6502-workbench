@@ -10,19 +10,25 @@
 ; small build's capacities.
 module exprtest
 
-import cond
-import expr
-import gen
-import inlines
-import kernel
-import lex
+import cond (wanted_in_carry)
+import expr (constant, constant_number, data_region, expression, function, function_body, init,
+             test, type_spec, value_type, variable)
+import gen (accept, as_value, cpu, function_begin, function_end, init, init_function, jump_false,
+            load_result, pend_type, receive, saves_frame, store)
+import inlines (init, save)
+import kernel (K_FIELD, K_LOCAL, K_TYPE, keep_argument, local_names, member_type, module_add,
+               name_top, scope_begin, scope_end, SCOPE_FIELDS, SCOPE_LOCAL, SCOPE_MODULE,
+               SF_RECURSIVE, sym_add, sym_count, sym_flags, sym_kind, sym_members, sym_name,
+               sym_obj, sym_params, sym_scope, sym_type, sym_value)
+import lex (col, init, line, next, T_NL, tok)
 import listing
-import reg
+import reg (CLASS_EITHER, new_slot, object_symbol, SLOT_PARAMETER)
 import regcmd
-import script
-import src
-import sys
-import typetab
+import script (command, end_line, find, more, name, next, NOT_FOUND, number, open, show_byte,
+               show_word, small)
+import src (init, open_file)
+import sys (exit, put_byte)
+import typetab (declared, FORM_ENUM, FORM_RECORD, grow, size)
 
 const WORDS = "source first next sym record field enum fbegin param receive body fend expr cond econst cnum type vtype decl save scope send gstore asvalue accept lresult gjump efunc initfn cpu syms module einit setv dregion "
 

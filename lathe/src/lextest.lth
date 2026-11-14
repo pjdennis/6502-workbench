@@ -19,11 +19,13 @@
 ; `lextest SOURCE.lth q` prints nothing but an error: for timing the lexer alone.
 module lextest
 
-import err
-import kernel
-import lex
-import src
-import sys
+import err (E_END_EXPECTED, E_OPEN_SOURCE, E_USAGE, fatal, init, position, set_file)
+import kernel (init, keep_argument, name_char, name_length)
+import lex (choose, col, fold, init, is_digit, is_letter, line, next, resume, string_byte,
+            string_length, T_ASM, T_END, T_EOF, T_HASH_IF, T_NAME, T_NL, T_NUMBER, T_STRING, tok,
+            value)
+import src (advance, ch, col, eof, init, line, open_file)
+import sys (argc, exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
 const C_LF = $0A

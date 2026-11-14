@@ -16,19 +16,22 @@
 ; the files they write.
 module lktest3
 
-import lk_boot
-import lk_envf
-import lk_err
-import lk_file
-import lk_graph
-import lk_name
-import lk_out
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
-import lkshow
-import sys
+import lk_boot (init_addr, init_len, plan, start_addr, start_len, table_addr, table_len, write)
+import lk_envf (code_lo, read)
+import lk_err (begin, colon, E_NO_MAIN, E_USAGE, fail, finish, put)
+import lk_file (arg_count, arg_length, ARG_MAIN, ARG_OBJECT, path)
+import lk_graph (build, edge_node, first_edge, next_edge, order_count, scc_count)
+import lk_name (MAIN_SUFFIX, main_sym, object_count)
+import lk_out (close_image, open_image)
+import lk_scan (scan_all)
+import lk_sym (FUNCTION, is_defined, kind_of, row_of)
+import lk_tab (cls_count, cls_ctx, cls_node, cls_reach, cp_count, cp_info, cp_weight, ctx_count,
+               ctx_of, def_count, def_f, extra_end, fn_count, fn_ctx, fn_flags, is_node, node_count,
+               node_is_class, NONE, own_of, W_ADDR, W_ORDER, W_SCC, work)
+import lk_win (check_interrupts, copies, has_stub, mark_stubs, obj_stub, stub_addr, stub_base,
+               stub_count, table_bank, table_count)
+import lkshow (end_line, label, show_byte, show_word)
+import sys (exit)
 
 ; lathe/host/link.py's find_main: the function MAINMODULE.main, which some object file must
 ; define.

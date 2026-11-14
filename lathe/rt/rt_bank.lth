@@ -34,7 +34,7 @@
 ;                                   ; memory
 module rt_bank
 
-import disk
+import disk (close, exit, open, read)
 
 const PORT = $F000                  ; the bank register: VIA port B
 const DDR = $F002                   ; its data direction register

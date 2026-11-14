@@ -297,7 +297,8 @@ Constant expressions are evaluated by the compiler wherever a constant is requir
 module symtab          ; first line of the file
 
 import host            ; use host's exported names as host.name
-import strings
+import strings (equal, copy,
+                length)        ; only these three of strings's names
 ```
 
 - One module per source file. The module name is the file name.
@@ -307,6 +308,19 @@ import strings
 - Imported names are always written with the module name: `strings.equal(a, b)`.
 - The program starts at `pub func main()` in the module named when linking.
 - An exported `inline` function carries its body in the interface file. Its body can use only what its module exports, and the modules its module imports, which an importer need not import itself.
+
+### Import lists
+
+Added 2026-11-14. `import m` makes everything `m` exports usable. `import m (a, b, c)` makes only the names listed usable, as `m.a`, `m.b`, `m.c`, and only those, with what they need, are read from the interface into the compiler's tables: an import list is how a module that names a few of a large module's names keeps its own name heap small ([`architecture.md`](architecture.md), "What stays in memory").
+
+- **Form.** A list is names separated by commas between parentheses, after the module's name. It goes on over lines while its `(` is open, by the rule for continuing a line, and it may be empty: `import m ()` imports `m` and lets its code name nothing of it, which is how a module imports one whose types an interface it reads uses (below) without naming it. A name is written as anywhere else; case does not matter.
+- **Naming what is not listed** is error 101, wherever `m.x` is written: in an expression, a type, an `asm` block, or the body of an `inline` function of this module (checked as the body is saved, whether this module expands it or not).
+- **A listed name the module does not export** is error 102, at that name: a name it has not, a type that is not `pub`, or a module its interface names. A name listed twice is error 103.
+- **Types are read whatever the list says.** Every record, enumeration and function type of `m`, with the fields of its records, is known to the importer, so that what it lists can be used: a listed function whose result is a `^m.Node` can be called, and the fields of what it returns used, without listing `Node`. But the importer can write `m.Node`, or name a constant of an enumeration, only if the list gives it.
+- **Inline functions.** A listed `inline` function is expanded as without a list: what its body names, of its own module or of the modules its module imports, is read with it (the interface says what each exported body names), and the importer still cannot name it unless its own list of that module gives it.
+- **A module is imported once.** A second `import` of it, with a list or without, is error 41. If an interface read before has brought the module in for the bodies of its inline functions, the importer's own `import` uses that reading, reads what it still lacks, and lets the importer name what its list gives (everything, without a list).
+- **What the compiler calls by itself** (`rt_math`'s routines for `*`, `/`, `mod` and shifts by a variable, `rt_frame`'s `push` and `pop_y`) is found whatever the list of an `import` of `rt_math` or `rt_frame` says: those two modules are read whole.
+- **Lists change nothing that is built.** A module's object and interface files are the same whether its imports have complete lists or none; a list only decides what the module can name, and how much of the name heap its imports take. `lathe/tests/import_lists.py` writes the lists: from what the host compiler resolves through each `import`, in every configuration a module is built in.
 
 ## Conditional compilation
 
@@ -360,7 +374,8 @@ end
 `NL` is the end of a line. `{ x }` is zero or more, `[ x ]` is optional.
 
 ```
-unit        = "module" name NL { "import" name NL } { declaration } .
+unit        = "module" name NL { importLine } { declaration } .
+importLine  = "import" name [ "(" [ name { "," name } ] ")" ] NL .
 
 declaration = [ "pub" ] ( constDecl | typeDecl | enumDecl | varDecl | funcDecl | externDecl )
             | "forward" [ "recursive" ] funcHead NL .

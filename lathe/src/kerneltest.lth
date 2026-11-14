@@ -6,9 +6,15 @@
 ; freeze a name twice (error 41).
 module kerneltest
 
-import err
-import kernel
-import sys
+import err (init)
+import kernel (close, freeze, freeze_member, get, get_word, init, K_CONST, K_FUNC, K_LOCAL, K_VAR,
+               keep_argument, member_add, member_value, module_add, name_add, name_begin, name_char,
+               name_end, name_length, name_set_token, name_symbol, name_token, name_top, open_in,
+               open_memory, open_out, path, path_add, path_add_name, path_add_text, path_begin,
+               path_end, put, put_name, put_word, scope_begin, scope_end, SCOPE_LOCAL, SCOPE_MODULE,
+               SF_PUB, sym_add, sym_count, sym_find, sym_lookup, sym_members, sym_params,
+               sym_release, sym_type, sym_value, text_reserve, thaw_top)
+import sys (exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
 const TEXT = "Some text\n"

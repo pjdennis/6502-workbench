@@ -15,8 +15,8 @@
 ; status 2. A script never runs on after an error the compiler reports: err.fatal() ends it.
 module script
 
-import kernel
-import sys
+import kernel (get, keep_argument, name_add, name_begin, name_end, open_in)
+import sys (exit, put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
 const MAX_LINE = 250

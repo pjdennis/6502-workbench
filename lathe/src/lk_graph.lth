@@ -50,14 +50,25 @@
 ;   |                                      |                                   | use             |
 module lk_graph
 
-import lk_boot
-import lk_envf
-import lk_err
-import lk_name
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
+import lk_boot (is_init)
+import lk_envf (placed)
+import lk_err (arrow, begin, colon, comma, E_CLASS_CONTEXTS, E_CONTEXTS, E_COPIES, E_CYCLE, E_FIXES,
+               E_MEMBER, E_MEMBER_CYCLE, E_UNDEFINED, fail, finish, put)
+import lk_name (error_name, error_node, fail, fc_call, fc_start, global_sym, MAX_OBJECTS, obj_fn,
+                object_count)
+import lk_rec (advance, close, get_byte, get_word, left, open_object, R_DATA, R_DFIX, R_END, R_ENDF,
+               R_FIX, R_FUNC)
+import lk_scan (def_bank, fn_bank)
+import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of, VARIABLE)
+import lk_tab (CLASS_NODE, class_of, cls_count, cls_ctx, cls_node, cls_np, cls_par, cls_reach,
+               cls_ref, copy_node, cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_FIXED, D_KEPT,
+               D_PASSED, def_a, def_count, def_f, E_NOSAVE, E_PENDING, E_VIA, edge_flag, edge_sym,
+               extra_end, F_ADDR, F_INTERRUPT, F_RECURSIVE, first_call, first_in_order, fn_class,
+               fn_count, fn_ctx, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, is_kept_def,
+               MAX_CONTEXTS, MAX_FIXES, MAX_NODES, memb_class, memb_count, memb_func, new_node,
+               next_call, next_in_order, node_class, node_count, node_is_class, node_sym, NONE,
+               own_of, slot_bytes, slot_class, slot_is_param, slot_weight, W_CTXZ, W_ORDER, W_SCC,
+               work)
 
 ; lk_tab.work[lk_tab.W_ORDER...]: the nodes, callees before their callers
 pub var order_count: word = 0

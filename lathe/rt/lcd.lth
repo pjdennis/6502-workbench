@@ -31,8 +31,8 @@
 ; next in row order (on 20x4, row 0 runs on into row 2), so a program places each row with goto.
 module lcd
 
-import board
-import via
+import board (delay, LCD_4BIT, LCD_COLS)
+import via (ddra, ddrb, porta, portb)
 
 ; Commands (firmware/lib/lcd/display_parameters.inc).
 pub const CMD_CLEAR: byte = $01

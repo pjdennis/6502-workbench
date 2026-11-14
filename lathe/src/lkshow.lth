@@ -4,7 +4,7 @@
 ; kernel). Its Python twin is in lathe/tests/test_src_lk.py.
 module lkshow
 
-import sys
+import sys (put_byte)
 
 const HEX: [16]byte = "0123456789ABCDEF"
 

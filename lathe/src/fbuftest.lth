@@ -4,12 +4,14 @@
 ; scripts are in lathe/tests/scripts/fbuf.txt.
 module fbuftest
 
-import err
-import fbuf
-import kernel
+import err (init)
+import fbuf (arrive, as_written, begin, branch, call_label, finish, FIX_ADDRESS, join, jump,
+             keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, op_word, place, runs_on,
+             same, tail_call, used)
+import kernel (init)
 import listing
-import script
-import sys
+import script (command, end_line, flag, next, number, open, show_bool, show_byte, show_word, small)
+import sys (exit)
 
 const OP_NOP = $EA
 const OP_LDA = $AD

@@ -10,17 +10,21 @@
 module asmtest
 
 import asmblock
-import err
-import fbuf
-import kernel
-import lex
+import err (init)
+import fbuf (begin, finish)
+import kernel (init, K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR, keep_argument, module_add,
+               scope_begin, SCOPE_LOCAL, SCOPE_MODULE, sym_add, sym_flags, sym_obj, sym_type,
+               sym_value, sym_weight)
+import lex (col, init, line, next, T_ASM, T_NL, tok)
 import listing
-import out
-import reg
-import script
-import src
-import sys
-import typetab
+import out (end_module, init, open, SYM_FUNCTION, SYM_VARIABLE, symbol)
+import reg (begin, load_const, local_count, loop_depth, new_slot, slot_busy, slot_class, slot_kind,
+            slot_name, slot_size, slot_weight)
+import script (command, end_line, name, name_of, next, number, open, show_bool, show_byte,
+               show_word, small)
+import src (init, open_file)
+import sys (exit, put_byte)
+import typetab (array_of, BYTE_TYPE, init, NO_TYPE, WORD_TYPE)
 
 const WORDS = "var func const table module local static type scope loops weight lconst source block asmfunc finish symweight end begin "
 

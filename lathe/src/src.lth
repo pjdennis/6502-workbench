@@ -17,8 +17,8 @@
 ;   |                                 |                                   | "Pointers"           |
 module src
 
-import err
-import kernel
+import err (E_SOURCES_FULL, fatal, set_file)
+import kernel (close, get, open_in, open_memory)
 
 const MAX_SOURCES = 8   ; the file, and the bodies of inline calls inside each other
 const LAST_POSITION = $FFFF     ; lines and columns are counted this far and no further

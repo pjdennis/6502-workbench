@@ -51,7 +51,73 @@ ERROR = re.compile(rb': error (\d+): ')
 LETTERS = b'abcdefghijklmnopqrstuvwxyz'
 M = b'module m\n'                   # a module that compiles, called m.lth
 BAD = b'module m\nimport bad\n'    # one that imports `bad`, whose interface is damaged
-LI = b'LI\x01\x03bad'               # the header of bad.li
+LI = b'LI\x02\x03bad'               # the header of bad.li
+
+# Modules for the inputs about import lists (lathe/docs/language.md, "Modules"): j has a type of
+# every kind, a table and a variable in a region and inline functions, one of them pure; k
+# imports j and exports inline functions that name j's, one with a string; a's inline function
+# names k's. Their interfaces are made by the host compiler when this file is loaded.
+LISTS_J = b"""module j
+pub const X = 1
+pub var y: byte
+pub var z: byte
+type Priv = record
+  a: byte
+end
+pub type W = word
+pub type H = func(n: byte)
+pub enum E
+  A
+end
+pub type T = record
+  a: byte
+  b: word
+end
+pub var r: [4]byte in R
+pub const K: [2]byte in R = [1, 2]
+pub inline func g(n: byte): byte
+  return n + X
+end
+pub inline func zap()
+  z = 5
+end
+pub func q()
+end
+"""
+LISTS_K = b"""module k
+import j
+pub var c: byte
+pub inline func inl(n: byte)
+  c += j.g(n)
+  j.y = n
+end
+pub inline func other(): ^byte
+  return "ab"
+end
+"""
+LISTS_A = b"module a\nimport k\npub inline func ai()\n  k.c = 1\nend\n"
+
+
+def made_interfaces():
+    """{NAME.li: bytes} of j, k and a, compiled by the host compiler."""
+    found = {}
+    with tempfile.TemporaryDirectory() as d:
+        for name, text in (('j', LISTS_J), ('k', LISTS_K), ('a', LISTS_A)):
+            path = os.path.join(d, name + '.lth')
+            with open(path, 'wb') as f:
+                f.write(text)
+            subprocess.run([sys.executable, os.path.join(LATHE, 'host', 'lathec.py'), path, d], check=True)
+            with open(os.path.join(d, name + '.li'), 'rb') as f:
+                found[name + '.li'] = f.read()
+    return found
+
+
+LISTS = made_interfaces()
+
+
+def lists_input(title, source):
+    return (title, ['m.lth', '.'], dict([('m.lth', source)] + list(LISTS.items())))
+
 
 # (title, arguments, {file: bytes}) of the inputs that the corpus does not have. The command
 # lines of lathe/host/README.md, "Command lines", that are errors; file names that cannot be a
@@ -82,11 +148,11 @@ MADE = [
     ('a source that is not there', ['none.lth', '.'], {}),
     ('an output directory that is not there', ['m.lth', 'none'], {'m.lth': M}),
     ('an import directory', ['m.lth', '.', 'lib'],
-     {'m.lth': b'module m\nimport k\n', 'lib/k.li': b'LI\x01\x01k\x00'}),
-    ('an interface of another version', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': b'LI\x02\x03bad\x00'}),
-    ('an interface of another module', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': b'LI\x01\x03bax\x00'}),
+     {'m.lth': b'module m\nimport k\n', 'lib/k.li': b'LI\x02\x01k\x00'}),
+    ('an interface of another version', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': b'LI\x01\x03bad\x00'}),
+    ('an interface of another module', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': b'LI\x02\x03bax\x00'}),
     ('an interface cut short', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': LI}),
-    ('an interface with an entry of no known kind', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': LI + b'\x0a'}),
+    ('an interface with an entry of no known kind', ['m.lth', '.'], {'m.lth': BAD, 'bad.li': LI + b'\x0b'}),
     ('an interface with a type of no known code', ['m.lth', '.'],
      {'m.lth': BAD, 'bad.li': LI + b'\x03\x01v\x55\x00\x00'}),
     ('an interface with a type of a module not imported', ['m.lth', '.'],
@@ -113,7 +179,7 @@ MADE = [
                                          + b'end\n' for r in range(10))}),
     ('too many imports (73)', ['m.lth', '.'],
      dict([('m.lth', b'module m\n' + b''.join(b'import %c\n' % c for c in LETTERS[:17] if c != ord('m')))]
-          + [('%c.li' % c, b'LI\x01\x01%c\x00' % c) for c in LETTERS[:17] if c != ord('m')])),
+          + [('%c.li' % c, b'LI\x02\x01%c\x00' % c) for c in LETTERS[:17] if c != ord('m')])),
     ('too many types (74)', ['m.lth', '.'],
      {'m.lth': b'module m\n' + b''.join(b'type R%d = record\n  x: byte\nend\n' % r for r in range(30))}),
     ('a function too large (75)', ['m.lth', '.'],
@@ -124,7 +190,7 @@ MADE = [
      {'m.lth': b'module m\n' + b''.join(b'func f%d()\nend\n' % i for i in range(66)) + b'func g()\n'
       + b''.join(b'f%d()\n' % i for i in range(66)) + b'end\n'}),
     ('too many open files (80): interfaces that bring in modules for their inline functions', ['m.lth', '.'],
-     dict([('m.lth', b'module m\nimport a\n')] + [('%c.li' % c, b'LI\x01\x01%c' % c + (b'\x08\x01%c' % (c + 1) if c < ord('j') else b'')
+     dict([('m.lth', b'module m\nimport a\n')] + [('%c.li' % c, b'LI\x02\x01%c' % c + (b'\x08\x01%c' % (c + 1) if c < ord('j') else b'')
                                                  + b'\x00') for c in LETTERS[:10]])),
     ('text memory full (82): the file names of imported inline functions', ['m.lth', '.'],
      {'m.lth': b'module m\nimport bad\n', 'bad.li': LI + b''.join(
@@ -142,6 +208,21 @@ MADE = [
      {'m.lth': b'module m\ntype H = func()\n' + b''.join(b'func f%d()\nend\n' % i for i in range(70))
       + b''.join(b'const T%d: [14]H = [' % t + b', '.join(b'@f%d' % (t * 14 + i) for i in range(14)) + b']\n'
                  for t in range(5))}),
+    # Import lists: interfaces read again, entries and inline functions passed over
+    lists_input('a list, then the module an inline function brought in, with no list',
+                b'module m\nimport k (inl)\nimport j\nfunc f()\n  k.inl(1)\n  j.q()\nend\n'),
+    lists_input('a list, then the module an inline function brought in, with a list',
+                b'module m\nimport k (inl)\nimport j (y, T, q)\nvar t: j.T\nfunc f()\n  k.inl(1)\n'
+                b'  j.y = 2\n  j.q()\nend\n'),
+    lists_input('a module with a list, then one whose inline function names more of it',
+                b'module m\nimport j (X)\nimport k (inl)\nfunc f()\n  k.inl(j.X)\nend\n'),
+    lists_input('a listed type that is not pub (102)', b'module m\nimport j (Priv)\n'),
+    lists_input('a listed type that is not pub, in a module read before (102)',
+                b'module m\nimport k (inl)\nimport j (Priv)\n'),
+    lists_input('a listed module of an interface, in a module read before (102)',
+                b'module m\nimport a (ai)\nimport k (j)\n'),
+    ('too many names in an import list (89)', ['m.lth', '.'],
+     {'m.lth': b'module m\nimport j (' + b', '.join(b'n%d' % i for i in range(49)) + b')\n'}),
     ('initial values written out in parts', ['m.lth', '.'],
      {'m.lth': b'module m\n' + b''.join(b'var v%d: byte = %d\n' % (i, i) for i in range(40))}),
 ]

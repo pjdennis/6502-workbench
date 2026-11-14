@@ -34,19 +34,19 @@
 ;   | if env.is_program(__name__): main()  | pub func main()                   | the entry       |
 module link
 
-import lk_alloc
+import lk_alloc (allocate)
 import lk_emit
-import lk_envf
-import lk_err
-import lk_file
-import lk_graph
-import lk_name
-import lk_place
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
-import sys
+import lk_envf (read)
+import lk_err (begin, colon, E_NO_MAIN, E_USAGE, fail, finish, put)
+import lk_file (arg_count, arg_length, ARG_MAIN, ARG_OBJECT, PATH)
+import lk_graph (build)
+import lk_name (MAIN_SUFFIX, main_sym)
+import lk_place (check_with, place)
+import lk_scan (scan_all)
+import lk_sym (FUNCTION, is_defined, kind_of, row_of)
+import lk_tab (NONE)
+import lk_win (check_interrupts, mark_stubs)
+import sys (exit)
 
 ; The function MAINMODULE.main, which some object file must define. lk_name noted the symbol of
 ; that name while the files were read.

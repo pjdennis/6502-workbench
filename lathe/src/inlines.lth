@@ -57,14 +57,26 @@
 ;   | SAVED_SIZE                           | under `#if SMALL` (384) as well   | the small build |
 module inlines
 
-import err
-import fbuf
-import gen
-import kernel
-import src                      ; before lex, whose interface imports it too
-import lex
-import reg
-import typetab
+import err (E_BAD_INTERFACE, E_END_EXPECTED, E_INLINE_DEEP, E_INLINE_FULL, E_INLINE_NOT_HERE,
+            E_INLINE_PRIVATE, E_INLINE_RECURSIVE, E_OPERANDS_FULL, E_SLOTS_FULL, E_STRING_LONG,
+            E_UNDEFINED, E_WANTS_FULL, fatal)
+import fbuf (new_label, NO_SLOT)
+import gen (local, must_protect, protect, store, variable)
+import kernel (get, get_word, K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_VAR, local_base, member_type,
+               module_find, name_add, name_begin, name_char, name_end, name_length, name_symbol,
+               NO_OBJ, NO_SYM, put, put_name, put_word, SCOPE_LOCAL, SCOPE_MODULE,
+               SCOPE_PREDECLARED, set_token_byte, SF_LIST, SF_NOZP, SF_PUB, SF_ZP, sym_add,
+               sym_count, sym_find, sym_flags, sym_kind, sym_link, sym_lookup, sym_members,
+               sym_name, sym_params, sym_release, sym_results, sym_scope, sym_type, sym_value,
+               text_reserve, token_byte, token_start)
+import src (name, open_saved)                      ; before lex, whose interface imports it too
+import lex (col, line, MAX_COLUMN, next, SAVED_LINE, string_byte, string_length, T_ADDRESS, T_ARROW,
+            T_ASM, T_ASSIGN, T_CASE, T_COMMA, T_CRITICAL, T_DOT, T_END, T_EOF, T_FOR, T_HASH_IF,
+            T_IF, T_LBRACKET, T_LOOP, T_LPAREN, T_NAME, T_NL, T_NUMBER, T_RBRACKET, T_RETURN,
+            T_SHR_ASSIGN, T_STATIC, T_STRING, T_UNTIL, T_VAR, T_WHILE, T_WITH, tok, value)
+import reg (depth, F_DATA, F_TEMP, INDEX, M_DIRECT, O_CONST, O_VAR, op_flags, op_kind, op_mode,
+            op_slot, op_symbol, op_type, op_value, op_var, own, pop, slot_busy, swap, temp)
+import typetab (is_pointer, size)
 
 #if SMALL
 const SAVED_SIZE = 384      ; (SMALL: the test programs' small build)
@@ -120,6 +132,11 @@ pub var owned: [MAX_OWNED]byte          ; slot numbers
 pub var owned_count: byte
 pub var alias: [MAX_ALIASES]word        ; parameters standing for a variable whose arguments are still read
 pub var alias_count: byte
+
+const MAX_USES = 32             ; names of other entries one exported body names (write_uses())
+var use_module: [MAX_USES]word  ; the module's name, 0 for the body's own module
+var use_name: [MAX_USES]word
+var use_count: byte
 
 pub func init()
   saved_start = kernel.token_start()
@@ -333,6 +350,10 @@ pub func save(f: word)
   var returns: word
   var token: byte
   var r: ^byte
+  var named: word               ; the module the token before names, if it does
+  var dotted: word              ; the module named before the "." before, if there is one
+  var s: word
+  var found: bool
   begin_record(f, lex.line, src.name)
   for i = 0 until kernel.sym_params[f] do
     set_word_at(param(f, i), kernel.sym_name[kernel.local_base + i])
@@ -347,11 +368,16 @@ pub func save(f: word)
   before = lex.T_NL
   before_value = 0
   earlier = lex.T_NL
+  named = kernel.NO_SYM
+  dotted = kernel.NO_SYM
   returns = 0
   while lex.tok != lex.T_END or blocks > 0 do
     token = lex.tok
     if token == lex.T_EOF then
       err.fatal(err.E_END_EXPECTED)
+    end
+    if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.sym_flags[dotted] & kernel.SF_LIST != 0 then
+      kernel.module_find(dotted, lex.value)     ; `m.name`: in m's list (error 101)
     end
     if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF or
         token == lex.T_WITH then
@@ -401,6 +427,17 @@ pub func save(f: word)
       blocks += 1
     elif token == lex.T_END or token == lex.T_UNTIL then
       blocks -= 1
+    end
+    dotted = kernel.NO_SYM
+    if token == lex.T_DOT then
+      dotted = named
+    end
+    named = kernel.NO_SYM
+    if token == lex.T_NAME and before != lex.T_DOT and not is_own(f, lex.value) then
+      s, found = kernel.sym_lookup(lex.value)
+      if found and kernel.sym_kind[s] == kernel.K_MODULE then
+        named = s
+      end
     end
     at_line = save_token(at_line)
     scan_index += 1
@@ -497,6 +534,148 @@ pub func write(stream: byte, f: word)
     p += 2 + size
   end
   kernel.put(stream, lex.T_EOF)
+end
+
+; Pass over a name written as a string, making no name of it.
+pub func skip_name(stream: byte)
+  var length: byte
+  var at_end: bool
+  var i: byte
+  var ch: byte
+  length, at_end = kernel.get(stream)
+  for i = 0 until length do
+    ch, at_end = kernel.get(stream)
+  end
+end
+
+; Pass over the record write() wrote for an inline function of `params` parameters that the
+; importer does not want (decl.read_function()): nothing is kept of it.
+pub func skip(stream: byte, params: byte)
+  var at_end: bool
+  var written: byte
+  var token: byte
+  var b: byte
+  var i: byte
+  skip_name(stream)
+  kernel.get_word(stream)
+  b, at_end = kernel.get(stream)
+  written, at_end = kernel.get(stream)
+  if written != 0 then
+    skip_name(stream)
+  end
+  for i = 0 until params do
+    skip_name(stream)
+    b, at_end = kernel.get(stream)
+  end
+  loop
+    token, at_end = kernel.get(stream)
+    if at_end or token > lex.SAVED_LINE then
+      err.fatal(err.E_BAD_INTERFACE)
+    end
+    if token == lex.T_EOF then
+      break
+    end
+    b, at_end = kernel.get(stream)
+    if token == lex.T_NAME then
+      skip_name(stream)
+    elif token == lex.T_NUMBER then
+      kernel.get_word(stream)
+    elif token == lex.T_STRING then
+      skip_name(stream)         ; a length and that many bytes, as a name is written
+    end
+  end
+end
+
+; The bytes a saved token at `p` has after its token and column bytes.
+func token_size(p: ^byte): word
+  var token: byte
+  token = kernel.token_byte(p)
+  if token == lex.T_NAME or token == lex.T_NUMBER then
+    return 2
+  end
+  if token == lex.T_STRING then
+    return 1 + word(kernel.token_byte(p + 2))
+  end
+  return 0
+end
+
+; write_uses() found the body names `name` of module `owner` (its name, or 0 for its own
+; module): keep it, once.
+func use(owner: word, name: word)
+  var i: byte
+  for i = 0 until use_count do
+    if use_module[i] == owner and use_name[i] == name then
+      return
+    end
+  end
+  if use_count == MAX_USES then
+    err.fatal(err.E_WANTS_FULL)
+  end
+  use_module[use_count] = owner
+  use_name[use_count] = name
+  use_count += 1
+end
+
+; After the LI_USES entry's name: what the body of exported inline function `f` names that an
+; importer must read with it, so that it finds them though its list does not name them
+; (decl.read_uses()). That is each function, constant and variable of the module that it names
+; by a plain name, its own parameters and locals apart, and each `m.name` of a module m that the
+; module imports: their number, then each as a module name (empty for this module) and a name.
+; Types and modules are not there: an import reads all of them.
+pub func write_uses(stream: byte, f: word)
+  var r: ^byte
+  var last: ^byte
+  var p: ^byte
+  var q: ^byte
+  var token: byte
+  var before: byte
+  var name: word
+  var s: word
+  var found: bool
+  var i: byte
+  local_count = 0
+  use_count = 0
+  r = ^byte(kernel.sym_value[f])
+  last = ^byte(word_at(r + R_END))
+  p = r + R_PARAMS + word(kernel.sym_params[f]) * PARAM_SIZE
+  before = lex.T_NL
+  while p < last do
+    token = kernel.token_byte(p)
+    if token == lex.T_NAME and before != lex.T_DOT then
+      name = word_at(p + 2)
+      if before == lex.T_VAR then
+        local_name[local_count] = name
+        local_count += 1
+      elif not is_own(f, name) then
+        s, found = kernel.sym_lookup(name)
+        q = p + 2 + token_size(p)
+        if found and kernel.sym_kind[s] == kernel.K_MODULE then
+          if q < last and kernel.token_byte(q) == lex.T_DOT then
+            q += 2
+            if q < last and kernel.token_byte(q) == lex.T_NAME then
+              use(name, word_at(q + 2))
+            end
+          end
+        elif found and kernel.sym_scope[s] == kernel.SCOPE_MODULE and
+            kernel.sym_kind[s] >= kernel.K_FUNC and kernel.sym_kind[s] <= kernel.K_VAR then
+          use(0, name)
+        end
+      end
+    end
+    if token != lex.SAVED_LINE then
+      before = token
+    end
+    p += 2 + token_size(p)
+  end
+  kernel.put(stream, use_count)
+  for i = 0 until use_count do
+    if use_module[i] == 0 then
+      kernel.put(stream, 0)
+    else
+      kernel.put_name(stream, use_module[i])
+    end
+    kernel.put_name(stream, use_name[i])
+  end
 end
 
 ; Read the record that write() wrote for function `f`, which an import declares.

@@ -29,11 +29,15 @@
 ;   |                                      |                                   | byte            |
 module cond
 
-import err
-import fbuf
-import fold
-import reg
-import typetab
+import err (E_TYPE, fatal)
+import fbuf (new_label)
+import fold (compare, EQ, GE, GT, LE, LT, NE)
+import reg (A, accumulator, alu, apart, become, branch, claim, compare, compare_const, const_byte,
+            depth, describe, force, immediate, implied, in_registers, is_const_byte, join, jump,
+            label, load, load_const, NONE, O_A, O_COND, O_CONST, O_VAR, OP_AND, OP_CLC, OP_EOR,
+            op_false, op_flags, op_kind, OP_LSR, OP_ORA, OP_ROL, OP_SBC, OP_SEC, op_true, op_type,
+            op_value, pop, push, push_register, release, spill, squeeze, swap, test_byte, unify)
+import typetab (BOOL_TYPE, is_func, is_signed, limit, size)
 
 ; The branch of a condition that is known without a test. Real branch opcodes are larger.
 pub const NEVER = 0

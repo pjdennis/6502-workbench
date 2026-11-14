@@ -31,7 +31,7 @@
 ;   |                                       | is one                          |                   |
 module lk_err
 
-import sys
+import sys (exit, put_error)
 
 pub const E_USAGE = 1
 pub const E_OPEN = 2

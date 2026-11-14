@@ -6,16 +6,27 @@
 ; twin; the commands are listed in lathe/tests/scripts/reg.txt.
 module regcmd
 
-import err
-import fbuf
-import kernel
+import err (init)
+import fbuf (begin, finish, FIRST_TEMP, new_label)
+import kernel (init, K_FUNC, K_TYPE, K_VAR, keep_argument, member_add, module_add, NO_OBJ,
+               SCOPE_MODULE, sym_add, sym_flags, sym_params, sym_results, sym_type, sym_value,
+               sym_weight)
 import listing
-import out
-import reg
-import script
+import out (end_module, init, open, SYM_FUNCTION, symbol, with_region, with_used)
+import reg (accepts, accumulator, alu, apart, assignable, become, begin, branch, claim,
+            class_symbol, clobber, compare, compare_const, const_byte, depth, dereferenced,
+            describe_temp, direct, duplicate, F_WRAPS, fit, fit_function, flags, force, forget,
+            immediate, implied, in_registers, INDEX, into_memory, is_const_byte, is_direct, join,
+            jump, keep, label, load, load_const, local_count, loop_depth, loop_label, modify,
+            new_slot, O_ADDR, O_CONST, offset, op_false, op_flags, op_kind, op_mode, op_size,
+            op_slot, op_stride, op_symbol, op_true, op_type, op_value, op_var, owner, pop, push,
+            push_memory, push_register, push_slot, put, put_const, release, same_place, slot_busy,
+            slot_class, spill, squeeze, step_x, store, swap, take, take_index, temp, temp_count,
+            test, test_byte, transfer, unaliased, unify, use, zero_page)
+import script (flag, name, name_of, number, show_bool, show_byte, show_word, small)
 import slotview                 ; REG's slot columns, read in bank 2 when banked
-import sys
-import typetab
+import sys (exit, put_byte)
+import typetab (array_of, declared, FORM_FUNC, init, make_recursive, NO_TYPE, pointer_to)
 
 pub const WORDS = "begin slot temp var func ftype ptr const wraps mem pslot preg addr faddr index mode pop swap squeeze dup keep become dtemp load lconst force store put pconst imm alu cmp cmpc acc modify stepx test testb implied transfer spill take intomem apart unaliased zp deref clobber claim release forget direct use loops label place looplabel branch jump join accepts assignable fit unify fitf class show state same offset constb isdirect finish end arr symweight slots inregs value retype inside used "
 

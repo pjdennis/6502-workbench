@@ -80,8 +80,8 @@
 ;   | entries are known                    | there is nothing to tidy          | to tidy         |
 module fbuf
 
-import err
-import kernel
+import err (E_FIXUPS_FULL, E_FUNC_BIG, E_INTERNAL, E_LABELS_FULL, fatal)
+import kernel (put, put_word)
 
 #if SMALL
 const BUFFER_SIZE = 1024        ; bytes of entries (SMALL: the test programs' small build)

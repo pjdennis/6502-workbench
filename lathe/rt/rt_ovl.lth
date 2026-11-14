@@ -30,7 +30,7 @@
 ; Files are read through the host services of lathe/rt/host.lth.
 module rt_ovl
 
-import host
+import host (close, exit, open, read)
 
 var stub: ^byte                     ; the stub's address + 2, as the JSR pushed it (zero page)
 var save_a: byte

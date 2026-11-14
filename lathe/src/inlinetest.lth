@@ -8,17 +8,27 @@
 ; (compiler-small.env), as gentest is: GEN is in it.
 module inlinetest
 
-import gen
-import inlines
-import sys                      ; sys and src before kernel and lex, whose interfaces import
-import src                      ; them too: a module is imported again if named after that
-import kernel
-import lex
+import gen (accept, as_value, binary, constant, function_begin, function_end, init, local, variable)
+import inlines (alias, alias_base, alias_count, argument_symbol, body_begin, copies_due,
+                copy_aliases, depth, done, enter, expanding, init, lazy, leave, leaves_operand,
+                level, local_scope, lookup, outer, own_slot, owned, owned_base, owned_count, param,
+                PARAM_SIZE, R_END, R_FILE, R_FLAGS, R_LINE, R_PARAMS, R_WRITTEN, read, save,
+                saved_start, saved_top, slot_name, sym_base, wanted, word_at, write)
+import sys (exit, put_byte)                      ; sys and src before kernel and lex, whose interfaces import
+import src (close, init, push)                      ; them too: a module is imported again if named after that
+import kernel (close, freeze, K_FUNC, K_LOCAL, keep_argument, local_names, member_add, member_type,
+               module_add, name_add, name_begin, name_char, name_length, name_top, open_in,
+               open_memory, open_out, put, scope_begin, scope_end, SCOPE_LOCAL, sym_add, sym_count,
+               sym_flags, sym_kind, sym_members, sym_name, sym_params, sym_results, sym_scope,
+               sym_type, sym_value, text_top, token_byte)
+import lex (col, init, line, next, open_brackets, string_byte, string_length, T_EOF, T_NAME, T_NL,
+            T_NUMBER, T_STRING, tok, value)
 import listing
-import reg
-import regcmd
-import script
-import typetab
+import reg (new_slot, pop, push_register)
+import regcmd (init, own)
+import script (command, end_line, flag, more, name, next, next_char, number, open, show_bool,
+               show_byte, show_word, small)
+import typetab (pointer_to)
 
 const WORDS = "line text blank open next func params save record sym enter arg begin tokens leave lookup lscope own slotname copy due leaves istate isyms gconst glocal gvar binary asvalue accept preg slot fend write read iface ptr freeze module pop "
 const SOURCE_SIZE = 512

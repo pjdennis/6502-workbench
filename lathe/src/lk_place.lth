@@ -30,17 +30,22 @@
 ;   | top -= 1 after (top - size) & 0xFFFF | the word, which wraps             | the same        |
 module lk_place
 
-import lk_alloc
-import lk_boot
-import lk_envf
-import lk_err
-import lk_fix
-import lk_name
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
+import lk_alloc (straddles)
+import lk_boot (plan)
+import lk_envf (bank_count, bank_file, bank_win, code_hi, code_lo, MAX_BANKS, put_bank, win_hi,
+                win_lo)
+import lk_err (begin, colon, E_BANK_FULL, E_CODE_FULL, E_REGION_NO_FILE, E_WITH_FAR, E_WITH_IRQ,
+               E_WITH_PLACED, finish, over)
+import lk_fix (begin, count_shrinks, shrink_count)
+import lk_name (fail, fail_in, global_sym, obj_def, object_count)
+import lk_rec (advance, close, get_byte, get_word, left, open_object, R_CALL, R_CODE, R_DATA, R_END,
+               R_ENDF, R_FIX, R_FUNC)
+import lk_scan (fn_bank, obj_bank, rdef_bank, rdef_count, region_of)
+import lk_sym (is_defined, row_of)
+import lk_tab (add16, class_of, copy_node, ctx_count, D_CONST, D_ZP, def_a, def_b, def_count, def_f,
+               F_INTERRUPT, F_WITH, fn_count, fn_ctx, fn_flags, fn_ref, has_copy, is_kept_def,
+               is_kept_var, memb_class, memb_count, memb_func, overflow, W_ADDR, work)
+import lk_win (bank_def)
 
 var code_used: word = 0                 ; bytes of the code range given out so far
 var code_wrapped: bool = false          ; more than 16 bits can count were asked for

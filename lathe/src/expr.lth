@@ -63,18 +63,56 @@
 ;   | init() and declared with `with`      |                                   | use             |
 module expr
 
-import asmblock
-import err
-import fbuf
-import fold
-import gen
-import inlines
-import kernel
-import lex
-import out
-import reg
-import src
-import typetab
+import asmblock (block)
+import err (E_ARG_COUNT, E_ARRAY_VALUE, E_CALL_IN_ARGUMENTS, E_CASE_SELECTOR, E_CASE_TWICE,
+            E_COLON_EXPECTED, E_DO_EXPECTED, E_DOT_EXPECTED, E_DUPLICATE, E_ELEMENT_SIZE,
+            E_END_EXPECTED, E_EXPR_EXPECTED, E_FUNC_TYPE_PLACE, E_IN_HERE, E_INLINE_ADDRESS,
+            E_INLINE_NOT_HERE, E_INTERRUPT_CALL, E_LABELS_FULL, E_LPAREN_EXPECTED, E_NAME_EXPECTED,
+            E_NEEDS_ROWS, E_NESTING, E_NL_EXPECTED, E_NO_FIELD, E_NO_LOOP, E_NO_RETURN, E_NOT_CONST,
+            E_NOT_FUNC, E_NOT_VAR, E_OPERANDS_FULL, E_RANGE, E_RECORD_INIT, E_RECORD_PLACE,
+            E_RECORD_VALUE, E_RESULTS, E_ROWS_RECORD, E_RPAREN_EXPECTED, E_STATUS_IN_CRITICAL,
+            E_STMT_EXPECTED, E_SYNTAX, E_THEN_EXPECTED, E_TO_EXPECTED, E_TOO_MANY, E_TYPE,
+            E_TYPE_EXPECTED, E_UNDEFINED, E_UNSUPPORTED, E_WITH_INTERRUPT, E_WITH_UNKNOWN, fatal,
+            fatal_value, position)
+import fbuf (FIX_ADDRESS, new_label, newest, NO_SLOT, op, op_fix, OP_JSR, runs_on, set_symbol,
+             unreached)
+import fold (ADD, BAND, BOR, BXOR, DIV, EQ, GE, GT, LE, LT, MUL, NE, REM, SHL, SHR, SUB)
+import gen (accept, address, address_of, anonymous, arguments_end, as_value, assign, binary, call,
+            carry, carry_wanted, code_address, compare, complement, constant, convert, copy_array,
+            field, fixed_name, function, function_address, hold, in_register, index, initial,
+            invert, jump_false, length, load_result, local, loop_begin, loop_end, mark, negate,
+            OP_BEQ, OP_BNE, outer, parameter, part, pend_op, pend_type, record_of, REG_C, resolve,
+            result, ret, saving, settle, size_of, step, store, store_arrow, store_pair, table,
+            table_element, test_left, test_right, through, through_pointer, variable)
+import inlines (argument_symbol, body_begin, copies_due, copy_aliases, depth, done, enter,
+                expanding, lazy, leave, leaves_operand, level, local_scope, lookup, MAX_DEPTH,
+                own_slot, SF_INLINE, SF_INTERRUPT, slot_name, wanted)
+import kernel (K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR, member_type, member_value,
+               module_find, module_name, NO_OBJ, SCOPE_FIELDS, SCOPE_MODULE, SF_AT, SF_IN, SF_NOZP,
+               SF_PUB, SF_ROWS, SF_ZP, sym_add, sym_count, sym_find, sym_flags, sym_kind,
+               sym_members, sym_name, sym_obj, sym_params, sym_results, sym_type, sym_value)
+import lex (choose, col, expect, line, next, open_brackets, resume, string_byte, string_length,
+            T_ADDRESS, T_AMP, T_AND, T_ARROW, T_ASM, T_ASSIGN, T_AT, T_BAR, T_BOOL, T_BREAK, T_BYTE,
+            T_CARET, T_CASE, T_COLON, T_COMMA, T_CONTINUE, T_CRITICAL, T_DO, T_DOT, T_DOWNTO,
+            T_ELIF, T_ELSE, T_END, T_EOF, T_EQ, T_FOR, T_FUNC, T_GE, T_GT, T_HASH_IF, T_IF, T_IN,
+            T_INT, T_LBRACKET, T_LE, T_LOOP, T_LPAREN, T_LT, T_MINUS, T_MOD, T_NAME, T_NE, T_NL,
+            T_NOT, T_NOZP, T_NUMBER, T_OF, T_OR, T_PLUS, T_PLUS_ASSIGN, T_RBRACKET, T_RECORD,
+            T_RECURSIVE, T_RETURN, T_ROWS, T_RPAREN, T_SBYTE, T_SHL, T_SHR, T_SHR_ASSIGN, T_SLASH,
+            T_STAR, T_STATIC, T_STRING, T_THEN, T_TILDE, T_TO, T_UNTIL, T_VAR, T_WHILE, T_WITH,
+            T_WORD, T_ZP, tok, value)
+import out (call, data, data_byte, imported, NO_OUTER, region, SYM_FUNCTION, SYM_VARIABLE, symbol,
+            table_begin, table_byte, table_end, with_region, with_used)
+import reg (A, assignable, become, branch, CLASS_EITHER, CLASS_NOT_ZP, CLASS_ZP, clobber,
+            compare_const, depth, duplicate, F_DATA, F_TEMP, flags, forget, in_registers, is_direct,
+            join, jump, label, load, local_count, loop_label, M_POINTER, modify, new_slot, NO_REG,
+            NONE, O_A, O_ADDR, O_CONST, O_FUNC, O_VAR, op_flags, OP_INC, op_kind, op_mode, op_slot,
+            op_symbol, op_type, op_value, op_var, own, pop, push, release, same_region, slot_busy,
+            SLOT_LOCAL, spill, temp, test, use_slot)
+import src (close)
+import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, FORM_ARRAY, FORM_POINTER, innermost,
+                INT_TYPE, is_array, is_column, is_func, is_number, is_record, is_rows, is_signed,
+                is_untyped, length, NO_TYPE, NUMBER_TYPE, pointer_to, prefix, prefix_count,
+                SBYTE_TYPE, size, WORD_TYPE)
 
 ; The functions the language declares, as decl.BUILTINS lists them
 pub const B_LO = 0
@@ -241,7 +279,7 @@ end
 func named_symbol(): word
   var s: word
   var found: bool
-  var scope: byte
+  var m: word
   if lex.tok != lex.T_NAME then
     err.fatal(err.E_NAME_EXPECTED)
   end
@@ -251,12 +289,12 @@ func named_symbol(): word
   end
   lex.next()
   if kernel.sym_kind[s] == kernel.K_MODULE then
-    scope = lo(kernel.sym_value[s])
+    m = s
     lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
     if lex.tok != lex.T_NAME then
       err.fatal(err.E_NAME_EXPECTED)
     end
-    s, found = kernel.sym_find(scope, lex.value)
+    s, found = kernel.module_find(m, lex.value)
     if not found or kernel.sym_flags[s] & kernel.SF_PUB == 0 then
       err.fatal(err.E_UNDEFINED)
     end

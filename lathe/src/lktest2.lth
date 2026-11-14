@@ -16,16 +16,29 @@
 ; status.
 module lktest2
 
-import lk_envf
-import lk_err
-import lk_file
-import lk_name
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
+import lk_envf (place_bank, place_count, read)
+import lk_err (E_UNDEFINED, E_USAGE, fail, put)
+import lk_file (arg_count, ARG_MAP, ARG_OBJECT, open_out)
+import lk_name (buf_begin, buf_keep, buf_top, error_name, error_node, fail_in, fc_call, fc_start,
+                heap_top, keep_at, local, local_count, main_sym, obj_def, obj_first, obj_fn,
+                object_count, write_held)
+import lk_rec (advance, close, get_byte, goto, left, open_object, R_END, R_MOD, R_SYM, recno)
+import lk_scan (cpu_of, crosses, def_bank, fn_bank, obj_bank, obj_cpu, object_of, pend_count,
+                scan_all)
+import lk_sym (count)
+import lk_tab (add16, big_count, big_size, big_slot, CLASS_NODE, class_of, cls_count, cls_ctx,
+               cls_edge, cls_namer, cls_node, cls_np, cls_par, cls_reach, cls_ref, cls_rep,
+               copy_node, cp_count, cp_info, cp_size, cp_weight, ctx_count, ctx_of, def_a, def_b,
+               def_count, def_f, def_ref, def_w, edge_count, edge_flag, edge_sym, edge_word,
+               extra_end, first_call, first_extra, first_in_order, first_node, fn_class, fn_count,
+               fn_ctx, fn_edge, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame,
+               is_extra_copy, is_kept_def, is_kept_var, is_node, mbase_of, memb_class, memb_count,
+               memb_func, member_class, new_node, next_call, next_in_order, node_class, node_count,
+               node_is_class, node_sym, NONE, overflow, own_of, set_zbase, slot_bytes, slot_class,
+               slot_count, slot_in_zp, slot_is_param, slot_sz, slot_weight, W_CTXZ, W_MBASE, W_SCC,
+               waiting, work, zbase_of)
 import lkshow
-import sys
+import sys (close, exit, write)
 
 func show_objects()
   var obj: byte

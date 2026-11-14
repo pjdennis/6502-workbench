@@ -5,9 +5,9 @@
 ; compares. The scripts are in lathe/tests/scripts/reg.txt.
 module regtest
 
-import regcmd
-import script
-import sys
+import regcmd (init, run, WORDS)
+import script (command, end_line, next, open)
+import sys (exit)
 
 pub func main()
   regcmd.init()

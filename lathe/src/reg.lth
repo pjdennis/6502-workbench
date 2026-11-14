@@ -50,11 +50,20 @@
 ;   |                                      | `flags` there, as in the Python   |                 |
 module reg
 
-import err
-import fbuf
-import kernel
-import out
-import typetab
+import err (E_ARRAY_VALUE, E_FUNC_ADDRESS, E_INTERNAL, E_NOT_RECURSIVE, E_OPERANDS_FULL, E_RANGE,
+            E_REGION_USE, E_REGISTER_FUNC, E_SIGNATURE, E_SLOTS_FULL, E_TYPE, fatal)
+import fbuf (arrive, branch, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, FIX_REACH_LOW, FIX_ZERO_PAGE, join,
+             jump, label_note, NO_SLOT, op, op_byte, op_fix, op_word, place, runs_on, same)
+import kernel (K_CONST, K_FUNC, K_TYPE, K_VAR, member_type, member_value, module_name, name_add,
+               name_begin, name_char, name_end, name_length, NO_OBJ, NO_SYM, SCOPE_LOCAL,
+               SCOPE_MODULE, SF_ASM, SF_IN, SF_NOZP, SF_RECURSIVE, SF_ZP, sym_flags, sym_kind,
+               sym_members, sym_name, sym_obj, sym_params, sym_results, sym_scope, sym_type,
+               sym_value, sym_weight)
+import out (class_parameter, CLASS_RECURSIVE, member, pointer_class, SYM_CLASS, SYM_DATA,
+            SYM_FUNCTION, SYM_VARIABLE, symbol, with_region, with_used)
+import typetab (base, BYTE_TYPE, is_array, is_func, is_number, is_pointer, is_record, is_recursive,
+                is_signed, is_untyped, narrow, NEGATIVE_TYPE, NIL_TYPE, NO_TYPE, number_fits,
+                NUMBER_TYPE, size, WORD_TYPE)
 
 ; ---- Operands ----------------------------------------------------------------------------
 

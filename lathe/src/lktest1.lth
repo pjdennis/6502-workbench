@@ -20,13 +20,18 @@
 ; what they print, their error output, their exit status and the files they write.
 module lktest1
 
-import lk_envf
-import lk_err
-import lk_file
-import lk_op
-import lk_out
+import lk_envf (bank_count, bank_file, bank_n, bank_value, bank_win, code_hi, code_lo, cpu, data_hi,
+                data_lo, exit_addr, exit_kind, farcall, has_more, has_stack, have, in_window,
+                is_overlay, more_hi, more_lo, place_bank, place_count, place_name, placed, raw,
+                read, region_bank, region_count, region_name, stack, text, text_top, win_count,
+                win_hi, win_lo, win_mask, win_name, win_reg, win_switch, window, zp_hi, zp_lo)
+import lk_err (arrow, begin, colon, comma, E_FARCALL_MISSING, E_USAGE, fail, over, put, put_number,
+               put_word)
+import lk_file (arg_count, arg_length, ARG_MAIN, open_in, open_in_quiet)
+import lk_op (can_shrink, CPU_6502, CPU_65C02, is_branch, length, zp_opcode)
+import lk_out (close_image, open_bank, open_image, put, put_word, seek)
 import lkshow
-import sys
+import sys (arg_copy, close, exit, put_byte)
 
 const ARG_FILE = 4
 

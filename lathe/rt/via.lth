@@ -9,7 +9,7 @@
 ; program that uses the VIA name its board in an `import`, and so differ between the boards.
 module via
 
-import board
+import board (VIA)
 
 pub var portb: byte at board.VIA            ; output / input register B
 pub var porta: byte at board.VIA + $1       ; output / input register A (with handshake)

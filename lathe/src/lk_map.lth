@@ -43,20 +43,25 @@
 ;   | before they are defined              |                                   | use             |
 module lk_map
 
-import lk_alloc
-import lk_boot
-import lk_envf
-import lk_err
-import lk_file
-import lk_fix
-import lk_name
-import lk_place
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
-import sys
+import lk_alloc (slot_addr)
+import lk_boot (init_addr, init_len, start_addr, start_len, table_addr, table_len)
+import lk_envf (bank_count, bank_file, bank_n, bank_win, is_overlay, placed, text, win_lo, window)
+import lk_err (E_NAMES, fail)
+import lk_file (ARG_MAP, open_out)
+import lk_fix (begin, count_shrinks, shrink_count)
+import lk_name (buf_begin, buf_keep, buf_top, get_b, global_sym, obj_def, obj_first, obj_fn,
+                object_count, write_held)
+import lk_place (bank_used, region_bank)
+import lk_rec (advance, close, get_byte, get_word, left, open_object, R_CLAS, R_CODE, R_DATA, R_END,
+               R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, R_VAR)
+import lk_scan (fn_bank, OBJ_CLASSES, obj_cpu)
+import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of)
+import lk_tab (class_of, cls_count, cls_namer, cls_np, cls_par, cls_reach, copy_node, cp_addr,
+               cp_size, ctx_count, ctx_of, D_HELD, def_a, def_b, def_f, def_ref, F_HELD, fn_ctx,
+               fn_flags, fn_nslots, fn_slot, has_copy, is_extra_copy, is_kept_def, MAX_CLASSES,
+               MAX_CPARAMS, member_class, NONE, slot_bytes, W_ADDR, W_OWN, W_SNAME, work)
+import lk_win (def_dest, has_stub, stub_addr, STUB_SIZE)
+import sys (close, write)
 
 const START_NAME: [6]byte = "$start"
 const INIT_NAME: [5]byte = "$init"

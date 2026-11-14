@@ -21,8 +21,8 @@
 ;   | (count is at most 15 there)          |                                   | shift is a byte |
 module fold
 
-import err
-import typetab
+import err (E_DIV_ZERO, E_RANGE, fatal)
+import typetab (is_signed, narrow)
 
 ; Operators. ADD to SHR are in the order of the compound assignment tokens `+=` to `>>=`.
 pub const ADD = 1

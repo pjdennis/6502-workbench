@@ -33,15 +33,17 @@
 ;   |                                      |                                   | use             |
 module lk_fix
 
-import lk_alloc
-import lk_envf
-import lk_err
-import lk_name
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
+import lk_alloc (slot_addr)
+import lk_envf (bank_value)
+import lk_err (E_FIXES, E_FIXUP, E_NOT_LINKED, E_NOT_ZP, E_UNDEFINED, fail)
+import lk_name (fail, fail_in, global_sym)
+import lk_rec (get_byte, get_word, left)
+import lk_scan (fn_bank, region_of)
+import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of, VARIABLE)
+import lk_tab (class_of, cls_ctx, cls_np, cls_par, cls_reach, copy_node, cp_addr, ctx_count, def_a,
+               first_node, fn_ctx, fn_nslots, fn_ref, has_copy, MAX_CONTEXTS, MAX_FIXES,
+               member_class, W_ADDR, work)
+import lk_win (has_stub, stub_addr)
 
 pub const MAX_FIXES = lk_tab.MAX_FIXES
 pub const NO_CONTEXT = $FF              ; the context of a fix-up in constant data

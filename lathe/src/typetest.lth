@@ -3,11 +3,15 @@
 ; with typetab.py and compares. The scripts are in lathe/tests/scripts/typetab.txt.
 module typetest
 
-import err
-import kernel
-import script
-import sys
-import typetab
+import err (init)
+import kernel (init)
+import script (command, end_line, flag, more, next, number, open, show_bool, show_byte, show_word,
+               small)
+import sys (exit, put_byte)
+import typetab (array_of, base, build, count, declared, form, grow, init, innermost, is_array,
+                is_column, is_enum, is_func, is_number, is_pointer, is_record, is_recursive,
+                is_rows, is_signed, is_untyped, length, limit, make_recursive, narrow, number_fits,
+                pointer_to, prefix, prefix_count, size)
 
 const EDGES: [14]word = [0, 1, $7E, $7F, $80, $FF, $100, $7FFF, $8000, $FF7F, $FF80, $FFFE, $FFFF,
   $1234]

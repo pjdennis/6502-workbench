@@ -31,20 +31,24 @@
 ;   | lk_out.written                       | the same: made pub                | read here       |
 module lk_emit
 
-import lk_boot
-import lk_envf
-import lk_err
-import lk_fix
+import lk_boot (start_addr, write)
+import lk_envf (bank_count, bank_file, bank_win, placed, window)
+import lk_err (E_SIZE)
+import lk_fix (bad, bank_value, begin, begin_data, cur_sym, cursor, drop, FX_ADD, FX_AT, FX_KIND,
+               FX_SLOT, FX_SYM, hold, is_word, K_BANK, K_SHRINK, K_WORD, more, next_fix, NO_CONTEXT,
+               part, removed_before, rewind, shrinks, shrunk, target)
 import lk_map
-import lk_name
-import lk_op
+import lk_name (fail, global_sym, keep_at, object_count)
+import lk_op (can_shrink, is_branch, length, OP_JMP, OP_JSR, zp_opcode)
 import lk_out
-import lk_place
-import lk_rec
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
+import lk_place (holds_region_data)
+import lk_rec (advance, close, damaged, get_byte, get_word, goto, left, open_object, R_CODE, R_DATA,
+               R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, recno)
+import lk_scan (cpu_of, obj_bank)
+import lk_sym (CONSTANT, row_of, VARIABLE)
+import lk_tab (copy_node, ctx_count, ctx_of, def_a, fn_ctx, has_copy, is_kept_def, W_ADDR, W_OWN,
+               W_SNAME, work)
+import lk_win (def_dest)
 
 ; The address the fix-up at lk_fix's cursor stands for in the copy that is node n, addend
 ; included. op is the opcode of the instruction it is in.

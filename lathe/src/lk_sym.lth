@@ -19,7 +19,7 @@
 ;   | kind_of(r): r >> KIND_SHIFT          | byte(r >> KIND_SHIFT)             | a kind is a byte|
 module lk_sym
 
-import lk_err
+import lk_err (E_SYMBOLS, fail)
 
 pub const MAX_SYMS = 1600       ; below 2048: a call holds a symbol's number in 11 bits
 

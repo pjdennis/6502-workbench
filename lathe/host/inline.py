@@ -89,6 +89,11 @@ owned_count = 0
 alias = [0] * MAX_ALIASES   # parameters standing for a variable whose arguments are still read
 alias_count = 0
 
+MAX_USES = 32               # names of other entries one exported body names (write_uses())
+use_module = [0] * MAX_USES     # the module's name, 0 for the body's own module
+use_name = [0] * MAX_USES
+use_count = 0
+
 
 def init():
     global saved_start, saved_top, level, depth, owned_count, alias_count
@@ -274,11 +279,15 @@ def save(f):
     before = lex.T_NL           # the token before the current one, and its value
     before_value = 0
     earlier = lex.T_NL          # the one before that
+    named = kernel.NO_SYM       # the module the token before names, if it does
+    dotted = kernel.NO_SYM      # the module named before the "." before, if there is one
     returns = 0
     while lex.tok != lex.T_END or blocks > 0:
         token = lex.tok
         if token == lex.T_EOF:
             err.fatal(err.E_END_EXPECTED)
+        if token == lex.T_NAME and dotted != kernel.NO_SYM and kernel.sym_flags[dotted] & kernel.SF_LIST != 0:
+            kernel.module_find(dotted, lex.value)       # `m.name`: in m's list (error 101)
         if token == lex.T_ASM or token == lex.T_STATIC or token == lex.T_HASH_IF \
                 or token == lex.T_WITH:
             err.fatal(err.E_INLINE_NOT_HERE)
@@ -320,6 +329,14 @@ def save(f):
             blocks += 1
         elif token == lex.T_END or token == lex.T_UNTIL:
             blocks -= 1
+        dotted = kernel.NO_SYM
+        if token == lex.T_DOT:
+            dotted = named
+        named = kernel.NO_SYM
+        if token == lex.T_NAME and before != lex.T_DOT and not is_own(f, lex.value):
+            s, found = kernel.sym_lookup(lex.value)
+            if found and kernel.sym_kind[s] == kernel.K_MODULE:
+                named = s
         at_line = save_token(at_line)
         scan_index += 1
         if token == lex.T_NL:
@@ -389,6 +406,108 @@ def write(stream, f):
                 kernel.put(stream, kernel.token_byte(p + 2 + i))
         p += 2 + size
     kernel.put(stream, lex.T_EOF)
+
+
+def skip_name(stream):
+    """Pass over a name written as a string, making no name of it."""
+    length, _ = kernel.get(stream)
+    for i in range(0, length):
+        kernel.get(stream)
+
+
+def skip(stream, params):
+    """Pass over the record write() wrote for an inline function of `params` parameters that the
+    importer does not want (decl.read_function()): nothing is kept of it."""
+    skip_name(stream)
+    kernel.get_word(stream)
+    kernel.get(stream)
+    written, _ = kernel.get(stream)
+    if written != 0:
+        skip_name(stream)
+    for i in range(0, params):
+        skip_name(stream)
+        kernel.get(stream)
+    while True:
+        token, at_end = kernel.get(stream)
+        if at_end or token > lex.SAVED_LINE:
+            err.fatal(err.E_BAD_INTERFACE)
+        if token == lex.T_EOF:
+            break
+        kernel.get(stream)
+        if token == lex.T_NAME:
+            skip_name(stream)
+        elif token == lex.T_NUMBER:
+            kernel.get_word(stream)
+        elif token == lex.T_STRING:
+            skip_name(stream)       # a length and that many bytes, as a name is written
+
+
+def token_size(p):
+    """The bytes a saved token at `p` has after its token and column bytes."""
+    token = kernel.token_byte(p)
+    if token == lex.T_NAME or token == lex.T_NUMBER:
+        return 2
+    if token == lex.T_STRING:
+        return 1 + kernel.token_byte(p + 2)
+    return 0
+
+
+def use(owner, name):
+    """write_uses() found the body names `name` of module `owner` (its name, or 0 for its own
+    module): keep it, once."""
+    global use_count
+    for i in range(0, use_count):
+        if use_module[i] == owner and use_name[i] == name:
+            return
+    if use_count == MAX_USES:
+        err.fatal(err.E_WANTS_FULL)
+    use_module[use_count] = owner
+    use_name[use_count] = name
+    use_count += 1
+
+
+def write_uses(stream, f):
+    """After the LI_USES entry's name: what the body of exported inline function `f` names that an
+    importer must read with it, so that it finds them though its list does not name them
+    (decl.read_uses()). That is each function, constant and variable of the module that it names
+    by a plain name, its own parameters and locals apart, and each `m.name` of a module m that
+    the module imports: their number, then each as a module name (empty for this module) and a
+    name. Types and modules are not there: an import reads all of them."""
+    global local_count, use_count
+    local_count = 0
+    use_count = 0
+    r = kernel.sym_value[f]
+    last = word_at(r + R_END)
+    p = r + R_PARAMS + kernel.sym_params[f] * PARAM_SIZE
+    before = lex.T_NL
+    while p < last:
+        token = kernel.token_byte(p)
+        if token == lex.T_NAME and before != lex.T_DOT:
+            name = word_at(p + 2)
+            if before == lex.T_VAR:
+                local_name[local_count] = name
+                local_count += 1
+            elif not is_own(f, name):
+                s, found = kernel.sym_lookup(name)
+                q = p + 2 + token_size(p)
+                if found and kernel.sym_kind[s] == kernel.K_MODULE:
+                    if q < last and kernel.token_byte(q) == lex.T_DOT:
+                        q += 2
+                        if q < last and kernel.token_byte(q) == lex.T_NAME:
+                            use(name, word_at(q + 2))
+                elif found and kernel.sym_scope[s] == kernel.SCOPE_MODULE \
+                        and kernel.sym_kind[s] >= kernel.K_FUNC and kernel.sym_kind[s] <= kernel.K_VAR:
+                    use(0, name)
+        if token != lex.SAVED_LINE:
+            before = token
+        p += 2 + token_size(p)
+    kernel.put(stream, use_count)
+    for i in range(0, use_count):
+        if use_module[i] == 0:
+            kernel.put(stream, 0)
+        else:
+            kernel.put_name(stream, use_module[i])
+        kernel.put_name(stream, use_name[i])
 
 
 def read(stream, f):

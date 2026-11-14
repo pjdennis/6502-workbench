@@ -49,7 +49,7 @@ module sys
 #if PORTS
 import disk
 #else
-import host
+import host (argc, argv, close, exit, open, open_out, put_byte, put_error, read, write)
 #end
 
 const MAX_FILES = 16

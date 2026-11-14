@@ -14,18 +14,21 @@
 ; small build (LKSMALL), and compares what they print, their error output and their exit status.
 module lktest4
 
-import lk_alloc
-import lk_envf
-import lk_err
-import lk_file
-import lk_graph
-import lk_name
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
-import lkshow
-import sys
+import lk_alloc (allocate, ctx_bottom, ctx_depth, LAY_BASE, LAY_DOWN, LAY_END, LAY_SIZE, layouts,
+                 slot_addr, zp_cap, zp_size, zp_used, zp_vars)
+import lk_envf (read)
+import lk_err (begin, colon, E_NO_MAIN, E_USAGE, fail, finish, put)
+import lk_file (arg_count, arg_length, ARG_MAIN, ARG_OBJECT, path)
+import lk_graph (build)
+import lk_name (MAIN_SUFFIX, main_sym)
+import lk_scan (scan_all)
+import lk_sym (FUNCTION, is_defined, kind_of, row_of)
+import lk_tab (cp_addr, cp_count, cp_info, ctx_count, def_a, def_count, def_f, fn_nslots,
+               is_kept_var, is_node, mbase_of, node_count, node_is_class, NONE, own_of, slot_count,
+               slot_sz, W_ZSIZE, work, zbase_of)
+import lk_win (bank_def, check_interrupts, def_dest, mark_stubs)
+import lkshow (end_line, label, show_byte, show_word)
+import sys (exit)
 
 ; lathe/host/link.py's find_main: the function MAINMODULE.main, which some object file must
 ; define.

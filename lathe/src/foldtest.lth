@@ -4,12 +4,12 @@
 ; of numbers, each one that is an error in a section by itself.
 module foldtest
 
-import err
-import fold
-import kernel
-import script
-import sys
-import typetab
+import err (init)
+import fold (compare, DIV, exact, REM, typed)
+import kernel (init)
+import script (command, end_line, flag, next, number, open, show_bool, show_word, small)
+import sys (exit, put_byte)
+import typetab (init, narrow)
 
 const EDGE_COUNT = 16
 const EDGES: [EDGE_COUNT]word = [0, 1, 2, 7, 15, 16, $7F, $80, $FF, $100, $7FFF, $8000, $FF80,

@@ -55,14 +55,20 @@
 ;   |                                      |                                   | after `and`     |
 module lk_alloc
 
-import lk_envf
-import lk_err
-import lk_graph
-import lk_name
-import lk_op
-import lk_sym
-import lk_tab
-import lk_win
+import lk_envf (cpu, data_hi, data_lo, has_more, more_hi, more_lo, win_lo, window, zp_hi, zp_lo)
+import lk_err (arrow, begin, colon, E_DATA_FULL, E_ZP_FULL, finish, over)
+import lk_graph (edge_node, first_edge, next_edge, order_at, order_count, scc_of)
+import lk_name (error_name, error_node)
+import lk_op (CPU_6502)
+import lk_sym ()
+import lk_tab (add16, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, copy_node, cp_addr,
+               cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_CLASS, D_ZP, def_a, def_b,
+               def_count, def_f, def_ref, def_w, first_in_order, fn_count, fn_ctx, fn_nslots,
+               fn_ref, fn_slot, has_copy, in_block, in_frame, is_kept_var, is_node, MAX_CONTEXTS,
+               MAX_NODES, mbase_of, member_class, next_in_order, node_class, node_count,
+               node_is_class, NONE, overflow, own_of, S_CLASS, S_ZP, set_zbase, SL_ZP, slot_bytes,
+               slot_class, slot_in_zp, slot_sz, slot_weight, W_MBASE, W_ZSIZE, work, zbase_of)
+import lk_win (bank_def)
 
 const POOL_ZP = 0
 const POOL_MAIN = 1

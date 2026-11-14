@@ -5,11 +5,11 @@
 ; in lathe/tests/scripts/cond.txt.
 module condtest
 
-import cond
-import reg
-import regcmd
-import script
-import sys
+import cond (carry, compare, invert, jump_false, left, push, right, value, wanted_in_carry)
+import reg (implied, label, OP_CLC)
+import regcmd (init, run, WORDS)
+import script (command, end_line, find, flag, next, NOT_FOUND, open, show_word, small)
+import sys (exit)
 
 pub func main()
   var c: byte

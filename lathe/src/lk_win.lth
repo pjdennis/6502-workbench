@@ -35,12 +35,15 @@
 ;   |                                      |                                   | not export it   |
 module lk_win
 
-import lk_envf
-import lk_err
-import lk_name
-import lk_scan
-import lk_sym
-import lk_tab
+import lk_envf (bank_count, bank_file, bank_n, bank_win, in_window, is_overlay, MAX_BANKS, placed,
+                text, window)
+import lk_err (E_IRQ_OVERLAY, E_IRQ_PLACED)
+import lk_name (fail, fail_in, MAX_OBJECTS, obj_fn, object_count)
+import lk_scan (crosses, def_bank, fn_bank, object_of, region_of)
+import lk_sym (row_of)
+import lk_tab (ctx_count, ctx_of, D_CONST, D_FIXED, def_a, def_f, edge_flag, edge_sym, F_ADDR,
+               F_INIT, F_INTERRUPT, F_STUB, first_call, fn_count, fn_ctx, fn_flags, fn_ref,
+               has_copy, next_call, own_of)
 
 pub const STUB_SIZE = 6
 

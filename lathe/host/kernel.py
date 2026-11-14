@@ -210,7 +210,7 @@ def put_name(s, name):
 # A name is built in place above the heap's top, one character at a time, and only kept if
 # it is new, so looking a name up copies nothing.
 
-NAME_HEAP_SIZE = 18944
+NAME_HEAP_SIZE = 9216
 NAME_BUCKETS = 64           # a power of two
 MAX_NAME = 31               # significant characters
 
@@ -349,6 +349,10 @@ SF_ROWS = 128               # a variable declared `rows` (while its declaration 
 SF_RECURSIVE = 128          # a function declared `recursive` (the bit SF_ROWS has on a variable)
 SF_IN = 2                   # a variable or constant table `in REGION` (provisional, 2026-11-14):
                             # its value is the region's name (the bit SF_EXTERN has on a function)
+SF_HIDDEN = 4               # an imported symbol the importer's list does not name: only the bodies
+                            # of inline functions use it (the bit SF_FORWARD has, which no
+                            # imported symbol has)
+SF_LIST = 4                 # a module's symbol: its `import` has a list (the same bit)
 
 sym_name = [0] * MAX_SYMS
 sym_scope = bytearray(MAX_SYMS)
@@ -390,12 +394,15 @@ def sym_find(scope, name):
     if s != NO_SYM or scope == SCOPE_MODULE or scope >= SCOPE_FIELDS:
         return s, s != NO_SYM
     # Thawed already, on the chain of another entry with the same spelling (thaw())?
+    oldest = name
     n = name_bucket[spelling_hash(name) & (NAME_BUCKETS - 1)]
     while n != 0:
         if n != name and same_spelling(n, name):
             s = chain_find(scope, n)
             if s != NO_SYM:
                 return s, True
+            if n < oldest:
+                oldest = n
         n = name_word(n + N_LINK)
     before = 0
     f = module_frozen[scope]
@@ -408,7 +415,17 @@ def sym_find(scope, name):
         module_frozen[scope] = name_word(f + N_LINK)
     else:
         name_set_word(before + N_LINK, name_word(f + N_LINK))
-    return thaw(scope, f), True
+    return thaw(scope, f, oldest), True
+
+
+def module_find(m, name):
+    """The symbol `name` of the module that module symbol `m` stands for, and whether there is
+    one: what `m.name` means. Through an `import` with a list (SF_LIST), only what the list
+    names can be named (error 101): not what the bodies of inline functions alone need."""
+    s, found = sym_find(sym_value[m], name)
+    if sym_flags[m] & SF_LIST != 0 and (not found or sym_flags[s] & SF_HIDDEN != 0):
+        err.fatal(err.E_NOT_LISTED)
+    return s, found
 
 
 def name_symbol(name):
@@ -498,6 +515,69 @@ def same_spelling(a, b):
     return True
 
 
+def built_symbol(scope):
+    """The symbol of `scope` whose name spells the name being built (name_begin(), name_add()),
+    or NO_SYM. A frozen entry is not looked at, and nothing is thawed."""
+    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
+    while n != 0:
+        if not name_is_new(n):
+            s = chain_find(scope, n)
+            if s != NO_SYM:
+                return s
+        n = name_word(n + N_LINK)
+    return NO_SYM
+
+
+def built_frozen(scope):
+    """The frozen entry of imported module `scope` that spells the name being built, or 0."""
+    n = module_frozen[scope]
+    while n != 0 and name_is_new(n):
+        n = name_word(n + N_LINK)
+    return n
+
+
+def built_is(n):
+    """True if name entry `n` spells the name being built."""
+    return not name_is_new(n)
+
+
+def name_hash(n):
+    """The hash of name entry `n`'s spelling, as new_hash is of the name being built."""
+    return spelling_hash(n)
+
+
+def built_loaded(scope, show):
+    """True if imported module `scope` has a symbol or a frozen entry that spells the name being
+    built. If `show`, the importer can name it from now on (SF_HIDDEN is cleared)."""
+    s = built_symbol(scope)
+    if s != NO_SYM:
+        if show:
+            sym_flags[s] = sym_flags[s] & ~SF_HIDDEN
+        return True
+    f = built_frozen(scope)
+    if f == 0:
+        return False
+    if show:
+        names[f + F_FLAGS] = names[f + F_FLAGS] & ~SF_HIDDEN
+    return True
+
+
+def sym_thawed(scope, name, kind):
+    """Declare `name` in imported module `scope` as a thawed symbol, numbered from the top of
+    the table: an entry an import list names, whose name the list has made already, is made a
+    symbol at once instead of a frozen entry. The other columns start empty. A name the module
+    already has is error 41."""
+    global thaw_top
+    _, found = sym_find(scope, name)
+    if found:
+        err.fatal(err.E_DUPLICATE)
+    if thaw_top == sym_count:
+        err.fatal(err.E_SYMS_FULL)
+    thaw_top -= 1
+    sym_new(thaw_top, scope, name, kind)
+    return thaw_top
+
+
 def freeze(scope, kind, flags, t, value, params, results):
     """Make the name being built (name_begin(), name_add()) a frozen symbol of imported module
     `scope` with these columns. Its members follow, with freeze_member(). A name the module
@@ -508,16 +588,8 @@ def freeze(scope, kind, flags, t, value, params, results):
         size = F_MEMBERS + 2 * (params + results)
     if name_top + N_TEXT + new_length + size > NAME_HEAP_SIZE:
         err.fatal(err.E_NAMES_FULL)
-    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
-    while n != 0:
-        if not name_is_new(n) and chain_find(scope, n) != NO_SYM:
-            err.fatal(err.E_DUPLICATE)
-        n = name_word(n + N_LINK)
-    n = module_frozen[scope]
-    while n != 0:
-        if not name_is_new(n):
-            err.fatal(err.E_DUPLICATE)
-        n = name_word(n + N_LINK)
+    if built_symbol(scope) != NO_SYM or built_frozen(scope) != 0:
+        err.fatal(err.E_DUPLICATE)
     n = name_top
     name_set_word(n + N_LINK, module_frozen[scope])
     names[n + F_KIND] = kind
@@ -542,10 +614,14 @@ def freeze_member(t, value):
     name_top += 2
 
 
-def thaw(scope, f):
+def thaw(scope, f, oldest):
     """Make frozen entry `f`, taken off its module's list, a symbol of `scope`, numbered from
-    the top of the table. The entry is put in its bucket, in its place by age, so that
-    names_release() still finds the newest names first; the symbol is on its chain."""
+    the top of the table. `oldest` is the oldest name of its spelling (sym_find()). If that is
+    older than the entry (made before the import was read: by an import list, an interface read
+    before, or the module itself), it stays the name and the symbol goes on its chain: the
+    entry put in its bucket would be ahead of it, and the lexer would give the entry for the
+    spelling. Otherwise the entry becomes the name, in its bucket, in its place by age, so that
+    names_release() still finds the newest names first."""
     global thaw_top
     if thaw_top == sym_count:
         err.fatal(err.E_SYMS_FULL)
@@ -555,9 +631,12 @@ def thaw(scope, f):
     kind = names[f + F_KIND]                # read before the entry is made a name
     flags = names[f + F_FLAGS]
     t = names[f + F_TYPE]
-    name_set_word(f + N_SYMBOL, NO_SYM)
-    names[f + N_TOKEN] = 0
-    sym_new(s, scope, f, kind)
+    name = oldest
+    if oldest > f:
+        name = f
+        name_set_word(f + N_SYMBOL, NO_SYM)
+        names[f + N_TOKEN] = 0
+    sym_new(s, scope, name, kind)
     sym_flags[s] = flags
     sym_type[s] = t
     sym_value[s] = name_word(p + F_VALUE)
@@ -566,6 +645,8 @@ def thaw(scope, f):
         sym_results[s] = names[p + F_RESULTS]
         for i in range(0, sym_params[s] + sym_results[s]):
             member_add(names[p + F_MEMBERS + 2 * i], names[p + F_MEMBERS + 2 * i + 1])
+    if oldest < f:
+        return s
     bucket = spelling_hash(f) & (NAME_BUCKETS - 1)
     n = name_bucket[bucket]
     if n < f:

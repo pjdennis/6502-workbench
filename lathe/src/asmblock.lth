@@ -52,14 +52,21 @@
 ;   |                                      |                                   | be reachable    |
 module asmblock
 
-import err
-import fbuf
-import kernel
-import lex
-import out
-import reg
-import src
-import typetab
+import err (E_ASM_BRANCH, E_ASM_DIRECTIVE, E_ASM_LABEL_USE, E_ASM_MNEMONIC, E_ASM_MODE,
+            E_ASM_NO_LABEL, E_ASM_NOT_ZP, E_ASM_RANGE, E_DOT_EXPECTED, E_DUPLICATE, E_END_EXPECTED,
+            E_EXPR_EXPECTED, E_LABELS_FULL, E_NAME_EXPECTED, E_NL_EXPECTED, E_RPAREN_EXPECTED,
+            E_SYNTAX, E_TYPE, E_UNDEFINED, fatal, position)
+import fbuf (as_written, branch, FIX_ADDRESS, FIX_HIGH, FIX_LOW, FIX_ZERO_PAGE, jump,
+             keep_as_written, new_label, NO_SLOT, op, op_byte, op_fix, OP_RTS, op_word, place,
+             runs_on)
+import kernel (K_CONST, K_FUNC, K_LOCAL, K_MODULE, K_VAR, module_find, name_add, name_begin,
+               name_end, SCOPE_LOCAL, SCOPE_MODULE, SF_AT, SF_EXTERN, SF_NOZP, SF_ZP, sym_flags,
+               sym_kind, sym_lookup, sym_scope, sym_type, sym_value)
+import lex (character, fold, is_digit, is_letter, next, number, resume, T_END, T_NL, tok)
+import out (call, NO_OUTER)
+import reg (CLASS_NOT_ZP, CLASS_ZP, forget, object_symbol, own, slot_class, use_slot, use_variable)
+import src (advance, ch, col, eof, line)
+import typetab (is_array)
 
 ; ---- The instruction table ---------------------------------------------------------------
 
@@ -346,7 +353,7 @@ func name_operand(name: word, member: word): byte
     if member == 0 then
       err.fatal(err.E_DOT_EXPECTED)
     end
-    s, found = kernel.sym_find(lo(kernel.sym_value[s]), member)
+    s, found = kernel.module_find(s, member)
     if not found then
       err.fatal(err.E_UNDEFINED)
     end

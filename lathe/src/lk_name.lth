@@ -47,13 +47,15 @@
 ;   | find_local's file, found_obj         | a byte                            |                 |
 module lk_name
 
-import lk_envf
-import lk_err
-import lk_file
-import lk_rec
-import lk_sym
-import lk_tab
-import sys
+import lk_envf (farcall, text)
+import lk_err (begin, colon, comma, E_DAMAGED, E_KIND, E_NAMES, fail, finish, put, put_number)
+import lk_file (arg_length, ARG_MAIN, ARG_OBJECT, fail, PATH)
+import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DATA, R_END, R_FUNC,
+               R_MOD, R_SYM, R_VAR, VERSION)
+import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF)
+import lk_tab (ctx_of, edge_count, edge_sym, edge_word, is_extra_copy, MAX_EDGES, memb_class,
+               memb_count, memb_func, node_sym, NONE, SYM_BITS, waiting, work, WORK_SIZE)
+import sys (write)
 
 pub const MAX_OBJECTS = 40
 #if LKSMALL

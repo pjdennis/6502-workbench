@@ -89,6 +89,8 @@ class Interface(unittest.TestCase):
         """Each use of host is in the #else of an `#if PORTS` whose first branch is the same
         text with disk for host."""
         code = code_of(os.path.join(SRC, 'sys.lth'))
+        # The import lists are what import_lists.py writes for each module: not the same text.
+        code = re.sub(r'^(import \w+) \([^)]*\)', r'\1', code, flags=re.M)
         found = branches(code)
         self.assertTrue(found)
         for ports, other in found:

@@ -36,9 +36,11 @@
 ;   |                                     | around all the keywords)           | mapping a name |
 module lex
 
-import err
-import kernel
-import src
+import err (E_BAD_CHAR, E_BAD_CHAR_CONST, E_BAD_ESCAPE, E_BAD_NUMBER, E_DIRECTIVE,
+            E_ERROR_DIRECTIVE, E_IF_DEEP, E_IF_OPEN, E_NO_IF, E_NUMBER_RANGE, E_OPEN_STRING,
+            E_STRING_LONG, fatal, fatal_end, fatal_start, position, put_char)
+import kernel (name_begin, name_char, name_end, name_length, name_put, name_set_token, name_token)
+import src (advance, ch, col, eof, line, next_byte, replaying)
 
 ; ---- Tokens ------------------------------------------------------------------------------
 

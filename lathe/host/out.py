@@ -337,8 +337,8 @@ def foreign_weight(s):
 
 def foreign_weights():
     """A WGT record of the weight this module's uses gave the variables of other modules, if
-    it used any: in the order their modules' interfaces declare them. A thawed symbol's name
-    is its frozen entry, and the entries were made in that order (kernel.thaw())."""
+    it used any: in the order the module first used them, which is that of their symbols in
+    the object file (not of their names in the name heap, which import lists change)."""
     count = 0
     for s in range(0, kernel.sym_count):
         if is_foreign_variable(s):
@@ -356,13 +356,13 @@ def foreign_weights():
     while True:
         best = kernel.NO_SYM
         for s in range(kernel.thaw_top, kernel.MAX_SYMS):
-            if is_foreign_variable(s) and kernel.sym_name[s] > after \
-                    and (best == kernel.NO_SYM or kernel.sym_name[s] < kernel.sym_name[best]):
+            if is_foreign_variable(s) and kernel.sym_obj[s] >= after \
+                    and (best == kernel.NO_SYM or kernel.sym_obj[s] < kernel.sym_obj[best]):
                 best = s
         if best == kernel.NO_SYM:
             break
         foreign_weight(best)
-        after = kernel.sym_name[best]
+        after = kernel.sym_obj[best] + 1
 
 
 def end_module():

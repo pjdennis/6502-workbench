@@ -11,8 +11,8 @@
 ; Uses timer 1 and its interrupt only: the other bits of ACR and IER are left as they were.
 module timer
 
-import board
-import via
+import board (set_irq)
+import via (acr, ACR_T1_FREE_RUN, ACR_T1_MASK, ier, IER_SET, ifr, IRQ_T1, t1ch, t1cl)
 
 ; Interrupts since start(), written by the handler. It is exported only because acknowledge(),
 ; which is expanded in the modules that call it, adds to it: read it with ticks().

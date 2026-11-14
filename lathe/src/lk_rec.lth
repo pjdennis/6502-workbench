@@ -20,9 +20,9 @@
 ;   | (cur_recno + 1) & 0xFFFF             | cur_recno + 1                     | a word wraps    |
 module lk_rec
 
-import lk_err
-import lk_file
-import sys
+import lk_err (E_DAMAGED)
+import lk_file (ARG_OBJECT, fail, open_in, open_in_quiet)
+import sys (close, read)
 
 ; Record types.
 pub const R_END = 0

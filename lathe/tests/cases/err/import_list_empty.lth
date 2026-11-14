@@ -1,0 +1,7 @@
+; error 101 6 8
+module import_list_empty
+import host ()
+
+pub func main()
+  host.put_byte(1)
+end

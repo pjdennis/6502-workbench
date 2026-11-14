@@ -216,7 +216,8 @@ SMALL = (('kernel', 'NAME_HEAP_SIZE', 1536), ('kernel', 'MAX_SYMS', 264), ('kern
          ('fbuf', 'BUFFER_SIZE', 1024), ('out', 'MAX_TABLE', 264), ('out', 'MAX_TABLE_FIXES', 32),
          ('lex', 'MAX_STRING', 264),
          ('kernel', 'TEXT_SIZE', 768), ('kernel', 'TOKEN_SIZE', 384), ('inline', 'SAVED_SIZE', 384),
-         ('fbuf', 'MAX_LABELS', 128), ('fbuf', 'MAX_WEIGHTS', 32), ('typetab', 'MAX_TYPES', 32))
+         ('fbuf', 'MAX_LABELS', 128), ('fbuf', 'MAX_WEIGHTS', 32), ('typetab', 'MAX_TYPES', 32),
+         ('decl', 'MAX_WANTS', 48))
 
 
 def host_run(main, args, small=False):

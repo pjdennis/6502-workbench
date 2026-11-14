@@ -1,0 +1,7 @@
+; error 101 6 8
+module import_not_listed
+import host (put_byte,
+  put_error)
+pub func main()
+  host.exit(1)
+end

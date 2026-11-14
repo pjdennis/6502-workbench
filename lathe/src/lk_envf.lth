@@ -43,10 +43,12 @@
 ;   |                                      | checked below $100                | word            |
 module lk_envf
 
-import lk_err
-import lk_file
-import lk_op
-import sys
+import lk_err (begin, colon, E_ENV_ENTRY, E_ENV_FULL, E_ENV_MISSING, E_ENV_RANGE, E_ENV_TWICE,
+               E_ENV_UNKNOWN, E_FARCALL_MISSING, E_FARCALL_PLACED, E_NO_FILE, E_OVERLAY_NUMBERS,
+               E_REGION_WINDOW, E_STOP_6502, E_TWO_WINDOWS, fail, finish, put, put_number)
+import lk_file (ARG_ENV, fail, open_in)
+import lk_op (CPU_6502, CPU_65C02)
+import sys (close, read)
 
 ; The words the linker knows, each followed by a space; a word's number is its place, from 1.
 const WORDS: [149]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "

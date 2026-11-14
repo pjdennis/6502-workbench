@@ -172,11 +172,11 @@ def named_symbol():
         err.fatal(err.E_UNDEFINED)
     lex.next()
     if kernel.sym_kind[s] == kernel.K_MODULE:
-        scope = kernel.sym_value[s]
+        m = s
         lex.expect(lex.T_DOT, err.E_DOT_EXPECTED)
         if lex.tok != lex.T_NAME:
             err.fatal(err.E_NAME_EXPECTED)
-        s, found = kernel.sym_find(scope, lex.value)
+        s, found = kernel.module_find(m, lex.value)
         if not found or kernel.sym_flags[s] & kernel.SF_PUB == 0:
             err.fatal(err.E_UNDEFINED)
         lex.next()

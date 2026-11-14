@@ -13,8 +13,8 @@
 ;   | arg_length: an int                   | a byte: sys.arg_copy gives one    |                 |
 module lk_file
 
-import lk_err
-import sys
+import lk_err (begin, colon, E_OPEN, finish, put)
+import sys (arg_copy, argc, open_in, open_out)
 
 pub const ARG_ENV = 0
 pub const ARG_MAIN = 1

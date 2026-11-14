@@ -51,14 +51,34 @@
 ;   | defined                              |                                   | use             |
 module gen
 
-import cond
-import err
-import fbuf
-import fold
-import kernel
-import out
-import reg
-import typetab
+import cond (carry, compare, invert, jump_false, left, push, right, value, wanted_in_carry)
+import err (E_ARRAY_VALUE, E_BYTE_INDEX, E_CALLS_FULL, E_ELEMENT_SIZE, E_INITS_FULL, E_NO_ADDRESS,
+            E_NOT_INDEXED, E_NOT_RECORD, E_OPERANDS_FULL, E_RANGE, E_TWO_INDEXES, E_TYPE, fatal)
+import fbuf (begin, call_label, finish, FIRST_TEMP, FIX_ADDRESS, FIX_LOW, new_label, NO_SLOT, op,
+             op_fix, OP_JMP_INDIRECT, OP_JSR, op_word, runs_on, tail_call, used)
+import fold (ADD, BAND, BOR, BXOR, DIV, exact, GE, LT, MUL, NE, REM, SHL, SHR, SUB, typed)
+import kernel (K_FUNC, K_TYPE, member_add, member_count, member_type, member_value, module_count,
+               module_name, name_add, name_begin, name_end, NO_OBJ, NO_SYM, SF_ASM, SF_AT,
+               SF_EXTERN, SF_RECURSIVE, SF_ZP, sym_add, sym_find, sym_flags, sym_kind, sym_members,
+               sym_obj, sym_params, sym_results, sym_type, sym_value)
+import out (call, CALL_POINTER, CALL_SAVES, function_begin, function_end, imported, NO_OUTER, slot,
+            SYM_DATA, SYM_FUNCTION, symbol, table_byte, table_fix)
+import reg (A, accepts, accumulator, alu, apart, assignable, become, begin, branch, claim, CLASS_ZP,
+            clobber, compare_const, const_byte, copy, depth, dereferenced, describe, describe_temp,
+            direct, duplicate, F_DATA, F_REACH, F_TEMP, F_WRAPS, F_ZP, fit, forget, immediate,
+            implied, in_registers, INDEX, INDEXED_FORM, into_memory, is_const_byte, is_direct, jump,
+            keep, label, load, LOAD_ABSOLUTE, load_const, local_count, loop_depth, loop_label,
+            M_DIRECT, M_INDEXED, M_POINTER, modify, NONE, O_A, O_ADDR, O_AX, O_CONST, O_FUNC, O_VAR,
+            object_symbol, offset, OP_ADC, OP_AND, OP_ASL, OP_CLC, OP_DEC, OP_DEX, OP_EOR, op_flags,
+            OP_INC, OP_INX, op_kind, OP_LSR, op_mode, OP_ORA, OP_ROL, OP_ROR, OP_SBC, OP_SEC,
+            op_size, op_slot, op_stride, op_symbol, op_type, op_value, op_var, own, owner, pop,
+            push, push_memory, push_register, push_slot, put, put_const, release, same_place,
+            slot_busy, slot_class, slot_kind, slot_name, slot_size, slot_weight, SLOTS, spill,
+            step_x, store, swap, take, take_index, temp, temp_count, test, transfer, unaliased,
+            unify, use, X, Y, zero_page)
+import typetab (base, BOOL_TYPE, BYTE_TYPE, INT_TYPE, is_array, is_column, is_func, is_number,
+                is_pointer, is_record, is_recursive, is_rows, is_signed, is_untyped, length, narrow,
+                NEGATIVE_TYPE, NO_TYPE, NUMBER_TYPE, pointer_to, SBYTE_TYPE, size, WORD_TYPE)
 
 ; Where a parameter or result of an `extern` or `asm` function is. Pairs are low byte first.
 pub const REG_NONE = 0

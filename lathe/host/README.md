@@ -184,10 +184,12 @@ Only what the linker kept is listed: functions reachable from an entry point, an
 
 ## The interface file
 
-`name.li` lists what a module exports. It is binary, and is read straight into the symbol table: no tokens, no parsing. Its types and inline functions become symbols as they are read; its functions, constants and variables are kept frozen in the name heap and become symbols only when the importer names them (`kernel.py`, "Frozen symbols"; `../docs/architecture.md`, "What stays in memory"). Numbers are little-endian and a string is a length byte and its characters, as in object files.
+`name.li` lists what a module exports. It is binary, and is read straight into the symbol table: no tokens, no parsing. Its types become symbols as they are read. Of the rest, an `import` without a list reads everything: its inline functions become symbols, its functions, constants and variables are kept frozen in the name heap and become symbols only when the importer names them (`kernel.py`, "Frozen symbols"; `../docs/architecture.md`, "What stays in memory"). An `import` with a list reads only the entries it names and those the bodies of the inline functions it reads name (the `LI_USES` entries below), makes each a symbol at once, with the name the list or the `LI_USES` entry made, and passes over the others; those only the bodies need are marked `kernel.SF_HIDDEN`, so that the importer's own code cannot name them (`../docs/language.md`, "Import lists"). Numbers are little-endian and a string is a length byte and its characters, as in object files.
+
+**Version 2** (2026-11-14, for import lists) added the `LI_USES` entries; an interface without exported inline functions differs from version 1 only in the version byte. Nothing reads version 1: a module whose interface is of it is compiled again (`../docs/object-format.md`, "Versions").
 
 ```
-header   "LI", version (1 byte, value 1), module name (string)
+header   "LI", version (1 byte, value 2), module name (string)
 entries  each: kind (1 byte, not 0), name (string), then what that kind has
 end      a 0 byte
 ```
@@ -202,7 +204,8 @@ end      a 0 byte
 | 6 | Enumeration | flags (1). Its constants are constant entries of its type. |
 | 7 | Function type | flags (1); number of parameters (1) and that many members; number of results (1) and that many members, as for a function. |
 | 9 | Constant in a region | as kind 2 (a table: value 0), then the region's name (string). |
-| 8 | Module | (nothing). A module this one imports, written only if this one exports an `inline` function. The reader imports it too, if it has not yet, and knows it by its name in this module's scope: the bodies of this module's inline functions can use it, the reader's own code cannot. |
+| 8 | Module | (nothing). A module this one imports, written only if this one exports an `inline` function. The reader imports it too, if it has not yet (or reads it again for what the `LI_USES` entries it wants name of it), and knows it by its name in this module's scope: the bodies of this module's inline functions can use it, the reader's own code cannot. |
+| 10 | Uses | the number of names (1), then each as a module name (string, empty for this module) and a name (string). One for each exported `inline` function, whose name the entry has, before every other entry, the newest function first: what its body names that an importer must read with it. That is each function, constant and variable of this module the body names by a plain name (its parameters and locals apart), and each `m.name` of a module `m` this module imports; types and modules are not listed, because every import reads them. A reader that wants the function (its list names it, another wanted function's entry does, or it reads the module whole) wants those names too; newest first, a function that another names is wanted by the time its own entry is read (`decl.read_uses()`, `inline.write_uses()`). |
 
 - **Function flags:** bit 0 `extern`: a routine at a fixed address; bit 1 `recursive`; bit 2 `asm`: a function whose body is assembly, called like an `extern` one (parameters and results in registers, no slots) but through its symbol; bit 3 `inline`: its saved tokens follow its members (below); bit 4 `interrupt`: it cannot be called, only have its address taken.
 - **An inline function's saved tokens** follow its results: the name of the source file it was read from (string), the line of its first token (2), its flags (1: bit 0 pure, bit 1 its only `return` is its last statement, `lathe/host/inline.py`), 0, or 1 and the name (string) of the one variable of the program a pure body assigns to, for each parameter its name (string) and 1 if the body assigns to it, else 0 (1), then its tokens in the form of `lex.py` (at `SAVED_LINE`) but with each name written as a string instead of its place in the name heap, and a 0 byte (T_EOF) after the last.

@@ -6,17 +6,26 @@
 ; with GEN in it, the program does not fit the emulator's machine at full size.
 module gentest
 
-import cond
-import err
-import gen
-import kernel
+import cond (wanted_in_carry)
+import err (position, set_file)
+import gen (accept, address, anonymous, arguments_end, as_value, assign, binary, call, carry,
+            carry_wanted, code_address, compare, complement, constant, convert, copy_array, cpu,
+            field, function, function_address, function_begin, function_end, hold, in_register,
+            index, init, init_count, init_function, initial, interrupt_entry, invert, jump_false,
+            length, load_result, local, loop_begin, loop_end, mark, must_protect, negate, outer,
+            parameter, part, pend_op, pend_type, protect, receive, record_of, resolve, result, ret,
+            saves_frame, saving, settle, size_of, step, store, store_arrow, store_pair, table,
+            table_element, test_left, test_right, through, through_pointer, variable)
+import kernel (K_CONST, K_TYPE, keep_argument, module_add, SCOPE_MODULE, sym_add, sym_type,
+               sym_value)
 import listing
-import out
-import reg
+import out (table_begin, table_end)
+import reg (object_symbol)
 import regcmd
-import script
-import sys
-import typetab
+import script (command, end_line, find, flag, name, next, NOT_FOUND, number, open, show_bool,
+               show_byte, show_word, small)
+import sys (exit)
+import typetab (declared, FORM_RECORD, grow)
 
 const WORDS = "ginit gbegin settle resolve gconst gfunc gfaddr objsym gvar gtable glocal param argsend binary negate compl gstore assign arrow pair convert part sizeof len gindex record field address anon tbegin telem tend copyarr accept hold protect inreg receive result tptr through call saving caddr mark gcompare asvalue tleft tright ginvert gjump cwanted gcarry lresult ret ientry loopb loope fend initial initfn cpu saves gstate kconst module at gstep rtype mustp symval "
 

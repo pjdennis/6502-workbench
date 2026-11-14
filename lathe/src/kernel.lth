@@ -73,8 +73,9 @@
 ;   | and name_char for each character     |                                   |                 |
 module kernel
 
-import err
-import sys
+import err (E_DUPLICATE, E_MEMBERS_FULL, E_MODULES_FULL, E_NAMES_FULL, E_NOT_LISTED, E_PATH_LONG,
+            E_STREAMS_FULL, E_SYMS_FULL, E_TEXT_FULL, fatal)
+import sys (arg_copy, close, open_in, open_out, read, write)
 
 ; ---- Text memory -------------------------------------------------------------------------
 
@@ -294,7 +295,7 @@ end
 #if SMALL
 const NAME_HEAP_SIZE = 1536      ; (SMALL: the test programs' small build)
 #else
-const NAME_HEAP_SIZE = 18944
+const NAME_HEAP_SIZE = 9216
 #end
 const NAME_BUCKETS = 64         ; a power of two
 pub const MAX_NAME = 31         ; significant characters
@@ -469,7 +470,7 @@ const MAX_MEMBERS = 264         ; a word index needs)
 pub const MAX_SYMS = 560
 const MAX_MEMBERS = 432
 #end
-const MAX_MODULES = 16          ; the module being compiled and those it imports
+pub const MAX_MODULES = 16      ; the module being compiled and those it imports
 
 pub const SCOPE_MODULE = 0      ; the module being compiled; 1 and up are imported modules
 pub const SCOPE_FIELDS = $40      ; plus a record type's number: the scope of that record's fields
@@ -496,6 +497,10 @@ pub const SF_ROWS = 128         ; a variable declared `rows` (while its declarat
 pub const SF_RECURSIVE = 128    ; a function declared `recursive` (the bit SF_ROWS has on a variable)
 pub const SF_IN = 2             ; a variable or constant table `in REGION` (provisional, 2026-11-14):
                                 ; its value is the region's name (the bit SF_EXTERN has on a function)
+pub const SF_HIDDEN = 4         ; an imported symbol the importer's list does not name: only the
+                                ; bodies of inline functions use it (the bit SF_FORWARD has,
+                                ; which no imported symbol has)
+pub const SF_LIST = 4           ; a module's symbol: its `import` has a list (the same bit)
 
 pub var sym_name: [MAX_SYMS]word rows
 pub var sym_scope: [MAX_SYMS]byte nozp
@@ -523,7 +528,7 @@ pub var module_count: byte
 
 var module_frozen: [MAX_MODULES]word    ; each module's first frozen entry, or 0
 
-forward func thaw(scope: byte, f: word): word
+forward func thaw(scope: byte, f: word, oldest: word): word
 
 ; The symbol of `scope` on the chain of the name entry `q` points to, or NO_SYM. `q` points
 ; into NAMES: called only inside a block of it.
@@ -570,6 +575,7 @@ pub func sym_find(scope: byte, name: word): word, bool
   var before: word = 0
   var f: word
   var q: ^byte
+  var oldest: word
   with NAMES do
     q = @names + name
     s = chain_find(scope, q)
@@ -577,12 +583,16 @@ pub func sym_find(scope: byte, name: word): word, bool
       return s, s != NO_SYM
     end
     ; Thawed already, on the chain of another entry with the same spelling (thaw())?
+    oldest = name
     n = name_bucket[spelling_hash(q) & (NAME_BUCKETS - 1)]
     while n != 0 do
       if n != name and same_spelling(@names + n, q) then
         s = chain_find(scope, @names + n)
         if s != NO_SYM then
           return s, true
+        end
+        if n < oldest then
+          oldest = n
         end
       end
       n = name_word(n + N_LINK)
@@ -601,7 +611,20 @@ pub func sym_find(scope: byte, name: word): word, bool
       name_set_word(before + N_LINK, name_word(f + N_LINK))
     end
   end
-  return thaw(scope, f), true
+  return thaw(scope, f, oldest), true
+end
+
+; The symbol `name` of the module that module symbol `m` stands for, and whether there is one:
+; what `m.name` means. Through an `import` with a list (SF_LIST), only what the list names can be
+; named (error 101): not what the bodies of inline functions alone need.
+pub func module_find(m: word, name: word): word, bool
+  var s: word
+  var found: bool
+  s, found = sym_find(byte(sym_value[m]), name)
+  if sym_flags[m] & SF_LIST != 0 and (not found or sym_flags[s] & SF_HIDDEN != 0) then
+    err.fatal(err.E_NOT_LISTED)
+  end
+  return s, found
 end
 
 ; The newest symbol called `name`, or NO_SYM: the first on its chain (sym_link).
@@ -712,6 +735,99 @@ const F_PARAMS = 2              ; a function's
 const F_RESULTS = 3
 const F_MEMBERS = 4             ; the size of what a function has there before its members
 
+; The symbol of `scope` whose name spells the name being built (name_begin(), name_add()), or
+; NO_SYM. A frozen entry is not looked at, and nothing is thawed.
+pub func built_symbol(scope: byte): word
+  var n: word
+  var s: word
+  var q: ^byte
+  with NAMES do
+    q = @names + name_top
+    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
+    while n != 0 do
+      if not name_is_new(@names + n, q) then
+        s = chain_find(scope, @names + n)
+        if s != NO_SYM then
+          return s
+        end
+      end
+      n = name_word(n + N_LINK)
+    end
+  end
+  return NO_SYM
+end
+
+; The frozen entry of imported module `scope` that spells the name being built, or 0.
+pub func built_frozen(scope: byte): word
+  var n: word
+  var q: ^byte
+  with NAMES do
+    q = @names + name_top
+    n = module_frozen[scope]
+    while n != 0 and name_is_new(@names + n, q) do
+      n = name_word(n + N_LINK)
+    end
+  end
+  return n
+end
+
+; True if name entry `n` spells the name being built.
+pub func built_is(n: word): bool
+  with NAMES do
+    return not name_is_new(@names + n, @names + name_top)
+  end
+end
+
+; The hash of name entry `n`'s spelling, as new_hash is of the name being built.
+pub func name_hash(n: word): byte
+  with NAMES do
+    return spelling_hash(@names + n)
+  end
+end
+
+; True if imported module `scope` has a symbol or a frozen entry that spells the name being
+; built. If `show`, the importer can name it from now on (SF_HIDDEN is cleared).
+pub func built_loaded(scope: byte, show: bool): bool
+  var s: word
+  var f: word
+  s = built_symbol(scope)
+  if s != NO_SYM then
+    if show then
+      sym_flags[s] = sym_flags[s] & ~SF_HIDDEN
+    end
+    return true
+  end
+  f = built_frozen(scope)
+  if f == 0 then
+    return false
+  end
+  if show then
+    with NAMES do
+      names[f + F_FLAGS] = names[f + F_FLAGS] & ~SF_HIDDEN
+    end
+  end
+  return true
+end
+
+; Declare `name` in imported module `scope` as a thawed symbol, numbered from the top of the
+; table: an entry an import list names, whose name the list has made already, is made a symbol
+; at once instead of a frozen entry. The other columns start empty. A name the module already
+; has is error 41.
+pub func sym_thawed(scope: byte, name: word, kind: byte): word
+  var s: word
+  var found: bool
+  s, found = sym_find(scope, name)
+  if found then
+    err.fatal(err.E_DUPLICATE)
+  end
+  if thaw_top == sym_count then
+    err.fatal(err.E_SYMS_FULL)
+  end
+  thaw_top -= 1
+  sym_new(thaw_top, scope, name, kind)
+  return thaw_top
+end
+
 ; Make the name being built (name_begin(), name_add()) a frozen symbol of imported module
 ; `scope` with these columns. Its members follow, with freeze_member(). A name the module
 ; already has is error 41, as sym_add() would give.
@@ -727,22 +843,11 @@ pub func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, para
   if name_top + N_TEXT + new_length + size > NAME_HEAP_SIZE then
     err.fatal(err.E_NAMES_FULL)
   end
+  if built_symbol(scope) != NO_SYM or built_frozen(scope) != 0 then
+    err.fatal(err.E_DUPLICATE)
+  end
   with NAMES do
     q = @names + name_top
-    n = name_bucket[new_hash & (NAME_BUCKETS - 1)]
-    while n != 0 do
-      if not name_is_new(@names + n, q) and chain_find(scope, @names + n) != NO_SYM then
-        err.fatal(err.E_DUPLICATE)
-      end
-      n = name_word(n + N_LINK)
-    end
-    n = module_frozen[scope]
-    while n != 0 do
-      if not name_is_new(@names + n, q) then
-        err.fatal(err.E_DUPLICATE)
-      end
-      n = name_word(n + N_LINK)
-    end
     n = name_top
     q[N_LINK] = lo(module_frozen[scope])
     q[N_LINK + 1] = hi(module_frozen[scope])
@@ -773,10 +878,15 @@ pub func freeze_member(t: byte, value: byte)
 end
 
 ; Make frozen entry `f`, taken off its module's list, a symbol of `scope`, numbered from
-; the top of the table. The entry is put in its bucket, in its place by age, so that
-; names_release() still finds the newest names first; the symbol is on its chain.
-func thaw(scope: byte, f: word): word
+; the top of the table. `oldest` is the oldest name of its spelling (sym_find()). If that is
+; older than the entry (made before the import was read: by an import list, an interface read
+; before, or the module itself), it stays the name and the symbol goes on its chain: the entry
+; put in its bucket would be ahead of it, and the lexer would give the entry for the spelling.
+; Otherwise the entry becomes the name, in its bucket, in its place by age, so that
+; names_release() still finds the newest names first.
+func thaw(scope: byte, f: word, oldest: word): word
   var s: word
+  var name: word
   var q: ^byte
   var r: ^byte
   var count: byte
@@ -797,10 +907,14 @@ func thaw(scope: byte, f: word): word
     kind = q[F_KIND]                    ; read before the entry is made a name
     flags = q[F_FLAGS]
     t = q[F_TYPE]
-    q[N_SYMBOL] = lo(NO_SYM)
-    q[N_SYMBOL + 1] = hi(NO_SYM)
-    q[N_TOKEN] = 0
-    sym_new(s, scope, f, kind)
+    name = oldest
+    if oldest > f then
+      name = f
+      q[N_SYMBOL] = lo(NO_SYM)
+      q[N_SYMBOL + 1] = hi(NO_SYM)
+      q[N_TOKEN] = 0
+    end
+    sym_new(s, scope, name, kind)
     sym_flags[s] = flags
     sym_type[s] = t
     sym_value[s] = word(r[F_VALUE]) | (word(r[F_VALUE + 1]) << 8)
@@ -813,6 +927,9 @@ func thaw(scope: byte, f: word): word
         member_add(r[0], r[1])
         r += 2
       end
+    end
+    if oldest < f then
+      return s
     end
     bucket = spelling_hash(q) & (NAME_BUCKETS - 1)
     n = name_bucket[bucket]

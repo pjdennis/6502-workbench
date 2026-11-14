@@ -4,12 +4,14 @@
 ; and the files, byte for byte. The scripts are in lathe/tests/scripts/out.txt.
 module outtest
 
-import err
-import fbuf
-import kernel
-import out
-import script
-import sys
+import err (init)
+import fbuf (begin, finish, op, op_fix)
+import kernel (init, keep_argument, sym_add, sym_obj, sym_weight)
+import out (begin_module, call, class_parameter, data, data_byte, end_module, function_begin,
+            function_end, imported, init, member, open, pointer_class, region, slot, symbol,
+            table_begin, table_byte, table_end, table_fix, variable, with_region)
+import script (command, end_line, more, name, next, number, open, show_bool, show_word, small)
+import sys (exit)
 
 pub func main()
   var a: byte

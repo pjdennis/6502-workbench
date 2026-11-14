@@ -20,10 +20,10 @@
 ;   | put_word: value >> 8                 | hi(value)                         | the same byte   |
 module lk_out
 
-import lk_envf
-import lk_err
-import lk_file
-import sys
+import lk_envf (bank_file, bank_win, code_lo, fail_text, raw, text, win_lo)
+import lk_err (E_OPEN, E_OVERLAP, fail)
+import lk_file (ARG_BIN, arg_length, open_out, PATH)
+import sys (close, open_out, write)
 
 var handle: byte = 0
 pub var written: word = 0       ; bytes written so far: the next address is base + written

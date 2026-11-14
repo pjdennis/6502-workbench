@@ -34,16 +34,18 @@
 module lathec
 
 import decl
-import err
-import expr
-import gen
-import inlines
-import kernel
-import lex
-import out
-import src
-import sys
-import typetab
+import err (E_CREATE, E_OPEN_SOURCE, E_SOURCE_NAME, E_USAGE, fatal, init, position, set_file)
+import expr (init)
+import gen (cpu, init)
+import inlines (init)
+import kernel (init, K_CONST, keep_argument, module_add, module_name, name_add, name_begin,
+               name_end, name_token, path_add, path_add_name, path_add_text, path_begin, path_end,
+               SCOPE_PREDECLARED, sym_add, sym_type, sym_value)
+import lex (fold, init, is_digit, is_letter)
+import out (end_module, init, open)
+import src (init, open_file)
+import sys (argc, exit)
+import typetab (BOOL_TYPE, init, NUMBER_TYPE)
 
 const C_0 = $30
 const C_SLASH = $2F

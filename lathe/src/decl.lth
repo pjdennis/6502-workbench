@@ -42,20 +42,47 @@
 ;   |                                      |                                   | be reachable    |
 module decl
 
-import asmblock
-import err
-import expr
-import gen
-import inlines
-import kernel
-import lex
-import out
-import reg
-import typetab
+import asmblock (function_body)
+import err (E_AT_EXPECTED, E_ATTRIBUTES, E_BAD_INTERFACE, E_COLON_EXPECTED, E_CREATE,
+            E_DECL_EXPECTED, E_DIRS_FULL, E_EMPTY_RECORD, E_END_EXPECTED, E_FORWARD,
+            E_FUNC_EXPECTED, E_IN_EXPECTED, E_INTERRUPT_HEAD, E_LISTED_TWICE, E_LPAREN_EXPECTED,
+            E_MEMBERS_FULL, E_MODULE_EXPECTED, E_MODULE_NAME, E_NAME_EXPECTED, E_NL_EXPECTED,
+            E_NO_BODY, E_NO_INTERFACE, E_NOT_CONST, E_NOT_EXPORTED, E_RANGE, E_RECORD_SELF,
+            E_RECURSIVE_BODY, E_REG_TYPE, E_REG_USED, E_REGISTER_EXPECTED, E_RPAREN_EXPECTED,
+            E_SELF_IMPORT, E_SYNTAX, E_TYPE, E_TYPE_MODULE, E_UNSUPPORTED, E_WANTS_FULL, fatal,
+            position)
+import expr (constant, constant_number, data_region, directive, function_body, layout, LEVEL_MODULE,
+             new_name, no_record, not_in_region, region_name, table_data, type_spec, value_type,
+             variable, zp_class)
+import gen (cpu, function_begin, function_end, init_count, INIT_FLUSH, init_function,
+            interrupt_entry, receive, REG_A, REG_AX, REG_C, REG_NONE, REG_Y, saves_frame)
+import inlines (read, read_name, save, SF_INLINE, SF_INTERRUPT, skip, skip_name, write, write_uses)
+import kernel (built_is, built_loaded, close, freeze, freeze_member, get, get_word, K_BUILTIN,
+               K_CONST, K_FIELD, K_FUNC, K_LOCAL, K_MODULE, K_TYPE, K_VAR, local_base, local_names,
+               MAX_MODULES, MAX_NAME, member_add, member_type, member_value, module_add,
+               module_count, module_name, name_add, name_begin, name_char, name_end, name_hash,
+               name_length, name_top, new_hash, NO_OBJ, open_in, open_out, path_add, path_add_name,
+               path_add_text, path_begin, path_end, put, put_name, put_word, scope_begin, scope_end,
+               SCOPE_FIELDS, SCOPE_LOCAL, SCOPE_MODULE, SCOPE_PREDECLARED, SF_ASM, SF_AT, SF_EXTERN,
+               SF_FORWARD, SF_HIDDEN, SF_IN, SF_LIST, SF_NOZP, SF_PUB, SF_RECURSIVE, SF_ZP, sym_add,
+               sym_count, sym_find, sym_flags, sym_kind, sym_members, sym_name, sym_obj, sym_params,
+               sym_results, sym_scope, sym_thawed, sym_type, sym_value, sym_weight)
+import lex (col, expect, line, next, string_length, T_ASM, T_ASSIGN, T_AT, T_BOOL, T_COLON, T_COMMA,
+            T_CONST, T_END, T_ENUM, T_EOF, T_EXTERN, T_FORWARD, T_FUNC, T_HASH_IF, T_IMPORT, T_IN,
+            T_INLINE, T_INTERRUPT, T_LPAREN, T_MODULE, T_NAME, T_NL, T_PUB, T_RECORD, T_RECURSIVE,
+            T_RPAREN, T_STATIC, T_STRING, T_TYPE, T_VAR, tok, value)
+import out (begin_module, FUNC_EXPORTED, FUNC_INTERRUPT, FUNC_RECURSIVE, FUNC_REGISTERS, imported,
+            region, SYM_DATA, SYM_FUNCTION, symbol, variable)
+import reg (begin, CLASS_EITHER, depth, new_slot, O_CONST, object_symbol, op_kind, op_type,
+            op_value, pop, SLOT_PARAMETER)
+import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, declared, form, FORM_ARRAY, FORM_ENUM,
+                FORM_FUNC, FORM_POINTER, FORM_RECORD, grow, innermost, is_array, is_enum, is_func,
+                is_pointer, is_record, is_recursive, length, make_recursive, NIL_TYPE, NO_TYPE,
+                prefix, prefix_count, size)
 
 ; ---- Interface files ---------------------------------------------------------------------
 
-const LI_VERSION = 1
+const LI_VERSION = 2
 const LI_END = 0                ; entry kinds
 const LI_FUNC = 1
 const LI_CONST = 2
@@ -66,6 +93,9 @@ const LI_ENUM = 6               ; an enumeration declared here: flags. Its const
 const LI_FUNC_TYPE = 7          ; a function type declared here: flags, then parameters and results
 const LI_MODULE = 8             ; a module this one imports, which its exported inline functions can name
 const LI_CONST_IN = 9           ; a constant table `in REGION`: as LI_CONST, then the region's name
+const LI_USES = 10              ; what the body of an exported inline function names: the function's
+;                                 name, how many, and each as a module (string, empty for this one)
+;                                 and a name
 const LI_PUB = 1                ; flag of those four: exported (the others are there for the types of what is)
 const LI_EXTERN = 1             ; function flag: at a fixed address, which follows the flags
 const LI_RECURSIVE = 2          ; function and function type flag: declared `recursive`
@@ -98,6 +128,39 @@ var entry_length: byte = 0
 var entry_type: [MAX_ENTRY_MEMBERS]byte
 var entry_register: [MAX_ENTRY_MEMBERS]byte
 var entry_members: byte = 0
+
+; What the import being read wants of the interfaces it reads (import_line()): the names its list
+; gives, and what the bodies of the inline functions read name (read_uses()). A row is a module
+; and a name, by their name entries; where a listed name was, for error 102. The rows last while
+; one `import` line is read, the interfaces it brings in included.
+#if SMALL
+const MAX_WANTS = 48            ; (SMALL: the test programs' small build)
+#else
+const MAX_WANTS = 160
+#end
+const W_LISTED = 1              ; want_flags: the importer's list names it
+const W_FOUND = 2               ; an entry of the interface has its name, or the module had it already
+const NO_ROW = $FF
+var want_module: [MAX_WANTS]word
+var want_name: [MAX_WANTS]word
+var want_hash: [MAX_WANTS]byte  ; kernel.name_hash() of the name
+var want_flags: [MAX_WANTS]byte
+var want_line: [MAX_WANTS]word
+var want_col: [MAX_WANTS]word
+var want_count: byte = 0
+var entry_row: byte = NO_ROW    ; the row that wanted() found for the entry being read
+
+; How each module's interface is read: everything in it (M_WHOLE: an `import` without a list, or
+; a module whose functions the compiler calls by itself, WHOLE_MODULES), and whether the importer
+; can name all of it (M_SHOWN: an `import` without a list)
+const M_WHOLE = 1
+const M_SHOWN = 2
+var module_read: [kernel.MAX_MODULES]byte
+const WHOLE_MODULES: [17]byte = "rt_math rt_frame "   ; gen.math_function() and gen.frame_routines() look these up
+const READ_SKIP = 0             ; what wanted() says of an entry: not read;
+const READ_FROZEN = 1           ; read as a frozen entry;
+const READ_ROW = 2              ; made a symbol at once, with the name of row entry_row;
+const READ_SHOWN = 4            ; and with either of those, the importer can name it
 
 ; ---- Predeclared names -------------------------------------------------------------------
 
@@ -340,6 +403,17 @@ pub func write_interface(directory_name: ^byte)
       expands = true
     end
   end
+  ; What each exported inline function's body names, newest function first (read_uses()).
+  s = kernel.sym_count
+  while s > 0 do
+    s -= 1
+    if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_FUNC and
+        kernel.sym_flags[s] & (kernel.SF_PUB | inlines.SF_INLINE) == kernel.SF_PUB | inlines.SF_INLINE then
+      kernel.put(stream, LI_USES)
+      kernel.put_name(stream, kernel.sym_name[s])
+      inlines.write_uses(stream, s)
+    end
+  end
   for s = 0 until kernel.sym_count do
     if kernel.sym_scope[s] == kernel.SCOPE_MODULE and kernel.sym_kind[s] == kernel.K_TYPE then
       write_named_type(stream, s)
@@ -412,9 +486,19 @@ end
 
 forward func read_signature(stream: byte, s: word)
 forward func add_field(s: word, name: word, t: byte)
+forward func read_entry_name(stream: byte)
+forward func entry_name_begin()
+forward func read_entry_members(stream: byte): byte
+forward func wanted(number: byte, mark: bool): byte
+forward func listed(row: byte): bool
+forward func not_exported(row: byte)
+forward func hidden(flags: byte, how: byte): byte
+forward func skip_named_type(stream: byte, kind: byte)
 
-; A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE.
-func read_named_type(stream: byte, scope: byte, kind: byte)
+; A type entry of kind LI_TYPE, LI_RECORD, LI_ENUM or LI_FUNC_TYPE. Every type of the interface
+; is read, listed or not, the first time it is read; `again`, it is passed over, but the importer
+; can name it from now on if it is listed. A listed type that is not `pub` is error 102.
+func read_named_type(stream: byte, scope: byte, kind: byte, again: bool)
   var s: word
   var flags: byte
   var at_end: bool
@@ -422,10 +506,22 @@ func read_named_type(stream: byte, scope: byte, kind: byte)
   var count: byte
   var i: byte
   var name: word
-  s = kernel.sym_add(scope, inlines.read_name(stream), kernel.K_TYPE)
+  var how: byte
+  read_entry_name(stream)
+  entry_name_begin()
+  how = wanted(scope, true)
   flags, at_end = kernel.get(stream)
+  if flags & LI_PUB == 0 and listed(entry_row) then
+    not_exported(entry_row)
+  end
+  if again then
+    kernel.built_loaded(scope, how & READ_SHOWN != 0)
+    skip_named_type(stream, kind)
+    return
+  end
+  s = kernel.sym_add(scope, kernel.name_end(), kernel.K_TYPE)
   if flags & LI_PUB != 0 then
-    kernel.sym_flags[s] = kernel.SF_PUB
+    kernel.sym_flags[s] = hidden(kernel.SF_PUB, how)
   end
   if kind == LI_TYPE then
     kernel.sym_type[s] = read_type(stream)
@@ -447,6 +543,27 @@ func read_named_type(stream: byte, scope: byte, kind: byte)
   for i = 0 until count do
     name = inlines.read_name(stream)
     add_field(s, name, read_type(stream))
+  end
+end
+
+; What follows the flags of a type entry read before: its types are read again, which makes no
+; new type, and nothing else is made.
+func skip_named_type(stream: byte, kind: byte)
+  var count: byte
+  var at_end: bool
+  var i: byte
+  entry_members = 0
+  if kind == LI_TYPE then
+    read_type(stream)
+  elif kind == LI_FUNC_TYPE then
+    read_entry_members(stream)
+    read_entry_members(stream)
+  elif kind == LI_RECORD then
+    count, at_end = kernel.get(stream)
+    for i = 0 until count do
+      inlines.skip_name(stream)
+      read_type(stream)
+    end
   end
 end
 
@@ -529,6 +646,148 @@ func read_entry_members(stream: byte): byte
   return count
 end
 
+; ---- What an import wants ----------------------------------------------------------------
+
+; A row: the import wants the entry `name` of the module called `owner`, as `flags` say; where
+; the current token is, for error 102. A row that is there already is not added again, but a
+; name a list gives twice is error 103.
+func add_want(owner: word, name: word, flags: byte)
+  var i: byte
+  for i = 0 until want_count do
+    if want_module[i] == owner and want_name[i] == name then
+      if flags & want_flags[i] & W_LISTED != 0 then
+        err.fatal(err.E_LISTED_TWICE)
+      end
+      want_flags[i] = want_flags[i] | flags
+      return
+    end
+  end
+  if want_count == MAX_WANTS then
+    err.fatal(err.E_WANTS_FULL)
+  end
+  want_module[want_count] = owner
+  want_name[want_count] = name
+  want_hash[want_count] = kernel.name_hash(name)
+  want_flags[want_count] = flags
+  want_line[want_count] = lex.line
+  want_col[want_count] = lex.col
+  want_count += 1
+end
+
+; True if `row` is one, and the importer's list gave it.
+func listed(row: byte): bool
+  return row != NO_ROW and want_flags[row] & W_LISTED != 0
+end
+
+; Error 102, at the name the list gave.
+func not_exported(row: byte)
+  err.position(want_line[row], want_col[row])
+  err.fatal(err.E_NOT_EXPORTED)
+end
+
+; Symbol flags `flags`, with SF_HIDDEN unless `how` says the importer can name it.
+func hidden(flags: byte, how: byte): byte
+  if how & READ_SHOWN == 0 then
+    return flags | kernel.SF_HIDDEN
+  end
+  return flags
+end
+
+; How the entry of module `number` whose name is being built is read (READ_SKIP, READ_FROZEN or
+; READ_ROW, and READ_SHOWN): as the rows that name it say, else as the module is read. entry_row
+; is the row, a listed one first, or NO_ROW. If `mark`, the rows are marked found.
+func wanted(number: byte, mark: bool): byte
+  var i: byte
+  var how: byte
+  entry_row = NO_ROW
+  for i = 0 until want_count do
+    if want_hash[i] == kernel.new_hash and want_module[i] == kernel.module_name[number] and
+        kernel.built_is(want_name[i]) then
+      if mark then
+        want_flags[i] = want_flags[i] | W_FOUND
+      end
+      if not listed(entry_row) then
+        entry_row = i
+      end
+    end
+  end
+  how = READ_SKIP
+  if module_read[number] & M_WHOLE != 0 then
+    how = READ_FROZEN
+  end
+  if entry_row != NO_ROW then
+    how = READ_ROW
+  end
+  if module_read[number] & M_SHOWN != 0 or listed(entry_row) then
+    how = how | READ_SHOWN
+  end
+  return how
+end
+
+; True if a row wants an entry of module `number`, read before, that it does not have yet. Those
+; it has are found now, and those a list gives can be named (error 102 for a type not `pub` or a
+; module of its interface).
+func pending(number: byte): bool
+  var more: bool = false
+  var i: byte
+  var s: word
+  var found: bool
+  for i = 0 until want_count do
+    if want_module[i] == kernel.module_name[number] and want_flags[i] & W_FOUND == 0 then
+      s, found = kernel.sym_find(number, want_name[i])
+      if not found then
+        more = true
+      elif listed(i) then
+        if kernel.sym_kind[s] == kernel.K_MODULE or (kernel.sym_kind[s] == kernel.K_TYPE and
+            kernel.sym_flags[s] & kernel.SF_PUB == 0) then
+          not_exported(i)
+        end
+        kernel.sym_flags[s] = kernel.sym_flags[s] & ~kernel.SF_HIDDEN
+      end
+      if found then
+        want_flags[i] = want_flags[i] | W_FOUND
+      end
+    end
+  end
+  return more
+end
+
+; True if `name` is that of a module in WHOLE_MODULES.
+func whole_module(name: word): bool
+  var i: byte = 0
+  var k: byte
+  var same: bool
+  while i < len(WHOLE_MODULES) do
+    k = 0
+    same = true
+    while WHOLE_MODULES[i + k] != C_SPACE do
+      if k >= kernel.name_length(name) or kernel.name_char(name, k) != WHOLE_MODULES[i + k] then
+        same = false
+      end
+      k += 1
+    end
+    if same and k == kernel.name_length(name) then
+      return true
+    end
+    i += k + 1
+  end
+  return false
+end
+
+; The next module number, for the module called `name`, read as `how` (M_WHOLE, M_SHOWN) says,
+; and as a whole if the compiler calls its functions itself.
+func new_module(name: word, how: byte): byte
+  var m: byte
+  m = kernel.module_add(name)
+  module_read[m] = how
+  if whole_module(name) then
+    module_read[m] = how | M_WHOLE
+  end
+  return m
+end
+
+; ---- Reading the entries -----------------------------------------------------------------
+
 ; The entry read becomes a frozen symbol of module `scope` (kernel.freeze()).
 func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, params: byte, results: byte)
   var i: byte
@@ -539,8 +798,36 @@ func freeze(scope: byte, kind: byte, flags: byte, t: byte, value: word, params: 
   end
 end
 
-; A function entry: frozen, unless it is `inline`, whose saved tokens are read now.
-func read_function(stream: byte, scope: byte)
+; The function, constant or variable entry read, with these columns and its members, is read as
+; `how` says (wanted()): a symbol at once with its row's name, a frozen entry, or nothing.
+; `again`, an entry the module has already is only shown if `how` says so.
+func enter(scope: byte, how: byte, again: bool, kind: byte, flags: byte, t: byte, value: word,
+    params: byte, results: byte)
+  var s: word
+  var i: byte
+  entry_name_begin()
+  if again and kernel.built_loaded(scope, how & READ_SHOWN != 0) then
+    return
+  end
+  flags = hidden(flags, how)
+  if how & READ_ROW != 0 then
+    s = kernel.sym_thawed(scope, want_name[entry_row], kind)
+    kernel.sym_flags[s] = flags
+    kernel.sym_type[s] = t
+    kernel.sym_value[s] = value
+    kernel.sym_params[s] = params
+    kernel.sym_results[s] = results
+    for i = 0 until entry_members do
+      kernel.member_add(entry_type[i], entry_register[i])
+    end
+  elif how & READ_FROZEN != 0 then
+    freeze(scope, kind, flags, t, value, params, results)
+  end
+end
+
+; A function entry: frozen, unless it is `inline`, whose saved tokens are read now if it is
+; wanted, or passed over.
+func read_function(stream: byte, scope: byte, again: bool)
   var flags: byte
   var at_end: bool
   var s: word
@@ -548,12 +835,21 @@ func read_function(stream: byte, scope: byte)
   var value: word
   var params: byte
   var results: byte
+  var how: byte
   read_entry_name(stream)
   flags, at_end = kernel.get(stream)
   if flags & LI_INLINE != 0 then
     entry_name_begin()
+    how = wanted(scope, true)
+    entry_members = 0
+    if how == READ_SKIP or again and kernel.built_loaded(scope, how & READ_SHOWN != 0) then
+      params = read_entry_members(stream)
+      read_entry_members(stream)
+      inlines.skip(stream, params)
+      return
+    end
     s = kernel.sym_add(scope, kernel.name_end(), kernel.K_FUNC)
-    kernel.sym_flags[s] = kernel.SF_PUB | inlines.SF_INLINE
+    kernel.sym_flags[s] = hidden(kernel.SF_PUB | inlines.SF_INLINE, how)
     read_signature(stream, s)
     inlines.read(stream, s)
     return
@@ -576,35 +872,52 @@ func read_function(stream: byte, scope: byte)
   entry_members = 0
   params = read_entry_members(stream)
   results = read_entry_members(stream)
-  freeze(scope, kernel.K_FUNC, symbol_flags, 0, value, params, results)
+  entry_name_begin()
+  how = wanted(scope, true)
+  enter(scope, how, again, kernel.K_FUNC, symbol_flags, 0, value, params, results)
+end
+
+; The name of a region, after an entry read as `how` says: passed over if it is not read.
+func region_name(stream: byte, how: byte): word
+  if how == READ_SKIP then
+    inlines.skip_name(stream)
+    return 0
+  end
+  return inlines.read_name(stream)
 end
 
 ; A constant entry; `in_region` for a table in a region, whose name follows its value.
-func read_constant(stream: byte, scope: byte, in_region: bool)
+func read_constant(stream: byte, scope: byte, in_region: bool, again: bool)
   var t: byte
   var value: word
   var flags: byte
+  var how: byte
   read_entry_name(stream)
   t = read_type(stream)
   entry_members = 0
   value = kernel.get_word(stream)
+  entry_name_begin()
+  how = wanted(scope, true)
   flags = kernel.SF_PUB
   if in_region then
     flags = kernel.SF_PUB | kernel.SF_IN
-    value = inlines.read_name(stream)
+    value = region_name(stream, how)
   end
-  freeze(scope, kernel.K_CONST, flags, t, value, 0, 0)
+  enter(scope, how, again, kernel.K_CONST, flags, t, value, 0, 0)
 end
 
-func read_variable(stream: byte, scope: byte)
+func read_variable(stream: byte, scope: byte, again: bool)
   var t: byte
   var placement: byte
   var at_end: bool
   var symbol_flags: byte
   var value: word
+  var how: byte
   read_entry_name(stream)
   t = read_type(stream)
   placement, at_end = kernel.get(stream)
+  entry_name_begin()
+  how = wanted(scope, true)
   symbol_flags = kernel.SF_PUB
   value = 0
   if placement == LI_AT then
@@ -616,20 +929,65 @@ func read_variable(stream: byte, scope: byte)
     symbol_flags = kernel.SF_PUB | kernel.SF_NOZP
   elif placement == LI_IN then
     symbol_flags = kernel.SF_PUB | kernel.SF_NOZP | kernel.SF_IN
-    value = inlines.read_name(stream)
+    value = region_name(stream, how)
   elif placement != 0 then
     err.fatal(err.E_BAD_INTERFACE)
   end
   entry_members = 0
-  freeze(scope, kernel.K_VAR, symbol_flags, t, value, 0, 0)
+  enter(scope, how, again, kernel.K_VAR, symbol_flags, t, value, 0, 0)
 end
 
-forward recursive func read_interface(number: byte)
+; The module of a name in an LI_USES entry of module `number`'s interface: a string, or an empty
+; one for that module itself.
+func read_module_name(stream: byte, number: byte): word
+  var length: byte
+  var at_end: bool
+  var i: byte
+  var ch: byte
+  length, at_end = kernel.get(stream)
+  if length == 0 then
+    return kernel.module_name[number]
+  end
+  kernel.name_begin()
+  for i = 0 until length do
+    ch, at_end = kernel.get(stream)
+    kernel.name_add(ch)
+  end
+  return kernel.name_end()
+end
+
+; An LI_USES entry: if the inline function it is for is wanted, a row for each name its body
+; names, so that the entries of this module and of the modules it imports are read for it. The
+; entries come newest function first, so that a function another one names is wanted by the time
+; its own entry is read.
+func read_uses(stream: byte, number: byte)
+  var how: byte
+  var count: byte
+  var at_end: bool
+  var i: byte
+  var owner: word
+  read_entry_name(stream)
+  entry_name_begin()
+  how = wanted(number, false)
+  count, at_end = kernel.get(stream)
+  for i = 0 until count do
+    if how == READ_SKIP then
+      inlines.skip_name(stream)
+      inlines.skip_name(stream)
+    else
+      owner = read_module_name(stream, number)
+      add_want(owner, inlines.read_name(stream), 0)
+    end
+  end
+end
+
+forward recursive func read_interface(number: byte, again: bool)
 
 ; An LI_MODULE entry: a module that the exported inline functions of module `scope` can name. It
-; is imported too, if it is not already, and is a name of that module's scope, which the
-; expansions of its inline functions see and the importer's own code does not.
-recursive func imported_module(stream: byte, scope: byte)
+; is imported too, if it is not already (or read again for the names the rows want of it), and
+; is a name of that module's scope, which the expansions of its inline functions see and the
+; importer's own code does not.
+recursive func imported_module(stream: byte, scope: byte, again: bool)
   var name: word
   var m: byte
   name = inlines.read_name(stream)
@@ -638,10 +996,14 @@ recursive func imported_module(stream: byte, scope: byte)
     m += 1
   end
   if m == kernel.module_count then
-    m = kernel.module_add(name)
-    read_interface(m)
+    m = new_module(name, 0)
+    read_interface(m, false)
+  elif pending(m) then
+    read_interface(m, true)
   end
-  kernel.sym_value[kernel.sym_add(scope, name, kernel.K_MODULE)] = m
+  if not again then
+    kernel.sym_value[kernel.sym_add(scope, name, kernel.K_MODULE)] = m
+  end
 end
 
 ; The interface of the module called `name`, from the first directory that has one.
@@ -659,8 +1021,10 @@ func open_interface(name: word): byte
   return 0
 end
 
-; Declare what module number `number` exports, as symbols in the scope of that number.
-recursive func read_interface(number: byte)
+; Declare what module number `number` exports, as symbols in the scope of that number: its types,
+; and of the rest what the rows want (wanted()), or all of it. `again`: it was read before, and
+; what it had then is not made again.
+recursive func read_interface(number: byte, again: bool)
   var stream: byte
   var letter_l: byte
   var letter_i: byte
@@ -679,22 +1043,24 @@ recursive func read_interface(number: byte)
   end
   loop
     kind, at_end = kernel.get(stream)
-    if at_end or kind > LI_CONST_IN then
+    if at_end or kind > LI_USES then
       err.fatal(err.E_BAD_INTERFACE)    ; a file cut short has no LI_END
     end
     if kind == LI_END then
       break
     end
     if kind == LI_FUNC then
-      read_function(stream, number)
+      read_function(stream, number, again)
     elif kind == LI_CONST or kind == LI_CONST_IN then
-      read_constant(stream, number, kind == LI_CONST_IN)
+      read_constant(stream, number, kind == LI_CONST_IN, again)
     elif kind == LI_VAR then
-      read_variable(stream, number)
+      read_variable(stream, number, again)
     elif kind == LI_MODULE then
-      imported_module(stream, number)
+      imported_module(stream, number, again)
+    elif kind == LI_USES then
+      read_uses(stream, number)
     else
-      read_named_type(stream, number, kind)
+      read_named_type(stream, number, kind, again)
     end
   end
   kernel.close(stream)
@@ -716,32 +1082,81 @@ func module_line()
   out.begin_module(gen.cpu, kernel.module_name[0])
 end
 
-; "import" name NL. The module's name becomes a symbol; what it exports is declared in a scope
-; of its own and reached as name.member.
+; "(" [ name { "," name } ] ")", after the module's name: a row for each name.
+func import_list(name: word)
+  lex.next()
+  if lex.tok != lex.T_RPAREN then
+    loop
+      if lex.tok != lex.T_NAME then
+        err.fatal(err.E_NAME_EXPECTED)
+      end
+      add_want(name, lex.value, W_LISTED)
+      lex.next()
+      if lex.tok != lex.T_COMMA then
+        break
+      end
+      lex.next()
+    end
+  end
+  lex.expect(lex.T_RPAREN, err.E_RPAREN_EXPECTED)
+end
+
+; "import" name [ "(" [ name { "," name } ] ")" ] NL. The module's name becomes a symbol; what
+; it exports is declared in a scope of its own and reached as name.member: all of it, or only
+; what the list names (with what the inline functions listed need, which the importer cannot
+; name). Each name listed must be one the module exports.
 func import_line()
   var s: word
   var m: byte
+  var name: word
+  var line: word
+  var col: word
+  var how: byte
+  var i: byte
   lex.next()
   if lex.tok != lex.T_NAME then
     err.fatal(err.E_NAME_EXPECTED)
   end
-  if lex.value == kernel.module_name[0] then
+  name = lex.value
+  if name == kernel.module_name[0] then
     err.fatal(err.E_SELF_IMPORT)
   end
-  s = kernel.sym_add(kernel.SCOPE_MODULE, lex.value, kernel.K_MODULE)
+  line = lex.line
+  col = lex.col
+  s = kernel.sym_add(kernel.SCOPE_MODULE, name, kernel.K_MODULE)
+  lex.next()
+  want_count = 0
+  how = M_WHOLE | M_SHOWN
+  if lex.tok == lex.T_LPAREN then
+    kernel.sym_flags[s] = kernel.SF_LIST
+    how = 0
+    import_list(name)
+  end
+  err.position(line, col)
   ; An interface read before may have brought the module in, for its inline functions
-  ; (imported_module()): that reading serves, and its names are not made twice.
+  ; (imported_module()): that reading serves, and what it has is not made twice.
   m = 1
-  while m < kernel.module_count and kernel.module_name[m] != lex.value do
+  while m < kernel.module_count and kernel.module_name[m] != name do
     m += 1
   end
   if m == kernel.module_count then
-    m = kernel.module_add(lex.value)
-    read_interface(m)
+    m = new_module(name, how)
+    read_interface(m, false)
+  elif how != 0 then
+    module_read[m] = module_read[m] | how
+    read_interface(m, true)
+  elif pending(m) then
+    read_interface(m, true)
   end
+  for i = 0 until want_count do
+    if want_flags[i] & (W_LISTED | W_FOUND) == W_LISTED then
+      not_exported(i)
+    end
+  end
+  want_count = 0
   kernel.sym_value[s] = m
-  out.imported(lex.value)
-  lex.next()
+  out.imported(name)
+  err.position(lex.line, lex.col)
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 end
 

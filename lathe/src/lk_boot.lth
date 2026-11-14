@@ -34,13 +34,15 @@
 ;   | range(1, length + 1)                 | for k = 1 to length               | the same        |
 module lk_boot
 
-import lk_envf
-import lk_name
-import lk_out
-import lk_scan
-import lk_sym
-import lk_tab
-import lk_win
+import lk_envf (bank_file, bank_value, code_lo, exit_addr, EXIT_CALL, exit_kind, EXIT_LOOP,
+                EXIT_STOP, has_stack, is_overlay, placed, stack, text, win_lo, window)
+import lk_name (fc_call, fc_start)
+import lk_out (put, put_word, seek)
+import lk_scan (fn_bank)
+import lk_sym (row_of)
+import lk_tab (copy_node, ctx_count, F_INIT, first_node, fn_count, fn_flags, has_copy, W_ADDR, work)
+import lk_win (has_stub, stub_addr, stub_base, stub_count, STUB_SIZE, table_bank, table_count,
+               table_size)
 
 pub var start_addr: word = 0
 pub var start_len: word = 0

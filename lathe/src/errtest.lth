@@ -2,8 +2,8 @@
 ; COL if they are given, as err.fatal does. (lathe/tests/test_src_err.py)
 module errtest
 
-import err
-import sys
+import err (fatal, init, position, set_file)
+import sys (arg_copy, argc)
 
 var text: [256]byte
 var file: [128]byte

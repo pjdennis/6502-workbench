@@ -296,7 +296,7 @@ def name_operand(name, member):
     if kernel.sym_kind[s] == kernel.K_MODULE:
         if member == 0:
             err.fatal(err.E_DOT_EXPECTED)
-        s, found = kernel.sym_find(kernel.sym_value[s], member)
+        s, found = kernel.module_find(s, member)
         if not found:
             err.fatal(err.E_UNDEFINED)
     elif member != 0:

@@ -3,9 +3,11 @@
 ; value), in hexadecimal. lathe/tests/script_host.py has its twin.
 module listing
 
-import fbuf
-import script
-import sys
+import fbuf (code_length, fix_addend, fix_kind, fix_offset, fix_slot, fix_symbol, piece,
+             piece_fixed, piece_length, walk_begin, walk_next, weight_count, weight_slot,
+             weight_symbol, weight_value)
+import script (show_byte, show_word)
+import sys (put_byte)
 
 pub func show_finished()
   var i: byte

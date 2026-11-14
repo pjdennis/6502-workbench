@@ -1,0 +1,4 @@
+; error 103 4 3
+module import_listed_twice
+import host (put_byte, exit,
+  put_byte)

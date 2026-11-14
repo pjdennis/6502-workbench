@@ -22,7 +22,7 @@
 ;   |                                      |                                   | read them       |
 module typetab
 
-import err
+import err (E_RANGE, E_TYPES_FULL, fatal)
 
 #if SMALL
 pub const MAX_TYPES = 32        ; (SMALL: the test programs' small build)
