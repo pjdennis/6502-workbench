@@ -1,0 +1,765 @@
+; The program being linked, as tables: lathe/host/lk_tab.py in Lathe.
+;
+; Functions, slots, pointer classes, calls, and the copies of functions the linker places.
+;
+;     fn_     one row per function an object file defines, in object order then record order,
+;             which is also the order functions are placed in.
+;     slot_   the slots of all functions; a function's slots are a run of rows.
+;     cls_    one row per pointer class symbol. Classes that share a member are merged: cls_rep
+;             leads to the class that stands for the set, and only that row is used afterwards.
+;     cp_     the parameters of the classes: the slots of a class's shared block.
+;     memb_   which functions have their address taken as which class.
+;     edge_   calls. The calls of a function or class are a run of rows, from its fn_edge or
+;             cls_edge to the next function's or class's: the functions' runs in order, then the
+;             classes'. A walk (first_call, next_call) meets them in the order they are stored,
+;             which is the newest first (build_chains). While the files are read a function's
+;             own calls are a run in the order they are read, and a call made while another's
+;             arguments wait takes two rows at the top until the files are read.
+;     node_   what gets storage: a copy of a kept function for each context that reaches it, and
+;             a block for each live class. Node f is the first copy of function f (a function
+;             that is not kept leaves a hole: is_node); the further copies follow the functions,
+;             in function then context order, and the blocks follow them. The order the copies
+;             are placed in, first copies and further copies of each function together, is that
+;             of first_in_order and next_in_order.
+;     ctx_    contexts: 0 is the main program, the others one interrupt function each.
+;     def_    variables and constant data in the order they are defined.
+;
+; A symbol is a reference (lk_sym): the kind and the row of one of these tables.
+;
+; A call is kept as an edge between symbols, not between copies: the copies an edge joins are
+; worked out when the edge is followed (lk_graph.edge_node), because every copy of a function
+; makes the same calls.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | the capacities                       | smaller under `#if LKSMALL`       | lk_err.lth      |
+;   | columns: ints                        | byte where every value fits, else | the type is the |
+;   |                                      | word; the word columns of more    | storage         |
+;   |                                      | than 256 rows `rows`              |                 |
+;   | new_class: cp_count + np             | word(cp_count) + np               | a byte would    |
+;   |                                      |                                   | wrap            |
+;   | flags << FLAG_SHIFT, ctx << 8        | word(flags) << FLAG_SHIFT,        | bytes stay bytes|
+;   |                                      | word(ctx) << 8                    |                 |
+;   | edge_flag, ctx_of: a word >> 13, >> 8| byte(...), hi(...)                | the same byte   |
+;   | zbase_of: & 0xFF                     | lo(...)                           |                 |
+;   | member_class: (k, live)              | k, live: a value and a status     | the same        |
+;   | 1 << ctx                             | byte(1) << ctx                    | a number has no |
+;   |                                      |                                   | type to shift in|
+;   | cls_edge[lk_sym.row_of(r)]           | cls_edge[byte(...)]               | a 32-row table  |
+;   |                                      |                                   | takes a byte    |
+;   | run_start, run_end used before they  | forward declarations              | declare before  |
+;   | are defined                          |                                   | use             |
+module lk_tab
+
+import lk_err
+import lk_sym
+
+; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
+#if LKSMALL
+pub const MAX_FUNCS = 400
+pub const MAX_SLOTS = 2000
+pub const MAX_EDGES = 1800
+pub const MAX_NODES = 450
+pub const MAX_DEFS = 400
+pub const MAX_FIXES = 256
+#else
+pub const MAX_FUNCS = 800
+pub const MAX_SLOTS = 4000
+pub const MAX_EDGES = 3600
+pub const MAX_NODES = 900
+pub const MAX_DEFS = 800
+pub const MAX_FIXES = 512       ; fix-ups of one function or one piece of constant data
+#end
+const MAX_BIG_SLOTS = 64        ; slots of 15 bytes or more
+pub const MAX_CLASSES = 32
+pub const MAX_CPARAMS = 128
+const MAX_MEMBERS = 128
+pub const MAX_CONTEXTS = 8      ; a context is a bit in a byte
+pub const NONE = $FFFF
+
+; FUNC record flags, and the linker's own.
+pub const F_RECURSIVE = 1
+pub const F_INTERRUPT = 2
+pub const F_STUB = $10          ; lk_win: the function's copies each have a stub
+pub const F_ADDR = $20          ; lk_graph: kept code or constant data takes its address
+pub const F_HELD = $40          ; lk_map: a line of the file being read needs its name
+pub const F_INIT = $80          ; the function is some module's `$init` (lk_boot)
+
+; Edge flags: the top three bits of edge_word, above the function or class called
+; (lk_sym.edge_bits) in the 13 below them.
+pub const SYM_BITS = $1FFF
+const FLAG_SHIFT = 13
+pub const E_NOSAVE = 1          ; some call on this edge does not save the caller's frame
+pub const E_PENDING = 2         ; not a call: the target ran while the source's arguments waited
+pub const E_VIA = 4             ; to a class block, for a direct call of one of its members
+
+; cp_info.
+pub const S_CLASS = $03         ; zero page class: 0 must, 1 either, 2 never
+pub const S_ZP = $80            ; the linker put it in zero page
+
+; slot_sz: a slot in a byte. The size of a slot of 15 bytes or more is in big_size.
+const SL_SIZE = $0F
+const SL_BIG = 15
+const SL_CLASS = $30            ; zero page class, as S_CLASS
+const SL_CLASS_SHIFT = 4
+const SL_PARAM = $40            ; a parameter, not a local or temporary
+pub const SL_ZP = $80           ; the linker put it in zero page
+
+pub var fn_count: word = 0
+pub var fn_flags: [MAX_FUNCS]byte
+pub var fn_ctx: [MAX_FUNCS]byte         ; one bit per context that reaches the function; 0 = dropped
+pub var fn_slot: [MAX_FUNCS]word rows   ; first row in slot_
+pub var fn_class: [MAX_FUNCS]byte       ; a class the function is a member of + 1, or 0
+pub var fn_edge: [MAX_FUNCS]word rows   ; where its calls start
+
+pub var slot_count: word = 0
+pub var slot_sz: [MAX_SLOTS]byte        ; SL_ bits: size, class, parameter, in zero page
+pub var big_count: byte = 0
+pub var big_slot: [MAX_BIG_SLOTS]word   ; slots of 15 bytes or more, in slot order
+pub var big_size: [MAX_BIG_SLOTS]word
+pub var slot_weight: [MAX_SLOTS]byte
+
+pub var cls_count: byte = 0
+pub var cls_rep: [MAX_CLASSES]byte
+pub var cls_reach: [MAX_CLASSES]byte    ; one bit per context that calls through the class
+pub var cls_ctx: [MAX_CLASSES]byte      ; the one context that does, when cls_reach is not 0
+pub var cls_np: [MAX_CLASSES]byte       ; number of parameters
+pub var cls_par: [MAX_CLASSES]word      ; first row in cp_
+pub var cls_node: [MAX_CLASSES]word
+pub var cls_namer: [MAX_CLASSES]word    ; the member whose parameter names the map shows + 1, or 0
+pub var cls_edge: [MAX_CLASSES]word     ; where its calls start (the calls of its block)
+
+pub var cp_count: byte = 0
+pub var cp_size: [MAX_CPARAMS]word
+pub var cp_info: [MAX_CPARAMS]byte
+pub var cp_weight: [MAX_CPARAMS]byte
+pub var cp_addr: [MAX_CPARAMS]word
+
+pub var memb_count: byte = 0
+pub var memb_class: [MAX_MEMBERS]word   ; references (lk_sym)
+pub var memb_func: [MAX_MEMBERS]word
+
+pub var edge_count: word = 0
+pub var edge_word: [MAX_EDGES]word rows ; function or class called, and the flags above it
+pub var waiting: word = 0       ; while the files are read: calls at the top, two rows each
+                                ; (the caller, then the call)
+
+pub var node_count: word = 0    ; the node columns are in the work area (W_OWN...)
+pub var extra_end: word = 0     ; the further copies are the nodes from fn_count to here
+pub const CLASS_NODE = $8000
+
+pub var ctx_count: byte = 0
+
+pub var def_count: word = 0
+pub var def_a: [MAX_DEFS]word rows      ; its address; until a variable is given one, its weight
+                                        ; (def_w); until constant data is placed, its file
+pub var def_b: [MAX_DEFS]word rows      ; its size
+pub var def_f: [MAX_DEFS]byte           ; D_ flags
+pub const D_CLASS = $03         ; a variable's zero page class
+pub const D_CONST = $04         ; constant data, not a variable
+pub const D_FIXED = $08         ; lk_graph: named from outside its module's bank, or its address
+                                ; taken: fixed even if its module is in a window
+pub const D_HELD = $10          ; lk_map: a line of the file being read needs its name
+pub const D_PASSED = $20        ; lk_graph: the reading passed its DATA record
+pub const D_KEPT = $40          ; something kept uses it (lk_graph)
+pub const D_ZP = $80            ; the linker put the variable in zero page
+
+; The work area: storage that one phase uses and the next reuses. lk_name's names and lk_scan's
+; waiting weights use all of it while the files are read, lk_graph's searches the first 8 columns
+; of MAX_NODES words while the graph is built, lk_alloc's layouts the same columns while storage
+; is allocated, and lk_fix's held fix-ups and the map's names them while the image is written;
+; each module names where its columns start. Node columns that only the graph and storage need
+; live in those 8 columns too; the node columns of placement replace them, above the fix-ups
+; held. The columns every phase from lk_graph.make_nodes on needs come last (W_OWN...).
+; The map, before the image is written: the names of one object file in the first W_ADDR words
+; (lk_map). While the image is written: the name of a slot, in the words from W_SNAME.
+pub const W_SCC = 5 * MAX_NODES         ; graph, storage: nodes on one cycle of calls have one number
+pub const W_ORDER = 6 * MAX_NODES       ; graph, storage: lk_graph's order of the nodes
+pub const W_ZSIZE = 4 * MAX_NODES       ; storage: bytes of zero page a node's frame or block needs
+pub const W_ADDR = 6 * MAX_FIXES        ; placement, image: where a function copy's code is placed
+pub const W_SNAME = W_ADDR + MAX_NODES  ; image: 128 words
+pub const W_OWN = 7 * MAX_NODES         ; a node's function, or CLASS_NODE + its class
+pub const W_CTXZ = W_OWN + MAX_NODES    ; its context in the high byte; in the low byte where its
+                                        ; zero page bytes start (one past $FF is only that of a
+                                        ; node with none)
+pub const W_MBASE = W_CTXZ + MAX_NODES  ; where its main memory bytes start
+pub const WORK_SIZE = W_MBASE + MAX_NODES
+pub var work: [WORK_SIZE]word rows
+
+pub var overflow: bool = false  ; set when add16 could not hold its result
+
+; a + b, or $FFFF with `overflow` set if that does not fit in 16 bits.
+pub func add16(a: word, b: word): word
+  if b > $FFFF - a then
+    overflow = true
+    return $FFFF
+  end
+  return a + b
+end
+
+pub func new_func(flags: byte): word
+  var f: word
+  if fn_count == MAX_FUNCS then
+    lk_err.fail(lk_err.E_FUNCTIONS)
+  end
+  f = fn_count
+  fn_count += 1
+  fn_flags[f] = flags
+  fn_edge[f] = edge_count
+  fn_slot[f] = slot_count
+  return f
+end
+
+; Add the next slot of function f, the function defined last.
+pub func new_slot(f: word, size: word, zp_class: byte, param: bool, weight: byte)
+  var bits: byte
+  if slot_count == MAX_SLOTS then
+    lk_err.fail(lk_err.E_SLOTS)
+  end
+  if size >= SL_BIG then
+    if big_count == MAX_BIG_SLOTS then
+      lk_err.fail(lk_err.E_SLOTS)
+    end
+    big_slot[big_count] = slot_count
+    big_size[big_count] = size
+    big_count += 1
+    size = SL_BIG
+  end
+  bits = byte(size) | (zp_class << SL_CLASS_SHIFT)
+  if param then
+    bits |= SL_PARAM
+  end
+  slot_sz[slot_count] = bits
+  slot_weight[slot_count] = weight
+  slot_count += 1
+end
+
+; Add a class with np parameters whose rows in cp_ follow.
+pub func new_class(np: byte): byte
+  var k: byte
+  if cls_count == MAX_CLASSES or word(cp_count) + np > MAX_CPARAMS then
+    lk_err.fail(lk_err.E_CLASSES)
+  end
+  k = cls_count
+  cls_count += 1
+  cls_rep[k] = k
+  cls_np[k] = np
+  cls_par[k] = cp_count
+  return k
+end
+
+pub func new_cparam(size: word)
+  cp_size[cp_count] = size
+  cp_info[cp_count] = 1         ; "either", until the members say otherwise
+  cp_count += 1
+end
+
+pub func new_member(class_sym: word, func_sym: word)
+  if memb_count == MAX_MEMBERS then
+    lk_err.fail(lk_err.E_MEMBERS)
+  end
+  memb_class[memb_count] = class_sym
+  memb_func[memb_count] = func_sym
+  memb_count += 1
+end
+
+; A new variable or piece of constant data. Returns its row.
+pub func new_def(flags: byte): word
+  if def_count == MAX_DEFS then
+    lk_err.fail(lk_err.E_DEFS)
+  end
+  def_f[def_count] = flags
+  def_count += 1
+  return def_count - 1
+end
+
+; The reference of definition d.
+pub func def_ref(d: word): word
+  if (def_f[d] & D_CONST) != 0 then
+    return lk_sym.ref(lk_sym.CONSTANT, d)
+  end
+  return lk_sym.ref(lk_sym.VARIABLE, d)
+end
+
+pub func fn_ref(f: word): word
+  return lk_sym.ref(lk_sym.FUNCTION, f)
+end
+
+pub func cls_ref(k: byte): word
+  return lk_sym.ref(lk_sym.CLASS, k)
+end
+
+pub func is_kept_def(d: word): bool
+  return (def_f[d] & D_KEPT) != 0
+end
+
+pub func is_kept_var(d: word): bool
+  return (def_f[d] & (D_CONST | D_KEPT)) == D_KEPT
+end
+
+; The number of slots of function f: up to the next function's first.
+pub func fn_nslots(f: word): word
+  if f + 1 < fn_count then
+    return fn_slot[f + 1] - fn_slot[f]
+  end
+  return slot_count - fn_slot[f]
+end
+
+; The weight of variable d, until it is given an address.
+pub func def_w(d: word): word
+  return def_a[d]
+end
+
+; The class that stands for class k after merging.
+pub func class_of(k: byte): byte
+  while cls_rep[k] != k do
+    k = cls_rep[k]
+  end
+  return k
+end
+
+forward func run_start(r: word): word
+forward func run_end(r: word): word
+
+; The first call of function or class r + 1, or 0: the start of a walk with next_call.
+pub func first_call(r: word): word
+  if run_start(r) < run_end(r) then
+    return run_start(r) + 1
+  end
+  return 0
+end
+
+; The call after call e + 1 of function or class r + 1, or 0.
+pub func next_call(r: word, e: word): word
+  if e < run_end(r) then
+    return e + 1
+  end
+  return 0
+end
+
+func run_start(r: word): word
+  if lk_sym.kind_of(r) == lk_sym.CLASS then
+    return cls_edge[byte(lk_sym.row_of(r))]
+  end
+  return fn_edge[lk_sym.row_of(r)]
+end
+
+; Where the calls of function or class r end: where the next one's start.
+func run_end(r: word): word
+  var i: word
+  i = lk_sym.row_of(r) + 1
+  if lk_sym.kind_of(r) == lk_sym.FUNCTION then
+    if i < fn_count then
+      return fn_edge[i]
+    end
+    i = 0
+  end
+  if i < cls_count then
+    return cls_edge[byte(i)]
+  end
+  return edge_count
+end
+
+func room_for(needed: word)
+  if edge_count + 2 * waiting + needed > MAX_EDGES then
+    lk_err.fail(lk_err.E_CALLS)
+  end
+end
+
+; True if the call `call` is of `target` and of the same kind as a call with these flags.
+func same_call(call: word, target: word, flags: byte): bool
+  var kind: byte
+  kind = flags & (E_PENDING | E_VIA)
+  return (call & SYM_BITS) == target and (byte(call >> FLAG_SHIFT) & (E_PENDING | E_VIA)) == kind
+end
+
+; While the files are read: function f, the function defined last, calls `target`, a function or
+; class as lk_sym.edge_bits gives it.
+;
+; Calls of the same kind between the same two symbols are one edge, which does not save the
+; caller's frame if any of them does not.
+pub func add_own(f: word, target: word, flags: byte)
+  var e: word
+  for e = fn_edge[f] until edge_count do
+    if same_call(edge_word[e], target, flags) then
+      edge_word[e] |= word(flags) << FLAG_SHIFT
+      return
+    end
+  end
+  room_for(1)
+  edge_word[edge_count] = target | (word(flags) << FLAG_SHIFT)
+  edge_count += 1
+end
+
+; While the files are read: `caller`, a symbol (lk_name), calls `target` while another function's
+; arguments wait. Flags E_VIA marks one whose caller's own calls were read before.
+pub func add_waiting(caller: word, target: word, flags: byte)
+  var i: word
+  for i = 0 until waiting do
+    if edge_word[MAX_EDGES - 1 - 2 * i] == caller and (edge_word[MAX_EDGES - 2 - 2 * i] & SYM_BITS) == target then
+      return
+    end
+  end
+  room_for(2)
+  edge_word[MAX_EDGES - 1 - 2 * waiting] = caller
+  edge_word[MAX_EDGES - 2 - 2 * waiting] = target | (word(flags) << FLAG_SHIFT)
+  waiting += 1
+end
+
+; ---- chains, while the calls of classes are added (lk_scan.finish): in the work area, above
+; lk_scan's waiting weights. A function's or class's fn_edge or cls_edge is its newest call + 1.
+const W_WCALLER = 256                   ; build_chains: the waiting calls, oldest first
+const W_WCALL = W_WCALLER + MAX_EDGES / 2
+const W_START = W_WCALL + MAX_EDGES / 2 ; where each function's run started
+pub const W_NEXT = W_START + MAX_FUNCS  ; the next call of the same caller + 1, or 0
+const W_RUNS = 256                      ; chains_to_runs: the calls in their new places
+
+pub func chain_next(e: word): word
+  return work[W_NEXT + e - 1]
+end
+
+pub func head_of(r: word): word
+  if lk_sym.kind_of(r) == lk_sym.CLASS then
+    return cls_edge[byte(lk_sym.row_of(r))]
+  end
+  return fn_edge[lk_sym.row_of(r)]
+end
+
+func set_head(r: word, e: word)
+  if lk_sym.kind_of(r) == lk_sym.CLASS then
+    cls_edge[byte(lk_sym.row_of(r))] = e
+  else
+    fn_edge[lk_sym.row_of(r)] = e
+  end
+end
+
+; Call e becomes the newest of r's chain.
+func prepend(r: word, e: word)
+  work[W_NEXT + e] = head_of(r)
+  set_head(r, e + 1)
+end
+
+; Once the files are read and the symbols resolved: every function's and class's calls as a
+; chain, newest first, as if each had been added to the front of its caller's chain when it was
+; read. A waiting call whose caller nothing defines goes in no chain.
+pub func build_chains()
+  var own_end: word
+  var i: word
+  var f: word
+  var k: byte
+  var e: word
+  var limit: word
+  own_end = edge_count
+  for i = 0 until waiting do
+    work[W_WCALLER + i] = edge_word[MAX_EDGES - 1 - 2 * i]
+    work[W_WCALL + i] = edge_word[MAX_EDGES - 2 - 2 * i]
+  end
+  for f = 0 until fn_count do
+    work[W_START + f] = fn_edge[f]
+    fn_edge[f] = 0
+  end
+  for k = 0 until cls_count do
+    cls_edge[k] = 0
+  end
+  for i = 0 until waiting do
+    edge_word[own_end + i] = work[W_WCALL + i] & ($FFFF ^ (E_VIA << FLAG_SHIFT))
+  end
+  edge_count = own_end + waiting
+  ; Waiting calls read before their caller's own calls, then the own calls, then the rest.
+  for i = 0 until waiting do
+    if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) == 0 and lk_sym.is_defined(work[W_WCALLER + i]) then
+      prepend(work[W_WCALLER + i], own_end + i)
+    end
+  end
+  for f = 0 until fn_count do
+    limit = own_end
+    if f + 1 < fn_count then
+      limit = work[W_START + f + 1]
+    end
+    for e = work[W_START + f] until limit do
+      prepend(fn_ref(f), e)
+    end
+  end
+  for i = 0 until waiting do
+    if (work[W_WCALL + i] & (E_VIA << FLAG_SHIFT)) != 0 and lk_sym.is_defined(work[W_WCALLER + i]) then
+      prepend(work[W_WCALLER + i], own_end + i)
+    end
+  end
+  waiting = 0
+end
+
+; Record that function or class r, which is defined, calls function or class `target`, while the
+; calls are chains.
+;
+; Calls of the same kind between the same two symbols are one edge, which does not save the
+; caller's frame if any of them does not.
+pub func add_edge(r: word, target: word, flags: byte)
+  var bits: word
+  var e: word
+  bits = lk_sym.edge_bits(target)
+  e = head_of(r)
+  while e != 0 do
+    if same_call(edge_word[e - 1], bits, flags) then
+      edge_word[e - 1] |= word(flags) << FLAG_SHIFT
+      return
+    end
+    e = chain_next(e)
+  end
+  room_for(1)
+  edge_word[edge_count] = bits | (word(flags) << FLAG_SHIFT)
+  edge_count += 1
+  prepend(r, edge_count - 1)
+end
+
+; Each chain becomes a run, in the order of the chain: the functions' in order, then the classes'.
+; A call in no chain is dropped.
+pub func chains_to_runs()
+  var pos: word = 0
+  var f: word
+  var k: byte
+  var e: word
+  var i: word
+  for f = 0 until fn_count do
+    e = fn_edge[f]
+    fn_edge[f] = pos
+    while e != 0 do
+      work[W_RUNS + pos] = edge_word[e - 1]
+      pos += 1
+      e = chain_next(e)
+    end
+  end
+  for k = 0 until cls_count do
+    e = cls_edge[k]
+    cls_edge[k] = pos
+    while e != 0 do
+      work[W_RUNS + pos] = edge_word[e - 1]
+      pos += 1
+      e = chain_next(e)
+    end
+  end
+  for i = 0 until pos do
+    edge_word[i] = work[W_RUNS + i]
+  end
+  edge_count = pos
+end
+
+; The function or class edge e calls.
+pub func edge_sym(e: word): word
+  return lk_sym.edge_ref(edge_word[e] & SYM_BITS)
+end
+
+; The E_ flags of edge e.
+pub func edge_flag(e: word): byte
+  return byte(edge_word[e] >> FLAG_SHIFT)
+end
+
+; The size of slot s.
+pub func slot_bytes(s: word): word
+  var low: byte
+  var high: byte
+  var mid: byte
+  if (slot_sz[s] & SL_SIZE) != SL_BIG then
+    return slot_sz[s] & SL_SIZE
+  end
+  ; big_slot is in slot order.
+  low = 0
+  high = big_count - 1
+  while big_slot[low] != s do
+    mid = (low + high + 1) >> 1
+    if big_slot[mid] > s then
+      high = mid - 1
+    else
+      low = mid
+    end
+  end
+  return big_size[low]
+end
+
+; The zero page class of slot s: 0 must, 1 either, 2 never.
+pub func slot_class(s: word): byte
+  return (slot_sz[s] & SL_CLASS) >> SL_CLASS_SHIFT
+end
+
+pub func slot_in_zp(s: word): bool
+  return (slot_sz[s] & SL_ZP) != 0
+end
+
+pub func new_node(own: word, ctx: byte)
+  if node_count == MAX_NODES then
+    lk_err.fail(lk_err.E_COPIES)
+  end
+  work[W_OWN + node_count] = own
+  work[W_CTXZ + node_count] = word(ctx) << 8
+  node_count += 1
+end
+
+; The function, or CLASS_NODE + the class, that node n is a copy or block of.
+pub func own_of(n: word): word
+  if n < fn_count then
+    return n
+  end
+  return work[W_OWN + n]
+end
+
+; False for the node of a function that is not kept.
+pub func is_node(n: word): bool
+  return n >= fn_count or fn_ctx[n] != 0
+end
+
+pub func ctx_of(n: word): byte
+  return hi(work[W_CTXZ + n])
+end
+
+; Where node n's zero page bytes start: the low byte of the address.
+pub func zbase_of(n: word): byte
+  return lo(work[W_CTXZ + n])
+end
+
+pub func set_zbase(n: word, value8: byte)
+  work[W_CTXZ + n] = (work[W_CTXZ + n] & $FF00) | value8
+end
+
+; Where node n's main memory bytes start.
+pub func mbase_of(n: word): word
+  return work[W_MBASE + n]
+end
+
+; The node of function f's first copy.
+pub func first_node(f: word): word
+  return f
+end
+
+; The first further copy of function f, or NONE.
+pub func first_extra(f: word): word
+  var low: word
+  var high: word
+  var mid: word
+  low = fn_count
+  high = extra_end
+  while low < high do
+    mid = (low + high) >> 1
+    if work[W_OWN + mid] < f then
+      low = mid + 1
+    else
+      high = mid
+    end
+  end
+  if low < extra_end and work[W_OWN + low] == f then
+    return low
+  end
+  return NONE
+end
+
+; The first node in placement order from function f on, or NONE.
+func next_kept(f: word): word
+  while f < fn_count and fn_ctx[f] == 0 do
+    f += 1
+  end
+  if f < fn_count then
+    return f
+  end
+  if extra_end < node_count then
+    return extra_end
+  end
+  return NONE
+end
+
+; The first node in placement order, or NONE: a walk with next_in_order.
+pub func first_in_order(): word
+  return next_kept(0)
+end
+
+; The node after node n in placement order, or NONE.
+pub func next_in_order(n: word): word
+  var x: word
+  if n < fn_count then
+    x = first_extra(n)
+    if x != NONE then
+      return x
+    end
+    return next_kept(n + 1)
+  end
+  if n < extra_end then
+    if n + 1 < extra_end and work[W_OWN + n + 1] == work[W_OWN + n] then
+      return n + 1
+    end
+    return next_kept(work[W_OWN + n] + 1)
+  end
+  if n + 1 < node_count then
+    return n + 1
+  end
+  return NONE
+end
+
+; True if function f is linked for context ctx.
+pub func has_copy(f: word, ctx: byte): bool
+  return (fn_ctx[f] & (byte(1) << ctx)) != 0
+end
+
+; The node of function f's copy for context ctx, which it must have.
+pub func copy_node(f: word, ctx: byte): word
+  var n: word
+  var c: byte
+  if (fn_ctx[f] & ((byte(1) << ctx) - 1)) == 0 then
+    return f
+  end
+  n = first_extra(f) - 1
+  for c = 0 until ctx do
+    if (fn_ctx[f] & (byte(1) << c)) != 0 then
+      n += 1
+    end
+  end
+  return n
+end
+
+; The live class function f is a member of, and whether it is in one.
+pub func member_class(f: word): byte, bool
+  var k: byte
+  if fn_class[f] == 0 then
+    return 0, false
+  end
+  k = class_of(fn_class[f] - 1)
+  return k, cls_reach[k] != 0
+end
+
+; True if the copy of f for ctx has its parameters in a class block, not in its frame.
+pub func in_block(f: word, ctx: byte): bool
+  var k: byte
+  var live: bool
+  k, live = member_class(f)
+  return live and cls_ctx[k] == ctx
+end
+
+pub func node_is_class(n: word): bool
+  return own_of(n) >= CLASS_NODE
+end
+
+pub func node_class(n: word): byte
+  return byte(own_of(n) - CLASS_NODE)
+end
+
+; The function or class a node belongs to.
+pub func node_sym(n: word): word
+  if node_is_class(n) then
+    return cls_ref(node_class(n))
+  end
+  return fn_ref(own_of(n))
+end
+
+pub func slot_is_param(s: word): bool
+  return (slot_sz[s] & SL_PARAM) != 0
+end
+
+; True if slot i of f is in the frame of a copy; `blocked` says the copy's parameters are in a
+; class block.
+pub func in_frame(f: word, i: byte, blocked: bool): bool
+  return not (blocked and slot_is_param(fn_slot[f] + i))
+end
+
+; True if node n is a copy of a function that a lower context has too. Such a copy is named
+; `function@context`; a function's first copy has the function's own name.
+pub func is_extra_copy(n: word): bool
+  return n >= fn_count and n < extra_end
+end

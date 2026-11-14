@@ -1,0 +1,822 @@
+; The environment file: lathe/host/lk_envf.py in Lathe.
+;
+; The CPU, the address ranges, how a program starts and ends, and (version 2) the windows whose
+; contents are switched and what goes in them:
+;
+;     cpu       6502          ; or 65c02
+;     zeropage  $00 $FF       ; first and last address the linker may use
+;     code      $0200 $BFFF
+;     data      $C000 $EFFF
+;     more      data $F810 $FFF9  ; optional: a second range for variables
+;     stack     $FF           ; optional: the start-up code sets the stack pointer to this
+;     exit      call $F00F    ; what follows main: or `exit loop`, `exit return`, `exit stop`
+;     output    image         ; the default: code start to $FFFF with the reset vector; or `raw`
+;
+;     window    WIN $8000 $EFFF       ; an address range whose contents are switched
+;     switch    WIN bank $F000 $1F    ; by the bits $1F of the register at $F000; or `overlay`
+;     bank      WIN 1 $11 LATHE1.BIN  ; bank 1: the register's value, and the file written for it
+;     overlay   WIN 1 L5OV1.BIN       ; (a window switched by `overlay`) overlay 1 and its file
+;     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
+;     region    NAMES WIN 4           ; read and checked; not yet used (`region NAMES fixed` too)
+;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
+;
+; A window, its banks or overlays and the switch must come before the entries that name them.
+; Names (windows, modules, regions) are folded to lower case; file names are kept as written.
+;
+; Entries this version does not know are skipped, because the file is to grow (architecture.md)
+; and the compiler reads it too. An entry given twice is an error, and so is `start`, which an
+; earlier version of the file had: the linker makes the start-up code itself now (lk_boot).
+; `exit stop` (the 65C02's STP) needs `cpu 65c02`, wherever in the file the two are.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | WORDS: a byte string                 | a table of exactly its bytes      | no zero after   |
+;   |                                      |                                   | the last word   |
+;   | read_word used before it is defined  | a forward declaration             | declare before  |
+;   |                                      |                                   | use             |
+;   | the chains of `elif which == W_...`  | `case which`                      | one selector    |
+;   | bank_number(), a byte's checks on a  | the number checked as a word,     | the type is the |
+;   | number (mask, value): ints           | then stored as a byte             | storage         |
+;   | the ranges and addresses: ints       | words; `stack` too, which is      | number() gives a|
+;   |                                      | checked below $100                | word            |
+module lk_envf
+
+import lk_err
+import lk_file
+import lk_op
+import sys
+
+; The words the linker knows, each followed by a space; a word's number is its place, from 1.
+const WORDS: [149]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
+  "window switch bank overlay place region more farcall fixed "
+const W_CPU = 1
+const W_ZEROPAGE = 2
+const W_CODE = 3
+const W_DATA = 4
+const W_STACK = 5
+const W_EXIT = 6
+const W_6502 = 7
+const W_65C02 = 8
+const W_CALL = 9
+const W_LOOP = 10
+const W_RETURN = 11
+const W_START = 12
+const W_OUTPUT = 13
+const W_IMAGE = 14
+const W_RAW = 15
+const W_STOP = 16
+const W_WINDOW = 17
+const W_SWITCH = 18
+const W_BANK = 19
+const W_OVERLAY = 20
+const W_PLACE = 21
+const W_REGION = 22
+const W_MORE = 23
+const W_FARCALL = 24
+const W_FIXED = 25
+
+const HAVE_ZEROPAGE = 1
+const HAVE_CODE = 2
+const HAVE_DATA = 4
+const HAVE_EXIT = 8
+const HAVE_CPU = 16
+const HAVE_STACK = 32
+const HAVE_OUTPUT = 64
+const HAVE_MORE = 128
+const HAVE_FARCALL = 256
+const NEEDED = 15               ; the entries a file must have
+
+pub const EXIT_CALL = 1         ; LDA #0 and jump to exit_addr
+pub const EXIT_LOOP = 2         ; jump to itself for ever
+pub const EXIT_RETURN = 3       ; RTS
+pub const EXIT_STOP = 4         ; STP (65C02)
+
+pub var cpu: byte = lk_op.CPU_6502
+pub var zp_lo: word = 0
+pub var zp_hi: word = 0
+pub var code_lo: word = 0
+pub var code_hi: word = 0
+pub var data_lo: word = 0
+pub var data_hi: word = 0
+pub var have: word = 0          ; HAVE_ bits of the entries given
+pub var has_stack: bool = false
+pub var stack: word = 0
+pub var exit_kind: byte = 0
+pub var exit_addr: word = 0
+pub var raw: bool = false       ; `output raw`: the file ends with the last byte placed
+pub var has_more: bool = false  ; `more data FIRST LAST`
+pub var more_lo: word = 0
+pub var more_hi: word = 0
+
+; Version 2. Names are held in `text`, each as its length and its characters; an entry names one
+; by where it is held, + 1 (0: none).
+pub const TEXT_SIZE = 384
+pub var text: [TEXT_SIZE]byte
+pub var text_top: word = 0
+pub var farcall: word = 0       ; the far-call module's name + 1, or 0
+
+pub const SWITCH_NONE = 0
+pub const SWITCH_BANK = 1
+pub const SWITCH_OVERLAY = 2
+
+pub const MAX_WINDOWS = 4
+pub var win_count: byte = 0
+pub var win_name: [MAX_WINDOWS]word
+pub var win_lo: [MAX_WINDOWS]word
+pub var win_hi: [MAX_WINDOWS]word
+pub var win_switch: [MAX_WINDOWS]byte   ; SWITCH_
+pub var win_reg: [MAX_WINDOWS]word      ; the bank register's address
+pub var win_mask: [MAX_WINDOWS]byte     ; and its bits
+
+pub const MAX_BANKS = 16        ; banks and overlays of all windows together
+pub var bank_count: byte = 0
+pub var bank_win: [MAX_BANKS]byte
+pub var bank_n: [MAX_BANKS]byte         ; its number in its window, 1 to 255
+pub var bank_value: [MAX_BANKS]byte     ; the register value; for an overlay its number
+pub var bank_file: [MAX_BANKS]word      ; its file's name + 1, or 0
+
+pub const MAX_PLACES = 32
+pub var place_count: byte = 0
+pub var place_name: [MAX_PLACES]word    ; a module's name + 1
+pub var place_bank: [MAX_PLACES]byte    ; its bank, and P_LINKED
+pub const P_BANK = $7F
+pub const P_LINKED = $80        ; lk_scan: an object file is this module
+
+pub const MAX_REGIONS = 16
+pub var region_count: byte = 0
+pub var region_name: [MAX_REGIONS]word
+pub var region_bank: [MAX_REGIONS]byte  ; the bank + 1, or 0 for fixed memory
+
+pub const TOKEN_SIZE = 64
+pub var token: [TOKEN_SIZE]byte ; the word being read, in lower case
+pub var token_len: byte = 0
+
+var handle: byte = 0
+var cur: byte = 0               ; the character not yet used
+var at_end: bool = false
+
+forward func read_word(fold: bool): bool
+
+func bad()
+  lk_file.fail(lk_err.E_ENV_ENTRY, lk_file.ARG_ENV)
+end
+
+func next_char()
+  cur, at_end = sys.read(handle)
+end
+
+; Read the next word of the line into token, in lower case. False at the end of the line.
+func read_token(): bool
+  return read_word(true)
+end
+
+; Read the next word of the line into token, in lower case if `fold`. False at the end of the
+; line.
+func read_word(fold: bool): bool
+  var c: byte
+  while not at_end and (cur == 32 or cur == 9 or cur == 13) do
+    next_char()
+  end
+  if at_end or cur == 10 or cur == 59 then
+    return false
+  end
+  token_len = 0
+  while not at_end and cur > 32 and cur != 59 do
+    if token_len == TOKEN_SIZE then
+      bad()
+    end
+    c = cur
+    if fold and c >= 65 and c <= 90 then
+      c += 32
+    end
+    token[token_len] = c
+    token_len += 1
+    next_char()
+  end
+  return true
+end
+
+func skip_line()
+  while not at_end and cur != 10 do
+    next_char()
+  end
+  if not at_end then
+    next_char()
+  end
+end
+
+; The number of the token in WORDS, or 0.
+func keyword(): byte
+  var number: byte = 1
+  var i: byte = 0
+  var k: byte
+  while i < len(WORDS) do
+    k = 0
+    while k < token_len and WORDS[i + k] == token[k] do
+      k += 1
+    end
+    if k == token_len and WORDS[i + k] == 32 then
+      return number
+    end
+    while WORDS[i] != 32 do
+      i += 1
+    end
+    i += 1
+    number += 1
+  end
+  return 0
+end
+
+; The value of a digit, and whether c is one in this base.
+func digit(c: byte, base: byte): byte, bool
+  if c >= 48 and c <= 57 then
+    return c - 48, true
+  end
+  if base == 16 and c >= 97 and c <= 102 then
+    return c - 87, true
+  end
+  return 0, false
+end
+
+; Read a number: `$` and hex digits, or decimal digits. At most $FFFF.
+func number(): word
+  var base: byte
+  var i: byte
+  var value: word
+  var d: byte
+  var ok: bool
+  if not read_token() then
+    bad()
+  end
+  base = 10
+  i = 0
+  if token[0] == 36 then
+    base = 16
+    i = 1
+  end
+  if i == token_len then
+    bad()
+  end
+  value = 0
+  while i < token_len do
+    d, ok = digit(token[i], base)
+    if not ok or value > ($FFFF - d) / base then
+      bad()
+    end
+    value = value * base + d
+    i += 1
+  end
+  return value
+end
+
+; Note that an entry is given; it may be given only once.
+func once(entry_bit: word)
+  if (have & entry_bit) != 0 then
+    bad()
+  end
+  have |= entry_bit
+end
+
+; The rest of an `exit` line.
+func exit_entry()
+  once(HAVE_EXIT)
+  if not read_token() then
+    bad()
+  end
+  case keyword()
+  of W_CALL
+    exit_kind = EXIT_CALL
+    exit_addr = number()
+  of W_LOOP
+    exit_kind = EXIT_LOOP
+  of W_RETURN
+    exit_kind = EXIT_RETURN
+  of W_STOP
+    exit_kind = EXIT_STOP
+  else
+    bad()
+  end
+end
+
+; The rest of an `output` line.
+func output_entry()
+  once(HAVE_OUTPUT)
+  if not read_token() then
+    bad()
+  end
+  case keyword()
+  of W_IMAGE
+    raw = false
+  of W_RAW
+    raw = true
+  else
+    bad()
+  end
+  if read_token() then
+    bad()
+  end
+end
+
+; ---- version 2: windows, banks and what goes in them
+
+; Nothing may follow the entry on its line.
+func end_of_line()
+  if read_token() then
+    bad()
+  end
+end
+
+func put_token()
+  var i: byte
+  for i = 0 until token_len do
+    lk_err.put(token[i])
+  end
+end
+
+; The name held at `name` + 1, as part of an error message.
+pub func put_text(name: word)
+  var i: byte
+  for i = 1 to text[name - 1] do
+    lk_err.put(text[name - 1 + i])
+  end
+end
+
+; `WIN N`: bank or overlay b, as part of an error message.
+pub func put_bank(b: byte)
+  put_text(win_name[bank_win[b]])
+  lk_err.put(32)
+  lk_err.put_number(bank_n[b])
+end
+
+; Error n about the word just read.
+func fail_token(n: byte)
+  lk_err.begin(n)
+  lk_err.colon()
+  put_token()
+  lk_err.finish()
+end
+
+pub func fail_bank(n: byte, b: byte)
+  lk_err.begin(n)
+  lk_err.colon()
+  put_bank(b)
+  lk_err.finish()
+end
+
+pub func fail_text(n: byte, name: word)
+  lk_err.begin(n)
+  lk_err.colon()
+  put_text(name)
+  lk_err.finish()
+end
+
+; True if the word just read is the name held at `name` + 1.
+pub func is_token(name: word): bool
+  var i: byte
+  if name == 0 or text[name - 1] != token_len then
+    return false
+  end
+  for i = 0 until token_len do
+    if text[name + i] != token[i] then
+      return false
+    end
+  end
+  return true
+end
+
+; Hold the word just read. Returns where, + 1.
+func hold_token(): word
+  var pos: word
+  var i: byte
+  if text_top + token_len + 1 > TEXT_SIZE then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  pos = text_top
+  text[pos] = token_len
+  for i = 0 until token_len do
+    text[pos + 1 + i] = token[i]
+  end
+  text_top = pos + token_len + 1
+  return pos + 1
+end
+
+; Read a name that must be there.
+func name_token()
+  if not read_token() then
+    bad()
+  end
+end
+
+; The window named by the word just read.
+func find_window(): byte
+  var w: byte
+  for w = 0 until win_count do
+    if is_token(win_name[w]) then
+      return w
+    end
+  end
+  fail_token(lk_err.E_ENV_UNKNOWN)
+  return 0
+end
+
+; The bank or overlay n of window w, or MAX_BANKS.
+func find_bank(w: byte, n: byte): byte
+  var b: byte
+  for b = 0 until bank_count do
+    if bank_win[b] == w and bank_n[b] == n then
+      return b
+    end
+  end
+  return MAX_BANKS
+end
+
+; A bank's or overlay's number: 1 to 255.
+func bank_number(): byte
+  var n: word
+  n = number()
+  if n == 0 or n > $FF then
+    bad()
+  end
+  return byte(n)
+end
+
+; Read `WIN N`, which must name a bank or overlay. Returns it.
+func window_and_bank(): byte
+  var w: byte
+  var n: byte
+  var b: byte
+  name_token()
+  w = find_window()
+  n = bank_number()
+  b = find_bank(w, n)
+  if b == MAX_BANKS then
+    lk_err.begin(lk_err.E_ENV_UNKNOWN)
+    lk_err.colon()
+    put_text(win_name[w])
+    lk_err.put(32)
+    lk_err.put_number(n)
+    lk_err.finish()
+  end
+  return b
+end
+
+func window_entry()
+  var w: byte
+  name_token()
+  for w = 0 until win_count do
+    if is_token(win_name[w]) then
+      fail_token(lk_err.E_ENV_TWICE)
+    end
+  end
+  if win_count == MAX_WINDOWS then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  w = win_count
+  win_count += 1
+  win_name[w] = hold_token()
+  win_lo[w] = number()
+  win_hi[w] = number()
+  win_switch[w] = SWITCH_NONE
+  end_of_line()
+end
+
+func switch_entry()
+  var w: byte
+  var mask: word
+  name_token()
+  w = find_window()
+  if win_switch[w] != SWITCH_NONE then
+    fail_token(lk_err.E_ENV_TWICE)
+  end
+  name_token()
+  case keyword()
+  of W_BANK
+    win_switch[w] = SWITCH_BANK
+    win_reg[w] = number()
+    mask = number()
+    if mask == 0 or mask > $FF then
+      bad()
+    end
+    win_mask[w] = byte(mask)
+  of W_OVERLAY
+    win_switch[w] = SWITCH_OVERLAY
+  else
+    bad()
+  end
+  end_of_line()
+end
+
+; A `bank` (kind SWITCH_BANK) or `overlay` (SWITCH_OVERLAY) line.
+func bank_entry(kind: byte)
+  var w: byte
+  var n: byte
+  var b: byte
+  var value: word
+  name_token()
+  w = find_window()
+  if win_switch[w] != kind then
+    bad()
+  end
+  n = bank_number()
+  if find_bank(w, n) != MAX_BANKS then
+    lk_err.begin(lk_err.E_ENV_TWICE)
+    lk_err.colon()
+    put_text(win_name[w])
+    lk_err.put(32)
+    lk_err.put_number(n)
+    lk_err.finish()
+  end
+  if bank_count == MAX_BANKS then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  b = bank_count
+  bank_count += 1
+  bank_win[b] = w
+  bank_n[b] = n
+  bank_value[b] = n
+  if kind == SWITCH_BANK then
+    value = number()
+    if value > $FF then
+      bad()
+    end
+    bank_value[b] = byte(value)
+  end
+  bank_file[b] = 0
+  if read_word(false) then
+    bank_file[b] = hold_token()
+  elif kind == SWITCH_OVERLAY then
+    bad()
+  end
+  end_of_line()
+end
+
+func place_entry()
+  var i: byte
+  var b: byte
+  name_token()
+  for i = 0 until place_count do
+    if is_token(place_name[i]) then
+      fail_token(lk_err.E_ENV_TWICE)
+    end
+  end
+  if place_count == MAX_PLACES then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  i = place_count
+  place_count += 1
+  place_name[i] = hold_token()
+  b = window_and_bank()
+  if bank_file[b] == 0 then
+    fail_bank(lk_err.E_NO_FILE, b)
+  end
+  place_bank[i] = b
+  end_of_line()
+end
+
+func region_entry()
+  var i: byte
+  var w: byte
+  var n: byte
+  var b: byte
+  name_token()
+  for i = 0 until region_count do
+    if is_token(region_name[i]) then
+      fail_token(lk_err.E_ENV_TWICE)
+    end
+  end
+  if region_count == MAX_REGIONS then
+    lk_err.fail(lk_err.E_ENV_FULL)
+  end
+  i = region_count
+  region_count += 1
+  region_name[i] = hold_token()
+  name_token()
+  if keyword() == W_FIXED then
+    region_bank[i] = 0
+  else
+    w = find_window()
+    n = bank_number()
+    b = find_bank(w, n)
+    if b == MAX_BANKS then
+      lk_err.begin(lk_err.E_ENV_UNKNOWN)
+      lk_err.colon()
+      put_text(win_name[w])
+      lk_err.put(32)
+      lk_err.put_number(n)
+      lk_err.finish()
+    end
+    region_bank[i] = b + 1
+  end
+  end_of_line()
+end
+
+func more_entry()
+  once(HAVE_MORE)
+  name_token()
+  if keyword() != W_DATA then
+    bad()
+  end
+  more_lo = number()
+  more_hi = number()
+  has_more = true
+  end_of_line()
+end
+
+func farcall_entry()
+  once(HAVE_FARCALL)
+  name_token()
+  farcall = hold_token()
+  end_of_line()
+end
+
+func overlaps(lo1: word, hi1: word, lo2: word, hi2: word): bool
+  return not (hi1 < lo2 or hi2 < lo1)
+end
+
+; Windows lie above zero page and the stack's page, the right way round, and share no address
+; with code, data, more or each other. Code goes in at most one window, the far-call module is
+; fixed, and the overlays of a window are numbered from 1 with none missing.
+func check_windows()
+  var ok: bool = true
+  var w: byte
+  var v: byte
+  var b: byte
+  var n: byte
+  var i: byte
+  var k: byte
+  var count: byte
+  var same: bool
+  for w = 0 until win_count do
+    ok = ok and win_lo[w] <= win_hi[w] and win_lo[w] >= $100
+    ok = ok and not overlaps(win_lo[w], win_hi[w], code_lo, code_hi)
+    ok = ok and not overlaps(win_lo[w], win_hi[w], data_lo, data_hi)
+    ok = ok and not (has_more and overlaps(win_lo[w], win_hi[w], more_lo, more_hi))
+    for v = 0 until w do
+      ok = ok and not overlaps(win_lo[w], win_hi[w], win_lo[v], win_hi[v])
+    end
+  end
+  if not ok then
+    lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
+  end
+  for w = 0 until win_count do
+    if win_switch[w] == SWITCH_OVERLAY then
+      count = 0
+      for b = 0 until bank_count do
+        if bank_win[b] == w then
+          count += 1
+        end
+      end
+      for n = 1 to count do
+        if find_bank(w, n) == MAX_BANKS then
+          fail_text(lk_err.E_OVERLAY_NUMBERS, win_name[w])
+        end
+      end
+    end
+  end
+  for i = 0 until place_count do
+    if bank_win[place_bank[i] & P_BANK] != bank_win[place_bank[0] & P_BANK] then
+      lk_err.fail(lk_err.E_TWO_WINDOWS)
+    end
+  end
+  if place_count != 0 and farcall == 0 then
+    lk_err.fail(lk_err.E_FARCALL_MISSING)
+  end
+  for i = 0 until place_count do
+    if text[farcall - 1] == text[place_name[i] - 1] then
+      same = true
+      for k = 0 until text[farcall - 1] do
+        if text[farcall + k] != text[place_name[i] + k] then
+          same = false
+        end
+      end
+      if same then
+        fail_text(lk_err.E_FARCALL_PLACED, farcall)
+      end
+    end
+  end
+end
+
+; True if some module's code is placed in a window: the program makes far calls.
+pub func placed(): bool
+  return place_count != 0
+end
+
+; The window code is placed in. Only when placed().
+pub func window(): byte
+  return bank_win[place_bank[0] & P_BANK]
+end
+
+; True if addr is in the window code is placed in.
+pub func in_window(addr: word): bool
+  var w: byte
+  w = window()
+  return addr >= win_lo[w] and addr <= win_hi[w]
+end
+
+; True if the window code is placed in is filled by loading files.
+pub func is_overlay(): bool
+  return win_switch[window()] == SWITCH_OVERLAY
+end
+
+; One line whose first word is in token.
+func entry()
+  case keyword()
+  of W_CPU
+    once(HAVE_CPU)
+    if not read_token() then
+      bad()
+    end
+    case keyword()
+    of W_6502
+      cpu = lk_op.CPU_6502
+    of W_65C02
+      cpu = lk_op.CPU_65C02
+    else
+      bad()
+    end
+  of W_ZEROPAGE
+    once(HAVE_ZEROPAGE)
+    zp_lo = number()
+    zp_hi = number()
+  of W_CODE
+    once(HAVE_CODE)
+    code_lo = number()
+    code_hi = number()
+  of W_DATA
+    once(HAVE_DATA)
+    data_lo = number()
+    data_hi = number()
+  of W_STACK
+    once(HAVE_STACK)
+    stack = number()
+    has_stack = true
+    if stack > $FF then
+      bad()
+    end
+  of W_EXIT
+    exit_entry()
+  of W_OUTPUT
+    output_entry()
+  of W_START
+    bad()
+  of W_WINDOW
+    window_entry()
+  of W_SWITCH
+    switch_entry()
+  of W_BANK
+    bank_entry(SWITCH_BANK)
+  of W_OVERLAY
+    bank_entry(SWITCH_OVERLAY)
+  of W_PLACE
+    place_entry()
+  of W_REGION
+    region_entry()
+  of W_MORE
+    more_entry()
+  of W_FARCALL
+    farcall_entry()
+  end
+end
+
+; The entries must be there, and the ranges the right way round and usable.
+func check()
+  var ok: bool
+  if (have & NEEDED) != NEEDED then
+    lk_file.fail(lk_err.E_ENV_MISSING, lk_file.ARG_ENV)
+  end
+  ok = zp_lo <= zp_hi and zp_hi <= $FF and code_lo <= code_hi and data_lo <= data_hi
+  ; Code below $100 would make the size of an instruction depend on where code is placed.
+  ok = ok and code_lo >= $100
+  ; Data below $100 would be zero page that the linker does not count as zero page.
+  ok = ok and data_lo >= $100
+  ; Code and data must not share an address.
+  ok = ok and (data_hi < code_lo or code_hi < data_lo)
+  if has_more then
+    ok = ok and more_lo <= more_hi and more_lo >= $100
+    ok = ok and not overlaps(more_lo, more_hi, code_lo, code_hi)
+    ok = ok and not overlaps(more_lo, more_hi, data_lo, data_hi)
+  end
+  if not ok then
+    lk_file.fail(lk_err.E_ENV_RANGE, lk_file.ARG_ENV)
+  end
+  check_windows()
+  if exit_kind == EXIT_STOP and cpu != lk_op.CPU_65C02 then
+    lk_file.fail(lk_err.E_STOP_6502, lk_file.ARG_ENV)
+  end
+end
+
+; Read the environment file named by the first argument.
+pub func read()
+  handle = lk_file.open_in(lk_file.ARG_ENV)
+  next_char()
+  while not at_end do
+    if read_token() then
+      entry()
+    end
+    skip_line()
+  end
+  sys.close(handle)
+  check()
+end

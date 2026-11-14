@@ -1,0 +1,170 @@
+; Object files as a stream of records (docs/object-format.md): lathe/host/lk_rec.py in Lathe.
+;
+; The stream reads one object file from its start to its end, a record at a time; the host
+; interface has no seek. Everything the linker needs before a record comes before it in the file
+; (a function's fix-ups before its code, those of constant data before the data), so each pass
+; reads each file once, in order, and one stream is all there is. The one exception: a function
+; linked for several contexts is written once for each, and the stream goes back to its code, by
+; the number of the record, for each copy after the first.
+;
+; A quiet reading (open_quiet) reports nothing: a file that cannot be opened is not read, and one
+; that ends too early ends there. The first reading of all, before the tables (lk_name.mark_all),
+; is quiet, so that every error is still found, and reported, by the reading that finds it now.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | get_word: low | (get_byte() << 8)    | word(low) | (word(get_byte()) <<| bytes stay bytes|
+;   |                                      | 8)                                |                 |
+;   | (cur_recno + 1) & 0xFFFF             | cur_recno + 1                     | a word wraps    |
+module lk_rec
+
+import lk_err
+import lk_file
+import sys
+
+; Record types.
+pub const R_END = 0
+pub const R_MOD = 1
+pub const R_IMP = 2
+pub const R_SYM = 3
+pub const R_VAR = 4
+pub const R_DATA = 5
+pub const R_DFIX = 6
+pub const R_FUNC = 7
+pub const R_SLOT = 8
+pub const R_CALL = 9
+pub const R_FIX = 10
+pub const R_CODE = 11
+pub const R_ENDF = 12
+pub const R_CLAS = 13
+pub const R_MEMB = 14
+pub const R_WGT = 15
+
+pub const VERSION = 2           ; of the object format
+
+var handle: byte = 0
+var cur_object: byte = 0        ; object number + 1; 0 when the stream is closed
+var cur_recno: word = 0         ; records started so far: the number of the current record
+var cur_left: word = 0          ; bytes of the current record's body not yet read
+var quiet: bool = false         ; this reading reports nothing (open_quiet)
+var ended: bool = false         ; a quiet reading came to the end of the file
+
+forward func close()
+
+; Start the stream at the beginning of object file obj.
+pub func open_object(obj: byte)
+  close()
+  handle = lk_file.open_in(lk_file.ARG_OBJECT + obj)
+  cur_object = obj + 1
+  cur_recno = 0
+  cur_left = 0
+  quiet = false
+end
+
+; Start a quiet reading of object file obj. False if it cannot be opened.
+pub func open_quiet(obj: byte): bool
+  close()
+  handle = lk_file.open_in_quiet(lk_file.ARG_OBJECT + obj)
+  if handle == 0 then
+    return false
+  end
+  cur_object = obj + 1
+  cur_recno = 0
+  cur_left = 0
+  quiet = true
+  ended = false
+  return true
+end
+
+pub func close()
+  if cur_object != 0 then
+    sys.close(handle)
+    cur_object = 0
+  end
+end
+
+; The file being read does not follow the format.
+pub func damaged()
+  lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + cur_object - 1)
+end
+
+; The next byte of the file. A file never ends inside a record or before its END record.
+func raw(): byte
+  var b: byte
+  var at_end: bool
+  b, at_end = sys.read(handle)
+  if at_end then
+    if not quiet then
+      damaged()
+    end
+    ended = true
+    return 0
+  end
+  return b
+end
+
+; Skip what is left of the current record and start the next. Returns its type.
+pub func advance(): byte
+  var kind: byte
+  var low: byte
+  while cur_left > 0 do
+    raw()
+    cur_left -= 1
+  end
+  kind = raw()
+  low = raw()
+  cur_left = word(low) | (word(raw()) << 8)
+  cur_recno += 1
+  if quiet and ended then
+    cur_left = 0
+    return R_END
+  end
+  return kind
+end
+
+; Bytes of the current record not yet read.
+pub func left(): word
+  return cur_left
+end
+
+; The number of the current record, counting from 1.
+pub func recno(): word
+  return cur_recno
+end
+
+; The next byte of the current record.
+pub func get_byte(): byte
+  if cur_left == 0 then
+    if not quiet then
+      damaged()
+    end
+    ended = true
+    return 0
+  end
+  cur_left -= 1
+  return raw()
+end
+
+pub func get_word(): word
+  var low: byte
+  low = get_byte()
+  return word(low) | (word(get_byte()) << 8)
+end
+
+; Make record `number` of object obj the current record, unread. Returns its type.
+;
+; Going back means reading the file again from the start; that happens only for the second and
+; later copies of a function.
+pub func goto(obj: byte, number: word): byte
+  var kind: byte
+  if cur_object != obj + 1 or cur_recno >= number then
+    open_object(obj)
+  end
+  kind = 0
+  while cur_recno < number do
+    kind = advance()
+  end
+  return kind
+end

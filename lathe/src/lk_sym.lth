@@ -1,0 +1,81 @@
+; Symbols as references: lathe/host/lk_sym.py in Lathe.
+;
+; What a `module.name` the object files define or refer to stands for. There is no table of
+; symbols. A symbol is known by a reference, a word: its kind in the top three bits and below them
+; the row of what defines it, in lk_tab.fn_ (a function), lk_tab.def_ (a variable or constant
+; data) or lk_tab.cls_ (a pointer class). A symbol nothing defines has UNDEF set and a number of
+; its own below it. While the files are read every symbol is known by such a number, and lk_name
+; holds what it has become so far; once they are read every reference is replaced by what it
+; stands for (lk_name.resolve). lk_name.local holds the reference each object file's symbol
+; numbers stand for.
+;
+; A call names a function or a class in 13 bits (lk_tab.edge_word): edge_bits and edge_ref.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | ref(kind, index): kind << KIND_SHIFT | word(kind) << KIND_SHIFT          | bytes stay bytes|
+;   | kind_of(r): r >> KIND_SHIFT          | byte(r >> KIND_SHIFT)             | a kind is a byte|
+module lk_sym
+
+import lk_err
+
+pub const MAX_SYMS = 1600       ; below 2048: a call holds a symbol's number in 11 bits
+
+pub const FUNCTION = 1
+pub const VARIABLE = 2
+pub const CONSTANT = 3
+pub const CLASS = 4
+const KIND_SHIFT = 13
+pub const UNDEF = $1000         ; nothing defines it (yet): its number is below
+const ROW = $0FFF
+const EDGE_CLASS = $0800        ; in a call: the symbol is a class
+const EDGE_ROW = $07FF
+
+pub var count: word = 0         ; symbols so far
+
+; The number of a new symbol.
+pub func new_number(): word
+  if count == MAX_SYMS then
+    lk_err.fail(lk_err.E_SYMBOLS)
+  end
+  count += 1
+  return count - 1
+end
+
+; The reference of row `index` of the table of this kind.
+pub func ref(kind: byte, index: word): word
+  return (word(kind) << KIND_SHIFT) | index
+end
+
+pub func kind_of(r: word): byte
+  return byte(r >> KIND_SHIFT)
+end
+
+; The row of what defines symbol r.
+pub func row_of(r: word): word
+  return r & ROW
+end
+
+pub func is_defined(r: word): bool
+  return (r & UNDEF) == 0
+end
+
+; Function or class r as a call names it.
+pub func edge_bits(r: word): word
+  var b: word
+  b = r & (UNDEF | EDGE_ROW)
+  if kind_of(r) == CLASS then
+    b |= EDGE_CLASS
+  end
+  return b
+end
+
+; The function or class that a call naming it as `b` calls.
+pub func edge_ref(b: word): word
+  if (b & EDGE_CLASS) != 0 then
+    return ref(CLASS, b & (UNDEF | EDGE_ROW))
+  end
+  return ref(FUNCTION, b & (UNDEF | EDGE_ROW))
+end

@@ -1,0 +1,256 @@
+; Link errors: lathe/host/lk_err.py in Lathe.
+;
+; Owns the numbered messages, and the one way out when linking fails. A link error is written to
+; the error output as `link error N: text`, followed by the names involved, and the linker exits
+; with status 1. Nothing catches an error. A message is put together from begin(), the callers'
+; own names and separators, and finish(); fail() is the two in one.
+;
+; The conventions of the linker's twins (lathe/src/lk_*.lth) are those of the compiler's
+; (lathe/src/sys.lth, "Pointers"; lathe/src/kernel.lth), and:
+;
+;   - A Python int is a byte where every value it can hold fits one, else a word. A table of
+;     more than 256 rows larger than a byte is declared `rows`; a byte table of more than 256
+;     rows is indexed by a word.
+;   - A capacity that sizes a table is given twice, under `#if LKSMALL`: the small value is for
+;     the test programs, which must fit the emulator's default machine beside the linker's code
+;     (lathe/src/linker.env; lathe/host/README.md, "The linker in Lathe").
+;   - The linker's files are opened by the number of their argument, through lathe/src/sys.lth.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                                | Lathe                           | Why               |
+;   |---------------------------------------|---------------------------------|-------------------|
+;   | MESSAGES: one byte string, a line per | MESSAGES: a table of strings,   | a string or table |
+;   | error, ended by LF                    | one per error, each ended by    | holds at most     |
+;   |                                       | its zero                        | 2048 bytes; the   |
+;   |                                       |                                 | texts are 2386    |
+;   | begin() walks to the line of error n  | begin() takes MESSAGES[n - 1]   | follows from the  |
+;   |                                       |                                 | table             |
+;   | `put_number` divides an int           | a byte: every number it is given| (as left)         |
+;   |                                       | is one                          |                   |
+module lk_err
+
+import sys
+
+pub const E_USAGE = 1
+pub const E_OPEN = 2
+pub const E_ENV_ENTRY = 3
+pub const E_ENV_MISSING = 4
+pub const E_VERSION = 5
+pub const E_DAMAGED = 6
+pub const E_NEEDS_65C02 = 7
+pub const E_OBJECTS = 8
+pub const E_SYMBOLS = 9
+pub const E_NAMES = 10
+pub const E_FUNCTIONS = 11
+pub const E_SLOTS = 12
+pub const E_CALLS = 13
+pub const E_CLASSES = 14
+pub const E_COPIES = 15
+pub const E_CONTEXTS = 16
+pub const E_DUPLICATE = 17
+pub const E_UNDEFINED = 18
+pub const E_KIND = 19
+pub const E_NO_MAIN = 20
+pub const E_CYCLE = 21
+pub const E_CLASS_CONTEXTS = 22
+pub const E_CLASS_DIFFERS = 23
+pub const E_MEMBER = 24
+pub const E_ZP_FULL = 25
+pub const E_DATA_FULL = 26
+pub const E_CODE_FULL = 27
+pub const E_FIXES = 28
+pub const E_FIXUP = 29
+pub const E_NOT_ZP = 30
+pub const E_NOT_LINKED = 31
+pub const E_OVERLAP = 32
+pub const E_LOCALS = 33
+pub const E_ENV_RANGE = 34
+pub const E_MEMBERS = 35
+pub const E_DEFS = 36
+pub const E_SIZE = 37
+pub const E_REFS = 38                         ; no longer reported: what fix-ups name is not held
+pub const E_STOP_6502 = 39
+pub const E_MEMBER_CYCLE = 40
+pub const E_WEIGHTS = 41
+pub const E_ENV_UNKNOWN = 42
+pub const E_ENV_TWICE = 43
+pub const E_PLACE_UNLINKED = 44
+pub const E_BANK_FULL = 45
+pub const E_NO_FARCALL = 46
+pub const E_IRQ_PLACED = 47
+pub const E_IRQ_OVERLAY = 48
+pub const E_FARCALL_PLACED = 49
+pub const E_TWO_WINDOWS = 50
+pub const E_NO_FILE = 51
+pub const E_OVERLAY_NUMBERS = 52
+pub const E_ENV_FULL = 53
+pub const E_FARCALL_MISSING = 54
+
+; One message per error, in the order of the numbers above.
+const MESSAGES: [54]^byte = [
+  "usage: link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...",
+  "cannot open file",
+  "environment file: bad entry",
+  "environment file: zeropage, code, data and exit must all be given",
+  "unsupported object version: this linker reads version 2",
+  "object file is damaged",
+  "object file needs a 65C02 and the environment has a 6502",
+  "too many object files",
+  "too many symbols",
+  "too many or too long names",
+  "too many functions",
+  "too many slots",
+  "too many calls",
+  "too many pointer classes or class parameters",
+  "too many functions and copies of functions",
+  "too many interrupt functions",
+  "symbol defined twice",
+  "undefined symbol",
+  "symbol used as two kinds of thing",
+  "no main function",
+  "recursion through a call or function not marked recursive",
+  "pointer class called through pointers from two contexts",
+  "pointer class declared with different parameters",
+  "function does not have the parameters of its pointer class",
+  "zero page is full",
+  "variables do not fit in the data range",
+  "code does not fit in the code range",
+  "too many fix-ups in one function or table",
+  "bad fix-up",
+  "address must be in zero page",
+  "call of a function that was not linked",
+  "parts of the image overlap",
+  "too many symbols in the object files together",
+  "environment file: bad address range",
+  "too many functions whose address is taken",
+  "too many variables and constants",
+  "internal error: a function is not the size that was planned",
+  "too many symbols named by fix-ups",
+  "environment file: exit stop needs cpu 65c02",
+  "functions of one pointer class share their parameters: one that calls another must be recursive, as must the one it calls, or the function type it calls through",
+  "too many weights for slots of functions not read yet",
+  "environment file: no such window, bank or overlay",
+  "environment file: named twice",
+  "a module the environment file places is not linked",
+  "code and data do not fit in a bank",
+  "the far-call module is not linked, or does not define call and start",
+  "an interrupt function cannot be in a window",
+  "an interrupt function reaches a function in an overlay",
+  "environment file: the far-call module must be in fixed memory",
+  "environment file: code is placed in two windows, and far calls serve one",
+  "environment file: a module is placed in a bank that has no file",
+  "environment file: overlays must be numbered from 1 with none missing",
+  "environment file: too many windows, banks, overlays, places or regions, or too many names",
+  "environment file: code is placed in a window, and no farcall entry names the module for far calls"
+]
+
+const PREFIX: [11]byte = "link error "
+
+; One character of a message.
+pub func put(ch: byte)
+  sys.put_error(ch)
+end
+
+; n in decimal. Error and context numbers are below 1000.
+pub func put_number(n: byte)
+  if n >= 100 then
+    put(48 + n / 100)
+  end
+  if n >= 10 then
+    put(48 + (n / 10) mod 10)
+  end
+  put(48 + n mod 10)
+end
+
+; n, 0 to 65535, in decimal.
+pub func put_word(n: word)
+  var div: word = 10000
+  var started: bool = false
+  while div > 1 do
+    if started or n >= div then
+      put(48 + byte((n / div) mod 10))
+      started = true
+    end
+    div = div / 10
+  end
+  put(48 + byte(n mod 10))
+end
+
+const OVER_TEXT: [5]byte = " over"
+const BYTES_TEXT: [6]byte = " bytes"
+const WRAP_TEXT: [22]byte = ", more than 64K in all"
+
+; After a message about a range that is too small: by how much, or that what it needs is more
+; than 16 bits can count.
+pub func over(amount: word, wrapped: bool)
+  var i: byte
+  var size: byte
+  if wrapped then
+    for i = 0 until len(WRAP_TEXT) do
+      put(WRAP_TEXT[i])
+    end
+    return
+  end
+  put(44)
+  put(32)
+  put_word(amount)
+  size = len(BYTES_TEXT)
+  if amount == 1 then
+    size -= 1
+  end
+  for i = 0 until size do
+    put(BYTES_TEXT[i])
+  end
+  for i = 0 until len(OVER_TEXT) do
+    put(OVER_TEXT[i])
+  end
+end
+
+; Start error n: `link error N: text`.
+pub func begin(n: byte)
+  var i: byte
+  var p: ^byte
+  for i = 0 until len(PREFIX) do
+    put(PREFIX[i])
+  end
+  put_number(n)
+  put(58)
+  put(32)
+  p = MESSAGES[n - 1]
+  while p[0] != 0 do
+    put(p[0])
+    p += 1
+  end
+end
+
+; Separates the text from the first name.
+pub func colon()
+  put(58)
+  put(32)
+end
+
+pub func comma()
+  put(44)
+  put(32)
+end
+
+; Separates the functions of a call chain.
+pub func arrow()
+  put(32)
+  put(45)
+  put(62)
+  put(32)
+end
+
+; Finish the message and stop the linker.
+pub func finish()
+  put(10)
+  sys.exit(1)
+end
+
+; Report error n, which involves no names.
+pub func fail(n: byte)
+  begin(n)
+  finish()
+end

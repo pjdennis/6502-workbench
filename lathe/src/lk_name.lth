@@ -1,0 +1,626 @@
+; Names: lathe/host/lk_name.py in Lathe.
+;
+; Which symbols are found by name, what each object file's symbol numbers stand for, and names
+; read again from the files.
+;
+; A symbol needs to be found by name only if more than one SYM record names it: a record of
+; another file, or a second record of the same file. Every other symbol is named by one record
+; and is its file's own. The first reading of all (mark_all) is quiet and holds a hash of each
+; name: it marks, in a table of 8192 bits, the hash of every name some file has a SYM record for
+; and does not define, every pointer class, and every name that two definitions share. While the
+; files are then read for the tables (lk_scan), a marked name is kept in a heap and found through
+; chains, and an unmarked one makes a new symbol and is not kept. A false match only keeps a name
+; that need not have been: names that are kept are compared in full. Heap, chains and marks are
+; in lk_tab.work, and nothing holds a name once the files are read.
+;
+; While the files are read every symbol has a number (lk_sym.new_number) and two words at the top
+; of the work area: what it stands for so far, lk_sym.UNDEF and its number until a record
+; that defines it is read and then the reference of what does (bind, now); and its first call + 1
+; if it is a function or a class, the weight given to it so far if it is a variable, with X_INIT and X_MAIN
+; above (more). Once the files are read, resolve() replaces each number by what it stands for.
+;
+; `local` keeps, for every object file, the symbol each of its numbers stands for, so later
+; readings of a file need no names. A name that is written, in an error message or the map, is
+; read from the first object file that has a SYM record for the symbol (error_name), or by a
+; reading of each file that holds the names of that file (lk_map).
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | MAX_LOCALS                           | smaller under `#if LKSMALL`       | lk_err.lth      |
+;   | env.mem[lk_file.PATH + i]            | lk_file.path[i]                   | lk_file.lth     |
+;   | is_farcall(suffix): a byte string,   | is_farcall(suffix, size): a       | a table is not a|
+;   | len(suffix)                          | pointer to the table and its      | value           |
+;   |                                      | length                            |                 |
+;   | get_b: work[...] >> 8, & 0xFF        | hi(...), lo(...)                  | the same byte   |
+;   | 1 << (n & 15)                        | word(1) << (lo(n) & 15)           | a shift counts  |
+;   |                                      |                                   | by a byte       |
+;   | find: get_b(e + 1) | (get_b(e + 2)   | word(...) | (word(...) << 8)      | bytes stay bytes|
+;   | << 8)                                |                                   |                 |
+;   | fail_pending, ref_at used before     | forward declarations              | declare before  |
+;   | they are defined                     |                                   | use             |
+;   | main_length: an int                  | a word: the argument's 255 bytes  | a byte would    |
+;   |                                      | and `.main`                       | wrap            |
+;   | resolve: the members by `i`          | by a byte `m`                     | memb_ has 128   |
+;   |                                      |                                   | rows            |
+;   | find_local's file, found_obj         | a byte                            |                 |
+module lk_name
+
+import lk_envf
+import lk_err
+import lk_file
+import lk_rec
+import lk_sym
+import lk_tab
+import sys
+
+pub const MAX_OBJECTS = 40
+#if LKSMALL
+pub const MAX_LOCALS = 2000
+#else
+pub const MAX_LOCALS = 4000     ; SYM records in all object files together
+#end
+
+pub var object_count: byte = 0
+pub var obj_first: [MAX_OBJECTS + 1]word        ; row in `local` of each object's symbol 0
+pub var obj_fn: [MAX_OBJECTS + 1]word           ; row in lk_tab.fn_ of each object's first function
+pub var obj_def: [MAX_OBJECTS + 1]word          ; row in lk_tab.def_ of each object's first definition
+pub var local: [MAX_LOCALS]word rows
+pub var local_count: word = 0
+
+; While the files are read for the tables: lk_tab.work, in words, from MARKS up (lk_scan's waiting
+; weights are below it).
+pub const MARKS = 256           ; 8192 bits: the names to keep
+pub const HEADS = MARKS + 512   ; 512 chains of kept names
+const HEAP = HEADS + 512        ; the heap, up to the symbols' words at the top
+pub const DEFS = HEAP           ; mark_all: 32768 bits, the names some file defines
+pub const HEAP_START = 2 * HEAP ; in bytes
+pub const HEAP_END = 2 * lk_tab.WORK_SIZE       ; without the symbols' words
+const ENTRY = 5                 ; a kept name: next in its chain + 1 (2), symbol (2), length (1),
+                                ; then the characters
+const X_LOW = $0FFF             ; in a symbol's second word: a variable's weight so far
+const X_FSTART = $1000          ; named FARCALL.start, the far-call module's (lk_envf.farcall)
+const X_FCALL = $2000           ; named FARCALL.call
+const X_INIT = $4000            ; a function named `module.$init`
+const X_MAIN = $8000            ; named MAINMODULE.main
+
+; mark_all: what each `local` entry of the file being read holds.
+const L_HASH = $7FFF
+const L_DEFINED = $8000
+
+pub var heap_top: word = HEAP_START
+var pending: byte = 0           ; length of the name being read, at heap_top + ENTRY
+var pend_hash: word = 0         ; its hash so far
+var main_length: word = 0       ; MAINMODULE.main is at HEAP_START
+pub var main_sym: word = lk_tab.NONE    ; what it stands for, once something defines it
+pub var fc_call: word = lk_tab.NONE     ; what FARCALL.call and FARCALL.start stand for, once defined
+pub var fc_start: word = lk_tab.NONE
+
+pub const MAIN_SUFFIX: [5]byte = ".main"
+const INIT_SUFFIX: [6]byte = ".$init"
+const CALL_SUFFIX: [5]byte = ".call"
+const START_SUFFIX: [6]byte = ".start"
+
+forward func fail_pending(n: byte)
+forward func ref_at(s: word): word
+
+; ---- bytes and bits in the work area
+
+; The byte at byte offset `pos` of the work area.
+pub func get_b(pos: word): byte
+  if (pos & 1) != 0 then
+    return hi(lk_tab.work[pos >> 1])
+  end
+  return lo(lk_tab.work[pos >> 1])
+end
+
+pub func put_b(pos: word, value8: byte)
+  var i: word
+  i = pos >> 1
+  if (pos & 1) != 0 then
+    lk_tab.work[i] = (lk_tab.work[i] & $FF) | (word(value8) << 8)
+  else
+    lk_tab.work[i] = (lk_tab.work[i] & $FF00) | value8
+  end
+end
+
+; Bit n of the bit table at word `table` of the work area.
+func get_bit(table: word, n: word): bool
+  return (lk_tab.work[table + (n >> 4)] & (word(1) << (lo(n) & 15))) != 0
+end
+
+func set_bit(table: word, n: word)
+  lk_tab.work[table + (n >> 4)] |= word(1) << (lo(n) & 15)
+end
+
+; The hash of a name so far, h, and its next character c.
+func step(h: word, c: byte): word
+  return h * 31 + c
+end
+
+; The symbol that object file obj calls `number`.
+pub func global_sym(obj: byte, number: word): word
+  if number >= obj_first[obj + 1] - obj_first[obj] then
+    lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + obj)
+  end
+  return local[obj_first[obj] + number]
+end
+
+; ---- the names to keep
+
+; Mark what object file obj makes worth keeping. `local` holds, for each of its SYM records, the
+; hash of its name and whether the file defines it.
+func mark_object(obj: byte)
+  var count: word
+  var kind: byte
+  var sym_kind: byte
+  var size: byte
+  var h: word
+  var i: word
+  var n: word
+  if not lk_rec.open_quiet(obj) then
+    return
+  end
+  if lk_rec.advance() != lk_rec.R_MOD or lk_rec.get_byte() != lk_rec.VERSION then
+    lk_rec.close()
+    return
+  end
+  count = 0
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_SYM then
+      sym_kind = lk_rec.get_byte()
+      size = lk_rec.get_byte()
+      h = 0
+      for i = 0 until size do
+        h = step(h, lk_rec.get_byte())
+      end
+      if count < MAX_LOCALS then
+        local[count] = h & L_HASH
+        ; A pointer class is described by every file that uses it, defined by none.
+        if sym_kind == lk_sym.CLASS then
+          set_bit(MARKS, h & $1FFF)
+        end
+        count += 1
+      end
+    elif kind == lk_rec.R_FUNC or kind == lk_rec.R_VAR or kind == lk_rec.R_DATA then
+      n = lk_rec.get_word()
+      if n < count then
+        local[n] |= L_DEFINED
+      end
+    end
+    kind = lk_rec.advance()
+  end
+  lk_rec.close()
+  for i = 0 until count do
+    h = local[i] & L_HASH
+    if (local[i] & L_DEFINED) == 0 or get_bit(DEFS, h) then
+      set_bit(MARKS, h & $1FFF)
+    else
+      set_bit(DEFS, h)
+    end
+  end
+end
+
+; The first reading of every object file, which marks the names to keep.
+pub func mark_all()
+  var i: word
+  var obj: byte
+  for i = 0 until 512 do
+    lk_tab.work[MARKS + i] = 0
+  end
+  for i = 0 until 2048 do
+    lk_tab.work[DEFS + i] = 0
+  end
+  for obj = 0 until object_count do
+    mark_object(obj)
+  end
+end
+
+; Before the tables are read: no name kept yet, and MAINMODULE.main to look out for.
+pub func begin()
+  var i: word
+  var c: byte
+  for i = 0 until 512 do
+    lk_tab.work[HEADS + i] = 0
+  end
+  main_length = lk_file.arg_length(lk_file.ARG_MAIN)
+  for i = 0 until main_length do
+    c = lk_file.path[byte(i)]
+    if c >= 65 and c <= 90 then
+      c += 32
+    end
+    put_b(HEAP_START + i, c)
+  end
+  for i = 0 until len(MAIN_SUFFIX) do
+    put_b(HEAP_START + main_length + i, MAIN_SUFFIX[byte(i)])
+  end
+  main_length += len(MAIN_SUFFIX)
+  heap_top = HEAP_START + main_length
+  main_sym = lk_tab.NONE
+  fc_call = lk_tab.NONE
+  fc_start = lk_tab.NONE
+end
+
+; ---- the name being read
+
+; Start collecting a name.
+pub func name_begin()
+  pending = 0
+  pend_hash = 0
+end
+
+; Where the heap must end: below the words of the symbols so far.
+func heap_limit(): word
+  return HEAP_END - 4 * lk_sym.count
+end
+
+; Add one character to the pending name.
+pub func name_add(c: byte)
+  if pending == 255 or heap_top + ENTRY + pending + 1 > heap_limit() then
+    lk_err.fail(lk_err.E_NAMES)
+  end
+  put_b(heap_top + ENTRY + pending, c)
+  pending += 1
+  pend_hash = step(pend_hash, c)
+end
+
+func pending_char(i: byte): byte
+  return get_b(heap_top + ENTRY + i)
+end
+
+; True if the pending name equals the kept name at `pos`.
+func name_is(pos: word): bool
+  var i: byte
+  if get_b(pos + 4) != pending then
+    return false
+  end
+  for i = 0 until pending do
+    if get_b(pos + ENTRY + i) != pending_char(i) then
+      return false
+    end
+  end
+  return true
+end
+
+func is_main(): bool
+  var i: byte
+  if pending != main_length then
+    return false
+  end
+  for i = 0 until pending do
+    if pending_char(i) != get_b(HEAP_START + i) then
+      return false
+    end
+  end
+  return true
+end
+
+; True if the pending name ends in `.$init`.
+func is_init(): bool
+  var size: byte
+  var i: byte
+  size = len(INIT_SUFFIX)
+  if pending < size then
+    return false
+  end
+  for i = 0 until size do
+    if pending_char(pending - size + i) != INIT_SUFFIX[i] then
+      return false
+    end
+  end
+  return true
+end
+
+; True if the pending name is the far-call module's name followed by `suffix`, of `suffix_size`
+; bytes.
+func is_farcall(suffix: ^byte, suffix_size: byte): bool
+  var f: word
+  var size: byte
+  var i: byte
+  f = lk_envf.farcall
+  if f == 0 then
+    return false
+  end
+  size = lk_envf.text[f - 1]
+  if word(pending) != word(size) + suffix_size then
+    return false
+  end
+  for i = 0 until size do
+    if pending_char(i) != lk_envf.text[f + i] then
+      return false
+    end
+  end
+  for i = 0 until suffix_size do
+    if pending_char(size + i) != suffix[i] then
+      return false
+    end
+  end
+  return true
+end
+
+; The chain of the pending name: an index into HEADS.
+func chain(): word
+  return (pend_hash ^ (pend_hash >> 7)) & $1FF
+end
+
+; The kept symbol with the pending name, and whether there is one.
+func find(): word, bool
+  var e: word
+  e = lk_tab.work[HEADS + chain()]
+  while e != 0 do
+    if name_is(e - 1) then
+      return word(get_b(e + 1)) | (word(get_b(e + 2)) << 8), true
+    end
+    e = word(get_b(e - 1)) | (word(get_b(e)) << 8)
+  end
+  return 0, false
+end
+
+; The symbol a SYM record of this kind with the pending name stands for, made if new.
+pub func symbol(kind: byte): word
+  var keep: bool
+  var s: word
+  var found: bool
+  var flags: word
+  var pos: word
+  var h: word
+  keep = kind == lk_sym.CLASS or get_bit(MARKS, pend_hash & $1FFF)
+  if keep then
+    s, found = find()
+    if found then
+      if lk_sym.kind_of(s) != kind then
+        fail_pending(lk_err.E_KIND)
+      end
+      return s
+    end
+  end
+  flags = 0
+  if kind == lk_sym.FUNCTION and is_init() then
+    flags = X_INIT
+  end
+  if kind == lk_sym.FUNCTION and is_farcall(@CALL_SUFFIX, len(CALL_SUFFIX)) then
+    flags = X_FCALL
+  end
+  if kind == lk_sym.FUNCTION and is_farcall(@START_SUFFIX, len(START_SUFFIX)) then
+    flags = X_FSTART
+  end
+  if is_main() then
+    flags |= X_MAIN
+  end
+  s = lk_sym.ref(kind, lk_sym.UNDEF | lk_sym.new_number())
+  ; The symbol's words come off the top of the heap, which must still hold the name.
+  if heap_top + ENTRY + pending > heap_limit() then
+    lk_err.fail(lk_err.E_NAMES)
+  end
+  lk_tab.work[ref_at(s)] = s
+  lk_tab.work[ref_at(s) - 1] = flags
+  if keep then
+    pos = heap_top
+    h = chain()
+    put_b(pos, lo(lk_tab.work[HEADS + h]))
+    put_b(pos + 1, hi(lk_tab.work[HEADS + h]))
+    put_b(pos + 2, lo(s))
+    put_b(pos + 3, hi(s))
+    put_b(pos + 4, pending)
+    lk_tab.work[HEADS + h] = pos + 1
+    heap_top = pos + ENTRY + pending
+  end
+  return s
+end
+
+; ---- the symbols while the files are read
+
+; Where in the work area the first word of the symbol numbered in s is; its second word is just
+; below.
+func ref_at(s: word): word
+  return lk_tab.WORK_SIZE - 1 - 2 * lk_sym.row_of(s)
+end
+
+; What symbol s stands for so far.
+pub func now(s: word): word
+  return lk_tab.work[ref_at(s)]
+end
+
+; Symbol s is defined: it stands for r.
+pub func bind(s: word, r: word)
+  lk_tab.work[ref_at(s)] = r
+  if (lk_tab.work[ref_at(s) - 1] & X_MAIN) != 0 then
+    main_sym = r
+  end
+  if (lk_tab.work[ref_at(s) - 1] & X_FCALL) != 0 then
+    fc_call = r
+  end
+  if (lk_tab.work[ref_at(s) - 1] & X_FSTART) != 0 then
+    fc_start = r
+  end
+end
+
+; The weight given to variable s so far.
+pub func more(s: word): word
+  return lk_tab.work[ref_at(s) - 1] & X_LOW
+end
+
+pub func set_more(s: word, value: word)
+  lk_tab.work[ref_at(s) - 1] = (lk_tab.work[ref_at(s) - 1] & ($FFFF ^ X_LOW)) | value
+end
+
+pub func is_init_sym(s: word): bool
+  return (lk_tab.work[ref_at(s) - 1] & X_INIT) != 0
+end
+
+; Call e calls what the symbol it names stands for.
+func retarget(e: word)
+  var target: word
+  target = lk_sym.edge_bits(now(lk_tab.edge_sym(e)))
+  lk_tab.edge_word[e] = (lk_tab.edge_word[e] & ($FFFF ^ lk_tab.SYM_BITS)) | target
+end
+
+; Once the files are read: every symbol number is replaced by what it stands for, in `local`, the
+; calls and the members.
+pub func resolve()
+  var i: word
+  var e: word
+  var m: byte
+  for i = 0 until local_count do
+    local[i] = now(local[i])
+  end
+  for e = 0 until lk_tab.edge_count do
+    retarget(e)
+  end
+  for i = 0 until lk_tab.waiting do
+    e = lk_tab.MAX_EDGES - 1 - 2 * i
+    lk_tab.edge_word[e] = now(lk_tab.edge_word[e])
+    retarget(e - 1)
+  end
+  for m = 0 until lk_tab.memb_count do
+    lk_tab.memb_class[m] = now(lk_tab.memb_class[m])
+    lk_tab.memb_func[m] = now(lk_tab.memb_func[m])
+  end
+end
+
+; ---- names read again from the files
+
+var found_obj: byte = 0         ; find_local: the object file it found
+
+; The number of the first SYM record for symbol s in any object file, which is file found_obj.
+func find_local(s: word): word
+  var obj: byte
+  var i: word
+  for obj = 0 until object_count do
+    for i = obj_first[obj] until obj_first[obj + 1] do
+      if local[i] == s then
+        found_obj = obj
+        return i - obj_first[obj]
+      end
+    end
+  end
+  found_obj = 0
+  return 0
+end
+
+; Read object file obj up to its SYM record number n, and its name up to the characters. Returns
+; the length of the name, which the stream reads next.
+func to_name(obj: byte, n: word): byte
+  var seen: word
+  var kind: byte
+  lk_rec.open_object(obj)
+  seen = 0
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    if kind == lk_rec.R_SYM then
+      if seen == n then
+        lk_rec.get_byte()
+        return lk_rec.get_byte()
+      end
+      seen += 1
+    end
+    kind = lk_rec.advance()
+  end
+  return 0
+end
+
+; The name of symbol s, as part of an error message.
+pub func error_name(s: word)
+  var n: word
+  var size: byte
+  var i: byte
+  n = find_local(s)
+  size = to_name(found_obj, n)
+  for i = 0 until size do
+    lk_err.put(lk_rec.get_byte())
+  end
+end
+
+; The pending name, as part of an error message.
+func error_pending()
+  var i: byte
+  for i = 0 until pending do
+    lk_err.put(pending_char(i))
+  end
+end
+
+; The name of a node, as the map shows it, as part of an error message.
+pub func error_node(n: word)
+  error_name(lk_tab.node_sym(n))
+  if lk_tab.is_extra_copy(n) then
+    lk_err.put(64)
+    lk_err.put_number(lk_tab.ctx_of(n))
+  end
+end
+
+; Report error n about symbol s.
+pub func fail(n: byte, s: word)
+  lk_err.begin(n)
+  lk_err.colon()
+  error_name(s)
+  lk_err.finish()
+end
+
+; Report error n about symbol s, met in function `where`.
+pub func fail_in(n: byte, s: word, where: word)
+  lk_err.begin(n)
+  lk_err.colon()
+  error_name(s)
+  lk_err.comma()
+  error_name(where)
+  lk_err.finish()
+end
+
+; Report error n about the symbol with the pending name.
+func fail_pending(n: byte)
+  lk_err.begin(n)
+  lk_err.colon()
+  error_pending()
+  lk_err.finish()
+end
+
+; ---- names held while a file is read for the map
+
+pub var buf_top: word = 0       ; where the next name goes, in bytes of the work area
+var buf_end: word = 0
+
+; Hold names from byte `start` of the work area, below byte `limit`.
+pub func buf_begin(start: word, limit: word)
+  buf_top = start
+  buf_end = limit
+end
+
+; Hold the string the record has next. Returns where it is held.
+pub func buf_keep(): word
+  var size: byte
+  var pos: word
+  var i: byte
+  size = lk_rec.get_byte()
+  if buf_top + size + 1 > buf_end then
+    lk_err.fail(lk_err.E_NAMES)
+  end
+  pos = buf_top
+  put_b(pos, size)
+  for i = 1 to size do
+    put_b(pos + i, lk_rec.get_byte())
+  end
+  buf_top = pos + size + 1
+  return pos
+end
+
+; Hold the string the record has next at byte `pos` of the work area, which has room for 256
+; bytes.
+pub func keep_at(pos: word)
+  var size: byte
+  var i: byte
+  size = lk_rec.get_byte()
+  put_b(pos, size)
+  for i = 1 to size do
+    put_b(pos + i, lk_rec.get_byte())
+  end
+end
+
+; The name held at `pos`, to a file.
+pub func write_held(handle: byte, pos: word)
+  var i: byte
+  for i = 1 to get_b(pos) do
+    sys.write(handle, get_b(pos + i))
+  end
+end

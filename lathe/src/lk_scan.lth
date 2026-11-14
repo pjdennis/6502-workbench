@@ -1,0 +1,736 @@
+; The first reading of the object files: lathe/host/lk_scan.py in Lathe.
+;
+; Symbols, variables, functions with their slots and calls, and pointer classes go into the
+; tables. Code is skipped; of the fix-ups only the variables, constant data and function addresses
+; they name are noted, once for each function or table that names them, because naming them from
+; what is kept keeps them (lk_graph).
+;
+; An object file numbers its symbols from 0; lk_name.local says what each number stands for.
+;
+; A WGT record adds weight to a variable or a slot defined elsewhere (docs/object-format.md). A
+; weight for a slot of a function not read yet waits in the pend_ table until every file is read.
+;
+; Once every file is read, finish() merges pointer classes that share a member, adds the calls
+; that only exist because of classes and adds the weights that waited. A symbol need not be
+; defined unless something kept uses it, which lk_graph checks as it finds what is kept.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | heavier(weight, amount): ints        | a word and a byte, and gives a    | its result is at|
+;   |                                      | byte                              | most 255        |
+;   | x % 4                                | x mod 4                           | the operator    |
+;   | the chain of `elif kind == R_...`    | `case kind`                       | one selector    |
+;   | a class's parameter row p: an int    | a byte: cp_ has 128 rows          | the index type  |
+;   | lk_name.local[...] and the counts    | (as in lk_name.lth)               |                 |
+;   | `\` continuations                    | conditions that go on after `and` | a line goes on  |
+;   |                                      |                                   | after `and`     |
+;   | fn_bank, add_far_edges used before   | forward declarations              | declare before  |
+;   | they are defined                     |                                   | use             |
+module lk_scan
+
+import lk_envf
+import lk_err
+import lk_file
+import lk_name
+import lk_rec
+import lk_sym
+import lk_tab
+
+const MAX_PENDING = 64          ; weights for slots of functions not read yet
+
+pub var obj_cpu: [lk_name.MAX_OBJECTS]byte      ; its CPU, and OBJ_CLASSES
+pub var obj_bank: [lk_name.MAX_OBJECTS]byte     ; the bank its code is placed in + 1, or 0
+pub const OBJ_CLASSES = $80     ; the file names a pointer class (lk_map.cparams)
+
+var cur_fn: word = lk_tab.NONE  ; the function whose records are being read
+var cur_sym: word = 0           ; its symbol
+var dfix_read: bool = false     ; a DFIX record was just read: a DATA record must follow
+
+; The weights waiting, in lk_tab.work, which nothing else uses while the files are read: where
+; each column starts.
+pub var pend_count: byte = 0
+const PEND_SYM = 0              ; a function
+const PEND_SLOT = MAX_PENDING
+const PEND_WEIGHT = 2 * MAX_PENDING
+const PEND_OBJ = 3 * MAX_PENDING        ; the object file whose WGT record gave it
+
+forward func fn_bank(f: word): byte
+forward func add_far_edges()
+
+pub func cpu_of(obj: byte): byte
+  return obj_cpu[obj] & ($FF ^ OBJ_CLASSES)
+end
+
+func damaged()
+  lk_rec.damaged()
+end
+
+; Read a symbol number from the record; the symbol must be of this kind.
+func read_sym(obj: byte, kind: byte): word
+  var s: word
+  s = lk_name.global_sym(obj, lk_rec.get_word())
+  if lk_sym.kind_of(s) != kind then
+    damaged()
+  end
+  return s
+end
+
+; Read a string from the record as the pending name.
+func read_name()
+  var size: byte
+  var i: byte
+  size = lk_rec.get_byte()
+  lk_name.name_begin()
+  for i = 0 until size do
+    lk_name.name_add(lk_rec.get_byte())
+  end
+end
+
+func skip_string()
+  var size: byte
+  var i: byte
+  size = lk_rec.get_byte()
+  for i = 0 until size do
+    lk_rec.get_byte()
+  end
+end
+
+; Symbol s is defined by the record being read: it must not have been before.
+func define(s: word)
+  if lk_sym.is_defined(lk_name.now(s)) then
+    lk_name.fail(lk_err.E_DUPLICATE, s)
+  end
+end
+
+func rec_sym(obj: byte)
+  var kind: byte
+  kind = lk_rec.get_byte()
+  if kind < lk_sym.FUNCTION or kind > lk_sym.CLASS then
+    damaged()
+  end
+  if kind == lk_sym.CLASS then
+    obj_cpu[obj] |= OBJ_CLASSES
+  end
+  read_name()
+  if lk_name.local_count == lk_name.MAX_LOCALS then
+    lk_err.fail(lk_err.E_LOCALS)
+  end
+  lk_name.local[lk_name.local_count] = lk_name.symbol(kind)
+  lk_name.local_count += 1
+  lk_name.obj_first[obj + 1] = lk_name.local_count
+end
+
+forward func heavier(weight: word, amount: byte): byte
+
+func rec_var(obj: byte)
+  var s: word
+  var size: word
+  var zp_class: byte
+  var weight: byte
+  var flags: byte
+  var d: word
+  s = read_sym(obj, lk_sym.VARIABLE)
+  define(s)
+  size = lk_rec.get_word()
+  zp_class = lk_rec.get_byte()
+  weight = lk_rec.get_byte()
+  flags = lk_rec.get_byte()
+  if zp_class > 2 then
+    damaged()
+  end
+  ; Flag bit 0 once meant "an initial value follows". Initialisers are code now (lk_boot).
+  if (flags & 1) != 0 then
+    lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
+  end
+  d = lk_tab.new_def(zp_class)
+  lk_tab.def_b[d] = size
+  ; Other modules' WGT records may have come first.
+  lk_tab.def_a[d] = heavier(lk_name.more(s), weight)    ; the weight, for now (lk_tab.def_w)
+  lk_name.bind(s, lk_tab.def_ref(d))
+end
+
+func rec_data(obj: byte)
+  var s: word
+  var d: word
+  s = read_sym(obj, lk_sym.CONSTANT)
+  define(s)
+  d = lk_tab.new_def(lk_tab.D_CONST)
+  lk_tab.def_a[d] = obj         ; until it is placed (lk_graph.keep_referenced)
+  lk_tab.def_b[d] = lk_rec.left()
+  lk_name.bind(s, lk_tab.def_ref(d))
+end
+
+func rec_func(obj: byte)
+  var s: word
+  var flags: byte
+  if cur_fn != lk_tab.NONE then
+    damaged()
+  end
+  s = read_sym(obj, lk_sym.FUNCTION)
+  define(s)
+  flags = lk_rec.get_byte() & ($FF ^ (lk_tab.F_INIT | lk_tab.F_HELD | lk_tab.F_STUB | lk_tab.F_ADDR))
+  if lk_name.is_init_sym(s) then
+    flags |= lk_tab.F_INIT
+  end
+  cur_fn = lk_tab.new_func(flags)
+  cur_sym = s
+  lk_name.bind(s, lk_tab.fn_ref(cur_fn))
+end
+
+func rec_slot()
+  var size: word
+  var zp_class: byte
+  var weight: byte
+  var kind: byte
+  if cur_fn == lk_tab.NONE or lk_tab.fn_nslots(cur_fn) == 255 then
+    damaged()
+  end
+  size = lk_rec.get_word()
+  zp_class = lk_rec.get_byte()
+  weight = lk_rec.get_byte()
+  kind = lk_rec.get_byte()
+  if zp_class > 2 or kind > 2 then
+    damaged()
+  end
+  lk_tab.new_slot(cur_fn, size, zp_class, kind == 0, weight)
+end
+
+pub func rec_call(obj: byte)
+  var callee: word
+  var flags: byte
+  var outer: word
+  var wanted: byte
+  var edge: byte
+  var kind: byte
+  var r: word
+  if cur_fn == lk_tab.NONE then
+    damaged()
+  end
+  callee = lk_name.global_sym(obj, lk_rec.get_word())
+  flags = lk_rec.get_byte()
+  outer = lk_rec.get_word()
+  wanted = lk_sym.FUNCTION
+  if (flags & 2) != 0 then
+    wanted = lk_sym.CLASS
+  end
+  if lk_sym.kind_of(callee) != wanted then
+    damaged()
+  end
+  edge = 0
+  if (flags & 1) == 0 then
+    edge = lk_tab.E_NOSAVE
+  end
+  lk_tab.add_own(cur_fn, lk_sym.edge_bits(callee), edge)
+  if outer != $FFFF then
+    outer = lk_name.global_sym(obj, outer)
+    kind = lk_sym.kind_of(outer)
+    if kind != lk_sym.FUNCTION and kind != lk_sym.CLASS then
+      damaged()
+    end
+    ; A call made while the caller's own arguments wait adds nothing to the call itself.
+    if outer != cur_sym then
+      edge = lk_tab.E_NOSAVE | lk_tab.E_PENDING
+      r = lk_name.now(outer)
+      if kind == lk_sym.FUNCTION and lk_sym.is_defined(r) then
+        edge |= lk_tab.E_VIA                    ; read after outer's own calls (build_chains)
+      end
+      lk_tab.add_waiting(outer, lk_sym.edge_bits(callee), edge)
+    end
+  end
+end
+
+func rec_clas(obj: byte)
+  var s: word
+  var np: byte
+  var fresh: bool
+  var k: byte
+  var i: byte
+  var size: word
+  var p: byte
+  s = read_sym(obj, lk_sym.CLASS)
+  lk_rec.get_byte()             ; flags: see lk_graph.check_cycles for why they are not needed
+  np = lk_rec.get_byte()
+  fresh = not lk_sym.is_defined(lk_name.now(s))
+  if fresh then
+    lk_name.bind(s, lk_tab.cls_ref(lk_tab.new_class(np)))
+  end
+  k = byte(lk_sym.row_of(lk_name.now(s)))
+  ; Every module that uses the class describes it; the sizes must agree. The names of the
+  ; parameters are read again for the map (lk_map.cparams).
+  if lk_tab.cls_np[k] != np then
+    lk_name.fail(lk_err.E_CLASS_DIFFERS, s)
+  end
+  for i = 0 until np do
+    size = lk_rec.get_word()
+    p = byte(lk_tab.cls_par[k]) + i
+    if fresh then
+      lk_tab.new_cparam(size)
+    elif lk_tab.cp_size[p] != size then
+      lk_name.fail(lk_err.E_CLASS_DIFFERS, s)
+    end
+    skip_string()
+  end
+end
+
+func rec_memb(obj: byte)
+  var k: word
+  k = read_sym(obj, lk_sym.CLASS)
+  lk_tab.new_member(k, read_sym(obj, lk_sym.FUNCTION))
+end
+
+func heavier(weight: word, amount: byte): byte
+  if weight + amount > 255 then
+    return 255
+  end
+  return byte(weight + amount)
+end
+
+; Weights this module adds to variables and slots: entries of symbol (2), slot, weight.
+func rec_wgt(obj: byte)
+  var s: word
+  var slot: byte
+  var weight: byte
+  var kind: byte
+  var r: word
+  var d: word
+  var k: byte
+  var p: byte
+  var f: word
+  var i: word
+  if cur_fn != lk_tab.NONE or lk_rec.left() mod 4 != 0 then
+    damaged()
+  end
+  while lk_rec.left() > 0 do
+    s = lk_name.global_sym(obj, lk_rec.get_word())
+    slot = lk_rec.get_byte()
+    weight = lk_rec.get_byte()
+    kind = lk_sym.kind_of(s)
+    r = lk_name.now(s)
+    if kind == lk_sym.VARIABLE and slot == $FF then
+      if lk_sym.is_defined(r) then
+        d = lk_sym.row_of(r)
+        lk_tab.def_a[d] = heavier(lk_tab.def_w(d), weight)
+      else
+        lk_name.set_more(s, heavier(lk_name.more(s), weight))
+      end
+    elif kind == lk_sym.CLASS and slot != $FF and lk_sym.is_defined(r) then
+      ; Its CLAS record comes before the module uses the class.
+      k = byte(lk_sym.row_of(r))
+      if slot >= lk_tab.cls_np[k] then
+        damaged()
+      end
+      p = byte(lk_tab.cls_par[k]) + slot
+      lk_tab.cp_weight[p] = heavier(lk_tab.cp_weight[p], weight)
+    elif kind == lk_sym.FUNCTION and slot != $FF and lk_sym.is_defined(r) then
+      f = lk_sym.row_of(r)
+      if slot >= lk_tab.fn_nslots(f) then
+        damaged()
+      end
+      i = lk_tab.fn_slot[f] + slot
+      lk_tab.slot_weight[i] = heavier(lk_tab.slot_weight[i], weight)
+    elif kind == lk_sym.FUNCTION and slot != $FF then
+      if pend_count == MAX_PENDING then
+        lk_err.fail(lk_err.E_WEIGHTS)
+      end
+      lk_tab.work[PEND_SYM + pend_count] = s
+      lk_tab.work[PEND_SLOT + pend_count] = slot
+      lk_tab.work[PEND_WEIGHT + pend_count] = weight
+      lk_tab.work[PEND_OBJ + pend_count] = obj
+      pend_count += 1
+    else
+      damaged()
+    end
+  end
+end
+
+; The weights given for slots of functions before the functions were read.
+func add_pending_weights()
+  var i: byte
+  var s: word
+  var f: word
+  var slot: word
+  for i = 0 until pend_count do
+    s = lk_tab.work[PEND_SYM + i]
+    ; A function nothing defines is reported if something kept calls it (lk_graph).
+    if lk_sym.is_defined(s) then
+      f = lk_sym.row_of(s)
+      if lk_tab.work[PEND_SLOT + i] >= lk_tab.fn_nslots(f) then
+        lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lo(lk_tab.work[PEND_OBJ + i]))
+      end
+      slot = lk_tab.fn_slot[f] + lk_tab.work[PEND_SLOT + i]
+      lk_tab.slot_weight[slot] = heavier(lk_tab.slot_weight[slot], lo(lk_tab.work[PEND_WEIGHT + i]))
+    end
+  end
+end
+
+; A FIX or DFIX record: check its entries. What they keep is worked out later, by reading them
+; again (lk_graph.keep_referenced).
+func rec_fixes(obj: byte)
+  if lk_rec.left() mod 8 != 0 then
+    damaged()
+  end
+  while lk_rec.left() > 0 do
+    lk_rec.get_word()
+    lk_rec.get_byte()
+    lk_name.global_sym(obj, lk_rec.get_word())
+    lk_rec.get_byte()
+    lk_rec.get_word()
+  end
+end
+
+; Take in one record of object file obj.
+func take_record(obj: byte, kind: byte)
+  var fixed: bool
+  fixed = dfix_read
+  dfix_read = false
+  if fixed and kind != lk_rec.R_DATA then
+    damaged()                   ; a DFIX belongs to the DATA record just after it
+  end
+  case kind
+  of lk_rec.R_SYM
+    rec_sym(obj)
+  of lk_rec.R_VAR
+    rec_var(obj)
+  of lk_rec.R_DATA
+    rec_data(obj)
+  of lk_rec.R_FUNC
+    rec_func(obj)
+  of lk_rec.R_SLOT
+    rec_slot()
+  of lk_rec.R_CALL
+    rec_call(obj)
+  of lk_rec.R_ENDF
+    cur_fn = lk_tab.NONE
+  of lk_rec.R_CLAS
+    rec_clas(obj)
+  of lk_rec.R_MEMB
+    rec_memb(obj)
+  of lk_rec.R_WGT
+    rec_wgt(obj)
+  of lk_rec.R_FIX
+    if cur_fn == lk_tab.NONE then
+      damaged()
+    end
+    rec_fixes(obj)
+  of lk_rec.R_DFIX
+    if cur_fn != lk_tab.NONE then
+      damaged()
+    end
+    rec_fixes(obj)
+    dfix_read = true
+  of lk_rec.R_IMP, lk_rec.R_CODE
+  else
+    damaged()
+  end
+end
+
+; The MOD record's module name: if the environment file places the module, its code goes in that
+; bank or overlay. The name is read into lk_envf's token, which a longer name than any entry can
+; hold does not match.
+func module_place(obj: byte)
+  var size: byte
+  var i: byte
+  var c: byte
+  size = lk_rec.get_byte()
+  for i = 0 until size do
+    c = lk_rec.get_byte()
+    if i < lk_envf.TOKEN_SIZE then
+      lk_envf.token[i] = c
+    end
+  end
+  obj_bank[obj] = 0
+  if size > lk_envf.TOKEN_SIZE then
+    return
+  end
+  lk_envf.token_len = size
+  for i = 0 until lk_envf.place_count do
+    if lk_envf.is_token(lk_envf.place_name[i]) then
+      obj_bank[obj] = (lk_envf.place_bank[i] & lk_envf.P_BANK) + 1
+      lk_envf.place_bank[i] |= lk_envf.P_LINKED
+    end
+  end
+end
+
+; Every module the environment file places must be linked.
+func check_places()
+  var i: byte
+  for i = 0 until lk_envf.place_count do
+    if (lk_envf.place_bank[i] & lk_envf.P_LINKED) == 0 then
+      lk_envf.fail_text(lk_err.E_PLACE_UNLINKED, lk_envf.place_name[i])
+    end
+  end
+end
+
+; The object file that defines function f.
+pub func object_of(f: word): byte
+  var obj: byte = 0
+  while f >= lk_name.obj_fn[obj + 1] do
+    obj += 1
+  end
+  return obj
+end
+
+; The bank or overlay function f's code is placed in + 1, or 0 for fixed memory.
+pub func fn_bank(f: word): byte
+  return obj_bank[object_of(f)]
+end
+
+; The bank or overlay the code of the module that defines variable or constant d is placed in
+; + 1, or 0.
+pub func def_bank(d: word): byte
+  var obj: byte = 0
+  while d >= lk_name.obj_def[obj + 1] do
+    obj += 1
+  end
+  return obj_bank[obj]
+end
+
+; Read object file obj.
+func scan(obj: byte)
+  var kind: byte
+  lk_rec.open_object(obj)
+  lk_name.obj_first[obj] = lk_name.local_count
+  lk_name.obj_first[obj + 1] = lk_name.local_count
+  lk_name.obj_fn[obj] = lk_tab.fn_count
+  lk_name.obj_def[obj] = lk_tab.def_count
+  if lk_rec.advance() != lk_rec.R_MOD or lk_rec.get_byte() != lk_rec.VERSION then
+    lk_file.fail(lk_err.E_VERSION, lk_file.ARG_OBJECT + obj)
+  end
+  obj_cpu[obj] = lk_rec.get_byte()
+  if obj_cpu[obj] > lk_envf.cpu then
+    lk_file.fail(lk_err.E_NEEDS_65C02, lk_file.ARG_OBJECT + obj)
+  end
+  module_place(obj)
+  cur_fn = lk_tab.NONE
+  dfix_read = false
+  kind = lk_rec.advance()
+  while kind != lk_rec.R_END do
+    take_record(obj, kind)
+    kind = lk_rec.advance()
+  end
+  if cur_fn != lk_tab.NONE or dfix_read then
+    damaged()
+  end
+  lk_rec.close()
+  lk_name.obj_fn[obj + 1] = lk_tab.fn_count
+  lk_name.obj_def[obj + 1] = lk_tab.def_count
+end
+
+forward func finish()
+
+; Read every object file named on the command line: once quietly for the names to keep
+; (lk_name.mark_all), once for the tables.
+pub func scan_all()
+  var obj: byte
+  lk_name.object_count = lk_file.arg_count() - lk_file.ARG_OBJECT
+  if lk_name.object_count > lk_name.MAX_OBJECTS then
+    lk_err.fail(lk_err.E_OBJECTS)
+  end
+  lk_name.mark_all()
+  lk_name.begin()
+  for obj = 0 until lk_name.object_count do
+    scan(obj)
+  end
+  check_places()
+  finish()
+end
+
+; A merged class's parameters are those of the class that stands for it: so are the weights given
+; to them.
+func add_class_weights()
+  var k: byte
+  var rep: byte
+  var i: byte
+  var p: byte
+  for k = 0 until lk_tab.cls_count do
+    rep = lk_tab.class_of(k)
+    if rep != k then
+      for i = 0 until lk_tab.cls_np[k] do
+        p = byte(lk_tab.cls_par[rep]) + i
+        lk_tab.cp_weight[p] = heavier(lk_tab.cp_weight[p], lk_tab.cp_weight[byte(lk_tab.cls_par[k]) + i])
+      end
+    end
+  end
+end
+
+; Classes a and b share a member, so they are one class from now on.
+pub func merge(a: byte, b: byte)
+  var i: byte
+  if a == b then
+    return
+  end
+  if lk_tab.cls_np[a] != lk_tab.cls_np[b] then
+    lk_name.fail(lk_err.E_CLASS_DIFFERS, lk_tab.cls_ref(b))
+  end
+  for i = 0 until lk_tab.cls_np[a] do
+    if lk_tab.cp_size[byte(lk_tab.cls_par[a]) + i] != lk_tab.cp_size[byte(lk_tab.cls_par[b]) + i] then
+      lk_name.fail(lk_err.E_CLASS_DIFFERS, lk_tab.cls_ref(b))
+    end
+  end
+  if b < a then
+    lk_tab.cls_rep[a] = b
+  else
+    lk_tab.cls_rep[b] = a
+  end
+end
+
+; Give every member its class, merging the classes of a function that is in two.
+func join_members()
+  var i: byte
+  var f: word
+  var k: byte
+  for i = 0 until lk_tab.memb_count do
+    ; A MEMB record is not inside a function: what it names must be there, kept or not.
+    if not lk_sym.is_defined(lk_tab.memb_func[i]) then
+      lk_name.fail(lk_err.E_UNDEFINED, lk_tab.memb_func[i])
+    end
+    if not lk_sym.is_defined(lk_tab.memb_class[i]) then
+      lk_name.fail(lk_err.E_UNDEFINED, lk_tab.memb_class[i])
+    end
+    f = lk_sym.row_of(lk_tab.memb_func[i])
+    k = lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i])))
+    if lk_tab.fn_class[f] == 0 then
+      lk_tab.fn_class[f] = k + 1
+    else
+      merge(lk_tab.class_of(lk_tab.fn_class[f] - 1), k)
+    end
+  end
+end
+
+; Hand the calls recorded against a merged class to the class that stands for it.
+func move_edges()
+  var k: byte
+  var rep: byte
+  var e: word
+  for k = 0 until lk_tab.cls_count do
+    rep = lk_tab.class_of(k)
+    e = lk_tab.cls_edge[k]
+    if rep != k and e != 0 then
+      while lk_tab.chain_next(e) != 0 do
+        e = lk_tab.chain_next(e)
+      end
+      lk_tab.work[lk_tab.W_NEXT + e - 1] = lk_tab.cls_edge[rep]
+      lk_tab.cls_edge[rep] = lk_tab.cls_edge[k]
+      lk_tab.cls_edge[k] = 0
+    end
+  end
+end
+
+; A class block calls every member of the class.
+func add_block_edges()
+  var i: byte
+  var k: byte
+  for i = 0 until lk_tab.memb_count do
+    k = lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i])))
+    lk_tab.add_edge(lk_tab.cls_ref(k), lk_tab.memb_func[i], 0)
+    if lk_tab.cls_namer[k] == 0 then
+      lk_tab.cls_namer[k] = lk_sym.row_of(lk_tab.memb_func[i]) + 1
+    end
+  end
+end
+
+; Whoever calls a member of a class calls the class block too, because the member's parameters
+; are there (code-model.md, "Functions called through a pointer").
+func add_via_edges(source: word)
+  var e: word
+  var target: word
+  var flags: byte
+  var f: word
+  var block: word
+  e = lk_tab.head_of(source)
+  while e != 0 do
+    target = lk_tab.edge_sym(e - 1)
+    flags = lk_tab.edge_flag(e - 1)
+    e = lk_tab.chain_next(e)
+    if (flags & lk_tab.E_VIA) == 0 and lk_sym.kind_of(target) == lk_sym.FUNCTION and
+        lk_sym.is_defined(target) then
+      f = lk_sym.row_of(target)
+      if lk_tab.fn_class[f] != 0 then
+        block = lk_tab.cls_ref(lk_tab.class_of(lk_tab.fn_class[f] - 1))
+        ; The block's own edge to its member is not a call of the member.
+        if block != source then
+          lk_tab.add_edge(source, block, flags | lk_tab.E_VIA)
+        end
+      end
+    end
+  end
+end
+
+; What can only be done once every object file has been read: from here on a symbol is what it
+; stands for (lk_name.resolve).
+pub func finish()
+  var i: byte
+  var f: word
+  var k: byte
+  lk_name.resolve()
+  for i = 0 until pend_count do
+    lk_tab.work[PEND_SYM + i] = lk_name.now(lk_tab.work[PEND_SYM + i])
+  end
+  lk_tab.build_chains()
+  join_members()
+  add_class_weights()
+  add_pending_weights()
+  move_edges()
+  add_block_edges()
+  for f = 0 until lk_tab.fn_count do
+    add_via_edges(lk_tab.fn_ref(f))
+  end
+  for k = 0 until lk_tab.cls_count do
+    add_via_edges(lk_tab.cls_ref(k))
+  end
+  add_far_edges()
+  lk_tab.chains_to_runs()
+end
+
+; True if a call of function source, with these edge flags, of `target` is a far call: a call (not
+; an edge that only places storage) of a function in a window from code that is not in the same
+; bank or overlay.
+pub func crosses(source: word, target: word, flags: byte): bool
+  var b: byte
+  if (flags & (lk_tab.E_PENDING | lk_tab.E_VIA)) != 0 then
+    return false
+  end
+  if lk_sym.kind_of(target) != lk_sym.FUNCTION or not lk_sym.is_defined(target) then
+    return false
+  end
+  b = fn_bank(lk_sym.row_of(target))
+  return b != 0 and b != fn_bank(source)
+end
+
+; A far call is a call of the far-call module's `call` (configurations.md, "The stub"): a function
+; that makes one calls it, and so does the block of a class with a member in a window, whose calls
+; go through the member's stub. Its storage, and that of what it calls (rt_ovl.load), is then
+; never shared with the caller's.
+func add_far_edges()
+  var call: word
+  var f: word
+  var e: word
+  var i: byte
+  var k: byte
+  if not lk_envf.placed() then
+    return
+  end
+  call = lk_name.fc_call
+  if call == lk_tab.NONE or lk_name.fc_start == lk_tab.NONE then
+    lk_envf.fail_text(lk_err.E_NO_FARCALL, lk_envf.farcall)
+  end
+  for f = 0 until lk_tab.fn_count do
+    e = lk_tab.head_of(lk_tab.fn_ref(f))
+    while e != 0 do
+      if crosses(f, lk_tab.edge_sym(e - 1), lk_tab.edge_flag(e - 1)) then
+        lk_tab.add_edge(lk_tab.fn_ref(f), call, lk_tab.E_NOSAVE)
+        e = 0
+      else
+        e = lk_tab.chain_next(e)
+      end
+    end
+  end
+  for i = 0 until lk_tab.memb_count do
+    if fn_bank(lk_sym.row_of(lk_tab.memb_func[i])) != 0 then
+      k = lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i])))
+      lk_tab.add_edge(lk_tab.cls_ref(k), call, lk_tab.E_NOSAVE)
+    end
+  end
+end

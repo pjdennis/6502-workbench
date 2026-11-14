@@ -37,12 +37,12 @@ def build_program(name, out_dir, small=False):
 CYCLE_CAP = 2000000000      # ten times the emulator's own: a source of 64K lines needs more
 
 
-def run(image, args=(), timeout=60):
-    """Run an image with program arguments. Returns (status, output, error output, cycles):
-    the error output without the emulator's own lines."""
+def run(image, args=(), timeout=60, cwd=None):
+    """Run an image with program arguments, in the directory `cwd` if one is given. Returns
+    (status, output, error output, cycles): the error output without the emulator's own lines."""
     cmd = [EMULATOR, os.path.abspath(image), '--output', '-', '--no-dump',
            '--cycle-cap', str(CYCLE_CAP)] + [str(a) for a in args]
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, cwd=cwd)
     err = r.stderr
     echo = ' '.join(cmd[1:]).encode() + b' '
     if err.startswith(echo):

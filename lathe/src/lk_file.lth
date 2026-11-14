@@ -1,0 +1,77 @@
+; The linker's files, which are all named by program arguments: lathe/host/lk_file.py in Lathe.
+;
+; The command line is `link ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...` (lathe/host/README.md).
+; A file is opened by the number of its argument, so no file name is kept anywhere: an object
+; file that is read again is simply opened again.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | PATH, an index into env.mem, and     | `path`, an array of PATH_SIZE     | memory is real  |
+;   | env.mem[PATH + i]                    | bytes, and path[i]                | (sys.lth)       |
+;   | arg_length: an int                   | a byte: sys.arg_copy gives one    |                 |
+module lk_file
+
+import lk_err
+import sys
+
+pub const ARG_ENV = 0
+pub const ARG_MAIN = 1
+pub const ARG_BIN = 2
+pub const ARG_MAP = 3
+pub const ARG_OBJECT = 4        ; the first object file
+
+const PATH_SIZE = 256
+pub var path: [PATH_SIZE]byte   ; where an argument is copied to
+
+; Number of program arguments.
+pub func arg_count(): byte
+  return sys.argc()
+end
+
+; Copy argument i to `path` and return its length.
+pub func arg_length(i: byte): byte
+  return sys.arg_copy(i, @path)
+end
+
+; Report error n about the file named by argument i.
+pub func fail(n: byte, i: byte)
+  var size: byte
+  var k: byte
+  lk_err.begin(n)
+  lk_err.colon()
+  size = arg_length(i)
+  for k = 0 until size do
+    lk_err.put(path[k])
+  end
+  lk_err.finish()
+end
+
+; Open the file named by argument i for reading.
+pub func open_in(i: byte): byte
+  var handle: byte
+  arg_length(i)
+  handle = sys.open_in(@path)
+  if handle == 0 then
+    fail(lk_err.E_OPEN, i)
+  end
+  return handle
+end
+
+; Open the file named by argument i for reading, or return 0 if it cannot be opened.
+pub func open_in_quiet(i: byte): byte
+  arg_length(i)
+  return sys.open_in(@path)
+end
+
+; Create the file named by argument i.
+pub func open_out(i: byte): byte
+  var handle: byte
+  arg_length(i)
+  handle = sys.open_out(@path)
+  if handle == 0 then
+    fail(lk_err.E_OPEN, i)
+  end
+  return handle
+end

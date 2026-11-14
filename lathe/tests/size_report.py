@@ -3,6 +3,7 @@
     python3 lathe/tests/size_report.py [OUT_DIR] [--all]
     python3 lathe/tests/size_report.py [OUT_DIR] --program NAME... [--all]
     python3 lathe/tests/size_report.py [OUT_DIR] --report
+    python3 lathe/tests/size_report.py [OUT_DIR] --linker
 
 With no --program: builds lathe/src/lextest.lth, the measurement program for code generation,
 and prints its code bytes per module and its largest functions (the 15 largest; --all, every
@@ -15,6 +16,10 @@ every function of it that some program keeps. Its tables are what the maps give,
 (regtest, condtest, gentest and asmtest are the small build, the others are not).
 Then the lines of each Python module (all, and code only, without
 blank lines, comments and docstrings) against the bytes of code, and the ten largest functions.
+
+--linker does the same for the linker's twins (LINKER), over the linker's test programs built with
+lathe/src/linker.env, and projects the size of the whole linker from the bytes per line of
+Python code of the twins written so far.
 
 OUT_DIR (default: a temporary directory) keeps each build in OUT_DIR/NAME, its objects and map
 in OUT_DIR/NAME/work."""
@@ -36,11 +41,24 @@ PROGRAMS = ('lextest', 'errtest', 'kerneltest', 'srctest', 'typetest', 'foldtest
 SMALL = ('regtest', 'condtest', 'gentest', 'asmtest')   # the small build (src_support.build_program)
 
 
-def build(name, out_dir):
-    """Build test program NAME in OUT_DIR/NAME. Returns its map's path."""
+LINKER = ('lk_err', 'lk_op', 'lk_file', 'lk_rec', 'lk_sym', 'lk_envf', 'lk_tab', 'lk_name', 'lk_scan',
+          'lk_out')
+LINKER_PROGRAMS = ('lktest1', 'lktest2')
+LINKER_LATER = ('lk_win', 'lk_boot', 'lk_graph', 'lk_alloc', 'lk_fix', 'lk_place', 'lk_map', 'lk_emit',
+                'link')
+
+
+def build(name, out_dir, env=None):
+    """Build test program NAME in OUT_DIR/NAME, with the environment file `env` or the
+    compiler's. Returns its map's path."""
     where = os.path.join(out_dir, name)
     os.makedirs(where, exist_ok=True)
-    support.build_program(name, where, small=name in SMALL)
+    if env is None:
+        support.build_program(name, where, small=name in SMALL)
+    else:
+        import build as driver
+        driver.build(os.path.join(support.SRC, name + '.lth'), os.path.join(where, name + '.bin'),
+                     env=env, keep=os.path.join(where, 'work'))
     work = os.path.join(where, 'work')
     return os.path.join(work, [f for f in os.listdir(work) if f.endswith('.map')][0])
 
@@ -189,6 +207,53 @@ def report(out_dir):
         print('%6d %s' % (size, name))
 
 
+def linker_report(out_dir):
+    """The linker's twins, measured over its test programs."""
+    import lo
+    env = os.path.join(support.SRC, 'linker.env')
+    maps = {name: read_map(build(name, out_dir, env)) for name in LINKER_PROGRAMS}
+    function_size = {}
+    for items in maps.values():
+        for kind, address, size, name in items:
+            if kind == 'F' and module_of(name) in LINKER and '@' not in name:
+                function_size[name] = max(size, function_size.get(name, 0))
+    unkept = {}
+    for m in LINKER:
+        for name in LINKER_PROGRAMS:
+            path = os.path.join(out_dir, name, 'work', m + '.lo')
+            if os.path.exists(path):
+                module = lo.load(path)
+                break
+        for f in module.functions():
+            n = module.sym_name(f.sym)
+            if n not in function_size:
+                unkept[n] = len(f.code)
+    print("The linker's twins over %s (bytes of code; a function no program keeps counts its"
+          % ', '.join(LINKER_PROGRAMS))
+    print('written size)')
+    print('%-9s %6s %6s %6s %6s %6s' % ('module', 'code', 'py', 'py code', 'b/line', 'b/code'))
+    sums = [0, 0, 0]
+    for m in LINKER:
+        code = sum(sz for n, sz in list(function_size.items()) + list(unkept.items()) if module_of(n) == m)
+        lines, code_lines = python_lines(m)
+        print('%-9s %6d %6d %6d %6.2f %6.2f' % (m, code, lines, code_lines, code / lines, code / code_lines))
+        for i, v in enumerate((code, lines, code_lines)):
+            sums[i] += v
+    print('%-9s %6d %6d %6d %6.2f %6.2f' % ('total', sums[0], sums[1], sums[2], sums[0] / sums[1],
+                                           sums[0] / sums[2]))
+    print('not kept by any program: %s' % (' '.join(sorted(unkept)) or '-'))
+    later = [python_lines(m) for m in LINKER_LATER]
+    later_code = sum(c for _, c in later)
+    per = sums[0] / sums[2]
+    print('the rest of the linker (%s): %d lines of code; at %.2f bytes a line %d bytes, '
+          'so %d in all' % (' '.join(LINKER_LATER), later_code, per, later_code * per,
+                            sums[0] + later_code * per))
+    print()
+    print('The ten largest functions')
+    for name, size in sorted(function_size.items(), key=lambda x: -x[1])[:10]:
+        print('%6d %s' % (size, name))
+
+
 def main(argv):
     show_all = '--all' in argv
     programs = []
@@ -201,6 +266,9 @@ def main(argv):
     os.makedirs(out_dir, exist_ok=True)
     if '--report' in argv:
         report(out_dir)
+        return
+    if '--linker' in argv:
+        linker_report(out_dir)
         return
     if programs:
         for name in programs:

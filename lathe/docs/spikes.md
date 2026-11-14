@@ -1,6 +1,6 @@
 # Lathe: spikes
 
-Status (2026-11-14): the small spikes S1 to S7 and the larger spikes L4 and L5 are done; results are at the end. L1 and L2 were folded into building the compiler and the linker. L3 (shrinking in the linker) is answered by the linker itself, which shrinks in one streaming pass and matches the assembler byte for byte.
+Status (2026-11-14): the small spikes S1 to S7 and the larger spikes L4 and L5 are done; results are at the end, with the first measurement of the linker in Lathe. L1 and L2 were folded into building the compiler and the linker. L3 (shrinking in the linker) is answered by the linker itself, which shrinks in one streaming pass and matches the assembler byte for byte.
 
 A spike is a short experiment that answers one question and is then thrown away. Its output is a number or a yes or no, written back into the design documents. Spike code does not become the compiler.
 
@@ -254,6 +254,31 @@ With the middle layers also written in Lathe (types, constant folding, the funct
 - **The host compiler cannot compile `reg.lth` within its own limits**, because an import brings in every exported name.
 - **Where the code is bigger than it should be**, by estimated saving in the six middle modules: arrays of more than 256 entries (142 address computations of about 13 bytes; rows reached through a pointer would save 550 bytes here and several KB overall); the function buffer walked by an index, not a pointer (740); the address of `buffer[e + k]` recomputed each time (260); a word built from two bytes through a temporary (25 bytes a time against 10); index registers reloaded when two indexes alternate (250); chains of tests that could be tables; loops tested at the top (29 loops).
 - **First improvements (2026-11-14).** Four changes to code generation took the ten from 24,257 bytes (the measure after the cut tables) to 23,835: a word against `$FFFF` as the AND of its bytes (71), absolute,Y for an element whose index X does not hold while X holds another (68 for stores, 67 more for loads), and big arrays of bytes and words reached with Y the low byte of the index (216). A fault fix, `w = t[lo(w)]`, then cost 35 (23,870). What was tried and did not pay is listed in `codegen.md`, "Tried and dropped".
+
+## The linker's lower layers in Lathe, measured (2026-11-14)
+
+Stage 8 began with the linker's ten lowest modules written in Lathe (`lathe/src/lk_*.lth`), each tested against its host module by `lathe/tests/test_src_lk.py` (`lathe/host/README.md`, "The linker in Lathe"). Measured by `lathe/tests/size_report.py --linker` over the two test programs, which between them keep every function of the ten; "code" lines are those of the Python without blank lines, comments and docstrings.
+
+| Module | Code bytes | Python lines | Code lines | Bytes per line | Bytes per code line |
+|---|---|---|---|---|---|
+| lk_err | 418 (and 2,505 of messages) | 221 | 179 | 1.9 | 2.3 |
+| lk_op | 122 (and the 256-byte table) | 71 | 45 | 1.7 | 2.7 |
+| lk_file | 127 | 60 | 34 | 2.1 | 3.7 |
+| lk_rec | 356 | 149 | 98 | 2.4 | 3.6 |
+| lk_sym | 198 | 69 | 35 | 2.9 | 5.7 |
+| lk_envf | 3,340 | 688 | 527 | 4.9 | 6.3 |
+| lk_tab | 4,865 | 649 | 410 | 7.5 | 11.9 |
+| lk_name | 3,952 | 493 | 321 | 8.0 | 12.3 |
+| lk_scan | 4,036 | 540 | 405 | 7.5 | 10.0 |
+| lk_out | 402 | 81 | 52 | 5.0 | 7.7 |
+| **The ten** | **17,816** | **3,021** | **2,106** | **5.9** | **8.5** |
+
+The ten largest functions: `lk_tab.build_chains` 915, `lk_envf.check_windows` 662, `lk_scan.rec_wgt` 568, `lk_name.symbol` 509, `lk_name.mark_object` 410, `lk_tab.chains_to_runs` 393, `lk_name.resolve` 310, `lk_envf.check` 305, `lk_tab.add_waiting` 287, `lk_scan.add_far_edges` 281.
+
+- **Projection.** The modules still to write (`lk_win`, `lk_boot`, `lk_graph`, `lk_alloc`, `lk_fix`, `lk_place`, `lk_map`, `lk_emit`, `link`) have 2,003 lines of code. At 8.5 bytes a line they are about 17 KB, so the linker would be **about 35 KB of code** and 2.8 KB of constant data, three times the 12 KB that "Memory in the linker" ([`architecture.md`](architecture.md)) assumed and the 8 to 11 KB of the first projection of L4. The upper layers are more like `lk_tab` and `lk_scan` (walks of the tables and the work area) than like `lk_err` and `lk_rec`, so the figure is more likely low than high.
+- **Where the bytes go.** The tables of more than 256 rows. Each access to an element of a `rows` table of words (`lk_tab.work`, `edge_word`, `fn_edge`, `local`...) computes a 16-bit address, base plus twice the index, into a zero page pointer before the `LDA (p),Y`: about 30 of the 50 bytes of `lk_tab.chain_next` (`work[W_NEXT + e - 1]`). The ten have 166 such accesses, about 5 KB, more than a quarter of their code. Keeping the pointer of an element that is read and then written (`x[i] |= v`; `work[W_START + f] = fn_edge[f]` and then `fn_edge[f] = 0`) would take perhaps 10 to 15% of those 5 KB; folding the constants of an index together (`W_NEXT + e - 1` adds `W_NEXT` and then subtracts 1) only 6 bytes in each of 6 places. The rest is what tables of more than 256 rows cost on a 6502, as the twins are written: line for line from the Python, which indexes; a twin free to walk a table with a pointer (`p = @work[i]`, then `p[0]`, `p[1]`) would pay the address once per walk.
+- **Memory.** The test program `lktest2` has 20.0 KB of code and 2.7 KB of constant data, and 28.5 KB of variables at the small build's capacities (half of what grows with the program: `lathe/host/README.md`). At full capacities the tables are 53,952 bytes, so the linker with 35 KB of code cannot hold them in 64 KB: its code must be banked or chained (passes 1 and 2 apart), or its capacities cut to about the small build's, which links a program half the compiler's size.
+- **No fault in the compiler was found** by these 3,000 lines: every twin behaved as its host module the first time it ran. The host compiler's own capacities sufficed: `lk_scan`, which imports seven of the others, needs 7,946 bytes of names of 12,800 and 201 symbols of 384 (`lktest2` 8,461 and 201).
 
 ## Result of L5: far calls three ways (2026-11-14)
 

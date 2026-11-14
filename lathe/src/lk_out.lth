@@ -1,0 +1,101 @@
+; The image file: lathe/host/lk_out.py in Lathe.
+;
+; Memory from the start of the `code` range to $FFFF, written in address order. With
+; `output raw` the file ends with the last byte the linker placed, and has no vectors.
+;
+; A bank or overlay is a file of its own, beside the image (in the directory of OUT.bin), named by
+; its `bank` or `overlay` entry: the bytes from the window's first address through the last byte
+; placed in it, the raw form. One file is written at a time.
+;
+; Nothing of the image is held in memory. Whatever is written must come at or after what was
+; written before it; the gaps are filled with zeros.
+;
+; Where the Lathe differs from the Python:
+;
+;   | Python                               | Lathe                             | Why             |
+;   |--------------------------------------|-----------------------------------|-----------------|
+;   | env.mem[lk_file.PATH + i]            | lk_file.path[i]                   | lk_file.lth     |
+;   | (written + 1) & 0xFFFF, and          | written + 1, 0 - code_lo          | a word wraps    |
+;   | (0 - code_lo) & 0xFFFF               |                                   |                 |
+;   | put_word: value >> 8                 | hi(value)                         | the same byte   |
+module lk_out
+
+import lk_envf
+import lk_err
+import lk_file
+import sys
+
+var handle: byte = 0
+var written: word = 0           ; bytes written so far: the next address is base + written
+var base: word = 0              ; the address of the file's first byte
+var is_bank: bool = false       ; the file is a bank's or an overlay's
+
+pub func open_image()
+  handle = lk_file.open_out(lk_file.ARG_BIN)
+  written = 0
+  base = lk_envf.code_lo
+  is_bank = false
+end
+
+; Create the file of bank or overlay b, in the directory of the image.
+pub func open_bank(b: byte)
+  var size: byte
+  var cut: byte
+  var i: byte
+  var name: word
+  size = lk_file.arg_length(lk_file.ARG_BIN)
+  cut = 0
+  for i = 0 until size do
+    if lk_file.path[i] == 47 then
+      cut = i + 1
+    end
+  end
+  name = lk_envf.bank_file[b]
+  for i = 0 until lk_envf.text[name - 1] do
+    lk_file.path[cut + i] = lk_envf.text[name + i]
+  end
+  lk_file.path[cut + lk_envf.text[name - 1]] = 0
+  handle = sys.open_out(@lk_file.path)
+  if handle == 0 then
+    lk_envf.fail_text(lk_err.E_OPEN, name)
+  end
+  written = 0
+  base = lk_envf.win_lo[lk_envf.bank_win[b]]
+  is_bank = true
+end
+
+pub func put(value8: byte)
+  sys.write(handle, value8)
+  written += 1
+end
+
+; Fill with zeros up to address addr, which must not be behind what is written.
+pub func seek(addr: word)
+  if addr < base or addr - base < written then
+    lk_err.fail(lk_err.E_OVERLAP)
+  end
+  while written != addr - base do
+    put(0)
+  end
+end
+
+pub func put_word(value: word)
+  put(lo(value))
+  put(hi(value))
+end
+
+; Put the address `reset` in the reset vector, fill the image to $FFFF and close it.
+;
+; With `output raw`, and for a bank's file, only close it.
+pub func close_image(reset: word)
+  if lk_envf.raw or is_bank then
+    sys.close(handle)
+    return
+  end
+  seek($FFFC)
+  put_word(reset)
+  while written != 0 - lk_envf.code_lo do
+    put(0)
+  end
+  sys.close(handle)
+end

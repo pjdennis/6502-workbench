@@ -1,0 +1,40 @@
+; What the test programs of the Lathe-written linker (lktest1, lktest2) print: numbers in
+; hexadecimal, each followed by a space, and the end of a line. It needs nothing but sys, so that
+; a test program holds the linker's tables and not the compiler's (script.lth imports the
+; kernel). Its Python twin is in lathe/tests/test_src_lk.py.
+module lkshow
+
+import sys
+
+const HEX: [16]byte = "0123456789ABCDEF"
+
+pub func show_byte(b: byte)
+  sys.put_byte(HEX[b >> 4])
+  sys.put_byte(HEX[b & 15])
+  sys.put_byte(' ')
+end
+
+pub func show_word(w: word)
+  sys.put_byte(HEX[hi(w) >> 4])
+  sys.put_byte(HEX[hi(w) & 15])
+  show_byte(lo(w))
+end
+
+pub func show_bool(f: bool)
+  if f then
+    sys.put_byte('T')
+  else
+    sys.put_byte('F')
+  end
+  sys.put_byte(' ')
+end
+
+; A letter that says what the line holds, and a space.
+pub func label(c: byte)
+  sys.put_byte(c)
+  sys.put_byte(' ')
+end
+
+pub func end_line()
+  sys.put_byte(10)
+end

@@ -1,0 +1,377 @@
+; A test of the linker's first reading: lk_rec, lk_sym, lk_tab, lk_name and lk_scan (with lk_envf).
+;
+;     lktest2 ENV MAINMODULE OUT.bin OUT.map OBJECT.lo...
+;
+; takes the linker's own command line, reads the environment file and the object files as the
+; linker does (lk_scan.scan_all), and prints every table it filled (lkshow.lth) and, to the error
+; output, the name of every function, variable, constant and class as an error message would
+; give it. Then it goes back in each object file (lk_rec.goto), makes nodes as lk_graph does for
+; contexts made up from the function numbers and prints what lk_tab says about them, writes the
+; names of each file to OUT.map as lk_map holds them, and ends with an error that names two
+; symbols if there are a function and a variable or constant.
+;
+; lathe/tests/test_src_lk.py runs it and its twin over the host modules, at the capacities of the
+; small build (LKSMALL), on every link the linker's own tests make, on the end-to-end programs
+; and on lk_synthetic's program, and compares what they print, their error output and their exit
+; status.
+module lktest2
+
+import lk_envf
+import lk_err
+import lk_file
+import lk_name
+import lk_rec
+import lk_scan
+import lk_sym
+import lk_tab
+import lkshow
+import sys
+
+func show_objects()
+  var obj: byte
+  lkshow.label('o')
+  lkshow.show_byte(lk_name.object_count)
+  lkshow.show_word(lk_sym.count)
+  lkshow.show_word(lk_name.local_count)
+  lkshow.show_word(lk_name.heap_top)
+  lkshow.show_word(lk_name.main_sym)
+  lkshow.show_word(lk_name.fc_call)
+  lkshow.show_word(lk_name.fc_start)
+  lkshow.show_byte(lk_scan.pend_count)
+  lkshow.end_line()
+  for obj = 0 until lk_name.object_count do
+    lkshow.label('j')
+    lkshow.show_word(lk_name.obj_first[obj])
+    lkshow.show_word(lk_name.obj_fn[obj])
+    lkshow.show_word(lk_name.obj_def[obj])
+    lkshow.show_byte(lk_scan.obj_cpu[obj])
+    lkshow.show_byte(lk_scan.cpu_of(obj))
+    lkshow.show_byte(lk_scan.obj_bank[obj])
+    lkshow.end_line()
+  end
+  for obj = 0 until lk_envf.place_count do
+    lkshow.label('p')
+    lkshow.show_byte(lk_envf.place_bank[obj])
+    lkshow.end_line()
+  end
+end
+
+func show_locals()
+  var i: word
+  lkshow.label('l')
+  for i = 0 until lk_name.local_count do
+    lkshow.show_word(lk_name.local[i])
+  end
+  lkshow.end_line()
+end
+
+func show_functions()
+  var f: word
+  var e: word
+  var r: word
+  var k: byte
+  var live: bool
+  for f = 0 until lk_tab.fn_count do
+    r = lk_tab.fn_ref(f)
+    lkshow.label('f')
+    lkshow.show_word(r)
+    lkshow.show_byte(lk_tab.fn_flags[f])
+    lkshow.show_word(lk_tab.fn_slot[f])
+    lkshow.show_word(lk_tab.fn_nslots(f))
+    lkshow.show_byte(lk_tab.fn_class[f])
+    lkshow.show_word(lk_tab.fn_edge[f])
+    lkshow.show_byte(lk_scan.object_of(f))
+    lkshow.show_byte(lk_scan.fn_bank(f))
+    k, live = lk_tab.member_class(f)
+    lkshow.show_byte(k)
+    lkshow.show_bool(live)
+    lkshow.label(':')
+    e = lk_tab.first_call(r)
+    while e != 0 do
+      lkshow.show_word(lk_tab.edge_sym(e - 1))
+      lkshow.show_byte(lk_tab.edge_flag(e - 1))
+      lkshow.show_bool(lk_scan.crosses(f, lk_tab.edge_sym(e - 1), lk_tab.edge_flag(e - 1)))
+      e = lk_tab.next_call(r, e)
+    end
+    lkshow.end_line()
+    lk_name.error_name(r)
+    lk_err.put(10)
+  end
+end
+
+func show_slots()
+  var s: word
+  var b: byte
+  for s = 0 until lk_tab.slot_count do
+    lkshow.label('s')
+    lkshow.show_byte(lk_tab.slot_sz[s])
+    lkshow.show_byte(lk_tab.slot_weight[s])
+    lkshow.show_word(lk_tab.slot_bytes(s))
+    lkshow.show_byte(lk_tab.slot_class(s))
+    lkshow.show_bool(lk_tab.slot_in_zp(s))
+    lkshow.show_bool(lk_tab.slot_is_param(s))
+    lkshow.end_line()
+  end
+  lkshow.label('g')
+  for b = 0 until lk_tab.big_count do
+    lkshow.show_word(lk_tab.big_slot[b])
+    lkshow.show_word(lk_tab.big_size[b])
+  end
+  lkshow.end_line()
+end
+
+func show_classes()
+  var k: byte
+  var p: byte
+  var m: byte
+  var r: word
+  var e: word
+  for k = 0 until lk_tab.cls_count do
+    r = lk_tab.cls_ref(k)
+    lkshow.label('k')
+    lkshow.show_byte(lk_tab.cls_rep[k])
+    lkshow.show_byte(lk_tab.class_of(k))
+    lkshow.show_byte(lk_tab.cls_np[k])
+    lkshow.show_word(lk_tab.cls_par[k])
+    lkshow.show_word(lk_tab.cls_namer[k])
+    lkshow.show_word(lk_tab.cls_edge[k])
+    lkshow.label(':')
+    e = lk_tab.first_call(r)
+    while e != 0 do
+      lkshow.show_word(lk_tab.edge_sym(e - 1))
+      lkshow.show_byte(lk_tab.edge_flag(e - 1))
+      e = lk_tab.next_call(r, e)
+    end
+    lkshow.end_line()
+    lk_name.error_name(r)
+    lk_err.put(10)
+  end
+  for p = 0 until lk_tab.cp_count do
+    lkshow.label('c')
+    lkshow.show_word(lk_tab.cp_size[p])
+    lkshow.show_byte(lk_tab.cp_info[p])
+    lkshow.show_byte(lk_tab.cp_weight[p])
+    lkshow.end_line()
+  end
+  for m = 0 until lk_tab.memb_count do
+    lkshow.label('m')
+    lkshow.show_word(lk_tab.memb_class[m])
+    lkshow.show_word(lk_tab.memb_func[m])
+    lkshow.end_line()
+  end
+end
+
+func show_calls()
+  var e: word
+  lkshow.label('e')
+  lkshow.show_word(lk_tab.edge_count)
+  lkshow.show_word(lk_tab.waiting)
+  for e = 0 until lk_tab.edge_count do
+    lkshow.show_word(lk_tab.edge_word[e])
+  end
+  lkshow.end_line()
+end
+
+func show_defs()
+  var d: word
+  var r: word
+  for d = 0 until lk_tab.def_count do
+    r = lk_tab.def_ref(d)
+    lkshow.label('d')
+    lkshow.show_word(r)
+    lkshow.show_word(lk_tab.def_a[d])
+    lkshow.show_word(lk_tab.def_w(d))
+    lkshow.show_word(lk_tab.def_b[d])
+    lkshow.show_byte(lk_tab.def_f[d])
+    lkshow.show_bool(lk_tab.is_kept_def(d))
+    lkshow.show_bool(lk_tab.is_kept_var(d))
+    lkshow.show_byte(lk_scan.def_bank(d))
+    lkshow.end_line()
+    lk_name.error_name(r)
+    lk_err.put(10)
+  end
+end
+
+; Going back in each object file: to its first record, on to its second, to the second again
+; and back to the first.
+func show_goto()
+  var obj: byte
+  for obj = 0 until lk_name.object_count do
+    lkshow.label('r')
+    lkshow.show_byte(lk_rec.goto(obj, 1))
+    lkshow.show_byte(lk_rec.goto(obj, 2))
+    lkshow.show_word(lk_rec.recno())
+    lkshow.show_word(lk_rec.left())
+    lkshow.show_byte(lk_rec.goto(obj, 2))
+    lkshow.show_byte(lk_rec.goto(obj, 1))
+    lkshow.show_word(lk_rec.left())
+    lkshow.end_line()
+  end
+  lk_rec.close()
+end
+
+; The contexts of function f in make_nodes(), by f mod 16: a bit for each.
+const CONTEXTS: [16]byte = [1, 1, 1, 0, 1, 3, 2, 1, 1, 4, 1, 1, 1, 7, 1, 1]
+
+; Nodes as lk_graph.make_nodes makes them, for contexts made up from each function's number (of
+; three, CONTEXTS); class k is live, in context k mod 3, unless k mod 3 is 2.
+func make_nodes()
+  var f: word
+  var ctx: byte
+  var first: bool
+  var k: byte
+  lk_tab.ctx_count = 3
+  for f = 0 until lk_tab.fn_count do
+    lk_tab.fn_ctx[f] = CONTEXTS[lo(f) & 15]
+  end
+  for k = 0 until lk_tab.cls_count do
+    lk_tab.cls_reach[k] = 0
+    if k mod 3 != 2 then
+      lk_tab.cls_reach[k] = 1
+    end
+    lk_tab.cls_ctx[k] = k mod 3
+  end
+  lk_tab.node_count = lk_tab.fn_count
+  for f = 0 until lk_tab.fn_count do
+    for ctx = lk_tab.ctx_count - 1 downto 0 do
+      if lk_tab.has_copy(f, ctx) then
+        lk_tab.work[lk_tab.W_CTXZ + f] = word(ctx) << 8
+      end
+    end
+  end
+  for f = 0 until lk_tab.fn_count do
+    first = true
+    for ctx = 0 until lk_tab.ctx_count do
+      if lk_tab.has_copy(f, ctx) then
+        if not first then
+          lk_tab.new_node(f, ctx)
+        end
+        first = false
+      end
+    end
+  end
+  lk_tab.extra_end = lk_tab.node_count
+  for k = 0 until lk_tab.cls_count do
+    if lk_tab.cls_reach[k] != 0 then
+      lk_tab.cls_node[k] = lk_tab.node_count
+      lk_tab.new_node(lk_tab.CLASS_NODE + k, lk_tab.cls_ctx[k])
+    end
+  end
+end
+
+func show_nodes()
+  var n: word
+  var f: word
+  var ctx: byte
+  make_nodes()
+  lkshow.label('n')
+  lkshow.show_word(lk_tab.node_count)
+  lkshow.show_word(lk_tab.extra_end)
+  lkshow.end_line()
+  n = lk_tab.first_in_order()
+  while n != lk_tab.NONE do
+    lk_tab.set_zbase(n, lo(n * 3))
+    lk_tab.work[lk_tab.W_MBASE + n] = n * 5
+    lkshow.label('v')
+    lkshow.show_word(n)
+    lkshow.show_word(lk_tab.own_of(n))
+    lkshow.show_byte(lk_tab.ctx_of(n))
+    lkshow.show_byte(lk_tab.zbase_of(n))
+    lkshow.show_word(lk_tab.mbase_of(n))
+    lkshow.show_bool(lk_tab.is_node(n))
+    lkshow.show_bool(lk_tab.is_extra_copy(n))
+    lkshow.show_bool(lk_tab.node_is_class(n))
+    lkshow.show_word(lk_tab.node_sym(n))
+    if lk_tab.node_is_class(n) then
+      lkshow.show_byte(lk_tab.node_class(n))
+    end
+    lkshow.end_line()
+    lk_name.error_node(n)
+    lk_err.put(10)
+    n = lk_tab.next_in_order(n)
+  end
+  for f = 0 until lk_tab.fn_count do
+    lkshow.label('y')
+    lkshow.show_word(lk_tab.first_node(f))
+    lkshow.show_word(lk_tab.first_extra(f))
+    for ctx = 0 until lk_tab.ctx_count do
+      lkshow.show_bool(lk_tab.has_copy(f, ctx))
+      if lk_tab.has_copy(f, ctx) then
+        lkshow.show_word(lk_tab.copy_node(f, ctx))
+        lkshow.show_bool(lk_tab.in_block(f, ctx))
+      end
+    end
+    if lk_tab.fn_nslots(f) != 0 then
+      lkshow.show_bool(lk_tab.in_frame(f, 0, false))
+      lkshow.show_bool(lk_tab.in_frame(f, 0, true))
+    end
+    lkshow.end_line()
+  end
+  lkshow.label('z')
+  lkshow.show_word(lk_tab.add16(1, 2))
+  lkshow.show_bool(lk_tab.overflow)
+  lkshow.show_word(lk_tab.add16($FFFF, 0))
+  lkshow.show_bool(lk_tab.overflow)
+  lkshow.show_word(lk_tab.add16($8000, $8000))
+  lkshow.show_bool(lk_tab.overflow)
+  lkshow.end_line()
+end
+
+; The names of each object file's module and symbols, held as lk_map holds them and written to
+; OUT.map: the module's at a place of its own (keep_at), the symbols' one after another (buf_keep).
+func show_held()
+  var handle: byte
+  var obj: byte
+  var kind: byte
+  var pos: word
+  handle = lk_file.open_out(lk_file.ARG_MAP)
+  for obj = 0 until lk_name.object_count do
+    lk_name.buf_begin(0, 2 * lk_tab.W_SCC)
+    lk_rec.open_object(obj)
+    kind = lk_rec.advance()
+    while kind != lk_rec.R_END do
+      if kind == lk_rec.R_MOD then
+        lk_rec.get_byte()
+        lk_rec.get_byte()
+        lk_name.keep_at(2 * lk_tab.W_SCC)
+        lk_name.write_held(handle, 2 * lk_tab.W_SCC)
+        sys.write(handle, 10)
+      elif kind == lk_rec.R_SYM then
+        lk_rec.get_byte()
+        pos = lk_name.buf_keep()
+        lk_name.write_held(handle, pos)
+        sys.write(handle, 32)
+      end
+      kind = lk_rec.advance()
+    end
+    sys.write(handle, 10)
+    lkshow.label('h')
+    lkshow.show_word(lk_name.buf_top)
+    lkshow.end_line()
+  end
+  lk_rec.close()
+  sys.close(handle)
+end
+
+pub func main()
+  if lk_file.arg_count() <= lk_file.ARG_OBJECT then
+    lk_err.fail(lk_err.E_USAGE)
+  end
+  lk_envf.read()
+  lk_scan.scan_all()
+  show_objects()
+  show_locals()
+  show_functions()
+  show_slots()
+  show_classes()
+  show_calls()
+  show_defs()
+  show_goto()
+  show_nodes()
+  show_held()
+  ; An error message that names two symbols, which ends the program.
+  if lk_tab.fn_count != 0 and lk_tab.def_count != 0 then
+    lk_name.fail_in(lk_err.E_UNDEFINED, lk_tab.def_ref(0), lk_tab.fn_ref(0))
+  end
+  sys.exit(0)
+end

@@ -371,13 +371,20 @@ def resolve():
 
 # ---- names read again from the files
 
+found_obj = 0                       # find_local: the object file it found
+
+
 def find_local(s):
-    """The first object file with a SYM record for symbol s, and that record's number."""
+    """The number of the first SYM record for symbol s in any object file, which is file
+    found_obj."""
+    global found_obj
     for obj in range(0, object_count):
         for i in range(obj_first[obj], obj_first[obj + 1]):
             if local[i] == s:
-                return obj, i - obj_first[obj]
-    return 0, 0
+                found_obj = obj
+                return i - obj_first[obj]
+    found_obj = 0
+    return 0
 
 
 def to_name(obj, n):
@@ -398,8 +405,8 @@ def to_name(obj, n):
 
 def error_name(s):
     """The name of symbol s, as part of an error message."""
-    obj, n = find_local(s)
-    size = to_name(obj, n)
+    n = find_local(s)
+    size = to_name(found_obj, n)
     for i in range(0, size):
         lk_err.put(lk_rec.get_byte())
 

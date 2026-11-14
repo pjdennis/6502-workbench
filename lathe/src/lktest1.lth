@@ -1,0 +1,234 @@
+; A test of the linker's lowest layers: lk_err, lk_op, lk_file, lk_envf and lk_out.
+;
+;     lktest1 ENV MODE OUT.bin [FILE]
+;
+; does what each letter of MODE says, in order, and prints what it gives (lkshow.lth):
+;
+;   a   the arguments: how many, and the length of each
+;   o   for each opcode: its length, its zero page form or `-`, whether it is a branch on each CPU
+;   n   numbers, the separators and every message of lk_err, to the error output
+;   e   reads the environment file ENV and prints every setting
+;   i   writes the image OUT.bin as lk_out writes it: a few bytes at a few addresses
+;   b   writes the file of every bank or overlay that has one, beside OUT.bin
+;   s   writes behind what is written: error 32
+;   q   opens FILE quietly: whether it could be
+;   f   opens FILE: error 2 if it cannot be
+;   u   the usage error
+;
+; lathe/tests/test_src_lk.py runs it and its twin over the host modules on every environment
+; file of lathe/env/, the test environments of the linker's suite and the bad ones, and compares
+; what they print, their error output, their exit status and the files they write.
+module lktest1
+
+import lk_envf
+import lk_err
+import lk_file
+import lk_op
+import lk_out
+import lkshow
+import sys
+
+const ARG_FILE = 4
+
+var mode: [64]byte
+var mode_len: byte
+
+func show_args()
+  var i: byte
+  lkshow.label('a')
+  lkshow.show_byte(lk_file.arg_count())
+  for i = 0 until lk_file.arg_count() do
+    lkshow.show_byte(lk_file.arg_length(i))
+  end
+  lkshow.end_line()
+end
+
+func show_ops()
+  var op: byte = 0
+  loop
+    lkshow.show_byte(lk_op.length(op))
+    if lk_op.can_shrink(op) then
+      lkshow.show_byte(lk_op.zp_opcode(op))
+    else
+      lkshow.label('-')
+    end
+    lkshow.show_bool(lk_op.is_branch(op, lk_op.CPU_6502))
+    lkshow.show_bool(lk_op.is_branch(op, lk_op.CPU_65C02))
+    lkshow.end_line()
+    op += 1
+  until op == 0
+end
+
+const NUMBERS: [7]byte = [0, 9, 10, 99, 100, 199, 255]
+const WORDS: [12]word = [0, 1, 9, 10, 99, 100, 999, 1000, 9999, 10000, 12345, 65535]
+
+func show_numbers()
+  var i: byte
+  var n: byte
+  for i = 0 until len(NUMBERS) do
+    lk_err.put_number(NUMBERS[i])
+    lk_err.comma()
+  end
+  for i = 0 until len(WORDS) do
+    lk_err.put_word(WORDS[i])
+    lk_err.arrow()
+  end
+  lk_err.over(0, false)
+  lk_err.over(1, false)
+  lk_err.over(2, false)
+  lk_err.over(65535, false)
+  lk_err.over(5, true)
+  lk_err.colon()
+  lk_err.put(10)
+  for n = 1 to lk_err.E_FARCALL_MISSING do
+    lk_err.begin(n)
+    lk_err.put(10)
+  end
+end
+
+func show_text(name: word)
+  var i: byte
+  lkshow.show_word(name)
+  if name != 0 then
+    for i = 0 until lk_envf.text[name - 1] do
+      sys.put_byte(lk_envf.text[name + i])
+    end
+    sys.put_byte(' ')
+  end
+end
+
+func show_env()
+  var i: word
+  var b: byte
+  lk_envf.read()
+  lkshow.label('e')
+  lkshow.show_byte(lk_envf.cpu)
+  lkshow.show_word(lk_envf.zp_lo)
+  lkshow.show_word(lk_envf.zp_hi)
+  lkshow.show_word(lk_envf.code_lo)
+  lkshow.show_word(lk_envf.code_hi)
+  lkshow.show_word(lk_envf.data_lo)
+  lkshow.show_word(lk_envf.data_hi)
+  lkshow.show_word(lk_envf.have)
+  lkshow.show_bool(lk_envf.has_stack)
+  lkshow.show_word(lk_envf.stack)
+  lkshow.show_byte(lk_envf.exit_kind)
+  lkshow.show_word(lk_envf.exit_addr)
+  lkshow.show_bool(lk_envf.raw)
+  lkshow.show_bool(lk_envf.has_more)
+  lkshow.show_word(lk_envf.more_lo)
+  lkshow.show_word(lk_envf.more_hi)
+  lkshow.end_line()
+  lkshow.label('t')
+  lkshow.show_word(lk_envf.text_top)
+  for i = 0 until lk_envf.text_top do
+    lkshow.show_byte(lk_envf.text[i])
+  end
+  lkshow.end_line()
+  lkshow.label('c')
+  show_text(lk_envf.farcall)
+  lkshow.end_line()
+  for b = 0 until lk_envf.win_count do
+    lkshow.label('w')
+    show_text(lk_envf.win_name[b])
+    lkshow.show_word(lk_envf.win_lo[b])
+    lkshow.show_word(lk_envf.win_hi[b])
+    lkshow.show_byte(lk_envf.win_switch[b])
+    lkshow.show_word(lk_envf.win_reg[b])
+    lkshow.show_byte(lk_envf.win_mask[b])
+    lkshow.end_line()
+  end
+  for b = 0 until lk_envf.bank_count do
+    lkshow.label('b')
+    lkshow.show_byte(lk_envf.bank_win[b])
+    lkshow.show_byte(lk_envf.bank_n[b])
+    lkshow.show_byte(lk_envf.bank_value[b])
+    show_text(lk_envf.bank_file[b])
+    lkshow.end_line()
+  end
+  for b = 0 until lk_envf.place_count do
+    lkshow.label('p')
+    show_text(lk_envf.place_name[b])
+    lkshow.show_byte(lk_envf.place_bank[b])
+    lkshow.end_line()
+  end
+  for b = 0 until lk_envf.region_count do
+    lkshow.label('r')
+    show_text(lk_envf.region_name[b])
+    lkshow.show_byte(lk_envf.region_bank[b])
+    lkshow.end_line()
+  end
+  lkshow.label('x')
+  lkshow.show_bool(lk_envf.placed())
+  if lk_envf.placed() then
+    b = lk_envf.window()
+    lkshow.show_byte(b)
+    lkshow.show_bool(lk_envf.is_overlay())
+    lkshow.show_bool(lk_envf.in_window(lk_envf.win_lo[b] - 1))
+    lkshow.show_bool(lk_envf.in_window(lk_envf.win_lo[b]))
+    lkshow.show_bool(lk_envf.in_window(lk_envf.win_hi[b]))
+    lkshow.show_bool(lk_envf.in_window(lk_envf.win_hi[b] + 1))
+  end
+  lkshow.end_line()
+end
+
+func write_image()
+  lk_out.open_image()
+  lk_out.seek(lk_envf.code_lo + 2)
+  lk_out.put(1)
+  lk_out.put_word($1234)
+  lk_out.seek(lk_envf.code_lo + 300)
+  lk_out.put($AA)
+  lk_out.close_image(lk_envf.code_lo)
+end
+
+func write_banks()
+  var b: byte
+  for b = 0 until lk_envf.bank_count do
+    if lk_envf.bank_file[b] != 0 then
+      lk_out.open_bank(b)
+      lk_out.put(b)
+      lk_out.seek(lk_envf.win_lo[lk_envf.bank_win[b]] + 3)
+      lk_out.put_word(lk_envf.win_lo[lk_envf.bank_win[b]])
+      lk_out.close_image(0)
+    end
+  end
+end
+
+func write_behind()
+  lk_out.open_image()
+  lk_out.put(1)
+  lk_out.seek(lk_envf.code_lo)
+end
+
+pub func main()
+  var i: byte
+  mode_len = sys.arg_copy(lk_file.ARG_MAIN, @mode)
+  for i = 0 until mode_len do
+    case mode[i]
+    of 'a'
+      show_args()
+    of 'o'
+      show_ops()
+    of 'n'
+      show_numbers()
+    of 'e'
+      show_env()
+    of 'i'
+      write_image()
+    of 'b'
+      write_banks()
+    of 's'
+      write_behind()
+    of 'q'
+      lkshow.label('q')
+      lkshow.show_bool(lk_file.open_in_quiet(ARG_FILE) != 0)
+      lkshow.end_line()
+    of 'f'
+      sys.close(lk_file.open_in(ARG_FILE))
+    of 'u'
+      lk_err.fail(lk_err.E_USAGE)
+    end
+  end
+  sys.exit(0)
+end

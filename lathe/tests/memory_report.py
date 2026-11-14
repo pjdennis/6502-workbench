@@ -251,6 +251,10 @@ def options_of(path, env_name=None):
         env_name = d[len('e2e-'):] if d.startswith('e2e-') else 'host'
         if os.path.dirname(os.path.abspath(path)) == os.path.join(LATHE, 'src'):
             env_name = os.path.join(LATHE, 'src', 'compiler.env')
+        if d == 'src' and os.path.basename(path).startswith('lk'):
+            # The linker's twins and their test programs test LKSMALL, which only the
+            # linker's environment defines.
+            env_name = os.path.join(LATHE, 'src', 'linker.env')
     words = []
     with open(path, encoding='latin-1') as f:
         for line in f:

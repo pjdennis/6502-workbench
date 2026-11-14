@@ -223,6 +223,24 @@ Every error has a number; `err.py` lists them with their texts. 1 to 19 are abou
 
 A new error takes the next free number of its group.
 
+## The linker in Lathe
+
+The linker's twins are `lathe/src/lk_*.lth`, each the transliteration of its host module, with the conventions at the top of `lk_err.lth`. Their tables at the capacities that link the compiler take 53,952 bytes, which with the linker's code is more than the emulator's default machine has. So a capacity that sizes a table is written twice in the twin:
+
+```
+#if LKSMALL
+pub const MAX_FUNCS = 400
+#else
+pub const MAX_FUNCS = 800
+#end
+```
+
+`LKSMALL` is defined only by the linker's own environment file, `lathe/src/linker.env` (`define LKSMALL 1`), with which the test programs `lktest1.lth` and `lktest2.lth` are built; an environment that builds the linker at full size says `define LKSMALL 0`. No other environment needs the name, and the compiler's corpus (`memory_report.py`) compiles the linker's modules with that file. The host modules have only the full values: `lathe/tests/lk_small.py` reads the `#if LKSMALL` blocks of the twins and runs the host modules again with those constants replaced, so that the identity test (`test_src_lk.py`) runs both at the same capacities, and runs them again at full size when it is done. The host modules hold no trace of it.
+
+The small build halves what grows with the program: 400 functions, 2,000 slots, 1,800 calls, 450 nodes (so a work area of 4,500 words), 400 variables and constants, 2,000 symbols in object files, 256 fix-ups held. The rest is as at full size. Its tables take 28,472 bytes beside 19.5 KB of code and constant data. It reads `lk_synthetic`'s program with 11 functions in each of its 30 modules: 355 functions, 1,786 slots, 1,495 calls and 4,324 bytes of names kept; with 12 the names kept and the symbols' words fill the work area (link error 10). That is about half the compiler.
+
+`lathe/tests/size_report.py --linker` measures the twins over their test programs and projects the size of the whole linker.
+
 ## Tests
 
 `lathe/verify.sh` runs everything; `tools/check_all.sh lathe` calls it. Tests are Python `unittest` files in `lathe/tests/`, run from the repository root: `python3 -m unittest discover -s lathe/tests`.
@@ -245,6 +263,7 @@ A new error takes the next free number of its group.
 | Output forms | `test_lk_output.py` | `output raw`, `output image` and `exit stop`, by hand-worked bytes and by the assembler path. |
 | Zero page promotion | `test_lk_promotion.py` | The synthetic program and random ones, linked as the linker links and with every candidate judged on a fresh layout: the maps must be the same, and the layouts fewer. |
 | Memory | `test_lk_memory.py` | The linker's tables, laid out as Lathe lays them out, within a ceiling that only comes down (`lk_memory_report.py`). |
+| The linker in Lathe | `test_src_lk.py` | The linker's twins (`lathe/src/lk_*.lth`) through `lktest1.lth` and `lktest2.lth`, built with `lathe/src/linker.env`, against the same drivers over the host modules at the same capacities: every environment file, every link the linker's tests make (they are run again with their links recorded), links made by hand for what those do not reach, twelve compiled programs and `lk_synthetic`'s program at the largest size the small build takes and one larger. Output, error output, status and files written must be identical. With `LATHE_LK_COVERAGE=1` it prints the lines of the host modules the runs reach (`=lines`: which are not). |
 
 `lathe/tests/fuzz.py` is not part of the suite. It compiles and runs random programs and compares what they print with their true results: run it (`fuzz.py expr 1 200`, `fuzz.py stmt 1 200`) after any change to how code is generated. In stage 2a it found four faults that the cases written by hand had not; in stage 2b, once its statements used arrays and pointers, one more (a word in A and X stored into an element whose index needs X).
 
