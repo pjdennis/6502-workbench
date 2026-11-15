@@ -51,9 +51,8 @@ import err (E_AT_EXPECTED, E_ATTRIBUTES, E_BAD_INTERFACE, E_COLON_EXPECTED, E_CR
             E_RECURSIVE_BODY, E_REG_TYPE, E_REG_USED, E_REGISTER_EXPECTED, E_RPAREN_EXPECTED,
             E_SELF_IMPORT, E_SYNTAX, E_TYPE, E_TYPE_MODULE, E_UNSUPPORTED, E_WANTS_FULL, fatal,
             position)
-import expr (constant, constant_number, data_region, directive, function_body, layout, LEVEL_MODULE,
-             new_name, no_record, not_in_region, region_name, table_data, type_spec, value_type,
-             variable, zp_class)
+import expr (constant, constant_number, data_region, directive, function_body, LEVEL_MODULE,
+             table_data, type_spec, value_type, variable)
 import gen (cpu, function_begin, function_end, init_count, INIT_FLUSH, init_function,
             interrupt_entry, receive, REG_A, REG_AX, REG_C, REG_NONE, REG_Y, saves_frame)
 import inlines (read, read_name, save, SF_INLINE, SF_INTERRUPT, skip, skip_name, write, write_uses)
@@ -74,6 +73,7 @@ import lex (col, expect, line, next, string_length, T_ASM, T_ASSIGN, T_AT, T_BOO
             T_RPAREN, T_STATIC, T_STRING, T_TYPE, T_VAR, tok, value)
 import out (begin_module, FUNC_EXPORTED, FUNC_INTERRUPT, FUNC_RECURSIVE, FUNC_REGISTERS, imported,
             region, SYM_DATA, SYM_FUNCTION, symbol, variable)
+import parts (layout, new_name, no_record, not_in_region, region_name, zp_class)
 import reg (begin, CLASS_EITHER, depth, new_slot, O_CONST, object_symbol, op_kind, op_type,
             op_value, pop, SLOT_PARAMETER)
 import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, declared, form, FORM_ARRAY, FORM_ENUM,
@@ -1399,7 +1399,7 @@ func parameters(s: word, fresh: bool): byte
   count = 0
   if lex.tok != lex.T_RPAREN then
     loop
-      name = expr.new_name(kernel.SCOPE_LOCAL)
+      name = parts.new_name(kernel.SCOPE_LOCAL)
       lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
       t = member(s, fresh, count, gen.REG_NONE)
       p = kernel.sym_add(kernel.SCOPE_LOCAL, name, kernel.K_LOCAL)
@@ -1479,7 +1479,7 @@ func lasting_variables(first: word, scope: byte)
         out.region(kernel.word_of(s, kernel.C_VALUE))
       end
       out.variable(kernel.word_of(s, kernel.C_OBJ), typetab.size(kernel.byte_of(s, kernel.C_TYPE)),
-          expr.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
+          parts.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
     end
   end
 end
@@ -1580,7 +1580,7 @@ func constant_declaration(flags: byte)
   var symbol: word
   var s: word
   lex.next()
-  name = expr.new_name(kernel.SCOPE_MODULE)
+  name = parts.new_name(kernel.SCOPE_MODULE)
   t = typetab.NO_TYPE
   if lex.tok == lex.T_COLON then
     lex.next()
@@ -1588,14 +1588,14 @@ func constant_declaration(flags: byte)
     col = lex.col
     t = expr.type_spec()
     err.position(line, col)
-    expr.layout(t)
+    parts.layout(t)
   end
   region = 0
   if lex.tok == lex.T_IN then
-    region = expr.region_name()
+    region = parts.region_name()
   end
   lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
-  expr.no_record(t)
+  parts.no_record(t)
   if t == typetab.NO_TYPE and lex.tok == lex.T_STRING then
     t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, false)
   end
@@ -1616,7 +1616,7 @@ func constant_declaration(flags: byte)
     return
   end
   if region != 0 then
-    expr.not_in_region()
+    parts.not_in_region()
   end
   line = lex.line
   col = lex.col
@@ -1688,13 +1688,13 @@ func record_type(s: word)
   lex.next()
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
   while lex.tok != lex.T_END do
-    name = expr.new_name(kernel.SCOPE_FIELDS + t)
+    name = parts.new_name(kernel.SCOPE_FIELDS + t)
     lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
     line = lex.line
     col = lex.col
     f = expr.type_spec()
     err.position(line, col)
-    expr.layout(f)
+    parts.layout(f)
     if typetab.innermost(f) == t then
       err.fatal(err.E_RECORD_SELF)
     end
@@ -1752,7 +1752,7 @@ func type_declaration(flags: byte)
   var col: word
   var t: byte
   lex.next()
-  name = expr.new_name(kernel.SCOPE_MODULE)
+  name = parts.new_name(kernel.SCOPE_MODULE)
   lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
   if lex.tok == lex.T_RECORD then
     record_type(type_symbol(name, flags))
@@ -1763,7 +1763,7 @@ func type_declaration(flags: byte)
     col = lex.col
     t = expr.type_spec()
     err.position(line, col)
-    expr.layout(t)
+    parts.layout(t)
     kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
   end
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -1780,7 +1780,7 @@ func enum_declaration(flags: byte)
   var name: word
   var c: word
   lex.next()
-  s = type_symbol(expr.new_name(kernel.SCOPE_MODULE), flags)
+  s = type_symbol(parts.new_name(kernel.SCOPE_MODULE), flags)
   t = typetab.declared(typetab.FORM_ENUM, s)
   kernel.set_byte(s, kernel.C_TYPE, t)
   lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -1788,7 +1788,7 @@ func enum_declaration(flags: byte)
   while lex.tok != lex.T_END do
     line = lex.line
     col = lex.col
-    name = expr.new_name(kernel.SCOPE_MODULE)
+    name = parts.new_name(kernel.SCOPE_MODULE)
     if lex.tok == lex.T_ASSIGN then
       lex.next()
       line = lex.line

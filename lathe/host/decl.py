@@ -17,6 +17,7 @@ import inline
 import kernel
 import lex
 import out
+import parts
 import reg
 import typetab
 
@@ -1044,7 +1045,7 @@ def parameters(s, fresh):
     count = 0
     if lex.tok != lex.T_RPAREN:
         while True:
-            name = expr.new_name(kernel.SCOPE_LOCAL)
+            name = parts.new_name(kernel.SCOPE_LOCAL)
             lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
             t = member(s, fresh, count, gen.REG_NONE)
             p = kernel.sym_add(kernel.SCOPE_LOCAL, name, kernel.K_LOCAL)
@@ -1110,7 +1111,7 @@ def lasting_variables(first, scope):
             if kernel.byte_of(s, kernel.C_FLAGS) & kernel.SF_IN != 0:
                 out.region(kernel.word_of(s, kernel.C_VALUE))
             out.variable(kernel.word_of(s, kernel.C_OBJ), typetab.size(kernel.byte_of(s, kernel.C_TYPE)),
-                         expr.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
+                         parts.zp_class(kernel.byte_of(s, kernel.C_FLAGS)), kernel.byte_of(s, kernel.C_WEIGHT))
 
 
 def function_declaration(flags):
@@ -1189,7 +1190,7 @@ def constant_declaration(flags):
     """constDecl = "const" name [ ":" type ] "=" initialiser NL. A constant of an array type,
     or one that is a string, is a table: constant data with the constant's name."""
     lex.next()
-    name = expr.new_name(kernel.SCOPE_MODULE)
+    name = parts.new_name(kernel.SCOPE_MODULE)
     t = typetab.NO_TYPE
     if lex.tok == lex.T_COLON:
         lex.next()
@@ -1197,12 +1198,12 @@ def constant_declaration(flags):
         col = lex.col
         t = expr.type_spec()
         err.position(line, col)
-        expr.layout(t)
+        parts.layout(t)
     region = 0
     if lex.tok == lex.T_IN:
-        region = expr.region_name()
+        region = parts.region_name()
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
-    expr.no_record(t)
+    parts.no_record(t)
     if t == typetab.NO_TYPE and lex.tok == lex.T_STRING:
         t = typetab.array_of(typetab.BYTE_TYPE, lex.string_length + 1, False)
     if typetab.is_array(t):
@@ -1220,7 +1221,7 @@ def constant_declaration(flags):
         lex.expect(lex.T_NL, err.E_NL_EXPECTED)
         return
     if region != 0:
-        expr.not_in_region()
+        parts.not_in_region()
     line = lex.line
     col = lex.col
     expr.constant(t)
@@ -1278,13 +1279,13 @@ def record_type(s):
     lex.next()
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
     while lex.tok != lex.T_END:
-        name = expr.new_name(kernel.SCOPE_FIELDS + t)
+        name = parts.new_name(kernel.SCOPE_FIELDS + t)
         lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
         line = lex.line
         col = lex.col
         f = expr.type_spec()
         err.position(line, col)
-        expr.layout(f)
+        parts.layout(f)
         if typetab.innermost(f) == t:
             err.fatal(err.E_RECORD_SELF)
         add_field(s, name, f)
@@ -1327,7 +1328,7 @@ def function_type(s):
 def type_declaration(flags):
     """typeDecl = "type" name "=" ( type | recordType | funcType ) NL."""
     lex.next()
-    name = expr.new_name(kernel.SCOPE_MODULE)
+    name = parts.new_name(kernel.SCOPE_MODULE)
     lex.expect(lex.T_ASSIGN, err.E_SYNTAX)
     if lex.tok == lex.T_RECORD:
         record_type(type_symbol(name, flags))
@@ -1338,7 +1339,7 @@ def type_declaration(flags):
         col = lex.col
         t = expr.type_spec()
         err.position(line, col)
-        expr.layout(t)
+        parts.layout(t)
         kernel.set_byte(type_symbol(name, flags), kernel.C_TYPE, t)
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
 
@@ -1347,7 +1348,7 @@ def enum_declaration(flags):
     """enumDecl = "enum" name NL { name [ "=" constExpr ] NL } "end" NL. The constants are
     numbered on from the one before, from 0; each must fit a byte."""
     lex.next()
-    s = type_symbol(expr.new_name(kernel.SCOPE_MODULE), flags)
+    s = type_symbol(parts.new_name(kernel.SCOPE_MODULE), flags)
     t = typetab.declared(typetab.FORM_ENUM, s)
     kernel.set_byte(s, kernel.C_TYPE, t)
     lex.expect(lex.T_NL, err.E_NL_EXPECTED)
@@ -1355,7 +1356,7 @@ def enum_declaration(flags):
     while lex.tok != lex.T_END:
         line = lex.line
         col = lex.col
-        name = expr.new_name(kernel.SCOPE_MODULE)
+        name = parts.new_name(kernel.SCOPE_MODULE)
         if lex.tok == lex.T_ASSIGN:
             lex.next()
             line = lex.line

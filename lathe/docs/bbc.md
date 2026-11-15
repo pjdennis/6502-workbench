@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -110,7 +110,7 @@ The symbol table and OUT's tables together are 14.5 KB, one sideways slot, and b
 1. The emulator's machine. Done.
 2. Programs all in one on the BBC: `bbc.lth`, the environment file, the board in the test driver, the end-to-end cases. **Done (2026-11-14)**: below.
 3. Banked: `rt_bbc`, ROM banks and the kept functions in the linker, the image tool, the header and service code, the loader. The far-call and banked-data cases run on the BBC. **First half done (2026-11-15)**: `rt_bbc`, its environment, the driver, the cases and the compiler's banked test programs, with the module in its developer's form (RAM) loaded by the program's start-up code; below. The linker's read-only banks and kept functions are done too (2026-11-14, another change; kept functions are used on the BBC below). **Second half done (2026-11-15)**: the image tool, the header and service code, bank 0's `*` commands, the loader, the ROM form of `rt_bbc` and `bbc.lth`; "Step 3, as built: the ROM form".
-4. The compiler: `expr` split, the placement, the budget measured. The symbol table behind accessors if that is what stands between. The test programs, then the compiler compiling itself.
+4. The compiler: `expr` split, the placement, the budget measured. The symbol table behind accessors if that is what stands between. The test programs, then the compiler compiling itself. **Done (2026-11-15)**: "Step 4, as built".
 5. The linker in the same module, at the capacities that fit.
 
 ## Step 2, as built
@@ -194,7 +194,7 @@ A bank's numbers are code and constants (its file) + variables, of 16,352 bytes;
 - **Kept functions on the BBC.** With `kernel`, `lex` and `src` placed in bank 4 and `fbuf` and `err` in bank 5 as well, the linker keeps fixed only their functions that have a block or run inside one: gentest's fixed code ends at `$4125`, 933 bytes less (banks 4 and 5 grow to 4,371 and 2,474 bytes of file), and every section of gen.txt still agrees with the twin. At the full capacities gentest is then 576 bytes over (variables from `$4130`). The small build's environment keeps the five modules fixed, which saves those far calls.
 - **The design's budget held for the small build**: what stands in main RAM is the fixed modules with `with` blocks and their tables, about 11 KB of code and 9 KB of variables for gentest. The full compiler needs the symbol table behind accessors as well (above).
 - **Since the symbol table is in a region** (2026-11-15, [`configurations.md`](configurations.md), "The symbol table in a region"): `compiler-bbc-bank.env` puts `SYMS` in sideways slot 0 (bank 34, value `$00`) and `OUTTAB` and `WANTS` in slot 1 (bank 35), and places `parts` in bank 3; OUT's functions with a block of `OUTTAB` are kept fixed (DECL's with `WANTS` too, where linked). gentest's fixed code now ends at `$4866` and its variables at `$5CCF` in the small build. At the full capacities **all four fit**, with the fixed variables from `$3C30` (outtest), `$4080` (regtest), `$4130` (condtest) and `$4870` (gentest; `$43B0` with the kept modules placed), and every section of their scripts gives what the twin gives at its own capacities (`test_bbc_bank_src.py`, `FULL_SPLIT`). `rt_bbc.map` has no test for the value 0, which `rt_bank` treats as a fixed region: on the BBC it is slot 0.
-- `MAX_BANKS` in the linker is 16, banks of all windows together. The sixteen-bank test uses all of them; the whole compiler on the BBC, with sixteen banks of the module and two or three sideways slots, needs it raised (step 4).
+- `MAX_BANKS` in the linker is 16, banks of all windows together. The sixteen-bank test uses all of them; the whole compiler on the BBC was expected to need it raised; as built in step 4 it uses nine (five banks of the module and the four slots).
 
 ## Step 3, as built: the ROM form
 
@@ -256,9 +256,83 @@ Why there: once the command is matched, the language that was running cannot go 
 
 **What it showed.** The design held. Three things were added to the emulator, each with a C test: `--bbc-command` repeatable (each line run when the one before returns, as a language's prompt would; the loader and then a command), `*HELP` as service call 9 (it was offered as an unknown command), and OSBYTE 252 (the current language; it went to the ROMs as service call 7). No fault was found in the emulator's MOS. Two numbers moved: the slot in a variable costs a cycle a switch, and `test_bbc_bank_src.py`'s full-capacity splits moved for the 70 bytes the ROM form adds.
 
+## Step 4, as built: the compiler compiles itself
+
+`lathe/src/lathec-bbc.env` and `lathe/tests/test_bbc_selfhost.py`; the recipe is in [`boards.md`](boards.md), "The compiler on the BBC". **Done (2026-11-15)**: the Lathe-written compiler, at its full capacities (`SMALL 0`), compiles its own seventeen modules and `sys` on the emulated B+128 with `--bbc-strict`, each to object and interface files byte-identical to the host compiler's, with the same status and output, in all three forms: the ROM form (`*LATHE OPTIONS NAME.lth .` from a module image), the same image in the module's RAM form through `*RUN LOADMOD MODULE`, and the developer's form (`*RUN LATHEC ...`, the banks loaded at start-up). Before each run `*LOAD` fills zero page, `$0400-$06FF` and `$1900-$7BFF` with bytes that are not 0.
+
+### The layout
+
+One environment for both forms; `bbcrom.rom_env` makes the ROM form's (banks 1 to 5 of the image, `rom`, the window `$8050-$BFDF`). Measured from the maps (2026-11-15); a bank's code and constants are its file, its variables are in the bank only in the RAM forms (in the ROM form they are in main RAM):
+
+| Where | What | Bytes used | Free |
+|---|---|---|---|
+| Bank 1 | `expr` alone | 14,756 (+ 411 of variables in RAM) | 1,516 ROM, 1,185 RAM. As the linker judges it, before zero page shrinks the code: 15,717 of 16,272 (ROM), 16,133 of 16,352 (RAM) |
+| Bank 2 | `gen` 12,405, `lathec` 1,022; constants 186 | 13,613 (+ 755) | 2,659 ROM, 1,984 RAM |
+| Bank 3 | `decl` 9,406, `parts` 1,988, `out` 1,646; constants 82 | 13,122 (+ 783) | 3,150, 2,447 |
+| Bank 4 | `reg` 7,233, `inlines` 5,278; constants 22 | 12,533 (+ 733) | 3,739, 3,086 |
+| Bank 5 | `asmblock` 3,623, `cond` 2,479, `lex` 1,417, `kernel` 1,384, `fold` 1,299, `typetab` 947, `fbuf` 451, `src` 289, `err` 52; constants 502 | 12,443 (+ 1,084) | 3,829, 2,825 |
+| Slot 12 | the name heap (`NAMES`) | 9,216 | 7,136 |
+| Slot 13 | err's messages (constants, 5,494), fbuf's buffer and labels, lex's string, kernel's saved tokens (`MSGS`, `FUNCBUF`, `STRING`, `TOKENS`, 8,960) | 14,454 | 1,898 |
+| Slot 0 | kernel's symbol and member columns (`SYMS`) | 10,384 | 5,968 |
+| Slot 1 | OUT's table and its fix-ups, DECL's import rows (`OUTTAB`, `WANTS`) | 5,696 | 10,656 |
+| Main RAM, ROM form | code `$1900-$4FA0`: functions 11,863 (10,237 of them kept fixed: kernel 4,220, fbuf 3,188, lex 1,023, decl 675, err 556, out 487, src 88; the rest `bbc` 670, `rt_bbc` 402, `rt_math` 353, `sys` 76, `rt_frame` 42, start-up and `$init` 68, `disk` 15), stubs 1,752 (292), constants 370; variables `$5000-$7893` (10,388, frames included); `$0401-$06FF` unused | 24,373 of 26,111 | **1,738** |
+| Main RAM, RAM forms | code to `$4FE6` (the loading and `$banks` add 70 bytes); variables `$5000-$69DD` (6,622) | 20,677 | 5,434 |
+| Zero page | `$00-$8F` | all 144 bytes | 0 |
+| Image | bank 0: the module's code (468 bytes), slot 13's constants (5,494) and the first 10,310 bytes of the resident part; bank 6: the rest of it (3,675); banks 7 to 15 empty | | 158,931 bytes |
+
+The split between code and variables is `$5000`, set by the developer's form, whose code is longest (25 bytes left there).
+
+**What stood in the way, and what was done.**
+
+1. *The symbol table in main RAM*: done before this step ([`configurations.md`](configurations.md), "The symbol table in a region"); this step gives `SYMS` slot 0 and `OUTTAB` and `WANTS` slot 1 (step 3's test programs too: "Step 3, as built").
+2. *`expr` did not fit a bank as the linker judges it.* The linker judges a bank by its code as written, before zero page promotion shrinks it, and counts every variable placed there ("Sizes" in `configurations.md`), so that whether a program links does not depend on what zero page took. `expr` was 15,229 bytes as placed but 16,299 as written: 27 bytes over the ROM form's 16,272, and with its variables 375 over the RAM form's 16,352. Seven functions of EXPR that reach no cycle of its calls and are called seldom moved to `parts`, in host and twin, with their four variables: the six DECL called (`new_name`, `region_name`, `not_in_region`, `zp_class`, `no_record`, `layout`) and `lasting_variable`, which now takes the name of the function a `static` variable is of (0 for a module's) instead of reading `expr.function`. `expr` is 15,717 as written. The compiler's output is unchanged: every identity test, the self-compile on Wendy 2 and on the BBC, and the corpus give the same files.
+3. *A fault: `sys.files` was used before it was set.* The table of open files has no initial value, and memory holds whatever was there: after `LOADMOD` (whose buffer is `$2000-$5FFF`), or on a real machine after BASIC, every entry was taken, so `sys.open_in` refused the source (error 62) and `sys.exit` closed handles that were not open (`Channel`). Found by the loader form; the test now fills memory before every run. The initial value `[0]` would cost a function (`sys.$init`), and the compiler then links 801, one over the linker's limit (`lk_tab.MAX_FUNCS`, 800, link error 11). On the BBC the table is not needed: the MOS keeps the handles (15, as the table held) and `bbc.exit` closes every file (OSFIND 0, Y=0), so with `PORTS 2` `sys` has no table, `open_in` and `open_out` give the MOS's handle, and `close` and `exit` call `bbc`'s: 114 bytes less, two functions fewer. On the other machines it is as it was (memory there starts as 0 in the emulator; on a real Wendy 2 the same fault would show: open for the owner).
+4. *The emulator's names*: the compiler joins its directory and a name with `/` (`./err.lo`), which the emulator's filing system refused as `Bad name`. It now drops a leading `./` (`emulator/README.md`, with a C test); any other `/` is still refused.
+
+**The linker's function limit.** The compiler on the BBC links 798 functions of 800. Not raised: the first try of the fault above reached 801, and the fix that was chosen removes two. The next three functions anywhere in the compiler need it raised first: each function costs the linker 7 bytes of tables (`fn_flags`, `fn_ctx`, `fn_class` 1 each, `fn_slot`, `fn_edge` 2 each), and its tables are at their ceiling (54,144 bytes, `test_lk_memory.py`).
+
+### Measured: the self-compile
+
+`LATHE_BBC_SELFHOST=1 LATHE_BBC_SELFHOST_REPORT=1 python3 -m unittest test_bbc_selfhost` (2026-11-15): CPU cycles of each compile in the ROM form, from the `*` command to the end; far calls and `with` blocks from the counting copy (the developer's form with rt_bbc's `call` and `map` counting); file traffic from the emulator's exit report; Wendy 2's from `bank_report.py --selfhost` on the same sources (`compiler-bank.env`, `SYMS` fixed there).
+
+| Module | BBC cycles | Wendy 2 cycles | | BBC far calls | Wendy 2 | Blocks (BBC; Wendy 2's are 7 fewer in each) | Files opened | Bytes read | Bytes written |
+|---|---|---|---|---|---|---|---|---|---|
+| err | 18,534,177 | 19,903,901 | −6.9 % | 9,599 | 4,063 | 26,605 | 5 | 17,907 | 11,322 |
+| kernel | 57,732,061 | 51,208,121 | +12.7 % | 47,024 | 12,815 | 54,100 | 6 | 41,655 | 31,603 |
+| src | 9,688,684 | 12,028,360 | −19.5 % | 4,831 | 1,678 | 12,869 | 7 | 10,243 | 2,986 |
+| lex | 38,007,169 | 35,498,855 | +7.1 % | 30,041 | 10,988 | 43,018 | 8 | 29,247 | 13,347 |
+| typetab | 14,457,295 | 15,773,838 | −8.3 % | 10,511 | 3,805 | 16,199 | 4 | 11,253 | 5,602 |
+| fold | 17,110,035 | 18,036,053 | −5.1 % | 12,657 | 4,392 | 18,560 | 5 | 10,894 | 7,040 |
+| fbuf | 43,120,735 | 39,607,241 | +8.9 % | 34,113 | 11,008 | 40,964 | 7 | 36,340 | 19,696 |
+| out | 28,682,769 | 27,663,925 | +3.7 % | 20,447 | 6,531 | 34,333 | 8 | 21,813 | 13,281 |
+| reg | 90,352,752 | 77,079,699 | +17.2 % | 80,786 | 24,628 | 99,365 | 10 | 59,455 | 37,259 |
+| cond | 35,055,822 | 32,345,725 | +8.4 % | 29,013 | 8,522 | 42,140 | 8 | 25,060 | 12,304 |
+| gen | 149,435,671 | 125,189,871 | +19.4 % | 129,573 | 37,379 | 168,783 | 13 | 88,189 | 60,666 |
+| asmblock | 53,541,164 | 48,227,347 | +11.0 % | 42,739 | 13,603 | 60,232 | 14 | 41,357 | 19,217 |
+| inlines | 67,229,333 | 59,358,737 | +13.3 % | 53,495 | 16,355 | 77,987 | 13 | 48,019 | 26,123 |
+| parts | 35,417,799 | 33,721,893 | +5.0 % | 22,705 | 7,386 | 52,303 | 16 | 29,999 | 11,708 |
+| expr | 121,311,645 | 105,328,923 | +15.2 % | 84,337 | 24,108 | 142,228 | 19 | 72,971 | 67,590 |
+| decl | 125,951,683 | 106,795,823 | +17.9 % | 104,185 | 30,559 | 148,816 | 17 | 80,128 | 51,206 |
+| lathec | 20,421,858 | 21,259,525 | −3.9 % | 12,541 | 4,368 | 29,112 | 18 | 20,891 | 5,872 |
+| sys | 6,895,683 | 9,299,830 | −25.9 % | 3,862 | 1,463 | 5,439 | 4 | 8,920 | 1,468 |
+| **total** | **932,946,335** | **838,327,667** | **+11.3 %** | **732,459** | **223,651** | **1,073,053** | **182** | **654,341** | **398,290** |
+
+- **7.8 minutes at 2 MHz** for the whole self-compile in the ROM form (Wendy 2: 7.0 at the same clock), before what the filing system costs. The developer's form takes 1,024 million cycles: each run loads the five banks and slot 13's constants through `bbc.read` (71,961 bytes, about 5 million cycles); through `LOADMOD`, 1,009 million (the loader reads 262,144 bytes, about 4.2 million cycles, then the start is the ROM form's).
+- **Far calls**: 3.3 times Wendy 2's. On Wendy 2 `gen` and `reg` share a bank of 28 KB, `parts` sits beside `expr`, and `kernel`, `lex`, `fbuf`, `src` and `err` are fixed; here a bank is 16 KB, so GEN's calls of REG, EXPR's of PARTS and everyone's of LEX's and FBUF's functions in bank 5 are far. At about 190 cycles each, the 508,800 more far calls are 97 million cycles, more than the whole difference: the small compiles (`src`, `sys`, `err`) are faster than on Wendy 2, because a block of a sideways slot costs 64 to 79 cycles where one of a data bank costs 94, and the start does not load banks.
+- **One placement tried for speed**: with `lex` fixed and `fbuf` beside `reg` in bank 4, compiling `gen.lth` makes 108,438 far calls instead of 129,573 and takes 144.8 million cycles instead of 149.4 (−3 %); it fits, but leaves 266 bytes of main RAM instead of 1,738. Not taken: the room is worth more than 3 %.
+- **Blocks** are Wendy 2's and 7 more in each compile (the compiler's own work); the BBC's `rt_bbc.map` has no test for a fixed region, and none is fixed here.
+
+**The start-up of the ROM form.** `*LATHE` with no arguments (the usage error) takes 1,467,524 cycles from the command to the end, 0.73 s at 2 MHz; most of it is bank 0's copier: 13,985 bytes of the resident part to main RAM at about 60 cycles a byte and 5,494 bytes of messages to slot 13 at about 80, about 1.28 million cycles. The developer's form's start takes 6,596,519 cycles (the loading through `bbc.read`), the loader's 5,680,443 (`LOADMOD`'s copy, then the ROM form's start).
+
+**What the emulator's MOS does not charge for.** A file call costs the 6502 code around it and 2 cycles of the MOS's own; a real MOS and DFS spend hundreds of cycles a byte through OSBGET and OSBPUT, and the disc its own time. The table above gives the traffic of each compile (the exit report's `files:` line, `emulator/README.md`): the self-compile opens 182 files and reads 654,341 bytes and writes 398,290, byte by byte through OSBGET and OSBPUT. At 1,000 cycles a byte that would be another 1.05 billion cycles, 8.8 minutes, more than the compiling; a real figure needs a real DFS (below).
+
+### The corpus on the BBC
+
+`LATHE_LATHEC_BBC=1 python3 -m unittest test_src_lathec.OnTheBBC` (30 s): every input `test_src_lathec.py` has, compiled in the ROM form against `lathec.py` at full size, with the host's error output joined to its output. **705 of the 708 agree.** The three that cannot are the BBC's: a source in a directory and an import directory (`sub/m.lth`, `lib/k.li`: the filing system has no directories, a name with `/` is `Bad name`, caught as a file that is not there), and the input whose command line is 248 bytes, more than the 239 `*LATHE` copies.
+
 ## Open, for the owner
 
-- **File names.** DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.
+- **File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.
 - **How a tool ends.** As a command it uses the language's zero page and the memory from PAGE, so the language that was running (BASIC) cannot be returned to as it was. ~~The tool should end by starting the current language again (OSBYTE 142).~~ Done so in step 3 (ROM form); a program run with `*RUN` still returns into the language, which may not survive it.
 - **The command's tail** is copied to `$0700`, at most 239 bytes: the linker's longest command lines must fit that (the MOS's own line is 255 at most).
 - **Sideways RAM** slots a program's regions name are taken without asking: whatever the owner had loaded in them (a ROM image in sideways RAM) is overwritten at the command.
@@ -270,5 +344,5 @@ Why there: once the command is matched, the language that was running cannot go 
 - That OSBYTE 142 from inside a service call leaves the real MOS in order (it resets the stack, which the emulator models, and prints the language's title, which it does not), and that BASIC entered so starts cleanly.
 - The dummy reads of a real NMOS 6502. The module's code, the copier and the loader are written to keep them out of `$BFF0-$BFFF` (no instruction ends near it, indexed accesses there stay in their page, `$BFE0-$BFFF` are never read or written by a copy), but the emulator's core makes none, so that is by inspection only.
 - A real DFS: LOADMOD's OSGBPB of 16 KB at a time, and the seven-character names.
-- Timing against real discs. The compiler compiling itself is about 780 million cycles on Wendy 2, six and a half minutes at 2 MHz, before the cost of reading and writing each byte through a real filing system.
+- Timing against real discs. The compiler compiling itself is 933 million cycles on the BBC ("Step 4, as built"), 7.8 minutes at 2 MHz, before the cost of reading 654,341 bytes and writing 398,290 through a real filing system, which the emulator's MOS does not charge.
 - The real module's electrical behaviour. MAME models the SpellMaster carrier, so the eight-bank form (the compiler alone) could be tried there against the real MOS by someone who has the ROMs.

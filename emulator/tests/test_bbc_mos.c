@@ -719,8 +719,8 @@ TEST osfile_save_load_info_and_delete(void) {
 
 TEST file_names_with_slash_or_dotdot_are_refused(void) {
     make_disk();
-    const char *bad[] = { "a/b", "..", "x..y", "/etc" };
-    for (int i = 0; i < 4; i++) {
+    const char *bad[] = { "a/b", "..", "x..y", "/etc", "./a/b", "./", "./../x", "x/./y" };
+    for (int i = 0; i < 8; i++) {
         fresh();
         put_text(0x0400, bad[i]);
         osfile_block(5, 0x0400, 0, 0, 0, 0);
@@ -731,6 +731,21 @@ TEST file_names_with_slash_or_dotdot_are_refused(void) {
     put_text(0x0400, "a_name_much_longer_than_seven_characters");
     osfile_block(5, 0x0400, 0, 0, 0, 0);
     ASSERT_EQ(0, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+    remove_disk();
+    PASS();
+}
+
+TEST a_leading_dot_slash_names_the_disk_itself(void) {
+    make_disk();
+    write_host("LI", "abc", 3);
+    const char *good[] = { "./LI", "././LI" };
+    for (int i = 0; i < 2; i++) {
+        fresh();
+        put_text(0x0400, good[i]);
+        osfile_block(5, 0x0400, 0, 0, 0, 0);
+        ASSERT_EQ(0, run(osfile_code, sizeof osfile_code, NULL, NULL, NULL));
+        ASSERT_EQ(3u, block32(10));          /* the file LI: its length */
+    }
     remove_disk();
     PASS();
 }
@@ -764,6 +779,9 @@ TEST osfind_bget_bput_copy_a_file_and_report_eof(void) {
     ASSERT_EQ(0x11, mem.ram[0x70]);
     ASSERT_EQ(0x12, mem.ram[0x71]);
     ASSERT_EQ(0xFE, mem.ram[0x72]);
+    ASSERT_EQ(2u, (unsigned)m.files_opened);   /* the counts --exit-report shows */
+    ASSERT_EQ(3u, (unsigned)m.bytes_read);
+    ASSERT_EQ(3u, (unsigned)m.bytes_written);
     char buf[16];
     ASSERT_EQ(3, read_host("OUT", buf, sizeof buf));
     ASSERT_STR_EQ("abc", buf);
@@ -858,6 +876,8 @@ TEST osgbpb_reads_and_writes_blocks(void) {
     ASSERT_EQ(0, mem.ram[0x60] & 1);         /* all 4 */
     ASSERT_EQ(1, mem.ram[0x61] & 1);         /* not all 10 */
     ASSERT_EQ(0x02, mem.ram[0x71]);          /* the address moved on by 2 */
+    ASSERT_EQ(7u, (unsigned)m.bytes_read);    /* 4 and 3 */
+    ASSERT_EQ(2u, (unsigned)m.bytes_written);
     ASSERT_EQ(0, mem.ram[0x75]);             /* nothing left */
     ASSERT_EQ(2, mem.ram[0x79]);             /* PTR */
     char buf[16];
@@ -999,6 +1019,7 @@ SUITE(bbc_mos_suite) {
     RUN_TEST(oscli_save_and_load);
     RUN_TEST(osfile_save_load_info_and_delete);
     RUN_TEST(file_names_with_slash_or_dotdot_are_refused);
+    RUN_TEST(a_leading_dot_slash_names_the_disk_itself);
     RUN_TEST(file_calls_without_a_disk_raise_an_error);
     RUN_TEST(osfind_bget_bput_copy_a_file_and_report_eof);
     RUN_TEST(osfind_missing_file_returns_0_and_bget_twice_at_eof_is_an_error);

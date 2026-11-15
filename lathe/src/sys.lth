@@ -63,8 +63,19 @@ import host (argc, argv, close, exit, open, open_out, put_byte, put_error, read,
 #end
 #end
 
+#if PORTS == 2
+; On the BBC the MOS keeps the handles (15 at most, as the table below holds), and bbc.exit
+; closes every file (OSFIND 0 with Y = 0): no table. It would have to be cleared at the start,
+; since a ROM tool finds main RAM as the language left it (lathe/docs/bbc.md, "Step 4").
+#else
+#if PORTS
 const MAX_FILES = 16
 var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
+#else
+const MAX_FILES = 16
+var files: [MAX_FILES]byte          ; handles of the open files; 0 is a free entry (0 is unused)
+#end
+#end
 
 ; Number of program arguments.
 #if PORTS == 2
@@ -104,6 +115,9 @@ pub func arg_copy(i: byte, p: ^byte): byte
   return n
 end
 
+#if PORTS == 2
+#else
+#if PORTS
 ; Keep the handle the system gave, or give 0 if it gave none or the table is full.
 func keep(handle: byte): byte
   var h: byte
@@ -116,22 +130,32 @@ func keep(handle: byte): byte
       return handle
     end
   end
-#if PORTS == 2
-  bbc.close(handle)
-#else
-#if PORTS
   disk.close(handle)
-#else
-  host.close(handle)
-#end
-#end
   return 0
 end
+#else
+; Keep the handle the system gave, or give 0 if it gave none or the table is full.
+func keep(handle: byte): byte
+  var h: byte
+  if handle == 0 then
+    return 0
+  end
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] == 0 then
+      files[h] = handle
+      return handle
+    end
+  end
+  host.close(handle)
+  return 0
+end
+#end
+#end
 
 ; Open the file named at p for reading. Returns a handle, or 0 if it cannot be opened.
 pub func open_in(p: ^byte): byte
 #if PORTS == 2
-  return keep(bbc.open(p))
+  return bbc.open(p)
 #else
 #if PORTS
   return keep(disk.open(p))
@@ -144,7 +168,7 @@ end
 ; Create the file named at p for writing. Returns a handle, or 0.
 pub func open_out(p: ^byte): byte
 #if PORTS == 2
-  return keep(bbc.open_out(p))
+  return bbc.open_out(p)
 #else
 #if PORTS
   return keep(disk.open_out(p))
@@ -155,18 +179,24 @@ pub func open_out(p: ^byte): byte
 end
 
 pub func close(handle: byte)
+#if PORTS == 2
+  bbc.close(handle)
+#else
+#if PORTS
   var h: byte
   for h = 1 to MAX_FILES - 1 do
     if files[h] == handle then
       files[h] = 0
     end
   end
-#if PORTS == 2
-  bbc.close(handle)
-#else
-#if PORTS
   disk.close(handle)
 #else
+  var h: byte
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] == handle then
+      files[h] = 0
+    end
+  end
   host.close(handle)
 #end
 #end
@@ -241,27 +271,26 @@ end
 
 ; End the program. Does not return.
 pub func exit(code: byte)
+#if PORTS == 2
+  bbc.exit(code)                    ; which closes every file
+#else
+#if PORTS
   var h: byte
   for h = 1 to MAX_FILES - 1 do
     if files[h] != 0 then
-#if PORTS == 2
-      bbc.close(files[h])
-#else
-#if PORTS
       disk.close(files[h])
-#else
-      host.close(files[h])
-#end
-#end
       files[h] = 0
     end
   end
-#if PORTS == 2
-  bbc.exit(code)
-#else
-#if PORTS
   disk.exit(code)
 #else
+  var h: byte
+  for h = 1 to MAX_FILES - 1 do
+    if files[h] != 0 then
+      host.close(files[h])
+      files[h] = 0
+    end
+  end
   host.exit(code)
 #end
 #end

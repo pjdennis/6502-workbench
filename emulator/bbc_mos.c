@@ -137,8 +137,11 @@ static uint16_t xy(void) { return (uint16_t)(x | y << 8); }
 /* ---- the filing system: the --disk directory ---- */
 
 /* A file name at addr: leading spaces skipped, ended by CR, space or 0.
- * Used as given, except that "/" and ".." are refused. Returns the
- * address after it, or 0 for a bad name. */
+ * Used as given, except that "/" and ".." are refused, and that a leading
+ * "./" (or several) names the --disk directory itself and is dropped: a
+ * tool that joins a directory and a name, as the Lathe compiler does with
+ * its directory ".", reaches the files there. Returns the address after
+ * it, or 0 for a bad name. */
 static uint16_t read_name(struct bbc_machine *m, uint16_t addr, char *name, size_t size) {
     while (bus_rd(m, addr) == ' ') addr++;
     size_t n = 0;
@@ -147,6 +150,10 @@ static uint16_t read_name(struct bbc_machine *m, uint16_t addr, char *name, size
         name[n++] = (char)c;
     }
     name[n] = 0;
+    size_t skip = 0;
+    while (name[skip] == '.' && name[skip + 1] == '/') skip += 2;
+    if (skip) memmove(name, name + skip, n - skip + 1);
+    n -= skip;
     if (!n || strchr(name, '/') || strstr(name, "..")) return 0;
     return addr;
 }
@@ -304,6 +311,7 @@ static void os_find(struct bbc_machine *m) {
         return;
     }
     m->files[slot] = (struct bbc_file){ f, mode, 0, 0 };
+    m->files_opened++;
     a = (uint8_t)(BBC_FIRST_HANDLE + slot);
 }
 
@@ -328,6 +336,7 @@ static void os_bget(struct bbc_machine *m) {
         return;
     }
     a = (uint8_t)c;
+    m->bytes_read++;
     set_c(0);
 }
 
@@ -344,6 +353,7 @@ static void os_bput(struct bbc_machine *m) {
     }
     turn(bf, 2);
     if (fputc(a, bf->f) == EOF) raise(BBC_MOS_E_DISC_FAULT);
+    else m->bytes_written++;
     bf->eof_hit = 0;
 }
 
@@ -395,10 +405,12 @@ static void os_gbpb(struct bbc_machine *m) {
     while (count) {
         if (writing) {
             if (fputc(bus_rd(m, (uint16_t)addr), bf->f) == EOF) break;
+            m->bytes_written++;
         } else {
             int c = fgetc(bf->f);
             if (c == EOF) break;
             bus_wr(m, (uint16_t)addr, (uint8_t)c);
+            m->bytes_read++;
         }
         addr++;
         count--;

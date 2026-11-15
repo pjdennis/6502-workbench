@@ -65,14 +65,13 @@ module expr
 
 import asmblock (block)
 import err (E_ARG_COUNT, E_ARRAY_VALUE, E_CALL_IN_ARGUMENTS, E_CASE_SELECTOR, E_CASE_TWICE,
-            E_COLON_EXPECTED, E_DO_EXPECTED, E_DUPLICATE, E_ELEMENT_SIZE, E_END_EXPECTED,
-            E_EXPR_EXPECTED, E_FUNC_TYPE_PLACE, E_IN_HERE, E_INLINE_ADDRESS, E_INLINE_NOT_HERE,
-            E_INTERRUPT_CALL, E_LABELS_FULL, E_LPAREN_EXPECTED, E_NAME_EXPECTED, E_NEEDS_ROWS,
-            E_NESTING, E_NL_EXPECTED, E_NO_LOOP, E_NO_RETURN, E_NOT_CONST, E_NOT_FUNC, E_NOT_VAR,
-            E_OPERANDS_FULL, E_RANGE, E_RECORD_INIT, E_RECORD_PLACE, E_RECORD_VALUE, E_RESULTS,
-            E_ROWS_RECORD, E_RPAREN_EXPECTED, E_STATUS_IN_CRITICAL, E_STMT_EXPECTED, E_SYNTAX,
+            E_COLON_EXPECTED, E_DO_EXPECTED, E_END_EXPECTED, E_EXPR_EXPECTED, E_FUNC_TYPE_PLACE,
+            E_INLINE_ADDRESS, E_INLINE_NOT_HERE, E_INTERRUPT_CALL, E_LABELS_FULL, E_LPAREN_EXPECTED,
+            E_NAME_EXPECTED, E_NESTING, E_NL_EXPECTED, E_NO_LOOP, E_NO_RETURN, E_NOT_CONST,
+            E_NOT_FUNC, E_NOT_VAR, E_OPERANDS_FULL, E_RANGE, E_RECORD_PLACE, E_RECORD_VALUE,
+            E_RESULTS, E_RPAREN_EXPECTED, E_STATUS_IN_CRITICAL, E_STMT_EXPECTED, E_SYNTAX,
             E_THEN_EXPECTED, E_TO_EXPECTED, E_TOO_MANY, E_TYPE, E_TYPE_EXPECTED, E_UNSUPPORTED,
-            E_WITH_INTERRUPT, E_WITH_UNKNOWN, fatal, fatal_value, position)
+            E_WITH_INTERRUPT, E_WITH_UNKNOWN, fatal, position)
 import fbuf (new_label, NO_SLOT, op, runs_on, set_symbol)
 import fold (ADD, GE, LE, LT, NE)
 import gen (accept, address, address_of, anonymous, arguments_end, as_value, assign, call, carry,
@@ -85,10 +84,10 @@ import gen (accept, address, address_of, anonymous, arguments_end, as_value, ass
 import inlines (argument_symbol, body_begin, copy_aliases, depth, done, enter, expanding, lazy,
                 leave, leaves_operand, level, local_scope, MAX_DEPTH, own_slot, SF_INLINE,
                 SF_INTERRUPT, slot_name, wanted)
-import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_OBJ, C_PARAMS, C_RESULTS, C_TYPE,
-               C_VALUE, K_CONST, K_FUNC, K_LOCAL, K_TYPE, K_VAR, member_type_of, member_value_of,
-               module_name, NO_OBJ, SCOPE_MODULE, set_byte, set_word, SF_AT, SF_IN, SF_NOZP,
-               SF_ROWS, SF_ZP, sym_add, sym_find, word_of)
+import kernel (byte_of, C_FLAGS, C_KIND, C_MEMBERS, C_NAME, C_PARAMS, C_RESULTS, C_TYPE, C_VALUE,
+               K_CONST, K_FUNC, K_LOCAL, K_TYPE, K_VAR, member_type_of, member_value_of, NO_OBJ,
+               SCOPE_MODULE, set_byte, set_word, SF_AT, SF_IN, SF_NOZP, SF_ROWS, SF_ZP, sym_add,
+               word_of)
 import lex (choose, col, expect, line, next, open_brackets, resume, string_byte, string_length,
             T_ADDRESS, T_AND, T_ARROW, T_ASM, T_ASSIGN, T_AT, T_BREAK, T_CARET, T_CASE, T_COLON,
             T_COMMA, T_CONTINUE, T_CRITICAL, T_DO, T_DOT, T_DOWNTO, T_ELIF, T_ELSE, T_END, T_EOF,
@@ -96,20 +95,21 @@ import lex (choose, col, expect, line, next, open_brackets, resume, string_byte,
             T_NL, T_NOT, T_NOZP, T_NUMBER, T_OF, T_OR, T_PLUS_ASSIGN, T_RBRACKET, T_RECORD,
             T_RECURSIVE, T_RETURN, T_ROWS, T_RPAREN, T_SHR_ASSIGN, T_STATIC, T_STRING, T_THEN,
             T_TILDE, T_TO, T_UNTIL, T_VAR, T_WHILE, T_WITH, T_ZP, tok, value)
-import out (region, SYM_VARIABLE, symbol, table_begin, table_byte, table_end, with_region,
-            with_used)
-import parts (apply, basic_type, compare_limit, field, init, loop_variable, map_bank, named_symbol,
-              push_variable, region_symbol, relation_operator, restore_flags, step_back, string,
-              sum_operator, term_operator, test_operator, unmap_bank, with_entry)
-import reg (A, assignable, become, branch, CLASS_EITHER, CLASS_NOT_ZP, CLASS_ZP, compare_const,
-            depth, F_DATA, F_TEMP, in_registers, is_direct, join, jump, label, load, local_count,
-            loop_label, M_POINTER, new_slot, NONE, O_A, O_ADDR, O_CONST, O_FUNC, O_VAR, op_flags,
-            op_kind, op_mode, op_slot, op_symbol, op_type, op_value, op_var, pop, release,
-            same_region, slot_busy, SLOT_LOCAL, spill, test)
+import out (region, table_begin, table_byte, table_end, with_region, with_used)
+import parts (apply, basic_type, compare_limit, field, init, lasting_variable, layout,
+              loop_variable, map_bank, named_symbol, new_name, no_record, not_in_region, placed_at,
+              placed_region, push_variable, region_name, region_symbol, relation_operator,
+              restore_flags, step_back, string, sum_operator, term_operator, test_operator,
+              unmap_bank, with_entry, zp_class)
+import reg (A, assignable, become, branch, CLASS_EITHER, compare_const, depth, F_DATA, F_TEMP,
+            in_registers, is_direct, join, jump, label, load, local_count, loop_label, M_POINTER,
+            new_slot, NONE, O_A, O_ADDR, O_CONST, O_FUNC, O_VAR, op_flags, op_kind, op_mode,
+            op_slot, op_symbol, op_type, op_value, op_var, pop, release, same_region, slot_busy,
+            SLOT_LOCAL, spill, test)
 import src (close)
-import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, FORM_ARRAY, FORM_POINTER, innermost,
-                is_array, is_column, is_func, is_number, is_record, is_rows, is_signed, is_untyped,
-                length, NO_TYPE, NUMBER_TYPE, prefix, prefix_count, size)
+import typetab (array_of, base, BOOL_TYPE, build, BYTE_TYPE, FORM_ARRAY, FORM_POINTER, is_array,
+                is_column, is_func, is_number, is_record, is_signed, is_untyped, length, NO_TYPE,
+                NUMBER_TYPE, prefix, prefix_count, size)
 
 ; The functions the language declares, as decl.BUILTINS lists them
 pub const B_LO = 0
@@ -227,23 +227,6 @@ pub func value_type(): byte
   end
   err.position(lex.line, lex.col)
   return t
-end
-
-; The name being declared, which `scope` must not have yet. It is passed over.
-pub func new_name(scope: byte): word
-  var name: word
-  var s: word
-  var found: bool
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
-  name = lex.value
-  s, found = kernel.sym_find(scope, name)
-  if found then
-    err.fatal(err.E_DUPLICATE)
-  end
-  lex.next()
-  return name
 end
 
 ; ---- Designators and calls ---------------------------------------------------------------
@@ -771,7 +754,6 @@ pub var function: word = 0      ; the function being compiled: its symbol in the
 var asm_last: bool = false      ; the statement compiled last is an `asm` block
 var exit_label: word = reg.NONE ; where `break` goes: after the nearest loop
 var next_label: word = reg.NONE ; where `continue` goes: to that loop's next pass
-var placed_at: word = 0         ; the address after "at" in the declaration being parsed
 var critical_depth: byte = 0    ; how many `critical` blocks the statement being compiled is inside
 var critical_inner: byte = 0    ; how many of those are inside the nearest loop
 ; `with REGION do ... end` (provisional, 2026-11-14): the temporaries that hold the bank found
@@ -779,10 +761,7 @@ var critical_inner: byte = 0    ; how many of those are inside the nearest loop
 ; mapped theirs; fbuf.NO_SLOT for none. Unmapping it puts back what was there before them all.
 var with_function: byte = fbuf.NO_SLOT
 var with_loop: byte = fbuf.NO_SLOT
-var placed_region: word = 0     ; the name after "in" in the declaration being parsed
 pub var data_region: word = 0   ; the region of the table table_data() writes, or 0
-var in_line: word = 0           ; and where the "in" is
-var in_col: word = 0
 
 const MAX_CASE = 256
 var case_value: [MAX_CASE]byte  ; the constants of the `case` statements being compiled
@@ -790,10 +769,8 @@ var case_count: word = 0
 
 ; ---- Variables ---------------------------------------------------------------------------
 
-forward func region_name(): word
-
 ; { "zp" | "nozp" | "rows" | "at" constExpr | "in" name }. Returns them as symbol flags; the
-; address is left in `placed_at`, the region in `placed_region`.
+; address is left in `parts.placed_at`, the region in `parts.placed_region`.
 recursive func placements(): byte
   var flags: byte
   flags = 0
@@ -807,13 +784,13 @@ recursive func placements(): byte
     elif lex.tok == lex.T_AT then
       flags = flags | kernel.SF_AT
       lex.next()
-      placed_at = constant_number()
+      parts.placed_at = constant_number()
     elif lex.tok == lex.T_ROWS then
       flags = flags | kernel.SF_ROWS
       lex.next()
     elif lex.tok == lex.T_IN then
       flags = flags | kernel.SF_IN
-      placed_region = region_name()
+      parts.placed_region = parts.region_name()
     else
       break
     end
@@ -822,59 +799,6 @@ recursive func placements(): byte
     err.fatal(err.E_SYNTAX)
   end
   return flags
-end
-
-; "in" name: the region's name. Where the "in" is is kept for an error.
-pub func region_name(): word
-  var name: word
-  in_line = lex.line
-  in_col = lex.col
-  lex.next()
-  if lex.tok != lex.T_NAME then
-    err.fatal(err.E_NAME_EXPECTED)
-  end
-  name = lex.value
-  lex.next()
-  return name
-end
-
-; `in REGION` was given where it is not allowed.
-pub func not_in_region()
-  err.position(in_line, in_col)
-  err.fatal(err.E_IN_HERE)
-end
-
-; The class of a slot or variable declared with these flags.
-pub func zp_class(flags: byte): byte
-  if flags & kernel.SF_ZP != 0 then
-    return reg.CLASS_ZP
-  end
-  if flags & kernel.SF_NOZP != 0 then
-    return reg.CLASS_NOT_ZP
-  end
-  return reg.CLASS_EITHER
-end
-
-; Declare a variable that is not a slot: one that lives for the whole program, which gets its
-; object-file symbol now, or one at a fixed address. A `static` variable is the symbol
-; `module.function.name`.
-func lasting_variable(scope: byte, name: word, t: byte, flags: byte, level: byte): word
-  var s: word
-  s = kernel.sym_add(scope, name, kernel.K_VAR)
-  kernel.set_byte(s, kernel.C_TYPE, t)
-  kernel.set_byte(s, kernel.C_FLAGS, flags)
-  if flags & kernel.SF_AT != 0 then
-    kernel.set_word(s, kernel.C_VALUE, placed_at)
-  elif level == LEVEL_MODULE then
-    kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0], 0, name))
-  else
-    kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0],
-        kernel.word_of(function, kernel.C_NAME), name))
-  end
-  if flags & kernel.SF_IN != 0 then
-    kernel.set_word(s, kernel.C_VALUE, placed_region)
-  end
-  return s
 end
 
 ; "=" expression after a local's declaration: an assignment made on every entry.
@@ -890,8 +814,6 @@ recursive func initial_assignment(s: word)
   err.position(lex.line, lex.col)
 end
 
-forward func layout(t: byte)
-forward func no_record(t: byte)
 forward recursive func table_data(t: byte, symbol: word)
 forward recursive func initial_value(s: word, t: byte, level: byte)
 
@@ -909,7 +831,7 @@ pub recursive func variable(more: byte, level: byte)
   if level == LEVEL_MODULE then
     scope = kernel.SCOPE_MODULE
   end
-  name = new_name(scope)
+  name = parts.new_name(scope)
   lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
   line = lex.line
   col = lex.col
@@ -918,7 +840,7 @@ pub recursive func variable(more: byte, level: byte)
   if flags & kernel.SF_IN != 0 then
     ; In a region: in its bank, never in zero page, with no initial value, and not a slot.
     if flags & (kernel.SF_AT | kernel.SF_ZP) != 0 or level == LEVEL_LOCAL or lex.tok == lex.T_ASSIGN then
-      not_in_region()
+      parts.not_in_region()
     end
     flags = flags | kernel.SF_NOZP
   end
@@ -929,7 +851,7 @@ pub recursive func variable(more: byte, level: byte)
     end
     t = typetab.array_of(byte(typetab.base(t)), typetab.length(t), true)
   end
-  layout(t)
+  parts.layout(t)
   if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0 then
     flags = flags | kernel.SF_NOZP      ; nor a record: never in zero page unless asked
   end
@@ -939,9 +861,9 @@ pub recursive func variable(more: byte, level: byte)
     s = kernel.sym_add(scope, name, kernel.K_LOCAL)
     kernel.set_byte(s, kernel.C_TYPE, t)
     if inlines.level == 0 then
-      kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL, name))
-    elif zp_class(flags) != reg.CLASS_EITHER then
-      kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL,
+      kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), parts.zp_class(flags), reg.SLOT_LOCAL, name))
+    elif parts.zp_class(flags) != reg.CLASS_EITHER then
+      kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), parts.zp_class(flags), reg.SLOT_LOCAL,
           inlines.slot_name(name, reg.local_count)))
     else
       ; A local of an inline function: a temporary of the caller's frame, free again when the
@@ -950,7 +872,11 @@ pub recursive func variable(more: byte, level: byte)
       kernel.set_word(s, kernel.C_VALUE, inlines.own_slot(typetab.size(t)))
     end
   else
-    s = lasting_variable(scope, name, t, flags, level)
+    if level == LEVEL_MODULE then
+      s = parts.lasting_variable(scope, name, t, flags, 0)
+    else
+      s = parts.lasting_variable(scope, name, t, flags, kernel.word_of(function, kernel.C_NAME))
+    end
   end
   if lex.tok == lex.T_ASSIGN then
     initial_value(s, t, level)
@@ -960,7 +886,7 @@ end
 ; "=" initialiser after the declaration of variable `s` of type `t`, at `level`.
 recursive func initial_value(s: word, t: byte, level: byte)
   lex.next()
-  no_record(t)
+  parts.no_record(t)
   if typetab.is_array(t) then
     var data: word
     data = gen.anonymous()
@@ -984,34 +910,6 @@ recursive func initial_value(s: word, t: byte, level: byte)
       gen.initial(s, kernel.NO_OBJ, 0, reg.op_value[i])
     end
     reg.pop()
-  end
-end
-
-; Something of type `t` is given an initial value: it cannot be a record, or an array of them,
-; yet.
-pub func no_record(t: byte)
-  if typetab.is_record(typetab.innermost(t)) then
-    err.fatal(err.E_RECORD_INIT)
-  end
-end
-
-; Check that the elements of array type `t`, and of the arrays it is made of, can be reached:
-; one of more than 256 elements larger than a byte must be stored by row, and an element
-; stored by row must have a size that is a power of two.
-pub func layout(t: byte)
-  var size: word
-  while typetab.is_array(t) do
-    size = typetab.size(byte(typetab.base(t)))
-    if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t) then
-      err.fatal(err.E_NEEDS_ROWS)
-    end
-    if typetab.is_rows(t) and size & (size - 1) != 0 then
-      if typetab.is_record(byte(typetab.base(t))) then
-        err.fatal_value(err.E_ROWS_RECORD, size)
-      end
-      err.fatal(err.E_ELEMENT_SIZE)
-    end
-    t = byte(typetab.base(t))
   end
 end
 

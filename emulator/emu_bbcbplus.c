@@ -20,6 +20,9 @@ static void report(const struct bbc_machine *m, const struct emu_opts *opts) {
         fprintf(stderr, "bbcbplus: module: slot %d, %s %s, bank %d, bank switches %llu\n", opts->bbc_module_slot,
                 m->module->scheme == BBC_MODULE_DIRECT16 ? "direct16" : "cc128", m->module->ram ? "RAM" : "ROM",
                 m->module->bank, (unsigned long long)m->module->switches);
+    fprintf(stderr, "bbcbplus: files: opened=%llu  bytes-read=%llu  bytes-written=%llu\n",
+            (unsigned long long)m->files_opened, (unsigned long long)m->bytes_read,
+            (unsigned long long)m->bytes_written);
     fprintf(stderr, "bbcbplus: checks: mos-memory-writes=%llu  romsel-mismatches=%llu\n",
             (unsigned long long)m->mos_writes, (unsigned long long)m->romsel_mismatches);
     for (uint64_t i = 0; i < m->mos_writes && i < BBC_MAX_REPORTED; i++)

@@ -498,6 +498,91 @@ UNREACHED = {'decl': [
 ], 'lathec': []}
 
 
+# ---- The corpus on the BBC (LATHE_LATHEC_BBC=1) ---------------------------------------------
+
+BBC = os.environ.get('LATHE_LATHEC_BBC') == '1'
+
+
+def run_host_full(item, work):
+    """(status, output, error output, {file: bytes}) of the host compiler at full size."""
+    kind, path, args, files = item
+    with tempfile.TemporaryDirectory(dir=work) as disk:
+        before = fill(disk, files)
+        done = subprocess.run([sys.executable, os.path.join(LATHE, 'host', 'lathec.py')] + args,
+                              cwd=disk, capture_output=True)
+        return done.returncode, done.stdout, done.stderr, outputs(disk, before)
+
+
+def run_bbc(image, item, work):
+    """(status, output, what the MOS said, {file: bytes}) of the compiler in the ROM form on
+    the BBC (test_bbc_selfhost.report_run), or an exception's text in place of the output."""
+    import test_bbc_selfhost as bbc_selfhost
+    kind, path, args, files = item
+    with tempfile.TemporaryDirectory(dir=work) as disk:
+        fill(disk, files)
+        try:
+            got = bbc_selfhost.report_run('rom', image, disk, args)
+        except Exception as e:      # an argument the BBC's command line cannot carry
+            return None, str(e).encode(), b'', {}
+        return got[:4]
+
+
+# The inputs that cannot give the host's output on the BBC, and why: the emulator's filing
+# system has no directories (a name with "/" is the error Bad name, which bbc.open catches, so
+# the file is not there), and the module copies a tail of 239 bytes at most (bbc.md).
+BBC_DIFFERENT = {
+    'a source in a directory': 'no directories: sub/m.lth cannot be opened (error 62)',
+    'an import directory': 'no directories: lib/k.li cannot be opened (error 50)',
+    'a file name too long (83)': 'its command line is 248 bytes, more than the 239 *LATHE copies',
+}
+
+
+@unittest.skipUnless(BBC, 'LATHE_LATHEC_BBC=1 runs the corpus on the BBC')
+class OnTheBBC(unittest.TestCase):
+    """Every input, as LATHE_BANKED_ALL=1 runs them on Wendy 2, compiled by the compiler at full
+    size in the ROM form on the BBC Model B+128 (test_bbc_selfhost.build_rom: `*LATHE ARGS` with
+    --bbc-strict), against the host compiler at full size. On the BBC the error output is the
+    output, so the host's two streams are joined. The inputs that do not agree are listed with
+    why (BBC_DIFFERENT); LATHE_LATHEC_REPORT=1 prints them and the count that agrees."""
+
+    @classmethod
+    def setUpClass(cls):
+        import test_bbc_selfhost as bbc_selfhost
+        cls.dir = tempfile.mkdtemp(prefix='lathe-src-lathec-bbc-')
+        rom = os.path.join(cls.dir, 'rom')
+        os.makedirs(rom)
+        cls.image = bbc_selfhost.build_rom(rom)
+        cls.corpus = Corpus(os.path.join(cls.dir, 'corpus'))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+            cls.host = list(pool.map(lambda i: run_host_full(i, cls.dir), cls.corpus.items))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_the_compiler_on_the_bbc_gives_the_host_compilers_output(self):
+        items = self.corpus.items
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+            got = list(pool.map(lambda i: run_bbc(self.image, i, self.dir), items))
+        same = 0
+        differ = []
+        for item, host, bbc in zip(items, self.host, got):
+            kind, path, args, files = item
+            name = path if kind == 'made' else os.path.relpath(path, LATHE)
+            want = (host[0], host[1] + host[2], b'', host[3])
+            if bbc == want:
+                same += 1
+                continue
+            differ.append((name, bbc, want))
+        if os.environ.get('LATHE_LATHEC_REPORT') == '1':
+            print()
+            for name, bbc, want in differ:
+                print('%s: BBC %r, host %r' % (name, bbc[:3], want[:3]))
+            print('%d of %d inputs agree on the BBC' % (same, len(items)))
+        self.assertEqual(sorted(name for name, bbc, want in differ), sorted(BBC_DIFFERENT))
+        self.assertEqual(same, len(items) - len(BBC_DIFFERENT))
+
+
 def executable_lines(module):
     """{line: (function, its text)} of the lines of a host module that hold a statement inside
     a function (as test_src_expr.py counts them)."""

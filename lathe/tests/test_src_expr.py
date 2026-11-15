@@ -32,6 +32,7 @@ import gen
 import inline
 import kernel
 import lex
+import parts
 import reg
 import src
 import typetab
@@ -59,17 +60,17 @@ def init():
     expr.asm_last = False
     expr.exit_label = reg.NONE
     expr.next_label = reg.NONE
-    expr.placed_at = 0
+    parts.placed_at = 0
     expr.critical_depth = 0
     expr.critical_inner = 0
     expr.case_count = 0
     expr.with_function = fbuf.NO_SLOT
     expr.with_loop = fbuf.NO_SLOT
-    expr.with_entry = reg.NONE
-    expr.placed_region = 0
+    parts.with_entry = reg.NONE
+    parts.placed_region = 0
     expr.data_region = 0
-    expr.in_line = 0
-    expr.in_col = 0
+    parts.in_line = 0
+    parts.in_col = 0
 
 
 def show_token():

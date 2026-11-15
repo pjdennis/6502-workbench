@@ -1,7 +1,8 @@
 """lathe/src/sys.lth over lathe/rt/bbc.lth, the BBC's MOS (`define PORTS 2`, lathe/env/bbc.env).
 
 - Choice: each `#if PORTS` of sys.lth is the `#else` of an `#if PORTS == 2` whose first part is
-  the `#if PORTS` part with bbc for disk, so that PORTS 0 and 1 compile what they did before the
+  the `#if PORTS` part with bbc for disk (but where the other machines use the table of open
+  files, which the BBC has not: lathe/docs/bbc.md, "Step 4"), so that PORTS 0 and 1 compile what they did before the
   BBC was added (the object files are the same: checked once by hand when this was written, and
   here by the structure).
 - Every environment with PORTS 2 is a BBC's, and the others keep 0 or 1.
@@ -26,6 +27,7 @@ from test_disk import calls, code_of, signatures  # noqa: E402
 
 RT = os.path.join(ROOT, 'lathe', 'rt')
 SRC = os.path.join(ROOT, 'lathe', 'src')
+TABLE = re.compile(r'\b(files|MAX_FILES|keep)\b')
 THREE = re.compile(r'^#if PORTS == 2\n(.*?)^#else\n^#if PORTS\n(.*?)^#else\n(.*?)^#end\n^#end\n', re.M | re.S)
 
 
@@ -51,9 +53,17 @@ class Choice(unittest.TestCase):
         found = THREE.findall(code)
         self.assertEqual(len(found), len(re.findall(r'^#if PORTS\n', code, re.M)))
         self.assertGreater(len(found), 10)
+        own = 0
         for bbc, disk, host in found:
-            self.assertEqual(bbc, re.sub(r'\bdisk\b', 'bbc', disk))
             self.assertEqual(disk.replace('disk', 'host'), host)
+            if TABLE.search(disk):
+                # The table of open files: the BBC has none (the MOS keeps the handles and
+                # bbc.exit closes every file), so its part is its own and names none of it.
+                self.assertIsNone(TABLE.search(bbc), bbc)
+                own += 1
+            else:
+                self.assertEqual(bbc, re.sub(r'\bdisk\b', 'bbc', disk))
+        self.assertEqual(own, 6)    # the table, keep, open_in, open_out, close and exit
         outside = THREE.sub('', code)
         self.assertEqual(calls(outside, 'bbc') + calls(outside, 'disk') + calls(outside, 'host'), [])
 

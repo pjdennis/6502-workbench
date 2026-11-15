@@ -82,6 +82,9 @@ struct bbc_machine {
     uint16_t tail;                     /* OSARGS 1: the command line tail of *RUN */
     int64_t clock_offset;              /* OSWORD 2 */
     uint64_t mos_calls;                /* traps served */
+    uint64_t files_opened;             /* OSFIND opens that gave a handle */
+    uint64_t bytes_read, bytes_written;/* by OSBGET, OSBPUT and OSGBPB: the file traffic, which the
+                                        * emulator's MOS does not charge for in cycles */
     int next_command;                  /* the next of cfg.more_commands to run */
 };
 

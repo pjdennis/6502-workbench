@@ -299,3 +299,95 @@ def region_symbol(region):
                 and reg.same_region(kernel.word_of(s, kernel.C_VALUE), region):
             return kernel.word_of(s, kernel.C_OBJ)
     return kernel.NO_OBJ
+
+
+# ---- Declarations ------------------------------------------------------------------------
+#
+# Names being declared, a variable's placements and its symbol, and the checks of a type's
+# layout: what DECL calls of EXPR's, and what EXPR's `variable` calls. Here, apart from EXPR's
+# cycle, so that EXPR fits a bank of the BBC as the linker judges it: before zero page shrinks
+# its code (docs/bbc.md, "Step 4").
+
+placed_at = 0           # the address after "at" in the declaration being parsed
+placed_region = 0       # the name after "in" in the declaration being parsed
+in_line = 0             # and where the "in" is
+in_col = 0
+
+
+def new_name(scope):
+    """The name being declared, which `scope` must not have yet. It is passed over."""
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    name = lex.value
+    _, found = kernel.sym_find(scope, name)
+    if found:
+        err.fatal(err.E_DUPLICATE)
+    lex.next()
+    return name
+
+
+def region_name():
+    """"in" name: the region's name. Where the "in" is is kept for an error."""
+    global in_line, in_col
+    in_line = lex.line
+    in_col = lex.col
+    lex.next()
+    if lex.tok != lex.T_NAME:
+        err.fatal(err.E_NAME_EXPECTED)
+    name = lex.value
+    lex.next()
+    return name
+
+
+def not_in_region():
+    """`in REGION` was given where it is not allowed."""
+    err.position(in_line, in_col)
+    err.fatal(err.E_IN_HERE)
+
+
+def zp_class(flags):
+    """The class of a slot or variable declared with these flags."""
+    if flags & kernel.SF_ZP != 0:
+        return reg.CLASS_ZP
+    if flags & kernel.SF_NOZP != 0:
+        return reg.CLASS_NOT_ZP
+    return reg.CLASS_EITHER
+
+
+def lasting_variable(scope, name, t, flags, outer):
+    """Declare a variable that is not a slot: one that lives for the whole program, which
+    gets its object-file symbol now, or one at a fixed address. A `static` variable is the
+    symbol `module.function.name`: `outer` is the function's name, 0 for a variable of the
+    module."""
+    s = kernel.sym_add(scope, name, kernel.K_VAR)
+    kernel.set_byte(s, kernel.C_TYPE, t)
+    kernel.set_byte(s, kernel.C_FLAGS, flags)
+    if flags & kernel.SF_AT != 0:
+        kernel.set_word(s, kernel.C_VALUE, placed_at)
+    else:
+        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0], outer, name))
+    if flags & kernel.SF_IN != 0:
+        kernel.set_word(s, kernel.C_VALUE, placed_region)
+    return s
+
+
+def no_record(t):
+    """Something of type `t` is given an initial value: it cannot be a record, or an array of
+    them, yet."""
+    if typetab.is_record(typetab.innermost(t)):
+        err.fatal(err.E_RECORD_INIT)
+
+
+def layout(t):
+    """Check that the elements of array type `t`, and of the arrays it is made of, can be
+    reached: one of more than 256 elements larger than a byte must be stored by row, and an
+    element stored by row must have a size that is a power of two."""
+    while typetab.is_array(t):
+        size = typetab.size(typetab.base(t))
+        if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t):
+            err.fatal(err.E_NEEDS_ROWS)
+        if typetab.is_rows(t) and size & (size - 1) != 0:
+            if typetab.is_record(typetab.base(t)):
+                err.fatal_value(err.E_ROWS_RECORD, size)
+            err.fatal(err.E_ELEMENT_SIZE)
+        t = typetab.base(t)

@@ -169,7 +169,7 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict --bbc-command "
 - **The line end.** The BBC ends a line with CR (`$0D`): the Return key gives CR, and OSNEWL writes LF CR, which the screen needs (LF moves down, CR back to the start). A Lathe program writes and reads LF (`$0A`). So `put_byte(10)` is OSNEWL (LF CR), every other byte is written as it is, and `read_byte` gives a CR from the keyboard as LF. The driver gives each LF CR of the emulator's output back as LF, so that it compares with the default machine's. Files are never translated: `read` and `write` (OSBGET, OSBPUT) move bytes exactly, so object files and binary data copy as they are.
 - **Error output** goes where output goes: the BBC has no second stream. The driver's error output is only a MOS error's message.
 - **The end.** `main` returning, or `exit(0)` from any depth, returns to the MOS: the start-up code begins with `TSX` / `STX $0400`, and `exit` puts S back from there and returns. `exit(N)` with N not 0 raises a MOS error: BRK, the error number N and the message `Exit N`. The emulator prints the message and ends with status 1, and the driver gives N back as the status; a real BBC's language (BASIC) reports it as any error, with `ERR` = N. Both forms close every file first (OSFIND 0 with Y=0, as `CLOSE#0`). There is no exit status on the BBC: an error is the least that is honest.
-- **Files.** OSFIND with the name ended by CR. A missing file is 0, as the MOS gives it; an error the filing system raises instead (`Bad name`, `Too many open files`) is caught for the call through BRKV and is 0 too, so that `open` keeps host's contract. At the end of a file `read` gives the carry set, and keeps giving it without calling OSBGET again, which would raise the error `EOF`. Names are passed as they are: the emulator takes any name without `/` or `..`; a real DFS takes seven characters and uses `.` for its directory.
+- **Files.** OSFIND with the name ended by CR. A missing file is 0, as the MOS gives it; an error the filing system raises instead (`Bad name`, `Too many open files`) is caught for the call through BRKV and is 0 too, so that `open` keeps host's contract. At the end of a file `read` gives the carry set, and keeps giving it without calling OSBGET again, which would raise the error `EOF`. Names are passed as they are: the emulator takes any name without `/` or `..` (a leading `./` is dropped); a real DFS takes seven characters and uses `.` for its directory.
 - **The program's memory only.** Every run in the tests uses `--bbc-strict`, which stops a program at its first write to memory the MOS owns.
 
 How the interface of `../rt/host.lth` is given (`../rt/bbc.lth`):
@@ -255,6 +255,31 @@ emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
 - **The end**: status 0 enters the current language again with OSBYTE 142 if it is a language ROM, and otherwise returns from the service call, claimed (the emulator without `--bbc-rom` has no language: the run ends with status 0). A status N other than 0 is the MOS error `Exit N`, as for `*RUN`.
 - **`*HELP`** lists the module's commands; a command it does not know is left to the other ROMs and the MOS (`Bad command`).
 - **Sideways RAM**: the slots the program's regions are in are taken; their constants are copied there from the image at the command.
+
+### The compiler on the BBC
+
+The Lathe-written compiler at its full capacities, `../src/lathec-bbc.env` ([`bbc.md`](bbc.md), "Step 4, as built"): five banks of the module, its tables in the four sideways RAM slots. Build the image with the compiler in it, and the loader (`rom/` must exist):
+
+```bash
+python3 -c "import sys; sys.path.insert(0, 'lathe/host/driver'); import bbcrom; \
+    bbcrom.rom_env('lathe/src/lathec-bbc.env', 'rom/lathec.env', 1)"    # banks 1 to 5, rom
+python3 lathe/host/driver/build.py lathe/src/lathec.lth -o rom/LATHE --env rom/lathec.env --keep rom/work
+python3 lathe/host/driver/bbcrom.py -o MODULE --listing MODULE.txt --loader DIR/LOADMOD \
+    LATHE=rom/LATHE,rom/lathec.env,rom/work/lathec.map
+```
+
+Then compile a module in `DIR`, which holds its source and the interfaces of what it imports, with `*LATHE` and the compiler's usual command line ([`../host/README.md`](../host/README.md), "Command lines"); the output directory `.` is the disc itself (the emulator drops a leading `./` from a name):
+
+```bash
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
+    --bbc-module MODULE --bbc-module-scheme direct16 --bbc-command "LATHE OPTIONS NAME.lth ."
+```
+
+From the module's RAM form: `--bbc-module-ram`, and `--bbc-command "RUN LOADMOD MODULE"` before the command, with `MODULE` copied to `DIR`. The developer's form without an image: `build.py lathe/src/lathec.lth -o lathec.bin --env lathe/src/lathec-bbc.env`, run with `*RUN LATHEC ARGS` as "Banked" above has it, the five bank files and `LATHE33.BIN` beside it. `../tests/test_bbc_selfhost.py` does all three; `test_src_lathec.py`'s `OnTheBBC` runs the corpus so (`LATHE_LATHEC_BBC=1`).
+
+- **Files** are named as the emulator's directory takes them, with no directories: an import directory other than `.` cannot be reached (the corpus's two inputs that use one cannot give the host's output).
+- **The command line** is at most 239 bytes after `LATHE `.
+- **Memory**: `*LATHE` takes zero page `$00-$8F`, `$0400-$07FF` and `$1900-$7BFF` as it finds them, and the four sideways RAM slots; nothing in the compiler relies on memory being 0 (the test fills it first).
 
 ## The VIA timer
 

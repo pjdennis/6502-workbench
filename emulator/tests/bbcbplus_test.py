@@ -97,6 +97,8 @@ def run_tests(work, build):
     with open(os.path.join(disk, "DST"), "rb") as f:
         copied = f.read()
     check("*COPY SRC DST copies the file", rc == 0 and copied == data, err)
+    check("*COPY: the report counts the file traffic",
+          f"files: opened=2  bytes-read={len(data)}  bytes-written={len(data)}" in err, err)
     rc, out, err = emu("--disk", disk, "--bbc-command", "*RUN COPY  SRC   DST2")
     check("*RUN COPY with a tail copies it too", rc == 0 and open(os.path.join(disk, "DST2"), "rb").read() == data, err)
     rc, out, err = emu("--disk", disk, "--bbc-command", "COPY NONE X")

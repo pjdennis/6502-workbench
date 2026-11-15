@@ -136,18 +136,6 @@ def value_type():
     return t
 
 
-def new_name(scope):
-    """The name being declared, which `scope` must not have yet. It is passed over."""
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
-    name = lex.value
-    _, found = kernel.sym_find(scope, name)
-    if found:
-        err.fatal(err.E_DUPLICATE)
-    lex.next()
-    return name
-
-
 # ---- Designators and calls ---------------------------------------------------------------
 
 def builtin(which):
@@ -578,7 +566,6 @@ function = 0            # the function being compiled: its symbol in the kernel'
 asm_last = False        # the statement compiled last is an `asm` block
 exit_label = reg.NONE   # where `break` goes: after the nearest loop
 next_label = reg.NONE   # where `continue` goes: to that loop's next pass
-placed_at = 0           # the address after "at" in the declaration being parsed
 critical_depth = 0      # how many `critical` blocks the statement being compiled is inside
 critical_inner = 0      # how many of those are inside the nearest loop
 # `with REGION do ... end` (provisional, 2026-11-14): the temporaries that hold the bank found
@@ -586,10 +573,7 @@ critical_inner = 0      # how many of those are inside the nearest loop
 # mapped theirs; fbuf.NO_SLOT for none. Unmapping it puts back what was there before them all.
 with_function = fbuf.NO_SLOT
 with_loop = fbuf.NO_SLOT
-placed_region = 0       # the name after "in" in the declaration being parsed
 data_region = 0         # the region of the table table_data() writes, or 0
-in_line = 0             # and where the "in" is
-in_col = 0
 
 MAX_CASE = 256
 case_value = bytearray(MAX_CASE)    # the constants of the `case` statements being compiled
@@ -603,8 +587,7 @@ OP_SEI = 0x78
 
 def placements():
     """{ "zp" | "nozp" | "rows" | "at" constExpr | "in" name }. Returns them as symbol flags;
-    the address is left in `placed_at`, the region in `placed_region`."""
-    global placed_at, placed_region, in_line, in_col
+    the address is left in `parts.placed_at`, the region in `parts.placed_region`."""
     flags = 0
     while True:
         if lex.tok == lex.T_ZP:
@@ -616,65 +599,18 @@ def placements():
         elif lex.tok == lex.T_AT:
             flags = flags | kernel.SF_AT
             lex.next()
-            placed_at = constant_number()
+            parts.placed_at = constant_number()
         elif lex.tok == lex.T_ROWS:
             flags = flags | kernel.SF_ROWS
             lex.next()
         elif lex.tok == lex.T_IN:
             flags = flags | kernel.SF_IN
-            placed_region = region_name()
+            parts.placed_region = parts.region_name()
         else:
             break
     if flags & kernel.SF_ZP != 0 and flags & kernel.SF_NOZP != 0:
         err.fatal(err.E_SYNTAX)
     return flags
-
-
-def region_name():
-    """"in" name: the region's name. Where the "in" is is kept for an error."""
-    global in_line, in_col
-    in_line = lex.line
-    in_col = lex.col
-    lex.next()
-    if lex.tok != lex.T_NAME:
-        err.fatal(err.E_NAME_EXPECTED)
-    name = lex.value
-    lex.next()
-    return name
-
-
-def not_in_region():
-    """`in REGION` was given where it is not allowed."""
-    err.position(in_line, in_col)
-    err.fatal(err.E_IN_HERE)
-
-
-def zp_class(flags):
-    """The class of a slot or variable declared with these flags."""
-    if flags & kernel.SF_ZP != 0:
-        return reg.CLASS_ZP
-    if flags & kernel.SF_NOZP != 0:
-        return reg.CLASS_NOT_ZP
-    return reg.CLASS_EITHER
-
-
-def lasting_variable(scope, name, t, flags, level):
-    """Declare a variable that is not a slot: one that lives for the whole program, which
-    gets its object-file symbol now, or one at a fixed address. A `static` variable is the
-    symbol `module.function.name`."""
-    s = kernel.sym_add(scope, name, kernel.K_VAR)
-    kernel.set_byte(s, kernel.C_TYPE, t)
-    kernel.set_byte(s, kernel.C_FLAGS, flags)
-    if flags & kernel.SF_AT != 0:
-        kernel.set_word(s, kernel.C_VALUE, placed_at)
-    elif level == LEVEL_MODULE:
-        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0], 0, name))
-    else:
-        kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0],
-                                       kernel.word_of(function, kernel.C_NAME), name))
-    if flags & kernel.SF_IN != 0:
-        kernel.set_word(s, kernel.C_VALUE, placed_region)
-    return s
 
 
 def initial_assignment(s):
@@ -695,7 +631,7 @@ def variable(more, level):
     scope = inline.local_scope()
     if level == LEVEL_MODULE:
         scope = kernel.SCOPE_MODULE
-    name = new_name(scope)
+    name = parts.new_name(scope)
     lex.expect(lex.T_COLON, err.E_COLON_EXPECTED)
     line = lex.line
     col = lex.col
@@ -704,14 +640,14 @@ def variable(more, level):
     if flags & kernel.SF_IN != 0:
         # In a region: in its bank, never in zero page, with no initial value, and not a slot.
         if flags & (kernel.SF_AT | kernel.SF_ZP) != 0 or level == LEVEL_LOCAL or lex.tok == lex.T_ASSIGN:
-            not_in_region()
+            parts.not_in_region()
         flags = flags | kernel.SF_NOZP
     err.position(line, col)
     if flags & kernel.SF_ROWS != 0:
         if not typetab.is_array(t):
             err.fatal(err.E_TYPE)
         t = typetab.array_of(typetab.base(t), typetab.length(t), True)
-    layout(t)
+    parts.layout(t)
     if (typetab.is_array(t) or typetab.is_record(t)) and flags & kernel.SF_ZP == 0:
         flags = flags | kernel.SF_NOZP          # nor a record: never in zero page unless asked
     err.position(lex.line, lex.col)
@@ -719,9 +655,9 @@ def variable(more, level):
         s = kernel.sym_add(scope, name, kernel.K_LOCAL)
         kernel.set_byte(s, kernel.C_TYPE, t)
         if inline.level == 0:
-            kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL, name))
-        elif zp_class(flags) != reg.CLASS_EITHER:
-            kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), zp_class(flags), reg.SLOT_LOCAL,
+            kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), parts.zp_class(flags), reg.SLOT_LOCAL, name))
+        elif parts.zp_class(flags) != reg.CLASS_EITHER:
+            kernel.set_word(s, kernel.C_VALUE, reg.new_slot(typetab.size(t), parts.zp_class(flags), reg.SLOT_LOCAL,
                                                inline.slot_name(name, reg.local_count)))
         else:
             # A local of an inline function: a temporary of the caller's frame, free again when
@@ -729,7 +665,10 @@ def variable(more, level):
             # record), is a slot of its own, since temporaries share theirs.
             kernel.set_word(s, kernel.C_VALUE, inline.own_slot(typetab.size(t)))
     else:
-        s = lasting_variable(scope, name, t, flags, level)
+        if level == LEVEL_MODULE:
+            s = parts.lasting_variable(scope, name, t, flags, 0)
+        else:
+            s = parts.lasting_variable(scope, name, t, flags, kernel.word_of(function, kernel.C_NAME))
     if lex.tok == lex.T_ASSIGN:
         initial_value(s, t, level)
 
@@ -737,7 +676,7 @@ def variable(more, level):
 def initial_value(s, t, level):
     """"=" initialiser after the declaration of variable `s` of type `t`, at `level`."""
     lex.next()
-    no_record(t)
+    parts.no_record(t)
     if typetab.is_array(t):
         data = gen.anonymous()
         table_data(t, data)
@@ -757,28 +696,6 @@ def initial_value(s, t, level):
         else:
             gen.initial(s, kernel.NO_OBJ, 0, reg.op_value[i])
         reg.pop()
-
-
-def no_record(t):
-    """Something of type `t` is given an initial value: it cannot be a record, or an array of
-    them, yet."""
-    if typetab.is_record(typetab.innermost(t)):
-        err.fatal(err.E_RECORD_INIT)
-
-
-def layout(t):
-    """Check that the elements of array type `t`, and of the arrays it is made of, can be
-    reached: one of more than 256 elements larger than a byte must be stored by row, and an
-    element stored by row must have a size that is a power of two."""
-    while typetab.is_array(t):
-        size = typetab.size(typetab.base(t))
-        if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t):
-            err.fatal(err.E_NEEDS_ROWS)
-        if typetab.is_rows(t) and size & (size - 1) != 0:
-            if typetab.is_record(typetab.base(t)):
-                err.fatal_value(err.E_ROWS_RECORD, size)
-            err.fatal(err.E_ELEMENT_SIZE)
-        t = typetab.base(t)
 
 
 def table_data(t, symbol):

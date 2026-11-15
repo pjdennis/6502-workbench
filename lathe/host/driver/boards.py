@@ -325,13 +325,15 @@ def run_module(board, image, disk, command, args=(), slot=4, bank=0, ram=False, 
 
 
 def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=False, cap=None,
-            module=None):
+            module=None, report=False, before=()):
     """Runs a program file on the BBC: copies it, with the .inf file build.py wrote beside it
     (IMAGE.inf), into the directory disk under its BBC name, runs `RUN NAME ARGS` there and
     removes the two again. Returns (status, output, error output, CPU cycles), as bbc_status()
     and bbc_output() make them; with raw, the emulator's own status and standard output, and
-    its error output without the exit report. `module` is the module's options
-    (module_options), for a banked program, whose bank files the caller has put in disk."""
+    its error output without the exit report (with report, with it). `module` is the module's
+    options (module_options), for a banked program, whose bank files the caller has put in
+    disk. `before` are * commands run first, each when the one before returns.
+    """
     if not os.path.isfile(EMULATOR):
         raise RunError('emulator/emulator.out is missing: run make at the repository root')
     name = bbc_name(image)
@@ -345,7 +347,8 @@ def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=Fals
         fh.write(inf_text(name, load, os.path.getsize(image)))
     fill = {'disk': os.path.abspath(disk)}
     cmd = ([EMULATOR, '--machine', board.machine] + [o.format(**fill) for o in board.options]
-           + list(module or ()) + ['--bbc-command', bbc_command(name, args, command_tail),
+           + list(module or ()) + [w for line in before for w in ('--bbc-command', line)]
+           + ['--bbc-command', bbc_command(name, args, command_tail),
               '--cycle-cap', str(cap or board.cycle_cap), '--exit-report'])
     try:
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -355,7 +358,8 @@ def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=Fals
         os.unlink(program + '.inf')
     err = r.stderr.decode('latin-1')
     if raw:
-        said = ''.join(line for line in err.splitlines(True) if not line.startswith('bbcbplus: '))
+        said = err if report else ''.join(line for line in err.splitlines(True)
+                                          if not line.startswith('bbcbplus: '))
         m = BBC_REPORT_RE.search(err)
         return r.returncode, r.stdout, said.encode('latin-1'), int(m.group(1)) if m else 0
     status, said, cycles = bbc_status(r.returncode, err)

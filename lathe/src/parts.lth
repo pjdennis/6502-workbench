@@ -11,24 +11,26 @@
 ; Where the Lathe differs from the Python: as in lathe/src/expr.lth, whose functions these were.
 module parts
 
-import err (E_DOT_EXPECTED, E_NAME_EXPECTED, E_NO_FIELD, E_NOT_VAR, E_TYPE, E_UNDEFINED, fatal,
-            position)
+import err (E_DOT_EXPECTED, E_DUPLICATE, E_ELEMENT_SIZE, E_IN_HERE, E_NAME_EXPECTED, E_NEEDS_ROWS,
+            E_NO_FIELD, E_NOT_VAR, E_RECORD_INIT, E_ROWS_RECORD, E_TYPE, E_UNDEFINED, fatal,
+            fatal_value, position)
 import fbuf (FIX_ADDRESS, newest, NO_SLOT, op, op_fix, OP_JSR, unreached)
 import fold (ADD, BAND, BOR, BXOR, DIV, EQ, GE, GT, LE, LT, MUL, NE, REM, SHL, SHR, SUB)
 import gen (anonymous, binary, compare, field, fixed_name, jump_false, local, OP_BNE, record_of,
             settle, step, test_left, test_right, variable)
 import inlines (copies_due, copy_aliases, lookup)
 import kernel (byte_of, C_FLAGS, C_KIND, C_OBJ, C_TYPE, C_VALUE, K_CONST, K_LOCAL, K_MODULE, K_VAR,
-               module_find, NO_OBJ, SCOPE_FIELDS, SF_IN, SF_PUB, sym_count, sym_find, word_of)
+               module_find, module_name, NO_OBJ, SCOPE_FIELDS, set_byte, set_word, SF_AT, SF_IN,
+               SF_NOZP, SF_PUB, SF_ZP, sym_add, sym_count, sym_find, word_of)
 import lex (col, expect, line, next, string_byte, string_length, T_AMP, T_BAR, T_BOOL, T_BYTE,
             T_CARET, T_DOT, T_EQ, T_GE, T_GT, T_INT, T_LE, T_LT, T_MINUS, T_MOD, T_NAME, T_NE,
             T_PLUS, T_SBYTE, T_SHL, T_SHR, T_SLASH, T_STAR, T_WORD, tok, value)
-import out (call, data, data_byte, imported, NO_OUTER, SYM_FUNCTION, symbol)
-import reg (branch, clobber, depth, duplicate, flags, forget, jump, modify, NO_REG, NONE, O_ADDR,
-            O_CONST, OP_INC, op_kind, op_symbol, op_type, op_value, own, pop, push, same_region,
-            temp, use_slot)
-import typetab (BOOL_TYPE, BYTE_TYPE, INT_TYPE, is_number, is_signed, NO_TYPE, pointer_to,
-                SBYTE_TYPE, size, WORD_TYPE)
+import out (call, data, data_byte, imported, NO_OUTER, SYM_FUNCTION, SYM_VARIABLE, symbol)
+import reg (branch, CLASS_EITHER, CLASS_NOT_ZP, CLASS_ZP, clobber, depth, duplicate, flags, forget,
+            jump, modify, NO_REG, NONE, O_ADDR, O_CONST, OP_INC, op_kind, op_symbol, op_type,
+            op_value, own, pop, push, same_region, temp, use_slot)
+import typetab (base, BOOL_TYPE, BYTE_TYPE, innermost, INT_TYPE, is_array, is_number, is_record,
+                is_rows, is_signed, length, NO_TYPE, pointer_to, SBYTE_TYPE, size, WORD_TYPE)
 
 pub var with_entry: word = reg.NONE ; map_bank(): the buffer entry of its LDA #bank, whose symbol comes later
 const FARCALL_MODULE = "rt_with"    ; the far-call module, as the linker resolves it (configurations.md)
@@ -367,4 +369,111 @@ pub func region_symbol(region: word): word
     end
   end
   return kernel.NO_OBJ
+end
+
+; ---- Declarations ------------------------------------------------------------------------
+;
+; Names being declared, a variable's placements and its symbol, and the checks of a type's
+; layout: what DECL calls of EXPR's, and what EXPR's `variable` calls. Here, apart from EXPR's
+; cycle, so that EXPR fits a bank of the BBC as the linker judges it: before zero page shrinks
+; its code (lathe/docs/bbc.md, "Step 4").
+
+pub var placed_at: word = 0     ; the address after "at" in the declaration being parsed
+pub var placed_region: word = 0 ; the name after "in" in the declaration being parsed
+var in_line: word = 0           ; and where the "in" is
+var in_col: word = 0
+
+; The name being declared, which `scope` must not have yet. It is passed over.
+pub func new_name(scope: byte): word
+  var name: word
+  var s: word
+  var found: bool
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  name = lex.value
+  s, found = kernel.sym_find(scope, name)
+  if found then
+    err.fatal(err.E_DUPLICATE)
+  end
+  lex.next()
+  return name
+end
+
+; "in" name: the region's name. Where the "in" is is kept for an error.
+pub func region_name(): word
+  var name: word
+  in_line = lex.line
+  in_col = lex.col
+  lex.next()
+  if lex.tok != lex.T_NAME then
+    err.fatal(err.E_NAME_EXPECTED)
+  end
+  name = lex.value
+  lex.next()
+  return name
+end
+
+; `in REGION` was given where it is not allowed.
+pub func not_in_region()
+  err.position(in_line, in_col)
+  err.fatal(err.E_IN_HERE)
+end
+
+; The class of a slot or variable declared with these flags.
+pub func zp_class(flags: byte): byte
+  if flags & kernel.SF_ZP != 0 then
+    return reg.CLASS_ZP
+  end
+  if flags & kernel.SF_NOZP != 0 then
+    return reg.CLASS_NOT_ZP
+  end
+  return reg.CLASS_EITHER
+end
+
+; Declare a variable that is not a slot: one that lives for the whole program, which gets its
+; object-file symbol now, or one at a fixed address. A `static` variable is the symbol
+; `module.function.name`: `outer` is the function's name, 0 for a variable of the module.
+pub func lasting_variable(scope: byte, name: word, t: byte, flags: byte, outer: word): word
+  var s: word
+  s = kernel.sym_add(scope, name, kernel.K_VAR)
+  kernel.set_byte(s, kernel.C_TYPE, t)
+  kernel.set_byte(s, kernel.C_FLAGS, flags)
+  if flags & kernel.SF_AT != 0 then
+    kernel.set_word(s, kernel.C_VALUE, placed_at)
+  else
+    kernel.set_word(s, kernel.C_OBJ, out.symbol(out.SYM_VARIABLE, kernel.module_name[0], outer, name))
+  end
+  if flags & kernel.SF_IN != 0 then
+    kernel.set_word(s, kernel.C_VALUE, placed_region)
+  end
+  return s
+end
+
+; Something of type `t` is given an initial value: it cannot be a record, or an array of them,
+; yet.
+pub func no_record(t: byte)
+  if typetab.is_record(typetab.innermost(t)) then
+    err.fatal(err.E_RECORD_INIT)
+  end
+end
+
+; Check that the elements of array type `t`, and of the arrays it is made of, can be reached:
+; one of more than 256 elements larger than a byte must be stored by row, and an element
+; stored by row must have a size that is a power of two.
+pub func layout(t: byte)
+  var size: word
+  while typetab.is_array(t) do
+    size = typetab.size(byte(typetab.base(t)))
+    if typetab.length(t) > 256 and size > 1 and not typetab.is_rows(t) then
+      err.fatal(err.E_NEEDS_ROWS)
+    end
+    if typetab.is_rows(t) and size & (size - 1) != 0 then
+      if typetab.is_record(byte(typetab.base(t))) then
+        err.fatal_value(err.E_ROWS_RECORD, size)
+      end
+      err.fatal(err.E_ELEMENT_SIZE)
+    end
+    t = byte(typetab.base(t))
+  end
 end

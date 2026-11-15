@@ -138,8 +138,10 @@ returns, 1 when an error reaches the default BRKV handler (its message goes
 to standard error), on a fault (below) or a failed `--bbc-strict` check,
 and 2 at `--cycle-cap` (CPU cycles here). `--exit-report` prints the
 cycles, the PC and how the run ended, ROMSEL and `$F4`, the module's slot,
-scheme, form, bank and bank switches, and the checks with the first few
-offenders.
+scheme, form, bank and bank switches, the file traffic (files opened, and
+bytes read and written by OSBGET, OSBPUT and OSGBPB: the MOS here charges
+nothing for them, so these say what a real filing system would be asked to
+do), and the checks with the first few offenders.
 
 | Option | Notes |
 |---|---|
@@ -277,7 +279,8 @@ offenders.
   `.inf` files beside the data (`NAME LOAD EXEC [LENGTH]`, hex), as BBC
   tools write them; a file without one has zero addresses. Names are used
   as given, case and length included (no DFS seven-character limit, no
-  `$.` directory), ended by CR or a space; a name with `/` or `..` is the
+  `$.` directory), ended by CR or a space; a leading `./` (or several) is
+  dropped, naming the directory itself; any other `/`, and `..`, is the
   error "Bad name". OSFIND opens (`$40` input, `$80` output, `$C0` update)
   up to 15 files, handles `$11`-`$1F`, and returns 0 for a file that
   can't be opened; A=0 closes Y (0: all). OSBGET returns C set and
