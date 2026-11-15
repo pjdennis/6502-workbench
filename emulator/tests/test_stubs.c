@@ -84,6 +84,15 @@ TEST strict_stubs_end_below_argv(void) {
     PASS();
 }
 
+/* lathe/src/linker.env puts variables at $F240-$FDFF: in every mode the stubs end below that. */
+TEST stubs_end_below_lathe_linker_variables(void) {
+    for (int mode = 0; mode < 8; mode++) {
+        memset(memory, 0, sizeof memory);
+        ASSERT(generate_stubs(memory, mode & 1, (mode >> 1) & 1, (mode >> 2) & 1) <= 0xF240);
+    }
+    PASS();
+}
+
 SUITE(stubs_suite) {
     RUN_TEST(every_vector_is_a_jmp);
     RUN_TEST(stubs_end_below_string_pool);
@@ -91,6 +100,7 @@ SUITE(stubs_suite) {
     RUN_TEST(direct_io_screen_vectors_store_a_then_op);
     RUN_TEST(standard_stubs_have_no_screen_vectors);
     RUN_TEST(strict_stubs_end_below_argv);
+    RUN_TEST(stubs_end_below_lathe_linker_variables);
 }
 
 GREATEST_MAIN_DEFS();

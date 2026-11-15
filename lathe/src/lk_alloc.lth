@@ -63,11 +63,12 @@ import lk_op (CPU_6502)
 import lk_sym ()
 import lk_tab (add16, cls_count, cls_node, cls_np, cls_par, cls_reach, cls_ref, copy_node, cp_addr,
                cp_info, cp_size, cp_weight, ctx_count, ctx_of, D_CLASS, D_ZP, def_a, def_b,
-               def_count, def_f, def_ref, def_w, first_in_order, fn_count, fn_ctx, fn_nslots,
-               fn_ref, fn_slot, has_copy, in_block, in_frame, is_kept_var, is_node, MAX_CONTEXTS,
-               MAX_NODES, mbase_of, member_class, next_in_order, node_class, node_count,
-               node_is_class, NONE, overflow, own_of, S_CLASS, S_ZP, set_zbase, SL_ZP, slot_bytes,
-               slot_class, slot_in_zp, slot_sz, slot_weight, W_MBASE, W_ZSIZE, work, zbase_of)
+               def_count, def_f, def_ref, def_w, first_in_order, flip_slot_zp, fn_count, fn_ctx,
+               fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame, is_kept_var, is_node,
+               MAX_CONTEXTS, MAX_NODES, mbase_of, member_class, next_in_order, node_class,
+               node_count, node_is_class, NONE, overflow, own_of, S_CLASS, S_ZP, set_slot_zp,
+               set_zbase, slot_bytes, slot_class, slot_in_zp, slot_weight_of, W_MBASE, W_ZSIZE,
+               work, zbase_of)
 import lk_win (bank_def)
 
 const POOL_ZP = 0
@@ -457,9 +458,9 @@ func start_choices()
       for s = lk_tab.fn_slot[f] until lk_tab.fn_slot[f] + lk_tab.fn_nslots(f) do
         if lk_tab.slot_class(s) == 0 then
           must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
-          lk_tab.slot_sz[s] |= lk_tab.SL_ZP
+          lk_tab.set_slot_zp(s)
         elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
-          lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight[s]] += 1
+          lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight_of(s)] += 1
         end
       end
     end
@@ -510,7 +511,7 @@ func move_slot(f: word, i: byte, into: bool)
   var ctx: byte
   var n: word
   s = lk_tab.fn_slot[f] + i
-  lk_tab.slot_sz[s] ^= lk_tab.SL_ZP
+  lk_tab.flip_slot_zp(s)
   for ctx = 0 until lk_tab.ctx_count do
     if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)) then
       n = lk_tab.copy_node(f, ctx)
@@ -558,7 +559,7 @@ func move_weight(weight: byte, into: bool)
     if lk_tab.fn_ctx[f] != 0 then
       for i = 0 until lo(lk_tab.fn_nslots(f)) do
         s = lk_tab.fn_slot[f] + i
-        if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
+        if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
           move_slot(f, i, into)
         end
       end
@@ -594,11 +595,15 @@ end
 const CAND = WEIGHT_COUNT + WEIGHTS     ; while promote() works: the copies of the item judged,
 const LIST = CAND + lk_tab.MAX_CONTEXTS ; then the list, two words a copy (through; size, and
                                         ; context << 12), throughs largest first
+#if LKSMALL == 2
+const MAX_TAKEN = 64            ; the BBC's: 9 * MAX_NODES + 264 + 2 * MAX_TAKEN <= 10 * MAX_NODES
+#else
 #if LKSMALL
 const MAX_TAKEN = 32
 #else
 const MAX_TAKEN = 128           ; a list longer than this takes a layout instead: judging an item
                                 ; reads it, and longer lists saved no layouts on the corpus
+#end
 #end
 var taken: word = 0
 var taken_vars: word = 0        ; bytes of variables accepted since L
@@ -768,7 +773,7 @@ func try_slots(weight: byte)
     if lk_tab.fn_ctx[f] != 0 then
       for i = 0 until lo(lk_tab.fn_nslots(f)) do
         s = lk_tab.fn_slot[f] + i
-        if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
+        if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)) then
           try_slot(f, i)
         end
       end

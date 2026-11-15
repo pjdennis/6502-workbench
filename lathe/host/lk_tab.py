@@ -33,7 +33,7 @@ import lk_err
 import lk_sym
 
 # Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
-MAX_FUNCS = 800
+MAX_FUNCS = 896                     # the compiler links 799 (2026-11-15)
 MAX_SLOTS = 4000
 MAX_BIG_SLOTS = 64                  # slots of 15 bytes or more
 MAX_CLASSES = 32
@@ -176,6 +176,8 @@ def new_func(flags):
     f = fn_count
     fn_count += 1
     fn_flags[f] = flags
+    fn_ctx[f] = 0                   # the twin's tables start as whatever memory held: every
+    fn_class[f] = 0                 # column read before it is set is set here
     fn_edge[f] = edge_count
     fn_slot[f] = slot_count
     return f
@@ -210,8 +212,10 @@ def new_class(np):
     k = cls_count
     cls_count += 1
     cls_rep[k] = k
+    cls_reach[k] = 0
     cls_np[k] = np
     cls_par[k] = cp_count
+    cls_namer[k] = 0
     return k
 
 
@@ -219,6 +223,7 @@ def new_cparam(size):
     global cp_count
     cp_size[cp_count] = size
     cp_info[cp_count] = 1           # "either", until the members say otherwise
+    cp_weight[cp_count] = 0
     cp_count += 1
 
 
@@ -464,6 +469,17 @@ def chains_to_runs():
     edge_count = pos
 
 
+def edge_at(e):
+    """Row e of edge_word, the call and its flags. In the twin edge_word, fn_edge, big_slot and
+    big_size are in a region (LKCALLS), seen only inside a `with` block, which only this
+    module's functions have: other modules reach them through these."""
+    return edge_word[e]
+
+
+def set_edge_at(e, v):
+    edge_word[e] = v
+
+
 def edge_sym(e):
     """The function or class edge e calls."""
     return lk_sym.edge_ref(edge_word[e] & SYM_BITS)
@@ -488,6 +504,26 @@ def slot_bytes(s):
         else:
             low = mid
     return big_size[low]
+
+
+def slot_weight_of(s):
+    """The weight of slot s. In the twin slot_sz and slot_weight are in a region (LKSLOTS):
+    other modules reach them only through these functions."""
+    return slot_weight[s]
+
+
+def set_slot_weight(s, weight):
+    slot_weight[s] = weight
+
+
+def set_slot_zp(s):
+    """Slot s is in zero page."""
+    slot_sz[s] |= SL_ZP
+
+
+def flip_slot_zp(s):
+    """Slot s goes into zero page, or out of it again."""
+    slot_sz[s] ^= SL_ZP
 
 
 def slot_class(s):

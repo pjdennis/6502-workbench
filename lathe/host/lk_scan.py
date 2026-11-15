@@ -138,7 +138,7 @@ def rec_sym(obj):
     read_name()
     if lk_name.local_count == lk_name.MAX_LOCALS:
         lk_err.fail(lk_err.E_LOCALS)
-    lk_name.local[lk_name.local_count] = lk_name.symbol(kind)
+    lk_name.set_local(lk_name.local_count, lk_name.symbol(kind))
     lk_name.local_count += 1
     lk_name.obj_first[obj + 1] = lk_name.local_count
 
@@ -309,7 +309,7 @@ def rec_wgt(obj):
             if slot >= lk_tab.fn_nslots(f):
                 damaged()
             i = lk_tab.fn_slot[f] + slot
-            lk_tab.slot_weight[i] = heavier(lk_tab.slot_weight[i], weight)
+            lk_tab.set_slot_weight(i, heavier(lk_tab.slot_weight_of(i), weight))
         elif kind == lk_sym.FUNCTION and slot != 0xFF:
             if pend_count == MAX_PENDING:
                 lk_err.fail(lk_err.E_WEIGHTS)
@@ -332,7 +332,7 @@ def add_pending_weights():
             if lk_tab.work[PEND_SLOT + i] >= lk_tab.fn_nslots(f):
                 lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lk_tab.work[PEND_OBJ + i])
             slot = lk_tab.fn_slot[f] + lk_tab.work[PEND_SLOT + i]
-            lk_tab.slot_weight[slot] = heavier(lk_tab.slot_weight[slot], lk_tab.work[PEND_WEIGHT + i])
+            lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lk_tab.work[PEND_WEIGHT + i]))
 
 
 def rec_fixes(obj):

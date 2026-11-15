@@ -42,6 +42,7 @@ import lk_envf
 import lk_err
 import lk_file
 import lk_graph
+import lk_map
 import lk_name
 import lk_op
 import lk_out
@@ -291,7 +292,7 @@ def show_objects():
 def show_locals():
     label('l')
     for i in range(0, lk_name.local_count):
-        show_word(lk_name.local[i])
+        show_word(lk_name.local_at(i))
     end_line()
 
 
@@ -326,7 +327,7 @@ def show_slots():
     for s in range(0, lk_tab.slot_count):
         label('s')
         show_byte(lk_tab.slot_sz[s])
-        show_byte(lk_tab.slot_weight[s])
+        show_byte(lk_tab.slot_weight_of(s))
         show_word(lk_tab.slot_bytes(s))
         show_byte(lk_tab.slot_class(s))
         show_bool(lk_tab.slot_in_zp(s))
@@ -376,7 +377,7 @@ def show_calls():
     show_word(lk_tab.edge_count)
     show_word(lk_tab.waiting)
     for e in range(0, lk_tab.edge_count):
-        show_word(lk_tab.edge_word[e])
+        show_word(lk_tab.edge_at(e))
     end_line()
 
 
@@ -1245,12 +1246,30 @@ class LinkerTwins(unittest.TestCase):
             self.assertEqual(len(lk_tab.work), lk_tab.WORK_SIZE)
         finally:
             lk_small.load(False)
-        self.assertEqual(lk_tab.MAX_FUNCS, 800)
+        self.assertEqual(lk_tab.MAX_FUNCS, 896)
+
+    def test_the_bbc_build_has_the_capacities_of_the_twins(self):
+        lk_small.load('bbc')
+        try:
+            for module, values in lk_small.capacities('bbc').items():
+                for name, value in values.items():
+                    self.assertEqual(getattr(sys.modules[module], name), value)
+            self.assertEqual((lk_tab.MAX_FUNCS, lk_tab.MAX_NODES, lk_name.MAX_LOCALS), (448, 472, 2000))
+        finally:
+            lk_small.load(False)
 
     def test_the_work_columns_of_the_graph_and_storage_do_not_overlap(self):
-        for small in (True, False):
+        for small in (True, 'bbc', False):
             lk_small.load(small)
             n = lk_tab.MAX_NODES
+            # The image: the fix-ups held, each copy's address and a slot's name, below the node
+            # columns (12 bytes a fix-up: lk_fix).
+            self.assertLessEqual(lk_tab.W_SNAME + 128, lk_tab.W_OWN)
+            # ... and the names of one file, as many as in the small build, with which the
+            # corpus is tested.
+            self.assertGreaterEqual(lk_tab.W_OWN - lk_map.W_HELD, 496)
+            # The calls' chains while the classes' calls are added (lk_tab.build_chains).
+            self.assertLessEqual(lk_tab.W_NEXT + lk_tab.MAX_EDGES, lk_tab.WORK_SIZE)
             # While what is kept is found: reach's stack, a DFIX record's entries, the files to read.
             self.assertLessEqual(lk_graph.NAMED + lk_tab.MAX_FIXES, lk_graph.NOW)
             self.assertLessEqual(lk_graph.LATER + lk_name.MAX_OBJECTS, lk_tab.W_SCC)

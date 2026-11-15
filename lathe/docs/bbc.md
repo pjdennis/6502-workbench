@@ -1,6 +1,6 @@
 # Lathe on a BBC Model B+128
 
-Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
+Status (2026-11-15): design, with the measurements it rests on. Built: the emulator's machine (`emulator/`, `--machine bbcbplus`), step 2, programs all in one run with `*RUN` through the MOS ([`boards.md`](boards.md), "The BBC Micro"; "Step 2, as built", below), and step 3: banked programs with the module in its developer's form ("Step 3, as built") and the ROM form, programs of a module image started by `*` commands ("Step 3, as built: the ROM form"), and step 4: the compiler compiles itself on the B+128 at its full capacities, from the ROM and from the RAM module ("Step 4, as built"), and step 5: the linker in the same image, started by `*LLINK`, so that a program is compiled, linked and run on the B+128 with every file the host's tools write ("Step 5, as built"). This is the first period machine of stage 12 in [`build-plan.md`](build-plan.md).
 
 ## The idea
 
@@ -111,7 +111,7 @@ The symbol table and OUT's tables together are 14.5 KB, one sideways slot, and b
 2. Programs all in one on the BBC: `bbc.lth`, the environment file, the board in the test driver, the end-to-end cases. **Done (2026-11-14)**: below.
 3. Banked: `rt_bbc`, ROM banks and the kept functions in the linker, the image tool, the header and service code, the loader. The far-call and banked-data cases run on the BBC. **First half done (2026-11-15)**: `rt_bbc`, its environment, the driver, the cases and the compiler's banked test programs, with the module in its developer's form (RAM) loaded by the program's start-up code; below. The linker's read-only banks and kept functions are done too (2026-11-14, another change; kept functions are used on the BBC below). **Second half done (2026-11-15)**: the image tool, the header and service code, bank 0's `*` commands, the loader, the ROM form of `rt_bbc` and `bbc.lth`; "Step 3, as built: the ROM form".
 4. The compiler: `expr` split, the placement, the budget measured. The symbol table behind accessors if that is what stands between. The test programs, then the compiler compiling itself. **Done (2026-11-15)**: "Step 4, as built".
-5. The linker in the same module, at the capacities that fit.
+5. The linker in the same module, at the capacities that fit. **Done (2026-11-15)**: "Step 5, as built".
 
 ## Step 2, as built
 
@@ -289,7 +289,7 @@ The split between code and variables is `$5000`, set by the developer's form, wh
 3. *A fault: `sys.files` was used before it was set.* The table of open files has no initial value, and memory holds whatever was there: after `LOADMOD` (whose buffer is `$2000-$5FFF`), or on a real machine after BASIC, every entry was taken, so `sys.open_in` refused the source (error 62) and `sys.exit` closed handles that were not open (`Channel`). Found by the loader form; the test now fills memory before every run. The initial value `[0]` would cost a function (`sys.$init`), and the compiler then links 801, one over the linker's limit (`lk_tab.MAX_FUNCS`, 800, link error 11). On the BBC the table is not needed: the MOS keeps the handles (15, as the table held) and `bbc.exit` closes every file (OSFIND 0, Y=0), so with `PORTS 2` `sys` has no table, `open_in` and `open_out` give the MOS's handle, and `close` and `exit` call `bbc`'s: 114 bytes less, two functions fewer. On the other machines it is as it was (memory there starts as 0 in the emulator; on a real Wendy 2 the same fault would show: open for the owner).
 4. *The emulator's names*: the compiler joins its directory and a name with `/` (`./err.lo`), which the emulator's filing system refused as `Bad name`. It now drops a leading `./` (`emulator/README.md`, with a C test); any other `/` is still refused.
 
-**The linker's function limit.** The compiler on the BBC links 798 functions of 800. Not raised: the first try of the fault above reached 801, and the fix that was chosen removes two. The next three functions anywhere in the compiler need it raised first: each function costs the linker 7 bytes of tables (`fn_flags`, `fn_ctx`, `fn_class` 1 each, `fn_slot`, `fn_edge` 2 each), and its tables are at their ceiling (54,144 bytes, `test_lk_memory.py`).
+**The linker's function limit.** The compiler on the BBC links 798 functions of 800. Not raised: the first try of the fault above reached 801, and the fix that was chosen removes two. The next three functions anywhere in the compiler need it raised first: each function costs the linker 7 bytes of tables (`fn_flags`, `fn_ctx`, `fn_class` 1 each, `fn_slot`, `fn_edge` 2 each), and its tables are at their ceiling (54,144 bytes, `test_lk_memory.py`). (Raised in step 5 to 896, 672 bytes: [`architecture.md`](architecture.md), "Memory in the linker".)
 
 ### Measured: the self-compile
 
@@ -330,11 +330,102 @@ The split between code and variables is `$5000`, set by the developer's form, wh
 
 `LATHE_LATHEC_BBC=1 python3 -m unittest test_src_lathec.OnTheBBC` (30 s): every input `test_src_lathec.py` has, compiled in the ROM form against `lathec.py` at full size, with the host's error output joined to its output. **705 of the 708 agree.** The three that cannot are the BBC's: a source in a directory and an import directory (`sub/m.lth`, `lib/k.li`: the filing system has no directories, a name with `/` is `Bad name`, caught as a file that is not there), and the input whose command line is 248 bytes, more than the 239 `*LATHE` copies.
 
+## Step 5, as built: the whole tool chain on the BBC
+
+`lathe/src/linker-bbc.env`, the two tools in one image (`bbcrom.py`, unchanged), and the tests `lathe/tests/test_bbc_toolchain.py` and `test_lk_unset.py`; the recipe is in [`boards.md`](boards.md), "The tool chain on the BBC". **Done (2026-11-15)**: one module image holds the Lathe-written compiler (`*LATHE`, banks 1 to 5) and the Lathe-written linker (`*LLINK`, banks 6 to 10). On the emulated B+128, `--bbc-strict`, in one run of the emulator, every module of a program (its own, `lathe/rt/bbc/host.lth`, `bbc`, `sys` and the run-time modules its code calls, in the order and with the options `build.py` uses) is compiled by `*LATHE`, the objects are linked by `*LLINK ENV MAIN IMAGE IMAGE.map OBJECTS...` with the environment file read from the disc, and the image is run with `*RUN`: the output is the expected one, and every object file, interface file, image, bank file and map is byte for byte what `lathec.py` and `link.py` write from the same inputs.
+
+- **The corpus**: 68 of the 69 programs the BBC runs (66 cases of `e2e`, and `farcall`, `bankdata` and `regions` of `e2e-config` with `bbc-bank.env`, which run from the module's RAM form: `*RUN LOADMOD MODULE` first, and the program's start-up code loads its banks over the tools'). The 69th, `for_ranges`, is refused by the linker on the BBC with link error 10, as the host linker refuses it at the same capacities (below). `test_bbc_toolchain.py` runs four by default (15 s, with outtest's link) and all with `LATHE_BBC_TOOLCHAIN=1` (90 s).
+- **The compiler's test programs**, compiled by the host as `test_bbc_bank_src.py` builds them, linked on the BBC: `outtest` as the host links it (image, map and five bank files); `regtest` is refused with link error 10, as by the host at the BBC's capacities.
+- **The image's addresses.** The linker writes the image's bytes, as the host linker does; the load and execution addresses are the filing system's (the `.inf` file `build.py` writes on the host). On the BBC `*LOAD IMAGE 1900` and `*SAVE IMAGE 1900 +LENGTH 1900` give them, as on a real DFS, and `*RUN IMAGE` runs it.
+- **Memory.** `*LOAD` fills zero page, `$0400-$06FF` and `$1900-$7BFF` with bytes that are not 0 before the first tool; each tool then runs on what the one before left. The corpus's programs are written for memory that starts as 0 (`calls` has variables with no initial value), so before `*RUN` the test loads 0s there, as a machine has them at power on.
+
+### The layout
+
+The image (2026-11-15; `bbcrom.py`'s listing), 69,254 bytes free:
+
+| Bank | What | Bytes |
+|---|---|---|
+| 0 | the module's code and tables (both commands); the compiler's slot 13 constants; the first part of the compiler's resident part | 495 + 5,494 + 10,283 |
+| 1 to 5 | the compiler (step 4) | 14,756, 13,613, 13,122, 12,533, 12,443 |
+| 6 | `link`, `lk_err` (its messages, 2,946, are constants of the bank: only `lk_err` reads them), `lk_file`, `lk_envf` | 7,825 |
+| 7 | the reading: `lk_scan`, `lk_name` | 9,432 |
+| 8 | `lk_graph`, `lk_win`, `lk_boot` | 8,122 |
+| 9 | `lk_alloc` | 8,671 |
+| 10 | placement and output: `lk_place`, `lk_fix`, `lk_map`, `lk_emit`, `lk_out`, `lk_op` | 10,514 |
+| 11 | the rest of the compiler's resident part, 3,702; the linker's resident part, 8,404 | 4,166 free |
+| 12 to 15 | empty | 65,088 free |
+
+A bank is 16 KB where Wendy 2's are 28: `lk_graph` and `lk_alloc`, which share bank 2 on Wendy 2, are 17.6 KB as the linker judges them (before shrinking), so the linker takes five banks. `lk_alloc` calls `lk_graph`'s edge functions across banks in its layouts.
+
+Main RAM while `*LLINK` runs (the ROM form):
+
+| Where | What | Bytes |
+|---|---|---|
+| `$1900-$39D3` | code: `lk_tab` 5,591, `bbc` 673, `lk_rec` 407, `rt_bbc` 402, `rt_math` 290, `lk_sym` 214, `lk_name` 187 (`local_at`, `set_local` and `global_sym`, kept fixed: they have `with` blocks), `sys` 78, `$init` 46, `$start` 19, `disk` 15; 77 stubs (462); constants 20 | 8,404 |
+| `$3A20-$7BFF`, `$0401-$05B9` | variables: the work area (9,440), the functions' columns but `fn_edge` (2,240), the variables' and constants' (1,600), the classes', members' and class parameters' (about 1,400), `lk_envf.text` (384), `lk_file.path` and `bbc.arg_text` (256 each), the rest | 17,305 |
+| | free: 76 bytes below the variables, 326 at `$05BA-$06FF` | 402 |
+| zero page | `$00-$8F` | all |
+
+The developer's form (`*RUN LLINK`, banks loaded into the RAM module) sets the split: its code ends at `$3A19`, 6 bytes below the variables, and the banks' 439 bytes of variables are in the banks. Sideways slot 0 holds the regions, 13,952 of 16,352 bytes: `lk_name.local` 4,000, `lk_tab.edge_word` 4,000, `slot_sz` and `slot_weight` 2,400 each, `fn_edge` 896, `big_slot` and `big_size` 256. Slots 1, 12 and 13 are not used by the linker; slot 13's constants are the compiler's, copied again at each `*LATHE`.
+
+### What stood in the way, and what was done
+
+1. *The linker as it was did not fit.* At the small build's capacities (`LKSMALL 1`) its tables in main RAM and its resident part need 30,694 bytes in the ROM form, 4,583 more than the 26,111 there are (the developer's form, whose banks hold their modules' variables, 1,414 more). Measured in a copy with only the capacities changed, the linker as it was fits at 260 functions, 640 slots, 600 calls, 340 nodes, 260 variables and constants and 700 symbols in object files, with 415 bytes to spare; that would not link `for_ranges` and four other cases of the corpus, and the work area cannot be much smaller (the names some file defines are 32,768 bits of it while the files are first read: 333 nodes at least). Not committed.
+2. *The tables only `lk_tab` and `lk_name` read went into regions.* `lk_name.local` (region `LKLOCAL`), `lk_tab.edge_word` and `fn_edge` (`LKCALLS`), `slot_sz`, `slot_weight`, `big_slot` and `big_size` (`LKSLOTS`). Other modules reach them only through functions, in host and twin: `lk_name.local_at`, `set_local`; `lk_tab.edge_at`, `set_edge_at`, `slot_weight_of`, `set_slot_weight`, `set_slot_zp`, `flip_slot_zp`. `lk_tab` is fixed, and `lk_name`'s three functions with blocks are kept fixed by the linker's rule; `global_sym`, which the later phases call once a fix-up, is then a plain call where it was the largest share of the far calls. The linker's output is unchanged (`test_src_lk.py`, `test_src_link.py` with `LATHE_LK_ALL=1`). On Wendy 2 (`linker-bank.env`) the regions are fixed, since no `region` entry names them, and the layout still fits; on the default machine (`linker.env`) `lktest4`'s code grew by 254 bytes, so the split moved up and `$F240-$FDFF`, the RAM between the host services' routines and the arguments, holds variables.
+3. *The BBC's capacities*, `define LKSMALL 2`, a third set of the twins' capacities (`#if LKSMALL == 2` before the small build's), which `lk_small.load('bbc')` gives the host modules: 448 functions, 2,400 slots, 2,000 calls, 472 nodes, 320 variables and constants, 360 fix-ups of one function, 2,000 symbols in object files, promotion's list 64. They fill main RAM (402 bytes left). The work area's phases bound them: below the node columns the fix-ups held and then the names of one file while the image is written, `6 × (472 − 360) − 128 = 544` words, at least the small build's 496; the calls' chains, `256 + 2 × 2,000 + 448 ≤ 10 × 472`; `test_src_lk.py` checks both for the three builds. A first choice, 448 fix-ups, left 16 words for one file's names and refused all but two programs of the corpus (link error 10, on the host at the same capacities too).
+4. *A fault: rows of the linker's tables were read before anything wrote them.* Python's tables start as 0s; the twin's hold what memory held. On the BBC, after the compiler, the first link looped in `lk_tab.class_of` through a junk `fn_class`. `fn_ctx` and `fn_class` (a new function), `cls_reach` and `cls_namer` (a new class) and `cp_weight` (a new class parameter) are now set when their row is made, in host and twin (no output changes: the host's were 0 already). `test_lk_unset.py` runs the host linker with every table wrapped over the links made by hand and the synthetic program, and fails on any read of a row nothing wrote (1 s); over the whole corpus and the linker tests' links (568 links) nothing else is read so, but for the byte of a work word that `lk_name.put_b` keeps. Wendy 2's emulator clears memory, so it never showed.
+5. *The emulator*: `--bbc-command` takes 64 lines, not 9 (a run of the tool chain is a line for each compile, the link, `*LOAD`, `*SAVE` and `*RUN`), with its C test.
+6. *A fault in a report*: `lk_bank_report.py` counted no far calls since `bank_report.py` began to name the counting file by an argument; it now writes them to a file of a fixed name.
+
+### Capacities, and the largest program linked
+
+| Capacity | BBC | Bytes | Where | Small build | Full |
+|---|---|---|---|---|---|
+| functions | 448 | 2,240 + 896 | main RAM (`fn_flags`, `fn_ctx`, `fn_class`, `fn_slot`), slot 0 (`fn_edge`) | 320 | 896 |
+| nodes, the work area | 472 | 9,440 | main RAM | 360 | 900 |
+| slots | 2,400 | 4,800 | slot 0 | 1,280 | 4,000 |
+| calls | 2,000 | 4,000 | slot 0 | 1,200 | 3,600 |
+| symbols in object files | 2,000 | 4,000 | slot 0 | 1,400 | 4,000 |
+| variables and constants | 320 | 1,600 | main RAM | 320 | 800 |
+| fix-ups of one function | 360 | in the work area | | 256 | 512 |
+| names kept and the symbols' words, reading | 6,880 bytes | in the work area | | 4,640 | 15,440 |
+| one file's names, the image | 544 words | in the work area | | 496 | 2,200 |
+
+- **The largest of the corpus** linked is any but `for_ranges`, which is refused: its one file has 220 functions, whose names the image pass holds at once, about 1,800 words of the work area's 544.
+- **The largest of `lathe/src`** linked is `outtest` (239 functions, 640 slots, 491 calls, 351 fix-ups of one function, 366 words of one file's names, 3,161 bytes of names kept). `regtest` (378 functions, 996 slots, 851 calls) is refused: its `reg.lo` needs 787 words of names in the image pass, and a function 380 fix-ups; both are the work area, which would need 533 nodes, 10,660 bytes, 1,220 more than now, where 402 are free. The next cheapest step would be `fn_slot` through functions too (896 bytes) and fewer functions (448 is more than any program the work area takes needs): about enough for `regtest`, not for `condtest`, `gentest` or the compiler.
+- **Measured with the host linker at the BBC's capacities** on each program as it is built for the BBC (`lk_small.load('bbc')`): `copytest`, `errtest`, `srctest`, `typetest`, `foldtest`, `lextest`, `fbuftest`, `kerneltest`, `outtest` and `lktest1` link; `regtest`, `condtest`, `lktest2` (one file's names in the image), `gentest`, `inlinetest`, `exprtest`, `lktest3`, `lktest4`, `lathec` and `link` (the names kept while reading), `asmtest` (454 functions) do not.
+
+### What linking the compiler there would take
+
+The compiler's link (`lathec.lth` with `lathec-bbc.env`, measured by the host linker): 799 functions, 2,438 slots, 3,255 calls, 799 nodes, 374 variables and constants, 2,014 symbols in object files, 361 fix-ups of one function, 13,977 bytes of names kept and symbols' words, 1,019 words of one file's names in the image pass. The regions take the slots, calls and symbols (25 KB at the full capacities: two sideways slots). The work area does not fit: it would need 827 nodes at least (16.5 KB), and with the functions' and variables' columns (8.5 KB at the full capacities) main RAM would hold 25 KB of tables beside 8.4 KB of resident code. So the work area would have to leave main RAM, and it is read in about 200 places in ten modules, from code in every bank of the linker: in a region, each of those would go through a fixed function that maps it, the restructuring `spikes.md` describes ("What stands before the gate of stage 8") for the whole linker, or the work area would be split by phase into tables of their own (the names heap of the reading, the names of the image pass, the graph's and storage's columns), each in a region behind its own module's functions. Besides that, the link's command line is 247 bytes after `LLINK `, more than the 239 the module copies (24 object files; for the linker's own link, 289), and the promotion of zero page for the compiler, which takes about half an hour at 1 MHz on Wendy 2 ([`spikes.md`](spikes.md)), would take a quarter of an hour or more at 2 MHz (the BBC's zero page is smaller, so there are more layouts). That is a redesign; not started.
+
+### Measured: the linker on the BBC
+
+`LATHE_BBC_TOOLCHAIN=1 LATHE_BBC_TOOLCHAIN_REPORT=1 python3 -m unittest test_bbc_toolchain` (2026-11-15): each link alone in the ROM form, from `*LLINK` to its end; far calls and `with` blocks from the counting copy (the developer's form with `rt_bbc`'s `call` and `map` counting); file traffic from the emulator's exit report; the whole run, from the first `*LOAD` to the program's end, for the default four.
+
+| Link | Cycles | Minutes at 2 MHz | Far calls | Blocks | Files opened | Bytes read | Bytes written | The whole run |
+|---|---|---|---|---|---|---|---|---|
+| hello (3 objects) | 5,669,711 | 0.05 | 364 | 978 | 21 | 23,543 | 130 | 23,428,203 |
+| calls (4) | 19,239,629 | 0.16 | 4,534 | 8,943 | 28 | 65,702 | 2,919 | 51,645,000 |
+| rec_tree | 21,335,173 | 0.18 | 3,578 | 11,246 | 38 | 77,983 | 2,722 | 52,078,081 |
+| reg_args, the longest of `e2e` | 36,260,082 | 0.30 | 7,628 | 18,485 | 38 | 130,243 | 6,488 | |
+| farcall, banked | 29,345,992 | 0.24 | 6,427 | 11,374 | 91 | 99,451 | 4,924 | 85,180,040 (with LOADMOD) |
+| bankdata, banked | 20,970,776 | 0.17 | 3,921 | 7,479 | 57 | 76,942 | 3,188 | |
+| regions, banked | 25,641,869 | 0.21 | 5,069 | 10,156 | 59 | 92,273 | 3,993 | |
+| outtest (12 objects, 5 banks) | 282,359,899 | 2.35 | 97,198 | 232,382 | 104 | 753,382 | 40,610 | |
+
+- **The 65 links of `e2e` all in one** take 5.7 to 36.3 million cycles, 14 million at the median: 0.05 to 0.3 minutes at 2 MHz, 8.3 minutes for all of them. A link opens 21 to 44 files and reads 23 to 130 KB.
+- **The start-up**: `*LLINK` with no arguments (link error 1) takes 518,031 cycles, 0.26 s, most of it bank 0's copy of the 8,404 bytes of the resident part at about 60 cycles a byte; no region has constants, so nothing is copied to slot 0.
+- **Far calls** are 1 to 7 % of a link's cycles at about 190 each (outtest's 97,198: 18 million of 282). `global_sym` is fixed, so what is left is `lk_alloc` calling `lk_graph`'s edge functions in each layout, the later phases calling `lk_scan`'s and `lk_alloc`'s, and `lk_win` calling `lk_envf`. A `with` block of a slot from fixed code costs 64 cycles; outtest's 232,382 are 15 million.
+- **What the emulator's MOS does not charge for**: a file call costs the 6502 code around it and 2 cycles of the MOS's own. A real MOS and DFS spend hundreds of cycles a byte; at 1,000 cycles a byte, outtest's 794 KB of traffic would add 794 million cycles, 6.6 minutes, nearly three times the link, and the 104 files it opens their seeks. The linker reads each object file several times (the passes of [`architecture.md`](architecture.md), "Memory in the linker"), so on a real disc reading, not linking, would be most of the time.
+- **On Wendy 2** (`lk_bank_report.py`, the regions fixed there): linking lextest takes 114.7 million cycles (109.4 before, +4.8 %: a block of a fixed region costs 32 cycles), with 7,468 far calls (18,159 before: `global_sym` is kept fixed); `lk_synthetic` 247.5 million (242.4, +2.1 %), 20,466 far calls (45,926); `farcall.lth` 22.3 million (22.1), 1,979 far calls (4,027). Its resident part is 8,020 bytes (9,895 when `spikes.md` measured it: `lk_err`'s messages are now in bank 1), with 28 bytes free below the code and 2,028 above it.
+
 ## Open, for the owner
 
 - **File names.** The compiler joins a directory and a name with `/`, which the emulator now accepts only as a leading `./` (step 4); a real filing system needs its own scheme. DFS allows seven characters and uses `.` to separate the directory, so `asmblock.lth` cannot exist there. ADFS allows ten. The first version uses names as the emulator's directory takes them. A scheme is needed for real discs, for example `L.EXPR` for source, `O.EXPR` for the object file and `I.EXPR` for the interface, with module names kept to seven characters.
 - **How a tool ends.** As a command it uses the language's zero page and the memory from PAGE, so the language that was running (BASIC) cannot be returned to as it was. ~~The tool should end by starting the current language again (OSBYTE 142).~~ Done so in step 3 (ROM form); a program run with `*RUN` still returns into the language, which may not survive it.
-- **The command's tail** is copied to `$0700`, at most 239 bytes: the linker's longest command lines must fit that (the MOS's own line is 255 at most).
+- **The command's tail** is copied to `$0700`, at most 239 bytes: the linker's longest command lines must fit that (the MOS's own line is 255 at most). The corpus's links fit; the compiler's own link would be 247 bytes (step 5). A command file (the linker reading its arguments from a file) would lift it.
+- **The image's addresses.** The linker writes an image's bytes and not its catalogue entry; on the BBC `*SAVE` gives it its load and execution addresses (step 5). The linker could set them with OSFILE when its environment says `output raw` on the BBC, at the cost of a call the host linker does not have.
 - **Sideways RAM** slots a program's regions name are taken without asking: whatever the owner had loaded in them (a ROM image in sideways RAM) is overwritten at the command.
 - **Other filing systems and screen modes** move PAGE and HIMEM; the layout is fixed at link time. One build per case, or one build for the smallest case.
 

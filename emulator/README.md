@@ -145,7 +145,7 @@ do), and the checks with the first few offenders.
 
 | Option | Notes |
 |---|---|
-| `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be). Repeatable, up to 9: each further line is passed in turn, from `$0700` with the stack reset, when the one before returns (an error ends the run there) |
+| `--bbc-command TEXT` | passed to OSCLI after reset, from `$0700` (as a language's input line would be). Repeatable, up to 64: each further line is passed in turn, from `$0700` with the stack reset, when the one before returns (an error ends the run there) |
 | `<code file> --load HEX` | without `--bbc-command`: the file put in main RAM at HEX and entered there (with both, the file is loaded and the command run) |
 | `--disk DIR` | the host directory the MOS's filing system works in |
 | `--bbc-sideways-ram LIST` | the slots that are sideways RAM (default `0,1,12,13`, the B+128's; `none`) |

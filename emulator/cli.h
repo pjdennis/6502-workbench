@@ -130,8 +130,9 @@ struct emu_opts {
     int bbc_shadow;                     /* --bbc-shadow: OSBYTE 132 answers $8000 */
     long bbc_page;                      /* --bbc-page HEX: OSBYTE 131; -1 = $1900 */
     const char *bbc_command;            /* --bbc-command TEXT: passed to OSCLI after reset */
-    const char *bbc_more_commands[8];   /* a second --bbc-command and on: each passed to OSCLI when
-                                         * the one before returns */
+#define BBC_MORE_COMMANDS 63
+    const char *bbc_more_commands[BBC_MORE_COMMANDS]; /* a second --bbc-command and on: each
+                                         * passed to OSCLI when the one before returns */
     int bbc_more_count;
     int bbc_strict;                     /* --bbc-strict: a failed check ends the run */
     int bbc_options;                    /* set when any --bbc-* option was given */

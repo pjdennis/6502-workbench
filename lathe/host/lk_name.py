@@ -111,6 +111,17 @@ def step(h, c):
     return (h * 31 + c) & 0xFFFF
 
 
+def local_at(i):
+    """Row i of `local`. Every reading of `local` but global_sym's goes through this, and every
+    writing through set_local: in the twin `local` is in a region (LKLOCAL), seen only inside a
+    `with` block, so these and global_sym are the linker's only functions that block it."""
+    return local[i]
+
+
+def set_local(i, v):
+    local[i] = v
+
+
 def global_sym(obj, number):
     """The symbol that object file obj calls `number`."""
     if number >= obj_first[obj + 1] - obj_first[obj]:
@@ -158,7 +169,7 @@ def mark_object(obj):
             if alias:
                 h = other
             if count < MAX_LOCALS:
-                local[count] = h & L_HASH
+                set_local(count, h & L_HASH)
                 # A pointer class is described by every file that uses it, defined by none.
                 if sym_kind == lk_sym.CLASS:
                     set_bit(MARKS, h & 0x1FFF)
@@ -166,12 +177,13 @@ def mark_object(obj):
         elif kind == lk_rec.R_FUNC or kind == lk_rec.R_VAR or kind == lk_rec.R_DATA:
             n = lk_rec.get_word()
             if n < count:
-                local[n] |= L_DEFINED
+                set_local(n, local_at(n) | L_DEFINED)
         kind = lk_rec.advance()
     lk_rec.close()
     for i in range(0, count):
-        h = local[i] & L_HASH
-        if (local[i] & L_DEFINED) == 0 or get_bit(DEFS, h):
+        v = local_at(i)
+        h = v & L_HASH
+        if (v & L_DEFINED) == 0 or get_bit(DEFS, h):
             set_bit(MARKS, h & 0x1FFF)
         else:
             set_bit(DEFS, h)
@@ -417,19 +429,19 @@ def is_init_sym(s):
 def retarget(e):
     """Call e calls what the symbol it names stands for."""
     target = lk_sym.edge_bits(now(lk_tab.edge_sym(e)))
-    lk_tab.edge_word[e] = (lk_tab.edge_word[e] & (0xFFFF ^ lk_tab.SYM_BITS)) | target
+    lk_tab.set_edge_at(e, (lk_tab.edge_at(e) & (0xFFFF ^ lk_tab.SYM_BITS)) | target)
 
 
 def resolve():
     """Once the files are read: every symbol number is replaced by what it stands for, in
     `local`, the calls and the members."""
     for i in range(0, local_count):
-        local[i] = now(local[i])
+        set_local(i, now(local_at(i)))
     for e in range(0, lk_tab.edge_count):
         retarget(e)
     for i in range(0, lk_tab.waiting):
         e = lk_tab.MAX_EDGES - 1 - 2 * i
-        lk_tab.edge_word[e] = now(lk_tab.edge_word[e])
+        lk_tab.set_edge_at(e, now(lk_tab.edge_at(e)))
         retarget(e - 1)
     for i in range(0, lk_tab.memb_count):
         lk_tab.memb_class[i] = now(lk_tab.memb_class[i])
@@ -447,7 +459,7 @@ def find_local(s):
     global found_obj
     for obj in range(0, object_count):
         for i in range(obj_first[obj], obj_first[obj + 1]):
-            if local[i] == s:
+            if local_at(i) == s:
                 found_obj = obj
                 return i - obj_first[obj]
     found_obj = 0

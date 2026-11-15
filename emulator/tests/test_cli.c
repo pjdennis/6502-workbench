@@ -714,10 +714,27 @@ TEST cli_bbcbplus_commands_in_turn(void) {
     ASSERT_EQ(2, opts.bbc_more_count);
     ASSERT_STR_EQ("B C", opts.bbc_more_commands[0]);
     ASSERT_STR_EQ("D", opts.bbc_more_commands[1]);
-    char *many[] = {"emulator", "--machine", "bbcbplus", "--bbc-command", "1", "--bbc-command", "2",
-                    "--bbc-command", "3", "--bbc-command", "4", "--bbc-command", "5", "--bbc-command", "6",
-                    "--bbc-command", "7", "--bbc-command", "8", "--bbc-command", "9", "--bbc-command", "10", NULL};
-    ASSERT(bbc_error(many, "at most 8 --bbc-command"));
+    /* 64 lines in all (a tool chain's run: each compile, the link, the program), and no more. */
+    char *many[4 + 2 * 65 + 1];
+    static char numbers[65][4];
+    int n = 0;
+    many[n++] = "emulator";
+    many[n++] = "--machine";
+    many[n++] = "bbcbplus";
+    for (int k = 0; k < 64; k++) {
+        snprintf(numbers[k], sizeof numbers[k], "%d", k + 1);
+        many[n++] = "--bbc-command";
+        many[n++] = numbers[k];
+    }
+    many[n] = NULL;
+    ASSERT_EQ_FMT(0, parse(many, &opts), "%d");
+    ASSERT_EQ(63, opts.bbc_more_count);
+    ASSERT_STR_EQ("64", opts.bbc_more_commands[62]);
+    snprintf(numbers[64], sizeof numbers[64], "65");
+    many[n++] = "--bbc-command";
+    many[n++] = numbers[64];
+    many[n] = NULL;
+    ASSERT(bbc_error(many, "at most 63 --bbc-command"));
     PASS();
 }
 

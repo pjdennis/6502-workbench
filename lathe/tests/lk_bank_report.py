@@ -60,7 +60,10 @@ def counting_linker(out_dir):
     bank_report.counting_copies(src)
     with open(os.path.join(src, 'disk.lth')) as f:
         text = f.read()
-    text = text.replace(bank_report.COUNTING_EXIT, COUNTING_EXIT)
+    # bank_report's lines name the file by an argument; the linker's every argument is a file it
+    # reads, so the counts go to a file of a fixed name instead.
+    assert text.count(bank_report.COUNTING_EXIT % 2) == 1
+    text = text.replace(bank_report.COUNTING_EXIT % 2, COUNTING_EXIT)
     with open(os.path.join(src, 'disk.lth'), 'w') as f:
         f.write(text)
     image = os.path.join(out_dir, 'link.bin')

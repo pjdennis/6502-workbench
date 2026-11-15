@@ -67,8 +67,8 @@ import lk_tab (CLASS_NODE, class_of, cls_count, cls_ctx, cls_node, cls_np, cls_p
                fn_count, fn_ctx, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, is_kept_def,
                MAX_CONTEXTS, MAX_FIXES, MAX_NODES, memb_class, memb_count, memb_func, new_node,
                next_call, next_in_order, node_class, node_count, node_is_class, node_sym, NONE,
-               own_of, slot_bytes, slot_class, slot_is_param, slot_weight, W_CTXZ, W_ORDER, W_SCC,
-               work)
+               own_of, slot_bytes, slot_class, slot_is_param, slot_weight_of, W_CTXZ, W_ORDER,
+               W_SCC, work)
 
 ; lk_tab.work[lk_tab.W_ORDER...]: the nodes, callees before their callers
 pub var order_count: word = 0
@@ -531,7 +531,7 @@ func fit_member(k: byte, f: word)
       lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
     end
     lk_tab.cp_info[p] = stricter(lk_tab.cp_info[p], lk_tab.slot_class(first + i))
-    weight = word(lk_tab.cp_weight[p]) + lk_tab.slot_weight[first + i]
+    weight = word(lk_tab.cp_weight[p]) + lk_tab.slot_weight_of(first + i)
     if weight > 255 then
       weight = 255
     end

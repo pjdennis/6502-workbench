@@ -53,22 +53,27 @@ import lk_file (arg_length, ARG_MAIN, ARG_OBJECT, fail, PATH)
 import lk_rec (advance, close, get_byte, get_word, open_object, open_quiet, R_DATA, R_END, R_FUNC,
                R_MOD, R_SYM, R_VAR, VERSION)
 import lk_sym (CLASS, count, edge_bits, FUNCTION, kind_of, new_number, ref, row_of, UNDEF)
-import lk_tab (ctx_of, edge_count, edge_sym, edge_word, is_extra_copy, MAX_EDGES, memb_class,
-               memb_count, memb_func, node_sym, NONE, SYM_BITS, waiting, work, WORK_SIZE)
+import lk_tab (ctx_of, edge_at, edge_count, edge_sym, is_extra_copy, MAX_EDGES, memb_class,
+               memb_count, memb_func, node_sym, NONE, set_edge_at, SYM_BITS, waiting, work,
+               WORK_SIZE)
 import sys (write)
 
 pub const MAX_OBJECTS = 40
+#if LKSMALL == 2
+pub const MAX_LOCALS = 2000     ; the BBC's (lk_tab.lth)
+#else
 #if LKSMALL
 pub const MAX_LOCALS = 1400
 #else
 pub const MAX_LOCALS = 4000     ; SYM records in all object files together
+#end
 #end
 
 pub var object_count: byte = 0
 pub var obj_first: [MAX_OBJECTS + 1]word        ; row in `local` of each object's symbol 0
 pub var obj_fn: [MAX_OBJECTS + 1]word           ; row in lk_tab.fn_ of each object's first function
 pub var obj_def: [MAX_OBJECTS + 1]word          ; row in lk_tab.def_ of each object's first definition
-pub var local: [MAX_LOCALS]word rows
+pub var local: [MAX_LOCALS]word rows nozp in LKLOCAL
 pub var local_count: word = 0
 
 ; While the files are read for the tables: lk_tab.work, in words, from MARKS up (lk_scan's waiting
@@ -147,12 +152,28 @@ func step(h: word, c: byte): word
   return h * 31 + c
 end
 
+; Row i of `local`. Every reading of `local` but global_sym's goes through this, and every
+; writing through set_local.
+pub func local_at(i: word): word
+  with LKLOCAL do
+    return local[i]
+  end
+end
+
+pub func set_local(i: word, v: word)
+  with LKLOCAL do
+    local[i] = v
+  end
+end
+
 ; The symbol that object file obj calls `number`.
 pub func global_sym(obj: byte, number: word): word
   if number >= obj_first[obj + 1] - obj_first[obj] then
     lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + obj)
   end
-  return local[obj_first[obj] + number]
+  with LKLOCAL do
+    return local[obj_first[obj] + number]
+  end
 end
 
 ; ---- the names to keep
@@ -183,6 +204,7 @@ func mark_object(obj: byte)
   var alias: bool
   var other: word
   var c: byte
+  var v: word
   if not lk_rec.open_quiet(obj) then
     return
   end
@@ -215,7 +237,7 @@ func mark_object(obj: byte)
         h = other
       end
       if count < MAX_LOCALS then
-        local[count] = h & L_HASH
+        set_local(count, h & L_HASH)
         ; A pointer class is described by every file that uses it, defined by none.
         if sym_kind == lk_sym.CLASS then
           set_bit(MARKS, h & $1FFF)
@@ -225,15 +247,16 @@ func mark_object(obj: byte)
     elif kind == lk_rec.R_FUNC or kind == lk_rec.R_VAR or kind == lk_rec.R_DATA then
       n = lk_rec.get_word()
       if n < count then
-        local[n] |= L_DEFINED
+        set_local(n, local_at(n) | L_DEFINED)
       end
     end
     kind = lk_rec.advance()
   end
   lk_rec.close()
   for i = 0 until count do
-    h = local[i] & L_HASH
-    if (local[i] & L_DEFINED) == 0 or get_bit(DEFS, h) then
+    v = local_at(i)
+    h = v & L_HASH
+    if (v & L_DEFINED) == 0 or get_bit(DEFS, h) then
       set_bit(MARKS, h & $1FFF)
     else
       set_bit(DEFS, h)
@@ -547,7 +570,7 @@ end
 func retarget(e: word)
   var target: word
   target = lk_sym.edge_bits(now(lk_tab.edge_sym(e)))
-  lk_tab.edge_word[e] = (lk_tab.edge_word[e] & ($FFFF ^ lk_tab.SYM_BITS)) | target
+  lk_tab.set_edge_at(e, (lk_tab.edge_at(e) & ($FFFF ^ lk_tab.SYM_BITS)) | target)
 end
 
 ; Once the files are read: every symbol number is replaced by what it stands for, in `local`, the
@@ -557,14 +580,14 @@ pub func resolve()
   var e: word
   var m: byte
   for i = 0 until local_count do
-    local[i] = now(local[i])
+    set_local(i, now(local_at(i)))
   end
   for e = 0 until lk_tab.edge_count do
     retarget(e)
   end
   for i = 0 until lk_tab.waiting do
     e = lk_tab.MAX_EDGES - 1 - 2 * i
-    lk_tab.edge_word[e] = now(lk_tab.edge_word[e])
+    lk_tab.set_edge_at(e, now(lk_tab.edge_at(e)))
     retarget(e - 1)
   end
   for m = 0 until lk_tab.memb_count do
@@ -583,7 +606,7 @@ func find_local(s: word): word
   var i: word
   for obj = 0 until object_count do
     for i = obj_first[obj] until obj_first[obj + 1] do
-      if local[i] == s then
+      if local_at(i) == s then
         found_obj = obj
         return i - obj_first[obj]
       end

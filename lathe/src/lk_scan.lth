@@ -36,9 +36,10 @@ import lk_envf (cpu, fail_text, farcall, find_region, is_token, MAX_REGIONS, P_B
 import lk_err (E_CLASS_DIFFERS, E_DAMAGED, E_DEFS, E_DUPLICATE, E_LOCALS, E_NEEDS_65C02,
                E_NO_FARCALL, E_OBJECTS, E_PLACE_UNLINKED, E_UNDEFINED, E_VERSION, E_WEIGHTS, fail)
 import lk_file (arg_count, ARG_OBJECT, fail)
-import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_block_sym, is_init_sym, local,
+import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_block_sym, is_init_sym,
                 local_count, mark_all, MAX_LOCALS, MAX_OBJECTS, more, name_add, name_begin, now,
-                obj_def, obj_first, obj_fn, object_count, resolve, set_block, set_more, symbol)
+                obj_def, obj_first, obj_fn, object_count, resolve, set_block, set_local, set_more,
+                symbol)
 import lk_rec (advance, close, damaged, get_byte, get_word, left, open_object, R_CALL, R_CLAS,
                R_CODE, R_DATA, R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_IMP, R_MEMB, R_MOD, R_RGN,
                R_SLOT, R_SYM, R_VAR, R_WGT, VERSION)
@@ -49,7 +50,7 @@ import lk_tab (add_edge, add_own, add_waiting, build_chains, chain_next, chains_
                E_VIA, edge_flag, edge_sym, F_FIXED, F_INIT, F_INTERRUPT, F_RECURSIVE, F_WITH,
                fn_class, fn_count, fn_flags, fn_nslots, fn_ref, fn_slot, head_of, memb_class,
                memb_count, memb_func, new_class, new_cparam, new_def, new_func, new_member,
-               new_slot, NONE, slot_weight, W_NEXT, work)
+               new_slot, NONE, set_slot_weight, slot_weight_of, W_NEXT, work)
 
 const MAX_PENDING = 64          ; weights for slots of functions not read yet
 
@@ -139,7 +140,7 @@ func rec_sym(obj: byte)
   if lk_name.local_count == lk_name.MAX_LOCALS then
     lk_err.fail(lk_err.E_LOCALS)
   end
-  lk_name.local[lk_name.local_count] = lk_name.symbol(kind)
+  lk_name.set_local(lk_name.local_count, lk_name.symbol(kind))
   lk_name.local_count += 1
   lk_name.obj_first[obj + 1] = lk_name.local_count
 end
@@ -435,7 +436,7 @@ func rec_wgt(obj: byte)
         damaged()
       end
       i = lk_tab.fn_slot[f] + slot
-      lk_tab.slot_weight[i] = heavier(lk_tab.slot_weight[i], weight)
+      lk_tab.set_slot_weight(i, heavier(lk_tab.slot_weight_of(i), weight))
     elif kind == lk_sym.FUNCTION and slot != $FF then
       if pend_count == MAX_PENDING then
         lk_err.fail(lk_err.E_WEIGHTS)
@@ -466,7 +467,7 @@ func add_pending_weights()
         lk_file.fail(lk_err.E_DAMAGED, lk_file.ARG_OBJECT + lo(lk_tab.work[PEND_OBJ + i]))
       end
       slot = lk_tab.fn_slot[f] + lk_tab.work[PEND_SLOT + i]
-      lk_tab.slot_weight[slot] = heavier(lk_tab.slot_weight[slot], lo(lk_tab.work[PEND_WEIGHT + i]))
+      lk_tab.set_slot_weight(slot, heavier(lk_tab.slot_weight_of(slot), lo(lk_tab.work[PEND_WEIGHT + i])))
     end
   end
 end

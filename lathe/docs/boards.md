@@ -281,6 +281,39 @@ From the module's RAM form: `--bbc-module-ram`, and `--bbc-command "RUN LOADMOD 
 - **The command line** is at most 239 bytes after `LATHE `.
 - **Memory**: `*LATHE` takes zero page `$00-$8F`, `$0400-$07FF` and `$1900-$7BFF` as it finds them, and the four sideways RAM slots; nothing in the compiler relies on memory being 0 (the test fills it first).
 
+### The tool chain on the BBC
+
+The compiler and the linker in one image, `*LATHE` and `*LLINK` ([`bbc.md`](bbc.md), "Step 5, as built"): a program is compiled, linked and run on the BBC. Build the image (`rom/` must exist):
+
+```bash
+python3 -c "import sys; sys.path.insert(0, 'lathe/host/driver'); import bbcrom; \
+    n = bbcrom.rom_env('lathe/src/lathec-bbc.env', 'rom/lathec.env', 1); \
+    bbcrom.rom_env('lathe/src/linker-bbc.env', 'rom/linker.env', n)"     # banks 1-5, 6-10
+python3 lathe/host/driver/build.py lathe/src/lathec.lth -o rom/LATHE --env rom/lathec.env --keep rom/lathe
+python3 lathe/host/driver/build.py lathe/src/link.lth -o rom/LLINK --env rom/linker.env --keep rom/llink
+python3 lathe/host/driver/bbcrom.py -o MODULE --listing MODULE.txt --loader DIR/LOADMOD \
+    LATHE=rom/LATHE,rom/lathec.env,rom/lathe/lathec.map LLINK=rom/LLINK,rom/linker.env,rom/llink/link.map
+```
+
+`DIR` holds the program's sources (its own modules, and those of `lathe/rt/` it needs under their base names: `lathe/rt/bbc/host.lth` as `host.lth`, `bbc.lth`, `lathe/src/sys.lth`, `rt_math.lth`...) and its environment file (`lathe/env/bbc.env`). Compile each module, in the order `build.py` does (a module after those it imports, then the run-time modules the code calls), with the options `build.py` gives for the environment (`-c6502 -dBOARD=3 -dPORTS=2`, and `-dNAME` for each `define`); link the objects, the main module's name second; give the image its addresses; run it:
+
+```bash
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
+    --bbc-module MODULE --bbc-module-scheme direct16 \
+    --bbc-command "LATHE -c6502 -dBOARD=3 -dPORTS=2 bbc.lth ." \
+    --bbc-command "LATHE -c6502 -dBOARD=3 -dPORTS=2 host.lth ." \
+    --bbc-command "LATHE -c6502 -dBOARD=3 -dPORTS=2 hello.lth ." \
+    --bbc-command "LLINK bbc.env hello HELLO HELLO.map bbc.lo host.lo hello.lo" \
+    --bbc-command "LOAD HELLO 1900" --bbc-command "SAVE HELLO 1900 +25 1900" \
+    --bbc-command "RUN HELLO"
+```
+
+- **The link's command line** is `LLINK ENV MAINMODULE IMAGE MAP OBJECT...` ([`../host/README.md`](../host/README.md), "Command lines"), at most 239 bytes after `LLINK `; the environment file is read from the disc. On an error the linker prints `link error N: ...` and ends with the MOS error `Exit 1`.
+- **The image's addresses**: the linker writes the bytes from the start of the `code` range (`output raw`), not a catalogue entry, so `*LOAD` it at the start of `code` (`$1900` for `bbc.env`) and `*SAVE` it again with its length (the map's last code line, or `*INFO`) and that address as the execution address; `*RUN` then runs it.
+- **A banked program** (`bbc-bank.env` and its lines): its bank files are written beside the image, and its start-up code loads them into the module's RAM form, so run the tools from the RAM form (`--bbc-module-ram`, `--bbc-command "RUN LOADMOD MODULE"` first): the program's banks then replace the tools' banks of the same numbers, and the tools must be loaded again after it.
+- **Capacities**: the BBC's (`define LKSMALL 2` in `../src/linker-bbc.env`): 448 functions, 2,400 slots, 2,000 calls, 472 nodes; every program of the corpus but `for_ranges` (link error 10), and the compiler's test programs up to `outtest`.
+- **Memory**: `*LLINK` takes zero page `$00-$8F`, `$0400-$07FF`, `$1900-$7BFF` and sideways slot 0; it runs on what the compiler left. A program that expects its variables to start as 0, as the corpus's do, needs memory cleared first (`*LOAD` of a file of 0s; `../tests/test_bbc_toolchain.py` does so).
+
 ## The VIA timer
 
 Both boards have a 6522 VIA. Its base is `$6000` on Michael and `$F000` on Wendy 2.

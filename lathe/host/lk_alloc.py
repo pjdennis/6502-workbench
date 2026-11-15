@@ -317,9 +317,9 @@ def start_choices():
             for s in range(lk_tab.fn_slot[f], lk_tab.fn_slot[f] + lk_tab.fn_nslots(f)):
                 if lk_tab.slot_class(s) == 0:
                     must_fit(lk_tab.slot_bytes(s), lk_tab.fn_ref(f))
-                    lk_tab.slot_sz[s] |= lk_tab.SL_ZP
+                    lk_tab.set_slot_zp(s)
                 elif is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
-                    lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight[s]] += 1
+                    lk_tab.work[WEIGHT_COUNT + lk_tab.slot_weight_of(s)] += 1
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
             for p in range(lk_tab.cls_par[k], lk_tab.cls_par[k] + lk_tab.cls_np[k]):
@@ -354,7 +354,7 @@ def fits(need):
 def move_slot(f, i, into):
     """Put slot i of f in zero page, or take it out again."""
     s = lk_tab.fn_slot[f] + i
-    lk_tab.slot_sz[s] ^= lk_tab.SL_ZP
+    lk_tab.flip_slot_zp(s)
     for ctx in range(0, lk_tab.ctx_count):
         if lk_tab.has_copy(f, ctx) and lk_tab.in_frame(f, i, lk_tab.in_block(f, ctx)):
             n = lk_tab.copy_node(f, ctx)
@@ -392,7 +392,7 @@ def move_weight(weight, into):
         if lk_tab.fn_ctx[f] != 0:
             for i in range(0, lk_tab.fn_nslots(f)):
                 s = lk_tab.fn_slot[f] + i
-                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
+                if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
                     move_slot(f, i, into)
     for k in range(0, lk_tab.cls_count):
         if lk_tab.cls_reach[k] != 0:
@@ -552,7 +552,7 @@ def try_slots(weight):
         if lk_tab.fn_ctx[f] != 0:
             for i in range(0, lk_tab.fn_nslots(f)):
                 s = lk_tab.fn_slot[f] + i
-                if lk_tab.slot_weight[s] == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
+                if lk_tab.slot_weight_of(s) == weight and is_candidate(lk_tab.slot_class(s), lk_tab.slot_bytes(s)):
                     try_slot(f, i)
 
 

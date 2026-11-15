@@ -58,6 +58,20 @@ import lk_sym (CLASS, CONSTANT, edge_bits, edge_ref, FUNCTION, is_defined, kind_
                VARIABLE)
 
 ; Capacities: sized for linking the compiler itself (architecture.md, "Memory in the linker").
+; LKSMALL 1 is the small build of the test programs, LKSMALL 2 the BBC's (lathe/src/linker-bbc.env),
+; whose tables in main RAM fill what the BBC has beside the linker's resident part, and those in
+; regions take a sideways RAM slot. The work area must hold what each phase puts there: below
+; W_OWN the fix-ups held, then the names of one file while the image is written (lk_map.W_HELD:
+; 6 * (MAX_NODES - MAX_FIXES) - 128 words, 496 in the small build), and the calls' chains (256 +
+; 2 * MAX_EDGES + MAX_FUNCS <= 10 * MAX_NODES); test_src_lk.py checks both.
+#if LKSMALL == 2
+pub const MAX_FUNCS = 448
+pub const MAX_SLOTS = 2400
+pub const MAX_EDGES = 2000
+pub const MAX_NODES = 472
+pub const MAX_DEFS = 320
+pub const MAX_FIXES = 360
+#else
 #if LKSMALL
 pub const MAX_FUNCS = 320
 pub const MAX_SLOTS = 1280
@@ -66,12 +80,13 @@ pub const MAX_NODES = 360
 pub const MAX_DEFS = 320
 pub const MAX_FIXES = 256
 #else
-pub const MAX_FUNCS = 800
+pub const MAX_FUNCS = 896       ; the compiler links 799 (2026-11-15)
 pub const MAX_SLOTS = 4000
 pub const MAX_EDGES = 3600
 pub const MAX_NODES = 900
 pub const MAX_DEFS = 800
 pub const MAX_FIXES = 512       ; fix-ups of one function or one piece of constant data
+#end
 #end
 const MAX_BIG_SLOTS = 64        ; slots of 15 bytes or more
 pub const MAX_CLASSES = 32
@@ -116,14 +131,14 @@ pub var fn_flags: [MAX_FUNCS]byte
 pub var fn_ctx: [MAX_FUNCS]byte         ; one bit per context that reaches the function; 0 = dropped
 pub var fn_slot: [MAX_FUNCS]word rows   ; first row in slot_
 pub var fn_class: [MAX_FUNCS]byte       ; a class the function is a member of + 1, or 0
-pub var fn_edge: [MAX_FUNCS]word rows   ; where its calls start
+pub var fn_edge: [MAX_FUNCS]word rows nozp in LKCALLS  ; where its calls start
 
 pub var slot_count: word = 0
-pub var slot_sz: [MAX_SLOTS]byte        ; SL_ bits: size, class, parameter, in zero page
+pub var slot_sz: [MAX_SLOTS]byte nozp in LKSLOTS    ; SL_ bits: size, class, parameter, in zero page
 pub var big_count: byte = 0
-pub var big_slot: [MAX_BIG_SLOTS]word   ; slots of 15 bytes or more, in slot order
-pub var big_size: [MAX_BIG_SLOTS]word
-pub var slot_weight: [MAX_SLOTS]byte
+pub var big_slot: [MAX_BIG_SLOTS]word nozp in LKSLOTS  ; slots of 15 bytes or more, in slot order
+pub var big_size: [MAX_BIG_SLOTS]word nozp in LKSLOTS
+pub var slot_weight: [MAX_SLOTS]byte nozp in LKSLOTS
 
 pub var cls_count: byte = 0
 pub var cls_rep: [MAX_CLASSES]byte
@@ -146,7 +161,7 @@ pub var memb_class: [MAX_MEMBERS]word   ; references (lk_sym)
 pub var memb_func: [MAX_MEMBERS]word
 
 pub var edge_count: word = 0
-pub var edge_word: [MAX_EDGES]word rows ; function or class called, and the flags above it
+pub var edge_word: [MAX_EDGES]word rows nozp in LKCALLS ; function or class called, and the flags above it
 pub var waiting: word = 0       ; while the files are read: calls at the top, two rows each
                                 ; (the caller, then the call)
 
@@ -211,7 +226,11 @@ pub func new_func(flags: byte): word
   f = fn_count
   fn_count += 1
   fn_flags[f] = flags
-  fn_edge[f] = edge_count
+  fn_ctx[f] = 0                 ; a table starts as whatever memory held (test_lk_unset.py):
+  fn_class[f] = 0               ; every column read before it is set is set here
+  with LKCALLS do
+    fn_edge[f] = edge_count
+  end
   fn_slot[f] = slot_count
   return f
 end
@@ -226,8 +245,10 @@ pub func new_slot(f: word, size: word, zp_class: byte, param: bool, weight: byte
     if big_count == MAX_BIG_SLOTS then
       lk_err.fail(lk_err.E_SLOTS)
     end
-    big_slot[big_count] = slot_count
-    big_size[big_count] = size
+    with LKSLOTS do
+      big_slot[big_count] = slot_count
+      big_size[big_count] = size
+    end
     big_count += 1
     size = SL_BIG
   end
@@ -235,8 +256,10 @@ pub func new_slot(f: word, size: word, zp_class: byte, param: bool, weight: byte
   if param then
     bits |= SL_PARAM
   end
-  slot_sz[slot_count] = bits
-  slot_weight[slot_count] = weight
+  with LKSLOTS do
+    slot_sz[slot_count] = bits
+    slot_weight[slot_count] = weight
+  end
   slot_count += 1
 end
 
@@ -249,14 +272,17 @@ pub func new_class(np: byte): byte
   k = cls_count
   cls_count += 1
   cls_rep[k] = k
+  cls_reach[k] = 0
   cls_np[k] = np
   cls_par[k] = cp_count
+  cls_namer[k] = 0
   return k
 end
 
 pub func new_cparam(size: word)
   cp_size[cp_count] = size
   cp_info[cp_count] = 1         ; "either", until the members say otherwise
+  cp_weight[cp_count] = 0
   cp_count += 1
 end
 
@@ -347,7 +373,9 @@ func run_start(r: word): word
   if lk_sym.kind_of(r) == lk_sym.CLASS then
     return cls_edge[byte(lk_sym.row_of(r))]
   end
-  return fn_edge[lk_sym.row_of(r)]
+  with LKCALLS do
+    return fn_edge[lk_sym.row_of(r)]
+  end
 end
 
 ; Where the calls of function or class r end: where the next one's start.
@@ -356,7 +384,9 @@ func run_end(r: word): word
   i = lk_sym.row_of(r) + 1
   if lk_sym.kind_of(r) == lk_sym.FUNCTION then
     if i < fn_count then
-      return fn_edge[i]
+      with LKCALLS do
+        return fn_edge[i]
+      end
     end
     i = 0
   end
@@ -386,14 +416,18 @@ end
 ; caller's frame if any of them does not.
 pub func add_own(f: word, target: word, flags: byte)
   var e: word
-  for e = fn_edge[f] until edge_count do
-    if same_call(edge_word[e], target, flags) then
-      edge_word[e] |= word(flags) << FLAG_SHIFT
-      return
+  with LKCALLS do
+    for e = fn_edge[f] until edge_count do
+      if same_call(edge_word[e], target, flags) then
+        edge_word[e] |= word(flags) << FLAG_SHIFT
+        return
+      end
     end
   end
   room_for(1)
-  edge_word[edge_count] = target | (word(flags) << FLAG_SHIFT)
+  with LKCALLS do
+    edge_word[edge_count] = target | (word(flags) << FLAG_SHIFT)
+  end
   edge_count += 1
 end
 
@@ -401,14 +435,18 @@ end
 ; arguments wait. Flags E_VIA marks one whose caller's own calls were read before.
 pub func add_waiting(caller: word, target: word, flags: byte)
   var i: word
-  for i = 0 until waiting do
-    if edge_word[MAX_EDGES - 1 - 2 * i] == caller and (edge_word[MAX_EDGES - 2 - 2 * i] & SYM_BITS) == target then
-      return
+  with LKCALLS do
+    for i = 0 until waiting do
+      if edge_word[MAX_EDGES - 1 - 2 * i] == caller and (edge_word[MAX_EDGES - 2 - 2 * i] & SYM_BITS) == target then
+        return
+      end
     end
   end
   room_for(2)
-  edge_word[MAX_EDGES - 1 - 2 * waiting] = caller
-  edge_word[MAX_EDGES - 2 - 2 * waiting] = target | (word(flags) << FLAG_SHIFT)
+  with LKCALLS do
+    edge_word[MAX_EDGES - 1 - 2 * waiting] = caller
+    edge_word[MAX_EDGES - 2 - 2 * waiting] = target | (word(flags) << FLAG_SHIFT)
+  end
   waiting += 1
 end
 
@@ -428,14 +466,18 @@ pub func head_of(r: word): word
   if lk_sym.kind_of(r) == lk_sym.CLASS then
     return cls_edge[byte(lk_sym.row_of(r))]
   end
-  return fn_edge[lk_sym.row_of(r)]
+  with LKCALLS do
+    return fn_edge[lk_sym.row_of(r)]
+  end
 end
 
 func set_head(r: word, e: word)
   if lk_sym.kind_of(r) == lk_sym.CLASS then
     cls_edge[byte(lk_sym.row_of(r))] = e
   else
-    fn_edge[lk_sym.row_of(r)] = e
+    with LKCALLS do
+      fn_edge[lk_sym.row_of(r)] = e
+    end
   end
 end
 
@@ -456,19 +498,23 @@ pub func build_chains()
   var e: word
   var limit: word
   own_end = edge_count
-  for i = 0 until waiting do
-    work[W_WCALLER + i] = edge_word[MAX_EDGES - 1 - 2 * i]
-    work[W_WCALL + i] = edge_word[MAX_EDGES - 2 - 2 * i]
-  end
-  for f = 0 until fn_count do
-    work[W_START + f] = fn_edge[f]
-    fn_edge[f] = 0
+  with LKCALLS do
+    for i = 0 until waiting do
+      work[W_WCALLER + i] = edge_word[MAX_EDGES - 1 - 2 * i]
+      work[W_WCALL + i] = edge_word[MAX_EDGES - 2 - 2 * i]
+    end
+    for f = 0 until fn_count do
+      work[W_START + f] = fn_edge[f]
+      fn_edge[f] = 0
+    end
   end
   for k = 0 until cls_count do
     cls_edge[k] = 0
   end
-  for i = 0 until waiting do
-    edge_word[own_end + i] = work[W_WCALL + i] & ($FFFF ^ (E_VIA << FLAG_SHIFT))
+  with LKCALLS do
+    for i = 0 until waiting do
+      edge_word[own_end + i] = work[W_WCALL + i] & ($FFFF ^ (E_VIA << FLAG_SHIFT))
+    end
   end
   edge_count = own_end + waiting
   ; Waiting calls read before their caller's own calls, then the own calls, then the rest.
@@ -504,15 +550,19 @@ pub func add_edge(r: word, target: word, flags: byte)
   var e: word
   bits = lk_sym.edge_bits(target)
   e = head_of(r)
-  while e != 0 do
-    if same_call(edge_word[e - 1], bits, flags) then
-      edge_word[e - 1] |= word(flags) << FLAG_SHIFT
-      return
+  with LKCALLS do
+    while e != 0 do
+      if same_call(edge_word[e - 1], bits, flags) then
+        edge_word[e - 1] |= word(flags) << FLAG_SHIFT
+        return
+      end
+      e = chain_next(e)
     end
-    e = chain_next(e)
   end
   room_for(1)
-  edge_word[edge_count] = bits | (word(flags) << FLAG_SHIFT)
+  with LKCALLS do
+    edge_word[edge_count] = bits | (word(flags) << FLAG_SHIFT)
+  end
   edge_count += 1
   prepend(r, edge_count - 1)
 end
@@ -525,38 +575,57 @@ pub func chains_to_runs()
   var k: byte
   var e: word
   var i: word
-  for f = 0 until fn_count do
-    e = fn_edge[f]
-    fn_edge[f] = pos
-    while e != 0 do
-      work[W_RUNS + pos] = edge_word[e - 1]
-      pos += 1
-      e = chain_next(e)
+  with LKCALLS do
+    for f = 0 until fn_count do
+      e = fn_edge[f]
+      fn_edge[f] = pos
+      while e != 0 do
+        work[W_RUNS + pos] = edge_word[e - 1]
+        pos += 1
+        e = chain_next(e)
+      end
     end
-  end
-  for k = 0 until cls_count do
-    e = cls_edge[k]
-    cls_edge[k] = pos
-    while e != 0 do
-      work[W_RUNS + pos] = edge_word[e - 1]
-      pos += 1
-      e = chain_next(e)
+    for k = 0 until cls_count do
+      e = cls_edge[k]
+      cls_edge[k] = pos
+      while e != 0 do
+        work[W_RUNS + pos] = edge_word[e - 1]
+        pos += 1
+        e = chain_next(e)
+      end
     end
-  end
-  for i = 0 until pos do
-    edge_word[i] = work[W_RUNS + i]
+    for i = 0 until pos do
+      edge_word[i] = work[W_RUNS + i]
+    end
   end
   edge_count = pos
 end
 
+; Row e of edge_word, the call and its flags: other modules reach edge_word only through these.
+pub func edge_at(e: word): word
+  with LKCALLS do
+    return edge_word[e]
+  end
+end
+
+pub func set_edge_at(e: word, v: word)
+  with LKCALLS do
+    edge_word[e] = v
+  end
+end
+
 ; The function or class edge e calls.
 pub func edge_sym(e: word): word
-  return lk_sym.edge_ref(edge_word[e] & SYM_BITS)
+  with LKCALLS do
+    return lk_sym.edge_ref(edge_word[e] & SYM_BITS)
+  end
 end
 
 ; The E_ flags of edge e.
 pub func edge_flag(e: word): byte
-  return byte(edge_word[e] >> FLAG_SHIFT)
+  with LKCALLS do
+    return byte(edge_word[e] >> FLAG_SHIFT)
+  end
 end
 
 ; The size of slot s.
@@ -564,30 +633,64 @@ pub func slot_bytes(s: word): word
   var low: byte
   var high: byte
   var mid: byte
-  if (slot_sz[s] & SL_SIZE) != SL_BIG then
-    return slot_sz[s] & SL_SIZE
-  end
-  ; big_slot is in slot order.
-  low = 0
-  high = big_count - 1
-  while big_slot[low] != s do
-    mid = (low + high + 1) >> 1
-    if big_slot[mid] > s then
-      high = mid - 1
-    else
-      low = mid
+  with LKSLOTS do
+    if (slot_sz[s] & SL_SIZE) != SL_BIG then
+      return slot_sz[s] & SL_SIZE
     end
+    ; big_slot is in slot order.
+    low = 0
+    high = big_count - 1
+    while big_slot[low] != s do
+      mid = (low + high + 1) >> 1
+      if big_slot[mid] > s then
+        high = mid - 1
+      else
+        low = mid
+      end
+    end
+    return big_size[low]
   end
-  return big_size[low]
+end
+
+; The weight of slot s: other modules reach slot_sz and slot_weight only through these
+; functions.
+pub func slot_weight_of(s: word): byte
+  with LKSLOTS do
+    return slot_weight[s]
+  end
+end
+
+pub func set_slot_weight(s: word, weight: byte)
+  with LKSLOTS do
+    slot_weight[s] = weight
+  end
+end
+
+; Slot s is in zero page.
+pub func set_slot_zp(s: word)
+  with LKSLOTS do
+    slot_sz[s] |= SL_ZP
+  end
+end
+
+; Slot s goes into zero page, or out of it again.
+pub func flip_slot_zp(s: word)
+  with LKSLOTS do
+    slot_sz[s] ^= SL_ZP
+  end
 end
 
 ; The zero page class of slot s: 0 must, 1 either, 2 never.
 pub func slot_class(s: word): byte
-  return (slot_sz[s] & SL_CLASS) >> SL_CLASS_SHIFT
+  with LKSLOTS do
+    return (slot_sz[s] & SL_CLASS) >> SL_CLASS_SHIFT
+  end
 end
 
 pub func slot_in_zp(s: word): bool
-  return (slot_sz[s] & SL_ZP) != 0
+  with LKSLOTS do
+    return (slot_sz[s] & SL_ZP) != 0
+  end
 end
 
 pub func new_node(own: word, ctx: byte)
@@ -753,7 +856,9 @@ pub func node_sym(n: word): word
 end
 
 pub func slot_is_param(s: word): bool
-  return (slot_sz[s] & SL_PARAM) != 0
+  with LKSLOTS do
+    return (slot_sz[s] & SL_PARAM) != 0
+  end
 end
 
 ; True if slot i of f is in the frame of a copy; `blocked` says the copy's parameters are in a

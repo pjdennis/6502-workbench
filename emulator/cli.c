@@ -308,10 +308,10 @@ static int bbc_option(int argc, char **argv, int *i, struct emu_opts *opts) {
         if (take_str_value(argc, argv, i, arg, &text)) return 1;
         if (!opts->bbc_command) {
             opts->bbc_command = text;
-        } else if (opts->bbc_more_count < 8) {
+        } else if (opts->bbc_more_count < BBC_MORE_COMMANDS) {
             opts->bbc_more_commands[opts->bbc_more_count++] = text;
         } else {
-            fprintf(stderr, "error: at most 8 --bbc-command lines after the first\n");
+            fprintf(stderr, "error: at most %d --bbc-command lines after the first\n", BBC_MORE_COMMANDS);
             return 1;
         }
     } else if (strcmp(arg, "--bbc-module") == 0) {

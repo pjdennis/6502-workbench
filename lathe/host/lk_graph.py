@@ -398,7 +398,7 @@ def fit_member(k, f):
         if lk_tab.slot_bytes(first + i) != lk_tab.cp_size[p]:
             lk_name.fail(lk_err.E_MEMBER, lk_tab.fn_ref(f))
         lk_tab.cp_info[p] = stricter(lk_tab.cp_info[p], lk_tab.slot_class(first + i))
-        weight = lk_tab.cp_weight[p] + lk_tab.slot_weight[first + i]
+        weight = lk_tab.cp_weight[p] + lk_tab.slot_weight_of(first + i)
         if weight > 255:
             weight = 255
         lk_tab.cp_weight[p] = weight

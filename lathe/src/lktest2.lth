@@ -20,7 +20,7 @@ import lk_envf (place_bank, place_count, read)
 import lk_err (E_UNDEFINED, E_USAGE, fail, put)
 import lk_file (arg_count, ARG_MAP, ARG_OBJECT, open_out)
 import lk_name (buf_begin, buf_keep, buf_top, error_name, error_node, fail_in, fc_call, fc_start,
-                heap_top, keep_at, local, local_count, main_sym, obj_def, obj_first, obj_fn,
+                heap_top, keep_at, local_at, local_count, main_sym, obj_def, obj_first, obj_fn,
                 object_count, write_held)
 import lk_rec (advance, close, get_byte, goto, left, open_object, R_END, R_MOD, R_SYM, recno)
 import lk_scan (cpu_of, crosses, def_bank, fn_bank, obj_bank, obj_cpu, object_of, pend_count,
@@ -29,14 +29,14 @@ import lk_sym (count)
 import lk_tab (add16, big_count, big_size, big_slot, CLASS_NODE, class_of, cls_count, cls_ctx,
                cls_edge, cls_namer, cls_node, cls_np, cls_par, cls_reach, cls_ref, cls_rep,
                copy_node, cp_count, cp_info, cp_size, cp_weight, ctx_count, ctx_of, def_a, def_b,
-               def_count, def_f, def_ref, def_w, edge_count, edge_flag, edge_sym, edge_word,
+               def_count, def_f, def_ref, def_w, edge_at, edge_count, edge_flag, edge_sym,
                extra_end, first_call, first_extra, first_in_order, first_node, fn_class, fn_count,
                fn_ctx, fn_edge, fn_flags, fn_nslots, fn_ref, fn_slot, has_copy, in_block, in_frame,
                is_extra_copy, is_kept_def, is_kept_var, is_node, mbase_of, memb_class, memb_count,
                memb_func, member_class, new_node, next_call, next_in_order, node_class, node_count,
                node_is_class, node_sym, NONE, overflow, own_of, set_zbase, slot_bytes, slot_class,
-               slot_count, slot_in_zp, slot_is_param, slot_sz, slot_weight, W_CTXZ, W_MBASE, W_SCC,
-               waiting, work, zbase_of)
+               slot_count, slot_in_zp, slot_is_param, slot_sz, slot_weight_of, W_CTXZ, W_MBASE,
+               W_SCC, waiting, work, zbase_of)
 import lkshow
 import sys (close, exit, write)
 
@@ -73,7 +73,7 @@ func show_locals()
   var i: word
   lkshow.label('l')
   for i = 0 until lk_name.local_count do
-    lkshow.show_word(lk_name.local[i])
+    lkshow.show_word(lk_name.local_at(i))
   end
   lkshow.end_line()
 end
@@ -92,7 +92,9 @@ func show_functions()
     lkshow.show_word(lk_tab.fn_slot[f])
     lkshow.show_word(lk_tab.fn_nslots(f))
     lkshow.show_byte(lk_tab.fn_class[f])
-    lkshow.show_word(lk_tab.fn_edge[f])
+    with LKCALLS do                 ; lk_tab's region (all in one here)
+      lkshow.show_word(lk_tab.fn_edge[f])
+    end
     lkshow.show_byte(lk_scan.object_of(f))
     lkshow.show_byte(lk_scan.fn_bank(f))
     k, live = lk_tab.member_class(f)
@@ -117,8 +119,10 @@ func show_slots()
   var b: byte
   for s = 0 until lk_tab.slot_count do
     lkshow.label('s')
-    lkshow.show_byte(lk_tab.slot_sz[s])
-    lkshow.show_byte(lk_tab.slot_weight[s])
+    with LKSLOTS do
+      lkshow.show_byte(lk_tab.slot_sz[s])
+    end
+    lkshow.show_byte(lk_tab.slot_weight_of(s))
     lkshow.show_word(lk_tab.slot_bytes(s))
     lkshow.show_byte(lk_tab.slot_class(s))
     lkshow.show_bool(lk_tab.slot_in_zp(s))
@@ -127,8 +131,10 @@ func show_slots()
   end
   lkshow.label('g')
   for b = 0 until lk_tab.big_count do
-    lkshow.show_word(lk_tab.big_slot[b])
-    lkshow.show_word(lk_tab.big_size[b])
+    with LKSLOTS do
+      lkshow.show_word(lk_tab.big_slot[b])
+      lkshow.show_word(lk_tab.big_size[b])
+    end
   end
   lkshow.end_line()
 end
@@ -180,7 +186,7 @@ func show_calls()
   lkshow.show_word(lk_tab.edge_count)
   lkshow.show_word(lk_tab.waiting)
   for e = 0 until lk_tab.edge_count do
-    lkshow.show_word(lk_tab.edge_word[e])
+    lkshow.show_word(lk_tab.edge_at(e))
   end
   lkshow.end_line()
 end

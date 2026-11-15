@@ -98,7 +98,9 @@ func show_storage()
   end
   lkshow.label('t')
   for s = 0 until lk_tab.slot_count do
-    lkshow.show_byte(lk_tab.slot_sz[s])
+    with LKSLOTS do                 ; lk_tab's region (all in one here)
+      lkshow.show_byte(lk_tab.slot_sz[s])
+    end
   end
   lkshow.end_line()
   lkshow.label('p')
