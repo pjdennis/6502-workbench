@@ -35,8 +35,8 @@
 ;   |                                      |                                   | not export it   |
 module lk_win
 
-import lk_envf (bank_count, bank_file, bank_n, bank_win, in_window, is_overlay, MAX_BANKS, placed,
-                text, window)
+import lk_envf (bank_count, bank_file, bank_n, bank_win, in_window, is_overlay, is_rom, MAX_BANKS,
+                placed, text, window)
 import lk_err (E_IRQ_OVERLAY, E_IRQ_PLACED)
 import lk_name (fail, fail_in, MAX_OBJECTS, obj_fn, object_count)
 import lk_scan (crosses, def_bank, fn_bank, object_of, region_of)
@@ -53,11 +53,14 @@ pub var stub_count: word = 0
 pub var stub_base: word = 0     ; where the stubs start: lk_boot places them
 pub var table_count: byte = 0   ; banks or overlays in the table
 
-; The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its module's
-; code, if no fix-up outside that bank names it and none takes its address (lk_graph.note_named).
-; A variable goes in a bank, never an overlay, which is loaded again from its file.
+; The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its region, if
+; it is `in` a region in a bank; else that of its module's code, if no fix-up outside that bank
+; names it and none takes its address (lk_graph.note_named). A variable goes in a bank, never an
+; overlay, which is loaded again from its file, nor a read-only bank (a region's variable in one
+; is an error: lk_place.place_bank_vars).
 pub func bank_def(d: word): byte
   var r: byte
+  var b: byte
   r = lk_scan.region_of(d)
   if r != 0 then
     return r
@@ -65,10 +68,14 @@ pub func bank_def(d: word): byte
   if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0 then
     return 0
   end
-  if (lk_tab.def_f[d] & lk_tab.D_CONST) == 0 and lk_envf.is_overlay() then
+  b = lk_scan.def_bank(d)
+  if b == 0 or (lk_tab.def_f[d] & lk_tab.D_CONST) != 0 then
+    return b
+  end
+  if lk_envf.is_overlay() or lk_envf.is_rom(b - 1) then
     return 0
   end
-  return lk_scan.def_bank(d)
+  return b
 end
 
 ; The file constant data d is written to, or where variable d is: 0 the image or fixed memory, or
@@ -200,9 +207,11 @@ pub func stub_addr(n: word): word
   return stub_base + STUB_SIZE * i
 end
 
-; True if bank or overlay b is in the table: one of the window code is placed in that has a file.
+; True if bank or overlay b is in the table: one of the window code is placed in that has a file
+; and is not read-only, which is there already.
 func in_table(b: byte): bool
-  return lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0
+  return lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0 and
+         not lk_envf.is_rom(b)
 end
 
 ; The bytes of the table and its names. Only when lk_envf.placed().

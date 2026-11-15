@@ -466,6 +466,28 @@ class TestMapCopies(unittest.TestCase):
                 mapenv.parse_map(text)
 
 
+class TestMapWindows(unittest.TestCase):
+    """W lines, of a read-only bank too, b= and k= (lathe/host/README.md, "The map file")."""
+    TEXT = ('F 8000 0003 a.f b=1\nF 0400 0003 a.g k=1\nF 0403 0003 a.g@1 k=1\nF 0406 0003 a.h 1 k=1\n'
+            'W 8000 0003 1 BANK1.BIN rom\nW 8000 0000 2 BANK2.BIN\nW 8000 0000 4 -\n')
+
+    def test_read(self):
+        entries = mapenv.parse_map(self.TEXT)
+        self.assertEqual([(e.kind, e.bank, e.kept, e.number, e.rom, e.context) for e in entries],
+                         [('F', 1, None, None, False, 0), ('F', None, 1, None, False, 0),
+                          ('F', None, 1, None, False, 1), ('F', None, 1, None, False, 1),
+                          ('W', None, None, 1, True, 0), ('W', None, None, 2, False, 0),
+                          ('W', None, None, 4, False, 0)])
+
+    def test_written_back_the_same(self):
+        self.assertEqual(''.join(e.format() + '\n' for e in mapenv.parse_map(self.TEXT)), self.TEXT)
+
+    def test_errors(self):
+        for text in ('W 8000 0003 1 BANK1.BIN ram\n', 'W 8000 0003 1\n'):
+            with self.assertRaisesRegex(mapenv.FormatError, 'a W line has 5 fields', msg=text):
+                mapenv.parse_map(text)
+
+
 class TestStartup(Work):
     """$start for each form of the environment, assembled, against hand-written bytes."""
 

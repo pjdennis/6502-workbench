@@ -84,6 +84,8 @@ pub const NONE = $FFFF
 pub const F_RECURSIVE = 1
 pub const F_INTERRUPT = 2
 pub const F_WITH = 4             ; lk_scan: it has a `with` block (a kind 6 fix-up)
+pub const F_FIXED = 8           ; lk_scan: it runs inside a `with` block, so it must be in fixed
+                                ; memory, its module placed or not (F_WITH too: lk_scan.bank_in)
 pub const F_STUB = $10          ; lk_win: the function's copies each have a stub
 pub const F_ADDR = $20          ; lk_graph: kept code or constant data takes its address
 pub const F_HELD = $40          ; lk_map: a line of the file being read needs its name

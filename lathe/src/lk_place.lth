@@ -19,9 +19,7 @@
 ;   | Python                               | Lathe                             | Why             |
 ;   |--------------------------------------|-----------------------------------|-----------------|
 ;   | sizes, addresses, counts: ints       | words; a context, an object file, | the type is the |
-;   |                                      | a bank, CALL flags: bytes         | storage         |
-;   | class_of(row_of(memb_class[i]))      | class_of(byte(row_of(...)))       | a 32-row table  |
-;   |                                      |                                   | takes a byte    |
+;   |                                      | a bank: bytes                     | storage         |
 ;   | `& 0xFFFF` on an address             | the word, which wraps             | the same        |
 ;   | take: size > 0xFFFF - code_used      | the same                          | no word wraps   |
 ;   | room = hi - lo + 1, code_used > room,| the same, in words; a room of     | a whole 64 KB   |
@@ -32,19 +30,19 @@ module lk_place
 
 import lk_alloc (straddles)
 import lk_boot (plan)
-import lk_envf (bank_count, bank_file, bank_win, code_hi, code_lo, MAX_BANKS, put_bank, win_hi,
-                win_lo)
-import lk_err (begin, colon, E_BANK_FULL, E_CODE_FULL, E_REGION_NO_FILE, E_WITH_FAR, E_WITH_IRQ,
-               E_WITH_PLACED, finish, over)
+import lk_envf (bank_count, bank_file, bank_win, code_hi, code_lo, is_rom, MAX_BANKS, put_bank,
+                win_hi, win_lo)
+import lk_err (begin, colon, E_BANK_FULL, E_CODE_FULL, E_REGION_NO_FILE, E_REGION_ROM, E_WITH_IRQ,
+               finish, over)
 import lk_fix (begin, count_shrinks, shrink_count)
 import lk_name (fail, fail_in, global_sym, obj_def, object_count)
-import lk_rec (advance, close, get_byte, get_word, left, open_object, R_CALL, R_CODE, R_DATA, R_END,
-               R_ENDF, R_FIX, R_FUNC)
-import lk_scan (fn_bank, obj_bank, rdef_bank, rdef_count, region_of)
-import lk_sym (is_defined, row_of)
-import lk_tab (add16, class_of, copy_node, ctx_count, D_CONST, D_ZP, def_a, def_b, def_count, def_f,
+import lk_rec (advance, close, get_word, left, open_object, R_CODE, R_DATA, R_END, R_ENDF, R_FIX,
+               R_FUNC)
+import lk_scan (bank_in, rdef_bank, rdef_count, region_of)
+import lk_sym (row_of)
+import lk_tab (add16, copy_node, ctx_count, D_CONST, D_ZP, def_a, def_b, def_count, def_f, def_ref,
                F_INTERRUPT, F_WITH, fn_count, fn_ctx, fn_flags, fn_ref, has_copy, is_kept_def,
-               is_kept_var, memb_class, memb_count, memb_func, overflow, W_ADDR, work)
+               is_kept_var, overflow, W_ADDR, work)
 import lk_win (bank_def)
 
 var code_used: word = 0                 ; bytes of the code range given out so far
@@ -54,17 +52,14 @@ var bank_judged: [lk_envf.MAX_BANKS]word        ; the same as written, before sh
                                                 ; check
 
 ; A function with a `with` block (lk_tab.F_WITH, from its kind 6 fix-ups) maps a bank of data into
-; the window, so its own code must be fixed (55); and it must not run in an interrupt context
-; (57): code-model.md, "Data in windows".
+; the window. Its code is kept in fixed memory (lk_tab.F_FIXED), and it must not run in an
+; interrupt context (57): code-model.md, "Data in windows".
 pub func check_with()
   var f: word
   var h: word
   var ctx: byte
   for f = 0 until lk_tab.fn_count do
     if (lk_tab.fn_flags[f] & lk_tab.F_WITH) != 0 and lk_tab.fn_ctx[f] != 0 then
-      if lk_scan.fn_bank(f) != 0 then
-        lk_name.fail(lk_err.E_WITH_PLACED, lk_tab.fn_ref(f))
-      end
       if (lk_tab.fn_ctx[f] & $FE) != 0 then
         ctx = 0
         for h = 0 until lk_tab.fn_count do
@@ -76,32 +71,6 @@ pub func check_with()
           end
         end
       end
-    end
-  end
-end
-
-; Kept function f makes a call with these CALL flags of callee: one made inside a `with` block
-; (flag 4) must not reach a function in a window, whose code would replace the data mapped (56).
-; Only the call itself is checked, not what the callee calls: a far call from fixed code puts the
-; data's bank back when it returns.
-func check_with_call(f: word, callee: word, flags: byte)
-  var k: byte
-  var i: byte
-  var g: word
-  if (flags & 4) == 0 then
-    return
-  end
-  if (flags & 2) == 0 then
-    if lk_sym.is_defined(callee) and lk_scan.fn_bank(lk_sym.row_of(callee)) != 0 then
-      lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), callee)
-    end
-    return
-  end
-  k = lk_tab.class_of(byte(lk_sym.row_of(callee)))
-  for i = 0 until lk_tab.memb_count do
-    g = lk_sym.row_of(lk_tab.memb_func[i])
-    if lk_tab.class_of(byte(lk_sym.row_of(lk_tab.memb_class[i]))) == k and lk_scan.fn_bank(g) != 0 then
-      lk_name.fail_in(lk_err.E_WITH_FAR, lk_tab.fn_ref(f), lk_tab.fn_ref(g))
     end
   end
 end
@@ -178,7 +147,6 @@ func place_object(obj: byte)
   var kept: bool
   var written: word
   var kind: byte
-  var callee: word
   var s: word
   var d: word
   var bank: byte
@@ -197,13 +165,10 @@ func place_object(obj: byte)
       end
     elif kind == lk_rec.R_FIX and kept then
       lk_fix.count_shrinks(obj)
-    elif kind == lk_rec.R_CALL and kept then
-      callee = lk_name.global_sym(obj, lk_rec.get_word())
-      check_with_call(f, callee, lk_rec.get_byte())
     elif kind == lk_rec.R_CODE then
       written = lk_rec.left()
     elif kind == lk_rec.R_ENDF and kept then
-      place_copies(f, written, lk_scan.obj_bank[obj])
+      place_copies(f, written, lk_scan.bank_in(f, obj))
       kept = false
     elif kind == lk_rec.R_DATA then
       s = lk_name.global_sym(obj, lk_rec.get_word())
@@ -237,6 +202,9 @@ func place_bank_vars()
     top = lk_envf.win_hi[lk_envf.bank_win[b]] + 1
     for d = 0 until lk_tab.def_count do
       if lk_tab.is_kept_var(d) and lk_win.bank_def(d) == b + 1 then
+        if lk_envf.is_rom(b) then
+          lk_name.fail(lk_err.E_REGION_ROM, lk_tab.def_ref(d))   ; only a region's can be
+        end
         size = lk_tab.def_b[d]
         extra = 0
         if lk_alloc.straddles($FF, size) then

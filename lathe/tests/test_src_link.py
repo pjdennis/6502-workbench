@@ -292,7 +292,7 @@ def edge_links():
     a = Obj('a')
     routine(a, 'h', slots=[(1, EITHER, 0, PARAM, 'p')])
     a.memb('t.cls', 'h')
-    case('a call through a pointer inside a with block reaches a member in a window',
+    case('a call through a pointer inside a with block keeps a member of a placed module fixed',
          tw.REGIONS + 'place a WIN 1\n', t, a, tw.farcall_with())
     case('a bank without a file that holds nothing',
          tw.ENV + tw.WINDOW + 'bank WIN 2 $12\nplace a WIN 1\nfarcall fc\n', tw.caller(), tw.banked(),

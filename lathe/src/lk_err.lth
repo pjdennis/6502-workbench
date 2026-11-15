@@ -87,11 +87,12 @@ pub const E_NO_FILE = 51
 pub const E_OVERLAY_NUMBERS = 52
 pub const E_ENV_FULL = 53
 pub const E_FARCALL_MISSING = 54
-pub const E_WITH_PLACED = 55
-pub const E_WITH_FAR = 56
+pub const E_WITH_PLACED = 55                    ; no longer reported: such a function is kept fixed
+pub const E_WITH_FAR = 56                       ; no longer reported: what such a call reaches is kept fixed
 pub const E_WITH_IRQ = 57
 pub const E_REGION_WINDOW = 58
 pub const E_REGION_NO_FILE = 59
+pub const E_REGION_ROM = 60
 
 ; One message per line, in the order of the numbers above: errors 1 to SECOND - 1 in MESSAGES,
 ; the rest in MESSAGES2.
@@ -155,6 +156,7 @@ const MESSAGES2 = "address must be in zero page\n"
                   "an interrupt function reaches a function with a with block\n"
                   "environment file: a region is in an overlay, or in another window than code is\n"
                   "constant data in a region is in a bank that has no file\n"
+                  "a variable in a region is in a read-only bank\n"
 
 const PREFIX: [11]byte = "link error "
 

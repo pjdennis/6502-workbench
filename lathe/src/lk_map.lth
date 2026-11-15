@@ -45,7 +45,8 @@ module lk_map
 
 import lk_alloc (slot_addr)
 import lk_boot (init_addr, init_len, start_addr, start_len, table_addr, table_len)
-import lk_envf (bank_count, bank_file, bank_n, bank_win, is_overlay, placed, text, win_lo, window)
+import lk_envf (bank_count, bank_file, bank_n, bank_win, is_overlay, is_rom, placed, text, win_lo,
+                window)
 import lk_err (E_NAMES, fail)
 import lk_file (ARG_MAP, open_out)
 import lk_fix (begin, count_shrinks, shrink_count)
@@ -54,7 +55,7 @@ import lk_name (buf_begin, buf_keep, buf_top, get_b, global_sym, obj_def, obj_fi
 import lk_place (bank_used, region_bank)
 import lk_rec (advance, close, get_byte, get_word, left, open_object, R_CLAS, R_CODE, R_DATA, R_END,
                R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, R_VAR)
-import lk_scan (fn_bank, OBJ_CLASSES, obj_cpu)
+import lk_scan (fn_bank, module_bank, OBJ_CLASSES, obj_cpu)
 import lk_sym (CLASS, CONSTANT, FUNCTION, is_defined, kind_of, row_of)
 import lk_tab (class_of, cls_count, cls_namer, cls_np, cls_par, cls_reach, copy_node, cp_addr,
                cp_size, ctx_count, ctx_of, D_HELD, def_a, def_b, def_f, def_ref, F_HELD, fn_ctx,
@@ -67,6 +68,7 @@ const START_NAME: [6]byte = "$start"
 const INIT_NAME: [5]byte = "$init"
 const BANKS_NAME: [6]byte = "$banks"
 const OVERLAYS_NAME: [9]byte = "$overlays"
+const ROM_MARK: [4]byte = " rom"        ; after the file of a read-only bank's W line
 const HEX: [16]byte = "0123456789ABCDEF"
 
 var handle: byte = 0
@@ -247,6 +249,17 @@ func copy_name(n: word, number: word)
   end
 end
 
+; ` k=N` after the F line of a function kept in fixed memory (lk_tab.F_FIXED) whose module is
+; placed in bank or overlay N.
+func kept_mark(f: word)
+  if lk_scan.fn_bank(f) == 0 and lk_scan.module_bank(f) != 0 then
+    put(32)
+    put(107)
+    put(61)
+    decimal(lk_envf.bank_n[lk_scan.module_bank(f) - 1])
+  end
+end
+
 ; The F lines of the copies of kept function f, whose symbol has this number and whose code as
 ; written is `written` bytes.
 func copy_lines(f: word, number: word, written: word)
@@ -262,6 +275,7 @@ func copy_lines(f: word, number: word, written: word)
         decimal(ctx)
       end
       in_bank(lk_scan.fn_bank(f))
+      kept_mark(f)
       put(10)
       if lk_win.has_stub(f) then
         begin(84, lk_win.stub_addr(n), lk_win.STUB_SIZE)
@@ -309,6 +323,11 @@ func window_lines()
       put(32)
       for i = 1 to lk_envf.text[name - 1] do
         put(lk_envf.text[name - 1 + i])
+      end
+      if lk_envf.is_rom(b) then
+        for i = 0 until len(ROM_MARK) do
+          put(ROM_MARK[i])
+        end
       end
       put(10)
     elif lk_envf.bank_win[b] == lk_envf.window() and lk_place.region_bank(b) then

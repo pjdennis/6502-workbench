@@ -141,10 +141,12 @@ class MapEntry:
     part: Optional[str] = None        # slot or parameter name (S, C)
     context: int = 0                  # F: the context the function copy is for
     bank: Optional[int] = None        # F, D, V: the bank or overlay it is in (b=N)
+    rom: bool = False                 # W: the bank is read-only (`rom WIN N`)
+    kept: Optional[int] = None        # F: kept in fixed memory, its module in bank N (k=N)
 
     def format(self):
         if self.kind == M_WINDOW:
-            return f'{self.kind} {self.addr:04X} {self.size:04X} {self.number} {self.name}'
+            return f'{self.kind} {self.addr:04X} {self.size:04X} {self.number} {self.name}' + (' rom' if self.rom else '')
         s = f'{self.kind} {self.addr:04X} {self.size:04X} {self.name}'
         if self.number is not None:
             s += f' {self.number} {self.part}'
@@ -152,6 +154,8 @@ class MapEntry:
             s += f' {self.context}'
         if self.bank is not None:
             s += f' b={self.bank}'
+        if self.kept is not None:
+            s += f' k={self.kept}'
         return s
 
     def base(self):
@@ -166,6 +170,9 @@ def parse_map(text, path='<map>'):
         kind = words[0]
         if kind == M_WINDOW or kind == M_STUB:
             want = 5 if kind == M_WINDOW else 4
+            rom = kind == M_WINDOW and len(words) == 6 and words[5] == 'rom'
+            if rom:
+                words = words[:5]
             if len(words) != want:
                 raise FormatError(f'{where}: a {kind} line has {want} fields')
             try:
@@ -173,10 +180,17 @@ def parse_map(text, path='<map>'):
                 number = int(words[3]) if kind == M_WINDOW else None
             except ValueError:
                 raise FormatError(f'{where}: bad number') from None
-            out.append(MapEntry(kind, addr, size, words[-1], number))
+            out.append(MapEntry(kind, addr, size, words[-1], number, rom=rom))
             continue
         bank = None
-        if kind in (M_FUNC, M_DATA, M_VAR) and len(words) > 4 and words[-1].startswith('b='):
+        kept = None
+        if kind == M_FUNC and len(words) > 4 and words[-1].startswith('k='):
+            try:
+                kept = int(words[-1][2:])
+            except ValueError:
+                raise FormatError(f'{where}: bad number') from None
+            words = words[:-1]
+        elif kind in (M_FUNC, M_DATA, M_VAR) and len(words) > 4 and words[-1].startswith('b='):
             try:
                 bank = int(words[-1][2:])
             except ValueError:
@@ -201,7 +215,8 @@ def parse_map(text, path='<map>'):
             raise FormatError(f'{where}: bad number') from None
         if kind == M_FUNC and (copy or len(words) == 5) and context == 0:
             raise FormatError(f'{where}: context 0 is not written')
-        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None, context, bank))
+        out.append(MapEntry(kind, addr, size, words[3], number, words[5] if want == 6 else None, context, bank,
+                            kept=kept))
     return out
 
 

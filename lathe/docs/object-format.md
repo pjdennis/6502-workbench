@@ -68,7 +68,7 @@ The linker adds every entry to what the defining records say, and a weight stops
 | Slot **kind** | 0 parameter, 1 local, 2 temporary. Parameters come first, in order. |
 | `VAR` **flags** | None yet; the byte is 0. |
 | `FUNC` **flags** | bit 0 `recursive`; bit 1 `interrupt`; bit 2 exported; bit 3 parameters and results are in registers (`asm` functions). |
-| `CALL` **flags** | bit 0: the caller saves its frame around this call; bit 1: the call is through a pointer and the callee symbol is a class; bit 2: the call is made inside a `with` block (the linker checks that it does not reach a window). |
+| `CALL` **flags** | bit 0: the caller saves its frame around this call; bit 1: the call is through a pointer and the callee symbol is a class; bit 2: the call is made inside a `with` block (the linker keeps what it reaches in fixed memory, at any depth: configurations.md, "Functions kept in fixed memory"). |
 | `CALL` **outer** | The function or class whose arguments were being stored when this call was made, or `$FFFF` ([`code-model.md`](code-model.md), "Calls inside arguments"). |
 | `CLAS` **flags** | bit 0 `recursive`. |
 
@@ -135,7 +135,7 @@ A function linked for several contexts is written once for each, its `CODE` reco
 The linker keeps a function if an entry point reaches it by calls, or if kept code or kept constant data takes its address ([`code-model.md`](code-model.md), "Sharing frames"). It keeps a variable or a piece of constant data only if a fix-up of kept code (any copy) or of kept constant data names it. A kept table of pointers therefore keeps the tables, variables and functions it points to; a table nothing kept names keeps nothing, not even the functions in it. What is not kept gets no address and no map line, and takes no storage, zero page included.
 
 - In code, an address is taken by a kind 2, 3 or 5 fix-up (`#<f`, `#>f`, `LDA f,X`); a kind 1 fix-up naming a function is a call, which needs a `CALL` record of its own. Kinds 7 and 8 never name a function's entry.
-- A variable or constant data of a module placed in a window goes into that module's bank only if every kept fix-up that names it is in that bank's code and of kind 1, 4, 5, 7 or 8: a kind 2 or 3 fix-up, or one in constant data, takes its address, and so does any fix-up in code outside the bank (configurations.md, "Constants and variables of a module in a window").
+- A variable or constant data of a module placed in a window goes into that module's bank only if every kept fix-up that names it is in that bank's code and of kind 1, 4, 5, 7 or 8: a kind 2 or 3 fix-up, or one in constant data, takes its address, and so does any fix-up in code outside the bank (configurations.md, "Constants and variables of a module in a window"). A function of the module kept in fixed memory (one with a kind 6 fix-up, or one that runs inside a `with` block) is code outside the bank; a variable never goes in a read-only bank.
 - `module.$init` is always kept, so a variable given an initial value is kept, whether or not anything else reads it.
 - A symbol need only be defined if something kept names it: by a call, a fix-up or a `MEMB` record (which is not inside a function, so always counts). A name only dropped code or dropped data uses may be missing from every object file. Otherwise the link fails with error 18.
 - The records of what is dropped are read once, for the sizes and the names, and not checked further: a bad fix-up in a dropped table is not found.

@@ -47,11 +47,31 @@ Where the compiler's 52 KB of variables are today, and where they can go on the 
 | Variables of modules placed in code banks | 6,905 | in the module's own bank | main RAM: a ROM bank holds no variables |
 | Fixed variables | 17,188 | fixed memory | main RAM |
 
-So main RAM has to hold 24,093 bytes of variables, the stubs (1,230 bytes), and every function that must be in RAM. A function must be in RAM if it has a `with` block or is called inside one, because the sideways RAM and the module share the window: while a table is mapped, the module is not there. That is roughly 9 KB of `kernel`, `lex`, `fbuf` and `err`, with the far-call routine and the MOS interface.
+So main RAM has to hold every variable that is not in a region, the stubs, and every function that must be in RAM. A function must be in RAM if it has a `with` block or runs inside one, because the sideways RAM and the module share the window: while a table is mapped, the module is not there. The linker now keeps exactly those functions in fixed memory when their module is placed in a bank ([`configurations.md`](configurations.md), "Functions kept in fixed memory, and read-only banks"), so the figure is measured, not estimated.
 
-**24.1 + 1.2 + about 9 = about 34 KB, against 26.4 KB (PAGE to HIMEM, and the language workspace). It does not fit as the compiler stands**, by about 8 KB.
+**Measured (2026-11-15)**, on the compiler as it stands after import lists, with `kernel`, `lex`, `fbuf`, `err` and `src` placed in banks too:
 
-The symbol table is the piece that decides it: twelve columns, 9,520 bytes, fixed, read directly by most modules. Behind accessor functions in `kernel` it can go to a third sideways slot, which brings main RAM to about 25 KB. The accessors may also make the code smaller, because every access to a column of more than 256 rows now computes a 16-bit address in line (about 13 bytes each).
+| In main RAM | Bytes |
+|---|---|
+| Variables not in a region | 25,841 |
+| Code kept fixed (`kernel` 4,270, `fbuf` 3,174, `lex` 1,023, `err` 556, `src` 88) | 9,111 |
+| Other fixed code (file calls, arithmetic, far calls, start-up) | 1,462 |
+| Stubs (256) | 1,536 |
+| Fixed constants | 456 |
+| **Total** | **38,406** |
+| Available: `$1900-$7BFF` and `$0401-$06FF` | 26,111 |
+
+**It does not fit as the compiler stands, by 12.3 KB.** Placing those five modules costs 4.7% more cycles on Wendy 2 (28,000 more far calls in compiling `gen.lth`).
+
+What can leave main RAM, with accessor functions in front of it:
+
+| Table | Bytes | Read by |
+|---|---|---|
+| The symbol and member columns of `kernel` | 10,388 | most modules, directly, in about 400 places |
+| `out.table` and OUT's fix-up tables | 4,096 | OUT, and GEN through `out.table_byte` |
+| `kernel.text` | 2,048 | through pointers |
+
+The symbol table and OUT's tables together are 14.5 KB, one sideways slot, and bring main RAM to about 23.9 KB before the accessors' own code: about 2 KB to spare. The accessors may also make the code smaller, because every access to a column of more than 256 rows now computes a 16-bit address in line (about 13 bytes each).
 
 ## Design
 

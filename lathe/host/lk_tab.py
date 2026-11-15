@@ -49,6 +49,8 @@ NONE = 0xFFFF
 F_RECURSIVE = 1
 F_INTERRUPT = 2
 F_WITH = 4                          # lk_scan: it has a `with` block (a kind 6 fix-up)
+F_FIXED = 8                         # lk_scan: it runs inside a `with` block, so it must be in fixed
+                                    # memory, its module placed or not (F_WITH too: lk_scan.bank_in)
 F_STUB = 0x10                       # lk_win: the function's copies each have a stub
 F_ADDR = 0x20                       # lk_graph: kept code or constant data takes its address
 F_HELD = 0x40                       # lk_map: a line of the file being read needs its name

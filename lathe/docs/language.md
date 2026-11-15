@@ -366,7 +366,7 @@ end
 - **Nesting.** A block inside a block of the same region costs nothing. A block of another region maps its own bank, and inside it only that region's names can be used: there is one window.
 - **A block need not name anything of its region.** A function given a pointer into the region reads it as any pointer, inside a block: `with TOKENS do return p[0] end`. The object file names the bank by a variable or table of the region (the linker learns a bank from nothing else): the first one the block uses, or else the first one the module declares (at module level, or `static` in the same function). A block that uses nothing of a region the module declares nothing in has none to name, and is error 184; that is also what a misspelt region gives. (Error 183, "nothing in this region is used inside the with block", is retired.)
 - **Not in interrupt functions** (error 119), nor in what an interrupt function calls (link error 57). Not in an `inline` function (168).
-- **The linker checks** that a function with a `with` block is in fixed memory (55), and that no call made inside a block goes to a function in a window (56). Calls of fixed functions are allowed inside.
+- **The linker keeps** a function with a `with` block in fixed memory even if its module is placed in a bank, and so everything that runs inside a block: what a call inside it reaches, at any depth, through pointers too ([`configurations.md`](configurations.md), "Functions kept in fixed memory"). So a pointer into the region passed down is good for the whole block. (Until 2026-11-14 such a function in a window was link error 55, and such a call reaching one 56.)
 - **Interfaces** carry `in REGION`, so an importer is held to the same rule.
 
 ## Grammar

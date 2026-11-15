@@ -201,6 +201,39 @@ class Data(unittest.TestCase):
         self.assertGreaterEqual(m['V', 'libbkd.calls'].addr, 0xC000)     # an overlay is loaded again
         self.assertIsNone(m['V', 'libbkd.calls'].bank)
 
+    def test_kept_functions_and_a_read_only_bank(self):
+        """cases/e2e-config/kept.lth: what has a `with` block or runs inside one is kept in
+        fixed memory (k=N), what they call outside a block stays in the bank; bank 2 is
+        read-only, so libkrom's variables are fixed and $banks loads only bank 3."""
+        m = mapped('kept.lth', 'kept_banks.env')
+        for name, bank in (('libkept.fill', 3), ('libkept.get', 3), ('libkept.sum', 3),
+                           ('libkept.next', 3), ('libkept.step', 3), ('libkept.tally', 3),
+                           ('libkept.add8', 3), ('libkrom.twice', 2)):
+            self.assertEqual((m['F', name].kept, m['F', name].bank), (bank, None), name)
+            self.assertLess(m['F', name].addr, 0x8000, name)
+            self.assertNotIn(('T', name), m)
+        for name, bank in (('libkept.begin', 3), ('libkept.show', 3), ('libkrom.report', 2),
+                           ('libkrom.reset', 2)):
+            self.assertEqual((m['F', name].kept, m['F', name].bank), (None, bank), name)
+        self.assertIn(('T', 'libkept.begin'), m)                    # fill() calls it, from fixed code
+        self.assertEqual(m['D', 'libkept.head'].bank, 3)           # only show() names it
+        self.assertEqual(m['V', 'libkept.runs'].bank, 3)
+        for name in ('libkept.count', 'libkept.total'):             # kept functions name them
+            self.assertIsNone(m['V', name].bank, name)
+        self.assertIsNone(m['D', 'libkept.steps'].bank)
+        self.assertEqual(m['V', 'libkept.table'].bank, 4)          # its region's
+        self.assertEqual(m['D', 'libkrom.label'].bank, 2)          # a constant: in the ROM
+        for name in ('libkrom.calls', 'libkrom.last'):             # variables: never in it
+            self.assertIsNone(m['V', name].bank, name)
+            self.assertLess(m['V', name].addr, 0x4000, name)
+        self.assertTrue(m['W', 'KROM2.BIN'].rom)
+        self.assertFalse(m['W', 'KEPT3.BIN'].rom)
+        self.assertEqual(m['D', '$banks'].size, 3 + 3 + len('KEPT3.BIN\0'))
+        m = mapped('kept.lth', 'kept_ovl.env')
+        self.assertEqual(m['F', 'libkept.fill'].kept, 1)
+        self.assertEqual(m['F', 'libkept.step'].kept, 1)
+        self.assertEqual(m['F', 'libkept.begin'].bank, 1)
+
     def test_the_marks_of_spike_l5_are_in_their_banks(self):
         m = mapped('farcall.lth', 'farcall_banks.env')
         self.assertEqual(m['D', 'libfcc.sig'].bank, 1)

@@ -184,6 +184,8 @@ def rec_func(obj):
     flags = lk_rec.get_byte() & (lk_tab.F_RECURSIVE | lk_tab.F_INTERRUPT)
     if lk_name.is_init_sym(s):
         flags |= lk_tab.F_INIT
+    if lk_name.is_block_sym(s):
+        flags |= lk_tab.F_FIXED      # a call inside a `with` block read before it names it
     cur_fn = lk_tab.new_func(flags)
     cur_sym = s
     lk_name.bind(s, lk_tab.fn_ref(cur_fn))
@@ -212,6 +214,8 @@ def rec_call(obj):
         wanted = lk_sym.CLASS
     if lk_sym.kind_of(callee) != wanted:
         damaged()
+    if (flags & 4) != 0:
+        in_block(callee)
     edge = 0
     if (flags & 1) == 0:
         edge = lk_tab.E_NOSAVE
@@ -228,6 +232,19 @@ def rec_call(obj):
             if kind == lk_sym.FUNCTION and lk_sym.is_defined(r):
                 edge |= lk_tab.E_VIA            # read after outer's own calls (build_chains)
             lk_tab.add_waiting(outer, lk_sym.edge_bits(callee), edge)
+
+
+def in_block(s):
+    """A call inside a `with` block names function or class s. What it reaches runs inside the
+    block, and must be in fixed memory, as the block's own function is, so that the region stays
+    mapped while it runs (configurations.md, "Functions kept in fixed memory"): a function is
+    marked lk_tab.F_FIXED, and keep_called() marks what they call. A function defined later sees
+    the mark on its symbol (rec_func); the members of a class are marked from it once every file
+    is read (keep_members)."""
+    lk_name.set_block(s)
+    r = lk_name.now(s)
+    if lk_sym.is_defined(r) and lk_sym.kind_of(r) == lk_sym.FUNCTION:
+        lk_tab.fn_flags[lk_sym.row_of(r)] |= lk_tab.F_FIXED
 
 
 def rec_clas(obj):
@@ -415,8 +432,22 @@ def object_of(f):
     return obj
 
 
+def bank_in(f, obj):
+    """The bank or overlay function f of object file obj is placed in + 1, or 0 for fixed
+    memory: its module's bank, unless f is kept in fixed memory because it has a `with` block
+    (lk_tab.F_WITH) or runs inside one (F_FIXED)."""
+    if (lk_tab.fn_flags[f] & (lk_tab.F_WITH | lk_tab.F_FIXED)) != 0:
+        return 0
+    return obj_bank[obj]
+
+
 def fn_bank(f):
     """The bank or overlay function f's code is placed in + 1, or 0 for fixed memory."""
+    return bank_in(f, object_of(f))
+
+
+def module_bank(f):
+    """The bank or overlay + 1 of the module of function f, kept in fixed memory or not."""
     return obj_bank[object_of(f)]
 
 
@@ -516,6 +547,55 @@ def join_members():
             merge(lk_tab.class_of(lk_tab.fn_class[f] - 1), k)
 
 
+def keep_targets(source):
+    """Function `source` runs inside a `with` block: so does whatever it calls, and through a
+    pointer whatever is a member of the class it calls through. Mark each (in_block). Returns
+    True if one was not marked before."""
+    found = False
+    e = lk_tab.head_of(source)
+    while e != 0:
+        target = lk_tab.edge_sym(e - 1)
+        flags = lk_tab.edge_flag(e - 1)
+        e = lk_tab.chain_next(e)
+        if (flags & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0 and lk_sym.is_defined(target):
+            if lk_sym.kind_of(target) == lk_sym.FUNCTION:
+                f = lk_sym.row_of(target)
+                if (lk_tab.fn_flags[f] & lk_tab.F_FIXED) == 0:
+                    lk_tab.fn_flags[f] |= lk_tab.F_FIXED
+                    found = True
+            else:
+                for i in range(0, lk_tab.memb_count):
+                    f = lk_sym.row_of(lk_tab.memb_func[i])
+                    if lk_tab.memb_class[i] == target and (lk_tab.fn_flags[f] & lk_tab.F_FIXED) == 0:
+                        lk_tab.fn_flags[f] |= lk_tab.F_FIXED
+                        found = True
+    return found
+
+
+def keep_members():
+    """Before the symbols are resolved: the functions taken as a class that a call inside a
+    `with` block calls through (lk_name.X_BLOCK) can be reached there, so are marked (in_block).
+    Only those: a pointer of a class holds only functions taken as that class; classes merged
+    because they share a member share their parameters, not their pointers."""
+    for i in range(0, lk_tab.memb_count):
+        r = lk_name.now(lk_tab.memb_func[i])
+        if lk_name.is_block_sym(lk_tab.memb_class[i]) and lk_sym.is_defined(r):
+            lk_tab.fn_flags[lk_sym.row_of(r)] |= lk_tab.F_FIXED
+
+
+def keep_called():
+    """Everything a function marked by in_block calls, directly or not, through a pointer or
+    not, runs inside the block too, so it is kept in fixed memory: a pointer into the region
+    that the block passes on is good there. Marked until nothing new is found, a pass for each
+    level of calls."""
+    more = True
+    while more:
+        more = False
+        for f in range(0, lk_tab.fn_count):
+            if (lk_tab.fn_flags[f] & lk_tab.F_FIXED) != 0 and keep_targets(lk_tab.fn_ref(f)):
+                more = True
+
+
 def move_edges():
     """Hand the calls recorded against a merged class to the class that stands for it."""
     for k in range(0, lk_tab.cls_count):
@@ -559,6 +639,7 @@ def add_via_edges(source):
 def finish():
     """What can only be done once every object file has been read: from here on a symbol is
     what it stands for (lk_name.resolve)."""
+    keep_members()
     lk_name.resolve()
     for i in range(0, pend_count):
         lk_tab.work[PEND_SYM + i] = lk_name.now(lk_tab.work[PEND_SYM + i])
@@ -572,6 +653,7 @@ def finish():
         add_via_edges(lk_tab.fn_ref(f))
     for k in range(0, lk_tab.cls_count):
         add_via_edges(lk_tab.cls_ref(k))
+    keep_called()
     add_far_edges()
     lk_tab.chains_to_runs()
 

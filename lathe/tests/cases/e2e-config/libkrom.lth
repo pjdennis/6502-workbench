@@ -1,0 +1,32 @@
+; imported by kept.lth and libkept.lth: a module placed in a read-only bank (bank 2 in
+; kept_banks.env). Its code and constants are in the bank, its variables in fixed memory.
+module libkrom
+
+import libfco
+
+const LABEL = "rom "                    ; read only here: in the bank
+var calls: byte nozp                    ; a variable: fixed memory, never a read-only bank
+var last: byte nozp
+
+; Called inside libkept.fill's block: kept in fixed memory.
+pub func twice(x: byte): byte
+  calls += 1
+  return x + x
+end
+
+; In the bank, as report() is.
+pub func reset()
+  calls = 0
+end
+
+pub func report()
+  var i: byte
+  i = 0
+  while LABEL[i] != 0 do
+    libfco.put(LABEL[i])
+    i += 1
+  end
+  last = calls
+  libfco.hex(last)
+  libfco.put(10)
+end

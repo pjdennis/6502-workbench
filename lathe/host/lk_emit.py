@@ -187,7 +187,7 @@ def emit_object(obj, dest):
     image, the S lines: the names of its kept functions that have slots are held as the file is
     read (lk_map)."""
     some = dest == 0 and lk_map.mark_functions(obj, True, True)
-    here = dest == lk_scan.obj_bank[obj]   # its functions are in this file
+    here = False                    # the function being read is in this file
     if some:
         lk_map.hold_begin(obj, lk_map.W_HELD, lk_tab.W_OWN)
     lk_rec.open_object(obj)
@@ -206,6 +206,7 @@ def emit_object(obj, dest):
             number = lk_rec.get_word()
             f = lk_sym.row_of(lk_name.global_sym(obj, number))
             kept = lk_tab.fn_ctx[f] != 0
+            here = dest == lk_scan.bank_in(f, obj)
             slots = 0
             lk_fix.drop()
             if kept:

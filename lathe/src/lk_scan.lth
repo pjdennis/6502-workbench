@@ -36,9 +36,9 @@ import lk_envf (cpu, fail_text, farcall, find_region, is_token, MAX_REGIONS, P_B
 import lk_err (E_CLASS_DIFFERS, E_DAMAGED, E_DEFS, E_DUPLICATE, E_LOCALS, E_NEEDS_65C02,
                E_NO_FARCALL, E_OBJECTS, E_PLACE_UNLINKED, E_UNDEFINED, E_VERSION, E_WEIGHTS, fail)
 import lk_file (arg_count, ARG_OBJECT, fail)
-import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_init_sym, local, local_count,
-                mark_all, MAX_LOCALS, MAX_OBJECTS, more, name_add, name_begin, now, obj_def,
-                obj_first, obj_fn, object_count, resolve, set_more, symbol)
+import lk_name (begin, bind, fail, fc_call, fc_start, global_sym, is_block_sym, is_init_sym, local,
+                local_count, mark_all, MAX_LOCALS, MAX_OBJECTS, more, name_add, name_begin, now,
+                obj_def, obj_first, obj_fn, object_count, resolve, set_block, set_more, symbol)
 import lk_rec (advance, close, damaged, get_byte, get_word, left, open_object, R_CALL, R_CLAS,
                R_CODE, R_DATA, R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_IMP, R_MEMB, R_MOD, R_RGN,
                R_SLOT, R_SYM, R_VAR, R_WGT, VERSION)
@@ -46,10 +46,10 @@ import lk_sym (CLASS, CONSTANT, edge_bits, FUNCTION, is_defined, kind_of, row_of
 import lk_tab (add_edge, add_own, add_waiting, build_chains, chain_next, chains_to_runs, class_of,
                cls_count, cls_edge, cls_namer, cls_np, cls_par, cls_ref, cls_rep, cp_size,
                cp_weight, D_CONST, def_a, def_b, def_count, def_ref, def_w, E_NOSAVE, E_PENDING,
-               E_VIA, edge_flag, edge_sym, F_INIT, F_INTERRUPT, F_RECURSIVE, F_WITH, fn_class,
-               fn_count, fn_flags, fn_nslots, fn_ref, fn_slot, head_of, memb_class, memb_count,
-               memb_func, new_class, new_cparam, new_def, new_func, new_member, new_slot, NONE,
-               slot_weight, W_NEXT, work)
+               E_VIA, edge_flag, edge_sym, F_FIXED, F_INIT, F_INTERRUPT, F_RECURSIVE, F_WITH,
+               fn_class, fn_count, fn_flags, fn_nslots, fn_ref, fn_slot, head_of, memb_class,
+               memb_count, memb_func, new_class, new_cparam, new_def, new_func, new_member,
+               new_slot, NONE, slot_weight, W_NEXT, work)
 
 const MAX_PENDING = 64          ; weights for slots of functions not read yet
 
@@ -259,6 +259,9 @@ func rec_func(obj: byte)
   if lk_name.is_init_sym(s) then
     flags |= lk_tab.F_INIT
   end
+  if lk_name.is_block_sym(s) then
+    flags |= lk_tab.F_FIXED     ; a call inside a `with` block read before it names it
+  end
   cur_fn = lk_tab.new_func(flags)
   cur_sym = s
   lk_name.bind(s, lk_tab.fn_ref(cur_fn))
@@ -282,6 +285,21 @@ func rec_slot()
   lk_tab.new_slot(cur_fn, size, zp_class, kind == 0, weight)
 end
 
+; A call inside a `with` block names function or class s. What it reaches runs inside the block,
+; and must be in fixed memory, as the block's own function is, so that the region stays mapped
+; while it runs (configurations.md, "Functions kept in fixed memory"): a function is marked
+; lk_tab.F_FIXED, and keep_called() marks what they call. A function defined later sees the mark on
+; its symbol (rec_func); the members of a class are marked from it once every file is read
+; (keep_members).
+func in_block(s: word)
+  var r: word
+  lk_name.set_block(s)
+  r = lk_name.now(s)
+  if lk_sym.is_defined(r) and lk_sym.kind_of(r) == lk_sym.FUNCTION then
+    lk_tab.fn_flags[lk_sym.row_of(r)] |= lk_tab.F_FIXED
+  end
+end
+
 pub func rec_call(obj: byte)
   var callee: word
   var flags: byte
@@ -302,6 +320,9 @@ pub func rec_call(obj: byte)
   end
   if lk_sym.kind_of(callee) != wanted then
     damaged()
+  end
+  if (flags & 4) != 0 then
+    in_block(callee)
   end
   edge = 0
   if (flags & 1) == 0 then
@@ -570,8 +591,23 @@ pub func object_of(f: word): byte
   return obj
 end
 
+; The bank or overlay function f of object file obj is placed in + 1, or 0 for fixed memory: its
+; module's bank, unless f is kept in fixed memory because it has a `with` block (lk_tab.F_WITH) or
+; runs inside one (F_FIXED).
+pub func bank_in(f: word, obj: byte): byte
+  if (lk_tab.fn_flags[f] & (lk_tab.F_WITH | lk_tab.F_FIXED)) != 0 then
+    return 0
+  end
+  return obj_bank[obj]
+end
+
 ; The bank or overlay function f's code is placed in + 1, or 0 for fixed memory.
 pub func fn_bank(f: word): byte
+  return bank_in(f, object_of(f))
+end
+
+; The bank or overlay + 1 of the module of function f, kept in fixed memory or not.
+pub func module_bank(f: word): byte
   return obj_bank[object_of(f)]
 end
 
@@ -761,10 +797,80 @@ end
 
 ; What can only be done once every object file has been read: from here on a symbol is what it
 ; stands for (lk_name.resolve).
+; Function or class `source` runs inside a `with` block: so does whatever it calls, a member of a
+; class too (the class's block calls its members). Mark each (in_block). Returns true if one was
+; not marked before.
+func keep_targets(source: word): bool
+  var found: bool
+  var e: word
+  var target: word
+  var flags: byte
+  var f: word
+  var i: byte
+  found = false
+  e = lk_tab.head_of(source)
+  while e != 0 do
+    target = lk_tab.edge_sym(e - 1)
+    flags = lk_tab.edge_flag(e - 1)
+    e = lk_tab.chain_next(e)
+    if (flags & (lk_tab.E_PENDING | lk_tab.E_VIA)) == 0 and lk_sym.is_defined(target) then
+      if lk_sym.kind_of(target) == lk_sym.FUNCTION then
+        f = lk_sym.row_of(target)
+        if (lk_tab.fn_flags[f] & lk_tab.F_FIXED) == 0 then
+          lk_tab.fn_flags[f] |= lk_tab.F_FIXED
+          found = true
+        end
+      else
+        for i = 0 until lk_tab.memb_count do
+          f = lk_sym.row_of(lk_tab.memb_func[i])
+          if lk_tab.memb_class[i] == target and (lk_tab.fn_flags[f] & lk_tab.F_FIXED) == 0 then
+            lk_tab.fn_flags[f] |= lk_tab.F_FIXED
+            found = true
+          end
+        end
+      end
+    end
+  end
+  return found
+end
+
+; Before the symbols are resolved: the functions taken as a class that a call inside a `with` block
+; calls through (lk_name.X_BLOCK) can be reached there, so are marked (in_block). Only those: a
+; pointer of a class holds only functions taken as that class; classes merged because they share a
+; member share their parameters, not their pointers.
+func keep_members()
+  var i: byte
+  var r: word
+  for i = 0 until lk_tab.memb_count do
+    r = lk_name.now(lk_tab.memb_func[i])
+    if lk_name.is_block_sym(lk_tab.memb_class[i]) and lk_sym.is_defined(r) then
+      lk_tab.fn_flags[lk_sym.row_of(r)] |= lk_tab.F_FIXED
+    end
+  end
+end
+
+; Everything a function marked by in_block calls, directly or not, through a pointer or not, runs
+; inside the block too, so it is kept in fixed memory: a pointer into the region that the block
+; passes on is good there. Marked until nothing new is found, a pass for each level of calls.
+func keep_called()
+  var f: word
+  var more: bool
+  more = true
+  while more do
+    more = false
+    for f = 0 until lk_tab.fn_count do
+      if (lk_tab.fn_flags[f] & lk_tab.F_FIXED) != 0 and keep_targets(lk_tab.fn_ref(f)) then
+        more = true
+      end
+    end
+  end
+end
+
 pub func finish()
   var i: byte
   var f: word
   var k: byte
+  keep_members()
   lk_name.resolve()
   for i = 0 until pend_count do
     lk_tab.work[PEND_SYM + i] = lk_name.now(lk_tab.work[PEND_SYM + i])
@@ -781,6 +887,7 @@ pub func finish()
   for k = 0 until lk_tab.cls_count do
     add_via_edges(lk_tab.cls_ref(k))
   end
+  keep_called()
   add_far_edges()
   lk_tab.chains_to_runs()
 end

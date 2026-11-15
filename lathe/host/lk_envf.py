@@ -18,6 +18,7 @@
     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
     region    NAMES WIN 4           ; the source's `in NAMES` is bank 4 of WIN; or `fixed`
     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
+    rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 
 A window, its banks or overlays and the switch must come before the entries that name them.
 Names (windows, modules, regions) are folded to lower case; file names are kept as written.
@@ -34,7 +35,7 @@ import lk_op
 
 # The words the linker knows, each followed by a space; a word's number is its place, from 1.
 WORDS = (b"cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
-         b"window switch bank overlay place region more farcall fixed ")
+         b"window switch bank overlay place region more farcall fixed rom ")
 W_CPU = 1
 W_ZEROPAGE = 2
 W_CODE = 3
@@ -60,6 +61,7 @@ W_REGION = 22
 W_MORE = 23
 W_FARCALL = 24
 W_FIXED = 25
+W_ROM = 26
 
 HAVE_ZEROPAGE = 1
 HAVE_CODE = 2
@@ -121,6 +123,7 @@ bank_win = bytearray(MAX_BANKS)
 bank_n = bytearray(MAX_BANKS)       # its number in its window, 1 to 255
 bank_value = bytearray(MAX_BANKS)   # the register value; for an overlay its number
 bank_file = [0] * MAX_BANKS         # its file's name + 1, or 0
+rom_banks = 0                       # bit b set: bank b is read-only (`rom`; MAX_BANKS bits)
 
 MAX_PLACES = 32
 place_count = 0
@@ -477,6 +480,24 @@ def bank_entry(kind):
     end_of_line()
 
 
+def rom_entry():
+    """`rom WIN N`: bank N of WIN is read-only. It holds code and constant data, never a
+    variable, and it is there from the start: start-up does not load its file."""
+    global rom_banks
+    b = window_and_bank()
+    if win_switch[bank_win[b]] != SWITCH_BANK:
+        bad()
+    if is_rom(b):
+        fail_bank(lk_err.E_ENV_TWICE, b)
+    rom_banks |= 1 << b
+    end_of_line()
+
+
+def is_rom(b):
+    """True if bank b is read-only."""
+    return ((rom_banks >> b) & 1) != 0
+
+
 def place_entry():
     global place_count
     name_token()
@@ -691,6 +712,8 @@ def entry():
         more_entry()
     elif which == W_FARCALL:
         farcall_entry()
+    elif which == W_ROM:
+        rom_entry()
 
 
 def check():

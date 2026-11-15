@@ -13,9 +13,9 @@ in lk_tab.work, and nothing holds a name once the files are read.
 
 While the files are read every symbol has a number (lk_sym.new_number) and two words at the top
 of the work area: what it stands for so far, lk_sym.UNDEF and its number until something defines
-it and then the reference of what does (bind, now); and its first call + 1 if it is a function
-or a class, the weight given to it so far if it is a variable, with X_INIT and X_MAIN above
-(more). Once the files are read, resolve() replaces each number by what it stands for.
+it and then the reference of what does (bind, now); and the weight given to it so far if it is
+a variable (more), with the X_ flags above: X_BLOCK if a call inside a `with` block names it,
+X_INIT, X_MAIN and those of the far-call module's names. Once the files are read, resolve() replaces each number by what it stands for.
 
 `local` keeps, for every object file, the symbol each of its numbers stands for, so later
 readings of a file need no names. A name that is written, in an error message or the map, is
@@ -50,7 +50,8 @@ HEAP_START = 2 * HEAP               # in bytes
 HEAP_END = 2 * lk_tab.WORK_SIZE     # without the symbols' words
 ENTRY = 5                           # a kept name: next in its chain + 1 (2), symbol (2),
                                     # length (1), then the characters
-X_LOW = 0x0FFF                      # in a symbol's second word: a variable's weight so far
+X_LOW = 0x07FF                      # in a symbol's second word: a variable's weight so far
+X_BLOCK = 0x0800                    # a function or class a call inside a `with` block names
 X_FSTART = 0x1000                   # named FARCALL.start, the far-call module's (lk_envf.farcall)
 X_FCALL = 0x2000                    # named FARCALL.call
 X_INIT = 0x4000                     # a function named `module.$init`
@@ -398,6 +399,15 @@ def more(s):
 
 def set_more(s, value):
     lk_tab.work[ref_at(s) - 1] = (lk_tab.work[ref_at(s) - 1] & (0xFFFF ^ X_LOW)) | value
+
+
+def set_block(s):
+    """A call inside a `with` block names function or class s (lk_scan.in_block)."""
+    lk_tab.work[ref_at(s) - 1] |= X_BLOCK
+
+
+def is_block_sym(s):
+    return (lk_tab.work[ref_at(s) - 1] & X_BLOCK) != 0
 
 
 def is_init_sym(s):

@@ -35,6 +35,7 @@ START_NAME = b"$start"
 INIT_NAME = b"$init"
 BANKS_NAME = b"$banks"
 OVERLAYS_NAME = b"$overlays"
+ROM_MARK = b" rom"                  # after the file of a read-only bank's W line
 HEX = b"0123456789ABCDEF"
 
 handle = 0
@@ -198,6 +199,7 @@ def copy_lines(f, number, written):
                 put(32)
                 decimal(ctx)
             in_bank(lk_scan.fn_bank(f))
+            kept_mark(f)
             put(10)
             if lk_win.has_stub(f):
                 begin(84, lk_win.stub_addr(n), lk_win.STUB_SIZE)
@@ -212,6 +214,16 @@ def in_bank(dest):
         put(98)
         put(61)
         decimal(lk_envf.bank_n[dest - 1])
+
+
+def kept_mark(f):
+    """` k=N` after the F line of a function kept in fixed memory (lk_tab.F_FIXED) whose module
+    is placed in bank or overlay N."""
+    if lk_scan.fn_bank(f) == 0 and lk_scan.module_bank(f) != 0:
+        put(32)
+        put(107)
+        put(61)
+        decimal(lk_envf.bank_n[lk_scan.module_bank(f) - 1])
 
 
 def symbol_line(letter, s, number):
@@ -236,6 +248,9 @@ def window_lines():
             put(32)
             for i in range(1, lk_envf.text[name - 1] + 1):
                 put(lk_envf.text[name - 1 + i])
+            if lk_envf.is_rom(b):
+                for i in range(0, len(ROM_MARK)):
+                    put(ROM_MARK[i])
             put(10)
         elif lk_envf.bank_win[b] == lk_envf.window() and lk_place.region_bank(b):
             begin(87, lk_envf.win_lo[lk_envf.bank_win[b]], 0)

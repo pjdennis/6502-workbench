@@ -38,15 +38,19 @@ def bank_def(d):
     """The bank + 1 that variable or constant d goes in, or 0 for fixed memory: that of its
     region, if it is `in` a region in a bank; else that of its module's code, if no fix-up
     outside that bank names it and none takes its address (lk_graph.note_named). A variable
-    goes in a bank, never an overlay, which is loaded again from its file."""
+    goes in a bank, never an overlay, which is loaded again from its file, nor a read-only bank
+    (a region's variable in one is an error: lk_place.place_bank_vars)."""
     r = lk_scan.region_of(d)
     if r != 0:
         return r
     if not lk_envf.placed() or (lk_tab.def_f[d] & lk_tab.D_FIXED) != 0:
         return 0
-    if (lk_tab.def_f[d] & lk_tab.D_CONST) == 0 and lk_envf.is_overlay():
+    b = lk_scan.def_bank(d)
+    if b == 0 or (lk_tab.def_f[d] & lk_tab.D_CONST) != 0:
+        return b
+    if lk_envf.is_overlay() or lk_envf.is_rom(b - 1):
         return 0
-    return lk_scan.def_bank(d)
+    return b
 
 
 def def_dest(d):
@@ -140,8 +144,8 @@ def stub_addr(n):
 
 def in_table(b):
     """True if bank or overlay b is in the table: one of the window code is placed in that has
-    a file."""
-    return lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0
+    a file and is not read-only, which is there already."""
+    return lk_envf.bank_win[b] == lk_envf.window() and lk_envf.bank_file[b] != 0 and not lk_envf.is_rom(b)
 
 
 def table_size():

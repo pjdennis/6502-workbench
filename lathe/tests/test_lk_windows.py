@@ -7,7 +7,8 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_lk_support import Obj, link, string, MUST, EITHER, NEVER, NOBODY, INTERRUPT  # noqa: E402
+from test_lk_support import (Obj, link, string, record, routine, word, MUST, EITHER, NEVER, NOBODY,  # noqa: E402
+                             INTERRUPT, PARAM, POINTER)
 from test_lk_errors import ErrorTest  # noqa: E402
 
 ENV = 'cpu 6502\nzeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit return\n'
@@ -128,9 +129,9 @@ class EnvironmentEntries(ErrorTest):
         self.assertError(link([simple(), a, half], env), 46, 'the far-call module is not linked')
 
 
-def banked():
+def banked(name='a'):
     """Module a, for bank 1: f gives 1, g calls f."""
-    a = Obj('a')
+    a = Obj(name)
     a.func('f', b'\xa9\x01\x60')
     c = a.code()
     c.abs(0x20, a.f('f'))
@@ -362,6 +363,68 @@ class Data(ErrorTest):
         self.assertGreaterEqual(r.addr('V', 'a.v'), 0xC000)
 
 
+class ReadOnly(ErrorTest):
+    """`rom WIN N`: bank N of WIN is read-only (a ROM). It takes code and constant data, never
+    variables; its file is written, but start-up does not load it ($banks leaves it out)."""
+
+    def test_the_variables_of_a_module_in_a_read_only_bank_are_fixed(self):
+        t, a = with_data()
+        ram = link([t, a, farcall()], PLACED)
+        t, a = with_data()
+        r = link([t, a, farcall()], PLACED + 'rom WIN 1\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertIn('D 8000 0003 a.$1 b=1\n', r.map_text)    # constants still go in
+        self.assertIn('F 8003 000B a.f b=1\n', r.map_text)
+        self.assertGreaterEqual(r.addr('V', 'a.v'), 0xC000)     # the variable does not
+        self.assertNotIn('b=1', r.line('V', 'a.v'))
+        self.assertLess(r.addr('V', 'a.z'), 0x100)
+        self.assertIn('W 8000 000E 1 BANK1.BIN rom\n', r.map_text)
+        self.assertIn('W 8000 000E 1 BANK1.BIN\n', ram.map_text)
+        self.assertEqual(r.files['BANK1.BIN'][:3], b'\x01\x02\x03')
+        v = r.addr('V', 'a.v')
+        self.assertEqual(r.files['BANK1.BIN'][8:11], bytes((0x8D, v & 0xFF, v >> 8)))
+        # The table has no entry for it: the window, then a count of 0, and no names.
+        self.assertEqual(ram.size('D', '$banks'), 3 + 3 + len('BANK1.BIN') + 1)
+        self.assertEqual(r.size('D', '$banks'), 3)
+        self.assertEqual(r.at(r.addr('D', '$banks'), 3), b'\x00\x80\x00')
+
+    def test_a_read_only_bank_beside_one_that_is_not(self):
+        t, a = with_data()
+        b = banked('b')
+        env = (ENV + WINDOW + 'bank WIN 2 $12 BANK2.BIN\nrom WIN 1\nplace a WIN 1\nplace b WIN 2\n'
+               'farcall fc\n')
+        r = link([t, a, b, farcall()], env)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        table = r.at(r.addr('D', '$banks'), 6)
+        name = table[4] | table[5] << 8
+        self.assertEqual(table[:4], b'\x00\x80\x01\x12')         # only bank 2 is loaded
+        self.assertEqual(r.at(name, 10), b'BANK2.BIN\x00')
+        self.assertIn('W 8000 000E 1 BANK1.BIN rom\n', r.map_text)
+        self.assertIn('W 8000 0000 2 BANK2.BIN\n', r.map_text)     # nothing of b is kept
+
+    def test_constants_of_a_region_may_be_in_a_read_only_bank_but_no_variable(self):
+        env = REGIONS + 'rom WIN 5\n'
+        r = link([user(), farcall_with()], env)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertIn('D 8000 0003 t.k b=5\n', r.map_text)
+        self.assertIn('W 8000 0003 5 DATA5.BIN rom\n', r.map_text)
+        self.assertEqual(r.size('D', '$banks'), 3 + 3 + len('BANK1.BIN') + 1)    # bank 1 only
+        line = self.assertError(link([user(), farcall_with()], REGIONS + 'rom WIN 4\n'), 60,
+                                'a variable in a region is in a read-only bank')
+        self.assertTrue(line.endswith(': t.v'), line)
+
+    def test_the_entry(self):
+        for extra, n, name in (('rom WIN 2\n', 42, 'win 2'), ('rom OTHER 1\n', 42, 'other'),
+                               ('rom WIN 1\nrom WIN 1\n', 43, 'win 1')):
+            line = self.assertError(link([simple()], ENV + WINDOW + extra), n, 'environment file')
+            self.assertTrue(line.endswith(': ' + name), line)
+        for extra in ('rom WIN\n', 'rom WIN 1 X\n', 'rom\n',
+                      'window OVL $A000 $AFFF\nswitch OVL overlay\noverlay OVL 1 O.BIN\nrom OVL 1\n'):
+            self.assertError(link([simple()], ENV + WINDOW + extra), 3, 'environment file: bad entry')
+        r = link([simple()], ENV + WINDOW + 'rom WIN 1\n')       # nothing placed: no change
+        self.assertEqual((r.map_text, r.image), (link([simple()], ENV).map_text, link([simple()], ENV).image))
+
+
 class More(ErrorTest):
     """`more data FIRST LAST`: the frames first in `data`, then the variables, in `data` while
     each fits and in `more` after that."""
@@ -413,10 +476,11 @@ def farcall_with(name='fc'):
     return o
 
 
-def user(calls=(), size=2):
+def user(calls=(), size=2, outside=()):
     """Module t: a variable and a constant in regions, and main, which maps the bank of `t.v`
-    (LDA #bank: kind 6), stores into it and puts the bank back, calling rt_with.map and unmap,
-    which the linker reads as the far-call module's."""
+    (LDA #bank: kind 6), stores into it, makes the calls inside the block and puts the bank
+    back, calling rt_with.map and unmap, which the linker reads as the far-call module's; then
+    the calls `outside`."""
     t = Obj('t')
     t.v('v')                            # the SYM records first: a RGN record comes just before
     t.d('k')                            # its VAR or DATA record
@@ -432,9 +496,64 @@ def user(calls=(), size=2):
     for callee in calls:
         c.abs(0x20, t.f(callee))
     c.abs(0x20, t.f('rt_with.unmap'))
+    for callee in outside:
+        c.abs(0x20, t.f(callee))
     c.raw(0x60)
     t.func('main', c, calls=[(t.f('rt_with.map'), 0, NOBODY)] + [(t.f(x), WITH, NOBODY) for x in calls]
-           + [(t.f('rt_with.unmap'), 0, NOBODY)])
+           + [(t.f('rt_with.unmap'), 0, NOBODY)] + [(t.f(x), 0, NOBODY) for x in outside])
+    return t
+
+
+def kept_module():
+    """Module a, for bank 1. a.f is called inside t.main's block, so it is kept in fixed
+    memory, and so is a.h, which a.f calls: both run inside the block. a.g, which calls a.f,
+    stays in the bank. So do the data only a.g names, a.$3 and a.u; a.$1, a.v, a.$2 and a.w,
+    which kept functions name, are fixed."""
+    a = Obj('a')
+    a.data('$1', b'\x01\x02')
+    a.data('$2', b'\x03\x04')
+    a.data('$3', b'\x05\x06')
+    a.var('v', 1, NEVER)
+    a.var('w', 1, NEVER)
+    a.var('u', 1, NEVER)
+    c = a.code()
+    c.abs(0xAD, a.d('$2'))
+    c.abs(0x8D, a.v('w'))
+    c.raw(0x60)
+    a.func('h', c)
+    c = a.code()
+    c.abs(0xAD, a.d('$1'))
+    c.abs(0x8D, a.v('v'))
+    c.abs(0x20, a.f('h'))
+    c.raw(0x60)
+    a.func('f', c, calls=[(a.f('h'), 0, NOBODY)])
+    c = a.code()
+    c.abs(0xAD, a.d('$3'))
+    c.abs(0x8D, a.v('u'))
+    c.abs(0x20, a.f('f'))
+    c.raw(0x60)
+    a.func('g', c, calls=[(a.f('f'), 0, NOBODY)])
+    return a
+
+
+def jsr(addr):
+    return bytes((0x20, addr & 0xFF, addr >> 8))
+
+
+def pointer_user():
+    """user(), with a call through the pointer class t.cls (one parameter) inside its block,
+    and the class t.other, which nothing calls through."""
+    t = user()
+    k = len(t.numbers)
+    at = [r[0] for r in t.records].index(7)
+    t.records[at:at] = [record(3, bytes((4,)) + string('t.cls')),
+                        record(13, word(k) + bytes((0, 1)) + word(1) + string('')),
+                        record(3, bytes((4,)) + string('t.other')),
+                        record(13, word(k + 1) + bytes((0, 1)) + word(1) + string(''))]
+    t.numbers['t.cls'] = k
+    t.numbers['t.other'] = k + 1
+    at = [r[0] for r in t.records].index(10)
+    t.records[at:at] = [record(9, word(k) + bytes((POINTER | WITH,)) + word(NOBODY))]
     return t
 
 
@@ -463,18 +582,97 @@ class Regions(ErrorTest):
         self.assertEqual((fixed.image, fixed.map_text), (plain.image, plain.map_text))
         self.assertNotIn('b=', plain.map_text)
 
-    def test_a_function_with_a_with_block_cannot_be_in_a_window(self):
-        line = self.assertError(link([user(), farcall_with()], REGIONS + 'place t WIN 1\n'), 55,
-                                'a function with a with block cannot be in a window')
-        self.assertTrue(line.endswith(': t.main'), line)
+    def test_a_function_with_a_with_block_is_kept_in_fixed_memory(self):
+        """Its module is placed, but it maps a region's bank into the window its code would be
+        in: it stays in fixed memory, marked `k=N` in the map, and start-up calls it directly.
+        What it calls outside its block stays in the bank, called through its stub."""
+        t = user(outside=['t.later'])
+        t.func('later', b'\xea\x60')
+        r = link([t, farcall_with()], REGIONS + 'place t WIN 1\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual(r.line('F', 't.main')[4:], ['k=1'])
+        self.assertLess(r.addr('F', 't.main'), 0x8000)
+        self.assertFalse(r.has('T', 't.main'))
+        self.assertIn(jsr(r.addr('F', 't.main')), r.at(r.addr('F', '$start'), r.size('F', '$start')))
+        self.assertIn('F 8000 0002 t.later b=1\n', r.map_text)
+        self.assertEqual(r.code('t.main')[-4:], jsr(r.addr('T', 't.later')) + b'\x60')
+        self.assertIn('W 8000 0002 1 BANK1.BIN\n', r.map_text)
 
-    def test_a_call_inside_a_with_block_must_not_reach_a_window(self):
-        line = self.assertError(link([user(calls=['a.f']), banked(), farcall_with()],
-                                     REGIONS + 'place a WIN 1\n'), 56,
-                                'a call inside a with block reaches a function in a window')
-        self.assertTrue(line.endswith(': t.main, a.f'), line)
-        r = link([user(calls=['a.f']), banked(), farcall_with()], REGIONS)
-        self.assertEqual((r.status, r.errors), (0, ''))         # a.f fixed: allowed
+    def test_what_a_call_inside_a_with_block_reaches_is_kept_in_fixed_memory(self):
+        """a.f, called inside the block, and a.h, which a.f calls, run while the block has the
+        region mapped: both are kept, so that a pointer into the region passed down is good in
+        either. a.g, which calls a.f from the bank, is not kept."""
+        r = link([user(calls=['a.f'], outside=['a.g']), kept_module(), farcall_with()],
+                 REGIONS + 'place a WIN 1\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        f, h = r.addr('F', 'a.f'), r.addr('F', 'a.h')
+        for name in ('a.f', 'a.h'):
+            self.assertEqual(r.line('F', name)[4:], ['k=1'])
+            self.assertLess(r.addr('F', name), 0x8000)
+            self.assertFalse(r.has('T', name))
+        self.assertIn(jsr(f), r.code('t.main'))                     # called directly
+        self.assertEqual(r.code('a.f')[6:9], jsr(h))
+        # a.g, in the bank, calls kept a.f with a plain JSR.
+        self.assertIn('F 8002 000A a.g b=1\n', r.map_text)
+        self.assertEqual(r.files['BANK1.BIN'][8:12], jsr(f) + b'\x60')
+        # The data follow the functions that name them.
+        for letter, name in (('D', 'a.$1'), ('D', 'a.$2')):
+            self.assertLess(r.addr(letter, name), 0x8000)
+        for name in ('a.v', 'a.w'):
+            self.assertGreaterEqual(r.addr('V', name), 0xC000)
+        self.assertIn('D 8000 0002 a.$3 b=1\n', r.map_text)
+        self.assertIn('V 9FFF 0001 a.u b=1\n', r.map_text)
+        self.assertIn('W 8000 000C 1 BANK1.BIN\n', r.map_text)
+        r = link([user(calls=['a.f'], outside=['a.g']), kept_module(), farcall_with()], REGIONS)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertNotIn('k=', r.map_text)                         # nothing placed: nothing kept
+
+    def test_a_kept_function_s_copies_for_contexts_are_kept_too(self):
+        t = user(calls=['a.f'])
+        c = t.code()
+        c.abs(0x20, t.f('a.f'))
+        c.raw(0x40)
+        t.func('tick', c, calls=[(t.f('a.f'), 0, NOBODY)], flags=INTERRUPT)
+        r = link([t, kept_module(), farcall_with()], REGIONS + 'place a WIN 1\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        for name in ('a.f@1', 'a.h@1'):
+            self.assertEqual(r.line('F', name)[4:], ['k=1'])
+            self.assertLess(r.addr('F', name), 0x8000)
+        self.assertIn(jsr(r.addr('F', 'a.f@1')), r.code('t.tick'))
+
+    def test_the_members_of_a_class_called_through_inside_a_with_block_are_kept(self):
+        """A call through a pointer inside a block may reach any function taken as the class:
+        each is kept, so that the pointer is its own address, and so is what each calls, through
+        pointers too. A function taken only as a class merged with it (they share a member, so
+        their parameters) cannot be in such a pointer, and stays in the bank."""
+        t = pointer_user()
+        a = Obj('a')
+        routine(a, 'h', slots=[(1, EITHER, 0, PARAM, 'p')])
+        a.memb('t.cls', 'h')
+        routine(a, 'g', slots=[(1, EITHER, 0, PARAM, 'p')])
+        a.memb('t.other', 'g')
+        a.memb('t.other', 'h')                  # merges t.other with t.cls
+        a.clas('third', [1])
+        routine(a, 'e', slots=[(1, EITHER, 0, PARAM, 'p')], calls=['a.d'])
+        routine(a, 'd')
+        a.memb('a.third', 'e')
+        routine(a, 'g2', slots=[(1, EITHER, 0, PARAM, 'p')], calls=[('a.third', POINTER, None)])
+        a.memb('t.cls', 'g2')                   # a member that calls through a.third
+        r = link([t, a, farcall_with()], REGIONS + 'place a WIN 1\n')
+        self.assertEqual((r.status, r.errors), (0, ''))
+        for name in ('a.h', 'a.g2', 'a.e', 'a.d'):
+            self.assertEqual(r.line('F', name)[4:], ['k=1'], name)
+        self.assertEqual(r.line('F', 'a.g')[4:], ['b=1'])
+        self.assertFalse(r.has('T', 'a.h'))
+
+    def test_a_with_block_in_an_overlay_configuration(self):
+        """Regions cannot be in an overlay, so a block maps nothing there; its function is kept
+        all the same, as in a bank."""
+        env = OVERLAY + 'place t OVL 1\nfarcall fc\n'
+        r = link([user(), farcall_with()], env)
+        self.assertEqual((r.status, r.errors), (0, ''))
+        self.assertEqual(r.line('F', 't.main')[4:], ['k=1'])
+        self.assertEqual(r.code('t.main')[:2], b'\xa9\x00')
 
     def test_an_interrupt_function_must_not_reach_a_with_block(self):
         t = user()

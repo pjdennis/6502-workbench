@@ -44,7 +44,7 @@ import lk_out
 import lk_place (holds_region_data)
 import lk_rec (advance, close, damaged, get_byte, get_word, goto, left, open_object, R_CODE, R_DATA,
                R_DFIX, R_END, R_ENDF, R_FIX, R_FUNC, R_SLOT, R_SYM, recno)
-import lk_scan (cpu_of, obj_bank)
+import lk_scan (bank_in, cpu_of, obj_bank)
 import lk_sym (CONSTANT, row_of, VARIABLE)
 import lk_tab (copy_node, ctx_count, ctx_of, def_a, fn_ctx, has_copy, is_kept_def, W_ADDR, W_OWN,
                W_SNAME, work)
@@ -269,7 +269,7 @@ func emit_object(obj: byte, dest: byte)
   var kept: bool
   var kind: byte
   some = dest == 0 and lk_map.mark_functions(obj, true, true)
-  here = dest == lk_scan.obj_bank[obj]  ; its functions are in this file
+  here = false                  ; the function being read is in this file
   if some then
     lk_map.hold_begin(obj, lk_map.W_HELD, lk_tab.W_OWN)
   end
@@ -289,6 +289,7 @@ func emit_object(obj: byte, dest: byte)
       number = lk_rec.get_word()
       f = lk_sym.row_of(lk_name.global_sym(obj, number))
       kept = lk_tab.fn_ctx[f] != 0
+      here = dest == lk_scan.bank_in(f, obj)
       slots = 0
       lk_fix.drop()
       if kept then

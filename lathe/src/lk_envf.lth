@@ -20,6 +20,7 @@
 ;     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
 ;     region    NAMES WIN 4           ; read and checked; not yet used (`region NAMES fixed` too)
 ;     farcall   rt_bank               ; the run-time module the stubs call (configurations.md)
+;     rom       WIN 1                 ; bank 1 of WIN is read-only: no variables, not loaded
 ;
 ; A window, its banks or overlays and the switch must come before the entries that name them.
 ; Names (windows, modules, regions) are folded to lower case; file names are kept as written.
@@ -52,8 +53,8 @@ import lk_op (CPU_6502, CPU_65C02)
 import sys (close, read)
 
 ; The words the linker knows, each followed by a space; a word's number is its place, from 1.
-const WORDS: [149]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
-  "window switch bank overlay place region more farcall fixed "
+const WORDS: [153]byte = "cpu zeropage code data stack exit 6502 65c02 call loop return start output image raw stop "
+  "window switch bank overlay place region more farcall fixed rom "
 const W_CPU = 1
 const W_ZEROPAGE = 2
 const W_CODE = 3
@@ -79,6 +80,7 @@ const W_REGION = 22
 const W_MORE = 23
 const W_FARCALL = 24
 const W_FIXED = 25
+const W_ROM = 26
 
 const HAVE_ZEROPAGE = 1
 const HAVE_CODE = 2
@@ -140,6 +142,7 @@ pub var bank_win: [MAX_BANKS]byte
 pub var bank_n: [MAX_BANKS]byte         ; its number in its window, 1 to 255
 pub var bank_value: [MAX_BANKS]byte     ; the register value; for an overlay its number
 pub var bank_file: [MAX_BANKS]word      ; its file's name + 1, or 0
+pub var rom_banks: word = 0     ; bit b set: bank b is read-only (`rom`; MAX_BANKS bits)
 
 pub const MAX_PLACES = 32
 pub var place_count: byte = 0
@@ -568,6 +571,26 @@ func bank_entry(kind: byte)
   end_of_line()
 end
 
+; True if bank b is read-only.
+pub func is_rom(b: byte): bool
+  return ((rom_banks >> b) & 1) != 0
+end
+
+; `rom WIN N`: bank N of WIN is read-only. It holds code and constant data, never a variable,
+; and it is there from the start: start-up does not load its file.
+func rom_entry()
+  var b: byte
+  b = window_and_bank()
+  if win_switch[bank_win[b]] != SWITCH_BANK then
+    bad()
+  end
+  if is_rom(b) then
+    fail_bank(lk_err.E_ENV_TWICE, b)
+  end
+  rom_banks |= word(1) << b
+  end_of_line()
+end
+
 func place_entry()
   var i: byte
   var b: byte
@@ -837,6 +860,8 @@ func entry()
     more_entry()
   of W_FARCALL
     farcall_entry()
+  of W_ROM
+    rom_entry()
   end
 end
 

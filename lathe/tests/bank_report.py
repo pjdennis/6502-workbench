@@ -31,6 +31,17 @@ interfaces of what it imports, made by the host compiler) as test_src_lathec.py 
 counter's file given as an import directory after the output directory; and a command line
 that stops at once, the start-up alone.
 
+With --selfhost [--all-placed] NAME..., the compiler is built banked and with the counting
+far-call routine, and compiles each lathe/src/NAME.lth as test_src_selfhost.py compiles it, with
+the host's interfaces of its imports, checked to give the host compiler's files: the map, then
+the CPU cycles, far calls and `with` blocks of each compile. With --all-placed, kernel, lex,
+fbuf, err and src are placed too, in a seventh bank (ALL_PLACED), so that only what has to be
+fixed stays fixed: the functions with a `with` block and those called inside one, which the
+linker keeps in fixed memory (configurations.md, "Functions kept in fixed memory").
+
+The map's report lists the fixed code by module, and the code each placed module has kept in
+fixed memory (F lines that end in k=N).
+
 OUT_DIR (default: a temporary directory) keeps the builds."""
 import os
 import re
@@ -91,6 +102,8 @@ def counting_copies(where, count_argument=2):
     marker = 'pub asm func map(value: byte in a): byte in a\n  JMP select\n'
     assert marker in text
     text = text.replace(marker, COUNTING_MAP)
+    # The counters are disk's: add them to rt_bank's import list of disk.
+    text = re.sub(r'(?m)^import disk \(', 'import disk (farcalls, withs, ', text, count=1)
     with open(os.path.join(where, 'rt_bank.lth'), 'w') as f:
         f.write(text.replace('pub asm func call()\n  PHP\n  SEI\n', COUNTING_CALL))
     with open(os.path.join(support.LATHE, 'rt', 'disk.lth')) as f:
@@ -129,6 +142,22 @@ def flat_wendy_env(name, path):
         f.write(''.join(lines))
 
 
+ALL_PLACED = ('kernel', 'lex', 'fbuf', 'err', 'src')    # typetab is placed already
+ALL_PLACED_BANK = 'bank      WIN 7 $17 LATHE7.BIN   ; --all-placed: kernel, lex, fbuf, err, src\n'
+
+
+def all_placed_env(name, path):
+    """support.banked_env, with the modules of ALL_PLACED placed in bank 7. Returns PATH."""
+    support.banked_env(name, path)
+    with open(path) as f:
+        lines = f.readlines()
+    at = next(i for i, l in enumerate(lines) if l.startswith('region'))
+    lines[at:at] = [ALL_PLACED_BANK] + ['place     %s WIN 7\n' % m for m in ALL_PLACED]
+    with open(path, 'w') as f:
+        f.write(''.join(lines))
+    return path
+
+
 def read_map(path):
     items = []
     with open(path) as f:
@@ -164,6 +193,29 @@ def map_report(path):
           '%d above it; %d bytes of variables at $F810 and up, %d free there'
           % (top - 1, lo, hi - 1, lo - top, 0x8000 - hi, (max(high) - 0xF810) if high else 0,
              0xFFFA - (max(high) if high else 0xF810)))
+    by_module = {}
+    for i in fixed:
+        if i[0] == 'F':
+            module = i[3].split('.')[0] if '.' in i[3] else i[3]
+            kept = 'kept' if any(r.startswith('k=') for r in i[4]) else 'fixed'
+            by_module.setdefault(module, {'kept': 0, 'fixed': 0, 'functions': 0})
+            by_module[module][kept] += i[2]
+            by_module[module]['functions'] += kept == 'kept'
+    print('fixed code by module (bytes; kept: of a placed module, k=N in the map):')
+    for module, n in sorted(by_module.items(), key=lambda x: -(x[1]['kept'] + x[1]['fixed'])):
+        print('  %-10s %6d%s' % (module, n['kept'] + n['fixed'],
+                                 ' kept, %d functions' % n['functions'] if n['kept'] else ''))
+    print('  kept code in all: %d bytes; other fixed code %d; stubs %d'
+          % (sum(n['kept'] for n in by_module.values()), sum(n['fixed'] for n in by_module.values()),
+             6 * len(stubs)))
+    for kind, letter in (('constant data', 'D'), ('variables', 'V')):
+        fixed_of = {}
+        for i in items:
+            if i[0] == letter and not any(r.startswith('b=') for r in i[4]) and i[1] < 0x8000 or \
+                    i[0] == letter and i[1] >= 0xF810:
+                module = i[3].split('.')[0] if '.' in i[3] else i[3]
+                fixed_of[module] = fixed_of.get(module, 0) + i[2]
+        print('fixed %s by module: %s' % (kind, ', '.join('%s %d' % x for x in sorted(fixed_of.items(), key=lambda x: -x[1]))))
 
 
 def runs(image, run, sections, work, tag, extra=False, sources=False):
@@ -231,9 +283,55 @@ def compile_report(out_dir, paths):
                  status, cycles, far, far * FAR_CALL, FAR_CALL, ' '.join(sorted(written)) or '-'))
 
 
+def selfhost_report(out_dir, names, all_placed):
+    """The compiler banked (with --all-placed, ALL_PLACED placed too) compiling lathe/src/NAME.lth
+    for each of `names`, as test_src_selfhost.py does: its map, and each compile's cycles, far
+    calls and blocks, after checking that it gives the host's files."""
+    import memory_report
+    import test_src_selfhost as selfhost
+    make_env = all_placed_env if all_placed else support.banked_env
+    banked = os.path.join(out_dir, 'banked')
+    os.makedirs(banked, exist_ok=True)
+    image = os.path.join(banked, 'lathec.bin')
+    make_env('lathec', os.path.join(banked, 'lathec.env'))
+    support.build.build(os.path.join(support.SRC, 'lathec.lth'), image,
+                        env=os.path.join(banked, 'lathec.env'), keep=os.path.join(banked, 'work'))
+    map_report(os.path.join(banked, 'work', 'lathec.map'))
+    counting = os.path.join(out_dir, 'counting')
+    os.makedirs(counting, exist_ok=True)
+    counting_copies(counting, 5)       # OPTIONS (three: memory_report.options_of) NAME.lth . farcalls
+    cimage = os.path.join(counting, 'lathec.bin')
+    make_env('lathec', os.path.join(counting, 'lathec.env'))
+    lower_split(os.path.join(counting, 'lathec.env'), COUNTING_ROOM)
+    support.build.build(os.path.join(counting, 'lathec.lth'), cimage,
+                        env=os.path.join(counting, 'lathec.env'), keep=os.path.join(counting, 'work'))
+    for name in names:
+        options = tuple(memory_report.options_of(os.path.join(support.SRC, name + '.lth')))
+        work = os.path.join(out_dir, 'work-' + name)
+        disk, host = selfhost.prepare(name, work, options)
+        assert len(options) == 3, options
+        got = selfhost.run_lathe(image, disk, list(options) + [name + '.lth', '.'])
+        same = got[:3] == host[:3] and got[3] == host[3]
+        cdisk, _ = selfhost.prepare(name, os.path.join(out_dir, 'cwork-' + name), options)
+        counted = selfhost.run_lathe(cimage, cdisk, list(options) + [name + '.lth', '.', 'farcalls'])
+        data = counted[3].get('farcalls', b'')
+        far, withs = int.from_bytes(data[:3], 'big'), int.from_bytes(data[3:6], 'big')
+        print('%s: %d cycles banked (%s the host\'s files), %d far calls (%d cycles at %d), '
+              '%d with blocks' % (name, got[4], 'gives' if same else 'does NOT give', far,
+                                  far * FAR_CALL, FAR_CALL, withs))
+
+
 def main(argv):
     out_dir = None
     name, script = 'gentest', 'gen'
+    if '--selfhost' in argv:
+        names = argv[argv.index('--selfhost') + 1:]
+        argv = argv[:argv.index('--selfhost')]
+        all_placed = '--all-placed' in names
+        names = [n for n in names if n != '--all-placed']
+        out_dir = argv[0] if argv else tempfile.mkdtemp(prefix='lathe-bank-report-')
+        selfhost_report(out_dir, names, all_placed)
+        return
     if '--compile' in argv:
         paths = argv[argv.index('--compile') + 1:]
         argv = argv[:argv.index('--compile')]

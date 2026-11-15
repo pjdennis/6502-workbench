@@ -1,0 +1,57 @@
+; config kept_banks.env
+; config kept_flat.env
+; config kept_host.env
+; config kept_ovl.env
+; same libkept libkrom
+; Functions kept in fixed memory, and a read-only bank. In kept_banks.env libkept is placed in
+; bank 3 and libkrom in bank 2, which is read-only (`rom WIN 2`): start-up does not load it, as
+; a ROM would be there already, so main loads it itself (ROMLOAD). libkept's functions with a
+; `with` block, and those that run inside one (libkept.next and libkrom.twice, called there, and
+; libkept.step, which next calls), stay in fixed memory; what a kept function calls outside its
+; block (libkept.begin) stays in the bank, reached by a far call. libkrom's variables are in
+; fixed memory, though its code is in the bank.
+; In overlays (kept_ovl.env) the region is fixed and the same functions are kept. The output
+; is the same in every configuration.
+module kept
+
+import libfco
+import libkept
+import libkrom
+#if ROMLOAD
+import disk
+import rt_bank
+#end
+
+#if ROMLOAD
+const ROM2: byte = $12              ; bank 2, the read-only one
+
+; Fill bank 2 from its file, as a ROM would be filled.
+func load_rom()
+  var h: byte
+  var b: byte
+  var p: ^byte
+  var old: byte
+  old = rt_bank.select(ROM2)
+  h = disk.open("KROM2.BIN")
+  p = ^byte($8000)
+  loop
+    if disk.read(h) -> b then
+      break
+    end
+    p[0] = b
+    p += 1
+  end
+  disk.close(h)
+  rt_bank.select(old)
+end
+#end
+
+pub func main()
+#if ROMLOAD
+  load_rom()
+#end
+  libkrom.reset()
+  libkept.fill(5)
+  libkept.show()
+  libkrom.report()
+end
