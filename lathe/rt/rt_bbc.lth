@@ -1,0 +1,277 @@
+; Far calls and banked data on a BBC Model B+128 (lathe/docs/bbc.md; configurations.md, "The far
+; call" and "The far-call run-time modules"): the interface of lathe/rt/rt_bank.lth over the
+; machine's one window, $8000-$BFFF, in which ROMSEL ($FE30) shows one of sixteen slots. Code is
+; in the banks of the module, which sits in one slot; regions are in sideways RAM slots
+; (0, 1, 12 and 13 on the B+128). lathe/env/bbc-bank.env is its environment, `farcall rt_bbc`.
+; NMOS instructions only.
+;
+; A bank's value, as the environment's `bank WIN N VALUE` gives it and the stubs and `with`
+; blocks pass it here:
+;
+;     $80 + n     bank n (0 to 15) of the module: select the module's slot, then read $BFF0+n,
+;                 which latches bank n (scheme direct16: lathe/docs/bbc.md, emulator/README.md)
+;     s           sideways slot s (0 to 15): select slot s; the module's latch is not touched
+;
+; Selecting a slot writes it to $F4, the MOS's copy of ROMSEL, and then to ROMSEL: the MOS's
+; interrupt and filing-system code page other ROMs in and put back what $F4 holds, so $F4 must
+; never say less than ROMSEL does (the emulator's --bbc-strict checks the two at every MOS call).
+; Neither ROMSEL nor the latch can be read back, so `now` holds the value of what is in the
+; window. It is what call() pushes and back() restores, and what map() gives and unmap()
+; restores: one byte, in the form of a bank's value. A slot value does not say which bank the
+; latch holds, nor need it: whatever puts the module's slot back in the window (back, or unmap)
+; latches the bank its own value names. So a far call made while a `with` block has a slot
+; mapped, by an interrupt handler (or by asm the linker does not follow: the linker keeps fixed
+; whatever a call inside a block reaches), may leave the latch elsewhere, and the block's unmap
+; still finds the bank its caller was in. Leaving a block is therefore not a lone write of the
+; slot, as the design in bbc.md first had it: unmap latches the bank again when it puts the
+; module back.
+;
+; The module's slot is the define MODULE_SLOT of the environment, which must match the socket
+; (the emulator's --bbc-module-slot, 4 by default). The developer's form is run from disk, so
+; the environment is the one place that knows it. The ROM form will learn it at run time: the
+; MOS enters a ROM's service and language entries with its slot in $F4 (and in X for a service
+; call), so the ROM's entry code can keep it in a variable before anything far-calls, and the
+; `#SLOT` operands below become that variable (a cycle more at each use).
+;
+; The stub, written by the linker in fixed code, is rt_bank's:
+;
+;     stub    JSR rt_bbc.call       ; 3 bytes
+;             .byte VALUE           ; the bank's value ($81 for the module's bank 1)
+;             .word f-1             ; the function's address less one
+;
+; call() puts on the stack the address of back() and the value of what is in the window,
+; selects VALUE and enters f by RTS with A, X, Y and the flags as the caller left them. f returns
+; into back(), which selects the value on the stack again and returns to the caller with A, X
+; and the carry as f left them (Y is lost). The value to restore is on the stack, never in a
+; variable, so nested and recursive far calls, and far calls from an interrupt handler, are
+; safe; the variables below are used only with interrupts disabled. A far call takes 3 more
+; bytes of the 6502's stack than a JSR.
+;
+; start(table) loads each bank that has a file, through lathe/rt/bbc.lth's file calls, as
+; rt_bank.start does on Wendy 2: the table is the linker's `$banks` (configurations.md, "The
+; tables"). The developer's module holds RAM, so its banks are written through the window.
+module rt_bbc
+
+import bbc (close, exit, open, read)
+
+const ROMSEL = $FE30                ; write only
+const COPY = $F4                    ; the MOS's copy of ROMSEL
+const LATCH = $BFF0                 ; a read of LATCH+n latches the module's bank n
+const SLOT: byte = MODULE_SLOT      ; the module's slot (the environment's define)
+const IN_MODULE: byte = $80         ; the bit of a value that names a bank of the module
+const BANK_BITS: byte = $0F
+
+var stub: ^byte                     ; the stub's address + 2, as the JSR pushed it (zero page)
+var save_a: byte
+var save_x: byte
+var save_y: byte
+var now: byte                       ; the value of what is in the window (below)
+var mos_copy: byte at COPY
+
+; `now` is the value of what is in the window, kept up to date by every switch here, before the
+; switch is made: a handler's far call that comes between the two then pushes the new value, and
+; puts all of it back (slot, and latch) before it returns. So select, map and unmap need not
+; disable interrupts; call and back do, for their saved registers. Each switch takes one of two
+; paths, and each path has its own copy of the code after it, so that neither jumps. A slot:
+; STA COPY, STA ROMSEL. A bank of the module: the module's slot so, then a read of
+; LATCH - $80 + the value, which is LATCH + n.
+
+; Where a function entered by call() returns to: the stack holds the value to restore, then the
+; caller's return address.
+pub asm func back()
+  PHP                               ; the carry of the function's result
+  SEI
+  STA save_a
+  STX save_x
+  TSX                               ; $0101,X = the flags, $0102,X = the value
+  LDA $0102,X
+  STA now
+  BMI .module
+  STA COPY                          ; a slot
+  STA ROMSEL
+  PLA                               ; the flags over the value, for the PLP
+  STA $0102,X
+  LDX save_x
+  LDA save_a
+  PLP
+  RTS
+.module
+  TAY                               ; a bank of the module
+  LDA #SLOT
+  STA COPY
+  STA ROMSEL
+  LDA LATCH-$80,Y
+  PLA
+  STA $0102,X
+  LDX save_x
+  LDA save_a
+  PLP
+  RTS
+end
+
+; The far call. Entered by the stub's JSR: the stack holds the stub's address + 2, then the
+; caller's return address.
+pub asm func call()
+  PHP
+  SEI
+  STA save_a
+  STX save_x
+  STY save_y
+  TSX                               ; $0101,X = the flags, $0102,X and $0103,X = stub + 2
+  LDA $0102,X
+  STA stub
+  LDA $0103,X
+  STA stub+1
+  LDY #$03
+  LDA (stub),Y                      ; f-1, high: pulled by the RTS below
+  PHA
+  DEY
+  LDA (stub),Y                      ; f-1, low
+  PHA
+  LDA $0101,X                       ; the flags, for the PLP below
+  PHA
+  LDA #<back-$01                    ; where f returns to
+  STA $0101,X
+  LDA #>back-$01
+  STA $0102,X
+  LDA now                           ; what is in the window, to restore
+  STA $0103,X
+  DEY
+  LDA (stub),Y                      ; the value
+  STA now
+  BMI .module
+  STA COPY                          ; a slot
+  STA ROMSEL
+  LDA save_a
+  LDX save_x
+  LDY save_y
+  PLP                               ; the caller's flags, and its interrupt flag
+  RTS                               ; to f
+.module
+  TAY                               ; a bank of the module
+  LDA #SLOT
+  STA COPY
+  STA ROMSEL
+  LDA LATCH-$80,Y
+  LDA save_a
+  LDX save_x
+  LDY save_y
+  PLP
+  RTS
+end
+
+; The `with` blocks' entries, which the compiler calls as rt_with.map and rt_with.unmap and the
+; linker reads as this module's (`farcall rt_bbc`), as rt_bank's:
+;
+;     LDA #bank(REGION)            ; the region's value (fix-up kind 6): a sideways slot
+;     JSR rt_with.map              ; selects it, and gives the value of what it replaces
+;     STA temporary
+;     ...
+;     LDY temporary
+;     JSR rt_with.unmap            ; puts it back
+;
+; A handler that far-calls while the main program is inside a block finds the window as the
+; block left it, and puts it back when it returns (`now`, above).
+
+; Map `value` into the window; give the value of what was there. X and Y are lost.
+pub asm func map(value: byte in a): byte in a
+  LDY now                           ; what is there
+  STA now
+  TAX
+  BMI .module
+  STA COPY                          ; a slot
+  STA ROMSEL
+  TYA
+  RTS
+.module
+  LDA #SLOT                         ; a bank of the module
+  STA COPY
+  STA ROMSEL
+  LDA LATCH-$80,X
+  TYA
+end
+
+; Select `value` (a bank's value, above); give the value of what was in the window. X and Y are
+; lost. map().
+pub asm func select(value: byte in a): byte in a
+  JMP map
+end
+
+; Put back `value`, which map() gave. A, X, Y and the flags are kept, so that a result on its way
+; out of the block (A, X, the carry) is not lost. A value of the module latches its bank again: a
+; handler's far call during the block may have moved the latch.
+pub asm func unmap(value: byte in y)
+  PHP
+  STY now
+  CPY #IN_MODULE
+  BCS .module
+  STY COPY                          ; a slot
+  STY ROMSEL
+  PLP
+  RTS
+.module
+  PHA                               ; a bank of the module
+  LDA #SLOT
+  STA COPY
+  STA ROMSEL
+  LDA LATCH-$80,Y
+  PLA
+  PLP
+end
+
+; Load the file named at `name` to `dest` and on, to its end. Returns true if it cannot be opened.
+func load(name: ^byte, dest: ^byte): bool
+  var h: byte
+  var b: byte
+  h = bbc.open(name)
+  if h == 0 then
+    return true
+  end
+  loop
+    if bbc.read(h) -> b then
+      break
+    end
+    dest[0] = b
+    dest += 1
+  end
+  bbc.close(h)
+  return false
+end
+
+const LOAD_FAILED: byte = 255       ; the status when a bank's file cannot be opened
+
+; The table's head, and each of its entries (a record is laid out field after field).
+type TableHead = record
+  window: ^byte
+  count: byte
+end
+
+type TableEntry = record
+  value: byte
+  name: ^byte
+end
+
+; Load each bank that has a file, as the table at `table` says (above), and leave the window as
+; it was found (`now` is the slot $F4 holds when the program starts). It runs before any
+; initial value is set (code in a bank may set some), so it uses only what needs none: bbc's
+; open, read, close and exit. A file that cannot be opened stops the program with status 255 (the MOS error
+; `Exit 255`).
+pub func start(table: ^byte)
+  var head: ^TableHead
+  var entry: ^TableEntry
+  var found: byte
+  var i: byte
+  head = ^TableHead(word(table))
+  entry = ^TableEntry(word(table) + sizeof(TableHead))
+  now = mos_copy
+  found = now
+  for i = 1 to head.count do
+    select(entry.value)
+    if load(entry.name, head.window) then
+      select(found)
+      bbc.exit(LOAD_FAILED)
+    end
+    entry = ^TableEntry(word(entry) + sizeof(TableEntry))
+  end
+  select(found)
+end

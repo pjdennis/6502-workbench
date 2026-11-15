@@ -356,9 +356,13 @@ def run_corpus(work):
         options = tuple(options_of(path))
         bad = compile_program(path, kind, options, work, n, watched, peaks, where, done, gauged)
         if bad and os.path.basename(os.path.dirname(path)) == 'rt':
-            # A board module is built for a board only.
-            bad = compile_program(path, kind, tuple(options_of(path, 'michael')), work, n, watched,
-                                  peaks, where, done, gauged)
+            # A board module is built for a board only; rt_bbc for the BBC banked only (it
+            # needs `define MODULE_SLOT`).
+            for board in ('michael', 'bbc-bank'):
+                bad = compile_program(path, kind, tuple(options_of(path, board)), work, n, watched,
+                                      peaks, where, done, gauged)
+                if not bad:
+                    break
         failed += bad
     return peaks, where, failed
 

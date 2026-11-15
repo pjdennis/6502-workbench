@@ -48,19 +48,22 @@ import mapenv  # noqa: E402
 WIDTH = 100
 HEAP = 0xF000           # the name heap of the tool's compiles: any module fits without lists
 SRC = os.path.join(LATHE, 'src')
-COMPILER_ENVS = [os.path.join(SRC, e + '.env') for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc')]
+COMPILER_ENVS = [os.path.join(SRC, e + '.env')
+                 for e in ('compiler', 'compiler-small', 'compiler-bank', 'compiler-bbc', 'compiler-bbc-bank')]
 LINKER_ENVS = [os.path.join(SRC, e + '.env') for e in ('linker', 'linker-bank')]
-BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env') for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc')]
+BOARD_ENVS = [os.path.join(LATHE, 'env', e + '.env')
+              for e in ('host', 'michael', 'wendy2', 'wendy2disk', 'bbc', 'bbc-bank')]
 IMPORT = re.compile(r'^(\s*)import\s+([A-Za-z][A-Za-z0-9_]*)\s*(\(?)', re.I)
 
 
 # Run-time modules built in only some of the environments: the board modules need `define
 # BOARD` 1 or 2 (board.lth does not compile for any other value; 3, the BBC, has no LCD or VIA
-# of theirs), and disk.lth's file ports `define DISK`.
+# of theirs), disk.lth's file ports `define DISK`, and rt_bbc.lth the module's slot `define
+# MODULE_SLOT` (lathe/env/bbc-bank.env).
 BOARDS_WITH_LCD = (1, 2)
 RT_NEEDS = {'board.lth': ('BOARD', BOARDS_WITH_LCD), 'via.lth': ('BOARD', BOARDS_WITH_LCD),
             'lcd.lth': ('BOARD', BOARDS_WITH_LCD), 'timer.lth': ('BOARD', BOARDS_WITH_LCD),
-            'disk.lth': ('DISK', None)}
+            'disk.lth': ('DISK', None), 'rt_bbc.lth': ('MODULE_SLOT', None)}
 
 
 def built_in(name, env_path):

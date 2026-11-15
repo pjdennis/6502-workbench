@@ -72,12 +72,20 @@ const NAME_SIZE = 128
 var name_buf: [NAME_SIZE]byte       ; the name for OSFIND, ended by CR
 var find_mode: byte
 var saved_s: byte                   ; S at find's entry, for caught()
+var saved_rom: byte                 ; $F4 at find's entry, for caught()
 var old_brkv: word
 
-; Where the MOS goes on an error raised inside find's OSFIND: back to find's caller with 0.
+; Where the MOS goes on an error raised inside find's OSFIND: back to find's caller with 0. The
+; MOS's BRK handler has selected the language's slot (or slot 15) on its way here, so the slot
+; that was in the window at the call is selected again, in $F4 and then in ROMSEL: a banked
+; program (lathe/rt/rt_bbc.lth) may call open from code in the module's bank, or inside a `with`
+; block. The module's latch is not touched by the MOS, so the bank is the one it was.
 asm func caught()
   LDX saved_s
   TXS
+  LDA saved_rom
+  STA $F4
+  STA $FE30
   LDA old_brkv
   STA $0202
   LDA old_brkv+1
@@ -92,6 +100,8 @@ asm func find(mode: byte in a): byte in a
   STA find_mode
   TSX
   STX saved_s
+  LDA $F4
+  STA saved_rom
   LDA $0202                         ; BRKV
   STA old_brkv
   LDA $0203

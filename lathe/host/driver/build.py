@@ -25,7 +25,9 @@
    output, and exits with the status in the file `status` (0 if there is none). With --env bbc
    (the BBC Model B+128) the build also writes OUT.bin.inf, the load and execution addresses,
    and --run runs `*RUN NAME` through the MOS on the files of --disk DIR (or a temporary
-   directory), prints the output and exits with the program's status (boards.run_mos).
+   directory), prints the output and exits with the program's status (boards.run_mos); a
+   banked program (lathe/env/bbc-bank.env) runs with the module in RAM, its bank files in that
+   directory.
 
 --env NAME reads lathe/env/NAME.env (default host); a path to a .env file also works, and runs
 on the board of the same name, if there is one, or else on the board its `define BOARD` and
@@ -327,7 +329,9 @@ def run_program(image, env='host', args=(), stdin=None, disk=None):
         if disk is None:
             with tempfile.TemporaryDirectory(prefix='lathe-bbc-') as d:
                 return run_program(image, env, args, stdin, d)
-        return boards.run_mos(board, image, disk, args, stdin)[:3]
+        window_files(described, beside, disk)
+        return boards.run_mos(board, image, disk, args, stdin,
+                              module=boards.module_options(described))[:3]
     if board.disk:
         if disk is None:
             with tempfile.TemporaryDirectory(prefix='lathe-disk-') as d:

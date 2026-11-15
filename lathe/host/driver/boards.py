@@ -22,7 +22,11 @@ directory of files, runs `RUN NAME ARGS` there with --bbc-strict, takes the prog
 and returns its status, output and error output. The output is the emulator's standard output,
 with the BBC's end of line, LF CR (OSNEWL), given back as LF; the BBC has no error stream, so the
 error output is only a MOS error's message; the status is the N of the error "Exit N" that
-bbc.exit raises, 1 for any other error, or 0 when the program returned to the MOS.
+bbc.exit raises, 1 for any other error, or 0 when the program returned to the MOS. A banked
+program (an environment such as lathe/env/bbc-bank.env, whose code or regions are in the
+window) runs with the module in its developer's form, RAM (module_options): the caller puts the
+bank files in the directory beside the program (build.run_program does), and the program's
+start-up code loads them into the module and the sideways RAM.
 
 The emulator's default machine is not here: build.run_image runs it, with host services.
 """
@@ -258,12 +262,28 @@ def bbc_status(code, err):
                    f' (status {code}):\n' + err)
 
 
-def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=False, cap=None):
+def module_options(env):
+    """The emulator's options for the module a banked program on the BBC uses (env is its
+    mapenv.Env): the developer's form, RAM, with scheme direct16 (sixteen banks, latched by a
+    read of $BFF0+n), in the slot of the environment's `define MODULE_SLOT N` (rt_bbc.SLOT).
+    None for a program linked all in one."""
+    if not env.banked():
+        return None
+    defines = dict((n.upper(), v) for n, v in env.defines)
+    if defines.get('MODULE_SLOT') is None:
+        raise RunError(f'{env.path}: a banked program on the BBC needs `define MODULE_SLOT N`')
+    return ('--bbc-module-ram', '--bbc-module-scheme', 'direct16',
+            '--bbc-module-slot', str(defines['MODULE_SLOT']))
+
+
+def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=False, cap=None,
+            module=None):
     """Runs a program file on the BBC: copies it, with the .inf file build.py wrote beside it
     (IMAGE.inf), into the directory disk under its BBC name, runs `RUN NAME ARGS` there and
     removes the two again. Returns (status, output, error output, CPU cycles), as bbc_status()
     and bbc_output() make them; with raw, the emulator's own status and standard output, and
-    its error output without the exit report."""
+    its error output without the exit report. `module` is the module's options
+    (module_options), for a banked program, whose bank files the caller has put in disk."""
     if not os.path.isfile(EMULATOR):
         raise RunError('emulator/emulator.out is missing: run make at the repository root')
     name = bbc_name(image)
@@ -277,7 +297,7 @@ def run_mos(board, image, disk, args=(), stdin=None, command_tail=None, raw=Fals
         fh.write(inf_text(name, load, os.path.getsize(image)))
     fill = {'disk': os.path.abspath(disk)}
     cmd = ([EMULATOR, '--machine', board.machine] + [o.format(**fill) for o in board.options]
-           + ['--bbc-command', bbc_command(name, args, command_tail),
+           + list(module or ()) + ['--bbc-command', bbc_command(name, args, command_tail),
               '--cycle-cap', str(cap or board.cycle_cap), '--exit-report'])
     try:
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

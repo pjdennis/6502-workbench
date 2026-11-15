@@ -1177,6 +1177,8 @@ BAD_ENVS = [
     'zeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nstack $100\n',
     'zeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nwindow W $8000 $9FFF\n'
     'switch W bank $F000 $1F\nbank W 1 $11 B1.BIN\n' + ''.join('place m%d W 1\n' % i for i in range(33)),
+    'zeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nwindow W $8000 $9FFF\n'
+    'switch W bank farcall $1F\n',
 ]
 
 BANKS = ('cpu 6502\nzeropage $00 $FF\ncode $0200 $7FFF\ndata $C000 $EFFF\nexit loop\nwindow W $8000 $9FFF\n'

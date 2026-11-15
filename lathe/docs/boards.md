@@ -140,7 +140,7 @@ The ports are in fixed RAM, so they are reached from every bank.
 
 ## The BBC Micro
 
-The emulator's `--machine bbcbplus`, a BBC Model B+128 with the DFS in mode 7, whose MOS is the emulator's own behind the documented entry points (`../../emulator/README.md`, "bbcbplus"; the facts it rests on are in `../../emulator/NOTES-bbcbplus.md`). Environment `bbc.env`. A program is run as on the real machine, by `*RUN` with its arguments on the command line, and talks only to the MOS. No banks yet: [`bbc.md`](bbc.md) has the design for those.
+The emulator's `--machine bbcbplus`, a BBC Model B+128 with the DFS in mode 7, whose MOS is the emulator's own behind the documented entry points (`../../emulator/README.md`, "bbcbplus"; the facts it rests on are in `../../emulator/NOTES-bbcbplus.md`). Environment `bbc.env`. A program is run as on the real machine, by `*RUN` with its arguments on the command line, and talks only to the MOS. A banked program (`bbc-bank.env`) is below, "Banked: the module and sideways RAM"; [`bbc.md`](bbc.md) has the design.
 
 ```bash
 python3 lathe/host/driver/build.py PROG.lth -o PROG --env bbc     # writes PROG and PROG.inf
@@ -186,6 +186,30 @@ How the interface of `../rt/host.lth` is given (`../rt/bbc.lth`):
 `../src/sys.lth` uses `bbc` with `define PORTS 2`, and a program that imports `host` gets `../rt/bbc/host.lth` (`boards.py`, `rt`: `build.py` looks in that directory before `../rt/`), host's functions over bbc, so a program written for the default machine, such as the end-to-end cases, runs on the BBC as it is. `bbc.lth` has no initial values, so it adds no `$init` to the other machines' builds, where `sys` imports it unused.
 
 What a byte costs through the MOS, in this emulator (2026-11-14): `bbc.read` 70 cycles, `bbc.write` 38, `put_byte` 31; a byte copied through `sys.read` and `sys.write` with `copytest`'s loop, 141. The emulator's MOS answers a call in 2 cycles of its own, so these are a floor: a real MOS and DFS take far more for each byte, and a real disc much more again.
+
+### Banked: the module and sideways RAM
+
+Environment `bbc-bank.env` (stage 12, step 3; [`bbc.md`](bbc.md), "Step 3, as built"): `bbc.env`'s machine with the window `$8000-$BFDF` switched by `../rt/rt_bbc.lth`. Code goes in banks of the **module**, in its developer's form, which holds RAM; regions go in **sideways RAM** slots. The program is still run by `*RUN`, and its start-up code loads each bank's file into the module, or into a sideways slot, from the disc.
+
+```bash
+python3 lathe/host/driver/build.py PROG.lth -o PROG --env PROG.env   # PROG, PROG.inf, the bank files
+emulator/emulator.out --machine bbcbplus --disk DIR --bbc-strict \
+    --bbc-module-ram --bbc-module-scheme direct16 --bbc-module-slot 4 --bbc-command "RUN PROG ARGS"
+```
+
+`DIR` holds the bank files beside the program. `build.py --run` does both (`boards.module_options`: the module's options for any environment of the BBC that places code or a region in the window, with the slot from its `define MODULE_SLOT`).
+
+- **The environment.** `bbc-bank.env` is the machine; a program adds its own `bank`, `place` and `region` lines after it. A bank's value is `$80 + n` for bank n of the module (numbered `N = n`, and 16 for bank 0, by convention) or the slot's number for a sideways slot (numbered `20 + s`: 32 and 33 for slots 12 and 13). `switch WIN bank farcall`: no register describes the switch, so the far-call module alone does (`configurations.md`, "The environment file").
+- **The module's slot** is `define MODULE_SLOT 4`, which must be the emulator's `--bbc-module-slot` (4 is its default).
+- **The window ends at `$BFDF`**: a read of `$BFF0+n` latches the module's bank n, and a real NMOS 6502 reads the byte after a one-byte instruction, so nothing is placed in the last 32 bytes.
+- **Sideways RAM** is slots 0, 1, 12 and 13 (`--bbc-sideways-ram`, the B+128's by default). A region of variables needs no file; one with constants is loaded from its file at start-up.
+- **Variables of a module placed in a bank** are at the bank's top, in the module's RAM. The ROM form will need them elsewhere (a bank marked read-only, the linker's next change).
+- **The MOS is called from anywhere**: from code in a bank of the module, and inside a `with` block with a sideways slot in the window. Every switch writes `$F4` before ROMSEL, and `bbc.lth`'s catching of a filing system error selects again the slot that was in the window, which the MOS's BRK handler replaced with the language's.
+
+| `$8000-$BFDF` | What is there |
+|---|---|
+| bank n of the module (value `$80 + n`) | Code and constants of the modules placed there, from `$8000`; their variables from `$BFDF` down. Its file is the bytes from `$8000` to the last placed. |
+| sideways slot s (value s) | A region: its constants from `$8000` (in its file), its variables from `$BFDF` down. |
 
 ## The VIA timer
 

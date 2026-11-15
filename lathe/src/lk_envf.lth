@@ -14,7 +14,8 @@
 ;     output    image         ; the default: code start to $FFFF with the reset vector; or `raw`
 ;
 ;     window    WIN $8000 $EFFF       ; an address range whose contents are switched
-;     switch    WIN bank $F000 $1F    ; by the bits $1F of the register at $F000; or `overlay`
+;     switch    WIN bank $F000 $1F    ; by the bits $1F of the register at $F000; or `overlay`;
+;                                     ; or `bank farcall`: by the far-call module alone
 ;     bank      WIN 1 $11 LATHE1.BIN  ; bank 1: the register's value, and the file written for it
 ;     overlay   WIN 1 L5OV1.BIN       ; (a window switched by `overlay`) overlay 1 and its file
 ;     place     MODULE WIN 1          ; the module's code goes in bank or overlay 1 of WIN
@@ -513,12 +514,18 @@ func switch_entry()
   case keyword()
   of W_BANK
     win_switch[w] = SWITCH_BANK
-    win_reg[w] = number()
-    mask = number()
-    if mask == 0 or mask > $FF then
-      bad()
+    name_token()
+    if keyword() == W_FARCALL then  ; `bank farcall`: the far-call module alone turns a bank's
+      win_reg[w] = 0                ; value into a switch (the BBC: rt_bbc), no register
+      win_mask[w] = 0
+    else
+      win_reg[w] = token_number()
+      mask = number()
+      if mask == 0 or mask > $FF then
+        bad()
+      end
+      win_mask[w] = byte(mask)
     end
-    win_mask[w] = byte(mask)
   of W_OVERLAY
     win_switch[w] = SWITCH_OVERLAY
   else
